@@ -19,6 +19,42 @@ import (
 
 const testPayload = `{"hello":"world"}`
 
+func TestReadAndRestoreBodyWithLimit(t *testing.T) {
+	const limit = 4
+	for _, tt := range []struct {
+		name    string
+		input   string
+		wantErr error
+	}{
+		{name: "empty"},
+		{name: "below limit", input: "abc"},
+		{name: "at limit", input: "abcd"},
+		{name: "above limit with unread tail", input: "abcdefgh", wantErr: errResponseBodyTooLarge},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := strings.NewReader(tt.input)
+			body := io.NopCloser(reader)
+			data, err := readAndRestoreBodyWithLimit(&body, limit)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("expected error %v, got %v", tt.wantErr, err)
+			}
+			if tt.wantErr == nil && string(data) != tt.input {
+				t.Fatalf("expected body %q, got %q", tt.input, data)
+			}
+			if tt.wantErr != nil && data != nil {
+				t.Fatalf("expected no parseable body on overflow, got %q", data)
+			}
+			if consumed := len(tt.input) - reader.Len(); consumed > limit+1 {
+				t.Fatalf("read %d bytes, limit permits at most %d", consumed, limit+1)
+			}
+			restored, err := io.ReadAll(body)
+			if err != nil || string(restored) != tt.input {
+				t.Fatalf("expected restored body %q, got %q, error %v", tt.input, restored, err)
+			}
+		})
+	}
+}
+
 // helpers to produce compressed bytes
 
 func gzipEncode(t *testing.T, data []byte) []byte {

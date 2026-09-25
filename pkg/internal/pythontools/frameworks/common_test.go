@@ -246,6 +246,7 @@ func TestSpecificModuleName(t *testing.T) {
 		"my_api":   "my_api",
 		"Main":     "Main",
 		"API":      "",
+		"unknown":  "",
 		"worker":   "",
 		"views":    "",
 		".":        "",

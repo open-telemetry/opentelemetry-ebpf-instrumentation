@@ -153,6 +153,28 @@ class SSLStorageTest {
     // Clean up thread locals
     SSLStorage.unencrypted.remove();
     SSLStorage.nettyConnection.remove();
+    SSLStorage.exitSSLSocketRead();
+    SSLStorage.exitSSLSocketWrite();
+    SSLStorage.restoreJdkHttpClientContext(0);
+  }
+
+  @Test
+  void testNestedSSLSocketOperationsAreCapturedOncePerDirection() {
+    assertTrue(SSLStorage.enterSSLSocketRead());
+    assertTrue(SSLStorage.isSSLSocketReadActive());
+    assertFalse(SSLStorage.enterSSLSocketRead());
+
+    assertTrue(SSLStorage.enterSSLSocketWrite());
+    assertTrue(SSLStorage.isSSLSocketWriteActive());
+    assertFalse(SSLStorage.enterSSLSocketWrite());
+
+    SSLStorage.exitSSLSocketRead();
+    SSLStorage.exitSSLSocketWrite();
+
+    assertFalse(SSLStorage.isSSLSocketReadActive());
+    assertFalse(SSLStorage.isSSLSocketWriteActive());
+    assertTrue(SSLStorage.enterSSLSocketRead());
+    assertTrue(SSLStorage.enterSSLSocketWrite());
   }
 
   @Test
@@ -216,5 +238,73 @@ class SSLStorageTest {
     assertEquals(plain, SSLStorage.getUnencryptedBuffer(encrypted));
     SSLStorage.removeBufferMapping(encrypted);
     assertNull(SSLStorage.getUnencryptedBuffer(encrypted));
+  }
+
+  @Test
+  void testJdkHttpClientContextFollowsNestedTasks() {
+    Object initialTask = new Object();
+    Object nestedTask = new Object();
+
+    long previousContext = SSLStorage.enterJdkHttpClientContext(41);
+    SSLStorage.trackTask(90, initialTask);
+    SSLStorage.restoreJdkHttpClientContext(previousContext);
+
+    assertEquals(41, SSLStorage.parentThreadId(initialTask));
+
+    long previousTaskContext = SSLStorage.enterJdkHttpClientTask(initialTask);
+    SSLStorage.trackTask(91, nestedTask);
+    SSLStorage.finishTask(initialTask);
+    SSLStorage.restoreJdkHttpClientContext(previousTaskContext);
+
+    assertEquals(41, SSLStorage.parentThreadId(nestedTask));
+
+    SSLStorage.finishTask(nestedTask);
+  }
+
+  @Test
+  void testUnmarkedTaskDoesNotChangeJdkHttpClientContext() {
+    Object task = new Object();
+
+    long previousContext = SSLStorage.enterJdkHttpClientTask(task);
+
+    assertEquals(SSLStorage.NO_JDK_HTTP_CLIENT_CONTEXT, previousContext);
+    SSLStorage.restoreJdkHttpClientContext(previousContext);
+
+    SSLStorage.trackTask(72, task);
+    assertEquals(72, SSLStorage.parentThreadId(task));
+    SSLStorage.finishTask(task);
+  }
+
+  @Test
+  void testJdkHttpClientContextFollowsSelectorEvents() {
+    Object event = new Object();
+    Object task = new Object();
+
+    long previousContext = SSLStorage.enterJdkHttpClientContext(84);
+    SSLStorage.trackJdkHttpClientEvent(event);
+    SSLStorage.restoreJdkHttpClientContext(previousContext);
+
+    long previousEventContext = SSLStorage.enterJdkHttpClientEvent(event);
+    SSLStorage.trackTask(92, task);
+    SSLStorage.restoreJdkHttpClientContext(previousEventContext);
+
+    assertEquals(84, SSLStorage.parentThreadId(task));
+
+    SSLStorage.finishTask(task);
+  }
+
+  @Test
+  void testJdkHttpClientRunnableIsWrappedOnlyInRequestContext() {
+    Runnable task = () -> {};
+
+    assertSame(task, SSLStorage.wrapJdkHttpClientTask(task));
+
+    long previousContext = SSLStorage.enterJdkHttpClientContext(73);
+    Runnable wrapped = SSLStorage.wrapJdkHttpClientTask(task);
+    SSLStorage.restoreJdkHttpClientContext(previousContext);
+
+    assertNotSame(task, wrapped);
+    assertTrue(SSLStorage.isJdkHttpClientTask(wrapped));
+    assertSame(wrapped, SSLStorage.wrapJdkHttpClientTask(wrapped));
   }
 }

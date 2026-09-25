@@ -5,22 +5,21 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
-
-	"golang.org/x/net/http2"
 )
 
 const (
-	ownedTraceparent = "00-11111111111111111111111111111111-2222222222222222-01"
-	muxTraceparent   = "00-33333333333333333333333333333333-4444444444444444-01"
+	ownedTraceparent          = "00-11111111111111111111111111111111-2222222222222222-01"
+	muxTraceparent            = "00-33333333333333333333333333333333-4444444444444444-01"
+	oneContinuationHeaderSize = 20_000
+	multiContinuationSize     = 40_000
 )
 
 type headerObservation struct {
@@ -30,12 +29,15 @@ type headerObservation struct {
 }
 
 type ownershipResult struct {
-	Transport string              `json:"transport"`
-	Repeated  []headerObservation `json:"repeated"`
-	Controls  []headerObservation `json:"controls"`
-	MuxOwned  headerObservation   `json:"mux_owned"`
-	MuxPlain  headerObservation   `json:"mux_plain"`
-	Error     string              `json:"error,omitempty"`
+	Transport  string              `json:"transport"`
+	Repeated   []headerObservation `json:"repeated"`
+	Controls   []headerObservation `json:"controls"`
+	LargeOwned headerObservation   `json:"large_owned"`
+	LargePlain headerObservation   `json:"large_plain"`
+	MultiPlain headerObservation   `json:"multi_plain"`
+	MuxOwned   headerObservation   `json:"mux_owned"`
+	MuxPlain   headerObservation   `json:"mux_plain"`
+	Error      string              `json:"error,omitempty"`
 }
 
 func checkErr(err error, msg string) {
@@ -66,68 +68,18 @@ func serveOwnershipTrigger() {
 	checkErr(http.ListenAndServe("0.0.0.0:7575", mux), "while serving ownership trigger")
 }
 
-func init() {
-	if os.Getenv("TEST_HTTP2_PROTOCOLS") == "1" {
-		newHTTP2Transport = newHTTP2TransportThroughProtocols
-		newOwnershipTLSRoundTripper = newHTTP2TransportThroughProtocols
-		newOwnershipPlaintextRoundTripper = newHTTP2PlaintextTransportThroughProtocols
-	}
-}
-
-func newHTTP2TransportThroughProtocols() http.RoundTripper {
-	protocols := &http.Protocols{}
-	protocols.SetHTTP2(true)
-	tr := http.DefaultTransport.(*http.Transport).Clone()
-	tr.Protocols = protocols
-	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	return tr
-}
-
-var newHTTP2Transport = func() http.RoundTripper {
-	return &http2.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-}
-
-var newOwnershipTLSRoundTripper = func() http.RoundTripper {
-	return &http2.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
-	}
-}
-
-var newOwnershipPlaintextRoundTripper = func() http.RoundTripper {
-	return &http2.Transport{
-		AllowHTTP: true,
-		DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
-			return (&net.Dialer{}).DialContext(ctx, network, addr)
-		},
-	}
-}
-
-func newHTTP2PlaintextTransportThroughProtocols() http.RoundTripper {
-	protocols := &http.Protocols{}
-	protocols.SetUnencryptedHTTP2(true)
-	tr := http.DefaultTransport.(*http.Transport).Clone()
-	tr.Protocols = protocols
-	return tr
-}
-
 func runOwnershipSuites() {
-	target := os.Getenv("TARGET_URL")
-	runOwnershipSuite("tls", target, newOwnershipTLSRoundTripper())
-	runOwnershipSuite(
-		"plaintext",
-		"http://testserver:7374",
-		newOwnershipPlaintextRoundTripper(),
-	)
+	for _, transport := range ownershipTransports() {
+		runOwnershipSuite(transport.name, transport.target, transport.roundTripper)
+	}
 }
 
 func runOwnershipSuite(name, target string, transport http.RoundTripper) {
 	result := ownershipResult{Transport: name}
 	client := &http.Client{Transport: transport}
 
-	for range 4 {
-		observation, err := observeHeaders(client, target+"/ownership/repeated", ownedTraceparent)
+	for i := 0; i < 4; i++ {
+		observation, err := observeHeaders(client, target+"/ownership/repeated", ownedTraceparent, 0)
 		if err != nil {
 			result.Error = err.Error()
 			writeOwnershipResult(result)
@@ -136,14 +88,37 @@ func runOwnershipSuite(name, target string, transport http.RoundTripper) {
 		result.Repeated = append(result.Repeated, observation)
 	}
 
-	for range 2 {
-		observation, err := observeHeaders(client, target+"/ownership/control", "")
+	for i := 0; i < 2; i++ {
+		observation, err := observeHeaders(client, target+"/ownership/control", "", 0)
 		if err != nil {
 			result.Error = err.Error()
 			writeOwnershipResult(result)
 			return
 		}
 		result.Controls = append(result.Controls, observation)
+	}
+
+	var err error
+	result.LargeOwned, err = observeHeaders(
+		client, target+"/ownership/continuation", ownedTraceparent, oneContinuationHeaderSize)
+	if err != nil {
+		result.Error = err.Error()
+		writeOwnershipResult(result)
+		return
+	}
+	result.LargePlain, err = observeHeaders(
+		client, target+"/ownership/continuation", "", oneContinuationHeaderSize)
+	if err != nil {
+		result.Error = err.Error()
+		writeOwnershipResult(result)
+		return
+	}
+	result.MultiPlain, err = observeHeaders(
+		client, target+"/ownership/multi-continuation", "", multiContinuationSize)
+	if err != nil {
+		result.Error = err.Error()
+		writeOwnershipResult(result)
+		return
 	}
 
 	var wg sync.WaitGroup
@@ -153,12 +128,13 @@ func runOwnershipSuite(name, target string, transport http.RoundTripper) {
 	go func() {
 		defer wg.Done()
 		<-start
-		result.MuxOwned, ownedErr = observeHeaders(client, target+"/ownership/multiplex", muxTraceparent)
+		result.MuxOwned, ownedErr = observeHeaders(
+			client, target+"/ownership/multiplex", muxTraceparent, 0)
 	}()
 	go func() {
 		defer wg.Done()
 		<-start
-		result.MuxPlain, plainErr = observeHeaders(client, target+"/ownership/multiplex", "")
+		result.MuxPlain, plainErr = observeHeaders(client, target+"/ownership/multiplex", "", 0)
 	}()
 	close(start)
 	wg.Wait()
@@ -171,13 +147,16 @@ func runOwnershipSuite(name, target string, transport http.RoundTripper) {
 	writeOwnershipResult(result)
 }
 
-func observeHeaders(client *http.Client, url, traceparent string) (headerObservation, error) {
+func observeHeaders(client *http.Client, url, traceparent string, headerSize int) (headerObservation, error) {
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
 	if err != nil {
 		return headerObservation{}, err
 	}
 	if traceparent != "" {
 		req.Header.Set("TrAcEpArEnT", traceparent)
+	}
+	if headerSize > 0 {
+		req.Header.Set("X-OBI-Large", strings.Repeat("~", headerSize))
 	}
 
 	resp, err := client.Do(req)

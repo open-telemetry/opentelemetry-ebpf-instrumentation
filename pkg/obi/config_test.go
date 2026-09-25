@@ -68,6 +68,32 @@ func TestJoinMetricsConfigIncludesPerServiceFeatures(t *testing.T) {
 	assert.Equal(t, export.FeatureApplicationRED|export.FeatureApplicationRuntime|export.FeatureNetwork, joint.Features)
 }
 
+// traces_ctx_v1 is only populated when something reads it. The default config
+// must not populate it: the upkeep costs a refresh on every async context
+// switch of the instrumented runtime.
+func TestPopulateTraceContext(t *testing.T) {
+	assert.False(t, DefaultConfig.PopulateTraceContext())
+
+	explicit := DefaultConfig
+	explicit.EBPF.PopulateTraceContext = true
+	assert.True(t, explicit.PopulateTraceContext())
+
+	logEnricher := DefaultConfig
+	logEnricher.EBPF.LogEnricher.Services = []config.LogEnricherServiceConfig{{}}
+	assert.True(t, logEnricher.PopulateTraceContext())
+
+	manualSpans := DefaultConfig
+	manualSpans.NodeJS.ManualSpans = true
+	assert.True(t, manualSpans.PopulateTraceContext())
+
+	// nodejs.enabled is the global opt-out: with it off the injector is never
+	// installed, so the span bridge that would read the map does not exist.
+	injectorOff := DefaultConfig
+	injectorOff.NodeJS.Enabled = false
+	injectorOff.NodeJS.ManualSpans = true
+	assert.False(t, injectorOff.PopulateTraceContext())
+}
+
 func TestConfig_Overrides(t *testing.T) {
 	userConfig := bytes.NewBufferString(`
 log_format: json
@@ -413,6 +439,10 @@ discovery:
 		JVMRuntimeMetrics: JVMRuntimeMetricsConfig{
 			SamplingInterval: time.Second,
 		},
+		DotnetRuntimeMetrics: DotnetRuntimeMetricsConfig{
+			SamplingInterval: time.Second,
+			Timeout:          10 * time.Second,
+		},
 		HealthCheck: HealthCheckConfig{
 			Port:          0,
 			ListenAddress: health.DefaultListenAddress,
@@ -527,6 +557,64 @@ func TestConfig_JVMRuntimeMetricsDefaults(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, time.Second, cfg.JVMRuntimeMetrics.SamplingInterval)
+}
+
+func TestConfig_DotnetRuntimeMetricsSamplingInterval(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		yaml string
+		env  string
+		want time.Duration
+	}{
+		{name: "default", want: time.Second},
+		{name: "YAML", yaml: "dotnet_runtime_metrics:\n  sampling_interval: 12s\n", want: 12 * time.Second},
+		{name: "environment", env: "8s", want: 8 * time.Second},
+		{name: "environment overrides YAML", yaml: "dotnet_runtime_metrics:\n  sampling_interval: 12s\n", env: "8s", want: 8 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OBI_DOTNET_RUNTIME_METRICS_SAMPLING_INTERVAL", tc.env)
+			cfg, err := LoadConfig(bytes.NewBufferString(tc.yaml))
+			require.NoError(t, err)
+			require.Equal(t, tc.want, cfg.DotnetRuntimeMetrics.SamplingInterval)
+		})
+	}
+}
+
+func TestConfigValidate_DotnetRuntimeMetricsSamplingInterval(t *testing.T) {
+	for _, interval := range []string{"0s", "-1s"} {
+		t.Run(interval, func(t *testing.T) {
+			cfg, err := LoadConfig(bytes.NewBufferString("trace_printer: text\nexecutable_path: dotnet\ndotnet_runtime_metrics:\n  sampling_interval: " + interval + "\n"))
+			require.NoError(t, err)
+			require.ErrorContains(t, cfg.Validate(), "dotnet_runtime_metrics.sampling_interval must be greater than 0")
+		})
+	}
+}
+
+func TestConfig_DotnetRuntimeMetricsTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		yaml string
+		env  string
+		want time.Duration
+	}{
+		{name: "default", want: 10 * time.Second},
+		{name: "YAML", yaml: "dotnet_runtime_metrics:\n  timeout: 3s\n", want: 3 * time.Second},
+		{name: "environment", env: "2s", want: 2 * time.Second},
+		{name: "environment overrides YAML", yaml: "dotnet_runtime_metrics:\n  timeout: 3s\n", env: "2s", want: 2 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OBI_DOTNET_RUNTIME_METRICS_TIMEOUT", tc.env)
+			cfg, err := LoadConfig(bytes.NewBufferString(tc.yaml))
+			require.NoError(t, err)
+			require.Equal(t, tc.want, cfg.DotnetRuntimeMetrics.Timeout)
+			require.Equal(t, time.Second, cfg.DotnetRuntimeMetrics.SamplingInterval)
+		})
+	}
+	for _, timeout := range []string{"0s", "-1s"} {
+		cfg, err := LoadConfig(bytes.NewBufferString("trace_printer: text\nexecutable_path: dotnet\ndotnet_runtime_metrics:\n  timeout: " + timeout + "\n"))
+		require.NoError(t, err)
+		require.ErrorContains(t, cfg.Validate(), "dotnet_runtime_metrics.timeout must be greater than 0")
+	}
 }
 
 func TestConfig_JVMRuntimeMetricsFromEnv(t *testing.T) {

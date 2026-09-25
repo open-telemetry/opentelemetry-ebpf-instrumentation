@@ -375,10 +375,11 @@ func statsCIDRDefinitions(cfg *obi.Config) schema.CIDRDefinitions {
 }
 
 const (
-	statsFeatureTCPRtt               = "tcp_rtt"
-	statsFeatureTCPFailedConnections = "tcp_failed_connections"
-	statsFeatureTCPRetransmits       = "tcp_retransmits"
-	statsFeatureTCPIo                = "tcp_io"
+	statsFeatureTCPRtt                   = "tcp_rtt"
+	statsFeatureTCPFailedConnections     = "tcp_failed_connections"
+	statsFeatureTCPSuccessfulConnections = "tcp_successful_connections"
+	statsFeatureTCPRetransmits           = "tcp_retransmits"
+	statsFeatureTCPIo                    = "tcp_io"
 )
 
 func statsFeatures(features featureexport.Features) []string {
@@ -388,6 +389,9 @@ func statsFeatures(features featureexport.Features) []string {
 	}
 	if features.StatsTCPFailedConnections() {
 		out = append(out, statsFeatureTCPFailedConnections)
+	}
+	if features.StatsTCPSuccessfulConnections() {
+		out = append(out, statsFeatureTCPSuccessfulConnections)
 	}
 	if features.StatsTCPRetransmits() {
 		out = append(out, statsFeatureTCPRetransmits)
@@ -423,6 +427,7 @@ func captureEngine(cfg *obi.Config) schema.CaptureEngine {
 			ContextPropagation:     cfg.EBPF.ContextPropagation,
 			OverrideBPFLoopEnabled: cfg.EBPF.OverrideBPFLoopEnabled,
 			DisableBlackBoxCP:      cfg.EBPF.DisableBlackBoxCP,
+			PopulateTraceContext:   cfg.EBPF.PopulateTraceContext,
 		},
 		Traffic: schema.Traffic{
 			ControlBackend:    cfg.EBPF.TCBackend,

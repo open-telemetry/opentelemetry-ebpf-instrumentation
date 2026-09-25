@@ -520,9 +520,12 @@ func TestSpanOTELGetters_HTTPRequestMethod(t *testing.T) {
 		assert.Equal(t, "GET", kv.Value.AsString())
 	})
 
-	t.Run("omitted when method is empty", func(t *testing.T) {
+	// Semconv: a method the instrumentation does not know MUST be reported as
+	// _OTHER, and one the parser could not read is not known.
+	t.Run("clamped when method is empty", func(t *testing.T) {
 		kv := getter(&Span{Method: ""})
-		assert.False(t, kv.Valid(), "empty method must yield an invalid KeyValue so it is dropped")
+		require.True(t, kv.Valid())
+		assert.Equal(t, HTTPMethodOther, kv.Value.AsString())
 	})
 
 	// http.request.method is a closed enum, so an unclamped metric label is a
@@ -604,6 +607,24 @@ func TestSpanOTELGetters_JSONRPCAttributes(t *testing.T) {
 		// the attribute is dropped instead of being emitted empty.
 		omitted bool
 	}{
+		{
+			name:     "rpc.method - qualified from the Go net/rpc service name",
+			attrName: attr.RPCMethod,
+			span: &Span{
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "Arith.Traceme", Version: JSONRPCVersionV1, ServiceQualified: true},
+			},
+			expected: "Arith/Traceme",
+		},
+		{
+			name:     "rpc.method - a payload-extracted dotted method is left whole",
+			attrName: attr.RPCMethod,
+			span: &Span{
+				SubType: HTTPSubtypeJSONRPC,
+				JSONRPC: &JSONRPC{Method: "inventory.lookup.v2", Version: "2.0"},
+			},
+			expected: "inventory.lookup.v2",
+		},
 		{
 			name:     "protocol version - JSON-RPC span",
 			attrName: attr.JSONRPCProtocolVersion,
@@ -1026,10 +1047,11 @@ func TestSpanOTELGetters_ErrorTypeOmitted(t *testing.T) {
 	assert.Equal(t, "SERVER_ERROR", kv.Value.AsString())
 }
 
-// TestSpanOTELGetters_GenAIOperationNameOmitted ensures gen_ai.operation.name
-// is omitted — not emitted as an empty string — when the operation could not
-// be derived, while classified operations keep it.
-func TestSpanOTELGetters_GenAIOperationNameOmitted(t *testing.T) {
+// TestSpanOTELGetters_GenAIOperationNameClamped ensures gen_ai.operation.name
+// clamps to _OTHER — not an empty string — on a GenAI span whose operation
+// could not be derived, stays absent on spans that carry no GenAI data, and
+// keeps classified operations.
+func TestSpanOTELGetters_GenAIOperationNameClamped(t *testing.T) {
 	getter, ok := spanOTELGetters(attr.GenAIOperationName)
 	require.True(t, ok, "getter should be found for GenAIOperationName")
 
@@ -1043,7 +1065,8 @@ func TestSpanOTELGetters_GenAIOperationNameOmitted(t *testing.T) {
 		SubType: HTTPSubtypeOpenAI,
 		GenAI:   &GenAI{OpenAI: &VendorOpenAI{}},
 	})
-	assert.False(t, kv.Valid(), "attribute should be omitted, got %v", kv)
+	require.True(t, kv.Valid())
+	assert.Equal(t, OtherOperationName, kv.Value.AsString())
 
 	// classified GenAI span keeps its operation name
 	kv = getter(&Span{

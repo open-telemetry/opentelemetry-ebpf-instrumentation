@@ -5,6 +5,7 @@ services:
       dockerfile: ${RUNTIME_METRICS_TESTSERVER_DOCKERFILE:-./internal/test/integration/components/go-runtime-metrics-server/Dockerfile}
       args:
         - RUNTIME_METRICS_TESTSERVER_GO_IMAGE
+        - RUNTIME_METRICS_TESTSERVER_LDFLAGS
     image: ${RUNTIME_METRICS_TESTSERVER_IMAGE:-hatest-testserver-go-runtime-metrics}
     ports:
       - "${TEST_SERVICE_PORTS}"
@@ -47,7 +48,7 @@ services:
       - "${OTEL_EBPF_PROMETHEUS_HOST_PORT:-8999}:8999"
 
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    image: quay.io/prometheus/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
     container_name: prometheus
     command:
       - --config.file=/etc/prometheus/prometheus-config-promscrape${PROM_CONFIG_SUFFIX}.yml
@@ -67,7 +68,9 @@ services:
         limits:
           memory: 125M
     restart: unless-stopped
-    command: ["--config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml"]
+    command:
+      - --config=/etc/otelcol-config/otelcol-config-weaver-no-jaeger.yml
+      - --config=/etc/otelcol-config/otelcol-runtime-metrics-telemetry.yml
     volumes:
       - ./configs/:/etc/otelcol-config
     ports:

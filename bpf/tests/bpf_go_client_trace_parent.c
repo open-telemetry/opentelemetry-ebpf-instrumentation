@@ -44,10 +44,6 @@ struct inode {
     struct super_block *i_sb;
 };
 
-struct file {
-    struct inode *f_inode;
-};
-
 struct mm_struct {
     struct file *exe_file;
 };

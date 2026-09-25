@@ -52,7 +52,7 @@ func testPythonJSONRPCServer(t *testing.T) {
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
-		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		resp, err = getJaeger(fullJaegerURL) //nolint:noctx
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -92,7 +92,7 @@ func testPythonJSONRPCServer(t *testing.T) {
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
-		resp, err = http.Get(fullJaegerURL) //nolint:noctx
+		resp, err = getJaeger(fullJaegerURL) //nolint:noctx
 		require.NoError(ct, err)
 		if resp == nil {
 			return

@@ -235,6 +235,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.ContextPropagation = config.ContextPropagationAll
 	cfg.EBPF.OverrideBPFLoopEnabled = true
 	cfg.EBPF.DisableBlackBoxCP = true
+	cfg.EBPF.PopulateTraceContext = true
 	cfg.EBPF.TCBackend = config.TCBackendTCX
 	cfg.EBPF.HighRequestVolume = true
 	cfg.EBPF.BPFFSPath = "/tmp/bpf"
@@ -1022,6 +1023,7 @@ func TestRuntimeToV2StatsEnablementAndFeatures(t *testing.T) {
 		require.ElementsMatch(t, []string{
 			"tcp_rtt",
 			"tcp_failed_connections",
+			"tcp_successful_connections",
 			"tcp_retransmits",
 			"tcp_io",
 		}, value(t, ext.Capture.Network, "stats", "features"))
@@ -1040,6 +1042,7 @@ func TestRuntimeToV2StatsEnablementAndFeatures(t *testing.T) {
 		require.ElementsMatch(t, []string{
 			"tcp_rtt",
 			"tcp_failed_connections",
+			"tcp_successful_connections",
 			"tcp_retransmits",
 			"tcp_io",
 		}, value(t, ext.Capture.Network, "stats", "features"))

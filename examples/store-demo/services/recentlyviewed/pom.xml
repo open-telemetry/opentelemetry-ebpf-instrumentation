@@ -16,7 +16,7 @@
 		<dependency>
 			<groupId>com.aerospike</groupId>
 			<artifactId>aerospike-client-jdk21</artifactId>
-			<version>10.4.0</version>
+			<version>10.5.0</version>
 		</dependency>
 	</dependencies>
 
@@ -32,7 +32,7 @@
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-shade-plugin</artifactId>
-				<version>3.6.0</version>
+				<version>3.6.2</version>
 				<executions>
 					<execution>
 						<phase>package</phase>

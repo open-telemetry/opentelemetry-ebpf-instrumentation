@@ -25,7 +25,7 @@ func TestPendingGoHTTPClientRequestExpiresAfterIdleTimeout(t *testing.T) {
 
 	trace := pendingGoHTTPClientTrace(goHTTPClientTestConnection(), 1, "/idle")
 	parseCtx.pendingGoHTTPClientRequests.Add(
-		goHTTPClientConnectionKey(trace.Conn, trace.Tp.TraceId),
+		goHTTPClientConnectionKey(trace.Conn, trace.Tp.TraceId, trace.Tp.SpanId),
 		&pendingGoHTTPClientRequest{trace: trace, createdAt: time.Now()},
 	)
 
@@ -44,12 +44,12 @@ func TestPendingGoHTTPClientRequestHonorsMaxTransactionTime(t *testing.T) {
 	parseCtx, emitted := newGoHTTPClientTestParseContext(t, cfg, 1)
 
 	trace := pendingGoHTTPClientTrace(goHTTPClientTestConnection(), 1, "/maximum")
-	key := goHTTPClientConnectionKey(trace.Conn, trace.Tp.TraceId)
+	key := goHTTPClientConnectionKey(trace.Conn, trace.Tp.TraceId, trace.Tp.SpanId)
 	parseCtx.pendingGoHTTPClientRequests.Add(key, &pendingGoHTTPClientRequest{
 		trace:     trace,
 		createdAt: time.Now().Add(-2 * cfg.MaxTransactionTime),
 	})
-	parseCtx.refreshPendingGoHTTPClientRequest(trace.Conn, trace.Tp.TraceId)
+	parseCtx.refreshPendingGoHTTPClientRequest(trace.Conn, trace.Tp.TraceId, trace.Tp.SpanId)
 
 	select {
 	case batch := <-emitted:
@@ -70,7 +70,7 @@ func TestPendingGoHTTPClientRequestsEvictAtCapacity(t *testing.T) {
 		trace := pendingGoHTTPClientTrace(conn, byte(i), "/capacity")
 		trace.Status = uint16(i)
 		parseCtx.pendingGoHTTPClientRequests.Add(
-			goHTTPClientConnectionKey(conn, trace.Tp.TraceId),
+			goHTTPClientConnectionKey(conn, trace.Tp.TraceId, trace.Tp.SpanId),
 			&pendingGoHTTPClientRequest{trace: trace, createdAt: time.Now()},
 		)
 	}
@@ -93,7 +93,7 @@ func TestPendingGoHTTPClientRequestsClosePurgesWithoutFlushing(t *testing.T) {
 
 	trace := pendingGoHTTPClientTrace(goHTTPClientTestConnection(), 1, "/close")
 	parseCtx.pendingGoHTTPClientRequests.Add(
-		goHTTPClientConnectionKey(trace.Conn, trace.Tp.TraceId),
+		goHTTPClientConnectionKey(trace.Conn, trace.Tp.TraceId, trace.Tp.SpanId),
 		&pendingGoHTTPClientRequest{trace: trace, createdAt: time.Now()},
 	)
 	parseCtx.Close()
@@ -226,6 +226,62 @@ func TestGoHTTP2ClientRequestsOnSameConnectionAreDeferredIndependently(t *testin
 	}
 }
 
+func TestGoHTTP1ClientRequestsInSameTraceAreDeferredIndependently(t *testing.T) {
+	cfg := goHTTPClientTestConfig()
+	parseCtx, _ := newGoHTTPClientTestParseContext(t, cfg, 2)
+
+	conn := goHTTPClientTestConnection()
+	traceID := [16]uint8{15: 1}
+	first := pendingGoHTTPClientTrace(conn, 1, "/first")
+	first.Tp.TraceId = traceID
+	first.Tp.SpanId[7] = 1
+	second := pendingGoHTTPClientTrace(conn, 2, "/second")
+	second.Tp.TraceId = traceID
+	second.Tp.SpanId[7] = 2
+	requestPayloads := []string{
+		"POST /first HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}",
+		"POST /second HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}",
+	}
+	responsePayloads := []string{
+		"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\n1",
+		"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\n2",
+	}
+
+	traces := []*HTTPRequestTrace{&first, &second}
+	for i, trace := range traces {
+		appendGoHTTPClientBufferWithIDs(
+			t, parseCtx, conn, trace.Tp.TraceId, trace.Tp.SpanId,
+			packetTypeRequest, directionSend, requestPayloads[i],
+		)
+		appendGoHTTPClientBufferWithIDs(
+			t, parseCtx, conn, trace.Tp.TraceId, trace.Tp.SpanId,
+			packetTypeResponse, directionRecv, responsePayloads[i],
+		)
+
+		span, ignore, err := ReadBPFTraceAsSpan(parseCtx, &cfg, goHTTPClientTraceRecord(t, *trace), nil)
+		require.NoError(t, err)
+		assert.True(t, ignore)
+		assert.Equal(t, request.Span{}, span)
+	}
+
+	assert.Equal(t, 2, parseCtx.pendingGoHTTPClientRequests.Len())
+	for i, trace := range traces {
+		requestBuffer, ok := extractTCPLargeBuffer(
+			parseCtx, trace.Tp.TraceId, trace.Tp.SpanId,
+			packetTypeRequest, directionSend, conn, ProtocolTypeHTTP,
+		)
+		require.True(t, ok)
+		assert.Equal(t, requestPayloads[i], string(requestBuffer.UnsafeView()))
+
+		responseBuffer, ok := extractTCPLargeBuffer(
+			parseCtx, trace.Tp.TraceId, trace.Tp.SpanId,
+			packetTypeResponse, directionRecv, conn, ProtocolTypeHTTP,
+		)
+		require.True(t, ok)
+		assert.Equal(t, responsePayloads[i], string(responseBuffer.UnsafeView()))
+	}
+}
+
 func TestGoHTTPClientEventWithoutRequestBufferIsImmediate(t *testing.T) {
 	cfg := goHTTPClientTestConfig()
 	parseCtx, _ := newGoHTTPClientTestParseContext(t, cfg, 1)
@@ -259,7 +315,7 @@ func TestOnlyGoResponseBuffersRefreshPendingHTTPClientRequests(t *testing.T) {
 			conn := goHTTPClientTestConnection()
 			conn.S_port += uint16(i)
 			trace := pendingGoHTTPClientTrace(conn, byte(i+1), "/refresh")
-			key := goHTTPClientConnectionKey(conn, trace.Tp.TraceId)
+			key := goHTTPClientConnectionKey(conn, trace.Tp.TraceId, trace.Tp.SpanId)
 			parseCtx.pendingGoHTTPClientRequests.Add(key, &pendingGoHTTPClientRequest{
 				trace:     trace,
 				createdAt: time.Now(),
@@ -353,6 +409,39 @@ func appendGoHTTPClientBufferWithSource(
 	payload string,
 ) {
 	t.Helper()
+	appendGoHTTPClientBufferWithIDsAndSource(
+		t, parseCtx, conn, traceID, [8]uint8{}, packetType, direction, source, payload,
+	)
+}
+
+func appendGoHTTPClientBufferWithIDs(
+	t *testing.T,
+	parseCtx *EBPFParseContext,
+	conn BpfConnectionInfoT,
+	traceID [16]uint8,
+	spanID [8]uint8,
+	packetType uint8,
+	direction uint8,
+	payload string,
+) {
+	t.Helper()
+	appendGoHTTPClientBufferWithIDsAndSource(
+		t, parseCtx, conn, traceID, spanID, packetType, direction, largeBufferSourceGo, payload,
+	)
+}
+
+func appendGoHTTPClientBufferWithIDsAndSource(
+	t *testing.T,
+	parseCtx *EBPFParseContext,
+	conn BpfConnectionInfoT,
+	traceID [16]uint8,
+	spanID [8]uint8,
+	packetType uint8,
+	direction uint8,
+	source uint8,
+	payload string,
+) {
+	t.Helper()
 
 	header := TCPLargeBufferHeader{
 		Type:       EventTypeTCPLargeBuffer,
@@ -365,6 +454,7 @@ func appendGoHTTPClientBufferWithSource(
 		Source:     source,
 	}
 	header.Tp.TraceId = traceID
+	header.Tp.SpanId = spanID
 
 	_, ignore, err := appendTCPLargeBuffer(parseCtx, toRingbufRecord(t, header, payload))
 	require.NoError(t, err)

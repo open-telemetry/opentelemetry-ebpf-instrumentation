@@ -400,7 +400,30 @@ static void test_stack_off(void) {
     check_u64(0x400, go_obi_ctx__stack_off(&regs), "stack_off is the used stack size");
 }
 
+// With nothing reading traces_ctx_v1 the stack is not maintained at all: the
+// agent compiles these bodies away, so neither map is ever touched.
+static void test_gate_off_touches_no_map(void) {
+    reset();
+    g_traces_ctx_v1_enabled = false;
+
+    begin(k_obi_ctx_http_server, span(1), 100);
+    check(stack() == NULL, "gate off: begin creates no stack");
+    check_u64(0, thread_span(), "gate off: begin sets no thread context");
+
+    end(k_obi_ctx_http_server, span(1));
+    check(stack() == NULL, "gate off: end creates no stack");
+    check_u64(0, thread_span(), "gate off: end sets no thread context");
+
+    go_obi_ctx__resume(k_thread, &g_key);
+    check_u64(0, thread_span(), "gate off: resume sets no thread context");
+
+    g_traces_ctx_v1_enabled = true;
+}
+
 int main(void) {
+    // the span stack is only maintained when something reads traces_ctx_v1
+    g_traces_ctx_v1_enabled = true;
+
     mock_register(&obi_ctx_stacks, sizeof(go_addr_key_t), sizeof(obi_ctx_stack_t));
     mock_register(&traces_ctx_v1, sizeof(u64), sizeof(obi_ctx_info_t));
     mock_register(&obi_ctx_stack_scratch_storage, sizeof(u32), sizeof(obi_ctx_stack_t));
@@ -416,6 +439,7 @@ int main(void) {
     test_resume();
     test_resume_keeps_unstored_span();
     test_stack_off();
+    test_gate_off_touches_no_map();
 
     if (failures) {
         fprintf(stderr, "%d check(s) failed\n", failures);

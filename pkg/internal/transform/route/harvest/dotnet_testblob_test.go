@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-//go:embed testdata/dotnet/routes.dll.b64
+//go:embed dotnet/testdata/routes.dll.b64
 var testBlob string
 
 func testBlobBytes(t *testing.T) []byte {

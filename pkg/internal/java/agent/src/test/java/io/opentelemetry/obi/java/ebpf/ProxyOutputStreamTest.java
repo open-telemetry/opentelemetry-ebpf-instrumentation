@@ -7,12 +7,24 @@ package io.opentelemetry.obi.java.ebpf;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.ByteArrayOutputStream;
 import java.util.Arrays;
 import org.junit.jupiter.api.Test;
 
 class ProxyOutputStreamTest {
+  @Test
+  void jdkAppOutputStreamDoesNotNeedProxying() {
+    assertFalse(ProxyOutputStream.requiresProxy("sun.security.ssl.SSLSocketImpl$AppOutputStream"));
+  }
+
+  @Test
+  void otherOutputStreamsNeedProxying() {
+    assertTrue(ProxyOutputStream.requiresProxy(ByteArrayOutputStream.class.getName()));
+  }
+
   @Test
   void writeByteArrayForwardsFullArray() throws Exception {
     ByteArrayOutputStream delegate = new ByteArrayOutputStream();

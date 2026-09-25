@@ -37,32 +37,16 @@ func mlog() *slog.Logger {
 	return slog.With("component", "otel.MetricsReporter")
 }
 
-const (
-	// SpanMetricsLatency and rest of metrics below haven't been yet moved to the
-	// pkg/export/attributes/metric.go file as we are disabling user-provided attribute
-	// selection for them. They are very specific metrics with an opinionated format
-	// for Span Metrics and Service Graph Metrics functionalities
-	SpanMetricsLatency = "traces_spanmetrics_latency"
-	SpanMetricsCalls   = "traces_spanmetrics_calls_total"
-	// SpanMetricsLatencyOTel and SpanMetricsCallsOTel use OTel dot notation,
-	// matching the default `traces.span.metrics` namespace of the
-	// collector-contrib spanmetricsconnector. The Prometheus exporter emits the
-	// underscore counterparts (see pkg/export/prom).
-	SpanMetricsLatencyOTel   = "traces.span.metrics.duration"
-	SpanMetricsCallsOTel     = "traces.span.metrics.calls"
-	SpanMetricsRequestSizes  = "traces_spanmetrics_size_total"
-	SpanMetricsResponseSizes = "traces_spanmetrics_response_size_total"
-	// TracesTargetInfo, TargetInfo and TracesHostInfo use OTel dot notation.
-	// The Prometheus exporter keeps the underscore variants of these names
-	// (see pkg/export/prom), following the OpenMetrics convention.
-	TracesTargetInfo = "traces.target.info"
-	TargetInfo       = "target.info"
-	TracesHostInfo   = "traces.host.info"
+// Span metrics and info metrics are not user-selectable: they are very specific metrics with
+// an opinionated format for the Span Metrics functionality. Their names are declared in
+// pkg/export/attributes so that the Prometheus exporter derives its own names from the same
+// definition instead of hand-writing them a second time.
+var (
+	SpanMetricsRequestSizes  = attributes.SpanMetricsRequestSize.OTEL
+	SpanMetricsResponseSizes = attributes.SpanMetricsResponseSize.OTEL
+	TracesTargetInfo         = attributes.TracesTargetInfo.OTEL
+	TargetInfo               = attributes.TargetInfo.OTEL
 )
-
-// CloudHostIDKey is the host ID attribute for cloud provider integrations,
-// used for traces_target_info
-var CloudHostIDKey = attribute.Key("cloud.host.id")
 
 // MetricTypes contains all the supported metric type prefixes used for filtering attributes
 var MetricTypes = []string{
@@ -82,7 +66,6 @@ type MetricsReporter struct {
 	attributes       *attributes.AttrSelector
 	exporter         sdkmetric.Exporter
 	reporters        otelcfg.ReporterPool[*svc.Attrs, *Metrics]
-	hostInfo         *Expirer[*request.Span, instrument.Int64Gauge, int64]
 	targetInfo       instrument.Int64UpDownCounter
 	tracesTargetInfo instrument.Int64UpDownCounter
 	pidTracker       PidServiceTracker
@@ -357,10 +340,6 @@ func newMetricsReporter(
 	systemMetrics := mr.newMetricsInstance(nil)
 	systemMeter := systemMetrics.provider.Meter(reporterName)
 
-	if err := mr.setupHostInfoMeter(systemMeter); err != nil {
-		return nil, fmt.Errorf("setting up host metrics: %w", err)
-	}
-
 	if err := mr.setupTargetInfo(systemMeter); err != nil {
 		return nil, fmt.Errorf("setting up target info: %w", err)
 	}
@@ -443,12 +422,19 @@ func (mr *MetricsReporter) usesLegacySpanNames() bool {
 	return mr.jointMetricsCfg.Features.LegacySpanMetrics()
 }
 
-func (mr *MetricsReporter) spanMetricsLatencyName() string {
+// spanMetricsDuration is the declaration selected by the configured feature. Callers must take
+// the name and the unit from it together: the legacy declaration's absent unit is what keeps its
+// derived Prometheus name free of a _seconds suffix.
+func (mr *MetricsReporter) spanMetricsDuration() attributes.Name {
 	if mr.usesLegacySpanNames() {
-		return SpanMetricsLatency
+		return attributes.SpanMetricsLatencyLegacy
 	}
 
-	return SpanMetricsLatencyOTel
+	return attributes.SpanMetricsDurationOTel
+}
+
+func (mr *MetricsReporter) spanMetricsLatencyName() string {
+	return mr.spanMetricsDuration().OTEL
 }
 
 func (mr *MetricsReporter) spanMetricOptions() []metric.Option {
@@ -670,10 +656,10 @@ func (mr *MetricsReporter) setupOtelMeters(m *Metrics, meter instrument.Meter) e
 
 func (mr *MetricsReporter) spanMetricsCallsName() string {
 	if mr.usesLegacySpanNames() {
-		return SpanMetricsCalls
+		return attributes.SpanMetricsCallsLegacy.OTEL
 	}
 
-	return SpanMetricsCallsOTel
+	return attributes.SpanMetricsCallsOTel.OTEL
 }
 
 func (mr *MetricsReporter) setupSpanSizeMeters(m *Metrics, meter instrument.Meter) error {
@@ -722,13 +708,9 @@ func (mr *MetricsReporter) setupSpanMeters(m *Metrics, meter instrument.Meter) e
 
 	spanMetricAttrs := mr.spanMetricAttributes()
 
-	instrumentOpts := []instrument.Float64HistogramOption{}
+	duration := mr.spanMetricsDuration()
 
-	if !mr.usesLegacySpanNames() {
-		instrumentOpts = append(instrumentOpts, instrument.WithUnit("s"))
-	}
-
-	spanMetricsLatency, err := meter.Float64Histogram(mr.spanMetricsLatencyName(), instrumentOpts...)
+	spanMetricsLatency, err := meter.Float64Histogram(duration.OTEL, instrument.WithUnit(duration.Unit))
 	if err != nil {
 		return fmt.Errorf("creating span metric histogram for latency: %w", err)
 	}
@@ -741,24 +723,6 @@ func (mr *MetricsReporter) setupSpanMeters(m *Metrics, meter instrument.Meter) e
 	}
 	m.spanMetricsCallsTotal = NewExpirer[*request.Span, instrument.Int64Counter, int64](
 		m.ctx, spanMetricsCallsTotal, spanMetricAttrs, timeNow, mr.cfg.TTL)
-
-	return nil
-}
-
-func (mr *MetricsReporter) setupHostInfoMeter(meter instrument.Meter) error {
-	tracesHostInfo, err := meter.Int64Gauge(TracesHostInfo)
-	if err != nil {
-		return fmt.Errorf("creating span metric traces host info: %w", err)
-	}
-	attr := attributes.Field[*request.Span, attribute.KeyValue]{
-		ExposedName: string(CloudHostIDKey),
-		Get: func(_ *request.Span) attribute.KeyValue {
-			return semconv.HostID(mr.nodeMeta.HostID)
-		},
-	}
-
-	mr.hostInfo = NewExpirer[*request.Span, instrument.Int64Gauge, int64](
-		mr.ctx, tracesHostInfo, []attributes.Field[*request.Span, attribute.KeyValue]{attr}, timeNow, mr.cfg.TTL)
 
 	return nil
 }
@@ -941,9 +905,12 @@ func (mr *MetricsReporter) tracesResourceAttributes(service *svc.Attrs) attribut
 }
 
 // spanMetricAttributes follow a given specification, so their attribute getters are predefined and can't be
-// selected by the user
+// selected by the user.
+//
+// The host id is absent by design: it lives on the resource (otelcfg.resourceAttrs), which both
+// exporters render as target_info{host_id}.
 func (mr *MetricsReporter) spanMetricAttributes() []attributes.Field[*request.Span, attribute.KeyValue] {
-	return append(attributes.OpenTelemetryGetters(
+	return attributes.OpenTelemetryGetters(
 		mr.attrGetters, []attr.Name{
 			attr.ServiceName,
 			attr.ServiceInstanceID,
@@ -953,14 +920,6 @@ func (mr *MetricsReporter) spanMetricAttributes() []attributes.Field[*request.Sp
 			attr.StatusCode,
 			attr.Source,
 			attr.TelemetrySDKLanguage,
-		}),
-		// hostID is not taken from the span but common to the metrics reporter,
-		// so the getter is injected here directly
-		attributes.Field[*request.Span, attribute.KeyValue]{
-			ExposedName: string(attr.HostID.OTEL()),
-			Get: func(_ *request.Span) attribute.KeyValue {
-				return semconv.HostID(mr.nodeMeta.HostID)
-			},
 		})
 }
 
@@ -1060,7 +1019,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 					grpcClientDuration, attrs := r.grpcClientDuration.ForRecord(span)
 					grpcClientDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
 				}
-			} else if span.SubType == request.HTTPSubtypeAWSSQS && request.IsSQSMessagingClientOperation(span) && mr.msgPublishRecorded() {
+			} else if request.IsAWSMessagingClientOperation(span) && mr.msgPublishRecorded() {
 				if measured {
 					msgPublishDuration, attrs := r.msgPublishDuration.ForRecord(span)
 					msgPublishDuration.Record(ctx, duration, instrument.WithAttributeSet(attrs))
@@ -1439,11 +1398,6 @@ func (mr *MetricsReporter) onProcessEvent(pe *exec.ProcessEvent) {
 			mlog().Debug("deleting infos for", "pid", pid, "attrs", origUID)
 
 			mr.deleteTargetMetrics(&origUID)
-
-			if mr.hostInfo != nil && mr.pidTracker.Count() == 0 {
-				mlog().Debug("No more PIDs tracked, expiring host info metric")
-				mr.hostInfo.RemoveAllMetrics(mr.ctx)
-			}
 		}
 	}
 }
@@ -1460,12 +1414,6 @@ func (mr *MetricsReporter) onSpan(spans []request.Span) {
 		// If we are ignoring this span because of route patterns or disabled features, don't do anything
 		if !s.Service.Features.AppOrSpan() || request.IgnoreMetrics(s) {
 			continue
-		}
-		// This gauge reports that the host is running, which the span's duration
-		// says nothing about, so it is recorded whatever came of the response.
-		if s.Service.Features.AppHost() {
-			hostInfo, attrs := mr.hostInfo.ForRecord(s)
-			hostInfo.Record(mr.ctx, 1, instrument.WithAttributeSet(attrs))
 		}
 
 		reporter, err := mr.reporters.For(&s.Service)

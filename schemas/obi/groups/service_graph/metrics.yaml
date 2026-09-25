@@ -11,15 +11,32 @@ groups:
       Total number of edges in the service graph, grouped by client / server.
     attributes:
       - ref: client
+        requirement_level: required
       - ref: server
+        requirement_level: required
       - ref: connection_type
+        requirement_level:
+          conditionally_required: if the connection was not a direct HTTP or gRPC request
       - ref: client_service_namespace
+        requirement_level:
+          conditionally_required: if the workload has a namespace
       - ref: server_service_namespace
+        requirement_level:
+          conditionally_required: if the workload has a namespace
       - ref: source
+        requirement_level: required
       - ref: client_k8s_namespace_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
       - ref: server_k8s_namespace_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
       - ref: client_k8s_cluster_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
       - ref: server_k8s_cluster_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
 
   # Counter has no explicit OTLP unit set; mirror that here so live-check
   # doesn't complain "Unit should be '1', but found ''".
@@ -34,15 +51,32 @@ groups:
       client / server.
     attributes:
       - ref: client
+        requirement_level: required
       - ref: server
+        requirement_level: required
       - ref: connection_type
+        requirement_level:
+          conditionally_required: if the connection was not a direct HTTP or gRPC request
       - ref: client_service_namespace
+        requirement_level:
+          conditionally_required: if the workload has a namespace
       - ref: server_service_namespace
+        requirement_level:
+          conditionally_required: if the workload has a namespace
       - ref: source
+        requirement_level: required
       - ref: client_k8s_namespace_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
       - ref: server_k8s_namespace_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
       - ref: client_k8s_cluster_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
       - ref: server_k8s_cluster_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
 
   - id: metric.obi.traces_service_graph_request_server
     type: metric
@@ -54,15 +88,32 @@ groups:
       Server-side request duration distribution per service-graph edge.
     attributes:
       - ref: client
+        requirement_level: required
       - ref: server
+        requirement_level: required
       - ref: connection_type
+        requirement_level:
+          conditionally_required: if the connection was not a direct HTTP or gRPC request
       - ref: client_service_namespace
+        requirement_level:
+          conditionally_required: if the workload has a namespace
       - ref: server_service_namespace
+        requirement_level:
+          conditionally_required: if the workload has a namespace
       - ref: source
+        requirement_level: required
       - ref: client_k8s_namespace_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
       - ref: server_k8s_namespace_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
       - ref: client_k8s_cluster_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
       - ref: server_k8s_cluster_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
 
   - id: metric.obi.traces_service_graph_request_client
     type: metric
@@ -74,12 +125,29 @@ groups:
       Client-side request duration distribution per service-graph edge.
     attributes:
       - ref: client
+        requirement_level: required
       - ref: server
+        requirement_level: required
       - ref: connection_type
+        requirement_level:
+          conditionally_required: if the connection was not a direct HTTP or gRPC request
       - ref: client_service_namespace
+        requirement_level:
+          conditionally_required: if the workload has a namespace
       - ref: server_service_namespace
+        requirement_level:
+          conditionally_required: if the workload has a namespace
       - ref: source
+        requirement_level: required
       - ref: client_k8s_namespace_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
       - ref: server_k8s_namespace_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
       - ref: client_k8s_cluster_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
       - ref: server_k8s_cluster_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled

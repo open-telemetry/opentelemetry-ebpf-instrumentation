@@ -17,14 +17,20 @@ data:
           deployment.environment.name: ["${DEPLOYMENT_ENVIRONMENT:-deployment.environment.name}"]
       select:
         obi.stat.tcp.rtt:
-          # assured cardinality explosion. Don't try in production!
           include: ["*"]
+          exclude: ["src_port", "dst_port"]
         obi.stat.tcp.io:
           include: ["*"]
+          exclude: ["src_port", "dst_port"]
         obi.stat.tcp.retransmits:
           include: ["*"]
+          exclude: ["src_port", "dst_port"]
         obi.stat.tcp.failed.connections:
           include: ["*"]
+          exclude: ["src_port"]
+        obi.stat.tcp.successful.connections:
+          include: ["*"]
+          exclude: ["src_port", "dst_port"]
 ---
 apiVersion: apps/v1
 kind: DaemonSet

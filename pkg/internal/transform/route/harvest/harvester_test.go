@@ -84,6 +84,10 @@ func successfulPythonExtractRoutes(fi *exec.FileInfo) (*RouteHarvesterResult, er
 	return successfulExtractRoutes(context.Background(), fi.Pid())
 }
 
+func successfulPHPExtractRoutes(ctx context.Context, fi *exec.FileInfo) (*RouteHarvesterResult, error) {
+	return successfulExtractRoutes(ctx, fi.Pid())
+}
+
 func createTestFileInfo(language svc.InstrumentableType) *exec.FileInfo {
 	return exec.New(exec.Init{
 		Pid: 12345,
@@ -324,6 +328,35 @@ func TestHarvestPythonRoutesDisabled(t *testing.T) {
 	}
 
 	result, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentablePython))
+
+	require.NoError(t, err)
+	assert.Nil(t, result)
+}
+
+func TestHarvestPHPRoutes(t *testing.T) {
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, nil, time.Second)
+	harvester.phpExtractRoutes = successfulPHPExtractRoutes
+
+	result, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentablePHP))
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, []string{"/api/users", "/api/orders"}, result.Routes)
+	assert.Equal(t, CompleteRoutes, result.Kind)
+}
+
+func TestHarvestPHPRoutesDisabled(t *testing.T) {
+	harvester := NewRouteHarvester(
+		&services.RouteHarvestingConfig{},
+		[]services.RouteHarvesterLanguage{services.RouteHarvesterLanguagePHP},
+		time.Second,
+	)
+	harvester.phpExtractRoutes = func(context.Context, *exec.FileInfo) (*RouteHarvesterResult, error) {
+		t.Fatal("disabled PHP route harvester was called")
+		return nil, nil
+	}
+
+	result, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentablePHP))
 
 	require.NoError(t, err)
 	assert.Nil(t, result)

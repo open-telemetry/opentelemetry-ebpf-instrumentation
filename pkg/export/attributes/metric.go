@@ -308,6 +308,12 @@ var (
 		Unit:    "s",
 		Type:    InstrumentHistogram,
 	})
+	DotnetGCCollections = metric(Name{
+		Section: "dotnet.gc.collections",
+		OTEL:    "dotnet.gc.collections",
+		Unit:    "{collection}",
+		Type:    InstrumentCounter,
+	})
 	CPythonGCCollections = metric(Name{
 		Section: "cpython.gc.collections",
 		OTEL:    "cpython.gc.collections",
@@ -515,6 +521,11 @@ var (
 		Section: "obi.stat.tcp.io",
 		OTEL:    "obi.stat.tcp.io",
 		Unit:    "By",
+		Type:    InstrumentCounter,
+	})
+	StatTCPSuccessfulConnections = metric(Name{
+		Section: "obi.stat.tcp.successful.connections",
+		OTEL:    "obi.stat.tcp.successful.connections",
 		Type:    InstrumentCounter,
 	})
 )

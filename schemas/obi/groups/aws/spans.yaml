@@ -1,12 +1,11 @@
-# OBI's AWS SDK span contract. OBI surfaces AWS S3 and SQS calls detected on
+# OBI's AWS SDK span contract. OBI surfaces AWS S3, SQS and SNS calls detected on
 # the wire as client spans carrying the upstream aws.* / cloud.* attributes.
 # All attributes are upstream semconv, so no OBI-specific attributes are
 # declared here. The HTTP request/response attributes are absent:
-# `httpClientTransportScope` returns `httpTransportNone` for both subtypes.
+# `httpClientTransportScope` returns `httpTransportNone` for all three subtypes.
 #
-# S3 and SQS are separate groups because they are separate emitter branches
-# with disjoint attribute sets: an S3 call reports the object it addressed, an
-# SQS call the message it moved, and neither reports the other's. Declared as
+# S3, SQS and SNS are separate groups because their emitter branches report
+# different attribute sets for objects, queues and topics. Declared as
 # one group, no attribute beyond the shared AWS request metadata could be
 # `required`, and a consumer could not tell which attributes occur together.
 groups:
@@ -17,20 +16,46 @@ groups:
     brief: OBI AWS S3 client span.
     attributes:
       - ref: rpc.system.name
+        requirement_level: required
       - ref: rpc.method
+        requirement_level: recommended
       - ref: cloud.region
+        requirement_level: recommended
       - ref: aws.request_id
+        requirement_level: recommended
       - ref: aws.extended_request_id
+        requirement_level:
+          conditionally_required: if the response carried an x-amz-id-2 header
       - ref: aws.s3.bucket
+        requirement_level:
+          recommended: if the request addressed a bucket
       - ref: aws.s3.key
+        requirement_level:
+          recommended: if the request addressed an object
       - ref: server.address
+        requirement_level:
+          conditionally_required: if the peer address was resolved from the connection
       - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
       - ref: service.peer.name
+        requirement_level:
+          recommended: if the peer service name could be resolved
       - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
       - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
       - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
       - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
       - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
 
   - id: span.obi.aws.sqs.client
     type: span
@@ -39,19 +64,107 @@ groups:
     brief: OBI AWS SQS client span.
     attributes:
       - ref: messaging.system
+        requirement_level: required
       - ref: messaging.operation.name
+        requirement_level: required
       - ref: messaging.destination.name
+        requirement_level:
+          conditionally_required: if the queue URL was found
       - ref: messaging.message.id
+        requirement_level:
+          recommended: if the exchange carried a message id
       - ref: aws.sqs.queue.url
+        requirement_level:
+          recommended: if the request or response named the queue
       - ref: cloud.region
+        requirement_level: recommended
       - ref: aws.request_id
+        requirement_level: recommended
       - ref: aws.extended_request_id
+        requirement_level:
+          conditionally_required: if the response carried an x-amz-id-2 header
       - ref: server.address
+        requirement_level:
+          conditionally_required: if the peer address was resolved from the connection
       - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
       - ref: messaging.operation.type
+        requirement_level:
+          conditionally_required: if the operation maps to a semantic-convention operation type
       - ref: service.peer.name
+        requirement_level:
+          recommended: if the peer service name could be resolved
       - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
       - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
       - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
       - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
       - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
+
+  - id: span.obi.aws.sns.client
+    type: span
+    span_kind: client
+    stability: development
+    brief: OBI AWS SNS client span.
+    attributes:
+      - ref: rpc.system.name
+        requirement_level: required
+      - ref: rpc.method
+        requirement_level: recommended
+      - ref: messaging.system
+        requirement_level: required
+      - ref: messaging.operation.name
+        requirement_level: required
+      - ref: messaging.operation.type
+        requirement_level:
+          conditionally_required: if the operation maps to a semantic-convention operation type
+      - ref: messaging.destination.name
+        requirement_level:
+          conditionally_required: if the response named the topic
+      - ref: messaging.message.id
+        requirement_level:
+          recommended: if the response carried a message id
+      - ref: messaging.batch.message_count
+        requirement_level:
+          conditionally_required: if the operation is `PublishBatch` and the batch size was read
+      - ref: aws.sns.topic.arn
+        requirement_level:
+          recommended: if the response named the topic
+      - ref: cloud.region
+        requirement_level: recommended
+      - ref: aws.request_id
+        requirement_level: recommended
+      - ref: server.address
+        requirement_level:
+          conditionally_required: if the peer address was resolved from the connection
+      - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
+      - ref: service.peer.name
+        requirement_level:
+          recommended: if the peer service name could be resolved
+      - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
+      - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
+      - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
+      - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled

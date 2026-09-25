@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/uprobe"
 	msg2 "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -180,7 +181,7 @@ func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
 }
 
 func (i *Instrumenter) WaitUntilFinished() error {
-	shutDownTimeout := time.After(i.config.ShutdownTimeout)
+	shutDownTimeout := time.After(uprobe.EffectiveShutdownTimeout(i.config.ShutdownTimeout))
 	for _, f := range i.finishers {
 		select {
 		case <-shutDownTimeout:
@@ -259,7 +260,7 @@ func (i *Instrumenter) stop() error {
 	}()
 
 	select {
-	case <-time.After(i.config.ShutdownTimeout):
+	case <-time.After(uprobe.EffectiveShutdownTimeout(i.config.ShutdownTimeout)):
 		return errShutdownTimeout
 	case <-stopped:
 		return nil

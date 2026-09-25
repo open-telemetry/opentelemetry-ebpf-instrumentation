@@ -101,8 +101,8 @@ func samplerFromConfig(s *services.SamplerConfig) trace.Sampler {
 }
 
 func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
-	var name string
-	var namespace string
+	name := t.cfg.ServiceName
+	namespace := t.cfg.ServiceNamespace
 	exportModes := services.ExportModeUnset
 	var samplerConfig *services.SamplerConfig
 	var routesConfig *services.CustomRoutesConfig
@@ -333,6 +333,8 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 	t.instrumentableCache.Add(cacheKey{Dev: execElf.Dev(), Ino: execElf.Ino()}, instrumentedExecutable{Type: detectedType, Offsets: nil, InstrumentationError: err})
 	if detectedType == svc.InstrumentablePython {
 		lifecycle.SetRuntimeMetricServiceSource(execElf)
+	}
+	if detectedType == svc.InstrumentablePython || detectedType == svc.InstrumentableDotnet {
 		return ebpf.Instrumentable{
 			Type: detectedType, FileInfo: lifecycle, InstrumentationError: err,
 			LogEnricherEnabled: lifecycle.LogEnricherEnabled(),

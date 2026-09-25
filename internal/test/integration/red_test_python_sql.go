@@ -44,7 +44,7 @@ func assertHTTPRequests(t *testing.T, comm, urlPath string) {
 	params.Add("operation", "GET "+urlPath)
 	fullURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
-	resp, err := http.Get(fullURL)
+	resp, err := getJaeger(fullURL)
 	require.NoError(t, err, "failed to query jaeger for HTTP traces")
 	if resp == nil {
 		return
@@ -69,7 +69,7 @@ func assertSQLOperation(t *testing.T, comm, op, table, db string) {
 	fullURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(fullURL)
+		resp, err := getJaeger(fullURL)
 		require.NoError(ct, err)
 		assert.NotNil(ct, resp)
 		assert.Equal(ct, http.StatusOK, resp.StatusCode)
@@ -145,7 +145,7 @@ func assertSQLOperationErrored(t *testing.T, comm, op, table, db string) {
 	fullURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(fullURL)
+		resp, err := getJaeger(fullURL)
 		require.NoError(ct, err)
 		require.NotNil(ct, resp)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
@@ -239,7 +239,7 @@ func testPythonSQLQueryAfterHeaders(t *testing.T, comm, url, table string) {
 	sqlURL := fmt.Sprintf("%s?%s", jaegerQueryURL, sqlParams.Encode())
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		sqlResp, err := http.Get(sqlURL)
+		sqlResp, err := getJaeger(sqlURL)
 		require.NoError(ct, err)
 		require.NotNil(ct, sqlResp)
 		defer sqlResp.Body.Close()
@@ -350,7 +350,7 @@ func testPythonSQLBigQuery(t *testing.T, comm, url, table, db string) {
 	queryPrefix := "SELECT * FROM actor WHERE actor_id IN (1, 2, 3,"
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(fullURL)
+		resp, err := getJaeger(fullURL)
 		require.NoError(ct, err)
 		assert.NotNil(ct, resp)
 		assert.Equal(ct, http.StatusOK, resp.StatusCode)
@@ -430,7 +430,7 @@ func testREDMetricsForPythonSQLSSL(t *testing.T, url, comm, namespace string) {
 
 	// Look for a trace with SELECT accounting.contacts
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=SELECT%20accounting.contacts")
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=SELECT%20accounting.contacts")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -443,7 +443,7 @@ func testREDMetricsForPythonSQLSSL(t *testing.T, url, comm, namespace string) {
 	}, testTimeout, 100*time.Millisecond)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2Fquery")
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=GET%20%2Fquery")
 		require.NoError(ct, err)
 		if resp == nil {
 			return

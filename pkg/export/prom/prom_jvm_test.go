@@ -55,6 +55,7 @@ func testJVMRuntimeMemoryPool(t *testing.T) {
 		"service_name":         "orders",
 		"service_namespace":    "prod",
 		"service_instance_id":  "orders-1",
+		"job":                  "prod/orders",
 		"jvm_memory_type":      "heap",
 		"jvm_memory_pool_name": "G1 Old Gen",
 	})
@@ -93,6 +94,7 @@ func testJVMRuntimeCurrentValues(t *testing.T) {
 		"service_name":        "orders",
 		"service_namespace":   "prod",
 		"service_instance_id": "orders-1",
+		"job":                 "prod/orders",
 		"jvm_gc_name":         "G1 Young Generation",
 		"jvm_gc_action":       "end of minor GC",
 	})
@@ -119,6 +121,7 @@ func testJVMRuntimeCurrentValues(t *testing.T) {
 			"service_name":        "orders",
 			"service_namespace":   "prod",
 			"service_instance_id": "orders-1",
+			"job":                 "prod/orders",
 			"jvm_thread_daemon":   "true",
 		}).GetGauge().GetValue(), 0)
 	assert.InEpsilon(t, 6.0,
@@ -126,6 +129,7 @@ func testJVMRuntimeCurrentValues(t *testing.T) {
 			"service_name":        "orders",
 			"service_namespace":   "prod",
 			"service_instance_id": "orders-1",
+			"job":                 "prod/orders",
 			"jvm_thread_daemon":   "false",
 		}).GetGauge().GetValue(), 0)
 	assert.InEpsilon(t, 2.0,
@@ -307,6 +311,7 @@ func jvmRuntimeMetricsTestLabels() map[string]string {
 		"service_name":        "orders",
 		"service_namespace":   "prod",
 		"service_instance_id": "orders-1",
+		"job":                 "prod/orders",
 	}
 }
 
@@ -353,6 +358,7 @@ func TestRuntimeMetricsReporterDropsJVMServiceWithoutRuntimeFeature(t *testing.T
 		"service_name":         "orders",
 		"service_namespace":    "prod",
 		"service_instance_id":  "orders-1",
+		"job":                  "prod/orders",
 		"jvm_memory_type":      "heap",
 		"jvm_memory_pool_name": "G1 Old Gen",
 	}))
@@ -398,6 +404,7 @@ func TestRuntimeMetricsKeepServiceLabelsRegardlessOfDefaults(t *testing.T) {
 		"service_name":         "orders",
 		"service_namespace":    "prod",
 		"service_instance_id":  "orders-1",
+		"job":                  "prod/orders",
 		"jvm_memory_type":      "heap",
 		"jvm_memory_pool_name": "G1 Old Gen",
 	})

@@ -13,6 +13,7 @@
 def is_obi: (.lineage.provenance.schema_url // "") | test("opentelemetry-ebpf-instrumentation");
 def cell: (. // "") | tostring | gsub("\n"; " ") | gsub("\\|"; "\\|") | sub("^ +"; "") | sub(" +$"; "");
 def attr_type: if (.type | type) == "string" then .type else "enum" end;
+def canonical_scalar: if type == "number" and . == floor then (floor | tostring) else tostring end;
 
 # An enum's value space is the documentation, so surface its members. Upstream
 # enums run long (db.system.name has 42), which would make the table unreadable,
@@ -22,9 +23,9 @@ def enum_members_shown: 8;
 # ones, so it is coerced before use rather than iterated blindly.
 def examples_list: (.examples // []) | if type == "array" then . else [.] end;
 def values:
-  if (examples_list | length) > 0 then (examples_list | map(tostring) | join("; "))
+  if (examples_list | length) > 0 then (examples_list | map(canonical_scalar) | join("; "))
   elif (.type | type) == "object" then
-    ((.type.members // []) | map(.value // .id | tostring)) as $m
+    ((.type.members // []) | map(.value // .id | canonical_scalar)) as $m
     | if ($m | length) == 0 then ""
       elif ($m | length) > enum_members_shown then (($m[0:enum_members_shown] | join("; ")) + "; …")
       else ($m | join("; "))
@@ -56,7 +57,15 @@ def obi_overrides:
    | .attributes[]?]
   | map({key: .name, value: .})
   | from_entries;
-def attr_groups: obi_groups("attribute_group") | sort_by(.id);
+# Restricted to the groups that DEFINE attributes. OBI names those
+# registry.obi.* / x.obi.*; a group that only references attributes — the
+# messaging base the span groups extend — belongs on no page whose preamble
+# promises "attributes that OBI defines". A future definition group named
+# outside those two prefixes would be dropped here silently.
+def attr_groups:
+  obi_groups("attribute_group")
+  | map(select(.id | test("^(registry|x)\\.obi($|\\.)")))
+  | sort_by(.id);
 def metrics: obi_groups("metric") | sort_by(.metric_name);
 def spans: obi_groups("span") | sort_by(.id);
 
@@ -72,6 +81,31 @@ def attr_rows($ov):
 def attr_table($ov):
   if (attr_rows($ov) | length) == 0 then ["No attributes."]
   else ["| Attribute | Type | Stability | Description | Examples |", "| --- | --- | --- | --- | --- |"] + attr_rows($ov)
+  end;
+
+# A requirement level belongs to a carrier, not to a definition, so it is
+# rendered on the metric and span pages and not on the attributes page. An
+# absent level is weaver's default.
+def req_level:
+  (.requirement_level // "recommended")
+  | if type == "object"
+    then (to_entries[0] | "`\(.key)`: \(.value | cell)")
+    else "`\(. | cell)`"
+    end;
+
+def carrier_rows($ov):
+  [.attributes[]?
+   | . as $carrier
+   | (($ov[$carrier.name] // $carrier) as $d
+      | (($d | deprecation) | cell) as $dep
+      | (if $dep == "" then ($d.brief | cell) else "\($dep). \($d.brief | cell)" end) as $desc
+      | "| `\($carrier.name)` | \($d | attr_type) | \($carrier | req_level) | \($d.stability | cell) | \($desc) | \($d | values | cell) |")]
+  | sort;
+
+def carrier_table($ov):
+  if (carrier_rows($ov) | length) == 0 then ["No attributes."]
+  else ["| Attribute | Type | Requirement level | Stability | Description | Examples |",
+        "| --- | --- | --- | --- | --- | --- |"] + carrier_rows($ov)
   end;
 
 def page($title; $intro; $items):
@@ -108,7 +142,7 @@ def metrics_page:
                  + [(.brief | cell), "",
                   "| Instrument | Unit | Stability |", "| --- | --- | --- |",
                   "| \(.instrument | cell) | \(if (.unit // "") == "" then "1" else .unit end | cell) | \(.stability | cell) |",
-                  ""] + attr_table($ov)]);
+                  ""] + carrier_table($ov)]);
 
 def spans_page:
   obi_overrides as $ov
@@ -121,7 +155,7 @@ def spans_page:
                + [(.brief | cell), "",
                 "| Span kind | Stability |", "| --- | --- |",
                 "| \(.span_kind | cell) | \(.stability | cell) |",
-                ""] + attr_table($ov)]);
+                ""] + carrier_table($ov)]);
 
 def readme_page:
   page("OBI telemetry reference";

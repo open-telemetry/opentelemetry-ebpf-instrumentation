@@ -76,6 +76,24 @@ Newline-delimited JSON is handled as structured JSON: OBI enriches each JSON obj
 
 The map is **written** by the generic tracer (in `server_or_client_trace()`) whenever an HTTP request or client call is detected on the wire. When a client call ends, `obi_ctx__restore_server()` points the thread back at its enclosing server span (looked up in `server_traces` and matched by parent span id), so logs written after a nested client call keep the server context. The map is **read** by the logenricher when intercepting writes.
 
+### When the map is populated
+
+Population is not free. The per-runtime refresh below runs on every async context switch of the instrumented process — on Node.js an `async_hooks` before hook on every callback. The writers are gated on a single BPF constant, `g_traces_ctx_v1_enabled`, set from `Config.PopulateTraceContext()`: the map is populated only when something reads it.
+
+The Go tracer follows the same constant. Go channel span links may be affected while population is off: handoff correlation falls back to this map when it cannot resolve the sending goroutine from the per-goroutine protocol maps. See [Go channel span links](go-channel-span-links.md).
+
+What the constant removes is the CPU cost, not the memory. `traces_ctx_v1` and the Go tracer's `obi_ctx_stacks` are both `LRU_HASH`, which the kernel preallocates at load and which cannot take `BPF_F_NO_PREALLOC`, so they occupy their full size whether or not anything writes to them.
+
+| Reader | Turns population on |
+|---|---|
+| Log enricher | `ebpf.log_enricher.services` is non-empty |
+| Node.js manual span bridge | `nodejs.manual_spans: true` |
+| Anything outside OBI (a profiler, another eBPF program reading the pin) | `ebpf.populate_trace_context: true` |
+
+A reader outside OBI cannot announce itself, so it opts in explicitly. With no reader, `obi_ctx__set` / `obi_ctx__del` compile away in the generic tracer and Node.js skips the before hook that drives them.
+
+The pin outlives the process, so entries a populating run left behind would sit there unread and unrefreshed while population is off. A non-populating run therefore empties the map once (`ebpfconvenience.DrainTraceContextMap`), and never touches it again. Both tracers call it and only the first call sweeps; that is when the first tracer starts, which is when its first matching executable is discovered rather than at agent start. The pin records nothing about who wrote an entry, so the sweep also removes entries a co-resident writer put there.
+
 ## The context staleness problem
 
 `traces_ctx_v1` is keyed by OS-level `pid_tgid`. This works when the thread that receives the HTTP data is the same thread that writes the log. But many runtimes decouple I/O from processing:
@@ -104,7 +122,7 @@ Go keeps a per-goroutine stack of the spans that are still running (`obi_ctx_sta
 
 ### Node.js — `async_hooks` before callback + `uv_fs_access` uprobe
 
-The JS agent installs an `async_hooks` `createHook({ before() { ... } })`. Before each async callback executes, the hook calls `fs.accessSync('/dev/null/obi-ctx/<incomingFd>')`. This triggers the `obi_uv_fs_access` uprobe in BPF, which:
+The JS agent installs an `async_hooks` `createHook({ before() { ... } })`. Before each async callback executes, the hook calls `fs.existsSync('/dev/null/obi-ctx/<incomingFd>')`. This triggers the `obi_uv_fs_access` uprobe in BPF, which:
 
 1. Parses the 4-digit fd from the path.
 2. Looks up `fd_to_connection[pid_tgid, fd]` to get the connection info.
@@ -112,6 +130,10 @@ The JS agent installs an `async_hooks` `createHook({ before() { ... } })`. Befor
 4. Calls `obi_ctx__set(pid_tgid, &tp)` or `obi_ctx__del(pid_tgid)`.
 
 This fires before every JS callback, ensuring the correct trace context is active even when multiple requests are interleaved in the event loop.
+
+Because it runs that often, the call must not throw. The sentinel path never resolves, so the call always fails: `fs.existsSync` reports that as `false`, while `fs.accessSync` builds and throws a `UVException` costing several times the call itself. Both reach the same `uv_fs_access` the uprobe is attached to, so the choice is about cost, not transport. Any sentinel added to the agent must use the non-throwing call. `TestAgentScriptsUseNonThrowingSentinel` checks the forms the agents actually use — a throwing call reached some other way, through a destructured import say, would pass it.
+
+The hook is the most expensive of the per-runtime refreshes — a synchronous `fs.existsSync` on every callback, measured at a double-digit share of event-loop CPU on request-heavy services — so the injector installs it only when the map has a reader (`OBI_CTX_HOOK_ENABLED` in `fdextractor.js`, substituted from the same predicate as `g_traces_ctx_v1_enabled`). Client-span parenting does not go through it: that comes from the fd-pair map the `net` prototype wraps maintain, which stays installed whenever traces are on.
 
 ### Java — `k_ioctl_java_threads` in the ioctl kprobe
 

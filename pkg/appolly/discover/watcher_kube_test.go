@@ -4,6 +4,7 @@
 package discover
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -29,7 +30,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
-const timeout = 5 * time.Second
+const (
+	timeout      = 5 * time.Second
+	emptyTimeout = 100 * time.Millisecond
+)
 
 const (
 	namespace      = "test-ns"
@@ -70,11 +74,12 @@ func TestWatcherKubeEnricher(t *testing.T) {
 	}
 
 	// The watcherKubeEnricher has to listen and relate information from multiple asynchronous sources.
-	// Each test case verifies that whatever the order of the events is,
+	// Each test case verifies that whatever the order of the events is, the process is forwarded
+	// exactly once, and only when its pod metadata is known
 	testCases := []testCase{
-		{name: "process-pod", steps: []event{{fn: process, shouldNotify: true}, {fn: ownedPod, shouldNotify: true}}},
+		{name: "process-pod", steps: []event{{fn: process, shouldNotify: false}, {fn: ownedPod, shouldNotify: true}}},
 		{name: "pod-process", steps: []event{{fn: ownedPod, shouldNotify: false}, {fn: process, shouldNotify: true}}},
-		{name: "process-pod (no owner)", steps: []event{{fn: process, shouldNotify: true}, {fn: pod, shouldNotify: true}}},
+		{name: "process-pod (no owner)", steps: []event{{fn: process, shouldNotify: false}, {fn: pod, shouldNotify: true}}},
 		{name: "pod-process (no owner)", steps: []event{{fn: pod, shouldNotify: false}, {fn: process, shouldNotify: true}}},
 	}
 
@@ -100,6 +105,8 @@ func TestWatcherKubeEnricher(t *testing.T) {
 				step.fn(input, fInformer)
 				if step.shouldNotify {
 					events = testutil.ReadChannel(t, outputCh, timeout)
+				} else {
+					testutil.ChannelEmpty(t, outputCh, emptyTimeout)
 				}
 			}
 
@@ -131,15 +138,7 @@ func TestWatcherKubeEnricherForwardsProcessesWithoutContainer(t *testing.T) {
 	outputCh := output.Subscribe()
 	defer output.Close()
 
-	wk := watcherKubeEnricher{
-		log:                slog.With("component", "discover.watcherKubeEnricher"),
-		store:              store,
-		containerByPID:     map[app.PID]container.Info{},
-		processByContainer: map[string][]ProcessAttrs{},
-		podsInfoCh:         make(chan Event[*informer.ObjectMeta], 10),
-		input:              input.Subscribe(),
-		output:             output,
-	}
+	wk := newWatcherKubeEnricher(store, input.Subscribe(), output)
 
 	prevContainerInfoForPID := containerInfoForPID
 	containerInfoForPID = func(_ app.PID) (container.Info, error) {
@@ -222,6 +221,7 @@ func TestWatcherKubeEnricherWithMatcher(t *testing.T) {
 	// sending events that will match and will be forwarded
 	t.Run("port-only match", func(t *testing.T) {
 		newProcess(inputQueue, 12, []uint32{80})
+		deployPod(fInformer, "port-only-pod", "container-12", "container-12-name", nil)
 		matches := testutil.ReadChannel(t, outputCh, timeout)
 		require.Len(t, matches, 1)
 		testKubeMatch(t, matches[0], "port-only", 12)
@@ -319,15 +319,7 @@ func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 	outputCh := output.Subscribe()
 	defer output.Close()
 
-	wk := watcherKubeEnricher{
-		log:                slog.With("component", "discover.watcherKubeEnricher"),
-		store:              store,
-		containerByPID:     map[app.PID]container.Info{},
-		processByContainer: map[string][]ProcessAttrs{},
-		podsInfoCh:         make(chan Event[*informer.ObjectMeta], 10),
-		input:              input.Subscribe(),
-		output:             output,
-	}
+	wk := newWatcherKubeEnricher(store, input.Subscribe(), output)
 
 	const containerAll = "container-contains-all"
 	const containerAllName = "container-contains-all-name"
@@ -338,21 +330,16 @@ func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 		return container.Info{ContainerID: containerAll}, nil
 	}
 
-	// Send two PID event, there will be no container information for them yet
+	// Send two PID events. Their pod is not known yet, so they are held instead of forwarded bare.
+	// A process reported again (e.g. after opening a new port) replaces its previous copy
 	wk.enrichProcessEvent([]Event[ProcessAttrs]{
 		{Type: EventCreated, Obj: ProcessAttrs{pid: 1}},
 		{Type: EventCreated, Obj: ProcessAttrs{pid: 2}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 1}},
 	})
 
-	events := testutil.ReadChannel(t, outputCh, timeout)
-
-	assert.Len(t, events, 2)
-
-	// Ensure we didn't add any container properties to these events, they should be as they were sent, not
-	// enriched
-	for _, event := range events {
-		assert.Equal(t, Event[ProcessAttrs]{Type: EventCreated, Obj: ProcessAttrs{pid: event.Obj.pid}}, event)
-	}
+	testutil.ChannelEmpty(t, outputCh, emptyTimeout)
+	assert.Len(t, wk.processByContainer[containerAll], 2)
 
 	podEvent := &informer.ObjectMeta{
 		Name: "myservice", Namespace: namespace, Labels: map[string]string{"instrument": "ebpf", "lang": "golang"}, Annotations: map[string]string{"deploy.type": "prod"},
@@ -366,7 +353,7 @@ func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 	wk.enrichPodEvent(Event[*informer.ObjectMeta]{Type: EventCreated, Obj: podEvent})
 
 	// We should see us notified about two matched processes, pid 1 and pid 2
-	events = testutil.ReadChannel(t, outputCh, timeout)
+	events := testutil.ReadChannel(t, outputCh, timeout)
 	assert.Len(t, events, 2)
 
 	for _, event := range events {
@@ -422,6 +409,125 @@ func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 
 	_, ok = wk.containerByPID[app.PID(2)]
 	assert.False(t, ok)
+}
+
+// A process seen before its Pod metadata used to be forwarded bare, matched by exe_path and never
+// re-evaluated, so k8s_namespace exclusions did not apply to it
+func TestWatcherKubeEnricherHoldsProcessUntilPodIsKnown(t *testing.T) {
+	prevContainerInfoForPID, prevProcessInfo := containerInfoForPID, processInfo
+	containerInfoForPID = fakeContainerInfo
+	processInfo = fakeProcessInfo
+	t.Cleanup(func() {
+		containerInfoForPID = prevContainerInfoForPID
+		processInfo = prevProcessInfo
+	})
+
+	fInformer := &fakeInformer{}
+	store := kube.NewStore(fInformer, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	inputQueue := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	defer inputQueue.Close()
+	connectQueue := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	outputQueue := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	outputCh := outputQueue.Subscribe()
+	swi := swarm.Instancer{}
+	swi.Add(WatcherKubeEnricherProvider(&fakeMetadataProvider{store: store}, inputQueue, connectQueue))
+
+	pipeConfig := obi.Config{}
+	require.NoError(t, yaml.Unmarshal([]byte(`discovery:
+  instrument:
+  - name: everything
+    exe_path: "*"
+  exclude_instrument:
+  - k8s_namespace: kube-system
+`), &pipeConfig))
+	swi.Add(criteriaMatcherProvider(&pipeConfig, connectQueue, outputQueue, FindingCriteria(&pipeConfig), nil))
+
+	nodesRunner, err := swi.Instance(t.Context())
+	require.NoError(t, err)
+	nodesRunner.Start(t.Context())
+
+	// both processes are discovered before their Pods are known
+	newProcess(inputQueue, 77, []uint32{53})
+	newProcess(inputQueue, 78, []uint32{8080})
+	testutil.ChannelEmpty(t, outputCh, emptyTimeout)
+
+	// the excluded namespace is only known once the Pod arrives
+	deployOwnedPod(fInformer, "kube-system", "coredns-abc", "coredns", "coredns", "container-77", "coredns")
+	testutil.ChannelEmpty(t, outputCh, emptyTimeout)
+
+	deployOwnedPod(fInformer, "apps", "web-abc", "web", "web", "container-78", "web")
+	matches := testutil.ReadChannel(t, outputCh, timeout)
+	require.Len(t, matches, 1)
+	testKubeMatch(t, matches[0], "everything", 78)
+}
+
+// a Pod sandbox is never among the Pod containers: its process is kept and never forwarded
+func TestWatcherKubeEnricherNeverForwardsPodSandbox(t *testing.T) {
+	prevContainerInfoForPID := containerInfoForPID
+	containerInfoForPID = func(_ app.PID) (container.Info, error) {
+		return container.Info{ContainerID: "sandbox-1"}, nil
+	}
+	t.Cleanup(func() { containerInfoForPID = prevContainerInfoForPID })
+
+	fInformer := &fakeInformer{}
+	store := kube.NewStore(fInformer, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	input := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	defer input.Close()
+	output := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	outputCh := output.Subscribe()
+	defer output.Close()
+	wk := newWatcherKubeEnricher(store, input.Subscribe(), output)
+
+	pod := &informer.ObjectMeta{
+		Name: "pod-1", Namespace: namespace, Kind: "Pod",
+		Pod: &informer.PodInfo{Containers: []*informer.ContainerInfo{{Id: "container-1", Name: "app"}}},
+	}
+	fInformer.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: pod})
+	wk.enrichPodEvent(Event[*informer.ObjectMeta]{Type: EventCreated, Obj: pod})
+
+	wk.enrichProcessEvent([]Event[ProcessAttrs]{{Type: EventCreated, Obj: ProcessAttrs{pid: 1}}})
+	testutil.ChannelEmpty(t, outputCh, emptyTimeout)
+
+	// nor on later Pod updates
+	wk.enrichPodEvent(Event[*informer.ObjectMeta]{Type: EventCreated, Obj: pod})
+	testutil.ChannelEmpty(t, outputCh, emptyTimeout)
+	assert.Len(t, wk.processByContainer["sandbox-1"], 1)
+}
+
+func TestWatcherKubeEnricherForwardsUnknownKubeletCgroupProcess(t *testing.T) {
+	prevContainerInfoForPID := containerInfoForPID
+	containerInfoForPID = func(_ app.PID) (container.Info, error) {
+		return container.Info{}, container.ErrUnknownKubeletCgroup
+	}
+	t.Cleanup(func() { containerInfoForPID = prevContainerInfoForPID })
+
+	fInformer := &fakeInformer{}
+	store := kube.NewStore(fInformer, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	input := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	defer input.Close()
+	output := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	outputCh := output.Subscribe()
+	defer output.Close()
+
+	logs := &bytes.Buffer{}
+	wk := newWatcherKubeEnricher(store, input.Subscribe(), output)
+	wk.log = slog.New(slog.NewTextHandler(logs, nil))
+
+	// forwarded bare, as a host process, with a single warning even if reported twice
+	for range 2 {
+		wk.enrichProcessEvent([]Event[ProcessAttrs]{{Type: EventCreated, Obj: ProcessAttrs{pid: 7}}})
+		events := testutil.ReadChannel(t, outputCh, timeout)
+		require.Len(t, events, 1)
+		assert.Equal(t, Event[ProcessAttrs]{Type: EventCreated, Obj: ProcessAttrs{pid: 7}}, events[0])
+	}
+	assert.Equal(t, 1, strings.Count(logs.String(), "level=WARN"))
+	assert.Contains(t, logs.String(), "unrecognized container ID format")
+	assert.Empty(t, wk.processByContainer)
+
+	// the warning state is dropped with the process
+	wk.enrichProcessEvent([]Event[ProcessAttrs]{{Type: EventDeleted, Obj: ProcessAttrs{pid: 7}}})
+	testutil.ReadChannel(t, outputCh, timeout)
+	assert.Empty(t, wk.unknownCgroupWarned)
 }
 
 func newProcess(input *msg.Queue[[]Event[ProcessAttrs]], pid app.PID, ports []uint32) {

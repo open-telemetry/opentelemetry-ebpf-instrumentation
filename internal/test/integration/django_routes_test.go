@@ -42,6 +42,10 @@ func TestSuite_DjangoRoutes(t *testing.T) {
 		route  string
 		status int
 	}{
+		{path: "/articles/2026/", route: "/articles/<year>/", status: http.StatusOK},
+		{path: "/credit/reports/", route: "/credit/reports/", status: http.StatusOK},
+		{path: "/billing/reports/", route: "/billing/reports/", status: http.StatusOK},
+		{path: "/retail/orders/42/", route: "/retail/orders/<int:order_id>/", status: http.StatusOK},
 		{path: "/shop/orders/42/", route: "/shop/orders/<int:order_id>/", status: http.StatusOK},
 		{path: "/wholesale/orders/123/", route: "/wholesale/orders/<int:order_id>/", status: http.StatusOK},
 		{path: "/en/localized/orders/42/", route: "/<language>/localized/orders/<int:order_id>/", status: http.StatusOK},
@@ -81,7 +85,7 @@ func assertDjangoRouteTrace(t *testing.T, requestPath, route string, status int)
 	operation := "GET " + route
 	query := url.Values{"service": {"django-testserver"}, "operation": {operation}}
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?" + query.Encode())
+		resp, err := getJaeger(jaegerQueryURL + "?" + query.Encode())
 		require.NoError(ct, err)
 		defer resp.Body.Close()
 		require.Equal(ct, http.StatusOK, resp.StatusCode)

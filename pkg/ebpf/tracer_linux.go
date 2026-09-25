@@ -40,6 +40,7 @@ type instrumenter struct {
 	uprobeKey             ExecutableKey
 	offsets               *goexec.Offsets
 	exe                   *link.Executable
+	exePath               string
 	closables             []io.Closer
 	processScopedGoProbes []processScopedGoProbeRegistration
 	modules               map[uint64]struct{}
@@ -48,7 +49,7 @@ type instrumenter struct {
 }
 
 type uprobeTargetResolver interface {
-	ResolveUprobeTarget(*link.Executable, uint64) (uint64, uint64, error)
+	ResolveUprobeTarget(*link.Executable, string, uint64) (uint64, uint64, error)
 }
 
 const goUprobeTargetProbeSymbol = "runtime.newproc1"
@@ -159,7 +160,7 @@ func (pt *ProcessTracer) Run(
 	for {
 		select {
 		// notifying before OBI times out on finish
-		case <-time.After(3 * pt.shutdownTimeout / 4):
+		case <-time.After(3 * uprobe.EffectiveShutdownTimeout(pt.shutdownTimeout) / 4):
 			pt.log.Warn("some process tracers did not finish",
 				"tracers", unfinishedTracerTypes(runningTracers), "probes_released", probesReleased.Load())
 			hasWarned = true
@@ -242,6 +243,7 @@ func keepTrackedSockCookiesAtLeast(spec *ebpf.CollectionSpec, declared uint32) {
 }
 
 func (pt *ProcessTracer) loadAndAssign(eventContext *common.EBPFEventContext, p Tracer, cfg *obi.Config, cache *btf.Cache) error {
+	uprobe.ConfigureMulti(cfg.EBPF.DisableUprobeMulti)
 	p.SetEventContext(eventContext)
 
 	bundles, err := p.LoadSpecs()
@@ -265,9 +267,20 @@ func (pt *ProcessTracer) loadAndAssign(eventContext *common.EBPFEventContext, p 
 	return nil
 }
 
-func (pt *ProcessTracer) loadTracer(eventContext *common.EBPFEventContext, p Tracer, log *slog.Logger, cfg *obi.Config, cache *btf.Cache) error {
+func (pt *ProcessTracer) loadTracer(eventContext *common.EBPFEventContext, p Tracer, log *slog.Logger, cfg *obi.Config, cache *btf.Cache) (retErr error) {
 	plog := log.With("program", reflect.TypeOf(p))
 	plog.Debug("loading eBPF program", "type", pt.Type)
+
+	i := instrumenter{} // dummy instrumenter to setup the kprobes, socket filters and tracepoint probes
+
+	defer func() {
+		if retErr == nil {
+			return
+		}
+
+		closeAll(i.closables)
+		retErr = errors.Join(retErr, p.Close())
+	}()
 
 	err := pt.loadAndAssign(eventContext, p, cfg, cache)
 
@@ -288,11 +301,6 @@ func (pt *ProcessTracer) loadTracer(eventContext *common.EBPFEventContext, p Tra
 		return fmt.Errorf("loading and assigning BPF objects: %w", err)
 	}
 
-	// Setup any tail call jump tables
-	p.SetupTailCalls()
-
-	i := instrumenter{} // dummy instrumenter to setup the kprobes, socket filters and tracepoint probes
-
 	// Kprobes to be used for native instrumentation points
 	if err := i.kprobes(p); err != nil {
 		printVerifierErrorInfo(err)
@@ -305,6 +313,7 @@ func (pt *ProcessTracer) loadTracer(eventContext *common.EBPFEventContext, p Tra
 		return err
 	}
 	p.AddCloser(i.closables...)
+	i.closables = nil
 
 	// Sock filters support
 	if err := i.sockfilters(p); err != nil {
@@ -347,10 +356,11 @@ func (pt *ProcessTracer) loadTracers(eventContext *common.EBPFEventContext, cfg 
 
 	cache := btf.NewCache()
 
-	for _, p := range pt.Programs {
+	for idx, p := range pt.Programs {
 		if err := pt.loadTracer(eventContext, p, log, cfg, cache); err != nil {
 			log.Warn("couldn't load tracer", "error", err, "required", p.Required())
 			if p.Required() {
+				pt.Programs = append(loadedPrograms, pt.Programs[idx+1:]...)
 				return err
 			}
 		} else {
@@ -366,6 +376,17 @@ func (pt *ProcessTracer) loadTracers(eventContext *common.EBPFEventContext, cfg 
 
 func (pt *ProcessTracer) Init(eventContext *common.EBPFEventContext, cfg *obi.Config) error {
 	return pt.loadTracers(eventContext, cfg)
+}
+
+// Close releases a loaded process tracer that will not be started.
+func (pt *ProcessTracer) Close() error {
+	pt.closeOnce.Do(func() {
+		pt.closeInstrumenters()
+		for _, program := range pt.Programs {
+			pt.closeErr = errors.Join(pt.closeErr, program.Close())
+		}
+	})
+	return pt.closeErr
 }
 
 func (pt *ProcessTracer) NewExecutableInstance(ie *Instrumentable) error {
@@ -413,6 +434,7 @@ func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable)
 	i := instrumenter{
 		key:         ExecutableKey{Dev: ie.FileInfo.Dev(), Ino: ie.FileInfo.Ino()},
 		exe:         exe,
+		exePath:     ie.FileInfo.ProExeLinkPath(),
 		offsets:     ie.Offsets, // this is needed for the function offsets, not fields
 		modules:     map[uint64]struct{}{},
 		metrics:     pt.metrics,
@@ -435,7 +457,7 @@ func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable)
 		p.RegisterOffsets(ie.FileInfo, ie.Offsets)
 	}
 
-	if uprobeKey, ok := pt.resolveUprobeTarget(exe, ie.Offsets); ok {
+	if uprobeKey, ok := pt.resolveUprobeTarget(exe, ie.FileInfo.ProExeLinkPath(), ie.Offsets); ok {
 		i.uprobeKey = uprobeKey
 		if existing := pt.instrumenterForUprobeTarget(uprobeKey); existing != nil {
 			for _, p := range pt.Programs {
@@ -481,7 +503,11 @@ func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable)
 	return nil
 }
 
-func (pt *ProcessTracer) resolveUprobeTarget(exe *link.Executable, offsets *goexec.Offsets) (ExecutableKey, bool) {
+func (pt *ProcessTracer) resolveUprobeTarget(
+	exe *link.Executable,
+	exePath string,
+	offsets *goexec.Offsets,
+) (ExecutableKey, bool) {
 	if pt.Type != Go || offsets == nil {
 		return ExecutableKey{}, false
 	}
@@ -497,7 +523,7 @@ func (pt *ProcessTracer) resolveUprobeTarget(exe *link.Executable, offsets *goex
 			continue
 		}
 
-		dev, ino, err := resolver.ResolveUprobeTarget(exe, probes[0].Start)
+		dev, ino, err := resolver.ResolveUprobeTarget(exe, exePath, probes[0].Start)
 		if err != nil {
 			ptlog().Debug("resolving kernel uprobe target failed", "error", err)
 			return ExecutableKey{}, false
@@ -602,12 +628,12 @@ func (pt *ProcessTracer) unlinkInstrumenter(i *instrumenter) {
 			}
 		})
 	}
-	wg.Wait()
 	for ino := range i.modules {
 		for _, p := range pt.Programs {
-			p.UnlinkInstrumentedLib(ino)
+			wg.Go(func() { p.UnlinkInstrumentedLib(ino) })
 		}
 	}
+	wg.Wait()
 }
 
 // probes still open at exit are released one by one by the kernel. Waits for an
@@ -648,6 +674,7 @@ func printVerifierErrorInfo(err error) {
 }
 
 func RunUtilityTracer(ctx context.Context, eventContext *common.EBPFEventContext, p UtilityTracer, cfg *obi.Config) error {
+	uprobe.ConfigureMulti(cfg.EBPF.DisableUprobeMulti)
 	i := instrumenter{}
 	plog := ptlog()
 	plog.Debug("loading independent eBPF program")

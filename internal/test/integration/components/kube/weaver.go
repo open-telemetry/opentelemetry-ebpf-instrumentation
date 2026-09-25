@@ -48,9 +48,9 @@ const (
 	// weaver pod and drains again).
 	weaverK8sEmptyReportAttempts = 3
 
-	// weaverK8sReadyTimeout bounds the pre-test wait for the weaver tap to come
-	// up (see waitForWeaverReady). It is generous because weaver and weavercol
-	// pull their images from the network on a cold CI node.
+	// weaverK8sReadyTimeout bounds each pre-test readiness phase (see
+	// waitForWeaverReady). It is generous because weaver and weavercol pull
+	// their images from the network on a cold CI node.
 	weaverK8sReadyTimeout = 5 * time.Minute
 )
 
@@ -97,29 +97,39 @@ func (r *weaverRecorder) FailNow() {
 // pulling its image when the tests start, every span is dropped before it and
 // the teardown report degrades to the continuously-emitted metrics only. The
 // metric stream would still make the report non-empty, hiding the gap, so the
-// readiness gate is what actually lets validateWeaver observe spans. Waits on
-// both the weaver admin port and weavercol's telemetry endpoint (the two
-// host-mapped hops of the tap); the suite otelcol comes up from a local image
-// well before either.
+// readiness gate is what actually lets validateWeaver observe spans. Workloads
+// that emit telemetry are deployed only after this function captures the drop
+// baseline, so startup retries cannot cross that boundary. Waits on both the
+// weaver admin port and weavercol's telemetry endpoint (the two host-mapped
+// hops of the tap); the suite otelcol comes up from a local image well before
+// either.
 func (k *Kind) waitForWeaverReady() env.Func {
 	return func(ctx context.Context, _ *envconf.Config) (context.Context, error) {
 		wctx, cancel := context.WithTimeout(ctx, weaverK8sReadyTimeout)
-		defer cancel()
 		weaverURL := fmt.Sprintf("http://127.0.0.1:%d/", WeaverK8sAdminHostPort)
 		if err := waitForHTTP(wctx, weaverURL); err != nil {
+			cancel()
 			return ctx, fmt.Errorf("weaver admin port not ready before tests: %w", err)
 		}
 		weavercolURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", WeaverColMetricsHostPort)
 		if err := waitForHTTP(wctx, weavercolURL); err != nil {
+			cancel()
 			return ctx, fmt.Errorf("weavercol not ready before tests: %w", err)
 		}
 		otelcolURL := fmt.Sprintf("http://127.0.0.1:%d/metrics", OtelcolWeaverMetricsHostPort)
 		if err := waitForHTTP(wctx, otelcolURL); err != nil {
+			cancel()
 			return ctx, fmt.Errorf("suite otelcol telemetry not ready before tests: %w", err)
 		}
-		// Baseline for validateWeaver's teardown drop check (before any traffic).
-		k.tapDropsBaseline, k.tapDropsBaselineErr = k.tapDropCount(wctx)
-		log().Info("weaver(k8s): tap ready, starting tests")
+		cancel()
+
+		// Baseline for validateWeaver's teardown drop check, captured before
+		// telemetry-producing workloads are deployed. Give this request its own
+		// deadline so a slow image pull cannot consume its entire time budget.
+		baselineCtx, cancelBaseline := context.WithTimeout(ctx, weaverK8sReadyTimeout)
+		defer cancelBaseline()
+		k.tapDropsBaseline, k.tapDropsBaselineErr = k.tapDropCount(baselineCtx)
+		log().Info("weaver(k8s): tap ready, allowing telemetry producers to deploy")
 		return ctx, nil
 	}
 }

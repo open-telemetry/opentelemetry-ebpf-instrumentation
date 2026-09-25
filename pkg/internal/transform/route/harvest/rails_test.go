@@ -28,13 +28,20 @@ func TestScanRailsRoutes(t *testing.T) {
 		want   []string
 	}{
 		{"resources", `resources :users`, []string{"/users", "/users/new", "/users/:id", "/users/:id/edit"}},
+		{"multiple resources", `resources :posts, :comments`, []string{"/posts", "/posts/new", "/posts/:id", "/posts/:id/edit", "/comments", "/comments/new", "/comments/:id", "/comments/:id/edit"}},
 		{"multiline options", "resources :users,\n  # public path\n  path: 'people',\n  only: [:index, :show]", []string{"/people", "/people/:id"}},
 		{"limited actions", `resources :users, only: [:index, :show]`, []string{"/users", "/users/:id"}},
+		{"hash rocket only", `resources :posts, :only => :show`, []string{"/posts/:id"}},
+		{"hash rocket multiple resources", `resources :posts, :comments, :only => :show`, []string{"/posts/:id", "/comments/:id"}},
+		{"action options stay local", "resources :users, only: :show\nresources :posts", []string{"/users/:id", "/posts", "/posts/new", "/posts/:id", "/posts/:id/edit"}},
 		{"excluded actions", `resources :users, except: %i[new edit]`, []string{"/users", "/users/:id"}},
+		{"hash rocket except", `resources :users, :except => %i[new edit]`, []string{"/users", "/users/:id"}},
 		{"single action", `resource :profile, only: :show`, []string{"/profile"}},
+		{"hash rocket path and parameter", `resources :users, :path => 'people', :param => :slug`, []string{"/people", "/people/new", "/people/:slug", "/people/:slug/edit"}},
 		{"dynamic actions", `resources :users, only: actions`, nil},
 		{"empty actions", `resources :users, only: []`, nil},
 		{"singular resource", `resource :profile`, []string{"/profile", "/profile/new", "/profile/edit"}},
+		{"multiple singular resources", `resource :profile, :account`, []string{"/profile", "/profile/new", "/profile/edit", "/account", "/account/new", "/account/edit"}},
 		{"custom path and parameter", `resources :users, path: 'people', param: :slug`, []string{"/people", "/people/new", "/people/:slug", "/people/:slug/edit"}},
 		{"literal routes", "get '/users/:id', to: 'users#show'\npost(\"users\", to: 'users#create')\nmatch 'health', via: :all\nget :preview", []string{"/users/:id", "/users", "/health", "/preview"}},
 		{"scopes", "namespace :admin do\nscope path: '/api/v1' do\nget 'status', to: 'status#index'\nend\nend", []string{"/admin", "/api/v1", "/status"}},
@@ -57,7 +64,7 @@ func TestScanRailsRoutes(t *testing.T) {
 }
 
 // A line longer than bufio.Scanner's default 64KiB token limit must not abort
-// the scan; the scanner buffer is sized to the same budget as maxRailsRoutesBytes.
+// the scan; the scanner buffer is sized to the same budget as maxRailsFileBytes.
 func TestScanRailsRoutesLongLine(t *testing.T) {
 	padding := strings.Repeat(" ", 128*1024)
 	source := fmt.Sprintf("# %s\nget '/health'", padding)
@@ -105,6 +112,31 @@ func TestExtractRailsRoutes(t *testing.T) {
 	assert.Empty(t, result.Routes)
 }
 
+func TestReadRailsAPIOnly(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		source string
+		want   bool
+	}{
+		{"enabled", "config.api_only = true", true},
+		{"enabled with comment", "config.api_only = true # generated API application", true},
+		{"disabled", "config.api_only = false", false},
+		{"commented", "# config.api_only = true", false},
+		{"block commented", "=begin\nconfig.api_only = true\n=end", false},
+		{"dynamic", "config.api_only = ENV.fetch('API_ONLY')", false},
+		{"last assignment wins", "config.api_only = true\nconfig.api_only = false", false},
+		{"last assignment enables", "config.api_only = false\nconfig.api_only = true", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "application.rb")
+			require.NoError(t, os.WriteFile(path, []byte(tc.source), 0o644))
+			got, err := readRailsAPIOnly(t.Context(), path)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestExtractRailsRoutesUnsafeFiles(t *testing.T) {
 	for _, kind := range []string{"symlink", "oversized", "directory"} {
 		t.Run(kind, func(t *testing.T) {
@@ -117,7 +149,7 @@ func TestExtractRailsRoutesUnsafeFiles(t *testing.T) {
 				require.NoError(t, os.WriteFile(outside, []byte(`get '/outside'`), 0o644))
 				require.NoError(t, os.Symlink(outside, path))
 			case "oversized":
-				require.NoError(t, os.WriteFile(path, []byte(strings.Repeat(" ", int(maxRailsRoutesBytes)+1)), 0o644))
+				require.NoError(t, os.WriteFile(path, []byte(strings.Repeat(" ", int(maxRailsFileBytes)+1)), 0o644))
 			case "directory":
 				require.NoError(t, os.Mkdir(path, 0o755))
 			}
@@ -186,6 +218,7 @@ func TestRailsIntegrationFixture(t *testing.T) {
 	matcher := RouteMatcherFromResult(*result)
 	for path, want := range map[string]string{
 		"/users/1":                   "/users/:id",
+		"/users/new":                 "/users/:id",
 		"/smoke":                     "/smoke",
 		"/harvest/orders/alpha":      "/harvest/orders/:order_id",
 		"/harvest/orders/beta":       "/harvest/orders/:order_id",

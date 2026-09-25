@@ -310,7 +310,7 @@ func TestInstrumentProbesSkipsMarkedOptionalProbe(t *testing.T) {
 		}},
 	}
 
-	closers, attached, err := i.instrumentProbesWithResults(nil, probes)
+	closers, attached, err := i.instrumentProbesWithResults(nil, "", probes)
 	require.NoError(t, err)
 	assert.Empty(t, closers)
 	assert.False(t, attached["skipped_optional_symbol"])
@@ -352,10 +352,10 @@ func TestGoProbesDoesNotWarnWithoutProbes(t *testing.T) {
 	assert.NotContains(t, logs.String(), "no Go probes attached")
 }
 
-func TestGoProbeGroupRequiresAttachedPrerequisites(t *testing.T) {
+func TestGoProbeGroupRequiresAllSymbols(t *testing.T) {
 	group := ebpfcommon.GoProbeGroup{
-		Name:          "activation",
-		Prerequisites: []string{"synthetic-start", "synthetic-end"},
+		Name:        "activation",
+		RequiresAll: []string{"synthetic-start", "synthetic-end"},
 	}
 
 	assert.False(t, goProbeGroupPrerequisitesAttached(group, map[string]bool{
@@ -368,6 +368,99 @@ func TestGoProbeGroupRequiresAttachedPrerequisites(t *testing.T) {
 	}))
 }
 
+func TestGoProbeGroupRequiresAnySymbol(t *testing.T) {
+	group := ebpfcommon.GoProbeGroup{
+		Name:        "versioned-layout",
+		RequiresAll: []string{"required"},
+		RequiresAny: []string{"RoundTrip", "roundTrip"},
+	}
+
+	assert.False(t, goProbeGroupPrerequisitesAttached(group, map[string]bool{}))
+	assert.False(t, goProbeGroupPrerequisitesAttached(group, map[string]bool{
+		"required": true,
+	}))
+	assert.False(t, goProbeGroupPrerequisitesAttached(group, map[string]bool{
+		"RoundTrip": true,
+	}))
+	assert.True(t, goProbeGroupPrerequisitesAttached(group, map[string]bool{
+		"required":  true,
+		"RoundTrip": true,
+	}))
+	assert.True(t, goProbeGroupPrerequisitesAttached(group, map[string]bool{
+		"required":  true,
+		"roundTrip": true,
+	}))
+}
+
+func TestGoProbeGroupRejectsAnyConflict(t *testing.T) {
+	group := resolvedGoProbeGroup{
+		group: ebpfcommon.GoProbeGroup{
+			Name:         "legacy-layout",
+			ConflictsAny: []string{"modern-layout"},
+		},
+	}
+
+	assert.False(t, goProbeGroupConflictsWithAttached(group, map[goProbeGroupSymbol]struct{}{}))
+	assert.True(t, goProbeGroupConflictsWithAttached(group, map[goProbeGroupSymbol]struct{}{
+		{symbol: "modern-layout"}: {},
+	}))
+}
+
+func TestGoProbeGroupRecordsSymbolsForLaterConflicts(t *testing.T) {
+	modern := resolvedGoProbeGroup{group: ebpfcommon.GoProbeGroup{Probes: []ebpfcommon.GoProbe{
+		{Symbol: "modern-layout"},
+		{Symbol: "shared-helper"},
+	}}}
+	legacy := resolvedGoProbeGroup{group: ebpfcommon.GoProbeGroup{
+		ConflictsAny: []string{"modern-layout"},
+	}}
+	attachedSymbols := map[goProbeGroupSymbol]struct{}{}
+
+	assert.False(t, goProbeGroupConflictsWithAttached(legacy, attachedSymbols))
+	recordGoProbeGroupSymbols(modern, attachedSymbols)
+
+	assert.Contains(t, attachedSymbols, goProbeGroupSymbol{symbol: "modern-layout"})
+	assert.Contains(t, attachedSymbols, goProbeGroupSymbol{symbol: "shared-helper"})
+	assert.True(t, goProbeGroupConflictsWithAttached(legacy, attachedSymbols))
+}
+
+func TestGoProbeGroupConflictsAreScopedToCopy(t *testing.T) {
+	const (
+		modernSymbol = "example.com/library.Modern"
+		legacySymbol = "example.com/library.Legacy"
+	)
+	i := &instrumenter{offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		modernSymbol: {{Symbol: "one/vendor/" + modernSymbol, Start: 0x10}},
+		legacySymbol: {
+			{Symbol: "one/vendor/" + legacySymbol, Start: 0x20},
+			{Symbol: "two/vendor/" + legacySymbol, Start: 0x30},
+		},
+	}}}
+	modern := i.gatherGoProbeGroupOffsets(ebpfcommon.GoProbeGroup{
+		Probes: []ebpfcommon.GoProbe{{
+			Symbol: modernSymbol,
+			Probe:  &ebpfcommon.ProbeDesc{},
+		}},
+	})
+	legacy := i.gatherGoProbeGroupOffsets(ebpfcommon.GoProbeGroup{
+		ConflictsAny: []string{modernSymbol},
+		Probes: []ebpfcommon.GoProbe{{
+			Symbol: legacySymbol,
+			Probe:  &ebpfcommon.ProbeDesc{},
+		}},
+	})
+	require.Len(t, modern, 1)
+	require.Len(t, legacy, 2)
+	assert.Equal(t, "one/vendor/", legacy[0].copyID)
+	assert.Equal(t, "two/vendor/", legacy[1].copyID)
+
+	attachedSymbols := map[goProbeGroupSymbol]struct{}{}
+	recordGoProbeGroupSymbols(modern[0], attachedSymbols)
+
+	assert.True(t, goProbeGroupConflictsWithAttached(legacy[0], attachedSymbols))
+	assert.False(t, goProbeGroupConflictsWithAttached(legacy[1], attachedSymbols))
+}
+
 func TestOptionalProbeAttachmentFailureDoesNotSatisfyGroupPrerequisite(t *testing.T) {
 	i := &instrumenter{}
 	probes := probeDescMap{
@@ -376,13 +469,13 @@ func TestOptionalProbeAttachmentFailureDoesNotSatisfyGroupPrerequisite(t *testin
 		}},
 	}
 
-	closers, attached, err := i.instrumentProbesWithResults(nil, probes)
+	closers, attached, err := i.instrumentProbesWithResults(nil, "", probes)
 
 	require.NoError(t, err)
 	assert.Empty(t, closers)
 	assert.False(t, attached["synthetic-end"])
 	assert.False(t, goProbeGroupPrerequisitesAttached(ebpfcommon.GoProbeGroup{
-		Prerequisites: []string{"synthetic-end"},
+		RequiresAll: []string{"synthetic-end"},
 	}, attached))
 }
 
@@ -392,7 +485,7 @@ func TestZeroLinkProbeDoesNotSatisfyGroupPrerequisite(t *testing.T) {
 		"synthetic-start": {{}},
 	}
 
-	closers, attached, err := i.instrumentProbesWithResults(nil, probes)
+	closers, attached, err := i.instrumentProbesWithResults(nil, "", probes)
 
 	require.NoError(t, err)
 	assert.Empty(t, closers)
@@ -546,6 +639,30 @@ func TestGatherGoProbeGroupOffsetsSkipsIncompleteCopy(t *testing.T) {
 	assert.Empty(t, i.gatherGoProbeGroupOffsets(group))
 }
 
+func TestGatherGoProbeGroupOffsetsRejectsIncompleteHTTP2OwnershipLayout(t *testing.T) {
+	const (
+		encodeHeaders = "net/http.(*http2ClientConn).encodeHeaders"
+		writeHeader   = "net/http.(*http2ClientConn).writeHeader"
+	)
+	group := ebpfcommon.GoProbeGroup{
+		Name: "go_http2_stdlib_legacy_ownership",
+		Probes: []ebpfcommon.GoProbe{
+			{Symbol: encodeHeaders, Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+			{Symbol: writeHeader, Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}}},
+		},
+	}
+	i := &instrumenter{offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		encodeHeaders: {{Symbol: encodeHeaders, Start: 0x10}},
+	}}}
+
+	assert.Empty(t, i.gatherGoProbeGroupOffsets(group))
+
+	i.offsets.Funcs[writeHeader] = []goexec.FuncOffsets{{Symbol: writeHeader, Start: 0x20}}
+	resolved := i.gatherGoProbeGroupOffsets(group)
+	require.Len(t, resolved, 1)
+	require.Len(t, resolved[0].group.Probes, 2)
+}
+
 func TestGatherGoProbeGroupOffsetsRejectsUnknownPaddingBoundary(t *testing.T) {
 	const (
 		writeHeaders = "golang.org/x/net/http2.(*Framer).WriteHeaders"
@@ -572,9 +689,9 @@ func TestGatherGoProbeGroupOffsetsRejectsUnknownPaddingBoundary(t *testing.T) {
 	i.offsets.Funcs[writeHeaders][0].PadOffset = 0x80
 	resolved := i.gatherGoProbeGroupOffsets(group)
 	require.Len(t, resolved, 1)
-	require.Len(t, resolved[0].Probes, 2)
-	assert.Equal(t, uint64(0x20), resolved[0].Probes[0].Probe.StartOffset)
-	assert.Equal(t, uint64(0x30), resolved[0].Probes[1].Probe.StartOffset)
+	require.Len(t, resolved[0].group.Probes, 2)
+	assert.Equal(t, uint64(0x20), resolved[0].group.Probes[0].Probe.StartOffset)
+	assert.Equal(t, uint64(0x30), resolved[0].group.Probes[1].Probe.StartOffset)
 }
 
 func TestGatherGoProbeGroupOffsetsRequiresDirectCall(t *testing.T) {
@@ -603,7 +720,7 @@ func TestGatherGoProbeGroupOffsetsRequiresDirectCall(t *testing.T) {
 	i.offsets.Funcs[writeHeaders][0].CallTargets = []uint64{0x30}
 	resolved := i.gatherGoProbeGroupOffsets(group)
 	require.Len(t, resolved, 1)
-	require.Len(t, resolved[0].Probes, 2)
+	require.Len(t, resolved[0].group.Probes, 2)
 }
 
 func TestGoProbeGroupCompatibilityIsAppliedPerCopy(t *testing.T) {
@@ -624,12 +741,14 @@ func TestGoProbeGroupCompatibilityIsAppliedPerCopy(t *testing.T) {
 
 	resolved := i.gatherGoProbeGroupOffsets(group)
 	require.Len(t, resolved, 2)
-	assert.Empty(t, instrumentOptionalGoProbeGroup(resolved[0], func(string, *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+	assert.Empty(t, resolved[0].copyID)
+	assert.Equal(t, "one/vendor/", resolved[1].copyID)
+	assert.Empty(t, instrumentOptionalGoProbeGroup(resolved[0].group, func(string, *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
 		return []io.Closer{&countingCloser{}}, nil
 	}))
 
 	var attached []uint64
-	closers := instrumentOptionalGoProbeGroup(resolved[1], func(_ string, probe *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+	closers := instrumentOptionalGoProbeGroup(resolved[1].group, func(_ string, probe *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
 		attached = append(attached, probe.StartOffset)
 		return []io.Closer{&countingCloser{}}, nil
 	})
@@ -653,6 +772,29 @@ func TestGatherGoProbeGroupOffsetsDoesNotMixCopies(t *testing.T) {
 	assert.Empty(t, i.gatherGoProbeGroupOffsets(group))
 }
 
+func TestGatherGoProbeGroupOffsetsPreservesSelectionRules(t *testing.T) {
+	group := ebpfcommon.GoProbeGroup{
+		Name:         "versioned-layout",
+		RequiresAll:  []string{"required"},
+		RequiresAny:  []string{"alternative-a", "alternative-b"},
+		ConflictsAny: []string{"newer-layout"},
+		Probes: []ebpfcommon.GoProbe{{
+			Symbol: "library.Start",
+			Probe:  &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}},
+		}},
+	}
+	i := &instrumenter{offsets: &goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
+		"library.Start": {{Symbol: "library.Start", Start: 0x10}},
+	}}}
+
+	resolved := i.gatherGoProbeGroupOffsets(group)
+	require.Len(t, resolved, 1)
+	assert.Equal(t, group.RequiresAll, resolved[0].group.RequiresAll)
+	assert.Equal(t, group.RequiresAny, resolved[0].group.RequiresAny)
+	assert.Equal(t, group.ConflictsAny, resolved[0].group.ConflictsAny)
+	assert.Empty(t, resolved[0].copyID)
+}
+
 func TestGoFunctionCopyID(t *testing.T) {
 	const symbol = "example.com/library.Function"
 
@@ -666,6 +808,51 @@ func TestGoFunctionCopyID(t *testing.T) {
 
 	_, ok = goFunctionCopyID(symbol, "unrelated."+symbol)
 	assert.False(t, ok)
+}
+
+// The libruby probes only correlate on Puma's own threads, so a Ruby process
+// that is not running Puma must not be probed at all.
+func TestMissingUprobeLibraryPrerequisite(t *testing.T) {
+	puma := makeProcMaps(
+		"/usr/local/lib/libruby.so.3.4.10",
+		"/usr/local/bundle/gems/puma-6.6.1/lib/puma/puma_http11.so",
+	)
+	plainRuby := makeProcMaps("/usr/local/lib/libruby.so.3.4.10")
+
+	missing, ok := missingUprobeLibraryPrerequisite("libruby", puma)
+	assert.True(t, ok, "libruby is probed when puma_http11 is mapped")
+	assert.Empty(t, missing)
+
+	missing, ok = missingUprobeLibraryPrerequisite("libruby", plainRuby)
+	assert.False(t, ok, "libruby is skipped when puma_http11 is absent")
+	assert.Equal(t, "puma_http11", missing)
+
+	missing, ok = missingUprobeLibraryPrerequisite("libssl.so", plainRuby)
+	assert.True(t, ok, "libraries without a prerequisite are unaffected")
+	assert.Empty(t, missing)
+}
+
+// Ruby 4.0 no longer routes the common Class#new path through
+// rb_obj_call_init_kw, so the Puma correlation cannot succeed there. The
+// generic tracer declares the library as "libruby[< 4.0]"; this covers how
+// that annotation resolves. The tracer side is asserted in its own package.
+func TestRubyUprobeLibraryIsGatedBelowRuby4(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		path     string
+		selected bool
+	}{
+		{name: "ruby 3.3 is probed", path: "/usr/local/lib/libruby.so.3.3.12", selected: true},
+		{name: "ruby 3.4 is probed", path: "/usr/local/lib/libruby.so.3.4.10", selected: true},
+		{name: "ruby 4.0 is skipped", path: "/usr/local/lib/libruby.so.4.0.1", selected: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base, selected, err := matchVersionedUprobeLibrary("libruby[< 4.0]", makeProcMaps(tc.path))
+			require.NoError(t, err)
+			assert.Equal(t, "libruby", base)
+			assert.Equal(t, tc.selected, selected)
+		})
+	}
 }
 
 func TestMatchVersionedUprobeLibrary(t *testing.T) {
@@ -760,6 +947,35 @@ func TestUprobeModulesRespectsVersionedLibraryAnnotations(t *testing.T) {
 	assert.Contains(t, selectedSymbols, "_asyncio_Task___init__")
 	assert.Contains(t, selectedSymbols, "task_step_legacy")
 	assert.NotContains(t, selectedSymbols, "task_step")
+}
+
+func TestUprobesRecordsFallbackExecutableOnceForMultipleProbeMaps(t *testing.T) {
+	pid := app.PID(os.Getpid())
+	tracer := recordingStubTracer{
+		stubTracer: stubTracer{uprobes: map[string]map[string][]*ebpfcommon.ProbeDesc{
+			"missing-library-one": {
+				"missing_symbol_one": {{}},
+			},
+			"missing-library-two": {
+				"missing_symbol_two": {{}},
+			},
+		}},
+	}
+	i := instrumenter{modules: map[uint64]struct{}{}}
+
+	require.NoError(t, i.uprobes(pid, &tracer, makeProcMaps("/irrelevant")))
+
+	require.Len(t, tracer.recordedLibs, 1)
+	assert.Contains(t, i.modules, tracer.recordedLibs[0])
+}
+
+type recordingStubTracer struct {
+	stubTracer
+	recordedLibs []uint64
+}
+
+func (s *recordingStubTracer) RecordInstrumentedLib(id uint64, _ []io.Closer) {
+	s.recordedLibs = append(s.recordedLibs, id)
 }
 
 func TestResolveInstrPathFallsBackToExecutableWhenLibraryMissing(t *testing.T) {
@@ -1088,11 +1304,12 @@ func TestResolveUprobeTarget(t *testing.T) {
 		goUprobeTargetProbeSymbol: {{Start: 123}},
 	}}
 
-	key, ok := pt.resolveUprobeTarget(nil, offsets)
+	key, ok := pt.resolveUprobeTarget(nil, "/proc/123/exe", offsets)
 
 	require.True(t, ok)
 	assert.Equal(t, ExecutableKey{Dev: 7, Ino: 11}, key)
 	assert.Equal(t, uint64(123), resolver.offset)
+	assert.Equal(t, "/proc/123/exe", resolver.path)
 }
 
 func TestResolveUprobeTargetFallsBackToSeparateAttachment(t *testing.T) {
@@ -1102,7 +1319,7 @@ func TestResolveUprobeTargetFallsBackToSeparateAttachment(t *testing.T) {
 		goUprobeTargetProbeSymbol: {{Start: 123}},
 	}}
 
-	_, ok := pt.resolveUprobeTarget(nil, offsets)
+	_, ok := pt.resolveUprobeTarget(nil, "/proc/123/exe", offsets)
 
 	assert.False(t, ok)
 }
@@ -1194,14 +1411,17 @@ type stubUprobeTargetResolver struct {
 	stubTracer
 	dev    uint64
 	ino    uint64
+	path   string
 	offset uint64
 	err    error
 }
 
 func (s *stubUprobeTargetResolver) ResolveUprobeTarget(
 	_ *link.Executable,
+	path string,
 	offset uint64,
 ) (uint64, uint64, error) {
+	s.path = path
 	s.offset = offset
 	return s.dev, s.ino, s.err
 }
@@ -1210,7 +1430,6 @@ func (s *stubTracer) AllowPID(app.PID, uint32, *exec.FileInfo)               {}
 func (s *stubTracer) BlockPID(app.PID, uint32)                               {}
 func (s *stubTracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error)           { return nil, nil }
 func (s *stubTracer) AddCloser(...io.Closer)                                 {}
-func (s *stubTracer) SetupTailCalls()                                        {}
 func (s *stubTracer) KProbes() map[string]ebpfcommon.ProbeDesc               { return nil }
 func (s *stubTracer) Tracepoints() map[string]ebpfcommon.ProbeDesc           { return nil }
 func (s *stubTracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc           { return s.goProbes }
@@ -1230,6 +1449,7 @@ func (s *stubTracer) ProcessBinary(*exec.FileInfo)                           {}
 func (s *stubTracer) Required() bool                                         { return false }
 func (s *stubTracer) SetEventContext(*ebpfcommon.EBPFEventContext)           {}
 func (s *stubTracer) Capabilities() ebpfcommon.TracerCapability              { return 0 }
+func (s *stubTracer) Close() error                                           { return nil }
 func (s *stubTracer) Run(context.Context, *ebpfcommon.EBPFEventContext, *msg.Queue[[]request.Span]) {
 }
 

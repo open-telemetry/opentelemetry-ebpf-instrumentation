@@ -309,7 +309,7 @@ func fetchGoAutoSDKTraces(service, operation string) (jaeger.TracesQuery, error)
 		"operation": {operation},
 		"limit":     {goAutoSDKTraceQueryLimit},
 	}
-	resp, err := http.Get(jaegerQueryURL + "?" + params.Encode())
+	resp, err := getJaeger(jaegerQueryURL + "?" + params.Encode())
 	if err != nil {
 		return jaeger.TracesQuery{}, err
 	}

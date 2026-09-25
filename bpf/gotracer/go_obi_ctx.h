@@ -16,7 +16,9 @@
 
 #include <shared/obi_ctx.h>
 
-// One stack per goroutine with the spans that are still running. Logs get the top span
+// One stack per goroutine with the spans that are still running. Logs get the top span.
+// The stack exists only to feed traces_ctx_v1, so it is not maintained when nothing
+// reads that map
 
 enum obi_ctx_kind : u8 {
     k_obi_ctx_none = 0,
@@ -179,6 +181,10 @@ obi_ctx__publish_current(u64 pid_tgid, const go_addr_key_t *g_key, const obi_ctx
 // A span started: it becomes the goroutine's current context
 static __always_inline void
 go_obi_ctx__begin(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp, u32 stack_off) {
+    if (!g_traces_ctx_v1_enabled) {
+        return;
+    }
+
     obi_ctx__set(bpf_get_current_pid_tgid(), tp);
 
     obi_ctx_stack_t *st = bpf_map_lookup_elem(&obi_ctx_stacks, g_key);
@@ -237,6 +243,10 @@ go_obi_ctx__begin(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp, u32 
 // without tp while its kind has unstored spans, belongs to a span that was never stored
 static __always_inline void
 go_obi_ctx__end(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp) {
+    if (!g_traces_ctx_v1_enabled) {
+        return;
+    }
+
     const u64 pid_tgid = bpf_get_current_pid_tgid();
 
     obi_ctx_stack_t *st = bpf_map_lookup_elem(&obi_ctx_stacks, g_key);
@@ -265,6 +275,10 @@ go_obi_ctx__end(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp) {
 
 // The goroutine got scheduled: put its current span on this thread, or clear the thread
 static __always_inline void go_obi_ctx__resume(u64 pid_tgid, const go_addr_key_t *g_key) {
+    if (!g_traces_ctx_v1_enabled) {
+        return;
+    }
+
     const obi_ctx_stack_t *st = bpf_map_lookup_elem(&obi_ctx_stacks, g_key);
     const tp_info_t *tp = st ? obi_ctx__current(st) : NULL;
     if (tp) {

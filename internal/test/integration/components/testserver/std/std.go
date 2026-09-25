@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc"
@@ -55,6 +56,11 @@ func HTTPHandler(log *slog.Logger, echoPort int) http.HandlerFunc {
 
 		if req.RequestURI == "/echoCall" {
 			echoCall(rw)
+			return
+		}
+
+		if req.RequestURI == "/echoBigHeader" {
+			echoBigHeader(rw, echoPort)
 			return
 		}
 
@@ -133,6 +139,37 @@ func echo(rw http.ResponseWriter, port int) {
 	slog.Debug("calling", "url", requestURL)
 
 	res, err := http.Get(requestURL)
+	if err != nil {
+		slog.Error("error making http request", "error", err)
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	defer res.Body.Close()
+	rw.WriteHeader(res.StatusCode)
+}
+
+var bigHeaderClient = &http.Client{Transport: &http.Transport{WriteBufferSize: bigHeaderWriteBufferSize}}
+
+const (
+	bigHeaderWriteBufferSize = 1 << 20
+	bigHeaderPadSize         = 80 << 10
+)
+
+func echoBigHeader(rw http.ResponseWriter, port int) {
+	requestURL := "http://localhost:" + strconv.Itoa(port) + "/echoBack?status=203"
+
+	slog.Debug("calling with big header", "url", requestURL)
+
+	req, err := http.NewRequest(http.MethodGet, requestURL, nil)
+	if err != nil {
+		slog.Error("error creating http request", "error", err)
+		rw.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+	req.Header.Set("X-Pad", strings.Repeat("obi", bigHeaderPadSize))
+
+	res, err := bigHeaderClient.Do(req)
 	if err != nil {
 		slog.Error("error making http request", "error", err)
 		rw.WriteHeader(http.StatusInternalServerError)

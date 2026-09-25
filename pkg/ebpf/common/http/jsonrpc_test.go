@@ -257,3 +257,40 @@ func TestJSONRPCSpan_BodyRestoredAfterRead(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, respBody, string(body))
 }
+
+// Go's net/rpc/jsonrpc sends `"jsonrpc":"2.0"` bodies, so the protocol version
+// cannot tell a net/rpc method from a payload-extracted one. Enrichment must
+// carry the uprobe's reading of `Service.Method` across instead.
+func TestJSONRPCSpan_PreservesGoNetRPCQualification(t *testing.T) {
+	reqBody := `{"jsonrpc":"2.0","method":"Arith.Traceme","id":1}`
+	respBody := `{"jsonrpc":"2.0","result":{},"id":1}`
+
+	span := request.Span{
+		SubType: request.HTTPSubtypeJSONRPC,
+		JSONRPC: &request.JSONRPC{
+			Method:           "Arith.Traceme",
+			Version:          request.JSONRPCVersionV1,
+			ServiceQualified: true,
+		},
+	}
+
+	result, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, "", reqBody), newJSONRPCResponse(respBody))
+	require.True(t, ok)
+	require.NotNil(t, result.JSONRPC)
+	assert.True(t, result.JSONRPC.ServiceQualified)
+	assert.Equal(t, "Arith.Traceme", result.JSONRPC.Method)
+	assert.Equal(t, "Arith/Traceme", result.JSONRPC.QualifiedMethod())
+}
+
+func TestJSONRPCSpan_PayloadOnlyMethodStaysUnqualified(t *testing.T) {
+	reqBody := `{"jsonrpc":"2.0","method":"inventory.lookup.v2","id":1}`
+	respBody := `{"jsonrpc":"2.0","result":{},"id":1}`
+
+	span := request.Span{}
+
+	result, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, "", reqBody), newJSONRPCResponse(respBody))
+	require.True(t, ok)
+	require.NotNil(t, result.JSONRPC)
+	assert.False(t, result.JSONRPC.ServiceQualified)
+	assert.Equal(t, "inventory.lookup.v2", result.JSONRPC.QualifiedMethod())
+}

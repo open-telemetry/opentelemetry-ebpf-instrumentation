@@ -6,17 +6,25 @@
 package io.opentelemetry.obi.java.ebpf;
 
 import io.opentelemetry.obi.java.Agent;
+import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.Socket;
 
 public class ProxyInputStream extends InputStream {
+  private static final String JDK_APP_INPUT_STREAM =
+      "sun.security.ssl.SSLSocketImpl$AppInputStream";
+
   private final InputStream delegate;
   private final Socket socket;
 
   public ProxyInputStream(InputStream delegate, Socket socket) {
     this.delegate = delegate;
     this.socket = socket;
+  }
+
+  public static boolean requiresProxy(String streamClassName) {
+    return !JDK_APP_INPUT_STREAM.equals(streamClassName);
   }
 
   @Override
@@ -26,20 +34,34 @@ public class ProxyInputStream extends InputStream {
 
   @Override
   public int read(byte[] b) throws IOException {
-    int len = delegate.read(b);
-    if (len > 0) {
-      forwardRead(b, 0, len);
+    boolean capture = SSLStorage.enterSSLSocketRead();
+    try {
+      int len = delegate.read(b);
+      if (capture && len > 0) {
+        forwardRead(b, 0, len);
+      }
+      return len;
+    } finally {
+      if (capture) {
+        SSLStorage.exitSSLSocketRead();
+      }
     }
-    return len;
   }
 
   @Override
   public int read(byte[] b, int off, int len) throws IOException {
-    int bytesRead = delegate.read(b, off, len);
-    if (bytesRead > 0) {
-      forwardRead(b, off, bytesRead);
+    boolean capture = SSLStorage.enterSSLSocketRead();
+    try {
+      int bytesRead = delegate.read(b, off, len);
+      if (capture && bytesRead > 0) {
+        forwardRead(b, off, bytesRead);
+      }
+      return bytesRead;
+    } finally {
+      if (capture) {
+        SSLStorage.exitSSLSocketRead();
+      }
     }
-    return bytesRead;
   }
 
   void forwardRead(byte[] b, int off, int len) {

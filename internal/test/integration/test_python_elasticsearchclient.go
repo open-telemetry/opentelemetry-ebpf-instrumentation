@@ -67,7 +67,7 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 	t.Log(fullJaegerURL)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(fullJaegerURL)
+		resp, err := getJaeger(fullJaegerURL)
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -100,17 +100,28 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 
 			assert.Contains(ct, span.OperationName, operationName)
 
+			// An operation that carries no body or names no index reports
+			// neither attribute rather than emitting it empty.
 			tag, found = jaeger.FindIn(span.Tags, "db.query.text")
-			assert.True(ct, found)
-			assert.Equal(ct, queryText, tag.Value.(string))
+			if queryText == "" {
+				assert.False(ct, found)
+			} else {
+				assert.True(ct, found)
+				assert.Equal(ct, queryText, tag.Value.(string))
+			}
 
 			tag, found = jaeger.FindIn(span.Tags, "db.collection.name")
-			assert.True(ct, found)
-			assert.Equal(ct, index, tag.Value)
+			if index == "" {
+				assert.False(ct, found)
+			} else {
+				assert.True(ct, found)
+				assert.Equal(ct, index, tag.Value)
+			}
 
-			tag, found = jaeger.FindIn(span.Tags, "db.namespace")
-			assert.True(ct, found)
-			assert.Empty(ct, tag.Value)
+			// Elasticsearch reports no namespace, so the attribute is omitted
+			// rather than emitted empty.
+			_, found = jaeger.FindIn(span.Tags, "db.namespace")
+			assert.False(ct, found)
 
 			tag, found = jaeger.FindIn(span.Tags, "db.system.name")
 			assert.True(ct, found)
@@ -122,9 +133,10 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 			assert.True(ct, found)
 			assert.NotEmpty(ct, tag.Value)
 
-			tag, found = jaeger.FindIn(span.Tags, "elasticsearch.node.name")
-			assert.True(ct, found)
-			assert.Empty(ct, tag.Value)
+			// Only Elastic Cloud reports the handling instance, so a local
+			// Elasticsearch omits the attribute rather than emitting it empty.
+			_, found = jaeger.FindIn(span.Tags, "elasticsearch.node.name")
+			assert.False(ct, found)
 		}
 	}, testTimeout, 100*time.Millisecond)
 }

@@ -782,6 +782,11 @@
                   "type": "boolean",
                   "default": false,
                   "description": "Disable black-box context propagation.\nIf omitted, false is used.\n"
+                },
+                "populate_trace_context": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Keep the pinned `traces_ctx_v1` map populated for readers outside OBI, such as a profiler doing trace-profile correlation. OBI's own readers turn population on by themselves.\nIf omitted, false is used.\n"
                 }
               }
             },
@@ -2087,6 +2092,7 @@
                 "enum": [
                   "tcp_rtt",
                   "tcp_failed_connections",
+                  "tcp_successful_connections",
                   "tcp_retransmits",
                   "tcp_io"
                 ]

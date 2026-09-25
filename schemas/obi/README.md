@@ -5,6 +5,58 @@ semantic-conventions registry with the signals and attributes OBI emits in
 addition to — or as overrides of — the standard semconv set. Together with the
 upstream dependency it forms the complete contract of what OBI emits
 
+## Adding telemetry
+
+Every metric, span or attribute OBI starts emitting over OTLP must be declared
+here in the same change:
+
+- **An upstream metric emitted unchanged** (same name, unit, instrument and
+  data-point attributes): import it in the domain's `imports.yaml`, as
+  `groups/nodejs/imports.yaml` and `groups/dotnet/imports.yaml` do.
+- **An upstream metric OBI emits differently**, or one of OBI's own: add a
+  `metric.obi.<metric_name>` group to `groups/<domain>/metrics.yaml` listing
+  every attribute the metric's `attr_defs.go` section can carry, each with a
+  requirement level.
+- **A span**: add its attributes to the `span.obi.*` group of the emitter branch
+  that produces it, or add a group for a new branch, and a case to
+  `internal/schemacheck/emitted_contract_test.go`.
+- **An attribute upstream does not define**: declare it in the domain's
+  `registry.yaml` under `registry.obi.<namespace>`.
+
+Then run `make lint-schema` and `make generate-schema-docs`, and make sure an
+integration suite that runs weaver exercises the new telemetry (see below).
+
+## What validation covers
+
+Checked on every change, without running OBI:
+
+- `make lint-schema`: the registry resolves and is well-formed.
+- `internal/schemacheck`: every signal attribute declares a requirement level;
+  the span attributes the exporter emits for each case in
+  `emitted_contract_test.go` match their `span.obi.*` group exactly; OBI's
+  copies of upstream metrics keep upstream's unit, instrument and stability, and
+  win resolution over the upstream group.
+
+Checked only when an integration suite that runs weaver exercises it:
+
+- Weaver live-check sees what OBI actually sent and fails on an undeclared
+  metric (`missing_metric`), an undeclared attribute (`missing_attribute`), an
+  enum value the registry does not list, or a `required` metric attribute that
+  is missing.
+
+Not enforced today:
+
+- There is no deterministic check that every metric in
+  `pkg/export/attributes/metric.go` is declared; an undeclared metric fails
+  only once a weaver-validated suite emits it.
+- Spans are not matched to a `span.obi.*` group by live-check, which checks each
+  span attribute against the registry as a whole. Group membership, span kind
+  and required span attributes are checked only for the cases in
+  `emitted_contract_test.go`.
+- `conditionally_required` conditions are prose and are not evaluated.
+- Span names, and output specific to the Prometheus exporter, are not described
+  by the registry.
+
 ## Overriding an upstream definition
 
 Weaver has **no precedence or merge semantics** between a local group and the
@@ -57,6 +109,10 @@ stops holding.
 
 Attribute groups declaring OBI-own attributes use `registry.obi.<namespace>`;
 overrides of an upstream attribute use `x.obi.<namespace>` per the rules above.
+An attribute group that declares no attribute of its own and exists only as the
+base a signal's groups `extends` is named after that signal — the messaging span
+groups share `span.obi.messaging.common` — so it stays out of the attribute
+pages, which document what OBI defines.
 
 ## Two override styles
 

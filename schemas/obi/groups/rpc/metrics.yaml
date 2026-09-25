@@ -11,10 +11,18 @@ groups:
     stability: release_candidate
     attributes:
       - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
       - ref: rpc.method
+        requirement_level: recommended
       - ref: rpc.response.status_code
+        requirement_level:
+          conditionally_required: if the status is inside the gRPC enum
       - ref: rpc.system.name
+        requirement_level: required
       - ref: server.address
+        requirement_level:
+          recommended: if the server address could be resolved
 
   - id: metric.obi.rpc.server.call.duration
     type: metric
@@ -30,7 +38,13 @@ groups:
       - ref: client.address
         requirement_level: opt_in
       - ref: rpc.method
+        requirement_level: recommended
       - ref: rpc.response.status_code
+        requirement_level:
+          conditionally_required: if the status is inside the gRPC enum
       - ref: rpc.system.name
+        requirement_level: required
       - ref: server.address
+        requirement_level: recommended
       - ref: server.port
+        requirement_level: recommended

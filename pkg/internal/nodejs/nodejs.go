@@ -14,9 +14,12 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/netns"
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -74,14 +77,18 @@ func (i *NodeInjector) Accepts(ie *ebpf.Instrumentable) bool {
 	return true
 }
 
+const skippingInjection = "skipping Node.js agent injection. Trace-context propagation and " +
+	"Node.js runtime metrics will not work"
+
 // Inject injects into an accepted target.
 //
-// The executable and the signal go through the target's pinned process handle,
-// so a PID the kernel recycled between discovery and here cannot be signaled
-// in the original's place. The rest still works from the numeric PID: the gates
-// read /proc, and the inspector conversation enters a network namespace, so a
-// replacement can be the process examined and — where an inspector is already
-// listening, which needs no signal — the one injected.
+// The executable, the signal and its disposition all go through the target's
+// pinned process handle, so a PID the kernel recycled between discovery and
+// here cannot be signaled in the original's place. The rest still works from
+// the numeric PID: the handler gate reads the process memory and the inspector
+// conversation enters a network namespace, so a replacement can be the process
+// examined and — where an inspector is already listening, which needs no
+// signal — the one injected.
 func (i *NodeInjector) Inject(ctx context.Context, target InjectionTarget) {
 	pid := target.Pid
 	i.log.Debug("loading NodeJS instrumentation", "pid", pid, "trigger", i.injectionTrigger())
@@ -105,6 +112,11 @@ func (i *NodeInjector) Inject(ctx context.Context, target InjectionTarget) {
 	}
 	defer elfFile.Close()
 
+	if reason := i.runtimeRefusal(target, elfFile); reason != "" {
+		i.log.Warn(skippingInjection, "pid", pid, "reason", reason)
+		return
+	}
+
 	if err := i.attachAgent(ctx, target, elfFile); err != nil {
 		i.log.Error("couldn't attach NodeJS injector", "pid", pid, "error", err)
 		i.log.Error("trace-context propagation and nodejs runtime metrics will not work for NodeJS services!")
@@ -126,7 +138,7 @@ func (i *NodeInjector) attachAgent(ctx context.Context, target InjectionTarget, 
 		return err
 	}
 
-	reason := sigusr1Refusal(ctx, pid, elfFile)
+	reason := sigusr1Refusal(ctx, target.Process, elfFile)
 
 	// Shutdown is not a refusal: the gates were abandoned rather than answered,
 	// so nothing was concluded about this process and nothing is reported.
@@ -135,8 +147,7 @@ func (i *NodeInjector) attachAgent(ctx context.Context, target InjectionTarget, 
 	}
 
 	if reason != "" {
-		i.log.Warn("not sending SIGUSR1 to open the Node.js inspector, skipping agent injection. "+
-			"Node.js trace correlation will not work", "pid", pid, "reason", reason)
+		i.log.Warn(skippingInjection, "pid", pid, "reason", reason)
 		return nil
 	}
 
@@ -150,13 +161,16 @@ func (i *NodeInjector) attachAgent(ctx context.Context, target InjectionTarget, 
 			return fmt.Errorf("failed to connect to inspector after SIGUSR1: %w", err)
 		}
 
-		return i.injectViaConn(conn)
+		// SIGUSR1 opened this port, so this injection closes it again.
+		return i.injectViaConn(conn, true)
 	})
 }
 
 // injectViaOpenInspector handles the case of an inspector already listening,
 // as it is under --inspect, where no signal is needed at all. The first return
 // value reports whether the injection was carried out.
+//
+// The port was the application's before OBI connected, so it is left open.
 func (i *NodeInjector) injectViaOpenInspector(pid int) (bool, error) {
 	injected := false
 
@@ -175,41 +189,76 @@ func (i *NodeInjector) injectViaOpenInspector(pid int) (bool, error) {
 
 		i.log.Debug("Node.js inspector already open, injecting directly", "pid", pid)
 		injected = true
-		return i.injectViaConn(conn)
+		return i.injectViaConn(conn, false)
 	})
 
 	return injected, err
 }
 
+// Every reason an injection is skipped, in the order they are decided: what the
+// executable says first, then what the process says about SIGUSR1.
 const (
+	refusalVersionUnknown      = "the Node.js version could not be read from the executable"
+	refusalNoAsyncLocalStorage = "Node.js %s does not provide AsyncLocalStorage, " +
+		"which the injected agent requires: it was added in %s and backported to %s"
+	// Refusing the whole injection rather than dropping the bridge alone: the
+	// two scripts are evaluated as one expression, and manual spans are opt-in,
+	// so silently not delivering them would be worse than saying so.
+	refusalManualSpansTooOld = "nodejs.manual_spans needs Node.js %s or newer for the span " +
+		"bridge to parse, and this process runs %s"
+
 	refusalSignalIsFatal           = "SIGUSR1 is neither caught nor ignored, so it would terminate the process"
-	refusalDispositionUnknown      = "the process caught and ignored signal sets could not be read"
+	refusalDispositionUnknown      = "SIGUSR1 handling is unknown: the process caught and ignored signal sets could not be read"
 	refusalHandlerFound            = "process has a custom SIGUSR1 handler"
 	refusalSourceReferencesSIGUSR1 = "process source files reference SIGUSR1"
 )
+
+// runtimeRefusal reports why this executable must not be injected, or "" when it
+// may be. It decides before touching the process, so a runtime the agent cannot
+// run on is never signaled and its debugger port is never opened — which also keeps
+// OBI off Node.js 9.3.0, where closing the inspector again segfaults the process.
+//
+// A version that cannot be read is a refusal rather than a pass: it is the only
+// evidence the agent can run there.
+func (i *NodeInjector) runtimeRefusal(target InjectionTarget, elfFile *elf.File) string {
+	nodeVersion, ok := nodeVersionFromProcess(target, elfFile)
+	if !ok {
+		return refusalVersionUnknown
+	}
+
+	if !supportsAsyncLocalStorage(nodeVersion) {
+		return fmt.Sprintf(refusalNoAsyncLocalStorage, nodeVersion.Original(),
+			node13Backport.Original(), minInjectableVersion.Original())
+	}
+
+	if i.cfg.NodeJS.ManualSpans && !supportsManualSpans(nodeVersion) {
+		return fmt.Sprintf(refusalManualSpansTooOld,
+			minManualSpansVersion.Original(), nodeVersion.Original())
+	}
+
+	return ""
+}
 
 // dispositionWait bounds how long to wait for the runtime to install its own
 // SIGUSR1 handler. Node installs it about 11ms after exec, and until then
 // SIGUSR1 terminates the process, so a process discovered at exec time is
 // otherwise refused for a condition that clears on its own.
-const (
-	dispositionWait     = 500 * time.Millisecond
-	dispositionInterval = 10 * time.Millisecond
-)
+const dispositionWait = 500 * time.Millisecond
 
 // sigusr1Refusal reports why the signal is withheld, or an empty reason when
 // it is safe to send. Discovery has already established that this is a Node.js
 // runtime; what is left is whether the signal would terminate it, and whether
 // the application has taken the signal over.
-func sigusr1Refusal(ctx context.Context, pid int, elfFile *elf.File) string {
+func sigusr1Refusal(ctx context.Context, process *procs.ProcessHandle, elfFile *elf.File) string {
+	pid := int(process.PID())
 	syms := readNodeSymbols(elfFile)
 
-	switch awaitSignalDisposition(ctx, pid) {
-	case signalDispositionFatal:
+	switch process.AwaitSignalDisposition(ctx, unix.SIGUSR1, dispositionWait) {
+	case procs.SignalDispositionFatal:
 		return refusalSignalIsFatal
-	case signalDispositionUnknown:
+	case procs.SignalDispositionUnknown:
 		return refusalDispositionUnknown
-	case signalDispositionHandled:
+	case procs.SignalDispositionHandled:
 	}
 
 	switch hasUserSIGUSR1Handler(pid, elfFile, syms) {
@@ -225,30 +274,6 @@ func sigusr1Refusal(ctx context.Context, pid int, elfFile *elf.File) string {
 	}
 
 	return ""
-}
-
-// awaitSignalDisposition waits out the window after exec in which a runtime
-// has not yet installed its own SIGUSR1 handler, so a process discovered at
-// exec time is not refused for a condition that clears on its own.
-//
-// Cancellation reports Unknown rather than the last reading: shutdown says
-// nothing about the target, and claiming the signal would have killed it would
-// log a conclusion never reached.
-func awaitSignalDisposition(ctx context.Context, pid int) signalDisposition {
-	deadline := time.Now().Add(dispositionWait)
-
-	for {
-		disposition := sigusr1Disposition(pid)
-		if disposition != signalDispositionFatal || time.Now().After(deadline) {
-			return disposition
-		}
-
-		select {
-		case <-ctx.Done():
-			return signalDispositionUnknown
-		case <-time.After(dispositionInterval):
-		}
-	}
 }
 
 // isNodeInspector validates that a connection to port 9229 is actually a
@@ -279,6 +304,9 @@ const (
 	rtEnabledOn              = "= true; /*OBI_RT_ENABLED*/"
 	tracesEnabledPlaceholder = "= false; /*OBI_TRACES_ENABLED*/"
 	tracesEnabledOn          = "= true; /*OBI_TRACES_ENABLED*/"
+
+	ctxHookEnabledPlaceholder = "= false; /*OBI_CTX_HOOK_ENABLED*/"
+	ctxHookEnabledOn          = "= true; /*OBI_CTX_HOOK_ENABLED*/"
 )
 
 // agentCode returns the extractor script with the RT gate substituted from
@@ -294,6 +322,9 @@ func (i *NodeInjector) agentCode() string {
 	}
 	if i.cfg.Traces.Enabled() || i.cfg.TracePrinter.Enabled() {
 		code = strings.Replace(code, tracesEnabledPlaceholder, tracesEnabledOn, 1)
+	}
+	if i.cfg.PopulateTraceContext() {
+		code = strings.Replace(code, ctxHookEnabledPlaceholder, ctxHookEnabledOn, 1)
 	}
 	if i.cfg.NodeJS.ManualSpans {
 		code += ";\n" + _spanBridgeCode

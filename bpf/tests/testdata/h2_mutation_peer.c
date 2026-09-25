@@ -131,4 +131,24 @@ int h2_mutation_peer(struct sk_msg_md *msg) {
     return SK_PASS;
 }
 
+// Loaded only by the privileged test that injects into two frames of one write.
+SEC("sk_msg")
+int h2_mutation_peer_two_frames(struct sk_msg_md *msg) {
+    enum {
+        k_test_payload_len = 8,
+        k_test_frame_len = k_h2_frame_header_len + k_test_payload_len,
+        k_test_second_frame = k_test_frame_len + k_h2_tp_hpack_size,
+    };
+
+    if (h2_write_socket_transaction(msg, 0, k_test_payload_len, k_test_frame_len, expected_hpack) ==
+        k_h2_socket_transaction_committed) {
+        h2_write_socket_transaction(msg,
+                                    k_test_second_frame,
+                                    k_test_payload_len,
+                                    k_test_second_frame + k_test_frame_len,
+                                    expected_hpack);
+    }
+    return SK_PASS;
+}
+
 char __license[] SEC("license") = "Dual MIT/GPL";

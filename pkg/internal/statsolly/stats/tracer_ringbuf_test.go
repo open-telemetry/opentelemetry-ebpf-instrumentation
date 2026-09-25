@@ -24,10 +24,11 @@ import (
 const traceLoopTestTimeout = time.Second
 
 const (
-	wireSizeTCPRtt              = 44
-	wireSizeTCPFailedConnection = 40
-	wireSizeTCPRetransmit       = 40
-	wireSizeTCPIo               = 80
+	wireSizeTCPRtt                  = 44
+	wireSizeTCPFailedConnection     = 40
+	wireSizeTCPSuccessfulConnection = 40
+	wireSizeTCPRetransmit           = 40
+	wireSizeTCPIo                   = 80
 
 	wireFlagsOffset          = 0
 	wireRttRoleOffset        = 1
@@ -36,6 +37,8 @@ const (
 	wireFailedReasonOffset   = 1
 	wireFailedRoleOffset     = 2
 	wireFailedConnOffset     = 4
+	wireSuccessfulRoleOffset = 1
+	wireSuccessfulConnOffset = 4
 	wireRetransmitConnOffset = 4
 	wireTCPIoDirectionOffset = 1
 	wireTCPIoCountOffset     = 2
@@ -50,6 +53,7 @@ const (
 func TestStatsEventWireSizes(t *testing.T) {
 	assert.Equal(t, uintptr(wireSizeTCPRtt), unsafe.Sizeof(ebpf.StatsTCPRtt{}))
 	assert.Equal(t, uintptr(wireSizeTCPFailedConnection), unsafe.Sizeof(ebpf.StatsTCPFailedConnection{}))
+	assert.Equal(t, uintptr(wireSizeTCPSuccessfulConnection), unsafe.Sizeof(ebpf.StatsTCPSuccessfulConnection{}))
 	assert.Equal(t, uintptr(wireSizeTCPRetransmit), unsafe.Sizeof(ebpf.StatsTCPRetransmit{}))
 	assert.Equal(t, uintptr(wireSizeTCPIo), unsafe.Sizeof(ebpf.StatsTCPIo{}))
 }
@@ -85,6 +89,14 @@ func TestParseStatDecodesEveryEventType(t *testing.T) {
 	failedRaw[wireFailedReasonOffset] = uint8(ebpf.CodeConnectionRefused)
 	failedRaw[wireFailedRoleOffset] = uint8(ebpf.CodeRoleClient)
 	failedRaw[3] = 0xb1
+	successfulRaw := newWireStat(
+		ebpf.StatTypeTCPSuccessfulConnection,
+		wireSizeTCPSuccessfulConnection,
+		wireSuccessfulConnOffset,
+		ipv4Conn,
+	)
+	successfulRaw[wireSuccessfulRoleOffset] = uint8(ebpf.CodeRoleServer)
+	successfulRaw[2], successfulRaw[3] = 0xe1, 0xe2
 	retransmitRaw := newWireStat(
 		ebpf.StatTypeTCPRetransmit,
 		wireSizeTCPRetransmit,
@@ -124,6 +136,17 @@ func TestParseStatDecodesEveryEventType(t *testing.T) {
 					Role:   uint8(ebpf.CodeRoleClient),
 				},
 				CommonAttrs: commonAttrs(ipv6Conn),
+			},
+		},
+		{
+			name: "successful connection with IPv4 addresses",
+			raw:  successfulRaw,
+			want: &ebpf.Stat{
+				Type: ebpf.StatTypeTCPSuccessfulConnection,
+				TCPSuccessfulConnection: &ebpf.TCPSuccessfulConnection{
+					Role: uint8(ebpf.CodeRoleServer),
+				},
+				CommonAttrs: commonAttrs(ipv4Conn),
 			},
 		},
 		{
@@ -329,6 +352,7 @@ func minimalWireStats() []struct {
 	}{
 		{"TCP RTT", newWireStat(ebpf.StatTypeTCPRtt, wireSizeTCPRtt, wireRttConnOffset, ebpf.Conn{})},
 		{"failed connection", newWireStat(ebpf.StatTypeTCPFailedConnection, wireSizeTCPFailedConnection, wireFailedConnOffset, ebpf.Conn{})},
+		{"successful connection", newWireStat(ebpf.StatTypeTCPSuccessfulConnection, wireSizeTCPSuccessfulConnection, wireSuccessfulConnOffset, ebpf.Conn{})},
 		{"TCP retransmit", newWireStat(ebpf.StatTypeTCPRetransmit, wireSizeTCPRetransmit, wireRetransmitConnOffset, ebpf.Conn{})},
 		{"TCP I/O", newWireStat(ebpf.StatTypeTCPIo, wireSizeTCPIo, wireTCPIoConnOffset, ebpf.Conn{})},
 	}

@@ -33,13 +33,16 @@ func openAIBaseURL() string {
 }
 
 func proxyPost(w http.ResponseWriter, path string, payload any, raiseForStatus bool) {
+	proxyPostURL(w, openAIBaseURL()+path, payload, raiseForStatus)
+}
+
+func proxyPostURL(w http.ResponseWriter, url string, payload any, raiseForStatus bool) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	url := openAIBaseURL() + path
 	resp, err := httpClient.Post(url, "application/json", bytes.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -94,6 +97,34 @@ func embeddings(w http.ResponseWriter, _ *http.Request) {
 	proxyPost(w, "/v1/embeddings", payload, true)
 }
 
+func cohereEmbeddings(w http.ResponseWriter, _ *http.Request) {
+	payload := map[string]any{
+		"texts":           []string{"The food was delicious"},
+		"model":           "embed-v4.0",
+		"input_type":      "search_document",
+		"embedding_types": []string{"float"},
+	}
+	proxyPostURL(w, os.Getenv("COHERE_BASE_URL")+"/v2/embed", payload, true)
+}
+
+func voyageEmbeddings(w http.ResponseWriter, _ *http.Request) {
+	payload := map[string]any{
+		"input": []string{"The food was delicious"},
+		"model": "voyage-3.5",
+	}
+	proxyPostURL(w, os.Getenv("VOYAGE_BASE_URL")+"/v1/embeddings", payload, true)
+}
+
+func rerank(w http.ResponseWriter, _ *http.Request) {
+	payload := map[string]any{
+		"model":     "rerank-v3.5",
+		"query":     "What is the capital of the United States?",
+		"documents": []string{"Carson City is the capital of Nevada.", "Washington, D.C. is the capital of the United States."},
+		"top_n":     2,
+	}
+	proxyPostURL(w, os.Getenv("COHERE_BASE_URL")+"/v2/rerank", payload, true)
+}
+
 func chat(w http.ResponseWriter, _ *http.Request) {
 	payload := map[string]any{
 		"messages": []map[string]any{
@@ -125,6 +156,9 @@ func main() {
 	mux.HandleFunc("GET /embeddings", embeddings)
 	mux.HandleFunc("GET /chat", chat)
 	mux.HandleFunc("GET /conversations", conversations)
+	mux.HandleFunc("GET /embeddings/cohere", cohereEmbeddings)
+	mux.HandleFunc("GET /embeddings/voyage", voyageEmbeddings)
+	mux.HandleFunc("GET /rerank", rerank)
 
 	const port = 8080
 	fmt.Printf("Server running: port=%d process_id=%d\n", port, os.Getpid())

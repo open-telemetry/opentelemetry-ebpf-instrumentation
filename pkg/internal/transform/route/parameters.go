@@ -32,6 +32,9 @@ func routeParam(part string) (bool, bool) {
 	}
 	if strings.HasPrefix(part, "{") && strings.HasSuffix(part, "}") {
 		name := part[1 : len(part)-1]
+		if isInlineConstrainedParam(name) {
+			return false, true
+		}
 		tail := strings.HasPrefix(name, "*")
 		if tail {
 			name = strings.TrimPrefix(name, "*")
@@ -59,6 +62,28 @@ func routeParam(part string) (bool, bool) {
 		return found && converterName(conv) == "path", true
 	}
 	return false, false
+}
+
+// isInlineConstrainedParam handles parameter contents shaped like
+// some PHP frameworks, like: id<\d+>, or page<\d+>?1.
+func isInlineConstrainedParam(value string) bool {
+	constraintStart := strings.IndexByte(value, '<')
+	constraintEnd := strings.LastIndexByte(value, '>')
+	if constraintStart <= 0 || constraintEnd <= constraintStart+1 {
+		return false
+	}
+
+	if !validParamName(value[:constraintStart]) {
+		return false
+	}
+
+	constraint := value[constraintStart+1 : constraintEnd]
+	if strings.ContainsAny(constraint, "/<>") {
+		return false
+	}
+
+	suffix := value[constraintEnd+1:]
+	return suffix == "" || strings.HasPrefix(suffix, "?") && !strings.Contains(suffix, "}")
 }
 
 func validParamName(name string) bool {

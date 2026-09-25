@@ -17,7 +17,6 @@ import (
 
 	dockercompose "go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
-	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
 func TestInstrumentationErrors(t *testing.T) {
@@ -67,17 +66,6 @@ func TestAvoidedServicesMetrics(t *testing.T) {
 	t.Run("Avoided services metrics are recorded", func(t *testing.T) {
 		// Wait for the service to start and make some requests to trigger OTLP detection
 		otelWaitForTestComponents(t, "http://localhost:8080", "/smoke")
-
-		// Give time for the service to export metrics/traces
-		time.Sleep(15 * time.Second)
-
-		// Make additional requests to ensure OTLP endpoints are hit
-		for range 3 {
-			ti.DoHTTPGet(t, "http://localhost:8080/rolldice", 200)
-			time.Sleep(1 * time.Second)
-		}
-
-		// Check that avoided services metrics are present
 		checkAvoidedServicesMetrics(t)
 	})
 }
@@ -111,9 +99,23 @@ func checkAvoidedServicesMetrics(t *testing.T) {
 	const internalMetricsURL = "http://localhost:8999/internal/metrics"
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		// Keep producing telemetry until OBI observes an OTLP export from the service.
+		triggerResp, err := http.Get("http://localhost:8080/rolldice")
+		require.NoError(ct, err)
+		if err != nil {
+			return
+		}
+		defer triggerResp.Body.Close()
+		require.Equal(ct, http.StatusOK, triggerResp.StatusCode)
+
 		parser := expfmt.NewTextParser(model.UTF8Validation)
 		resp, err := http.Get(internalMetricsURL)
 		require.NoError(ct, err)
+		if err != nil {
+			return
+		}
+		defer resp.Body.Close()
+
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
 		metrics, err := parser.TextToMetricFamilies(resp.Body)

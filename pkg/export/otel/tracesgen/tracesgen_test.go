@@ -335,7 +335,7 @@ func TestHTTPServerSpanURLQuery(t *testing.T) {
 	})
 }
 
-func TestHTTPRequestMethodOmittedWhenEmpty(t *testing.T) {
+func TestHTTPRequestMethodClampedWhenEmpty(t *testing.T) {
 	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
 	require.NoError(t, err)
 
@@ -347,15 +347,15 @@ func TestHTTPRequestMethodOmittedWhenEmpty(t *testing.T) {
 		wantOK    bool
 	}{
 		{name: "server span with known method", spanType: request.EventTypeHTTP, method: "GET", wantValue: "GET", wantOK: true},
-		{name: "server span with empty method", spanType: request.EventTypeHTTP, method: "", wantOK: false},
+		{name: "server span with empty method", spanType: request.EventTypeHTTP, method: "", wantValue: request.HTTPMethodOther, wantOK: true},
 		{name: "client span with known method", spanType: request.EventTypeHTTPClient, method: "GET", wantValue: "GET", wantOK: true},
-		{name: "client span with empty method", spanType: request.EventTypeHTTPClient, method: "", wantOK: false},
+		{name: "client span with empty method", spanType: request.EventTypeHTTPClient, method: "", wantValue: request.HTTPMethodOther, wantOK: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			span := &request.Span{Type: tt.spanType, Method: tt.method, Path: "/", Host: "example.com", HostPort: 80, Status: 200}
 			selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
 			val, ok := selected.Get("http.request.method")
-			assert.Equal(t, tt.wantOK, ok, "http.request.method presence should match method availability")
+			assert.Equal(t, tt.wantOK, ok, "http.request.method is required, so it is always present")
 			if tt.wantOK {
 				assert.Equal(t, tt.wantValue, val.Str())
 			}
@@ -1512,6 +1512,114 @@ func TestTraceAttributesSelector_GenAITokenDetailAvailability(t *testing.T) {
 	}
 }
 
+// PeerServiceFromSpan reports nothing for a server span, so service.peer.name
+// is absent there rather than emitted empty.
+func TestAerospikeServerSpanOmitsPeerService(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		event request.EventType
+		want  bool
+	}{
+		{name: "client", event: request.EventTypeAerospikeClient, want: true},
+		{name: "server", event: request.EventTypeAerospikeServer, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			span := &request.Span{
+				Type:     tc.event,
+				Method:   "Get",
+				Host:     "10.0.0.1",
+				HostPort: 3000,
+				HostName: "aerospike-1",
+				Peer:     "10.0.0.2",
+			}
+
+			attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+
+			_, ok := attrs.Get(string(semconv.ServicePeerNameKey))
+			assert.Equal(t, tc.want, ok)
+		})
+	}
+}
+
+// Kafka carries the client id in every request header, so an empty one was
+// sent by the client. MQTT and NATS only see it on CONNECT, so an empty one
+// was not observed.
+func TestEmptyMessagingClientID(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		event request.EventType
+		want  bool
+	}{
+		{name: "kafka", event: request.EventTypeKafkaClient, want: true},
+		{name: "mqtt", event: request.EventTypeMQTTClient, want: false},
+		{name: "nats", event: request.EventTypeNATSClient, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			span := &request.Span{Type: tc.event, Method: request.MessagingPublish, Path: "topic"}
+
+			attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+
+			v, ok := attrs.Get(string(semconv.MessagingClientIDKey))
+			require.Equal(t, tc.want, ok)
+			if ok {
+				assert.Empty(t, v.AsString())
+			}
+		})
+	}
+}
+
+// The response model falls back to the request model, which is itself reported
+// only when the parser recovered one, so neither is emitted when both are empty.
+func TestGenAIResponseModelFallbackIsGuarded(t *testing.T) {
+	span := &request.Span{
+		Type:     request.EventTypeHTTPClient,
+		SubType:  request.HTTPSubtypeQwen,
+		Method:   "POST",
+		Path:     "/compatible-mode/v1/chat/completions",
+		Host:     "dashscope.aliyuncs.com",
+		HostPort: 443,
+		Status:   200,
+		GenAI:    &request.GenAI{Qwen: &request.VendorOpenAI{OperationName: "chat"}},
+	}
+
+	attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+
+	_, ok := attrs.Get(string(semconv.GenAIResponseModelKey))
+	assert.False(t, ok, "gen_ai.response.model must be absent when neither model was parsed")
+
+	span.GenAI.Qwen.Request.Model = "qwen-max"
+	attrs = AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+	model, ok := attrs.Get(string(semconv.GenAIResponseModelKey))
+	require.True(t, ok, "the fallback must still report the request model when one was parsed")
+	assert.Equal(t, "qwen-max", model.Str())
+}
+
+// url.scheme comes from the connection, so it is reported whenever one was
+// captured and omitted when none was.
+func TestHTTPClientSchemeFollowsTheCapturedScheme(t *testing.T) {
+	span := &request.Span{
+		Type:      request.EventTypeHTTPClient,
+		Method:    "GET",
+		Path:      "/v1/things",
+		FullPath:  "/v1/things",
+		Host:      "api.example.com",
+		HostPort:  443,
+		Statement: "https;api.example.com",
+		Status:    200,
+	}
+
+	attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+
+	scheme, ok := attrs.Get(string(semconv.URLSchemeKey))
+	require.True(t, ok, "url.scheme must be reported when a scheme was captured")
+	assert.Equal(t, "https", scheme.Str())
+
+	span.Statement = ""
+	attrs = AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+	_, ok = attrs.Get(string(semconv.URLSchemeKey))
+	assert.False(t, ok, "url.scheme must be absent when no scheme was captured")
+}
+
 func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
 	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
 	require.NoError(t, err)
@@ -1568,14 +1676,16 @@ func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			span := &request.Span{
-				Type:     request.EventTypeHTTPClient,
-				SubType:  tt.subType,
-				Method:   "POST",
-				Path:     "/v1/things",
-				FullPath: "/v1/things?q=1",
-				Host:     "api.example.com",
-				HostPort: 443,
-				Status:   200,
+				Type:      request.EventTypeHTTPClient,
+				SubType:   tt.subType,
+				Method:    "POST",
+				Path:      "/v1/things",
+				FullPath:  "/v1/things?q=1",
+				Host:      "api.example.com",
+				HostPort:  443,
+				HostName:  "api",
+				Statement: "https;api.example.com",
+				Status:    200,
 			}
 			if tt.payload != nil {
 				tt.payload(span)
@@ -1594,7 +1704,7 @@ func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
 
 			for _, key := range []string{"server.address", "server.port", "service.peer.name"} {
 				_, ok := selected.Get(key)
-				assert.True(t, ok, "%s must survive on every http client subtype", key)
+				assert.True(t, ok, "%s must survive on every http client subtype when the span carries a value for it", key)
 			}
 		})
 	}

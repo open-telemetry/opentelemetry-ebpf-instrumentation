@@ -35,12 +35,15 @@ type http2HeaderObservation struct {
 }
 
 type http2OwnershipResult struct {
-	Transport string                   `json:"transport"`
-	Repeated  []http2HeaderObservation `json:"repeated"`
-	Controls  []http2HeaderObservation `json:"controls"`
-	MuxOwned  http2HeaderObservation   `json:"mux_owned"`
-	MuxPlain  http2HeaderObservation   `json:"mux_plain"`
-	Error     string                   `json:"error"`
+	Transport  string                   `json:"transport"`
+	Repeated   []http2HeaderObservation `json:"repeated"`
+	Controls   []http2HeaderObservation `json:"controls"`
+	LargeOwned http2HeaderObservation   `json:"large_owned"`
+	LargePlain http2HeaderObservation   `json:"large_plain"`
+	MultiPlain http2HeaderObservation   `json:"multi_plain"`
+	MuxOwned   http2HeaderObservation   `json:"mux_owned"`
+	MuxPlain   http2HeaderObservation   `json:"mux_plain"`
+	Error      string                   `json:"error"`
 }
 
 func testREDMetricsForHTTP2Library(t *testing.T, route, svcNs string) {
@@ -95,7 +98,7 @@ func testNestedHTTP2Traces(t *testing.T, url string) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=client&operation=GET%20%2F" + url)
+		resp, err := getJaeger(jaegerQueryURL + "?service=client&operation=GET%20%2F" + url)
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -118,7 +121,7 @@ func testNestedHTTP2Traces(t *testing.T, url string) {
 
 	// Find the same traceID on a server span
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=server&operation=GET%20%2F" + url + "&traceID=" + traceID)
+		resp, err := getJaeger(jaegerQueryURL + "?service=server&operation=GET%20%2F" + url + "&traceID=" + traceID)
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -177,15 +180,60 @@ func testHTTP2GO(t *testing.T, compose *docker.Compose, useHTTPProtocols bool) {
 }
 
 func testHTTP2TraceparentOwnership(t *testing.T, compose *docker.Compose) {
-	resp, err := http.Get("http://localhost:7575/run")
-	require.NoError(t, err)
-	require.Equal(t, http.StatusNoContent, resp.StatusCode)
-	require.NoError(t, resp.Body.Close())
+	tests := []struct {
+		name       string
+		service    string
+		url        string
+		transports []string
+	}{
+		{
+			name:       "current",
+			service:    "testclient",
+			url:        "http://localhost:7575/run",
+			transports: []string{"tls", "plaintext"},
+		},
+		{
+			name:       "legacy x/net",
+			service:    "testclient-xnet-legacy",
+			url:        "http://localhost:7576/run",
+			transports: []string{"tls", "plaintext"},
+		},
+		{
+			name:       "legacy stdlib",
+			service:    "testclient-stdlib-legacy",
+			url:        "http://localhost:7577/run",
+			transports: []string{"tls"},
+		},
+	}
 
-	for _, transport := range []string{"tls", "plaintext"} {
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			testHTTP2TraceparentOwnershipClient(t, compose, test.service, test.url, test.transports)
+		})
+	}
+}
+
+func testHTTP2TraceparentOwnershipClient(
+	t *testing.T,
+	compose *docker.Compose,
+	service string,
+	url string,
+	transports []string,
+) {
+	client := &http.Client{Timeout: time.Minute}
+
+	for _, transport := range transports {
 		t.Run(transport, func(t *testing.T) {
 			require.EventuallyWithT(t, func(ct *assert.CollectT) {
-				logs, err := compose.LogsTail(1000, "testclient")
+				resp, err := client.Get(url)
+				require.NoError(ct, err)
+				if err != nil {
+					return
+				}
+				require.Equal(ct, http.StatusNoContent, resp.StatusCode)
+				require.NoError(ct, resp.Body.Close())
+
+				logs, err := compose.LogsTail(1000, service)
 				require.NoError(ct, err)
 
 				lastErr := fmt.Errorf("no %s ownership result logged", transport)
@@ -247,6 +295,25 @@ func validateHTTP2OwnershipResult(result http2OwnershipResult) error {
 		if err := validateHTTP2InjectedObservation(observation); err != nil {
 			return fmt.Errorf("control request %d: %w", i, err)
 		}
+	}
+	if err := validateHTTP2Observation(result.LargeOwned, http2OwnedTraceparent); err != nil {
+		return fmt.Errorf("owned CONTINUATION request: %w", err)
+	}
+	if err := validateHTTP2InjectedObservation(result.LargePlain); err != nil {
+		return fmt.Errorf("plain CONTINUATION request: %w", err)
+	}
+	if err := validateHTTP2InjectedObservation(result.MultiPlain); err != nil {
+		return fmt.Errorf("multi-CONTINUATION request: %w", err)
+	}
+	if result.LargeOwned.RemoteAddr != remoteAddr || result.LargePlain.RemoteAddr != remoteAddr ||
+		result.MultiPlain.RemoteAddr != remoteAddr {
+		return fmt.Errorf(
+			"CONTINUATION requests did not use persistent connection %q: owned=%q plain=%q multi=%q",
+			remoteAddr,
+			result.LargeOwned.RemoteAddr,
+			result.LargePlain.RemoteAddr,
+			result.MultiPlain.RemoteAddr,
+		)
 	}
 
 	if err := validateHTTP2Observation(result.MuxOwned, http2MuxTraceparent); err != nil {

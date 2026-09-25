@@ -67,7 +67,6 @@ func (r *recordingTracer) BlockPIDLifecycle(
 
 func (r *recordingTracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error)           { return nil, nil }
 func (r *recordingTracer) AddCloser(...io.Closer)                                 {}
-func (r *recordingTracer) SetupTailCalls()                                        {}
 func (r *recordingTracer) KProbes() map[string]ebpfcommon.ProbeDesc               { return nil }
 func (r *recordingTracer) Tracepoints() map[string]ebpfcommon.ProbeDesc           { return nil }
 func (r *recordingTracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc           { return nil }
@@ -87,6 +86,7 @@ func (r *recordingTracer) ProcessBinary(*execpkg.FileInfo)                      
 func (r *recordingTracer) Required() bool                                         { return false }
 func (r *recordingTracer) SetEventContext(*ebpfcommon.EBPFEventContext)           {}
 func (r *recordingTracer) Capabilities() ebpfcommon.TracerCapability              { return 0 }
+func (r *recordingTracer) Close() error                                           { return nil }
 func (r *recordingTracer) Run(context.Context, *ebpfcommon.EBPFEventContext, *msg.Queue[[]request.Span]) {
 }
 
@@ -97,7 +97,7 @@ func TestMonitorPIDsAllowsPythonWorkerOnce(t *testing.T) {
 	program := &recordingTracer{}
 	tracer := &ebpf.ProcessTracer{Programs: []ebpf.Tracer{program}}
 
-	(&traceAttacher{}).monitorPIDs(tracer, &ebpf.Instrumentable{
+	(&traceAttacher{}).monitorPIDs(t.Context(), tracer, &ebpf.Instrumentable{
 		Type: svc.InstrumentablePython, FileInfo: worker,
 	})
 
@@ -386,7 +386,7 @@ func TestMonitorPIDs_PropagatesNameToServiceSource(t *testing.T) {
 	program := &recordingTracer{}
 	tracer := &ebpf.ProcessTracer{Programs: []ebpf.Tracer{program}}
 
-	(&traceAttacher{}).monitorPIDs(tracer, &ebpf.Instrumentable{
+	(&traceAttacher{}).monitorPIDs(t.Context(), tracer, &ebpf.Instrumentable{
 		Type: svc.InstrumentablePython, FileInfo: worker,
 	})
 

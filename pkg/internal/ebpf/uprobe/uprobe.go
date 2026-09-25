@@ -13,6 +13,8 @@ import (
 	"math"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/asm"
@@ -21,8 +23,37 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// one decision shared by load-time attach types and attach-time links
-var multiSupported = sync.OnceValue(func() bool {
+const traceFSShutdownTimeoutMultiplier = 3
+
+var (
+	traceFSFallbackUsed atomic.Bool
+	multiDisabled       atomic.Bool
+)
+
+// EffectiveShutdownTimeout allows extra time for tracefs uprobes to be removed.
+// this is trully only needed for kernels 5.15 - 5.19. earlier than 5.15 allow us to
+// use the PMU for uprobes without SYS_ADMIN and after 5.19 we can use whole group
+// delete of the tracefs probes on shutdown. 6.6+ supports uprobe_multi, so we don't
+// even need these tracefs legacy uprobes.
+func EffectiveShutdownTimeout(configured time.Duration) time.Duration {
+	if traceFSFallbackUsed.Load() {
+		return traceFSShutdownTimeoutMultiplier * configured
+	}
+	return configured
+}
+
+// ConfigureMulti disables uprobe_multi for subsequent loads and attachments. It's meant
+// for testing only.
+func ConfigureMulti(disabled bool) {
+	multiDisabled.Store(disabled)
+}
+
+func multiSupported() bool {
+	return !multiDisabled.Load() && kernelSupportsMulti()
+}
+
+// one kernel decision shared by load-time attach types and attach-time links
+var kernelSupportsMulti = sync.OnceValue(func() bool {
 	if err := features.HaveBPFLinkUprobeMulti(); err != nil {
 		slog.Info("attaching uprobes as perf events, the kernel has no uprobe_multi links", "reason", err)
 		return false
@@ -84,16 +115,25 @@ func PrepareSpecs(spec *ebpf.CollectionSpec) {
 
 func markMultiPrograms(spec *ebpf.CollectionSpec) {
 	tailCallTargets := progArrayContents(spec)
-	for name, prog := range spec.Programs {
-		if prog.Type != ebpf.Kprobe || prog.AttachType != ebpf.AttachNone || !isUprobeSection(prog.SectionName) {
+	twins := map[string]bool{}
+	for _, name := range uprobePrograms(spec) {
+		prog := spec.Programs[name]
+		if tailCallTargets[name] || !hasMultiTwins(spec, prog) {
 			continue
 		}
-		// the kernel rejects tail calls between programs with different attach types
-		if tailCallTargets[name] || referencesProgArray(spec, prog) {
-			continue
-		}
+		retargetProgArrays(spec, prog, twins)
 		prog.AttachType = ebpf.AttachTraceUprobeMulti
 	}
+}
+
+func uprobePrograms(spec *ebpf.CollectionSpec) []string {
+	names := make([]string, 0, len(spec.Programs))
+	for name, prog := range spec.Programs {
+		if prog.Type == ebpf.Kprobe && prog.AttachType == ebpf.AttachNone && isUprobeSection(prog.SectionName) {
+			names = append(names, name)
+		}
+	}
+	return names
 }
 
 func isUprobeSection(name string) bool {
@@ -108,24 +148,90 @@ func progArrayContents(spec *ebpf.CollectionSpec) map[string]bool {
 			continue
 		}
 		for _, kv := range m.Contents {
-			switch value := kv.Value.(type) {
-			case string:
-				targets[value] = true
-			case *ebpf.ProgramSpec:
-				targets[value.Name] = true
-			}
+			targets[progArrayEntry(kv.Value)] = true
 		}
 	}
 	return targets
 }
 
-func referencesProgArray(spec *ebpf.CollectionSpec, prog *ebpf.ProgramSpec) bool {
+func progArrayEntry(value any) string {
+	switch v := value.(type) {
+	case string:
+		return v
+	case *ebpf.ProgramSpec:
+		return v.Name
+	}
+	return ""
+}
+
+// the kernel rejects tail calls between programs with different attach types,
+// so multi programs use a twin of every prog array, declared next to it in C
+const uprobeMultiSuffix = "_um"
+
+func referencedProgArrays(spec *ebpf.CollectionSpec, prog *ebpf.ProgramSpec) []string {
+	var tables []string
 	for _, ins := range prog.Instructions {
 		if m, ok := spec.Maps[ins.Reference()]; ok && m.Type == ebpf.ProgramArray {
-			return true
+			tables = append(tables, ins.Reference())
 		}
 	}
-	return false
+	return tables
+}
+
+func hasMultiTwins(spec *ebpf.CollectionSpec, prog *ebpf.ProgramSpec) bool {
+	for _, table := range referencedProgArrays(spec, prog) {
+		if _, ok := spec.Maps[table+uprobeMultiSuffix]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func retargetProgArrays(spec *ebpf.CollectionSpec, prog *ebpf.ProgramSpec, twins map[string]bool) {
+	for i, ins := range prog.Instructions {
+		table := ins.Reference()
+		if m, ok := spec.Maps[table]; !ok || m.Type != ebpf.ProgramArray {
+			continue
+		}
+		prog.Instructions[i] = ins.WithReference(uprobeMultiTwin(spec, table, twins))
+	}
+}
+
+// uprobeMultiTwin fills the twin prog array with uprobe_multi copies of the programs
+func uprobeMultiTwin(spec *ebpf.CollectionSpec, table string, twins map[string]bool) string {
+	twinName := table + uprobeMultiSuffix
+	if twins[twinName] {
+		return twinName
+	}
+	twins[twinName] = true
+	twin := spec.Maps[twinName]
+	if twin == nil {
+		// a clone reached a table nobody twinned: leave it, the kernel refuses the load
+		return table
+	}
+	for i, kv := range twin.Contents {
+		if target := progArrayEntry(kv.Value); target != "" {
+			twin.Contents[i] = ebpf.MapKV{Key: kv.Key, Value: uprobeMultiClone(spec, target, twins)}
+		}
+	}
+	return twinName
+}
+
+func uprobeMultiClone(spec *ebpf.CollectionSpec, name string, twins map[string]bool) string {
+	cloneName := name + uprobeMultiSuffix
+	if _, ok := spec.Programs[cloneName]; ok {
+		return cloneName
+	}
+	original, ok := spec.Programs[name]
+	if !ok {
+		return name
+	}
+	clone := original.Copy()
+	clone.Name = cloneName
+	clone.AttachType = ebpf.AttachTraceUprobeMulti
+	spec.Programs[cloneName] = clone
+	retargetProgArrays(spec, clone, twins)
+	return cloneName
 }
 
 type Options struct {
@@ -135,13 +241,14 @@ type Options struct {
 	Return       bool
 }
 
-// Attach uses one uprobe_multi link, or perf events where the kernel refuses it with EINVAL
-func Attach(exe *link.Executable, prog *ebpf.Program, opts Options) (io.Closer, error) {
+// Attach uses one uprobe_multi link, or perf events where the kernel refuses it with EINVAL.
+// A perf uprobe denied with EACCES is retried through tracefs.
+func Attach(exe *link.Executable, path string, prog *ebpf.Program, opts Options) (io.Closer, error) {
 	if len(opts.Addresses) == 0 {
 		return nil, errors.New("attaching uprobe: no addresses")
 	}
 	if !multiSupported() {
-		return attachPerfEvents(exe, prog, opts)
+		return attachLegacy(exe, path, prog, opts)
 	}
 	closer, multiErr := attachMulti(exe, prog, opts)
 	if multiErr == nil {
@@ -150,7 +257,7 @@ func Attach(exe *link.Executable, prog *ebpf.Program, opts Options) (io.Closer, 
 	if !errors.Is(multiErr, unix.EINVAL) {
 		return nil, multiErr
 	}
-	closer, err := attachPerfEvents(exe, prog, opts)
+	closer, err := attachLegacy(exe, path, prog, opts)
 	if err != nil {
 		return nil, errors.Join(multiErr, err)
 	}
@@ -176,6 +283,13 @@ func multiOptions(opts Options) *link.UprobeMultiOptions {
 	return multiOpts
 }
 
+func attachLegacy(exe *link.Executable, path string, prog *ebpf.Program, opts Options) (io.Closer, error) {
+	return attachWithTraceFSFallback(
+		func() (io.Closer, error) { return attachPerfEvents(exe, prog, opts) },
+		func() (io.Closer, error) { return attachTraceFS(path, prog, opts) },
+	)
+}
+
 func attachPerfEvents(exe *link.Executable, prog *ebpf.Program, opts Options) (io.Closer, error) {
 	links := make(perfEventLinks, 0, len(opts.Addresses))
 	for _, address := range opts.Addresses {
@@ -199,6 +313,38 @@ func attachPerfEvents(exe *link.Executable, prog *ebpf.Program, opts Options) (i
 		return links[0], nil
 	}
 	return links, nil
+}
+
+var traceFSFallbackLog = sync.OnceFunc(func() {
+	slog.Info("attached uprobe through tracefs because PMU access was denied")
+})
+
+var traceFSErrorFallbackLog sync.Once
+
+func attachWithTraceFSFallback(
+	attachPerf func() (io.Closer, error),
+	attachTraceFS func() (io.Closer, error),
+) (io.Closer, error) {
+	closer, err := attachPerf()
+	if err == nil || !errors.Is(err, unix.EACCES) {
+		return closer, err
+	}
+
+	slog.Debug("failed to use uprobe with PMU, likely no SYS_ADMIN capability provided, trying tracefs attach", "error", err)
+
+	closer, traceFSErr := attachTraceFS()
+	if traceFSErr != nil {
+		traceFSErrorFallbackLog.Do(func() {
+			slog.Error(
+				"cannot attach tracefs based uprobe, maybe CAP_DAC_OVERRIDE is missing or tracefs/debugfs is not mounted",
+				"error", traceFSErr,
+			)
+		})
+		return nil, errors.Join(err, traceFSErr)
+	}
+	traceFSFallbackUsed.Store(true)
+	traceFSFallbackLog()
+	return closer, nil
 }
 
 type perfEventLinks []io.Closer

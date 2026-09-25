@@ -6,21 +6,47 @@ groups:
     brief: OBI outbound database client span.
     attributes:
       - ref: db.system.name
+        requirement_level: required
       - ref: db.namespace
+        requirement_level:
+          conditionally_required: if the exchange named a database
       - ref: db.collection.name
+        requirement_level:
+          conditionally_required: if the exchange named a collection
       - ref: db.operation.name
+        requirement_level:
+          conditionally_required: if the operation could be parsed from the exchange
       - ref: db.operation.batch.size
+        requirement_level:
+          recommended: if the operation is a batch
       - ref: db.query.text
-      - ref: db.response.status_code
-      - ref: error.type
-      - ref: server.address
-      - ref: server.port
-      - ref: service.peer.name
-      - ref: span.metrics.skip
-      - ref: network.peer.address
-      - ref: network.peer.port
-      - ref: db.query.summary
         requirement_level: opt_in
+      - ref: db.response.status_code
+        requirement_level:
+          conditionally_required: if the operation failed and the status code is available
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
+      - ref: server.address
+        requirement_level: recommended
+      - ref: server.port
+        requirement_level:
+          conditionally_required: if using a port other than the default port for this DBMS and if `server.address` is set
+      - ref: service.peer.name
+        requirement_level:
+          recommended: if the peer service name could be resolved
+      - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
+      - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
+      - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
+      - ref: db.query.summary
+        requirement_level:
+          recommended: if a summary could be derived from the query
 
   # Elasticsearch is recognised from HTTP client traffic, so these spans carry
   # the HTTP client base set on top of the db.* attributes. The native database
@@ -33,27 +59,58 @@ groups:
     brief: OBI Elasticsearch client span, detected from HTTP client traffic.
     attributes:
       - ref: http.request.method
+        requirement_level: required
       - ref: http.request.method_original
-        requirement_level: opt_in
+        requirement_level:
+          conditionally_required: if the wire method is outside the semconv enum
       - ref: url.full
+        requirement_level: required
       # Appended unconditionally for this subtype, outside the transport gate
       # the other HTTP response attributes sit behind.
       - ref: http.response.body.size
+        requirement_level: recommended
       - ref: db.system.name
+        requirement_level: required
       - ref: db.namespace
+        requirement_level:
+          conditionally_required: if the server reported a namespace
       - ref: db.collection.name
+        requirement_level:
+          conditionally_required: if the operation targets a named collection
       - ref: db.operation.name
+        requirement_level: required
       - ref: db.query.text
+        requirement_level: opt_in
       - ref: elasticsearch.node.name
+        requirement_level:
+          recommended: if the response identified the node
       - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
       - ref: server.address
+        requirement_level:
+          conditionally_required: if the peer address was resolved from the connection
       - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
       - ref: service.peer.name
+        requirement_level:
+          recommended: if the peer service name could be resolved
       - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
       - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
       - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
       - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
       - ref: db.response.status_code
+        requirement_level:
+          conditionally_required: if a response was received
   - id: span.obi.db.server
     type: span
     span_kind: server
@@ -61,16 +118,39 @@ groups:
     brief: OBI inbound database server span.
     attributes:
       - ref: db.system.name
+        requirement_level: required
       - ref: db.namespace
+        requirement_level:
+          conditionally_required: if the exchange named a database
       - ref: db.collection.name
+        requirement_level:
+          conditionally_required: if the exchange named a collection
       - ref: db.operation.name
+        requirement_level:
+          conditionally_required: if the operation could be parsed from the exchange
       - ref: db.query.text
-      - ref: db.response.status_code
-      - ref: error.type
-      - ref: server.address
-      - ref: server.port
-      - ref: span.metrics.skip
-      - ref: network.peer.address
-      - ref: network.peer.port
-      - ref: db.query.summary
         requirement_level: opt_in
+      - ref: db.response.status_code
+        requirement_level:
+          conditionally_required: if the operation failed and the status code is available
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
+      - ref: server.address
+        requirement_level:
+          conditionally_required: if the host address was resolved from the connection
+      - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
+      - ref: span.metrics.skip
+        requirement_level:
+          conditionally_required: if a span-metrics feature is enabled
+      - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
+      - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
+      - ref: db.query.summary
+        requirement_level:
+          recommended: if a summary could be derived from the query

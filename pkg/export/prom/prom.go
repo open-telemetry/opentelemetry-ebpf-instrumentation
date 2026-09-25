@@ -39,29 +39,25 @@ import (
 // injectable function reference for testing
 var timeNow = time.Now
 
-// CloudHostIDKey is the attribute key used to label metrics with the host id
-// of the monitored entity, as reported by the executable inspector. It is used
-// for both application-level and trace-level metrics.
-var CloudHostIDKey = "cloud_host_id"
+// Span metric, service graph and info metric names in Prometheus convention, derived from the
+// OTLP definitions the OTEL exporter instruments, declared in pkg/export/attributes.
+var (
+	SpanMetricsLatency       = attributes.SpanMetricsLatencyLegacy.Prom
+	SpanMetricsLatencyOTel   = attributes.SpanMetricsDurationOTel.Prom
+	SpanMetricsCalls         = attributes.SpanMetricsCallsLegacy.Prom
+	SpanMetricsCallsOTel     = attributes.SpanMetricsCallsOTel.Prom
+	SpanMetricsRequestSizes  = attributes.SpanMetricsRequestSize.Prom
+	SpanMetricsResponseSizes = attributes.SpanMetricsResponseSize.Prom
+	TracesTargetInfo         = attributes.TracesTargetInfo.Prom
+	TargetInfo               = attributes.TargetInfo.Prom
 
-// using labels and names that are equivalent names to the OTEL attributes
-// but following the different naming conventions
+	ServiceGraphClient = attributes.ServiceGraphClient.Prom
+	ServiceGraphServer = attributes.ServiceGraphServer.Prom
+	ServiceGraphFailed = attributes.ServiceGraphFailed.Prom
+	ServiceGraphTotal  = attributes.ServiceGraphTotal.Prom
+)
+
 const (
-	SpanMetricsLatency       = "traces_spanmetrics_latency"
-	SpanMetricsLatencyOTel   = "traces_span_metrics_duration_seconds"
-	SpanMetricsCalls         = "traces_spanmetrics_calls_total"
-	SpanMetricsCallsOTel     = "traces_span_metrics_calls_total"
-	SpanMetricsRequestSizes  = "traces_spanmetrics_size_total"
-	SpanMetricsResponseSizes = "traces_spanmetrics_response_size_total"
-	TracesTargetInfo         = "traces_target_info"
-	TracesHostInfo           = "traces_host_info"
-	TargetInfo               = "target_info"
-
-	ServiceGraphClient = "traces_service_graph_request_client_seconds"
-	ServiceGraphServer = "traces_service_graph_request_server_seconds"
-	ServiceGraphFailed = "traces_service_graph_request_failed_total"
-	ServiceGraphTotal  = "traces_service_graph_request_total"
-
 	serviceNameKey      = "service_name"
 	serviceNamespaceKey = "service_namespace"
 
@@ -215,7 +211,6 @@ type metricsReporter struct {
 	spanMetricsCallsTotal        *Expirer[prometheus.Counter]
 	spanMetricsRequestSizeTotal  *Expirer[prometheus.Counter]
 	spanMetricsResponseSizeTotal *Expirer[prometheus.Counter]
-	tracesHostInfo               *Expirer[prometheus.Gauge]
 	tracesTargetInfo             *prometheus.GaugeVec
 
 	// trace service graph
@@ -247,6 +242,7 @@ type metricsReporter struct {
 	jvmRuntimeMetrics    jvmRuntimeMetricsCollector
 	nodejsRuntimeMetrics nodejsRuntimeMetricsCollector
 	pythonRuntimeMetrics pythonRuntimeMetricsCollector
+	dotnetRuntimeMetrics dotnetRuntimeMetricsCollector
 
 	promConnect *connector.PrometheusManager
 
@@ -675,12 +671,6 @@ func newReporter(
 				Help: "target service information in trace span metric format",
 			}, labelNamesTargetInfo(kubeEnabled, dockerEnabled, &ctxInfo.NodeMeta, extraMetadataLabels, selectorCfg.SelectionCfg))
 		}),
-		tracesHostInfo: optionalGaugeProvider(jointMetricsConfig.Features.AppHost(), func() *Expirer[prometheus.Gauge] {
-			return NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
-				Name: TracesHostInfo,
-				Help: "A metric with a constant '1' value labeled by the host id ",
-			}, []string{CloudHostIDKey}).MetricVec, timeNow, cfg.TTL)
-		}),
 		serviceGraphClient: optionalHistogramProvider(jointMetricsConfig.Features.ServiceGraph(), func() *Expirer[prometheus.Histogram] {
 			return NewExpirer[prometheus.Histogram](prometheus.NewHistogramVec(prometheus.HistogramOpts{
 				Name:                            ServiceGraphClient,
@@ -831,6 +821,7 @@ func newReporter(
 		mr.jvmRuntimeMetrics = newJVMRuntimeMetricsCollector(cfg)
 		mr.nodejsRuntimeMetrics = newNodejsRuntimeMetricsCollector(cfg)
 		mr.pythonRuntimeMetrics = newPythonRuntimeMetricsCollector(runtimeLabelNames, timeNow, cfg.TTL)
+		mr.dotnetRuntimeMetrics = newDotnetRuntimeMetricsCollector(runtimeLabelNames, timeNow, cfg.TTL)
 	}
 
 	// testing aid
@@ -921,16 +912,13 @@ func newReporter(
 		registeredMetrics = append(registeredMetrics, mr.tracesTargetInfo)
 	}
 
-	if jointMetricsConfig.Features.AppHost() {
-		registeredMetrics = append(registeredMetrics, mr.tracesHostInfo)
-	}
-
 	if runtimeMetricsEnabled.Runtime {
 		registeredMetrics = append(registeredMetrics, mr.goRuntimeMetrics.collectors()...)
 		registeredMetrics = append(registeredMetrics, mr.goRuntimeHistograms)
 		registeredMetrics = append(registeredMetrics, mr.jvmRuntimeMetrics.collectors()...)
 		registeredMetrics = append(registeredMetrics, mr.nodejsRuntimeMetrics.collectors()...)
 		registeredMetrics = append(registeredMetrics, mr.pythonRuntimeMetrics.collectors()...)
+		registeredMetrics = append(registeredMetrics, mr.dotnetRuntimeMetrics.collections)
 	}
 
 	if is.GPUEnabled() {
@@ -972,14 +960,6 @@ func optionalHistogramProvider(enable bool, provider func() *Expirer[prometheus.
 }
 
 func optionalCounterProvider(enable bool, provider func() *Expirer[prometheus.Counter]) *Expirer[prometheus.Counter] {
-	if !enable {
-		return nil
-	}
-
-	return provider()
-}
-
-func optionalGaugeProvider(enable bool, provider func() *Expirer[prometheus.Gauge]) *Expirer[prometheus.Gauge] {
 	if !enable {
 		return nil
 	}
@@ -1164,9 +1144,6 @@ func (r *metricsReporter) observe(span *request.Span) {
 	}
 	t := span.Timings()
 	r.obiInfo.WithLabelValues(span.Service.SDKLanguage.String()).Metric.Set(1.0)
-	if span.Service.Features.AppHost() {
-		r.tracesHostInfo.WithLabelValues(r.nodeMeta.HostID).Metric.Set(1.0)
-	}
 	duration := t.End.Sub(t.RequestStart).Seconds()
 
 	if r.otelMetricsObserved(span) {
@@ -1198,7 +1175,7 @@ func (r *metricsReporter) observe(span *request.Span) {
 				r.observeHistogram(r.grpcClientDuration.WithLabelValues(labelValues(span, r.attrGRPCClientDuration)...).Metric, duration, span)
 			case span.SubType == request.HTTPSubtypeAWSS3 && r.rpcClientRecorded():
 				r.observeHistogram(r.grpcClientDuration.WithLabelValues(labelValues(span, r.attrGRPCClientDuration)...).Metric, duration, span)
-			case span.SubType == request.HTTPSubtypeAWSSQS && request.IsSQSMessagingClientOperation(span) && r.msgPublishRecorded():
+			case request.IsAWSMessagingClientOperation(span) && r.msgPublishRecorded():
 				r.observeHistogram(r.msgPublishDuration.WithLabelValues(labelValues(span, r.attrMsgPublishDuration)...).Metric, duration, span)
 			case span.SubType == request.HTTPSubtypeMCP && r.is.GenAIEnabled():
 				r.observeHistogram(r.mcpClientOperationDuration.WithLabelValues(labelValues(span, r.attrMCPClientDuration)...).Metric, duration, span)
@@ -1662,6 +1639,7 @@ func (r *metricsReporter) deleteMetricsForAttributeUpdate(previous, current *svc
 		return
 	}
 	r.pythonRuntimeMetrics.delete(r.labelValuesTargetInfo(previous))
+	r.dotnetRuntimeMetrics.delete(r.labelValuesTargetInfo(previous))
 	r.deleteEventMetrics(previous)
 }
 
@@ -1729,10 +1707,6 @@ func (r *metricsReporter) handleProcessEvent(pe exec.ProcessEvent, log *slog.Log
 		if deleted, origUID := r.disassociatePIDFromService(pid); deleted {
 			mlog().Debug("deleting infos for", "pid", pid, "attrs", uid)
 			r.deleteTargetInfos(origUID, &snap)
-			if r.tracesHostInfo != nil && r.pidsTracker.Count() == 0 {
-				mlog().Debug("No more PIDs tracked, expiring host info metric")
-				r.tracesHostInfo.entries.DeleteAll()
-			}
 			delete(r.serviceMap, origUID)
 		}
 	}

@@ -18,17 +18,17 @@ const (
 
 var hostRoot = ebpfcommon.RootDirectoryForPID(1)
 
-type projectMetadata struct {
-	root         string
-	name         string
-	version      string
-	fallbackName string
+type ProjectMetadata struct {
+	Root         string
+	Name         string
+	Version      string
+	FallbackName string
 }
 
-func findProject(root, cwd string, args []string, isFPM bool) projectMetadata {
+func findProject(root, cwd string, args []string, isFPM bool) ProjectMetadata {
 	boundary, ok := langtools.ResolveProcessPath(root, string(filepath.Separator), string(filepath.Separator))
 	if !ok {
-		return projectMetadata{}
+		return ProjectMetadata{}
 	}
 
 	if !isFPM {
@@ -53,11 +53,11 @@ func findProject(root, cwd string, args []string, isFPM bool) projectMetadata {
 		}
 	}
 
-	return projectMetadata{}
+	return ProjectMetadata{}
 }
 
-func findParentProject(start, boundary string) (projectMetadata, bool) {
-	var project projectMetadata
+func findParentProject(start, boundary string) (ProjectMetadata, bool) {
+	var project ProjectMetadata
 	found := false
 	_ = langtools.WalkParentDirectories(start, boundary, func(dir string) (bool, error) {
 		candidate, ok := inspectProject(dir)
@@ -71,20 +71,20 @@ func findParentProject(start, boundary string) (projectMetadata, bool) {
 	return project, found
 }
 
-func scanProcessRoot(root, boundary string) (projectMetadata, bool) {
+func scanProcessRoot(root, boundary string) (ProjectMetadata, bool) {
 	type searchDirectory struct {
 		path  string
 		depth int
 	}
 
 	queue := []searchDirectory{{path: boundary}}
-	var project projectMetadata
+	var project ProjectMetadata
 	found := false
 	visited := 0
 
 	for len(queue) > 0 {
 		if visited >= maxProjectSearchDirectories {
-			return projectMetadata{}, false
+			return ProjectMetadata{}, false
 		}
 
 		dir := queue[0]
@@ -98,7 +98,7 @@ func scanProcessRoot(root, boundary string) (projectMetadata, bool) {
 
 		if candidate, ok := inspectProject(path); ok {
 			if found {
-				return projectMetadata{}, false
+				return ProjectMetadata{}, false
 			}
 			project = candidate
 			found = true

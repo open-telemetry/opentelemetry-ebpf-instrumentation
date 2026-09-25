@@ -116,6 +116,7 @@ const (
 	HTTPSubtypeRetrieval        = 15 // http + vector retrieval (Pinecone, Qdrant, Milvus, Chroma, Weaviate, etc.)
 	HTTPSubtypeOpenAICompatible = 16 // http + OpenAI-compatible API (custom provider)
 	HTTPSubtypeOllama           = 17 // http + Ollama native API
+	HTTPSubtypeAWSSNS           = 18 // http + aws sns
 )
 
 // IsGenAISubtype reports whether a subtype is recorded on the GenAI client
@@ -225,14 +226,25 @@ func MessagingOperationTypeOf(operationName string) string {
 	return operationName
 }
 
-// IsSQSMessagingClientOperation reports whether an AWS SQS span describes a
-// producer or consumer operation. Queue administration calls carry no
+// IsAWSMessagingClientOperation reports whether an AWS span describes a
+// producer or consumer operation. Administration calls carry no
 // messaging.operation.type and are not messaging client operations.
-func IsSQSMessagingClientOperation(span *Span) bool {
-	if span.SubType != HTTPSubtypeAWSSQS || span.AWS == nil {
+func IsAWSMessagingClientOperation(span *Span) bool {
+	if span.AWS == nil {
 		return false
 	}
-	switch span.AWS.SQS.OperationType {
+
+	var operationType string
+	switch span.SubType {
+	case HTTPSubtypeAWSSQS:
+		operationType = span.AWS.SQS.OperationType
+	case HTTPSubtypeAWSSNS:
+		operationType = span.AWS.SNS.OperationType
+	default:
+		return false
+	}
+
+	switch operationType {
 	case MessagingSend, MessagingReceive, MessagingSettle:
 		return true
 	default:
@@ -333,6 +345,8 @@ type AWS struct {
 	S3 AWSS3 `json:"s3"`
 	// https://opentelemetry.io/docs/specs/semconv/messaging/sqs/
 	SQS AWSSQS `json:"sqs"`
+	// https://opentelemetry.io/docs/specs/semconv/messaging/sns/
+	SNS AWSSNS `json:"sns"`
 }
 
 type AWSMeta struct {
@@ -355,6 +369,17 @@ type AWSSQS struct {
 	Destination   string  `json:"destination"`
 	QueueURL      string  `json:"queueUrl"`
 	MessageID     string  `json:"messageId"`
+}
+
+type AWSSNS struct {
+	Meta          AWSMeta `json:"meta"`
+	OperationName string  `json:"operationName"`
+	OperationType string  `json:"operationType"`
+	Destination   string  `json:"destination"`
+	TopicARN      string  `json:"topicArn"`
+	MessageID     string  `json:"messageId"`
+	BatchCount    int     `json:"batchCount"`
+	ErrorCode     string  `json:"errorCode"`
 }
 
 type GenAI struct {
@@ -1016,20 +1041,55 @@ type JSONRPC struct {
 	RequestID    string `json:"requestId"`
 	ErrorCode    int    `json:"errorCode,omitempty"`
 	ErrorMessage string `json:"errorMessage,omitempty"`
+	// ServiceQualified marks a method read out of a header that names a
+	// service, which only the Go net/rpc uprobe observes. It survives payload
+	// extraction, which overwrites everything else it parses off the wire.
+	ServiceQualified bool `json:"-"`
+}
+
+// JSONRPCVersionV1 is the version Go's net/rpc/jsonrpc speaks, and the only
+// one the Go uprobes report.
+const JSONRPCVersionV1 = "1.0"
+
+// QualifiedMethod returns the method in the shape `rpc.method` is defined as:
+// the fully-qualified name from the RPC interface perspective, whose semconv
+// examples separate the service from the method with a slash
+// ('EchoService/Echo').
+//
+// Only net/rpc names a service, and it does so with a dot, so the last dot
+// becomes the separator there. JSON-RPC itself assigns the dot no meaning and
+// takes arbitrary method names, so a method nothing qualified is returned as
+// it came off the wire: splitting 'inventory.lookup.v2' would claim a service
+// boundary nothing observed.
+func (j *JSONRPC) QualifiedMethod() string {
+	if !j.ServiceQualified {
+		return j.Method
+	}
+
+	i := strings.LastIndexByte(j.Method, '.')
+	if i <= 0 || i == len(j.Method)-1 {
+		return j.Method
+	}
+
+	return j.Method[:i] + "/" + j.Method[i+1:]
 }
 
 // Generic embedding provider types (Voyage AI, Cohere, Jina AI)
 
 // GenAI operation name constants aligned with OTel semantic conventions.
 const (
-	ChatOperationName         = "chat"
-	CompletionOperationName   = "text_completion"
-	GenerationOperationName   = "generation"
-	InvokeModelOperationName  = "invoke_model"
-	EmbeddingOperationName    = "embeddings"
-	ResponseOperationName     = "response"
-	ConversationOperationName = "conversation"
-	ExecuteToolOperationName  = "execute_tool"
+	ChatOperationName           = "chat"
+	CompletionOperationName     = "text_completion"
+	GenerationOperationName     = "generation"
+	InvokeModelOperationName    = "invoke_model"
+	EmbeddingOperationName      = "embeddings"
+	ResponseOperationName       = "response"
+	ConversationOperationName   = "conversation"
+	ExecuteToolOperationName    = "execute_tool"
+	MessageOperationName        = "message"
+	ChatKitSessionOperationName = "chatkit.session"
+	ChatKitThreadOperationName  = "chatkit.thread"
+	OtherOperationName          = "_OTHER"
 )
 
 // VendorEmbedding represents a generic embedding API provider such as
@@ -1578,6 +1638,22 @@ func spanAttributes(s *Span) SpanAttributes {
 			attrs["awsSQSQueueURL"] = sqs.QueueURL
 			attrs["awsSQSMessageID"] = sqs.MessageID
 		}
+		if s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil {
+			sns := s.AWS.SNS
+			attrs["awsRequestID"] = sns.Meta.RequestID
+			attrs["awsRegion"] = sns.Meta.Region
+			attrs["awsSNSOperationName"] = sns.OperationName
+			attrs["awsSNSOperationType"] = sns.OperationType
+			attrs["awsSNSDestination"] = sns.Destination
+			attrs["awsSNSTopicARN"] = sns.TopicARN
+			attrs["awsSNSMessageID"] = sns.MessageID
+			if sns.OperationName == "PublishBatch" {
+				attrs["awsSNSBatchCount"] = strconv.Itoa(sns.BatchCount)
+			}
+			if sns.ErrorCode != "" {
+				attrs["errorType"] = sns.ErrorCode
+			}
+		}
 		if s.SubType == HTTPSubtypeSQLPP {
 			attrs["dbCollectionName"] = s.Route
 			attrs["dbOperationName"] = s.Method
@@ -1922,6 +1998,11 @@ func HTTPSpanStatusCode(span *Span) string {
 		return StatusCodeError
 	}
 
+	// SNS batches can fail individual entries while returning HTTP 200.
+	if span.SubType == HTTPSubtypeAWSSNS && span.AWS != nil && span.AWS.SNS.ErrorCode != "" {
+		return StatusCodeError
+	}
+
 	// JSON-RPC errors are signaled in the response body, not via HTTP status code.
 	if span.SubType == HTTPSubtypeJSONRPC && span.JSONRPC != nil && span.JSONRPC.ErrorCode != 0 {
 		return StatusCodeError
@@ -2024,7 +2105,7 @@ func (s *Span) ServiceGraphConnectionType() string {
 	case EventTypeKafkaClient, EventTypeMQTTClient, EventTypeNATSClient, EventTypeAMQPClient:
 		return "messaging_system"
 	case EventTypeHTTPClient:
-		if s.SubType == HTTPSubtypeAWSSQS {
+		if s.SubType == HTTPSubtypeAWSSQS || s.SubType == HTTPSubtypeAWSSNS {
 			return "messaging_system"
 		}
 		if s.SubType == HTTPSubtypeElasticsearch || s.SubType == HTTPSubtypeSQLPP {
@@ -2079,6 +2160,10 @@ func (s *Span) TraceName() string {
 			} else {
 				return "sqs.Operation"
 			}
+		}
+
+		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil {
+			return "SNS." + s.AWS.SNS.OperationName
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeSQLPP {
@@ -2209,7 +2294,7 @@ func (s *Span) TraceName() string {
 
 		if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
 			if s.JSONRPC.Method != "" {
-				return s.JSONRPC.Method
+				return s.JSONRPC.QualifiedMethod()
 			}
 			return "jsonrpc"
 		}

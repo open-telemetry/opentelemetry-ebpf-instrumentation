@@ -29,6 +29,7 @@ const (
 	FeatureNetworkFlowPackets
 	FeatureStatsTCPRtt
 	FeatureStatsTCPFailedConnections
+	FeatureStatsTCPSuccessfulConnections
 	FeatureStatsTCPRetransmits
 	FeatureStatsTCPIo
 	FeatureNetworkInterZone
@@ -53,7 +54,6 @@ const (
 	// closest replacement, but they are HTTP-specific and not keyed by span.
 	FeatureSpanSizes
 	FeatureGraph
-	FeatureApplicationHost
 	FeatureApplicationRuntime
 	FeatureEBPF
 	FeatureAll = Features(^uint(0)) // all bits to 1
@@ -63,31 +63,31 @@ const (
 // Note: FeatureStatsTCPIo fires on every tcp_sendmsg and tcp_cleanup_rbuf call — significantly
 // higher event volume than the other stat metrics (which fire on close, failure, or retransmit).
 // If overhead is a concern, enable the lower-frequency metrics individually and opt into stats_tcp_io explicitly.
-const FeatureStats = FeatureStatsTCPRtt | FeatureStatsTCPFailedConnections | FeatureStatsTCPRetransmits | FeatureStatsTCPIo
+const FeatureStats = FeatureStatsTCPRtt | FeatureStatsTCPFailedConnections | FeatureStatsTCPRetransmits | FeatureStatsTCPIo | FeatureStatsTCPSuccessfulConnections
 
 // FeatureMapper stays public so any extension package can add and remove feature
 // definitions before loading them.
 var FeatureMapper = map[string]Features{
-	"stats":                        FeatureStats,
-	"stats_tcp_rtt":                FeatureStatsTCPRtt,
-	"stats_tcp_failed_connections": FeatureStatsTCPFailedConnections,
-	"stats_tcp_retransmits":        FeatureStatsTCPRetransmits,
-	"stats_tcp_io":                 FeatureStatsTCPIo,
-	"network":                      FeatureNetwork,
-	"network_inter_zone":           FeatureNetworkInterZone,
-	"network_flow_packets":         FeatureNetworkFlowPackets,
-	"application":                  FeatureApplicationRED | FeatureApplicationSizes,
-	"application_red":              FeatureApplicationRED,
-	"application_sizes":            FeatureApplicationSizes,
-	"application_span":             FeatureSpanLegacy,
-	"application_span_otel":        FeatureSpanOTel,
-	"application_span_sizes":       FeatureSpanSizes,
-	"application_service_graph":    FeatureGraph,
-	"application_host":             FeatureApplicationHost,
-	"application_runtime":          FeatureApplicationRuntime,
-	"ebpf":                         FeatureEBPF,
-	"all":                          FeatureAll,
-	"*":                            FeatureAll,
+	"stats":                            FeatureStats,
+	"stats_tcp_rtt":                    FeatureStatsTCPRtt,
+	"stats_tcp_failed_connections":     FeatureStatsTCPFailedConnections,
+	"stats_tcp_retransmits":            FeatureStatsTCPRetransmits,
+	"stats_tcp_io":                     FeatureStatsTCPIo,
+	"stats_tcp_successful_connections": FeatureStatsTCPSuccessfulConnections,
+	"network":                          FeatureNetwork,
+	"network_inter_zone":               FeatureNetworkInterZone,
+	"network_flow_packets":             FeatureNetworkFlowPackets,
+	"application":                      FeatureApplicationRED | FeatureApplicationSizes,
+	"application_red":                  FeatureApplicationRED,
+	"application_sizes":                FeatureApplicationSizes,
+	"application_span":                 FeatureSpanLegacy,
+	"application_span_otel":            FeatureSpanOTel,
+	"application_span_sizes":           FeatureSpanSizes,
+	"application_service_graph":        FeatureGraph,
+	"application_runtime":              FeatureApplicationRuntime,
+	"ebpf":                             FeatureEBPF,
+	"all":                              FeatureAll,
+	"*":                                FeatureAll,
 }
 
 // deprecatedFeatures maps each deprecated feature name to the feature that supersedes it.
@@ -181,8 +181,7 @@ var AppO11yFeatures = FeatureApplicationRED |
 	FeatureSpanLegacy |
 	FeatureSpanOTel |
 	FeatureSpanSizes |
-	FeatureGraph |
-	FeatureApplicationHost
+	FeatureGraph
 
 func validFeatureNames() []string {
 	names := make([]string, 0, len(FeatureMapper))
@@ -332,7 +331,6 @@ func (f Features) AppOrSpan() bool {
 	return f.any(FeatureApplicationRED |
 		FeatureApplicationSizes |
 		FeatureSpanSizes |
-		FeatureApplicationHost |
 		FeatureApplicationRuntime |
 		FeatureSpanLegacy |
 		FeatureSpanOTel)
@@ -348,10 +346,6 @@ func (f Features) LegacySpanMetrics() bool {
 
 func (f Features) ServiceGraph() bool {
 	return f.any(FeatureGraph)
-}
-
-func (f Features) AppHost() bool {
-	return f.any(FeatureApplicationHost)
 }
 
 func (f Features) AppRuntime() bool {
@@ -390,6 +384,10 @@ func (f Features) StatsTCPRtt() bool {
 
 func (f Features) StatsTCPFailedConnections() bool {
 	return f.any(FeatureStatsTCPFailedConnections)
+}
+
+func (f Features) StatsTCPSuccessfulConnections() bool {
+	return f.any(FeatureStatsTCPSuccessfulConnections)
 }
 
 func (f Features) StatsTCPRetransmits() bool {

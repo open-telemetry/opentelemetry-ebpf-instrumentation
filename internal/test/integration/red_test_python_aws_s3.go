@@ -50,8 +50,14 @@ func assertS3Operation(t require.TestingT, op, expectedKey string) {
 	require.Equal(t, "S3/"+op, tag.Value)
 
 	tag, found = jaeger.FindIn(span.Tags, "aws.s3.key")
-	require.True(t, found)
-	require.Equal(t, expectedKey, tag.Value)
+	if expectedKey == "" {
+		// A bucket-level operation names no object, so the attribute is
+		// omitted rather than emitted empty.
+		require.False(t, found, "aws.s3.key should be omitted when the operation names no object")
+	} else {
+		require.True(t, found)
+		require.Equal(t, expectedKey, tag.Value)
+	}
 
 	tag, found = jaeger.FindIn(span.Tags, "rpc.system.name")
 	require.True(t, found)

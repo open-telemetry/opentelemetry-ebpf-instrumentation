@@ -39,7 +39,15 @@ func ilog() *slog.Logger {
 	return slog.With("component", "ebpf.Instrumenter")
 }
 
-var findNamespacedPids = procs.FindNamespacedPids
+var (
+	findNamespacedPids = procs.FindNamespacedPids
+	attachKprobe       = func(symbol string, program *ebpf.Program, opts *link.KprobeOptions) (io.Closer, error) {
+		return link.Kprobe(symbol, program, opts)
+	}
+	attachKretprobe = func(symbol string, program *ebpf.Program, opts *link.KprobeOptions) (io.Closer, error) {
+		return link.Kretprobe(symbol, program, opts)
+	}
+)
 
 func closeAll(closers []io.Closer) {
 	for i := range closers {
@@ -75,6 +83,16 @@ type processScopedGoProbeTracer interface {
 type processScopedGoProbeRegistration struct {
 	tracer processScopedGoProbeTracer
 	probe  ebpfcommon.GoProbe
+}
+
+type resolvedGoProbeGroup struct {
+	copyID string
+	group  ebpfcommon.GoProbeGroup
+}
+
+type goProbeGroupSymbol struct {
+	copyID string
+	symbol string
 }
 
 func (c *reverseCloser) Close() error {
@@ -136,7 +154,7 @@ func (i *instrumenter) goprobes(p Tracer) error {
 
 	i.gatherGoOffsets(goProbes)
 
-	closers, attachedSymbols, err := i.instrumentProbesWithResults(i.exe, goProbes)
+	closers, attachedSymbols, err := i.instrumentProbesWithResults(i.exe, i.exePath, goProbes)
 	if err != nil {
 		return err
 	}
@@ -147,6 +165,7 @@ func (i *instrumenter) goprobes(p Tracer) error {
 	i.closables = append(i.closables, closers...)
 
 	if groupedTracer, ok := p.(goProbeGroupTracer); ok {
+		attachedGroupSymbols := map[goProbeGroupSymbol]struct{}{}
 		for _, group := range groupedTracer.GoProbeGroups() {
 			if !goProbeGroupPrerequisitesAttached(group, attachedSymbols) {
 				continue
@@ -156,14 +175,18 @@ func (i *instrumenter) goprobes(p Tracer) error {
 				continue
 			}
 			for _, resolvedGroup := range i.gatherGoProbeGroupOffsets(group) {
-				groupClosers := i.instrumentOptionalGoProbeGroup(i.exe, resolvedGroup)
+				if goProbeGroupConflictsWithAttached(resolvedGroup, attachedGroupSymbols) {
+					continue
+				}
+				groupClosers := i.instrumentOptionalGoProbeGroup(i.exe, i.exePath, resolvedGroup.group)
 				if len(groupClosers) == 0 {
 					continue
 				}
+				recordGoProbeGroupSymbols(resolvedGroup, attachedGroupSymbols)
 				closer := &reverseCloser{closers: groupClosers}
 				i.closables = append(i.closables, closer)
 				if hasProcessScopedTracer {
-					for _, candidate := range resolvedGroup.Probes {
+					for _, candidate := range resolvedGroup.group.Probes {
 						if candidate.ProcessScoped {
 							i.processScopedGoProbes = append(
 								i.processScopedGoProbes,
@@ -204,13 +227,18 @@ func noGoProbeAttached(attachedSymbols map[string]bool) bool {
 	return true
 }
 
-func (i *instrumenter) instrumentProbes(exe *link.Executable, probes map[string][]*ebpfcommon.ProbeDesc) ([]io.Closer, error) {
-	closers, _, err := i.instrumentProbesWithResults(exe, probes)
+func (i *instrumenter) instrumentProbes(
+	exe *link.Executable,
+	exePath string,
+	probes map[string][]*ebpfcommon.ProbeDesc,
+) ([]io.Closer, error) {
+	closers, _, err := i.instrumentProbesWithResults(exe, exePath, probes)
 	return closers, err
 }
 
 func (i *instrumenter) instrumentProbesWithResults(
 	exe *link.Executable,
+	exePath string,
 	probes map[string][]*ebpfcommon.ProbeDesc,
 ) ([]io.Closer, map[string]bool, error) {
 	log := ilog().With("probes", "instrumentProbes")
@@ -233,7 +261,7 @@ func (i *instrumenter) instrumentProbesWithResults(
 				continue
 			}
 
-			cls, err := i.uprobe(exe, probe)
+			cls, err := i.uprobe(exe, exePath, probe)
 
 			switch {
 			case err != nil:
@@ -283,22 +311,62 @@ func goProbeGroupPrerequisitesAttached(
 	attachedSymbols map[string]bool,
 ) bool {
 	log := ilog().With("probes", "instrumentOptionalGoProbeGroup", "group", group.Name)
-	for _, symbol := range group.Prerequisites {
+	for _, symbol := range group.RequiresAll {
 		if !attachedSymbols[symbol] {
-			log.Debug("skipping optional uprobe group because a prerequisite was not attached",
+			log.Debug("skipping optional uprobe group because a required symbol was not attached",
 				"function", symbol)
 			return false
 		}
 	}
-	return true
+	if len(group.RequiresAny) == 0 {
+		return true
+	}
+	for _, symbol := range group.RequiresAny {
+		if attachedSymbols[symbol] {
+			return true
+		}
+	}
+	log.Debug("skipping optional uprobe group because no alternative required symbol was attached",
+		"functions", group.RequiresAny)
+
+	return false
+}
+
+func goProbeGroupConflictsWithAttached(
+	group resolvedGoProbeGroup,
+	attachedSymbols map[goProbeGroupSymbol]struct{},
+) bool {
+	log := ilog().With(
+		"probes", "instrumentOptionalGoProbeGroup",
+		"group", group.group.Name,
+		"copy_id", group.copyID,
+	)
+	for _, symbol := range group.group.ConflictsAny {
+		if _, ok := attachedSymbols[goProbeGroupSymbol{copyID: group.copyID, symbol: symbol}]; ok {
+			log.Debug("skipping optional uprobe group because a conflicting symbol was attached",
+				"function", symbol)
+			return true
+		}
+	}
+	return false
+}
+
+func recordGoProbeGroupSymbols(
+	group resolvedGoProbeGroup,
+	attachedSymbols map[goProbeGroupSymbol]struct{},
+) {
+	for _, candidate := range group.group.Probes {
+		attachedSymbols[goProbeGroupSymbol{copyID: group.copyID, symbol: candidate.Symbol}] = struct{}{}
+	}
 }
 
 func (i *instrumenter) instrumentOptionalGoProbeGroup(
 	exe *link.Executable,
+	exePath string,
 	group ebpfcommon.GoProbeGroup,
 ) []io.Closer {
 	return instrumentOptionalGoProbeGroup(group, func(_ string, probe *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
-		return i.uprobe(exe, probe)
+		return i.uprobe(exe, exePath, probe)
 	})
 }
 
@@ -365,7 +433,7 @@ func (i *instrumenter) kprobes(p KprobesTracer) error {
 
 func (i *instrumenter) kprobe(funcName string, programs ebpfcommon.ProbeDesc) error {
 	if programs.Start != nil {
-		kp, err := link.Kprobe(funcName, programs.Start, nil)
+		kp, err := attachKprobe(funcName, programs.Start, nil)
 		if err != nil {
 			if i.metrics != nil {
 				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingKprobe)
@@ -378,7 +446,7 @@ func (i *instrumenter) kprobe(funcName string, programs ebpfcommon.ProbeDesc) er
 	if programs.End != nil {
 		// The commented code doesn't work on certain kernels. We need to invesigate more to see if it's possible
 		// to productize it. Failure says: "neither debugfs nor tracefs are mounted".
-		kp, err := link.Kretprobe(funcName, programs.End, nil /*&link.KprobeOptions{RetprobeMaxActive: 1024}*/)
+		kp, err := attachKretprobe(funcName, programs.End, nil /*&link.KprobeOptions{RetprobeMaxActive: 1024}*/)
 		if err != nil {
 			if i.metrics != nil {
 				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingKprobe)
@@ -412,6 +480,12 @@ func (i *instrumenter) uprobeModules(p Tracer, pid app.PID, maps []*procfs.ProcM
 		}
 
 		lib = baseLib
+		if missing, ok := missingUprobeLibraryPrerequisite(lib, maps); !ok {
+			log.Debug("skipping uprobe library whose prerequisite is not loaded",
+				"lib", lib, "prerequisite", missing)
+			continue
+		}
+
 		log.Debug("finding library", "lib", lib)
 		instrPath, instrumentedIno, mappedPath, found := resolveInstrPath(pid, lib, maps, exePath, exeIno)
 		if found && mappedPath != "" {
@@ -484,6 +558,29 @@ func dedupModuleProbes(
 
 // matchVersionedUprobeLibrary reports whether a (possibly annotated) library name should be
 // instrumented for the given process.
+// uprobeLibraryPrerequisites names, per instrumented library, another library
+// that must be mapped by the process for its probes to be worth attaching.
+// libruby's probes only correlate on Puma, which loads puma_http11 while
+// booting.
+var uprobeLibraryPrerequisites = map[string]string{
+	"libruby": "puma_http11",
+}
+
+// missingUprobeLibraryPrerequisite reports whether a library's prerequisite is
+// mapped by the process, returning the prerequisite that was not found.
+func missingUprobeLibraryPrerequisite(lib string, maps []*procfs.ProcMap) (string, bool) {
+	prerequisite, ok := uprobeLibraryPrerequisites[lib]
+	if !ok {
+		return "", true
+	}
+
+	if procs.LibPath(prerequisite, maps) == nil {
+		return prerequisite, false
+	}
+
+	return "", true
+}
+
 func matchVersionedUprobeLibrary(name string, maps []*procfs.ProcMap) (string, bool, error) {
 	baseName, constraints, hasConstraint, err := parseVersionAnnotation(name)
 	if err != nil {
@@ -651,27 +748,45 @@ func (i *instrumenter) uprobes(pid app.PID, p Tracer, maps []*procfs.ProcMap) er
 			continue
 		}
 
-		for j := range m.probes {
-			if err := gatherOffsets(m.instrPath, m.probes[j], log); err != nil {
-				log.Debug("error gathering offsets", "error", err)
-				continue
-			}
-
-			closers, err := i.instrumentProbes(libExe, m.probes[j])
-			if err != nil {
-				log.Debug("error instrumenting probes", "error", err)
-				continue
-			}
-
-			log.Debug("adding module for instrumenter and incrementing reference count", "path", m.instrPath, "ino", instrumentedIno)
-
-			// We bump the count of uses of the underlying shared library with a new executable
-			p.RecordInstrumentedLib(instrumentedIno, closers)
-			i.addModule(instrumentedIno)
+		closers, instrumented := i.instrumentUprobeModule(libExe, m, log)
+		if !instrumented {
+			continue
 		}
+
+		log.Debug("adding module for instrumenter and incrementing reference count", "path", m.instrPath, "ino", instrumentedIno)
+
+		// We bump the count of uses of the underlying shared library with a new executable
+		p.RecordInstrumentedLib(instrumentedIno, closers)
+		i.addModule(instrumentedIno)
 	}
 
 	return nil
+}
+
+func (i *instrumenter) instrumentUprobeModule(
+	exe *link.Executable,
+	module *uprobeModule,
+	log *slog.Logger,
+) ([]io.Closer, bool) {
+	var moduleClosers []io.Closer
+	instrumented := false
+	for _, probes := range module.probes {
+		if err := gatherOffsets(module.instrPath, probes, log); err != nil {
+			log.Debug("error gathering offsets", "error", err)
+			continue
+		}
+
+		closers, err := i.instrumentProbes(exe, module.instrPath, probes)
+		if err != nil {
+			log.Debug("error instrumenting probes", "error", err)
+			continue
+		}
+
+		moduleClosers = append(moduleClosers, closers...)
+		instrumented = true
+	}
+
+	return moduleClosers, instrumented
 }
 
 func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer, maps []*procfs.ProcMap) error {
@@ -721,7 +836,7 @@ func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer, maps []*proc
 		}
 
 		for _, probe := range probes {
-			closers, err := i.instrumentUSDTProbe(exe, elfFile, pid, ns, maps, mappedPath, probe)
+			closers, err := i.instrumentUSDTProbe(exe, instrPath, elfFile, pid, ns, maps, mappedPath, probe)
 			if err != nil {
 				if probe.Required {
 					elfFile.Close()
@@ -749,6 +864,7 @@ func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer, maps []*proc
 
 func (i *instrumenter) instrumentUSDTProbe(
 	exe *link.Executable,
+	exePath string,
 	elfFile *elf.File,
 	pid app.PID,
 	ns uint32,
@@ -809,7 +925,7 @@ func (i *instrumenter) instrumentUSDTProbe(
 			"sema_off", fmt.Sprintf("%#x", target.SemaOff),
 		)
 
-		up, err := uprobe.Attach(exe, probe.Program, uprobe.Options{
+		up, err := uprobe.Attach(exe, exePath, probe.Program, uprobe.Options{
 			Addresses:    []uint64{target.RelIP},
 			PID:          uint32(pid),
 			RefCtrOffset: target.SemaOff,
@@ -848,11 +964,15 @@ func usdtIPMapPIDs(pid app.PID) []app.PID {
 	return pids
 }
 
-func (i *instrumenter) uprobe(exe *link.Executable, probe *ebpfcommon.ProbeDesc) ([]io.Closer, error) {
+func (i *instrumenter) uprobe(
+	exe *link.Executable,
+	exePath string,
+	probe *ebpfcommon.ProbeDesc,
+) ([]io.Closer, error) {
 	var closers []io.Closer
 
 	if probe.Start != nil {
-		up, err := uprobe.Attach(exe, probe.Start, uprobe.Options{
+		up, err := uprobe.Attach(exe, exePath, probe.Start, uprobe.Options{
 			Addresses: []uint64{probe.StartOffset},
 		})
 		if err != nil {
@@ -874,7 +994,7 @@ func (i *instrumenter) uprobe(exe *link.Executable, probe *ebpfcommon.ProbeDesc)
 		}
 
 		// every RET instruction of the function shares one attachment
-		up, err := uprobe.Attach(exe, probe.End, uprobe.Options{
+		up, err := uprobe.Attach(exe, exePath, probe.End, uprobe.Options{
 			Addresses: probe.ReturnOffsets,
 		})
 		if err != nil {
@@ -1271,7 +1391,7 @@ func applyGoProbeOffset(probe *ebpfcommon.ProbeDesc, offs goexec.FuncOffsets) bo
 	return !probe.Skip
 }
 
-func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) []ebpfcommon.GoProbeGroup {
+func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) []resolvedGoProbeGroup {
 	copyIDs := map[string]struct{}{}
 	resolvedBySymbol := make(map[string]map[string][]goexec.FuncOffsets, len(group.Probes))
 	for _, candidate := range group.Probes {
@@ -1297,11 +1417,16 @@ func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) 
 	}
 	slices.Sort(orderedCopyIDs)
 
-	resolvedGroups := make([]ebpfcommon.GoProbeGroup, 0, len(orderedCopyIDs))
+	resolvedGroups := make([]resolvedGoProbeGroup, 0, len(orderedCopyIDs))
 	for _, copyID := range orderedCopyIDs {
-		resolved := ebpfcommon.GoProbeGroup{
-			Name:          group.Name,
-			Prerequisites: append([]string(nil), group.Prerequisites...),
+		resolved := resolvedGoProbeGroup{
+			copyID: copyID,
+			group: ebpfcommon.GoProbeGroup{
+				Name:         group.Name,
+				RequiresAll:  append([]string(nil), group.RequiresAll...),
+				RequiresAny:  append([]string(nil), group.RequiresAny...),
+				ConflictsAny: append([]string(nil), group.ConflictsAny...),
+			},
 		}
 		complete := true
 		for _, candidate := range group.Probes {
@@ -1322,7 +1447,7 @@ func (i *instrumenter) gatherGoProbeGroupOffsets(group ebpfcommon.GoProbeGroup) 
 					complete = false
 					break
 				}
-				resolved.Probes = append(resolved.Probes, ebpfcommon.GoProbe{
+				resolved.group.Probes = append(resolved.group.Probes, ebpfcommon.GoProbe{
 					Symbol:        candidate.Symbol,
 					Probe:         &probeCopy,
 					ProcessScoped: candidate.ProcessScoped,

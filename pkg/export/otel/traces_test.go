@@ -445,7 +445,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 6, attrs.Len())
+		assert.Equal(t, 4, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "credentials")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "other_sql")
@@ -467,7 +467,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 7, attrs.Len())
+		assert.Equal(t, 5, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "credentials")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "other_sql")
@@ -493,7 +493,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		assert.Equal(t, ptrace.StatusCodeError, status.Code())
 		assert.Empty(t, status.Message())
 
-		assert.Equal(t, 9, attrs.Len())
+		assert.Equal(t, 7, attrs.Len())
 
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "obi.nonexisting")
@@ -521,7 +521,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		assert.Equal(t, ptrace.StatusCodeError, status.Code())
 		assert.Equal(t, expectedError, status.Message())
-		assert.Equal(t, 9, attrs.Len())
+		assert.Equal(t, 7, attrs.Len())
 
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBResponseError))
 	})
@@ -701,10 +701,10 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.ErrorType))
 	})
 
-	t.Run("test OpenAI trace generation omits empty operation name", func(t *testing.T) {
-		// gen_ai.operation.name must not be emitted as an empty string:
-		// when the operation could not be classified (e.g. an error response
-		// parsed before the request body), the attribute must be omitted
+	t.Run("test OpenAI trace generation marks an unclassified operation", func(t *testing.T) {
+		// gen_ai.operation.name is required, so an operation that could not be
+		// classified reports the unknown marker rather than being omitted or
+		// emitted as an empty string
 		span := request.Span{
 			Type:    request.EventTypeHTTPClient,
 			SubType: request.HTTPSubtypeOpenAI,
@@ -719,7 +719,29 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
 		attrs := spans.At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.GenAIProviderNameKey, "openai")
-		ensureTraceAttrNotExists(t, attrs, semconv.GenAIOperationNameKey)
+		ensureTraceStrAttr(t, attrs, semconv.GenAIOperationNameKey, request.OtherOperationName)
+	})
+
+	t.Run("test OpenAI ChatKit trace generation", func(t *testing.T) {
+		// a ChatKit call addresses a conversation, so the response id is also
+		// reported as gen_ai.conversation.id
+		span := request.Span{
+			Type:    request.EventTypeHTTPClient,
+			SubType: request.HTTPSubtypeOpenAI,
+			Method:  "POST",
+			Path:    "/v1/chatkit/sessions",
+			GenAI: &request.GenAI{OpenAI: &request.VendorOpenAI{
+				ID:            "cksess_68",
+				OperationName: request.ChatKitSessionOperationName,
+			}},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.GenAIOperationNameKey, request.ChatKitSessionOperationName)
+		ensureTraceStrAttr(t, attrs, semconv.GenAIConversationIDKey, "cksess_68")
 	})
 
 	t.Run("test Mongo trace generation", func(t *testing.T) {
@@ -737,7 +759,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 7, attrs.Len())
+		assert.Equal(t, 5, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "insert")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "mycollection")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "mydatabase")
@@ -760,7 +782,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 8, attrs.Len())
+		assert.Equal(t, 6, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "insert")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "mycollection")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "mydatabase")
@@ -786,7 +808,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 7, attrs.Len())
+		assert.Equal(t, 5, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "GET")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "mycollection")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "mybucket.myscope")
@@ -809,7 +831,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 8, attrs.Len())
+		assert.Equal(t, 6, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "GET")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "mycollection")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "mybucket.myscope")
@@ -835,7 +857,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 8, attrs.Len())
+		assert.Equal(t, 6, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SET")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBQueryText), `SET user::42 TTL=3600 {"name":"alice"}`)
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "couchbase")
@@ -872,7 +894,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 5, attrs.Len())
+		assert.Equal(t, 3, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "GET")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "memcached")
 		ensureTraceAttrNotExists(t, attrs, attribute.Key(attr.DBCollectionName))
@@ -887,7 +909,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 6, attrs.Len())
+		assert.Equal(t, 4, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "GET")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBQueryText), "session-key")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "memcached")
@@ -908,7 +930,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 5, attrs.Len())
+		assert.Equal(t, 4, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "GET")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "memcached")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBResponseStatusCode), "SERVER_ERROR")
@@ -944,7 +966,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 8, attrs.Len())
+		assert.Equal(t, 7, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "travel-sample._default.airline")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "travel-sample")
@@ -976,7 +998,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 7, attrs.Len())
+		assert.Equal(t, 6, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "travel-sample._default.airline")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "travel-sample")
@@ -1015,7 +1037,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		assert.Equal(t, 10, attrs.Len())
+		assert.Equal(t, 9, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "SELECT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBCollectionName), "travel-sample._default.nonexistent")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBNamespace), "travel-sample")
@@ -1091,8 +1113,8 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		// Only required attributes: server.addr, server.port, service.peer.name, db.system.name, db.operation.name
-		assert.Equal(t, 5, attrs.Len())
+		// service.peer.name is absent: the span carries no HostName, so the value is empty
+		assert.Equal(t, 4, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "INSERT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "couchbase")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.ServerAddr), "localhost")
@@ -1113,6 +1135,25 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		attrs := rs.Resource().Attributes()
 		ensureTraceStrAttr(t, attrs, attribute.Key("deployment.environment"), "productions")
 		ensureTraceStrAttr(t, attrs, attribute.Key("source.upstream"), "obi")
+	})
+	t.Run("empty resource attributes survive", func(t *testing.T) {
+		span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Route: "/test", Status: 200}
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service,
+			[]attribute.KeyValue{}, hostID,
+			groupFromSpanAndAttributes(&span, tAttrs),
+			reporterName,
+			attribute.String("deployment.environment", ""),
+		)
+
+		attrs := traces.ResourceSpans().At(0).Resource().Attributes()
+
+		// Spans drop an empty-valued attribute; the resource must not, or a
+		// service whose name OBI could not resolve loses its identity entirely
+		// instead of reporting one a consumer can recognize as unresolved.
+		ensureTraceStrAttr(t, attrs, attribute.Key("deployment.environment"), "")
+		ensureTraceStrAttr(t, attrs, attribute.Key(string(semconv.ServiceNameKey)), "")
 	})
 	t.Run("override resource attributes", func(t *testing.T) {
 		span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Route: "/test", Status: 200}
@@ -2106,6 +2147,58 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://upstream.example.com/external/api?foo=bar")
+	})
+	t.Run("test Go net/rpc span qualifies a dotted method", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTP,
+			Method:  "POST",
+			Path:    "/jsonrpc",
+			Route:   "/jsonrpc",
+			Status:  200,
+			SubType: request.HTTPSubtypeJSONRPC,
+			JSONRPC: &request.JSONRPC{
+				Method:           "Arith.Traceme",
+				Version:          request.JSONRPCVersionV1,
+				RequestID:        "1",
+				ServiceQualified: true,
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		topSpan := spans.At(spans.Len() - 1)
+
+		assert.Equal(t, "Arith/Traceme", topSpan.Name())
+		ensureTraceStrAttr(t, topSpan.Attributes(), "rpc.method", "Arith/Traceme")
+		// Qualification changed the value, so the wire name has to stay
+		// recoverable alongside it.
+		ensureTraceStrAttr(t, topSpan.Attributes(), "rpc.method_original", "Arith.Traceme")
+	})
+	t.Run("test JSON-RPC span leaves a dotted payload method whole", func(t *testing.T) {
+		span := request.Span{
+			Type:    request.EventTypeHTTP,
+			Method:  "POST",
+			Path:    "/jsonrpc",
+			Route:   "/jsonrpc",
+			Status:  200,
+			SubType: request.HTTPSubtypeJSONRPC,
+			JSONRPC: &request.JSONRPC{
+				Method:    "inventory.lookup.v2",
+				Version:   "2.0",
+				RequestID: "1",
+			},
+		}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		topSpan := spans.At(spans.Len() - 1)
+
+		assert.Equal(t, "inventory.lookup.v2", topSpan.Name())
+		ensureTraceStrAttr(t, topSpan.Attributes(), "rpc.method", "inventory.lookup.v2")
+		// Nothing was rewritten, so there is no original to record.
+		ensureTraceAttrNotExists(t, topSpan.Attributes(), semconv.RPCMethodOriginalKey)
 	})
 	t.Run("test JSON-RPC server span with error", func(t *testing.T) {
 		span := request.Span{

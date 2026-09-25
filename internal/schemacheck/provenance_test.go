@@ -116,8 +116,7 @@ func resolveRegistry(t *testing.T) resolveOutput {
 	var res resolveOutput
 	if jsonErr := json.Unmarshal(out, &res); jsonErr != nil {
 		var stderr []byte
-		exitErr, ok := errors.AsType[*exec.ExitError](err)
-		if ok {
+		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
 			stderr = exitErr.Stderr
 		}
 		require.NoErrorf(t, jsonErr,

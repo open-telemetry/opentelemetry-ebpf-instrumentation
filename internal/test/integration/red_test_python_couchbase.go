@@ -53,7 +53,7 @@ func testREDMetricsForPythonCouchbaseLibrary(t *testing.T, testCase TestCase) {
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		for _, span := range testCase.Spans {
 			command := span.Name
-			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(command))
+			resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(command))
 			require.NoError(t, err, "failed to query jaeger for %s", command)
 			if resp == nil {
 				return
@@ -145,7 +145,7 @@ func testREDMetricsPythonCouchbaseOnly(t *testing.T) {
 func assertCouchbaseDBQueryTextContains(t *testing.T, comm, operation, wantPrefix, wantKey string) {
 	t.Helper()
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(operation))
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(operation))
 		require.NoError(ct, err)
 		if err != nil || resp == nil {
 			return
@@ -454,7 +454,7 @@ func testREDMetricsForCouchbaseSQLPP(t *testing.T, testCase TestCase) {
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		for _, span := range testCase.Spans {
 			command := span.Name
-			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(command))
+			resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&operation=" + url.QueryEscape(command))
 			require.NoError(t, err, "failed to query jaeger for %s", command)
 			if resp == nil {
 				return

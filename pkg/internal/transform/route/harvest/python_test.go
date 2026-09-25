@@ -13,6 +13,33 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestParenDelta(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		line string
+		want int
+	}{
+		{name: "empty", line: "", want: 0},
+		{name: "opening call", line: `path(`, want: 1},
+		{name: "opening list", line: `urlpatterns = [`, want: 1},
+		{name: "nested openings", line: `path("credit/", include([`, want: 3},
+		{name: "closing delimiters", line: `]))`, want: -3},
+		{name: "balanced", line: `[path("reports/", reports)]`, want: 0},
+		{name: "double quoted delimiters", line: `path("[(", view)`, want: 0},
+		{name: "single quoted delimiters", line: `path(')]', view)`, want: 0},
+		{name: "escaped double quote", line: `path("a\"[(", view)`, want: 0},
+		{name: "escaped single quote", line: `path('a\')]', view)`, want: 0},
+		{name: "escaped backslash", line: `path("a\\", view)`, want: 0},
+		{name: "comment", line: `# path([`, want: 0},
+		{name: "trailing comment", line: `urlpatterns = [ # ])`, want: 1},
+		{name: "quoted hash", line: `path("#", view`, want: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, parenDelta(tc.line))
+		})
+	}
+}
+
 func TestExtractPythonRoutes(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "api"), 0o755))

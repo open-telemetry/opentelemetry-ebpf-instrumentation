@@ -44,15 +44,10 @@ static const u8 k_h2_tp_huff[64] = {
 };
 
 // Located but not decoded: the decode runs in its own tail-call program
-enum {
-    k_h2_huff_then_finalize = 0,
-    k_h2_huff_then_commit = 1,
-};
-
 typedef struct h2_tp_huff_candidate {
-    u16 at;  // offset of the value within the scanned block, bounded by k_hpack_tp_max_scan
-    u8 len;  // encoded octets, 0 when the scan found none
-    u8 next; // stage to resume, since both server scans can request a decode
+    u16 at; // offset of the value within the scanned block, bounded by k_hpack_tp_max_scan
+    u8 len; // encoded octets, 0 when the scan found none
+    u8 _pad;
 } h2_tp_huff_candidate_t;
 
 enum {

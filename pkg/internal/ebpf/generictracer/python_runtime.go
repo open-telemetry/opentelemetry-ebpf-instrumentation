@@ -234,14 +234,14 @@ func attachPythonRuntimeTarget(target *cpythonruntime.MetricTarget, program *ebp
 	if err != nil {
 		return nil, cpythonruntime.GCCompletionProbe{}, err
 	}
-	attached, err := attachPythonRuntimeProbe(executable, program, pid, target.PrimaryProbe)
+	attached, err := attachPythonRuntimeProbe(executable, target.AttachmentPath(), program, pid, target.PrimaryProbe)
 	if err == nil {
 		return attached, target.PrimaryProbe, nil
 	}
 	if target.FallbackProbe == nil {
 		return nil, cpythonruntime.GCCompletionProbe{}, err
 	}
-	fallback, fallbackErr := attachPythonRuntimeProbe(executable, program, pid, *target.FallbackProbe)
+	fallback, fallbackErr := attachPythonRuntimeProbe(executable, target.AttachmentPath(), program, pid, *target.FallbackProbe)
 	if fallbackErr != nil {
 		return nil, cpythonruntime.GCCompletionProbe{}, errors.Join(err, fallbackErr)
 	}
@@ -251,6 +251,7 @@ func attachPythonRuntimeTarget(target *cpythonruntime.MetricTarget, program *ebp
 // attachPythonRuntimeProbe selects an entry or return probe at a raw offset.
 func attachPythonRuntimeProbe(
 	executable *link.Executable,
+	executablePath string,
 	program *ebpf.Program,
 	pid int,
 	probe cpythonruntime.GCCompletionProbe,
@@ -259,7 +260,7 @@ func attachPythonRuntimeProbe(
 	if err != nil {
 		return nil, err
 	}
-	return uprobe.Attach(executable, program, options)
+	return uprobe.Attach(executable, executablePath, program, options)
 }
 
 // pythonRuntimeUprobeOptions converts a resolved GC completion probe into attach options.

@@ -516,6 +516,7 @@
               "go",
               "java",
               "nodejs",
+              "php",
               "python",
               "ruby"
             ]
@@ -625,6 +626,35 @@
       },
       "type": "object",
       "description": "DiscoveryConfig for the discover.ProcessFinder pipeline"
+    },
+    "DotnetRuntimeMetricsConfig": {
+      "properties": {
+        "sampling_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Sets the collection interval requested from System.Runtime EventCounters. It also sets the delay before reconnecting after a collection session ends.",
+          "default": "1s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OBI_DOTNET_RUNTIME_METRICS_SAMPLING_INTERVAL"
+        },
+        "timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Bounds diagnostic IPC setup and EventPipe session shutdown.",
+          "default": "10s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OBI_DOTNET_RUNTIME_METRICS_TIMEOUT"
+        }
+      },
+      "type": "object"
     },
     "EBPFBufferSizes": {
       "properties": {
@@ -839,6 +869,12 @@
           "$ref": "#/$defs/PayloadExtraction",
           "description": "Configure data extraction/parsing based on protocol"
         },
+        "populate_trace_context": {
+          "type": "boolean",
+          "description": "Keeps the pinned `traces_ctx_v1` map -- the trace and span ID of the request each OS thread is currently serving -- populated for readers outside OBI, such as a profiler correlating samples with spans, or another eBPF program reading the pin directly.  Keeping the map aligned with the active request is not free: runtimes that decouple I/O from processing need a refresh on every context switch, which on Node.js means an `async_hooks` before hook running on every callback. OBI therefore only populates the map when something reads it. Its own readers -- the log enricher and the Node.js manual span bridge -- turn population on regardless of this setting; a reader outside OBI has no way to announce itself, so it opts in here.  Go channel span links may be affected: the handoff correlation falls back to this map when it cannot resolve the sending goroutine from the protocol maps, so links that relied on that fallback are lost while population is off.",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_BPF_POPULATE_TRACE_CONTEXT"
+        },
         "postgres_prepared_statements_cache_size": {
           "type": "integer",
           "description": "Postgres prepared statements cache size.",
@@ -1005,7 +1041,6 @@
               "*",
               "all",
               "application",
-              "application_host",
               "application_red",
               "application_runtime",
               "application_service_graph",
@@ -1019,7 +1054,8 @@
               "stats_tcp_failed_connections",
               "stats_tcp_io",
               "stats_tcp_retransmits",
-              "stats_tcp_rtt"
+              "stats_tcp_rtt",
+              "stats_tcp_successful_connections"
             ]
           },
           {
@@ -1253,7 +1289,7 @@
         "features": {
           "$ref": "#/$defs/Features",
           "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, stats, ... envDefault is provided to avoid breaking changes",
-          "default": 768,
+          "default": 1536,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
         }
       },
@@ -3206,6 +3242,9 @@
     "discovery": {
       "$ref": "#/$defs/DiscoveryConfig",
       "description": "Configuration"
+    },
+    "dotnet_runtime_metrics": {
+      "$ref": "#/$defs/DotnetRuntimeMetricsConfig"
     },
     "ebpf": {
       "$ref": "#/$defs/EBPFTracer"

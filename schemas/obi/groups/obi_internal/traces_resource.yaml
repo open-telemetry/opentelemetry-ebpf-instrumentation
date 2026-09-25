@@ -18,3 +18,4 @@ groups:
       # spans. It is a resource attribute of the trace payload, not a label of
       # the traces.target.info metric.
       - ref: otel.scope.name
+        requirement_level: recommended

@@ -45,7 +45,7 @@ func testNodeClientWithMethodAndStatusCode(t *testing.T, method string, statusCo
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + serviceName)
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + serviceName)
 		require.NoError(ct, err)
 		if resp == nil {
 			return

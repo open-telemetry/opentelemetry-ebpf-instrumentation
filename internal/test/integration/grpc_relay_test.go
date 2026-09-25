@@ -124,7 +124,7 @@ func assertHuffmanTraceparentAdopted(t *testing.T, driverURL, receiver string) {
 		defer resp.Body.Close()
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
-		r, err := http.Get(jaegerQueryURL + "/" + appTraceID)
+		r, err := getJaeger(jaegerQueryURL + "/" + appTraceID)
 		require.NoError(ct, err)
 		defer r.Body.Close()
 
@@ -212,7 +212,7 @@ func relayTraceparentLogs(ct *assert.CollectT, compose *docker.Compose, traceID 
 // hasSpansInJaeger reports whether Jaeger holds any recent trace for the given
 // service, which is the observable proof that OBI has instrumented its pid.
 func hasSpansInJaeger(service string) bool {
-	r, err := http.Get(jaegerQueryURL + "?service=" + service + "&limit=1&lookback=5m")
+	r, err := getJaeger(jaegerQueryURL + "?service=" + service + "&limit=1&lookback=5m")
 	if err != nil {
 		return false
 	}
@@ -294,7 +294,7 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 		// without burning the outer Eventually budget on fresh trace IDs.
 		var tq jaeger.TracesQuery
 		require.EventuallyWithT(ct, func(ctt *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "/" + relayAttemptTraceID)
+			resp, err := getJaeger(jaegerQueryURL + "/" + relayAttemptTraceID)
 			require.NoError(ctt, err)
 			defer resp.Body.Close()
 			require.NoError(ctt, json.NewDecoder(resp.Body).Decode(&tq))
@@ -479,7 +479,7 @@ func serverSpansByService(trace jaeger.Trace, service string) []jaeger.Span {
 	return matches
 }
 
-// Fans out N concurrent streams over shared HTTP/2 conns and asserts distinct parent_ids per hop
+// Fans out concurrent streams over shared HTTP/2 conns and asserts every stream reaches every hop, each with its own parent_id
 func testGRPCMultiplexedContextPropagation(t *testing.T) {
 	// go-http-to-grpc receives HTTP/1 (no gRPC server span), so it isn't asserted
 	hops := []string{"go-grpc-to-http", "nodejs-relay", "java-relay", "rust-relay", "dotnet-relay"}
@@ -499,7 +499,7 @@ func testGRPCMultiplexedContextPropagation(t *testing.T) {
 
 		var tq jaeger.TracesQuery
 		require.EventuallyWithT(ct, func(ctt *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "/" + warmupTraceID)
+			resp, err := getJaeger(jaegerQueryURL + "/" + warmupTraceID)
 			require.NoError(ctt, err)
 			defer resp.Body.Close()
 			require.Equal(ctt, http.StatusOK, resp.StatusCode)
@@ -513,60 +513,72 @@ func testGRPCMultiplexedContextPropagation(t *testing.T) {
 		}
 	}, 3*time.Minute, time.Second)
 
-	now := uint64(time.Now().UnixNano())
-	traceID := fmt.Sprintf("%016x%016x", now, now+1)
+	// each request makes one warmup call and then three concurrent ones, and every hop
+	// forwards each call once
+	const (
+		requests          = 3
+		streamsPerRequest = 4
+	)
 
-	var trace jaeger.Trace
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+	// Every request is sent once, on its own trace, and must show all of its
+	// streams at every hop. Resending on one trace let spans from several
+	// attempts add up, which is how this test missed lost streams.
+	for range requests {
+		now := uint64(time.Now().UnixNano())
+		traceID := fmt.Sprintf("%016x%016x", now, now+1)
+
 		req, err := http.NewRequest(http.MethodGet, "http://localhost:8080/relay-multiplex", nil)
-		require.NoError(ct, err)
+		require.NoError(t, err)
 		req.Header.Set("Traceparent", fmt.Sprintf("00-%s-%s-01", traceID, multiplexSpanID))
-		if wr, err := http.DefaultClient.Do(req); err == nil && wr != nil {
-			wr.Body.Close()
-		}
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
 
-		resp, err := http.Get(jaegerQueryURL + "/" + traceID)
-		require.NoError(ct, err)
-		require.Equal(ct, http.StatusOK, resp.StatusCode)
-		defer resp.Body.Close()
+		var trace jaeger.Trace
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			resp, err := getJaeger(jaegerQueryURL + "/" + traceID)
+			require.NoError(ct, err)
+			require.Equal(ct, http.StatusOK, resp.StatusCode)
+			defer resp.Body.Close()
 
-		var tq jaeger.TracesQuery
-		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		require.NotEmpty(ct, tq.Data)
+			var tq jaeger.TracesQuery
+			require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+			require.NotEmpty(ct, tq.Data)
 
-		trace = tq.Data[0]
-		for _, hop := range hops {
-			require.GreaterOrEqual(ct,
-				len(serverSpansByService(trace, hop)),
-				3, "expected at least 3 %s server spans in trace %s", hop, traceID)
-		}
-	}, grpcRelayTimeout, time.Second)
-
-	t.Logf("trace %s: %d spans across %d services",
-		trace.TraceID, len(trace.Spans), len(traceServices(trace)))
-
-	for _, hop := range hops {
-		serverSpans := serverSpansByService(trace, hop)
-		parents := map[string]bool{}
-		for _, s := range serverSpans {
-			pid := ""
-			for _, ref := range s.References {
-				if ref.RefType == "CHILD_OF" {
-					pid = ref.SpanID
-				}
+			trace = tq.Data[0]
+			for _, hop := range hops {
+				require.Lenf(ct, serverSpansByService(trace, hop), streamsPerRequest,
+					"%s server spans in trace %s", hop, traceID)
 			}
-			require.NotEmpty(t, pid, "%s span %s missing parent", hop, s.SpanID)
-			require.False(t, parents[pid],
-				"%s: parent_id %s shared by multiple server spans — stream isolation broken", hop, pid)
-			parents[pid] = true
-		}
-		t.Logf("%s: %d server spans, %d distinct parents", hop, len(serverSpans), len(parents))
-	}
+		}, grpcRelayTimeout, time.Second)
 
-	// one chain root→leaf so a failure shows which hop dropped a stream
-	leafSpans := serverSpansByService(trace, hops[len(hops)-1])
-	if len(leafSpans) > 0 {
-		logChain(t, trace, leafSpans[0], "one chain")
+		t.Logf("trace %s: %d spans across %d services",
+			trace.TraceID, len(trace.Spans), len(traceServices(trace)))
+
+		for _, hop := range hops {
+			serverSpans := serverSpansByService(trace, hop)
+			parents := map[string]bool{}
+			for _, s := range serverSpans {
+				pid := ""
+				for _, ref := range s.References {
+					if ref.RefType == "CHILD_OF" {
+						pid = ref.SpanID
+					}
+				}
+				require.NotEmpty(t, pid, "%s span %s missing parent", hop, s.SpanID)
+				require.False(t, parents[pid],
+					"%s: parent_id %s shared by multiple server spans — stream isolation broken", hop, pid)
+				parents[pid] = true
+			}
+			t.Logf("%s: %d server spans, %d distinct parents", hop, len(serverSpans), len(parents))
+		}
+
+		// one chain root→leaf so a failure shows which hop dropped a stream
+		leafSpans := serverSpansByService(trace, hops[len(hops)-1])
+		if len(leafSpans) > 0 {
+			logChain(t, trace, leafSpans[0], "one chain")
+		}
 	}
 }
 
@@ -584,7 +596,7 @@ func testGRPCPersistentDynTable(t *testing.T) {
 		}
 		var tq jaeger.TracesQuery
 		require.EventuallyWithT(ct, func(ctt *assert.CollectT) {
-			resp, err := http.Get(jaegerQueryURL + "/" + warmupTraceID)
+			resp, err := getJaeger(jaegerQueryURL + "/" + warmupTraceID)
 			require.NoError(ctt, err)
 			defer resp.Body.Close()
 			require.NoError(ctt, json.NewDecoder(resp.Body).Decode(&tq))
@@ -656,7 +668,7 @@ func testGRPCPersistentDynTable(t *testing.T) {
 func fetchTrace(id string) (jaeger.TracesQuery, error) {
 	var tq jaeger.TracesQuery
 
-	resp, err := http.Get(jaegerQueryURL + "/" + id)
+	resp, err := getJaeger(jaegerQueryURL + "/" + id)
 	if err != nil {
 		return tq, err
 	}

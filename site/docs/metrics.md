@@ -19,9 +19,9 @@ OBI-emitted cpython.gc.collected_objects
 | --- | --- | --- |
 | counter | {object} | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `cpython.gc.generation` | enum | development | Value of the garbage collector collection generation. | 0; 1; 2 |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cpython.gc.generation` | enum | `required` | development | Value of the garbage collector collection generation. | 0; 1; 2 |
 
 ## `cpython.gc.collections`
 
@@ -31,9 +31,9 @@ OBI-emitted cpython.gc.collections
 | --- | --- | --- |
 | counter | {collection} | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `cpython.gc.generation` | enum | development | Value of the garbage collector collection generation. | 0; 1; 2 |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cpython.gc.generation` | enum | `required` | development | Value of the garbage collector collection generation. | 0; 1; 2 |
 
 ## `cpython.gc.uncollectable_objects`
 
@@ -43,9 +43,9 @@ OBI-emitted cpython.gc.uncollectable_objects
 | --- | --- | --- |
 | counter | {object} | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `cpython.gc.generation` | enum | development | Value of the garbage collector collection generation. | 0; 1; 2 |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cpython.gc.generation` | enum | `required` | development | Value of the garbage collector collection generation. | 0; 1; 2 |
 
 ## `db.client.operation.duration`
 
@@ -55,16 +55,16 @@ OBI-emitted db.client.operation.duration
 | --- | --- | --- |
 | histogram | s | stable |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `db.collection.name` | string | stable | The name of a collection (table, container) within the database. | public.users; customers |
-| `db.namespace` | string | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
-| `db.operation.name` | string | stable | The name of the operation or command being executed. | findAndModify; HMSET; SELECT |
-| `db.response.status_code` | string | stable | Database response status code. | 102; ORA-17002; 08P01; 404 |
-| `db.system.name` | enum | stable | The database management system (DBMS) product as identified by the client instrumentation. | other_sql; softwareag.adabas; actian.ingres; aws.dynamodb; aws.redshift; azure.cosmosdb; intersystems.cache; cassandra; … |
-| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `db.collection.name` | string | `opt_in` | stable | The name of a collection (table, container) within the database. | public.users; customers |
+| `db.namespace` | string | `conditionally_required`: if the exchange named a database | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
+| `db.operation.name` | string | `conditionally_required`: if the operation could be parsed from the exchange | stable | The name of the operation or command being executed. | findAndModify; HMSET; SELECT |
+| `db.response.status_code` | string | `conditionally_required`: if the operation failed and the status code is available | stable | Database response status code. | 102; ORA-17002; 08P01; 404 |
+| `db.system.name` | enum | `required` | stable | The database management system (DBMS) product as identified by the client instrumentation. | other_sql; softwareag.adabas; actian.ingres; aws.dynamodb; aws.redshift; azure.cosmosdb; intersystems.cache; cassandra; … |
+| `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
 
 ## `db.server.operation.duration`
 
@@ -74,17 +74,17 @@ Duration of database operations observed from the server side.
 | --- | --- | --- |
 | histogram | s | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `client.address` | string | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
-| `db.collection.name` | string | stable | The name of a collection (table, container) within the database. | public.users; customers |
-| `db.namespace` | string | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
-| `db.operation.name` | string | stable | The name of the operation or command being executed. | findAndModify; HMSET; SELECT |
-| `db.response.status_code` | string | stable | Database response status code. | 102; ORA-17002; 08P01; 404 |
-| `db.system.name` | enum | stable | The database management system (DBMS) product as identified by the client instrumentation. | other_sql; softwareag.adabas; actian.ingres; aws.dynamodb; aws.redshift; azure.cosmosdb; intersystems.cache; cassandra; … |
-| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `client.address` | string | `opt_in` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
+| `db.collection.name` | string | `opt_in` | stable | The name of a collection (table, container) within the database. | public.users; customers |
+| `db.namespace` | string | `conditionally_required`: if the exchange named a database | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
+| `db.operation.name` | string | `conditionally_required`: if the operation could be parsed from the exchange | stable | The name of the operation or command being executed. | findAndModify; HMSET; SELECT |
+| `db.response.status_code` | string | `conditionally_required`: if the database reported a status code | stable | Database response status code. | 102; ORA-17002; 08P01; 404 |
+| `db.system.name` | enum | `required` | stable | The database management system (DBMS) product as identified by the client instrumentation. | other_sql; softwareag.adabas; actian.ingres; aws.dynamodb; aws.redshift; azure.cosmosdb; intersystems.cache; cassandra; … |
+| `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
 
 ## `dns.lookup.duration`
 
@@ -94,10 +94,10 @@ OBI-emitted dns.lookup.duration
 | --- | --- | --- |
 | histogram | s | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `dns.question.name` | string | development | The name being queried. | www.example.com; opentelemetry.io |
-| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dns.question.name` | string | `opt_in` | development | The name being queried. | www.example.com; opentelemetry.io |
+| `error.type` | string | `conditionally_required`: if the lookup ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 
 ## `gen_ai.client.operation.duration`
 
@@ -107,15 +107,15 @@ OBI-emitted gen_ai.client.operation.duration
 | --- | --- | --- |
 | histogram | s | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
-| `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
-| `gen_ai.request.model` | string | development | The name of the GenAI model a request is being made to. | gpt-4 |
-| `gen_ai.response.model` | string | development | The name of the model that generated the response. | gpt-4-0613 |
-| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `gen_ai.operation.name` | string | `required` | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
+| `gen_ai.provider.name` | enum | `required` | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
+| `gen_ai.request.model` | string | `recommended`: if the request named a model | development | The name of the GenAI model a request is being made to. | gpt-4 |
+| `gen_ai.response.model` | string | `recommended`: if the provider returned it | development | The name of the model that generated the response. | gpt-4-0613 |
+| `server.address` | string | `conditionally_required`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
 
 ## `gen_ai.client.token.usage`
 
@@ -125,15 +125,15 @@ OBI-emitted gen_ai.client.token.usage
 | --- | --- | --- |
 | histogram | {token} | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `gen_ai.operation.name` | string | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool |
-| `gen_ai.provider.name` | enum | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
-| `gen_ai.request.model` | string | development | The name of the GenAI model a request is being made to. | gpt-4 |
-| `gen_ai.response.model` | string | development | The name of the model that generated the response. | gpt-4-0613 |
-| `gen_ai.token.type` | enum | development | The type of token being counted. | input; output |
-| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `gen_ai.operation.name` | string | `required` | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
+| `gen_ai.provider.name` | enum | `required` | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
+| `gen_ai.request.model` | string | `recommended`: if the request named a model | development | The name of the GenAI model a request is being made to. | gpt-4 |
+| `gen_ai.response.model` | string | `recommended`: if the provider returned it | development | The name of the model that generated the response. | gpt-4-0613 |
+| `gen_ai.token.type` | enum | `required` | development | The type of token being counted. | input; output |
+| `server.address` | string | `conditionally_required`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
 
 ## `go.config.gogc`
 
@@ -153,10 +153,10 @@ OBI-emitted go.cpu.time
 | --- | --- | --- |
 | counter | s | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `go.cpu.detailed_state` | string | development | The detailed state of the CPU. | gc/pause; gc/mark/assist |
-| `go.cpu.state` | enum | development | The state of the CPU. | user; gc |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `go.cpu.detailed_state` | string | `recommended`: if the runtime reported a detailed state | development | The detailed state of the CPU. | gc/pause; gc/mark/assist |
+| `go.cpu.state` | enum | `required` | development | The state of the CPU. | user; gc |
 
 ## `go.goroutine.count`
 
@@ -236,9 +236,9 @@ OBI-emitted go.memory.used
 | --- | --- | --- |
 | updowncounter | By | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `go.memory.type` | enum | development | The type of memory. | other; stack |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `go.memory.type` | enum | `recommended` | development | The type of memory. | other; stack |
 
 ## `go.processor.limit`
 
@@ -318,9 +318,9 @@ Distribution of CUDA memory copy sizes (cudaMemcpy / cudaMemcpyAsync), broken do
 | --- | --- | --- |
 | histogram | By | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `cuda.memcpy.kind` | enum | development | Direction of a CUDA memory copy, mirroring the `cudaMemcpyKind` enum of the CUDA Runtime API. | MemcpyHostToHost; MemcpyHostToDevice; MemcpyDeviceToHost; MemcpyDeviceToDevice; MemcpyDefault |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cuda.memcpy.kind` | enum | `recommended` | development | Direction of a CUDA memory copy, mirroring the `cudaMemcpyKind` enum of the CUDA Runtime API. | MemcpyHostToHost; MemcpyHostToDevice; MemcpyDeviceToHost; MemcpyDeviceToDevice; MemcpyDefault |
 
 ## `http.client.request.body.size`
 
@@ -330,15 +330,15 @@ OBI-emitted http.client.request.body.size
 | --- | --- | --- |
 | histogram | By | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `http.request.method` | enum | stable | HTTP request method. | GET; POST; HEAD |
-| `http.response.status_code` | int | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
-| `http.route` | string | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
-| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
-| `url.path` | string | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
-| `url.scheme` | string | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
+| `http.response.status_code` | int | `recommended`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
+| `http.route` | string | `recommended`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
+| `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
+| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
+| `url.scheme` | string | `recommended` | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 
 ## `http.client.request.duration`
 
@@ -348,15 +348,15 @@ OBI-emitted http.client.request.duration
 | --- | --- | --- |
 | histogram | s | stable |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `http.request.method` | enum | stable | HTTP request method. | GET; POST; HEAD |
-| `http.response.status_code` | int | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
-| `http.route` | string | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
-| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
-| `url.path` | string | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
-| `url.scheme` | string | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
+| `http.response.status_code` | int | `recommended`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
+| `http.route` | string | `recommended`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
+| `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
+| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
+| `url.scheme` | string | `recommended` | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 
 ## `http.client.response.body.size`
 
@@ -366,15 +366,15 @@ OBI-emitted http.client.response.body.size
 | --- | --- | --- |
 | histogram | By | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `http.request.method` | enum | stable | HTTP request method. | GET; POST; HEAD |
-| `http.response.status_code` | int | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
-| `http.route` | string | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
-| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
-| `url.path` | string | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
-| `url.scheme` | string | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
+| `http.response.status_code` | int | `recommended`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
+| `http.route` | string | `recommended`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
+| `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
+| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
+| `url.scheme` | string | `recommended` | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 
 ## `http.server.request.body.size`
 
@@ -384,16 +384,16 @@ OBI-emitted http.server.request.body.size
 | --- | --- | --- |
 | histogram | By | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `client.address` | string | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
-| `http.request.method` | enum | stable | HTTP request method. | GET; POST; HEAD |
-| `http.response.status_code` | int | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
-| `http.route` | string | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
-| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
-| `url.path` | string | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
-| `url.scheme` | string | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `client.address` | string | `opt_in` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
+| `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
+| `http.response.status_code` | int | `recommended`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
+| `http.route` | string | `recommended`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
+| `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
+| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
+| `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 
 ## `http.server.request.duration`
 
@@ -403,16 +403,16 @@ OBI-emitted http.server.request.duration
 | --- | --- | --- |
 | histogram | s | stable |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `client.address` | string | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
-| `http.request.method` | enum | stable | HTTP request method. | GET; POST; HEAD |
-| `http.response.status_code` | int | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
-| `http.route` | string | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
-| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
-| `url.path` | string | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
-| `url.scheme` | string | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `client.address` | string | `opt_in` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
+| `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
+| `http.response.status_code` | int | `recommended`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
+| `http.route` | string | `recommended`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
+| `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
+| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
+| `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 
 ## `http.server.response.body.size`
 
@@ -422,16 +422,16 @@ OBI-emitted http.server.response.body.size
 | --- | --- | --- |
 | histogram | By | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `client.address` | string | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
-| `http.request.method` | enum | stable | HTTP request method. | GET; POST; HEAD |
-| `http.response.status_code` | int | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
-| `http.route` | string | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
-| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
-| `url.path` | string | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
-| `url.scheme` | string | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `client.address` | string | `opt_in` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
+| `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
+| `http.response.status_code` | int | `recommended`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
+| `http.route` | string | `recommended`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
+| `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
+| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
+| `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 
 ## `jvm.class.count`
 
@@ -501,10 +501,10 @@ OBI-emitted jvm.gc.duration
 | --- | --- | --- |
 | histogram | s | stable |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `jvm.gc.action` | string | stable | Name of the garbage collector action. | end of minor GC; end of major GC |
-| `jvm.gc.name` | string | stable | Name of the garbage collector. | G1 Young Generation; G1 Old Generation |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `jvm.gc.action` | string | `recommended` | stable | Name of the garbage collector action. | end of minor GC; end of major GC |
+| `jvm.gc.name` | string | `recommended` | stable | Name of the garbage collector. | G1 Young Generation; G1 Old Generation |
 
 ## `jvm.memory.committed`
 
@@ -514,10 +514,10 @@ OBI-emitted jvm.memory.committed
 | --- | --- | --- |
 | updowncounter | By | stable |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `jvm.memory.pool.name` | string | stable | Name of the memory pool. | G1 Old Gen; G1 Eden space; G1 Survivor Space |
-| `jvm.memory.type` | enum | stable | The type of memory. | heap; non_heap |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `jvm.memory.pool.name` | string | `recommended` | stable | Name of the memory pool. | G1 Old Gen; G1 Eden space; G1 Survivor Space |
+| `jvm.memory.type` | enum | `recommended` | stable | The type of memory. | heap; non_heap |
 
 ## `jvm.memory.limit`
 
@@ -527,10 +527,10 @@ OBI-emitted jvm.memory.limit
 | --- | --- | --- |
 | updowncounter | By | stable |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `jvm.memory.pool.name` | string | stable | Name of the memory pool. | G1 Old Gen; G1 Eden space; G1 Survivor Space |
-| `jvm.memory.type` | enum | stable | The type of memory. | heap; non_heap |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `jvm.memory.pool.name` | string | `recommended` | stable | Name of the memory pool. | G1 Old Gen; G1 Eden space; G1 Survivor Space |
+| `jvm.memory.type` | enum | `recommended` | stable | The type of memory. | heap; non_heap |
 
 ## `jvm.memory.used`
 
@@ -540,10 +540,10 @@ OBI-emitted jvm.memory.used
 | --- | --- | --- |
 | updowncounter | By | stable |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `jvm.memory.pool.name` | string | stable | Name of the memory pool. | G1 Old Gen; G1 Eden space; G1 Survivor Space |
-| `jvm.memory.type` | enum | stable | The type of memory. | heap; non_heap |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `jvm.memory.pool.name` | string | `recommended` | stable | Name of the memory pool. | G1 Old Gen; G1 Eden space; G1 Survivor Space |
+| `jvm.memory.type` | enum | `recommended` | stable | The type of memory. | heap; non_heap |
 
 ## `jvm.memory.used_after_last_gc`
 
@@ -553,10 +553,10 @@ OBI-emitted jvm.memory.used_after_last_gc
 | --- | --- | --- |
 | updowncounter | By | stable |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `jvm.memory.pool.name` | string | stable | Name of the memory pool. | G1 Old Gen; G1 Eden space; G1 Survivor Space |
-| `jvm.memory.type` | enum | stable | The type of memory. | heap; non_heap |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `jvm.memory.pool.name` | string | `recommended` | stable | Name of the memory pool. | G1 Old Gen; G1 Eden space; G1 Survivor Space |
+| `jvm.memory.type` | enum | `recommended` | stable | The type of memory. | heap; non_heap |
 
 ## `jvm.thread.count`
 
@@ -566,9 +566,9 @@ OBI-emitted jvm.thread.count
 | --- | --- | --- |
 | updowncounter | {thread} | stable |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `jvm.thread.daemon` | boolean | stable | Whether the thread is daemon or not. |  |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `jvm.thread.daemon` | boolean | `recommended` | stable | Whether the thread is daemon or not. |  |
 
 ## `mcp.client.operation.duration`
 
@@ -578,17 +578,17 @@ OBI-emitted mcp.client.operation.duration
 | --- | --- | --- |
 | histogram | s | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `gen_ai.prompt.name` | string | development | The name of the prompt that uniquely identifies it. | analyze-code |
-| `gen_ai.tool.name` | string | development | Name of the tool utilized by the agent. | Flights |
-| `mcp.method.name` | enum | development | The name of the request or notification method. | notifications/cancelled; initialize; notifications/initialized; notifications/progress; ping; resources/list; resources/templates/list; resources/read; … |
-| `mcp.protocol.version` | string | development | The [version](https://modelcontextprotocol.io/specification/versioning) of the Model Context Protocol used. | 2025-06-18 |
-| `mcp.resource.uri` | string | development | The value of the resource uri. | postgres://database/customers/schema; file:///home/user/documents/report.pdf |
-| `rpc.response.status_code` | string | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
-| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `gen_ai.prompt.name` | string | `conditionally_required`: if the operation names a prompt | development | The name of the prompt that uniquely identifies it. | analyze-code |
+| `gen_ai.tool.name` | string | `conditionally_required`: if the operation names a tool | development | Name of the tool utilized by the agent. | Flights |
+| `mcp.method.name` | enum | `required` | development | The name of the request or notification method. | notifications/cancelled; initialize; notifications/initialized; notifications/progress; ping; resources/list; resources/templates/list; resources/read; … |
+| `mcp.protocol.version` | string | `recommended`: if the peer reported a protocol version | development | The [version](https://modelcontextprotocol.io/specification/versioning) of the Model Context Protocol used. | 2025-06-18 |
+| `mcp.resource.uri` | string | `opt_in` | development | The value of the resource uri. | postgres://database/customers/schema; file:///home/user/documents/report.pdf |
+| `rpc.response.status_code` | string | `conditionally_required`: if the response carried a JSON-RPC error code | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
+| `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
 
 ## `mcp.server.operation.duration`
 
@@ -598,15 +598,15 @@ OBI-emitted mcp.server.operation.duration
 | --- | --- | --- |
 | histogram | s | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `gen_ai.prompt.name` | string | development | The name of the prompt that uniquely identifies it. | analyze-code |
-| `gen_ai.tool.name` | string | development | Name of the tool utilized by the agent. | Flights |
-| `mcp.method.name` | enum | development | The name of the request or notification method. | notifications/cancelled; initialize; notifications/initialized; notifications/progress; ping; resources/list; resources/templates/list; resources/read; … |
-| `mcp.protocol.version` | string | development | The [version](https://modelcontextprotocol.io/specification/versioning) of the Model Context Protocol used. | 2025-06-18 |
-| `mcp.resource.uri` | string | development | The value of the resource uri. | postgres://database/customers/schema; file:///home/user/documents/report.pdf |
-| `rpc.response.status_code` | string | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `gen_ai.prompt.name` | string | `conditionally_required`: if the operation names a prompt | development | The name of the prompt that uniquely identifies it. | analyze-code |
+| `gen_ai.tool.name` | string | `conditionally_required`: if the operation names a tool | development | Name of the tool utilized by the agent. | Flights |
+| `mcp.method.name` | enum | `required` | development | The name of the request or notification method. | notifications/cancelled; initialize; notifications/initialized; notifications/progress; ping; resources/list; resources/templates/list; resources/read; … |
+| `mcp.protocol.version` | string | `recommended`: if the peer reported a protocol version | development | The [version](https://modelcontextprotocol.io/specification/versioning) of the Model Context Protocol used. | 2025-06-18 |
+| `mcp.resource.uri` | string | `opt_in` | development | The value of the resource uri. | postgres://database/customers/schema; file:///home/user/documents/report.pdf |
+| `rpc.response.status_code` | string | `conditionally_required`: if the response carried a JSON-RPC error code | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
 
 ## `messaging.client.operation.duration`
 
@@ -616,13 +616,13 @@ OBI-emitted messaging.client.operation.duration
 | --- | --- | --- |
 | histogram | s | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `messaging.destination.name` | string | development | The message destination name | MyQueue; MyTopic |
-| `messaging.operation.name` | string | development | The system-specific name of the messaging operation. | ack; nack; send |
-| `messaging.system` | enum | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
-| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `error.type` | string | `conditionally_required`: if the operation ended in an error, which OBI can determine only for the AWS SQS and SNS clients | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `messaging.destination.name` | string | `conditionally_required`: if the exchange named a destination | development | The message destination name | MyQueue; MyTopic |
+| `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
+| `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
+| `server.address` | string | `recommended`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 
 ## `messaging.process.duration`
 
@@ -632,13 +632,13 @@ OBI-emitted messaging.process.duration
 | --- | --- | --- |
 | histogram | s | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `messaging.destination.name` | string | development | The message destination name | MyQueue; MyTopic |
-| `messaging.operation.name` | string | development | The system-specific name of the messaging operation. | ack; nack; send |
-| `messaging.system` | enum | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
-| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `error.type` | string | `conditionally_required`: if the operation ended in an error, which OBI cannot yet determine for a consume operation | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `messaging.destination.name` | string | `conditionally_required`: if the exchange named a destination | development | The message destination name | MyQueue; MyTopic |
+| `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
+| `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
+| `server.address` | string | `recommended`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 
 ## `obi.avoided.services`
 
@@ -648,12 +648,12 @@ Services OBI avoided instrumenting because they already carry OpenTelemetry inst
 | --- | --- | --- |
 | gauge | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `otel.metric.overflow` | boolean | development | Set by the OpenTelemetry SDK cardinality limiter when the avoided-services attribute set overflows its configured limit. |  |
-| `service.name` | string | stable | Logical name of the service. | shoppingcart |
-| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
-| `telemetry.type` | string | development | Which OBI pipeline avoided instrumenting a service that already has OpenTelemetry instrumentation. Value is "metrics" or "traces". | metrics; traces |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `otel.metric.overflow` | boolean | `conditionally_required`: if the metric exceeded its cardinality limit | development | Set by the OpenTelemetry SDK cardinality limiter when the avoided-services attribute set overflows its configured limit. |  |
+| `service.name` | string | `conditionally_required`: if the cardinality limit was not exceeded | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `conditionally_required`: if the cardinality limit was not exceeded | stable | A namespace for `service.name`. | Shop |
+| `telemetry.type` | string | `conditionally_required`: if the cardinality limit was not exceeded | development | Which OBI pipeline avoided instrumenting a service that already has OpenTelemetry instrumentation. Value is "metrics" or "traces". | metrics; traces |
 
 ## `obi.bpf.map.entries`
 
@@ -663,11 +663,11 @@ Number of entries in the eBPF map.
 | --- | --- | --- |
 | gauge | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `bpf.map.id` | string | development | Identifier of the eBPF map the stats belong to. | 17 |
-| `bpf.map.name` | string | development | Name of the eBPF map. | events; ongoing_http |
-| `bpf.map.type` | string | development | eBPF map type. | hash; lru_hash; perf_event_array |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `bpf.map.id` | string | `required` | development | Identifier of the eBPF map the stats belong to. | 17 |
+| `bpf.map.name` | string | `required` | development | Name of the eBPF map. | events; ongoing_http |
+| `bpf.map.type` | string | `required` | development | eBPF map type. | hash; lru_hash; perf_event_array |
 
 ## `obi.bpf.map.max_entries`
 
@@ -677,11 +677,11 @@ Maximum number of entries the eBPF map can hold.
 | --- | --- | --- |
 | gauge | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `bpf.map.id` | string | development | Identifier of the eBPF map the stats belong to. | 17 |
-| `bpf.map.name` | string | development | Name of the eBPF map. | events; ongoing_http |
-| `bpf.map.type` | string | development | eBPF map type. | hash; lru_hash; perf_event_array |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `bpf.map.id` | string | `required` | development | Identifier of the eBPF map the stats belong to. | 17 |
+| `bpf.map.name` | string | `required` | development | Name of the eBPF map. | events; ongoing_http |
+| `bpf.map.type` | string | `required` | development | eBPF map type. | hash; lru_hash; perf_event_array |
 
 ## `obi.bpf.network.ignored.packets`
 
@@ -711,11 +711,11 @@ Latency distribution of the eBPF probe in seconds.
 | --- | --- | --- |
 | histogram | s | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `bpf.probe.id` | string | development | Identifier of the eBPF program (probe) the stats belong to. | 42 |
-| `bpf.probe.name` | string | development | Name of the eBPF probe. | kprobe_tcp_sendmsg |
-| `bpf.probe.type` | string | development | eBPF program type of the probe. | kprobe; tracepoint |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `bpf.probe.id` | string | `required` | development | Identifier of the eBPF program (probe) the stats belong to. | 42 |
+| `bpf.probe.name` | string | `required` | development | Name of the eBPF probe. | kprobe_tcp_sendmsg |
+| `bpf.probe.type` | string | `required` | development | eBPF program type of the probe. | kprobe; tracepoint |
 
 ## `obi.ebpf.tracer.flushes`
 
@@ -735,10 +735,10 @@ Total number of instrumentation errors, by process name and error type.
 | --- | --- | --- |
 | counter | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `process.executable.name` | string | development | The name of the process executable. On Linux based systems, this SHOULD be set to the base name of the target of `/proc/[pid]/exe`. On Windows, this SHOULD be set to the base name of `GetProcessImageFileNameW`. | otelcol |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `process.executable.name` | string | `conditionally_required`: if the executable name could be resolved | development | The name of the process executable. On Linux based systems, this SHOULD be set to the base name of the target of `/proc/[pid]/exe`. On Windows, this SHOULD be set to the base name of `GetProcessImageFileNameW`. | otelcol |
 
 ## `obi.instrumented.processes`
 
@@ -748,9 +748,9 @@ Total number of instrumented processes, by process name.
 | --- | --- | --- |
 | updowncounter | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `process.executable.name` | string | development | The name of the process executable. On Linux based systems, this SHOULD be set to the base name of the target of `/proc/[pid]/exe`. On Windows, this SHOULD be set to the base name of `GetProcessImageFileNameW`. | otelcol |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `process.executable.name` | string | `conditionally_required`: if the executable name could be resolved | development | The name of the process executable. On Linux based systems, this SHOULD be set to the base name of the target of `/proc/[pid]/exe`. On Windows, this SHOULD be set to the base name of `GetProcessImageFileNameW`. | otelcol |
 
 ## `obi.internal.build.info`
 
@@ -760,13 +760,13 @@ Constant '1' gauge labelled with build metadata (version, revision, goversion, g
 | --- | --- | --- |
 | gauge | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `obi.goarch` | string | development | Go build target architecture (runtime.GOARCH). | amd64; arm64 |
-| `obi.goos` | string | development | Go build target OS (runtime.GOOS). | linux |
-| `obi.goversion` | string | development | Go toolchain version OBI was built with (runtime.Version()). | go1.25.11 |
-| `obi.revision` | string | development | Git SHA of the OBI build. Carried as a resource attribute on every signal. | a2a9a6e2 |
-| `obi.version` | string | development | OBI build version, e.g. the release tag the instrumenter was built from. Carried as a resource attribute on every signal. | v0.42.0 |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `obi.goarch` | string | `required` | development | Go build target architecture (runtime.GOARCH). | amd64; arm64 |
+| `obi.goos` | string | `required` | development | Go build target OS (runtime.GOOS). | linux |
+| `obi.goversion` | string | `required` | development | Go toolchain version OBI was built with (runtime.Version()). | go1.25.11 |
+| `obi.revision` | string | `required` | development | Git SHA of the OBI build. Carried as a resource attribute on every signal. | a2a9a6e2 |
+| `obi.version` | string | `required` | development | OBI build version, e.g. the release tag the instrumenter was built from. Carried as a resource attribute on every signal. | v0.42.0 |
 
 ## `obi.kube.cache.forward.lag`
 
@@ -786,50 +786,50 @@ Total bytes observed per network flow, grouped by the configured attribute selec
 | --- | --- | --- |
 | counter | {bytes} | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `client.port` | int | stable | Client port number. | 65123 |
-| `direction` | enum | development | Whether the flow is the request or response side, derived from initiator / port heuristics. | request; response; unknown |
-| `dst.address` | string | development | Destination IP address of the flow. | 10.0.0.6 |
-| `dst.asn` | string | development | Autonomous System Number of the destination endpoint, from GeoIP lookup. | AS15169 |
-| `dst.cidr` | string | development | CIDR block matched against the destination IP. | 10.0.0.0/8 |
-| `dst.country` | string | development | ISO country code of the destination endpoint, from GeoIP lookup. | US |
-| `dst.name` | string | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
-| `dst.port` | int | development | Destination TCP/UDP port. |  |
-| `dst.zone` | string | development | Zone label attached to the destination side. | us-east-1b |
-| `iface.direction` | enum | development | Direction of the flow relative to the interface. | ingress; egress |
-| `iface` | string | development | Network interface the flow was observed on. | eth0 |
-| `k8s.cluster.name` | string | release_candidate | The name of the cluster. | opentelemetry-cluster |
-| `k8s.dst.name` | string | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
-| `k8s.dst.namespace` | string | development | Kubernetes namespace of the destination workload. | integration-test |
-| `k8s.dst.node.ip` | string | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
-| `k8s.dst.node.name` | string | development | Name of the node hosting the destination workload. | node-2 |
-| `k8s.dst.owner.name` | string | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
-| `k8s.dst.owner.type` | string | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
-| `k8s.dst.type` | string | development | Type of the destination Kubernetes object. | Pod |
-| `k8s.src.name` | string | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
-| `k8s.src.namespace` | string | development | Kubernetes namespace of the source workload. | integration-test |
-| `k8s.src.node.ip` | string | development | IP address of the node hosting the source workload. | 10.0.1.5 |
-| `k8s.src.node.name` | string | development | Name of the node hosting the source workload. | node-1 |
-| `k8s.src.owner.name` | string | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
-| `k8s.src.owner.type` | string | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
-| `k8s.src.type` | string | development | Type of the source Kubernetes object. | Pod |
-| `network.protocol.name` | string | stable | [OSI application layer](https://wikipedia.org/wiki/Application_layer) or non-OSI equivalent. | amqp; http; mqtt |
-| `network.type` | enum | stable | [OSI network layer](https://wikipedia.org/wiki/Network_layer) or non-OSI equivalent. | ipv4; ipv6 |
-| `obi.ip` | string | development | IP address of the host running OBI. | 10.0.0.5 |
-| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
-| `service.name` | string | stable | Logical name of the service. | shoppingcart |
-| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
-| `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
-| `service.peer.namespace` | string | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
-| `src.address` | string | development | Source IP address of the flow. | 10.0.0.5 |
-| `src.asn` | string | development | Autonomous System Number of the source endpoint, from GeoIP lookup. | AS15169 |
-| `src.cidr` | string | development | CIDR block matched against the source IP. | 10.0.0.0/8 |
-| `src.country` | string | development | ISO country code of the source endpoint, from GeoIP lookup. | US |
-| `src.name` | string | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
-| `src.port` | int | development | Source TCP/UDP port. |  |
-| `src.zone` | string | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
-| `transport` | string | development | Transport protocol of the flow (e.g. TCP, UDP). | TCP |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `client.port` | int | `opt_in` | stable | Client port number. | 65123 |
+| `direction` | enum | `recommended` | development | Whether the flow is the request or response side, derived from initiator / port heuristics. | request; response; unknown |
+| `dst.address` | string | `opt_in` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.asn` | string | `conditionally_required`: if the GeoIP database is configured | development | Autonomous System Number of the destination endpoint, from GeoIP lookup. | AS15169 |
+| `dst.cidr` | string | `conditionally_required`: if network.cidrs is configured | development | CIDR block matched against the destination IP. | 10.0.0.0/8 |
+| `dst.country` | string | `conditionally_required`: if the GeoIP database is configured | development | ISO country code of the destination endpoint, from GeoIP lookup. | US |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `iface.direction` | enum | `recommended`: if flow deduplication is disabled | development | Direction of the flow relative to the interface. | ingress; egress |
+| `iface` | string | `recommended`: if flow deduplication is disabled | development | Network interface the flow was observed on. | eth0 |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.protocol.name` | string | `opt_in` | stable | [OSI application layer](https://wikipedia.org/wiki/Application_layer) or non-OSI equivalent. | amqp; http; mqtt |
+| `network.type` | enum | `opt_in` | stable | [OSI network layer](https://wikipedia.org/wiki/Network_layer) or non-OSI equivalent. | ipv4; ipv6 |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `opt_in` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.asn` | string | `conditionally_required`: if the GeoIP database is configured | development | Autonomous System Number of the source endpoint, from GeoIP lookup. | AS15169 |
+| `src.cidr` | string | `conditionally_required`: if network.cidrs is configured | development | CIDR block matched against the source IP. | 10.0.0.0/8 |
+| `src.country` | string | `conditionally_required`: if the GeoIP database is configured | development | ISO country code of the source endpoint, from GeoIP lookup. | US |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+| `transport` | string | `opt_in` | development | Transport protocol of the flow (e.g. TCP, UDP). | TCP |
 
 ## `obi.network.flow.packets`
 
@@ -839,50 +839,50 @@ Total packets observed per network flow, grouped by the configured attribute sel
 | --- | --- | --- |
 | counter | {packets} | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `client.port` | int | stable | Client port number. | 65123 |
-| `direction` | enum | development | Whether the flow is the request or response side, derived from initiator / port heuristics. | request; response; unknown |
-| `dst.address` | string | development | Destination IP address of the flow. | 10.0.0.6 |
-| `dst.asn` | string | development | Autonomous System Number of the destination endpoint, from GeoIP lookup. | AS15169 |
-| `dst.cidr` | string | development | CIDR block matched against the destination IP. | 10.0.0.0/8 |
-| `dst.country` | string | development | ISO country code of the destination endpoint, from GeoIP lookup. | US |
-| `dst.name` | string | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
-| `dst.port` | int | development | Destination TCP/UDP port. |  |
-| `dst.zone` | string | development | Zone label attached to the destination side. | us-east-1b |
-| `iface.direction` | enum | development | Direction of the flow relative to the interface. | ingress; egress |
-| `iface` | string | development | Network interface the flow was observed on. | eth0 |
-| `k8s.cluster.name` | string | release_candidate | The name of the cluster. | opentelemetry-cluster |
-| `k8s.dst.name` | string | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
-| `k8s.dst.namespace` | string | development | Kubernetes namespace of the destination workload. | integration-test |
-| `k8s.dst.node.ip` | string | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
-| `k8s.dst.node.name` | string | development | Name of the node hosting the destination workload. | node-2 |
-| `k8s.dst.owner.name` | string | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
-| `k8s.dst.owner.type` | string | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
-| `k8s.dst.type` | string | development | Type of the destination Kubernetes object. | Pod |
-| `k8s.src.name` | string | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
-| `k8s.src.namespace` | string | development | Kubernetes namespace of the source workload. | integration-test |
-| `k8s.src.node.ip` | string | development | IP address of the node hosting the source workload. | 10.0.1.5 |
-| `k8s.src.node.name` | string | development | Name of the node hosting the source workload. | node-1 |
-| `k8s.src.owner.name` | string | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
-| `k8s.src.owner.type` | string | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
-| `k8s.src.type` | string | development | Type of the source Kubernetes object. | Pod |
-| `network.protocol.name` | string | stable | [OSI application layer](https://wikipedia.org/wiki/Application_layer) or non-OSI equivalent. | amqp; http; mqtt |
-| `network.type` | enum | stable | [OSI network layer](https://wikipedia.org/wiki/Network_layer) or non-OSI equivalent. | ipv4; ipv6 |
-| `obi.ip` | string | development | IP address of the host running OBI. | 10.0.0.5 |
-| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
-| `service.name` | string | stable | Logical name of the service. | shoppingcart |
-| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
-| `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
-| `service.peer.namespace` | string | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
-| `src.address` | string | development | Source IP address of the flow. | 10.0.0.5 |
-| `src.asn` | string | development | Autonomous System Number of the source endpoint, from GeoIP lookup. | AS15169 |
-| `src.cidr` | string | development | CIDR block matched against the source IP. | 10.0.0.0/8 |
-| `src.country` | string | development | ISO country code of the source endpoint, from GeoIP lookup. | US |
-| `src.name` | string | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
-| `src.port` | int | development | Source TCP/UDP port. |  |
-| `src.zone` | string | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
-| `transport` | string | development | Transport protocol of the flow (e.g. TCP, UDP). | TCP |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `client.port` | int | `opt_in` | stable | Client port number. | 65123 |
+| `direction` | enum | `recommended` | development | Whether the flow is the request or response side, derived from initiator / port heuristics. | request; response; unknown |
+| `dst.address` | string | `opt_in` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.asn` | string | `conditionally_required`: if the GeoIP database is configured | development | Autonomous System Number of the destination endpoint, from GeoIP lookup. | AS15169 |
+| `dst.cidr` | string | `conditionally_required`: if network.cidrs is configured | development | CIDR block matched against the destination IP. | 10.0.0.0/8 |
+| `dst.country` | string | `conditionally_required`: if the GeoIP database is configured | development | ISO country code of the destination endpoint, from GeoIP lookup. | US |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `iface.direction` | enum | `recommended`: if flow deduplication is disabled | development | Direction of the flow relative to the interface. | ingress; egress |
+| `iface` | string | `recommended`: if flow deduplication is disabled | development | Network interface the flow was observed on. | eth0 |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.protocol.name` | string | `opt_in` | stable | [OSI application layer](https://wikipedia.org/wiki/Application_layer) or non-OSI equivalent. | amqp; http; mqtt |
+| `network.type` | enum | `opt_in` | stable | [OSI network layer](https://wikipedia.org/wiki/Network_layer) or non-OSI equivalent. | ipv4; ipv6 |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `opt_in` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.asn` | string | `conditionally_required`: if the GeoIP database is configured | development | Autonomous System Number of the source endpoint, from GeoIP lookup. | AS15169 |
+| `src.cidr` | string | `conditionally_required`: if network.cidrs is configured | development | CIDR block matched against the source IP. | 10.0.0.0/8 |
+| `src.country` | string | `conditionally_required`: if the GeoIP database is configured | development | ISO country code of the source endpoint, from GeoIP lookup. | US |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+| `transport` | string | `opt_in` | development | Transport protocol of the flow (e.g. TCP, UDP). | TCP |
 
 ## `obi.network.inter.zone.bytes`
 
@@ -892,50 +892,50 @@ Total bytes for flows that cross a zone boundary (`src.zone` != `dst.zone`). Emi
 | --- | --- | --- |
 | counter | {bytes} | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `client.port` | int | stable | Client port number. | 65123 |
-| `direction` | enum | development | Whether the flow is the request or response side, derived from initiator / port heuristics. | request; response; unknown |
-| `dst.address` | string | development | Destination IP address of the flow. | 10.0.0.6 |
-| `dst.asn` | string | development | Autonomous System Number of the destination endpoint, from GeoIP lookup. | AS15169 |
-| `dst.cidr` | string | development | CIDR block matched against the destination IP. | 10.0.0.0/8 |
-| `dst.country` | string | development | ISO country code of the destination endpoint, from GeoIP lookup. | US |
-| `dst.name` | string | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
-| `dst.port` | int | development | Destination TCP/UDP port. |  |
-| `dst.zone` | string | development | Zone label attached to the destination side. | us-east-1b |
-| `iface.direction` | enum | development | Direction of the flow relative to the interface. | ingress; egress |
-| `iface` | string | development | Network interface the flow was observed on. | eth0 |
-| `k8s.cluster.name` | string | release_candidate | The name of the cluster. | opentelemetry-cluster |
-| `k8s.dst.name` | string | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
-| `k8s.dst.namespace` | string | development | Kubernetes namespace of the destination workload. | integration-test |
-| `k8s.dst.node.ip` | string | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
-| `k8s.dst.node.name` | string | development | Name of the node hosting the destination workload. | node-2 |
-| `k8s.dst.owner.name` | string | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
-| `k8s.dst.owner.type` | string | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
-| `k8s.dst.type` | string | development | Type of the destination Kubernetes object. | Pod |
-| `k8s.src.name` | string | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
-| `k8s.src.namespace` | string | development | Kubernetes namespace of the source workload. | integration-test |
-| `k8s.src.node.ip` | string | development | IP address of the node hosting the source workload. | 10.0.1.5 |
-| `k8s.src.node.name` | string | development | Name of the node hosting the source workload. | node-1 |
-| `k8s.src.owner.name` | string | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
-| `k8s.src.owner.type` | string | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
-| `k8s.src.type` | string | development | Type of the source Kubernetes object. | Pod |
-| `network.protocol.name` | string | stable | [OSI application layer](https://wikipedia.org/wiki/Application_layer) or non-OSI equivalent. | amqp; http; mqtt |
-| `network.type` | enum | stable | [OSI network layer](https://wikipedia.org/wiki/Network_layer) or non-OSI equivalent. | ipv4; ipv6 |
-| `obi.ip` | string | development | IP address of the host running OBI. | 10.0.0.5 |
-| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
-| `service.name` | string | stable | Logical name of the service. | shoppingcart |
-| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
-| `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
-| `service.peer.namespace` | string | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
-| `src.address` | string | development | Source IP address of the flow. | 10.0.0.5 |
-| `src.asn` | string | development | Autonomous System Number of the source endpoint, from GeoIP lookup. | AS15169 |
-| `src.cidr` | string | development | CIDR block matched against the source IP. | 10.0.0.0/8 |
-| `src.country` | string | development | ISO country code of the source endpoint, from GeoIP lookup. | US |
-| `src.name` | string | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
-| `src.port` | int | development | Source TCP/UDP port. |  |
-| `src.zone` | string | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
-| `transport` | string | development | Transport protocol of the flow (e.g. TCP, UDP). | TCP |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `client.port` | int | `opt_in` | stable | Client port number. | 65123 |
+| `direction` | enum | `opt_in` | development | Whether the flow is the request or response side, derived from initiator / port heuristics. | request; response; unknown |
+| `dst.address` | string | `opt_in` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.asn` | string | `conditionally_required`: if the GeoIP database is configured | development | Autonomous System Number of the destination endpoint, from GeoIP lookup. | AS15169 |
+| `dst.cidr` | string | `opt_in` | development | CIDR block matched against the destination IP. | 10.0.0.0/8 |
+| `dst.country` | string | `conditionally_required`: if the GeoIP database is configured | development | ISO country code of the destination endpoint, from GeoIP lookup. | US |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.zone` | string | `conditionally_required`: if availability-zone decoration is enabled | development | Zone label attached to the destination side. | us-east-1b |
+| `iface.direction` | enum | `opt_in` | development | Direction of the flow relative to the interface. | ingress; egress |
+| `iface` | string | `opt_in` | development | Network interface the flow was observed on. | eth0 |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `opt_in` | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `opt_in` | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `opt_in` | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `opt_in` | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `opt_in` | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `opt_in` | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.protocol.name` | string | `opt_in` | stable | [OSI application layer](https://wikipedia.org/wiki/Application_layer) or non-OSI equivalent. | amqp; http; mqtt |
+| `network.type` | enum | `opt_in` | stable | [OSI network layer](https://wikipedia.org/wiki/Network_layer) or non-OSI equivalent. | ipv4; ipv6 |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `opt_in` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.asn` | string | `conditionally_required`: if the GeoIP database is configured | development | Autonomous System Number of the source endpoint, from GeoIP lookup. | AS15169 |
+| `src.cidr` | string | `opt_in` | development | CIDR block matched against the source IP. | 10.0.0.0/8 |
+| `src.country` | string | `conditionally_required`: if the GeoIP database is configured | development | ISO country code of the source endpoint, from GeoIP lookup. | US |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.zone` | string | `conditionally_required`: if availability-zone decoration is enabled | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+| `transport` | string | `opt_in` | development | Transport protocol of the flow (e.g. TCP, UDP). | TCP |
 
 ## `obi.otel.metric.export.errors`
 
@@ -945,9 +945,9 @@ Error count on each failed OTEL metric export.
 | --- | --- | --- |
 | counter | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `error.type` | string | `required` | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 
 ## `obi.otel.metric.exports`
 
@@ -967,9 +967,9 @@ Error count on each failed OTEL trace export.
 | --- | --- | --- |
 | counter | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `error.type` | string | `required` | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 
 ## `obi.otel.trace.exports`
 
@@ -989,9 +989,9 @@ Ratio [0-1] between the unread messages of an internal Go channel and its total 
 | --- | --- | --- |
 | gauge | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `subscriber` | string | development | Name of the pipeline stage consuming the internal queue, as given to msg.SubscriberName when the stage subscribed. Subscribers that do not provide a name fall back to the name of the queue they subscribed to. | discover.CriteriaMatcher; traceAttacher |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `subscriber` | string | `required` | development | Name of the pipeline stage consuming the internal queue, as given to msg.SubscriberName when the stage subscribed. Subscribers that do not provide a name fall back to the name of the queue they subscribed to. | discover.CriteriaMatcher; traceAttacher |
 
 ## `obi.stat.tcp.failed.connections`
 
@@ -1001,38 +1001,38 @@ Count of TCP connections that failed to establish, broken down by `reason`.
 | --- | --- | --- |
 | counter | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `dst.address` | string | development | Destination IP address of the flow. | 10.0.0.6 |
-| `dst.name` | string | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
-| `dst.port` | int | development | Destination TCP/UDP port. |  |
-| `dst.zone` | string | development | Zone label attached to the destination side. | us-east-1b |
-| `k8s.cluster.name` | string | release_candidate | The name of the cluster. | opentelemetry-cluster |
-| `k8s.dst.name` | string | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
-| `k8s.dst.namespace` | string | development | Kubernetes namespace of the destination workload. | integration-test |
-| `k8s.dst.node.ip` | string | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
-| `k8s.dst.node.name` | string | development | Name of the node hosting the destination workload. | node-2 |
-| `k8s.dst.owner.name` | string | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
-| `k8s.dst.owner.type` | string | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
-| `k8s.dst.type` | string | development | Type of the destination Kubernetes object. | Pod |
-| `k8s.src.name` | string | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
-| `k8s.src.namespace` | string | development | Kubernetes namespace of the source workload. | integration-test |
-| `k8s.src.node.ip` | string | development | IP address of the node hosting the source workload. | 10.0.1.5 |
-| `k8s.src.node.name` | string | development | Name of the node hosting the source workload. | node-1 |
-| `k8s.src.owner.name` | string | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
-| `k8s.src.owner.type` | string | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
-| `k8s.src.type` | string | development | Type of the source Kubernetes object. | Pod |
-| `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the failed TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
-| `obi.ip` | string | development | IP address of the host running OBI. | 10.0.0.5 |
-| `reason` | enum | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
-| `service.name` | string | stable | Logical name of the service. | shoppingcart |
-| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
-| `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
-| `service.peer.namespace` | string | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
-| `src.address` | string | development | Source IP address of the flow. | 10.0.0.5 |
-| `src.name` | string | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
-| `src.port` | int | development | Source TCP/UDP port. |  |
-| `src.zone` | string | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `reason` | enum | `opt_in` | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
 ## `obi.stat.tcp.io`
 
@@ -1042,37 +1042,37 @@ Count of bytes transferred at the socket layer per TCP connection, broken down b
 | --- | --- | --- |
 | counter | By | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `dst.address` | string | development | Destination IP address of the flow. | 10.0.0.6 |
-| `dst.name` | string | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
-| `dst.port` | int | development | Destination TCP/UDP port. |  |
-| `dst.zone` | string | development | Zone label attached to the destination side. | us-east-1b |
-| `k8s.cluster.name` | string | release_candidate | The name of the cluster. | opentelemetry-cluster |
-| `k8s.dst.name` | string | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
-| `k8s.dst.namespace` | string | development | Kubernetes namespace of the destination workload. | integration-test |
-| `k8s.dst.node.ip` | string | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
-| `k8s.dst.node.name` | string | development | Name of the node hosting the destination workload. | node-2 |
-| `k8s.dst.owner.name` | string | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
-| `k8s.dst.owner.type` | string | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
-| `k8s.dst.type` | string | development | Type of the destination Kubernetes object. | Pod |
-| `k8s.src.name` | string | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
-| `k8s.src.namespace` | string | development | Kubernetes namespace of the source workload. | integration-test |
-| `k8s.src.node.ip` | string | development | IP address of the node hosting the source workload. | 10.0.1.5 |
-| `k8s.src.node.name` | string | development | Name of the node hosting the source workload. | node-1 |
-| `k8s.src.owner.name` | string | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
-| `k8s.src.owner.type` | string | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
-| `k8s.src.type` | string | development | Type of the source Kubernetes object. | Pod |
-| `network.io.direction` | enum | development | The network IO operation direction. | transmit |
-| `obi.ip` | string | development | IP address of the host running OBI. | 10.0.0.5 |
-| `service.name` | string | stable | Logical name of the service. | shoppingcart |
-| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
-| `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
-| `service.peer.namespace` | string | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
-| `src.address` | string | development | Source IP address of the flow. | 10.0.0.5 |
-| `src.name` | string | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
-| `src.port` | int | development | Source TCP/UDP port. |  |
-| `src.zone` | string | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.io.direction` | enum | `recommended` | development | The network IO operation direction. | transmit |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
 ## `obi.stat.tcp.retransmits`
 
@@ -1082,36 +1082,36 @@ Count of TCP retransmissions observed per connection.
 | --- | --- | --- |
 | counter | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `dst.address` | string | development | Destination IP address of the flow. | 10.0.0.6 |
-| `dst.name` | string | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
-| `dst.port` | int | development | Destination TCP/UDP port. |  |
-| `dst.zone` | string | development | Zone label attached to the destination side. | us-east-1b |
-| `k8s.cluster.name` | string | release_candidate | The name of the cluster. | opentelemetry-cluster |
-| `k8s.dst.name` | string | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
-| `k8s.dst.namespace` | string | development | Kubernetes namespace of the destination workload. | integration-test |
-| `k8s.dst.node.ip` | string | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
-| `k8s.dst.node.name` | string | development | Name of the node hosting the destination workload. | node-2 |
-| `k8s.dst.owner.name` | string | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
-| `k8s.dst.owner.type` | string | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
-| `k8s.dst.type` | string | development | Type of the destination Kubernetes object. | Pod |
-| `k8s.src.name` | string | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
-| `k8s.src.namespace` | string | development | Kubernetes namespace of the source workload. | integration-test |
-| `k8s.src.node.ip` | string | development | IP address of the node hosting the source workload. | 10.0.1.5 |
-| `k8s.src.node.name` | string | development | Name of the node hosting the source workload. | node-1 |
-| `k8s.src.owner.name` | string | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
-| `k8s.src.owner.type` | string | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
-| `k8s.src.type` | string | development | Type of the source Kubernetes object. | Pod |
-| `obi.ip` | string | development | IP address of the host running OBI. | 10.0.0.5 |
-| `service.name` | string | stable | Logical name of the service. | shoppingcart |
-| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
-| `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
-| `service.peer.namespace` | string | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
-| `src.address` | string | development | Source IP address of the flow. | 10.0.0.5 |
-| `src.name` | string | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
-| `src.port` | int | development | Source TCP/UDP port. |  |
-| `src.zone` | string | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
 ## `obi.stat.tcp.rtt`
 
@@ -1121,37 +1121,77 @@ Smoothed round-trip time observed per TCP connection.
 | --- | --- | --- |
 | histogram | s | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `dst.address` | string | development | Destination IP address of the flow. | 10.0.0.6 |
-| `dst.name` | string | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
-| `dst.port` | int | development | Destination TCP/UDP port. |  |
-| `dst.zone` | string | development | Zone label attached to the destination side. | us-east-1b |
-| `k8s.cluster.name` | string | release_candidate | The name of the cluster. | opentelemetry-cluster |
-| `k8s.dst.name` | string | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
-| `k8s.dst.namespace` | string | development | Kubernetes namespace of the destination workload. | integration-test |
-| `k8s.dst.node.ip` | string | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
-| `k8s.dst.node.name` | string | development | Name of the node hosting the destination workload. | node-2 |
-| `k8s.dst.owner.name` | string | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
-| `k8s.dst.owner.type` | string | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
-| `k8s.dst.type` | string | development | Type of the destination Kubernetes object. | Pod |
-| `k8s.src.name` | string | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
-| `k8s.src.namespace` | string | development | Kubernetes namespace of the source workload. | integration-test |
-| `k8s.src.node.ip` | string | development | IP address of the node hosting the source workload. | 10.0.1.5 |
-| `k8s.src.node.name` | string | development | Name of the node hosting the source workload. | node-1 |
-| `k8s.src.owner.name` | string | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
-| `k8s.src.owner.type` | string | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
-| `k8s.src.type` | string | development | Type of the source Kubernetes object. | Pod |
-| `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the failed TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
-| `obi.ip` | string | development | IP address of the host running OBI. | 10.0.0.5 |
-| `service.name` | string | stable | Logical name of the service. | shoppingcart |
-| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
-| `service.peer.name` | string | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
-| `service.peer.namespace` | string | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
-| `src.address` | string | development | Source IP address of the flow. | 10.0.0.5 |
-| `src.name` | string | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
-| `src.port` | int | development | Source TCP/UDP port. |  |
-| `src.zone` | string | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+
+## `obi.stat.tcp.successful.connections`
+
+Count of TCP connections that completed the three-way handshake, broken down by `network.tcp.handshake.role`.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | 1 | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.tcp.handshake.role` | enum | `opt_in` | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 
 ## `rpc.client.call.duration`
 
@@ -1161,13 +1201,13 @@ OBI-emitted rpc.client.call.duration
 | --- | --- | --- |
 | histogram | s | release_candidate |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `error.type` | string | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `rpc.method` | string | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
-| `rpc.response.status_code` | string | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
-| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
-| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `rpc.method` | string | `recommended` | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
+| `rpc.response.status_code` | string | `conditionally_required`: if the status is inside the gRPC enum | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
+| `rpc.system.name` | enum | `required` | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
+| `server.address` | string | `recommended`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 
 ## `rpc.server.call.duration`
 
@@ -1177,14 +1217,14 @@ OBI-emitted rpc.server.call.duration
 | --- | --- | --- |
 | histogram | s | release_candidate |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `client.address` | string | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
-| `rpc.method` | string | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
-| `rpc.response.status_code` | string | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
-| `rpc.system.name` | enum | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
-| `server.address` | string | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | stable | Server port number. | 80; 8080; 443 |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `client.address` | string | `opt_in` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
+| `rpc.method` | string | `recommended` | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
+| `rpc.response.status_code` | string | `conditionally_required`: if the status is inside the gRPC enum | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
+| `rpc.system.name` | enum | `required` | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
+| `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
 
 ## `target.info`
 
@@ -1194,54 +1234,42 @@ OBI-emitted rpc.server.call.duration
 | --- | --- | --- |
 | updowncounter | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `container.id` | string | release_candidate | Container ID. Usually a UUID, as for example used to [identify Docker containers](https://docs.docker.com/engine/containers/run/#container-identification). The UUID might be abbreviated. | a3bf90e006b2 |
-| `container.name` | string | development | Container name used by container runtime. | opentelemetry-autoconf |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
-| `host.image.id` | string | development | VM image ID or host OS image ID. For Cloud, this value is from the provider. | ami-07b06b442921831e5 |
-| `host.name` | string | development | Name of the host. On Unix systems, it may contain what the hostname command returns, or the fully qualified hostname, or another name specified by the user. | opentelemetry-test |
-| `host.type` | string | development | Type of host. For Cloud, this must be the machine type. | n1-standard-1 |
-| `instance` | string | development | Instance identifier of the reporting service, carried on target.info and on every Prometheus span-metrics series. | host.local:9090 |
-| `job` | string | development | Job identifier of the reporting service, carried on target.info and on every Prometheus span-metrics series. | my-service |
-| `k8s.cluster.name` | string | release_candidate | The name of the cluster. | opentelemetry-cluster |
-| `k8s.container.name` | string | release_candidate | The name of the Container from Pod specification, must be unique within a Pod. Container runtime usually uses different globally unique name (`container.name`). | redis |
-| `k8s.cronjob.name` | string | release_candidate | The name of the CronJob. | opentelemetry |
-| `k8s.daemonset.name` | string | release_candidate | The name of the DaemonSet. | opentelemetry |
-| `k8s.deployment.name` | string | release_candidate | The name of the Deployment. | opentelemetry |
-| `k8s.job.name` | string | release_candidate | The name of the Job. | opentelemetry |
-| `k8s.kind` | string | development | Kind of the top-level Kubernetes owner of the decorated Pod (falls back to the direct owner's kind when no top-level owner is resolved). Deliberately never `Pod`, to bound label cardinality. | Deployment; StatefulSet |
-| `k8s.namespace.name` | string | release_candidate | The name of the namespace that the pod is running in. | default |
-| `k8s.node.name` | string | release_candidate | The name of the Node. | node-1 |
-| `k8s.owner.name` | string | development | Name of the top-level Kubernetes owner (Deployment, StatefulSet, DaemonSet, CronJob, …) of the Pod OBI decorated the signal with. | frontend |
-| `k8s.pod.name` | string | release_candidate | The name of the Pod. | opentelemetry-pod-autoconf |
-| `k8s.pod.start_time` | string | release_candidate | The start timestamp of the Pod. | 2025-12-04T08:41:03Z |
-| `k8s.pod.uid` | string | release_candidate | The UID of the Pod. | 275ecb36-5aa8-4c2a-9c47-d8bb681b9aff |
-| `k8s.replicaset.name` | string | release_candidate | The name of the ReplicaSet. | opentelemetry |
-| `k8s.statefulset.name` | string | release_candidate | The name of the StatefulSet. | opentelemetry |
-| `os.type` | enum | development | The operating system type. | windows; linux; darwin; freebsd; netbsd; openbsd; dragonflybsd; hpux; … |
-| `os.version` | string | development | The version string of the operating system as defined in [Version Attributes](/docs/resource/README.md#version-attributes). | 14.2.1; 18.04.1 |
-| `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
-| `service.name` | string | stable | Logical name of the service. | shoppingcart |
-| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
-| `service.version` | string | stable | The version string of the service component. The format is not defined by these conventions. | 2.0.0; a01dbef8a |
-| `telemetry.distro.name` | string | stable | The name of the auto instrumentation agent or distribution, if used. | parts-unlimited-java |
-| `telemetry.distro.version` | string | stable | The version string of the auto instrumentation agent or distribution, if used. | 1.2.3 |
-| `telemetry.sdk.language` | enum | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
-| `telemetry.sdk.name` | string | stable | The name of the telemetry SDK as defined above. | opentelemetry |
-| `telemetry.sdk.version` | string | stable | The version string of the telemetry SDK. | 1.2.3 |
-
-## `traces.host.info`
-
-OBI per-host meta-metric carrying the host identifier so dashboards can join trace metrics back to host / instance identity.
-
-| Instrument | Unit | Stability |
-| --- | --- | --- |
-| gauge | 1 | development |
-
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `container.id` | string | `recommended`: if container metadata is available | release_candidate | Container ID. Usually a UUID, as for example used to [identify Docker containers](https://docs.docker.com/engine/containers/run/#container-identification). The UUID might be abbreviated. | a3bf90e006b2 |
+| `container.name` | string | `recommended`: if container metadata is available | development | Container name used by container runtime. | opentelemetry-autoconf |
+| `host.id` | string | `recommended` | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
+| `host.image.id` | string | `recommended`: if host metadata could be resolved | development | VM image ID or host OS image ID. For Cloud, this value is from the provider. | ami-07b06b442921831e5 |
+| `host.name` | string | `recommended`: if host metadata could be resolved | development | Name of the host. On Unix systems, it may contain what the hostname command returns, or the fully qualified hostname, or another name specified by the user. | opentelemetry-test |
+| `host.type` | string | `recommended`: if host metadata could be resolved | development | Type of host. For Cloud, this must be the machine type. | n1-standard-1 |
+| `instance` | string | `recommended` | development | Instance identifier of the reporting service, carried on target.info and on every Prometheus span-metrics series. | host.local:9090 |
+| `job` | string | `recommended` | development | Job identifier of the reporting service, carried on target.info and on every Prometheus span-metrics series. | my-service |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.container.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | release_candidate | The name of the Container from Pod specification, must be unique within a Pod. Container runtime usually uses different globally unique name (`container.name`). | redis |
+| `k8s.cronjob.name` | string | `recommended`: if Kubernetes decoration is enabled and the pod's owner chain includes a CronJob | release_candidate | The name of the CronJob. | opentelemetry |
+| `k8s.daemonset.name` | string | `recommended`: if Kubernetes decoration is enabled and the pod's owner chain includes a DaemonSet | release_candidate | The name of the DaemonSet. | opentelemetry |
+| `k8s.deployment.name` | string | `recommended`: if Kubernetes decoration is enabled and the pod's owner chain includes a Deployment | release_candidate | The name of the Deployment. | opentelemetry |
+| `k8s.job.name` | string | `recommended`: if Kubernetes decoration is enabled and the pod's owner chain includes a Job | release_candidate | The name of the Job. | opentelemetry |
+| `k8s.kind` | string | `conditionally_required`: if Kubernetes decoration is enabled and the pod has an owner | development | Kind of the top-level Kubernetes owner of the decorated Pod (falls back to the direct owner's kind when no top-level owner is resolved). Deliberately never `Pod`, to bound label cardinality. | Deployment; StatefulSet |
+| `k8s.namespace.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the namespace that the pod is running in. | default |
+| `k8s.node.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the Node. | node-1 |
+| `k8s.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled and the pod has an owner | development | Name of the top-level Kubernetes owner (Deployment, StatefulSet, DaemonSet, CronJob, …) of the Pod OBI decorated the signal with. | frontend |
+| `k8s.pod.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the Pod. | opentelemetry-pod-autoconf |
+| `k8s.pod.start_time` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The start timestamp of the Pod. | 2025-12-04T08:41:03Z |
+| `k8s.pod.uid` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The UID of the Pod. | 275ecb36-5aa8-4c2a-9c47-d8bb681b9aff |
+| `k8s.replicaset.name` | string | `recommended`: if Kubernetes decoration is enabled and the pod's owner chain includes a ReplicaSet | release_candidate | The name of the ReplicaSet. | opentelemetry |
+| `k8s.statefulset.name` | string | `recommended`: if Kubernetes decoration is enabled and the pod's owner chain includes a StatefulSet | release_candidate | The name of the StatefulSet. | opentelemetry |
+| `os.type` | enum | `required` | development | The operating system type. | windows; linux; darwin; freebsd; netbsd; openbsd; dragonflybsd; hpux; … |
+| `os.version` | string | `recommended`: if host metadata could be resolved | development | The version string of the operating system as defined in [Version Attributes](/docs/resource/README.md#version-attributes). | 14.2.1; 18.04.1 |
+| `service.instance.id` | string | `required` | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
+| `service.name` | string | `required` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `recommended`: if the workload has a namespace | stable | A namespace for `service.name`. | Shop |
+| `service.version` | string | `conditionally_required`: if the workload reported a version | stable | The version string of the service component. The format is not defined by these conventions. | 2.0.0; a01dbef8a |
+| `telemetry.distro.name` | string | `recommended` | stable | The name of the auto instrumentation agent or distribution, if used. | parts-unlimited-java |
+| `telemetry.distro.version` | string | `recommended` | stable | The version string of the auto instrumentation agent or distribution, if used. | 1.2.3 |
+| `telemetry.sdk.language` | enum | `required` | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
+| `telemetry.sdk.name` | string | `required` | stable | The name of the telemetry SDK as defined above. | opentelemetry |
+| `telemetry.sdk.version` | string | `required` | stable | The version string of the telemetry SDK. | 1.2.3 |
 
 ## `traces.span.metrics.calls`
 
@@ -1251,17 +1279,16 @@ Total number of spans observed, grouped by span name / kind / status.
 | --- | --- | --- |
 | counter | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
-| `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
-| `service.name` | string | stable | Logical name of the service. | shoppingcart |
-| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
-| `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
-| `span.kind` | enum | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
-| `span.name` | string | development | The span name (matches the OTLP span name field). | GET /api/users |
-| `status.code` | enum | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
-| `telemetry.sdk.language` | enum | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `service.instance.id` | string | `required` | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
+| `service.name` | string | `required` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `conditionally_required`: if the workload has a namespace | stable | A namespace for `service.name`. | Shop |
+| `source` | string | `required` | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
+| `span.kind` | enum | `required` | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
+| `span.name` | string | `required` | development | The span name (matches the OTLP span name field). | GET /api/users |
+| `status.code` | enum | `required` | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
+| `telemetry.sdk.language` | enum | `required` | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
 
 ## `traces.span.metrics.duration`
 
@@ -1271,17 +1298,16 @@ Duration distribution for observed spans, grouped by span name / kind / status.
 | --- | --- | --- |
 | histogram | s | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
-| `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
-| `service.name` | string | stable | Logical name of the service. | shoppingcart |
-| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
-| `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
-| `span.kind` | enum | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
-| `span.name` | string | development | The span name (matches the OTLP span name field). | GET /api/users |
-| `status.code` | enum | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
-| `telemetry.sdk.language` | enum | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `service.instance.id` | string | `required` | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
+| `service.name` | string | `required` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `conditionally_required`: if the workload has a namespace | stable | A namespace for `service.name`. | Shop |
+| `source` | string | `required` | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
+| `span.kind` | enum | `required` | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
+| `span.name` | string | `required` | development | The span name (matches the OTLP span name field). | GET /api/users |
+| `status.code` | enum | `required` | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
+| `telemetry.sdk.language` | enum | `required` | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
 
 ## `traces.target.info`
 
@@ -1291,40 +1317,40 @@ OBI counterpart of `target.info` for the traces pipeline. Carries the resource a
 | --- | --- | --- |
 | updowncounter | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `container.id` | string | release_candidate | Container ID. Usually a UUID, as for example used to [identify Docker containers](https://docs.docker.com/engine/containers/run/#container-identification). The UUID might be abbreviated. | a3bf90e006b2 |
-| `container.name` | string | development | Container name used by container runtime. | opentelemetry-autoconf |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
-| `host.image.id` | string | development | VM image ID or host OS image ID. For Cloud, this value is from the provider. | ami-07b06b442921831e5 |
-| `host.type` | string | development | Type of host. For Cloud, this must be the machine type. | n1-standard-1 |
-| `k8s.cluster.name` | string | release_candidate | The name of the cluster. | opentelemetry-cluster |
-| `k8s.container.name` | string | release_candidate | The name of the Container from Pod specification, must be unique within a Pod. Container runtime usually uses different globally unique name (`container.name`). | redis |
-| `k8s.cronjob.name` | string | release_candidate | The name of the CronJob. | opentelemetry |
-| `k8s.daemonset.name` | string | release_candidate | The name of the DaemonSet. | opentelemetry |
-| `k8s.deployment.name` | string | release_candidate | The name of the Deployment. | opentelemetry |
-| `k8s.job.name` | string | release_candidate | The name of the Job. | opentelemetry |
-| `k8s.kind` | string | development | Kind of the top-level Kubernetes owner of the decorated Pod (falls back to the direct owner's kind when no top-level owner is resolved). Deliberately never `Pod`, to bound label cardinality. | Deployment; StatefulSet |
-| `k8s.namespace.name` | string | release_candidate | The name of the namespace that the pod is running in. | default |
-| `k8s.node.name` | string | release_candidate | The name of the Node. | node-1 |
-| `k8s.owner.name` | string | development | Name of the top-level Kubernetes owner (Deployment, StatefulSet, DaemonSet, CronJob, …) of the Pod OBI decorated the signal with. | frontend |
-| `k8s.pod.name` | string | release_candidate | The name of the Pod. | opentelemetry-pod-autoconf |
-| `k8s.pod.start_time` | string | release_candidate | The start timestamp of the Pod. | 2025-12-04T08:41:03Z |
-| `k8s.pod.uid` | string | release_candidate | The UID of the Pod. | 275ecb36-5aa8-4c2a-9c47-d8bb681b9aff |
-| `k8s.replicaset.name` | string | release_candidate | The name of the ReplicaSet. | opentelemetry |
-| `k8s.statefulset.name` | string | release_candidate | The name of the StatefulSet. | opentelemetry |
-| `os.type` | enum | development | The operating system type. | windows; linux; darwin; freebsd; netbsd; openbsd; dragonflybsd; hpux; … |
-| `os.version` | string | development | The version string of the operating system as defined in [Version Attributes](/docs/resource/README.md#version-attributes). | 14.2.1; 18.04.1 |
-| `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
-| `service.name` | string | stable | Logical name of the service. | shoppingcart |
-| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
-| `service.version` | string | stable | The version string of the service component. The format is not defined by these conventions. | 2.0.0; a01dbef8a |
-| `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
-| `telemetry.distro.name` | string | stable | The name of the auto instrumentation agent or distribution, if used. | parts-unlimited-java |
-| `telemetry.distro.version` | string | stable | The version string of the auto instrumentation agent or distribution, if used. | 1.2.3 |
-| `telemetry.sdk.language` | enum | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
-| `telemetry.sdk.name` | string | stable | The name of the telemetry SDK as defined above. | opentelemetry |
-| `telemetry.sdk.version` | string | stable | The version string of the telemetry SDK. | 1.2.3 |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `container.id` | string | `recommended`: if container metadata is available | release_candidate | Container ID. Usually a UUID, as for example used to [identify Docker containers](https://docs.docker.com/engine/containers/run/#container-identification). The UUID might be abbreviated. | a3bf90e006b2 |
+| `container.name` | string | `recommended`: if container metadata is available | development | Container name used by container runtime. | opentelemetry-autoconf |
+| `host.id` | string | `recommended` | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
+| `host.image.id` | string | `recommended`: if host metadata could be resolved | development | VM image ID or host OS image ID. For Cloud, this value is from the provider. | ami-07b06b442921831e5 |
+| `host.type` | string | `recommended`: if host metadata could be resolved | development | Type of host. For Cloud, this must be the machine type. | n1-standard-1 |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.container.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | release_candidate | The name of the Container from Pod specification, must be unique within a Pod. Container runtime usually uses different globally unique name (`container.name`). | redis |
+| `k8s.cronjob.name` | string | `recommended`: if Kubernetes decoration is enabled and the pod's owner chain includes a CronJob | release_candidate | The name of the CronJob. | opentelemetry |
+| `k8s.daemonset.name` | string | `recommended`: if Kubernetes decoration is enabled and the pod's owner chain includes a DaemonSet | release_candidate | The name of the DaemonSet. | opentelemetry |
+| `k8s.deployment.name` | string | `recommended`: if Kubernetes decoration is enabled and the pod's owner chain includes a Deployment | release_candidate | The name of the Deployment. | opentelemetry |
+| `k8s.job.name` | string | `recommended`: if Kubernetes decoration is enabled and the pod's owner chain includes a Job | release_candidate | The name of the Job. | opentelemetry |
+| `k8s.kind` | string | `conditionally_required`: if Kubernetes decoration is enabled and the pod has an owner | development | Kind of the top-level Kubernetes owner of the decorated Pod (falls back to the direct owner's kind when no top-level owner is resolved). Deliberately never `Pod`, to bound label cardinality. | Deployment; StatefulSet |
+| `k8s.namespace.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the namespace that the pod is running in. | default |
+| `k8s.node.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the Node. | node-1 |
+| `k8s.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled and the pod has an owner | development | Name of the top-level Kubernetes owner (Deployment, StatefulSet, DaemonSet, CronJob, …) of the Pod OBI decorated the signal with. | frontend |
+| `k8s.pod.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the Pod. | opentelemetry-pod-autoconf |
+| `k8s.pod.start_time` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The start timestamp of the Pod. | 2025-12-04T08:41:03Z |
+| `k8s.pod.uid` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The UID of the Pod. | 275ecb36-5aa8-4c2a-9c47-d8bb681b9aff |
+| `k8s.replicaset.name` | string | `recommended`: if Kubernetes decoration is enabled and the pod's owner chain includes a ReplicaSet | release_candidate | The name of the ReplicaSet. | opentelemetry |
+| `k8s.statefulset.name` | string | `recommended`: if Kubernetes decoration is enabled and the pod's owner chain includes a StatefulSet | release_candidate | The name of the StatefulSet. | opentelemetry |
+| `os.type` | enum | `required` | development | The operating system type. | windows; linux; darwin; freebsd; netbsd; openbsd; dragonflybsd; hpux; … |
+| `os.version` | string | `recommended`: if host metadata could be resolved | development | The version string of the operating system as defined in [Version Attributes](/docs/resource/README.md#version-attributes). | 14.2.1; 18.04.1 |
+| `service.instance.id` | string | `required` | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
+| `service.name` | string | `required` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `recommended`: if the workload has a namespace | stable | A namespace for `service.name`. | Shop |
+| `service.version` | string | `conditionally_required`: if the workload reported a version | stable | The version string of the service component. The format is not defined by these conventions. | 2.0.0; a01dbef8a |
+| `source` | string | `recommended` | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
+| `telemetry.distro.name` | string | `recommended` | stable | The name of the auto instrumentation agent or distribution, if used. | parts-unlimited-java |
+| `telemetry.distro.version` | string | `recommended` | stable | The version string of the auto instrumentation agent or distribution, if used. | 1.2.3 |
+| `telemetry.sdk.language` | enum | `required` | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
+| `telemetry.sdk.name` | string | `required` | stable | The name of the telemetry SDK as defined above. | opentelemetry |
+| `telemetry.sdk.version` | string | `required` | stable | The version string of the telemetry SDK. | 1.2.3 |
 
 ## `traces_service_graph_request_client`
 
@@ -1334,18 +1360,18 @@ Client-side request duration distribution per service-graph edge.
 | --- | --- | --- |
 | histogram | s | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `client_k8s_cluster_name` | string | development | Kubernetes cluster name of the client (request-initiating) peer. | my-cluster |
-| `client_k8s_namespace_name` | string | development | Kubernetes namespace of the client (request-initiating) peer. | integration-test |
-| `client_service_namespace` | string | development | The service namespace of the client side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
-| `client` | string | development | Name of the service initiating the request. | frontend |
-| `connection_type` | enum | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. | messaging_system; database; virtual_node |
-| `server_k8s_cluster_name` | string | development | Kubernetes cluster name of the server (request-receiving) peer. | my-cluster |
-| `server_k8s_namespace_name` | string | development | Kubernetes namespace of the server (request-receiving) peer. | integration-test |
-| `server_service_namespace` | string | development | The service namespace of the server side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
-| `server` | string | development | Name of the service receiving the request. | users-api |
-| `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `client_k8s_cluster_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes cluster name of the client (request-initiating) peer. | my-cluster |
+| `client_k8s_namespace_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the client (request-initiating) peer. | integration-test |
+| `client_service_namespace` | string | `conditionally_required`: if the workload has a namespace | development | The service namespace of the client side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
+| `client` | string | `required` | development | Name of the service initiating the request. | frontend |
+| `connection_type` | enum | `conditionally_required`: if the connection was not a direct HTTP or gRPC request | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. | messaging_system; database; virtual_node |
+| `server_k8s_cluster_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes cluster name of the server (request-receiving) peer. | my-cluster |
+| `server_k8s_namespace_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the server (request-receiving) peer. | integration-test |
+| `server_service_namespace` | string | `conditionally_required`: if the workload has a namespace | development | The service namespace of the server side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
+| `server` | string | `required` | development | Name of the service receiving the request. | users-api |
+| `source` | string | `required` | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
 
 ## `traces_service_graph_request_failed_total`
 
@@ -1355,18 +1381,18 @@ Total number of failed edges in the service graph, grouped by client / server.
 | --- | --- | --- |
 | counter | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `client_k8s_cluster_name` | string | development | Kubernetes cluster name of the client (request-initiating) peer. | my-cluster |
-| `client_k8s_namespace_name` | string | development | Kubernetes namespace of the client (request-initiating) peer. | integration-test |
-| `client_service_namespace` | string | development | The service namespace of the client side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
-| `client` | string | development | Name of the service initiating the request. | frontend |
-| `connection_type` | enum | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. | messaging_system; database; virtual_node |
-| `server_k8s_cluster_name` | string | development | Kubernetes cluster name of the server (request-receiving) peer. | my-cluster |
-| `server_k8s_namespace_name` | string | development | Kubernetes namespace of the server (request-receiving) peer. | integration-test |
-| `server_service_namespace` | string | development | The service namespace of the server side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
-| `server` | string | development | Name of the service receiving the request. | users-api |
-| `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `client_k8s_cluster_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes cluster name of the client (request-initiating) peer. | my-cluster |
+| `client_k8s_namespace_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the client (request-initiating) peer. | integration-test |
+| `client_service_namespace` | string | `conditionally_required`: if the workload has a namespace | development | The service namespace of the client side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
+| `client` | string | `required` | development | Name of the service initiating the request. | frontend |
+| `connection_type` | enum | `conditionally_required`: if the connection was not a direct HTTP or gRPC request | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. | messaging_system; database; virtual_node |
+| `server_k8s_cluster_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes cluster name of the server (request-receiving) peer. | my-cluster |
+| `server_k8s_namespace_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the server (request-receiving) peer. | integration-test |
+| `server_service_namespace` | string | `conditionally_required`: if the workload has a namespace | development | The service namespace of the server side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
+| `server` | string | `required` | development | Name of the service receiving the request. | users-api |
+| `source` | string | `required` | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
 
 ## `traces_service_graph_request_server`
 
@@ -1376,18 +1402,18 @@ Server-side request duration distribution per service-graph edge.
 | --- | --- | --- |
 | histogram | s | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `client_k8s_cluster_name` | string | development | Kubernetes cluster name of the client (request-initiating) peer. | my-cluster |
-| `client_k8s_namespace_name` | string | development | Kubernetes namespace of the client (request-initiating) peer. | integration-test |
-| `client_service_namespace` | string | development | The service namespace of the client side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
-| `client` | string | development | Name of the service initiating the request. | frontend |
-| `connection_type` | enum | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. | messaging_system; database; virtual_node |
-| `server_k8s_cluster_name` | string | development | Kubernetes cluster name of the server (request-receiving) peer. | my-cluster |
-| `server_k8s_namespace_name` | string | development | Kubernetes namespace of the server (request-receiving) peer. | integration-test |
-| `server_service_namespace` | string | development | The service namespace of the server side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
-| `server` | string | development | Name of the service receiving the request. | users-api |
-| `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `client_k8s_cluster_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes cluster name of the client (request-initiating) peer. | my-cluster |
+| `client_k8s_namespace_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the client (request-initiating) peer. | integration-test |
+| `client_service_namespace` | string | `conditionally_required`: if the workload has a namespace | development | The service namespace of the client side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
+| `client` | string | `required` | development | Name of the service initiating the request. | frontend |
+| `connection_type` | enum | `conditionally_required`: if the connection was not a direct HTTP or gRPC request | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. | messaging_system; database; virtual_node |
+| `server_k8s_cluster_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes cluster name of the server (request-receiving) peer. | my-cluster |
+| `server_k8s_namespace_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the server (request-receiving) peer. | integration-test |
+| `server_service_namespace` | string | `conditionally_required`: if the workload has a namespace | development | The service namespace of the server side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
+| `server` | string | `required` | development | Name of the service receiving the request. | users-api |
+| `source` | string | `required` | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
 
 ## `traces_service_graph_request_total`
 
@@ -1397,18 +1423,18 @@ Total number of edges in the service graph, grouped by client / server.
 | --- | --- | --- |
 | counter | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `client_k8s_cluster_name` | string | development | Kubernetes cluster name of the client (request-initiating) peer. | my-cluster |
-| `client_k8s_namespace_name` | string | development | Kubernetes namespace of the client (request-initiating) peer. | integration-test |
-| `client_service_namespace` | string | development | The service namespace of the client side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
-| `client` | string | development | Name of the service initiating the request. | frontend |
-| `connection_type` | enum | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. | messaging_system; database; virtual_node |
-| `server_k8s_cluster_name` | string | development | Kubernetes cluster name of the server (request-receiving) peer. | my-cluster |
-| `server_k8s_namespace_name` | string | development | Kubernetes namespace of the server (request-receiving) peer. | integration-test |
-| `server_service_namespace` | string | development | The service namespace of the server side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
-| `server` | string | development | Name of the service receiving the request. | users-api |
-| `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `client_k8s_cluster_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes cluster name of the client (request-initiating) peer. | my-cluster |
+| `client_k8s_namespace_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the client (request-initiating) peer. | integration-test |
+| `client_service_namespace` | string | `conditionally_required`: if the workload has a namespace | development | The service namespace of the client side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
+| `client` | string | `required` | development | Name of the service initiating the request. | frontend |
+| `connection_type` | enum | `conditionally_required`: if the connection was not a direct HTTP or gRPC request | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. | messaging_system; database; virtual_node |
+| `server_k8s_cluster_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes cluster name of the server (request-receiving) peer. | my-cluster |
+| `server_k8s_namespace_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the server (request-receiving) peer. | integration-test |
+| `server_service_namespace` | string | `conditionally_required`: if the workload has a namespace | development | The service namespace of the server side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
+| `server` | string | `required` | development | Name of the service receiving the request. | users-api |
+| `source` | string | `required` | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
 
 ## `traces_spanmetrics_calls_total`
 
@@ -1420,17 +1446,16 @@ Total number of spans observed, grouped by span name / kind / status (legacy nam
 | --- | --- | --- |
 | counter | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
-| `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
-| `service.name` | string | stable | Logical name of the service. | shoppingcart |
-| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
-| `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
-| `span.kind` | enum | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
-| `span.name` | string | development | The span name (matches the OTLP span name field). | GET /api/users |
-| `status.code` | enum | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
-| `telemetry.sdk.language` | enum | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `service.instance.id` | string | `required` | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
+| `service.name` | string | `required` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `conditionally_required`: if the workload has a namespace | stable | A namespace for `service.name`. | Shop |
+| `source` | string | `required` | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
+| `span.kind` | enum | `required` | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
+| `span.name` | string | `required` | development | The span name (matches the OTLP span name field). | GET /api/users |
+| `status.code` | enum | `required` | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
+| `telemetry.sdk.language` | enum | `required` | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
 
 ## `traces_spanmetrics_latency`
 
@@ -1442,17 +1467,16 @@ Duration distribution for observed spans, grouped by span name / kind / status (
 | --- | --- | --- |
 | histogram | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
-| `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
-| `service.name` | string | stable | Logical name of the service. | shoppingcart |
-| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
-| `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
-| `span.kind` | enum | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
-| `span.name` | string | development | The span name (matches the OTLP span name field). | GET /api/users |
-| `status.code` | enum | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
-| `telemetry.sdk.language` | enum | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `service.instance.id` | string | `required` | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
+| `service.name` | string | `required` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `conditionally_required`: if the workload has a namespace | stable | A namespace for `service.name`. | Shop |
+| `source` | string | `required` | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
+| `span.kind` | enum | `required` | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
+| `span.name` | string | `required` | development | The span name (matches the OTLP span name field). | GET /api/users |
+| `status.code` | enum | `required` | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
+| `telemetry.sdk.language` | enum | `required` | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
 
 ## `traces_spanmetrics_response_size_total`
 
@@ -1464,17 +1488,16 @@ Total response size observed for spans, grouped by span name / kind / status (le
 | --- | --- | --- |
 | counter | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
-| `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
-| `service.name` | string | stable | Logical name of the service. | shoppingcart |
-| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
-| `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
-| `span.kind` | enum | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
-| `span.name` | string | development | The span name (matches the OTLP span name field). | GET /api/users |
-| `status.code` | enum | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
-| `telemetry.sdk.language` | enum | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `service.instance.id` | string | `required` | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
+| `service.name` | string | `required` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `conditionally_required`: if the workload has a namespace | stable | A namespace for `service.name`. | Shop |
+| `source` | string | `required` | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
+| `span.kind` | enum | `required` | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
+| `span.name` | string | `required` | development | The span name (matches the OTLP span name field). | GET /api/users |
+| `status.code` | enum | `required` | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
+| `telemetry.sdk.language` | enum | `required` | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
 
 ## `traces_spanmetrics_size_total`
 
@@ -1486,14 +1509,13 @@ Total request size observed for spans, grouped by span name / kind / status (leg
 | --- | --- | --- |
 | counter | 1 | development |
 
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `host.id` | string | development | Unique host ID. For Cloud, this must be the instance_id assigned by the cloud provider. For non-containerized systems, this should be the `machine-id`. See the table below for the sources to use to determine the `machine-id` based on operating system. | fdbf79e8af94cb7f9e8df36789187052 |
-| `service.instance.id` | string | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
-| `service.name` | string | stable | Logical name of the service. | shoppingcart |
-| `service.namespace` | string | stable | A namespace for `service.name`. | Shop |
-| `source` | string | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
-| `span.kind` | enum | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
-| `span.name` | string | development | The span name (matches the OTLP span name field). | GET /api/users |
-| `status.code` | enum | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
-| `telemetry.sdk.language` | enum | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `service.instance.id` | string | `required` | stable | The string ID of the service instance. | 627cc493-f310-47de-96bd-71410b7dec09 |
+| `service.name` | string | `required` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `conditionally_required`: if the workload has a namespace | stable | A namespace for `service.name`. | Shop |
+| `source` | string | `required` | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
+| `span.kind` | enum | `required` | development | The span kind, mirrored from the originating span. | SPAN_KIND_SERVER; SPAN_KIND_CLIENT; SPAN_KIND_PRODUCER; SPAN_KIND_CONSUMER; SPAN_KIND_INTERNAL |
+| `span.name` | string | `required` | development | The span name (matches the OTLP span name field). | GET /api/users |
+| `status.code` | enum | `required` | development | The span status code, mirrored from the originating span. | STATUS_CODE_OK; STATUS_CODE_ERROR; STATUS_CODE_UNSET |
+| `telemetry.sdk.language` | enum | `required` | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |

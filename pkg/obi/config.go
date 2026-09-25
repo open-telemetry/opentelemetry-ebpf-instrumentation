@@ -360,6 +360,10 @@ var DefaultConfig = Config{
 	JVMRuntimeMetrics: JVMRuntimeMetricsConfig{
 		SamplingInterval: time.Second,
 	},
+	DotnetRuntimeMetrics: DotnetRuntimeMetricsConfig{
+		SamplingInterval: time.Second,
+		Timeout:          10 * time.Second,
+	},
 	HealthCheck: HealthCheckConfig{
 		Port:          0,
 		ListenAddress: health.DefaultListenAddress,
@@ -455,7 +459,8 @@ type Config struct {
 	NodeJS NodeJSConfig `yaml:"nodejs"`
 	Java   JavaConfig   `yaml:"javaagent"`
 
-	JVMRuntimeMetrics JVMRuntimeMetricsConfig `yaml:"jvm_runtime_metrics"`
+	JVMRuntimeMetrics    JVMRuntimeMetricsConfig    `yaml:"jvm_runtime_metrics"`
+	DotnetRuntimeMetrics DotnetRuntimeMetricsConfig `yaml:"dotnet_runtime_metrics"`
 
 	HealthCheck HealthCheckConfig `yaml:"health_check"`
 }
@@ -481,6 +486,19 @@ func (c *Config) JoinMetricsConfig() *perapp.GlobalMetricsConfig {
 
 func (c *Config) AppRuntimeMetricsEnabled() bool {
 	return c != nil && c.JoinMetricsConfig().Features.AppRuntime()
+}
+
+// PopulateTraceContext reports whether the pinned traces_ctx_v1 map must be kept
+// populated, which is the case when anything reads it: OBI's own log enricher or
+// Node.js manual span bridge, or a reader outside OBI opted in through
+// ebpf.populate_trace_context.
+//
+// Population costs a refresh on every async context switch of the instrumented
+// runtime, so with no reader it is skipped entirely.
+func (c *Config) PopulateTraceContext() bool {
+	return c != nil && (c.EBPF.PopulateTraceContext ||
+		c.EBPF.LogEnricher.Enabled() ||
+		(c.NodeJS.Enabled && c.NodeJS.ManualSpans))
 }
 
 type HealthCheckConfig struct {
@@ -727,6 +745,14 @@ type JVMRuntimeMetricsConfig struct {
 	SamplingInterval time.Duration `yaml:"sampling_interval" env:"OBI_JVM_RUNTIME_METRICS_SAMPLING_INTERVAL"`
 }
 
+type DotnetRuntimeMetricsConfig struct {
+	// SamplingInterval sets the collection interval requested from System.Runtime EventCounters.
+	// It also sets the delay before reconnecting after a collection session ends.
+	SamplingInterval time.Duration `yaml:"sampling_interval" env:"OBI_DOTNET_RUNTIME_METRICS_SAMPLING_INTERVAL"`
+	// Timeout bounds diagnostic IPC setup and EventPipe session shutdown.
+	Timeout time.Duration `yaml:"timeout" env:"OBI_DOTNET_RUNTIME_METRICS_TIMEOUT"`
+}
+
 type ConfigError string
 
 func (e ConfigError) Error() string {
@@ -789,6 +815,12 @@ func (c *Config) validate(context validationContext) error {
 
 	if c.JVMRuntimeMetrics.SamplingInterval <= 0 {
 		return ConfigError("jvm_runtime_metrics.sampling_interval must be greater than 0")
+	}
+	if c.DotnetRuntimeMetrics.SamplingInterval <= 0 {
+		return ConfigError("dotnet_runtime_metrics.sampling_interval must be greater than 0")
+	}
+	if c.DotnetRuntimeMetrics.Timeout <= 0 {
+		return ConfigError("dotnet_runtime_metrics.timeout must be greater than 0")
 	}
 	if err := c.Discovery.Validate(); err != nil {
 		return ConfigError(err.Error())

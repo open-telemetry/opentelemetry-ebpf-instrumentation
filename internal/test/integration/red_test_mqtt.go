@@ -37,7 +37,7 @@ func runMQTTTestCase(t *testing.T, testCase TestCase) {
 		require.Equal(ct, http.StatusOK, resp.StatusCode, "unexpected status code")
 
 		for _, span := range testCase.Spans {
-			resp, err := http.Get(jaegerQueryURL + "?service=" + comm + "&limit=1000")
+			resp, err := getJaeger(jaegerQueryURL + "?service=" + comm + "&limit=1000")
 			require.NoError(ct, err, "failed to query jaeger for %s", comm)
 			if resp == nil {
 				return
