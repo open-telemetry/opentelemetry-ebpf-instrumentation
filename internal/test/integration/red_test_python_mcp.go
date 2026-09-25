@@ -405,3 +405,74 @@ func testPythonMCPMetrics(t *testing.T) {
 		})
 	}
 }
+
+// testPythonMCPSessionMetrics verifies that the MCP session-duration histograms
+// are emitted once a session has been idle for the configured TTL. The same
+// remote-weather calls exercise both the inbound server session and the outbound
+// client session. Both export paths are checked: the OTLP route through the
+// collector and obi's direct Prometheus exporter, whose series carry no resource
+// and must take their service identity from the session snapshot.
+func testPythonMCPSessionMetrics(t *testing.T) {
+	const address = "http://localhost:8381/mcp"
+
+	sessionID := mcpInitSession(t, address)
+
+	for range 2 {
+		resp, err := mcpCall(address, "tools/call", 40,
+			map[string]any{"name": "remote-weather", "arguments": map[string]any{}},
+			"Mcp-Session-Id", sessionID)
+		require.NoError(t, err)
+		resp.Body.Close()
+	}
+
+	// Wait for the configured TTL so the sessions above become idle and the
+	// background expiration closes them.
+	time.Sleep(6 * time.Second)
+
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	for _, tc := range []struct {
+		name  string
+		query string
+	}{
+		{"server side", `mcp_server_session_duration_seconds_count{` +
+			`exported="otel",` +
+			`mcp_protocol_version="2025-03-26",` +
+			`service_namespace="integration-test"}`},
+		// The outbound client session negotiates the remote server's default
+		// protocol version (currently 2025-11-25), which differs from the
+		// version the test explicitly requests on the inbound side.
+		{"client side", `mcp_client_session_duration_seconds_count{` +
+			`exported="otel",` +
+			`service_namespace="integration-test"}`},
+		{"server side direct prometheus", `mcp_server_session_duration_seconds_count{` +
+			`exported="prometheus",` +
+			`mcp_protocol_version="2025-03-26",` +
+			`service_name="main",` +
+			`service_namespace="integration-test"}`},
+		{"client side direct prometheus", `mcp_client_session_duration_seconds_count{` +
+			`exported="prometheus",` +
+			`service_name="main",` +
+			`service_namespace="integration-test"}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				results, err := pq.Query(tc.query)
+				require.NoError(ct, err)
+				enoughPromResults(ct, results)
+				assert.LessOrEqual(ct, 1, totalPromCount(ct, results))
+			}, testTimeout, 100*time.Millisecond)
+		})
+	}
+
+	// The direct exporter derives the job label from the service attributes
+	// retained in the session snapshot.
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		results, err := pq.Query(`mcp_server_session_duration_seconds_count{` +
+			`exported="prometheus",service_name="main"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		for _, res := range results {
+			assert.Equal(ct, "integration-test/main", res.Metric["job"])
+		}
+	}, testTimeout, 100*time.Millisecond)
+}

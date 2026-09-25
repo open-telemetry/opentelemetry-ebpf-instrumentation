@@ -64,3 +64,43 @@ groups:
       - ref: rpc.response.status_code
         requirement_level:
           conditionally_required: if the response carried a JSON-RPC error code
+
+  - id: metric.obi.mcp.client.session.duration
+    type: metric
+    metric_name: mcp.client.session.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: The duration of the MCP session as observed on the MCP client.
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: error.type
+        requirement_level:
+          conditionally_required: If and only if the session ends with an error.
+      - ref: mcp.protocol.version
+        requirement_level:
+          recommended: if the peer reported a protocol version
+      - ref: server.address
+        requirement_level: recommended
+      - ref: server.port
+        requirement_level: recommended
+
+  - id: metric.obi.mcp.server.session.duration
+    type: metric
+    metric_name: mcp.server.session.duration
+    annotations:
+      obi:
+        upstream_override: true
+    brief: The duration of the MCP session as observed on the MCP server.
+    instrument: histogram
+    unit: "s"
+    stability: development
+    attributes:
+      - ref: error.type
+        requirement_level:
+          conditionally_required: If and only if the session ends with an error.
+      - ref: mcp.protocol.version
+        requirement_level:
+          recommended: if the peer reported a protocol version

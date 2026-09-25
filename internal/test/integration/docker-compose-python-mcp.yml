@@ -8,6 +8,10 @@ services:
     image: hatest-testserver-python-mcp
     ports:
       - "${TEST_SERVICE_PORTS}"
+      # obi shares this network namespace and serves its direct Prometheus
+      # exporter on 8999; publish it here so the prometheus container can
+      # scrape it via the host bridge address.
+      - "8999:8999"
     environment:
       REMOTE_MCP_URL: "http://mcpremote:8080/mcp"
     depends_on:
@@ -56,6 +60,9 @@ services:
       OTEL_EBPF_METRICS_FEATURES: "application"
       OTEL_EBPF_BPF_BUFFER_SIZE_HTTP: 1024
       OTEL_EBPF_HTTP_MCP_ENABLED: true
+      OTEL_EBPF_METRICS_TTL: "5s"
+      OTEL_EBPF_PROMETHEUS_PORT: "8999"
+      OTEL_EBPF_PROMETHEUS_TTL: "5s"
     depends_on:
       testserver:
         condition: service_started
@@ -96,7 +103,7 @@ services:
     image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
     container_name: prometheus
     command:
-      - --config.file=/etc/prometheus/prometheus-config.yml
+      - --config.file=/etc/prometheus/prometheus-config-mcp.yml
       - --web.enable-lifecycle
       - --web.route-prefix=/
     volumes:
