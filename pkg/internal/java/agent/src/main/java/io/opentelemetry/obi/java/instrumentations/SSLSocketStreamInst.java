@@ -91,7 +91,7 @@ public class SSLSocketStreamInst {
         @Advice.Argument(0) byte[] b,
         @Advice.Return int len) {
 
-      if (len > 0 && b != null) {
+      if (!SSLStorage.isSSLSocketReadActive() && len > 0 && b != null) {
         Socket socket = null;
         if (outer instanceof Socket) {
           socket = (Socket) outer;
@@ -129,7 +129,7 @@ public class SSLSocketStreamInst {
         @Advice.Argument(1) int off,
         @Advice.Return int bytesRead) {
 
-      if (bytesRead > 0 && b != null) {
+      if (!SSLStorage.isSSLSocketReadActive() && bytesRead > 0 && b != null) {
         Socket socket = null;
         if (outer instanceof Socket) {
           socket = (Socket) outer;
@@ -164,7 +164,7 @@ public class SSLSocketStreamInst {
     public static void write(
         @Advice.FieldValue("this$0") Object outer, @Advice.Argument(0) byte[] b) {
 
-      if (b != null && b.length > 0) {
+      if (!SSLStorage.isSSLSocketWriteActive() && b != null && b.length > 0) {
         Socket socket = null;
         if (outer instanceof Socket) {
           socket = (Socket) outer;
@@ -201,7 +201,7 @@ public class SSLSocketStreamInst {
         @Advice.Argument(1) int off,
         @Advice.Argument(2) int len) {
 
-      if (b != null && len > 0) {
+      if (!SSLStorage.isSSLSocketWriteActive() && b != null && len > 0) {
         Socket socket = null;
         if (outer instanceof Socket) {
           socket = (Socket) outer;
