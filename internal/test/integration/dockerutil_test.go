@@ -34,11 +34,11 @@ import (
 )
 
 const (
-	imgPrometheus  = img.Docker("quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0")
-	imgJaeger      = img.Docker("jaegertracing/jaeger:2.20.0@sha256:46a886260e04002d8f45e213fc39063fa11a50446048fdaa64786fc0840cb9f8")
-	imgCollector   = img.Docker("otel/opentelemetry-collector-contrib:0.160.0@sha256:799dc6cf12c96192af37b5bdba804da8c10b3bc563b43cb90c3f3c58d9572ad6")
+	imgPrometheus  = img.Docker("quay.io/prometheus/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e")
+	imgJaeger      = img.Docker("jaegertracing/jaeger:2.21.0@sha256:3d0ac795ff98aa04d1be04311d2dac6c25b4bfc8322dc02e53bc5b170c5018c3")
+	imgCollector   = img.Docker("otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1")
 	imgAWSMetaMock = img.Docker("amazon/amazon-ec2-metadata-mock:v1.9.2@sha256:55cc3b9fb46d7e30aec202fc8ccab5391f7f9fc7169ae7dc726aae82562d61c4")
-	imgNginx       = img.Docker("library/nginx:1.31.5@sha256:05b8cb60c354a44ab824ea6e7dc69b46d50762cdbe728a347a5b656e6fb3d7c4")
+	imgNginx       = img.Docker("library/nginx:1.31.6@sha256:908dc23e643a1447dbfb2e189ed268bfde6a51a5bf9a34d3dd3440a24f58ccf7")
 	// imgWeaver MUST match the digest pinned in
 	// `internal/test/integration/components/weaver/service.yml` so the
 	// programmatic-setup tests run weaver with the same image as the
