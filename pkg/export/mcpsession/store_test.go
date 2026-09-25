@@ -4,7 +4,6 @@
 package mcpsession
 
 import (
-	"context"
 	"sync"
 	"testing"
 	"time"
@@ -105,9 +104,7 @@ func TestStartExpiresIdleSessionsInBackground(t *testing.T) {
 	st.Record("session-1", false, span, timings)
 
 	closed := make(chan *Session, 1)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	go st.Start(ctx, 10*time.Millisecond, func(s *Session, client bool) {
+	go st.Start(t.Context(), 10*time.Millisecond, func(s *Session, client bool) {
 		assert.False(t, client)
 		closed <- s
 	})
