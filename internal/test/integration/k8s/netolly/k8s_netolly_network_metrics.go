@@ -46,6 +46,39 @@ func FeatureNetworkFlowBytes() features.Feature {
 		Feature()
 }
 
+// FeatureNetworkFlowOTLPResource is only for suites exporting network metrics over
+// OTLP: the Prometheus exporter has no resource to carry these labels.
+func FeatureNetworkFlowOTLPResource() features.Feature {
+	pinger := kube.Template[k8s.Pinger]{
+		TemplateFile: k8s.UninstrumentedPingerManifest,
+		Data: k8s.Pinger{
+			PodName:   "internal-pinger-resource",
+			TargetURL: "http://testserver:8080/iping",
+		},
+	}
+	return features.New("network flow OTLP resource").
+		Setup(pinger.Deploy()).
+		Teardown(pinger.Delete()).
+		Assess("identifies OBI on the network metrics resource", testNetFlowOTLPResource).
+		Feature()
+}
+
+func testNetFlowOTLPResource(ctx context.Context, t *testing.T, _ *envconf.Config) context.Context {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		results, err := pq.Query(`obi_network_flow_bytes_total{src_name="internal-pinger-resource"}`)
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+
+		for _, result := range results {
+			assert.Equal(ct, "opentelemetry-ebpf-instrumentation", result.Metric["telemetry_distro_name"])
+			assert.NotEmpty(ct, result.Metric["telemetry_distro_version"])
+			assert.NotEmpty(ct, result.Metric["obi_version"])
+		}
+	}, testTimeout, 100*time.Millisecond)
+	return ctx
+}
+
 func FeatureNetworkFlowPackets() features.Feature {
 	pinger := kube.Template[k8s.Pinger]{
 		TemplateFile: k8s.UninstrumentedPingerManifest,
