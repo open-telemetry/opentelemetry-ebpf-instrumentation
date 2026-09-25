@@ -46,7 +46,7 @@ func setupSockopsHarness(t *testing.T) *BpfObjects {
 	require.NoError(t, err)
 
 	for _, m := range spec.Maps {
-		if m.Pinning == ebpfconvenience.PinInternal {
+		if m.Pinning == ebpfconvenience.PinInternal || m.Pinning == ebpf.PinByName {
 			m.Pinning = ebpf.PinNone
 		}
 	}
@@ -219,7 +219,7 @@ func TestSocketCookieIteratorLoads(t *testing.T) {
 	spec, err := LoadBpfIter()
 	require.NoError(t, err)
 	for _, m := range spec.Maps {
-		if m.Pinning == ebpfconvenience.PinInternal {
+		if m.Pinning == ebpfconvenience.PinInternal || m.Pinning == ebpf.PinByName {
 			m.Pinning = ebpf.PinNone
 		}
 	}
