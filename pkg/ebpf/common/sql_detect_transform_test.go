@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
 
@@ -135,8 +136,17 @@ type qSQLTest struct {
 	sql    string
 }
 
+const railsCapturedSQL = `SELECT "restaurants".* FROM "restaurants" WHERE (name ILIKE '%__no_match__%' OR neighborhood ILIKE '%__no_match__%' OR food_type ILIKE '%__no_match__%') ORDER BY "restaurants"."name" ASC /*action='index',application='TapasFinder',controller='restaura`
+
 func TestPostgresQueryParsing(t *testing.T) {
 	for _, ts := range []qSQLTest{
+		{
+			name:   "Rails truncated Parse",
+			bytes:  []byte{80, 0, 0, 1, 8, 0, 83, 69, 76, 69, 67, 84, 32, 34, 114, 101, 115, 116, 97, 117, 114, 97, 110, 116, 115, 34, 46, 42, 32, 70, 82, 79, 77, 32, 34, 114, 101, 115, 116, 97, 117, 114, 97, 110, 116, 115, 34, 32, 87, 72, 69, 82, 69, 32, 40, 110, 97, 109, 101, 32, 73, 76, 73, 75, 69, 32, 39, 37, 95, 95, 110, 111, 95, 109, 97, 116, 99, 104, 95, 95, 37, 39, 32, 79, 82, 32, 110, 101, 105, 103, 104, 98, 111, 114, 104, 111, 111, 100, 32, 73, 76, 73, 75, 69, 32, 39, 37, 95, 95, 110, 111, 95, 109, 97, 116, 99, 104, 95, 95, 37, 39, 32, 79, 82, 32, 102, 111, 111, 100, 95, 116, 121, 112, 101, 32, 73, 76, 73, 75, 69, 32, 39, 37, 95, 95, 110, 111, 95, 109, 97, 116, 99, 104, 95, 95, 37, 39, 41, 32, 79, 82, 68, 69, 82, 32, 66, 89, 32, 34, 114, 101, 115, 116, 97, 117, 114, 97, 110, 116, 115, 34, 46, 34, 110, 97, 109, 101, 34, 32, 65, 83, 67, 32, 47, 42, 97, 99, 116, 105, 111, 110, 61, 39, 105, 110, 100, 101, 120, 39, 44, 97, 112, 112, 108, 105, 99, 97, 116, 105, 111, 110, 61, 39, 84, 97, 112, 97, 115, 70, 105, 110, 100, 101, 114, 39, 44, 99, 111, 110, 116, 114, 111, 108, 108, 101, 114, 61, 39, 114, 101, 115, 116, 97, 117, 114, 97},
+			op:     "SELECT",
+			tables: []string{"restaurants"},
+			sql:    railsCapturedSQL,
+		},
 		{
 			name:   "Query with insert and update as keywords",
 			bytes:  []byte{166, 0, 0, 0, 3, 73, 78, 83, 69, 82, 84, 32, 73, 78, 84, 79, 32, 96, 117, 115, 101, 114, 115, 96, 32, 40, 96, 110, 97, 109, 101, 96, 44, 32, 96, 101, 109, 97, 105, 108, 96, 44, 32, 96, 99, 114, 101, 97, 116, 101, 100, 95, 97, 116, 96, 44, 32, 96, 117, 112, 100, 97, 116, 101, 100, 95, 97, 116, 96, 41, 32, 86, 65, 76, 85, 69, 83, 32, 40, 39, 74, 111, 104, 110, 32, 68, 111, 101, 39, 44, 32, 39, 106, 111, 104, 110, 64, 101, 120, 97, 109, 112, 108, 101, 46, 99, 111, 109, 39, 44, 32, 39, 50, 48, 50, 53, 45, 49, 50, 45, 48, 52, 32, 49, 55, 58, 50, 54, 58, 52, 54, 46, 56, 56, 52, 57, 54, 56, 39, 44, 32, 39, 50, 48, 50, 53, 45, 49, 50, 45, 48, 52, 32, 49, 55, 58, 50, 54, 58, 52, 54, 46, 56, 56, 52, 57, 54, 56, 39, 41},
@@ -197,6 +207,36 @@ func TestPostgresQueryParsing(t *testing.T) {
 			assert.Equal(t, ts.op, op)
 			assert.Equal(t, ts.tables, tables)
 			assert.Equal(t, ts.sql, sql)
+		})
+	}
+}
+
+func TestPostgresParseQueryParsing(t *testing.T) {
+	const querySuffix = `nts'*/`
+
+	body := append([]byte{0}, (railsCapturedSQL + querySuffix)...)
+	body = append(body, 0, 0, 0)
+	packet := postgresTestPacket(kPostgresParse, body)
+	require.Len(t, packet, 265)
+
+	parseCapture := packet[:256]
+	queryPrefix := []byte{kPostgresQuery, 0, 0, 0, 6, ';', 0}
+
+	for _, tt := range []struct {
+		name string
+		buf  []byte
+	}{
+		{name: "truncated Parse", buf: parseCapture},
+		{name: "empty Query followed by truncated Parse", buf: append(queryPrefix, parseCapture...)},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, useHeuristics := range []bool{false, true} {
+				op, tables, sql, kind := detectSQLPayload(useHeuristics, largebuf.NewLargeBufferFrom(tt.buf))
+				assert.Equal(t, "SELECT", op)
+				assert.Equal(t, []string{"restaurants"}, tables)
+				assert.Equal(t, railsCapturedSQL, sql)
+				assert.Equal(t, request.DBPostgres, kind)
+			}
 		})
 	}
 }
