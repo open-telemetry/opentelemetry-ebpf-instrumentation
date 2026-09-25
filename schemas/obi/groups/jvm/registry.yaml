@@ -1,0 +1,42 @@
+groups:
+  # `telemetry.sdk.language` reports the runtime a process executes on, which
+  # is `java` for every JVM process. `jvm.language` carries the programming
+  # language the application is actually written in, which OBI resolves per
+  # process from the JVM command line and classpath.
+  - id: registry.obi.jvm
+    type: attribute_group
+    display_name: JVM Application Language
+    brief: >
+      The programming language of an application running on the JVM, reported
+      separately from the runtime carried by `telemetry.sdk.language`.
+    attributes:
+      - id: jvm.language
+        type:
+          members:
+            - id: java
+              value: "java"
+              stability: development
+            - id: kotlin
+              value: "kotlin"
+              stability: development
+            - id: scala
+              value: "scala"
+              stability: development
+            - id: groovy
+              value: "groovy"
+              stability: development
+            - id: clojure
+              value: "clojure"
+              stability: development
+            - id: jruby
+              value: "jruby"
+              stability: development
+            - id: jython
+              value: "jython"
+              stability: development
+        stability: development
+        brief: >
+          Programming language of the application running on the JVM. Emitted
+          only for JVM processes; `telemetry.sdk.language` keeps reporting
+          `java` for all of them.
+        examples: ["kotlin", "scala"]

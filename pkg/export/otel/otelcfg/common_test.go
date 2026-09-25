@@ -528,6 +528,24 @@ func TestFilterResourceAttrs_DefaultPreservesResourceAttributes(t *testing.T) {
 	assert.Equal(t, "test-app-1", attrs["service.instance.id"])
 }
 
+func TestResourceAttrs_JVMLanguage(t *testing.T) {
+	nodeMeta := meta.NodeMeta{HostID: "host-id"}
+	service := svc.Attrs{
+		UID:         svc.UID{Name: "test-app", Instance: "test-app-1"},
+		SDKLanguage: svc.InstrumentableJava,
+	}
+
+	attrs := resourceAttrsMap(GetAppResourceAttrs(&nodeMeta, &service))
+	_, reported := attrs["jvm.language"]
+	assert.False(t, reported)
+
+	service.JVMLanguage = "kotlin"
+
+	attrs = resourceAttrsMap(GetAppResourceAttrs(&nodeMeta, &service))
+	assert.Equal(t, "kotlin", attrs["jvm.language"])
+	assert.Equal(t, "java", attrs["telemetry.sdk.language"])
+}
+
 func TestFilterResourceAttrs_ResourceSelectionExcludesResourceAttributes(t *testing.T) {
 	nodeMeta := meta.NodeMeta{
 		HostID: "host-id",

@@ -111,6 +111,11 @@ type Attrs struct {
 
 	SDKLanguage InstrumentableType
 
+	// JVMLanguage is the programming language of a JVM process, which SDKLanguage
+	// cannot express because it reports the runtime. Empty for non-JVM processes
+	// and until the language is resolved.
+	JVMLanguage string
+
 	Metadata map[attr.Name]string
 
 	// ProcPID is the PID of the instrumented process as seen by OBI's /proc filesystem.
