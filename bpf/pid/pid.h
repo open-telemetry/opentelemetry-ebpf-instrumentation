@@ -5,16 +5,16 @@
 
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
+#include <bpfcore/bpf_core_read.h>
 
-#include <logger/bpf_dbg.h>
-
-#include <pid/maps/pid_cache.h>
 #include <pid/maps/valid_pids.h>
 
 #include <pid/pid_helpers.h>
 
-#include <pid/types/pid_data.h>
 #include <pid/types/pid_filter.h>
+
+// In this file, as in the rest of OBI, "pid" means the process id: the kernel's
+// tgid. Thread ids are "tid".
 
 volatile const s32 filter_pids = 0;
 
@@ -23,83 +23,91 @@ volatile const u32 pid_ns_mode = k_pid_ns_mode_init;
 volatile const u64 obi_pid_ns_dev = 0;
 volatile const u64 obi_pid_ns_ino = 0;
 
-enum { k_prime_hash = 192053 }; // closest prime to k_max_concurrent_pids * 64
+// The pid of task in OBI's pid namespace, or 0 when the task does not live
+// directly in it: the rule bpf_get_ns_current_pid_tgid() applies. The level
+// comes from the task's own struct pid, not from nsproxy->pid_ns_for_children,
+// which names the namespace of its future children. Comparing the inode is
+// enough: all pid namespace inodes live on the one nsfs mount.
+static __always_inline u32 pid_in_obi_pid_ns(const struct task_struct *task) {
+    const struct pid *pid = BPF_CORE_READ(task, group_leader, thread_pid);
+    const unsigned int level = BPF_CORE_READ(pid, level);
 
-// out of range makes the lookup in pid_matches() miss, which fails open
-_Static_assert((k_prime_hash - 1) / 64 < k_max_concurrent_pids,
-               "k_prime_hash exceeds the valid_pids index space");
+    struct upid upid = {};
+    bpf_probe_read_kernel(&upid, sizeof(upid), &pid->numbers[level]);
 
-static __always_inline u8 pid_matches(pid_data_t *p) {
-    // combine the namespace id and the pid into one single u64
-    const u64 k = (((u64)p->ns) << 32) | p->pid;
-
-    // divide with prime number lower than max pids * 64, modulo with primes gives good hash functions
-    const u32 h = (u32)(k % k_prime_hash);
-    const u32 segment = h / 64; // divide by the segment size (8 bytes) to find the segment
-    const u32 bit = h & 63;     // lowest 64 bits gives us the placement inside the segment
-
-    u64 *v = bpf_map_lookup_elem(&valid_pids, &segment);
-    if (!v) {
-        // This is an error of some kind, we should always find the segment
-        bpf_dbg_printk("Error looking up PID, segment=%d", segment);
-        return 1;
-    }
-
-    return ((*v) >> bit) & 1;
-}
-
-static __always_inline u8 task_matches(u32 ns_pid, u32 ns_ppid, u32 pid_ns_id) {
-    pid_data_t p_key = {.pid = ns_pid, .ns = pid_ns_id};
-
-    if (pid_matches(&p_key)) {
-        return 1;
-    }
-
-    // no parent to inherit the selection from (or its pid could not be read)
-    if (ns_ppid == 0) {
+    if (BPF_CORE_READ(upid.ns, ns.inum) != obi_pid_ns_ino) {
         return 0;
     }
 
-    pid_data_t pp_key = {.pid = ns_ppid, .ns = pid_ns_id};
-
-    return pid_matches(&pp_key);
+    return (u32)upid.nr;
 }
 
-// pid_cache is keyed by host pid and holds both answers: unselected processes
-// hit these probes on every syscall and must not repeat ns_pid_ppid().
-// Userspace clears the cache whenever the filter changes.
+// The key userspace publishes for the current task in valid_pids, or 0 when
+// the task is outside OBI's pid namespace.
+static __always_inline u32 obi_pid(u64 id) {
+    if (pid_ns_mode == k_pid_ns_mode_init) {
+        return id >> 32;
+    }
+
+    if (pid_ns_mode == k_pid_ns_mode_pod_helper) {
+        struct bpf_pidns_info ns = {};
+        if (bpf_get_ns_current_pid_tgid(obi_pid_ns_dev, obi_pid_ns_ino, &ns, sizeof(ns))) {
+            return 0;
+        }
+
+        return ns.tgid;
+    }
+
+    return pid_in_obi_pid_ns((const struct task_struct *)bpf_get_current_task());
+}
+
+// Same key for the parent of the current task. The helper only answers for
+// the current task, so both pod modes read the parent's struct pid.
+static __always_inline u32 obi_parent_pid(void) {
+    const struct task_struct *task = (const struct task_struct *)bpf_get_current_task();
+    const struct task_struct *parent = BPF_CORE_READ(task, real_parent);
+
+    if (pid_ns_mode == k_pid_ns_mode_init) {
+        return BPF_CORE_READ(parent, tgid);
+    }
+
+    return pid_in_obi_pid_ns(parent);
+}
+
+// A pid past the last word cannot occur while PID_MAX_LIMIT is 2^22; it is
+// rejected rather than accepted.
+static __always_inline bool pid_selected(u32 pid) {
+    const u32 word = pid / 64;
+
+    const u64 *bits = bpf_map_lookup_elem(&valid_pids, &word);
+    if (!bits) {
+        return false;
+    }
+
+    return (*bits >> (pid & 63)) & 1;
+}
+
+// A task passes when its own bit or its parent's is set, so children forked
+// after discovery are covered until userspace allows them too. Returns the pid
+// OBI's /proc reports for a task that passes, 0 otherwise: callers match it
+// against pids userspace read from that /proc, such as the USDT ip map.
 static __always_inline u32 valid_pid(u64 id) {
     const u32 host_pid = id >> 32;
-    // accept all PIDs if debugging OTEL_EBPF_BPF_PID_FILTER_OFF option is set
+    // accept all PIDs if debugging OTEL_EBPF_BPF_PID_FILTER_OFF option is set.
+    // This returns the host pid: in pod mode it is not the pid OBI's /proc
+    // reports, so lookups keyed by that pid, such as the USDT ip map, miss.
     if (!filter_pids) {
         return host_pid;
     }
 
-    u32 *found = bpf_map_lookup_elem(&pid_cache, &host_pid);
-    if (found) {
-        return *found;
-    }
-
-    const struct task_struct *task = (struct task_struct *)bpf_get_current_task();
-
-    int ns_pid = 0;
-    int ns_ppid = 0;
-    u32 pid_ns_id = 0;
-
-    ns_pid_ppid(task, &ns_pid, &ns_ppid, &pid_ns_id);
-
-    if (ns_pid == 0) {
+    const u32 pid = obi_pid(id);
+    if (pid == 0) {
         return 0;
     }
 
-    if (task_matches((u32)ns_pid, (u32)ns_ppid, pid_ns_id)) {
-        bpf_map_update_elem(&pid_cache, &host_pid, &host_pid, BPF_ANY);
-        return host_pid;
+    if (pid_selected(pid) || pid_selected(obi_parent_pid())) {
+        return pid;
     }
-
-    // NOEXIST: never clobber a positive entry userspace put in concurrently
-    const u32 not_selected = 0;
-    bpf_map_update_elem(&pid_cache, &host_pid, &not_selected, BPF_NOEXIST);
 
     return 0;
 }

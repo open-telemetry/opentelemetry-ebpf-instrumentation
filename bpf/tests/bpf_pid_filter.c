@@ -2,12 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // valid_pid() (pid/pid.h) runs at the top of every kprobe, for every process
-// on the node. Its answer is cached in pid_cache keyed by host pid; both the
-// selected and the not-selected answer must be cached, otherwise a process OBI
-// was never asked to watch pays the ns_pid_ppid() namespace walk on every
-// syscall. Userspace clears pid_cache when the filter changes, which is what
-// makes a cached "not selected" safe for children authorized through their
-// parent later on.
+// on the node. valid_pids holds one bit per pid, keyed by the tgid OBI's /proc
+// numbers the task with: the host tgid when OBI runs in the initial pid
+// namespace, the pod tgid when it runs as a sidecar. In the sidecar modes a
+// task outside the pod is rejected before the map is read.
 //
 // Run from repo root:
 //   make -C bpf/tests bpf_pid_filter && bpf/tests/bpf_pid_filter
@@ -21,160 +19,165 @@
 // included ahead of the override below, so the include chain does not redefine it
 #include <bpfcore/bpf_core_read.h>
 
-// Omitted by the shared stub
-#define BPF_ANY 0
-#define BPF_NOEXIST 1
-
 // Host-resident structs, so a direct field-chain access stands in for the
 // CO-RE read. The shared stub returns a zero value instead.
 #undef BPF_CORE_READ
 #define BPF_CORE_READ(src, ...)                                                                    \
     (___bpf_apply(___bpf_arrow, ___bpf_narg(__VA_ARGS__))(src, ##__VA_ARGS__))
 
-// filter_pids is volatile const in pid.h, set from userspace at load time.
-// Turning the definition into a pointer lets the tests flip it per case.
+// The pid.h constants are volatile const, set from userspace at load time.
+// Turning each definition into a pointer lets the tests flip them per case.
 #define filter_pids (*test_filter_pids)
+#define pid_ns_mode (*test_pid_ns_mode)
+#define obi_pid_ns_dev (*test_obi_pid_ns_dev)
+#define obi_pid_ns_ino (*test_obi_pid_ns_ino)
 
-// ns_pid_ppid() is the only caller of bpf_probe_read_kernel in this chain, so
-// counting its calls tells whether valid_pid() took the slow path.
-static u32 test_probe_reads;
+static void *test_current_task;
+static u32 test_current_task_calls;
+
+static void *test_get_current_task(void) {
+    test_current_task_calls++;
+    return test_current_task;
+}
 
 static long test_probe_read_kernel(void *dst, u32 size, const void *src) {
-    test_probe_reads++;
     memcpy(dst, src, size);
     return 0;
 }
 
-static void *test_current_task;
-
-static void *test_get_current_task(void) {
-    return test_current_task;
-}
-
-// Array-backed simulation of the pid_cache LRU map
-enum { k_test_cache_entries = 16 };
-
-typedef struct test_cache_entry {
-    bool used;
-    u32 key;
-    u32 value;
-} test_cache_entry_t;
-
-static test_cache_entry_t test_cache[k_test_cache_entries];
-static void *test_pid_cache_map;
-static void *test_valid_pids_map;
-static u64 test_valid_pids[3001];
-
-static test_cache_entry_t *test_cache_find(u32 key) {
-    for (u32 i = 0; i < k_test_cache_entries; i++) {
-        if (test_cache[i].used && test_cache[i].key == key) {
-            return &test_cache[i];
-        }
-    }
-    return NULL;
-}
-
-static void *test_map_lookup(void *map, const void *key) {
-    if (map == test_valid_pids_map) {
-        const u32 segment = *(const u32 *)key;
-        return segment < 3001 ? &test_valid_pids[segment] : NULL;
-    }
-
-    if (map == test_pid_cache_map) {
-        test_cache_entry_t *e = test_cache_find(*(const u32 *)key);
-        return e ? &e->value : NULL;
-    }
-
-    return NULL;
-}
-
-// flags of the most recent update, so tests can check which insert used BPF_NOEXIST
-static u64 test_last_update_flags;
-
-static long test_map_update(void *map, const void *key, const void *value, u64 flags) {
-    if (map != test_pid_cache_map) {
-        return -1;
-    }
-
-    test_last_update_flags = flags;
-
-    test_cache_entry_t *e = test_cache_find(*(const u32 *)key);
-    if (e) {
-        e->value = *(const u32 *)value;
-        return 0;
-    }
-
-    for (u32 i = 0; i < k_test_cache_entries; i++) {
-        if (!test_cache[i].used) {
-            test_cache[i].used = true;
-            test_cache[i].key = *(const u32 *)key;
-            test_cache[i].value = *(const u32 *)value;
-            return 0;
-        }
-    }
-
-    return -1;
-}
-
 #define bpf_probe_read_kernel test_probe_read_kernel
 #define bpf_get_current_task test_get_current_task
-#define bpf_map_lookup_elem test_map_lookup
-#define bpf_map_update_elem test_map_update
 
+// the pointer trick above turns pid_ns_mode's enum initializer into a null pointer
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnon-literal-null-conversion"
 #include <pid/pid.h>
+#pragma clang diagnostic pop
 
 #undef bpf_probe_read_kernel
 #undef bpf_get_current_task
-#undef bpf_map_lookup_elem
-#undef bpf_map_update_elem
 
-// Userspace side (generictracer.go), simulated
+// valid_pids
 
-static s32 test_filter_value = 1;
+static u64 test_bits[k_valid_pids_words];
+static u32 test_lookups;
+static u32 test_missed_lookups;
 
-// mirrors buildPidFilter(): set the bit for (ns, pid) in the valid_pids bitset
-static void test_filter_allow(u32 ns, u32 pid) {
-    const u64 k = (((u64)ns) << 32) | pid;
-    const u32 h = (u32)(k % k_prime_hash);
-    test_valid_pids[h / 64] |= ((u64)1 << (h & 63));
+static void *test_map_lookup(void *map, const void *key) {
+    if (map != &valid_pids) {
+        return NULL;
+    }
+
+    test_lookups++;
+
+    const u32 word = *(const u32 *)key;
+    if (word >= k_valid_pids_words) {
+        test_missed_lookups++;
+        return NULL;
+    }
+
+    return &test_bits[word];
 }
 
-// mirrors clearPidCache(), run after every rebuildValidPids()
-static void test_cache_clear(void) {
-    memset(test_cache, 0, sizeof(test_cache));
+// Userspace side (generictracer.go rebuildValidPids), simulated
+
+static void test_allow(u32 pid) {
+    test_bits[pid / 64] |= (u64)1 << (pid % 64);
 }
 
-// mirrors AllowPID()'s positive Put, keyed by host pid
-static void test_cache_put(u32 host_pid) {
-    test_map_update(test_pid_cache_map, &host_pid, &host_pid, BPF_ANY);
+static void test_block(u32 pid) {
+    test_bits[pid / 64] &= ~((u64)1 << (pid % 64));
 }
 
-// Fake tasks. All processes live in one pid namespace, one level below the
-// host, so the host pid and the namespaced pid differ.
+// Pid namespaces: the host, a pod below it, a sandbox nested in the pod
 
-enum { k_test_ns_level = 1, k_test_ns_inum = 4026531836 };
+static const u64 k_test_nsfs_dev = 4;
+static const u32 k_test_host_ino = 0xEFFFFFFC; // PROC_PID_INIT_INO
+static const u32 k_test_pod_ino = 4026532500;
+static const u32 k_test_nested_ino = 4026532600;
+
+static struct pid_namespace test_host_ns = {.level = 0};
+static struct pid_namespace test_pod_ns = {.level = 1};
+static struct pid_namespace test_nested_ns = {.level = 2};
+static struct pid_namespace *const test_ns_at_level[] = {
+    &test_host_ns, &test_pod_ns, &test_nested_ns};
+
+static u32 test_helper_calls;
+
+// bpf_get_ns_current_pid_tgid(): answers only for a task whose own pid
+// namespace (task_active_pid_ns) is the one named by dev and ino
+static long test_get_ns_current_pid_tgid(unsigned long long dev,
+                                         unsigned long long ino,
+                                         struct bpf_pidns_info *nsdata,
+                                         unsigned int size) {
+    test_helper_calls++;
+
+    const struct task_struct *task = test_current_task;
+    const unsigned int level = task->thread_pid->level;
+    const struct upid *own = &task->thread_pid->numbers[level];
+
+    if (dev != k_test_nsfs_dev || own->ns->ns.inum != ino) {
+        memset(nsdata, 0, size);
+        return -22; // -EINVAL
+    }
+
+    nsdata->pid = (u32)own->nr;
+    nsdata->tgid = (u32)task->group_leader->thread_pid->numbers[level].nr;
+    return 0;
+}
+
+// Fake tasks
 
 typedef struct test_task {
     struct task_struct task;
-    struct pid thread_pid;
+    struct pid pid;
     struct nsproxy nsproxy;
-    struct pid_namespace pid_ns;
 } test_task_t;
 
-static void test_task_init(test_task_t *t, u32 host_pid, u32 ns_pid, test_task_t *parent) {
+// numbers[i] is the task's pid at level i, from the host (0) down to its own
+// namespace. A thread passes its process as leader; every task has a parent.
+static void test_task_init(
+    test_task_t *t, const int *numbers, u32 level, test_task_t *leader, test_task_t *parent) {
     memset(t, 0, sizeof(*t));
 
-    t->pid_ns.level = k_test_ns_level;
-    t->pid_ns.ns.inum = k_test_ns_inum;
-    t->nsproxy.pid_ns_for_children = &t->pid_ns;
-    t->thread_pid.numbers[k_test_ns_level].nr = (int)ns_pid;
+    t->pid.level = level;
+    for (u32 i = 0; i <= level; i++) {
+        t->pid.numbers[i].nr = numbers[i];
+        t->pid.numbers[i].ns = test_ns_at_level[i];
+    }
+    t->nsproxy.pid_ns_for_children = test_ns_at_level[level];
 
-    t->task.pid = (int)host_pid;
-    t->task.tgid = (int)host_pid;
-    t->task.group_leader = &t->task;
-    t->task.real_parent = parent ? &parent->task : &t->task;
+    t->task.pid = numbers[0];
+    t->task.group_leader = leader ? &leader->task : &t->task;
+    t->task.tgid = t->task.group_leader->pid;
+    t->task.real_parent = &parent->task;
     t->task.nsproxy = &t->nsproxy;
-    t->task.thread_pid = &t->thread_pid;
+    t->task.thread_pid = &t->pid;
+}
+
+static test_task_t systemd;  // host 1
+static test_task_t shim;     // host 900, the container runtime's shim
+static test_task_t proc;     // host 41000, pod 7: the discovered process
+static test_task_t child;    // host 41001, pod 8: forked by proc after discovery
+static test_task_t thread;   // host tid 41005, pod tid 12: a thread of proc
+static test_task_t outsider; // host 555: an unrelated process on the node
+static test_task_t sandbox;  // host 41012, pod 20, nested 1: in its own pid namespace
+static test_task_t unshared; // host 41013, pod 21: called unshare(CLONE_NEWPID), not forked yet
+static test_task_t huge;     // host 4194304: past PID_MAX_LIMIT
+
+static void test_cast_init(void) {
+    test_task_init(&systemd, (int[]){1}, 0, NULL, &systemd);
+    test_task_init(&shim, (int[]){900}, 0, NULL, &systemd);
+    test_task_init(&proc, (int[]){41000, 7}, 1, NULL, &shim);
+    test_task_init(&child, (int[]){41001, 8}, 1, NULL, &proc);
+    test_task_init(&thread, (int[]){41005, 12}, 1, &proc, &shim);
+    test_task_init(&outsider, (int[]){555}, 0, NULL, &systemd);
+    test_task_init(&sandbox, (int[]){41012, 20, 1}, 2, NULL, &proc);
+    test_task_init(&unshared, (int[]){41013, 21}, 1, NULL, &shim);
+    unshared.nsproxy.pid_ns_for_children = &test_nested_ns;
+    // past its own level; what a reader trusting pid_ns_for_children would pick
+    unshared.pid.numbers[2] = (struct upid){.nr = 1, .ns = &test_nested_ns};
+    test_task_init(&huge, (int[]){4194304}, 0, NULL, &systemd);
 }
 
 static u32 run_valid_pid(test_task_t *t) {
@@ -183,6 +186,11 @@ static u32 run_valid_pid(test_task_t *t) {
 }
 
 // Test harness
+
+static s32 test_filter_value;
+static u32 test_mode_value;
+static u64 test_dev_value;
+static u64 test_ino_value;
 
 static int failures = 0;
 
@@ -195,114 +203,174 @@ static void check_u32(const char *name, u32 expected, u32 actual) {
     printf("ok: %s\n", name);
 }
 
-static void reset(void) {
-    memset(test_valid_pids, 0, sizeof(test_valid_pids));
-    test_cache_clear();
-    test_probe_reads = 0;
+static void reset(u32 mode) {
+    memset(test_bits, 0, sizeof(test_bits));
+    test_lookups = 0;
+    test_missed_lookups = 0;
+    test_helper_calls = 0;
+    test_current_task_calls = 0;
+
     test_filter_value = 1;
+    test_mode_value = mode;
+    test_dev_value = k_test_nsfs_dev;
+    test_ino_value = mode == k_pid_ns_mode_init ? k_test_host_ino : k_test_pod_ino;
 }
 
-static void test_selected_process_is_cached_by_host_pid(void) {
-    reset();
-    test_task_t proc;
-    test_task_init(&proc, 12345, 7, NULL);
-    test_filter_allow(k_test_ns_inum, 7);
+// OBI in the initial pid namespace: keys are host tgids
 
-    check_u32("a selected process returns its host pid", 12345, run_valid_pid(&proc));
-    check_u32("the positive insert may overwrite (BPF_ANY)", BPF_ANY, test_last_update_flags);
-    check_u32("the positive entry is keyed by the host pid", 1, test_cache_find(12345) != NULL);
-    check_u32("no entry is keyed by the namespaced pid", 1, test_cache_find(7) == NULL);
+static void test_init_selected_process_needs_no_task_read(void) {
+    reset(k_pid_ns_mode_init);
+    test_allow(41000);
 
-    const u32 reads = test_probe_reads;
-    check_u32("a selected process stays selected", 12345, run_valid_pid(&proc));
-    check_u32("the second call is served from the cache", reads, test_probe_reads);
+    check_u32("init: a selected process passes on its own bit", 41000, run_valid_pid(&proc));
+    check_u32("init: without reading the task", 0, test_current_task_calls);
 }
 
-static void test_unselected_process_takes_the_slow_path_once(void) {
-    reset();
-    test_task_t proc;
-    test_task_init(&proc, 555, 12, NULL);
+static void test_init_child_passes_through_its_parent(void) {
+    reset(k_pid_ns_mode_init);
+    test_allow(41000);
 
-    check_u32("an unselected process is rejected", 0, run_valid_pid(&proc));
-    check_u32("the first call walks the namespaces", 2, test_probe_reads);
-    check_u32("the negative insert never clobbers an existing entry (BPF_NOEXIST)",
-              BPF_NOEXIST,
-              test_last_update_flags);
-
-    check_u32("an unselected process stays rejected", 0, run_valid_pid(&proc));
-    check_u32("the second call does not walk the namespaces again", 2, test_probe_reads);
-
-    test_cache_entry_t *e = test_cache_find(555);
-    check_u32("the negative entry is keyed by the host pid", 1, e != NULL);
-    check_u32("the negative entry holds zero", 0, e ? e->value : 1);
+    check_u32("init: a child forked after discovery passes through its parent",
+              41001,
+              run_valid_pid(&child));
 }
 
-// The staleness #2814 reverted #2620 for: a worker forked before discovery
-// authorizes its parent. The rebuild that authorizes the parent clears the
-// cache, so the worker is re-evaluated and matches through its parent.
-static void test_parent_authorized_later_is_reevaluated_after_clear(void) {
-    reset();
-    test_task_t master, worker;
-    test_task_init(&master, 599, 1, NULL);
-    test_task_init(&worker, 600, 2, &master);
+static void test_init_thread_uses_its_process_bit(void) {
+    reset(k_pid_ns_mode_init);
+    test_allow(41000);
 
-    check_u32("a worker of an unselected master is rejected", 0, run_valid_pid(&worker));
-
-    test_filter_allow(k_test_ns_inum, 1);
-    check_u32("the stale negative still rejects the worker before the cache is cleared",
-              0,
-              run_valid_pid(&worker));
-
-    test_cache_clear();
-    check_u32(
-        "after the clear the worker is accepted through its parent", 600, run_valid_pid(&worker));
-    check_u32("the worker is now cached positive", 1, test_cache_find(600) != NULL);
+    check_u32("init: a thread passes on its process's bit and returns the tgid",
+              41000,
+              run_valid_pid(&thread));
 }
 
-static void test_userspace_positive_overrides_negative(void) {
-    reset();
-    test_task_t proc;
-    test_task_init(&proc, 700, 3, NULL);
+static void test_init_unselected_and_blocked(void) {
+    reset(k_pid_ns_mode_init);
+    test_allow(41000);
 
-    check_u32("the process starts out rejected", 0, run_valid_pid(&proc));
+    check_u32("init: an unselected process is rejected", 0, run_valid_pid(&outsider));
 
-    test_cache_put(700);
-    const u32 reads = test_probe_reads;
-    check_u32("a userspace positive put wins", 700, run_valid_pid(&proc));
-    check_u32("and needs no namespace walk", reads, test_probe_reads);
+    test_block(41000);
+    check_u32("init: a blocked process is rejected on the next call", 0, run_valid_pid(&proc));
+}
+
+static void test_init_pid_beyond_the_bitmap_is_rejected(void) {
+    reset(k_pid_ns_mode_init);
+
+    check_u32("init: a pid beyond the bitmap is rejected", 0, run_valid_pid(&huge));
+    check_u32("init: its word does not exist", 1, test_missed_lookups);
 }
 
 static void test_filter_off_accepts_everything(void) {
-    reset();
+    reset(k_pid_ns_mode_init);
     test_filter_value = 0;
-    test_task_t proc;
-    test_task_init(&proc, 800, 4, NULL);
 
-    check_u32("with the filter off the host pid comes back", 800, run_valid_pid(&proc));
-    check_u32("without touching the namespaces", 0, test_probe_reads);
-    check_u32("and without touching the cache", 1, test_cache_find(800) == NULL);
+    check_u32("filter off: the host pid comes back", 555, run_valid_pid(&outsider));
+    check_u32("filter off: without reading the map", 0, test_lookups);
 }
 
-static void test_unreadable_pid_is_not_cached(void) {
-    reset();
-    test_task_t proc;
-    test_task_init(&proc, 900, 0, NULL);
+// OBI as a sidecar in the pod: keys are pod tgids, tasks outside are rejected
 
-    check_u32("a process whose namespaced pid reads as zero is rejected", 0, run_valid_pid(&proc));
-    check_u32("but not cached, so it is retried", 1, test_cache_find(900) == NULL);
+static const char *mode_name(u32 mode) {
+    return mode == k_pid_ns_mode_pod_helper ? "pod helper" : "pod emulated";
+}
+
+static void check_mode(const char *what, u32 mode, u32 expected, u32 actual) {
+    char name[160];
+    snprintf(name, sizeof(name), "%s: %s", mode_name(mode), what);
+    check_u32(name, expected, actual);
+}
+
+static void test_pod_selected_process(u32 mode) {
+    reset(mode);
+    test_allow(7);
+
+    check_mode("the discovered process passes and returns its pod pid, as userspace knows it",
+               mode,
+               7,
+               run_valid_pid(&proc));
+    check_mode("the helper is called only in helper mode",
+               mode,
+               mode == k_pid_ns_mode_pod_helper,
+               test_helper_calls);
+}
+
+static void test_pod_child_and_thread(u32 mode) {
+    reset(mode);
+    test_allow(7);
+
+    check_mode("a child passes through its parent's pod pid", mode, 8, run_valid_pid(&child));
+    check_mode("a thread passes on its process's pod pid", mode, 7, run_valid_pid(&thread));
+}
+
+static void test_pod_outsider_is_rejected_before_the_map(u32 mode) {
+    reset(mode);
+    test_allow(7);
+
+    check_mode("a process outside the pod is rejected", mode, 0, run_valid_pid(&outsider));
+    check_mode("without reading the map", mode, 0, test_lookups);
+}
+
+static void test_pod_pid_does_not_collide_with_host_pid(u32 mode) {
+    reset(mode);
+    test_allow(1); // the pod's pid 1
+
+    check_mode("host pid 1 does not match the pod's pid 1", mode, 0, run_valid_pid(&systemd));
+}
+
+// Documented limitation: bpf_get_ns_current_pid_tgid() answers only for tasks
+// whose own pid namespace is OBI's, and the emulated mode applies the same rule.
+static void test_pod_nested_pid_namespace_is_rejected(u32 mode) {
+    reset(mode);
+    test_allow(20); // what userspace publishes: NSpid read from the pod starts at 20
+
+    check_mode("a task in a pid namespace nested in the pod is rejected",
+               mode,
+               0,
+               run_valid_pid(&sandbox));
+}
+
+static void test_pod_task_numbered_in_its_own_namespace(u32 mode) {
+    reset(mode);
+    test_allow(21);
+
+    check_mode("a task that unshared a pid namespace keeps its own number",
+               mode,
+               21,
+               run_valid_pid(&unshared));
 }
 
 int main(void) {
-    test_pid_cache_map = &pid_cache;
-    test_valid_pids_map = &valid_pids;
     test_filter_pids = &test_filter_value;
+    test_pid_ns_mode = &test_mode_value;
+    test_obi_pid_ns_dev = &test_dev_value;
+    test_obi_pid_ns_ino = &test_ino_value;
 
-    test_selected_process_is_cached_by_host_pid();
-    test_unselected_process_takes_the_slow_path_once();
-    test_parent_authorized_later_is_reevaluated_after_clear();
-    test_userspace_positive_overrides_negative();
+    test_host_ns.ns.inum = k_test_host_ino;
+    test_pod_ns.ns.inum = k_test_pod_ino;
+    test_nested_ns.ns.inum = k_test_nested_ino;
+
+    bpf_map_lookup_elem_hook = test_map_lookup;
+    bpf_get_ns_current_pid_tgid_hook = test_get_ns_current_pid_tgid;
+
+    test_cast_init();
+
+    test_init_selected_process_needs_no_task_read();
+    test_init_child_passes_through_its_parent();
+    test_init_thread_uses_its_process_bit();
+    test_init_unselected_and_blocked();
+    test_init_pid_beyond_the_bitmap_is_rejected();
     test_filter_off_accepts_everything();
-    test_unreadable_pid_is_not_cached();
+
+    const u32 pod_modes[] = {k_pid_ns_mode_pod_helper, k_pid_ns_mode_pod_emulated};
+    for (u32 i = 0; i < sizeof(pod_modes) / sizeof(pod_modes[0]); i++) {
+        test_pod_selected_process(pod_modes[i]);
+        test_pod_child_and_thread(pod_modes[i]);
+        test_pod_outsider_is_rejected_before_the_map(pod_modes[i]);
+        test_pod_pid_does_not_collide_with_host_pid(pod_modes[i]);
+        test_pod_nested_pid_namespace_is_rejected(pod_modes[i]);
+        test_pod_task_numbered_in_its_own_namespace(pod_modes[i]);
+    }
 
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);

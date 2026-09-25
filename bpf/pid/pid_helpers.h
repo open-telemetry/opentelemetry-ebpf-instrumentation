@@ -11,7 +11,9 @@
 #include <pid/types/pid_key.h>
 
 // Good resource on this: https://mozillazg.com/2022/05/ebpf-libbpfgo-get-process-info-en.html
-// Using bpf_get_ns_current_pid_tgid is too restrictive for us
+// bpf_get_ns_current_pid_tgid() needs the namespace up front and only answers
+// for tasks that live directly in it, so it can't give the innermost pid of
+// any task; valid_pid() uses it only when OBI's /proc is a pod's (pid.h)
 static __always_inline void
 ns_pid_ppid(const struct task_struct *task, int *pid, int *ppid, u32 *pid_ns_id) {
     struct upid upid;

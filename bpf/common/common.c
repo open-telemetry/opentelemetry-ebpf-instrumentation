@@ -37,3 +37,4 @@ const node_span_event_t *unused_15 __attribute__((unused));
 const enum protocol_type *unused_16 __attribute__((unused));
 const enum event_type *unused_17 __attribute__((unused));
 const enum pid_namespace_mode *unused_18 __attribute__((unused));
+const enum valid_pids_size *unused_19 __attribute__((unused));

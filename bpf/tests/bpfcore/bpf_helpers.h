@@ -15,7 +15,7 @@
 #define NULL ((void *)0)
 #endif
 
-#define __uint(name, val) int(*name)[val]
+#define __uint(name, val) int (*name)[val]
 #define __type(name, val) typeof(val) *name
 #define __array(name, val) typeof(val) *name[]
 
@@ -78,6 +78,19 @@ static inline unsigned long long bpf_ktime_get_ns(void) {
 }
 static inline void *bpf_get_current_task(void) {
     return NULL;
+}
+struct bpf_pidns_info;
+static long (*bpf_get_ns_current_pid_tgid_hook)(unsigned long long dev,
+                                                unsigned long long ino,
+                                                struct bpf_pidns_info *nsdata,
+                                                unsigned int size);
+static inline long bpf_get_ns_current_pid_tgid(unsigned long long dev,
+                                               unsigned long long ino,
+                                               struct bpf_pidns_info *nsdata,
+                                               unsigned int size) {
+    return bpf_get_ns_current_pid_tgid_hook
+               ? bpf_get_ns_current_pid_tgid_hook(dev, ino, nsdata, size)
+               : -1;
 }
 // Tests that care which process is running set this.
 static unsigned long long bpf_current_pid_tgid_value;
