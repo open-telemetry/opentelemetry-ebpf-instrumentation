@@ -97,9 +97,9 @@ func TestECSNodeFetcherCancellation(t *testing.T) {
 }
 
 func TestNodeMetaCloudDefaults(t *testing.T) {
-	first := otelNodeFetcher(resource.StringDetector(semconv.SchemaURL, semconv.CloudRegionKey, func() (string, error) { return "ec2-region", nil }))
-	second := otelNodeFetcher(resource.StringDetector(semconv.SchemaURL, semconv.AWSECSClusterARNKey, func() (string, error) { return "ecs-cluster", nil }))
-	third := otelNodeFetcher(resource.StringDetector(semconv.SchemaURL, semconv.CloudRegionKey, func() (string, error) { return "ecs-region", nil }))
+	first := otelNodeFetcher(ClusterEC2, resource.StringDetector(semconv.SchemaURL, semconv.CloudRegionKey, func() (string, error) { return "ec2-region", nil }))
+	second := otelNodeFetcher(ClusterECS, resource.StringDetector(semconv.SchemaURL, semconv.AWSECSClusterARNKey, func() (string, error) { return "ecs-cluster", nil }))
+	third := otelNodeFetcher(ClusterECS, resource.StringDetector(semconv.SchemaURL, semconv.CloudRegionKey, func() (string, error) { return "ecs-region", nil }))
 	got := fetchEntries(t.Context(), DefaultRetryConfig, first, second, third, func(context.Context) (NodeMeta, error) { return NodeMeta{HostID: "override"}, nil })
 	assert.Equal(t, "ecs-cluster", got.Cluster)
 	assert.Equal(t, "ecs-region", got.Region)

@@ -18,6 +18,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 	"go.opentelemetry.io/obi/pkg/kube"
 )
 
@@ -68,7 +69,25 @@ func azureVMAttributeFilter(kv attribute.KeyValue) bool {
 // a temporary unavailability in the Cloud Metadata service.
 type fetcher func(ctx context.Context) (NodeMeta, error)
 
+// NodeFeatures provides some metadata about the running environment
+// of the Node. For example, which kinds of clusters/runtimes is running
+// on (K8s, EC2, K8s + EC2, ECS + EC2, Azure, etc...)
+type NodeFeatures maps.Bits
+
+func (nf NodeFeatures) Has(o NodeFeatures) bool { return maps.Bits(nf).Has(maps.Bits(o)) }
+func (nf NodeFeatures) Any(o NodeFeatures) bool { return maps.Bits(nf).Any(maps.Bits(o)) }
+
+const (
+	ClusterK8s NodeFeatures = 1 << iota
+	ClusterAzureVM
+	ClusterGCP
+	ClusterEC2
+	ClusterECS
+)
+
 type NodeMeta struct {
+	Features NodeFeatures
+
 	// HostID is a special attribute that needs to be frequently accessed
 	// so it's stored separately from the rest of metadata entries
 	HostID string
@@ -97,11 +116,11 @@ func NewNodeMeta(
 		// in order of the priority below (the later the highest)
 		linuxLocalFetcher,
 		kubeNodeFetcher(kubeInformer),
-		otelNodeFetcher(azurevm.NewResourceDetector(
+		otelNodeFetcher(ClusterAzureVM, azurevm.NewResourceDetector(
 			azurevm.WithAttributeFilter(azureVMAttributeFilter),
 		)),
-		otelNodeFetcher(gcp.NewDetector()),
-		otelNodeFetcher(ec2.NewResourceDetector()),
+		otelNodeFetcher(ClusterGCP, gcp.NewDetector()),
+		otelNodeFetcher(ClusterEC2, ec2.NewResourceDetector()),
 		ecsNodeFetcher,
 		func(_ context.Context) (NodeMeta, error) {
 			return NodeMeta{HostID: overrideHost}, nil
@@ -183,6 +202,7 @@ func (ns *NodeMeta) merge(src NodeMeta) {
 	if region := strings.TrimSpace(src.Region); region != "" {
 		ns.Region = region
 	}
+	ns.Features |= src.Features
 	keyPos := map[attr.Name]int{}
 	for i, att := range ns.Metadata {
 		keyPos[att.Key] = i
