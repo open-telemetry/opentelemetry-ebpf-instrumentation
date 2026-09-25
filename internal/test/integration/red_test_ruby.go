@@ -226,7 +226,7 @@ func testHTTPTracesRailsPostgres(t *testing.T) {
 	}
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get(jaegerQueryURL + "?service=" + serviceName + "&tags=%7B%22url.path%22%3A%22%2Frestaurants%22%7D")
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + serviceName + "&tags=%7B%22url.path%22%3A%22%2Frestaurants%22%7D")
 		require.NoError(ct, err)
 		if resp == nil {
 			return
