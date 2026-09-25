@@ -32,7 +32,12 @@ read_go_str_n(char *name, void *base_ptr, u64 len, void *field, u64 max_size) {
     // not terminated.
     __builtin_memset(field, 0, max_size);
 
-    if (bpf_probe_read(field, min(max_size, len), base_ptr)) {
+    // clamp in place, not with min(): before 75748837b7e5 (5.10) a scalar copy
+    // does not inherit a later refinement, so the helper sees an unbounded max
+    u64 size = len;
+    bpf_clamp_umax(size, max_size);
+
+    if (bpf_probe_read(field, size, base_ptr)) {
         bpf_dbg_printk("can't read string for %s", name);
         return 0;
     }
