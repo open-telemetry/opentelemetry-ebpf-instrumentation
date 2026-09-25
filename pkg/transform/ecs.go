@@ -18,7 +18,7 @@ import (
 
 // ECSInventoryProvider initializes the shared inventory before its consumers and
 // runs periodic refreshes for the lifetime of the application pipeline.
-func ECSInventoryProvider(ctxInfo *global.ContextInfo, cfg *NameResolverConfig) swarm.InstanceFunc {
+func ECSInventoryProvider(ctxInfo *global.ContextInfo, cfg *NameResolverConfig, cloudCfg CloudMetadataConfig) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
 		if cfg == nil || !resolverSources(cfg.Sources).Has(ResolverECS) {
 			return swarm.EmptyRunFunc()
@@ -26,21 +26,15 @@ func ECSInventoryProvider(ctxInfo *global.ContextInfo, cfg *NameResolverConfig) 
 		if cfg.ECS.RefreshInterval <= 0 {
 			return nil, errors.New("initializing ECS name resolver: a positive refresh interval is required")
 		}
-		cluster, region := cfg.ECS.Cluster, cfg.ECS.Region
-		if cluster == "" || region == "" {
-			metadata, err := ecs.DetectTaskMetadata(ctx)
-			if err != nil {
-				return nil, fmt.Errorf("detecting ECS name resolver defaults from task metadata: %w", err)
-			}
-			if cluster == "" {
-				cluster = metadata.Cluster
-			}
-			if region == "" {
-				region = metadata.Region
-			}
+		cluster, region := cloudCfg.ClusterName, cloudCfg.Region
+		if cluster == "" {
+			cluster = ctxInfo.NodeMeta.Cluster
+		}
+		if region == "" {
+			region = ctxInfo.NodeMeta.Region
 		}
 		if cluster == "" || region == "" {
-			return nil, errors.New("initializing ECS name resolver: configure ecs.cluster and ecs.region when ECS task metadata does not supply them")
+			return nil, errors.New("initializing ECS name resolver: configure cloud_metadata.cluster_name and cloud_metadata.region when cloud metadata does not supply them")
 		}
 		awsCfg, err := awsconfig.LoadDefaultConfig(ctx, awsconfig.WithRegion(region))
 		if err != nil {

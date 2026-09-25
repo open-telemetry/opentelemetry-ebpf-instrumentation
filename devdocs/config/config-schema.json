@@ -304,6 +304,22 @@
       "type": "object",
       "description": "Buckets defines the histograms bucket boundaries, and allows users to redefine them"
     },
+    "CloudMetadataConfig": {
+      "properties": {
+        "cluster_name": {
+          "type": "string",
+          "description": "Overrides automatic cluster detection.",
+          "x-env-var": "OTEL_EBPF_CLUSTER_NAME"
+        },
+        "region": {
+          "type": "string",
+          "description": "Overrides automatic region detection.",
+          "x-env-var": "OTEL_EBPF_CLOUD_REGION"
+        }
+      },
+      "type": "object",
+      "description": "CloudMetadataConfig configures overrides for detected cloud metadata."
+    },
     "ContextPropagationMode": {
       "oneOf": [
         {
@@ -873,11 +889,6 @@
     },
     "ECSNameResolverConfig": {
       "properties": {
-        "cluster": {
-          "type": "string",
-          "description": "Specifies the ECS cluster whose task private IPs are resolved. If unset, it defaults to the cluster from OBI's ECS task metadata V4.",
-          "x-env-var": "OTEL_EBPF_NAME_RESOLVER_ECS_CLUSTER"
-        },
         "refresh_interval": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
@@ -889,14 +900,10 @@
             "1ms"
           ],
           "x-env-var": "OTEL_EBPF_NAME_RESOLVER_ECS_REFRESH_INTERVAL"
-        },
-        "region": {
-          "type": "string",
-          "description": "Specifies the AWS region containing the ECS cluster. If unset, it defaults to the region from OBI's ECS task metadata V4.",
-          "x-env-var": "OTEL_EBPF_NAME_RESOLVER_ECS_REGION"
         }
       },
-      "type": "object"
+      "type": "object",
+      "description": "ECSNameResolverConfig configures ECS service name resolution."
     },
     "ElasticsearchConfig": {
       "properties": {
@@ -3192,6 +3199,9 @@
       "type": "boolean",
       "default": false,
       "x-env-var": "OTEL_EBPF_CHANNEL_SEND_TIMEOUT_PANIC"
+    },
+    "cloud_metadata": {
+      "$ref": "#/$defs/CloudMetadataConfig"
     },
     "discovery": {
       "$ref": "#/$defs/DiscoveryConfig",

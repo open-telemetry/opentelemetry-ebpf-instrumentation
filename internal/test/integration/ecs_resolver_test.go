@@ -120,8 +120,8 @@ func testECSServiceResolution(t *testing.T, discover bool) {
 		o.Env = append(o.Env, "ECS_CONTAINER_METADATA_URI_V4=http://ecs-metadata/v3/containers/obi")
 	} else {
 		o.Env = append(o.Env,
-			"OTEL_EBPF_NAME_RESOLVER_ECS_CLUSTER=integration-test",
-			"OTEL_EBPF_NAME_RESOLVER_ECS_REGION=us-east-1",
+			"OTEL_EBPF_CLUSTER_NAME=integration-test",
+			"OTEL_EBPF_CLOUD_REGION=us-east-1",
 		)
 	}
 	if !KernelLockdownMode() {

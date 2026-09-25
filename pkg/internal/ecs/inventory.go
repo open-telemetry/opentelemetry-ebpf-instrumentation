@@ -82,6 +82,9 @@ func (i *Inventory) Refresh(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("describing ECS tasks: %w", err)
 		}
+		if len(out.Failures) > 0 {
+			return fmt.Errorf("describing ECS tasks: %d task failures", len(out.Failures))
+		}
 		for _, task := range out.Tasks {
 			name := serviceName(task.Group)
 			if name == "" {

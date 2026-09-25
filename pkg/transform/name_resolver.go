@@ -62,6 +62,7 @@ func resolverSources(src []Source) maps.Bits {
 
 type NameResolverConfig struct {
 	// Sources specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns
+	// The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions.
 	Sources []Source              `yaml:"sources" env:"OTEL_EBPF_NAME_RESOLVER_SOURCES" envSeparator:","`
 	ECS     ECSNameResolverConfig `yaml:"ecs"`
 	// CacheLen specifies the max size of the LRU cache that is checked before
@@ -73,15 +74,18 @@ type NameResolverConfig struct {
 	CacheTTL time.Duration `yaml:"cache_expiry" env:"OTEL_EBPF_NAME_RESOLVER_CACHE_TTL" validate:"gt=0"`
 }
 
+// CloudMetadataConfig configures overrides for detected cloud metadata.
+type CloudMetadataConfig struct {
+	// ClusterName overrides automatic cluster detection.
+	ClusterName string `yaml:"cluster_name" env:"OTEL_EBPF_CLUSTER_NAME"`
+	// Region overrides automatic region detection.
+	Region string `yaml:"region" env:"OTEL_EBPF_CLOUD_REGION"`
+}
+
+// ECSNameResolverConfig configures ECS service name resolution.
 type ECSNameResolverConfig struct {
-	// Cluster specifies the ECS cluster whose task private IPs are resolved.
-	// If unset, it defaults to the cluster from OBI's ECS task metadata V4.
-	Cluster string `yaml:"cluster" env:"OTEL_EBPF_NAME_RESOLVER_ECS_CLUSTER"`
-	// Region specifies the AWS region containing the ECS cluster.
-	// If unset, it defaults to the region from OBI's ECS task metadata V4.
-	Region string `yaml:"region" env:"OTEL_EBPF_NAME_RESOLVER_ECS_REGION"`
 	// RefreshInterval controls how often the ECS task inventory is refreshed.
-	RefreshInterval time.Duration `yaml:"refresh_interval" env:"OTEL_EBPF_NAME_RESOLVER_ECS_REFRESH_INTERVAL"`
+	RefreshInterval time.Duration `yaml:"refresh_interval" env:"OTEL_EBPF_NAME_RESOLVER_ECS_REFRESH_INTERVAL" validate:"gt=0"`
 }
 
 type ecsServiceResolver interface {

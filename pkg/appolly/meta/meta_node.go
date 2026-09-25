@@ -71,7 +71,11 @@ type fetcher func(ctx context.Context) (NodeMeta, error)
 type NodeMeta struct {
 	// HostID is a special attribute that needs to be frequently accessed
 	// so it's stored separately from the rest of metadata entries
-	HostID   string
+	HostID string
+
+	// Cluster and Region provide resolver defaults and are also retained in Metadata.
+	Cluster  string
+	Region   string
 	Metadata []Entry
 }
 
@@ -98,6 +102,7 @@ func NewNodeMeta(
 		)),
 		otelNodeFetcher(gcp.NewDetector()),
 		otelNodeFetcher(ec2.NewResourceDetector()),
+		ecsNodeFetcher,
 		func(_ context.Context) (NodeMeta, error) {
 			return NodeMeta{HostID: overrideHost}, nil
 		},
@@ -171,6 +176,12 @@ func (ns *NodeMeta) merge(src NodeMeta) {
 	hostID := strings.TrimSpace(src.HostID)
 	if hostID != "" {
 		ns.HostID = hostID
+	}
+	if cluster := strings.TrimSpace(src.Cluster); cluster != "" {
+		ns.Cluster = cluster
+	}
+	if region := strings.TrimSpace(src.Region); region != "" {
+		ns.Region = region
 	}
 	keyPos := map[attr.Name]int{}
 	for i, att := range ns.Metadata {

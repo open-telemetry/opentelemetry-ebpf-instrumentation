@@ -20,6 +20,7 @@ import (
 type fakeClient struct {
 	taskARNs      []string
 	tasksByARN    map[string]types.Task
+	failuresByARN map[string]types.Failure
 	describeCalls int
 	listStatus    types.DesiredStatus
 	listError     error
@@ -41,6 +42,10 @@ func (f *fakeClient) DescribeTasks(_ context.Context, input *awsecs.DescribeTask
 	f.describeCalls++
 	out := &awsecs.DescribeTasksOutput{}
 	for _, arn := range input.Tasks {
+		if failure, ok := f.failuresByARN[arn]; ok {
+			out.Failures = append(out.Failures, failure)
+			continue
+		}
 		out.Tasks = append(out.Tasks, f.tasksByARN[arn])
 	}
 	return out, nil
@@ -72,6 +77,69 @@ func TestInventoryRefresh(t *testing.T) {
 	name, ok = inventory.ServiceNameForIP("10.1.0.1")
 	assert.True(t, ok)
 	assert.Equal(t, "service-b", name)
+}
+
+func TestInventoryRetainsSnapshotOnTaskFailure(t *testing.T) {
+	oldTask := ecsServiceTask("10.0.0.1", "old-service")
+	oldTask.Containers = []types.Container{{RuntimeId: aws.String("old-container")}}
+	client := &fakeClient{
+		taskARNs:   []string{"old-task"},
+		tasksByARN: map[string]types.Task{"old-task": oldTask},
+	}
+	inventory := NewInventory(client, "cluster")
+	require.NoError(t, inventory.Refresh(t.Context()))
+	changes := inventory.Changes()
+
+	// Fail in the second batch, after a full batch has already been collected.
+	client.taskARNs = nil
+	for index := range describeTasksBatchSize + 2 {
+		arn := fmt.Sprintf("new-task-%d", index)
+		client.taskARNs = append(client.taskARNs, arn)
+		task := ecsServiceTask("10.0.0.2", "new-service")
+		task.Containers = []types.Container{{RuntimeId: aws.String("new-container")}}
+		client.tasksByARN[arn] = task
+	}
+	failedARN := client.taskARNs[len(client.taskARNs)-1]
+	client.failuresByARN = map[string]types.Failure{
+		failedARN: {Arn: aws.String(failedARN), Reason: aws.String("MISSING")},
+	}
+	client.describeCalls = 0
+	require.ErrorContains(t, inventory.Refresh(t.Context()), "task failures")
+	assert.Equal(t, 2, client.describeCalls)
+	name, ok := inventory.ServiceNameForIP("10.0.0.1")
+	assert.True(t, ok)
+	assert.Equal(t, "old-service", name)
+	name, ok = inventory.ServiceNameForContainerID("old-container")
+	assert.True(t, ok)
+	assert.Equal(t, "old-service", name)
+	_, ok = inventory.ServiceNameForIP("10.0.0.2")
+	assert.False(t, ok)
+	_, ok = inventory.ServiceNameForContainerID("new-container")
+	assert.False(t, ok)
+	assert.Equal(t, changes, inventory.Changes())
+	select {
+	case <-changes:
+		t.Fatal("partial refresh published an update")
+	default:
+	}
+
+	client.failuresByARN = nil
+	require.NoError(t, inventory.Refresh(t.Context()))
+	_, ok = inventory.ServiceNameForIP("10.0.0.1")
+	assert.False(t, ok)
+	_, ok = inventory.ServiceNameForContainerID("old-container")
+	assert.False(t, ok)
+	name, ok = inventory.ServiceNameForIP("10.0.0.2")
+	assert.True(t, ok)
+	assert.Equal(t, "new-service", name)
+	name, ok = inventory.ServiceNameForContainerID("new-container")
+	assert.True(t, ok)
+	assert.Equal(t, "new-service", name)
+	select {
+	case <-changes:
+	default:
+		t.Fatal("successful retry did not publish an update")
+	}
 }
 
 func TestInventorySkipsStandaloneTasks(t *testing.T) {

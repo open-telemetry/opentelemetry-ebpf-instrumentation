@@ -11,6 +11,7 @@ Generated from [`config-schema.json`](config-schema.json).
 
 - [Top-Level Properties](#top-level-properties)
 - [`attributes`](#attributes)
+- [`cloud_metadata`](#cloud-metadata)
 - [`discovery`](#discovery)
 - [`ebpf`](#ebpf)
 - [`filter`](#filter)
@@ -119,6 +120,15 @@ RetryConfig holds the retry policy for metadata fetch operations. It controls th
 | `attributes.metadata_retry.max_interval` | `duration` | `OTEL_EBPF_METADATA_RETRY_MAX_INTERVAL` | `5s` | `30s`, `5m`, `1ms`, etc |  | Specifies the upper bound on the wait duration between consecutive retry attempts. |
 | `attributes.metadata_retry.start_interval` | `duration` | `OTEL_EBPF_METADATA_RETRY_START_INTERVAL` | `500ms` | `30s`, `5m`, `1ms`, etc |  | Specifies the initial wait duration between the first and second retry attempt. |
 | `attributes.metadata_retry.timeout` | `duration` | `OTEL_EBPF_METADATA_RETRY_TIMEOUT` | `30s` | `30s`, `5m`, `1ms`, etc |  | Specifies the maximum total time allowed for all retry attempts before giving up. |
+
+## `cloud_metadata`
+
+CloudMetadataConfig configures overrides for detected cloud metadata.
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `cloud_metadata.cluster_name` | `string` | `OTEL_EBPF_CLUSTER_NAME` |  |  |  | Overrides automatic cluster detection. |
+| `cloud_metadata.region` | `string` | `OTEL_EBPF_CLOUD_REGION` |  |  |  | Overrides automatic region detection. |
 
 ## `discovery`
 
@@ -429,15 +439,15 @@ GlobalMetricsConfig is a placeholder for the progressive support of global and p
 |---|---|---|---|---|---|---|
 | `name_resolver.cache_expiry` | `duration` | `OTEL_EBPF_NAME_RESOLVER_CACHE_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. |
 | `name_resolver.cache_len` | `integer` | `OTEL_EBPF_NAME_RESOLVER_CACHE_LEN` | `1024` |  |  | Specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256 |
-| `name_resolver.sources` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_SOURCES` | `k8s` | `dns`, `ecs`, `k8s`, `kube`, `kubernetes`, `rdns` |  | Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns |
+| `name_resolver.sources` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_SOURCES` | `k8s` | `dns`, `ecs`, `k8s`, `kube`, `kubernetes`, `rdns` |  | Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns. The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions. |
 
 ### `name_resolver.ecs`
 
+ECSNameResolverConfig configures ECS service name resolution.
+
 | YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
 |---|---|---|---|---|---|---|
-| `name_resolver.ecs.cluster` | `string` | `OTEL_EBPF_NAME_RESOLVER_ECS_CLUSTER` |  |  |  | Specifies the ECS cluster whose task private IPs are resolved. If unset, it defaults to the cluster from OBI's ECS task metadata V4. |
 | `name_resolver.ecs.refresh_interval` | `duration` | `OTEL_EBPF_NAME_RESOLVER_ECS_REFRESH_INTERVAL` | `30s` | `30s`, `5m`, `1ms`, etc |  | Controls how often the ECS task inventory is refreshed. |
-| `name_resolver.ecs.region` | `string` | `OTEL_EBPF_NAME_RESOLVER_ECS_REGION` |  |  |  | Specifies the AWS region containing the ECS cluster. If unset, it defaults to the region from OBI's ECS task metadata V4. |
 
 ## `network`
 

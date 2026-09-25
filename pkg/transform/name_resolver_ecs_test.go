@@ -18,6 +18,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -56,10 +57,10 @@ func TestECSResolverRecoversFromInitialFailure(t *testing.T) {
 	resolved := output.Subscribe(msg.SubscriberName("test"))
 	cfg := &NameResolverConfig{
 		Sources: []Source{SourceECS}, CacheLen: 10, CacheTTL: time.Minute,
-		ECS: ECSNameResolverConfig{Cluster: "cluster", Region: "us-east-1", RefreshInterval: 10 * time.Millisecond},
+		ECS: ECSNameResolverConfig{RefreshInterval: 10 * time.Millisecond},
 	}
 	ctxInfo := &global.ContextInfo{}
-	refresh, err := ECSInventoryProvider(ctxInfo, cfg)(ctx)
+	refresh, err := ECSInventoryProvider(ctxInfo, cfg, CloudMetadataConfig{ClusterName: "cluster", Region: "us-east-1"})(ctx)
 	require.NoError(t, err)
 	require.NotNil(t, ctxInfo.AppO11y.ECSInventory)
 	refreshDone := make(chan struct{})
@@ -118,25 +119,28 @@ func TestECSInventoryProviderConfiguration(t *testing.T) {
 	t.Setenv("ECS_CONTAINER_METADATA_URI", "")
 	for _, cfg := range []*NameResolverConfig{nil, {Sources: []Source{SourceDNS}}} {
 		ctxInfo := &global.ContextInfo{}
-		run, err := ECSInventoryProvider(ctxInfo, cfg)(t.Context())
+		run, err := ECSInventoryProvider(ctxInfo, cfg, CloudMetadataConfig{})(t.Context())
 		require.NoError(t, err)
 		run(t.Context())
 		assert.Nil(t, ctxInfo.AppO11y.ECSInventory)
 	}
-	for _, ecsCfg := range []ECSNameResolverConfig{
-		{Region: "us-east-1", RefreshInterval: time.Second},
-		{Cluster: "cluster", RefreshInterval: time.Second},
-		{Cluster: "cluster", Region: "us-east-1"},
-		{Cluster: "cluster", Region: "us-east-1", RefreshInterval: -time.Second},
+	for _, tc := range []struct {
+		cloud    CloudMetadataConfig
+		interval time.Duration
+	}{
+		{CloudMetadataConfig{Region: "us-east-1"}, time.Second},
+		{CloudMetadataConfig{ClusterName: "cluster"}, time.Second},
+		{CloudMetadataConfig{ClusterName: "cluster", Region: "us-east-1"}, 0},
+		{CloudMetadataConfig{ClusterName: "cluster", Region: "us-east-1"}, -time.Second},
 	} {
 		ctxInfo := &global.ContextInfo{}
 		_, err := ECSInventoryProvider(ctxInfo, &NameResolverConfig{
-			Sources: []Source{SourceECS}, ECS: ecsCfg,
-		})(t.Context())
-		if ecsCfg.RefreshInterval <= 0 {
+			Sources: []Source{SourceECS}, ECS: ECSNameResolverConfig{RefreshInterval: tc.interval},
+		}, tc.cloud)(t.Context())
+		if tc.interval <= 0 {
 			require.ErrorContains(t, err, "a positive refresh interval is required")
 		} else {
-			require.ErrorContains(t, err, "configure ecs.cluster and ecs.region")
+			require.ErrorContains(t, err, "configure cloud_metadata.cluster_name and cloud_metadata.region")
 		}
 		assert.Nil(t, ctxInfo.AppO11y.ECSInventory)
 	}
@@ -157,13 +161,9 @@ func TestECSInventoryProviderMetadataDefaults(t *testing.T) {
 		{"fully configured", "configured", "eu-west-1", "configured", "eu-west-1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			var metadataRequests, apiRequests atomic.Int32
-			metadata := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				metadataRequests.Add(1)
-				if r.URL.Path == "/task" {
-					fmt.Fprint(w, `{"Cluster":"test","TaskARN":"arn:aws:ecs:us-east-1:123456789012:task/test/task-1"}`)
-					return
-				}
+			var apiRequests atomic.Int32
+			metadata := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				t.Error("resolver must use shared node metadata")
 				fmt.Fprint(w, "{}")
 			}))
 			defer metadata.Close()
@@ -187,20 +187,16 @@ func TestECSInventoryProviderMetadataDefaults(t *testing.T) {
 			t.Setenv("AWS_MAX_ATTEMPTS", "1")
 			cfg := &NameResolverConfig{
 				Sources: []Source{SourceECS},
-				ECS:     ECSNameResolverConfig{Cluster: tc.cluster, Region: tc.region, RefreshInterval: time.Second},
+				ECS:     ECSNameResolverConfig{RefreshInterval: time.Second},
 			}
-			original := cfg.ECS
-			info := &global.ContextInfo{}
-			_, err := ECSInventoryProvider(info, cfg)(t.Context())
+			cloudCfg := CloudMetadataConfig{ClusterName: tc.cluster, Region: tc.region}
+			original := cloudCfg
+			info := &global.ContextInfo{NodeMeta: meta.NodeMeta{Cluster: detectedCluster, Region: "us-east-1"}}
+			_, err := ECSInventoryProvider(info, cfg, cloudCfg)(t.Context())
 			require.NoError(t, err)
 			require.NotNil(t, info.AppO11y.ECSInventory)
-			assert.Equal(t, original, cfg.ECS)
+			assert.Equal(t, original, cloudCfg)
 			assert.EqualValues(t, 1, apiRequests.Load())
-			if tc.cluster != "" && tc.region != "" {
-				assert.Zero(t, metadataRequests.Load())
-			} else {
-				assert.EqualValues(t, 2, metadataRequests.Load())
-			}
 		})
 	}
 }

@@ -490,18 +490,29 @@ func TestConfig_NameResolverSources(t *testing.T) {
 }
 
 func TestConfig_NameResolverECS(t *testing.T) {
-	cfg, err := LoadConfig(bytes.NewBufferString(`name_resolver:
+	const config = `cloud_metadata:
+  cluster_name: beyla-nonk8s-poc
+  region: us-east-2
+name_resolver:
   sources: [ecs]
   ecs:
-    cluster: beyla-nonk8s-poc
-    region: us-east-2
     refresh_interval: 45s
-`))
+`
+	cfg, err := LoadConfig(bytes.NewBufferString(config))
 	require.NoError(t, err)
 	assert.Equal(t, []transform.Source{transform.SourceECS}, cfg.NameResolver.Sources)
-	assert.Equal(t, "beyla-nonk8s-poc", cfg.NameResolver.ECS.Cluster)
-	assert.Equal(t, "us-east-2", cfg.NameResolver.ECS.Region)
+	assert.Equal(t, "beyla-nonk8s-poc", cfg.CloudMetadata.ClusterName)
+	assert.Equal(t, "us-east-2", cfg.CloudMetadata.Region)
 	assert.Equal(t, 45*time.Second, cfg.NameResolver.ECS.RefreshInterval)
+
+	t.Setenv("OTEL_EBPF_CLUSTER_NAME", "env-cluster")
+	t.Setenv("OTEL_EBPF_CLOUD_REGION", "eu-west-1")
+	t.Setenv("OTEL_EBPF_KUBE_CLUSTER_NAME", "kube-cluster")
+	cfg, err = LoadConfig(bytes.NewBufferString(config))
+	require.NoError(t, err)
+	assert.Equal(t, "env-cluster", cfg.CloudMetadata.ClusterName)
+	assert.Equal(t, "eu-west-1", cfg.CloudMetadata.Region)
+	assert.Equal(t, "kube-cluster", cfg.Attributes.Kubernetes.ClusterName)
 }
 
 func TestConfig_ShutdownTimeout(t *testing.T) {
