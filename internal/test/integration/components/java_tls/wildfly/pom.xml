@@ -13,11 +13,11 @@
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <jakarta.ee.version>11.0.0</jakarta.ee.version>
-        <aws.sdk.version>2.25.70</aws.sdk.version>
-        <maven.compiler-plugin.version>3.13.0</maven.compiler-plugin.version>
-        <maven.ejb-plugin.version>3.2.1</maven.ejb-plugin.version>
-        <maven.war-plugin.version>3.4.0</maven.war-plugin.version>
-        <maven.ear-plugin.version>3.3.0</maven.ear-plugin.version>
+        <aws.sdk.version>2.55.4</aws.sdk.version>
+        <maven.compiler-plugin.version>3.16.0</maven.compiler-plugin.version>
+        <maven.ejb-plugin.version>3.3.0</maven.ejb-plugin.version>
+        <maven.war-plugin.version>3.5.1</maven.war-plugin.version>
+        <maven.ear-plugin.version>3.4.0</maven.ear-plugin.version>
     </properties>
 
     <modules>

@@ -153,7 +153,28 @@ class SSLStorageTest {
     // Clean up thread locals
     SSLStorage.unencrypted.remove();
     SSLStorage.nettyConnection.remove();
+    SSLStorage.exitSSLSocketRead();
+    SSLStorage.exitSSLSocketWrite();
     SSLStorage.restoreJdkHttpClientContext(0);
+  }
+
+  @Test
+  void testNestedSSLSocketOperationsAreCapturedOncePerDirection() {
+    assertTrue(SSLStorage.enterSSLSocketRead());
+    assertTrue(SSLStorage.isSSLSocketReadActive());
+    assertFalse(SSLStorage.enterSSLSocketRead());
+
+    assertTrue(SSLStorage.enterSSLSocketWrite());
+    assertTrue(SSLStorage.isSSLSocketWriteActive());
+    assertFalse(SSLStorage.enterSSLSocketWrite());
+
+    SSLStorage.exitSSLSocketRead();
+    SSLStorage.exitSSLSocketWrite();
+
+    assertFalse(SSLStorage.isSSLSocketReadActive());
+    assertFalse(SSLStorage.isSSLSocketWriteActive());
+    assertTrue(SSLStorage.enterSSLSocketRead());
+    assertTrue(SSLStorage.enterSSLSocketWrite());
   }
 
   @Test

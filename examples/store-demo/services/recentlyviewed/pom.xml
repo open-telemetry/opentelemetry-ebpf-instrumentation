@@ -16,7 +16,7 @@
 		<dependency>
 			<groupId>com.aerospike</groupId>
 			<artifactId>aerospike-client-jdk21</artifactId>
-			<version>10.4.0</version>
+			<version>10.5.0</version>
 		</dependency>
 	</dependencies>
 
