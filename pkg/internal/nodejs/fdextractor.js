@@ -75,6 +75,8 @@
       ctxFd = -1;
     };
 
+    const resetCtxOnConnect = Symbol('obi.resetCtxOnConnect');
+
     const isMicrotask = (resource) =>
       resource instanceof Promise ||
       (resource !== null &&
@@ -153,9 +155,10 @@
 
       if (store) {
         const outFd = this._handle && this._handle.fd;
-        if (outFd !== store.incomingFd) {
+        if (CTX_HOOK_ENABLED && outFd !== store.incomingFd) {
           ctxFd = -1;
-          if (this.connecting) {
+          if (this.connecting && !this[resetCtxOnConnect]) {
+            this[resetCtxOnConnect] = true;
             this.once('connect', resetCtx);
           }
         }

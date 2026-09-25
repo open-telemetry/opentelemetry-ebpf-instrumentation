@@ -10,6 +10,7 @@ const scenario = process.argv[2];
 const REQUESTS = 3;
 const MICROTASKS = 5;
 const MACROTASKS = 3;
+const WRITES_BEFORE_CONNECT = 12;
 
 const events = [];
 const origExists = fs.existsSync;
@@ -24,7 +25,7 @@ fs.existsSync = (p, ...rest) => {
 const src = fs
   .readFileSync(path.join(__dirname, '..', 'fdextractor.js'), 'utf8')
   .replace('= false; /*OBI_TRACES_ENABLED*/', '= true; /*OBI_TRACES_ENABLED*/')
-  .replace('= false; /*OBI_CTX_HOOK_ENABLED*/', '= true; /*OBI_CTX_HOOK_ENABLED*/');
+  .replace('= false; /*OBI_CTX_HOOK_ENABLED*/', `= ${process.env.CTX_HOOK !== '0'}; /*OBI_CTX_HOOK_ENABLED*/`);
 // eslint-disable-next-line no-eval
 eval(src);
 
@@ -37,10 +38,12 @@ function runClient(code, port, done) {
   child.on('exit', () => setTimeout(done, 20));
 }
 
-function finish(server, extra) {
+const extra = {};
+
+function finish(server, fields) {
   server.close();
   fs.existsSync = origExists;
-  process.stdout.write(JSON.stringify({ events, ...extra }));
+  process.stdout.write(JSON.stringify({ events, ...extra, ...fields }));
 }
 
 const keepAliveClient = (connections) => `
@@ -96,6 +99,24 @@ switch (scenario) {
         events.push('wrote');
         await microtask();
         events.push('after-write');
+        out.destroy();
+      });
+    });
+    setTimeout(() => sink.close(), 5000).unref();
+    break;
+  }
+  case 'many-writes-before-connect': {
+    const sink = net.createServer((s) => s.resume());
+    sink.listen(0, '127.0.0.1', () => {
+      const sinkPort = sink.address().port;
+      const connectListeners = [];
+      extra.connectListeners = connectListeners;
+      httpScenario(1, async () => {
+        const out = net.connect(sinkPort, '127.0.0.1');
+        const before = out.listenerCount('connect');
+        for (let i = 0; i < WRITES_BEFORE_CONNECT; i++) out.write('x');
+        connectListeners.push(out.listenerCount('connect') - before);
+        await new Promise((r) => out.once('connect', r));
         out.destroy();
       });
     });

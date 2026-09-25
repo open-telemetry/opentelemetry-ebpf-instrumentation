@@ -5,9 +5,10 @@ const assert = require('node:assert');
 const { execFileSync } = require('node:child_process');
 const path = require('node:path');
 
-function runScenario(name) {
+function runScenario(name, env = {}) {
   const out = execFileSync(process.execPath, [path.join(__dirname, 'scenario_fdextractor.js'), name], {
     encoding: 'utf8',
+    env: { ...process.env, ...env },
   });
   return JSON.parse(out);
 }
@@ -57,6 +58,14 @@ test('a write queued before connect forces a re-signal after the connect flushes
     assert.deepStrictEqual(ctxBetween(r.events, callbacks[i], connected[i]), [ctxFor(r.handlerFds[i])],
       'the connect callback flushes the queued write, so the continuation after it must re-signal');
   }
+});
+
+test('writes queued before connect add one connect listener per socket, and none with the ctx hook off', () => {
+  const hookOff = runScenario('many-writes-before-connect', { CTX_HOOK: '0' }).connectListeners;
+  const hookOn = runScenario('many-writes-before-connect').connectListeners;
+  assert.strictEqual(hookOff.length, 3);
+  assert.deepStrictEqual(hookOn, hookOff.map((n) => n + 1),
+    'the agent adds exactly one listener per connecting socket, however many writes are queued');
 });
 
 test('interleaved keep-alive connections: each continuation sees its own request signalled', () => {
