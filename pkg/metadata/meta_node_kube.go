@@ -43,7 +43,8 @@ func kubeNodeFetcher(k8sInformer *kube.MetadataProvider) fetcher {
 			return NodeMeta{}, fmt.Errorf("can't get node %s: not found", nodeName)
 		}
 		return NodeMeta{
-			HostID: nodes.Items[0].Status.NodeInfo.MachineID,
+			Features: ClusterK8s,
+			HostID:   nodes.Items[0].Status.NodeInfo.MachineID,
 		}, nil
 	}
 }
