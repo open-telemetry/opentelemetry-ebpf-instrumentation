@@ -228,6 +228,9 @@ var DefaultConfig = Config{
 		Sources:  []transform.Source{transform.SourceK8s},
 		CacheLen: 1024,
 		CacheTTL: 5 * time.Minute,
+		ECS: transform.ECSNameResolverConfig{
+			RefreshInterval: 30 * time.Second,
+		},
 	},
 	Metrics: perapp.GlobalMetricsConfig{
 		Features: export.FeatureApplicationRED | export.FeatureApplicationSizes,
@@ -376,7 +379,8 @@ type Config struct {
 
 	Filters filter.AttributesConfig `yaml:"filter"`
 
-	Attributes Attributes `yaml:"attributes"`
+	Attributes    Attributes                    `yaml:"attributes"`
+	CloudMetadata transform.CloudMetadataConfig `yaml:"cloud_metadata"`
 	// Routes configures URL path grouping. If not set, data will be directly forwarded to exporters.
 	Routes       *transform.RoutesConfig       `yaml:"routes"`
 	NameResolver *transform.NameResolverConfig `yaml:"name_resolver"`

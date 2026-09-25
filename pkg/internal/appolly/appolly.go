@@ -98,10 +98,15 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 		processEventsDockerDecorated,
 	), swarm.WithID("DockerProcessEventDecorator"))
 
+	processEventsECSDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, ctxInfo.Metrics, "processEventsECSDecorated")
+	swi.Add(transform.ECSProcessEventDecoratorProvider(
+		ctxInfo, processEventsDockerDecorated, processEventsECSDecorated,
+	), swarm.WithID("ECSProcessEventDecorator"))
+
 	runtimeMetrics := newRuntimeMetricsQueue(config, ctxInfo.Metrics)
 	ebpfEventContext := ebpfcommon.NewEBPFEventContext()
 
-	bp, err := appolly.Build(ctx, config, ctxInfo, tracesInput, processEventsDockerDecorated, runtimeMetrics)
+	bp, err := appolly.Build(ctx, config, ctxInfo, tracesInput, processEventsECSDecorated, runtimeMetrics)
 	if err != nil {
 		return nil, fmt.Errorf("can't instantiate instrumentation pipeline: %w", err)
 	}

@@ -7,6 +7,9 @@ toolchain go1.27.1
 require (
 	github.com/AlessandroPomponio/go-gibberish v0.0.0-20191004143433-a2d4156f0396
 	github.com/andybalholm/brotli v1.2.4
+	github.com/aws/aws-sdk-go-v2 v1.45.1
+	github.com/aws/aws-sdk-go-v2/config v1.33.2
+	github.com/aws/aws-sdk-go-v2/service/ecs v1.95.0
 	github.com/caarlos0/env/v11 v11.4.1
 	github.com/cilium/ebpf v0.22.0
 	github.com/containers/common v0.64.2
@@ -75,6 +78,7 @@ require (
 	go.opentelemetry.io/collector/receiver v1.65.0
 	go.opentelemetry.io/collector/receiver/receivertest v0.159.0
 	go.opentelemetry.io/contrib/detectors/aws/ec2/v2 v2.5.3
+	go.opentelemetry.io/contrib/detectors/aws/ecs v1.46.0
 	go.opentelemetry.io/contrib/detectors/aws/eks v1.46.0
 	go.opentelemetry.io/contrib/detectors/azure/azurevm v0.18.0
 	go.opentelemetry.io/contrib/detectors/gcp v1.46.0
@@ -115,8 +119,6 @@ require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.36.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
-	github.com/aws/aws-sdk-go-v2 v1.45.1 // indirect
-	github.com/aws/aws-sdk-go-v2/config v1.33.2 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.2 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.19.1 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.1 // indirect
@@ -233,7 +235,6 @@ require (
 	go.opentelemetry.io/collector/pipeline v1.65.0 // indirect
 	go.opentelemetry.io/collector/pipeline/xpipeline v0.158.0 // indirect
 	go.opentelemetry.io/collector/receiver/xreceiver v0.159.0 // indirect
-	go.opentelemetry.io/contrib/detectors/aws/ecs v1.46.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.70.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0 // indirect
 	go.opentelemetry.io/contrib/propagators/autoprop v0.71.0 // indirect

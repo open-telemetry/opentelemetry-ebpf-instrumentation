@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/internal/ecs"
 	netebpf "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	statsebpf "go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/kube"
@@ -74,6 +75,8 @@ type ContextInfo struct {
 
 // AppO11y stores context information that is only required for application observability.
 type AppO11y struct {
+	// ECSInventory is shared by endpoint resolution and process metadata enrichment.
+	ECSInventory *ecs.Inventory
 	// ReportRoutes sets whether the metrics should set the http.route attribute
 	ReportRoutes bool
 }
