@@ -27,6 +27,8 @@ OBI's emission contract is defined as a [Weaver](https://github.com/open-telemet
 
 It extends the upstream [OpenTelemetry semantic conventions](https://github.com/open-telemetry/semantic-conventions) registry with the metrics, spans, and attributes OBI emits that are not covered upstream.
 
+See the [telemetry compatibility contract](./TELEMETRY.md) for the stable v1 surface and its guarantees. The [generated telemetry reference](./site/docs/README.md) lists the registry's attributes, metrics, spans, and stability classifications.
+
 ## How to start developing
 
 Requirements:

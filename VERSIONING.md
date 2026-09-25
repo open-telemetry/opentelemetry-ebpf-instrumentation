@@ -153,6 +153,8 @@ Not allowed before a major release:
 
 #### Emitted telemetry
 
+[TELEMETRY.md](./TELEMETRY.md) is the source of truth for the stable v1 telemetry surface and identifies which registry entries and exporter representations receive these guarantees. The rules below apply only to that stable surface.
+
 Allowed in minor releases:
 
 - new spans
