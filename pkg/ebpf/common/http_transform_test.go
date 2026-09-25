@@ -21,7 +21,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
+	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 )
@@ -806,4 +808,60 @@ func TestHttpSafeParseResponseNonChunked(t *testing.T) {
 	got, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	assert.Equal(t, body, string(got))
+}
+
+func TestHTTPInfoEventToSpan_LegacyPathHeaderEnrichment(t *testing.T) {
+	enrichmentCfg := config.EnrichmentConfig{
+		Enabled: true,
+		Policy: config.HTTPParsingPolicy{
+			DefaultAction: config.HTTPParsingDefaultAction{
+				Headers: config.HTTPParsingActionExclude,
+				Body:    config.HTTPParsingActionExclude,
+			},
+			DefaultObfuscationString: "***",
+		},
+		Rules: []config.HTTPParsingRule{
+			{
+				Action: config.HTTPParsingActionInclude,
+				Type:   config.HTTPParsingRuleTypeHeaders,
+				Scope:  config.HTTPParsingScopeRequest,
+				Match: config.HTTPParsingMatch{
+					Patterns: []services.GlobAttr{services.NewGlob("authorization")},
+				},
+			},
+		},
+	}
+	parseCtx := &EBPFParseContext{
+		payloadExtraction: config.PayloadExtraction{
+			HTTP: config.HTTPConfig{Enrichment: enrichmentCfg},
+		},
+		httpEnricher: ebpfhttp.NewHTTPEnricher(enrichmentCfg),
+	}
+
+	raw := "GET /api HTTP/1.1\r\nHost: example.com\r\nAuthorization: Bearer test-token\r\n\r\n"
+	var buf [bufSize]byte
+	copy(buf[:], raw)
+
+	t.Run("no response large buffer", func(t *testing.T) {
+		event := BPFHTTPInfo{
+			Type:            uint8(request.EventTypeHTTPClient),
+			Buf:             buf,
+			HasLargeBuffers: 1,
+		}
+		span, ignored, err := HTTPInfoEventToSpan(parseCtx, &event)
+		require.NoError(t, err)
+		assert.False(t, ignored)
+		assert.Equal(t, []string{"Bearer test-token"}, span.RequestHeaders["Authorization"])
+	})
+
+	t.Run("small buffer only", func(t *testing.T) {
+		event := BPFHTTPInfo{
+			Type: uint8(request.EventTypeHTTPClient),
+			Buf:  buf,
+		}
+		span, ignored, err := HTTPInfoEventToSpan(parseCtx, &event)
+		require.NoError(t, err)
+		assert.False(t, ignored)
+		assert.Equal(t, []string{"Bearer test-token"}, span.RequestHeaders["Authorization"])
+	})
 }

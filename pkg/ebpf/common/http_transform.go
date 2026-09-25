@@ -402,8 +402,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 	}
 
 	if !hasResponse {
-		// Large buffers disabled
-		return httpRequestToSpan(event, requestBuffer), false, nil
+		return httpLegacySpanFromEvent(parseCtx, event, requestBuffer), false, nil
 	}
 
 	// http.ReadRequest requires a *bufio.Reader; that one allocation is unavoidable.
@@ -412,7 +411,7 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 	resp, err2 := httpSafeParseResponse(responseBuffer, req)
 	if err != nil || err2 != nil {
 		slog.Debug("error while parsing http request or response, falling back to manual HTTP info parsing", "reqErr", err, "respErr", err2)
-		return httpRequestToSpan(event, requestBuffer), false, nil
+		return httpLegacySpanFromEvent(parseCtx, event, requestBuffer), false, nil
 	}
 
 	// When the body is empty but Content-Length indicates data should be
@@ -587,6 +586,32 @@ func dechunkBody(data []byte) []byte {
 		pos = chunkEnd + 2
 	}
 	return result
+}
+
+// httpLegacySpanFromEvent builds a span from raw buffer fields and, when configured,
+// applies HTTP header enrichment from the request buffer. This path is used when full
+// request+response parsing is unavailable (for example generic/cpp tracers without a
+// response large buffer).
+func httpLegacySpanFromEvent(parseCtx *EBPFParseContext, event *BPFHTTPInfo, requestBuffer *largebuf.LargeBuffer) request.Span {
+	span := httpRequestToSpan(event, requestBuffer)
+	if parseCtx == nil || parseCtx.httpEnricher == nil || requestBuffer == nil {
+		return span
+	}
+
+	reqReader := requestBuffer.NewReader()
+	req, err := http.ReadRequest(bufio.NewReader(&reqReader))
+	if err != nil {
+		slog.Debug("http header enrichment: failed to parse request on legacy path", "err", err)
+		return span
+	}
+
+	resp := &http.Response{
+		StatusCode: span.Status,
+		Header:     http.Header{},
+		Body:       http.NoBody,
+	}
+	parseCtx.httpEnricher.Enrich(&span, req, resp)
+	return span
 }
 
 func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer *largebuf.LargeBuffer) request.Span {
