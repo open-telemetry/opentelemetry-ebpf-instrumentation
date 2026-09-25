@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"math"
 	"os"
 	"sync"
@@ -339,6 +340,7 @@ func (p *Tracer) constants() map[string]any {
 	} else {
 		m["filter_pids"] = int32(1)
 	}
+	maps.Copy(m, ebpfcommon.PIDFilterConstants(ebpf.Kprobe))
 
 	if p.cfg.EBPF.TrackRequestHeaders ||
 		p.cfg.EBPF.ContextPropagation.IsEnabled() {

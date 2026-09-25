@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"slices"
 	"sync"
@@ -231,12 +232,15 @@ func (p *Tracer) constants() map[string]any {
 		filterPids = 0
 	}
 
-	return map[string]any{
+	m := map[string]any{
 		"filter_pids":          filterPids,
 		"max_transaction_time": uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds()),
 		"inject_flags":         flags,
 		"g_bpf_debug":          p.cfg.EBPF.BpfDebug,
 	}
+	maps.Copy(m, ebpfcommon.PIDFilterConstants(ebpf.SkMsg))
+
+	return m
 }
 
 func (p *Tracer) iterConstants() map[string]any {

@@ -14,8 +14,14 @@
 #include <pid/pid_helpers.h>
 
 #include <pid/types/pid_data.h>
+#include <pid/types/pid_filter.h>
 
 volatile const s32 filter_pids = 0;
+
+volatile const u32 pid_ns_mode = k_pid_ns_mode_init;
+// the pid namespace of OBI's /proc, as stat() reports it
+volatile const u64 obi_pid_ns_dev = 0;
+volatile const u64 obi_pid_ns_ino = 0;
 
 enum { k_prime_hash = 192053 }; // closest prime to k_max_concurrent_pids * 64
 

@@ -2,7 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
-import "go.opentelemetry.io/obi/pkg/appolly/app"
+
+import (
+	"github.com/cilium/ebpf"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app"
+)
 
 func KernelVersion() (major, minor int) {
 	return 0, 0
@@ -30,4 +35,8 @@ func CMDLineForPID(_ app.PID) (string, []string, error) {
 
 func CWDForPID(_ app.PID) (string, error) {
 	return "", nil
+}
+
+func PIDFilterConstants(_ ebpf.ProgramType) map[string]any {
+	return pidFilterConstants(PIDNamespaceInit, pidNamespace{})
 }

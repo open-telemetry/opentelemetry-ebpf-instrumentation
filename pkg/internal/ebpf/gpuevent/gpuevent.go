@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"sync"
 
 	"github.com/cilium/ebpf"
@@ -122,10 +123,13 @@ func (p *Tracer) constants() map[string]any {
 		filterPids = int32(0)
 	}
 
-	return map[string]any{
+	m := map[string]any{
 		"filter_pids": filterPids,
 		"g_bpf_debug": p.cfg.EBPF.BpfDebug,
 	}
+	maps.Copy(m, ebpfcommon.PIDFilterConstants(ebpf.Kprobe))
+
+	return m
 }
 
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}
