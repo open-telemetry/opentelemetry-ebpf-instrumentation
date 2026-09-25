@@ -591,3 +591,86 @@ func TestBlockPIDPrunesExpiredEntries(t *testing.T) {
 	assert.False(t, pf.ValidPID(123, 33, PIDTypeKProbes))
 	assert.Empty(t, pf.Filter([]request.Span{{Pid: request.PidInfo{UserPID: 123, Namespace: 33}, End: preBlock}}))
 }
+
+func TestProcPIDsReturnsOnePidPerProcess(t *testing.T) {
+	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
+		if pid == 41000 {
+			// a container process read from the host's /proc: host pid first
+			return []app.PID{41000, 7}, nil
+		}
+		return []app.PID{pid}, nil
+	}
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf.AllowPID(41000, 4026532500, exec.New(exec.Init{}), PIDTypeKProbes)
+	pf.AllowPID(900, 4026531836, exec.New(exec.Init{}), PIDTypeKProbes)
+	pf.AllowPID(555, 4026531836, exec.New(exec.Init{}), PIDTypeGo)
+
+	assert.ElementsMatch(t, []app.PID{41000, 900}, pf.ProcPIDs(PIDTypeKProbes),
+		"the pid AllowPID received, never the container alias")
+	assert.ElementsMatch(t, []app.PID{555}, pf.ProcPIDs(PIDTypeGo))
+
+	pf.BlockPID(41000, 4026532500)
+	assert.ElementsMatch(t, []app.PID{900}, pf.ProcPIDs(PIDTypeKProbes), "blocked processes are left out")
+}
+
+// Two processes of one pid namespace whose aliases collide: X is 41000 on the
+// host and 5 in the container, Y is 90000 on the host and 41000 in the
+// container. Y's alias takes over X's key 41000; X must still be returned.
+func TestProcPIDsSurvivesCollidingAliases(t *testing.T) {
+	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
+		switch pid {
+		case 41000:
+			return []app.PID{41000, 5}, nil
+		case 90000:
+			return []app.PID{90000, 41000}, nil
+		}
+		return []app.PID{pid}, nil
+	}
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf.AllowPID(41000, 4026532500, exec.New(exec.Init{}), PIDTypeKProbes)
+	pf.AllowPID(90000, 4026532500, exec.New(exec.Init{}), PIDTypeKProbes)
+
+	assert.ElementsMatch(t, []app.PID{41000, 90000}, pf.ProcPIDs(PIDTypeKProbes))
+}
+
+// Y (kprobes) is 90000 on the host and 41000 in the container; X (Go only) is
+// 41000 on the host and 5 inside. X's alias lands in Y's entry, which must not
+// make X a kprobes process.
+func TestProcPIDsKeepsTypesPerProcessUnderCollision(t *testing.T) {
+	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
+		switch pid {
+		case 41000:
+			return []app.PID{41000, 5}, nil
+		case 90000:
+			return []app.PID{90000, 41000}, nil
+		}
+		return []app.PID{pid}, nil
+	}
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf.AllowPID(90000, 4026532500, exec.New(exec.Init{}), PIDTypeKProbes)
+	pf.AllowPID(41000, 4026532500, exec.New(exec.Init{}), PIDTypeGo)
+
+	assert.ElementsMatch(t, []app.PID{90000}, pf.ProcPIDs(PIDTypeKProbes))
+	assert.ElementsMatch(t, []app.PID{41000}, pf.ProcPIDs(PIDTypeGo))
+}
+
+// Same collision, both kprobes: blocking X must drop X and keep Y, although
+// the entry under X's key holds Y's aliases.
+func TestProcPIDsBlocksTheRightProcessUnderCollision(t *testing.T) {
+	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
+		switch pid {
+		case 41000:
+			return []app.PID{41000, 5}, nil
+		case 90000:
+			return []app.PID{90000, 41000}, nil
+		}
+		return []app.PID{pid}, nil
+	}
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf.AllowPID(41000, 4026532500, exec.New(exec.Init{}), PIDTypeKProbes)
+	pf.AllowPID(90000, 4026532500, exec.New(exec.Init{}), PIDTypeKProbes)
+
+	pf.BlockPID(41000, 4026532500)
+
+	assert.ElementsMatch(t, []app.PID{90000}, pf.ProcPIDs(PIDTypeKProbes))
+}
