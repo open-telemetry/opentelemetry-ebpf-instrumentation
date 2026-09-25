@@ -79,13 +79,13 @@ func TestHandleProcessEventDrainsOnlyTerminatingWorkerFinal(t *testing.T) {
 	assert.Equal(t, uint64(2), remaining.Generation)
 }
 
-// TestInstrumenter_WithDynamicPIDSelector verifies that when the caller passes a selector via
-// ContextInfo.DynamicPIDSelector, New uses it and the caller can add/remove PIDs on it directly.
-func TestInstrumenter_WithDynamicPIDSelector(t *testing.T) {
-	sel := discover.NewDynamicPIDSelector()
+// TestInstrumenter_WithDynamicSelector verifies that when the caller passes a selector via
+// ContextInfo.DynamicSelector, New uses it and the caller can add/remove PIDs on it directly.
+func TestInstrumenter_WithDynamicSelector(t *testing.T) {
+	sel := discover.NewDynamicSelector()
 	ctxInfo := &global.ContextInfo{
-		Prometheus:         &connector.PrometheusManager{},
-		DynamicPIDSelector: sel,
+		Prometheus:      &connector.PrometheusManager{},
+		DynamicSelector: sel,
 	}
 	_, err := New(
 		t.Context(),

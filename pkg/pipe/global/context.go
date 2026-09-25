@@ -67,9 +67,9 @@ type ContextInfo struct {
 	// OTELMetricsExporter allows sharing the same OTEL exporter through diverse metrics export nodes (Application, Network...)
 	OTELMetricsExporter *otelcfg.MetricsExporterInstancer
 
-	// DynamicPIDSelector, when set, restricts App O11y, NetO11y, and StatsO11y signals to
-	// the runtime-selected PIDs for each signal view. Pass via instrumenter.WithDynamicPIDSelector.
-	DynamicPIDSelector selection.MultiSignalPIDSelector
+	// DynamicSelector, when set, restricts App O11y, NetO11y, and StatsO11y signals to
+	// the runtime-selected targets for each signal view. Pass via instrumenter.WithDynamicSelector.
+	DynamicSelector selection.MultiSignalPIDSelector
 }
 
 // AppO11y stores context information that is only required for application observability.

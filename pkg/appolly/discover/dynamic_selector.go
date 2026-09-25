@@ -30,9 +30,6 @@ const (
 const (
 	appSignalMask dynamicPIDSignal = signalTraces | signalAppMetrics
 	allSignalMask dynamicPIDSignal = appSignalMask | signalNetworkMetrics | signalStatsMetrics
-
-	dynamicPIDNotifyBufferSize = 64
-	dynamicPIDNotifyPendingMax = dynamicPIDNotifyBufferSize
 )
 
 // TODO: support per-signal attribute overrides; attributes are currently shared across all signals.
@@ -44,244 +41,36 @@ type dynamicPIDAttributes struct {
 }
 
 type dynamicPIDRecord struct {
+	signals         dynamicPIDSignal
+	attrs           dynamicPIDAttributes
+	explicitSignals dynamicPIDSignal
+	fromWorkloads   map[workloadKey]dynamicPIDSignal
+}
+
+type dynamicWorkloadRecord struct {
 	signals dynamicPIDSignal
 	attrs   dynamicPIDAttributes
 }
 
-type dynamicPIDNotifier struct {
-	addedSubscribers   []*dynamicPIDSubscriber
-	removedSubscribers []*dynamicPIDSubscriber
-
-	addedPending []app.PID
-	addedMu      sync.Mutex
-	addedCond    *sync.Cond
-
-	removedPending []app.PID
-	removedMu      sync.Mutex
-	removedCond    *sync.Cond
-}
-
-type dynamicPIDSubscriber struct {
-	ctx        context.Context
-	ch         chan []app.PID
-	wake       chan struct{}
-	done       chan struct{}
-	maxPending int
-	mu         sync.Mutex
-	pending    []app.PID
-}
-
-func newDynamicPIDSubscriber(ctx context.Context, maxPending int) *dynamicPIDSubscriber {
-	if ctx == nil {
-		ctx = context.Background()
+func (r dynamicPIDRecord) recomputedSignals() dynamicPIDSignal {
+	mask := r.explicitSignals
+	for _, ws := range r.fromWorkloads {
+		mask |= ws
 	}
-	s := &dynamicPIDSubscriber{
-		ctx:        ctx,
-		ch:         make(chan []app.PID, dynamicPIDNotifyBufferSize),
-		wake:       make(chan struct{}, 1),
-		done:       make(chan struct{}),
-		maxPending: maxPending,
-	}
-	go s.run()
-	return s
-}
-
-func (s *dynamicPIDSubscriber) notify(batch []app.PID) {
-	select {
-	case <-s.ctx.Done():
-		return
-	default:
-	}
-
-	// Queue on the subscriber so a full subscriber channel cannot block notifier fan-out.
-	s.mu.Lock()
-	for _, pid := range batch {
-		if s.maxPending > 0 && len(s.pending) == s.maxPending {
-			break
-		}
-		s.pending = append(s.pending, pid)
-	}
-	s.mu.Unlock()
-
-	select {
-	case s.wake <- struct{}{}:
-	default:
-	}
-}
-
-func (s *dynamicPIDSubscriber) run() {
-	defer close(s.done)
-	defer close(s.ch)
-
-	for {
-		select {
-		case <-s.ctx.Done():
-			return
-		case <-s.wake:
-			for {
-				batch := s.takePending()
-				if len(batch) == 0 {
-					break
-				}
-				select {
-				case s.ch <- batch:
-				case <-s.ctx.Done():
-					return
-				}
-			}
-		}
-	}
-}
-
-func (s *dynamicPIDSubscriber) takePending() []app.PID {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if len(s.pending) == 0 {
-		return nil
-	}
-
-	// Send a stable batch while later notify calls append to a fresh pending queue.
-	batch := slices.Clone(s.pending)
-	s.pending = nil
-	return batch
-}
-
-func newDynamicPIDNotifier() *dynamicPIDNotifier {
-	n := &dynamicPIDNotifier{}
-	n.addedCond = sync.NewCond(&n.addedMu)
-	n.removedCond = sync.NewCond(&n.removedMu)
-	go n.drainAdded()
-	go n.drainRemoved()
-	return n
-}
-
-func (n *dynamicPIDNotifier) notifyAdded(pids []app.PID) {
-	if len(pids) == 0 {
-		return
-	}
-	n.addedMu.Lock()
-	n.addedPending = append(n.addedPending, pids...)
-	n.addedCond.Signal()
-	n.addedMu.Unlock()
-}
-
-func (n *dynamicPIDNotifier) notifyRemoved(pids []app.PID) {
-	if len(pids) == 0 {
-		return
-	}
-	n.removedMu.Lock()
-	n.removedPending = append(n.removedPending, pids...)
-	n.removedCond.Signal()
-	n.removedMu.Unlock()
-}
-
-func (n *dynamicPIDNotifier) drainAdded() {
-	for {
-		n.addedMu.Lock()
-		for len(n.addedPending) == 0 || len(n.addedSubscribers) == 0 {
-			n.addedCond.Wait()
-		}
-		batch := append([]app.PID(nil), n.addedPending...)
-		n.addedPending = n.addedPending[:0]
-		subscribers := slices.Clone(n.addedSubscribers)
-		n.addedMu.Unlock()
-
-		for _, subscriber := range subscribers {
-			subscriber.notify(batch)
-		}
-	}
-}
-
-func (n *dynamicPIDNotifier) drainRemoved() {
-	for {
-		n.removedMu.Lock()
-		for len(n.removedPending) == 0 || len(n.removedSubscribers) == 0 {
-			n.removedCond.Wait()
-		}
-		batch := append([]app.PID(nil), n.removedPending...)
-		n.removedPending = n.removedPending[:0]
-		subscribers := slices.Clone(n.removedSubscribers)
-		n.removedMu.Unlock()
-
-		for _, subscriber := range subscribers {
-			subscriber.notify(batch)
-		}
-	}
-}
-
-func (n *dynamicPIDNotifier) removeAddedSubscriber(subscriber *dynamicPIDSubscriber) {
-	n.addedMu.Lock()
-	n.addedSubscribers = slices.DeleteFunc(n.addedSubscribers, func(ch *dynamicPIDSubscriber) bool {
-		return ch == subscriber
-	})
-	n.addedMu.Unlock()
-}
-
-func (n *dynamicPIDNotifier) removeRemovedSubscriber(subscriber *dynamicPIDSubscriber) {
-	n.removedMu.Lock()
-	n.removedSubscribers = slices.DeleteFunc(n.removedSubscribers, func(ch *dynamicPIDSubscriber) bool {
-		return ch == subscriber
-	})
-	n.removedMu.Unlock()
-}
-
-func (n *dynamicPIDNotifier) addedNotify() <-chan []app.PID {
-	subscriber := newDynamicPIDSubscriber(context.Background(), dynamicPIDNotifyPendingMax)
-	n.addedMu.Lock()
-	n.addedSubscribers = append(n.addedSubscribers, subscriber)
-	n.addedCond.Signal()
-	n.addedMu.Unlock()
-	return subscriber.ch
-}
-
-func (n *dynamicPIDNotifier) addedNotifyContext(ctx context.Context) <-chan []app.PID {
-	subscriber := newDynamicPIDSubscriber(ctx, 0)
-	n.addedMu.Lock()
-	n.addedSubscribers = append(n.addedSubscribers, subscriber)
-	n.addedCond.Signal()
-	n.addedMu.Unlock()
-
-	go func() {
-		<-subscriber.done
-		n.removeAddedSubscriber(subscriber)
-	}()
-	return subscriber.ch
-}
-
-func (n *dynamicPIDNotifier) removedNotify() <-chan []app.PID {
-	subscriber := newDynamicPIDSubscriber(context.Background(), dynamicPIDNotifyPendingMax)
-	n.removedMu.Lock()
-	n.removedSubscribers = append(n.removedSubscribers, subscriber)
-	n.removedCond.Signal()
-	n.removedMu.Unlock()
-	return subscriber.ch
-}
-
-func (n *dynamicPIDNotifier) removedNotifyContext(ctx context.Context) <-chan []app.PID {
-	subscriber := newDynamicPIDSubscriber(ctx, 0)
-	n.removedMu.Lock()
-	n.removedSubscribers = append(n.removedSubscribers, subscriber)
-	n.removedCond.Signal()
-	n.removedMu.Unlock()
-
-	go func() {
-		<-subscriber.done
-		n.removeRemovedSubscriber(subscriber)
-	}()
-	return subscriber.ch
+	return mask
 }
 
 type dynamicPIDSignalView struct {
-	parent   *DynamicPIDSelector
+	parent   *DynamicSelector
 	mask     dynamicPIDSignal
-	notifier *dynamicPIDNotifier
+	notifier *dynamicEdgePairNotifier[app.PID]
 }
 
 func (v *dynamicPIDSignalView) AddPIDs(pids ...uint32) {
 	v.parent.addSignals(v.mask, nil, pids...)
 }
 
-func (v *dynamicPIDSignalView) AddPID(pid uint32, opts selection.DynamicPIDOptions) {
+func (v *dynamicPIDSignalView) AddPID(pid uint32, opts selection.DynamicOptions) {
 	v.parent.addSignals(v.mask, &opts, pid)
 }
 
@@ -327,16 +116,23 @@ func (v *dynamicPIDSignalView) AsSelector() services.Selector {
 	return &dynamicPIDCriteriaAdapter{view: v}
 }
 
-// DynamicPIDSelector holds one runtime selector object with per-signal PID views. The root Add/Remove
+// DynamicSelector holds one runtime selector object with per-signal PID views. The root Add/Remove
 // methods preserve legacy behavior by applying to all supported signals.
-type DynamicPIDSelector struct {
-	mu    sync.RWMutex
-	byPID map[app.PID]dynamicPIDRecord
+//
+// Callers may also select Kubernetes workloads via AddK8sWorkload; matching processes are
+// materialized into the PID set so existing signal gates and network/stats IP tracking keep working.
+type DynamicSelector struct {
+	mu         sync.RWMutex
+	byPID      map[app.PID]dynamicPIDRecord
+	byWorkload map[workloadKey]dynamicWorkloadRecord
 
 	fileInfoMu        sync.RWMutex
 	fileInfoByPID     map[app.PID]*exec.FileInfo
 	onFileInfoUpdated func(*exec.FileInfo)
 	attrsUpdatedCh    chan app.PID
+
+	targetsChangedNotifier   *dynamicWakeNotifier
+	workloadsChangedNotifier *dynamicWakeNotifier
 
 	rootView           dynamicPIDSignalView
 	tracesView         dynamicPIDSignalView
@@ -346,22 +142,25 @@ type DynamicPIDSelector struct {
 	appSignalsView     dynamicPIDSignalView
 }
 
-var _ selection.MultiSignalPIDSelector = (*DynamicPIDSelector)(nil)
+var _ selection.MultiSignalPIDSelector = (*DynamicSelector)(nil)
 
-func newDynamicPIDSignalView(parent *DynamicPIDSelector, mask dynamicPIDSignal) dynamicPIDSignalView {
+func newDynamicPIDSignalView(parent *DynamicSelector, mask dynamicPIDSignal) dynamicPIDSignalView {
 	return dynamicPIDSignalView{
 		parent:   parent,
 		mask:     mask,
-		notifier: newDynamicPIDNotifier(),
+		notifier: newDynamicEdgePairNotifier[app.PID](),
 	}
 }
 
-// NewDynamicPIDSelector creates a new selector whose root Add/Remove methods apply to all signals.
-func NewDynamicPIDSelector() *DynamicPIDSelector {
-	d := &DynamicPIDSelector{
-		byPID:          map[app.PID]dynamicPIDRecord{},
-		fileInfoByPID:  map[app.PID]*exec.FileInfo{},
-		attrsUpdatedCh: make(chan app.PID, 64),
+// NewDynamicSelector creates a new selector whose root Add/Remove methods apply to all signals.
+func NewDynamicSelector() *DynamicSelector {
+	d := &DynamicSelector{
+		byPID:                    map[app.PID]dynamicPIDRecord{},
+		byWorkload:               map[workloadKey]dynamicWorkloadRecord{},
+		fileInfoByPID:            map[app.PID]*exec.FileInfo{},
+		attrsUpdatedCh:           make(chan app.PID, 64),
+		targetsChangedNotifier:   newDynamicWakeNotifier(),
+		workloadsChangedNotifier: newDynamicWakeNotifier(),
 	}
 	d.rootView = newDynamicPIDSignalView(d, allSignalMask)
 	d.tracesView = newDynamicPIDSignalView(d, signalTraces)
@@ -374,18 +173,18 @@ func NewDynamicPIDSelector() *DynamicPIDSelector {
 
 // SetOnFileInfoUpdated registers a hook invoked after SetPID updates a live FileInfo. OBI uses this
 // to re-send process events so metrics exporters refresh target_info and related series.
-func (d *DynamicPIDSelector) SetOnFileInfoUpdated(fn func(*exec.FileInfo)) {
+func (d *DynamicSelector) SetOnFileInfoUpdated(fn func(*exec.FileInfo)) {
 	d.fileInfoMu.Lock()
 	d.onFileInfoUpdated = fn
 	d.fileInfoMu.Unlock()
 }
 
 // AttrsUpdatedNotify reports PIDs whose shared attributes changed.
-func (d *DynamicPIDSelector) AttrsUpdatedNotify() <-chan app.PID {
+func (d *DynamicSelector) AttrsUpdatedNotify() <-chan app.PID {
 	return d.attrsUpdatedCh
 }
 
-func (d *DynamicPIDSelector) notifyAttrsUpdated(pid app.PID) {
+func (d *DynamicSelector) notifyAttrsUpdated(pid app.PID) {
 	select {
 	case d.attrsUpdatedCh <- pid:
 	default:
@@ -393,7 +192,7 @@ func (d *DynamicPIDSelector) notifyAttrsUpdated(pid app.PID) {
 }
 
 // RegisterFileInfo records the live FileInfo for a dynamically selected PID after instrumentation.
-func (d *DynamicPIDSelector) RegisterFileInfo(pid app.PID, fi *exec.FileInfo) {
+func (d *DynamicSelector) RegisterFileInfo(pid app.PID, fi *exec.FileInfo) {
 	if fi == nil {
 		return
 	}
@@ -406,7 +205,7 @@ func (d *DynamicPIDSelector) RegisterFileInfo(pid app.PID, fi *exec.FileInfo) {
 }
 
 // UnregisterFileInfo drops FileInfo references for pid and its dynamic selector owner PID.
-func (d *DynamicPIDSelector) UnregisterFileInfo(pid app.PID, fi *exec.FileInfo) {
+func (d *DynamicSelector) UnregisterFileInfo(pid app.PID, fi *exec.FileInfo) {
 	d.fileInfoMu.Lock()
 	delete(d.fileInfoByPID, pid)
 	if fi != nil {
@@ -417,7 +216,7 @@ func (d *DynamicPIDSelector) UnregisterFileInfo(pid app.PID, fi *exec.FileInfo) 
 	d.fileInfoMu.Unlock()
 }
 
-func (d *DynamicPIDSelector) views() []*dynamicPIDSignalView {
+func (d *DynamicSelector) views() []*dynamicPIDSignalView {
 	return []*dynamicPIDSignalView{
 		&d.rootView,
 		&d.tracesView,
@@ -428,8 +227,17 @@ func (d *DynamicPIDSelector) views() []*dynamicPIDSignalView {
 	}
 }
 
-func (d *DynamicPIDSelector) addSignals(mask dynamicPIDSignal, opts *selection.DynamicPIDOptions, pids ...uint32) {
-	if len(pids) == 0 {
+func (d *DynamicSelector) addSignals(mask dynamicPIDSignal, opts *selection.DynamicOptions, pids ...uint32) {
+	d.addSignalsFrom(mask, opts, nil, pids...)
+}
+
+func (d *DynamicSelector) addSignalsFrom(
+	mask dynamicPIDSignal,
+	opts *selection.DynamicOptions,
+	from *workloadKey,
+	pids ...uint32,
+) {
+	if len(pids) == 0 || mask == 0 {
 		return
 	}
 	addedByView := map[*dynamicPIDSignalView][]app.PID{}
@@ -445,7 +253,17 @@ func (d *DynamicPIDSelector) addSignals(mask dynamicPIDSignal, opts *selection.D
 			rec.attrs = attrsFromOptions(*opts)
 		}
 
-		newMask := oldMask | mask
+		if from == nil {
+			rec.explicitSignals |= mask
+		} else {
+			if rec.fromWorkloads == nil {
+				rec.fromWorkloads = map[workloadKey]dynamicPIDSignal{}
+			}
+			rec.fromWorkloads[*from] |= mask
+		}
+		newMask := rec.recomputedSignals()
+		rec.signals = newMask
+
 		if newMask == oldMask {
 			if opts != nil {
 				d.byPID[pid] = rec
@@ -453,7 +271,6 @@ func (d *DynamicPIDSelector) addSignals(mask dynamicPIDSignal, opts *selection.D
 			}
 			continue
 		}
-		rec.signals = newMask
 		d.byPID[pid] = rec
 
 		for _, view := range d.views() {
@@ -472,7 +289,7 @@ func (d *DynamicPIDSelector) addSignals(mask dynamicPIDSignal, opts *selection.D
 	}
 }
 
-func (d *DynamicPIDSelector) removeSignals(mask dynamicPIDSignal, pids ...uint32) {
+func (d *DynamicSelector) removeSignals(mask dynamicPIDSignal, pids ...uint32) {
 	if len(pids) == 0 {
 		return
 	}
@@ -486,7 +303,18 @@ func (d *DynamicPIDSelector) removeSignals(mask dynamicPIDSignal, pids ...uint32
 			continue
 		}
 		oldMask := rec.signals
-		newMask := oldMask &^ mask
+
+		// Explicit RemovePIDs clears the requested signals from all sources.
+		rec.explicitSignals &^= mask
+		for key, ws := range rec.fromWorkloads {
+			remaining := ws &^ mask
+			if remaining == 0 {
+				delete(rec.fromWorkloads, key)
+			} else {
+				rec.fromWorkloads[key] = remaining
+			}
+		}
+		newMask := rec.recomputedSignals()
 		if newMask == oldMask {
 			continue
 		}
@@ -509,7 +337,7 @@ func (d *DynamicPIDSelector) removeSignals(mask dynamicPIDSignal, pids ...uint32
 	}
 }
 
-func (d *DynamicPIDSelector) getPIDs(mask dynamicPIDSignal) ([]app.PID, bool) {
+func (d *DynamicSelector) getPIDs(mask dynamicPIDSignal) ([]app.PID, bool) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	if len(d.byPID) == 0 {
@@ -528,13 +356,13 @@ func (d *DynamicPIDSelector) getPIDs(mask dynamicPIDSignal) ([]app.PID, bool) {
 	return out, true
 }
 
-func (d *DynamicPIDSelector) includesPID(mask dynamicPIDSignal, pid app.PID) bool {
+func (d *DynamicSelector) includesPID(mask dynamicPIDSignal, pid app.PID) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.byPID[pid].signals&mask != 0
 }
 
-func (d *DynamicPIDSelector) selectorForPID(pid app.PID) services.Selector {
+func (d *DynamicSelector) selectorForPID(pid app.PID) services.Selector {
 	d.mu.RLock()
 	rec, ok := d.byPID[pid]
 	d.mu.RUnlock()
@@ -545,7 +373,7 @@ func (d *DynamicPIDSelector) selectorForPID(pid app.PID) services.Selector {
 }
 
 // GetPID returns the shared attributes for a tracked PID.
-func (d *DynamicPIDSelector) GetPID(pid uint32) (selection.DynamicPIDEntry, bool) {
+func (d *DynamicSelector) GetPID(pid uint32) (selection.DynamicPIDEntry, bool) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	rec, ok := d.byPID[app.PID(pid)]
@@ -557,7 +385,7 @@ func (d *DynamicPIDSelector) GetPID(pid uint32) (selection.DynamicPIDEntry, bool
 
 // SetPID updates shared attributes for a PID that is already tracked by the selector and, when
 // the process is instrumented, applies them to its live FileInfo.
-func (d *DynamicPIDSelector) SetPID(entry selection.DynamicPIDEntry) bool {
+func (d *DynamicSelector) SetPID(entry selection.DynamicPIDEntry) bool {
 	attrs := attrsFromEntry(entry)
 
 	d.mu.Lock()
@@ -567,8 +395,10 @@ func (d *DynamicPIDSelector) SetPID(entry selection.DynamicPIDEntry) bool {
 		return false
 	}
 	d.byPID[entry.PID] = dynamicPIDRecord{
-		signals: rec.signals,
-		attrs:   attrs,
+		signals:         rec.signals,
+		attrs:           attrs,
+		explicitSignals: rec.explicitSignals,
+		fromWorkloads:   rec.fromWorkloads,
 	}
 	d.mu.Unlock()
 
@@ -577,7 +407,7 @@ func (d *DynamicPIDSelector) SetPID(entry selection.DynamicPIDEntry) bool {
 	return true
 }
 
-func (d *DynamicPIDSelector) applyAttrsToInstrumented(pid app.PID, attrs dynamicPIDAttributes) {
+func (d *DynamicSelector) applyAttrsToInstrumented(pid app.PID, attrs dynamicPIDAttributes) {
 	d.fileInfoMu.RLock()
 	fi := d.fileInfoByPID[pid]
 	cb := d.onFileInfoUpdated
@@ -621,79 +451,79 @@ func (v *dynamicPIDSignalView) contains(mask dynamicPIDSignal) bool {
 }
 
 // AddPID adds a PID to all supported signals with optional shared attributes.
-func (d *DynamicPIDSelector) AddPID(pid uint32, opts selection.DynamicPIDOptions) {
+func (d *DynamicSelector) AddPID(pid uint32, opts selection.DynamicOptions) {
 	d.rootView.AddPID(pid, opts)
 }
 
 // AddPIDs adds PIDs to all supported signals (legacy root behavior).
-func (d *DynamicPIDSelector) AddPIDs(pids ...uint32) {
+func (d *DynamicSelector) AddPIDs(pids ...uint32) {
 	d.rootView.AddPIDs(pids...)
 }
 
 // RemovePIDs removes PIDs from all supported signals (legacy root behavior).
-func (d *DynamicPIDSelector) RemovePIDs(pids ...uint32) {
+func (d *DynamicSelector) RemovePIDs(pids ...uint32) {
 	d.rootView.RemovePIDs(pids...)
 }
 
 // GetPIDs returns PIDs selected for any supported signal.
-func (d *DynamicPIDSelector) GetPIDs() ([]app.PID, bool) {
+func (d *DynamicSelector) GetPIDs() ([]app.PID, bool) {
 	return d.rootView.GetPIDs()
 }
 
 // IncludesPID reports whether pid is selected for any supported signal.
-func (d *DynamicPIDSelector) IncludesPID(pid app.PID) bool {
+func (d *DynamicSelector) IncludesPID(pid app.PID) bool {
 	return d.rootView.IncludesPID(pid)
 }
 
 // AddedPIDsNotify returns the channel on which PIDs are sent when they enter the root view.
-func (d *DynamicPIDSelector) AddedPIDsNotify() <-chan []app.PID {
+func (d *DynamicSelector) AddedPIDsNotify() <-chan []app.PID {
 	return d.rootView.AddedPIDsNotify()
 }
 
-func (d *DynamicPIDSelector) AddedPIDsNotifyContext(ctx context.Context) <-chan []app.PID {
+func (d *DynamicSelector) AddedPIDsNotifyContext(ctx context.Context) <-chan []app.PID {
 	return d.rootView.AddedPIDsNotifyContext(ctx)
 }
 
 // RemovedNotify returns the channel on which PIDs are sent when they leave the root view.
-func (d *DynamicPIDSelector) RemovedNotify() <-chan []app.PID {
+func (d *DynamicSelector) RemovedNotify() <-chan []app.PID {
 	return d.rootView.RemovedNotify()
 }
 
-func (d *DynamicPIDSelector) RemovedNotifyContext(ctx context.Context) <-chan []app.PID {
+func (d *DynamicSelector) RemovedNotifyContext(ctx context.Context) <-chan []app.PID {
 	return d.rootView.RemovedNotifyContext(ctx)
 }
 
 // Traces returns the mutable selector view for trace signals.
-func (d *DynamicPIDSelector) Traces() selection.MutablePIDSelector {
+func (d *DynamicSelector) Traces() selection.MutablePIDSelector {
 	return &d.tracesView
 }
 
 // AppMetrics returns the mutable selector view for application metrics signals.
-func (d *DynamicPIDSelector) AppMetrics() selection.MutablePIDSelector {
+func (d *DynamicSelector) AppMetrics() selection.MutablePIDSelector {
 	return &d.appMetricsView
 }
 
 // NetworkMetrics returns the mutable selector view for network metrics signals.
-func (d *DynamicPIDSelector) NetworkMetrics() selection.MutablePIDSelector {
+func (d *DynamicSelector) NetworkMetrics() selection.MutablePIDSelector {
 	return &d.networkMetricsView
 }
 
 // StatsMetrics returns the mutable selector view for stats metrics signals.
-func (d *DynamicPIDSelector) StatsMetrics() selection.MutablePIDSelector {
+func (d *DynamicSelector) StatsMetrics() selection.MutablePIDSelector {
 	return &d.statsMetricsView
 }
 
-func (d *DynamicPIDSelector) appSignals() *dynamicPIDSignalView {
+func (d *DynamicSelector) appSignals() *dynamicPIDSignalView {
 	return &d.appSignalsView
 }
 
 // AsSelector preserves the legacy root-selector behavior.
-func (d *DynamicPIDSelector) AsSelector() services.Selector {
+func (d *DynamicSelector) AsSelector() services.Selector {
 	return d.rootView.AsSelector()
 }
 
 // ResourceAttributesFromSelector returns resource attributes configured on a dynamic PID
-// selector criteria, or nil when the selector is not from DynamicPIDSelector.
+// selector criteria, or nil when the selector is not from DynamicSelector.
 func ResourceAttributesFromSelector(selector services.Selector) map[attr.Name]string {
 	adapter, ok := selector.(*dynamicPIDCriteriaAdapter)
 	if !ok || len(adapter.attrs.resourceAttributes) == 0 {
@@ -769,7 +599,7 @@ func (emptyMatcher) MatchString(_ string) bool { return false }
 
 func emptyMetadataSeq2(_ func(string, services.StringMatcher) bool) {}
 
-func attrsFromOptions(opts selection.DynamicPIDOptions) dynamicPIDAttributes {
+func attrsFromOptions(opts selection.DynamicOptions) dynamicPIDAttributes {
 	return dynamicPIDAttributes{
 		serviceName:        opts.ServiceName,
 		serviceNamespace:   opts.ServiceNamespace,
