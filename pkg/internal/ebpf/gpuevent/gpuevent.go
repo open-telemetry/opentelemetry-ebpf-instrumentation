@@ -48,6 +48,11 @@ type pidKey struct {
 	Ns  uint32
 }
 
+type cudaDeviceKey struct {
+	pid   app.PID
+	index uint32
+}
+
 type (
 	GPUCudaKernelLaunchInfo BpfCudaKernelLaunchT
 	GPUCudaMemcpyInfo       BpfCudaMemcpyT
@@ -70,10 +75,9 @@ type Tracer struct {
 	instrumentedLibs ebpfcommon.InstrumentedLibsT
 	libsMux          sync.Mutex
 	pidMap           map[pidKey]uint64
-	// deviceModels maps a device UUID to its model name, as learned from the
-	// introspection events. Only the single ring buffer parser goroutine reads
-	// and writes it, so it needs no lock.
-	deviceModels map[string]string
+	// deviceModels maps a process-local CUDA device index to its model name. Only
+	// the single ring buffer parser goroutine reads and writes it, so it needs no lock.
+	deviceModels map[cudaDeviceKey]string
 }
 
 func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) *Tracer {
@@ -89,7 +93,7 @@ func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.R
 		instrumentedLibs: make(ebpfcommon.InstrumentedLibsT),
 		libsMux:          sync.Mutex{},
 		pidMap:           map[pidKey]uint64{},
-		deviceModels:     map[string]string{},
+		deviceModels:     map[cudaDeviceKey]string{},
 	}
 }
 
@@ -468,10 +472,11 @@ func (p *Tracer) readGPUCudaDeviceEventIntoSpan(record *ringbuf.Record) (request
 
 	p.log.Debug("GPU device info", "uuid", uuid, "model", model)
 
-	// A device may be learned by UUID and name separately, and each event
-	// carries the merged view, so never drop a model we already know.
-	if uuid != "" && model != "" {
-		p.deviceModels[uuid] = model
+	if model != "" {
+		p.deviceModels[cudaDeviceKey{
+			pid:   app.PID(event.PidInfo.HostPid),
+			index: event.Index,
+		}] = model
 	}
 
 	return request.Span{}, true, nil
@@ -485,7 +490,10 @@ func (p *Tracer) applyDeviceIdentity(span *request.Span, device BpfCudaDeviceT) 
 	span.CudaDeviceKnown = true
 	span.CudaDeviceIndex = device.Index
 	span.CudaDeviceUUID = cudaUUIDString(device.Uuid)
-	span.CudaDeviceModel = p.deviceModels[span.CudaDeviceUUID]
+	span.CudaDeviceModel = p.deviceModels[cudaDeviceKey{
+		pid:   span.Pid.HostPID,
+		index: device.Index,
+	}]
 }
 
 // cudaUUIDString renders the raw bytes of a device UUID the way nvidia-smi
