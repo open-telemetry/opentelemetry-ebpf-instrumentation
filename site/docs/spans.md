@@ -586,6 +586,7 @@ OBI Kafka span for a process operation.
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `messaging.client.id` | string | `recommended` | development | A unique identifier for the client that consumes or produces a message. | client-5; myhost@8742@s8083jm |
+| `messaging.consumer.group.name` | string | `conditionally_required`: if OBI attributed the fetch to a single consumer group of the process | development | The name of the consumer group with which a consumer is associated. | my-group; indexer |
 | `messaging.destination.name` | string | `required` | development | The message destination name | MyQueue; MyTopic |
 | `messaging.destination.partition.id` | string | `conditionally_required`: if the record carried partition metadata | development | The identifier of the partition messages are sent to or received from, unique within the `messaging.destination.name`. | 1 |
 | `messaging.kafka.offset` | int | `recommended`: if the record carried partition metadata | development | The offset of a record in the corresponding Kafka partition. | 42 |

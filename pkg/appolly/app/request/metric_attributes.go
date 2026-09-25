@@ -169,6 +169,10 @@ func MessagingDestinationName(val string) attribute.KeyValue {
 	return attribute.Key(attr.MessagingDestination).String(val)
 }
 
+func MessagingConsumerGroupName(val string) attribute.KeyValue {
+	return attribute.Key(attr.MessagingConsumerGroup).String(val)
+}
+
 func MessagingMessageID(val string) attribute.KeyValue {
 	return attribute.Key(attr.MessagingMessageID).String(val)
 }

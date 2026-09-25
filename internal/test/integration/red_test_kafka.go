@@ -40,7 +40,15 @@ func runKafkaTestCase(t *testing.T, testCase TestCase) {
 	require.NoError(t, err, "failed to query prometheus for http_server_request_duration_seconds_count")
 	require.Empty(t, results, "expected no HTTP requests, got %d", len(results))
 
-	// Ensure we see the expected spans in Jaeger
+	// Ensure we see the expected spans in Jaeger.
+	//
+	// The match is "at least one span carrying all expected tags", not "every span": the
+	// consumer group on "process" spans is learned from the membership requests
+	// (JoinGroup, SyncGroup, Heartbeat) the consumer sends on its coordinator
+	// connection, so if OBI attaches after the consumer already joined, the first Fetch
+	// spans legitimately lack messaging.consumer.group.name until the next Heartbeat
+	// (~3s), and every Fetch lacks it for the first 15s after OBI first sees a group
+	// request from the process. Waiting for one matching span covers that warm-up.
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, span := range testCase.Spans {
 			command := span.Name
@@ -58,6 +66,7 @@ func runKafkaTestCase(t *testing.T, testCase TestCase) {
 			}
 			traces := tq.FindBySpan(tags...)
 			assert.LessOrEqual(ct, 1, len(traces), "span %s with tags %v not found in traces %v", command, tags, tq.Data)
+			assertMatchingSpansLack(ct, traces, tags, span.AbsentAttributes)
 		}
 	}, 2*testTimeout, 100*time.Millisecond)
 
@@ -87,7 +96,8 @@ func testREDMetricsPythonKafkaOnly(t *testing.T) {
 			Comm:    "main",
 			Spans: []TestCaseSpan{
 				{
-					Name: "send my-topic",
+					Name:             "send my-topic",
+					AbsentAttributes: []string{"messaging.consumer.group.name"},
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "producer"),
 						attribute.String("messaging.operation.type", "send"),
@@ -101,6 +111,7 @@ func testREDMetricsPythonKafkaOnly(t *testing.T) {
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "consumer"),
 						attribute.String("messaging.operation.type", "process"),
+						attribute.String("messaging.consumer.group.name", "1"),
 						attribute.String("messaging.destination.name", "my-topic"),
 						attribute.String("messaging.destination.partition.id", "0"),
 					},
@@ -134,7 +145,8 @@ func testJavaKafka(t *testing.T, port int, comm string) {
 			Comm:    comm,
 			Spans: []TestCaseSpan{
 				{
-					Name: "send my-topic",
+					Name:             "send my-topic",
+					AbsentAttributes: []string{"messaging.consumer.group.name"},
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "producer"),
 						attribute.String("messaging.operation.type", "send"),
@@ -151,6 +163,7 @@ func testJavaKafka(t *testing.T, port int, comm string) {
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "consumer"),
 						attribute.String("messaging.operation.type", "process"),
+						attribute.String("messaging.consumer.group.name", "1"),
 						// Sometimes we find my-topic (with TLS), sometimes we cannot we get *
 						// attribute.String("messaging.destination.name", "*"),
 						attribute.String("messaging.client.id", "consumer-1-1"),
@@ -186,7 +199,8 @@ func testJavaKafkaLargeBuffer(t *testing.T) {
 			Comm:    "javakafka-lb",
 			Spans: []TestCaseSpan{
 				{
-					Name: "send theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree",
+					Name:             "send theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree",
+					AbsentAttributes: []string{"messaging.consumer.group.name"},
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "producer"),
 						attribute.String("messaging.operation.type", "send"),
@@ -200,6 +214,7 @@ func testJavaKafkaLargeBuffer(t *testing.T) {
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "consumer"),
 						attribute.String("messaging.operation.type", "process"),
+						attribute.String("messaging.consumer.group.name", "1"),
 						attribute.String("messaging.destination.name", "theotelebpfagentisperfectlyimpatientitskipsthecodethesdkandfindsthekernelssecretkeyitwatcheshttpandgrpctogiveyoumetricsforfreeapowerfulkernellevelspree"),
 						attribute.String("messaging.client.id", "consumer-1-1"),
 						attribute.String("messaging.destination.partition.id", "0"),
@@ -240,7 +255,8 @@ func testNodeRdkafka(t *testing.T) {
 			Comm:    "noderdkafka",
 			Spans: []TestCaseSpan{
 				{
-					Name: "send obi-node-rdkafka-topic",
+					Name:             "send obi-node-rdkafka-topic",
+					AbsentAttributes: []string{"messaging.consumer.group.name"},
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "producer"),
 						attribute.String("messaging.operation.type", "send"),
@@ -252,6 +268,7 @@ func testNodeRdkafka(t *testing.T) {
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "consumer"),
 						attribute.String("messaging.operation.type", "process"),
+						attribute.String("messaging.consumer.group.name", "obi-noderdkafka-group"),
 						attribute.String("messaging.destination.name", "obi-node-rdkafka-topic"),
 					},
 				},
@@ -300,7 +317,8 @@ func testJavaKafkaMultiTopic(t *testing.T) {
 	for _, topic := range topics {
 		spans = append(spans,
 			TestCaseSpan{
-				Name: "send " + topic,
+				Name:             "send " + topic,
+				AbsentAttributes: []string{"messaging.consumer.group.name"},
 				Attributes: []attribute.KeyValue{
 					attribute.String("span.kind", "producer"),
 					attribute.String("messaging.operation.type", "send"),
@@ -312,6 +330,7 @@ func testJavaKafkaMultiTopic(t *testing.T) {
 				Attributes: []attribute.KeyValue{
 					attribute.String("span.kind", "consumer"),
 					attribute.String("messaging.operation.type", "process"),
+					attribute.String("messaging.consumer.group.name", "1"),
 					attribute.String("messaging.destination.name", topic),
 				},
 			},
@@ -345,4 +364,19 @@ func waitForKafkaTestComponents(t *testing.T, url string, subpath string) {
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, r.StatusCode)
 	}, time.Minute, time.Second)
+}
+
+// assertMatchingSpansLack checks that none of the spans matching tags carries any of the absent keys.
+func assertMatchingSpansLack(ct *assert.CollectT, traces []jaeger.Trace, tags []jaeger.Tag, absent []string) {
+	for _, trace := range traces {
+		for _, span := range trace.Spans {
+			if len(span.Diff(tags...)) != 0 {
+				continue
+			}
+			for _, key := range absent {
+				_, found := jaeger.FindIn(span.Tags, key)
+				assert.False(ct, found, "span %s must not carry attribute %s: %v", span.OperationName, key, span.Tags)
+			}
+		}
+	}
 }
