@@ -26,15 +26,15 @@
 
 static __always_inline int
 read_go_str_n(char *name, void *base_ptr, u64 len, void *field, u64 max_size) {
-    const u64 size = min(max_size, len);
-    if (bpf_probe_read(field, size, base_ptr)) {
+    // zero up front: a terminator at a runtime offset is a variable-offset
+    // stack write, rejected before 01f810ace9ed (5.12). max_size must stay a
+    // compile-time constant so this unrolls; a string that fills the field is
+    // not terminated.
+    __builtin_memset(field, 0, max_size);
+
+    if (bpf_probe_read(field, min(max_size, len), base_ptr)) {
         bpf_dbg_printk("can't read string for %s", name);
         return 0;
-    }
-
-    // put in a null terminator if we are not at max_size
-    if (size < max_size) {
-        ((char *)field)[size] = 0;
     }
 
     return 1;
@@ -55,18 +55,7 @@ read_go_str(char *name, void *base_ptr, u8 offset, void *field, u64 max_size) {
         return 0;
     }
 
-    const u64 size = min(max_size, len);
-    if (bpf_probe_read(field, size, ptr)) {
-        bpf_dbg_printk("can't read string for %s", name);
-        return 0;
-    }
-
-    // put in a null terminator if we are not at max_size
-    if (size < max_size) {
-        ((char *)field)[size] = 0;
-    }
-
-    return 1;
+    return read_go_str_n(name, ptr, len, field, max_size);
 }
 
 static __always_inline u64 peek_go_str_len(const char *name, const void *base_ptr, u8 offset) {

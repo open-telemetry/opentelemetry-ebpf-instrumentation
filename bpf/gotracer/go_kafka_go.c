@@ -115,8 +115,9 @@ int GUARDED_PROG(obi_uprobe_writer_produce, struct pt_regs *, ctx) {
                 urand_bytes(topic.tp.span_id, SPAN_ID_SIZE_BYTES);
             }
 
+            // no terminator: topic is zeroed and topic_len < sizeof(topic.name);
+            // a runtime-offset stack write is rejected before 01f810ace9ed (5.12)
             bpf_probe_read_user(&topic.name, topic_len, topic_ptr);
-            topic.name[topic_len] = '\0';
             bpf_map_update_elem(&ongoing_produce_topics, &g_key, &topic, BPF_ANY);
         }
         bpf_map_delete_elem(&produce_traceparents, &p_key);
