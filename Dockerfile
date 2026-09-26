@@ -1,9 +1,9 @@
 ARG TAG=0.2.16@sha256:3a8959e5253f2445b782b4f720ed54f6396fce350082486442e0b71ac02ff106
 
 # Build JNI native library using Go image (has gcc, no apt install needed)
-FROM golang:1.27.1@sha256:512690a5660563b57d37ecc31129e7f136e831db2aed24a1dbeb8ad7380dc0fa AS jni-builder
+FROM golang:1.27.1@sha256:3680233e3204827fbdc66088528ae6d4b3d034f51d03a99d454f6de034888244 AS jni-builder
 ARG BUILDARCH=amd64
-COPY --from=gradle:9.7.1-jdk21-noble@sha256:153b5cbc7fa81767329b52f741ac63027710fed12624a0014ad1849d6a02f755 /opt/java/openjdk/include /opt/java/include
+COPY --from=gradle:9.8.0-jdk21-noble@sha256:4ba56abe003e8c82a15bb9af9ff31ea094de90686a7b3d4ba9c0ffa31838c12e /opt/java/openjdk/include /opt/java/include
 WORKDIR /build
 COPY pkg/internal/java/agent/src/main/c/ src/main/c/
 COPY pkg/internal/java/agent/Makefile.jni Makefile.jni
