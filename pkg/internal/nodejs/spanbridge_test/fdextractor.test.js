@@ -68,6 +68,14 @@ test('writes queued before connect add one connect listener per socket, and none
     'the agent adds exactly one listener per connecting socket, however many writes are queued');
 });
 
+test('a reconnected socket gets its connect reset again', () => {
+  const hookOff = runScenario('reconnect-before-connect', { CTX_HOOK: '0' }).connectListeners;
+  const hookOn = runScenario('reconnect-before-connect').connectListeners;
+  assert.strictEqual(hookOff.length, 3);
+  assert.deepStrictEqual(hookOn, hookOff.map((n) => n + 1),
+    'the per-socket flag must clear on connect, or a reused socket loses the reset');
+});
+
 test('interleaved keep-alive connections: each continuation sees its own request signalled', () => {
   const r = runScenario('interleave');
   const fds = new Set(r.handlerFds);

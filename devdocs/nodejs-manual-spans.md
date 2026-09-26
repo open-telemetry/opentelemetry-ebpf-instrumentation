@@ -81,7 +81,7 @@ request.Span{Type: EventTypeManualSpan}  → existing exporter path, unchanged
 | `/dev/null/obi/<fd1><fd2>` | fdextractor.js | outgoing→incoming fd correlation |
 | `/dev/null/obi-ctx/<fd>` | fdextractor.js | async-context switch, refreshes `traces_ctx_v1` |
 | `/dev/null/obi-noreqctx` | fdextractor.js | callback outside any request, clears `traces_ctx_v1` |
-| `/dev/null/obi-spanfd/<fd><json>` | spanbridge.js | finished manual span, parented under the server trace of the 4-digit incoming fd (a malformed fd keeps the span, unparented) |
+| `/dev/null/obi-spanfd/<fd><json>` | spanbridge.js | finished manual span, parented under the server trace of the 4-digit incoming fd (a malformed fd gets no parent, and its payload may not parse) |
 | `/dev/null/obi-span/<json>` | spanbridge.js | finished manual span outside request scope (or fd above 9999), parent from `traces_ctx_v1` |
 
 ### Span payload (JSON, version field `v: 1`)
@@ -225,7 +225,13 @@ would otherwise leave two providers active in one process.
 
 - **Opt-in only.** Existing Node.js support (fd extraction, context
   propagation) is unaffected when `nodejs.manual_spans` is off; the BPF
-  `-span/` branch simply never fires because nothing emits the sentinel.
+  `-span/` and `-spanfd/` branches simply never fire because nothing emits
+  the sentinels.
+- **Upgrading OBI.** The bridge is injected once per process and never
+  replaced, so a process that was running under an OBI version whose bridge
+  sends only `-span/` keeps doing so. With `traces_ctx_v1` population no
+  longer implied by `nodejs.manual_spans`, those spans have no request parent
+  until the process restarts, or until `ebpf.populate_trace_context` is set.
 - **Injection prerequisites are inherited** from the existing Node injector:
   the process must not have a custom SIGUSR1 handler (checked before
   sending the signal), and the inspector must be reachable. Injection

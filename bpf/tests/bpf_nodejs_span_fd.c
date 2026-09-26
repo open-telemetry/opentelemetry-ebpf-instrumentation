@@ -6,14 +6,15 @@
  * adapted to run as a host unit test. The functions under test are:
  *
  *   static __always_inline int nodejs_parse_fd(const unsigned char *digits, u32 *fd);
- *   static __always_inline int nodejs_span_fd_variant(const unsigned char *variant,
- *                                                     u32 *fd);
+ *   static __always_inline enum nodejs_span_variant nodejs_span_fd_variant(
+ *       const unsigned char *variant, u32 *fd);
  *
  * The variant input is the 7 bytes read at offset 18 of the sentinel path:
- *   /dev/null/obi-spanfd/<4-digit fd><json>  ->  "fd/NNNN"   (fd variant, 1)
- *   /dev/null/obi-span/<json>                ->  "/{...."    (plain variant, 0)
- * An fd marker followed by anything but four decimal digits is malformed (-1):
- * the span keeps its payload offset but gets no parent.
+ *   /dev/null/obi-spanfd/<4-digit fd><json>  ->  "fd/NNNN"   (k_span_variant_fd)
+ *   /dev/null/obi-span/<json>                ->  "/{...."    (k_span_variant_plain)
+ * An fd marker followed by anything but four decimal digits is
+ * k_span_variant_malformed_fd: the span gets no parent, and because the payload
+ * offset still assumes four digits, its payload may not parse.
  */
 
 #include <stdint.h>
@@ -50,11 +51,21 @@ static __always_inline int nodejs_parse_fd(const unsigned char *digits, u32 *fd)
     return 0;
 }
 
-static __always_inline int nodejs_span_fd_variant(const unsigned char *variant, u32 *fd) {
+enum nodejs_span_variant {
+    k_span_variant_malformed_fd = -1,
+    k_span_variant_plain = 0,
+    k_span_variant_fd = 1,
+};
+
+static __always_inline enum nodejs_span_variant nodejs_span_fd_variant(const unsigned char *variant,
+                                                                       u32 *fd) {
     if (variant[0] != 'f' || variant[1] != 'd' || variant[2] != '/') {
-        return 0;
+        return k_span_variant_plain;
     }
-    return nodejs_parse_fd(variant + k_span_fd_marker_len, fd) == 0 ? 1 : -1;
+    if (nodejs_parse_fd(variant + k_span_fd_marker_len, fd) != 0) {
+        return k_span_variant_malformed_fd;
+    }
+    return k_span_variant_fd;
 }
 
 // --- end of code under test ---
@@ -68,7 +79,7 @@ static void check(const char *name, long expected, long actual) {
     }
 }
 
-static int variant_of(const char *path, u32 *fd) {
+static enum nodejs_span_variant variant_of(const char *path, u32 *fd) {
     return nodejs_span_fd_variant((const unsigned char *)path + k_span_fd_variant_offset, fd);
 }
 
@@ -80,25 +91,25 @@ static void test_offsets_match_prefixes(void) {
 
 static void test_fd_variant(void) {
     u32 fd = 0;
-    check("fd variant detected", 1, variant_of("/dev/null/obi-spanfd/0042{\"v\":1}", &fd));
+    check("fd variant detected", k_span_variant_fd, variant_of("/dev/null/obi-spanfd/0042{\"v\":1}", &fd));
     check("fd decodes", 42, fd);
-    check("max fd detected", 1, variant_of("/dev/null/obi-spanfd/9999{}", &fd));
+    check("max fd detected", k_span_variant_fd, variant_of("/dev/null/obi-spanfd/9999{}", &fd));
     check("max fd decodes", 9999, fd);
-    check("zero fd detected", 1, variant_of("/dev/null/obi-spanfd/0000{}", &fd));
+    check("zero fd detected", k_span_variant_fd, variant_of("/dev/null/obi-spanfd/0000{}", &fd));
     check("zero fd decodes", 0, fd);
 }
 
 static void test_plain_variant(void) {
     u32 fd = 7;
-    check("plain variant", 0, variant_of("/dev/null/obi-span/{\"v\":1,\"name\":\"x\"}", &fd));
+    check("plain variant", k_span_variant_plain, variant_of("/dev/null/obi-span/{\"v\":1,\"name\":\"x\"}", &fd));
     check("plain leaves fd untouched", 7, fd);
-    check("plain payload starting with fd", 0, variant_of("/dev/null/obi-span/fd/0001", &fd));
+    check("plain payload starting with fd", k_span_variant_plain, variant_of("/dev/null/obi-span/fd/0001", &fd));
 }
 
 static void test_malformed_fd(void) {
     u32 fd = 7;
-    check("non-digit fd", -1, variant_of("/dev/null/obi-spanfd/12a4{}", &fd));
-    check("short fd before payload", -1, variant_of("/dev/null/obi-spanfd/12{}", &fd));
+    check("non-digit fd", k_span_variant_malformed_fd, variant_of("/dev/null/obi-spanfd/12a4{}", &fd));
+    check("short fd before payload", k_span_variant_malformed_fd, variant_of("/dev/null/obi-spanfd/12{}", &fd));
     check("malformed leaves fd untouched", 7, fd);
 }
 

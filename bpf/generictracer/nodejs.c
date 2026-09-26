@@ -166,11 +166,21 @@ static __always_inline int nodejs_parse_fd(const unsigned char *digits, u32 *fd)
     return 0;
 }
 
-static __always_inline int nodejs_span_fd_variant(const unsigned char *variant, u32 *fd) {
+enum nodejs_span_variant {
+    k_span_variant_malformed_fd = -1,
+    k_span_variant_plain = 0,
+    k_span_variant_fd = 1,
+};
+
+static __always_inline enum nodejs_span_variant nodejs_span_fd_variant(const unsigned char *variant,
+                                                                       u32 *fd) {
     if (variant[0] != 'f' || variant[1] != 'd' || variant[2] != '/') {
-        return 0;
+        return k_span_variant_plain;
     }
-    return nodejs_parse_fd(variant + k_span_fd_marker_len, fd) == 0 ? 1 : -1;
+    if (nodejs_parse_fd(variant + k_span_fd_marker_len, fd) != 0) {
+        return k_span_variant_malformed_fd;
+    }
+    return k_span_variant_fd;
 }
 
 static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
@@ -223,21 +233,21 @@ static __always_inline int handle_node_span(const char *path, const u64 pid_tgid
 
     unsigned char fd_part[k_span_fd_marker_len + k_max_fd_digits] = {};
     u32 fd = 0;
-    int variant = 0;
+    enum nodejs_span_variant variant = k_span_variant_plain;
     if (bpf_probe_read_user(fd_part, sizeof(fd_part), path + k_span_fd_variant_offset) == 0) {
         variant = nodejs_span_fd_variant(fd_part, &fd);
     }
-    if (variant != 0) {
+    if (variant != k_span_variant_plain) {
         payload_offset = k_span_fd_payload_offset;
     }
-    if (variant > 0) {
+    if (variant == k_span_variant_fd) {
         const tp_info_pid_t *tp = nodejs_server_trace_for_fd(pid_tgid, fd);
         if (tp) {
             ev->has_parent_ctx = 1;
             bpf_memcpy(ev->parent_trace_id, (void *)tp->tp.trace_id, TRACE_ID_SIZE_BYTES);
             bpf_memcpy(ev->parent_span_id, (void *)tp->tp.span_id, SPAN_ID_SIZE_BYTES);
         }
-    } else if (variant == 0) {
+    } else if (variant == k_span_variant_plain) {
         const obi_ctx_info_t *octx = obi_ctx__get(pid_tgid);
         if (octx) {
             ev->has_parent_ctx = 1;

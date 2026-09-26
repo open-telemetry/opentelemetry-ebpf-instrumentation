@@ -123,6 +123,29 @@ switch (scenario) {
     setTimeout(() => sink.close(), 5000).unref();
     break;
   }
+  case 'reconnect-before-connect': {
+    const sink = net.createServer((s) => s.resume());
+    sink.listen(0, '127.0.0.1', () => {
+      const sinkPort = sink.address().port;
+      const connectListeners = [];
+      extra.connectListeners = connectListeners;
+      httpScenario(1, async () => {
+        const out = net.connect(sinkPort, '127.0.0.1');
+        out.write('x');
+        await new Promise((r) => out.once('connect', r));
+        out.destroy();
+        await new Promise((r) => out.once('close', r));
+        out.connect(sinkPort, '127.0.0.1');
+        const before = out.listenerCount('connect');
+        for (let i = 0; i < WRITES_BEFORE_CONNECT; i++) out.write('x');
+        connectListeners.push(out.listenerCount('connect') - before);
+        await new Promise((r) => out.once('connect', r));
+        out.destroy();
+      });
+    });
+    setTimeout(() => sink.close(), 5000).unref();
+    break;
+  }
   case 'write-before-connect': {
     const sink = net.createServer((s) => s.resume());
     sink.listen(0, '127.0.0.1', () => {

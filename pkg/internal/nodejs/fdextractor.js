@@ -159,7 +159,10 @@
           ctxFd = -1;
           if (this.connecting && !this[resetCtxOnConnect]) {
             this[resetCtxOnConnect] = true;
-            this.once('connect', resetCtx);
+            this.once('connect', () => {
+              this[resetCtxOnConnect] = false;
+              resetCtx();
+            });
           }
         }
         correlate(store.incomingFd, outFd, this);

@@ -36,6 +36,7 @@
   const SENTINEL_PREFIX = '/dev/null/obi-span/';
   const SENTINEL_PREFIX_FD = '/dev/null/obi-spanfd/';
   const MAX_SENTINEL_FD = 9999;
+  const SENTINEL_FD_DIGITS = String(MAX_SENTINEL_FD).length;
   const FDEXTRACTOR_STORE = Symbol.for('otel-ebpf-instrumentation.fdextractor');
   const ID_POOL_BYTES = 4096;
   // Field size budgets. Attribute key/value budgets must match the fixed
@@ -72,13 +73,13 @@
     }
   };
 
+  const fitsUtf8 = (s, maxBytes) => s.length * 3 <= maxBytes || Buffer.byteLength(s, 'utf8') <= maxBytes;
+
   // Truncate a string to a UTF-8 BYTE budget, never splitting a multi-byte
   // sequence. The BPF/Go side copies keys/values into fixed byte arrays, so a
   // UTF-16 code-unit budget (String#length) is wrong twice over: a multi-byte
   // character can blow the byte budget while passing the unit check, and a cut
   // inside a sequence would export invalid UTF-8.
-  const fitsUtf8 = (s, maxBytes) => s.length * 3 <= maxBytes || Buffer.byteLength(s, 'utf8') <= maxBytes;
-
   const truncateUtf8 = (s, maxBytes) => {
     if (fitsUtf8(s, maxBytes)) return s;
     const buf = Buffer.from(s, 'utf8');
@@ -168,7 +169,7 @@
     try {
       const fd = requestFd();
       if (fd >= 0 && fd <= MAX_SENTINEL_FD) {
-        fs.existsSync(SENTINEL_PREFIX_FD + String(fd).padStart(4, '0') + payload);
+        fs.existsSync(SENTINEL_PREFIX_FD + String(fd).padStart(SENTINEL_FD_DIGITS, '0') + payload);
       } else {
         fs.existsSync(SENTINEL_PREFIX + payload);
       }
