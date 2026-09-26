@@ -84,14 +84,7 @@ func TestPopulateTraceContext(t *testing.T) {
 
 	manualSpans := DefaultConfig
 	manualSpans.NodeJS.ManualSpans = true
-	assert.True(t, manualSpans.PopulateTraceContext())
-
-	// nodejs.enabled is the global opt-out: with it off the injector is never
-	// installed, so the span bridge that would read the map does not exist.
-	injectorOff := DefaultConfig
-	injectorOff.NodeJS.Enabled = false
-	injectorOff.NodeJS.ManualSpans = true
-	assert.False(t, injectorOff.PopulateTraceContext())
+	assert.False(t, manualSpans.PopulateTraceContext())
 }
 
 func TestConfig_Overrides(t *testing.T) {

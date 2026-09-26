@@ -485,16 +485,14 @@ func (c *Config) AppRuntimeMetricsEnabled() bool {
 }
 
 // PopulateTraceContext reports whether the pinned traces_ctx_v1 map must be kept
-// populated, which is the case when anything reads it: OBI's own log enricher or
-// Node.js manual span bridge, or a reader outside OBI opted in through
-// ebpf.populate_trace_context.
+// populated, which is the case when anything reads it: OBI's own log enricher, or
+// a reader outside OBI opted in through ebpf.populate_trace_context.
 //
 // Population costs a refresh on every async context switch of the instrumented
 // runtime, so with no reader it is skipped entirely.
 func (c *Config) PopulateTraceContext() bool {
 	return c != nil && (c.EBPF.PopulateTraceContext ||
-		c.EBPF.LogEnricher.Enabled() ||
-		(c.NodeJS.Enabled && c.NodeJS.ManualSpans))
+		c.EBPF.LogEnricher.Enabled())
 }
 
 type HealthCheckConfig struct {
