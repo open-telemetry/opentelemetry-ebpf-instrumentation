@@ -52,6 +52,15 @@ const (
 	EventTypeGPUCudaGraphLaunch
 	EventTypeGPUCudaMalloc
 	EventTypeGPUCudaMemcpy
+	EventTypeGPUCudaFree
+	EventTypeGPUCudaMemset
+	EventTypeGPUCudaStreamCreate
+	EventTypeGPUCudaStreamDestroy
+	EventTypeGPUCudaEventRecord
+	EventTypeGPUCudaEventSynchronize
+	EventTypeGPUCudaStreamSynchronize
+	EventTypeGPUCudaDeviceSynchronize
+	EventTypeGPUCudaHostRegister
 	EventTypeFailedConnect
 	EventTypeDNS
 	EventTypeCouchbaseClient
@@ -184,6 +193,24 @@ func (t EventType) String() string {
 		return "CUDAMalloc"
 	case EventTypeGPUCudaMemcpy:
 		return "CUDAMemcpy"
+	case EventTypeGPUCudaFree:
+		return "CUDAFree"
+	case EventTypeGPUCudaMemset:
+		return "CUDAMemset"
+	case EventTypeGPUCudaStreamCreate:
+		return "CUDAStreamCreate"
+	case EventTypeGPUCudaStreamDestroy:
+		return "CUDAStreamDestroy"
+	case EventTypeGPUCudaEventRecord:
+		return "CUDAEventRecord"
+	case EventTypeGPUCudaEventSynchronize:
+		return "CUDAEventSynchronize"
+	case EventTypeGPUCudaStreamSynchronize:
+		return "CUDAStreamSynchronize"
+	case EventTypeGPUCudaDeviceSynchronize:
+		return "CUDADeviceSynchronize"
+	case EventTypeGPUCudaHostRegister:
+		return "CUDAHostRegister"
 	case EventTypeMongoClient:
 		return "MongoClient"
 	case EventTypeManualSpan:
@@ -1557,6 +1584,15 @@ type Span struct {
 
 	// ManualOTelJSON stores OTLP JSON emitted by the Go Auto SDK bridge.
 	ManualOTelJSON []byte `json:"-"`
+
+	// CudaDevice* name the GPU a CUDA call ran on, as reported by the CUDA
+	// introspection APIs the process itself calls. CudaDeviceKnown is set only
+	// when the calling thread's current device was actually observed; when it is
+	// false the index, UUID and model are not meaningful and must be omitted.
+	CudaDeviceKnown bool   `json:"-"`
+	CudaDeviceIndex uint32 `json:"-"`
+	CudaDeviceUUID  string `json:"-"`
+	CudaDeviceModel string `json:"-"`
 }
 
 func (s *Span) Inside(parent *Span) bool {
@@ -1767,6 +1803,14 @@ func spanAttributes(s *Span) SpanAttributes {
 			"size": strconv.FormatInt(s.ContentLength, 10),
 			"kind": CudaMemcpyName(s.SubType),
 		}
+	case EventTypeGPUCudaFree, EventTypeGPUCudaMemset, EventTypeGPUCudaHostRegister:
+		return SpanAttributes{
+			"size": strconv.FormatInt(s.ContentLength, 10),
+		}
+	case EventTypeGPUCudaStreamCreate, EventTypeGPUCudaStreamDestroy,
+		EventTypeGPUCudaEventRecord, EventTypeGPUCudaEventSynchronize,
+		EventTypeGPUCudaStreamSynchronize, EventTypeGPUCudaDeviceSynchronize:
+		return SpanAttributes{}
 	case EventTypeMongoClient:
 		return SpanAttributes{
 			"serverAddr": SpanHost(s),

@@ -33,3 +33,30 @@ groups:
         brief: >
           Direction of a CUDA memory copy, mirroring the `cudaMemcpyKind` enum
           of the CUDA Runtime API.
+      - id: cuda.device.index
+        type: int
+        stability: development
+        brief: >
+          Index of the CUDA device the call ran on, as the process sees it. The
+          attribute is only present after the calling thread has selected or
+          queried a device through `cudaSetDevice` or `cudaGetDevice`; it is
+          omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES`
+          remaps the index, which is why it may repeat across processes;
+          `cuda.device.uuid` identifies the physical GPU.
+      - id: cuda.device.uuid
+        type: string
+        stability: development
+        brief: >
+          UUID of the CUDA device the call ran on, as reported by the CUDA
+          introspection APIs. It is the bare UUID, which is the uuid column of
+          `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process
+          never asked CUDA about the device.
+        examples: ["bed26f36-a0eb-994e-a0a6-a8437e7ca751"]
+      - id: cuda.device.model
+        type: string
+        stability: development
+        brief: >
+          Model name of the CUDA device the call ran on, as reported by the
+          CUDA introspection APIs. Omitted when the process never asked CUDA
+          about the device.
+        examples: ["NVIDIA H20-3e"]
