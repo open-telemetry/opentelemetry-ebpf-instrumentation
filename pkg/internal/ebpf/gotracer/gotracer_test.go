@@ -787,6 +787,9 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 		"net/http.(*Transport).roundTrip",
 		"google.golang.org/grpc.(*ClientConn).Invoke",
 		"google.golang.org/grpc.(*ClientConn).NewStream",
+		"google.golang.org/grpc.newClientStreamWithParams",
+		"google.golang.org/grpc.(*clientStream).withRetry",
+		"google.golang.org/grpc.(*csAttempt).finish",
 		"google.golang.org/grpc/internal/transport.(*http2Client).NewStream",
 	}
 

@@ -394,6 +394,40 @@ static void test_resume_keeps_unstored_span(void) {
     check_u64(36, thread_span(), "the top frame stays current");
 }
 
+static void test_grpc_client_overflow_preserves_shared_context(void) {
+    reset();
+    begin(k_obi_ctx_http_server, span(40), 100);
+    begin(k_obi_ctx_sql, span(41), 200);
+    begin(k_obi_ctx_sql, span(42), 210);
+    begin(k_obi_ctx_grpc_client, span(43), 220);
+    check_u64(
+        k_obi_ctx_max_depth, stack()->depth, "stored gRPC client fills the shared context stack");
+    check_u64(43, thread_span(), "stored gRPC client is current");
+
+    begin(k_obi_ctx_grpc_client, span(44), 230);
+    check_u64(1,
+              stack()->overflow[k_obi_ctx_grpc_client],
+              "nested gRPC client overflows the shared context stack");
+    check_u64(44, thread_span(), "overflowed gRPC client is current");
+
+    end(k_obi_ctx_grpc_client, span(44));
+    check_u64(0,
+              stack()->overflow[k_obi_ctx_grpc_client],
+              "overflowed gRPC client return clears its overflow frame");
+    check_u64(43, thread_span(), "overflowed gRPC client return restores stored gRPC parent");
+
+    end(k_obi_ctx_grpc_client, span(43));
+    check_u64(42, thread_span(), "stored gRPC client return restores SQL parent");
+
+    end(k_obi_ctx_sql, span(42));
+    check_u64(41, thread_span(), "first shared parent is restored");
+    end(k_obi_ctx_sql, span(41));
+    check_u64(40, thread_span(), "server parent is restored");
+    end(k_obi_ctx_http_server, span(40));
+    check(stack() == NULL, "all gRPC and shared context frames unwind cleanly");
+    check_u64(0, thread_span(), "no stale gRPC context remains after unwind");
+}
+
 static void test_stack_off(void) {
     struct pt_regs regs = {.sp = 0x7000};
     test_stack_hi = 0x7400;
@@ -438,6 +472,7 @@ int main(void) {
     test_unrelated_end_keeps_overflow_accounting();
     test_resume();
     test_resume_keeps_unstored_span();
+    test_grpc_client_overflow_preserves_shared_context();
     test_stack_off();
     test_gate_off_touches_no_map();
 

@@ -1699,3 +1699,65 @@ func testLogEnricherWritevClamp(t *testing.T, constants testServerConstants) {
 		assert.True(ct, foundEnriched, "no enriched writev-regression log line found yet")
 	}, 2*testTimeout, time.Second)
 }
+
+func testLogEnricherNestedSpansGRPCNested(t *testing.T, constants testServerConstants) {
+	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
+
+	cl, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer cl.Close()
+
+	reqID := 0
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		reqID++
+		id := fmt.Sprintf("gnreq-%d", reqID)
+		ti.DoHTTPGet(ct, constants.url+"/nested_logger_grpcnested?id="+id, 200)
+
+		containerID := testContainerID(ct, cl, constants.containerImage)
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
+		logs := containerLogs(ct, cl, containerID)
+		if !assert.NotEmpty(ct, logs) {
+			return
+		}
+
+		done := newestLogFields(logs, func(m string) bool {
+			return strings.HasPrefix(m, "grpcnested: done gnreq-")
+		})
+		if !assert.NotNil(ct, done, "no 'grpcnested: done' line found yet") {
+			return
+		}
+		pairID := done["message"][strings.LastIndex(done["message"], " ")+1:]
+
+		get := func(message string) map[string]string {
+			fields := newestLogFields(logs, func(m string) bool { return m == message+" "+pairID })
+			assert.NotNil(ct, fields, "log line %q not found", message)
+			return fields
+		}
+
+		start := get("grpcnested: start")
+		beforeInner := get("grpcnested: before inner")
+		afterInner := get("grpcnested: after inner")
+		if start == nil || beforeInner == nil || afterInner == nil {
+			return
+		}
+
+		assertEnrichedCtx(ct, "start", start)
+		assertEnrichedCtx(ct, "before inner", beforeInner)
+		assertEnrichedCtx(ct, "after inner", afterInner)
+		assertEnrichedCtx(ct, "done", done)
+
+		// All belong to the same HTTP server trace
+		assert.Equal(ct, start["trace_id"], beforeInner["trace_id"])
+		assert.Equal(ct, start["trace_id"], afterInner["trace_id"])
+		assert.Equal(ct, start["trace_id"], done["trace_id"])
+
+		// Outer gRPC client span: before and after the inner call must retain the SAME outer span_id
+		assert.NotEqual(ct, start["span_id"], beforeInner["span_id"], "outer gRPC call must have distinct span_id from server")
+		assert.Equal(ct, beforeInner["span_id"], afterInner["span_id"], "inner gRPC call must not overwrite outer gRPC invocation span")
+
+		// Done restores the enclosing HTTP server span
+		assert.Equal(ct, start["span_id"], done["span_id"], "done must restore server span")
+	}, 2*testTimeout, time.Second)
+}

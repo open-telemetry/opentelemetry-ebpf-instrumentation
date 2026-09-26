@@ -9,6 +9,7 @@
 #include <common/connection_info.h>
 #include <common/go_addr_key.h>
 #include <common/map_sizing.h>
+#include <common/pin_internal.h>
 
 #include <gotracer/types/grpc.h>
 
@@ -22,9 +23,42 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // key: pointer to the request goroutine
-    __type(value, grpc_client_func_invocation_t);
+    __type(value, grpc_client_invocation_stack_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } ongoing_grpc_client_requests SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t); // key: pid + pointer to the clientStream
+    __type(value, grpc_client_stream_state_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} ongoing_grpc_client_streams SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t); // key: pid + pointer to the clientStream
+    __type(value, grpc_client_early_finish_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} early_grpc_client_finishes SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t); // key: pid + pointer to the clientStream
+    __type(value, u8);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} completed_grpc_client_streams SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t); // key: pid + pointer to the clientStream
+    __type(value, u8);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} tracked_grpc_client_streams SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);

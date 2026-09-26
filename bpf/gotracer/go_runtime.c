@@ -41,6 +41,7 @@
 #include <pid/pid_helpers.h>
 
 #include <gotracer/go_obi_ctx.h>
+#include <gotracer/grpc_client_stack.h>
 
 typedef struct new_func_invocation {
     u64 parent;
@@ -784,8 +785,9 @@ static __always_inline bool current_obi_handoff(struct pt_regs *ctx, chan_handof
         return true;
     }
 
-    grpc_client_func_invocation_t *grpc_client_inv =
+    grpc_client_invocation_stack_t *grpc_client_stack =
         bpf_map_lookup_elem(&ongoing_grpc_client_requests, &g_key);
+    grpc_client_func_invocation_t *grpc_client_inv = grpc_client_current(grpc_client_stack);
     if (grpc_client_inv && valid_tp_info(&grpc_client_inv->tp)) {
         tp_clone(&handoff->tp, &grpc_client_inv->tp);
         return true;

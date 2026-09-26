@@ -196,6 +196,11 @@ var goGRPCBufWriterOffsetFields = [...]goexec.GoOffset{
 	goexec.GrpcTransportBufWriterConnPos,
 }
 
+var goGRPCClientLifecycleOffsetFields = [...]goexec.GoOffset{
+	goexec.GrpcCSAttemptCsPos,
+	goexec.GrpcClientStreamFinishedPos,
+}
+
 var goRuntimeMetricOffsetFields = [...]goexec.GoOffset{
 	goexec.RuntimeMemstatsNumGCPos,
 	goexec.RuntimeGCControllerMemoryLimitPos,
@@ -506,6 +511,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	initMissingGoOffsets(&offTable, goHTTPClientRequestOffsetFields[:])
 	initMissingGoOffsets(&offTable, goAutoSDKSpanContextOffsetFields[:])
 	initMissingGoOffsets(&offTable, goGRPCBufWriterOffsetFields[:])
+	initMissingGoOffsets(&offTable, goGRPCClientLifecycleOffsetFields[:])
 	offTable.Table[goexec.FramerPadLengthStackPos] = missingGoOffset
 	offTable.Table[goexec.FramerPadLengthStackVendoredPos] = missingGoOffset
 	// Set the field offsets and the logLevel for the Go BPF program in a map
@@ -582,6 +588,8 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.GrpcServerStreamStream,
 		goexec.GrpcServerStreamStPtr,
 		goexec.GrpcClientStreamStream,
+		goexec.GrpcCSAttemptCsPos,
+		goexec.GrpcClientStreamFinishedPos,
 		// go manual spans
 		goexec.GoTracerDelegatePos,
 		// go runtime channels
@@ -1803,11 +1811,15 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"google.golang.org/grpc.(*ClientConn).Close": {{
 			Start: p.bpfObjects.ObiUprobeClientConnClose,
 		}},
-		"google.golang.org/grpc.(*clientStream).RecvMsg": {{
-			End: p.bpfObjects.ObiUprobeClientStreamRecvMsgReturn,
+		"google.golang.org/grpc.newClientStreamWithParams": {{
+			Start: p.bpfObjects.ObiUprobeNewClientStreamWithParams,
+			End:   p.bpfObjects.ObiUprobeNewClientStreamWithParamsReturn,
 		}},
-		"google.golang.org/grpc.(*clientStream).CloseSend": {{
-			End: p.bpfObjects.ObiUprobeClientConnInvokeReturn,
+		"google.golang.org/grpc.(*clientStream).withRetry": {{
+			Start: p.bpfObjects.ObiUprobeClientStreamWithRetry,
+		}},
+		"google.golang.org/grpc.(*csAttempt).finish": {{
+			Start: p.bpfObjects.ObiUprobeCsAttemptFinish,
 		}},
 		"google.golang.org/grpc/internal/transport.(*http2Client).NewStream": {{
 			Start: p.bpfObjects.ObiUprobeTransportHttp2ClientNewStream,

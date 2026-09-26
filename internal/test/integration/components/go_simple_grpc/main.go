@@ -646,6 +646,58 @@ func main() {
 
 		_, _ = w.Write([]byte("ok\n"))
 	})
+	http.HandleFunc("/nested_logger_grpcnested", func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Query().Get("id")
+		jsonLog("grpcnested: start " + id)
+
+		innerInvoked := false
+		interceptor := func(
+			ctx context.Context,
+			method string,
+			req, reply any,
+			cc *grpc.ClientConn,
+			invoker grpc.UnaryInvoker,
+			opts ...grpc.CallOption,
+		) error {
+			if !innerInvoked {
+				innerInvoked = true
+				jsonLog("grpcnested: before inner " + id)
+				var innerResp LogResponse
+				innerCtx, innerCancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer innerCancel()
+				if err := cc.Invoke(innerCtx, "/LogService/Log", &LogRequest{Message: "grpcnested: inner " + id}, &innerResp); err != nil {
+					return err
+				}
+				jsonLog("grpcnested: after inner " + id)
+			}
+			return invoker(ctx, method, req, reply, cc, opts...)
+		}
+
+		conn, err := grpc.Dial(
+			"localhost:50051",
+			grpc.WithTransportCredentials(insecure.NewCredentials()),
+			grpc.WithDefaultCallOptions(grpc.ForceCodec(jsonCodec{})),
+			grpc.WithUnaryInterceptor(interceptor),
+		)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer conn.Close()
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		var resp LogResponse
+		if err := conn.Invoke(ctx, "/LogService/Log", &LogRequest{Message: "grpcnested: outer " + id}, &resp); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		jsonLog("grpcnested: done " + id)
+
+		_, _ = w.Write([]byte("ok\n"))
+	})
 	http.HandleFunc("/smoke", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok\n"))
 	})

@@ -1361,6 +1361,9 @@ func logEnricherGoGRPCSuite(t *testing.T, configSuffix string) {
 			// plus three SQL spans fill it, so A's gRPC client span is only counted
 			testLogEnricherNestedSpansCloseAB(t, logEnricherGoGRPCConstants, 3, "abdeep")
 		})
+		t.Run("Log Enricher nested gRPC invocations", func(t *testing.T) {
+			testLogEnricherNestedSpansGRPCNested(t, logEnricherGoGRPCConstants)
+		})
 	})
 }
 
