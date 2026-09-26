@@ -91,7 +91,9 @@ static void test_offsets_match_prefixes(void) {
 
 static void test_fd_variant(void) {
     u32 fd = 0;
-    check("fd variant detected", k_span_variant_fd, variant_of("/dev/null/obi-spanfd/0042{\"v\":1}", &fd));
+    check("fd variant detected",
+          k_span_variant_fd,
+          variant_of("/dev/null/obi-spanfd/0042{\"v\":1}", &fd));
     check("fd decodes", 42, fd);
     check("max fd detected", k_span_variant_fd, variant_of("/dev/null/obi-spanfd/9999{}", &fd));
     check("max fd decodes", 9999, fd);
@@ -101,15 +103,23 @@ static void test_fd_variant(void) {
 
 static void test_plain_variant(void) {
     u32 fd = 7;
-    check("plain variant", k_span_variant_plain, variant_of("/dev/null/obi-span/{\"v\":1,\"name\":\"x\"}", &fd));
+    check("plain variant",
+          k_span_variant_plain,
+          variant_of("/dev/null/obi-span/{\"v\":1,\"name\":\"x\"}", &fd));
     check("plain leaves fd untouched", 7, fd);
-    check("plain payload starting with fd", k_span_variant_plain, variant_of("/dev/null/obi-span/fd/0001", &fd));
+    check("plain payload starting with fd",
+          k_span_variant_plain,
+          variant_of("/dev/null/obi-span/fd/0001", &fd));
 }
 
 static void test_malformed_fd(void) {
     u32 fd = 7;
-    check("non-digit fd", k_span_variant_malformed_fd, variant_of("/dev/null/obi-spanfd/12a4{}", &fd));
-    check("short fd before payload", k_span_variant_malformed_fd, variant_of("/dev/null/obi-spanfd/12{}", &fd));
+    check("non-digit fd",
+          k_span_variant_malformed_fd,
+          variant_of("/dev/null/obi-spanfd/12a4{}", &fd));
+    check("short fd before payload",
+          k_span_variant_malformed_fd,
+          variant_of("/dev/null/obi-spanfd/12{}", &fd));
     check("malformed leaves fd untouched", 7, fd);
 }
 
