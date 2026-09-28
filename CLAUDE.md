@@ -1,3 +1,3 @@
 # Claude Code Instructions
 
-@AGENTS.md
+Follow @AGENTS.md as the repository instructions.
