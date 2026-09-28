@@ -3,7 +3,7 @@
 
 //go:build !linux
 
-package meta // import "go.opentelemetry.io/obi/pkg/appolly/meta"
+package metadata // import "go.opentelemetry.io/obi/pkg/metadata"
 
 import (
 	"context"

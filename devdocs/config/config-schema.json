@@ -304,6 +304,22 @@
       "type": "object",
       "description": "Buckets defines the histograms bucket boundaries, and allows users to redefine them"
     },
+    "CloudMetadataConfig": {
+      "properties": {
+        "cluster_name": {
+          "type": "string",
+          "description": "Overrides automatic cluster detection.",
+          "x-env-var": "OTEL_EBPF_CLUSTER_NAME"
+        },
+        "region": {
+          "type": "string",
+          "description": "Overrides automatic region detection.",
+          "x-env-var": "OTEL_EBPF_CLOUD_REGION"
+        }
+      },
+      "type": "object",
+      "description": "CloudMetadataConfig configures overrides for detected cloud metadata."
+    },
     "ContextPropagationMode": {
       "oneOf": [
         {
@@ -906,6 +922,24 @@
       },
       "type": "object",
       "description": "EBPFTracer configuration for eBPF programs"
+    },
+    "ECSNameResolverConfig": {
+      "properties": {
+        "refresh_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Controls how often the ECS task inventory is refreshed.",
+          "default": "30s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_NAME_RESOLVER_ECS_REFRESH_INTERVAL"
+        }
+      },
+      "type": "object",
+      "description": "ECSNameResolverConfig configures ECS service name resolution."
     },
     "ElasticsearchConfig": {
       "properties": {
@@ -2086,11 +2120,15 @@
           "default": 1024,
           "x-env-var": "OTEL_EBPF_NAME_RESOLVER_CACHE_LEN"
         },
+        "ecs": {
+          "$ref": "#/$defs/ECSNameResolverConfig"
+        },
         "sources": {
           "items": {
             "type": "string",
             "enum": [
               "dns",
+              "ecs",
               "k8s",
               "kube",
               "kubernetes",
@@ -2098,7 +2136,7 @@
             ]
           },
           "type": "array",
-          "description": "Specifies the backends used for name resolving. Accepted values: dns, k8s, rdns",
+          "description": "Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns. The \"ecs\" source requires ecs:ListTasks and ecs:DescribeTasks permissions.",
           "default": [
             "k8s"
           ],
@@ -3197,6 +3235,9 @@
       "type": "boolean",
       "default": false,
       "x-env-var": "OTEL_EBPF_CHANNEL_SEND_TIMEOUT_PANIC"
+    },
+    "cloud_metadata": {
+      "$ref": "#/$defs/CloudMetadataConfig"
     },
     "discovery": {
       "$ref": "#/$defs/DiscoveryConfig",

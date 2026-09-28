@@ -16,10 +16,10 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/buildinfo"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/metadata"
 )
 
 func TestReporterPoolDoesNotReuseExpiredLastReporter(t *testing.T) {
@@ -496,9 +496,9 @@ func resourceAttrsMap(attrs []attribute.KeyValue) map[string]string {
 }
 
 func TestFilterResourceAttrs_DefaultPreservesResourceAttributes(t *testing.T) {
-	nodeMeta := meta.NodeMeta{
+	nodeMeta := metadata.NodeMeta{
 		HostID: "host-id",
-		Metadata: []meta.Entry{
+		Metadata: []metadata.Entry{
 			{Key: "cloud.account.id", Value: "account-id"},
 			{Key: "cloud.availability_zone", Value: "us-east-1a"},
 			{Key: "cloud.platform", Value: "aws_ec2"},
@@ -529,9 +529,9 @@ func TestFilterResourceAttrs_DefaultPreservesResourceAttributes(t *testing.T) {
 }
 
 func TestFilterResourceAttrs_ResourceSelectionExcludesResourceAttributes(t *testing.T) {
-	nodeMeta := meta.NodeMeta{
+	nodeMeta := metadata.NodeMeta{
 		HostID: "host-id",
-		Metadata: []meta.Entry{
+		Metadata: []metadata.Entry{
 			{Key: "cloud.account.id", Value: "account-id"},
 			{Key: "cloud.availability_zone", Value: "us-east-1a"},
 			{Key: "cloud.platform", Value: "aws_ec2"},
@@ -701,7 +701,7 @@ func TestResourceAttrsHonourRuntimeBuildinfoVersion(t *testing.T) {
 	t.Cleanup(func() { buildinfo.Version = original })
 	buildinfo.Version = "v9.9.9-vendored"
 
-	attrs := resourceAttrs(&meta.NodeMeta{}, &svc.Attrs{UID: svc.UID{Name: "svc"}})
+	attrs := resourceAttrs(&metadata.NodeMeta{}, &svc.Attrs{UID: svc.UID{Name: "svc"}})
 
 	for _, kv := range attrs {
 		if kv.Key == semconv.TelemetryDistroVersionKey {
@@ -717,7 +717,7 @@ func TestResourceAttrsHonourRuntimeBuildinfoVersion(t *testing.T) {
 func TestGetAppResourceAttrs_ProcessEnvRanksBelowResolvedMetadata(t *testing.T) {
 	t.Setenv(envResourceAttrs, "k8s.pod.name=obi-collector-marker,deployment.environment=prod")
 
-	nodeMeta := meta.NodeMeta{HostID: "host-id"}
+	nodeMeta := metadata.NodeMeta{HostID: "host-id"}
 	service := svc.Attrs{
 		UID: svc.UID{Name: "frontend", Namespace: "otel-demo", Instance: "frontend-5d76d69658-fhp4h"},
 		Metadata: map[attr.Name]string{
@@ -743,7 +743,7 @@ func TestGetAppResourceAttrs_ProcessEnvRanksBelowResolvedMetadata(t *testing.T) 
 func TestGetAppResourceAttrs_ProcessEnvObeysResourceSelection(t *testing.T) {
 	t.Setenv(envResourceAttrs, "deployment.environment=prod,cloud.account.id=account-id")
 
-	nodeMeta := meta.NodeMeta{HostID: "host-id"}
+	nodeMeta := metadata.NodeMeta{HostID: "host-id"}
 	service := svc.Attrs{UID: svc.UID{Name: "frontend"}}
 	selection := attributes.Selection{
 		attributes.Resource.Section: attributes.InclusionLists{
@@ -763,7 +763,7 @@ func TestGetAppResourceAttrs_ProcessEnvObeysResourceSelection(t *testing.T) {
 func TestResourceAttrs_PrecedenceOrder(t *testing.T) {
 	t.Setenv(envResourceAttrs, "deployment.environment=prod,k8s.pod.name=obi-collector-marker,test.marker=obi-env-probe")
 
-	nodeMeta := meta.NodeMeta{HostID: "host-id"}
+	nodeMeta := metadata.NodeMeta{HostID: "host-id"}
 	service := svc.Attrs{
 		UID: svc.UID{Name: "frontend", Namespace: "otel-demo", Instance: "frontend-5d76d69658-fhp4h"},
 		Metadata: map[attr.Name]string{

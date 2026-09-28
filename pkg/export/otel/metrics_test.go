@@ -32,7 +32,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
@@ -42,6 +41,7 @@ import (
 	otelmetric "go.opentelemetry.io/obi/pkg/export/otel/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -1030,7 +1030,7 @@ func TestSpanMetrics_EmittedAttributes(t *testing.T) {
 				ctx,
 				&global.ContextInfo{
 					OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
-					NodeMeta:            meta.NodeMeta{HostID: "the-host"},
+					NodeMeta:            metadata.NodeMeta{HostID: "the-host"},
 				},
 				mcfg,
 				&perapp.GlobalMetricsConfig{Features: tc.features},
@@ -1633,7 +1633,7 @@ func TestMetricResourceAttributes(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mr := &MetricsReporter{
-				nodeMeta:            meta.NodeMeta{HostID: "test-host-id"},
+				nodeMeta:            metadata.NodeMeta{HostID: "test-host-id"},
 				userAttribSelection: tc.attributeSelect,
 			}
 

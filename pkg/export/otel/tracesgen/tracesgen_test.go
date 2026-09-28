@@ -23,10 +23,10 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/metadata"
 )
 
 func TestAcceptSpanUsesEventInstrumentation(t *testing.T) {
@@ -932,7 +932,7 @@ func generateTraceSpan(t *testing.T, spanWithAttributes TraceSpanAndAttributes) 
 		cache,
 		&span.Service,
 		nil,
-		&meta.NodeMeta{},
+		&metadata.NodeMeta{},
 		[]TraceSpanAndAttributes{spanWithAttributes},
 		"obi",
 	)
@@ -984,7 +984,7 @@ func TestGenerateTracesWithAttributesManualOTelJSON(t *testing.T) {
 		cache,
 		service,
 		nil,
-		&meta.NodeMeta{},
+		&metadata.NodeMeta{},
 		[]TraceSpanAndAttributes{{
 			Span: &request.Span{
 				Type:           request.EventTypeManualSpan,
@@ -1064,7 +1064,7 @@ func TestGenerateTracesWithAttributesDropsInvalidManualOTelJSON(t *testing.T) {
 		cache,
 		service,
 		nil,
-		&meta.NodeMeta{},
+		&metadata.NodeMeta{},
 		[]TraceSpanAndAttributes{{
 			Span: &request.Span{
 				Type:           request.EventTypeManualSpan,
@@ -2100,7 +2100,7 @@ func TestGenerateTracesSetsOBISchemaURL(t *testing.T) {
 		cache,
 		&span.Service,
 		nil,
-		&meta.NodeMeta{},
+		&metadata.NodeMeta{},
 		[]TraceSpanAndAttributes{{Span: &span, Attributes: TraceAttributesSelector(&span, map[attr.Name]struct{}{})}},
 		"obi",
 	)

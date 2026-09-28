@@ -18,7 +18,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -27,6 +26,7 @@ import (
 	instrument "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -40,7 +40,7 @@ func rmlog() *slog.Logger {
 type RuntimeMetricsReporter struct {
 	ctx            context.Context
 	cfg            *otelcfg.MetricsConfig
-	nodeMeta       meta.NodeMeta
+	nodeMeta       metadata.NodeMeta
 	exporter       sdkmetric.Exporter
 	reporters      otelcfg.ReporterPool[*svc.Attrs, *RuntimeMetrics]
 	input          <-chan []runtimemetrics.RuntimeMetricSnapshot

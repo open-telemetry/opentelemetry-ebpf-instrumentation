@@ -29,12 +29,12 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/idgen"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/metadata"
 )
 
 const userAgentHeader = "user-agent"
@@ -199,7 +199,7 @@ func GenerateTracesWithAttributes(
 	cache *expirable2.LRU[svc.UID, []attribute.KeyValue],
 	svc *svc.Attrs,
 	envResourceAttrs []attribute.KeyValue,
-	nodeMeta *meta.NodeMeta,
+	nodeMeta *metadata.NodeMeta,
 	spans []TraceSpanAndAttributes,
 	reporterName string,
 	extraResAttrs ...attribute.KeyValue,
@@ -211,7 +211,7 @@ func GenerateTracesWithSelectedResourceAttributes(
 	cache *expirable2.LRU[svc.UID, []attribute.KeyValue],
 	svc *svc.Attrs,
 	envResourceAttrs []attribute.KeyValue,
-	nodeMeta *meta.NodeMeta,
+	nodeMeta *metadata.NodeMeta,
 	spans []TraceSpanAndAttributes,
 	reporterName string,
 	attrSelector attributes.Selection,
@@ -224,7 +224,7 @@ func generateTracesWithAttributes(
 	cache *expirable2.LRU[svc.UID, []attribute.KeyValue],
 	svc *svc.Attrs,
 	envResourceAttrs []attribute.KeyValue,
-	nodeMeta *meta.NodeMeta,
+	nodeMeta *metadata.NodeMeta,
 	spans []TraceSpanAndAttributes,
 	reporterName string,
 	attrSelector attributes.Selection,
@@ -416,7 +416,7 @@ func appendSpanLinks(dst ptrace.Span, links []request.SpanLink) {
 
 var emptyUID = svc.UID{}
 
-func TraceAppResourceAttrs(cache *expirable2.LRU[svc.UID, []attribute.KeyValue], nodeMeta *meta.NodeMeta, service *svc.Attrs) []attribute.KeyValue {
+func TraceAppResourceAttrs(cache *expirable2.LRU[svc.UID, []attribute.KeyValue], nodeMeta *metadata.NodeMeta, service *svc.Attrs) []attribute.KeyValue {
 	// TODO: remove?
 	if service.UID == emptyUID {
 		return otelcfg.GetAppResourceAttrs(nodeMeta, service)
