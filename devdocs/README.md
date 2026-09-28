@@ -28,3 +28,4 @@ OpenTelemetry website.
 - [Metrics](./metrics.md): how the NetO11y, AppO11y, and StatsO11y pipelines turn eBPF events into exported metrics, and where to edit when adding a new one.
 - [BPF Metrics Collection](bpf-metrics-collection.md): how OBI discovers all existing supported probes and LRU hash maps on the host and reports their metrics.
 - [Runtime Metrics](runtimes/README.md): developer notes for the `application_runtime` feature and per-runtime coverage.
+- [GPU Monitoring](gpu-monitoring.md): how OBI instruments CUDA through uprobes on `libcudart` and `libcuda`, and where to extend it.

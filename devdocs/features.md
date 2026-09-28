@@ -166,9 +166,19 @@ See [nodejs-manual-spans.md](nodejs-manual-spans.md).
 Specifically for instrumenting GPU execution primitives, like NVIDIA CUDA kernel launches and memory copies. This
 instrumentation support differs from traditional GPU metrics, such as GPU utilization and GPU temperature.
 
-| Library                        |  Primitives                                                                      |             Versions | Limitations
-|:-------------------------------|:--------------------------------------------------------------------------------:|---------------------:|------------:
-| libcuda                        |    cudaLaunchKernel, cudaGraphLaunch, cudaMalloc, cudaMemcpy, cudaMemcpyAsync    |               >= 7.0 |         N/A
+OBI instruments the CUDA Runtime API through `libcudart` and the CUDA Driver API through `libcuda`. Since the runtime
+implements the driver API, launches in a process that maps both libraries would be observed twice; OBI deduplicates
+them in the eBPF programs by suppressing the driver API call that a runtime API call on the same thread is still
+executing.
+
+| Library   | Primitives | Versions | Limitations
+|:----------|:-----------|---------:|------------:
+| libcudart | cudaLaunchKernel, cudaGraphLaunch, cudaMalloc, cudaFree, cudaMemset, cudaMemcpy, cudaMemcpyAsync, cudaStreamCreate, cudaStreamCreateWithFlags, cudaStreamCreateWithPriority, cudaStreamDestroy, cudaEventRecord, cudaEventRecordWithFlags, cudaEventSynchronize, cudaStreamSynchronize, cudaDeviceSynchronize, cudaHostRegister, cudaSetDevice, cudaGetDevice, cudaGetDeviceProperties, cudaGetDeviceProperties_v2 | >= 7.0 | N/A
+| libcuda   | cuLaunchKernel, cuLaunchKernelEx, cuGraphLaunch, cuDeviceGetUuid, cuDeviceGetUuid_v2, cuDeviceGetName | >= 7.0 | N/A
+
+Enablement is controlled by `ebpf.instrument_cuda` (`OTEL_EBPF_INSTRUMENT_CUDA`); the default `auto` enables the
+instrumentation when `nvidia-smi` is on the `PATH` of the OBI process. Spans and metrics are labelled with the device
+index, UUID, and model. See [gpu-monitoring.md](gpu-monitoring.md) for the emitted metrics and the full design.
 
 # Supported Context propagation frameworks
 

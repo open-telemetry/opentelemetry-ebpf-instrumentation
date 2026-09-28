@@ -480,7 +480,16 @@ func acceptSpan(is instrumentations.InstrumentationSelection, span *request.Span
 	case request.EventTypeGPUCudaKernelLaunch,
 		request.EventTypeGPUCudaGraphLaunch,
 		request.EventTypeGPUCudaMalloc,
-		request.EventTypeGPUCudaMemcpy:
+		request.EventTypeGPUCudaMemcpy,
+		request.EventTypeGPUCudaFree,
+		request.EventTypeGPUCudaMemset,
+		request.EventTypeGPUCudaStreamCreate,
+		request.EventTypeGPUCudaStreamDestroy,
+		request.EventTypeGPUCudaEventRecord,
+		request.EventTypeGPUCudaEventSynchronize,
+		request.EventTypeGPUCudaStreamSynchronize,
+		request.EventTypeGPUCudaDeviceSynchronize,
+		request.EventTypeGPUCudaHostRegister:
 		// GPU events currently feed metrics only.
 		return false
 	}
