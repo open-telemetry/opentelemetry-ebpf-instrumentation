@@ -311,6 +311,18 @@
           "description": "Overrides automatic cluster detection.",
           "x-env-var": "OTEL_EBPF_CLUSTER_NAME"
         },
+        "refresh_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Controls how often the cloud metadata inventory is refreshed.",
+          "default": "30s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL"
+        },
         "region": {
           "type": "string",
           "description": "Overrides automatic region detection.",
@@ -922,24 +934,6 @@
       },
       "type": "object",
       "description": "EBPFTracer configuration for eBPF programs"
-    },
-    "ECSNameResolverConfig": {
-      "properties": {
-        "refresh_interval": {
-          "type": "string",
-          "pattern": "^[0-9]+(ms|s|m)$",
-          "description": "Controls how often the ECS task inventory is refreshed.",
-          "default": "30s",
-          "examples": [
-            "30s",
-            "5m",
-            "1ms"
-          ],
-          "x-env-var": "OTEL_EBPF_NAME_RESOLVER_ECS_REFRESH_INTERVAL"
-        }
-      },
-      "type": "object",
-      "description": "ECSNameResolverConfig configures ECS service name resolution."
     },
     "ElasticsearchConfig": {
       "properties": {
@@ -2119,9 +2113,6 @@
           "description": "Specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256",
           "default": 1024,
           "x-env-var": "OTEL_EBPF_NAME_RESOLVER_CACHE_LEN"
-        },
-        "ecs": {
-          "$ref": "#/$defs/ECSNameResolverConfig"
         },
         "sources": {
           "items": {

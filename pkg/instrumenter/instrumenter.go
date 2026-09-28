@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/appolly"
+	"go.opentelemetry.io/obi/pkg/internal/cloud"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	netagent "go.opentelemetry.io/obi/pkg/netolly/agent"
@@ -27,6 +28,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	statsagent "go.opentelemetry.io/obi/pkg/statsolly/agent"
+	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 // Run in the foreground process. This is a blocking function and won't exit
@@ -253,6 +255,12 @@ func BuildCommonContextInfo(
 	ctxInfo.DockerMetadata = docker.NewStore()
 	if !ctxInfo.K8sInformer.IsKubeEnabled() {
 		ctxInfo.DockerMetadata.Start(ctx)
+	}
+
+	if config.NameResolver != nil {
+		ctxInfo.CloudMetaInventory = cloud.NewInventory(transform.CloudMetadataRefreshers(
+			ctx, &ctxInfo.NodeMeta, config.NameResolver.Sources, config.CloudMetadata,
+		))
 	}
 
 	attributeGroups(config, ctxInfo)

@@ -108,7 +108,7 @@ func testECSServiceResolution(t *testing.T, discover bool) {
 			"OTEL_EBPF_METRICS_FEATURES=application,application_span_otel,application_service_graph",
 			"OTEL_EBPF_PROMETHEUS_FEATURES=application,application_span_otel,application_service_graph",
 			"OTEL_EBPF_NAME_RESOLVER_SOURCES=ecs",
-			"OTEL_EBPF_NAME_RESOLVER_ECS_REFRESH_INTERVAL=1s",
+			"OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL=1s",
 			"AWS_ENDPOINT_URL_ECS=" + endpoint,
 			"AWS_ACCESS_KEY_ID=test", "AWS_SECRET_ACCESS_KEY=test",
 			"AWS_EC2_METADATA_DISABLED=true", "AWS_MAX_ATTEMPTS=1",
