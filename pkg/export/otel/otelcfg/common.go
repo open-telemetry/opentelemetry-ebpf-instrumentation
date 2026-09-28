@@ -362,6 +362,16 @@ func (rp *ReporterPool[K, T]) Remove(uid svc.UID) bool {
 	return removed
 }
 
+// ForEach calls fn for every reporter currently in the pool. It does not
+// modify access order or expire entries.
+func (rp *ReporterPool[K, T]) ForEach(fn func(svc.UID, T)) {
+	for _, key := range rp.pool.Keys() {
+		if e, ok := rp.pool.Peek(key); ok {
+			fn(key, e.value)
+		}
+	}
+}
+
 // expireOldReporters will remove the metrics reporters that haven't been accessed
 // during the last TTL period
 func (rp *ReporterPool[K, T]) expireOldReporters() {

@@ -942,6 +942,18 @@ func (mr *MetricsReporter) isExponentialAggregation() bool {
 }
 
 func (mr *MetricsReporter) close() {
+	// Drain every per-service metric set before shutting down the shared exporter.
+	// provider.Shutdown performs a final collection/export, so sessions and other
+	// pending observations are flushed even when the process stops before TTL eviction.
+	mr.reporters.ForEach(func(id svc.UID, m *Metrics) {
+		llog := mlog().With("service", id)
+		llog.Debug("shutting down metrics reporter")
+		m.cleanupAllMetricsInstances()
+		if err := m.provider.Shutdown(mr.ctx); err != nil {
+			llog.Warn("error shutting down metrics provider", "error", err)
+		}
+	})
+
 	go func() {
 		if err := mr.exporter.Shutdown(mr.ctx); err != nil {
 			mlog().Warn("closing metrics provider", "error", err)

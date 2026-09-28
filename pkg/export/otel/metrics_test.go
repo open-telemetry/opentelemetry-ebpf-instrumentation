@@ -792,7 +792,7 @@ func TestAppMetrics_MCPOperationDuration(t *testing.T) {
 
 func TestAppMetrics_MCPSessionDurationExportsDuringShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
-	t.Cleanup(cancel)
+	defer cancel()
 
 	metricRecords := make(chan collector.MetricRecord, 10)
 	metricsInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(1))
@@ -815,16 +815,15 @@ func TestAppMetrics_MCPSessionDurationExportsDuringShutdown(t *testing.T) {
 		processEvents,
 	)
 	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, reporter.exporter.Shutdown(context.Background()))
-	})
 
-	service := svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "mcp"}}
-	metrics := reporter.newMetricsInstance(&service)
-	require.NoError(t, reporter.setupMetricExpirers(&metrics, metrics.provider.Meter(reporterName)))
+	done := make(chan struct{})
+	go func() {
+		reporter.reportMetrics(ctx)
+		close(done)
+	}()
 
-	metrics.record(&request.Span{
-		Service:      service,
+	metricsInput.Send([]request.Span{{
+		Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "mcp"}},
 		Type:         request.EventTypeHTTPClient,
 		SubType:      request.HTTPSubtypeMCP,
 		RequestStart: 100,
@@ -832,10 +831,15 @@ func TestAppMetrics_MCPSessionDurationExportsDuringShutdown(t *testing.T) {
 		GenAI: &request.GenAI{MCP: &request.MCPCall{
 			SessionID: "session-1",
 		}},
-	}, reporter)
-	metrics.cleanupAllMetricsInstances()
+	}})
+	metricsInput.Close()
 
-	require.NoError(t, metrics.provider.Shutdown(t.Context()))
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "reportMetrics did not finish")
+	}
+
 	records := readMetricsByName(t, metricRecords, time.Second, attributes.MCPClientSessionDuration.OTEL)
 	require.Len(t, records, 1)
 	assert.Equal(t, 1, records[0].Count)
