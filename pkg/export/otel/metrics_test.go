@@ -905,6 +905,74 @@ func TestAppMetrics_DBClientAttributes(t *testing.T) {
 	assert.Equal(t, "5432", records[0].Attributes[string(attr.ServerPort)])
 }
 
+func TestAppMetrics_HTTPErrorType(t *testing.T) {
+	features := export.FeatureApplicationRED | export.FeatureApplicationSizes
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 20)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		MetricsConsumer:   testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: features},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	svcAttrs := svc.Attrs{Features: features, UID: svc.UID{Instance: "foo"}}
+	metrics.Send([]request.Span{
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Method: "GET", Status: 500, RequestStart: 100, End: 200},
+		{Service: svcAttrs, Type: request.EventTypeHTTP, SubType: request.HTTPSubtypeJSONRPC, Method: "POST", Status: 200, RequestStart: 100, End: 200, JSONRPC: &request.JSONRPC{Method: "missing", Version: "2.0", ErrorCode: -32601}},
+		{Service: svcAttrs, Type: request.EventTypeHTTPClient, Method: "GET", Status: 200, RequestStart: 100, End: 200},
+		{Service: svcAttrs, Type: request.EventTypeHTTPClient, Method: "GET", Status: 404, RequestStart: 100, End: 200},
+	})
+
+	serverMetrics := []string{attributes.HTTPServerDuration.OTEL, attributes.HTTPServerRequestSize.OTEL, attributes.HTTPServerResponseSize.OTEL}
+	clientMetrics := []string{attributes.HTTPClientDuration.OTEL, attributes.HTTPClientRequestSize.OTEL, attributes.HTTPClientResponseSize.OTEL}
+	pending := map[string]string{}
+	for _, name := range serverMetrics {
+		pending[name+"/500"] = "500"
+		pending[name+"/200"] = ""
+	}
+	for _, name := range clientMetrics {
+		pending[name+"/404"] = "404"
+		pending[name+"/200"] = ""
+	}
+
+	deadline := time.After(timeout)
+	for len(pending) > 0 {
+		select {
+		case record := <-metricRecords:
+			key := record.Name + "/" + record.Attributes[string(attr.HTTPResponseStatusCode)]
+			want, ok := pending[key]
+			if !ok {
+				continue
+			}
+			if want == "" {
+				assert.NotContains(t, record.Attributes, string(attr.ErrorType), key)
+			} else {
+				assert.Equal(t, want, record.Attributes[string(attr.ErrorType)], key)
+			}
+			delete(pending, key)
+		case <-deadline:
+			require.Failf(t, "timeout while waiting for metric records", "missing: %v", pending)
+		}
+	}
+}
+
 func TestAppMetrics_DBClientServerPortDefaultSelection(t *testing.T) {
 	ctx := t.Context()
 	metricRecords := make(chan collector.MetricRecord, 10)

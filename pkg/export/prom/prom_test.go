@@ -115,6 +115,66 @@ func TestAppMetrics_BodySizeFeature(t *testing.T) {
 	}
 }
 
+func TestAppMetrics_HTTPErrorType(t *testing.T) {
+	features := export.FeatureApplicationRED | export.FeatureApplicationSizes
+	ctx := t.Context()
+	registry, promURL := newPrometheusTestServer(t)
+
+	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	exporter, err := PrometheusEndpoint(
+		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+		&PrometheusConfig{
+			Registry:                    registry,
+			Path:                        "/metrics",
+			TTL:                         3 * time.Minute,
+			SpanMetricsServiceCacheSize: 10,
+			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		},
+		&perapp.GlobalMetricsConfig{Features: features},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		promInput,
+		processEvents,
+		nil,
+	)(ctx)
+	require.NoError(t, err)
+
+	go exporter(ctx)
+
+	svcAttrs := svc.Attrs{Features: features, UID: svc.UID{Instance: "foo"}}
+	end := 1 * time.Second.Nanoseconds()
+	promInput.Send([]request.Span{
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Status: 500, End: end},
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Status: 404, End: end},
+		{Service: svcAttrs, Type: request.EventTypeHTTP, SubType: request.HTTPSubtypeJSONRPC, Status: 200, End: end, JSONRPC: &request.JSONRPC{Method: "missing", Version: "2.0", ErrorCode: -32601}},
+		{Service: svcAttrs, Type: request.EventTypeHTTPClient, Status: 404, End: end},
+		{Service: svcAttrs, Type: request.EventTypeHTTPClient, Status: 200, End: end},
+	})
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		for _, name := range []string{
+			"http_server_request_duration_seconds_count",
+			"http_server_request_body_size_bytes_count",
+			"http_server_response_body_size_bytes_count",
+		} {
+			assert.Regexp(ct, name+`\{error_type="500",[^}]*http_response_status_code="500"[^}]*\} 1`, exported)
+			assert.Regexp(ct, name+`\{error_type="",[^}]*http_response_status_code="404"[^}]*\} 1`, exported)
+			assert.Regexp(ct, name+`\{error_type="",[^}]*http_response_status_code="200"[^}]*\} 1`, exported)
+		}
+		for _, name := range []string{
+			"http_client_request_duration_seconds_count",
+			"http_client_request_body_size_bytes_count",
+			"http_client_response_body_size_bytes_count",
+		} {
+			assert.Regexp(ct, name+`\{error_type="404",[^}]*http_response_status_code="404"[^}]*\} 1`, exported)
+			assert.Regexp(ct, name+`\{error_type="",[^}]*http_response_status_code="200"[^}]*\} 1`, exported)
+		}
+		assert.NotContains(ct, exported, `error_type="-32601"`)
+	}, timeout, 100*time.Millisecond)
+}
+
 func TestAppMetricsExpiration(t *testing.T) {
 	now := syncedClock{now: time.Now()}
 	timeNow = now.Now

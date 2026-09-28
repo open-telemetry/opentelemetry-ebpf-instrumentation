@@ -53,3 +53,45 @@ func TestTraceAttributesSelector_ElasticsearchResponseStatusCode(t *testing.T) {
 		assert.False(t, ok, "conditionally required only if a response was received")
 	})
 }
+
+func TestTraceAttributesSelector_ElasticsearchNamespace(t *testing.T) {
+	esSpan := func(index, cluster string) *request.Span {
+		return &request.Span{
+			Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeElasticsearch,
+			Method: "POST", Path: "/_search", Host: "es", HostPort: 9200,
+			Status:      200,
+			DBNamespace: cluster,
+			Elasticsearch: &request.Elasticsearch{
+				DBSystemName:     "elasticsearch",
+				DBOperationName:  "search",
+				DBCollectionName: index,
+			},
+		}
+	}
+
+	t.Run("reports the cluster name", func(t *testing.T) {
+		span := esSpan("", "8b3f5a1c9d2e4f6a")
+		attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+		v, ok := attrs.Get("db.namespace")
+		require.True(t, ok)
+		assert.Equal(t, "8b3f5a1c9d2e4f6a", v.Str())
+		assert.Equal(t, "search 8b3f5a1c9d2e4f6a", span.TraceName())
+	})
+
+	t.Run("index wins over the cluster name in the span name", func(t *testing.T) {
+		span := esSpan("my-index", "8b3f5a1c9d2e4f6a")
+		attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+		v, ok := attrs.Get("db.namespace")
+		require.True(t, ok)
+		assert.Equal(t, "8b3f5a1c9d2e4f6a", v.Str())
+		assert.Equal(t, "search my-index", span.TraceName())
+	})
+
+	t.Run("omitted when the response did not identify the cluster", func(t *testing.T) {
+		span := esSpan("", "")
+		attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+		_, ok := attrs.Get("db.namespace")
+		assert.False(t, ok)
+		assert.Equal(t, "search es:9200", span.TraceName())
+	})
+}

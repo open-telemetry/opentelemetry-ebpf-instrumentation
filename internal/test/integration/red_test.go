@@ -40,6 +40,7 @@ func testREDMetricsHTTP(t *testing.T) {
 		t.Run(testCaseURL, func(t *testing.T) {
 			waitForTestComponents(t, testCaseURL)
 			testREDMetricsForHTTPLibrary(t, testCaseURL, "testserver", "integration-test")
+			testREDMetricsForHTTPServerError(t, testCaseURL, "testserver", "integration-test")
 			testSpanMetricsForHTTPLibraryOTelFormat(t, "testserver", "integration-test")
 			testServiceGraphMetricsForHTTPLibrary(t, "integration-test")
 		})
@@ -289,6 +290,44 @@ func testREDMetricsForJSONRPCHTTP(t *testing.T, url, svcName, svcNs string) {
 			addr := res.Metric["client_address"]
 			assert.NotNil(ct, addr)
 		}
+	}, testTimeout, 100*time.Millisecond)
+}
+
+func testREDMetricsForHTTPServerError(t *testing.T, url, svcName, svcNs string) {
+	path := "/basic/" + rndStr()
+
+	for range 3 {
+		ti.DoHTTPGet(t, url+path+"?status=500", 500)
+		ti.DoHTTPGet(t, url+path+"?status=404", 404)
+	}
+
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		results, err := pq.Query(`http_server_request_duration_seconds_count{` +
+			`http_request_method="GET",` +
+			`http_response_status_code="500",` +
+			`error_type="500",` +
+			`service_namespace="` + svcNs + `",` +
+			`service_name="` + svcName + `",` +
+			`url_path="` + path + `"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
+	}, testTimeout, 100*time.Millisecond)
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		results, err := pq.Query(`http_server_request_duration_seconds_count{` +
+			`http_request_method="GET",` +
+			`http_response_status_code="404",` +
+			`error_type="",` +
+			`service_namespace="` + svcNs + `",` +
+			`service_name="` + svcName + `",` +
+			`url_path="` + path + `"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, results)
+		val := totalPromCount(ct, results)
+		assert.LessOrEqual(ct, 3, val)
 	}, testTimeout, 100*time.Millisecond)
 }
 

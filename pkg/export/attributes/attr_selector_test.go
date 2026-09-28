@@ -224,6 +224,36 @@ func TestDefault_DBServerDuration(t *testing.T) {
 	}, p.For(DBServerDuration))
 }
 
+func TestDefault_HTTPServerMetrics(t *testing.T) {
+	p, err := NewAttrSelector(0, &SelectorConfig{})
+	require.NoError(t, err)
+	for _, def := range []Name{HTTPServerDuration, HTTPServerRequestSize, HTTPServerResponseSize} {
+		assert.Equal(t, []attr.Name{
+			attr.ErrorType,
+			attr.HTTPRequestMethod,
+			attr.HTTPResponseStatusCode,
+			attr.ServerAddr,
+			attr.ServerPort,
+			attr.HTTPURLScheme,
+		}, p.For(def), def.Section)
+	}
+}
+
+func TestDefault_HTTPClientMetrics(t *testing.T) {
+	p, err := NewAttrSelector(0, &SelectorConfig{})
+	require.NoError(t, err)
+	for _, def := range []Name{HTTPClientDuration, HTTPClientRequestSize, HTTPClientResponseSize} {
+		assert.Equal(t, []attr.Name{
+			attr.ErrorType,
+			attr.HTTPRequestMethod,
+			attr.HTTPResponseStatusCode,
+			attr.ServerAddr,
+			attr.ServerPort,
+			attr.HTTPURLScheme,
+		}, p.For(def), def.Section)
+	}
+}
+
 func TestExplicitlyIncluded(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -277,6 +307,7 @@ func TestExtraGroupAttributes(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []attr.Name{
+		"error.type",
 		"http.request.method",
 		"http.response.status_code",
 		"k8s.cluster.name",

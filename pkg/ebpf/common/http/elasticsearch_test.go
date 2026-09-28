@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
 func TestParseElasticsearchRequest(t *testing.T) {
@@ -213,6 +215,77 @@ func TestExtractElasticsearchOperationName(t *testing.T) {
 
 			if operationName != tt.expected {
 				t.Errorf("OperationName = %q, want %q", operationName, tt.expected)
+			}
+		})
+	}
+}
+
+func TestElasticsearchSpan(t *testing.T) {
+	newResponse := func(headers map[string]string) *http.Response {
+		resp := &http.Response{Header: http.Header{}}
+		resp.Header.Set("X-Elastic-Product", "Elasticsearch")
+		for k, v := range headers {
+			resp.Header.Set(k, v)
+		}
+		return resp
+	}
+
+	tests := []struct {
+		name              string
+		target            string
+		headers           map[string]string
+		expectedNamespace string
+		expectedNodeName  string
+		expectedIndex     string
+	}{
+		{
+			name:   "Elastic Cloud response reports cluster and node",
+			target: "/test_index/_search",
+			headers: map[string]string{
+				"X-Found-Handling-Cluster":  "8b3f5a1c9d2e4f6a",
+				"X-Found-Handling-Instance": "instance-0000000001",
+			},
+			expectedNamespace: "8b3f5a1c9d2e4f6a",
+			expectedNodeName:  "instance-0000000001",
+			expectedIndex:     "test_index",
+		},
+		{
+			name:              "Elastic Cloud response without an index",
+			target:            "/_search",
+			headers:           map[string]string{"X-Found-Handling-Cluster": "8b3f5a1c9d2e4f6a"},
+			expectedNamespace: "8b3f5a1c9d2e4f6a",
+		},
+		{
+			name:          "self-hosted response reports no cluster",
+			target:        "/test_index/_search",
+			expectedIndex: "test_index",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, tt.target, strings.NewReader(`{"query":{"match_all":{}}}`))
+
+			span, ok := ElasticsearchSpan(&request.Span{Type: request.EventTypeHTTPClient}, req, newResponse(tt.headers))
+			if !ok {
+				t.Fatalf("expected an Elasticsearch span")
+			}
+			if span.SubType != request.HTTPSubtypeElasticsearch {
+				t.Errorf("SubType = %d, want %d", span.SubType, request.HTTPSubtypeElasticsearch)
+			}
+			if span.DBNamespace != tt.expectedNamespace {
+				t.Errorf("DBNamespace = %q, want %q", span.DBNamespace, tt.expectedNamespace)
+			}
+			if span.Elasticsearch.NodeName != tt.expectedNodeName {
+				t.Errorf("NodeName = %q, want %q", span.Elasticsearch.NodeName, tt.expectedNodeName)
+			}
+			if span.Elasticsearch.DBCollectionName != tt.expectedIndex {
+				t.Errorf("DBCollectionName = %q, want %q", span.Elasticsearch.DBCollectionName, tt.expectedIndex)
+			}
+			if span.Elasticsearch.DBOperationName != "search" {
+				t.Errorf("DBOperationName = %q, want %q", span.Elasticsearch.DBOperationName, "search")
+			}
+			if span.Elasticsearch.DBSystemName != "elasticsearch" {
+				t.Errorf("DBSystemName = %q, want %q", span.Elasticsearch.DBSystemName, "elasticsearch")
 			}
 		})
 	}

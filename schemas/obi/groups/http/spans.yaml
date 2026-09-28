@@ -144,11 +144,6 @@ groups:
         requirement_level: required
       - ref: rpc.method
         requirement_level: required
-      # Go net/rpc names a method `Service.Method`, which the span reports as
-      # `Service/Method`; the raw form is emitted alongside it only then.
-      - ref: rpc.method_original
-        requirement_level:
-          conditionally_required: if the qualified method differs from the raw one
       - ref: jsonrpc.protocol.version
         requirement_level:
           conditionally_required: upstream declares it conditional; OBI always emits it, since it recognises only JSON-RPC 2.0

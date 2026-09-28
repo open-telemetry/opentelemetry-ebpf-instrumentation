@@ -1650,6 +1650,7 @@ func spanAttributes(s *Span) SpanAttributes {
 		if s.SubType == HTTPSubtypeElasticsearch && s.Elasticsearch != nil {
 			attrs["dbCollectionName"] = s.Elasticsearch.DBCollectionName
 			attrs["nodeName"] = s.Elasticsearch.NodeName
+			attrs["dbNamespace"] = s.DBNamespace
 			attrs["dbOperationName"] = s.Elasticsearch.DBOperationName
 			attrs["dbQueryText"] = s.Elasticsearch.DBQueryText
 			attrs["dbSystemName"] = s.Elasticsearch.DBSystemName
@@ -1666,7 +1667,6 @@ func spanAttributes(s *Span) SpanAttributes {
 		if s.SubType == HTTPSubtypeAWSSQS && s.AWS != nil {
 			sqs := s.AWS.SQS
 			attrs["awsRequestID"] = sqs.Meta.RequestID
-			attrs["awsExtendedRequestID"] = sqs.Meta.ExtendedRequestID
 			attrs["awsRegion"] = sqs.Meta.Region
 			attrs["awsSQSOperationName"] = sqs.OperationName
 			attrs["awsSQSOperationType"] = sqs.OperationType
@@ -2057,21 +2057,24 @@ func HTTPSpanStatusCode(span *Span) string {
 		return StatusCodeError
 	}
 
-	if span.Type == EventTypeHTTPClient {
-		if span.Status < 400 {
-			// A provider can report a failure inside a 2xx response, per the OTel
-			// GenAI spec: https://opentelemetry.io/docs/specs/semconv/gen-ai/openai/
-			if span.GenAIFailed() {
-				return StatusCodeError
-			}
-
-			return StatusCodeUnset
-		}
-	} else if span.Status < 500 {
-		return StatusCodeUnset
+	if httpStatusFailed(span) {
+		return StatusCodeError
 	}
 
-	return StatusCodeError
+	// A provider can report a failure inside a 2xx response, per the OTel
+	// GenAI spec: https://opentelemetry.io/docs/specs/semconv/gen-ai/openai/
+	if span.Type == EventTypeHTTPClient && span.GenAIFailed() {
+		return StatusCodeError
+	}
+
+	return StatusCodeUnset
+}
+
+func httpStatusFailed(span *Span) bool {
+	if span.Type == EventTypeHTTPClient {
+		return span.Status >= 400
+	}
+	return span.Status >= 500
 }
 
 var (

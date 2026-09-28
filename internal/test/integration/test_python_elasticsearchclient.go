@@ -118,8 +118,8 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 				assert.Equal(ct, index, tag.Value)
 			}
 
-			// Elasticsearch reports no namespace, so the attribute is omitted
-			// rather than emitted empty.
+			// Only Elastic Cloud reports the cluster name, so the attribute is
+			// omitted against a self-hosted cluster rather than emitted empty.
 			_, found = jaeger.FindIn(span.Tags, "db.namespace")
 			assert.False(ct, found)
 

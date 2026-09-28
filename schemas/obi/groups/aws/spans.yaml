@@ -78,9 +78,6 @@ groups:
         requirement_level: recommended
       - ref: aws.request_id
         requirement_level: recommended
-      - ref: aws.extended_request_id
-        requirement_level:
-          conditionally_required: if the response carried an x-amz-id-2 header
       - ref: server.address
         requirement_level:
           conditionally_required: if the peer address was resolved from the connection

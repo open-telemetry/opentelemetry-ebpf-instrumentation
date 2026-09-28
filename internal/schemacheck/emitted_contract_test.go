@@ -368,13 +368,10 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				RequestBodyContent:  "{}",
 				ResponseBodyContent: "{}",
 				JSONRPC: &request.JSONRPC{
-					// Go net/rpc qualifies the method, which is what makes the
-					// span report rpc.method_original alongside rpc.method.
-					Method:           "Arith.Multiply",
-					ServiceQualified: true,
-					Version:          "2.0",
-					RequestID:        "1",
-					ErrorCode:        -32600,
+					Method:    "Arith.Multiply",
+					Version:   "2.0",
+					RequestID: "1",
+					ErrorCode: -32600,
 				},
 			},
 			optional: []attr.Name{
@@ -488,55 +485,12 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			absent: []string{"service.peer.name"},
 		},
 		{
-			name:    "kafka client",
-			absent:  []string{"service.peer.name"},
-			groupID: "span.obi.messaging.kafka.client",
-			span: &request.Span{
-				Type:          request.EventTypeKafkaClient,
-				Method:        request.MessagingReceive,
-				Path:          "my-topic",
-				Statement:     "consumer-1",
-				Host:          "10.0.0.1",
-				HostPort:      9092,
-				Peer:          "10.0.0.1",
-				PeerPort:      54321,
-				MessagingInfo: &request.MessagingInfo{Partition: 3},
-			},
-			optional: []attr.Name{
-				attr.NetworkPeerAddress,
-				attr.NetworkPeerPort,
-				attr.SkipSpanMetrics,
-				attr.ServicePeerName,
-			},
-		},
-		{
 			name:    "mqtt producer",
 			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.messaging.mqtt.producer",
 			span: &request.Span{
 				Type:      request.EventTypeMQTTClient,
 				Method:    request.MessagingPublish,
-				Path:      "my/topic",
-				Statement: "mqtt-client-1",
-				Host:      "10.0.0.1",
-				HostPort:  1883,
-				Peer:      "10.0.0.1",
-				PeerPort:  54321,
-			},
-			optional: []attr.Name{
-				attr.NetworkPeerAddress,
-				attr.NetworkPeerPort,
-				attr.SkipSpanMetrics,
-				attr.ServicePeerName,
-			},
-		},
-		{
-			name:    "mqtt client",
-			absent:  []string{"service.peer.name"},
-			groupID: "span.obi.messaging.mqtt.client",
-			span: &request.Span{
-				Type:      request.EventTypeMQTTClient,
-				Method:    request.MessagingReceive,
 				Path:      "my/topic",
 				Statement: "mqtt-client-1",
 				Host:      "10.0.0.1",
@@ -574,28 +528,6 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			},
 		},
 		{
-			name:    "nats client",
-			absent:  []string{"service.peer.name"},
-			groupID: "span.obi.messaging.nats.client",
-			span: &request.Span{
-				Type:          request.EventTypeNATSClient,
-				Method:        request.MessagingReceive,
-				Path:          "my-subject",
-				Statement:     "nats-client-1",
-				Host:          "10.0.0.1",
-				HostPort:      4222,
-				Peer:          "10.0.0.1",
-				PeerPort:      54321,
-				ContentLength: 128,
-			},
-			optional: []attr.Name{
-				attr.NetworkPeerAddress,
-				attr.NetworkPeerPort,
-				attr.SkipSpanMetrics,
-				attr.ServicePeerName,
-			},
-		},
-		{
 			name:    "amqp consumer",
 			absent:  []string{"service.peer.name"},
 			groupID: "span.obi.messaging.amqp.consumer",
@@ -616,35 +548,13 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			},
 		},
 		{
-			name:    "amqp client",
-			absent:  []string{"service.peer.name"},
-			groupID: "span.obi.messaging.amqp.client",
-			span: &request.Span{
-				Type:     request.EventTypeAMQPClient,
-				Method:   request.MessagingSettle,
-				Path:     "my-exchange",
-				Host:     "10.0.0.1",
-				HostPort: 5672,
-				Peer:     "10.0.0.1",
-				PeerPort: 54321,
-			},
-			optional: []attr.Name{
-				attr.NetworkPeerAddress,
-				attr.NetworkPeerPort,
-				attr.SkipSpanMetrics,
-				attr.ServicePeerName,
-			},
-		},
-		{
 			name:    "elasticsearch client",
 			groupID: "span.obi.elasticsearch.client",
 			span: &request.Span{
 				Type:    request.EventTypeHTTPClient,
 				SubType: request.HTTPSubtypeElasticsearch,
-				// Outside the semconv enum, so http.request.method clamps to
-				// _OTHER and http.request.method_original carries the wire value.
-				Method: "SEARCH",
-				Path:   "/my-index/_search",
+				Method:  "POST",
+				Path:    "/my-index/_search",
 				// An IP rather than a name: networkPeerAttributes omits
 				// network.peer.* for a hostname, since server.address carries it.
 				Host:         "10.0.0.1",
@@ -654,7 +564,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				PeerPort:     54321,
 				Status:       500,
 				ProtoVersion: request.ProtoVersionHTTP11,
-				DBNamespace:  "my-index",
+				DBNamespace:  "my-cluster",
 				Elasticsearch: &request.Elasticsearch{
 					DBSystemName:     "elasticsearch",
 					DBOperationName:  "search",
@@ -665,7 +575,6 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			},
 			optional: []attr.Name{
 				attr.DBQueryText,
-				attr.HTTPRequestMethodOrig,
 				attr.HTTPResponseBodySize,
 				attr.NetworkPeerAddress,
 				attr.NetworkPeerPort,

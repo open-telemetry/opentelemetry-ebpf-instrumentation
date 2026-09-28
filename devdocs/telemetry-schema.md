@@ -109,7 +109,8 @@ section empty once drained.
 - `span.obi.http.client` keeps its id but no longer declares the JSON-RPC attributes
   (`rpc.system.name`, `rpc.method`, `rpc.method_original`, `rpc.response.status_code`,
   `jsonrpc.protocol.version`, `jsonrpc.request.id`); they move to the new
-  `span.obi.jsonrpc.client`. Nothing changes in the emitted telemetry.
+  `span.obi.jsonrpc.client`, except `rpc.method_original`, which only a Go net/rpc
+  server span carries. Nothing changes in the emitted telemetry.
 - Five span group ids are replaced by per-system ones:
   `span.obi.messaging.{producer,consumer,client}` become
   `span.obi.messaging.<broker>.{producer,consumer,client}`, and
@@ -175,6 +176,27 @@ section empty once drained.
   implies it, and `gen_ai.operation.name` on MCP spans is conditional on a tool call,
   the only MCP operation that sets it. These correct the declarations; the emitted
   telemetry is unchanged.
+- Elasticsearch client spans to Elastic Cloud now carry `db.namespace` from the
+  `X-Found-Handling-Cluster` response header, and so does the `db.client.operation.duration`
+  metric, which splits existing Elastic Cloud series by cluster. A request without an index is
+  now named `<operation> <cluster>` instead of `<operation> <host>:<port>`. Self-hosted clusters
+  send no such header and are unchanged.
+- The HTTP server and client duration and body size metrics
+  (`http.{server,client}.request.duration`, `http.{server,client}.{request,response}.body.size`)
+  now carry `error.type` by default on failed requests, holding the status code for 5xx server
+  and 4xx/5xx client responses. Over OTLP only failed-request series gain the attribute;
+  successful datapoints still omit it. The Prometheus exporter uses a fixed label set, so every
+  series of these metrics gains an `error_type` label, set to `""` on successful requests: all
+  existing Prometheus series are recreated, successful ones included.
+- The registry now matches two more things OBI already emits, with no change to the emitted
+  telemetry. `span.obi.messaging.{kafka,mqtt,nats,amqp}.client` are removed: those brokers
+  only produce producer and consumer spans, and receive/settle client spans come only from
+  SQS, which has its own group. `target.info` and `traces.target.info` declare the `cloud.*`
+  and `gcp.gce.instance.*` attributes their data points carry when cloud metadata is resolved.
+- AWS SQS spans never carry `aws.extended_request_id` any more, and `span.obi.aws.sqs.client`
+  no longer declares it. OBI read it from the `x-amz-id-2` response header, which SQS does not
+  send, so in practice the attribute was only ever set by an SQS emulator or proxy. S3 spans
+  are unaffected.
 
 ## Hosting notes
 
