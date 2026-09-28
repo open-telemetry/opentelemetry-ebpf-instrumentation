@@ -61,19 +61,18 @@ reports, exhaustive restatements of the code, or a play-by-play of the work.
 
 ## AI-assisted contributions
 
-Agents may author implementation code, documentation, tests, and drafts of
-GitHub communication. Their output must follow the same repository, validation,
-and communication requirements as any other contribution.
+Agents may author implementation code, documentation, tests, and GitHub
+communication. Their output must follow the same repository, validation, and
+communication requirements as any other contribution.
 
-Agent output remains a draft until the contributor reviews it. Agents must not
-claim that a contributor has reviewed, understood, tested, or accepted
-responsibility for generated work. Before submission, remind the contributor to:
+When preparing work for submission, agents must:
 
-- Carefully review and revise the output.
-- Understand and be able to explain the contribution.
-- Run the validation appropriate to the change.
-- Take responsibility for correctness, security, clarity, and licensing.
-- Disclose non-trivial Generative AI assistance as required by `AI-POLICY.md`.
+- Distinguish verified facts from assumptions.
+- Report the validation they ran and any validation they could not run.
+- Include the disclosure required by `AI-POLICY.md` for non-trivial Generative
+  AI assistance.
+- Leave assertions of human review, understanding, and acceptance of
+  responsibility to the contributor.
 
 ## Validation
 

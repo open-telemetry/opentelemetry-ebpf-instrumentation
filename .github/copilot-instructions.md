@@ -1,6 +1,7 @@
 # Copilot Instructions
 
-- Read `AGENTS.md` before suggesting code, reviewing a PR, or answering repository-specific questions, and follow its AI-assisted contribution contract. Read `CONTRIBUTING.md` for contributor workflows.
+- Read `AGENTS.md` before suggesting code, reviewing a PR, or answering repository-specific questions, and follow its AI-assisted contribution contract.
+- Read `CONTRIBUTING.md` for contributor workflows.
 - Start with `devdocs/pipeline-map.md` when you need architecture or data-flow context.
 - Prefer repository code and local documentation over external references when they disagree.
 - This repository provides eBPF-based instrumentation for applications and integrates with OpenTelemetry.

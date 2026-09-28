@@ -1,15 +1,16 @@
 # OpenTelemetry eBPF Instrumentation Generative AI Policy
 
-Based in [Cilium Generative AI Policy](https://github.com/cilium/community/blob/main/AI-POLICY.md#unacceptable-use).
+Based on the [Cilium Generative AI Policy](https://github.com/cilium/community/blob/main/AI-POLICY.md#unacceptable-use).
 
 To maintain the high quality and trustworthiness of contributions to the
 OpenTelemetry eBPF Instrumentation (OBI)
 community, we provide the following guidance on the use of "Generative
 Artificial Intelligence", including large language models (LLMs), GitHub
 Copilot, ChatGPT, Codex, Claude code, or similar tools ("Generative AI"). The
-guidance in this document is intended for all contributors to the community.
-Instructions for coding agents are maintained separately in [AGENTS.md]. As a
-Linux Foundation project, OBI is also subject to the Linux Foundation
+guidance in this document is intended for contributors and describes their
+responsibilities regardless of which tools they use. Instructions for coding
+agents are maintained separately in [AGENTS.md]. As a Linux Foundation project,
+OBI is also subject to the Linux Foundation
 [Guidance Regarding Use of Generative AI Tools]. The guidance in this document
 is intended to support you as a contributor in addition to the Linux Foundation
 guidance.
@@ -41,46 +42,42 @@ use it to:
 - Auto-complete routines or boilerplate code (such as error handling, test
   scaffolding, function signatures);
 - Reformat or refactor existing content;
-- Develop implementation code, documentation, and tests that you subsequently
-  review, revise, and validate;
-- Draft test cases which you subsequently review, revise and simplify before
-  submission; or
+- Brainstorm and evaluate implementation options;
+- Draft or implement code, documentation, and tests that you subsequently
+  review, revise, and validate; or
 - Analyze your own content submissions.
 
 These uses are acceptable provided you:
 
 1. Are involved in the entire process for creating the contributions;
-2. Personally review and edit generated content before you submit it to the
-  organization;
-3. Fully understand and review the content prior to submission;
-4. Take personal responsibility for the content, in the same way as if you
-  authored the content without using Generative AI;
+2. Personally review, edit, and understand generated content before you submit
+  it to the organization;
+3. Validate generated content where applicable;
+4. Take personal responsibility for the content, just as if you had authored
+  it without using Generative AI;
 5. Ensure the output adheres to project guidelines and licensing requirements; and
-6. Report the use of Generative AI tools for non-trivial preparation of
-  submissions (that is, at level 2 or higher on the [AI Influence Level]).
+6. Disclose non-trivial use of Generative AI as described in
+  [Transparency and Disclosure](#5-transparency-and-disclosure).
 
 ### GitHub Communication
 
-Issue and pull request descriptions, reviews, and comments must be written for
-human readers. Generative AI may be used to draft them, but you must review and
-revise the result before submission. Keep them concise, specific, and easy to
-scan. Do not submit raw or lightly edited Generative AI output, generated
-wall-of-text reports, exhaustive restatements of the code, or a play-by-play of
-the work. Include only the context needed for another contributor to understand
-or act on the message.
+Generative AI may help draft issue and pull request descriptions, reviews, and
+comments. Before posting, verify its factual claims and revise the text so it
+accurately represents your judgment and intent. Keep communication concise,
+specific, and easy to scan. Do not post generated wall-of-text reports,
+exhaustive restatements of the code, or a play-by-play of the work. Include only
+the context needed for another contributor to understand or act on the message.
 
 ## 3. Unacceptable Use
 
 It is not acceptable to use Generative AI tools to:
 
-1. Communicate in any OBI community space with Generative AI output that you
-  have not carefully reviewed and revised. This applies when initiating or
-  responding to discussions on Slack, GitHub, or other community channels.
+1. Post Generative AI output in an OBI community space without verifying that
+  it accurately represents your judgment and intent.
 2. Submit code, documentation, or discussion content that you have not reviewed
   in careful detail, including testing the content where applicable.
-3. Delegate technical problem solving or architectural decision making without
-  independently verifying that the result fits the project and its existing
-  architecture.
+3. Use Generative AI output as a substitute for your own judgment in technical
+  problem solving or architectural decision making.
 4. Submit work produced via Generative AI tooling that copies from external
   sources without correct attribution or licensing.
 5. Submit contributions where you cannot explain, contextualize, or justify the
@@ -88,30 +85,22 @@ It is not acceptable to use Generative AI tools to:
 
 ## 4. Generative AI for Translation
 
-If you are interacting in a OBI community space which primarily uses a
-language which you are not fluent in, community members will generally
-appreciate your attempts to express your ideas in that language without the use
-of Generative AI tools. However, we recognize that contributors from around the
-world may want to participate in discussion in the OBI community, and the
-community can benefit from those discussions even if Generative AI is used to
-facilitate those discussions. When communicating in a language you are not
-confident in, consider drafting your intended response and attempt to convey
-your ideas in the target language first. If you believe the ideas are not
-conveyed clearly, consider using translation tools (either non-generative or
-generative). Be aware that if you rely significantly on Generative AI for
-translation, this itself may inhibit communication due to limitations in
-Generative AI tooling.
+Contributors may use generative or non-generative translation tools to
+participate in OBI community spaces. Review translated text when possible to
+ensure it conveys your intended meaning. Translation assistance does not
+require disclosure unless the tool also generates substantive content.
 
-## 5. Transparency & Attribution
+## 5. Transparency and Disclosure
 
-We generally expect contributors to declare when Generative AI was used to
-prepare a submission. For non-trivial text or code submissions (such as new
-features, documentation pages, complex design proposals), you should describe
-how Generative AI was used and explain the human review process applied. For
-trivial use of Generative AI (such as spelling check or simple autocomplete)
-you are not expected to declare use. Suspected use of Generative AI tooling
-without transparency may lead to submissions being closed or rejected without
-discussion.
+Disclose non-trivial Generative AI use. This includes using Generative AI to
+produce implementation code, tests, documentation, or substantive
+communication. Briefly describe how it was used and how you reviewed and
+validated its output. You do not need to disclose spelling assistance, simple
+autocomplete, or translation that does not generate substantive content.
+
+Disclosure provides context for reviewers; it does not change the standards
+applied to the contribution. If required disclosure is missing, maintainers may
+ask for it during review.
 
 ## DCO and Licensing
 
@@ -125,6 +114,5 @@ detailed description of your obligations as a contributor. If you’re unsure
 about the licensing of code you created using Generative AI tools,
 **don’t submit it**.
 
-[AI Influence Level]: https://danielmiessler.com/blog/ai-influence-level-ail
 [Guidance Regarding Use of Generative AI Tools]: https://www.linuxfoundation.org/legal/generative-ai
 [AGENTS.md]: AGENTS.md

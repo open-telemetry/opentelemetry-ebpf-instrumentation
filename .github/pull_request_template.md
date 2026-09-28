@@ -9,8 +9,8 @@ Describe the change briefly.
 
 ## AI assistance
 
-- [ ] This contribution used Generative AI beyond trivial spelling assistance
-  or simple autocomplete.
+- [ ] This contribution includes non-trivial Generative AI assistance.
 
-If checked, describe how Generative AI was used and how its output was reviewed
-and validated.
+If checked, briefly describe how Generative AI was used and how you reviewed
+and validated its output. Spelling assistance and simple autocomplete do not
+need to be disclosed.
