@@ -23,7 +23,15 @@ struct {
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // key: pointer to the request goroutine
+    __type(key, go_addr_key_t); // key: serve goroutine decoding the HEADERS frame
+    __type(value, tp_info_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} http2_server_headers_tp SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t); // key: pointer to the stream's responseWriter
     __type(value, tp_info_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } http2_server_requests_tp SEC(".maps");
