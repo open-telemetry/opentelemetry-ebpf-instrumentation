@@ -109,13 +109,6 @@ func TestAgentCodeGatesCtxHook(t *testing.T) {
 				TracePrinter: "text",
 			},
 		},
-		{
-			name: "manual spans",
-			cfg: obi.Config{
-				NodeJS:       obi.NodeJSConfig{Enabled: true, ManualSpans: true},
-				TracePrinter: "text",
-			},
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code := (&NodeInjector{cfg: &tc.cfg}).agentCode()
@@ -124,6 +117,15 @@ func TestAgentCodeGatesCtxHook(t *testing.T) {
 				"the hook needs the propagation machinery it reads the fd from")
 		})
 	}
+
+	manualSpans := (&NodeInjector{cfg: &obi.Config{
+		NodeJS:       obi.NodeJSConfig{ManualSpans: true},
+		TracePrinter: "text",
+	}}).agentCode()
+	require.Contains(t, manualSpans, ctxHookEnabledPlaceholder,
+		"manual spans carry their request fd and must not install the per-callback hook")
+	require.Equal(t, 1, strings.Count(manualSpans, tracesEnabledOn),
+		"the span bridge reads the request fd from the propagation machinery")
 
 	// A metrics-only injection leaves the propagation machinery out, so the hook has
 	// no ALS store to read the fd from even when the substitution enables it. The JS
