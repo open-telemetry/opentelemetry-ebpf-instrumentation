@@ -49,14 +49,13 @@ use it to:
 
 These uses are acceptable provided you:
 
-1. Are involved in the entire process for creating the contributions;
-2. Personally review, edit, and understand generated content before you submit
-  it to the organization;
-3. Validate generated content where applicable;
-4. Take personal responsibility for the content, just as if you had authored
+1. Review the complete contribution, revise generated content as needed, and
+  understand the decisions it contains;
+2. Validate the contribution before submission where applicable;
+3. Take personal responsibility for the content, just as if you had authored
   it without using Generative AI;
-5. Ensure the output adheres to project guidelines and licensing requirements; and
-6. Disclose non-trivial use of Generative AI as described in
+4. Ensure the output adheres to project guidelines and licensing requirements; and
+5. Disclose non-trivial use of Generative AI as described in
   [Transparency and Disclosure](#5-transparency-and-disclosure).
 
 ### GitHub Communication
