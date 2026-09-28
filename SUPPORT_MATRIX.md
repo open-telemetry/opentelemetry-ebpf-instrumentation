@@ -37,6 +37,19 @@ OBI supports Linux environments that meet all of the following requirements:
 RHEL-based distributions in scope for the `4.18+` exception include RHEL 8, CentOS 8, Rocky Linux 8, AlmaLinux 8,
 and compatible derivatives that provide the required eBPF backports and BTF support.
 
+When `OTEL_EBPF_ENFORCE_SYS_CAPS` is `false` (the default), missing capabilities
+produce a warning and OBI continues loading eBPF programs. A later load failure
+may therefore report a verbose kernel verifier log instead of an actionable
+capability error. Set it to `true` to fail early with the required capability
+names.
+
+The documented kernel minimum does not make BPF debug logging compatible with
+every 5.8–5.10 kernel. Kernels without the later verifier fix for spilled
+`PTR_TO_MEM` values may reject debug-only programs when `ebpf.bpf_debug` is
+enabled. Leave BPF debug logging disabled (the production default), or use a
+kernel containing that fix; production instrumentation with debug disabled is
+unaffected.
+
 ## Validation Coverage
 
 The support contract is broader than CI coverage, but the following environments are explicitly validated in
@@ -62,13 +75,13 @@ through language-specific library instrumentation documented later in this file.
 
 | Protocol | Versions | Methods or operations | Secure | Context propagation | Limitations |
 |:---------|:---------|:----------------------|:------:|:-------------------:|:------------|
-| HTTP | `1.0/1.1` | All | Yes | Yes | Generic TLS inject uses TCP option kind 25 only (OBI-to-OBI; L7 proxies may drop it). Header inject works for plaintext. |
+| HTTP | `1.0/1.1` | All | Yes | Yes | Generic TLS inject uses TCP option kind 25 only (OBI-to-OBI; L7 proxies may drop it). Header inject works for plaintext. Generic header extraction scans only the first 1 KiB of the captured request buffer, so a `traceparent` beyond that window may not be detected. |
 | HTTP | `2.0` | All | Yes | Yes | Network-level HPACK inject/extract on plaintext HTTP/2. Generic TLS cannot inject; extract still works if a peer injected. Huffman-encoded `traceparent` extract requires kernel `5.17+`. Go library instrumentation covers TLS inject via uprobes. On the generic path, about six streams that share one read or write are captured; extra streams are dropped instead of being reported with wrong values. See [devdocs/grpc-context-propagation.md](devdocs/grpc-context-propagation.md). |
 | gRPC | `1.0+` | All | Yes | Yes | Same HPACK path as HTTP/2. Long-lived connections started before OBI may use `*` for method names. Generic TLS cannot inject. Huffman extract requires kernel `5.17+`. Message body capture is not supported. |
 | MySQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
 | PostgreSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
-| MSSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
-| Redis | All | All | Yes | No | Existing connections may miss database number and `db.namespace` |
+| MSSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text. Some Node.js/TDS traffic can be recognized as MSSQL but produce no database span when the parser cannot extract a valid operation and table, even when TLS probes attach successfully |
+| Redis | All | All | Yes | No | Existing connections may miss database number and `db.namespace`; high-throughput Redis workloads can incur material CPU overhead from tracing, so benchmark before production rollout |
 | MongoDB | `5.0+` | `insert`, `update`, `find`, `delete`, `findAndModify`, `aggregate`, `count`, `distinct`, `mapReduce` | Yes | No | No support for compressed payloads |
 | Couchbase | All | All | Yes | No | Bucket or collection may be unknown if negotiation happened before OBI started |
 | Memcached | All | ASCII text subset excluding `quit` and meta commands | Yes | No | Only the first key is recorded for multi-key retrieval; payload bytes are not captured |

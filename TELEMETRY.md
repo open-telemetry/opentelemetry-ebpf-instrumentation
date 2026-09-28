@@ -66,6 +66,31 @@ output from this compatibility contract.
 
 ## Exclusions and caveats
 
+### Known v1 limitations
+
+The following limitations affect telemetry that is otherwise within the v1
+surface:
+
+- Service graph metrics from the built-in Prometheus exporter do not include a
+  unique OBI-instance label in their identity. Multiple OBI instances can
+  therefore write the same client/server series and collide unless the
+  receiving system adds instance identity separately.
+- Service graph destination names can be `outgoing` when a Kubernetes Service
+  resolves to a Pod IP that is not available in the informer cache. Non-HTTP
+  destinations have the same fallback when Kubernetes metadata is unavailable;
+  reverse-DNS resolution is optional and disabled by default.
+- When a Kubernetes Service identifies a destination but the destination
+  workload's `OTEL_SERVICE_NAMESPACE` override is not available, service graph
+  attributes can retain the Kubernetes namespace rather than the workload's
+  OpenTelemetry namespace.
+- A transient PID-to-container lookup failure while a Kubernetes process is
+  first discovered can drop that process's metric correlation; the process is
+  not automatically retried by that discovery event.
+- OBI preserves captured span timestamps rather than normalizing them to enforce
+  parent-before-child ordering. Timestamps are converted from eBPF monotonic
+  values using the wall clock of the exporting OBI instance, so clock skew
+  between OBI instances can make a child span appear to start before its parent.
+
 - A stable classification describes the shape and meaning of telemetry when it
   is emitted. It does not make emission unconditional. Enabled features,
   instrumented protocols, attribute selection, declared requirement levels,
