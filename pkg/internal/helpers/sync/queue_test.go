@@ -4,6 +4,7 @@
 package sync
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -35,6 +36,33 @@ func TestQueueDequeueBlockingIfEmpty(t *testing.T) {
 
 	// THEN it unblocks and elements are returned in order
 	assert.Equal(t, 1, testutil.ReadChannel(t, available, timeout))
+}
+
+func TestQueueDequeueContext(t *testing.T) {
+	t.Run("returns queued item", func(t *testing.T) {
+		q := NewQueue[int]()
+		q.Enqueue(1)
+
+		item, err := q.DequeueContext(context.Background())
+
+		assert.NoError(t, err)
+		assert.Equal(t, 1, item)
+	})
+
+	t.Run("returns when context is canceled", func(t *testing.T) {
+		q := NewQueue[int]()
+		ctx, cancel := context.WithCancel(context.Background())
+		dequeued := make(chan error, 1)
+
+		go func() {
+			_, err := q.DequeueContext(ctx)
+			dequeued <- err
+		}()
+
+		cancel()
+
+		assert.ErrorIs(t, testutil.ReadChannel(t, dequeued, timeout), context.Canceled)
+	})
 }
 
 func TestQueueOrdering(t *testing.T) {
