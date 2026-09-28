@@ -23,7 +23,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
@@ -36,6 +35,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -49,7 +49,7 @@ func gctx(groups attributes.AttrGroups, mcfg *otelcfg.MetricsConfig) *global.Con
 		Metrics:               imetrics.NoopReporter{},
 		MetricAttributeGroups: groups,
 		K8sInformer:           kube.NewMetadataProvider(kube.MetadataConfig{Enable: kubeflags.EnabledFalse}, imetrics.NoopReporter{}),
-		NodeMeta:              meta.NodeMeta{HostID: "host-id"},
+		NodeMeta:              metadata.NodeMeta{HostID: "host-id"},
 		OTELMetricsExporter:   &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
 	}
 }

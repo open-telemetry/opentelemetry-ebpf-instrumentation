@@ -117,7 +117,8 @@ func testECSServiceResolution(t *testing.T, discover bool) {
 	}
 	if discover {
 		// The official mock serves V4-compatible metadata through its /v3 route.
-		o.Env = append(o.Env, "ECS_CONTAINER_METADATA_URI_V4=http://ecs-metadata/v3/containers/obi")
+		// Use the ready frontend endpoint; all containers share the mock task's cluster and region.
+		o.Env = append(o.Env, "ECS_CONTAINER_METADATA_URI_V4=http://ecs-metadata/v3/containers/ecs-frontend")
 	} else {
 		o.Env = append(o.Env,
 			"OTEL_EBPF_CLUSTER_NAME=integration-test",
@@ -160,7 +161,7 @@ func testECSServiceResolution(t *testing.T, discover bool) {
 	}, testTimeout, 100*time.Millisecond)
 	for _, service := range []string{"ecs-frontend", "ecs-backend"} {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := httpClient.Get(jaegerQueryURL + "?service=" + service)
+			resp, err := getJaeger(jaegerQueryURL + "?service=" + service)
 			require.NoError(ct, err)
 			defer resp.Body.Close()
 			require.Equal(ct, http.StatusOK, resp.StatusCode)

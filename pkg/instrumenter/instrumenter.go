@@ -12,7 +12,6 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/docker"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
@@ -22,6 +21,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/appolly"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	netagent "go.opentelemetry.io/obi/pkg/netolly/agent"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -237,7 +237,7 @@ func BuildCommonContextInfo(
 		ServiceNameTemplate:      templ,
 	}, imetrics.NoopReporter{})
 
-	ctxInfo.NodeMeta = meta.NewNodeMeta(
+	ctxInfo.NodeMeta = metadata.NewNodeMeta(
 		ctx,
 		config.Attributes.HostID.Override,
 		ctxInfo.K8sInformer,

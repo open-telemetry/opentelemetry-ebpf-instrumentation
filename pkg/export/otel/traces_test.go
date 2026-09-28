@@ -28,7 +28,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
@@ -36,13 +35,14 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 	"go.opentelemetry.io/obi/pkg/internal/sqlprune"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
 var cache = expirable2.NewLRU[svc.UID, []attribute.KeyValue](1024, nil, 5*time.Minute)
 
-var hostID = &meta.NodeMeta{HostID: "host-id"}
+var hostID = &metadata.NodeMeta{HostID: "host-id"}
 
 func BenchmarkGenerateTraces(b *testing.B) {
 	start := time.Now()
@@ -2842,7 +2842,7 @@ func TestTracesAttrReuse(t *testing.T) {
 		},
 	}
 
-	host123 := &meta.NodeMeta{HostID: "123"}
+	host123 := &metadata.NodeMeta{HostID: "123"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			attr1 := tracesgen.TraceAppResourceAttrs(cache, host123, &tt.span.Service)

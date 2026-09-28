@@ -18,7 +18,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -162,11 +162,11 @@ func TestECSInventoryProviderMetadataDefaults(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var apiRequests atomic.Int32
-			metadata := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			metadataServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				t.Error("resolver must use shared node metadata")
 				fmt.Fprint(w, "{}")
 			}))
-			defer metadata.Close()
+			defer metadataServer.Close()
 			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				apiRequests.Add(1)
 				var input struct{ Cluster string }
@@ -177,7 +177,7 @@ func TestECSInventoryProviderMetadataDefaults(t *testing.T) {
 				fmt.Fprint(w, `{"taskArns":[]}`)
 			}))
 			defer api.Close()
-			t.Setenv("ECS_CONTAINER_METADATA_URI_V4", metadata.URL)
+			t.Setenv("ECS_CONTAINER_METADATA_URI_V4", metadataServer.URL)
 			t.Setenv("ECS_CONTAINER_METADATA_URI", "")
 			t.Setenv("AWS_ENDPOINT_URL_ECS", api.URL)
 			t.Setenv("AWS_ACCESS_KEY_ID", "test")
@@ -191,7 +191,7 @@ func TestECSInventoryProviderMetadataDefaults(t *testing.T) {
 			}
 			cloudCfg := CloudMetadataConfig{ClusterName: tc.cluster, Region: tc.region}
 			original := cloudCfg
-			info := &global.ContextInfo{NodeMeta: meta.NodeMeta{Cluster: detectedCluster, Region: "us-east-1"}}
+			info := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Cluster: detectedCluster, Region: "us-east-1"}}
 			_, err := ECSInventoryProvider(info, cfg, cloudCfg)(t.Context())
 			require.NoError(t, err)
 			require.NotNil(t, info.AppO11y.ECSInventory)

@@ -32,7 +32,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export"
@@ -42,6 +41,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -131,9 +131,9 @@ func TestAppMetricsExpiration(t *testing.T) {
 	exporter, err := PrometheusEndpoint(
 		&global.ContextInfo{
 			Prometheus: &connector.PrometheusManager{},
-			NodeMeta: meta.NodeMeta{
+			NodeMeta: metadata.NodeMeta{
 				HostID: "my-host",
-				Metadata: []meta.Entry{
+				Metadata: []metadata.Entry{
 					{Key: "cloud.account.id", Value: "0123456789"},
 					{Key: "cloud.region", Value: "us-east-1"},
 				},

@@ -1,5 +1,5 @@
 # Cloud resource entities OBI's contrib detectors populate. The EC2 / Azure VM /
-# GCP detectors (pkg/appolly/meta) set cloud.* and the GCE-specific gcp.gce.*
+# GCP detectors (pkg/metadata) set cloud.* and the GCE-specific gcp.gce.*
 # keys; which appear depends on the environment, so importing the whole entity
 # keeps live-check tolerant of the detector's output without
 # --include-unreferenced. Every attribute in these two entities is one a

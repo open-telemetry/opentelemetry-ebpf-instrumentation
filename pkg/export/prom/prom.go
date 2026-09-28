@@ -18,7 +18,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/buildinfo"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export"
@@ -29,6 +28,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -254,7 +254,7 @@ type metricsReporter struct {
 
 	kubeEnabled         bool
 	dockerEnabled       bool
-	nodeMeta            meta.NodeMeta
+	nodeMeta            metadata.NodeMeta
 	userAttribSelection attributes.Selection
 
 	serviceMap  map[svc.UID]svc.Attrs
@@ -1441,7 +1441,7 @@ func k8sTargetInfoLabelNames() []attr.Name {
 	}
 }
 
-func targetInfoLabelNames(kubeEnabled, dockerEnabled bool, nodeMeta *meta.NodeMeta, extraMetadataLabelNames []attr.Name) []attr.Name {
+func targetInfoLabelNames(kubeEnabled, dockerEnabled bool, nodeMeta *metadata.NodeMeta, extraMetadataLabelNames []attr.Name) []attr.Name {
 	names := baseTargetInfoLabelNames()
 
 	if kubeEnabled {
@@ -1462,7 +1462,7 @@ func targetInfoLabelNames(kubeEnabled, dockerEnabled bool, nodeMeta *meta.NodeMe
 
 func labelNamesTargetInfo(
 	kubeEnabled, dockerEnabled bool,
-	nodeMeta *meta.NodeMeta,
+	nodeMeta *metadata.NodeMeta,
 	extraMetadataLabelNames []attr.Name,
 	attrSelector attributes.Selection,
 ) []string {
@@ -1481,7 +1481,7 @@ func (r *metricsReporter) labelValuesTargetInfo(service *svc.Attrs) []string {
 	return r.labelValuesForNodeMeta(service, &r.nodeMeta)
 }
 
-func (r *metricsReporter) labelValuesForNodeMeta(service *svc.Attrs, nodeMeta *meta.NodeMeta) []string {
+func (r *metricsReporter) labelValuesForNodeMeta(service *svc.Attrs, nodeMeta *metadata.NodeMeta) []string {
 	labels := []targetInfoResourceLabel{
 		{name: attr.HostID, value: nodeMeta.HostID},
 		{name: attr.HostName, value: service.HostName},

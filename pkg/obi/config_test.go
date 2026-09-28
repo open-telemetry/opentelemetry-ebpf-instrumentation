@@ -25,7 +25,6 @@ import (
 
 	"go.opentelemetry.io/collector/confmap"
 
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export"
@@ -42,6 +41,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -386,7 +386,7 @@ discovery:
 			ExtraGroupAttributes: map[string][]attr.Name{
 				"k8s_app_meta": {"k8s.app.version"},
 			},
-			MetadataRetry:                  meta.DefaultRetryConfig,
+			MetadataRetry:                  metadata.DefaultRetryConfig,
 			MetricSpanNameAggregationLimit: 100,
 		},
 		Routes: &transform.RoutesConfig{
