@@ -7,7 +7,7 @@ groups:
   - id: span.obi.rpc.grpc.server
     type: span
     span_kind: server
-    stability: development
+    stability: release_candidate
     brief: OBI inbound gRPC server span.
     attributes:
       - ref: rpc.system.name
@@ -26,8 +26,7 @@ groups:
         requirement_level:
           conditionally_required: if the port was observed on the connection
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
+        requirement_level: opt_in
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name
@@ -44,7 +43,7 @@ groups:
   - id: span.obi.rpc.grpc.client
     type: span
     span_kind: client
-    stability: development
+    stability: release_candidate
     brief: OBI outbound gRPC client span.
     attributes:
       - ref: rpc.system.name
@@ -55,8 +54,7 @@ groups:
         requirement_level:
           conditionally_required: if the status is inside the gRPC enum
       - ref: service.peer.name
-        requirement_level:
-          recommended: if the peer service name could be resolved
+        requirement_level: opt_in
       - ref: server.address
         requirement_level:
           conditionally_required: if the peer address was resolved from the connection
@@ -64,8 +62,7 @@ groups:
         requirement_level:
           conditionally_required: if the port was observed on the connection
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
+        requirement_level: opt_in
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name
@@ -109,8 +106,7 @@ groups:
         requirement_level:
           conditionally_required: if the port was observed on the connection
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
+        requirement_level: opt_in
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name
@@ -148,8 +144,7 @@ groups:
         requirement_level:
           conditionally_required: if the call carried an auth flavor
       - ref: service.peer.name
-        requirement_level:
-          recommended: if the peer service name could be resolved
+        requirement_level: opt_in
       - ref: server.address
         requirement_level:
           conditionally_required: if the peer address was resolved from the connection
@@ -157,8 +152,7 @@ groups:
         requirement_level:
           conditionally_required: if the port was observed on the connection
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
+        requirement_level: opt_in
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name

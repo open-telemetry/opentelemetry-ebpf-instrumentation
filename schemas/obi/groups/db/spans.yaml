@@ -33,20 +33,61 @@ groups:
         requirement_level:
           conditionally_required: if using a port other than the default port for this DBMS and if `server.address` is set
       - ref: service.peer.name
-        requirement_level:
-          recommended: if the peer service name could be resolved
+        requirement_level: opt_in
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
+        requirement_level: opt_in
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name
       - ref: network.peer.port
         requirement_level:
           recommended: if `network.peer.address` is set and the port is known
+
+  # SQL client spans come from their own emitter branch, separate from the
+  # other native database protocols `span.obi.db.client` covers.
+  - id: span.obi.db.sql.client
+    type: span
+    span_kind: client
+    stability: stable
+    brief: OBI outbound SQL database client span.
+    attributes:
+      - ref: db.system.name
+        requirement_level: required
+      - ref: db.namespace
+        requirement_level:
+          conditionally_required: if the exchange named a database
+      - ref: db.collection.name
+        requirement_level:
+          conditionally_required: if the operation could be parsed and names a table
+      - ref: db.operation.name
+        requirement_level:
+          conditionally_required: if the operation could be parsed from the query
+      - ref: db.query.text
+        requirement_level: opt_in
       - ref: db.query.summary
         requirement_level:
           recommended: if a summary could be derived from the query
+      - ref: db.response.status_code
+        requirement_level:
+          conditionally_required: if the operation failed and the status code is available
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
+      - ref: server.address
+        requirement_level: recommended
+      - ref: server.port
+        requirement_level:
+          conditionally_required: if using a port other than the default port for this DBMS and if `server.address` is set
+      - ref: service.peer.name
+        requirement_level: opt_in
+      - ref: span.metrics.skip
+        requirement_level: opt_in
+      - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
+      - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
 
   # Elasticsearch is recognised from HTTP client traffic, so these spans carry
   # the HTTP client base set on top of the db.* attributes. The native database
@@ -65,10 +106,10 @@ groups:
           conditionally_required: if the wire method is outside the semconv enum
       - ref: url.full
         requirement_level: required
-      # Appended unconditionally for this subtype, outside the transport gate
-      # the other HTTP response attributes sit behind.
+      # Appended for this subtype outside the transport gate the other HTTP
+      # response attributes sit behind.
       - ref: http.response.body.size
-        requirement_level: recommended
+        requirement_level: opt_in
       - ref: db.system.name
         requirement_level: required
       - ref: db.namespace
@@ -94,11 +135,9 @@ groups:
         requirement_level:
           conditionally_required: if the port was observed on the connection
       - ref: service.peer.name
-        requirement_level:
-          recommended: if the peer service name could be resolved
+        requirement_level: opt_in
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
+        requirement_level: opt_in
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name
@@ -143,8 +182,7 @@ groups:
         requirement_level:
           conditionally_required: if the port was observed on the connection
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
+        requirement_level: opt_in
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name

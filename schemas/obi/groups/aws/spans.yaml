@@ -39,8 +39,7 @@ groups:
         requirement_level:
           conditionally_required: if the port was observed on the connection
       - ref: service.peer.name
-        requirement_level:
-          recommended: if the peer service name could be resolved
+        requirement_level: opt_in
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name
@@ -54,8 +53,7 @@ groups:
         requirement_level:
           conditionally_required: if the operation ended in an error
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
+        requirement_level: opt_in
 
   - id: span.obi.aws.sqs.client
     type: span
@@ -93,8 +91,7 @@ groups:
         requirement_level:
           conditionally_required: if the operation maps to a semantic-convention operation type
       - ref: service.peer.name
-        requirement_level:
-          recommended: if the peer service name could be resolved
+        requirement_level: opt_in
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name
@@ -108,8 +105,7 @@ groups:
         requirement_level:
           conditionally_required: if the operation ended in an error
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
+        requirement_level: opt_in
 
   - id: span.obi.aws.sns.client
     type: span
@@ -151,8 +147,7 @@ groups:
         requirement_level:
           conditionally_required: if the port was observed on the connection
       - ref: service.peer.name
-        requirement_level:
-          recommended: if the peer service name could be resolved
+        requirement_level: opt_in
       - ref: network.peer.address
         requirement_level:
           recommended: if the peer address is an IP rather than a name
@@ -166,5 +161,4 @@ groups:
         requirement_level:
           conditionally_required: if the operation ended in an error
       - ref: span.metrics.skip
-        requirement_level:
-          conditionally_required: if a span-metrics feature is enabled
+        requirement_level: opt_in
