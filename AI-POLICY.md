@@ -7,8 +7,9 @@ OpenTelemetry eBPF Instrumentation (OBI)
 community, we provide the following guidance on the use of "Generative
 Artificial Intelligence", including large language models (LLMs), GitHub
 Copilot, ChatGPT, Codex, Claude code, or similar tools ("Generative AI"). The
-guidance in this document is intended for all contributors to the community. As
-a Linux Foundation project, OBI is also subject to the Linux Foundation
+guidance in this document is intended for all contributors to the community.
+Instructions for coding agents are maintained separately in [AGENTS.md]. As a
+Linux Foundation project, OBI is also subject to the Linux Foundation
 [Guidance Regarding Use of Generative AI Tools]. The guidance in this document
 is intended to support you as a contributor in addition to the Linux Foundation
 guidance.
@@ -40,7 +41,8 @@ use it to:
 - Auto-complete routines or boilerplate code (such as error handling, test
   scaffolding, function signatures);
 - Reformat or refactor existing content;
-- Brainstorm ideas for implementation cases, but write the actual code yourself;
+- Develop implementation code, documentation, and tests that you subsequently
+  review, revise, and validate;
 - Draft test cases which you subsequently review, revise and simplify before
   submission; or
 - Analyze your own content submissions.
@@ -60,23 +62,25 @@ These uses are acceptable provided you:
 ### GitHub Communication
 
 Issue and pull request descriptions, reviews, and comments must be written for
-human readers. Keep them concise, specific, and easy to scan. Do not submit raw
-or lightly edited Generative AI output, generated wall-of-text reports,
-exhaustive restatements of the code, or a play-by-play of the work. Include only
-the context needed for another contributor to understand or act on the message.
+human readers. Generative AI may be used to draft them, but you must review and
+revise the result before submission. Keep them concise, specific, and easy to
+scan. Do not submit raw or lightly edited Generative AI output, generated
+wall-of-text reports, exhaustive restatements of the code, or a play-by-play of
+the work. Include only the context needed for another contributor to understand
+or act on the message.
 
 ## 3. Unacceptable Use
 
 It is not acceptable to use Generative AI tools to:
 
-1. Communicate in any OBI community space with content that is substantially
-  written using Generative AI tools. For example, it is not acceptable to send
-  such text on Slack or GitHub, whether initiating or responding to discussion
-  with other community members.
+1. Communicate in any OBI community space with Generative AI output that you
+  have not carefully reviewed and revised. This applies when initiating or
+  responding to discussions on Slack, GitHub, or other community channels.
 2. Submit code, documentation, or discussion content that you have not reviewed
   in careful detail, including testing the content where applicable.
-3. Rely solely or primarily on Generative AI output for technical problem
-  solving, architectural decision making.
+3. Delegate technical problem solving or architectural decision making without
+  independently verifying that the result fits the project and its existing
+  architecture.
 4. Submit work produced via Generative AI tooling that copies from external
   sources without correct attribution or licensing.
 5. Submit contributions where you cannot explain, contextualize, or justify the
@@ -123,3 +127,4 @@ about the licensing of code you created using Generative AI tools,
 
 [AI Influence Level]: https://danielmiessler.com/blog/ai-influence-level-ail
 [Guidance Regarding Use of Generative AI Tools]: https://www.linuxfoundation.org/legal/generative-ai
+[AGENTS.md]: AGENTS.md

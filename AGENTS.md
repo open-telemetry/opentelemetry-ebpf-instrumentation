@@ -59,6 +59,22 @@ point, use short paragraphs or lists when helpful, and include only the context
 needed to understand or act on the message. Do not post generated wall-of-text
 reports, exhaustive restatements of the code, or a play-by-play of the work.
 
+## AI-assisted contributions
+
+Agents may author implementation code, documentation, tests, and drafts of
+GitHub communication. Their output must follow the same repository, validation,
+and communication requirements as any other contribution.
+
+Agent output remains a draft until the contributor reviews it. Agents must not
+claim that a contributor has reviewed, understood, tested, or accepted
+responsibility for generated work. Before submission, remind the contributor to:
+
+- Carefully review and revise the output.
+- Understand and be able to explain the contribution.
+- Run the validation appropriate to the change.
+- Take responsibility for correctness, security, clarity, and licensing.
+- Disclose non-trivial Generative AI assistance as required by `AI-POLICY.md`.
+
 ## Validation
 
 Before proposing changes, ensure the repository generates required artifacts, passes validation, and compiles successfully.
