@@ -10,6 +10,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 )
 
 func TestApplyDeviceIdentityRetainsNameOnlyObservation(t *testing.T) {
@@ -20,8 +21,8 @@ func TestApplyDeviceIdentityRetainsNameOnlyObservation(t *testing.T) {
 	)
 
 	tracer := &Tracer{
-		deviceModels: map[cudaDeviceKey]string{
-			{pid: pid, index: index}: model,
+		deviceModels: map[app.PID]map[uint32]string{
+			pid: {index: model},
 		},
 	}
 	span := request.Span{Pid: request.PidInfo{HostPID: pid}}
@@ -39,8 +40,8 @@ func TestApplyDeviceIdentityRetainsNameOnlyObservation(t *testing.T) {
 
 func TestApplyDeviceIdentityScopesModelToProcess(t *testing.T) {
 	tracer := &Tracer{
-		deviceModels: map[cudaDeviceKey]string{
-			{pid: 1234, index: 7}: "NVIDIA H20",
+		deviceModels: map[app.PID]map[uint32]string{
+			1234: {7: "NVIDIA H20"},
 		},
 	}
 	span := request.Span{Pid: request.PidInfo{HostPID: 5678}}
@@ -51,4 +52,32 @@ func TestApplyDeviceIdentityScopesModelToProcess(t *testing.T) {
 	})
 
 	assert.Empty(t, span.CudaDeviceModel)
+}
+
+func TestBlockPIDDiscardsDeviceModelsBeforePIDReuse(t *testing.T) {
+	const (
+		pid   = app.PID(1234)
+		index = uint32(7)
+		model = "NVIDIA H20"
+	)
+
+	tracer := &Tracer{
+		pidsFilter: &ebpfcommon.IdentityPidsFilter{},
+		deviceModels: map[app.PID]map[uint32]string{
+			pid: {index: model},
+		},
+	}
+
+	tracer.BlockPID(pid, 0)
+	tracer.AllowPID(pid, 0, nil)
+
+	span := request.Span{Pid: request.PidInfo{HostPID: pid}}
+	tracer.applyDeviceIdentity(&span, BpfCudaDeviceT{
+		Index: index,
+		Known: 1,
+	})
+
+	assert.True(t, span.CudaDeviceKnown)
+	assert.Empty(t, span.CudaDeviceModel)
+	assert.NotContains(t, tracer.deviceModels, pid)
 }

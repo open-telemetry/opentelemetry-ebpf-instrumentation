@@ -48,11 +48,6 @@ type pidKey struct {
 	Ns  uint32
 }
 
-type cudaDeviceKey struct {
-	pid   app.PID
-	index uint32
-}
-
 type (
 	GPUCudaKernelLaunchInfo BpfCudaKernelLaunchT
 	GPUCudaMemcpyInfo       BpfCudaMemcpyT
@@ -75,9 +70,9 @@ type Tracer struct {
 	instrumentedLibs ebpfcommon.InstrumentedLibsT
 	libsMux          sync.Mutex
 	pidMap           map[pidKey]uint64
-	// deviceModels maps a process-local CUDA device index to its model name. Only
-	// the single ring buffer parser goroutine reads and writes it, so it needs no lock.
-	deviceModels map[cudaDeviceKey]string
+	deviceModelsMux  sync.RWMutex
+	// deviceModels maps host PIDs to their process-local CUDA device model names.
+	deviceModels map[app.PID]map[uint32]string
 }
 
 func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) *Tracer {
@@ -93,7 +88,7 @@ func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.R
 		instrumentedLibs: make(ebpfcommon.InstrumentedLibsT),
 		libsMux:          sync.Mutex{},
 		pidMap:           map[pidKey]uint64{},
-		deviceModels:     map[cudaDeviceKey]string{},
+		deviceModels:     map[app.PID]map[uint32]string{},
 	}
 }
 
@@ -103,6 +98,10 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.pidsFilter.BlockPID(pid, ns)
+
+	p.deviceModelsMux.Lock()
+	delete(p.deviceModels, pid)
+	p.deviceModelsMux.Unlock()
 }
 
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
@@ -473,10 +472,16 @@ func (p *Tracer) readGPUCudaDeviceEventIntoSpan(record *ringbuf.Record) (request
 	p.log.Debug("GPU device info", "uuid", uuid, "model", model)
 
 	if model != "" {
-		p.deviceModels[cudaDeviceKey{
-			pid:   app.PID(event.PidInfo.HostPid),
-			index: event.Index,
-		}] = model
+		pid := app.PID(event.PidInfo.HostPid)
+
+		p.deviceModelsMux.Lock()
+		models := p.deviceModels[pid]
+		if models == nil {
+			models = map[uint32]string{}
+			p.deviceModels[pid] = models
+		}
+		models[event.Index] = model
+		p.deviceModelsMux.Unlock()
 	}
 
 	return request.Span{}, true, nil
@@ -490,10 +495,10 @@ func (p *Tracer) applyDeviceIdentity(span *request.Span, device BpfCudaDeviceT) 
 	span.CudaDeviceKnown = true
 	span.CudaDeviceIndex = device.Index
 	span.CudaDeviceUUID = cudaUUIDString(device.Uuid)
-	span.CudaDeviceModel = p.deviceModels[cudaDeviceKey{
-		pid:   span.Pid.HostPID,
-		index: device.Index,
-	}]
+
+	p.deviceModelsMux.RLock()
+	span.CudaDeviceModel = p.deviceModels[span.Pid.HostPID][device.Index]
+	p.deviceModelsMux.RUnlock()
 }
 
 // cudaUUIDString renders the raw bytes of a device UUID the way nvidia-smi
