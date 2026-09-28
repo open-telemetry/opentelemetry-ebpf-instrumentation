@@ -790,6 +790,57 @@ func TestAppMetrics_MCPOperationDuration(t *testing.T) {
 	}
 }
 
+func TestAppMetrics_MCPSessionDurationExportsDuringShutdown(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+
+	metricRecords := make(chan collector.MetricRecord, 10)
+	metricsInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(1))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          time.Hour,
+		TTL:               time.Hour,
+		ReportersCacheLen: 1,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
+		MetricsConsumer:   testMetricsConsumer(metricRecords),
+	}
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metricsInput,
+		processEvents,
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, reporter.exporter.Shutdown(context.Background()))
+	})
+
+	service := svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "mcp"}}
+	metrics := reporter.newMetricsInstance(&service)
+	require.NoError(t, reporter.setupMetricExpirers(&metrics, metrics.provider.Meter(reporterName)))
+
+	metrics.record(&request.Span{
+		Service:      service,
+		Type:         request.EventTypeHTTPClient,
+		SubType:      request.HTTPSubtypeMCP,
+		RequestStart: 100,
+		End:          200,
+		GenAI: &request.GenAI{MCP: &request.MCPCall{
+			SessionID: "session-1",
+		}},
+	}, reporter)
+	metrics.cleanupAllMetricsInstances()
+
+	require.NoError(t, metrics.provider.Shutdown(t.Context()))
+	records := readMetricsByName(t, metricRecords, time.Second, attributes.MCPClientSessionDuration.OTEL)
+	require.Len(t, records, 1)
+	assert.Equal(t, 1, records[0].Count)
+}
+
 func TestAppMetrics_DBClientAttributes(t *testing.T) {
 	ctx := t.Context()
 	metricRecords := make(chan collector.MetricRecord, 10)

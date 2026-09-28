@@ -1702,6 +1702,5 @@ func (r *Metrics) cleanupAllMetricsInstances() {
 	cleanupMetrics(r.ctx, r.genAIOutputTokenUsage)
 	cleanupMetrics(r.ctx, r.mcpClientOperationDuration)
 	cleanupMetrics(r.ctx, r.mcpServerOperationDuration)
-	cleanupMetrics(r.ctx, r.mcpClientSessionDuration)
-	cleanupMetrics(r.ctx, r.mcpServerSessionDuration)
+	// Provider shutdown performs the final collection of sessions closed above.
 }

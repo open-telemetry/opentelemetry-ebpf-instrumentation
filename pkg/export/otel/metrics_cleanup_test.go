@@ -27,7 +27,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 )
 
-func TestCleanupAllMetricsInstances_RemovesAllMetrics(t *testing.T) {
+func TestCleanupAllMetricsInstances_CleansMetricsAndRetainsMCPSessionDurations(t *testing.T) {
 	t.Parallel()
 
 	ctx := t.Context()
@@ -45,6 +45,10 @@ func TestCleanupAllMetricsInstances_RemovesAllMetrics(t *testing.T) {
 
 	for _, fieldName := range seeded {
 		t.Run(fieldName, func(t *testing.T) {
+			if fieldName == "mcpClientSessionDuration" || fieldName == "mcpServerSessionDuration" {
+				assertMetricExpirerRetained(t, metrics, fieldName)
+				return
+			}
 			assertMetricExpirerCleared(t, metrics, fieldName)
 		})
 	}
@@ -204,6 +208,16 @@ func assertMetricExpirerCleared(t *testing.T, metrics *Metrics, fieldName string
 	all := entries.MethodByName("All").Call(nil)
 	require.Len(t, all, 1, "reading entries for %s", fieldName)
 	assert.Len(t, all[0].Interface(), 0, "expected %s expirer to be empty after cleanup", fieldName)
+}
+
+func assertMetricExpirerRetained(t *testing.T, metrics *Metrics, fieldName string) {
+	t.Helper()
+
+	field := accessibleFieldValue(reflect.ValueOf(metrics).Elem().FieldByName(fieldName))
+	entries := accessibleFieldValue(field.Elem().FieldByName("entries"))
+	all := entries.MethodByName("All").Call(nil)
+	require.Len(t, all, 1, "reading entries for %s", fieldName)
+	assert.Len(t, all[0].Interface(), 1, "expected %s expirer to remain until provider shutdown", fieldName)
 }
 
 func accessibleFieldValue(field reflect.Value) reflect.Value {
