@@ -59,10 +59,10 @@ func TestECSResolverRecoversFromInitialFailure(t *testing.T) {
 		Sources: []Source{SourceECS}, CacheLen: 10, CacheTTL: time.Minute,
 		ECS: ECSNameResolverConfig{RefreshInterval: 10 * time.Millisecond},
 	}
-	ctxInfo := &global.ContextInfo{}
+	ctxInfo := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Features: metadata.ClusterECS}}
 	refresh, err := ECSInventoryProvider(ctxInfo, cfg, CloudMetadataConfig{ClusterName: "cluster", Region: "us-east-1"})(ctx)
 	require.NoError(t, err)
-	require.NotNil(t, ctxInfo.AppO11y.ECSInventory)
+	require.NotNil(t, ctxInfo.ECSInventory)
 	refreshDone := make(chan struct{})
 	go func() {
 		defer close(refreshDone)
@@ -109,7 +109,7 @@ func TestECSResolverRecoversFromInitialFailure(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return resolve().HostName == "checkout"
 	}, 5*time.Second, 10*time.Millisecond)
-	name, ok := ctxInfo.AppO11y.ECSInventory.ServiceNameForIP("10.0.0.2")
+	name, ok := ctxInfo.ECSInventory.ServiceNameForIP("10.0.0.2")
 	assert.True(t, ok)
 	assert.Equal(t, "checkout", name)
 }
@@ -117,12 +117,12 @@ func TestECSResolverRecoversFromInitialFailure(t *testing.T) {
 func TestECSInventoryProviderConfiguration(t *testing.T) {
 	t.Setenv("ECS_CONTAINER_METADATA_URI_V4", "")
 	t.Setenv("ECS_CONTAINER_METADATA_URI", "")
+	ctxInfo := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Features: metadata.ClusterECS}}
 	for _, cfg := range []*NameResolverConfig{nil, {Sources: []Source{SourceDNS}}} {
-		ctxInfo := &global.ContextInfo{}
 		run, err := ECSInventoryProvider(ctxInfo, cfg, CloudMetadataConfig{})(t.Context())
 		require.NoError(t, err)
 		run(t.Context())
-		assert.Nil(t, ctxInfo.AppO11y.ECSInventory)
+		assert.Nil(t, ctxInfo.ECSInventory)
 	}
 	for _, tc := range []struct {
 		cloud    CloudMetadataConfig
@@ -133,16 +133,17 @@ func TestECSInventoryProviderConfiguration(t *testing.T) {
 		{CloudMetadataConfig{ClusterName: "cluster", Region: "us-east-1"}, 0},
 		{CloudMetadataConfig{ClusterName: "cluster", Region: "us-east-1"}, -time.Second},
 	} {
-		ctxInfo := &global.ContextInfo{}
-		_, err := ECSInventoryProvider(ctxInfo, &NameResolverConfig{
-			Sources: []Source{SourceECS}, ECS: ECSNameResolverConfig{RefreshInterval: tc.interval},
-		}, tc.cloud)(t.Context())
-		if tc.interval <= 0 {
-			require.ErrorContains(t, err, "a positive refresh interval is required")
-		} else {
-			require.ErrorContains(t, err, "configure cloud_metadata.cluster_name and cloud_metadata.region")
-		}
-		assert.Nil(t, ctxInfo.AppO11y.ECSInventory)
+		t.Run(fmt.Sprintf("%s_%s_%v", tc.cloud.Region, tc.cloud.ClusterName, tc.interval), func(t *testing.T) {
+			_, err := ECSInventoryProvider(ctxInfo, &NameResolverConfig{
+				Sources: []Source{SourceECS}, ECS: ECSNameResolverConfig{RefreshInterval: tc.interval},
+			}, tc.cloud)(t.Context())
+			if tc.interval <= 0 {
+				require.ErrorContains(t, err, "a positive refresh interval is required")
+			} else {
+				require.ErrorContains(t, err, "configure cloud_metadata.cluster_name and cloud_metadata.region")
+			}
+			assert.Nil(t, ctxInfo.ECSInventory)
+		})
 	}
 }
 
@@ -191,10 +192,10 @@ func TestECSInventoryProviderMetadataDefaults(t *testing.T) {
 			}
 			cloudCfg := CloudMetadataConfig{ClusterName: tc.cluster, Region: tc.region}
 			original := cloudCfg
-			info := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Cluster: detectedCluster, Region: "us-east-1"}}
+			info := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Features: metadata.ClusterECS, Cluster: detectedCluster, Region: "us-east-1"}}
 			_, err := ECSInventoryProvider(info, cfg, cloudCfg)(t.Context())
 			require.NoError(t, err)
-			require.NotNil(t, info.AppO11y.ECSInventory)
+			require.NotNil(t, info.ECSInventory)
 			assert.Equal(t, original, cloudCfg)
 			assert.EqualValues(t, 1, apiRequests.Load())
 		})

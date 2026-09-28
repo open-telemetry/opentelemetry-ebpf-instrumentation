@@ -19,11 +19,11 @@ func ECSProcessEventDecoratorProvider(ctxInfo *global.ContextInfo,
 	input, output *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
 	return func(context.Context) (swarm.RunFunc, error) {
-		if ctxInfo.AppO11y.ECSInventory == nil {
+		if ctxInfo.ECSInventory == nil {
 			return swarm.Bypass(input, output)
 		}
 		d := ecsProcessDecorator{
-			inventory:     ctxInfo.AppO11y.ECSInventory,
+			inventory:     ctxInfo.ECSInventory,
 			input:         input.Subscribe(msg.SubscriberName("ECSProcessEventDecorator")),
 			output:        output,
 			processes:     map[app.PID]*ecsProcess{},

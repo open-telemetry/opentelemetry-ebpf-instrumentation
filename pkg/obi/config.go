@@ -225,7 +225,10 @@ var DefaultConfig = Config{
 		InstrumentCuda: config.CudaModeAuto,
 	},
 	NameResolver: &transform.NameResolverConfig{
-		Sources:  []transform.Source{transform.SourceK8s},
+		Sources: []transform.Source{
+			transform.SourceK8s,
+			transform.SourceECS,
+		},
 		CacheLen: 1024,
 		CacheTTL: 5 * time.Minute,
 		ECS: transform.ECSNameResolverConfig{
