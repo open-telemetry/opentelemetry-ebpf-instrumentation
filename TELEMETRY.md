@@ -66,30 +66,35 @@ output from this compatibility contract.
 
 ## Exclusions and caveats
 
-### Known v1 limitations
+### Known v1 emission limitations
 
-The following limitations affect telemetry that is otherwise within the v1
-surface:
+These limitations apply when the related telemetry is enabled. Listing a
+development signal here does not make it part of the stable v1 surface.
 
 - Service graph metrics from the built-in Prometheus exporter do not include a
-  unique OBI-instance label in their identity. Multiple OBI instances can
-  therefore write the same client/server series and collide unless the
-  receiving system adds instance identity separately.
+  unique OBI-instance label. Preserve the Prometheus target `instance` label, or
+  an equivalent external label, when combining series from multiple OBI scrape
+  targets.
+- Port-based process discovery can select a host-side helper or port-forwarder
+  that binds the same published port as a container workload. Telemetry from
+  the helper can then carry the workload's service identity. Use an
+  executable-path, container, or Kubernetes selector when multiple processes
+  expose that port.
 - Service graph destination names can be `outgoing` when a Kubernetes Service
   resolves to a Pod IP that is not available in the informer cache. Non-HTTP
   destinations have the same fallback when Kubernetes metadata is unavailable;
   reverse-DNS resolution is optional and disabled by default.
-- When a Kubernetes Service identifies a destination but the destination
-  workload's `OTEL_SERVICE_NAMESPACE` override is not available, service graph
-  attributes can retain the Kubernetes namespace rather than the workload's
-  OpenTelemetry namespace.
-- A transient PID-to-container lookup failure while a Kubernetes process is
-  first discovered can drop that process's metric correlation; the process is
-  not automatically retried by that discovery event.
-- OBI preserves captured span timestamps rather than normalizing them to enforce
-  parent-before-child ordering. Timestamps are converted from eBPF monotonic
-  values using the wall clock of the exporting OBI instance, so clock skew
-  between OBI instances can make a child span appear to start before its parent.
+- When OBI resolves a destination as a Kubernetes Service rather than a Pod, it
+  cannot map the Service selector back to a Pod's OpenTelemetry service-name or
+  namespace overrides. The service graph can therefore contain separate nodes
+  using the Kubernetes and OpenTelemetry identities.
+- After a Kubernetes Pod starts or restarts, its application metrics can
+  intermittently remain absent until OBI restarts. A failed initial
+  PID-to-container lookup is suspected, but the cause has not been confirmed.
+- Child spans can intermittently have start timestamps earlier than their
+  parents, including for same-node traces. The cause is not yet known.
+
+### Compatibility caveats
 
 - A stable classification describes the shape and meaning of telemetry when it
   is emitted. It does not make emission unconditional. Enabled features,

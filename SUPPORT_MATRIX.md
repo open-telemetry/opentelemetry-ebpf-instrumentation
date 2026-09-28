@@ -39,16 +39,15 @@ and compatible derivatives that provide the required eBPF backports and BTF supp
 
 When `OTEL_EBPF_ENFORCE_SYS_CAPS` is `false` (the default), missing capabilities
 produce a warning and OBI continues loading eBPF programs. A later load failure
-may therefore report a verbose kernel verifier log instead of an actionable
-capability error. Set it to `true` to fail early with the required capability
-names.
+may therefore include a verbose kernel verifier log. Set it to `true` to fail
+before loading with the required capability names.
 
 The documented kernel minimum does not make BPF debug logging compatible with
-every 5.8–5.10 kernel. Kernels without the later verifier fix for spilled
-`PTR_TO_MEM` values may reject debug-only programs when `ebpf.bpf_debug` is
-enabled. Leave BPF debug logging disabled (the production default), or use a
-kernel containing that fix; production instrumentation with debug disabled is
-unaffected.
+Linux 5.8, 5.9, and early or unpatched 5.10 kernels. Those kernels may reject
+debug-only programs when `ebpf.bpf_debug` is enabled. Leave BPF debug logging
+disabled (the production default), or use a kernel containing the verifier fix
+for spilled `PTR_TO_MEM` values. Production instrumentation with debug disabled
+is unaffected.
 
 ## Validation Coverage
 
@@ -80,8 +79,8 @@ through language-specific library instrumentation documented later in this file.
 | gRPC | `1.0+` | All | Yes | Yes | Same HPACK path as HTTP/2. Long-lived connections started before OBI may use `*` for method names. Generic TLS cannot inject. Huffman extract requires kernel `5.17+`. Message body capture is not supported. |
 | MySQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
 | PostgreSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
-| MSSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text. Some Node.js/TDS traffic can be recognized as MSSQL but produce no database span when the parser cannot extract a valid operation and table, even when TLS probes attach successfully |
-| Redis | All | All | Yes | No | Existing connections may miss database number and `db.namespace`; high-throughput Redis workloads can incur material CPU overhead from tracing, so benchmark before production rollout |
+| MSSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text. Node.js/TDS requests that yield no parseable operation or table may produce no database span even when TLS probes attach and OBI recognizes MSSQL |
+| Redis | All | All | Yes | No | Existing connections may miss database number and `db.namespace`; tracing can materially increase Redis CPU usage at high request rates, so benchmark before production rollout |
 | MongoDB | `5.0+` | `insert`, `update`, `find`, `delete`, `findAndModify`, `aggregate`, `count`, `distinct`, `mapReduce` | Yes | No | No support for compressed payloads |
 | Couchbase | All | All | Yes | No | Bucket or collection may be unknown if negotiation happened before OBI started |
 | Memcached | All | ASCII text subset excluding `quit` and meta commands | Yes | No | Only the first key is recorded for multi-key retrieval; payload bytes are not captured |
@@ -122,6 +121,11 @@ The following runtime and server baselines are currently documented or enforced 
 | Python asyncio context propagation | GIL-enabled, 64-bit CPython `3.9` through `3.14`, using the default asyncio loop or `uvloop`; free-threaded builds are unsupported |
 | Ruby applications | Ruby `3.0.2+` when served by Puma `5.0+` |
 | nginx | HTTP server and reverse-proxy tracing validated on nginx `>= 1.27.3` |
+
+Container-level language attribution can depend on process discovery order when
+a shell entrypoint launches Java as a descendant. A generic shell process can
+win attribution over the later Java process; OBI does not currently define a
+deterministic container-level precedence rule for that process tree.
 
 Additional language families may be instrumented through network-level tracing, but are not listed here unless the
 repository documents a concrete runtime or library compatibility baseline.

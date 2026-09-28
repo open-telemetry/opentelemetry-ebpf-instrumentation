@@ -376,19 +376,12 @@ Known `match.kubernetes` fields exported today:
 `metadata_glob` and `metadata_regex` intentionally exclude `k8s_namespace`; namespace has first-class fields because it is the most common Kubernetes selector.
 Other allowed metadata keys currently include `k8s_pod_name`, `k8s_deployment_name`, `k8s_replicaset_name`, `k8s_daemonset_name`, `k8s_statefulset_name`, `k8s_job_name`, `k8s_cronjob_name`, `k8s_owner_name`, `k8s_container_name`, and `container_name`.
 
-#### Process selection and attribution caveats
+#### Process selection caveat
 
-Port-based selection is evaluated against every process that exposes a matching
-port. Host-network helpers and port-forwarders can therefore be selected when
-they share a workload's port; use an executable-path, command-line, container,
-or Kubernetes selector when attribution must be deterministic.
-
-After a process matches, a child can inherit the parent's selection while it is
-starting and has not opened the port yet. This is intentional and means that
-`open_ports` does not by itself exclude forked children. A shell entrypoint can
-also make the ancestor's executable or detected language win attribution for a
-workload. Use explicit executable-path or metadata selectors when the concrete
-runtime process must determine the selection.
+When a process does not match an include rule directly, it can still inherit a
+tracked parent's selection. This intentional fallback applies even if the child
+never opens a selected port, so `open_ports` does not exclude forked children.
+Use executable-path exclusions when child processes must remain uninstrumented.
 
 #### Language-detection path skips are not capture rules
 
