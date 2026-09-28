@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/internal/cloud"
 	msg2 "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
 	"go.opentelemetry.io/obi/pkg/internal/traces"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -72,7 +73,8 @@ func newGraphBuilder(
 	}
 
 	// Second, we register instancers for each pipe node, as well as communication queues between them
-	swi.Add(transform.ECSInventoryProvider(ctxInfo, config.NameResolver, config.CloudMetadata), swarm.WithID("ECSInventory"))
+	swi.Add(cloud.InventoryRefresherNode(ctxInfo.CloudMetaInventory, config.CloudMetadata.RefreshInterval))
+
 	// TODO: consider moving the queues to a public structure so when OBI is used as library, other components can
 	// listen to the messages and expanding the Pipeline
 	tracesReaderToRouter := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "tracesReaderToRouter")
