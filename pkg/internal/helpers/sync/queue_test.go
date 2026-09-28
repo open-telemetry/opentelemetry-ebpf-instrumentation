@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 )
@@ -45,7 +46,7 @@ func TestQueueDequeueContext(t *testing.T) {
 
 		item, err := q.DequeueContext(context.Background())
 
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		assert.Equal(t, 1, item)
 	})
 
@@ -61,7 +62,7 @@ func TestQueueDequeueContext(t *testing.T) {
 
 		cancel()
 
-		assert.ErrorIs(t, testutil.ReadChannel(t, dequeued, timeout), context.Canceled)
+		require.ErrorIs(t, testutil.ReadChannel(t, dequeued, timeout), context.Canceled)
 	})
 }
 
