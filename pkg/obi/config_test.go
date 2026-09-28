@@ -498,7 +498,8 @@ func TestConfig_NameResolverSources(t *testing.T) {
 	// no yaml, no env: DefaultConfig value
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
-	assert.Equal(t, []transform.Source{transform.SourceK8s}, cfg.NameResolver.Sources)
+	assert.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceECS},
+		cfg.NameResolver.Sources)
 
 	// yaml must survive env.Parse when the env var is unset
 	cfg, err = LoadConfig(bytes.NewBufferString("name_resolver:\n  sources: [k8s, dns, rdns]\n"))

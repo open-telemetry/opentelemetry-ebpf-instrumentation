@@ -448,7 +448,7 @@ GlobalMetricsConfig is a placeholder for the progressive support of global and p
 |---|---|---|---|---|---|---|
 | `name_resolver.cache_expiry` | `duration` | `OTEL_EBPF_NAME_RESOLVER_CACHE_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. |
 | `name_resolver.cache_len` | `integer` | `OTEL_EBPF_NAME_RESOLVER_CACHE_LEN` | `1024` |  |  | Specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256 |
-| `name_resolver.sources` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_SOURCES` | `k8s` | `dns`, `ecs`, `k8s`, `kube`, `kubernetes`, `rdns` |  | Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns. The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions. |
+| `name_resolver.sources` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_SOURCES` | `k8s`, `ecs` | `dns`, `ecs`, `k8s`, `kube`, `kubernetes`, `rdns` |  | Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns. The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions. |
 
 ### `name_resolver.ecs`
 

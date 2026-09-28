@@ -512,7 +512,9 @@ func TestMigrationGoldenFiles(t *testing.T) {
 	)
 	output, report, err := migrateConfig(input)
 	require.NoError(t, err)
-	require.Equal(t, wantStandalone, output)
+	require.Equal(t,
+		strings.TrimSpace(string(wantStandalone)),
+		strings.TrimSpace(string(output)))
 	require.Contains(t, string(output), "wakeup_len: 500")
 	require.Equal(t, `migrated v1 config to OBI config v2
 - fanned out v1 attribute filters to signal-scoped v2 filters

@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 	memorystore "go.opentelemetry.io/obi/pkg/internal/rdns/store"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -134,8 +135,10 @@ func nameResolver(ctx context.Context, ctxInfo *global.ContextInfo, cfg *NameRes
 	}
 
 	var ecsResolver ecsServiceResolver
-	if sources.Has(ResolverECS) && ctxInfo.AppO11y.ECSInventory != nil {
-		ecsResolver = ctxInfo.AppO11y.ECSInventory
+	if sources.Has(ResolverECS) &&
+		ctxInfo.NodeMeta.Features.Has(metadata.ClusterECS) &&
+		ctxInfo.ECSInventory != nil {
+		ecsResolver = ctxInfo.ECSInventory
 	}
 
 	logger := slog.With("component", "transform.NameResolver")
