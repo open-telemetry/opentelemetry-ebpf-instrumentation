@@ -224,6 +224,9 @@ var DefaultConfig = Config{
 		BPFFSPath:      "/sys/fs/bpf/",
 		InstrumentCuda: config.CudaModeAuto,
 	},
+	CloudMetadata: transform.CloudMetadataConfig{
+		RefreshInterval: 30 * time.Second,
+	},
 	NameResolver: &transform.NameResolverConfig{
 		Sources: []transform.Source{
 			transform.SourceK8s,
@@ -231,9 +234,6 @@ var DefaultConfig = Config{
 		},
 		CacheLen: 1024,
 		CacheTTL: 5 * time.Minute,
-		ECS: transform.ECSNameResolverConfig{
-			RefreshInterval: 30 * time.Second,
-		},
 	},
 	Metrics: perapp.GlobalMetricsConfig{
 		Features: export.FeatureApplicationRED | export.FeatureApplicationSizes,
