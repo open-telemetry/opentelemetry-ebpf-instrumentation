@@ -44,7 +44,7 @@ before loading with the required capability names.
 
 The documented kernel minimum does not make BPF debug logging compatible with
 Linux 5.8, 5.9, and early or unpatched 5.10 kernels. Those kernels may reject
-debug-only programs when `ebpf.bpf_debug` is enabled. Leave BPF debug logging
+eBPF programs when `ebpf.bpf_debug` enables debug logging paths. Leave it
 disabled (the production default), or use a kernel containing the verifier fix
 for spilled `PTR_TO_MEM` values. Production instrumentation with debug disabled
 is unaffected.
