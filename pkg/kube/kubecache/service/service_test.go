@@ -277,6 +277,31 @@ func TestHandleMessagesQueue(t *testing.T) {
 	}
 }
 
+func TestHandleMessagesQueue_RespectsContextCancellationWhileQueueIsEmpty(t *testing.T) {
+	o := &connection{
+		log:         slog.New(slog.DiscardHandler),
+		sendTimeout: 5 * time.Minute,
+		metrics:     instrument.FromContext(context.Background()),
+		messages:    queuesync.NewQueue[*informer.Event](),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		o.handleMessagesQueue(ctx)
+		close(done)
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handleMessagesQueue did not return after context cancellation")
+	}
+}
+
 func TestHandleMessagesQueue_RespectsContextCancellationDuringSend(t *testing.T) {
 	sendCalled := make(chan struct{})
 	gate := make(chan struct{})
