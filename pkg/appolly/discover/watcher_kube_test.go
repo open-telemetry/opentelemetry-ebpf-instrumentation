@@ -440,7 +440,7 @@ func TestWatcherKubeEnricherHoldsProcessUntilPodIsKnown(t *testing.T) {
   exclude_instrument:
   - k8s_namespace: kube-system
 `), &pipeConfig))
-	swi.Add(criteriaMatcherProvider(&pipeConfig, connectQueue, outputQueue, FindingCriteria(&pipeConfig), nil))
+	swi.Add(criteriaMatcherProvider(&pipeConfig, connectQueue, outputQueue, FindingCriteria(&pipeConfig), nil, nil))
 
 	nodesRunner, err := swi.Instance(t.Context())
 	require.NoError(t, err)
