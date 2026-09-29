@@ -1,0 +1,31 @@
+# Resource attributes OBI sets on exported trace data itself, rather than on
+# any metric. Declared here rather than on a metric carrier they do not belong
+# to. No signal references this group: it documents that OBI sets the
+# attribute, and surfaces it in the generated reference.
+file_format: definition/2
+attributes:
+  - key: acs.arms.service.feature
+    type: string
+    stability: development
+    brief: >
+      Alibaba Cloud ARMS service-feature tag, carried as a resource
+      attribute on GenAI application signals so ARMS can classify the
+      service. OBI fork sets it to `genai_app`.
+    note: >
+      Fork-only extension for Alibaba Cloud ARMS; never part of upstream
+      semconv.
+    examples: ["genai_app"]
+
+attribute_groups:
+  - id: registry.obi.traces_resource
+    visibility: public
+    brief: >
+      Resource attributes OBI's trace exporter sets on the exported
+      `ResourceSpans` in addition to the service and infrastructure attributes
+      shared with the metrics pipeline.
+    stability: development
+    attributes:
+      # Set by the trace exporter on the ResourceSpans resource whenever a
+      # GenAI span group is exported (pkg/export/otel/traces.go), so Alibaba
+      # Cloud ARMS can classify the service.
+      - ref: acs.arms.service.feature

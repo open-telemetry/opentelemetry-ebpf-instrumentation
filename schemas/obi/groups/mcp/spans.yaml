@@ -41,6 +41,9 @@ spans:
       - ref: gen_ai.operation.name
         requirement_level:
           conditionally_required: if the operation executes a tool
+      - ref: gen_ai.span.kind
+        requirement_level:
+          conditionally_required: if the operation executes a tool
       - ref: gen_ai.tool.name
         requirement_level:
           conditionally_required: if the operation executes a tool
@@ -114,6 +117,9 @@ spans:
         requirement_level:
           recommended: if the exchange is part of a session
       - ref: gen_ai.operation.name
+        requirement_level:
+          conditionally_required: if the operation executes a tool
+      - ref: gen_ai.span.kind
         requirement_level:
           conditionally_required: if the operation executes a tool
       - ref: gen_ai.tool.name
