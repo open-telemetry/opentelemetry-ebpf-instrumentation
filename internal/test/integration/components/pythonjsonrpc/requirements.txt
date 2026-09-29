@@ -8,3 +8,6 @@ json-rpc==1.15.0 \
     --hash=sha256:4a4668bbbe7116feb4abbd0f54e64a4adcf4b8f648f19ffa0848ad0f6606a9bf \
     --hash=sha256:e6441d56c1dcd54241c937d0a2dcd193bdf0bdc539b5316524713f554b7f85b9
     # via -r requirements.in
+jsonrpcclient==4.0.3 \
+    --hash=sha256:3cbb9e27e1be29821becf135ea183144a836215422727e1ffe5056a49a670f0d
+    # via -r requirements.in

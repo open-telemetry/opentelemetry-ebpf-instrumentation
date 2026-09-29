@@ -1,0 +1,11 @@
+# OBI emits the upstream .NET garbage-collection metric unchanged — same name,
+# unit, instrument and `dotnet.gc.heap.generation` data-point attribute — so it
+# is imported rather than redeclared.
+#
+# Imports must live in their own definition/2 file: weaver's imports directive
+# is file-level and cannot be mixed into a groups-format domain file.
+file_format: definition/2
+
+imports:
+  metrics:
+    - dotnet.gc.collections

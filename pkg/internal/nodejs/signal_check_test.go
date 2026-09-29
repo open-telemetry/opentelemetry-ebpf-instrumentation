@@ -12,16 +12,59 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
+
+func handleFor(t *testing.T, pid int) *procs.ProcessHandle {
+	t.Helper()
+
+	p := app.PID(pid)
+
+	startTime, err := procs.StartTime(p)
+	if err != nil {
+		t.Fatalf("reading start time of %d: %v", pid, err)
+	}
+
+	handle, err := procs.OpenProcessHandle(p, startTime)
+	if err != nil {
+		t.Fatalf("opening handle for %d: %v", pid, err)
+	}
+	t.Cleanup(func() { _ = handle.Close() })
+
+	return handle
+}
+
+// exitedHandle is a live handle whose process has since exited and been reaped,
+// which is what a target disappearing mid-injection leaves behind. A handle to
+// a pid that never existed cannot be opened at all, so it cannot stand in.
+func exitedHandle(t *testing.T) *procs.ProcessHandle {
+	t.Helper()
+
+	cmd := exec.Command("sleep", "600")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start sleep: %v", err)
+	}
+
+	handle := handleFor(t, cmd.Process.Pid)
+
+	if err := cmd.Process.Kill(); err != nil {
+		t.Fatalf("failed to kill sleep: %v", err)
+	}
+	if _, err := cmd.Process.Wait(); err != nil {
+		t.Fatalf("failed to reap sleep: %v", err)
+	}
+
+	return handle
+}
 
 func findNodeBinary(t *testing.T) string {
 	t.Helper()
@@ -104,7 +147,7 @@ func awaitNodeReady(t *testing.T, pid int) {
 	t.Helper()
 
 	deadline := time.Now().Add(10 * time.Second)
-	for sigusr1Disposition(pid) != signalDispositionHandled {
+	for handleFor(t, pid).SignalDisposition(unix.SIGUSR1) != procs.SignalDispositionHandled {
 		if time.Now().After(deadline) {
 			t.Skipf("this Node does not catch SIGUSR1, so there is nothing to assert against: %s",
 				procSignalState(pid))
@@ -296,19 +339,6 @@ func testBinaryELF(t *testing.T) *elf.File {
 	return openELFPath(t, path)
 }
 
-func unusedPID(t *testing.T) int {
-	t.Helper()
-	raw, err := os.ReadFile("/proc/sys/kernel/pid_max")
-	if err != nil {
-		t.Skipf("cannot read pid_max: %v", err)
-	}
-	pidMax, err := strconv.Atoi(strings.TrimSpace(string(raw)))
-	if err != nil {
-		t.Skipf("cannot parse pid_max: %v", err)
-	}
-	return pidMax + 1
-}
-
 func TestReadNodeSymbols_AbsentTable(t *testing.T) {
 	if readNodeSymbols(nil).hasTree {
 		t.Error("an absent symbol table must not yield a signal tree")
@@ -356,8 +386,8 @@ func procSignalState(pid int) string {
 func TestSigusr1Disposition_NodeCatchesSignal(t *testing.T) {
 	cmd := startNodeScript(t, `setTimeout(() => {}, 600000);`)
 
-	if got := sigusr1Disposition(cmd.Process.Pid); got != signalDispositionHandled {
-		t.Errorf("expected signalDispositionHandled for a Node process, got %d (%s)",
+	if got := handleFor(t, cmd.Process.Pid).SignalDisposition(unix.SIGUSR1); got != procs.SignalDispositionHandled {
+		t.Errorf("expected procs.SignalDispositionHandled for a Node process, got %d (%s)",
 			got, procSignalState(cmd.Process.Pid))
 	}
 }
@@ -372,8 +402,8 @@ func TestSigusr1Disposition_FatalWithoutHandler(t *testing.T) {
 		_ = cmd.Wait()
 	})
 
-	if got := sigusr1Disposition(cmd.Process.Pid); got != signalDispositionFatal {
-		t.Errorf("expected signalDispositionFatal for a process with no SIGUSR1 handler, got %d", got)
+	if got := handleFor(t, cmd.Process.Pid).SignalDisposition(unix.SIGUSR1); got != procs.SignalDispositionFatal {
+		t.Errorf("expected procs.SignalDispositionFatal for a process with no SIGUSR1 handler, got %d", got)
 	}
 }
 
@@ -394,7 +424,7 @@ func TestAwaitSignalDisposition_WaitsForHandlerInstall(t *testing.T) {
 		_ = cmd.Wait()
 	})
 
-	if got := awaitSignalDisposition(t.Context(), cmd.Process.Pid); got != signalDispositionHandled {
+	if got := handleFor(t, cmd.Process.Pid).AwaitSignalDisposition(t.Context(), unix.SIGUSR1, dispositionWait); got != procs.SignalDispositionHandled {
 		t.Errorf("expected the wait to see the signal taken over, got %d (%s)",
 			got, procSignalState(cmd.Process.Pid))
 	}
@@ -413,9 +443,9 @@ func TestAwaitSignalDisposition_FatalAfterWindow(t *testing.T) {
 	})
 
 	start := time.Now()
-	got := awaitSignalDisposition(t.Context(), cmd.Process.Pid)
-	if got != signalDispositionFatal {
-		t.Errorf("expected signalDispositionFatal, got %d", got)
+	got := handleFor(t, cmd.Process.Pid).AwaitSignalDisposition(t.Context(), unix.SIGUSR1, dispositionWait)
+	if got != procs.SignalDispositionFatal {
+		t.Errorf("expected procs.SignalDispositionFatal, got %d", got)
 	}
 	if waited := time.Since(start); waited < dispositionWait {
 		t.Errorf("returned after %v, want at least the %v window", waited, dispositionWait)
@@ -437,14 +467,14 @@ func TestAwaitSignalDisposition_CancellationIsUnknown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	if got := awaitSignalDisposition(ctx, cmd.Process.Pid); got != signalDispositionUnknown {
-		t.Errorf("expected signalDispositionUnknown on cancellation, got %d", got)
+	if got := handleFor(t, cmd.Process.Pid).AwaitSignalDisposition(ctx, unix.SIGUSR1, dispositionWait); got != procs.SignalDispositionUnknown {
+		t.Errorf("expected procs.SignalDispositionUnknown on cancellation, got %d", got)
 	}
 }
 
 func TestSigusr1Disposition_UnknownForDeadProcess(t *testing.T) {
-	if got := sigusr1Disposition(unusedPID(t)); got != signalDispositionUnknown {
-		t.Errorf("expected signalDispositionUnknown for a nonexistent pid, got %d", got)
+	if got := exitedHandle(t).SignalDisposition(unix.SIGUSR1); got != procs.SignalDispositionUnknown {
+		t.Errorf("expected procs.SignalDispositionUnknown for a nonexistent pid, got %d", got)
 	}
 }
 
@@ -466,7 +496,7 @@ func TestSignalTreeRuntimeAddr_ResolvesForNode(t *testing.T) {
 }
 
 func TestSIGUSR1Refusal_DispositionUnreadable(t *testing.T) {
-	reason := sigusr1Refusal(context.Background(), unusedPID(t), openELFPath(t, findNodeBinary(t)))
+	reason := sigusr1Refusal(context.Background(), exitedHandle(t), openELFPath(t, findNodeBinary(t)))
 	if reason != refusalDispositionUnknown {
 		t.Errorf("expected %q, got %q", refusalDispositionUnknown, reason)
 	}
@@ -482,7 +512,7 @@ func TestSIGUSR1Refusal_SignalWouldBeFatal(t *testing.T) {
 		_ = cmd.Wait()
 	})
 
-	reason := sigusr1Refusal(context.Background(), cmd.Process.Pid, openELFPath(t, findNodeBinary(t)))
+	reason := sigusr1Refusal(context.Background(), handleFor(t, cmd.Process.Pid), openELFPath(t, findNodeBinary(t)))
 	if reason != refusalSignalIsFatal {
 		t.Errorf("expected %q, got %q", refusalSignalIsFatal, reason)
 	}
@@ -495,7 +525,7 @@ func TestSIGUSR1Refusal_CleanAppIsSignalled(t *testing.T) {
 
 	cmd := startNodeApp(t, `setTimeout(() => {}, 600000);`)
 
-	if reason := sigusr1Refusal(context.Background(), cmd.Process.Pid, openNodeELF(t, cmd.Process.Pid)); reason != "" {
+	if reason := sigusr1Refusal(context.Background(), handleFor(t, cmd.Process.Pid), openNodeELF(t, cmd.Process.Pid)); reason != "" {
 		t.Errorf("expected a clean Node application to be signaled, got %q", reason)
 	}
 }
@@ -515,7 +545,7 @@ func TestSIGUSR1Refusal_WithHandler(t *testing.T) {
 	}
 	awaitScriptHandler(t, cmd.Process.Pid, nodeELF)
 
-	reason := sigusr1Refusal(context.Background(), cmd.Process.Pid, nodeELF)
+	reason := sigusr1Refusal(context.Background(), handleFor(t, cmd.Process.Pid), nodeELF)
 	if reason != refusalHandlerFound {
 		t.Errorf("expected %q for a process with a custom SIGUSR1 handler, got %q", refusalHandlerFound, reason)
 	}

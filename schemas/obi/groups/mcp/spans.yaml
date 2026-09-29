@@ -3,8 +3,9 @@
 # excludes it, because it is a tool and resource protocol rather than a model
 # provider and so has no `gen_ai.provider.name` to report.
 #
-# MCP traffic seen on the *server* side stays on `span.obi.http.server`, which
-# OBI enriches in place; that span genuinely is an inbound HTTP request.
+# MCP traffic seen on the *server* side keeps the full HTTP server set, which the
+# server branch emits for every subtype, so its group extends
+# `span.obi.http.server` with the MCP attributes.
 groups:
   - id: span.obi.mcp.client
     type: span
@@ -16,13 +17,13 @@ groups:
         requirement_level: required
       - ref: mcp.protocol.version
         requirement_level:
-          conditionally_required: if the peer reported a protocol version
+          recommended: if the peer reported a protocol version
       - ref: mcp.resource.uri
         requirement_level:
           conditionally_required: if the request named a resource
       - ref: mcp.session.id
         requirement_level:
-          conditionally_required: if the exchange is part of a session
+          recommended: if the exchange is part of a session
       # Set to `execute_tool` for a tool call and left unset otherwise, so it
       # cannot be required here.
       - ref: gen_ai.operation.name
@@ -33,7 +34,7 @@ groups:
           conditionally_required: if the operation executes a tool
       - ref: gen_ai.tool.type
         requirement_level:
-          conditionally_required: if the operation executes a tool
+          recommended: if the operation executes a tool
       - ref: gen_ai.tool.call.arguments
         requirement_level: opt_in
       - ref: gen_ai.tool.call.result
@@ -51,10 +52,62 @@ groups:
         requirement_level:
           conditionally_required: if the operation ended in an error
       - ref: server.address
+        requirement_level:
+          recommended: if the server address could be resolved
       - ref: server.port
+        requirement_level:
+          recommended: when `server.address` is set
       - ref: service.peer.name
+        requirement_level: opt_in
       - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
       - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
       - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
       - ref: span.metrics.skip
         requirement_level: opt_in
+
+  - id: span.obi.mcp.server
+    type: span
+    span_kind: server
+    extends: span.obi.http.server
+    stability: development
+    brief: OBI inbound Model Context Protocol over HTTP server span.
+    attributes:
+      - ref: mcp.method.name
+        requirement_level: required
+      - ref: mcp.protocol.version
+        requirement_level:
+          recommended: if the peer reported a protocol version
+      - ref: mcp.resource.uri
+        requirement_level:
+          conditionally_required: if the request named a resource
+      - ref: mcp.session.id
+        requirement_level:
+          recommended: if the exchange is part of a session
+      - ref: gen_ai.operation.name
+        requirement_level:
+          conditionally_required: if the operation executes a tool
+      - ref: gen_ai.tool.name
+        requirement_level:
+          conditionally_required: if the operation executes a tool
+      - ref: gen_ai.tool.type
+        requirement_level:
+          recommended: if the operation executes a tool
+      - ref: gen_ai.tool.call.arguments
+        requirement_level: opt_in
+      - ref: gen_ai.tool.call.result
+        requirement_level: opt_in
+      - ref: gen_ai.prompt.name
+        requirement_level:
+          conditionally_required: if the request named a prompt template
+      - ref: jsonrpc.request.id
+        requirement_level:
+          conditionally_required: if the request carried a JSON-RPC id
+      - ref: rpc.response.status_code
+        requirement_level:
+          conditionally_required: if the response carried a JSON-RPC error code

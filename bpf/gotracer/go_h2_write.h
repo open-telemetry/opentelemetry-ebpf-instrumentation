@@ -17,6 +17,7 @@ enum go_h2_user_write_result : u8 {
     k_go_h2_user_write_committed = 1,
     k_go_h2_user_write_pristine = 2,
     k_go_h2_user_write_uncertain = 3,
+    k_go_h2_user_write_deferred = 4,
 };
 
 enum go_h2_user_write_step : u8 {
@@ -121,6 +122,7 @@ static __always_inline u8 append_go_h2_traceparent(void *writer,
                                                    s64 n,
                                                    s64 cap,
                                                    u32 stream_id,
+                                                   u8 frame_type,
                                                    const tp_info_t *tp) {
     if (!writer || !buf || !tp || frame_offset < 0 || n < 0 || cap < 0 || n > cap ||
         frame_offset > n) {
@@ -147,10 +149,17 @@ static __always_inline u8 append_go_h2_traceparent(void *writer,
     __builtin_memcpy(&wire_stream_id, &frame_header[k_h2_frame_stream_id_offset], sizeof(u32));
     wire_stream_id = bpf_ntohl(wire_stream_id) & 0x7fffffff;
 
-    if (!payload_len || frame_header[3] != k_h2_frame_headers || wire_stream_id != stream_id ||
-        !(frame_header[4] & k_h2_flag_end_headers) ||
-        (u64)n != (u64)frame_offset + k_h2_frame_header_len + payload_len ||
-        payload_len + k_h2_tp_hpack_huffman_size > k_h2_default_max_frame_size ||
+    if (!payload_len || frame_header[3] != frame_type || wire_stream_id != stream_id ||
+        (u64)n != (u64)frame_offset + k_h2_frame_header_len + payload_len) {
+        return k_go_h2_user_write_bypass;
+    }
+    if (frame_type != k_h2_frame_headers && frame_type != k_h2_frame_continuation) {
+        return k_go_h2_user_write_bypass;
+    }
+    if (!(frame_header[4] & k_h2_flag_end_headers)) {
+        return k_go_h2_user_write_deferred;
+    }
+    if (payload_len + k_h2_tp_hpack_huffman_size > k_h2_default_max_frame_size ||
         (u64)cap - (u64)n < k_h2_tp_hpack_huffman_size) {
         return k_go_h2_user_write_bypass;
     }

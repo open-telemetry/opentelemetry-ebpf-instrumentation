@@ -23,10 +23,10 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/metadata"
 )
 
 func TestAcceptSpanUsesEventInstrumentation(t *testing.T) {
@@ -932,7 +932,7 @@ func generateTraceSpan(t *testing.T, spanWithAttributes TraceSpanAndAttributes) 
 		cache,
 		&span.Service,
 		nil,
-		&meta.NodeMeta{},
+		&metadata.NodeMeta{},
 		[]TraceSpanAndAttributes{spanWithAttributes},
 		"obi",
 	)
@@ -984,7 +984,7 @@ func TestGenerateTracesWithAttributesManualOTelJSON(t *testing.T) {
 		cache,
 		service,
 		nil,
-		&meta.NodeMeta{},
+		&metadata.NodeMeta{},
 		[]TraceSpanAndAttributes{{
 			Span: &request.Span{
 				Type:           request.EventTypeManualSpan,
@@ -1064,7 +1064,7 @@ func TestGenerateTracesWithAttributesDropsInvalidManualOTelJSON(t *testing.T) {
 		cache,
 		service,
 		nil,
-		&meta.NodeMeta{},
+		&metadata.NodeMeta{},
 		[]TraceSpanAndAttributes{{
 			Span: &request.Span{
 				Type:           request.EventTypeManualSpan,
@@ -1512,9 +1512,120 @@ func TestTraceAttributesSelector_GenAITokenDetailAvailability(t *testing.T) {
 	}
 }
 
+// PeerServiceFromSpan reports nothing for a server span, so service.peer.name
+// is absent there rather than emitted empty.
+func TestAerospikeServerSpanOmitsPeerService(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		event request.EventType
+		want  bool
+	}{
+		{name: "client", event: request.EventTypeAerospikeClient, want: true},
+		{name: "server", event: request.EventTypeAerospikeServer, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			span := &request.Span{
+				Type:     tc.event,
+				Method:   "Get",
+				Host:     "10.0.0.1",
+				HostPort: 3000,
+				HostName: "aerospike-1",
+				Peer:     "10.0.0.2",
+			}
+
+			attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{attr.ServicePeerName: {}}))
+
+			_, ok := attrs.Get(string(semconv.ServicePeerNameKey))
+			assert.Equal(t, tc.want, ok)
+		})
+	}
+}
+
+// Kafka carries the client id in every request header, so an empty one was
+// sent by the client. MQTT and NATS only see it on CONNECT, so an empty one
+// was not observed.
+func TestEmptyMessagingClientID(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		event request.EventType
+		want  bool
+	}{
+		{name: "kafka", event: request.EventTypeKafkaClient, want: true},
+		{name: "mqtt", event: request.EventTypeMQTTClient, want: false},
+		{name: "nats", event: request.EventTypeNATSClient, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			span := &request.Span{Type: tc.event, Method: request.MessagingPublish, Path: "topic"}
+
+			attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+
+			v, ok := attrs.Get(string(semconv.MessagingClientIDKey))
+			require.Equal(t, tc.want, ok)
+			if ok {
+				assert.Empty(t, v.AsString())
+			}
+		})
+	}
+}
+
+// The response model falls back to the request model, which is itself reported
+// only when the parser recovered one, so neither is emitted when both are empty.
+func TestGenAIResponseModelFallbackIsGuarded(t *testing.T) {
+	span := &request.Span{
+		Type:     request.EventTypeHTTPClient,
+		SubType:  request.HTTPSubtypeQwen,
+		Method:   "POST",
+		Path:     "/compatible-mode/v1/chat/completions",
+		Host:     "dashscope.aliyuncs.com",
+		HostPort: 443,
+		Status:   200,
+		GenAI:    &request.GenAI{Qwen: &request.VendorOpenAI{OperationName: "chat"}},
+	}
+
+	attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+
+	_, ok := attrs.Get(string(semconv.GenAIResponseModelKey))
+	assert.False(t, ok, "gen_ai.response.model must be absent when neither model was parsed")
+
+	span.GenAI.Qwen.Request.Model = "qwen-max"
+	attrs = AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+	model, ok := attrs.Get(string(semconv.GenAIResponseModelKey))
+	require.True(t, ok, "the fallback must still report the request model when one was parsed")
+	assert.Equal(t, "qwen-max", model.Str())
+}
+
+// url.scheme comes from the connection, so it is reported whenever one was
+// captured and omitted when none was.
+func TestHTTPClientSchemeFollowsTheCapturedScheme(t *testing.T) {
+	span := &request.Span{
+		Type:      request.EventTypeHTTPClient,
+		Method:    "GET",
+		Path:      "/v1/things",
+		FullPath:  "/v1/things",
+		Host:      "api.example.com",
+		HostPort:  443,
+		Statement: "https;api.example.com",
+		Status:    200,
+	}
+
+	attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+
+	scheme, ok := attrs.Get(string(semconv.URLSchemeKey))
+	require.True(t, ok, "url.scheme must be reported when a scheme was captured")
+	assert.Equal(t, "https", scheme.Str())
+
+	span.Statement = ""
+	attrs = AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+	_, ok = attrs.Get(string(semconv.URLSchemeKey))
+	assert.False(t, ok, "url.scheme must be absent when no scheme was captured")
+}
+
 func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
-	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	selectedAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
 	require.NoError(t, err)
+	for _, name := range []attr.Name{attr.HTTPRequestBodySize, attr.HTTPResponseBodySize, attr.ServicePeerName} {
+		selectedAttrs[name] = struct{}{}
+	}
 
 	transportKeys := []string{
 		"url.full", "url.scheme", "url.query", "http.request.method",
@@ -1568,20 +1679,22 @@ func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			span := &request.Span{
-				Type:     request.EventTypeHTTPClient,
-				SubType:  tt.subType,
-				Method:   "POST",
-				Path:     "/v1/things",
-				FullPath: "/v1/things?q=1",
-				Host:     "api.example.com",
-				HostPort: 443,
-				Status:   200,
+				Type:      request.EventTypeHTTPClient,
+				SubType:   tt.subType,
+				Method:    "POST",
+				Path:      "/v1/things",
+				FullPath:  "/v1/things?q=1",
+				Host:      "api.example.com",
+				HostPort:  443,
+				HostName:  "api",
+				Statement: "https;api.example.com",
+				Status:    200,
 			}
 			if tt.payload != nil {
 				tt.payload(span)
 			}
 
-			selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+			selected := AttrsToMap(TraceAttributesSelector(span, selectedAttrs))
 
 			expected := map[string]bool{}
 			for _, k := range tt.present {
@@ -1594,9 +1707,32 @@ func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
 
 			for _, key := range []string{"server.address", "server.port", "service.peer.name"} {
 				_, ok := selected.Get(key)
-				assert.True(t, ok, "%s must survive on every http client subtype", key)
+				assert.True(t, ok, "%s must survive on every http client subtype when the span carries a value for it", key)
 			}
 		})
+	}
+}
+
+func TestOptInSpanAttributesOffByDefault(t *testing.T) {
+	optIn := []string{"service.peer.name", "http.request.body.size", "http.response.body.size"}
+
+	for _, span := range []*request.Span{
+		{Type: request.EventTypeHTTP, Method: "GET", Path: "/r", Host: "10.0.0.1", HostPort: 80, Status: 200},
+		{Type: request.EventTypeHTTPClient, Method: "GET", Path: "/r", Host: "10.0.0.1", HostPort: 80, Status: 200},
+		{
+			Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeElasticsearch,
+			Method: "POST", Path: "/_search", Host: "10.0.0.1", HostPort: 9200, Status: 200,
+			Elasticsearch: &request.Elasticsearch{DBSystemName: "elasticsearch", DBOperationName: "search"},
+		},
+		{Type: request.EventTypeGRPCClient, Path: "/pkg.Service/Method", Host: "10.0.0.1", HostPort: 50051},
+		{Type: request.EventTypeSQLClient, Method: "SELECT", Path: "users", Host: "10.0.0.1", HostPort: 5432},
+		{Type: request.EventTypeRedisClient, Method: "GET", Host: "10.0.0.1", HostPort: 6379},
+	} {
+		selected := AttrsToMap(TraceAttributesSelector(span, defaultTraceAttrs(t)))
+		for _, key := range optIn {
+			_, ok := selected.Get(key)
+			assert.False(t, ok, "%s: %s is opt-in", span.Type, key)
+		}
 	}
 }
 
@@ -1990,7 +2126,7 @@ func TestGenerateTracesSetsOBISchemaURL(t *testing.T) {
 		cache,
 		&span.Service,
 		nil,
-		&meta.NodeMeta{},
+		&metadata.NodeMeta{},
 		[]TraceSpanAndAttributes{{Span: &span, Attributes: TraceAttributesSelector(&span, map[attr.Name]struct{}{})}},
 		"obi",
 	)

@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package meta // import "go.opentelemetry.io/obi/pkg/appolly/meta"
+package metadata // import "go.opentelemetry.io/obi/pkg/metadata"
 
 import (
 	"context"
@@ -67,10 +67,14 @@ func otelNodeFetcher(detector resource.Detector) fetcher {
 			switch at.Key {
 			case semconv.HostIDKey:
 				store.HostID = at.Value.Emit()
-			default:
-				store.Metadata = append(store.Metadata,
-					Entry{Key: attr.Name(at.Key), Value: at.Value.Emit()})
+				continue
+			case semconv.AWSECSClusterARNKey:
+				store.Cluster = at.Value.AsString()
+			case semconv.CloudRegionKey:
+				store.Region = at.Value.AsString()
 			}
+			store.Metadata = append(store.Metadata,
+				Entry{Key: attr.Name(at.Key), Value: at.Value.Emit()})
 		}
 		log.Debug("cloud metadata", "metadata", fmt.Sprintf("%+v", store))
 		return store, nil

@@ -189,6 +189,9 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
 		{"http_max_captured_bytes", []any{uint32(0), uint32(262144)}},
 		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
+		// pinned on, not paired: before the gate existed this code was live in
+		// every combination below, and pairing it here would double the matrix
+		{"g_traces_ctx_v1_enabled", []any{true}},
 	})
 
 	// nodejs_runtime_metrics_enabled only gates the decode path in nodejs.c,
@@ -200,6 +203,19 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"g_bpf_debug", []any{true, false}},
 		{"g_bpf_traceparent_enabled", []any{true, false}},
 		{"nodejs_runtime_metrics_enabled", []any{uint64(0), uint64(1)}},
+		// the production default once a reader is present; see the matrix above
+		{"g_traces_ctx_v1_enabled", []any{true}},
+	})
+
+	// The full matrices above pin g_traces_ctx_v1_enabled on, so the gated
+	// obi_ctx writers stay verified against every other constant. This covers
+	// the off path, where they compile away, without doubling either matrix.
+	forEachCombination(t, "generictracer/BpfTracesCtxOff", generictracerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_traceparent_enabled", []any{true, false}},
+		{"http_max_captured_bytes", []any{uint32(262144)}},
+		{"tcp_max_captured_bytes", []any{uint32(65536)}},
+		{"g_traces_ctx_v1_enabled", []any{false}},
 	})
 
 	// gotracer
@@ -214,6 +230,19 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
 		{"http_max_captured_bytes", []any{uint32(0), uint32(262144)}},
 		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
+		// pinned on, not paired: see the generictracer matrix above
+		{"g_traces_ctx_v1_enabled", []any{true}},
+	})
+	forEachCombination(t, "gotracer/BpfTracesCtxOff", gotracerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_traceparent_enabled", []any{true}},
+		{"g_bpf_header_propagation", []any{true, false}},
+		{"g_bpf_probe_write_user_enabled", []any{true}},
+		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
+		{"capture_header_buffer", []any{int32(1)}},
+		{"http_max_captured_bytes", []any{uint32(262144)}},
+		{"tcp_max_captured_bytes", []any{uint32(65536)}},
+		{"g_traces_ctx_v1_enabled", []any{false}},
 	})
 	loadAndVerify(t, "gotracer/Bpf/no-write-user", gotracerbpf.LoadBpf, map[string]any{
 		"g_bpf_header_propagation":       true,

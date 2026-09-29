@@ -4,9 +4,11 @@
 package ebpfcommon
 
 import (
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type dummyCloser struct {
@@ -32,9 +34,10 @@ func TestInstrumetedLibsT(t *testing.T) {
 	closer := &dummyCloser{closed: false}
 	module.Closers = append(module.Closers, closer)
 
-	removeRef := func(id uint64) *LibModule {
-		m, _ := libs.RemoveRef(id)
-		return m
+	removeRef := func(id uint64) (*LibModule, bool) {
+		m, released, err := libs.RemoveRef(id)
+		assert.NoError(t, err)
+		return m, released
 	}
 
 	assert.NotNil(t, libs.Find(id))
@@ -49,13 +52,23 @@ func TestInstrumetedLibsT(t *testing.T) {
 
 	assert.Equal(t, module, libs.Find(id))
 
-	assert.Equal(t, module, removeRef(id))
+	m, released := removeRef(id)
+	assert.Equal(t, module, m)
+	assert.False(t, released)
 	assert.Equal(t, uint64(1), module.References)
-	assert.False(t, closer.closed)
 
-	assert.Equal(t, module, removeRef(id))
+	m, released = removeRef(id)
+	assert.Equal(t, module, m)
+	assert.True(t, released)
 	assert.Equal(t, uint64(0), module.References)
-	assert.True(t, closer.closed)
+
+	// the caller closes a released module, outside its lock
+	assert.False(t, closer.closed)
+	assert.Equal(t, []io.Closer{closer}, m.Closers)
 
 	assert.Nil(t, libs.Find(id))
+
+	_, released, err := libs.RemoveRef(id)
+	require.Error(t, err)
+	assert.False(t, released)
 }

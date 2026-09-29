@@ -32,7 +32,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
@@ -42,6 +41,7 @@ import (
 	otelmetric "go.opentelemetry.io/obi/pkg/export/otel/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -1030,7 +1030,7 @@ func TestSpanMetrics_EmittedAttributes(t *testing.T) {
 				ctx,
 				&global.ContextInfo{
 					OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
-					NodeMeta:            meta.NodeMeta{HostID: "the-host"},
+					NodeMeta:            metadata.NodeMeta{HostID: "the-host"},
 				},
 				mcfg,
 				&perapp.GlobalMetricsConfig{Features: tc.features},
@@ -1465,108 +1465,6 @@ func makeMetricsReporter(
 	return mr
 }
 
-func TestAppMetrics_TracesHostInfo(t *testing.T) {
-	ctx := t.Context()
-
-	otlp, err := collector.Start(ctx)
-	require.NoError(t, err)
-
-	now := syncedClock{now: time.Now()}
-	timeNow = now.Now
-
-	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
-	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	feats := export.FeatureApplicationRED | export.FeatureApplicationHost
-	mr := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, feats, otlp, metrics, processEvents)
-	otelExporter := mr.reportMetrics
-	go otelExporter(ctx)
-
-	assert.Len(t, otlp.Records(), 0, "metric reported before the first span is sent")
-
-	processEvents.Send(exec.ProcessEvent{
-		Type: exec.ProcessEventCreated,
-		File: exec.New(exec.Init{
-			Service: svc.Attrs{
-				Features: feats,
-				UID:      svc.UID{Instance: "foo"},
-			},
-		}),
-	})
-
-	metrics.Send([]request.Span{
-		{Service: svc.Attrs{Features: feats, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
-	})
-
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		assert.NotEmpty(ct, mr.hostInfo.entries.All(),
-			"traces.host.info metric has not been created yet")
-	}, timeout, 100*time.Millisecond)
-
-	// Check expiration logic
-	processEvents.Send(exec.ProcessEvent{
-		Type: exec.ProcessEventTerminated,
-		File: exec.New(exec.Init{
-			Service: svc.Attrs{
-				Features: feats,
-				UID:      svc.UID{Instance: "foo"},
-			},
-		}),
-	})
-
-	now.Advance(50 * time.Minute)
-
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		assert.Empty(ct, mr.hostInfo.entries.All(),
-			"traces.host.info metric has not expired yet") // The entry should be expired
-	}, timeout, 100*time.Millisecond)
-}
-
-// The gauge reports that the host is running. A service whose every call ended
-// without a usable duration still runs, so the only traffic being unmeasured must
-// not withhold it.
-func TestAppMetrics_TracesHostInfoUnmeasuredSpans(t *testing.T) {
-	ctx := t.Context()
-
-	otlp, err := collector.Start(ctx)
-	require.NoError(t, err)
-
-	now := syncedClock{now: time.Now()}
-	timeNow = now.Now
-
-	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
-	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-	feats := export.FeatureApplicationRED | export.FeatureApplicationHost
-	mr := makeMetricsReporter(ctx, t, []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP}, feats, otlp, metrics, processEvents)
-	go mr.reportMetrics(ctx)
-
-	processEvents.Send(exec.ProcessEvent{
-		Type: exec.ProcessEventCreated,
-		File: exec.New(exec.Init{
-			Service: svc.Attrs{
-				Features: feats,
-				UID:      svc.UID{Instance: "foo"},
-			},
-		}),
-	})
-
-	unmeasured := request.Span{
-		Service:             svc.Attrs{Features: feats, UID: svc.UID{Instance: "foo"}},
-		Type:                request.EventTypeHTTPClient,
-		Path:                "/foo",
-		RequestStart:        100,
-		End:                 200,
-		ResponseObservation: request.ResponseReceived,
-	}
-	request.SetIgnoreDurations(&unmeasured)
-
-	metrics.Send([]request.Span{unmeasured})
-
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		assert.NotEmpty(ct, mr.hostInfo.entries.All(),
-			"traces.host.info metric has not been created for a service whose only calls were unmeasured")
-	}, timeout, 100*time.Millisecond)
-}
-
 func TestMetricResourceAttributes(t *testing.T) {
 	// Test different filtering scenarios
 	testCases := []struct {
@@ -1735,7 +1633,7 @@ func TestMetricResourceAttributes(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			mr := &MetricsReporter{
-				nodeMeta:            meta.NodeMeta{HostID: "test-host-id"},
+				nodeMeta:            metadata.NodeMeta{HostID: "test-host-id"},
 				userAttribSelection: tc.attributeSelect,
 			}
 

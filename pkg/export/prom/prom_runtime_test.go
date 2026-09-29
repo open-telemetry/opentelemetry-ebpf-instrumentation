@@ -16,11 +16,11 @@ import (
 	appruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	appexec "go.opentelemetry.io/obi/pkg/appolly/discover/exec"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/otel"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
@@ -641,7 +641,7 @@ func testPythonRuntimeMetadataRefresh(t *testing.T, eventPID app.PID) {
 	selection := attributes.Selection{
 		attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name", "host.name"}},
 	}
-	labelNames := labelNamesTargetInfo(false, false, &meta.NodeMeta{}, nil, selection)
+	labelNames := labelNamesTargetInfo(false, false, &metadata.NodeMeta{}, nil, selection)
 	reporter := &metricsReporter{
 		serviceMap:          map[svc.UID]svc.Attrs{},
 		pidsTracker:         otel.NewPidServiceTracker(),

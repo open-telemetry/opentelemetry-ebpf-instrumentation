@@ -716,6 +716,7 @@ Important mapping notes:
 | `ebpf.context_propagation` | `extensions.obi.capture.engine.propagation.context_propagation` | Move |
 | `ebpf.couchbase_db_cache_size` | `extensions.obi.capture.instrumentation.couchbase.db_cache_size` | Move |
 | `ebpf.disable_black_box_cp` | `extensions.obi.capture.engine.propagation.disable_black_box_cp` | Move |
+| `ebpf.populate_trace_context` | `extensions.obi.capture.engine.propagation.populate_trace_context` | Move |
 | `ebpf.dns_request_timeout` | `extensions.obi.capture.instrumentation.dns.request_timeout` | Move |
 | `ebpf.force_bpf_map_reader` | `extensions.obi.capture.engine.traffic.force_map_reader` | Move + rename |
 | `ebpf.go_http_client_buffer_timeout` | `extensions.obi.capture.instrumentation.http.go_http_client_buffer_timeout` | Move |

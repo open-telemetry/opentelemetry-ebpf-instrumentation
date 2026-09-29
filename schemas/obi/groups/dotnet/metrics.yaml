@@ -1,0 +1,69 @@
+# OBI's .NET current-value metrics use the upstream instruments and units.
+# Service and container metadata are carried on the meter resource.
+groups:
+  - id: metric.obi.dotnet.process.memory.working_set
+    type: metric
+    metric_name: dotnet.process.memory.working_set
+    annotations:
+      obi:
+        upstream_override: true
+    brief: Physical memory mapped to the .NET process.
+    instrument: updowncounter
+    unit: "By"
+    stability: stable
+    attributes: []
+  - id: metric.obi.dotnet.gc.last_collection.memory.committed_size
+    type: metric
+    metric_name: dotnet.gc.last_collection.memory.committed_size
+    annotations:
+      obi:
+        upstream_override: true
+    brief: Committed .NET GC memory observed during the latest collection.
+    instrument: updowncounter
+    unit: "By"
+    stability: stable
+    attributes: []
+  - id: metric.obi.dotnet.thread_pool.thread.count
+    type: metric
+    metric_name: dotnet.thread_pool.thread.count
+    annotations:
+      obi:
+        upstream_override: true
+    brief: Number of .NET thread-pool threads that currently exist.
+    instrument: updowncounter
+    unit: "{thread}"
+    stability: stable
+    attributes: []
+  - id: metric.obi.dotnet.thread_pool.queue.length
+    type: metric
+    metric_name: dotnet.thread_pool.queue.length
+    annotations:
+      obi:
+        upstream_override: true
+    brief: Number of queued .NET thread-pool work items.
+    instrument: updowncounter
+    unit: "{work_item}"
+    stability: stable
+    attributes: []
+  - id: metric.obi.dotnet.timer.count
+    type: metric
+    metric_name: dotnet.timer.count
+    annotations:
+      obi:
+        upstream_override: true
+    brief: Number of active .NET timers.
+    instrument: updowncounter
+    unit: "{timer}"
+    stability: stable
+    attributes: []
+  - id: metric.obi.dotnet.assembly.count
+    type: metric
+    metric_name: dotnet.assembly.count
+    annotations:
+      obi:
+        upstream_override: true
+    brief: Number of loaded .NET assemblies.
+    instrument: updowncounter
+    unit: "{assembly}"
+    stability: stable
+    attributes: []

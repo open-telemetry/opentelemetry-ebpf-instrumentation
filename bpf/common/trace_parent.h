@@ -205,9 +205,8 @@ find_python_parent_trace(const trace_key_t *t_key, u64 pid_tgid, u8 *allow_paren
         if (task_resolution == PYTHON_TASK_STALE && allow_parent_fallback) {
             *allow_parent_fallback = 0;
         }
-        bpf_dbg_printk("find_python_parent_trace: no current task pid=%d tid=%d",
-                       t_key->p_key.pid,
-                       t_key->p_key.tid);
+        bpf_dbg_printk(
+            "python parent unresolved tid=%d status=%d", t_key->p_key.tid, task_resolution);
         return NULL;
     }
 

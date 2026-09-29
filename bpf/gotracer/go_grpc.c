@@ -30,6 +30,7 @@
 #include <maps/outgoing_trace_map.h>
 
 #include <gotracer/go_common.h>
+#include <gotracer/go_h2_continuation.h>
 #include <gotracer/go_h2_write.h>
 #include <gotracer/go_offsets.h>
 #include <gotracer/go_str.h>
@@ -1259,13 +1260,14 @@ int GUARDED_PROG(obi_uprobe_grpcFramerWriteHeaders, struct pt_regs *, ctx) {
         // If we read some very large offset, we don't do anything since it might be a situation
         // we can't handle
         if (offset >= 0 && offset < MAX_W_PTR_OFFSET) {
-            grpc_framer_func_invocation_t f_info = {
+            go_h2_framer_func_invocation_t f_info = {
                 .tp = invocation->tp,
                 .framer_ptr = (u64)framer,
-                .offset = offset,
+                .frame_offset = offset,
                 .s_port = conn_info ? conn_info->s_port : 0,
                 .d_port = conn_info ? conn_info->d_port : 0,
                 .stream_id = (u32)stream_id,
+                .frame_type = k_h2_frame_headers,
             };
 
             bpf_map_update_elem(&grpc_framer_invocation_map, &g_key, &f_info, BPF_ANY);
@@ -1279,8 +1281,24 @@ done:
     return 0;
 }
 
-SEC("uprobe/grpcFramerWriteHeaders_returns")
-int GUARDED_PROG(obi_uprobe_grpcFramerWriteHeaders_returns, struct pt_regs *, ctx) {
+static __always_inline int on_grpcFramerWriteContinuation(struct pt_regs *ctx) {
+    if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
+        return 0;
+    }
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    go_h2_framer_func_invocation_t *f_info =
+        bpf_map_lookup_elem(&grpc_framer_invocation_map, &g_key);
+    const u8 result = prepare_go_h2_continuation(
+        ctx, f_info, _grpc_transport_buf_writer_offset_pos, MAX_W_PTR_OFFSET);
+    if (result == k_go_h2_continuation_invalid) {
+        bpf_map_delete_elem(&grpc_framer_invocation_map, &g_key);
+    }
+    return 0;
+}
+
+static __always_inline int on_grpcFramerWriteHeadersReturns(struct pt_regs *ctx) {
     if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
         return 0;
     }
@@ -1292,8 +1310,12 @@ int GUARDED_PROG(obi_uprobe_grpcFramerWriteHeaders_returns, struct pt_regs *, ct
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    grpc_framer_func_invocation_t *f_info =
+    go_h2_framer_func_invocation_t *f_info =
         bpf_map_lookup_elem(&grpc_framer_invocation_map, &g_key);
+
+    if (f_info && f_info->awaiting_continuation) {
+        return 0;
+    }
 
     if (f_info) {
         const u64 framer_w_pos = go_offset_of(ot, (go_offset){.v = _framer_w_pos});
@@ -1328,8 +1350,20 @@ int GUARDED_PROG(obi_uprobe_grpcFramerWriteHeaders_returns, struct pt_regs *, ct
                 goto done_framer;
             }
 
-            const u8 result = append_go_h2_traceparent(
-                w_ptr, n_pos, buf_arr, f_info->offset, n, cap, f_info->stream_id, &f_info->tp);
+            const u8 result = append_go_h2_traceparent(w_ptr,
+                                                       n_pos,
+                                                       buf_arr,
+                                                       f_info->frame_offset,
+                                                       n,
+                                                       cap,
+                                                       f_info->stream_id,
+                                                       f_info->frame_type,
+                                                       &f_info->tp);
+
+            if (result == k_go_h2_user_write_deferred) {
+                f_info->awaiting_continuation = true;
+                return 0;
+            }
 
             // A committed result suppresses socket fallback. An uncertain result must also
             // suppress it: another mutation could turn a recoverable direct-write fault into
@@ -1354,6 +1388,11 @@ int GUARDED_PROG(obi_uprobe_grpcFramerWriteHeaders_returns, struct pt_regs *, ct
 done_framer:
     bpf_map_delete_elem(&grpc_framer_invocation_map, &g_key);
     return 0;
+}
+
+SEC("uprobe/grpcFramerWriteHeaders_returns")
+int GUARDED_PROG(obi_uprobe_grpcFramerWriteHeaders_returns, struct pt_regs *, ctx) {
+    return on_grpcFramerWriteHeadersReturns(ctx);
 }
 
 // NewStream and header serialization run on different goroutines. The queued

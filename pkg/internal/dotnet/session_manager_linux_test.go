@@ -26,6 +26,111 @@ import (
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
+func TestSessionManagerReadSessionFinalCollection(t *testing.T) {
+	publicationErr := errors.New("publication failed")
+	for _, tc := range []struct {
+		name          string
+		truncate      bool
+		partial       bool
+		cancel        bool
+		blocked       bool
+		publishErr    error
+		wantErr       error
+		wantSnapshots int
+	}{
+		{name: "clean end", wantSnapshots: 1},
+		{name: "truncated stream", truncate: true, wantErr: io.EOF},
+		{name: "partial final collection", partial: true},
+		{name: "publication error", publishErr: publicationErr, wantErr: publicationErr, wantSnapshots: 1},
+		{name: "cancelled session delivers", cancel: true, wantErr: context.Canceled, wantSnapshots: 1},
+		{name: "cancelled session blocked queue", cancel: true, blocked: true, wantErr: context.Canceled, wantSnapshots: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path, stopped := serveDiagnosticIPC(t, func(conn net.Conn) error {
+				request, err := readIPCMessage(conn)
+				if err != nil {
+					return err
+				}
+				response, err := encodeIPCMessage(ipcCommandSetServer, ipcResponseOK, request.Payload)
+				if err != nil {
+					return err
+				}
+				_, err = io.Copy(conn, bytes.NewReader(response))
+				return err
+			})
+			counters := []runtimeCounter{
+				{Name: "working-set", Value: 12.5},
+				{Name: "gen-0-gc-count", Increment: true},
+				{Name: "gen-1-gc-count", Increment: true},
+				{Name: "gen-2-gc-count", Increment: true},
+				{Name: "assembly-count", Value: 10},
+			}
+			if tc.partial {
+				counters = counters[:len(counters)-1]
+			}
+			wire := runtimeCounterStream(t, counters)
+			if tc.truncate {
+				wire = wire[:len(wire)-1]
+			}
+			stream, runtime := net.Pipe()
+			t.Cleanup(func() { _ = stream.Close() })
+			t.Cleanup(func() { _ = runtime.Close() })
+			require.NoError(t, runtime.SetWriteDeadline(time.Now().Add(2*time.Second)))
+			written := make(chan error, 1)
+			go func() {
+				_, err := io.Copy(runtime, bytes.NewReader(wire))
+				written <- err
+				_ = runtime.Close()
+			}()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tc.cancel {
+				cancel()
+			}
+			queue := msg.NewQueue[*runtimemetrics.DotnetRuntimeMetricSnapshot](msg.ChannelBufferLen(1))
+			delivered := queue.Subscribe(msg.SubscriberName("final-collection"))
+			if tc.blocked {
+				queue.Send(nil)
+			}
+			const cleanupTimeout = 100 * time.Millisecond
+			manager := NewSessionManager(t.Context(), time.Second, cleanupTimeout, nil)
+			var snapshots []*runtimemetrics.DotnetRuntimeMetricSnapshot
+			var deliveryErr error
+			started := time.Now()
+			err := manager.readSession(ctx, &eventPipeSession{id: 42, socketPath: path, stream: stream}, 15,
+				func(publishCtx context.Context, snapshot *runtimemetrics.DotnetRuntimeMetricSnapshot) error {
+					snapshots = append(snapshots, snapshot)
+					queue.SendCtx(publishCtx, snapshot)
+					deliveryErr = publishCtx.Err()
+					return tc.publishErr
+				})
+			require.Less(t, time.Since(started), 2*time.Second)
+			require.ErrorIs(t, err, tc.wantErr)
+			require.NoError(t, <-written)
+			require.NoError(t, <-stopped)
+			require.Len(t, snapshots, tc.wantSnapshots)
+			if tc.blocked {
+				require.ErrorIs(t, deliveryErr, context.Canceled)
+				require.GreaterOrEqual(t, time.Since(started), cleanupTimeout)
+				require.Len(t, delivered, 1)
+				require.Nil(t, <-delivered, "the full queue must retain its original entry")
+			} else {
+				require.NoError(t, deliveryErr)
+				require.Len(t, delivered, tc.wantSnapshots)
+				if tc.wantSnapshots > 0 {
+					require.Same(t, snapshots[0], <-delivered)
+				}
+			}
+			if tc.wantSnapshots > 0 {
+				require.NotNil(t, snapshots[0].ProcessMemoryWorkingSet)
+				require.Equal(t, int64(12_500_000), *snapshots[0].ProcessMemoryWorkingSet)
+				require.NotNil(t, snapshots[0].AssemblyCount)
+				require.Equal(t, int64(10), *snapshots[0].AssemblyCount)
+			}
+		})
+	}
+}
+
 func TestSessionManagerReadSessionCancellation(t *testing.T) {
 	const sessionID = uint64(42)
 	path, stopped := serveDiagnosticIPC(t, func(conn net.Conn) error {
@@ -53,7 +158,7 @@ func TestSessionManagerReadSessionCancellation(t *testing.T) {
 	done := make(chan error, 1)
 	go func() {
 		done <- sessionManager.readSession(ctx, &eventPipeSession{id: sessionID, socketPath: path, stream: stream}, 1,
-			func(*runtimemetrics.DotnetRuntimeMetricSnapshot) error {
+			func(context.Context, *runtimemetrics.DotnetRuntimeMetricSnapshot) error {
 				return errors.New("silent stream unexpectedly produced a snapshot")
 			})
 	}()

@@ -37,6 +37,233 @@ func TestDotnetRuntimeCollectorLabels(t *testing.T) {
 	require.InDelta(t, 3, point.GetCounter().GetValue(), 0)
 }
 
+func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
+	for _, ttl := range []time.Duration{time.Minute, 0} {
+		t.Run(ttl.String(), func(t *testing.T) {
+			now := time.Unix(1000, 0)
+			previousClock := timeNow
+			timeNow = func() time.Time { return now }
+			t.Cleanup(func() { timeNow = previousClock })
+			registry := prometheus.NewRegistry()
+			reporter, err := newReporter(
+				t.Context(),
+				&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+				&PrometheusConfig{Registry: registry, TTL: ttl},
+				&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
+				&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
+					attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
+				}},
+				request.UnresolvedNames{}, nil,
+				msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)), nil,
+			)
+			require.NoError(t, err)
+			sample := func(current int64, collections uint64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+				return &runtimemetrics.DotnetRuntimeMetricSnapshot{
+					ProcessMemoryWorkingSet: &current,
+					GCCollections:           [3]*uint64{&collections},
+				}
+			}
+			first := runtimemetrics.RuntimeMetricSnapshot{
+				PID: 123, Generation: 1,
+				Service: svc.Attrs{UID: svc.UID{Name: "orders"}, SDKLanguage: svc.InstrumentableDotnet, Features: export.FeatureApplicationRuntime},
+				Dotnet:  sample(10, 5),
+			}
+			second := first
+			second.PID = 456
+			second.Dotnet = sample(20, 8)
+			publish := func(snapshot runtimemetrics.RuntimeMetricSnapshot) {
+				reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot})
+			}
+			labels := map[string]string{"service_name": "orders"}
+			assertCurrent := func(want float64) {
+				t.Helper()
+				point := gatheredMetric(t, registry, attributes.DotnetProcessMemoryWorkingSet.Prom, labels)
+				require.NotNil(t, point)
+				require.InDelta(t, want, point.GetGauge().GetValue(), 0)
+			}
+			assertCollections := func(want float64) {
+				t.Helper()
+				point := gatheredMetric(t, registry, attributes.DotnetGCCollections.Prom,
+					map[string]string{"service_name": "orders", "dotnet_gc_heap_generation": "gen0"})
+				require.NotNil(t, point)
+				require.InDelta(t, want, point.GetCounter().GetValue(), 0)
+			}
+			publish(first)
+			publish(second)
+			firstExpiration := now
+			expectedExpiration := time.Time{}
+			if ttl != 0 {
+				expectedExpiration = firstExpiration
+			}
+			require.Equal(t, expectedExpiration, reporter.dotnetRuntimeMetrics.lastExpiration)
+			now = now.Add(30 * time.Second)
+			publish(second)
+			require.Equal(t, expectedExpiration, reporter.dotnetRuntimeMetrics.lastExpiration)
+			now = now.Add(30 * time.Second)
+			publish(second)
+			require.Equal(t, expectedExpiration, reporter.dotnetRuntimeMetrics.lastExpiration)
+			assertCurrent(30)
+			now = now.Add(time.Nanosecond)
+			publish(second)
+			if ttl == 0 {
+				assertCurrent(30)
+			} else {
+				require.Equal(t, now, reporter.dotnetRuntimeMetrics.lastExpiration)
+				assertCurrent(20)
+			}
+			first.Dotnet = sample(7, 5)
+			publish(first)
+			assertCurrent(27)
+			assertCollections(13)
+			first.Dotnet = sample(7, 6)
+			publish(first)
+			assertCollections(14)
+
+			now = now.Add(time.Minute + time.Nanosecond)
+			publish(runtimemetrics.RuntimeMetricSnapshot{})
+			if ttl == 0 {
+				assertCurrent(27)
+			} else {
+				require.Nil(t, gatheredMetric(t, registry, attributes.DotnetProcessMemoryWorkingSet.Prom, labels))
+			}
+			publish(first)
+			if ttl == 0 {
+				assertCurrent(27)
+			} else {
+				assertCurrent(7)
+			}
+		})
+	}
+}
+
+func TestDotnetRuntimeCurrentValuesAggregateProcesses(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	reporter, err := newReporter(
+		t.Context(),
+		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+		&PrometheusConfig{Registry: registry, TTL: time.Minute},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
+		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
+			attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
+		}},
+		request.UnresolvedNames{}, nil,
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)), nil,
+	)
+	require.NoError(t, err)
+	values := func(value int64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+		return &runtimemetrics.DotnetRuntimeMetricSnapshot{
+			ProcessMemoryWorkingSet: &value, GCCommittedMemory: &value,
+			ThreadPoolThreadCount: &value, ThreadPoolQueueLength: &value,
+			TimerCount: &value, AssemblyCount: &value,
+		}
+	}
+	assertValues := func(service string, expected *int64) {
+		t.Helper()
+		for _, name := range []string{
+			attributes.DotnetProcessMemoryWorkingSet.Prom, attributes.DotnetGCCommittedMemory.Prom,
+			attributes.DotnetThreadPoolThreadCount.Prom, attributes.DotnetThreadPoolQueueLength.Prom,
+			attributes.DotnetTimerCount.Prom, attributes.DotnetAssemblyCount.Prom,
+		} {
+			point := gatheredMetric(t, registry, name, map[string]string{"service_name": service})
+			if expected == nil {
+				require.Nil(t, point, name)
+				continue
+			}
+			require.NotNil(t, point, name)
+			require.NotNil(t, point.Gauge, name)
+			require.InDelta(t, float64(*expected), point.GetGauge().GetValue(), 0, name)
+		}
+	}
+	publish := func(snapshot runtimemetrics.RuntimeMetricSnapshot) {
+		reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot})
+	}
+	snapshot := runtimemetrics.RuntimeMetricSnapshot{
+		PID: 123, Generation: 1,
+		Service: svc.Attrs{UID: svc.UID{Name: "orders"}, SDKLanguage: svc.InstrumentableDotnet, Features: export.FeatureApplicationRuntime},
+		Dotnet:  values(10),
+	}
+	other := snapshot
+	other.PID = 456
+	other.Dotnet = values(20)
+	publish(snapshot)
+	publish(other)
+	expected := int64(30)
+	assertValues("orders", &expected)
+
+	snapshot.Dotnet = values(4)
+	publish(snapshot)
+	expected = 24
+	assertValues("orders", &expected)
+	snapshot.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+	publish(snapshot)
+	expected = 20
+	assertValues("orders", &expected)
+
+	snapshot.Generation = 2
+	snapshot.Dotnet = values(7)
+	publish(snapshot)
+	expected = 27
+	assertValues("orders", &expected)
+	snapshot.Removed = true
+	snapshot.Generation = 1
+	publish(snapshot)
+	assertValues("orders", &expected)
+	snapshot.Generation = 2
+	publish(snapshot)
+	expected = 20
+	assertValues("orders", &expected)
+	other.Removed = true
+	publish(other)
+	assertValues("orders", nil)
+
+	snapshot.Removed = false
+	snapshot.Dotnet = values(0)
+	publish(snapshot)
+	expected = 0
+	assertValues("orders", &expected)
+
+	other.Removed = false
+	other.Service.UID.Name = "orders-worker"
+	publish(other)
+	reporter.dotnetRuntimeMetrics.delete(reporter.labelValuesTargetInfo(&snapshot.Service))
+	assertValues("orders", nil)
+	expected = 20
+	assertValues("orders-worker", &expected)
+	require.Len(t, reporter.dotnetRuntimeMetrics.currentValues, 1)
+
+	other.Service.UID.Name = "renamed-worker"
+	publish(other)
+	assertValues("orders-worker", nil)
+	assertValues("renamed-worker", &expected)
+
+	// Each metric retains its own contributors, including reported zero.
+	snapshot.Service = other.Service
+	snapshot.Dotnet = values(3)
+	publish(snapshot)
+	other.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{AssemblyCount: new(int64)}
+	publish(other)
+	for _, name := range []string{
+		attributes.DotnetProcessMemoryWorkingSet.Prom, attributes.DotnetAssemblyCount.Prom,
+	} {
+		point := gatheredMetric(t, registry, name, map[string]string{"service_name": "renamed-worker"})
+		require.NotNil(t, point)
+		require.InDelta(t, 3, point.GetGauge().GetValue(), 0)
+	}
+	snapshot.Removed = true
+	publish(snapshot)
+	require.Nil(t, gatheredMetric(t, registry, attributes.DotnetProcessMemoryWorkingSet.Prom,
+		map[string]string{"service_name": "renamed-worker"}))
+	point := gatheredMetric(t, registry, attributes.DotnetAssemblyCount.Prom,
+		map[string]string{"service_name": "renamed-worker"})
+	require.NotNil(t, point)
+	require.Zero(t, point.GetGauge().GetValue())
+	other.Removed = true
+	publish(other)
+	require.Nil(t, gatheredMetric(t, registry, attributes.DotnetAssemblyCount.Prom,
+		map[string]string{"service_name": "renamed-worker"}))
+	require.Empty(t, reporter.dotnetRuntimeMetrics.currentAggregates)
+}
+
 func TestDotnetRuntimeDeleteMatchesExactLabels(t *testing.T) {
 	collector := newDotnetRuntimeMetricsCollector([]string{"service_name"}, time.Now, time.Minute)
 	registry := prometheus.NewRegistry()

@@ -1,11 +1,17 @@
 # .NET runtime metrics
 
-With `application_runtime` enabled, OBI collects GC collection counts from
+With `application_runtime` enabled, OBI collects runtime metrics from
 .NET 8 and newer processes on Linux through their diagnostic Unix sockets.
 
 | OTel metric | Prometheus metric | Unit |
 | --- | --- | --- |
 | `dotnet.gc.collections` | `dotnet_gc_collections_total` | `{collection}` |
+| `dotnet.process.memory.working_set` | `dotnet_process_memory_working_set_bytes` | `By` |
+| `dotnet.gc.last_collection.memory.committed_size` | `dotnet_gc_last_collection_memory_committed_size_bytes` | `By` |
+| `dotnet.thread_pool.thread.count` | `dotnet_thread_pool_thread_count` | `{thread}` |
+| `dotnet.thread_pool.queue.length` | `dotnet_thread_pool_queue_length` | `{work_item}` |
+| `dotnet.timer.count` | `dotnet_timer_count` | `{timer}` |
+| `dotnet.assembly.count` | `dotnet_assembly_count` | `{assembly}` |
 
 The `dotnet.gc.heap.generation` attribute identifies `gen0`, `gen1`, and `gen2`.
 Counts are exclusive: a full gen2 collection adds one to gen2, while gen0 and
@@ -45,7 +51,8 @@ runtime metrics export queue:
 3. `ProcessInfo2` verifies the socket's PID and confirms that the CLR version is
    .NET 8 or newer.
 4. The collector starts an EventPipe session and decodes its NetTrace stream.
-5. Complete GC sampling rounds enter the runtime metrics queue and reach the
+5. Sampling rounds containing GC counts and the available current values enter
+   the runtime metrics queue and reach the
    OTLP and Prometheus exporters.
 
 The first sample for each generation establishes a baseline. Exported totals

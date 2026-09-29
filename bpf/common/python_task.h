@@ -7,6 +7,8 @@
 
 #include <common/tp_info.h>
 
+#include <logger/bpf_dbg.h>
+
 #include <maps/python_context_task.h>
 #include <maps/python_task_state.h>
 #include <maps/server_traces.h>
@@ -45,6 +47,7 @@ static __always_inline u8 resolve_python_task_ref(u64 pid_tgid,
     const python_task_state_t *task_state =
         (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &task_key);
     if (!task_state || !task_state->generation) {
+        bpf_dbg_printk("python task state missing task=%llx", task);
         return 0;
     }
 
@@ -64,6 +67,8 @@ static __always_inline u8 copy_python_task_state(u64 pid_tgid,
     const python_task_state_t *task_state =
         (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &task_key);
     if (!task_state || task_state->generation != task_ref->generation) {
+        bpf_dbg_printk(
+            "python task stale task=%llx gen=%llu", task_ref->addr, task_ref->generation);
         return 0;
     }
 
@@ -72,6 +77,7 @@ static __always_inline u8 copy_python_task_state(u64 pid_tgid,
     task_state = (const python_task_state_t *)bpf_map_lookup_elem(&python_task_state, &task_key);
     if (!task_state || task_state->generation != task_ref->generation ||
         state_copy->generation != task_ref->generation) {
+        bpf_dbg_printk("python task changed during copy task=%llx", task_ref->addr);
         return 0;
     }
 
@@ -126,18 +132,22 @@ resolve_python_task_from_context(u64 pid_tgid, u64 context, python_task_ref_t *t
     const python_context_task_t *context_task =
         (const python_context_task_t *)bpf_map_lookup_elem(&python_context_task, &context_key);
     if (!context_task) {
+        bpf_dbg_printk("python context binding missing ctx=%llx", context);
         return PYTHON_TASK_STALE;
     }
 
     if (context_task->vars != read_python_context_vars(context)) {
+        bpf_dbg_printk("python context vars changed ctx=%llx", context);
         return PYTHON_TASK_STALE;
     }
 
     if (!context_task->task.addr && !context_task->task.generation) {
+        bpf_dbg_printk("python context ownerless ctx=%llx", context);
         return PYTHON_TASK_NOT_FOUND;
     }
 
     if (!resolve_python_context_task(pid_tgid, context_task, task_ref)) {
+        bpf_dbg_printk("python context owner stale ctx=%llx", context);
         return PYTHON_TASK_STALE;
     }
 

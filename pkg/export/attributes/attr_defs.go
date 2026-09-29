@@ -491,32 +491,134 @@ func getDefinitions(
 				attr.NetworkPeerAddress:     true,
 				attr.NetworkPeerPort:        true,
 				attr.NetworkProtocolVersion: true,
+
+				// Development-stability attributes, off by default so they do not hold
+				// back the stability of the span conventions that carry them.
+				attr.ServicePeerName:         false,
+				attr.HTTPRequestBodySize:     false,
+				attr.HTTPResponseBodySize:    false,
+				attr.OBIHTTPResponseObserved: false,
 			},
 		},
 		GPUCudaKernelLaunchCalls.Section: {
-			SubGroups:  []*AttrReportGroup{&appAttributes},
-			Attributes: map[attr.Name]Default{},
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CudaDeviceIndex: true,
+				attr.CudaDeviceUUID:  true,
+				attr.CudaDeviceModel: true,
+			},
 		},
 		GPUCudaGraphLaunchCalls.Section: {
-			SubGroups:  []*AttrReportGroup{&appAttributes},
-			Attributes: map[attr.Name]Default{},
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CudaDeviceIndex: true,
+				attr.CudaDeviceUUID:  true,
+				attr.CudaDeviceModel: true,
+			},
 		},
 		GPUCudaKernelGridSize.Section: {
-			SubGroups:  []*AttrReportGroup{&appAttributes},
-			Attributes: map[attr.Name]Default{},
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CudaDeviceIndex: true,
+				attr.CudaDeviceUUID:  true,
+				attr.CudaDeviceModel: true,
+			},
 		},
 		GPUCudaKernelBlockSize.Section: {
-			SubGroups:  []*AttrReportGroup{&appAttributes},
-			Attributes: map[attr.Name]Default{},
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CudaDeviceIndex: true,
+				attr.CudaDeviceUUID:  true,
+				attr.CudaDeviceModel: true,
+			},
 		},
 		GPUCudaMemoryAllocations.Section: {
-			SubGroups:  []*AttrReportGroup{&appAttributes, &appKubeAttributes},
-			Attributes: map[attr.Name]Default{},
+			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CudaDeviceIndex: true,
+				attr.CudaDeviceUUID:  true,
+				attr.CudaDeviceModel: true,
+			},
 		},
 		GPUCudaMemoryCopies.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
-				attr.CudaMemcpyKind: true,
+				attr.CudaMemcpyKind:  true,
+				attr.CudaDeviceIndex: true,
+				attr.CudaDeviceUUID:  true,
+				attr.CudaDeviceModel: true,
+			},
+		},
+		GPUCudaMemoryFreeBytes.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes, &appKubeAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CudaDeviceIndex: true,
+				attr.CudaDeviceUUID:  true,
+				attr.CudaDeviceModel: true,
+			},
+		},
+		GPUCudaMemsetBytes.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CudaDeviceIndex: true,
+				attr.CudaDeviceUUID:  true,
+				attr.CudaDeviceModel: true,
+			},
+		},
+		GPUCudaStreamCreateCalls.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CudaDeviceIndex: true,
+				attr.CudaDeviceUUID:  true,
+				attr.CudaDeviceModel: true,
+			},
+		},
+		GPUCudaStreamDestroyCalls.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CudaDeviceIndex: true,
+				attr.CudaDeviceUUID:  true,
+				attr.CudaDeviceModel: true,
+			},
+		},
+		GPUCudaEventRecordCalls.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CudaDeviceIndex: true,
+				attr.CudaDeviceUUID:  true,
+				attr.CudaDeviceModel: true,
+			},
+		},
+		GPUCudaEventSynchronizeCalls.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CudaDeviceIndex: true,
+				attr.CudaDeviceUUID:  true,
+				attr.CudaDeviceModel: true,
+			},
+		},
+		GPUCudaStreamSynchronizeCalls.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CudaDeviceIndex: true,
+				attr.CudaDeviceUUID:  true,
+				attr.CudaDeviceModel: true,
+			},
+		},
+		GPUCudaDeviceSynchronizeCalls.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CudaDeviceIndex: true,
+				attr.CudaDeviceUUID:  true,
+				attr.CudaDeviceModel: true,
+			},
+		},
+		GPUCudaHostRegisterBytes.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.CudaDeviceIndex: true,
+				attr.CudaDeviceUUID:  true,
+				attr.CudaDeviceModel: true,
 			},
 		},
 		DNSLookupDuration.Section: {
@@ -611,6 +713,30 @@ func getDefinitions(
 			Attributes: map[attr.Name]Default{
 				attr.DotnetGCHeapGeneration: true,
 			},
+		},
+		DotnetProcessMemoryWorkingSet.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		DotnetGCCommittedMemory.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		DotnetThreadPoolThreadCount.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		DotnetThreadPoolQueueLength.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		DotnetTimerCount.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
+		},
+		DotnetAssemblyCount.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{},
 		},
 		CPythonGCCollections.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},

@@ -13,12 +13,23 @@ groups:
       - ref: db.collection.name
         requirement_level: opt_in
       - ref: db.namespace
+        requirement_level:
+          conditionally_required: if the exchange named a database
       - ref: db.operation.name
+        requirement_level:
+          conditionally_required: if the operation could be parsed from the exchange
       - ref: db.system.name
+        requirement_level: required
       - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
       - ref: server.address
+        requirement_level: recommended
       - ref: server.port
+        requirement_level: recommended
       - ref: db.response.status_code
+        requirement_level:
+          conditionally_required: if the operation failed and the status code is available
 
   # OBI-custom metric: upstream semconv defines only the client-side
   # db.client.operation.duration. OBI's eBPF instrumentation also observes
@@ -37,12 +48,22 @@ groups:
       - ref: db.system.name
         requirement_level: required
       - ref: db.operation.name
+        requirement_level:
+          conditionally_required: if the operation could be parsed from the exchange
       - ref: db.namespace
+        requirement_level:
+          conditionally_required: if the exchange named a database
       - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
       - ref: db.collection.name
         requirement_level: opt_in
       - ref: server.address
+        requirement_level: recommended
       - ref: server.port
+        requirement_level: recommended
       - ref: client.address
         requirement_level: opt_in
       - ref: db.response.status_code
+        requirement_level:
+          conditionally_required: if the database reported a status code

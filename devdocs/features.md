@@ -6,7 +6,7 @@ through language-specific library instrumentation documented later in this file.
 | Protocol      | Languages |    Versions | Methods                                                                                  | Secure | Propagates Context |                                                                                                                     Limitations
 |:--------------|:---------:|------------:|------------------------------------------------------------------------------------------|:------:|-------------------:|--------------------------------------------------------------------------------------------------------------------------------:
 | HTTP          |    All    |     1.0/1.1 | All                                                                                      |  Yes   |                Yes | Generic TLS inject uses TCP option kind 25 only (OBI-to-OBI; L7 proxies drop it). Header inject works for plaintext.
-| HTTP          |    All    |         2.0 | All                                                                                      |  Yes   |                Yes | Network-level HPACK inject/extract on plaintext HTTP/2. Generic TLS cannot inject (`sk_msg` sees ciphertext); extract still works if a peer injected. Huffman-encoded `traceparent` extract requires kernel 5.17+. Go library instrumentation covers TLS inject via uprobes. See [grpc-context-propagation.md](grpc-context-propagation.md).
+| HTTP          |    All    |         2.0 | All                                                                                      |  Yes   |                Yes | Network-level HPACK inject/extract on plaintext HTTP/2. Generic TLS cannot inject (`sk_msg` sees ciphertext); extract still works if a peer injected. Huffman-encoded `traceparent` extract requires kernel 5.17+. Go library instrumentation covers TLS inject via uprobes. On the generic path, about six streams that share one read or write are captured; extra streams are dropped instead of being reported with wrong values. See [grpc-context-propagation.md](grpc-context-propagation.md).
 | gRPC          |    All    |        1.0+ | All                                                                                      |  Yes   |                Yes | Same HPACK path as HTTP/2. Can't get method for long living connections before OBI started, will mark method with `*`. Generic TLS cannot inject. Huffman extract requires kernel 5.17+. Message body capture is not supported (needs a `.proto` OBI does not have).
 | MySQL         |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
 | PostgreSQL    |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
@@ -166,9 +166,19 @@ See [nodejs-manual-spans.md](nodejs-manual-spans.md).
 Specifically for instrumenting GPU execution primitives, like NVIDIA CUDA kernel launches and memory copies. This
 instrumentation support differs from traditional GPU metrics, such as GPU utilization and GPU temperature.
 
-| Library                        |  Primitives                                                                      |             Versions | Limitations
-|:-------------------------------|:--------------------------------------------------------------------------------:|---------------------:|------------:
-| libcuda                        |    cudaLaunchKernel, cudaGraphLaunch, cudaMalloc, cudaMemcpy, cudaMemcpyAsync    |               >= 7.0 |         N/A
+OBI instruments the CUDA Runtime API through `libcudart` and the CUDA Driver API through `libcuda`. Since the runtime
+implements the driver API, launches in a process that maps both libraries would be observed twice; OBI deduplicates
+them in the eBPF programs by suppressing the driver API call that a runtime API call on the same thread is still
+executing.
+
+| Library   | Primitives | Versions | Limitations
+|:----------|:-----------|---------:|------------:
+| libcudart | cudaLaunchKernel, cudaGraphLaunch, cudaMalloc, cudaFree, cudaMemset, cudaMemcpy, cudaMemcpyAsync, cudaStreamCreate, cudaStreamCreateWithFlags, cudaStreamCreateWithPriority, cudaStreamDestroy, cudaEventRecord, cudaEventRecordWithFlags, cudaEventSynchronize, cudaStreamSynchronize, cudaDeviceSynchronize, cudaHostRegister, cudaSetDevice, cudaGetDevice, cudaGetDeviceProperties, cudaGetDeviceProperties_v2 | >= 7.0 | N/A
+| libcuda   | cuLaunchKernel, cuLaunchKernelEx, cuGraphLaunch, cuDeviceGetUuid, cuDeviceGetUuid_v2, cuDeviceGetName | >= 7.0 | N/A
+
+Enablement is controlled by `ebpf.instrument_cuda` (`OTEL_EBPF_INSTRUMENT_CUDA`); the default `auto` enables the
+instrumentation when `nvidia-smi` is on the `PATH` of the OBI process. Spans and metrics are labelled with the device
+index, UUID, and model. See [gpu-monitoring.md](gpu-monitoring.md) for the emitted metrics and the full design.
 
 # Supported Context propagation frameworks
 
@@ -184,6 +194,6 @@ OBI has support for several asynchronous frameworks that allow it to propagate c
 | Go channel span links |  Go     |       Go >= 1.17 | `select` paths are not supported                  | Experimental
 | Node.js Async Hooks |  Node.js  | Node.js >= 12.17, excluding 13.0-13.9 | The injected agent needs `AsyncLocalStorage`; custom handling of SIGUSR1 might interfere | Stable
 | Ruby Puma Server    |   Ruby    |              N/A | Only works with Puma server                       | Stable
-| Java Thread pool    |   Java    |           JDK 8+ | Parent lookup walks up to 3 thread-nesting levels | Stable
-| Java Virtual Threads |  Java    |          JDK 21+ | Log enrichment is skipped on virtual threads      | Stable
+| Java Thread pool    |   Java    |           JDK 8+ | Parent lookup walks up to 3 thread-nesting levels; `-Xrs` or `-XX:+DisableAttachMechanism` prevents agent attachment | Stable
+| Java Virtual Threads |  Java    |          JDK 21+ | Log enrichment is skipped on virtual threads; `-Xrs` or `-XX:+DisableAttachMechanism` prevents agent attachment | Stable
 | Python asyncio      |  Python   | GIL-enabled, 64-bit CPython 3.9 through 3.14 | Free-threaded builds are unsupported; `asyncio.start_server()` is not correlated under uvloop; mutated contexts and cancelled `to_thread` tasks may lose correlation | Stable

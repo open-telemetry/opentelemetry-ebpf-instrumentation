@@ -28,6 +28,7 @@ import (
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
+	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 func TestGoOffsetsMapKey(t *testing.T) {
@@ -134,6 +135,47 @@ func TestGoChannelLinkProbesRequireChannelOffsets(t *testing.T) {
 	probes := tracer.GoProbes()
 	for _, symbol := range GoChannelLinkProbeSymbols() {
 		require.Contains(t, probes, symbol)
+	}
+}
+
+// runtime.casgstatus fires on every goroutine status transition and exists only
+// to keep traces_ctx_v1 current, so it must not be attached when nothing reads
+// that map. Built through New so the config predicate is covered too.
+func TestCasgstatusProbeFollowsTraceContextPopulation(t *testing.T) {
+	disableContextPropagationForTest(t)
+
+	for _, tc := range []struct {
+		name     string
+		cfg      *obi.Config
+		expected bool
+	}{
+		{name: "default", cfg: &obi.Config{}, expected: false},
+		{
+			name:     "explicit setting",
+			cfg:      &obi.Config{EBPF: config.EBPFTracer{PopulateTraceContext: true}},
+			expected: true,
+		},
+		{
+			name: "log enricher",
+			cfg: &obi.Config{EBPF: config.EBPFTracer{LogEnricher: config.LogEnricherConfig{
+				Services: []config.LogEnricherServiceConfig{{}},
+			}}},
+			expected: true,
+		},
+		{
+			name:     "node.js manual spans",
+			cfg:      &obi.Config{NodeJS: obi.NodeJSConfig{Enabled: true, ManualSpans: true}},
+			expected: false,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tracer := New(nil, tc.cfg, nil)
+
+			require.Equal(t, tc.expected, tracer.constants()["g_traces_ctx_v1_enabled"])
+
+			_, attached := tracer.GoProbes()["runtime.casgstatus"]
+			require.Equal(t, tc.expected, attached)
+		})
 	}
 }
 
@@ -737,6 +779,7 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 	headerProbeSymbols := []string{
 		"net/http.Header.writeSubset",
 		"golang.org/x/net/http2.(*Framer).WriteHeaders",
+		"golang.org/x/net/http2.(*Framer).WriteContinuation",
 		"net/http.(*http2Framer).WriteHeaders",
 		"net/http/internal/http2.(*Framer).WriteHeaders",
 	}
@@ -808,11 +851,21 @@ func TestHTTP2PreflushProbeGroupsRespectPropagation(t *testing.T) {
 	assert.Equal(t, "go_http2_xnet_preflush", groups[7].Name)
 	assert.Equal(t, "go_http2_stdlib_preflush", groups[8].Name)
 	assert.Equal(t, "go_http2_internal_preflush", groups[9].Name)
-	for _, group := range groups[7:] {
-		require.Len(t, group.Probes, 2)
+
+	xnetGroup := groups[7]
+	require.Len(t, xnetGroup.Probes, 2)
+	assert.Equal(t, []string{"golang.org/x/net/http2.(*Framer).WriteHeaders"}, xnetGroup.RequiresAll)
+	assert.True(t, xnetGroup.Probes[0].Probe.UsePadStart)
+	assert.False(t, xnetGroup.Probes[1].Probe.UsePadStart)
+	assert.Equal(t, xnetGroup.Probes[0].Symbol, xnetGroup.Probes[1].CalledFrom)
+
+	for _, group := range groups[8:] {
+		require.Len(t, group.Probes, 3)
 		assert.True(t, group.Probes[0].Probe.UsePadStart)
 		assert.False(t, group.Probes[1].Probe.UsePadStart)
-		assert.Equal(t, group.Probes[0].Symbol, group.Probes[1].CalledFrom)
+		assert.Contains(t, group.Probes[1].Symbol, "WriteContinuation")
+		assert.False(t, group.Probes[2].Probe.UsePadStart)
+		assert.Equal(t, group.Probes[0].Symbol, group.Probes[2].CalledFrom)
 	}
 
 	tracer.cfg.ContextPropagation = config.ContextPropagationDisabled

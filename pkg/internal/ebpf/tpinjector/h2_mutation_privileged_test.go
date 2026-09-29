@@ -18,3 +18,9 @@ func TestH2MutationRollback(t *testing.T) {
 	require.NoError(t, rlimit.RemoveMemlock())
 	require.NoError(t, verifyH2MutationPeer())
 }
+
+func TestH2MutationTwoFramesOneWrite(t *testing.T) {
+	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
+	require.NoError(t, rlimit.RemoveMemlock())
+	require.NoError(t, verifyH2MutationTwoFrames())
+}

@@ -136,6 +136,36 @@ func TestMakeServiceAttrs(t *testing.T) {
 	assert.NotNil(t, attrs2.CustomOutRouteMatcher)
 }
 
+func TestMakeServiceAttrsUsesGlobalServiceIdentityWithDiscoveryRules(t *testing.T) {
+	pi := services.ProcessInfo{Pid: 1234}
+	cfg := &obi.Config{
+		ServiceName:      "checkout",
+		ServiceNamespace: "shop",
+		Discovery: services.DiscoveryConfig{
+			Instrument: services.GlobDefinitionCriteria{
+				{Path: services.NewGlob("/app/*")},
+			},
+		},
+	}
+	ty := typer{cfg: cfg}
+
+	// A capture rule selects the process but does not define a service identity.
+	attrs := ty.makeServiceAttrs(&ProcessMatch{
+		Process:  &pi,
+		Criteria: FindingCriteria(cfg),
+	})
+	assert.Equal(t, "checkout", attrs.UID.Name)
+	assert.Equal(t, "shop", attrs.UID.Namespace)
+
+	// Explicit selector identity retains precedence over the global resource.
+	attrs = ty.makeServiceAttrs(&ProcessMatch{
+		Process:  &pi,
+		Criteria: []services.Selector{dummyCriterion{name: "payments", namespace: "billing"}},
+	})
+	assert.Equal(t, "payments", attrs.UID.Name)
+	assert.Equal(t, "billing", attrs.UID.Namespace)
+}
+
 func TestMakeServiceAttrsDefaultsSDKLanguageToGeneric(t *testing.T) {
 	pi := services.ProcessInfo{Pid: 1234}
 	proc := &ProcessMatch{

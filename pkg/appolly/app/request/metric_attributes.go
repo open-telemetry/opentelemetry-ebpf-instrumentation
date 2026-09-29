@@ -189,6 +189,14 @@ func S3RPCMethod(method string) string {
 	return "S3/" + method
 }
 
+// SNSRPCMethod returns the fully-qualified rpc.method value for AWS SNS operations.
+func SNSRPCMethod(method string) string {
+	if method == "" {
+		return ""
+	}
+	return "SNS/" + method
+}
+
 func AWSRequestID(val string) attribute.KeyValue {
 	return attribute.Key(attr.AWSRequestID).String(val)
 }
@@ -341,6 +349,18 @@ func CudaMemcpyName(val int) string {
 
 func CudaMemcpy(val int) attribute.KeyValue {
 	return attribute.Key(attr.CudaMemcpyKind).String(CudaMemcpyName(val))
+}
+
+func CudaDeviceIndex(val uint32) attribute.KeyValue {
+	return attribute.Key(attr.CudaDeviceIndex).Int(int(val))
+}
+
+func CudaDeviceUUID(val string) attribute.KeyValue {
+	return attribute.Key(attr.CudaDeviceUUID).String(val)
+}
+
+func CudaDeviceModel(val string) attribute.KeyValue {
+	return attribute.Key(attr.CudaDeviceModel).String(val)
 }
 
 func Job(val string) attribute.KeyValue {

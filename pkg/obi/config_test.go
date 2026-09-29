@@ -25,7 +25,6 @@ import (
 
 	"go.opentelemetry.io/collector/confmap"
 
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export"
@@ -42,6 +41,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -66,6 +66,25 @@ func TestJoinMetricsConfigIncludesPerServiceFeatures(t *testing.T) {
 	joint := cfg.JoinMetricsConfig()
 
 	assert.Equal(t, export.FeatureApplicationRED|export.FeatureApplicationRuntime|export.FeatureNetwork, joint.Features)
+}
+
+// traces_ctx_v1 is only populated when something reads it. The default config
+// must not populate it: the upkeep costs a refresh on every async context
+// switch of the instrumented runtime.
+func TestPopulateTraceContext(t *testing.T) {
+	assert.False(t, DefaultConfig.PopulateTraceContext())
+
+	explicit := DefaultConfig
+	explicit.EBPF.PopulateTraceContext = true
+	assert.True(t, explicit.PopulateTraceContext())
+
+	logEnricher := DefaultConfig
+	logEnricher.EBPF.LogEnricher.Services = []config.LogEnricherServiceConfig{{}}
+	assert.True(t, logEnricher.PopulateTraceContext())
+
+	manualSpans := DefaultConfig
+	manualSpans.NodeJS.ManualSpans = true
+	assert.False(t, manualSpans.PopulateTraceContext())
 }
 
 func TestConfig_Overrides(t *testing.T) {
@@ -360,7 +379,7 @@ discovery:
 			ExtraGroupAttributes: map[string][]attr.Name{
 				"k8s_app_meta": {"k8s.app.version"},
 			},
-			MetadataRetry:                  meta.DefaultRetryConfig,
+			MetadataRetry:                  metadata.DefaultRetryConfig,
 			MetricSpanNameAggregationLimit: 100,
 		},
 		Routes: &transform.RoutesConfig{
@@ -372,6 +391,9 @@ discovery:
 			Sources:  []transform.Source{transform.SourceK8s, transform.SourceDNS},
 			CacheLen: 1024,
 			CacheTTL: 5 * time.Minute,
+			ECS: transform.ECSNameResolverConfig{
+				RefreshInterval: 30 * time.Second,
+			},
 		},
 		Discovery: services.DiscoveryConfig{
 			ExcludeOTelInstrumentedServices: true,
@@ -488,6 +510,32 @@ func TestConfig_NameResolverSources(t *testing.T) {
 	cfg, err = LoadConfig(bytes.NewBufferString("name_resolver:\n  sources: [k8s, dns]\n"))
 	require.NoError(t, err)
 	assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
+}
+
+func TestConfig_NameResolverECS(t *testing.T) {
+	const config = `cloud_metadata:
+  cluster_name: beyla-nonk8s-poc
+  region: us-east-2
+name_resolver:
+  sources: [ecs]
+  ecs:
+    refresh_interval: 45s
+`
+	cfg, err := LoadConfig(bytes.NewBufferString(config))
+	require.NoError(t, err)
+	assert.Equal(t, []transform.Source{transform.SourceECS}, cfg.NameResolver.Sources)
+	assert.Equal(t, "beyla-nonk8s-poc", cfg.CloudMetadata.ClusterName)
+	assert.Equal(t, "us-east-2", cfg.CloudMetadata.Region)
+	assert.Equal(t, 45*time.Second, cfg.NameResolver.ECS.RefreshInterval)
+
+	t.Setenv("OTEL_EBPF_CLUSTER_NAME", "env-cluster")
+	t.Setenv("OTEL_EBPF_CLOUD_REGION", "eu-west-1")
+	t.Setenv("OTEL_EBPF_KUBE_CLUSTER_NAME", "kube-cluster")
+	cfg, err = LoadConfig(bytes.NewBufferString(config))
+	require.NoError(t, err)
+	assert.Equal(t, "env-cluster", cfg.CloudMetadata.ClusterName)
+	assert.Equal(t, "eu-west-1", cfg.CloudMetadata.Region)
+	assert.Equal(t, "kube-cluster", cfg.Attributes.Kubernetes.ClusterName)
 }
 
 func TestConfig_ShutdownTimeout(t *testing.T) {

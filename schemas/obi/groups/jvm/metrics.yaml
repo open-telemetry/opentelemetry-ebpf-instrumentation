@@ -16,7 +16,9 @@ groups:
     stability: stable
     attributes:
       - ref: jvm.memory.pool.name
+        requirement_level: recommended
       - ref: jvm.memory.type
+        requirement_level: recommended
   - id: metric.obi.jvm.memory.limit
     type: metric
     metric_name: jvm.memory.limit
@@ -29,7 +31,9 @@ groups:
     stability: stable
     attributes:
       - ref: jvm.memory.pool.name
+        requirement_level: recommended
       - ref: jvm.memory.type
+        requirement_level: recommended
   - id: metric.obi.jvm.memory.used
     type: metric
     metric_name: jvm.memory.used
@@ -42,7 +46,9 @@ groups:
     stability: stable
     attributes:
       - ref: jvm.memory.pool.name
+        requirement_level: recommended
       - ref: jvm.memory.type
+        requirement_level: recommended
   - id: metric.obi.jvm.memory.used_after_last_gc
     type: metric
     metric_name: jvm.memory.used_after_last_gc
@@ -55,7 +61,9 @@ groups:
     stability: stable
     attributes:
       - ref: jvm.memory.pool.name
+        requirement_level: recommended
       - ref: jvm.memory.type
+        requirement_level: recommended
   - id: metric.obi.jvm.class.loaded
     type: metric
     metric_name: jvm.class.loaded
@@ -101,6 +109,7 @@ groups:
     stability: stable
     attributes:
       - ref: jvm.thread.daemon
+        requirement_level: recommended
   - id: metric.obi.jvm.cpu.time
     type: metric
     metric_name: jvm.cpu.time
@@ -146,4 +155,6 @@ groups:
     stability: stable
     attributes:
       - ref: jvm.gc.name
+        requirement_level: recommended
       - ref: jvm.gc.action
+        requirement_level: recommended

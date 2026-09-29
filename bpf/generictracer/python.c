@@ -57,7 +57,12 @@ static __always_inline void map_context_to_task(u64 pid_tgid, u64 context, u64 t
     }
 
     const python_addr_key_t context_key = python_addr_key(pid_tgid, context);
-    bpf_map_update_elem(&python_context_task, &context_key, &mapping, BPF_ANY);
+    const long err = bpf_map_update_elem(&python_context_task, &context_key, &mapping, BPF_ANY);
+    if (err) {
+        bpf_dbg_printk("python context bind failed ctx=%llx err=%ld", context, err);
+    } else {
+        bpf_dbg_printk("python context bind ctx=%llx task=%llx", context, task);
+    }
 }
 
 static __always_inline python_thread_state_t *get_or_create_python_thread_state(u64 id) {
@@ -129,12 +134,8 @@ int GUARDED_PROG(obi_uprobe_task_step_ret, struct pt_regs *, ctx) {
     }
 
     thread_state->current_task = k_python_state_none;
+    thread_state->start_monotime_ns = bpf_ktime_get_ns();
     obi_ctx__del(id);
-    if (thread_state->current_context == k_python_state_none &&
-        thread_state->inflight_task == k_python_state_none) {
-        bpf_map_delete_elem(&python_thread_state, &id);
-        return 0;
-    }
 
     return 0;
 }
@@ -156,8 +157,14 @@ int GUARDED_PROG(obi_uprobe_context_run, struct pt_regs *, ctx) {
         return 0;
     }
 
+    // uvloop reads the socket before entering the protocol callback's context.
+    // Keep the previous callback's completion time as the network-activity boundary.
+    // Nested contexts and newly observed threads start a fresh window here.
+    if (thread_state->current_context || thread_state->current_task ||
+        !thread_state->start_monotime_ns) {
+        thread_state->start_monotime_ns = bpf_ktime_get_ns();
+    }
     thread_state->current_context = context;
-    thread_state->start_monotime_ns = bpf_ktime_get_ns();
 
     // asyncio.to_thread worker has no current_task; look up which task copied this context.
     // The ctx_vars check rejects stale bindings left by a freed context whose
@@ -192,16 +199,11 @@ int GUARDED_PROG(obi_uretprobe_context_run, struct pt_regs *, ctx) {
     }
 
     thread_state->current_context = k_python_state_none;
+    thread_state->start_monotime_ns = bpf_ktime_get_ns();
     // Only worker threads have no current_task here; on the event-loop thread
     // task_step_ret owns obi_ctx cleanup so we leave it alone
     if (thread_state->current_task == k_python_state_none) {
         obi_ctx__del(id);
-    }
-
-    if (thread_state->current_context == k_python_state_none &&
-        thread_state->current_task == k_python_state_none &&
-        thread_state->inflight_task == k_python_state_none) {
-        bpf_map_delete_elem(&python_thread_state, &id);
     }
 
     return 0;
@@ -261,6 +263,7 @@ int GUARDED_PROG(obi_uprobe_copy_context, struct pt_regs *, ctx) {
     const python_thread_state_t *thread_state =
         (const python_thread_state_t *)bpf_map_lookup_elem(&python_thread_state, &id);
     if (!thread_state) {
+        bpf_dbg_printk("python context copy without thread state ctx=%llx", context);
         return 0;
     }
 
@@ -276,6 +279,7 @@ int GUARDED_PROG(obi_uprobe_copy_context, struct pt_regs *, ctx) {
         return 0;
     }
     // No owner for this copy; drop any stale binding at this recycled address
+    bpf_dbg_printk("python context copy unbound ctx=%llx", context);
     const python_addr_key_t context_key = python_addr_key(id, context);
     bpf_map_delete_elem(&python_context_task, &context_key);
     return 0;
@@ -303,18 +307,29 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
 
     thread_state->inflight_task = child_task;
     const ssl_pid_connection_info_t *info = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
-    // The callback's context may belong to an earlier request. A fresh accept
-    // lets this task use the new connection without inheriting that context's owner.
-    u8 new_accept = 0;
+    connection_info_part_t conn_part = {};
+    if (info) {
+        populate_ephemeral_info(
+            &conn_part, &info->p_conn.conn, info->orig_dport, pid_from_pid_tgid(id), FD_SERVER);
+    }
+
+    // An accept or a server request received since the previous callback establishes a
+    // new task root. The context can belong to an earlier request on the connection.
+    u8 new_root = 0;
     if (!thread_state->current_task && thread_state->start_monotime_ns) {
         if (info) {
             const tracked_connection_t *conn =
                 bpf_map_lookup_elem(&connection_tracker, &info->p_conn.conn);
-            new_accept =
+            new_root =
                 conn && conn->direction == TCP_RECV && conn->time > thread_state->start_monotime_ns;
+            if (!new_root) {
+                const tp_info_pid_t *server = bpf_map_lookup_elem(&server_traces_aux, &conn_part);
+                new_root =
+                    server && server->valid && server->tp.ts > thread_state->start_monotime_ns;
+            }
         }
     }
-    // Each accepted socket can establish one task root within this callback.
+    // Consume this callback's network activity once, before another task is created.
     thread_state->start_monotime_ns = bpf_ktime_get_ns();
     python_task_ref_t parent_ref = {};
     python_task_resolution_t parent_resolution = PYTHON_TASK_NOT_FOUND;
@@ -326,13 +341,17 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
         } else {
             parent_resolution = PYTHON_TASK_STALE;
         }
-    } else if (!new_accept) {
+    } else if (!new_root) {
         parent_resolution =
             resolve_python_task_from_context(id, thread_state->current_context, &parent_ref);
+    } else {
+        bpf_dbg_printk(
+            "python task root from network task=%llx port=%u", child_task, conn_part.port);
     }
     const python_addr_key_t child_task_key = python_addr_key(id, child_task);
     const u64 generation = allocate_python_task_generation();
     if (!generation) {
+        bpf_dbg_printk("python task generation unavailable task=%llx", child_task);
         return 0;
     }
     python_task_state_t task_state = {
@@ -350,6 +369,8 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
     }
 
     if (parent_resolution == PYTHON_TASK_STALE) {
+        bpf_dbg_printk(
+            "python task rejected task=%llx ctx=%llx", child_task, thread_state->current_context);
         bpf_map_delete_elem(&python_task_state, &child_task_key);
         return 0;
     }
@@ -360,16 +381,20 @@ int GUARDED_PROG(obi_uprobe_task_init, struct pt_regs *, ctx) {
     // request by the time the child task is initialized.
     if (parent_state_found && parent_state.conn.port) {
         task_state.conn = parent_state.conn;
+        bpf_dbg_printk("python task inherit task=%llx parent=%llx", child_task, parent_ref.addr);
     } else if (parent_resolution != PYTHON_TASK_STALE) {
         if (info) {
-            connection_info_part_t conn_part = {};
-            const u32 host_pid = pid_from_pid_tgid(id);
-            populate_ephemeral_info(
-                &conn_part, &info->p_conn.conn, info->orig_dport, host_pid, FD_SERVER);
             task_state.conn = conn_part;
+            bpf_dbg_printk(
+                "python task thread fallback task=%llx port=%u", child_task, task_state.conn.port);
+        } else {
+            bpf_dbg_printk("python task has no connection task=%llx", child_task);
         }
     }
-    bpf_map_update_elem(&python_task_state, &child_task_key, &task_state, BPF_ANY);
+    const long err = bpf_map_update_elem(&python_task_state, &child_task_key, &task_state, BPF_ANY);
+    if (err) {
+        bpf_dbg_printk("python task store failed task=%llx err=%ld", child_task, err);
+    }
 
     return 0;
 }
@@ -392,8 +417,7 @@ int GUARDED_PROG(obi_uprobe_task_init_ret, struct pt_regs *, ctx) {
     thread_state->inflight_task = k_python_state_none;
     if (thread_state->current_task == k_python_state_none &&
         thread_state->current_context == k_python_state_none) {
-        bpf_map_delete_elem(&python_thread_state, &id);
-        return 0;
+        thread_state->start_monotime_ns = bpf_ktime_get_ns();
     }
 
     return 0;

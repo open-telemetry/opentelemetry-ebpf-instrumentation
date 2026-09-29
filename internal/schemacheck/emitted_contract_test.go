@@ -5,7 +5,8 @@ package schemacheck
 
 import (
 	"os"
-	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -17,51 +18,116 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 )
 
-type spanGroupsFile struct {
-	Groups []struct {
-		ID         string `yaml:"id"`
-		Type       string `yaml:"type"`
-		Attributes []struct {
-			Ref string `yaml:"ref"`
-			ID  string `yaml:"id"`
-		} `yaml:"attributes"`
-	} `yaml:"groups"`
-}
-
-// declaredSpanAttributes returns the attribute keys a span group carries.
-// Groups are read verbatim: the emitted contract is what a given carrier
-// declares, not what it inherits.
-func declaredSpanAttributes(t *testing.T, groupID string) []string {
+// declaredSpanAttributes returns the attribute keys a span group carries,
+// including the ones it inherits: weaver resolves `extends` before publishing,
+// so a consumer reading the registry sees the flattened set.
+// declaredLevel reports the requirement level a group states for one attribute,
+// as a bare word; a conditional level yields the condition's key. A group
+// inherits the levels of whatever it extends, so the chain is followed.
+func declaredLevel(t *testing.T, groupID, name string) string {
 	t.Helper()
 
-	matches, err := filepath.Glob(filepath.Join(obiGroupsDir, "*", "spans.yaml"))
-	require.NoError(t, err)
-
-	for _, path := range matches {
-		body, err := os.ReadFile(path)
-		require.NoError(t, err)
-
-		var f spanGroupsFile
-		require.NoErrorf(t, yaml.Unmarshal(body, &f), "parsing %s", path)
-
-		for _, g := range f.Groups {
-			if g.Type != "span" || g.ID != groupID {
+	attrs := carrierAttributes(t)
+	for id := groupID; id != ""; id = groupExtends(t, id) {
+		for _, a := range attrs {
+			if a.group != id || a.name != name {
 				continue
 			}
-			keys := make([]string, 0, len(g.Attributes))
-			for _, a := range g.Attributes {
-				key := a.Ref
-				if key == "" {
-					key = a.ID
-				}
-				keys = append(keys, key)
+			var word string
+			if err := a.level.Decode(&word); err == nil {
+				return word
 			}
-			return keys
+			var mapping map[string]string
+			if err := a.level.Decode(&mapping); err == nil {
+				for k := range mapping {
+					return k
+				}
+			}
 		}
 	}
 
-	require.FailNowf(t, "span group not found", "no group %q under %s", groupID, obiGroupsDir)
-	return nil
+	return ""
+}
+
+func groupExtends(t *testing.T, groupID string) string {
+	t.Helper()
+
+	for _, path := range carrierFiles(t) {
+		body, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		var f carrierGroupsFile
+		require.NoErrorf(t, yaml.Unmarshal(body, &f), "parsing %s", path)
+
+		for _, g := range f.Groups {
+			if g.ID == groupID {
+				return g.Extends
+			}
+		}
+	}
+
+	return ""
+}
+
+func declaredSpanAttributes(t *testing.T, groupID string) []string {
+	t.Helper()
+
+	groups := map[string]carrierGroup{}
+	for _, path := range carrierFiles(t) {
+		body, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		var f carrierGroupsFile
+		require.NoErrorf(t, yaml.Unmarshal(body, &f), "parsing %s", path)
+
+		for _, g := range f.Groups {
+			groups[g.ID] = g
+		}
+	}
+
+	group, ok := groups[groupID]
+	require.Truef(t, ok, "no group %q under %s", groupID, obiGroupsDir)
+	require.Equalf(t, "span", group.Type, "group %q is not a span group", groupID)
+
+	seen := map[string]struct{}{}
+	walked := map[string]struct{}{}
+	keys := make([]string, 0, len(group.Attributes))
+
+	for id := groupID; id != ""; {
+		g, ok := groups[id]
+		require.Truef(t, ok, "group %q extends %q, which no registry file declares", groupID, id)
+
+		for _, a := range g.Attributes {
+			key := a.Ref
+			if key == "" {
+				key = a.ID
+			}
+			if _, dup := seen[key]; dup {
+				continue
+			}
+			seen[key] = struct{}{}
+			keys = append(keys, key)
+		}
+
+		require.NotContainsf(t, walked, g.Extends, "extends cycle through %q", g.Extends)
+		walked[id] = struct{}{}
+		id = g.Extends
+	}
+
+	return keys
+}
+
+// A templated attribute is emitted one key per header, while the registry
+// declares the template root once. Compare against the root.
+var attributeTemplates = []string{"http.request.header", "http.response.header"}
+
+func templateRoot(key string) string {
+	for _, t := range attributeTemplates {
+		if strings.HasPrefix(key, t+".") {
+			return t
+		}
+	}
+	return key
 }
 
 func emittedSpanAttributes(span *request.Span, optional ...attr.Name) []string {
@@ -73,7 +139,7 @@ func emittedSpanAttributes(span *request.Span, optional ...attr.Name) []string {
 	seen := map[string]struct{}{}
 	keys := make([]string, 0)
 	for _, kv := range tracesgen.TraceAttributesSelector(span, optionalAttrs) {
-		key := string(kv.Key)
+		key := templateRoot(string(kv.Key))
 		if _, dup := seen[key]; dup {
 			continue
 		}
@@ -81,6 +147,46 @@ func emittedSpanAttributes(span *request.Span, optional ...attr.Name) []string {
 		keys = append(keys, key)
 	}
 	return keys
+}
+
+// The server branch emits the same HTTP set whatever the subtype, so every
+// server group that extends span.obi.http.server starts from this span.
+func populatedHTTPServerSpan(subType int) *request.Span {
+	return &request.Span{
+		Type:                request.EventTypeHTTP,
+		SubType:             subType,
+		Method:              "SEARCH",
+		Path:                "/v1/things",
+		FullPath:            "/v1/things?q=1",
+		Route:               "/v1/things",
+		Statement:           "https" + request.SchemeHostSeparator + "api.example.com",
+		Host:                "10.0.0.1",
+		HostPort:            8443,
+		Peer:                "10.0.0.2",
+		PeerPort:            54321,
+		Status:              500,
+		ProtoVersion:        request.ProtoVersionHTTP11,
+		UserAgent:           "curl/8.0",
+		RequestHeaders:      map[string][]string{"x-trace": {"1"}},
+		ResponseHeaders:     map[string][]string{"x-reply": {"2"}},
+		RequestBodyContent:  "{}",
+		ResponseBodyContent: "{}",
+	}
+}
+
+var httpSpanOptional = []attr.Name{
+	attr.HTTPUrlQuery,
+	attr.HTTPRequestMethodOrig,
+	attr.HTTPRequestBodySize,
+	attr.HTTPResponseBodySize,
+	attr.OBIHTTPResponseObserved,
+	attr.UserAgentOriginal,
+	attr.NetworkPeerAddress,
+	attr.NetworkPeerPort,
+	attr.NetworkProtocolVersion,
+	attr.ErrorType,
+	attr.SkipSpanMetrics,
+	attr.ServicePeerName,
 }
 
 // Weaver resolves an emitted attribute against the registry's global attribute
@@ -95,7 +201,440 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		groupID  string
 		span     *request.Span
 		optional []attr.Name
+		// Attributes the group declares that this span does not carry. A group
+		// covers every span of its kind, so an attribute one of them omits is
+		// declared below `required` rather than dropped; naming it here keeps
+		// the rest of the set exact.
+		absent []string
 	}{
+		{
+			name:    "grpc server",
+			groupID: "span.obi.rpc.grpc.server",
+			span: &request.Span{
+				Type:         request.EventTypeGRPC,
+				Path:         "/pkg.Service/Method",
+				Host:         "10.0.0.1",
+				HostPort:     50051,
+				Peer:         "10.0.0.2",
+				PeerPort:     54321,
+				Status:       2,
+				ProtoVersion: request.ProtoVersionHTTP2,
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.NetworkProtocolVersion,
+				attr.ErrorType,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			name:    "grpc client",
+			absent:  []string{"service.peer.name"},
+			groupID: "span.obi.rpc.grpc.client",
+			span: &request.Span{
+				Type:         request.EventTypeGRPCClient,
+				Path:         "/pkg.Service/Method",
+				Host:         "10.0.0.1",
+				HostPort:     50051,
+				Peer:         "10.0.0.2",
+				PeerPort:     54321,
+				Status:       2,
+				ProtoVersion: request.ProtoVersionHTTP2,
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.NetworkProtocolVersion,
+				attr.ErrorType,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			name:    "onc rpc client",
+			absent:  []string{"service.peer.name"},
+			groupID: "span.obi.rpc.onc_rpc.client",
+			span: &request.Span{
+				Type:         request.EventTypeSunRPCClient,
+				Method:       "MOUNTPROC_EXPORT",
+				Path:         "nfs",
+				Route:        "5",
+				Statement:    "AUTH_UNIX",
+				SubType:      3,
+				Host:         "10.0.0.1",
+				HostPort:     2049,
+				Peer:         "10.0.0.2",
+				PeerPort:     54321,
+				Status:       1,
+				ProtoVersion: request.ProtoVersionHTTP11,
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.NetworkProtocolVersion,
+				attr.ErrorType,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			// NATS is the only broker that reports an envelope size.
+			name:    "nats producer",
+			absent:  []string{"service.peer.name"},
+			groupID: "span.obi.messaging.nats.producer",
+			span: &request.Span{
+				Type:          request.EventTypeNATSClient,
+				Method:        request.MessagingPublish,
+				Path:          "my-subject",
+				Statement:     "nats-client-1",
+				Host:          "10.0.0.1",
+				HostPort:      4222,
+				Peer:          "10.0.0.1",
+				PeerPort:      54321,
+				ContentLength: 128,
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			// Kafka reports the offset only on a process operation, so the
+			// producer group must not declare it.
+			name:    "kafka producer",
+			absent:  []string{"service.peer.name"},
+			groupID: "span.obi.messaging.kafka.producer",
+			span: &request.Span{
+				Type:          request.EventTypeKafkaClient,
+				Method:        request.MessagingPublish,
+				Path:          "my-topic",
+				Statement:     "producer-1",
+				Host:          "10.0.0.1",
+				HostPort:      9092,
+				Peer:          "10.0.0.1",
+				PeerPort:      54321,
+				MessagingInfo: &request.MessagingInfo{Partition: 3, Offset: 42},
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			// MQTT carries neither partition metadata nor an envelope size.
+			name:    "mqtt consumer",
+			absent:  []string{"service.peer.name"},
+			groupID: "span.obi.messaging.mqtt.consumer",
+			span: &request.Span{
+				Type:      request.EventTypeMQTTClient,
+				Method:    request.MessagingProcess,
+				Path:      "my/topic",
+				Statement: "mqtt-client-1",
+				Host:      "10.0.0.1",
+				HostPort:  1883,
+				Peer:      "10.0.0.1",
+				PeerPort:  54321,
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			name:    "jsonrpc client",
+			absent:  []string{"service.peer.name"},
+			groupID: "span.obi.jsonrpc.client",
+			span: &request.Span{
+				Type:                request.EventTypeHTTPClient,
+				SubType:             request.HTTPSubtypeJSONRPC,
+				Method:              "POST",
+				Path:                "/rpc",
+				Host:                "10.0.0.1",
+				HostPort:            8545,
+				Peer:                "10.0.0.1",
+				PeerPort:            54321,
+				Status:              200,
+				ProtoVersion:        request.ProtoVersionHTTP11,
+				RequestHeaders:      map[string][]string{"x-trace": {"1"}, "user-agent": {"curl/8.0"}},
+				ResponseHeaders:     map[string][]string{"x-reply": {"2"}},
+				RequestBodyContent:  "{}",
+				ResponseBodyContent: "{}",
+				JSONRPC: &request.JSONRPC{
+					// Go net/rpc qualifies the method, which is what makes the
+					// span report rpc.method_original alongside rpc.method.
+					Method:           "Arith.Multiply",
+					ServiceQualified: true,
+					Version:          "2.0",
+					RequestID:        "1",
+					ErrorCode:        -32600,
+				},
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.NetworkProtocolVersion,
+				attr.UserAgentOriginal,
+				attr.ErrorType,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			name:    "onc rpc server",
+			groupID: "span.obi.rpc.onc_rpc.server",
+			span: &request.Span{
+				Type:         request.EventTypeSunRPCServer,
+				Method:       "MOUNTPROC_EXPORT",
+				Path:         "nfs",
+				Route:        "5",
+				Statement:    "AUTH_UNIX",
+				SubType:      3,
+				Host:         "10.0.0.1",
+				HostPort:     2049,
+				Peer:         "10.0.0.2",
+				PeerPort:     54321,
+				Status:       1,
+				ProtoVersion: request.ProtoVersionHTTP11,
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.NetworkProtocolVersion,
+				attr.ErrorType,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			name:    "amqp producer",
+			absent:  []string{"service.peer.name"},
+			groupID: "span.obi.messaging.amqp.producer",
+			span: &request.Span{
+				Type:     request.EventTypeAMQPClient,
+				Method:   request.MessagingPublish,
+				Path:     "my-exchange",
+				Host:     "10.0.0.1",
+				HostPort: 5672,
+				Peer:     "10.0.0.1",
+				PeerPort: 54321,
+				Status:   1,
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.ErrorType,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			name:    "kafka consumer",
+			absent:  []string{"service.peer.name"},
+			groupID: "span.obi.messaging.kafka.consumer",
+			span: &request.Span{
+				Type:          request.EventTypeKafkaClient,
+				Method:        request.MessagingProcess,
+				Path:          "my-topic",
+				Statement:     "consumer-1",
+				Host:          "10.0.0.1",
+				HostPort:      9092,
+				Peer:          "10.0.0.1",
+				PeerPort:      54321,
+				Status:        1,
+				MessagingInfo: &request.MessagingInfo{Partition: 3, Offset: 42},
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.ErrorType,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			// The kind follows the operation, not the side, so a server-side
+			// producer lands in the same group as a client-side one. It differs
+			// by one attribute: service.peer.name is appended only for the
+			// client event types, which is why the group declares it as
+			// recommended rather than required.
+			name:    "kafka producer observed server-side",
+			groupID: "span.obi.messaging.kafka.producer",
+			span: &request.Span{
+				Type:          request.EventTypeKafkaServer,
+				Method:        request.MessagingPublish,
+				Path:          "my-topic",
+				Statement:     "producer-1",
+				Host:          "10.0.0.1",
+				HostPort:      9092,
+				HostName:      "broker-1",
+				Peer:          "10.0.0.1",
+				PeerPort:      54321,
+				MessagingInfo: &request.MessagingInfo{Partition: 3},
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+			absent: []string{"service.peer.name"},
+		},
+		{
+			name:    "kafka client",
+			absent:  []string{"service.peer.name"},
+			groupID: "span.obi.messaging.kafka.client",
+			span: &request.Span{
+				Type:          request.EventTypeKafkaClient,
+				Method:        request.MessagingReceive,
+				Path:          "my-topic",
+				Statement:     "consumer-1",
+				Host:          "10.0.0.1",
+				HostPort:      9092,
+				Peer:          "10.0.0.1",
+				PeerPort:      54321,
+				MessagingInfo: &request.MessagingInfo{Partition: 3},
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			name:    "mqtt producer",
+			absent:  []string{"service.peer.name"},
+			groupID: "span.obi.messaging.mqtt.producer",
+			span: &request.Span{
+				Type:      request.EventTypeMQTTClient,
+				Method:    request.MessagingPublish,
+				Path:      "my/topic",
+				Statement: "mqtt-client-1",
+				Host:      "10.0.0.1",
+				HostPort:  1883,
+				Peer:      "10.0.0.1",
+				PeerPort:  54321,
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			name:    "mqtt client",
+			absent:  []string{"service.peer.name"},
+			groupID: "span.obi.messaging.mqtt.client",
+			span: &request.Span{
+				Type:      request.EventTypeMQTTClient,
+				Method:    request.MessagingReceive,
+				Path:      "my/topic",
+				Statement: "mqtt-client-1",
+				Host:      "10.0.0.1",
+				HostPort:  1883,
+				Peer:      "10.0.0.1",
+				PeerPort:  54321,
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			name:    "nats consumer",
+			absent:  []string{"service.peer.name"},
+			groupID: "span.obi.messaging.nats.consumer",
+			span: &request.Span{
+				Type:          request.EventTypeNATSClient,
+				Method:        request.MessagingProcess,
+				Path:          "my-subject",
+				Statement:     "nats-client-1",
+				Host:          "10.0.0.1",
+				HostPort:      4222,
+				Peer:          "10.0.0.1",
+				PeerPort:      54321,
+				ContentLength: 128,
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			name:    "nats client",
+			absent:  []string{"service.peer.name"},
+			groupID: "span.obi.messaging.nats.client",
+			span: &request.Span{
+				Type:          request.EventTypeNATSClient,
+				Method:        request.MessagingReceive,
+				Path:          "my-subject",
+				Statement:     "nats-client-1",
+				Host:          "10.0.0.1",
+				HostPort:      4222,
+				Peer:          "10.0.0.1",
+				PeerPort:      54321,
+				ContentLength: 128,
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			name:    "amqp consumer",
+			absent:  []string{"service.peer.name"},
+			groupID: "span.obi.messaging.amqp.consumer",
+			span: &request.Span{
+				Type:     request.EventTypeAMQPClient,
+				Method:   request.MessagingProcess,
+				Path:     "my-exchange",
+				Host:     "10.0.0.1",
+				HostPort: 5672,
+				Peer:     "10.0.0.1",
+				PeerPort: 54321,
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			name:    "amqp client",
+			absent:  []string{"service.peer.name"},
+			groupID: "span.obi.messaging.amqp.client",
+			span: &request.Span{
+				Type:     request.EventTypeAMQPClient,
+				Method:   request.MessagingSettle,
+				Path:     "my-exchange",
+				Host:     "10.0.0.1",
+				HostPort: 5672,
+				Peer:     "10.0.0.1",
+				PeerPort: 54321,
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
 		{
 			name:    "elasticsearch client",
 			groupID: "span.obi.elasticsearch.client",
@@ -110,6 +649,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				// network.peer.* for a hostname, since server.address carries it.
 				Host:         "10.0.0.1",
 				HostPort:     9200,
+				HostName:     "es-1",
 				Peer:         "10.0.0.1",
 				PeerPort:     54321,
 				Status:       500,
@@ -126,11 +666,13 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			optional: []attr.Name{
 				attr.DBQueryText,
 				attr.HTTPRequestMethodOrig,
+				attr.HTTPResponseBodySize,
 				attr.NetworkPeerAddress,
 				attr.NetworkPeerPort,
 				attr.NetworkProtocolVersion,
 				attr.ErrorType,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -141,6 +683,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				SubType:      request.HTTPSubtypeAWSS3,
 				Host:         "10.0.0.1",
 				HostPort:     443,
+				HostName:     "s3-1",
 				Status:       500,
 				ProtoVersion: request.ProtoVersionHTTP11,
 				AWS: &request.AWS{S3: request.AWSS3{
@@ -160,6 +703,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkProtocolVersion,
 				attr.ErrorType,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -170,6 +714,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				SubType:      request.HTTPSubtypeAWSSQS,
 				Host:         "10.0.0.1",
 				HostPort:     443,
+				HostName:     "sqs-1",
 				Status:       500,
 				ProtoVersion: request.ProtoVersionHTTP11,
 				AWS: &request.AWS{SQS: request.AWSSQS{
@@ -191,6 +736,132 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkProtocolVersion,
 				attr.ErrorType,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			name:     "http server",
+			groupID:  "span.obi.http.server",
+			span:     populatedHTTPServerSpan(request.HTTPSubtypeNone),
+			optional: httpSpanOptional,
+			absent:   []string{"obi.http.response.observed"},
+		},
+		{
+			name:    "http server with an unobserved response",
+			groupID: "span.obi.http.server",
+			span: func() *request.Span {
+				s := populatedHTTPServerSpan(request.HTTPSubtypeNone)
+				s.ResponseObservation = request.ResponseReceived
+				return s
+			}(),
+			optional: httpSpanOptional,
+			absent:   []string{"http.response.status_code", "error.type"},
+		},
+		{
+			name:    "graphql server",
+			groupID: "span.obi.graphql.server",
+			span: func() *request.Span {
+				s := populatedHTTPServerSpan(request.HTTPSubtypeGraphQL)
+				s.GraphQL = &request.GraphQL{
+					Document:      "query Q { things { id } }",
+					OperationName: "Q",
+					OperationType: "query",
+				}
+				return s
+			}(),
+			optional: append([]attr.Name{attr.GraphQLDocument}, httpSpanOptional...),
+			absent:   []string{"obi.http.response.observed"},
+		},
+		{
+			name:    "mcp server",
+			groupID: "span.obi.mcp.server",
+			span: func() *request.Span {
+				s := populatedHTTPServerSpan(request.HTTPSubtypeMCP)
+				s.GenAI = &request.GenAI{MCP: &request.MCPCall{
+					Method:            request.MCPMethodToolsCall,
+					ToolName:          "search",
+					ToolType:          "function",
+					ToolCallArguments: `{"q":"x"}`,
+					ToolCallResult:    `{"hits":0}`,
+					ResourceURI:       "file:///tmp/x",
+					PromptName:        "summarize",
+					SessionID:         "s-1",
+					ProtocolVer:       "2025-06-18",
+					RequestID:         "1",
+					ErrorCode:         -32602,
+				}}
+				return s
+			}(),
+			optional: append([]attr.Name{attr.GenAIToolCallArguments, attr.GenAIToolCallResult}, httpSpanOptional...),
+			absent:   []string{"obi.http.response.observed"},
+		},
+		{
+			name:    "jsonrpc server",
+			groupID: "span.obi.jsonrpc.server",
+			span: func() *request.Span {
+				s := populatedHTTPServerSpan(request.HTTPSubtypeJSONRPC)
+				s.JSONRPC = &request.JSONRPC{
+					Method:           "Arith.Multiply",
+					ServiceQualified: true,
+					Version:          "2.0",
+					RequestID:        "1",
+					ErrorCode:        -32600,
+				}
+				return s
+			}(),
+			optional: httpSpanOptional,
+			absent:   []string{"obi.http.response.observed"},
+		},
+		{
+			name:    "http client",
+			groupID: "span.obi.http.client",
+			span: &request.Span{
+				Type:                request.EventTypeHTTPClient,
+				Method:              "SEARCH",
+				Path:                "/v1/things",
+				FullPath:            "/v1/things?q=1",
+				Statement:           "https" + request.SchemeHostSeparator + "api.example.com",
+				Host:                "10.0.0.1",
+				HostPort:            443,
+				HostName:            "api.example.com",
+				Peer:                "10.0.0.2",
+				PeerPort:            54321,
+				Status:              500,
+				ProtoVersion:        request.ProtoVersionHTTP11,
+				RequestHeaders:      map[string][]string{"x-trace": {"1"}, "user-agent": {"curl/8.0"}},
+				ResponseHeaders:     map[string][]string{"x-reply": {"2"}},
+				RequestBodyContent:  "{}",
+				ResponseBodyContent: "{}",
+			},
+			optional: httpSpanOptional,
+			absent:   []string{"obi.http.response.observed"},
+		},
+		{
+			name:    "sql client",
+			groupID: "span.obi.db.sql.client",
+			span: &request.Span{
+				Type:           request.EventTypeSQLClient,
+				Method:         "SELECT",
+				Path:           "users",
+				Statement:      "SELECT * FROM users WHERE id = 1",
+				DBQuerySummary: "SELECT users",
+				DBNamespace:    "app",
+				Host:           "10.0.0.1",
+				HostPort:       5432,
+				HostName:       "postgres",
+				Peer:           "10.0.0.2",
+				PeerPort:       54321,
+				Status:         1,
+				SQLError:       &request.SQLError{Code: 1062, Message: "duplicate"},
+			},
+			optional: []attr.Name{
+				attr.DBQueryText,
+				attr.DBQuerySummary,
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.ErrorType,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 	} {
@@ -198,8 +869,52 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			declared := declaredSpanAttributes(t, tc.groupID)
 			emitted := emittedSpanAttributes(tc.span, tc.optional...)
 
+			for _, name := range tc.absent {
+				require.NotContainsf(t, emitted, name,
+					"%q is listed as absent but the exporter emitted it", name)
+				require.Containsf(t, declared, name,
+					"%q is listed as absent but %s does not declare it", name, tc.groupID)
+				require.NotEqualf(t, "required", declaredLevel(t, tc.groupID, name),
+					"%s declares %q required, so a span in the group cannot omit it", tc.groupID, name)
+				declared = slices.DeleteFunc(declared, func(d string) bool { return d == name })
+			}
+
 			assert.ElementsMatch(t, declared, emitted,
 				"%s must declare exactly the attributes the exporter emits for this span", tc.groupID)
 		})
 	}
+}
+
+// An OpenAI exchange is recognized from its response headers regardless of the
+// URL path, so it can reach the exporters with no operation classified. The
+// groups still declare the operation name required, so both exporters must
+// report it for that span.
+func TestUnclassifiedGenAIOperationIsStillEmitted(t *testing.T) {
+	span := &request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeOpenAI,
+		Path:    "/v1/unrecognized",
+		GenAI:   &request.GenAI{OpenAI: &request.VendorOpenAI{}},
+	}
+
+	for _, groupID := range []string{
+		"span.obi.gen_ai.inference.client",
+		"metric.obi.gen_ai.client.operation.duration",
+		"metric.obi.gen_ai.client.token.usage",
+	} {
+		require.Equalf(t, "required", declaredLevel(t, groupID, "gen_ai.operation.name"),
+			"%s no longer declares gen_ai.operation.name required", groupID)
+	}
+
+	var spanValue string
+	for _, kv := range tracesgen.TraceAttributesSelector(span, map[attr.Name]struct{}{}) {
+		if kv.Key == "gen_ai.operation.name" {
+			spanValue = kv.Value.AsString()
+		}
+	}
+	assert.NotEmpty(t, spanValue, "the trace exporter omitted gen_ai.operation.name or sent it empty")
+
+	getter, ok := request.SpanOTELGetters(request.UnresolvedNames{})(attr.GenAIOperationName)
+	require.True(t, ok)
+	assert.NotEmpty(t, getter(span).Value.AsString(), "the metric getter omitted gen_ai.operation.name or sent it empty")
 }

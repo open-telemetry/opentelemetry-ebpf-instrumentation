@@ -116,7 +116,6 @@ int GUARDED_PROG(obi_uprobe_writer_produce, struct pt_regs *, ctx) {
             }
 
             bpf_probe_read_user(&topic.name, topic_len, topic_ptr);
-            topic.name[topic_len] = '\0';
             bpf_map_update_elem(&ongoing_produce_topics, &g_key, &topic, BPF_ANY);
         }
         bpf_map_delete_elem(&produce_traceparents, &p_key);

@@ -359,6 +359,7 @@ extensions:
                     context_propagation: disabled
                     override_bpfloop_enabled: false
                     disable_black_box_cp: false
+                    populate_trace_context: false
                 traffic:
                     control_backend: auto
                     high_request_volume: false

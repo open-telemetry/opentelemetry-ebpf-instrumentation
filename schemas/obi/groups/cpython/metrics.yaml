@@ -16,6 +16,7 @@ groups:
     stability: development
     attributes:
       - ref: cpython.gc.generation
+        requirement_level: required
   - id: metric.obi.cpython.gc.collected_objects
     type: metric
     metric_name: cpython.gc.collected_objects
@@ -28,6 +29,7 @@ groups:
     stability: development
     attributes:
       - ref: cpython.gc.generation
+        requirement_level: required
   - id: metric.obi.cpython.gc.uncollectable_objects
     type: metric
     metric_name: cpython.gc.uncollectable_objects
@@ -40,3 +42,4 @@ groups:
     stability: development
     attributes:
       - ref: cpython.gc.generation
+        requirement_level: required

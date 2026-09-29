@@ -25,3 +25,5 @@ groups:
       - ref: dns.question.name
         requirement_level: opt_in
       - ref: error.type
+        requirement_level:
+          conditionally_required: if the lookup ended in an error

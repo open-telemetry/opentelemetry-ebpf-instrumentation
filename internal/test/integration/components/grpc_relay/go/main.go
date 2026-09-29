@@ -28,8 +28,10 @@ import (
 const grpcCallTimeout = 10 * time.Second
 
 const (
-	ownershipTraceparent        = "00-33333333333333333333333333333333-4444444444444444-01"
-	invalidOwnershipTraceparent = "application-owned-invalid-value"
+	ownershipTraceparent             = "00-33333333333333333333333333333333-4444444444444444-01"
+	invalidOwnershipTraceparent      = "application-owned-invalid-value"
+	oneContinuationMetadataSize      = 20_000
+	multipleContinuationMetadataSize = 40_000
 )
 
 // relayServicer is the interface that gRPC uses for HandlerType.
@@ -404,6 +406,7 @@ type ownershipCase struct {
 	traceparent string
 	hold        bool
 	metadata    int
+	payloadSize int
 }
 
 func runOwnershipBatch(ctx context.Context, addr, runID string, wrapConn bool) error {
@@ -446,6 +449,25 @@ func runOwnershipBatch(ctx context.Context, addr, runID string, wrapConn bool) e
 	if err := invokeOwnership(ctx, conn, runID, ownershipCase{name: "control-after-index"}); err != nil {
 		return err
 	}
+	if err := invokeOwnership(ctx, conn, runID, ownershipCase{
+		name:        "continuation-owned",
+		traceparent: ownershipTraceparent,
+		payloadSize: oneContinuationMetadataSize,
+	}); err != nil {
+		return err
+	}
+	if err := invokeOwnership(ctx, conn, runID, ownershipCase{
+		name:        "continuation-control",
+		payloadSize: oneContinuationMetadataSize,
+	}); err != nil {
+		return err
+	}
+	if err := invokeOwnership(ctx, conn, runID, ownershipCase{
+		name:        "multi-continuation-control",
+		payloadSize: multipleContinuationMetadataSize,
+	}); err != nil {
+		return err
+	}
 
 	concurrent := []ownershipCase{
 		{name: "mux-owned-1", traceparent: ownershipTraceparent, hold: true},
@@ -482,6 +504,9 @@ func invokeOwnership(
 	pairs := []string{"x-obi-case", runID + "/" + testCase.name}
 	for i := 0; i < testCase.metadata; i++ {
 		pairs = append(pairs, fmt.Sprintf("x-obi-filler-%03d", i), "value")
+	}
+	if testCase.payloadSize > 0 {
+		pairs = append(pairs, "x-obi-large", strings.Repeat("~", testCase.payloadSize))
 	}
 	if testCase.traceparent != "" {
 		pairs = append(pairs, "traceparent", testCase.traceparent)

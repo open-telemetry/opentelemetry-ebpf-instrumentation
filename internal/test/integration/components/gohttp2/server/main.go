@@ -15,6 +15,8 @@ import (
 	"golang.org/x/net/http2/h2c"
 )
 
+const testMaxReadFrameSize = 16 << 10
+
 type headerObservation struct {
 	Traceparents []string `json:"traceparents"`
 	RemoteAddr   string   `json:"remote_addr"`
@@ -55,13 +57,14 @@ func main() {
 		protocols := &http.Protocols{}
 		protocols.SetHTTP2(true)
 		server.Protocols = protocols
+		server.HTTP2 = &http.HTTP2Config{MaxReadFrameSize: testMaxReadFrameSize}
 	} else {
-		http2.ConfigureServer(server, nil)
+		http2.ConfigureServer(server, &http2.Server{MaxReadFrameSize: testMaxReadFrameSize})
 	}
 
 	plaintext := &http.Server{
 		Addr:    "0.0.0.0:7374",
-		Handler: h2c.NewHandler(handler, &http2.Server{}),
+		Handler: h2c.NewHandler(handler, &http2.Server{MaxReadFrameSize: testMaxReadFrameSize}),
 	}
 	go func() {
 		fmt.Printf("Listening h2c [0.0.0.0:7374]...\n")
