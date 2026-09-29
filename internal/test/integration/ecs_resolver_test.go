@@ -197,7 +197,7 @@ func setupECSMetadataMock(t *testing.T, network dockertest.Network) {
 	require.NoError(t, err, "could not connect ECS metadata mock to network")
 }
 
-func setupECSResolverApplication(t *testing.T, network dockertest.Network, service string, frontend bool) map[string]any {
+func setupAWSResolverApplication(t *testing.T, network dockertest.Network, service string, frontend bool) (string, string) {
 	t.Helper()
 	opts := []dockertest.RunOption{
 		dockertest.WithTag(imgNginx.Tag()),
@@ -227,9 +227,15 @@ func setupECSResolverApplication(t *testing.T, network dockertest.Network, servi
 		}
 	}
 	require.NotEmpty(t, ip)
+	return app.ID(), ip
+}
+
+func setupECSResolverApplication(t *testing.T, network dockertest.Network, service string, frontend bool) map[string]any {
+	t.Helper()
+	id, ip := setupAWSResolverApplication(t, network, service, frontend)
 	return map[string]any{
 		"taskArn": service, "group": "service:" + service,
-		"containers": []map[string]string{{"runtimeId": app.ID()}},
+		"containers": []map[string]string{{"runtimeId": id}},
 		"attachments": []map[string]any{{"type": "ElasticNetworkInterface", "details": []map[string]string{
 			{"name": "privateIPv4Address", "value": ip},
 		}}},

@@ -39,6 +39,7 @@ const (
 	SourceKubernetes Source = "kubernetes"
 	SourceRDNS       Source = "rdns"
 	SourceECS        Source = "ecs"
+	SourceRoute53    Source = "route53"
 )
 
 const (
@@ -46,6 +47,7 @@ const (
 	ResolverK8s
 	ResolverRDNS
 	ResolverECS
+	ResolverRoute53
 )
 
 func resolverSources(src []Source) maps.Bits {
@@ -56,14 +58,16 @@ func resolverSources(src []Source) maps.Bits {
 		SourceKubernetes: ResolverK8s,
 		SourceRDNS:       ResolverRDNS,
 		SourceECS:        ResolverECS,
+		SourceRoute53:    ResolverRoute53,
 	}, maps.WithTransform(func(s Source) Source {
 		return Source(strings.ToLower(string(s)))
 	}))
 }
 
 type NameResolverConfig struct {
-	// Sources specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns.
+	// Sources specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns, route53.
 	// The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions.
+	// The "route53" source requires route53:ListResourceRecordSets on the configured hosted zones.
 	Sources []Source `yaml:"sources" env:"OTEL_EBPF_NAME_RESOLVER_SOURCES" envSeparator:","`
 	// CacheLen specifies the max size of the LRU cache that is checked before
 	// performing the name lookup. Default: 256
@@ -82,6 +86,9 @@ type CloudMetadataConfig struct {
 	Region string `yaml:"region" env:"OTEL_EBPF_CLOUD_REGION"`
 	// RefreshInterval controls how often the cloud metadata inventory is refreshed.
 	RefreshInterval time.Duration `yaml:"refresh_interval" env:"OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL" validate:"gt=0"`
+
+	// Route53 provides configuration for Route53 metadata extraction
+	Route53 Route53MetadataConfig `yaml:"route53"`
 }
 
 type NameResolver struct {
