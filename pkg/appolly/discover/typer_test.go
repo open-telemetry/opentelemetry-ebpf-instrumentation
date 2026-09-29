@@ -180,9 +180,9 @@ func TestMakeServiceAttrsDefaultsSDKLanguageToGeneric(t *testing.T) {
 	assert.Equal(t, "generic", attrs.SDKLanguage.String())
 }
 
-func TestMakeServiceAttrs_DynamicPIDOptions(t *testing.T) {
-	d := NewDynamicPIDSelector()
-	d.Traces().AddPID(42, selection.DynamicPIDOptions{
+func TestMakeServiceAttrs_DynamicOptions(t *testing.T) {
+	d := NewDynamicSelector()
+	d.Traces().AddPID(42, selection.DynamicOptions{
 		ServiceName:      "dynamic-svc",
 		ServiceNamespace: "dynamic-ns",
 		ResourceAttributes: map[string]string{

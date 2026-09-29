@@ -60,7 +60,7 @@ func (s *countingPIDSelector) RemovedNotify() <-chan []app.PID {
 }
 
 func TestDynamicSignalSpanGate(t *testing.T) {
-	sel := discover.NewDynamicPIDSelector()
+	sel := discover.NewDynamicSelector()
 	sel.Traces().AddPIDs(1)
 	sel.AppMetrics().AddPIDs(2)
 	sel.Traces().AddPIDs(3)
@@ -95,7 +95,7 @@ func TestDynamicSignalSpanGate(t *testing.T) {
 }
 
 func TestDynamicSignalProcessEventGate(t *testing.T) {
-	sel := discover.NewDynamicPIDSelector()
+	sel := discover.NewDynamicSelector()
 	sel.Traces().AddPIDs(1)
 	sel.AppMetrics().AddPIDs(2)
 
@@ -144,7 +144,7 @@ func TestDynamicSignalProcessEventGate(t *testing.T) {
 }
 
 func TestDynamicSignalProcessEventGateUsesWorkerServiceSource(t *testing.T) {
-	selector := discover.NewDynamicPIDSelector()
+	selector := discover.NewDynamicSelector()
 	selector.AppMetrics().AddPIDs(100)
 	output := msg.NewQueue[execpkg.ProcessEvent](msg.ChannelBufferLen(2))
 	events := output.Subscribe()
@@ -212,7 +212,7 @@ func TestDynamicSignalProcessEventGate_SubscribesToSelectorNotificationsOnce(t *
 }
 
 func TestDynamicSignalProcessEventGate_DuplicateCreateBeforeRemoveNotify(t *testing.T) {
-	sel := discover.NewDynamicPIDSelector()
+	sel := discover.NewDynamicSelector()
 	sel.AppMetrics().AddPIDs(1)
 
 	output := msg.NewQueue[execpkg.ProcessEvent](msg.ChannelBufferLen(4))
@@ -249,7 +249,7 @@ func TestDynamicSignalProcessEventGate_DuplicateCreateBeforeRemoveNotify(t *test
 }
 
 func TestDynamicSignalRuntimeMetricsGate(t *testing.T) {
-	sel := discover.NewDynamicPIDSelector()
+	sel := discover.NewDynamicSelector()
 	sel.AppMetrics().AddPIDs(1)
 	sel.Traces().AddPIDs(2)
 

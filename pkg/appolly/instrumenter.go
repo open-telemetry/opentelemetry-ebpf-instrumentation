@@ -137,7 +137,7 @@ func newGraphBuilder(
 		attrFilteredSpans,
 		instrumentationFilteredSpans,
 	), swarm.WithID("InstrumentationFilterSpanGate"))
-	swi.Add(DynamicSignalSpanGate(ctxInfo.DynamicPIDSelector, instrumentationFilteredSpans, exportableSpans),
+	swi.Add(DynamicSignalSpanGate(ctxInfo.DynamicSelector, instrumentationFilteredSpans, exportableSpans),
 		swarm.WithID("DynamicSignalSpanGate"))
 
 	swi.Add(otel.TracesReceiver(
@@ -177,7 +177,7 @@ func setupMetricsSubPipeline(
 	runtimeMetrics *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 ) {
 	metricsProcessEvents := msg2.QueueFromConfig[exec.ProcessEvent](config, ctxInfo.Metrics, "metricsProcessEvents")
-	swi.Add(DynamicSignalProcessEventGate(ctxInfo.DynamicPIDSelector, processEventsCh, metricsProcessEvents),
+	swi.Add(DynamicSignalProcessEventGate(ctxInfo.DynamicSelector, processEventsCh, metricsProcessEvents),
 		swarm.WithID("DynamicSignalProcessEventGate"))
 
 	unresolvedCfg := request.UnresolvedNames{
@@ -223,7 +223,7 @@ func setupMetricsSubPipeline(
 	runtimeMetricsInput := runtimeMetrics
 	if runtimeMetrics != nil {
 		gatedRuntimeMetrics := msg2.QueueFromConfig[[]runtimemetrics.RuntimeMetricSnapshot](config, ctxInfo.Metrics, "gatedRuntimeMetrics")
-		swi.Add(DynamicSignalRuntimeMetricsGate(ctxInfo.DynamicPIDSelector, runtimeMetrics, gatedRuntimeMetrics),
+		swi.Add(DynamicSignalRuntimeMetricsGate(ctxInfo.DynamicSelector, runtimeMetrics, gatedRuntimeMetrics),
 			swarm.WithID("DynamicSignalRuntimeMetricsGate"))
 		runtimeMetricsInput = gatedRuntimeMetrics
 	}
