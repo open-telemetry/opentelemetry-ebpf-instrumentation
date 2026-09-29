@@ -8,20 +8,39 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
 
-const testMaxReadFrameSize = 16 << 10
+const (
+	testMaxReadFrameSize = 16 << 10
+	burstWaitTimeout     = 10 * time.Second
+)
 
 type headerObservation struct {
 	Traceparents []string `json:"traceparents"`
 	RemoteAddr   string   `json:"remote_addr"`
 	Protocol     string   `json:"protocol"`
 }
+
+type burstObservation struct {
+	headerObservation
+	// every request of the burst was being handled at the same time
+	Concurrent bool `json:"concurrent"`
+}
+
+type burst struct {
+	mu      sync.Mutex
+	arrived int
+	all     chan struct{}
+}
+
+var bursts sync.Map
 
 func checkErr(err error, msg string) {
 	if err == nil {
@@ -31,8 +50,53 @@ func checkErr(err error, msg string) {
 	os.Exit(1)
 }
 
+// waitForBurst blocks until size requests of the burst have arrived, or the timeout expires
+func waitForBurst(id string, size int) bool {
+	value, _ := bursts.LoadOrStore(id, &burst{all: make(chan struct{})})
+	b := value.(*burst)
+
+	b.mu.Lock()
+	b.arrived++
+	if b.arrived == size {
+		close(b.all)
+	}
+	b.mu.Unlock()
+
+	select {
+	case <-b.all:
+		return true
+	case <-time.After(burstWaitTimeout):
+		return false
+	}
+}
+
+func serveBurst(w http.ResponseWriter, r *http.Request) {
+	// /burst/<id>/<stream>?size=<n>
+	id, _, _ := strings.Cut(strings.TrimPrefix(r.URL.Path, "/burst/"), "/")
+	size, err := strconv.Atoi(r.URL.Query().Get("size"))
+	if err != nil || size <= 0 {
+		http.Error(w, "invalid burst size", http.StatusBadRequest)
+		return
+	}
+
+	observation := burstObservation{
+		headerObservation: headerObservation{
+			Traceparents: r.Header.Values("traceparent"),
+			RemoteAddr:   r.RemoteAddr,
+			Protocol:     r.Proto,
+		},
+		Concurrent: waitForBurst(id, size),
+	}
+	w.Header().Set("Content-Type", "application/json")
+	checkErr(json.NewEncoder(w).Encode(observation), "while encoding burst response")
+}
+
 func main() {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/burst/") {
+			serveBurst(w, r)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/ownership/") {
 			if r.URL.Path == "/ownership/multiplex" {
 				time.Sleep(200 * time.Millisecond)

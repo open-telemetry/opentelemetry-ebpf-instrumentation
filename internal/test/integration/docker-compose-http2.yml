@@ -54,6 +54,21 @@ services:
       otelcol:
         condition: service_started
 
+  # One P: the server decodes every HEADERS frame of a burst before any handler goroutine runs
+  testserver-burst:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/gohttp2/server/Dockerfile
+    image: hatest-server
+    ports:
+      - "7383:7373"
+    environment:
+      GOMAXPROCS: "1"
+      TEST_HTTP2_PROTOCOLS: ${TEST_HTTP2_PROTOCOLS}
+    depends_on:
+      otelcol:
+        condition: service_started
+
   obi:
     build:
       context: ../../..
@@ -86,6 +101,9 @@ services:
         condition: service_started
 
       testclient-stdlib-legacy:
+        condition: service_started
+
+      testserver-burst:
         condition: service_started
 
   # OpenTelemetry Collector — fans OBI's OTLP push out to jaeger (production

@@ -355,11 +355,11 @@ int GUARDED_PROG(obi_uprobe_readRequestReturns, struct pt_regs *, ctx) {
 // Handles finding the connection information for http2 servers in grpc
 SEC("uprobe/http2Server_processHeaders")
 int GUARDED_PROG(obi_uprobe_http2Server_processHeaders, struct pt_regs *, ctx) {
-    void *sc_ptr = GO_PARAM1(ctx);
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
     void *frame = GO_PARAM2(ctx);
-    bpf_dbg_printk("=== uprobe/http2Server_processHeaders sc_ptr=%lx ===", sc_ptr);
+    bpf_dbg_printk("=== uprobe/http2Server_processHeaders goroutine_addr=%lx ===", goroutine_addr);
     go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, sc_ptr);
+    go_addr_key_from_id(&g_key, goroutine_addr);
 
     tp_info_t tp = {0};
 
@@ -367,8 +367,39 @@ int GUARDED_PROG(obi_uprobe_http2Server_processHeaders, struct pt_regs *, ctx) {
 
     if (valid_trace(tp.trace_id)) {
         bpf_dbg_printk("found valid traceparent in http2 headers");
-        bpf_map_update_elem(&http2_server_requests_tp, &g_key, &tp, BPF_ANY);
+        bpf_map_update_elem(&http2_server_headers_tp, &g_key, &tp, BPF_ANY);
+    } else {
+        bpf_map_delete_elem(&http2_server_headers_tp, &g_key);
     }
+
+    return 0;
+}
+
+SEC("uprobe/http2serverConn_newWriterAndRequest_returns")
+int GUARDED_PROG(obi_uprobe_http2serverConn_newWriterAndRequest_returns, struct pt_regs *, ctx) {
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    void *rw = GO_PARAM1(ctx);
+    bpf_dbg_printk("=== uprobe/http2serverConn_newWriterAndRequest returns rw=%lx ===", rw);
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    if (!rw) {
+        bpf_map_delete_elem(&http2_server_headers_tp, &g_key);
+        return 0;
+    }
+
+    go_addr_key_t rw_key = {};
+    go_addr_key_from_id(&rw_key, rw);
+
+    const tp_info_t *tp = bpf_map_lookup_elem(&http2_server_headers_tp, &g_key);
+    if (!tp) {
+        bpf_map_delete_elem(&http2_server_requests_tp, &rw_key);
+        return 0;
+    }
+
+    bpf_map_update_elem(&http2_server_requests_tp, &rw_key, tp, BPF_ANY);
+    bpf_map_delete_elem(&http2_server_headers_tp, &g_key);
 
     return 0;
 }
@@ -1186,6 +1217,7 @@ int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
 
     void *sc = GO_PARAM1(ctx);
+    void *rw = GO_PARAM2(ctx);
     off_table_t *ot = get_offsets_table();
 
     go_addr_key_t g_key = {};
@@ -1209,10 +1241,10 @@ int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
             }
         }
 
-        go_addr_key_t sc_key = {};
-        go_addr_key_from_id(&sc_key, sc);
+        go_addr_key_t rw_key = {};
+        go_addr_key_from_id(&rw_key, rw);
 
-        tp_info_t *tp = bpf_map_lookup_elem(&http2_server_requests_tp, &sc_key);
+        tp_info_t *tp = bpf_map_lookup_elem(&http2_server_requests_tp, &rw_key);
         bpf_dbg_printk("looked up tp: %llx", tp);
 
         if (tp) {
@@ -1224,7 +1256,7 @@ int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
                 bpf_map_update_elem(&ongoing_http_server_requests, &g_key, inv, BPF_ANY);
                 go_obi_ctx__begin(
                     &g_key, k_obi_ctx_http_server, &inv->tp, go_obi_ctx__stack_off(ctx));
-                bpf_map_delete_elem(&http2_server_requests_tp, &sc_key);
+                bpf_map_delete_elem(&http2_server_requests_tp, &rw_key);
             }
         }
     }
