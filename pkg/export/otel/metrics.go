@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
@@ -941,21 +942,38 @@ func (mr *MetricsReporter) isExponentialAggregation() bool {
 	return false
 }
 
+// shutdownTimeout bounds the final collection/export. It matches the default
+// export timeout the SDK PeriodicReader applies when the caller sets no deadline.
+const shutdownTimeout = 30 * time.Second
+
+// shutdownContext returns a context for the reporter's final collection/export.
+// On the normal shutdown path ctx.Done() is what exits reportMetrics, so mr.ctx is
+// already canceled and would abort the flush; the returned context is detached from
+// it and bounded instead.
+func (mr *MetricsReporter) shutdownContext() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(mr.ctx), shutdownTimeout)
+}
+
 func (mr *MetricsReporter) close() {
 	// Drain every per-service metric set before shutting down the shared exporter.
 	// provider.Shutdown performs a final collection/export, so sessions and other
 	// pending observations are flushed even when the process stops before TTL eviction.
+	shutdownCtx, cancel := mr.shutdownContext()
+	defer cancel()
 	mr.reporters.ForEach(func(id svc.UID, m *Metrics) {
 		llog := mlog().With("service", id)
 		llog.Debug("shutting down metrics reporter")
 		m.cleanupAllMetricsInstances()
-		if err := m.provider.Shutdown(mr.ctx); err != nil {
+		if err := m.provider.Shutdown(shutdownCtx); err != nil {
 			llog.Warn("error shutting down metrics provider", "error", err)
 		}
 	})
 
 	go func() {
-		if err := mr.exporter.Shutdown(mr.ctx); err != nil {
+		// The context above is canceled when close returns, so bound this one separately.
+		exportCtx, cancel := mr.shutdownContext()
+		defer cancel()
+		if err := mr.exporter.Shutdown(exportCtx); err != nil {
 			mlog().Warn("closing metrics provider", "error", err)
 			return
 		}

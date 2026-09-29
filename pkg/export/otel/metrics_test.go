@@ -794,11 +794,11 @@ func TestAppMetrics_MCPSessionDurationExportsDuringShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
-	metricRecords := make(chan collector.MetricRecord, 10)
+	metricRecords := make(chan collector.MetricRecord, 100)
 	metricsInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(1))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1))
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:          time.Hour,
+		Interval:          10 * time.Millisecond,
 		TTL:               time.Hour,
 		ReportersCacheLen: 1,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
@@ -832,7 +832,14 @@ func TestAppMetrics_MCPSessionDurationExportsDuringShutdown(t *testing.T) {
 			SessionID: "session-1",
 		}},
 	}})
-	metricsInput.Close()
+
+	// The per-operation metric is exported periodically, so seeing it proves the span
+	// was processed before the context is canceled.
+	readMetricsByName(t, metricRecords, 5*time.Second, attributes.MCPClientOperationDuration.OTEL)
+
+	// Canceling the reporter context is the normal process-shutdown path: ctx.Done()
+	// exits reportMetrics, so the final collection/export runs with mr.ctx canceled.
+	cancel()
 
 	select {
 	case <-done:
