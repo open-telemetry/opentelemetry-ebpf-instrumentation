@@ -66,7 +66,7 @@ func WithFallback(kind ProbeType, attachPerf, attachTraceFS func() (io.Closer, e
 
 	fallbackUsed.Store(true)
 	fallbackLogs[kind].success.Do(func() {
-		slog.Info(fmt.Sprintf("attached %s through tracefs because PMU access was denied", kind))
+		slog.Info(fmt.Sprintf("attached %s through tracefs because PMU access was denied", kind), "pmu_error", err)
 	})
 	return closer, nil
 }
