@@ -1,0 +1,4 @@
+attributes:
+  select:
+    "*":
+      include: ["*"]

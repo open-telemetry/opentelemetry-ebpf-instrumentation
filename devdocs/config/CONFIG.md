@@ -137,6 +137,14 @@ CloudMetadataConfig configures overrides for detected cloud metadata.
 | `cloud_metadata.refresh_interval` | `duration` | `OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL` | `30s` | `30s`, `5m`, `1ms`, etc |  | Controls how often the cloud metadata inventory is refreshed. |
 | `cloud_metadata.region` | `string` | `OTEL_EBPF_CLOUD_REGION` |  |  |  | Overrides automatic region detection. |
 
+### `cloud_metadata.route53`
+
+Route53MetadataConfig maps A/AAAA records to fully qualified names. Aliases, CNAMEs, and wildcard records are excluded. ECS names take precedence.
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `cloud_metadata.route53.hosted_zone_ids` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS` |  |  |  | Restricts discovery to these hosted zones. Required when route53 is enabled. |
+
 ## `discovery`
 
 DiscoveryConfig for the discover.ProcessFinder pipeline
@@ -454,7 +462,7 @@ GlobalMetricsConfig is a placeholder for the progressive support of global and p
 |---|---|---|---|---|---|---|
 | `name_resolver.cache_expiry` | `duration` | `OTEL_EBPF_NAME_RESOLVER_CACHE_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. |
 | `name_resolver.cache_len` | `integer` | `OTEL_EBPF_NAME_RESOLVER_CACHE_LEN` | `1024` |  |  | Specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256 |
-| `name_resolver.sources` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_SOURCES` | `k8s`, `ecs` | `dns`, `ecs`, `k8s`, `kube`, `kubernetes`, `rdns` |  | Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns. The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions. |
+| `name_resolver.sources` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_SOURCES` | `k8s`, `ecs` | `dns`, `ecs`, `k8s`, `kube`, `kubernetes`, `rdns`, `route53` |  | Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns, route53. The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions. The "route53" source requires route53:ListResourceRecordSets on the configured hosted zones. |
 
 ## `network`
 
