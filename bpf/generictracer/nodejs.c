@@ -45,8 +45,9 @@ enum {
     k_span_payload_offset = 19,
     // strlen("/dev/null/obi-mspan/") — the manual-span override payload starts here
     k_mspan_payload_offset = 20,
-    // hex chars in an override payload: trace id + span id, two chars per byte
-    k_mspan_hex_len = 2 * (TRACE_ID_SIZE_BYTES + SPAN_ID_SIZE_BYTES),
+    // <32-hex trace id><16-hex span id>, e.g.
+    // 0af7651916cd43dd8448eb211c80319cb7ad6b7169203331
+    k_mspan_hex_len = TRACE_ID_CHAR_LEN + SPAN_ID_CHAR_LEN,
 };
 
 enum {
@@ -82,6 +83,7 @@ _Static_assert(k_nodejs_heap_space_name_max == k_nodejs_resource_type_max,
 
 SCRATCH_MEM_SIZED(nodejs_rt_payload, k_rt_payload_read_len)
 SCRATCH_MEM_SIZED(nodejs_v8_payload, k_v8_heap_payload_read_len)
+SCRATCH_MEM_SIZED(nodejs_mspan_payload, k_mspan_hex_len + 2)
 
 static __always_inline int nodejs_parse_hex_u64(const unsigned char *buf, u64 *out) {
     u64 v = 0;
@@ -164,10 +166,7 @@ static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
     }
 
     // Each callback re-derives the base context, so drop any stale manual-span
-    // override shadow left over from the previous callback. The bridge's own
-    // async_hooks 'before' hook re-applies the active manual span's override
-    // right after this one runs (the bridge hook is registered after
-    // fdextractor's, so it fires second per callback).
+    // override shadow left over from the previous callback.
     bpf_map_delete_elem(&node_manual_ctx_shadow, &pid_tgid);
 
     return 0;
@@ -194,8 +193,12 @@ static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgi
     // exact-length payload and for a longer one it truncated, and a foreign
     // process could otherwise have residual bytes decoded as a plausible
     // override attributed to itself. Same reasoning as handle_runtime_metrics.
-    unsigned char hexbuf[k_mspan_hex_len + 2] = {};
-    const long n = bpf_probe_read_user_str(hexbuf, sizeof(hexbuf), path + k_mspan_payload_offset);
+    unsigned char *hexbuf = nodejs_mspan_payload_mem();
+    if (!hexbuf) {
+        return 0;
+    }
+    const long n =
+        bpf_probe_read_user_str(hexbuf, k_mspan_hex_len + 2, path + k_mspan_payload_offset);
     if (n <= 0) {
         return 0;
     }
@@ -223,8 +226,8 @@ static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgi
     }
 
     obi_ctx_info_t sentinel = {};
-    decode_hex(sentinel.trace_id, hexbuf, 2 * TRACE_ID_SIZE_BYTES);
-    decode_hex(sentinel.span_id, hexbuf + 2 * TRACE_ID_SIZE_BYTES, 2 * SPAN_ID_SIZE_BYTES);
+    decode_hex(sentinel.trace_id, hexbuf, TRACE_ID_CHAR_LEN);
+    decode_hex(sentinel.span_id, hexbuf + TRACE_ID_CHAR_LEN, SPAN_ID_CHAR_LEN);
 
     // Save the pre-override base on the first override of this sync block. A
     // missing live entry is recorded as an all-zero "no base existed" marker so
@@ -234,7 +237,7 @@ static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgi
         obi_ctx_info_t base = {};
         const obi_ctx_info_t *live = obi_ctx__get(pid_tgid);
         if (live) {
-            bpf_memcpy(&base, live, sizeof(base));
+            base = *live;
         }
         bpf_map_update_elem(&node_manual_ctx_shadow, &pid_tgid, &base, BPF_ANY);
         shadow = bpf_map_lookup_elem(&node_manual_ctx_shadow, &pid_tgid);
