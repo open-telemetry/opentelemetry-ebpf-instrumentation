@@ -162,6 +162,124 @@ func testDotnetRuntimeMetrics(t *testing.T, runtimeVersion, runtimeImage string)
 		t.Logf("GC round %d: PID %d, Prometheus %v, OTLP %v", round+1, before.PID, baseline[0], baseline[1])
 	}
 	testDotnetCurrentMetrics(t, client, workload, endpoints)
+	testDotnetCumulativeMetrics(t, client, workload, endpoints, func() {
+		previousSession, previousStarts, err := currentSession()
+		require.NoError(t, err)
+		stopDotnetDiagnosticSession(t, socketDir, previousSession)
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			_, starts, err := currentSession()
+			require.NoError(ct, err)
+			require.Greater(ct, starts, previousStarts)
+		}, testTimeout, time.Second)
+	})
+}
+
+type dotnetCumulativeSnapshot struct {
+	Allocated       float64 `json:"allocated"`
+	PauseTime       float64 `json:"pauseTime"`
+	CompiledIL      float64 `json:"compiledIL"`
+	CompiledMethods float64 `json:"compiledMethods"`
+	CompilationTime float64 `json:"compilationTime"`
+	CompletedItems  float64 `json:"completedItems"`
+	LockContentions float64 `json:"lockContentions"`
+}
+
+func (s dotnetCumulativeSnapshot) values() [7]float64 {
+	return [7]float64{s.Allocated, s.PauseTime, s.CompiledIL, s.CompiledMethods, s.CompilationTime, s.CompletedItems, s.LockContentions}
+}
+
+var dotnetCumulativeMetricNames = [...]string{
+	attributes.DotnetGCHeapTotalAllocated.Prom, attributes.DotnetGCPauseTime.Prom,
+	attributes.DotnetJITCompiledILSize.Prom, attributes.DotnetJITCompiledMethods.Prom,
+	attributes.DotnetJITCompilationTime.Prom, attributes.DotnetThreadPoolWorkItemCount.Prom,
+	attributes.DotnetMonitorLockContentions.Prom,
+}
+
+func testDotnetCumulativeMetrics(t *testing.T, client *http.Client, workload string, endpoints []string, reconnect func()) {
+	t.Helper()
+	readReference := func() (dotnetCumulativeSnapshot, error) {
+		var snapshot dotnetCumulativeSnapshot
+		response, err := client.Get(workload + "/snapshot")
+		if err != nil {
+			return snapshot, err
+		}
+		defer response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			return snapshot, fmt.Errorf("reference endpoint returned %s", response.Status)
+		}
+		err = json.NewDecoder(response.Body).Decode(&snapshot)
+		return snapshot, err
+	}
+	previous := make([][]float64, len(endpoints))
+	for round := range 2 {
+		if round != 0 {
+			reconnect()
+		}
+		// Allow the new session's baseline and both export intervals to pass.
+		// Every scrape also checks that reconnecting preserves published totals.
+		for range 5 {
+			time.Sleep(time.Second)
+			for index, endpoint := range endpoints {
+				values, err := scrapeDotnetRuntime(client, endpoint, dotnetCumulativeMetricNames[:], dto.MetricType_COUNTER)
+				require.NoError(t, err)
+				for metric, value := range values {
+					if previous[index] != nil {
+						require.GreaterOrEqual(t, value, previous[index][metric], dotnetCumulativeMetricNames[metric])
+					}
+				}
+				previous[index] = values
+			}
+		}
+		initial, err := readReference()
+		require.NoError(t, err)
+		baseline := initial.values()
+		var reference struct {
+			Before dotnetCumulativeSnapshot `json:"before"`
+			After  dotnetCumulativeSnapshot `json:"after"`
+		}
+		// The workload can wait for worker threads, so give this request its own timeout.
+		loadClient := &http.Client{Timeout: time.Minute}
+		response, err := loadClient.Post(workload+"/cumulative-run", "application/json", nil)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, response.StatusCode)
+		require.NoError(t, json.NewDecoder(response.Body).Decode(&reference))
+		require.NoError(t, response.Body.Close())
+		before, after := reference.Before.values(), reference.After.values()
+		var delta [7]float64
+		for metric := range delta {
+			delta[metric] = after[metric] - before[metric]
+			require.Positive(t, delta[metric], dotnetCumulativeMetricNames[metric])
+		}
+		require.GreaterOrEqual(t, delta[0], float64(64*1024*1024))
+		require.GreaterOrEqual(t, delta[3], float64(256))
+		require.GreaterOrEqual(t, delta[5], float64(256))
+		require.GreaterOrEqual(t, delta[6], float64(32))
+		// The reference read after each scrape includes later JIT and HTTP work.
+		// Tolerances cover activity between the two baseline samples.
+		tolerances := [7]float64{32 * 1024 * 1024, 0.25, 128 * 1024, 256, 0.25, 128, 8}
+		for index, endpoint := range endpoints {
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				values, err := scrapeDotnetRuntime(client, endpoint, dotnetCumulativeMetricNames[:], dto.MetricType_COUNTER)
+				require.NoError(ct, err)
+				latest, err := readReference()
+				require.NoError(ct, err)
+				upper := latest.values()
+				for metric, value := range values {
+					increase := value - previous[index][metric]
+					require.GreaterOrEqual(ct, increase+1e-9, delta[metric], dotnetCumulativeMetricNames[metric])
+					require.LessOrEqual(ct, increase, upper[metric]-baseline[metric]+tolerances[metric], dotnetCumulativeMetricNames[metric])
+					if metric == 2 || metric == 3 {
+						require.GreaterOrEqual(ct, value, after[metric], dotnetCumulativeMetricNames[metric])
+						require.LessOrEqual(ct, value, upper[metric], dotnetCumulativeMetricNames[metric])
+					}
+				}
+			}, testTimeout, time.Second)
+			values, err := scrapeDotnetRuntime(client, endpoint, dotnetCumulativeMetricNames[:], dto.MetricType_COUNTER)
+			require.NoError(t, err)
+			t.Logf("cumulative round %d, %s: reference delta %v, exported %v", round+1, endpoint, delta, values)
+			previous[index] = values
+		}
+	}
 }
 
 type dotnetCurrentSnapshot struct {
@@ -271,7 +389,12 @@ func testDotnetCurrentMetrics(t *testing.T, client *http.Client, workload string
 }
 
 func scrapeDotnetCurrent(client *http.Client, endpoint string) ([6]float64, error) {
-	var values [6]float64
+	values, err := scrapeDotnetRuntime(client, endpoint, dotnetCurrentMetricNames[:], dto.MetricType_GAUGE)
+	return [6]float64(values), err
+}
+
+func scrapeDotnetRuntime(client *http.Client, endpoint string, names []string, kind dto.MetricType) ([]float64, error) {
+	values := make([]float64, len(names))
 	response, err := client.Get(endpoint)
 	if err != nil {
 		return values, err
@@ -285,10 +408,10 @@ func scrapeDotnetCurrent(client *http.Client, endpoint string) ([6]float64, erro
 	if err != nil {
 		return values, err
 	}
-	for index, name := range dotnetCurrentMetricNames {
+	for index, name := range names {
 		family := families[name]
-		if family == nil || family.GetType() != dto.MetricType_GAUGE {
-			return values, fmt.Errorf("missing gauge %s", name)
+		if family == nil || family.GetType() != kind {
+			return values, fmt.Errorf("missing %s metric %s", kind, name)
 		}
 		seen := false
 		for _, metric := range family.GetMetric() {
@@ -299,11 +422,17 @@ func scrapeDotnetCurrent(client *http.Client, endpoint string) ([6]float64, erro
 			if labels["service_name"] != "dotnet-runtime" || labels["service_namespace"] != "integration-test" {
 				continue
 			}
-			if seen || metric.Gauge == nil || labels["dotnet_gc_heap_generation"] != "" {
-				return values, fmt.Errorf("invalid or duplicate gauge %s", name)
+			if seen || labels["dotnet_gc_heap_generation"] != "" ||
+				(kind == dto.MetricType_GAUGE && metric.Gauge == nil) ||
+				(kind == dto.MetricType_COUNTER && metric.Counter == nil) {
+				return values, fmt.Errorf("invalid or duplicate metric %s", name)
 			}
 			seen = true
-			values[index] = metric.GetGauge().GetValue()
+			if kind == dto.MetricType_COUNTER {
+				values[index] = metric.GetCounter().GetValue()
+			} else {
+				values[index] = metric.GetGauge().GetValue()
+			}
 		}
 		if !seen {
 			return values, fmt.Errorf("missing service identity for %s", name)

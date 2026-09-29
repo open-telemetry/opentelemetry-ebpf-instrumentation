@@ -368,11 +368,41 @@ var (
 		Unit:    "{collection}",
 		Type:    InstrumentCounter,
 	})
+	DotnetGCHeapTotalAllocated = metric(Name{
+		Section: "dotnet.gc.heap.total_allocated",
+		OTEL:    "dotnet.gc.heap.total_allocated",
+		Unit:    "By",
+		Type:    InstrumentCounter,
+	})
 	DotnetGCCommittedMemory = metric(Name{
 		Section: "dotnet.gc.last_collection.memory.committed_size",
 		OTEL:    "dotnet.gc.last_collection.memory.committed_size",
 		Unit:    "By",
 		Type:    InstrumentUpDownCounter,
+	})
+	DotnetGCPauseTime = metric(Name{
+		Section: "dotnet.gc.pause.time",
+		OTEL:    "dotnet.gc.pause.time",
+		Unit:    "s",
+		Type:    InstrumentCounter,
+	})
+	DotnetJITCompiledILSize = metric(Name{
+		Section: "dotnet.jit.compiled_il.size",
+		OTEL:    "dotnet.jit.compiled_il.size",
+		Unit:    "By",
+		Type:    InstrumentCounter,
+	})
+	DotnetJITCompiledMethods = metric(Name{
+		Section: "dotnet.jit.compiled_methods",
+		OTEL:    "dotnet.jit.compiled_methods",
+		Unit:    "{method}",
+		Type:    InstrumentCounter,
+	})
+	DotnetJITCompilationTime = metric(Name{
+		Section: "dotnet.jit.compilation.time",
+		OTEL:    "dotnet.jit.compilation.time",
+		Unit:    "s",
+		Type:    InstrumentCounter,
 	})
 	DotnetThreadPoolThreadCount = metric(Name{
 		Section: "dotnet.thread_pool.thread.count",
@@ -380,11 +410,23 @@ var (
 		Unit:    "{thread}",
 		Type:    InstrumentUpDownCounter,
 	})
+	DotnetThreadPoolWorkItemCount = metric(Name{
+		Section: "dotnet.thread_pool.work_item.count",
+		OTEL:    "dotnet.thread_pool.work_item.count",
+		Unit:    "{work_item}",
+		Type:    InstrumentCounter,
+	})
 	DotnetThreadPoolQueueLength = metric(Name{
 		Section: "dotnet.thread_pool.queue.length",
 		OTEL:    "dotnet.thread_pool.queue.length",
 		Unit:    "{work_item}",
 		Type:    InstrumentUpDownCounter,
+	})
+	DotnetMonitorLockContentions = metric(Name{
+		Section: "dotnet.monitor.lock_contentions",
+		OTEL:    "dotnet.monitor.lock_contentions",
+		Unit:    "{contention}",
+		Type:    InstrumentCounter,
 	})
 	DotnetTimerCount = metric(Name{
 		Section: "dotnet.timer.count",

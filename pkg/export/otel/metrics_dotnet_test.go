@@ -315,3 +315,186 @@ func TestDotnetRuntimeCounterSnapshots(t *testing.T) {
 	require.Empty(t, metrics.dotnetMetrics.values)
 	require.Equal(t, map[string]int64{"gen0": 6, "gen1": 11, "gen2": 16}, collect())
 }
+
+func TestDotnetRuntimeCumulativeDurationCounters(t *testing.T) {
+	for _, tc := range []struct {
+		name attributes.Name
+		set  func(*runtimemetrics.DotnetRuntimeMetricSnapshot, *float64)
+	}{
+		{attributes.DotnetGCPauseTime, func(s *runtimemetrics.DotnetRuntimeMetricSnapshot, v *float64) { s.GCPauseTime = v }},
+		{attributes.DotnetJITCompilationTime, func(s *runtimemetrics.DotnetRuntimeMetricSnapshot, v *float64) { s.JITCompilationTime = v }},
+	} {
+		t.Run(tc.name.OTEL, func(t *testing.T) {
+			reader := metric.NewManualReader()
+			provider := metric.NewMeterProvider(metric.WithReader(reader))
+			t.Cleanup(func() { require.NoError(t, provider.Shutdown(t.Context())) })
+			var metrics dotnetRuntimeMetrics
+			require.NoError(t, setupDotnetRuntimeMeters(&metrics, provider.Meter(reporterName), 0))
+			sample := func(value float64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+				snapshot := &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+				tc.set(snapshot, &value)
+				return snapshot
+			}
+			assertTotal := func(expected float64) {
+				t.Helper()
+				var data metricdata.ResourceMetrics
+				require.NoError(t, reader.Collect(t.Context(), &data))
+				for _, scope := range data.ScopeMetrics {
+					for _, m := range scope.Metrics {
+						if m.Name != tc.name.OTEL {
+							continue
+						}
+						require.Equal(t, "s", m.Unit)
+						sum, ok := m.Data.(metricdata.Sum[float64])
+						require.True(t, ok)
+						require.True(t, sum.IsMonotonic)
+						require.Equal(t, metricdata.CumulativeTemporality, sum.Temporality)
+						require.Len(t, sum.DataPoints, 1)
+						require.Zero(t, sum.DataPoints[0].Attributes.Len())
+						require.InDelta(t, expected, sum.DataPoints[0].Value, 1e-12)
+						return
+					}
+				}
+				t.Fatalf("missing metric %s", tc.name.OTEL)
+			}
+			first := runtimemetrics.RuntimeMetricSnapshot{PID: 123, Generation: 1, Dotnet: &runtimemetrics.DotnetRuntimeMetricSnapshot{}}
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			var absent metricdata.ResourceMetrics
+			require.NoError(t, reader.Collect(t.Context(), &absent))
+			for _, scope := range absent.ScopeMetrics {
+				for _, m := range scope.Metrics {
+					require.NotEqual(t, tc.name.OTEL, m.Name)
+				}
+			}
+			first.Dotnet = sample(0)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			assertTotal(0)
+			first.Dotnet = sample(0.5)
+			second := runtimemetrics.RuntimeMetricSnapshot{PID: 456, Generation: 1, Dotnet: sample(1.25)}
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, second)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			assertTotal(1.75)
+
+			first.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			assertTotal(1.75)
+			first.Dotnet = sample(0.75)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			assertTotal(2)
+			first.Dotnet = sample(0.125)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			assertTotal(2.125)
+			first.Generation = 2
+			first.Dotnet = sample(0.25)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			assertTotal(2.375)
+
+			first.Removed = true
+			first.Generation = 1
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			require.Len(t, metrics.values, 2)
+			first.Generation = 2
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			require.Len(t, metrics.values, 1)
+			assertTotal(2.375)
+			second.Dotnet = sample(1.5)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, second)
+			assertTotal(2.625)
+			second.Removed = true
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, second)
+			require.Empty(t, metrics.values)
+			assertTotal(2.625)
+		})
+	}
+}
+
+func TestDotnetRuntimeCumulativeIntegerCounters(t *testing.T) {
+	for _, tc := range []struct {
+		name attributes.Name
+		set  func(*runtimemetrics.DotnetRuntimeMetricSnapshot, *uint64)
+	}{
+		{attributes.DotnetGCHeapTotalAllocated, func(s *runtimemetrics.DotnetRuntimeMetricSnapshot, v *uint64) { s.GCHeapTotalAllocated = v }},
+		{attributes.DotnetJITCompiledILSize, func(s *runtimemetrics.DotnetRuntimeMetricSnapshot, v *uint64) { s.JITCompiledILSize = v }},
+		{attributes.DotnetJITCompiledMethods, func(s *runtimemetrics.DotnetRuntimeMetricSnapshot, v *uint64) { s.JITCompiledMethods = v }},
+		{attributes.DotnetThreadPoolWorkItemCount, func(s *runtimemetrics.DotnetRuntimeMetricSnapshot, v *uint64) { s.ThreadPoolWorkItemCount = v }},
+		{attributes.DotnetMonitorLockContentions, func(s *runtimemetrics.DotnetRuntimeMetricSnapshot, v *uint64) { s.MonitorLockContentions = v }},
+	} {
+		t.Run(tc.name.OTEL, func(t *testing.T) {
+			reader := metric.NewManualReader()
+			provider := metric.NewMeterProvider(metric.WithReader(reader))
+			t.Cleanup(func() { require.NoError(t, provider.Shutdown(t.Context())) })
+			var metrics dotnetRuntimeMetrics
+			require.NoError(t, setupDotnetRuntimeMeters(&metrics, provider.Meter(reporterName), 0))
+			sample := func(value uint64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+				snapshot := &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+				tc.set(snapshot, &value)
+				return snapshot
+			}
+			assertTotal := func(expected int64) {
+				t.Helper()
+				var data metricdata.ResourceMetrics
+				require.NoError(t, reader.Collect(t.Context(), &data))
+				for _, scope := range data.ScopeMetrics {
+					for _, m := range scope.Metrics {
+						if m.Name != tc.name.OTEL {
+							continue
+						}
+						require.Equal(t, tc.name.Unit, m.Unit)
+						sum, ok := m.Data.(metricdata.Sum[int64])
+						require.True(t, ok)
+						require.True(t, sum.IsMonotonic)
+						require.Equal(t, metricdata.CumulativeTemporality, sum.Temporality)
+						require.Len(t, sum.DataPoints, 1)
+						require.Zero(t, sum.DataPoints[0].Attributes.Len())
+						require.Equal(t, expected, sum.DataPoints[0].Value)
+						return
+					}
+				}
+				t.Fatalf("missing metric %s", tc.name.OTEL)
+			}
+			first := runtimemetrics.RuntimeMetricSnapshot{PID: 123, Generation: 1, Dotnet: &runtimemetrics.DotnetRuntimeMetricSnapshot{}}
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			require.Empty(t, collectGoRuntimeInt64Points(t, reader, tc.name.OTEL))
+			first.Dotnet = sample(0)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			assertTotal(0)
+			first.Dotnet = sample(10)
+			second := runtimemetrics.RuntimeMetricSnapshot{PID: 456, Generation: 1, Dotnet: sample(20)}
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, second)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			assertTotal(30)
+
+			first.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			assertTotal(30)
+			first.Dotnet = sample(15)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			assertTotal(35)
+			first.Dotnet = sample(2)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			assertTotal(37)
+			first.Generation = 2
+			first.Dotnet = sample(1)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			assertTotal(38)
+
+			first.Removed = true
+			first.Generation = 1
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			require.Len(t, metrics.values, 2)
+			first.Generation = 2
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			require.Len(t, metrics.values, 1)
+			assertTotal(38)
+			second.Dotnet = sample(21)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, second)
+			assertTotal(39)
+			second.Removed = true
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, second)
+			require.Empty(t, metrics.values)
+			assertTotal(39)
+		})
+	}
+}

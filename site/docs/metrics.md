@@ -109,6 +109,16 @@ Number of loaded .NET assemblies.
 
 No attributes.
 
+## `dotnet.gc.heap.total_allocated`
+
+Total bytes allocated on the .NET managed heap since the collector baseline.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | By | stable |
+
+No attributes.
+
 ## `dotnet.gc.last_collection.memory.committed_size`
 
 Committed .NET GC memory observed during the latest collection.
@@ -116,6 +126,56 @@ Committed .NET GC memory observed during the latest collection.
 | Instrument | Unit | Stability |
 | --- | --- | --- |
 | updowncounter | By | stable |
+
+No attributes.
+
+## `dotnet.gc.pause.time`
+
+Total .NET GC pause time since the collector baseline.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | s | stable |
+
+No attributes.
+
+## `dotnet.jit.compilation.time`
+
+Total .NET JIT compilation time since the collector baseline.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | s | stable |
+
+No attributes.
+
+## `dotnet.jit.compiled_il.size`
+
+Total bytes of intermediate language compiled by the .NET JIT compiler.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | By | stable |
+
+No attributes.
+
+## `dotnet.jit.compiled_methods`
+
+Total methods compiled by the .NET JIT compiler.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {method} | stable |
+
+No attributes.
+
+## `dotnet.monitor.lock_contentions`
+
+Total .NET monitor lock contentions since the collector baseline.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {contention} | stable |
 
 No attributes.
 
@@ -146,6 +206,16 @@ Number of .NET thread-pool threads that currently exist.
 | Instrument | Unit | Stability |
 | --- | --- | --- |
 | updowncounter | {thread} | stable |
+
+No attributes.
+
+## `dotnet.thread_pool.work_item.count`
+
+Total completed .NET thread-pool work items since the collector baseline.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {work_item} | stable |
 
 No attributes.
 

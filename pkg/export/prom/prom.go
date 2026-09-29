@@ -1028,6 +1028,13 @@ func newReporter(
 		registeredMetrics = append(registeredMetrics, mr.pythonRuntimeMetrics.collectors()...)
 		registeredMetrics = append(registeredMetrics,
 			mr.dotnetRuntimeMetrics.collections,
+			mr.dotnetRuntimeMetrics.gcHeapTotalAllocated,
+			mr.dotnetRuntimeMetrics.gcPauseTime,
+			mr.dotnetRuntimeMetrics.jitCompiledILSize,
+			mr.dotnetRuntimeMetrics.jitCompiledMethods,
+			mr.dotnetRuntimeMetrics.jitCompilationTime,
+			mr.dotnetRuntimeMetrics.threadPoolWorkItemCount,
+			mr.dotnetRuntimeMetrics.monitorLockContentions,
 			mr.dotnetRuntimeMetrics.processMemoryWorkingSet,
 			mr.dotnetRuntimeMetrics.gcCommittedMemory,
 			mr.dotnetRuntimeMetrics.threadPoolThreadCount,

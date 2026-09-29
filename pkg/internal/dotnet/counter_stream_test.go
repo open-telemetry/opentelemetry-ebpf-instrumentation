@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func runtimeCounterStream(t *testing.T, counters []runtimeCounter) []byte {
+func runtimeCounterStream(t *testing.T, pid int32, counters []runtimeCounter) []byte {
 	t.Helper()
 	write := func(buffer *bytes.Buffer, value any) {
 		t.Helper()
@@ -41,7 +41,7 @@ func runtimeCounterStream(t *testing.T, counters []runtimeCounter) []byte {
 	var stream bytes.Buffer
 	stream.WriteString("Nettrace\x14\x00\x00\x00!FastSerialization.1")
 	writeHeader(&stream, "Trace", 4)
-	write(&stream, netTraceInfo{ProcessID: 15, PointerSize: 8, QPCFrequency: 1_000_000_000})
+	write(&stream, netTraceInfo{ProcessID: pid, PointerSize: 8, QPCFrequency: 1_000_000_000})
 	stream.WriteByte(fastSerializationEndObject)
 	writeBlock := func(name string, events []byte) {
 		var block bytes.Buffer

@@ -4,6 +4,7 @@
 using System.Net;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 
@@ -61,6 +62,12 @@ static async Task RunHttp()
         {
             RuntimeLoad.Release();
         }
+        else if (context.Request.HttpMethod == "POST" && context.Request.Url?.AbsolutePath == "/cumulative-run")
+        {
+            var before = RuntimeSnapshot.Capture();
+            CumulativeLoad.Run();
+            result = new { before, after = RuntimeSnapshot.Capture() };
+        }
         else if (context.Request.HttpMethod == "GET" && context.Request.Url?.AbsolutePath == "/load-result")
         {
             result = RuntimeLoad.Peak ?? throw new InvalidOperationException("Load has not reached its plateau");
@@ -81,14 +88,71 @@ static async Task RunHttp()
 }
 
 sealed record RuntimeSnapshot(int pid, string runtimeVersion, int gen0, int gen1, int gen2,
-    long workingSet, long gcCommitted, int threadCount, long queueLength, long timerCount, int assemblyCount)
+    long workingSet, long gcCommitted, int threadCount, long queueLength, long timerCount, int assemblyCount,
+    long allocated, double pauseTime, long compiledIL, long compiledMethods, double compilationTime,
+    long completedItems, long lockContentions)
 {
     public static RuntimeSnapshot Capture() => new(
         Environment.ProcessId, Environment.Version.ToString(),
         GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2),
         Environment.WorkingSet, GC.GetGCMemoryInfo().TotalCommittedBytes,
         ThreadPool.ThreadCount, ThreadPool.PendingWorkItemCount,
-        Timer.ActiveCount, AppDomain.CurrentDomain.GetAssemblies().Length);
+        Timer.ActiveCount, AppDomain.CurrentDomain.GetAssemblies().Length,
+        GC.GetTotalAllocatedBytes(precise: true), GC.GetTotalPauseDuration().TotalSeconds,
+        JitInfo.GetCompiledILBytes(), JitInfo.GetCompiledMethodCount(), JitInfo.GetCompilationTime().TotalSeconds,
+        ThreadPool.CompletedWorkItemCount, Monitor.LockContentionCount);
+}
+
+static class CumulativeLoad
+{
+    public static void Run()
+    {
+        var memory = new byte[64][];
+        for (int i = 0; i < memory.Length; i++)
+        {
+            memory[i] = new byte[1024 * 1024];
+            Array.Fill(memory[i], (byte)i);
+        }
+        for (int i = 0; i < 256; i++)
+        {
+            var method = new DynamicMethod($"Cumulative{i}", typeof(int), Type.EmptyTypes);
+            var il = method.GetILGenerator();
+            il.Emit(OpCodes.Ldc_I4, i);
+            il.Emit(OpCodes.Ret);
+            if (method.CreateDelegate<Func<int>>()() != i)
+            {
+                throw new InvalidOperationException("Generated method returned an unexpected result");
+            }
+        }
+        long completed = ThreadPool.CompletedWorkItemCount;
+        using var drained = new CountdownEvent(256);
+        for (int i = 0; i < 256; i++)
+        {
+            ThreadPool.QueueUserWorkItem(_ => drained.Signal());
+        }
+        if (!drained.Wait(TimeSpan.FromSeconds(10)) ||
+            !SpinWait.SpinUntil(() => ThreadPool.CompletedWorkItemCount >= completed + 256, TimeSpan.FromSeconds(10)))
+        {
+            throw new TimeoutException("Cumulative work items did not complete");
+        }
+        var gate = new object();
+        for (int i = 0; i < 32; i++)
+        {
+            var contender = new Thread(() => { lock (gate) { } }) { IsBackground = true };
+            lock (gate)
+            {
+                contender.Start();
+                // Hold the monitor until the other thread has actually blocked.
+                if (!SpinWait.SpinUntil(() => (contender.ThreadState & ThreadState.WaitSleepJoin) != 0, TimeSpan.FromSeconds(10)))
+                {
+                    throw new TimeoutException("Monitor contender did not block");
+                }
+            }
+            contender.Join();
+        }
+        GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, blocking: true);
+        GC.KeepAlive(memory);
+    }
 }
 
 static class RuntimeLoad

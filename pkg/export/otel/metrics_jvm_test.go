@@ -20,12 +20,40 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
+	instrument "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
+
+type runtimeFloatCounterRecorder struct {
+	instrument.Float64Counter
+	values []float64
+}
+
+func (c *runtimeFloatCounterRecorder) Add(_ context.Context, value float64, _ ...instrument.AddOption) {
+	c.values = append(c.values, value)
+}
+
+func TestJVMRuntimeDurationDeltaPrecision(t *testing.T) {
+	counter := &runtimeFloatCounterRecorder{}
+	var previous *int64
+	recordJVMRuntimeFloatCounter(t.Context(), counter, &previous, 0)
+	require.Empty(t, counter.values, "JVM duration counters emit only positive deltas")
+	const initial = int64(1 << 53)
+	recordJVMRuntimeFloatCounter(t.Context(), counter, &previous, initial)
+	recordJVMRuntimeFloatCounter(t.Context(), counter, &previous, initial+1)
+	require.Len(t, counter.values, 2)
+	require.InDelta(t, float64(initial)/float64(time.Second), counter.values[0], 1e-12)
+	require.InDelta(t, 1e-9, counter.values[1], 1e-18, "subtract integer nanoseconds before converting to seconds")
+	recordJVMRuntimeFloatCounter(t.Context(), counter, &previous, 0)
+	require.Len(t, counter.values, 2, "a reset to zero updates the baseline without emitting")
+	recordJVMRuntimeFloatCounter(t.Context(), counter, &previous, 1)
+	require.Len(t, counter.values, 3)
+	require.InDelta(t, 1e-9, counter.values[2], 1e-18)
+}
 
 func TestRuntimeMetricsReporterRecordsJVMMemoryPoolUsed(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())

@@ -12,6 +12,13 @@ With `application_runtime` enabled, OBI collects runtime metrics from
 | `dotnet.thread_pool.queue.length` | `dotnet_thread_pool_queue_length` | `{work_item}` |
 | `dotnet.timer.count` | `dotnet_timer_count` | `{timer}` |
 | `dotnet.assembly.count` | `dotnet_assembly_count` | `{assembly}` |
+| `dotnet.gc.heap.total_allocated` | `dotnet_gc_heap_allocated_bytes_total` | `By` |
+| `dotnet.gc.pause.time` | `dotnet_gc_pause_time_seconds_total` | `s` |
+| `dotnet.jit.compiled_il.size` | `dotnet_jit_compiled_il_size_bytes_total` | `By` |
+| `dotnet.jit.compiled_methods` | `dotnet_jit_compiled_methods_total` | `{method}` |
+| `dotnet.jit.compilation.time` | `dotnet_jit_compilation_time_seconds_total` | `s` |
+| `dotnet.thread_pool.work_item.count` | `dotnet_thread_pool_work_item_count_total` | `{work_item}` |
+| `dotnet.monitor.lock_contentions` | `dotnet_monitor_lock_contentions_total` | `{contention}` |
 
 The `dotnet.gc.heap.generation` attribute identifies `gen0`, `gen1`, and `gen2`.
 Counts are exclusive: a full gen2 collection adds one to gen2, while gen0 and
@@ -51,9 +58,9 @@ runtime metrics export queue:
 3. `ProcessInfo2` verifies the socket's PID and confirms that the CLR version is
    .NET 8 or newer.
 4. The collector starts an EventPipe session and decodes its NetTrace stream.
-5. Sampling rounds containing GC counts and the available current values enter
-   the runtime metrics queue and reach the
-   OTLP and Prometheus exporters.
+5. Sampling rounds containing GC counts, cumulative counters, and available
+   current values enter the runtime metrics queue and reach the OTLP and
+   Prometheus exporters.
 
 The first sample for each generation establishes a baseline. Exported totals
 therefore cover collection after attachment, rather than the process lifetime.
@@ -61,9 +68,24 @@ The runtime polls generation counters separately, so sampling boundaries are
 approximate. OBI defers inconsistent or decreasing exclusive totals until a
 later complete round catches up.
 
+Allocation bytes, GC pause time, JIT compilation time, completed work items,
+and monitor lock contentions also cover collection after attachment. Each
+counter's first increment establishes its baseline; later increments accumulate
+in the collector. GC pause and JIT compilation durations use seconds.
+Compiled IL bytes and compiled method counts use the runtime's absolute
+process-lifetime totals, including their first observed values.
+
+An unavailable counter is omitted from that sampling round and retains its
+baseline. Each exporter tracks the last published value per process and adds
+its increase to the shared service counter. A process exit preserves the
+exported cumulative total, and a replacement process establishes its own
+baseline. Current-value metrics reflect the latest available process values.
+
 On stream loss, OBI reconnects while the process is alive and preserves the last
-published totals. Collections during the gap are unavailable. Process removal
-cancels collection; shutdown sends `StopTracing` while draining the stream.
+published attachment-relative totals. Increments during the gap are unavailable;
+the two absolute JIT counters continue to report process-lifetime values.
+Process removal cancels collection; shutdown sends `StopTracing` while draining
+the stream.
 
 ## Requirements and limitations
 
