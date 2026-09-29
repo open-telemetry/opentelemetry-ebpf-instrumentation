@@ -134,7 +134,6 @@ func TestHandleWithoutTraceContextPreservesPlainText(t *testing.T) {
 	path := file.Name()
 	require.NoError(t, file.Close())
 	t.Cleanup(func() { _ = os.Remove(path) })
-	require.Less(t, len(path), len(BpfLogEventT{}.FilePath))
 
 	cfg := obi.DefaultConfig
 	tr := newTestTracer(t, false)
@@ -145,9 +144,7 @@ func TestHandleWithoutTraceContextPreservesPlainText(t *testing.T) {
 	}, time.Minute)
 	t.Cleanup(tr.fdCache.Purge)
 
-	event := LogEvent{logLine: "request failed\n"}
-	copy(event.orig.FilePath[:], path)
-	event.dest = event.ttyPath()
+	event := LogEvent{logLine: "request failed\n", dest: path}
 	out, err := tr.openLogDestination(event.dest, pipeKey{})
 	require.NoError(t, err)
 	event.out = out

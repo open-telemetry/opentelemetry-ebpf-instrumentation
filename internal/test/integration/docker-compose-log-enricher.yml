@@ -90,6 +90,19 @@ services:
     environment:
       PORT: "8388"
 
+  testservermultisegwritevtty:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/logenricher_writev/Dockerfile
+    image: hatest-testserver-logenricher-multiseg-writev-tty
+    tty: true
+    networks:
+      - shared
+    ports:
+      - "8389:8389"
+    environment:
+      PORT: "8389"
+
   testservershellsubst:
     build:
       context: ../../..
@@ -175,6 +188,8 @@ services:
       testserverpythonasync:
         condition: service_started
       testservermultisegwritev:
+        condition: service_started
+      testservermultisegwritevtty:
         condition: service_started
       testservershellsubst:
         condition: service_started

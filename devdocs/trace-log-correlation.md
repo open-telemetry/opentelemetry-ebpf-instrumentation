@@ -22,7 +22,7 @@ OBI can enrich JSON and plain-text log lines with trace and span fields, linking
 
 ## Overview
 
-The logenricher hooks into write paths (`tty_write`, `pipe_write`, `ksys_write`, `do_writev`) to intercept log output. Pipe writes are only intercepted for pipes registered as a tracked process's stdout or stderr (keyed by inode and device in the `log_pipes` BPF map): any other pipe — shell command substitutions, application IPC, a pipe on a non-stdio fd — is application data and passes through untouched and un-enriched. When a write to a log destination occurs it:
+The logenricher hooks into write paths (`tty_write`, `pipe_write`, `ksys_write`, `do_writev`) to intercept log output. Pipe writes are only intercepted for pipes registered as a tracked process's stdout or stderr (keyed by inode and device in the `log_pipes` BPF map): any other pipe — shell command substitutions, application IPC, a pipe on a non-stdio fd — is application data and passes through untouched and un-enriched. Terminal writes are only intercepted on the terminal device itself, never on the master side of a pseudo-terminal (that is input for the terminal) or on aliases such as `/dev/tty` and `/dev/console`. User space writes the enriched line back through the writer's own file descriptor, after checking that it still refers to the same terminal (inode and device): a path such as `/dev/pts/0` names a different terminal in OBI's mount namespace. When a write to a log destination occurs it:
 
 1. Looks up `traces_ctx_v1[pid_tgid]` to get the active trace/span context for the calling thread.
 2. Reads the user buffer via `bpf_probe_read_user`, packages the log line together with the trace context into a `log_event_t`, and submits it to the `log_events` ring buffer.

@@ -13,7 +13,6 @@
 
 #include <pid/pid_helpers.h>
 
-#include <logenricher/path_resolver.h>
 #include <logenricher/types.h>
 
 #include <logenricher/maps/log_enricher_pids.h>
@@ -46,6 +45,20 @@ static __always_inline bool pid_tracked(const struct task_struct *task) {
 
     tracked = bpf_map_lookup_elem(&log_enricher_pids, &key);
     return tracked != NULL;
+}
+
+static __always_inline bool
+fd_is_file(const struct task_struct *task, const int fd, const struct file *file) {
+    struct fdtable *fdt = BPF_CORE_READ(task, files, fdt);
+    if (!fdt || fd < 0 || (u32)fd >= BPF_CORE_READ(fdt, max_fds)) {
+        return false;
+    }
+
+    struct file **fd_arr = BPF_CORE_READ(fdt, fd);
+    struct file *f = NULL;
+    bpf_probe_read_kernel(&f, sizeof(f), fd_arr + fd);
+
+    return f == file;
 }
 
 static __always_inline u32 copy_ubuf(log_event_t *e, struct iov_iter *from, void *ubuf) {
@@ -139,11 +152,11 @@ suppress_iovec(const struct iovec *iov, unsigned long nr_segs, const char *fill)
     }
 }
 
-static __always_inline int __write(struct kiocb *iocb,
-                                   struct iov_iter *from,
+static __always_inline int __write(struct iov_iter *from,
                                    const int fd,
-                                   const log_pipe_key_t *pipe,
-                                   const struct task_struct *task) {
+                                   const enum log_dest_kind dest_kind,
+                                   const u64 ino,
+                                   const u32 dev) {
     iovec_iter_ctx ictx;
     get_iovec_ctx(&ictx, (struct iov_iter___dummy *)from);
 
@@ -163,8 +176,9 @@ static __always_inline int __write(struct kiocb *iocb,
     e->tgid = pid_tgid >> 32;
     e->ctx = obi_ctx ? *obi_ctx : (obi_ctx_info_t){0};
     e->fd = fd;
-    e->ino = pipe ? pipe->ino : 0;
-    e->dev = pipe ? (u32)pipe->dev : 0;
+    e->ino = ino;
+    e->dev = dev;
+    e->dest_kind = dest_kind;
 
     u32 tot = 0;
 
@@ -181,19 +195,6 @@ static __always_inline int __write(struct kiocb *iocb,
     e->len = tot;
     if (e->len == 0) {
         return 0;
-    }
-
-    if (fd == 0) {
-        // We are in the TTY path so we can resolve the filepath
-        // from the file struct.
-        // NOTE: we could theoretically use the FD similarly to how
-        // we do in the pipe case, this approach has less moving parts.
-        struct path path = BPF_CORE_READ(iocb, ki_filp, f_path);
-        resolve_path((char *)e->file_path, &path, task);
-    } else {
-        // This is a pipe write, there's no file path to resolve in the
-        // file struct, we will write to the process FD directly.
-        e->file_path[0] = '\0';
     }
 
     u64 out_size = sizeof(log_event_t) + max(e->len, sizeof(void *));
@@ -223,30 +224,32 @@ int BPF_KPROBE(obi_kprobe_tty_write, struct kiocb *iocb, struct iov_iter *from) 
         return 0;
     }
 
-    struct tty_file_private *tfp =
-        (struct tty_file_private *)BPF_CORE_READ(iocb, ki_filp, private_data);
+    struct file *file = BPF_CORE_READ(iocb, ki_filp);
+    struct tty_file_private *tfp = (struct tty_file_private *)BPF_CORE_READ(file, private_data);
     struct tty_struct *tty = BPF_CORE_READ(tfp, tty);
-    const bool is_master = tty_driver_is_pty(tty) && tty_driver_is_master(tty);
 
-    struct tty_dev master = {};
-    struct tty_dev slave = {};
-    if (is_master) {
-        struct tty_struct *lnk = BPF_CORE_READ(tty, link);
-        tty_dev_fill(&master, tty);
-        tty_dev_fill(&slave, lnk);
-    } else {
-        tty_dev_fill(&slave, tty);
-    }
-
-    if (slave.major == 0 && slave.minor == 0) {
+    // a pty master write is input for the terminal, not output
+    if (tty_driver_is_pty(tty) && tty_driver_is_master(tty)) {
         return 0;
     }
 
-    if ((is_master && !(master.termios.c_lflag & k_echo)) && !(slave.termios.c_lflag & k_echo)) {
+    // aliases like /dev/tty or /dev/console reopen as another terminal
+    const struct inode *f_inode = BPF_CORE_READ(file, f_inode);
+    if (BPF_CORE_READ(f_inode, i_rdev) != tty_devnum(tty)) {
         return 0;
     }
 
-    return __write(iocb, from, 0, NULL, task);
+    // pid_fd holds the last write()/writev() fd
+    const int *fdp = bpf_map_lookup_elem(&pid_fd, &(u64){bpf_get_current_pid_tgid()});
+    if (!fdp || !fd_is_file(task, *fdp, file)) {
+        return 0;
+    }
+
+    return __write(from,
+                   *fdp,
+                   k_log_dest_tty,
+                   BPF_CORE_READ(f_inode, i_ino),
+                   BPF_CORE_READ(f_inode, i_sb, s_dev));
 }
 
 SEC("kprobe/pipe_write")
@@ -273,7 +276,7 @@ int BPF_KPROBE(obi_kprobe_pipe_write, struct kiocb *iocb, struct iov_iter *from)
         return 0;
     }
 
-    return __write(iocb, from, *fdp, &key, task);
+    return __write(from, *fdp, k_log_dest_pipe, key.ino, (u32)key.dev);
 }
 
 static __always_inline int __record_fd(unsigned int fd) {
