@@ -322,7 +322,8 @@ static __always_inline void set_sql_info(
 
 // Common SQL query return handler.
 // Works for both database/sql and pgx.
-static __always_inline int process_sql_return(void *goroutine_addr, u8 error, u8 conn_type) {
+static __always_inline int
+process_sql_return(void *goroutine_addr, u8 error, u8 conn_type, u32 stack_off) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
@@ -330,10 +331,10 @@ static __always_inline int process_sql_return(void *goroutine_addr, u8 error, u8
     if (invocation == NULL) {
         bpf_dbg_printk("Request not found for this goroutine");
         // an inner query overwrote our map entry, but our frame still has to be popped
-        go_obi_ctx__end(&g_key, k_obi_ctx_sql, NULL);
+        go_obi_ctx__end_at(&g_key, k_obi_ctx_sql, NULL, stack_off);
         return 0;
     }
-    go_obi_ctx__end(&g_key, k_obi_ctx_sql, &invocation->tp);
+    go_obi_ctx__end_at(&g_key, k_obi_ctx_sql, &invocation->tp, stack_off);
     bpf_map_delete_elem(&ongoing_sql_queries, &g_key);
 
     sql_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(sql_request_trace_t), 0);
@@ -436,7 +437,8 @@ int GUARDED_PROG(obi_uprobe_queryReturn, struct pt_regs *, ctx) {
 
     // queryDC returns (*Rows, error)
     void *resp_ptr = GO_PARAM1(ctx);
-    return process_sql_return(goroutine_addr, resp_ptr == 0, SQL_CONN_TYPE_DATABASE_SQL);
+    return process_sql_return(
+        goroutine_addr, resp_ptr == 0, SQL_CONN_TYPE_DATABASE_SQL, go_obi_ctx__stack_off(ctx));
 }
 
 SEC("uprobe/pgx_Query_return")
@@ -447,7 +449,8 @@ int GUARDED_PROG(obi_uprobe_pgx_Query_return, struct pt_regs *, ctx) {
 
     // pgx.Conn.Query returns (Rows, error)
     void *err_ptr = GO_PARAM3(ctx);
-    return process_sql_return(goroutine_addr, err_ptr != 0, SQL_CONN_TYPE_PGX);
+    return process_sql_return(
+        goroutine_addr, err_ptr != 0, SQL_CONN_TYPE_PGX, go_obi_ctx__stack_off(ctx));
 }
 
 SEC("uprobe/pq_network_return")

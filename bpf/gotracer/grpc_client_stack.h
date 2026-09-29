@@ -27,6 +27,11 @@ static __always_inline u32 grpc_client_slot(u32 idx) {
     return idx;
 }
 
+static __always_inline u32 grpc_client_overflow_slot(u32 idx) {
+    bpf_clamp_umax(idx, k_grpc_client_overflow_depth - 1);
+    return idx;
+}
+
 // Current active invocation for this goroutine.
 // While overflow > 0, an untracked deeper RPC is running: do not return a stale frame.
 static __always_inline grpc_client_func_invocation_t *
@@ -55,6 +60,13 @@ static __always_inline bool grpc_client_push(const go_addr_key_t *g_key,
 
     const u32 depth = grpc_client_depth(st);
 
+    if (st->skipped_stack_off) {
+        if (inv->stack_off >= st->skipped_stack_off) {
+            return false;
+        }
+        st->skipped_stack_off = 0;
+    }
+
     // If the top frame has the same stack_off, Go restarted the function after stack growth
     if (depth > 0 && st->overflow == 0) {
         grpc_client_func_invocation_t *top = &st->frames[grpc_client_slot(depth - 1)];
@@ -68,6 +80,12 @@ static __always_inline bool grpc_client_push(const go_addr_key_t *g_key,
         if (st->overflow > 0 && st->unstored_stack_off == inv->stack_off) {
             return false;
         }
+        if (st->overflow >= k_grpc_client_overflow_depth) {
+            // Keep the first omitted call's depth; deeper calls and restarts need no counters.
+            st->skipped_stack_off = inv->stack_off;
+            return false;
+        }
+        st->overflow_stack_offs[grpc_client_overflow_slot(st->overflow)] = inv->stack_off;
         st->overflow++;
         st->unstored_stack_off = inv->stack_off;
         return false;
@@ -82,16 +100,28 @@ static __always_inline bool grpc_client_push(const go_addr_key_t *g_key,
 // Returns true if a tracked invocation was popped into *out, or false if overflowed / empty.
 static __always_inline bool grpc_client_pop(const go_addr_key_t *g_key,
                                             grpc_client_invocation_stack_t *st,
-                                            grpc_client_func_invocation_t *out) {
+                                            grpc_client_func_invocation_t *out,
+                                            u32 stack_off) {
     if (!st) {
         return false;
     }
 
+    if (st->skipped_stack_off) {
+        if (stack_off >= st->skipped_stack_off) {
+            if (stack_off == st->skipped_stack_off) {
+                st->skipped_stack_off = 0;
+            }
+            return false;
+        }
+        st->skipped_stack_off = 0;
+    }
+
     if (st->overflow > 0) {
         st->overflow--;
-        if (st->overflow == 0) {
-            st->unstored_stack_off = 0;
-        }
+        st->unstored_stack_off =
+            st->overflow > 0 && st->overflow <= k_grpc_client_overflow_depth
+                ? st->overflow_stack_offs[grpc_client_overflow_slot(st->overflow - 1)]
+                : 0;
         return false;
     }
 
@@ -145,4 +175,27 @@ static __always_inline bool grpc_client_stream_is_live(const go_addr_key_t *s_ke
 static __always_inline bool grpc_client_claim_stream(const go_addr_key_t *s_key) {
     const u8 completed = 1;
     return bpf_map_update_elem(&completed_grpc_client_streams, s_key, &completed, BPF_NOEXIST) == 0;
+}
+
+static __always_inline grpc_client_stream_state_t *
+grpc_client_finish_state(const go_addr_key_t *s_key, bool has_err) {
+    grpc_client_stream_state_t *state = bpf_map_lookup_elem(&ongoing_grpc_client_streams, s_key);
+    if (state) {
+        return state;
+    }
+    if (bpf_map_lookup_elem(&completed_grpc_client_streams, s_key) ||
+        !bpf_map_lookup_elem(&tracked_grpc_client_streams, s_key)) {
+        return NULL;
+    }
+
+    const grpc_client_early_finish_t early = {.has_err = has_err};
+    bpf_map_update_elem(&early_grpc_client_finishes, s_key, &early, BPF_NOEXIST);
+
+    // Publication may have checked for an early finish before our marker was inserted.
+    state = bpf_map_lookup_elem(&ongoing_grpc_client_streams, s_key);
+    if (!state && (bpf_map_lookup_elem(&completed_grpc_client_streams, s_key) ||
+                   !bpf_map_lookup_elem(&tracked_grpc_client_streams, s_key))) {
+        bpf_map_delete_elem(&early_grpc_client_finishes, s_key);
+    }
+    return state;
 }

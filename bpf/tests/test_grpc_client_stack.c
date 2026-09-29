@@ -24,6 +24,7 @@ typedef struct mock_map {
 } mock_map_t;
 
 static mock_map_t mock_maps[k_max_maps];
+static void (*before_update)(void *map, const void *key);
 
 static mock_map_t *mock_for(void *map) {
     for (int i = 0; i < k_max_maps; i++) {
@@ -58,10 +59,15 @@ static void *test_map_lookup(void *map, const void *key) {
 }
 
 static long test_map_update(void *map, const void *key, const void *val, unsigned long long flags) {
-    (void)flags;
+    if (before_update) {
+        before_update(map, key);
+    }
     mock_map_t *m = mock_for(map);
     for (int i = 0; i < k_max_entries; i++) {
         if (m->entries[i].used && memcmp(m->entries[i].key, key, m->key_size) == 0) {
+            if (flags == BPF_NOEXIST) {
+                return -1;
+            }
             memcpy(m->entries[i].val, val, m->val_size);
             return 0;
         }
@@ -144,7 +150,7 @@ static void test_lifo_basic(void) {
 
     // Pop B
     grpc_client_func_invocation_t popped = {0};
-    check(grpc_client_pop(&g_key, &stack, &popped), "pop B succeeds");
+    check(grpc_client_pop(&g_key, &stack, &popped, 200), "pop B succeeds");
     test_map_update(&ongoing_grpc_client_requests, &g_key, &stack, 0);
     check_u64(0x222, popped.cc, "popped item is B");
     check_u64(1, grpc_client_depth(&stack), "depth after pop B is 1");
@@ -152,7 +158,7 @@ static void test_lifo_basic(void) {
     check(cur != NULL && cur->cc == 0x111, "current restored to A");
 
     // Pop A
-    check(grpc_client_pop(&g_key, &stack, &popped), "pop A succeeds");
+    check(grpc_client_pop(&g_key, &stack, &popped, 100), "pop A succeeds");
     check_u64(0x111, popped.cc, "popped item is A");
     check_u64(0, grpc_client_depth(&stack), "depth after pop A is 0");
     check(grpc_client_current(&stack) == NULL, "current is NULL when empty");
@@ -177,7 +183,7 @@ static void test_stack_growth_restart(void) {
     check(cur != NULL && cur->method == 0xBBB, "restarted frame data was updated");
 
     grpc_client_func_invocation_t popped = {0};
-    check(grpc_client_pop(&g_key, &stack, &popped), "pop succeeds");
+    check(grpc_client_pop(&g_key, &stack, &popped, 100), "pop succeeds");
     check_u64(0, grpc_client_depth(&stack), "depth is 0");
 }
 
@@ -214,22 +220,67 @@ static void test_overflow(void) {
 
     // Pop 6th return
     grpc_client_func_invocation_t popped = {0};
-    check(!grpc_client_pop(&g_key, &stack, &popped), "pop of 6th returns false (untracked)");
+    check(!grpc_client_pop(&g_key, &stack, &popped, 600), "pop of 6th returns false (untracked)");
     check_u64(1, stack.overflow, "overflow is 1");
     check(grpc_client_current(&stack) == NULL, "current remains NULL");
+    check_u64(
+        500, stack.unstored_stack_off, "overflow unwind restores the parent's restart marker");
+    check(!grpc_client_push(&g_key, &stack, &inv5_restart), "parent restart remains untracked");
+    check_u64(1, stack.overflow, "parent restart after a child return is not counted twice");
 
     // Pop 5th return
-    check(!grpc_client_pop(&g_key, &stack, &popped), "pop of 5th returns false (untracked)");
+    check(!grpc_client_pop(&g_key, &stack, &popped, 500), "pop of 5th returns false (untracked)");
     check_u64(0, stack.overflow, "overflow returns to 0");
     cur = grpc_client_current(&stack);
     check(cur != NULL && cur->cc == 4, "deepest tracked frame 4 becomes visible again");
 
     // Pop 4, 3, 2, 1
     for (u64 i = 4; i >= 1; i--) {
-        check(grpc_client_pop(&g_key, &stack, &popped), "pop tracked frame succeeds");
+        check(grpc_client_pop(&g_key, &stack, &popped, (u32)(i * 100)),
+              "pop tracked frame succeeds");
         check_u64(i, popped.cc, "popped frame matches");
     }
     check_u64(0, grpc_client_depth(&stack), "stack empty");
+}
+
+static void test_overflow_limit_restarts_and_unwinds(void) {
+    grpc_client_invocation_stack_t stack = {0};
+    for (u32 i = 1; i <= k_grpc_client_max_depth + k_grpc_client_overflow_depth; i++) {
+        const grpc_client_func_invocation_t inv = {.cc = i, .stack_off = i * 100};
+        check(grpc_client_push(&g_key, &stack, &inv) == (i <= k_grpc_client_max_depth),
+              "only the bounded invocation frames are tracked");
+    }
+
+    const grpc_client_func_invocation_t parent = {.stack_off = 900};
+    const grpc_client_func_invocation_t child = {.stack_off = 1000};
+    check(!grpc_client_push(&g_key, &stack, &parent), "first omitted call is untracked");
+    check(!grpc_client_push(&g_key, &stack, &child), "omitted child is untracked");
+    grpc_client_func_invocation_t popped = {0};
+    check(!grpc_client_pop(&g_key, &stack, &popped, child.stack_off), "omitted child returns");
+    check(!grpc_client_push(&g_key, &stack, &parent), "omitted parent restarts after child return");
+    check_u64(900, stack.skipped_stack_off, "restart preserves the first omitted call's depth");
+
+    for (u32 i = 0; i < 1024; i++) {
+        const grpc_client_func_invocation_t inv = {.stack_off = 1100 + i * 100};
+        check(!grpc_client_push(&g_key, &stack, &inv), "deep omitted invocation is untracked");
+    }
+    check_u64(k_grpc_client_overflow_depth, stack.overflow, "overflow counters stay bounded");
+    for (u32 i = 1024; i > 0; i--) {
+        check(!grpc_client_pop(&g_key, &stack, &popped, 1100 + (i - 1) * 100),
+              "deep omitted return consumes no retained frame");
+    }
+    check(!grpc_client_pop(&g_key, &stack, &popped, parent.stack_off), "omitted parent returns");
+    check_u64(0, stack.skipped_stack_off, "first omitted return clears the boundary");
+
+    const grpc_client_func_invocation_t retained_parent = {.stack_off = 800};
+    check(!grpc_client_push(&g_key, &stack, &retained_parent), "retained overflow parent restarts");
+    check_u64(k_grpc_client_overflow_depth, stack.overflow, "parent restart is not counted again");
+    for (u32 i = k_grpc_client_max_depth + k_grpc_client_overflow_depth; i > 0; i--) {
+        check(grpc_client_pop(&g_key, &stack, &popped, i * 100) == (i <= k_grpc_client_max_depth),
+              "all captured overflow depths and tracked invocations unwind");
+    }
+    check_u64(0, stack.depth, "no invocation remains");
+    check_u64(0, stack.overflow, "no overflow remains");
 }
 
 static void test_stream_pointer_reuse(void) {
@@ -330,7 +381,7 @@ static void test_constructor_lifecycle_helpers(void) {
 
     // Pop Stream B
     grpc_client_func_invocation_t popped_b;
-    check(grpc_client_pop(&g_key, &stack, &popped_b), "pop inv_b");
+    check(grpc_client_pop(&g_key, &stack, &popped_b, 200), "pop inv_b");
     check_u64(0x200, popped_b.cc, "popped inv_b matches");
 
     // Current is now Stream A again; its constructor status is untouched
@@ -344,17 +395,77 @@ static void test_constructor_lifecycle_helpers(void) {
     check_u64(0, cur_a->stream_constructor_active, "inv_a constructor inactive after end");
 
     grpc_client_func_invocation_t popped_a;
-    check(grpc_client_pop(&g_key, &stack, &popped_a), "pop inv_a");
+    check(grpc_client_pop(&g_key, &stack, &popped_a, 100), "pop inv_a");
     check_u64(0x100, popped_a.cc, "popped inv_a matches");
     check_u64(0, grpc_client_depth(&stack), "stack empty");
+}
+
+static void publish_before_early_finish(void *map, const void *key) {
+    if (map != &early_grpc_client_finishes) {
+        return;
+    }
+    before_update = NULL;
+    const grpc_client_stream_state_t state = {.invocation = {.method = 0xabc}};
+    test_map_update(&ongoing_grpc_client_streams, key, &state, BPF_ANY);
+    check(test_map_lookup(&early_grpc_client_finishes, key) == NULL,
+          "publication saw no early finish marker");
+}
+
+static void complete_before_early_finish(void *map, const void *key) {
+    if (map != &early_grpc_client_finishes) {
+        return;
+    }
+    before_update = NULL;
+    check(grpc_client_claim_stream(key), "another completion claims the stream");
+    test_map_delete(&ongoing_grpc_client_streams, key);
+    test_map_delete(&tracked_grpc_client_streams, key);
+}
+
+static void test_finish_publication_handshake(void) {
+    const go_addr_key_t stream_key = {.pid = 0x42, .addr = 0x6000};
+    grpc_client_begin_stream_generation(&stream_key);
+    before_update = publish_before_early_finish;
+    grpc_client_stream_state_t *state = grpc_client_finish_state(&stream_key, true);
+    check(state != NULL && state->invocation.method == 0xabc,
+          "finish finds state published between its lookup and marker insertion");
+    check(grpc_client_claim_stream(&stream_key), "finish claims the published stream");
+    check(!grpc_client_claim_stream(&stream_key), "publisher cannot claim a second completion");
+    test_map_delete(&ongoing_grpc_client_streams, &stream_key);
+    test_map_delete(&early_grpc_client_finishes, &stream_key);
+    test_map_delete(&tracked_grpc_client_streams, &stream_key);
+    check(grpc_client_finish_state(&stream_key, true) == NULL,
+          "duplicate finish leaves completed streams alone");
+
+    grpc_client_begin_stream_generation(&stream_key);
+    before_update = complete_before_early_finish;
+    check(grpc_client_finish_state(&stream_key, false) == NULL,
+          "finish observes completion that happened before its marker insertion");
+    check(test_map_lookup(&early_grpc_client_finishes, &stream_key) == NULL,
+          "late marker is removed after completion");
+
+    grpc_client_begin_stream_generation(&stream_key);
+    check(grpc_client_finish_state(&stream_key, true) == NULL,
+          "finish before publication leaves an early marker");
+    const grpc_client_early_finish_t *early =
+        test_map_lookup(&early_grpc_client_finishes, &stream_key);
+    check(early != NULL && early->has_err, "early marker preserves the terminal error");
+    const grpc_client_stream_state_t published = {0};
+    test_map_update(&ongoing_grpc_client_streams, &stream_key, &published, BPF_ANY);
+    check(grpc_client_claim_stream(&stream_key), "publisher can claim an early completion");
+    check(!grpc_client_claim_stream(&stream_key), "finish cannot claim the publisher's completion");
+    test_map_delete(&ongoing_grpc_client_streams, &stream_key);
+    test_map_delete(&early_grpc_client_finishes, &stream_key);
+    test_map_delete(&tracked_grpc_client_streams, &stream_key);
 }
 
 int main(void) {
     test_lifo_basic();
     test_stack_growth_restart();
     test_overflow();
+    test_overflow_limit_restarts_and_unwinds();
     test_stream_pointer_reuse();
     test_constructor_lifecycle_helpers();
+    test_finish_publication_handshake();
 
     if (failures == 0) {
         printf("test_grpc_client_stack: all checks passed\n");

@@ -90,7 +90,7 @@ int GUARDED_PROG(obi_uprobe_redis_process_ret, struct pt_regs *, ctx) {
         }
     }
 
-    go_obi_ctx__end(&g_key, k_obi_ctx_redis, req ? &req->tp : NULL);
+    go_obi_ctx__end_at(&g_key, k_obi_ctx_redis, req ? &req->tp : NULL, go_obi_ctx__stack_off(ctx));
     bpf_map_delete_elem(&ongoing_redis_requests, &g_key);
 
     return 0;

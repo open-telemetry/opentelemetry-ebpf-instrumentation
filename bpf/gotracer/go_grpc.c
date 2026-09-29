@@ -494,6 +494,7 @@ static __always_inline void grpc_client_emit_with_conn(
         return;
     }
 
+    __builtin_memset(trace, 0, sizeof(*trace));
     task_pid(&trace->pid);
     trace->type = k_event_type_grpc_client;
     trace->start_monotime_ns = invocation->start_monotime_ns;
@@ -608,10 +609,10 @@ static __always_inline void clientConnStart(void *goroutine_addr,
         invocation.flags = top->flags;
     } else if (stack->overflow > 0 && stack->unstored_stack_off == (u32)stack_off) {
         // Overflow restart: Go grew the stack and restarted an unstored frame.
-        if (st && st->unstored_kind == k_obi_ctx_grpc_client &&
-            st->unstored_stack_off == (u32)stack_off) {
-            invocation.tp = st->unstored_tp;
-            invocation.flags = st->unstored_tp.flags;
+        const tp_info_t *current_tp = st ? obi_ctx__current(st) : NULL;
+        if (current_tp) {
+            invocation.tp = *current_tp;
+            invocation.flags = current_tp->flags;
         }
     } else {
         // Genuine nested call: derive a new child TP from the active parent context.
@@ -791,10 +792,11 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) 
     }
 
     bool was_overflow = stack->overflow > 0;
+    const u32 stack_off = go_obi_ctx__stack_off(ctx);
     grpc_client_func_invocation_t inv = {};
-    if (!grpc_client_pop(&g_key, stack, &inv)) {
+    if (!grpc_client_pop(&g_key, stack, &inv, stack_off)) {
         if (was_overflow) {
-            go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, NULL);
+            go_obi_ctx__end_at(&g_key, k_obi_ctx_grpc_client, NULL, stack_off);
         }
         return 0;
     }
@@ -854,10 +856,8 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) 
 
     // Lookup early marker AFTER publication
     grpc_client_early_finish_t *early = bpf_map_lookup_elem(&early_grpc_client_finishes, &s_key);
-    if (early) {
-        if (grpc_client_claim_stream(&s_key)) {
-            grpc_client_emit_with_conn(&inv, &state.conn, early->has_err ? (void *)1 : NULL);
-        }
+    if (early && grpc_client_claim_stream(&s_key)) {
+        grpc_client_emit_with_conn(&inv, &state.conn, early->has_err ? (void *)1 : NULL);
         bpf_map_delete_elem(&ongoing_grpc_client_streams, &s_key);
         bpf_map_delete_elem(&early_grpc_client_finishes, &s_key);
         bpf_map_delete_elem(&tracked_grpc_client_streams, &s_key);
@@ -866,12 +866,6 @@ int GUARDED_PROG(obi_uprobe_ClientConn_NewStream_return, struct pt_regs *, ctx) 
 
     go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, &inv.tp);
 
-    return 0;
-}
-
-SEC("uprobe/ClientConn_Close")
-int GUARDED_PROG(obi_uprobe_ClientConn_Close, struct pt_regs *, ctx) {
-    (void)ctx;
     return 0;
 }
 
@@ -889,10 +883,11 @@ int GUARDED_PROG(obi_uprobe_ClientConn_Invoke_return, struct pt_regs *, ctx) {
     }
 
     bool was_overflow = stack->overflow > 0;
+    const u32 stack_off = go_obi_ctx__stack_off(ctx);
     grpc_client_func_invocation_t inv = {};
-    if (!grpc_client_pop(&g_key, stack, &inv)) {
+    if (!grpc_client_pop(&g_key, stack, &inv, stack_off)) {
         if (was_overflow) {
-            go_obi_ctx__end(&g_key, k_obi_ctx_grpc_client, NULL);
+            go_obi_ctx__end_at(&g_key, k_obi_ctx_grpc_client, NULL, stack_off);
         }
         return 0;
     }
@@ -937,7 +932,7 @@ int GUARDED_PROG(obi_uprobe_csAttempt_finish, struct pt_regs *, ctx) {
 
     // The completed map is the generation's claim record. BPF_NOEXIST is serialized by the
     // kernel map implementation and is supported on the repository's minimum kernels.
-    grpc_client_stream_state_t *state = bpf_map_lookup_elem(&ongoing_grpc_client_streams, &s_key);
+    grpc_client_stream_state_t *state = grpc_client_finish_state(&s_key, err_itab != NULL);
     if (state) {
         if (grpc_client_claim_stream(&s_key)) {
             grpc_client_emit_with_conn(&state->invocation, &state->conn, err_itab);
@@ -948,26 +943,6 @@ int GUARDED_PROG(obi_uprobe_csAttempt_finish, struct pt_regs *, ctx) {
         }
         return 0;
     }
-
-    // 2. If stream already completed, ignore subsequent finish calls
-    u8 *completed = bpf_map_lookup_elem(&completed_grpc_client_streams, &s_key);
-    if (completed) {
-        return 0;
-    }
-
-    // A clientStream created by ClientConn.Invoke is unary and never enters this map. Do not
-    // create an unreconcilable early marker for it.
-    u8 *tracked = bpf_map_lookup_elem(&tracked_grpc_client_streams, &s_key);
-    if (!tracked) {
-        return 0;
-    }
-
-    // 3. Insert early marker with BPF_NOEXIST. The actual winner has already been selected by
-    // grpc-go, so this marker only bridges the finish-before-NewStream-return window.
-    grpc_client_early_finish_t early = {
-        .has_err = err_itab ? 1 : 0,
-    };
-    bpf_map_update_elem(&early_grpc_client_finishes, &s_key, &early, BPF_NOEXIST);
 
     return 0;
 }

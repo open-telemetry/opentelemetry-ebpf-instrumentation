@@ -70,7 +70,7 @@ int GUARDED_PROG(obi_uprobe_writer_write_messages_ret, struct pt_regs *, ctx) {
     // Drop the goroutine-keyed traceparent so casgstatus can't re-install this
     // produce's context after the request ends (issue #2046).
     const tp_info_t *tp = bpf_map_lookup_elem(&produce_traceparents_by_goroutine, &g_key);
-    go_obi_ctx__end(&g_key, k_obi_ctx_kafka_produce, tp);
+    go_obi_ctx__end_at(&g_key, k_obi_ctx_kafka_produce, tp, go_obi_ctx__stack_off(ctx));
     bpf_map_delete_elem(&produce_traceparents_by_goroutine, &g_key);
 
     return 0;

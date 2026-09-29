@@ -31,10 +31,7 @@ enum obi_ctx_kind : u8 {
 
 enum { k_obi_ctx_kind_count = k_obi_ctx_kafka_produce + 1 };
 
-// saturation cap for the per-kind unstored span counters
-enum { k_obi_ctx_overflow_max = 255 };
-
-enum { k_obi_ctx_max_depth = 4 };
+enum { k_obi_ctx_max_depth = 4, k_obi_ctx_overflow_depth = 4 };
 
 enum { k_g_stack_hi_off = 8 }; // runtime.g.stack.hi
 
@@ -47,16 +44,13 @@ typedef struct obi_ctx_frame {
 
 typedef struct obi_ctx_stack {
     obi_ctx_frame_t frames[k_obi_ctx_max_depth];
+    obi_ctx_frame_t overflow_frames[k_obi_ctx_overflow_depth];
     u32 depth;
-    u32 unstored_stack_off;
-    // how many spans of each kind started after the stack was full and were not
-    // stored, so that an end of an unrelated kind cannot consume their count
+    u32 overflow_depth;
+    u32 skipped_stack_off;
+    // Only retained overflow frames are counted; deeper calls leave their ancestor current.
     u8 overflow[k_obi_ctx_kind_count];
-    // the last span that was not stored, so that its restart is not counted twice
-    // and its context survives a reschedule while it runs
-    u8 unstored_kind;
-    u8 _pad[7];
-    tp_info_t unstored_tp;
+    u8 _pad[4];
 } obi_ctx_stack_t;
 
 struct {
@@ -98,6 +92,23 @@ static __always_inline u32 obi_ctx__kind_slot(u8 kind) {
     u32 slot = kind;
     bpf_clamp_umax(slot, k_obi_ctx_kind_count - 1);
     return slot;
+}
+
+static __always_inline u32 obi_ctx__overflow_depth(const obi_ctx_stack_t *st) {
+    u32 depth = *(volatile const u32 *)&st->overflow_depth;
+    bpf_clamp_umax(depth, k_obi_ctx_overflow_depth);
+    return depth;
+}
+
+static __always_inline u32 obi_ctx__overflow_slot(u32 idx) {
+    bpf_clamp_umax(idx, k_obi_ctx_overflow_depth - 1);
+    return idx;
+}
+
+static __always_inline void obi_ctx__clear_overflow(obi_ctx_stack_t *st) {
+    st->overflow_depth = 0;
+    st->skipped_stack_off = 0;
+    bpf_memset(st->overflow, 0, sizeof(st->overflow));
 }
 
 static __always_inline u8 obi_ctx__same_span(const tp_info_t *a, const tp_info_t *b) {
@@ -149,11 +160,11 @@ static __always_inline u32 obi_ctx__reentered(
     return k_obi_ctx_max_depth;
 }
 
-// The goroutine's current span: the newest unstored one while it runs, else the
-// top frame. NULL when nothing is running
+// Calls beyond both stacks keep the last retained ancestor as their context.
 static __always_inline const tp_info_t *obi_ctx__current(const obi_ctx_stack_t *st) {
-    if (st->unstored_kind != k_obi_ctx_none) {
-        return &st->unstored_tp;
+    const u32 overflow_depth = obi_ctx__overflow_depth(st);
+    if (overflow_depth > 0) {
+        return &st->overflow_frames[obi_ctx__overflow_slot(overflow_depth - 1)].tp;
     }
 
     const u32 depth = obi_ctx__depth(st);
@@ -179,7 +190,7 @@ obi_ctx__publish_current(u64 pid_tgid, const go_addr_key_t *g_key, const obi_ctx
 // A span started: it becomes the goroutine's current context
 static __always_inline void
 go_obi_ctx__begin(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp, u32 stack_off) {
-    obi_ctx__set(bpf_get_current_pid_tgid(), tp);
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
 
     obi_ctx_stack_t *st = bpf_map_lookup_elem(&obi_ctx_stacks, g_key);
     if (!st) {
@@ -192,8 +203,18 @@ go_obi_ctx__begin(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp, u32 
         fresh->frames[0].stack_off = stack_off;
         fresh->frames[0].kind = kind;
         fresh->depth = 1;
-        bpf_map_update_elem(&obi_ctx_stacks, g_key, fresh, BPF_ANY);
+        if (bpf_map_update_elem(&obi_ctx_stacks, g_key, fresh, BPF_ANY) == 0) {
+            obi_ctx__set(pid_tgid, tp);
+        }
         return;
+    }
+
+    if (st->skipped_stack_off) {
+        if (stack_off >= st->skipped_stack_off) {
+            obi_ctx__publish_current(pid_tgid, g_key, st);
+            return;
+        }
+        st->skipped_stack_off = 0;
     }
 
     const u32 depth = obi_ctx__depth(st);
@@ -204,23 +225,34 @@ go_obi_ctx__begin(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp, u32 
     if (idx < k_obi_ctx_max_depth) {
         st->frames[obi_ctx__slot(idx)].tp = *tp;
         st->depth = idx + 1;
-        bpf_memset(st->overflow, 0, sizeof(st->overflow));
-        st->unstored_kind = k_obi_ctx_none;
+        obi_ctx__clear_overflow(st);
+        obi_ctx__set(pid_tgid, tp);
         return;
     }
 
     if (depth >= k_obi_ctx_max_depth) {
         u8 *unstored = &st->overflow[obi_ctx__kind_slot(kind)];
-        const u8 restarted =
-            *unstored > 0 && st->unstored_kind == kind && st->unstored_stack_off == stack_off;
-        if (restarted) {
-            st->unstored_tp = *tp;
-        } else if (*unstored < k_obi_ctx_overflow_max) {
-            (*unstored)++;
-            st->unstored_kind = kind;
-            st->unstored_stack_off = stack_off;
-            st->unstored_tp = *tp;
+        const u32 overflow_depth = obi_ctx__overflow_depth(st);
+        if (overflow_depth > 0) {
+            obi_ctx_frame_t *top = &st->overflow_frames[obi_ctx__overflow_slot(overflow_depth - 1)];
+            if (top->kind == kind && top->stack_off == stack_off) {
+                top->tp = *tp;
+                obi_ctx__set(pid_tgid, tp);
+                return;
+            }
         }
+        if (overflow_depth >= k_obi_ctx_overflow_depth) {
+            st->skipped_stack_off = stack_off;
+            obi_ctx__publish_current(pid_tgid, g_key, st);
+            return;
+        }
+        (*unstored)++;
+        obi_ctx_frame_t *frame = &st->overflow_frames[obi_ctx__overflow_slot(overflow_depth)];
+        frame->tp = *tp;
+        frame->stack_off = stack_off;
+        frame->kind = kind;
+        st->overflow_depth = overflow_depth + 1;
+        obi_ctx__set(pid_tgid, tp);
         return;
     }
 
@@ -229,14 +261,14 @@ go_obi_ctx__begin(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp, u32 
     frame->stack_off = stack_off;
     frame->kind = kind;
     st->depth = depth + 1;
-    st->unstored_kind = k_obi_ctx_none;
+    obi_ctx__set(pid_tgid, tp);
 }
 
 // A span ended: drop its frame and everything above it, then make the span below current.
 // Spans of one kind end in reverse start order, so an end we cannot find, or an end
 // without tp while its kind has unstored spans, belongs to a span that was never stored
 static __always_inline void
-go_obi_ctx__end(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp) {
+go_obi_ctx__end_at(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp, u32 stack_off) {
     const u64 pid_tgid = bpf_get_current_pid_tgid();
 
     obi_ctx_stack_t *st = bpf_map_lookup_elem(&obi_ctx_stacks, g_key);
@@ -245,22 +277,62 @@ go_obi_ctx__end(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp) {
         return;
     }
 
+    if (st->skipped_stack_off) {
+        if (stack_off >= st->skipped_stack_off) {
+            if (stack_off == st->skipped_stack_off) {
+                st->skipped_stack_off = 0;
+            }
+            obi_ctx__publish_current(pid_tgid, g_key, st);
+            return;
+        }
+        if (!tp && !stack_off) {
+            return;
+        }
+    }
+
     u8 *unstored = &st->overflow[obi_ctx__kind_slot(kind)];
     const u32 idx = obi_ctx__find(st, obi_ctx__depth(st), kind, tp);
 
     if (idx < k_obi_ctx_max_depth && (tp || *unstored == 0)) {
         st->depth = idx;
-        bpf_memset(st->overflow, 0, sizeof(st->overflow));
+        obi_ctx__clear_overflow(st);
     } else if (*unstored > 0) {
-        (*unstored)--;
+        const u32 overflow_depth = obi_ctx__overflow_depth(st);
+        u32 found = k_obi_ctx_overflow_depth;
+        for (u32 i = 0; i < k_obi_ctx_overflow_depth; i++) {
+            if (i >= overflow_depth) {
+                break;
+            }
+            const obi_ctx_frame_t *frame =
+                &st->overflow_frames[obi_ctx__overflow_slot(overflow_depth - 1 - i)];
+            if (tp ? obi_ctx__same_span(&frame->tp, tp)
+                   : frame->kind == kind && (!stack_off || frame->stack_off == stack_off)) {
+                found = overflow_depth - 1 - i;
+                break;
+            }
+        }
+        if (found == k_obi_ctx_overflow_depth) {
+            return;
+        }
+        for (u32 i = 0; i < k_obi_ctx_overflow_depth; i++) {
+            if (i >= found && i < overflow_depth) {
+                const obi_ctx_frame_t *frame = &st->overflow_frames[obi_ctx__overflow_slot(i)];
+                st->overflow[obi_ctx__kind_slot(frame->kind)]--;
+            }
+        }
+        st->overflow_depth = found;
+        st->skipped_stack_off = 0;
     } else {
         // none of this goroutine's spans ended (e.g. ClientConn.Close without
         // a begin): leave the context and the restart marker alone
         return;
     }
-    st->unstored_kind = k_obi_ctx_none;
-
     obi_ctx__publish_current(pid_tgid, g_key, st);
+}
+
+static __always_inline void
+go_obi_ctx__end(const go_addr_key_t *g_key, u8 kind, const tp_info_t *tp) {
+    go_obi_ctx__end_at(g_key, kind, tp, 0);
 }
 
 // The goroutine got scheduled: put its current span on this thread, or clear the thread

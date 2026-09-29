@@ -272,7 +272,9 @@ static void test_overflow_counts_each_span_once(void) {
     end(k_obi_ctx_sql, span(17));
     check_u64(
         1, stack()->overflow[k_obi_ctx_sql], "unknown end while overflowed consumes one count");
-    check_u64(14, thread_span(), "and falls back to the deepest stored span");
+    check_u64(16, thread_span(), "and restores the immediate overflow parent");
+    go_obi_ctx__resume(k_thread, &g_key);
+    check_u64(16, thread_span(), "rescheduling keeps the overflow parent");
     end_unknown(k_obi_ctx_sql);
     check_u64(0, stack()->overflow[k_obi_ctx_sql], "end without tp also consumes the count");
     check_u64(k_obi_ctx_max_depth, stack()->depth, "and does not pop a stored frame");
@@ -378,20 +380,66 @@ static void test_resume_keeps_unstored_span(void) {
     go_obi_ctx__resume(k_thread, &g_key);
     check_u64(38, thread_span(), "resume follows the restarted span");
 
-    // a deeper unstored span takes over, its end hands back to the top frame:
-    // the outer unstored span's identity is gone
+    // A different kind can overflow inside the gRPC client.
     begin(k_obi_ctx_sql, span(39), 250);
     obi_ctx__del(k_thread);
     go_obi_ctx__resume(k_thread, &g_key);
     check_u64(39, thread_span(), "the newest unstored span is current");
     end(k_obi_ctx_sql, span(39));
-    check_u64(36, thread_span(), "after its end the top frame is current");
+    check_u64(38, thread_span(), "after its end the overflowed gRPC parent is current");
     go_obi_ctx__resume(k_thread, &g_key);
-    check_u64(36, thread_span(), "and resume agrees");
+    check_u64(38, thread_span(), "and resume agrees");
 
     end(k_obi_ctx_grpc_client, span(38));
     check_u64(0, stack()->overflow[k_obi_ctx_grpc_client], "the unstored span ended");
     check_u64(36, thread_span(), "the top frame stays current");
+}
+
+static void test_overflow_limit_keeps_retained_parent(void) {
+    reset();
+    for (u32 i = 0; i < k_obi_ctx_max_depth + k_obi_ctx_overflow_depth; i++) {
+        begin(k_obi_ctx_grpc_client, span(100 + i), 100 + i * 10);
+        check_u64(100 + i, thread_span(), "each retained call becomes current");
+    }
+    const u64 parent = 100 + k_obi_ctx_max_depth + k_obi_ctx_overflow_depth - 1;
+    begin(k_obi_ctx_grpc_client, span(200), 300);
+    begin(k_obi_ctx_grpc_client, span(201), 300);
+    begin(k_obi_ctx_sql, span(202), 310);
+    check_u64(parent, thread_span(), "calls past the limit keep the retained ancestor");
+    go_obi_ctx__end_at(&g_key, k_obi_ctx_sql, NULL, 310);
+    go_obi_ctx__resume(k_thread, &g_key);
+    check_u64(parent, thread_span(), "a skipped child cannot discard retained context");
+    begin(k_obi_ctx_grpc_client, span(203), 300);
+    check_u64(300, stack()->skipped_stack_off, "parent restart keeps the omitted-call boundary");
+    begin(k_obi_ctx_sql, span(204), 305);
+    go_obi_ctx__end_at(&g_key, k_obi_ctx_sql, NULL, 305);
+    check_u64(300, stack()->skipped_stack_off, "a sibling child leaves its parent boundary intact");
+    for (u32 i = 0; i < 1024; i++) {
+        begin(k_obi_ctx_grpc_client, span(300 + i), 400 + i * 10);
+    }
+    check_u64(k_obi_ctx_overflow_depth,
+              stack()->overflow[k_obi_ctx_grpc_client],
+              "arbitrary skipped nesting does not accumulate counts");
+    for (u32 i = 1024; i > 0; i--) {
+        go_obi_ctx__end_at(&g_key, k_obi_ctx_grpc_client, NULL, 400 + (i - 1) * 10);
+        check_u64(parent, thread_span(), "every skipped return preserves its retained ancestor");
+    }
+    begin(k_obi_ctx_grpc_client, span(205), 300);
+    go_obi_ctx__end_at(&g_key, k_obi_ctx_grpc_client, NULL, 300);
+    check_u64(0, stack()->skipped_stack_off, "the first omitted return clears its boundary");
+    check_u64(k_obi_ctx_overflow_depth,
+              stack()->overflow[k_obi_ctx_grpc_client],
+              "restart past the limit was counted only once");
+    check_u64(parent, thread_span(), "all skipped calls leave their parent intact");
+    begin(k_obi_ctx_grpc_client, span(parent), 100 + (u32)(parent - 100) * 10);
+    check_u64(k_obi_ctx_overflow_depth,
+              stack()->overflow[k_obi_ctx_grpc_client],
+              "retained parent restart after omitted calls is not counted twice");
+    for (u32 i = k_obi_ctx_max_depth + k_obi_ctx_overflow_depth; i > 0; i--) {
+        end_unknown(k_obi_ctx_grpc_client);
+        check_u64(i > 1 ? 100 + i - 2 : 0, thread_span(), "every retained parent is restored");
+    }
+    check(stack() == NULL, "all context frames are removed");
 }
 
 static void test_grpc_client_overflow_preserves_shared_context(void) {
@@ -428,6 +476,32 @@ static void test_grpc_client_overflow_preserves_shared_context(void) {
     check_u64(0, thread_span(), "no stale gRPC context remains after unwind");
 }
 
+static void test_overwritten_client_requests_unwind(void) {
+    const u8 kinds[] = {k_obi_ctx_sql, k_obi_ctx_redis, k_obi_ctx_mongo, k_obi_ctx_kafka_produce};
+    for (u32 k = 0; k < sizeof(kinds) / sizeof(kinds[0]); k++) {
+        reset();
+        const u32 calls = k_obi_ctx_max_depth + k_obi_ctx_overflow_depth + 1;
+        for (u32 i = 0; i < calls; i++) {
+            begin(kinds[k], span(500 + i), 100 + i * 10);
+        }
+
+        // The innermost return deletes the single request entry; outer returns have no TP.
+        tp_info_t inner = span(500 + calls - 1);
+        for (u32 i = calls; i > 0; i--) {
+            test_stack_hi = 0x7400;
+            struct pt_regs regs = {.sp = test_stack_hi - (100 + (i - 1) * 10)};
+            go_obi_ctx__end_at(
+                &g_key, kinds[k], i == calls ? &inner : NULL, go_obi_ctx__stack_off(&regs));
+            check_u64(i > 1 ? 500 + (i - 2) : 0,
+                      thread_span(),
+                      "a return without request state restores its retained parent");
+        }
+        check(stack() == NULL, "all client context frames are removed after unwind");
+        go_obi_ctx__resume(k_thread, &g_key);
+        check_u64(0, thread_span(), "resume cannot reinstall a completed client context");
+    }
+}
+
 static void test_stack_off(void) {
     struct pt_regs regs = {.sp = 0x7000};
     test_stack_hi = 0x7400;
@@ -450,6 +524,8 @@ int main(void) {
     test_resume();
     test_resume_keeps_unstored_span();
     test_grpc_client_overflow_preserves_shared_context();
+    test_overflow_limit_keeps_retained_parent();
+    test_overwritten_client_requests_unwind();
     test_stack_off();
 
     if (failures) {

@@ -39,14 +39,15 @@ typedef struct grpc_client_func_invocation {
     u32 _pad;
 } grpc_client_func_invocation_t;
 
-enum { k_grpc_client_max_depth = 4 };
+enum { k_grpc_client_max_depth = 4, k_grpc_client_overflow_depth = 4 };
 
 typedef struct grpc_client_invocation_stack {
     grpc_client_func_invocation_t frames[k_grpc_client_max_depth];
     u32 depth;
     u32 overflow;
     u32 unstored_stack_off;
-    u32 _pad;
+    u32 skipped_stack_off;
+    u32 overflow_stack_offs[k_grpc_client_overflow_depth];
 } grpc_client_invocation_stack_t;
 
 typedef struct grpc_client_stream_state {

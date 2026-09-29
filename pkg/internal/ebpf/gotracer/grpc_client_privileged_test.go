@@ -241,6 +241,16 @@ func TestGRPCClientNestedInvocations(t *testing.T) {
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			grpcSpans := collector.getGRPCClientSpans()
 			assert.Len(c, grpcSpans, 2, "exactly 2 spans should be emitted (inner and outer)")
+			for _, s := range grpcSpans {
+				assert.Empty(c, s.Method)
+				assert.Equal(c, s.Path, s.FullPath)
+				assert.Empty(c, s.Route)
+				assert.Empty(c, s.Statement)
+				assert.Zero(c, s.ContentLength)
+				assert.Zero(c, s.ResponseLength)
+				assert.Nil(c, s.JSONRPC)
+				assert.Zero(c, s.SubType)
+			}
 			if len(grpcSpans) == 2 {
 				sort.Slice(grpcSpans, func(i, j int) bool { return grpcSpans[i].Start < grpcSpans[j].Start })
 				outer := grpcSpans[0]

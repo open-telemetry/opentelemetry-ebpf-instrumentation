@@ -372,7 +372,7 @@ func main() {
 				opts ...grpc.CallOption,
 			) error {
 				r := req.(*testReq)
-				if r.Depth < 6 {
+				if r.Depth < 10 {
 					var innerResp testResp
 					innerCtx, innerCancel := context.WithTimeout(context.Background(), 2*time.Second)
 					defer innerCancel()
