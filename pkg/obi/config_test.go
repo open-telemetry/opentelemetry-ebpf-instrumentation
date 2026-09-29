@@ -1882,3 +1882,23 @@ func TestConfigValidate_TracesCompression(t *testing.T) {
 		require.Error(t, loadConfig(t, base("http/protobuf", "not-a-codec")).Validate())
 	})
 }
+
+func TestConfig_NameResolverRoute53(t *testing.T) {
+	cfg, err := LoadConfig(bytes.NewBufferString(`name_resolver:
+  sources: [route53]
+cloud_metadata:
+  refresh_interval: 45s
+  route53:
+    hosted_zone_ids: [zone-a, zone-b]
+`))
+	require.NoError(t, err)
+	assert.Equal(t, []transform.Source{transform.SourceRoute53}, cfg.NameResolver.Sources)
+	assert.Equal(t, []string{"zone-a", "zone-b"}, cfg.CloudMetadata.Route53.HostedZoneIDs)
+	assert.Equal(t, 45*time.Second, cfg.CloudMetadata.RefreshInterval)
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS", "zone-c,zone-d")
+	t.Setenv("OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL", "1m")
+	cfg, err = LoadConfig(bytes.NewReader(nil))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"zone-c", "zone-d"}, cfg.CloudMetadata.Route53.HostedZoneIDs)
+	assert.Equal(t, time.Minute, cfg.CloudMetadata.RefreshInterval)
+}
