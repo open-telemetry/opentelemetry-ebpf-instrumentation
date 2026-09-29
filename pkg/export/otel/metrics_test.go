@@ -790,6 +790,68 @@ func TestAppMetrics_MCPOperationDuration(t *testing.T) {
 	}
 }
 
+func TestAppMetrics_MCPSessionDurationExportsDuringShutdown(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	metricRecords := make(chan collector.MetricRecord, 100)
+	metricsInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(1))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          10 * time.Millisecond,
+		TTL:               time.Hour,
+		ReportersCacheLen: 1,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
+		MetricsConsumer:   testMetricsConsumer(metricRecords),
+	}
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metricsInput,
+		processEvents,
+	)
+	require.NoError(t, err)
+
+	done := make(chan struct{})
+	go func() {
+		reporter.reportMetrics(ctx)
+		close(done)
+	}()
+
+	metricsInput.Send([]request.Span{{
+		Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "mcp"}},
+		Type:         request.EventTypeHTTPClient,
+		SubType:      request.HTTPSubtypeMCP,
+		RequestStart: 100,
+		End:          200,
+		GenAI: &request.GenAI{MCP: &request.MCPCall{
+			SessionID: "session-1",
+		}},
+	}})
+
+	// The per-operation metric is exported periodically, so seeing it proves the span
+	// was processed before the context is canceled.
+	readMetricsByName(t, metricRecords, 5*time.Second, attributes.MCPClientOperationDuration.OTEL)
+
+	// Canceling the reporter context is the normal process-shutdown path: ctx.Done()
+	// exits reportMetrics, so the final collection/export runs with mr.ctx canceled.
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "reportMetrics did not finish")
+	}
+
+	records := readMetricsByName(t, metricRecords, time.Second, attributes.MCPClientSessionDuration.OTEL)
+	require.Len(t, records, 1)
+	assert.Equal(t, 1, records[0].Count)
+}
+
 func TestAppMetrics_DBClientAttributes(t *testing.T) {
 	ctx := t.Context()
 	metricRecords := make(chan collector.MetricRecord, 10)
