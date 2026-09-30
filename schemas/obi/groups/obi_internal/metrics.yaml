@@ -56,6 +56,30 @@ groups:
       - ref: os.version
         requirement_level:
           recommended: if host metadata could be resolved
+      - ref: cloud.provider
+        requirement_level:
+          recommended: if cloud metadata could be resolved
+      - ref: cloud.platform
+        requirement_level:
+          recommended: if cloud metadata could be resolved
+      - ref: cloud.region
+        requirement_level:
+          recommended: if cloud metadata could be resolved
+      - ref: cloud.availability_zone
+        requirement_level:
+          recommended: if cloud metadata could be resolved
+      - ref: cloud.account.id
+        requirement_level:
+          recommended: if cloud metadata could be resolved
+      - ref: cloud.resource_id
+        requirement_level:
+          recommended: if cloud metadata could be resolved
+      - ref: gcp.gce.instance.name
+        requirement_level:
+          recommended: if the host is a GCE instance and cloud metadata could be resolved
+      - ref: gcp.gce.instance.hostname
+        requirement_level:
+          recommended: if the host is a GCE instance and cloud metadata could be resolved
       - ref: container.id
         requirement_level:
           recommended: if container metadata is available
@@ -160,6 +184,30 @@ groups:
       - ref: os.version
         requirement_level:
           recommended: if host metadata could be resolved
+      - ref: cloud.provider
+        requirement_level:
+          recommended: if cloud metadata could be resolved
+      - ref: cloud.platform
+        requirement_level:
+          recommended: if cloud metadata could be resolved
+      - ref: cloud.region
+        requirement_level:
+          recommended: if cloud metadata could be resolved
+      - ref: cloud.availability_zone
+        requirement_level:
+          recommended: if cloud metadata could be resolved
+      - ref: cloud.account.id
+        requirement_level:
+          recommended: if cloud metadata could be resolved
+      - ref: cloud.resource_id
+        requirement_level:
+          recommended: if cloud metadata could be resolved
+      - ref: gcp.gce.instance.name
+        requirement_level:
+          recommended: if the host is a GCE instance and cloud metadata could be resolved
+      - ref: gcp.gce.instance.hostname
+        requirement_level:
+          recommended: if the host is a GCE instance and cloud metadata could be resolved
       - ref: container.id
         requirement_level:
           recommended: if container metadata is available

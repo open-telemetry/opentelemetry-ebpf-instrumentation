@@ -11,6 +11,9 @@ groups:
     unit: "By"
     stability: development
     attributes:
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the request ended in an error
       - ref: http.request.method
         requirement_level: required
       - ref: http.response.status_code
@@ -40,6 +43,9 @@ groups:
     unit: "s"
     stability: stable
     attributes:
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the request ended in an error
       - ref: http.request.method
         requirement_level: required
       - ref: http.response.status_code
@@ -69,6 +75,9 @@ groups:
     unit: "By"
     stability: development
     attributes:
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the request ended in an error
       - ref: http.request.method
         requirement_level: required
       - ref: http.response.status_code
@@ -100,6 +109,9 @@ groups:
     attributes:
       - ref: client.address
         requirement_level: opt_in
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the request ended in an error
       - ref: http.request.method
         requirement_level: required
       - ref: http.response.status_code
@@ -130,6 +142,9 @@ groups:
     attributes:
       - ref: client.address
         requirement_level: opt_in
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the request ended in an error
       - ref: http.request.method
         requirement_level: required
       - ref: http.response.status_code
@@ -160,6 +175,9 @@ groups:
     attributes:
       - ref: client.address
         requirement_level: opt_in
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the request ended in an error
       - ref: http.request.method
         requirement_level: required
       - ref: http.response.status_code

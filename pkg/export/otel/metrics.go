@@ -265,18 +265,19 @@ func newMetricsReporter(
 
 	// initialize attribute getters
 	if is.HTTPEnabled() {
+		httpGetters := request.SpanOTELGettersForHTTP(unresolved)
 		mr.attrHTTPDuration = attributes.OpenTelemetryGetters(
-			mr.attrGetters, mr.attributes.For(attributes.HTTPServerDuration))
+			httpGetters, mr.attributes.For(attributes.HTTPServerDuration))
 		mr.attrHTTPClientDuration = attributes.OpenTelemetryGetters(
-			mr.attrGetters, mr.attributes.For(attributes.HTTPClientDuration))
+			httpGetters, mr.attributes.For(attributes.HTTPClientDuration))
 		mr.attrHTTPRequestSize = attributes.OpenTelemetryGetters(
-			mr.attrGetters, mr.attributes.For(attributes.HTTPServerRequestSize))
+			httpGetters, mr.attributes.For(attributes.HTTPServerRequestSize))
 		mr.attrHTTPResponseSize = attributes.OpenTelemetryGetters(
-			mr.attrGetters, mr.attributes.For(attributes.HTTPServerResponseSize))
+			httpGetters, mr.attributes.For(attributes.HTTPServerResponseSize))
 		mr.attrHTTPClientRequestSize = attributes.OpenTelemetryGetters(
-			mr.attrGetters, mr.attributes.For(attributes.HTTPClientRequestSize))
+			httpGetters, mr.attributes.For(attributes.HTTPClientRequestSize))
 		mr.attrHTTPClientResponseSize = attributes.OpenTelemetryGetters(
-			mr.attrGetters, mr.attributes.For(attributes.HTTPClientResponseSize))
+			httpGetters, mr.attributes.For(attributes.HTTPClientResponseSize))
 	}
 
 	if is.GRPCEnabled() || is.SunRPCEnabled() {

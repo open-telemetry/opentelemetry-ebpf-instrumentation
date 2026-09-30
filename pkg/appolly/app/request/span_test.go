@@ -229,6 +229,11 @@ func TestTraceName(t *testing.T) {
 		{name: "SQL query summary wins", span: &Span{Type: EventTypeSQLClient, Method: "SELECT", DBQuerySummary: "SELECT users orders", DBNamespace: "mydb"}, expected: "SELECT users orders"},
 		{name: "SQL empty", span: &Span{Type: EventTypeSQLClient}, expected: "SQL"},
 
+		// Elasticsearch spans
+		{name: "Elasticsearch index", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch, DBNamespace: "cluster-a", Elasticsearch: &Elasticsearch{DBOperationName: "search", DBCollectionName: "my-index"}}, expected: "search my-index"},
+		{name: "Elasticsearch no index with cluster", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch, DBNamespace: "cluster-a", Host: "es", HostPort: 9200, Elasticsearch: &Elasticsearch{DBOperationName: "search"}}, expected: "search cluster-a"},
+		{name: "Elasticsearch no index no cluster", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch, Host: "es", HostPort: 9200, Elasticsearch: &Elasticsearch{DBOperationName: "search"}}, expected: "search es:9200"},
+
 		// Redis spans
 		{name: "Redis client", span: &Span{Type: EventTypeRedisClient, Method: "GET"}, expected: "GET"},
 		{name: "Redis empty", span: &Span{Type: EventTypeRedisClient}, expected: "REDIS"},

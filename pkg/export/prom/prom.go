@@ -369,17 +369,18 @@ func newReporter(
 	attributeGetters := request.SpanPromGetters(unresolved)
 
 	if is.HTTPEnabled() {
-		attrHTTPDuration = attributes.PrometheusGetters(attributeGetters,
+		httpGetters := request.SpanPromGettersForHTTP(unresolved)
+		attrHTTPDuration = attributes.PrometheusGetters(httpGetters,
 			attrsProvider.For(attributes.HTTPServerDuration))
-		attrHTTPClientDuration = attributes.PrometheusGetters(attributeGetters,
+		attrHTTPClientDuration = attributes.PrometheusGetters(httpGetters,
 			attrsProvider.For(attributes.HTTPClientDuration))
-		attrHTTPRequestSize = attributes.PrometheusGetters(attributeGetters,
+		attrHTTPRequestSize = attributes.PrometheusGetters(httpGetters,
 			attrsProvider.For(attributes.HTTPServerRequestSize))
-		attrHTTPResponseSize = attributes.PrometheusGetters(attributeGetters,
+		attrHTTPResponseSize = attributes.PrometheusGetters(httpGetters,
 			attrsProvider.For(attributes.HTTPServerResponseSize))
-		attrHTTPClientRequestSize = attributes.PrometheusGetters(attributeGetters,
+		attrHTTPClientRequestSize = attributes.PrometheusGetters(httpGetters,
 			attrsProvider.For(attributes.HTTPClientRequestSize))
-		attrHTTPClientResponseSize = attributes.PrometheusGetters(attributeGetters,
+		attrHTTPClientResponseSize = attributes.PrometheusGetters(httpGetters,
 			attrsProvider.For(attributes.HTTPClientResponseSize))
 	}
 

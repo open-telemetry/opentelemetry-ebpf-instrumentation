@@ -73,7 +73,6 @@ OBI AWS SQS client span.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| `aws.extended_request_id` | string | `conditionally_required`: if the response carried an x-amz-id-2 header | development | The AWS extended request ID as returned in the response header `x-amz-id-2`. | wzHcyEWfmOGDIE5QOhTAqFDoDWP3y8IUvpNINCwL9N4TEHbUw0/gZJ+VZTmCNCWR7fezEN3eCiQ= |
 | `aws.request_id` | string | `recommended` | development | The AWS request ID as returned in the response headers `x-amzn-requestid`, `x-amzn-request-id` or `x-amz-request-id`. | 79b9da39-b7ae-508a-a6bc-864b2829c622; C9ER4AJX75574TDJ |
 | `aws.sqs.queue.url` | string | `recommended`: if the request or response named the queue | development | The URL of the AWS SQS Queue. It's a unique identifier for a queue in Amazon Simple Queue Service (SQS) and is used to access the queue and perform actions on it. | https://sqs.us-east-1.amazonaws.com/123456789012/MyQueue |
 | `cloud.region` | string | `recommended` | development | The geographical region within a cloud provider. When associated with a resource, this attribute specifies the region where the resource operates. When calling services or APIs deployed on a cloud, this attribute identifies the region where the called destination is deployed. | us-central1; us-east-1 |
@@ -194,14 +193,13 @@ OBI Elasticsearch client span, detected from HTTP client traffic.
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `db.collection.name` | string | `conditionally_required`: if the operation targets a named collection | stable | The name of a collection (table, container) within the database. | public.users; customers |
-| `db.namespace` | string | `conditionally_required`: if the server reported a namespace | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
+| `db.namespace` | string | `recommended`: if the response identified the cluster | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
 | `db.operation.name` | string | `required` | stable | The name of the operation or command being executed. | findAndModify; HMSET; SELECT |
 | `db.query.text` | string | `opt_in` | stable | The database query being executed. | SELECT * FROM wuser_table where username = ?; SET mykey ? |
 | `db.response.status_code` | string | `conditionally_required`: if a response was received | stable | Database response status code. | 102; ORA-17002; 08P01; 404 |
 | `db.system.name` | enum | `required` | stable | The database management system (DBMS) product as identified by the client instrumentation. | other_sql; softwareag.adabas; actian.ingres; aws.dynamodb; aws.redshift; azure.cosmosdb; intersystems.cache; cassandra; … |
 | `elasticsearch.node.name` | string | `recommended`: if the response identified the node | development | Represents the human-readable identifier of the node/instance to which a request was routed. | instance-0000000001 |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `http.request.method_original` | string | `conditionally_required`: if the wire method is outside the semconv enum | stable | Original HTTP method sent by the client in the request line. | GeT; ACL; foo |
 | `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
 | `http.response.body.size` | int | `opt_in` | development | The size of the response payload body in bytes. This is the number of bytes transferred excluding headers and is often, but not always, present as the [Content-Length](https://www.rfc-editor.org/rfc/rfc9110.html#field.content-length) header. For requests using transport encoding, this should be the compressed size. | 3495 |
 | `network.peer.address` | string | `recommended`: if the peer address is an IP rather than a name | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
@@ -493,7 +491,6 @@ OBI outbound JSON-RPC over HTTP client span.
 | `network.peer.address` | string | `recommended`: if the peer address is an IP rather than a name | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | `recommended`: if `network.peer.address` is set and the port is known | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | `recommended`: if the protocol version was observed on the wire | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
-| `rpc.method_original` | string | `conditionally_required`: if the qualified method differs from the raw one | release_candidate | The original name of the method used by the client. | com.myservice.EchoService/catchAll; com.myservice.EchoService/unknownMethod; InvalidMethod |
 | `rpc.method` | string | `required` | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
 | `rpc.response.status_code` | string | `conditionally_required`: if the response carried a JSON-RPC error code | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
 | `rpc.system.name` | enum | `required` | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
@@ -620,26 +617,6 @@ OBI inbound Model Context Protocol over HTTP server span.
 | `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 | `user_agent.original` | string | `recommended`: if the request carried a user agent header | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
-## `span.obi.messaging.amqp.client`
-
-OBI AMQP span for a receive or a settle operation.
-
-| Span kind | Stability |
-| --- | --- |
-| client | development |
-
-| Attribute | Type | Requirement level | Stability | Description | Examples |
-| --- | --- | --- | --- | --- | --- |
-| `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
-| `messaging.operation.type` | enum | `conditionally_required`: upstream declares it conditional; OBI always emits it, since group membership requires the operation to have been parsed | development | A string identifying the type of the messaging operation. | create; send; receive; process; settle; deliver; publish |
-| `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
-| `network.peer.address` | string | `recommended`: if the peer address is an IP rather than a name | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
-| `network.peer.port` | int | `recommended`: if `network.peer.address` is set and the port is known | stable | Peer port number of the network connection. | 65123 |
-| `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
-| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
-| `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
-
 ## `span.obi.messaging.amqp.consumer`
 
 OBI AMQP span for a process operation.
@@ -670,29 +647,6 @@ OBI AMQP span for a send or a publish operation.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
-| `messaging.operation.type` | enum | `conditionally_required`: upstream declares it conditional; OBI always emits it, since group membership requires the operation to have been parsed | development | A string identifying the type of the messaging operation. | create; send; receive; process; settle; deliver; publish |
-| `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
-| `network.peer.address` | string | `recommended`: if the peer address is an IP rather than a name | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
-| `network.peer.port` | int | `recommended`: if `network.peer.address` is set and the port is known | stable | Peer port number of the network connection. | 65123 |
-| `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
-| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
-| `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
-
-## `span.obi.messaging.kafka.client`
-
-OBI Kafka span for a receive or a settle operation.
-
-| Span kind | Stability |
-| --- | --- |
-| client | development |
-
-| Attribute | Type | Requirement level | Stability | Description | Examples |
-| --- | --- | --- | --- | --- | --- |
-| `messaging.client.id` | string | `recommended` | development | A unique identifier for the client that consumes or produces a message. | client-5; myhost@8742@s8083jm |
-| `messaging.destination.name` | string | `required` | development | The message destination name | MyQueue; MyTopic |
-| `messaging.destination.partition.id` | string | `conditionally_required`: if the record carried partition metadata | development | The identifier of the partition messages are sent to or received from, unique within the `messaging.destination.name`. | 1 |
 | `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
 | `messaging.operation.type` | enum | `conditionally_required`: upstream declares it conditional; OBI always emits it, since group membership requires the operation to have been parsed | development | A string identifying the type of the messaging operation. | create; send; receive; process; settle; deliver; publish |
 | `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
@@ -750,28 +704,6 @@ OBI Kafka span for a send or a publish operation.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.messaging.mqtt.client`
-
-OBI MQTT span for a receive or a settle operation.
-
-| Span kind | Stability |
-| --- | --- |
-| client | development |
-
-| Attribute | Type | Requirement level | Stability | Description | Examples |
-| --- | --- | --- | --- | --- | --- |
-| `messaging.client.id` | string | `recommended` | development | A unique identifier for the client that consumes or produces a message. | client-5; myhost@8742@s8083jm |
-| `messaging.destination.name` | string | `required` | development | The message destination name | MyQueue; MyTopic |
-| `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
-| `messaging.operation.type` | enum | `conditionally_required`: upstream declares it conditional; OBI always emits it, since group membership requires the operation to have been parsed | development | A string identifying the type of the messaging operation. | create; send; receive; process; settle; deliver; publish |
-| `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
-| `network.peer.address` | string | `recommended`: if the peer address is an IP rather than a name | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
-| `network.peer.port` | int | `recommended`: if `network.peer.address` is set and the port is known | stable | Peer port number of the network connection. | 65123 |
-| `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
-| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
-| `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
-
 ## `span.obi.messaging.mqtt.consumer`
 
 OBI MQTT span for a process operation.
@@ -806,29 +738,6 @@ OBI MQTT span for a send or a publish operation.
 | --- | --- | --- | --- | --- | --- |
 | `messaging.client.id` | string | `recommended` | development | A unique identifier for the client that consumes or produces a message. | client-5; myhost@8742@s8083jm |
 | `messaging.destination.name` | string | `required` | development | The message destination name | MyQueue; MyTopic |
-| `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
-| `messaging.operation.type` | enum | `conditionally_required`: upstream declares it conditional; OBI always emits it, since group membership requires the operation to have been parsed | development | A string identifying the type of the messaging operation. | create; send; receive; process; settle; deliver; publish |
-| `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
-| `network.peer.address` | string | `recommended`: if the peer address is an IP rather than a name | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
-| `network.peer.port` | int | `recommended`: if `network.peer.address` is set and the port is known | stable | Peer port number of the network connection. | 65123 |
-| `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
-| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
-| `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
-
-## `span.obi.messaging.nats.client`
-
-OBI NATS span for a receive or a settle operation.
-
-| Span kind | Stability |
-| --- | --- |
-| client | development |
-
-| Attribute | Type | Requirement level | Stability | Description | Examples |
-| --- | --- | --- | --- | --- | --- |
-| `messaging.client.id` | string | `recommended` | development | A unique identifier for the client that consumes or produces a message. | client-5; myhost@8742@s8083jm |
-| `messaging.destination.name` | string | `required` | development | The message destination name | MyQueue; MyTopic |
-| `messaging.message.envelope.size` | int | `recommended` | development | The size of the message body and metadata in bytes. | 2738 |
 | `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
 | `messaging.operation.type` | enum | `conditionally_required`: upstream declares it conditional; OBI always emits it, since group membership requires the operation to have been parsed | development | A string identifying the type of the messaging operation. | create; send; receive; process; settle; deliver; publish |
 | `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
