@@ -49,7 +49,7 @@ type traceAttacher struct {
 	// processInstances keeps track of the instances of each process. This will help making sure
 	// that we don't remove the BPF resources of an executable until all their instances are removed
 	// are stopped
-	processInstances maps.MultiCounter[ebpf.ExecutableKey]
+	processInstances maps.Map2[ebpf.ExecutableKey, app.PID, struct{}]
 
 	// keeps a copy of all the tracers for a given executable path
 	existingTracers     map[ebpf.ExecutableKey]executableTracer
@@ -116,7 +116,7 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 	} else {
 		ta.javaInjector = javaInjector
 	}
-	ta.processInstances = maps.MultiCounter[ebpf.ExecutableKey]{}
+	ta.processInstances = maps.Map2[ebpf.ExecutableKey, app.PID, struct{}]{}
 	ta.EbpfEventContext.CommonPIDsFilter = ebpfcommon.NewPIDsFilter(&ta.Cfg.Discovery, slog.With("component", "ebpfCommon.CommonPIDsFilter"), ta.Metrics)
 	if ta.RuntimeMetrics != nil {
 		ta.EbpfEventContext.RuntimeMetrics = runtimemetrics.NewQueueSender(ta.RuntimeMetrics)
@@ -190,8 +190,8 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 						}
 					}
 
-					ta.processInstances.Inc(executableKey(instr.Obj.FileInfo))
 					if ok := ta.getTracer(ctx, &instr.Obj); ok {
+						ta.addProcessInstances(&instr.Obj)
 						if dotnetSessions != nil && instr.Obj.Type == svc.InstrumentableDotnet &&
 							instr.Obj.FileInfo.ServiceAttrs().Features.AppRuntime() &&
 							instr.Obj.FileInfo.ServiceAttrs().ExportModes.CanExportMetrics() {
@@ -629,9 +629,23 @@ func (ta *traceAttacher) unregisterDynamicFileInfo(ie *ebpf.Instrumentable) {
 	}
 }
 
+// by PID, so the exit of a process whose attach failed can neither release nor pin the executable's tracer
+func (ta *traceAttacher) addProcessInstances(ie *ebpf.Instrumentable) {
+	key := executableKey(ie.FileInfo)
+	ta.processInstances.Put(key, ie.FileInfo.Pid(), struct{}{})
+	for _, pid := range ie.ChildPids {
+		ta.processInstances.Put(key, pid, struct{}{})
+	}
+}
+
 func (ta *traceAttacher) notifyProcessDeletion(ctx context.Context, ie *ebpf.Instrumentable) {
 	ta.unregisterDynamicFileInfo(ie)
 	key := executableKey(ie.FileInfo)
+	if _, instrumented := ta.processInstances.Get(key, ie.FileInfo.Pid()); !instrumented {
+		return
+	}
+	ta.processInstances.Delete(key, ie.FileInfo.Pid())
+
 	if existing, ok := ta.existingTracers[key]; ok {
 		tracer := existing.tracer
 		ie.ExecutableGeneration = existing.generation
@@ -660,7 +674,7 @@ func (ta *traceAttacher) notifyProcessDeletion(ctx context.Context, ie *ebpf.Ins
 		// if there are no more trace instances for a program, we need to notify that
 		// the tracer needs to be stopped and deleted.
 		// We don't remove kernel-based traces as there is only one tracer per host
-		if ta.processInstances.Dec(key) == 0 {
+		if len(ta.processInstances[key]) == 0 {
 			delete(ta.existingTracers, key)
 			ie.Tracer = tracer
 			ta.OutputTracerEvents.SendCtx(ctx, Event[*ebpf.Instrumentable]{Type: EventDeleted, Obj: ie})
