@@ -821,6 +821,18 @@
           "default": 4096,
           "x-env-var": "OTEL_KAFKA_CONSUMER_GROUP_CACHE_SIZE"
         },
+        "kafka_consumer_group_ttl": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Kafka consumer group membership lifetime: how long a consumer is remembered after its last group request, and how long a process is observed before its Fetches are attributed to a group. Keep it above both the heartbeat interval and the longest rebalance of classic consumers (bounded by max.poll.interval.ms, 5m by default), or their Fetches can be reported with another group of their process; a larger value delays the attribute for newly seen processes. The 2m default trades rebalances longer than that for a shorter warm-up; raise it above max.poll.interval.ms when cooperative classic consumers (Kafka Streams) share a process with another group.",
+          "default": "2m",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_BPF_KAFKA_CONSUMER_GROUP_TTL"
+        },
         "kafka_topic_uuid_cache_size": {
           "type": "integer",
           "description": "Kafka Topic UUID to Name cache size.",

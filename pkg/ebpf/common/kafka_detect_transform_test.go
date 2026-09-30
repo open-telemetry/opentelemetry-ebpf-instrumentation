@@ -813,6 +813,7 @@ func TestProcessKafkaEventConsumerGroupLeave(t *testing.T) {
 func TestProcessKafkaEventConsumerGroupExpiry(t *testing.T) {
 	const ttl = time.Minute
 	groups := NewKafkaConsumerGroups(64, ttl)
+	groups.settle = 0 // the warm-up has tests of its own
 	start := time.Now()
 	clock := start
 	groups.now = func() time.Time { return clock }
@@ -1169,9 +1170,11 @@ func TestProcessKafkaEventConsumerGroupPendingExpiry(t *testing.T) {
 // OBI may attach after a process's consumers joined, and then learns each group from its
 // next heartbeat. Until every group had the time to send one, neither the single group
 // seen so far nor the one known subscriber of a topic proves that no other group consumes
-// it: every Fetch gets no group rather than possibly the wrong one.
+// it: every Fetch gets no group rather than possibly the wrong one. Kafka bounds no
+// heartbeat interval, so the window is the ttl, the longest interval the cache supports.
 func TestProcessKafkaEventConsumerGroupWarmUp(t *testing.T) {
 	groups := NewKafkaConsumerGroups(64, time.Minute)
+	require.Equal(t, groups.ttl, groups.settle)
 	start := time.Now()
 	clock := start
 	groups.now = func() time.Time { return clock }
@@ -1181,11 +1184,12 @@ func TestProcessKafkaEventConsumerGroupWarmUp(t *testing.T) {
 	assert.Empty(t, fetchGroup(t, groups, consumer, fetchImportant), "another group may not have heartbeated yet")
 	assert.Empty(t, fetchGroup(t, groups, consumer, fetchOrders), "another group may consume orders too")
 
-	clock = start.Add(kafkaConsumerGroupSettle / 2)
+	clock = start.Add(groups.settle / 2) // other-group heartbeats every 30s, above Kafka's 15s default
+	assert.Empty(t, fetchGroup(t, groups, consumer, fetchImportant), "other-group not seen yet")
 	processKafka(t, groups, consumer, joinGroupOtherGroupOrders) // other-group: orders, now seen
 	assert.Empty(t, fetchGroup(t, groups, consumer, fetchOrders), "still settling")
 
-	clock = start.Add(kafkaConsumerGroupSettle)
+	clock = start.Add(groups.settle)
 	processKafka(t, groups, consumer, joinGroupMyGroup)
 	processKafka(t, groups, consumer, joinGroupOtherGroupOrders)
 	assert.Empty(t, fetchGroup(t, groups, consumer, fetchOrders), "settled: both groups consume orders")
@@ -1194,7 +1198,7 @@ func TestProcessKafkaEventConsumerGroupWarmUp(t *testing.T) {
 
 	single := kafkaEventFromPid(7, 43)
 	processKafka(t, groups, single, heartbeatHbGroup)
-	clock = start.Add(2 * kafkaConsumerGroupSettle)
+	clock = start.Add(2 * groups.settle)
 	processKafka(t, groups, single, heartbeatHbGroup)
 	assert.Equal(t, "hb-group", fetchGroup(t, groups, single, fetchImportant), "settled: the single group is the process's group")
 }
@@ -1209,7 +1213,7 @@ func TestProcessKafkaEventConsumerGroupWarmUpOncePerProcess(t *testing.T) {
 	consumer := kafkaEventFromPid(7, 42)
 
 	processKafka(t, groups, consumer, joinGroupMyGroup)
-	clock = start.Add(kafkaConsumerGroupSettle + time.Second)
+	clock = start.Add(groups.settle + time.Second)
 	processKafka(t, groups, consumer, joinGroupMyGroup)
 	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchImportant))
 

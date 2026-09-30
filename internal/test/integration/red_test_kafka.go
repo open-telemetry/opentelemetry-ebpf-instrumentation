@@ -47,8 +47,9 @@ func runKafkaTestCase(t *testing.T, testCase TestCase) {
 	// (JoinGroup, SyncGroup, Heartbeat) the consumer sends on its coordinator
 	// connection, so if OBI attaches after the consumer already joined, the first Fetch
 	// spans legitimately lack messaging.consumer.group.name until the next Heartbeat
-	// (~3s), and every Fetch lacks it for the first 15s after OBI first sees a group
-	// request from the process. Waiting for one matching span covers that warm-up.
+	// (~3s), and every Fetch lacks it for the first OTEL_EBPF_BPF_KAFKA_CONSUMER_GROUP_TTL
+	// (20s in these suites) after OBI first sees a group request from the process.
+	// Waiting for one matching span covers that warm-up.
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, span := range testCase.Spans {
 			command := span.Name

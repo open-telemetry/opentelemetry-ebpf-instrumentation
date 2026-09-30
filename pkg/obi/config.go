@@ -154,6 +154,7 @@ var DefaultConfig = Config{
 		MongoRequestsCacheSize:              1024,
 		KafkaTopicUUIDCacheSize:             1024,
 		KafkaConsumerGroupCacheSize:         4096,
+		KafkaConsumerGroupTTL:               2 * time.Minute,
 		CouchbaseDBCacheSize:                1024,
 		OverrideBPFLoopEnabled:              false,
 		PayloadExtraction: config.PayloadExtraction{

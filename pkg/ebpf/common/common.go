@@ -482,7 +482,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 			ptlog().Error("failed to create Kafka topic UUID to name cache", "error", err)
 		}
 
-		kafkaConsumerGroups = NewKafkaConsumerGroups(cfg.KafkaConsumerGroupCacheSize, kafkaConsumerGroupTTL)
+		kafkaConsumerGroups = NewKafkaConsumerGroups(cfg.KafkaConsumerGroupCacheSize, cfg.KafkaConsumerGroupTTL)
 
 		mongoRequestCache = expirable.NewLRU[MongoRequestKey, *MongoRequestValue](cfg.MongoRequestsCacheSize, nil, 0)
 

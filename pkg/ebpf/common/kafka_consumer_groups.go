@@ -24,25 +24,6 @@ const (
 	// A topic that did not fit reads as not subscribed: when two groups of the process
 	// consume it, the Fetch is attributed to the other group instead of to neither.
 	maxTopicsPerProcess = 4096
-
-	// kafkaConsumerGroupTTL bounds how long a membership outlives the requests that
-	// assert it. Members heartbeat every few seconds (heartbeat.interval.ms 3s, KIP-848
-	// server default 5s) and each one refreshes the membership, so only a process that
-	// stopped talking to the coordinator, typically because it exited and its pid may
-	// be reused, expires. Well above session.timeout.ms (45s) so a stalled but live
-	// member is not forgotten before the broker forgets it. A constant on purpose: a
-	// deployment raising heartbeat.interval.ms above it loses the attribute between
-	// heartbeats rather than keeping stale pids around longer.
-	kafkaConsumerGroupTTL = 2 * time.Minute
-
-	// kafkaConsumerGroupSettle is how long a process must have been observed before any
-	// Fetch is attributed to a group. OBI may attach after the consumers joined, and then
-	// learns each group only from its next heartbeat: until every group of the process has
-	// sent one, neither the single known group nor the one known subscriber of a topic is
-	// evidence that no other group consumes it. The longest heartbeat interval a broker
-	// allows is 15s (group.consumer.max.heartbeat.interval.ms, KIP-848); classic members
-	// heartbeat every 3s by default, and one configured above 15s can still be missed.
-	kafkaConsumerGroupSettle = 15 * time.Second
 )
 
 // KafkaProcess identifies the instrumented process a Kafka request was captured from.
@@ -274,8 +255,18 @@ func (p *kafkaProcessGroups) topicGroup(topic string) (group string, subscribed 
 // previous process was first seen, and so skips the warm-up. The LRU ttl on the whole
 // entry reclaims processes that stopped sending group requests.
 type KafkaConsumerGroups struct {
-	lru    *expirable.LRU[KafkaProcess, *kafkaProcessGroups]
-	ttl    time.Duration
+	lru *expirable.LRU[KafkaProcess, *kafkaProcessGroups]
+	// ttl is how long a member outlives the last request asserting it, which makes it
+	// the longest heartbeat interval the cache supports: a member heartbeating less often
+	// expires in between, and its group's Fetches can then go to another group of the
+	// process.
+	ttl time.Duration
+	// settle is how long a process must have been observed before any Fetch is attributed
+	// to a group. OBI may attach after the consumers joined, and then learns each group
+	// only from its next heartbeat: until every group of the process has sent one,
+	// neither the single known group nor the one known subscriber of a topic proves that
+	// no other group consumes it. Kafka bounds no heartbeat interval, so the window is the
+	// ttl, the longest one the cache supports anyway.
 	settle time.Duration
 	now    func() time.Time
 }
@@ -284,7 +275,7 @@ func NewKafkaConsumerGroups(size int, ttl time.Duration) *KafkaConsumerGroups {
 	return &KafkaConsumerGroups{
 		lru:    expirable.NewLRU[KafkaProcess, *kafkaProcessGroups](size, nil, ttl),
 		ttl:    ttl,
-		settle: kafkaConsumerGroupSettle,
+		settle: ttl,
 		now:    time.Now,
 	}
 }
@@ -397,8 +388,7 @@ func (g *KafkaConsumerGroups) Enrich(proc KafkaProcess, req *kafkaparser.GroupRe
 // or, when no subscription names it (unknown topic, Heartbeat only after a mid-stream
 // attach, JoinGroup cut by the kernel buffer, list cut by maxGroupTopics or the topic
 // caps), the single consumer group the process is a member of. Empty when several
-// groups qualify or none does, and before the process has been observed for
-// kafkaConsumerGroupSettle.
+// groups qualify or none does, and before the process has been observed for settle.
 func (g *KafkaConsumerGroups) Lookup(proc KafkaProcess, topic string) string {
 	if g == nil {
 		return ""
