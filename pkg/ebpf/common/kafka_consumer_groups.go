@@ -168,10 +168,6 @@ func (g *kafkaMembership) subscribed(topic string) bool {
 // kafkaProcessGroups is the membership state of one process, by group id.
 type kafkaProcessGroups struct {
 	groups map[string]*kafkaMembership
-	// since is when the first group request of the process was seen. It outlives the
-	// process's memberships: the entry stays until the LRU reclaims it, so a process that
-	// closes its last consumer and opens a new one is not warmed up again.
-	since time.Time
 }
 
 // membership returns the state of group, creating it unless the process already holds
@@ -252,10 +248,17 @@ func (p *kafkaProcessGroups) topicGroup(topic string) (group string, subscribed 
 // Each member expires ttl after the last request asserting it; a Fetch lookup never
 // extends it. A recycled pid inherits the previous process' memberships for at most
 // ttl, and its own heartbeats renew only its own members; it also inherits the time the
-// previous process was first seen, and so skips the warm-up. The LRU ttl on the whole
-// entry reclaims processes that stopped sending group requests.
+// previous process was first seen, while that stays among the last size processes seen,
+// and so skips the warm-up. The LRU ttl on the whole entry reclaims processes that
+// stopped sending group requests.
 type KafkaConsumerGroups struct {
 	lru *expirable.LRU[KafkaProcess, *kafkaProcessGroups]
+	// firstSeen is when the first group request of each process was seen. It is kept
+	// apart from lru and bounded by count only: a process that consumes in runs separated
+	// by more than the ttl loses its entry in lru between runs, and must not be warmed up
+	// again on every run. No group heartbeating more often than the ttl can have gone
+	// unseen during such a gap.
+	firstSeen *simplelru.LRU[KafkaProcess, time.Time]
 	// ttl is how long a member outlives the last request asserting it, which makes it
 	// the longest heartbeat interval the cache supports: a member heartbeating less often
 	// expires in between, and its group's Fetches can then go to another group of the
@@ -271,18 +274,22 @@ type KafkaConsumerGroups struct {
 	now    func() time.Time
 }
 
-func NewKafkaConsumerGroups(size int, ttl time.Duration) *KafkaConsumerGroups {
-	return &KafkaConsumerGroups{
-		lru:    expirable.NewLRU[KafkaProcess, *kafkaProcessGroups](size, nil, ttl),
-		ttl:    ttl,
-		settle: ttl,
-		now:    time.Now,
+func NewKafkaConsumerGroups(size int, ttl time.Duration) (*KafkaConsumerGroups, error) {
+	firstSeen, err := simplelru.NewLRU[KafkaProcess, time.Time](size, nil)
+	if err != nil {
+		return nil, err
 	}
+	return &KafkaConsumerGroups{
+		lru:       expirable.NewLRU[KafkaProcess, *kafkaProcessGroups](size, nil, ttl),
+		firstSeen: firstSeen,
+		ttl:       ttl,
+		settle:    ttl,
+		now:       time.Now,
+	}, nil
 }
 
 // memberships returns proc's state with the expired memberships dropped, nil when the
-// process is unknown. A state without memberships is kept, with its first-seen time,
-// until the LRU's ttl reclaims it.
+// process is unknown. A state without memberships is left for the LRU's ttl to reclaim.
 func (g *KafkaConsumerGroups) memberships(proc KafkaProcess) *kafkaProcessGroups {
 	state, found := g.lru.Get(proc)
 	if !found {
@@ -302,9 +309,12 @@ func (g *KafkaConsumerGroups) Join(proc KafkaProcess, conn BpfConnectionInfoT, r
 	if g == nil {
 		return
 	}
+	if _, seen := g.firstSeen.Get(proc); !seen {
+		g.firstSeen.Add(proc, g.now())
+	}
 	state := g.memberships(proc)
 	if state == nil {
-		state = &kafkaProcessGroups{groups: map[string]*kafkaMembership{}, since: g.now()}
+		state = &kafkaProcessGroups{groups: map[string]*kafkaMembership{}}
 	}
 	group := state.membership(req.GroupID)
 	if group == nil {
@@ -397,7 +407,8 @@ func (g *KafkaConsumerGroups) Lookup(proc KafkaProcess, topic string) string {
 	if state == nil {
 		return ""
 	}
-	if g.now().Before(state.since.Add(g.settle)) {
+	since, _ := g.firstSeen.Peek(proc)
+	if g.now().Before(since.Add(g.settle)) {
 		return ""
 	}
 	if group, subscribed := state.topicGroup(topic); subscribed {
