@@ -196,7 +196,7 @@ static __always_inline int __write(struct kiocb *iocb,
         e->file_path[0] = '\0';
     }
 
-    u64 out_size = sizeof(log_event_t) + e->len;
+    u64 out_size = sizeof(log_event_t) + max(e->len, sizeof(void *));
     bpf_clamp_umax(out_size, k_log_event_max_size);
     const long err = bpf_ringbuf_output(&log_events, e, out_size, log_events_flags());
     if (err < 0) {

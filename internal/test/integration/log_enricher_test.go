@@ -774,6 +774,29 @@ func testLogEnricherMultiSegWritev(t *testing.T) {
 	}, testTimeout, 500*time.Millisecond)
 }
 
+// a write shorter than 8 bytes is suppressed like any other, so its enriched
+// copy must arrive
+func testLogEnricherShortWrite(t *testing.T, constants testServerConstants) {
+	waitForTestComponentsNoMetrics(t, constants.url+constants.smokeEndpoint)
+
+	cl, err := client.New(client.FromEnv)
+	require.NoError(t, err)
+	defer cl.Close()
+
+	enriched := regexp.MustCompile(`^short trace_id=[0-9a-f]{32} span_id=[0-9a-f]{16}$`)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ti.DoHTTPGet(ct, constants.url+"/log_short", 200)
+
+		containerID := testContainerID(ct, cl, constants.containerImage)
+		if !assert.NotEmpty(ct, containerID, "could not find test container ID") {
+			return
+		}
+
+		found := slices.ContainsFunc(containerLogs(ct, cl, containerID), enriched.MatchString)
+		assert.True(ct, found, "no enriched line for the short write")
+	}, 2*testTimeout, time.Second)
+}
+
 // $() pipe content is application data, not a log: it must arrive intact and
 // the shell must never hang waiting for EOF on a pipe the enricher held open
 func testLogEnricherShellSubstitution(t *testing.T) {
