@@ -14,7 +14,6 @@ import (
 	"time"
 
 	cebpf "github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/link"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -122,10 +121,10 @@ func TestInitClosesPartialInitProbesOnRequiredProbeFailure(t *testing.T) {
 	})
 
 	attached := &countingCloser{}
-	attachKprobe = func(string, *cebpf.Program, *link.KprobeOptions) (io.Closer, error) {
+	attachKprobe = func(string, *cebpf.Program) (io.Closer, error) {
 		return attached, nil
 	}
-	attachKretprobe = func(string, *cebpf.Program, *link.KprobeOptions) (io.Closer, error) {
+	attachKretprobe = func(string, *cebpf.Program) (io.Closer, error) {
 		return nil, errors.New("required probe failed")
 	}
 
