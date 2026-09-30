@@ -133,7 +133,7 @@ fmt:
 
 .PHONY: clang-tidy
 clang-tidy:
-	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" ! -path "./tests/*" | xargs clang-tidy
+	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" ! -path "./tests/*" | xargs $(CLANG_TIDY)
 
 # Golangci-lint reuses the same cache across worktrees, this causes that the "excludes" entries in the
 # .golangci.yml configuration do not match the relative paths from the worktree and linting will fail
