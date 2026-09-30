@@ -428,6 +428,11 @@ func main() {
 
 		_, _ = w.Write([]byte("ok\n"))
 	})
+	// a log write shorter than 8 bytes
+	http.HandleFunc("/log_short", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = os.Stdout.Write([]byte("short\n"))
+		_, _ = w.Write([]byte("ok\n"))
+	})
 	// nested spans: the HTTP handler calls a gRPC client, which hits the gRPC
 	// server, then runs SQL. Logs after each call must keep the server span
 	sql.Register("fake", fakeDriver{})
