@@ -16,7 +16,7 @@ services:
     ports:
       - "{{ .PrometheusHTTPPort }}:9090"
   tempo:
-    image: grafana/tempo:3.0.0@sha256:78439f7f7cf3c97122846c13a832e060c6c7ef67dcc814dccf0a5f3f78393a93
+    image: grafana/tempo:3.1.0@sha256:3076b8dcdfb32fd6bc5ccef85e7b7313e6199b9cb84366257fc17ecb696db5fd
     volumes:
       - "{{ .ConfigDir }}/tempo-config.yaml:/config.yaml"
     command:
