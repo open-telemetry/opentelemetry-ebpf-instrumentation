@@ -736,20 +736,12 @@ func (s *Store) Subscribe(observer meta.Observer) {
 	defer s.access.RUnlock()
 	s.BaseNotifier.Subscribe(observer)
 	for _, pod := range s.podsByContainer {
-		if err := observer.On(&informer.Event{Type: informer.EventType_CREATED, Resource: pod.Meta}); err != nil {
-			s.log.Debug("observer failed sending Pod info. Unsubscribing it", "observer", observer.ID(), "error", err)
-			s.Unsubscribe(observer)
-			return
-		}
+		s.NotifyObserver(observer, &informer.Event{Type: informer.EventType_CREATED, Resource: pod.Meta})
 	}
 	// the IPInfos could contain IPInfo data from Pods already sent in the previous loop
 	// is the subscriber the one that should decide whether to ignore such duplicates or
 	// incomplete info
 	for _, ips := range s.objectMetaByIP {
-		if err := observer.On(&informer.Event{Type: informer.EventType_CREATED, Resource: ips.Meta}); err != nil {
-			s.log.Debug("observer failed sending Object Meta. Unsubscribing it", "observer", observer.ID(), "error", err)
-			s.Unsubscribe(observer)
-			return
-		}
+		s.NotifyObserver(observer, &informer.Event{Type: informer.EventType_CREATED, Resource: ips.Meta})
 	}
 }

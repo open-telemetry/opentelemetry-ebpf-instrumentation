@@ -14,13 +14,15 @@ import (
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
 
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 )
 
 type eventObserver struct {
 	id     string
-	events []*informer.Event
+	events chan *informer.Event
 }
 
 func (o *eventObserver) ID() string {
@@ -28,8 +30,43 @@ func (o *eventObserver) ID() string {
 }
 
 func (o *eventObserver) On(event *informer.Event) error {
-	o.events = append(o.events, event)
+	o.events <- event
 	return nil
+}
+
+func TestInformerSubscriptionOrdersSnapshotUpdatesAndSync(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	pods := cache.NewSharedIndexInformer(&cache.ListWatch{}, &v1.Pod{}, 0, cache.Indexers{})
+	require.NoError(t, pods.GetStore().Add(&indexableEntity{
+		EncodedMeta: &informer.ObjectMeta{Name: "snapshot"},
+	}))
+	inf := &Informers{
+		BaseNotifier: NewBaseNotifier(log),
+		log:          log,
+		config: &informersConfig{
+			disableNodes:    true,
+			disableServices: true,
+		},
+		pods:        pods,
+		waitForSync: make(chan struct{}),
+	}
+	observer := &eventObserver{id: "observer", events: make(chan *informer.Event, 3)}
+
+	inf.Subscribe(observer)
+	inf.Notify(&informer.Event{
+		Type:     informer.EventType_UPDATED,
+		Resource: &informer.ObjectMeta{Name: "update"},
+	})
+	close(inf.waitForSync)
+
+	snapshot := testutil.ReadChannel(t, observer.events, time.Second)
+	assert.Equal(t, informer.EventType_CREATED, snapshot.Type)
+	assert.Equal(t, "snapshot", snapshot.Resource.Name)
+	update := testutil.ReadChannel(t, observer.events, time.Second)
+	assert.Equal(t, informer.EventType_UPDATED, update.Type)
+	assert.Equal(t, "update", update.Resource.Name)
+	syncFinished := testutil.ReadChannel(t, observer.events, time.Second)
+	assert.Equal(t, informer.EventType_SYNC_FINISHED, syncFinished.Type)
 }
 
 func TestEnvironmentFiltering(t *testing.T) {
@@ -482,7 +519,7 @@ func TestIPInfoEventHandlerRefreshesUpdatedEventTimestamp(t *testing.T) {
 		log:          log,
 		BaseNotifier: NewBaseNotifier(log),
 	}
-	observer := &eventObserver{id: "observer"}
+	observer := &eventObserver{id: "observer", events: make(chan *informer.Event, 1)}
 	inf.BaseNotifier.Subscribe(observer)
 
 	handler := inf.ipInfoEventHandler(context.Background())
@@ -504,9 +541,9 @@ func TestIPInfoEventHandlerRefreshesUpdatedEventTimestamp(t *testing.T) {
 		}},
 	)
 
-	require.Len(t, observer.events, 1)
-	assert.Equal(t, informer.EventType_UPDATED, observer.events[0].Type)
-	assert.GreaterOrEqual(t, observer.events[0].Resource.StatusTimeEpoch, start)
+	event := testutil.ReadChannel(t, observer.events, time.Second)
+	assert.Equal(t, informer.EventType_UPDATED, event.Type)
+	assert.GreaterOrEqual(t, event.Resource.StatusTimeEpoch, start)
 }
 
 func TestIPInfoEventHandlerRefreshesDeletedEventTimestamp(t *testing.T) {
@@ -515,7 +552,7 @@ func TestIPInfoEventHandlerRefreshesDeletedEventTimestamp(t *testing.T) {
 		log:          log,
 		BaseNotifier: NewBaseNotifier(log),
 	}
-	observer := &eventObserver{id: "observer"}
+	observer := &eventObserver{id: "observer", events: make(chan *informer.Event, 1)}
 	inf.BaseNotifier.Subscribe(observer)
 
 	handler := inf.ipInfoEventHandler(context.Background())
@@ -528,9 +565,9 @@ func TestIPInfoEventHandlerRefreshesDeletedEventTimestamp(t *testing.T) {
 		StatusTimeEpoch: staleTimestamp,
 	}})
 
-	require.Len(t, observer.events, 1)
-	assert.Equal(t, informer.EventType_DELETED, observer.events[0].Type)
-	assert.GreaterOrEqual(t, observer.events[0].Resource.StatusTimeEpoch, start)
+	event := testutil.ReadChannel(t, observer.events, time.Second)
+	assert.Equal(t, informer.EventType_DELETED, event.Type)
+	assert.GreaterOrEqual(t, event.Resource.StatusTimeEpoch, start)
 }
 
 func TestRefreshStatusTimeEpochPreservesCurrentTimestamp(t *testing.T) {

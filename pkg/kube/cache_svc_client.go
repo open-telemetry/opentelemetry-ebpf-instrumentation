@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
@@ -27,7 +28,7 @@ type cacheSvcClient struct {
 	address string
 	log     *slog.Logger
 
-	lastEventTSEpoch         int64
+	lastEventTSEpoch         atomic.Int64
 	ctx                      context.Context
 	syncTimeout              time.Duration
 	waitForSubscription      chan struct{}
@@ -44,7 +45,7 @@ func (sc *cacheSvcClient) On(event *informer.Event) error {
 	// we can safely assume that server-side events are ordered
 	// by timestamp
 	if event.GetType() != informer.EventType_SYNC_FINISHED && event.Resource != nil {
-		sc.lastEventTSEpoch = event.Resource.StatusTimeEpoch
+		sc.lastEventTSEpoch.Store(event.Resource.StatusTimeEpoch)
 	}
 	return nil
 }
@@ -108,7 +109,7 @@ func (sc *cacheSvcClient) connect(ctx context.Context) error {
 
 	// Subscribe to the event stream.
 	stream, err := client.Subscribe(ctx, &informer.SubscribeMessage{
-		FromTimestampEpoch: sc.lastEventTSEpoch,
+		FromTimestampEpoch: sc.lastEventTSEpoch.Load(),
 	})
 	if err != nil {
 		return fmt.Errorf("could not subscribe: %w", err)
