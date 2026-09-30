@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   aerospike:
-    image: aerospike/aerospike-server:8.1.2.3@sha256:73c78ec8c2010dbc83ffb4b1249abbdfad3a66173492f46fa54996d0608f122d
+    image: aerospike/aerospike-server:8.2.0.0@sha256:583e882d540f4ba813b67f2167452b4893f025760b7541d2d9a8b5107a2f0324
     ulimits:
       nofile:
         soft: 20000
