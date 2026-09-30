@@ -55,6 +55,15 @@ func TestCollectorsBesideWeaverWithoutWeaver(t *testing.T) {
 	require.Empty(t, collectorsBesideWeaver([]runningContainer{collector}))
 }
 
+func TestWeaverRunning(t *testing.T) {
+	weaver := runningContainer{id: "weaver", image: "otel/weaver:v0.26.1", networks: []string{"suite_default"}}
+	collector := runningContainer{id: "tap", image: "otel/opentelemetry-collector-contrib:0.161.0", networks: []string{"suite_default"}}
+
+	require.True(t, weaverRunning([]runningContainer{collector, weaver}))
+	require.False(t, weaverRunning([]runningContainer{collector}))
+	require.False(t, weaverRunning(nil))
+}
+
 func TestDependencyImageFindsTheScraperImage(t *testing.T) {
 	image, err := dependencyImage(busyboxDependencyStage)
 	require.NoError(t, err)

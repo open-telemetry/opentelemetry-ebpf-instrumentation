@@ -21,6 +21,7 @@ import (
 const (
 	dockerDrainWindow            = 5 * time.Second
 	dockerCollectorDrainTimeout  = time.Minute
+	dockerDiscoveryTimeout       = time.Minute
 	dockerTapPoll                = 500 * time.Millisecond
 	weaverTapExporter            = "otlp/weaver"
 	weaverImage                  = "otel/weaver"
@@ -48,11 +49,23 @@ type tapCollector struct {
 }
 
 func DrainDockerTap(ctx context.Context, warnf func(format string, args ...any)) error {
-	collectors, err := weaverTapCollectors(ctx)
+	discoveryCtx, cancel := context.WithTimeout(ctx, dockerDiscoveryTimeout)
+	defer cancel()
+
+	containers, err := runningContainers(discoveryCtx)
+	if err != nil {
+		return fmt.Errorf("cannot confirm the weaver tap delivered everything: %w", err)
+	}
+	if !weaverRunning(containers) {
+		return nil
+	}
+
+	collectors, err := weaverTapCollectors(discoveryCtx, containers)
 	if err != nil {
 		return fmt.Errorf("cannot confirm the weaver tap delivered everything: %w", err)
 	}
 	if len(collectors) == 0 {
+		warnf("weaver: no collector with an %s exporter shares a network with weaver, so the tap was not drained", weaverTapExporter)
 		return nil
 	}
 
@@ -70,19 +83,28 @@ func DrainDockerTap(ctx context.Context, warnf func(format string, args ...any))
 	return nil
 }
 
-func weaverTapCollectors(ctx context.Context) ([]tapCollector, error) {
+func runningContainers(ctx context.Context) ([]runningContainer, error) {
 	out, err := exec.CommandContext(ctx, "docker", "ps", "--format", dockerPSFormat).Output()
 	if err != nil {
 		return nil, fmt.Errorf("listing running containers: %w", err)
 	}
+	return parseDockerPS(string(out)), nil
+}
 
+func weaverRunning(containers []runningContainer) bool {
+	return slices.ContainsFunc(containers, func(container runningContainer) bool {
+		return strings.HasPrefix(container.image, weaverImage)
+	})
+}
+
+func weaverTapCollectors(ctx context.Context, containers []runningContainer) ([]tapCollector, error) {
 	scraper, err := dependencyImage(busyboxDependencyStage)
 	if err != nil {
 		return nil, err
 	}
 
 	var collectors []tapCollector
-	for _, container := range collectorsBesideWeaver(parseDockerPS(string(out))) {
+	for _, container := range collectorsBesideWeaver(containers) {
 		collector := tapCollector{runningContainer: container, scraper: scraper}
 		stats, err := scrapeCollectorTelemetry(ctx, collector)
 		if err != nil {
