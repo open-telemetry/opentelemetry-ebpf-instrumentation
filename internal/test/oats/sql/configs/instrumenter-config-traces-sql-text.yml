@@ -10,3 +10,4 @@ attributes:
     traces:
       include:
       - db.query.text
+      - service.peer.name

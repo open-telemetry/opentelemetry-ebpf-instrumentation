@@ -62,3 +62,119 @@ cudaError_t cudaGraphLaunch(cudaGraphExec_t graphExec, cudaStream_t stream) {
   g_sink += 1;
   return 0;
 }
+
+cudaError_t cudaFree(void *devPtr) {
+  (void)devPtr;
+  g_sink += (unsigned long)devPtr;
+  return 0;
+}
+
+cudaError_t cudaMemset(void *devPtr, int value, size_t count) {
+  (void)devPtr;
+  (void)value;
+  g_sink += count;
+  return 0;
+}
+
+cudaError_t cudaStreamCreate(cudaStream_t *stream) {
+  if (stream != NULL) {
+    *stream = (cudaStream_t)0x10;
+  }
+  g_sink += 1;
+  return 0;
+}
+
+cudaError_t cudaStreamCreateWithFlags(cudaStream_t *stream,
+                                      unsigned int flags) {
+  (void)flags;
+  if (stream != NULL) {
+    *stream = (cudaStream_t)0x11;
+  }
+  g_sink += 1;
+  return 0;
+}
+
+cudaError_t cudaStreamCreateWithPriority(cudaStream_t *stream,
+                                         unsigned int flags, int priority) {
+  (void)flags;
+  (void)priority;
+  if (stream != NULL) {
+    *stream = (cudaStream_t)0x12;
+  }
+  g_sink += 1;
+  return 0;
+}
+
+cudaError_t cudaStreamDestroy(cudaStream_t stream) {
+  (void)stream;
+  g_sink += 1;
+  return 0;
+}
+
+cudaError_t cudaEventRecord(cudaEvent_t event, cudaStream_t stream) {
+  (void)event;
+  (void)stream;
+  g_sink += 1;
+  return 0;
+}
+
+cudaError_t cudaEventRecordWithFlags(cudaEvent_t event, cudaStream_t stream,
+                                     unsigned int flags) {
+  (void)event;
+  (void)stream;
+  (void)flags;
+  g_sink += 1;
+  return 0;
+}
+
+cudaError_t cudaEventSynchronize(cudaEvent_t event) {
+  (void)event;
+  g_sink += 1;
+  return 0;
+}
+
+cudaError_t cudaStreamSynchronize(cudaStream_t stream) {
+  (void)stream;
+  g_sink += 1;
+  return 0;
+}
+
+cudaError_t cudaDeviceSynchronize(void) {
+  g_sink += 1;
+  return 0;
+}
+
+cudaError_t cudaHostRegister(void *ptr, size_t size, unsigned int flags) {
+  (void)ptr;
+  (void)flags;
+  g_sink += size;
+  return 0;
+}
+
+static int g_current_device = 0;
+
+cudaError_t cudaSetDevice(int device) {
+  g_current_device = device;
+  g_sink += (unsigned long)device;
+  return 0;
+}
+
+cudaError_t cudaGetDeviceProperties(cudaDeviceProp *prop, int device) {
+  if (prop == NULL) {
+    return 0;
+  }
+
+  // Populate a deterministic name and UUID so integration tests can verify
+  // device identity propagation. Device 0 intentionally differs from device 1.
+  if (device == 1) {
+    __builtin_memcpy(prop->name, "OBI Test GPU A", sizeof("OBI Test GPU A"));
+    __builtin_memset(prop->uuid, 0, sizeof(prop->uuid));
+    prop->uuid[15] = 0x01;
+  } else {
+    __builtin_memcpy(prop->name, "OBI Test GPU 0", sizeof("OBI Test GPU 0"));
+    __builtin_memset(prop->uuid, 0, sizeof(prop->uuid));
+  }
+
+  g_sink += (unsigned long)device;
+  return 0;
+}

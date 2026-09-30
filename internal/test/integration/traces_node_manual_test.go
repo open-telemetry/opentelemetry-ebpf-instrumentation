@@ -68,7 +68,8 @@ func testHTTPTracesNodeManualSpans(t *testing.T) {
 
 	// "checkout" is the root manual span. It must share the automatic trace
 	// and be re-anchored as a child of the "processing" sub-span — this is
-	// the eBPF correlation via traces_ctx_v1, the whole point of the feature.
+	// the eBPF correlation via the request fd the span sentinel carries, the
+	// whole point of the feature.
 	res = trace.FindByOperationName("checkout", "internal")
 	require.Len(t, res, 1)
 	checkout := res[0]

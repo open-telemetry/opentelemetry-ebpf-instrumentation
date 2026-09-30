@@ -87,6 +87,8 @@ func testTCPStatsIODecoration(ctx context.Context, t *testing.T, _ *envconf.Conf
 		assertPingerFlowDecoration(ct, results)
 		for _, res := range results {
 			assert.Contains(ct, []string{"receive", "transmit"}, res.Metric["network_io_direction"])
+			assert.Equal(ct, "opentelemetry-ebpf-instrumentation", res.Metric["telemetry_distro_name"])
+			assert.NotEmpty(ct, res.Metric["telemetry_distro_version"])
 		}
 	}, testTimeout, pollInterval)
 	return ctx

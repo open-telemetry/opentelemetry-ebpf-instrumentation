@@ -50,6 +50,42 @@ public class SSLStorage {
 
   private static final ThreadLocal<Long> jdkHttpClientContext = new ThreadLocal<>();
 
+  // Delegating SSLSockets can expose nested instrumented streams. Only the outermost one reports.
+  private static final ThreadLocal<Boolean> sslSocketRead = new ThreadLocal<>();
+  private static final ThreadLocal<Boolean> sslSocketWrite = new ThreadLocal<>();
+
+  public static boolean enterSSLSocketRead() {
+    if (isSSLSocketReadActive()) {
+      return false;
+    }
+    sslSocketRead.set(Boolean.TRUE);
+    return true;
+  }
+
+  public static boolean isSSLSocketReadActive() {
+    return sslSocketRead.get() != null;
+  }
+
+  public static void exitSSLSocketRead() {
+    sslSocketRead.remove();
+  }
+
+  public static boolean enterSSLSocketWrite() {
+    if (isSSLSocketWriteActive()) {
+      return false;
+    }
+    sslSocketWrite.set(Boolean.TRUE);
+    return true;
+  }
+
+  public static boolean isSSLSocketWriteActive() {
+    return sslSocketWrite.get() != null;
+  }
+
+  public static void exitSSLSocketWrite() {
+    sslSocketWrite.remove();
+  }
+
   public static Connection getConnectionForSession(SSLEngine session) {
     return sslConnections.get(session);
   }

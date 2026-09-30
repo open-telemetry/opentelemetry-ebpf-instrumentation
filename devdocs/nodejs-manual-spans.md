@@ -31,13 +31,13 @@ spanbridge.js ──────────── injected over the inspector p
    │                       copy's ProxyTracerProvider. It does NOT write to the
    │                       API global registry (that would block the app's SDK).
    ▼
-fs.existsSync('/dev/null/obi-span/<json>')      ── sentinel uv_fs_access path
+fs.existsSync('/dev/null/obi-spanfd/<fd><json>') ── sentinel uv_fs_access path
    ▼
 obi_uv_fs_access uprobe (bpf/generictracer/nodejs.c)
-   │  '-span/' branch: copies the JSON payload into a node_span_event_t,
-   │  stamps bpf_ktime_get_ns() + pid, and attaches the current request
-   │  trace context from traces_ctx_v1 (kept fresh per async context by the
-   │  fdextractor.js '-ctx/' sentinels)
+   │  '-span' branch: copies the JSON payload into a node_span_event_t,
+   │  stamps bpf_ktime_get_ns() + pid, and attaches the server trace
+   │  context of the request's incoming fd (the fd fdextractor.js tracks
+   │  per async context)
    ▼
 events ringbuf → EVENT_NODE_SPAN (24)
    ▼
@@ -84,8 +84,9 @@ request.Span{Type: EventTypeManualSpan}  → existing exporter path, unchanged
 | `/dev/null/obi/<fd1><fd2>` | fdextractor.js | outgoing→incoming fd correlation |
 | `/dev/null/obi-ctx/<fd>` | fdextractor.js | async-context switch, refreshes `traces_ctx_v1` |
 | `/dev/null/obi-noreqctx` | fdextractor.js | callback outside any request, clears `traces_ctx_v1` |
-| `/dev/null/obi-span/<json>` | spanbridge.js | finished manual span |
-| `/dev/null/obi-mspan/<traceId><spanId>` | spanbridge.js | active manual span: override `traces_ctx_v1` span id so client spans nest under it |
+| `/dev/null/obi-spanfd/<fd><json>` | spanbridge.js | finished manual span, parented under the server trace of the 4-digit incoming fd (a malformed fd gets no parent, and its payload may not parse) |
+| `/dev/null/obi-span/<json>` | spanbridge.js | finished manual span outside request scope (or fd above 9999), parent from `traces_ctx_v1` |
+| `/dev/null/obi-mspan/[<fd>]<traceId><spanId>` | spanbridge.js | active manual span: override `traces_ctx_v1` span id so client spans nest under it; the 4-digit incoming fd, when present, supplies the request's trace id |
 | `/dev/null/obi-mspan/-` | spanbridge.js | pop: no manual span active, restore the saved base context |
 
 ### Span payload (JSON, version field `v: 1`)
@@ -135,13 +136,15 @@ unusable input) the sentinel anchor is used, as before.
 
 ### Trace-context correlation
 
-At sentinel time, BPF looks up `traces_ctx_v1` for the current thread — the
-same map the `-ctx/` sentinels maintain, pointing at the trace context of
-the in-flight request being processed by the current async context. Manual
-spans are one of the readers that turn that map's population on, so enabling
-`nodejs.manual_spans` also installs the `async_hooks` before hook that emits
-the `-ctx/` sentinels (see
-[When the map is populated](trace-log-correlation.md#when-the-map-is-populated)):
+The bridge reads the incoming fd of the current async context from
+`fdextractor.js` and sends it in the sentinel. At sentinel time, BPF resolves
+that fd to the server trace context of its connection — the same lookup the
+`-ctx/` sentinels perform. Manual spans therefore do not read `traces_ctx_v1`
+and do not turn its population on, so enabling `nodejs.manual_spans` does not
+install the per-callback `async_hooks` before hook (see
+[When the map is populated](trace-log-correlation.md#when-the-map-is-populated)).
+A span that ends outside any request has no fd and falls back to
+`traces_ctx_v1`, which is empty unless another reader populates it:
 
 - If found, the span is **re-anchored**: it inherits the request's trace ID,
   and bridge-root spans (no in-bridge parent) are parented under OBI's
@@ -166,18 +169,23 @@ Mechanism:
   `with()` (`startActiveSpan`) and, per callback, its own `async_hooks`
   `before` hook (it re-applies after `fdextractor.js`'s `-ctx` refresh, since
   the bridge script is evaluated second). On entering/resuming a scope whose
-  innermost span is a bridge span, it emits
-  `-mspan/<traceId><spanId>`; on synchronous unwind it emits the enclosing
-  span's override, or `-mspan/-` (pop) at the top.
+  innermost span is a bridge span, it emits `-mspan/<fd><traceId><spanId>`
+  (the fd is the request's incoming fd, omitted outside request scope); on
+  synchronous unwind it emits the enclosing span's override, or `-mspan/-`
+  (pop) at the top.
 - BPF (`handle_manual_ctx`) **overrides the span id** of the thread's
   `traces_ctx_v1` (`obi_ctx`) entry with the manual span's id, keeping the
-  request's (server) **trace id**. The pre-override entry — the server context,
-  or an all-zero "no base existed" marker when the override happens outside any
-  request — is saved once per sync block in the **shadow slot**
-  (`node_manual_ctx_shadow`, `bpf/maps/node_manual_ctx_shadow.h`). `pop`
-  restores it; the per-callback `-ctx` / `-noreqctx` refresh clears it (each
-  callback re-derives the base and the bridge re-applies the override right
-  after). A thread that exits mid-override never reaches either, so a
+  request's (server) **trace id**. The base — the server trace of the fd in
+  the sentinel, the live entry when there is no fd, or an all-zero "no base
+  existed" marker outside any request — is saved once per sync block in the
+  **shadow slot** (`node_manual_ctx_shadow`,
+  `bpf/maps/node_manual_ctx_shadow.h`). The fd is what makes nesting work when
+  `traces_ctx_v1` is not populated, which is the default: manual spans alone do
+  not turn population on. `pop` restores the base only while population is on,
+  and otherwise deletes the entry, since nothing else would keep it current; the
+  per-callback `-ctx` / `-noreqctx` refresh, when it runs, clears the slot too
+  (each callback re-derives the base and the bridge re-applies the override
+  right after). A thread that exits mid-override never reaches either, so a
   `sched/sched_process_exit` tracepoint drops the slot — otherwise the next
   thread to reuse the `pid_tgid` would inherit the dead thread's base. It is a
   tracepoint rather than the `sys_exit` kprobe because `exit_group(2)` (Node's
@@ -279,7 +287,13 @@ would otherwise leave two providers active in one process.
 
 - **Opt-in only.** Existing Node.js support (fd extraction, context
   propagation) is unaffected when `nodejs.manual_spans` is off; the BPF
-  `-span/` branch simply never fires because nothing emits the sentinel.
+  `-span/` and `-spanfd/` branches simply never fire because nothing emits
+  the sentinels.
+- **Upgrading OBI.** The bridge is injected once per process and never
+  replaced, so a process that was running under an OBI version whose bridge
+  sends only `-span/` keeps doing so. With `traces_ctx_v1` population no
+  longer implied by `nodejs.manual_spans`, those spans have no request parent
+  until the process restarts, or until `ebpf.populate_trace_context` is set.
 - **Injection prerequisites are inherited** from the existing Node injector:
   the process must not have a custom SIGUSR1 handler (checked before
   sending the signal), and the inspector must be reachable. Injection
@@ -343,21 +357,20 @@ would otherwise leave two providers active in one process.
 - **End-time context sampling.** The request context is read when the span
   *ends*. A manual span that outlives its request falls back to the bridge
   trace ID; if a nested chain ends across the request boundary, the chain
-  can split across trace IDs. To avoid *mis*-parenting, `fdextractor.js` emits
-  a `-noreqctx` clear when an async callback runs outside any request, so a
-  span ending in a background timer is left un-parented rather than attached to
-  whichever request last populated `traces_ctx_v1`. The clear is emitted only on
-  the request→no-request transition (not on every background callback) to keep
-  the syscall off the hot path.
+  can split across trace IDs. A span ending outside any request's async
+  context carries no fd, so it is left un-parented rather than attached to
+  whichever request the thread served last. A timer or interval created inside
+  a request handler inherits that request's context, so its spans carry the
+  fd of the connection that created it, and parent under whatever request that
+  fd is serving when they end.
 
   Client-span nesting adds one case to this: an eBPF client span is parented on
   the *outgoing call*, but the manual span it points at is exported when it
-  *ends*. If the connection is gone by then (`-ctx/<fd>` finds no entry and the
-  override records the all-zero "no base existed" marker), the manual span falls
-  back to the bridge trace id, so the client span keeps a valid parent id that
-  now lives in a different trace. The alternative — withholding the client
-  span's parent until its parent's fate is known — costs correct nesting in
-  every normal case, so the dangling reference is the deliberate trade.
+  *ends*. If the connection is gone by then, the manual span falls back to the
+  bridge trace id, so the client span keeps a valid parent id that now lives in
+  a different trace. The alternative — withholding the client span's parent
+  until its parent's fate is known — costs correct nesting in every normal
+  case, so the dangling reference is the deliberate trade.
 - **Payload budgets** (above). Span events, instrumentation scope, links,
   non-primitive attribute values and `traceState` are not forwarded in v1.
 - **Span kind** is exported from the payload (`spanKind()` in tracesgen

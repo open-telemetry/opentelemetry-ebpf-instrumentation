@@ -28,7 +28,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
@@ -36,13 +35,14 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 	"go.opentelemetry.io/obi/pkg/internal/sqlprune"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
 var cache = expirable2.NewLRU[svc.UID, []attribute.KeyValue](1024, nil, 5*time.Minute)
 
-var hostID = &meta.NodeMeta{HostID: "host-id"}
+var hostID = &metadata.NodeMeta{HostID: "host-id"}
 
 func BenchmarkGenerateTraces(b *testing.B) {
 	start := time.Now()
@@ -387,7 +387,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	t.Run("test SQL trace generation, no statement", func(t *testing.T) {
 		span := makeSQLRequestSpan("SELECT password FROM credentials WHERE username=\"bill\"")
 		span.HostName = "postgresql"
-		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.ServicePeerName: {}})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
@@ -1113,7 +1113,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := spans.At(0).Attributes()
 
-		// service.peer.name is absent: the span carries no HostName, so the value is empty
+		// Only required attributes: server.addr, server.port, db.system.name, db.operation.name
 		assert.Equal(t, 4, attrs.Len())
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBOperation), "INSERT")
 		ensureTraceStrAttr(t, attrs, attribute.Key(attr.DBSystemName), "couchbase")
@@ -2842,7 +2842,7 @@ func TestTracesAttrReuse(t *testing.T) {
 		},
 	}
 
-	host123 := &meta.NodeMeta{HostID: "123"}
+	host123 := &metadata.NodeMeta{HostID: "123"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			attr1 := tracesgen.TraceAppResourceAttrs(cache, host123, &tt.span.Service)

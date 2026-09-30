@@ -151,10 +151,9 @@ type EBPFTracer struct {
 	// Keeping the map aligned with the active request is not free: runtimes that
 	// decouple I/O from processing need a refresh on every context switch, which on
 	// Node.js means an `async_hooks` before hook running on every callback. OBI
-	// therefore only populates the map when something reads it. Its own readers -- the
-	// log enricher and the Node.js manual span bridge -- turn population on regardless
-	// of this setting; a reader outside OBI has no way to announce itself, so it opts
-	// in here.
+	// therefore only populates the map when something reads it. Its own reader -- the
+	// log enricher -- turns population on regardless of this setting; a reader outside
+	// OBI has no way to announce itself, so it opts in here.
 	//
 	// Go channel span links may be affected: the handoff correlation falls back
 	// to this map when it cannot resolve the sending goroutine from the protocol

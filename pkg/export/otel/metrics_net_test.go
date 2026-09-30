@@ -273,6 +273,8 @@ func TestGetFilteredNetworkResourceAttrs(t *testing.T) {
 	expectedAttrs := []string{
 		"obi.version",
 		"obi.revision",
+		"telemetry.distro.name",
+		"telemetry.distro.version",
 	}
 
 	attrMap := make(map[string]string)

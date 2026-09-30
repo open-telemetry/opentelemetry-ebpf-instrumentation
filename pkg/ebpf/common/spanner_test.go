@@ -7,11 +7,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
-	"go.opentelemetry.io/obi/pkg/export/attributes"
-	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 )
 
 func tocstr(s string) []byte {
@@ -98,24 +95,6 @@ func TestHTTPRequestTraceToSpan_FullPath(t *testing.T) {
 
 		assert.Equal(t, "/health", s.Path)
 		assert.Equal(t, "/health", s.FullPath)
-	})
-
-	t.Run("sensitive query params redacted at trace export", func(t *testing.T) {
-		p := [100]uint8{}
-		copy(p[:], tocstr("/search"))
-		q := [100]uint8{}
-		copy(q[:], tocstr("q=hello&sig=secret"))
-
-		tr := HTTPRequestTrace{Type: 1, Path: p, RawQuery: q, Status: 200}
-		s := HTTPRequestTraceToSpan(nil, &tr)
-
-		defaultAttrs, err := tracesgen.UserSelectedAttributes(&attributes.SelectorConfig{})
-		require.NoError(t, err)
-
-		selected := tracesgen.AttrsToMap(tracesgen.TraceAttributesSelector(&s, defaultAttrs, "sig"))
-		val, ok := selected.Get("url.query")
-		require.True(t, ok)
-		assert.Equal(t, "q=hello&sig=REDACTED", val.Str())
 	})
 }
 

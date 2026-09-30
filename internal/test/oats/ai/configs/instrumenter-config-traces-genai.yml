@@ -29,6 +29,10 @@ ebpf:
           enabled: true
         retrieval:
           enabled: true
+        embedding:
+          enabled: true
+        rerank:
+          enabled: true
 trace_printer: text
 discovery:
   exclude_otel_instrumented_services: false

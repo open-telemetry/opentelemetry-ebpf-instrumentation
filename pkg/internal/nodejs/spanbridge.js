@@ -19,8 +19,9 @@
 // build) is neither captured nor blocked. Finished spans are serialized to
 // JSON and signalled to the eBPF layer through the same channel fdextractor.js
 // uses: a sentinel uv_fs_access() path read by the obi_uv_fs_access uprobe
-// (bpf/generictracer/nodejs.c). The BPF side attaches the current request's
-// trace context (traces_ctx_v1), so manual spans parent under OBI's automatic
+// (bpf/generictracer/nodejs.c). The sentinel carries the incoming fd of the
+// request the span ended in, and the BPF side resolves that fd to the
+// request's trace context, so manual spans parent under OBI's automatic
 // server spans.
 //
 // If the application registers its own SDK, this bridge stays inert: spans
@@ -33,6 +34,11 @@
   // Same Symbol.for key the api uses internally (createContextKey).
   const SPAN_KEY = Symbol.for('OpenTelemetry Context Key SPAN');
   const SENTINEL_PREFIX = '/dev/null/obi-span/';
+  const SENTINEL_PREFIX_FD = '/dev/null/obi-spanfd/';
+  const MAX_SENTINEL_FD = 9999;
+  const SENTINEL_FD_DIGITS = String(MAX_SENTINEL_FD).length;
+  const FDEXTRACTOR_STORE = Symbol.for('otel-ebpf-instrumentation.fdextractor');
+  const ID_POOL_BYTES = 4096;
   // Manual-span context override / pop sentinel; payload format documented at
   // the decoder (bpf/generictracer/nodejs.c handle_manual_ctx).
   const MSPAN_PREFIX = '/dev/null/obi-mspan/';
@@ -81,13 +87,15 @@
     }
   };
 
+  const fitsUtf8 = (s, maxBytes) => s.length * 3 <= maxBytes || Buffer.byteLength(s, 'utf8') <= maxBytes;
+
   // Truncate a string to a UTF-8 BYTE budget, never splitting a multi-byte
   // sequence. The BPF/Go side copies keys/values into fixed byte arrays, so a
   // UTF-16 code-unit budget (String#length) is wrong twice over: a multi-byte
   // character can blow the byte budget while passing the unit check, and a cut
   // inside a sequence would export invalid UTF-8.
   const truncateUtf8 = (s, maxBytes) => {
-    if (Buffer.byteLength(s, 'utf8') <= maxBytes) return s;
+    if (fitsUtf8(s, maxBytes)) return s;
     const buf = Buffer.from(s, 'utf8');
     let end = maxBytes;
     // Find the start of the sequence containing the cut point; drop the
@@ -154,6 +162,11 @@
 
   // --- transport -----------------------------------------------------------
 
+  const requestFd = () => {
+    const store = g[FDEXTRACTOR_STORE];
+    return store && typeof store.requestFd === 'function' ? store.requestFd() : -1;
+  };
+
   // The span payload is smuggled to the eBPF layer as the argument of a
   // uv_fs_access() call that cannot succeed: the obi_uv_fs_access uprobe reads
   // the path string on syscall entry, and the syscall itself then fails
@@ -172,7 +185,12 @@
     // provider straight into the global registry (detectRegistryHandoff).
     if (yielded || detectRegistryHandoff()) return;
     try {
-      fs.existsSync(SENTINEL_PREFIX + payload);
+      const fd = requestFd();
+      if (fd >= 0 && fd <= MAX_SENTINEL_FD) {
+        fs.existsSync(SENTINEL_PREFIX_FD + String(fd).padStart(SENTINEL_FD_DIGITS, '0') + payload);
+      } else {
+        fs.existsSync(SENTINEL_PREFIX + payload);
+      }
     } catch (err) {
       debug('unexpected error emitting span', err);
     }
@@ -187,8 +205,10 @@
   const emitOverride = (span) => {
     if (yielded || detectRegistryHandoff()) return;
     const sc = span._spanContext;
+    const fd = requestFd();
+    const fdPart = fd >= 0 && fd <= MAX_SENTINEL_FD ? String(fd).padStart(SENTINEL_FD_DIGITS, '0') : '';
     try {
-      fs.existsSync(MSPAN_PREFIX + sc.traceId + sc.spanId);
+      fs.existsSync(MSPAN_PREFIX + fdPart + sc.traceId + sc.spanId);
     } catch (err) {
       debug('unexpected error emitting manual-span override', err);
     }
@@ -222,6 +242,18 @@
       return new Context(m);
     }
   }
+
+  let idPool = null;
+  let idPoolOffset = 0;
+  const randomHex = (bytes) => {
+    if (idPool === null || idPoolOffset + bytes > ID_POOL_BYTES) {
+      idPool = crypto.randomBytes(ID_POOL_BYTES);
+      idPoolOffset = 0;
+    }
+    const hex = idPool.toString('hex', idPoolOffset, idPoolOffset + bytes);
+    idPoolOffset += bytes;
+    return hex;
+  };
 
   const ROOT_CONTEXT = new Context();
   const als = new AsyncLocalStorage();
@@ -342,8 +374,8 @@
       this._spanContext = {
         traceId: parentSpanContext
           ? parentSpanContext.traceId
-          : crypto.randomBytes(16).toString('hex'),
-        spanId: crypto.randomBytes(8).toString('hex'),
+          : randomHex(16),
+        spanId: randomHex(8),
         traceFlags: 1,
         traceState: undefined,
       };
@@ -449,11 +481,11 @@
       // Measure UTF-8 bytes, not String#length (UTF-16 code units): the BPF
       // side reads the sentinel path as bytes into a fixed buffer, so a
       // multi-byte payload that looks short by .length could still overflow.
-      if (Buffer.byteLength(payload, 'utf8') > MAX_PAYLOAD) {
+      if (!fitsUtf8(payload, MAX_PAYLOAD)) {
         rec.attrs = {};
         payload = JSON.stringify(rec);
       }
-      if (Buffer.byteLength(payload, 'utf8') > MAX_PAYLOAD) {
+      if (!fitsUtf8(payload, MAX_PAYLOAD)) {
         debug('dropping span: core payload exceeds transport limit');
         return;
       }
@@ -722,7 +754,7 @@
   }
 
   g.__obiSpanBridge = {
-    version: 1,
+    version: 2,
     rehook() {
       if (!mspanHook || hookFailed) return;
       mspanHook.disable();

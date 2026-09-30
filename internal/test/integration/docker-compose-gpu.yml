@@ -10,6 +10,36 @@ services:
       otelcol:
         condition: service_started
 
+  # Target that explicitly binds to device 1 and queries its properties, so OBI
+  # can verify that per-call metrics carry the resolved device identity.
+  setdevice-testserver:
+    image: hatest-testserver-gpu-cuda-tester
+    command: ["/app/gpu-cuda-setdevice-tester"]
+    depends_on:
+      otelcol:
+        condition: service_started
+
+  # Second target from the same image: links the stub libcuda.so.1 only and
+  # calls the CUDA Driver API in a loop, so OBI's cu* uprobes are exercised by a
+  # process that maps no libcudart.
+  driver-testserver:
+    image: hatest-testserver-gpu-cuda-tester
+    command: ["/app/gpu-cuda-driver-tester"]
+    depends_on:
+      otelcol:
+        condition: service_started
+
+  # Third target from the same image: binds a nonzero Driver API context through
+  # cuCtxCreate/cuCtxPushCurrent before launching. OBI does not instrument those
+  # context calls, so this target proves device identity labels are omitted even
+  # when the application has a nonzero context bound.
+  driver-ctx-testserver:
+    image: hatest-testserver-gpu-cuda-tester
+    command: ["/app/gpu-cuda-driver-ctx-tester"]
+    depends_on:
+      otelcol:
+        condition: service_started
+
   obi:
     build:
       context: ../../..
@@ -41,9 +71,15 @@ services:
     depends_on:
       testserver:
         condition: service_started
+      setdevice-testserver:
+        condition: service_started
+      driver-testserver:
+        condition: service_started
+      driver-ctx-testserver:
+        condition: service_started
 
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    image: quay.io/prometheus/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
     container_name: prometheus
     command:
       - --config.file=/etc/prometheus/prometheus-config-gpu.yml

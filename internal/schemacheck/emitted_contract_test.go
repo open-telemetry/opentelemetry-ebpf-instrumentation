@@ -149,6 +149,46 @@ func emittedSpanAttributes(span *request.Span, optional ...attr.Name) []string {
 	return keys
 }
 
+// The server branch emits the same HTTP set whatever the subtype, so every
+// server group that extends span.obi.http.server starts from this span.
+func populatedHTTPServerSpan(subType int) *request.Span {
+	return &request.Span{
+		Type:                request.EventTypeHTTP,
+		SubType:             subType,
+		Method:              "SEARCH",
+		Path:                "/v1/things",
+		FullPath:            "/v1/things?q=1",
+		Route:               "/v1/things",
+		Statement:           "https" + request.SchemeHostSeparator + "api.example.com",
+		Host:                "10.0.0.1",
+		HostPort:            8443,
+		Peer:                "10.0.0.2",
+		PeerPort:            54321,
+		Status:              500,
+		ProtoVersion:        request.ProtoVersionHTTP11,
+		UserAgent:           "curl/8.0",
+		RequestHeaders:      map[string][]string{"x-trace": {"1"}},
+		ResponseHeaders:     map[string][]string{"x-reply": {"2"}},
+		RequestBodyContent:  "{}",
+		ResponseBodyContent: "{}",
+	}
+}
+
+var httpSpanOptional = []attr.Name{
+	attr.HTTPUrlQuery,
+	attr.HTTPRequestMethodOrig,
+	attr.HTTPRequestBodySize,
+	attr.HTTPResponseBodySize,
+	attr.OBIHTTPResponseObserved,
+	attr.UserAgentOriginal,
+	attr.NetworkPeerAddress,
+	attr.NetworkPeerPort,
+	attr.NetworkProtocolVersion,
+	attr.ErrorType,
+	attr.SkipSpanMetrics,
+	attr.ServicePeerName,
+}
+
 // Weaver resolves an emitted attribute against the registry's global attribute
 // map, so it accepts a key that is declared on some other carrier. Nothing in
 // the weaver-validated suites would notice an attribute going missing from the
@@ -186,6 +226,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkProtocolVersion,
 				attr.ErrorType,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -208,6 +249,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkProtocolVersion,
 				attr.ErrorType,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -234,6 +276,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkProtocolVersion,
 				attr.ErrorType,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -256,6 +299,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkPeerAddress,
 				attr.NetworkPeerPort,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -279,6 +323,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkPeerAddress,
 				attr.NetworkPeerPort,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -300,6 +345,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkPeerAddress,
 				attr.NetworkPeerPort,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -338,6 +384,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.UserAgentOriginal,
 				attr.ErrorType,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -363,6 +410,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkProtocolVersion,
 				attr.ErrorType,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -384,6 +432,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkPeerPort,
 				attr.ErrorType,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -407,6 +456,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkPeerPort,
 				attr.ErrorType,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -433,6 +483,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkPeerAddress,
 				attr.NetworkPeerPort,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 			absent: []string{"service.peer.name"},
 		},
@@ -455,6 +506,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkPeerAddress,
 				attr.NetworkPeerPort,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -475,6 +527,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkPeerAddress,
 				attr.NetworkPeerPort,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -495,6 +548,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkPeerAddress,
 				attr.NetworkPeerPort,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -516,6 +570,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkPeerAddress,
 				attr.NetworkPeerPort,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -537,6 +592,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkPeerAddress,
 				attr.NetworkPeerPort,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -556,6 +612,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkPeerAddress,
 				attr.NetworkPeerPort,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -575,6 +632,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkPeerAddress,
 				attr.NetworkPeerPort,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -608,11 +666,13 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			optional: []attr.Name{
 				attr.DBQueryText,
 				attr.HTTPRequestMethodOrig,
+				attr.HTTPResponseBodySize,
 				attr.NetworkPeerAddress,
 				attr.NetworkPeerPort,
 				attr.NetworkProtocolVersion,
 				attr.ErrorType,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -643,6 +703,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkProtocolVersion,
 				attr.ErrorType,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 		{
@@ -675,6 +736,132 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.NetworkProtocolVersion,
 				attr.ErrorType,
 				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			name:     "http server",
+			groupID:  "span.obi.http.server",
+			span:     populatedHTTPServerSpan(request.HTTPSubtypeNone),
+			optional: httpSpanOptional,
+			absent:   []string{"obi.http.response.observed"},
+		},
+		{
+			name:    "http server with an unobserved response",
+			groupID: "span.obi.http.server",
+			span: func() *request.Span {
+				s := populatedHTTPServerSpan(request.HTTPSubtypeNone)
+				s.ResponseObservation = request.ResponseReceived
+				return s
+			}(),
+			optional: httpSpanOptional,
+			absent:   []string{"http.response.status_code", "error.type"},
+		},
+		{
+			name:    "graphql server",
+			groupID: "span.obi.graphql.server",
+			span: func() *request.Span {
+				s := populatedHTTPServerSpan(request.HTTPSubtypeGraphQL)
+				s.GraphQL = &request.GraphQL{
+					Document:      "query Q { things { id } }",
+					OperationName: "Q",
+					OperationType: "query",
+				}
+				return s
+			}(),
+			optional: append([]attr.Name{attr.GraphQLDocument}, httpSpanOptional...),
+			absent:   []string{"obi.http.response.observed"},
+		},
+		{
+			name:    "mcp server",
+			groupID: "span.obi.mcp.server",
+			span: func() *request.Span {
+				s := populatedHTTPServerSpan(request.HTTPSubtypeMCP)
+				s.GenAI = &request.GenAI{MCP: &request.MCPCall{
+					Method:            request.MCPMethodToolsCall,
+					ToolName:          "search",
+					ToolType:          "function",
+					ToolCallArguments: `{"q":"x"}`,
+					ToolCallResult:    `{"hits":0}`,
+					ResourceURI:       "file:///tmp/x",
+					PromptName:        "summarize",
+					SessionID:         "s-1",
+					ProtocolVer:       "2025-06-18",
+					RequestID:         "1",
+					ErrorCode:         -32602,
+				}}
+				return s
+			}(),
+			optional: append([]attr.Name{attr.GenAIToolCallArguments, attr.GenAIToolCallResult}, httpSpanOptional...),
+			absent:   []string{"obi.http.response.observed"},
+		},
+		{
+			name:    "jsonrpc server",
+			groupID: "span.obi.jsonrpc.server",
+			span: func() *request.Span {
+				s := populatedHTTPServerSpan(request.HTTPSubtypeJSONRPC)
+				s.JSONRPC = &request.JSONRPC{
+					Method:           "Arith.Multiply",
+					ServiceQualified: true,
+					Version:          "2.0",
+					RequestID:        "1",
+					ErrorCode:        -32600,
+				}
+				return s
+			}(),
+			optional: httpSpanOptional,
+			absent:   []string{"obi.http.response.observed"},
+		},
+		{
+			name:    "http client",
+			groupID: "span.obi.http.client",
+			span: &request.Span{
+				Type:                request.EventTypeHTTPClient,
+				Method:              "SEARCH",
+				Path:                "/v1/things",
+				FullPath:            "/v1/things?q=1",
+				Statement:           "https" + request.SchemeHostSeparator + "api.example.com",
+				Host:                "10.0.0.1",
+				HostPort:            443,
+				HostName:            "api.example.com",
+				Peer:                "10.0.0.2",
+				PeerPort:            54321,
+				Status:              500,
+				ProtoVersion:        request.ProtoVersionHTTP11,
+				RequestHeaders:      map[string][]string{"x-trace": {"1"}, "user-agent": {"curl/8.0"}},
+				ResponseHeaders:     map[string][]string{"x-reply": {"2"}},
+				RequestBodyContent:  "{}",
+				ResponseBodyContent: "{}",
+			},
+			optional: httpSpanOptional,
+			absent:   []string{"obi.http.response.observed"},
+		},
+		{
+			name:    "sql client",
+			groupID: "span.obi.db.sql.client",
+			span: &request.Span{
+				Type:           request.EventTypeSQLClient,
+				Method:         "SELECT",
+				Path:           "users",
+				Statement:      "SELECT * FROM users WHERE id = 1",
+				DBQuerySummary: "SELECT users",
+				DBNamespace:    "app",
+				Host:           "10.0.0.1",
+				HostPort:       5432,
+				HostName:       "postgres",
+				Peer:           "10.0.0.2",
+				PeerPort:       54321,
+				Status:         1,
+				SQLError:       &request.SQLError{Code: 1062, Message: "duplicate"},
+			},
+			optional: []attr.Name{
+				attr.DBQueryText,
+				attr.DBQuerySummary,
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.ErrorType,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
 			},
 		},
 	} {

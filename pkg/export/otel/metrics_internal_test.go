@@ -13,12 +13,12 @@ import (
 	metricdata "go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 )
 
@@ -29,7 +29,7 @@ func TestInternalMetricsReporterBpfProbeStats(t *testing.T) {
 		MetricsConsumer: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
-		NodeMeta:            meta.NodeMeta{HostID: "test-host"},
+		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
 		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
 	}
 
@@ -124,7 +124,7 @@ func TestInternalMetricsReporterQueueBufferUtilization(t *testing.T) {
 		MetricsConsumer: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
-		NodeMeta:            meta.NodeMeta{HostID: "test-host"},
+		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
 		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
 	}
 
@@ -156,7 +156,7 @@ func TestInternalMetricsReporterInvalidUTF8ProcessName(t *testing.T) {
 		MetricsConsumer: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
-		NodeMeta:            meta.NodeMeta{HostID: "test-host"},
+		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
 		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
 	}
 
@@ -184,7 +184,7 @@ func TestInternalMetricsReporterAvoidedServicesBounded(t *testing.T) {
 		MetricsConsumer: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
-		NodeMeta:            meta.NodeMeta{HostID: "test-host"},
+		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
 		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
 	}
 
@@ -239,7 +239,7 @@ func TestInternalMetricsReporterAvoidedServicesDisabled(t *testing.T) {
 		MetricsConsumer: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
-		NodeMeta:            meta.NodeMeta{HostID: "test-host"},
+		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
 		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
 	}
 

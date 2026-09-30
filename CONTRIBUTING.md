@@ -30,6 +30,10 @@ OpenTelemetry standards and strives to be compatible with that ecosystem.
 
 ## Development
 
+For a Go development environment with Docker access (especially useful for non-Linux users),
+see the [development container instructions](.devcontainer/README.md), including VS Code,
+IntelliJ IDEA, and terminal workflows.
+
 ### Compiling the project
 
 #### Requirements

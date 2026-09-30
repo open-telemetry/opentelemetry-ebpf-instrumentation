@@ -376,6 +376,13 @@ Known `match.kubernetes` fields exported today:
 `metadata_glob` and `metadata_regex` intentionally exclude `k8s_namespace`; namespace has first-class fields because it is the most common Kubernetes selector.
 Other allowed metadata keys currently include `k8s_pod_name`, `k8s_deployment_name`, `k8s_replicaset_name`, `k8s_daemonset_name`, `k8s_statefulset_name`, `k8s_job_name`, `k8s_cronjob_name`, `k8s_owner_name`, `k8s_container_name`, and `container_name`.
 
+#### Process selection caveat
+
+When a process does not match an include rule directly, it can still inherit a
+tracked parent's selection. This intentional fallback applies even if the child
+never opens a selected port, so `open_ports` does not exclude forked children.
+Use executable-path exclusions when child processes must remain uninstrumented.
+
 #### Language-detection path skips are not capture rules
 
 The v1 `discovery.excluded_linux_system_paths` field limits the cost of

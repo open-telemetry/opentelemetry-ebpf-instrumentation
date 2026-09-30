@@ -55,6 +55,8 @@ int GUARDED_PROG(obi_handle_buf_with_args, void *, ctx) {
             data.flags |= http2_conn_flag_ssl;
         }
         bpf_map_update_elem(&ongoing_http2_connections, &args->pid_conn, &data, BPF_ANY);
+        // an earlier connection with the same address and port may have left a cut frame
+        bpf_map_delete_elem(&h2_cut_frames, &args->pid_conn);
         skip_http2_preface(args);
     }
 

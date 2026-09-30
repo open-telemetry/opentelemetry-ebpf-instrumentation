@@ -54,6 +54,21 @@ services:
       otelcol:
         condition: service_started
 
+  # One P: the server decodes every HEADERS frame of a burst before any handler goroutine runs
+  testserver-burst:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/gohttp2/server/Dockerfile
+    image: hatest-server
+    ports:
+      - "7383:7373"
+    environment:
+      GOMAXPROCS: "1"
+      TEST_HTTP2_PROTOCOLS: ${TEST_HTTP2_PROTOCOLS}
+    depends_on:
+      otelcol:
+        condition: service_started
+
   obi:
     build:
       context: ../../..
@@ -86,6 +101,9 @@ services:
         condition: service_started
 
       testclient-stdlib-legacy:
+        condition: service_started
+
+      testserver-burst:
         condition: service_started
 
   # OpenTelemetry Collector — fans OBI's OTLP push out to jaeger (production
@@ -123,7 +141,7 @@ services:
 
   # Prometheus
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    image: quay.io/prometheus/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
     container_name: prometheus
     command:
       - --config.file=/etc/prometheus/prometheus-config-promscrape.yml

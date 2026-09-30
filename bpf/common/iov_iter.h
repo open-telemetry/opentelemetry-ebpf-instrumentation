@@ -88,12 +88,16 @@ static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, unsigned char *bu
 
     u32 tot_len = 0;
 
-    enum { max_segments = 16 };
-
-    bpf_clamp_umax(ctx->nr_segs, max_segments);
+    enum { max_segments = 64 };
 
     // Loop couple of times reading the various io_vecs
-    for (unsigned long i = 0; i < ctx->nr_segs && i < max_segments; i++) {
+    for (u32 i = 0; i < max_segments; i++) {
+        // copied through a helper so the verifier forgets its range and merges each round's paths
+        bpf_probe_read_kernel(&tot_len, sizeof(tot_len), &tot_len);
+        if (i >= ctx->nr_segs || tot_len >= max_len) {
+            break;
+        }
+
         struct iovec vec;
 
         if (bpf_probe_read_kernel(&vec, sizeof(vec), &ctx->iov[i]) != 0) {
@@ -107,19 +111,13 @@ static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, unsigned char *bu
             continue;
         }
 
-        const u32 remaining = k_iovec_max_len > tot_len ? (k_iovec_max_len - tot_len) : 0;
-        u32 iov_size = (u32)min(min(vec.iov_len, max_len), (size_t)remaining);
-        bpf_clamp_umax(tot_len, k_iovec_max_len);
+        u32 iov_size = (u32)min(vec.iov_len, max_len - tot_len);
         bpf_clamp_umax(iov_size, k_iovec_max_len);
 
-        // bpf_dbg_printk("tot_len=%d, remaining=%d", tot_len, remaining);
+        // bpf_dbg_printk("tot_len=%d", tot_len);
 
-        if (tot_len + iov_size > max_len) {
-            break;
-        }
-
-        // clamp again at the use: verifiers before 5.10 drop the bound when the value
-        // is spilled to the stack between the clamp above and this read
+        // clamp at the use: verifiers before 5.10 drop the bound when the value
+        // is spilled to the stack between the check above and this read
         bpf_clamp_umax(tot_len, k_iovec_max_len);
         bpf_probe_read(&buf[tot_len], iov_size, vec.iov_base);
 
@@ -128,5 +126,9 @@ static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, unsigned char *bu
         tot_len += iov_size;
     }
 
-    return tot_len;
+    // copied through a helper so every loop exit hands the caller the same range to verify
+    u32 read_len = 0;
+    bpf_probe_read_kernel(&read_len, sizeof(read_len), &tot_len);
+    bpf_clamp_umax(read_len, k_iovec_max_len);
+    return read_len;
 }

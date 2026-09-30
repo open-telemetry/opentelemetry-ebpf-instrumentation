@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -38,7 +38,7 @@ func TestV2ToRuntimeEnrichAttributesAndKubernetesRoundTrip(t *testing.T) {
 		"service.version": {"version", "release"},
 	}
 	cfg.Attributes.Kubernetes.ServiceNameTemplate = "{{ .Meta.Name }}"
-	cfg.Attributes.MetadataRetry = meta.RetryConfig{
+	cfg.Attributes.MetadataRetry = metadata.RetryConfig{
 		Timeout:       0,
 		StartInterval: 46 * time.Millisecond,
 		MaxInterval:   47 * time.Second,

@@ -99,6 +99,136 @@ OBI-emitted dns.lookup.duration
 | `dns.question.name` | string | `opt_in` | development | The name being queried. | www.example.com; opentelemetry.io |
 | `error.type` | string | `conditionally_required`: if the lookup ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 
+## `dotnet.assembly.count`
+
+Number of loaded .NET assemblies.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | {assembly} | stable |
+
+No attributes.
+
+## `dotnet.gc.heap.total_allocated`
+
+Total bytes allocated on the .NET managed heap since the collector baseline.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | By | stable |
+
+No attributes.
+
+## `dotnet.gc.last_collection.memory.committed_size`
+
+Committed .NET GC memory observed during the latest collection.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | By | stable |
+
+No attributes.
+
+## `dotnet.gc.pause.time`
+
+Total .NET GC pause time since the collector baseline.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | s | stable |
+
+No attributes.
+
+## `dotnet.jit.compilation.time`
+
+Total .NET JIT compilation time since the collector baseline.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | s | stable |
+
+No attributes.
+
+## `dotnet.jit.compiled_il.size`
+
+Total bytes of intermediate language compiled by the .NET JIT compiler.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | By | stable |
+
+No attributes.
+
+## `dotnet.jit.compiled_methods`
+
+Total methods compiled by the .NET JIT compiler.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {method} | stable |
+
+No attributes.
+
+## `dotnet.monitor.lock_contentions`
+
+Total .NET monitor lock contentions since the collector baseline.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {contention} | stable |
+
+No attributes.
+
+## `dotnet.process.memory.working_set`
+
+Physical memory mapped to the .NET process.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | By | stable |
+
+No attributes.
+
+## `dotnet.thread_pool.queue.length`
+
+Number of queued .NET thread-pool work items.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | {work_item} | stable |
+
+No attributes.
+
+## `dotnet.thread_pool.thread.count`
+
+Number of .NET thread-pool threads that currently exist.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | {thread} | stable |
+
+No attributes.
+
+## `dotnet.thread_pool.work_item.count`
+
+Total completed .NET thread-pool work items since the collector baseline.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {work_item} | stable |
+
+No attributes.
+
+## `dotnet.timer.count`
+
+Number of active .NET timers.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | {timer} | stable |
+
+No attributes.
+
 ## `gen_ai.client.operation.duration`
 
 OBI-emitted gen_ai.client.operation.duration
@@ -260,6 +390,48 @@ OBI-emitted go.schedule.duration
 
 No attributes.
 
+## `gpu.cuda.device.synchronize.calls`
+
+Count of CUDA device synchronizations observed (cudaDeviceSynchronize).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | 1 | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cuda.device.index` | int | `recommended` | development | Index of the CUDA device the call ran on, as the process sees it. The attribute is only present after the calling thread has selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; it is omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
+| `cuda.device.model` | string | `recommended` | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
+| `cuda.device.uuid` | string | `recommended` | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
+
+## `gpu.cuda.event.record.calls`
+
+Count of CUDA event records observed (cudaEventRecord).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | 1 | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cuda.device.index` | int | `recommended` | development | Index of the CUDA device the call ran on, as the process sees it. The attribute is only present after the calling thread has selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; it is omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
+| `cuda.device.model` | string | `recommended` | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
+| `cuda.device.uuid` | string | `recommended` | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
+
+## `gpu.cuda.event.synchronize.calls`
+
+Count of CUDA event synchronizations observed (cudaEventSynchronize).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | 1 | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cuda.device.index` | int | `recommended` | development | Index of the CUDA device the call ran on, as the process sees it. The attribute is only present after the calling thread has selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; it is omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
+| `cuda.device.model` | string | `recommended` | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
+| `cuda.device.uuid` | string | `recommended` | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
+
 ## `gpu.cuda.graph.launch.calls`
 
 Count of CUDA graph launches observed (cudaGraphLaunch).
@@ -268,7 +440,25 @@ Count of CUDA graph launches observed (cudaGraphLaunch).
 | --- | --- | --- |
 | counter | 1 | development |
 
-No attributes.
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cuda.device.index` | int | `recommended` | development | Index of the CUDA device the call ran on, as the process sees it. The attribute is only present after the calling thread has selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; it is omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
+| `cuda.device.model` | string | `recommended` | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
+| `cuda.device.uuid` | string | `recommended` | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
+
+## `gpu.cuda.host.register.bytes`
+
+Bytes registered through CUDA host memory registration (cudaHostRegister).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | By | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cuda.device.index` | int | `recommended` | development | Index of the CUDA device the call ran on, as the process sees it. The attribute is only present after the calling thread has selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; it is omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
+| `cuda.device.model` | string | `recommended` | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
+| `cuda.device.uuid` | string | `recommended` | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
 
 ## `gpu.cuda.kernel.block.size`
 
@@ -278,7 +468,11 @@ Distribution of CUDA kernel launch block sizes (block.x * block.y * block.z).
 | --- | --- | --- |
 | histogram | 1 | development |
 
-No attributes.
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cuda.device.index` | int | `recommended` | development | Index of the CUDA device the call ran on, as the process sees it. The attribute is only present after the calling thread has selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; it is omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
+| `cuda.device.model` | string | `recommended` | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
+| `cuda.device.uuid` | string | `recommended` | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
 
 ## `gpu.cuda.kernel.grid.size`
 
@@ -288,7 +482,11 @@ Distribution of CUDA kernel launch grid sizes (grid.x * grid.y * grid.z).
 | --- | --- | --- |
 | histogram | 1 | development |
 
-No attributes.
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cuda.device.index` | int | `recommended` | development | Index of the CUDA device the call ran on, as the process sees it. The attribute is only present after the calling thread has selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; it is omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
+| `cuda.device.model` | string | `recommended` | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
+| `cuda.device.uuid` | string | `recommended` | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
 
 ## `gpu.cuda.kernel.launch.calls`
 
@@ -298,7 +496,11 @@ Count of CUDA kernel launches observed (cudaLaunchKernel).
 | --- | --- | --- |
 | counter | 1 | development |
 
-No attributes.
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cuda.device.index` | int | `recommended` | development | Index of the CUDA device the call ran on, as the process sees it. The attribute is only present after the calling thread has selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; it is omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
+| `cuda.device.model` | string | `recommended` | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
+| `cuda.device.uuid` | string | `recommended` | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
 
 ## `gpu.cuda.memory.allocations`
 
@@ -308,7 +510,11 @@ Bytes requested through CUDA device memory allocations (cudaMalloc).
 | --- | --- | --- |
 | counter | By | development |
 
-No attributes.
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cuda.device.index` | int | `recommended` | development | Index of the CUDA device the call ran on, as the process sees it. The attribute is only present after the calling thread has selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; it is omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
+| `cuda.device.model` | string | `recommended` | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
+| `cuda.device.uuid` | string | `recommended` | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
 
 ## `gpu.cuda.memory.copies`
 
@@ -320,7 +526,80 @@ Distribution of CUDA memory copy sizes (cudaMemcpy / cudaMemcpyAsync), broken do
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
+| `cuda.device.index` | int | `recommended` | development | Index of the CUDA device the call ran on, as the process sees it. The attribute is only present after the calling thread has selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; it is omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
+| `cuda.device.model` | string | `recommended` | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
+| `cuda.device.uuid` | string | `recommended` | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
 | `cuda.memcpy.kind` | enum | `recommended` | development | Direction of a CUDA memory copy, mirroring the `cudaMemcpyKind` enum of the CUDA Runtime API. | MemcpyHostToHost; MemcpyHostToDevice; MemcpyDeviceToHost; MemcpyDeviceToDevice; MemcpyDefault |
+
+## `gpu.cuda.memory.free.bytes`
+
+Bytes released through CUDA device memory frees (cudaFree).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | By | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cuda.device.index` | int | `recommended` | development | Index of the CUDA device the call ran on, as the process sees it. The attribute is only present after the calling thread has selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; it is omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
+| `cuda.device.model` | string | `recommended` | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
+| `cuda.device.uuid` | string | `recommended` | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
+
+## `gpu.cuda.memset.bytes`
+
+Bytes set through CUDA memory set operations (cudaMemset).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | By | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cuda.device.index` | int | `recommended` | development | Index of the CUDA device the call ran on, as the process sees it. The attribute is only present after the calling thread has selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; it is omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
+| `cuda.device.model` | string | `recommended` | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
+| `cuda.device.uuid` | string | `recommended` | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
+
+## `gpu.cuda.stream.create.calls`
+
+Count of CUDA stream creations observed (cudaStreamCreate).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | 1 | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cuda.device.index` | int | `recommended` | development | Index of the CUDA device the call ran on, as the process sees it. The attribute is only present after the calling thread has selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; it is omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
+| `cuda.device.model` | string | `recommended` | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
+| `cuda.device.uuid` | string | `recommended` | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
+
+## `gpu.cuda.stream.destroy.calls`
+
+Count of CUDA stream destructions observed (cudaStreamDestroy).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | 1 | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cuda.device.index` | int | `recommended` | development | Index of the CUDA device the call ran on, as the process sees it. The attribute is only present after the calling thread has selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; it is omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
+| `cuda.device.model` | string | `recommended` | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
+| `cuda.device.uuid` | string | `recommended` | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
+
+## `gpu.cuda.stream.synchronize.calls`
+
+Count of CUDA stream synchronizations observed (cudaStreamSynchronize).
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | 1 | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cuda.device.index` | int | `recommended` | development | Index of the CUDA device the call ran on, as the process sees it. The attribute is only present after the calling thread has selected or queried a device through `cudaSetDevice` or `cudaGetDevice`; it is omitted when no device binding was observed. `CUDA_VISIBLE_DEVICES` remaps the index, which is why it may repeat across processes; `cuda.device.uuid` identifies the physical GPU. |  |
+| `cuda.device.model` | string | `recommended` | development | Model name of the CUDA device the call ran on, as reported by the CUDA introspection APIs. Omitted when the process never asked CUDA about the device. | NVIDIA H20-3e |
+| `cuda.device.uuid` | string | `recommended` | development | UUID of the CUDA device the call ran on, as reported by the CUDA introspection APIs. It is the bare UUID, which is the uuid column of `nvidia-smi` with its `GPU-` prefix removed. Omitted when the process never asked CUDA about the device. | bed26f36-a0eb-994e-a0a6-a8437e7ca751 |
 
 ## `http.client.request.body.size`
 
@@ -590,6 +869,21 @@ OBI-emitted mcp.client.operation.duration
 | `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
 
+## `mcp.client.session.duration`
+
+The duration of the MCP session as observed on the MCP client.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| histogram | s | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `error.type` | string | `conditionally_required`: If and only if the session ends with an error. | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `mcp.protocol.version` | string | `recommended`: if the peer reported a protocol version | development | The [version](https://modelcontextprotocol.io/specification/versioning) of the Model Context Protocol used. | 2025-06-18 |
+| `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
+
 ## `mcp.server.operation.duration`
 
 OBI-emitted mcp.server.operation.duration
@@ -607,6 +901,19 @@ OBI-emitted mcp.server.operation.duration
 | `mcp.protocol.version` | string | `recommended`: if the peer reported a protocol version | development | The [version](https://modelcontextprotocol.io/specification/versioning) of the Model Context Protocol used. | 2025-06-18 |
 | `mcp.resource.uri` | string | `opt_in` | development | The value of the resource uri. | postgres://database/customers/schema; file:///home/user/documents/report.pdf |
 | `rpc.response.status_code` | string | `conditionally_required`: if the response carried a JSON-RPC error code | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
+
+## `mcp.server.session.duration`
+
+The duration of the MCP session as observed on the MCP server.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| histogram | s | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `error.type` | string | `conditionally_required`: If and only if the session ends with an error. | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `mcp.protocol.version` | string | `recommended`: if the peer reported a protocol version | development | The [version](https://modelcontextprotocol.io/specification/versioning) of the Model Context Protocol used. | 2025-06-18 |
 
 ## `messaging.client.operation.duration`
 

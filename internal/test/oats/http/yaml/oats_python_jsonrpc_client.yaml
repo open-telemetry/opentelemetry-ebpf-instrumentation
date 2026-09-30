@@ -1,0 +1,21 @@
+oats-schema-version: 2
+docker-compose:
+  files:
+  - ../docker-compose-python-jsonrpc-client.yml
+  - ../../weaver/docker-compose-weaver.yml
+input:
+- path: /call
+interval: 500ms
+expected:
+  traces:
+  # The outgoing JSON-RPC request, recognised from the HTTP request body
+  - traceql: '{ kind = client && .rpc.system.name = "jsonrpc" }'
+    equals: tools/list
+    attributes:
+      rpc.system.name: jsonrpc
+      rpc.method: tools/list
+      jsonrpc.protocol.version: '2.0'
+      server.port: '8080'
+  metrics:
+  - promql: rpc_client_call_duration_seconds_count{rpc_system_name="jsonrpc",rpc_method="tools/list"}
+    value: '> 0'

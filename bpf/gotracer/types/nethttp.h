@@ -9,6 +9,8 @@
 #include <common/go_h2_owned_stream.h>
 #include <common/tp_info.h>
 
+#include <gotracer/types/go_h2.h>
+
 #define MAX_W_PTR_N 1024
 
 static const char traceparent[] = "traceparent: ";
@@ -39,19 +41,6 @@ typedef struct server_http_func_invocation {
     bool is_jsonrpc;
     u8 _pad[7];
 } server_http_func_invocation_t;
-
-typedef struct framer_func_invocation {
-    u64 framer_ptr;
-    tp_info_t tp;
-    s64 initial_n;
-    u32 stream_id;
-    u16 s_port;
-    u16 d_port;
-    u8 frame_type;
-    bool reserved_padding;
-    bool awaiting_continuation;
-    u8 _pad[5];
-} framer_func_invocation_t;
 
 typedef struct http2_owned_stream_ref {
     go_h2_owned_stream_key_t stream;

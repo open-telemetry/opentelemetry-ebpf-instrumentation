@@ -169,6 +169,35 @@ const embeddingsBody = `{
   }
 }`
 
+const cohereEmbedBody = `{
+  "id": "embed-1",
+  "embeddings": {
+    "float": [[0.0023064255, -0.009327292]]
+  },
+  "texts": ["The food was delicious"],
+  "meta": {
+    "billed_units": {
+      "input_tokens": 5
+    }
+  }
+}`
+
+const rerankBody = `{
+  "id": "rerank-1",
+  "results": [
+    {"index": 1, "relevance_score": 0.98},
+    {"index": 0, "relevance_score": 0.12}
+  ],
+  "meta": {
+    "billed_units": {
+      "search_units": 1
+    },
+    "tokens": {
+      "input_tokens": 23
+    }
+  }
+}`
+
 type responsesRequest struct {
 	Input        string `json:"input"`
 	Instructions string `json:"instructions"`
@@ -380,6 +409,23 @@ func handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func handleStatic(responseBody string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if _, err := io.Copy(io.Discard, r.Body); err != nil {
+			http.Error(w, fmt.Sprintf("failed to read request body: %v", err), http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(responseBody))
+	}
+}
+
 func handleConversations(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -473,6 +519,8 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v1/chat/completions", handleCompletions)
 	mux.HandleFunc("/v1/embeddings", handleEmbeddings)
 	mux.HandleFunc("/v1/conversations", handleConversations)
+	mux.HandleFunc("/v2/embed", handleStatic(cohereEmbedBody))
+	mux.HandleFunc("/v2/rerank", handleStatic(rerankBody))
 	return mux
 }
 

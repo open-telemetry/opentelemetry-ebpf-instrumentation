@@ -11,6 +11,7 @@ Generated from [`config-schema.json`](config-schema.json).
 
 - [Top-Level Properties](#top-level-properties)
 - [`attributes`](#attributes)
+- [`cloud_metadata`](#cloud-metadata)
 - [`discovery`](#discovery)
 - [`dotnet_runtime_metrics`](#dotnet-runtime-metrics)
 - [`ebpf`](#ebpf)
@@ -121,6 +122,15 @@ RetryConfig holds the retry policy for metadata fetch operations. It controls th
 | `attributes.metadata_retry.start_interval` | `duration` | `OTEL_EBPF_METADATA_RETRY_START_INTERVAL` | `500ms` | `30s`, `5m`, `1ms`, etc |  | Specifies the initial wait duration between the first and second retry attempt. |
 | `attributes.metadata_retry.timeout` | `duration` | `OTEL_EBPF_METADATA_RETRY_TIMEOUT` | `30s` | `30s`, `5m`, `1ms`, etc |  | Specifies the maximum total time allowed for all retry attempts before giving up. |
 
+## `cloud_metadata`
+
+CloudMetadataConfig configures overrides for detected cloud metadata.
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `cloud_metadata.cluster_name` | `string` | `OTEL_EBPF_CLUSTER_NAME` |  |  |  | Overrides automatic cluster detection. |
+| `cloud_metadata.region` | `string` | `OTEL_EBPF_CLOUD_REGION` |  |  |  | Overrides automatic region detection. |
+
 ## `discovery`
 
 DiscoveryConfig for the discover.ProcessFinder pipeline
@@ -184,7 +194,7 @@ EBPFTracer configuration for eBPF programs
 | `ebpf.mssql_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_MSSQL_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  | MSSQL prepared statements cache size. |
 | `ebpf.mysql_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_MYSQL_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  | MySQL prepared statements cache size. |
 | `ebpf.override_bpfloop_enabled` | `boolean` | `OTEL_EBPF_OVERRIDE_BPF_LOOP_ENABLED` | `false` |  |  | Skips checking the kernel version for bpf_loop functionality. Some modified kernels have this backported prior to version 5.17. |
-| `ebpf.populate_trace_context` | `boolean` | `OTEL_EBPF_BPF_POPULATE_TRACE_CONTEXT` | `false` |  |  | Keeps the pinned `traces_ctx_v1` map -- the trace and span ID of the request each OS thread is currently serving -- populated for readers outside OBI, such as a profiler correlating samples with spans, or another eBPF program reading the pin directly.  Keeping the map aligned with the active request is not free: runtimes that decouple I/O from processing need a refresh on every context switch, which on Node.js means an `async_hooks` before hook running on every callback. OBI therefore only populates the map when something reads it. Its own readers -- the log enricher and the Node.js manual span bridge -- turn population on regardless of this setting; a reader outside OBI has no way to announce itself, so it opts in here.  Go channel span links may be affected: the handoff correlation falls back to this map when it cannot resolve the sending goroutine from the protocol maps, so links that relied on that fallback are lost while population is off. |
+| `ebpf.populate_trace_context` | `boolean` | `OTEL_EBPF_BPF_POPULATE_TRACE_CONTEXT` | `false` |  |  | Keeps the pinned `traces_ctx_v1` map -- the trace and span ID of the request each OS thread is currently serving -- populated for readers outside OBI, such as a profiler correlating samples with spans, or another eBPF program reading the pin directly.  Keeping the map aligned with the active request is not free: runtimes that decouple I/O from processing need a refresh on every context switch, which on Node.js means an `async_hooks` before hook running on every callback. OBI therefore only populates the map when something reads it. Its own reader -- the log enricher -- turns population on regardless of this setting; a reader outside OBI has no way to announce itself, so it opts in here.  Go channel span links may be affected: the handoff correlation falls back to this map when it cannot resolve the sending goroutine from the protocol maps, so links that relied on that fallback are lost while population is off. |
 | `ebpf.postgres_prepared_statements_cache_size` | `integer` | `OTEL_EBPF_BPF_POSTGRES_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  | Postgres prepared statements cache size. |
 | `ebpf.protocol_debug_print` | `boolean` | `OTEL_EBPF_PROTOCOL_DEBUG_PRINT` | `false` |  |  | Enables debug printing of the protocol data |
 | `ebpf.stats_wakeup_data_bytes` | `integer` | `OTEL_EBPF_STATS_WAKEUP_DATA_BYTES` | `4096` |  |  | Specifies the minimum number of bytes that must be available in the stats eBPF ring buffer before waking up the userspace consumer. When 0, every submission wakes up userspace immediately. Higher values reduce wakeup overhead under high traffic at the cost of delivery latency. The value should be well below ring buffer size / flushInterval to avoid event loss. |
@@ -438,7 +448,15 @@ GlobalMetricsConfig is a placeholder for the progressive support of global and p
 |---|---|---|---|---|---|---|
 | `name_resolver.cache_expiry` | `duration` | `OTEL_EBPF_NAME_RESOLVER_CACHE_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. |
 | `name_resolver.cache_len` | `integer` | `OTEL_EBPF_NAME_RESOLVER_CACHE_LEN` | `1024` |  |  | Specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256 |
-| `name_resolver.sources` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_SOURCES` | `k8s` | `dns`, `k8s`, `kube`, `kubernetes`, `rdns` |  | Specifies the backends used for name resolving. Accepted values: dns, k8s, rdns |
+| `name_resolver.sources` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_SOURCES` | `k8s` | `dns`, `ecs`, `k8s`, `kube`, `kubernetes`, `rdns` |  | Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns. The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions. |
+
+### `name_resolver.ecs`
+
+ECSNameResolverConfig configures ECS service name resolution.
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `name_resolver.ecs.refresh_interval` | `duration` | `OTEL_EBPF_NAME_RESOLVER_ECS_REFRESH_INTERVAL` | `30s` | `30s`, `5m`, `1ms`, etc |  | Controls how often the ECS task inventory is refreshed. |
 
 ## `network`
 

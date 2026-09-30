@@ -146,6 +146,20 @@ func TestDotnetRuntimeDefinitions(t *testing.T) {
 	assert.Contains(t, definition.All(), attr.ServiceName)
 	assert.Contains(t, definition.All(), attr.ServiceNamespace)
 	assert.Contains(t, definition.Default(), attr.DotnetGCHeapGeneration)
+	for _, metric := range []Name{
+		DotnetProcessMemoryWorkingSet, DotnetGCCommittedMemory,
+		DotnetThreadPoolThreadCount, DotnetThreadPoolQueueLength,
+		DotnetTimerCount, DotnetAssemblyCount,
+	} {
+		t.Run(string(metric.Section), func(t *testing.T) {
+			definition, ok := definitions[metric.Section]
+			require.True(t, ok)
+			assert.Contains(t, definition.All(), attr.ServiceName)
+			assert.Contains(t, definition.All(), attr.ServiceNamespace)
+			assert.NotContains(t, definition.All(), attr.DotnetGCHeapGeneration)
+			assert.Equal(t, InstrumentUpDownCounter, metric.Type)
+		})
+	}
 }
 
 func TestCPythonRuntimeDefinitions(t *testing.T) {

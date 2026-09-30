@@ -13,6 +13,11 @@ const path = require('path');
 const scenario = process.argv[2];
 
 const bridgeCaptured = [];
+const bridgeFds = [];
+const bridgeIds = [];
+const SPAN_PREFIX = '/dev/null/obi-span/';
+const SPAN_FD_PREFIX = '/dev/null/obi-spanfd/';
+const FD_DIGITS = 4;
 // Manual-span context override/pop sentinels (-mspan/), captured as a sequence
 // of raw payloads: a 48-hex <traceId><spanId> for an override, or '-' for a pop.
 const mspanCaptured = [];
@@ -22,8 +27,18 @@ const mspanCaptured = [];
 let transportThrows = false;
 const origExists = fs.existsSync;
 fs.existsSync = (p, ...rest) => {
-  if (typeof p === 'string' && p.startsWith('/dev/null/obi-span/')) {
-    bridgeCaptured.push(JSON.parse(p.slice('/dev/null/obi-span/'.length)).name);
+  if (typeof p === 'string' && (p.startsWith(SPAN_FD_PREFIX) || p.startsWith(SPAN_PREFIX))) {
+    let json;
+    if (p.startsWith(SPAN_FD_PREFIX)) {
+      bridgeFds.push(p.slice(SPAN_FD_PREFIX.length, SPAN_FD_PREFIX.length + FD_DIGITS));
+      json = p.slice(SPAN_FD_PREFIX.length + FD_DIGITS);
+    } else {
+      bridgeFds.push(null);
+      json = p.slice(SPAN_PREFIX.length);
+    }
+    const rec = JSON.parse(json);
+    bridgeCaptured.push(rec.name);
+    bridgeIds.push({ tid: rec.tid, sid: rec.sid });
     if (transportThrows) {
       const err = new Error('permission denied by policy');
       err.code = 'ERR_ACCESS_DENIED';
@@ -195,13 +210,52 @@ async function run() {
       process.stdout.write(JSON.stringify({ mspan: seq, bridge: bridgeCaptured }));
       return;
     }
+    case 'mspan-request-fd': {
+      const store = { fd: 7 };
+      globalThis[Symbol.for('otel-ebpf-instrumentation.fdextractor')] = { requestFd: () => store.fd };
+      const tracer = trace.getTracer('app');
+      injectBridge();
+      tracer.startActiveSpan('in-request', (s) => s.end());
+      store.fd = -1;
+      tracer.startActiveSpan('no-request', (s) => s.end());
+      const seq = mspanCaptured.map((pl) => (pl === '-' ? 'pop' : pl.length));
+      await new Promise((r) => setTimeout(r, 20));
+      fs.existsSync = origExists;
+      process.stdout.write(JSON.stringify({ mspan: seq, fd: mspanCaptured[0].slice(0, 4) }));
+      return;
+    }
+    case 'request-fd': {
+      const store = { fd: -1 };
+      globalThis[Symbol.for('otel-ebpf-instrumentation.fdextractor')] = { requestFd: () => store.fd };
+      const tracer = trace.getTracer('app');
+      injectBridge();
+      store.fd = 42;
+      tracer.startSpan('in-request').end();
+      store.fd = -1;
+      tracer.startSpan('no-request').end();
+      store.fd = 12345;
+      tracer.startSpan('fd-too-wide').end();
+      break;
+    }
+    case 'no-fdextractor': {
+      const tracer = trace.getTracer('app');
+      injectBridge();
+      tracer.startSpan('s1').end();
+      break;
+    }
+    case 'id-pool': {
+      const tracer = trace.getTracer('app');
+      injectBridge();
+      for (let i = 0; i < 400; i++) tracer.startSpan('s').end();
+      break;
+    }
     default:
       throw new Error('unknown scenario: ' + scenario);
   }
 
   await new Promise((r) => setTimeout(r, 20));
   fs.existsSync = origExists;
-  process.stdout.write(JSON.stringify({ bridge: bridgeCaptured, app: appCaptured }));
+  process.stdout.write(JSON.stringify({ bridge: bridgeCaptured, app: appCaptured, fds: bridgeFds, ids: bridgeIds }));
 }
 
 run().catch((e) => {

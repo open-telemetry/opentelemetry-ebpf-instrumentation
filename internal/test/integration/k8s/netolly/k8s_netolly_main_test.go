@@ -58,3 +58,7 @@ func TestMain(m *testing.M) {
 func TestNetworkFlowBytes(t *testing.T) {
 	cluster.TestEnv().Test(t, FeatureNetworkFlowBytes())
 }
+
+func TestNetworkFlowOTLPResource(t *testing.T) {
+	cluster.TestEnv().Test(t, FeatureNetworkFlowOTLPResource())
+}

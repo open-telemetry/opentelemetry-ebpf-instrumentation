@@ -10,9 +10,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -28,7 +28,7 @@ func TestInternalMetricsResourceHasHostMetadata(t *testing.T) {
 	cfg.OTELMetrics.Interval = 10 * time.Millisecond
 	cfg.InternalMetrics.Exporter = imetrics.InternalMetricsExporterOTEL
 	cfg.Attributes.HostID.Override = hostID
-	cfg.Attributes.MetadataRetry = meta.RetryConfig{Timeout: time.Millisecond}
+	cfg.Attributes.MetadataRetry = metadata.RetryConfig{Timeout: time.Millisecond}
 	cfg.Attributes.Kubernetes.Enable = kubeflags.EnabledFalse
 
 	ctxInfo, err := BuildCommonContextInfo(ctx, &cfg)

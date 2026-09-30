@@ -23,10 +23,10 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
-	"go.opentelemetry.io/obi/pkg/appolly/meta"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/metadata"
 )
 
 func TestAcceptSpanUsesEventInstrumentation(t *testing.T) {
@@ -932,7 +932,7 @@ func generateTraceSpan(t *testing.T, spanWithAttributes TraceSpanAndAttributes) 
 		cache,
 		&span.Service,
 		nil,
-		&meta.NodeMeta{},
+		&metadata.NodeMeta{},
 		[]TraceSpanAndAttributes{spanWithAttributes},
 		"obi",
 	)
@@ -984,7 +984,7 @@ func TestGenerateTracesWithAttributesManualOTelJSON(t *testing.T) {
 		cache,
 		service,
 		nil,
-		&meta.NodeMeta{},
+		&metadata.NodeMeta{},
 		[]TraceSpanAndAttributes{{
 			Span: &request.Span{
 				Type:           request.EventTypeManualSpan,
@@ -1064,7 +1064,7 @@ func TestGenerateTracesWithAttributesDropsInvalidManualOTelJSON(t *testing.T) {
 		cache,
 		service,
 		nil,
-		&meta.NodeMeta{},
+		&metadata.NodeMeta{},
 		[]TraceSpanAndAttributes{{
 			Span: &request.Span{
 				Type:           request.EventTypeManualSpan,
@@ -1533,7 +1533,7 @@ func TestAerospikeServerSpanOmitsPeerService(t *testing.T) {
 				Peer:     "10.0.0.2",
 			}
 
-			attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+			attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{attr.ServicePeerName: {}}))
 
 			_, ok := attrs.Get(string(semconv.ServicePeerNameKey))
 			assert.Equal(t, tc.want, ok)
@@ -1621,8 +1621,11 @@ func TestHTTPClientSchemeFollowsTheCapturedScheme(t *testing.T) {
 }
 
 func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
-	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	selectedAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
 	require.NoError(t, err)
+	for _, name := range []attr.Name{attr.HTTPRequestBodySize, attr.HTTPResponseBodySize, attr.ServicePeerName} {
+		selectedAttrs[name] = struct{}{}
+	}
 
 	transportKeys := []string{
 		"url.full", "url.scheme", "url.query", "http.request.method",
@@ -1691,7 +1694,7 @@ func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
 				tt.payload(span)
 			}
 
-			selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+			selected := AttrsToMap(TraceAttributesSelector(span, selectedAttrs))
 
 			expected := map[string]bool{}
 			for _, k := range tt.present {
@@ -1707,6 +1710,29 @@ func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
 				assert.True(t, ok, "%s must survive on every http client subtype when the span carries a value for it", key)
 			}
 		})
+	}
+}
+
+func TestOptInSpanAttributesOffByDefault(t *testing.T) {
+	optIn := []string{"service.peer.name", "http.request.body.size", "http.response.body.size"}
+
+	for _, span := range []*request.Span{
+		{Type: request.EventTypeHTTP, Method: "GET", Path: "/r", Host: "10.0.0.1", HostPort: 80, Status: 200},
+		{Type: request.EventTypeHTTPClient, Method: "GET", Path: "/r", Host: "10.0.0.1", HostPort: 80, Status: 200},
+		{
+			Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeElasticsearch,
+			Method: "POST", Path: "/_search", Host: "10.0.0.1", HostPort: 9200, Status: 200,
+			Elasticsearch: &request.Elasticsearch{DBSystemName: "elasticsearch", DBOperationName: "search"},
+		},
+		{Type: request.EventTypeGRPCClient, Path: "/pkg.Service/Method", Host: "10.0.0.1", HostPort: 50051},
+		{Type: request.EventTypeSQLClient, Method: "SELECT", Path: "users", Host: "10.0.0.1", HostPort: 5432},
+		{Type: request.EventTypeRedisClient, Method: "GET", Host: "10.0.0.1", HostPort: 6379},
+	} {
+		selected := AttrsToMap(TraceAttributesSelector(span, defaultTraceAttrs(t)))
+		for _, key := range optIn {
+			_, ok := selected.Get(key)
+			assert.False(t, ok, "%s: %s is opt-in", span.Type, key)
+		}
 	}
 }
 
@@ -2100,7 +2126,7 @@ func TestGenerateTracesSetsOBISchemaURL(t *testing.T) {
 		cache,
 		&span.Service,
 		nil,
-		&meta.NodeMeta{},
+		&metadata.NodeMeta{},
 		[]TraceSpanAndAttributes{{Span: &span, Attributes: TraceAttributesSelector(&span, map[attr.Name]struct{}{})}},
 		"obi",
 	)

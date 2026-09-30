@@ -304,6 +304,22 @@
       "type": "object",
       "description": "Buckets defines the histograms bucket boundaries, and allows users to redefine them"
     },
+    "CloudMetadataConfig": {
+      "properties": {
+        "cluster_name": {
+          "type": "string",
+          "description": "Overrides automatic cluster detection.",
+          "x-env-var": "OTEL_EBPF_CLUSTER_NAME"
+        },
+        "region": {
+          "type": "string",
+          "description": "Overrides automatic region detection.",
+          "x-env-var": "OTEL_EBPF_CLOUD_REGION"
+        }
+      },
+      "type": "object",
+      "description": "CloudMetadataConfig configures overrides for detected cloud metadata."
+    },
     "ContextPropagationMode": {
       "oneOf": [
         {
@@ -855,7 +871,7 @@
         },
         "populate_trace_context": {
           "type": "boolean",
-          "description": "Keeps the pinned `traces_ctx_v1` map -- the trace and span ID of the request each OS thread is currently serving -- populated for readers outside OBI, such as a profiler correlating samples with spans, or another eBPF program reading the pin directly.  Keeping the map aligned with the active request is not free: runtimes that decouple I/O from processing need a refresh on every context switch, which on Node.js means an `async_hooks` before hook running on every callback. OBI therefore only populates the map when something reads it. Its own readers -- the log enricher and the Node.js manual span bridge -- turn population on regardless of this setting; a reader outside OBI has no way to announce itself, so it opts in here.  Go channel span links may be affected: the handoff correlation falls back to this map when it cannot resolve the sending goroutine from the protocol maps, so links that relied on that fallback are lost while population is off.",
+          "description": "Keeps the pinned `traces_ctx_v1` map -- the trace and span ID of the request each OS thread is currently serving -- populated for readers outside OBI, such as a profiler correlating samples with spans, or another eBPF program reading the pin directly.  Keeping the map aligned with the active request is not free: runtimes that decouple I/O from processing need a refresh on every context switch, which on Node.js means an `async_hooks` before hook running on every callback. OBI therefore only populates the map when something reads it. Its own reader -- the log enricher -- turns population on regardless of this setting; a reader outside OBI has no way to announce itself, so it opts in here.  Go channel span links may be affected: the handoff correlation falls back to this map when it cannot resolve the sending goroutine from the protocol maps, so links that relied on that fallback are lost while population is off.",
           "default": false,
           "x-env-var": "OTEL_EBPF_BPF_POPULATE_TRACE_CONTEXT"
         },
@@ -906,6 +922,24 @@
       },
       "type": "object",
       "description": "EBPFTracer configuration for eBPF programs"
+    },
+    "ECSNameResolverConfig": {
+      "properties": {
+        "refresh_interval": {
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m)$",
+          "description": "Controls how often the ECS task inventory is refreshed.",
+          "default": "30s",
+          "examples": [
+            "30s",
+            "5m",
+            "1ms"
+          ],
+          "x-env-var": "OTEL_EBPF_NAME_RESOLVER_ECS_REFRESH_INTERVAL"
+        }
+      },
+      "type": "object",
+      "description": "ECSNameResolverConfig configures ECS service name resolution."
     },
     "ElasticsearchConfig": {
       "properties": {
@@ -2086,11 +2120,15 @@
           "default": 1024,
           "x-env-var": "OTEL_EBPF_NAME_RESOLVER_CACHE_LEN"
         },
+        "ecs": {
+          "$ref": "#/$defs/ECSNameResolverConfig"
+        },
         "sources": {
           "items": {
             "type": "string",
             "enum": [
               "dns",
+              "ecs",
               "k8s",
               "kube",
               "kubernetes",
@@ -2098,7 +2136,7 @@
             ]
           },
           "type": "array",
-          "description": "Specifies the backends used for name resolving. Accepted values: dns, k8s, rdns",
+          "description": "Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns. The \"ecs\" source requires ecs:ListTasks and ecs:DescribeTasks permissions.",
           "default": [
             "k8s"
           ],
@@ -3197,6 +3235,9 @@
       "type": "boolean",
       "default": false,
       "x-env-var": "OTEL_EBPF_CHANNEL_SEND_TIMEOUT_PANIC"
+    },
+    "cloud_metadata": {
+      "$ref": "#/$defs/CloudMetadataConfig"
     },
     "discovery": {
       "$ref": "#/$defs/DiscoveryConfig",

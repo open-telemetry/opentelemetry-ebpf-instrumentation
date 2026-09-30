@@ -1,0 +1,230 @@
+#!/usr/bin/env python3
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
+"""h2c client that sends a whole burst of requests with one send().
+
+Each burst has STREAMS requests on one connection. The client reports how many
+of the server's response HEADERS frames came back in a single recv(), so the
+test only checks bursts that really shared one buffer.
+
+Connections are replaced every few bursts: OBI detects HTTP/2 from the
+connection preface, so the test needs connections opened after OBI started,
+but each connection must live long enough for the HPACK dynamic tables to be
+used.
+
+With TRACEPARENTS=1 every request carries its own traceparent, Huffman-coded
+like gRPC libraries send it, and after the first one on a connection its name
+is sent as an index.
+
+With CONTINUATIONS=1 the first gRPC request of each burst sends its header block
+as a HEADERS frame and a CONTINUATION frame, cut inside its last field like
+libraries cut a block too big for one frame. That request carries its own
+traceparent too, since OBI adds none to a block split across frames.
+"""
+
+import os
+import random
+import secrets
+import socket
+import threading
+import time
+
+from h2hpack import Decoder, Encoder
+from wire import (
+    CLIENT_PREFACE,
+    FLAG_END_HEADERS,
+    FLAG_END_STREAM,
+    FLAG_ACK,
+    FRAME_CONTINUATION,
+    FRAME_HEADERS,
+    FRAME_SETTINGS,
+    GRPC_CONTENT_TYPE,
+    method_for,
+    MODE_GRPC,
+    MODE_HTTP,
+    build_frame,
+    burst_path,
+    count_headers,
+    emit,
+    split_frames,
+)
+
+READ_SIZE = 65536
+BURSTS_PER_CONNECTION = 8
+RESPONSE_TIMEOUT = 20
+BURST_INTERVAL = float(os.getenv("BURST_INTERVAL_MS", "500")) / 1000
+TRACEPARENTS = os.getenv("TRACEPARENTS") == "1"
+CONTINUATIONS = os.getenv("CONTINUATIONS") == "1"
+
+
+class Session:
+    def __init__(self, conn, mode, streams, authority):
+        self.conn = conn
+        self.mode = mode
+        self.streams = streams
+        self.authority = authority
+        self.id = str(random.randrange(1_000_000))
+        self.encoder = Encoder(huffman=("traceparent",))
+        self.decoder = Decoder()
+        self.leftover = b""
+        self.next_stream_id = 1
+        self.statuses = {}
+        self.open = {}
+
+    def burst(self, index):
+        burst_id = str(random.randrange(1_000_000))
+        self.statuses = {}
+        self.open = {}
+
+        content_type = GRPC_CONTENT_TYPE if self.mode == MODE_GRPC else "text/plain"
+
+        out = b""
+        traceparents = {}
+        for stream in range(self.streams):
+            stream_id = self.next_stream_id
+            self.next_stream_id += 2
+            self.open[stream_id] = stream
+            fields = [
+                (":method", method_for(stream)),
+                (":scheme", "http"),
+                (":authority", self.authority),
+                (":path", burst_path(burst_id, stream)),
+            ]
+            continued = CONTINUATIONS and self.mode == MODE_GRPC and stream == 0
+            if TRACEPARENTS or continued:
+                traceparents[stream_id] = "00-{}-{}-01".format(secrets.token_hex(16), secrets.token_hex(8))
+                fields.append(("traceparent", traceparents[stream_id]))
+            fields.append(("content-type", content_type))
+            block = self.encoder.encode(fields)
+            if continued:
+                out += self.continued_request(stream_id, block, burst_id)
+                continue
+            out += build_frame(FRAME_HEADERS, FLAG_END_HEADERS | FLAG_END_STREAM, stream_id, block)
+
+        record = {
+            "burst": burst_id,
+            "mode": self.mode,
+            "conn": self.id,
+            "index": index,
+        }
+
+        self.conn.sendall(out)
+
+        header_reads, headers_in_first_read = self.collect_responses()
+        if header_reads == 1:
+            record["resp_headers_in_one_read"] = headers_in_first_read
+
+        record["exchanges"] = [
+            {
+                "method": method_for(stream),
+                "path": burst_path(burst_id, stream),
+                "status": self.statuses.get(stream_id, 0),
+                "traceparent": traceparents.get(stream_id, ""),
+            }
+            for stream_id, stream in sorted(self.open.items())
+        ]
+        emit("H2MUX_CLIENT", record)
+
+    def continued_request(self, stream_id, block, burst_id):
+        """Returns a HEADERS frame and a CONTINUATION frame that together carry block.
+
+        A filler field ends the block, unique so it is never sent as an index, and
+        the cut falls inside it.
+        """
+        filler = self.encoder.encode([("x-filler", "{}-{}".format(burst_id, "f" * 64))])
+        cut = len(block) + len(filler) // 2
+        block += filler
+        return (build_frame(FRAME_HEADERS, FLAG_END_STREAM, stream_id, block[:cut]) +
+                build_frame(FRAME_CONTINUATION, FLAG_END_HEADERS, stream_id, block[cut:]))
+
+    def collect_responses(self):
+        """Reads until every stream has ended.
+
+        Returns how many reads had response headers, and how many headers the
+        first of those reads had; a burst only counts when one read had them
+        all.
+        """
+        pending = len(self.open)
+        header_reads = 0
+        headers_in_first_read = 0
+
+        while pending:
+            chunk = self.conn.recv(READ_SIZE)
+            if not chunk:
+                raise ConnectionError("server closed the connection")
+
+            aligned = not self.leftover
+            frames, self.leftover = split_frames(self.leftover + chunk)
+
+            headers = count_headers(frames)
+            if headers:
+                header_reads += 1
+                if header_reads == 1 and aligned:
+                    headers_in_first_read = headers
+
+            for frame in frames:
+                if self.handle_response_frame(frame):
+                    pending -= 1
+
+        return header_reads, headers_in_first_read
+
+    def handle_response_frame(self, frame):
+        """Saves a stream's status and reports whether the stream has ended.
+
+        gRPC sends its status in the trailers, so the final status is not the
+        one in the first HEADERS frame.
+        """
+        if frame.type == FRAME_SETTINGS:
+            if not frame.flags & FLAG_ACK:
+                self.conn.sendall(build_frame(FRAME_SETTINGS, FLAG_ACK, 0))
+            return False
+
+        if frame.type == FRAME_HEADERS:
+            for name, value in self.decoder.decode(frame.payload):
+                if name == ":status" and frame.stream_id not in self.statuses:
+                    self.statuses[frame.stream_id] = int(value)
+                elif name == "grpc-status":
+                    self.statuses[frame.stream_id] = int(value)
+
+        return frame.ends_stream()
+
+
+def drive_connection(host, port, mode, streams):
+    conn = socket.create_connection((host, port))
+    conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    conn.settimeout(RESPONSE_TIMEOUT)
+
+    with conn:
+        conn.sendall(CLIENT_PREFACE + build_frame(FRAME_SETTINGS, 0, 0))
+
+        session = Session(conn, mode, streams, "{}:{}".format(host, port))
+
+        for index in range(BURSTS_PER_CONNECTION):
+            session.burst(index)
+            time.sleep(BURST_INTERVAL)
+
+
+def run_mode(host, port, mode, streams):
+    while True:
+        try:
+            drive_connection(host, port, mode, streams)
+        except Exception as err:  # keep sending traffic after an error
+            print("{} connection: {}".format(mode, err), flush=True)
+            time.sleep(BURST_INTERVAL)
+
+
+def main():
+    host = os.getenv("TARGET_HOST", "h2mux-server")
+    port = int(os.getenv("TARGET_PORT", "8080"))
+    streams = int(os.getenv("STREAMS", "5"))
+
+    for mode in (MODE_HTTP, MODE_GRPC):
+        threading.Thread(target=run_mode, args=(host, port, mode, streams), daemon=True).start()
+
+    while True:
+        time.sleep(3600)
+
+
+if __name__ == "__main__":
+    main()

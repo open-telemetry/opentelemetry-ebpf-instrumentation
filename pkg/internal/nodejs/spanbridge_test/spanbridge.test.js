@@ -101,6 +101,14 @@ test('active manual spans publish -mspan/ override and restore on unwind', () =>
   assert.deepStrictEqual(r.bridge, ['inner', 'outer'], 'both spans are still captured');
 });
 
+test('the manual-span override carries the request fd when there is one', () => {
+  // traces_ctx_v1 is not populated for manual spans alone, so the fd is what
+  // gives the override the request's trace id to keep.
+  const r = runScenario('mspan-request-fd');
+  assert.deepStrictEqual(r.mspan, [52, 'pop', 48, 'pop']);
+  assert.strictEqual(r.fd, '0007');
+});
+
 test('a span ending in an async callback releases its override', () => {
   // The override must not outlive the callback: nothing else clears it when no
   // further callback runs (a timer in an idle process, work outside a request),
@@ -259,4 +267,27 @@ test('SDK registers after injection: bridge yields and the app SDK takes over', 
     !r.bridge.includes('after-new') && !r.bridge.includes('after-preacquired'),
     'bridge stops emitting once the app SDK is registered'
   );
+});
+
+test('span sentinel carries the request fd; no fd or a too-wide fd falls back to the plain form', () => {
+  const r = runScenario('request-fd');
+  assert.deepStrictEqual(r.bridge, ['in-request', 'no-request', 'fd-too-wide']);
+  assert.deepStrictEqual(r.fds, ['0042', null, null]);
+});
+
+test('bridge without fdextractor emits the plain sentinel', () => {
+  const r = runScenario('no-fdextractor');
+  assert.deepStrictEqual(r.bridge, ['s1']);
+  assert.deepStrictEqual(r.fds, [null]);
+});
+
+test('pooled span and trace ids stay unique and well-formed across pool refills', () => {
+  const r = runScenario('id-pool');
+  assert.strictEqual(r.ids.length, 400);
+  assert.strictEqual(new Set(r.ids.map((i) => i.tid)).size, 400, 'trace ids must not repeat');
+  assert.strictEqual(new Set(r.ids.map((i) => i.sid)).size, 400, 'span ids must not repeat');
+  for (const { tid, sid } of r.ids) {
+    assert.match(tid, /^[0-9a-f]{32}$/);
+    assert.match(sid, /^[0-9a-f]{16}$/);
+  }
 });
