@@ -126,6 +126,52 @@ func TestSlowObserverDoesNotBlockOtherObservers(t *testing.T) {
 	}
 }
 
+func TestNotifyObserverWaitsForDelivery(t *testing.T) {
+	n := NewBaseNotifier(slog.Default())
+	blocker := &blockingObserver{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	n.Subscribe(blocker)
+
+	done := make(chan struct{})
+	go func() {
+		n.NotifyObserver(blocker, &informer.Event{})
+		close(done)
+	}()
+
+	testutil.ReadChannel(t, blocker.started, time.Second)
+	testutil.ChannelEmpty(t, done, 10*time.Millisecond)
+	close(blocker.release)
+	testutil.ReadChannel(t, done, time.Second)
+}
+
+func TestSubscribeReplacesObserverWithSameID(t *testing.T) {
+	n := NewBaseNotifier(slog.Default())
+	previous := &recordingObserver{id: "observer", events: make(chan informer.EventType, 1)}
+	replacement := &recordingObserver{id: "observer", events: make(chan informer.EventType, 1)}
+	n.Subscribe(previous)
+	n.Subscribe(replacement)
+
+	n.Notify(&informer.Event{Type: informer.EventType_UPDATED})
+
+	assert.Equal(t, informer.EventType_UPDATED, testutil.ReadChannel(t, replacement.events, time.Second))
+	testutil.ChannelEmpty(t, previous.events, 10*time.Millisecond)
+}
+
+func TestUnsubscribeStopsDelivery(t *testing.T) {
+	n := NewBaseNotifier(slog.Default())
+	observer := &recordingObserver{id: "observer", events: make(chan informer.EventType, 1)}
+	n.Subscribe(observer)
+	n.Unsubscribe(observer)
+	n.Unsubscribe(observer)
+
+	n.Notify(&informer.Event{Type: informer.EventType_UPDATED})
+	n.NotifyObserver(observer, &informer.Event{Type: informer.EventType_UPDATED})
+
+	testutil.ChannelEmpty(t, observer.events, 10*time.Millisecond)
+}
+
 func TestObserverReceivesEventsInOrder(t *testing.T) {
 	n := NewBaseNotifier(slog.Default())
 	observer := &recordingObserver{

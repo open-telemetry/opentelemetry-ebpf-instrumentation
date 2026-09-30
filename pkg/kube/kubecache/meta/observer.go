@@ -36,8 +36,14 @@ type BaseNotifier struct {
 
 type observerSubscription struct {
 	observer Observer
-	events   *syncqueue.Queue[*informer.Event]
+	events   *syncqueue.Queue[observerNotification]
+	done     <-chan struct{}
 	cancel   context.CancelFunc
+}
+
+type observerNotification struct {
+	event     *informer.Event
+	processed chan struct{}
 }
 
 func NewBaseNotifier(log *slog.Logger) BaseNotifier {
@@ -64,16 +70,28 @@ func (i *BaseNotifier) Notify(event *informer.Event) {
 	i.mutex.RLock()
 	defer i.mutex.RUnlock()
 	for _, subscription := range i.observers {
-		subscription.events.Enqueue(event)
+		subscription.events.Enqueue(observerNotification{event: event})
 	}
 }
 
-// NotifyObserver sends an event only to the given observer.
+// NotifyObserver sends an event only to the given observer and waits until it is processed.
 func (i *BaseNotifier) NotifyObserver(observer Observer, event *informer.Event) {
 	i.mutex.RLock()
-	defer i.mutex.RUnlock()
-	if subscription := i.observers[observer.ID()]; subscription != nil {
-		subscription.events.Enqueue(event)
+	subscription := i.observers[observer.ID()]
+	if subscription == nil {
+		i.mutex.RUnlock()
+		return
+	}
+	processed := make(chan struct{})
+	subscription.events.Enqueue(observerNotification{
+		event:     event,
+		processed: processed,
+	})
+	i.mutex.RUnlock()
+
+	select {
+	case <-processed:
+	case <-subscription.done:
 	}
 }
 
@@ -81,7 +99,8 @@ func (i *BaseNotifier) Subscribe(observer Observer) {
 	ctx, cancel := context.WithCancel(context.Background())
 	subscription := &observerSubscription{
 		observer: observer,
-		events:   syncqueue.NewQueue[*informer.Event](),
+		events:   syncqueue.NewQueue[observerNotification](),
+		done:     ctx.Done(),
 		cancel:   cancel,
 	}
 
@@ -98,11 +117,15 @@ func (i *BaseNotifier) Subscribe(observer Observer) {
 
 func (i *BaseNotifier) notify(ctx context.Context, subscription *observerSubscription) {
 	for {
-		event, err := subscription.events.DequeueContext(ctx)
+		notification, err := subscription.events.DequeueContext(ctx)
 		if err != nil {
 			return
 		}
-		if err := subscription.observer.On(event); err != nil {
+		err = subscription.observer.On(notification.event)
+		if notification.processed != nil {
+			close(notification.processed)
+		}
+		if err != nil {
 			i.log.Debug("observer failed. Unsubscribing it",
 				"observer", subscription.observer.ID(), "error", err)
 			i.unsubscribe(subscription)
