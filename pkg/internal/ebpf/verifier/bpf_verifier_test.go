@@ -15,9 +15,7 @@ import (
 	"testing"
 
 	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/asm"
 	"github.com/cilium/ebpf/btf"
-	"github.com/cilium/ebpf/features"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/stretchr/testify/require"
 
@@ -159,19 +157,8 @@ func forEachCombination(t *testing.T, prefix string, loadFn func() (*ebpf.Collec
 	}
 }
 
-// pidNamespaceModes lists the valid_pid() paths the loader can pick for
-// programs of type progType on this kernel: pod_helper only where the helper
-// exists, as ebpfcommon.PIDFilterConstants decides at runtime.
-func pidNamespaceModes(t *testing.T, progType ebpf.ProgramType) []any {
-	t.Helper()
-	modes := []any{uint32(ebpfcommon.PIDNamespaceInit), uint32(ebpfcommon.PIDNamespacePodEmulated)}
-	if err := features.HaveProgramHelper(progType, asm.FnGetNsCurrentPidTgid); err == nil {
-		modes = append(modes, uint32(ebpfcommon.PIDNamespacePodHelper))
-	} else {
-		t.Logf("skipping pid_ns_mode=pod_helper for %s: %v", progType, err)
-	}
-	return modes
-}
+// the valid_pid() paths the loader can pick (ebpfcommon.PIDFilterConstants)
+var pidNamespaceModes = []any{uint32(ebpfcommon.PIDNamespaceInit), uint32(ebpfcommon.PIDNamespacePod)}
 
 // TestBPFVerifierWithConstants verifies that BPF programs pass the kernel verifier
 // across all combinations of constant values (also default ones).
@@ -235,12 +222,12 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	})
 
 	// Each pid_ns_mode compiles a different valid_pid() path into every
-	// kprobe; a dedicated matrix keeps them verified without tripling the
+	// kprobe; a dedicated matrix keeps them verified without doubling the
 	// full generictracer cross-product.
 	forEachCombination(t, "generictracer/BpfPidNamespace", generictracerbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{true, false}},
 		{"filter_pids", []any{int32(1)}},
-		{"pid_ns_mode", pidNamespaceModes(t, ebpf.Kprobe)},
+		{"pid_ns_mode", pidNamespaceModes},
 	})
 
 	// gotracer
@@ -285,7 +272,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	forEachCombination(t, "tpinjector/BpfPidNamespace", tpinjectorbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{true, false}},
 		{"filter_pids", []any{int32(1)}},
-		{"pid_ns_mode", pidNamespaceModes(t, ebpf.SkMsg)},
+		{"pid_ns_mode", pidNamespaceModes},
 	})
 	// tpinjector/BpfIter needs bpf_iter_tcp_get_func_proto (kernel >= 5.11)
 	// for the verifier to recognize the sock_iter ctx type. Runtime loader
@@ -313,7 +300,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	forEachCombination(t, "gpuevent/Bpf", gpueventbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{true, false}},
 		{"filter_pids", []any{int32(0), int32(1)}},
-		{"pid_ns_mode", pidNamespaceModes(t, ebpf.Kprobe)},
+		{"pid_ns_mode", pidNamespaceModes},
 	})
 
 	// logger

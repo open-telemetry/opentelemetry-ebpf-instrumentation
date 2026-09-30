@@ -127,7 +127,7 @@ func (p *Tracer) constants() map[string]any {
 		"filter_pids": filterPids,
 		"g_bpf_debug": p.cfg.EBPF.BpfDebug,
 	}
-	maps.Copy(m, ebpfcommon.PIDFilterConstants(ebpf.Kprobe))
+	maps.Copy(m, ebpfcommon.PIDFilterConstants())
 
 	return m
 }

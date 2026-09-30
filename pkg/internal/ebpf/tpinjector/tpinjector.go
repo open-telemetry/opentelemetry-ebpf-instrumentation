@@ -238,7 +238,7 @@ func (p *Tracer) constants() map[string]any {
 		"inject_flags":         flags,
 		"g_bpf_debug":          p.cfg.EBPF.BpfDebug,
 	}
-	maps.Copy(m, ebpfcommon.PIDFilterConstants(ebpf.SkMsg))
+	maps.Copy(m, ebpfcommon.PIDFilterConstants())
 
 	return m
 }

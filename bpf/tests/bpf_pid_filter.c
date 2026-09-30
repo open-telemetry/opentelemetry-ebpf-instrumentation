@@ -4,8 +4,10 @@
 // valid_pid() (pid/pid.h) runs at the top of every kprobe, for every process
 // on the node. valid_pids holds one bit per pid, keyed by the tgid OBI's /proc
 // numbers the task with: the host tgid when OBI runs in the initial pid
-// namespace, the pod tgid when it runs as a sidecar. In the sidecar modes a
-// task outside the pod is rejected before the map is read.
+// namespace, the tgid in OBI's namespace otherwise (a sidecar, a node that is
+// itself a container). In pod mode a task outside OBI's namespace is rejected
+// before the map is read; tasks in namespaces below it are numbered at OBI's
+// level.
 //
 // Run from repo root:
 //   make -C bpf/tests bpf_pid_filter && bpf/tests/bpf_pid_filter
@@ -29,7 +31,6 @@
 // Turning each definition into a pointer lets the tests flip them per case.
 #define filter_pids (*test_filter_pids)
 #define pid_ns_mode (*test_pid_ns_mode)
-#define obi_pid_ns_dev (*test_obi_pid_ns_dev)
 #define obi_pid_ns_ino (*test_obi_pid_ns_ino)
 
 static void *test_current_task;
@@ -89,42 +90,22 @@ static void test_block(u32 pid) {
     test_bits[pid / 64] &= ~((u64)1 << (pid % 64));
 }
 
-// Pid namespaces: the host, a pod below it, a sandbox nested in the pod
+// Pid namespaces: the host, a pod below it, a sandbox nested in the pod, a
+// namespace nested in the sandbox, and a second pod beside the first
 
-static const u64 k_test_nsfs_dev = 4;
 static const u32 k_test_host_ino = 0xEFFFFFFC; // PROC_PID_INIT_INO
 static const u32 k_test_pod_ino = 4026532500;
 static const u32 k_test_nested_ino = 4026532600;
+static const u32 k_test_nested2_ino = 4026532700;
+static const u32 k_test_other_pod_ino = 4026532800;
 
 static struct pid_namespace test_host_ns = {.level = 0};
 static struct pid_namespace test_pod_ns = {.level = 1};
 static struct pid_namespace test_nested_ns = {.level = 2};
+static struct pid_namespace test_nested2_ns = {.level = 3};
+static struct pid_namespace test_other_pod_ns = {.level = 1};
 static struct pid_namespace *const test_ns_at_level[] = {
-    &test_host_ns, &test_pod_ns, &test_nested_ns};
-
-static u32 test_helper_calls;
-
-// bpf_get_ns_current_pid_tgid(): answers only for a task whose own pid
-// namespace (task_active_pid_ns) is the one named by dev and ino
-static long test_get_ns_current_pid_tgid(unsigned long long dev,
-                                         unsigned long long ino,
-                                         struct bpf_pidns_info *nsdata,
-                                         unsigned int size) {
-    test_helper_calls++;
-
-    const struct task_struct *task = test_current_task;
-    const unsigned int level = task->thread_pid->level;
-    const struct upid *own = &task->thread_pid->numbers[level];
-
-    if (dev != k_test_nsfs_dev || own->ns->ns.inum != ino) {
-        memset(nsdata, 0, size);
-        return -22; // -EINVAL
-    }
-
-    nsdata->pid = (u32)own->nr;
-    nsdata->tgid = (u32)task->group_leader->thread_pid->numbers[level].nr;
-    return 0;
-}
+    &test_host_ns, &test_pod_ns, &test_nested_ns, &test_nested2_ns};
 
 // Fake tasks
 
@@ -162,7 +143,10 @@ static test_task_t child;    // host 41001, pod 8: forked by proc after discover
 static test_task_t thread;   // host tid 41005, pod tid 12: a thread of proc
 static test_task_t outsider; // host 555: an unrelated process on the node
 static test_task_t sandbox;  // host 41012, pod 20, nested 1: in its own pid namespace
+static test_task_t deep;     // host 41014, pod 22, nested 2, nested2 1: two levels below the pod
+static test_task_t inner;    // host 41015, pod 23, nested 3: forked by sandbox after discovery
 static test_task_t unshared; // host 41013, pod 21: called unshare(CLONE_NEWPID), not forked yet
+static test_task_t neighbor; // host 42000, other pod 3: a process of another pod
 static test_task_t huge;     // host 4194304: past PID_MAX_LIMIT
 
 static void test_cast_init(void) {
@@ -173,10 +157,17 @@ static void test_cast_init(void) {
     test_task_init(&thread, (int[]){41005, 12}, 1, &proc, &shim);
     test_task_init(&outsider, (int[]){555}, 0, NULL, &systemd);
     test_task_init(&sandbox, (int[]){41012, 20, 1}, 2, NULL, &proc);
+    test_task_init(&deep, (int[]){41014, 22, 2, 1}, 3, NULL, &sandbox);
+    test_task_init(&inner, (int[]){41015, 23, 3}, 2, NULL, &sandbox);
     test_task_init(&unshared, (int[]){41013, 21}, 1, NULL, &shim);
     unshared.nsproxy.pid_ns_for_children = &test_nested_ns;
     // past its own level; what a reader trusting pid_ns_for_children would pick
     unshared.pid.numbers[2] = (struct upid){.nr = 1, .ns = &test_nested_ns};
+    test_task_init(&neighbor, (int[]){42000, 3}, 1, NULL, &shim);
+    neighbor.pid.numbers[1].ns = &test_other_pod_ns;
+    // past its own level, shaped like an entry in the pod: struct pid holds
+    // only level + 1 entries, so whatever follows must never be read
+    outsider.pid.numbers[1] = (struct upid){.nr = 555, .ns = &test_pod_ns};
     test_task_init(&huge, (int[]){4194304}, 0, NULL, &systemd);
 }
 
@@ -189,7 +180,6 @@ static u32 run_valid_pid(test_task_t *t) {
 
 static s32 test_filter_value;
 static u32 test_mode_value;
-static u64 test_dev_value;
 static u64 test_ino_value;
 
 static int failures = 0;
@@ -207,13 +197,12 @@ static void reset(u32 mode) {
     memset(test_bits, 0, sizeof(test_bits));
     test_lookups = 0;
     test_missed_lookups = 0;
-    test_helper_calls = 0;
     test_current_task_calls = 0;
 
     test_filter_value = 1;
     test_mode_value = mode;
-    test_dev_value = k_test_nsfs_dev;
     test_ino_value = mode == k_pid_ns_mode_init ? k_test_host_ino : k_test_pod_ino;
+    obi_pid_ns_level = 0;
 }
 
 // OBI in the initial pid namespace: keys are host tgids
@@ -269,89 +258,132 @@ static void test_filter_off_accepts_everything(void) {
     check_u32("filter off: without reading the map", 0, test_lookups);
 }
 
-// OBI as a sidecar in the pod: keys are pod tgids, tasks outside are rejected
+// OBI in another pid namespace (a sidecar's pod, a node that is a container):
+// keys are pids in that namespace, tasks outside it are rejected
 
-static const char *mode_name(u32 mode) {
-    return mode == k_pid_ns_mode_pod_helper ? "pod helper" : "pod emulated";
-}
-
-static void check_mode(const char *what, u32 mode, u32 expected, u32 actual) {
-    char name[160];
-    snprintf(name, sizeof(name), "%s: %s", mode_name(mode), what);
-    check_u32(name, expected, actual);
-}
-
-static void test_pod_selected_process(u32 mode) {
-    reset(mode);
+static void test_pod_selected_process(void) {
+    reset(k_pid_ns_mode_pod);
     test_allow(7);
 
-    check_mode("the discovered process passes and returns its pod pid, as userspace knows it",
-               mode,
-               7,
-               run_valid_pid(&proc));
-    check_mode("the helper is called only in helper mode",
-               mode,
-               mode == k_pid_ns_mode_pod_helper,
-               test_helper_calls);
+    check_u32("pod: the discovered process passes and returns its pod pid, as userspace knows it",
+              7,
+              run_valid_pid(&proc));
+    check_u32("pod: OBI's level is learned from it", 1, obi_pid_ns_level);
 }
 
-static void test_pod_child_and_thread(u32 mode) {
-    reset(mode);
+static void test_pod_child_and_thread(void) {
+    reset(k_pid_ns_mode_pod);
     test_allow(7);
 
-    check_mode("a child passes through its parent's pod pid", mode, 8, run_valid_pid(&child));
-    check_mode("a thread passes on its process's pod pid", mode, 7, run_valid_pid(&thread));
+    check_u32("pod: a child passes through its parent's pod pid", 8, run_valid_pid(&child));
+    check_u32("pod: a thread passes on its process's pod pid", 7, run_valid_pid(&thread));
 }
 
-static void test_pod_outsider_is_rejected_before_the_map(u32 mode) {
-    reset(mode);
+static void test_pod_outsider_is_rejected_before_the_map(void) {
+    reset(k_pid_ns_mode_pod);
     test_allow(7);
 
-    check_mode("a process outside the pod is rejected", mode, 0, run_valid_pid(&outsider));
-    check_mode("without reading the map", mode, 0, test_lookups);
+    check_u32("pod: a process outside the pod is rejected", 0, run_valid_pid(&outsider));
+    check_u32("pod: without reading the map", 0, test_lookups);
+    check_u32("pod: without learning a level from it", 0, obi_pid_ns_level);
 }
 
-static void test_pod_pid_does_not_collide_with_host_pid(u32 mode) {
-    reset(mode);
+static void test_pod_task_above_obi_level_is_rejected(void) {
+    reset(k_pid_ns_mode_pod);
+    test_allow(7);
+    test_allow(555);
+    run_valid_pid(&proc);
+
+    check_u32("pod: once OBI's level is known, a task above it is rejected without reading past "
+              "its own level",
+              0,
+              run_valid_pid(&outsider));
+}
+
+static void test_pod_neighbor_is_rejected(void) {
+    reset(k_pid_ns_mode_pod);
+    test_allow(3); // the pod's own pid 3, if it has one
+
+    check_u32("pod: a process of another pod is rejected before OBI's level is known",
+              0,
+              run_valid_pid(&neighbor));
+
+    test_allow(7);
+    run_valid_pid(&proc);
+    check_u32("pod: and after", 0, run_valid_pid(&neighbor));
+}
+
+static void test_pod_pid_does_not_collide_with_host_pid(void) {
+    reset(k_pid_ns_mode_pod);
     test_allow(1); // the pod's pid 1
 
-    check_mode("host pid 1 does not match the pod's pid 1", mode, 0, run_valid_pid(&systemd));
+    check_u32("pod: host pid 1 does not match the pod's pid 1", 0, run_valid_pid(&systemd));
 }
 
-// Documented limitation: bpf_get_ns_current_pid_tgid() answers only for tasks
-// whose own pid namespace is OBI's, and the emulated mode applies the same rule.
-static void test_pod_nested_pid_namespace_is_rejected(u32 mode) {
-    reset(mode);
-    test_allow(20); // what userspace publishes: NSpid read from the pod starts at 20
+// Pods on a node that is itself a container, or a sandbox inside a sidecar's
+// pod: userspace publishes the NSpid entry OBI's /proc shows, and the gate
+// finds the same entry at OBI's level.
+static void test_pod_nested_pid_namespace_is_numbered_at_obi_level(void) {
+    reset(k_pid_ns_mode_pod);
+    test_allow(20);
 
-    check_mode("a task in a pid namespace nested in the pod is rejected",
-               mode,
-               0,
-               run_valid_pid(&sandbox));
+    check_u32("pod: a task one namespace below OBI's passes with its pid at OBI's level",
+              20,
+              run_valid_pid(&sandbox));
+
+    test_allow(22);
+    check_u32("pod: two namespaces below too", 22, run_valid_pid(&deep));
+
+    check_u32("pod: a child forked below OBI's namespace passes through its parent's pid at "
+              "OBI's level",
+              23,
+              run_valid_pid(&inner));
 }
 
-static void test_pod_task_numbered_in_its_own_namespace(u32 mode) {
-    reset(mode);
+static void test_pod_level_learned_below_obi_namespace(void) {
+    reset(k_pid_ns_mode_pod);
+    test_allow(22);
+
+    check_u32(
+        "pod: OBI's level is found from a task two namespaces below it", 22, run_valid_pid(&deep));
+    check_u32("pod: which is the pod's level", 1, obi_pid_ns_level);
+}
+
+// OBI deeper down, as on a kind node inside a Docker-in-Docker runner: its
+// namespace is the sandbox's (level 2)
+static void test_pod_obi_namespace_two_levels_down(void) {
+    reset(k_pid_ns_mode_pod);
+    test_ino_value = k_test_nested_ino;
+    test_allow(2);
+
+    check_u32("pod, OBI at level 2: a task below it passes with its pid at level 2",
+              2,
+              run_valid_pid(&deep));
+    check_u32("pod, OBI at level 2: the level is learned", 2, obi_pid_ns_level);
+    check_u32("pod, OBI at level 2: a task above it is rejected", 0, run_valid_pid(&proc));
+}
+
+static void test_pod_task_numbered_in_its_own_namespace(void) {
+    reset(k_pid_ns_mode_pod);
     test_allow(21);
 
-    check_mode("a task that unshared a pid namespace keeps its own number",
-               mode,
-               21,
-               run_valid_pid(&unshared));
+    check_u32("pod: a task that unshared a pid namespace keeps its own number",
+              21,
+              run_valid_pid(&unshared));
 }
 
 int main(void) {
     test_filter_pids = &test_filter_value;
     test_pid_ns_mode = &test_mode_value;
-    test_obi_pid_ns_dev = &test_dev_value;
     test_obi_pid_ns_ino = &test_ino_value;
 
     test_host_ns.ns.inum = k_test_host_ino;
     test_pod_ns.ns.inum = k_test_pod_ino;
     test_nested_ns.ns.inum = k_test_nested_ino;
+    test_nested2_ns.ns.inum = k_test_nested2_ino;
+    test_other_pod_ns.ns.inum = k_test_other_pod_ino;
 
     bpf_map_lookup_elem_hook = test_map_lookup;
-    bpf_get_ns_current_pid_tgid_hook = test_get_ns_current_pid_tgid;
 
     test_cast_init();
 
@@ -362,15 +394,16 @@ int main(void) {
     test_init_pid_beyond_the_bitmap_is_rejected();
     test_filter_off_accepts_everything();
 
-    const u32 pod_modes[] = {k_pid_ns_mode_pod_helper, k_pid_ns_mode_pod_emulated};
-    for (u32 i = 0; i < sizeof(pod_modes) / sizeof(pod_modes[0]); i++) {
-        test_pod_selected_process(pod_modes[i]);
-        test_pod_child_and_thread(pod_modes[i]);
-        test_pod_outsider_is_rejected_before_the_map(pod_modes[i]);
-        test_pod_pid_does_not_collide_with_host_pid(pod_modes[i]);
-        test_pod_nested_pid_namespace_is_rejected(pod_modes[i]);
-        test_pod_task_numbered_in_its_own_namespace(pod_modes[i]);
-    }
+    test_pod_selected_process();
+    test_pod_child_and_thread();
+    test_pod_outsider_is_rejected_before_the_map();
+    test_pod_task_above_obi_level_is_rejected();
+    test_pod_neighbor_is_rejected();
+    test_pod_pid_does_not_collide_with_host_pid();
+    test_pod_nested_pid_namespace_is_numbered_at_obi_level();
+    test_pod_level_learned_below_obi_namespace();
+    test_pod_obi_namespace_two_levels_down();
+    test_pod_task_numbered_in_its_own_namespace();
 
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);

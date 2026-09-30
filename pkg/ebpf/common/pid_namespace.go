@@ -14,35 +14,23 @@ type PIDNamespaceMode uint32
 const (
 	// OBI's /proc is the initial pid namespace: the key is the host tgid.
 	PIDNamespaceInit = PIDNamespaceMode(BpfPidNamespaceModeK_pidNsModeInit)
-	// OBI's /proc is a pod's pid namespace: bpf_get_ns_current_pid_tgid()
-	// gives the key, and rejects tasks outside that namespace.
-	PIDNamespacePodHelper = PIDNamespaceMode(BpfPidNamespaceModeK_pidNsModePodHelper)
-	// Same rule as PIDNamespacePodHelper, computed with CO-RE reads for
-	// kernels and program types that lack the helper.
-	PIDNamespacePodEmulated = PIDNamespaceMode(BpfPidNamespaceModeK_pidNsModePodEmulated)
+	// OBI's /proc is another pid namespace, a sidecar's pod or a node that is
+	// itself a container: the key is the tgid in that namespace, for tasks in
+	// it and in the namespaces below it.
+	PIDNamespacePod = PIDNamespaceMode(BpfPidNamespaceModeK_pidNsModePod)
 )
 
-type pidNamespace struct {
-	dev uint64
-	ino uint64
-}
-
-func pidNamespaceMode(ns pidNamespace, haveHelper func() error) PIDNamespaceMode {
-	if ns.ino == procPIDInitIno {
+func pidNamespaceMode(ino uint64) PIDNamespaceMode {
+	if ino == procPIDInitIno {
 		return PIDNamespaceInit
 	}
 
-	if haveHelper() == nil {
-		return PIDNamespacePodHelper
-	}
-
-	return PIDNamespacePodEmulated
+	return PIDNamespacePod
 }
 
-func pidFilterConstants(mode PIDNamespaceMode, ns pidNamespace) map[string]any {
+func pidFilterConstants(mode PIDNamespaceMode, ino uint64) map[string]any {
 	return map[string]any{
 		"pid_ns_mode":    uint32(mode),
-		"obi_pid_ns_dev": ns.dev,
-		"obi_pid_ns_ino": ns.ino,
+		"obi_pid_ns_ino": ino,
 	}
 }

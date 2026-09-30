@@ -49,11 +49,9 @@ disabled (the production default), or use a kernel containing the verifier fix
 for spilled `PTR_TO_MEM` values. Production instrumentation with debug disabled
 is unaffected.
 
-OBI can run in the host PID namespace or inside an application's PID namespace (a sidecar sharing the pod's
-process namespace, or a container started with `--pid=container:<app>`). Inside an application's PID namespace,
-OBI only instruments processes that live directly in it: a process that creates its own PID namespace there, for
-example with `unshare -p`, is not instrumented. In both cases, processes with a PID above `4194303` (the Linux
-`PID_MAX_LIMIT` on 64-bit kernels) are not instrumented; the kernel never allocates such PIDs.
+OBI can run in the host PID namespace or in another PID namespace: a sidecar sharing the pod's process namespace,
+a container started with `--pid=container:<app>`, or a `hostPID` pod on a node that is itself a container, such as
+a kind node. It instruments the processes of its PID namespace and of the PID namespaces nested below it.
 
 ## Validation Coverage
 

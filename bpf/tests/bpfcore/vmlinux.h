@@ -37,11 +37,6 @@ struct pid {
     struct upid numbers[8];
 };
 
-struct bpf_pidns_info {
-    __u32 pid;
-    __u32 tgid;
-};
-
 struct ns_common {
     unsigned int inum;
 };

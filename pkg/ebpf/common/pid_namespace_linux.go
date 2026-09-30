@@ -8,39 +8,31 @@ import (
 	"os"
 	"sync"
 	"syscall"
-
-	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/asm"
-	"github.com/cilium/ebpf/features"
 )
 
 // Pid 1 of a pid namespace always lives in it, so /proc/1 names the namespace
 // OBI's /proc numbers processes in, even when that procfs is not the one of
 // OBI's own pid namespace.
-var procPIDNamespace = sync.OnceValues(func() (pidNamespace, error) {
+var procPIDNamespaceIno = sync.OnceValues(func() (uint64, error) {
 	info, err := os.Stat("/proc/1/ns/pid")
 	if err != nil {
-		return pidNamespace{}, err
+		return 0, err
 	}
 
-	st := info.Sys().(*syscall.Stat_t)
-
-	return pidNamespace{dev: st.Dev, ino: st.Ino}, nil
+	return info.Sys().(*syscall.Stat_t).Ino, nil
 })
 
-func PIDFilterConstants(progType ebpf.ProgramType) map[string]any {
+func PIDFilterConstants() map[string]any {
 	log := slog.With("component", "ebpf.PIDFilter")
 
-	ns, err := procPIDNamespace()
+	ino, err := procPIDNamespaceIno()
 	if err != nil {
 		log.Warn("can't read the pid namespace of /proc, assuming the initial one", "error", err)
-		return pidFilterConstants(PIDNamespaceInit, pidNamespace{})
+		return pidFilterConstants(PIDNamespaceInit, 0)
 	}
 
-	mode := pidNamespaceMode(ns, func() error {
-		return features.HaveProgramHelper(progType, asm.FnGetNsCurrentPidTgid)
-	})
-	log.Debug("BPF PID filter namespace", "mode", mode, "ino", ns.ino, "programType", progType)
+	mode := pidNamespaceMode(ino)
+	log.Debug("BPF PID filter namespace", "mode", mode, "ino", ino)
 
-	return pidFilterConstants(mode, ns)
+	return pidFilterConstants(mode, ino)
 }
