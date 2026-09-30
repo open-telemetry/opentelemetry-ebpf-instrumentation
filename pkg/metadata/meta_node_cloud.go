@@ -44,13 +44,14 @@ func otelNodeFetcher(clusterKind NodeFeatures, detector resource.Detector) fetch
 					log.Debug("can't detect Cloud metadata", "error", err)
 				}
 				resCh <- res
+				return
 			}
 		}()
 
 		var resource *resource.Resource
 		select {
 		case resource = <-resCh:
-			if resource == nil {
+			if resource == nil || resource.Len() == 0 {
 				// everything is fine, we might have asked for a Cloud resource from a baremetal machine
 				return NodeMeta{}, nil
 			}
