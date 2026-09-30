@@ -8,6 +8,15 @@ The current configuration model has evolved organically with a focus on implemen
 This has led to structural inconsistencies, redundant controls, and a mix of user-facing and internal configuration in the same sections.
 To address this, a user-centric redesign of the configuration schema is proposed here, optimizing for common user journeys, clear ownership of concerns, and a clean separation between user-facing configuration and internal implementation details.
 
+## Configuration development policy
+
+Config v1 is frozen for backward compatibility. It does not receive bug fixes,
+new fields, or new features. All configuration changes must target Config v2,
+including its schema, validation, conversion, examples, and documentation.
+Do not extend the v1 configuration model or change its behavior to implement a
+fix. Users who need configuration fixes or new features must migrate to Config
+v2.
+
 Goals:
 
 - Define a clear, consistent configuration schema that maps directly to user intent and common use cases.
