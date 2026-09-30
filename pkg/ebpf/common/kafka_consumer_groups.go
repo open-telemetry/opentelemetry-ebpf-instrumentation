@@ -24,6 +24,11 @@ const (
 	// A topic that did not fit reads as not subscribed: when two groups of the process
 	// consume it, the Fetch is attributed to the other group instead of to neither.
 	maxTopicsPerProcess = 4096
+
+	// kafkaProcessIdleTTL is how long a process's first-seen time outlives its last group
+	// request. It bridges the idle gaps of a process consuming in runs, and bounds how
+	// long a recycled pid can inherit the previous process's warm-up.
+	kafkaProcessIdleTTL = time.Hour
 )
 
 // KafkaProcess identifies the instrumented process a Kafka request was captured from.
@@ -248,17 +253,17 @@ func (p *kafkaProcessGroups) topicGroup(topic string) (group string, subscribed 
 // Each member expires ttl after the last request asserting it; a Fetch lookup never
 // extends it. A recycled pid inherits the previous process' memberships for at most
 // ttl, and its own heartbeats renew only its own members; it also inherits the time the
-// previous process was first seen, while that stays among the last size processes seen,
-// and so skips the warm-up. The LRU ttl on the whole entry reclaims processes that
-// stopped sending group requests.
+// previous process was first seen, if it sends a group request within
+// kafkaProcessIdleTTL of the previous process's last one, and so skips the warm-up. The
+// LRU ttl on the whole entry reclaims processes that stopped sending group requests.
 type KafkaConsumerGroups struct {
 	lru *expirable.LRU[KafkaProcess, *kafkaProcessGroups]
 	// firstSeen is when the first group request of each process was seen. It is kept
-	// apart from lru and bounded by count only: a process that consumes in runs separated
-	// by more than the ttl loses its entry in lru between runs, and must not be warmed up
-	// again on every run. No group heartbeating more often than the ttl can have gone
-	// unseen during such a gap.
-	firstSeen *simplelru.LRU[KafkaProcess, time.Time]
+	// apart from lru, with a longer lifetime that only group requests renew: a process
+	// that consumes in runs separated by more than the ttl loses its entry in lru between
+	// runs, and must not be warmed up again on every run. No group heartbeating more
+	// often than the ttl can have gone unseen during such a gap.
+	firstSeen *expirable.LRU[KafkaProcess, time.Time]
 	// ttl is how long a member outlives the last request asserting it, which makes it
 	// the longest heartbeat interval the cache supports: a member heartbeating less often
 	// expires in between, and its group's Fetches can then go to another group of the
@@ -274,18 +279,18 @@ type KafkaConsumerGroups struct {
 	now    func() time.Time
 }
 
-func NewKafkaConsumerGroups(size int, ttl time.Duration) (*KafkaConsumerGroups, error) {
-	firstSeen, err := simplelru.NewLRU[KafkaProcess, time.Time](size, nil)
-	if err != nil {
-		return nil, err
-	}
+func NewKafkaConsumerGroups(size int, ttl time.Duration) *KafkaConsumerGroups {
+	return newKafkaConsumerGroups(size, ttl, max(kafkaProcessIdleTTL, ttl))
+}
+
+func newKafkaConsumerGroups(size int, ttl, idle time.Duration) *KafkaConsumerGroups {
 	return &KafkaConsumerGroups{
 		lru:       expirable.NewLRU[KafkaProcess, *kafkaProcessGroups](size, nil, ttl),
-		firstSeen: firstSeen,
+		firstSeen: expirable.NewLRU[KafkaProcess, time.Time](size, nil, idle),
 		ttl:       ttl,
 		settle:    ttl,
 		now:       time.Now,
-	}, nil
+	}
 }
 
 // memberships returns proc's state with the expired memberships dropped, nil when the
@@ -309,9 +314,11 @@ func (g *KafkaConsumerGroups) Join(proc KafkaProcess, conn BpfConnectionInfoT, r
 	if g == nil {
 		return
 	}
-	if _, seen := g.firstSeen.Get(proc); !seen {
-		g.firstSeen.Add(proc, g.now())
+	since, seen := g.firstSeen.Get(proc)
+	if !seen {
+		since = g.now()
 	}
+	g.firstSeen.Add(proc, since)
 	state := g.memberships(proc)
 	if state == nil {
 		state = &kafkaProcessGroups{groups: map[string]*kafkaMembership{}}
@@ -407,8 +414,8 @@ func (g *KafkaConsumerGroups) Lookup(proc KafkaProcess, topic string) string {
 	if state == nil {
 		return ""
 	}
-	since, _ := g.firstSeen.Peek(proc)
-	if g.now().Before(since.Add(g.settle)) {
+	since, seen := g.firstSeen.Peek(proc)
+	if !seen || g.now().Before(since.Add(g.settle)) {
 		return ""
 	}
 	if group, subscribed := state.topicGroup(topic); subscribed {

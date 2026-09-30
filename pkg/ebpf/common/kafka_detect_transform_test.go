@@ -529,17 +529,10 @@ func kafkaEventFromPid(ns, pid uint32) *TCPRequestInfo {
 	return event
 }
 
-func newConsumerGroups(t *testing.T, ttl time.Duration) *KafkaConsumerGroups {
-	t.Helper()
-	groups, err := NewKafkaConsumerGroups(64, ttl)
-	require.NoError(t, err)
-	return groups
-}
-
 // newTestConsumerGroups returns a cache without the warm-up window, so tests exercise
 // the single-group fallback right after the group requests they send.
-func newTestConsumerGroups(t *testing.T) *KafkaConsumerGroups {
-	groups := newConsumerGroups(t, time.Minute)
+func newTestConsumerGroups() *KafkaConsumerGroups {
+	groups := NewKafkaConsumerGroups(64, time.Minute)
 	groups.settle = 0
 	return groups
 }
@@ -564,7 +557,7 @@ func fetchGroup(t *testing.T, groups *KafkaConsumerGroups, event *TCPRequestInfo
 }
 
 func TestProcessKafkaEventConsumerGroup(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 
 	consumer := kafkaEventFromPid(7, 42)
 	otherProcess := kafkaEventFromPid(7, 43)
@@ -655,7 +648,7 @@ func TestTCPToKafkaToSpanConsumerGroup(t *testing.T) {
 // A broker receives every client's JoinGroup/OffsetCommit: server-side events must
 // neither learn nor report a consumer group, while the partition is still reported.
 func TestProcessKafkaEventConsumerGroupServerSide(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 
 	broker := kafkaEventFromPid(7, 500)
 	broker.Direction = directionRecv
@@ -685,7 +678,7 @@ func TestProcessKafkaEventConsumerGroupServerSide(t *testing.T) {
 // through the Metadata cache, otherwise per-topic entries never match and a process
 // with two groups gets nothing.
 func TestProcessKafkaEventConsumerGroupFetchByUUID(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 	uuidCache, err := simplelru.NewLRU[kafkaparser.UUID, string](16, nil)
 	require.NoError(t, err)
 	uuidCache.Add(fetchUUID1, "orders")
@@ -711,7 +704,7 @@ func TestProcessKafkaEventConsumerGroupFetchByUUID(t *testing.T) {
 // OffsetCommit v10 names topics by UUID: Enrich must resolve them through the Metadata
 // cache to fill the per-topic entries, and skip the ones the cache does not know yet.
 func TestProcessKafkaEventConsumerGroupEnrichByUUID(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 	uuidCache, err := simplelru.NewLRU[kafkaparser.UUID, string](16, nil)
 	require.NoError(t, err)
 	uuidCache.Add(fetchUUID1, "orders") // fetchUUID2 (payments) is not resolved yet
@@ -741,7 +734,7 @@ func TestProcessKafkaEventConsumerGroupEnrichByUUID(t *testing.T) {
 // client sends them for operator-chosen groups. They must never establish a group and
 // must only add topics to the group the process actually joined.
 func TestProcessKafkaEventConsumerGroupOffsetRequestsDoNotJoin(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 	consumer := kafkaEventFromPid(7, 42)
 
 	t.Run("offset requests alone establish nothing", func(t *testing.T) {
@@ -773,7 +766,7 @@ func TestProcessKafkaEventConsumerGroupOffsetRequestsDoNotJoin(t *testing.T) {
 // membership: the group must be forgotten, not learned, so that leaving group A and
 // joining group B yields B rather than a two-group process forever.
 func TestProcessKafkaEventConsumerGroupLeave(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 	consumer := kafkaEventFromPid(7, 42)
 
 	t.Run("leave of another group (admin removing members) keeps the membership", func(t *testing.T) {
@@ -819,7 +812,7 @@ func TestProcessKafkaEventConsumerGroupLeave(t *testing.T) {
 // group must not keep the previous process' groups alive.
 func TestProcessKafkaEventConsumerGroupExpiry(t *testing.T) {
 	const ttl = time.Minute
-	groups := newConsumerGroups(t, ttl)
+	groups := NewKafkaConsumerGroups(64, ttl)
 	groups.settle = 0 // the warm-up has tests of its own
 	start := time.Now()
 	clock := start
@@ -850,7 +843,7 @@ func TestProcessKafkaEventConsumerGroupExpiry(t *testing.T) {
 // they must not count as a membership, so a Connect worker's sink consumer keeps its
 // single group and a registry reports none.
 func TestProcessKafkaEventConsumerGroupForeignProtocol(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 
 	worker := kafkaEventFromPid(7, 42)
 	processKafka(t, groups, worker, heartbeatConnectCluster) // seen first: protocol type unknown yet
@@ -886,7 +879,7 @@ func TestProcessKafkaEventConsumerGroupForeignProtocol(t *testing.T) {
 // Subscriptions are recomputed from what each group currently subscribes to, so a group
 // leaving or re-subscribing on a rebalance releases the topics it no longer consumes.
 func TestProcessKafkaEventConsumerGroupSubscriptionChanges(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 	consumer := kafkaEventFromPid(7, 42)
 	proc := KafkaProcess{Ns: 7, Pid: 42}
 
@@ -930,7 +923,7 @@ func TestProcessKafkaEventConsumerGroupSubscriptionChanges(t *testing.T) {
 // same group.id (every Kafka Streams thread is one). Each keeps its own subscription and
 // the group's is their union, so a member joining must not drop another's topics.
 func TestProcessKafkaEventConsumerGroupMultipleMembers(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 	consumer := kafkaEventFromPid(7, 42)
 	proc := KafkaProcess{Ns: 7, Pid: 42}
 
@@ -955,7 +948,7 @@ func TestProcessKafkaEventConsumerGroupMultipleMembers(t *testing.T) {
 
 	t.Run("a member's subscription expires with it, not with the group", func(t *testing.T) {
 		const ttl = time.Minute
-		groups := newConsumerGroups(t, ttl)
+		groups := NewKafkaConsumerGroups(64, ttl)
 		start := time.Now()
 		clock := start
 		groups.now = func() time.Time { return clock }
@@ -973,7 +966,7 @@ func TestProcessKafkaEventConsumerGroupMultipleMembers(t *testing.T) {
 	})
 
 	t.Run("offset commits of a member the process does not host are ignored", func(t *testing.T) {
-		groups := newTestConsumerGroups(t)
+		groups := newTestConsumerGroups()
 		processKafka(t, groups, consumer, joinGroupMyGroupPayments) // def only
 		processKafka(t, groups, consumer, joinGroupOtherGroup)
 		processKafka(t, groups, consumer, offsetCommitMyGroupOrders) // member abc
@@ -983,9 +976,9 @@ func TestProcessKafkaEventConsumerGroupMultipleMembers(t *testing.T) {
 
 // newClockedConsumerGroups returns a cache with a one-minute ttl driven by the returned
 // clock setter, so tests can age members and the anonymous pool without sleeping.
-func newClockedConsumerGroups(t *testing.T) (*KafkaConsumerGroups, func(time.Duration), time.Duration) {
+func newClockedConsumerGroups() (*KafkaConsumerGroups, func(time.Duration), time.Duration) {
 	const ttl = time.Minute
-	groups := newConsumerGroups(t, ttl)
+	groups := NewKafkaConsumerGroups(64, ttl)
 	groups.settle = 0
 	start := time.Now()
 	clock := start
@@ -1015,7 +1008,7 @@ func groupMembers(t *testing.T, groups *KafkaConsumerGroups, proc KafkaProcess, 
 // connection is that member, whether it is the KIP-394 repeat of the JoinGroup or, with
 // an older broker, the SyncGroup or Heartbeat that first carries the id.
 func TestProcessKafkaEventConsumerGroupMemberIDAssigned(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 	consumer := consumerOn(40001)
 	proc := KafkaProcess{Ns: 7, Pid: 42}
 
@@ -1037,7 +1030,7 @@ func TestProcessKafkaEventConsumerGroupMemberIDAssigned(t *testing.T) {
 // is named. Each keeps its own subscription, bound to its connection, so one leaving does
 // not drop the other's topics.
 func TestProcessKafkaEventConsumerGroupOverlappingAnonymousJoins(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 	a, b := consumerOn(40001), consumerOn(40002)
 	proc := KafkaProcess{Ns: 7, Pid: 42}
 
@@ -1062,7 +1055,7 @@ func TestProcessKafkaEventConsumerGroupOverlappingAnonymousJoins(t *testing.T) {
 // Nothing orders the named requests of two members that joined anonymously close
 // together: B may be named first. The connection, not the order, decides who is who.
 func TestProcessKafkaEventConsumerGroupNamedOutOfOrder(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 	proc := KafkaProcess{Ns: 7, Pid: 42}
 	connA := consumerOn(40001).ConnInfo
 	connB := consumerOn(40002).ConnInfo
@@ -1093,7 +1086,7 @@ func TestProcessKafkaEventConsumerGroupNamedOutOfOrder(t *testing.T) {
 // connection, so it still ends the pending member of that connection: its topics must
 // not stay in the group's union until the ttl.
 func TestProcessKafkaEventConsumerGroupPendingMemberLeaves(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 	proc := KafkaProcess{Ns: 7, Pid: 42}
 	jobConn := consumerOn(40002).ConnInfo
 	longConn := consumerOn(40001).ConnInfo
@@ -1121,7 +1114,7 @@ func TestProcessKafkaEventConsumerGroupPendingMemberLeaves(t *testing.T) {
 // starts a rebalance in which those members re-send their subscriptions before the
 // joiner's SyncGroup names it. Their JoinGroups must not touch the joiner's subscription.
 func TestProcessKafkaEventConsumerGroupAnonymousJoinDuringRebalance(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 	a, c := consumerOn(40001), consumerOn(40003)
 
 	processKafka(t, groups, a, heartbeatMyGroupAbc)                // A, established before OBI attached
@@ -1136,7 +1129,7 @@ func TestProcessKafkaEventConsumerGroupAnonymousJoinDuringRebalance(t *testing.T
 // each first JoinGroup is anonymous, and the named repeat on its connection takes it over,
 // so the job's leave removes everything it brought.
 func TestProcessKafkaEventConsumerGroupJobChurn(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 	long, job := consumerOn(40001), consumerOn(40002)
 	proc := KafkaProcess{Ns: 7, Pid: 42}
 
@@ -1153,7 +1146,7 @@ func TestProcessKafkaEventConsumerGroupJobChurn(t *testing.T) {
 // A pending member nobody names, for instance because the connection was re-established
 // before the id came back, expires like any member and keeps nothing alive.
 func TestProcessKafkaEventConsumerGroupPendingExpiry(t *testing.T) {
-	groups, clockAt, ttl := newClockedConsumerGroups(t)
+	groups, clockAt, ttl := newClockedConsumerGroups()
 	proc := KafkaProcess{Ns: 7, Pid: 42}
 	first, second := consumerOn(40001), consumerOn(40009)
 
@@ -1180,7 +1173,7 @@ func TestProcessKafkaEventConsumerGroupPendingExpiry(t *testing.T) {
 // it: every Fetch gets no group rather than possibly the wrong one. Kafka bounds no
 // heartbeat interval, so the window is the ttl, the longest interval the cache supports.
 func TestProcessKafkaEventConsumerGroupWarmUp(t *testing.T) {
-	groups := newConsumerGroups(t, time.Minute)
+	groups := NewKafkaConsumerGroups(64, time.Minute)
 	require.Equal(t, groups.ttl, groups.settle)
 	start := time.Now()
 	clock := start
@@ -1213,7 +1206,7 @@ func TestProcessKafkaEventConsumerGroupWarmUp(t *testing.T) {
 // The warm-up belongs to the process, not to its memberships: a service that closes its
 // only consumer and opens a new one, as a batch job does, is not warmed up again.
 func TestProcessKafkaEventConsumerGroupWarmUpOncePerProcess(t *testing.T) {
-	groups := newConsumerGroups(t, time.Minute)
+	groups := NewKafkaConsumerGroups(64, time.Minute)
 	start := time.Now()
 	clock := start
 	groups.now = func() time.Time { return clock }
@@ -1234,7 +1227,7 @@ func TestProcessKafkaEventConsumerGroupWarmUpOncePerProcess(t *testing.T) {
 // attributed at once. The membership state expires on the wall clock, hence the sleeps.
 func TestProcessKafkaEventConsumerGroupWarmUpAfterIdleGap(t *testing.T) {
 	const ttl = 200 * time.Millisecond
-	groups := newConsumerGroups(t, ttl)
+	groups := NewKafkaConsumerGroups(64, ttl)
 	consumer := kafkaEventFromPid(7, 42)
 
 	processKafka(t, groups, consumer, joinGroupMyGroup) // first run
@@ -1251,11 +1244,34 @@ func TestProcessKafkaEventConsumerGroupWarmUpAfterIdleGap(t *testing.T) {
 	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchImportant), "no second warm-up")
 }
 
+// A recycled pid inherits the previous process's first-seen time only within the idle
+// bound of that process's last group request. After it, the new process is warmed up
+// like any other, since its first group requests may predate OBI's discovery of it.
+func TestProcessKafkaEventConsumerGroupWarmUpAfterPidReuse(t *testing.T) {
+	const ttl, idle = 100 * time.Millisecond, 300 * time.Millisecond
+	groups := newKafkaConsumerGroups(64, ttl, idle)
+	consumer := kafkaEventFromPid(7, 42)
+
+	processKafka(t, groups, consumer, joinGroupMyGroup) // the first process
+	time.Sleep(ttl)
+	processKafka(t, groups, consumer, joinGroupMyGroup)
+	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchImportant), "warmed up")
+
+	processKafka(t, groups, consumer, leaveGroupMyGroup) // it exits
+	time.Sleep(idle + ttl)
+	processKafka(t, groups, consumer, joinGroupMyGroup) // a new process gets the same pid
+	assert.Empty(t, fetchGroup(t, groups, consumer, fetchImportant), "the new process is warmed up")
+
+	time.Sleep(ttl)
+	processKafka(t, groups, consumer, joinGroupMyGroup)
+	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchImportant), "warmed up")
+}
+
 // A process holds at most maxGroupsPerProcess memberships and maxMembersPerGroup members
 // in each: a client cycling through group or member ids cannot grow the entry until the
 // TTL trims it.
 func TestKafkaConsumerGroupsMembershipCap(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 	proc := KafkaProcess{Ns: 7, Pid: 42}
 	for i := range maxGroupsPerProcess + 5 {
 		groups.Join(proc, BpfConnectionInfoT{}, &kafkaparser.GroupRequest{GroupID: fmt.Sprintf("group-%d", i), MemberID: "member"}, nil)
@@ -1277,7 +1293,7 @@ func TestKafkaConsumerGroupsMembershipCap(t *testing.T) {
 // fanning out, or offset commits naming ever new topics, cannot grow the entry past
 // maxTopicsPerProcess.
 func TestKafkaConsumerGroupsTopicBudget(t *testing.T) {
-	groups := newTestConsumerGroups(t)
+	groups := newTestConsumerGroups()
 	proc := KafkaProcess{Ns: 7, Pid: 42}
 	topics := func(prefix string, n int) []*kafkaparser.GroupTopic {
 		out := make([]*kafkaparser.GroupTopic, 0, n)
