@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -33,9 +34,7 @@ func TestECSServiceResolution(t *testing.T) {
 func testECSServiceResolution(t *testing.T, discover bool) {
 	t.Helper()
 	network := setupDockerNetwork(t)
-	if discover {
-		setupECSMetadataMock(t, network)
-	}
+	setupECSMetadataMock(t, network)
 	setupContainerPrometheus(t, network, "prometheus-config-perapp.yml")
 	setupContainerJaeger(t, network)
 	setupContainerCollector(t, network, "otelcol-config.yml")
@@ -50,9 +49,7 @@ func testECSServiceResolution(t *testing.T, discover bool) {
 		_, err := dockerPool.Client().NetworkDisconnect(t.Context(), "bridge", client.NetworkDisconnectOptions{Container: id})
 		require.NoError(t, err)
 	}
-	if discover {
-		require.NoError(t, waitUntilReadyToServe("http://127.0.0.1:1339/v3/containers/ecs-frontend/task"))
-	}
+	require.NoError(t, waitUntilReadyToServe("http://127.0.0.1:1339/v3/containers/ecs-frontend/task"))
 
 	var available atomic.Bool
 	var denied atomic.Int64
@@ -99,6 +96,10 @@ func testECSServiceResolution(t *testing.T, discover bool) {
 	defer mock.Close()
 	require.NotEmpty(t, network.Inspect().IPAM.Config)
 	gateway := network.Inspect().IPAM.Config[0].Gateway.String()
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		// The bridge gateway belongs to the Docker VM, while the mock runs on the host.
+		gateway = "host.docker.internal"
+	}
 	endpoint := "http://" + net.JoinHostPort(gateway, strconv.Itoa(listener.Addr().(*net.TCPAddr).Port))
 	o := obi{
 		Env: []string{
@@ -112,14 +113,13 @@ func testECSServiceResolution(t *testing.T, discover bool) {
 			"AWS_ENDPOINT_URL_ECS=" + endpoint,
 			"AWS_ACCESS_KEY_ID=test", "AWS_SECRET_ACCESS_KEY=test",
 			"AWS_EC2_METADATA_DISABLED=true", "AWS_MAX_ATTEMPTS=1",
+			// The official mock serves V4-compatible metadata through its /v3 route.
+			// Use the ready frontend endpoint; all containers share the mock task's cluster and region.
+			"ECS_CONTAINER_METADATA_URI_V4=http://ecs-metadata/v3/containers/ecs-frontend",
 		},
 		Logs: createLogOutput(t, "ecs-resolver"),
 	}
-	if discover {
-		// The official mock serves V4-compatible metadata through its /v3 route.
-		// Use the ready frontend endpoint; all containers share the mock task's cluster and region.
-		o.Env = append(o.Env, "ECS_CONTAINER_METADATA_URI_V4=http://ecs-metadata/v3/containers/ecs-frontend")
-	} else {
+	if !discover {
 		o.Env = append(o.Env,
 			"OTEL_EBPF_CLUSTER_NAME=integration-test",
 			"OTEL_EBPF_CLOUD_REGION=us-east-1",
