@@ -14,6 +14,8 @@
 #include <common/ringbuf.h>
 #include <common/scratch_mem.h>
 #include <common/strings.h>
+#include <common/trace_helpers.h>
+#include <common/trace_util.h>
 #include <common/tracing.h>
 
 #include <generictracer/types/nodejs.h>
@@ -21,6 +23,7 @@
 #include <logger/bpf_dbg.h>
 
 #include <maps/fd_to_connection.h>
+#include <maps/node_manual_ctx_shadow.h>
 #include <maps/nodejs_fd_map.h>
 
 #include <pid/pid.h>
@@ -40,6 +43,13 @@ enum {
     k_max_fd_digits = 4,
     // strlen("/dev/null/obi-span/") — the JSON span payload starts here
     k_span_payload_offset = 19,
+    // strlen("/dev/null/obi-mspan/") — the manual-span override payload starts here
+    k_mspan_payload_offset = 20,
+    // <32-hex trace id><16-hex span id>, e.g.
+    // 0af7651916cd43dd8448eb211c80319cb7ad6b7169203331
+    k_mspan_hex_len = TRACE_ID_CHAR_LEN + SPAN_ID_CHAR_LEN,
+    // the same, led by the 4-digit incoming fd of the request it runs in
+    k_mspan_fd_payload_len = k_max_fd_digits + k_mspan_hex_len,
     k_span_fd_variant_offset = 18,
     k_span_fd_marker_len = 3,
     k_span_fd_payload_offset = k_span_fd_variant_offset + k_span_fd_marker_len + k_max_fd_digits,
@@ -78,6 +88,7 @@ _Static_assert(k_nodejs_heap_space_name_max == k_nodejs_resource_type_max,
 
 SCRATCH_MEM_SIZED(nodejs_rt_payload, k_rt_payload_read_len)
 SCRATCH_MEM_SIZED(nodejs_v8_payload, k_v8_heap_payload_read_len)
+SCRATCH_MEM_SIZED(nodejs_mspan_payload, k_mspan_fd_payload_len + 2)
 
 static __always_inline int nodejs_parse_hex_u64(const unsigned char *buf, u64 *out) {
     u64 v = 0;
@@ -199,6 +210,116 @@ static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
         obi_ctx__del(pid_tgid);
     }
 
+    // Each callback re-derives the base context, so drop any stale manual-span
+    // override shadow left over from the previous callback.
+    bpf_map_delete_elem(&node_manual_ctx_shadow, &pid_tgid);
+
+    return 0;
+}
+
+// Manual-span context override emitted by the span bridge (spanbridge.js):
+//     /dev/null/obi-mspan/[<4-digit fd>]<32-hex trace_id><16-hex span_id>   -> override
+//     /dev/null/obi-mspan/-                                   -> pop
+//
+// "Override" means: the innermost active manual span is now this one; make the
+// thread's traces_ctx_v1 entry point at it so OBI's automatic client spans nest
+// under the manual span instead of the server span. Both the exported client
+// span and the injected traceparent read it, through the two call sites of
+// nodejs_manual_parent_span_id in trace_parent.h. We keep the request (base)
+// trace id and only swap in the manual span's span id. The pre-override entry is
+// saved once per sync block in node_manual_ctx_shadow; "pop" restores it. This
+// mirrors go_sdk.c's update_tp_parent_go / prev_tp semantics.
+//
+// The log enricher (logenricher.c) also reads traces_ctx_v1, so while a manual
+// span is active, log lines correlate to it rather than to the server span.
+static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgid) {
+    // One byte longer than the longest valid payload, so an over-long path is
+    // distinguishable: bpf_probe_read_user_str returns the same count for an
+    // exact-length payload and for a longer one it truncated, and a foreign
+    // process could otherwise have residual bytes decoded as a plausible
+    // override attributed to itself. Same reasoning as handle_runtime_metrics.
+    unsigned char *hexbuf = nodejs_mspan_payload_mem();
+    if (!hexbuf) {
+        return 0;
+    }
+    const long n =
+        bpf_probe_read_user_str(hexbuf, k_mspan_fd_payload_len + 2, path + k_mspan_payload_offset);
+    if (n <= 0) {
+        return 0;
+    }
+
+    // Pop: the innermost manual span ended in this sync block. Restore the base
+    // context only while traces_ctx_v1 is populated: otherwise nothing keeps a
+    // restored entry current, and a span ending after the request would parent
+    // under it. The marker is the whole payload, so n counts it plus the NUL.
+    if (hexbuf[0] == '-' && n == 2) {
+        obi_ctx_info_t *shadow = bpf_map_lookup_elem(&node_manual_ctx_shadow, &pid_tgid);
+        if (shadow) {
+            if (g_traces_ctx_v1_enabled && valid_trace(shadow->trace_id)) {
+                bpf_map_update_elem(&traces_ctx_v1, &pid_tgid, shadow, BPF_ANY);
+            } else {
+                bpf_map_delete_elem(&traces_ctx_v1, &pid_tgid);
+            }
+            bpf_map_delete_elem(&node_manual_ctx_shadow, &pid_tgid);
+        }
+        bpf_dbg_printk("nodejs_mspan pop: pid_tgid = %llx", pid_tgid);
+        return 0;
+    }
+
+    // Override is exactly the hex payload, optionally led by the request fd; n
+    // counts the NUL terminator.
+    const unsigned char *hex = hexbuf;
+    const tp_info_pid_t *server = 0;
+    if (n == k_mspan_fd_payload_len + 1) {
+        u32 fd = 0;
+        if (nodejs_parse_fd(hexbuf, &fd) != 0) {
+            return 0;
+        }
+        server = nodejs_server_trace_for_fd(pid_tgid, fd);
+        hex = hexbuf + k_max_fd_digits;
+    } else if (n != k_mspan_hex_len + 1) {
+        return 0;
+    }
+
+    obi_ctx_info_t sentinel = {};
+    decode_hex(sentinel.trace_id, hex, TRACE_ID_CHAR_LEN);
+    decode_hex(sentinel.span_id, hex + TRACE_ID_CHAR_LEN, SPAN_ID_CHAR_LEN);
+
+    // Save the base on the first override of this sync block: the server trace
+    // of the request fd when the bridge sent one (traces_ctx_v1 is not populated
+    // for manual spans alone), the live entry otherwise. No base at all is
+    // recorded as an all-zero marker so pop / span-end can tell it apart from a
+    // real server context.
+    obi_ctx_info_t *shadow = bpf_map_lookup_elem(&node_manual_ctx_shadow, &pid_tgid);
+    if (!shadow) {
+        obi_ctx_info_t base = {};
+        const obi_ctx_info_t *live = obi_ctx__get(pid_tgid);
+        if (server) {
+            bpf_memcpy(base.trace_id, server->tp.trace_id, TRACE_ID_SIZE_BYTES);
+            bpf_memcpy(base.span_id, server->tp.span_id, SPAN_ID_SIZE_BYTES);
+        } else if (live) {
+            base = *live;
+        }
+        bpf_map_update_elem(&node_manual_ctx_shadow, &pid_tgid, &base, BPF_ANY);
+        shadow = bpf_map_lookup_elem(&node_manual_ctx_shadow, &pid_tgid);
+        if (!shadow) {
+            return 0;
+        }
+    }
+
+    obi_ctx_info_t newlive = {};
+    if (valid_trace(shadow->trace_id)) {
+        // Keep the request trace id; adopt the manual span's span id.
+        bpf_memcpy(newlive.trace_id, shadow->trace_id, TRACE_ID_SIZE_BYTES);
+    } else {
+        // No request in flight: the manual span is its own (bridge) trace.
+        bpf_memcpy(newlive.trace_id, sentinel.trace_id, TRACE_ID_SIZE_BYTES);
+    }
+    bpf_memcpy(newlive.span_id, sentinel.span_id, SPAN_ID_SIZE_BYTES);
+    bpf_map_update_elem(&traces_ctx_v1, &pid_tgid, &newlive, BPF_ANY);
+
+    bpf_dbg_printk("nodejs_mspan override: pid_tgid = %llx", pid_tgid);
+
     return 0;
 }
 
@@ -212,6 +333,11 @@ static __always_inline int handle_async_switch(char *buf, const u64 pid_tgid) {
 // rest of the pipeline uses) and with the request trace context — the server
 // trace of the incoming fd when the bridge sent one, traces_ctx_v1 otherwise —
 // so the span can be parented under OBI's automatic server span.
+//
+// Without an fd, prefer the saved base in node_manual_ctx_shadow over the live
+// traces_ctx_v1 entry: while a manual span is active the live entry holds this
+// span's own override, so a root manual span would otherwise become its own
+// parent.
 static __always_inline int handle_node_span(const char *path, const u64 pid_tgid) {
     node_span_event_t *ev = bpf_ringbuf_reserve(&events, sizeof(node_span_event_t), 0);
     if (!ev) {
@@ -248,7 +374,13 @@ static __always_inline int handle_node_span(const char *path, const u64 pid_tgid
             bpf_memcpy(ev->parent_span_id, (void *)tp->tp.span_id, SPAN_ID_SIZE_BYTES);
         }
     } else if (variant == k_span_variant_plain) {
-        const obi_ctx_info_t *octx = obi_ctx__get(pid_tgid);
+        const obi_ctx_info_t *shadow = bpf_map_lookup_elem(&node_manual_ctx_shadow, &pid_tgid);
+        const obi_ctx_info_t *octx;
+        if (shadow) {
+            octx = valid_trace(shadow->trace_id) ? shadow : NULL;
+        } else {
+            octx = obi_ctx__get(pid_tgid);
+        }
         if (octx) {
             ev->has_parent_ctx = 1;
             bpf_memcpy(ev->parent_trace_id, (void *)octx->trace_id, TRACE_ID_SIZE_BYTES);
@@ -279,6 +411,10 @@ static __always_inline int handle_node_span(const char *path, const u64 pid_tgid
 static __always_inline int handle_ctx_clear(const u64 pid_tgid) {
     bpf_dbg_printk("nodejs_ctx_clear: pid_tgid = %llx", pid_tgid);
     obi_ctx__del(pid_tgid);
+    // As with the '-ctx' refresh: this callback re-derives the base (here, no
+    // request), so any stale override shadow must go. The bridge re-applies an
+    // override right after if a manual span is active in this async context.
+    bpf_map_delete_elem(&node_manual_ctx_shadow, &pid_tgid);
     return 0;
 }
 
@@ -527,7 +663,7 @@ int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path
     (void)req;
 
     // the obi nodejs agents (fdextractor.js, spanbridge.js) pass signals to
-    // the ebpf layer by invoking uv_fs_access() with a fake path. Five
+    // the ebpf layer by invoking uv_fs_access() with a fake path. Six
     // formats are used:
     //
     // 1. fd pair correlation (outgoing -> incoming):
@@ -550,6 +686,10 @@ int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path
     // 6. v8js metrics (gc cycles, heap-space samples, active-resource census):
     //    /dev/null/obi-v8/<'g'|'h'|'a'><payload> — record layouts in types/nodejs.h
     //
+    // 7. manual-span context override / pop (spanbridge.js):
+    //    /dev/null/obi-mspan/<48-hex> — active manual span (trace_id+span_id)
+    //    /dev/null/obi-mspan/-        — no manual span active anymore
+    //
     // All paths share the prefix "/dev/null/obi" (13 chars). The characters at
     // positions 13-14 distinguish the formats:
     //   '/'       -> format 1 (fd pair)
@@ -558,13 +698,15 @@ int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path
     //   '-', 'n'  -> format 4 (no request context, "-noreqctx")
     //   '-', 'r'  -> format 5 (runtime metrics, "-rt/" follows)
     //   '-', 'v'  -> format 6 (v8js metrics, "-v8/" follows)
+    //   '-', 'm'  -> format 7 (manual-span override, "-mspan/" follows)
     static const char prefix[] = "/dev/null/obi";
     static const u8 prefix_size = sizeof(prefix) - 1;
 
     // Buffer sized to hold the longest fixed-size path + null terminator.
-    // Formats 1 and 2 are exactly 22 characters long; formats 3 and 5 are
-    // longer and are re-read from the original user pointer in their
-    // handlers (handle_node_span, handle_runtime_metrics).
+    // Formats 1 and 2 are exactly 22 characters long; formats 3 and 5 to 7 are
+    // longer and are re-read from the original user pointer in their handlers
+    // (handle_node_span, handle_runtime_metrics, handle_v8_metrics,
+    // handle_manual_ctx).
     char buf[] = "/dev/null/obi/00000000";
 
     if (bpf_probe_read_user(buf, sizeof(buf), path) != 0) {
@@ -590,6 +732,10 @@ int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path
         if (buf[k_variant_offset] == 's') {
             return handle_node_span(path, pid_tgid);
         }
+        // Manual-span context override / pop: /dev/null/obi-mspan/...
+        if (buf[k_variant_offset] == 'm') {
+            return handle_manual_ctx(path, pid_tgid);
+        }
         // No request context: /dev/null/obi-noreqctx
         // Fires from the async_hooks 'before' callback in fdextractor.js when a
         // callback runs outside any request; clears the stale traces_ctx_v1 entry.
@@ -613,4 +759,22 @@ int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path
     }
     // fd pair correlation: /dev/null/obi/<fd1><fd2>
     return handle_fd_correlation(buf, pid_tgid);
+}
+
+// sys_exit only sees a thread calling exit(2): a process leaving through
+// exit_group(2), as Node's process.exit() does, or through a fatal signal never
+// enters it. Every exit path converges on do_exit, which fires this tracepoint
+// once per exiting thread, so an override shadow cannot outlive its thread and
+// hand its saved base to whichever thread next reuses the pid_tgid.
+SEC("tracepoint/sched/sched_process_exit")
+int GUARDED_PROG(obi_tp_sched_process_exit, void *, ctx) {
+    (void)ctx;
+
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    if (!valid_pid(pid_tgid)) {
+        return 0;
+    }
+
+    bpf_map_delete_elem(&node_manual_ctx_shadow, &pid_tgid);
+    return 0;
 }

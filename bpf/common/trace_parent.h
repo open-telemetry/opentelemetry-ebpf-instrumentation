@@ -24,6 +24,7 @@
 #include <maps/java_tasks.h>
 #include <maps/java_vt_threads.h>
 #include <maps/nginx_upstream.h>
+#include <maps/node_manual_ctx_shadow.h>
 #include <maps/nodejs_fd_map.h>
 #include <maps/puma_tasks.h>
 #include <maps/python_thread_state.h>
@@ -367,6 +368,25 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
     return 0;
 }
 
+static __always_inline u8 nodejs_manual_parent_span_id(u64 pid_tgid,
+                                                       const unsigned char *trace_id,
+                                                       unsigned char *span_id_out) {
+    // no shadow: this thread is not inside a Node.js manual span
+    const obi_ctx_info_t *shadow = bpf_map_lookup_elem(&node_manual_ctx_shadow, &pid_tgid);
+    if (!shadow) {
+        return 0;
+    }
+    const obi_ctx_info_t *live = bpf_map_lookup_elem(&traces_ctx_v1, &pid_tgid);
+    if (!live) {
+        return 0;
+    }
+    if (bpf_memcmp(live->trace_id, trace_id, TRACE_ID_SIZE_BYTES) != 0) {
+        return 0;
+    }
+    __builtin_memcpy(span_id_out, live->span_id, SPAN_ID_SIZE_BYTES);
+    return 1;
+}
+
 static __always_inline u8
 find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
                                          u16 orig_dport,
@@ -391,6 +411,10 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
 
         __builtin_memcpy(tp->trace_id, server_tp->tp.trace_id, sizeof(tp->trace_id));
         __builtin_memcpy(tp->parent_id, server_tp->tp.span_id, sizeof(tp->parent_id));
+
+        if (nodejs_manual_parent_span_id(pid_tgid, tp->trace_id, tp->parent_id)) {
+            return k_parent_status_live;
+        }
         return parent_kind(server_tp);
     }
 
@@ -433,6 +457,10 @@ find_parent_trace_for_client_request_with_t_key(const pid_connection_info_t *p_c
         }
 
         *tp = server_tp->tp;
+
+        if (nodejs_manual_parent_span_id(pid_tgid, tp->trace_id, tp->span_id)) {
+            return k_parent_status_live;
+        }
         return parent_kind(server_tp);
     }
 
