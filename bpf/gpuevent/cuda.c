@@ -415,7 +415,7 @@ int BPF_KPROBE_GUARDED(
     bpf_dbg_printk("=== uprobe/cuLaunchKernel id=%llx ===", id);
 
     u64 block_z = 0;
-#if defined(__TARGET_ARCH_x86)
+#ifdef __TARGET_ARCH_x86
     bpf_probe_read_user(&block_z, sizeof(u32), (const void *)(PT_REGS_SP(ctx) + 8));
 #elif defined(__TARGET_ARCH_arm64)
     block_z = ((PT_REGS_ARM64 *)ctx)->regs[6];
