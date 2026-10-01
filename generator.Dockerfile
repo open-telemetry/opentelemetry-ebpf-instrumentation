@@ -12,7 +12,7 @@ ARG TARGETARCH
 RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories
 RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
 
-RUN apk add clang22 llvm22 wget unzip curl make bash git
+RUN apk add clang22 llvm22 clang22-extra-tools wget unzip curl make bash git
 RUN apk cache purge
 
 COPY internal/tools/generator/ internal/tools/generator/
