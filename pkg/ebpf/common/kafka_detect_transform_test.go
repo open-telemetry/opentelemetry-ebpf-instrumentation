@@ -1222,49 +1222,31 @@ func TestProcessKafkaEventConsumerGroupWarmUpOncePerProcess(t *testing.T) {
 	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchImportant), "no second warm-up")
 }
 
-// A process that consumes in runs separated by more than the ttl loses its membership
-// state between runs, but not the time it was first seen: the next run's Fetches are
-// attributed at once. The membership state expires on the wall clock, hence the sleeps.
-func TestProcessKafkaEventConsumerGroupWarmUpAfterIdleGap(t *testing.T) {
+// A process that consumes in runs separated by more than the ttl is warmed up again on
+// every run: once its membership state expired, nothing shows whether the first requests
+// of the next run's groups were seen, and the single-group fallback would otherwise label
+// a group whose join went unseen with the one relearned first. The state expires on the
+// wall clock, hence the sleeps; the member renews it twice per ttl, as a heartbeat does.
+func TestProcessKafkaEventConsumerGroupWarmUpAfterExpiry(t *testing.T) {
 	const ttl = 200 * time.Millisecond
 	groups := NewKafkaConsumerGroups(64, ttl)
 	consumer := kafkaEventFromPid(7, 42)
+	run := func(msg string) {
+		processKafka(t, groups, consumer, joinGroupMyGroup)
+		assert.Empty(t, fetchGroup(t, groups, consumer, fetchImportant), msg)
+		for range 2 {
+			time.Sleep(ttl/2 + 10*time.Millisecond)
+			processKafka(t, groups, consumer, joinGroupMyGroup)
+		}
+		assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchImportant), "warmed up")
+	}
 
-	processKafka(t, groups, consumer, joinGroupMyGroup) // first run
-	time.Sleep(ttl)
-	processKafka(t, groups, consumer, joinGroupMyGroup)
-	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchImportant), "warmed up")
-
+	run("warming up")
 	processKafka(t, groups, consumer, leaveGroupMyGroup)
 	time.Sleep(2 * ttl) // idle gap longer than the ttl
 	_, kept := groups.lru.Get(KafkaProcess{Ns: 7, Pid: 42})
 	require.False(t, kept, "the membership state is gone")
-
-	processKafka(t, groups, consumer, joinGroupMyGroup) // next run
-	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchImportant), "no second warm-up")
-}
-
-// A recycled pid inherits the previous process's first-seen time only within the idle
-// bound of that process's last group request. After it, the new process is warmed up
-// like any other, since its first group requests may predate OBI's discovery of it.
-func TestProcessKafkaEventConsumerGroupWarmUpAfterPidReuse(t *testing.T) {
-	const ttl, idle = 100 * time.Millisecond, 300 * time.Millisecond
-	groups := newKafkaConsumerGroups(64, ttl, idle)
-	consumer := kafkaEventFromPid(7, 42)
-
-	processKafka(t, groups, consumer, joinGroupMyGroup) // the first process
-	time.Sleep(ttl)
-	processKafka(t, groups, consumer, joinGroupMyGroup)
-	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchImportant), "warmed up")
-
-	processKafka(t, groups, consumer, leaveGroupMyGroup) // it exits
-	time.Sleep(idle + ttl)
-	processKafka(t, groups, consumer, joinGroupMyGroup) // a new process gets the same pid
-	assert.Empty(t, fetchGroup(t, groups, consumer, fetchImportant), "the new process is warmed up")
-
-	time.Sleep(ttl)
-	processKafka(t, groups, consumer, joinGroupMyGroup)
-	assert.Equal(t, "my-group", fetchGroup(t, groups, consumer, fetchImportant), "warmed up")
+	run("warmed up again")
 }
 
 // A process holds at most maxGroupsPerProcess memberships and maxMembersPerGroup members

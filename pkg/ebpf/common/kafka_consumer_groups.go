@@ -24,11 +24,6 @@ const (
 	// A topic that did not fit reads as not subscribed: when two groups of the process
 	// consume it, the Fetch is attributed to the other group instead of to neither.
 	maxTopicsPerProcess = 4096
-
-	// kafkaProcessIdleTTL is how long a process's first-seen time outlives its last group
-	// request. It bridges the idle gaps of a process consuming in runs, and bounds how
-	// long a recycled pid can inherit the previous process's warm-up.
-	kafkaProcessIdleTTL = time.Hour
 )
 
 // KafkaProcess identifies the instrumented process a Kafka request was captured from.
@@ -173,6 +168,12 @@ func (g *kafkaMembership) subscribed(topic string) bool {
 // kafkaProcessGroups is the membership state of one process, by group id.
 type kafkaProcessGroups struct {
 	groups map[string]*kafkaMembership
+	// since is when the first group request of the process was seen. It lives with the
+	// entry: a process that closes its last consumer and opens a new one within the ttl is
+	// not warmed up again, but a run that starts after the entry expired is, because the
+	// first requests of its groups may have gone unseen (a recycled pid before OBI
+	// discovers it) and the fallback to the single known group would then be unguarded.
+	since time.Time
 }
 
 // membership returns the state of group, creating it unless the process already holds
@@ -253,17 +254,10 @@ func (p *kafkaProcessGroups) topicGroup(topic string) (group string, subscribed 
 // Each member expires ttl after the last request asserting it; a Fetch lookup never
 // extends it. A recycled pid inherits the previous process' memberships for at most
 // ttl, and its own heartbeats renew only its own members; it also inherits the time the
-// previous process was first seen, if it sends a group request within
-// kafkaProcessIdleTTL of the previous process's last one, and so skips the warm-up. The
-// LRU ttl on the whole entry reclaims processes that stopped sending group requests.
+// previous process was first seen, and so skips the warm-up. The LRU ttl on the whole
+// entry reclaims processes that stopped sending group requests.
 type KafkaConsumerGroups struct {
 	lru *expirable.LRU[KafkaProcess, *kafkaProcessGroups]
-	// firstSeen is when the first group request of each process was seen. It is kept
-	// apart from lru, with a longer lifetime that only group requests renew: a process
-	// that consumes in runs separated by more than the ttl loses its entry in lru between
-	// runs, and must not be warmed up again on every run. No group heartbeating more
-	// often than the ttl can have gone unseen during such a gap.
-	firstSeen *expirable.LRU[KafkaProcess, time.Time]
 	// ttl is how long a member outlives the last request asserting it, which makes it
 	// the longest heartbeat interval the cache supports: a member heartbeating less often
 	// expires in between, and its group's Fetches can then go to another group of the
@@ -280,21 +274,17 @@ type KafkaConsumerGroups struct {
 }
 
 func NewKafkaConsumerGroups(size int, ttl time.Duration) *KafkaConsumerGroups {
-	return newKafkaConsumerGroups(size, ttl, max(kafkaProcessIdleTTL, ttl))
-}
-
-func newKafkaConsumerGroups(size int, ttl, idle time.Duration) *KafkaConsumerGroups {
 	return &KafkaConsumerGroups{
-		lru:       expirable.NewLRU[KafkaProcess, *kafkaProcessGroups](size, nil, ttl),
-		firstSeen: expirable.NewLRU[KafkaProcess, time.Time](size, nil, idle),
-		ttl:       ttl,
-		settle:    ttl,
-		now:       time.Now,
+		lru:    expirable.NewLRU[KafkaProcess, *kafkaProcessGroups](size, nil, ttl),
+		ttl:    ttl,
+		settle: ttl,
+		now:    time.Now,
 	}
 }
 
 // memberships returns proc's state with the expired memberships dropped, nil when the
-// process is unknown. A state without memberships is left for the LRU's ttl to reclaim.
+// process is unknown. A state without memberships is kept, with its first-seen time,
+// until the LRU's ttl reclaims it.
 func (g *KafkaConsumerGroups) memberships(proc KafkaProcess) *kafkaProcessGroups {
 	state, found := g.lru.Get(proc)
 	if !found {
@@ -314,14 +304,9 @@ func (g *KafkaConsumerGroups) Join(proc KafkaProcess, conn BpfConnectionInfoT, r
 	if g == nil {
 		return
 	}
-	since, seen := g.firstSeen.Get(proc)
-	if !seen {
-		since = g.now()
-	}
-	g.firstSeen.Add(proc, since)
 	state := g.memberships(proc)
 	if state == nil {
-		state = &kafkaProcessGroups{groups: map[string]*kafkaMembership{}}
+		state = &kafkaProcessGroups{groups: map[string]*kafkaMembership{}, since: g.now()}
 	}
 	group := state.membership(req.GroupID)
 	if group == nil {
@@ -414,8 +399,7 @@ func (g *KafkaConsumerGroups) Lookup(proc KafkaProcess, topic string) string {
 	if state == nil {
 		return ""
 	}
-	since, seen := g.firstSeen.Peek(proc)
-	if !seen || g.now().Before(since.Add(g.settle)) {
+	if g.now().Before(state.since.Add(g.settle)) {
 		return ""
 	}
 	if group, subscribed := state.topicGroup(topic); subscribed {
