@@ -15,7 +15,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
-func otelNodeFetcher(detector resource.Detector) fetcher {
+func otelNodeFetcher(clusterKind NodeFeatures, detector resource.Detector) fetcher {
 	log := slog.With("component", "meta.NodeMeta.otelNodeFetcher",
 		"detector", fmt.Sprintf("%T", detector)[1:])
 
@@ -44,13 +44,14 @@ func otelNodeFetcher(detector resource.Detector) fetcher {
 					log.Debug("can't detect Cloud metadata", "error", err)
 				}
 				resCh <- res
+				return
 			}
 		}()
 
 		var resource *resource.Resource
 		select {
 		case resource = <-resCh:
-			if resource == nil {
+			if resource == nil || resource.Len() == 0 {
 				// everything is fine, we might have asked for a Cloud resource from a baremetal machine
 				return NodeMeta{}, nil
 			}
@@ -61,13 +62,14 @@ func otelNodeFetcher(detector resource.Detector) fetcher {
 
 		log.Info("detected Cloud metadata")
 		attrs := resource.Iter()
-		store := NodeMeta{Metadata: make([]Entry, 0, attrs.Len())}
+		store := NodeMeta{Features: clusterKind, Metadata: make([]Entry, 0, attrs.Len())}
 		for attrs.Next() {
 			at := attrs.Attribute()
 			switch at.Key {
 			case semconv.HostIDKey:
 				store.HostID = at.Value.Emit()
 				continue
+				// TODO: add cluster names from other cloud providers
 			case semconv.AWSECSClusterARNKey:
 				store.Cluster = at.Value.AsString()
 			case semconv.CloudRegionKey:

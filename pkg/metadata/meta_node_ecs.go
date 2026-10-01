@@ -12,7 +12,7 @@ import (
 )
 
 func ecsNodeFetcher(ctx context.Context) (NodeMeta, error) {
-	metadata, err := otelNodeFetcher(ecs.NewResourceDetector())(ctx)
+	metadata, err := otelNodeFetcher(ClusterECS, ecs.NewResourceDetector())(ctx)
 	// OBI's task, container and log attributes do not describe every service on the node.
 	metadata.Metadata = slices.DeleteFunc(metadata.Metadata, func(entry Entry) bool {
 		switch entry.Key.OTEL() {
