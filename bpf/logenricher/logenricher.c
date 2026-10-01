@@ -49,8 +49,12 @@ static __always_inline bool pid_tracked(const struct task_struct *task) {
 
 static __always_inline bool
 fd_is_file(const struct task_struct *task, const int fd, const struct file *file) {
+    if (fd < 0) {
+        return false;
+    }
+
     struct fdtable *fdt = BPF_CORE_READ(task, files, fdt);
-    if (!fdt || fd < 0 || (u32)fd >= BPF_CORE_READ(fdt, max_fds)) {
+    if (!fdt || (u32)fd >= BPF_CORE_READ(fdt, max_fds)) {
         return false;
     }
 
