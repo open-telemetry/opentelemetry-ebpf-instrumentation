@@ -218,7 +218,14 @@ func substringSymbolMatch(symbolName string, substrings []string) (string, bool)
 	return "", false
 }
 
+// matchExeSymbols types an executable by the first runtime marker in its
+// symbol tables, except that a Node.js runtime symbol always wins over a Rust
+// one. Node.js 26 statically links Rust code (V8's Temporal implementation),
+// so its symbol tables carry rust_panic as well, and which of the two comes
+// first depends only on how the binary was linked.
 func matchExeSymbols(ctx *fastelf.ElfContext) svc.InstrumentableType {
+	sawRust := false
+
 	for _, sec := range ctx.Sections {
 		if sec == nil {
 			continue
@@ -256,12 +263,23 @@ func matchExeSymbols(ctx *fastelf.ElfContext) svc.InstrumentableType {
 
 			name := fastelf.GetCStringUnsafe(strs, sym.Name)
 
-			t := instrumentableFromSymbolName(name)
-
-			if t != svc.InstrumentableGeneric {
+			switch t := instrumentableFromSymbolName(name); t {
+			case svc.InstrumentableGeneric:
+			case svc.InstrumentableNodejs:
 				return t
+			case svc.InstrumentableRust:
+				// Keep scanning: this may be a Node.js binary.
+				sawRust = true
+			default:
+				if !sawRust {
+					return t
+				}
 			}
 		}
+	}
+
+	if sawRust {
+		return svc.InstrumentableRust
 	}
 
 	return svc.InstrumentableGeneric
