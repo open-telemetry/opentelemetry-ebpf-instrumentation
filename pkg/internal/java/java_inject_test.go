@@ -175,6 +175,9 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 		{
 			name: "error when target directory not writable",
 			setupTempDir: func(t *testing.T, _ app.PID) string {
+				if os.Geteuid() == 0 {
+					t.Skip("permission checks are not meaningful when running as root")
+				}
 				tmpDir := t.TempDir()
 				procRoot := filepath.Join(tmpDir, "proc", "root")
 				tmpPath := filepath.Join(procRoot, "tmp")
@@ -182,10 +185,12 @@ func TestJavaInjector_CopyAgent(t *testing.T) {
 				require.NoError(t, os.Chmod(tmpPath, 0o555))
 				return tmpDir
 			},
-			envVars:       map[string]string{},
-			pid:           1000,
-			expectError:   true,
-			errorContains: "unable to create target OBI java agent",
+			envVars:     map[string]string{},
+			pid:         1000,
+			expectError: true,
+			// dirOK rejects non-writable directories, so the failure surfaces
+			// from findTempDir before copyAgent attempts to create the file
+			errorContains: "couldn't find suitable temp directory",
 			verifyFile:    false,
 		},
 		{
