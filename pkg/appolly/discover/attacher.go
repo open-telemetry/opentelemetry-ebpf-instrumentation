@@ -289,20 +289,22 @@ func (ta *traceAttacher) getTracer(ctx context.Context, ie *ebpf.Instrumentable)
 		// Must be called after we've set the SDKLanguage
 		ta.harvestRoutes(ie, true)
 
-		// allowing the tracer to forward traces from the new PID and its children processes
-		ta.monitorPIDs(ctx, tracer, ie)
-		ta.Metrics.InstrumentProcess(ie.FileInfo.ExecutableName())
 		if tracer.Type == ebpf.Generic {
 			// We need to do this because generic tracers have shared libraries. For example,
 			// a python executable can run an SSL and non-SSL application, so it's not enough
 			// to look at the executable, we must ensure this process doesn't have different
 			// libraries attached
-			ok = ta.updateTracerProbes(ctx, tracer, ie)
+			if !ta.updateTracerProbes(tracer, ie) {
+				return false
+			}
 		} else {
 			ta.monitorPIDs(ctx, ta.reusableGoTracer, ie)
 		}
-		ta.log.Debug(".done", "success", ok)
-		return ok
+		// allowing the tracer to forward traces from the new PID and its children processes
+		ta.monitorPIDs(ctx, tracer, ie)
+		ta.Metrics.InstrumentProcess(ie.FileInfo.ExecutableName())
+		ta.log.Debug(".done")
+		return true
 	}
 
 	snap := ie.FileInfo.ServiceAttrs()
@@ -496,6 +498,7 @@ func (ta *traceAttacher) reuseTracer(ctx context.Context, tracer *ebpf.ProcessTr
 
 	if err := tracer.NewExecutable(exe, ie); err != nil {
 		ta.log.Debug("Failed to attach uprobes for new executable", "pid", ie.FileInfo.Pid(), "error", err)
+		return false
 	}
 
 	ta.log.Debug("reusing Generic tracer for",
@@ -514,9 +517,10 @@ func (ta *traceAttacher) reuseTracer(ctx context.Context, tracer *ebpf.ProcessTr
 	return true
 }
 
-func (ta *traceAttacher) updateTracerProbes(ctx context.Context, tracer *ebpf.ProcessTracer, ie *ebpf.Instrumentable) bool {
+func (ta *traceAttacher) updateTracerProbes(tracer *ebpf.ProcessTracer, ie *ebpf.Instrumentable) bool {
 	if err := tracer.NewExecutableInstance(ie); err != nil {
 		ta.log.Debug("Failed to attach uprobes", "pid", ie.FileInfo.Pid(), "error", err)
+		return false
 	}
 
 	ta.log.Debug("reusing Generic tracer for",
@@ -524,8 +528,6 @@ func (ta *traceAttacher) updateTracerProbes(ctx context.Context, tracer *ebpf.Pr
 		"child", ie.ChildPids,
 		"cmd", ie.FileInfo.CmdExePath(),
 		"language", ie.Type)
-
-	ta.monitorPIDs(ctx, tracer, ie)
 
 	return true
 }

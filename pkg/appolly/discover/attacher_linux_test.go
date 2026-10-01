@@ -93,6 +93,19 @@ func TestFailedAttachDoesNotHoldExecutableInstance(t *testing.T) {
 		return Event[ebpf.Instrumentable]{Type: EventDeleted, Obj: ebpf.Instrumentable{FileInfo: fi}}
 	}
 
+	failures := []struct {
+		name   string
+		exited func(t *testing.T) *execpkg.FileInfo
+	}{{
+		name:   "executable gone",
+		exited: func(t *testing.T) *execpkg.FileInfo { return sameInodeFileInfo(exitedProcessPID(t)) },
+	}, {
+		name: "process gone after its executable was opened",
+		exited: func(t *testing.T) *execpkg.FileInfo {
+			return sameInodeFileInfoWithExe(exitedProcessPID(t), "/proc/self/exe")
+		},
+	}}
+
 	tests := []struct {
 		name   string
 		events func(exited, running *execpkg.FileInfo) []Event[ebpf.Instrumentable]
@@ -106,24 +119,33 @@ func TestFailedAttachDoesNotHoldExecutableInstance(t *testing.T) {
 		events: func(exited, running *execpkg.FileInfo) []Event[ebpf.Instrumentable] {
 			return []Event[ebpf.Instrumentable]{created(exited), created(running), deleted(exited), deleted(running)}
 		},
+	}, {
+		name: "failed process is a new instance of an attached executable",
+		events: func(exited, running *execpkg.FileInfo) []Event[ebpf.Instrumentable] {
+			return []Event[ebpf.Instrumentable]{created(running), created(exited), deleted(exited), deleted(running)}
+		},
 	}}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			instrumentables, tracerEvents := startReusingGenericAttacher(t)
+	for _, failure := range failures {
+		t.Run(failure.name, func(t *testing.T) {
+			for _, tc := range tests {
+				t.Run(tc.name, func(t *testing.T) {
+					instrumentables, tracerEvents := startReusingGenericAttacher(t)
 
-			exited := sameInodeFileInfo(exitedProcessPID(t))
-			running := sameInodeFileInfo(app.PID(os.Getpid()))
-			instrumentables.Send(tc.events(exited, running))
+					exited := failure.exited(t)
+					running := sameInodeFileInfo(app.PID(os.Getpid()))
+					instrumentables.Send(tc.events(exited, running))
 
-			ev := testutil.ReadChannel(t, tracerEvents, testTimeout)
-			require.Equal(t, EventCreated, ev.Type)
-			assert.Same(t, running, ev.Obj.FileInfo)
+					ev := testutil.ReadChannel(t, tracerEvents, testTimeout)
+					require.Equal(t, EventCreated, ev.Type)
+					assert.Same(t, running, ev.Obj.FileInfo)
 
-			ev = testutil.ReadChannel(t, tracerEvents, testTimeout)
-			require.Equal(t, EventDeleted, ev.Type)
-			assert.Same(t, running, ev.Obj.FileInfo)
-			assert.NotNil(t, ev.Obj.Tracer)
+					ev = testutil.ReadChannel(t, tracerEvents, testTimeout)
+					require.Equal(t, EventDeleted, ev.Type)
+					assert.Same(t, running, ev.Obj.FileInfo)
+					assert.NotNil(t, ev.Obj.Tracer)
+				})
+			}
 		})
 	}
 }
@@ -204,10 +226,14 @@ func exitedProcessPID(t *testing.T) app.PID {
 }
 
 func sameInodeFileInfo(pid app.PID) *execpkg.FileInfo {
+	return sameInodeFileInfoWithExe(pid, fmt.Sprintf("/proc/%d/exe", pid))
+}
+
+func sameInodeFileInfoWithExe(pid app.PID, exeLink string) *execpkg.FileInfo {
 	return execpkg.New(execpkg.Init{
 		Service:        svc.Attrs{UID: svc.UID{Name: "svc", Namespace: "ns"}},
 		CmdExePath:     "/bin/test",
-		ProExeLinkPath: fmt.Sprintf("/proc/%d/exe", pid),
+		ProExeLinkPath: exeLink,
 		Pid:            pid,
 		Ino:            1234,
 	})
