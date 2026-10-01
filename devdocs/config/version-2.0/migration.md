@@ -6,10 +6,12 @@ standalone OBI binary and the OBI Collector receiver.
 
 > [!IMPORTANT]
 > Config v2 is supported for standalone OBI and the OBI Collector receiver
-> starting with OBI v0.11.0. Config v1 remains supported. Before migrating,
-> confirm that every deployed OBI binary or container image is v0.11.0 or
-> later. A successful `obi config validate` checks the document but does not
-> prove that an older installed OBI runtime can load v2.
+> starting with OBI v0.11.0. Config v1 remains supported for backward
+> compatibility, but it is frozen and does not receive bug fixes or new
+> features. Migrate to Config v2 to receive configuration improvements. Before
+> migrating, confirm that every deployed OBI binary or container image is
+> v0.11.0 or later. A successful `obi config validate` checks the document but
+> does not prove that an older installed OBI runtime can load v2.
 
 The migration command is designed to preserve effective behavior. It combines
 a v2 round-trip comparison with checks for structural mappings that cannot be

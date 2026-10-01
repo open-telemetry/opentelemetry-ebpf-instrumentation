@@ -57,6 +57,8 @@ Below are quick reference instructions for getting OBI up and running with binar
 
 When upgrading an existing configuration, follow the
 [Config v1 to v2 migration guide](devdocs/config/version-2.0/migration.md).
+Config v1 is frozen for backward compatibility and does not receive bug fixes
+or new features. Migrate to Config v2 to receive configuration improvements.
 Use Config v2 only with a release whose notes explicitly enable it for your
 standalone or Collector deployment mode.
 

@@ -138,6 +138,10 @@ func (g *DocGenerator) Generate(schemaLink string) string {
 	b.WriteString("# OBI Configuration Reference\n\n")
 	b.WriteString("Complete configuration reference for OpenTelemetry eBPF Instrumentation (OBI).\n")
 	b.WriteString("Configuration is provided via YAML file and/or environment variables.\n\n")
+	b.WriteString("> [!IMPORTANT]\n")
+	b.WriteString("> This reference documents Config v1, which is frozen for backward compatibility.\n")
+	b.WriteString("> Config v1 does not receive bug fixes or new features. Migrate to\n")
+	b.WriteString("> [Config v2](version-2.0/migration.md) to receive configuration improvements.\n\n")
 	fmt.Fprintf(&b, "Generated from [`%s`](%s).\n\n", schemaLink, schemaLink)
 	b.WriteString("---\n\n")
 

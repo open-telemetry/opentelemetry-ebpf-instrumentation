@@ -299,6 +299,7 @@ func TestGenerate(t *testing.T) {
 	output := gen.Generate("config-schema.json")
 
 	assert.Contains(t, output, "# OBI Configuration Reference")
+	assert.Contains(t, output, "This reference documents Config v1")
 	assert.Contains(t, output, "## Top-Level Properties")
 	assert.Contains(t, output, "`log_level`")
 	assert.Contains(t, output, "`LOG_LEVEL`")

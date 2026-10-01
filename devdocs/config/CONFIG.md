@@ -3,6 +3,11 @@
 Complete configuration reference for OpenTelemetry eBPF Instrumentation (OBI).
 Configuration is provided via YAML file and/or environment variables.
 
+> [!IMPORTANT]
+> This reference documents Config v1, which is frozen for backward compatibility.
+> Config v1 does not receive bug fixes or new features. Migrate to
+> [Config v2](version-2.0/migration.md) to receive configuration improvements.
+
 Generated from [`config-schema.json`](config-schema.json).
 
 ---
