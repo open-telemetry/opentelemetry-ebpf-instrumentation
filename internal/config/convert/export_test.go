@@ -114,7 +114,7 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.Equal(t, schema.KubernetesModeAutodetect, value(t, ext.Enrich, "enrichers", "kubernetes", "mode"))
 	require.Equal(t, schema.Duration(30*time.Second), value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "initial_sync_timeout"))
 	require.Equal(t, schema.Duration(30*time.Minute), value(t, ext.Enrich, "enrichers", "kubernetes", "informers", "resync_period"))
-	require.Equal(t, []transform.Source{transform.SourceK8s}, value(t, ext.Enrich, "service_name", "sources"))
+	require.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceECS}, value(t, ext.Enrich, "service_name", "sources"))
 	require.Equal(t, 1024, value(t, ext.Enrich, "service_name", "cache", "size"))
 	require.Equal(t, schema.Duration(5*time.Minute), value(t, ext.Enrich, "service_name", "cache", "ttl"))
 	require.Equal(t, "unresolved", value(t, ext.Enrich, "service_name", "unresolved_hosts", "names", "default"))

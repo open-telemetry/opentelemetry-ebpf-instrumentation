@@ -43,6 +43,9 @@ type ContextInfo struct {
 	K8sInformer *kube.MetadataProvider
 	// DockerMetadata stores per-PID information of docker containers
 	DockerMetadata *docker.ContainerStore
+	// ECSInventory is shared by endpoint resolution and process metadata enrichment.
+	// TODO: add ECS name resolution features to network metrics
+	ECSInventory *ecs.Inventory
 
 	// OverrideAppExportQueue allows overriding the output queue of the application exporter
 	// to connect your own application exporters outside the OBI code base. If left unset, OBI will
@@ -75,8 +78,6 @@ type ContextInfo struct {
 
 // AppO11y stores context information that is only required for application observability.
 type AppO11y struct {
-	// ECSInventory is shared by endpoint resolution and process metadata enrichment.
-	ECSInventory *ecs.Inventory
 	// ReportRoutes sets whether the metrics should set the http.route attribute
 	ReportRoutes bool
 }
