@@ -163,7 +163,6 @@ func TestLogPipeKeyIncludesDevice(t *testing.T) {
 	collided := pipeKey{Ino: key.Ino, Dev: key.Dev + 1}
 	assert.False(t, bpfHasKey(t, tr, collided), "same ino on another device must not match")
 	assert.Empty(t, tr.pipeDestCandidates(collided))
-	assert.False(t, tr.pipeRegistered(collided))
 }
 
 // a failed BPF map update must not be recorded as registered: the next
@@ -390,9 +389,8 @@ func TestReconcileRetiresExitedPidSharedPipe(t *testing.T) {
 	assert.True(t, bpfHasKey(t, tr, key), "shared pipe must survive one owner's exit")
 }
 
-// the tty fallback pin must reject a /proc fd path that re-pointed at another
-// file after the identity was taken
-func TestFallbackPinRejectsRepointedFd(t *testing.T) {
+// the pin must reject a /proc fd path that re-pointed after the identity was taken
+func TestPinRejectsRepointedFd(t *testing.T) {
 	tr := newPipeTestTracer(t)
 
 	dir := t.TempDir()
@@ -404,11 +402,7 @@ func TestFallbackPinRejectsRepointedFd(t *testing.T) {
 	pid := uint32(cmd.Process.Pid)
 	path := procFdPath(pid, 1)
 
-	pin, pipeDest, ok := tr.fallbackDest(path)
-	require.True(t, ok, "regular file fallback must be accepted")
-	assert.False(t, pipeDest)
-	require.Equal(t, fdKey(t, fileA), pin)
-
+	pin := fdKey(t, fileA)
 	warmed, err := tr.openLogDestination(path, pin)
 	require.NoError(t, err)
 	warmed.release()
@@ -422,29 +416,6 @@ func TestFallbackPinRejectsRepointedFd(t *testing.T) {
 	tr.fdCache.Purge()
 	_, err = tr.openLogDestination(path, pin)
 	require.ErrorIs(t, err, errStaleDestination)
-}
-
-func TestFallbackDestPipeRegistration(t *testing.T) {
-	tr := newPipeTestTracer(t)
-
-	outR, outW, err := os.Pipe()
-	require.NoError(t, err)
-	defer outR.Close()
-	defer outW.Close()
-
-	cmd := startChild(t, outW, outW, "sleep", "30")
-	pid := uint32(cmd.Process.Pid)
-	path := procFdPath(pid, 1)
-
-	_, _, ok := tr.fallbackDest(path)
-	assert.False(t, ok, "unregistered pipe fallback must be rejected")
-
-	trackAndRegister(tr, pid)
-
-	pin, pipeDest, ok := tr.fallbackDest(path)
-	assert.True(t, ok, "registered pipe fallback must be accepted")
-	assert.True(t, pipeDest)
-	assert.Equal(t, fdKey(t, outW), pin)
 }
 
 // candidate churn must not move a pipe's lines to another shard
@@ -465,8 +436,14 @@ func TestShardKeyStableAcrossOwnerChange(t *testing.T) {
 	otherPipe.orig.Dev = 8
 	assert.NotEqual(t, viaOwnerA.shardKey(), otherPipe.shardKey())
 
-	tty := LogEvent{dest: "/dev/pts/0"}
-	assert.Equal(t, "/dev/pts/0", tty.shardKey())
+	// writers sharing a terminal keep their lines in order
+	ttyA := LogEvent{dest: "/proc/100/fd/1"}
+	ttyA.orig.DestKind = logDestTTY
+	ttyA.orig.Ino = 3
+	ttyA.orig.Dev = 9
+	ttyB := ttyA
+	ttyB.dest = "/proc/200/fd/2"
+	assert.Equal(t, ttyA.shardKey(), ttyB.shardKey())
 }
 
 // opening a reader-less fifo must fail fast instead of blocking the caller
@@ -639,7 +616,6 @@ func TestConcurrentPipeAccess(t *testing.T) {
 				return
 			default:
 				tr.pipeDestCandidates(key)
-				tr.pipeRegistered(key)
 			}
 		}
 	}()

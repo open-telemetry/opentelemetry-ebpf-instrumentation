@@ -1516,6 +1516,22 @@ func TestSuite_LogEnricherMultiSegWritevConfigV2(t *testing.T) {
 	logEnricherMultiSegWritevSuite(t, logEnricherConfigV2)
 }
 
+func logEnricherTTYSuite(t *testing.T, configSuffix string) {
+	logEnricherSuite(t, "tty", configSuffix, []string{`OTEL_EBPF_OPEN_PORT=8389`, `OTEL_EBPF_EXECUTABLE_PATH=`}, func(t *testing.T) {
+		t.Run("Log Enricher terminal stdout", func(t *testing.T) {
+			testLogEnricherTTY(t)
+		})
+	})
+}
+
+func TestSuite_LogEnricherTTY(t *testing.T) {
+	logEnricherTTYSuite(t, "")
+}
+
+func TestSuite_LogEnricherTTYConfigV2(t *testing.T) {
+	logEnricherTTYSuite(t, logEnricherConfigV2)
+}
+
 func logEnricherUnselectedServiceSuite(t *testing.T, configSuffix string) {
 	logEnricherSuite(t, "http", logEnricherConfigUnselected+configSuffix, []string{`OTEL_EBPF_OPEN_PORT=8380`, `OTEL_EBPF_EXECUTABLE_PATH=`}, func(t *testing.T) {
 		t.Run("Log Enricher unselected service", func(t *testing.T) {
