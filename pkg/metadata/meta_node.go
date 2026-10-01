@@ -69,9 +69,9 @@ func azureVMAttributeFilter(kv attribute.KeyValue) bool {
 // a temporary unavailability in the Cloud Metadata service.
 type fetcher func(ctx context.Context) (NodeMeta, error)
 
-// NodeFeatures provides some metadata about the running environment
-// of the Node. For example, which kinds of clusters/runtimes is running
-// on (K8s, EC2, K8s + EC2, ECS + EC2, Azure, etc...)
+// NodeFeatures describes the node's running environment,
+// including which clusters or runtimes it is running on
+// (K8s, EC2, K8s + EC2, ECS + EC2, Azure, etc.).
 type NodeFeatures maps.Bits
 
 func (nf NodeFeatures) Has(o NodeFeatures) bool { return maps.Bits(nf).Has(maps.Bits(o)) }
