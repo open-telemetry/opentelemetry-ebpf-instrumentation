@@ -315,8 +315,9 @@ endif
 
 # Run go generate on the given packages once per target, in parallel.
 # Targets write disjoint files, so the processes do not interfere.
+# -run keeps other directives from running once per target.
 bpf_generate = printf '%s\n' $(BPF_TARGET_LIST) | \
-	xargs -P $(words $(BPF_TARGET_LIST)) -I{} env BPF_TARGETS={} go generate $(1)
+	xargs -P $(words $(BPF_TARGET_LIST)) -I{} env BPF_TARGETS={} go generate -run BPF2GO $(1)
 
 # Find the generated Go and object files of the selected targets (used as Make targets)
 BPF_GEN_GO := $(filter $(foreach a,$(BPF_TARGET_FILE_ARCHES),%_$(a)_bpfel.go),\
