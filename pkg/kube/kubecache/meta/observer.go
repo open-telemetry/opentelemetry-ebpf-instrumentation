@@ -70,7 +70,10 @@ func (i *BaseNotifier) Notify(event *informer.Event) {
 	i.mutex.RLock()
 	defer i.mutex.RUnlock()
 	for _, subscription := range i.observers {
-		subscription.events.Enqueue(observerNotification{event: event})
+		subscription.events.Enqueue(observerNotification{
+			event:     event,
+			processed: make(chan struct{}),
+		})
 	}
 }
 
@@ -122,9 +125,7 @@ func (i *BaseNotifier) notify(ctx context.Context, subscription *observerSubscri
 			return
 		}
 		err = subscription.observer.On(notification.event)
-		if notification.processed != nil {
-			close(notification.processed)
-		}
+		close(notification.processed)
 		if err != nil {
 			i.log.Debug("observer failed. Unsubscribing it",
 				"observer", subscription.observer.ID(), "error", err)
