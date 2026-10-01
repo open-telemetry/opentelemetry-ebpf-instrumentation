@@ -73,7 +73,7 @@ Use `make lint`, `make test`, and `make compile` for targeted iteration when a f
 
 For Markdown-only changes, run `make lint-markdown`.
 
-C code must be formatted and linted before proposing changes. Run `make install-hooks` to install pre-commit hooks that enforce this automatically, or run `make clang-format` and `make clang-tidy` manually.
+C code must be formatted and linted before proposing changes. Run `make install-hooks` to install pre-commit hooks that enforce this automatically, or run `make docker-clang-format` and `make docker-clang-tidy` manually to use the same LLVM version as CI (`make clang-format` and `make clang-tidy` use the local tools).
 
 Integration tests live in `internal/test/integration/`:
 

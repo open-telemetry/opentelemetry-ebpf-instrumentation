@@ -44,7 +44,11 @@ PYTHON314_IMAGE = $(shell awk '$$4=="python314" {print $$2}' $(DEPENDENCIES_DOCK
 CLANG ?= clang
 CFLAGS := -std=gnu17 -O2 -g -Wunaligned-access -Wpacked -Wpadded -Wall -Werror $(CFLAGS)
 
+CLANG_FORMAT ?= clang-format
 CLANG_TIDY ?= clang-tidy
+
+# must match the LLVM version installed by generator.Dockerfile
+GEN_IMG_LLVM_BIN = /usr/lib/llvm22/bin
 
 CILIUM_EBPF_VER ?= v0.22.0
 CILIUM_EBPF_PKG := github.com/cilium/ebpf
@@ -134,6 +138,17 @@ fmt:
 .PHONY: clang-tidy
 clang-tidy:
 	cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path "./bpfcore/*" ! -path "./NOTICES/*" ! -path "./tests/*" | xargs $(CLANG_TIDY)
+
+.PHONY: docker-clang-tidy
+docker-clang-tidy:
+	@echo "### Linting C code in Docker..."
+	@$(OCI_BIN) run --rm \
+		$(if $(findstring podman,$(OCI_BIN)),  ,-u "$(DOCKER_USER)") \
+		-v "$(CURDIR):/src:z" \
+		-w /src \
+		--entrypoint make \
+		$(GEN_IMG) \
+		clang-tidy CLANG_TIDY=$(GEN_IMG_LLVM_BIN)/clang-tidy
 
 # Golangci-lint reuses the same cache across worktrees, this causes that the "excludes" entries in the
 # .golangci.yml configuration do not match the relative paths from the worktree and linting will fail
@@ -768,8 +783,19 @@ protoc-gen:
 
 .PHONY: clang-format
 clang-format:
-	find ./bpf -type f -name "*.c" ! -path "./NOTICES/*" | xargs -P 0 -n 1 clang-format -i
-	find ./bpf -type f -name "*.h" ! -path "./NOTICES/*" | xargs -P 0 -n 1 clang-format -i
+	find ./bpf -type f -name "*.c" ! -path "./NOTICES/*" | xargs -P 0 -n 1 $(CLANG_FORMAT) -i
+	find ./bpf -type f -name "*.h" ! -path "./NOTICES/*" | xargs -P 0 -n 1 $(CLANG_FORMAT) -i
+
+.PHONY: docker-clang-format
+docker-clang-format:
+	@echo "### Formatting C code in Docker..."
+	@$(OCI_BIN) run --rm \
+		$(if $(findstring podman,$(OCI_BIN)),  ,-u "$(DOCKER_USER)") \
+		-v "$(CURDIR):/src:z" \
+		-w /src \
+		--entrypoint make \
+		$(GEN_IMG) \
+		clang-format CLANG_FORMAT=$(GEN_IMG_LLVM_BIN)/clang-format
 
 .PHONY: clean-ebpf-generated-files
 clean-ebpf-generated-files:

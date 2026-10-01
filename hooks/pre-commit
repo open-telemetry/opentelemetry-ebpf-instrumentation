@@ -9,7 +9,7 @@ if [ -n "$files" ]; then
 
 	# Run clang-format on the staged files
 	for file in $files; do
-		clang-format -i "$file"
+		"${CLANG_FORMAT:-clang-format}" -i "$file"
 		git add "$file" # Re-add formatted files to staging
 	done
 fi
