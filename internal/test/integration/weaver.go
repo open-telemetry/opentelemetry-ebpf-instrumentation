@@ -77,6 +77,12 @@ func fetchWeaverReportDocker(t *testing.T) (*weavercheck.Report, bool) {
 			"only stopping the weaver container so compose teardown is clean")
 	}
 
+	if !priorFailure {
+		if err := weavercheck.DrainDockerTap(context.Background(), t.Logf); err != nil {
+			t.Errorf("%v", err)
+		}
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), weaverTimeout)
 	defer cancel()
 

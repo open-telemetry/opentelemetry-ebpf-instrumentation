@@ -23,10 +23,16 @@ exporters:
 
 service:
   # On network_mode:host the collector's default self-metrics endpoint
-  # (localhost:8888) can collide with other services; we don't need it.
+  # (localhost:8888) can collide with other services, so it moves to 18888,
+  # where the OATS harness reads the weaver tap's exporter counters.
   telemetry:
     metrics:
-      level: none
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 127.0.0.1
+                port: 18888
   pipelines:
     traces:
       receivers: [otlp]
