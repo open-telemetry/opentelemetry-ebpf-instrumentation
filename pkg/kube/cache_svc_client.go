@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 )
@@ -24,8 +24,9 @@ const defaultReconnectInitialInterval = 5 * time.Second
 
 type cacheSvcClient struct {
 	meta.BaseNotifier
-	address string
-	log     *slog.Logger
+	address  string
+	security kubecache.GRPCSecurity
+	log      *slog.Logger
 
 	lastEventTSEpoch         int64
 	ctx                      context.Context
@@ -95,10 +96,13 @@ func normalizeReconnectInitialInterval(interval time.Duration) time.Duration {
 }
 
 func (sc *cacheSvcClient) connect(ctx context.Context) error {
+	transportCredentials, err := sc.security.ClientCredentials()
+	if err != nil {
+		return fmt.Errorf("configuring gRPC client: %w", err)
+	}
 	// Set up a connection to the server.
 	conn, err := grpc.NewClient(sc.address,
-		// TODO: allow configuring the transport credentials
-		grpc.WithTransportCredentials(insecure.NewCredentials()))
+		grpc.WithTransportCredentials(transportCredentials))
 	if err != nil {
 		return fmt.Errorf("did not connect: %w", err)
 	}

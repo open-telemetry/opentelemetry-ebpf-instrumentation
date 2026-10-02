@@ -1986,6 +1986,7 @@ func applyFullV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.Kubernetes
 	cfg.Attributes.Kubernetes.DropExternal = kubernetes.DropExternal
 	cfg.Attributes.Kubernetes.DisableInformers = cloneStrings(kubernetes.Informers.Disabled)
 	cfg.Attributes.Kubernetes.MetaCacheAddress = kubernetes.MetadataCache.Address
+	cfg.Attributes.Kubernetes.MetaCacheGRPC = kubernetes.MetadataCache.GRPC
 	cfg.Attributes.Kubernetes.MetaRestrictLocalNode = kubernetes.MetadataCache.RestrictLocalNode
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName = kubernetes.MetadataCache.SourceLabels.ServiceName
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace = kubernetes.MetadataCache.SourceLabels.ServiceNamespace
@@ -2026,6 +2027,21 @@ func applyPartialV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.Kuberne
 	}
 	if kubernetes.MetadataCache.Address != "" {
 		cfg.Attributes.Kubernetes.MetaCacheAddress = kubernetes.MetadataCache.Address
+	}
+	if kubernetes.MetadataCache.GRPC.Mode != "" {
+		cfg.Attributes.Kubernetes.MetaCacheGRPC.Mode = kubernetes.MetadataCache.GRPC.Mode
+	}
+	if kubernetes.MetadataCache.GRPC.ServerName != "" {
+		cfg.Attributes.Kubernetes.MetaCacheGRPC.ServerName = kubernetes.MetadataCache.GRPC.ServerName
+	}
+	if kubernetes.MetadataCache.GRPC.CertFile != "" {
+		cfg.Attributes.Kubernetes.MetaCacheGRPC.CertFile = kubernetes.MetadataCache.GRPC.CertFile
+	}
+	if kubernetes.MetadataCache.GRPC.KeyFile != "" {
+		cfg.Attributes.Kubernetes.MetaCacheGRPC.KeyFile = kubernetes.MetadataCache.GRPC.KeyFile
+	}
+	if kubernetes.MetadataCache.GRPC.CAFile != "" {
+		cfg.Attributes.Kubernetes.MetaCacheGRPC.CAFile = kubernetes.MetadataCache.GRPC.CAFile
 	}
 	if kubernetes.MetadataCache.RestrictLocalNode {
 		cfg.Attributes.Kubernetes.MetaRestrictLocalNode = kubernetes.MetadataCache.RestrictLocalNode

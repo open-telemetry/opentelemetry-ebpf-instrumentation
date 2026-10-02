@@ -40,6 +40,10 @@ func (ic *InformersCache) Run(ctx context.Context, opts ...meta.InformerOption) 
 	if ic.started.Swap(true) {
 		return errors.New("server already started")
 	}
+	credentialOption, err := ic.Config.GRPC.ServerOption()
+	if err != nil {
+		return fmt.Errorf("configuring gRPC server: %w", err)
+	}
 	ic.metrics = instrument.FromContext(ctx)
 	ic.log = slog.With("component", "server.InformersCache")
 
@@ -59,10 +63,11 @@ func (ic *InformersCache) Run(ctx context.Context, opts ...meta.InformerOption) 
 	}
 	ic.informers = informers
 
-	s := grpc.NewServer(
-		// TODO: configure other aspects (e.g. secure connections)
-		grpc.MaxConcurrentStreams(uint32(ic.Config.MaxConnections)),
-	)
+	serverOptions := []grpc.ServerOption{grpc.MaxConcurrentStreams(uint32(ic.Config.MaxConnections))}
+	if credentialOption != nil {
+		serverOptions = append(serverOptions, credentialOption)
+	}
+	s := grpc.NewServer(serverOptions...)
 	informer.RegisterEventStreamServiceServer(s, ic)
 
 	ic.log.Info("server listening", "port", ic.Config.Port)

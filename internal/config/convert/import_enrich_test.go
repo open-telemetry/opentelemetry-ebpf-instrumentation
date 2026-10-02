@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -30,6 +31,10 @@ func TestV2ToRuntimeEnrichAttributesAndKubernetesRoundTrip(t *testing.T) {
 	cfg.Attributes.Kubernetes.DropExternal = true
 	cfg.Attributes.Kubernetes.DisableInformers = []string{"node", "service"}
 	cfg.Attributes.Kubernetes.MetaCacheAddress = "kube-cache:8999"
+	cfg.Attributes.Kubernetes.MetaCacheGRPC = kubecache.GRPCSecurity{
+		Mode: "mtls", ServerName: "kube-cache", CAFile: "/etc/obi/ca.pem",
+		CertFile: "/etc/obi/client.pem", KeyFile: "/etc/obi/client.key",
+	}
 	cfg.Attributes.Kubernetes.MetaRestrictLocalNode = true
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName = "app.kubernetes.io/name"
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace = "app.kubernetes.io/part-of"
