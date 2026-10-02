@@ -210,6 +210,7 @@ func TestHarvestRoutesRubyError(t *testing.T) {
 	require.ErrorIs(t, err, want)
 }
 
+// Checks the actual integration app so fixture changes cannot silently break route harvesting.
 func TestRailsIntegrationFixture(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", "..", "..", "..", ".."))
 	require.NoError(t, err)
@@ -217,12 +218,16 @@ func TestRailsIntegrationFixture(t *testing.T) {
 	require.NoError(t, err)
 	matcher := RouteMatcherFromResult(*result)
 	for path, want := range map[string]string{
-		"/users/1":                   "/users/:id",
-		"/users/new":                 "/users/:id",
-		"/smoke":                     "/smoke",
-		"/harvest/orders/alpha":      "/harvest/orders/:order_id",
-		"/harvest/orders/beta":       "/harvest/orders/:order_id",
-		"/harvest/api/widgets/first": "/harvest/api/widgets/:widget_id",
+		"/graphql":                      "/graphql",
+		"/graphql/alpha":                "/graphql/:tenant_id",
+		"/graphql/beta":                 "/graphql/:tenant_id",
+		"/harvest/engine/graphql/gamma": "/harvest/engine/graphql/:tenant_id",
+		"/users/1":                      "/users/:id",
+		"/users/new":                    "/users/:id",
+		"/smoke":                        "/smoke",
+		"/harvest/orders/alpha":         "/harvest/orders/:order_id",
+		"/harvest/orders/beta":          "/harvest/orders/:order_id",
+		"/harvest/api/widgets/first":    "/harvest/api/widgets/:widget_id",
 	} {
 		assert.Equal(t, want, matcher.Find(path), path)
 	}
@@ -278,4 +283,172 @@ func TestRailsDrawFileLimit(t *testing.T) {
 	result, err := extractRailsRoutes(t.Context(), root, "/")
 	require.NoError(t, err)
 	assert.Len(t, result.Routes, maxRailsRouteFiles-1)
+}
+
+// Follows mounted engines and their own draws, including cyclic references,
+// without importing routes from unmounted engines or the host's similarly named draw.
+func TestRailsMountedEngines(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"config/routes.rb": `
+Rails.application.routes.draw do
+  mount Backend::Engine, at: '/'
+  mount Backend::Engine => '/v2'
+  mount Admin::Engine,
+    at: '/admin'
+  mount Missing::Engine, at: '/missing'
+  mount Unused::Engine, at: dynamic_path
+  # mount Unused::Engine, at: '/unused'
+end`,
+		"config/routes/shared.rb": `get '/wrong_draw'`,
+		"components/backend_api/config/routes.rb": `Backend::Engine.routes.draw do
+  post '/graphql', to: 'graphql#execute'
+  resources :orders, only: [:show], param: :order_id
+  draw :shared
+  mount Admin::Engine, at: '/nested'
+end`,
+		"components/backend_api/config/routes/shared.rb": "get '/engine_draw/:key'\ndraw :shared",
+		"engines/admin/config/routes.rb": `Admin::Engine.routes.draw do
+  get '/reports/:report_id'
+  mount Backend::Engine, at: '/backend'
+end`,
+		"components/unused/config/routes.rb": "Unused::Engine.routes.draw do\nget '/unused_route'\nend",
+	}
+	for name, source := range files {
+		path := filepath.Join(root, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(source), 0o644))
+	}
+	result, err := extractRailsRoutes(t.Context(), root, "/")
+	require.NoError(t, err)
+	assert.NotContains(t, result.Routes, "/unused_route")
+	assert.NotContains(t, result.Routes, "/wrong_draw")
+	matcher := RouteMatcherFromResult(*result)
+	for path, want := range map[string]string{
+		"/graphql":            "/graphql",
+		"/v2/graphql":         "/v2/graphql",
+		"/orders/123":         "/orders/:order_id",
+		"/admin/reports/123":  "/admin/reports/:report_id",
+		"/nested/reports/123": "/nested/reports/:report_id",
+		"/engine_draw/abc":    "/engine_draw/:key",
+	} {
+		assert.Equal(t, want, matcher.Find(path), path)
+	}
+}
+
+// Accepts common mount spellings but rejects expressions that require Ruby evaluation.
+func TestRailsMountLiterals(t *testing.T) {
+	for _, source := range []string{
+		`mount Backend::Engine, at: '/api'`,
+		`mount(::Backend::Engine => '/api')`,
+		`mount Backend::Engine, :at => '/api'`,
+	} {
+		name, path, ok := railsMountValue(source)
+		require.True(t, ok, source)
+		assert.Equal(t, "Backend::Engine", name)
+		assert.Equal(t, "/api", path)
+	}
+	for _, source := range []string{
+		`mount engine, at: '/api'`,
+		`mount Backend::Engine, at: prefix`,
+		`mount Backend::Engine, at: '/api' + suffix`,
+		`mount Backend::Engine, at: "#{prefix}"`,
+	} {
+		_, _, ok := railsMountValue(source)
+		assert.False(t, ok, source)
+	}
+}
+
+// Avoids choosing between duplicate engine names or following links outside the app,
+// and checks that cancellation stops discovery.
+func TestRailsEngineIndexSafety(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	for _, name := range []string{"one", "two"} {
+		path := filepath.Join(root, "components", name, "config", "routes.rb")
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte("Duplicate::Engine.routes.draw do\nget '/ambiguous'\nend"), 0o644))
+	}
+	outside := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(outside, "config"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "config", "routes.rb"), []byte("Outside::Engine.routes.draw do\nget '/outside'\nend"), 0o644))
+	require.NoError(t, os.Symlink(outside, filepath.Join(root, "components", "linked")))
+	engines, err := findRailsEngines(t.Context(), root, root)
+	require.NoError(t, err)
+	require.Contains(t, engines, "Duplicate::Engine")
+	assert.Empty(t, engines["Duplicate::Engine"])
+	assert.NotContains(t, engines, "Outside::Engine")
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = findRailsEngines(ctx, root, root)
+	require.ErrorIs(t, err, context.Canceled)
+}
+
+// Finds the engine constant despite comments, while rejecting conditional declarations
+// and the host application's route set.
+func TestReadRailsEngineName(t *testing.T) {
+	for _, tc := range []struct{ source, want string }{
+		{"# frozen_string_literal: true\nBackend::Engine.routes.draw do # routes", "Backend::Engine"},
+		{"=begin\nFake::Engine.routes.draw do\n=end\n::Backend::Engine.routes.draw do", "Backend::Engine"},
+		{"if enabled\nBackend::Engine.routes.draw do", ""},
+		{"Rails.application.routes.draw do", ""},
+	} {
+		path := filepath.Join(t.TempDir(), "routes.rb")
+		require.NoError(t, os.WriteFile(path, []byte(tc.source), 0o644))
+		name, err := readRailsEngineName(t.Context(), path)
+		require.NoError(t, err)
+		assert.Equal(t, tc.want, name)
+	}
+}
+
+// Checks GraphQL routes across mount forms and nested engines. Named parameters must
+// survive matching, and mounts that cannot be resolved must not contribute routes.
+func TestRailsGraphQLMounts(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		source string
+		path   string
+		route  string
+	}{
+		{"plain endpoint", `mount GraphqlAPI::Engine, at: '/'`, "/graphql", "/graphql"},
+		{"nested engines", `mount Gateway::Engine, at: '/gateway'`, "/gateway/api/graphql/alpha", "/gateway/api/graphql/:tenant_id"},
+		{"root", `mount GraphqlAPI::Engine, at: '/'`, "/graphql/alpha", "/graphql/:tenant_id"},
+		{"prefix", `mount GraphqlAPI::Engine, at: '/api'`, "/api/graphql/alpha", "/api/graphql/:tenant_id"},
+		{"hash rocket", `mount(GraphqlAPI::Engine => '/api')`, "/api/graphql/beta", "/api/graphql/:tenant_id"},
+		{"scope", "scope '/v1' do\n mount GraphqlAPI::Engine, at: '/api'\nend", "/v1/api/graphql/alpha", "/v1/api/graphql/:tenant_id"},
+		{"multiline", "mount GraphqlAPI::Engine,\n at: '/api'", "/api/graphql/alpha", "/api/graphql/:tenant_id"},
+		{"repeated", "mount GraphqlAPI::Engine, at: '/'\nmount GraphqlAPI::Engine, at: '/api', as: :api", "/api/graphql/alpha", "/api/graphql/:tenant_id"},
+		{"unmounted", `get '/health'`, "", ""},
+		{"commented", `# mount GraphqlAPI::Engine, at: '/'`, "", ""},
+		{"dynamic mount", `mount GraphqlAPI::Engine, at: ENV.fetch('PREFIX')`, "", ""},
+		{"different engine", `mount Other::Engine, at: '/'`, "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			for name, source := range map[string]string{
+				"config/routes.rb":                            tc.source,
+				"engines/gateway/config/routes.rb":            "Gateway::Engine.routes.draw do\n mount GraphqlAPI::Engine, at: '/api'\nend",
+				"components/backend/config/routes.rb":         "GraphqlAPI::Engine.routes.draw do\n draw :graphql\nend",
+				"components/backend/config/routes/graphql.rb": "post '/graphql', to: 'queries#execute'\npost '/graphql/:tenant_id', to: 'queries#execute'",
+				"config/routes/graphql.rb":                    "post '/wrong_graphql'",
+			} {
+				path := filepath.Join(root, name)
+				require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+				require.NoError(t, os.WriteFile(path, []byte(source), 0o644))
+			}
+			result, err := extractRailsRoutes(t.Context(), root, "/")
+			require.NoError(t, err)
+			// The host has a draw with the same name; the engine must use its own file.
+			assert.NotContains(t, result.Routes, "/wrong_graphql")
+			if tc.route == "" {
+				assert.NotContains(t, result.Routes, "/graphql")
+				assert.NotContains(t, result.Routes, "/graphql/:tenant_id")
+				return
+			}
+			assert.Contains(t, result.Routes, "/graphql")
+			assert.Contains(t, result.Routes, "/graphql/:tenant_id")
+			matcher := RouteMatcherFromResult(*result)
+			assert.Equal(t, tc.route, matcher.Find(tc.path))
+		})
+	}
 }
