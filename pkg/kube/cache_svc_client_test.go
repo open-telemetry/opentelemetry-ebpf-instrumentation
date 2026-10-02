@@ -4,16 +4,26 @@
 package kube
 
 import (
+	"context"
+	"crypto/tls"
+	"encoding/pem"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 )
@@ -67,6 +77,39 @@ func TestClientForwardsLastTimestamp(t *testing.T) {
 	// THEN the client sends another subscription message, with the timestamp of the last received event
 	secondSubscribe := testutil.ReadChannel(t, fcs.clientMessages, timeout)
 	assert.Equal(t, itemTime, secondSubscribe.FromTimestampEpoch)
+}
+
+func TestCacheClientTLSConnection(t *testing.T) {
+	httpServer := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer httpServer.Close()
+	require.NotEmpty(t, httpServer.Certificate().IPAddresses)
+	caFile := filepath.Join(t.TempDir(), "ca.pem")
+	require.NoError(t, os.WriteFile(caFile, pem.EncodeToMemory(&pem.Block{
+		Type: "CERTIFICATE", Bytes: httpServer.Certificate().Raw,
+	}), 0600))
+
+	fcs := startFakeCacheService(t)
+	fcs.serverOption = grpc.Creds(credentials.NewTLS(&tls.Config{
+		MinVersion: tls.VersionTLS12, Certificates: httpServer.TLS.Certificates,
+	}))
+	fcs.Restart()
+	address := fmt.Sprintf("127.0.0.1:%d", fcs.port)
+	security := kubecache.GRPCSecurity{
+		Mode: "tls", CAFile: caFile, ServerName: httpServer.Certificate().IPAddresses[0].String(),
+	}
+	svc := cacheSvcClient{address: address, security: security}
+	ctx, cancel := context.WithTimeout(t.Context(), timeout)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- svc.connect(ctx) }()
+	testutil.ReadChannel(t, fcs.clientMessages, timeout)
+	cancel()
+	require.Error(t, <-done)
+
+	svc.security.ServerName = "wrong.test"
+	badCtx, badCancel := context.WithTimeout(t.Context(), 500*time.Millisecond)
+	defer badCancel()
+	require.Error(t, svc.connect(badCtx))
 }
 
 func TestNormalizeReconnectInitialInterval(t *testing.T) {
@@ -133,10 +176,11 @@ func (f dummySubscriber) On(_ *informer.Event) error { return nil }
 // also lets explicit which events forward to the client
 type fakeCacheService struct {
 	informer.UnimplementedEventStreamServiceServer
-	port     int
-	err      atomic.Pointer[error]
-	server   *grpc.Server
-	listener net.Listener
+	port         int
+	err          atomic.Pointer[error]
+	server       *grpc.Server
+	serverOption grpc.ServerOption
+	listener     net.Listener
 
 	clientMessages  chan *informer.SubscribeMessage
 	serverResponses chan *informer.Event
@@ -153,7 +197,11 @@ func startFakeCacheService(t *testing.T) *fakeCacheService {
 }
 
 func (fcs *fakeCacheService) Start() {
-	fcs.server = grpc.NewServer()
+	if fcs.serverOption == nil {
+		fcs.server = grpc.NewServer()
+	} else {
+		fcs.server = grpc.NewServer(fcs.serverOption)
+	}
 	informer.RegisterEventStreamServiceServer(fcs.server, fcs)
 
 	var err error

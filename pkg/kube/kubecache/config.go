@@ -39,6 +39,7 @@ type Config struct {
 	InformerResyncPeriod time.Duration `yaml:"informer_resync_period" env:"OTEL_EBPF_K8S_CACHE_INFORMER_RESYNC_PERIOD" validate:"gte=0"`
 	// SendTimeout is the maximum duration to wait to receive an event before dropping the connection.
 	SendTimeout time.Duration `yaml:"informer_send_timeout" env:"OTEL_EBPF_K8S_CACHE_INFORMER_SEND_TIMEOUT" validate:"gte=0"`
+	GRPC        GRPCSecurity  `yaml:"grpc" envPrefix:"OTEL_EBPF_K8S_CACHE_GRPC_"`
 
 	InternalMetrics instrument.InternalMetricsConfig `yaml:"internal_metrics"`
 }
@@ -71,6 +72,9 @@ func LoadConfig(file io.Reader) (*Config, error) {
 	}
 	if err := env.Parse(&cfg); err != nil {
 		return nil, fmt.Errorf("reading env vars: %w", err)
+	}
+	if _, err := cfg.GRPC.ServerOption(); err != nil {
+		return nil, fmt.Errorf("configuring gRPC server: %w", err)
 	}
 	return &cfg, nil
 }

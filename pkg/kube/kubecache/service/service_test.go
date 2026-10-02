@@ -5,9 +5,15 @@ package service
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"log/slog"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
@@ -78,6 +84,62 @@ func TestRunStopsServerOnContextCancellation(t *testing.T) {
 	lis, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	require.NoError(t, err, "port still bound after Run returned")
 	_ = lis.Close()
+}
+
+func TestRunWithTLS(t *testing.T) {
+	httpServer := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer httpServer.Close()
+	cert := httpServer.TLS.Certificates[0]
+	keyDER, err := x509.MarshalPKCS8PrivateKey(cert.PrivateKey)
+	require.NoError(t, err)
+	writePEM := func(name, kind string, der []byte) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), name)
+		require.NoError(t, os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: kind, Bytes: der}), 0600))
+		return path
+	}
+	certFile := writePEM("server.pem", "CERTIFICATE", cert.Certificate[0])
+	keyFile := writePEM("server.key", "PRIVATE KEY", keyDER)
+	caFile := writePEM("ca.pem", "CERTIFICATE", cert.Certificate[0])
+	listener, port := newTestListener(t)
+	ic := &InformersCache{Config: &kubecache.Config{
+		Port: port, MaxConnections: 1, GRPC: kubecache.GRPCSecurity{
+			Mode: "tls", CertFile: certFile, KeyFile: keyFile,
+		},
+	}, listener: listener}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		done <- ic.Run(ctx, meta.WithKubeClient(fake.NewSimpleClientset()),
+			meta.WithoutNodes(), meta.WithoutServices(), meta.WaitForCacheSync(),
+			meta.WithCacheSyncTimeout(100*time.Millisecond))
+	}()
+	defer func() {
+		cancel()
+		require.NoError(t, <-done)
+	}()
+	address := net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	clientSecurity := kubecache.GRPCSecurity{Mode: "tls", CAFile: caFile, ServerName: "127.0.0.1"}
+	transportCredentials, err := clientSecurity.ClientCredentials()
+	require.NoError(t, err)
+	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(transportCredentials))
+	require.NoError(t, err)
+	defer conn.Close()
+	streamCtx, streamCancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer streamCancel()
+	stream, err := informer.NewEventStreamServiceClient(conn).Subscribe(streamCtx, &informer.SubscribeMessage{})
+	require.NoError(t, err)
+	_, err = stream.Recv()
+	require.NoError(t, err)
+
+	plainConn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	defer plainConn.Close()
+	plainStream, err := informer.NewEventStreamServiceClient(plainConn).Subscribe(streamCtx, &informer.SubscribeMessage{})
+	if err == nil {
+		_, err = plainStream.Recv()
+	}
+	require.Error(t, err)
 }
 
 func TestRunStopsServerOnContextCancellationWithActiveStream(t *testing.T) {
