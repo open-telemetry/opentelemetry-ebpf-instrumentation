@@ -188,6 +188,38 @@ func TestShardTestsRejectsInvalidSelections(t *testing.T) {
 	}
 }
 
+func TestShardIgnoresSetupAndExcludedTests(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Pattern += "|TestMain|TestDotnetRuntimeEventsLive"
+	commandLog := fakeGo(t, reportEvents("TestAlpha", "pass", "TestBeta", "pass", "TestGamma", "skip"), "0")
+	if err := runShard(cfg); err != nil {
+		t.Fatal(err)
+	}
+	args, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(args), "TestMain") || strings.Contains(string(args), "TestDotnetRuntimeEventsLive") {
+		t.Fatalf("selected tests absent from the active build: %s", args)
+	}
+	state := readCheckpoint(t, cfg.stateDir)
+	if !state.Reusable || len(state.Results) != 3 {
+		t.Fatalf("saved non-runnable test results: %+v", state)
+	}
+}
+
+func TestShardWithOnlyExcludedTests(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Pattern = "TestMain|TestDotnetRuntimeEventsLive"
+	commandLog := fakeGo(t, "", "0")
+	if err := runShard(cfg); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(commandLog); !os.IsNotExist(err) {
+		t.Fatal("ran a shard without runnable tests")
+	}
+}
+
 func testConfig(t *testing.T) config {
 	t.Helper()
 	dir := t.TempDir()
@@ -201,7 +233,26 @@ func fakeGo(t *testing.T, report, exitCode string) string {
 	t.Helper()
 	dir := t.TempDir()
 	commandLog := filepath.Join(dir, "command.log")
+	if err := os.WriteFile(filepath.Join(dir, "active_test.go"), []byte(`package integration
+func TestMain(m *testing.M) {}
+func TestAlpha(t *testing.T) {}
+func TestBeta(t *testing.T) {}
+func TestGamma(t *testing.T) {}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "excluded_test.go"), []byte("package integration\nfunc TestDotnetRuntimeEventsLive(t *testing.T) {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := json.Marshal(map[string]any{"Dir": dir, "TestGoFiles": []string{"active_test.go"}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	script := `#!/bin/sh
+if [ "$1" = "list" ]; then
+  printf '%s' "$FAKE_PACKAGE"
+  exit 0
+fi
 printf '%s\n' "$@" > "$FAKE_COMMAND_LOG"
 for arg do
   case "$arg" in
@@ -215,6 +266,7 @@ exit "$FAKE_EXIT"
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("FAKE_COMMAND_LOG", commandLog)
+	t.Setenv("FAKE_PACKAGE", string(pkg))
 	t.Setenv("FAKE_REPORT", report)
 	t.Setenv("FAKE_EXIT", exitCode)
 	return commandLog

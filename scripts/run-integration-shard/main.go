@@ -7,6 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"maps"
 	"os"
@@ -91,6 +94,10 @@ func runShard(cfg config) error {
 	if err != nil {
 		return err
 	}
+	tests, err = runnableTests(tests)
+	if err != nil {
+		return err
+	}
 	state := checkpoint{
 		Version: checkpointVersion,
 		Scope:   cfg.scope,
@@ -166,6 +173,46 @@ func testCommand(pattern, report string) *exec.Cmd {
 		"--rerun-fails=2", "--rerun-fails-max-failures=2", "--rerun-fails-abort-on-data-race",
 		"--rerun-fails-run-root-test", "--packages=./internal/test/integration", "-ftestname",
 		"--jsonfile="+report, "--", "-race", "-count=1", "-timeout=40m", "-run=^("+pattern+")$")
+}
+
+func runnableTests(candidates []string) ([]string, error) {
+	command := exec.Command("go", "list", "-race", "-json", "./internal/test/integration")
+	command.Stderr = os.Stderr
+	output, err := command.Output()
+	if err != nil {
+		return nil, fmt.Errorf("list integration test files: %w", err)
+	}
+	var pkg struct {
+		Dir          string
+		TestGoFiles  []string
+		XTestGoFiles []string
+	}
+	if err := json.Unmarshal(output, &pkg); err != nil {
+		return nil, err
+	}
+	if pkg.Dir == "" {
+		return nil, errors.New("missing integration test package directory")
+	}
+	available := make(map[string]bool)
+	for _, name := range append(pkg.TestGoFiles, pkg.XTestGoFiles...) {
+		file, err := parser.ParseFile(token.NewFileSet(), filepath.Join(pkg.Dir, name), nil, 0)
+		if err != nil {
+			return nil, err
+		}
+		for _, declaration := range file.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if ok && function.Recv == nil && function.Name.Name != "TestMain" {
+				available[function.Name.Name] = true
+			}
+		}
+	}
+	var tests []string
+	for _, test := range candidates {
+		if available[test] {
+			tests = append(tests, test)
+		}
+	}
+	return tests, nil
 }
 
 func loadCheckpoint(cfg config, tests []string) (checkpoint, error) {
