@@ -93,13 +93,13 @@ func symbolTablesContext(tables ...[]string) *fastelf.ElfContext {
 	return ctx
 }
 
-func TestMatchExeSymbols_NodeOutranksRust(t *testing.T) {
+func TestMatchExeSymbols_RustMarkerRanksLast(t *testing.T) {
 	const (
 		nodeSymbol = "_ZN4node5StartEiPPc"
 		rustSymbol = "_RNvCs2ZxxKbmjnch_7___rustc20___rust_panic_cleanup"
 		jvmSymbol  = "JVM_GetVersion"
-		// Bun re-exports node:: API symbols such as MakeCallback; only
-		// Node.js's own runtime symbols may override a Rust marker.
+		// Bun re-exports node:: API symbols such as MakeCallback; they are
+		// not Node.js runtime symbols, so they must not override a Rust marker.
 		bunReexport = "_ZN4node12MakeCallbackEPN2v87IsolateENS0_5LocalINS0_6ObjectEEEPKciPNS3_INS0_5ValueEEENS_13async_contextE"
 		graalSymbol = "graal_create_isolate"
 	)
@@ -113,11 +113,12 @@ func TestMatchExeSymbols_NodeOutranksRust(t *testing.T) {
 		{"node before rust", [][]string{{nodeSymbol, rustSymbol}}, svc.InstrumentableNodejs},
 		{"rust before node", [][]string{{rustSymbol, nodeSymbol}}, svc.InstrumentableNodejs},
 		{"rust in the first table, node in the second", [][]string{{rustSymbol}, {nodeSymbol}}, svc.InstrumentableNodejs},
+		{"rust in the first table, no marker in the second", [][]string{{rustSymbol}, {"main"}}, svc.InstrumentableRust},
 		{"rust only", [][]string{{"main", rustSymbol}}, svc.InstrumentableRust},
 		{"java before rust", [][]string{{jvmSymbol, rustSymbol}}, svc.InstrumentableJavaNative},
-		{"rust before java", [][]string{{rustSymbol, jvmSymbol}}, svc.InstrumentableRust},
+		{"rust before java", [][]string{{rustSymbol, jvmSymbol}}, svc.InstrumentableJavaNative},
 		{"graal before rust", [][]string{{graalSymbol, rustSymbol}}, svc.InstrumentableJavaNative},
-		{"rust before graal", [][]string{{rustSymbol}, {graalSymbol}}, svc.InstrumentableRust},
+		{"rust in the first table, graal in the second", [][]string{{rustSymbol}, {graalSymbol}}, svc.InstrumentableJavaNative},
 		{"rust with a bun-style node re-export", [][]string{{rustSymbol, bunReexport}}, svc.InstrumentableRust},
 		{"node in the first table, rust in the second", [][]string{{nodeSymbol}, {rustSymbol}}, svc.InstrumentableNodejs},
 		{"no marker", [][]string{{"main", "napi_create_function"}}, svc.InstrumentableGeneric},

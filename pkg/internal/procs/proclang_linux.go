@@ -219,7 +219,7 @@ func substringSymbolMatch(symbolName string, substrings []string) (string, bool)
 }
 
 func matchExeSymbols(ctx *fastelf.ElfContext) svc.InstrumentableType {
-	sawRust := false
+	isRust := false
 
 	for _, sec := range ctx.Sections {
 		if sec == nil {
@@ -258,22 +258,19 @@ func matchExeSymbols(ctx *fastelf.ElfContext) svc.InstrumentableType {
 
 			name := fastelf.GetCStringUnsafe(strs, sym.Name)
 
-			switch t := instrumentableFromSymbolName(name); t {
-			case svc.InstrumentableGeneric:
-			case svc.InstrumentableNodejs:
-				return t
-			case svc.InstrumentableRust:
-				// Keep scanning: this may be a Node.js binary.
-				sawRust = true
-			default:
-				if !sawRust {
+			t := instrumentableFromSymbolName(name)
+
+			if t != svc.InstrumentableGeneric {
+				if t == svc.InstrumentableRust {
+					isRust = true
+				} else {
 					return t
 				}
 			}
 		}
 	}
 
-	if sawRust {
+	if isRust {
 		return svc.InstrumentableRust
 	}
 
