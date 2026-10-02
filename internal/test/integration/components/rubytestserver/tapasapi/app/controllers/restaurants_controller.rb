@@ -1,4 +1,19 @@
 class RestaurantsController < ApplicationController
+  def prepared
+    Restaurant.connection_pool.with_connection do |connection|
+      # Bypass the query cache so PostgreSQL executes both the initial and reused statement.
+      Restaurant.uncached do
+        2.times { Restaurant.where(id: params.fetch(:id, 1)).load }
+      end
+
+      # Inspect the same session to prove Rails used protocol-level prepared statements.
+      statements = connection.select_all(
+        "SELECT name, statement, from_sql FROM pg_prepared_statements"
+      )
+      render json: { prepared_statements_enabled: connection.prepared_statements?, statements: statements.to_a }
+    end
+  end
+
   def index
     restaurants = Restaurant.search(params[:q])
                              .in_neighborhood(params[:neighborhood])
