@@ -62,6 +62,8 @@ make docker-generate # or make generate
 make compile
 ```
 
+Both generate targets build the eBPF code for amd64 and arm64. To iterate faster locally, `BPF_TARGETS` selects a single architecture, for example `make generate BPF_TARGETS=arm64`.
+
 A convenience `Makefile` target called `dev` which invokes both the generation and compilation step is also provided:
 
 ```

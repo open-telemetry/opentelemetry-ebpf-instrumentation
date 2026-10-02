@@ -24,7 +24,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type cuda_kernel_launch_t -type cuda_memcpy_t -type cuda_size_event_t -type cuda_call_event_t -type cuda_device_t -type cuda_device_event_t -target amd64,arm64 Bpf ../../../../bpf/gpuevent/gpuevent.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type cuda_kernel_launch_t -type cuda_memcpy_t -type cuda_size_event_t -type cuda_call_event_t -type cuda_device_t -type cuda_device_event_t -target $BPF_TARGETS Bpf ../../../../bpf/gpuevent/gpuevent.c -- -I../../../../bpf
 
 const (
 	EventTypeKernelLaunch      = 1  // EVENT_CUDA_KERNEL_LAUNCH
