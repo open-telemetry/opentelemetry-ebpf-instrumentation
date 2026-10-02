@@ -79,7 +79,7 @@ COPY --from=javaagent-builder /build/build/obi-java-agent.jar /src/pkg/internal/
 # Build
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg \
-	/generate.sh \
+	BPF_TARGETS=$TARGETARCH /generate.sh \
 	&& make compile RELEASE_VERSION=${RELEASE_VERSION} RELEASE_REVISION=${RELEASE_REVISION}
 
 # Create final image from minimal + built binary
