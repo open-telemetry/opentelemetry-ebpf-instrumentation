@@ -51,6 +51,86 @@ func TestMatchExeSymbols_InvalidStringOffset(t *testing.T) {
 	assert.Equal(t, svc.InstrumentableGeneric, matchExeSymbols(ctx))
 }
 
+// symbolTablesContext builds an ELF context with one symbol table per entry of
+// tables, each holding defined, sized STT_FUNC symbols with the given names in
+// the given order, as matchExeSymbols sees them in .dynsym or .symtab.
+func symbolTablesContext(tables ...[]string) *fastelf.ElfContext {
+	const symSize = 24
+
+	ctx := &fastelf.ElfContext{}
+	for _, names := range tables {
+		var strtab []byte
+		strtab = append(strtab, 0)
+		symtab := make([]byte, symSize*len(names))
+		for i, name := range names {
+			sym := symtab[i*symSize : (i+1)*symSize]
+			binary.LittleEndian.PutUint32(sym[0:4], uint32(len(strtab)))
+			sym[4] = byte(elf.STT_FUNC)
+			binary.LittleEndian.PutUint64(sym[8:16], 0x1000)
+			binary.LittleEndian.PutUint64(sym[16:24], 16)
+			strtab = append(strtab, name...)
+			strtab = append(strtab, 0)
+		}
+
+		symtabIndex := uint32(len(ctx.Sections))
+		ctx.Sections = append(ctx.Sections,
+			&fastelf.Elf64_Shdr{
+				Type:    fastelf.SHT_DYNSYM,
+				Link:    symtabIndex + 1,
+				Offset:  uint64(len(ctx.Data)),
+				Size:    uint64(len(symtab)),
+				Entsize: symSize,
+			},
+			&fastelf.Elf64_Shdr{
+				Offset: uint64(len(ctx.Data) + len(symtab)),
+				Size:   uint64(len(strtab)),
+			},
+		)
+		ctx.Data = append(ctx.Data, symtab...)
+		ctx.Data = append(ctx.Data, strtab...)
+	}
+
+	return ctx
+}
+
+func TestMatchExeSymbols_RustMarkerRanksLast(t *testing.T) {
+	const (
+		nodeSymbol = "_ZN4node5StartEiPPc"
+		rustSymbol = "_RNvCs2ZxxKbmjnch_7___rustc20___rust_panic_cleanup"
+		jvmSymbol  = "JVM_GetVersion"
+		// Bun re-exports node:: API symbols such as MakeCallback; they are
+		// not Node.js runtime symbols, so they must not override a Rust marker.
+		bunReexport = "_ZN4node12MakeCallbackEPN2v87IsolateENS0_5LocalINS0_6ObjectEEEPKciPNS3_INS0_5ValueEEENS_13async_contextE"
+		graalSymbol = "graal_create_isolate"
+	)
+
+	tests := []struct {
+		name   string
+		tables [][]string
+		want   svc.InstrumentableType
+	}{
+		{"node only", [][]string{{"main", nodeSymbol}}, svc.InstrumentableNodejs},
+		{"node before rust", [][]string{{nodeSymbol, rustSymbol}}, svc.InstrumentableNodejs},
+		{"rust before node", [][]string{{rustSymbol, nodeSymbol}}, svc.InstrumentableNodejs},
+		{"rust in the first table, node in the second", [][]string{{rustSymbol}, {nodeSymbol}}, svc.InstrumentableNodejs},
+		{"rust in the first table, no marker in the second", [][]string{{rustSymbol}, {"main"}}, svc.InstrumentableRust},
+		{"rust only", [][]string{{"main", rustSymbol}}, svc.InstrumentableRust},
+		{"java before rust", [][]string{{jvmSymbol, rustSymbol}}, svc.InstrumentableJavaNative},
+		{"rust before java", [][]string{{rustSymbol, jvmSymbol}}, svc.InstrumentableJavaNative},
+		{"graal before rust", [][]string{{graalSymbol, rustSymbol}}, svc.InstrumentableJavaNative},
+		{"rust in the first table, graal in the second", [][]string{{rustSymbol}, {graalSymbol}}, svc.InstrumentableJavaNative},
+		{"rust with a bun-style node re-export", [][]string{{rustSymbol, bunReexport}}, svc.InstrumentableRust},
+		{"node in the first table, rust in the second", [][]string{{nodeSymbol}, {rustSymbol}}, svc.InstrumentableNodejs},
+		{"no marker", [][]string{{"main", "napi_create_function"}}, svc.InstrumentableGeneric},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, matchExeSymbols(symbolTablesContext(tt.tables...)))
+		})
+	}
+}
+
 func TestMatchExeSymbols_InvalidStringTableOffset(t *testing.T) {
 	const symSize = 24
 
