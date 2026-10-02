@@ -317,7 +317,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				HostPort:      9092,
 				Peer:          "10.0.0.1",
 				PeerPort:      54321,
-				MessagingInfo: &request.MessagingInfo{Partition: 3, Offset: 42},
+				MessagingInfo: &request.MessagingInfo{HasPartition: true, Partition: 3, Offset: 42},
 			},
 			optional: []attr.Name{
 				attr.NetworkPeerAddress,
@@ -446,7 +446,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				Peer:          "10.0.0.1",
 				PeerPort:      54321,
 				Status:        1,
-				MessagingInfo: &request.MessagingInfo{Partition: 3, Offset: 42},
+				MessagingInfo: &request.MessagingInfo{HasPartition: true, Partition: 3, Offset: 42, ConsumerGroup: "my-group"},
 			},
 			optional: []attr.Name{
 				attr.NetworkPeerAddress,
@@ -474,7 +474,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				HostName:      "broker-1",
 				Peer:          "10.0.0.1",
 				PeerPort:      54321,
-				MessagingInfo: &request.MessagingInfo{Partition: 3},
+				MessagingInfo: &request.MessagingInfo{HasPartition: true, Partition: 3},
 			},
 			optional: []attr.Name{
 				attr.NetworkPeerAddress,

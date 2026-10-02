@@ -47,6 +47,9 @@ groups:
       - ref: error.type
         requirement_level:
           conditionally_required: if the operation ended in an error, which OBI cannot yet determine for a consume operation
+      - ref: messaging.consumer.group.name
+        requirement_level:
+          conditionally_required: if OBI attributed the fetch to a single consumer group of the process
       - ref: messaging.destination.name
         requirement_level:
           conditionally_required: if the exchange named a destination
