@@ -87,7 +87,7 @@ static __always_inline void go_runtime_collect_histogram(u64 histogram_addr,
     const u32 bucket_count = (u32)derived_bucket_count;
 
     go_runtime_histogram_event_t *event =
-        bpf_ringbuf_reserve(&events, sizeof(go_runtime_histogram_event_t), 0);
+        events_ringbuf_reserve(sizeof(go_runtime_histogram_event_t), 0);
     if (!event) {
         return;
     }
@@ -619,8 +619,7 @@ int GUARDED_PROG(obi_uprobe_go_runtime_metrics, struct pt_regs *, ctx) {
         return 0;
     }
 
-    go_runtime_metric_event_t *event =
-        bpf_ringbuf_reserve(&events, sizeof(go_runtime_metric_event_t), 0);
+    go_runtime_metric_event_t *event = events_ringbuf_reserve(sizeof(go_runtime_metric_event_t), 0);
     if (!event) {
         return 0;
     }
@@ -860,7 +859,7 @@ static __always_inline void emit_channel_handoff(chan_handoff_t *sender, chan_ha
         return;
     }
 
-    channel_link_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(*trace), 0);
+    channel_link_trace_t *trace = events_ringbuf_reserve(sizeof(*trace), 0);
     if (!trace) {
         return;
     }

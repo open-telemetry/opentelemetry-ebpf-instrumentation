@@ -1031,6 +1031,30 @@ Latency distribution of the eBPF probe in seconds.
 | `bpf.probe.name` | string | `required` | development | Name of the eBPF probe. | kprobe_tcp_sendmsg |
 | `bpf.probe.type` | string | `required` | development | eBPF program type of the probe. | kprobe; tracepoint |
 
+## `obi.bpf.ringbuf.write.failures`
+
+How many writes to the named ring buffer failed because the buffer was full.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {write} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `ringbuf` | string | `required` | development | Name of the eBPF ring buffer. | events |
+
+## `obi.bpf.ringbuf.writes`
+
+How many writes to the named ring buffer have been attempted.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {write} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `ringbuf` | string | `required` | development | Name of the eBPF ring buffer. | events |
+
 ## `obi.ebpf.tracer.flushes`
 
 Length of the groups of traces flushed from the eBPF tracer to the next pipeline stage.

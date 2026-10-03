@@ -381,7 +381,7 @@ int GUARDED_PROG(obi_uprobe_server_handleStream_return, struct pt_regs *, ctx) {
                    st_ptr,
                    grpc_stream_method_ptr_pos);
 
-    http_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_request_trace_t), 0);
+    http_request_trace_t *trace = events_ringbuf_reserve(sizeof(http_request_trace_t), 0);
     if (!trace) {
         bpf_dbg_printk("can't reserve space in the ringbuffer");
         goto done;
@@ -586,7 +586,7 @@ static __always_inline int grpc_connect_done(struct pt_regs *ctx, void *err) {
         goto done;
     }
 
-    http_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_request_trace_t), 0);
+    http_request_trace_t *trace = events_ringbuf_reserve(sizeof(http_request_trace_t), 0);
     if (!trace) {
         bpf_dbg_printk("can't reserve space in the ringbuffer");
         goto done;

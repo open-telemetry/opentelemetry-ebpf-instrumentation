@@ -244,6 +244,7 @@ func (p *Tracer) constants() map[string]any {
 	m := make(map[string]any, 2)
 
 	m["wakeup_data_bytes"] = uint32(p.cfg.EBPF.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{}))
+	m["ringbuf_metrics_enabled"] = p.cfg.InternalMetrics.Enabled()
 
 	// The eBPF side does some basic filtering of events that do not belong to
 	// processes which we monitor. We filter more accurately in the userspace, but
@@ -765,6 +766,17 @@ func (p *Tracer) Run(
 	eventsChan *msg.Queue[[]request.Span],
 ) {
 	p.eventCtx = ebpfEventContext
+	if p.cfg.InternalMetrics.Enabled() {
+		ebpfEventContext.StartRingbufWriteMetrics(
+			ctx,
+			p.metrics.BpfInternalMetricsScrapeInterval(),
+			func() (ebpfcommon.RingbufWriteStats, error) {
+				return ebpfcommon.ReadRingbufWriteStats(p.bpfObjects.RingbufWriteStatsStorage)
+			},
+			p.metrics,
+			p.log,
+		)
+	}
 	if p.pythonRuntime != nil {
 		defer p.pythonRuntime.close()
 	}

@@ -352,6 +352,7 @@ type EBPFEventContext struct {
 	MapsLock         sync.Mutex
 	LoadLock         sync.Mutex
 	Capabilities     TracerCapability
+	ringbufStatsOnce sync.Once
 
 	internalEventHandlersMu sync.RWMutex
 	internalEventHandlers   map[uint8]func(*ringbuf.Record) error
