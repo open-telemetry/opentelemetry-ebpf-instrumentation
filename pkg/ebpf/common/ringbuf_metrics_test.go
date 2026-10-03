@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -30,6 +31,19 @@ type ringbufStatsReporter struct {
 
 func (r *ringbufStatsReporter) BPFRingbufWriteStats(name string, writes, failures uint64) {
 	r.reports <- ringbufStatsReport{name: name, stats: RingbufWriteStats{Writes: writes, Failures: failures}}
+}
+
+func TestSumRingbufWriteStats(t *testing.T) {
+	stats := sumRingbufWriteStats([]RingbufWriteStats{
+		{Writes: 3, Failures: 1},
+		{Writes: 5, Failures: 2},
+	})
+	assert.Equal(t, RingbufWriteStats{Writes: 8, Failures: 3}, stats)
+}
+
+func TestReadRingbufWriteStatsError(t *testing.T) {
+	_, err := ReadRingbufWriteStats(&ebpf.Map{})
+	require.Error(t, err)
 }
 
 func TestCollectRingbufWriteMetrics(t *testing.T) {

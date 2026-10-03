@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/cilium/ebpf"
+
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 )
 
@@ -18,6 +20,24 @@ const EventsRingbufName = "events"
 type RingbufWriteStats struct {
 	Writes   uint64
 	Failures uint64
+}
+
+// ReadRingbufWriteStats reads and sums the per-CPU ring buffer write counters.
+func ReadRingbufWriteStats(statsMap *ebpf.Map) (RingbufWriteStats, error) {
+	var perCPU []RingbufWriteStats
+	if err := statsMap.Lookup(uint32(0), &perCPU); err != nil {
+		return RingbufWriteStats{}, err
+	}
+	return sumRingbufWriteStats(perCPU), nil
+}
+
+func sumRingbufWriteStats(perCPU []RingbufWriteStats) RingbufWriteStats {
+	var total RingbufWriteStats
+	for i := range perCPU {
+		total.Writes += perCPU[i].Writes
+		total.Failures += perCPU[i].Failures
+	}
+	return total
 }
 
 // StartRingbufWriteMetrics starts one collector for the shared events ring buffer.

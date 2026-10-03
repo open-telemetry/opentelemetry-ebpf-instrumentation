@@ -770,7 +770,9 @@ func (p *Tracer) Run(
 		ebpfEventContext.StartRingbufWriteMetrics(
 			ctx,
 			p.metrics.BpfInternalMetricsScrapeInterval(),
-			p.readRingbufWriteStats,
+			func() (ebpfcommon.RingbufWriteStats, error) {
+				return ebpfcommon.ReadRingbufWriteStats(p.bpfObjects.RingbufWriteStatsStorage)
+			},
 			p.metrics,
 			p.log,
 		)
@@ -828,23 +830,6 @@ func (p *Tracer) Run(
 		p.log,
 		p.metrics,
 	)(ctx, append(p.closers, &p.bpfObjects), eventsChan)
-}
-
-func (p *Tracer) readRingbufWriteStats() (ebpfcommon.RingbufWriteStats, error) {
-	var perCPU []BpfRingbufWriteStatsT
-	if err := p.bpfObjects.RingbufWriteStatsStorage.Lookup(uint32(0), &perCPU); err != nil {
-		return ebpfcommon.RingbufWriteStats{}, err
-	}
-	return sumRingbufWriteStats(perCPU), nil
-}
-
-func sumRingbufWriteStats(perCPU []BpfRingbufWriteStatsT) ebpfcommon.RingbufWriteStats {
-	var total ebpfcommon.RingbufWriteStats
-	for i := range perCPU {
-		total.Writes += perCPU[i].Writes
-		total.Failures += perCPU[i].Failures
-	}
-	return total
 }
 
 func (p *Tracer) processSharedRingbufRecord(

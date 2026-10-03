@@ -261,25 +261,6 @@ func TestRingbufMetricsConstant(t *testing.T) {
 	assert.Equal(t, true, tracer.constants()["ringbuf_metrics_enabled"])
 }
 
-func TestSumRingbufWriteStats(t *testing.T) {
-	stats := sumRingbufWriteStats([]BpfRingbufWriteStatsT{
-		{Writes: 3, Failures: 1},
-		{Writes: 5, Failures: 2},
-	})
-	assert.Equal(t, ebpfcommon.RingbufWriteStats{Writes: 8, Failures: 3}, stats)
-}
-
-func TestReadRingbufWriteStatsError(t *testing.T) {
-	tracer := &Tracer{
-		bpfObjects: BpfObjects{BpfMaps: BpfMaps{
-			RingbufWriteStatsStorage: &ebpf.Map{},
-		}},
-	}
-
-	_, err := tracer.readRingbufWriteStats()
-	require.Error(t, err)
-}
-
 func TestPythonAsyncMapsScopePointersByProcess(t *testing.T) {
 	spec, err := LoadBpf()
 	require.NoError(t, err)
