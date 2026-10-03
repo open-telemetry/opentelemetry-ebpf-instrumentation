@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package ebpfcommon
+package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
 	"context"
@@ -21,22 +21,22 @@ type RingbufWriteStats struct {
 }
 
 // StartRingbufWriteMetrics starts one collector for the shared events ring buffer.
-func (e *EBPFEventContext) StartRingbufWriteMetrics(
-	ctx context.Context,
+func (ctx *EBPFEventContext) StartRingbufWriteMetrics(
+	runCtx context.Context,
 	interval time.Duration,
 	reader func() (RingbufWriteStats, error),
 	reporter imetrics.Reporter,
 	log *slog.Logger,
 ) {
-	if e == nil || interval <= 0 || reader == nil || reporter == nil {
+	if ctx == nil || interval <= 0 || reader == nil || reporter == nil {
 		return
 	}
 
-	e.ringbufStatsOnce.Do(func() {
+	ctx.ringbufStatsOnce.Do(func() {
 		go func() {
 			ticker := time.NewTicker(interval)
 			defer ticker.Stop()
-			collectRingbufWriteMetrics(ctx, ticker.C, reader, reporter, log)
+			collectRingbufWriteMetrics(runCtx, ticker.C, reader, reporter, log)
 		}()
 	})
 }
