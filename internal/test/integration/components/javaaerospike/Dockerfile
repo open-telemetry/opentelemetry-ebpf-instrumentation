@@ -1,6 +1,6 @@
 # Build the Java Aerospike test server.
 # Docker command must be invoked from the project root directory.
-FROM maven:3.9-eclipse-temurin-21@sha256:d7e7f57407437c014571f1ad5a9955f03fc3edcb1d964067ef351fa38e798665 AS javabuilder
+FROM maven:3.10-eclipse-temurin-21@sha256:1f4555322b25bc65c1ae2b87d0558047754ef766abf9bd8a0df8bd342d136eb5 AS javabuilder
 
 WORKDIR /build
 
