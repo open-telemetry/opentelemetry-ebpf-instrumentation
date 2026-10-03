@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package ecs
+package cloud
 
 import (
 	"context"
@@ -14,7 +14,6 @@ import (
 	awsecs "github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 type fakeClient struct {
@@ -58,9 +57,9 @@ func TestInventoryRefresh(t *testing.T) {
 		client.taskARNs = append(client.taskARNs, arn)
 		client.tasksByARN[arn] = ecsServiceTask(fmt.Sprintf("10.0.0.%d", index+1), "service-a")
 	}
-	inventory := NewInventory(client, "cluster")
+	inventory := NewInventory([]MetadataRefresher{NewECSRefresher(client, "cluster")})
 
-	require.NoError(t, inventory.Refresh(t.Context()))
+	inventory.refresh(t.Context())
 	assert.Equal(t, types.DesiredStatusRunning, client.listStatus)
 	assert.Equal(t, 2, client.describeCalls)
 	name, ok := inventory.ServiceNameForIP("10.0.0.101")
@@ -71,7 +70,7 @@ func TestInventoryRefresh(t *testing.T) {
 	client.tasksByARN = map[string]types.Task{
 		"replacement": ecsServiceTask("10.1.0.1", "service-b"),
 	}
-	require.NoError(t, inventory.Refresh(t.Context()))
+	inventory.refresh(t.Context())
 	_, ok = inventory.ServiceNameForIP("10.0.0.101")
 	assert.False(t, ok)
 	name, ok = inventory.ServiceNameForIP("10.1.0.1")
@@ -86,9 +85,9 @@ func TestInventoryRetainsSnapshotOnTaskFailure(t *testing.T) {
 		taskARNs:   []string{"old-task"},
 		tasksByARN: map[string]types.Task{"old-task": oldTask},
 	}
-	inventory := NewInventory(client, "cluster")
-	require.NoError(t, inventory.Refresh(t.Context()))
-	changes := inventory.Changes()
+	inventory := NewInventory([]MetadataRefresher{NewECSRefresher(client, "cluster")})
+	inventory.refresh(t.Context())
+	changes := inventory.SubscribeContainerChanges()
 
 	// Fail in the second batch, after a full batch has already been collected.
 	client.taskARNs = nil
@@ -104,7 +103,7 @@ func TestInventoryRetainsSnapshotOnTaskFailure(t *testing.T) {
 		failedARN: {Arn: aws.String(failedARN), Reason: aws.String("MISSING")},
 	}
 	client.describeCalls = 0
-	require.ErrorContains(t, inventory.Refresh(t.Context()), "task failures")
+	inventory.refresh(t.Context())
 	assert.Equal(t, 2, client.describeCalls)
 	name, ok := inventory.ServiceNameForIP("10.0.0.1")
 	assert.True(t, ok)
@@ -116,7 +115,6 @@ func TestInventoryRetainsSnapshotOnTaskFailure(t *testing.T) {
 	assert.False(t, ok)
 	_, ok = inventory.ServiceNameForContainerID("new-container")
 	assert.False(t, ok)
-	assert.Equal(t, changes, inventory.Changes())
 	select {
 	case <-changes:
 		t.Fatal("partial refresh published an update")
@@ -124,7 +122,7 @@ func TestInventoryRetainsSnapshotOnTaskFailure(t *testing.T) {
 	}
 
 	client.failuresByARN = nil
-	require.NoError(t, inventory.Refresh(t.Context()))
+	inventory.refresh(t.Context())
 	_, ok = inventory.ServiceNameForIP("10.0.0.1")
 	assert.False(t, ok)
 	_, ok = inventory.ServiceNameForContainerID("old-container")
@@ -152,9 +150,9 @@ func TestInventorySkipsStandaloneTasks(t *testing.T) {
 			},
 		},
 	}
-	inventory := NewInventory(client, "cluster")
+	inventory := NewInventory([]MetadataRefresher{NewECSRefresher(client, "cluster")})
 
-	require.NoError(t, inventory.Refresh(t.Context()))
+	inventory.refresh(t.Context())
 	_, ok := inventory.ServiceNameForIP("10.2.0.1")
 	assert.False(t, ok)
 }
@@ -181,8 +179,8 @@ func TestInventoryContainerIdentity(t *testing.T) {
 			},
 		},
 	}
-	inventory := NewInventory(client, "cluster")
-	require.NoError(t, inventory.Refresh(t.Context()))
+	inventory := NewInventory([]MetadataRefresher{NewECSRefresher(client, "cluster")})
+	inventory.refresh(t.Context())
 	for _, id := range []string{firstID, secondID} {
 		name, ok := inventory.ServiceNameForContainerID(id)
 		assert.True(t, ok)
@@ -200,7 +198,7 @@ func TestInventoryContainerIdentity(t *testing.T) {
 			Containers: []types.Container{{RuntimeId: aws.String(secondID)}},
 		},
 	}
-	require.NoError(t, inventory.Refresh(t.Context()))
+	inventory.refresh(t.Context())
 	_, ok := inventory.ServiceNameForContainerID(firstID)
 	assert.False(t, ok)
 	name, ok := inventory.ServiceNameForContainerID(secondID)
@@ -208,34 +206,54 @@ func TestInventoryContainerIdentity(t *testing.T) {
 	assert.Equal(t, "payments", name)
 
 	client.taskARNs = nil
-	require.NoError(t, inventory.Refresh(t.Context()))
+	inventory.refresh(t.Context())
 	_, ok = inventory.ServiceNameForContainerID(secondID)
 	assert.False(t, ok)
 }
 
 func TestInventoryChanges(t *testing.T) {
 	client := &fakeClient{listError: errors.New("unavailable")}
-	inventory := NewInventory(client, "cluster")
-	changes := inventory.Changes()
-	require.Error(t, inventory.Refresh(t.Context()))
+	inventory := NewInventory([]MetadataRefresher{NewECSRefresher(client, "cluster")})
+	changes := inventory.SubscribeContainerChanges()
+	inventory.refresh(t.Context())
 	select {
 	case <-changes:
 		t.Fatal("failed refresh published an update")
 	default:
 	}
+
 	client.listError = nil
-	require.NoError(t, inventory.Refresh(t.Context()))
+	client.taskARNs = []string{"task"}
+	client.tasksByARN = map[string]types.Task{
+		"task": {
+			Group:      aws.String("service:checkout"),
+			Containers: []types.Container{{RuntimeId: aws.String("container")}},
+		},
+	}
+	inventory.refresh(t.Context())
+	select {
+	case change := <-changes:
+		assert.Equal(t, map[string]string{"container": "checkout"}, change.Changed)
+		assert.Empty(t, change.Removed)
+	default:
+		t.Fatal("new container did not publish an update")
+	}
+
+	inventory.refresh(t.Context())
 	select {
 	case <-changes:
+		t.Fatal("unchanged metadata published an update")
 	default:
-		t.Fatal("successful refresh did not publish an update")
 	}
-	next := inventory.Changes()
-	require.NotEqual(t, changes, next)
+
+	client.taskARNs = nil
+	inventory.refresh(t.Context())
 	select {
-	case <-next:
-		t.Fatal("next update channel is already closed")
+	case change := <-changes:
+		assert.Empty(t, change.Changed)
+		assert.Equal(t, map[string]string{"container": "checkout"}, change.Removed)
 	default:
+		t.Fatal("removed container did not publish an update")
 	}
 }
 

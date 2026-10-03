@@ -109,7 +109,7 @@ func testECSServiceResolution(t *testing.T, discover bool) {
 			"OTEL_EBPF_METRICS_FEATURES=application,application_span_otel,application_service_graph",
 			"OTEL_EBPF_PROMETHEUS_FEATURES=application,application_span_otel,application_service_graph",
 			"OTEL_EBPF_NAME_RESOLVER_SOURCES=ecs",
-			"OTEL_EBPF_NAME_RESOLVER_ECS_REFRESH_INTERVAL=1s",
+			"OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL=1s",
 			"AWS_ENDPOINT_URL_ECS=" + endpoint,
 			"AWS_ACCESS_KEY_ID=test", "AWS_SECRET_ACCESS_KEY=test",
 			"AWS_EC2_METADATA_DISABLED=true", "AWS_MAX_ATTEMPTS=1",
@@ -197,7 +197,7 @@ func setupECSMetadataMock(t *testing.T, network dockertest.Network) {
 	require.NoError(t, err, "could not connect ECS metadata mock to network")
 }
 
-func setupECSResolverApplication(t *testing.T, network dockertest.Network, service string, frontend bool) map[string]any {
+func setupAWSResolverApplication(t *testing.T, network dockertest.Network, service string, frontend bool) (string, string) {
 	t.Helper()
 	opts := []dockertest.RunOption{
 		dockertest.WithTag(imgNginx.Tag()),
@@ -227,9 +227,15 @@ func setupECSResolverApplication(t *testing.T, network dockertest.Network, servi
 		}
 	}
 	require.NotEmpty(t, ip)
+	return app.ID(), ip
+}
+
+func setupECSResolverApplication(t *testing.T, network dockertest.Network, service string, frontend bool) map[string]any {
+	t.Helper()
+	id, ip := setupAWSResolverApplication(t, network, service, frontend)
 	return map[string]any{
 		"taskArn": service, "group": "service:" + service,
-		"containers": []map[string]string{{"runtimeId": app.ID()}},
+		"containers": []map[string]string{{"runtimeId": id}},
 		"attachments": []map[string]any{{"type": "ElasticNetworkInterface", "details": []map[string]string{
 			{"name": "privateIPv4Address", "value": ip},
 		}}},

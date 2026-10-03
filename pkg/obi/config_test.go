@@ -393,9 +393,9 @@ discovery:
 			Sources:  []transform.Source{transform.SourceK8s, transform.SourceDNS},
 			CacheLen: 1024,
 			CacheTTL: 5 * time.Minute,
-			ECS: transform.ECSNameResolverConfig{
-				RefreshInterval: 30 * time.Second,
-			},
+		},
+		CloudMetadata: transform.CloudMetadataConfig{
+			RefreshInterval: 30 * time.Second,
 		},
 		Discovery: services.DiscoveryConfig{
 			ExcludeOTelInstrumentedServices: true,
@@ -519,17 +519,16 @@ func TestConfig_NameResolverECS(t *testing.T) {
 	const config = `cloud_metadata:
   cluster_name: beyla-nonk8s-poc
   region: us-east-2
+  refresh_interval: 45s
 name_resolver:
   sources: [ecs]
-  ecs:
-    refresh_interval: 45s
 `
 	cfg, err := LoadConfig(bytes.NewBufferString(config))
 	require.NoError(t, err)
 	assert.Equal(t, []transform.Source{transform.SourceECS}, cfg.NameResolver.Sources)
 	assert.Equal(t, "beyla-nonk8s-poc", cfg.CloudMetadata.ClusterName)
 	assert.Equal(t, "us-east-2", cfg.CloudMetadata.Region)
-	assert.Equal(t, 45*time.Second, cfg.NameResolver.ECS.RefreshInterval)
+	assert.Equal(t, 45*time.Second, cfg.CloudMetadata.RefreshInterval)
 
 	t.Setenv("OTEL_EBPF_CLUSTER_NAME", "env-cluster")
 	t.Setenv("OTEL_EBPF_CLOUD_REGION", "eu-west-1")
@@ -1882,4 +1881,24 @@ func TestConfigValidate_TracesCompression(t *testing.T) {
 	t.Run("unknown codec is rejected", func(t *testing.T) {
 		require.Error(t, loadConfig(t, base("http/protobuf", "not-a-codec")).Validate())
 	})
+}
+
+func TestConfig_NameResolverRoute53(t *testing.T) {
+	cfg, err := LoadConfig(bytes.NewBufferString(`name_resolver:
+  sources: [route53]
+cloud_metadata:
+  refresh_interval: 45s
+  route53:
+    hosted_zone_ids: [zone-a, zone-b]
+`))
+	require.NoError(t, err)
+	assert.Equal(t, []transform.Source{transform.SourceRoute53}, cfg.NameResolver.Sources)
+	assert.Equal(t, []string{"zone-a", "zone-b"}, cfg.CloudMetadata.Route53.HostedZoneIDs)
+	assert.Equal(t, 45*time.Second, cfg.CloudMetadata.RefreshInterval)
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS", "zone-c,zone-d")
+	t.Setenv("OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL", "1m")
+	cfg, err = LoadConfig(bytes.NewReader(nil))
+	require.NoError(t, err)
+	assert.Equal(t, []string{"zone-c", "zone-d"}, cfg.CloudMetadata.Route53.HostedZoneIDs)
+	assert.Equal(t, time.Minute, cfg.CloudMetadata.RefreshInterval)
 }
