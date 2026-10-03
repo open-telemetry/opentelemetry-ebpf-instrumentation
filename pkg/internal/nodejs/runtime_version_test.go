@@ -255,7 +255,7 @@ func TestRuntimeRefusalManualSpans(t *testing.T) {
 
 			cfg := obi.DefaultConfig
 			cfg.NodeJS.ManualSpans = tc.manualSpans
-			i := NewNodeInjector(&cfg)
+			i := NewNodeInjector(&cfg, nil)
 
 			require.Equal(t, tc.want, i.runtimeRefusal(InjectionTarget{}, elfFile))
 		})
@@ -275,7 +275,7 @@ func TestRuntimeRefusal(t *testing.T) {
 	// an unreadable executable is refused rather than injected: the version is
 	// what tells us the agent can run at all
 	cfg := obi.DefaultConfig
-	i := NewNodeInjector(&cfg)
+	i := NewNodeInjector(&cfg, nil)
 
 	require.Equal(t, refusalVersionUnknown, i.runtimeRefusal(InjectionTarget{}, nil))
 }

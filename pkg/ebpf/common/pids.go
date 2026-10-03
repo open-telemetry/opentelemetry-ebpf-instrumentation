@@ -5,6 +5,8 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
 	"log/slog"
+	"net/netip"
+	"slices"
 	"sync"
 	"time"
 
@@ -52,6 +54,13 @@ type PIDInfo struct {
 	since time.Duration
 }
 
+type ownConn struct {
+	client, server netip.AddrPort
+	opened         time.Duration
+	// zero while the connection is in use
+	closed time.Duration
+}
+
 type ServiceFilter interface {
 	AllowPID(app.PID, uint32, *exec.FileInfo, PIDType)
 	BlockPID(app.PID, uint32)
@@ -75,6 +84,7 @@ type PIDsFilter struct {
 	ignoreOtelSpan      bool
 	defaultOtlpGRPCPort int
 	metrics             imetrics.Reporter
+	ownConns            map[int][]*ownConn
 }
 
 func NewPIDsFilter(c *services.DiscoveryConfig, log *slog.Logger, metrics imetrics.Reporter) *PIDsFilter {
@@ -87,6 +97,7 @@ func NewPIDsFilter(c *services.DiscoveryConfig, log *slog.Logger, metrics imetri
 		ignoreOtelSpan:      c.ExcludeOTelInstrumentedServicesSpanMetrics,
 		defaultOtlpGRPCPort: c.DefaultOtlpGRPCPort,
 		metrics:             metrics,
+		ownConns:            map[int][]*ownConn{},
 	}
 }
 
@@ -100,6 +111,24 @@ func (pf *PIDsFilter) BlockPID(pid app.PID, ns uint32) {
 	pf.mux.Lock()
 	defer pf.mux.Unlock()
 	pf.removePID(pid, ns)
+}
+
+// TrackOwnConn makes Filter drop the requests from client to server until release is called.
+func (pf *PIDsFilter) TrackOwnConn(client, server netip.AddrPort) (release func()) {
+	pf.mux.Lock()
+	defer pf.mux.Unlock()
+
+	pf.pruneExpired()
+
+	conn := &ownConn{client: client, server: server, opened: pidsFilterMonoNow()}
+	port := int(client.Port())
+	pf.ownConns[port] = append(pf.ownConns[port], conn)
+
+	return func() {
+		pf.mux.Lock()
+		defer pf.mux.Unlock()
+		conn.closed = pidsFilterMonoNow()
+	}
 }
 
 func (pf *PIDsFilter) ValidPID(userPID app.PID, ns uint32, pidType PIDType) bool {
@@ -134,6 +163,21 @@ func generationFor(info *PIDInfo, span *request.Span) *PIDInfo {
 		}
 	}
 	return nil
+}
+
+func (pf *PIDsFilter) isOwnConn(span *request.Span) bool {
+	for _, c := range pf.ownConns[span.PeerPort] {
+		// Start, as RequestStart can be the accept time, which may precede TrackOwnConn
+		if c.inUseAt(span.Start) && int(c.server.Port()) == span.HostPort &&
+			span.Peer == c.client.Addr().String() && span.Host == c.server.Addr().String() {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *ownConn) inUseAt(t int64) bool {
+	return t >= int64(c.opened) && (c.closed == 0 || t <= int64(c.closed))
 }
 
 func expired(info *PIDInfo, now time.Duration) bool {
@@ -205,6 +249,9 @@ func (pf *PIDsFilter) Filter(inputSpans []request.Span) []request.Span {
 		// of container layers. The Host PID is always the outer most layer.
 		info, pidExists := ns[span.Pid.UserPID]
 		if !pidExists {
+			continue
+		}
+		if pf.isOwnConn(span) {
 			continue
 		}
 		if gen := generationFor(&info, span); gen != nil {
@@ -307,6 +354,17 @@ func (pf *PIDsFilter) pruneExpired() {
 		if len(ns) == 0 {
 			delete(pf.current, nsid)
 		}
+	}
+
+	for port, conns := range pf.ownConns {
+		conns = slices.DeleteFunc(conns, func(c *ownConn) bool {
+			return c.closed != 0 && now-c.closed > pidRemovalRetention
+		})
+		if len(conns) == 0 {
+			delete(pf.ownConns, port)
+			continue
+		}
+		pf.ownConns[port] = conns
 	}
 }
 

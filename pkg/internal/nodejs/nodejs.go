@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/netip"
 	"os"
 	"strings"
 	"time"
@@ -23,12 +24,18 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
+var (
+	inspectorAddr = "127.0.0.1"
+	inspectorPort = 9229
+)
+
 type NodeInjector struct {
-	log *slog.Logger
-	cfg *obi.Config
+	log          *slog.Logger
+	cfg          *obi.Config
+	trackOwnConn func(client, server netip.AddrPort) (release func())
 }
 
-func NewNodeInjector(cfg *obi.Config) *NodeInjector {
+func NewNodeInjector(cfg *obi.Config, trackOwnConn func(client, server netip.AddrPort) (release func())) *NodeInjector {
 	log := slog.With("component", "nodejs.Injector")
 
 	if !cfg.NodeJS.Enabled && cfg.AppRuntimeMetricsEnabled() {
@@ -37,8 +44,9 @@ func NewNodeInjector(cfg *obi.Config) *NodeInjector {
 	}
 
 	return &NodeInjector{
-		cfg: cfg,
-		log: log,
+		cfg:          cfg,
+		log:          log,
+		trackOwnConn: trackOwnConn,
 	}
 }
 
@@ -155,11 +163,16 @@ func (i *NodeInjector) attachAgent(ctx context.Context, target InjectionTarget, 
 		return fmt.Errorf("error enabling node inspector: %w", err)
 	}
 
+	return i.injectViaSignaledInspector(pid)
+}
+
+func (i *NodeInjector) injectViaSignaledInspector(pid int) error {
 	return netns.WithNetNS(pid, func() error {
-		conn, err := connectWait("127.0.0.1", 9229, 5*time.Second, 200*time.Millisecond)
+		conn, err := connectWait(inspectorAddr, inspectorPort, 5*time.Second, 200*time.Millisecond)
 		if err != nil {
 			return fmt.Errorf("failed to connect to inspector after SIGUSR1: %w", err)
 		}
+		defer i.trackConn(conn)()
 
 		// SIGUSR1 opened this port, so this injection closes it again.
 		return i.injectViaConn(conn, true)
@@ -175,10 +188,11 @@ func (i *NodeInjector) injectViaOpenInspector(pid int) (bool, error) {
 	injected := false
 
 	err := netns.WithNetNS(pid, func() error {
-		conn, err := connect("127.0.0.1", 9229)
+		conn, err := connect(inspectorAddr, inspectorPort)
 		if err != nil {
 			return nil
 		}
+		defer i.trackConn(conn)()
 
 		// Validate this is actually a Node.js inspector, not some other
 		// service that happens to listen on port 9229.
@@ -193,6 +207,16 @@ func (i *NodeInjector) injectViaOpenInspector(pid int) (bool, error) {
 	})
 
 	return injected, err
+}
+
+func (i *NodeInjector) trackConn(conn net.Conn) (release func()) {
+	local, _ := conn.LocalAddr().(*net.TCPAddr)
+	remote, _ := conn.RemoteAddr().(*net.TCPAddr)
+	if i.trackOwnConn == nil || local == nil || remote == nil {
+		return func() {}
+	}
+
+	return i.trackOwnConn(local.AddrPort(), remote.AddrPort())
 }
 
 // Every reason an injection is skipped, in the order they are decided: what the
