@@ -336,7 +336,7 @@ static __always_inline int process_sql_return(void *goroutine_addr, u8 error, u8
     go_obi_ctx__end(&g_key, k_obi_ctx_sql, &invocation->tp);
     bpf_map_delete_elem(&ongoing_sql_queries, &g_key);
 
-    sql_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(sql_request_trace_t), 0);
+    sql_request_trace_t *trace = events_ringbuf_reserve(sizeof(sql_request_trace_t), 0);
     if (trace) {
         task_pid(&trace->pid);
         trace->type = k_event_type_sql_client;

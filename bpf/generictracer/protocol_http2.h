@@ -152,7 +152,7 @@ http2_poison_hpack(http2_conn_stream_t *stream, http2_grpc_request_t *info, u8 f
 static __always_inline u8 http2_emit_hpack_event(grpc_frames_ctx_t *g_ctx,
                                                  const frame_header_t *frame,
                                                  u8 event_type) {
-    http2_grpc_request_t *event = bpf_ringbuf_reserve(&events, sizeof(http2_grpc_request_t), 0);
+    http2_grpc_request_t *event = events_ringbuf_reserve(sizeof(http2_grpc_request_t), 0);
     if (!event) {
         return 0;
     }
@@ -376,7 +376,7 @@ http2_grpc_end(http2_conn_stream_t *stream, http2_grpc_request_t *prev_info, voi
             prev_info->hpack_flags |= h2_hpack_req_unreliable | h2_hpack_resp_unreliable;
         }
 
-        http2_grpc_request_t *trace = bpf_ringbuf_reserve(&events, sizeof(*trace), 0);
+        http2_grpc_request_t *trace = events_ringbuf_reserve(sizeof(*trace), 0);
         if (trace) {
             bpf_probe_read(prev_info->ret_data, k_kprobes_http2_ret_buf_size, u_buf);
             __builtin_memcpy(trace, prev_info, sizeof(http2_grpc_request_t));

@@ -146,6 +146,48 @@ func TestInternalMetricsReporterQueueBufferUtilization(t *testing.T) {
 	assert.InDelta(t, 0.42, records[0].FloatVal, 0.001)
 }
 
+func TestInternalMetricsReporterBPFRingbufWriteStats(t *testing.T) {
+	metricRecords := make(chan collector.MetricRecord, 16)
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:        10 * time.Millisecond,
+		MetricsConsumer: testMetricsConsumer(metricRecords),
+	}
+	ctxInfo := &global.ContextInfo{
+		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
+		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
+	}
+
+	reporter, err := NewInternalMetricsReporter(
+		t.Context(),
+		ctxInfo,
+		mcfg,
+		&imetrics.InternalMetricsConfig{BpfMetricScrapeInterval: time.Millisecond},
+	)
+	require.NoError(t, err)
+
+	reporter.BPFRingbufWriteStats("events", 10, 2)
+	reporter.BPFRingbufWriteStats("events", 15, 4)
+
+	expected := map[string]int64{
+		attr.VendorPrefix + ".bpf.ringbuf.writes":         15,
+		attr.VendorPrefix + ".bpf.ringbuf.write.failures": 4,
+	}
+	records := readMetricsByName(
+		t,
+		metricRecords,
+		time.Second,
+		attr.VendorPrefix+".bpf.ringbuf.writes",
+		attr.VendorPrefix+".bpf.ringbuf.write.failures",
+	)
+	require.Len(t, records, 2)
+	for _, record := range records {
+		value, ok := expected[record.Name]
+		require.True(t, ok, "unexpected metric %q", record.Name)
+		assert.Equal(t, value, record.IntVal)
+		assert.Equal(t, "events", record.Attributes["ringbuf"])
+	}
+}
+
 // A process basename comes straight off the filesystem, where Linux permits invalid UTF-8. The
 // internal metrics build their datapoint attributes directly, so without sanitization such a
 // name poisons every internal-metrics export batch for as long as the series stays aggregated.

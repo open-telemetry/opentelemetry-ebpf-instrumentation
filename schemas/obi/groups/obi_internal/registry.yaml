@@ -109,6 +109,11 @@ groups:
         stability: development
         brief: Name of the eBPF probe.
         examples: ["kprobe_tcp_sendmsg"]
+      - id: ringbuf
+        type: string
+        stability: development
+        brief: Name of the eBPF ring buffer.
+        examples: ["events"]
       - id: bpf.map.id
         type: string
         stability: development

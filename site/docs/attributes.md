@@ -76,6 +76,7 @@ Attributes carried by OBI's own internal (obi.*) OTLP metrics. Keys are namespac
 | `obi.goos` | string | development | Go build target OS (runtime.GOOS). | linux |
 | `obi.goversion` | string | development | Go toolchain version OBI was built with (runtime.Version()). | go1.25.11 |
 | `otel.metric.overflow` | boolean | development | Set by the OpenTelemetry SDK cardinality limiter when the avoided-services attribute set overflows its configured limit. |  |
+| `ringbuf` | string | development | Name of the eBPF ring buffer. | events |
 | `subscriber` | string | development | Name of the pipeline stage consuming the internal queue, as given to msg.SubscriberName when the stage subscribed. Subscribers that do not provide a name fall back to the name of the queue they subscribed to. | discover.CriteriaMatcher; traceAttacher |
 | `telemetry.type` | string | development | Which OBI pipeline avoided instrumenting a service that already has OpenTelemetry instrumentation. Value is "metrics" or "traces". | metrics; traces |
 

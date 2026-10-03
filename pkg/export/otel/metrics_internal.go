@@ -52,6 +52,10 @@ type InternalMetricsReporter struct {
 	totalIgnoredPackets   uint64
 	bpfPacketCount        instrument.Int64Counter
 	bpfIgnoredPacketCount instrument.Int64Counter
+	totalRingbufWrites    map[string]uint64
+	totalRingbufFailures  map[string]uint64
+	bpfRingbufWrites      instrument.Int64Counter
+	bpfRingbufFailures    instrument.Int64Counter
 
 	queueCapacityRatio instrument.Float64Gauge
 
@@ -204,6 +208,24 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		return nil, err
 	}
 
+	bpfRingbufWrites, err := meter.Int64Counter(
+		internalNames.BpfRingbufWrites.OTEL,
+		instrument.WithDescription("How many writes to the named ring buffer have been attempted"),
+		instrument.WithUnit(internalNames.BpfRingbufWrites.Unit),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	bpfRingbufFailures, err := meter.Int64Counter(
+		internalNames.BpfRingbufWriteFailures.OTEL,
+		instrument.WithDescription("How many writes to the named ring buffer failed because the buffer was full"),
+		instrument.WithUnit(internalNames.BpfRingbufWriteFailures.Unit),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	queueCapacityRatio, err := meter.Float64Gauge(
 		internalNames.QueueCapacityRatio.OTEL,
 		instrument.WithDescription("Ratio [0-1] between the unread messages of an internal Go channel and its total capacity"),
@@ -230,6 +252,10 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		informerLag:                      informerLag,
 		bpfPacketCount:                   bpfPacketCount,
 		bpfIgnoredPacketCount:            bpfIgnoredPacketCount,
+		bpfRingbufWrites:                 bpfRingbufWrites,
+		bpfRingbufFailures:               bpfRingbufFailures,
+		totalRingbufWrites:               map[string]uint64{},
+		totalRingbufFailures:             map[string]uint64{},
 		queueCapacityRatio:               queueCapacityRatio,
 		internalAttrs:                    internalAttrs,
 	}, nil
@@ -393,6 +419,14 @@ func (p *InternalMetricsReporter) BPFPacketStats(count, ignored uint64) {
 	p.bpfPacketCount.Add(p.ctx, int64(count-p.totalPackets))
 	p.bpfIgnoredPacketCount.Add(p.ctx, int64(ignored-p.totalIgnoredPackets))
 	p.totalPackets, p.totalIgnoredPackets = count, ignored
+}
+
+func (p *InternalMetricsReporter) BPFRingbufWriteStats(ringbuf string, writes, failures uint64) {
+	attrs := sanitizedAttributes(attribute.String(string(attr.Ringbuf), ringbuf))
+	p.bpfRingbufWrites.Add(p.ctx, int64(writes-p.totalRingbufWrites[ringbuf]), attrs)
+	p.bpfRingbufFailures.Add(p.ctx, int64(failures-p.totalRingbufFailures[ringbuf]), attrs)
+	p.totalRingbufWrites[ringbuf] = writes
+	p.totalRingbufFailures[ringbuf] = failures
 }
 
 func (p *InternalMetricsReporter) QueueBufferUtilization(subscriber string, ratio float64) {

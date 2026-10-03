@@ -191,7 +191,7 @@ static __always_inline void notify_go_auto_activation(u64 generation) {
         .pid = pid_from_pid_tgid(bpf_get_current_pid_tgid()),
         .generation = generation,
     };
-    bpf_ringbuf_output(&events, &event, sizeof(event), get_flags());
+    events_ringbuf_output(&event, sizeof(event), get_flags());
 }
 
 static __always_inline u8
@@ -704,7 +704,7 @@ int GUARDED_PROG(obi_uprobe_nonRecordingSpan_End, struct pt_regs *, ctx) {
         update_tp_parent_go(&gp_key, &span->prev_tp);
     }
 
-    bpf_ringbuf_output(&events, span, sizeof(otel_span_t), get_flags());
+    events_ringbuf_output(span, sizeof(otel_span_t), get_flags());
     bpf_dbg_printk("submitted manual span trace");
 
     bpf_map_delete_elem(&active_spans, &s_key);
@@ -763,7 +763,7 @@ int GUARDED_PROG(obi_uprobe_auto_sdk_span_Ended, struct pt_regs *, ctx) {
 
     u64 total_size = offsetof(go_auto_span_t, buf) + len;
     bpf_clamp_umax(total_size, offsetof(go_auto_span_t, buf) + k_go_auto_span_json_max_len);
-    bpf_ringbuf_output(&events, event, total_size, get_flags());
+    events_ringbuf_output(event, total_size, get_flags());
 
     return 0;
 }

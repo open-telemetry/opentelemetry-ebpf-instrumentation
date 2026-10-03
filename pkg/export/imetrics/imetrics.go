@@ -59,6 +59,13 @@ type InternalMetricsConfig struct {
 	BpfMetricScrapeInterval time.Duration            `yaml:"bpf_metric_scrape_interval" env:"OTEL_EBPF_BPF_METRIC_SCRAPE_INTERVAL" validate:"omitempty,gt=0"`
 }
 
+// Enabled reports whether an internal metrics exporter is configured.
+func (c InternalMetricsConfig) Enabled() bool {
+	return c.Exporter == InternalMetricsExporterPrometheus ||
+		c.Exporter == InternalMetricsExporterOTEL ||
+		c.Prometheus.Port != 0
+}
+
 // Reporter of internal metrics
 type Reporter interface {
 	// Start the reporter
@@ -103,6 +110,8 @@ type Reporter interface {
 	// BPFPacketStats sets the counters of how many packets have been internally accounted vs how many packets
 	// have been ignored due to internal BPF map collisions
 	BPFPacketStats(count, ignored uint64)
+	// BPFRingbufWriteStats sets the counters of attempted and failed writes to a ring buffer.
+	BPFRingbufWriteStats(ringbuf string, writes, failures uint64)
 	// QueueBufferUtilization shows the ratio [0-1] between the unread messages of an internal Go channel
 	// and its total capacity
 	QueueBufferUtilization(subscriber string, ratio float64)
@@ -142,4 +151,5 @@ func (n NoopReporter) BpfMapMaxEntries(_, _, _ string, _ int)                   
 func (n NoopReporter) BpfInternalMetricsScrapeInterval() time.Duration                         { return 0 }
 func (n NoopReporter) InformerLag(_ float64)                                                   {}
 func (n NoopReporter) BPFPacketStats(_, _ uint64)                                              {}
+func (n NoopReporter) BPFRingbufWriteStats(_ string, _, _ uint64)                              {}
 func (n NoopReporter) QueueBufferUtilization(_ string, _ float64)                              {}

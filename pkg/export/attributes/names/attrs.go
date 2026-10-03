@@ -260,6 +260,7 @@ const (
 
 	TelemetryType = Name("telemetry.type")
 	Subscriber    = Name("subscriber")
+	Ringbuf       = Name("ringbuf")
 )
 
 // InternalAttributes are the vendor-prefixed attributes carried by OBI's own internal metrics.

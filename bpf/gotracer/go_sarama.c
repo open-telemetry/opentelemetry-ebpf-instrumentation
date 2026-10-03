@@ -128,8 +128,7 @@ int GUARDED_PROG(obi_uprobe_sarama_broker_write, struct pt_regs *, ctx) {
             // easy way to correlate with the response
             if (!invocation->promise) {
                 req.end_monotime_ns = bpf_ktime_get_ns();
-                kafka_client_req_t *trace =
-                    bpf_ringbuf_reserve(&events, sizeof(kafka_client_req_t), 0);
+                kafka_client_req_t *trace = events_ringbuf_reserve(sizeof(kafka_client_req_t), 0);
                 if (trace) {
                     bpf_dbg_printk("Sending kafka client go trace");
 
@@ -172,7 +171,7 @@ int GUARDED_PROG(obi_uprobe_sarama_response_promise_handle, struct pt_regs *, ct
 
         if (req) {
             req->end_monotime_ns = bpf_ktime_get_ns();
-            kafka_client_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(kafka_client_req_t), 0);
+            kafka_client_req_t *trace = events_ringbuf_reserve(sizeof(kafka_client_req_t), 0);
             if (trace) {
                 bpf_dbg_printk("Sending kafka client go trace");
 

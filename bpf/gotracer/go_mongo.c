@@ -216,8 +216,7 @@ int GUARDED_PROG(obi_uprobe_mongo_op_execute_ret, struct pt_regs *, ctx) {
             req->err = 0;
         }
 
-        mongo_go_client_req_t *trace =
-            bpf_ringbuf_reserve(&events, sizeof(mongo_go_client_req_t), 0);
+        mongo_go_client_req_t *trace = events_ringbuf_reserve(sizeof(mongo_go_client_req_t), 0);
         if (trace) {
             bpf_dbg_printk("Sending mongo Go client go trace");
             __builtin_memcpy(trace, req, sizeof(mongo_go_client_req_t));

@@ -26,6 +26,7 @@ import (
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -246,6 +247,37 @@ func TestJVMBPFMapsAreInternallyPinnedAndUseSharedEventsRingBuffer(t *testing.T)
 		assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps[name].Pinning)
 	}
 	assert.Equal(t, ebpf.LRUHash, spec.Maps["obi_usdt_ip_to_spec_id"].Type)
+	require.Contains(t, spec.Maps, "ringbuf_write_stats_storage")
+	assert.Equal(t, ebpf.PerCPUArray, spec.Maps["ringbuf_write_stats_storage"].Type)
+	assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps["ringbuf_write_stats_storage"].Pinning)
+}
+
+func TestRingbufMetricsConstant(t *testing.T) {
+	cfg := &obi.Config{}
+	tracer := New(nil, cfg, imetrics.NoopReporter{})
+	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
+
+	cfg.InternalMetrics.Exporter = imetrics.InternalMetricsExporterPrometheus
+	assert.Equal(t, true, tracer.constants()["ringbuf_metrics_enabled"])
+}
+
+func TestSumRingbufWriteStats(t *testing.T) {
+	stats := sumRingbufWriteStats([]BpfRingbufWriteStatsT{
+		{Writes: 3, Failures: 1},
+		{Writes: 5, Failures: 2},
+	})
+	assert.Equal(t, ebpfcommon.RingbufWriteStats{Writes: 8, Failures: 3}, stats)
+}
+
+func TestReadRingbufWriteStatsError(t *testing.T) {
+	tracer := &Tracer{
+		bpfObjects: BpfObjects{BpfMaps: BpfMaps{
+			RingbufWriteStatsStorage: &ebpf.Map{},
+		}},
+	}
+
+	_, err := tracer.readRingbufWriteStats()
+	require.Error(t, err)
 }
 
 func TestPythonAsyncMapsScopePointersByProcess(t *testing.T) {

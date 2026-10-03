@@ -305,6 +305,7 @@ type Tracer struct {
 	supportsBPFLoop                   bool
 	traceCtxMapEnabled                bool
 	runtimeMetricsEnabled             bool
+	internalMetricsEnabled            bool
 	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfo
 	goChannelOffsetsByExecutable      map[executableIdentity]bool
 	goRuntimeMetricMaskByExecutable   map[executableIdentity]uint64
@@ -340,6 +341,7 @@ func New(
 		supportsBPFLoop:                   ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
 		traceCtxMapEnabled:                cfg.PopulateTraceContext(),
 		runtimeMetricsEnabled:             cfg.AppRuntimeMetricsEnabled(),
+		internalMetricsEnabled:            cfg.InternalMetrics.Enabled(),
 		runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfo{},
 		goChannelOffsetsByExecutable:      map[executableIdentity]bool{},
 		goRuntimeMetricMaskByExecutable:   map[executableIdentity]uint64{},
@@ -460,6 +462,7 @@ func (p *Tracer) constants() map[string]any {
 		"g_bpf_probe_write_user_enabled": p.supportsContextPropagation(),
 		"g_go_h2_write_fail_step":        goH2WriteFailStepForTest,
 		"wakeup_data_bytes":              uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
+		"ringbuf_metrics_enabled":        p.internalMetricsEnabled,
 		"disable_black_box_cp":           blackBoxCP,
 		"attr_type_invalid":              uint64(attribute.INVALID),
 		"attr_type_bool":                 uint64(attribute.BOOL),
@@ -2465,6 +2468,15 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 	}()
 
 	p.SetEventContext(ebpfEventContext)
+	if p.internalMetricsEnabled {
+		ebpfEventContext.StartRingbufWriteMetrics(
+			ctx,
+			p.metrics.BpfInternalMetricsScrapeInterval(),
+			p.readRingbufWriteStats,
+			p.metrics,
+			p.log,
+		)
+	}
 
 	if !p.traceCtxMapEnabled {
 		ebpfconvenience.DrainTraceContextMap[BpfObiCtxInfoT](p.log, p.bpfObjects.TracesCtxV1)
@@ -2491,6 +2503,23 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 		slog.With("component", "ringbuf.Tracer"),
 		p.metrics,
 	)(ctx, append(p.closers, &p.bpfObjects), eventsChan)
+}
+
+func (p *Tracer) readRingbufWriteStats() (ebpfcommon.RingbufWriteStats, error) {
+	var perCPU []BpfRingbufWriteStatsT
+	if err := p.bpfObjects.RingbufWriteStatsStorage.Lookup(uint32(0), &perCPU); err != nil {
+		return ebpfcommon.RingbufWriteStats{}, err
+	}
+	return sumRingbufWriteStats(perCPU), nil
+}
+
+func sumRingbufWriteStats(perCPU []BpfRingbufWriteStatsT) ebpfcommon.RingbufWriteStats {
+	var total ebpfcommon.RingbufWriteStats
+	for i := range perCPU {
+		total.Writes += perCPU[i].Writes
+		total.Failures += perCPU[i].Failures
+	}
+	return total
 }
 
 func (p *Tracer) SetEventContext(eventContext *ebpfcommon.EBPFEventContext) {

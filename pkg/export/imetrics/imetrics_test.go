@@ -43,6 +43,16 @@ func TestIsBuiltinNoopReporter(t *testing.T) {
 	})
 }
 
+func TestInternalMetricsConfigEnabled(t *testing.T) {
+	assert.False(t, (InternalMetricsConfig{}).Enabled())
+	assert.False(t, (InternalMetricsConfig{Exporter: InternalMetricsExporterDisabled}).Enabled())
+	assert.True(t, (InternalMetricsConfig{Exporter: InternalMetricsExporterPrometheus}).Enabled())
+	assert.True(t, (InternalMetricsConfig{Exporter: InternalMetricsExporterOTEL}).Enabled())
+	assert.True(t, (InternalMetricsConfig{Prometheus: PrometheusEndpointConfig{Port: 8080}}).Enabled())
+
+	NoopReporter{}.BPFRingbufWriteStats("events", 1, 0)
+}
+
 func TestPrometheusReporterQueueBufferUtilization(t *testing.T) {
 	reporter := NewPrometheusReporter(&InternalMetricsConfig{}, nil, prometheus.NewRegistry())
 
@@ -61,6 +71,26 @@ func TestPrometheusReporterQueueBufferUtilization(t *testing.T) {
 	// a later update overwrites the previous value for the same subscriber
 	reporter.QueueBufferUtilization("traces", 0.9)
 	assert.InDelta(t, 0.9, gaugeValue("traces"), 0.001)
+}
+
+func TestPrometheusReporterBPFRingbufWriteStats(t *testing.T) {
+	reporter := NewPrometheusReporter(&InternalMetricsConfig{}, nil, prometheus.NewRegistry())
+
+	counterMetric := func(counter prometheus.Counter) *dto.Metric {
+		var metric dto.Metric
+		require.NoError(t, counter.Write(&metric))
+		return &metric
+	}
+
+	reporter.BPFRingbufWriteStats("events", 10, 2)
+	reporter.BPFRingbufWriteStats("events", 15, 4)
+
+	writes := counterMetric(reporter.bpfRingbufWrites.WithLabelValues("events"))
+	failures := counterMetric(reporter.bpfRingbufFailures.WithLabelValues("events"))
+	assert.InDelta(t, 15, writes.GetCounter().GetValue(), 0)
+	assert.InDelta(t, 4, failures.GetCounter().GetValue(), 0)
+	assert.Equal(t, "events", metricLabels(writes)["ringbuf"])
+	assert.Equal(t, "events", metricLabels(failures)["ringbuf"])
 }
 
 type noopEmbeddingReporter struct {

@@ -27,6 +27,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
@@ -90,6 +92,38 @@ func TestGRPCCorrelationMapsUseProcessScopedKeys(t *testing.T) {
 		uint32(unsafe.Sizeof(grpcStreamKey{})),
 		spec.Maps["ongoing_streams"].KeySize,
 	)
+	require.Contains(t, spec.Maps, "ringbuf_write_stats_storage")
+	assert.Equal(t, ebpf.PerCPUArray, spec.Maps["ringbuf_write_stats_storage"].Type)
+	assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps["ringbuf_write_stats_storage"].Pinning)
+}
+
+func TestRingbufMetricsConstant(t *testing.T) {
+	cfg := &obi.Config{}
+	tracer := New(nil, cfg, imetrics.NoopReporter{})
+	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
+
+	cfg.InternalMetrics.Exporter = imetrics.InternalMetricsExporterOTEL
+	tracer = New(nil, cfg, imetrics.NoopReporter{})
+	assert.Equal(t, true, tracer.constants()["ringbuf_metrics_enabled"])
+}
+
+func TestSumRingbufWriteStats(t *testing.T) {
+	stats := sumRingbufWriteStats([]BpfRingbufWriteStatsT{
+		{Writes: 3, Failures: 1},
+		{Writes: 5, Failures: 2},
+	})
+	assert.Equal(t, ebpfcommon.RingbufWriteStats{Writes: 8, Failures: 3}, stats)
+}
+
+func TestReadRingbufWriteStatsError(t *testing.T) {
+	tracer := &Tracer{
+		bpfObjects: BpfObjects{BpfMaps: BpfMaps{
+			RingbufWriteStatsStorage: &ebpf.Map{},
+		}},
+	}
+
+	_, err := tracer.readRingbufWriteStats()
+	require.Error(t, err)
 }
 
 func TestSetFramerPaddingOffsetUsesExactLayout(t *testing.T) {
