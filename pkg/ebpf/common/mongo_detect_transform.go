@@ -6,6 +6,7 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 import (
 	"encoding/binary"
 	"errors"
+	"net"
 	"strconv"
 	"unsafe"
 
@@ -660,6 +661,12 @@ func ReadGoMongoRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, err
 	if event.Conn.S_port != 0 || event.Conn.D_port != 0 {
 		peer, hostname = (*BPFConnInfo)(unsafe.Pointer(&event.Conn)).reqHostInfo()
 		hostPort = int(event.Conn.D_port)
+	}
+
+	mongoHostname := cstr(event.Hostname[:])
+	host, _, err := net.SplitHostPort(mongoHostname)
+	if err == nil {
+		hostname = host
 	}
 
 	op, coll := opAndCollectionFromEvent(event)
