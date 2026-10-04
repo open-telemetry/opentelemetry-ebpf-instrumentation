@@ -80,10 +80,10 @@ services:
         condition: service_healthy
 
   # Weaver semantic-convention live-check (host networking). lgtm owns 4317, so
-  # weaver's OTLP listener is moved to 4327; admin /stop stays on 4320. The OATS
+  # weaver's OTLP listener is moved to 4327; the admin API stays on 4320. The OATS
   # harness stops it after the checks and fails the test on any actionable advisory.
   weaver:
-    image: otel/weaver:v0.26.1@sha256:9094862c0ab261bdbcb079bb981f9a573b3659b130a6d2ab8616eca6ba37aaec
+    image: otel/weaver:v0.27.0@sha256:3049b4079049d4abb1b5632f511ada2c33505a1c60f3f8535e93f87f0696f056
     network_mode: host
     user: "0:0"
     working_dir: /obi-registry
@@ -92,8 +92,6 @@ services:
       - live-check
       - --registry
       - /obi-registry
-      - --inactivity-timeout
-      - "300"
       - --otlp-grpc-port
       - "4327"
       - --admin-port
@@ -109,7 +107,7 @@ services:
     volumes:
       - ../../../../schemas/obi:/obi-registry:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4327/ 2>&1 | grep -qv refused"]
+      test: ["CMD-SHELL", "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4320/health"]
       interval: 5s
       timeout: 2s
       retries: 60
