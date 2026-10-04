@@ -6,12 +6,16 @@ package ebpfcommon
 import (
 	"bytes"
 	"encoding/binary"
+	"strings"
 	"testing"
+	"unsafe"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.mongodb.org/mongo-driver/v2/bson"
+
+	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 )
 
 var requests = expirable.NewLRU[MongoRequestKey, *MongoRequestValue](1000, nil, 0)
@@ -663,6 +667,40 @@ func TestOpAndCollectionFromEvent(t *testing.T) {
 			gotOp, gotColl := opAndCollectionFromEvent(&tt.event)
 			assert.Equal(t, tt.wantOp, gotOp)
 			assert.Equal(t, tt.wantColl, gotColl)
+		})
+	}
+}
+
+func TestReadGoMongoRequestIntoSpanHostname(t *testing.T) {
+	tests := []struct {
+		name     string
+		hostname string
+		wantHost string
+	}{
+		{name: "configured DNS hostname", hostname: "mongo:27017", wantHost: "mongo"},
+		{name: "bracketed IPv6", hostname: "[2001:db8::1]:27017", wantHost: "2001:db8::1"},
+		{name: "empty hostname", wantHost: "8.8.8.8"},
+		{name: "missing port", hostname: "mongo", wantHost: "8.8.8.8"},
+		{name: "malformed IPv6", hostname: "[2001:db8::1:27017", wantHost: "8.8.8.8"},
+		{name: "truncated hostname", hostname: strings.Repeat("a", len(GoMongoClientInfo{}.Hostname)) + ":27017", wantHost: "8.8.8.8"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := GoMongoClientInfo{Conn: getConnInfo()}
+			copy(event.Op[:], "find")
+			copy(event.Hostname[:], tt.hostname)
+			event.Conn.S_port = 40000
+
+			sample := make([]byte, int(unsafe.Sizeof(event)))
+			copy(sample, unsafe.Slice((*byte)(unsafe.Pointer(&event)), len(sample)))
+			span, ignore, err := ReadGoMongoRequestIntoSpan(&ringbuf.Record{RawSample: sample})
+
+			require.NoError(t, err)
+			assert.False(t, ignore)
+			assert.Equal(t, tt.wantHost, span.Host)
+			assert.Equal(t, "192.168.0.1", span.Peer)
+			assert.Equal(t, 27017, span.HostPort)
 		})
 	}
 }

@@ -20,6 +20,7 @@
 #include <common/common.h>
 #include <common/preempt_guard.h>
 #include <common/ringbuf.h>
+#include <common/scratch_mem.h>
 
 #include <gotracer/go_common.h>
 #include <gotracer/go_str.h>
@@ -29,6 +30,8 @@
 #include <logger/bpf_dbg.h>
 
 #include <gotracer/go_obi_ctx.h>
+
+SCRATCH_MEM_TYPED(mongo_req, mongo_go_client_req_t);
 
 #define MONGO_OP_DEF(name, str)                                                                    \
     static const char name[] = str;                                                                \
@@ -53,31 +56,36 @@ obi_uprobe_mongo_coll_op(struct pt_regs *ctx, const char *op, const u32 op_len) 
     void *coll_ptr = (void *)GO_PARAM1(ctx);
     off_table_t *ot = get_offsets_table();
 
-    mongo_go_client_req_t req = {0};
-    req.type = k_event_type_go_mongo;
-    req.start_monotime_ns = bpf_ktime_get_ns();
+    mongo_go_client_req_t *req = mongo_req_mem();
+    if (!req) {
+        return 0;
+    }
+
+    bpf_memset(req, 0, sizeof(*req));
+    req->type = k_event_type_go_mongo;
+    req->start_monotime_ns = bpf_ktime_get_ns();
 
     if (!read_go_str("name",
                      coll_ptr,
                      go_offset_of(ot, (go_offset){.v = _mongo_conn_name_pos}),
-                     &req.coll,
-                     sizeof(req.coll))) {
+                     &req->coll,
+                     sizeof(req->coll))) {
         bpf_dbg_printk("can't read mongodb Collection.name");
         return 0;
     }
 
-    __builtin_memcpy(req.op, op, op_len);
+    __builtin_memcpy(req->op, op, op_len);
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    client_trace_parent(goroutine_addr, &req.tp);
+    client_trace_parent(goroutine_addr, &req->tp);
 
-    bpf_d_printk("op=%s, [%s]", req.op, __FUNCTION__);
+    bpf_d_printk("op=%s, [%s]", req->op, __FUNCTION__);
 
-    bpf_map_update_elem(&ongoing_mongo_requests, &g_key, &req, BPF_ANY);
+    bpf_map_update_elem(&ongoing_mongo_requests, &g_key, req, BPF_ANY);
 
-    go_obi_ctx__begin(&g_key, k_obi_ctx_mongo, &req.tp, go_obi_ctx__stack_off(ctx));
+    go_obi_ctx__begin(&g_key, k_obi_ctx_mongo, &req->tp, go_obi_ctx__stack_off(ctx));
 
     return 0;
 }
@@ -129,7 +137,7 @@ read_mongo_hostname_from_topology_connection(void *topology_conn_ptr, char *host
     off_table_t *ot = get_offsets_table();
 
     void *conn_ptr = 0;
-    int res = bpf_probe_read(
+    int res = bpf_probe_read_user(
         &conn_ptr,
         sizeof(conn_ptr),
         (void *)((u64)topology_conn_ptr +
@@ -154,7 +162,7 @@ static __always_inline void *read_mongo_topology_connection_from_mnet(void *mnet
         (unsigned char *)mnet_ptr + go_offset_of(ot, (go_offset){.v = _mongo_mnet_describer_pos});
 
     void *itab = 0;
-    int res = bpf_probe_read(&itab, sizeof(itab), iface);
+    int res = bpf_probe_read_user(&itab, sizeof(itab), iface);
 
     if (res != 0 || !itab) {
         bpf_dbg_printk("can't read mongo mnet.Connection.Describer itab");
@@ -170,7 +178,7 @@ static __always_inline void *read_mongo_topology_connection_from_mnet(void *mnet
     }
 
     void *topology_conn_ptr = 0;
-    res = bpf_probe_read(
+    res = bpf_probe_read_user(
         &topology_conn_ptr, sizeof(topology_conn_ptr), iface + k_go_iface_data_offset);
 
     if (res != 0 || !topology_conn_ptr) {
@@ -253,10 +261,6 @@ int GUARDED_PROG(obi_uprobe_mongo_op_execute, struct pt_regs *, ctx) {
     void *op_ptr = (void *)PT_REGS_SP(ctx) + 8;
     off_table_t *ot = get_offsets_table();
 
-    mongo_go_client_req_t fresh_req = {0};
-    fresh_req.type = k_event_type_go_mongo;
-    fresh_req.start_monotime_ns = bpf_ktime_get_ns();
-
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
@@ -265,12 +269,15 @@ int GUARDED_PROG(obi_uprobe_mongo_op_execute, struct pt_regs *, ctx) {
     const u8 begun = req != NULL;
 
     if (!req) {
-        client_trace_parent(goroutine_addr, &fresh_req.tp);
-        req = &fresh_req;
-    }
+        req = mongo_req_mem();
+        if (!req) {
+            return 0;
+        }
 
-    if (!req) {
-        return 0;
+        bpf_memset(req, 0, sizeof(*req));
+        req->type = k_event_type_go_mongo;
+        req->start_monotime_ns = bpf_ktime_get_ns();
+        client_trace_parent(goroutine_addr, &req->tp);
     }
 
     bpf_dbg_printk("op_ptr=%llx", op_ptr);
