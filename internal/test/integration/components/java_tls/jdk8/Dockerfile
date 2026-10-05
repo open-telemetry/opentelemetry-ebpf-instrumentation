@@ -1,4 +1,4 @@
-FROM maven:3.9.12-amazoncorretto-8-debian@sha256:7a9eadac3edbf887e5c1863a0eba923bbaf7cb561400db72917eed987078976a AS javabuilder
+FROM maven:3.10.0-amazoncorretto-8-debian@sha256:e47e3b163ef6701f5b39ad04e88a26e5806553bf2a9a616fe43a24117aab0a3b AS javabuilder
 
 # Install tar and gzip to extract the Maven binaries
 RUN apt install -y tar gzip
