@@ -37,7 +37,7 @@ var (
 
 type railsRouteScanner struct {
 	resourceActions []string
-	mount           func(string)
+	mount           func(string, string)
 }
 
 func newRailsRouteScanner() railsRouteScanner {
@@ -100,12 +100,18 @@ func scanRailsRouteFiles(ctx context.Context, root, mainPath string) ([]string, 
 		scanner = newRailsAPIRouteScanner()
 	}
 	// An engine resolves draw relative to its own config/routes, even in nested draws.
-	type routeFile struct{ path, routesDir string }
-	pending := []routeFile{{mainPath, filepath.Join(filepath.Dir(mainPath), "routes")}}
+	type routeFile struct {
+		path, routesDir, prefix string
+		engines                 []string
+	}
+	type routeFileKey struct{ path, prefix string }
+	pending := []routeFile{{path: mainPath, routesDir: filepath.Join(filepath.Dir(mainPath), "routes")}}
 	var engines map[string]string
-	var mounts []string
-	scanner.mount = func(name string) { mounts = append(mounts, name) }
-	seen := map[string]struct{}{mainPath: {}}
+	var mounts []struct{ name, prefix string }
+	scanner.mount = func(name, prefix string) {
+		mounts = append(mounts, struct{ name, prefix string }{name, prefix})
+	}
+	seen := map[routeFileKey]struct{}{{mainPath, ""}: {}}
 	var routes []string
 	for index := 0; index < len(pending); index++ {
 		if err := ctx.Err(); err != nil {
@@ -117,7 +123,9 @@ func scanRailsRouteFiles(ctx context.Context, root, mainPath string) ([]string, 
 		if err != nil {
 			return nil, err
 		}
-		routes = append(routes, fragments...)
+		for _, fragment := range fragments {
+			routes = append(routes, joinNestPaths(current.prefix, fragment))
+		}
 		for _, name := range draws {
 			if len(seen) >= maxRailsRouteFiles {
 				break
@@ -144,11 +152,12 @@ func scanRailsRouteFiles(ctx context.Context, root, mainPath string) ([]string, 
 			if err != nil || !filepath.IsLocal(withinRoutes) {
 				continue
 			}
-			if _, visited := seen[path]; visited {
+			key := routeFileKey{path, current.prefix}
+			if _, visited := seen[key]; visited {
 				continue
 			}
-			seen[path] = struct{}{}
-			pending = append(pending, routeFile{path, current.routesDir})
+			seen[key] = struct{}{}
+			pending = append(pending, routeFile{path, current.routesDir, current.prefix, current.engines})
 		}
 		if len(mounts) > 0 && engines == nil {
 			engines, err = findRailsEngines(ctx, root, filepath.Dir(filepath.Dir(mainPath)))
@@ -156,16 +165,25 @@ func scanRailsRouteFiles(ctx context.Context, root, mainPath string) ([]string, 
 				return nil, err
 			}
 		}
-		for _, name := range mounts {
-			path := engines[name]
+		for _, mount := range mounts {
+			path := engines[mount.name]
 			if path == "" || len(seen) >= maxRailsRouteFiles {
 				continue
 			}
-			if _, visited := seen[path]; visited {
+			// Track engine ancestry independently of prefixes to stop recursive mounts.
+			if slices.Contains(current.engines, path) {
 				continue
 			}
-			seen[path] = struct{}{}
-			pending = append(pending, routeFile{path, filepath.Join(filepath.Dir(path), "routes")})
+			prefix := joinNestPaths(current.prefix, mount.prefix)
+			key := routeFileKey{path, prefix}
+			if _, visited := seen[key]; visited {
+				continue
+			}
+			seen[key] = struct{}{}
+			pending = append(pending, routeFile{
+				path: path, routesDir: filepath.Join(filepath.Dir(path), "routes"), prefix: prefix,
+				engines: append(slices.Clone(current.engines), path),
+			})
 		}
 	}
 	slices.Sort(routes)
@@ -255,11 +273,9 @@ func (s railsRouteScanner) scanRoutes(ctx context.Context, reader io.Reader) ([]
 			continue
 		}
 		pending = ""
-		// Keep mount prefixes as fragments so one engine can serve several mount points.
 		if name, path, ok := railsMountValue(line); ok {
-			routes = append(routes, ensureLeadingSlash(strings.Trim(path, "/")))
 			if s.mount != nil {
-				s.mount(name)
+				s.mount(name, path)
 			}
 			continue
 		}

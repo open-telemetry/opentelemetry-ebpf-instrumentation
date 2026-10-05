@@ -325,12 +325,16 @@ end`,
 	assert.NotContains(t, result.Routes, "/wrong_draw")
 	matcher := RouteMatcherFromResult(*result)
 	for path, want := range map[string]string{
-		"/graphql":            "/graphql",
-		"/v2/graphql":         "/v2/graphql",
-		"/orders/123":         "/orders/:order_id",
-		"/admin/reports/123":  "/admin/reports/:report_id",
-		"/nested/reports/123": "/nested/reports/:report_id",
-		"/engine_draw/abc":    "/engine_draw/:key",
+		"/graphql":                     "/graphql",
+		"/v2/graphql":                  "/v2/graphql",
+		"/orders/123":                  "/orders/:order_id",
+		"/admin/reports/123":           "/admin/reports/:report_id",
+		"/nested/reports/123":          "/nested/reports/:report_id",
+		"/engine_draw/abc":             "/engine_draw/:key",
+		"/v2/engine_draw/abc":          "/v2/engine_draw/:key",
+		"/v2/nested/reports/123":       "/v2/nested/reports/:report_id",
+		"/admin/backend/graphql":       "/admin/backend/graphql",
+		"/admin/backend/engine_draw/a": "/admin/backend/engine_draw/:key",
 	} {
 		assert.Equal(t, want, matcher.Find(path), path)
 	}
@@ -445,10 +449,42 @@ func TestRailsGraphQLMounts(t *testing.T) {
 				assert.NotContains(t, result.Routes, "/graphql/:tenant_id")
 				return
 			}
-			assert.Contains(t, result.Routes, "/graphql")
-			assert.Contains(t, result.Routes, "/graphql/:tenant_id")
 			matcher := RouteMatcherFromResult(*result)
 			assert.Equal(t, tc.route, matcher.Find(tc.path))
 		})
+	}
+}
+
+func TestRailsEngineMountIsolation(t *testing.T) {
+	root := t.TempDir()
+	for name, source := range map[string]string{
+		"config/routes.rb": `resources :users, only: [:show]
+get '/health'
+mount Blog::Engine, at: '/blog'
+mount Blog::Engine, at: '/news'
+mount Missing::Engine, at: '/missing'
+mount Duplicate::Engine, at: '/duplicate'`,
+		"components/blog/config/routes.rb":       "Blog::Engine.routes.draw do\n draw :posts\nend",
+		"components/blog/config/routes/posts.rb": "get ':slug'\ndraw :posts",
+		"components/one/config/routes.rb":        "Duplicate::Engine.routes.draw do\n get '/ambiguous'\nend",
+		"engines/two/config/routes.rb":           "Duplicate::Engine.routes.draw do\n get '/ambiguous'\nend",
+	} {
+		path := filepath.Join(root, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, []byte(source), 0o644))
+	}
+	result, err := extractRailsRoutes(t.Context(), root, "/")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"/users/:id", "/health", "/blog/:slug", "/news/:slug"}, result.Routes)
+	matcher := RouteMatcherFromResult(*result)
+	for path, want := range map[string]string{
+		"/users/5":          "/users/:id",
+		"/blog/hello":       "/blog/:slug",
+		"/news/hello":       "/news/:slug",
+		"/missing/health":   "",
+		"/duplicate/health": "",
+		"/hello":            "",
+	} {
+		assert.Equal(t, want, matcher.Find(path), path)
 	}
 }
