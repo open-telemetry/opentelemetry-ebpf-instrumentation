@@ -4,7 +4,6 @@
 package schemacheck
 
 import (
-	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -18,29 +17,74 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 )
 
-// declaredSpanAttributes returns the attribute keys a span group carries,
-// including the ones it inherits: weaver resolves `extends` before publishing,
-// so a consumer reading the registry sees the flattened set.
-// declaredLevel reports the requirement level a group states for one attribute,
-// as a bare word; a conditional level yields the condition's key. A group
-// inherits the levels of whatever it extends, so the chain is followed.
-func declaredLevel(t *testing.T, groupID, name string) string {
+// declaredSpan returns the span a registry file defines under `type`, and the
+// internal attribute groups the registry defines, keyed by id.
+func declaredSpan(t *testing.T, spanType string) (registrySpan, map[string]registryAttributeGroup) {
 	t.Helper()
 
-	attrs := carrierAttributes(t)
-	for id := groupID; id != ""; id = groupExtends(t, id) {
-		for _, a := range attrs {
-			if a.group != id || a.name != name {
+	var span registrySpan
+	found := false
+	groups := map[string]registryAttributeGroup{}
+	for _, f := range registryFiles(t) {
+		for _, s := range f.Spans {
+			if s.Type == spanType {
+				span, found = s, true
+			}
+		}
+		for _, g := range f.AttributeGroups {
+			groups[g.ID] = g
+		}
+	}
+	require.Truef(t, found, "no span %q under %s", spanType, obiGroupsDir)
+	return span, groups
+}
+
+// spanRefs returns the attribute references a span carries, including the ones
+// of the attribute groups it references with `ref_group`: weaver resolves them
+// before publishing, so a consumer reading the registry sees the flattened set.
+func spanRefs(t *testing.T, spanType string) []carrierAttrRef {
+	t.Helper()
+
+	span, groups := declaredSpan(t, spanType)
+	var refs []carrierAttrRef
+	for _, a := range span.Attributes {
+		if a.RefGroup == "" {
+			refs = append(refs, a)
+			continue
+		}
+		g, ok := groups[a.RefGroup]
+		require.Truef(t, ok, "span %q references attribute group %q, which no registry file declares", spanType, a.RefGroup)
+		refs = append(refs, g.Attributes...)
+	}
+	return refs
+}
+
+// declaredLevel reports the requirement level a span states for one attribute,
+// as a bare word; a conditional level yields the condition's key.
+func declaredLevel(t *testing.T, spanType, name string) string {
+	t.Helper()
+
+	for _, a := range spanRefs(t, spanType) {
+		if a.Ref == name {
+			return levelWord(a.RequirementLevel)
+		}
+	}
+
+	return ""
+}
+
+// declaredMetricLevel is declaredLevel for a metric definition.
+func declaredMetricLevel(t *testing.T, metricName, name string) string {
+	t.Helper()
+
+	for _, f := range registryFiles(t) {
+		for _, m := range f.Metrics {
+			if m.Name != metricName {
 				continue
 			}
-			var word string
-			if err := a.level.Decode(&word); err == nil {
-				return word
-			}
-			var mapping map[string]string
-			if err := a.level.Decode(&mapping); err == nil {
-				for k := range mapping {
-					return k
+			for _, a := range m.Attributes {
+				if a.Ref == name {
+					return levelWord(a.RequirementLevel)
 				}
 			}
 		}
@@ -49,71 +93,35 @@ func declaredLevel(t *testing.T, groupID, name string) string {
 	return ""
 }
 
-func groupExtends(t *testing.T, groupID string) string {
-	t.Helper()
-
-	for _, path := range carrierFiles(t) {
-		body, err := os.ReadFile(path)
-		require.NoError(t, err)
-
-		var f carrierGroupsFile
-		require.NoErrorf(t, yaml.Unmarshal(body, &f), "parsing %s", path)
-
-		for _, g := range f.Groups {
-			if g.ID == groupID {
-				return g.Extends
-			}
+// levelWord reports a requirement level as a bare word; a conditional level
+// yields the condition's key.
+func levelWord(level yaml.Node) string {
+	var word string
+	if err := level.Decode(&word); err == nil {
+		return word
+	}
+	var mapping map[string]string
+	if err := level.Decode(&mapping); err == nil {
+		for k := range mapping {
+			return k
 		}
 	}
 
 	return ""
 }
 
-func declaredSpanAttributes(t *testing.T, groupID string) []string {
+func declaredSpanAttributes(t *testing.T, spanType string) []string {
 	t.Helper()
 
-	groups := map[string]carrierGroup{}
-	for _, path := range carrierFiles(t) {
-		body, err := os.ReadFile(path)
-		require.NoError(t, err)
-
-		var f carrierGroupsFile
-		require.NoErrorf(t, yaml.Unmarshal(body, &f), "parsing %s", path)
-
-		for _, g := range f.Groups {
-			groups[g.ID] = g
-		}
-	}
-
-	group, ok := groups[groupID]
-	require.Truef(t, ok, "no group %q under %s", groupID, obiGroupsDir)
-	require.Equalf(t, "span", group.Type, "group %q is not a span group", groupID)
-
 	seen := map[string]struct{}{}
-	walked := map[string]struct{}{}
-	keys := make([]string, 0, len(group.Attributes))
-
-	for id := groupID; id != ""; {
-		g, ok := groups[id]
-		require.Truef(t, ok, "group %q extends %q, which no registry file declares", groupID, id)
-
-		for _, a := range g.Attributes {
-			key := a.Ref
-			if key == "" {
-				key = a.ID
-			}
-			if _, dup := seen[key]; dup {
-				continue
-			}
-			seen[key] = struct{}{}
-			keys = append(keys, key)
+	var keys []string
+	for _, a := range spanRefs(t, spanType) {
+		if _, dup := seen[a.Ref]; dup {
+			continue
 		}
-
-		require.NotContainsf(t, walked, g.Extends, "extends cycle through %q", g.Extends)
-		walked[id] = struct{}{}
-		id = g.Extends
+		seen[a.Ref] = struct{}{}
+		keys = append(keys, a.Ref)
 	}
-
 	return keys
 }
 
@@ -150,7 +158,7 @@ func emittedSpanAttributes(span *request.Span, optional ...attr.Name) []string {
 }
 
 // The server branch emits the same HTTP set whatever the subtype, so every
-// server group that extends span.obi.http.server starts from this span.
+// server span that references attributes.obi.http.server starts from this span.
 func populatedHTTPServerSpan(subType int) *request.Span {
 	return &request.Span{
 		Type:                request.EventTypeHTTP,
@@ -189,27 +197,25 @@ var httpSpanOptional = []attr.Name{
 	attr.ServicePeerName,
 }
 
-// Weaver resolves an emitted attribute against the registry's global attribute
-// map, so it accepts a key that is declared on some other carrier. Nothing in
-// the weaver-validated suites would notice an attribute going missing from the
-// group that is supposed to describe this span. These tests pin the two sides
-// together: a span populated in every field the emitter reads must produce
-// exactly the keys its group declares.
-func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		groupID  string
-		span     *request.Span
-		optional []attr.Name
-		// Attributes the group declares that this span does not carry. A group
-		// covers every span of its kind, so an attribute one of them omits is
-		// declared below `required` rather than dropped; naming it here keeps
-		// the rest of the set exact.
-		absent []string
-	}{
+// emittedSpanCase is a span populated in every field the emitter reads for its
+// protocol, and the span definition it must be described by.
+type emittedSpanCase struct {
+	name     string
+	spanType string
+	span     *request.Span
+	optional []attr.Name
+	// Attributes the span definition declares that this span does not carry. A
+	// definition covers every span of its kind, so an attribute one of them
+	// omits is declared below `required` rather than dropped; naming it here
+	// keeps the rest of the set exact.
+	absent []string
+}
+
+func emittedSpanCases() []emittedSpanCase {
+	return []emittedSpanCase{
 		{
-			name:    "grpc server",
-			groupID: "span.obi.rpc.grpc.server",
+			name:     "grpc server",
+			spanType: "obi.rpc.grpc.server",
 			span: &request.Span{
 				Type:         request.EventTypeGRPC,
 				Path:         "/pkg.Service/Method",
@@ -230,9 +236,9 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			},
 		},
 		{
-			name:    "grpc client",
-			absent:  []string{"service.peer.name"},
-			groupID: "span.obi.rpc.grpc.client",
+			name:     "grpc client",
+			absent:   []string{"service.peer.name"},
+			spanType: "obi.rpc.grpc.client",
 			span: &request.Span{
 				Type:         request.EventTypeGRPCClient,
 				Path:         "/pkg.Service/Method",
@@ -253,9 +259,9 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			},
 		},
 		{
-			name:    "onc rpc client",
-			absent:  []string{"service.peer.name"},
-			groupID: "span.obi.rpc.onc_rpc.client",
+			name:     "onc rpc client",
+			absent:   []string{"service.peer.name"},
+			spanType: "obi.rpc.onc_rpc.client",
 			span: &request.Span{
 				Type:         request.EventTypeSunRPCClient,
 				Method:       "MOUNTPROC_EXPORT",
@@ -281,9 +287,9 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		},
 		{
 			// NATS is the only broker that reports an envelope size.
-			name:    "nats producer",
-			absent:  []string{"service.peer.name"},
-			groupID: "span.obi.messaging.nats.producer",
+			name:     "nats producer",
+			absent:   []string{"service.peer.name"},
+			spanType: "obi.messaging.nats.producer",
 			span: &request.Span{
 				Type:          request.EventTypeNATSClient,
 				Method:        request.MessagingPublish,
@@ -305,9 +311,9 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		{
 			// Kafka reports the offset only on a process operation, so the
 			// producer group must not declare it.
-			name:    "kafka producer",
-			absent:  []string{"service.peer.name"},
-			groupID: "span.obi.messaging.kafka.producer",
+			name:     "kafka producer",
+			absent:   []string{"service.peer.name"},
+			spanType: "obi.messaging.kafka.producer",
 			span: &request.Span{
 				Type:          request.EventTypeKafkaClient,
 				Method:        request.MessagingPublish,
@@ -328,9 +334,9 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		},
 		{
 			// MQTT carries neither partition metadata nor an envelope size.
-			name:    "mqtt consumer",
-			absent:  []string{"service.peer.name"},
-			groupID: "span.obi.messaging.mqtt.consumer",
+			name:     "mqtt consumer",
+			absent:   []string{"service.peer.name"},
+			spanType: "obi.messaging.mqtt.consumer",
 			span: &request.Span{
 				Type:      request.EventTypeMQTTClient,
 				Method:    request.MessagingProcess,
@@ -349,9 +355,9 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			},
 		},
 		{
-			name:    "jsonrpc client",
-			absent:  []string{"service.peer.name"},
-			groupID: "span.obi.jsonrpc.client",
+			name:     "jsonrpc client",
+			absent:   []string{"service.peer.name"},
+			spanType: "obi.jsonrpc.client",
 			span: &request.Span{
 				Type:                request.EventTypeHTTPClient,
 				SubType:             request.HTTPSubtypeJSONRPC,
@@ -385,8 +391,8 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			},
 		},
 		{
-			name:    "onc rpc server",
-			groupID: "span.obi.rpc.onc_rpc.server",
+			name:     "onc rpc server",
+			spanType: "obi.rpc.onc_rpc.server",
 			span: &request.Span{
 				Type:         request.EventTypeSunRPCServer,
 				Method:       "MOUNTPROC_EXPORT",
@@ -411,9 +417,9 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			},
 		},
 		{
-			name:    "amqp producer",
-			absent:  []string{"service.peer.name"},
-			groupID: "span.obi.messaging.amqp.producer",
+			name:     "amqp producer",
+			absent:   []string{"service.peer.name"},
+			spanType: "obi.messaging.amqp.producer",
 			span: &request.Span{
 				Type:     request.EventTypeAMQPClient,
 				Method:   request.MessagingPublish,
@@ -433,9 +439,9 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			},
 		},
 		{
-			name:    "kafka consumer",
-			absent:  []string{"service.peer.name"},
-			groupID: "span.obi.messaging.kafka.consumer",
+			name:     "kafka consumer",
+			absent:   []string{"service.peer.name"},
+			spanType: "obi.messaging.kafka.consumer",
 			span: &request.Span{
 				Type:          request.EventTypeKafkaClient,
 				Method:        request.MessagingProcess,
@@ -462,8 +468,8 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			// by one attribute: service.peer.name is appended only for the
 			// client event types, which is why the group declares it as
 			// recommended rather than required.
-			name:    "kafka producer observed server-side",
-			groupID: "span.obi.messaging.kafka.producer",
+			name:     "kafka producer observed server-side",
+			spanType: "obi.messaging.kafka.producer",
 			span: &request.Span{
 				Type:          request.EventTypeKafkaServer,
 				Method:        request.MessagingPublish,
@@ -485,9 +491,9 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			absent: []string{"service.peer.name"},
 		},
 		{
-			name:    "mqtt producer",
-			absent:  []string{"service.peer.name"},
-			groupID: "span.obi.messaging.mqtt.producer",
+			name:     "mqtt producer",
+			absent:   []string{"service.peer.name"},
+			spanType: "obi.messaging.mqtt.producer",
 			span: &request.Span{
 				Type:      request.EventTypeMQTTClient,
 				Method:    request.MessagingPublish,
@@ -506,9 +512,9 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			},
 		},
 		{
-			name:    "nats consumer",
-			absent:  []string{"service.peer.name"},
-			groupID: "span.obi.messaging.nats.consumer",
+			name:     "nats consumer",
+			absent:   []string{"service.peer.name"},
+			spanType: "obi.messaging.nats.consumer",
 			span: &request.Span{
 				Type:          request.EventTypeNATSClient,
 				Method:        request.MessagingProcess,
@@ -528,9 +534,9 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			},
 		},
 		{
-			name:    "amqp consumer",
-			absent:  []string{"service.peer.name"},
-			groupID: "span.obi.messaging.amqp.consumer",
+			name:     "amqp consumer",
+			absent:   []string{"service.peer.name"},
+			spanType: "obi.messaging.amqp.consumer",
 			span: &request.Span{
 				Type:     request.EventTypeAMQPClient,
 				Method:   request.MessagingProcess,
@@ -548,8 +554,8 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			},
 		},
 		{
-			name:    "elasticsearch client",
-			groupID: "span.obi.elasticsearch.client",
+			name:     "elasticsearch client",
+			spanType: "obi.elasticsearch.client",
 			span: &request.Span{
 				Type:    request.EventTypeHTTPClient,
 				SubType: request.HTTPSubtypeElasticsearch,
@@ -585,8 +591,8 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			},
 		},
 		{
-			name:    "aws s3 client",
-			groupID: "span.obi.aws.s3.client",
+			name:     "aws s3 client",
+			spanType: "obi.aws.s3.client",
 			span: &request.Span{
 				Type:         request.EventTypeHTTPClient,
 				SubType:      request.HTTPSubtypeAWSS3,
@@ -616,8 +622,8 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			},
 		},
 		{
-			name:    "aws sqs client",
-			groupID: "span.obi.aws.sqs.client",
+			name:     "aws sqs client",
+			spanType: "obi.aws.sqs.client",
 			span: &request.Span{
 				Type:         request.EventTypeHTTPClient,
 				SubType:      request.HTTPSubtypeAWSSQS,
@@ -650,14 +656,14 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 		},
 		{
 			name:     "http server",
-			groupID:  "span.obi.http.server",
+			spanType: "obi.http.server",
 			span:     populatedHTTPServerSpan(request.HTTPSubtypeNone),
 			optional: httpSpanOptional,
 			absent:   []string{"obi.http.response.observed"},
 		},
 		{
-			name:    "http server with an unobserved response",
-			groupID: "span.obi.http.server",
+			name:     "http server with an unobserved response",
+			spanType: "obi.http.server",
 			span: func() *request.Span {
 				s := populatedHTTPServerSpan(request.HTTPSubtypeNone)
 				s.ResponseObservation = request.ResponseReceived
@@ -667,8 +673,8 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			absent:   []string{"http.response.status_code", "error.type"},
 		},
 		{
-			name:    "graphql server",
-			groupID: "span.obi.graphql.server",
+			name:     "graphql server",
+			spanType: "obi.graphql.server",
 			span: func() *request.Span {
 				s := populatedHTTPServerSpan(request.HTTPSubtypeGraphQL)
 				s.GraphQL = &request.GraphQL{
@@ -682,8 +688,8 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			absent:   []string{"obi.http.response.observed"},
 		},
 		{
-			name:    "mcp server",
-			groupID: "span.obi.mcp.server",
+			name:     "mcp server",
+			spanType: "obi.mcp.server",
 			span: func() *request.Span {
 				s := populatedHTTPServerSpan(request.HTTPSubtypeMCP)
 				s.GenAI = &request.GenAI{MCP: &request.MCPCall{
@@ -705,8 +711,8 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			absent:   []string{"obi.http.response.observed"},
 		},
 		{
-			name:    "jsonrpc server",
-			groupID: "span.obi.jsonrpc.server",
+			name:     "jsonrpc server",
+			spanType: "obi.jsonrpc.server",
 			span: func() *request.Span {
 				s := populatedHTTPServerSpan(request.HTTPSubtypeJSONRPC)
 				s.JSONRPC = &request.JSONRPC{
@@ -722,8 +728,8 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			absent:   []string{"obi.http.response.observed"},
 		},
 		{
-			name:    "http client",
-			groupID: "span.obi.http.client",
+			name:     "http client",
+			spanType: "obi.http.client",
 			span: &request.Span{
 				Type:                request.EventTypeHTTPClient,
 				Method:              "SEARCH",
@@ -746,8 +752,8 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 			absent:   []string{"obi.http.response.observed"},
 		},
 		{
-			name:    "sql client",
-			groupID: "span.obi.db.sql.client",
+			name:     "sql client",
+			spanType: "obi.db.sql.client",
 			span: &request.Span{
 				Type:           request.EventTypeSQLClient,
 				Method:         "SELECT",
@@ -773,23 +779,33 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				attr.ServicePeerName,
 			},
 		},
-	} {
+	}
+}
+
+// Weaver resolves an emitted attribute against the registry's global attribute
+// map, so it accepts a key that is declared on some other carrier. Nothing in
+// the weaver-validated suites would notice an attribute going missing from the
+// span definition that is supposed to describe this span. These tests pin the
+// two sides together: a span populated in every field the emitter reads must
+// produce exactly the keys its span definition declares.
+func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
+	for _, tc := range emittedSpanCases() {
 		t.Run(tc.name, func(t *testing.T) {
-			declared := declaredSpanAttributes(t, tc.groupID)
+			declared := declaredSpanAttributes(t, tc.spanType)
 			emitted := emittedSpanAttributes(tc.span, tc.optional...)
 
 			for _, name := range tc.absent {
 				require.NotContainsf(t, emitted, name,
 					"%q is listed as absent but the exporter emitted it", name)
 				require.Containsf(t, declared, name,
-					"%q is listed as absent but %s does not declare it", name, tc.groupID)
-				require.NotEqualf(t, "required", declaredLevel(t, tc.groupID, name),
-					"%s declares %q required, so a span in the group cannot omit it", tc.groupID, name)
+					"%q is listed as absent but %s does not declare it", name, tc.spanType)
+				require.NotEqualf(t, "required", declaredLevel(t, tc.spanType, name),
+					"%s declares %q required, so a span of that type cannot omit it", tc.spanType, name)
 				declared = slices.DeleteFunc(declared, func(d string) bool { return d == name })
 			}
 
 			assert.ElementsMatch(t, declared, emitted,
-				"%s must declare exactly the attributes the exporter emits for this span", tc.groupID)
+				"%s must declare exactly the attributes the exporter emits for this span", tc.spanType)
 		})
 	}
 }
@@ -806,13 +822,11 @@ func TestUnclassifiedGenAIOperationIsStillEmitted(t *testing.T) {
 		GenAI:   &request.GenAI{OpenAI: &request.VendorOpenAI{}},
 	}
 
-	for _, groupID := range []string{
-		"span.obi.gen_ai.inference.client",
-		"metric.obi.gen_ai.client.operation.duration",
-		"metric.obi.gen_ai.client.token.usage",
-	} {
-		require.Equalf(t, "required", declaredLevel(t, groupID, "gen_ai.operation.name"),
-			"%s no longer declares gen_ai.operation.name required", groupID)
+	require.Equal(t, "required", declaredLevel(t, "obi.gen_ai.inference.client", "gen_ai.operation.name"),
+		"obi.gen_ai.inference.client no longer declares gen_ai.operation.name required")
+	for _, metric := range []string{"gen_ai.client.operation.duration", "gen_ai.client.token.usage"} {
+		require.Equalf(t, "required", declaredMetricLevel(t, metric, "gen_ai.operation.name"),
+			"%s no longer declares gen_ai.operation.name required", metric)
 	}
 
 	var spanValue string

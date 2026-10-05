@@ -1,12 +1,9 @@
-groups:
-  # --- Spans ------------------------------------------------------------
-  # Captured request / response bodies and headers appear on the HTTP span
-  # itself, behind their own opt-in selectors.
-  - id: span.obi.http.server
-    type: span
-    span_kind: server
-    stability: stable
-    brief: OBI inbound HTTP server span.
+file_format: definition/2
+attribute_groups:
+  # The HTTP server set, shared by the plain HTTP server span and the server
+  # spans of the protocols OBI identifies inside an inbound request.
+  - id: attributes.obi.http.server
+    visibility: internal
     attributes:
       - ref: http.request.method
         requirement_level: required
@@ -69,10 +66,27 @@ groups:
           recommended: if the request carried a user agent header
       - ref: obi.http.response.observed
         requirement_level: opt_in
-  - id: span.obi.http.client
-    type: span
-    span_kind: client
+
+spans:
+  # --- Spans ------------------------------------------------------------
+  # Captured request / response bodies and headers appear on the HTTP span
+  # itself, behind their own opt-in selectors.
+  - type: obi.http.server
+    kind: server
+    name:
+      note: Not documented yet.
     stability: stable
+    requirement_level: recommended
+    brief: OBI inbound HTTP server span.
+    attributes:
+      - ref_group: attributes.obi.http.server
+
+  - type: obi.http.client
+    kind: client
+    name:
+      note: Not documented yet.
+    stability: stable
+    requirement_level: recommended
     brief: OBI outbound HTTP client span.
     attributes:
       - ref: http.request.method
@@ -134,10 +148,12 @@ groups:
   # JSON-RPC over HTTP takes the default-deny transport scope, so the span
   # reports the RPC convention alone and none of the HTTP request or response
   # attributes a plain HTTP client span carries.
-  - id: span.obi.jsonrpc.client
-    type: span
-    span_kind: client
+  - type: obi.jsonrpc.client
+    kind: client
+    name:
+      note: Not documented yet.
     stability: development
+    requirement_level: recommended
     brief: OBI outbound JSON-RPC over HTTP client span.
     attributes:
       - ref: rpc.system.name
@@ -187,15 +203,17 @@ groups:
         requirement_level: opt_in
 
   # The server branch emits the full HTTP server set for every subtype, so the
-  # protocols OBI identifies inside an inbound request extend the HTTP server
-  # group with their own attributes rather than replacing it.
-  - id: span.obi.graphql.server
-    type: span
-    span_kind: server
-    extends: span.obi.http.server
+  # protocols OBI identifies inside an inbound request add their own attributes
+  # to `attributes.obi.http.server` rather than replacing it.
+  - type: obi.graphql.server
+    kind: server
+    name:
+      note: Not documented yet.
     stability: development
+    requirement_level: recommended
     brief: OBI inbound GraphQL over HTTP server span.
     attributes:
+      - ref_group: attributes.obi.http.server
       - ref: graphql.operation.name
         requirement_level:
           conditionally_required: if the GraphQL document was parsed
@@ -205,13 +223,15 @@ groups:
       - ref: graphql.document
         requirement_level: opt_in
 
-  - id: span.obi.jsonrpc.server
-    type: span
-    span_kind: server
-    extends: span.obi.http.server
+  - type: obi.jsonrpc.server
+    kind: server
+    name:
+      note: Not documented yet.
     stability: development
+    requirement_level: recommended
     brief: OBI inbound JSON-RPC over HTTP server span.
     attributes:
+      - ref_group: attributes.obi.http.server
       - ref: rpc.system.name
         requirement_level: required
       - ref: rpc.method

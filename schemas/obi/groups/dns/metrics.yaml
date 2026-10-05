@@ -10,10 +10,9 @@
 # OBI's copy wins without the sort-trick a same-metric_name duplicate needed.
 # The metric carries the obi.upstream_override annotation so the schemacheck
 # drift test pins its unit/instrument/stability to upstream.
-groups:
-  - id: metric.obi.dns.lookup.duration
-    type: metric
-    metric_name: dns.lookup.duration
+file_format: definition/2
+metrics:
+  - name: dns.lookup.duration
     annotations:
       obi:
         upstream_override: true
@@ -21,6 +20,7 @@ groups:
     instrument: histogram
     unit: "s"
     stability: development
+    requirement_level: recommended
     attributes:
       - ref: dns.question.name
         requirement_level: opt_in

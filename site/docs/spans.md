@@ -7,7 +7,7 @@ Spans that OpenTelemetry eBPF Instrumentation emits, grouped by the shape OBI pr
 for each protocol it recognises. The span kind is part of the contract; which attributes
 appear depends on the enabled features and on `attributes.select`.
 
-## `span.obi.aws.s3.client`
+## `obi.aws.s3.client`
 
 OBI AWS S3 client span.
 
@@ -33,7 +33,7 @@ OBI AWS S3 client span.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.aws.sns.client`
+## `obi.aws.sns.client`
 
 OBI AWS SNS client span.
 
@@ -63,7 +63,7 @@ OBI AWS SNS client span.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.aws.sqs.client`
+## `obi.aws.sqs.client`
 
 OBI AWS SQS client span.
 
@@ -90,7 +90,7 @@ OBI AWS SQS client span.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.db.client`
+## `obi.db.client`
 
 OBI outbound database client span.
 
@@ -115,7 +115,7 @@ OBI outbound database client span.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.db.server`
+## `obi.db.server`
 
 OBI inbound database server span.
 
@@ -139,7 +139,7 @@ OBI inbound database server span.
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.db.sql.client`
+## `obi.db.sql.client`
 
 OBI outbound SQL database client span.
 
@@ -164,7 +164,7 @@ OBI outbound SQL database client span.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.dns`
+## `obi.dns`
 
 OBI DNS resolution span.
 
@@ -182,7 +182,7 @@ OBI DNS resolution span.
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.elasticsearch.client`
+## `obi.elasticsearch.client`
 
 OBI Elasticsearch client span, detected from HTTP client traffic.
 
@@ -211,7 +211,7 @@ OBI Elasticsearch client span, detected from HTTP client traffic.
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 | `url.full` | string | `required` | stable | Absolute URL describing a network resource according to [RFC3986](https://www.rfc-editor.org/rfc/rfc3986) | https://www.foo.bar/search?q=OpenTelemetry#SemConv; //localhost |
 
-## `span.obi.failed_connect`
+## `obi.failed_connect`
 
 OBI failed outbound connection span.
 
@@ -227,7 +227,7 @@ OBI failed outbound connection span.
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.gen_ai.embeddings.client`
+## `obi.gen_ai.embeddings.client`
 
 OBI GenAI embeddings client span.
 
@@ -255,7 +255,7 @@ OBI GenAI embeddings client span.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.gen_ai.inference.client`
+## `obi.gen_ai.inference.client`
 
 OBI GenAI inference client span.
 
@@ -309,7 +309,7 @@ OBI GenAI inference client span.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.gen_ai.rerank.client`
+## `obi.gen_ai.rerank.client`
 
 OBI GenAI rerank client span.
 
@@ -338,7 +338,7 @@ OBI GenAI rerank client span.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.gen_ai.retrieval.client`
+## `obi.gen_ai.retrieval.client`
 
 OBI GenAI vector-retrieval client span.
 
@@ -367,7 +367,7 @@ OBI GenAI vector-retrieval client span.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.graphql.server`
+## `obi.graphql.server`
 
 OBI inbound GraphQL over HTTP server span.
 
@@ -404,7 +404,7 @@ OBI inbound GraphQL over HTTP server span.
 | `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 | `user_agent.original` | string | `recommended`: if the request carried a user agent header | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
-## `span.obi.http.client`
+## `obi.http.client`
 
 OBI outbound HTTP client span.
 
@@ -437,7 +437,7 @@ OBI outbound HTTP client span.
 | `url.scheme` | string | `conditionally_required`: if the scheme was captured on the connection | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 | `user_agent.original` | string | `opt_in` | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
-## `span.obi.http.server`
+## `obi.http.server`
 
 OBI inbound HTTP server span.
 
@@ -471,7 +471,7 @@ OBI inbound HTTP server span.
 | `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 | `user_agent.original` | string | `recommended`: if the request carried a user agent header | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
-## `span.obi.jsonrpc.client`
+## `obi.jsonrpc.client`
 
 OBI outbound JSON-RPC over HTTP client span.
 
@@ -500,7 +500,7 @@ OBI outbound JSON-RPC over HTTP client span.
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 | `user_agent.original` | string | `opt_in` | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
-## `span.obi.jsonrpc.server`
+## `obi.jsonrpc.server`
 
 OBI inbound JSON-RPC over HTTP server span.
 
@@ -540,7 +540,7 @@ OBI inbound JSON-RPC over HTTP server span.
 | `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 | `user_agent.original` | string | `recommended`: if the request carried a user agent header | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
-## `span.obi.mcp.client`
+## `obi.mcp.client`
 
 OBI Model Context Protocol client span.
 
@@ -571,7 +571,7 @@ OBI Model Context Protocol client span.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.mcp.server`
+## `obi.mcp.server`
 
 OBI inbound Model Context Protocol over HTTP server span.
 
@@ -617,7 +617,7 @@ OBI inbound Model Context Protocol over HTTP server span.
 | `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 | `user_agent.original` | string | `recommended`: if the request carried a user agent header | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
-## `span.obi.messaging.amqp.consumer`
+## `obi.messaging.amqp.consumer`
 
 OBI AMQP span for a process operation.
 
@@ -637,7 +637,7 @@ OBI AMQP span for a process operation.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.messaging.amqp.producer`
+## `obi.messaging.amqp.producer`
 
 OBI AMQP span for a send or a publish operation.
 
@@ -657,7 +657,7 @@ OBI AMQP span for a send or a publish operation.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.messaging.kafka.consumer`
+## `obi.messaging.kafka.consumer`
 
 OBI Kafka span for a process operation.
 
@@ -682,7 +682,7 @@ OBI Kafka span for a process operation.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.messaging.kafka.producer`
+## `obi.messaging.kafka.producer`
 
 OBI Kafka span for a send or a publish operation.
 
@@ -705,7 +705,7 @@ OBI Kafka span for a send or a publish operation.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.messaging.mqtt.consumer`
+## `obi.messaging.mqtt.consumer`
 
 OBI MQTT span for a process operation.
 
@@ -727,7 +727,7 @@ OBI MQTT span for a process operation.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.messaging.mqtt.producer`
+## `obi.messaging.mqtt.producer`
 
 OBI MQTT span for a send or a publish operation.
 
@@ -749,7 +749,7 @@ OBI MQTT span for a send or a publish operation.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.messaging.nats.consumer`
+## `obi.messaging.nats.consumer`
 
 OBI NATS span for a process operation.
 
@@ -772,7 +772,7 @@ OBI NATS span for a process operation.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.messaging.nats.producer`
+## `obi.messaging.nats.producer`
 
 OBI NATS span for a send or a publish operation.
 
@@ -795,7 +795,7 @@ OBI NATS span for a send or a publish operation.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.rpc.grpc.client`
+## `obi.rpc.grpc.client`
 
 OBI outbound gRPC client span.
 
@@ -817,7 +817,7 @@ OBI outbound gRPC client span.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.rpc.grpc.server`
+## `obi.rpc.grpc.server`
 
 OBI inbound gRPC server span.
 
@@ -839,7 +839,7 @@ OBI inbound gRPC server span.
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.rpc.onc_rpc.client`
+## `obi.rpc.onc_rpc.client`
 
 OBI outbound ONC/Sun RPC client span.
 
@@ -865,7 +865,7 @@ OBI outbound ONC/Sun RPC client span.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
-## `span.obi.rpc.onc_rpc.server`
+## `obi.rpc.onc_rpc.server`
 
 OBI inbound ONC/Sun RPC server span.
 

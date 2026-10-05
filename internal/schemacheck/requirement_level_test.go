@@ -15,11 +15,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// carrierFiles returns every registry file. A group is a carrier where it
-// references an attribute with `ref`, which is what owes a level; where it
-// declares one with `id` it is a definition, and upstream semconv declares no
-// level on its definitions either. The distinction is per attribute, not per
-// file: registry.obi.exception references upstream's exception.message.
+// carrierFiles returns every registry file. A signal or attribute group is a
+// carrier where it references an attribute with `ref`, which is what owes a
+// level; the attribute's own definition, under `attributes:`, declares none, and
+// upstream semconv declares no level on its definitions either.
 func carrierFiles(t *testing.T) []string {
 	t.Helper()
 
@@ -40,20 +39,62 @@ func carrierFiles(t *testing.T) []string {
 }
 
 type carrierAttrRef struct {
-	ID               string    `yaml:"id"`
 	Ref              string    `yaml:"ref"`
+	RefGroup         string    `yaml:"ref_group"`
 	RequirementLevel yaml.Node `yaml:"requirement_level"`
 }
 
-type carrierGroup struct {
+type registryAttributeGroup struct {
 	ID         string           `yaml:"id"`
-	Type       string           `yaml:"type"`
-	Extends    string           `yaml:"extends"`
+	Visibility string           `yaml:"visibility"`
 	Attributes []carrierAttrRef `yaml:"attributes"`
 }
 
-type carrierGroupsFile struct {
-	Groups []carrierGroup `yaml:"groups"`
+type registrySpan struct {
+	Type       string           `yaml:"type"`
+	Kind       string           `yaml:"kind"`
+	Attributes []carrierAttrRef `yaml:"attributes"`
+}
+
+type registryMetric struct {
+	Name       string           `yaml:"name"`
+	Attributes []carrierAttrRef `yaml:"attributes"`
+}
+
+// registryFile is the part of a definition/2 file the carrier checks read.
+type registryFile struct {
+	Attributes []struct {
+		Key string `yaml:"key"`
+	} `yaml:"attributes"`
+	AttributeGroups []registryAttributeGroup `yaml:"attribute_groups"`
+	Spans           []registrySpan           `yaml:"spans"`
+	Metrics         []registryMetric         `yaml:"metrics"`
+}
+
+func registryFiles(t *testing.T) map[string]registryFile {
+	t.Helper()
+
+	out := map[string]registryFile{}
+	for _, path := range carrierFiles(t) {
+		body, err := os.ReadFile(path)
+		require.NoError(t, err)
+
+		var f registryFile
+		require.NoErrorf(t, yaml.Unmarshal(body, &f), "parsing %s", path)
+		out[path] = f
+	}
+	return out
+}
+
+// definedAttributes returns the keys this registry defines itself.
+func definedAttributes(files map[string]registryFile) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, f := range files {
+		for _, a := range f.Attributes {
+			out[a.Key] = struct{}{}
+		}
+	}
+	return out
 }
 
 type carrierAttr struct {
@@ -66,36 +107,41 @@ type carrierAttr struct {
 func carrierAttributes(t *testing.T) []carrierAttr {
 	t.Helper()
 
+	files := registryFiles(t)
+	defined := definedAttributes(files)
+
 	var out []carrierAttr
-	for _, path := range carrierFiles(t) {
-		body, err := os.ReadFile(path)
-		require.NoError(t, err)
-
-		var f carrierGroupsFile
-		require.NoErrorf(t, yaml.Unmarshal(body, &f), "parsing %s", path)
-
-		for _, g := range f.Groups {
-			for _, a := range g.Attributes {
-				// A group that references an attribute is a carrier and owes a
-				// level. One that declares it with `id` is a definition, where
-				// a level would be meaningless — upstream declares none either.
-				if a.Ref == "" {
+	for path, f := range files {
+		file := filepath.Base(filepath.Dir(path)) + "/" + filepath.Base(path)
+		add := func(group string, refs []carrierAttrRef, skip func(string) bool) {
+			for _, a := range refs {
+				if a.Ref == "" || (skip != nil && skip(a.Ref)) {
 					continue
 				}
-				name := a.Ref
-				out = append(out, carrierAttr{
-					file:  filepath.Base(filepath.Dir(path)) + "/" + filepath.Base(path),
-					group: g.ID,
-					name:  name,
-					level: a.RequirementLevel,
-				})
+				out = append(out, carrierAttr{file: file, group: group, name: a.Ref, level: a.RequirementLevel})
 			}
+		}
+		for _, s := range f.Spans {
+			add(s.Type, s.Attributes, nil)
+		}
+		for _, m := range f.Metrics {
+			add(m.Name, m.Attributes, nil)
+		}
+		for _, g := range f.AttributeGroups {
+			// A public group that lists an attribute this registry defines is
+			// that definition's documentation, not a carrier: a level there
+			// would be as meaningless as on the definition itself.
+			documents := func(key string) bool {
+				_, ok := defined[key]
+				return g.Visibility == "public" && ok
+			}
+			add(g.ID, g.Attributes, documents)
 		}
 	}
 	return out
 }
 
-// Every attribute a span or metric group carries states when it is present.
+// Every attribute a span or metric carries states when it is present.
 // Without this the registry names an attribute but leaves a consumer unable to
 // tell one that is always there from one that appears on a single subtype.
 func TestEveryCarrierAttributeDeclaresARequirementLevel(t *testing.T) {

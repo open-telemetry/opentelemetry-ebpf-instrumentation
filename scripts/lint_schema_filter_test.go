@@ -48,94 +48,6 @@ func TestLintSchemaFilterAllowsExpectedUnstable(t *testing.T) {
 	}
 }
 
-// expectedEnumOverrideDuplicates mirrors the DuplicateAttributeId diagnostics
-// weaver emits for the attribute overrides in schemas/obi/groups/ (see
-// schemas/obi/README.md).
-const expectedEnumOverrideDuplicates = `[{
-	"diagnostic": {"severity": "Error"},
-	"error": {"DuplicateAttributeId": {
-		"attribute_id": "messaging.system",
-		"group_ids": ["registry.messaging", "x.obi.messaging"]
-	}}
-}, {
-	"diagnostic": {"severity": "Error"},
-	"error": {"DuplicateAttributeId": {
-		"attribute_id": "gen_ai.provider.name",
-		"group_ids": ["registry.gen_ai", "x.obi.gen_ai"]
-	}}
-}, {
-	"diagnostic": {"severity": "Error"},
-	"error": {"DuplicateAttributeId": {
-		"attribute_id": "gen_ai.operation.name",
-		"group_ids": ["registry.gen_ai", "x.obi.gen_ai"]
-	}}
-}, {
-	"diagnostic": {"severity": "Error"},
-	"error": {"DuplicateAttributeId": {
-		"attribute_id": "openai.api.type",
-		"group_ids": ["registry.openai", "x.obi.openai"]
-	}}
-}, {
-	"diagnostic": {"severity": "Error"},
-	"error": {"DuplicateAttributeId": {
-		"attribute_id": "telemetry.sdk.language",
-		"group_ids": ["registry.telemetry", "x.obi.telemetry"]
-	}}
-}, {
-	"diagnostic": {"severity": "Error"},
-	"error": {"DuplicateAttributeId": {
-		"attribute_id": "db.system.name",
-		"group_ids": ["registry.db", "x.obi.db"]
-	}}
-}, {
-	"diagnostic": {"severity": "Error"},
-	"error": {"DuplicateAttributeId": {
-		"attribute_id": "rpc.system.name",
-		"group_ids": ["registry.rpc", "x.obi.rpc"]
-	}}
-}, {
-	"diagnostic": {"severity": "Error"},
-	"error": {"DuplicateAttributeId": {
-		"attribute_id": "error.type",
-		"group_ids": ["registry.error", "x.obi.error"]
-	}}
-}, {
-	"diagnostic": {"severity": "Error"},
-	"error": {"DuplicateAttributeId": {
-		"attribute_id": "network.type",
-		"group_ids": ["registry.network", "x.obi.network"]
-	}}
-}]`
-
-func TestLintSchemaFilterAllowsExpectedEnumOverrideDuplicates(t *testing.T) {
-	remaining := runLintSchemaFilter(t, expectedEnumOverrideDuplicates)
-	if len(remaining) != 0 {
-		t.Fatalf("expected the documented enum-override attribute duplicates to be filtered, got %d diagnostics", len(remaining))
-	}
-}
-
-// expectedDNSMetricDuplicate mirrors the DuplicateMetricName diagnostic weaver
-// emits because OBI declares a narrowed dns.lookup.duration while
-// --include-unreferenced keeps the upstream definition in the resolved
-// registry (see schemas/obi/groups/dns/metrics.yaml).
-const expectedDNSMetricDuplicate = `[{
-	"diagnostic": {"severity": "Error"},
-	"error": {"DuplicateMetricName": {
-		"metric_name": "dns.lookup.duration",
-		"provenances": [
-			{"path": "/obi-registry/groups/dns/metrics.yaml"},
-			{"path": ".deps/upstream-v1.41.0/model/dns/metrics.yaml"}
-		]
-	}}
-}]`
-
-func TestLintSchemaFilterAllowsExpectedDNSMetricDuplicate(t *testing.T) {
-	remaining := runLintSchemaFilter(t, expectedDNSMetricDuplicate)
-	if len(remaining) != 0 {
-		t.Fatalf("expected the documented dns.lookup.duration duplicate to be filtered, got %d diagnostics", len(remaining))
-	}
-}
-
 // expectedDeprecatedIncludeUnreferenced mirrors the diagnostic weaver 0.25
 // emits (promoted to Error by --future) for the deprecated
 // --include-unreferenced flag. OBI no longer relies on the flag, but the
@@ -154,6 +66,23 @@ func TestLintSchemaFilterAllowsDeprecatedIncludeUnreferenced(t *testing.T) {
 
 func TestLintSchemaFilterKeepsUnrelatedDiagnostics(t *testing.T) {
 	cases := map[string]string{
+		"attribute override duplicate": `[{
+			"diagnostic": {"severity": "Error"},
+			"error": {"DuplicateAttributeId": {
+				"attribute_id": "error.type",
+				"group_ids": ["registry.error", "x.obi.error"]
+			}}
+		}]`,
+		"dns metric duplicate": `[{
+			"diagnostic": {"severity": "Error"},
+			"error": {"DuplicateMetricName": {
+				"metric_name": "dns.lookup.duration",
+				"provenances": [
+					{"path": "/obi-registry/groups/dns/metrics.yaml"},
+					{"path": ".deps/upstream-v1.41.0/model/dns/metrics.yaml"}
+				]
+			}}
+		}]`,
 		"duplicate of another metric": `[{
 			"error": {"DuplicateMetricName": {
 				"metric_name": "http.server.request.duration",

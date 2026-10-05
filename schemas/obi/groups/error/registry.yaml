@@ -1,4 +1,22 @@
-groups:
+file_format: definition/2
+attributes:
+  - key: error.type
+    type: string
+    stability: stable
+    brief: >
+      Describes a class of error the operation ended with.
+    examples: ['timeout', 'java.net.UnknownHostException', 'server_certificate_invalid', '500']
+    note: |
+      The `error.type` SHOULD be predictable, and SHOULD have low cardinality.
+
+      When `error.type` is set to a type (e.g., an exception type), its
+      canonical class name identifying the type within the artifact SHOULD be used.
+
+      Instrumentations SHOULD document the list of errors they report.
+
+      If the operation has completed successfully, instrumentations SHOULD NOT set `error.type`.
+
+attribute_groups:
   # Re-types `error.type` as string (upstream: enum whose only member is
   # `_OTHER`, with arbitrary domain strings as examples). Every real error
   # value OBI captures — HTTP status codes, DNS RCODEs ('NXDomain'), database
@@ -9,28 +27,14 @@ groups:
   # pkg/appolly/app/request/span_getters_test.go and
   # pkg/export/otel/traces_test.go.
   #
-  # See ../../README.md for the override mechanics (x.obi.* group id, string
-  # re-typing of open-ended value spaces, lint allowlist).
+  # See ../../README.md for how the definition above takes precedence over the
+  # upstream one, and when an open-ended value space is re-typed as string.
   - id: x.obi.error
-    type: attribute_group
-    display_name: OBI Error Attribute Overrides
+    visibility: public
     brief: >
       OBI override of `error.type` re-typed as an open-ended string: OBI
       reports domain-specific error identifiers whose value space is
       unbounded.
+    stability: development
     attributes:
-      - id: error.type
-        type: string
-        stability: stable
-        brief: >
-          Describes a class of error the operation ended with.
-        examples: ['timeout', 'java.net.UnknownHostException', 'server_certificate_invalid', '500']
-        note: |
-          The `error.type` SHOULD be predictable, and SHOULD have low cardinality.
-
-          When `error.type` is set to a type (e.g., an exception type), its
-          canonical class name identifying the type within the artifact SHOULD be used.
-
-          Instrumentations SHOULD document the list of errors they report.
-
-          If the operation has completed successfully, instrumentations SHOULD NOT set `error.type`.
+      - ref: error.type

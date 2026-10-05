@@ -27,97 +27,94 @@ func renderSchemaDocs(t *testing.T, page string) string {
 	return string(out)
 }
 
-// resolvedRegistry mirrors the shape of `weaver registry resolve` output: OBI's
-// own groups carry OBI's schema_url as their provenance, upstream groups carry
-// the semconv one. `traces.span.metrics.calls` has no `obi` marker in its id,
-// which is why the renderer selects on provenance rather than id.
+// resolvedRegistry mirrors the shape of `weaver registry resolve --v2` output:
+// OBI's own signals and attribute groups carry a provenance path inside the
+// registry, upstream ones name the semconv schema url as their source.
+// `traces.span.metrics.calls` has no `obi` marker in its name, which is why the
+// renderer selects on provenance rather than name.
 const resolvedRegistry = `{
-  "groups": [
-    {
-      "id": "registry.obi",
-      "type": "attribute_group",
-      "brief": "OBI's own attributes.",
-      "lineage": {"provenance": {"schema_url": "https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/0.12.2"}},
-      "attributes": [
-        {"name": "obi.version", "type": "string", "stability": "development", "brief": "OBI build version.", "examples": ["v0.42.0"]},
-        {"name": "instance", "type": "string", "stability": "development", "brief": "Scrape target instance."}
-      ]
-    },
-    {
-      "id": "x.obi.error",
-      "type": "attribute_group",
-      "brief": "An upstream namespace OBI extends.",
-      "lineage": {"provenance": {"schema_url": "https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/0.12.2"}},
-      "attributes": [
-        {"name": "error.type", "type": "string", "stability": "stable", "brief": "Error class | with a pipe."},
-        {"name": "obi.small.enum", "type": {"members": [{"id": "a", "value": "a"}, {"id": "b", "value": "b"}]}, "stability": "development", "brief": "A short enum."},
-        {"name": "obi.long.enum", "type": {"members": [{"value": "v1"}, {"value": "v2"}, {"value": "v3"}, {"value": "v4"}, {"value": "v5"}, {"value": "v6"}, {"value": "v7"}, {"value": "v8"}, {"value": "v9"}, {"value": "v10"}]}, "stability": "development", "brief": "A long enum."},
-        {"name": "obi.enum.with.examples", "type": {"members": [{"value": "m1"}, {"value": "m2"}]}, "stability": "development", "brief": "Enum that declares examples.", "examples": ["chosen"]}
-      ]
-    },
-    {
-      "id": "registry.http",
-      "type": "attribute_group",
-      "brief": "Upstream semconv attributes.",
-      "lineage": {"provenance": {"schema_url": "https://opentelemetry.io/schemas/1.41.0"}},
-      "attributes": [{"name": "http.route", "type": "string", "stability": "stable", "brief": "Route."}]
-    },
-    {
-      "id": "metric.traces_span_metrics_calls",
-      "type": "metric",
-      "metric_name": "traces.span.metrics.calls",
-      "brief": "Span metrics call count.",
-      "instrument": "counter",
-      "unit": "",
-      "stability": "development",
-      "lineage": {"provenance": {"schema_url": "https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/0.12.2"}},
-      "attributes": [{"name": "span.name", "type": "string", "stability": "development", "brief": "Span name."}]
-    },
-    {
-      "id": "metric.obi_renamed_metric",
-      "type": "metric",
-      "metric_name": "obi.renamed.metric",
-      "brief": "A metric that was renamed.",
-      "instrument": "counter",
-      "unit": "1",
-      "stability": "development",
-      "deprecated": {"reason": "renamed", "renamed_to": "obi.new.metric"},
-      "lineage": {"provenance": {"schema_url": "https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/0.12.2"}},
-      "attributes": []
-    },
-    {
-      "id": "metric.http.server.request.duration",
-      "type": "metric",
-      "metric_name": "http.server.request.duration",
-      "brief": "Upstream metric.",
-      "instrument": "histogram",
-      "unit": "s",
-      "stability": "stable",
-      "lineage": {"provenance": {"schema_url": "https://opentelemetry.io/schemas/1.41.0"}},
-      "attributes": []
-    },
-    {
-      "id": "span.obi.example.client",
-      "type": "span",
-      "span_kind": "client",
-      "brief": "An OBI span.",
-      "stability": "development",
-      "lineage": {"provenance": {"schema_url": "https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/0.12.2"}},
-      "attributes": [
-        {"name": "obi.scalar.examples", "type": "string", "stability": "development", "brief": "Declares examples as a bare scalar.", "examples": "gpt-4"},
-        {"name": "error.type", "type": {"members": [{"value": "timeout"}]}, "stability": "stable", "brief": "Upstream enum copy embedded in this carrier."}
-      ]
-    },
-    {
-      "id": "span.http.client",
-      "type": "span",
-      "span_kind": "client",
-      "brief": "Upstream span.",
-      "stability": "stable",
-      "lineage": {"provenance": {"schema_url": "https://opentelemetry.io/schemas/1.41.0"}},
-      "attributes": []
-    }
-  ]
+  "registry": {
+    "attribute_groups": [
+      {
+        "id": "registry.obi",
+        "brief": "OBI's own attributes.",
+        "stability": "development",
+        "provenance": {"path": "/obi-registry/groups/obi_internal/registry.yaml"},
+        "attributes": [
+          {"key": "obi.version", "type": "string", "stability": "development", "brief": "OBI build version.", "examples": ["v0.42.0"]},
+          {"key": "instance", "type": "string", "stability": "development", "brief": "Scrape target instance."}
+        ]
+      },
+      {
+        "id": "x.obi.error",
+        "brief": "An upstream namespace OBI extends.",
+        "stability": "development",
+        "provenance": {"path": "/obi-registry/groups/error/registry.yaml"},
+        "attributes": [
+          {"key": "error.type", "type": "string", "stability": "stable", "brief": "Error class | with a pipe."},
+          {"key": "obi.small.enum", "type": {"members": [{"id": "a", "value": "a"}, {"id": "b", "value": "b"}]}, "stability": "development", "brief": "A short enum."},
+          {"key": "obi.long.enum", "type": {"members": [{"value": "v1"}, {"value": "v2"}, {"value": "v3"}, {"value": "v4"}, {"value": "v5"}, {"value": "v6"}, {"value": "v7"}, {"value": "v8"}, {"value": "v9"}, {"value": "v10"}]}, "stability": "development", "brief": "A long enum."},
+          {"key": "obi.enum.with.examples", "type": {"members": [{"value": "m1"}, {"value": "m2"}]}, "stability": "development", "brief": "Enum that declares examples.", "examples": ["chosen"]}
+        ]
+      },
+      {
+        "id": "registry.http",
+        "brief": "Upstream semconv attributes.",
+        "stability": "stable",
+        "provenance": {"source": "https://opentelemetry.io/schemas/1.41.0", "path": ".deps/upstream-v1.41.0/model/http/registry.yaml"},
+        "attributes": [{"key": "http.route", "type": "string", "stability": "stable", "brief": "Route."}]
+      }
+    ],
+    "metrics": [
+      {
+        "name": "traces.span.metrics.calls",
+        "brief": "Span metrics call count.",
+        "instrument": "counter",
+        "unit": "",
+        "stability": "development",
+        "provenance": {"path": "/obi-registry/groups/spanmetrics/metrics.yaml"},
+        "attributes": [{"key": "span.name", "type": "string", "stability": "development", "brief": "Span name.", "requirement_level": "required"}]
+      },
+      {
+        "name": "obi.renamed.metric",
+        "brief": "A metric that was renamed.",
+        "instrument": "counter",
+        "unit": "1",
+        "stability": "development",
+        "deprecated": {"reason": "renamed", "renamed_to": "obi.new.metric"},
+        "provenance": {"path": "/obi-registry/groups/spanmetrics/metrics.yaml"}
+      },
+      {
+        "name": "http.server.request.duration",
+        "brief": "Upstream metric.",
+        "instrument": "histogram",
+        "unit": "s",
+        "stability": "stable",
+        "provenance": {"source": "https://opentelemetry.io/schemas/1.41.0", "path": ".deps/upstream-v1.41.0/model/http/metrics.yaml"}
+      }
+    ],
+    "spans": [
+      {
+        "type": "obi.example.client",
+        "kind": "client",
+        "brief": "An OBI span.",
+        "stability": "development",
+        "provenance": {"path": "/obi-registry/groups/example/spans.yaml"},
+        "attributes": [
+          {"key": "obi.scalar.examples", "type": "string", "stability": "development", "brief": "Declares examples as a bare scalar.", "examples": "gpt-4"},
+          {"key": "error.type", "type": "string", "stability": "stable", "brief": "Error class.", "requirement_level": {"conditionally_required": "if the operation failed"}}
+        ]
+      },
+      {
+        "type": "http.client",
+        "kind": "client",
+        "name": {"note": "Upstream name."},
+        "brief": "Upstream span.",
+        "stability": "stable",
+        "provenance": {"source": "https://opentelemetry.io/schemas/1.41.0", "path": ".deps/upstream-v1.41.0/model/http/spans.yaml"}
+      }
+    ]
+  }
 }`
 
 func TestSchemaDocsAttributesSelectsOBIGroupsOnly(t *testing.T) {
@@ -170,14 +167,14 @@ func TestSchemaDocsEscapesPipesAndCountsGroups(t *testing.T) {
 func TestSchemaDocsSpansSelectsOBIGroupsOnly(t *testing.T) {
 	page := renderSchemaDocs(t, "spans")
 
-	if !strings.Contains(page, "## `span.obi.example.client`") {
+	if !strings.Contains(page, "## `obi.example.client`") {
 		t.Errorf("spans page dropped an OBI span\n%s", page)
 	}
 	// The kind is part of the contract, so it is documented alongside the span.
 	if !strings.Contains(page, "| client | development |") {
 		t.Errorf("spans page did not document the span kind\n%s", page)
 	}
-	if strings.Contains(page, "span.http.client") {
+	if strings.Contains(page, "## `http.client`") {
 		t.Errorf("spans page leaked an upstream span\n%s", page)
 	}
 }
@@ -225,20 +222,10 @@ func TestSchemaDocsMarksDeprecatedMetrics(t *testing.T) {
 	}
 }
 
-// Weaver embeds whichever duplicate definition it resolved into each carrier, so
-// the same attribute could render as an enum on one signal and a string on
-// another. Every carrier must render OBI's override instead.
-func TestSchemaDocsRendersOBIOverrideOnEveryCarrier(t *testing.T) {
-	for _, page := range []string{"attributes", "spans"} {
-		t.Run(page, func(t *testing.T) {
-			rendered := renderSchemaDocs(t, page)
+func TestSchemaDocsRendersConditionalRequirementLevels(t *testing.T) {
+	page := renderSchemaDocs(t, "spans")
 
-			if !strings.Contains(rendered, "| `error.type` | string |") {
-				t.Errorf("%s page did not render the OBI override of error.type\n%s", page, rendered)
-			}
-			if strings.Contains(rendered, "| `error.type` | enum |") {
-				t.Errorf("%s page rendered a carrier's embedded enum copy of error.type\n%s", page, rendered)
-			}
-		})
+	if !strings.Contains(page, "| `error.type` | string | `conditionally_required`: if the operation failed | stable | Error class. |  |") {
+		t.Errorf("a conditional requirement level did not render with its condition\n%s", page)
 	}
 }
