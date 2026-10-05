@@ -1,6 +1,10 @@
 Rails.application.routes.draw do
   resources :users
 
+  # Exercise the same engine at the root and under a prefix; Rails needs distinct mount names.
+  mount HarvestGraphql::Engine, at: "/"
+  mount HarvestGraphql::Engine, at: "/harvest/engine", as: "prefixed_graphql"
+
   draw :orders
   scope "/harvest/api" do
     draw "api/widgets"
