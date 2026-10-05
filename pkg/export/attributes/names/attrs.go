@@ -232,6 +232,7 @@ const (
 	JVMGCAction            = Name("jvm.gc.action")
 	CPythonGCGeneration    = Name("cpython.gc.generation")
 	DotnetGCHeapGeneration = Name("dotnet.gc.heap.generation")
+	CPUMode                = Name("cpu.mode")
 
 	NodejsEventLoopState = Name("nodejs.eventloop.state")
 

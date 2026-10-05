@@ -59,8 +59,8 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 			require.NoError(t, err)
 			sample := func(current int64, collections uint64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
 				return &runtimemetrics.DotnetRuntimeMetricSnapshot{
-					ProcessMemoryWorkingSet: &current,
-					GCCollections:           [3]*uint64{&collections},
+					ProcessCPUCount: &current, ProcessMemoryWorkingSet: &current,
+					GCCollections: [3]*uint64{&collections},
 				}
 			}
 			first := runtimemetrics.RuntimeMetricSnapshot{
@@ -77,9 +77,11 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 			labels := map[string]string{"service_name": "orders"}
 			assertCurrent := func(want float64) {
 				t.Helper()
-				point := gatheredMetric(t, registry, attributes.DotnetProcessMemoryWorkingSet.Prom, labels)
-				require.NotNil(t, point)
-				require.InDelta(t, want, point.GetGauge().GetValue(), 0)
+				for _, name := range []string{attributes.DotnetProcessMemoryWorkingSet.Prom, attributes.DotnetProcessCPUCount.Prom} {
+					point := gatheredMetric(t, registry, name, labels)
+					require.NotNil(t, point)
+					require.InDelta(t, want, point.GetGauge().GetValue(), 0)
+				}
 			}
 			assertCollections := func(want float64) {
 				t.Helper()
@@ -125,6 +127,7 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 				assertCurrent(27)
 			} else {
 				require.Nil(t, gatheredMetric(t, registry, attributes.DotnetProcessMemoryWorkingSet.Prom, labels))
+				require.Nil(t, gatheredMetric(t, registry, attributes.DotnetProcessCPUCount.Prom, labels))
 			}
 			publish(first)
 			if ttl == 0 {
@@ -152,7 +155,7 @@ func TestDotnetRuntimeCurrentValuesAggregateProcesses(t *testing.T) {
 	require.NoError(t, err)
 	values := func(value int64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
 		return &runtimemetrics.DotnetRuntimeMetricSnapshot{
-			ProcessMemoryWorkingSet: &value, GCCommittedMemory: &value,
+			ProcessCPUCount: &value, ProcessMemoryWorkingSet: &value, GCCommittedMemory: &value,
 			ThreadPoolThreadCount: &value, ThreadPoolQueueLength: &value,
 			TimerCount: &value, AssemblyCount: &value,
 		}
@@ -160,7 +163,7 @@ func TestDotnetRuntimeCurrentValuesAggregateProcesses(t *testing.T) {
 	assertValues := func(service string, expected *int64) {
 		t.Helper()
 		for _, name := range []string{
-			attributes.DotnetProcessMemoryWorkingSet.Prom, attributes.DotnetGCCommittedMemory.Prom,
+			attributes.DotnetProcessCPUCount.Prom, attributes.DotnetProcessMemoryWorkingSet.Prom, attributes.DotnetGCCommittedMemory.Prom,
 			attributes.DotnetThreadPoolThreadCount.Prom, attributes.DotnetThreadPoolQueueLength.Prom,
 			attributes.DotnetTimerCount.Prom, attributes.DotnetAssemblyCount.Prom,
 		} {
@@ -308,14 +311,17 @@ func TestDotnetRuntimeCumulativeCounters(t *testing.T) {
 	metrics := []struct {
 		name  string
 		scale float64
+		mode  string
 	}{
-		{attributes.DotnetGCHeapTotalAllocated.Prom, 1},
-		{attributes.DotnetJITCompiledILSize.Prom, 2},
-		{attributes.DotnetJITCompiledMethods.Prom, 3},
-		{attributes.DotnetThreadPoolWorkItemCount.Prom, 4},
-		{attributes.DotnetMonitorLockContentions.Prom, 5},
-		{attributes.DotnetGCPauseTime.Prom, 0.125},
-		{attributes.DotnetJITCompilationTime.Prom, 0.25},
+		{attributes.DotnetGCHeapTotalAllocated.Prom, 1, ""},
+		{attributes.DotnetJITCompiledILSize.Prom, 2, ""},
+		{attributes.DotnetJITCompiledMethods.Prom, 3, ""},
+		{attributes.DotnetThreadPoolWorkItemCount.Prom, 4, ""},
+		{attributes.DotnetMonitorLockContentions.Prom, 5, ""},
+		{attributes.DotnetGCPauseTime.Prom, 0.125, ""},
+		{attributes.DotnetJITCompilationTime.Prom, 0.25, ""},
+		{attributes.DotnetProcessCPUTime.Prom, 0.125, "user"},
+		{attributes.DotnetProcessCPUTime.Prom, 0.25, "system"},
 	}
 	sample := func(value uint64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
 		il, methods, work, locks := value*2, value*3, value*4, value*5
@@ -324,6 +330,7 @@ func TestDotnetRuntimeCumulativeCounters(t *testing.T) {
 			GCHeapTotalAllocated: &value, JITCompiledILSize: &il, JITCompiledMethods: &methods,
 			ThreadPoolWorkItemCount: &work, MonitorLockContentions: &locks,
 			GCPauseTime: &pause, JITCompilationTime: &jit,
+			ProcessCPUTimeUser: &pause, ProcessCPUTimeSystem: &jit,
 		}
 	}
 	first := runtimemetrics.RuntimeMetricSnapshot{
@@ -334,20 +341,27 @@ func TestDotnetRuntimeCumulativeCounters(t *testing.T) {
 	publish := func(snapshot runtimemetrics.RuntimeMetricSnapshot) {
 		reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot})
 	}
-	labels := map[string]string{"service_name": "orders"}
 	assertTotal := func(want float64) {
 		t.Helper()
 		for _, metric := range metrics {
-			point := gatheredMetric(t, registry, metric.name, labels)
+			metricLabels := map[string]string{"service_name": "orders"}
+			if metric.mode != "" {
+				metricLabels["cpu_mode"] = metric.mode
+			}
+			point := gatheredMetric(t, registry, metric.name, metricLabels)
 			require.NotNil(t, point, metric.name)
 			require.NotNil(t, point.Counter, metric.name)
-			require.Len(t, point.Label, 1, metric.name)
+			require.Len(t, point.Label, len(metricLabels), metric.name)
 			require.InDelta(t, want*metric.scale, point.GetCounter().GetValue(), 0, metric.name)
 		}
 	}
 	publish(first)
 	for _, metric := range metrics {
-		require.Nil(t, gatheredMetric(t, registry, metric.name, labels))
+		metricLabels := map[string]string{"service_name": "orders"}
+		if metric.mode != "" {
+			metricLabels["cpu_mode"] = metric.mode
+		}
+		require.Nil(t, gatheredMetric(t, registry, metric.name, metricLabels))
 	}
 	first.Dotnet = sample(0)
 	publish(first)
@@ -382,7 +396,7 @@ func TestDotnetRuntimeCumulativeCounters(t *testing.T) {
 	publish(first)
 	assertTotal(38)
 	require.Len(t, reporter.dotnetRuntimeMetrics.values, 10)
-	require.Len(t, reporter.dotnetRuntimeMetrics.durationValues, 4)
+	require.Len(t, reporter.dotnetRuntimeMetrics.durationValues, 8)
 	// Repeated samples keep the shared series alive beyond its original TTL.
 	for range 3 {
 		now = now.Add(30 * time.Second)
@@ -395,7 +409,7 @@ func TestDotnetRuntimeCumulativeCounters(t *testing.T) {
 	first.Removed = true
 	publish(first)
 	require.Len(t, reporter.dotnetRuntimeMetrics.values, 5)
-	require.Len(t, reporter.dotnetRuntimeMetrics.durationValues, 2)
+	require.Len(t, reporter.dotnetRuntimeMetrics.durationValues, 4)
 	publish(second)
 	assertTotal(39)
 	second.Removed = true
@@ -410,7 +424,11 @@ func TestDotnetRuntimeCumulativeCounters(t *testing.T) {
 	require.Empty(t, reporter.dotnetRuntimeMetrics.values)
 	require.Empty(t, reporter.dotnetRuntimeMetrics.durationValues)
 	for _, metric := range metrics {
-		require.Nil(t, gatheredMetric(t, registry, metric.name, labels))
+		metricLabels := map[string]string{"service_name": "orders"}
+		if metric.mode != "" {
+			metricLabels["cpu_mode"] = metric.mode
+		}
+		require.Nil(t, gatheredMetric(t, registry, metric.name, metricLabels))
 	}
 	publish(second)
 	assertTotal(20)
