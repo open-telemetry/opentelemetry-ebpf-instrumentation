@@ -367,8 +367,11 @@
       "enabled": false
     },
     {
-      "description": "Disable Docker updates for the Python 3.9 uvloop compatibility fixture",
-      "matchFileNames": ["internal/test/integration/components/pythonasync-uvloop/Dockerfile-3.9"],
+      "description": "Disable Docker updates for the Python 3.9 asyncio compatibility fixtures",
+      "matchFileNames": [
+        "internal/test/integration/components/pythonasync-generic/Dockerfile-3.9",
+        "internal/test/integration/components/pythonasync-uvloop/Dockerfile-3.9"
+      ],
       "matchDatasources": ["docker"],
       "enabled": false
     },
