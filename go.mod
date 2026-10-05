@@ -34,7 +34,7 @@ require (
 	github.com/mitchellh/copystructure v1.2.0
 	github.com/moby/moby/api v1.56.0
 	github.com/moby/moby/client v0.6.0
-	github.com/ohler55/ojg v1.28.6
+	github.com/ohler55/ojg v1.28.7
 	github.com/ory/dockertest/v4 v4.0.0
 	github.com/oschwald/maxminddb-golang/v2 v2.5.0
 	github.com/pelletier/go-toml/v2 v2.2.4
