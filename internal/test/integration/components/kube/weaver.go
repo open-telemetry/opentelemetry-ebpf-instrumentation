@@ -6,14 +6,10 @@ package kube // import "go.opentelemetry.io/obi/internal/test/integration/compon
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"runtime"
-	"strings"
 	"time"
 
-	"github.com/prometheus/common/expfmt"
-	"github.com/prometheus/common/model"
 	"sigs.k8s.io/e2e-framework/pkg/env"
 	"sigs.k8s.io/e2e-framework/pkg/envconf"
 
@@ -304,29 +300,8 @@ func exporterFailedCountURL(ctx context.Context, url string) (float64, error) {
 	if resp.StatusCode != http.StatusOK {
 		return 0, fmt.Errorf("GET %s returned %s", url, resp.Status)
 	}
-	return parseExporterFailedCount(resp.Body)
-}
-
-func parseExporterFailedCount(reader io.Reader) (float64, error) {
-	parser := expfmt.NewTextParser(model.UTF8Validation)
-	metrics, err := parser.TextToMetricFamilies(reader)
-	if err != nil {
-		return 0, fmt.Errorf("parsing exporter counters: %w", err)
-	}
-	var total float64
-	for name, family := range metrics {
-		if !strings.HasPrefix(name, "otelcol_exporter_send_failed_") &&
-			!strings.HasPrefix(name, "otelcol_exporter_enqueue_failed_") {
-			continue
-		}
-		for _, metric := range family.Metric {
-			if metric.Counter == nil {
-				return 0, fmt.Errorf("exporter failure metric %s is not a counter", name)
-			}
-			total += metric.Counter.GetValue()
-		}
-	}
-	return total, nil
+	stats, err := weavercheck.ParseTapStats(resp.Body, weavercheck.AllExporters)
+	return stats.Failed, err
 }
 
 // waitForHTTP polls url until the server produces any HTTP response (status

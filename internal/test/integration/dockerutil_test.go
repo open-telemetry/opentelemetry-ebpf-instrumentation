@@ -15,6 +15,7 @@ import (
 	"io"
 	"net/netip"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -45,6 +46,9 @@ const (
 	// programmatic-setup tests run weaver with the same image as the
 	// compose-driven ones.
 	imgWeaver = img.Docker("otel/weaver:v0.26.1@sha256:9094862c0ab261bdbcb079bb981f9a573b3659b130a6d2ab8616eca6ba37aaec")
+
+	weaverOTLPReadyProbe = "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4317/ 2>&1 | grep -qv refused"
+	weaverReadyTimeout   = 3 * time.Minute
 )
 
 // setupDockerNetwork initializes a custom network for the test.
@@ -237,6 +241,10 @@ func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 		EndpointConfig: endpointAliases("weaver"),
 	})
 	require.NoError(t, err, "could not connect weaver container to network")
+
+	require.Eventually(t, func() bool {
+		return exec.CommandContext(t.Context(), "docker", "exec", weaverContainer, "sh", "-c", weaverOTLPReadyProbe).Run() == nil
+	}, weaverReadyTimeout, time.Second, "weaver's OTLP receiver never became ready")
 	t.Log("Weaver container started")
 }
 

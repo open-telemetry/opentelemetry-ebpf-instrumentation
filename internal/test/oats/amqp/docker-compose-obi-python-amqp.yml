@@ -71,6 +71,8 @@ services:
     volumes:
       - ./configs:/configs
     command: ["--config=/configs/otelcol-weaver-host.yaml"]
+    labels:
+      io.opentelemetry.obi.weaver-tap.telemetry-url: "http://127.0.0.1:18888/metrics"
     depends_on:
       weaver:
         condition: service_healthy
