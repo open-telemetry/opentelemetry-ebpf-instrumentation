@@ -1,0 +1,18 @@
+FROM quay.io/evl.ms/fullstaq-ruby:3.4.8-jemalloc-bookworm-slim@sha256:8876f00d0c5b17606ab5630ad74deebd3bdc6251faa9f0a938cb9659b1746c74
+
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends build-essential libpq-dev binutils && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+ENV BUNDLE_PATH=/usr/local/bundle
+
+COPY internal/test/integration/components/rubytestserver/tapasapi .
+# Keep the shared gem versions, updating only the Ruby version in the image's lockfile.
+RUN gem install bundler -v 4.0.16 && \
+    bundle _4.0.16_ update --ruby && bundle _4.0.16_ install
+
+EXPOSE 3040
+
+CMD ["bundle", "exec", "puma", "-b", "tcp://0.0.0.0:3040", "config.ru"]
