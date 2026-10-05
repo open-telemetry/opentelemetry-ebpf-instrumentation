@@ -764,7 +764,7 @@ clean-testoutput: testoutput
 
 .PHONY: protoc-gen
 protoc-gen:
-	docker run --rm -v $(PWD):/src -w /src $(GEN_IMG) protoc --go_out=pkg/kubecache --go-grpc_out=pkg/kubecache proto/informer.proto
+	docker run --rm -v $(PWD):/src -w /src --entrypoint protoc $(GEN_IMG) --go_out=pkg/kube/kubecache --go-grpc_out=pkg/kube/kubecache proto/informer.proto
 
 .PHONY: clang-format
 clang-format:
