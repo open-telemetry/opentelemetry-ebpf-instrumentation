@@ -18,15 +18,16 @@ fail() {
 	exit 1
 }
 
-url_version() { grep -oE 'schemas/obi/[0-9]+\.[0-9]+\.[0-9]+' "$1" | head -1 | sed 's#.*/##'; }
+version_pattern='[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?'
+url_version() { grep -oE "schemas/obi/$version_pattern" "$1" | head -1 | sed 's#.*/##'; }
 
 shopt -s nullglob
 count=0
 for file in "$SCHEMA_DIR"/*; do
 	version="$(basename "$file")"
 
-	echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' \
-		|| fail "$file: name is not a MAJOR.MINOR.PATCH version"
+	echo "$version" | grep -Eq "^$version_pattern$" \
+		|| fail "$file: name is not a MAJOR.MINOR.PATCH version with an optional prerelease suffix"
 
 	format="$(grep -E '^file_format:' "$file" | head -1 | sed 's/^file_format:[[:space:]]*//')"
 	[ "$format" = "1.1.0" ] || fail "$file: file_format must be 1.1.0 (got '${format:-<missing>}')"
@@ -35,7 +36,7 @@ for file in "$SCHEMA_DIR"/*; do
 	expected="$BASE_URL/$version"
 	[ "$url" = "$expected" ] || fail "$file: schema_url '$url' does not match served URL '$expected'"
 
-	grep -Eq "^  $version:" "$file" \
+	grep -Fxq "  $version:" "$file" \
 		|| fail "$file: versions: block does not contain an entry for $version"
 
 	count=$((count + 1))
