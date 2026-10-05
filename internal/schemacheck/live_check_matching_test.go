@@ -55,6 +55,25 @@ func matchOnlySpanCases() []emittedSpanCase {
 			},
 		},
 		{
+			// An IPv6 address joined with a port is bracketed, as in a URL.
+			name:     "elasticsearch client over ipv6",
+			spanType: "obi.elasticsearch.client",
+			span: &request.Span{
+				Type:         request.EventTypeHTTPClient,
+				SubType:      request.HTTPSubtypeElasticsearch,
+				Method:       "POST",
+				Path:         "/_bulk",
+				Host:         "2001:db8::1",
+				HostPort:     9200,
+				Status:       200,
+				ProtoVersion: request.ProtoVersionHTTP11,
+				Elasticsearch: &request.Elasticsearch{
+					DBSystemName:    "elasticsearch",
+					DBOperationName: "bulk",
+				},
+			},
+		},
+		{
 			name:     "elasticsearch client without a port",
 			spanType: "obi.elasticsearch.client",
 			span: &request.Span{
@@ -390,7 +409,8 @@ func liveCheck(t *testing.T, samples []liveCheckSample) liveCheckReport {
 // Live-check pairs a span with its span definition only through the matchers
 // in schemas/obi/.weaver.toml. Every span the exporter builds must be paired by
 // exactly one matcher with the definition that describes it, with the kind that
-// definition declares, and must raise no violation.
+// definition declares and a name its templates render, and must raise no
+// violation.
 func TestEmittedSpansMatchTheirDeclaredSpan(t *testing.T) {
 	cases := append(emittedSpanCases(), matchOnlySpanCases()...)
 
@@ -429,7 +449,8 @@ func TestEmittedSpansMatchTheirDeclaredSpan(t *testing.T) {
 				findings = append(findings, a.LiveCheckResult.AllAdvice...)
 			}
 			for _, f := range findings {
-				assert.NotEqualf(t, "kind_mismatch", f.ID, "span %q: %s", span.Name, f.Message)
+				assert.NotContainsf(t, []string{"kind_mismatch", "span_name_mismatch"}, f.ID,
+					"span %q: %s", span.Name, f.Message)
 				assert.NotEqualf(t, "violation", f.Level, "span %q: [%s] %s", span.Name, f.ID, f.Message)
 			}
 			covered[spanTypes[i]] = struct{}{}
