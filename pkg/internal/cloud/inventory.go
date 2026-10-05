@@ -100,8 +100,9 @@ func (i *Inventory) refresh(ctx context.Context) {
 		}
 	}
 	i.snapshot = snapshot
+	hasChanges := len(changes.Changed)+len(changes.Removed) > 0
 	i.mu.Unlock()
-	if len(changes.Changed)+len(changes.Removed) > 0 {
+	if hasChanges {
 		i.changes.SendCtx(ctx, changes)
 	}
 }
