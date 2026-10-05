@@ -8,7 +8,9 @@ spans:
   - type: obi.rpc.grpc.server
     kind: server
     name:
-      note: Not documented yet.
+      templates:
+        - "{rpc.method}"
+        - "{rpc.system.name}"
     stability: release_candidate
     requirement_level: recommended
     brief: OBI inbound gRPC server span.
@@ -49,7 +51,9 @@ spans:
   - type: obi.rpc.grpc.client
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{rpc.method}"
+        - "{rpc.system.name}"
     stability: release_candidate
     requirement_level: recommended
     brief: OBI outbound gRPC client span.
@@ -90,7 +94,9 @@ spans:
   - type: obi.rpc.onc_rpc.server
     kind: server
     name:
-      note: Not documented yet.
+      templates:
+        - "{rpc.method}"
+        - "onc_rpc"
     stability: development
     requirement_level: recommended
     brief: OBI inbound ONC/Sun RPC server span.
@@ -142,7 +148,9 @@ spans:
   - type: obi.rpc.onc_rpc.client
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{rpc.method}"
+        - "onc_rpc"
     stability: development
     requirement_level: recommended
     brief: OBI outbound ONC/Sun RPC client span.

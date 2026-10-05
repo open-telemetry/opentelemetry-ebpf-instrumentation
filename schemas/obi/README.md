@@ -104,6 +104,13 @@ share `attributes.obi.messaging.common` and the HTTP server spans
 `attributes.obi.http.server.common` — so it stays out of the attribute pages, which
 document what OBI defines.
 
+## Span names
+
+Every span declares how OBI names it. `name.templates` lists the templates in
+the order OBI tries them: the first whose attributes are all present, non-empty
+and not `_OTHER` gives the name. A span whose name uses a value OBI does not
+emit as an attribute describes it in `name.note` instead.
+
 ## Two override styles
 
 - **Closed enum, extended**: the upstream value space is enumerable and OBI

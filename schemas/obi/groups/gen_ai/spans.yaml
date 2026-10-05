@@ -23,7 +23,9 @@ spans:
   - type: obi.gen_ai.inference.client
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{gen_ai.operation.name} {gen_ai.request.model}"
+        - "{gen_ai.operation.name}"
     stability: development
     requirement_level: recommended
     brief: OBI GenAI inference client span.
@@ -155,7 +157,9 @@ spans:
   - type: obi.gen_ai.embeddings.client
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{gen_ai.operation.name} {gen_ai.request.model}"
+        - "{gen_ai.operation.name}"
     stability: development
     requirement_level: recommended
     brief: OBI GenAI embeddings client span.
@@ -213,7 +217,9 @@ spans:
   - type: obi.gen_ai.retrieval.client
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{gen_ai.operation.name} {gen_ai.data_source.id}"
+        - "{gen_ai.operation.name}"
     stability: development
     requirement_level: recommended
     brief: OBI GenAI vector-retrieval client span.
@@ -271,7 +277,9 @@ spans:
   - type: obi.gen_ai.rerank.client
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{gen_ai.operation.name} {gen_ai.request.model}"
+        - "{gen_ai.operation.name}"
     stability: development
     requirement_level: recommended
     brief: OBI GenAI rerank client span.

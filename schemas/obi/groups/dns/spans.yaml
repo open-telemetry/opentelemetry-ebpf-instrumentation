@@ -3,7 +3,11 @@ spans:
   - type: obi.dns
     kind: internal
     name:
-      note: Not documented yet.
+      note: >
+        The DNS operation followed by the question,
+        `{operation} {dns.question.name}`, the operation alone when no question
+        was read, or `DNS`. The operation is not emitted as an attribute, so the
+        name cannot be expressed as a template.
     stability: development
     requirement_level: recommended
     brief: OBI DNS resolution span.

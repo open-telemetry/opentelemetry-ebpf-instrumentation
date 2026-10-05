@@ -7,7 +7,8 @@ spans:
   - type: obi.failed_connect
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "CONNECT"
     stability: development
     requirement_level: recommended
     brief: OBI failed outbound connection span.
@@ -31,7 +32,10 @@ spans:
   - type: obi.request.phase
     kind: internal
     name:
-      note: Not documented yet.
+      note: >
+        `in queue` for the time between the request arriving and its handler
+        starting, and `processing` for the time the handler ran. Neither is
+        derived from an attribute.
     stability: development
     requirement_level: recommended
     brief: >

@@ -13,7 +13,10 @@ spans:
   - type: obi.aws.s3.client
     kind: client
     name:
-      note: Not documented yet.
+      note: >
+        `S3.{method}`, or `aws-api` when the S3 method was not read.
+        `rpc.method` reports the method as `S3/{method}`, so the name cannot be
+        expressed as a template.
     stability: development
     requirement_level: recommended
     brief: OBI AWS S3 client span.
@@ -61,7 +64,9 @@ spans:
   - type: obi.aws.sqs.client
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "SQS.{messaging.operation.name}"
+        - "aws-api"
     stability: development
     requirement_level: recommended
     brief: OBI AWS SQS client span.
@@ -112,7 +117,9 @@ spans:
   - type: obi.aws.sns.client
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "SNS.{messaging.operation.name}"
+        - "SNS."
     stability: development
     requirement_level: recommended
     brief: OBI AWS SNS client span.
