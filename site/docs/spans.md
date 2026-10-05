@@ -352,6 +352,7 @@ OBI GenAI vector-retrieval client span.
 | `gen_ai.operation.name` | string | `required` | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
 | `gen_ai.provider.name` | enum | `required` | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
 | `gen_ai.request.model` | string | `conditionally_required`: if the request named a model | development | The name of the GenAI model a request is being made to. | gpt-4 |
+| `gen_ai.request.top_k` | double | `recommended`: if the request set a result count | development | The top_k sampling setting for the GenAI request. | 1 |
 | `gen_ai.response.id` | string | `recommended`: if the response carried an id | development | The unique identifier for the completion. | chatcmpl-123 |
 | `gen_ai.response.model` | string | `recommended`: if the request or the response named a model | development | The name of the model that generated the response. | gpt-4-0613 |
 | `gen_ai.usage.input_tokens` | int | `recommended`: if the provider reported token usage | development | The number of tokens used in the GenAI input (prompt). | 100 |
@@ -752,6 +753,16 @@ OBI NATS span for a send or a publish operation.
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
+
+## `obi.request.phase`
+
+OBI child span splitting a request that waited before it was processed into its queued and processing phases.
+
+| Span kind | Stability |
+| --- | --- |
+| internal | development |
+
+No attributes.
 
 ## `obi.rpc.grpc.client`
 

@@ -1,7 +1,7 @@
-# The failed-connect span has no upstream semconv domain of its own, so it
-# lives here rather than in a protocol domain file. Every other OBI span lives
-# in its protocol's domain directory (http/, db/, rpc/, messaging/, gen_ai/,
-# aws/, dns/).
+# The failed-connect span and the request-phase children have no upstream
+# semconv domain of their own, so they live here rather than in a protocol
+# domain file. Every other OBI span lives in its protocol's domain directory
+# (http/, db/, rpc/, messaging/, gen_ai/, aws/, dns/).
 file_format: definition/2
 spans:
   - type: obi.failed_connect
@@ -27,3 +27,13 @@ spans:
       # `_OTHER`, so the attribute is always present.
       - ref: error.type
         requirement_level: required
+
+  - type: obi.request.phase
+    kind: internal
+    name:
+      note: Not documented yet.
+    stability: development
+    requirement_level: recommended
+    brief: >
+      OBI child span splitting a request that waited before it was processed
+      into its queued and processing phases.
