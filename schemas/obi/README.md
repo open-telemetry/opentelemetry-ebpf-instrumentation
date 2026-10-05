@@ -49,7 +49,9 @@ Checked only when an integration suite that runs weaver exercises it:
   enum value the registry does not list, or a `required` metric attribute that
   is missing.
 - Each span is matched to its span type by the matchers in `.weaver.toml` and
-  checked against that type; a span no matcher selects fails the suite.
+  checked against that type; a span no matcher selects fails the suite. Span
+  names are compared with the type's name templates, and a mismatch fails the
+  suite.
 
 Not enforced today:
 
@@ -109,7 +111,9 @@ document what OBI defines.
 Every span declares how OBI names it. `name.templates` lists the templates in
 the order OBI tries them: the first whose attributes are all present, non-empty
 and not `_OTHER` gives the name. A span whose name uses a value OBI does not
-emit as an attribute describes it in `name.note` instead.
+emit as an attribute describes it in `name.note` instead. Live-check compares
+the name of each span with its templates through the `span_name_mismatch`
+policy in `.live_check_policies/`.
 
 ## Live-check matchers
 
