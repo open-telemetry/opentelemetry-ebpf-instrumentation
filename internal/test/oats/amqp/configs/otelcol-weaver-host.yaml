@@ -21,6 +21,21 @@ exporters:
     tls:
       insecure: true
 
+processors:
+  # Weaver validates what OBI emits against OBI's registry. A test application
+  # instrumented with its own OpenTelemetry SDK exports through this collector
+  # too, and its telemetry follows upstream semconv rather than OBI's
+  # definitions, so only resources OBI stamped with its distro name reach
+  # weaver.
+  filter/obi-only:
+    error_mode: ignore
+    metrics:
+      metric:
+        - 'resource.attributes["telemetry.distro.name"] != "opentelemetry-ebpf-instrumentation"'
+    traces:
+      span:
+        - 'resource.attributes["telemetry.distro.name"] != "opentelemetry-ebpf-instrumentation"'
+
 service:
   # On network_mode:host the collector's default self-metrics endpoint
   # (localhost:8888) can collide with other services, so it moves to 18888,
@@ -36,10 +51,18 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      exporters: [otlp/lgtm, otlp/weaver]
+      exporters: [otlp/lgtm]
     metrics:
       receivers: [otlp]
-      exporters: [otlp/lgtm, otlp/weaver]
+      exporters: [otlp/lgtm]
+    traces/weaver:
+      receivers: [otlp]
+      processors: [filter/obi-only]
+      exporters: [otlp/weaver]
+    metrics/weaver:
+      receivers: [otlp]
+      processors: [filter/obi-only]
+      exporters: [otlp/weaver]
     logs:
       receivers: [otlp]
       exporters: [otlp/lgtm]

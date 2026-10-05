@@ -33,6 +33,20 @@ exporters:
       block_on_overflow: false
     retry_on_failure:
       enabled: false
+processors:
+  # Weaver validates what OBI emits against OBI's registry. A test application
+  # instrumented with its own OpenTelemetry SDK exports through this collector
+  # too, and its telemetry follows upstream semconv rather than OBI's
+  # definitions, so only resources OBI stamped with its distro name reach
+  # weaver.
+  filter/obi-only:
+    error_mode: ignore
+    metrics:
+      metric:
+        - 'resource.attributes["telemetry.distro.name"] != "opentelemetry-ebpf-instrumentation"'
+    traces:
+      span:
+        - 'resource.attributes["telemetry.distro.name"] != "opentelemetry-ebpf-instrumentation"'
 service:
   pipelines:
     # Production paths.
@@ -45,7 +59,9 @@ service:
     # Weaver taps with their own independent queues.
     metrics/weaver:
       receivers: [otlp]
+      processors: [filter/obi-only]
       exporters: [otlp/weaver]
     traces/weaver:
       receivers: [otlp]
+      processors: [filter/obi-only]
       exporters: [otlp/weaver]
