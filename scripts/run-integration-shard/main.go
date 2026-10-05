@@ -246,6 +246,9 @@ func loadCheckpoint(cfg config, tests []string) (checkpoint, error) {
 			latestDir = filepath.Dir(path)
 		}
 	}
+	if latest.Attempt != cfg.attempt-1 {
+		return checkpoint{}, errors.New("missing checkpoint for the preceding shard attempt")
+	}
 	if !latest.Reusable {
 		return checkpoint{}, errors.New("no reusable checkpoint for this shard")
 	}

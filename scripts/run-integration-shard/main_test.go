@@ -60,15 +60,17 @@ func TestShardRerunsOnlyUnresolvedTests(t *testing.T) {
 }
 
 func TestShardFallsBackToFullRun(t *testing.T) {
-	for _, reason := range []string{"missing", "corrupt", "different commit", "different shard", "different arch", "different run", "different pattern", "unsafe latest", "future attempt", "invalid result", "missing test"} {
+	for _, reason := range []string{"missing", "missing previous attempt", "corrupt", "different commit", "different shard", "different arch", "different run", "different pattern", "unsafe latest", "future attempt", "invalid result", "missing test"} {
 		t.Run(reason, func(t *testing.T) {
 			cfg := testConfig(t)
 			state := checkpoint{
-				Version: checkpointVersion, Scope: cfg.scope, Attempt: 1, Reusable: true,
+				Version: checkpointVersion, Scope: cfg.scope, Attempt: 2, Reusable: true,
 				Results: map[string]string{"TestAlpha": "pass", "TestBeta": "fail", "TestGamma": "skip"},
 			}
 			cfg.attempt = 3
 			switch reason {
+			case "missing previous attempt", "unsafe latest":
+				state.Attempt = 1
 			case "different commit":
 				state.Scope.Commit = "other-commit"
 			case "different shard":
@@ -86,7 +88,7 @@ func TestShardFallsBackToFullRun(t *testing.T) {
 			case "missing test":
 				delete(state.Results, "TestGamma")
 			}
-			previous := filepath.Join(cfg.previousDir, "attempt-1")
+			previous := filepath.Join(cfg.previousDir, "attempt-"+strconv.Itoa(state.Attempt))
 			if reason != "missing" {
 				if err := saveCheckpoint(previous, state); err != nil {
 					t.Fatal(err)
