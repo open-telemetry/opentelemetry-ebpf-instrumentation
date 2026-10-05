@@ -258,6 +258,9 @@ spans:
       - ref: gen_ai.data_source.id
         requirement_level:
           conditionally_required: if the request named a collection
+      - ref: gen_ai.request.top_k
+        requirement_level:
+          recommended: if the request set a result count
       - ref: error.type
         requirement_level:
           conditionally_required: if the operation ended in an error
