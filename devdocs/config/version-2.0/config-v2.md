@@ -568,7 +568,7 @@ The current shape separates packet/flow capture from TCP stats capture:
 
 ### `capture.engine` Section
 
-The `capture.engine` section controls eBPF engine internals: event batching, PID-based filtering, BPF filesystem path, context propagation mode, traffic control backend, transaction duration limits, and debug toggles.
+The `capture.engine` section controls eBPF engine internals: event batching, PID-based filtering, BPF filesystem path, context propagation mode, traffic control backend, transaction duration limits, and debug toggles. Set `capture.engine.debug.bpf_mode` to `trace_pipe`, `userspace`, `all`, or `disabled` to select where BPF debug logs are emitted. The legacy `capture.engine.debug.bpf` boolean remains supported; do not set both fields. For Config v1 or environment-only configurations, `OTEL_EBPF_BPF_DEBUG_MODE` accepts the same mode values while `OTEL_EBPF_BPF_DEBUG` remains a boolean compatibility setting.
 
 **Why `engine`, not `capture.capture`**
 

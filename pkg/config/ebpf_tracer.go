@@ -15,6 +15,9 @@ import (
 
 type ContextPropagationMode uint8
 
+// BPFDebugMode selects where eBPF debug logs are emitted.
+type BPFDebugMode uint8
+
 type RedisDBCacheConfig struct {
 	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_BPF_REDIS_DB_CACHE_ENABLED" validate:"boolean"`
 	MaxSize int  `yaml:"max_size" env:"OTEL_EBPF_BPF_REDIS_DB_CACHE_MAX_SIZE" validate:"gt=0"`
@@ -25,12 +28,21 @@ const (
 	ContextPropagationHeaders  ContextPropagationMode = 1 << 0 // HTTP headers
 	ContextPropagationTCP      ContextPropagationMode = 1 << 1 // TCP options
 
+	BPFDebugDisabled  BPFDebugMode = 0
+	BPFDebugTracePipe BPFDebugMode = 1 << 0
+	BPFDebugUserspace BPFDebugMode = 1 << 1
+	BPFDebugAll       BPFDebugMode = BPFDebugTracePipe | BPFDebugUserspace
+
 	// Convenience aliases
 	ContextPropagationAll         = ContextPropagationHeaders | ContextPropagationTCP
 	StrContextPropagationDisabled = "disabled"
 	StrContextPropagationAll      = "all"
 	StrContextPropagationHeaders  = "headers"
 	StrContextPropagationTCP      = "tcp"
+	StrBPFDebugDisabled           = "disabled"
+	StrBPFDebugTracePipe          = "trace_pipe"
+	StrBPFDebugUserspace          = "userspace"
+	StrBPFDebugAll                = "all"
 )
 
 type MapsConfig struct {
@@ -45,6 +57,10 @@ type MapsConfig struct {
 type EBPFTracer struct {
 	// Enables logging of eBPF program events
 	BpfDebug bool `yaml:"bpf_debug" env:"OTEL_EBPF_BPF_DEBUG" validate:"boolean"`
+
+	// BpfDebugMode controls which outputs receive eBPF debug logs. BpfDebug
+	// remains available for backward compatibility.
+	BpfDebugMode *BPFDebugMode `yaml:"-" env:"OTEL_EBPF_BPF_DEBUG_MODE" validate:"-"`
 
 	// WakeupLen specifies how many messages need to be accumulated in the eBPF ringbuffer
 	// before sending a wakeup request.
@@ -190,6 +206,99 @@ type EBPFTracer struct {
 
 	// Disables uprobe_multi support for testing. This option is intentionally environment-only.
 	DisableUprobeMulti bool `yaml:"-" json:"-" env:"OTEL_EBPF_DEBUG_DISABLE_UPROBE_MULTI"`
+}
+
+// DebugMode returns the configured debug outputs, honoring the legacy boolean.
+func (e EBPFTracer) DebugMode() BPFDebugMode {
+	if e.BpfDebugMode != nil {
+		return *e.BpfDebugMode
+	}
+	if e.BpfDebug {
+		return BPFDebugAll
+	}
+	return BPFDebugDisabled
+}
+
+func (m BPFDebugMode) IsTracePipeEnabled() bool {
+	return m&BPFDebugTracePipe != 0
+}
+
+func (m BPFDebugMode) IsUserspaceEnabled() bool {
+	return m&BPFDebugUserspace != 0
+}
+
+func (m BPFDebugMode) IsEnabled() bool {
+	return m != BPFDebugDisabled
+}
+
+func (m *BPFDebugMode) UnmarshalText(text []byte) error {
+	str := strings.TrimSpace(string(text))
+
+	switch str {
+	case StrBPFDebugAll:
+		*m = BPFDebugAll
+		return nil
+	case StrBPFDebugDisabled, "":
+		*m = BPFDebugDisabled
+		return nil
+	}
+
+	parts := strings.Split(str, ",")
+	var result BPFDebugMode
+	for _, part := range parts {
+		switch strings.TrimSpace(part) {
+		case StrBPFDebugTracePipe:
+			result |= BPFDebugTracePipe
+		case StrBPFDebugUserspace:
+			result |= BPFDebugUserspace
+		default:
+			return fmt.Errorf("invalid value for bpf_debug_mode: '%s' (valid: all, disabled, trace_pipe, userspace)", part)
+		}
+	}
+
+	*m = result
+	return nil
+}
+
+func (m BPFDebugMode) MarshalText() ([]byte, error) {
+	switch m {
+	case BPFDebugDisabled:
+		return []byte(StrBPFDebugDisabled), nil
+	case BPFDebugAll:
+		return []byte(StrBPFDebugAll), nil
+	case BPFDebugTracePipe:
+		return []byte(StrBPFDebugTracePipe), nil
+	case BPFDebugUserspace:
+		return []byte(StrBPFDebugUserspace), nil
+	default:
+		if m&^(BPFDebugTracePipe|BPFDebugUserspace) != 0 {
+			return nil, fmt.Errorf("invalid BPF debug mode: %d", m)
+		}
+		return []byte(StrBPFDebugTracePipe + "," + StrBPFDebugUserspace), nil
+	}
+}
+
+func (BPFDebugMode) JSONSchema() *jsonschema.Schema {
+	options := []string{StrBPFDebugTracePipe, StrBPFDebugUserspace}
+	optionsStr := strings.Join(options, "|")
+	optionsRegexp := fmt.Sprintf("^(%s)(,(%s))*$", optionsStr, optionsStr)
+	return &jsonschema.Schema{
+		OneOf: []*jsonschema.Schema{
+			{
+				Type:        "string",
+				Enum:        []any{StrBPFDebugAll, StrBPFDebugDisabled, ""},
+				Description: "Enable all debug outputs, disable debug logging, or use empty string for disabled.",
+			},
+			{
+				Type:        "string",
+				Description: "Comma-separated list of debug outputs to enable.",
+				Examples:    []any{StrBPFDebugTracePipe, StrBPFDebugUserspace, StrBPFDebugTracePipe + "," + StrBPFDebugUserspace},
+				Pattern:     optionsRegexp,
+			},
+		},
+		Title:       "BPF Debug Mode",
+		Description: "Controls eBPF debug logging outputs: 'trace_pipe', 'userspace', or both ('all').",
+	}
 }
 
 var nvidiaSMIExistsFunc = nvidiaSMIExists

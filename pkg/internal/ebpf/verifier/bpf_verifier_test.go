@@ -171,7 +171,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 
 	// netolly
 	netollyOpts := []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		{"sampling", []any{uint32(0), uint32(1), uint32(1000)}},
 		{"trace_messages", []any{uint8(0), uint8(1)}},
 		{"port_guessing", []any{uint8(0), uint8(1)}},
@@ -181,7 +181,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 
 	// generictracer
 	forEachCombination(t, "generictracer/Bpf", generictracerbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		{"g_bpf_traceparent_enabled", []any{true, false}},
 		{"filter_pids", []any{int32(0), int32(1)}},
 		{"high_request_volume", []any{uint32(0), uint32(1)}},
@@ -200,7 +200,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// verified in both states without doubling the full generictracer
 	// cross-product.
 	forEachCombination(t, "generictracer/BpfNodejs", generictracerbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		{"g_bpf_traceparent_enabled", []any{true, false}},
 		{"nodejs_runtime_metrics_enabled", []any{uint64(0), uint64(1)}},
 		// the production default once a reader is present; see the matrix above
@@ -211,7 +211,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// obi_ctx writers stay verified against every other constant. This covers
 	// the off path, where they compile away, without doubling either matrix.
 	forEachCombination(t, "generictracer/BpfTracesCtxOff", generictracerbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		{"g_bpf_traceparent_enabled", []any{true, false}},
 		{"http_max_captured_bytes", []any{uint32(262144)}},
 		{"tcp_max_captured_bytes", []any{uint32(65536)}},
@@ -220,7 +220,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 
 	// gotracer
 	forEachCombination(t, "gotracer/Bpf", gotracerbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		{"g_bpf_traceparent_enabled", []any{true, false}},
 		{"g_bpf_header_propagation", []any{true, false}},
 		{"g_bpf_probe_write_user_enabled", []any{true}},
@@ -234,7 +234,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"g_traces_ctx_v1_enabled", []any{true}},
 	})
 	forEachCombination(t, "gotracer/BpfTracesCtxOff", gotracerbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		{"g_bpf_traceparent_enabled", []any{true}},
 		{"g_bpf_header_propagation", []any{true, false}},
 		{"g_bpf_probe_write_user_enabled", []any{true}},
@@ -252,7 +252,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// tpinjector
 	// inject_flags is a bitmask: bit 0 = HTTP headers, bit 1 = TCP options.
 	forEachCombination(t, "tpinjector/Bpf", tpinjectorbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		{"filter_pids", []any{int32(0), int32(1)}},
 		{"inject_flags", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
@@ -262,7 +262,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// has a separate >= 6.4 gate (RCU stall) enforced in tpinjector.Iters.
 	if major, minor := ebpfcommon.KernelVersion(); major > 5 || (major == 5 && minor >= 11) {
 		forEachCombination(t, "tpinjector/BpfIter", tpinjectorbpf.LoadBpfIter, []constOption{
-			{"g_bpf_debug", []any{true, false}},
+			{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		})
 	} else {
 		t.Logf("skipping tpinjector/BpfIter: kernel %d.%d < 5.11", major, minor)
@@ -271,38 +271,38 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// tpinjector/BpfFionreadFixup uses bpf_probe_write_user, rejected at load time
 	// under kernel lockdown - none of the CI kernels run locked down
 	forEachCombination(t, "tpinjector/BpfFionreadFixup", tpinjectorbpf.LoadBpfFionreadFixup, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 	})
 
 	// watcher
 	forEachCombination(t, "watcher/Bpf", watcherbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 	})
 
 	// gpuevent
 	forEachCombination(t, "gpuevent/Bpf", gpueventbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		{"filter_pids", []any{int32(0), int32(1)}},
 	})
 
 	// logger
 	forEachCombination(t, "logger/Bpf", loggerbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 	})
 
 	// logenricher
 	forEachCombination(t, "logenricher/Bpf", logenricherbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 	})
 
 	// rdns xdp
 	forEachCombination(t, "rdns/xdp/Bpf", rdnsxdpbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 	})
 
 	// statsolly
 	forEachCombination(t, "statsolly/Stats", statsolly.LoadStats, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		{"stats_wakeup_data_bytes", []any{uint32(0), uint32(1 << 20)}},
 	})
 }

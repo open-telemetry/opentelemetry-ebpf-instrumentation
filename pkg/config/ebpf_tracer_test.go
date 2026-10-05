@@ -74,6 +74,85 @@ func TestContextPropagationMode_UnmarshalText(t *testing.T) {
 	}
 }
 
+func TestBPFDebugMode_UnmarshalText(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    BPFDebugMode
+		wantErr bool
+	}{
+		{name: "all", input: "all", want: BPFDebugAll},
+		{name: "disabled", input: "disabled", want: BPFDebugDisabled},
+		{name: "empty", input: "", want: BPFDebugDisabled},
+		{name: "trace pipe", input: "trace_pipe", want: BPFDebugTracePipe},
+		{name: "userspace", input: "userspace", want: BPFDebugUserspace},
+		{name: "both", input: "trace_pipe,userspace", want: BPFDebugAll},
+		{name: "whitespace", input: " trace_pipe , userspace ", want: BPFDebugAll},
+		{name: "invalid", input: "invalid", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got BPFDebugMode
+			err := got.UnmarshalText([]byte(tt.input))
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("UnmarshalText() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Errorf("UnmarshalText() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBPFDebugMode_MarshalText(t *testing.T) {
+	tests := []struct {
+		name    string
+		mode    BPFDebugMode
+		want    string
+		wantErr bool
+	}{
+		{name: "all", mode: BPFDebugAll, want: "all"},
+		{name: "disabled", mode: BPFDebugDisabled, want: "disabled"},
+		{name: "trace pipe", mode: BPFDebugTracePipe, want: "trace_pipe"},
+		{name: "userspace", mode: BPFDebugUserspace, want: "userspace"},
+		{name: "invalid", mode: 1 << 2, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := tt.mode.MarshalText()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("MarshalText() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && string(got) != tt.want {
+				t.Errorf("MarshalText() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEBPFTracer_DebugMode(t *testing.T) {
+	mode := BPFDebugTracePipe
+	tests := []struct {
+		name string
+		cfg  EBPFTracer
+		want BPFDebugMode
+	}{
+		{name: "disabled by default", want: BPFDebugDisabled},
+		{name: "legacy debug", cfg: EBPFTracer{BpfDebug: true}, want: BPFDebugAll},
+		{name: "configured mode", cfg: EBPFTracer{BpfDebugMode: &mode}, want: BPFDebugTracePipe},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.cfg.DebugMode(); got != tt.want {
+				t.Errorf("DebugMode() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestContextPropagationMode_MarshalText(t *testing.T) {
 	tests := []struct {
 		name    string

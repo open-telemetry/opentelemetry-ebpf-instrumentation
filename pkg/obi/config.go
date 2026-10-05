@@ -797,6 +797,10 @@ type validationContext struct {
 
 //nolint:cyclop
 func (c *Config) validate(context validationContext) error {
+	if c.EBPF.BpfDebug && c.EBPF.BpfDebugMode != nil {
+		return ConfigError("ebpf.bpf_debug and BPF debug mode cannot both be set")
+	}
+
 	validate := validator.New(validator.WithRequiredStructEnabled())
 
 	// for future custom validations
@@ -1071,6 +1075,7 @@ func (c *Config) ExternalLogger(handler slog.Handler, debugMode bool) {
 	klogbridge.Install()
 	if debugMode {
 		c.TracePrinter = debug.TracePrinterText
+		c.EBPF.BpfDebugMode = nil
 		c.EBPF.BpfDebug = true
 		c.EBPF.ProtocolDebug = true
 		if c.NetworkFlows.Enable {
