@@ -1,6 +1,31 @@
 # OBI's .NET runtime metrics use the upstream instruments and units.
 # Service and container metadata are carried on the meter resource.
 groups:
+  - id: metric.obi.dotnet.process.cpu.count
+    type: metric
+    metric_name: dotnet.process.cpu.count
+    annotations:
+      obi:
+        upstream_override: true
+    brief: Number of processors available to the .NET process.
+    instrument: updowncounter
+    unit: "{cpu}"
+    stability: stable
+    attributes: []
+  - id: metric.obi.dotnet.process.cpu.time
+    type: metric
+    metric_name: dotnet.process.cpu.time
+    annotations:
+      obi:
+        upstream_override: true
+    brief: CPU time consumed by the .NET process.
+    instrument: counter
+    unit: "s"
+    stability: stable
+    attributes:
+      - ref: cpu.mode
+        requirement_level: required
+        examples: ["user", "system"]
   - id: metric.obi.dotnet.gc.heap.total_allocated
     type: metric
     metric_name: dotnet.gc.heap.total_allocated

@@ -10,7 +10,9 @@ services:
     user: ${DOTNET_RUNTIME_USER:-0:0}
     environment:
       DOTNET_ThreadPool_ThreadTimeoutMs: "2000"
-      DOTNET_PROCESSOR_COUNT: "2"
+      DOTNET_PROCESSOR_COUNT: "${DOTNET_RUNTIME_PROCESSOR_COUNT:-}"
+    cpus: ${DOTNET_RUNTIME_CPUS:-2}
+    cpuset: "${DOTNET_RUNTIME_CPUSET:-}"
     entrypoint: ["dotnet", "/app/workload/dotnet-runtime-metrics.dll", "--http"]
     volumes:
       - ${DOTNET_RUNTIME_SOCKET_DIR}:/tmp
