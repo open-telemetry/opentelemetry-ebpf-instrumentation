@@ -21,7 +21,8 @@ here in the same change:
   the `metrics:` list of `groups/<domain>/metrics.yaml`, listing every attribute
   the metric's `attr_defs.go` section can carry, each with a requirement level.
 - **A span**: add its attributes to the `obi.*` span type of the emitter branch
-  that produces it, or add a span type for a new branch, and a case to
+  that produces it, or add a span type for a new branch together with its
+  live-check matcher in `.weaver.toml` (see below), and a case to
   `internal/schemacheck/emitted_contract_test.go`.
 - **An attribute upstream does not define**: declare it under `attributes:` in
   the domain's `registry.yaml`.
@@ -36,9 +37,10 @@ Checked on every change, without running OBI:
 - `make lint-schema`: the registry resolves and is well-formed.
 - `internal/schemacheck`: every signal attribute declares a requirement level;
   the span attributes the exporter emits for each case in
-  `emitted_contract_test.go` match their span type exactly; OBI's copies of
-  upstream metrics keep upstream's unit, instrument and stability, and win
-  resolution over the upstream definition.
+  `emitted_contract_test.go` match their span type exactly; the live-check
+  matchers select each of those spans as its own type and no other; OBI's
+  copies of upstream metrics keep upstream's unit, instrument and stability,
+  and win resolution over the upstream definition.
 
 Checked only when an integration suite that runs weaver exercises it:
 
@@ -46,16 +48,14 @@ Checked only when an integration suite that runs weaver exercises it:
   metric (`missing_metric`), an undeclared attribute (`missing_attribute`), an
   enum value the registry does not list, or a `required` metric attribute that
   is missing.
+- Each span is matched to its span type by the matchers in `.weaver.toml` and
+  checked against that type; a span no matcher selects fails the suite.
 
 Not enforced today:
 
 - There is no deterministic check that every metric in
   `pkg/export/attributes/metric.go` is declared; an undeclared metric fails
   only once a weaver-validated suite emits it.
-- Spans are not matched to a span type by live-check, which checks each span
-  attribute against the registry as a whole. Span type membership, span kind
-  and required span attributes are checked only for the cases in
-  `emitted_contract_test.go`, and span names are not checked.
 - `conditionally_required` conditions are prose and are not evaluated.
 - Output specific to the Prometheus exporter is not described by the registry.
 
@@ -110,6 +110,16 @@ Every span declares how OBI names it. `name.templates` lists the templates in
 the order OBI tries them: the first whose attributes are all present, non-empty
 and not `_OTHER` gives the name. A span whose name uses a value OBI does not
 emit as an attribute describes it in `name.note` instead.
+
+## Live-check matchers
+
+A span carries no identifier of its own, so `.weaver.toml` declares one
+`[[live-check.matchers]]` entry per span type, selecting a span by its kind
+and the attributes that tell its type apart. Matchers are evaluated in order
+and are mutually exclusive; `TestEmittedSpansMatchTheirDeclaredSpan` in
+`internal/schemacheck` feeds representative spans through live-check and fails
+when a span matches any type other than its own. A new span type needs a
+matcher, or the weaver-validated suites fail on its unmatched spans.
 
 ## Two override styles
 
