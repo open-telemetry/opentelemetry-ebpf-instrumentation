@@ -973,6 +973,58 @@ func TestAppMetrics_HTTPErrorType(t *testing.T) {
 	}
 }
 
+func TestAppMetrics_REDHistogramBucketBoundaries(t *testing.T) {
+	features := export.FeatureApplicationRED | export.FeatureApplicationSizes
+	// non-default and distinct per field, so a histogram that ignores cfg.Buckets or uses
+	// another field's buckets fails the bounds assertion
+	buckets := export.Buckets{
+		DurationHistogram:     []float64{0.002, 0.2, 2},
+		RequestSizeHistogram:  []float64{3, 300, 3000},
+		ResponseSizeHistogram: []float64{7, 700, 7000},
+	}
+	ctx := t.Context()
+	records := make(chan histogramBoundsRecord, 100)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		Buckets:           buckets,
+		MetricsConsumer:   testHistogramBoundsConsumer(records),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: features},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	svcAttrs := svc.Attrs{Features: features, UID: svc.UID{Instance: "foo"}}
+	metrics.Send([]request.Span{
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Method: "GET", Status: 200, RequestStart: 100, End: 200},
+		{Service: svcAttrs, Type: request.EventTypeHTTPClient, Method: "GET", Status: 200, RequestStart: 100, End: 200},
+	})
+
+	expected := map[string][]float64{
+		attributes.HTTPServerDuration.OTEL:     buckets.DurationHistogram,
+		attributes.HTTPClientDuration.OTEL:     buckets.DurationHistogram,
+		attributes.HTTPServerRequestSize.OTEL:  buckets.RequestSizeHistogram,
+		attributes.HTTPClientRequestSize.OTEL:  buckets.RequestSizeHistogram,
+		attributes.HTTPServerResponseSize.OTEL: buckets.ResponseSizeHistogram,
+		attributes.HTTPClientResponseSize.OTEL: buckets.ResponseSizeHistogram,
+	}
+	assert.Equal(t, expected, readHistogramBounds(t, records, slices.Collect(maps.Keys(expected))...))
+}
+
 func TestAppMetrics_DBClientServerPortDefaultSelection(t *testing.T) {
 	ctx := t.Context()
 	metricRecords := make(chan collector.MetricRecord, 10)
@@ -1535,6 +1587,53 @@ func testMetricsConsumer(out chan<- collector.MetricRecord) consumer.Metrics {
 	}
 
 	return c
+}
+
+type histogramBoundsRecord struct {
+	Name   string
+	Bounds []float64
+}
+
+func testHistogramBoundsConsumer(out chan<- histogramBoundsRecord) consumer.Metrics {
+	c, err := consumer.NewMetrics(func(_ context.Context, md pmetric.Metrics) error {
+		for _, rm := range md.ResourceMetrics().All() {
+			for _, sm := range rm.ScopeMetrics().All() {
+				for _, m := range sm.Metrics().All() {
+					if m.Type() != pmetric.MetricTypeHistogram {
+						continue
+					}
+					for _, point := range m.Histogram().DataPoints().All() {
+						out <- histogramBoundsRecord{Name: m.Name(), Bounds: point.ExplicitBounds().AsRaw()}
+					}
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	return c
+}
+
+// readHistogramBounds returns the explicit bucket bounds of the first data point received for each named histogram
+func readHistogramBounds(t *testing.T, inCh <-chan histogramBoundsRecord, names ...string) map[string][]float64 {
+	t.Helper()
+	bounds := map[string][]float64{}
+	deadline := time.After(timeout)
+	for len(bounds) < len(names) {
+		select {
+		case record := <-inCh:
+			if _, seen := bounds[record.Name]; !seen && slices.Contains(names, record.Name) {
+				bounds[record.Name] = record.Bounds
+			}
+		case <-deadline:
+			require.Failf(t, "timeout while waiting for histograms", "got: %v, want: %v", bounds, names)
+		}
+	}
+
+	return bounds
 }
 
 func readMetricsByName(t require.TestingT, inCh <-chan collector.MetricRecord, timeout time.Duration, names ...string) []collector.MetricRecord {
