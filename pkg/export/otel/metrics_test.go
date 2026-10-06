@@ -1025,6 +1025,57 @@ func TestAppMetrics_REDHistogramBucketBoundaries(t *testing.T) {
 	assert.Equal(t, expected, readHistogramBounds(t, records, slices.Collect(maps.Keys(expected))...))
 }
 
+func TestAppMetrics_GenAIHistogramBucketBoundaries(t *testing.T) {
+	// non-default and distinct per field, so a histogram that ignores cfg.Buckets or uses
+	// another field's buckets fails the bounds assertion
+	buckets := export.Buckets{
+		GenAIClientDurationHistogram: []float64{0.004, 0.4, 4},
+		GenAITokenUsageHistogram:     []float64{5, 500, 5000},
+	}
+	ctx := t.Context()
+	records := make(chan histogramBoundsRecord, 100)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
+		Buckets:           buckets,
+		MetricsConsumer:   testHistogramBoundsConsumer(records),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	var usage request.OpenAIUsage
+	require.NoError(t, json.Unmarshal([]byte(`{"prompt_tokens":10,"completion_tokens":20}`), &usage))
+	metrics.Send([]request.Span{{
+		Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "genai"}},
+		Type:         request.EventTypeHTTPClient,
+		SubType:      request.HTTPSubtypeOpenAI,
+		RequestStart: 100,
+		End:          200,
+		GenAI:        &request.GenAI{OpenAI: &request.VendorOpenAI{Usage: usage}},
+	}})
+
+	expected := map[string][]float64{
+		attributes.GenAIClientOperationDuration.OTEL: buckets.GenAIClientDurationHistogram,
+		attributes.GenAIClientInputTokenUsage.OTEL:   buckets.GenAITokenUsageHistogram,
+	}
+	assert.Equal(t, expected, readHistogramBounds(t, records, slices.Collect(maps.Keys(expected))...))
+}
+
 func TestAppMetrics_DBClientServerPortDefaultSelection(t *testing.T) {
 	ctx := t.Context()
 	metricRecords := make(chan collector.MetricRecord, 10)
