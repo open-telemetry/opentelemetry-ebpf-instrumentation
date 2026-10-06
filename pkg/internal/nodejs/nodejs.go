@@ -141,7 +141,7 @@ func (i *NodeInjector) Inject(ctx context.Context, target InjectionTarget) {
 func (i *NodeInjector) attachAgent(ctx context.Context, target InjectionTarget, elfFile *elf.File) error {
 	pid := int(target.Pid)
 
-	injected, err := i.injectViaOpenInspector(pid, target.Ns)
+	injected, err := i.injectViaOpenInspector(target)
 	if injected || err != nil {
 		return err
 	}
@@ -163,16 +163,16 @@ func (i *NodeInjector) attachAgent(ctx context.Context, target InjectionTarget, 
 		return fmt.Errorf("error enabling node inspector: %w", err)
 	}
 
-	return i.injectViaSignaledInspector(pid, target.Ns)
+	return i.injectViaSignaledInspector(target)
 }
 
-func (i *NodeInjector) injectViaSignaledInspector(pid int, ns uint32) error {
-	return netns.WithNetNS(pid, func() error {
+func (i *NodeInjector) injectViaSignaledInspector(target InjectionTarget) error {
+	return netns.WithNetNS(int(target.Pid), func() error {
 		conn, err := connectWait(inspectorAddr, inspectorPort, 5*time.Second, 200*time.Millisecond)
 		if err != nil {
 			return fmt.Errorf("failed to connect to inspector after SIGUSR1: %w", err)
 		}
-		defer i.trackConn(ns, conn)()
+		defer i.trackConn(target.Ns, conn)()
 
 		// SIGUSR1 opened this port, so this injection closes it again.
 		return i.injectViaConn(conn, true)
@@ -184,15 +184,15 @@ func (i *NodeInjector) injectViaSignaledInspector(pid int, ns uint32) error {
 // value reports whether the injection was carried out.
 //
 // The port was the application's before OBI connected, so it is left open.
-func (i *NodeInjector) injectViaOpenInspector(pid int, ns uint32) (bool, error) {
+func (i *NodeInjector) injectViaOpenInspector(target InjectionTarget) (bool, error) {
 	injected := false
 
-	err := netns.WithNetNS(pid, func() error {
+	err := netns.WithNetNS(int(target.Pid), func() error {
 		conn, err := connect(inspectorAddr, inspectorPort)
 		if err != nil {
 			return nil
 		}
-		defer i.trackConn(ns, conn)()
+		defer i.trackConn(target.Ns, conn)()
 
 		// Validate this is actually a Node.js inspector, not some other
 		// service that happens to listen on port 9229.
@@ -201,7 +201,7 @@ func (i *NodeInjector) injectViaOpenInspector(pid int, ns uint32) (bool, error) 
 			return nil
 		}
 
-		i.log.Debug("Node.js inspector already open, injecting directly", "pid", pid)
+		i.log.Debug("Node.js inspector already open, injecting directly", "pid", target.Pid)
 		injected = true
 		return i.injectViaConn(conn, false)
 	})

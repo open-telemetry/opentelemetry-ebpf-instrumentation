@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	"go.opentelemetry.io/obi/pkg/export"
@@ -129,10 +130,11 @@ func TestInjectorTracksItsInspectorConnection(t *testing.T) {
 
 			cfg := obi.DefaultConfig
 			injector := NewNodeInjector(&cfg, log.track)
+			target := InjectionTarget{Pid: app.PID(os.Getpid()), Ns: 33}
 			if tc.signaled {
-				require.NoError(t, injector.injectViaSignaledInspector(os.Getpid(), 33))
+				require.NoError(t, injector.injectViaSignaledInspector(target))
 			} else {
-				injected, err := injector.injectViaOpenInspector(os.Getpid(), 33)
+				injected, err := injector.injectViaOpenInspector(target)
 				require.NoError(t, err)
 				require.Equal(t, tc.isInspector, injected)
 			}
@@ -156,7 +158,7 @@ func TestInjectorWithoutConnTracker(t *testing.T) {
 	fakeInspector(t, true, &conversationLog{})
 
 	cfg := obi.DefaultConfig
-	injected, err := NewNodeInjector(&cfg, nil).injectViaOpenInspector(os.Getpid(), 33)
+	injected, err := NewNodeInjector(&cfg, nil).injectViaOpenInspector(InjectionTarget{Pid: app.PID(os.Getpid())})
 	require.NoError(t, err)
 	require.True(t, injected)
 }
