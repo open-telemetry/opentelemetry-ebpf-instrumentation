@@ -19,7 +19,9 @@ which is the `schema_url` OBI stamps onto its OTLP telemetry (see
 
 ## Rules
 
-- **One file per release**, named by the OBI release version, no extension.
+- **One file per stable release**, named by the OBI release version, no extension.
+  Prereleases retain the previous published stable schema. Schema consumers
+  require `MAJOR.MINOR.PATCH` identifiers in schema URLs and version keys.
 - **Files are immutable once released** — a published `schema_url` is a
   permanent identity. Never edit a released file; add a new version instead.
 - The `versions:` block records the transformations (attribute/metric renames)
@@ -31,7 +33,7 @@ which is the `schema_url` OBI stamps onto its OTLP telemetry (see
 
 Version management is release-driven. The version comes from `versions.yaml`
 (the OBI release version), and `make prerelease` runs `make generate-schema-next`
-automatically, which:
+automatically. For stable releases, it:
 
 - cuts `site/schemas/obi/<version>` (previous file plus a new, empty `<version>:`
   entry on top),
@@ -42,7 +44,15 @@ automatically, which:
 These changes are part of the release-prep commit; on merge to `main` the file is
 deployed by `publish-schemas.yml`. `make check-schema-files` (run in CI) enforces
 that the emitted `OBISchemaURL` and the manifest both name the `versions.yaml`
-version and that a schema file for that version is actually published.
+version and that a schema file for that version is actually published. For
+prereleases, generation leaves the published schemas and both URLs unchanged;
+validation requires the URLs to agree and identify a published stable schema.
+Reference docs are still regenerated for prereleases.
+
+Keep pending transformations through the RC phase and apply them when preparing
+the stable release. RC telemetry must remain compatible with the retained schema;
+if an RC needs telemetry renames, its schema identity must be decided before
+publication.
 
 **If telemetry changed this release** (an attribute or metric was renamed), add
 the transformation entries by hand under the new `<version>:` block before

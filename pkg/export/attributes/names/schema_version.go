@@ -5,4 +5,4 @@
 
 package attr
 
-var OBISchemaURL = "https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/1.0.0-rc.1"
+var OBISchemaURL = "https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/0.14.0"

@@ -8,10 +8,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+const schemaReleaseBaseURL = "https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/"
 
 func TestSchemaReleaseVersions(t *testing.T) {
 	for _, tc := range []struct {
@@ -37,26 +40,29 @@ func TestSchemaReleaseVersions(t *testing.T) {
 		{"1.0.0-rc..1", false},
 	} {
 		t.Run(tc.version, func(t *testing.T) {
-			root := t.TempDir()
-			for _, script := range []string{"generate-schema-next.sh", "check-schema-files.sh"} {
-				contents, err := os.ReadFile(script)
-				require.NoError(t, err)
-				writeSchemaReleaseFile(t, root, "scripts/"+script, string(contents))
-			}
+			root := schemaReleaseFixture(t)
 			writeSchemaReleaseFile(t, root, "versions.yaml", "module-sets:\n  obi:\n    version: v"+tc.version+"\n")
-			const baseURL = "https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/"
+			const baseURL = schemaReleaseBaseURL
 			manifest := "schema_url: " + baseURL + "0.14.0\n"
 			emitted := "var OBISchemaURL = \"" + baseURL + "0.14.0\"\n"
-			writeSchemaReleaseFile(t, root, "schemas/obi/manifest.yaml", manifest)
-			writeSchemaReleaseFile(t, root, "pkg/export/attributes/names/schema_version.go", emitted)
 			schema := func(version string) string {
 				return fmt.Sprintf("file_format: 1.1.0\nschema_url: %s%s\nversions:\n  %s:\n", baseURL, version, version)
 			}
-			writeSchemaReleaseFile(t, root, "site/schemas/obi/0.14.0", schema("0.14.0"))
 
 			out, err := exec.Command("bash", filepath.Join(root, "scripts/generate-schema-next.sh")).CombinedOutput()
 			if tc.valid {
 				require.NoError(t, err, "%s", out)
+				if strings.Contains(tc.version, "-") {
+					require.NoFileExists(t, filepath.Join(root, "site/schemas/obi", tc.version))
+					for path, expected := range map[string]string{
+						"schemas/obi/manifest.yaml":                     manifest,
+						"pkg/export/attributes/names/schema_version.go": emitted,
+					} {
+						contents, readErr := os.ReadFile(filepath.Join(root, path))
+						require.NoError(t, readErr)
+						require.Equal(t, expected, string(contents))
+					}
+				}
 			} else {
 				require.Error(t, err, "%s", out)
 				require.Contains(t, string(out), "versions.yaml obi version")
@@ -82,6 +88,78 @@ func TestSchemaReleaseVersions(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSchemaReleaseCandidateToStable(t *testing.T) {
+	root := schemaReleaseFixture(t)
+	previous, err := os.ReadFile(filepath.Join(root, "site/schemas/obi/0.14.0"))
+	require.NoError(t, err)
+	for _, version := range []string{"1.0.0-rc.1", "1.0.0-rc.2", "1.0.0"} {
+		writeSchemaReleaseFile(t, root, "versions.yaml", "module-sets:\n  obi:\n    version: v"+version+"\n")
+		out, runErr := exec.Command("bash", filepath.Join(root, "scripts/generate-schema-next.sh")).CombinedOutput()
+		require.NoError(t, runErr, "%s", out)
+		out, runErr = exec.Command("bash", filepath.Join(root, "scripts/check-schema-files.sh")).CombinedOutput()
+		require.NoError(t, runErr, "%s", out)
+	}
+	require.NoFileExists(t, filepath.Join(root, "site/schemas/obi/1.0.0-rc.1"))
+	require.NoFileExists(t, filepath.Join(root, "site/schemas/obi/1.0.0-rc.2"))
+	final, err := os.ReadFile(filepath.Join(root, "site/schemas/obi/1.0.0"))
+	require.NoError(t, err)
+	_, history, found := strings.Cut(string(previous), "versions:\n")
+	require.True(t, found)
+	require.Equal(t, "file_format: 1.1.0\nschema_url: "+schemaReleaseBaseURL+"1.0.0\nversions:\n  1.0.0:\n"+history, string(final))
+	preserved, err := os.ReadFile(filepath.Join(root, "site/schemas/obi/0.14.0"))
+	require.NoError(t, err)
+	require.Equal(t, previous, preserved)
+
+	final = []byte(strings.Replace(string(final), "  1.0.0:\n", "  1.0.0:\n    all:\n      changes:\n        - rename_attributes:\n            attribute_map:\n              old.name: new.name\n", 1))
+	writeSchemaReleaseFile(t, root, "site/schemas/obi/1.0.0", string(final))
+	out, err := exec.Command("bash", filepath.Join(root, "scripts/generate-schema-next.sh")).CombinedOutput()
+	require.NoError(t, err, "%s", out)
+	preserved, err = os.ReadFile(filepath.Join(root, "site/schemas/obi/1.0.0"))
+	require.NoError(t, err)
+	require.Equal(t, final, preserved)
+}
+
+func TestSchemaReleaseRejectsPrereleaseSchemas(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		path     string
+		contents string
+		message  string
+	}{
+		{"file", "site/schemas/obi/1.0.0-rc.1", "file_format: 1.1.0\nschema_url: " + schemaReleaseBaseURL + "1.0.0-rc.1\nversions:\n  1.0.0-rc.1:\n", "name is not a MAJOR.MINOR.PATCH version"},
+		{"history", "site/schemas/obi/0.14.0", "file_format: 1.1.0\nschema_url: " + schemaReleaseBaseURL + "0.14.0\nversions:\n  0.14.0:\n  1.0.0-rc.1:\n", "versions: entry '1.0.0-rc.1'"},
+		{"emitted URL", "pkg/export/attributes/names/schema_version.go", "var OBISchemaURL = \"" + schemaReleaseBaseURL + "0.14.0-rc.1\"\n", "OBISchemaURL must name a stable"},
+		{"manifest URL", "schemas/obi/manifest.yaml", "schema_url: " + schemaReleaseBaseURL + "0.14.0-rc.1\n", "does not match OBISchemaURL"},
+		{"stable release with stale schema", "versions.yaml", "module-sets:\n  obi:\n    version: v1.0.0\n", "does not match the versions.yaml version"},
+		{"invalid release", "versions.yaml", "module-sets:\n  obi:\n    version: v1.0.0-01\n", "versions.yaml obi version '1.0.0-01' is invalid"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := schemaReleaseFixture(t)
+			writeSchemaReleaseFile(t, root, tc.path, tc.contents)
+			out, err := exec.Command("bash", filepath.Join(root, "scripts/check-schema-files.sh")).CombinedOutput()
+			require.Error(t, err, "%s", out)
+			require.Contains(t, string(out), tc.message)
+		})
+	}
+}
+
+func schemaReleaseFixture(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	for _, script := range []string{"generate-schema-next.sh", "check-schema-files.sh"} {
+		contents, err := os.ReadFile(script)
+		require.NoError(t, err)
+		writeSchemaReleaseFile(t, root, "scripts/"+script, string(contents))
+	}
+	writeSchemaReleaseFile(t, root, "versions.yaml", "module-sets:\n  obi:\n    version: v1.0.0-rc.1\n")
+	writeSchemaReleaseFile(t, root, "schemas/obi/manifest.yaml", "schema_url: "+schemaReleaseBaseURL+"0.14.0\n")
+	writeSchemaReleaseFile(t, root, "pkg/export/attributes/names/schema_version.go", "var OBISchemaURL = \""+schemaReleaseBaseURL+"0.14.0\"\n")
+	previous, err := os.ReadFile("../site/schemas/obi/0.14.0")
+	require.NoError(t, err)
+	writeSchemaReleaseFile(t, root, "site/schemas/obi/0.14.0", string(previous))
+	return root
 }
 
 func writeSchemaReleaseFile(t *testing.T, root, path, contents string) {

@@ -3,12 +3,14 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Release-driven schema versioning. Reads the OBI release version from
-# versions.yaml and, for that version:
+# versions.yaml and, for stable releases:
 #   1. cuts site/schemas/obi/<version> (previous published file plus a new,
 #      empty <version>: entry on top — a cumulative superset, like semconv),
 #   2. bumps the emitted schema_url constant (OBISchemaURL) and the weaver
 #      registry manifest schema_url to <version>.
 #
+# Prereleases retain the published stable schema because schema consumers do
+# not support prerelease version identifiers.
 # Intended to run at release prep (invoked by `make prerelease`). Files are
 # immutable once published: if telemetry changed in this release, add the
 # rename entries by hand under the new <version>: block before committing
@@ -30,6 +32,11 @@ version_pattern="($numeric_identifier)\.($numeric_identifier)\.($numeric_identif
 version="$(awk '/^  obi:/{o=1} o&&/version:/{v=$2; sub(/^v/,"",v); print v; exit}' "$ROOT/versions.yaml")"
 [ -n "$version" ] || fail "could not read the obi version from versions.yaml"
 echo "$version" | grep -Eq "^$version_pattern$" || fail "versions.yaml obi version '$version' is not MAJOR.MINOR.PATCH with an optional prerelease suffix"
+
+if [[ "$version" == *-* ]]; then
+	echo "generate-schema-next: prerelease $version retains the published stable schema"
+	exit 0
+fi
 
 new_file="$SCHEMA_DIR/$version"
 if [ -f "$new_file" ]; then
