@@ -55,6 +55,7 @@ type PIDInfo struct {
 }
 
 type ownConn struct {
+	ns             uint32
 	client, server netip.AddrPort
 	opened         time.Duration
 	// zero while the connection is in use
@@ -113,14 +114,15 @@ func (pf *PIDsFilter) BlockPID(pid app.PID, ns uint32) {
 	pf.removePID(pid, ns)
 }
 
-// TrackOwnConn makes Filter drop the requests from client to server until release is called.
-func (pf *PIDsFilter) TrackOwnConn(client, server netip.AddrPort) (release func()) {
+// TrackOwnConn makes Filter drop the requests from client to server in the PID
+// namespace ns until release is called.
+func (pf *PIDsFilter) TrackOwnConn(ns uint32, client, server netip.AddrPort) (release func()) {
 	pf.mux.Lock()
 	defer pf.mux.Unlock()
 
 	pf.pruneExpired()
 
-	conn := &ownConn{client: client, server: server, opened: pidsFilterMonoNow()}
+	conn := &ownConn{ns: ns, client: client, server: server, opened: pidsFilterMonoNow()}
 	port := int(client.Port())
 	pf.ownConns[port] = append(pf.ownConns[port], conn)
 
@@ -168,7 +170,7 @@ func generationFor(info *PIDInfo, span *request.Span) *PIDInfo {
 func (pf *PIDsFilter) isOwnConn(span *request.Span) bool {
 	for _, c := range pf.ownConns[span.PeerPort] {
 		// Start, as RequestStart can be the accept time, which may precede TrackOwnConn
-		if c.inUseAt(span.Start) && int(c.server.Port()) == span.HostPort &&
+		if c.inUseAt(span.Start) && c.ns == span.Pid.Namespace && int(c.server.Port()) == span.HostPort &&
 			span.Peer == c.client.Addr().String() && span.Host == c.server.Addr().String() {
 			return true
 		}

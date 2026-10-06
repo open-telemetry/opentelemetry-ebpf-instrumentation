@@ -715,7 +715,7 @@ func TestFilter_OwnConnWindow(t *testing.T) {
 	pf, now := ownConnFilter(t)
 
 	before := requestOn(injectorEnd, inspectorEnd, *now-time.Millisecond)
-	release := pf.TrackOwnConn(injectorEnd, inspectorEnd)
+	release := pf.TrackOwnConn(33, injectorEnd, inspectorEnd)
 	opening := requestOn(injectorEnd, inspectorEnd, *now)
 	*now += time.Millisecond
 	during := requestOn(injectorEnd, inspectorEnd, *now)
@@ -731,7 +731,7 @@ func TestFilter_OwnConnWindow(t *testing.T) {
 		before, opening, during, accepted, after,
 	})))
 
-	stillOpen := pf.TrackOwnConn(injectorEnd, inspectorEnd)
+	stillOpen := pf.TrackOwnConn(33, injectorEnd, inspectorEnd)
 	defer stillOpen()
 	*now += time.Hour
 	assert.Empty(t, pf.Filter([]request.Span{requestOn(injectorEnd, inspectorEnd, *now)}))
@@ -739,7 +739,7 @@ func TestFilter_OwnConnWindow(t *testing.T) {
 
 func TestFilter_OwnConnKeepsOtherConnections(t *testing.T) {
 	pf, now := ownConnFilter(t)
-	defer pf.TrackOwnConn(injectorEnd, inspectorEnd)()
+	defer pf.TrackOwnConn(33, injectorEnd, inspectorEnd)()
 	*now += time.Millisecond
 
 	reversed := requestOn(inspectorEnd, injectorEnd, *now)
@@ -759,21 +759,39 @@ func TestFilter_OwnConnKeepsOtherConnections(t *testing.T) {
 	assert.Equal(t, kept, resetTraceContext(pf.Filter(slices.Clone(kept))))
 }
 
+func TestFilter_OwnConnInTargetNamespace(t *testing.T) {
+	pf, now := ownConnFilter(t)
+	pf.AllowPID(124, 33, exec.New(exec.Init{}), PIDTypeKProbes)
+	pf.AllowPID(123, 44, exec.New(exec.Init{}), PIDTypeKProbes)
+	defer pf.TrackOwnConn(33, injectorEnd, inspectorEnd)()
+	*now += time.Millisecond
+
+	target := requestOn(injectorEnd, inspectorEnd, *now)
+	clusterWorker := target
+	clusterWorker.Pid.UserPID = 124
+	otherNamespace := target
+	otherNamespace.Pid.Namespace = 44
+
+	assert.Equal(t, []request.Span{otherNamespace}, resetTraceContext(pf.Filter([]request.Span{
+		target, clusterWorker, otherNamespace,
+	})))
+}
+
 func TestTrackOwnConnPrunesReleasedConns(t *testing.T) {
 	pf, now := ownConnFilter(t)
 
-	release := pf.TrackOwnConn(injectorEnd, inspectorEnd)
-	defer pf.TrackOwnConn(netip.MustParseAddrPort("127.0.0.1:50000"), inspectorEnd)()
+	release := pf.TrackOwnConn(33, injectorEnd, inspectorEnd)
+	defer pf.TrackOwnConn(33, netip.MustParseAddrPort("127.0.0.1:50000"), inspectorEnd)()
 	*now += time.Millisecond
 	late := requestOn(injectorEnd, inspectorEnd, *now)
 	release()
 
 	*now += pidRemovalRetention
-	pf.TrackOwnConn(netip.MustParseAddrPort("127.0.0.1:50001"), inspectorEnd)()
+	pf.TrackOwnConn(33, netip.MustParseAddrPort("127.0.0.1:50001"), inspectorEnd)()
 	assert.Empty(t, pf.Filter([]request.Span{late}), "kept while its spans may still arrive")
 
 	*now += time.Second
-	pf.TrackOwnConn(netip.MustParseAddrPort("127.0.0.1:50002"), inspectorEnd)()
+	pf.TrackOwnConn(33, netip.MustParseAddrPort("127.0.0.1:50002"), inspectorEnd)()
 	assert.Len(t, pf.Filter([]request.Span{late}), 1)
 	assert.NotContains(t, pf.ownConns, 48486)
 	assert.Contains(t, pf.ownConns, 50000, "a connection still in use is never pruned")
@@ -788,7 +806,7 @@ func TestTrackOwnConnConcurrently(t *testing.T) {
 		wg.Go(func() {
 			for port := range 100 {
 				client := netip.AddrPortFrom(injectorEnd.Addr(), uint16(40000+i*100+port))
-				pf.TrackOwnConn(client, inspectorEnd)()
+				pf.TrackOwnConn(33, client, inspectorEnd)()
 			}
 		})
 		wg.Go(func() {

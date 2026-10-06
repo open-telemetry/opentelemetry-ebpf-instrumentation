@@ -32,10 +32,10 @@ var (
 type NodeInjector struct {
 	log          *slog.Logger
 	cfg          *obi.Config
-	trackOwnConn func(client, server netip.AddrPort) (release func())
+	trackOwnConn func(ns uint32, client, server netip.AddrPort) (release func())
 }
 
-func NewNodeInjector(cfg *obi.Config, trackOwnConn func(client, server netip.AddrPort) (release func())) *NodeInjector {
+func NewNodeInjector(cfg *obi.Config, trackOwnConn func(ns uint32, client, server netip.AddrPort) (release func())) *NodeInjector {
 	log := slog.With("component", "nodejs.Injector")
 
 	if !cfg.NodeJS.Enabled && cfg.AppRuntimeMetricsEnabled() {
@@ -141,7 +141,7 @@ func (i *NodeInjector) Inject(ctx context.Context, target InjectionTarget) {
 func (i *NodeInjector) attachAgent(ctx context.Context, target InjectionTarget, elfFile *elf.File) error {
 	pid := int(target.Pid)
 
-	injected, err := i.injectViaOpenInspector(pid)
+	injected, err := i.injectViaOpenInspector(pid, target.Ns)
 	if injected || err != nil {
 		return err
 	}
@@ -163,16 +163,16 @@ func (i *NodeInjector) attachAgent(ctx context.Context, target InjectionTarget, 
 		return fmt.Errorf("error enabling node inspector: %w", err)
 	}
 
-	return i.injectViaSignaledInspector(pid)
+	return i.injectViaSignaledInspector(pid, target.Ns)
 }
 
-func (i *NodeInjector) injectViaSignaledInspector(pid int) error {
+func (i *NodeInjector) injectViaSignaledInspector(pid int, ns uint32) error {
 	return netns.WithNetNS(pid, func() error {
 		conn, err := connectWait(inspectorAddr, inspectorPort, 5*time.Second, 200*time.Millisecond)
 		if err != nil {
 			return fmt.Errorf("failed to connect to inspector after SIGUSR1: %w", err)
 		}
-		defer i.trackConn(conn)()
+		defer i.trackConn(ns, conn)()
 
 		// SIGUSR1 opened this port, so this injection closes it again.
 		return i.injectViaConn(conn, true)
@@ -184,7 +184,7 @@ func (i *NodeInjector) injectViaSignaledInspector(pid int) error {
 // value reports whether the injection was carried out.
 //
 // The port was the application's before OBI connected, so it is left open.
-func (i *NodeInjector) injectViaOpenInspector(pid int) (bool, error) {
+func (i *NodeInjector) injectViaOpenInspector(pid int, ns uint32) (bool, error) {
 	injected := false
 
 	err := netns.WithNetNS(pid, func() error {
@@ -192,7 +192,7 @@ func (i *NodeInjector) injectViaOpenInspector(pid int) (bool, error) {
 		if err != nil {
 			return nil
 		}
-		defer i.trackConn(conn)()
+		defer i.trackConn(ns, conn)()
 
 		// Validate this is actually a Node.js inspector, not some other
 		// service that happens to listen on port 9229.
@@ -209,14 +209,14 @@ func (i *NodeInjector) injectViaOpenInspector(pid int) (bool, error) {
 	return injected, err
 }
 
-func (i *NodeInjector) trackConn(conn net.Conn) (release func()) {
+func (i *NodeInjector) trackConn(ns uint32, conn net.Conn) (release func()) {
 	local, _ := conn.LocalAddr().(*net.TCPAddr)
 	remote, _ := conn.RemoteAddr().(*net.TCPAddr)
 	if i.trackOwnConn == nil || local == nil || remote == nil {
 		return func() {}
 	}
 
-	return i.trackOwnConn(local.AddrPort(), remote.AddrPort())
+	return i.trackOwnConn(ns, local.AddrPort(), remote.AddrPort())
 }
 
 // Every reason an injection is skipped, in the order they are decided: what the

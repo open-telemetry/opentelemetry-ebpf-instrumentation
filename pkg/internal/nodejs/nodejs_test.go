@@ -53,6 +53,7 @@ func TestAcceptsSkipsDeno(t *testing.T) {
 type conversationLog struct {
 	mu             sync.Mutex
 	events         []string
+	ns             uint32
 	client, server netip.AddrPort
 }
 
@@ -62,10 +63,10 @@ func (l *conversationLog) add(event string) {
 	l.events = append(l.events, event)
 }
 
-func (l *conversationLog) track(client, server netip.AddrPort) func() {
+func (l *conversationLog) track(ns uint32, client, server netip.AddrPort) func() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.client, l.server = client, server
+	l.ns, l.client, l.server = ns, client, server
 	l.events = append(l.events, "track")
 	return func() { l.add("release") }
 }
@@ -129,9 +130,9 @@ func TestInjectorTracksItsInspectorConnection(t *testing.T) {
 			cfg := obi.DefaultConfig
 			injector := NewNodeInjector(&cfg, log.track)
 			if tc.signaled {
-				require.NoError(t, injector.injectViaSignaledInspector(os.Getpid()))
+				require.NoError(t, injector.injectViaSignaledInspector(os.Getpid(), 33))
 			} else {
-				injected, err := injector.injectViaOpenInspector(os.Getpid())
+				injected, err := injector.injectViaOpenInspector(os.Getpid(), 33)
 				require.NoError(t, err)
 				require.Equal(t, tc.isInspector, injected)
 			}
@@ -145,6 +146,7 @@ func TestInjectorTracksItsInspectorConnection(t *testing.T) {
 			}
 			want = append(want, "release")
 			assert.Equal(t, want, log.events)
+			assert.Equal(t, uint32(33), log.ns)
 			assert.Equal(t, server, log.server)
 		})
 	}
@@ -154,7 +156,7 @@ func TestInjectorWithoutConnTracker(t *testing.T) {
 	fakeInspector(t, true, &conversationLog{})
 
 	cfg := obi.DefaultConfig
-	injected, err := NewNodeInjector(&cfg, nil).injectViaOpenInspector(os.Getpid())
+	injected, err := NewNodeInjector(&cfg, nil).injectViaOpenInspector(os.Getpid(), 33)
 	require.NoError(t, err)
 	require.True(t, injected)
 }
@@ -167,6 +169,6 @@ func TestTrackConnIgnoresNonTCPConns(t *testing.T) {
 	defer client.Close()
 	defer server.Close()
 
-	NewNodeInjector(&cfg, log.track).trackConn(client)()
+	NewNodeInjector(&cfg, log.track).trackConn(33, client)()
 	assert.Empty(t, log.events)
 }
