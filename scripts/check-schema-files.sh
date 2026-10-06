@@ -20,8 +20,9 @@ fail() {
 
 numeric_identifier='0|[1-9][0-9]*'
 prerelease_identifier="($numeric_identifier|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)"
+build_identifier='[0-9a-zA-Z-]+'
 schema_version_pattern="($numeric_identifier)\.($numeric_identifier)\.($numeric_identifier)"
-release_version_pattern="$schema_version_pattern(-$prerelease_identifier(\.$prerelease_identifier)*)?"
+release_version_pattern="$schema_version_pattern(-$prerelease_identifier(\.$prerelease_identifier)*)?(\+$build_identifier(\.$build_identifier)*)?"
 
 shopt -s nullglob
 count=0
@@ -60,6 +61,7 @@ emitted="${emitted_url#"$BASE_URL/"}"
 
 [ -n "$version" ] || fail "could not read the obi version from versions.yaml"
 echo "$version" | grep -Eq "^$release_version_pattern$" || fail "versions.yaml obi version '$version' is invalid"
+version="${version%%+*}"
 echo "$emitted" | grep -Eq "^$schema_version_pattern$" || fail "OBISchemaURL must name a stable MAJOR.MINOR.PATCH version"
 [ "$manifest_url" = "$emitted_url" ] || fail "manifest schema_url ($manifest_url) does not match OBISchemaURL ($emitted_url)"
 [ -f "$SCHEMA_DIR/$emitted" ] || fail "site/schemas/obi/$emitted is not published (would 404)"

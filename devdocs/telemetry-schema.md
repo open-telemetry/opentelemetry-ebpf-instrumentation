@@ -22,6 +22,9 @@ which is the `schema_url` OBI stamps onto its OTLP telemetry (see
 - **One file per stable release**, named by the OBI release version, no extension.
   Prereleases retain the previous published stable schema. Schema consumers
   require `MAJOR.MINOR.PATCH` identifiers in schema URLs and version keys.
+- Build metadata in release tags is omitted from the schema identity:
+  `v1.0.0+build.123` uses the `1.0.0` schema, and `v1.0.0-rc.1+build.123`
+  retains the previous published stable schema.
 - **Files are immutable once released** — a published `schema_url` is a
   permanent identity. Never edit a released file; add a new version instead.
 - The `versions:` block records the transformations (attribute/metric renames)
