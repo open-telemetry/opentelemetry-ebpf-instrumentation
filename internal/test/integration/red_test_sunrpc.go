@@ -79,6 +79,7 @@ func testREDMetricsGoSunRPC(t *testing.T) {
 					Name: "portmapper/0",
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "client"),
+						semconv.RPCMethod("portmapper/0"),
 					},
 				},
 			},

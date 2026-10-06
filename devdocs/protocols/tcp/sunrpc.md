@@ -23,13 +23,14 @@ Spans use [ONC RPC semantic conventions](https://opentelemetry.io/docs/specs/sem
 | Attribute | Description |
 |:----------|:------------|
 | `rpc.system` | `onc_rpc` (`semconv.RPCSystemOncRPC`) |
+| `rpc.method` | `{program}/{procedure}` when the CALL was captured (for example `portmapper/0`) |
 | `onc_rpc.program.name` | Program name when known (for example `nfs`, `mount`, `portmapper`) |
 | `onc_rpc.procedure.number` | Procedure number from the CALL header |
 | `onc_rpc.procedure.name` | Procedure name when a mapping exists |
 | `onc_rpc.version` | Program version from the CALL header |
 | `onc_rpc.auth.flavor` | Authentication flavor when present (extension until semconv adds it) |
 
-Client spans use `SpanKindClient`; server spans use `SpanKindServer`. Trace names follow `{program}/{procedure}` (for example `portmapper/0`).
+Client spans use `SpanKindClient`; server spans use `SpanKindServer`. Span names are `{rpc.method}` (for example `portmapper/0`), or `onc_rpc` when `rpc.method` is unavailable (reply-only spans).
 
 Enable traces with `instrumentations: [sunrpc]` under `otel_traces` (enabled by default in the stock config).
 
@@ -39,10 +40,10 @@ SunRPC spans emit standard RPC duration histograms:
 
 | OTEL metric | Prometheus name | Span kinds |
 |:------------|:------------------|:-----------|
-| `rpc.client.duration` | `rpc_client_duration_seconds` | `SunRPCClient` |
-| `rpc.server.duration` | `rpc_server_duration_seconds` | `SunRPCServer` |
+| `rpc.client.call.duration` | `rpc_client_call_duration_seconds` | `SunRPCClient` |
+| `rpc.server.call.duration` | `rpc_server_call_duration_seconds` | `SunRPCServer` |
 
-Metric attributes include `rpc.system=onc_rpc`, `onc_rpc.program.name`, `onc_rpc.procedure.number`, and `onc_rpc.version` when available.
+Metric attributes include `rpc.system=onc_rpc`, `rpc.method`, `onc_rpc.program.name`, `onc_rpc.procedure.number`, and `onc_rpc.version` when available.
 
 Enable metrics with `instrumentations: [sunrpc]` under `otel_metrics` or `prometheus` (included when `instrumentations: ["*"]`).
 

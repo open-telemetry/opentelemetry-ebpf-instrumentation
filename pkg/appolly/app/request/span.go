@@ -2204,6 +2204,13 @@ func elasticsearchSpanName(s *Span) string {
 	return dbSpanName(s.Elasticsearch.DBOperationName, target, s.Elasticsearch.DBSystemName)
 }
 
+func awsTraceName(service, operation string) string {
+	if operation == "" {
+		return RPCSystemAWSAPI
+	}
+	return service + "." + operation
+}
+
 func (s *Span) TraceName() string {
 	if s.OverrideTraceName != "" {
 		return s.OverrideTraceName
@@ -2212,7 +2219,7 @@ func (s *Span) TraceName() string {
 	case EventTypeHTTP, EventTypeHTTPClient:
 		if s.Type == EventTypeHTTP && s.SubType == HTTPSubtypeGraphQL && s.GraphQL != nil {
 			if s.GraphQL.OperationType != "" {
-				return "GraphQL " + s.GraphQL.OperationType
+				return s.GraphQL.OperationType
 			} else {
 				return "GraphQL Operation"
 			}
@@ -2222,23 +2229,15 @@ func (s *Span) TraceName() string {
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {
-			if s.AWS.S3.Method != "" {
-				return "s3." + s.AWS.S3.Method
-			} else {
-				return "s3.Operation"
-			}
+			return awsTraceName(awsServiceS3, s.AWS.S3.Method)
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSQS && s.AWS != nil {
-			if s.AWS.SQS.OperationName != "" {
-				return "sqs." + s.AWS.SQS.OperationName
-			} else {
-				return "sqs.Operation"
-			}
+			return awsTraceName(awsServiceSQS, s.AWS.SQS.OperationName)
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil {
-			return "SNS." + s.AWS.SNS.OperationName
+			return awsServiceSNS + "." + s.AWS.SNS.OperationName
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeSQLPP {
@@ -2290,10 +2289,10 @@ func (s *Span) TraceName() string {
 		}
 		return s.Method + " " + s.Path
 	case EventTypeSunRPCClient, EventTypeSunRPCServer:
-		if s.Path == "" {
-			return "sunrpc/" + s.Method
+		if method := s.SunRPCMethodForExport(); method != "" {
+			return method
 		}
-		return s.Path + "/" + s.Method
+		return RPCSystemONCRPC
 	case EventTypeMongoClient, EventTypeCouchbaseClient:
 		return dbSpanName(s.Method, cmp.Or(s.Path, s.DBNamespace), dbSystemNameForSpan(s))
 	case EventTypeManualSpan:

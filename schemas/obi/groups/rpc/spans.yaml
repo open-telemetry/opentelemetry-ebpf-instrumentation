@@ -1,7 +1,7 @@
 groups:
-  # gRPC and ONC/Sun RPC are separate emitter branches with disjoint attribute
-  # sets: only gRPC reports rpc.method, rpc.response.status_code and
-  # client.address, and only ONC/Sun RPC reports onc_rpc.*. One group per system
+  # gRPC and ONC/Sun RPC are separate emitter branches with different attribute
+  # sets: only gRPC reports rpc.response.status_code and client.address, and
+  # only ONC/Sun RPC reports onc_rpc.*. One group per system
   # rather than a union no span satisfies, which is also how upstream models
   # per-system RPC conventions.
   - id: span.obi.rpc.grpc.server
@@ -84,6 +84,9 @@ groups:
     attributes:
       - ref: rpc.system.name
         requirement_level: required
+      - ref: rpc.method
+        requirement_level:
+          conditionally_required: if the call was captured
       - ref: onc_rpc.program.name
         requirement_level:
           conditionally_required: if the program name was read from the call
@@ -128,6 +131,9 @@ groups:
     attributes:
       - ref: rpc.system.name
         requirement_level: required
+      - ref: rpc.method
+        requirement_level:
+          conditionally_required: if the call was captured
       - ref: onc_rpc.program.name
         requirement_level:
           conditionally_required: if the program name was read from the call

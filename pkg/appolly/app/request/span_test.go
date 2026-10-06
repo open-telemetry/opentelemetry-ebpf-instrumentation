@@ -262,7 +262,20 @@ func TestTraceName(t *testing.T) {
 
 		// SunRPC spans
 		{name: "SunRPC client", span: &Span{Type: EventTypeSunRPCClient, Path: "portmapper", Method: "0"}, expected: "portmapper/0"},
-		{name: "SunRPC no program", span: &Span{Type: EventTypeSunRPCServer, Method: "6"}, expected: "sunrpc/6"},
+		{name: "SunRPC mapped procedure", span: &Span{Type: EventTypeSunRPCClient, Path: "mount", Method: "MOUNTPROC_EXPORT", Route: "5"}, expected: "mount/MOUNTPROC_EXPORT"},
+		{name: "SunRPC no program", span: &Span{Type: EventTypeSunRPCServer, Method: "6"}, expected: "onc_rpc"},
+		{name: "SunRPC reply only", span: &Span{Type: EventTypeSunRPCServer, Path: "sunrpc", Method: SunRPCSyntheticReplyMethod}, expected: "onc_rpc"},
+
+		// GraphQL spans
+		{name: "GraphQL operation type", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeGraphQL, GraphQL: &GraphQL{OperationType: "query", OperationName: "Q"}}, expected: "query"},
+		{name: "GraphQL no operation type", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeGraphQL, GraphQL: &GraphQL{}}, expected: "GraphQL Operation"},
+
+		// AWS spans
+		{name: "AWS S3", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAWSS3, AWS: &AWS{S3: AWSS3{Method: "GetObject"}}}, expected: "S3.GetObject"},
+		{name: "AWS S3 no operation", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAWSS3, AWS: &AWS{}}, expected: "aws-api"},
+		{name: "AWS SQS", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAWSSQS, AWS: &AWS{SQS: AWSSQS{OperationName: "SendMessage"}}}, expected: "SQS.SendMessage"},
+		{name: "AWS SQS no operation", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAWSSQS, AWS: &AWS{}}, expected: "aws-api"},
+		{name: "AWS SNS", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAWSSNS, AWS: &AWS{SNS: AWSSNS{OperationName: "Publish"}}}, expected: "SNS.Publish"},
 
 		// JSON-RPC spans
 		{name: "JSON-RPC with method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"}}, expected: "subtract"},

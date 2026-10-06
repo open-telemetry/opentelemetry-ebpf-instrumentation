@@ -36,6 +36,7 @@ func TestTraceAttributesSelector_SunRPCClient(t *testing.T) {
 	assert.Equal(t, trace2.SpanKindClient, spanKind(span))
 	assert.Contains(t, attrs, request.RPCSystem("onc_rpc"))
 	assert.Contains(t, attrs, semconv.OncRPCProgramName("nfs"))
+	assert.Contains(t, attrs, semconv.RPCMethod("nfs/3"))
 	assert.Contains(t, attrs, semconv.OncRPCProcedureNumber(3))
 	assert.NotContains(t, attrs, semconv.OncRPCProcedureName("3"))
 	assert.Contains(t, attrs, semconv.OncRPCVersion(4))
@@ -64,6 +65,7 @@ func TestTraceAttributesSelector_SunRPCProcedureName(t *testing.T) {
 		for _, kv := range attrs {
 			assert.NotEqual(t, string(semconv.OncRPCProcedureNameKey), string(kv.Key))
 			assert.NotEqual(t, string(semconv.OncRPCProcedureNumberKey), string(kv.Key))
+			assert.NotEqual(t, string(semconv.RPCMethodKey), string(kv.Key))
 		}
 	})
 }
@@ -88,6 +90,7 @@ func TestTraceAttributesSelector_SunRPC_matchesMetricGetters(t *testing.T) {
 
 	for _, name := range []attr.Name{
 		attr.RPCSystem,
+		attr.RPCMethod,
 		attr.OncRPCProgramName,
 		attr.OncRPCProcedureNumber,
 		attr.OncRPCVersion,
