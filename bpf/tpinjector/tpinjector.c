@@ -74,8 +74,8 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //   │                                  │
 //   ├── pull_data + fill_msg_buffers   │  Committed to processing
 //   │                                  │
-//   ├── is_h2_socket?                  │  Preface seen / confirmed H2: skip
-//   │     └─ tail-call detect_h2       │  preface check, drive the H2 chain
+//   ├── is_h2_socket?                  │  Preface / probation / confirmed:
+//   │     └─ tail-call detect_h2       │  skip HTTP/1, drive the H2 chain
 //   │                                 │
 //   ├── HTTP/1 detected?              │  ── find_existing_tp ── create_tp ──
 //   │                                 │     write_msg_traceparent
@@ -88,10 +88,13 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //                                           ▼
 //                                        sniff_h2
 //                                           │ strict mid-stream frame sniff;
-//                                           │ confirms H2, marks the socket
+//                                           │ 1st send: probation, no inject;
+//                                           │ next send (via detect_h2) must
+//                                           │ tile too: confirm, else reject
 //                                           ▼
 //                                        detect_h2 ◀──────────────┐
 //                                           │ known-SSL: reject    │
+//                                           │ probation: sniff_h2  │
 //                                           │ preface→SETTINGS     │ resume on
 //                                           │ confirms genuine H2  │ batched
 //                                           │ (else reject);       │ frame via
@@ -207,7 +210,9 @@ h2_resume_after(struct sk_msg_md *msg, tailcall_ctx *t_ctx, u32 next_pos) {
     bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
 }
 
-// Per-socket HTTP/2 detection state (sk_h2_conn_flag values).
+// Per-socket HTTP/2 detection state (sk_h2_conn_flag values). States only ever
+// move towards confirmed or rejected; rejected is final, and confirmed can still
+// become rejected when the SSL uprobes mark the socket.
 //
 // We only splice an HPACK traceparent once we've confirmed a *genuine* HTTP/2
 // stream. RFC 7540 §3.4/§3.5 require the client connection preface
@@ -221,7 +226,12 @@ enum {
     k_h2_sock_none = 0,      // nothing seen yet
     k_h2_sock_preface = 1,   // preface seen, awaiting the mandatory SETTINGS frame
     k_h2_sock_confirmed = 2, // SETTINGS seen after preface — genuine HTTP/2, inject
-    k_h2_sock_rejected = 3,  // post-preface bytes were not SETTINGS — never inject
+    k_h2_sock_rejected = 3,  // not HTTP/2, or known TLS — never inject
+    // One send of a socket with no preface framed as HTTP/2. Not injectable until
+    // a later send frames exactly too: a tunnel carrying whole H2 frames in its
+    // own length-prefixed messages matches once, then its own framing does not.
+    // A send longer than the frame walk decides nothing and leaves it here.
+    k_h2_sock_probation = 4,
 };
 
 static __always_inline u8 h2_sock_state(struct sk_msg_md *msg) {
@@ -304,12 +314,13 @@ static __always_inline void set_h2_sock_state(struct sk_msg_md *msg, u8 state) {
     }
 }
 
-// True while the socket is in an HTTP/2 scanning state (preface seen or
-// confirmed) — i.e. detect_h2 should keep driving its state machine. Rejected
+// True while the socket is in an HTTP/2 scanning state (preface seen, probation
+// or confirmed) — i.e. detect_h2 should keep driving its state machine. Rejected
 // and never-seen sockets are excluded.
 static __always_inline bool is_h2_socket(struct sk_msg_md *msg) {
     const u8 state = h2_sock_state(msg);
-    return state == k_h2_sock_preface || state == k_h2_sock_confirmed;
+    return state == k_h2_sock_preface || state == k_h2_sock_probation ||
+           state == k_h2_sock_confirmed;
 }
 
 #ifndef ENOMSG
@@ -1047,9 +1058,10 @@ static __always_inline bool is_http2_preface(const unsigned char *d, const unsig
            d[2] == 'I' && d[3] == ' ';
 }
 
-// Mid-stream H2 recognition for sockets whose preface predates attachment. On success
-// hpack_at holds the HPACK offset of the first HEADERS frame, 0 if the buffer carried none.
-static __always_inline bool sniff_http2_frames(struct sk_msg_md *msg, u32 *hpack_at) {
+// Mid-stream H2 recognition for sockets whose preface predates attachment. Walks up to
+// k_h2_sniff_max_frames strict frames; hpack_at holds the HPACK offset of the first HEADERS
+// frame, 0 if the walk met none.
+static __always_inline h2_walk_result_t sniff_http2_frames(struct sk_msg_md *msg, u32 *hpack_at) {
     const u32 msg_size = msg->size;
     u32 pos = 0;
     h2_sniff_state_t st = {0};
@@ -1058,14 +1070,15 @@ static __always_inline bool sniff_http2_frames(struct sk_msg_md *msg, u32 *hpack
 
     for (u8 i = 0; i < k_h2_sniff_max_frames && pos < msg_size; i++) {
         if (pos + k_h2_frame_header_len > msg_size) {
-            return false;
+            return k_h2_walk_mismatch;
         }
+        // bytes the helpers fail to expose are no evidence against HTTP/2
         if (bpf_msg_pull_data(msg, pos, pos + k_h2_frame_header_len, 0) != 0) {
-            return false;
+            return k_h2_walk_unfinished;
         }
         const unsigned char *d = msg->data;
         if (!d || (void *)d + k_h2_frame_header_len > msg->data_end) {
-            return false;
+            return k_h2_walk_unfinished;
         }
 
         const u8 ftype = d[3];
@@ -1074,7 +1087,7 @@ static __always_inline bool sniff_http2_frames(struct sk_msg_md *msg, u32 *hpack
 
         u32 frame_len;
         if (!h2_sniff_frame_header(&st, d, &frame_len)) {
-            return false;
+            return k_h2_walk_mismatch;
         }
 
         if (ftype == k_h2_frame_headers && first_headers) {
@@ -1084,7 +1097,7 @@ static __always_inline bool sniff_http2_frames(struct sk_msg_md *msg, u32 *hpack
         pos += k_h2_frame_header_len + frame_len;
     }
 
-    return h2_sniff_accept(&st, pos, msg_size);
+    return h2_sniff_walk_result(&st, pos, msg_size);
 }
 
 // Frame shapes alone match random bytes, so a sniffed buffer only counts as H2 once its first
@@ -1140,16 +1153,36 @@ static __always_inline void wrap_http2_traceparent(struct sk_msg_md *msg,
     bpf_tail_call_static(msg, &extender_jump_table, k_tail_sniff_h2);
 }
 
-// k_tail_sniff_h2 — mid-stream H2 sniff for a socket with no preface
+// k_tail_sniff_h2 — mid-stream H2 sniff for a socket with no preface. The first
+// send that frames as H2 only puts the socket on probation; the next one decides.
 SEC("sk_msg")
 int obi_packet_extender_sniff_h2(struct sk_msg_md *msg) {
     const u32 msg_size = msg->size;
+    const bool on_probation = h2_sock_state(msg) == k_h2_sock_probation;
     u32 hpack_at = 0;
 
-    if (sniff_http2_frames(msg, &hpack_at) && hpack_at &&
-        sniffed_block_is_h2(msg, hpack_at, msg_size)) {
+    // walked once for both cases: the frame walk is this program's whole verifier budget
+    const h2_walk_result_t walk = sniff_http2_frames(msg, &hpack_at);
+
+    if (on_probation) {
+        // more valid frames than the walk covers: let the next send decide
+        if (walk == k_h2_walk_unfinished) {
+            return SK_PASS;
+        }
+
+        // a tunnel's own framing or a TLS record never tiles as H2 frames
+        if (walk != k_h2_walk_tiled) {
+            set_h2_sock_state(msg, k_h2_sock_rejected);
+            return SK_PASS;
+        }
+
         set_h2_sock_state(msg, k_h2_sock_confirmed);
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_detect_h2);
+        return SK_PASS;
+    }
+
+    if (walk == k_h2_walk_tiled && hpack_at && sniffed_block_is_h2(msg, hpack_at, msg_size)) {
+        set_h2_sock_state(msg, k_h2_sock_probation);
     }
 
     return SK_PASS;
@@ -1503,6 +1536,11 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
     // mark cannot change within one send, so the first hop is enough.
     if (pos == 0 && is_ssl_connection(&t_ctx->p_conn)) {
         set_h2_sock_state(msg, k_h2_sock_rejected);
+        return SK_PASS;
+    }
+
+    if (state == k_h2_sock_probation) {
+        bpf_tail_call_static(msg, &extender_jump_table, k_tail_sniff_h2);
         return SK_PASS;
     }
 

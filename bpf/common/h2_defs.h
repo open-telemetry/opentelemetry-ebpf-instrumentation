@@ -47,7 +47,8 @@ enum {
     // max frames walked when sniffing mid-stream H2
     k_h2_sniff_max_frames = 8,
     k_h2_max_payload = k_kprobes_http2_buf_size - k_h2_frame_header_len,
-    // 33 tail-call budget: 7 hops per frame at worst, 5 plus 2 for its retry, 2 + 4*7 = 30
+    // 33 tail-call budget: 7 hops per frame at worst, 5 plus 2 for its retry. Ending
+    // probation costs a hop more than a sniff did: 3 + 4*7 = 31
     k_h2_max_frames_per_packet = 4,
     k_h2_max_tp_retries = 2,
     k_h2_max_hpack_scan = 256,
@@ -307,7 +308,29 @@ static __always_inline u8 h2_sniff_frame_header(h2_sniff_state_t *st,
         st, *frame_len, d[3], d[4], d[5] & k_h2_reserved_bit_mask, stream_id);
 }
 
+static __always_inline u8 h2_sniff_tiles(const h2_sniff_state_t *st, u32 pos, u32 buf_len) {
+    return buf_len && pos == buf_len && !st->expect_continuation;
+}
+
+typedef enum {
+    k_h2_walk_mismatch = 0, // a frame broke the rules, ran past the buffer, or left a block open
+    k_h2_walk_tiled,        // the frames tiled the buffer exactly
+    k_h2_walk_unfinished,   // every frame walked was valid, but the walk stopped before the end
+} h2_walk_result_t;
+
+// A walk only stops short of the buffer end when it ran out of frames to look at, which proves
+// nothing either way.
+static __always_inline h2_walk_result_t h2_sniff_walk_result(const h2_sniff_state_t *st,
+                                                             u32 pos,
+                                                             u32 buf_len) {
+    if (pos < buf_len) {
+        return k_h2_walk_unfinished;
+    }
+
+    return h2_sniff_tiles(st, pos, buf_len) ? k_h2_walk_tiled : k_h2_walk_mismatch;
+}
+
 // H2 only if frames tiled the buffer exactly, with a HEADERS frame and no open header block
 static __always_inline u8 h2_sniff_accept(const h2_sniff_state_t *st, u32 pos, u32 buf_len) {
-    return pos == buf_len && st->seen_headers && !st->expect_continuation;
+    return st->seen_headers && h2_sniff_tiles(st, pos, buf_len);
 }
