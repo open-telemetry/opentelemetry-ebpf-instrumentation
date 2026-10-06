@@ -17,6 +17,9 @@ spans:
         requirement_level: required
       - ref: rpc.method
         requirement_level: required
+      - ref: rpc.method_original
+        requirement_level:
+          conditionally_required: if `rpc.method` is `_OTHER` and the request path was read
       - ref: rpc.response.status_code
         requirement_level:
           conditionally_required: if the status is inside the gRPC enum
@@ -55,6 +58,9 @@ spans:
         requirement_level: required
       - ref: rpc.method
         requirement_level: required
+      - ref: rpc.method_original
+        requirement_level:
+          conditionally_required: if `rpc.method` is `_OTHER` and the request path was read
       - ref: rpc.response.status_code
         requirement_level:
           conditionally_required: if the status is inside the gRPC enum

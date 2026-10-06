@@ -218,7 +218,7 @@ func emittedSpanCases() []emittedSpanCase {
 			spanType: "obi.rpc.grpc.server",
 			span: &request.Span{
 				Type:         request.EventTypeGRPC,
-				Path:         "/pkg.Service/Method",
+				Path:         "/healthz",
 				Host:         "10.0.0.1",
 				HostPort:     50051,
 				Peer:         "10.0.0.2",
@@ -237,7 +237,7 @@ func emittedSpanCases() []emittedSpanCase {
 		},
 		{
 			name:     "grpc client",
-			absent:   []string{"service.peer.name"},
+			absent:   []string{"service.peer.name", "rpc.method_original"},
 			spanType: "obi.rpc.grpc.client",
 			span: &request.Span{
 				Type:         request.EventTypeGRPCClient,
