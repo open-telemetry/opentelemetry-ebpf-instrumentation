@@ -147,15 +147,20 @@ func TestECSProcessDecorator(t *testing.T) {
 	send(exec.ProcessEvent{File: unavailable, Type: exec.ProcessEventCreated})
 	assert.Equal(t, "container-name", unavailable.ServiceAttrs().UID.Name)
 
-	// Missing metadata leaves the last known service name intact.
+	// Repeated discovery must preserve the original fallback name.
 	send(exec.ProcessEvent{File: file, Type: exec.ProcessEventCreated})
 	client.setTasks(nil)
+	updated = read()
+	assert.Same(t, file, updated.File)
+	assert.Equal(t, exec.ProcessEventCreated, updated.Type)
+	assert.Equal(t, svc.UID{Name: "container-name", Namespace: "ns", Instance: "instance"}, file.ServiceAttrs().UID)
+	checkTargetInfo("container-name", "checkout")
 	require.Eventually(t, func() bool {
 		_, ok := inventory.ServiceNameForContainerID(id)
 		return !ok
 	}, 5*time.Second, 10*time.Millisecond)
 	send(exec.ProcessEvent{File: explicit, Type: exec.ProcessEventCreated})
-	assert.Equal(t, "checkout", file.ServiceAttrs().UID.Name)
+	assert.Equal(t, "container-name", file.ServiceAttrs().UID.Name)
 
 	client.setTasks([]types.Task{{Group: aws.String("service:payments"), Containers: []types.Container{{RuntimeId: aws.String(id)}}}})
 	assert.Same(t, file, read().File)

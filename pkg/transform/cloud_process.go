@@ -36,25 +36,32 @@ func CloudProcessEventDecoratorProvider(ctxInfo *global.ContextInfo,
 type cloudProcessDecorator struct {
 	inventory     *cloud.Inventory
 	changes       <-chan cloud.ContainerChanges
-	processes     map[app.PID]exec.ProcessEvent
+	processes     map[app.PID]cloudProcess
 	input         <-chan exec.ProcessEvent
 	output        *msg.Queue[exec.ProcessEvent]
 	containerInfo func(app.PID) (container.Info, error)
 }
 
+type cloudProcess struct {
+	event        exec.ProcessEvent
+	fallbackName string
+}
+
 func (d *cloudProcessDecorator) run(ctx context.Context) {
 	defer d.output.Close()
-	d.processes = map[app.PID]exec.ProcessEvent{}
+	d.processes = map[app.PID]cloudProcess{}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case changes := <-d.changes:
-			for _, event := range d.processes {
+			for _, process := range d.processes {
+				event := process.event
 				id := event.ServiceFile().ServiceAttrs().RuntimeContainerID
 				_, changed := changes.Changed[id]
-				if changed && d.decorate(event) {
+				_, removed := changes.Removed[id]
+				if (changed || removed) && d.decorate(event, process.fallbackName) {
 					d.output.SendCtx(ctx, event)
 				}
 			}
@@ -73,14 +80,18 @@ func (d *cloudProcessDecorator) handleProcessEvent(ctx context.Context, event ex
 	}
 	pid := event.File.Pid()
 	if event.Type == exec.ProcessEventTerminated {
-		if previous, ok := d.processes[pid]; ok && previous.File == event.File {
+		if previous, ok := d.processes[pid]; ok && previous.event.File == event.File {
 			delete(d.processes, pid)
 		}
 	} else {
-		d.decorate(event)
 		service := event.ServiceFile().ServiceAttrs()
 		if service.AutoName() {
-			d.processes[pid] = event
+			fallbackName := service.UID.Name
+			if previous, ok := d.processes[pid]; ok && previous.event.File == event.File {
+				fallbackName = previous.fallbackName
+			}
+			d.decorate(event, fallbackName)
+			d.processes[pid] = cloudProcess{event: event, fallbackName: fallbackName}
 		} else {
 			delete(d.processes, pid)
 		}
@@ -89,7 +100,7 @@ func (d *cloudProcessDecorator) handleProcessEvent(ctx context.Context, event ex
 	d.output.SendCtx(ctx, event)
 }
 
-func (d *cloudProcessDecorator) decorate(event exec.ProcessEvent) bool {
+func (d *cloudProcessDecorator) decorate(event exec.ProcessEvent, fallbackName string) bool {
 	file := event.ServiceFile()
 	service := file.ServiceAttrs()
 	if !service.AutoName() {
@@ -106,7 +117,7 @@ func (d *cloudProcessDecorator) decorate(event exec.ProcessEvent) bool {
 	}
 	name, ok := d.inventory.ServiceNameForContainerID(id)
 	if !ok {
-		return false
+		name = fallbackName
 	}
 	if service.UID.Name == name {
 		return false
