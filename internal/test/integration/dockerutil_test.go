@@ -37,7 +37,7 @@ import (
 const (
 	imgPrometheus  = img.Docker("quay.io/prometheus/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e")
 	imgJaeger      = img.Docker("jaegertracing/jaeger:2.21.0@sha256:3d0ac795ff98aa04d1be04311d2dac6c25b4bfc8322dc02e53bc5b170c5018c3")
-	imgCollector   = img.Docker("otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1")
+	imgCollector   = img.Docker("otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6")
 	imgAWSMetaMock = img.Docker("amazon/amazon-ec2-metadata-mock:v1.9.2@sha256:55cc3b9fb46d7e30aec202fc8ccab5391f7f9fc7169ae7dc726aae82562d61c4")
 	imgECSMetaMock = img.Docker("public.ecr.aws/ecs-local/amazon-ecs-local-container-endpoints:latest@sha256:d0fb4c7d8ab2fde76252ff3bb87422de201a2a7a5494a19f5c72e5e90a1fe064")
 	imgNginx       = img.Docker("library/nginx:1.31.6@sha256:908dc23e643a1447dbfb2e189ed268bfde6a51a5bf9a34d3dd3440a24f58ccf7")
