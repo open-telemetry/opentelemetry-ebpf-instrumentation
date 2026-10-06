@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -30,13 +31,14 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
-	"go.opentelemetry.io/obi/pkg/internal/ecs"
+	awsinventory "go.opentelemetry.io/obi/pkg/internal/cloud"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
 type ecsProcessClient struct {
+	mu    sync.Mutex
 	tasks []types.Task
 }
 
@@ -45,19 +47,27 @@ func (c *ecsProcessClient) ListTasks(context.Context, *awsecs.ListTasksInput, ..
 }
 
 func (c *ecsProcessClient) DescribeTasks(context.Context, *awsecs.DescribeTasksInput, ...func(*awsecs.Options)) (*awsecs.DescribeTasksOutput, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return &awsecs.DescribeTasksOutput{Tasks: c.tasks}, nil
+}
+
+func (c *ecsProcessClient) setTasks(tasks []types.Task) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tasks = tasks
 }
 
 func TestECSProcessDecorator(t *testing.T) {
 	id := strings.Repeat("a", 64)
 	client := &ecsProcessClient{}
-	inventory := ecs.NewInventory(client, "cluster")
+	inventory := awsinventory.NewInventory([]awsinventory.MetadataRefresher{awsinventory.NewECSRefresher(client, "cluster")})
 	input := make(chan exec.ProcessEvent)
 	output := msg.NewQueue[exec.ProcessEvent]()
 	result := output.Subscribe(msg.SubscriberName("test"))
-	d := ecsProcessDecorator{
+	d := cloudProcessDecorator{
 		inventory: inventory, input: input, output: output,
-		processes: map[app.PID]*ecsProcess{},
+		changes: inventory.SubscribeContainerChanges(),
 		containerInfo: func(pid app.PID) (container.Info, error) {
 			if pid == 3 {
 				return container.Info{}, errors.New("process unavailable")
@@ -113,9 +123,10 @@ func TestECSProcessDecorator(t *testing.T) {
 	assert.Equal(t, "container-name", file.ServiceAttrs().UID.Name)
 	checkTargetInfo("container-name", "checkout")
 
+	startCloudInventory(t, inventory, 10*time.Millisecond)
+
 	// Metadata arriving after discovery updates the same process without traffic.
-	client.tasks = []types.Task{{Group: aws.String("service:checkout"), Containers: []types.Container{{RuntimeId: aws.String(id)}}}}
-	require.NoError(t, inventory.Refresh(ctx))
+	client.setTasks([]types.Task{{Group: aws.String("service:checkout"), Containers: []types.Container{{RuntimeId: aws.String(id)}}}})
 	updated := read()
 	assert.Same(t, file, updated.File)
 	assert.Equal(t, exec.ProcessEventCreated, updated.Type)
@@ -124,7 +135,7 @@ func TestECSProcessDecorator(t *testing.T) {
 	span := request.Span{Type: request.EventTypeHTTP, Host: "127.0.0.1", Service: file.ServiceAttrs()}
 	// Docker span decoration may assign the generated name again.
 	span.Service.UID.Name = "container-name"
-	resolver := NameResolver{ecs: inventory, sources: ResolverECS, logger: nrlog()}
+	resolver := NameResolver{cloudInventory: inventory, sources: ResolverECS, logger: nrlog()}
 	resolver.resolveNames(&span)
 	assert.Equal(t, "checkout", span.Service.UID.Name)
 	assert.Equal(t, id, span.Service.RuntimeContainerID)
@@ -136,20 +147,30 @@ func TestECSProcessDecorator(t *testing.T) {
 	send(exec.ProcessEvent{File: unavailable, Type: exec.ProcessEventCreated})
 	assert.Equal(t, "container-name", unavailable.ServiceAttrs().UID.Name)
 
-	// Repeated discovery keeps the original fallback even after ECS decoration.
+	// Repeated discovery must preserve the original fallback name.
 	send(exec.ProcessEvent{File: file, Type: exec.ProcessEventCreated})
-	client.tasks = nil
-	require.NoError(t, inventory.Refresh(ctx))
-	assert.Same(t, file, read().File)
+	client.setTasks(nil)
+	updated = read()
+	assert.Same(t, file, updated.File)
+	assert.Equal(t, exec.ProcessEventCreated, updated.Type)
+	assert.Equal(t, svc.UID{Name: "container-name", Namespace: "ns", Instance: "instance"}, file.ServiceAttrs().UID)
+	checkTargetInfo("container-name", "checkout")
+	require.Eventually(t, func() bool {
+		_, ok := inventory.ServiceNameForContainerID(id)
+		return !ok
+	}, 5*time.Second, 10*time.Millisecond)
+	send(exec.ProcessEvent{File: explicit, Type: exec.ProcessEventCreated})
 	assert.Equal(t, "container-name", file.ServiceAttrs().UID.Name)
 
-	client.tasks = []types.Task{{Group: aws.String("service:payments"), Containers: []types.Container{{RuntimeId: aws.String(id)}}}}
-	require.NoError(t, inventory.Refresh(ctx))
+	client.setTasks([]types.Task{{Group: aws.String("service:payments"), Containers: []types.Container{{RuntimeId: aws.String(id)}}}})
 	assert.Same(t, file, read().File)
 	assert.Equal(t, "payments", file.ServiceAttrs().UID.Name)
 	send(exec.ProcessEvent{File: file, Type: exec.ProcessEventTerminated})
-	client.tasks = nil
-	require.NoError(t, inventory.Refresh(ctx))
+	client.setTasks(nil)
+	require.Eventually(t, func() bool {
+		_, ok := inventory.ServiceNameForContainerID(id)
+		return !ok
+	}, 5*time.Second, 10*time.Millisecond)
 	// A subsequent event acts as a barrier through the same decorator loop.
 	send(exec.ProcessEvent{File: explicit, Type: exec.ProcessEventCreated})
 	close(input)

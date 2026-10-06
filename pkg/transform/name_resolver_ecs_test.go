@@ -18,6 +18,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/internal/cloud"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -25,9 +26,11 @@ import (
 
 func TestECSResolverRecoversFromInitialFailure(t *testing.T) {
 	var available atomic.Bool
+	var failures atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 		if !available.Load() {
+			failures.Add(1)
 			w.WriteHeader(http.StatusBadRequest)
 			fmt.Fprint(w, `{"__type":"AccessDeniedException","message":"denied"}`)
 			return
@@ -42,7 +45,7 @@ func TestECSResolverRecoversFromInitialFailure(t *testing.T) {
 			w.WriteHeader(http.StatusBadRequest)
 		}
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close)
 	t.Setenv("AWS_ENDPOINT_URL_ECS", server.URL)
 	t.Setenv("AWS_ACCESS_KEY_ID", "test")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
@@ -57,25 +60,14 @@ func TestECSResolverRecoversFromInitialFailure(t *testing.T) {
 	resolved := output.Subscribe(msg.SubscriberName("test"))
 	cfg := &NameResolverConfig{
 		Sources: []Source{SourceECS}, CacheLen: 10, CacheTTL: time.Minute,
-		ECS: ECSNameResolverConfig{RefreshInterval: 10 * time.Millisecond},
 	}
 	ctxInfo := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Features: metadata.ClusterECS}}
-	refresh, err := ECSInventoryProvider(ctxInfo, cfg, CloudMetadataConfig{ClusterName: "cluster", Region: "us-east-1"})(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, ctxInfo.ECSInventory)
-	refreshDone := make(chan struct{})
-	go func() {
-		defer close(refreshDone)
-		refresh(ctx)
-	}()
-	defer func() {
-		cancel()
-		select {
-		case <-refreshDone:
-		case <-time.After(5 * time.Second):
-			t.Error("inventory refresh did not stop")
-		}
-	}()
+	cloudCfg := CloudMetadataConfig{ClusterName: "cluster", Region: "us-east-1", RefreshInterval: 10 * time.Millisecond}
+	refreshers := CloudMetadataRefreshers(ctx, &ctxInfo.NodeMeta, cfg.Sources, cloudCfg)
+	require.Len(t, refreshers, 1)
+	ctxInfo.CloudMetaInventory = cloud.NewInventory(refreshers)
+	startCloudInventory(t, ctxInfo.CloudMetaInventory, cloudCfg.RefreshInterval)
+	require.Eventually(t, func() bool { return failures.Load() > 0 }, 5*time.Second, 10*time.Millisecond)
 	run, err := nameResolver(ctx, ctxInfo, cfg, input, output)
 	require.NoError(t, err)
 	done := make(chan struct{})
@@ -109,20 +101,18 @@ func TestECSResolverRecoversFromInitialFailure(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return resolve().HostName == "checkout"
 	}, 5*time.Second, 10*time.Millisecond)
-	name, ok := ctxInfo.ECSInventory.ServiceNameForIP("10.0.0.2")
+	name, ok := ctxInfo.CloudMetaInventory.ServiceNameForIP("10.0.0.2")
 	assert.True(t, ok)
 	assert.Equal(t, "checkout", name)
 }
 
-func TestECSInventoryProviderConfiguration(t *testing.T) {
+func TestECSMetadataRefreshersConfiguration(t *testing.T) {
 	t.Setenv("ECS_CONTAINER_METADATA_URI_V4", "")
 	t.Setenv("ECS_CONTAINER_METADATA_URI", "")
 	ctxInfo := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Features: metadata.ClusterECS}}
-	for _, cfg := range []*NameResolverConfig{nil, {Sources: []Source{SourceDNS}}} {
-		run, err := ECSInventoryProvider(ctxInfo, cfg, CloudMetadataConfig{})(t.Context())
-		require.NoError(t, err)
-		run(t.Context())
-		assert.Nil(t, ctxInfo.ECSInventory)
+	for _, sources := range [][]Source{nil, {SourceDNS}} {
+		refreshers := CloudMetadataRefreshers(t.Context(), &ctxInfo.NodeMeta, sources, CloudMetadataConfig{})
+		assert.Empty(t, refreshers)
 	}
 	for _, tc := range []struct {
 		cloud    CloudMetadataConfig
@@ -134,20 +124,15 @@ func TestECSInventoryProviderConfiguration(t *testing.T) {
 		{CloudMetadataConfig{ClusterName: "cluster", Region: "us-east-1"}, -time.Second},
 	} {
 		t.Run(fmt.Sprintf("%s_%s_%v", tc.cloud.Region, tc.cloud.ClusterName, tc.interval), func(t *testing.T) {
-			_, err := ECSInventoryProvider(ctxInfo, &NameResolverConfig{
-				Sources: []Source{SourceECS}, ECS: ECSNameResolverConfig{RefreshInterval: tc.interval},
-			}, tc.cloud)(t.Context())
-			if tc.interval <= 0 {
-				require.ErrorContains(t, err, "a positive refresh interval is required")
-			} else {
-				require.ErrorContains(t, err, "configure cloud_metadata.cluster_name and cloud_metadata.region")
-			}
-			assert.Nil(t, ctxInfo.ECSInventory)
+			tc.cloud.RefreshInterval = tc.interval
+			refreshers := CloudMetadataRefreshers(t.Context(), &ctxInfo.NodeMeta,
+				[]Source{SourceECS}, tc.cloud)
+			assert.Empty(t, refreshers)
 		})
 	}
 }
 
-func TestECSInventoryProviderMetadataDefaults(t *testing.T) {
+func TestECSMetadataRefreshersMetadataDefaults(t *testing.T) {
 	const detectedCluster = "arn:aws:ecs:us-east-1:123456789012:cluster/test"
 	for _, tc := range []struct {
 		name        string
@@ -167,7 +152,7 @@ func TestECSInventoryProviderMetadataDefaults(t *testing.T) {
 				t.Error("resolver must use shared node metadata")
 				fmt.Fprint(w, "{}")
 			}))
-			defer metadataServer.Close()
+			t.Cleanup(metadataServer.Close)
 			api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				apiRequests.Add(1)
 				var input struct{ Cluster string }
@@ -177,7 +162,7 @@ func TestECSInventoryProviderMetadataDefaults(t *testing.T) {
 				w.Header().Set("Content-Type", "application/x-amz-json-1.1")
 				fmt.Fprint(w, `{"taskArns":[]}`)
 			}))
-			defer api.Close()
+			t.Cleanup(api.Close)
 			t.Setenv("ECS_CONTAINER_METADATA_URI_V4", metadataServer.URL)
 			t.Setenv("ECS_CONTAINER_METADATA_URI", "")
 			t.Setenv("AWS_ENDPOINT_URL_ECS", api.URL)
@@ -188,42 +173,47 @@ func TestECSInventoryProviderMetadataDefaults(t *testing.T) {
 			t.Setenv("AWS_MAX_ATTEMPTS", "1")
 			cfg := &NameResolverConfig{
 				Sources: []Source{SourceECS},
-				ECS:     ECSNameResolverConfig{RefreshInterval: time.Second},
 			}
-			cloudCfg := CloudMetadataConfig{ClusterName: tc.cluster, Region: tc.region}
+			cloudCfg := CloudMetadataConfig{ClusterName: tc.cluster, Region: tc.region, RefreshInterval: time.Second}
 			original := cloudCfg
 			info := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Features: metadata.ClusterECS, Cluster: detectedCluster, Region: "us-east-1"}}
-			_, err := ECSInventoryProvider(info, cfg, cloudCfg)(t.Context())
-			require.NoError(t, err)
-			require.NotNil(t, info.ECSInventory)
+			refreshers := CloudMetadataRefreshers(t.Context(), &info.NodeMeta, cfg.Sources, cloudCfg)
+			require.Len(t, refreshers, 1)
+			inventory := cloud.NewInventory(refreshers)
+			startCloudInventory(t, inventory, 10*time.Millisecond)
 			assert.Equal(t, original, cloudCfg)
-			assert.EqualValues(t, 1, apiRequests.Load())
+			require.Eventually(t, func() bool { return apiRequests.Load() > 0 }, 5*time.Second, 10*time.Millisecond)
 		})
 	}
 }
 
 type fakeECSResolver map[string]string
 
-func (f fakeECSResolver) ServiceNameForIP(ip string) (string, bool) {
-	name, ok := f[ip]
-	return name, ok
-}
-
-func (f fakeECSResolver) ServiceNameForContainerID(id string) (string, bool) {
-	name, ok := f[id]
-	return name, ok
+func (fakeECSResolver) Name() string { return "ecs" }
+func (f fakeECSResolver) Refresh(_ context.Context, snapshot *cloud.MetadataSnapshot) error {
+	for id, name := range f {
+		snapshot.ServiceByIP[id] = name
+		snapshot.ServiceByContainerID[id] = name
+	}
+	return nil
 }
 
 func TestResolveNamesFromECS(t *testing.T) {
+	inventory := cloud.NewInventory([]cloud.MetadataRefresher{fakeECSResolver{
+		"10.0.0.1":             "storefront",
+		"10.0.0.2":             "checkout",
+		"storefront-container": "storefront",
+		"checkout-container":   "checkout",
+	}})
+	startCloudInventory(t, inventory, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		name, ok := inventory.ServiceNameForContainerID("checkout-container")
+		return ok && name == "checkout"
+	}, 5*time.Second, 10*time.Millisecond)
 	resolver := NameResolver{
-		ecs: fakeECSResolver{
-			"10.0.0.1":             "storefront",
-			"10.0.0.2":             "checkout",
-			"storefront-container": "storefront",
-			"checkout-container":   "checkout",
-		},
-		sources: ResolverECS,
-		logger:  nrlog(),
+		cloudInventory: inventory,
+		sources:        ResolverECS,
+		logger:         nrlog(),
 	}
 
 	t.Run("client", func(t *testing.T) {
@@ -301,5 +291,25 @@ func TestResolveNamesFromECS(t *testing.T) {
 		span.Service.SetAutoName()
 		resolver.resolveNames(&span)
 		assert.Equal(t, "container-name", span.Service.UID.Name)
+	})
+}
+
+func startCloudInventory(t *testing.T, inventory *cloud.Inventory, interval time.Duration) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(t.Context())
+	run, err := cloud.InventoryRefresherNode(inventory, interval)(ctx)
+	require.NoError(t, err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("inventory refresh did not stop")
+		}
 	})
 }
