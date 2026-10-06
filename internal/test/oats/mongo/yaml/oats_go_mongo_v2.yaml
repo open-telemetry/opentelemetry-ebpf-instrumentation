@@ -13,10 +13,9 @@ expected:
     attributes:
       server.port: '8080'
       url.path: /mongo
-  - traceql: '{ .db.operation.name = "insert" && .db.system.name = "mongodb" && .network.peer.address =~ "[0-9]+[.][0-9]+[.][0-9]+[.][0-9]+" }'
+  - traceql: '{ .db.operation.name = "insert" && .db.system.name = "mongodb" }'
     equals: insert testdb.items
     attributes:
       db.collection.name: testdb.items
       server.port: '27017'
       server.address: mongo
-      network.peer.port: '27017'

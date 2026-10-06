@@ -673,16 +673,16 @@ func TestOpAndCollectionFromEvent(t *testing.T) {
 
 func TestReadGoMongoRequestIntoSpanHostname(t *testing.T) {
 	tests := []struct {
-		name     string
-		hostname string
-		wantHost string
+		name         string
+		hostname     string
+		wantHostName string
 	}{
-		{name: "configured DNS hostname", hostname: "mongo:27017", wantHost: "mongo"},
-		{name: "bracketed IPv6", hostname: "[2001:db8::1]:27017", wantHost: "2001:db8::1"},
-		{name: "empty hostname", wantHost: "8.8.8.8"},
-		{name: "missing port", hostname: "mongo", wantHost: "8.8.8.8"},
-		{name: "malformed IPv6", hostname: "[2001:db8::1:27017", wantHost: "8.8.8.8"},
-		{name: "truncated hostname", hostname: strings.Repeat("a", len(GoMongoClientInfo{}.Hostname)) + ":27017", wantHost: "8.8.8.8"},
+		{name: "configured DNS hostname", hostname: "mongo:27017", wantHostName: "mongo"},
+		{name: "bracketed IPv6", hostname: "[2001:db8::1]:27017", wantHostName: "2001:db8::1"},
+		{name: "empty hostname"},
+		{name: "missing port", hostname: "mongo"},
+		{name: "malformed IPv6", hostname: "[2001:db8::1:27017"},
+		{name: "truncated hostname", hostname: strings.Repeat("a", len(GoMongoClientInfo{}.Hostname)) + ":27017"},
 	}
 
 	for _, tt := range tests {
@@ -698,7 +698,8 @@ func TestReadGoMongoRequestIntoSpanHostname(t *testing.T) {
 
 			require.NoError(t, err)
 			assert.False(t, ignore)
-			assert.Equal(t, tt.wantHost, span.Host)
+			assert.Equal(t, "8.8.8.8", span.Host)
+			assert.Equal(t, tt.wantHostName, span.HostName)
 			assert.Equal(t, "192.168.0.1", span.Peer)
 			assert.Equal(t, 27017, span.HostPort)
 		})

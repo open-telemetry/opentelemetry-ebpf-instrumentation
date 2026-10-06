@@ -655,18 +655,18 @@ func ReadGoMongoRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, err
 	}
 
 	peer := ""
-	hostname := ""
+	host := ""
 	hostPort := 0
 
 	if event.Conn.S_port != 0 || event.Conn.D_port != 0 {
-		peer, hostname = (*BPFConnInfo)(unsafe.Pointer(&event.Conn)).reqHostInfo()
+		peer, host = (*BPFConnInfo)(unsafe.Pointer(&event.Conn)).reqHostInfo()
 		hostPort = int(event.Conn.D_port)
 	}
 
-	mongoHostname := cstr(event.Hostname[:])
-	host, _, err := net.SplitHostPort(mongoHostname)
-	if err == nil {
-		hostname = host
+	hostname := cstr(event.Hostname[:])
+	hostname, _, err = net.SplitHostPort(hostname)
+	if err != nil {
+		hostname = ""
 	}
 
 	op, coll := opAndCollectionFromEvent(event)
@@ -681,7 +681,8 @@ func ReadGoMongoRequestIntoSpan(record *ringbuf.Record) (request.Span, bool, err
 		Method:        op,
 		Path:          coll,
 		Peer:          peer,
-		Host:          hostname,
+		Host:          host,
+		HostName:      hostname,
 		HostPort:      hostPort,
 		ContentLength: 0,
 		RequestStart:  int64(event.StartMonotimeNs),
