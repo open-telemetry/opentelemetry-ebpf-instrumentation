@@ -177,6 +177,30 @@ func TestSchemaReleaseRejectsPrereleaseSchemas(t *testing.T) {
 	}
 }
 
+func TestSchemaReleaseRejectsNoncanonicalURLs(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		url  string
+	}{
+		{"bare version", "0.14.0"},
+		{"relative path", "schemas/obi/0.14.0"},
+		{"other host", "https://example.com/schemas/obi/0.14.0"},
+		{"HTTP", strings.Replace(schemaReleaseBaseURL, "https:", "http:", 1) + "0.14.0"},
+		{"query", schemaReleaseBaseURL + "0.14.0?build=123"},
+		{"trailing slash", schemaReleaseBaseURL + "0.14.0/"},
+		{"empty", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := schemaReleaseFixture(t)
+			writeSchemaReleaseFile(t, root, "pkg/export/attributes/names/schema_version.go", "var OBISchemaURL = \""+tc.url+"\"\n")
+			writeSchemaReleaseFile(t, root, "schemas/obi/manifest.yaml", "schema_url: "+tc.url+"\n")
+			out, err := exec.Command("bash", filepath.Join(root, "scripts/check-schema-files.sh")).CombinedOutput()
+			require.Error(t, err, "%s", out)
+			require.Contains(t, string(out), "OBISchemaURL")
+		})
+	}
+}
+
 func schemaReleaseFixture(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()

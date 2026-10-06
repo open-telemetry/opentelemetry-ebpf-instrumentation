@@ -57,6 +57,7 @@ done
 version="$(awk '/^  obi:/{o=1} o&&/version:/{v=$2; sub(/^v/,"",v); print v; exit}' "$ROOT/versions.yaml")"
 emitted_url="$(awk -F '"' '/^var OBISchemaURL = /{print $2; exit}' "$SCHEMA_VERSION_FILE")"
 manifest_url="$(awk '/^schema_url:/{print $2; exit}' "$MANIFEST")"
+[[ "$emitted_url" == "$BASE_URL/"* ]] || fail "OBISchemaURL ($emitted_url) must use $BASE_URL/"
 emitted="${emitted_url#"$BASE_URL/"}"
 
 [ -n "$version" ] || fail "could not read the obi version from versions.yaml"
