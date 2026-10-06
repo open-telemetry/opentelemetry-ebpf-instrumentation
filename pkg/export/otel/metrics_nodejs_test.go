@@ -32,6 +32,7 @@ type nodejsMetricRecord struct {
 	Type          pmetric.MetricType
 	Value         float64
 	Count         uint64
+	Bounds        []float64
 	IsMonotonic   bool
 	Attrs         map[string]string
 	ResourceAttrs map[string]string
@@ -66,6 +67,7 @@ func testNodejsRuntimeMetricsConsumer(out chan<- nodejsMetricRecord) consumer.Me
 							point := histPoints.At(l)
 							record.Value = point.Sum()
 							record.Count = point.Count()
+							record.Bounds = point.ExplicitBounds().AsRaw()
 							record.Attrs = attrsToMap(point.Attributes())
 							out <- record
 						}
@@ -239,10 +241,13 @@ func TestRuntimeMetricsReporterRecordsV8GCDuration(t *testing.T) {
 	defer cancel()
 
 	records := make(chan nodejsMetricRecord, 100)
+	// non-default buckets, so a histogram that ignores cfg.Buckets fails the bounds assertion
+	buckets := export.Buckets{V8JSGCDurationHistogram: []float64{0.002, 0.2, 2}}
 	cfg := &otelcfg.MetricsConfig{
 		Interval:          20 * time.Millisecond,
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
+		Buckets:           buckets,
 		MetricsConsumer:   testNodejsRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
@@ -273,6 +278,7 @@ func TestRuntimeMetricsReporterRecordsV8GCDuration(t *testing.T) {
 	assert.Equal(t, pmetric.MetricTypeHistogram, gc.Type)
 	assert.Equal(t, uint64(1), gc.Count)
 	assert.InDelta(t, 0.35, gc.Value, 1e-9)
+	assert.Equal(t, buckets.V8JSGCDurationHistogram, gc.Bounds)
 	assert.Equal(t, "major", gc.Attrs["v8js.gc.type"])
 	assert.Equal(t, "orders-node", gc.ResourceAttrs["service.name"])
 }
