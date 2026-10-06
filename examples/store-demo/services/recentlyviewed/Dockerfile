@@ -3,7 +3,7 @@
 #
 # Base images are pinned by digest per devdocs/dependency-integrity-policy.md.
 # They match the ones used by internal/test/integration/components/javaaerospike.
-FROM maven:3.10-eclipse-temurin-21@sha256:1f4555322b25bc65c1ae2b87d0558047754ef766abf9bd8a0df8bd342d136eb5 AS builder
+FROM maven:3.10-eclipse-temurin-21@sha256:9b4877723dadf350b452dd97d9a6401e7b56f98fa9dfe420c32ad909989c7e4c AS builder
 
 WORKDIR /build
 
