@@ -24,7 +24,9 @@ MANIFEST="$ROOT/schemas/obi/manifest.yaml"
 
 fail() { echo "generate-schema-next: $1" >&2; exit 1; }
 
-version_pattern='[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?'
+numeric_identifier='0|[1-9][0-9]*'
+prerelease_identifier="($numeric_identifier|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)"
+version_pattern="($numeric_identifier)\.($numeric_identifier)\.($numeric_identifier)(-$prerelease_identifier(\.$prerelease_identifier)*)?"
 version="$(awk '/^  obi:/{o=1} o&&/version:/{v=$2; sub(/^v/,"",v); print v; exit}' "$ROOT/versions.yaml")"
 [ -n "$version" ] || fail "could not read the obi version from versions.yaml"
 echo "$version" | grep -Eq "^$version_pattern$" || fail "versions.yaml obi version '$version' is not MAJOR.MINOR.PATCH with an optional prerelease suffix"

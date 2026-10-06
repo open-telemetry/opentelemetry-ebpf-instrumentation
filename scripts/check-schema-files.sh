@@ -18,7 +18,9 @@ fail() {
 	exit 1
 }
 
-version_pattern='[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?'
+numeric_identifier='0|[1-9][0-9]*'
+prerelease_identifier="($numeric_identifier|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)"
+version_pattern="($numeric_identifier)\.($numeric_identifier)\.($numeric_identifier)(-$prerelease_identifier(\.$prerelease_identifier)*)?"
 url_version() { grep -oE "schemas/obi/$version_pattern" "$1" | head -1 | sed 's#.*/##'; }
 
 shopt -s nullglob
