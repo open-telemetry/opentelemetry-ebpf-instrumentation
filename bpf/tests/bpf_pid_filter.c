@@ -41,8 +41,18 @@ static void *test_get_current_task(void) {
     return test_current_task;
 }
 
+// fires once, on the next probe read: a test can act in the middle of a walk
+static void (*test_on_next_probe_read)(void);
+
 static long test_probe_read_kernel(void *dst, u32 size, const void *src) {
     memcpy(dst, src, size);
+
+    if (test_on_next_probe_read) {
+        void (*fn)(void) = test_on_next_probe_read;
+        test_on_next_probe_read = NULL;
+        fn();
+    }
+
     return 0;
 }
 
@@ -203,6 +213,7 @@ static void reset(u32 mode) {
     test_mode_value = mode;
     test_ino_value = mode == k_pid_ns_mode_init ? k_test_host_ino : k_test_pod_ino;
     obi_pid_ns_level = 0;
+    test_on_next_probe_read = NULL;
 }
 
 // OBI in the initial pid namespace: keys are host tgids
@@ -313,6 +324,24 @@ static void test_pod_neighbor_is_rejected(void) {
     check_u32("pod: and after", 0, run_valid_pid(&neighbor));
 }
 
+// Two CPUs walk at once while the level is unknown: the neighbor's walk is
+// still reading numbers[] when a task in the pod stores the level. The
+// neighbor finds nothing and must not store its 0 over it.
+static void test_other_cpu_stores_level_1(void) {
+    obi_pid_ns_level = 1;
+}
+
+static void test_pod_outsider_walk_keeps_a_level_learned_meanwhile(void) {
+    reset(k_pid_ns_mode_pod);
+    test_allow(7);
+    test_on_next_probe_read = test_other_cpu_stores_level_1;
+
+    check_u32("pod: a neighbor whose walk overlaps another CPU learning the level is rejected",
+              0,
+              run_valid_pid(&neighbor));
+    check_u32("pod: and leaves that level in place", 1, obi_pid_ns_level);
+}
+
 static void test_pod_pid_does_not_collide_with_host_pid(void) {
     reset(k_pid_ns_mode_pod);
     test_allow(1); // the pod's pid 1
@@ -399,6 +428,7 @@ int main(void) {
     test_pod_outsider_is_rejected_before_the_map();
     test_pod_task_above_obi_level_is_rejected();
     test_pod_neighbor_is_rejected();
+    test_pod_outsider_walk_keeps_a_level_learned_meanwhile();
     test_pod_pid_does_not_collide_with_host_pid();
     test_pod_nested_pid_namespace_is_numbered_at_obi_level();
     test_pod_level_learned_below_obi_namespace();

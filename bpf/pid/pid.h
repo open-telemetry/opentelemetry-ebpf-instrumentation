@@ -69,7 +69,13 @@ static __always_inline u32 pid_in_obi_pid_ns(const struct task_struct *task) {
     const u32 level = BPF_CORE_READ(pid, level);
 
     if (obi_pid_ns_level == 0) {
-        obi_pid_ns_level = find_obi_pid_ns_level(pid, level);
+        const u32 found = find_obi_pid_ns_level(pid, level);
+        // a task outside stores nothing: its 0 would reset a level another
+        // CPU learned in the meantime
+        if (found == 0) {
+            return 0;
+        }
+        obi_pid_ns_level = found;
     }
 
     return pid_nr_at(pid, level, obi_pid_ns_level);
