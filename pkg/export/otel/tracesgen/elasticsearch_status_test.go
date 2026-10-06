@@ -94,4 +94,37 @@ func TestTraceAttributesSelector_ElasticsearchNamespace(t *testing.T) {
 		assert.False(t, ok)
 		assert.Equal(t, "search es:9200", span.TraceName())
 	})
+
+	t.Run("names the server as server.address does", func(t *testing.T) {
+		resolved := esSpan("", "")
+		resolved.Host = "172.18.0.2"
+		resolved.HostName = "opensearchserver"
+
+		requested := esSpan("", "")
+		requested.Host = "172.18.0.2"
+		requested.Statement = "http" + request.SchemeHostSeparator + "search.internal"
+
+		for _, span := range []*request.Span{resolved, requested} {
+			attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+			address, ok := attrs.Get("server.address")
+			require.True(t, ok)
+			assert.NotEqual(t, "172.18.0.2", address.Str())
+			assert.Equal(t, "search "+address.Str()+":9200", span.TraceName())
+		}
+	})
+}
+
+func TestElasticsearchSpanNameWithoutOperation(t *testing.T) {
+	esSpan := func(index string) *request.Span {
+		return &request.Span{
+			Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeElasticsearch,
+			Elasticsearch: &request.Elasticsearch{
+				DBSystemName:     "opensearch",
+				DBCollectionName: index,
+			},
+		}
+	}
+
+	assert.Equal(t, "my-index", esSpan("my-index").TraceName())
+	assert.Equal(t, "opensearch", esSpan("").TraceName())
 }

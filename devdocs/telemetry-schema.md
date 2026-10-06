@@ -88,6 +88,12 @@ published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
+- An Elasticsearch or OpenSearch client span that names no index or cluster is now named
+  `{db.operation.name} {server.address}:{server.port}`, as the database span name convention
+  defines, using the host `server.address` reports (the requested host, or else the resolved
+  host name) instead of the peer IP. A span whose `server.address` is the peer IP keeps its
+  name.
+
 ## Hosting notes
 
 `site/` is published as static files with no markdown processing, so the generated

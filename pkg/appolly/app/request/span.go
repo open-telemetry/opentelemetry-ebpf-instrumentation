@@ -2171,6 +2171,36 @@ func (s *Span) ServiceGraphConnectionType() string {
 	return ""
 }
 
+// elasticsearchSpanName follows the database span name convention:
+// https://opentelemetry.io/docs/specs/semconv/database/database-spans/#name
+func elasticsearchSpanName(s *Span) string {
+	operation := s.Elasticsearch.DBOperationName
+	target := elasticsearchSpanTarget(s)
+	switch {
+	case operation != "" && target != "":
+		return operation + " " + target
+	case operation != "":
+		return operation
+	case target != "":
+		return target
+	default:
+		return s.Elasticsearch.DBSystemName
+	}
+}
+
+func elasticsearchSpanTarget(s *Span) string {
+	switch {
+	case s.Elasticsearch.DBCollectionName != "":
+		return s.Elasticsearch.DBCollectionName
+	case s.DBNamespace != "":
+		return s.DBNamespace
+	case HTTPClientHost(s) != "" && s.HostPort != 0:
+		return HTTPClientHost(s) + ":" + strconv.Itoa(s.HostPort)
+	default:
+		return ""
+	}
+}
+
 func (s *Span) TraceName() string {
 	if s.OverrideTraceName != "" {
 		return s.OverrideTraceName
@@ -2185,21 +2215,7 @@ func (s *Span) TraceName() string {
 			}
 		}
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeElasticsearch && s.Elasticsearch != nil {
-			dbOperationName := s.Elasticsearch.DBOperationName
-			// https://opentelemetry.io/docs/specs/semconv/database/database-spans/#name
-			if dbOperationName == "" {
-				return "elasticsearch"
-			}
-			switch {
-			case s.Elasticsearch.DBCollectionName != "":
-				return dbOperationName + " " + s.Elasticsearch.DBCollectionName
-			case s.DBNamespace != "":
-				return dbOperationName + " " + s.DBNamespace
-			case s.Host != "" && s.HostPort != 0:
-				return dbOperationName + " " + s.Host + ":" + strconv.Itoa(s.HostPort)
-			default:
-				return dbOperationName
-			}
+			return elasticsearchSpanName(s)
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {
