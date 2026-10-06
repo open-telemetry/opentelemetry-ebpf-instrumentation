@@ -183,6 +183,7 @@ typedef struct tailcall_ctx {
     u32 h2_hpack_len;             // HPACK length (frame payload minus prefix and trailing pad)
     u32 h2_scan_pos;              // resume offset for detect_h2 across tail calls
     u32 h2_tp_candidate_pos;      // HPACK scan start or found candidate offset (>= max = none)
+    h2_sniff_state_t h2_framing;  // strict frame rules, carried across detect_h2 hops
     u8 niter;                     // HTTP/1 find-existing scan iteration counter
     u8 h2_frames;                 // H2 frames already injected this packet (capped)
     u8 h2_tp_retries;             // malformed HPACK traceparent candidates retried this packet
@@ -1220,6 +1221,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     t_ctx->h2_scan_pos = 0;
     t_ctx->h2_frames = 0;
     t_ctx->h2_tp_retries = 0;
+    bpf_memset(&t_ctx->h2_framing, 0, sizeof(t_ctx->h2_framing));
     t_ctx->go_grpc_conn = false;
 
     // skip H2 here — it uses HPACK for per-stream traceparents
@@ -1563,10 +1565,19 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
+    // A confirmed socket can still carry a send that does not start on a frame
+    // boundary: a partial write resumed mid-frame, or bytes that were never HTTP/2.
+    // Stop at the first frame a conforming sender cannot emit. The state lives in
+    // t_ctx so a header block left open by one hop is still open in the next.
+    h2_sniff_state_t *framing = &t_ctx->h2_framing;
+
     // Scan up to 4 frames for HEADERS+END_HEADERS
     for (u8 i = 0; i < k_h2_max_frame_scan; i++) {
         h2_frame_info_t f;
         if (!parse_h2_frame_at(msg, pos, msg_size, &f)) {
+            return SK_PASS;
+        }
+        if (!h2_sniff_check_frame(framing, f.payload_len, f.ftype, f.flags, f.r_bit, f.stream_id)) {
             return SK_PASS;
         }
         if (f.is_headers_end) {
