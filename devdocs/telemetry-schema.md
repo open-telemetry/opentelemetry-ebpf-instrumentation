@@ -101,6 +101,22 @@ published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
+- GenAI client span names follow `{gen_ai.operation.name} {gen_ai.request.model}`
+  (retrieval: `{gen_ai.operation.name} {gen_ai.data_source.id}`), built only from the
+  values emitted on the span:
+  - Anthropic Messages API: `gen_ai.operation.name` changes from `message` to `chat`
+    on spans and on the `gen_ai.client.*` metrics; span name `message claude-sonnet-4-6`
+    becomes `chat claude-sonnet-4-6`.
+  - OpenAI-compatible gateways: span name `POST /v1/chat/completions` (or `POST /*`)
+    becomes `chat gpt-4o-mini`; an unrecognized endpoint becomes `_OTHER {model}`.
+  - Retrieval without a data source id: `retrieval qdrant` becomes `retrieval`.
+  - Anthropic and rerank spans without a request model no longer take the model from
+    the response: `message claude-sonnet-4-6` becomes `chat`, `rerank rerank-v3.5`
+    becomes `rerank`.
+  - A GenAI span with an empty operation is named `_OTHER {model}` instead of the HTTP
+    `{method} {route}` fallback, matching the emitted `_OTHER` attribute. Today's
+    parsers always set an operation, so no emitted span changes.
+
 ## Hosting notes
 
 `site/` is published as static files with no markdown processing, so the generated

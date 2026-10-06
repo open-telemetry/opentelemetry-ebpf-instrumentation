@@ -1117,7 +1117,6 @@ const (
 	ResponseOperationName       = "response"
 	ConversationOperationName   = "conversation"
 	ExecuteToolOperationName    = "execute_tool"
-	MessageOperationName        = "message"
 	ChatKitSessionOperationName = "chatkit.session"
 	ChatKitThreadOperationName  = "chatkit.thread"
 	OtherOperationName          = "_OTHER"
@@ -2239,113 +2238,12 @@ func (s *Span) TraceName() string {
 			}
 		}
 
-		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOpenAI && s.GenAI != nil && s.GenAI.OpenAI != nil {
-			name := s.GenAI.OpenAI.OperationName
-			if name != "" {
-				switch {
-				case s.GenAI.OpenAI.Request.Model != "":
-					return name + " " + s.GenAI.OpenAI.Request.Model
-				case s.GenAI.OpenAI.ResponseModel != "":
-					return name + " " + s.GenAI.OpenAI.ResponseModel
-				default:
-					return name
-				}
-			}
-		}
-
-		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAnthropic && s.GenAI != nil && s.GenAI.Anthropic != nil {
-			name := s.GenAI.Anthropic.Output.Type
-			if name != "" {
-				switch {
-				case s.GenAI.Anthropic.Input.Model != "":
-					return name + " " + s.GenAI.Anthropic.Input.Model
-				case s.GenAI.Anthropic.Output.Model != "":
-					return name + " " + s.GenAI.Anthropic.Output.Model
-				default:
-					return name
-				}
-			}
-		}
-
-		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeGemini && s.GenAI != nil && s.GenAI.Gemini != nil {
-			op := s.GenAI.Gemini.OperationName()
-			model := s.GenAI.Gemini.Model
-			if model != "" {
-				return op + " " + model
-			}
-			return op
-		}
-
-		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeQwen && s.GenAI != nil && s.GenAI.Qwen != nil {
-			name := s.GenAI.Qwen.OperationName
-			if name != "" {
-				switch {
-				case s.GenAI.Qwen.Request.Model != "":
-					return name + " " + s.GenAI.Qwen.Request.Model
-				case s.GenAI.Qwen.ResponseModel != "":
-					return name + " " + s.GenAI.Qwen.ResponseModel
-				default:
-					return name
-				}
-			}
-		}
-
-		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSBedrock && s.GenAI != nil && s.GenAI.Bedrock != nil {
-			if s.GenAI.Bedrock.Model != "" {
-				return InvokeModelOperationName + " " + s.GenAI.Bedrock.Model
-			}
-			return InvokeModelOperationName
+		if s.Type == EventTypeHTTPClient && IsGenAISubtype(s.SubType) && s.GenAI != nil {
+			return s.genAISpanName()
 		}
 
 		if mcp := s.MCP(); mcp != nil {
 			return mcp.SpanName()
-		}
-
-		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeEmbedding && s.GenAI != nil && s.GenAI.Embedding != nil {
-			op := s.GenAI.Embedding.OperationName()
-			model := s.GenAI.Embedding.Model
-			if s.GenAI.Embedding.Input.Model != "" {
-				model = s.GenAI.Embedding.Input.Model
-			}
-			if model != "" {
-				return op + " " + model
-			}
-			return op
-		}
-
-		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeRerank && s.GenAI != nil && s.GenAI.Rerank != nil {
-			model := s.GenAI.Rerank.Input.Model
-			if model == "" {
-				model = s.GenAI.Rerank.Output.Model
-			}
-			if model != "" {
-				return "rerank " + model
-			}
-			return "rerank"
-		}
-
-		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeOllama && s.GenAI != nil && s.GenAI.Ollama != nil {
-			name := s.GenAI.Ollama.OperationName
-			if name != "" {
-				switch {
-				case s.GenAI.Ollama.Request.Model != "":
-					return name + " " + s.GenAI.Ollama.Request.Model
-				case s.GenAI.Ollama.ResponseModel != "":
-					return name + " " + s.GenAI.Ollama.ResponseModel
-				default:
-					return name
-				}
-			}
-		}
-
-		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeRetrieval && s.GenAI != nil && s.GenAI.Retrieval != nil {
-			if name := s.GenAI.Retrieval.GetCollection(); name != "" {
-				return RetrievalOperationName + " " + name
-			}
-			if s.GenAI.Retrieval.Provider != "" {
-				return RetrievalOperationName + " " + s.GenAI.Retrieval.Provider
-			}
-			return RetrievalOperationName
 		}
 
 		if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
@@ -2707,6 +2605,23 @@ func (s *Span) GenAIOutputTokenCount() (int, bool) {
 	}
 
 	return 0, false
+}
+
+func (s *Span) genAISpanName() string {
+	operation := s.GenAIOperationName()
+	if operation == "" {
+		operation = OtherOperationName
+	}
+
+	target := s.GenAIRequestModel()
+	if s.GenAI.Retrieval != nil {
+		target = s.GenAI.Retrieval.GetCollection()
+	}
+
+	if target == "" {
+		return operation
+	}
+	return operation + " " + target
 }
 
 func (s *Span) GenAIOperationName() string {

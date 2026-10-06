@@ -20,8 +20,8 @@ groups:
   #   `genAIProviderNames` too; a test asserts the two agree.
   # - `gen_ai.operation.name`: re-typed as a plain string. Upstream's note
   #   explicitly recommends system-specific operation names, and OBI emits the
-  #   provider's own vocabulary ('invoke_model' for Bedrock, 'message' for
-  #   Anthropic, 'conversation'/'response' for the OpenAI APIs, 'rerank', ...),
+  #   provider's own vocabulary ('invoke_model' for Bedrock,
+  #   'conversation'/'response' for the OpenAI APIs, 'rerank', ...),
   #   which upstream's enum has no members for. MCP is not part of this: it
   #   emits only the upstream-defined 'execute_tool', and nothing at all for
   #   methods that are not tool calls.
@@ -218,12 +218,12 @@ groups:
         brief: The name of the operation being performed.
         note: >
           OBI reports the provider's own operation vocabulary (e.g.
-          'invoke_model' for Bedrock, 'message' for Anthropic, 'generation'
-          for Qwen/DashScope, 'conversation'/'response' for the OpenAI APIs,
-          'rerank'). A GenAI call OBI recognised but whose operation it could
-          not classify reports `_OTHER`, so the attribute is always present on
-          a GenAI span. MCP reports 'execute_tool' for a tool call and omits
-          the attribute for every other method.
+          'invoke_model' for Bedrock, 'generation' for Qwen/DashScope,
+          'conversation'/'response' for the OpenAI APIs, 'rerank'). A GenAI
+          call OBI recognised but whose operation it could not classify
+          reports `_OTHER`, so the attribute is always present on a GenAI
+          span. MCP reports 'execute_tool' for a tool call and omits the
+          attribute for every other method.
         examples: ['chat', 'embeddings', 'response', 'conversation', 'invoke_model', 'rerank', 'execute_tool', '_OTHER']
 
   - id: registry.obi.gen_ai
