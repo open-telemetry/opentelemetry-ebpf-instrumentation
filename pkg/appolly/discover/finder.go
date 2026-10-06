@@ -142,12 +142,12 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 	swi.Add(ProcessContextDecoratorProvider(pf.cfg.Discovery.ProcessContextPollInterval, executableTypes, processContextEnrichedTypes),
 		swarm.WithID("ProcessContextDecorator"))
 
-	// we could subscribe ContainerStoreUpdater directly to the executableTypes queue and not providing any output channel
-	// but forcing the output by the executableTypesReplica channel only after the Container DB has been updated
+	// we could subscribe KubeStoreUpdater directly to the executableTypes queue and not providing any output channel
+	// but forcing the output by the executableTypesReplica channel only after the Kubernetes store has been updated
 	// prevents race conditions in later stages of the pipeline
 	storedExecutableTypes := msgh.QueueFromConfig[[]Event[ebpf.Instrumentable]](pf.cfg, pf.ctxInfo.Metrics, "storedExecutableTypes")
-	swi.Add(ContainerStoreUpdaterProvider(pf.ctxInfo.K8sInformer, processContextEnrichedTypes, storedExecutableTypes),
-		swarm.WithID("ContainerStoreUpdater"))
+	swi.Add(KubeStoreUpdaterProvider(pf.ctxInfo.K8sInformer, processContextEnrichedTypes, storedExecutableTypes),
+		swarm.WithID("KubeStoreUpdater"))
 	swi.Add(traceAttacherProvider(&traceAttacher{
 		Cfg:                 pf.cfg,
 		OutputTracerEvents:  tracerEvents,

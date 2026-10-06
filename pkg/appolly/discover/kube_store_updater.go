@@ -15,11 +15,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
-// ContainerStoreUpdaterProvider is a stage in the Process Finder pipeline that will be
+// KubeStoreUpdaterProvider is a stage in the Process Finder pipeline that will be
 // enabled only if Kubernetes decoration is enabled.
 // It just updates part of the kubernetes store when a new process is discovered.
-// TODO: rename to avoid confusions with Docker-only containers
-func ContainerStoreUpdaterProvider(
+func KubeStoreUpdaterProvider(
 	meta kubeMetadataProvider, input, output *msg.Queue[[]Event[ebpf.Instrumentable]],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
@@ -28,16 +27,16 @@ func ContainerStoreUpdaterProvider(
 		}
 		store, err := meta.Get(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("instantiating ContainerStoreUpdater: %w", err)
+			return nil, fmt.Errorf("instantiating KubeStoreUpdater: %w", err)
 		}
-		return updateLoop(store, input.Subscribe(msg.SubscriberName("ContainerStoreUpdater")), output), nil
+		return updateLoop(store, input.Subscribe(msg.SubscriberName("KubeStoreUpdater")), output), nil
 	}
 }
 
 func updateLoop(
 	store *kube.Store, in <-chan []Event[ebpf.Instrumentable], out *msg.Queue[[]Event[ebpf.Instrumentable]],
 ) swarm.RunFunc {
-	log := slog.With("component", "ContainerStoreUpdater")
+	log := slog.With("component", "KubeStoreUpdater")
 	return func(ctx context.Context) {
 		defer out.Close()
 		swarms.ForEachInput(ctx, in, log.Debug, func(instrumentables []Event[ebpf.Instrumentable]) {

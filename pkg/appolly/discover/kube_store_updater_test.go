@@ -62,13 +62,13 @@ func receiveUpdater[T any](t *testing.T, ch <-chan T) (T, bool) {
 	case value, ok := <-ch:
 		return value, ok
 	case <-time.After(updaterTestTimeout):
-		t.Fatal("timed out waiting for container store updater")
+		t.Fatal("timed out waiting for kube store updater")
 		var zero T
 		return zero, false
 	}
 }
 
-func TestContainerStoreUpdaterOrdersStateAndOutput(t *testing.T) {
+func TestKubeStoreUpdaterOrdersStateAndOutput(t *testing.T) {
 	bootstrapInfo := container.Info{ContainerID: "bootstrap-container", PIDNamespace: 5}
 	oldInfo := container.Info{ContainerID: "old-container", PIDNamespace: 10}
 	newInfo := container.Info{ContainerID: "new-container", PIDNamespace: 20}
@@ -126,7 +126,7 @@ func TestContainerStoreUpdaterOrdersStateAndOutput(t *testing.T) {
 	}
 }
 
-func TestContainerStoreUpdaterShutdown(t *testing.T) {
+func TestKubeStoreUpdaterShutdown(t *testing.T) {
 	t.Run("without consumers", func(t *testing.T) {
 		in := make(chan []Event[ebpf.Instrumentable], 1)
 		out := msg.NewQueue[[]Event[ebpf.Instrumentable]]()
