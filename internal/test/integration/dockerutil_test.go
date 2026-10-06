@@ -45,9 +45,9 @@ const (
 	// `internal/test/integration/components/weaver/service.yml` so the
 	// programmatic-setup tests run weaver with the same image as the
 	// compose-driven ones.
-	imgWeaver = img.Docker("otel/weaver:v0.26.1@sha256:9094862c0ab261bdbcb079bb981f9a573b3659b130a6d2ab8616eca6ba37aaec")
+	imgWeaver = img.Docker("otel/weaver:v0.27.0@sha256:3049b4079049d4abb1b5632f511ada2c33505a1c60f3f8535e93f87f0696f056")
 
-	weaverOTLPReadyProbe = "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4317/ 2>&1 | grep -qv refused"
+	weaverOTLPReadyProbe = "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4320/health"
 	weaverReadyTimeout   = 3 * time.Minute
 )
 
@@ -210,7 +210,6 @@ func setupContainerWeaver(t *testing.T, net dockertest.Network) {
 		dockertest.WithCmd([]string{
 			"registry", "live-check",
 			"--registry", "/obi-registry",
-			"--inactivity-timeout", "300",
 			"--otlp-grpc-address", "0.0.0.0",
 			"--admin-port", "4320",
 			"--format", "compact",

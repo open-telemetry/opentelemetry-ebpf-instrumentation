@@ -17,13 +17,12 @@
 # volumes resolve against the file that declares them, so the consuming
 # compose must own its own bind mount or the registry path would be wrong.
 #
-# weaver runs with `--output http`: the test harness POSTs the admin /stop
-# endpoint and reads the live-check report back from the response body. The
-# `compact` template keeps that body small enough to avoid the truncation that
-# large reports hit when weaver closes the connection on exit.
+# weaver runs with `--output http`: the test harness stops the run with the
+# admin /stop endpoint, reads the live-check report from /report and ends the
+# process with /shutdown.
 services:
   weaver:
-    image: otel/weaver:v0.26.1@sha256:9094862c0ab261bdbcb079bb981f9a573b3659b130a6d2ab8616eca6ba37aaec
+    image: otel/weaver:v0.27.0@sha256:3049b4079049d4abb1b5632f511ada2c33505a1c60f3f8535e93f87f0696f056
     container_name: weaver
     user: "0:0"
     working_dir: /obi-registry
@@ -32,8 +31,6 @@ services:
       - live-check
       - --registry
       - /obi-registry
-      - --inactivity-timeout
-      - "300"
       - --otlp-grpc-address
       - "0.0.0.0"
       - --admin-port
@@ -47,9 +44,9 @@ services:
       - --output
       - http
     ports:
-      - "4320:4320" # admin port (for /stop from test host)
+      - "4320:4320" # admin API (for the test host)
     healthcheck:
-      test: ["CMD-SHELL", "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4317/ 2>&1 | grep -qv refused"]
+      test: ["CMD-SHELL", "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4320/health"]
       interval: 5s
       timeout: 2s
       retries: 60
