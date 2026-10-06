@@ -2197,7 +2197,7 @@ func elasticsearchSpanName(s *Span) string {
 	target := cmp.Or(
 		s.Elasticsearch.DBCollectionName,
 		s.DBNamespace,
-		dbServerTarget(HTTPClientHost(s), s.HostPort),
+		dbServerTarget(hostWithoutPort(HTTPClientHost(s)), s.HostPort),
 	)
 	return dbSpanName(s.Elasticsearch.DBOperationName, target, s.Elasticsearch.DBSystemName)
 }

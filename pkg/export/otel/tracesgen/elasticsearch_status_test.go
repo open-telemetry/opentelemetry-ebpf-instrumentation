@@ -104,6 +104,10 @@ func TestTraceAttributesSelector_ElasticsearchNamespace(t *testing.T) {
 		requested.Host = "172.18.0.2"
 		requested.Statement = "http" + request.SchemeHostSeparator + "search.internal"
 
+		requestedWithPort := esSpan("", "")
+		requestedWithPort.Host = "172.18.0.2"
+		requestedWithPort.Statement = "http" + request.SchemeHostSeparator + "opensearchserver:9200"
+
 		for _, span := range []*request.Span{resolved, requested} {
 			attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
 			address, ok := attrs.Get("server.address")
@@ -111,6 +115,13 @@ func TestTraceAttributesSelector_ElasticsearchNamespace(t *testing.T) {
 			assert.NotEqual(t, "172.18.0.2", address.Str())
 			assert.Equal(t, "search "+address.Str()+":9200", span.TraceName())
 		}
+	})
+
+	t.Run("does not repeat the port the Host header carries", func(t *testing.T) {
+		span := esSpan("", "")
+		span.Host = "172.18.0.2"
+		span.Statement = "http" + request.SchemeHostSeparator + "opensearchserver:9200"
+		assert.Equal(t, "search opensearchserver:9200", span.TraceName())
 	})
 }
 

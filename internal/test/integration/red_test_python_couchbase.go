@@ -228,8 +228,8 @@ func testREDMetricsPythonCouchbaseDefaultCollection(t *testing.T) {
 			// negotiation — tests the Bucket-based heuristic for LEB128 stripping).
 			// Uses user::2 (not user::1) to avoid matching named-collection spans
 			// from testREDMetricsPythonCouchbaseOnly which run in the same compose.
-			assertCouchbaseDBQueryTextContains(t, testCase.Comm, "GET", "GET ", "user::2")
-			assertCouchbaseDBQueryTextContains(t, testCase.Comm, "DELETE", "DELETE ", "user::2")
+			assertCouchbaseDBQueryTextContains(t, testCase.Comm, "GET test-bucket", "GET ", "user::2")
+			assertCouchbaseDBQueryTextContains(t, testCase.Comm, "DELETE test-bucket", "DELETE ", "user::2")
 		})
 	}
 }

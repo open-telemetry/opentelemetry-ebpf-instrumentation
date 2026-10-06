@@ -118,9 +118,9 @@ section empty once drained.
     parsers always set an operation, so no emitted span changes.
 - An Elasticsearch or OpenSearch client span that names no index or cluster is now named
   `{db.operation.name} {server.address}:{server.port}`, as the database span name convention
-  defines, using the host `server.address` reports (the requested host, or else the resolved
-  host name) instead of the peer IP. A span whose `server.address` is the peer IP keeps its
-  name.
+  defines, using the requested host (without the port the `Host` header may carry), or else the
+  resolved host name, instead of the peer IP. A span whose host was neither requested nor
+  resolved keeps its name.
 - Database span names follow the database span name convention in more cases. A span with no
   operation is named after its target, else its `db.system.name`: `SQL`, `REDIS`, `MEMCACHED`,
   `COUCHBASE` and `AEROSPIKE` become e.g. `postgresql` (or `other_sql`), `redis`, `memcached`,
@@ -128,7 +128,11 @@ section empty once drained.
   Couchbase span with no collection uses `db.namespace` as its target (`listCollections`
   becomes `listCollections mydb`). A Couchbase SQL++ span with no operation is named after
   its target, and its `{server.address}:{server.port}` target uses the host `server.address`
-  reports instead of the peer IP.
+  reports instead of the peer IP. Native SQL, Redis, Memcached, MongoDB, Couchbase and
+  Aerospike names still never use the `{server.address}:{server.port}` target, which keeps
+  today's names and their cardinality, and Redis names do not use `db.namespace`, as the Redis
+  conventions require. SQL spans are still named after `db.query.summary` when it is available,
+  even if that attribute is not selected for export.
 
 ## Hosting notes
 
