@@ -4,6 +4,7 @@
 package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
+	"cmp"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -2170,6 +2171,37 @@ func (s *Span) ServiceGraphConnectionType() string {
 	return ""
 }
 
+// dbSpanName follows the database span name convention:
+// https://opentelemetry.io/docs/specs/semconv/database/database-spans/#name
+func dbSpanName(operation, target, system string) string {
+	switch {
+	case operation != "" && target != "":
+		return operation + " " + target
+	case operation != "":
+		return operation
+	case target != "":
+		return target
+	default:
+		return system
+	}
+}
+
+func dbServerTarget(address string, port int) string {
+	if address == "" || port == 0 {
+		return ""
+	}
+	return address + ":" + strconv.Itoa(port)
+}
+
+func elasticsearchSpanName(s *Span) string {
+	target := cmp.Or(
+		s.Elasticsearch.DBCollectionName,
+		s.DBNamespace,
+		dbServerTarget(HTTPClientHost(s), s.HostPort),
+	)
+	return dbSpanName(s.Elasticsearch.DBOperationName, target, s.Elasticsearch.DBSystemName)
+}
+
 func (s *Span) TraceName() string {
 	if s.OverrideTraceName != "" {
 		return s.OverrideTraceName
@@ -2184,21 +2216,7 @@ func (s *Span) TraceName() string {
 			}
 		}
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeElasticsearch && s.Elasticsearch != nil {
-			dbOperationName := s.Elasticsearch.DBOperationName
-			// https://opentelemetry.io/docs/specs/semconv/database/database-spans/#name
-			if dbOperationName == "" {
-				return "elasticsearch"
-			}
-			switch {
-			case s.Elasticsearch.DBCollectionName != "":
-				return dbOperationName + " " + s.Elasticsearch.DBCollectionName
-			case s.DBNamespace != "":
-				return dbOperationName + " " + s.DBNamespace
-			case s.Host != "" && s.HostPort != 0:
-				return dbOperationName + " " + s.Host + ":" + strconv.Itoa(s.HostPort)
-			default:
-				return dbOperationName
-			}
+			return elasticsearchSpanName(s)
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {
@@ -2222,20 +2240,8 @@ func (s *Span) TraceName() string {
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeSQLPP {
-			dbOperationName := s.Method
-			if dbOperationName == "" {
-				return s.DBSystem
-			}
-			switch {
-			case s.Route != "":
-				return dbOperationName + " " + s.Route
-			case s.DBNamespace != "":
-				return dbOperationName + " " + s.DBNamespace
-			case s.Host != "" && s.HostPort != 0:
-				return dbOperationName + " " + s.Host + ":" + strconv.Itoa(s.HostPort)
-			default:
-				return dbOperationName
-			}
+			target := cmp.Or(s.Route, s.DBNamespace, dbServerTarget(HostAsServer(s), s.HostPort))
+			return dbSpanName(s.Method, target, s.DBSystem)
 		}
 
 		if s.Type == EventTypeHTTPClient && IsGenAISubtype(s.SubType) && s.GenAI != nil {
@@ -2266,31 +2272,16 @@ func (s *Span) TraceName() string {
 	case EventTypeGRPC, EventTypeGRPCClient:
 		return s.Path
 	case EventTypeSQLClient, EventTypeSQLServer:
-		operation := s.Method
-		if operation == "" {
-			return "SQL"
-		}
-		// semconv: db.query.summary when available, else
-		// {db.operation.name} {target} with target = collection then namespace
-		switch {
-		case s.DBQuerySummary != "":
+		if s.Method != "" && s.DBQuerySummary != "" {
 			return s.DBQuerySummary
-		case s.Path != "":
-			return operation + " " + s.Path
-		case s.DBNamespace != "":
-			return operation + " " + s.DBNamespace
 		}
-		return operation
-	case EventTypeRedisClient, EventTypeRedisServer:
-		if s.Method == "" {
-			return "REDIS"
+		collection := ""
+		if s.Method != "" {
+			collection = s.Path
 		}
-		return s.Method
-	case EventTypeMemcachedClient, EventTypeMemcachedServer:
-		if s.Method == "" {
-			return "MEMCACHED"
-		}
-		return s.Method
+		return dbSpanName(s.Method, cmp.Or(collection, s.DBNamespace), dbSystemNameForSpan(s))
+	case EventTypeRedisClient, EventTypeRedisServer, EventTypeMemcachedClient, EventTypeMemcachedServer:
+		return dbSpanName(s.Method, "", dbSystemNameForSpan(s))
 	case EventTypeKafkaClient, EventTypeKafkaServer, EventTypeMQTTClient, EventTypeMQTTServer, EventTypeNATSClient, EventTypeNATSServer, EventTypeAMQPClient:
 		if s.Path == "" {
 			return s.Method
@@ -2301,18 +2292,8 @@ func (s *Span) TraceName() string {
 			return "sunrpc/" + s.Method
 		}
 		return s.Path + "/" + s.Method
-	case EventTypeMongoClient:
-		if s.Path != "" && s.Method != "" {
-			// TODO for database operations like listCollections, we need to use s.DbNamespace instead of s.Path
-			return s.Method + " " + s.Path
-		}
-		if s.Path != "" {
-			return s.Path
-		}
-		if s.Method != "" {
-			return s.Method
-		}
-		return semconv.DBSystemNameMongoDB.Value.AsString()
+	case EventTypeMongoClient, EventTypeCouchbaseClient:
+		return dbSpanName(s.Method, cmp.Or(s.Path, s.DBNamespace), dbSystemNameForSpan(s))
 	case EventTypeManualSpan:
 		return s.Method
 	case EventTypeFailedConnect:
@@ -2325,19 +2306,8 @@ func (s *Span) TraceName() string {
 			return s.Method
 		}
 		return s.Method + " " + s.Path
-	case EventTypeCouchbaseClient:
-		if s.Method == "" {
-			return "COUCHBASE"
-		}
-		if s.Path != "" {
-			return s.Method + " " + s.Path
-		}
-		return s.Method
 	case EventTypeAerospikeClient, EventTypeAerospikeServer:
-		if s.Method == "" {
-			return "AEROSPIKE"
-		}
-		// {operation} {namespace}.{set}, dropping any missing component.
+		// The target is {namespace}.{set}, dropping any missing component.
 		target := s.DBNamespace
 		if s.Path != "" {
 			if target != "" {
@@ -2346,10 +2316,7 @@ func (s *Span) TraceName() string {
 				target = s.Path
 			}
 		}
-		if target != "" {
-			return s.Method + " " + target
-		}
-		return s.Method
+		return dbSpanName(s.Method, target, dbSystemNameForSpan(s))
 	}
 	return ""
 }

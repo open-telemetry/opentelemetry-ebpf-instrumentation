@@ -193,21 +193,21 @@ func testREDMetricsPythonCouchbaseDefaultCollection(t *testing.T) {
 			Namespace: "integration-test",
 			Spans: []TestCaseSpan{
 				{
-					Name: "SET",
+					Name: "SET test-bucket",
 					Attributes: []attribute.KeyValue{
 						attribute.String("db.operation.name", "SET"),
 						attribute.String("db.namespace", "test-bucket"),
 					},
 				},
 				{
-					Name: "GET",
+					Name: "GET test-bucket",
 					Attributes: []attribute.KeyValue{
 						attribute.String("db.operation.name", "GET"),
 						attribute.String("db.namespace", "test-bucket"),
 					},
 				},
 				{
-					Name: "DELETE",
+					Name: "DELETE test-bucket",
 					Attributes: []attribute.KeyValue{
 						attribute.String("db.operation.name", "DELETE"),
 						attribute.String("db.namespace", "test-bucket"),

@@ -116,6 +116,19 @@ section empty once drained.
   - A GenAI span with an empty operation is named `_OTHER {model}` instead of the HTTP
     `{method} {route}` fallback, matching the emitted `_OTHER` attribute. Today's
     parsers always set an operation, so no emitted span changes.
+- An Elasticsearch or OpenSearch client span that names no index or cluster is now named
+  `{db.operation.name} {server.address}:{server.port}`, as the database span name convention
+  defines, using the host `server.address` reports (the requested host, or else the resolved
+  host name) instead of the peer IP. A span whose `server.address` is the peer IP keeps its
+  name.
+- Database span names follow the database span name convention in more cases. A span with no
+  operation is named after its target, else its `db.system.name`: `SQL`, `REDIS`, `MEMCACHED`,
+  `COUCHBASE` and `AEROSPIKE` become e.g. `postgresql` (or `other_sql`), `redis`, `memcached`,
+  `couchbase` and `aerospike`, and a SQL span with only a `db.namespace` is named after it. A MongoDB or
+  Couchbase span with no collection uses `db.namespace` as its target (`listCollections`
+  becomes `listCollections mydb`). A Couchbase SQL++ span with no operation is named after
+  its target, and its `{server.address}:{server.port}` target uses the host `server.address`
+  reports instead of the peer IP.
 
 ## Hosting notes
 
