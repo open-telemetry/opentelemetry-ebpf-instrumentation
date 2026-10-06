@@ -549,7 +549,7 @@ func TestGRPCPipeline(t *testing.T) {
 			string(semconv.ServiceNamespaceKey):      "",
 			string(semconv.RPCSystemNameKey):         "grpc",
 			string(semconv.RPCResponseStatusCodeKey): "INVALID_ARGUMENT",
-			string(semconv.RPCMethodKey):             "/foo/bar",
+			string(semconv.RPCMethodKey):             "foo/bar",
 			string(attr.ClientAddr):                  "1.1.1.1",
 			string(attr.ServerPort):                  "8080",
 			string(attr.ServerAddr):                  event.Attributes["server.address"],
@@ -589,7 +589,7 @@ func TestTraceGRPCPipeline(t *testing.T) {
 		Attributes: obi.Attributes{InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gctx(0, nil), tracesInput, processEvents, nil)
 	// Override eBPF tracer to send some fake data
-	tracesInput.Send(newGRPCRequest("svc", "foo.bar", 3))
+	tracesInput.Send(newGRPCRequest("svc", "/foo.Bar/Baz", 3))
 	pipe, err := gb.buildGraph(ctx)
 	require.NoError(t, err)
 
@@ -600,7 +600,7 @@ func TestTraceGRPCPipeline(t *testing.T) {
 	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
 	matchInnerGRPCTraceEvent(t, "processing", event)
 	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
-	matchGRPCTraceEvent(t, "foo.bar", event)
+	matchGRPCTraceEvent(t, "foo.Bar/Baz", event)
 
 	cancel()
 	require.NoError(t, <-done)
@@ -950,7 +950,7 @@ func matchGRPCTraceEvent(t *testing.T, name string, event collector.TraceRecord)
 		Attributes: map[string]string{
 			string(semconv.RPCSystemNameKey):         "grpc",
 			string(semconv.RPCResponseStatusCodeKey): "INVALID_ARGUMENT",
-			string(semconv.RPCMethodKey):             "foo.bar",
+			string(semconv.RPCMethodKey):             name,
 			string(attr.ClientAddr):                  "1.1.1.1",
 			string(semconv.NetworkPeerAddressKey):    "1.1.1.1",
 			string(attr.ServerAddr):                  "127.0.0.1",

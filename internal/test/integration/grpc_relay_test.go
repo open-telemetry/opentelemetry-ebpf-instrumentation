@@ -365,7 +365,7 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 
 		// Verify the reverse: go-http-to-grpc HTTP server → gRPC client.
 		httpToGRPCClientSpans := trace.FindByOperationNameServiceAndKind(
-			"/relay.Relay/Relay", "go-http-to-grpc", "client",
+			"relay.Relay/Relay", "go-http-to-grpc", "client",
 		)
 		require.NotEmpty(ct, httpToGRPCClientSpans)
 		foundReverse := false
@@ -434,7 +434,7 @@ func testGRPCRelayChainContextPropagation(t *testing.T) {
 }
 
 func isRelayOperation(operation string) bool {
-	return operation == "/relay.Relay/Relay" || operation == "*"
+	return operation == "relay.Relay/Relay" || operation == "grpc"
 }
 
 func relaySpansByKind(trace jaeger.Trace, kind string) []jaeger.Span {
