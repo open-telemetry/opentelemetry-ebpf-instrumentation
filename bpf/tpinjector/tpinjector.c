@@ -91,7 +91,7 @@ char __license[] SEC("license") = "Dual MIT/GPL";
 //                                           │ confirms H2, marks the socket
 //                                           ▼
 //                                        detect_h2 ◀──────────────┐
-//                                           │                     │
+//                                           │ known-SSL: reject    │
 //                                           │ preface→SETTINGS     │ resume on
 //                                           │ confirms genuine H2  │ batched
 //                                           │ (else reject);       │ frame via
@@ -1491,6 +1491,16 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
 
     u8 state = h2_sock_state(msg);
     if (state == k_h2_sock_rejected) {
+        return SK_PASS;
+    }
+
+    // Every way into the H2 chain passes here, including sockets classified before
+    // the SSL uprobes marked them. The payload is ciphertext from then on. Reject
+    // rather than skip: the generic tracer deletes the mark when each request ends,
+    // and the tcp_sendmsg kprobe sets it again only after this program has run. The
+    // mark cannot change within one send, so the first hop is enough.
+    if (pos == 0 && is_ssl_connection(&t_ctx->p_conn)) {
+        set_h2_sock_state(msg, k_h2_sock_rejected);
         return SK_PASS;
     }
 
