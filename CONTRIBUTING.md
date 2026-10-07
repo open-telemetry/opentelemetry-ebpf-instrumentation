@@ -34,6 +34,17 @@ For a Go development environment with Docker access (especially useful for non-L
 see the [development container instructions](.devcontainer/README.md), including VS Code,
 IntelliJ IDEA, and terminal workflows.
 
+You can use [mise](https://mise.jdx.dev/) to install the Go and linting tools pinned
+in `mise.toml`:
+
+```sh
+mise install
+```
+
+Mise is optional; `Make` remains the task runner. For example, run `mise exec -- make lint`
+to invoke a Make target with the pinned tools available. Use `make docker-generate` for
+eBPF generation with the project's containerized toolchain.
+
 ### Compiling the project
 
 #### Requirements
