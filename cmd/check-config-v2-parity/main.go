@@ -572,6 +572,7 @@ func parityChecks() []parityCheck {
 		{[]string{"attributes", "rename_unresolved_hosts"}, []string{"obi", "enrich", "service_name", "unresolved_hosts", "names", "default"}},
 		{[]string{"attributes", "kubernetes", "informers_sync_timeout"}, []string{"obi", "enrich", "enrichers", "kubernetes", "informers", "initial_sync_timeout"}},
 		{[]string{"attributes", "kubernetes", "informers_resync_period"}, []string{"obi", "enrich", "enrichers", "kubernetes", "informers", "resync_period"}},
+		{[]string{"cloud_metadata", "refresh_interval"}, []string{"obi", "enrich", "enrichers", "cloud", "refresh_interval"}},
 
 		{[]string{"routes", "unmatched"}, []string{"obi", "capture", "instrumentation", "http", "routes", "incoming", "unmatched"}},
 		{[]string{"routes", "unmatched"}, []string{"obi", "capture", "instrumentation", "http", "routes", "outgoing", "unmatched"}},

@@ -22,6 +22,7 @@ type Enrich struct {
 // Enrichers groups metadata enricher settings.
 type Enrichers struct {
 	Kubernetes           KubernetesEnricher `yaml:"kubernetes"`
+	Cloud                CloudEnricher      `yaml:"cloud"`
 	AdditionalProperties map[string]any     `yaml:",inline"`
 }
 
@@ -85,6 +86,21 @@ type KubernetesMetadataCache struct {
 type KubernetesSourceLabels struct {
 	ServiceName      string `yaml:"service_name"`
 	ServiceNamespace string `yaml:"service_namespace"`
+}
+
+// CloudEnricher describes cloud metadata enrichment settings.
+type CloudEnricher struct {
+	ClusterName          string         `yaml:"cluster_name"`
+	Region               string         `yaml:"region"`
+	RefreshInterval      Duration       `yaml:"refresh_interval"`
+	Route53              Route53        `yaml:"route53"`
+	AdditionalProperties map[string]any `yaml:",inline"`
+}
+
+// Route53 describes the Route53 hosted zones used for service name resolution.
+type Route53 struct {
+	HostedZoneIDs        []string       `yaml:"hosted_zone_ids"`
+	AdditionalProperties map[string]any `yaml:",inline"`
 }
 
 // ServiceName describes service name resolution settings.

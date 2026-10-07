@@ -2182,6 +2182,40 @@
                   "description": "Kubernetes enricher activation mode.\n`autodetect`: enable if a Kubernetes environment is detected (default).\n`enabled`: always enable.\n`disabled`: disable. Recommended when running as a Collector receiver and using `k8sattributesprocessor`.\nIf omitted, `autodetect` is used.\n"
                 }
               }
+            },
+            "cloud": {
+              "type": "object",
+              "description": "Cloud metadata enricher configuration.\nIf omitted, implementation defaults are used.\n",
+              "additionalProperties": true,
+              "properties": {
+                "cluster_name": {
+                  "type": "string",
+                  "description": "Overrides automatic cloud cluster detection.\n"
+                },
+                "region": {
+                  "type": "string",
+                  "description": "Overrides automatic cloud region detection.\n"
+                },
+                "refresh_interval": {
+                  "type": "string",
+                  "default": "30s",
+                  "description": "How often the cloud metadata inventory is refreshed.\n"
+                },
+                "route53": {
+                  "type": "object",
+                  "description": "Route53 metadata used by the `route53` service name source.\n",
+                  "additionalProperties": true,
+                  "properties": {
+                    "hosted_zone_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Hosted zones whose A/AAAA records are used for name resolution.\nRequired when the `route53` service name source is enabled.\n"
+                    }
+                  }
+                }
+              }
             }
           }
         },

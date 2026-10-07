@@ -30,7 +30,7 @@ func CloudMetadataRefreshers(
 	var refreshers []cloud.MetadataRefresher
 	enabled := resolverSources(sources)
 	if nodeMeta.Features.Has(metadata.ClusterEC2) && enabled.Has(ResolverRoute53) {
-		if refresher, err := route53InventoryRefresher(ctx, cloudCfg); err != nil {
+		if refresher, err := route53InventoryRefresher(ctx, nodeMeta, cloudCfg); err != nil {
 			rlog().Warn("cloud metadata not available", "source", SourceRoute53, "error", err)
 		} else {
 			refreshers = append(refreshers, refresher)

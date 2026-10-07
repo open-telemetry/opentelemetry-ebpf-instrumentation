@@ -247,6 +247,7 @@ extensions:
     enrich:
       enrichers:
         kubernetes: {}
+        cloud: {}
       service_name: {}
       attributes: {}
 
@@ -697,6 +698,10 @@ Important mapping notes:
 | `channel_buffer_len` | `extensions.obi.capture.channels.buffer_len` | Move |
 | `channel_send_timeout` | `extensions.obi.capture.channels.send_timeout` | Move |
 | `channel_send_timeout_panic` | `extensions.obi.capture.channels.panic_on_send_timeout` | Move + rename |
+| `cloud_metadata.cluster_name` | `extensions.obi.enrich.enrichers.cloud.cluster_name` | Move |
+| `cloud_metadata.refresh_interval` | `extensions.obi.enrich.enrichers.cloud.refresh_interval` | Move |
+| `cloud_metadata.region` | `extensions.obi.enrich.enrichers.cloud.region` | Move |
+| `cloud_metadata.route53.hosted_zone_ids` | `extensions.obi.enrich.enrichers.cloud.route53.hosted_zone_ids` | Move |
 | `discovery.bpf_pid_filter_off` | `extensions.obi.capture.engine.pid_filter.disabled` | Move + rename |
 | `discovery.default_otlp_grpc_port` | `extensions.obi.capture.rules[].match.process.exports_otlp.port` | Emitted only when `exclude_otel_instrumented_services` is enabled |
 | `discovery.default_exclude_instrument` | `extensions.obi.capture.rules[]` (exclude rules with glob selectors) | Move + reshape |

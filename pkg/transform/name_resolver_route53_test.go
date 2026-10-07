@@ -107,6 +107,50 @@ func TestRoute53InventoryConfiguration(t *testing.T) {
 	}
 }
 
+func TestRoute53InventoryRegion(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		configRegion   string
+		detectedRegion string
+		wantRegion     string
+	}{
+		{"configured region", "us-gov-west-1", "us-east-2", "us-gov-west-1"},
+		{"detected region", "", "us-gov-east-1", "us-gov-east-1"},
+		{"default region", "", "", route53DefaultRegion},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var authorization atomic.Value
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				authorization.Store(r.Header.Get("Authorization"))
+				w.Header().Set("Content-Type", "text/xml")
+				fmt.Fprint(w, `<ListResourceRecordSetsResponse xmlns="https://route53.amazonaws.com/doc/2013-04-01/"><ResourceRecordSets></ResourceRecordSets><IsTruncated>false</IsTruncated><MaxItems>300</MaxItems></ListResourceRecordSetsResponse>`)
+			}))
+			t.Cleanup(server.Close)
+			t.Setenv("AWS_ENDPOINT_URL_ROUTE_53", server.URL)
+			t.Setenv("AWS_ACCESS_KEY_ID", "test")
+			t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
+			t.Setenv("AWS_SESSION_TOKEN", "")
+			t.Setenv("AWS_REGION", "")
+			t.Setenv("AWS_DEFAULT_REGION", "")
+			t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+			t.Setenv("AWS_MAX_ATTEMPTS", "1")
+
+			refresher, err := route53InventoryRefresher(t.Context(),
+				&metadata.NodeMeta{Region: tc.detectedRegion},
+				CloudMetadataConfig{
+					Region:          tc.configRegion,
+					RefreshInterval: time.Second,
+					Route53:         Route53MetadataConfig{HostedZoneIDs: []string{"test-zone"}},
+				})
+			require.NoError(t, err)
+
+			snapshot := &cloud.MetadataSnapshot{ServiceByIP: map[string]string{}}
+			require.NoError(t, refresher.Refresh(t.Context(), snapshot))
+			assert.Contains(t, authorization.Load(), "/"+tc.wantRegion+"/route53/aws4_request")
+		})
+	}
+}
+
 func TestRoute53ResolverPrecedence(t *testing.T) {
 	route53 := fakeECSResolver{"10.0.0.1": "dns.example.com", "10.0.0.2": "other.example.com"}
 	ecs := fakeECSResolver{"10.0.0.1": "ecs-service"}

@@ -12,6 +12,21 @@ cloud_metadata:
     hosted_zone_ids: [Z0123456789EXAMPLE]
 ```
 
+In Config v2, the same settings are:
+
+```yaml
+extensions:
+  obi:
+    enrich:
+      enrichers:
+        cloud:
+          refresh_interval: 30s
+          route53:
+            hosted_zone_ids: [Z0123456789EXAMPLE]
+      service_name:
+        sources: [k8s, ecs, route53]
+```
+
 Use the AWS SDK's standard credentials configuration. Grant
 `route53:ListResourceRecordSets` on the configured hosted zones; listing all zones
 is not required. Zone IDs can include the `/hostedzone/` prefix. Select zones
@@ -38,7 +53,10 @@ The corresponding environment variables are:
 - `OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS=Z0123456789EXAMPLE`
 - `OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL=30s`
 
-The AWS SDK uses the configured region, falling back to `us-east-1` for Route53.
+The Route53 client region, which selects the AWS partition, is
+`cloud_metadata.region` (`OTEL_EBPF_CLOUD_REGION`) if set, otherwise the detected
+cloud region. Without either, the AWS SDK's region configuration applies,
+falling back to `us-east-1`.
 For local tests, its endpoint override is `AWS_ENDPOINT_URL_ROUTE_53`.
 
 ## Integration tests

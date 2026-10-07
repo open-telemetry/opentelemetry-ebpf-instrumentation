@@ -15,6 +15,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/route53/types"
 )
 
+// route53EscapedWildcard is the octal escape that Route53 returns for a "*" wildcard label.
+const route53EscapedWildcard = `\052`
+
 type Route53Client interface {
 	ListResourceRecordSets(context.Context, *route53.ListResourceRecordSetsInput, ...func(*route53.Options)) (*route53.ListResourceRecordSetsOutput, error)
 }
@@ -54,7 +57,7 @@ func addRoute53Record(next map[string]string, record types.ResourceRecordSet) {
 		return
 	}
 	name := strings.TrimSuffix(strings.ToLower(aws.ToString(record.Name)), ".")
-	if name == "" || strings.Contains(name, "*") || strings.Contains(name, `\052`) {
+	if name == "" || strings.Contains(name, "*") || strings.Contains(name, route53EscapedWildcard) {
 		return
 	}
 	for _, resource := range record.ResourceRecords {
