@@ -2152,6 +2152,95 @@ func TestHandleProcessEventCreated(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "PID changing to a service already reported by other PIDs",
+			setup: func(r *MetricsReporter, m *mockEventMetrics) {
+				staleUID := svc.UID{
+					Name:      "old-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}
+				r.pidTracker.AddPID(1234, staleUID)
+				r.targetMetrics[staleUID] = attrsToTargetMetrics(r, &svc.Attrs{
+					Features: export.FeatureApplicationRED,
+					UID:      staleUID,
+					HostName: "test-host",
+				})
+
+				sharedUID := svc.UID{
+					Name:      "new-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}
+				r.pidTracker.AddPID(5678, sharedUID)
+				r.targetMetrics[sharedUID] = attrsToTargetMetrics(r, &svc.Attrs{
+					Features: export.FeatureApplicationRED,
+					UID:      sharedUID,
+					HostName: "test-host",
+				})
+			},
+			event: exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: exec.New(exec.Init{
+					Pid: 1234,
+					Service: svc.Attrs{
+						Features: export.FeatureApplicationRED,
+						UID: svc.UID{
+							Name:      "new-service",
+							Namespace: "default",
+							Instance:  "instance-1",
+						},
+						HostName: "test-host",
+					},
+				}),
+			},
+			expectedCreate: []svc.Attrs{
+				{
+					Features: export.FeatureApplicationRED,
+					UID: svc.UID{
+						Name:      "new-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+			expectedDelete: []svc.Attrs{
+				{
+					Features: export.FeatureApplicationRED,
+					UID: svc.UID{
+						Name:      "old-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+				{
+					Features: export.FeatureApplicationRED,
+					UID: svc.UID{
+						Name:      "new-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+			expectedMap: map[svc.UID]svc.Attrs{
+				{
+					Name:      "new-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}: {
+					Features: export.FeatureApplicationRED,
+					UID: svc.UID{
+						Name:      "new-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -2182,6 +2271,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			}
 
 			// Verify delete calls
+			require.Len(t, mockEventsStore.deleteCalls, len(tt.expectedDelete))
 			for i, cc := range tt.expectedDelete {
 				c := attrsToTargetMetrics(reporter, &cc)
 				resourcesMatch(t, c, mockEventsStore.deleteCalls[i])
