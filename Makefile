@@ -820,8 +820,8 @@ protoc-gen:
 
 .PHONY: clang-format
 clang-format:
-	find ./bpf -type f -name "*.c" ! -path "./NOTICES/*" | xargs -P 0 -n 1 $(CLANG_FORMAT) -i
-	find ./bpf -type f -name "*.h" ! -path "./NOTICES/*" | xargs -P 0 -n 1 $(CLANG_FORMAT) -i
+	find ./bpf -type f -name "*.c" ! -path "./NOTICES/*" ! -path "./bpf/bpfcore/*" | xargs -P 0 -n 1 $(CLANG_FORMAT) -i
+	find ./bpf -type f -name "*.h" ! -path "./NOTICES/*" ! -path "./bpf/bpfcore/*" | xargs -P 0 -n 1 $(CLANG_FORMAT) -i
 
 .PHONY: docker-clang-format
 docker-clang-format:
