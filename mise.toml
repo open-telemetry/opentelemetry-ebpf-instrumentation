@@ -12,5 +12,5 @@ matching = "clang-tidy-19_"
 bin = "clang-tidy"
 
 [tasks.lint]
-run = "make lint"
+run = "make lint GOLANGCI_LINT=golangci-lint"
 description = "Run the project Go linter"

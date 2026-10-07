@@ -10,6 +10,7 @@ on:
       - "Dockerfile"
       - "**/*Dockerfile*"
       - "Makefile"
+      - "mise.toml"
       - "**.go"
       - "go.mod"
       - "go.sum"
@@ -70,11 +71,10 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          go-version-file: "go.mod"
-          cache: true
+          install_args: "go golangci-lint"
 
       - name: Go build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
@@ -90,7 +90,7 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Lint
-        run: make lint
+        run: mise run lint
 
       # Schema lint is arch-neutral (weaver YAML/JSON). Keep it on amd64 only.
       - name: Lint OBI semantic-convention registry
@@ -119,11 +119,10 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          go-version-file: "go.mod"
-          cache: true
+          install_args: "go golangci-lint"
 
       - name: Go build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
@@ -139,4 +138,4 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Lint
-        run: make lint
+        run: mise run lint
