@@ -1,42 +1,20 @@
 groups:
-  # `telemetry.sdk.language` reports the runtime a process executes on, which
-  # is `java` for every JVM process. `jvm.language` carries the programming
-  # language the application is actually written in, which OBI resolves per
-  # process from the JVM command line and classpath.
+  # OBI reports `telemetry.sdk.language=java` for JVM instrumentation.
+  # `jvm.language` describes positive language evidence from the resolved
+  # application entry point, not every language used by the process.
   - id: registry.obi.jvm
     type: attribute_group
     display_name: JVM Application Language
     brief: >
-      The programming language of an application running on the JVM, reported
-      separately from the runtime carried by `telemetry.sdk.language`.
+      Language evidenced by the resolved application entry point of a JVM process.
     attributes:
       - id: jvm.language
-        type:
-          members:
-            - id: java
-              value: "java"
-              stability: development
-            - id: kotlin
-              value: "kotlin"
-              stability: development
-            - id: scala
-              value: "scala"
-              stability: development
-            - id: groovy
-              value: "groovy"
-              stability: development
-            - id: clojure
-              value: "clojure"
-              stability: development
-            - id: jruby
-              value: "jruby"
-              stability: development
-            - id: jython
-              value: "jython"
-              stability: development
+        type: string
         stability: development
         brief: >
-          Programming language of the application running on the JVM. Emitted
-          only for JVM processes; `telemetry.sdk.language` keeps reporting
-          `java` for all of them.
-        examples: ["kotlin", "scala"]
+          Language associated with the resolved application entry point of a
+          JVM process. Emitted only when a recognized compiler marker or launch
+          mode provides positive evidence. Omitted when the entry point is
+          unresolved or has no recognized marker. This does not describe every
+          language used by a mixed-language application.
+        examples: ["java", "kotlin", "scala"]

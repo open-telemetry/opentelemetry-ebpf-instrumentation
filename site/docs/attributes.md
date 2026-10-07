@@ -81,11 +81,11 @@ Attributes carried by OBI's own internal (obi.*) OTLP metrics. Keys are namespac
 
 ## `registry.obi.jvm`
 
-The programming language of an application running on the JVM, reported separately from the runtime carried by `telemetry.sdk.language`.
+Language evidenced by the resolved application entry point of a JVM process.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `jvm.language` | enum | development | Programming language of the application running on the JVM. Emitted only for JVM processes; `telemetry.sdk.language` keeps reporting `java` for all of them. | kotlin; scala |
+| `jvm.language` | string | development | Language associated with the resolved application entry point of a JVM process. Emitted only when a recognized compiler marker or launch mode provides positive evidence. Omitted when the entry point is unresolved or has no recognized marker. This does not describe every language used by a mixed-language application. | java; kotlin; scala |
 
 ## `registry.obi.k8s`
 

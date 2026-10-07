@@ -111,9 +111,8 @@ type Attrs struct {
 
 	SDKLanguage InstrumentableType
 
-	// JVMLanguage is the programming language of a JVM process, which SDKLanguage
-	// cannot express because it reports the runtime. Empty for non-JVM processes
-	// and until the language is resolved.
+	// JVMLanguage is the language evidenced by a JVM application's resolved entry point.
+	// Empty for non-JVM processes and when no positive language evidence is available.
 	JVMLanguage string
 
 	Metadata map[attr.Name]string

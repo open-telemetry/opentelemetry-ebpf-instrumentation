@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"go.opentelemetry.io/obi/pkg/internal/jvmtools/classfile"
 )
 
 func (e *Extractor) scanDir(ctx context.Context, root string) error {
@@ -174,7 +176,7 @@ func (e *Extractor) scanClassBytes(ctx context.Context, name string, data []byte
 	}
 	e.classesScanned++
 
-	class, err := parseClassFile(data)
+	class, err := classfile.Parse(data)
 	if err != nil {
 		e.log.Debug("error parsing Java class file", "path", name, "error", err)
 		return nil
