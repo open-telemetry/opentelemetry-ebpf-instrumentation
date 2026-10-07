@@ -6,13 +6,16 @@ package kube
 import (
 	"fmt"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
@@ -193,4 +196,50 @@ func (fcs *fakeCacheService) Subscribe(message *informer.SubscribeMessage, g grp
 		}
 	}
 	return nil
+}
+
+type delayedStore struct {
+	*Store
+	started chan struct{}
+	release chan struct{}
+}
+
+func (s *delayedStore) On(event *informer.Event) error {
+	if event.Type == informer.EventType_CREATED {
+		close(s.started)
+		<-s.release
+	}
+	return s.Store.On(event)
+}
+
+func TestClientReadinessWaitsForStoreDelivery(t *testing.T) {
+	server := startFakeCacheService(t)
+	object := &informer.ObjectMeta{Name: "service", Kind: "Service", Ips: []string{"10.0.0.1"}}
+	server.serverResponses <- &informer.Event{Type: informer.EventType_CREATED, Resource: object}
+	server.serverResponses <- &informer.Event{Type: informer.EventType_SYNC_FINISHED}
+	client := cacheSvcClient{
+		BaseNotifier: meta.NewBaseNotifier(klog()),
+		address:      fmt.Sprintf("127.0.0.1:%d", server.port),
+		syncTimeout:  timeout,
+	}
+	store := &delayedStore{
+		Store:   NewStore(&fakeInformer{}, nil, nil, imetrics.NoopReporter{}),
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	t.Cleanup(store.Close)
+	release := sync.OnceFunc(func() { close(store.release) })
+	t.Cleanup(release)
+	client.Start(t.Context())
+	done := make(chan struct{})
+	go func() {
+		client.Subscribe(store)
+		close(done)
+	}()
+	testutil.ReadChannel(t, store.started, timeout)
+	testutil.ChannelEmpty(t, done, 10*time.Millisecond)
+	release()
+	testutil.ReadChannel(t, done, timeout)
+	require.Same(t, store.objectMetaByQName[qName(object)], store.objectMetaByIP["10.0.0.1"])
+	require.True(t, store.cacheSynced)
 }

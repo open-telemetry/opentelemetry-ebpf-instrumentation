@@ -732,24 +732,13 @@ func (s *Store) ownerPodMeta(om *informer.ObjectMeta) *informer.ObjectMeta {
 // Subscribe overrides BaseNotifier to send a "welcome message" to each new observer
 // containing the whole metadata store
 func (s *Store) Subscribe(observer meta.Observer) {
-	s.access.RLock()
-	defer s.access.RUnlock()
-	s.BaseNotifier.Subscribe(observer)
-	for _, pod := range s.podsByContainer {
-		if err := observer.On(&informer.Event{Type: informer.EventType_CREATED, Resource: pod.Meta}); err != nil {
-			s.log.Debug("observer failed sending Pod info. Unsubscribing it", "observer", observer.ID(), "error", err)
-			s.Unsubscribe(observer)
-			return
+	s.SubscribeWithSnapshot(observer, func() []*informer.Event {
+		s.access.RLock()
+		defer s.access.RUnlock()
+		events := make([]*informer.Event, 0, len(s.objectMetaByQName))
+		for _, object := range s.objectMetaByQName {
+			events = append(events, &informer.Event{Type: informer.EventType_CREATED, Resource: object.Meta})
 		}
-	}
-	// the IPInfos could contain IPInfo data from Pods already sent in the previous loop
-	// is the subscriber the one that should decide whether to ignore such duplicates or
-	// incomplete info
-	for _, ips := range s.objectMetaByIP {
-		if err := observer.On(&informer.Event{Type: informer.EventType_CREATED, Resource: ips.Meta}); err != nil {
-			s.log.Debug("observer failed sending Object Meta. Unsubscribing it", "observer", observer.ID(), "error", err)
-			s.Unsubscribe(observer)
-			return
-		}
-	}
+		return events
+	})
 }

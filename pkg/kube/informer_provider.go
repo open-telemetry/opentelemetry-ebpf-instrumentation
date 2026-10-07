@@ -137,6 +137,7 @@ func (mp *MetadataProvider) Get(ctx context.Context) (*Store, error) {
 	}
 
 	mp.store = NewStore(informer, mp.cfg.ResourceLabels, mp.cfg.ServiceNameTemplate, mp.internalMetrics)
+	context.AfterFunc(ctx, mp.store.Close)
 
 	return mp.store, nil
 }

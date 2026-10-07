@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/proto"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -142,6 +143,8 @@ func InitInformers(ctx context.Context, opts ...InformerOption) (*Informers, err
 		return nil, err
 	}
 
+	context.AfterFunc(ctx, svc.Close)
+
 	svc.log.Debug("starting kubernetes informers")
 	allSynced := sync.WaitGroup{}
 	allSynced.Add(len(createdFactories))
@@ -156,8 +159,16 @@ func InitInformers(ctx context.Context, opts ...InformerOption) (*Informers, err
 	go func() {
 		svc.log.Debug("waiting for informers' synchronization")
 		allSynced.Wait()
+		for _, handler := range svc.handlers {
+			if !cache.WaitForCacheSync(ctx.Done(), handler.HasSynced) {
+				return
+			}
+		}
 		svc.log.Debug("informers synchronized")
+		svc.mutex.Lock()
 		close(svc.waitForSync)
+		svc.enqueue(&informer.Event{Type: informer.EventType_SYNC_FINISHED})
+		svc.mutex.Unlock()
 	}()
 	if config.waitCacheSync {
 		select {
@@ -302,11 +313,12 @@ func (inf *Informers) initPodInformer(ctx context.Context, informerFactory infor
 		return fmt.Errorf("can't set pods transform: %w", err)
 	}
 
-	_, err := pods.AddEventHandler(inf.ipInfoEventHandler(ctx))
+	handler, err := pods.AddEventHandler(inf.ipInfoEventHandler(ctx))
 	if err != nil {
 		return fmt.Errorf("can't register Pod event handler in the K8s informer: %w", err)
 	}
 
+	inf.handlers = append(inf.handlers, handler)
 	inf.log.Debug("registered Pod event handler in the K8s informer")
 
 	inf.pods = pods
@@ -482,9 +494,11 @@ func (inf *Informers) initNodeIPInformer(ctx context.Context, informerFactory in
 		return fmt.Errorf("can't set nodes transform: %w", err)
 	}
 
-	if _, err := nodes.AddEventHandler(inf.ipInfoEventHandler(ctx)); err != nil {
+	handler, err := nodes.AddEventHandler(inf.ipInfoEventHandler(ctx))
+	if err != nil {
 		return fmt.Errorf("can't register Node event handler in the K8s informer: %w", err)
 	}
+	inf.handlers = append(inf.handlers, handler)
 	inf.log.Debug("registered Node event handler in the K8s informer")
 
 	inf.nodes = nodes
@@ -499,9 +513,11 @@ func (inf *Informers) initServiceIPInformer(ctx context.Context, informerFactory
 		return fmt.Errorf("can't set services transform: %w", err)
 	}
 
-	if _, err := services.AddEventHandler(inf.ipInfoEventHandler(ctx)); err != nil {
+	handler, err := services.AddEventHandler(inf.ipInfoEventHandler(ctx))
+	if err != nil {
 		return fmt.Errorf("can't register Service event handler in the K8s informer: %w", err)
 	}
+	inf.handlers = append(inf.handlers, handler)
 	inf.log.Debug("registered Service event handler in the K8s informer")
 
 	inf.services = services
@@ -552,13 +568,16 @@ func (inf *Informers) ipInfoEventHandler(ctx context.Context) *cache.ResourceEve
 		UpdateFunc: func(oldObj, newObj any) {
 			metrics.InformerUpdate()
 			nie := newObj.(*indexableEntity)
-			newEM := nie.EncodedMeta
+			newEM := proto.Clone(nie.EncodedMeta).(*informer.ObjectMeta)
 			oldEM := oldObj.(*indexableEntity).EncodedMeta
 			if unchanged(oldEM, newEM) {
 				return
 			}
 			metrics.ForwardLag(time.Since(time.Unix(newEM.StatusTimeEpoch, 0)).Seconds())
 			refreshStatusTimeEpoch(newEM)
+			inf.mutex.Lock()
+			nie.EncodedMeta = newEM
+			inf.mutex.Unlock()
 			log.Debug("UpdateFunc", "kind", newEM.Kind, "name", newEM.Name,
 				"ips", newEM.Ips, "oldIps", oldEM.Ips)
 			inf.Notify(&informer.Event{
@@ -580,7 +599,7 @@ func (inf *Informers) ipInfoEventHandler(ctx context.Context) *cache.ResourceEve
 					return
 				}
 			}
-			em := obj.(*indexableEntity).EncodedMeta
+			em := proto.Clone(obj.(*indexableEntity).EncodedMeta).(*informer.ObjectMeta)
 			metrics.ForwardLag(time.Since(time.Unix(em.StatusTimeEpoch, 0)).Seconds())
 			refreshStatusTimeEpoch(em)
 			log.Debug("DeleteFunc", "kind", em.Kind, "name", em.Name, "ips", em.Ips)

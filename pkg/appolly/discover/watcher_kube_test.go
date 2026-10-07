@@ -53,6 +53,71 @@ func testKubeMatch(t *testing.T, m Event[ProcessMatch], name string, pid app.PID
 	assert.Equal(t, pid, m.Obj.Process.Pid)
 }
 
+func TestWatcherKubeEnricherStopsBlockedCallback(t *testing.T) {
+	for _, eventType := range []informer.EventType{
+		informer.EventType_CREATED,
+		informer.EventType_UPDATED,
+		informer.EventType_DELETED,
+	} {
+		t.Run(eventType.String(), func(t *testing.T) {
+			wk := newWatcherKubeEnricher(nil, nil, nil)
+			event := &informer.Event{
+				Type: eventType,
+				Resource: &informer.ObjectMeta{
+					Name: "pod", Kind: "Pod", Pod: &informer.PodInfo{},
+				},
+			}
+			for range cap(wk.podsInfoCh) {
+				require.NoError(t, wk.On(event))
+			}
+
+			callbackDone := make(chan error, 1)
+			go func() { callbackDone <- wk.On(event) }()
+			testutil.ChannelEmpty(t, callbackDone, emptyTimeout)
+
+			close(wk.observerDone)
+
+			require.ErrorIs(t, testutil.ReadChannel(t, callbackDone, timeout), context.Canceled)
+			require.ErrorIs(t, wk.On(event), context.Canceled)
+		})
+	}
+}
+
+func TestWatcherKubeEnricherUnsubscribesOnShutdown(t *testing.T) {
+	for _, cancelOwner := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cancel_owner=%t", cancelOwner), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			store := kube.NewStore(&fakeInformer{}, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+			t.Cleanup(store.Close)
+			input := make(chan []Event[ProcessAttrs])
+			wk := newWatcherKubeEnricher(store, input, msg.NewQueue[[]Event[ProcessAttrs]]())
+			loopDone := make(chan struct{})
+			go func() {
+				defer close(loopDone)
+				wk.enrich(ctx)
+			}()
+
+			event := &informer.Event{Type: informer.EventType_SYNC_FINISHED}
+			require.Eventually(t, func() bool {
+				return store.NotifyObserver(wk, event)
+			}, timeout, time.Millisecond)
+
+			if cancelOwner {
+				cancel()
+			} else {
+				close(input)
+			}
+
+			testutil.ReadChannel(t, loopDone, timeout)
+			testutil.ReadChannel(t, wk.observerDone, timeout)
+			require.False(t, store.NotifyObserver(wk, event))
+			require.ErrorIs(t, wk.On(event), context.Canceled)
+		})
+	}
+}
+
 func TestWatcherKubeEnricher(t *testing.T) {
 	type event struct {
 		fn           func(input *msg.Queue[[]Event[ProcessAttrs]], fInformer meta.Notifier)

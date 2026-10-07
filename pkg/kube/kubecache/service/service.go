@@ -15,7 +15,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/peer"
 
-	"go.opentelemetry.io/obi/pkg/internal/helpers/sync"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/instrument"
@@ -98,6 +97,9 @@ func (ic *InformersCache) Subscribe(msg *informer.SubscribeMessage, server infor
 		return errors.New("failed to extract peer information")
 	}
 	ic.metrics.ClientConnect()
+	ctx, cancel := context.WithCancel(server.Context())
+	defer cancel()
+
 	o := &connection{
 		log:         ic.log.With("clientID", p.Addr.String()),
 		id:          p.Addr.String(),
@@ -105,14 +107,18 @@ func (ic *InformersCache) Subscribe(msg *informer.SubscribeMessage, server infor
 		sendTimeout: effectiveSendTimeout(ic.Config.SendTimeout),
 		metrics:     ic.metrics,
 		fromEpoch:   msg.GetFromTimestampEpoch(),
-		messages:    sync.NewQueue[*informer.Event](),
+		ctx:         ctx,
+		done:        make(chan struct{}),
 	}
 	ic.log.Info("client subscribed", "id", o.ID(),
 		"fromEpoch", o.fromEpoch,
 		"fromLast", time.Since(time.Unix(o.fromEpoch, 0)))
 	ic.informers.Subscribe(o)
 	// Keep the connection open
-	o.handleMessagesQueue(server.Context())
+	select {
+	case <-ctx.Done():
+	case <-o.done:
+	}
 	ic.informers.Unsubscribe(o)
 	ic.metrics.ClientDisconnect()
 	ic.log.Info("client disconnected", "id", o.ID())
@@ -130,59 +136,35 @@ type connection struct {
 	sendTimeout time.Duration
 
 	metrics instrument.InternalMetrics
-	// fromEpoch filters events whose timestamp is lower than its value
+	// fromEpoch filters snapshot entries whose timestamp is lower than its value.
 	fromEpoch int64
-	messages  *sync.Queue[*informer.Event]
+	ctx       context.Context
+	done      chan struct{}
 }
 
 func (o *connection) ID() string {
 	return o.id
 }
 
-// FromEpoch implements the Timestamped interface to allow filtering the returned list by
-// a given timestamp in unix seconds (epoch)
-func (o *connection) FromEpoch() int64 {
-	return o.fromEpoch
-}
-
 func (o *connection) On(event *informer.Event) error {
 	// the client asked for events happening after their last successfully received event
 	// so ignore older events to save memory and network
-	if event.Type != informer.EventType_SYNC_FINISHED && event.Resource != nil && event.Resource.StatusTimeEpoch < o.fromEpoch {
+	if event.Type == informer.EventType_CREATED && event.Resource != nil && event.Resource.StatusTimeEpoch < o.fromEpoch {
 		return nil
 	}
 	o.metrics.MessageSubmit()
-	o.messages.Enqueue(event)
-	return nil
-}
-
-func (o *connection) handleMessagesQueue(ctx context.Context) {
 	timer := time.NewTimer(o.sendTimeout)
 	defer timer.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			o.log.Debug("context done. Closing client connection")
-			return
-		default:
-			event, err := o.messages.DequeueContext(ctx)
-			if err != nil {
-				o.log.Debug("context done. Closing client connection")
-				return
-			}
-			if event == nil {
-				return
-			}
-			if err := o.sendWithTimeout(ctx, timer, event); err != nil {
-				return
-			}
-		}
+	if err := o.sendWithTimeout(o.ctx, timer, event); err != nil {
+		close(o.done)
+		return err
 	}
+	return nil
 }
 
 // sendWithTimeout sends event and drops the connection if Send blocks longer
 // than o.sendTimeout (enforced per-Send). Returns a non-nil error whenever the
-// caller should stop processing the queue.
+// caller should stop processing events.
 func (o *connection) sendWithTimeout(ctx context.Context, timer *time.Timer, event *informer.Event) error {
 	sendErr := make(chan error, 1)
 	go func() { sendErr <- o.server.Send(event) }()

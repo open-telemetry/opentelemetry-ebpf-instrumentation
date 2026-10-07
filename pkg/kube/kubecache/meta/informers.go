@@ -25,73 +25,45 @@ type Informers struct {
 	services cache.SharedIndexInformer
 
 	waitForSync chan struct{}
+	handlers    []cache.ResourceEventHandlerRegistration
 
 	// localInstance is true if the current informer instance runs inside an OBI instance
 	// if it runs as part of the k8s-cache service, it is false
 	localInstance bool
 }
 
-type timestamped interface {
-	// FromEpoch returns a timestamp in Unix seconds.
-	FromEpoch() int64
-}
-
 func (inf *Informers) Subscribe(observer Observer) {
-	inf.BaseNotifier.Subscribe(observer)
-
-	fromEpoch := int64(0)
-	if conn, ok := observer.(timestamped); ok {
-		fromEpoch = conn.FromEpoch()
-	}
-
-	// as a "welcome" message, we send the whole kube metadata to the new observer
-	pods := inf.pods.GetStore().List()
-	var nodes, services []any
-	if !inf.config.disableNodes {
-		nodes = inf.nodes.GetStore().List()
-	}
-	if !inf.config.disableServices {
-		services = inf.services.GetStore().List()
-	}
-	storedEntities := make([]any, 0, len(pods)+len(nodes)+len(services))
-	storedEntities = append(storedEntities, pods...)
-	storedEntities = append(storedEntities, nodes...)
-	storedEntities = append(storedEntities, services...)
-	storedEntities = inf.sortAndCut(storedEntities, fromEpoch)
-	inf.log.Debug("sending welcome snapshot to new observer",
-		"observerID", observer.ID(), "count", len(storedEntities))
-	for _, entity := range storedEntities {
-		if err := observer.On(&informer.Event{
-			Type:     informer.EventType_CREATED,
-			Resource: entity.(*indexableEntity).EncodedMeta,
-		}); err != nil {
-			inf.log.Debug("error notifying observer. Unsubscribing", "observerID", observer.ID(), "error", err)
-			inf.Unsubscribe(observer)
-			return
+	inf.SubscribeWithSnapshot(observer, func() []*informer.Event {
+		// as a "welcome" message, we send the whole kube metadata to the new observer
+		pods := inf.pods.GetStore().List()
+		var nodes, services []any
+		if !inf.config.disableNodes {
+			nodes = inf.nodes.GetStore().List()
 		}
-	}
-
-	// until the informer waitForSync, we won't send the sync_finished event to remote OBI clients
-	// TODO: in some very slowed-down environments (e.g. tests with -race conditions), this last message might
-	// be sent and executed before the rest of previous updates have been processed and submitted.
-	// In production, it might mean that few initialization updates are sent right before the "sync_finished" signal.
-	// To fix that we should rearchitecture this to not directly invoking the notifications but enqueuing them
-	// in a synchronized list.
-	// Given the amount of work and complexity, we can afford this small delay, as the data eventually
-	// reaches the client right after the sync_finished signal.
-	go func() {
-		<-inf.waitForSync
-
-		// notify the end of synchronization, so the client knows that already has a snapshot
-		// of all the existing resources
-		if err := observer.On(&informer.Event{
-			Type: informer.EventType_SYNC_FINISHED,
-		}); err != nil {
-			inf.log.Debug("error notifying observer. Unsubscribing", "observerID", observer.ID(), "error", err)
-			inf.Unsubscribe(observer)
-			return
+		if !inf.config.disableServices {
+			services = inf.services.GetStore().List()
 		}
-	}()
+		storedEntities := make([]any, 0, len(pods)+len(nodes)+len(services))
+		storedEntities = append(storedEntities, pods...)
+		storedEntities = append(storedEntities, nodes...)
+		storedEntities = append(storedEntities, services...)
+		storedEntities = inf.sortAndCut(storedEntities, 0)
+		inf.log.Debug("sending welcome snapshot to new observer",
+			"observerID", observer.ID(), "count", len(storedEntities))
+		events := make([]*informer.Event, 0, len(storedEntities)+1)
+		for _, entity := range storedEntities {
+			events = append(events, &informer.Event{
+				Type:     informer.EventType_CREATED,
+				Resource: entity.(*indexableEntity).EncodedMeta,
+			})
+		}
+		select {
+		case <-inf.waitForSync:
+			events = append(events, &informer.Event{Type: informer.EventType_SYNC_FINISHED})
+		default:
+		}
+		return events
+	})
 }
 
 // sorts the list of entities by status time and cuts the list from the given timestamp.

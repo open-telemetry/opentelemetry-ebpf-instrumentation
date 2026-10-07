@@ -19,6 +19,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 )
@@ -1502,4 +1503,84 @@ func (f *fakeInformer) Notify(event *informer.Event) {
 	for _, observer := range f.observers {
 		_ = observer.On(event)
 	}
+}
+
+type blockedStoreObserver struct {
+	events  chan *informer.Event
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (o *blockedStoreObserver) ID() string { return "blocked-store-observer" }
+
+func (o *blockedStoreObserver) On(event *informer.Event) error {
+	if event.Type == informer.EventType_SYNC_FINISHED {
+		close(o.entered)
+		<-o.release
+	}
+	o.events <- event
+	return nil
+}
+
+func TestStoreSubscriberOverflowReconcilesMetadata(t *testing.T) {
+	store := NewStore(&fakeInformer{}, ResourceLabels{}, nil, imetrics.NoopReporter{})
+	t.Cleanup(store.Close)
+	removed := &informer.ObjectMeta{Name: "removed", Kind: "Pod"}
+	updated := &informer.ObjectMeta{Name: "updated", Kind: "Pod"}
+	for _, object := range []*informer.ObjectMeta{removed, updated} {
+		require.NoError(t, store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: object}))
+	}
+
+	observer := &blockedStoreObserver{
+		events:  make(chan *informer.Event, 8),
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	var release sync.Once
+	t.Cleanup(func() { release.Do(func() { close(observer.release) }) })
+	store.Subscribe(observer)
+	for range 2 {
+		assert.Equal(t, informer.EventType_CREATED, testutil.ReadChannel(t, observer.events, time.Second).Type)
+	}
+
+	delivered := make(chan bool, 1)
+	go func() {
+		delivered <- store.NotifyObserver(observer, &informer.Event{
+			Type: informer.EventType_SYNC_FINISHED,
+		})
+	}()
+	testutil.ReadChannel(t, observer.entered, time.Second)
+	for range meta.ObserverQueueCapacity + 1 {
+		store.Notify(&informer.Event{Type: informer.EventType_UPDATED, Resource: updated})
+	}
+
+	changed := &informer.ObjectMeta{Name: "updated", Kind: "Pod", Labels: map[string]string{"version": "new"}}
+	created := &informer.ObjectMeta{Name: "created", Kind: "Pod"}
+	require.NoError(t, store.On(&informer.Event{Type: informer.EventType_DELETED, Resource: removed}))
+	require.NoError(t, store.On(&informer.Event{Type: informer.EventType_UPDATED, Resource: changed}))
+	require.NoError(t, store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: created}))
+	release.Do(func() { close(observer.release) })
+	require.True(t, testutil.ReadChannel(t, delivered, time.Second))
+	assert.Equal(t, informer.EventType_SYNC_FINISHED, testutil.ReadChannel(t, observer.events, time.Second).Type)
+	for range meta.ObserverQueueCapacity {
+		assert.Equal(t, informer.EventType_UPDATED, testutil.ReadChannel(t, observer.events, time.Second).Type)
+	}
+
+	replayed := map[string]*informer.Event{}
+	for range 3 {
+		event := testutil.ReadChannel(t, observer.events, time.Second)
+		replayed[event.Resource.Name] = event
+	}
+	require.Contains(t, replayed, "removed")
+	require.Contains(t, replayed, "updated")
+	require.Contains(t, replayed, "created")
+	assert.Equal(t, informer.EventType_DELETED, replayed["removed"].Type)
+	assert.Equal(t, informer.EventType_UPDATED, replayed["updated"].Type)
+	assert.Equal(t, "new", replayed["updated"].Resource.Labels["version"])
+	assert.Equal(t, informer.EventType_CREATED, replayed["created"].Type)
+
+	require.NoError(t, store.On(&informer.Event{Type: informer.EventType_DELETED, Resource: created}))
+	live := testutil.ReadChannel(t, observer.events, time.Second)
+	assert.Equal(t, informer.EventType_DELETED, live.Type)
+	assert.Equal(t, "created", live.Resource.Name)
 }

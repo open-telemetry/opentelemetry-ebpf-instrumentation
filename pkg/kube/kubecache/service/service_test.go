@@ -19,7 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 	"k8s.io/client-go/kubernetes/fake"
 
-	queuesync "go.opentelemetry.io/obi/pkg/internal/helpers/sync"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/instrument"
@@ -176,12 +176,22 @@ func TestEffectiveSendTimeout(t *testing.T) {
 	}
 }
 
-// Fake ServerStreamingServer implementations used by handleMessagesQueue tests.
+// Fake ServerStreamingServer implementations used by connection tests.
 
 // immediateStream succeeds immediately on every Send.
 type immediateStream struct{ grpc.ServerStream }
 
 func (s *immediateStream) Send(*informer.Event) error { return nil }
+
+type recordingStream struct {
+	grpc.ServerStream
+	events chan *informer.Event
+}
+
+func (s *recordingStream) Send(event *informer.Event) error {
+	s.events <- event
+	return nil
+}
 
 // errStream returns a fixed error on every Send.
 type errStream struct {
@@ -215,36 +225,35 @@ func (s *signalBlockingStream) Send(*informer.Event) error {
 	return nil
 }
 
-// TestHandleMessagesQueue is a regression test for
+// TestConnectionOn is a regression test for
 // https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/1903.
-// It verifies that handleMessagesQueue exits promptly under each failure mode.
-func TestHandleMessagesQueue(t *testing.T) {
+// It verifies that sending exits promptly under each failure mode.
+func TestConnectionOn(t *testing.T) {
 	gate := make(chan struct{})
 	t.Cleanup(func() { close(gate) })
 
 	tests := []struct {
 		name        string
 		server      grpc.ServerStreamingServer[informer.Event]
-		enqueue     []*informer.Event
 		sendTimeout time.Duration
+		wantErr     bool
 	}{
 		{
 			name:        "send timeout drops connection",
 			server:      &blockingStream{gate: gate},
-			enqueue:     []*informer.Event{{}},
 			sendTimeout: 50 * time.Millisecond,
+			wantErr:     true,
 		},
 		{
 			name:        "successful send exits cleanly",
 			server:      &immediateStream{},
-			enqueue:     []*informer.Event{{}, nil}, // nil stops the loop (see handleMessagesQueue)
 			sendTimeout: 50 * time.Millisecond,
 		},
 		{
 			name:        "send error drops connection",
 			server:      &errStream{err: errors.New("send error")},
-			enqueue:     []*informer.Event{{}},
 			sendTimeout: 50 * time.Millisecond,
+			wantErr:     true,
 		},
 	}
 
@@ -256,56 +265,33 @@ func TestHandleMessagesQueue(t *testing.T) {
 				server:      tt.server,
 				sendTimeout: tt.sendTimeout,
 				metrics:     instrument.FromContext(context.Background()),
-				messages:    queuesync.NewQueue[*informer.Event](),
-			}
-			for _, e := range tt.enqueue {
-				o.messages.Enqueue(e)
+				ctx:         t.Context(),
+				done:        make(chan struct{}),
 			}
 
-			done := make(chan struct{})
+			result := make(chan error, 1)
 			go func() {
-				o.handleMessagesQueue(context.Background())
-				close(done)
+				result <- o.On(&informer.Event{})
 			}()
 
-			select {
-			case <-done:
-			case <-time.After(2 * time.Second):
-				t.Fatalf("handleMessagesQueue did not return within 2s")
+			err := testutil.ReadChannel(t, result, 2*time.Second)
+			if tt.wantErr {
+				require.Error(t, err)
+				testutil.ReadChannel(t, o.done, time.Second)
+			} else {
+				require.NoError(t, err)
 			}
 		})
 	}
 }
 
-func TestHandleMessagesQueue_RespectsContextCancellationWhileQueueIsEmpty(t *testing.T) {
-	o := &connection{
-		log:         slog.New(slog.DiscardHandler),
-		sendTimeout: 5 * time.Minute,
-		metrics:     instrument.FromContext(context.Background()),
-		messages:    queuesync.NewQueue[*informer.Event](),
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		o.handleMessagesQueue(ctx)
-		close(done)
-	}()
-
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("handleMessagesQueue did not return after context cancellation")
-	}
-}
-
-func TestHandleMessagesQueue_RespectsContextCancellationDuringSend(t *testing.T) {
+func TestConnectionOnRespectsContextCancellationDuringSend(t *testing.T) {
 	sendCalled := make(chan struct{})
 	gate := make(chan struct{})
 	t.Cleanup(func() { close(gate) })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
 
 	o := &connection{
 		log:         slog.New(slog.DiscardHandler),
@@ -313,62 +299,91 @@ func TestHandleMessagesQueue_RespectsContextCancellationDuringSend(t *testing.T)
 		server:      &signalBlockingStream{sendCalled: sendCalled, gate: gate},
 		sendTimeout: 5 * time.Minute, // large enough that context cancellation wins
 		metrics:     instrument.FromContext(context.Background()),
-		messages:    queuesync.NewQueue[*informer.Event](),
+		ctx:         ctx,
+		done:        make(chan struct{}),
 	}
-	o.messages.Enqueue(&informer.Event{})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	done := make(chan struct{})
+	result := make(chan error, 1)
 	go func() {
-		o.handleMessagesQueue(ctx)
-		close(done)
+		result <- o.On(&informer.Event{})
 	}()
 
-	<-sendCalled // wait until Send is blocking before canceling
+	testutil.ReadChannel(t, sendCalled, time.Second)
 	cancel()
 
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("handleMessagesQueue did not return within 2s after context cancellation")
-	}
+	require.ErrorIs(t, testutil.ReadChannel(t, result, 2*time.Second), context.Canceled)
+	testutil.ReadChannel(t, o.done, time.Second)
 }
 
 func TestConnectionOnFiltersEventsBeforeFromEpoch(t *testing.T) {
+	stream := &recordingStream{events: make(chan *informer.Event, 4)}
 	conn := &connection{
-		fromEpoch: 100,
-		messages:  queuesync.NewQueue[*informer.Event](),
-		metrics:   instrument.FromContext(context.Background()),
+		log:         slog.New(slog.DiscardHandler),
+		server:      stream,
+		fromEpoch:   100,
+		sendTimeout: time.Second,
+		metrics:     instrument.FromContext(context.Background()),
+		ctx:         t.Context(),
+		done:        make(chan struct{}),
 	}
 
 	require.NoError(t, conn.On(&informer.Event{
-		Type:     informer.EventType_UPDATED,
+		Type:     informer.EventType_CREATED,
 		Resource: &informer.ObjectMeta{StatusTimeEpoch: 99},
 	}))
+	require.Empty(t, stream.events)
 
-	dequeued := make(chan *informer.Event, 1)
-	go func() {
-		dequeued <- conn.messages.Dequeue()
-	}()
+	for _, event := range []*informer.Event{
+		{
+			Type:     informer.EventType_CREATED,
+			Resource: &informer.ObjectMeta{StatusTimeEpoch: 100},
+		},
+		{
+			Type:     informer.EventType_UPDATED,
+			Resource: &informer.ObjectMeta{StatusTimeEpoch: 99},
+		},
+		{
+			Type:     informer.EventType_DELETED,
+			Resource: &informer.ObjectMeta{StatusTimeEpoch: 99},
+		},
+		{Type: informer.EventType_SYNC_FINISHED},
+	} {
+		require.NoError(t, conn.On(event))
+		require.Same(t, event, testutil.ReadChannel(t, stream.events, time.Second))
+	}
+}
 
-	select {
-	case event := <-dequeued:
-		t.Fatalf("unexpected queued event: %+v", event)
-	case <-time.After(50 * time.Millisecond):
+func TestBlockedConnectionDoesNotBlockOtherObservers(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	gate := make(chan struct{})
+	defer close(gate)
+	sendCalled := make(chan struct{})
+	stream := &recordingStream{events: make(chan *informer.Event, 2)}
+	notifier := meta.NewBaseNotifier(slog.New(slog.DiscardHandler))
+	defer notifier.Close()
+
+	for id, server := range map[string]grpc.ServerStreamingServer[informer.Event]{
+		"blocked": &signalBlockingStream{sendCalled: sendCalled, gate: gate},
+		"healthy": stream,
+	} {
+		notifier.Subscribe(&connection{
+			log:         slog.New(slog.DiscardHandler),
+			id:          id,
+			server:      server,
+			sendTimeout: 5 * time.Minute,
+			metrics:     instrument.FromContext(ctx),
+			ctx:         ctx,
+			done:        make(chan struct{}),
+		})
 	}
 
-	require.NoError(t, conn.On(&informer.Event{
-		Type:     informer.EventType_UPDATED,
-		Resource: &informer.ObjectMeta{StatusTimeEpoch: 100},
-	}))
+	event := &informer.Event{Type: informer.EventType_CREATED}
+	notifier.Notify(event)
+	testutil.ReadChannel(t, sendCalled, time.Second)
+	require.Same(t, event, testutil.ReadChannel(t, stream.events, time.Second))
 
-	select {
-	case event := <-dequeued:
-		require.NotNil(t, event)
-		require.Equal(t, int64(100), event.Resource.StatusTimeEpoch)
-	case <-time.After(time.Second):
-		t.Fatal("expected event to be queued")
-	}
+	notifier.Notify(event)
+	require.Same(t, event, testutil.ReadChannel(t, stream.events, time.Second))
+	cancel()
 }

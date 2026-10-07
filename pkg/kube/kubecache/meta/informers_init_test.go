@@ -7,6 +7,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,13 +15,17 @@ import (
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
 
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 )
 
 type eventObserver struct {
-	id     string
-	events []*informer.Event
+	id      string
+	events  chan *informer.Event
+	entered chan struct{}
+	release chan struct{}
 }
 
 func (o *eventObserver) ID() string {
@@ -28,7 +33,11 @@ func (o *eventObserver) ID() string {
 }
 
 func (o *eventObserver) On(event *informer.Event) error {
-	o.events = append(o.events, event)
+	if event.Resource.GetName() == "A" && o.release != nil {
+		close(o.entered)
+		<-o.release
+	}
+	o.events <- event
 	return nil
 }
 
@@ -482,7 +491,8 @@ func TestIPInfoEventHandlerRefreshesUpdatedEventTimestamp(t *testing.T) {
 		log:          log,
 		BaseNotifier: NewBaseNotifier(log),
 	}
-	observer := &eventObserver{id: "observer"}
+	t.Cleanup(inf.Close)
+	observer := &eventObserver{id: "observer", events: make(chan *informer.Event, 1)}
 	inf.BaseNotifier.Subscribe(observer)
 
 	handler := inf.ipInfoEventHandler(context.Background())
@@ -504,9 +514,9 @@ func TestIPInfoEventHandlerRefreshesUpdatedEventTimestamp(t *testing.T) {
 		}},
 	)
 
-	require.Len(t, observer.events, 1)
-	assert.Equal(t, informer.EventType_UPDATED, observer.events[0].Type)
-	assert.GreaterOrEqual(t, observer.events[0].Resource.StatusTimeEpoch, start)
+	event := testutil.ReadChannel(t, observer.events, time.Second)
+	assert.Equal(t, informer.EventType_UPDATED, event.Type)
+	assert.GreaterOrEqual(t, event.Resource.StatusTimeEpoch, start)
 }
 
 func TestIPInfoEventHandlerRefreshesDeletedEventTimestamp(t *testing.T) {
@@ -515,22 +525,28 @@ func TestIPInfoEventHandlerRefreshesDeletedEventTimestamp(t *testing.T) {
 		log:          log,
 		BaseNotifier: NewBaseNotifier(log),
 	}
-	observer := &eventObserver{id: "observer"}
+	t.Cleanup(inf.Close)
+	observer := &eventObserver{id: "observer", events: make(chan *informer.Event, 1)}
 	inf.BaseNotifier.Subscribe(observer)
 
 	handler := inf.ipInfoEventHandler(context.Background())
 	staleTimestamp := time.Now().Add(-time.Hour).Unix()
 	start := time.Now().Unix()
 
-	handler.DeleteFunc(&indexableEntity{EncodedMeta: &informer.ObjectMeta{
+	cached := &indexableEntity{EncodedMeta: &informer.ObjectMeta{
 		Name:            "pod",
 		Kind:            typePod,
 		StatusTimeEpoch: staleTimestamp,
-	}})
+	}}
 
-	require.Len(t, observer.events, 1)
-	assert.Equal(t, informer.EventType_DELETED, observer.events[0].Type)
-	assert.GreaterOrEqual(t, observer.events[0].Resource.StatusTimeEpoch, start)
+	for _, object := range []any{cached, cache.DeletedFinalStateUnknown{Key: "pod", Obj: cached}} {
+		handler.DeleteFunc(object)
+		event := testutil.ReadChannel(t, observer.events, time.Second)
+		assert.Equal(t, informer.EventType_DELETED, event.Type)
+		assert.GreaterOrEqual(t, event.Resource.StatusTimeEpoch, start)
+		assert.Equal(t, staleTimestamp, cached.EncodedMeta.StatusTimeEpoch)
+		assert.NotSame(t, cached.EncodedMeta, event.Resource)
+	}
 }
 
 func TestRefreshStatusTimeEpochPreservesCurrentTimestamp(t *testing.T) {
@@ -539,4 +555,64 @@ func TestRefreshStatusTimeEpochPreservesCurrentTimestamp(t *testing.T) {
 	refreshStatusTimeEpoch(em)
 
 	assert.Greater(t, em.StatusTimeEpoch, time.Now().Unix())
+}
+
+func TestInformerSnapshotPrecedesConcurrentEvents(t *testing.T) {
+	for _, liveType := range []informer.EventType{informer.EventType_DELETED, informer.EventType_UPDATED} {
+		t.Run(liveType.String(), func(t *testing.T) {
+			inf := &Informers{
+				BaseNotifier: NewBaseNotifier(slog.Default()),
+				log:          slog.Default(),
+				config:       &informersConfig{disableNodes: true, disableServices: true},
+				pods:         cache.NewSharedIndexInformer(&cache.ListWatch{}, &v1.Pod{}, 0, nil),
+				waitForSync:  make(chan struct{}),
+			}
+			t.Cleanup(inf.Close)
+			close(inf.waitForSync)
+			for index, name := range []string{"A", "B"} {
+				require.NoError(t, inf.pods.GetStore().Add(&indexableEntity{
+					ObjectMeta: metav1.ObjectMeta{Name: name},
+					EncodedMeta: &informer.ObjectMeta{
+						Name: name, Kind: typePod, StatusTimeEpoch: int64(index),
+					},
+				}))
+			}
+
+			observer := &eventObserver{
+				id:      "observer",
+				events:  make(chan *informer.Event, 4),
+				entered: make(chan struct{}),
+				release: make(chan struct{}),
+			}
+			var release sync.Once
+			t.Cleanup(func() { release.Do(func() { close(observer.release) }) })
+			subscribed := make(chan struct{})
+			go func() {
+				inf.Subscribe(observer)
+				close(subscribed)
+			}()
+			testutil.ReadChannel(t, observer.entered, time.Second)
+			live := &informer.Event{
+				Type:     liveType,
+				Resource: &informer.ObjectMeta{Name: "B", Kind: typePod, StatusTimeEpoch: 2},
+			}
+			changed := &indexableEntity{ObjectMeta: metav1.ObjectMeta{Name: "B"}, EncodedMeta: live.Resource}
+			if liveType == informer.EventType_DELETED {
+				require.NoError(t, inf.pods.GetStore().Delete(changed))
+			} else {
+				require.NoError(t, inf.pods.GetStore().Update(changed))
+			}
+			inf.Notify(live)
+			release.Do(func() { close(observer.release) })
+			testutil.ReadChannel(t, subscribed, time.Second)
+
+			for _, name := range []string{"A", "B"} {
+				event := testutil.ReadChannel(t, observer.events, time.Second)
+				assert.Equal(t, informer.EventType_CREATED, event.Type)
+				assert.Equal(t, name, event.Resource.Name)
+			}
+			assert.Equal(t, informer.EventType_SYNC_FINISHED, testutil.ReadChannel(t, observer.events, time.Second).Type)
+			assert.Same(t, live, testutil.ReadChannel(t, observer.events, time.Second))
+		})
+	}
 }
