@@ -91,7 +91,7 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Lint
-        run: mise run lint
+        run: mise run --skip-tools lint
 
       # Schema lint is arch-neutral (weaver YAML/JSON). Keep it on amd64 only.
       - name: Lint OBI semantic-convention registry
@@ -140,4 +140,4 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Lint
-        run: mise run lint
+        run: mise run --skip-tools lint
