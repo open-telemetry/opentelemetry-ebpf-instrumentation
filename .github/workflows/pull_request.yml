@@ -107,15 +107,15 @@ jobs:
         run: |
           files=$( \
             git diff --name-status origin/main...HEAD \
-            | awk '$1 != "D" && $2 !~ /^NOTICES/ && /\.(c|cpp|h)$/ { print ($3 != "" ? $3 : $2) }' \
+            | awk '$1 != "D" && $2 !~ /^(NOTICES|bpf\/bpfcore)\// && /\.(c|cpp|h)$/ { print ($3 != "" ? $3 : $2) }' \
           )
           if [ -z "$files" ]; then
             echo "No C/C++ files modified."
             exit 0
           fi
-          make docker-clang-format
+          make docker-clang-format CLANG_FORMAT_FILES="$(echo $files)"
           if ! git diff --exit-code $files; then
-            echo "Error: Some files are not formatted correctly. Run make docker-clang-format."
+            echo "Error: Some files are not formatted correctly. Run make docker-clang-format CLANG_FORMAT_FILES=\"$(echo $files)\"."
             exit 1
           fi
 

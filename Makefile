@@ -818,10 +818,11 @@ clean-testoutput: testoutput
 protoc-gen:
 	docker run --rm -v $(PWD):/src -w /src --entrypoint protoc $(GEN_IMG) --go_out=pkg/kube/kubecache --go-grpc_out=pkg/kube/kubecache proto/informer.proto
 
+CLANG_FORMAT_FILES ?= $(shell find ./bpf -type f \( -name "*.c" -o -name "*.h" \) ! -path "./bpf/bpfcore/*")
+
 .PHONY: clang-format
 clang-format:
-	find ./bpf -type f -name "*.c" ! -path "./NOTICES/*" ! -path "./bpf/bpfcore/*" | xargs -P 0 -n 1 $(CLANG_FORMAT) -i
-	find ./bpf -type f -name "*.h" ! -path "./NOTICES/*" ! -path "./bpf/bpfcore/*" | xargs -P 0 -n 1 $(CLANG_FORMAT) -i
+	echo $(CLANG_FORMAT_FILES) | xargs -P 0 -n 1 $(CLANG_FORMAT) -i
 
 .PHONY: docker-clang-format
 docker-clang-format:
@@ -832,7 +833,7 @@ docker-clang-format:
 		-w /src \
 		--entrypoint make \
 		$(GEN_IMG) \
-		clang-format CLANG_FORMAT=$(GEN_IMG_LLVM_BIN)/clang-format
+		clang-format CLANG_FORMAT=$(GEN_IMG_LLVM_BIN)/clang-format CLANG_FORMAT_FILES="$(CLANG_FORMAT_FILES)"
 
 .PHONY: clean-ebpf-generated-files
 clean-ebpf-generated-files:
