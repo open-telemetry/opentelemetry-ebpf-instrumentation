@@ -51,13 +51,15 @@ func TestSessionManagerCumulativeReconnect(t *testing.T) {
 			{Name: "time-in-jit", Value: increment, Increment: true},
 		}
 	}
-	firstCounters := append(cycle(100, 10), cycle(3, 20)...)
+	firstCounters := append([]runtimeCounter{{Name: "processor-count", Value: 2}}, cycle(100, 10)...)
+	firstCounters = append(firstCounters, cycle(3, 20)...)
 	partial := cycle(99, 900)
 	firstCounters = append(firstCounters, partial[:len(partial)-3]...)
 	firstStream := runtimeCounterStream(t, int32(namespacePID), firstCounters)
 	// The interrupted cycle must not become the next session's baseline.
 	firstStream = firstStream[:len(firstStream)-1]
-	secondStream := runtimeCounterStream(t, int32(namespacePID), append(cycle(1000, 30), cycle(2, 40)...))
+	secondCounters := append([]runtimeCounter{{Name: "processor-count", Value: 4}}, cycle(1000, 30)...)
+	secondStream := runtimeCounterStream(t, int32(namespacePID), append(secondCounters, cycle(2, 40)...))
 	info := processInfo2Fixture(t)
 	binary.LittleEndian.PutUint64(info, namespacePID)
 	encode := func(command byte, payload []byte) []byte {
@@ -122,6 +124,11 @@ func TestSessionManagerCumulativeReconnect(t *testing.T) {
 	batches := queue.Subscribe(msg.SubscriberName("reconnect"))
 	manager := NewSessionManager(ctx, 10*time.Millisecond, time.Second, queue)
 	t.Cleanup(manager.Close)
+	process, err := procs.OpenProcessHandle(pid, startTime)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, process.Close()) })
+	beforeUser, beforeSystem, err := readProcessCPUTimes(process)
+	require.NoError(t, err)
 	require.NoError(t, manager.Start(file))
 	for index, expected := range []uint64{0, 3, 3, 5} {
 		select {
@@ -130,6 +137,16 @@ func TestSessionManagerCumulativeReconnect(t *testing.T) {
 			require.False(t, batch[0].Removed)
 			snapshot := batch[0].Dotnet
 			require.NotNil(t, snapshot)
+			require.NotNil(t, snapshot.ProcessCPUCount)
+			require.Equal(t, int64(2*(index/2+1)), *snapshot.ProcessCPUCount)
+			afterUser, afterSystem, err := readProcessCPUTimes(process)
+			require.NoError(t, err)
+			require.NotNil(t, snapshot.ProcessCPUTimeUser)
+			require.NotNil(t, snapshot.ProcessCPUTimeSystem)
+			require.GreaterOrEqual(t, *snapshot.ProcessCPUTimeUser, beforeUser)
+			require.LessOrEqual(t, *snapshot.ProcessCPUTimeUser, afterUser)
+			require.GreaterOrEqual(t, *snapshot.ProcessCPUTimeSystem, beforeSystem)
+			require.LessOrEqual(t, *snapshot.ProcessCPUTimeSystem, afterSystem)
 			for _, value := range []*uint64{snapshot.GCHeapTotalAllocated, snapshot.ThreadPoolWorkItemCount, snapshot.MonitorLockContentions} {
 				require.NotNil(t, value)
 				require.Equal(t, expected, *value)

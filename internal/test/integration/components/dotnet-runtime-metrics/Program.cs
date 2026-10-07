@@ -7,6 +7,8 @@ using System.Reflection.Emit;
 using System.Runtime;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using Process = System.Diagnostics.Process;
+using Stopwatch = System.Diagnostics.Stopwatch;
 
 if (args is ["--http"])
 {
@@ -68,6 +70,12 @@ static async Task RunHttp()
             CumulativeLoad.Run();
             result = new { before, after = RuntimeSnapshot.Capture() };
         }
+        else if (context.Request.HttpMethod == "POST" && context.Request.Url?.AbsolutePath == "/cpu-run")
+        {
+            var before = RuntimeSnapshot.Capture();
+            CPULoad.Run();
+            result = new { before, after = RuntimeSnapshot.Capture() };
+        }
         else if (context.Request.HttpMethod == "GET" && context.Request.Url?.AbsolutePath == "/load-result")
         {
             result = RuntimeLoad.Peak ?? throw new InvalidOperationException("Load has not reached its plateau");
@@ -90,9 +98,12 @@ static async Task RunHttp()
 sealed record RuntimeSnapshot(int pid, string runtimeVersion, int gen0, int gen1, int gen2,
     long workingSet, long gcCommitted, int threadCount, long queueLength, long timerCount, int assemblyCount,
     long allocated, double pauseTime, long compiledIL, long compiledMethods, double compilationTime,
-    long completedItems, long lockContentions)
+    long completedItems, long lockContentions, int cpuCount, double cpuUser, double cpuSystem)
 {
-    public static RuntimeSnapshot Capture() => new(
+    public static RuntimeSnapshot Capture()
+    {
+        using var process = Process.GetCurrentProcess();
+        return new(
         Environment.ProcessId, Environment.Version.ToString(),
         GC.CollectionCount(0), GC.CollectionCount(1), GC.CollectionCount(2),
         Environment.WorkingSet, GC.GetGCMemoryInfo().TotalCommittedBytes,
@@ -100,7 +111,38 @@ sealed record RuntimeSnapshot(int pid, string runtimeVersion, int gen0, int gen1
         Timer.ActiveCount, AppDomain.CurrentDomain.GetAssemblies().Length,
         GC.GetTotalAllocatedBytes(precise: true), GC.GetTotalPauseDuration().TotalSeconds,
         JitInfo.GetCompiledILBytes(), JitInfo.GetCompiledMethodCount(), JitInfo.GetCompilationTime().TotalSeconds,
-        ThreadPool.CompletedWorkItemCount, Monitor.LockContentionCount);
+        ThreadPool.CompletedWorkItemCount, Monitor.LockContentionCount,
+        Environment.ProcessorCount, process.UserProcessorTime.TotalSeconds, process.PrivilegedProcessorTime.TotalSeconds);
+    }
+}
+
+static class CPULoad
+{
+    public static void Run()
+    {
+        using var process = Process.GetCurrentProcess();
+        var deadline = Stopwatch.StartNew();
+        double userTarget = process.UserProcessorTime.TotalSeconds + 0.2;
+        while (process.UserProcessorTime.TotalSeconds < userTarget)
+        {
+            Thread.SpinWait(100_000);
+            process.Refresh();
+            if (deadline.Elapsed > TimeSpan.FromSeconds(20))
+                throw new TimeoutException("CPU user workload did not complete");
+        }
+        double systemTarget = process.PrivilegedProcessorTime.TotalSeconds + 0.1;
+        using var zero = File.OpenRead("/dev/zero");
+        var buffer = new byte[65536];
+        while (process.PrivilegedProcessorTime.TotalSeconds < systemTarget)
+        {
+            for (int i = 0; i < 128; i++)
+                if (zero.Read(buffer) != buffer.Length)
+                    throw new IOException("Short read from /dev/zero");
+            process.Refresh();
+            if (deadline.Elapsed > TimeSpan.FromSeconds(20))
+                throw new TimeoutException("CPU system workload did not complete");
+        }
+    }
 }
 
 static class CumulativeLoad

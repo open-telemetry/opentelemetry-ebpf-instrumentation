@@ -6,6 +6,8 @@ With `application_runtime` enabled, OBI collects runtime metrics from
 | OTel metric | Prometheus metric | Unit |
 | --- | --- | --- |
 | `dotnet.gc.collections` | `dotnet_gc_collections_total` | `{collection}` |
+| `dotnet.process.cpu.count` | `dotnet_process_cpu_count` | `{cpu}` |
+| `dotnet.process.cpu.time` | `dotnet_process_cpu_time_seconds_total` | `s` |
 | `dotnet.process.memory.working_set` | `dotnet_process_memory_working_set_bytes` | `By` |
 | `dotnet.gc.last_collection.memory.committed_size` | `dotnet_gc_last_collection_memory_committed_size_bytes` | `By` |
 | `dotnet.thread_pool.thread.count` | `dotnet_thread_pool_thread_count` | `{thread}` |
@@ -23,6 +25,10 @@ With `application_runtime` enabled, OBI collects runtime metrics from
 The `dotnet.gc.heap.generation` attribute identifies `gen0`, `gen1`, and `gen2`.
 Counts are exclusive: a full gen2 collection adds one to gen2, while gen0 and
 gen1 remain unchanged.
+
+CPU time has separate `cpu.mode=user` and `cpu.mode=system` series. CPU count
+reports the runtime's `Environment.ProcessorCount`, including its processor-count
+override, container CPU quota, and processor affinity.
 
 Enable .NET runtime metrics through the shared runtime metrics feature:
 
@@ -58,9 +64,15 @@ runtime metrics export queue:
 3. `ProcessInfo2` verifies the socket's PID and confirms that the CLR version is
    .NET 8 or newer.
 4. The collector starts an EventPipe session and decodes its NetTrace stream.
+   The `ProcessorCount` event supplies the CPU count retained for that session.
 5. Sampling rounds containing GC counts, cumulative counters, and available
    current values enter the runtime metrics queue and reach the OTLP and
    Prometheus exporters.
+
+Before publishing each round, OBI reads user and system CPU ticks from
+`/proc/<pid>/stat` through the stable process handle and converts them to seconds.
+These are process-lifetime totals sampled at publication time. A failed read
+omits CPU time from that round while the other available metrics still publish.
 
 The first sample for each generation establishes a baseline. Exported totals
 therefore cover collection after attachment, rather than the process lifetime.
@@ -83,7 +95,7 @@ baseline. Current-value metrics reflect the latest available process values.
 
 On stream loss, OBI reconnects while the process is alive and preserves the last
 published attachment-relative totals. Increments during the gap are unavailable;
-the two absolute JIT counters continue to report process-lifetime values.
+CPU time and the two absolute JIT counters continue to report process-lifetime values.
 Process removal cancels collection; shutdown sends `StopTracing` while draining
 the stream.
 

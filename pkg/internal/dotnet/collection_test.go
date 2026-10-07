@@ -11,6 +11,49 @@ import (
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
+func TestRuntimeCollectionProcessorCount(t *testing.T) {
+	var collection runtimeCollection
+	observe := func(counter runtimeCounter) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+		snapshot, err := collection.observe(counter)
+		require.NoError(t, err)
+		return snapshot
+	}
+	completeCycle := func() {
+		for _, name := range []string{"gen-0-gc-count", "gen-1-gc-count", "gen-2-gc-count", "time-in-jit"} {
+			require.Nil(t, observe(runtimeCounter{Name: name, Increment: true}))
+		}
+	}
+	require.Nil(t, observe(runtimeCounter{Name: "processor-count", Value: 2}))
+	require.Nil(t, observe(runtimeCounter{Name: "working-set", Value: 1}))
+	completeCycle()
+	first := observe(runtimeCounter{Name: "working-set", Value: 1})
+	require.NotNil(t, first)
+	require.NotNil(t, first.ProcessCPUCount)
+	require.Equal(t, int64(2), *first.ProcessCPUCount)
+
+	completeCycle()
+	second := observe(runtimeCounter{Name: "working-set", Value: 1})
+	require.NotNil(t, second)
+	require.NotNil(t, second.ProcessCPUCount)
+	require.Equal(t, int64(2), *second.ProcessCPUCount)
+
+	require.Nil(t, observe(runtimeCounter{Name: "processor-count", Value: 4}))
+	completeCycle()
+	last := collection.finish()
+	require.NotNil(t, last)
+	require.NotNil(t, last.ProcessCPUCount)
+	require.Equal(t, int64(4), *last.ProcessCPUCount)
+	require.Equal(t, int64(2), *first.ProcessCPUCount)
+	require.Equal(t, int64(2), *second.ProcessCPUCount)
+
+	collection = runtimeCollection{}
+	require.Nil(t, observe(runtimeCounter{Name: "working-set", Value: 1}))
+	completeCycle()
+	fresh := collection.finish()
+	require.NotNil(t, fresh)
+	require.Nil(t, fresh.ProcessCPUCount, "a fresh session must observe its own processor count")
+}
+
 func TestRuntimeCollectionIgnoresPartialStart(t *testing.T) {
 	var collection runtimeCollection
 	for _, counter := range []runtimeCounter{
