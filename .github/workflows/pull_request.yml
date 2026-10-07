@@ -108,6 +108,7 @@ jobs:
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
           install_args: clang-format
+          cache: false
 
       - name: Check clang-format
         run: |
@@ -139,6 +140,7 @@ jobs:
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
           install_args: clang-tidy
+          cache: false
 
       - name: Check clang-tidy version
         run: mise exec -- clang-tidy --version
