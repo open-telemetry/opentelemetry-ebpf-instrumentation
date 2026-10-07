@@ -202,6 +202,18 @@ not exported, and OBI does not currently report this condition with a metric or 
 The general Go `1.17+` library-instrumentation baseline elsewhere in this matrix does not widen this Auto SDK
 allowlist.
 
+### Go Trace API Embedded Auto SDK
+
+OBI also activates the Auto SDK embedded in `go.opentelemetry.io/otel/trace` for
+provider lookups from empty contexts and non-recording local or remote span contexts.
+It accepts canonical, unreplaced `otel` and `otel/trace` modules at the exact `.0`
+releases from `v1.35.0` through `v1.46.0`; the external `auto/sdk` module is optional.
+Activation requires the embedded capture symbols and offsets, `amd64` or `arm64`,
+and the same user-memory write permissions and payload limits described above.
+CI covers Go `1.26` and `1.27`, both architectures, and both SDK activation orders.
+Arbitrary remote-parent extraction and context handoff remain tracked in
+[#2794](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/2794).
+
 ### Statistical Metrics
 
 OBI currently documents the following statistical instrumentation support:

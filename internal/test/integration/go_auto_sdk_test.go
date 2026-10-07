@@ -36,6 +36,9 @@ type goAutoSDKVersion struct {
 	version    string
 	dockerfile string
 	image      string
+	buildArgs  map[string]*string
+	embedded   bool
+	order      []string
 }
 
 func TestGoAutoSDKActivation(t *testing.T) {
@@ -59,6 +62,44 @@ func TestGoAutoSDKActivation(t *testing.T) {
 		},
 	}
 
+	runGoAutoSDKActivation(t, network, versions)
+}
+
+func TestGoEmbeddedSDKActivation(t *testing.T) {
+	if KernelLockdownMode() {
+		t.Skip("Go Auto SDK activation requires bpf_probe_write_user")
+	}
+	network := setupDockerNetwork(t)
+	setupContainerJaeger(t, network)
+	var versions []goAutoSDKVersion
+	for _, otelVersion := range []string{"1.35.0", "1.46.0"} {
+		for _, goImage := range []string{
+			"golang:1.26.3@sha256:efaccb5b497e90df3ebe5216cc25cd9f98e73874e2d638b56e38d4a3f098c41c",
+			"golang:1.27.0@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1",
+		} {
+			for _, order := range [][]string{nil, {"external", "embedded"}, {"embedded", "external"}} {
+				sources := "main.go"
+				if len(order) != 0 {
+					sources += " external.go"
+				}
+				mode := strings.Join(order, "-")
+				if len(order) == 0 {
+					mode = "embedded-only"
+				}
+				label := otelVersion + "-" + strings.Split(goImage, "@")[0][7:] + "-" + mode
+				versions = append(versions, goAutoSDKVersion{
+					version: label, image: "hatest-goautosdk-" + strings.ReplaceAll(label, ".", "-"),
+					dockerfile: "internal/test/integration/components/goautosdk/Dockerfile-embedded",
+					embedded:   true, order: order,
+					buildArgs: map[string]*string{"GO_IMAGE": &goImage, "OTEL_VERSION": &otelVersion, "SOURCES": &sources},
+				})
+			}
+		}
+	}
+	runGoAutoSDKActivation(t, network, versions)
+}
+
+func runGoAutoSDKActivation(t *testing.T, network dockertest.Network, versions []goAutoSDKVersion) {
 	for _, version := range versions {
 		t.Run("otel-"+version.version, func(t *testing.T) {
 			service := "goautosdk-" + strings.ReplaceAll(version.version, ".", "-")
@@ -75,8 +116,19 @@ func TestGoAutoSDKActivation(t *testing.T) {
 			o.instrument(t, network, "obi-config-go-auto-sdk.yml")
 
 			waitForGoAutoSDKInstrumentation(t)
+			for index, sdk := range version.order {
+				waitForGoAutoSDKActivation(t, "?sdk="+sdk+"&context="+[]string{"local", "remote"}[index])
+			}
 			waitForGoAutoSDKActivation(t)
 
+			if version.embedded {
+				for _, contextKind := range []string{"local", "remote"} {
+					testGoAutoSDKRichSpans(t, version.version, service, "?context="+contextKind)
+				}
+				if len(version.order) != 0 {
+					testGoAutoSDKRichSpans(t, version.version, service, "?sdk=external")
+				}
+			}
 			t.Run("rich root and child spans", func(t *testing.T) {
 				testGoAutoSDKRichSpans(t, version.version, service)
 			})
@@ -100,17 +152,22 @@ func setupGoAutoSDKServer(
 
 	require.NoError(
 		t,
-		buildDockerImage(t.Context(), t.Output(), version.image, version.dockerfile),
+		buildDockerImage(t.Context(), t.Output(), version.image, version.dockerfile, version.buildArgs),
 		"could not build Go Auto SDK %s fixture",
 		version.version,
 	)
 
+	sdk := "external"
+	if version.embedded {
+		sdk = "embedded"
+	}
 	server, err := dockerPool.Run(
 		t.Context(),
 		version.image,
 		dockertest.WithName(fmt.Sprintf("goautosdk-%s-%d", strings.ReplaceAll(version.version, ".", "-"), time.Now().UnixNano())),
 		dockertest.WithEnv([]string{
 			"OTEL_TEST_VERSION=" + version.version,
+			"OTEL_TEST_SDK=" + sdk,
 			"OTEL_SERVICE_NAME=" + service,
 		}),
 		dockertest.WithPortBindings(portBindings(goAutoSDKPort+"/tcp", goAutoSDKPort)),
@@ -171,11 +228,11 @@ func waitForGoAutoSDKInstrumentation(t *testing.T) {
 	}, testTimeout, 100*time.Millisecond)
 }
 
-func waitForGoAutoSDKActivation(t *testing.T) {
+func waitForGoAutoSDKActivation(t *testing.T, query ...string) {
 	t.Helper()
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := http.Get("http://localhost:" + goAutoSDKPort + "/activation")
+		resp, err := http.Get("http://localhost:" + goAutoSDKPort + "/activation" + strings.Join(query, ""))
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -185,10 +242,17 @@ func waitForGoAutoSDKActivation(t *testing.T) {
 	}, testTimeout, 100*time.Millisecond)
 }
 
-func testGoAutoSDKRichSpans(t *testing.T, version, service string) {
-	ti.DoHTTPGet(t, "http://localhost:"+goAutoSDKPort+"/spans", http.StatusOK)
+func testGoAutoSDKRichSpans(t *testing.T, version, service string, query ...string) {
+	q := strings.Join(query, "")
+	ti.DoHTTPGet(t, "http://localhost:"+goAutoSDKPort+"/spans"+q, http.StatusOK)
+	values, err := url.ParseQuery(strings.TrimPrefix(q, "?"))
+	require.NoError(t, err)
+	suffix := version
+	if name := values.Get("context") + values.Get("sdk"); name != "" {
+		suffix += "-" + name
+	}
 
-	rootName := autoSDKSpanName("root", version)
+	rootName := autoSDKSpanName("root", suffix)
 	trace := waitForGoAutoSDKTrace(t, service, rootName)
 
 	require.Len(t, trace.Spans, 2, "rich spans must not have synthetic duplicates")
@@ -210,7 +274,7 @@ func testGoAutoSDKRichSpans(t *testing.T, version, service string) {
 		{Key: "obitest.event.detail", Type: "string", Value: "preserved"},
 	}, root.Logs[0].Fields))
 
-	childName := autoSDKSpanName("child", version)
+	childName := autoSDKSpanName("child", suffix)
 	children := trace.FindByOperationName(childName, "client")
 	require.Len(t, children, 1)
 	child := children[0]

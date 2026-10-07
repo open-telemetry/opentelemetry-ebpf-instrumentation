@@ -7,7 +7,7 @@ ENV GOARCH=$TARGETARCH
 
 WORKDIR /src
 
-COPY internal/test/integration/components/goautosdk/main.go .
+COPY internal/test/integration/components/goautosdk/main.go internal/test/integration/components/goautosdk/external.go ./
 COPY internal/test/integration/components/goautosdk/v1.33/go.mod .
 COPY internal/test/integration/components/goautosdk/v1.33/go.sum .
 

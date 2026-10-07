@@ -39,6 +39,7 @@ enum { k_go_interface_type_offset = 8 };
 enum { k_go_ptr_arr_size = 16 };
 enum { k_go_auto_activation_max_attempts = 3 };
 enum { k_efault = 14 };
+enum go_sdk_kind { k_external_sdk, k_embedded_sdk };
 
 const char ERROR_KEY[] = "exception.message";
 const u32 ERROR_KEY_SIZE = sizeof(ERROR_KEY) - 1;
@@ -53,12 +54,14 @@ typedef struct go_auto_activation_attempt_key {
     u64 generation;
     u32 pid;
     u8 attempt;
-    u8 _pad[3];
+    u8 sdk;
+    u8 _pad[2];
 } go_auto_activation_attempt_key_t;
 
 typedef struct go_auto_activation_event {
     u8 type;
-    u8 _pad[3];
+    u8 sdk;
+    u8 _pad[2];
     u32 pid;
     u64 generation;
 } go_auto_activation_event_t;
@@ -69,7 +72,8 @@ typedef struct go_auto_span_state {
     u64 goroutine;
     u64 generation;
     u8 committed;
-    u8 _pad[7];
+    u8 sdk;
+    u8 _pad[6];
 } go_auto_span_state_t;
 
 struct {
@@ -152,7 +156,7 @@ read_span_name(unsigned char *buf, const u64 span_name_len, void *span_name_ptr)
     bpf_probe_read_user(buf, span_name_size, span_name_ptr);
 }
 
-static __always_inline u8 span_context_offsets_available() {
+static __always_inline u8 span_context_offsets_available(u8 sdk) {
     off_table_t *ot = get_offsets_table();
     if (!ot) {
         return 0;
@@ -161,9 +165,14 @@ static __always_inline u8 span_context_offsets_available() {
     const u64 trace_id_pos = go_offset_of(ot, (go_offset){.v = _span_context_trace_id_pos});
     const u64 span_id_pos = go_offset_of(ot, (go_offset){.v = _span_context_span_id_pos});
     const u64 flags_pos = go_offset_of(ot, (go_offset){.v = _span_context_trace_flags_pos});
-    const u64 auto_sdk_sc_pos = go_offset_of(ot, (go_offset){.v = _auto_sdk_span_context_pos});
+    const u64 auto_sdk_sc_pos =
+        go_offset_of(ot,
+                     (go_offset){.v = sdk == k_embedded_sdk ? _embedded_sdk_span_context_pos
+                                                            : _auto_sdk_span_context_pos});
     const u64 auto_sdk_supported =
-        go_offset_of(ot, (go_offset){.v = _auto_sdk_activation_supported});
+        go_offset_of(ot,
+                     (go_offset){.v = sdk == k_embedded_sdk ? _embedded_sdk_activation_supported
+                                                            : _auto_sdk_activation_supported});
 
     return trace_id_pos != (u64)-1 && span_id_pos != (u64)-1 && flags_pos != (u64)-1 &&
            auto_sdk_sc_pos != (u64)-1 && auto_sdk_supported == 1;
@@ -185,21 +194,23 @@ static __always_inline u8 go_auto_target_matches(u64 generation) {
     return go_auto_target_generation(&current) && current == generation;
 }
 
-static __always_inline void notify_go_auto_activation(u64 generation) {
+static __always_inline void notify_go_auto_activation(u64 generation, u8 sdk) {
     go_auto_activation_event_t event = {
         .type = k_event_type_go_auto_activated,
+        .sdk = sdk,
         .pid = pid_from_pid_tgid(bpf_get_current_pid_tgid()),
         .generation = generation,
     };
     bpf_ringbuf_output(&events, &event, sizeof(event), get_flags());
 }
 
-static __always_inline u8
-reserve_go_auto_activation_attempt(u64 generation, go_auto_activation_attempt_key_t *reserved) {
+static __always_inline u8 reserve_go_auto_activation_attempt(
+    u64 generation, u8 sdk, go_auto_activation_attempt_key_t *reserved) {
     const u64 pid_tgid = bpf_get_current_pid_tgid();
     go_auto_activation_attempt_key_t key = {
         .generation = generation,
         .pid = pid_from_pid_tgid(pid_tgid),
+        .sdk = sdk,
     };
     const u8 attempted = 1;
 
@@ -336,7 +347,10 @@ static __always_inline long write_go_auto_embedded_span_context(void *span_ptr,
         return -1;
     }
 
-    const u64 span_context_pos = go_offset_of(ot, (go_offset){.v = _auto_sdk_span_context_pos});
+    const u64 span_context_pos =
+        go_offset_of(ot,
+                     (go_offset){.v = state->sdk == k_embedded_sdk ? _embedded_sdk_span_context_pos
+                                                                   : _auto_sdk_span_context_pos});
     if (span_context_pos == (u64)-1) {
         return -1;
     }
@@ -423,15 +437,13 @@ int GUARDED_PROG(obi_uprobe_tracer_Start_global, struct pt_regs *, ctx) {
     return tracer_start(ctx, 1);
 }
 
-SEC("uprobe/tracer_new_span")
-int GUARDED_PROG(obi_uprobe_tracer_NewSpan, struct pt_regs *, ctx) {
+static __always_inline int activate_go_sdk(u8 sdk, bool *auto_span_ptr) {
     u64 generation = 0;
     if (!go_auto_target_generation(&generation) || !g_bpf_probe_write_user_enabled ||
-        !span_context_offsets_available()) {
+        !span_context_offsets_available(sdk)) {
         return 0;
     }
 
-    bool *auto_span_ptr = GO_PARAM4(ctx);
     if (!auto_span_ptr) {
         return 0;
     }
@@ -441,12 +453,12 @@ int GUARDED_PROG(obi_uprobe_tracer_NewSpan, struct pt_regs *, ctx) {
         return 0;
     }
     if (auto_span) {
-        notify_go_auto_activation(generation);
+        notify_go_auto_activation(generation, sdk);
         return 0;
     }
 
     go_auto_activation_attempt_key_t attempt_key = {};
-    if (!reserve_go_auto_activation_attempt(generation, &attempt_key)) {
+    if (!reserve_go_auto_activation_attempt(generation, sdk, &attempt_key)) {
         return 0;
     }
     if (!go_auto_target_matches(generation)) {
@@ -458,10 +470,21 @@ int GUARDED_PROG(obi_uprobe_tracer_NewSpan, struct pt_regs *, ctx) {
     if (bpf_probe_write_user(auto_span_ptr, &activate, sizeof(activate)) != 0) {
         bpf_dbg_printk("failed to activate Go Auto SDK");
     } else {
-        notify_go_auto_activation(generation);
+        notify_go_auto_activation(generation, sdk);
     }
 
     return 0;
+}
+
+SEC("uprobe/tracer_new_span")
+int GUARDED_PROG(obi_uprobe_tracer_NewSpan, struct pt_regs *, ctx) {
+    return activate_go_sdk(k_external_sdk, GO_PARAM4(ctx));
+}
+
+SEC("uprobe/embedded_tracer_provider")
+int GUARDED_PROG(obi_uprobe_embedded_tracer_provider, struct pt_regs *, ctx) {
+    // noopSpan's value receiver contains the two-word embedded.Span interface.
+    return activate_go_sdk(k_embedded_sdk, GO_PARAM3(ctx));
 }
 
 static __always_inline void read_attrs_from_opts(otel_span_t *span, void *opts_ptr, u64 len) {
@@ -590,11 +613,10 @@ int GUARDED_PROG(obi_uprobe_tracer_Start_Returns, struct pt_regs *, ctx) {
     return 0;
 }
 
-SEC("uprobe/auto_sdk_tracer_start")
-int GUARDED_PROG(obi_uprobe_auto_sdk_tracer_Start, struct pt_regs *, ctx) {
+static __always_inline int auto_sdk_tracer_start(struct pt_regs *ctx, u8 sdk) {
     u64 generation = 0;
     if (!go_auto_target_generation(&generation) || !g_bpf_probe_write_user_enabled ||
-        !span_context_offsets_available()) {
+        !span_context_offsets_available(sdk)) {
         return 0;
     }
 
@@ -616,6 +638,7 @@ int GUARDED_PROG(obi_uprobe_auto_sdk_tracer_Start, struct pt_regs *, ctx) {
     void *parent_span_context = GO_PARAM5(ctx);
     void *span_context = GO_PARAM7(ctx);
     go_auto_span_state_t state = {
+        .sdk = sdk,
         .generation = generation,
     };
     tp_info_t child = {};
@@ -641,6 +664,16 @@ int GUARDED_PROG(obi_uprobe_auto_sdk_tracer_Start, struct pt_regs *, ctx) {
 
     commit_go_auto_span_state(&s_key, &state);
     return 0;
+}
+
+SEC("uprobe/auto_sdk_tracer_start")
+int GUARDED_PROG(obi_uprobe_auto_sdk_tracer_Start, struct pt_regs *, ctx) {
+    return auto_sdk_tracer_start(ctx, k_external_sdk);
+}
+
+SEC("uprobe/embedded_sdk_tracer_start")
+int GUARDED_PROG(obi_uprobe_embedded_sdk_tracer_start, struct pt_regs *, ctx) {
+    return auto_sdk_tracer_start(ctx, k_embedded_sdk);
 }
 
 SEC("uprobe/auto_sdk_context_with_value")

@@ -1,0 +1,18 @@
+ARG GO_IMAGE=golang:1.27.0@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1
+FROM ${GO_IMAGE} AS builder
+ARG TARGETARCH
+ARG OTEL_VERSION
+ARG SOURCES=main.go
+ENV GOARCH=$TARGETARCH
+WORKDIR /src
+COPY internal/test/integration/components/goautosdk/main.go internal/test/integration/components/goautosdk/external.go ./
+RUN go mod init goautosdk && go get go.opentelemetry.io/otel@v${OTEL_VERSION} go.opentelemetry.io/otel/trace@v${OTEL_VERSION}
+RUN go build -o goautosdk ${SOURCES} && \
+    if [ "$SOURCES" = main.go ]; then \
+      ! go version -m goautosdk | grep 'go.opentelemetry.io/auto/sdk' && \
+      ! go tool nm goautosdk | grep -E 'go.opentelemetry.io/(auto/sdk|otel/internal/global)'; \
+    fi
+FROM debian:bookworm-slim@sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421
+COPY --from=builder /src/goautosdk /goautosdk
+USER 0:0
+CMD ["/goautosdk"]

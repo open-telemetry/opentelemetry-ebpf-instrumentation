@@ -95,6 +95,8 @@ typedef enum {
     _span_context_trace_flags_pos,
     _auto_sdk_span_context_pos,
     _auto_sdk_activation_supported,
+    _embedded_sdk_span_context_pos,
+    _embedded_sdk_activation_supported,
     // go runtime channels
     _hchan_qcount_pos,
     _hchan_dataqsiz_pos,

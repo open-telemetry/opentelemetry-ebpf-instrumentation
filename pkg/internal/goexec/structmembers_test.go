@@ -837,3 +837,28 @@ func (f *fakeDwarfReader) Next() (*dwarf.Entry, error) {
 	f.entries = f.entries[1:]
 	return entry, nil
 }
+
+func TestEmbeddedSDKActivationEligibility(t *testing.T) {
+	elfFile := &elf.File{FileHeader: elf.FileHeader{Class: elf.ELFCLASS64, Machine: elf.EM_X86_64}}
+	for _, traceVersion := range []string{"v1.34.0", "v1.35.0", "v1.46.0", "v1.47.0"} {
+		t.Run(traceVersion, func(t *testing.T) {
+			modules := goAutoSDKActivationTestModules()
+			delete(modules.versions, "go.opentelemetry.io/auto/sdk")
+			for _, required := range goAutoSDKActivationModules[1:] {
+				modules.versions[required.path] = traceVersion
+				modules.sums[required.path] = required.sums[traceVersion]
+			}
+			offsets := FieldOffsets{}
+			setGoAutoSDKActivationSupport(offsets, modules, elfFile)
+			want := uint64(0)
+			if traceVersion == "v1.35.0" || traceVersion == "v1.46.0" {
+				want = 1
+			}
+			assert.Equal(t, want, offsets[EmbeddedSDKActivationSupported])
+			assert.Equal(t, uint64(0), offsets[AutoSDKActivationSupported])
+			modules.sums["go.opentelemetry.io/otel/trace"] = "invalid"
+			setGoAutoSDKActivationSupport(offsets, modules, elfFile)
+			assert.Equal(t, uint64(0), offsets[EmbeddedSDKActivationSupported])
+		})
+	}
+}

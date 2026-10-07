@@ -106,6 +106,14 @@ To turn this off and fallback to the normal network based instrumentation for Go
 | github.com/IBM/sarama          |   Kafka    |               >= 1.37 | All     |  Yes   |                 No | `messaging.consumer.group.name` not reported (group requests are not captured by the Go uprobes)
 | go.mongodb.org/mongo-driver    |  MongoDB   | >= v1.10.1, >= v2.0.1 | All     |  Yes   |                 No |         N/A
 
+### Go Trace API Embedded Auto SDK
+
+OBI captures manual spans created through `trace.SpanFromContext(ctx).TracerProvider()`
+from empty or non-recording contexts, without requiring the external Auto SDK.
+Both SDKs activate independently when their probes, offsets, canonical module checksums,
+and user-memory write permissions are available. See the
+[support matrix](../SUPPORT_MATRIX.md#go-trace-api-embedded-auto-sdk) for compatibility and limitations.
+
 ### Go Channel Span Links
 
 OBI can emit experimental receiver-side span links for work handed off between
