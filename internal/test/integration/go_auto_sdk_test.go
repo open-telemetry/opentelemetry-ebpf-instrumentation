@@ -72,7 +72,7 @@ func TestGoEmbeddedSDKActivation(t *testing.T) {
 	network := setupDockerNetwork(t)
 	setupContainerJaeger(t, network)
 	var versions []goAutoSDKVersion
-	for _, otelVersion := range []string{"1.35.0", "1.46.0"} {
+	for _, otelVersion := range []string{"1.35.0", "latest"} {
 		for _, toolchain := range []string{"previous", "current"} {
 			for _, order := range [][]string{nil, {"external", "embedded"}, {"embedded", "external"}} {
 				sources := "main.go"
