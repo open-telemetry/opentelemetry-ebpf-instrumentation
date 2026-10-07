@@ -1,15 +1,10 @@
 [tools]
 go = "1.27.1"
+clang-format = "19.1.7"
 golangci-lint = "2.13.2"
 
 [tool_alias]
-clang-format = "github:cpp-linter/clang-tools-static-binaries"
 clang-tidy = "github:cpp-linter/clang-tools-static-binaries"
-
-[tools.clang-format]
-version = "2026.09.01-5fb8802d"
-matching = "clang-format-19_"
-bin = "clang-format"
 
 [tools.clang-tidy]
 version = "2026.09.01-5fb8802d"
