@@ -36,6 +36,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/filter"
 	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
+	"go.opentelemetry.io/obi/pkg/internal/cloud"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
@@ -228,6 +229,7 @@ var DefaultConfig = Config{
 	},
 	CloudMetadata: transform.CloudMetadataConfig{
 		RefreshInterval: 30 * time.Second,
+		Route53:         transform.Route53MetadataConfig{RefreshInterval: cloud.DefaultRoute53RefreshInterval},
 	},
 	NameResolver: &transform.NameResolverConfig{
 		Sources: []transform.Source{

@@ -1,27 +1,20 @@
 # Route53 name resolution
 
 The opt-in `route53` name resolver maps endpoint IPs to fully qualified DNS names
-from selected AWS Route53 hosted zones on detected EC2 hosts:
+from selected AWS Route53 hosted zones on detected EC2 hosts.
+Route53 settings are available only in Config v2:
 
 ```yaml
-name_resolver:
-  sources: [k8s, ecs, route53]
-cloud_metadata:
-  refresh_interval: 30s
-  route53:
-    hosted_zone_ids: [Z0123456789EXAMPLE]
-```
-
-In Config v2, the same settings are:
-
-```yaml
+file_format: "1.0"
 extensions:
   obi:
+    version: "2.0"
     enrich:
       enrichers:
         cloud:
           refresh_interval: 30s
           route53:
+            refresh_interval: 5m
             hosted_zone_ids: [Z0123456789EXAMPLE]
       service_name:
         sources: [k8s, ecs, route53]
@@ -42,19 +35,34 @@ Kubernetes and ECS names take precedence over Route53 names. Route53 takes
 precedence over captured DNS responses and reverse DNS. Route53 decorates endpoint
 names; ECS container identity remains responsible for local process naming.
 
-Refreshes replace the shared cloud inventory after all enabled sources succeed.
-Successful refreshes remove deleted records; a failure retains the previous
-inventory until the next interval. An initial failure leaves the inventory empty
-until a refresh succeeds.
+Route53 polls independently of ECS, with a default interval of five minutes.
+Initial discovery is delayed randomly between zero and one interval to spread
+startup traffic. Later polls wait between 80% and 120% of the interval after the
+previous fetch completes. Names remain unresolved until initial discovery succeeds.
 
-The corresponding environment variables are:
+Each source retains its last successful snapshot. Successful refreshes remove
+deleted records; a failed Route53 fetch preserves its mappings and does not block
+ECS refreshes. Repeated throttling doubles the Route53 polling interval up to
+eight times the configured interval, with the same jitter. A successful fetch
+restores the configured interval. SDK retries still apply within each fetch.
 
-- `OTEL_EBPF_NAME_RESOLVER_SOURCES=route53`
-- `OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS=Z0123456789EXAMPLE`
-- `OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL=30s`
+A longer interval reduces average API traffic; jitter spreads bursts. Each OBI
+instance still lists every configured zone, including all pages. Size the interval
+for the number of instances and zones sharing the account, leaving capacity for
+other API clients. There is no coordination between instances.
 
+Hosted zones and the refresh interval can reference deployment-specific variables
+through Config v2 substitution, for example:
+
+```yaml
+route53:
+  refresh_interval: ${ROUTE53_REFRESH_INTERVAL:-5m}
+  hosted_zone_ids: ["${ROUTE53_HOSTED_ZONE_ID}"]
+```
+
+There are no automatic Config v1 YAML or environment overrides for these settings.
 The Route53 client region, which selects the AWS partition, is
-`cloud_metadata.region` (`OTEL_EBPF_CLOUD_REGION`) if set, otherwise the detected
+`extensions.obi.enrich.enrichers.cloud.region` if set, otherwise the detected
 cloud region. Without either, the AWS SDK's region configuration applies,
 falling back to `us-east-1`.
 For local tests, its endpoint override is `AWS_ENDPOINT_URL_ROUTE_53`.
@@ -63,8 +71,8 @@ For local tests, its endpoint override is `AWS_ENDPOINT_URL_ROUTE_53`.
 
 `TestRoute53ServiceResolution` starts a digest-pinned Floci container, creates a
 hosted zone and a record pointing at a backend container, and checks the exported
-service-graph name. It replaces the record to verify periodic refreshes. Existing
-EC2/ECS metadata containers and the ECS API failure mock remain unchanged.
+HTTP client metric's `server.address`. It uses a one-second Route53 interval and
+replaces the record to verify periodic refreshes. Existing EC2/ECS metadata containers and the ECS API failure mock remain unchanged.
 
 ```sh
 go test -v -run '^TestRoute53ServiceResolution$' -timeout 10m ./internal/test/integration/

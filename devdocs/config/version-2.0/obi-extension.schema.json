@@ -2206,6 +2206,11 @@
                   "description": "Route53 metadata used by the `route53` service name source.\n",
                   "additionalProperties": true,
                   "properties": {
+                    "refresh_interval": {
+                      "type": "string",
+                      "default": "5m0s",
+                      "description": "Route53 polling interval, independently of other cloud sources. Polls include jitter and back off after throttling."
+                    },
                     "hosted_zone_ids": {
                       "type": "array",
                       "items": {

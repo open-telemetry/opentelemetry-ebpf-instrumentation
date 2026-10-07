@@ -643,7 +643,8 @@ func enrich(cfg *obi.Config) *schema.Enrich {
 				Region:          cfg.CloudMetadata.Region,
 				RefreshInterval: schema.Duration(cfg.CloudMetadata.RefreshInterval),
 				Route53: schema.Route53{
-					HostedZoneIDs: cfg.CloudMetadata.Route53.HostedZoneIDs,
+					RefreshInterval: schema.Duration(cfg.CloudMetadata.Route53.RefreshInterval),
+					HostedZoneIDs:   cfg.CloudMetadata.Route53.HostedZoneIDs,
 				},
 			},
 		},

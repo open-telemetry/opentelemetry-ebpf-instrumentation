@@ -113,3 +113,88 @@ func TestInventoryRefresherNodeWithoutMetadata(t *testing.T) {
 		run(t.Context())
 	}
 }
+
+func TestInventorySourcesRefreshIndependently(t *testing.T) {
+	route53 := &snapshotRefresher{snapshot: MetadataSnapshot{ServiceByIP: map[string]string{"10.0.0.1": "dns", "10.0.0.2": "dns-only"}}}
+	ecs := &snapshotRefresher{snapshot: MetadataSnapshot{ServiceByIP: map[string]string{"10.0.0.1": "ecs"}}}
+	inventory := NewInventory([]MetadataRefresher{route53, ecs})
+	inventory.refresh(t.Context())
+	name, _ := inventory.ServiceNameForIP("10.0.0.1")
+	require.Equal(t, "ecs", name)
+
+	route53.err = errors.New("throttled")
+	ecs.snapshot = MetadataSnapshot{ServiceByIP: map[string]string{"10.0.0.1": "ecs-updated"}}
+	inventory.refresh(t.Context())
+	name, _ = inventory.ServiceNameForIP("10.0.0.1")
+	require.Equal(t, "ecs-updated", name)
+	name, _ = inventory.ServiceNameForIP("10.0.0.2")
+	require.Equal(t, "dns-only", name)
+
+	ecs.snapshot = MetadataSnapshot{}
+	inventory.refreshSource(t.Context(), 1)
+	name, _ = inventory.ServiceNameForIP("10.0.0.1")
+	require.Equal(t, "dns", name)
+	route53.err = nil
+	route53.snapshot = MetadataSnapshot{}
+	inventory.refreshSource(t.Context(), 0)
+	_, ok := inventory.ServiceNameForIP("10.0.0.1")
+	require.False(t, ok)
+}
+
+type blockingScheduledRefresher struct {
+	started chan struct{}
+	stopped chan struct{}
+}
+
+func (*blockingScheduledRefresher) Name() string                    { return "blocked" }
+func (*blockingScheduledRefresher) RefreshDelay(bool) time.Duration { return 0 }
+func (r *blockingScheduledRefresher) Refresh(ctx context.Context, _ *MetadataSnapshot) error {
+	close(r.started)
+	<-ctx.Done()
+	close(r.stopped)
+	return ctx.Err()
+}
+
+type notifyingRefresher struct{ calls chan struct{} }
+
+func (*notifyingRefresher) Name() string { return "ecs" }
+func (r *notifyingRefresher) Refresh(_ context.Context, snapshot *MetadataSnapshot) error {
+	snapshot.ServiceByIP["10.0.0.1"] = "ecs"
+	r.calls <- struct{}{}
+	return nil
+}
+
+func TestInventoryPollingDoesNotWaitForOtherSources(t *testing.T) {
+	blocked := &blockingScheduledRefresher{started: make(chan struct{}), stopped: make(chan struct{})}
+	ecs := &notifyingRefresher{calls: make(chan struct{}, 100)}
+	inventory := NewInventory([]MetadataRefresher{blocked, ecs})
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	run, err := InventoryRefresherNode(inventory, time.Millisecond)(ctx)
+	require.NoError(t, err)
+	<-ecs.calls // ECS's initial fetch remains synchronous.
+	select {
+	case <-blocked.started:
+		t.Fatal("scheduled discovery started synchronously")
+	default:
+	}
+	done := make(chan struct{})
+	go func() { defer close(done); run(ctx) }()
+	select {
+	case <-blocked.started:
+	case <-time.After(time.Second):
+		t.Fatal("scheduled source did not start")
+	}
+	select {
+	case <-ecs.calls:
+	case <-time.After(time.Second):
+		t.Fatal("ECS polling was blocked")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("workers did not stop")
+	}
+	<-blocked.stopped
+}

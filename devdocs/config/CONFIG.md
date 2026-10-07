@@ -137,14 +137,6 @@ CloudMetadataConfig configures overrides for detected cloud metadata.
 | `cloud_metadata.refresh_interval` | `duration` | `OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL` | `30s` | `30s`, `5m`, `1ms`, etc |  | Controls how often the cloud metadata inventory is refreshed. |
 | `cloud_metadata.region` | `string` | `OTEL_EBPF_CLOUD_REGION` |  |  |  | Overrides automatic region detection. |
 
-### `cloud_metadata.route53`
-
-Route53MetadataConfig maps A/AAAA records to fully qualified names. Aliases, CNAMEs, and wildcard records are excluded. ECS names take precedence.
-
-| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
-|---|---|---|---|---|---|---|
-| `cloud_metadata.route53.hosted_zone_ids` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS` |  |  |  | Restricts discovery to these hosted zones. Required when route53 is enabled. |
-
 ## `discovery`
 
 DiscoveryConfig for the discover.ProcessFinder pipeline

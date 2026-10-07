@@ -99,6 +99,7 @@ type CloudEnricher struct {
 
 // Route53 describes the Route53 hosted zones used for service name resolution.
 type Route53 struct {
+	RefreshInterval      Duration       `yaml:"refresh_interval"`
 	HostedZoneIDs        []string       `yaml:"hosted_zone_ids"`
 	AdditionalProperties map[string]any `yaml:",inline"`
 }

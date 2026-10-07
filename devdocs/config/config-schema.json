@@ -327,10 +327,6 @@
           "type": "string",
           "description": "Overrides automatic region detection.",
           "x-env-var": "OTEL_EBPF_CLOUD_REGION"
-        },
-        "route53": {
-          "$ref": "#/$defs/Route53MetadataConfig",
-          "description": "Provides configuration for Route53 metadata extraction"
         }
       },
       "type": "object",
@@ -2864,20 +2860,6 @@
       },
       "type": "object",
       "description": "ReverseDNS is currently experimental. It is kept disabled by default and will be hidden from the documentation. This means that it does not impact in the overall OBI performance."
-    },
-    "Route53MetadataConfig": {
-      "properties": {
-        "hosted_zone_ids": {
-          "items": {
-            "type": "string"
-          },
-          "type": "array",
-          "description": "Restricts discovery to these hosted zones. Required when route53 is enabled.",
-          "x-env-var": "OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS"
-        }
-      },
-      "type": "object",
-      "description": "Route53MetadataConfig maps A/AAAA records to fully qualified names. Aliases, CNAMEs, and wildcard records are excluded. ECS names take precedence."
     },
     "RouteHarvestingConfig": {
       "properties": {

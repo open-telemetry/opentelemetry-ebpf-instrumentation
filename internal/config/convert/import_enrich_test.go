@@ -76,6 +76,7 @@ func TestV2ToRuntimeCloudEnricherRoundTrip(t *testing.T) {
 	cfg.CloudMetadata.ClusterName = "cluster-a"
 	cfg.CloudMetadata.Region = "us-gov-west-1"
 	cfg.CloudMetadata.RefreshInterval = 45 * time.Second
+	cfg.CloudMetadata.Route53.RefreshInterval = 7 * time.Minute
 	cfg.CloudMetadata.Route53.HostedZoneIDs = []string{"Z123", "/hostedzone/Z456"}
 
 	_, ext := RuntimeToV2(&cfg)
@@ -98,6 +99,7 @@ extensions:
         cloud:
           region: us-gov-west-1
           route53:
+            refresh_interval: 2m
             hosted_zone_ids: [Z123, Z456]
       service_name:
         sources: [route53]
@@ -110,7 +112,7 @@ extensions:
 	require.Equal(t, transform.CloudMetadataConfig{
 		Region:          "us-gov-west-1",
 		RefreshInterval: obi.DefaultConfig.CloudMetadata.RefreshInterval,
-		Route53:         transform.Route53MetadataConfig{HostedZoneIDs: []string{"Z123", "Z456"}},
+		Route53:         transform.Route53MetadataConfig{RefreshInterval: 2 * time.Minute, HostedZoneIDs: []string{"Z123", "Z456"}},
 	}, got.CloudMetadata)
 	require.Equal(t, []transform.Source{transform.SourceRoute53}, got.NameResolver.Sources)
 }

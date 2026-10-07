@@ -51,7 +51,7 @@ func TestRoute53ResolverRecoversFromInitialFailure(t *testing.T) {
 	}
 	cloudCfg := CloudMetadataConfig{
 		RefreshInterval: 10 * time.Millisecond,
-		Route53:         Route53MetadataConfig{HostedZoneIDs: []string{"test-zone"}},
+		Route53:         Route53MetadataConfig{RefreshInterval: 10 * time.Millisecond, HostedZoneIDs: []string{"test-zone"}},
 	}
 	info := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Features: metadata.ClusterEC2}}
 	refreshers := CloudMetadataRefreshers(ctx, &info.NodeMeta, cfg.Sources, cloudCfg)
@@ -99,8 +99,9 @@ func TestRoute53InventoryConfiguration(t *testing.T) {
 	}
 	for _, cfg := range []CloudMetadataConfig{
 		{},
-		{RefreshInterval: time.Second},
-		{RefreshInterval: time.Second, Route53: Route53MetadataConfig{HostedZoneIDs: []string{""}}},
+		{Route53: Route53MetadataConfig{RefreshInterval: time.Second}},
+		{Route53: Route53MetadataConfig{RefreshInterval: time.Second, HostedZoneIDs: []string{""}}},
+		{Route53: Route53MetadataConfig{RefreshInterval: -time.Second, HostedZoneIDs: []string{"zone"}}},
 	} {
 		refreshers := CloudMetadataRefreshers(t.Context(), nodeMeta, []Source{SourceRoute53}, cfg)
 		assert.Empty(t, refreshers)
@@ -140,7 +141,7 @@ func TestRoute53InventoryRegion(t *testing.T) {
 				CloudMetadataConfig{
 					Region:          tc.configRegion,
 					RefreshInterval: time.Second,
-					Route53:         Route53MetadataConfig{HostedZoneIDs: []string{"test-zone"}},
+					Route53:         Route53MetadataConfig{RefreshInterval: 10 * time.Millisecond, HostedZoneIDs: []string{"test-zone"}},
 				})
 			require.NoError(t, err)
 

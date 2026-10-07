@@ -76,12 +76,7 @@ func TestRoute53ServiceResolution(t *testing.T) {
 	}
 	change(types.ChangeActionCreate, record)
 	o := obi{Env: []string{
-		"OTEL_EBPF_OPEN_PORT=8080", "OTEL_SERVICE_NAME=frontend",
-		"OTEL_EBPF_BPF_DEBUG=false",
-		"OTEL_EBPF_METRICS_FEATURES=application,application_span_otel,application_service_graph",
-		"OTEL_EBPF_PROMETHEUS_PORT=8999", "OTEL_EBPF_PROMETHEUS_FEATURES=application,application_span_otel,application_service_graph",
-		"OTEL_EBPF_NAME_RESOLVER_SOURCES=route53", "OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL=1s",
-		"OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS=" + aws.ToString(zone.HostedZone.Id),
+		"ROUTE53_HOSTED_ZONE_ID=" + aws.ToString(zone.HostedZone.Id),
 		"AWS_ENDPOINT_URL_ROUTE_53=http://floci:4566", "AWS_ACCESS_KEY_ID=test", "AWS_SECRET_ACCESS_KEY=test",
 		"AWS_EC2_METADATA_SERVICE_ENDPOINT=http://mock-imds:80",
 	}, Logs: createLogOutput(t, "route53-resolver")}
@@ -98,7 +93,7 @@ func TestRoute53ServiceResolution(t *testing.T) {
 			require.NoError(ct, err)
 			require.NoError(ct, resp.Body.Close())
 			require.Equal(ct, http.StatusOK, resp.StatusCode)
-			results, err := pq.Query(fmt.Sprintf(`traces_service_graph_request_total{client="frontend",server=%q}`, name))
+			results, err := pq.Query(fmt.Sprintf(`http_client_request_duration_seconds_count{service_name="frontend",server_address=%q}`, name))
 			require.NoError(ct, err)
 			assert.NotEmpty(ct, results)
 		}, testTimeout, 100*time.Millisecond)

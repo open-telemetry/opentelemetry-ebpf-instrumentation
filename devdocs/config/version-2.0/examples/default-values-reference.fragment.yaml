@@ -602,6 +602,7 @@ extensions:
           refresh_interval: 30s
           # Route53 hosted zones used by the route53 service_name source.
           route53:
+            refresh_interval: 5m0s
             hosted_zone_ids: []
       # Service identity enrichment policy from configured enrichers.
       service_name:

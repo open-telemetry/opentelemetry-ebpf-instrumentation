@@ -2057,6 +2057,7 @@ func applyFullV2CloudEnricher(cfg *obi.Config, cloud schema.CloudEnricher) {
 	cfg.CloudMetadata.ClusterName = cloud.ClusterName
 	cfg.CloudMetadata.Region = cloud.Region
 	cfg.CloudMetadata.RefreshInterval = cloud.RefreshInterval.TimeDuration()
+	cfg.CloudMetadata.Route53.RefreshInterval = cloud.Route53.RefreshInterval.TimeDuration()
 	cfg.CloudMetadata.Route53.HostedZoneIDs = cloneStrings(cloud.Route53.HostedZoneIDs)
 }
 
@@ -2069,6 +2070,9 @@ func applyPartialV2CloudEnricher(cfg *obi.Config, cloud schema.CloudEnricher) {
 	}
 	if !zeroValue(cloud.RefreshInterval) {
 		cfg.CloudMetadata.RefreshInterval = cloud.RefreshInterval.TimeDuration()
+	}
+	if !zeroValue(cloud.Route53.RefreshInterval) {
+		cfg.CloudMetadata.Route53.RefreshInterval = cloud.Route53.RefreshInterval.TimeDuration()
 	}
 	if cloud.Route53.HostedZoneIDs != nil {
 		cfg.CloudMetadata.Route53.HostedZoneIDs = cloneStrings(cloud.Route53.HostedZoneIDs)
@@ -2426,7 +2430,7 @@ func completeEnrichmentAttributes(attrs schema.EnrichmentAttributes) bool {
 }
 
 func completeCloudEnricher(cloud schema.CloudEnricher) bool {
-	return !zeroValue(cloud.RefreshInterval) && cloud.Route53.HostedZoneIDs != nil
+	return !zeroValue(cloud.RefreshInterval) && !zeroValue(cloud.Route53.RefreshInterval) && cloud.Route53.HostedZoneIDs != nil
 }
 
 func completeKubernetesEnricher(kubernetes schema.KubernetesEnricher) bool {

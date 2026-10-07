@@ -7,11 +7,14 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	"github.com/aws/aws-sdk-go-v2/service/route53/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 type fakeRoute53Client struct {
@@ -98,4 +101,38 @@ func TestRoute53RetainsSnapshotAndRemovesDeletedRecords(t *testing.T) {
 		t.Fatal("IP-only refresh published container changes")
 	default:
 	}
+}
+
+func TestRoute53PollingBackoff(t *testing.T) {
+	var apiError error = &smithy.GenericAPIError{Code: "Throttling", Message: "Rate exceeded"}
+	client := fakeRoute53Client{list: func(*route53.ListResourceRecordSetsInput) (*route53.ListResourceRecordSetsOutput, error) {
+		if apiError != nil {
+			return nil, apiError
+		}
+		return &route53.ListResourceRecordSetsOutput{}, nil
+	}}
+	refresher := NewRoute53Inventory(client, []string{"zone"})
+	interval := refresher.RefreshInterval
+	for range 100 {
+		delay := refresher.RefreshDelay(true)
+		assert.GreaterOrEqual(t, delay, time.Duration(0))
+		assert.Less(t, delay, interval)
+	}
+	snapshot := &MetadataSnapshot{ServiceByIP: map[string]string{}}
+	for _, multiplier := range []time.Duration{2, 4, 8, 8} {
+		require.Error(t, refresher.Refresh(t.Context(), snapshot))
+		require.Equal(t, multiplier*interval, refresher.backoff)
+		delay := refresher.RefreshDelay(false)
+		assert.GreaterOrEqual(t, delay, multiplier*interval*4/5)
+		assert.LessOrEqual(t, delay, multiplier*interval*6/5)
+	}
+	apiError = errors.New("access denied")
+	require.Error(t, refresher.Refresh(t.Context(), snapshot))
+	require.Equal(t, 8*interval, refresher.backoff)
+	apiError = nil
+	require.NoError(t, refresher.Refresh(t.Context(), snapshot))
+	require.Zero(t, refresher.backoff)
+	delay := refresher.RefreshDelay(false)
+	assert.GreaterOrEqual(t, delay, interval*4/5)
+	assert.LessOrEqual(t, delay, interval*6/5)
 }
