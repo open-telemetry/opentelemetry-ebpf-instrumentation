@@ -113,6 +113,7 @@ func runShard(cfg config) error {
 			fmt.Fprintf(os.Stderr, "Cannot resume shard; running all tests: %v\n", loadErr)
 		} else {
 			state.Results = previous.Results
+			state.Reusable = true
 		}
 	}
 
@@ -123,7 +124,6 @@ func runShard(cfg config) error {
 			state.Results[test] = ""
 		}
 	}
-	// An interrupted attempt must not leave a reusable checkpoint behind.
 	if err := saveCheckpoint(cfg.stateDir, state); err != nil {
 		return err
 	}
@@ -307,6 +307,7 @@ func readResults(path string, tests []string, success bool) (map[string]string, 
 		results[test] = ""
 	}
 	var packageResult string
+	panicked := false
 	decoder := json.NewDecoder(file)
 	for {
 		var event struct {
@@ -320,9 +321,11 @@ func readResults(path string, tests []string, success bool) (map[string]string, 
 		} else if err != nil {
 			return nil, err
 		}
-		if strings.Contains(event.Output, "WARNING: DATA RACE") ||
-			strings.HasPrefix(event.Output, "panic:") || strings.Contains(event.Output, "\npanic:") {
-			return nil, errors.New("data race or panic in test output")
+		if strings.Contains(event.Output, "WARNING: DATA RACE") {
+			return nil, errors.New("data race in test output")
+		}
+		if strings.HasPrefix(event.Output, "panic:") || strings.Contains(event.Output, "\npanic:") {
+			panicked = true
 		}
 		if event.Package != testPackage || strings.Contains(event.Test, "/") {
 			continue
@@ -342,6 +345,12 @@ func readResults(path string, tests []string, success bool) (map[string]string, 
 		case "pass", "fail", "skip":
 			results[event.Test] = event.Action
 		}
+	}
+	if panicked {
+		if success || packageResult != "fail" {
+			return nil, errors.New("test report does not explain the runner exit status")
+		}
+		return results, nil
 	}
 	failed := false
 	for test, result := range results {

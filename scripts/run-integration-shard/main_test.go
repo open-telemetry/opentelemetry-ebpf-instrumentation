@@ -218,7 +218,8 @@ func TestUnsafeReportsCannotBeReused(t *testing.T) {
 		{"missing test", reportEvents("TestAlpha", "fail"), false},
 		{"interrupted retry", reportEvents("TestAlpha", "pass", "TestBeta", "fail") + eventJSON("run", "TestBeta", ""), false},
 		{"race", reportEvents("TestAlpha", "pass", "TestBeta", "fail") + eventJSON("output", "TestBeta", "WARNING: DATA RACE\n"), false},
-		{"panic", reportEvents("TestAlpha", "pass", "TestBeta", "fail") + eventJSON("output", "TestBeta", "panic: error\n"), false},
+		{"panic with false success", reportEvents("TestAlpha", "pass", "TestBeta", "fail") + eventJSON("output", "TestBeta", "panic: error\n"), true},
+		{"panic without package result", eventJSON("pass", "TestAlpha", "") + eventJSON("output", "TestBeta", "panic: error\n"), false},
 		{"corrupt", reportEvents("TestAlpha", "pass", "TestBeta", "pass") + "{", true},
 		{"unexpected test", reportEvents("TestOther", "fail"), false},
 		{"runner failure", reportEvents("TestAlpha", "pass", "TestBeta", "pass"), false},
@@ -234,6 +235,91 @@ func TestUnsafeReportsCannotBeReused(t *testing.T) {
 				t.Fatal("accepted unsafe report")
 			}
 		})
+	}
+}
+
+func TestShardResumesCompletedTestsAfterPanic(t *testing.T) {
+	for _, output := range []string{"panic: error\n", "panic: test timed out after 40m0s\n"} {
+		t.Run(strings.TrimSpace(output), func(t *testing.T) {
+			cfg := testConfig(t)
+			cfg.Pattern += "|TestDelta"
+			report := eventJSON("run", "TestAlpha", "") + eventJSON("pass", "TestAlpha", "") +
+				eventJSON("run", "TestGamma", "") + eventJSON("skip", "TestGamma", "") +
+				eventJSON("run", "TestBeta", "") + eventJSON("output", "TestBeta/subtest", output) +
+				eventJSON("fail", "", "")
+			commandLog := fakeGo(t, report, "1")
+			if err := runShard(cfg); err == nil {
+				t.Fatal("expected panic to fail the shard")
+			}
+			state := readCheckpoint(t, cfg.stateDir)
+			want := map[string]string{"TestAlpha": "pass", "TestBeta": "", "TestGamma": "skip", "TestDelta": ""}
+			if !state.Reusable || !reflect.DeepEqual(state.Results, want) {
+				t.Fatalf("did not retain completed tests: %+v", state)
+			}
+			advanceAttempt(t, &cfg)
+			t.Setenv("FAKE_REPORT", reportEvents("TestBeta", "pass", "TestDelta", "pass"))
+			t.Setenv("FAKE_EXIT", "0")
+			if err := runShard(cfg); err != nil {
+				t.Fatal(err)
+			}
+			args, err := os.ReadFile(commandLog)
+			if err != nil || !strings.Contains(string(args), "-run=^(TestBeta|TestDelta)$\n") {
+				t.Fatalf("did not rerun only unfinished and unstarted tests: %s, %v", args, err)
+			}
+		})
+	}
+}
+
+func TestShardRetainsEarlierPassesAfterInterruptedRetry(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		report string
+	}{
+		{"panic", eventJSON("run", "TestBeta", "") + eventJSON("output", "TestBeta", "panic: error\n") + eventJSON("fail", "", "")},
+		{"corrupt report", "{"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testConfig(t)
+			commandLog := fakeGo(t, reportEvents("TestAlpha", "pass", "TestBeta", "fail", "TestGamma", "skip"), "1")
+			if err := runShard(cfg); err == nil {
+				t.Fatal("expected first attempt to fail")
+			}
+			advanceAttempt(t, &cfg)
+			t.Setenv("FAKE_REPORT", tc.report)
+			if err := runShard(cfg); err == nil {
+				t.Fatal("expected interrupted retry to fail")
+			}
+			state := readCheckpoint(t, cfg.stateDir)
+			if !state.Reusable || state.Results["TestAlpha"] != "pass" || state.Results["TestGamma"] != "skip" {
+				t.Fatalf("lost results from earlier attempts: %+v", state)
+			}
+			advanceAttempt(t, &cfg)
+			t.Setenv("FAKE_REPORT", reportEvents("TestBeta", "pass"))
+			t.Setenv("FAKE_EXIT", "0")
+			if err := runShard(cfg); err != nil {
+				t.Fatal(err)
+			}
+			args, err := os.ReadFile(commandLog)
+			if err != nil || !strings.Contains(string(args), "-run=^(TestBeta)$\n") {
+				t.Fatalf("reran tests completed before the interrupted retry: %s, %v", args, err)
+			}
+		})
+	}
+}
+
+func TestReadResultsClearsPassOnPanickingRetry(t *testing.T) {
+	report := reportEvents("TestAlpha", "pass", "TestBeta", "fail") +
+		eventJSON("run", "TestAlpha", "") + eventJSON("output", "TestAlpha", "panic: error\n") + eventJSON("fail", "", "")
+	path := filepath.Join(t.TempDir(), "report.log")
+	if err := os.WriteFile(path, []byte(report), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	results, err := readResults(path, []string{"TestAlpha", "TestBeta"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if results["TestAlpha"] != "" || results["TestBeta"] != "fail" {
+		t.Fatalf("retained a stale pass for an interrupted test: %v", results)
 	}
 }
 
@@ -306,6 +392,7 @@ func TestMain(m *testing.M) {}
 func TestAlpha(t *testing.T) {}
 func TestBeta(t *testing.T) {}
 func TestGamma(t *testing.T) {}
+func TestDelta(t *testing.T) {}
 `), 0o600); err != nil {
 		t.Fatal(err)
 	}
