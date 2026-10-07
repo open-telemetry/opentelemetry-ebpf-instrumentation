@@ -1146,11 +1146,9 @@ int GUARDED_PROG(obi_uprobe_grpcFramerWriteHeaders_returns, struct pt_regs *, ct
     return on_grpcFramerWriteHeadersReturns(ctx);
 }
 
-// NewStream and header serialization run on different goroutines. The queued
-// header pointer is the only value visible on both sides of the handoff.
-
-SEC("uprobe/controlBuffer_executeAndPut")
-int GUARDED_PROG(obi_uprobe_grpc_controlBuffer_executeAndPut, struct pt_regs *, ctx) {
+// The returned header slice reaches the loopy writer unchanged, and this runs once per stream
+SEC("uprobe/http2Client_createHeaderFields_returns")
+int GUARDED_PROG(obi_uprobe_grpc_http2Client_createHeaderFields_returns, struct pt_regs *, ctx) {
     if (!g_bpf_header_propagation) {
         return 0;
     }
@@ -1161,24 +1159,24 @@ int GUARDED_PROG(obi_uprobe_grpc_controlBuffer_executeAndPut, struct pt_regs *, 
     transport_new_client_invocation_t *wrapper =
         bpf_map_lookup_elem(&transport_new_client_invocations, &g_key);
     if (!wrapper) {
-        return 0; // not from a NewStream goroutine — ignore
-    }
-
-    void *hdr = (void *)GO_PARAM4(ctx); // it.data
-    if (!hdr) {
         return 0;
     }
-    go_addr_key_t hdr_key = {};
-    go_addr_key_from_id(&hdr_key, hdr);
+
+    void *fields = (void *)GO_PARAM1(ctx); // []hpack.HeaderField backing array
+    if (!fields) {
+        return 0;
+    }
+    go_addr_key_t fields_key = {};
+    go_addr_key_from_id(&fields_key, fields);
     pending_h2_invocation_t pending = {
         .inv = wrapper->inv,
         .request_key = g_key,
         .conn_ptr = wrapper->s_key.conn.addr,
     };
     cleanup_grpc_pending_ref(&g_key);
-    bpf_map_update_elem(&pending_h2_invocations, &hdr_key, &pending, BPF_ANY);
-    bpf_map_update_elem(&grpc_pending_header_by_request, &g_key, &hdr_key.addr, BPF_ANY);
-    bpf_dbg_printk("executeAndPut: stashed hdr=%llx conn=%llx", hdr, pending.conn_ptr);
+    bpf_map_update_elem(&pending_h2_invocations, &fields_key, &pending, BPF_ANY);
+    bpf_map_update_elem(&grpc_pending_header_by_request, &g_key, &fields_key.addr, BPF_ANY);
+    bpf_dbg_printk("createHeaderFields: stashed fields=%llx conn=%llx", fields, pending.conn_ptr);
     return 0;
 }
 
@@ -1275,9 +1273,15 @@ int GUARDED_PROG(obi_uprobe_grpc_loopyWriter_originateStream, struct pt_regs *, 
     if (!str || !hdr) {
         return 0;
     }
-    go_addr_key_t hdr_key = {};
-    go_addr_key_from_id(&hdr_key, hdr);
-    pending_h2_invocation_t *pending_ptr = bpf_map_lookup_elem(&pending_h2_invocations, &hdr_key);
+    grpc_client_headers_t header_frame = {};
+    if (bpf_probe_read_user(&header_frame, sizeof(header_frame), hdr) != 0 ||
+        !header_frame.fields.array) {
+        return 0;
+    }
+    go_addr_key_t fields_key = {};
+    go_addr_key_from_id(&fields_key, header_frame.fields.array);
+    pending_h2_invocation_t *pending_ptr =
+        bpf_map_lookup_elem(&pending_h2_invocations, &fields_key);
     if (!pending_ptr) {
         return 0;
     }
@@ -1290,12 +1294,8 @@ int GUARDED_PROG(obi_uprobe_grpc_loopyWriter_originateStream, struct pt_regs *, 
     }
 
     publish_grpc_stream(&pending, stream_id);
-    consume_grpc_pending_header(&hdr_key, &pending.request_key);
-
-    grpc_client_headers_t header_frame = {};
-    if (bpf_probe_read_user(&header_frame, sizeof(header_frame), hdr) == 0) {
-        observe_grpc_client_headers(&pending, stream_id, &header_frame.fields, GOROUTINE_PTR(ctx));
-    }
+    consume_grpc_pending_header(&fields_key, &pending.request_key);
+    observe_grpc_client_headers(&pending, stream_id, &header_frame.fields, GOROUTINE_PTR(ctx));
 
     bpf_dbg_printk("originateStream: published ongoing_streams[conn=%llx, stream=%u]",
                    pending.conn_ptr,
@@ -1315,24 +1315,25 @@ int GUARDED_PROG(obi_uprobe_grpc_loopyWriter_clientHeaderHandler, struct pt_regs
         return 0;
     }
 
-    go_addr_key_t hdr_key = {};
-    go_addr_key_from_id(&hdr_key, hdr);
-    pending_h2_invocation_t *pending_ptr = bpf_map_lookup_elem(&pending_h2_invocations, &hdr_key);
+    grpc_client_headers_t client_headers = {};
+    if (bpf_probe_read_user(&client_headers, sizeof(client_headers), hdr) != 0 ||
+        client_headers.stream_id == 0 || !client_headers.fields.array) {
+        return 0;
+    }
+
+    go_addr_key_t fields_key = {};
+    go_addr_key_from_id(&fields_key, client_headers.fields.array);
+    pending_h2_invocation_t *pending_ptr =
+        bpf_map_lookup_elem(&pending_h2_invocations, &fields_key);
     if (!pending_ptr) {
         return 0;
     }
     const pending_h2_invocation_t pending = *pending_ptr;
 
-    grpc_client_headers_t client_headers = {};
-    if (bpf_probe_read_user(&client_headers, sizeof(client_headers), hdr) != 0 ||
-        client_headers.stream_id == 0) {
-        return 0;
-    }
-
     const u32 stream_id = client_headers.stream_id;
 
     publish_grpc_stream(&pending, stream_id);
-    consume_grpc_pending_header(&hdr_key, &pending.request_key);
+    consume_grpc_pending_header(&fields_key, &pending.request_key);
     observe_grpc_client_headers(&pending, stream_id, &client_headers.fields, GOROUTINE_PTR(ctx));
     return 0;
 }

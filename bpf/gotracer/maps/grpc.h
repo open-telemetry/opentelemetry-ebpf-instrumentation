@@ -79,11 +79,11 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } grpc_conn_ptr_to_conn SEC(".maps");
 
-// hdr_ptr → request state. executeAndPut stashes on the NewStream goroutine;
+// header fields array → request state. createHeaderFields stashes on the NewStream goroutine;
 // the active grpc-go layout's header handler consumes it once stream_id is set.
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, go_addr_key_t); // pid + hdr pointer
+    __type(key, go_addr_key_t); // pid + header fields array pointer
     __type(value, pending_h2_invocation_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } pending_h2_invocations SEC(".maps");
@@ -91,7 +91,7 @@ struct {
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // original ClientConn invocation goroutine
-    __type(value, u64);         // queued header pointer
+    __type(value, u64);         // queued header fields array pointer
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } grpc_pending_header_by_request SEC(".maps");
 

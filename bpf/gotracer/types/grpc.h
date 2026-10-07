@@ -46,7 +46,7 @@ typedef struct grpc_connection {
     u64 socket_cookie;
 } grpc_connection_t;
 
-// Bridge state stashed by executeAndPut on the NewStream goroutine and consumed
+// Bridge state stashed by createHeaderFields on the NewStream goroutine and consumed
 // by the client header handler on the loopyWriter goroutine.
 typedef struct pending_h2_invocation {
     grpc_client_func_invocation_t inv;
