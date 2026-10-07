@@ -120,9 +120,9 @@ int obi_sk_iter_tcp(struct bpf_iter__tcp *ctx) {
         return 0;
     }
 
-    // don't look at sockets that aren't established
-    u8 skc_state = BPF_CORE_READ(skc, skc_state);
-    if (skc_state != TCP_ESTABLISHED) {
+    // a handshake in flight is only marked: the established callback enrolls it
+    const u8 skc_state = BPF_CORE_READ(skc, skc_state);
+    if (skc_state != TCP_ESTABLISHED && skc_state != TCP_SYN_SENT) {
         return 0;
     }
 
@@ -136,6 +136,10 @@ int obi_sk_iter_tcp(struct bpf_iter__tcp *ctx) {
     const u64 cookie = bpf_get_socket_cookie(skc);
     bpf_sk_storage_get(
         &socket_cookie, (struct bpf_sock *)skc, (void *)&cookie, BPF_SK_STORAGE_GET_F_CREATE);
+
+    if (skc_state == TCP_SYN_SENT) {
+        return 0;
+    }
 
     char src_buf[k_addr_buf_len] = {};
     char dst_buf[k_addr_buf_len] = {};

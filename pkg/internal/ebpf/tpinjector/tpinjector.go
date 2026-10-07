@@ -22,6 +22,7 @@ import (
 	"github.com/cilium/ebpf/asm"
 	"github.com/cilium/ebpf/features"
 	"github.com/hashicorp/golang-lru/v2/expirable"
+	"github.com/prometheus/procfs"
 	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -58,6 +59,13 @@ type Tracer struct {
 	seenNetns               *expirable.LRU[uint64, struct{}]
 	netnsAttempts           *expirable.LRU[uint64, int]
 	backfillDisabled        bool
+	enrollInstrumentedOnly  bool
+	lastTCPTable            *tcpTable
+	procFS                  procfs.FS
+	pidsFilter              ebpfcommon.ServiceFilter
+	pidsMu                  sync.Mutex
+	instrumentedPids        ebpfcommon.PIDBitmap
+	pidsStopped             bool
 	closerMu                sync.Mutex
 	detached                bool
 }
@@ -70,21 +78,80 @@ const (
 	// a namespace that keeps failing is dropped, so one broken container cannot stop the
 	// backfill for every other namespace on the host
 	maxNetnsAttempts = 3
+	// one read of a netns's TCP table serves a burst of discoveries there
+	tcpTableTTL = 2 * time.Second
 )
 
-func New(cfg *obi.Config) *Tracer {
+func New(cfg *obi.Config, pidsFilter ebpfcommon.ServiceFilter) *Tracer {
 	log := slog.With("component", "tpinjector")
+	// unusable without /proc, which makes the backfill fall back
+	procFS, _ := procfs.NewDefaultFS()
 	return &Tracer{
 		log:           log,
 		cfg:           cfg,
 		fionreadProbe: sockhashFIONREADProbe,
 		seenNetns:     expirable.NewLRU[uint64, struct{}](seenNetnsCacheLen, nil, seenNetnsTTL),
 		netnsAttempts: expirable.NewLRU[uint64, int](seenNetnsCacheLen, nil, seenNetnsTTL),
+		pidsFilter:    pidsFilter,
+		procFS:        procFS,
 	}
 }
 
-// AllowPID backfills sock_dir with pre-existing sockets: iter/tcp only walks the opener's netns
+// AllowPID enrolls the process's client connections: new ones at connect, earlier ones by backfill
 func (p *Tracer) AllowPID(pid app.PID, _ uint32, _ *exec.FileInfo) {
+	p.pidsMu.Lock()
+	defer p.pidsMu.Unlock()
+
+	if p.pidsStopped {
+		return
+	}
+
+	// every client socket is enrolled at establishment, so only the earlier ones are left
+	if !p.enrollInstrumentedOnly {
+		p.backfillNetns(pid)
+		return
+	}
+
+	// every tracer group allows the same process: the first call backfills it
+	backfilled := p.instrumentedPids.Contains(pid)
+	if err := p.rebuildInstrumentedPids(); err != nil {
+		p.log.Error("can't enroll process for context propagation", "pid", pid, "error", err)
+		return
+	}
+	if backfilled || !p.instrumentedPids.Contains(pid) {
+		return
+	}
+
+	// a process whose sockets can't be duplicated falls back to the namespace-wide backfill
+	if !p.backfillSockets(pid) {
+		p.backfillNetns(pid)
+	}
+}
+
+func (p *Tracer) BlockPID(app.PID, uint32) {
+	p.pidsMu.Lock()
+	defer p.pidsMu.Unlock()
+
+	if p.pidsStopped || !p.enrollInstrumentedOnly {
+		return
+	}
+	if err := p.rebuildInstrumentedPids(); err != nil {
+		p.log.Debug("can't remove process from context propagation", "error", err)
+	}
+}
+
+// the processes of every tracer, Go ones included, unlike valid_pids
+func (p *Tracer) rebuildInstrumentedPids() error {
+	if p.bpfObjects.InstrumentedPids == nil {
+		return nil
+	}
+
+	return p.instrumentedPids.Rebuild(p.bpfObjects.InstrumentedPids,
+		p.pidsFilter.ProcPIDs(ebpfcommon.PIDTypeKProbes|ebpfcommon.PIDTypeGo), p.log)
+}
+
+// backfillNetns enrolls the netns's pre-existing client sockets: iter/tcp only walks the opener's netns
+func (p *Tracer) backfillNetns(pid app.PID) {
 	p.iterMu.Lock()
 	defer p.iterMu.Unlock()
 
@@ -99,7 +166,9 @@ func (p *Tracer) AllowPID(pid app.PID, _ uint32, _ *exec.FileInfo) {
 	}
 
 	inode := info.Sys().(*syscall.Stat_t).Ino
-	if p.seenNetns.Contains(inode) {
+	attempts, _ := p.netnsAttempts.Get(inode)
+	// scoped enrollment leaves the sockets opened since an earlier pass unenrolled: it walks again
+	if attempts >= maxNetnsAttempts || (!p.enrollInstrumentedOnly && p.seenNetns.Contains(inode)) {
 		return
 	}
 
@@ -121,7 +190,6 @@ func (p *Tracer) AllowPID(pid app.PID, _ uint32, _ *exec.FileInfo) {
 			}
 			p.log.Error("error running iterator in netns", "pid", pid, "error", err)
 
-			attempts, _ := p.netnsAttempts.Get(inode)
 			attempts++
 			p.netnsAttempts.Add(inode, attempts)
 			if attempts >= maxNetnsAttempts {
@@ -138,8 +206,6 @@ func (p *Tracer) AllowPID(pid app.PID, _ uint32, _ *exec.FileInfo) {
 	p.seenNetns.Add(inode, struct{}{})
 }
 
-func (p *Tracer) BlockPID(app.PID, uint32) {}
-
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	spec, err := LoadBpf()
 	if err != nil {
@@ -150,6 +216,8 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 			"error", err)
 		disableH2SocketMutation(spec)
 	}
+
+	p.enrollInstrumentedOnly = p.canBackfillSockets()
 
 	bundles := []*ebpfcommon.SpecBundle{{
 		Spec:      spec,
@@ -233,10 +301,11 @@ func (p *Tracer) constants() map[string]any {
 	}
 
 	m := map[string]any{
-		"filter_pids":          filterPids,
-		"max_transaction_time": uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds()),
-		"inject_flags":         flags,
-		"g_bpf_debug":          p.cfg.EBPF.BpfDebug,
+		"filter_pids":              filterPids,
+		"max_transaction_time":     uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds()),
+		"inject_flags":             flags,
+		"enroll_instrumented_only": p.enrollInstrumentedOnly,
+		"g_bpf_debug":              p.cfg.EBPF.BpfDebug,
 	}
 	maps.Copy(m, ebpfcommon.PIDFilterConstants())
 
@@ -279,6 +348,11 @@ func (p *Tracer) closeAllReverse(closers []io.Closer) {
 }
 
 func (p *Tracer) detach() {
+	// AllowPID's lock order
+	p.pidsMu.Lock()
+	defer p.pidsMu.Unlock()
+	p.pidsStopped = true
+
 	p.iterMu.Lock()
 	defer p.iterMu.Unlock()
 	p.backfillDisabled = true
@@ -406,9 +480,12 @@ func (p *Tracer) AlreadyInstrumentedLib(uint64) bool {
 func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg.Queue[[]request.Span]) {
 	p.log.Debug("tpinjector started")
 
-	for _, it := range p.Iters() {
-		if err := it.Run(p.log); err != nil {
-			p.log.Error("error running iterator", "error", err)
+	// with enrollment scoped to instrumented processes, AllowPID backfills each of them instead
+	if !p.enrollInstrumentedOnly {
+		for _, it := range p.Iters() {
+			if err := it.Run(p.log); err != nil {
+				p.log.Error("error running iterator", "error", err)
+			}
 		}
 	}
 
