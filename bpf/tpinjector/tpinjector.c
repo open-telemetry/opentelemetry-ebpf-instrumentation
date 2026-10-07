@@ -48,6 +48,7 @@
 #include <tpinjector/h2_parse.h>
 #include <tpinjector/inject_policy.h>
 #include <tpinjector/h2_write_transaction.h>
+#include <tpinjector/maps/instrumented_pids.h>
 #include <tpinjector/maps/sk_h2_flags.h>
 #include <tpinjector/maps/sk_h2_conn_flag.h>
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
@@ -124,6 +125,9 @@ enum {
 
 volatile const u32 inject_flags =
     k_inject_http_headers | k_inject_tcp_options; // default: both enabled
+
+// set when user space can backfill earlier connections; otherwise every client socket is enrolled
+volatile const bool enroll_instrumented_only = false;
 
 // Kind 25 is unassigned per IANA TCP Parameters registry (released 2000-12-18)
 // Better than experimental options (253-254) which must not be shipped as defaults
@@ -513,20 +517,48 @@ static __always_inline void bpf_sock_ops_set_flags(struct bpf_sock_ops *skops, u
     bpf_sock_ops_cb_flags_set(skops, skops->bpf_sock_ops_cb_flags | flags);
 }
 
+// sock_ops gets bpf_get_current_pid_tgid only from 6.10, and the filter reads just the tgid half
+static __always_inline bool owner_instrumented(void) {
+    const struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    return pid_in_filter(&instrumented_pids, (u64)BPF_CORE_READ(task, tgid) << 32) != 0;
+}
+
+// connect() runs in the owner's context, unlike the established callback: this storage is the mark
+static __always_inline void bpf_sock_ops_connect_cb(struct bpf_sock_ops *skops) {
+    struct bpf_sock *sk = skops->sk;
+
+    if (!enroll_instrumented_only || !sk || !owner_instrumented()) {
+        return;
+    }
+
+    const u64 cookie = bpf_get_socket_cookie(skops);
+    bpf_sk_storage_get(&socket_cookie, sk, (void *)&cookie, BPF_SK_STORAGE_GET_F_CREATE);
+}
+
 // Helper that writes in the sock map for a sock_ops program
 static __always_inline void bpf_sock_ops_active_est_cb(struct bpf_sock_ops *skops) {
+    // armed on every client socket in tcp mode: a backfilled socket is past this callback
+    if (inject_flags & k_inject_tcp_options) {
+        bpf_sock_ops_set_flags(skops, BPF_SOCK_OPS_WRITE_HDR_OPT_CB_FLAG);
+    }
+
     const u64 cookie = bpf_get_socket_cookie(skops);
     struct bpf_sock *sk = skops->sk;
 
-    if (sk) {
+    if (!sk) {
+        return;
+    }
+
+    if (!enroll_instrumented_only) {
         bpf_sk_storage_get(&socket_cookie, sk, (void *)&cookie, BPF_SK_STORAGE_GET_F_CREATE);
+    } else if (!bpf_sk_storage_get(&socket_cookie, sk, NULL, 0)) {
+        return;
     }
 
     if (bpf_sock_hash_update(skops, &sock_dir, (void *)&cookie, BPF_ANY) == 0) {
         bpf_map_update_elem(&tracked_sock_cookies, &cookie, &(u8){1}, BPF_ANY);
         bpf_sock_ops_set_flags(skops, BPF_SOCK_OPS_STATE_CB_FLAG);
     }
-    bpf_sock_ops_set_flags(skops, BPF_SOCK_OPS_WRITE_HDR_OPT_CB_FLAG);
 }
 
 // every full-socket death path goes through tcp_set_state(TCP_CLOSE), which is
@@ -647,7 +679,7 @@ static __always_inline void bpf_sock_ops_parse_hdr_cb(struct bpf_sock_ops *skops
     bpf_map_update_elem(&incoming_trace_map, &conn, &tp, BPF_ANY);
 }
 
-// Tracks all outgoing sockets (BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB)
+// Tracks outgoing sockets (BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB) of instrumented processes
 // We don't track incoming, those would be BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB
 SEC("sockops")
 int obi_sockmap_tracker(struct bpf_sock_ops *skops) {
@@ -658,6 +690,9 @@ int obi_sockmap_tracker(struct bpf_sock_ops *skops) {
     }
 
     switch (skops->op) {
+    case BPF_SOCK_OPS_TCP_CONNECT_CB:
+        bpf_sock_ops_connect_cb(skops);
+        break;
     case BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB:
         bpf_sock_ops_active_est_cb(skops);
         break;

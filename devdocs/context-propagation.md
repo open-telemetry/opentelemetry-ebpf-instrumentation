@@ -25,6 +25,12 @@ This document explains how OpenTelemetry context propagation works in the eBPF i
 - [The server_traces Map](#the-server_traces-map)
 - [The incoming_trace_map](#the-incoming_trace_map)
 - [The sock_dir sockmap](#the-sock_dir-sockmap)
+  - [How a connection gets in](#how-a-connection-gets-in)
+  - [Who counts as instrumented](#who-counts-as-instrumented)
+  - [Connections opened before instrumentation](#connections-opened-before-instrumentation)
+  - [Fallbacks](#fallbacks)
+  - [TCP options](#tcp-options)
+  - [Containers](#containers)
 - [Summary](#summary)
 
 For trace-log correlation (log enricher / `traces_ctx_v1` map), see [trace-log-correlation.md](trace-log-correlation.md).
@@ -110,7 +116,7 @@ The order in which BPF programs execute varies depending on whether Go uprobes o
    - Creates trace info in `outgoing_trace_map`
    - Sets `valid=1, written=0`
 
-Note: tpinjector does not run for this traffic because the socket was not in `sock_dir`. The `iter/tcp` iterator pre-populates `sock_dir` at startup for existing connections; new connections are added via `BPF_SOCK_OPS`.
+Note: tpinjector does not run for this traffic because the socket is not in `sock_dir`. See [The sock_dir sockmap](#the-sock_dir-sockmap) for which connections are.
 
 ### Mutual Exclusion Mechanism
 
@@ -305,12 +311,45 @@ Unlike `outgoing_trace_map`, there is no coordination between layers - each laye
 
 ## The sock_dir sockmap
 
-`sock_dir` is a `BPF_MAP_TYPE_SOCKHASH` map keyed by `u64` socket cookie. It controls which sockets the `sk_msg` program (tpinjector) runs on.
+`sock_dir` (`BPF_MAP_TYPE_SOCKHASH`, keyed by socket cookie) lists the connections tpinjector works on: its `sk_msg` program runs on every send of a listed socket. Only outgoing connections of instrumented processes are listed. Every other connection on the host is left alone.
 
-Sockets are added to `sock_dir` in two ways:
+### How a connection gets in
 
-1. **`BPF_SOCK_OPS`**: New connections are added automatically as they are established
-2. **`iter/tcp` iterator** (`bpf/tpinjector/sock_iter.c`): Runs at tpinjector startup and iterates over all existing TCP sockets, inserting each into `sock_dir` with `BPF_NOEXIST`. This ensures connections established before tpinjector attached are tracked.
+A connection is listed only once it carries a mark: an entry in the `socket_cookie` socket storage. The established callback (`ACTIVE_ESTABLISHED_CB`) adds marked connections and skips the rest.
+
+| The process opened the connection | Marked by | Added by |
+|---|---|---|
+| after OBI instrumented it | `TCP_CONNECT_CB`, inside `connect()` | `ACTIVE_ESTABLISHED_CB` |
+| before OBI instrumented it | `AllowPID`, in user space | `AllowPID`, or `ACTIVE_ESTABLISHED_CB` if the handshake is still running |
+
+### Who counts as instrumented
+
+The mark is set in `connect()` because it runs in the owner process. The established callback usually runs later, from the network stack, where the owner is unknown.
+
+`TCP_CONNECT_CB` checks the connecting process against `instrumented_pids`, with the same check as `valid_pid()`, so a child forked by an instrumented process counts too. `valid_pids` can't be reused: it holds only what the generic tracer instruments, never Go programs. `instrumented_pids` is rebuilt from the shared PID filter on every `AllowPID` and `BlockPID`, so it holds every instrumented process.
+
+### Connections opened before instrumentation
+
+`AllowPID` copies the process's open sockets with `pidfd_getfd`, marks them, adds them, and closes the copies. It copies only TCP sockets that the network namespace's TCP table shows as outgoing, connected or connecting.
+
+Copying needs ptrace access to the process. It also moves the socket into OBI's cgroup v1 `net_cls` and `net_prio` groups, which would change how its traffic is classified, so a process in other such groups is never copied.
+
+### Fallbacks
+
+The load-time constant `enroll_instrumented_only` turns all of the above on.
+
+| Situation | What happens |
+|---|---|
+| `pidfd_getfd` unusable for every process (no `CAP_SYS_PTRACE`, Yama `ptrace_scope=3`, missing from the kernel), or cgroup v1 `net_cls`/`net_prio` in use | `enroll_instrumented_only` is off: every outgoing connection on the host is added, and the `iter/tcp` iterator (`bpf/tpinjector/sock_iter.c`, kernels >= 6.4) adds the existing ones |
+| One process's sockets can't be copied (ptrace denied, other `net_cls`/`net_prio` groups) | The iterator adds every outgoing connection of that process's network namespace (kernels >= 6.4) |
+
+### TCP options
+
+`WRITE_HDR_OPT_CB` is armed only when TCP option injection is on, and then on every outgoing connection: a connection added later by `AllowPID` has already passed the established callback. Connections that existed before OBI started never carry the option.
+
+### Containers
+
+`BPF_SOCK_OPS` only sees connections from the cgroups below the one OBI attaches to: the root of its own cgroup namespace. Run in a container, OBI needs the host's cgroup namespace (Docker `--cgroupns=host`), or it never sees new connections of other containers.
 
 ## Summary
 

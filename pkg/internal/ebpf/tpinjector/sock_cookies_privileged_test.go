@@ -7,12 +7,14 @@ package tpinjector // import "go.opentelemetry.io/obi/pkg/internal/ebpf/tpinject
 
 import (
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -23,8 +25,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
+	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 const (
@@ -35,15 +40,27 @@ const (
 	churnResidueBound = 64
 )
 
+// enrollment limited to instrumented processes, as when user space can backfill
+var scopedEnrollment = map[string]any{
+	"enroll_instrumented_only": true,
+	"filter_pids":              int32(1),
+	"inject_flags":             uint32(1),
+}
+
 // loads tpinjector and attaches its sockops program to a private cgroup that
 // contains only the test process, so every loopback connection made here goes
 // through bpf_sock_ops_active_est_cb exactly as in production
 func setupSockopsHarness(t *testing.T) *BpfObjects {
+	return setupSockopsHarnessWith(t, nil)
+}
+
+func setupSockopsHarnessWith(t *testing.T, constants map[string]any) *BpfObjects {
 	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
 	require.NoError(t, rlimit.RemoveMemlock())
 
 	spec, err := LoadBpf()
 	require.NoError(t, err)
+	require.NoError(t, ebpfconvenience.RewriteConstants(spec, constants))
 
 	for _, m := range spec.Maps {
 		if m.Pinning == ebpfconvenience.PinInternal || m.Pinning == ebpf.PinByName {
@@ -227,6 +244,138 @@ func TestSocketCookieIteratorLoads(t *testing.T) {
 	objects := &BpfIterObjects{}
 	require.NoError(t, spec.LoadAndAssign(objects, nil))
 	require.NoError(t, objects.Close())
+}
+
+// walks the keys only: a sockhash value can't be read back from user space
+func inSockDir(t *testing.T, objs *BpfObjects, cookie uint64) bool {
+	var next uint64
+	err := objs.SockDir.NextKey(nil, &next)
+	for err == nil {
+		if next == cookie {
+			return true
+		}
+		key := next
+		err = objs.SockDir.NextKey(&key, &next)
+	}
+	require.ErrorIs(t, err, ebpf.ErrKeyNotExist)
+	return false
+}
+
+func enrolled(t *testing.T, objs *BpfObjects, cookie uint64) bool {
+	return inSockDir(t, objs, cookie) && cookieTracked(objs, cookie)
+}
+
+// a tracer over the harness objects, as after the loader attached them, fed by the shared filter
+// the other tracers write
+func harnessTracer(objs *BpfObjects) (*Tracer, *ebpfcommon.PIDsFilter) {
+	filter := ebpfcommon.NewPIDsFilter(&services.DiscoveryConfig{}, slog.Default(), nil)
+	tr := New(&obi.Config{}, filter)
+	tr.bpfObjects = *objs
+	tr.enrollInstrumentedOnly = true
+	tr.sockhashOnce.Do(func() { tr.sockhashOK = true })
+	return tr, filter
+}
+
+func selfPidNamespace(t *testing.T) uint32 {
+	info, err := os.Stat("/proc/self/ns/pid")
+	require.NoError(t, err)
+	return uint32(info.Sys().(*syscall.Stat_t).Ino)
+}
+
+func dialPair(t *testing.T, lsn net.Listener) (*net.TCPConn, net.Conn) {
+	client, err := net.Dial("tcp", lsn.Addr().String())
+	require.NoError(t, err)
+	t.Cleanup(func() { client.Close() })
+	server, err := lsn.Accept()
+	require.NoError(t, err)
+	t.Cleanup(func() { server.Close() })
+	return client.(*net.TCPConn), server
+}
+
+// a connection of a process OBI doesn't instrument must stay out of the sockhash; the established
+// callback has run by the time connect() returns, so the absence is final
+func TestScopedEnrollmentSkipsBystanders(t *testing.T) {
+	objs := setupSockopsHarnessWith(t, scopedEnrollment)
+
+	lsn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lsn.Close()
+
+	client, _ := dialPair(t, lsn)
+	assert.False(t, enrolled(t, objs, socketCookie(t, client)), "a bystander connection was enrolled")
+}
+
+// once the process is instrumented its connections made before are backfilled, and new ones are
+// enrolled at establishment; the accepted side and the listener stay out
+func TestScopedEnrollmentBackfillsAndEnrollsInstrumented(t *testing.T) {
+	objs := setupSockopsHarnessWith(t, scopedEnrollment)
+	tr, filter := harnessTracer(objs)
+
+	lsn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lsn.Close()
+
+	before, beforeServer := dialPair(t, lsn)
+	require.False(t, enrolled(t, objs, socketCookie(t, before)))
+
+	filter.AllowPID(app.PID(os.Getpid()), selfPidNamespace(t), nil, ebpfcommon.PIDTypeKProbes)
+	tr.AllowPID(app.PID(os.Getpid()), selfPidNamespace(t), nil)
+
+	assert.True(t, enrolled(t, objs, socketCookie(t, before)), "the pre-existing connection was not backfilled")
+	assert.False(t, enrolled(t, objs, socketCookie(t, beforeServer.(*net.TCPConn))), "the accepted side was enrolled")
+	assert.Equal(t, socketCookie(t, before), storedSocketCookie(t, objs, before))
+
+	after, _ := dialPair(t, lsn)
+	assert.True(t, enrolled(t, objs, socketCookie(t, after)), "a connection made after instrumentation was not enrolled")
+
+	filter.BlockPID(app.PID(os.Getpid()), selfPidNamespace(t))
+	tr.BlockPID(app.PID(os.Getpid()), selfPidNamespace(t))
+
+	afterBlock, _ := dialPair(t, lsn)
+	assert.False(t, enrolled(t, objs, socketCookie(t, afterBlock)), "a connection made after BlockPID was enrolled")
+}
+
+// valid_pids leaves Go processes out, so the enrollment filter must take them from the shared one
+func TestScopedEnrollmentIncludesGoProcesses(t *testing.T) {
+	objs := setupSockopsHarnessWith(t, scopedEnrollment)
+	tr, filter := harnessTracer(objs)
+
+	lsn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lsn.Close()
+
+	filter.AllowPID(app.PID(os.Getpid()), selfPidNamespace(t), nil, ebpfcommon.PIDTypeGo)
+	tr.AllowPID(app.PID(os.Getpid()), selfPidNamespace(t), nil)
+
+	client, _ := dialPair(t, lsn)
+	assert.True(t, enrolled(t, objs, socketCookie(t, client)), "a connection of a Go process was not enrolled")
+}
+
+// a socket the backfill marks before its handshake completes is enrolled by the established callback
+func TestScopedEnrollmentMarkBeforeEstablished(t *testing.T) {
+	objs := setupSockopsHarnessWith(t, scopedEnrollment)
+	tr, _ := harnessTracer(objs)
+
+	lsn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lsn.Close()
+
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM, 0)
+	require.NoError(t, err)
+	defer unix.Close(fd)
+
+	tr.backfillSocket(fd)
+	cookie, err := unix.GetsockoptUint64(fd, unix.SOL_SOCKET, unix.SO_COOKIE)
+	require.NoError(t, err)
+	require.False(t, enrolled(t, objs, cookie), "an unconnected socket entered the sockhash")
+
+	port := lsn.Addr().(*net.TCPAddr).Port
+	require.NoError(t, unix.Connect(fd, &unix.SockaddrInet4{Port: port, Addr: [4]byte{127, 0, 0, 1}}))
+	server, err := lsn.Accept()
+	require.NoError(t, err)
+	defer server.Close()
+
+	assert.True(t, enrolled(t, objs, cookie), "the marked socket was not enrolled when established")
 }
 
 // connection churn must not evict the cookie of a live socket: that is the
