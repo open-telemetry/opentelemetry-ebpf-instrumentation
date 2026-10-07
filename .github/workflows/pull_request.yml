@@ -96,6 +96,8 @@ jobs:
   clang-format:
     name: Clang format
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: clang-format
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -107,7 +109,6 @@ jobs:
       - name: Set up clang-format
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          install_args: clang-format
           cache: false
 
       - name: Check clang-format
@@ -120,7 +121,7 @@ jobs:
             echo "No C/C++ files modified."
             exit 0
           fi
-          clang-format -i $files
+          mise exec -- clang-format -i $files
           if ! git diff --exit-code $files; then
             echo "Error: Some files are not formatted correctly. Run clang-format on the modified files or use the pre-commit hook."
             exit 1
@@ -129,6 +130,8 @@ jobs:
   clang-tidy:
     name: Clang tidy
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: clang-tidy
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -139,14 +142,13 @@ jobs:
       - name: Set up clang-tidy
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          install_args: clang-tidy
           cache: false
 
       - name: Check clang-tidy version
-        run: clang-tidy --version
+        run: mise exec -- clang-tidy --version
 
       - name: Run clang-tidy
-        run: make clang-tidy CLANG_TIDY=clang-tidy
+        run: mise exec -- make clang-tidy CLANG_TIDY=clang-tidy
 
   collector-cross-compile:
     name: "Collector cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})"
