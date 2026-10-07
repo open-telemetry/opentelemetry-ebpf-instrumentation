@@ -1925,6 +1925,10 @@ func TestGoSDKActivationLinksAreIndependent(t *testing.T) {
 		tracer := activationLifecycleTestTracer(func(app.PID) (uint64, error) { return 9, nil })
 		tracer.goAutoSDKActivationProbes[goAutoSDKExecutableKey{dev: 5, ino: 10, sdk: goEmbeddedSDK}] = goAutoSDKActivationProbe{}
 		closers := []*activationCountingCloser{{}, {}}
+		completedLink, pendingLink := closers[0], closers[1]
+		if first == goEmbeddedSDK {
+			completedLink, pendingLink = pendingLink, completedLink
+		}
 		var attached int
 		tracer.attachGoAutoSDKProbe = func(goAutoSDKActivationProbe, app.PID, uint64, uint64, uint64) (io.Closer, error) {
 			closer := closers[attached]
@@ -1937,13 +1941,13 @@ func TestGoSDKActivationLinksAreIndependent(t *testing.T) {
 		_, err := tracer.handleGoAutoSDKActivationEvent(activationEventRecord(t, 123, generation, first))
 		require.NoError(t, err)
 		require.Len(t, tracer.goAutoSDKActivationLinks, 1)
-		assert.Equal(t, int32(1), closers[first].closes.Load())
-		assert.Equal(t, int32(0), closers[1-first].closes.Load())
+		assert.Equal(t, int32(1), completedLink.closes.Load())
+		assert.Equal(t, int32(0), pendingLink.closes.Load())
 		require.NoError(t, tracer.ensureGoAutoSDKActivationLinkLocked(123, 10, generation))
 		assert.Equal(t, 2, attached)
 		tracer.BlockPID(123, 0)
 		assert.Empty(t, tracer.goAutoSDKActivationLinks)
-		assert.Equal(t, int32(1), closers[1-first].closes.Load())
+		assert.Equal(t, int32(1), pendingLink.closes.Load())
 	}
 }
 

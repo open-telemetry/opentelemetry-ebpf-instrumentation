@@ -142,6 +142,7 @@ const goAutoSDKActivationMaxAttempts = 3
 const (
 	goExternalSDK uint8 = iota
 	goEmbeddedSDK
+	goSDKCount
 )
 
 // Mirrors go_runtime_metric_valid_t in bpf/gotracer/maps/runtime.h. Scalar
@@ -772,7 +773,7 @@ func resetGoAutoSDKActivationAttempts(
 	}
 
 	var cleanupErrors []error
-	for sdk := goExternalSDK; sdk <= goEmbeddedSDK; sdk++ {
+	for sdk := range goSDKCount {
 		for attempt := range uint8(goAutoSDKActivationMaxAttempts) {
 			key := BpfGoAutoActivationAttemptKeyT{
 				Generation: generation,
@@ -1089,7 +1090,7 @@ func (p *Tracer) RegisterProcessScopedGoProbe(
 	if p.goAutoSDKActivationProbes == nil {
 		p.goAutoSDKActivationProbes = map[goAutoSDKExecutableKey]goAutoSDKActivationProbe{}
 	}
-	executable := goAutoSDKExecutableKey{dev: dev, ino: ino}
+	executable := goAutoSDKExecutableKey{dev: dev, ino: ino, sdk: goExternalSDK}
 	if candidate.Symbol == embeddedSDKActivationProbeSymbols[3] {
 		executable.sdk = goEmbeddedSDK
 	}
@@ -1125,7 +1126,7 @@ func (p *Tracer) UnregisterProcessScopedGoProbes(dev, ino uint64) {
 	p.goAutoSDKTargetsMu.Lock()
 	defer p.goAutoSDKTargetsMu.Unlock()
 
-	for sdk := goExternalSDK; sdk <= goEmbeddedSDK; sdk++ {
+	for sdk := range goSDKCount {
 		delete(p.goAutoSDKActivationProbes, goAutoSDKExecutableKey{dev: dev, ino: ino, sdk: sdk})
 	}
 	p.closeGoAutoSDKActivationLinksLocked(func(_ goAutoSDKActivationLinkKey, activationLink goAutoSDKActivationLink) bool {
@@ -1139,7 +1140,7 @@ func (p *Tracer) ensureGoAutoSDKActivationLinkLocked(
 	generation uint64,
 ) error {
 	var attachErrors []error
-	for sdk := goExternalSDK; sdk <= goEmbeddedSDK; sdk++ {
+	for sdk := range goSDKCount {
 		attachErrors = append(attachErrors, p.ensureGoSDKActivationLinkLocked(pid, ino, generation, sdk))
 	}
 	return errors.Join(attachErrors...)
