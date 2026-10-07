@@ -2152,6 +2152,95 @@ func TestHandleProcessEventCreated(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "PID changing to a service already reported by other PIDs",
+			setup: func(r *MetricsReporter, m *mockEventMetrics) {
+				staleUID := svc.UID{
+					Name:      "old-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}
+				r.pidTracker.AddPID(1234, staleUID)
+				r.targetMetrics[staleUID] = attrsToTargetMetrics(r, &svc.Attrs{
+					Features: export.FeatureApplicationRED,
+					UID:      staleUID,
+					HostName: "test-host",
+				})
+
+				sharedUID := svc.UID{
+					Name:      "new-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}
+				r.pidTracker.AddPID(5678, sharedUID)
+				r.targetMetrics[sharedUID] = attrsToTargetMetrics(r, &svc.Attrs{
+					Features: export.FeatureApplicationRED,
+					UID:      sharedUID,
+					HostName: "test-host",
+				})
+			},
+			event: exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: exec.New(exec.Init{
+					Pid: 1234,
+					Service: svc.Attrs{
+						Features: export.FeatureApplicationRED,
+						UID: svc.UID{
+							Name:      "new-service",
+							Namespace: "default",
+							Instance:  "instance-1",
+						},
+						HostName: "test-host",
+					},
+				}),
+			},
+			expectedCreate: []svc.Attrs{
+				{
+					Features: export.FeatureApplicationRED,
+					UID: svc.UID{
+						Name:      "new-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+			expectedDelete: []svc.Attrs{
+				{
+					Features: export.FeatureApplicationRED,
+					UID: svc.UID{
+						Name:      "old-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+				{
+					Features: export.FeatureApplicationRED,
+					UID: svc.UID{
+						Name:      "new-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+			expectedMap: map[svc.UID]svc.Attrs{
+				{
+					Name:      "new-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}: {
+					Features: export.FeatureApplicationRED,
+					UID: svc.UID{
+						Name:      "new-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -2182,6 +2271,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			}
 
 			// Verify delete calls
+			require.Len(t, mockEventsStore.deleteCalls, len(tt.expectedDelete))
 			for i, cc := range tt.expectedDelete {
 				c := attrsToTargetMetrics(reporter, &cc)
 				resourcesMatch(t, c, mockEventsStore.deleteCalls[i])
@@ -2338,6 +2428,54 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		// Should have created 5 times and deleted 4 times (each update after first deletes previous)
 		assert.Len(t, mockEventsStore.createCalls, 5)
 		assert.Len(t, mockEventsStore.deleteCalls, 4)
+	})
+
+	t.Run("PID moved to a shared service terminates before the other PIDs", func(t *testing.T) {
+		mockEventsStore := newMockEventMetrics()
+
+		reporter := &MetricsReporter{
+			cfg:                &otelcfg.MetricsConfig{},
+			log:                slog.Default(),
+			jointMetricsCfg:    &perapp.GlobalMetricsConfig{},
+			targetMetrics:      make(map[svc.UID]*TargetMetrics),
+			pidTracker:         NewPidServiceTracker(),
+			createEventMetrics: mockEventsStore.createEventMetrics,
+			deleteEventMetrics: mockEventsStore.deleteEventMetrics,
+		}
+
+		oldService := svc.Attrs{
+			Features: export.FeatureAll,
+			UID:      svc.UID{Name: "old-service", Namespace: "default", Instance: "instance-1"},
+			HostName: "test-host",
+		}
+		sharedService := svc.Attrs{
+			Features: export.FeatureAll,
+			UID:      svc.UID{Name: "shared-service", Namespace: "default", Instance: "instance-1"},
+			HostName: "test-host",
+		}
+
+		created := func(pid app.PID, service svc.Attrs) *exec.ProcessEvent {
+			return &exec.ProcessEvent{Type: exec.ProcessEventCreated, File: exec.New(exec.Init{Pid: pid, Service: service})}
+		}
+		terminated := func(pid app.PID, service svc.Attrs) *exec.ProcessEvent {
+			return &exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: exec.New(exec.Init{Pid: pid, Service: service})}
+		}
+
+		reporter.onProcessEvent(created(2222, sharedService))
+		reporter.onProcessEvent(created(1111, oldService))
+		reporter.onProcessEvent(created(1111, sharedService))
+
+		assert.Len(t, mockEventsStore.deleteCalls, 2) // old-service, then shared-service before recreating it
+
+		reporter.onProcessEvent(terminated(1111, sharedService))
+
+		assert.Len(t, mockEventsStore.deleteCalls, 2, "target metrics must stay while PID 2222 runs")
+		assert.Contains(t, reporter.targetMetrics, sharedService.UID)
+
+		reporter.onProcessEvent(terminated(2222, sharedService))
+
+		assert.Len(t, mockEventsStore.deleteCalls, 3)
+		assert.Empty(t, reporter.targetMetrics)
 	})
 }
 
