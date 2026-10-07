@@ -120,7 +120,7 @@ jobs:
             echo "No C/C++ files modified."
             exit 0
           fi
-          mise exec -- clang-format -i $files
+          clang-format -i $files
           if ! git diff --exit-code $files; then
             echo "Error: Some files are not formatted correctly. Run clang-format on the modified files or use the pre-commit hook."
             exit 1
@@ -143,10 +143,10 @@ jobs:
           cache: false
 
       - name: Check clang-tidy version
-        run: mise exec -- clang-tidy --version
+        run: clang-tidy --version
 
       - name: Run clang-tidy
-        run: mise exec -- make clang-tidy CLANG_TIDY=clang-tidy
+        run: make clang-tidy CLANG_TIDY=clang-tidy
 
   collector-cross-compile:
     name: "Collector cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})"
