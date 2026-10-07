@@ -10,3 +10,7 @@ clang-tidy = "github:cpp-linter/clang-tools-static-binaries"
 version = "2026.09.01-5fb8802d"
 matching = "clang-tidy-19_"
 bin = "clang-tidy"
+
+[tasks.lint]
+run = "make lint"
+description = "Run the project Go linter"
