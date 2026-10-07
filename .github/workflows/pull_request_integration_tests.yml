@@ -62,7 +62,7 @@ jobs:
           persist-credentials: false
 
       # amd64 runs the full suite (10 shards). arm64 keeps the current
-      # multiprocess and Go Auto SDK subset (5 shards).
+      # multiprocess subset (5 shards) until coverage is expanded.
       - name: Build test matrix
         id: build-matrix
         run: |
