@@ -78,6 +78,10 @@ jobs:
         with:
           cache_key: "{{default}}-{{env.MISE_ENABLE_TOOLS}}"
 
+      - name: Check golangci-lint version consistency
+        if: matrix.platform.arch == 'amd64'
+        run: scripts/check-mise-tool-versions.sh
+
       - name: Go build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
