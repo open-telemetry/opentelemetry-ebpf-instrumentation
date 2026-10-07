@@ -352,4 +352,46 @@ func TestPidServiceTracker_UpdateUID(t *testing.T) {
 		assert.True(t, tracker.ServiceLive(uid))
 		assert.Equal(t, 1, tracker.Count())
 	})
+
+	t.Run("update UID to a service already tracked by other PIDs", func(t *testing.T) {
+		tracker := NewPidServiceTracker()
+		oldUID := makeUID("old-service", "namespace1")
+		newUID := makeUID("new-service", "namespace1")
+		movedPID := app.PID(1001)
+		existingPID := app.PID(1002)
+
+		tracker.AddPID(movedPID, oldUID)
+		tracker.AddPID(existingPID, newUID)
+
+		tracker.ReplaceUID(oldUID, newUID)
+
+		assert.NotContains(t, tracker.servicePIDs, oldUID)
+		assert.Len(t, tracker.servicePIDs[newUID], 2, "New UID should keep its PID and gain the moved one")
+
+		deleted, _ := tracker.RemovePID(movedPID)
+		assert.False(t, deleted, "Service should stay live while the existing PID runs")
+		assert.True(t, tracker.ServiceLive(newUID))
+
+		deleted, uid := tracker.RemovePID(existingPID)
+		assert.True(t, deleted, "Service should be gone after its last PID terminates")
+		assert.Equal(t, newUID, uid)
+	})
+
+	t.Run("update UID moves the service name", func(t *testing.T) {
+		tracker := NewPidServiceTracker()
+		oldUID := makeUID("old-service", "namespace1")
+		newUID := makeUID("new-service", "namespace1")
+		pid := app.PID(1001)
+
+		tracker.AddPID(pid, oldUID)
+
+		tracker.ReplaceUID(oldUID, newUID)
+
+		assert.False(t, tracker.IsTrackingServerService(oldUID.NameNamespace()))
+		assert.True(t, tracker.IsTrackingServerService(newUID.NameNamespace()))
+
+		tracker.RemovePID(pid)
+
+		assert.False(t, tracker.IsTrackingServerService(newUID.NameNamespace()))
+	})
 }
