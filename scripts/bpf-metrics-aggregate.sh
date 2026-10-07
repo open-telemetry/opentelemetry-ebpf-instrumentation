@@ -59,7 +59,16 @@ MERGED_JSON=$(jq -n '
       | .attempt | tonumber)
   }]
   | group_by(.shard)
-  | map(max_by(._attempt))
+  | map(
+      max_by(._attempt) as $latest
+      | $latest + {
+          suites: (
+            [.[] | ._attempt as $attempt | .suites[]? | . + {_attempt: $attempt}]
+            | group_by(.name)
+            | map(max_by(._attempt) | del(._attempt))
+          )
+        }
+    )
   | {
     shards: length,
     per_shard: map({

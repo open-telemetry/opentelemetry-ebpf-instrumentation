@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestBPFMetricsAggregateLatestShardAttempts(t *testing.T) {
+func TestBPFMetricsAggregateRetainsEarlierSuites(t *testing.T) {
 	if _, err := exec.LookPath("jq"); err != nil {
 		t.Skip("jq not available")
 	}
@@ -23,10 +23,12 @@ func TestBPFMetricsAggregateLatestShardAttempts(t *testing.T) {
 		peak     int
 		suite    string
 	}{
-		{"bpf-metrics-1-42-1", "1", 100, "TestOld"},
-		{"bpf-metrics-1-42-2", "1", 200, "TestOld"},
-		{"bpf-metrics-1-42-10", "1", 10, "TestCurrent"},
+		{"bpf-metrics-1-42-1", "1", 100, "TestCompletedEarlier"},
+		{"bpf-metrics-1-42-2", "1", 200, "TestRetried"},
+		{"bpf-metrics-1-42-10", "1", 10, "TestRetried"},
 		{"bpf-metrics-2-42-1", "2", 21, "TestOtherShard"},
+		{"bpf-metrics-3-42-1", "3", 31, "TestCompletedShard"},
+		{"bpf-metrics-3-42-2", "3", 0, ""},
 	} {
 		summary := map[string]any{
 			"shard": fixture.shard,
@@ -42,6 +44,9 @@ func TestBPFMetricsAggregateLatestShardAttempts(t *testing.T) {
 				"duration_s": 1, "snapshots_in_window": 1, "series": []int{fixture.peak},
 				"result": "pass",
 			}},
+		}
+		if fixture.suite == "" {
+			summary["suites"] = []map[string]any{}
 		}
 		path := filepath.Join(dir, fixture.artifact)
 		if err := os.MkdirAll(path, 0o755); err != nil {
@@ -68,7 +73,8 @@ func TestBPFMetricsAggregateLatestShardAttempts(t *testing.T) {
 	var result struct {
 		Shards int `json:"shards"`
 		Suites []struct {
-			Name string `json:"name"`
+			Name      string `json:"name"`
+			PeakBytes int    `json:"peak_bytes"`
 		} `json:"suites"`
 		PeakMaps []struct {
 			MaxTotalMemlock  int `json:"max_total_memlock"`
@@ -78,13 +84,19 @@ func TestBPFMetricsAggregateLatestShardAttempts(t *testing.T) {
 	if err := json.Unmarshal(data, &result); err != nil {
 		t.Fatal(err)
 	}
-	if result.Shards != 2 || len(result.Suites) != 2 || len(result.PeakMaps) != 1 {
+	if result.Shards != 3 || len(result.Suites) != 4 || len(result.PeakMaps) != 1 {
 		t.Fatalf("counted more than one attempt per shard: %s", data)
 	}
-	if result.Suites[0].Name != "TestOtherShard" || result.Suites[1].Name != "TestCurrent" {
-		t.Fatalf("did not retain the latest numeric attempt and the shard without a rerun: %s", data)
+	wantSuites := []string{"TestCompletedEarlier", "TestCompletedShard", "TestOtherShard", "TestRetried"}
+	for i, name := range wantSuites {
+		if result.Suites[i].Name != name {
+			t.Fatalf("did not retain each suite's latest observation: %s", data)
+		}
 	}
-	if result.PeakMaps[0].MaxTotalMemlock != 21 || result.PeakMaps[0].ObservedInShards != 2 {
+	if result.Suites[3].PeakBytes != 10 {
+		t.Fatalf("included stale metrics for a retried suite: %s", data)
+	}
+	if result.PeakMaps[0].MaxTotalMemlock != 21 || result.PeakMaps[0].ObservedInShards != 3 {
 		t.Fatalf("included stale attempt peaks: %s", data)
 	}
 }
