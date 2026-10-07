@@ -1,6 +1,6 @@
 [tools]
 go = "1.27.1"
-clang-format = "19.1.7"
+clang-format = "22.1.8"
 golangci-lint = "2.13.2"
 
 [tool_alias]
@@ -8,7 +8,7 @@ clang-tidy = "github:cpp-linter/clang-tools-static-binaries"
 
 [tools.clang-tidy]
 version = "2026.09.01-5fb8802d"
-matching = "clang-tidy-19_"
+matching = "clang-tidy-22_"
 bin = "clang-tidy"
 
 [tasks.lint]
