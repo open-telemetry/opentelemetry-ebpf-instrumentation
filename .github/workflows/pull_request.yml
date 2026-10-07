@@ -21,6 +21,7 @@ on:
       - "schemas/**"
       - "scripts/**"
       - "Makefile"
+      - "mise.toml"
       - "Dockerfile"
       - "**/*Dockerfile*"
   workflow_call:
@@ -103,6 +104,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Set up clang-format
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: clang-format
       - name: Check clang-format
         run: |
           files=$( \
@@ -113,9 +118,9 @@ jobs:
             echo "No C/C++ files modified."
             exit 0
           fi
-          make docker-clang-format CLANG_FORMAT_FILES="$(echo $files)"
+          mise exec -- clang-format -i $files
           if ! git diff --exit-code $files; then
-            echo "Error: Some files are not formatted correctly. Run make docker-clang-format CLANG_FORMAT_FILES=\"$(echo $files)\"."
+            echo "Error: Some files are not formatted correctly. Run mise exec -- clang-format -i on the modified files."
             exit 1
           fi
 
@@ -129,8 +134,16 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Set up clang-tidy
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install_args: clang-tidy
+
+      - name: Check clang-tidy version
+        run: mise exec -- clang-tidy --version
+
       - name: Run clang-tidy
-        run: make docker-clang-tidy
+        run: mise exec -- make clang-tidy CLANG_TIDY=clang-tidy
 
   collector-cross-compile:
     name: "Collector cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})"
