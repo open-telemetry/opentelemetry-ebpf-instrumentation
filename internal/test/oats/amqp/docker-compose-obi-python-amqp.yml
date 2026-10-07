@@ -21,7 +21,6 @@ services:
     build:
       context: ../../../..
       dockerfile: ./internal/test/integration/components/pythonamqp/Dockerfile
-      network: host
     image: pythonamqp
     network_mode: host
     environment:
@@ -35,7 +34,6 @@ services:
     build:
       context: ../../../..
       dockerfile: ./internal/test/integration/components/obi/Dockerfile
-      network: host
     command:
       - --config=/configs/instrumenter-config-traces.yml
     volumes:
