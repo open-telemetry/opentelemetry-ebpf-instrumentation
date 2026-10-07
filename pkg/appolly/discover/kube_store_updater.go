@@ -15,10 +15,12 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
-// KubeStoreUpdaterProvider is a stage in the Process Finder pipeline that will be
-// enabled only if Kubernetes decoration is enabled.
-// It just updates part of the kubernetes store when a new process is discovered.
-func KubeStoreUpdaterProvider(
+// ContainerStoreUpdaterProvider is a Process Finder stage that records the container of
+// each discovered process in the Kubernetes metadata store (kube.Store). It runs only when
+// Kubernetes decoration is enabled and is bypassed otherwise; Docker metadata outside
+// Kubernetes is handled by DockerDiscoveryDecoratorProvider.
+// TODO(v2): rename to KubeStoreUpdaterProvider.
+func ContainerStoreUpdaterProvider(
 	meta kubeMetadataProvider, input, output *msg.Queue[[]Event[ebpf.Instrumentable]],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {

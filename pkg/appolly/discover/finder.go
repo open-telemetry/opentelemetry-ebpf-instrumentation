@@ -146,7 +146,7 @@ func (pf *ProcessFinder) Start(ctx context.Context, opts ...ProcessFinderStartOp
 	// but forcing the output by the executableTypesReplica channel only after the Kubernetes store has been updated
 	// prevents race conditions in later stages of the pipeline
 	storedExecutableTypes := msgh.QueueFromConfig[[]Event[ebpf.Instrumentable]](pf.cfg, pf.ctxInfo.Metrics, "storedExecutableTypes")
-	swi.Add(KubeStoreUpdaterProvider(pf.ctxInfo.K8sInformer, processContextEnrichedTypes, storedExecutableTypes),
+	swi.Add(ContainerStoreUpdaterProvider(pf.ctxInfo.K8sInformer, processContextEnrichedTypes, storedExecutableTypes),
 		swarm.WithID("KubeStoreUpdater"))
 	swi.Add(traceAttacherProvider(&traceAttacher{
 		Cfg:                 pf.cfg,
