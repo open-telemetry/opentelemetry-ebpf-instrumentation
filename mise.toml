@@ -1,2 +1,4 @@
 [tools]
 go = "1.27.1"
+clang-format = "19.1.7"
+golangci-lint = "2.13.2"
