@@ -1,0 +1,129 @@
+#!/bin/bash
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
+set -euo pipefail
+umask 077
+
+retry() {
+    for attempt in {1..20}; do
+        if "$@"; then
+            return 0
+        fi
+        sleep 6
+    done
+    return 1
+}
+
+retry dnf install -y golang awscli python3 tar gzip
+install -d -m 700 /etc/obi /opt/obi /opt/demo
+
+retry aws s3 cp --region '${region}' 's3://${bucket}/obi/config.yaml' /etc/obi/config.yaml
+retry aws s3 cp --region '${region}' 's3://${bucket}/obi/environment.json' /etc/obi/environment.json
+retry aws s3 cp --region '${region}' 's3://${bucket}/apps/${service}.go' /opt/demo/main.go
+
+%{ if local_binary ~}
+retry aws s3 cp --region '${region}' 's3://${bucket}/obi/obi' /opt/obi/obi
+printf '%s  %s\n' '${binary_hash}' /opt/obi/obi | sha256sum --check -
+%{ else ~}
+release_url='https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/releases/download/${obi_version}'
+archive='obi-${obi_version}-linux-amd64.tar.gz'
+retry curl --fail --silent --show-error --location "$release_url/$archive" -o "/opt/obi/$archive"
+retry curl --fail --silent --show-error --location "$release_url/SHA256SUMS" -o /opt/obi/SHA256SUMS
+cd /opt/obi
+grep " $archive\$" SHA256SUMS > archive.sha256
+sha256sum --check archive.sha256
+tar -xzf "$archive"
+rm "$archive"
+%{ endif ~}
+chmod 700 /opt/obi/obi
+printf '%s' '${runner}' | base64 --decode > /opt/obi/run.py
+
+# Config v2 validation runs with the same environment as the service.
+python3 - '${service}' <<'PY'
+import json
+import os
+import subprocess
+import sys
+
+with open('/etc/obi/environment.json', encoding='utf-8') as file:
+    environment = os.environ | {'CLOUD_SERVICE_NAME': sys.argv[1]} | json.load(file)
+subprocess.run(['/opt/obi/obi', 'config', 'validate', '/etc/obi/config.yaml'],
+               env=environment, check=True)
+PY
+
+GOCACHE=/opt/demo/go-cache GOMAXPROCS=1 CGO_ENABLED=0 GO111MODULE=off go build -p 1 -o /opt/demo/${service} /opt/demo/main.go
+chmod 755 /opt/demo /opt/demo/${service}
+rm /opt/demo/main.go
+rm -rf /opt/demo/go-cache
+
+cat > /etc/systemd/system/demo.service <<'UNIT'
+[Unit]
+Description=Cloud example ${service}
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=nobody
+Environment=BACKEND_URL=http://${backend_host}:8081
+ExecStart=/opt/demo/${service}
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+cat > /etc/systemd/system/obi.service <<'UNIT'
+[Unit]
+Description=OpenTelemetry eBPF Instrumentation
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Environment=CLOUD_SERVICE_NAME=${service}
+ExecStart=/usr/bin/python3 /opt/obi/run.py
+Restart=always
+RestartSec=5
+LimitMEMLOCK=infinity
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+%{ if service == "frontend" ~}
+cat > /etc/systemd/system/demo-traffic.service <<'UNIT'
+[Unit]
+Description=Generate example frontend to backend traffic
+After=demo.service obi.service
+
+[Service]
+Type=oneshot
+User=nobody
+ExecStart=/usr/bin/curl --fail --silent --show-error --max-time 5 http://localhost:8080/checkout
+UNIT
+
+cat > /etc/systemd/system/demo-traffic.timer <<'UNIT'
+[Unit]
+Description=Generate one request every two seconds
+
+[Timer]
+OnBootSec=15
+OnUnitInactiveSec=2
+AccuracySec=1
+
+[Install]
+WantedBy=timers.target
+UNIT
+%{ endif ~}
+
+systemctl daemon-reload
+systemctl enable --now obi demo
+%{ if service == "frontend" ~}
+systemctl enable --now demo-traffic.timer
+%{ endif ~}
+retry curl --fail --silent --show-error 'http://localhost:${port}/healthz'

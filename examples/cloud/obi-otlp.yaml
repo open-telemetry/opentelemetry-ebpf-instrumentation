@@ -1,0 +1,41 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
+file_format: "1.0"
+resource:
+  attributes:
+    - name: service.name
+      value: "${CLOUD_SERVICE_NAME}"
+    - name: service.namespace
+      value: cloud
+tracer_provider:
+  processors:
+    - batch:
+        exporter:
+          otlp_grpc:
+            endpoint: "${OTEL_EXPORTER_OTLP_ENDPOINT}"
+            tls:
+              insecure: ${OTLP_INSECURE:-false}
+meter_provider:
+  readers:
+    - periodic:
+        exporter:
+          otlp_grpc:
+            endpoint: "${OTEL_EXPORTER_OTLP_ENDPOINT}"
+            tls:
+              insecure: ${OTLP_INSECURE:-false}
+    - pull:
+        exporter:
+          prometheus/development:
+            port: 9400
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: exclude
+      rules:
+        - action: include
+          match:
+            process:
+              exe_path_glob: ["/opt/demo/*"]
