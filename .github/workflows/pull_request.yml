@@ -103,24 +103,19 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install clang-format
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang-format-19
-
       - name: Check clang-format
         run: |
           files=$( \
             git diff --name-status origin/main...HEAD \
-            | awk '$1 != "D" && $2 !~ /^NOTICES/ && /\.(c|cpp|h)$/ { print ($3 != "" ? $3 : $2) }' \
+            | awk '$1 != "D" && $2 !~ /^(NOTICES|bpf\/bpfcore)\// && /\.(c|cpp|h)$/ { print ($3 != "" ? $3 : $2) }' \
           )
           if [ -z "$files" ]; then
             echo "No C/C++ files modified."
             exit 0
           fi
-          clang-format-19 -i $files
+          make docker-clang-format CLANG_FORMAT_FILES="$(echo $files)"
           if ! git diff --exit-code $files; then
-            echo "Error: Some files are not formatted correctly. Run clang-format on the modified files or use the pre-commit hook."
+            echo "Error: Some files are not formatted correctly. Run make docker-clang-format CLANG_FORMAT_FILES=\"$(echo $files)\"."
             exit 1
           fi
 
@@ -134,17 +129,8 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Install clang-tidy
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget lsb-release software-properties-common gnupg
-          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/apt.llvm.org.asc
-          sudo add-apt-repository -y 'deb http://apt.llvm.org/noble/ llvm-toolchain-noble main'
-          sudo apt-get install -y clang-tidy-19
-          clang-tidy-19 --version
-
       - name: Run clang-tidy
-        run: CLANG_TIDY=clang-tidy-19 make clang-tidy
+        run: make docker-clang-tidy
 
   collector-cross-compile:
     name: "Collector cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})"
