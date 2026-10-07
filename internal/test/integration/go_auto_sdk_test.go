@@ -73,10 +73,7 @@ func TestGoEmbeddedSDKActivation(t *testing.T) {
 	setupContainerJaeger(t, network)
 	var versions []goAutoSDKVersion
 	for _, otelVersion := range []string{"1.35.0", "1.46.0"} {
-		for _, goImage := range []string{
-			"golang:1.26.3@sha256:efaccb5b497e90df3ebe5216cc25cd9f98e73874e2d638b56e38d4a3f098c41c",
-			"golang:1.27.0@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1",
-		} {
+		for _, toolchain := range []string{"previous", "current"} {
 			for _, order := range [][]string{nil, {"external", "embedded"}, {"embedded", "external"}} {
 				sources := "main.go"
 				if len(order) != 0 {
@@ -86,12 +83,12 @@ func TestGoEmbeddedSDKActivation(t *testing.T) {
 				if len(order) == 0 {
 					mode = "embedded-only"
 				}
-				label := otelVersion + "-" + strings.Split(goImage, "@")[0][7:] + "-" + mode
+				label := otelVersion + "-" + toolchain + "-" + mode
 				versions = append(versions, goAutoSDKVersion{
 					version: label, image: "hatest-goautosdk-" + strings.ReplaceAll(label, ".", "-"),
 					dockerfile: "internal/test/integration/components/goautosdk/Dockerfile-embedded",
 					embedded:   true, order: order,
-					buildArgs: map[string]*string{"GO_IMAGE": &goImage, "OTEL_VERSION": &otelVersion, "SOURCES": &sources},
+					buildArgs: map[string]*string{"GO_TOOLCHAIN": &toolchain, "OTEL_VERSION": &otelVersion, "SOURCES": &sources},
 				})
 			}
 		}
