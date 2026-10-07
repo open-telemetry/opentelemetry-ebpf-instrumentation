@@ -220,6 +220,11 @@ func loadCheckpoint(cfg config, tests []string) (checkpoint, error) {
 	if err != nil {
 		return checkpoint{}, err
 	}
+	flatPaths, err := filepath.Glob(filepath.Join(cfg.previousDir, checkpointName))
+	if err != nil {
+		return checkpoint{}, err
+	}
+	paths = append(paths, flatPaths...)
 	var latest checkpoint
 	var latestDir string
 	for _, path := range paths {
@@ -246,8 +251,8 @@ func loadCheckpoint(cfg config, tests []string) (checkpoint, error) {
 			latestDir = filepath.Dir(path)
 		}
 	}
-	if latest.Attempt != cfg.attempt-1 {
-		return checkpoint{}, errors.New("missing checkpoint for the preceding shard attempt")
+	if latest.Attempt == 0 {
+		return checkpoint{}, errors.New("missing checkpoint for this shard")
 	}
 	if !latest.Reusable {
 		return checkpoint{}, errors.New("no reusable checkpoint for this shard")

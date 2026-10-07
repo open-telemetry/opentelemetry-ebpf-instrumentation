@@ -59,8 +59,74 @@ func TestShardRerunsOnlyUnresolvedTests(t *testing.T) {
 	}
 }
 
+func TestLoadCheckpointDownloadLayouts(t *testing.T) {
+	for _, layout := range []string{"single artifact", "multiple artifacts"} {
+		t.Run(layout, func(t *testing.T) {
+			cfg := testConfig(t)
+			cfg.attempt = 11
+			state := checkpoint{
+				Version: checkpointVersion, Scope: cfg.scope, Attempt: 10, Reusable: true,
+				Results: map[string]string{"TestAlpha": "pass", "TestBeta": "fail", "TestGamma": "skip"},
+			}
+			previous := cfg.previousDir
+			if layout == "multiple artifacts" {
+				older := state
+				older.Attempt = 2
+				older.Results = map[string]string{"TestAlpha": "fail", "TestBeta": "fail", "TestGamma": "skip"}
+				if err := saveCheckpoint(filepath.Join(previous, "attempt-2"), older); err != nil {
+					t.Fatal(err)
+				}
+				previous = filepath.Join(previous, "attempt-10")
+			}
+			if err := saveCheckpoint(previous, state); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(previous, "covcounters.fixture"), []byte("previous coverage"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := loadCheckpoint(cfg, []string{"TestAlpha", "TestBeta", "TestGamma"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, state) {
+				t.Fatalf("got %+v, want %+v", got, state)
+			}
+			data, err := os.ReadFile(filepath.Join(cfg.coverageDir, "covcounters.fixture"))
+			if err != nil || string(data) != "previous coverage" {
+				t.Fatalf("did not restore coverage from the selected checkpoint: %q, %v", data, err)
+			}
+		})
+	}
+}
+
+func TestShardResumesAfterOtherShardAttempts(t *testing.T) {
+	cfg := testConfig(t)
+	commandLog := fakeGo(t, reportEvents("TestAlpha", "pass", "TestBeta", "fail", "TestGamma", "skip"), "1")
+	if err := runShard(cfg); err == nil {
+		t.Fatal("expected first attempt to fail")
+	}
+	advanceAttempt(t, &cfg)
+	cfg.attempt = 4
+	if err := os.WriteFile(filepath.Join(cfg.previousDir, "attempt-1", "covcounters.fixture"), []byte("previous coverage"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_REPORT", reportEvents("TestBeta", "pass"))
+	t.Setenv("FAKE_EXIT", "0")
+	if err := runShard(cfg); err != nil {
+		t.Fatal(err)
+	}
+	args, err := os.ReadFile(commandLog)
+	if err != nil || !strings.Contains(string(args), "-run=^(TestBeta)$\n") {
+		t.Fatalf("did not resume across attempts without a shard checkpoint: %s, %v", args, err)
+	}
+	data, err := os.ReadFile(filepath.Join(cfg.coverageDir, "covcounters.fixture"))
+	if err != nil || string(data) != "previous coverage" {
+		t.Fatalf("did not restore coverage: %q, %v", data, err)
+	}
+}
+
 func TestShardFallsBackToFullRun(t *testing.T) {
-	for _, reason := range []string{"missing", "missing previous attempt", "corrupt", "different commit", "different shard", "different arch", "different run", "different pattern", "unsafe latest", "future attempt", "invalid result", "missing test"} {
+	for _, reason := range []string{"missing", "corrupt", "different commit", "different shard", "different arch", "different run", "different pattern", "unsafe latest", "future attempt", "invalid result", "missing test"} {
 		t.Run(reason, func(t *testing.T) {
 			cfg := testConfig(t)
 			state := checkpoint{
@@ -69,7 +135,7 @@ func TestShardFallsBackToFullRun(t *testing.T) {
 			}
 			cfg.attempt = 3
 			switch reason {
-			case "missing previous attempt", "unsafe latest":
+			case "unsafe latest":
 				state.Attempt = 1
 			case "different commit":
 				state.Scope.Commit = "other-commit"
