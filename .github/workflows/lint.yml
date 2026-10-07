@@ -57,6 +57,8 @@ jobs:
     name: Lint on linux (${{ matrix.platform.arch }})
     needs: generate-bpf
     runs-on: ${{ matrix.platform.runner }}
+    env:
+      MISE_ENABLE_TOOLS: go,golangci-lint
     strategy:
       fail-fast: false
       matrix:
@@ -74,7 +76,6 @@ jobs:
       - name: Set up mise tools
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          install_args: "go golangci-lint"
           cache: false
 
       - name: Go build cache
@@ -91,7 +92,7 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Lint
-        run: mise run --skip-tools lint
+        run: mise run lint
 
       # Schema lint is arch-neutral (weaver YAML/JSON). Keep it on amd64 only.
       - name: Lint OBI semantic-convention registry
@@ -114,6 +115,8 @@ jobs:
     name: Lint on macOS
     needs: generate-bpf
     runs-on: macos-latest
+    env:
+      MISE_ENABLE_TOOLS: go,golangci-lint
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -123,7 +126,6 @@ jobs:
       - name: Set up mise tools
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          install_args: "go golangci-lint"
           cache: false
 
       - name: Go build cache
@@ -140,4 +142,4 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Lint
-        run: mise run --skip-tools lint
+        run: mise run lint
