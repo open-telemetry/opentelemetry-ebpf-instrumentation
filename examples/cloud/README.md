@@ -76,7 +76,8 @@ terraform -chdir=examples/cloud/aws apply -var='obi_config_path=../obi-otlp.yaml
 
 For plain HTTP, also set `OTLP_INSECURE` to `"true"`. Config v2 references variables
 explicitly in YAML; a legacy `OTEL_EBPF_*` variable alone does not override a v2
-field. `CLOUD_SERVICE_NAME` is the node's role; the config path is deployment-managed.
+field. `CLOUD_SERVICE_NAME` is reserved for the node's role and cannot be overridden
+through `obi_environment`; the config path is deployment-managed.
 
 Alternatively, copy `aws/terraform.tfvars.example` to `aws/terraform.tfvars`.
 Keep the same overrides on subsequent `apply` and `destroy` commands.

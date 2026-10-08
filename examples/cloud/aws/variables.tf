@@ -34,7 +34,7 @@ variable "obi_version" {
   type        = string
   default     = "v0.14.0"
   validation {
-    condition     = can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.-]+)?$", var.obi_version))
+    condition     = can(regex("^v[0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.-]+)?(\\+[a-zA-Z0-9-]+(\\.[a-zA-Z0-9-]+)*)?$", var.obi_version))
     error_message = "Use a release tag such as v0.14.0."
   }
 }
@@ -66,6 +66,10 @@ variable "obi_environment" {
   type        = map(string)
   default     = {}
   sensitive   = true
+  validation {
+    condition     = !contains(keys(var.obi_environment), "CLOUD_SERVICE_NAME")
+    error_message = "CLOUD_SERVICE_NAME is reserved for the node's role and cannot be overridden."
+  }
   validation {
     condition     = alltrue([for key, value in var.obi_environment : can(regex("^[A-Za-z_][A-Za-z0-9_]*$", key)) && !strcontains(value, "\u0000")])
     error_message = "Environment keys must be valid variable names and values must not contain NUL bytes."

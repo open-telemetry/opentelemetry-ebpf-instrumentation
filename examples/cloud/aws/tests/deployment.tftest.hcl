@@ -112,3 +112,43 @@ run "reject_arm_instances" {
   }
   expect_failures = [aws_instance.demo["frontend"], aws_instance.demo["backend"]]
 }
+
+run "release_build_metadata" {
+  command = plan
+  variables {
+    obi_version = "v0.14.0+build.123"
+  }
+  assert {
+    condition     = alltrue([for instance in aws_instance.demo : strcontains(instance.user_data, "releases/download/v0.14.0+build.123") && strcontains(instance.user_data, "obi-v0.14.0+build.123-linux-amd64.tar.gz")])
+    error_message = "Build metadata must be preserved in the release URL and archive name."
+  }
+}
+
+run "prerelease_build_metadata" {
+  command = plan
+  variables {
+    obi_version = "v0.14.0-rc.1+build.123"
+  }
+  assert {
+    condition     = alltrue([for instance in aws_instance.demo : strcontains(instance.user_data, "releases/download/v0.14.0-rc.1+build.123") && strcontains(instance.user_data, "obi-v0.14.0-rc.1+build.123-linux-amd64.tar.gz")])
+    error_message = "Prerelease tags may also include build metadata."
+  }
+}
+
+run "reject_empty_build_metadata" {
+  command = plan
+  variables {
+    obi_version = "v0.14.0+"
+  }
+  expect_failures = [var.obi_version]
+}
+
+run "reject_service_name_override" {
+  command = plan
+  variables {
+    obi_environment = {
+      CLOUD_SERVICE_NAME = "shared-service"
+    }
+  }
+  expect_failures = [var.obi_environment]
+}
