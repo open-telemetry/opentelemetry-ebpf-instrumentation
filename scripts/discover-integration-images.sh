@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Enumerate integration-test Docker images (sorted, deduplicated, side-effect free):
-#   --build-targets  (default) "<image>=<dockerfile>" build pairs from docker-compose-multiexec*.yml.
+#   --build-targets  (default) "<image>=<dockerfile>" build pairs from the compose files of the VM suites.
 #   --base-images    base images from registries in PREPULL_REGISTRY_RE, to pre-pull (see pull-base-images.sh).
 
 set -euo pipefail
@@ -18,9 +18,9 @@ PREPULL_REGISTRY_RE="${PREPULL_REGISTRY_RE:-mcr\.microsoft\.com}"
 case "${MODE}" in
 --build-targets)
     shopt -s nullglob
-    compose_files=("${SEARCH_DIR}"/docker-compose-multiexec*.yml)
+    compose_files=("${SEARCH_DIR}"/docker-compose-multiexec*.yml "${SEARCH_DIR}"/docker-compose-cp-enrollment*.yml)
     if [ ${#compose_files[@]} -eq 0 ]; then
-        echo "discover-integration-images.sh: no docker-compose-multiexec*.yml under ${SEARCH_DIR}" >&2
+        echo "discover-integration-images.sh: no VM suite compose files under ${SEARCH_DIR}" >&2
         exit 1
     fi
 

@@ -21,8 +21,6 @@ services:
   # of metrics when they come from the same executable file
   testserver-unused:
     image: hatest-testserver
-    ports:
-      - "38080:8080"
     environment:
       LOG_LEVEL: DEBUG
 

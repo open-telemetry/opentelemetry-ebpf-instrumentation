@@ -101,13 +101,13 @@ flowchart TD
     O -->|written=0| R["Scan wire header<br/>adopt or inject"]
 
     S["sockops: new sockets"] --> U["socket_cookie SK_STORAGE"]
-    T["TCP iterator: pre-existing sockets"] --> U
+    T["AllowPID backfill or TCP iterator: pre-existing sockets"] --> U
     U --> O
 ```
 
 ### sk_msg Per-Stream Fallback for Go gRPC Conns
 
-Once a conn is marked, `obi_packet_extender` (sk_msg) checks `is_go_grpc_client_conn` first: pulls the data, populates `msg_buffers` for the `tcp_sendmsg` kprobe, sets `tailcall_ctx.go_grpc_conn` and tail-calls `detect_h2`. No TCP option scheduling. Sockops records each established socket's cookie in shared `SK_STORAGE`; the TCP iterator does the same while backfilling pre-existing connections. On a HEADERS frame, `sk_msg` consumes an application-ownership marker only when that stored cookie, the sending PID, and the frame's stream ID all match. This is identity- and lifecycle-based: no timeout decides whether a marker is trustworthy.
+Once a conn is marked, `obi_packet_extender` (sk_msg) checks `is_go_grpc_client_conn` first: pulls the data, populates `msg_buffers` for the `tcp_sendmsg` kprobe, sets `tailcall_ctx.go_grpc_conn` and tail-calls `detect_h2`. No TCP option scheduling. Sockops records each enrolled socket's cookie in shared `SK_STORAGE`; the `AllowPID` backfill, or the TCP iterator where it falls back, does the same for pre-existing connections. On a HEADERS frame, `sk_msg` consumes an application-ownership marker only when that stored cookie, the sending PID, and the frame's stream ID all match. This is identity- and lifecycle-based: no timeout decides whether a marker is trustworthy.
 
 For streams OBI owns, the chain then honors the `written` handshake: `written=1` means the uprobe's user-buffer HPACK already carries a traceparent — either the application's field or OBI's committed write — so the socket path skips the frame. `written=0` means the uprobe write failed or went unconfirmed; the wire scan adopts an on-wire traceparent if one is found, otherwise `create_h2_tp` injects the stored tp. Streams with no stored tp at all are never touched on a Go conn (`go_grpc_conn` guard). The selected current or legacy handler publishes a tp for every supported client stream before serialization; TLS is kept out by the socket state machine instead — ciphertext has no preface and cannot pass the mid-stream sniff, so `detect_h2` never runs on it. HTTP/1 traffic from the same Go process is unmarked and goes through the HTTP/1 detection path.
 
@@ -197,7 +197,7 @@ The queued header object's pointer is visible on both sides of the handoff. OBI 
 | `ongoing_http2_connections` | HASH | `pid_connection_info_t` | `http2_conn_info_data_t` | H2 connection tracking |
 | `outgoing_trace_map` | LRU_HASH | `egress_key_t{ports, stream_id}` | `tp_info_pid_t` | Per-stream sender trace context |
 | `incoming_trace_map` | LRU_HASH | `connection_info_t` | `tp_info_pid_t` | Receiver trace context (HTTP/1 path only; gRPC uses per-stream maps) |
-| `socket_cookie` | SK_STORAGE | socket | `u64` | Stable socket identity shared by sockops, the TCP iterator, and `sk_msg` |
+| `socket_cookie` | SK_STORAGE | socket | `u64` | Stable socket identity shared by sockops, the backfills, and `sk_msg`; its presence marks a socket for enrollment |
 | `grpc_h2_owned_streams` | LRU_HASH | `{socket_cookie, pid, stream_id}` | `u8` | Exact application-owned Go gRPC streams |
 | `grpc_conn_ptr_to_conn` | LRU_HASH | `go_addr_key_t{pid, conn_ptr}` | `grpc_connection_t` | Go conn pointer → TCP ports and socket identity, scoped to one process |
 | `grpc_h2_header_observations` | LRU_HASH | `go_addr_key_t{pid, writer goroutine}` | `grpc_h2_header_observation_t{request_key, stream}` | Current header serialization observed by the loopyWriter |

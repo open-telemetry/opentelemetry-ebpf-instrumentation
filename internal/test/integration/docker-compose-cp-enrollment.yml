@@ -1,0 +1,164 @@
+# Context propagation enrollment: OBI starts once every site has connected, so their clients'
+# connections predate it. Ports 18000-18099 are selected and never published, since docker-proxy
+# would listen on them; 18100-18199 are bystanders; 18200+ are launchers. Host-network clients
+# reach the server at its fixed address: through docker-proxy a TCP option would not arrive.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.29.71.0/24
+
+services:
+  server:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/tpinjector-server/Dockerfile
+    image: hatest-tpinjector-server
+    networks:
+      default:
+        ipv4_address: 172.29.71.10
+    ports:
+      - "8080:8080"
+
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17
+    ports:
+      - "16686:16686"
+      - "4318"
+
+  # own pid and network namespaces
+  site-container:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/cpenroll/Dockerfile
+    image: hatest-cpenroll
+    command: ["launcher", "--port", "18200", "--server", "http://server:8080",
+              "--start", "site-container-app:18000,site-container-bystander:18100"]
+    ports:
+      - "18200:18200"
+    healthcheck:
+      test: ["CMD", "/cpenroll", "probe", "http://127.0.0.1:18200/ready"]
+      interval: 1s
+      retries: 60
+    depends_on:
+      server:
+        condition: service_started
+
+  # own pid namespace, host network namespace
+  site-hostnet:
+    image: hatest-cpenroll
+    network_mode: host
+    command: ["launcher", "--port", "18201", "--server", "http://172.29.71.10:8080",
+              "--start", "site-hostnet-app:18010,site-hostnet-bystander:18110"]
+    healthcheck:
+      test: ["CMD", "/cpenroll", "probe", "http://127.0.0.1:18201/ready"]
+      interval: 1s
+      retries: 60
+    depends_on:
+      site-container:
+        condition: service_healthy
+
+  # host pid namespace, own network namespace
+  site-hostpid:
+    image: hatest-cpenroll
+    pid: host
+    command: ["launcher", "--port", "18202", "--server", "http://server:8080",
+              "--start", "site-hostpid-app:18020,site-hostpid-bystander:18120"]
+    ports:
+      - "18202:18202"
+    healthcheck:
+      test: ["CMD", "/cpenroll", "probe", "http://127.0.0.1:18202/ready"]
+      interval: 1s
+      retries: 60
+    depends_on:
+      site-container:
+        condition: service_healthy
+
+  # host pid and network namespaces
+  site-host:
+    image: hatest-cpenroll
+    pid: host
+    network_mode: host
+    command: ["launcher", "--port", "18203", "--server", "http://172.29.71.10:8080",
+              "--start", "site-host-app:18030,site-host-bystander:18130"]
+    healthcheck:
+      test: ["CMD", "/cpenroll", "probe", "http://127.0.0.1:18203/ready"]
+      interval: 1s
+      retries: 60
+    depends_on:
+      site-container:
+        condition: service_healthy
+
+  # the app and a bystander are both pid 1, in different namespaces, and no app shares the
+  # bystander's network namespace
+  site-pid1-app:
+    image: hatest-cpenroll
+    command: ["client", "--name", "site-pid1-app", "--port", "18040", "--control-port", "18140",
+              "--server", "http://server:8080"]
+    environment:
+      OTEL_SERVICE_NAME: site-pid1-app
+    ports:
+      - "18140:18140"
+    healthcheck:
+      test: ["CMD", "/cpenroll", "probe", "http://127.0.0.1:18040/status"]
+      interval: 1s
+      retries: 60
+    depends_on:
+      site-container:
+        condition: service_healthy
+
+  site-pid1-bystander:
+    image: hatest-cpenroll
+    command: ["client", "--name", "site-pid1-bystander", "--port", "18141", "--server", "http://server:8080"]
+    environment:
+      OTEL_SERVICE_NAME: site-pid1-bystander
+    ports:
+      - "18141:18141"
+    healthcheck:
+      test: ["CMD", "/cpenroll", "probe", "http://127.0.0.1:18141/status"]
+      interval: 1s
+      retries: 60
+    depends_on:
+      site-container:
+        condition: service_healthy
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    image: hatest-obi
+    # OBI_SECCOMP denies pidfd_getfd to force the fallbacks
+    entrypoint: ["/obitesttool", "seccomp-exec", "${OBI_SECCOMP:-none}", "/obi"]
+    command:
+      - --config=/configs/obi-config-cp-enrollment.yml
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-cp-enrollment:/var/run/obi
+    privileged: true
+    pid: host
+    # sockops attaches at OBI's cgroup root, which must be the host's to see the other containers
+    cgroup: host
+    environment:
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "${CP_MODE:-headers}"
+      OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS: "${SKIP_GO:-false}"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+    depends_on:
+      jaeger:
+        condition: service_started
+      site-container:
+        condition: service_healthy
+      site-hostnet:
+        condition: service_healthy
+      site-hostpid:
+        condition: service_healthy
+      site-host:
+        condition: service_healthy
+      site-pid1-app:
+        condition: service_healthy
+      site-pid1-bystander:
+        condition: service_healthy

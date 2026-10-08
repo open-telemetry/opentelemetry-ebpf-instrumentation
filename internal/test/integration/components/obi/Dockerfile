@@ -27,9 +27,14 @@ COPY Makefile Makefile
 # Build
 RUN make compile-for-coverage
 
+# inspects OBI's BPF maps and restricts its syscalls in the integration tests
+COPY internal/test/integration/components/obi/testtool/ internal/test/integration/components/obi/testtool/
+RUN go build -buildvcs=false -o bin/obitesttool ./internal/test/integration/components/obi/testtool/
+
 # Create final image from minimal + built binary
 FROM ubuntu@sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9
 
 COPY --from=builder /src/bin/obi /obi
+COPY --from=builder /src/bin/obitesttool /obitesttool
 
 ENTRYPOINT [ "/obi" ]
