@@ -19,6 +19,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 )
@@ -1474,6 +1475,49 @@ func createTestStore() *Store {
 		nil, // no service name template
 		imetrics.NoopReporter{},
 	)
+}
+
+type storeEventObserver struct {
+	events chan *informer.Event
+}
+
+func (o *storeEventObserver) ID() string {
+	return "store-event-observer"
+}
+
+func (o *storeEventObserver) On(event *informer.Event) error {
+	o.events <- event
+	return nil
+}
+
+func TestStoreSubscribeDeliversSnapshotBeforeLiveEvents(t *testing.T) {
+	upstream := &fakeInformer{}
+	store := NewStore(upstream, DefaultResourceLabels, nil, imetrics.NoopReporter{})
+	pod := &informer.ObjectMeta{
+		Name: "pod",
+		Kind: "Pod",
+		Ips:  []string{"10.0.0.1"},
+		Pod: &informer.PodInfo{
+			Containers: []*informer.ContainerInfo{{Id: "container"}},
+		},
+	}
+	require.NoError(t, store.On(&informer.Event{Type: informer.EventType_CREATED, Resource: pod}))
+
+	observer := &storeEventObserver{events: make(chan *informer.Event, 3)}
+	store.Subscribe(observer)
+	t.Cleanup(func() {
+		store.Unsubscribe(observer)
+		upstream.Unsubscribe(store)
+	})
+
+	for range 2 {
+		event := testutil.ReadChannel(t, observer.events, time.Second)
+		assert.Equal(t, "pod", event.Resource.Name)
+	}
+
+	store.Notify(&informer.Event{Resource: &informer.ObjectMeta{Name: "live"}})
+	live := testutil.ReadChannel(t, observer.events, time.Second)
+	assert.Equal(t, "live", live.Resource.Name)
 }
 
 type fakeInformer struct {
