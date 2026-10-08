@@ -24,6 +24,71 @@ func fakeProcStat(startTime uint64) []byte {
 	return []byte(fmt.Sprintf("1000 (java worker) S%s %d 0\n", strings.Repeat(" 0", 18), startTime))
 }
 
+func fakeCPUStat(comm, user, system string, startTime uint64) []byte {
+	return []byte(fmt.Sprintf("1000 (%s) S%s %s %s%s %d 0\n",
+		comm, strings.Repeat(" 0", 10), user, system, strings.Repeat(" 0", 6), startTime))
+}
+
+func TestParseCPUTimeTicks(t *testing.T) {
+	for _, comm := range []string{"dotnet", "worker thread", "worker ) ( thread"} {
+		user, system, err := parseCPUTimeTicks(fakeCPUStat(comm, "125", "37", 4242))
+		require.NoError(t, err)
+		require.Equal(t, uint64(125), user)
+		require.Equal(t, uint64(37), system)
+	}
+	for _, stat := range [][]byte{
+		nil, []byte("1000 (worker) S 1"),
+		fakeCPUStat("worker", "-1", "0", 4242),
+		fakeCPUStat("worker", "0", "-1", 4242),
+		fakeCPUStat("worker", "bad", "0", 4242),
+		fakeCPUStat("worker", "0", "18446744073709551616", 4242),
+	} {
+		user, system, err := parseCPUTimeTicks(stat)
+		require.Error(t, err, "stat: %q", stat)
+		require.Zero(t, user)
+		require.Zero(t, system)
+	}
+}
+
+func TestProcessHandleCPUTimeTicks(t *testing.T) {
+	root := t.TempDir()
+	procDir := filepath.Join(root, "1000")
+	require.NoError(t, os.Mkdir(procDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(procDir, "stat"), fakeCPUStat("dotnet", "125", "37", 4242), 0o644))
+	stubProcessHandleEnvironment(t, root, func(int, unix.Signal, *unix.Siginfo, int) error { return nil })
+	handle, err := OpenProcessHandle(1000, 4242)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, handle.Close()) })
+
+	oldProcDir := filepath.Join(root, "old-1000")
+	require.NoError(t, os.Rename(procDir, oldProcDir))
+	require.NoError(t, os.Mkdir(procDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(procDir, "stat"), fakeCPUStat("replacement", "900", "800", 5353), 0o644))
+	user, system, err := handle.CPUTimeTicks()
+	require.NoError(t, err)
+	require.Equal(t, uint64(125), user)
+	require.Equal(t, uint64(37), system)
+
+	statPath := filepath.Join(oldProcDir, "stat")
+	require.NoError(t, os.WriteFile(statPath, fakeCPUStat("dotnet", "150", "40", 4242), 0o644))
+	user, system, err = handle.CPUTimeTicks()
+	require.NoError(t, err)
+	require.Equal(t, uint64(150), user)
+	require.Equal(t, uint64(40), system)
+
+	require.NoError(t, os.WriteFile(statPath, fakeCPUStat("dotnet", "150", "40", 5353), 0o644))
+	user, system, err = handle.CPUTimeTicks()
+	require.ErrorContains(t, err, "start time does not match")
+	require.Zero(t, user)
+	require.Zero(t, system)
+	require.NoError(t, os.Remove(statPath))
+	_, _, err = handle.CPUTimeTicks()
+	require.Error(t, err)
+	var missing *ProcessHandle
+	_, _, err = missing.CPUTimeTicks()
+	require.Error(t, err)
+}
+
 func stubProcessHandleEnvironment(t *testing.T, root string, signal func(int, unix.Signal, *unix.Siginfo, int) error) {
 	originalRoot := procRootPath
 	originalSignal := pidfdSendSignal

@@ -455,6 +455,15 @@ func metricLabelsMatch(metric *dto.Metric, labels map[string]string) bool {
 	return true
 }
 
+func histogramUpperBounds(metric *dto.Metric) []float64 {
+	buckets := metric.GetHistogram().GetBucket()
+	bounds := make([]float64, 0, len(buckets))
+	for _, bucket := range buckets {
+		bounds = append(bounds, bucket.GetUpperBound())
+	}
+	return bounds
+}
+
 // A pedantic registry rejects a collector that emits a descriptor it never described, so this
 // covers both the exposed metric names and Describe agreeing with Collect.
 func TestBPFCollectorRegistersMapMetrics(t *testing.T) {
