@@ -189,6 +189,11 @@ func (p *Tracer) backfillSockets(pid app.PID) bool {
 			continue
 		}
 
+		// the descriptor can have been reused while the table was read
+		if inode, ok := fdSocketInode(pid, s.fd); !ok || inode != s.inode {
+			continue
+		}
+
 		dup, err := unix.PidfdGetfd(pidfd, s.fd, 0)
 		switch {
 		case errors.Is(err, unix.EBADF):
@@ -325,32 +330,37 @@ func isTCPFD(pid app.PID, fd int) bool {
 }
 
 func socketFDs(pid app.PID) ([]socketFD, error) {
-	dir := fmt.Sprintf("/proc/%d/fd", pid)
-	entries, err := os.ReadDir(dir)
+	entries, err := os.ReadDir(fmt.Sprintf("/proc/%d/fd", pid))
 	if err != nil {
 		return nil, err
 	}
 
 	sockets := make([]socketFD, 0, len(entries))
 	for _, e := range entries {
-		target, err := os.Readlink(dir + "/" + e.Name())
-		if err != nil {
-			continue
-		}
-		inode, ok := strings.CutPrefix(target, "socket:[")
-		if !ok {
-			continue
-		}
 		fd, err := strconv.Atoi(e.Name())
 		if err != nil {
 			continue
 		}
-		ino, err := strconv.ParseUint(strings.TrimSuffix(inode, "]"), 10, 64)
-		if err != nil {
-			continue
+		if inode, ok := fdSocketInode(pid, fd); ok {
+			sockets = append(sockets, socketFD{fd: fd, inode: inode})
 		}
-		sockets = append(sockets, socketFD{fd: fd, inode: ino})
 	}
 
 	return sockets, nil
+}
+
+// the inode of the socket the process's descriptor refers to, false for anything else
+func fdSocketInode(pid app.PID, fd int) (uint64, bool) {
+	target, err := os.Readlink(fmt.Sprintf("/proc/%d/fd/%d", pid, fd))
+	if err != nil {
+		return 0, false
+	}
+
+	inode, ok := strings.CutPrefix(target, "socket:[")
+	if !ok {
+		return 0, false
+	}
+
+	ino, err := strconv.ParseUint(strings.TrimSuffix(inode, "]"), 10, 64)
+	return ino, err == nil
 }

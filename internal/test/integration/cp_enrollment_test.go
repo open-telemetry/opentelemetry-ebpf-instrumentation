@@ -9,11 +9,13 @@ import (
 	"net/http"
 	"os/exec"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/prometheus/procfs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
@@ -69,51 +71,80 @@ type cpExpectations struct {
 	logLine      string
 }
 
-func cpExpectationsFor(t *testing.T, mode cpMode) cpExpectations {
+type cpFallback int
+
+const (
+	cpNoFallback cpFallback = iota
+	cpGlobalFallback
+	cpPerProcessFallback
+)
+
+// the fallback OBI must take for this mode on this host, and the line it logs for it
+func cpFallbackFor(t *testing.T, compose *docker.Compose, mode cpMode) (cpFallback, string) {
+	switch {
+	case mode.seccomp == "all" || !cpTool(t, compose, "can-copy-sockets")[1]:
+		return cpGlobalFallback, "cannot duplicate the sockets of other processes"
+	case cpNetCgroupsV1(t):
+		return cpGlobalFallback, "cgroup v1 net_cls or net_prio is in use"
+	case mode.seccomp == "probe-only":
+		return cpPerProcessFallback, "can't duplicate the process's sockets"
+	}
+	return cpNoFallback, ""
+}
+
+// cgroup v1 hierarchies are the same for every process, so the test's view is OBI's
+func cpNetCgroupsV1(t *testing.T) bool {
+	self, err := procfs.Self()
+	require.NoError(t, err)
+	cgroups, err := self.Cgroups()
+	require.NoError(t, err)
+
+	return slices.ContainsFunc(cgroups, func(c procfs.Cgroup) bool {
+		return slices.Contains(c.Controllers, "net_cls") || slices.Contains(c.Controllers, "net_prio")
+	})
+}
+
+func cpExpectationsFor(t *testing.T, compose *docker.Compose, mode cpMode) cpExpectations {
 	iterators := kernelAtLeast(t, 6, 4)
 	no, yes := false, true
 	ifIterators := &iterators
 
-	switch mode.seccomp {
-	case "all":
-		return cpExpectations{
-			appFirstEnrolled:             iterators,
-			preDiscoveryEnrolled:         true,
-			bystanderSharedNetnsEnrolled: ifIterators,
-			// no instrumented process makes OBI walk that namespace
-			bystanderOwnNetnsEnrolled: &no,
-			bystanderSpawnedEnrolled:  &yes,
-			headersCP:                 true,
-			grandchildCP:              true,
-			logLine:                   "cannot duplicate the sockets of other processes",
-		}
-	case "probe-only":
-		return cpExpectations{
-			scoped:                       true,
-			appFirstEnrolled:             iterators,
-			preDiscoveryEnrolled:         iterators,
-			bystanderSharedNetnsEnrolled: ifIterators,
-			bystanderOwnNetnsEnrolled:    &no,
-			// spawned before its app, so the walk at the app's discovery finds it
-			bystanderSpawnedEnrolled: ifIterators,
-			headersCP:                true,
-			grandchildCP:             true,
-			logLine:                  "can't duplicate the process's sockets",
-		}
-	default:
-		return cpExpectations{
-			scoped:                       true,
-			appFirstEnrolled:             true,
-			preDiscoveryEnrolled:         true,
-			bystanderSharedNetnsEnrolled: &no,
-			bystanderOwnNetnsEnrolled:    &no,
-			bystanderSpawnedEnrolled:     &no,
-			headersCP:                    mode.cp == "headers",
-			tcpCP:                        mode.cp == "tcp",
-			// the Go tracer filters pids in user space, so it doesn't trace an unselected child
-			grandchildCP: mode.cp == "headers" && mode.skipGo,
-		}
+	exp := cpExpectations{
+		headersCP: mode.cp == "headers",
+		tcpCP:     mode.cp == "tcp",
+		// the Go tracer filters pids in user space, so it doesn't trace an unselected child
+		grandchildCP: mode.cp == "headers" && mode.skipGo,
 	}
+
+	var fallback cpFallback
+	fallback, exp.logLine = cpFallbackFor(t, compose, mode)
+
+	switch fallback {
+	case cpGlobalFallback:
+		exp.appFirstEnrolled = iterators
+		exp.preDiscoveryEnrolled = true
+		exp.bystanderSharedNetnsEnrolled = ifIterators
+		// no instrumented process makes OBI walk that namespace
+		exp.bystanderOwnNetnsEnrolled = &no
+		exp.bystanderSpawnedEnrolled = &yes
+	case cpPerProcessFallback:
+		exp.scoped = true
+		exp.appFirstEnrolled = iterators
+		exp.preDiscoveryEnrolled = iterators
+		exp.bystanderSharedNetnsEnrolled = ifIterators
+		exp.bystanderOwnNetnsEnrolled = &no
+		// spawned before its app, so the walk at the app's discovery finds it
+		exp.bystanderSpawnedEnrolled = ifIterators
+	default:
+		exp.scoped = true
+		exp.appFirstEnrolled = true
+		exp.preDiscoveryEnrolled = true
+		exp.bystanderSharedNetnsEnrolled = &no
+		exp.bystanderOwnNetnsEnrolled = &no
+		exp.bystanderSpawnedEnrolled = &no
+	}
+
+	return exp
 }
 
 func kernelAtLeast(t *testing.T, major, minor int) bool {
@@ -307,7 +338,7 @@ func runCPEnrollment(t *testing.T, mode cpMode) {
 	require.NoError(t, compose.Up())
 	defer func() { require.NoError(t, compose.Close()) }()
 
-	s := &cpSuite{t: t, compose: compose, mode: mode, exp: cpExpectationsFor(t, mode)}
+	s := &cpSuite{t: t, compose: compose, mode: mode, exp: cpExpectationsFor(t, compose, mode)}
 	siteClient := func(site cpSite, name string) cpGetter {
 		return func(ct require.TestingT) cpClient { return cpSiteClient(ct, site, name) }
 	}
