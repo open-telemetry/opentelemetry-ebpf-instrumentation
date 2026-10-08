@@ -2302,27 +2302,19 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 			Probes: []ebpfcommon.GoProbe{
 				{
 					Symbol: embeddedSDKActivationProbeSymbols[0],
-					Probe: &ebpfcommon.ProbeDesc{
-						Start: p.bpfObjects.ObiUprobeEmbeddedSdkTracerStart,
-					},
+					Probe:  &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeEmbeddedSdkTracerStart},
 				},
 				{
 					Symbol: embeddedSDKActivationProbeSymbols[1],
-					Probe: &ebpfcommon.ProbeDesc{
-						Start: p.bpfObjects.ObiUprobeAutoSdkContextWithValue,
-					},
+					Probe:  &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeAutoSdkContextWithValue},
 				},
 				{
 					Symbol: embeddedSDKActivationProbeSymbols[2],
-					Probe: &ebpfcommon.ProbeDesc{
-						Start: p.bpfObjects.ObiUprobeAutoSdkSpanEnded,
-					},
+					Probe:  &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeAutoSdkSpanEnded},
 				},
 				{
-					Symbol: embeddedSDKActivationProbeSymbols[3],
-					Probe: &ebpfcommon.ProbeDesc{
-						Start: p.bpfObjects.ObiUprobeEmbeddedTracerProvider,
-					},
+					Symbol:        embeddedSDKActivationProbeSymbols[3],
+					Probe:         &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeEmbeddedTracerProvider},
 					ProcessScoped: true,
 				},
 			},
