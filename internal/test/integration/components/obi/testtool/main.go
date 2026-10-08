@@ -8,6 +8,7 @@
 //	obitesttool map-keys NAME          prints the u64 keys of every BPF map named NAME
 //	obitesttool bitmap-pids NAME       prints the pids set in the pid-indexed bitmap named NAME
 //	obitesttool host-pid NSINODE NSPID prints the pid OBI's /proc has for a pid in that namespace
+//	obitesttool can-copy-sockets       prints 1 if this container can duplicate other processes' descriptors, 0 otherwise
 //	obitesttool seccomp-exec MODE CMD  execs CMD with pidfd_getfd failing EPERM:
 //	                                   none: never, all: always, probe-only: unless it asks for
 //	                                   OBI's startup probe descriptor
@@ -40,21 +41,29 @@ const (
 )
 
 func main() {
-	if len(os.Args) < 3 {
-		fail("usage: obitesttool map-keys|bitmap-pids NAME | host-pid NSINODE NSPID | seccomp-exec none|all|probe-only CMD [ARGS...]")
+	if len(os.Args) < 2 {
+		fail("usage: obitesttool map-keys|bitmap-pids NAME | host-pid NSINODE NSPID | can-copy-sockets | seccomp-exec none|all|probe-only CMD [ARGS...]")
 	}
 
 	var err error
 	switch os.Args[1] {
 	case "map-keys":
+		if len(os.Args) < 3 {
+			fail("map-keys needs a map name")
+		}
 		err = printMapKeys(os.Args[2])
 	case "bitmap-pids":
+		if len(os.Args) < 3 {
+			fail("bitmap-pids needs a map name")
+		}
 		err = printBitmapPIDs(os.Args[2])
 	case "host-pid":
 		if len(os.Args) < 4 {
 			fail("host-pid needs a namespace inode and a pid")
 		}
 		err = printHostPID(os.Args[2], os.Args[3])
+	case "can-copy-sockets":
+		printCanCopySockets()
 	case "seccomp-exec":
 		if len(os.Args) < 4 {
 			fail("seccomp-exec needs a mode and a command")
@@ -174,6 +183,22 @@ func printHostPID(nsInode, nsPID string) error {
 		}
 	}
 	return fmt.Errorf("no process %s in pid namespace %s", nsPID, nsInode)
+}
+
+// asks for the same descriptor as OBI's startup probe, but without the filter seccomp-exec puts on OBI
+func printCanCopySockets() {
+	pidfd, err := unix.PidfdOpen(1, 0)
+	if err != nil {
+		fmt.Println(0)
+		return
+	}
+	defer unix.Close(pidfd)
+
+	if _, err := unix.PidfdGetfd(pidfd, probeFD, 0); errors.Is(err, unix.EBADF) {
+		fmt.Println(1)
+		return
+	}
+	fmt.Println(0)
 }
 
 func seccompExec(mode string, command []string) error {
