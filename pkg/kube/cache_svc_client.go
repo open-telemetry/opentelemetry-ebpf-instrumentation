@@ -36,19 +36,6 @@ type cacheSvcClient struct {
 	reconnectInitialInterval time.Duration
 }
 
-func (sc *cacheSvcClient) ID() string {
-	return "kube-metadata-cache-svc-client"
-}
-
-func (sc *cacheSvcClient) On(event *informer.Event) error {
-	// we can safely assume that server-side events are ordered
-	// by timestamp
-	if event.GetType() != informer.EventType_SYNC_FINISHED && event.Resource != nil {
-		sc.lastEventTSEpoch = event.Resource.StatusTimeEpoch
-	}
-	return nil
-}
-
 func (sc *cacheSvcClient) Start(ctx context.Context) {
 	sc.log = cslog()
 	sc.waitForSubscription = make(chan struct{})
@@ -56,9 +43,6 @@ func (sc *cacheSvcClient) Start(ctx context.Context) {
 	sc.ctx = ctx
 	sc.reconnectInitialInterval = normalizeReconnectInitialInterval(sc.reconnectInitialInterval)
 
-	// subscribe itself to each message from the cache, to keep track of the
-	// message timestamps for a more efficient reconnection
-	sc.BaseNotifier.Subscribe(sc)
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -120,13 +104,17 @@ func (sc *cacheSvcClient) connect(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("error receiving message: %w", err)
 		}
+		// we can safely assume that server-side events are ordered by timestamp
+		if event.GetType() != informer.EventType_SYNC_FINISHED && event.Resource != nil {
+			sc.lastEventTSEpoch = event.Resource.StatusTimeEpoch
+		}
+		sc.NotifyAndWait(event)
 		// send a notification about the client being synced with the K8s metadata service
 		// so OBI can start processing/decorating the received flows and traces
 		if event.GetType() == informer.EventType_SYNC_FINISHED && !sc.waitForSyncClosed {
 			close(sc.waitForSynchronization)
 			sc.waitForSyncClosed = true
 		}
-		sc.Notify(event)
 	}
 }
 
