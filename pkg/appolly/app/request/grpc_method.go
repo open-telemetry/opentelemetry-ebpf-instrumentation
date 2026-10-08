@@ -19,7 +19,7 @@ func GRPCMethod(s *Span) (method, original string) {
 		return rpcMethodOther, ""
 	}
 
-	if !isGRPCFullMethod(fullMethod) || isUnimplementedOnServer(s) {
+	if !isGRPCFullMethod(fullMethod) {
 		return rpcMethodOther, s.Path
 	}
 
@@ -30,10 +30,6 @@ func isGRPCFullMethod(fullMethod string) bool {
 	service, name, ok := strings.Cut(fullMethod, "/")
 
 	return ok && service != "" && name != "" && !strings.Contains(name, "/")
-}
-
-func isUnimplementedOnServer(s *Span) bool {
-	return s.Type == EventTypeGRPC && s.Status == grpcStatusCodeUnimplemented
 }
 
 func grpcSpanName(s *Span) string {

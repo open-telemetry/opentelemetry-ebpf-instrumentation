@@ -41,23 +41,14 @@ func TestGRPCMethod(t *testing.T) {
 	}
 }
 
-func TestGRPCMethodUnimplemented(t *testing.T) {
-	server := &Span{Type: EventTypeGRPC, Path: "/helloworld.Greeter/SayHello", Status: grpcStatusCodeUnimplemented}
-	method, original := GRPCMethod(server)
-	assert.Equal(t, rpcMethodOther, method)
-	assert.Equal(t, "/helloworld.Greeter/SayHello", original)
-	assert.Equal(t, "grpc", server.TraceName())
-
-	client := &Span{Type: EventTypeGRPCClient, Path: "/helloworld.Greeter/SayHello", Status: grpcStatusCodeUnimplemented}
-	method, original = GRPCMethod(client)
-	assert.Equal(t, "helloworld.Greeter/SayHello", method)
-	assert.Empty(t, original)
-	assert.Equal(t, "helloworld.Greeter/SayHello", client.TraceName())
-
-	unread := &Span{Type: EventTypeGRPC, Path: "*", Status: grpcStatusCodeUnimplemented}
-	method, original = GRPCMethod(unread)
-	assert.Equal(t, rpcMethodOther, method)
-	assert.Empty(t, original)
+func TestGRPCMethodUnimplementedKeepsMethod(t *testing.T) {
+	for _, eventType := range []EventType{EventTypeGRPC, EventTypeGRPCClient} {
+		span := &Span{Type: eventType, Path: "/helloworld.Greeter/SayHello", Status: grpcStatusCodeUnimplemented}
+		method, original := GRPCMethod(span)
+		assert.Equal(t, "helloworld.Greeter/SayHello", method)
+		assert.Empty(t, original)
+		assert.Equal(t, "helloworld.Greeter/SayHello", span.TraceName())
+	}
 }
 
 func TestGRPCMethodGetters(t *testing.T) {
@@ -74,10 +65,6 @@ func TestGRPCMethodGetters(t *testing.T) {
 		assert.Equal(t, rpcMethodOther, otelGetter(unread).Value.AsString())
 		assert.Equal(t, rpcMethodOther, promGetter(unread))
 	}
-
-	unimplemented := &Span{Type: EventTypeGRPC, Path: "/helloworld.Greeter/SayHello", Status: grpcStatusCodeUnimplemented}
-	assert.Equal(t, rpcMethodOther, otelGetter(unimplemented).Value.AsString())
-	assert.Equal(t, rpcMethodOther, promGetter(unimplemented))
 }
 
 func TestGRPCDebugAttributes(t *testing.T) {
