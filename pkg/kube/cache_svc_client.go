@@ -104,17 +104,22 @@ func (sc *cacheSvcClient) connect(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("error receiving message: %w", err)
 		}
+		if event.GetType() == informer.EventType_SYNC_FINISHED {
+			sc.NotifyAndWait(event)
+			// send a notification about the client being synced with the K8s metadata service
+			// so OBI can start processing/decorating the received flows and traces
+			if !sc.waitForSyncClosed {
+				close(sc.waitForSynchronization)
+				sc.waitForSyncClosed = true
+			}
+			continue
+		}
+
 		// we can safely assume that server-side events are ordered by timestamp
-		if event.GetType() != informer.EventType_SYNC_FINISHED && event.Resource != nil {
+		if event.Resource != nil {
 			sc.lastEventTSEpoch = event.Resource.StatusTimeEpoch
 		}
-		sc.NotifyAndWait(event)
-		// send a notification about the client being synced with the K8s metadata service
-		// so OBI can start processing/decorating the received flows and traces
-		if event.GetType() == informer.EventType_SYNC_FINISHED && !sc.waitForSyncClosed {
-			close(sc.waitForSynchronization)
-			sc.waitForSyncClosed = true
-		}
+		sc.Notify(event)
 	}
 }
 

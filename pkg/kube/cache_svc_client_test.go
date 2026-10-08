@@ -4,8 +4,10 @@
 package kube
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -69,6 +71,67 @@ func TestClientForwardsLastTimestamp(t *testing.T) {
 	assert.Equal(t, itemTime, secondSubscribe.FromTimestampEpoch)
 }
 
+func TestClientWaitsOnlyForSyncFinished(t *testing.T) {
+	fcs := startFakeCacheService(t)
+	blocker := &blockingSubscriber{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}),
+	}
+	fast := &recordingSubscriber{events: make(chan *informer.Event, 3)}
+	svc := cacheSvcClient{
+		address:                fmt.Sprintf("127.0.0.1:%d", fcs.port),
+		BaseNotifier:           meta.NewBaseNotifier(klog()),
+		waitForSynchronization: make(chan struct{}),
+	}
+	svc.BaseNotifier.Subscribe(blocker)
+	svc.BaseNotifier.Subscribe(fast)
+
+	var release sync.Once
+	t.Cleanup(func() {
+		release.Do(func() { close(blocker.release) })
+		svc.Unsubscribe(blocker)
+		svc.Unsubscribe(fast)
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	connectDone := make(chan error, 1)
+	go func() {
+		connectDone <- svc.connect(ctx)
+	}()
+	testutil.ReadChannel(t, fcs.clientMessages, timeout)
+
+	fcs.serverResponses <- &informer.Event{
+		Type:     informer.EventType_CREATED,
+		Resource: &informer.ObjectMeta{Name: "first", StatusTimeEpoch: 1},
+	}
+	testutil.ReadChannel(t, blocker.started, timeout)
+	first := testutil.ReadChannel(t, fast.events, timeout)
+	assert.Equal(t, "first", first.Resource.Name)
+
+	fcs.serverResponses <- &informer.Event{
+		Type:     informer.EventType_CREATED,
+		Resource: &informer.ObjectMeta{Name: "second", StatusTimeEpoch: 2},
+	}
+	second := testutil.ReadChannel(t, fast.events, timeout)
+	assert.Equal(t, "second", second.Resource.Name)
+
+	fcs.serverResponses <- &informer.Event{Type: informer.EventType_SYNC_FINISHED}
+	syncFinished := testutil.ReadChannel(t, fast.events, timeout)
+	assert.Equal(t, informer.EventType_SYNC_FINISHED, syncFinished.Type)
+	select {
+	case <-svc.waitForSynchronization:
+		t.Fatal("client synchronized before the blocked observer processed previous events")
+	case <-time.After(10 * time.Millisecond):
+	}
+
+	release.Do(func() { close(blocker.release) })
+	testutil.ReadChannel(t, svc.waitForSynchronization, timeout)
+	assert.Equal(t, int64(2), svc.lastEventTSEpoch)
+
+	cancel()
+	assert.Error(t, testutil.ReadChannel(t, connectDone, timeout))
+}
+
 func TestNormalizeReconnectInitialInterval(t *testing.T) {
 	testCases := []struct {
 		name     string
@@ -128,6 +191,33 @@ type dummySubscriber struct{}
 
 func (f dummySubscriber) ID() string                 { return "fake-subscriber" }
 func (f dummySubscriber) On(_ *informer.Event) error { return nil }
+
+type blockingSubscriber struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingSubscriber) ID() string { return "blocking-subscriber" }
+
+func (b *blockingSubscriber) On(_ *informer.Event) error {
+	select {
+	case b.started <- struct{}{}:
+	default:
+	}
+	<-b.release
+	return nil
+}
+
+type recordingSubscriber struct {
+	events chan *informer.Event
+}
+
+func (r *recordingSubscriber) ID() string { return "recording-subscriber" }
+
+func (r *recordingSubscriber) On(event *informer.Event) error {
+	r.events <- event
+	return nil
+}
 
 // fakeCacheService accepts gRPC requests from the client and records the received messages
 // also lets explicit which events forward to the client
