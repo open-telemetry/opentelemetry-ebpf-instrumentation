@@ -2,6 +2,9 @@
 go = "1.27.1"
 clang-format = "22.1.8"
 golangci-lint = "2.13.2"
+markdownlint-cli2 = "0.23.3"
+gradle = "9.8.0"
+python = ["3.9", "3.14"]
 
 [tool_alias]
 clang-tidy = "github:cpp-linter/clang-tools-static-binaries"
