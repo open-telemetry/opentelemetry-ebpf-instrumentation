@@ -39,6 +39,8 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 		return nil, err
 	}
 	_, defaults := RuntimeToV2(nil)
+	// Omitted features retain the protocol and network enablement mapping.
+	defaults.Capture.Metrics.Features = nil
 	var complete bool
 	var err error
 	src, complete, err = src.WithDefaults(defaults)
@@ -87,7 +89,9 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	cfg := runtimeConfigDefaults()
 	applyV2Capture(&cfg, src, policy, complete)
 	applyV2Standalone(&cfg, src, complete)
-	applyV2MetricsEnablement(&cfg, src, complete)
+	if err := applyV2MetricsEnablement(&cfg, src, complete); err != nil {
+		return nil, err
+	}
 	cfg.Attributes.Select.Normalize()
 	if err := cfg.EBPF.LogEnricher.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid log trace annotation: %w", err)
@@ -2297,7 +2301,16 @@ func completeDaemonTelemetry(telemetry schema.DaemonTelemetry) bool {
 	return telemetry.Metrics.Prometheus.SpanMetricsServiceCacheSize != 0
 }
 
-func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete bool) {
+func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete bool) error {
+	if features := src.Capture.Metrics.Features; features != nil {
+		mask, err := export.LoadFeatures(features)
+		if err != nil {
+			return fmt.Errorf("capture.metrics.features: %w", err)
+		}
+		cfg.Metrics.Features = mask
+		return nil
+	}
+
 	appMetricsEnabled, appConfigured := appMetricsEnablement(
 		src.Capture.Instrumentation,
 		complete || completeInstrumentation(src.Capture.Instrumentation),
@@ -2329,6 +2342,7 @@ func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete b
 		cfg.Metrics.Features &^= v2StatsMetricsFeatureMask
 		cfg.Metrics.Features |= statsFeatures
 	}
+	return nil
 }
 
 func appMetricsEnablement(instrumentation schema.Instrumentation, complete bool) (bool, bool) {

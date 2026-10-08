@@ -19,6 +19,7 @@ type Capture struct {
 	Instrumentation Instrumentation  `yaml:"instrumentation"`
 	Runtimes        CaptureRuntimes  `yaml:"runtimes"`
 	Network         CaptureNetwork   `yaml:"network"`
+	Metrics         CaptureMetrics   `yaml:"metrics"`
 	Limits          CaptureLimits    `yaml:"limits"`
 	Engine          CaptureEngine    `yaml:"engine"`
 	Safety          CaptureSafety    `yaml:"safety"`
@@ -177,4 +178,9 @@ type TracesTelemetry struct {
 type MetricsTelemetry struct {
 	ReportersCacheLen int      `yaml:"reporters_cache_len"`
 	TTL               Duration `yaml:"ttl"`
+}
+
+// CaptureMetrics selects the metric families emitted by OBI.
+type CaptureMetrics struct {
+	Features []string `yaml:"features"`
 }

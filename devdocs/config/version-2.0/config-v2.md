@@ -567,6 +567,43 @@ The current shape separates packet/flow capture from TCP stats capture:
 
 `tcp_io` can produce substantially more events than the other stats families, so users should opt into it deliberately when they need per-send/per-receive I/O stats.
 
+### `capture.metrics.features`
+
+Select metric families with the same names as Config v1. For standalone OBI:
+
+```yaml
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      metrics:
+        features:
+          - application
+          - network
+          - application_service_graph
+          - application_span_otel
+```
+
+In receiver mode, place this list at `metrics.features` in the OBI
+receiver body. Configure the standalone `meter_provider` or the Collector's
+metrics pipeline to export the selected metrics.
+
+The list accepts every V1 feature name, including `application_red`,
+`application_sizes`, `application_runtime`, `network_inter_zone`,
+`network_flow_packets`, `stats`, the individual `stats_tcp_*` names, `ebpf`,
+`all`, and `*`. The legacy names `application_span` and `application_span_sizes`
+remain accepted with the same deprecation warnings as V1. Use
+`application_span_otel` for the OpenTelemetry span metric names.
+
+An explicit list replaces the feature selection inferred from protocol metrics
+switches, HTTP `body_size_metrics`, and network capture/stats settings. `[]`
+disables all metric features. Omitting the list preserves the existing V2
+inference. Protocol `enabled.metrics` switches still select which protocols
+supply metrics, and `network.capture.enabled: true` can force flow capture
+independently of the feature list. The existing V1 feature validation applies,
+including the requirement that `application_sizes` accompany application RED
+metrics and the conflict between the two span metric formats.
+
 ### `capture.engine` Section
 
 The `capture.engine` section controls eBPF engine internals: event batching, PID-based filtering, BPF filesystem path, context propagation mode, traffic control backend, transaction duration limits, and debug toggles.
@@ -664,7 +701,7 @@ Important mapping notes:
   - `filter.application` fans out to `capture.instrumentation.<protocol>.filters.{traces,metrics}`.
   - `filter.network` fans out to `capture.network.capture.filters.{traces,metrics}`.
   - `filter.stats` fans out to `capture.network.stats.filters.{traces,metrics}`.
-  - Supported `metrics.features` values map to `capture.instrumentation.<protocol>.enabled.metrics`, `capture.network.capture.enabled`, and `capture.network.stats.{enabled,features}`. These are application RED, basic network flow, and individual network-stat features.
+  - `metrics.features` maps to `capture.metrics.features` using the same names as Config v1. Protocol and network switches are also populated to preserve capture behavior.
   - Discovery selectors are exported as effective `capture.rules` after legacy/new selector precedence is resolved.
   - `discovery.skip_go_specific_tracers` maps to `capture.runtimes.go.enabled` with inverted semantics.
 
@@ -809,7 +846,7 @@ Important mapping notes:
 | `log_config` | `extensions.obi.daemon.logging.config_format` | Move + rename |
 | `log_format` | `extensions.obi.daemon.logging.format` | Move + rename |
 | `log_level` | Top-level `log_level` | Move to standard field |
-| `metrics.features` | `extensions.obi.capture.instrumentation.<protocol>.enabled.metrics` + `extensions.obi.capture.network.capture.enabled` + `extensions.obi.capture.network.stats.{enabled,features}` | Split mapping for application RED, basic network flow, and individual network-stat features only |
+| `metrics.features` | `extensions.obi.capture.metrics.features` | Same feature names as Config v1; protocol and network capture switches are also populated |
 | `name_resolver.cache_expiry` | `extensions.obi.enrich.service_name.cache.ttl` | Move + rename |
 | `name_resolver.cache_len` | `extensions.obi.enrich.service_name.cache.size` | Move + rename |
 | `name_resolver.sources` | `extensions.obi.enrich.service_name.sources` | Move |
@@ -843,7 +880,7 @@ Important mapping notes:
 | `network.source` | `extensions.obi.capture.network.capture.source` | Move |
 | `nodejs.enabled` | `extensions.obi.capture.runtimes.nodejs.enabled` | Move |
 | `otel_metrics_export.endpoint` | `meter_provider.readers[0].periodic.exporter.otlp_grpc.endpoint` or, with gated HTTP support, `.otlp_http.endpoint` | OTel ownership move; automatic migration emits gRPC, while HTTP requires the documented manual mapping |
-| `otel_metrics_export.features` | Split through the effective `metrics.features` mapping | Deprecated; an enabled OTLP exporter whose deprecated `features` field is present (including `[]`) takes precedence, otherwise enabled Prometheus features may supply it |
+| `otel_metrics_export.features` | Use the effective `metrics.features` mapping | Deprecated; an enabled OTLP exporter whose deprecated `features` field is present (including `[]`) takes precedence, otherwise enabled Prometheus features may supply it |
 | `otel_metrics_export.histogram_aggregation` | `meter_provider.readers[0].periodic.exporter.otlp_grpc.default_histogram_aggregation` | OTel ownership move + declarative reader/exporter shape |
 | `otel_metrics_export.instrumentations` | `extensions.obi.capture.instrumentation.<protocol>.enabled.metrics` | Only protocols modeled by v2; migration rejects differing active OTLP and Prometheus lists |
 | `otel_metrics_export.interval` | `meter_provider.readers[0].periodic.interval` | Converted to milliseconds |
@@ -865,7 +902,7 @@ Important mapping notes:
 | `prometheus_export.extra_span_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_span_resource_attributes` | Move to daemon telemetry tuning |
 | `prometheus_export.port` | `meter_provider.readers[1].pull.exporter.prometheus/development.port` | OTel ownership move + declarative reader/exporter shape |
 | `prometheus_export.path` | *No canonical OTel core path in current declarative schema* | Distribution-specific/unsupported in current target shape |
-| `prometheus_export.features` | Split through the effective `metrics.features` mapping | Deprecated; used only when the OTLP metric exporter does not provide features |
+| `prometheus_export.features` | Use the effective `metrics.features` mapping | Deprecated; used only when the OTLP metric exporter does not provide features |
 | `prometheus_export.instrumentations` | `extensions.obi.capture.instrumentation.<protocol>.enabled.metrics` | Only protocols modeled by v2; migration rejects differing active Prometheus and OTLP lists |
 | `prometheus_export.service_cache_size` | `extensions.obi.daemon.telemetry.metrics.prometheus.span_metrics_service_cache_size` | Move to daemon telemetry tuning + rename |
 | `routes.ignore_mode` | `extensions.obi.capture.instrumentation.http.routes.{incoming,outgoing}.ignore_mode` | Move + duplicate v1 global value into both directions |

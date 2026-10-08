@@ -558,6 +558,9 @@ extensions:
         send_timeout: 1m0s
         panic_on_send_timeout: false
 
+      metrics:
+        features: [application]
+
       # telemetry tunes reporter caches and metric TTLs for OBI capture internals.
       telemetry:
         traces:

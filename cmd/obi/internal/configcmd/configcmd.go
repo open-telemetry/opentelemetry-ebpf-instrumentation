@@ -790,7 +790,8 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 }
 
 func equalMigrationFeatures(before, after featureexport.Features) bool {
-	return before&^featureexport.FeatureEmpty == after&^featureexport.FeatureEmpty
+	// "all" also sets unnamed bits that are not represented in a feature list.
+	return slices.Equal(before.Names(), after.Names())
 }
 
 func equalMigrationInstrumentations(

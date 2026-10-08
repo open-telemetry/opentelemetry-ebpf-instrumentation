@@ -927,6 +927,53 @@
               }
             }
           }
+        },
+        "metrics": {
+          "type": "object",
+          "description": "Select the metric families emitted by OBI.",
+          "additionalProperties": false,
+          "properties": {
+            "features": {
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "*",
+                      "all",
+                      "application",
+                      "application_red",
+                      "application_runtime",
+                      "application_service_graph",
+                      "application_sizes",
+                      "application_span_otel",
+                      "ebpf",
+                      "network",
+                      "network_flow_packets",
+                      "network_inter_zone",
+                      "stats",
+                      "stats_tcp_failed_connections",
+                      "stats_tcp_io",
+                      "stats_tcp_retransmits",
+                      "stats_tcp_rtt",
+                      "stats_tcp_successful_connections"
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "application_span",
+                      "application_span_sizes"
+                    ],
+                    "description": "Deprecated feature names, kept for backwards compatibility: application_span (use application_span_otel), application_span_sizes (no direct replacement).",
+                    "deprecated": true
+                  }
+                ]
+              },
+              "type": "array",
+              "description": "Metric features using the same names as Config v1. An explicit list replaces the selection inferred from protocol and network switches; [] disables all metric features. When omitted, protocol and network enablement determines the features."
+            }
+          }
         }
       }
     },
