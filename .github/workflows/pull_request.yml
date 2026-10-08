@@ -22,6 +22,7 @@ on:
       - "scripts/**"
       - "Makefile"
       - "mise.toml"
+      - "mise.lock"
       - "Dockerfile"
       - "**/*Dockerfile*"
   workflow_call:
@@ -107,9 +108,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up clang-format
-        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] this tool cache is only used by lint/PR checks; release workflows do not use mise-action
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          cache_key: "{{default}}-clang-format"
+          cache: false
 
       - name: Check clang-format
         run: |
@@ -140,9 +141,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up clang-tidy
-        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] this tool cache is only used by lint/PR checks; release workflows do not use mise-action
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          cache_key: "{{default}}-clang-tidy"
+          cache: false
 
       - name: Check clang-tidy version
         run: mise exec -- clang-tidy --version

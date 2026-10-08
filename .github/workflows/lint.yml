@@ -11,6 +11,7 @@ on:
       - "**/*Dockerfile*"
       - "Makefile"
       - "mise.toml"
+      - "mise.lock"
       - "**.go"
       - "go.mod"
       - "go.sum"
@@ -74,9 +75,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up mise tools
-        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] this tool cache is only used by lint/PR checks; release workflows do not use mise-action
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          cache_key: "{{default}}-go-lint"
+          cache: false
 
       - name: Check golangci-lint version consistency
         if: matrix.platform.arch == 'amd64'
@@ -128,9 +129,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up mise tools
-        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] this tool cache is only used by lint/PR checks; release workflows do not use mise-action
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          cache_key: "{{default}}-go-lint"
+          cache: false
 
       - name: Go build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
