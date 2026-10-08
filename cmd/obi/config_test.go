@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -326,4 +328,10 @@ func TestLoadRoute53IntegrationConfig(t *testing.T) {
 	require.Equal(t, "frontend", cfg.ServiceName)
 	require.Equal(t, "integration-test", cfg.ServiceNamespace)
 	require.Equal(t, 10*time.Millisecond, cfg.EBPF.BatchTimeout)
+	selector, err := attributes.NewAttrSelector(0, &attributes.SelectorConfig{
+		SelectionCfg:            cfg.Attributes.Select,
+		ExtraGroupAttributesCfg: cfg.Attributes.ExtraGroupAttributes,
+	})
+	require.NoError(t, err)
+	require.Contains(t, selector.For(attributes.HTTPClientDuration), attr.Server)
 }

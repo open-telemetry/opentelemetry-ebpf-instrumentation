@@ -93,7 +93,7 @@ func TestRoute53ServiceResolution(t *testing.T) {
 			require.NoError(ct, err)
 			require.NoError(ct, resp.Body.Close())
 			require.Equal(ct, http.StatusOK, resp.StatusCode)
-			results, err := pq.Query(fmt.Sprintf(`http_client_request_duration_seconds_count{service_name="frontend",server_address=%q}`, name))
+			results, err := pq.Query(fmt.Sprintf(`http_client_request_duration_seconds_count{service_name="frontend",server=%q,server_address="ecs-backend"}`, name))
 			require.NoError(ct, err)
 			assert.NotEmpty(ct, results)
 		}, testTimeout, 100*time.Millisecond)

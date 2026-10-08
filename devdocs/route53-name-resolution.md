@@ -71,7 +71,7 @@ For local tests, its endpoint override is `AWS_ENDPOINT_URL_ROUTE_53`.
 
 `TestRoute53ServiceResolution` starts a digest-pinned Floci container, creates a
 hosted zone and a record pointing at a backend container, and checks the exported
-HTTP client metric's `server.address`. It uses a one-second Route53 interval and
+HTTP client metric's explicitly enabled `server` label. It uses a one-second Route53 interval and
 replaces the record to verify periodic refreshes. Existing EC2/ECS metadata containers and the ECS API failure mock remain unchanged.
 
 ```sh

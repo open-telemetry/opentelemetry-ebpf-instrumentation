@@ -37,6 +37,9 @@ extensions:
       service_name:
         sources: [route53]
       attributes:
+        # server carries the resolved peer; server.address retains the HTTP Host.
+        extra_group_attributes:
+          app: [server]
         select:
           "*":
             include: ["*"]
