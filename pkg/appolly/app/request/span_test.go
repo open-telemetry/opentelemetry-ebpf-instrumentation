@@ -227,7 +227,8 @@ func TestTraceName(t *testing.T) {
 		{name: "SQL no table with namespace", span: &Span{Type: EventTypeSQLClient, Method: "SELECT", DBNamespace: "mydb"}, expected: "SELECT mydb"},
 		{name: "SQL table wins over namespace", span: &Span{Type: EventTypeSQLClient, Method: "SELECT", Path: "users", DBNamespace: "mydb"}, expected: "SELECT users"},
 		{name: "SQL query summary wins", span: &Span{Type: EventTypeSQLClient, Method: "SELECT", DBQuerySummary: "SELECT users orders", DBNamespace: "mydb"}, expected: "SELECT users orders"},
-		{name: "SQL empty", span: &Span{Type: EventTypeSQLClient}, expected: "SQL"},
+		{name: "SQL empty", span: &Span{Type: EventTypeSQLClient}, expected: "other_sql"},
+		{name: "SQL without operation names its namespace", span: &Span{Type: EventTypeSQLClient, DBNamespace: "shop"}, expected: "shop"},
 
 		// Elasticsearch spans
 		{name: "Elasticsearch index", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch, DBNamespace: "cluster-a", Elasticsearch: &Elasticsearch{DBOperationName: "search", DBCollectionName: "my-index"}}, expected: "search my-index"},
@@ -236,9 +237,9 @@ func TestTraceName(t *testing.T) {
 
 		// Redis spans
 		{name: "Redis client", span: &Span{Type: EventTypeRedisClient, Method: "GET"}, expected: "GET"},
-		{name: "Redis empty", span: &Span{Type: EventTypeRedisClient}, expected: "REDIS"},
+		{name: "Redis empty", span: &Span{Type: EventTypeRedisClient}, expected: "redis"},
 		{name: "Memcached client", span: &Span{Type: EventTypeMemcachedClient, Method: "GET", Path: "cache-key"}, expected: "GET"},
-		{name: "Memcached empty", span: &Span{Type: EventTypeMemcachedClient}, expected: "MEMCACHED"},
+		{name: "Memcached empty", span: &Span{Type: EventTypeMemcachedClient}, expected: "memcached"},
 
 		// Kafka spans
 		{name: "Kafka client send", span: &Span{Type: EventTypeKafkaClient, Method: MessagingSend, Path: "orders"}, expected: "send orders"},
@@ -293,6 +294,12 @@ func TestTraceName(t *testing.T) {
 
 		// Other spans
 		{name: "Mongo client", span: &Span{Type: EventTypeMongoClient, Method: "find", Path: "users"}, expected: "find users"},
+		{name: "Mongo operation on a database", span: &Span{Type: EventTypeMongoClient, Method: "listCollections", DBNamespace: "shop"}, expected: "listCollections shop"},
+		{name: "Mongo empty", span: &Span{Type: EventTypeMongoClient}, expected: "mongodb"},
+		{name: "Couchbase without operation names its collection", span: &Span{Type: EventTypeCouchbaseClient, Path: "users"}, expected: "users"},
+		{name: "Couchbase operation on a bucket", span: &Span{Type: EventTypeCouchbaseClient, Method: "GET", DBNamespace: "travel"}, expected: "GET travel"},
+		{name: "Couchbase empty", span: &Span{Type: EventTypeCouchbaseClient}, expected: "couchbase"},
+		{name: "Aerospike empty", span: &Span{Type: EventTypeAerospikeClient}, expected: "aerospike"},
 		{name: "Failed connect", span: &Span{Type: EventTypeFailedConnect}, expected: "CONNECT"},
 		{name: "DNS", span: &Span{Type: EventTypeDNS, Method: "A", Path: "example.com"}, expected: "A example.com"},
 	}
