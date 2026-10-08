@@ -979,6 +979,28 @@ otel_traces_export:
 `, stderr.String())
 }
 
+func TestMigrateConfigRoute53Settings(t *testing.T) {
+	output, _, err := migrateConfig([]byte(`
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+trace_printer: text
+name_resolver:
+  sources: [route53]
+cloud_metadata:
+  route53:
+    refresh_interval: 2s
+    hosted_zone_ids: [Z123, /hostedzone/Z456]
+`))
+	require.NoError(t, err)
+	_, ext, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+	require.Len(t, ext.Enrich.ServiceName.Sources, 1)
+	require.Equal(t, "route53", string(ext.Enrich.ServiceName.Sources[0]))
+	require.Equal(t, "2s", ext.Enrich.Enrichers.Cloud.Route53.RefreshInterval.TimeDuration().String())
+	require.Equal(t, []string{"Z123", "/hostedzone/Z456"}, ext.Enrich.Enrichers.Cloud.Route53.HostedZoneIDs)
+}
+
 // The log enricher's service selection migrates to log_trace_annotation.match
 func TestMigrateConfigLogEnricherServices(t *testing.T) {
 	output, _, err := migrateConfig([]byte(`
