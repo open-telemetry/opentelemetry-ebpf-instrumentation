@@ -88,7 +88,7 @@ Secrets reach OBI through root-only files, not EC2 user data. They **are stored 
 Terraform state and encrypted S3**: protect state and saved plans, and keep
 credentials out of version control.
 
-## Try it and clean up
+## Try it
 
 In the AWS console, open **EC2 → Instances** in the account used for `apply` and
 the configured region (`eu-west-1`, Ireland, by default). The nodes are named
@@ -132,11 +132,31 @@ In the AWS console, the check's output is also available under **Systems Manager
 → State Manager → the `<name>-frontend-ready` or `<name>-backend-ready` association
 → Execution history**.
 
+## Destroy the environment
+
+From the repository root, using the same AWS account and Terraform state as the
+deployment, run:
+
 ```sh
 terraform -chdir=examples/cloud/aws destroy
 ```
 
-This also deletes the artifacts bucket. Local Terraform state is not removed.
+Review the proposed deletions and enter `yes` to confirm. This removes both EC2
+instances and their disks, the VPC and networking, private Route53 zone, IAM and
+SSM resources, and the artifacts bucket **including its contents**.
+
+Use the same overrides as for `apply`: `terraform.tfvars` is loaded automatically;
+pass any `-var` or `-var-file` arguments again and keep any `TF_VAR_*` variables
+set. Keep local binary/config files available until cleanup finishes.
+
+Keep the local state until `destroy` completes. Afterwards, the following command
+should print no managed resources:
+
+```sh
+terraform -chdir=examples/cloud/aws state list
+```
+
+The local state files remain on disk; `.terraform.lock.hcl` stays in Git.
 
 ## Validate without deploying
 
