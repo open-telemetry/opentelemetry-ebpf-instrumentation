@@ -23,8 +23,58 @@ func embeddedSDKActivationAlias(name string) string {
 	return ""
 }
 
-// OTel 1.35 inlines the private hook. Stop immediately before reading the flag,
-// after its pointer has been loaded into the third Go argument register.
+// embeddedSDKFlagReadOffset finds where to attach the embedded SDK activation
+// probe in data, the compiled instructions of a TracerProvider method. It returns
+// a byte offset relative to the start of data, or zero if no usable match exists.
+//
+// The OTel trace package contains an embedded SDK, normally disabled. Its
+// autoInstEnabled variable points to a boolean initially set to false.
+// noopSpan.TracerProvider passes this pointer to its private tracerProvider
+// helper, which chooses between recording and no-op providers:
+//
+//	if *autoEnabled {
+//		return newAutoTracerProvider()
+//	}
+//	return noopTracerProvider{}
+//
+// OBI's activation probe writes true through this pointer after the span capture
+// probes have attached. OTel 1.35 can inline the helper into public TracerProvider
+// methods, leaving no separate helper entry to probe. This fallback recognizes
+// the compiled flag check inside those methods. OTel 1.36+ uses //go:noinline on
+// the helper, so the normal function-entry probe can be used instead.
+//
+// A register is temporary storage inside the CPU; [register] means the memory at
+// the address it holds. The recognized amd64 instructions are:
+//
+//	MOV RCX, [RIP+disp] // Load the global pointer into RCX, relative to the code.
+//	CMP byte [RCX], 0   // Read the boolean byte and compare it with false (zero).
+//	JE disabled        // Jump if the comparison found zero.
+//
+// On arm64, the equivalent sequence uses a page address to locate the pointer:
+//
+//	ADRP Xn, page       // Locate the memory page containing the global pointer.
+//	LDR X2, [Xn, disp]  // Load that pointer into X2.
+//	LDRB W2, [X2]      // Read the boolean byte directly through the pointer.
+//	TBZ W2, 0, disabled // Jump if bit zero of the boolean is clear (false).
+//
+// disp is the compiler-chosen offset used to locate the stored pointer; it can
+// vary between builds. amd64 instructions also vary in length, so they must be
+// decoded to advance to the next instruction. arm64 instructions are always
+// four bytes, so each candidate is a four-instruction window.
+//
+// Return the offset of CMP or LDRB: the probe runs before that instruction, when
+// the pointer has been loaded but the flag has not yet been read. It must be in
+// RCX or X2 because the activation probe reads GO_PARAM3, the third Go argument
+// register. At the helper entry, noopSpan's embedded interface receiver uses the
+// first two argument registers, so autoEnabled is in the third. The inlined
+// sequence must leave the pointer in that same register for this probe to work.
+// W2 is the lower-width view of X2; writing the byte into W2 overwrites X2's
+// pointer. Attaching after LDRB would therefore lose the address needed to write
+// the flag. The exact LDRB encoding also excludes reads at an added offset.
+//
+// Only these recognized sequences produce a probe location. If the compiler
+// emits a different sequence, returning zero tells the loader to skip this
+// activation hook rather than write through an unverified pointer.
 func embeddedSDKFlagReadOffset(machine elf.Machine, data []byte) uint64 {
 	if machine == elf.EM_X86_64 {
 		for index := 0; index < len(data); {
