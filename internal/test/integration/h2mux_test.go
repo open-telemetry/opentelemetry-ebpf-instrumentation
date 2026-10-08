@@ -372,7 +372,7 @@ func h2muxSpansByPath(ct *assert.CollectT, service, burstID string) map[string]j
 			if process, ok := trace.Processes[span.ProcessID]; !ok || process.ServiceName != service {
 				continue
 			}
-			match := h2muxOperation.FindStringSubmatch(span.OperationName)
+			match := h2muxOperation.FindStringSubmatch(h2muxRequestPath(span))
 			if match == nil || !strings.HasPrefix(match[2], prefix) {
 				continue
 			}
@@ -380,6 +380,17 @@ func h2muxSpansByPath(ct *assert.CollectT, service, burstID string) map[string]j
 		}
 	}
 	return spans
+}
+
+// h2muxRequestPath returns the span's request path: the burst paths are not
+// valid gRPC methods, so gRPC spans carry them in rpc.method_original.
+func h2muxRequestPath(span jaeger.Span) string {
+	if tag, ok := jaeger.FindIn(span.Tags, "rpc.method_original"); ok {
+		if path, ok := jaeger.TagFirstStringValue(tag); ok {
+			return path
+		}
+	}
+	return span.OperationName
 }
 
 func h2muxParseRecords(logs, prefix string) []h2muxBurstRecord {
