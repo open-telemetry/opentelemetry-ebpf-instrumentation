@@ -236,7 +236,7 @@ lint_from_digest_pinning() {
         img = a[i]
         resolved_img = expand_arg_defaults(img)
 
-        is_stage_ref = (img in stages)
+        is_stage_ref = (resolved_img in stages)
 
         if (resolved_img != "scratch" && !is_stage_ref) {
           if (resolved_img !~ /@sha256:/) {

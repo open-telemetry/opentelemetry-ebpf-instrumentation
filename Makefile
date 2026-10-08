@@ -622,10 +622,10 @@ integration-test-matrix-json:
 
 # Shared matrix for workflows that run the VM-side test suite. Pattern
 # covers multiprocess context propagation, gRPC relay, the HTTP
-# logenricher pipeline, and the large HTTP request body path.
+# logenricher pipeline, large HTTP request bodies, and Go Auto SDK activation.
 .PHONY: multiprocess-integration-test-matrix-json
 multiprocess-integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest)"
+	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest|TestGo.*SDKActivation)"
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:

@@ -30,6 +30,7 @@ var (
 	http2ZeroFortyFive  = version.Must(version.NewVersion("0.45.0"))
 	mongoOneThirteenOne = version.Must(version.NewVersion("1.13.1"))
 	pqOneElevenZero     = version.Must(version.NewVersion("1.11.0"))
+	otelEmbeddedSDKMin  = version.Must(version.NewVersion("1.35.0"))
 )
 
 type activationModule struct {
@@ -172,6 +173,8 @@ const (
 	SpanContextTraceFlagsPos
 	AutoSDKSpanContextPos
 	AutoSDKActivationSupported
+	EmbeddedSDKSpanContextPos
+	EmbeddedSDKActivationSupported
 	// go runtime channels
 	HchanQcountPos
 	HchanDataqsizPos
@@ -611,6 +614,10 @@ var structMembers = map[string]structInfo{
 			"spanContext": AutoSDKSpanContextPos,
 		},
 	},
+	"go.opentelemetry.io/otel/trace.autoSpan": {
+		lib:    "go.opentelemetry.io/otel/trace",
+		fields: map[string]GoOffset{"spanContext": EmbeddedSDKSpanContextPos},
+	},
 	"runtime.hchan": {
 		lib: "go",
 		fields: map[string]GoOffset{
@@ -885,6 +892,13 @@ func setGoAutoSDKActivationSupport(
 	modules moduleVersions,
 	elfFile *elf.File,
 ) {
+	fieldOffsets[EmbeddedSDKActivationSupported] = uint64(0)
+	traceVersion, err := version.NewVersion(modules.versions["go.opentelemetry.io/otel/trace"])
+	if goAutoSDKActivationArchitectureSupported(elfFile) &&
+		err == nil && !traceVersion.LessThan(otelEmbeddedSDKMin) &&
+		activationModulesSupported(modules, goAutoSDKActivationModules[1:]) {
+		fieldOffsets[EmbeddedSDKActivationSupported] = uint64(1)
+	}
 	fieldOffsets[AutoSDKActivationSupported] = uint64(0)
 	if goAutoSDKActivationArchitectureSupported(elfFile) &&
 		goAutoSDKActivationSupported(modules) {
@@ -901,11 +915,15 @@ func goAutoSDKActivationArchitectureSupported(elfFile *elf.File) bool {
 }
 
 func goAutoSDKActivationSupported(modules moduleVersions) bool {
+	return activationModulesSupported(modules, goAutoSDKActivationModules[:])
+}
+
+func activationModulesSupported(modules moduleVersions, requiredModules []activationModule) bool {
 	if modules.invalid {
 		return false
 	}
 
-	for _, required := range goAutoSDKActivationModules {
+	for _, required := range requiredModules {
 		if _, replaced := modules.replacements[required.path]; replaced {
 			return false
 		}

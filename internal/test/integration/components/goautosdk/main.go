@@ -13,7 +13,6 @@ import (
 	"runtime"
 	"strings"
 
-	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -26,13 +25,12 @@ const (
 )
 
 var (
-	version = os.Getenv("OTEL_TEST_VERSION")
-	tracer  = otel.Tracer(
-		"go-auto-sdk-activation-test",
-		trace.WithInstrumentationVersion("v1.0.0"),
-		trace.WithSchemaURL("https://opentelemetry.io/schemas/1.30.0"),
-	)
-	work = make(chan func())
+	version        = os.Getenv("OTEL_TEST_VERSION")
+	tracer         trace.Tracer
+	rootContext    = context.Background()
+	nameSuffix     string
+	externalTracer func(context.Context) trace.Tracer
+	work           = make(chan func())
 )
 
 func init() {
@@ -47,20 +45,20 @@ func main() {
 	http.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	http.HandleFunc("/activation", func(w http.ResponseWriter, _ *http.Request) {
-		if !autoSDKActivated() {
+	http.HandleFunc("/activation", func(w http.ResponseWriter, r *http.Request) {
+		if !autoSDKActivated(r) {
 			http.Error(w, "Auto SDK is not active", http.StatusServiceUnavailable)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})
-	http.HandleFunc("/spans", func(w http.ResponseWriter, _ *http.Request) {
-		runOnWorker(emitNestedSpans)
+	http.HandleFunc("/spans", func(w http.ResponseWriter, r *http.Request) {
+		runWithTracer(r, emitNestedSpans)
 		w.WriteHeader(http.StatusOK)
 	})
-	http.HandleFunc("/page-boundary", func(w http.ResponseWriter, _ *http.Request) {
+	http.HandleFunc("/page-boundary", func(w http.ResponseWriter, r *http.Request) {
 		var spanAddress uintptr
-		runOnWorker(func() {
+		runWithTracer(r, func() {
 			spanAddress = emitPageBoundarySpans()
 		})
 		if spanAddress == 0 {
@@ -70,8 +68,8 @@ func main() {
 		w.Header().Set("X-Auto-SDK-Span-Address", fmt.Sprintf("%x", spanAddress))
 		w.WriteHeader(http.StatusOK)
 	})
-	http.HandleFunc("/oversized", func(w http.ResponseWriter, _ *http.Request) {
-		runOnWorker(emitOversizedThenRoot)
+	http.HandleFunc("/oversized", func(w http.ResponseWriter, r *http.Request) {
+		runWithTracer(r, emitOversizedThenRoot)
 		w.WriteHeader(http.StatusOK)
 	})
 
@@ -80,14 +78,40 @@ func main() {
 	}
 }
 
-func autoSDKActivated() bool {
+func autoSDKActivated(r *http.Request) bool {
 	var recording bool
-	runOnWorker(func() {
-		_, span := tracer.Start(context.Background(), spanName("activation-probe"))
-		recording = span.IsRecording()
+	runWithTracer(r, func() {
+		_, span := tracer.Start(rootContext, spanName("activation-probe"))
+		recording = span.IsRecording() && span.SpanContext().IsValid()
 		span.End()
 	})
 	return recording
+}
+
+func runWithTracer(r *http.Request, f func()) {
+	runOnWorker(func() {
+		rootContext = context.Background()
+		nameSuffix = r.URL.Query().Get("context")
+		if nameSuffix != "" {
+			sc := trace.NewSpanContext(trace.SpanContextConfig{
+				TraceID: trace.TraceID{1}, SpanID: trace.SpanID{2}, TraceFlags: trace.FlagsSampled,
+			})
+			rootContext = trace.ContextWithSpanContext(rootContext, sc)
+			if nameSuffix == "remote" {
+				rootContext = trace.ContextWithRemoteSpanContext(context.Background(), sc)
+			}
+		}
+		if externalTracer != nil && (r.URL.Query().Get("sdk") == "external" ||
+			os.Getenv("OTEL_TEST_SDK") != "embedded" && r.URL.Query().Get("sdk") != "embedded") {
+			tracer = externalTracer(rootContext)
+		} else {
+			tracer = trace.SpanFromContext(rootContext).TracerProvider().Tracer("go-auto-sdk-activation-test",
+				trace.WithInstrumentationVersion("v1.0.0"),
+				trace.WithSchemaURL("https://opentelemetry.io/schemas/1.30.0"))
+		}
+		nameSuffix += r.URL.Query().Get("sdk")
+		f()
+	})
 }
 
 func runOnWorker(f func()) {
@@ -101,7 +125,7 @@ func runOnWorker(f func()) {
 
 func emitNestedSpans() {
 	ctx, root := tracer.Start(
-		context.Background(),
+		rootContext,
 		spanName("root"),
 		trace.WithSpanKind(trace.SpanKindProducer),
 		trace.WithAttributes(
@@ -109,17 +133,24 @@ func emitNestedSpans() {
 			attribute.Bool("obitest.activation.root", true),
 		),
 	)
+	if !root.IsRecording() || !root.SpanContext().IsValid() {
+		panic("root span is not recording with a valid context")
+	}
 	root.AddEvent(
 		"root event",
 		trace.WithAttributes(attribute.String("obitest.event.detail", "preserved")),
 	)
 
-	_, child := tracer.Start(
+	childTracer := root.TracerProvider().Tracer("go-auto-sdk-activation-test")
+	_, child := childTracer.Start(
 		ctx,
 		spanName("child-before-rename"),
 		trace.WithSpanKind(trace.SpanKindClient),
 		trace.WithAttributes(attribute.Int("obitest.activation.answer", 42)),
 	)
+	if !child.IsRecording() || !child.SpanContext().IsValid() {
+		panic("child span is not recording with a valid context")
+	}
 	child.SetName(spanName("child"))
 	child.SetStatus(codes.Error, "expected test status")
 	child.RecordError(
@@ -164,5 +195,9 @@ func emitOversizedThenRoot() {
 }
 
 func spanName(name string) string {
-	return fmt.Sprintf("auto-sdk-%s-%s", name, version)
+	suffix := version
+	if nameSuffix != "" {
+		suffix += "-" + nameSuffix
+	}
+	return fmt.Sprintf("auto-sdk-%s-%s", name, suffix)
 }

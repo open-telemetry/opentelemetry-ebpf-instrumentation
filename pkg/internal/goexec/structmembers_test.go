@@ -17,6 +17,7 @@ import (
 	"github.com/grafana/go-offsets-tracker/pkg/offsets"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/mod/semver"
 
 	"go.opentelemetry.io/obi/internal/test/tools"
 )
@@ -836,4 +837,24 @@ func (f *fakeDwarfReader) Next() (*dwarf.Entry, error) {
 	entry := f.entries[0]
 	f.entries = f.entries[1:]
 	return entry, nil
+}
+
+func TestEmbeddedSDKActivationEligibility(t *testing.T) {
+	elfFile := &elf.File{FileHeader: elf.FileHeader{Class: elf.ELFCLASS64, Machine: elf.EM_X86_64}}
+	for traceVersion := range goAutoSDKActivationModules[1].sums {
+		t.Run(traceVersion, func(t *testing.T) {
+			modules := moduleVersions{versions: map[string]string{}, sums: map[string]string{}}
+			for _, required := range goAutoSDKActivationModules[1:] {
+				modules.versions[required.path] = traceVersion
+				modules.sums[required.path] = required.sums[traceVersion]
+			}
+			offsets := FieldOffsets{}
+			setGoAutoSDKActivationSupport(offsets, modules, elfFile)
+			assert.Equal(t, semver.Compare(traceVersion, "v1.35.0") >= 0, offsets[EmbeddedSDKActivationSupported] == uint64(1))
+			assert.Equal(t, uint64(0), offsets[AutoSDKActivationSupported])
+			modules.sums["go.opentelemetry.io/otel/trace"] = "invalid"
+			setGoAutoSDKActivationSupport(offsets, modules, elfFile)
+			assert.Equal(t, uint64(0), offsets[EmbeddedSDKActivationSupported])
+		})
+	}
 }

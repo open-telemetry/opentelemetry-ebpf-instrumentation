@@ -269,7 +269,7 @@ func buildOBIImage(ctx context.Context) error {
 	return buildDockerImage(ctx, os.Stdout, "hatest-obi", "internal/test/integration/components/obi/Dockerfile")
 }
 
-func buildDockerImage(ctx context.Context, output io.Writer, tag, dockerfile string) error {
+func buildDockerImage(ctx context.Context, output io.Writer, tag, dockerfile string, buildArgs ...map[string]*string) error {
 	buildContext, err := createBuildContext(pathRoot)
 	if err != nil {
 		return err
@@ -278,9 +278,14 @@ func buildDockerImage(ctx context.Context, output io.Writer, tag, dockerfile str
 		_ = buildContext.Close()
 	}()
 
+	var args map[string]*string
+	if len(buildArgs) > 0 {
+		args = buildArgs[0]
+	}
 	result, err := dockerPool.Client().ImageBuild(ctx, buildContext, client.ImageBuildOptions{
 		Tags:       []string{tag},
 		Dockerfile: dockerfile,
+		BuildArgs:  args,
 		Remove:     true,
 	})
 	if err != nil {

@@ -576,6 +576,20 @@
         ]
       }
     },
+    "go.opentelemetry.io/otel/trace.autoSpan": {
+      "spanContext": {
+        "versions": {
+          "oldest": "1.35.0",
+          "newest": "1.46.0"
+        },
+        "offsets": [
+          {
+            "offset": 16,
+            "since": "1.35.0"
+          }
+        ]
+      }
+    },
     "golang.org/x/net/http2.ClientConn": {
       "fr": {
         "versions": {
