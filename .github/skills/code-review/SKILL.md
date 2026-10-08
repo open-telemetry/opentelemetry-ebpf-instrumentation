@@ -7,12 +7,13 @@ description: Review OBI pull requests for correctness, compatibility, and adhere
 
 All paths below are relative to the repository root.
 
-Read `AGENTS.md`, `CONTRIBUTING.md`, and `.github/copilot-instructions.md`. Apply files under `.github/instructions/` whose `applyTo` patterns match changed files. Consult `devdocs/pipeline-map.md` when tracing behavior across pipeline stages.
+Read `AGENTS.md`, `CONTRIBUTING.md`, `VERSIONING.md`, and `.github/copilot-instructions.md`. Apply files under `.github/instructions/` whose `applyTo` patterns match changed files. Consult `devdocs/pipeline-map.md` when tracing behavior across pipeline stages.
 
 Establish the intended behavior from the PR and related issues, then verify those claims against the code. Compare the base and head revisions, trace relevant callers and consumers, and search for existing helpers and nearby implementations before recommending a new approach.
 
 Use the repository instructions for detailed checks. Pay particular attention to these relationships when relevant to the diff:
 
+- Compatibility: check changes to user-facing surfaces (exported Go API, CLI flags and environment variables, Config v2 schema, emitted telemetry, release artifacts, and support matrix) against `VERSIONING.md` and `TELEMETRY.md`; flag breaking changes to declared stable surfaces. Config v1 is frozen.
 - eBPF: follow C event and map changes through Go loaders and consumers; check ABI consistency, verifier constraints, supported kernels, and required generated artifacts.
 - Protocol parsers: compare buffer handling with nearby implementations; check partial and malformed input, bounds, allocations, and error paths.
 - Telemetry: follow emitted changes through exporters and the registry; consult `devdocs/telemetry-schema.md` for transformation, release-note, and generated-documentation requirements.
