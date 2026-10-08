@@ -858,6 +858,7 @@ OBI outbound ONC/Sun RPC client span.
 | `onc_rpc.procedure.number` | int | `conditionally_required`: if the procedure number was read from the call | development | ONC/Sun RPC procedure number. |  |
 | `onc_rpc.program.name` | string | `conditionally_required`: if the program name was read from the call | development | ONC/Sun RPC program name. | portmapper; nfs |
 | `onc_rpc.version` | int | `recommended`: if the call carried a program version | development | ONC/Sun RPC program version. |  |
+| `rpc.method` | string | `conditionally_required`: if the call was captured | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
 | `rpc.system.name` | enum | `required` | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
 | `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
@@ -883,6 +884,7 @@ OBI inbound ONC/Sun RPC server span.
 | `onc_rpc.procedure.number` | int | `conditionally_required`: if the procedure number was read from the call | development | ONC/Sun RPC procedure number. |  |
 | `onc_rpc.program.name` | string | `conditionally_required`: if the program name was read from the call | development | ONC/Sun RPC program name. | portmapper; nfs |
 | `onc_rpc.version` | int | `recommended`: if the call carried a program version | development | ONC/Sun RPC program version. |  |
+| `rpc.method` | string | `conditionally_required`: if the call was captured | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
 | `rpc.system.name` | enum | `required` | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
 | `server.address` | string | `conditionally_required`: if the host address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |

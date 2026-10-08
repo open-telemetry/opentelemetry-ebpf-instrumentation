@@ -178,6 +178,17 @@ func MessagingMessageID(val string) attribute.KeyValue {
 	return attribute.Key(attr.MessagingMessageID).String(val)
 }
 
+const (
+	RPCSystemAWSAPI = "aws-api"
+	RPCSystemONCRPC = "onc_rpc"
+)
+
+const (
+	awsServiceS3  = "S3"
+	awsServiceSQS = "SQS"
+	awsServiceSNS = "SNS"
+)
+
 func RPCSystem(val string) attribute.KeyValue {
 	return attribute.Key(attr.RPCSystem).String(val)
 }
@@ -191,7 +202,7 @@ func S3RPCMethod(method string) string {
 	if method == "" {
 		return ""
 	}
-	return "S3/" + method
+	return awsServiceS3 + "/" + method
 }
 
 // SNSRPCMethod returns the fully-qualified rpc.method value for AWS SNS operations.
@@ -199,7 +210,7 @@ func SNSRPCMethod(method string) string {
 	if method == "" {
 		return ""
 	}
-	return "SNS/" + method
+	return awsServiceSNS + "/" + method
 }
 
 func AWSRequestID(val string) attribute.KeyValue {

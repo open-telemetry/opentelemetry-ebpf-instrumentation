@@ -841,7 +841,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 
 		if span.SubType == request.HTTPSubtypeAWSS3 && span.AWS != nil {
 			s3 := span.AWS.S3
-			attrs = append(attrs, request.RPCSystem("aws-api"))
+			attrs = append(attrs, request.RPCSystem(request.RPCSystemAWSAPI))
 			attrs = appendIfSet(attrs, semconv.RPCMethod, request.S3RPCMethod(s3.Method))
 			attrs = appendIfSet(attrs, semconv.CloudRegion, s3.Meta.Region)
 			attrs = appendIfSet(attrs, semconv.AWSRequestID, s3.Meta.RequestID)
@@ -867,7 +867,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		if span.SubType == request.HTTPSubtypeAWSSNS && span.AWS != nil {
 			sns := span.AWS.SNS
 			attrs = append(attrs,
-				request.RPCSystem("aws-api"),
+				request.RPCSystem(request.RPCSystemAWSAPI),
 				semconv.MessagingSystemAWSSNS,
 			)
 			attrs = appendIfSet(attrs, semconv.RPCMethod, request.SNSRPCMethod(sns.OperationName))
@@ -1566,9 +1566,10 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		// https://opentelemetry.io/docs/specs/semconv/registry/attributes/onc-rpc/
 		attrs = []attribute.KeyValue{
 			request.ServerPort(span.HostPort),
-			request.RPCSystem("onc_rpc"),
+			request.RPCSystem(request.RPCSystemONCRPC),
 		}
 		attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
+		attrs = appendIfSet(attrs, semconv.RPCMethod, span.SunRPCMethodForExport())
 		attrs = appendIfSet(attrs, semconv.OncRPCProgramName, span.Path)
 		if span.Route != "" {
 			if proc, err := strconv.Atoi(span.Route); err == nil {

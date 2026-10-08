@@ -79,10 +79,10 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.RPCMethod:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeSunRPCClient || s.Type == EventTypeSunRPCServer {
-				if s.Route != "" {
-					return semconv.RPCMethod(s.Route)
+				if method := s.SunRPCMethodForExport(); method != "" {
+					return semconv.RPCMethod(method)
 				}
-				return semconv.RPCMethod(s.Method)
+				return attribute.KeyValue{}
 			}
 			if s.SubType == HTTPSubtypeJSONRPC && s.JSONRPC != nil {
 				return semconv.RPCMethod(s.JSONRPC.QualifiedMethod())
@@ -95,13 +95,13 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.RPCSystem:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeSunRPCClient || s.Type == EventTypeSunRPCServer {
-				return RPCSystem("onc_rpc")
+				return RPCSystem(RPCSystemONCRPC)
 			}
 			if s.SubType == HTTPSubtypeJSONRPC {
 				return semconv.RPCSystemNameJSONRPC
 			}
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 {
-				return RPCSystem("aws-api")
+				return RPCSystem(RPCSystemAWSAPI)
 			}
 			return semconv.RPCSystemNameGRPC
 		}

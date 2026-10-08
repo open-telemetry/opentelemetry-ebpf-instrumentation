@@ -133,6 +133,21 @@ section empty once drained.
   today's names and their cardinality, and Redis names do not use `db.namespace`, as the Redis
   conventions require. SQL spans are still named after `db.query.summary` when it is available,
   even if that attribute is not selected for export.
+- Span names now follow semconv v1.41, which also changes the `span.name` (`span_name`)
+  value of span metrics for these spans:
+  - GraphQL server: `GraphQL {graphql.operation.type}` becomes `{graphql.operation.type}`
+    (for example `GraphQL query` becomes `query`).
+  - AWS S3: `s3.{operation}` becomes `S3.{operation}`; with no operation, `s3.Operation`
+    becomes `aws-api`.
+  - AWS SQS: `sqs.{operation}` becomes `SQS.{operation}`, following the AWS SDK
+    `Service.Operation` rule; SQS spans emit no `rpc.*` attributes, so the operation part
+    matches `messaging.operation.name`.
+  - ONC RPC: `{program}/{procedure}` is unchanged; reply-only spans (no captured CALL)
+    become `onc_rpc` instead of `sunrpc/reply`.
+- ONC RPC spans now carry `rpc.method` as `{program}/{procedure}` when the CALL was captured.
+- The ONC RPC `rpc.method` value on `rpc.client.call.duration` and `rpc.server.call.duration`
+  changes from the procedure number (for example `0`) to `{program}/{procedure}` (for example
+  `portmapper/0`), and is omitted when no CALL was captured (previously `reply`).
 
 ## Hosting notes
 

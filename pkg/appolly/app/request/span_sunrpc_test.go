@@ -105,3 +105,43 @@ func TestSunRPCProcedureRouteForExport(t *testing.T) {
 		})
 	}
 }
+
+func TestSunRPCMethodForExport(t *testing.T) {
+	tests := []struct {
+		name string
+		span Span
+		want string
+	}{
+		{
+			name: "mapped procedure",
+			span: Span{Type: EventTypeSunRPCClient, Path: "mount", Method: "MOUNTPROC_EXPORT", Route: "5"},
+			want: "mount/MOUNTPROC_EXPORT",
+		},
+		{
+			name: "numeric program and procedure",
+			span: Span{Type: EventTypeSunRPCServer, Path: "100099", Method: "6", Route: "6"},
+			want: "100099/6",
+		},
+		{
+			name: "no program",
+			span: Span{Type: EventTypeSunRPCServer, Method: "6", Route: "6"},
+			want: "",
+		},
+		{
+			name: "reply-only synthetic",
+			span: Span{Type: EventTypeSunRPCServer, Path: "sunrpc", Method: SunRPCSyntheticReplyMethod},
+			want: "",
+		},
+		{
+			name: "non-sunrpc",
+			span: Span{Type: EventTypeGRPC, Path: "svc", Method: "m"},
+			want: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.span.SunRPCMethodForExport())
+		})
+	}
+}

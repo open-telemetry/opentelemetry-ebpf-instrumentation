@@ -555,7 +555,7 @@ func TestSpanOTELGetters_SunRPC(t *testing.T) {
 		expected string
 	}{
 		{name: "rpc system", attrName: attr.RPCSystem, expected: "onc_rpc"},
-		{name: "rpc method", attrName: attr.RPCMethod, expected: "0"},
+		{name: "rpc method", attrName: attr.RPCMethod, expected: "portmapper/0"},
 		{name: "program name", attrName: attr.OncRPCProgramName, expected: "portmapper"},
 		{name: "response status code", attrName: attr.RPCResponseStatusCode, expected: "0"},
 	}
@@ -581,6 +581,13 @@ func TestSpanOTELGetters_SunRPC(t *testing.T) {
 		getter, ok := spanOTELGetters(attr.OncRPCVersion)
 		require.True(t, ok)
 		assert.Equal(t, semconv.OncRPCVersion(2), getter(span))
+	})
+
+	t.Run("rpc method omitted for reply-only", func(t *testing.T) {
+		getter, ok := spanOTELGetters(attr.RPCMethod)
+		require.True(t, ok)
+		replyOnly := &Span{Type: EventTypeSunRPCServer, Path: "sunrpc", Method: SunRPCSyntheticReplyMethod}
+		assert.False(t, getter(replyOnly).Valid())
 	})
 }
 
