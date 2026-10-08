@@ -818,7 +818,7 @@ clean-testoutput: testoutput
 protoc-gen:
 	docker run --rm -v $(PWD):/src -w /src --entrypoint protoc $(GEN_IMG) --go_out=pkg/kube/kubecache --go-grpc_out=pkg/kube/kubecache proto/informer.proto
 
-CLANG_FORMAT_FILES ?= $(shell find ./bpf -type f \( -name "*.c" -o -name "*.h" \) ! -path "./bpf/bpfcore/*")
+CLANG_FORMAT_FILES ?= $(wildcard $(shell git ls-files --cached --others --exclude-standard -- '*.c' '*.h' '*.cpp' ':!NOTICES/' ':!bpf/bpfcore/'))
 
 .PHONY: clang-format
 clang-format:
