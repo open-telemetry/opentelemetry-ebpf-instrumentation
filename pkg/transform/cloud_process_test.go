@@ -6,6 +6,7 @@ package transform
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -77,7 +78,7 @@ func TestECSProcessDecorator(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	checkTargetInfo := ecsTargetInfoExporters(ctx, t, output)
+	checkTargetInfo := ecsTargetInfoExporters(ctx, t, output, "instance-1")
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -111,7 +112,8 @@ func TestECSProcessDecorator(t *testing.T) {
 		read()
 	}
 	newFile := func(pid app.PID, auto bool) *exec.FileInfo {
-		service := svc.Attrs{UID: svc.UID{Name: "container-name", Namespace: "ns", Instance: "instance"}}
+		// Distinct instances keep independent processes from sharing target.info series.
+		service := svc.Attrs{UID: svc.UID{Name: "container-name", Namespace: "ns", Instance: fmt.Sprintf("instance-%d", pid)}}
 		service.Features = export.FeatureApplicationRED
 		if auto {
 			service.SetAutoName()
@@ -130,7 +132,7 @@ func TestECSProcessDecorator(t *testing.T) {
 	updated := read()
 	assert.Same(t, file, updated.File)
 	assert.Equal(t, exec.ProcessEventCreated, updated.Type)
-	assert.Equal(t, svc.UID{Name: "checkout", Namespace: "ns", Instance: "instance"}, file.ServiceAttrs().UID)
+	assert.Equal(t, svc.UID{Name: "checkout", Namespace: "ns", Instance: "instance-1"}, file.ServiceAttrs().UID)
 	checkTargetInfo("checkout", "container-name")
 	span := request.Span{Type: request.EventTypeHTTP, Host: "127.0.0.1", Service: file.ServiceAttrs()}
 	// Docker span decoration may assign the generated name again.
@@ -153,7 +155,7 @@ func TestECSProcessDecorator(t *testing.T) {
 	updated = read()
 	assert.Same(t, file, updated.File)
 	assert.Equal(t, exec.ProcessEventCreated, updated.Type)
-	assert.Equal(t, svc.UID{Name: "container-name", Namespace: "ns", Instance: "instance"}, file.ServiceAttrs().UID)
+	assert.Equal(t, svc.UID{Name: "container-name", Namespace: "ns", Instance: "instance-1"}, file.ServiceAttrs().UID)
 	checkTargetInfo("container-name", "checkout")
 	require.Eventually(t, func() bool {
 		_, ok := inventory.ServiceNameForContainerID(id)
@@ -184,7 +186,7 @@ func TestECSProcessDecorator(t *testing.T) {
 	assert.Equal(t, "container-name", explicit.ServiceAttrs().UID.Name)
 }
 
-func ecsTargetInfoExporters(ctx context.Context, t *testing.T, events *msg.Queue[exec.ProcessEvent]) func(string, string) {
+func ecsTargetInfoExporters(ctx context.Context, t *testing.T, events *msg.Queue[exec.ProcessEvent], instance string) func(string, string) {
 	t.Helper()
 	registry := prometheus.NewRegistry()
 	spans := msg.NewQueue[[]request.Span]()
@@ -221,10 +223,17 @@ func ecsTargetInfoExporters(ctx context.Context, t *testing.T, events *msg.Queue
 			for _, family := range families {
 				if family.GetName() == "target_info" {
 					for _, metric := range family.Metric {
+						var name, metricInstance string
 						for _, label := range metric.Label {
-							if label.GetName() == "service_name" {
-								names = append(names, label.GetValue())
+							switch label.GetName() {
+							case "service_name":
+								name = label.GetValue()
+							case "instance":
+								metricInstance = label.GetValue()
 							}
+						}
+						if metricInstance == instance {
+							names = append(names, name)
 						}
 					}
 				}
@@ -237,7 +246,7 @@ func ecsTargetInfoExporters(ctx context.Context, t *testing.T, events *msg.Queue
 		for {
 			select {
 			case record := <-otlp.Records():
-				if record.Name == "target.info" && record.Attributes["service.name"] == expected {
+				if record.Name == "target.info" && record.Attributes["service.name"] == expected && record.Attributes["service.instance.id"] == instance {
 					assert.EqualValues(t, 1, record.IntVal)
 					return
 				}
