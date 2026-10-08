@@ -31,6 +31,11 @@ on:
         description: "Git ref (commit, branch, or tag) to check out"
         required: false
         type: string
+      mise_cache:
+        description: "Whether to use the mise-action tool cache"
+        required: false
+        type: boolean
+        default: true
 
 concurrency:
   group: pr-lint-${{ github.head_ref || github.run_id }}
@@ -77,7 +82,7 @@ jobs:
       - name: Set up mise tools
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          cache: false
+          cache: ${{ inputs.mise_cache != false }}
 
       - name: Check golangci-lint version consistency
         if: matrix.platform.arch == 'amd64'
@@ -97,7 +102,7 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Lint
-        run: mise run lint
+        run: mise run lint-go
 
       # Schema lint is arch-neutral (weaver YAML/JSON). Keep it on amd64 only.
       - name: Lint OBI semantic-convention registry
@@ -131,7 +136,7 @@ jobs:
       - name: Set up mise tools
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          cache: false
+          cache: ${{ inputs.mise_cache != false }}
 
       - name: Go build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
@@ -147,4 +152,4 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Lint
-        run: mise run lint
+        run: mise run lint-go

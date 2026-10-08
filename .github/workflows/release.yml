@@ -103,6 +103,7 @@ jobs:
     secrets: inherit # zizmor: ignore[secrets-inherit]
     with:
       ref: ${{ inputs.tag || github.ref_name }}
+      mise_cache: false
 
   lint:
     name: Lint
@@ -113,6 +114,7 @@ jobs:
     secrets: inherit # zizmor: ignore[secrets-inherit]
     with:
       ref: ${{ inputs.tag || github.ref_name }}
+      mise_cache: false
 
   unit-tests:
     name: Unit tests

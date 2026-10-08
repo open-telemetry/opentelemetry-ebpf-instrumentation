@@ -6,14 +6,11 @@ markdownlint-cli2 = "0.23.3"
 gradle = "9.8.0"
 python = ["3.9", "3.14"]
 
-[tool_alias]
-clang-tidy = "github:cpp-linter/clang-tools-static-binaries"
-
-[tools.clang-tidy]
+[tools."github:cpp-linter/clang-tools-static-binaries"]
 version = "2026.09.01-5fb8802d"
 matching = "clang-tidy-22_"
 bin = "clang-tidy"
 
-[tasks.lint]
+[tasks.lint-go]
 run = "make lint GOLANGCI_LINT=golangci-lint"
 description = "Run the project Go linter"
