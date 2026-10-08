@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"strconv"
 	"strings"
@@ -2190,7 +2191,8 @@ func dbServerTarget(address string, port int) string {
 	if address == "" || port == 0 {
 		return ""
 	}
-	return address + ":" + strconv.Itoa(port)
+	host := strings.TrimSuffix(strings.TrimPrefix(address, "["), "]")
+	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 func elasticsearchSpanName(s *Span) string {

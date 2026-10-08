@@ -123,6 +123,19 @@ func TestTraceAttributesSelector_ElasticsearchNamespace(t *testing.T) {
 		span.Statement = "http" + request.SchemeHostSeparator + "opensearchserver:9200"
 		assert.Equal(t, "search opensearchserver:9200", span.TraceName())
 	})
+
+	t.Run("brackets an IPv6 address", func(t *testing.T) {
+		resolved := esSpan("", "")
+		resolved.Host = "2001:db8::1"
+
+		requested := esSpan("", "")
+		requested.Host = "2001:db8::2"
+		requested.Statement = "http" + request.SchemeHostSeparator + "[2001:db8::1]:9200"
+
+		for _, span := range []*request.Span{resolved, requested} {
+			assert.Equal(t, "search [2001:db8::1]:9200", span.TraceName())
+		}
+	})
 }
 
 func TestElasticsearchSpanNameWithoutOperation(t *testing.T) {
@@ -154,4 +167,13 @@ func TestSQLPPSpanNameUsesServerAddress(t *testing.T) {
 
 	span.Method = ""
 	assert.Equal(t, "couchbase:8093", span.TraceName())
+}
+
+func TestSQLPPSpanNameBracketsIPv6(t *testing.T) {
+	span := &request.Span{
+		Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeSQLPP,
+		Method: "SELECT", Host: "2001:db8::1", HostPort: 8093,
+		DBSystem: "couchbase",
+	}
+	assert.Equal(t, "SELECT [2001:db8::1]:8093", span.TraceName())
 }
