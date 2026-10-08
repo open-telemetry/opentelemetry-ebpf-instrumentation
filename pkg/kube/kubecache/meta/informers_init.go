@@ -157,7 +157,10 @@ func InitInformers(ctx context.Context, opts ...InformerOption) (*Informers, err
 		svc.log.Debug("waiting for informers' synchronization")
 		allSynced.Wait()
 		svc.log.Debug("informers synchronized")
+		svc.syncMutex.Lock()
 		close(svc.waitForSync)
+		svc.Notify(&informer.Event{Type: informer.EventType_SYNC_FINISHED})
+		svc.syncMutex.Unlock()
 	}()
 	if config.waitCacheSync {
 		select {
