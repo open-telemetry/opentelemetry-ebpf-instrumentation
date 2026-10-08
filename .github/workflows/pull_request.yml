@@ -31,6 +31,11 @@ on:
         description: "Git ref (commit, branch, or tag) to check out"
         required: false
         type: string
+      mise_cache:
+        description: "Whether to use the mise-action tool cache"
+        required: false
+        type: boolean
+        default: true
 
 concurrency:
   group: pr-checks-${{ github.head_ref || github.run_id }}
@@ -110,7 +115,7 @@ jobs:
       - name: Set up clang-format
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          cache: false
+          cache: ${{ inputs.mise_cache != false }}
 
       - name: Check clang-format
         run: |
@@ -132,7 +137,7 @@ jobs:
     name: Clang tidy
     runs-on: ubuntu-latest
     env:
-      MISE_ENABLE_TOOLS: clang-tidy
+      MISE_ENABLE_TOOLS: github:cpp-linter/clang-tools-static-binaries
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -143,7 +148,7 @@ jobs:
       - name: Set up clang-tidy
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          cache: false
+          cache: ${{ inputs.mise_cache != false }}
 
       - name: Check clang-tidy version
         run: mise exec -- clang-tidy --version

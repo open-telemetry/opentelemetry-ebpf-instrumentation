@@ -537,6 +537,56 @@ url = "https://github.com/cpp-linter/clang-tools-static-binaries/releases/downlo
 url_api = "https://api.github.com/repos/cpp-linter/clang-tools-static-binaries/releases/assets/539995229"
 provenance = "github-attestations"
 
+[[tools."github:cpp-linter/clang-tools-static-binaries"]]
+version = "2026.09.01-5fb8802d"
+backend = "github:cpp-linter/clang-tools-static-binaries"
+specifiers = ["2026.09.01-5fb8802d"]
+
+[tools."github:cpp-linter/clang-tools-static-binaries".options]
+matching = "clang-tidy-22_"
+
+[tools."github:cpp-linter/clang-tools-static-binaries"."platforms.linux-arm64"]
+checksum = "sha256:b86151017bf1d1aef98cfdf7b005abbb9c1fb97c1798feced02291d1b1acc149"
+url = "https://github.com/cpp-linter/clang-tools-static-binaries/releases/download/2026.09.01-5fb8802d/clang-tidy-22_linux-arm64"
+url_api = "https://api.github.com/repos/cpp-linter/clang-tools-static-binaries/releases/assets/539993944"
+provenance = "github-attestations"
+
+[tools."github:cpp-linter/clang-tools-static-binaries"."platforms.linux-arm64-musl"]
+checksum = "sha256:b86151017bf1d1aef98cfdf7b005abbb9c1fb97c1798feced02291d1b1acc149"
+url = "https://github.com/cpp-linter/clang-tools-static-binaries/releases/download/2026.09.01-5fb8802d/clang-tidy-22_linux-arm64"
+url_api = "https://api.github.com/repos/cpp-linter/clang-tools-static-binaries/releases/assets/539993944"
+provenance = "github-attestations"
+
+[tools."github:cpp-linter/clang-tools-static-binaries"."platforms.linux-x64"]
+checksum = "sha256:643507b72416f1077ba528b1ef6ce221d1b6e058326a80b50d7b7566ec80482d"
+url = "https://github.com/cpp-linter/clang-tools-static-binaries/releases/download/2026.09.01-5fb8802d/clang-tidy-22_linux-amd64"
+url_api = "https://api.github.com/repos/cpp-linter/clang-tools-static-binaries/releases/assets/539993588"
+provenance = "github-attestations"
+
+[tools."github:cpp-linter/clang-tools-static-binaries"."platforms.linux-x64-musl"]
+checksum = "sha256:643507b72416f1077ba528b1ef6ce221d1b6e058326a80b50d7b7566ec80482d"
+url = "https://github.com/cpp-linter/clang-tools-static-binaries/releases/download/2026.09.01-5fb8802d/clang-tidy-22_linux-amd64"
+url_api = "https://api.github.com/repos/cpp-linter/clang-tools-static-binaries/releases/assets/539993588"
+provenance = "github-attestations"
+
+[tools."github:cpp-linter/clang-tools-static-binaries"."platforms.macos-arm64"]
+checksum = "sha256:4d0bc713af5c14d75468547f33e572be316c8ad317351c60cc6ff8c4d9b9f166"
+url = "https://github.com/cpp-linter/clang-tools-static-binaries/releases/download/2026.09.01-5fb8802d/clang-tidy-22_macos-arm64"
+url_api = "https://api.github.com/repos/cpp-linter/clang-tools-static-binaries/releases/assets/539994571"
+provenance = "github-attestations"
+
+[tools."github:cpp-linter/clang-tools-static-binaries"."platforms.macos-x64"]
+checksum = "sha256:5ae17609aa6919d1087700921e10a2cc7bab9ee955022ad0ffc21b1342ac04e6"
+url = "https://github.com/cpp-linter/clang-tools-static-binaries/releases/download/2026.09.01-5fb8802d/clang-tidy-22_macos-amd64"
+url_api = "https://api.github.com/repos/cpp-linter/clang-tools-static-binaries/releases/assets/539994183"
+provenance = "github-attestations"
+
+[tools."github:cpp-linter/clang-tools-static-binaries"."platforms.windows-x64"]
+checksum = "sha256:ba9dd43fe6e59faad27fad4f4ba427d12f2f96cd23214ac5997e732c4b044539"
+url = "https://github.com/cpp-linter/clang-tools-static-binaries/releases/download/2026.09.01-5fb8802d/clang-tidy-22_windows-amd64.exe"
+url_api = "https://api.github.com/repos/cpp-linter/clang-tools-static-binaries/releases/assets/539995229"
+provenance = "github-attestations"
+
 [[tools.go]]
 version = "1.27.1"
 backend = "core:go"

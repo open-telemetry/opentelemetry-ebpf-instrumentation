@@ -41,7 +41,7 @@ in `mise.toml`:
 mise install
 ```
 
-Mise is optional; `Make` remains the task runner. For example, run `mise run lint`
+Mise is optional; `Make` remains the task runner. For example, run `mise run lint-go`
 to run the existing `make lint` target with the pinned tools available. Use
 `make docker-generate` for eBPF generation with the project's containerized
 toolchain.
