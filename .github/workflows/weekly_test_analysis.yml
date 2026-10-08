@@ -60,3 +60,57 @@ jobs:
           path: weekly-snapshot/snapshot.json
           retention-days: 32
           if-no-files-found: error
+
+  update-test-weights:
+    name: "Update integration test shard weights"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Regenerate shard weights from recent main runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/update-test-weights.sh
+
+      - name: Check for weight changes
+        id: diff
+        run: |
+          if git diff --quiet -- scripts/integration-test-weights.generated.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        if: steps.diff.outputs.changed == 'true'
+        id: generate-token
+        with:
+          client-id: ${{ vars.OTELBOT_CLIENT_ID }}
+          private-key: ${{ secrets.OTELBOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Create or update PR
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+        run: |
+          message="Update integration test shard weights"
+          body="Regenerated scripts/integration-test-weights.generated.json from the gotestsum reports of the last 10 successful Integration tests runs on main."
+          branch="otelbot/integration-test-weights"
+
+          git config user.name otelbot
+          git config user.email 197425009+otelbot@users.noreply.github.com
+          gh auth setup-git
+
+          git checkout -B "$branch"
+          git commit -m "$message" -- scripts/integration-test-weights.generated.json
+          git push --force origin "$branch"
+
+          if [ -z "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+            gh pr create --title "$message" --body "$body" --base main --head "$branch"
+          fi

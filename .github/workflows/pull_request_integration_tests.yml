@@ -62,7 +62,7 @@ jobs:
           persist-credentials: false
 
       # amd64 runs the full suite (10 shards). arm64 keeps the current
-      # multiprocess subset (5 shards) until coverage is expanded.
+      # multiprocess subset (2 shards) until coverage is expanded.
       - name: Build test matrix
         id: build-matrix
         run: |
@@ -70,7 +70,7 @@ jobs:
             echo -n "matrix="
             jq -nc \
               --argjson amd64 "$(PARTITIONS=10 make integration-test-matrix-json)" \
-              --argjson arm64 "$(PARTITIONS=5 make multiprocess-integration-test-matrix-json)" \
+              --argjson arm64 "$(PARTITIONS=2 make multiprocess-integration-test-matrix-json)" \
               '{
                 include: (
                   ($amd64.include | map(. + {runner: "ubuntu-latest", arch: "amd64"}))
