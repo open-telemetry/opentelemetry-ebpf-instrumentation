@@ -720,29 +720,19 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		assert.Equal(t, "grpc", spans.At(0).Name())
 	})
 
-	t.Run("test gRPC server trace generation reports an UNIMPLEMENTED method as _OTHER", func(t *testing.T) {
-		span := request.Span{Type: request.EventTypeGRPC, Path: "/routeguide.RouteGuide/Unknown", Status: 12}
-		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
-		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+	t.Run("test gRPC trace generation keeps an UNIMPLEMENTED method", func(t *testing.T) {
+		for _, eventType := range []request.EventType{request.EventTypeGRPC, request.EventTypeGRPCClient} {
+			span := request.Span{Type: eventType, Path: "/routeguide.RouteGuide/Unknown", Status: 12}
+			tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+			traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
 
-		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
-		attrs := spans.At(0).Attributes()
-		ensureTraceStrAttr(t, attrs, semconv.RPCMethodKey, "_OTHER")
-		ensureTraceStrAttr(t, attrs, semconv.RPCMethodOriginalKey, "/routeguide.RouteGuide/Unknown")
-		ensureTraceStrAttr(t, attrs, semconv.RPCResponseStatusCodeKey, "UNIMPLEMENTED")
-		assert.Equal(t, "grpc", spans.At(0).Name())
-	})
-
-	t.Run("test gRPC client trace generation keeps an UNIMPLEMENTED method", func(t *testing.T) {
-		span := request.Span{Type: request.EventTypeGRPCClient, Path: "/routeguide.RouteGuide/Unknown", Status: 12}
-		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
-		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
-
-		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
-		attrs := spans.At(0).Attributes()
-		ensureTraceStrAttr(t, attrs, semconv.RPCMethodKey, "routeguide.RouteGuide/Unknown")
-		ensureTraceAttrNotExists(t, attrs, semconv.RPCMethodOriginalKey)
-		assert.Equal(t, "routeguide.RouteGuide/Unknown", spans.At(0).Name())
+			spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+			attrs := spans.At(0).Attributes()
+			ensureTraceStrAttr(t, attrs, semconv.RPCMethodKey, "routeguide.RouteGuide/Unknown")
+			ensureTraceAttrNotExists(t, attrs, semconv.RPCMethodOriginalKey)
+			ensureTraceStrAttr(t, attrs, semconv.RPCResponseStatusCodeKey, "UNIMPLEMENTED")
+			assert.Equal(t, "routeguide.RouteGuide/Unknown", spans.At(0).Name())
+		}
 	})
 
 	t.Run("test gRPC trace generation omits leaked HTTP status", func(t *testing.T) {
