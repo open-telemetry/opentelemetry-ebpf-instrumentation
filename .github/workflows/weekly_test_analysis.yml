@@ -72,9 +72,13 @@ jobs:
           persist-credentials: false
 
       - name: Regenerate shard weights from recent main runs
+        id: weights
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./scripts/update-test-weights.sh
+        run: |
+          summary="$(./scripts/update-test-weights.sh)"
+          echo "$summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "summary=$summary" >> "$GITHUB_OUTPUT"
 
       - name: Check for weight changes
         id: diff
@@ -98,9 +102,10 @@ jobs:
         if: steps.diff.outputs.changed == 'true'
         env:
           GH_TOKEN: ${{ steps.generate-token.outputs.token }}
+          WEIGHTS_SUMMARY: ${{ steps.weights.outputs.summary }}
         run: |
           message="Update integration test shard weights"
-          body="Regenerated scripts/integration-test-weights.generated.json from the gotestsum reports of the last 10 successful Integration tests runs on main."
+          body="Regenerated scripts/integration-test-weights.generated.json from the gotestsum reports of recent successful Integration tests runs on main: $WEIGHTS_SUMMARY"
           branch="otelbot/integration-test-weights"
 
           git config user.name otelbot
@@ -111,6 +116,9 @@ jobs:
           git commit -m "$message" -- scripts/integration-test-weights.generated.json
           git push --force origin "$branch"
 
-          if [ -z "$(gh pr list --head "$branch" --state open --json number --jq '.[].number')" ]; then
+          pr="$(gh pr list --head "$branch" --state open --json number --jq '.[].number')"
+          if [ -z "$pr" ]; then
             gh pr create --title "$message" --body "$body" --base main --head "$branch"
+          else
+            gh pr edit "$pr" --body "$body"
           fi

@@ -10,11 +10,13 @@
 #
 # With a directory, every *.log under it whose path contains "-$ARCH-" is read.
 # Without one, the integration-reports artifacts of the last $RUNS successful
-# push runs on main are downloaded with the gh CLI.
+# push runs on main created within the last $RETENTION_DAYS days are downloaded
+# with the gh CLI.
 #
 # Environment:
 #   ARCH  - architecture whose reports are used (default: amd64)
-#   RUNS  - number of main runs to download (default: 10)
+#   RUNS  - maximum number of main runs to download (default: 10)
+#   RETENTION_DAYS - artifact retention of the reports (default: 5)
 #   GITHUB_REPOSITORY - owner/repo to download from (default: the gh default repo)
 
 set -euo pipefail
@@ -24,6 +26,8 @@ WEIGHTS_FILE="$SCRIPT_DIR/integration-test-weights.generated.json"
 DEFAULT_WEIGHT=20
 ARCH="${ARCH:-amd64}"
 RUNS="${RUNS:-10}"
+RETENTION_DAYS="${RETENTION_DAYS:-5}"
+RUNS_USED=""
 
 for command_name in jq find; do
     if ! command -v "$command_name" >/dev/null 2>&1; then
@@ -43,9 +47,16 @@ else
         echo "Error: gh is required when no reports directory is given" >&2
         exit 1
     fi
-    if ! [[ "$RUNS" =~ ^[1-9][0-9]*$ ]]; then
-        echo "Error: RUNS must be a positive integer, got '$RUNS'" >&2
-        exit 1
+    for name in RUNS RETENTION_DAYS; do
+        if ! [[ "${!name}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Error: $name must be a positive integer, got '${!name}'" >&2
+            exit 1
+        fi
+    done
+    if date --version >/dev/null 2>&1; then
+        cutoff="$(date -u -d "-${RETENTION_DAYS} days" +%Y-%m-%dT%H:%M:%SZ)"
+    else
+        cutoff="$(date -u -v-"${RETENTION_DAYS}"d +%Y-%m-%dT%H:%M:%SZ)"
     fi
     REPORTS_DIR="$(mktemp -d)"
     trap 'rm -rf "$REPORTS_DIR"' EXIT
@@ -56,16 +67,21 @@ else
     run_ids="$(gh run list "${repo_args[@]}" \
         --workflow pull_request_integration_tests.yml \
         --branch main --event push --status success \
-        --limit "$RUNS" --json databaseId --jq '.[].databaseId')"
+        --limit 100 --json databaseId,createdAt \
+        --jq "[.[] | select(.createdAt >= \"$cutoff\")][:$RUNS][].databaseId")"
     if [ -z "$run_ids" ]; then
-        echo "Error: no successful main runs found" >&2
+        echo "Error: no successful main runs since $cutoff (reports expire after $RETENTION_DAYS days)" >&2
         exit 1
     fi
+    RUNS_USED=0
     for run_id in $run_ids; do
-        gh run download "$run_id" "${repo_args[@]}" \
+        if gh run download "$run_id" "${repo_args[@]}" \
             --pattern "integration-reports-*-$ARCH-*" \
-            --dir "$REPORTS_DIR/$run_id" >&2 \
-            || echo "Warning: no reports downloaded for run $run_id" >&2
+            --dir "$REPORTS_DIR/$run_id" >&2; then
+            RUNS_USED=$((RUNS_USED + 1))
+        else
+            echo "Warning: no reports downloaded for run $run_id" >&2
+        fi
     done
 fi
 
@@ -101,4 +117,5 @@ if [ "$TOTAL" -eq 0 ]; then
 fi
 
 jq --indent 2 . <<< "$WEIGHTS" > "$WEIGHTS_FILE"
-echo "Updated $WEIGHTS_FILE with $TOTAL tests from ${#report_files[@]} reports" >&2
+echo "Updated $WEIGHTS_FILE" >&2
+echo "$TOTAL test weights from ${#report_files[@]} $ARCH shard reports${RUNS_USED:+ of $RUNS_USED main runs since $cutoff}."
