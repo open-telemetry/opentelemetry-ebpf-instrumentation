@@ -12,20 +12,23 @@ import (
 
 func TestEmbeddedSDKFlagReadOffset(t *testing.T) {
 	for _, test := range []struct {
-		machine elf.Machine
-		code    []byte
-		offset  uint64
+		machine        elf.Machine
+		code           []byte
+		offset         uint64
+		invalidOffsets []int
 	}{
-		{elf.EM_X86_64, []byte{0x90, 0x48, 0x8b, 0x0d, 0x18, 0xbe, 0x3c, 0, 0x80, 0x39, 0, 0x74, 0x11}, 8},
-		{elf.EM_AARCH64, []byte{0x9b, 0x0b, 0, 0xb0, 0x62, 0xcb, 0x46, 0xf9, 0x42, 0, 0x40, 0x39, 0xe2, 0, 0, 0x36}, 8},
+		{elf.EM_X86_64, []byte{0x90, 0x48, 0x8b, 0x0d, 0x18, 0xbe, 0x3c, 0, 0x80, 0x39, 0, 0x74, 0x11}, 8, []int{3, 8, 9, 11}},
+		{elf.EM_AARCH64, []byte{0x9b, 0x0b, 0, 0xb0, 0x62, 0xcb, 0x46, 0xf9, 0x42, 0, 0x40, 0x39, 0xe2, 0, 0, 0x36}, 8, []int{4, 8, 12}},
 	} {
 		assert.Equal(t, test.offset, embeddedSDKFlagReadOffset(test.machine, test.code))
 		for index := range test.code {
 			assert.Zero(t, embeddedSDKFlagReadOffset(test.machine, test.code[:index]))
 		}
-		code := append([]byte(nil), test.code...)
-		code[test.offset] ^= 1
-		assert.Zero(t, embeddedSDKFlagReadOffset(test.machine, code))
+		for _, index := range test.invalidOffsets {
+			code := append([]byte(nil), test.code...)
+			code[index] ^= 1
+			assert.Zero(t, embeddedSDKFlagReadOffset(test.machine, code))
+		}
 		assert.Zero(t, embeddedSDKFlagReadOffset(elf.EM_RISCV, test.code))
 	}
 	assert.Empty(t, embeddedSDKActivationAlias("unrelated.noopSpan.TracerProvider"))

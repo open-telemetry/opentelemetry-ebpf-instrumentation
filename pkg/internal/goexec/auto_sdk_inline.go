@@ -32,18 +32,21 @@ func embeddedSDKFlagReadOffset(machine elf.Machine, data []byte) uint64 {
 			if err != nil {
 				return 0
 			}
-			readAt := index + load.Len
-			check, checkErr := x86asm.Decode(data[readAt:], 64)
-			branch, branchErr := x86asm.Decode(data[min(readAt+check.Len, len(data)):], 64)
+			index += load.Len
+			check, checkErr := x86asm.Decode(data[index:], 64)
 			memory, ok := load.Args[1].(x86asm.Mem)
-			if load.Op == x86asm.MOV && load.Args[0] == x86asm.RCX && ok &&
-				memory.Base == x86asm.RIP && memory.Index == 0 && memory.Segment == 0 &&
-				checkErr == nil && check.Op == x86asm.CMP && check.MemBytes == 1 &&
-				check.Args[0] == (x86asm.Mem{Base: x86asm.RCX}) && check.Args[1] == x86asm.Imm(0) &&
-				branchErr == nil && branch.Op == x86asm.JE {
-				return uint64(readAt)
+			loadsFlagPointer := load.Op == x86asm.MOV && load.Args[0] == x86asm.RCX && ok &&
+				memory.Base == x86asm.RIP && memory.Index == 0 && memory.Segment == 0
+			readsFlag := checkErr == nil && check.Op == x86asm.CMP && check.MemBytes == 1 &&
+				check.Args[0] == (x86asm.Mem{Base: x86asm.RCX}) && check.Args[1] == x86asm.Imm(0)
+			if !loadsFlagPointer || !readsFlag {
+				continue
 			}
-			index = readAt
+
+			branch, branchErr := x86asm.Decode(data[index+check.Len:], 64)
+			if branchErr == nil && branch.Op == x86asm.JE {
+				return uint64(index)
+			}
 		}
 	}
 	if machine == elf.EM_AARCH64 {
@@ -56,11 +59,13 @@ func embeddedSDKFlagReadOffset(machine elf.Machine, data []byte) uint64 {
 			memory, ok := load.Args[1].(arm64asm.MemImmediate)
 			bit, bitOK := branch.Args[1].(arm64asm.Imm)
 			pageRegister, pageOK := page.Args[0].(arm64asm.Reg)
-			if pageErr == nil && page.Op == arm64asm.ADRP && pageOK && loadErr == nil &&
+			loadsFlagPointer := pageErr == nil && page.Op == arm64asm.ADRP && pageOK && loadErr == nil &&
 				load.Op == arm64asm.LDR && load.Args[0] == arm64asm.X2 && ok &&
-				memory.Mode == arm64asm.AddrOffset && memory.Base == arm64asm.RegSP(pageRegister) &&
-				binary.LittleEndian.Uint32(data[index+2*instructionSize:]) == flagRead &&
-				branchErr == nil && branch.Op == arm64asm.TBZ && branch.Args[0] == arm64asm.W2 && bitOK && bit.Imm == 0 {
+				memory.Mode == arm64asm.AddrOffset && memory.Base == arm64asm.RegSP(pageRegister)
+			readsFlag := binary.LittleEndian.Uint32(data[index+2*instructionSize:]) == flagRead
+			branchesIfDisabled := branchErr == nil && branch.Op == arm64asm.TBZ &&
+				branch.Args[0] == arm64asm.W2 && bitOK && bit.Imm == 0
+			if loadsFlagPointer && readsFlag && branchesIfDisabled {
 				return uint64(index + 2*instructionSize)
 			}
 		}
