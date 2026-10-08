@@ -814,6 +814,17 @@ func (c *Config) validate(context validationContext) error {
 		return ConfigError(err.Error())
 	}
 
+	if c.NameResolver != nil {
+		for _, source := range c.NameResolver.Sources {
+			if strings.EqualFold(string(source), string(transform.SourceRoute53)) {
+				if err := c.CloudMetadata.Route53.Validate(); err != nil {
+					return ConfigError(err.Error())
+				}
+				break
+			}
+		}
+	}
+
 	if err := c.EBPF.LogEnricher.Validate(); err != nil {
 		return ConfigError(err.Error())
 	}

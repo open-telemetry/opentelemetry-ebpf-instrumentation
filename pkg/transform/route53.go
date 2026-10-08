@@ -30,21 +30,29 @@ type Route53MetadataConfig struct {
 	HostedZoneIDs []string `yaml:"-" env:"-"`
 }
 
+// Validate checks settings required when the Route53 source is enabled.
+func (c Route53MetadataConfig) Validate() error {
+	if c.RefreshInterval <= 0 {
+		return errors.New("enrich.enrichers.cloud.route53.refresh_interval must be greater than zero")
+	}
+	if len(c.HostedZoneIDs) == 0 {
+		return errors.New("enrich.enrichers.cloud.route53.hosted_zone_ids is required when the route53 source is enabled")
+	}
+	for _, id := range c.HostedZoneIDs {
+		if strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(id), "/hostedzone/")) == "" {
+			return errors.New("enrich.enrichers.cloud.route53.hosted_zone_ids must not contain blank IDs")
+		}
+	}
+	return nil
+}
+
 func route53InventoryRefresher(
 	ctx context.Context,
 	nodeMeta *metadata.NodeMeta,
 	cloudCfg CloudMetadataConfig,
 ) (cloud.MetadataRefresher, error) {
-	if cloudCfg.Route53.RefreshInterval <= 0 {
-		return nil, errors.New("initializing Route53 name resolver: a positive refresh interval is required")
-	}
-	if len(cloudCfg.Route53.HostedZoneIDs) == 0 {
-		return nil, errors.New("initializing Route53 name resolver: hosted_zone_ids is required")
-	}
-	for _, id := range cloudCfg.Route53.HostedZoneIDs {
-		if strings.TrimSpace(strings.TrimPrefix(id, "/hostedzone/")) == "" {
-			return nil, errors.New("initializing Route53 name resolver: hosted zone IDs must not be empty")
-		}
+	if err := cloudCfg.Route53.Validate(); err != nil {
+		return nil, fmt.Errorf("initializing Route53 name resolver: %w", err)
 	}
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx, route53RegionOption(nodeMeta, cloudCfg))
 	if err != nil {

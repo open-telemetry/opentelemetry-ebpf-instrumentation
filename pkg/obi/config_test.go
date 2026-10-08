@@ -1897,3 +1897,46 @@ func TestConfigV1IgnoresRoute53Settings(t *testing.T) {
 		assert.Equal(t, DefaultConfig.CloudMetadata.Route53, cfg.CloudMetadata.Route53)
 	}
 }
+
+func TestConfigValidateRoute53HostedZones(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		sources   []transform.Source
+		zones     []string
+		wantError bool
+	}{
+		{name: "enabled without zones", sources: []transform.Source{transform.SourceRoute53}, wantError: true},
+		{name: "enabled with empty list", sources: []transform.Source{transform.SourceRoute53}, zones: []string{}, wantError: true},
+		{name: "blank ID", sources: []transform.Source{transform.SourceRoute53}, zones: []string{""}, wantError: true},
+		{name: "whitespace ID", sources: []transform.Source{transform.SourceRoute53}, zones: []string{" \t"}, wantError: true},
+		{name: "prefix without ID", sources: []transform.Source{transform.SourceRoute53}, zones: []string{" /hostedzone/ "}, wantError: true},
+		{name: "blank among valid IDs", sources: []transform.Source{transform.SourceRoute53}, zones: []string{"Z123", ""}, wantError: true},
+		{name: "case insensitive source", sources: []transform.Source{"Route53"}, wantError: true},
+		{name: "valid IDs", sources: []transform.Source{transform.SourceRoute53}, zones: []string{"Z123", "/hostedzone/Z456"}},
+		{name: "disabled without zones", sources: []transform.Source{transform.SourceDNS}},
+		{name: "disabled with blank IDs", sources: []transform.Source{transform.SourceDNS}, zones: []string{""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := DefaultConfig
+			resolver := *cfg.NameResolver
+			cfg.NameResolver = &resolver
+			cfg.NameResolver.Sources = tc.sources
+			cfg.CloudMetadata.Route53.HostedZoneIDs = tc.zones
+			cfg.Port = services.IntEnum{Ranges: []services.IntRange{{Start: 8080}}}
+			cfg.TracePrinter = debug.TracePrinterText
+			for _, validate := range []func() error{cfg.Validate, cfg.ValidateStatic} {
+				err := validate()
+				if tc.wantError {
+					require.ErrorContains(t, err, "route53.hosted_zone_ids")
+				} else {
+					require.NoError(t, err)
+				}
+			}
+		})
+	}
+	cfg := DefaultConfig
+	cfg.NameResolver = nil
+	cfg.Port = services.IntEnum{Ranges: []services.IntRange{{Start: 8080}}}
+	cfg.TracePrinter = debug.TracePrinterText
+	require.NoError(t, cfg.Validate())
+}
