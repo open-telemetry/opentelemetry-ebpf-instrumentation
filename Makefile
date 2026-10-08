@@ -633,7 +633,7 @@ k8s-integration-test-matrix-json:
 
 .PHONY: oats-integration-test-matrix-json
 oats-integration-test-matrix-json:
-	@./scripts/generate-dir-matrix.sh internal/test/oats
+	@./scripts/generate-dir-matrix.sh internal/test/oats /harness/
 
 .PHONY: integration-test
 integration-test: prereqs prepare-integration-test

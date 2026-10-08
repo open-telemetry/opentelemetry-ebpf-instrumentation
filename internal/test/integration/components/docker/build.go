@@ -6,7 +6,10 @@ package docker // import "go.opentelemetry.io/obi/internal/test/integration/comp
 import (
 	"io"
 	"log/slog"
+	"os"
 	"os/exec"
+	"slices"
+	"strings"
 )
 
 // ImageBuild information for testing docker images: its name/tag and where the dockerfile is located.
@@ -49,7 +52,27 @@ func pullDockerfile(logger io.WriteCloser, ilog *slog.Logger, img ImageBuild) er
 	return nil
 }
 
+func prebuiltImages() []string {
+	env := os.Getenv("PREBUILT_IMAGES")
+	if env == "" {
+		return nil
+	}
+	tags := strings.Split(env, ",")
+	for i := range tags {
+		tags[i] = strings.TrimSpace(tags[i])
+	}
+	return tags
+}
+
 func buildDockerfile(logger io.WriteCloser, rootPath string, ilog *slog.Logger, img ImageBuild) error {
+	if slices.Contains(prebuiltImages(), img.Tag) {
+		if err := exec.Command("docker", "image", "inspect", img.Tag).Run(); err == nil {
+			ilog.Info("skipping build of prebuilt image")
+			return nil
+		}
+		ilog.Warn("PREBUILT_IMAGES lists the tag but the image is not loaded, building it")
+	}
+
 	ilog.Info("building Dockerfile")
 
 	cmd := exec.Command("docker", "build", "--quiet", "-t", img.Tag, "-f", img.Dockerfile, rootPath)
