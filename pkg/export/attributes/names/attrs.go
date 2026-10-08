@@ -35,6 +35,7 @@ const (
 	HTTPUrlPath            = Name(semconv.URLPathKey)
 	HTTPUrlFull            = Name(semconv.URLFullKey)
 	HTTPUrlQuery           = Name(semconv.URLQueryKey)
+	HTTPUrlTemplate        = Name(semconv.URLTemplateKey)
 	ClientAddr             = Name(semconv.ClientAddressKey)
 	ServerAddr             = Name(semconv.ServerAddressKey)
 	ServerPort             = Name(semconv.ServerPortKey)

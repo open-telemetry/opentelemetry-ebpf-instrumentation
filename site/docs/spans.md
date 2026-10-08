@@ -435,6 +435,7 @@ OBI outbound HTTP client span.
 | `url.full` | string | `conditionally_required`: if the scheme or the host was captured on the connection | stable | Absolute URL describing a network resource according to [RFC3986](https://www.rfc-editor.org/rfc/rfc3986) | https://www.foo.bar/search?q=OpenTelemetry#SemConv; //localhost |
 | `url.query` | string | `conditionally_required`: if the request carried a query string | stable | The [URI query](https://www.rfc-editor.org/rfc/rfc3986#section-3.4) component | q=OpenTelemetry |
 | `url.scheme` | string | `conditionally_required`: if the scheme was captured on the connection | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
+| `url.template` | string | `opt_in` | development | The low-cardinality template of an [absolute path reference](https://www.rfc-editor.org/rfc/rfc3986#section-4.2). | /users/{id}; /users/:id; /users?id={id} |
 | `user_agent.original` | string | `opt_in` | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
 ## `span.obi.http.server`

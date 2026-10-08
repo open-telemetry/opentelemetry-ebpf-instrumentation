@@ -89,6 +89,8 @@ groups:
       - ref: url.query
         requirement_level:
           conditionally_required: if the request carried a query string
+      - ref: url.template
+        requirement_level: opt_in
       - ref: server.address
         requirement_level:
           conditionally_required: if the peer address was resolved from the connection

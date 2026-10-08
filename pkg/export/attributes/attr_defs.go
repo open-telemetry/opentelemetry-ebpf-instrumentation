@@ -500,6 +500,7 @@ func getDefinitions(
 				attr.HTTPRequestBodySize:     false,
 				attr.HTTPResponseBodySize:    false,
 				attr.OBIHTTPResponseObserved: false,
+				attr.HTTPUrlTemplate:         false,
 			},
 		},
 		GPUCudaKernelLaunchCalls.Section: {

@@ -699,6 +699,14 @@ func appendHTTPResponseBodySize(attrs []attribute.KeyValue, span *request.Span, 
 	return append(attrs, request.HTTPResponseBodySize(span.ResponseBodyLength()))
 }
 
+func appendURLTemplate(attrs []attribute.KeyValue, span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
+	if _, ok := optionalAttrs[attr.HTTPUrlTemplate]; !ok {
+		return attrs
+	}
+
+	return appendIfSet(attrs, semconv.URLTemplate, span.Route)
+}
+
 func appendPeerService(attrs []attribute.KeyValue, span *request.Span, optionalAttrs map[attr.Name]struct{}) []attribute.KeyValue {
 	if _, ok := optionalAttrs[attr.ServicePeerName]; !ok {
 		return attrs
@@ -813,6 +821,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		if transport == httpTransportAll {
 			attrs = appendHTTPResponseStatus(attrs, span, optionalAttrs)
 			attrs = appendIfSet(attrs, semconv.URLScheme, scheme)
+			attrs = appendURLTemplate(attrs, span, optionalAttrs)
 			attrs = appendHTTPRequestBodySize(attrs, span, optionalAttrs)
 			attrs = appendHTTPResponseBodySize(attrs, span, optionalAttrs)
 			if scrubbedQS != "" {

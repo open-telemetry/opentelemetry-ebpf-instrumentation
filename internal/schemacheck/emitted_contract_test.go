@@ -729,6 +729,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				Method:              "SEARCH",
 				Path:                "/v1/things",
 				FullPath:            "/v1/things?q=1",
+				Route:               "/v1/things",
 				Statement:           "https" + request.SchemeHostSeparator + "api.example.com",
 				Host:                "10.0.0.1",
 				HostPort:            443,
@@ -742,7 +743,7 @@ func TestEmittedSpanAttributesMatchDeclaredGroup(t *testing.T) {
 				RequestBodyContent:  "{}",
 				ResponseBodyContent: "{}",
 			},
-			optional: httpSpanOptional,
+			optional: append([]attr.Name{attr.HTTPUrlTemplate}, httpSpanOptional...),
 			absent:   []string{"obi.http.response.observed"},
 		},
 		{
