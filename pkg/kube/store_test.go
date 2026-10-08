@@ -1520,6 +1520,57 @@ func TestStoreSubscribeDeliversSnapshotBeforeLiveEvents(t *testing.T) {
 	assert.Equal(t, "live", live.Resource.Name)
 }
 
+type snapshotInformer struct {
+	meta.BaseNotifier
+	mt            sync.RWMutex
+	events        []*informer.Event
+	subscriptions chan struct{}
+}
+
+func newSnapshotInformer(events ...*informer.Event) *snapshotInformer {
+	return &snapshotInformer{
+		BaseNotifier:  meta.NewBaseNotifier(slog.Default()),
+		events:        events,
+		subscriptions: make(chan struct{}, 2),
+	}
+}
+
+func (f *snapshotInformer) Subscribe(observer meta.Observer) {
+	f.SubscribeWithSnapshot(observer, func() []*informer.Event {
+		f.mt.RLock()
+		defer f.mt.RUnlock()
+		return slices.Clone(f.events)
+	})
+	f.subscriptions <- struct{}{}
+}
+
+func (f *snapshotInformer) setSnapshot(events ...*informer.Event) {
+	f.mt.Lock()
+	f.events = events
+	f.mt.Unlock()
+}
+
+func TestStoreResubscribesWithFreshSnapshotAfterQueueOverflow(t *testing.T) {
+	oldPod := &informer.ObjectMeta{Name: "old", Kind: "Pod", Ips: []string{"10.0.0.1"}}
+	newPod := &informer.ObjectMeta{Name: "new", Kind: "Pod", Ips: []string{"10.0.0.2"}}
+	upstream := newSnapshotInformer(&informer.Event{Type: informer.EventType_CREATED, Resource: oldPod})
+	store := NewStore(upstream, DefaultResourceLabels, nil, imetrics.NoopReporter{})
+	t.Cleanup(func() { upstream.Unsubscribe(store) })
+	require.NotNil(t, store.ObjectMetaByIP("10.0.0.1"))
+	testutil.ReadChannel(t, upstream.subscriptions, time.Second)
+
+	store.access.Lock()
+	upstream.setSnapshot(&informer.Event{Type: informer.EventType_CREATED, Resource: newPod})
+	const eventsToOverflowObserverQueue = 2048
+	for range eventsToOverflowObserverQueue {
+		upstream.Notify(&informer.Event{Type: informer.EventType_UPDATED, Resource: oldPod})
+	}
+	store.access.Unlock()
+	testutil.ReadChannel(t, upstream.subscriptions, time.Second)
+	assert.Nil(t, store.ObjectMetaByIP("10.0.0.1"))
+	assert.NotNil(t, store.ObjectMetaByIP("10.0.0.2"))
+}
+
 type fakeInformer struct {
 	mt        sync.Mutex
 	observers map[string]meta.Observer

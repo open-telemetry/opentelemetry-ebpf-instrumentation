@@ -155,6 +155,27 @@ func NewStore(
 	return store
 }
 
+// OnSubscriptionDropped rebuilds the Store from a fresh metadata snapshot.
+func (s *Store) OnSubscriptionDropped() {
+	s.access.Lock()
+	removed := make([]*informer.Event, 0, len(s.objectMetaByQName))
+	for _, object := range s.objectMetaByQName {
+		removed = append(removed, &informer.Event{Type: informer.EventType_DELETED, Resource: object.Meta})
+	}
+	s.podsByContainer = map[string]*kube.CachedObjMeta{}
+	s.containersByOwner = maps.Map2[string, string, *informer.ContainerInfo]{}
+	s.objectMetaByIP = map[string]*kube.CachedObjMeta{}
+	s.objectMetaByQName = map[qualifiedName]*kube.CachedObjMeta{}
+	s.otelServiceInfoByIP = map[string]otelServiceNamePair{}
+	s.cacheSynced = false
+	s.access.Unlock()
+
+	for _, event := range removed {
+		s.Notify(event)
+	}
+	s.metadataNotifier.Subscribe(s)
+}
+
 func (s *Store) ID() string { return "unique-metadata-observer" }
 
 // cacheResourceMetadata extracts the resource attribute from different standard OTEL sources, in order of preference:

@@ -71,6 +71,15 @@ type blockingObserver struct {
 	once    sync.Once
 }
 
+type dropAwareObserver struct {
+	*blockingObserver
+	dropped chan struct{}
+}
+
+func (o *dropAwareObserver) OnSubscriptionDropped() {
+	close(o.dropped)
+}
+
 func (o *blockingObserver) ID() string {
 	return o.id
 }
@@ -141,10 +150,13 @@ func TestObserverPreservesEventOrder(t *testing.T) {
 
 func TestObserverMustResubscribeWhenQueueIsFull(t *testing.T) {
 	n := NewBaseNotifier(slog.Default())
-	observer := &blockingObserver{
-		id:      "blocking",
-		started: make(chan struct{}),
-		release: make(chan struct{}),
+	observer := &dropAwareObserver{
+		blockingObserver: &blockingObserver{
+			id:      "blocking",
+			started: make(chan struct{}),
+			release: make(chan struct{}),
+		},
+		dropped: make(chan struct{}),
 	}
 	var release sync.Once
 	t.Cleanup(func() { release.Do(func() { close(observer.release) }) })
@@ -155,12 +167,12 @@ func TestObserverMustResubscribeWhenQueueIsFull(t *testing.T) {
 	for range observerQueueCapacity + 1 {
 		n.Notify(&informer.Event{})
 	}
-
 	n.mutex.RLock()
 	_, subscribed := n.observers[observer.ID()]
 	n.mutex.RUnlock()
 	assert.False(t, subscribed)
 	release.Do(func() { close(observer.release) })
+	testutil.ReadChannel(t, observer.dropped, observerTestTimeout)
 
 	replacement := &channelObserver{id: observer.ID(), events: make(chan *informer.Event, 2)}
 	n.SubscribeWithSnapshot(replacement, func() []*informer.Event {

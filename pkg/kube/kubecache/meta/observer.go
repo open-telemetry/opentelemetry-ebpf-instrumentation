@@ -31,6 +31,10 @@ type Notifier interface {
 	Notify(event *informer.Event)
 }
 
+type subscriptionDropObserver interface {
+	OnSubscriptionDropped()
+}
+
 type BaseNotifier struct {
 	log       *slog.Logger
 	mutex     sync.RWMutex
@@ -42,6 +46,7 @@ type observerSubscription struct {
 	events   chan observerNotification
 	ctx      context.Context
 	cancel   context.CancelFunc
+	dropped  chan struct{}
 }
 
 type observerNotification struct {
@@ -113,7 +118,9 @@ func (i *BaseNotifier) enqueue(event *informer.Event, wait bool) []queuedNotific
 
 	for _, subscription := range overflowed {
 		i.log.Warn("observer queue full. Unsubscribing it; observer must resubscribe", "observer", subscription.observer.ID())
-		i.removeSubscription(subscription)
+		if i.removeSubscription(subscription) {
+			close(subscription.dropped)
+		}
 	}
 	return queued
 }
@@ -131,6 +138,7 @@ func (i *BaseNotifier) SubscribeWithSnapshot(observer Observer, snapshot func() 
 		events:   make(chan observerNotification, observerQueueCapacity),
 		ctx:      ctx,
 		cancel:   cancel,
+		dropped:  make(chan struct{}),
 	}
 
 	i.mutex.Lock()
@@ -157,6 +165,16 @@ func (i *BaseNotifier) notify(
 	initial []*informer.Event,
 	ready chan struct{},
 ) {
+	defer func() {
+		select {
+		case <-subscription.dropped:
+			if observer, ok := subscription.observer.(subscriptionDropObserver); ok {
+				observer.OnSubscriptionDropped()
+			}
+		default:
+		}
+	}()
+
 	for _, event := range initial {
 		if !i.deliver(subscription, observerNotification{event: event}) {
 			close(ready)
@@ -198,11 +216,13 @@ func (i *BaseNotifier) deliver(subscription *observerSubscription, notification 
 	return false
 }
 
-func (i *BaseNotifier) removeSubscription(subscription *observerSubscription) {
+func (i *BaseNotifier) removeSubscription(subscription *observerSubscription) bool {
 	i.mutex.Lock()
+	defer i.mutex.Unlock()
 	if i.observers[subscription.observer.ID()] == subscription {
 		delete(i.observers, subscription.observer.ID())
 		subscription.cancel()
+		return true
 	}
-	i.mutex.Unlock()
+	return false
 }

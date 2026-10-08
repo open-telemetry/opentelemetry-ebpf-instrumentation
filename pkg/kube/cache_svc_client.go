@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -31,9 +32,14 @@ type cacheSvcClient struct {
 	ctx                      context.Context
 	syncTimeout              time.Duration
 	waitForSubscription      chan struct{}
+	waitForSubscriptionOnce  sync.Once
 	waitForSynchronization   chan struct{}
 	waitForSyncClosed        bool
 	reconnectInitialInterval time.Duration
+
+	metadataMutex sync.RWMutex
+	metadata      map[qualifiedName]*informer.ObjectMeta
+	synchronized  bool
 }
 
 func (sc *cacheSvcClient) Start(ctx context.Context) {
@@ -104,6 +110,7 @@ func (sc *cacheSvcClient) connect(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("error receiving message: %w", err)
 		}
+		sc.recordEvent(event)
 		if event.GetType() == informer.EventType_SYNC_FINISHED {
 			sc.NotifyAndWait(event)
 			// send a notification about the client being synced with the K8s metadata service
@@ -124,9 +131,9 @@ func (sc *cacheSvcClient) connect(ctx context.Context) error {
 }
 
 func (sc *cacheSvcClient) Subscribe(observer meta.Observer) {
-	sc.BaseNotifier.Subscribe(observer)
+	sc.SubscribeWithSnapshot(observer, sc.snapshot)
 
-	close(sc.waitForSubscription)
+	sc.waitForSubscriptionOnce.Do(func() { close(sc.waitForSubscription) })
 
 	// after the subscription is done, we temporarily pause the execution until the
 	// cache is fully loaded
@@ -142,4 +149,40 @@ func (sc *cacheSvcClient) Subscribe(observer meta.Observer) {
 			" If this is expected due to the size of your cluster, you might want to increase the timeout via" +
 			" the OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT configuration option")
 	}
+}
+
+func (sc *cacheSvcClient) recordEvent(event *informer.Event) {
+	sc.metadataMutex.Lock()
+	defer sc.metadataMutex.Unlock()
+
+	if event.GetType() == informer.EventType_SYNC_FINISHED {
+		sc.synchronized = true
+		return
+	}
+	resource := event.GetResource()
+	if resource == nil {
+		return
+	}
+	if sc.metadata == nil {
+		sc.metadata = map[qualifiedName]*informer.ObjectMeta{}
+	}
+	if event.GetType() == informer.EventType_DELETED {
+		delete(sc.metadata, qName(resource))
+	} else {
+		sc.metadata[qName(resource)] = resource
+	}
+}
+
+func (sc *cacheSvcClient) snapshot() []*informer.Event {
+	sc.metadataMutex.RLock()
+	defer sc.metadataMutex.RUnlock()
+
+	events := make([]*informer.Event, 0, len(sc.metadata)+1)
+	for _, resource := range sc.metadata {
+		events = append(events, &informer.Event{Type: informer.EventType_CREATED, Resource: resource})
+	}
+	if sc.synchronized {
+		events = append(events, &informer.Event{Type: informer.EventType_SYNC_FINISHED})
+	}
+	return events
 }

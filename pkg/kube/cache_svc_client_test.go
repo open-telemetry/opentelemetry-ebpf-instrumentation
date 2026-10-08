@@ -132,6 +132,34 @@ func TestClientWaitsOnlyForSyncFinished(t *testing.T) {
 	assert.Error(t, testutil.ReadChannel(t, connectDone, timeout))
 }
 
+func TestClientResubscriptionUsesCurrentSnapshot(t *testing.T) {
+	waitForSynchronization := make(chan struct{})
+	close(waitForSynchronization)
+	svc := cacheSvcClient{
+		BaseNotifier:           meta.NewBaseNotifier(klog()),
+		log:                    klog(),
+		ctx:                    t.Context(),
+		waitForSubscription:    make(chan struct{}),
+		waitForSynchronization: waitForSynchronization,
+	}
+	removed := &informer.ObjectMeta{Name: "removed", Namespace: "default", Kind: "Pod"}
+	current := &informer.ObjectMeta{Name: "current", Namespace: "default", Kind: "Pod"}
+	svc.recordEvent(&informer.Event{Type: informer.EventType_CREATED, Resource: removed})
+	svc.recordEvent(&informer.Event{Type: informer.EventType_CREATED, Resource: current})
+	svc.recordEvent(&informer.Event{Type: informer.EventType_DELETED, Resource: removed})
+	svc.recordEvent(&informer.Event{Type: informer.EventType_SYNC_FINISHED})
+
+	observer := &recordingSubscriber{events: make(chan *informer.Event, 4)}
+	svc.Subscribe(observer)
+	assert.Equal(t, current, testutil.ReadChannel(t, observer.events, timeout).Resource)
+	assert.Equal(t, informer.EventType_SYNC_FINISHED, testutil.ReadChannel(t, observer.events, timeout).Type)
+
+	svc.Subscribe(observer)
+	assert.Equal(t, current, testutil.ReadChannel(t, observer.events, timeout).Resource)
+	assert.Equal(t, informer.EventType_SYNC_FINISHED, testutil.ReadChannel(t, observer.events, timeout).Type)
+	svc.Unsubscribe(observer)
+}
+
 func TestNormalizeReconnectInitialInterval(t *testing.T) {
 	testCases := []struct {
 		name     string
