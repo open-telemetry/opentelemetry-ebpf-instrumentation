@@ -179,6 +179,28 @@ Total .NET monitor lock contentions since the collector baseline.
 
 No attributes.
 
+## `dotnet.process.cpu.count`
+
+Number of processors available to the .NET process.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | {cpu} | stable |
+
+No attributes.
+
+## `dotnet.process.cpu.time`
+
+CPU time consumed by the .NET process.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | s | stable |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `cpu.mode` | enum | `required` | development | The mode of the CPU | user; system |
+
 ## `dotnet.process.memory.working_set`
 
 Physical memory mapped to the .NET process.

@@ -303,12 +303,27 @@ jobs:
           echo $! > "$BPF_SAMPLE_DIR/sampler.pid"
           echo "Sampler started, PID $(cat "$BPF_SAMPLE_DIR/sampler.pid")"
 
+      - name: Download previous shard results
+        id: previous-results
+        if: github.run_attempt > 1
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: integration-retry-${{ matrix.id }}-${{ matrix.arch }}-${{ github.run_id }}-*
+          path: ${{ runner.temp }}/previous-integration-results
+
       - name: Run integration tests
+        id: integration-tests
         env:
           MATRIX_ID: ${{ matrix.id }}
+          MATRIX_ARCH: ${{ matrix.arch }}
           MATRIX_JSON: ${{ toJson(matrix) }}
           MATRIX_TEST_PATTERN: ${{ matrix.test_pattern }}
-          RUN_NUMBER: ${{ github.run_number }}
+          PREVIOUS_RESULTS_DIR: ${{ runner.temp }}/previous-integration-results
+          PREVIOUS_RESULTS_OUTCOME: ${{ steps.previous-results.outcome }}
+          RETRY_STATE_DIR: testoutput/integration-retry
+          TEST_COVERAGE_DIR: testoutput
+          TEST_REPORT: /home/runner/reports/test-run-${{ github.run_number }}-${{ matrix.id }}-${{ github.run_attempt }}.log
           # the OBI image is prebuilt and loaded above; component images keep
           # rebuilding per suite (their tags are not unique per Dockerfile)
           PREBUILT_IMAGES: "hatest-obi,hatest-obi-b"
@@ -316,19 +331,30 @@ jobs:
           echo Partition
           echo "${MATRIX_JSON}"
 
-          if [ -z "${MATRIX_TEST_PATTERN}" ]; then
-            echo "Error: Test pattern is empty for shard $MATRIX_ID"
-            exit 1
+          if [ "$PREVIOUS_RESULTS_OUTCOME" != "success" ]; then
+            PREVIOUS_RESULTS_DIR="$RUNNER_TEMP/no-previous-integration-results"
           fi
+          export PREVIOUS_RESULTS_DIR
 
-          mkdir -p /home/runner/reports
+          TEST_COMMIT="$(git rev-parse HEAD)"
+          export TEST_COMMIT
+          go run ./scripts/run-integration-shard
 
-          go tool -modfile=./internal/tools/go.mod gotestsum \
-              --rerun-fails=2 --rerun-fails-max-failures=2 --rerun-fails-abort-on-data-race \
-              --packages="./internal/test/integration" -ftestname \
-              --jsonfile=/home/runner/reports/test-run-"${RUN_NUMBER}"-"${MATRIX_ID}".log \
-              -- -race -count=1 -timeout 40m \
-              -run="^(${MATRIX_TEST_PATTERN})$" ./internal/test/integration
+      - name: Stage shard coverage data
+        if: always() && steps.integration-tests.outcome != 'skipped'
+        run: |
+          mkdir -p testoutput/integration-retry
+          find testoutput -maxdepth 1 -type f \( -name 'covmeta.*' -o -name 'covcounters.*' \) \
+            -exec cp -t testoutput/integration-retry/ -- {} +
+
+      - name: Upload shard results
+        if: always() && steps.integration-tests.outcome != 'skipped'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: integration-retry-${{ matrix.id }}-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: testoutput/integration-retry/
+          retention-days: 5
+          if-no-files-found: error
 
       - name: Stop bpftool sampler (PoC eBPF metrics)
         if: ${{ always() && matrix.arch == 'amd64' }}
@@ -361,7 +387,7 @@ jobs:
           MATRIX_ID: ${{ matrix.id }}
           RUN_NUMBER: ${{ github.run_number }}
         run: |
-          TEST_LOG="/home/runner/reports/test-run-${RUN_NUMBER}-${MATRIX_ID}.log"
+          TEST_LOG="/home/runner/reports/test-run-${RUN_NUMBER}-${MATRIX_ID}-${GITHUB_RUN_ATTEMPT}.log"
           ARGS=(--in "$BPF_SAMPLE_DIR" --shard "$MATRIX_ID" --out-json "$BPF_SAMPLE_DIR/summary.json")
           if [ -f "$TEST_LOG" ]; then
             ARGS+=(--testlog "$TEST_LOG")
@@ -372,7 +398,7 @@ jobs:
         if: ${{ always() && matrix.arch == 'amd64' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bpf-metrics-${{ matrix.id }}-${{ github.run_number }}
+          name: bpf-metrics-${{ matrix.id }}-${{ github.run_number }}-${{ github.run_attempt }}
           path: /tmp/bpfsamples/
           retention-days: 5
 
@@ -392,7 +418,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: integration-reports-${{ matrix.id }}-${{ matrix.arch }}-${{ github.run_number }}
+          name: integration-reports-${{ matrix.id }}-${{ matrix.arch }}-${{ github.run_number }}-${{ github.run_attempt }}
           path: /home/runner/reports/*.log
           retention-days: 5
 
@@ -400,7 +426,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
-          name: integration-logs-${{ matrix.id }}-${{ matrix.arch }}-${{ github.run_number }}
+          name: integration-logs-${{ matrix.id }}-${{ matrix.arch }}-${{ github.run_number }}-${{ github.run_attempt }}
           path: |
             testoutput/*.log
             testoutput/kind
@@ -434,7 +460,7 @@ jobs:
       - name: Download per-shard eBPF metrics artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          pattern: bpf-metrics-[0-9]*-${{ github.run_number }}
+          pattern: bpf-metrics-[0-9]*-${{ github.run_number }}-*
           path: ./all-shards
 
       - name: Aggregate and emit summary
@@ -449,6 +475,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bpf-metrics-aggregate-${{ github.run_number }}
+          name: bpf-metrics-aggregate-${{ github.run_number }}-${{ github.run_attempt }}
           path: /tmp/bpf-aggregate/
           retention-days: 30

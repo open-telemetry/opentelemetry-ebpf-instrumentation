@@ -16,6 +16,15 @@ When repository files do not fully answer a question, prefer these references:
 
 Prefer repository code and local documentation when there is any discrepancy with external references or summaries.
 
+## Task-oriented starting points
+
+- **Understand how data flows through OpenTelemetry eBPF Instrumentation (OBI):** start with [devdocs/pipeline-map.md](devdocs/pipeline-map.md), then follow the named components into `pkg/` and `pkg/internal/`.
+- **Change or investigate network, application, or stats metrics:** read [devdocs/metrics.md](devdocs/metrics.md); for eBPF map and probe metrics, also read [devdocs/bpf-metrics-collection.md](devdocs/bpf-metrics-collection.md).
+- **Work on a protocol or runtime:** check the relevant documentation under [devdocs/protocols/](devdocs/protocols/) or [devdocs/runtimes/](devdocs/runtimes/) and trace the implementation from there.
+- **Change configuration:** follow the [Config v1 to v2 migration guide](devdocs/config/version-2.0/migration.md); Config v1 is frozen.
+- **Work on eBPF code:** inspect the subsystem under `bpf/` and its loader under `pkg/internal/ebpf/`; do not edit generated bindings or `bpf/bpfcore/` files.
+- **Use a coding agent:** read [devdocs/ai-tooling.md](devdocs/ai-tooling.md) for setup-specific notes. The repository rules in this file remain authoritative.
+
 ## Repository Layout
 
 ```
@@ -73,7 +82,7 @@ Use `make lint`, `make test`, and `make compile` for targeted iteration when a f
 
 For Markdown-only changes, run `make lint-markdown`.
 
-C code must be formatted and linted before proposing changes. Run `make install-hooks` to install pre-commit hooks that enforce this automatically, or run `make clang-format` and `make clang-tidy` manually.
+C code must be formatted and linted before proposing changes. Run `make install-hooks` to install pre-commit hooks that enforce this automatically, or run `make docker-clang-format` and `make docker-clang-tidy` manually to use the same LLVM version as CI (`make clang-format` and `make clang-tidy` use the local tools).
 
 Integration tests live in `internal/test/integration/`:
 

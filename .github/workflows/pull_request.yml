@@ -109,13 +109,13 @@ jobs:
       - name: Set up clang-format
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] this tool cache is only used by lint/PR checks; release workflows do not use mise-action
         with:
-          cache_key: "{{default}}-{{env.MISE_ENABLE_TOOLS}}"
+          cache_key: "{{default}}-clang-format"
 
       - name: Check clang-format
         run: |
           files=$( \
             git diff --name-status origin/main...HEAD \
-            | awk '$1 != "D" && $2 !~ /^NOTICES/ && /\.(c|cpp|h)$/ { print ($3 != "" ? $3 : $2) }' \
+            | awk '$1 != "D" && $2 !~ /^(NOTICES|bpf\/bpfcore)\// && /\.(c|cpp|h)$/ { print ($3 != "" ? $3 : $2) }' \
           )
           if [ -z "$files" ]; then
             echo "No C/C++ files modified."
@@ -142,7 +142,7 @@ jobs:
       - name: Set up clang-tidy
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] this tool cache is only used by lint/PR checks; release workflows do not use mise-action
         with:
-          cache_key: "{{default}}-{{env.MISE_ENABLE_TOOLS}}"
+          cache_key: "{{default}}-clang-tidy"
 
       - name: Check clang-tidy version
         run: mise exec -- clang-tidy --version

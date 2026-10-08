@@ -5,7 +5,6 @@ package harvest
 
 import (
 	"context"
-	"strings"
 	"testing"
 
 	"github.com/microsoft/go-winmd/winmd"
@@ -20,10 +19,44 @@ func TestDotnetAttrs(t *testing.T) {
 	require.NoError(t, e.attrs())
 
 	assert.Equal(t, map[string]struct{}{
-		"/api/Products": {},
-		"/Get/{id}":     {},
-		"/health":       {},
+		"/api/Products":  {},
+		"/Get/{id}":      {},
+		"/health":        {},
+		"/search/{term}": {},
+		"/verbs/{id}":    {},
+		"/Single":        {},
+		"/foo/{id}":      {},
+		"/named/{id}":    {},
+		"/v2/search":     {},
 	}, e.rs)
+}
+
+func TestDotnetCustomRouteCtors(t *testing.T) {
+	_, md := openTestBlob(t)
+	e := dotnetExtractor{ctx: context.Background(), md: md}
+
+	require.NoError(t, e.customRouteCtors())
+
+	query := dotnetType(t, md, "HttpQueryAttribute")
+	typeDef, err := md.Tables.TypeDef.At(query)
+	require.NoError(t, err)
+	assert.Len(t, e.routeCtors, 3)
+	assert.Contains(t, e.routeCtors, dotnetMethod(t, md, query, ".ctor"))
+	assert.True(t, e.isRouteAttr(typeDef))
+
+	products := dotnetType(t, md, "ProductsController")
+	typeDef, err = md.Tables.TypeDef.At(products)
+	require.NoError(t, err)
+	assert.False(t, e.isRouteAttr(typeDef))
+}
+
+func TestDotnetCustomRouteCtorsCancelled(t *testing.T) {
+	_, md := openTestBlob(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	e := dotnetExtractor{ctx: ctx, md: md}
+
+	require.ErrorIs(t, e.customRouteCtors(), context.Canceled)
 }
 
 func TestDotnetAttrsCancelled(t *testing.T) {
@@ -133,57 +166,6 @@ func TestDotnetMemberType(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestDotnetAttrString(t *testing.T) {
-	tests := []struct {
-		name string
-		blob []byte
-		want string
-		ok   bool
-	}{
-		{name: "route", blob: []byte{1, 0, 4, '/', 'a', 'p', 'i', 0, 0}, want: "/api", ok: true},
-		{name: "missing prolog", blob: []byte{4, '/', 'a', 'p', 'i'}},
-		{name: "invalid prolog", blob: []byte{2, 0, 4, '/', 'a', 'p', 'i'}},
-		{name: "null string", blob: []byte{1, 0, 0xff}},
-		{name: "empty string", blob: []byte{1, 0, 0}},
-		{name: "truncated string", blob: []byte{1, 0, 4, '/', 'a'}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, ok := dotnetAttrString(tt.blob)
-			assert.Equal(t, tt.ok, ok)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
-func TestDotnetString(t *testing.T) {
-	two := strings.Repeat("a", 128)
-	four := strings.Repeat("b", 16384)
-	tests := []struct {
-		name string
-		blob []byte
-		want string
-		ok   bool
-	}{
-		{name: "one-byte length", blob: append([]byte{4}, []byte("/api")...), want: "/api", ok: true},
-		{name: "two-byte length", blob: append([]byte{0x80, 0x80}, []byte(two)...), want: two, ok: true},
-		{name: "four-byte length", blob: append([]byte{0xc0, 0x00, 0x40, 0x00}, []byte(four)...), want: four, ok: true},
-		{name: "ignores following data", blob: []byte{2, 'o', 'k', 9, 9}, want: "ok", ok: true},
-		{name: "missing", blob: nil},
-		{name: "null", blob: []byte{0xff}},
-		{name: "empty", blob: []byte{0}},
-		{name: "truncated length", blob: []byte{0x80}},
-		{name: "truncated data", blob: []byte{4, '/', 'a'}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, ok := dotnetString(tt.blob)
-			assert.Equal(t, tt.ok, ok)
-			assert.Equal(t, tt.want, got)
-		})
-	}
-}
-
 func TestDotnetTokens(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -269,7 +251,7 @@ func dotnetAttribute(t *testing.T, e *dotnetExtractor, name, route string) winmd
 		if !ok || attrName != name {
 			continue
 		}
-		r, ok := dotnetAttrString(a.Value)
+		r, ok := e.attrRoute(a)
 		if ok && r == route {
 			return a
 		}

@@ -1,6 +1,8 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+//go:build linux
+
 package integration
 
 import (
@@ -25,6 +27,7 @@ import (
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
@@ -37,17 +40,21 @@ func TestDotnetRuntimeMetrics(t *testing.T) {
 	}{
 		{"8.0", "mcr.microsoft.com/dotnet/runtime:8.0-bookworm-slim@sha256:37466ea190f696105c1c3ae67c15e32d4e199face9a0b2ad5b9a37c464db8f30"},
 		{"9.0", "mcr.microsoft.com/dotnet/runtime:9.0-bookworm-slim@sha256:8922cef0719da00335c6e3356007362b7015de9d2b15fb6e9d790f2e6e729c9a"},
-		{"10.0", "mcr.microsoft.com/dotnet/runtime:10.0-noble@sha256:ff17a18b639a0327e52c7c296fa2e1abe6e03eb61d8121a8ef67cc6aa430a27e"},
+		{"10.0", "mcr.microsoft.com/dotnet/runtime:10.0-noble@sha256:b89586dc17781f25531909993658aa8161205ae38b8cec8847df4a8221a403d5"},
 	} {
 		t.Run(runtime.version, func(t *testing.T) {
-			testDotnetRuntimeMetrics(t, runtime.version, runtime.image)
+			for _, mode := range []string{"override", "quota", "affinity"} {
+				t.Run(mode, func(t *testing.T) {
+					testDotnetRuntimeMetrics(t, runtime.version, runtime.image, mode)
+				})
+			}
 		})
 	}
 }
 
-func testDotnetRuntimeMetrics(t *testing.T, runtimeVersion, runtimeImage string) {
+func testDotnetRuntimeMetrics(t *testing.T, runtimeVersion, runtimeImage, mode string) {
 	compose, err := docker.ComposeSuite("docker-compose-dotnet-runtime-metrics.yml",
-		filepath.Join(pathOutput, "test-suite-dotnet-runtime-metrics-"+runtimeVersion+".log"))
+		filepath.Join(pathOutput, "test-suite-dotnet-runtime-metrics-"+runtimeVersion+"-"+mode+".log"))
 	require.NoError(t, err)
 	socketDir := t.TempDir()
 	compose.Env = append(compose.Env, "COMPOSE_PROJECT_NAME=obi-dotnet-runtime-metrics",
@@ -55,6 +62,22 @@ func testDotnetRuntimeMetrics(t *testing.T, runtimeVersion, runtimeImage string)
 		"DOTNET_RUNTIME_VERSION="+runtimeVersion,
 		"DOTNET_RUNTIME_IMAGE="+runtimeImage,
 		fmt.Sprintf("DOTNET_RUNTIME_USER=%d:%d", os.Getuid(), os.Getgid()))
+	expectedCPUCount := 1
+	switch mode {
+	case "override":
+		compose.Env = append(compose.Env, "DOTNET_RUNTIME_PROCESSOR_COUNT=2", "DOTNET_RUNTIME_CPUS=1", "DOTNET_RUNTIME_CPUSET=")
+		expectedCPUCount = 2
+	case "quota":
+		compose.Env = append(compose.Env, "DOTNET_RUNTIME_PROCESSOR_COUNT=", "DOTNET_RUNTIME_CPUS=1", "DOTNET_RUNTIME_CPUSET=")
+	case "affinity":
+		var allowed unix.CPUSet
+		require.NoError(t, unix.SchedGetaffinity(0, &allowed))
+		cpu := 0
+		for !allowed.IsSet(cpu) {
+			cpu++
+		}
+		compose.Env = append(compose.Env, "DOTNET_RUNTIME_PROCESSOR_COUNT=", "DOTNET_RUNTIME_CPUS=2", fmt.Sprintf("DOTNET_RUNTIME_CPUSET=%d", cpu))
+	}
 	t.Cleanup(func() { require.NoError(t, compose.Close()) })
 	t.Cleanup(func() { runWeaverValidation(t) })
 	require.NoError(t, compose.Up())
@@ -100,6 +123,22 @@ func testDotnetRuntimeMetrics(t *testing.T, runtimeVersion, runtimeImage string)
 		}
 		session, err := strconv.ParseUint(matches[len(matches)-1][1], 10, 64)
 		return session, len(matches), err
+	}
+	reconnect := func() {
+		previousSession, previousStarts, err := currentSession()
+		require.NoError(t, err)
+		stopDotnetDiagnosticSession(t, socketDir, previousSession)
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			_, starts, err := currentSession()
+			require.NoError(ct, err)
+			require.Greater(ct, starts, previousStarts)
+		}, testTimeout, time.Second)
+	}
+	_, _, err = currentSession()
+	require.NoError(t, err, "CPU validation requires an active EventPipe session")
+	if mode != "override" {
+		testDotnetCPUMetrics(t, client, workload, endpoints, expectedCPUCount, reconnect)
+		return
 	}
 	for round := range 2 {
 		if round == 1 {
@@ -161,6 +200,7 @@ func testDotnetRuntimeMetrics(t *testing.T, runtimeVersion, runtimeImage string)
 		}
 		t.Logf("GC round %d: PID %d, Prometheus %v, OTLP %v", round+1, before.PID, baseline[0], baseline[1])
 	}
+	testDotnetCPUMetrics(t, client, workload, endpoints, expectedCPUCount, reconnect)
 	testDotnetCurrentMetrics(t, client, workload, endpoints)
 	testDotnetCumulativeMetrics(t, client, workload, endpoints, func() {
 		previousSession, previousStarts, err := currentSession()

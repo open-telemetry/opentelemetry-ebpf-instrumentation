@@ -1,4 +1,4 @@
-FROM maven:3.9-eclipse-temurin-17@sha256:c73f8f3a9e50ef9d39a6b8693afc171b2e6b79ff86e41c72a43ee204550eb313 AS builder
+FROM maven:3.10-eclipse-temurin-17@sha256:39410d47e240f9177259242e63bf78232808ed77968ebf7e3957b0fa4656f31d AS builder
 WORKDIR /app
 COPY internal/test/integration/components/grpc_relay/java/pom.xml .
 RUN mvn dependency:go-offline -B

@@ -149,6 +149,8 @@ func (f fakeRuntimeServiceFilter) CurrentPIDs(PIDType) map[uint32]map[app.PID]sv
 	return f.current
 }
 
+func (f fakeRuntimeServiceFilter) ProcPIDs(PIDType) []app.PID { return nil }
+
 type fakeRuntimeMetricsSender struct {
 	events                []appruntime.JVMGCEvent
 	runtimeEvents         []appruntime.JVMRuntimeEvent

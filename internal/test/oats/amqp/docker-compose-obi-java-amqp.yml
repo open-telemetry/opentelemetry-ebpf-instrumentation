@@ -21,7 +21,6 @@ services:
     build:
       context: ../../../..
       dockerfile: ./internal/test/integration/components/javaamqp/Dockerfile
-      network: host
     image: javaamqp
     network_mode: host
     environment:
@@ -37,7 +36,6 @@ services:
     build:
       context: ../../../..
       dockerfile: ./internal/test/integration/components/obi/Dockerfile
-      network: host
     command:
       - --config=/configs/instrumenter-config-traces.yml
     volumes:
@@ -68,7 +66,7 @@ services:
   # Collector in front of lgtm (host networking): receives OBI's OTLP on 4319
   # and fans out to lgtm (127.0.0.1:4317) and weaver (127.0.0.1:4327).
   collector:
-    image: otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1
+    image: otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6
     network_mode: host
     volumes:
       - ./configs:/configs
@@ -80,10 +78,10 @@ services:
         condition: service_healthy
 
   # Weaver semantic-convention live-check (host networking). lgtm owns 4317, so
-  # weaver's OTLP listener is moved to 4327; admin /stop stays on 4320. The OATS
+  # weaver's OTLP listener is moved to 4327; the admin API stays on 4320. The OATS
   # harness stops it after the checks and fails the test on any actionable advisory.
   weaver:
-    image: otel/weaver:v0.26.1@sha256:9094862c0ab261bdbcb079bb981f9a573b3659b130a6d2ab8616eca6ba37aaec
+    image: otel/weaver:v0.27.0@sha256:3049b4079049d4abb1b5632f511ada2c33505a1c60f3f8535e93f87f0696f056
     network_mode: host
     user: "0:0"
     working_dir: /obi-registry
@@ -92,8 +90,6 @@ services:
       - live-check
       - --registry
       - /obi-registry
-      - --inactivity-timeout
-      - "300"
       - --otlp-grpc-port
       - "4327"
       - --admin-port
@@ -109,7 +105,7 @@ services:
     volumes:
       - ../../../../schemas/obi:/obi-registry:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4327/ 2>&1 | grep -qv refused"]
+      test: ["CMD-SHELL", "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4320/health"]
       interval: 5s
       timeout: 2s
       retries: 60

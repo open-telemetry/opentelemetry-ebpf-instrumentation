@@ -61,8 +61,6 @@ In addition, use the latest versions of the following components:
 - `clang`
 - `docker`
 - `make`
-- `clang-format`
-- `clang-tidy`
 
 #### Compilation steps
 
@@ -73,6 +71,8 @@ Once the eBPF files have been generated, we can use the `compile` `Makefile` tar
 make docker-generate # or make generate
 make compile
 ```
+
+Both generate targets build the eBPF code for amd64 and arm64. To iterate faster locally, `BPF_TARGETS` selects a single architecture, for example `make generate BPF_TARGETS=arm64`.
 
 A convenience `Makefile` target called `dev` which invokes both the generation and compilation step is also provided:
 
@@ -91,14 +91,16 @@ make install-hooks
 #### Manually formatting the C code
 
 ```
-make clang-format
+make docker-clang-format # or make clang-format
 ```
 
 #### Linting the C code
 
 ```
-make clang-tidy
+make docker-clang-tidy # or make clang-tidy
 ```
+
+CI formats and lints the C code with the `clang-format` and `clang-tidy` from the generator image, the same LLVM build as the clang that `make docker-generate` uses. The `docker-` targets run that same version. `make clang-format`, `make clang-tidy` and the pre-commit hook use the local tools instead: install the same major version as the generator image, and point `CLANG_FORMAT` and `CLANG_TIDY` at them if they are not the default `clang-format` and `clang-tidy` in your `PATH`.
 
 #### Formatting the Go code
 

@@ -5,19 +5,13 @@ package integration // import "go.opentelemetry.io/obi/internal/test/integration
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"os/exec"
 	"path"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
-
-	"github.com/stretchr/testify/require"
 
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 
@@ -27,8 +21,8 @@ import (
 const (
 	weaverContainer = "weaver"
 	weaverAdminPort = 4320
-	// weaverTimeout bounds the /stop request, whose response weaver produces by
-	// building the live-check report — that build scales with the unique signal
+	// weaverTimeout bounds stopping weaver and reading its report, which weaver
+	// builds when the run stops — that build scales with the unique signal
 	// count, so heavy multi-language suites need real headroom.
 	weaverTimeout = 3 * time.Minute
 )
@@ -61,8 +55,8 @@ func runWeaverValidation(t *testing.T) {
 
 // fetchWeaverReportDocker stops the weaver container (which runs as a service
 // in the Docker Compose stack receiving OTLP from the collector) via its admin
-// /stop endpoint, reads the live-check report from the /stop response body
-// (weaver runs with --output http), archives it, and parses it. It returns the
+// API, reads the live-check report (weaver runs with --output http), archives
+// it, and parses it. It returns the
 // parsed report and ok=true on success. On any failure it records the error (or,
 // when a prior test failure is detected, simply tears weaver down so the
 // surrounding compose teardown stays clean) and returns ok=false.
@@ -86,32 +80,12 @@ func fetchWeaverReportDocker(t *testing.T) (*weavercheck.Report, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), weaverTimeout)
 	defer cancel()
 
-	// POST /stop makes weaver finalize its live-check, return the report in the
-	// response body, and exit. On any failure we record it and force-remove the
-	// container so the surrounding `compose.Close()` still runs and the next
-	// test invocation starts from a clean slate.
-	url := fmt.Sprintf("http://127.0.0.1:%d/stop", weaverAdminPort)
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
-	require.NoError(t, err)
-	resp, err := http.DefaultClient.Do(req)
+	// On any failure we record it and force-remove the container so the
+	// surrounding `compose.Close()` still runs and the next test invocation
+	// starts from a clean slate.
+	rawReport, err := weavercheck.FetchRawReport(ctx, fmt.Sprintf("http://127.0.0.1:%d", weaverAdminPort))
 	if err != nil {
-		if errors.Is(err, syscall.ECONNREFUSED) {
-			t.Errorf("failed to stop weaver (is it running?): %v", err)
-		} else {
-			t.Errorf("posting weaver /stop: %v", err)
-		}
-		forceRemoveWeaverContainer(t)
-		return nil, false
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		t.Errorf("weaver /stop returned HTTP %d", resp.StatusCode)
-		forceRemoveWeaverContainer(t)
-		return nil, false
-	}
-	rawReport, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Errorf("failed to read weaver /stop response body: %v", err)
+		t.Errorf("%v", err)
 		forceRemoveWeaverContainer(t)
 		return nil, false
 	}
@@ -144,8 +118,8 @@ func archiveAndParseWeaverReport(t *testing.T, rawReport []byte) (*weavercheck.R
 	return report, true
 }
 
-// forceRemoveWeaverContainer is the best-effort cleanup we use when the /stop
-// request or report read couldn't finish. Without this, a stuck or killed
+// forceRemoveWeaverContainer is the best-effort cleanup we use when stopping
+// weaver or reading its report couldn't finish. Without this, a stuck or killed
 // weaver container survives the failed test invocation and the next run hits
 // "container name already in use" (or, worse, a half-broken admin port that
 // returns "connection reset by peer").

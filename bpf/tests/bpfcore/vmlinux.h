@@ -25,11 +25,15 @@ typedef int16_t __s16;
 typedef int32_t __s32;
 typedef int64_t __s64;
 
+struct pid_namespace;
+
 struct upid {
     int nr;
+    struct pid_namespace *ns;
 };
 
 struct pid {
+    unsigned int level;
     struct upid numbers[8];
 };
 

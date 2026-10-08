@@ -157,6 +157,9 @@ func forEachCombination(t *testing.T, prefix string, loadFn func() (*ebpf.Collec
 	}
 }
 
+// the valid_pid() paths the loader can pick (ebpfcommon.PIDFilterConstants)
+var pidNamespaceModes = []any{uint32(ebpfcommon.PIDNamespaceInit), uint32(ebpfcommon.PIDNamespacePod)}
+
 // TestBPFVerifierWithConstants verifies that BPF programs pass the kernel verifier
 // across all combinations of constant values (also default ones).
 // Different constant values cause the verifier to evaluate different code paths
@@ -218,6 +221,15 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"g_traces_ctx_v1_enabled", []any{false}},
 	})
 
+	// Each pid_ns_mode compiles a different valid_pid() path into every
+	// kprobe; a dedicated matrix keeps them verified without doubling the
+	// full generictracer cross-product.
+	forEachCombination(t, "generictracer/BpfPidNamespace", generictracerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"filter_pids", []any{int32(1)}},
+		{"pid_ns_mode", pidNamespaceModes},
+	})
+
 	// gotracer
 	forEachCombination(t, "gotracer/Bpf", gotracerbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{true, false}},
@@ -257,6 +269,11 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"inject_flags", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
 	})
+	forEachCombination(t, "tpinjector/BpfPidNamespace", tpinjectorbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"filter_pids", []any{int32(1)}},
+		{"pid_ns_mode", pidNamespaceModes},
+	})
 	// tpinjector/BpfIter needs bpf_iter_tcp_get_func_proto (kernel >= 5.11)
 	// for the verifier to recognize the sock_iter ctx type. Runtime loader
 	// has a separate >= 6.4 gate (RCU stall) enforced in tpinjector.Iters.
@@ -283,6 +300,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	forEachCombination(t, "gpuevent/Bpf", gpueventbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{true, false}},
 		{"filter_pids", []any{int32(0), int32(1)}},
+		{"pid_ns_mode", pidNamespaceModes},
 	})
 
 	// logger
