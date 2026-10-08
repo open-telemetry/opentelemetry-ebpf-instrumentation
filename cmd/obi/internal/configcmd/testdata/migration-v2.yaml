@@ -412,6 +412,13 @@ extensions:
                         source_labels:
                             service_name: ""
                             service_namespace: ""
+                cloud:
+                    cluster_name: ""
+                    region: ""
+                    refresh_interval: 30s
+                    route53:
+                        refresh_interval: 5m0s
+                        hosted_zone_ids: []
             service_name:
                 unresolved_hosts:
                     names:

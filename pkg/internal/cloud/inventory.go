@@ -6,6 +6,7 @@ package cloud // import "go.opentelemetry.io/obi/pkg/internal/cloud"
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"net/netip"
 	"sync"
 	"time"
@@ -13,6 +14,11 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
+
+// scheduledRefresher controls polling independently of the shared cloud interval.
+type scheduledRefresher interface {
+	RefreshDelay(initial bool) time.Duration
+}
 
 type MetadataRefresher interface {
 	Name() string
@@ -41,6 +47,8 @@ type Inventory struct {
 	refreshers []MetadataRefresher
 	mu         sync.RWMutex
 	snapshot   MetadataSnapshot
+	sources    []MetadataSnapshot
+	publishMu  sync.Mutex
 }
 
 func NewInventory(refreshers []MetadataRefresher) *Inventory {
@@ -48,6 +56,7 @@ func NewInventory(refreshers []MetadataRefresher) *Inventory {
 		changes:    msg.NewQueue[ContainerChanges](),
 		log:        slog.With("component", "cloud.Inventory"),
 		refreshers: refreshers,
+		sources:    make([]MetadataSnapshot, len(refreshers)),
 	}
 }
 
@@ -73,17 +82,26 @@ func (i *Inventory) ServiceNameForContainerID(id string) (string, bool) {
 }
 
 func (i *Inventory) refresh(ctx context.Context) {
-	snapshot := MetadataSnapshot{
-		ServiceByIP:          map[string]string{},
-		ServiceByContainerID: map[string]string{},
+	for index := range i.refreshers {
+		i.refreshSource(ctx, index)
 	}
+}
 
-	for _, r := range i.refreshers {
-		if err := r.Refresh(ctx, &snapshot); err != nil {
-			i.log.Warn("can't refresh cloud metadata",
-				"source", r.Name(), "error", err)
-			return
-		}
+func (i *Inventory) refreshSource(ctx context.Context, index int) {
+	next := MetadataSnapshot{ServiceByIP: map[string]string{}, ServiceByContainerID: map[string]string{}}
+	r := i.refreshers[index]
+	if err := r.Refresh(ctx, &next); err != nil {
+		i.log.Warn("can't refresh cloud metadata", "source", r.Name(), "error", err)
+		return
+	}
+	// Serialize publication so container changes are delivered in snapshot order.
+	i.publishMu.Lock()
+	defer i.publishMu.Unlock()
+	i.sources[index] = next
+	snapshot := MetadataSnapshot{ServiceByIP: map[string]string{}, ServiceByContainerID: map[string]string{}}
+	for _, source := range i.sources {
+		maps.Copy(snapshot.ServiceByIP, source.ServiceByIP)
+		maps.Copy(snapshot.ServiceByContainerID, source.ServiceByContainerID)
 	}
 	i.mu.Lock()
 	changes := ContainerChanges{
@@ -112,20 +130,41 @@ func InventoryRefresherNode(i *Inventory, refreshInterval time.Duration) swarm.I
 		if i == nil || len(i.refreshers) == 0 {
 			return func(context.Context) {}, nil
 		}
-		// before even any other node in the swarm starts its execution
-		// we refresh the inventory so it is pre-populated with existing data
-		i.refresh(ctx)
-		return func(ctx context.Context) {
-			ticker := time.NewTicker(refreshInterval)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					i.refresh(ctx)
-				}
+		for index, r := range i.refreshers {
+			if _, scheduled := r.(scheduledRefresher); !scheduled {
+				i.refreshSource(ctx, index)
 			}
+		}
+		return func(ctx context.Context) {
+			var workers sync.WaitGroup
+			for index, r := range i.refreshers {
+				workers.Go(func() {
+					delay := refreshInterval
+					scheduled, independent := r.(scheduledRefresher)
+					if independent {
+						delay = scheduled.RefreshDelay(true)
+					}
+					timer := time.NewTimer(delay)
+					defer timer.Stop()
+					for {
+						select {
+						case <-ctx.Done():
+							return
+						case <-timer.C:
+							if ctx.Err() != nil {
+								return
+							}
+							i.refreshSource(ctx, index)
+							delay = refreshInterval
+							if independent {
+								delay = scheduled.RefreshDelay(false)
+							}
+							timer.Reset(delay)
+						}
+					}
+				})
+			}
+			workers.Wait()
 		}, nil
 	}
 }

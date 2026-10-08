@@ -594,6 +594,16 @@ extensions:
             source_labels:
               service_name: ""
               service_namespace: ""
+        cloud:
+          # Overrides automatic cloud cluster and region detection.
+          cluster_name: ""
+          region: ""
+          # How often the cloud metadata inventory is refreshed.
+          refresh_interval: 30s
+          # Route53 hosted zones used by the route53 service_name source.
+          route53:
+            refresh_interval: 5m0s
+            hosted_zone_ids: []
       # Service identity enrichment policy from configured enrichers.
       service_name:
         # Ordered backends used for peer and host name resolution.

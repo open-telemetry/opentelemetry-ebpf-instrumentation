@@ -1917,6 +1917,7 @@ func applyPartialV2CaptureTelemetry(cfg *obi.Config, telemetry schema.CaptureTel
 func applyV2Standalone(cfg *obi.Config, src *schema.Extension, complete bool) {
 	applyV2EnrichAttributes(cfg, src.Enrich, complete)
 	applyV2KubernetesEnricher(cfg, src.Enrich, complete)
+	applyV2CloudEnricher(cfg, src.Enrich, complete)
 	applyV2EnrichServiceName(cfg, src.Enrich)
 	applyV2Correlation(cfg, src.Correlation, complete)
 	applyV2Daemon(cfg, src.Daemon, complete)
@@ -2035,6 +2036,46 @@ func applyPartialV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.Kuberne
 	}
 	if kubernetes.MetadataCache.SourceLabels.ServiceNamespace != "" {
 		cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace = kubernetes.MetadataCache.SourceLabels.ServiceNamespace
+	}
+}
+
+func applyV2CloudEnricher(cfg *obi.Config, enrich *schema.Enrich, complete bool) {
+	if enrich == nil || zeroValue(enrich.Enrichers.Cloud) && !complete {
+		return
+	}
+
+	cloud := enrich.Enrichers.Cloud
+	if complete || completeCloudEnricher(cloud) {
+		applyFullV2CloudEnricher(cfg, cloud)
+		return
+	}
+
+	applyPartialV2CloudEnricher(cfg, cloud)
+}
+
+func applyFullV2CloudEnricher(cfg *obi.Config, cloud schema.CloudEnricher) {
+	cfg.CloudMetadata.ClusterName = cloud.ClusterName
+	cfg.CloudMetadata.Region = cloud.Region
+	cfg.CloudMetadata.RefreshInterval = cloud.RefreshInterval.TimeDuration()
+	cfg.CloudMetadata.Route53.RefreshInterval = cloud.Route53.RefreshInterval.TimeDuration()
+	cfg.CloudMetadata.Route53.HostedZoneIDs = cloneStrings(cloud.Route53.HostedZoneIDs)
+}
+
+func applyPartialV2CloudEnricher(cfg *obi.Config, cloud schema.CloudEnricher) {
+	if cloud.ClusterName != "" {
+		cfg.CloudMetadata.ClusterName = cloud.ClusterName
+	}
+	if cloud.Region != "" {
+		cfg.CloudMetadata.Region = cloud.Region
+	}
+	if !zeroValue(cloud.RefreshInterval) {
+		cfg.CloudMetadata.RefreshInterval = cloud.RefreshInterval.TimeDuration()
+	}
+	if !zeroValue(cloud.Route53.RefreshInterval) {
+		cfg.CloudMetadata.Route53.RefreshInterval = cloud.Route53.RefreshInterval.TimeDuration()
+	}
+	if cloud.Route53.HostedZoneIDs != nil {
+		cfg.CloudMetadata.Route53.HostedZoneIDs = cloneStrings(cloud.Route53.HostedZoneIDs)
 	}
 }
 
@@ -2386,6 +2427,10 @@ func completeCaptureTelemetry(telemetry schema.CaptureTelemetry) bool {
 func completeEnrichmentAttributes(attrs schema.EnrichmentAttributes) bool {
 	return !zeroValue(attrs.MetadataRetry.StartInterval) &&
 		!zeroValue(attrs.MetadataRetry.MaxInterval)
+}
+
+func completeCloudEnricher(cloud schema.CloudEnricher) bool {
+	return !zeroValue(cloud.RefreshInterval) && !zeroValue(cloud.Route53.RefreshInterval) && cloud.Route53.HostedZoneIDs != nil
 }
 
 func completeKubernetesEnricher(kubernetes schema.KubernetesEnricher) bool {

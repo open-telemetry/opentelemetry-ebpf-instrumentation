@@ -14,9 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 func TestLoadConfigV2Standalone(t *testing.T) {
@@ -305,4 +308,30 @@ type errorReader struct {
 
 func (r errorReader) Read([]byte) (int, error) {
 	return 0, r.err
+}
+
+func TestLoadRoute53IntegrationConfig(t *testing.T) {
+	t.Setenv("ROUTE53_HOSTED_ZONE_ID", "test-zone")
+	// Legacy overrides must not replace the explicit v2 polling interval.
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL", "5m")
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS", "legacy-zone")
+	data, err := os.ReadFile("../../internal/test/integration/configs/obi-config-route53.yml")
+	require.NoError(t, err)
+	cfg, version, err := loadConfigReader(bytes.NewReader(data))
+	require.NoError(t, err)
+	require.Equal(t, configVersionV2, version)
+	require.NoError(t, cfg.Validate())
+	require.Equal(t, []transform.Source{transform.SourceRoute53}, cfg.NameResolver.Sources)
+	require.Equal(t, []string{"test-zone"}, cfg.CloudMetadata.Route53.HostedZoneIDs)
+	require.Equal(t, time.Second, cfg.CloudMetadata.Route53.RefreshInterval)
+	require.Equal(t, 8999, cfg.Prometheus.Port)
+	require.Equal(t, "frontend", cfg.ServiceName)
+	require.Equal(t, "integration-test", cfg.ServiceNamespace)
+	require.Equal(t, 10*time.Millisecond, cfg.EBPF.BatchTimeout)
+	selector, err := attributes.NewAttrSelector(0, &attributes.SelectorConfig{
+		SelectionCfg:            cfg.Attributes.Select,
+		ExtraGroupAttributesCfg: cfg.Attributes.ExtraGroupAttributes,
+	})
+	require.NoError(t, err)
+	require.Contains(t, selector.For(attributes.HTTPClientDuration), attr.Server)
 }

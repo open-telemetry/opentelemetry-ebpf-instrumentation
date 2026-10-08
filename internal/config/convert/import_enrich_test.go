@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 func TestV2ToRuntimeEnrichAttributesAndKubernetesRoundTrip(t *testing.T) {
@@ -66,6 +67,54 @@ func TestV2ToRuntimeEnrichAttributesAndKubernetesRoundTrip(t *testing.T) {
 	require.Equal(t, cfg.Attributes.MetadataRetry, got.Attributes.MetadataRetry)
 	require.Equal(t, cfg.Attributes.Select, got.Attributes.Select)
 	require.Equal(t, cfg.Attributes.ExtraGroupAttributes, got.Attributes.ExtraGroupAttributes)
+}
+
+func TestV2ToRuntimeCloudEnricherRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	cfg.CloudMetadata.ClusterName = "cluster-a"
+	cfg.CloudMetadata.Region = "us-gov-west-1"
+	cfg.CloudMetadata.RefreshInterval = 45 * time.Second
+	cfg.CloudMetadata.Route53.RefreshInterval = 7 * time.Minute
+	cfg.CloudMetadata.Route53.HostedZoneIDs = []string{"Z123", "/hostedzone/Z456"}
+
+	_, ext := RuntimeToV2(&cfg)
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+
+	require.Equal(t, cfg.CloudMetadata, got.CloudMetadata)
+}
+
+func TestDocumentToRuntimeCloudEnricher(t *testing.T) {
+	t.Parallel()
+
+	doc, _, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      enrichers:
+        cloud:
+          region: us-gov-west-1
+          route53:
+            refresh_interval: 2m
+            hosted_zone_ids: [Z123, Z456]
+      service_name:
+        sources: [route53]
+`))
+	require.NoError(t, err)
+
+	got, err := DocumentToRuntime(doc)
+	require.NoError(t, err)
+
+	require.Equal(t, transform.CloudMetadataConfig{
+		Region:          "us-gov-west-1",
+		RefreshInterval: obi.DefaultConfig.CloudMetadata.RefreshInterval,
+		Route53:         transform.Route53MetadataConfig{RefreshInterval: 2 * time.Minute, HostedZoneIDs: []string{"Z123", "Z456"}},
+	}, got.CloudMetadata)
+	require.Equal(t, []transform.Source{transform.SourceRoute53}, got.NameResolver.Sources)
 }
 
 func TestV2ToRuntimeKubernetesMode(t *testing.T) {
@@ -130,6 +179,7 @@ func TestV2ToRuntimeEmptyEnrichPreservesDefaults(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, obi.DefaultConfig.Attributes.Kubernetes, got.Attributes.Kubernetes)
+	require.Equal(t, obi.DefaultConfig.CloudMetadata, got.CloudMetadata)
 	require.Equal(t, obi.DefaultConfig.Attributes.MetadataRetry, got.Attributes.MetadataRetry)
 	require.Equal(t, obi.DefaultConfig.Attributes.Select, got.Attributes.Select)
 	require.Equal(t, obi.DefaultConfig.Attributes.ExtraGroupAttributes, got.Attributes.ExtraGroupAttributes)
@@ -164,6 +214,20 @@ func TestV2ToRuntimeRejectsUnsupportedEnrichment(t *testing.T) {
 			path: "enrich.enrichers.kubernetes.custom",
 			mutate: func(enrich *schema.Enrich) {
 				enrich.Enrichers.Kubernetes.AdditionalProperties = map[string]any{"custom": true}
+			},
+		},
+		{
+			name: "cloud enricher",
+			path: "enrich.enrichers.cloud.custom",
+			mutate: func(enrich *schema.Enrich) {
+				enrich.Enrichers.Cloud.AdditionalProperties = map[string]any{"custom": true}
+			},
+		},
+		{
+			name: "Route53 enricher",
+			path: "enrich.enrichers.cloud.route53.custom",
+			mutate: func(enrich *schema.Enrich) {
+				enrich.Enrichers.Cloud.Route53.AdditionalProperties = map[string]any{"custom": true}
 			},
 		},
 		{

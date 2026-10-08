@@ -2133,3 +2133,47 @@ func writeConfig(t *testing.T, name, contents string) string {
 	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
 	return path
 }
+
+func TestRunValidateRoute53HostedZones(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		source    string
+		zones     string
+		wantError bool
+	}{
+		{name: "enabled without zones", source: "route53", wantError: true},
+		{name: "empty list", source: "route53", zones: "[]", wantError: true},
+		{name: "blank ID", source: "route53", zones: `[""]`, wantError: true},
+		{name: "whitespace ID", source: "route53", zones: `["   "]`, wantError: true},
+		{name: "prefix without ID", source: "route53", zones: `["/hostedzone/"]`, wantError: true},
+		{name: "blank among valid IDs", source: "route53", zones: `[Z123, ""]`, wantError: true},
+		{name: "valid IDs", source: "route53", zones: `[Z123, /hostedzone/Z456]`},
+		{name: "disabled without zones", source: "dns"},
+		{name: "disabled with blank ID", source: "dns", zones: `[""]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			contents := validStandaloneV2 + fmt.Sprintf(`    enrich:
+      service_name:
+        sources: [%s]
+      enrichers:
+        cloud:
+          route53: {}
+`, tc.source)
+			if tc.zones != "" {
+				contents = strings.Replace(contents, "          route53: {}", "          route53:\n            hosted_zone_ids: "+tc.zones, 1)
+			}
+			path := writeConfig(t, "route53.yaml", contents)
+			var stdout, stderr bytes.Buffer
+			code := run([]string{"validate", path}, &stdout, &stderr)
+			if tc.wantError {
+				require.Equal(t, ExitError, code)
+				require.Contains(t, stderr.String(), "route53.hosted_zone_ids")
+				require.Empty(t, stdout.String())
+			} else {
+				require.Equal(t, ExitSuccess, code, stderr.String())
+				require.Equal(t, "configuration is valid\n", stdout.String())
+				require.Empty(t, stderr.String())
+			}
+		})
+	}
+}

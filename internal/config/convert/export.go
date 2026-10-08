@@ -638,6 +638,15 @@ func enrich(cfg *obi.Config) *schema.Enrich {
 					},
 				},
 			},
+			Cloud: schema.CloudEnricher{
+				ClusterName:     cfg.CloudMetadata.ClusterName,
+				Region:          cfg.CloudMetadata.Region,
+				RefreshInterval: schema.Duration(cfg.CloudMetadata.RefreshInterval),
+				Route53: schema.Route53{
+					RefreshInterval: schema.Duration(cfg.CloudMetadata.Route53.RefreshInterval),
+					HostedZoneIDs:   cfg.CloudMetadata.Route53.HostedZoneIDs,
+				},
+			},
 		},
 		ServiceName: serviceNameEnrichment(cfg),
 		Attributes: schema.EnrichmentAttributes{
