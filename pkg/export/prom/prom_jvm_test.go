@@ -101,6 +101,7 @@ func testJVMRuntimeCurrentValues(t *testing.T) {
 	require.NotNil(t, gcDuration)
 	assert.Equal(t, uint64(1), gcDuration.GetHistogram().GetSampleCount())
 	assert.InEpsilon(t, 0.025, gcDuration.GetHistogram().GetSampleSum(), 0)
+	assert.Equal(t, jvmTestBuckets.JVMGCDurationHistogram, histogramUpperBounds(gcDuration))
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
 		Service:    service,
@@ -279,6 +280,11 @@ func testJVMRuntimeProcessLifecycle(t *testing.T) {
 		"an in-flight snapshot must not recreate counters after termination")
 }
 
+// non-default buckets, so a histogram that ignores cfg.Buckets fails the bounds assertion
+var jvmTestBuckets = export.Buckets{
+	JVMGCDurationHistogram: []float64{0.002, 0.2, 2},
+}
+
 func newJVMRuntimeMetricsTestReporter(t *testing.T) (*metricsReporter, *prometheus.Registry) {
 	t.Helper()
 
@@ -286,7 +292,7 @@ func newJVMRuntimeMetricsTestReporter(t *testing.T) (*metricsReporter, *promethe
 	reporter, err := newReporter(
 		t.Context(),
 		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&PrometheusConfig{Registry: registry, TTL: time.Minute},
+		&PrometheusConfig{Registry: registry, TTL: time.Minute, Buckets: jvmTestBuckets},
 		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{},
 		request.UnresolvedNames{},
