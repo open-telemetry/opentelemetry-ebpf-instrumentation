@@ -13,6 +13,7 @@ import (
 
 	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
+	"golang.org/x/sync/semaphore"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -26,6 +27,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 	javaagent "go.opentelemetry.io/obi/pkg/internal/java"
 	"go.opentelemetry.io/obi/pkg/internal/nodejs"
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route/harvest"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -80,8 +82,9 @@ type traceAttacher struct {
 	// EbpfEventContext allows to set the common PID filter that's used to filter out events we don't need
 	EbpfEventContext *ebpfcommon.EBPFEventContext
 
-	// Extracts HTTP routes from executables
-	routeHarvester *harvest.RouteHarvester
+	// Extracts HTTP routes from executables, one process at a time and off the discovery loop
+	routeHarvester routesHarvester
+	harvestSlot    *semaphore.Weighted
 
 	// Is able to find process lifetime duration
 	processAgeFunc func(app.PID) time.Duration
@@ -91,6 +94,11 @@ type traceAttacher struct {
 	// processResourceDetector finds resources like the service.name, service.namespace and service.version,
 	// from the process binary or the process deployment directory.
 	processResourceDetector *metadata.ProcessResourceDetector
+}
+
+type routesHarvester interface {
+	HarvestRoutes(*exec.FileInfo) (*harvest.RouteHarvesterResult, error)
+	HarvestRoutesDelay(*exec.FileInfo) (bool, time.Duration)
 }
 
 type executableTracer struct {
@@ -122,6 +130,7 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 		ta.EbpfEventContext.RuntimeMetrics = runtimemetrics.NewQueueSender(ta.RuntimeMetrics)
 	}
 	ta.routeHarvester = harvest.NewRouteHarvester(&ta.Cfg.Discovery.RouteHarvestConfig, ta.Cfg.Discovery.DisabledRouteHarvesters, ta.Cfg.Discovery.RouteHarvesterTimeout)
+	ta.harvestSlot = semaphore.NewWeighted(1)
 	ta.processAgeFunc = ProcessAgeFunc()
 	ta.processResourceDetector = metadata.NewProcessResourceDetector()
 
@@ -287,7 +296,7 @@ func (ta *traceAttacher) getTracer(ctx context.Context, ie *ebpf.Instrumentable)
 			"cmd", ie.FileInfo.CmdExePath())
 		ie.FileInfo.SetSDKLanguage(ie.Type)
 		// Must be called after we've set the SDKLanguage
-		ta.harvestRoutes(ie, true)
+		ta.harvestRoutes(ctx, ie, true)
 
 		if tracer.Type == ebpf.Generic {
 			// We need to do this because generic tracers have shared libraries. For example,
@@ -366,7 +375,7 @@ func (ta *traceAttacher) getTracer(ctx context.Context, ie *ebpf.Instrumentable)
 
 	ie.FileInfo.SetSDKLanguage(ie.Type)
 	// Must be called after we've set the SDKLanguage
-	ta.harvestRoutes(ie, false)
+	ta.harvestRoutes(ctx, ie, false)
 
 	// Instead of the executable file in the disk, we pass the /proc/<pid>/exec
 	// to allow loading it from different container/pods in containerized environments
@@ -445,7 +454,16 @@ func (ta *traceAttacher) withCommonTracersGroup(tracers []ebpf.Tracer) []ebpf.Tr
 	return append(tracers, ta.commonTracers...)
 }
 
-func (ta *traceAttacher) harvestRoutesProcessor(ie *ebpf.Instrumentable, reused bool) {
+func (ta *traceAttacher) harvestRoutesProcessor(ctx context.Context, ie *ebpf.Instrumentable, reused bool) {
+	if ta.harvestSlot.Acquire(ctx, 1) != nil {
+		return
+	}
+	defer ta.harvestSlot.Release(1)
+
+	if !sameProcess(ie.FileInfo) {
+		return
+	}
+
 	routes, err := ta.routeHarvester.HarvestRoutes(ie.FileInfo)
 	if err != nil {
 		ta.log.Info("encountered error harvesting routes", "error", err, "pid", ie.FileInfo.Pid(), "cmd", ie.FileInfo.CmdExePath())
@@ -456,22 +474,30 @@ func (ta *traceAttacher) harvestRoutesProcessor(ie *ebpf.Instrumentable, reused 
 	}
 }
 
-func (ta *traceAttacher) harvestRoutes(ie *ebpf.Instrumentable, reused bool) {
+// sameProcess reports whether fi still describes a running process: a queued harvest
+// can start after the process exited, its PID was reused or it exec'd another binary
+func sameProcess(fi *exec.FileInfo) bool {
+	startTime, err := procs.StartTime(fi.Pid())
+	if err != nil || startTime != fi.StartTime() {
+		return false
+	}
+	dev, ino, err := FindINodeForPID(fi.Pid())
+	return err == nil && dev == fi.Dev() && ino == fi.Ino()
+}
+
+func (ta *traceAttacher) harvestRoutes(ctx context.Context, ie *ebpf.Instrumentable, reused bool) {
 	if delay, delayTime := ta.routeHarvester.HarvestRoutesDelay(ie.FileInfo); delay {
 		procAge := ta.processAgeFunc(ie.FileInfo.Pid())
 		if procAge < delayTime {
 			time.AfterFunc(delayTime-procAge, func() {
-				// sanity check that the program is still up and running and it's the same command
-				if exePath, ready := ExecutableReady(ie.FileInfo.Pid()); ready && exePath == ie.FileInfo.CmdExePath() {
-					ta.harvestRoutesProcessor(ie, reused)
-				}
+				ta.harvestRoutesProcessor(ctx, ie, reused)
 			})
 
 			return
 		}
 	}
 
-	ta.harvestRoutesProcessor(ie, reused)
+	go ta.harvestRoutesProcessor(ctx, ie, reused)
 }
 
 func (ta *traceAttacher) loadExecutable(ie *ebpf.Instrumentable) (*link.Executable, bool) {
@@ -489,7 +515,7 @@ func (ta *traceAttacher) loadExecutable(ie *ebpf.Instrumentable) (*link.Executab
 
 func (ta *traceAttacher) reuseTracer(ctx context.Context, tracer *ebpf.ProcessTracer, ie *ebpf.Instrumentable) bool {
 	ie.FileInfo.SetSDKLanguage(ie.Type)
-	ta.harvestRoutes(ie, true)
+	ta.harvestRoutes(ctx, ie, true)
 
 	exe, ok := ta.loadExecutable(ie)
 	if !ok {
