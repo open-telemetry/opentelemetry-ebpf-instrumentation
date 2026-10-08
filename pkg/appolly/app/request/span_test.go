@@ -270,6 +270,27 @@ func TestTraceName(t *testing.T) {
 		{name: "JSON-RPC dotted method stays whole", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "inventory.lookup.v2", Version: "2.0"}}, expected: "inventory.lookup.v2"},
 		{name: "JSON-RPC client", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "getUser", Version: "2.0"}}, expected: "getUser"},
 
+		// GenAI spans
+		{name: "OpenAI chat", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeOpenAI, GenAI: &GenAI{OpenAI: &VendorOpenAI{OperationName: ChatOperationName, Request: OpenAIInput{Model: "gpt-4o"}, ResponseModel: "gpt-4o-2024-08-06"}}}, expected: "chat gpt-4o"},
+		{name: "OpenAI unrecognized endpoint", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeOpenAI, GenAI: &GenAI{OpenAI: &VendorOpenAI{OperationName: OtherOperationName, Request: OpenAIInput{Model: "gpt-4o"}}}}, expected: "_OTHER gpt-4o"},
+		{name: "OpenAI without request model ignores response model", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeOpenAI, GenAI: &GenAI{OpenAI: &VendorOpenAI{OperationName: ChatOperationName, ResponseModel: "gpt-4o-2024-08-06"}}}, expected: "chat"},
+		{name: "OpenAI empty operation", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeOpenAI, Method: "POST", Route: "/v1/files", GenAI: &GenAI{OpenAI: &VendorOpenAI{Request: OpenAIInput{Model: "gpt-4o"}}}}, expected: "_OTHER gpt-4o"},
+		{name: "OpenAI-compatible chat", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeOpenAICompatible, Method: "POST", Route: "/v1/chat/completions", GenAI: &GenAI{OpenAICompatible: &VendorOpenAI{OperationName: ChatOperationName, Request: OpenAIInput{Model: "llama-3.1-8b"}}}}, expected: "chat llama-3.1-8b"},
+		{name: "OpenAI-compatible unrecognized endpoint", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeOpenAICompatible, Method: "POST", Route: "/*", GenAI: &GenAI{OpenAICompatible: &VendorOpenAI{OperationName: OtherOperationName}}}, expected: "_OTHER"},
+		{name: "Anthropic messages", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAnthropic, GenAI: &GenAI{Anthropic: &VendorAnthropic{Input: AnthropicRequest{Model: "claude-sonnet-4-6"}, Output: AnthropicResponse{Type: ChatOperationName}}}}, expected: "chat claude-sonnet-4-6"},
+		{name: "Anthropic without request model ignores response model", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAnthropic, GenAI: &GenAI{Anthropic: &VendorAnthropic{Output: AnthropicResponse{Type: ChatOperationName, Model: "claude-sonnet-4-6"}}}}, expected: "chat"},
+		{name: "Gemini", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeGemini, GenAI: &GenAI{Gemini: &VendorGemini{Model: "gemini-2.0-flash", Output: GeminiResponse{ModelVersion: "gemini-2.0-flash-001"}}}}, expected: "generate_content gemini-2.0-flash"},
+		{name: "Gemini without request model ignores response model", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeGemini, GenAI: &GenAI{Gemini: &VendorGemini{Output: GeminiResponse{ModelVersion: "gemini-2.0-flash-001"}}}}, expected: "generate_content"},
+		{name: "Qwen", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeQwen, GenAI: &GenAI{Qwen: &VendorOpenAI{OperationName: GenerationOperationName, Request: OpenAIInput{Model: "qwen-turbo"}}}}, expected: "generation qwen-turbo"},
+		{name: "Qwen empty operation", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeQwen, Method: "POST", Route: "/api", GenAI: &GenAI{Qwen: &VendorOpenAI{Request: OpenAIInput{Model: "qwen-turbo"}}}}, expected: "_OTHER qwen-turbo"},
+		{name: "Ollama", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeOllama, GenAI: &GenAI{Ollama: &VendorOpenAI{OperationName: ChatOperationName, Request: OpenAIInput{Model: "llama3.2"}}}}, expected: "chat llama3.2"},
+		{name: "Bedrock", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAWSBedrock, GenAI: &GenAI{Bedrock: &VendorBedrock{Model: "amazon.titan-text-premier-v1:0"}}}, expected: "invoke_model amazon.titan-text-premier-v1:0"},
+		{name: "Embedding", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeEmbedding, GenAI: &GenAI{Embedding: &VendorEmbedding{Model: "voyage-3"}}}, expected: "embeddings voyage-3"},
+		{name: "Rerank", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeRerank, GenAI: &GenAI{Rerank: &VendorRerank{Input: RerankRequest{Model: "rerank-v3.5"}}}}, expected: "rerank rerank-v3.5"},
+		{name: "Rerank without request model ignores response model", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeRerank, GenAI: &GenAI{Rerank: &VendorRerank{Output: RerankResponse{Model: "rerank-v3.5"}}}}, expected: "rerank"},
+		{name: "Retrieval with data source", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeRetrieval, GenAI: &GenAI{Retrieval: &VendorRetrieval{Provider: "pinecone", Input: RetrievalRequest{Namespace: "docs"}}}}, expected: "retrieval docs"},
+		{name: "Retrieval without data source", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeRetrieval, GenAI: &GenAI{Retrieval: &VendorRetrieval{Provider: "qdrant"}}}, expected: "retrieval"},
+
 		// Other spans
 		{name: "Mongo client", span: &Span{Type: EventTypeMongoClient, Method: "find", Path: "users"}, expected: "find users"},
 		{name: "Failed connect", span: &Span{Type: EventTypeFailedConnect}, expected: "CONNECT"},

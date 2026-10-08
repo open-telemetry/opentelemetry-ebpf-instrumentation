@@ -2134,3 +2134,124 @@ func TestGenerateTracesSetsOBISchemaURL(t *testing.T) {
 	require.Equal(t, 1, traces.ResourceSpans().Len())
 	assert.Equal(t, attr.OBISchemaURL, traces.ResourceSpans().At(0).SchemaUrl())
 }
+
+func TestGenAISpanNameMatchesEmittedAttributes(t *testing.T) {
+	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name     string
+		subType  int
+		genAI    *request.GenAI
+		target   attribute.Key
+		expected string
+	}{
+		{
+			name:     "OpenAI chat",
+			subType:  request.HTTPSubtypeOpenAI,
+			genAI:    &request.GenAI{OpenAI: &request.VendorOpenAI{OperationName: request.ChatOperationName, Request: request.OpenAIInput{Model: "gpt-4o"}, ResponseModel: "gpt-4o-2024-08-06"}},
+			target:   semconv.GenAIRequestModelKey,
+			expected: "chat gpt-4o",
+		},
+		{
+			name:     "OpenAI unrecognized endpoint",
+			subType:  request.HTTPSubtypeOpenAI,
+			genAI:    &request.GenAI{OpenAI: &request.VendorOpenAI{OperationName: request.OtherOperationName, Request: request.OpenAIInput{Model: "gpt-4o"}}},
+			target:   semconv.GenAIRequestModelKey,
+			expected: "_OTHER gpt-4o",
+		},
+		{
+			name:     "OpenAI-compatible chat",
+			subType:  request.HTTPSubtypeOpenAICompatible,
+			genAI:    &request.GenAI{OpenAICompatible: &request.VendorOpenAI{OperationName: request.ChatOperationName, ProviderName: "litellm", Request: request.OpenAIInput{Model: "gpt-4o-mini"}}},
+			target:   semconv.GenAIRequestModelKey,
+			expected: "chat gpt-4o-mini",
+		},
+		{
+			name:     "Anthropic messages",
+			subType:  request.HTTPSubtypeAnthropic,
+			genAI:    &request.GenAI{Anthropic: &request.VendorAnthropic{Input: request.AnthropicRequest{Model: "claude-sonnet-4-6"}, Output: request.AnthropicResponse{Type: request.ChatOperationName, Model: "claude-sonnet-4-6"}}},
+			target:   semconv.GenAIRequestModelKey,
+			expected: "chat claude-sonnet-4-6",
+		},
+		{
+			name:     "Anthropic without request model",
+			subType:  request.HTTPSubtypeAnthropic,
+			genAI:    &request.GenAI{Anthropic: &request.VendorAnthropic{Output: request.AnthropicResponse{Type: request.ChatOperationName, Model: "claude-sonnet-4-6"}}},
+			target:   semconv.GenAIRequestModelKey,
+			expected: "chat",
+		},
+		{
+			name:     "Gemini without request model",
+			subType:  request.HTTPSubtypeGemini,
+			genAI:    &request.GenAI{Gemini: &request.VendorGemini{Output: request.GeminiResponse{ModelVersion: "gemini-2.0-flash-001"}}},
+			target:   semconv.GenAIRequestModelKey,
+			expected: "generate_content",
+		},
+		{
+			name:     "Qwen empty operation",
+			subType:  request.HTTPSubtypeQwen,
+			genAI:    &request.GenAI{Qwen: &request.VendorOpenAI{Request: request.OpenAIInput{Model: "qwen-plus"}}},
+			target:   semconv.GenAIRequestModelKey,
+			expected: "_OTHER qwen-plus",
+		},
+		{
+			name:     "Ollama",
+			subType:  request.HTTPSubtypeOllama,
+			genAI:    &request.GenAI{Ollama: &request.VendorOpenAI{OperationName: request.ChatOperationName, Request: request.OpenAIInput{Model: "llama3.2"}}},
+			target:   semconv.GenAIRequestModelKey,
+			expected: "chat llama3.2",
+		},
+		{
+			name:     "Bedrock",
+			subType:  request.HTTPSubtypeAWSBedrock,
+			genAI:    &request.GenAI{Bedrock: &request.VendorBedrock{Model: "amazon.titan-text-premier-v1:0"}},
+			target:   semconv.GenAIRequestModelKey,
+			expected: "invoke_model amazon.titan-text-premier-v1:0",
+		},
+		{
+			name:     "Embedding",
+			subType:  request.HTTPSubtypeEmbedding,
+			genAI:    &request.GenAI{Embedding: &request.VendorEmbedding{Provider: "voyage", Model: "voyage-3"}},
+			target:   semconv.GenAIRequestModelKey,
+			expected: "embeddings voyage-3",
+		},
+		{
+			name:     "Rerank without request model",
+			subType:  request.HTTPSubtypeRerank,
+			genAI:    &request.GenAI{Rerank: &request.VendorRerank{Provider: "cohere", Output: request.RerankResponse{Model: "rerank-v3.5"}}},
+			target:   semconv.GenAIRequestModelKey,
+			expected: "rerank",
+		},
+		{
+			name:     "Retrieval with data source",
+			subType:  request.HTTPSubtypeRetrieval,
+			genAI:    &request.GenAI{Retrieval: &request.VendorRetrieval{Provider: "pinecone", Input: request.RetrievalRequest{Namespace: "docs"}}},
+			target:   semconv.GenAIDataSourceIDKey,
+			expected: "retrieval docs",
+		},
+		{
+			name:     "Retrieval without data source",
+			subType:  request.HTTPSubtypeRetrieval,
+			genAI:    &request.GenAI{Retrieval: &request.VendorRetrieval{Provider: "qdrant"}},
+			target:   semconv.GenAIDataSourceIDKey,
+			expected: "retrieval",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			span := &request.Span{Type: request.EventTypeHTTPClient, SubType: tc.subType, Method: "POST", Route: "/v1/any", GenAI: tc.genAI}
+			selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+
+			operation, ok := selected.Get(string(semconv.GenAIOperationNameKey))
+			require.True(t, ok)
+
+			fromAttributes := operation.Str()
+			if target, ok := selected.Get(string(tc.target)); ok {
+				fromAttributes += " " + target.Str()
+			}
+
+			assert.Equal(t, tc.expected, span.TraceName())
+			assert.Equal(t, fromAttributes, span.TraceName())
+		})
+	}
+}
