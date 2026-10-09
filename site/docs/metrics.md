@@ -119,6 +119,18 @@ Total bytes allocated on the .NET managed heap since the collector baseline.
 
 No attributes.
 
+## `dotnet.gc.last_collection.heap.size`
+
+Managed .NET heap size including fragmentation at the latest collection.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | By | stable |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dotnet.gc.heap.generation` | enum | `required` | stable | Name of the garbage collector managed heap generation. | gen0; gen1; gen2; loh; poh |
+
 ## `dotnet.gc.last_collection.memory.committed_size`
 
 Committed .NET GC memory observed during the latest collection.

@@ -737,6 +737,12 @@ func getDefinitions(
 				attr.CPUMode: true,
 			},
 		},
+		DotnetGCHeapSize.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.DotnetGCHeapGeneration: true,
+			},
+		},
 		DotnetGCCollections.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
