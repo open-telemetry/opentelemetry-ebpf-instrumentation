@@ -21,6 +21,7 @@ import (
 
 type receiverConfig struct {
 	runtime *obi.Config
+	v2      bool
 }
 
 func (c *receiverConfig) Unmarshal(component *confmap.Conf) error {
@@ -44,6 +45,7 @@ func (c *receiverConfig) Unmarshal(component *confmap.Conf) error {
 			return fmt.Errorf("parse legacy OBI receiver config: %w", err)
 		}
 		c.runtime = cfg
+		c.v2 = false
 		return nil
 	}
 
@@ -53,6 +55,7 @@ func (c *receiverConfig) Unmarshal(component *confmap.Conf) error {
 	}
 	setReceiverConsumers(cfg)
 	c.runtime = cfg
+	c.v2 = true
 	return nil
 }
 

@@ -12,6 +12,8 @@ import (
 
 	"go.opentelemetry.io/collector/component"
 
+	configruntime "go.opentelemetry.io/obi/internal/config/runtime"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/instrumenter"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
@@ -21,6 +23,7 @@ import (
 type sharedController struct {
 	mu      sync.Mutex
 	config  *obi.Config
+	v2      bool
 	cancel  context.CancelFunc
 	refCnt  int // Number of active receivers using this controller
 	runErr  error
@@ -45,7 +48,7 @@ var (
 // NewController creates a new Controller for the given component ID and config.
 // Receivers with the same component ID share the same underlying OBI instance.
 // Receivers with different component IDs get separate OBI instances.
-func NewController(id component.ID, cfg *obi.Config) (*Controller, error) {
+func NewController(id component.ID, cfg *obi.Config, v2 bool) (*Controller, error) {
 	sharedControllersMu.Lock()
 	defer sharedControllersMu.Unlock()
 
@@ -54,6 +57,7 @@ func NewController(id component.ID, cfg *obi.Config) (*Controller, error) {
 	if !exists {
 		shared = &sharedController{
 			config: cfg,
+			v2:     v2,
 		}
 		sharedControllers[id] = shared
 	} else {
@@ -104,6 +108,9 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 
 	// First caller - start OBI
 	runCtx, cancel := context.WithCancel(ctx)
+	if c.shared.v2 {
+		runCtx = configruntime.WithProtocolMetricSelection(runCtx, instrumentations.NewInstrumentationSelection(c.shared.config.OTELMetrics.Instrumentations))
+	}
 	ctxInfo, err := instrumenter.BuildCommonContextInfo(runCtx, c.shared.config)
 	if err != nil {
 		cancel()

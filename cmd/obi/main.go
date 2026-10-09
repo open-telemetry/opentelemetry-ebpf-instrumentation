@@ -22,9 +22,11 @@ import (
 
 	"go.opentelemetry.io/obi/cmd/obi/internal/configcmd"
 	"go.opentelemetry.io/obi/internal/config/convert"
+	configruntime "go.opentelemetry.io/obi/internal/config/runtime"
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/buildinfo"
 	obicfg "go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/instrumenter"
 	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -166,6 +168,9 @@ func main() {
 	// We must register the hook before we launch the pipe build, otherwise we won't clean up if the
 	// child process isn't found.
 	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	if configVersion == configVersionV2 {
+		ctx = configruntime.WithProtocolMetricSelection(ctx, instrumentations.NewInstrumentationSelection(config.OTELMetrics.Instrumentations))
+	}
 
 	if err := instrumenter.Run(ctx, config); err != nil {
 		slog.Error("OpenTelemetry eBPF Instrumentation ran with errors", "error", err)

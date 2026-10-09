@@ -38,8 +38,6 @@ type AttributeFamilyConfig map[string]MatchDefinition
 type SignalAttributeFamilyConfig struct {
 	Traces  AttributeFamilyConfig
 	Metrics AttributeFamilyConfig
-	// Config v2 protocol enablement; V1 leaves span-derived metrics unrestricted.
-	MetricsDisabled bool
 }
 
 // InstrumentationAttributeFamilyConfig groups signal filters by instrumentation.

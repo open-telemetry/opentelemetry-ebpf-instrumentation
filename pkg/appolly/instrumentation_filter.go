@@ -18,13 +18,12 @@ import (
 )
 
 type signalMatcherSets struct {
-	traces          filter.MatcherSet[request.Span]
-	metrics         filter.MatcherSet[request.Span]
-	metricsDisabled bool
+	traces  filter.MatcherSet[request.Span]
+	metrics filter.MatcherSet[request.Span]
 }
 
 // InstrumentationFilterSpanGate marks spans as traces or metrics ignored according to
-// the filters and metric enablement configured for the instrumentation that produced each span.
+// the filters configured for the instrumentation that produced each span.
 func InstrumentationFilterSpanGate(
 	config filter.InstrumentationAttributeFamilyConfig,
 	extraGroupAttributesCfg map[string][]attr.Name,
@@ -58,7 +57,7 @@ func instrumentationMatcherSets(
 ) (map[instrumentations.Instrumentation]signalMatcherSets, error) {
 	matchers := make(map[instrumentations.Instrumentation]signalMatcherSets, len(config))
 	for instrumentation, signalConfig := range config {
-		signalMatchers := signalMatcherSets{metricsDisabled: signalConfig.MetricsDisabled}
+		var signalMatchers signalMatcherSets
 		var err error
 		if len(signalConfig.Traces) != 0 {
 			signalMatchers.traces, err = filter.NewMatcherSet(
@@ -82,7 +81,7 @@ func instrumentationMatcherSets(
 				return nil, fmt.Errorf("%s metric filters: %w", instrumentation, err)
 			}
 		}
-		if len(signalMatchers.traces) != 0 || len(signalMatchers.metrics) != 0 || signalMatchers.metricsDisabled {
+		if len(signalMatchers.traces) != 0 || len(signalMatchers.metrics) != 0 {
 			matchers[instrumentation] = signalMatchers
 		}
 	}
@@ -105,7 +104,7 @@ func applyInstrumentationFilters(
 		if len(signalMatchers.traces) != 0 && !signalMatchers.traces.Matches(spans[i]) {
 			request.SetIgnoreTraces(&spans[i])
 		}
-		if signalMatchers.metricsDisabled || len(signalMatchers.metrics) != 0 && !signalMatchers.metrics.Matches(spans[i]) {
+		if len(signalMatchers.metrics) != 0 && !signalMatchers.metrics.Matches(spans[i]) {
 			request.SetIgnoreMetrics(&spans[i])
 		}
 	}

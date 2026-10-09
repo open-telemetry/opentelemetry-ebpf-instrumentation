@@ -406,9 +406,8 @@ func TestV2ToRuntimeApplicationFiltersMigratesLegacyRuntimeConfig(t *testing.T) 
 	require.Len(t, got.Filters.ApplicationByInstrumentation, len(protocolMappings))
 	for _, mapping := range protocolMappings {
 		require.Equal(t, filter.SignalAttributeFamilyConfig{
-			Traces:          cfg.Filters.Application,
-			Metrics:         cfg.Filters.Application,
-			MetricsDisabled: mapping.name == protocolDNS,
+			Traces:  cfg.Filters.Application,
+			Metrics: cfg.Filters.Application,
 		}, got.Filters.ApplicationByInstrumentation[mapping.instr])
 	}
 }

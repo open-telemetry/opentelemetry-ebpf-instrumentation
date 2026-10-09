@@ -139,7 +139,10 @@ func newGraphBuilder(
 		attrFilteredSpans,
 		instrumentationFilteredSpans,
 	), swarm.WithID("InstrumentationFilterSpanGate"))
-	swi.Add(DynamicSignalSpanGate(ctxInfo.DynamicSelector, instrumentationFilteredSpans, exportableSpans),
+	protocolFilteredSpans := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "protocolFilteredSpans")
+	swi.Add(protocolMetricsSpanGate(instrumentationFilteredSpans, protocolFilteredSpans),
+		swarm.WithID("ProtocolMetricsSpanGate"))
+	swi.Add(DynamicSignalSpanGate(ctxInfo.DynamicSelector, protocolFilteredSpans, exportableSpans),
 		swarm.WithID("DynamicSignalSpanGate"))
 
 	swi.Add(otel.TracesReceiver(

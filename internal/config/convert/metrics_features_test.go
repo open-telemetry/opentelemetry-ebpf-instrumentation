@@ -130,12 +130,14 @@ instrumentation:
 	require.NoError(t, err)
 	require.True(t, got.Metrics.Features.SpanMetrics())
 	require.True(t, got.Metrics.Features.ServiceGraph())
-	require.True(t, got.Filters.ApplicationByInstrumentation[instrumentations.InstrumentationHTTP].MetricsDisabled)
-	require.False(t, got.Filters.ApplicationByInstrumentation[instrumentations.InstrumentationGRPC].MetricsDisabled)
+	selection := instrumentations.NewInstrumentationSelection(got.OTELMetrics.Instrumentations)
+	require.False(t, selection.HTTPEnabled())
+	require.True(t, selection.GRPCEnabled())
+	require.Equal(t, got.OTELMetrics.Instrumentations, got.Prometheus.Instrumentations)
 	require.True(t, instrumentations.NewInstrumentationSelection(got.Traces.Instrumentations).HTTPEnabled())
 
 	_, docExt := RuntimeToV2(got)
 	got, err = V2ToRuntime(docExt)
 	require.NoError(t, err)
-	require.True(t, got.Filters.ApplicationByInstrumentation[instrumentations.InstrumentationHTTP].MetricsDisabled)
+	require.False(t, instrumentations.NewInstrumentationSelection(got.OTELMetrics.Instrumentations).HTTPEnabled())
 }

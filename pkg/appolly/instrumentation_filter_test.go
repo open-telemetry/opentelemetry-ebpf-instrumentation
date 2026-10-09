@@ -5,7 +5,6 @@ package appolly
 
 import (
 	"context"
-	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -117,36 +116,6 @@ func TestInstrumentationFilterSpanGateRejectsInvalidFilter(t *testing.T) {
 				output,
 			)(t.Context())
 			require.ErrorContains(t, err, test.want)
-		})
-	}
-}
-
-func TestInstrumentationFilterSpanGateMetricsDisabled(t *testing.T) {
-	for _, disabled := range []bool{false, true} {
-		t.Run(strconv.FormatBool(disabled), func(t *testing.T) {
-			input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(1))
-			output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(1))
-			outCh := output.Subscribe()
-			run, err := InstrumentationFilterSpanGate(
-				filter.InstrumentationAttributeFamilyConfig{
-					instrumentations.InstrumentationHTTP: {MetricsDisabled: disabled},
-				},
-				nil, spanPtrPromGetters(&obi.Config{}), input, output,
-			)(t.Context())
-			require.NoError(t, err)
-			go run(t.Context())
-			input.Send([]request.Span{
-				{Type: request.EventTypeHTTP},
-				{Type: request.EventTypeHTTPClient},
-				{Type: request.EventTypeGRPC},
-				{Type: request.EventTypeManualSpan},
-			})
-			got := testutil.ReadChannel(t, outCh, gateTestTimeout)
-			require.Len(t, got, 4)
-			assertSignalIgnores(t, &got[0], false, disabled)
-			assertSignalIgnores(t, &got[1], false, disabled)
-			assertSignalIgnores(t, &got[2], false, false)
-			assertSignalIgnores(t, &got[3], false, false)
 		})
 	}
 }
