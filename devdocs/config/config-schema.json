@@ -1084,6 +1084,27 @@
       "type": "array",
       "description": "List of metric features to enable."
     },
+    "GCENameResolverConfig": {
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "Overrides the Compute API base URL for an emulator or API proxy. Empty uses the Google Compute API endpoint.",
+          "x-env-var": "OTEL_EBPF_NAME_RESOLVER_GCE_ENDPOINT"
+        },
+        "project_id": {
+          "type": "string",
+          "description": "Defaults to the project detected from cloud metadata.",
+          "x-env-var": "OTEL_EBPF_NAME_RESOLVER_GCE_PROJECT_ID"
+        },
+        "zone": {
+          "type": "string",
+          "description": "Defaults to the availability zone detected from cloud metadata.",
+          "x-env-var": "OTEL_EBPF_NAME_RESOLVER_GCE_ZONE"
+        }
+      },
+      "type": "object",
+      "description": "GCENameResolverConfig configures service resolution for zonal managed instance groups."
+    },
     "GeminiConfig": {
       "properties": {
         "enabled": {
@@ -2132,12 +2153,16 @@
           "default": 1024,
           "x-env-var": "OTEL_EBPF_NAME_RESOLVER_CACHE_LEN"
         },
+        "gce": {
+          "$ref": "#/$defs/GCENameResolverConfig"
+        },
         "sources": {
           "items": {
             "type": "string",
             "enum": [
               "dns",
               "ecs",
+              "gce",
               "k8s",
               "kube",
               "kubernetes",
@@ -2145,7 +2170,7 @@
             ]
           },
           "type": "array",
-          "description": "Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns. The \"ecs\" source requires ecs:ListTasks and ecs:DescribeTasks permissions.",
+          "description": "Specifies the backends used for name resolving. Accepted values: dns, ecs, gce, k8s, rdns. The \"ecs\" source requires ecs:ListTasks and ecs:DescribeTasks permissions. The \"gce\" source requires compute.instanceGroupManagers.list, compute.instanceGroupManagers.get, and compute.instances.get permissions.",
           "default": [
             "k8s",
             "ecs"

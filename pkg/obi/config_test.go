@@ -540,6 +540,55 @@ name_resolver:
 	assert.Equal(t, "kube-cluster", cfg.Attributes.Kubernetes.ClusterName)
 }
 
+func TestConfig_NameResolverGCE(t *testing.T) {
+	t.Run("defaults", func(t *testing.T) {
+		cfg, err := LoadConfig(nil)
+		require.NoError(t, err)
+		assert.NotContains(t, cfg.NameResolver.Sources, transform.SourceGCE)
+		assert.Empty(t, cfg.NameResolver.GCE)
+		assert.Equal(t, 30*time.Second, cfg.CloudMetadata.RefreshInterval)
+	})
+
+	const config = `cloud_metadata:
+  refresh_interval: 45s
+name_resolver:
+  sources: [gce]
+  gce:
+    project_id: test-project
+    zone: us-central1-a
+`
+	t.Run("YAML", func(t *testing.T) {
+		cfg, err := LoadConfig(bytes.NewBufferString(config))
+		require.NoError(t, err)
+		assert.Equal(t, []transform.Source{transform.SourceGCE}, cfg.NameResolver.Sources)
+		assert.Equal(t, transform.GCENameResolverConfig{
+			ProjectID: "test-project", Zone: "us-central1-a",
+		}, cfg.NameResolver.GCE)
+		assert.Equal(t, 45*time.Second, cfg.CloudMetadata.RefreshInterval)
+	})
+	for _, tc := range []struct {
+		name string
+		yaml string
+	}{
+		{name: "environment"},
+		{name: "environment overrides YAML", yaml: config},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "gce")
+			t.Setenv("OTEL_EBPF_NAME_RESOLVER_GCE_PROJECT_ID", "env-project")
+			t.Setenv("OTEL_EBPF_NAME_RESOLVER_GCE_ZONE", "europe-west1-b")
+			t.Setenv("OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL", "1m")
+			cfg, err := LoadConfig(bytes.NewBufferString(tc.yaml))
+			require.NoError(t, err)
+			assert.Equal(t, []transform.Source{transform.SourceGCE}, cfg.NameResolver.Sources)
+			assert.Equal(t, transform.GCENameResolverConfig{
+				ProjectID: "env-project", Zone: "europe-west1-b",
+			}, cfg.NameResolver.GCE)
+			assert.Equal(t, time.Minute, cfg.CloudMetadata.RefreshInterval)
+		})
+	}
+}
+
 func TestConfig_ShutdownTimeout(t *testing.T) {
 	t.Setenv("OTEL_EBPF_SHUTDOWN_TIMEOUT", "1m")
 	cfg, err := LoadConfig(bytes.NewReader(nil))

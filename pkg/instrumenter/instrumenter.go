@@ -260,7 +260,7 @@ func BuildCommonContextInfo(
 
 	if config.NameResolver != nil {
 		ctxInfo.CloudMetaInventory = cloud.NewInventory(transform.CloudMetadataRefreshers(
-			ctx, &ctxInfo.NodeMeta, config.NameResolver.Sources, config.CloudMetadata,
+			ctx, &ctxInfo.NodeMeta, config.NameResolver, config.CloudMetadata,
 		))
 	}
 

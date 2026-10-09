@@ -39,6 +39,7 @@ const (
 	SourceKubernetes Source = "kubernetes"
 	SourceRDNS       Source = "rdns"
 	SourceECS        Source = "ecs"
+	SourceGCE        Source = "gce"
 )
 
 const (
@@ -46,6 +47,7 @@ const (
 	ResolverK8s
 	ResolverRDNS
 	ResolverECS
+	ResolverGCE
 )
 
 func resolverSources(src []Source) maps.Bits {
@@ -56,15 +58,18 @@ func resolverSources(src []Source) maps.Bits {
 		SourceKubernetes: ResolverK8s,
 		SourceRDNS:       ResolverRDNS,
 		SourceECS:        ResolverECS,
+		SourceGCE:        ResolverGCE,
 	}, maps.WithTransform(func(s Source) Source {
 		return Source(strings.ToLower(string(s)))
 	}))
 }
 
 type NameResolverConfig struct {
-	// Sources specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns.
+	// Sources specifies the backends used for name resolving. Accepted values: dns, ecs, gce, k8s, rdns.
 	// The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions.
-	Sources []Source `yaml:"sources" env:"OTEL_EBPF_NAME_RESOLVER_SOURCES" envSeparator:","`
+	// The "gce" source requires compute.instanceGroupManagers.list, compute.instanceGroupManagers.get, and compute.instances.get permissions.
+	Sources []Source              `yaml:"sources" env:"OTEL_EBPF_NAME_RESOLVER_SOURCES" envSeparator:","`
+	GCE     GCENameResolverConfig `yaml:"gce"`
 	// CacheLen specifies the max size of the LRU cache that is checked before
 	// performing the name lookup. Default: 256
 	CacheLen int `yaml:"cache_len" env:"OTEL_EBPF_NAME_RESOLVER_CACHE_LEN" validate:"gt=0"`
@@ -84,12 +89,24 @@ type CloudMetadataConfig struct {
 	RefreshInterval time.Duration `yaml:"refresh_interval" env:"OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL" validate:"gt=0"`
 }
 
+// GCENameResolverConfig configures service resolution for zonal managed instance groups.
+type GCENameResolverConfig struct {
+	// ProjectID defaults to the project detected from cloud metadata.
+	ProjectID string `yaml:"project_id" env:"OTEL_EBPF_NAME_RESOLVER_GCE_PROJECT_ID"`
+	// Zone defaults to the availability zone detected from cloud metadata.
+	Zone string `yaml:"zone" env:"OTEL_EBPF_NAME_RESOLVER_GCE_ZONE"`
+	// Endpoint overrides the Compute API base URL for an emulator or API proxy.
+	// Empty uses the Google Compute API endpoint.
+	Endpoint string `yaml:"endpoint" env:"OTEL_EBPF_NAME_RESOLVER_GCE_ENDPOINT"`
+}
+
 type NameResolver struct {
 	cache          *expirable.LRU[string, string]
 	cfg            *NameResolverConfig
 	store          *kube.Store
 	dnsCache       *memorystore.InMemory
 	cloudInventory *cloud.Inventory
+	gceInstanceID  string
 	logger         *slog.Logger
 
 	sources maps.Bits
@@ -138,6 +155,9 @@ func nameResolver(ctx context.Context, ctxInfo *global.ContextInfo, cfg *NameRes
 		cache:          expirable.NewLRU[string, string](cfg.CacheLen, nil, cfg.CacheTTL),
 		sources:        sources,
 		logger:         logger,
+	}
+	if sources.Has(ResolverGCE) {
+		nr.gceInstanceID = gceLocalInstanceID(ctxInfo.NodeMeta, cfg.GCE)
 	}
 
 	in := input.Subscribe(msg.SubscriberName("transform.NameResolver"))
@@ -248,6 +268,12 @@ func (nr *NameResolver) resolveLocalCloudInventory(span *request.Span) {
 	}
 	if name, ok := nr.cloudInventory.ServiceNameForContainerID(span.Service.RuntimeContainerID); ok {
 		span.Service.UID.Name = name
+		return
+	}
+	if nr.gceInstanceID != "" {
+		if name, ok := nr.cloudInventory.ServiceNameForInstanceID(nr.gceInstanceID); ok {
+			span.Service.UID.Name = name
+		}
 	}
 }
 

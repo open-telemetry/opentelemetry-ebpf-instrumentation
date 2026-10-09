@@ -2049,6 +2049,9 @@ func applyV2EnrichServiceName(cfg *obi.Config, enrich *schema.Enrich) {
 	}
 
 	cfg.NameResolver.Sources = cloneSources(serviceName.Sources)
+	if serviceName.GCE != nil {
+		cfg.NameResolver.GCE = *serviceName.GCE
+	}
 	cfg.NameResolver.CacheLen = serviceName.Cache.Size
 	cfg.NameResolver.CacheTTL = serviceName.Cache.TTL.TimeDuration()
 	cfg.Attributes.RenameUnresolvedHosts = serviceName.UnresolvedHosts.Names.Default

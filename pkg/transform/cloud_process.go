@@ -15,7 +15,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
-func CloudProcessEventDecoratorProvider(ctxInfo *global.ContextInfo,
+func CloudProcessEventDecoratorProvider(ctxInfo *global.ContextInfo, cfg *NameResolverConfig,
 	input, output *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
 	return func(context.Context) (swarm.RunFunc, error) {
@@ -29,6 +29,9 @@ func CloudProcessEventDecoratorProvider(ctxInfo *global.ContextInfo,
 			output:        output,
 			containerInfo: container.InfoForPID,
 		}
+		if cfg != nil && resolverSources(cfg.Sources).Has(ResolverGCE) {
+			d.instanceID = gceLocalInstanceID(ctxInfo.NodeMeta, cfg.GCE)
+		}
 		return d.run, nil
 	}
 }
@@ -40,6 +43,7 @@ type cloudProcessDecorator struct {
 	input         <-chan exec.ProcessEvent
 	output        *msg.Queue[exec.ProcessEvent]
 	containerInfo func(app.PID) (container.Info, error)
+	instanceID    string
 }
 
 type cloudProcess struct {
@@ -61,7 +65,8 @@ func (d *cloudProcessDecorator) run(ctx context.Context) {
 				id := event.ServiceFile().ServiceAttrs().RuntimeContainerID
 				_, changed := changes.Changed[id]
 				_, removed := changes.Removed[id]
-				if (changed || removed) && d.decorate(event, process.fallbackName) {
+				instanceChanged := d.instanceID != "" && changes.InstancesChanged
+				if (changed || removed || instanceChanged) && d.decorate(event, process.fallbackName) {
 					d.output.SendCtx(ctx, event)
 				}
 			}
@@ -106,16 +111,22 @@ func (d *cloudProcessDecorator) decorate(event exec.ProcessEvent, fallbackName s
 	if !service.AutoName() {
 		return false
 	}
-	id := service.RuntimeContainerID
-	if id == "" {
-		info, err := d.containerInfo(file.Pid())
-		if err != nil {
-			return false
+	var name string
+	var ok bool
+	if d.instanceID != "" {
+		name, ok = d.inventory.ServiceNameForInstanceID(d.instanceID)
+	} else {
+		id := service.RuntimeContainerID
+		if id == "" {
+			info, err := d.containerInfo(file.Pid())
+			if err != nil {
+				return false
+			}
+			id = info.ContainerID
+			file.SetRuntimeContainerID(id)
 		}
-		id = info.ContainerID
-		file.SetRuntimeContainerID(id)
+		name, ok = d.inventory.ServiceNameForContainerID(id)
 	}
-	name, ok := d.inventory.ServiceNameForContainerID(id)
 	if !ok {
 		name = fallbackName
 	}

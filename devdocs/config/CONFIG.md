@@ -456,7 +456,17 @@ GlobalMetricsConfig is a placeholder for the progressive support of global and p
 |---|---|---|---|---|---|---|
 | `name_resolver.cache_expiry` | `duration` | `OTEL_EBPF_NAME_RESOLVER_CACHE_TTL` | `5m` | `30s`, `5m`, `1ms`, etc |  | Specifies the time-to-live of a cached IP->hostname entry. After the cached entry becomes older than this time, the IP->hostname entry will be looked up again. |
 | `name_resolver.cache_len` | `integer` | `OTEL_EBPF_NAME_RESOLVER_CACHE_LEN` | `1024` |  |  | Specifies the max size of the LRU cache that is checked before performing the name lookup. Default: 256 |
-| `name_resolver.sources` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_SOURCES` | `k8s`, `ecs` | `dns`, `ecs`, `k8s`, `kube`, `kubernetes`, `rdns` |  | Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns. The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions. |
+| `name_resolver.sources` | `string`[] | `OTEL_EBPF_NAME_RESOLVER_SOURCES` | `k8s`, `ecs` | `dns`, `ecs`, `gce`, `k8s`, `kube`, `kubernetes`, `rdns` |  | Specifies the backends used for name resolving. Accepted values: dns, ecs, gce, k8s, rdns. The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions. The "gce" source requires compute.instanceGroupManagers.list, compute.instanceGroupManagers.get, and compute.instances.get permissions. |
+
+### `name_resolver.gce`
+
+GCENameResolverConfig configures service resolution for zonal managed instance groups.
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `name_resolver.gce.endpoint` | `string` | `OTEL_EBPF_NAME_RESOLVER_GCE_ENDPOINT` |  |  |  | Overrides the Compute API base URL for an emulator or API proxy. Empty uses the Google Compute API endpoint. |
+| `name_resolver.gce.project_id` | `string` | `OTEL_EBPF_NAME_RESOLVER_GCE_PROJECT_ID` |  |  |  | Defaults to the project detected from cloud metadata. |
+| `name_resolver.gce.zone` | `string` | `OTEL_EBPF_NAME_RESOLVER_GCE_ZONE` |  |  |  | Defaults to the availability zone detected from cloud metadata. |
 
 ## `network`
 

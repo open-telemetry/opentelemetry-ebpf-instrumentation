@@ -669,6 +669,10 @@ func serviceNameEnrichment(cfg *obi.Config) schema.ServiceName {
 	}
 
 	out.Sources = cfg.NameResolver.Sources
+	if !zeroValue(cfg.NameResolver.GCE) {
+		gce := cfg.NameResolver.GCE
+		out.GCE = &gce
+	}
 	out.Cache = schema.Cache{
 		Size: cfg.NameResolver.CacheLen,
 		TTL:  schema.Duration(cfg.NameResolver.CacheTTL),
