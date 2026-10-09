@@ -79,7 +79,8 @@ Config v1 also accepts these environment variables, which override YAML values:
 - `OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL`: polling interval (default `5m`).
 
 The hosted zone IDs are required when the `route53` source is enabled.
-`obi config migrate` preserves these settings when converting Config v1 to v2.
+`obi config migrate` preserves Route53 settings present in the Config v1 YAML;
+legacy environment overrides must be materialized or explicitly rewired for Config v2.
 
 The Route53 client region, which selects the AWS partition, is
 `extensions.obi.enrich.enrichers.cloud.region` (or `cloud_metadata.region` in
