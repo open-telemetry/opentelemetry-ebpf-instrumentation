@@ -88,7 +88,7 @@ type CloudMetadataConfig struct {
 	RefreshInterval time.Duration `yaml:"refresh_interval" env:"OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL" validate:"gt=0"`
 
 	// Route53 provides configuration for Route53 metadata extraction
-	Route53 Route53MetadataConfig `yaml:"-" env:"-"`
+	Route53 Route53MetadataConfig `yaml:"route53"`
 }
 
 type NameResolver struct {

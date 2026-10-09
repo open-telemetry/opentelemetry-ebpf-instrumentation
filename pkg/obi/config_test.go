@@ -1884,17 +1884,72 @@ func TestConfigValidate_TracesCompression(t *testing.T) {
 	})
 }
 
-func TestConfigV1IgnoresRoute53Settings(t *testing.T) {
-	t.Setenv("OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS", "env-zone")
-	t.Setenv("OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL", "1s")
-	for _, data := range []string{"", `cloud_metadata:
-  route53:
-    hosted_zone_ids: [yaml-zone]
-    refresh_interval: 2s
-`} {
-		cfg, err := LoadConfig(bytes.NewBufferString(data))
-		require.NoError(t, err)
-		assert.Equal(t, DefaultConfig.CloudMetadata.Route53, cfg.CloudMetadata.Route53)
+func TestConfigV1Route53Settings(t *testing.T) {
+	unsetEnv(t,
+		"OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS",
+		"OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL",
+	)
+	for _, tc := range []struct {
+		name     string
+		yaml     string
+		env      envMap
+		interval time.Duration
+		zones    []string
+	}{
+		{
+			name:     "YAML with default interval",
+			yaml:     "cloud_metadata:\n  route53:\n    hosted_zone_ids: [yaml-zone]\n",
+			interval: DefaultConfig.CloudMetadata.Route53.RefreshInterval,
+			zones:    []string{"yaml-zone"},
+		},
+		{
+			name:     "YAML",
+			yaml:     "cloud_metadata:\n  route53:\n    hosted_zone_ids: [yaml-zone, /hostedzone/other-zone]\n    refresh_interval: 2s\n",
+			interval: 2 * time.Second,
+			zones:    []string{"yaml-zone", "/hostedzone/other-zone"},
+		},
+		{
+			name: "environment",
+			env: envMap{
+				"OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS":  "env-zone,/hostedzone/other-zone",
+				"OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL": "1s",
+			},
+			interval: time.Second,
+			zones:    []string{"env-zone", "/hostedzone/other-zone"},
+		},
+		{
+			name: "environment overrides YAML",
+			yaml: "cloud_metadata:\n  route53:\n    hosted_zone_ids: [yaml-zone]\n    refresh_interval: 2s\n",
+			env: envMap{
+				"OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS":  "env-zone",
+				"OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL": "1s",
+			},
+			interval: time.Second,
+			zones:    []string{"env-zone"},
+		},
+		{
+			name:     "interval override preserves YAML zones",
+			yaml:     "cloud_metadata:\n  route53:\n    hosted_zone_ids: [yaml-zone]\n",
+			env:      envMap{"OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL": "1s"},
+			interval: time.Second,
+			zones:    []string{"yaml-zone"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for key, value := range tc.env {
+				t.Setenv(key, value)
+			}
+			cfg, err := LoadConfig(bytes.NewBufferString(`name_resolver:
+  sources: [route53]
+executable_path: /srv/*
+trace_printer: text
+` + tc.yaml))
+			require.NoError(t, err)
+			assert.Equal(t, []transform.Source{transform.SourceRoute53}, cfg.NameResolver.Sources)
+			assert.Equal(t, tc.interval, cfg.CloudMetadata.Route53.RefreshInterval)
+			assert.Equal(t, tc.zones, cfg.CloudMetadata.Route53.HostedZoneIDs)
+			require.NoError(t, cfg.ValidateStatic())
+		})
 	}
 }
 

@@ -2,7 +2,7 @@
 
 The opt-in `route53` name resolver maps endpoint IPs to fully qualified DNS names
 from selected AWS Route53 hosted zones on detected EC2 hosts.
-Route53 settings are available only in Config v2:
+Configure Route53 in Config v2:
 
 ```yaml
 file_format: "1.0"
@@ -60,9 +60,31 @@ route53:
   hosted_zone_ids: ["${ROUTE53_HOSTED_ZONE_ID}"]
 ```
 
-There are no automatic Config v1 YAML or environment overrides for these settings.
+For legacy Config v1, enable the source and configure the same settings under
+`cloud_metadata.route53`:
+
+```yaml
+name_resolver:
+  sources: [k8s, ecs, route53]
+cloud_metadata:
+  route53:
+    refresh_interval: 5m
+    hosted_zone_ids: [Z0123456789EXAMPLE]
+```
+
+Config v1 also accepts these environment variables, which override YAML values:
+
+- `OTEL_EBPF_NAME_RESOLVER_SOURCES`: comma-separated resolver sources.
+- `OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS`: comma-separated hosted zone IDs.
+- `OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL`: polling interval (default `5m`).
+
+The hosted zone IDs are required when the `route53` source is enabled.
+`obi config migrate` preserves Route53 settings present in the Config v1 YAML;
+legacy environment overrides must be materialized or explicitly rewired for Config v2.
+
 The Route53 client region, which selects the AWS partition, is
-`extensions.obi.enrich.enrichers.cloud.region` if set, otherwise the detected
+`extensions.obi.enrich.enrichers.cloud.region` (or `cloud_metadata.region` in
+Config v1) if set, otherwise the detected
 cloud region. Without either, the AWS SDK's region configuration applies,
 falling back to `us-east-1`.
 For local tests, its endpoint override is `AWS_ENDPOINT_URL_ROUTE_53`.
