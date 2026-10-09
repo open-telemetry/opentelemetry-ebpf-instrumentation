@@ -35,15 +35,20 @@ see the [development container instructions](.devcontainer/README.md), including
 IntelliJ IDEA, and terminal workflows.
 
 You can use [mise](https://mise.jdx.dev/) to install the Go and linting tools pinned
-in `mise.toml`:
+in `mise.toml` and run the common Go developer loop without Make:
 
 ```sh
 mise install
+mise run format-go
+mise run lint-go
+mise run test-go
+mise run compile
 ```
 
-Mise is optional; `Make` remains the task runner. For example, run `mise run lint-go`
-to run the existing `make lint` target with the pinned tools available. Use
-`make docker-generate` for eBPF generation with the project's containerized
+Make targets remain available for compatibility. This is an incremental
+experiment; see [the Mise migration notes](devdocs/mise-migration.md) for the
+current scope and the work that remains before considering a full replacement.
+Use `make docker-generate` for eBPF generation with the project's containerized
 toolchain.
 
 ### Compiling the project
@@ -60,16 +65,16 @@ In addition, use the latest versions of the following components:
 - `go`
 - `clang`
 - `docker`
-- `make`
+- `make` (for targets not yet covered by Mise)
 
 #### Compilation steps
 
 Compiling OBI is a two-tier process: first, we need to build the eBPF code (written in C) and generate the Go bindings. There are two `Makefile` targets for that, `generate` and `docker-generate`. The difference between them is that `generate` will attempt to use the local clang/LLVM toolchain, whereas `docker-generate` pulls a Docker image containing all of the tooling required - this is also the target used by OBI's GitHub CI.
-Once the eBPF files have been generated, we can use the `compile` `Makefile` target to build the main binary.
+Once the eBPF files have been generated, build the main binary with `mise run compile` (or the compatible `make compile` target).
 
 ```
 make docker-generate # or make generate
-make compile
+mise run compile
 ```
 
 Both generate targets build the eBPF code for amd64 and arm64. To iterate faster locally, `BPF_TARGETS` selects a single architecture, for example `make generate BPF_TARGETS=arm64`.
@@ -105,19 +110,19 @@ CI formats and lints the C code with the `clang-format` and `clang-tidy` version
 #### Formatting the Go code
 
 ```
-make fmt
+mise run format-go
 ```
 
 #### Linting the Go code
 
 ```
-make lint
+mise run lint-go
 ```
 
 #### Running unit tests
 
 ```
-make test
+mise run test-go
 ```
 
 #### Running integration tests

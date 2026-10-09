@@ -11,6 +11,56 @@ version = "2026.09.01-5fb8802d"
 matching = "clang-tidy-22_"
 bin = "clang-tidy"
 
+[tasks.format-go]
+run = "golangci-lint fmt"
+description = "Format Go code and imports"
+
 [tasks.lint-go]
-run = "make lint GOLANGCI_LINT=golangci-lint"
-description = "Run the project Go linter"
+run = '''
+lint_status=0
+
+if ! go tool -modfile=internal/tools/go.mod porto --include-internal --skip-dirs "^NOTICES$" -l .; then
+  echo "(run: go tool -modfile=internal/tools/go.mod porto --include-internal --skip-dirs \"^NOTICES$\" -w .)" >&2
+  lint_status=1
+fi
+
+if [ -n "${CI:-}" ]; then
+  echo "### CI detected: enabling verbose dependency-policy lint logging"
+  ./scripts/lint-dependency-policy.sh --verbose || lint_status=1
+else
+  ./scripts/lint-dependency-policy.sh || lint_status=1
+fi
+
+go run ./internal/test/analyzer/collectt/cmd/collecttlint ./... || lint_status=1
+./scripts/lint-preempt-guard.sh || lint_status=1
+
+if [ "$lint_status" -ne 0 ]; then
+  exit 1
+fi
+
+golangci-lint run ./... --timeout=6m
+'''
+description = "Run the project Go linter and its prerequisites"
+
+[tasks.test-go]
+run = '''
+mkdir -p "${TEST_OUTPUT:-./testoutput}"
+export KUBEBUILDER_ASSETS="$(go tool -modfile=internal/tools/go.mod setup-envtest use "${ENVTEST_K8S_VERSION:-1.30.0}" -p path)"
+go test -short -race ./... -coverpkg=./... -coverprofile "${TEST_OUTPUT:-./testoutput}/cover.all.txt"
+'''
+description = "Run Go unit tests with race detection and coverage"
+
+[tasks.compile]
+run = '''
+GOOS="${GOOS:-linux}"
+GOARCH="${GOARCH:-$(go env GOARCH || echo amd64)}"
+CMD="${CMD:-obi}"
+MAIN_GO_FILE="${MAIN_GO_FILE:-cmd/${CMD}/main.go}"
+BUILDINFO_PKG="${BUILDINFO_PKG:-go.opentelemetry.io/obi/pkg/buildinfo}"
+RELEASE_VERSION="${RELEASE_VERSION:-$(git describe --all | cut -d/ -f2-)}"
+RELEASE_REVISION="${RELEASE_REVISION:-$(git rev-parse --short HEAD)}"
+CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build \
+  -ldflags="-X '${BUILDINFO_PKG}.Version=${RELEASE_VERSION}' -X '${BUILDINFO_PKG}.Revision=${RELEASE_REVISION}'" \
+  -o "bin/${CMD}" "$MAIN_GO_FILE"
+'''
+description = "Compile the OBI binary"
