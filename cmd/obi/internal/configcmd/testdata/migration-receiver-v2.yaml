@@ -312,6 +312,9 @@ network:
                     ttl: 1h0m0s
         diagnostics:
             print_stats: false
+metrics:
+    features:
+        - application
 limits:
     network_packets: 5000
     metric_span_names: 100

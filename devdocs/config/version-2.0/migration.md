@@ -392,14 +392,21 @@ reshaped:
 - `discovery.services` and related regex selectors become regex rules;
 - `discovery.instrument` and related glob selectors become glob rules;
 - deprecated exporter `features` values are normalized through
-  `metrics.features` and then split across protocol and network enablement;
+  `metrics.features` and copied to `capture.metrics.features`;
 - the HTTP body size histograms carried by `application` and `application_sizes`
   become `capture.instrumentation.http.enabled.body_size_metrics`, and
-  `application_red` maps to the same key set to false.
+  `application_red` maps to the same key set to false. The explicit feature list
+  remains authoritative for metric family selection.
 
 Selector naming, per-selector metric features and samplers, and exclusion-rule
 refinements are not part of that reshape; the command rejects them as described
 below.
+
+Global metric features, including service graphs, span metrics, application
+runtime metrics, network variants, stats, and eBPF metrics, are preserved using
+the same names in `capture.metrics.features`. An explicit empty list
+also remains empty. Protocol switches still control the metric sources, and
+migration preserves whether network flow capture was effectively enabled.
 
 ## Handle fields that need manual intervention
 
@@ -422,10 +429,8 @@ include:
 | Selector `exports` containing `logs` | V2 rule export refinements represent traces and metrics only. Remove the log-specific override only after verifying equivalent behavior, or keep v1. |
 | Multiple include selectors that mix explicit and omitted `exports`, or mix explicit and omitted `routes` | V1 layers each refinement field across every matching selector, while v2 applies one winning rule and resets its omitted refinements. Refactor the selectors so each effective selector states its intended refinement, then test both overlapping and selector-only matches. If behavior depends on conditional inheritance from another selector, keep v1. The command rejects the mixed shape rather than broadening telemetry or changing routes. |
 | Non-empty global `routes.patterns` combined with non-empty selector `routes.incoming` or `.outgoing` | V1 uses global-first additive matching while v2 arrays replace inherited patterns. The command rejects the selector route path; keep v1 or redesign and canary-test the policy. |
-| A network feature in `metrics.features` with no active metric exporter and `network.enable` omitted or `false` | V1 leaves network capture disabled, while the current v2 enablement shape would turn it on. Migration rejects the relevant `network.enable` or feature path. Keep v1 or explicitly redesign and canary-test network capture; do not enable it only to make migration pass. |
 | `attributes.sensitive_query_params` | No v2 field exists. Do not remove a redaction setting without an equivalent privacy review. |
 | `discovery.exclude_otel_instrumented_services_span_metrics` | No independent v2 selector exists for this legacy span-metrics exception. |
-| `metrics.features` values other than application RED, the HTTP body size histograms, basic network flow, and the individual network-stat features | Span metrics, service graphs, application host/runtime metrics, inter-zone/network-packet variants, and eBPF metrics are not represented by current v2 enablement. |
 | Non-default `otel_traces_export.instrumentations`, `otel_metrics_export.instrumentations`, or `prometheus_export.instrumentations` selections involving protocols not modeled by v2 | The v2 protocol enablement section cannot represent every v1 instrumentation. Keep v1 when the command reports a changed instrumentation list. |
 | OTLP HTTP protocol or an implicitly HTTP endpoint | Automatic migration supports the emitted OTLP/gRPC provider subset only. In a release that includes [#2682](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pull/2682), map it manually to the signal's `otlp_http` exporter and preserve the effective endpoint and encoding as described above; otherwise keep v1. |
 | `otel_traces_export.protocol: debug` | The v1 debug exporter has no supported declarative provider mapping. `daemon.logging.debug_trace_output` maps `trace_printer`, which is a different output path. Keep v1 when the debug exporter behavior is required. |

@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
 	obiconfig "go.opentelemetry.io/obi/pkg/config"
+	featureexport "go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
@@ -1085,9 +1086,75 @@ metrics:
 	require.True(t, runtimeConfig.Enabled(obi.FeatureNetO11y))
 }
 
-// the body size histograms have to survive the v1-to-v2 round trip: without a v2 key for
-// them the migration contract would report metrics.features as changed and refuse the
-// configuration.
+func TestMigrateConfigCarriesMetricFeatures(t *testing.T) {
+	for _, features := range []string{
+		"application_service_graph",
+		"application_span",
+		"application_span_otel",
+		"application_span_sizes",
+		"application_runtime",
+		"network_inter_zone",
+		"network_flow_packets",
+		"ebpf",
+		"all",
+		"*",
+	} {
+		t.Run(features, func(t *testing.T) {
+			output, _, err := migrateConfig([]byte(`
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+metrics:
+  features: [application, ` + fmt.Sprintf("%q", features) + `]
+prometheus_export:
+  port: 9090
+`))
+			require.NoError(t, err)
+			doc, ext, err := schema.ParseStandaloneYAML(output)
+			require.NoError(t, err)
+			roundTripped, err := convert.DocumentToRuntime(doc)
+			require.NoError(t, err)
+			expected, err := featureexport.LoadFeatures([]string{"application", features})
+			require.NoError(t, err)
+			expected.ResolveSpanMetricsConflict()
+			require.Equal(t, expected.Names(), ext.Capture.Metrics.Features)
+			require.Equal(t, expected.Names(), roundTripped.Metrics.Features.Names())
+		})
+	}
+}
+
+func TestValidateV2MetricFeatures(t *testing.T) {
+	for _, test := range []struct {
+		features string
+		wantErr  string
+	}{
+		{features: "[application_service_graph, application_span_otel]"},
+		{features: "[]"},
+		{features: "[all]"},
+		{features: "[application_sizes]", wantErr: "application_sizes needs the application RED metrics"},
+		{features: "[application_span, application_span_otel]", wantErr: "you can only enable one format of span metrics"},
+		{features: "[service_graph]", wantErr: `unknown metrics feature "service_graph"`},
+	} {
+		t.Run(test.features, func(t *testing.T) {
+			data := strings.Replace(validStandaloneV2, "    capture:\n", "    capture:\n      metrics:\n        features: "+test.features+"\n", 1)
+			data += `
+meter_provider:
+  readers:
+    - pull:
+        exporter:
+          prometheus/development:
+            port: 9090
+`
+			err := validateConfig([]byte(data), validationModeStandalone)
+			if test.wantErr != "" {
+				require.ErrorContains(t, err, test.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestMigrateConfigCarriesApplicationSizes(t *testing.T) {
 	v1 := func(features string) []byte {
 		return []byte(`
@@ -1423,11 +1490,10 @@ prometheus_export:
 	}
 }
 
-func TestMigrateConfigRejectsNetworkEnablementChange(t *testing.T) {
+func TestMigrateConfigPreservesDisabledNetworkCapture(t *testing.T) {
 	tests := []struct {
 		name string
 		yaml string
-		want string
 	}{
 		{
 			name: "omitted enable",
@@ -1442,7 +1508,6 @@ metrics:
 otel_traces_export:
   endpoint: http://collector:4317
 `,
-			want: "metrics.features",
 		},
 		{
 			name: "explicit false",
@@ -1458,14 +1523,20 @@ metrics:
 otel_traces_export:
   endpoint: http://collector:4317
 `,
-			want: "network.enable",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, _, err := migrateConfig([]byte(test.yaml))
-			require.ErrorContains(t, err, test.want)
+			output, _, err := migrateConfig([]byte(test.yaml))
+			require.NoError(t, err)
+			doc, ext, err := schema.ParseStandaloneYAML(output)
+			require.NoError(t, err)
+			require.False(t, ext.Capture.Network.Capture.Enabled)
+			runtimeConfig, err := convert.DocumentToRuntime(doc)
+			require.NoError(t, err)
+			require.False(t, runtimeConfig.Enabled(obi.FeatureNetO11y))
+			require.True(t, runtimeConfig.Metrics.Features.AnyNetwork())
 		})
 	}
 }
@@ -1923,19 +1994,6 @@ func TestRunMigrateRejectsUnsupportedInput(t *testing.T) {
 			name: "known but unmapped v1 field",
 			yaml: strings.Replace(representativeV1, "  port: 9090\n", "  port: 9090\n  path: /custom\n", 1),
 			want: "prometheus_export.path",
-		},
-		{
-			name: "unsupported metric feature",
-			yaml: `
-discovery:
-  instrument:
-    - exe_path: "/srv/*"
-metrics:
-  features: [application, application_span]
-prometheus_export:
-  port: 9090
-`,
-			want: "metrics.features",
 		},
 		{
 			name: "unknown metric feature",
