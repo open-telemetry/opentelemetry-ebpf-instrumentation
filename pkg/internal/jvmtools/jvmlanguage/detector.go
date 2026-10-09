@@ -200,6 +200,10 @@ func findEntryClass(root, cwd string, l launch, env map[string]string) ([]byte, 
 		}
 		path, info, ok := langtools.StatProcessPath(root, cwd, entry)
 		if !ok {
+			// The JVM skips missing classpath entries; executable JARs must exist.
+			if l.jar == "" && isMissingClasspathEntry(root, cwd, entry) {
+				continue
+			}
 			return nil, l.main, fmt.Errorf("unresolvable classpath root %q", entry)
 		}
 		var (
@@ -223,6 +227,24 @@ func findEntryClass(root, cwd string, l launch, env map[string]string) ([]byte, 
 		return data, l.main, nil
 	}
 	return nil, l.main, errors.New("entry class not found")
+}
+
+func isMissingClasspathEntry(root, cwd, entry string) bool {
+	entry = langtools.AbsoluteProcessPath(cwd, entry)
+	for filepath.IsAbs(entry) {
+		parent := filepath.Dir(entry)
+		if parent == entry {
+			return false
+		}
+		path, ok := langtools.ResolveProcessPath(root, cwd, parent)
+		if ok {
+			// Do not mistake a dangling or escaping symlink for a missing entry.
+			_, err := os.Lstat(filepath.Join(path, filepath.Base(entry)))
+			return errors.Is(err, os.ErrNotExist)
+		}
+		entry = parent
+	}
+	return false
 }
 
 func readDirectoryClass(root, cwd, entry, path, main string) ([]byte, error) {

@@ -33,6 +33,9 @@ func TestDetect(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "Example.class")
 	require.NoError(t, os.WriteFile(outside, entryClass("Lkotlin/Metadata;"), 0o600))
 	require.NoError(t, os.Symlink(outside, filepath.Join(root, "classes", "Escape.class")))
+	require.NoError(t, os.Symlink(filepath.Dir(outside), filepath.Join(root, "escape")))
+	require.NoError(t, os.Symlink(filepath.Join(root, "missing"), filepath.Join(root, "dangling")))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "broken.jar"), []byte("invalid"), 0o600))
 
 	for _, jar := range []struct {
 		name, manifest, member string
@@ -68,6 +71,17 @@ func TestDetect(t *testing.T) {
 		{name: "environment classpath", language: "scala", entry: "Example", args: []string{"Example"}, env: map[string]string{"CLASSPATH": "/scala"}},
 		{name: "first class wins", entry: "Example", args: []string{"-cp", "/plain:/classes", "Example"}},
 		{name: "skip directory without entry", language: "kotlin", entry: "Example", args: []string{"-cp", "/:/classes", "Example"}},
+		{name: "skip missing directory", language: "kotlin", entry: "Example", args: []string{"-cp", "/missing:/classes", "Example"}},
+		{name: "skip missing parent directories", language: "kotlin", entry: "Example", args: []string{"-cp", "/missing/nested:/classes", "Example"}},
+		{name: "skip missing relative directory", language: "kotlin", entry: "Example", args: []string{"-cp", "missing:.", "Example"}},
+		{name: "skip missing classpath jar", language: "kotlin", entry: "Example", args: []string{"-cp", "/missing.jar:/classes", "Example"}},
+		{name: "all classpath roots missing", errorText: "entry class not found", args: []string{"-cp", "/missing:/other", "Example"}},
+		{name: "missing executable jar", errorText: "unresolvable classpath root", args: []string{"-jar", "/missing.jar"}},
+		{name: "unsafe classpath root", errorText: "unresolvable classpath root", args: []string{"-cp", "/escape:/classes", "Example"}},
+		{name: "missing path below unsafe root", errorText: "unresolvable classpath root", args: []string{"-cp", "/escape/missing:/classes", "Example"}},
+		{name: "dangling classpath symlink", errorText: "unresolvable classpath root", args: []string{"-cp", "/dangling:/classes", "Example"}},
+		{name: "missing path below dangling symlink", errorText: "unresolvable classpath root", args: []string{"-cp", "/dangling/missing:/classes", "Example"}},
+		{name: "malformed classpath archive", errorText: "not a valid zip file", args: []string{"-cp", "/broken.jar:/classes", "Example"}},
 		{name: "application arguments", language: "kotlin", entry: "Example", args: []string{"Example", "-jar", "/missing.jar"}},
 		{name: "executable jar", language: "kotlin", entry: "Example", args: []string{"-jar", "/app.jar"}},
 		{name: "spring boot jar", language: "kotlin", entry: "Example", args: []string{"-jar", "/boot.jar"}},

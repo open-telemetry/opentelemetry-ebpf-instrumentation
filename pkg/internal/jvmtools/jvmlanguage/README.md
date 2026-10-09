@@ -15,7 +15,9 @@ OBI's automatic discovery or OTLP export.
    arguments. It resolves a named main class from the classpath or an
    executable JAR's `Main-Class`. For a supported Spring Boot `JarLauncher`, it
    uses `Start-Class` and `BOOT-INF/classes`.
-3. For a compiled entry point, it reads only the resolved entry `.class` file.
+3. For a compiled entry point, it inspects only the resolved entry `.class` file
+   for language markers. JAR launches read the archive into memory within
+   configured size limits.
    The shared [class-file parser](../../transform/route/harvest/java/classmarkers.go) looks for Kotlin
    metadata, Scala 2 signatures, or Scala 3 `TASTY`. Conflicting markers are an
    error.
