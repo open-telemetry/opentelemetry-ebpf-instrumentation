@@ -38,6 +38,11 @@ spans:
   # Captured request / response bodies and headers appear on the HTTP span
   # itself, behind their own opt-in selectors.
   - type: obi.http.server
+    annotations:
+      obi:
+        upstream: http.server
+        upstream_omits:
+          network.protocol.name: required only for a protocol other than HTTP, which OBI never reports on this signal
     kind: server
     name:
       note: Not documented yet.
@@ -84,6 +89,11 @@ spans:
         requirement_level: opt_in
 
   - type: obi.http.client
+    annotations:
+      obi:
+        upstream: http.client
+        upstream_omits:
+          network.protocol.name: required only for a protocol other than HTTP, which OBI never reports on this signal
     kind: client
     name:
       note: Not documented yet.
@@ -150,6 +160,9 @@ spans:
   # reports the RPC convention alone and none of the HTTP request or response
   # attributes, headers included, a plain HTTP client span carries.
   - type: obi.jsonrpc.client
+    annotations:
+      obi:
+        upstream: [rpc.jsonrpc.call.client, rpc.call.client]
     kind: client
     name:
       note: Not documented yet.
@@ -205,6 +218,11 @@ spans:
   # convention on top of `attributes.obi.http.server.common`, without the HTTP
   # request or response attributes.
   - type: obi.graphql.server
+    annotations:
+      obi:
+        upstream: graphql.server
+        upstream_extras:
+          error.type: semconv's error-recording guidance sets error.type on any failed operation
     kind: server
     name:
       note: Not documented yet.
@@ -223,6 +241,9 @@ spans:
         requirement_level: opt_in
 
   - type: obi.jsonrpc.server
+    annotations:
+      obi:
+        upstream: [rpc.jsonrpc.call.server, rpc.call.server]
     kind: server
     name:
       note: Not documented yet.
