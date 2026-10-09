@@ -77,12 +77,17 @@ jobs:
     outputs:
       patch_exists: ${{ steps.create-patch.outputs.exists }}
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: go,gradle,java,python,uv
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
           ref: ${{ needs.inspect.outputs.head_sha }}
+
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
 
       - id: guard
         name: Skip post-process follow-up commits
@@ -122,26 +127,21 @@ jobs:
             } >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Set up Go
-        if: steps.guard.outputs.should_run == 'true' && steps.detect.outputs.run_go == 'true'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
-        with:
-          go-version-file: "go.mod"
-          cache: true
-
       - name: Update Go dependency artifacts
         if: steps.guard.outputs.should_run == 'true' && steps.detect.outputs.run_go == 'true'
-        run: make go-mod-tidy go-notices-update
+        run: |
+          mise run go-mod-tidy
+          mise run go-notices-update
 
       - name: Update Java dependency notices
         if: steps.guard.outputs.should_run == 'true' && steps.detect.outputs.run_java == 'true'
-        run: make java-notices-update
+        run: mise run java-notices-update
 
       - name: Update Python requirements locks
         if: steps.guard.outputs.should_run == 'true' && steps.detect.outputs.run_python == 'true'
         env:
           PYTHON_REQUIREMENTS_INS: ${{ steps.detect.outputs.python_requirements_in }}
-        run: make python-requirements-update
+        run: mise run python-requirements-update
 
       - id: create-patch
         if: steps.guard.outputs.should_run == 'true'

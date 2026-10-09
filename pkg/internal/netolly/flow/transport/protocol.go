@@ -7,7 +7,7 @@
 // https://raw.githubusercontent.com/openbsd/src/28304016fe9353c375bc53e9b3d5bb67585d6a2a/etc/services
 //
 // To regenerate it, manually run:
-// $ make regenerate-port-lookup
+// $ mise run regenerate-port-lookup
 
 package transport // import "go.opentelemetry.io/obi/pkg/internal/netolly/flow/transport"
 

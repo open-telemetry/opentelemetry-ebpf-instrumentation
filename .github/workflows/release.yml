@@ -320,6 +320,8 @@ jobs:
     name: Build Release Artifacts
     needs: tests-passed
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: go,gradle,java,python,clang,conda:llvm-tools
     permissions:
       contents: read
       id-token: write
@@ -330,10 +332,9 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.tag || github.ref_name }}
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] release jobs install tools without restoring mise cache
         with:
-          go-version-file: "go.mod"
           cache: false
 
       - name: Install Cosign
@@ -345,18 +346,18 @@ jobs:
       - name: Build amd64 release artifacts
         env:
           GOARCH: amd64
-        run: make release
+        run: mise run release
 
       - name: Build arm64 release artifacts
         env:
           GOARCH: arm64
-        run: make release
+        run: mise run release
 
       - name: Build source-generated release artifacts
-        run: make release-source
+        run: mise run release-source
 
       - name: Generate Java agent SBOM
-        run: make java-docker-sbom
+        run: mise run java-docker-sbom
 
       - name: Install Syft
         id: syft
@@ -449,7 +450,7 @@ jobs:
       - name: Regenerate release checksums
         env:
           RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
-        run: make release-checksums RELEASE_VERSION="${RELEASE_VERSION}"
+        run: RELEASE_VERSION="${RELEASE_VERSION}" mise run release-checksums
 
       - name: Sign release artifacts
         run: |

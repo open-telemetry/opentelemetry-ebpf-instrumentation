@@ -9,9 +9,11 @@ on:
       - ".github/workflows/lint.yml"
       - "Dockerfile"
       - "**/*Dockerfile*"
-      - "Makefile"
       - "mise.toml"
       - "mise.lock"
+      - ".mise/tasks/**"
+      - "scripts/mise-*.sh"
+      - "scripts/mise-*.py"
       - "**.go"
       - "go.mod"
       - "go.sum"
@@ -45,7 +47,7 @@ permissions:
   contents: read
 
 jobs:
-  # macOS runners lack Docker so they can't run `make docker-generate`. Run it
+  # macOS runners lack Docker, so generate the eBPF bindings once on Linux.
   # once on Linux, share artifact with all lint jobs.
   generate-bpf:
     name: Generate BPF
@@ -64,7 +66,7 @@ jobs:
     needs: generate-bpf
     runs-on: ${{ matrix.platform.runner }}
     env:
-      MISE_ENABLE_TOOLS: go,golangci-lint
+      MISE_ENABLE_TOOLS: go,golangci-lint,github:open-telemetry/weaver
     strategy:
       fail-fast: false
       matrix:
@@ -82,7 +84,7 @@ jobs:
       - name: Set up mise tools
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref; release callers disable this cache
         with:
-          cache: ${{ inputs.mise_cache != false }}
+          cache: ${{ toJSON(inputs.mise_cache) != 'false' }}
 
       - name: Check golangci-lint version consistency
         if: matrix.platform.arch == 'amd64'
@@ -107,19 +109,19 @@ jobs:
       # Schema lint is arch-neutral (weaver YAML/JSON). Keep it on amd64 only.
       - name: Lint OBI semantic-convention registry
         if: matrix.platform.arch == 'amd64'
-        run: make lint-schema
+        run: mise run lint-schema
 
       - name: Test OBI semantic-convention registry provenance
         if: matrix.platform.arch == 'amd64'
-        run: make test-schema
+        run: mise run test-schema
 
       - name: Check published OBI telemetry schema files
         if: matrix.platform.arch == 'amd64'
-        run: make check-schema-files
+        run: mise run check-schema-files
 
       - name: Check generated OBI telemetry reference docs
         if: matrix.platform.arch == 'amd64'
-        run: make check-schema-docs
+        run: mise run check-schema-docs
 
   lint-darwin:
     name: Lint on macOS
@@ -136,7 +138,7 @@ jobs:
       - name: Set up mise tools
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref; release callers disable this cache
         with:
-          cache: ${{ inputs.mise_cache != false }}
+          cache: ${{ toJSON(inputs.mise_cache) != 'false' }}
 
       - name: Go build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying

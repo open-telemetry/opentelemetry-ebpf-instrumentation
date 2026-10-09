@@ -20,9 +20,11 @@ on:
       - "pkg/**"
       - "schemas/**"
       - "scripts/**"
-      - "Makefile"
       - "mise.toml"
       - "mise.lock"
+      - ".mise/tasks/**"
+      - "scripts/mise-*.sh"
+      - "scripts/mise-*.py"
       - "Dockerfile"
       - "**/*Dockerfile*"
   workflow_call:
@@ -61,6 +63,8 @@ jobs:
     name: Generated files and repo hygiene
     needs: generate-bpf
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: go,gradle,python,java,clang,conda:llvm-tools
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -68,11 +72,8 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
-        with:
-          go-version-file: "go.mod"
-          cache: true
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref
 
       - name: Go build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
@@ -94,10 +95,18 @@ jobs:
           key: semconv-deps-${{ hashFiles('schemas/obi/manifest.yaml') }}
 
       - name: Build test tools
-        run: make prereqs
+        run: mise run prereqs
 
       - name: Run checks
-        run: make go-mod-tidy license-header-check notices-update check-go-mod check-ebpf-ver-synced check-config-schema check-config-v2-artifacts check-clean-work-tree
+        run: |
+          mise run go-mod-tidy
+          mise run license-header-check
+          mise run notices-update
+          mise run check-go-mod
+          mise run check-ebpf-ver-synced
+          mise run check-config-schema
+          mise run check-config-v2-artifacts
+          mise run check-clean-work-tree
 
   clang-format:
     name: Clang format
@@ -147,13 +156,13 @@ jobs:
       - name: Set up clang-tidy
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref; release callers disable this cache
         with:
-          cache: ${{ inputs.mise_cache != false }}
+          cache: ${{ toJSON(inputs.mise_cache) != 'false' }}
 
       - name: Check clang-tidy version
         run: mise exec -- clang-tidy --version
 
       - name: Run clang-tidy
-        run: mise exec -- make clang-tidy CLANG_TIDY=clang-tidy
+        run: mise run clang-tidy
 
   collector-cross-compile:
     name: "Collector cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})"

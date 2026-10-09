@@ -32,7 +32,11 @@ on:
       - "scripts/integration-test-weights.generated.json"
       - "scripts/kernel-matrix-json.sh"
       - "scripts/pull-base-images.sh"
-      - "Makefile"
+      - "mise.toml"
+      - "mise.lock"
+      - ".mise/tasks/**"
+      - "scripts/mise-*.sh"
+      - "scripts/mise-*.py"
       - "!**/*.md"
   workflow_call:
     inputs:
@@ -80,6 +84,8 @@ jobs:
   vm-test-matrix:
     name: "Build matrix"
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: go
     timeout-minutes: 10
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
@@ -90,13 +96,16 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref
+
       - name: Build test matrix
         id: build-matrix
         env:
           PARTITIONS: 2
         run: |
           echo -n "matrix=" >> $GITHUB_OUTPUT
-          make multiprocess-integration-test-matrix-json >> $GITHUB_OUTPUT
+          mise run multiprocess-integration-test-matrix-json >> $GITHUB_OUTPUT
 
       - name: Build kernel matrix
         id: build-kernel-matrix
@@ -114,6 +123,8 @@ jobs:
     name: Prep test artifacts
     needs: vm-test-matrix
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: go,python,clang,conda:llvm-tools
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -142,11 +153,8 @@ jobs:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ (github.event_name != 'workflow_dispatch' || !inputs.ref) && secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION || '' }}
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
-        with:
-          go-version-file: "go.mod"
-          cache: true
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref
 
       - name: Go build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
@@ -163,7 +171,9 @@ jobs:
           key: semconv-deps-${{ hashFiles('schemas/obi/manifest.yaml') }}
 
       - name: Generate BPF + build test tools
-        run: make prereqs docker-generate
+        run: |
+          mise run prereqs
+          mise run generate
 
       - name: Pre-compile Go integration tests and gotestsum
         run: |
@@ -178,7 +188,7 @@ jobs:
         with:
           path: compiled-tests/docker-images.tar
           # Hash every discovered build input so source changes cannot reuse stale images.
-          key: vm-docker-images-${{ hashFiles('internal/test/integration/**', 'internal/config/**', 'Makefile', '.dockerignore', 'scripts/discover-integration-images.sh', 'bpf/**', 'cmd/**', 'pkg/**', 'go.mod', 'go.sum') }}
+          key: vm-docker-images-${{ hashFiles('internal/test/integration/**', 'internal/config/**', '.mise/tasks/**', 'mise.toml', 'mise.lock', '.dockerignore', 'scripts/discover-integration-images.sh', 'bpf/**', 'cmd/**', 'pkg/**', 'go.mod', 'go.sum') }}
 
       - name: Pre-build Docker images
         if: steps.docker-images-cache.outputs.cache-hit != 'true'
@@ -248,10 +258,10 @@ jobs:
       - name: Build rootfs images
         if: steps.rootfs-cache.outputs.cache-hit != 'true'
         run: |
-          sudo make -C internal/test/vm WORKDIR="$(pwd)" build-rootfs
+          sudo -E env PATH="$PATH" WORKDIR="$(pwd)" mise run vm:build-rootfs
           sudo chown "$(id -u):$(id -g)" rootfs.qcow2
           mv rootfs.qcow2 compiled-tests/rootfs.qcow2
-          sudo make -C internal/test/vm WORKDIR="$(pwd)" CGROUP_MODE=legacy build-rootfs
+          sudo -E env PATH="$PATH" WORKDIR="$(pwd)" CGROUP_MODE=legacy mise run vm:build-rootfs
           sudo chown "$(id -u):$(id -g)" rootfs-legacy.qcow2
           mv rootfs-legacy.qcow2 compiled-tests/rootfs-legacy.qcow2
           ls -lh compiled-tests/rootfs*.qcow2
@@ -279,6 +289,8 @@ jobs:
       checks: write
       pull-requests: write
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: go
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -290,6 +302,9 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
+
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref
 
       - uses: $/.github/actions/free-disk
         with:
@@ -347,7 +362,7 @@ jobs:
             exit 1
           fi
 
-          sudo make -C internal/test/vm \
+          sudo -E env PATH="$PATH" \
             WORKDIR="$(pwd)" \
             KERNEL="$KERNEL" \
             MODULES_DIR="$MODULES_DIR" \
@@ -355,10 +370,11 @@ jobs:
             TEST_PATTERN="${MATRIX_TEST_PATTERN}" \
             RUN_NUMBER="${RUN_NUMBER}" \
             PRECOMPILED_TESTS_DIR="$(pwd)/compiled-tests" \
-            && [ -f testoutput/success ]
+            mise run vm:run
+          [ -f testoutput/success ]
 
       - name: Process coverage data
-        run: make itest-coverage-data
+        run: mise run itest-coverage-data
 
       - name: Report coverage
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
@@ -377,4 +393,3 @@ jobs:
           path: |
             testoutput/*.log
             testoutput/kind
-

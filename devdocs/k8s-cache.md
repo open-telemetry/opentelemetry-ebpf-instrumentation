@@ -218,7 +218,7 @@ policy, or another authenticated proxy in front of k8s-cache.
 Compile and run the binary directly without Docker:
 
 ```bash
-make compile-cache
+mise run compile-cache
 ./bin/k8s-cache --config ./my-config.yaml
 ```
 

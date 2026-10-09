@@ -2,7 +2,7 @@ name: Setup LVH kernel
 description: |
   Cache + resolve a kernel artifact from quay.io/lvh-images/kernel-images.
   Pulls the kernel on cache miss, populates lvh/out/, and exports the
-  absolute paths the launchvm Makefile target consumes.
+  absolute paths consumed by the `vm:run` Mise task.
 
 inputs:
   kernel-id:

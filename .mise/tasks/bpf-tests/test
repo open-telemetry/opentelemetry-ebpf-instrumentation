@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)/bpf/tests"
+
+cc="${CC:-clang}"
+flags=(-Wall -Werror -g -I. -I..)
+
+shopt -s nullglob
+sources=( *.c )
+targets=()
+for source in "${sources[@]}"; do
+	target="${source%.c}"
+	"$cc" "${flags[@]}" -o "$target" "$source"
+	targets+=( "$target" )
+done
+
+for target in "${targets[@]}"; do
+	echo "### running $target"
+	"./$target"
+done
+
+echo "All BPF unit tests passed"

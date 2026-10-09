@@ -16,7 +16,11 @@ on:
       - "internal/**"
       - "pkg/**"
       - "scripts/**"
-      - "Makefile"
+      - "mise.toml"
+      - "mise.lock"
+      - ".mise/tasks/**"
+      - "scripts/mise-*.sh"
+      - "scripts/mise-*.py"
   workflow_call:
     inputs:
       ref:
@@ -35,6 +39,8 @@ jobs:
   unit-test-privileged:
     name: "Unit tests (privileged ${{ matrix.platform.arch }})"
     runs-on: ${{ matrix.platform.runner }}
+    env:
+      MISE_ENABLE_TOOLS: go,python,clang,conda:llvm-tools
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -50,11 +56,8 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
-        with:
-          go-version-file: "go.mod"
-          cache: true
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref
 
       - name: Go build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
@@ -71,13 +74,15 @@ jobs:
           key: semconv-deps-${{ hashFiles('schemas/obi/manifest.yaml') }}
 
       - name: Generate BPF + build test tools
-        run: make prereqs docker-generate
+        run: |
+          mise run prereqs
+          mise run generate
 
       - name: Run privileged unit tests
-        run: sudo make test-privileged
+        run: sudo -E env PATH="$PATH" mise run test-privileged
 
       - name: Cleanup coverage data
-        run: make cov-exclude-generated
+        run: mise run cov-exclude-generated
 
       - name: Report coverage
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1

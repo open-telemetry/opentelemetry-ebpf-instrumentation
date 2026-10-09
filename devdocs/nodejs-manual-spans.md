@@ -248,7 +248,7 @@ The behavioral SDK detection (`exclude_otel_instrumented_services`, which
 observes OTLP exports) applies on top of this as usual.
 
 These behaviors are covered by `pkg/internal/nodejs/spanbridge_test/`
-(`make test-nodejs`): api-only capture, SDK-loaded-but-not-
+(`mise run test-nodejs`): api-only capture, SDK-loaded-but-not-
 registered (still captured), SDK-registered-before-injection (inert), and
 SDK-registered-after-injection (step-aside handover).
 

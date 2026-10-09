@@ -202,7 +202,7 @@ the GPU instrumentation being enabled.
    getter for it if the metric needs a new attribute value). If a new event is
    needed, add the C struct to `bpf/gpuevent/cuda.h`, the event to
    `bpf/gpuevent/cuda.c`, then regenerate the bpf2go bindings with
-   `make generate` (or `make docker-generate` when not on a Linux host).
+   `mise run generate`.
 2. Declare the metric, and any new attribute, in
    `schemas/obi/groups/gpu/metrics.yaml` and
    `schemas/obi/groups/gpu/registry.yaml`.
@@ -212,7 +212,7 @@ the GPU instrumentation being enabled.
    `pkg/export/attributes/names/attrs.go`.
 4. Emit it in `pkg/export/otel/metrics.go` and mirror the emitter in
    `pkg/export/prom/prom.go`.
-5. Run `make generate-schema-docs` to refresh the reference docs under
+5. Run `mise run generate-schema-docs` to refresh the reference docs under
    `site/docs/`.
 6. If the change renames emitted telemetry, record the transformation in
    [telemetry-schema.md](telemetry-schema.md).

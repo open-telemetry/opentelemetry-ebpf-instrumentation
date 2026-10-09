@@ -18,7 +18,6 @@ RUN apk update && apk add --no-cache \
     git \
     iptables \
     iptables-legacy \
-    make \
     openrc
 
 # Default iptables symlink to legacy; modules-load may relink to nft on
@@ -273,7 +272,7 @@ if [ -n "$target" ]; then
         docker load -i /precompiled-tests/base-images.tar
     fi
 
-    cd /build && make $target TEST_PATTERN="$test_pattern" RUN_NUMBER="$run_number" && touch /build/testoutput/success
+    cd /build && TEST_PATTERN="$test_pattern" RUN_NUMBER="$run_number" PRECOMPILED_TESTS_DIR=/precompiled-tests bash scripts/mise-root-target.sh "$target" && touch /build/testoutput/success
     poweroff
 else
     echo "Entering interactive mode (no /build/testoutput/test-env)"

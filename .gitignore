@@ -122,7 +122,7 @@ examples/otel-collector/otelcol-dev/*
 internal/test/benchmarks/goshorturl/shorturl
 
 # Pre-fetched upstream OpenTelemetry semantic-conventions registry consumed
-# by weaver. Populated by `make fetch-upstream-semconv` (a prereqs dep).
+# by weaver. Populated by `mise run fetch-upstream-semconv` (a prereqs dep).
 schemas/obi/.deps/
 internal/test/vm/lvh/out/
 
@@ -136,5 +136,8 @@ internal/test/vm/lvh/out/
 internal/test/integration/components/ai/openai/mock-server/mock-server
 internal/test/integration/components/ai/openai/go/testserver
 
-# rendered site output (make render-site)
+# rendered site output (`mise run render-site`)
 build/
+
+# Runtime state for incremental Mise-managed bpf2go generation.
+.mise/bpf-generate-fingerprint.json

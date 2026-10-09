@@ -34,7 +34,7 @@ dependencies:
   #
   # `registry_path` points to a local pre-fetched copy under `.deps/` so
   # weaver doesn't clone semconv on every container start. Run
-  # `make fetch-upstream-semconv` (also invoked by `make prereqs`) to
+  # `mise run fetch-upstream-semconv` (also invoked by `mise run prereqs`) to
   # populate it; CI caches the directory so cold runs stay fast. The path
   # is resolved relative to this manifest, so the same value works whether
   # weaver runs against the registry on the host or inside a container

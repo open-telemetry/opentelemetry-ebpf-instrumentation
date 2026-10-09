@@ -6,7 +6,7 @@
 // carries no peer in its tuple (d_port == 0), so :53 is only in msg_name.
 //
 // Run from repo root:
-//   make -C bpf/tests bpf_dns_unconnected && bpf/tests/bpf_dns_unconnected
+//   mise run bpf-tests:test
 
 #include <stdbool.h>
 #include <stdio.h>

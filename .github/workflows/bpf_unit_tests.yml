@@ -26,6 +26,8 @@ jobs:
   bpf-unit-tests:
     name: BPF unit tests (${{ matrix.platform.arch }})
     runs-on: ${{ matrix.platform.runner }}
+    env:
+      MISE_ENABLE_TOOLS: ""
     timeout-minutes: 10
     strategy:
       fail-fast: false
@@ -41,10 +43,13 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Set up mise
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref
+
       - name: Install clang
         run: |
           sudo apt-get update
           sudo apt-get install -y clang
 
       - name: Run BPF unit tests
-        run: make -C bpf/tests test
+        run: mise run bpf-tests:test

@@ -21,6 +21,8 @@ jobs:
   publish:
     name: Deploy schema files to GitHub Pages
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: ""
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -29,8 +31,11 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Set up mise
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+
       - name: Check published schema files
-        run: make check-schema-files
+        run: mise run check-schema-files
 
       - name: Configure Pages
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0

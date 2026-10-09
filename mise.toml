@@ -1,15 +1,26 @@
 [tools]
 go = "1.27.1"
+clang = "22.1.8"
 clang-format = "22.1.8"
 golangci-lint = "2.13.2"
 markdownlint-cli2 = "0.23.3"
 gradle = "9.8.0"
 python = ["3.9", "3.14"]
+uv = "0.10.9"
+java = "temurin-21.0.8+9.0.LTS"
+node = "24.21.0"
 
 [tools."github:cpp-linter/clang-tools-static-binaries"]
 version = "2026.09.01-5fb8802d"
 matching = "clang-tidy-22_"
 bin = "clang-tidy"
+
+[tools."github:open-telemetry/weaver"]
+version = "0.27.0"
+bin = "weaver"
+
+[tools."conda:llvm-tools"]
+version = "22.1.8"
 
 [tasks.format-go]
 run = "golangci-lint fmt"
@@ -64,3 +75,361 @@ CGO_ENABLED=0 GOOS="$GOOS" GOARCH="$GOARCH" go build \
   -o "bin/${CMD}" "$MAIN_GO_FILE"
 '''
 description = "Compile the OBI binary"
+
+[tasks.install-hooks]
+run = "bash ./scripts/mise-root-target.sh install-hooks"
+description = "Install repository git hooks"
+
+[tasks.fetch-upstream-semconv]
+run = "bash ./scripts/mise-root-target.sh fetch-upstream-semconv"
+description = "Fetch the upstream semantic convention registry"
+
+[tasks.prereqs]
+run = "bash ./scripts/mise-root-target.sh prereqs"
+
+[tasks.clang-tidy]
+run = "bash ./scripts/mise-root-target.sh clang-tidy"
+
+[tasks.docker-clang-tidy]
+run = "bash ./scripts/mise-root-target.sh docker-clang-tidy"
+
+[tasks.lint-clean-cache]
+run = "bash ./scripts/mise-root-target.sh lint-clean-cache"
+
+[tasks.lint-run]
+run = "bash ./scripts/mise-root-target.sh lint-run"
+
+[tasks.lint]
+run = "bash ./scripts/mise-root-target.sh lint"
+
+[tasks.lint-fix-run]
+run = "bash ./scripts/mise-root-target.sh lint-fix-run"
+
+[tasks.lint-fix]
+run = "bash ./scripts/mise-root-target.sh lint-fix"
+
+[tasks.lint-schema]
+run = "bash ./scripts/mise-root-target.sh lint-schema"
+
+[tasks.test-schema]
+run = "bash ./scripts/mise-root-target.sh test-schema"
+
+[tasks.check-schema-files]
+run = "bash ./scripts/mise-root-target.sh check-schema-files"
+
+[tasks.generate-schema-next]
+run = "bash ./scripts/mise-root-target.sh generate-schema-next"
+
+[tasks.generate-schema-docs]
+run = "bash ./scripts/mise-root-target.sh generate-schema-docs"
+
+[tasks.check-schema-docs]
+run = "bash ./scripts/mise-root-target.sh check-schema-docs"
+
+[tasks.lint-dependency-policy]
+run = "bash ./scripts/mise-root-target.sh lint-dependency-policy"
+
+[tasks.lint-preempt-guard]
+run = "bash ./scripts/mise-root-target.sh lint-preempt-guard"
+
+[tasks.lint-collectt]
+run = "bash ./scripts/mise-root-target.sh lint-collectt"
+
+[tasks.lint-collectt-fix]
+run = "bash ./scripts/mise-root-target.sh lint-collectt-fix"
+
+[tasks.lint-markdown]
+run = "bash ./scripts/mise-root-target.sh lint-markdown"
+
+[tasks.lint-markdown-fix]
+run = "bash ./scripts/mise-root-target.sh lint-markdown-fix"
+
+[tasks.update-offsets]
+run = "bash ./scripts/mise-root-target.sh update-offsets"
+
+[tasks.update-python-offsets]
+run = "bash ./scripts/mise-root-target.sh update-python-offsets"
+
+[tasks.generate]
+run = "bash ./scripts/mise-root-target.sh generate"
+
+[tasks."generate/all"]
+run = "bash ./scripts/mise-root-target.sh generate-all"
+
+[tasks.docker-generate]
+run = "bash ./scripts/mise-root-target.sh docker-generate"
+
+[tasks.verify]
+run = "bash ./scripts/mise-root-target.sh verify"
+
+[tasks.build]
+run = "bash ./scripts/mise-root-target.sh build"
+
+[tasks.all]
+run = "bash ./scripts/mise-root-target.sh all"
+
+[tasks.compile-cache]
+run = "bash ./scripts/mise-root-target.sh compile-cache"
+
+[tasks.fmt]
+run = "golangci-lint fmt"
+
+[tasks.debug]
+run = "bash ./scripts/mise-root-target.sh debug"
+
+[tasks.dev]
+run = "bash ./scripts/mise-root-target.sh dev"
+
+[tasks.compile-for-coverage]
+run = "bash ./scripts/mise-root-target.sh compile-for-coverage"
+
+[tasks.compile-cache-for-coverage]
+run = "bash ./scripts/mise-root-target.sh compile-cache-for-coverage"
+
+[tasks.test]
+run = "bash ./scripts/mise-root-target.sh test"
+
+[tasks.test-nodejs]
+run = "bash ./scripts/mise-root-target.sh test-nodejs"
+
+[tasks.test-rerun-flaky]
+run = "bash ./scripts/mise-root-target.sh test-rerun-flaky"
+
+[tasks.test-privileged]
+run = "bash ./scripts/mise-root-target.sh test-privileged"
+
+[tasks.run-bpf-verifier-vm]
+run = "bash ./scripts/mise-root-target.sh run-bpf-verifier-vm"
+
+[tasks.cov-exclude-generated]
+depends = ["testoutput"]
+run = "bash ./scripts/mise-root-target.sh cov-exclude-generated"
+
+[tasks.coverage-report]
+depends = ["cov-exclude-generated"]
+run = "go tool cover --func=${TEST_OUTPUT:-./testoutput}/cover.txt"
+
+[tasks.coverage-report-html]
+depends = ["cov-exclude-generated"]
+run = "go tool cover --html=${TEST_OUTPUT:-./testoutput}/cover.txt"
+
+[tasks.java-build]
+run = "bash ./scripts/mise-root-target.sh java-build"
+
+[tasks.java-docker-build]
+run = "bash ./scripts/mise-root-target.sh java-docker-build"
+
+[tasks.java-docker-sbom]
+run = "bash ./scripts/mise-root-target.sh java-docker-sbom"
+
+[tasks.java-test]
+run = "bash ./scripts/mise-root-target.sh java-test"
+
+[tasks.java-spotless-check]
+run = "bash ./scripts/mise-root-target.sh java-spotless-check"
+
+[tasks.java-spotless-apply]
+run = "bash ./scripts/mise-root-target.sh java-spotless-apply"
+
+[tasks.java-clean]
+run = "bash ./scripts/mise-root-target.sh java-clean"
+
+[tasks.java-verify]
+run = "bash ./scripts/mise-root-target.sh java-verify"
+
+[tasks.image-build]
+run = "bash ./scripts/mise-root-target.sh image-build"
+
+[tasks.generator-image-build]
+run = "bash ./scripts/mise-root-target.sh generator-image-build"
+
+[tasks.prepare-integration-test]
+run = "bash ./scripts/mise-root-target.sh prepare-integration-test"
+
+[tasks.cleanup-integration-test]
+run = "bash ./scripts/mise-root-target.sh cleanup-integration-test"
+
+[tasks.run-integration-test]
+run = "bash ./scripts/mise-root-target.sh run-integration-test"
+
+[tasks.run-integration-test-k8s]
+run = "bash ./scripts/mise-root-target.sh run-integration-test-k8s"
+
+[tasks.run-integration-test-vm]
+run = "bash ./scripts/mise-root-target.sh run-integration-test-vm"
+
+[tasks.unit-test-matrix-json]
+run = "bash ./scripts/mise-root-target.sh unit-test-matrix-json"
+
+[tasks.run-unit-test-shard]
+run = "bash ./scripts/mise-root-target.sh run-unit-test-shard"
+
+[tasks.integration-test-matrix-json]
+run = "bash ./scripts/mise-root-target.sh integration-test-matrix-json"
+
+[tasks.multiprocess-integration-test-matrix-json]
+run = "bash ./scripts/mise-root-target.sh multiprocess-integration-test-matrix-json"
+
+[tasks.k8s-integration-test-matrix-json]
+run = "bash ./scripts/mise-root-target.sh k8s-integration-test-matrix-json"
+
+[tasks.oats-integration-test-matrix-json]
+run = "bash ./scripts/mise-root-target.sh oats-integration-test-matrix-json"
+
+[tasks.integration-test]
+run = "bash ./scripts/mise-root-target.sh integration-test"
+
+[tasks.integration-test-k8s]
+run = "bash ./scripts/mise-root-target.sh integration-test-k8s"
+
+[tasks.itest-coverage-data]
+run = "bash ./scripts/mise-root-target.sh itest-coverage-data"
+
+[tasks.oats-prereq]
+run = "bash ./scripts/mise-root-target.sh oats-prereq"
+
+[tasks.oats-test-sql]
+depends = ["oats-prereq"]
+run = "bash ./scripts/mise-root-target.sh oats-test-sql"
+
+[tasks.oats-test-redis]
+depends = ["oats-prereq"]
+run = "bash ./scripts/mise-root-target.sh oats-test-redis"
+
+[tasks.oats-test-kafka]
+depends = ["oats-prereq"]
+run = "bash ./scripts/mise-root-target.sh oats-test-kafka"
+
+[tasks.oats-test-http]
+depends = ["oats-prereq"]
+run = "bash ./scripts/mise-root-target.sh oats-test-http"
+
+[tasks.oats-test-mongo]
+depends = ["oats-prereq"]
+run = "bash ./scripts/mise-root-target.sh oats-test-mongo"
+
+[tasks.oats-test-memcached]
+depends = ["oats-prereq"]
+run = "bash ./scripts/mise-root-target.sh oats-test-memcached"
+
+[tasks.oats-test-ai]
+depends = ["oats-prereq"]
+run = "bash ./scripts/mise-root-target.sh oats-test-ai"
+
+[tasks.oats-test-nats]
+depends = ["oats-prereq"]
+run = "bash ./scripts/mise-root-target.sh oats-test-nats"
+
+[tasks.oats-test-amqp]
+depends = ["oats-prereq"]
+run = "bash ./scripts/mise-root-target.sh oats-test-amqp"
+
+[tasks.oats-test]
+run = "bash ./scripts/mise-root-target.sh oats-test"
+
+[tasks.oats-test-debug]
+depends = ["oats-prereq"]
+run = "bash ./scripts/mise-root-target.sh oats-test-debug"
+
+[tasks.license-header-check]
+run = "bash ./scripts/mise-root-target.sh license-header-check"
+
+[tasks.artifact]
+run = "bash ./scripts/mise-root-target.sh artifact"
+
+[tasks.release]
+run = "bash ./scripts/mise-root-target.sh release"
+
+[tasks.release-source]
+run = "bash ./scripts/mise-root-target.sh release-source"
+
+[tasks.release-checksums]
+run = "bash ./scripts/mise-root-target.sh release-checksums"
+
+[tasks.clean-release-dir]
+run = "bash ./scripts/mise-root-target.sh clean-release-dir"
+
+[tasks.testoutput]
+run = "bash ./scripts/mise-root-target.sh testoutput"
+
+[tasks.clean-testoutput]
+depends = ["testoutput"]
+run = "bash ./scripts/mise-root-target.sh clean-testoutput"
+
+[tasks.protoc-gen]
+run = "bash ./scripts/mise-root-target.sh protoc-gen"
+
+[tasks.clang-format]
+run = "bash ./scripts/mise-root-target.sh clang-format"
+
+[tasks.docker-clang-format]
+run = "bash ./scripts/mise-root-target.sh docker-clang-format"
+
+[tasks.clean-ebpf-generated-files]
+run = "bash ./scripts/mise-root-target.sh clean-ebpf-generated-files"
+
+[tasks.notices-update]
+run = "bash ./scripts/mise-root-target.sh notices-update"
+
+[tasks.java-notices-update]
+run = "bash ./scripts/mise-root-target.sh java-notices-update"
+
+[tasks.go-notices-update]
+run = "bash ./scripts/mise-root-target.sh go-notices-update"
+
+[tasks.python-requirements-update]
+run = "bash ./scripts/mise-root-target.sh python-requirements-update"
+
+[tasks.check-clean-work-tree]
+run = "bash ./scripts/mise-root-target.sh check-clean-work-tree"
+
+[tasks.go-mod-tidy]
+run = "bash ./scripts/mise-root-target.sh go-mod-tidy"
+
+[tasks.check-go-mod]
+run = "bash ./scripts/mise-root-target.sh check-go-mod"
+
+[tasks.verify-mods]
+run = "bash ./scripts/mise-root-target.sh verify-mods"
+
+[tasks.prerelease]
+run = "bash ./scripts/mise-root-target.sh prerelease"
+
+[tasks.add-tags]
+run = "bash ./scripts/mise-root-target.sh add-tags"
+
+[tasks.check-ebpf-ver-synced]
+run = "bash ./scripts/mise-root-target.sh check-ebpf-ver-synced"
+
+[tasks.vanity-import-check]
+run = "bash ./scripts/mise-root-target.sh vanity-import-check"
+
+[tasks.vanity-import-fix-check]
+run = "bash ./scripts/mise-root-target.sh vanity-import-fix-check"
+
+[tasks.vanity-import-fix]
+run = "bash ./scripts/mise-root-target.sh vanity-import-fix"
+
+[tasks.regenerate-port-lookup]
+run = "bash ./scripts/mise-root-target.sh regenerate-port-lookup"
+
+[tasks.generate-config-schema]
+run = "bash ./scripts/mise-root-target.sh generate-config-schema"
+
+[tasks.check-config-schema]
+run = "bash ./scripts/mise-root-target.sh check-config-schema"
+
+[tasks.check-config-v2-parity]
+run = "bash ./scripts/mise-root-target.sh check-config-v2-parity"
+
+[tasks.check-config-v2-artifacts]
+run = "bash ./scripts/mise-root-target.sh check-config-v2-artifacts"
+
+[tasks.fix-store-demo-architecture]
+run = "bash ./scripts/mise-root-target.sh fix-store-demo-architecture"
+
+[tasks.check-store-demo-architecture]
+run = "bash ./scripts/mise-root-target.sh check-store-demo-architecture"
+
+[tasks.test-store-demo-architecture]
+run = "bash ./scripts/mise-root-target.sh test-store-demo-architecture"

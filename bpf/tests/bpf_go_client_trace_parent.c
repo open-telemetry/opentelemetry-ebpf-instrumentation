@@ -10,7 +10,7 @@
 // wrapper that leaves span_id alone emits a duplicate span id.
 //
 // Run from repo root:
-//   make -C bpf/tests bpf_go_client_trace_parent && bpf/tests/bpf_go_client_trace_parent
+//   mise run bpf-tests:test
 
 #include <stdbool.h>
 #include <stdio.h>

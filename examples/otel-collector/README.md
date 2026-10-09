@@ -6,7 +6,7 @@ This example demonstrates how to build and run the OpenTelemetry Collector with 
 
 - Go 1.25 or later
 - [OTel Collector Builder (`ocb`)](https://opentelemetry.io/docs/collector/extend/ocb/) installed. The `.github/workflows/pull_request.yml` workflow installs the version matching the OpenTelemetry Collector version in `go.mod`.
-- Docker (for generating eBPF files) or a C compiler, clang, and eBPF headers
+- mise and the pinned tools (for generating eBPF files)
 - Linux system with elevated privileges (sudo) to run the collector
 
 ## Quick Start
@@ -15,9 +15,8 @@ This example demonstrates how to build and run the OpenTelemetry Collector with 
 
    ```bash
    cd ../..
-   make docker-generate
-   # or if you have build tools installed locally:
-   # make generate
+   mise install
+   mise run generate
    cd examples/otel-collector
    ```
 
@@ -200,7 +199,7 @@ The included `Dockerfile` builds the collector from source within the container.
 
 ```bash
 cd ../..
-make docker-generate  # Generate eBPF files first
+mise run generate  # Generate eBPF files first
 cd examples/otel-collector
 
 docker build -t my-registry/otelcol-obi:v0.5.0 .

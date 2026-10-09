@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Run me with: make && ./test_large_buffer_loop
+// Run the BPF unit-test suite with: mise run bpf-tests:test
 
 #include <stdbool.h>
 #include <stdint.h>

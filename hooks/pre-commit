@@ -14,9 +14,9 @@ if [ -n "$files" ]; then
 	done
 fi
 
-# check if make check-config-schema >/dev/null 2>&1 is successful
-if ! $(make check-config-schema >/dev/null 2>&1); then
+# check if the configuration schema is up to date
+if ! mise run check-config-schema >/dev/null 2>&1; then
   echo "Found differences in config schema. Generating new config schema..."
-  make generate-config-schema
+  mise run generate-config-schema
   git add devdocs/config/config-schema.json
 fi

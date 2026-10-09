@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root/internal/test/integration/components/old_grpc/backend/internal/distributed-service-example"
+protoc --go_out=. --go-grpc_out=. proto/service.proto

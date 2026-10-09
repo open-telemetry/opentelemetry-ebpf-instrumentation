@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root/internal/test/vm"
+
+cgroup_mode="${CGROUP_MODE:-}"
+root_suffix="${cgroup_mode:+-$cgroup_mode}"
+workdir="${WORKDIR:-$HOME}"
+rm -f "${ROOT_IMG:-$workdir/rootfs${root_suffix}.qcow2}" \
+	"${ROOT_IMAGE_RAW:-$workdir/rootfs${root_suffix}.raw}" \
+	"${TARBALL:-/tmp/rootfs${root_suffix}.tar}"

@@ -222,7 +222,7 @@ copy_java_agent() {
     || die "Java agent JAR not found: $JAVA_AGENT_EMBED_PATH"
 
   if grep -qF "$JAVA_AGENT_PLACEHOLDER" "$JAVA_AGENT_EMBED_PATH" 2>/dev/null; then
-    die "Java agent JAR is still a placeholder. Run 'make java-docker-build' first."
+    die "Java agent JAR is still a placeholder. Run 'mise run java-build' first."
   fi
 
   mkdir -p "$source_dir/$(dirname "$JAVA_AGENT_EMBED_PATH")"

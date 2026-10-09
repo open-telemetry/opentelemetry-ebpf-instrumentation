@@ -26,14 +26,14 @@ here in the same change:
 - **An attribute upstream does not define**: declare it under `attributes:` in
   the domain's `registry.yaml`.
 
-Then run `make lint-schema` and `make generate-schema-docs`, and make sure an
+Then run `mise run lint-schema` and `mise run generate-schema-docs`, and make sure an
 integration suite that runs weaver exercises the new telemetry (see below).
 
 ## What validation covers
 
 Checked on every change, without running OBI:
 
-- `make lint-schema`: the registry resolves and is well-formed.
+- `mise run lint-schema`: the registry resolves and is well-formed.
 - `internal/schemacheck`: every signal attribute declares a requirement level;
   the span attributes the exporter emits for each case in
   `emitted_contract_test.go` match their span type exactly; OBI's copies of

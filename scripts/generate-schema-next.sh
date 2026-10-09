@@ -11,7 +11,7 @@
 #
 # Prereleases retain the published stable schema because schema consumers do
 # not support prerelease version identifiers.
-# Intended to run at release prep (invoked by `make prerelease`). Files are
+# Intended to run at release prep (invoked by `mise run prerelease`). Files are
 # immutable once published: if telemetry changed in this release, add the
 # rename entries by hand under the new <version>: block before committing
 # (see devdocs/telemetry-schema.md).

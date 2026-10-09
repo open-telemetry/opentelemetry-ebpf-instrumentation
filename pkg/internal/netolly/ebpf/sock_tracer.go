@@ -42,7 +42,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 )
 
-// $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
+// $BPF_CLANG and $BPF_CFLAGS are set by the Mise BPF generation task.
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -type flow_metrics_t -type flow_id_t -type flow_record_t -type packet_count_t -target $BPF_TARGETS NetSk ../../../../bpf/netolly/flows_sock.c -- -I../../../../bpf
 
 // SockFlowFetcher reads and forwards the Flows from the eBPF kernel space with a socket filter implementation.

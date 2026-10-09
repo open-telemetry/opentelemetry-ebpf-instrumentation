@@ -27,6 +27,8 @@ jobs:
   test:
     name: Test span bridge (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: ""
     timeout-minutes: 10
     strategy:
       matrix:
@@ -39,6 +41,9 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Set up mise
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+
       - name: Set up Node.js ${{ matrix.node }}
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 # zizmor: ignore[cache-poisoning] npm ci verifies dependency integrity via package-lock.json
         with:
@@ -47,4 +52,4 @@ jobs:
           cache-dependency-path: pkg/internal/nodejs/spanbridge_test/package-lock.json
 
       - name: Run Node.js span-bridge tests
-        run: make test-nodejs
+        run: mise run test-nodejs

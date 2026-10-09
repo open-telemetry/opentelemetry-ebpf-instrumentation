@@ -151,7 +151,7 @@ Adding a service to the demo touches several places. Only the last step is autom
 
 5. **Build & load the image** — add the service to the `services=(...)` array in the [README "Build And Load Images"](./README.md) step so its image is built and loaded into the cluster.
 
-6. **Regenerate the doc** — run `make fix-store-demo-architecture`. CI enforces it with `make check-store-demo-architecture`.
+6. **Regenerate the doc** — run `mise run fix-store-demo-architecture`. CI enforces it with `mise run check-store-demo-architecture`.
 
 Extend `fix_architecture.py` only when introducing something new to the model: a **new protocol** value needs an entry in `PROTOCOL_DISPLAY`; a **new language** needs an entry in `LANGUAGES` (and possibly a new marker in `detect_language`); a **non-Deployment workload** needs `manifest_services` widened.
 

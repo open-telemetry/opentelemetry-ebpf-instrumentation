@@ -153,8 +153,7 @@ as new instrumentation or bug fixes.
 
 ### Prerequisites
 
-- Docker and GNU Make (recommended; no local Gradle install required), or
-- Local Gradle 9.x and JDK 17+ (for running Gradle locally)
+- mise and the pinned Gradle 9.x toolchain with JDK 17+
 
 Note: the Java agent bytecode target is Java 8, but Gradle itself requires JDK 17+ to run.
 
@@ -166,16 +165,16 @@ Run these commands from the repository root.
 
 ```bash
 # Build Java agent and copy it to pkg/internal/java/embedded/obi-java-agent.jar
-make java-build
+mise run java-build
 
 # Run Java tests
-make java-test
+mise run java-test
 
 # Check formatting
-make java-spotless-check
+mise run java-spotless-check
 
 # Apply formatting
-make java-spotless-apply
+mise run java-spotless-apply
 ```
 
 You can also run Gradle directly from `pkg/internal/java`:
@@ -195,12 +194,12 @@ gradle spotlessApply
 
 ```
 
-#### Option B: Docker-only (no local Gradle)
+#### Build the Java agent
 
 ```bash
-# Build Java agent artifact using javaagent.Dockerfile and export it to:
+# Build the Java agent artifact and export it to:
 # pkg/internal/java/embedded/obi-java-agent.jar
-make java-docker-build
+mise run java-build
 ```
 
 The final agent JAR will be located at:

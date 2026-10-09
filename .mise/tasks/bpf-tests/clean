@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)/bpf/tests"
+shopt -s nullglob
+for source in *.c; do
+	rm -f "${source%.c}"
+done

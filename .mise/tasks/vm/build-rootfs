@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+vm_dir="$repo_root/internal/test/vm"
+cd "$vm_dir"
+
+workdir="${WORKDIR:-$HOME}"
+arch="${ARCH:-amd64}"
+if [[ "$arch" != amd64 && "$arch" != x86_64 ]]; then
+	echo "Unsupported ARCH=$arch. Only amd64 is supported; arm64 GH runners lack nested KVM" >&2
+	exit 1
+fi
+
+cgroup_mode="${CGROUP_MODE:-}"
+root_suffix="${cgroup_mode:+-$cgroup_mode}"
+tarball="${TARBALL:-/tmp/rootfs${root_suffix}.tar}"
+root_img="${ROOT_IMG:-$workdir/rootfs${root_suffix}.qcow2}"
+root_image_raw="${ROOT_IMAGE_RAW:-$workdir/rootfs${root_suffix}.raw}"
+img_size="${IMG_SIZE:-20G}"
+mnt="${MNT:-mnt}"
+
+DOCKER_BUILDKIT=1 docker build --quiet -f Dockerfile \
+	--build-arg "CGROUP_MODE=$cgroup_mode" \
+	--output "type=tar,dest=$tarball" .
+
+fallocate -l "$img_size" "$root_image_raw"
+mkfs.ext4 "$root_image_raw"
+mkdir -p "$mnt"
+sudo mount -o loop "$root_image_raw" "$mnt"
+sudo tar -xf "$tarball" -C "$mnt"
+sync -f "$mnt" && sudo umount -l "$mnt"
+rm -f "$tarball"
+rmdir "$mnt"
+qemu-img convert "$root_image_raw" -O qcow2 "$root_img"
+rm "$root_image_raw"

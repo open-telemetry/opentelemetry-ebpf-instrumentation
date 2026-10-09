@@ -9,16 +9,16 @@ Commit this change to a new branch (i.e. `release-vX.X.X`).
 
 Update all crosslink dependencies and any version references in code.
 
-1. Run the `prerelease` make target.
+1. Run the `prerelease` Mise task.
 
    ```console
-   make prerelease MODSET=<module set>
+   MODSET=<module set> mise run prerelease
    ```
 
    For example, to prepare a release for the `obi` module set, run:
 
    ```console
-   make prerelease MODSET=obi
+   MODSET=obi mise run prerelease
    ```
 
    This will create a branch `prerelease_<module set>_<new tag>` that will contain all release changes.
@@ -60,16 +60,16 @@ Once the Pull Request with all the version changes has been approved and merged 
 > If any tests fail or don't complete, the release will not be created.
 <!-- markdownlint-enable MD028 -->
 
-1. For each module set that will be released, run the `add-tags` make target using the `<commit-hash>` of the commit on the main branch for the merged Pull Request.
+1. For each module set that will be released, run the `add-tags` Mise task using the `<commit-hash>` of the commit on the main branch for the merged Pull Request.
 
    ```console
-   make add-tags MODSET=<module set> COMMIT=<commit hash>
+   MODSET=<module set> COMMIT=<commit hash> mise run add-tags
    ```
 
    For example, to add tags for the `obi` module set for the latest commit, run:
 
    ```console
-   make add-tags MODSET=obi
+   MODSET=obi mise run add-tags
    ```
 
    It should only be necessary to provide an explicit `COMMIT` value if the
@@ -107,7 +107,7 @@ When you push a tag matching the pattern `vX.Y.Z` (e.g., `v1.2.3`) or `vX.Y.Z-su
    If any of these checks fail or don't complete, the release workflow will fail and no draft release will be created.
 
 3. **Build Release Artifacts**: Once all checks pass, the workflow builds multi-architecture release artifacts:
-   - Runs `make release` to generate versioned tarballs for amd64 and arm64
+   - Runs the `release` Mise task to generate versioned tarballs for amd64 and arm64
    - Archives contain: `obi`, LICENSE, NOTICE, and NOTICES/ directory
    - Builds a custom source archive from the exact tagged source snapshot plus generated artifacts (including bpf2go outputs)
    - Generates one CycloneDX SBOM per release archive
@@ -183,9 +183,9 @@ The release also includes a custom source archive, `obi-v<version>-source-genera
 To test the release artifact generation locally before tagging:
 
 ```console
-make release GOARCH=amd64
-make release GOARCH=arm64
-make release-source
+GOARCH=amd64 mise run release
+GOARCH=arm64 mise run release
+mise run release-source
 ```
 
 This will:

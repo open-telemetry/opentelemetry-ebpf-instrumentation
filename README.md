@@ -33,18 +33,19 @@ See the [telemetry compatibility contract](./TELEMETRY.md) for the stable v1 sur
 
 Requirements:
 
-* Docker
-* GNU Make
+* [mise](https://mise.jdx.dev/)
 
-1. First, generate all the eBPF Go bindings via `make docker-generate`. You need to re-run this make task
-   each time you add or modify a C file under the [`bpf/`](./bpf) folder.
-2. To run linter, unit tests: `make fmt verify`.
-3. To run integration tests, run either:
+1. Install the pinned tools with `mise install`.
+2. Generate all eBPF Go bindings with `mise run generate`. Re-run this task each
+   time you add or modify a C file under the [`bpf/`](./bpf) folder.
+3. Run formatting, linting, and tests with `mise run fmt`, `mise run lint`, and
+   `mise run verify`.
+4. To run integration tests, run either:
 
 ```bash
-make integration-test
-make integration-test-k8s
-make oats-test
+mise run integration-test
+mise run integration-test-k8s
+mise run oats-test
 ```
 
 , or all the above tasks. Each integration test target can take up to 50 minutes to complete, but you can

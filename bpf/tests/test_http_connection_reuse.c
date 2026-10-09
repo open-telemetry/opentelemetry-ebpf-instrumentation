@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Run from repo root:
-//   make -C bpf/tests test_http_connection_reuse && bpf/tests/test_http_connection_reuse
+//   mise run bpf-tests:test
 // Run from bpf/tests:
-//   make test_http_connection_reuse && ./test_http_connection_reuse
+//   mise run bpf-tests:test
 
 #include <stdbool.h>
 #include <stddef.h>

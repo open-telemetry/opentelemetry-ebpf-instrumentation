@@ -81,7 +81,10 @@ tasks.register<Exec>("buildNativeLib-amd64") {
 
     workingDir = projectDir
     val cc = if (currentArch == "amd64") "gcc" else "gcc-x86-64-linux-gnu"
-    commandLine("make", "-f", "Makefile.jni", "CC=$cc", "BUILD_DIR=build/jni/linux-amd64", "TARGET_DIR=target/classes/native/linux-amd64")
+    commandLine("bash", "build-jni.sh")
+    environment("CC", cc)
+    environment("BUILD_DIR", "build/jni/linux-amd64")
+    environment("TARGET_DIR", "target/classes/native/linux-amd64")
 
     doLast {
         println("OBI JNI library built successfully")
@@ -96,7 +99,10 @@ tasks.register<Exec>("buildNativeLib-aarch64") {
 
     workingDir = projectDir
     val cc = if (currentArch == "aarch64") "gcc" else "aarch64-linux-gnu-gcc"
-    commandLine("make", "-f", "Makefile.jni", "CC=$cc", "BUILD_DIR=build/jni/linux-aarch64", "TARGET_DIR=target/classes/native/linux-aarch64")
+    commandLine("bash", "build-jni.sh")
+    environment("CC", cc)
+    environment("BUILD_DIR", "build/jni/linux-aarch64")
+    environment("TARGET_DIR", "target/classes/native/linux-aarch64")
 
     doLast {
         println("OBI JNI library built successfully")

@@ -64,6 +64,8 @@ jobs:
     name: Kernel ${{ matrix.kernel.id }}
     needs: [matrix, generate-bpf]
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: go
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -74,6 +76,9 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
+
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref
 
       - uses: $/.github/actions/free-disk
         with:
@@ -100,13 +105,14 @@ jobs:
           KERNEL: ${{ steps.kernel.outputs.kernel }}
           MODULES_DIR: ${{ steps.kernel.outputs.modules-dir }}
         run: |
-          sudo make -C internal/test/vm \
+          sudo -E env PATH="$PATH" \
             KERNEL="$KERNEL" \
             MODULES_DIR="$MODULES_DIR" \
             ARCH=amd64 \
             QEMU_SMP="$(nproc)" \
             TARGET_TEST=run-bpf-verifier-vm \
-            && [ -f testoutput/success ]
+            mise run vm:run
+          [ -f testoutput/success ]
 
   al2023:
     name: Kernel al2023-${{ matrix.nvr }}

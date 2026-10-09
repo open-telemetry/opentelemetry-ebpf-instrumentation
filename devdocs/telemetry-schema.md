@@ -29,13 +29,13 @@ which is the `schema_url` OBI stamps onto its OTLP telemetry (see
   permanent identity. Never edit a released file; add a new version instead.
 - The `versions:` block records the transformations (attribute/metric renames)
   between versions, newest first. The first release is an empty baseline.
-- The `schema_url:` inside each file MUST equal its served URL. `make
+- The `schema_url:` inside each file MUST equal its served URL. `mise run
   check-schema-files` enforces this.
 
 ## Releasing a new version
 
 Version management is release-driven. The version comes from `versions.yaml`
-(the OBI release version), and `make prerelease` runs `make generate-schema-next`
+(the OBI release version), and `mise run prerelease` runs `mise run generate-schema-next`
 automatically. For stable releases, it:
 
 - cuts `site/schemas/obi/<version>` (previous file plus a new, empty `<version>:`
@@ -45,7 +45,7 @@ automatically. For stable releases, it:
   `schema_url` in `schemas/obi/manifest.yaml` to `<version>`.
 
 These changes are part of the release-prep commit; on merge to `main` the file is
-deployed by `publish-schemas.yml`. `make check-schema-files` (run in CI) enforces
+deployed by `publish-schemas.yml`. `mise run check-schema-files` (run in CI) enforces
 that the emitted `OBISchemaURL` and the manifest both name the `versions.yaml`
 version and that a schema file for that version is actually published. For
 prereleases, generation leaves the published schemas and both URLs unchanged;

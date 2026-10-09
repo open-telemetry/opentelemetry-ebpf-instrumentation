@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+vm_dir="$repo_root/internal/test/vm"
+cd "$vm_dir"
+
+workdir="${WORKDIR:-$HOME}"
+arch="${ARCH:-amd64}"
+if [[ "$arch" != amd64 && "$arch" != x86_64 ]]; then
+	echo "Unsupported ARCH=$arch. Only amd64 is supported; arm64 GH runners lack nested KVM" >&2
+	exit 1
+fi
+
+kernel="${KERNEL:-}"
+modules_dir="${MODULES_DIR:-}"
+kernel_id="${KERNEL_ID:-}"
+cgroup_mode="${CGROUP_MODE:-}"
+root_suffix="${cgroup_mode:+-$cgroup_mode}"
+root_img="${ROOT_IMG:-$workdir/rootfs${root_suffix}.qcow2}"
+target_test="${TARGET_TEST-run-integration-test-vm}"
+test_pattern="${TEST_PATTERN-TestMultiProcess}"
+run_number="${RUN_NUMBER-1}"
+test_output="${TEST_OUTPUT:-$repo_root/testoutput}"
+qemu_memory="${QEMU_MEMORY:-8192}"
+qemu_smp="${QEMU_SMP:-2}"
+precompiled_tests_dir="${PRECOMPILED_TESTS_DIR:-}"
+qemu_arch=x86_64
+qemu_bin="qemu-system-$qemu_arch"
+
+if ! command -v "$qemu_bin" >/dev/null; then
+	echo "$qemu_bin binary not found. Cannot proceed." >&2
+	exit 1
+fi
+
+if [[ ! -f "$root_img" ]]; then
+	"$repo_root/.mise/tasks/vm/build-rootfs"
+fi
+mkdir -p "$test_output"
+printf 'target=%s\ntest_pattern=%s\nrun_number=%s\n' \
+	"$target_test" "$test_pattern" "$run_number" > "$test_output/test-env"
+
+if [[ -z "$kernel" && -n "$kernel_id" ]]; then
+	echo "Resolving KERNEL_ID=$kernel_id ARCH=$arch via prepare-kernel.sh"
+	eval "$(bash prepare-kernel.sh "$kernel_id" "$arch")"
+	kernel="${KERNEL:-}"
+	modules_dir="${MODULES_DIR:-}"
+fi
+if [[ ! -f "$kernel" ]]; then
+	echo "ERROR: kernel image not found at '$kernel'" >&2
+	echo "Set KERNEL=<path> [MODULES_DIR=<path>] ARCH=amd64, OR" >&2
+	echo "set KERNEL_ID=<id-from-kernels.yaml> ARCH=amd64" >&2
+	exit 1
+fi
+
+precompiled_virtfs=()
+if [[ -n "$precompiled_tests_dir" && -d "$precompiled_tests_dir" ]]; then
+	echo "Starting QEMU with pre-compiled tests from $precompiled_tests_dir"
+	precompiled_virtfs=(-virtfs "local,path=$precompiled_tests_dir,mount_tag=precompiled,security_model=mapped,id=precompiled")
+fi
+modules_virtfs=()
+if [[ -n "$modules_dir" && -d "$modules_dir" ]]; then
+	echo "Mounting kernel modules from $modules_dir"
+	modules_virtfs=(-virtfs "local,path=$modules_dir,mount_tag=modules,security_model=mapped,id=modules")
+fi
+
+if [[ -e /dev/kvm ]]; then
+	qemu_accel=(-enable-kvm -cpu host)
+else
+	echo "KVM not available, falling back to TCG"
+	qemu_accel=(-accel tcg,thread=multi -cpu qemu64)
+fi
+
+qemu-system-x86_64 "${qemu_accel[@]}" -m "$qemu_memory" -smp "$qemu_smp" -kernel "$kernel" \
+	-drive "file=$root_img,format=qcow2,if=none,id=hd0" \
+	-device virtio-blk-pci,drive=hd0 \
+	-append 'earlyprintk=ttyS0 console=ttyS0 root=/dev/vda rw quiet rcupdate.rcu_cpu_stall_timeout=60 panic=5' \
+	-no-reboot \
+	-virtfs "local,path=$repo_root,mount_tag=obi,security_model=mapped,id=obi" \
+	-virtfs "local,path=$test_output,mount_tag=testout,security_model=mapped,id=testout" \
+	"${precompiled_virtfs[@]}" \
+	"${modules_virtfs[@]}" \
+	-netdev user,id=net0 -device virtio-net-pci,netdev=net0 \
+	-nographic
+
+if [[ "$EUID" == 0 ]]; then
+	current_owner="$(stat -c '%U' .)"
+	chown -R "$current_owner" "$test_output"
+fi

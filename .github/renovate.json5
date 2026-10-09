@@ -30,6 +30,29 @@
   },
   "customManagers": [
     {
+      // Track the one runtime-only image pin kept outside Mise tool
+      // management. Keep this regex scoped to the BusyBox env entry.
+      "customType": "regex",
+      "managerFilePatterns": ["/^internal\\/test\\/runtime-images\\.env$/"],
+      "matchStrings": [
+        "BUSYBOX_IMAGE=(?<depName>docker\\.io/busybox):(?<currentValue>musl)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      // Renovate's mise manager currently skips arbitrary conda backend tools.
+      // Track llvm-tools from conda-forge explicitly so llvm-strip stays fresh.
+      "customType": "regex",
+      "managerFilePatterns": ["/^mise\\.toml$/"],
+      "matchStrings": [
+        "\\[tools\\.\\\"conda:llvm-tools\\\"\\]\\s*\\nversion\\s*=\\s*\\\"(?<currentValue>[^\\\"]+)\\\""
+      ],
+      "depNameTemplate": "llvm-tools",
+      "datasourceTemplate": "conda",
+      "registryUrlTemplate": "https://api.anaconda.org/package/conda-forge/",
+      "versioningTemplate": "semver-coerced"
+    },
+    {
       // Keep the LVH kernel images in internal/test/vm/kernels.yaml pinned to
       // both a dated tag and the corresponding sha256 manifest digest. The
       // tag is the human-readable handle; the digest is what `docker pull`
@@ -107,6 +130,14 @@
         "golangci/golangci-lint",
         "github.com/golangci/golangci-lint/v2"
       ]
+    },
+    {
+      // The upstream clang-tools repo uses date+commit release tags rather
+      // than SemVer. Keep the date as the sortable version and the commit as
+      // build metadata so Renovate can track the GitHub-backed Mise tool.
+      "matchManagers": ["mise"],
+      "matchPackageNames": ["cpp-linter/clang-tools-static-binaries"],
+      "versioning": "regex:^(?<major>\\d{4})\\.(?<minor>\\d{2})\\.(?<patch>\\d{2})-(?<build>[0-9a-f]+)$"
     },
     {
       "description": "Run `go mod tidy` and rewrite import paths on any Go module update",
@@ -514,21 +545,24 @@
       "schedule": ["before 6am on Tuesday"]
     },
     {
-      // Pin every otel/weaver reference to one version in a single PR. The refs
-      // live across four managers: dependencies.Dockerfile (dockerfile — the
-      // image `make lint-schema` reads), the OATS/integration compose fragments
-      // (docker-compose), the Go test pin (custom regex), and service.yml plus
-      // the kind weaver manifests (custom regex). Without this, each bumps in its own PR on its own
-      // schedule, so lint-schema and the live-check suites validate against
-      // different weaver builds until the last PR merges — the exact drift #2784
-      // caused (it moved only the three compose files). This rule is LAST on
-      // purpose: packageRules resolve last-match-wins, so its groupName and
-      // schedule override the "Docker" and "integration test pinned images"
+      // Keep the local Mise CLI and runtime integration images on the same
+      // Weaver release. The CLI is extracted by the mise manager; OATS and
+      // integration images are extracted by docker-compose/custom regex. This
+      // This is the last Docker-specific rule on purpose: packageRules resolve
+      // last-match-wins, so its groupName and schedule override the "Docker"
+      // and "integration test pinned images"
       // rules that also match these refs, and enabled:true re-includes the ones
       // the "internal/test/**" patch/digest disable rule would otherwise drop.
       "matchDatasources": ["docker"],
       "matchPackageNames": ["otel/weaver"],
-      "groupName": "otel/weaver image",
+      "groupName": "otel/weaver",
+      "enabled": true,
+      "schedule": ["before 6am on Tuesday"]
+    },
+    {
+      "matchManagers": ["mise"],
+      "matchPackageNames": ["open-telemetry/weaver"],
+      "groupName": "otel/weaver",
       "enabled": true,
       "schedule": ["before 6am on Tuesday"]
     }

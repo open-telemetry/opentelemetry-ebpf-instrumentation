@@ -53,6 +53,8 @@ jobs:
   test-matrix:
     name: "Build matrix"
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: go
     timeout-minutes: 45
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
@@ -62,11 +64,14 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref
+
       - name: Build test matrix
         id: build-matrix
         run: |
           echo -n "matrix=" >> "$GITHUB_OUTPUT"
-          make oats-integration-test-matrix-json >> "$GITHUB_OUTPUT"
+          mise run oats-integration-test-matrix-json >> "$GITHUB_OUTPUT"
 
   test:
     name: ${{ matrix.shard.basename }} (${{ matrix.platform.arch }})
@@ -75,6 +80,8 @@ jobs:
       checks: write
       pull-requests: write
     runs-on: ${{ matrix.platform.runner }}
+    env:
+      MISE_ENABLE_TOOLS: go
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -111,11 +118,8 @@ jobs:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
-        with:
-          go-version-file: "go.mod"
-          cache: true
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref
 
       - name: Go build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
@@ -137,7 +141,7 @@ jobs:
           key: semconv-deps-${{ hashFiles('schemas/obi/manifest.yaml') }}
 
       - name: Build test tools
-        run: make prereqs
+        run: mise run prereqs
 
       - name: Verify OBI compiles
         run: docker build -f internal/test/integration/components/obi/Dockerfile .
@@ -146,7 +150,7 @@ jobs:
         env:
           MATRIX_BASENAME: ${{ matrix.shard.basename }}
           TESTCASE_TIMEOUT: 5m
-        run: make "oats-test-$MATRIX_BASENAME"
+        run: mise run "oats-test-$MATRIX_BASENAME"
 
       - name: Upload oats test logs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -156,7 +160,7 @@ jobs:
           path: internal/test/oats/${{ matrix.shard.basename }}/build/*
 
       - name: Process coverage data
-        run: make itest-coverage-data
+        run: mise run itest-coverage-data
 
       - name: Report coverage
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1

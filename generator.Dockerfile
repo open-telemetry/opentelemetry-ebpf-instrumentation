@@ -12,7 +12,7 @@ ARG TARGETARCH
 RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories
 RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
 
-RUN apk add clang22 llvm22 clang22-extra-tools wget unzip curl make bash git
+RUN apk add clang22 llvm22 clang22-extra-tools wget unzip curl bash git python3
 RUN apk cache purge
 
 COPY internal/tools/generator/ internal/tools/generator/
@@ -44,12 +44,12 @@ RUN cat <<EOF > /generate.sh
 #!/bin/sh
 export PATH="/usr/lib/llvm22/bin:\$PATH"
 export BPF2GO=/go/bin/bpf2go
-export BPF_CLANG=clang-22
-export BPF_CFLAGS="-O2 -g -Wall -Werror"
+export CLANG=clang-22
 export GOCACHE=/tmp/go-build
-make generate
+python3 /usr/local/bin/mise-bpf-generate.py
 EOF
 
+COPY scripts/mise-bpf-generate.py /usr/local/bin/mise-bpf-generate.py
 RUN chmod +x /generate.sh
 
 ENTRYPOINT ["/generate.sh"]

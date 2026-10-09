@@ -22,10 +22,9 @@ COPY internal/goabi/ internal/goabi/
 COPY internal/goversion/ internal/goversion/
 COPY internal/config/ internal/config/
 COPY pkg/ pkg/
-COPY Makefile Makefile
 
 # Build
-RUN make compile-for-coverage
+RUN mkdir -p bin && CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -cover -o bin/obi cmd/obi/main.go
 
 # Create final image from minimal + built binary
 FROM ubuntu@sha256:d1e2e92c075e5ca139d51a140fff46f84315c0fdce203eab2807c7e495eff4f9

@@ -1,55 +1,45 @@
-# Mise migration experiment
+# Mise build and development tasks
 
-This change is a first feasibility slice, not a decision to replace Make. The
-following common Go developer commands now run directly through Mise and do not
-invoke Make:
+Mise is the repository's tool-version manager and task runner. The root
+Makefile has been removed; use `mise run <task>` for development, validation,
+generation, integration, packaging, and release tasks. Run `mise tasks` to
+list tasks and `mise tasks validate` to check their definitions. Tool versions
+are pinned in `mise.toml` and resolved by `mise.lock`.
 
-| Mise task | Current behavior |
+## eBPF generation
+
+`mise run generate` performs incremental bpf2go generation. It reads the
+dependency files emitted by bpf2go (`*_bpfel.go.d`) and regenerates only
+packages whose C/header inputs are newer than their generated outputs. It also
+checks that every selected architecture has its expected Go, object, and
+dependency files, and records a local fingerprint of the directives, tool
+module, compiler, and flags. The fingerprint is runtime state under `.mise/`,
+not a checked-in input. `BPF_TARGETS` accepts `amd64`, `arm64`, or both
+(default); amd64 outputs use the bpf2go `x86` suffix. Other architectures are
+rejected.
+
+On an initial checkout, or when generated outputs or dependency metadata are
+missing, all BPF packages are generated. `mise run generate/all` forces that
+full generation. The `clang` and `llvm-tools` Mise tools provide the pinned
+LLVM 22 compiler and `llvm-strip`; the reproducible generator container uses
+the same LLVM major and passes its compiler/flags to the generation script.
+
+## Common tasks
+
+| Task | Purpose |
 | --- | --- |
-| `mise run format-go` | Runs the pinned `golangci-lint fmt`. |
-| `mise run lint-go` | Runs Porto vanity-import validation, dependency-policy lint (verbose in CI), the CollectT analyzer, the BPF preemption-guard check, and `golangci-lint run ./... --timeout=6m`. |
-| `mise run test-go` | Creates `TEST_OUTPUT` (default `./testoutput`), resolves `ENVTEST_K8S_VERSION` (default `1.30.0`) with the pinned `setup-envtest`, then runs the existing short, race-enabled all-package tests and coverage profile. |
-| `mise run compile` | Builds the main `obi` binary with the same platform, version/revision linker flags, and command/file overrides as `make compile`. |
+| `mise run format-go` | Format Go code and imports. |
+| `mise run lint-go` | Run Go lint prerequisites and golangci-lint. |
+| `mise run test-go` | Run short, race-enabled Go tests and coverage. |
+| `mise run compile` | Compile the `obi` binary; `CMD`, `GOOS`, `GOARCH`, version, and source-file overrides are supported. |
+| `mise run verify` | Run prerequisites, module tidy, lint, tests, and license-header checks in order. |
+| `mise run build` | Generate eBPF code, verify, then compile. |
+| `mise run integration-test` | Prepare, run, collect coverage, and clean up integration tests. |
+| `mise run release` | Build and validate the release archive, then write checksums. |
 
-The corresponding Make targets remain intact as compatibility paths. The
-current GitHub workflows have not been migrated wholesale; the existing Go
-lint workflow already invokes `mise run lint-go`, while other workflow jobs
-continue to use Make where required.
-
-## Known gaps before considering a full replacement
-
-- **Incremental eBPF generation:** `make generate` consumes the dependency
-  files emitted by `bpf2go` (`*_bpfel.go.d` / `*_bpfeb.go.d`) to regenerate
-  only affected packages. The current Mise tasks do not reproduce Make's
-  dependency graph, architecture validation, missing-output detection, or
-  per-package incremental behavior. Compile and tests still assume generated
-  bindings exist; a clean checkout or changed BPF inputs may require
-  `make generate` or `make docker-generate` first.
-- **CI/workflow callers:** many workflows still invoke Make for setup,
-  sharded tests, schema validation, integration suites, release, and artifact
-  generation. Migrating these requires checking each job's containers,
-  permissions, matrix variables, and expected artifacts rather than replacing
-  commands mechanically.
-- **Nested Makefiles/build fragments:** `bpf/tests/Makefile`,
-  `internal/test/vm/Makefile`, the three `internal/test/integration/components/old_grpc/**/Makefile`
-  files, `pkg/internal/java/agent/Makefile.jni`, and
-  `pkg/internal/transform/route/harvest/dotnet/testdata/Makefile` have separate
-  responsibilities and are not covered by this slice.
-- **Integration and specialized tests:** integration, Kubernetes, OATS, VM,
-  privileged, verifier, and Node.js tests use dedicated Make orchestration,
-  environment setup, or nested build systems. They remain Make-only here.
-- **Release and packaging:** release builds, checksums, notices, Java/Python
-  packaging, schema publishing, and container image tasks are not represented
-  by these Mise tasks.
-- **Other root targets:** Go module maintenance and checks, license-header
-  checks, upstream semantic-convention fetching, schema generation/validation,
-  offset and protobuf generation, and Java verification still need an explicit
-  Mise plan if the goal is to remove the root Makefile entirely.
-- **Broader Make behavior:** task-variable compatibility is limited to the
-  overrides documented by each task's equivalent Make target. Other targets,
-  prerequisites such as hooks/semconv fetching, and Make's overall build graph
-  have not been migrated or compared in this step.
-
-Before removing Make, decide whether these gaps should be ported, intentionally
-kept as Make sub-builds, or excluded from a Mise-based developer workflow; then
-validate the chosen workflow against CI and clean-checkout builds.
+The previous root Make targets are represented by Mise tasks, including
+release, notices, schema, Java, Python requirements, integration/OATS, VM, and
+test-matrix operations. Some tasks still intentionally use container tools for
+containerized build/test environments; tool-version management for development
+tools lives in Mise. The only image pin kept outside Mise is the BusyBox
+runtime payload used by test helpers, in `internal/test/runtime-images.env`.
