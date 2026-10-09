@@ -332,6 +332,13 @@ func (i *JavaInjector) NewExecutable(ctx context.Context, target InjectionTarget
 	// Wait for either completion or timeout
 	select {
 	case result := <-resultChan:
+		// Aborting the attach closes the response reader, which the attach
+		// goroutine reports as an unsupported JVM. When that result and
+		// ctx.Done() are both ready the select picks either, so an error that
+		// arrives after the context ended is reported as the abort it is.
+		if result.err != nil && ctx.Err() != nil {
+			return i.abortedAttachError(ctx, target.Pid)
+		}
 		return result.err
 	case <-ctx.Done():
 		if err := attacher.Terminate(); err != nil {
@@ -341,13 +348,17 @@ func (i *JavaInjector) NewExecutable(ctx context.Context, target InjectionTarget
 		// goroutine before returning so the serialized worker owns the full
 		// credential and filesystem lifetime, not just the outer call.
 		<-resultChan
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", target.Pid)
-			return &JavaInjectError{Message: "java attach timed out"}
-		}
-		i.log.Debug("java attach abandoned", "pid", target.Pid, "error", ctx.Err())
-		return &JavaInjectError{Message: "java attach canceled"}
+		return i.abortedAttachError(ctx, target.Pid)
 	}
+}
+
+func (i *JavaInjector) abortedAttachError(ctx context.Context, pid app.PID) error {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		i.log.Warn("java attach timed out", "timeout", i.cfg.Java.Timeout, "pid", pid)
+		return &JavaInjectError{Message: "java attach timed out"}
+	}
+	i.log.Debug("java attach abandoned", "pid", pid, "error", ctx.Err())
+	return &JavaInjectError{Message: "java attach canceled"}
 }
 
 func ensureEmbeddedAgent() error {
