@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-mise run artifact
 release_dir="${RELEASE_DIR:-./dist}"; arch="${GOARCH:-$(go env GOARCH)}"; version="${RELEASE_VERSION:-$(git describe --all | cut -d/ -f2-)}"; cmd="${CMD:-obi}"; goos="${GOOS:-linux}"
 archive="bin/obi-${version}-${goos}-${arch}.tar.gz"
 mkdir -p "$release_dir/verify-$arch"

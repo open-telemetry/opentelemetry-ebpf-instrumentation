@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-mise run docker-generate
-mise run java-docker-build
 source_version="${RELEASE_SOURCE_VERSION:-$(git describe --tags --exact-match 2>/dev/null || git symbolic-ref --short -q HEAD || echo main)}"
 ./scripts/release-source.sh --release-version "$source_version" --release-dir "${RELEASE_DIR:-./dist}"
 RELEASE_VERSION="$source_version" mise run release-checksums

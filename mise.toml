@@ -96,6 +96,7 @@ run = "./scripts/generate-schema-next.sh"
 run = "mise run fetch-upstream-semconv && ./scripts/generate-schema-docs.sh \"$PWD/schemas/obi\""
 
 [tasks.check-schema-docs]
+depends = ["fetch-upstream-semconv"]
 run = "./.mise/tasks/check-schema-docs"
 
 [tasks.lint-dependency-policy]
@@ -300,6 +301,7 @@ depends = ["oats-prereq"]
 run = "cd internal/test/oats/amqp && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test]
+depends = ["oats-prereq"]
 run = "./.mise/tasks/oats-test"
 
 [tasks.oats-test-debug]
@@ -310,12 +312,15 @@ run = "cd internal/test/oats/kafka && TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_
 run = "./.mise/tasks/license-header-check"
 
 [tasks.artifact]
+depends = ["docker-generate", "java-docker-build"]
 run = "./.mise/tasks/artifact"
 
 [tasks.release]
+depends = ["artifact"]
 run = "./.mise/tasks/release"
 
 [tasks.release-source]
+depends = ["docker-generate", "java-docker-build"]
 run = "./.mise/tasks/release-source"
 
 [tasks.release-checksums]
@@ -343,12 +348,14 @@ run = "mise run clang-format"
 run = "find . -name '*_bpfel*' -print0 | xargs -0 -r rm"
 
 [tasks.notices-update]
+depends = ["go-notices-update", "java-notices-update"]
 run = "./.mise/tasks/notices-update"
 
 [tasks.java-notices-update]
 run = "./.mise/tasks/java-notices-update"
 
 [tasks.go-notices-update]
+depends = ["docker-generate"]
 run = "./.mise/tasks/go-notices-update"
 
 [tasks.python-requirements-update]
@@ -361,6 +368,7 @@ run = "./.mise/tasks/check-clean-work-tree"
 run = "./.mise/tasks/go-mod-tidy"
 
 [tasks.check-go-mod]
+depends = ["go-mod-tidy"]
 run = "./.mise/tasks/check-go-mod"
 
 [tasks.verify-mods]
@@ -397,6 +405,7 @@ run = "./.mise/tasks/check-config-schema"
 run = "go run ./cmd/check-config-v2-parity -v2-default \"${CONFIG_V2_DEFAULT_REFERENCE_FILE:-devdocs/config/version-2.0/examples/default-values-reference.fragment.yaml}\""
 
 [tasks.check-config-v2-artifacts]
+depends = ["check-config-v2-parity"]
 run = "./.mise/tasks/check-config-v2-artifacts"
 
 [tasks.fix-store-demo-architecture]

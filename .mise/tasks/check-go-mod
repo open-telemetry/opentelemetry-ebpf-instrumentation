@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-mise run go-mod-tidy
 if ! git diff --quiet -- ':(glob)**/go.mod' ':(glob)**/go.sum' ':(exclude,glob)NOTICES/**'; then
   echo 'go.mod/go.sum files are not clean, did you forget to run mise run go-mod-tidy?' >&2
   git --no-pager diff -- ':(glob)**/go.mod' ':(glob)**/go.sum' ':(exclude,glob)NOTICES/**'

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-mise run docker-generate; mise run go-notices-update; mise run java-notices-update
 notices="${NOTICES_DIR:-./NOTICES}"
 while IFS= read -r -d '' file; do dest="$notices/${file#./}"; mkdir -p "$(dirname "$dest")"; cp "$file" "$dest"; done < <(find ./bpf -type f -name 'LICENSE*' -print0)
 while IFS= read -r -d '' file; do dest="$notices/${file#./}"; mkdir -p "$(dirname "$dest")"; cp "$file" "$dest"; done < <(find ./bpf/bpfcore -type f -print0)
