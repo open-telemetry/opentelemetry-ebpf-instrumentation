@@ -12,6 +12,7 @@ import (
 
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -109,4 +110,32 @@ metrics:
 	require.NoError(t, err)
 	_, err = V2ToRuntime(ext)
 	require.ErrorContains(t, err, `capture.metrics.features: unknown metrics feature "service_graph"`)
+}
+
+func TestV2MetricFeaturesPreserveProtocolEnablement(t *testing.T) {
+	t.Parallel()
+
+	ext, err := schema.ParseReceiverYAML([]byte(`
+version: '2.0'
+metrics:
+  features: [application_span_otel, application_service_graph]
+instrumentation:
+  http:
+    enabled:
+      traces: true
+      metrics: false
+`))
+	require.NoError(t, err)
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.True(t, got.Metrics.Features.SpanMetrics())
+	require.True(t, got.Metrics.Features.ServiceGraph())
+	require.True(t, got.Filters.ApplicationByInstrumentation[instrumentations.InstrumentationHTTP].MetricsDisabled)
+	require.False(t, got.Filters.ApplicationByInstrumentation[instrumentations.InstrumentationGRPC].MetricsDisabled)
+	require.True(t, instrumentations.NewInstrumentationSelection(got.Traces.Instrumentations).HTTPEnabled())
+
+	_, docExt := RuntimeToV2(got)
+	got, err = V2ToRuntime(docExt)
+	require.NoError(t, err)
+	require.True(t, got.Filters.ApplicationByInstrumentation[instrumentations.InstrumentationHTTP].MetricsDisabled)
 }

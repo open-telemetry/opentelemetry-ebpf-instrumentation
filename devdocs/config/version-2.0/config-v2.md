@@ -599,7 +599,9 @@ An explicit list replaces the feature selection inferred from protocol metrics
 switches, HTTP `body_size_metrics`, and network capture/stats settings. `[]`
 disables all metric features. Omitting the list preserves the existing V2
 inference. Protocol `enabled.metrics` switches still select which protocols
-supply metrics, and `network.capture.enabled: true` can force flow capture
+supply metrics, including span metrics and service graphs. Disabling metrics
+for a protocol leaves its `enabled.traces` selection independent.
+`network.capture.enabled: true` can force flow capture
 independently of the feature list. The existing V1 feature validation applies,
 including the requirement that `application_sizes` accompany application RED
 metrics and the conflict between the two span metric formats.

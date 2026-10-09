@@ -1210,9 +1210,8 @@ func applyV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrumentat
 		return
 	}
 
-	applyV2InstrumentationFilters(cfg, instrumentation)
-
 	complete = complete || completeInstrumentation(instrumentation)
+	applyV2InstrumentationFilters(cfg, instrumentation, complete)
 	if !complete {
 		applyPartialV2Instrumentation(cfg, instrumentation)
 		applyProtocolEnablement(cfg, instrumentation, complete)
@@ -1338,14 +1337,16 @@ func applyPartialV2HTTPInstrumentation(cfg *obi.Config, http schema.HTTPInstrume
 	applyPartialV2HTTPPayloadExtraction(cfg, http.PayloadExtraction)
 }
 
-func applyV2InstrumentationFilters(cfg *obi.Config, instrumentation schema.Instrumentation) {
+func applyV2InstrumentationFilters(cfg *obi.Config, instrumentation schema.Instrumentation, complete bool) {
 	for _, mapping := range protocolMappings {
 		filters := protocolFilters(instrumentation, mapping.name)
+		enablement, explicit := protocolEnablement(instrumentation, mapping.name)
 		runtimeFilters := filter.SignalAttributeFamilyConfig{
-			Traces:  attributeFilterMap(filters.Traces),
-			Metrics: attributeFilterMap(filters.Metrics),
+			Traces:          attributeFilterMap(filters.Traces),
+			Metrics:         attributeFilterMap(filters.Metrics),
+			MetricsDisabled: !enablement.Metrics && (complete || explicit),
 		}
-		if len(runtimeFilters.Traces) == 0 && len(runtimeFilters.Metrics) == 0 {
+		if len(runtimeFilters.Traces) == 0 && len(runtimeFilters.Metrics) == 0 && !runtimeFilters.MetricsDisabled {
 			continue
 		}
 		if cfg.Filters.ApplicationByInstrumentation == nil {
