@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -n "$(git status --porcelain)" ]]; then git status; git --no-pager diff; echo "Working tree is not clean, did you forget to run mise run?"; exit 1; fi

@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+: "${IMG_ORG:?IMG_ORG must be set (Docker repository user name)}"
+version="${RELEASE_VERSION:-$(git describe --all | cut -d/ -f2-)}"; revision="${RELEASE_REVISION:-$(git rev-parse --short HEAD)}"
+oci_bin="${OCI_BIN:-docker}"
+"$oci_bin" buildx build --load -t "${IMG:-${IMG_REGISTRY:-docker.io}/${IMG_ORG}/${IMG_NAME:-ebpf-instrument}:${VERSION:-dev}}" --build-arg "RELEASE_VERSION=$version" --build-arg "RELEASE_REVISION=$revision" .

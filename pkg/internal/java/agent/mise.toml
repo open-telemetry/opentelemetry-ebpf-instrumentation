@@ -1,0 +1,2 @@
+[tasks.jni]
+run = "bash build-jni.sh"

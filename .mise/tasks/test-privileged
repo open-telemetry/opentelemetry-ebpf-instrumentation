@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+mkdir -p "${TEST_OUTPUT:-./testoutput}"
+assets="$(go tool -modfile=internal/tools/go.mod setup-envtest use "${ENVTEST_K8S_VERSION:-1.30.0}" -p path)"
+packages="$(grep -rl '//go:build.*privileged_tests' . --include='*.go' | xargs -r -I{} dirname {} | sort -u | tr '\n' ' ')"
+KUBEBUILDER_ASSETS="$assets" go test -short -race -tags=privileged_tests $packages -coverpkg=./... -coverprofile "${TEST_OUTPUT:-./testoutput}/cover.all.txt"

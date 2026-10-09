@@ -66,19 +66,19 @@ USAGE
 
 Run integration tests inside the VM against a specific kernel:
 
-    KERNEL_ID=6.18-lts mise run vm:run
+    KERNEL_ID=6.18-lts mise run //internal/test/vm:run
 
 Run the BPF verifier suite instead of integration tests:
 
-    TARGET_TEST=run-bpf-verifier-vm KERNEL_ID=6.12-lts mise run vm:run
+    TARGET_TEST=run-bpf-verifier-vm KERNEL_ID=6.12-lts mise run //internal/test/vm:run
 
 Boot with an explicit kernel path (overrides KERNEL_ID):
 
-    KERNEL=/tmp/bzImage MODULES_DIR=/tmp/modules mise run vm:run
+    KERNEL=/tmp/bzImage MODULES_DIR=/tmp/modules mise run //internal/test/vm:run
 
 Drop into an interactive shell instead of running tests:
 
-    TARGET_TEST= KERNEL_ID=6.18-lts mise run vm:run
+    TARGET_TEST= KERNEL_ID=6.18-lts mise run //internal/test/vm:run
 
 For interactive debugging, the qemu serial console (-nographic) attaches to
 your terminal; an agetty respawn auto-logs in as root on ttyS0.

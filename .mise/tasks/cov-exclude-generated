@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+test_output="${TEST_OUTPUT:-./testoutput}"
+mkdir -p "$test_output"
+grep -vE '(_bpfel.go)|(.pb.go)|$|(/cmd/generate-port-lookup/)|$|(/cmd/obi-schema/)|$|(/obi/configs/)|$|(/obi/examples/)|$|(/obi/internal/test/)|$|(/obi/scripts/)|$|(/pkg/export/otel/metric/)' "$test_output/cover.all.txt" > "$test_output/cover.txt"

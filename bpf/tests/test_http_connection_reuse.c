@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Run from repo root:
-//   mise run bpf-tests:test
+//   mise run //bpf/tests:test
 // Run from bpf/tests:
-//   mise run bpf-tests:test
+//   mise run //bpf/tests:test
 
 #include <stdbool.h>
 #include <stddef.h>

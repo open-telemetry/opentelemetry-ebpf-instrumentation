@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Run the BPF unit-test suite with: mise run bpf-tests:test
+// Run the BPF unit-test suite with: mise run //bpf/tests:test
 
 #include <stdbool.h>
 #include <stdint.h>

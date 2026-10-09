@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+#MISE description="Run the project Go linter and its prerequisites"
+set -euo pipefail
+lint_status=0
+if ! go tool -modfile=internal/tools/go.mod porto --include-internal --skip-dirs '^NOTICES$' -l .; then
+  echo '(run: go tool -modfile=internal/tools/go.mod porto --include-internal --skip-dirs "^NOTICES$" -w .)' >&2
+  lint_status=1
+fi
+if [[ -n "${CI:-}" ]]; then
+  ./scripts/lint-dependency-policy.sh --verbose || lint_status=1
+else
+  ./scripts/lint-dependency-policy.sh || lint_status=1
+fi
+go run ./internal/test/analyzer/collectt/cmd/collecttlint ./... || lint_status=1
+./scripts/lint-preempt-guard.sh || lint_status=1
+(( lint_status == 0 )) || exit 1
+golangci-lint run ./... --timeout=6m

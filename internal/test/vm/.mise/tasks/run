@@ -34,7 +34,7 @@ if ! command -v "$qemu_bin" >/dev/null; then
 fi
 
 if [[ ! -f "$root_img" ]]; then
-	"$repo_root/.mise/tasks/vm/build-rootfs"
+	"$vm_dir/.mise/tasks/build-rootfs"
 fi
 mkdir -p "$test_output"
 printf 'target=%s\ntest_pattern=%s\nrun_number=%s\n' \

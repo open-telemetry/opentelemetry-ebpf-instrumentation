@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+bad=""
+while IFS= read -r -d '' file; do
+  if ! awk '/Copyright The OpenTelemetry Authors|generated|GENERATED/ && NR<=4 { found=1; next } END { exit !found }' "$file"; then
+    bad+="${file}"$'\n'
+  fi
+done < <(find . -type f \( -iname '*.go' -o -iname '*.sh' -o -iname '*.c' -o -iname '*.h' \) ! -path './.git/*' ! -path './.tmp/*' ! -path './NOTICES/*' ! -path './examples/store-demo/app/*' -print0)
+if [[ -n "$bad" ]]; then echo 'license header checking failed:'; printf '%s' "$bad"; exit 1; fi

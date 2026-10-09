@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-repo_root="$(git rev-parse --show-toplevel)"
-exec bash "$repo_root/pkg/internal/java/agent/build-jni.sh" "$@"

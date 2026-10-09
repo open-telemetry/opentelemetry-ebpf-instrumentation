@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+notices="${NOTICES_DIR:-./NOTICES}"
+find "$notices" -mindepth 1 -maxdepth 1 ! -name bpf ! -name java ! -name amd64 ! -name arm64 -exec rm -rf {} +
+for arch in amd64 arm64; do
+  rm -rf "$notices/$arch"
+  GOOS=linux GOARCH="$arch" go tool -modfile=internal/tools/go.mod github.com/google/go-licenses/v2 save ./... --save_path="/tmp/notices-$arch" --force
+  mv "/tmp/notices-$arch" "$notices/$arch"
+done

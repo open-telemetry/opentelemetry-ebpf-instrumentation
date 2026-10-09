@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+cmd="${CMD:-obi}"; goos="${GOOS:-linux}"; goarch="${GOARCH:-$(go env GOARCH)}"
+version="${RELEASE_VERSION:-$(git describe --all | cut -d/ -f2-)}"
+mise run docker-generate
+mise run java-docker-build
+mise run compile
+staging="$(mktemp -d)"; trap 'rm -rf "$staging"' EXIT
+cp "bin/$cmd" "$staging/"; cp LICENSE NOTICE "$staging/"
+mkdir -p "$staging/NOTICES"
+[[ ! -d NOTICES/bpf ]] || cp -R NOTICES/bpf "$staging/NOTICES/"
+[[ ! -d NOTICES/java ]] || cp -R NOTICES/java "$staging/NOTICES/"
+[[ -d "NOTICES/$goarch" ]] || { echo "ERROR: NOTICES/$goarch missing; run 'mise run go-notices-update'" >&2; exit 1; }
+cp -R "NOTICES/$goarch/." "$staging/NOTICES/"
+tar -C "$staging" -czf "bin/obi-${version}-${goos}-${goarch}.tar.gz" "$cmd" LICENSE NOTICE NOTICES

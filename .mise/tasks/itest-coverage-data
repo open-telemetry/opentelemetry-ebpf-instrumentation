@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+test_output="${TEST_OUTPUT:-./testoutput}"
+mkdir -p "$test_output/merge"
+go tool covdata merge -i="$test_output" -o="$test_output/merge"
+go tool covdata textfmt -i="$test_output/merge" -o="$test_output/itest-covdata.raw.txt"
+sed 's|^/src/cmd/|go.opentelemetry.io/obi/cmd/|' "$test_output/itest-covdata.raw.txt" > "$test_output/itest-covdata.all.txt"
+grep -vE '(_bpfel.go)|(.pb.go)|$|(/cmd/generate-port-lookup/)|$|(/cmd/obi-schema/)|$|(/obi/configs/)|$|(/obi/examples/)|$|(/obi/internal/test/)|$|(/obi/scripts/)|$|(/pkg/export/otel/metric/)' "$test_output/itest-covdata.all.txt" > "$test_output/itest-covdata.txt" || true

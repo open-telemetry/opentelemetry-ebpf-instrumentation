@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+go tool -modfile=internal/tools/go.mod kind delete cluster -n test-kind-cluster || true
+oci_bin="${OCI_BIN:-docker}"
+containers="$("$oci_bin" ps --format '{{.Names}}' | grep 'integration-' || true)"
+if [[ -n "$containers" ]]; then "$oci_bin" rm -f $containers; else echo 'No integration test containers'; fi
+images="$("$oci_bin" images --format '{{.Repository}}:{{.Tag}}' | grep 'hatest-' || true)"
+if [[ -n "$images" ]]; then "$oci_bin" rmi -f $images; else echo 'No integration test images'; fi

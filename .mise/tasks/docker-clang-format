@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+oci_bin="${OCI_BIN:-docker}"; image="${GEN_IMG:-ghcr.io/open-telemetry/obi-generator:latest}"
+mapfile -d '' files < <(find ./bpf -type f \( -name '*.c' -o -name '*.h' \) ! -path './bpf/bpfcore/*' -print0)
+"$oci_bin" run --rm -v "$PWD:/src:z" -w /src --entrypoint /usr/lib/llvm22/bin/clang-format "$image" -i "${files[@]}"

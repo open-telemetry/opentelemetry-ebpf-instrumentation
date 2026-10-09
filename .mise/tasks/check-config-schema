@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+schema="${CONFIG_SCHEMA_FILE:-devdocs/config/config-schema.json}"; docs="${CONFIG_DOCS_FILE:-devdocs/config/CONFIG.md}"
+mkdir -p "$(dirname "$schema")"; go run ./cmd/obi-schema -output "${schema}.tmp"
+if ! diff -q "$schema" "${schema}.tmp" >/dev/null 2>&1; then
+  echo "JSON schema is out of date. Run 'mise run generate-config-schema' to update it."
+  diff "$schema" "${schema}.tmp" || true; rm -f "${schema}.tmp"; exit 1
+fi
+rm -f "${schema}.tmp"; go run ./cmd/config-docs -schema "$schema" -output "${docs}.tmp"
+if ! diff -q "$docs" "${docs}.tmp" >/dev/null 2>&1; then
+  echo "Configuration docs are out of date. Run 'mise run generate-config-schema' to update."
+  diff "$docs" "${docs}.tmp" || true; rm -f "${docs}.tmp"; exit 1
+fi
+rm -f "${docs}.tmp"

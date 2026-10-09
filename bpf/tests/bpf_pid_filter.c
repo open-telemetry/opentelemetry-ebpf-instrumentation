@@ -10,7 +10,7 @@
 // level.
 //
 // Run from repo root:
-//   mise run bpf-tests:test
+//   mise run //bpf/tests:test
 
 #include <stdbool.h>
 #include <stdio.h>

@@ -10,6 +10,7 @@ import re
 import shlex
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 
@@ -81,18 +82,25 @@ def fingerprint(package_directives: list[tuple[str, str]], arch: str) -> str:
     return hashlib.sha256(material.encode()).hexdigest()
 
 
-def stale_packages(arches: list[str], directives: dict[Path, list[tuple[str, str]]]) -> set[Path]:
-    arch_suffixes = {"amd64": "x86", "arm64": "arm64"}
+def read_fingerprints() -> dict[str, str]:
     try:
-        recorded = json.loads(FINGERPRINT_FILE.read_text())
+        return json.loads(FINGERPRINT_FILE.read_text())
     except (OSError, json.JSONDecodeError):
-        recorded = {}
-    stale: set[Path] = set()
+        return {}
+
+
+def stale_targets(
+    arches: list[str],
+    directives: dict[Path, list[tuple[str, str]]],
+    recorded: dict[str, str],
+) -> set[tuple[Path, str]]:
+    arch_suffixes = {"amd64": "x86", "arm64": "arm64"}
+    stale: set[tuple[Path, str]] = set()
     for package, package_directives in directives.items():
         for arch in arches:
             suffix = arch_suffixes[arch]
             if recorded.get(f"{package.relative_to(ROOT)}:{arch}") != fingerprint(package_directives, arch):
-                stale.add(package)
+                stale.add((package, arch))
                 continue
             for prefix, _ in package_directives:
                 output_prefix = prefix.lower()
@@ -100,28 +108,30 @@ def stale_packages(arches: list[str], directives: dict[Path, list[tuple[str, str
                 obj = package / f"{output_prefix}_{suffix}_bpfel.o"
                 depfile = package / f"{output_prefix}_{suffix}_bpfel.go.d"
                 if not all(path.is_file() for path in (generated, obj, depfile)):
-                    stale.add(package)
+                    stale.add((package, arch))
                     break
                 rules = dependency_rules(depfile)
                 if not rules:
-                    stale.add(package)
+                    stale.add((package, arch))
                     break
                 for targets, dependencies in rules:
                     if any(not target.exists() for target in targets):
-                        stale.add(package)
+                        stale.add((package, arch))
                         break
                     newest_output = min(target.stat().st_mtime_ns for target in targets)
                     if any(not dep.exists() or dep.stat().st_mtime_ns > newest_output for dep in dependencies):
-                        stale.add(package)
+                        stale.add((package, arch))
                         break
-                if package in stale:
-                    break
-                if package in stale:
+                if (package, arch) in stale:
                     break
     return stale
 
 
-def run_generation(packages: list[Path], arches: list[str]) -> None:
+def run_generation(
+    targets: set[tuple[Path, str]],
+    directives: dict[Path, list[tuple[str, str]]],
+    recorded: dict[str, str],
+) -> None:
     env = os.environ.copy()
     env["BPF_CLANG"] = os.environ.get("BPF_CLANG", os.environ.get("CLANG", "clang"))
     env["BPF_CFLAGS"] = os.environ.get("BPF_CFLAGS", " ".join((DEFAULT_CFLAGS, os.environ.get("CFLAGS", ""))).strip())
@@ -137,40 +147,51 @@ def run_generation(packages: list[Path], arches: list[str]) -> None:
         )
         wrapper.chmod(0o755)
 
-    for arch in arches:
-        for package in packages:
-            relative = package.relative_to(ROOT).as_posix()
+    generated: list[tuple[Path, str]] = []
+    packages = sorted({package for package, _ in targets})
+    for package in packages:
+        package_arches = sorted(arch for target_package, arch in targets if target_package == package)
+        relative = package.relative_to(ROOT).as_posix()
+
+        def generate_arch(arch: str) -> str:
+            arch_env = env.copy()
+            arch_env["BPF_TARGETS"] = arch
             print(f"Generating {relative} for {arch}...", flush=True)
-            env["BPF_TARGETS"] = arch
             subprocess.run(
                 ["go", "generate", "-run", "BPF2GO", f"./{relative}"],
                 cwd=ROOT,
-                env=env,
+                env=arch_env,
                 check=True,
             )
-            key = f"{package.relative_to(ROOT)}:{arch}"
-            try:
-                recorded = json.loads(FINGERPRINT_FILE.read_text())
-            except (OSError, json.JSONDecodeError):
-                recorded = {}
-            recorded[key] = fingerprint(generation_directives()[package], arch)
-            FINGERPRINT_FILE.parent.mkdir(parents=True, exist_ok=True)
-            FINGERPRINT_FILE.write_text(json.dumps(recorded, indent=2, sort_keys=True) + "\n")
+            return arch
+
+        with ThreadPoolExecutor(max_workers=len(package_arches)) as executor:
+            generated.extend((package, arch) for arch in executor.map(generate_arch, package_arches))
+
+    for package, arch in generated:
+        key = f"{package.relative_to(ROOT)}:{arch}"
+        recorded[key] = fingerprint(directives[package], arch)
+
+    FINGERPRINT_FILE.parent.mkdir(parents=True, exist_ok=True)
+    temporary = FINGERPRINT_FILE.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(recorded, indent=2, sort_keys=True) + "\n")
+    temporary.replace(FINGERPRINT_FILE)
 
 
 def main() -> None:
     arches = selected_arches()
     force = "--all" in sys.argv[1:]
     directives = generation_directives()
-    packages = sorted(directives)
+    recorded = read_fingerprints()
     if force:
-        run_generation(packages, arches)
+        targets = {(package, arch) for package in directives for arch in arches}
+        run_generation(targets, directives, recorded)
         return
 
-    stale = stale_packages(arches, directives)
+    stale = stale_targets(arches, directives, recorded)
     if stale:
-        print(f"Regenerating {len(stale)} stale BPF package(s)", flush=True)
-        run_generation(sorted(stale), arches)
+        print(f"Regenerating {len(stale)} stale BPF package/architecture target(s)", flush=True)
+        run_generation(stale, directives, recorded)
     else:
         print("BPF generated files are up to date")
 

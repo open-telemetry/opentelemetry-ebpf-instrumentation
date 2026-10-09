@@ -258,10 +258,10 @@ jobs:
       - name: Build rootfs images
         if: steps.rootfs-cache.outputs.cache-hit != 'true'
         run: |
-          sudo -E env PATH="$PATH" WORKDIR="$(pwd)" mise run vm:build-rootfs
+          sudo -E env PATH="$PATH" WORKDIR="$(pwd)" mise run //internal/test/vm:build-rootfs
           sudo chown "$(id -u):$(id -g)" rootfs.qcow2
           mv rootfs.qcow2 compiled-tests/rootfs.qcow2
-          sudo -E env PATH="$PATH" WORKDIR="$(pwd)" CGROUP_MODE=legacy mise run vm:build-rootfs
+          sudo -E env PATH="$PATH" WORKDIR="$(pwd)" CGROUP_MODE=legacy mise run //internal/test/vm:build-rootfs
           sudo chown "$(id -u):$(id -g)" rootfs-legacy.qcow2
           mv rootfs-legacy.qcow2 compiled-tests/rootfs-legacy.qcow2
           ls -lh compiled-tests/rootfs*.qcow2
@@ -370,7 +370,7 @@ jobs:
             TEST_PATTERN="${MATRIX_TEST_PATTERN}" \
             RUN_NUMBER="${RUN_NUMBER}" \
             PRECOMPILED_TESTS_DIR="$(pwd)/compiled-tests" \
-            mise run vm:run
+            mise run //internal/test/vm:run
           [ -f testoutput/success ]
 
       - name: Process coverage data

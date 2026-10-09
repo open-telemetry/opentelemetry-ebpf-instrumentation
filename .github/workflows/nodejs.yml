@@ -42,7 +42,7 @@ jobs:
           persist-credentials: false
 
       - name: Set up mise
-        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref
 
       - name: Set up Node.js ${{ matrix.node }}
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0 # zizmor: ignore[cache-poisoning] npm ci verifies dependency integrity via package-lock.json

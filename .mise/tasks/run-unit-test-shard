@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+assets="$(go tool -modfile=internal/tools/go.mod setup-envtest use "${ENVTEST_K8S_VERSION:-1.30.0}" -p path)"
+KUBEBUILDER_ASSETS="$assets" go tool -modfile=internal/tools/go.mod gotestsum --jsonfile="${TEST_OUTPUT:-./testoutput}/unit-test-shard-${SHARD_ID:?SHARD_ID must be set}.log" -- -short -race -coverpkg=./... -coverprofile "${TEST_OUTPUT:-./testoutput}/cover.all.txt" ${UNIT_TEST_PACKAGES:-}

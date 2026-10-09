@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+set -euo pipefail
+mise run oats-prereq
+for component in sql mongo redis kafka http memcached ai nats amqp; do
+  dir="internal/test/oats/${component}"
+  mkdir -p "${dir}/${TEST_OUTPUT:-testoutput}/run"
+  (cd "$dir" && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r)
+done
+mise run itest-coverage-data

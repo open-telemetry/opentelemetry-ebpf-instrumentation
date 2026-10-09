@@ -111,7 +111,7 @@ jobs:
             ARCH=amd64 \
             QEMU_SMP="$(nproc)" \
             TARGET_TEST=run-bpf-verifier-vm \
-            mise run vm:run
+            mise run //internal/test/vm:run
           [ -f testoutput/success ]
 
   al2023:

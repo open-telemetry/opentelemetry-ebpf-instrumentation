@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+mise run artifact
+release_dir="${RELEASE_DIR:-./dist}"; arch="${GOARCH:-$(go env GOARCH)}"; version="${RELEASE_VERSION:-$(git describe --all | cut -d/ -f2-)}"; cmd="${CMD:-obi}"; goos="${GOOS:-linux}"
+archive="bin/obi-${version}-${goos}-${arch}.tar.gz"
+mkdir -p "$release_dir/verify-$arch"
+mv "$archive" "$release_dir/"
+tar -xzf "$release_dir/$(basename "$archive")" -C "$release_dir/verify-$arch"
+for required in "$cmd" LICENSE NOTICE; do [[ -f "$release_dir/verify-$arch/$required" ]] || { echo "ERROR: $required missing in archive"; exit 1; }; done
+[[ -d "$release_dir/verify-$arch/NOTICES" ]] || { echo 'ERROR: NOTICES directory missing in archive'; exit 1; }
+for other in amd64 arm64; do [[ "$other" == "$arch" || ! -d "$release_dir/verify-$arch/NOTICES/$other" ]] || { echo "ERROR: NOTICES/$other leaked into archive"; exit 1; }; done
+[[ -x "$release_dir/verify-$arch/$cmd" ]] || { echo "ERROR: $cmd is not executable in archive"; exit 1; }
+rm -rf "$release_dir/verify-$arch"
+mise run release-checksums
+ls -lh "$release_dir/"

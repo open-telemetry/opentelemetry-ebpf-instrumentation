@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+while IFS= read -r file; do
+  dir="$(dirname "$file")"; echo "### Running go mod tidy in $dir"
+  if [[ "$dir" == *testserver_1.17 ]]; then (cd "$dir" && go mod tidy -go=1.17 -compat=1.17)
+  else (cd "$dir" && go mod tidy); fi
+done < <(find . -type f -name go.mod ! -path './NOTICES/*' | sort)

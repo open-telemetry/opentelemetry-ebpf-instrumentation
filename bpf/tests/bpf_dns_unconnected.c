@@ -6,7 +6,7 @@
 // carries no peer in its tuple (d_port == 0), so :53 is only in msg_name.
 //
 // Run from repo root:
-//   mise run bpf-tests:test
+//   mise run //bpf/tests:test
 
 #include <stdbool.h>
 #include <stdio.h>

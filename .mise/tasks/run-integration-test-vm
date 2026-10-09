@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export TEST_TIMEOUT=60m TEST_PARALLEL=1
+pattern="${TEST_PATTERN:-.*}"
+if [[ -f "${PRECOMPILED_TESTS_DIR:-/precompiled-tests}/integration.test" && -f "${PRECOMPILED_TESTS_DIR:-/precompiled-tests}/gotestsum" ]]; then
+  dir="${PRECOMPILED_TESTS_DIR:-/precompiled-tests}"
+  chmod +x "$dir/integration.test" "$dir/gotestsum"
+  "$dir/gotestsum" --rerun-fails=2 --rerun-fails-max-failures=2 --raw-command -ftestname --jsonfile="testoutput/vm-test-run-${RUN_NUMBER:-}.log" -- go tool test2json -t -p integration "$dir/integration.test" -test.parallel=1 -test.timeout="$TEST_TIMEOUT" -test.v -test.run="^(${pattern})$"
+elif [[ -f "${PRECOMPILED_TESTS_DIR:-/precompiled-tests}/integration.test" ]]; then
+  dir="${PRECOMPILED_TESTS_DIR:-/precompiled-tests}"; chmod +x "$dir/integration.test"
+  "$dir/integration.test" -test.parallel=1 -test.timeout="$TEST_TIMEOUT" -test.v -test.run="^(${pattern})$"
+else
+  go tool -modfile=internal/tools/go.mod gotestsum --rerun-fails=2 --rerun-fails-max-failures=2 -ftestname --jsonfile="testoutput/vm-test-run-${RUN_NUMBER:-}.log" -- -p 1 -timeout "$TEST_TIMEOUT" -v -run="^(${pattern})$" ./internal/test/integration
+fi

@@ -52,4 +52,4 @@ jobs:
           sudo apt-get install -y clang
 
       - name: Run BPF unit tests
-        run: mise run bpf-tests:test
+        run: mise run //bpf/tests:test

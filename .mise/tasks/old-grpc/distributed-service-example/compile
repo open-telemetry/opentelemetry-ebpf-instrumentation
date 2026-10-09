@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-
-repo_root="$(git rev-parse --show-toplevel)"
-cd "$repo_root/internal/test/integration/components/old_grpc/backend/internal/distributed-service-example"
-mkdir -p bin
-go build -o bin/backend ./cmd/backend/main.go

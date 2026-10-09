@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+schema="${CONFIG_SCHEMA_FILE:-devdocs/config/config-schema.json}"; docs="${CONFIG_DOCS_FILE:-devdocs/config/CONFIG.md}"
+mkdir -p "$(dirname "$schema")"
+go run ./cmd/obi-schema -output "$schema"
+go run ./cmd/config-docs -schema "$schema" -output "$docs"

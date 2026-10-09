@@ -61,9 +61,10 @@ ENV GOARCH=$TARGETARCH
 
 WORKDIR /src
 
-RUN apk add git bash
+RUN apk add --no-cache git bash mise
 
-COPY go.mod go.sum ./
+COPY go.mod go.sum mise.toml mise.lock ./
+RUN MISE_ENABLE_TOOLS=go mise install go
 # Cache module cache.
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
@@ -80,7 +81,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg \
 	/generate.sh \
 	&& mkdir -p bin \
-	&& CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build \
+	&& MISE_ENABLE_TOOLS=go mise exec -- env CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build \
 	  -ldflags="-X 'go.opentelemetry.io/obi/pkg/buildinfo.Version=${RELEASE_VERSION}' -X 'go.opentelemetry.io/obi/pkg/buildinfo.Revision=${RELEASE_REVISION}'" \
 	  -o bin/obi cmd/obi/main.go
 
