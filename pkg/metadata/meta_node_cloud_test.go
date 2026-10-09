@@ -17,6 +17,20 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 )
 
+func TestGCEInstanceIDSurvivesHostOverride(t *testing.T) {
+	detector := resource.StringDetector(semconv.SchemaURL, semconv.HostIDKey,
+		func() (string, error) { return "123", nil })
+	detected, err := otelNodeFetcher(ClusterGCP, detector)(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "123", detected.GCEInstanceID)
+
+	var node NodeMeta
+	node.merge(detected)
+	node.merge(NodeMeta{HostID: "custom-exported-host"})
+	assert.Equal(t, "custom-exported-host", node.HostID)
+	assert.Equal(t, "123", node.GCEInstanceID)
+}
+
 func TestOtelNodeFetcher(t *testing.T) {
 	detected := resource.NewWithAttributes(semconv.SchemaURL,
 		semconv.HostIDKey.String("host-123"),
