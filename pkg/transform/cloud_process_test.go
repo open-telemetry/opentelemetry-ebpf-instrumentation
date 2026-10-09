@@ -6,6 +6,7 @@ package transform
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -111,7 +112,7 @@ func TestECSProcessDecorator(t *testing.T) {
 		read()
 	}
 	newFile := func(pid app.PID, auto bool) *exec.FileInfo {
-		service := svc.Attrs{UID: svc.UID{Name: "container-name", Namespace: "ns", Instance: "instance"}}
+		service := svc.Attrs{UID: svc.UID{Name: "container-name", Namespace: "ns", Instance: fmt.Sprintf("instance-%d", pid)}}
 		service.Features = export.FeatureApplicationRED
 		if auto {
 			service.SetAutoName()
@@ -130,7 +131,7 @@ func TestECSProcessDecorator(t *testing.T) {
 	updated := read()
 	assert.Same(t, file, updated.File)
 	assert.Equal(t, exec.ProcessEventCreated, updated.Type)
-	assert.Equal(t, svc.UID{Name: "checkout", Namespace: "ns", Instance: "instance"}, file.ServiceAttrs().UID)
+	assert.Equal(t, svc.UID{Name: "checkout", Namespace: "ns", Instance: "instance-1"}, file.ServiceAttrs().UID)
 	checkTargetInfo("checkout", "container-name")
 	span := request.Span{Type: request.EventTypeHTTP, Host: "127.0.0.1", Service: file.ServiceAttrs()}
 	// Docker span decoration may assign the generated name again.
@@ -153,7 +154,7 @@ func TestECSProcessDecorator(t *testing.T) {
 	updated = read()
 	assert.Same(t, file, updated.File)
 	assert.Equal(t, exec.ProcessEventCreated, updated.Type)
-	assert.Equal(t, svc.UID{Name: "container-name", Namespace: "ns", Instance: "instance"}, file.ServiceAttrs().UID)
+	assert.Equal(t, svc.UID{Name: "container-name", Namespace: "ns", Instance: "instance-1"}, file.ServiceAttrs().UID)
 	checkTargetInfo("container-name", "checkout")
 	require.Eventually(t, func() bool {
 		_, ok := inventory.ServiceNameForContainerID(id)
