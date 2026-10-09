@@ -19,7 +19,6 @@ import (
 	"go.opentelemetry.io/collector/pdata/ptrace"
 
 	"go.opentelemetry.io/obi/internal/config/convert"
-	configruntime "go.opentelemetry.io/obi/internal/config/runtime"
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -82,10 +81,13 @@ prometheus_export:
 			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
 			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
+			var pipe *Instrumenter
 			if test.v2 {
-				ctx = configruntime.WithProtocolMetricSelection(ctx, instrumentations.NewInstrumentationSelection(cfg.OTELMetrics.Instrumentations))
+				selection := instrumentations.NewInstrumentationSelection(cfg.OTELMetrics.Instrumentations)
+				pipe, err = BuildWithProtocolMetricSelection(ctx, cfg, ctxInfo, input, processEvents, nil, &selection)
+			} else {
+				pipe, err = Build(ctx, cfg, ctxInfo, input, processEvents, nil)
 			}
-			pipe, err := newGraphBuilder(cfg, ctxInfo, input, processEvents, nil).buildGraph(ctx)
 			require.NoError(t, err)
 			done := pipe.Start(ctx)
 

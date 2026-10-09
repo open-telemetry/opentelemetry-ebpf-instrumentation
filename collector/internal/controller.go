@@ -12,7 +12,6 @@ import (
 
 	"go.opentelemetry.io/collector/component"
 
-	configruntime "go.opentelemetry.io/obi/internal/config/runtime"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/instrumenter"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -108,9 +107,6 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 
 	// First caller - start OBI
 	runCtx, cancel := context.WithCancel(ctx)
-	if c.shared.v2 {
-		runCtx = configruntime.WithProtocolMetricSelection(runCtx, instrumentations.NewInstrumentationSelection(c.shared.config.OTELMetrics.Instrumentations))
-	}
 	ctxInfo, err := instrumenter.BuildCommonContextInfo(runCtx, c.shared.config)
 	if err != nil {
 		cancel()
@@ -125,7 +121,12 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 	// Run OBI in a goroutine
 	go func() {
 		defer close(c.shared.runDone)
-		c.shared.runErr = instrumenter.RunWithContextInfo(runCtx, c.shared.config, ctxInfo)
+		var policy *instrumentations.InstrumentationSelection
+		if c.shared.v2 {
+			selection := instrumentations.NewInstrumentationSelection(c.shared.config.OTELMetrics.Instrumentations)
+			policy = &selection
+		}
+		c.shared.runErr = instrumenter.RunWithProtocolMetricSelection(runCtx, c.shared.config, ctxInfo, policy)
 	}()
 
 	return nil

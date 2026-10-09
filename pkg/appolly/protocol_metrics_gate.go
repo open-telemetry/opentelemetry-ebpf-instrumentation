@@ -6,25 +6,25 @@ package appolly // import "go.opentelemetry.io/obi/pkg/appolly"
 import (
 	"context"
 
-	configruntime "go.opentelemetry.io/obi/internal/config/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
-func protocolMetricsSpanGate(input, output *msg.Queue[[]request.Span]) swarm.InstanceFunc {
-	return func(ctx context.Context) (swarm.RunFunc, error) {
-		selection, enabled := configruntime.ProtocolMetricSelection(ctx)
-		if !enabled {
+func protocolMetricsSpanGate(selection *instrumentations.InstrumentationSelection, input, output *msg.Queue[[]request.Span]) swarm.InstanceFunc {
+	return func(_ context.Context) (swarm.RunFunc, error) {
+		if selection == nil {
 			return swarm.Bypass(input, output)
 		}
+		selected := *selection
 		in := input.Subscribe(msg.SubscriberName("appolly.ProtocolMetricsSpanGate"))
 		return func(ctx context.Context) {
 			defer output.Close()
 			swarms.ForEachInput(ctx, in, nil, func(spans []request.Span) {
 				for i := range spans {
-					if instrumentation, ok := spans[i].Type.Instrumentation(); ok && !selection.Enabled(instrumentation) {
+					if instrumentation, ok := spans[i].Type.Instrumentation(); ok && !selected.Enabled(instrumentation) {
 						request.SetIgnoreMetrics(&spans[i])
 					}
 				}

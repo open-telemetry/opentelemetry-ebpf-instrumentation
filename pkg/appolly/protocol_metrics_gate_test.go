@@ -8,7 +8,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	configruntime "go.opentelemetry.io/obi/internal/config/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
@@ -30,13 +29,15 @@ func TestProtocolMetricsSpanGate(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := t.Context()
+			var policy *instrumentations.InstrumentationSelection
 			if test.v2 {
-				ctx = configruntime.WithProtocolMetricSelection(ctx, instrumentations.NewInstrumentationSelection(test.protocols))
+				selection := instrumentations.NewInstrumentationSelection(test.protocols)
+				policy = &selection
 			}
 			input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(1))
 			output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(1))
 			outCh := output.Subscribe()
-			run, err := protocolMetricsSpanGate(input, output)(ctx)
+			run, err := protocolMetricsSpanGate(policy, input, output)(ctx)
 			require.NoError(t, err)
 			go run(ctx)
 			input.Send([]request.Span{
