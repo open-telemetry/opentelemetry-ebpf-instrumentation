@@ -529,7 +529,7 @@ func TestFilterResourceAttrs_DefaultPreservesResourceAttributes(t *testing.T) {
 }
 
 func TestResourceAttrs_JVMLanguage(t *testing.T) {
-	nodeMeta := meta.NodeMeta{HostID: "host-id"}
+	nodeMeta := metadata.NodeMeta{HostID: "host-id"}
 	service := svc.Attrs{
 		UID:         svc.UID{Name: "test-app", Instance: "test-app-1"},
 		SDKLanguage: svc.InstrumentableJava,
@@ -539,7 +539,7 @@ func TestResourceAttrs_JVMLanguage(t *testing.T) {
 	_, reported := attrs["jvm.language"]
 	assert.False(t, reported)
 
-	service.JVMLanguage = "kotlin"
+	service.Metadata = map[attr.Name]string{attr.JVMLanguage: "kotlin"}
 
 	attrs = resourceAttrsMap(GetAppResourceAttrs(&nodeMeta, &service))
 	assert.Equal(t, "kotlin", attrs["jvm.language"])

@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package classfile // import "go.opentelemetry.io/obi/pkg/internal/jvmtools/classfile"
+package java // import "go.opentelemetry.io/obi/pkg/internal/transform/route/harvest/java"
 
 import (
 	"encoding/binary"
@@ -9,10 +9,7 @@ import (
 	"fmt"
 )
 
-const (
-	classFileMagic     = 0xCAFEBABE
-	maxAnnotationDepth = 32
-)
+const classFileMagic = 0xCAFEBABE
 
 // JVM constant pool tags, as defined by the Java Virtual Machine
 // Specification 4.4 (The Constant Pool).
@@ -36,15 +33,15 @@ const (
 	cpTagPackage            uint8 = 20
 )
 
-type Class struct {
-	ClassAnnotations  []Annotation
-	MethodAnnotations [][]Annotation
+type classFile struct {
+	classAnnotations  []annotation
+	methodAnnotations [][]annotation
 }
 
-type Annotation struct {
-	Descriptor string
-	Elements   map[string][]string
-	Nested     []Annotation
+type annotation struct {
+	descriptor string
+	elements   map[string][]string
+	nested     []annotation
 }
 
 type constantPoolEntry struct {
@@ -56,17 +53,16 @@ type constantPoolEntry struct {
 type constantPool []constantPoolEntry
 
 type classReader struct {
-	data  []byte
-	off   int
-	depth int
+	data []byte
+	off  int
 }
 
 type elementValue struct {
 	strings     []string
-	annotations []Annotation
+	annotations []annotation
 }
 
-func Parse(data []byte) (*Class, error) {
+func parseClassFile(data []byte) (*classFile, error) {
 	reader := classReader{data: data}
 
 	magic, err := reader.u4()
@@ -112,22 +108,22 @@ func Parse(data []byte) (*Class, error) {
 	if err != nil {
 		return nil, err
 	}
-	class := &Class{}
+	class := &classFile{}
 	for range int(methodsCount) {
 		annotations, err := parseMemberAnnotations(&reader, cp)
 		if err != nil {
 			return nil, err
 		}
 		if len(annotations) > 0 {
-			class.MethodAnnotations = append(class.MethodAnnotations, annotations)
+			class.methodAnnotations = append(class.methodAnnotations, annotations)
 		}
 	}
 
-	ClassAnnotations, err := parseAttributesAnnotations(&reader, cp)
+	classAnnotations, err := parseAttributesAnnotations(&reader, cp)
 	if err != nil {
 		return nil, err
 	}
-	class.ClassAnnotations = ClassAnnotations
+	class.classAnnotations = classAnnotations
 
 	return class, nil
 }
@@ -203,7 +199,7 @@ func skipMember(reader *classReader) error {
 	return skipAttributes(reader)
 }
 
-func parseMemberAnnotations(reader *classReader, cp constantPool) ([]Annotation, error) {
+func parseMemberAnnotations(reader *classReader, cp constantPool) ([]annotation, error) {
 	if err := reader.skip(6); err != nil {
 		return nil, err
 	}
@@ -230,13 +226,13 @@ func skipAttributes(reader *classReader) error {
 	return nil
 }
 
-func parseAttributesAnnotations(reader *classReader, cp constantPool) ([]Annotation, error) {
+func parseAttributesAnnotations(reader *classReader, cp constantPool) ([]annotation, error) {
 	count, err := reader.u2()
 	if err != nil {
 		return nil, err
 	}
 
-	var annotations []Annotation
+	var annotations []annotation
 	for range int(count) {
 		nameIndex, err := reader.u2()
 		if err != nil {
@@ -270,14 +266,14 @@ func isAnnotationsAttribute(name string) bool {
 	return name == "RuntimeVisibleAnnotations" || name == "RuntimeInvisibleAnnotations"
 }
 
-func parseAnnotationsAttribute(data []byte, cp constantPool) ([]Annotation, error) {
+func parseAnnotationsAttribute(data []byte, cp constantPool) ([]annotation, error) {
 	reader := classReader{data: data}
 	count, err := reader.u2()
 	if err != nil {
 		return nil, err
 	}
 
-	annotations := make([]Annotation, 0, count)
+	annotations := make([]annotation, 0, count)
 	for range int(count) {
 		ann, err := parseAnnotation(&reader, cp)
 		if err != nil {
@@ -291,49 +287,44 @@ func parseAnnotationsAttribute(data []byte, cp constantPool) ([]Annotation, erro
 	return annotations, nil
 }
 
-func parseAnnotation(reader *classReader, cp constantPool) (Annotation, error) {
-	if reader.depth >= maxAnnotationDepth {
-		return Annotation{}, errors.New("annotation nesting limit exceeded")
-	}
-	reader.depth++
-	defer func() { reader.depth-- }()
+func parseAnnotation(reader *classReader, cp constantPool) (annotation, error) {
 	typeIndex, err := reader.u2()
 	if err != nil {
-		return Annotation{}, err
+		return annotation{}, err
 	}
 	descriptor, ok := cp.utf8(typeIndex)
 	if !ok {
-		return Annotation{}, fmt.Errorf("invalid annotation type index %d", typeIndex)
+		return annotation{}, fmt.Errorf("invalid annotation type index %d", typeIndex)
 	}
 
 	pairCount, err := reader.u2()
 	if err != nil {
-		return Annotation{}, err
+		return annotation{}, err
 	}
 
-	ann := Annotation{
-		Descriptor: descriptor,
-		Elements:   map[string][]string{},
+	ann := annotation{
+		descriptor: descriptor,
+		elements:   map[string][]string{},
 	}
 	for range int(pairCount) {
 		nameIndex, err := reader.u2()
 		if err != nil {
-			return Annotation{}, err
+			return annotation{}, err
 		}
 		name, ok := cp.utf8(nameIndex)
 		if !ok {
-			return Annotation{}, fmt.Errorf("invalid annotation element name index %d", nameIndex)
+			return annotation{}, fmt.Errorf("invalid annotation element name index %d", nameIndex)
 		}
 
 		values, err := parseElementValue(reader, cp)
 		if err != nil {
-			return Annotation{}, err
+			return annotation{}, err
 		}
 		if len(values.strings) > 0 {
-			ann.Elements[name] = append(ann.Elements[name], values.strings...)
+			ann.elements[name] = append(ann.elements[name], values.strings...)
 		}
 		if len(values.annotations) > 0 {
-			ann.Nested = append(ann.Nested, values.annotations...)
+			ann.nested = append(ann.nested, values.annotations...)
 		}
 	}
 
@@ -341,11 +332,6 @@ func parseAnnotation(reader *classReader, cp constantPool) (Annotation, error) {
 }
 
 func parseElementValue(reader *classReader, cp constantPool) (elementValue, error) {
-	if reader.depth >= maxAnnotationDepth {
-		return elementValue{}, errors.New("annotation nesting limit exceeded")
-	}
-	reader.depth++
-	defer func() { reader.depth-- }()
 	tag, err := reader.u1()
 	if err != nil {
 		return elementValue{}, err
@@ -389,7 +375,7 @@ func parseElementValue(reader *classReader, cp constantPool) (elementValue, erro
 		if err != nil {
 			return elementValue{}, err
 		}
-		return elementValue{annotations: []Annotation{ann}}, nil
+		return elementValue{annotations: []annotation{ann}}, nil
 	case 'B', 'C', 'D', 'F', 'I', 'J', 'S', 'Z':
 		constantTag := cpTagInteger
 		switch tag {

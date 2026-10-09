@@ -111,10 +111,6 @@ type Attrs struct {
 
 	SDKLanguage InstrumentableType
 
-	// JVMLanguage is the language evidenced by a JVM application's resolved entry point.
-	// Empty for non-JVM processes and when no positive language evidence is available.
-	JVMLanguage string
-
 	Metadata map[attr.Name]string
 
 	// ProcPID is the PID of the instrumented process as seen by OBI's /proc filesystem.

@@ -3,11 +3,7 @@
 
 package java // import "go.opentelemetry.io/obi/pkg/internal/transform/route/harvest/java"
 
-import (
-	"slices"
-
-	"go.opentelemetry.io/obi/pkg/internal/jvmtools/classfile"
-)
+import "slices"
 
 var springMappingAnnotations = map[string]struct{}{
 	"Lorg/springframework/web/bind/annotation/RequestMapping;": {},
@@ -67,14 +63,14 @@ var quarkusRouteContainerAnnotations = map[string]struct{}{
 	"Lio/quarkus/vertx/web/Route$Routes;": {},
 }
 
-func routesFromClass(class *classfile.Class) []string {
-	classPaths := classRouteFragments(class.ClassAnnotations)
+func routesFromClass(class *classFile) []string {
+	classPaths := classRouteFragments(class.classAnnotations)
 	if len(classPaths) == 0 {
 		classPaths = []string{""}
 	}
 
 	var routes []string
-	for _, annotations := range class.MethodAnnotations {
+	for _, annotations := range class.methodAnnotations {
 		paths, ok := methodRouteFragments(annotations)
 		if !ok {
 			continue
@@ -93,49 +89,49 @@ func routesFromClass(class *classfile.Class) []string {
 	return routes
 }
 
-func classRouteFragments(annotations []classfile.Annotation) []string {
+func classRouteFragments(annotations []annotation) []string {
 	var paths []string
 	for _, a := range annotations {
 		switch {
-		case hasAnnotation(springMappingAnnotations, a.Descriptor):
+		case hasAnnotation(springMappingAnnotations, a.descriptor):
 			paths = append(paths, annotationPaths(a, "value", "path")...)
-		case hasAnnotation(jaxrsPathAnnotations, a.Descriptor):
+		case hasAnnotation(jaxrsPathAnnotations, a.descriptor):
 			paths = append(paths, annotationPaths(a, "value")...)
-		case hasAnnotation(micronautControllerAnnotations, a.Descriptor):
+		case hasAnnotation(micronautControllerAnnotations, a.descriptor):
 			paths = append(paths, annotationPaths(a, "value")...)
-		case hasAnnotation(quarkusRouteBaseAnnotations, a.Descriptor):
+		case hasAnnotation(quarkusRouteBaseAnnotations, a.descriptor):
 			paths = append(paths, annotationPaths(a, "value", "path")...)
 		}
 	}
 	return uniqueStrings(paths)
 }
 
-func methodRouteFragments(annotations []classfile.Annotation) ([]string, bool) {
+func methodRouteFragments(annotations []annotation) ([]string, bool) {
 	var paths []string
 	isRoute := false
 	for _, a := range annotations {
 		switch {
-		case hasAnnotation(springMappingAnnotations, a.Descriptor):
+		case hasAnnotation(springMappingAnnotations, a.descriptor):
 			isRoute = true
 			paths = append(paths, annotationPaths(a, "value", "path")...)
-		case hasAnnotation(jaxrsPathAnnotations, a.Descriptor):
+		case hasAnnotation(jaxrsPathAnnotations, a.descriptor):
 			isRoute = true
 			paths = append(paths, annotationPaths(a, "value")...)
-		case hasAnnotation(jaxrsMethodAnnotations, a.Descriptor):
+		case hasAnnotation(jaxrsMethodAnnotations, a.descriptor):
 			isRoute = true
-		case hasAnnotation(micronautMethodAnnotations, a.Descriptor):
+		case hasAnnotation(micronautMethodAnnotations, a.descriptor):
 			isRoute = true
 			paths = append(paths, annotationPaths(a, "value", "uri")...)
-		case hasAnnotation(quarkusRouteAnnotations, a.Descriptor):
+		case hasAnnotation(quarkusRouteAnnotations, a.descriptor):
 			quarkusPaths, ok := quarkusRoutePaths(a)
 			if !ok {
 				continue
 			}
 			isRoute = true
 			paths = append(paths, quarkusPaths...)
-		case hasAnnotation(quarkusRouteContainerAnnotations, a.Descriptor):
-			for _, nested := range a.Nested {
-				if !hasAnnotation(quarkusRouteAnnotations, nested.Descriptor) {
+		case hasAnnotation(quarkusRouteContainerAnnotations, a.descriptor):
+			for _, nested := range a.nested {
+				if !hasAnnotation(quarkusRouteAnnotations, nested.descriptor) {
 					continue
 				}
 				quarkusPaths, ok := quarkusRoutePaths(nested)
@@ -150,17 +146,17 @@ func methodRouteFragments(annotations []classfile.Annotation) ([]string, bool) {
 	return uniqueStrings(paths), isRoute
 }
 
-func quarkusRoutePaths(a classfile.Annotation) ([]string, bool) {
-	if len(a.Elements["regex"]) > 0 {
+func quarkusRoutePaths(a annotation) ([]string, bool) {
+	if len(a.elements["regex"]) > 0 {
 		return nil, false
 	}
 	return annotationPaths(a, "value", "path"), true
 }
 
-func annotationPaths(a classfile.Annotation, names ...string) []string {
+func annotationPaths(a annotation, names ...string) []string {
 	var paths []string
 	for _, name := range names {
-		for _, path := range a.Elements[name] {
+		for _, path := range a.elements[name] {
 			if slices.Contains(paths, path) {
 				continue
 			}

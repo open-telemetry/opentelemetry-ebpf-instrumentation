@@ -1,103 +1,62 @@
-# JVM language detector PoC
+# JVM entry-point language detector
 
-This research implementation addresses the request for an end-to-end view in
-[issue #2646](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/2646).
-It inspects a running Java process and passes its result through the existing
-`svc.Attrs.JVMLanguage` and `otelcfg.GetAppResourceAttrs` export path. The CLI prints
-the two language resource attributes as JSON; it does not send OTLP or enable
-automatic language discovery in OBI.
+This package is a research PoC for [issue #2646](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/2646).
+It identifies the language evidenced by a running JVM application's entry
+point, not every language used by the application. It is not yet connected to
+OBI's automatic discovery or OTLP export.
 
-## Detection policy
+## How detection works
 
-Inspect the resolved entry class, not the languages present in dependencies.
-Kotlin metadata, Scala signature annotations, and Scala 3 TASTY attributes provide
-positive compiler evidence. The shared parser also recognizes the GroovyObject
-interface, but the live fixture suite does not validate Groovy.
+1. `DetectPID(pid)` checks for a standard `java` executable with a `libjvm.so`
+   mapping. It reads the process's command line, environment, and current
+   working directory from `/proc`, and checks its start time and command line
+   again after inspection to catch process changes or PID reuse.
+2. `Detect` parses only the JVM launch arguments, stopping before application
+   arguments. It resolves a named main class from the classpath or an
+   executable JAR's `Main-Class`. For a supported Spring Boot `JarLauncher`, it
+   uses `Start-Class` and `BOOT-INF/classes`.
+3. For a compiled entry point, it reads only the resolved entry `.class` file.
+   The shared [class-file parser](../../transform/route/harvest/java/classmarkers.go) looks for Kotlin
+   metadata, Scala 2 signatures, or Scala 3 `TASTY`. Conflicting markers are an
+   error.
+4. The result contains a language and its evidence when a marker is found. A
+   Java source-file launch is reported as `java` based on the launch mode.
+   Marker-free bytecode returns an empty language and a reason; it is **not**
+   inferred to be Java.
 
-No recognized marker means omit `jvm.language`. A Java entry calling Kotlin is
-therefore unresolved; a Kotlin entry calling Java is Kotlin under this policy.
-An observed Java source-file launch provides positive Java evidence. The runtime
-attribute remains `telemetry.sdk.language=java` in every successful inspection.
-Conflicting markers or unsupported resolution return an error, not a guessed label.
+For example, a Java entry class calling Kotlin code remains unresolved, while
+a Kotlin entry class calling Java code is reported as Kotlin. The detector does
+not scan dependencies or determine the application's predominant language.
 
-This is the interpretation of the branch's development-stage `jvm.language`
-convention. It does not establish predominant application language. The registry
-uses a string rather than a closed enum so future positively identified JVM
-languages do not require an attribute-type change. No `mixed` or `unknown` value
-is emitted to hide unresolved cases.
+## Using the result
 
-## Reproduce
+A future discovery integration can place a positive result in
+`svc.Attrs.Metadata[attr.JVMLanguage]` so OBI's existing resource builder produces
+`jvm.language`. Unresolved results should not add a metadata entry. This does not
+change `telemetry.sdk.language`, which describes the telemetry SDK and remains
+`java` for JVM instrumentation.
 
-Prerequisites: Linux, a JDK with `java`, `javac`, and `jar`, Maven, and the
-repository's Go toolchain and generated bindings. Run from the repository root.
-Maven resolves the pinned Kotlin 2.2.20, Scala 2.13.16, and Scala 3.3.6 compiler
-dependencies; fixture sources target Java 17 bytecode.
+The detector can return an error for unsupported launches, unreadable process
+data, unsafe paths, or malformed class files. A future discovery integration
+should treat both errors and unresolved results as no `jvm.language`, without
+interrupting instrumentation.
 
-```bash
-export JVM_RESEARCH_COMPILERS=$(mktemp -d /tmp/obi-jvm-compilers.XXXXXXXX)
-mvn -q -f internal/test/tools/jvm-language-research/pom.xml \
-  org.apache.maven.plugins:maven-dependency-plugin:3.8.1:copy-dependencies \
-  -DoutputDirectory="$JVM_RESEARCH_COMPILERS"
-bash internal/test/tools/jvm-language-research/build-fixtures.sh
-```
+## Shared parser
 
-Set `OBI_JVM_FIXTURES` to the output directory printed by the build script, then:
+The class-file reader remains in the Java route-harvesting package. The detector
+calls its `InspectLanguage` helper, which reuses the existing parsing helpers.
+Route-matching rules are unchanged, but the reader now rejects invalid annotation
+references and trailing annotation data. These validation
+changes affect route harvesting too: a rejected class is skipped, and harvesting
+continues with other classes.
 
-```bash
-export OBI_JVM_FIXTURES=/tmp/obi-jvm-fixtures.REPLACE_WITH_PRINTED_SUFFIX
-export OBI_JVM_POC_BINARY=/tmp/obi-jvmlang-poc
-go build -o "$OBI_JVM_POC_BINARY" ./pkg/internal/jvmtools/jvmlanguage/cmd/jvmlang-poc
-go test -v -count=1 -run TestLivePoC ./pkg/internal/jvmtools/jvmlanguage
-```
+## Scope and tests
 
-The suite launches real JVM processes, invokes the compiled CLI on their PIDs,
-checks emitted resource attributes, and terminates the fixture processes. It
-covers Java bytecode, Java source launch, Kotlin top-level/object/companion mains,
-Scala 2/3, both delegation directions, a dependency-only Kotlin case, decoy marker
-strings, an application `-jar` argument, and an executable JAR. Without the
-environment variables, ordinary unit tests skip this opt-in suite.
+Launch parsing intentionally supports a bounded subset of classpath and
+executable-JAR launches. Modules, argument files, wildcard and manifest
+classpaths, multi-release JARs, custom class loaders, and interpreter
+launchers are not supported. Groovy, Clojure, JRuby, and Jython detection is not
+implemented. File and archive reads have size and entry-count limits.
 
-Inspect an existing supported Java process with:
-
-```bash
-/tmp/obi-jvmlang-poc PID
-```
-
-The caller must have permission to read the process's `/proc` entries and files.
-An unsupported inspection has an `error` field and a nonzero exit status. A
-successful but unresolved inspection has a `reason`, no `jvm.language` key, and
-exit status zero.
-
-## Deliberate limits
-
-- Supports explicit classpaths and executable JARs. It recognizes standard Boot
-  JarLauncher manifests and `BOOT-INF/classes`, but this layout is not covered
-  by the real JVM fixture suite yet.
-- Rejects modules, argfiles, wildcard classpaths, manifest classpaths, multi-release
-  JARs, launcher-option environment variables, agents, custom-loader options,
-  PropertiesLauncher, and unrecognized JVM options. Interpreter launchers are not
-  yet classified. Java source mode currently requires a `.java` filename.
-- Reads at most 2 MiB per class/member, 16 MiB per archive, 32 MiB across archive
-  reads and decompressed members, and 32 classpath roots. Archives are held in
-  memory and checked against a 4096-entry limit after ZIP indexing; this is not
-  a production memory-budget guarantee. Annotation nesting is bounded.
-- Uses existing process-root and bounded-file helpers. It checks process start
-  time and command line for changes, but does not provide an atomic filesystem
-  snapshot or eliminate intermediate-directory symlink races. Transformed classes
-  loaded in memory can differ from their files. Metadata is not authenticity proof.
-- The PoC parser bounds JVM arguments before calling the existing classpath
-  helpers. The existing general-purpose `ParseJavaLaunch` behavior is unchanged;
-  a future production integration should unify the launch parsing API.
-
-## Validation
-
-```bash
-go test ./pkg/internal/jvmtools/... ./pkg/internal/transform/route/harvest/java ./pkg/export/otel/otelcfg
-go vet ./pkg/internal/jvmtools/... ./pkg/internal/transform/route/harvest/java ./pkg/export/otel/otelcfg
-go test ./pkg/internal/jvmtools/classfile -run '^$' \
-  -fuzz FuzzInspectLanguage -fuzztime=10s -parallel=2
-```
-
-All 12 live cases passed with OpenJDK 25.0.4.1 and the pinned compiler versions
-listed above. Compiler sources and build instructions are checked in; generated
-class files are not.
+`detector_test.go` exercises `Detect` with synthetic classes, JARs, source launches,
+and unsafe inputs without requiring a JVM. It also tests launcher and archive rules.

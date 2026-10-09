@@ -171,10 +171,6 @@ func resourceAttrs(nodeMeta *metadata.NodeMeta, service *svc.Attrs) []attribute.
 		attrs = append(attrs, semconv.ServiceNamespace(service.UID.Namespace))
 	}
 
-	if service.JVMLanguage != "" {
-		attrs = append(attrs, attr.JVMLanguage.OTEL().String(service.JVMLanguage))
-	}
-
 	for k, v := range service.Metadata {
 		attrs = append(attrs, k.OTEL().String(v))
 	}
