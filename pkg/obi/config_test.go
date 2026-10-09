@@ -1885,6 +1885,10 @@ func TestConfigValidate_TracesCompression(t *testing.T) {
 }
 
 func TestConfigV1Route53Settings(t *testing.T) {
+	unsetEnv(t,
+		"OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS",
+		"OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL",
+	)
 	for _, tc := range []struct {
 		name     string
 		yaml     string
