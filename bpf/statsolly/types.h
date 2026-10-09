@@ -14,6 +14,7 @@ enum stat_type : u8 {
     k_stat_type_tcp_retransmit = 3,
     k_stat_type_tcp_io = 4,
     k_stat_type_tcp_successful_connection = 5,
+    k_stat_type_tcp_reset = 6,
 };
 
 // batch size used in tcp io metric
@@ -40,4 +41,10 @@ enum tcp_fail_reason : u8 {
 enum network_io_direction : u8 {
     direction_receive = 1,
     direction_transmit = 2,
+};
+
+enum tcp_reset_cause : u8 {
+    reset_cause_unknown = 0,
+    reset_cause_application = 1,
+    reset_cause_timeout = 2,
 };
