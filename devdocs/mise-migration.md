@@ -24,6 +24,29 @@ full generation. The `clang` and `llvm-tools` Mise tools provide the pinned
 LLVM 22 compiler and `llvm-strip`; the reproducible generator container uses
 the same LLVM major and passes its compiler/flags to the generation script.
 
+This is not yet as maintainable as Make's dependency tracking. The generator
+script implements its own Make-like checks over bpf2go dependency files. A
+prototype using Mise task `sources` and `outputs` avoided that script logic for
+11 package tasks, but Mise does not dynamically read bpf2go's `.d` files. The
+prototype matched the observed incremental cases only with source lists
+statically populated from the current dependency files; a newly added include
+edge would be missed until its task's source list was updated. Broad source
+globs avoid that stale-list risk but can rerun more packages than necessary.
+
+In one local run, the prototype skipped all tasks on a no-change run (0.251s),
+rebuilt only both generictracer architectures after a generictracer C change
+(21.228s), rebuilt common, generictracer, gotracer, and tpinjector for both
+architectures after a `common.h` change (49.299s), and rebuilt both
+generictracer architectures when an output was deleted (21.021s). These are
+single-run indicative timings, not a benchmark. The task-output approach looks
+promising for speed, but it does not provide Make-equivalent dynamic dependency
+tracking; the current script has the same fundamental maintenance gap.
+
+**Possible upstream Mise discussion:** Could file tasks support dependency
+files emitted by tools such as bpf2go as dynamic `sources` (or equivalent
+dependency metadata), so task outputs can retain precise incremental rebuilds
+without duplicating a build system's dependency logic?
+
 ## Common tasks
 
 | Task | Purpose |
