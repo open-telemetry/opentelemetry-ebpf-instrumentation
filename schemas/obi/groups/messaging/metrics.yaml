@@ -3,7 +3,10 @@ metrics:
   - name: messaging.client.operation.duration
     annotations:
       obi:
-        upstream_override: true
+        upstream_omits:
+          messaging.destination.template: OBI sees the concrete destination on the wire, never the template it was built from
+          messaging.consumer.group.name: OBI knows a consumer group only for Kafka fetches, which it records as messaging.process.duration
+          messaging.destination.subscription.name: OBI does not report subscriptions on metrics
     brief: OBI-emitted messaging.client.operation.duration
     instrument: histogram
     unit: "s"
@@ -31,7 +34,9 @@ metrics:
   - name: messaging.process.duration
     annotations:
       obi:
-        upstream_override: true
+        upstream_omits:
+          messaging.destination.template: OBI sees the concrete destination on the wire, never the template it was built from
+          messaging.destination.subscription.name: OBI does not report subscriptions on metrics
     brief: OBI-emitted messaging.process.duration
     instrument: histogram
     unit: "s"

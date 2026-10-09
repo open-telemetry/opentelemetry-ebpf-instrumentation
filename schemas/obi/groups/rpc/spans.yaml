@@ -6,6 +6,9 @@ spans:
   # rather than a union no span satisfies, which is also how upstream models
   # per-system RPC conventions.
   - type: obi.rpc.grpc.server
+    annotations:
+      obi:
+        upstream: [rpc.grpc.call.server, rpc.call.server]
     kind: server
     name:
       note: Not documented yet.
@@ -47,6 +50,9 @@ spans:
           conditionally_required: if the operation ended in an error
 
   - type: obi.rpc.grpc.client
+    annotations:
+      obi:
+        upstream: [rpc.grpc.call.client, rpc.call.client]
     kind: client
     name:
       note: Not documented yet.
@@ -88,6 +94,16 @@ spans:
           conditionally_required: if the operation ended in an error
 
   - type: obi.rpc.onc_rpc.server
+    annotations:
+      obi:
+        upstream: rpc.call.server
+        upstream_omits:
+          rpc.method_original: OBI reports the method it read, so it never differs from rpc.method
+        upstream_extras:
+          onc_rpc.program.name: upstream defines the ONC RPC attributes but no ONC RPC span
+          onc_rpc.procedure.name: upstream defines the ONC RPC attributes but no ONC RPC span
+          onc_rpc.procedure.number: upstream defines the ONC RPC attributes but no ONC RPC span
+          onc_rpc.version: upstream defines the ONC RPC attributes but no ONC RPC span
     kind: server
     name:
       note: Not documented yet.
@@ -140,6 +156,16 @@ spans:
           conditionally_required: if the operation ended in an error
 
   - type: obi.rpc.onc_rpc.client
+    annotations:
+      obi:
+        upstream: rpc.call.client
+        upstream_omits:
+          rpc.method_original: OBI reports the method it read, so it never differs from rpc.method
+        upstream_extras:
+          onc_rpc.program.name: upstream defines the ONC RPC attributes but no ONC RPC span
+          onc_rpc.procedure.name: upstream defines the ONC RPC attributes but no ONC RPC span
+          onc_rpc.procedure.number: upstream defines the ONC RPC attributes but no ONC RPC span
+          onc_rpc.version: upstream defines the ONC RPC attributes but no ONC RPC span
     kind: client
     name:
       note: Not documented yet.

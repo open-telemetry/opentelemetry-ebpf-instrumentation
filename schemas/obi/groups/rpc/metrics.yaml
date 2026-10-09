@@ -1,9 +1,6 @@
 file_format: definition/2
 metrics:
   - name: rpc.client.call.duration
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted rpc.client.call.duration
     instrument: histogram
     unit: "s"
@@ -29,9 +26,6 @@ metrics:
           conditionally_required: if the port was observed on the connection
 
   - name: rpc.server.call.duration
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted rpc.server.call.duration
     instrument: histogram
     unit: "s"

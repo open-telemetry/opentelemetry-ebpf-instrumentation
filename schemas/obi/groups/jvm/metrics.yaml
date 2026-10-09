@@ -1,14 +1,11 @@
 # OBI's narrowed copies of the upstream JVM runtime metrics
 # (semconv model/jvm). service/container metadata is on the meter resource, so
 # these groups list only the jvm memory pool/type data-point attributes. Each
-# carries the obi.upstream_override annotation so the schemacheck drift test
-# pins its unit/instrument/stability to upstream.
+# keeps its upstream name, so the schemacheck drift test pins its
+# unit/instrument/stability to upstream.
 file_format: definition/2
 metrics:
   - name: jvm.memory.committed
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted jvm.memory.committed
     instrument: updowncounter
     unit: "By"
@@ -20,9 +17,6 @@ metrics:
       - ref: jvm.memory.type
         requirement_level: recommended
   - name: jvm.memory.limit
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted jvm.memory.limit
     instrument: updowncounter
     unit: "By"
@@ -34,9 +28,6 @@ metrics:
       - ref: jvm.memory.type
         requirement_level: recommended
   - name: jvm.memory.used
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted jvm.memory.used
     instrument: updowncounter
     unit: "By"
@@ -48,9 +39,6 @@ metrics:
       - ref: jvm.memory.type
         requirement_level: recommended
   - name: jvm.memory.used_after_last_gc
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted jvm.memory.used_after_last_gc
     instrument: updowncounter
     unit: "By"
@@ -62,36 +50,24 @@ metrics:
       - ref: jvm.memory.type
         requirement_level: recommended
   - name: jvm.class.loaded
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted jvm.class.loaded
     instrument: counter
     unit: "{class}"
     stability: stable
     requirement_level: recommended
   - name: jvm.class.unloaded
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted jvm.class.unloaded
     instrument: counter
     unit: "{class}"
     stability: stable
     requirement_level: recommended
   - name: jvm.class.count
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted jvm.class.count
     instrument: updowncounter
     unit: "{class}"
     stability: stable
     requirement_level: recommended
   - name: jvm.thread.count
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted jvm.thread.count
     instrument: updowncounter
     unit: "{thread}"
@@ -101,36 +77,24 @@ metrics:
       - ref: jvm.thread.daemon
         requirement_level: recommended
   - name: jvm.cpu.time
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted jvm.cpu.time
     instrument: counter
     unit: "s"
     stability: stable
     requirement_level: recommended
   - name: jvm.cpu.count
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted jvm.cpu.count
     instrument: updowncounter
     unit: "{cpu}"
     stability: stable
     requirement_level: recommended
   - name: jvm.cpu.recent_utilization
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted jvm.cpu.recent_utilization
     instrument: gauge
     unit: "1"
     stability: stable
     requirement_level: recommended
   - name: jvm.gc.duration
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted jvm.gc.duration
     instrument: histogram
     unit: "s"

@@ -1,6 +1,9 @@
 file_format: definition/2
 spans:
   - type: obi.db.client
+    annotations:
+      obi:
+        upstream: db.client
     kind: client
     name:
       note: Not documented yet.
@@ -49,6 +52,9 @@ spans:
   # SQL client spans come from their own emitter branch, separate from the
   # other native database protocols `obi.db.client` covers.
   - type: obi.db.sql.client
+    annotations:
+      obi:
+        upstream: [db.sql.client, db.client]
     kind: client
     name:
       note: Not documented yet.
@@ -99,6 +105,11 @@ spans:
   # protocols covered by obi.db.client never emit http.* / url.*, which is
   # why this is a separate group rather than extra refs on the shared one.
   - type: obi.elasticsearch.client
+    annotations:
+      obi:
+        upstream: [db.elasticsearch.client, db.client]
+        upstream_extras:
+          http.response.body.size: the response size of the HTTP exchange that carries the Elasticsearch query
     kind: client
     name:
       note: Not documented yet.
@@ -159,6 +170,10 @@ spans:
           conditionally_required: if a response was received
 
   - type: obi.db.server
+    annotations:
+      obi:
+        upstream: none
+        upstream_reason: upstream defines database spans for the client side only
     kind: server
     name:
       note: Not documented yet.
