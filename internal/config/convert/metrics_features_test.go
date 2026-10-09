@@ -61,6 +61,24 @@ func TestV2ConnectionInfoFeatureRoundTrip(t *testing.T) {
 	require.True(t, roundTrip.Metrics.Features.ConnectionInfo())
 }
 
+func TestV2StatsTCPResetsFeatureRoundTrip(t *testing.T) {
+	const name = "stats_tcp_resets"
+	ext, err := schema.ParseReceiverYAML([]byte("version: '2.0'\nmetrics:\n  features: [" + name + "]\n"))
+	require.NoError(t, err)
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.True(t, got.Metrics.Features.StatsTCPResets())
+
+	_, doc := RuntimeToV2(got)
+	require.Equal(t, []string{name}, doc.Capture.Metrics.Features)
+	require.Equal(t, []string{"tcp_resets"}, doc.Capture.Network.Stats.Features)
+
+	roundTrip, err := V2ToRuntime(doc)
+	require.NoError(t, err)
+	require.True(t, roundTrip.Metrics.Features.StatsTCPResets())
+}
+
 func TestV2MetricFeaturesOverrideEnablement(t *testing.T) {
 	t.Parallel()
 
