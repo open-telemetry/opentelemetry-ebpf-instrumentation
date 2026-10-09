@@ -61,7 +61,11 @@ ENV GOARCH=$TARGETARCH
 
 WORKDIR /src
 
-RUN apk add --no-cache git bash mise
+RUN apk add --no-cache git bash make mise
+
+ENV PATH="/usr/lib/llvm22/bin:${PATH}"
+ENV BPF2GO=/go/bin/bpf2go
+ENV CLANG=clang-22
 
 COPY go.mod go.sum mise.toml mise.lock ./
 RUN MISE_ENABLE_TOOLS=go mise install go
@@ -79,7 +83,7 @@ COPY --from=javaagent-builder /build/build/obi-java-agent.jar /src/pkg/internal/
 # Build
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg \
-	/generate.sh \
+	MISE_ENABLE_TOOLS=go mise exec -- make -f bpf/Makefile generate \
 	&& mkdir -p bin \
 	&& MISE_ENABLE_TOOLS=go mise exec -- env CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build \
 	  -ldflags="-X 'go.opentelemetry.io/obi/pkg/buildinfo.Version=${RELEASE_VERSION}' -X 'go.opentelemetry.io/obi/pkg/buildinfo.Revision=${RELEASE_REVISION}'" \

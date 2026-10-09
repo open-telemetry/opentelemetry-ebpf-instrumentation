@@ -123,10 +123,10 @@ run = "go run ./internal/gooffsets -i configs/offsets/tracker_input.json -abi co
 run = "go run ./scripts/python-offsets"
 
 [tasks.generate]
-run = "python3 ./scripts/bpf-generate.py"
+run = "make -f bpf/Makefile generate"
 
 [tasks."generate/all"]
-run = "python3 ./scripts/bpf-generate.py --all"
+run = "make -f bpf/Makefile generate/all"
 
 [tasks.docker-generate]
 depends = ["generate"]

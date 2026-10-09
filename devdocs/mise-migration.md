@@ -1,6 +1,6 @@
 # Mise build and development tasks
 
-Mise is the repository's tool-version manager and task runner. The root
+Mise is the repository's tool-version manager and task runner. The general root
 Makefile has been removed; use `mise run <task>` for development, validation,
 generation, integration, packaging, and release tasks. Run `mise tasks` to
 list tasks and `mise tasks validate` to check their definitions. Tool versions
@@ -8,44 +8,27 @@ are pinned in `mise.toml` and resolved by `mise.lock`.
 
 ## eBPF generation
 
-`mise run generate` performs incremental bpf2go generation. It reads the
-dependency files emitted by bpf2go (`*_bpfel.go.d`) and regenerates only
-packages whose C/header inputs are newer than their generated outputs. It also
-checks that every selected architecture has its expected Go, object, and
-dependency files, and records a local fingerprint of the directives, tool
-module, compiler, and flags. The fingerprint is runtime state under `.mise/`,
-not a checked-in input. `BPF_TARGETS` accepts `amd64`, `arm64`, or both
-(default); amd64 outputs use the bpf2go `x86` suffix. Other architectures are
-rejected.
+`mise run generate` delegates this one task to `bpf/Makefile`. This is an
+intentional exception to the Mise task migration: Make directly includes the
+dependency files emitted by bpf2go (`*_bpfel.go.d`), so changed C/header inputs
+rebuild only the affected generated package and architecture. Reimplementing
+that dynamic dependency graph in a Mise task would mean maintaining custom
+Make-like logic, which was less clear and harder to trust. `BPF_TARGETS`
+accepts `amd64`, `arm64`, or both (default); amd64 outputs use the bpf2go `x86`
+suffix. Other architectures are rejected.
 
-On an initial checkout, or when generated outputs or dependency metadata are
-missing, all BPF packages are generated. `mise run generate/all` forces that
-full generation. The `clang` and `llvm-tools` Mise tools provide the pinned
-LLVM 22 compiler and `llvm-strip`; the reproducible generator container uses
-the same LLVM major and passes its compiler/flags to the generation script.
+On an initial checkout, or when dependency metadata is missing, Make generates
+all BPF packages. `mise run generate/all` forces full generation; use it after
+adding/removing a bpf2go directive or changing generator tools/flags, which are
+not themselves represented by bpf2go's C/header depfiles. The generator image
+installs Make and uses the same `bpf/Makefile`, with the image's pinned Go,
+bpf2go, and LLVM toolchain.
 
-This is not yet as maintainable as Make's dependency tracking. The generator
-script implements its own Make-like checks over bpf2go dependency files. A
-prototype using Mise task `sources` and `outputs` avoided that script logic for
-11 package tasks, but Mise does not dynamically read bpf2go's `.d` files. The
-prototype matched the observed incremental cases only with source lists
-statically populated from the current dependency files; a newly added include
-edge would be missed until its task's source list was updated. Broad source
-globs avoid that stale-list risk but can rerun more packages than necessary.
-
-In one local run, the prototype skipped all tasks on a no-change run (0.251s),
-rebuilt only both generictracer architectures after a generictracer C change
-(21.228s), rebuilt common, generictracer, gotracer, and tpinjector for both
-architectures after a `common.h` change (49.299s), and rebuilt both
-generictracer architectures when an output was deleted (21.021s). These are
-single-run indicative timings, not a benchmark. The task-output approach looks
-promising for speed, but it does not provide Make-equivalent dynamic dependency
-tracking; the current script has the same fundamental maintenance gap.
-
-**Possible upstream Mise discussion:** Could file tasks support dependency
-files emitted by tools such as bpf2go as dynamic `sources` (or equivalent
-dependency metadata), so task outputs can retain precise incremental rebuilds
-without duplicating a build system's dependency logic?
+The Mise discussion about dynamically consuming generated dependency files is
+[open as #14234](https://github.com/jdx/mise/discussions/14234). The maintainer
+said this appears out of scope, so the narrow Make exception is the practical
+choice for now rather than keeping a custom dependency parser or assuming Mise
+task `sources`/`outputs` can represent bpf2go's changing include graph.
 
 ## Common tasks
 
