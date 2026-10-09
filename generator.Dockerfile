@@ -46,10 +46,10 @@ export PATH="/usr/lib/llvm22/bin:\$PATH"
 export BPF2GO=/go/bin/bpf2go
 export CLANG=clang-22
 export GOCACHE=/tmp/go-build
-python3 /usr/local/bin/mise-bpf-generate.py
+python3 /usr/local/bin/bpf-generate.py
 EOF
 
-COPY scripts/mise-bpf-generate.py /usr/local/bin/mise-bpf-generate.py
+COPY scripts/bpf-generate.py /usr/local/bin/bpf-generate.py
 RUN chmod +x /generate.sh
 
 ENTRYPOINT ["/generate.sh"]
