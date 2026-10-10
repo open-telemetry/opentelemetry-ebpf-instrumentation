@@ -1088,6 +1088,37 @@
       "type": "array",
       "description": "List of metric features to enable."
     },
+    "GRPCSecurity": {
+      "properties": {
+        "ca_file": {
+          "type": "string",
+          "description": "CAFile is the trusted client CA for an mtls server or a trusted server CA for a client."
+        },
+        "cert_file": {
+          "type": "string",
+          "description": "CertFile is the server certificate, or the client certificate in mtls mode."
+        },
+        "key_file": {
+          "type": "string",
+          "description": "KeyFile is the private key corresponding to CertFile."
+        },
+        "security_mode": {
+          "type": "string",
+          "enum": [
+            "insecure",
+            "mtls",
+            "tls"
+          ],
+          "description": "Mode is insecure (default), tls (server authentication), or mtls (mutual authentication)."
+        },
+        "server_name": {
+          "type": "string",
+          "description": "ServerName overrides the hostname used by the client to verify the server certificate."
+        }
+      },
+      "type": "object",
+      "description": "GRPCSecurity configures transport security for the Kubernetes metadata cache. The zero value preserves the existing plaintext connection."
+    },
     "GeminiConfig": {
       "properties": {
         "enabled": {
@@ -1757,6 +1788,10 @@
           "type": "string",
           "description": "Specifies the host:port address of the obi-k8s-cache service instance",
           "x-env-var": "OTEL_EBPF_KUBE_META_CACHE_ADDRESS"
+        },
+        "meta_cache_grpc": {
+          "$ref": "#/$defs/GRPCSecurity",
+          "description": "Configures optional transport security for the metadata cache connection."
         },
         "meta_restrict_local_node": {
           "type": "boolean",

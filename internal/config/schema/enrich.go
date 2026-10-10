@@ -8,6 +8,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -77,6 +78,7 @@ type ResourceLabels map[string][]string
 // and source label settings.
 type KubernetesMetadataCache struct {
 	Address           string                 `yaml:"address"`
+	GRPC              kubecache.GRPCSecurity `yaml:"grpc"`
 	RestrictLocalNode bool                   `yaml:"restrict_local_node"`
 	SourceLabels      KubernetesSourceLabels `yaml:"source_labels"`
 }

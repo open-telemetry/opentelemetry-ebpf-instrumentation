@@ -21,6 +21,7 @@ import (
 	maps2 "go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 	ikube "go.opentelemetry.io/obi/pkg/internal/kube"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
@@ -73,6 +74,8 @@ type KubernetesDecorator struct {
 
 	// MetaCacheAddress specifies the host:port address of the obi-k8s-cache service instance
 	MetaCacheAddress string `yaml:"meta_cache_address" env:"OTEL_EBPF_KUBE_META_CACHE_ADDRESS"`
+	// MetaCacheGRPC configures optional transport security for the metadata cache connection.
+	MetaCacheGRPC kubecache.GRPCSecurity `yaml:"meta_cache_grpc" envPrefix:"OTEL_EBPF_KUBE_META_CACHE_GRPC_"`
 
 	// MetaRestrictLocalNode will download only the metadata from the Pods that are located in the same
 	// node as the OBI instance. It will also restrict the Node information to the local node.

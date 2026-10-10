@@ -106,6 +106,18 @@ InstanceIDConfig configures how OBI will get the Instance ID of the traces/metri
 | `attributes.kubernetes.resource_labels` | `map[string]string[]` |  |  |  |  | Allows OBI overriding the OTEL Resource attributes from a map of user-defined labels. |
 | `attributes.kubernetes.service_name_template` | `string` | `OTEL_EBPF_SERVICE_NAME_TEMPLATE` |  |  |  | Allows to override the service.name with a custom value. Uses the go template language. |
 
+#### `attributes.kubernetes.meta_cache_grpc`
+
+GRPCSecurity configures transport security for the Kubernetes metadata cache. The zero value preserves the existing plaintext connection.
+
+| YAML Path | Type | Env Var | Default | Values | Deprecated | Description |
+|---|---|---|---|---|---|---|
+| `attributes.kubernetes.meta_cache_grpc.ca_file` | `string` |  |  |  |  | CAFile is the trusted client CA for an mtls server or a trusted server CA for a client. |
+| `attributes.kubernetes.meta_cache_grpc.cert_file` | `string` |  |  |  |  | CertFile is the server certificate, or the client certificate in mtls mode. |
+| `attributes.kubernetes.meta_cache_grpc.key_file` | `string` |  |  |  |  | KeyFile is the private key corresponding to CertFile. |
+| `attributes.kubernetes.meta_cache_grpc.security_mode` | `string` |  |  | `insecure`, `mtls`, `tls` |  | Mode is insecure (default), tls (server authentication), or mtls (mutual authentication). |
+| `attributes.kubernetes.meta_cache_grpc.server_name` | `string` |  |  |  |  | ServerName overrides the hostname used by the client to verify the server certificate. |
+
 #### `attributes.kubernetes.meta_source_labels`
 
 MetaSourceLabels allow overriding some metadata from kubernetes labels, Left for backwards-compatibility.

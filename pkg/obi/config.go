@@ -40,6 +40,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/transform"
@@ -811,6 +812,13 @@ func (c *Config) validate(context validationContext) error {
 	}
 
 	if err := validate.Struct(c); err != nil {
+		return ConfigError(err.Error())
+	}
+	if c.Attributes.Kubernetes.MetaCacheAddress == "" {
+		if c.Attributes.Kubernetes.MetaCacheGRPC != (kubecache.GRPCSecurity{}) {
+			return ConfigError("meta_cache_grpc requires meta_cache_address")
+		}
+	} else if _, err := c.Attributes.Kubernetes.MetaCacheGRPC.ClientCredentials(); err != nil {
 		return ConfigError(err.Error())
 	}
 

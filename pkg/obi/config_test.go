@@ -40,6 +40,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
@@ -1170,6 +1171,20 @@ func TestConfigValidateStaticSkipsHostCompatibility(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "host is incompatible")
 	require.NoError(t, cfg.ValidateStatic())
+}
+
+func TestConfigKubernetesCacheGRPCSecurity(t *testing.T) {
+	t.Setenv("OTEL_EBPF_KUBE_META_CACHE_GRPC_SECURITY_MODE", "tls")
+	t.Setenv("OTEL_EBPF_KUBE_META_CACHE_GRPC_CA_FILE", "/etc/obi/ca.pem")
+	cfg, err := LoadConfig(bytes.NewBufferString("attributes:\n  kubernetes:\n    meta_cache_address: cache:50055\n"))
+	require.NoError(t, err)
+	require.Equal(t, "tls", cfg.Attributes.Kubernetes.MetaCacheGRPC.Mode)
+	require.Equal(t, "/etc/obi/ca.pem", cfg.Attributes.Kubernetes.MetaCacheGRPC.CAFile)
+	require.ErrorContains(t, cfg.ValidateStatic(), "reading Kubernetes metadata cache gRPC CA file")
+
+	cfg.Attributes.Kubernetes.MetaCacheAddress = ""
+	cfg.Attributes.Kubernetes.MetaCacheGRPC = kubecache.GRPCSecurity{Mode: "tls"}
+	require.ErrorContains(t, cfg.ValidateStatic(), "meta_cache_grpc requires meta_cache_address")
 }
 
 func TestConfigValidatePrometheusPaths(t *testing.T) {
