@@ -15,7 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsecs "github.com/aws/aws-sdk-go-v2/service/ecs"
 	"github.com/aws/aws-sdk-go-v2/service/ecs/types"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -26,7 +25,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
-	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -34,6 +32,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	awsinventory "go.opentelemetry.io/obi/pkg/internal/cloud"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -188,14 +187,14 @@ func TestECSProcessDecorator(t *testing.T) {
 
 func ecsTargetInfoExporters(ctx context.Context, t *testing.T, events *msg.Queue[exec.ProcessEvent], instance string) func(string, string) {
 	t.Helper()
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	spans := msg.NewQueue[[]request.Span]()
 	features := &perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED}
 	selector := &attributes.SelectorConfig{}
 	promRun, err := prom.PrometheusEndpoint(
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+		&global.ContextInfo{Prometheus: registry.Manager},
 		&prom.PrometheusConfig{
-			Registry: registry, TTL: time.Minute, SpanMetricsServiceCacheSize: 10,
+			Port: registry.Port, Path: "/metrics", TTL: time.Minute, SpanMetricsServiceCacheSize: 10,
 			Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		}, features, selector, request.UnresolvedNames{}, spans, events, nil,
 	)(ctx)

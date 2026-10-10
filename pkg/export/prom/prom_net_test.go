@@ -12,7 +12,6 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
-	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
@@ -33,10 +32,10 @@ func TestMetricsExpiration(t *testing.T) {
 	// GIVEN a Prometheus Metrics Exporter with a metrics expire time of 3 minutes
 	metrics := msg.NewQueue[[]*ebpf.Record](msg.ChannelBufferLen(20))
 	exporter, err := NetPrometheusEndpoint(
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+		&global.ContextInfo{Prometheus: registry.Manager},
 		&NetPrometheusConfig{
 			Config: &PrometheusConfig{
-				Registry:                    registry,
+				Port:                        registry.Port,
 				Path:                        "/metrics",
 				TTL:                         3 * time.Minute,
 				SpanMetricsServiceCacheSize: 10,

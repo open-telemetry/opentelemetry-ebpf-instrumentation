@@ -101,6 +101,8 @@ published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
+- Removed `PrometheusConfig.Registry`. Embedders can no longer supply a custom
+  Prometheus registry; Prometheus export requires a configured HTTP port.
 - GenAI client span names follow `{gen_ai.operation.name} {gen_ai.request.model}`
   (retrieval: `{gen_ai.operation.name} {gen_ai.data_source.id}`), built only from the
   values emitted on the span:

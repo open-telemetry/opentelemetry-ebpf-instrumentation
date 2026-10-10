@@ -5,6 +5,7 @@ package prom
 
 import (
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -66,6 +67,9 @@ func TestRuntimeMetricsJobLabel(t *testing.T) {
 			require.NoError(t, err)
 			names := make([]string, 0, len(families))
 			for _, family := range families {
+				if strings.HasPrefix(family.GetName(), "promhttp_") {
+					continue
+				}
 				names = append(names, family.GetName())
 				for _, metric := range family.GetMetric() {
 					labels := map[string]string{}

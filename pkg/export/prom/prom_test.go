@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/signal"
 	"regexp"
@@ -21,7 +20,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -41,6 +39,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -68,9 +67,9 @@ func TestAppMetrics_BodySizeFeature(t *testing.T) {
 			promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 			exporter, err := PrometheusEndpoint(
-				&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+				&global.ContextInfo{Prometheus: registry.Manager},
 				&PrometheusConfig{
-					Registry:                    registry,
+					Port:                        registry.Port,
 					Path:                        "/metrics",
 					TTL:                         3 * time.Minute,
 					SpanMetricsServiceCacheSize: 10,
@@ -123,9 +122,9 @@ func TestAppMetrics_HTTPErrorType(t *testing.T) {
 	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	exporter, err := PrometheusEndpoint(
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+		&global.ContextInfo{Prometheus: registry.Manager},
 		&PrometheusConfig{
-			Registry:                    registry,
+			Port:                        registry.Port,
 			Path:                        "/metrics",
 			TTL:                         3 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
@@ -190,7 +189,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	exporter, err := PrometheusEndpoint(
 		&global.ContextInfo{
-			Prometheus: &connector.PrometheusManager{},
+			Prometheus: registry.Manager,
 			NodeMeta: metadata.NodeMeta{
 				HostID: "my-host",
 				Metadata: []metadata.Entry{
@@ -201,7 +200,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 			MetricAttributeGroups: g,
 		},
 		&PrometheusConfig{
-			Registry:                    registry,
+			Port:                        registry.Port,
 			Path:                        "/metrics",
 			TTL:                         3 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
@@ -1006,15 +1005,10 @@ func exemplarLabelValue(exemplar *dto.Exemplar, name string) string {
 
 var mmux = sync.Mutex{}
 
-func newPrometheusTestServer(t *testing.T) (*prometheus.Registry, string) {
+func newPrometheusTestServer(t *testing.T) (*testutil.PrometheusServer, string) {
 	t.Helper()
-	registry := prometheus.NewRegistry()
-	server := httptest.NewServer(promhttp.HandlerFor(registry, promhttp.HandlerOpts{
-		Registry:          registry,
-		EnableOpenMetrics: true,
-	}))
-	t.Cleanup(server.Close)
-	return registry, server.URL
+	server := testutil.NewPrometheusServer(t)
+	return server, server.URL
 }
 
 func getMetrics(t require.TestingT, promURL string) string {
@@ -1054,14 +1048,14 @@ func (c *syncedClock) Advance(t time.Duration) {
 
 func makePromExporter(
 	ctx context.Context, t *testing.T, instrumentations []instrumentations.Instrumentation,
-	registry *prometheus.Registry,
+	registry *testutil.PrometheusServer,
 	input *msg.Queue[[]request.Span],
 ) swarm.RunFunc {
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	exporter, err := PrometheusEndpoint(
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+		&global.ContextInfo{Prometheus: registry.Manager},
 		&PrometheusConfig{
-			Registry:                    registry,
+			Port:                        registry.Port,
 			Path:                        "/metrics",
 			TTL:                         300 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
@@ -1675,9 +1669,9 @@ func TestREDMetricsUnmeasuredSpanPublishesRequestSizeOnly(t *testing.T) {
 	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	exporter, err := PrometheusEndpoint(
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+		&global.ContextInfo{Prometheus: registry.Manager},
 		&PrometheusConfig{
-			Registry:                    registry,
+			Port:                        registry.Port,
 			Path:                        "/metrics",
 			TTL:                         3 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,

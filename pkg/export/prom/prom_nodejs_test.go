@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -18,9 +17,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
-	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
@@ -31,12 +30,12 @@ var nodejsTestBuckets = export.Buckets{
 	V8JSGCDurationHistogram: []float64{0.002, 0.2, 2},
 }
 
-func newNodejsTestReporter(t *testing.T, registry *prometheus.Registry) *metricsReporter {
+func newNodejsTestReporter(t *testing.T, registry *testutil.PrometheusServer) *metricsReporter {
 	t.Helper()
 	reporter, err := newReporter(
 		t.Context(),
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&PrometheusConfig{Registry: registry, TTL: time.Minute, Buckets: nodejsTestBuckets},
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: time.Minute, Buckets: nodejsTestBuckets},
 		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{},
 		request.UnresolvedNames{},
@@ -76,7 +75,7 @@ func nodejsStateLabels(state string) map[string]string {
 }
 
 func TestRuntimeMetricsReporterRecordsNodejsEventLoop(t *testing.T) {
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter := newNodejsTestReporter(t, registry)
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{
@@ -107,7 +106,7 @@ func TestRuntimeMetricsReporterRecordsNodejsEventLoop(t *testing.T) {
 }
 
 func TestRuntimeMetricsReporterKeepsNodejsDelayOnEmptyWindow(t *testing.T) {
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter := newNodejsTestReporter(t, registry)
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{
@@ -191,7 +190,7 @@ func nodejsHeapSpaceLabels(space string) map[string]string {
 }
 
 func TestRuntimeMetricsReporterRecordsV8GCDuration(t *testing.T) {
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter := newNodejsTestReporter(t, registry)
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{
@@ -213,7 +212,7 @@ func TestRuntimeMetricsReporterRecordsV8GCDuration(t *testing.T) {
 }
 
 func TestRuntimeMetricsReporterRecordsV8HeapSpaces(t *testing.T) {
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter := newNodejsTestReporter(t, registry)
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{
@@ -247,7 +246,7 @@ func TestRuntimeMetricsReporterRecordsV8HeapSpaces(t *testing.T) {
 }
 
 func TestRuntimeMetricsReporterRecordsV8ResourceActive(t *testing.T) {
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter := newNodejsTestReporter(t, registry)
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{
@@ -273,7 +272,7 @@ func TestRuntimeMetricsReporterRecordsV8ResourceActive(t *testing.T) {
 }
 
 func TestRuntimeMetricsReporterDropsV8WithoutRuntimeFeature(t *testing.T) {
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter := newNodejsTestReporter(t, registry)
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{
@@ -288,7 +287,7 @@ func TestRuntimeMetricsReporterDropsV8WithoutRuntimeFeature(t *testing.T) {
 }
 
 func TestRuntimeMetricsReporterDropsNodejsServiceWithoutRuntimeFeature(t *testing.T) {
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter := newNodejsTestReporter(t, registry)
 
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{
