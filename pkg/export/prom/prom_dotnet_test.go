@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
+	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -275,8 +276,8 @@ func TestDotnetRuntimeDeleteMatchesExactLabels(t *testing.T) {
 	for _, name := range []string{"orders", "orders-worker"} {
 		collector.collections.WithLabelValues(name, "gen2").Metric.Add(3)
 		collector.values[dotnetRuntimeCounterKey{
-			labels:     runtimeMetricLabelTuple([]string{name, "gen2"}),
-			baseLabels: runtimeMetricLabelTuple([]string{name}),
+			labels:     expire.LabelsKey([]string{name, "gen2"}),
+			baseLabels: expire.LabelsKey([]string{name}),
 		}] = 3
 	}
 	collector.delete([]string{"orders"})
@@ -286,7 +287,7 @@ func TestDotnetRuntimeDeleteMatchesExactLabels(t *testing.T) {
 		map[string]string{"service_name": "orders-worker", "dotnet_gc_heap_generation": "gen2"}))
 	require.Len(t, collector.values, 1)
 	for key := range collector.values {
-		require.Equal(t, runtimeMetricLabelTuple([]string{"orders-worker"}), key.baseLabels)
+		require.Equal(t, expire.LabelsKey([]string{"orders-worker"}), key.baseLabels)
 	}
 }
 

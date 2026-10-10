@@ -86,7 +86,7 @@ func (c *dotnetRuntimeMetricsCollector) delete(values []string) {
 	for _, index := range c.baseLabelIndexes {
 		labels = append(labels, values[index])
 	}
-	baseLabels := runtimeMetricLabelTuple(labels)
+	baseLabels := expire.LabelsKey(labels)
 	for _, counter := range []*Expirer[prometheus.Counter]{
 		c.gcHeapTotalAllocated,
 		c.gcPauseTime,
@@ -175,7 +175,7 @@ func (r *metricsReporter) collectDotnetRuntimeMetrics(snapshot runtimemetrics.Ru
 		generation: snapshot.Generation,
 		lastSeen:   c.clock(),
 		labels:     append([]string(nil), labels...),
-		labelTuple: runtimeMetricLabelTuple(labels),
+		labelTuple: expire.LabelsKey(labels),
 		values:     *snapshot.Dotnet,
 	}
 	var oldValues runtimemetrics.DotnetRuntimeMetricSnapshot
@@ -240,7 +240,7 @@ func (r *metricsReporter) collectDotnetRuntimeMetrics(snapshot runtimemetrics.Ru
 		}
 		key := dotnetRuntimeCounterKey{
 			pid: snapshot.PID, generation: snapshot.Generation, metric: counter.name,
-			labels: runtimeMetricLabelTuple(counterLabels), baseLabels: current.labelTuple,
+			labels: expire.LabelsKey(counterLabels), baseLabels: current.labelTuple,
 		}
 		var baseline *float64
 		if previous, exists := c.durationValues[key]; exists {
@@ -257,8 +257,8 @@ func (r *metricsReporter) collectDotnetRuntimeMetrics(snapshot runtimemetrics.Ru
 		}
 		labels[len(labels)-1] = fmt.Sprintf("gen%d", generation)
 		key := dotnetRuntimeCounterKey{
-			pid: snapshot.PID, generation: snapshot.Generation, labels: runtimeMetricLabelTuple(labels),
-			baseLabels: runtimeMetricLabelTuple(labels[:len(labels)-1]),
+			pid: snapshot.PID, generation: snapshot.Generation, labels: expire.LabelsKey(labels),
+			baseLabels: expire.LabelsKey(labels[:len(labels)-1]),
 		}
 		previous, exists := c.values[key]
 		entry := c.collections.WithLabelValues(labels...)

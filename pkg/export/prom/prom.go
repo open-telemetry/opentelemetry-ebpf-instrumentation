@@ -24,6 +24,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/connector"
+	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/mcpsession"
 	"go.opentelemetry.io/obi/pkg/export/otel"
@@ -1880,8 +1881,8 @@ func (r *metricsReporter) deleteMetricsForServicePreservingRuntimeHistograms(ser
 }
 
 func (r *metricsReporter) deleteMetricsForAttributeUpdate(previous, current *svc.Attrs) {
-	previousLabels := runtimeMetricLabelTuple(r.labelValuesTargetInfo(previous))
-	currentLabels := runtimeMetricLabelTuple(r.labelValuesTargetInfo(current))
+	previousLabels := expire.LabelsKey(r.labelValuesTargetInfo(previous))
+	currentLabels := expire.LabelsKey(r.labelValuesTargetInfo(current))
 	if previousLabels == currentLabels && r.deleteEventMetricsPreservingHistograms != nil {
 		r.deleteEventMetricsPreservingHistograms(previous)
 		return
