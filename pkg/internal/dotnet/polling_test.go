@@ -4,6 +4,7 @@
 package dotnet
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -56,6 +57,38 @@ func TestObservePollingCounterCounts(t *testing.T) {
 				require.NoError(t, err)
 				require.NotNil(t, *field)
 				require.Equal(t, value, **field)
+			}
+		})
+	}
+}
+
+func TestObserveHeapSizeCounters(t *testing.T) {
+	for generation, name := range []string{"gen-0-size", "gen-1-size", "gen-2-size", "loh-size", "poh-size"} {
+		t.Run(name, func(t *testing.T) {
+			var snapshot runtimemetrics.DotnetRuntimeMetricSnapshot
+			for _, value := range []float64{123456, 64, 0} {
+				counter, err := decodeRuntimeCounter(map[string]any{"": map[string]any{"Payload": map[string]any{
+					"Name": name, "CounterType": "Mean", "IntervalSec": float32(1), "Mean": value,
+				}}})
+				require.NoError(t, err)
+				require.NoError(t, observePollingCounter(&snapshot, counter))
+				require.Equal(t, int64(value), *snapshot.GCHeapSize[generation])
+				for other, size := range snapshot.GCHeapSize {
+					if other != generation {
+						require.Nil(t, size)
+					}
+				}
+			}
+			for _, counter := range []runtimeCounter{
+				{Name: name, Value: -1},
+				{Name: name, Value: 0.5},
+				{Name: name, Value: math.NaN()},
+				{Name: name, Value: math.Inf(1)},
+				{Name: name, Value: float64(math.MaxInt64)},
+				{Name: name, Value: 1, Increment: true},
+			} {
+				require.Error(t, observePollingCounter(&snapshot, counter))
+				require.Zero(t, *snapshot.GCHeapSize[generation], "invalid input must preserve the last value")
 			}
 		})
 	}
