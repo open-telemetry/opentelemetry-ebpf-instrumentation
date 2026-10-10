@@ -455,6 +455,31 @@ groups:
       How many network packets have been internally ignored due to collisions
       in the internal eBPF cache.
 
+  # --- Ring buffer accounting ---------------------------------------------
+  - id: metric.obi.obi.bpf.ringbuf.writes
+    type: metric
+    metric_name: obi.bpf.ringbuf.writes
+    instrument: counter
+    unit: "{write}"
+    stability: development
+    brief: How many writes to the named ring buffer have been attempted.
+    attributes:
+      - ref: bpf.map.name
+        requirement_level: required
+
+  - id: metric.obi.obi.bpf.ringbuf.write.failures
+    type: metric
+    metric_name: obi.bpf.ringbuf.write.failures
+    instrument: counter
+    unit: "{write}"
+    stability: development
+    brief: >
+      How many writes to the named ring buffer failed because the buffer was
+      full.
+    attributes:
+      - ref: bpf.map.name
+        requirement_level: required
+
   # --- Kubernetes informer ------------------------------------------------
   - id: metric.obi.obi.kube.cache.forward.lag
     type: metric
