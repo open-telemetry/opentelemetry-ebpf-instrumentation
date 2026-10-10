@@ -650,20 +650,22 @@ func TestSerializeJSONSpans(t *testing.T) {
 		{
 			eventType: EventTypeGRPC,
 			attribs: map[string]any{
-				"method":     "_OTHER",
-				"status":     "200",
-				"clientAddr": "peername",
-				"serverAddr": "hostname",
-				"serverPort": "5678",
+				"method":         "_OTHER",
+				"methodOriginal": "path",
+				"status":         "200",
+				"clientAddr":     "peername",
+				"serverAddr":     "hostname",
+				"serverPort":     "5678",
 			},
 		},
 		{
 			eventType: EventTypeGRPCClient,
 			attribs: map[string]any{
-				"method":     "_OTHER",
-				"status":     "200",
-				"serverAddr": "hostname",
-				"serverPort": "5678",
+				"method":         "_OTHER",
+				"methodOriginal": "path",
+				"status":         "200",
+				"serverAddr":     "hostname",
+				"serverPort":     "5678",
 			},
 		},
 		{

@@ -25,7 +25,8 @@ func TestGRPCMethod(t *testing.T) {
 		{path: "//SayHello", method: rpcMethodOther, original: "//SayHello"},
 		{path: "/helloworld.Greeter/", method: rpcMethodOther, original: "/helloworld.Greeter/"},
 		{path: "/a/b/c", method: rpcMethodOther, original: "/a/b/c"},
-		{path: "helloworld.Greeter/SayHello", method: rpcMethodOther},
+		{path: "helloworld.Greeter/SayHello", method: rpcMethodOther, original: "helloworld.Greeter/SayHello"},
+		{path: "SayHello", method: rpcMethodOther, original: "SayHello"},
 		{path: "*", method: rpcMethodOther},
 		{path: "", method: rpcMethodOther},
 	}
