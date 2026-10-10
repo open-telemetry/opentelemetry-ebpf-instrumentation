@@ -705,6 +705,23 @@
                   "default": false,
                   "description": "Enable eBPF debug logging.\nIf omitted, false is used.\n"
                 },
+                "bpf_mode": {
+                  "oneOf": [
+                    {
+                      "type": "string",
+                      "enum": ["all", "disabled", ""],
+                      "description": "Enable all debug outputs, disable debug logging, or use empty string for disabled."
+                    },
+                    {
+                      "type": "string",
+                      "description": "Comma-separated list of debug outputs to enable.",
+                      "examples": ["trace_pipe", "userspace", "trace_pipe,userspace"],
+                      "pattern": "^(trace_pipe|userspace)(,(trace_pipe|userspace))*$"
+                    }
+                  ],
+                  "title": "BPF Debug Mode",
+                  "description": "Controls eBPF debug logging outputs: 'trace_pipe', 'userspace', or both ('all')."
+                },
                 "protocol_print": {
                   "type": "boolean",
                   "default": false,
