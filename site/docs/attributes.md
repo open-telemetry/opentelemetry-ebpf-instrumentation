@@ -79,6 +79,14 @@ Attributes carried by OBI's own internal (obi.*) OTLP metrics. Keys are namespac
 | `subscriber` | string | development | Name of the pipeline stage consuming the internal queue, as given to msg.SubscriberName when the stage subscribed. Subscribers that do not provide a name fall back to the name of the queue they subscribed to. | discover.CriteriaMatcher; traceAttacher |
 | `telemetry.type` | string | development | Which OBI pipeline avoided instrumenting a service that already has OpenTelemetry instrumentation. Value is "metrics" or "traces". | metrics; traces |
 
+## `registry.obi.jvm`
+
+Language evidenced by the resolved application entry point of a JVM process.
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `jvm.language` | string | development | Language associated with the resolved application entry point of a JVM process. Emitted only when a recognized compiler marker or launch mode provides positive evidence. Omitted when the entry point is unresolved or has no recognized marker. This does not describe every language used by a mixed-language application. | java; kotlin; scala |
+
 ## `registry.obi.k8s`
 
 Kubernetes metadata OBI's k8s decorator (pkg/transform/k8s.go) attaches to the resource attributes of every decorated signal, beyond the upstream `k8s.*` semconv attributes (`k8s.pod.name`, `k8s.namespace.name`, …) it also sets. Declared here because upstream semconv has no equivalent for the "top-level owner" abstraction OBI uses to name the workload independently of its kind.

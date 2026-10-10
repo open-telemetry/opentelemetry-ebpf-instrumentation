@@ -135,6 +135,9 @@ func parseConstantPool(reader *classReader) (constantPool, error) {
 	}
 
 	cp := make(constantPool, count)
+	if count == 0 {
+		return nil, errors.New("empty constant pool")
+	}
 	for i := uint16(1); i < count; i++ {
 		tag, err := reader.u1()
 		if err != nil {
@@ -158,6 +161,9 @@ func parseConstantPool(reader *classReader) (constantPool, error) {
 				return nil, err
 			}
 		case cpTagLong, cpTagDouble:
+			if i+1 >= count {
+				return nil, errors.New("missing second constant pool slot")
+			}
 			if err := reader.skip(8); err != nil {
 				return nil, err
 			}
@@ -275,6 +281,9 @@ func parseAnnotationsAttribute(data []byte, cp constantPool) ([]annotation, erro
 		}
 		annotations = append(annotations, ann)
 	}
+	if reader.off != len(data) {
+		return nil, errors.New("trailing annotation data")
+	}
 	return annotations, nil
 }
 
@@ -355,9 +364,12 @@ func parseElementValue(reader *classReader, cp constantPool) (elementValue, erro
 		}
 		return values, nil
 	case 'e':
-		return elementValue{}, reader.skip(4)
+		if err := readAnnotationConstant(reader, cp, cpTagUtf8); err != nil {
+			return elementValue{}, err
+		}
+		return elementValue{}, readAnnotationConstant(reader, cp, cpTagUtf8)
 	case 'c':
-		return elementValue{}, reader.skip(2)
+		return elementValue{}, readAnnotationConstant(reader, cp, cpTagUtf8)
 	case '@':
 		ann, err := parseAnnotation(reader, cp)
 		if err != nil {
@@ -365,10 +377,30 @@ func parseElementValue(reader *classReader, cp constantPool) (elementValue, erro
 		}
 		return elementValue{annotations: []annotation{ann}}, nil
 	case 'B', 'C', 'D', 'F', 'I', 'J', 'S', 'Z':
-		return elementValue{}, reader.skip(2)
+		constantTag := cpTagInteger
+		switch tag {
+		case 'D':
+			constantTag = cpTagDouble
+		case 'F':
+			constantTag = cpTagFloat
+		case 'J':
+			constantTag = cpTagLong
+		}
+		return elementValue{}, readAnnotationConstant(reader, cp, constantTag)
 	default:
 		return elementValue{}, fmt.Errorf("unsupported annotation value tag %q", tag)
 	}
+}
+
+func readAnnotationConstant(reader *classReader, cp constantPool, tag uint8) error {
+	index, err := reader.u2()
+	if err != nil {
+		return err
+	}
+	if int(index) >= len(cp) || cp[index].tag != tag {
+		return errors.New("invalid annotation constant reference")
+	}
+	return nil
 }
 
 func (cp constantPool) utf8(index uint16) (string, bool) {
@@ -416,7 +448,7 @@ func (r *classReader) u4() (uint32, error) {
 }
 
 func (r *classReader) bytes(n int) ([]byte, error) {
-	if n < 0 || r.off+n > len(r.data) {
+	if n < 0 || n > len(r.data)-r.off {
 		return nil, errors.New("unexpected end of class file")
 	}
 	value := r.data[r.off : r.off+n]
