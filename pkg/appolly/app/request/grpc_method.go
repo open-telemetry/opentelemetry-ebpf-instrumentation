@@ -9,17 +9,23 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 )
 
-const rpcMethodOther = "_OTHER"
+const (
+	rpcMethodOther = "_OTHER"
+
+	// unreadGRPCPath is the path the HTTP/2 parser reports when it could not
+	// read a usable :path header.
+	unreadGRPCPath = "*"
+)
 
 var grpcSystemName = semconv.RPCSystemNameGRPC.Value.AsString()
 
 func GRPCMethod(s *Span) (method, original string) {
-	fullMethod, isPath := strings.CutPrefix(s.Path, "/")
-	if !isPath {
+	if s.Path == "" || s.Path == unreadGRPCPath {
 		return rpcMethodOther, ""
 	}
 
-	if !isGRPCFullMethod(fullMethod) {
+	fullMethod, isPath := strings.CutPrefix(s.Path, "/")
+	if !isPath || !isGRPCFullMethod(fullMethod) {
 		return rpcMethodOther, s.Path
 	}
 
