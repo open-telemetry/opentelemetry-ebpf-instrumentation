@@ -13,7 +13,7 @@ Rails.application.configure do
 
   config.active_record.migration_error = :page_load
   config.active_record.verbose_query_logs = true
-  config.active_record.query_log_tags_enabled = true
+  config.active_record.query_log_tags_enabled = ENV.fetch("QUERY_LOG_TAGS_ENABLED", "true") == "true"
 
   config.active_support.deprecation = :log
 end

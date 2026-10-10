@@ -44,6 +44,7 @@ services:
       - ./system/sys/kernel/security:/sys/kernel/security
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-ruby:/var/run/obi
+      - /var/run/docker.sock:/var/run/docker.sock
     image: hatest-obi
     privileged: true
     network_mode: "host"

@@ -538,6 +538,20 @@ func TestSuite_RailsNginxSQL(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestSuite_RailsRuby348Postgres(t *testing.T) {
+	// Start Ruby 3.4.8 with Puma and reuse the existing Rails/PostgreSQL stack.
+	compose, err := docker.ComposeSuite("docker-compose-ruby-3.4.8-postgres.yml", path.Join(pathOutput, "test-suite-ruby-3.4.8-postgres.log"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, compose.Close()) })
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=3040`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=3041:3040`)
+	require.NoError(t, compose.Up())
+	t.Cleanup(func() { runWeaverValidation(t) })
+
+	t.Run("Rails PostgreSQL traces", testHTTPTracesRailsPostgres)
+	t.Run("Rails PostgreSQL prepared statement traces", testHTTPTracesRailsPostgresPrepared)
+}
+
 func TestSuite_RailsRuby4Postgres(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-ruby-postgres.yml", path.Join(pathOutput, "test-suite-ruby-postgres.log"))
 	require.NoError(t, err)
