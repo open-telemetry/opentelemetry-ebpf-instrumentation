@@ -2,19 +2,20 @@
 
 ## Purpose
 
-This repository provides eBPF-based instrumentation for applications and integrates with OpenTelemetry.
+This repository provides eBPF-based application instrumentation and integrates
+with OpenTelemetry. Produce small, correct, reviewable changes that respect the
+existing architecture and development workflow.
 
-Agents operating on this repository must produce small, correct, and reviewable changes that respect the existing architecture and development workflow.
-
-For an overview of the data pipeline and component relationships, start with [devdocs/pipeline-map.md](devdocs/pipeline-map.md).
-If DeepWiki MCP is configured in the agent environment, agents may also consult the [DeepWiki repository page](https://deepwiki.com/open-telemetry/opentelemetry-ebpf-instrumentation) for additional architecture and codebase context.
-
-When repository files do not fully answer a question, prefer these references:
+Use [devdocs/pipeline-map.md](devdocs/pipeline-map.md) for architecture and data
+flow. The
+[DeepWiki repository page](https://deepwiki.com/open-telemetry/opentelemetry-ebpf-instrumentation)
+may provide additional context when available. When repository files do not
+answer a question, consult these primary references:
 
 - [eBPF reference documentation](https://docs.ebpf.io/linux/)
 - [OpenTelemetry documentation and specifications](https://opentelemetry.io/docs/)
 
-Prefer repository code and local documentation when there is any discrepancy with external references or summaries.
+Repository code and local documentation take precedence over external sources.
 
 ## Task-oriented starting points
 
@@ -47,18 +48,20 @@ Generated files (never edit manually):
 - `*_bpfel.o`, `*_bpfeb.o` — Compiled eBPF bytecode
 - `bpf/bpfcore/` — Copied and auto-generated files; do not edit anything in this directory
 
-Do not assume boundaries can be changed without explicit instruction.
-
 ## Rules
 
-- Keep changes minimal and scoped to the task.
-- Do not include unrelated edits, formatting changes, or cleanup.
-- Follow existing code patterns and structure.
-- Prefer consistency with surrounding code over stylistic changes.
-- Do not introduce unnecessary abstractions.
-- Refactors are allowed only when they are directly relevant to the task.
-
-If the task is unclear or underspecified, ask for clarification before making changes.
+- Keep changes scoped; do not include unrelated cleanup or formatting.
+- Follow surrounding patterns and package boundaries. Refactor only when it is
+  directly relevant to the task.
+- Search for and reuse existing helpers, dependencies, and patterns before
+  introducing a new implementation or abstraction.
+- Prefer simple, explicit logic, focused functions, and early returns where
+  they improve readability.
+- Name constants or derive values from existing types instead of using magic
+  numbers.
+- Add comments only for necessary context or non-obvious kernel, verifier, or
+  ABI constraints.
+- Ask for clarification when a material ambiguity would change the result.
 
 ## GitHub Communication
 
@@ -68,19 +71,31 @@ point, use short paragraphs or lists when helpful, and include only the context
 needed to understand or act on the message. Do not post generated wall-of-text
 reports, exhaustive restatements of the code, or a play-by-play of the work.
 
+## AI-assisted contributions
+
+Agents may author implementation code, documentation, tests, and GitHub
+communication. Their output must follow the same repository, validation, and
+communication requirements as any other contribution.
+
+When preparing work for submission, agents must:
+
+- Distinguish verified facts from assumptions.
+- Report the validation they ran and any validation they could not run.
+- Include the disclosure required by `AI-POLICY.md` for non-trivial Generative
+  AI assistance.
+- Leave assertions of human review, understanding, and acceptance of
+  responsibility to the contributor.
+
 ## Validation
 
-Before proposing changes, ensure the repository generates required artifacts, passes validation, and compiles successfully.
-
-Preferred validation targets:
+Run validation proportionate to the change. Preferred targets:
 
 - `make verify` for the main validation flow
 - `make build` when generation and compilation are also required
 - `make generate` or `make docker-generate` when any `.c` file in `bpf/` is added or modified
 
-Use `make lint`, `make test`, and `make compile` for targeted iteration when a full validation run is unnecessary.
-
-For Markdown-only changes, run `make lint-markdown`.
+Use `make lint`, `make test`, and `make compile` for targeted iteration. For
+Markdown-only changes, run `make lint-markdown`.
 
 C code must be formatted and linted before proposing changes. Run `make install-hooks` to install pre-commit hooks that enforce this automatically, or run `make docker-clang-format` and `make docker-clang-tidy` manually to use the same LLVM version as CI (`make clang-format` and `make clang-tidy` use the local tools).
 
@@ -90,64 +105,33 @@ Integration tests live in `internal/test/integration/`:
 go test -v -run <TestName> -timeout 10m ./internal/test/integration/
 ```
 
-Do not propose changes that fail local validation.
+Report checks that could not run or failures unrelated to the change. Do not
+claim validation passed when it did not.
 
 ## Telemetry schema
 
-OBI publishes an OpenTelemetry telemetry schema under `site/schemas/obi/` and
-emits a `schema_url` on its telemetry. Cutting a new version and bumping the
-emitted URL (`OBISchemaURL`) are automated at release prep (`make prerelease` runs
-`make generate-schema-next`), and `make check-schema-files` guards their
-consistency in CI.
+OBI publishes its OpenTelemetry schema under `site/schemas/obi/` and emits its
+`schema_url` from `OBISchemaURL`. `make prerelease` automates new versions and
+URL updates through `make generate-schema-next`; `make check-schema-files`
+verifies consistency.
 
-Reference docs for what OBI emits are rendered from the same registry into
-`site/docs/` by `make generate-schema-docs`, which `make prerelease` also runs so
-each release ships docs matching its registry. Between releases, rerun it and
-commit the result whenever the registry changes; it is not verified in CI.
+`make generate-schema-docs` renders the registry into `site/docs/`, and
+`make prerelease` also runs it. Run and commit it between releases whenever the
+registry changes; CI does not verify these docs.
 
-The one step that is not automated: recording **renames** of emitted attributes or
-metrics as schema transformations. If a change renames emitted telemetry, it must be
-recorded so consumers can convert across versions —
-record it under "Pending transformations" in `devdocs/telemetry-schema.md`, which
-the release owner drains into the new version's block at release prep ("Releasing
-a new version"). A change the schema format cannot express — dropping an attribute
-or a metric, or anything specific to the Prometheus exporter — goes under "Pending
-release notes" in the same file instead. Neither can be enforced mechanically today, so it is the
-contributor's and release owner's responsibility.
-
-## Code Guidelines
-
-These rules apply to all code in the repository.
-
-- Clarity is paramount. Code must be easy to read and reason about.
-- Prefer simple, explicit logic over clever or compact code.
-- Design code to be orthogonal. Changes in one area must not introduce side effects in unrelated parts of the system.
-- Avoid overlapping responsibilities. Each component should do one thing and do it well.
-- Prefer composition of small, independent pieces over tightly coupled logic.
-- Do not introduce hidden coupling between components.
-- Functions must be small and focused. Split large functions when needed.
-- Maintain clear structure and naming. Prioritize readability over brevity.
-- Prefer early returns when they improve readability and reduce indentation depth.
-- Use vertical spacing to separate logical blocks and improve readability. Do not compress unrelated logic into a dense block of code.
-- Do not use magic numbers. Name constants or derive sizes from existing types and objects when possible.
-- Do not introduce new implementations when equivalent functionality already exists in the repository or its dependencies. Search for and reuse existing utilities, helpers, or patterns — including those provided by external libraries already in use. Extend or adapt existing code instead of duplicating functionality.
-
-Comments must be minimal:
-
-- Do not add comments that restate the code.
-- Prefer clearer code over explanatory comments.
-- Add comments only when they provide necessary context, explain non-obvious behavior, or document verifier, kernel, or ABI constraints.
+Record emitted attribute or metric renames under "Pending transformations" in
+`devdocs/telemetry-schema.md`. Record removals and Prometheus-specific changes,
+which the schema format cannot express, under "Pending release notes". Release
+preparation moves these entries into the new version.
 
 ## Go Guidelines
 
-- Avoid unnecessary interfaces. Do not introduce interfaces unless they are needed for an existing design boundary, multiple implementations, or tests.
-- Avoid over-abstraction. Prefer concrete types and straightforward code.
-- Do not introduce new layers, wrappers, or indirection without a clear need.
+- Prefer concrete types and direct code. Introduce interfaces only for an
+  existing boundary, multiple implementations, or tests.
 - Respect existing package boundaries and responsibilities.
 
 ## eBPF / C Guidelines
 
-- Apply modern C best practices with readability and maintainability as the priority.
 - Prefer `const` correctness wherever possible.
 - Use the narrowest appropriate integer type. Prefer unsigned types for sizes, counts, indexes, bitfields, and values that cannot be negative. Use signed types only when signed semantics are required.
 - Prefer enums over macros for constants. Avoid macros unless they are strictly necessary.
@@ -160,6 +144,5 @@ Comments must be minimal:
 - For tail calls, prefer `bpf_tail_call_static(...)`. Define tail call program arrays in the eBPF C code unless there is a clear reason not to.
 - Use `bpf_probe_read_kernel` for kernel memory, `bpf_probe_read_user` for user memory, and default to `bpf_probe_read` only when writing genuinely generic code that must handle both cases.
 - OBI requires kernel 5.8 or higher with BTF enabled. RHEL-based distributions (RHEL8, CentOS 8, Rocky8, AlmaLinux8) are supported via kernel 4.18 with backported eBPF patches. Do not use helpers or features unavailable in the minimum supported kernel unless gated by a runtime check.
-- Respect verifier limitations and kernel compatibility.
-- Avoid patterns that increase verifier complexity or risk rejection.
-- Keep programs simple and predictable.
+- Keep programs simple and predictable to limit verifier complexity and
+  preserve kernel compatibility.

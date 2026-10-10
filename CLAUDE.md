@@ -1,4 +1,3 @@
 # Claude Code Instructions
 
-@AGENTS.md
-@AI-POLICY.md
+Follow @AGENTS.md as the repository instructions.
