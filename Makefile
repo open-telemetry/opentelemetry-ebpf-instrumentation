@@ -93,6 +93,7 @@ __check_defined = \
 
 # Tools module where tool versions are defined.
 TOOLS_MODFILE := -modfile=$(CURDIR)/internal/tools/go.mod
+GOLANGCI_LINT ?= go tool $(TOOLS_MODFILE) golangci-lint
 
 BPF2GO_WRAPPER := $(CURDIR)/.tools/bpf2go
 $(BPF2GO_WRAPPER):
@@ -133,7 +134,7 @@ fetch-upstream-semconv:
 .PHONY: fmt
 fmt:
 	@echo "### Formatting code and fixing imports"
-	go tool $(TOOLS_MODFILE) golangci-lint fmt
+	$(GOLANGCI_LINT) fmt
 
 .PHONY: clang-tidy
 clang-tidy:
@@ -155,7 +156,7 @@ docker-clang-tidy:
 # unless you clean the cache.
 .PHONY: lint-clean-cache
 lint-clean-cache:
-	go tool $(TOOLS_MODFILE) golangci-lint cache clean
+	$(GOLANGCI_LINT) cache clean
 
 .PHONY: lint
 lint: LINT_EXTRA_ARGS =
@@ -171,7 +172,7 @@ lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt-fix l
 .NOTPARALLEL: lint-fix-run
 lint-run lint-fix-run:
 	@echo "### Linting code"
-	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
+	$(GOLANGCI_LINT) run ./... --timeout=6m $(LINT_EXTRA_ARGS)
 
 WEAVERIMAGE = $(shell awk '$$4=="weaver" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 .PHONY: lint-schema

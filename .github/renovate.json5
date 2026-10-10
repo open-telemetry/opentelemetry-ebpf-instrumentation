@@ -99,6 +99,16 @@
   ],
   "packageRules": [
     {
+      "description": "Keep the mise golangci-lint tool and its Go module source in sync",
+      "groupName": "golangci-lint",
+      "matchManagers": ["mise", "gomod"],
+      "matchPackageNames": [
+        "golangci-lint",
+        "golangci/golangci-lint",
+        "github.com/golangci/golangci-lint/v2"
+      ]
+    },
+    {
       "description": "Run `go mod tidy` and rewrite import paths on any Go module update",
       "matchManagers": ["gomod"],
       "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"]

@@ -34,6 +34,18 @@ For a Go development environment with Docker access (especially useful for non-L
 see the [development container instructions](.devcontainer/README.md), including VS Code,
 IntelliJ IDEA, and terminal workflows.
 
+You can use [mise](https://mise.jdx.dev/) to install the Go and linting tools pinned
+in `mise.toml`:
+
+```sh
+mise install
+```
+
+Mise is optional; `Make` remains the task runner. For example, run `mise run lint-go`
+to run the existing `make lint` target with the pinned tools available. Use
+`make docker-generate` for eBPF generation with the project's containerized
+toolchain.
+
 ### Compiling the project
 
 #### Requirements
@@ -88,7 +100,7 @@ make docker-clang-format # or make clang-format
 make docker-clang-tidy # or make clang-tidy
 ```
 
-CI formats and lints the C code with the `clang-format` and `clang-tidy` from the generator image, the same LLVM build as the clang that `make docker-generate` uses. The `docker-` targets run that same version. `make clang-format`, `make clang-tidy` and the pre-commit hook use the local tools instead: install the same major version as the generator image, and point `CLANG_FORMAT` and `CLANG_TIDY` at them if they are not the default `clang-format` and `clang-tidy` in your `PATH`.
+CI formats and lints the C code with the `clang-format` and `clang-tidy` versions pinned in `mise.toml`. The `docker-` targets use the toolchain from the generator image, the same LLVM build as the clang that `make docker-generate` uses. `make clang-format`, `make clang-tidy` and the pre-commit hook use the local tools instead; install the versions pinned in `mise.toml`, and point `CLANG_FORMAT` and `CLANG_TIDY` at them if they are not the default `clang-format` and `clang-tidy` in your `PATH`.
 
 #### Formatting the Go code
 

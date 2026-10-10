@@ -10,6 +10,8 @@ on:
       - "Dockerfile"
       - "**/*Dockerfile*"
       - "Makefile"
+      - "mise.toml"
+      - "mise.lock"
       - "**.go"
       - "go.mod"
       - "go.sum"
@@ -29,6 +31,11 @@ on:
         description: "Git ref (commit, branch, or tag) to check out"
         required: false
         type: string
+      mise_cache:
+        description: "Whether to use the mise-action tool cache"
+        required: false
+        type: boolean
+        default: true
 
 concurrency:
   group: pr-lint-${{ github.head_ref || github.run_id }}
@@ -56,6 +63,8 @@ jobs:
     name: Lint on linux (${{ matrix.platform.arch }})
     needs: generate-bpf
     runs-on: ${{ matrix.platform.runner }}
+    env:
+      MISE_ENABLE_TOOLS: go,golangci-lint
     strategy:
       fail-fast: false
       matrix:
@@ -70,11 +79,14 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref; release callers disable this cache
         with:
-          go-version-file: "go.mod"
-          cache: true
+          cache: ${{ inputs.mise_cache != false }}
+
+      - name: Check golangci-lint version consistency
+        if: matrix.platform.arch == 'amd64'
+        run: scripts/check-mise-tool-versions.sh
 
       - name: Go build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
@@ -90,7 +102,7 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Lint
-        run: make lint
+        run: mise run lint-go
 
       # Schema lint is arch-neutral (weaver YAML/JSON). Keep it on amd64 only.
       - name: Lint OBI semantic-convention registry
@@ -113,17 +125,18 @@ jobs:
     name: Lint on macOS
     needs: generate-bpf
     runs-on: macos-latest
+    env:
+      MISE_ENABLE_TOOLS: go,golangci-lint
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref; release callers disable this cache
         with:
-          go-version-file: "go.mod"
-          cache: true
+          cache: ${{ inputs.mise_cache != false }}
 
       - name: Go build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
@@ -139,4 +152,4 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Lint
-        run: make lint
+        run: mise run lint-go

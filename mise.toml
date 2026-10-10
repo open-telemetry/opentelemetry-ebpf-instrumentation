@@ -1,0 +1,16 @@
+[tools]
+go = "1.27.1"
+clang-format = "22.1.8"
+golangci-lint = "2.13.2"
+markdownlint-cli2 = "0.23.3"
+gradle = "9.8.0"
+python = ["3.9", "3.14"]
+
+[tools."github:cpp-linter/clang-tools-static-binaries"]
+version = "2026.09.01-5fb8802d"
+matching = "clang-tidy-22_"
+bin = "clang-tidy"
+
+[tasks.lint-go]
+run = "make lint GOLANGCI_LINT=golangci-lint"
+description = "Run the project Go linter"

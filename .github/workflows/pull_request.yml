@@ -21,6 +21,8 @@ on:
       - "schemas/**"
       - "scripts/**"
       - "Makefile"
+      - "mise.toml"
+      - "mise.lock"
       - "Dockerfile"
       - "**/*Dockerfile*"
   workflow_call:
@@ -29,6 +31,11 @@ on:
         description: "Git ref (commit, branch, or tag) to check out"
         required: false
         type: string
+      mise_cache:
+        description: "Whether to use the mise-action tool cache"
+        required: false
+        type: boolean
+        default: true
 
 concurrency:
   group: pr-checks-${{ github.head_ref || github.run_id }}
@@ -95,6 +102,8 @@ jobs:
   clang-format:
     name: Clang format
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: clang-format
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -102,6 +111,11 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 0
           persist-credentials: false
+
+      - name: Set up clang-format
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref; release callers disable this cache
+        with:
+          cache: ${{ inputs.mise_cache != false }}
 
       - name: Check clang-format
         run: |
@@ -113,15 +127,17 @@ jobs:
             echo "No C/C++ files modified."
             exit 0
           fi
-          make docker-clang-format CLANG_FORMAT_FILES="$(echo $files)"
+          mise exec -- clang-format -i $files
           if ! git diff --exit-code $files; then
-            echo "Error: Some files are not formatted correctly. Run make docker-clang-format CLANG_FORMAT_FILES=\"$(echo $files)\"."
+            echo "Error: Some files are not formatted correctly. Run clang-format on the modified files or use the pre-commit hook."
             exit 1
           fi
 
   clang-tidy:
     name: Clang tidy
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: github:cpp-linter/clang-tools-static-binaries
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -129,8 +145,16 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Set up clang-tidy
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref; release callers disable this cache
+        with:
+          cache: ${{ inputs.mise_cache != false }}
+
+      - name: Check clang-tidy version
+        run: mise exec -- clang-tidy --version
+
       - name: Run clang-tidy
-        run: make docker-clang-tidy
+        run: mise exec -- make clang-tidy CLANG_TIDY=clang-tidy
 
   collector-cross-compile:
     name: "Collector cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})"
