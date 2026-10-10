@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -31,22 +32,14 @@ type cacheSvcClient struct {
 	ctx                      context.Context
 	syncTimeout              time.Duration
 	waitForSubscription      chan struct{}
+	waitForSubscriptionOnce  sync.Once
 	waitForSynchronization   chan struct{}
 	waitForSyncClosed        bool
 	reconnectInitialInterval time.Duration
-}
 
-func (sc *cacheSvcClient) ID() string {
-	return "kube-metadata-cache-svc-client"
-}
-
-func (sc *cacheSvcClient) On(event *informer.Event) error {
-	// we can safely assume that server-side events are ordered
-	// by timestamp
-	if event.GetType() != informer.EventType_SYNC_FINISHED && event.Resource != nil {
-		sc.lastEventTSEpoch = event.Resource.StatusTimeEpoch
-	}
-	return nil
+	metadataMutex sync.RWMutex
+	metadata      map[qualifiedName]*informer.ObjectMeta
+	synchronized  bool
 }
 
 func (sc *cacheSvcClient) Start(ctx context.Context) {
@@ -56,9 +49,6 @@ func (sc *cacheSvcClient) Start(ctx context.Context) {
 	sc.ctx = ctx
 	sc.reconnectInitialInterval = normalizeReconnectInitialInterval(sc.reconnectInitialInterval)
 
-	// subscribe itself to each message from the cache, to keep track of the
-	// message timestamps for a more efficient reconnection
-	sc.BaseNotifier.Subscribe(sc)
 	go func() {
 		select {
 		case <-ctx.Done():
@@ -120,20 +110,30 @@ func (sc *cacheSvcClient) connect(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("error receiving message: %w", err)
 		}
-		// send a notification about the client being synced with the K8s metadata service
-		// so OBI can start processing/decorating the received flows and traces
-		if event.GetType() == informer.EventType_SYNC_FINISHED && !sc.waitForSyncClosed {
-			close(sc.waitForSynchronization)
-			sc.waitForSyncClosed = true
+		sc.recordEvent(event)
+		if event.GetType() == informer.EventType_SYNC_FINISHED {
+			sc.NotifyAndWait(event)
+			// send a notification about the client being synced with the K8s metadata service
+			// so OBI can start processing/decorating the received flows and traces
+			if !sc.waitForSyncClosed {
+				close(sc.waitForSynchronization)
+				sc.waitForSyncClosed = true
+			}
+			continue
+		}
+
+		// we can safely assume that server-side events are ordered by timestamp
+		if event.Resource != nil {
+			sc.lastEventTSEpoch = event.Resource.StatusTimeEpoch
 		}
 		sc.Notify(event)
 	}
 }
 
 func (sc *cacheSvcClient) Subscribe(observer meta.Observer) {
-	sc.BaseNotifier.Subscribe(observer)
+	sc.SubscribeWithSnapshot(observer, sc.snapshot)
 
-	close(sc.waitForSubscription)
+	sc.waitForSubscriptionOnce.Do(func() { close(sc.waitForSubscription) })
 
 	// after the subscription is done, we temporarily pause the execution until the
 	// cache is fully loaded
@@ -149,4 +149,40 @@ func (sc *cacheSvcClient) Subscribe(observer meta.Observer) {
 			" If this is expected due to the size of your cluster, you might want to increase the timeout via" +
 			" the OTEL_EBPF_KUBE_INFORMERS_SYNC_TIMEOUT configuration option")
 	}
+}
+
+func (sc *cacheSvcClient) recordEvent(event *informer.Event) {
+	sc.metadataMutex.Lock()
+	defer sc.metadataMutex.Unlock()
+
+	if event.GetType() == informer.EventType_SYNC_FINISHED {
+		sc.synchronized = true
+		return
+	}
+	resource := event.GetResource()
+	if resource == nil {
+		return
+	}
+	if sc.metadata == nil {
+		sc.metadata = map[qualifiedName]*informer.ObjectMeta{}
+	}
+	if event.GetType() == informer.EventType_DELETED {
+		delete(sc.metadata, qName(resource))
+	} else {
+		sc.metadata[qName(resource)] = resource
+	}
+}
+
+func (sc *cacheSvcClient) snapshot() []*informer.Event {
+	sc.metadataMutex.RLock()
+	defer sc.metadataMutex.RUnlock()
+
+	events := make([]*informer.Event, 0, len(sc.metadata)+1)
+	for _, resource := range sc.metadata {
+		events = append(events, &informer.Event{Type: informer.EventType_CREATED, Resource: resource})
+	}
+	if sc.synchronized {
+		events = append(events, &informer.Event{Type: informer.EventType_SYNC_FINISHED})
+	}
+	return events
 }
