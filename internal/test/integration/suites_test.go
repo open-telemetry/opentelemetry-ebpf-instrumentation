@@ -438,6 +438,7 @@ func TestSuite_NodeJS(t *testing.T) {
 	t.Run("HTTP nested traces large HTTPS (kprobes)", testHTTPTracesNestedJSLargeHTTPS)
 	t.Run("HTTP manual spans (OTel API bridge)", testHTTPTracesNodeManualSpans)
 	t.Run("HTTP manual spans (background span isolation)", testHTTPTracesNodeManualBackgroundSpan)
+	t.Run("NodeJS inspector requests not reported", testNodeJSInspectorNotReported)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

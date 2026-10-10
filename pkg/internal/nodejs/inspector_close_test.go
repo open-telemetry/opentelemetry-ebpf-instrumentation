@@ -103,7 +103,7 @@ func TestInjectClosesOnlyAnInspectorItOpened(t *testing.T) {
 			wsConn := dialRecordingInspector(t, srv)
 
 			cfg := obi.DefaultConfig
-			i := NewNodeInjector(&cfg)
+			i := NewNodeInjector(&cfg, nil)
 
 			payload, err := evaluateRequest("1+1", 1)
 			require.NoError(t, err)
