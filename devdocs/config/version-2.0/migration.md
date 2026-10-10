@@ -92,6 +92,14 @@ field-by-field mapping report. Save both streams and review the generated YAML.
 The CLI has no separate warning class: report bullets are informational, while
 unsupported values make the command fail.
 
+V1 exporter `instrumentations` lists restrict application metrics but do not
+restrict span metrics or service graphs. V2 protocol `enabled.metrics` switches
+control all of these families. Migration reports an active exporter's
+`instrumentations` path when the generated V2 switches would suppress derived
+metrics emitted by V1. With both application and derived metrics enabled, one
+V2 protocol switch cannot preserve V1's separate behavior. Use `--allow-partial`
+to review the generated configuration and choose the desired protocol coverage.
+
 Migration, parsing, and validation failures detected before output writing
 leave standard output empty, and standard error starts with `migration failed:`.
 An output write failure such as a full filesystem can leave a partial target
