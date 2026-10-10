@@ -6,23 +6,20 @@ package agent
 import (
 	"context"
 	"net"
-	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
-	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/export/prom"
 	"go.opentelemetry.io/obi/pkg/internal/pipe"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -34,20 +31,18 @@ const timeout = 5 * time.Second
 func TestFilter(t *testing.T) {
 	ctx := t.Context()
 
-	registry := prometheus.NewRegistry()
-	promServer := httptest.NewServer(promhttp.HandlerFor(registry, promhttp.HandlerOpts{Registry: registry}))
-	t.Cleanup(promServer.Close)
+	promServer := testutil.NewPrometheusServer(t)
 
 	stats := Stats{
 		agentIP: net.ParseIP("1.2.3.4"),
 		ctxInfo: &global.ContextInfo{
-			Prometheus: &connector.PrometheusManager{},
+			Prometheus: promServer.Manager,
 		},
 		cfg: &obi.Config{
 			Prometheus: prom.PrometheusConfig{
-				Registry: registry,
-				Path:     "/metrics",
-				TTL:      time.Hour,
+				Port: promServer.Port,
+				Path: "/metrics",
+				TTL:  time.Hour,
 			},
 			Metrics: perapp.GlobalMetricsConfig{Features: export.FeatureStatsTCPRtt | export.FeatureStatsTCPFailedConnections | export.FeatureStatsTCPRetransmits | export.FeatureStatsTCPIo | export.FeatureStatsTCPSuccessfulConnections},
 			Attributes: obi.Attributes{Select: attributes.Selection{
