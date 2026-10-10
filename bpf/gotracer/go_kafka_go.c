@@ -207,7 +207,7 @@ int GUARDED_PROG(obi_uprobe_protocol_roundtrip_ret, struct pt_regs *, ctx) {
         bpf_dbg_printk("msg_ptr=%llx, topic_ptr=%llx", p_ptr->msg_ptr, topic_ptr);
 
         if (topic_ptr) {
-            kafka_go_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(kafka_go_req_t), 0);
+            kafka_go_req_t *trace = events_ringbuf_reserve(sizeof(kafka_go_req_t), 0);
             if (trace) {
                 trace->type = k_event_type_go_kafka_seg;
                 trace->op = k_kafka_api_produce;
@@ -321,7 +321,7 @@ int GUARDED_PROG(obi_uprobe_reader_read_ret, struct pt_regs *, ctx) {
 
     if (req_ptr) {
         if (req_ptr->start_monotime_ns) {
-            kafka_go_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(kafka_go_req_t), 0);
+            kafka_go_req_t *trace = events_ringbuf_reserve(sizeof(kafka_go_req_t), 0);
             if (trace) {
                 __builtin_memcpy(trace, req_ptr, sizeof(kafka_go_req_t));
                 trace->end_monotime_ns = bpf_ktime_get_ns();

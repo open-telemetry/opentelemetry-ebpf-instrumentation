@@ -154,7 +154,7 @@ static __always_inline void submit_http_event(http_info_t *info, pid_connection_
 
     info->submitted = 1;
     bpf_map_update_elem(&ongoing_http, pid_conn, info, BPF_ANY);
-    http_info_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_info_t), 0);
+    http_info_t *trace = events_ringbuf_reserve(sizeof(http_info_t), 0);
     if (trace) {
         bpf_dbg_printk("Sending trace %lx, response length %d", info, info->resp_len);
 

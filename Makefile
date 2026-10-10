@@ -165,9 +165,9 @@ lint: lint-run
 lint-fix: lint-fix-run
 
 .PHONY: lint-run lint-fix-run
-lint-run: vanity-import-check lint-dependency-policy lint-collectt lint-preempt-guard
+lint-run: vanity-import-check lint-dependency-policy lint-collectt lint-preempt-guard lint-ringbuf-writes
 lint-fix-run: LINT_EXTRA_ARGS = --fix
-lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt-fix lint-preempt-guard
+lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt-fix lint-preempt-guard lint-ringbuf-writes
 .NOTPARALLEL: lint-fix-run
 lint-run lint-fix-run:
 	@echo "### Linting code"
@@ -226,6 +226,11 @@ lint-dependency-policy:
 lint-preempt-guard:
 	@echo "### Checking uprobe-context BPF programs are preempt-guarded"
 	@./scripts/lint-preempt-guard.sh
+
+.PHONY: lint-ringbuf-writes
+lint-ringbuf-writes:
+	@echo "### Checking instrumented ring buffer writes use accounting helpers"
+	@./scripts/lint-ringbuf-writes.sh
 
 .PHONY: lint-collectt
 lint-collectt:

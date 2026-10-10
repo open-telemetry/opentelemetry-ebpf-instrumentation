@@ -124,8 +124,9 @@ func (p *Tracer) constants() map[string]any {
 	}
 
 	m := map[string]any{
-		"filter_pids": filterPids,
-		"g_bpf_debug": p.cfg.EBPF.BpfDebug,
+		"filter_pids":             filterPids,
+		"g_bpf_debug":             p.cfg.EBPF.BpfDebug,
+		"ringbuf_metrics_enabled": p.cfg.InternalMetrics.Enabled(),
 	}
 	maps.Copy(m, ebpfcommon.PIDFilterConstants())
 
@@ -318,6 +319,8 @@ func (p *Tracer) AlreadyInstrumentedLib(id uint64) bool {
 }
 
 func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventContext, eventsChan *msg.Queue[[]request.Span]) {
+	ebpfEventContext.StartRingbufWriteMetrics(ctx, p.cfg.InternalMetrics.Enabled(), BpfMapGpuEvents, p.bpfObjects.GpuRingbufWriteStatsStorage, p.metrics, p.log)
+
 	ebpfcommon.ForwardRingbuf(
 		&p.cfg.EBPF,
 		p.bpfObjects.GpuEvents,

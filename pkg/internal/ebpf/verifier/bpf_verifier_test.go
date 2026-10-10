@@ -192,6 +192,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
 		{"http_max_captured_bytes", []any{uint32(0), uint32(262144)}},
 		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
+		{"ringbuf_metrics_enabled", []any{true, false}},
 		// pinned on, not paired: before the gate existed this code was live in
 		// every combination below, and pairing it here would double the matrix
 		{"g_traces_ctx_v1_enabled", []any{true}},
@@ -242,6 +243,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
 		{"http_max_captured_bytes", []any{uint32(0), uint32(262144)}},
 		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
+		{"ringbuf_metrics_enabled", []any{true, false}},
 		// pinned on, not paired: see the generictracer matrix above
 		{"g_traces_ctx_v1_enabled", []any{true}},
 	})
@@ -301,6 +303,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"g_bpf_debug", []any{true, false}},
 		{"filter_pids", []any{int32(0), int32(1)}},
 		{"pid_ns_mode", pidNamespaceModes},
+		{"ringbuf_metrics_enabled", []any{true, false}},
 	})
 
 	// logger
@@ -311,6 +314,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// logenricher
 	forEachCombination(t, "logenricher/Bpf", logenricherbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{true, false}},
+		{"ringbuf_metrics_enabled", []any{true, false}},
 	})
 
 	// rdns xdp

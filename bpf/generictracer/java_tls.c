@@ -173,7 +173,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_ioctl) {
             return 0;
         }
 
-        struct jvm_runtime_metrics_event *event = bpf_ringbuf_reserve(&events, sizeof(*event), 0);
+        struct jvm_runtime_metrics_event *event = events_ringbuf_reserve(sizeof(*event), 0);
         if (!event) {
             return 0;
         }
@@ -205,7 +205,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_ioctl) {
             return 0;
         }
 
-        struct jvm_gc_duration_event *event = bpf_ringbuf_reserve(&events, sizeof(*event), 0);
+        struct jvm_gc_duration_event *event = events_ringbuf_reserve(sizeof(*event), 0);
         if (!event) {
             return 0;
         }

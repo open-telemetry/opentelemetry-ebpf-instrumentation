@@ -175,7 +175,7 @@ static __always_inline void resolve_device(const u64 id, cuda_device_t *dev) {
 }
 
 static __always_inline void submit_size_event(const u8 flags, const s64 size) {
-    cuda_size_event_t *e = bpf_ringbuf_reserve(&gpu_events, sizeof(*e), 0);
+    cuda_size_event_t *e = gpu_events_ringbuf_reserve(sizeof(*e), 0);
     if (!e) {
         bpf_dbg_printk("Failed to allocate ringbuf entry");
         return;
@@ -190,7 +190,7 @@ static __always_inline void submit_size_event(const u8 flags, const s64 size) {
 }
 
 static __always_inline void submit_call_event(const u8 flags) {
-    cuda_call_event_t *e = bpf_ringbuf_reserve(&gpu_events, sizeof(*e), 0);
+    cuda_call_event_t *e = gpu_events_ringbuf_reserve(sizeof(*e), 0);
     if (!e) {
         bpf_dbg_printk("Failed to allocate ringbuf entry");
         return;
@@ -210,7 +210,7 @@ static __always_inline void submit_kernel_launch(const u64 func_off,
                                                  const u32 block_x,
                                                  const u32 block_y,
                                                  const u32 block_z) {
-    cuda_kernel_launch_t *e = bpf_ringbuf_reserve(&gpu_events, sizeof(*e), 0);
+    cuda_kernel_launch_t *e = gpu_events_ringbuf_reserve(sizeof(*e), 0);
     if (!e) {
         bpf_dbg_printk("Failed to allocate ringbuf entry");
         return;
@@ -251,7 +251,7 @@ static __always_inline bool suppress_driver_dup(const u64 id) {
 // per-call metrics, whose events only carry the UUID, can be named. Only the
 // rare introspection calls travel this way.
 static __always_inline void submit_device_event(const u32 index, const cuda_device_info_t *info) {
-    cuda_device_event_t *e = bpf_ringbuf_reserve(&gpu_events, sizeof(*e), 0);
+    cuda_device_event_t *e = gpu_events_ringbuf_reserve(sizeof(*e), 0);
     if (!e) {
         bpf_dbg_printk("Failed to allocate ringbuf entry");
         return;
@@ -610,7 +610,7 @@ int BPF_KPROBE_GUARDED(obi_cuda_memcpy, void *dst, void *src, size_t size, u8 ki
 
     bpf_dbg_printk("=== uprobe/cudaMemcpyAsync id=%llx, kind=%d ===", id, kind);
 
-    cuda_memcpy_t *e = bpf_ringbuf_reserve(&gpu_events, sizeof(*e), 0);
+    cuda_memcpy_t *e = gpu_events_ringbuf_reserve(sizeof(*e), 0);
     if (!e) {
         bpf_dbg_printk("Failed to allocate ringbuf entry");
         return 0;

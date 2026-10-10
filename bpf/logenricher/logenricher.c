@@ -203,7 +203,7 @@ static __always_inline int __write(struct iov_iter *from,
 
     u64 out_size = sizeof(log_event_t) + max(e->len, sizeof(void *));
     bpf_clamp_umax(out_size, k_log_event_max_size);
-    const long err = bpf_ringbuf_output(&log_events, e, out_size, log_events_flags());
+    const long err = log_events_ringbuf_output(e, out_size, log_events_flags());
     if (err < 0) {
         bpf_dbg_printk("logenricher: failed to write log event to ringbuf: %d", err);
         return 0;
