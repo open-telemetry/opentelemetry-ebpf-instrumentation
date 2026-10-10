@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -16,9 +15,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
-	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -44,15 +43,16 @@ func TestNativeHistogramSchemaAppliedToExportedMetrics(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			registry := prometheus.NewRegistry()
+			registry := testutil.NewPrometheusServer(t)
 			ctx := t.Context()
 			promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
 
 			exporter, err := PrometheusEndpoint(
-				&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+				&global.ContextInfo{Prometheus: registry.Manager},
 				&PrometheusConfig{
-					Registry:         registry,
+					Port:             registry.Port,
+					Path:             "/metrics",
 					Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 					NativeHistogram:  tc.nhCfg,
 					ExemplarFilter:   "always_off",

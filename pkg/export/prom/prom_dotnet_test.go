@@ -15,9 +15,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
-	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
@@ -45,11 +45,11 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 			previousClock := timeNow
 			timeNow = func() time.Time { return now }
 			t.Cleanup(func() { timeNow = previousClock })
-			registry := prometheus.NewRegistry()
+			registry := testutil.NewPrometheusServer(t)
 			reporter, err := newReporter(
 				t.Context(),
-				&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-				&PrometheusConfig{Registry: registry, TTL: ttl},
+				&global.ContextInfo{Prometheus: registry.Manager},
+				&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: ttl},
 				&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 				&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
 					attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
@@ -141,11 +141,11 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 }
 
 func TestDotnetRuntimeCurrentValuesAggregateProcesses(t *testing.T) {
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter, err := newReporter(
 		t.Context(),
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&PrometheusConfig{Registry: registry, TTL: time.Minute},
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: time.Minute},
 		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
 			attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
@@ -296,11 +296,11 @@ func TestDotnetRuntimeCumulativeCounters(t *testing.T) {
 	previousClock := timeNow
 	timeNow = func() time.Time { return now }
 	t.Cleanup(func() { timeNow = previousClock })
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter, err := newReporter(
 		t.Context(),
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&PrometheusConfig{Registry: registry, TTL: time.Minute},
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: time.Minute},
 		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
 			attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
@@ -439,11 +439,11 @@ func TestDotnetRuntimeCounterSnapshots(t *testing.T) {
 	selection := attributes.Selection{
 		attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
 	}
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter, err := newReporter(
 		t.Context(),
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&PrometheusConfig{Registry: registry, TTL: time.Minute},
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: time.Minute},
 		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{SelectionCfg: selection},
 		request.UnresolvedNames{},

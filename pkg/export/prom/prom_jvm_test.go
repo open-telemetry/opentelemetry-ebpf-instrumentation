@@ -18,8 +18,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
-	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
@@ -285,14 +285,14 @@ var jvmTestBuckets = export.Buckets{
 	JVMGCDurationHistogram: []float64{0.002, 0.2, 2},
 }
 
-func newJVMRuntimeMetricsTestReporter(t *testing.T) (*metricsReporter, *prometheus.Registry) {
+func newJVMRuntimeMetricsTestReporter(t *testing.T) (*metricsReporter, prometheus.Gatherer) {
 	t.Helper()
 
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter, err := newReporter(
 		t.Context(),
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&PrometheusConfig{Registry: registry, TTL: time.Minute, Buckets: jvmTestBuckets},
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: time.Minute, Buckets: jvmTestBuckets},
 		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{},
 		request.UnresolvedNames{},
@@ -332,11 +332,11 @@ func jvmRuntimeMetricsProcessEvent(
 }
 
 func TestRuntimeMetricsReporterDropsJVMServiceWithoutRuntimeFeature(t *testing.T) {
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter, err := newReporter(
 		t.Context(),
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&PrometheusConfig{Registry: registry, TTL: time.Minute},
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: time.Minute},
 		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{},
 		request.UnresolvedNames{},
@@ -378,11 +378,11 @@ func TestRuntimeMetricsReporterDropsJVMServiceWithoutRuntimeFeature(t *testing.T
 // extra_group_attributes. This pins that exception until the runtime
 // collectors are routed through their attribute definitions.
 func TestRuntimeMetricsKeepServiceLabelsRegardlessOfDefaults(t *testing.T) {
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter, err := newReporter(
 		t.Context(),
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&PrometheusConfig{Registry: registry, TTL: time.Minute},
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: time.Minute},
 		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{},
 		request.UnresolvedNames{},

@@ -421,7 +421,7 @@ func TestBPFCollectorDoesNotCollectAfterContextCleanup(t *testing.T) {
 	require.Zero(t, collectionCalls.Load())
 }
 
-func gatheredMetric(t *testing.T, registry *prometheus.Registry, name string, labels map[string]string) *dto.Metric {
+func gatheredMetric(t *testing.T, registry prometheus.Gatherer, name string, labels map[string]string) *dto.Metric {
 	t.Helper()
 
 	metrics, err := registry.Gather()
