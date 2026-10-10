@@ -227,6 +227,8 @@ func (h *RouteHarvester) HarvestRoutes(fileInfo *exec.FileInfo) (*RouteHarvester
 		return result.r, result.err
 	case <-ctx.Done():
 		h.log.Warn("route harvesting timed out", "timeout", h.timeout, "pid", fileInfo.Pid())
+		// Not every extractor stops with ctx: wait for it so that harvests never overlap
+		<-resultChan
 		return nil, &HarvestError{Message: "route harvesting timed out"}
 	}
 }

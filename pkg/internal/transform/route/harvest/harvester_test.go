@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 )
 
 // successfulExtractRoutes simulates a successful route extraction
@@ -254,6 +255,39 @@ func TestHarvestRoutes_MultipleTimeouts(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return len(exited) == 3
 	}, time.Second, time.Millisecond)
+}
+
+// The Node.js extractor doesn't stop on timeout, so the next harvest must wait for it
+func TestHarvestRoutes_TimeoutWaitsForExtractor(t *testing.T) {
+	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, nil, 100*time.Millisecond)
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	harvester.nodeExtractRoutes = func(pid app.PID) (*RouteHarvesterResult, error) {
+		started <- struct{}{}
+		<-release
+		return successfulNodeExtractRoutes(pid)
+	}
+	harvest := func() <-chan error {
+		errs := make(chan error, 1)
+		go func() {
+			_, err := harvester.HarvestRoutes(createTestFileInfo(svc.InstrumentableNodejs))
+			errs <- err
+		}()
+		return errs
+	}
+
+	first := harvest()
+	testutil.ReadChannel(t, started, 5*time.Second)
+	second := harvest()
+	testutil.ChannelEmpty(t, first, 300*time.Millisecond)
+	assert.Empty(t, started, "a harvest must not start while a timed-out one still runs")
+
+	close(release)
+	var harvestErr *HarvestError
+	require.ErrorAs(t, testutil.ReadChannel(t, first, 5*time.Second), &harvestErr)
+	assert.Equal(t, "route harvesting timed out", harvestErr.Message)
+	testutil.ReadChannel(t, started, 5*time.Second)
+	require.NoError(t, testutil.ReadChannel(t, second, 5*time.Second))
 }
 
 func TestHarvestNodejsRoutes_Successful(t *testing.T) {
