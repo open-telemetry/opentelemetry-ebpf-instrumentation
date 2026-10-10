@@ -107,7 +107,7 @@ static __always_inline int jvm_hotspot_mem_pool_gc(enum jvm_gc_when_type when,
         return 0;
     }
 
-    struct jvm_mem_pool_gc_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    struct jvm_mem_pool_gc_event *e = events_ringbuf_reserve(sizeof(*e), 0);
     if (!e) {
         return 0;
     }

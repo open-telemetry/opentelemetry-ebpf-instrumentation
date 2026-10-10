@@ -101,7 +101,7 @@ int GUARDED_PROG(obi_uprobe_python_gc_done, struct pt_regs *, ctx) {
         bpf_dbg_printk("python GC snapshot update failed pid=%d ns=%d", key.user_pid, key.ns);
     }
 
-    struct python_runtime_metric_event *event = bpf_ringbuf_reserve(&events, sizeof(*event), 0);
+    struct python_runtime_metric_event *event = events_ringbuf_reserve(sizeof(*event), 0);
     if (!event) {
         bpf_dbg_printk("python GC event reserve failed pid=%d ns=%d", key.user_pid, key.ns);
         return 0;

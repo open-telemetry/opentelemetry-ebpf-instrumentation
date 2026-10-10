@@ -154,7 +154,10 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 }
 
 func (p *Tracer) constants() map[string]any {
-	return map[string]any{"g_bpf_debug": p.cfg.EBPF.BpfDebug}
+	return map[string]any{
+		"g_bpf_debug":             p.cfg.EBPF.BpfDebug,
+		"ringbuf_metrics_enabled": p.cfg.InternalMetrics.Enabled(),
+	}
 }
 
 func (p *Tracer) RegisterOffsets(_ *exec.FileInfo, _ *goexec.Offsets) {}

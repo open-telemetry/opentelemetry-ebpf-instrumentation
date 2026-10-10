@@ -318,6 +318,7 @@ type Tracer struct {
 	supportsBPFLoop                   bool
 	traceCtxMapEnabled                bool
 	runtimeMetricsEnabled             bool
+	internalMetricsEnabled            bool
 	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfo
 	goChannelOffsetsByExecutable      map[executableIdentity]bool
 	goRuntimeMetricMaskByExecutable   map[executableIdentity]uint64
@@ -354,6 +355,7 @@ func New(
 		supportsBPFLoop:                   ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
 		traceCtxMapEnabled:                cfg.PopulateTraceContext(),
 		runtimeMetricsEnabled:             cfg.AppRuntimeMetricsEnabled(),
+		internalMetricsEnabled:            cfg.InternalMetrics.Enabled(),
 		runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfo{},
 		goChannelOffsetsByExecutable:      map[executableIdentity]bool{},
 		goRuntimeMetricMaskByExecutable:   map[executableIdentity]uint64{},
@@ -474,6 +476,7 @@ func (p *Tracer) constants() map[string]any {
 		"g_bpf_probe_write_user_enabled": p.supportsContextPropagation(),
 		"g_go_h2_write_fail_step":        goH2WriteFailStepForTest,
 		"wakeup_data_bytes":              uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
+		"ringbuf_metrics_enabled":        p.internalMetricsEnabled,
 		"disable_black_box_cp":           blackBoxCP,
 		"attr_type_invalid":              uint64(attribute.INVALID),
 		"attr_type_bool":                 uint64(attribute.BOOL),

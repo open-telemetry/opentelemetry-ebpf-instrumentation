@@ -604,7 +604,7 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     // Server connections have opposite order, source port is the server port
     swap_connection_info_order(&conn);
 
-    http_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_request_trace_t), 0);
+    http_request_trace_t *trace = events_ringbuf_reserve(sizeof(http_request_trace_t), 0);
     if (!trace) {
         bpf_dbg_printk("can't reserve space in the ringbuffer");
         goto done;
@@ -809,7 +809,7 @@ int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
         goto done;
     }
 
-    http_request_trace_t *trace = bpf_ringbuf_reserve(&events, sizeof(http_request_trace_t), 0);
+    http_request_trace_t *trace = events_ringbuf_reserve(sizeof(http_request_trace_t), 0);
     if (!trace) {
         bpf_dbg_printk("can't reserve space in the ringbuffer");
         goto done;

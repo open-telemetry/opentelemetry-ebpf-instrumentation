@@ -51,7 +51,7 @@ static __always_inline u32 large_buf_emit_chunks(tcp_large_buffer_t *large_buf,
         u32 total_size = sizeof(tcp_large_buffer_t) + payload_size;
         bpf_clamp_umax(total_size, k_large_buf_max_size);
 
-        if (bpf_ringbuf_output(&events, large_buf, total_size, get_flags()) != 0) {
+        if (events_ringbuf_output(large_buf, total_size, get_flags()) != 0) {
             break;
         }
 
