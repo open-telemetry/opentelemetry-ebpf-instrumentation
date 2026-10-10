@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-notices="${NOTICES_DIR:-./NOTICES}/java/agent"
-mkdir -p "$notices"
-(cd pkg/internal/java && gradle :agent:generateLicenseReport --no-daemon)
-awk '{ if ($0 ~ /^This report was generated at /) print "This report was generated at <normalized>."; else print }' pkg/internal/java/agent/build/reports/dependency-license/THIRD_PARTY_LICENSES.txt > "$notices/THIRD_PARTY_LICENSES.txt"
-cp pkg/internal/java/agent/build/reports/dependency-license/THIRD_PARTY_LICENSES.csv "$notices/"

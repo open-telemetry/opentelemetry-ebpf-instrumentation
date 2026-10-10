@@ -7,9 +7,20 @@ config_roots = [
   "internal/test/integration/components/old_grpc/backend",
   "internal/test/integration/components/old_grpc/backend/internal/distributed-service-example",
   "internal/test/integration/components/old_grpc/worker",
+  "pkg/internal/java",
   "pkg/internal/java/agent",
   "pkg/internal/transform/route/harvest/dotnet/testdata",
 ]
+
+[monorepo.path_aliases]
+"bpf-tests" = "bpf/tests"
+"vm-tests" = "internal/test/vm"
+"grpc-backend" = "internal/test/integration/components/old_grpc/backend"
+"grpc-distributed-service-example" = "internal/test/integration/components/old_grpc/backend/internal/distributed-service-example"
+"grpc-worker" = "internal/test/integration/components/old_grpc/worker"
+java = "pkg/internal/java"
+"java-agent" = "pkg/internal/java/agent"
+"dotnet-route-harvest-testdata" = "pkg/internal/transform/route/harvest/dotnet/testdata"
 
 [tools]
 go = "1.27.1"
@@ -57,47 +68,51 @@ run = "./scripts/fetch-upstream-semconv.sh"
 description = "Fetch the upstream semantic convention registry"
 
 [tasks.prereqs]
-run = "mise run install-hooks && mise run fetch-upstream-semconv && mkdir -p \"${TEST_OUTPUT:-./testoutput}/run\""
+depends = ["install-hooks", "fetch-upstream-semconv"]
+run = "mkdir -p \"${TEST_OUTPUT:-./testoutput}/run\""
 
 [tasks.clang-tidy]
-run = '''cd bpf && find . -type f \( -name '*.c' -o -name '*.h' \) ! -path './bpfcore/*' ! -path './NOTICES/*' ! -path './tests/*' -print0 | xargs -0 -r ${CLANG_TIDY:-clang-tidy}'''
-
-[tasks.docker-clang-tidy]
-run = "mise run clang-tidy"
+dir = "bpf"
+run = '''find . -type f \( -name '*.c' -o -name '*.h' \) ! -path './bpfcore/*' ! -path './NOTICES/*' ! -path './tests/*' -print0 | xargs -0 -r ${CLANG_TIDY:-clang-tidy}'''
 
 [tasks.lint-clean-cache]
 run = "golangci-lint cache clean"
 
-[tasks.lint-run]
-depends = ["lint"]
-
 [tasks.lint]
-run = "mise run vanity-import-check && mise run lint-dependency-policy && mise run lint-collectt && mise run lint-preempt-guard && golangci-lint run ./... --timeout=6m"
+run = [{ tasks = ["vanity-import-check", "lint-dependency-policy", "lint-collectt", "lint-preempt-guard", "lint-golangci"] }]
 
-[tasks.lint-fix-run]
-depends = ["lint-fix"]
+[tasks.lint-golangci]
+run = "golangci-lint run ./... --timeout=6m"
 
 [tasks.lint-fix]
-run = "mise run vanity-import-fix-check && mise run lint-dependency-policy && mise run lint-collectt-fix && mise run lint-preempt-guard && golangci-lint run ./... --timeout=6m --fix"
+run = [
+  { task = "vanity-import-fix-check" },
+  { task = "lint-dependency-policy" },
+  { task = "lint-collectt-fix" },
+  { task = "lint-preempt-guard" },
+  "golangci-lint run ./... --timeout=6m --fix",
+]
 
 [tasks.lint-schema]
-run = "mise run fetch-upstream-semconv && ./scripts/lint-schema.sh \"$PWD/schemas/obi\""
+depends = ["fetch-upstream-semconv"]
+run = "./scripts/lint-schema.sh \"$MISE_CONFIG_ROOT/schemas/obi\""
 
 [tasks.test-schema]
-run = "mise run fetch-upstream-semconv && go test -race -count=1 ./internal/schemacheck/..."
+depends = ["fetch-upstream-semconv"]
+run = "go test -race -count=1 ./internal/schemacheck/..."
 
 [tasks.check-schema-files]
-run = "./scripts/check-schema-files.sh \"$PWD/site/schemas/obi\""
+run = "./scripts/check-schema-files.sh \"$MISE_CONFIG_ROOT/site/schemas/obi\""
 
 [tasks.generate-schema-next]
 run = "./scripts/generate-schema-next.sh"
 
 [tasks.generate-schema-docs]
-run = "mise run fetch-upstream-semconv && ./scripts/generate-schema-docs.sh \"$PWD/schemas/obi\""
+depends = ["fetch-upstream-semconv"]
+run = "./scripts/generate-schema-docs.sh \"$MISE_CONFIG_ROOT/schemas/obi\""
 
 [tasks.check-schema-docs]
 depends = ["fetch-upstream-semconv"]
-run = "./.mise/tasks/check-schema-docs"
 
 [tasks.lint-dependency-policy]
 run = "if [ -n \"${CI:-}\" ]; then ./scripts/lint-dependency-policy.sh --verbose; else ./scripts/lint-dependency-policy.sh; fi"
@@ -133,53 +148,64 @@ run = "make -f bpf/Makefile generate/all"
 depends = ["generate"]
 
 [tasks.verify]
-run = "mise run prereqs && mise run go-mod-tidy && mise run lint && mise run test && mise run license-header-check"
+depends = ["prereqs"]
+run = [
+  { task = "go-mod-tidy" },
+  { tasks = ["lint", "test", "license-header-check"] },
+]
 
 [tasks.build]
-run = "mise run docker-generate && mise run verify && mise run compile"
+run = [
+  { task = "docker-generate" },
+  { task = "verify" },
+  { task = "compile" },
+]
 
 [tasks.all]
-run = "mise run docker-generate && mise run notices-update && mise run build"
+run = [
+  { task = "docker-generate" },
+  { task = "notices-update" },
+  { task = "build" },
+]
 
 [tasks.compile-cache]
 env = { CMD = "k8s-cache" }
-run = "mise run compile"
+run = [{ task = "compile" }]
 
 [tasks.fmt]
 run = "golangci-lint fmt"
 
 [tasks.debug]
 env = { DEBUG_BUILD = "true" }
-run = "mise run compile"
+run = [{ task = "compile" }]
 
 [tasks.dev]
-run = "mise run prereqs && mise run generate && mise run compile-for-coverage"
+depends = ["prereqs"]
+run = [
+  { task = "generate" },
+  { task = "compile-for-coverage" },
+]
 
 [tasks.compile-for-coverage]
 env = { COVERAGE_BUILD = "true" }
-run = "mise run compile"
+run = [{ task = "compile" }]
 
 [tasks.compile-cache-for-coverage]
 env = { CMD = "k8s-cache", COVERAGE_BUILD = "true" }
-run = "mise run compile"
+run = [{ task = "compile" }]
 
 [tasks.test]
 run = "mkdir -p \"${TEST_OUTPUT:-./testoutput}\" && KUBEBUILDER_ASSETS=\"$(go tool -modfile=internal/tools/go.mod setup-envtest use \"${ENVTEST_K8S_VERSION:-1.30.0}\" -p path)\" go test -short -race ./... -coverpkg=./... -coverprofile \"${TEST_OUTPUT:-./testoutput}/cover.all.txt\""
 
 [tasks.test-nodejs]
-run = "cd pkg/internal/nodejs/spanbridge_test && npm ci && node --test"
+dir = "pkg/internal/nodejs/spanbridge_test"
+run = "npm ci && node --test"
 
 [tasks.test-rerun-flaky]
 run = "./scripts/rerun-flaky_test.sh"
 
-[tasks.test-privileged]
-run = "./.mise/tasks/test-privileged"
-
 [tasks.run-bpf-verifier-vm]
 run = "go test -count=1 -timeout 55m -parallel 8 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/..."
-
-[tasks.cov-exclude-generated]
-run = "./.mise/tasks/cov-exclude-generated"
 
 [tasks.coverage-report]
 depends = ["cov-exclude-generated"]
@@ -189,41 +215,20 @@ run = "go tool cover --func=${TEST_OUTPUT:-./testoutput}/cover.txt"
 depends = ["cov-exclude-generated"]
 run = "go tool cover --html=${TEST_OUTPUT:-./testoutput}/cover.txt"
 
-[tasks.java-build]
-run = "cd pkg/internal/java && gradle build && mkdir -p embedded && cp build/obi-java-agent.jar embedded/obi-java-agent.jar"
-
-[tasks.java-docker-build]
-run = "mkdir -p pkg/internal/java/embedded && ${OCI_BIN:-docker} build --output type=local,dest=pkg/internal/java/embedded --target=export -f javaagent.Dockerfile ."
-
-[tasks.java-docker-sbom]
-run = "./.mise/tasks/java-docker-sbom"
-
-[tasks.java-test]
-run = "cd pkg/internal/java && gradle test -PnativeOnly=true"
-
-[tasks.java-spotless-check]
-run = "cd pkg/internal/java && gradle spotlessCheck -PnativeOnly=true"
-
-[tasks.java-spotless-apply]
-run = "cd pkg/internal/java && gradle spotlessApply -PnativeOnly=true"
-
-[tasks.java-clean]
-run = "cd pkg/internal/java && gradle clean"
-
-[tasks.java-verify]
-run = "mise run java-spotless-check && mise run java-test && mise run java-build"
-
-[tasks.image-build]
-run = "./.mise/tasks/image-build"
-
 [tasks.generator-image-build]
 run = "${OCI_BIN:-docker} buildx build --load -t ${GEN_IMG:-ghcr.io/open-telemetry/obi-generator:0.2.17} -f generator.Dockerfile ."
 
 [tasks.prepare-integration-test]
-run = "mkdir -p \"${TEST_OUTPUT:-./testoutput}\" && rm -rf \"${TEST_OUTPUT:-./testoutput}\"/* && mise run cleanup-integration-test"
+run = [
+  "mkdir -p \"${TEST_OUTPUT:-./testoutput}\" && rm -rf \"${TEST_OUTPUT:-./testoutput}\"/*",
+  { task = "cleanup-integration-test" },
+]
 
-[tasks.cleanup-integration-test]
-run = "./.mise/tasks/cleanup-integration-test"
+[tasks.integration-test]
+depends = ["prereqs"]
+
+[tasks.integration-test-k8s]
+depends = ["prereqs"]
 
 [tasks.run-integration-test]
 run = "go clean -testcache && go test -p 1 -failfast -v -timeout 60m ./internal/test/integration"
@@ -231,14 +236,8 @@ run = "go clean -testcache && go test -p 1 -failfast -v -timeout 60m ./internal/
 [tasks.run-integration-test-k8s]
 run = "go clean -testcache && go test -p 1 -failfast -v -timeout 60m ./internal/test/integration/k8s/..."
 
-[tasks.run-integration-test-vm]
-run = "./.mise/tasks/run-integration-test-vm"
-
 [tasks.unit-test-matrix-json]
 run = "go list ./... | go tool -modfile=internal/tools/go.mod gotestsum tool ci-matrix --partitions \"${PARTITIONS:-3}\" --timing-files=\"${TEST_OUTPUT:-./testoutput}/unit-test-shard-*.log\""
-
-[tasks.run-unit-test-shard]
-run = "./.mise/tasks/run-unit-test-shard"
 
 [tasks.integration-test-matrix-json]
 run = "./scripts/generate-integration-matrix.sh internal/test/integration \"${PARTITIONS:-5}\""
@@ -252,79 +251,97 @@ run = "./scripts/generate-dir-matrix.sh internal/test/integration/k8s common"
 [tasks.oats-integration-test-matrix-json]
 run = "./scripts/generate-dir-matrix.sh internal/test/oats"
 
-[tasks.integration-test]
-run = "./.mise/tasks/integration-test"
-
-[tasks.integration-test-k8s]
-run = "./.mise/tasks/integration-test-k8s"
-
-[tasks.itest-coverage-data]
-run = "./.mise/tasks/itest-coverage-data"
-
 [tasks.oats-prereq]
-run = "mise run docker-generate && mise run fetch-upstream-semconv && mkdir -p \"${TEST_OUTPUT:-./testoutput}/run\""
+depends = ["docker-generate", "fetch-upstream-semconv"]
+run = "mkdir -p \"${TEST_OUTPUT:-./testoutput}/run\""
 
 [tasks.oats-test-sql]
 depends = ["oats-prereq"]
-run = "cd internal/test/oats/sql && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
+dir = "internal/test/oats/sql"
+run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-redis]
 depends = ["oats-prereq"]
-run = "cd internal/test/oats/redis && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
+dir = "internal/test/oats/redis"
+run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-kafka]
 depends = ["oats-prereq"]
-run = "cd internal/test/oats/kafka && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
+dir = "internal/test/oats/kafka"
+run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-http]
 depends = ["oats-prereq"]
-run = "cd internal/test/oats/http && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
+dir = "internal/test/oats/http"
+run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-mongo]
 depends = ["oats-prereq"]
-run = "cd internal/test/oats/mongo && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
+dir = "internal/test/oats/mongo"
+run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-memcached]
 depends = ["oats-prereq"]
-run = "cd internal/test/oats/memcached && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
+dir = "internal/test/oats/memcached"
+run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-ai]
 depends = ["oats-prereq"]
-run = "cd internal/test/oats/ai && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
+dir = "internal/test/oats/ai"
+run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-nats]
 depends = ["oats-prereq"]
-run = "cd internal/test/oats/nats && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
+dir = "internal/test/oats/nats"
+run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-amqp]
 depends = ["oats-prereq"]
-run = "cd internal/test/oats/amqp && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
-
-[tasks.oats-test]
-depends = ["oats-prereq"]
-run = "./.mise/tasks/oats-test"
+dir = "internal/test/oats/amqp"
+run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-debug]
 depends = ["oats-prereq"]
-run = "cd internal/test/oats/kafka && TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
+dir = "internal/test/oats/kafka"
+run = "TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
-[tasks.license-header-check]
-run = "./.mise/tasks/license-header-check"
+[tasks.oats-test]
+depends = ["oats-prereq"]
+run = [
+  { task = "oats-test-components" },
+  { task = "itest-coverage-data" },
+]
+
+[tasks.oats-test-components]
+hide = true
 
 [tasks.artifact]
-depends = ["docker-generate", "java-docker-build"]
-run = "./.mise/tasks/artifact"
+depends = ["docker-generate", "//java:docker-build"]
+run = [
+  { task = "compile" },
+  { task = "package-artifact" },
+]
 
 [tasks.release]
 depends = ["artifact"]
-run = "./.mise/tasks/release"
 
 [tasks.release-source]
-depends = ["docker-generate", "java-docker-build"]
-run = "./.mise/tasks/release-source"
+depends = ["docker-generate", "//java:docker-build"]
 
-[tasks.release-checksums]
-run = "./.mise/tasks/release-checksums"
+[tasks.prerelease]
+run = [
+  "go tool -modfile=internal/tools/go.mod multimod verify",
+  "test -n \"${MODSET:-}\" || { echo '>> env var MODSET is not set'; exit 1; }",
+  { task = "generate-schema-next" },
+  { task = "generate-schema-docs" },
+  "go tool -modfile=internal/tools/go.mod multimod prerelease -m \"$MODSET\"",
+]
+
+[tasks.go-notices-update]
+depends = ["docker-generate"]
+
+[tasks.check-go-mod]
+depends = ["go-mod-tidy"]
 
 [tasks.clean-release-dir]
 run = "rm -rf \"${RELEASE_DIR:-./dist}/\" bin/obi-*.tar.gz bin/LICENSE bin/NOTICE bin/NOTICES"
@@ -336,46 +353,19 @@ run = "mkdir -p \"${TEST_OUTPUT:-./testoutput}\""
 run = "mkdir -p \"${TEST_OUTPUT:-./testoutput}\" && echo \"### Cleaning ${TEST_OUTPUT:-./testoutput} folder\" && rm -rf \"${TEST_OUTPUT:-./testoutput}\"/*"
 
 [tasks.protoc-gen]
-run = "${OCI_BIN:-docker} run --rm -v \"$PWD:/src\" -w /src --entrypoint protoc ${GEN_IMG:-ghcr.io/open-telemetry/obi-generator:0.2.17} --go_out=pkg/kube/kubecache --go-grpc_out=pkg/kube/kubecache proto/informer.proto"
+run = "${OCI_BIN:-docker} run --rm -v \"$MISE_CONFIG_ROOT:/src\" -w /src --entrypoint protoc ${GEN_IMG:-ghcr.io/open-telemetry/obi-generator:0.2.17} --go_out=pkg/kube/kubecache --go-grpc_out=pkg/kube/kubecache proto/informer.proto"
 
 [tasks.clang-format]
 run = "find ./bpf -type f \\( -name '*.c' -o -name '*.h' \\) ! -path './bpf/bpfcore/*' -print0 | xargs -0 -r -P 0 ${CLANG_FORMAT:-clang-format} -i"
-
-[tasks.docker-clang-format]
-run = "mise run clang-format"
 
 [tasks.clean-ebpf-generated-files]
 run = "find . -name '*_bpfel*' -print0 | xargs -0 -r rm"
 
 [tasks.notices-update]
-depends = ["go-notices-update", "java-notices-update"]
-run = "./.mise/tasks/notices-update"
-
-[tasks.java-notices-update]
-run = "./.mise/tasks/java-notices-update"
-
-[tasks.go-notices-update]
-depends = ["docker-generate"]
-run = "./.mise/tasks/go-notices-update"
-
-[tasks.python-requirements-update]
-run = "./.mise/tasks/python-requirements-update"
-
-[tasks.check-clean-work-tree]
-run = "./.mise/tasks/check-clean-work-tree"
-
-[tasks.go-mod-tidy]
-run = "./.mise/tasks/go-mod-tidy"
-
-[tasks.check-go-mod]
-depends = ["go-mod-tidy"]
-run = "./.mise/tasks/check-go-mod"
+depends = ["go-notices-update", "//java:notices-update"]
 
 [tasks.verify-mods]
 run = "go tool -modfile=internal/tools/go.mod multimod verify"
-
-[tasks.prerelease]
-run = "./.mise/tasks/prerelease"
 
 [tasks.add-tags]
 run = "go tool -modfile=internal/tools/go.mod multimod tag -m \"${MODSET:?MODSET is not set}\" -c \"${COMMIT:-HEAD}\""
@@ -387,26 +377,25 @@ run = "grep -Fq \"github.com/cilium/ebpf ${CILIUM_EBPF_VER:-v0.22.0}\" go.mod &&
 run = "go tool -modfile=internal/tools/go.mod porto --include-internal --skip-dirs '^NOTICES$' -l ."
 
 [tasks.vanity-import-fix-check]
-run = "mise run vanity-import-fix && mise run vanity-import-check"
+run = [
+  { task = "vanity-import-fix" },
+  { task = "vanity-import-check" },
+]
 
 [tasks.vanity-import-fix]
 run = "go tool -modfile=internal/tools/go.mod porto --include-internal --skip-dirs '^NOTICES$' -w ."
 
 [tasks.regenerate-port-lookup]
-run = "go run cmd/generate-port-lookup/main.go -dst pkg/internal/netolly/flow/transport/protocol.go && mise run fmt"
-
-[tasks.generate-config-schema]
-run = "./.mise/tasks/generate-config-schema"
-
-[tasks.check-config-schema]
-run = "./.mise/tasks/check-config-schema"
+run = [
+  "go run cmd/generate-port-lookup/main.go -dst pkg/internal/netolly/flow/transport/protocol.go",
+  { task = "fmt" },
+]
 
 [tasks.check-config-v2-parity]
 run = "go run ./cmd/check-config-v2-parity -v2-default \"${CONFIG_V2_DEFAULT_REFERENCE_FILE:-devdocs/config/version-2.0/examples/default-values-reference.fragment.yaml}\""
 
 [tasks.check-config-v2-artifacts]
 depends = ["check-config-v2-parity"]
-run = "./.mise/tasks/check-config-v2-artifacts"
 
 [tasks.fix-store-demo-architecture]
 run = "python3 examples/store-demo/fix_architecture.py"

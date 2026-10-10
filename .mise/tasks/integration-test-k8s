@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-mise run prereqs
 mise run prepare-integration-test
 if ! mise run run-integration-test-k8s; then mise run cleanup-integration-test; exit 1; fi
 mise run itest-coverage-data

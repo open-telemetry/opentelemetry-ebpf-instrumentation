@@ -357,7 +357,7 @@ jobs:
         run: mise run release-source
 
       - name: Generate Java agent SBOM
-        run: mise run java-docker-sbom
+        run: mise run //java:docker-sbom
 
       - name: Install Syft
         id: syft

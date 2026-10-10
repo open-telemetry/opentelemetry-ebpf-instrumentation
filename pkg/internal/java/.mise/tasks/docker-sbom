@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+version="${RELEASE_VERSION:-$(git -C "$MISE_MONOREPO_ROOT" describe --all | cut -d/ -f2-)}"
+release_dir="${RELEASE_DIR:-dist}"
+if [[ "$release_dir" != /* ]]; then
+  release_dir="$MISE_MONOREPO_ROOT/$release_dir"
+fi
+mkdir -p "$release_dir"
+HOME=/tmp GRADLE_USER_HOME=/tmp/.gradle OBI_JAVA_AGENT_SBOM_VERSION="$version" gradle -p "$MISE_CONFIG_ROOT/agent" :agent:cyclonedxDirectBom --no-daemon
+cp "$MISE_CONFIG_ROOT/agent/build/reports/cyclonedx-direct/bom.json" "$release_dir/obi-java-agent-${version}.cyclonedx.json"

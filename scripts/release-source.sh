@@ -33,7 +33,7 @@ readonly GENERATED_PATTERN
 JAVA_AGENT_EMBED_PATH="pkg/internal/java/embedded/obi-java-agent.jar"
 readonly JAVA_AGENT_EMBED_PATH
 
-# Placeholder value committed to git; replaced by java-docker-build.
+# Placeholder value committed to git; replaced by //java:docker-build.
 JAVA_AGENT_PLACEHOLDER="OBI_JAVA_AGENT_PLACEHOLDER"
 readonly JAVA_AGENT_PLACEHOLDER
 
@@ -222,7 +222,7 @@ copy_java_agent() {
     || die "Java agent JAR not found: $JAVA_AGENT_EMBED_PATH"
 
   if grep -qF "$JAVA_AGENT_PLACEHOLDER" "$JAVA_AGENT_EMBED_PATH" 2>/dev/null; then
-    die "Java agent JAR is still a placeholder. Run 'mise run java-build' first."
+    die "Java agent JAR is still a placeholder. Run 'mise run //java:build' first."
   fi
 
   mkdir -p "$source_dir/$(dirname "$JAVA_AGENT_EMBED_PATH")"

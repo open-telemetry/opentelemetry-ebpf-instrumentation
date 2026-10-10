@@ -1,0 +1,21 @@
+[tasks.build]
+run = "gradle build && mkdir -p embedded && cp build/obi-java-agent.jar embedded/obi-java-agent.jar"
+
+[tasks.test]
+run = "gradle test -PnativeOnly=true"
+
+[tasks.spotless-check]
+run = "gradle spotlessCheck -PnativeOnly=true"
+
+[tasks.spotless-apply]
+run = "gradle spotlessApply -PnativeOnly=true"
+
+[tasks.clean]
+run = "gradle clean"
+
+[tasks.verify]
+run = [
+  { task = "spotless-check" },
+  { task = "test" },
+  { task = "build" },
+]

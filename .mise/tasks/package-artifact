@@ -2,7 +2,6 @@
 set -euo pipefail
 cmd="${CMD:-obi}"; goos="${GOOS:-linux}"; goarch="${GOARCH:-$(go env GOARCH)}"
 version="${RELEASE_VERSION:-$(git describe --all | cut -d/ -f2-)}"
-mise run compile
 staging="$(mktemp -d)"; trap 'rm -rf "$staging"' EXIT
 cp "bin/$cmd" "$staging/"; cp LICENSE NOTICE "$staging/"
 mkdir -p "$staging/NOTICES"

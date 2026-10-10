@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+notices="${NOTICES_DIR:-NOTICES}/java/agent"
+if [[ "$notices" != /* ]]; then
+  notices="$MISE_MONOREPO_ROOT/$notices"
+fi
+mkdir -p "$notices"
+gradle -p "$MISE_CONFIG_ROOT" :agent:generateLicenseReport --no-daemon
+awk '{ if ($0 ~ /^This report was generated at /) print "This report was generated at <normalized>."; else print }' "$MISE_CONFIG_ROOT/agent/build/reports/dependency-license/THIRD_PARTY_LICENSES.txt" > "$notices/THIRD_PARTY_LICENSES.txt"
+cp "$MISE_CONFIG_ROOT/agent/build/reports/dependency-license/THIRD_PARTY_LICENSES.csv" "$notices/"

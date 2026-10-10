@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-go tool -modfile=internal/tools/go.mod multimod verify
-[[ -n "${MODSET:-}" ]] || { echo '>> env var MODSET is not set'; exit 1; }
-mise run generate-schema-next; mise run generate-schema-docs
-go tool -modfile=internal/tools/go.mod multimod prerelease -m "$MODSET"

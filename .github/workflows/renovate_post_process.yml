@@ -135,7 +135,7 @@ jobs:
 
       - name: Update Java dependency notices
         if: steps.guard.outputs.should_run == 'true' && steps.detect.outputs.run_java == 'true'
-        run: mise run java-notices-update
+        run: mise run //java:notices-update
 
       - name: Update Python requirements locks
         if: steps.guard.outputs.should_run == 'true' && steps.detect.outputs.run_python == 'true'

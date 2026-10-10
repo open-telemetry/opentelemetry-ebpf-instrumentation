@@ -1,6 +1,0 @@
-#!/usr/bin/env bash
-set -euo pipefail
-version="${RELEASE_VERSION:-$(git describe --all | cut -d/ -f2-)}"
-mkdir -p "${RELEASE_DIR:-./dist}"
-(cd pkg/internal/java/agent && HOME=/tmp GRADLE_USER_HOME=/tmp/.gradle OBI_JAVA_AGENT_SBOM_VERSION="$version" gradle :agent:cyclonedxDirectBom --no-daemon)
-cp pkg/internal/java/agent/build/reports/cyclonedx-direct/bom.json "${RELEASE_DIR:-./dist}/obi-java-agent-${version}.cyclonedx.json"

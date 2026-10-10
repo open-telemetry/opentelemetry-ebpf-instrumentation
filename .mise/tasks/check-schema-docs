@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-./scripts/generate-schema-docs.sh "$PWD/schemas/obi"
+./scripts/generate-schema-docs.sh "$MISE_CONFIG_ROOT/schemas/obi"
 if [[ -n "$(git status --porcelain -- site/docs)" ]]; then
   echo "site/docs is stale: run 'mise run generate-schema-docs' and commit the result" >&2
   git --no-pager diff -- site/docs

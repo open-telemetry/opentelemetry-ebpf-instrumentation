@@ -165,16 +165,16 @@ Run these commands from the repository root.
 
 ```bash
 # Build Java agent and copy it to pkg/internal/java/embedded/obi-java-agent.jar
-mise run java-build
+mise run //java:build
 
 # Run Java tests
-mise run java-test
+mise run //java:test
 
 # Check formatting
-mise run java-spotless-check
+mise run //java:spotless-check
 
 # Apply formatting
-mise run java-spotless-apply
+mise run //java:spotless-apply
 ```
 
 You can also run Gradle directly from `pkg/internal/java`:
@@ -199,7 +199,7 @@ gradle spotlessApply
 ```bash
 # Build the Java agent artifact and export it to:
 # pkg/internal/java/embedded/obi-java-agent.jar
-mise run java-build
+mise run //java:build
 ```
 
 The final agent JAR will be located at:
