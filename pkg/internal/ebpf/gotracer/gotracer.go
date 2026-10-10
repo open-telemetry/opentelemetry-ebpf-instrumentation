@@ -2552,6 +2552,7 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 	}()
 
 	p.SetEventContext(ebpfEventContext)
+	ebpfEventContext.StartRingbufWriteMetrics(ctx, p.internalMetricsEnabled, ebpfcommon.EventsRingbufName, p.bpfObjects.RingbufWriteStatsStorage, p.metrics, p.log)
 
 	if !p.traceCtxMapEnabled {
 		ebpfconvenience.DrainTraceContextMap[BpfObiCtxInfoT](p.log, p.bpfObjects.TracesCtxV1)

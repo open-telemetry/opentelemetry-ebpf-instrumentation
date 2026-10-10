@@ -79,6 +79,19 @@ func TestInternalOTelMetricsTraces(t *testing.T) {
 				}
 				assert.NotEmptyf(ct, results, "internal metric %s should be present", name)
 			}
+
+			writes, err := pq.Query(`sum(obi_bpf_ringbuf_writes_total{bpf_map_name="events"}) > 0`)
+			if assert.NoError(ct, err, "querying events ring buffer writes") {
+				assert.NotEmpty(ct, writes, "events ring buffer write count should increase")
+			}
+
+			failures, err := pq.Query(
+				`sum(obi_bpf_ringbuf_write_failures_total{bpf_map_name="events"}) <= ` +
+					`sum(obi_bpf_ringbuf_writes_total{bpf_map_name="events"})`,
+			)
+			if assert.NoError(ct, err, "querying events ring buffer write failures") {
+				assert.NotEmpty(ct, failures, "events ring buffer write failures should not exceed writes")
+			}
 		}, testTimeout, 500*time.Millisecond)
 	})
 }

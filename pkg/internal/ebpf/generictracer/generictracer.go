@@ -747,6 +747,7 @@ func (p *Tracer) Run(
 	eventsChan *msg.Queue[[]request.Span],
 ) {
 	p.eventCtx = ebpfEventContext
+	ebpfEventContext.StartRingbufWriteMetrics(ctx, p.cfg.InternalMetrics.Enabled(), ebpfcommon.EventsRingbufName, p.bpfObjects.RingbufWriteStatsStorage, p.metrics, p.log)
 	if p.pythonRuntime != nil {
 		defer p.pythonRuntime.close()
 	}

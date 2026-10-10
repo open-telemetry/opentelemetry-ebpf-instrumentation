@@ -319,6 +319,8 @@ func (p *Tracer) AlreadyInstrumentedLib(id uint64) bool {
 }
 
 func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventContext, eventsChan *msg.Queue[[]request.Span]) {
+	ebpfEventContext.StartRingbufWriteMetrics(ctx, p.cfg.InternalMetrics.Enabled(), BpfMapGpuEvents, p.bpfObjects.GpuRingbufWriteStatsStorage, p.metrics, p.log)
+
 	ebpfcommon.ForwardRingbuf(
 		&p.cfg.EBPF,
 		p.bpfObjects.GpuEvents,

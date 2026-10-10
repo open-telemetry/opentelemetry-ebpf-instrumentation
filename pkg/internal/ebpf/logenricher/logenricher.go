@@ -31,6 +31,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/internal/shardedqueue"
@@ -88,6 +89,7 @@ const (
 type Tracer struct {
 	ctx         context.Context
 	cfg         *obi.Config
+	metrics     imetrics.Reporter
 	bpfObjects  BpfObjects
 	closers     []io.Closer
 	log         *slog.Logger
@@ -103,7 +105,7 @@ type Tracer struct {
 	pipesMU     sync.RWMutex                 // guards trackedPids, logPipes, pidPipes; hot-path readers vs reconcile
 }
 
-func New(cfg *obi.Config) *Tracer {
+func New(cfg *obi.Config, metrics imetrics.Reporter) *Tracer {
 	logger := slog.With("component", "logenricher")
 
 	if !ebpfcommon.SupportsLogInjection(logger) {
@@ -112,8 +114,9 @@ func New(cfg *obi.Config) *Tracer {
 	}
 
 	tr := &Tracer{
-		log: logger,
-		cfg: cfg,
+		log:     logger,
+		cfg:     cfg,
+		metrics: metrics,
 		fdCache: expirable.NewLRU[string, *destFile](cfg.EBPF.LogEnricher.CacheSize, func(_ string, d *destFile) {
 			d.release()
 		}, cfg.EBPF.LogEnricher.CacheTTL),
@@ -542,10 +545,11 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 
 const logPipeReconcileInterval = 15 * time.Second
 
-func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg.Queue[[]request.Span]) {
+func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventContext, _ *msg.Queue[[]request.Span]) {
 	p.log.Debug("starting")
 
 	p.ctx = ctx
+	ebpfEventContext.StartRingbufWriteMetrics(ctx, p.cfg.InternalMetrics.Enabled(), BpfMapLogEvents, p.bpfObjects.LogRingbufWriteStatsStorage, p.metrics, p.log)
 
 	go func() {
 		t := time.NewTicker(logPipeReconcileInterval)
