@@ -10,8 +10,9 @@
 #
 # MCP is not a GenAI operation here: `IsGenAISubtype` excludes it, and the
 # attributes only `mcpAttributes` emits (the `mcp.*` set, `gen_ai.tool.*`,
-# `gen_ai.prompt.name`) belong to `span.obi.mcp.client` instead.
-groups:
+# `gen_ai.prompt.name`) belong to `obi.mcp.client` instead.
+file_format: definition/2
+spans:
   # Union across the provider inference flows: OpenAI, Anthropic, Gemini, Qwen,
   # Ollama, OpenAI-compatible and AWS Bedrock. An attribute is `required` here
   # only when every one of those providers emits it unconditionally.
@@ -19,10 +20,12 @@ groups:
   # The OpenAI-shaped providers route their `/embeddings` endpoint through this
   # path rather than through the dedicated embeddings subtype, which is why the
   # two embedding attributes appear here too, conditioned on the operation.
-  - id: span.obi.gen_ai.inference.client
-    type: span
-    span_kind: client
+  - type: obi.gen_ai.inference.client
+    kind: client
+    name:
+      note: Not documented yet.
     stability: development
+    requirement_level: recommended
     brief: OBI GenAI inference client span.
     attributes:
       - ref: gen_ai.provider.name
@@ -149,10 +152,12 @@ groups:
   # The dedicated embeddings subtype, recognised from a provider-agnostic
   # embeddings payload. Sampling and generation parameters have no meaning
   # here, so none of the inference tuning attributes can appear.
-  - id: span.obi.gen_ai.embeddings.client
-    type: span
-    span_kind: client
+  - type: obi.gen_ai.embeddings.client
+    kind: client
+    name:
+      note: Not documented yet.
     stability: development
+    requirement_level: recommended
     brief: OBI GenAI embeddings client span.
     attributes:
       - ref: gen_ai.provider.name
@@ -205,10 +210,12 @@ groups:
   # document set rather than a model invocation, and neither reports the
   # inference request parameters. The retrieval emitter reports the requested
   # result count as the semconv `gen_ai.request.top_k`.
-  - id: span.obi.gen_ai.retrieval.client
-    type: span
-    span_kind: client
+  - type: obi.gen_ai.retrieval.client
+    kind: client
+    name:
+      note: Not documented yet.
     stability: development
+    requirement_level: recommended
     brief: OBI GenAI vector-retrieval client span.
     attributes:
       - ref: gen_ai.provider.name
@@ -262,10 +269,12 @@ groups:
   # Rerank is its own subtype with its own payload and emitter branch, and it
   # reports gen_ai.operation.name as a fixed `rerank`. It carries no data source
   # and no request top-k; retrieval carries neither of its top-n.
-  - id: span.obi.gen_ai.rerank.client
-    type: span
-    span_kind: client
+  - type: obi.gen_ai.rerank.client
+    kind: client
+    name:
+      note: Not documented yet.
     stability: development
+    requirement_level: recommended
     brief: OBI GenAI rerank client span.
     attributes:
       - ref: gen_ai.provider.name

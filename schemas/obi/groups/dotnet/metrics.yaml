@@ -1,9 +1,8 @@
 # OBI's .NET runtime metrics use the upstream instruments and units.
 # Service and container metadata are carried on the meter resource.
-groups:
-  - id: metric.obi.dotnet.process.cpu.count
-    type: metric
-    metric_name: dotnet.process.cpu.count
+file_format: definition/2
+metrics:
+  - name: dotnet.process.cpu.count
     annotations:
       obi:
         upstream_override: true
@@ -11,10 +10,8 @@ groups:
     instrument: updowncounter
     unit: "{cpu}"
     stability: stable
-    attributes: []
-  - id: metric.obi.dotnet.process.cpu.time
-    type: metric
-    metric_name: dotnet.process.cpu.time
+    requirement_level: recommended
+  - name: dotnet.process.cpu.time
     annotations:
       obi:
         upstream_override: true
@@ -22,13 +19,12 @@ groups:
     instrument: counter
     unit: "s"
     stability: stable
+    requirement_level: recommended
     attributes:
       - ref: cpu.mode
         requirement_level: required
         examples: ["user", "system"]
-  - id: metric.obi.dotnet.gc.heap.total_allocated
-    type: metric
-    metric_name: dotnet.gc.heap.total_allocated
+  - name: dotnet.gc.heap.total_allocated
     annotations:
       obi:
         upstream_override: true
@@ -36,10 +32,8 @@ groups:
     instrument: counter
     unit: "By"
     stability: stable
-    attributes: []
-  - id: metric.obi.dotnet.gc.pause.time
-    type: metric
-    metric_name: dotnet.gc.pause.time
+    requirement_level: recommended
+  - name: dotnet.gc.pause.time
     annotations:
       obi:
         upstream_override: true
@@ -47,10 +41,8 @@ groups:
     instrument: counter
     unit: "s"
     stability: stable
-    attributes: []
-  - id: metric.obi.dotnet.jit.compiled_il.size
-    type: metric
-    metric_name: dotnet.jit.compiled_il.size
+    requirement_level: recommended
+  - name: dotnet.jit.compiled_il.size
     annotations:
       obi:
         upstream_override: true
@@ -58,10 +50,8 @@ groups:
     instrument: counter
     unit: "By"
     stability: stable
-    attributes: []
-  - id: metric.obi.dotnet.jit.compiled_methods
-    type: metric
-    metric_name: dotnet.jit.compiled_methods
+    requirement_level: recommended
+  - name: dotnet.jit.compiled_methods
     annotations:
       obi:
         upstream_override: true
@@ -69,10 +59,8 @@ groups:
     instrument: counter
     unit: "{method}"
     stability: stable
-    attributes: []
-  - id: metric.obi.dotnet.jit.compilation.time
-    type: metric
-    metric_name: dotnet.jit.compilation.time
+    requirement_level: recommended
+  - name: dotnet.jit.compilation.time
     annotations:
       obi:
         upstream_override: true
@@ -80,10 +68,8 @@ groups:
     instrument: counter
     unit: "s"
     stability: stable
-    attributes: []
-  - id: metric.obi.dotnet.thread_pool.work_item.count
-    type: metric
-    metric_name: dotnet.thread_pool.work_item.count
+    requirement_level: recommended
+  - name: dotnet.thread_pool.work_item.count
     annotations:
       obi:
         upstream_override: true
@@ -91,10 +77,8 @@ groups:
     instrument: counter
     unit: "{work_item}"
     stability: stable
-    attributes: []
-  - id: metric.obi.dotnet.monitor.lock_contentions
-    type: metric
-    metric_name: dotnet.monitor.lock_contentions
+    requirement_level: recommended
+  - name: dotnet.monitor.lock_contentions
     annotations:
       obi:
         upstream_override: true
@@ -102,10 +86,8 @@ groups:
     instrument: counter
     unit: "{contention}"
     stability: stable
-    attributes: []
-  - id: metric.obi.dotnet.process.memory.working_set
-    type: metric
-    metric_name: dotnet.process.memory.working_set
+    requirement_level: recommended
+  - name: dotnet.process.memory.working_set
     annotations:
       obi:
         upstream_override: true
@@ -113,10 +95,8 @@ groups:
     instrument: updowncounter
     unit: "By"
     stability: stable
-    attributes: []
-  - id: metric.obi.dotnet.gc.last_collection.memory.committed_size
-    type: metric
-    metric_name: dotnet.gc.last_collection.memory.committed_size
+    requirement_level: recommended
+  - name: dotnet.gc.last_collection.memory.committed_size
     annotations:
       obi:
         upstream_override: true
@@ -124,10 +104,8 @@ groups:
     instrument: updowncounter
     unit: "By"
     stability: stable
-    attributes: []
-  - id: metric.obi.dotnet.thread_pool.thread.count
-    type: metric
-    metric_name: dotnet.thread_pool.thread.count
+    requirement_level: recommended
+  - name: dotnet.thread_pool.thread.count
     annotations:
       obi:
         upstream_override: true
@@ -135,10 +113,8 @@ groups:
     instrument: updowncounter
     unit: "{thread}"
     stability: stable
-    attributes: []
-  - id: metric.obi.dotnet.thread_pool.queue.length
-    type: metric
-    metric_name: dotnet.thread_pool.queue.length
+    requirement_level: recommended
+  - name: dotnet.thread_pool.queue.length
     annotations:
       obi:
         upstream_override: true
@@ -146,10 +122,8 @@ groups:
     instrument: updowncounter
     unit: "{work_item}"
     stability: stable
-    attributes: []
-  - id: metric.obi.dotnet.timer.count
-    type: metric
-    metric_name: dotnet.timer.count
+    requirement_level: recommended
+  - name: dotnet.timer.count
     annotations:
       obi:
         upstream_override: true
@@ -157,10 +131,8 @@ groups:
     instrument: updowncounter
     unit: "{timer}"
     stability: stable
-    attributes: []
-  - id: metric.obi.dotnet.assembly.count
-    type: metric
-    metric_name: dotnet.assembly.count
+    requirement_level: recommended
+  - name: dotnet.assembly.count
     annotations:
       obi:
         upstream_override: true
@@ -168,4 +140,4 @@ groups:
     instrument: updowncounter
     unit: "{assembly}"
     stability: stable
-    attributes: []
+    requirement_level: recommended

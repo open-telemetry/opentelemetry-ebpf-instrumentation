@@ -6,20 +6,9 @@
 # semantic-convention registry under `schemas/obi/` into `site/docs/`, which is
 # published to GitHub Pages by publish-schemas.yml.
 #
-# Rendering goes through `weaver registry resolve` plus scripts/schema-docs.jq
-# rather than `weaver registry generate`, because generation aborts on the
-# duplicate-attribute diagnostics produced by OBI's `x.obi.*` override groups —
-# the same expected findings scripts/lint-schema-filter.jq allowlists for
-# `registry check`. Resolve still emits the complete resolved registry alongside
-# those diagnostics, so we filter and render it ourselves. This can move to
-# `registry generate` with a template set once weaver defines override semantics
-# between a registry and its dependencies
-# (https://github.com/open-telemetry/weaver/issues/1578).
-#
-# Those same duplicates make resolution non-deterministic for the overridden
-# attributes: weaver may pick either the upstream or the OBI description between
-# runs, so regenerating can produce a small diff with no registry change. That is
-# why the output is not verified byte-for-byte in CI.
+# Rendering goes through `weaver registry resolve --v2` plus scripts/schema-docs.jq
+# rather than `weaver registry generate` with a template set, so the pages stay a
+# plain jq transform of the resolved registry.
 #
 # The registry declares the upstream semconv registry as a dependency, resolved
 # from the prefetched copy under schemas/obi/.deps (see
@@ -44,24 +33,17 @@ JQ_PROGRAM="$ROOT/scripts/schema-docs.jq"
 resolved=$(mktemp)
 trap 'rm -f "$resolved"' EXIT
 
-# `--include-unreferenced` keeps OBI's standalone override and marker groups in
-# the resolution. Weaver exits non-zero because of the expected duplicate
-# diagnostics, so validity is judged by the payload, not the exit code.
-#
-# live-check resolves without the flag, so these pages are deliberately a
-# superset of the enforced contract: a group no signal references is
-# documented here but is not something live-check can hold OBI to. The
-# alternative — dropping the flag — would leave those groups undocumented,
-# which is worse for a reference whose job is to describe what OBI declares.
+# Resolution is judged by the payload rather than the exit code: weaver can exit
+# non-zero on a diagnostic while still writing the complete resolved registry.
 "$OCI_BIN" run --rm \
   -v "$REGISTRY:/obi-registry:ro,z" \
   -w /obi-registry \
   "$WEAVER_IMAGE" registry resolve \
     --registry /obi-registry \
-    --include-unreferenced \
+    --v2 \
     --format json > "$resolved" 2>/dev/null || true
 
-if ! jq -e '.groups | length > 0' "$resolved" >/dev/null 2>&1; then
+if ! jq -e '.registry.spans | length > 0' "$resolved" >/dev/null 2>&1; then
   echo "generate-schema-docs: weaver registry resolve produced no usable registry" >&2
   exit 1
 fi

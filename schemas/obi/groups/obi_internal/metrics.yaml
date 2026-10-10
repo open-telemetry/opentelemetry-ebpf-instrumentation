@@ -1,16 +1,16 @@
-groups:
+file_format: definition/2
+metrics:
   # The instrument and (empty) unit declared here mirror what OBI currently
   # emits over OTLP rather than the OTel-canonical `gauge` / `unit: "1"`
   # Prometheus mapping, so weaver validates against the actual contract.
   # The OTLP name uses OTel dot notation; OBI's Prometheus exporter emits
   # the OpenMetrics-convention `target_info` counterpart, which weaver does
   # not see (only the OTLP tap is validated).
-  - id: metric.obi.target.info
-    type: metric
-    metric_name: target.info
+  - name: target.info
     instrument: updowncounter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: >
       `target.info` meta-metric, modeled after the Prometheus / OpenMetrics
       `target_info` convention. Emitted with value 1 to carry the resource
@@ -138,12 +138,11 @@ groups:
   # `application_service_graph` feature does NOT trigger it). OBI's
   # Prometheus exporter emits the underscore `traces_target_info`
   # counterpart.
-  - id: metric.obi.traces.target.info
-    type: metric
-    metric_name: traces.target.info
+  - name: traces.target.info
     instrument: updowncounter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: >
       OBI counterpart of `target.info` for the traces pipeline. Carries the
       resource attribute set of every traced service so dashboards can
@@ -261,63 +260,57 @@ groups:
           recommended: if Kubernetes decoration is enabled and the pod's owner chain includes a StatefulSet
 
   # --- OTLP exporter throughput / errors ---------------------------------
-  - id: metric.obi.obi.otel.metric.exports
-    type: metric
-    metric_name: obi.otel.metric.exports
+  - name: obi.otel.metric.exports
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: Length of the metric batches submitted to the remote OTEL collector.
 
-  - id: metric.obi.obi.otel.metric.export.errors
-    type: metric
-    metric_name: obi.otel.metric.export.errors
+  - name: obi.otel.metric.export.errors
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: Error count on each failed OTEL metric export.
     attributes:
       - ref: error.type
         requirement_level: required
 
-  - id: metric.obi.obi.otel.trace.exports
-    type: metric
-    metric_name: obi.otel.trace.exports
+  - name: obi.otel.trace.exports
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: Length of the trace batches submitted to the remote OTEL collector.
 
-  - id: metric.obi.obi.otel.trace.export.errors
-    type: metric
-    metric_name: obi.otel.trace.export.errors
+  - name: obi.otel.trace.export.errors
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: Error count on each failed OTEL trace export.
     attributes:
       - ref: error.type
         requirement_level: required
 
   # --- Instrumentation accounting ----------------------------------------
-  - id: metric.obi.obi.instrumented.processes
-    type: metric
-    metric_name: obi.instrumented.processes
+  - name: obi.instrumented.processes
     instrument: updowncounter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: Total number of instrumented processes, by process name.
     attributes:
       - ref: process.executable.name
         requirement_level:
           conditionally_required: if the executable name could be resolved
 
-  - id: metric.obi.obi.instrumentation.errors
-    type: metric
-    metric_name: obi.instrumentation.errors
+  - name: obi.instrumentation.errors
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: >
       Total number of instrumentation errors, by process name and error type.
     attributes:
@@ -328,12 +321,11 @@ groups:
         requirement_level:
           conditionally_required: if the operation ended in an error
 
-  - id: metric.obi.obi.avoided.services
-    type: metric
-    metric_name: obi.avoided.services
+  - name: obi.avoided.services
     instrument: gauge
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: >
       Services OBI avoided instrumenting because they already carry
       OpenTelemetry instrumentation. Only emitted when the avoided-services
@@ -353,12 +345,11 @@ groups:
           conditionally_required: if the metric exceeded its cardinality limit
 
   # --- Build info --------------------------------------------------------
-  - id: metric.obi.obi.internal.build.info
-    type: metric
-    metric_name: obi.internal.build.info
+  - name: obi.internal.build.info
     instrument: gauge
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: >
       Constant '1' gauge labelled with build metadata (version, revision,
       goversion, goos, goarch), in the style of Prometheus `*_build_info`.
@@ -375,12 +366,11 @@ groups:
         requirement_level: required
 
   # --- eBPF tracer / probe / map stats -----------------------------------
-  - id: metric.obi.obi.ebpf.tracer.flushes
-    type: metric
-    metric_name: obi.ebpf.tracer.flushes
+  - name: obi.ebpf.tracer.flushes
     instrument: histogram
     unit: "1"
     stability: development
+    requirement_level: recommended
     brief: >
       Length of the groups of traces flushed from the eBPF tracer to the next
       pipeline stage.
@@ -391,12 +381,11 @@ groups:
   # individually. Supersedes the former obi.bpf.probe.executions and
   # obi.bpf.probe.latency_seconds_total, whose values are this histogram's
   # count and sum.
-  - id: metric.obi.obi.bpf.probe.latency
-    type: metric
-    metric_name: obi.bpf.probe.latency
+  - name: obi.bpf.probe.latency
     instrument: histogram
     unit: "s"
     stability: development
+    requirement_level: recommended
     brief: Latency distribution of the eBPF probe in seconds.
     attributes:
       - ref: bpf.probe.id
@@ -406,12 +395,11 @@ groups:
       - ref: bpf.probe.name
         requirement_level: required
 
-  - id: metric.obi.obi.bpf.map.entries
-    type: metric
-    metric_name: obi.bpf.map.entries
+  - name: obi.bpf.map.entries
     instrument: gauge
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: Number of entries in the eBPF map.
     attributes:
       - ref: bpf.map.id
@@ -421,12 +409,11 @@ groups:
       - ref: bpf.map.name
         requirement_level: required
 
-  - id: metric.obi.obi.bpf.map.max_entries
-    type: metric
-    metric_name: obi.bpf.map.max_entries
+  - name: obi.bpf.map.max_entries
     instrument: gauge
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: Maximum number of entries the eBPF map can hold.
     attributes:
       - ref: bpf.map.id
@@ -437,42 +424,38 @@ groups:
         requirement_level: required
 
   # --- Network packet accounting (netolly) -------------------------------
-  - id: metric.obi.obi.bpf.network.packets
-    type: metric
-    metric_name: obi.bpf.network.packets
+  - name: obi.bpf.network.packets
     instrument: counter
     unit: "{packet}"
     stability: development
+    requirement_level: recommended
     brief: How many network packets have been internally accounted.
 
-  - id: metric.obi.obi.bpf.network.ignored.packets
-    type: metric
-    metric_name: obi.bpf.network.ignored.packets
+  - name: obi.bpf.network.ignored.packets
     instrument: counter
     unit: "{packet}"
     stability: development
+    requirement_level: recommended
     brief: >
       How many network packets have been internally ignored due to collisions
       in the internal eBPF cache.
 
   # --- Kubernetes informer ------------------------------------------------
-  - id: metric.obi.obi.kube.cache.forward.lag
-    type: metric
-    metric_name: obi.kube.cache.forward.lag
+  - name: obi.kube.cache.forward.lag
     instrument: histogram
     unit: "s"
     stability: development
+    requirement_level: recommended
     brief: >
       How long, in seconds, it takes from a Kubernetes event happening until
       it is forwarded to the subscribers.
 
   # --- Pipeline queues ----------------------------------------------------
-  - id: metric.obi.obi.queue.capacity.ratio
-    type: metric
-    metric_name: obi.queue.capacity.ratio
+  - name: obi.queue.capacity.ratio
     instrument: gauge
     unit: "1"
     stability: development
+    requirement_level: recommended
     brief: >
       Ratio [0-1] between the unread messages of an internal Go channel and its
       total capacity, sampled on every send to each subscriber. A sustained

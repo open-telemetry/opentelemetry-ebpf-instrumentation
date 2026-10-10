@@ -1,14 +1,16 @@
-groups:
+file_format: definition/2
+attribute_groups:
   # The exporter has one branch per broker and they emit different attribute
   # sets, so each broker gets its own groups rather than one union no span can
   # satisfy. The kind follows the messaging operation, not the side OBI observed
   # the exchange from: send and publish are producer, process is consumer, and
   # receive and settle are client, because OBI observes the exchange with the
   # broker rather than what the application afterwards does with the message.
-  - id: span.obi.messaging.common
-    type: attribute_group
-    stability: development
-    brief: Attributes OBI emits on every messaging span, whatever the broker.
+  #
+  # The attributes OBI emits on every messaging span, whatever the broker, are
+  # shared through this group.
+  - id: attributes.obi.messaging.common
+    visibility: internal
     attributes:
       - ref: messaging.system
         requirement_level: required
@@ -34,13 +36,16 @@ groups:
         requirement_level:
           recommended: if `network.peer.address` is set and the port is known
 
-  - id: span.obi.messaging.kafka.producer
-    type: span
-    span_kind: producer
+spans:
+  - type: obi.messaging.kafka.producer
+    kind: producer
+    name:
+      note: Not documented yet.
     stability: development
-    extends: span.obi.messaging.common
+    requirement_level: recommended
     brief: OBI Kafka span for a send or a publish operation.
     attributes:
+      - ref_group: attributes.obi.messaging.common
       - ref: messaging.destination.name
         requirement_level: required
       - ref: messaging.client.id
@@ -49,13 +54,15 @@ groups:
         requirement_level:
           conditionally_required: if the record carried partition metadata
 
-  - id: span.obi.messaging.kafka.consumer
-    type: span
-    span_kind: consumer
+  - type: obi.messaging.kafka.consumer
+    kind: consumer
+    name:
+      note: Not documented yet.
     stability: development
-    extends: span.obi.messaging.common
+    requirement_level: recommended
     brief: OBI Kafka span for a process operation.
     attributes:
+      - ref_group: attributes.obi.messaging.common
       - ref: messaging.destination.name
         requirement_level: required
       - ref: messaging.client.id
@@ -70,37 +77,43 @@ groups:
         requirement_level:
           conditionally_required: if OBI attributed the fetch to a single consumer group of the process
 
-  - id: span.obi.messaging.mqtt.producer
-    type: span
-    span_kind: producer
+  - type: obi.messaging.mqtt.producer
+    kind: producer
+    name:
+      note: Not documented yet.
     stability: development
-    extends: span.obi.messaging.common
+    requirement_level: recommended
     brief: OBI MQTT span for a send or a publish operation.
     attributes:
+      - ref_group: attributes.obi.messaging.common
       - ref: messaging.destination.name
         requirement_level: required
       - ref: messaging.client.id
         requirement_level: recommended
 
-  - id: span.obi.messaging.mqtt.consumer
-    type: span
-    span_kind: consumer
+  - type: obi.messaging.mqtt.consumer
+    kind: consumer
+    name:
+      note: Not documented yet.
     stability: development
-    extends: span.obi.messaging.common
+    requirement_level: recommended
     brief: OBI MQTT span for a process operation.
     attributes:
+      - ref_group: attributes.obi.messaging.common
       - ref: messaging.destination.name
         requirement_level: required
       - ref: messaging.client.id
         requirement_level: recommended
 
-  - id: span.obi.messaging.nats.producer
-    type: span
-    span_kind: producer
+  - type: obi.messaging.nats.producer
+    kind: producer
+    name:
+      note: Not documented yet.
     stability: development
-    extends: span.obi.messaging.common
+    requirement_level: recommended
     brief: OBI NATS span for a send or a publish operation.
     attributes:
+      - ref_group: attributes.obi.messaging.common
       - ref: messaging.destination.name
         requirement_level: required
       - ref: messaging.client.id
@@ -108,13 +121,15 @@ groups:
       - ref: messaging.message.envelope.size
         requirement_level: recommended
 
-  - id: span.obi.messaging.nats.consumer
-    type: span
-    span_kind: consumer
+  - type: obi.messaging.nats.consumer
+    kind: consumer
+    name:
+      note: Not documented yet.
     stability: development
-    extends: span.obi.messaging.common
+    requirement_level: recommended
     brief: OBI NATS span for a process operation.
     attributes:
+      - ref_group: attributes.obi.messaging.common
       - ref: messaging.destination.name
         requirement_level: required
       - ref: messaging.client.id
@@ -122,16 +137,22 @@ groups:
       - ref: messaging.message.envelope.size
         requirement_level: recommended
 
-  - id: span.obi.messaging.amqp.producer
-    type: span
-    span_kind: producer
+  - type: obi.messaging.amqp.producer
+    kind: producer
+    name:
+      note: Not documented yet.
     stability: development
-    extends: span.obi.messaging.common
+    requirement_level: recommended
     brief: OBI AMQP span for a send or a publish operation.
+    attributes:
+      - ref_group: attributes.obi.messaging.common
 
-  - id: span.obi.messaging.amqp.consumer
-    type: span
-    span_kind: consumer
+  - type: obi.messaging.amqp.consumer
+    kind: consumer
+    name:
+      note: Not documented yet.
     stability: development
-    extends: span.obi.messaging.common
+    requirement_level: recommended
     brief: OBI AMQP span for a process operation.
+    attributes:
+      - ref_group: attributes.obi.messaging.common

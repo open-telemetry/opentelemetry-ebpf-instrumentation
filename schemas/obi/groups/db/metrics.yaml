@@ -1,7 +1,6 @@
-groups:
-  - id: metric.obi.db.client.operation.duration
-    type: metric
-    metric_name: db.client.operation.duration
+file_format: definition/2
+metrics:
+  - name: db.client.operation.duration
     annotations:
       obi:
         upstream_override: true
@@ -9,6 +8,7 @@ groups:
     instrument: histogram
     unit: "s"
     stability: stable
+    requirement_level: recommended
     attributes:
       - ref: db.collection.name
         requirement_level: opt_in
@@ -36,12 +36,11 @@ groups:
   # operations from the database server's perspective (the instrumented
   # process IS the server), reported here so server-side measurements don't
   # pollute the client metric or double-count against it.
-  - id: metric.obi.db.server.operation.duration
-    type: metric
-    metric_name: db.server.operation.duration
+  - name: db.server.operation.duration
     instrument: histogram
     unit: "s"
     stability: development
+    requirement_level: recommended
     brief: >
       Duration of database operations observed from the server side.
     attributes:
