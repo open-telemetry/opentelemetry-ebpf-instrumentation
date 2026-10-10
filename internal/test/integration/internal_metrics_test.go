@@ -95,6 +95,44 @@ func checkInstrumentationErrorMetrics(t *testing.T) {
 	}, testTimeout, 1000*time.Millisecond)
 }
 
+// waitForAvoidedTelemetry requests route until OBI reports that it avoids the given
+// telemetry type of the service on port 8080. OBI avoids a type only after it has
+// seen the service export it, and the service exports spans only while it handles
+// requests, so the route must not be one that the test later asserts on.
+func waitForAvoidedTelemetry(t *testing.T, route, telemetryType string) {
+	t.Helper()
+
+	const internalMetricsURL = "http://localhost:8999/internal/metrics"
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		routeResp, err := http.Get("http://localhost:8080" + route)
+		require.NoError(ct, err)
+		defer routeResp.Body.Close()
+		require.Equal(ct, http.StatusOK, routeResp.StatusCode)
+
+		resp, err := http.Get(internalMetricsURL)
+		require.NoError(ct, err)
+		defer resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		parser := expfmt.NewTextParser(model.UTF8Validation)
+		metrics, err := parser.TextToMetricFamilies(resp.Body)
+		require.NoError(ct, err)
+
+		avoided, ok := metrics["obi_avoided_services"]
+		require.True(ct, ok, "Expected obi_avoided_services metric to be present")
+
+		for _, metric := range avoided.Metric {
+			for _, label := range metric.Label {
+				if label.GetName() == "telemetry_type" && label.GetValue() == telemetryType {
+					return
+				}
+			}
+		}
+		require.Fail(ct, "OBI does not avoid "+telemetryType+" yet")
+	}, testTimeout, time.Second)
+}
+
 func checkAvoidedServicesMetrics(t *testing.T) {
 	const internalMetricsURL = "http://localhost:8999/internal/metrics"
 
