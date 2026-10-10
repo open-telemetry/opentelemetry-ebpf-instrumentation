@@ -20,6 +20,7 @@
 #include <common/common.h>
 #include <common/preempt_guard.h>
 #include <common/ringbuf.h>
+#include <common/scratch_mem.h>
 
 #include <gotracer/go_common.h>
 #include <gotracer/go_str.h>
@@ -29,6 +30,8 @@
 #include <logger/bpf_dbg.h>
 
 #include <gotracer/go_obi_ctx.h>
+
+SCRATCH_MEM_TYPED(mongo_req, mongo_go_client_req_t);
 
 #define MONGO_OP_DEF(name, str)                                                                    \
     static const char name[] = str;                                                                \
@@ -53,33 +56,148 @@ obi_uprobe_mongo_coll_op(struct pt_regs *ctx, const char *op, const u32 op_len) 
     void *coll_ptr = (void *)GO_PARAM1(ctx);
     off_table_t *ot = get_offsets_table();
 
-    mongo_go_client_req_t req = {0};
-    req.type = k_event_type_go_mongo;
-    req.start_monotime_ns = bpf_ktime_get_ns();
+    mongo_go_client_req_t *req = mongo_req_mem();
+    if (!req) {
+        return 0;
+    }
+
+    bpf_memset(req, 0, sizeof(*req));
+    req->type = k_event_type_go_mongo;
+    req->start_monotime_ns = bpf_ktime_get_ns();
 
     if (!read_go_str("name",
                      coll_ptr,
                      go_offset_of(ot, (go_offset){.v = _mongo_conn_name_pos}),
-                     &req.coll,
-                     sizeof(req.coll))) {
+                     &req->coll,
+                     sizeof(req->coll))) {
         bpf_dbg_printk("can't read mongodb Collection.name");
         return 0;
     }
 
-    __builtin_memcpy(req.op, op, op_len);
+    __builtin_memcpy(req->op, op, op_len);
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    client_trace_parent(goroutine_addr, &req.tp);
+    client_trace_parent(goroutine_addr, &req->tp);
 
-    bpf_d_printk("op=%s, [%s]", req.op, __FUNCTION__);
+    bpf_d_printk("op=%s, [%s]", req->op, __FUNCTION__);
 
-    bpf_map_update_elem(&ongoing_mongo_requests, &g_key, &req, BPF_ANY);
+    bpf_map_update_elem(&ongoing_mongo_requests, &g_key, req, BPF_ANY);
 
-    go_obi_ctx__begin(&g_key, k_obi_ctx_mongo, &req.tp, go_obi_ctx__stack_off(ctx));
+    go_obi_ctx__begin(&g_key, k_obi_ctx_mongo, &req->tp, go_obi_ctx__stack_off(ctx));
 
     return 0;
+}
+
+static __always_inline bool mongo_connection_type_matches(const void *itab, u64 expected_itab) {
+    if (!itab || !expected_itab) {
+        return false;
+    }
+
+    void *actual_type = 0;
+    void *expected_type = 0;
+    if (bpf_probe_read_user(
+            &actual_type, sizeof(actual_type), (const void *)((u64)itab + sizeof(void *))) != 0 ||
+        bpf_probe_read_user(&expected_type,
+                            sizeof(expected_type),
+                            (const void *)(expected_itab + sizeof(void *))) != 0) {
+        return false;
+    }
+
+    return actual_type && actual_type == expected_type;
+}
+
+static __always_inline bool
+read_mongo_hostname_from_connection(void *conn_ptr, char *hostname, u64 max_len) {
+    if (!conn_ptr) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+
+    if (!read_go_str("mongo hostname",
+                     conn_ptr,
+                     go_offset_of(ot, (go_offset){.v = _mongo_connection_addr_pos}),
+                     hostname,
+                     max_len)) {
+        bpf_dbg_printk("can't read mongo topology.connection.addr");
+        return 0;
+    }
+
+    return 1;
+}
+
+static __always_inline bool
+read_mongo_hostname_from_topology_connection(void *topology_conn_ptr, char *hostname, u64 max_len) {
+    if (!topology_conn_ptr) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+
+    void *conn_ptr = 0;
+    int res = bpf_probe_read_user(
+        &conn_ptr,
+        sizeof(conn_ptr),
+        (void *)((u64)topology_conn_ptr +
+                 go_offset_of(ot, (go_offset){.v = _mongo_topology_connection_pos})));
+
+    if (res != 0 || !conn_ptr) {
+        bpf_dbg_printk("can't read mongo topology.Connection.connection");
+        return 0;
+    }
+
+    return read_mongo_hostname_from_connection(conn_ptr, hostname, max_len);
+}
+
+static __always_inline void *read_mongo_topology_connection_from_mnet(void *mnet_ptr) {
+    if (!mnet_ptr) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+
+    unsigned char *iface =
+        (unsigned char *)mnet_ptr + go_offset_of(ot, (go_offset){.v = _mongo_mnet_describer_pos});
+
+    void *itab = 0;
+    int res = bpf_probe_read_user(&itab, sizeof(itab), iface);
+
+    if (res != 0 || !itab) {
+        bpf_dbg_printk("can't read mongo mnet.Connection.Describer itab");
+        return 0;
+    }
+
+    const u64 expected_itab =
+        go_offset_of(ot, (go_offset){.v = _mongo_v2_topology_connection_type_addr});
+
+    if (!mongo_connection_type_matches(itab, expected_itab)) {
+        bpf_dbg_printk("mongo Describer is not topology.Connection");
+        return 0;
+    }
+
+    void *topology_conn_ptr = 0;
+    res = bpf_probe_read_user(
+        &topology_conn_ptr, sizeof(topology_conn_ptr), iface + k_go_iface_data_offset);
+
+    if (res != 0 || !topology_conn_ptr) {
+        bpf_dbg_printk("can't read mongo Describer data");
+        return 0;
+    }
+
+    return topology_conn_ptr;
+}
+
+static __always_inline bool
+read_mongo_hostname_from_mnet(void *mnet_ptr, char *hostname, u64 max_len) {
+    void *topology_conn_ptr = read_mongo_topology_connection_from_mnet(mnet_ptr);
+
+    if (!topology_conn_ptr) {
+        return 0;
+    }
+
+    return read_mongo_hostname_from_topology_connection(topology_conn_ptr, hostname, max_len);
 }
 
 SEC("uprobe/op_coll_insert")
@@ -143,10 +261,6 @@ int GUARDED_PROG(obi_uprobe_mongo_op_execute, struct pt_regs *, ctx) {
     void *op_ptr = (void *)PT_REGS_SP(ctx) + 8;
     off_table_t *ot = get_offsets_table();
 
-    mongo_go_client_req_t fresh_req = {0};
-    fresh_req.type = k_event_type_go_mongo;
-    fresh_req.start_monotime_ns = bpf_ktime_get_ns();
-
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
@@ -155,12 +269,15 @@ int GUARDED_PROG(obi_uprobe_mongo_op_execute, struct pt_regs *, ctx) {
     const u8 begun = req != NULL;
 
     if (!req) {
-        client_trace_parent(goroutine_addr, &fresh_req.tp);
-        req = &fresh_req;
-    }
+        req = mongo_req_mem();
+        if (!req) {
+            return 0;
+        }
 
-    if (!req) {
-        return 0;
+        bpf_memset(req, 0, sizeof(*req));
+        req->type = k_event_type_go_mongo;
+        req->start_monotime_ns = bpf_ktime_get_ns();
+        client_trace_parent(goroutine_addr, &req->tp);
     }
 
     bpf_dbg_printk("op_ptr=%llx", op_ptr);
@@ -230,5 +347,65 @@ int GUARDED_PROG(obi_uprobe_mongo_op_execute_ret, struct pt_regs *, ctx) {
     go_obi_ctx__end(&g_key, k_obi_ctx_mongo, req ? &req->tp : NULL);
     bpf_map_delete_elem(&ongoing_mongo_requests, &g_key);
 
+    return 0;
+}
+
+SEC("uprobe/mongo_v1_get_server_and_connection_ret")
+int GUARDED_PROG(obi_uretprobe_mongo_v1_get_server_and_connection, struct pt_regs *, ctx) {
+    bpf_dbg_printk("=== uprobe/op_execute ===");
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    mongo_go_client_req_t *req = bpf_map_lookup_elem(&ongoing_mongo_requests, &g_key);
+
+    if (!req) {
+        return 0;
+    }
+
+    void *conn_type = (void *)GO_PARAM3(ctx);
+    void *topology_conn_ptr = (void *)GO_PARAM4(ctx);
+
+    if (!conn_type || !topology_conn_ptr) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+
+    const u64 expected_type =
+        go_offset_of(ot, (go_offset){.v = _mongo_v1_topology_connection_type_addr});
+
+    if (!mongo_connection_type_matches(conn_type, expected_type)) {
+        return 0;
+    }
+
+    read_mongo_hostname_from_topology_connection(
+        topology_conn_ptr, (char *)req->hostname, sizeof(req->hostname));
+    return 0;
+}
+SEC("uprobe/mongo_v2_get_server_and_connection_ret")
+int GUARDED_PROG(obi_uretprobe_mongo_v2_get_server_and_connection, struct pt_regs *, ctx) {
+    bpf_dbg_printk("=== uprobe/op_execute ===");
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    mongo_go_client_req_t *req = bpf_map_lookup_elem(&ongoing_mongo_requests, &g_key);
+
+    if (!req) {
+        return 0;
+    }
+
+    void *mnet_ptr = (void *)GO_PARAM3(ctx);
+
+    if (!mnet_ptr) {
+        return 0;
+    }
+
+    read_mongo_hostname_from_mnet(mnet_ptr, (char *)req->hostname, sizeof(req->hostname));
     return 0;
 }
