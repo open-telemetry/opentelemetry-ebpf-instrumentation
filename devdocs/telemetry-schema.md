@@ -148,6 +148,8 @@ section empty once drained.
 - The ONC RPC `rpc.method` value on `rpc.client.call.duration` and `rpc.server.call.duration`
   changes from the procedure number (for example `0`) to `{program}/{procedure}` (for example
   `portmapper/0`), and is omitted when no CALL was captured (previously `reply`).
+- gRPC `rpc.method` values and gRPC span names drop the leading slash of the HTTP/2 path, following semconv: `/helloworld.Greeter/SayHello` becomes `helloworld.Greeter/SayHello`. This applies to gRPC server and client spans, to the `rpc.method` attribute of `rpc.server.call.duration` and `rpc.client.call.duration` (`rpc_method` label in Prometheus), and to span-derived metrics labelled by span name.
+- A gRPC path that is not `/{service}/{method}`, or that could not be read, now reports `rpc.method` as `_OTHER` and the span name as `grpc`, instead of the raw path (`*` when unread, an empty span name when missing). Spans also carry the raw path as `rpc.method_original` when it was read.
 
 ## Hosting notes
 

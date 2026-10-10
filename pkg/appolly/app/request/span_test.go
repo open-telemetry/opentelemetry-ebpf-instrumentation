@@ -217,8 +217,11 @@ func TestTraceName(t *testing.T) {
 		{name: "HTTP empty method", span: &Span{Type: EventTypeHTTP, Route: "/users"}, expected: "HTTP /users"},
 
 		// gRPC spans
-		{name: "gRPC server", span: &Span{Type: EventTypeGRPC, Path: "/service/Method"}, expected: "/service/Method"},
-		{name: "gRPC client", span: &Span{Type: EventTypeGRPCClient, Path: "/service/Call"}, expected: "/service/Call"},
+		{name: "gRPC server", span: &Span{Type: EventTypeGRPC, Path: "/service/Method"}, expected: "service/Method"},
+		{name: "gRPC client", span: &Span{Type: EventTypeGRPCClient, Path: "/service/Call"}, expected: "service/Call"},
+		{name: "gRPC unreadable path", span: &Span{Type: EventTypeGRPC, Path: "*"}, expected: "grpc"},
+		{name: "gRPC empty path", span: &Span{Type: EventTypeGRPCClient}, expected: "grpc"},
+		{name: "gRPC path without method", span: &Span{Type: EventTypeGRPC, Path: "/healthz"}, expected: "grpc"},
 
 		// SQL spans
 		{name: "SQL client", span: &Span{Type: EventTypeSQLClient, Method: "SELECT", Path: "users"}, expected: "SELECT users"},
@@ -647,20 +650,22 @@ func TestSerializeJSONSpans(t *testing.T) {
 		{
 			eventType: EventTypeGRPC,
 			attribs: map[string]any{
-				"method":     "path",
-				"status":     "200",
-				"clientAddr": "peername",
-				"serverAddr": "hostname",
-				"serverPort": "5678",
+				"method":         "_OTHER",
+				"methodOriginal": "path",
+				"status":         "200",
+				"clientAddr":     "peername",
+				"serverAddr":     "hostname",
+				"serverPort":     "5678",
 			},
 		},
 		{
 			eventType: EventTypeGRPCClient,
 			attribs: map[string]any{
-				"method":     "path",
-				"status":     "200",
-				"serverAddr": "hostname",
-				"serverPort": "5678",
+				"method":         "_OTHER",
+				"methodOriginal": "path",
+				"status":         "200",
+				"serverAddr":     "hostname",
+				"serverPort":     "5678",
 			},
 		},
 		{

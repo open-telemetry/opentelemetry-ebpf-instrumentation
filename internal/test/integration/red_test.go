@@ -516,7 +516,7 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 				`rpc_response_status_code="OK",` +
 				`service_name="` + svcName + `",` +
 				`service_namespace="` + svcNs + `",` +
-				`rpc_method="/routeguide.RouteGuide/GetFeature"}`)
+				`rpc_method="routeguide.RouteGuide/GetFeature"}`)
 			require.NoError(ct, err)
 			// check duration_count has at least 3 calls
 			enoughPromResults(ct, results)
@@ -615,7 +615,7 @@ func testREDMetricsGRPCInternal(t *testing.T, opts []grpcclient.PingOption, serv
 			`client_address!="127.0.0.1",` + // discard the metrics from testREDMetricsForHTTPLibrary/GorillaURL
 			`service_name="testserver",` +
 			`server_port="` + serverPort + `",` +
-			`rpc_method="/routeguide.RouteGuide/GetFeature"}`)
+			`rpc_method="routeguide.RouteGuide/GetFeature"}`)
 		require.NoError(ct, err)
 		// check duration_count has at least 3 calls and all the arguments
 		enoughPromResults(ct, results)
@@ -802,7 +802,7 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 			`rpc_response_status_code="OK",` +
 			`service_name="` + svcName + `",` +
 			`service_namespace="integration-test",` +
-			`rpc_method="/routeguide.RouteGuide/GetFeature"}`)
+			`rpc_method="routeguide.RouteGuide/GetFeature"}`)
 		require.NoError(ct, err)
 		// check duration_count has at least 3 calls
 		enoughPromResults(ct, results)

@@ -561,6 +561,13 @@ func genAIOperationName(name string) string {
 	return name
 }
 
+func grpcMethodAttributes(span *request.Span) []attribute.KeyValue {
+	method, original := request.GRPCMethod(span)
+	attrs := []attribute.KeyValue{semconv.RPCMethod(method)}
+
+	return appendIfSet(attrs, semconv.RPCMethodOriginal, original)
+}
+
 // jsonRPCAttributes returns JSON-RPC span attributes following the OTEL RPC semantic conventions.
 func jsonRPCAttributes(span *request.Span) []attribute.KeyValue {
 	if span.SubType != request.HTTPSubtypeJSONRPC || span.JSONRPC == nil {
@@ -750,11 +757,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		attrs = append(attrs, jsonRPCAttributes(span)...)
 		attrs = append(attrs, httpEnrichmentAttributes(span)...)
 	case request.EventTypeGRPC:
-		attrs = []attribute.KeyValue{
-			semconv.RPCMethod(span.Path),
+		attrs = grpcMethodAttributes(span)
+		attrs = append(attrs,
 			semconv.RPCSystemNameGRPC,
 			request.ServerPort(span.HostPort),
-		}
+		)
 		attrs = appendIfSet(attrs, request.ClientAddr, request.PeerAsClient(span))
 		attrs = appendIfSet(attrs, request.ServerAddr, request.SpanHost(span))
 		// GRPCStatusCodeString returns "" for statuses outside the gRPC enum
@@ -1452,11 +1459,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		attrs = append(attrs, jsonRPCAttributes(span)...)
 		attrs = append(attrs, httpEnrichmentAttributes(span)...)
 	case request.EventTypeGRPCClient:
-		attrs = []attribute.KeyValue{
-			semconv.RPCMethod(span.Path),
+		attrs = grpcMethodAttributes(span)
+		attrs = append(attrs,
 			semconv.RPCSystemNameGRPC,
 			request.ServerPort(span.HostPort),
-		}
+		)
 		attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
 		attrs = appendPeerService(attrs, span, optionalAttrs)
 		// See the EventTypeGRPC case: omit the status code attribute when the

@@ -223,19 +223,19 @@ func testGRPCTracesForServiceName(t *testing.T, svcName string) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := getJaeger(jaegerQueryURL + "?service=" + svcName + "&operation=%2Frouteguide.RouteGuide%2FDebug")
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + svcName + "&operation=routeguide.RouteGuide%2FDebug")
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		traces := tq.FindBySpan(jaeger.Tag{Key: "rpc.method", Type: "string", Value: "/routeguide.RouteGuide/Debug"})
+		traces := tq.FindBySpan(jaeger.Tag{Key: "rpc.method", Type: "string", Value: "routeguide.RouteGuide/Debug"})
 		require.Len(ct, traces, 1)
 		trace = traces[0]
 		require.Len(ct, trace.Spans, 1) // parent
 	}, testTimeout, 100*time.Millisecond)
 
 	// Check the information of the parent span
-	res := trace.FindByOperationName("/routeguide.RouteGuide/Debug", "server")
+	res := trace.FindByOperationName("routeguide.RouteGuide/Debug", "server")
 	require.Len(t, res, 1)
 	parent := res[0]
 	require.NotEmpty(t, parent.TraceID)
@@ -246,7 +246,7 @@ func testGRPCTracesForServiceName(t *testing.T, svcName string) {
 	sd := parent.Diff(
 		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(5051)},
 		jaeger.Tag{Key: "rpc.response.status_code", Type: "string", Value: "UNKNOWN"},
-		jaeger.Tag{Key: "rpc.method", Type: "string", Value: "/routeguide.RouteGuide/Debug"},
+		jaeger.Tag{Key: "rpc.method", Type: "string", Value: "routeguide.RouteGuide/Debug"},
 		jaeger.Tag{Key: "rpc.system.name", Type: "string", Value: "grpc"},
 		jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
 	)
@@ -272,18 +272,18 @@ func testGRPCTracesForServiceName(t *testing.T, svcName string) {
 	require.NoError(t, grpcclient.List()) // this call adds traceparent manually to the headers, simulates existing traceparent
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := getJaeger(jaegerQueryURL + "?service=" + svcName + "&operation=%2Frouteguide.RouteGuide%2FListFeatures")
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + svcName + "&operation=routeguide.RouteGuide%2FListFeatures")
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		traces := tq.FindBySpan(jaeger.Tag{Key: "rpc.method", Type: "string", Value: "/routeguide.RouteGuide/ListFeatures"})
+		traces := tq.FindBySpan(jaeger.Tag{Key: "rpc.method", Type: "string", Value: "routeguide.RouteGuide/ListFeatures"})
 		require.Len(ct, traces, 1)
 		trace = traces[0]
 	}, testTimeout, 100*time.Millisecond)
 
 	// Check the information of the parent span
-	res = trace.FindByOperationName("/routeguide.RouteGuide/ListFeatures", "server")
+	res = trace.FindByOperationName("routeguide.RouteGuide/ListFeatures", "server")
 	require.Len(t, res, 1)
 	parent = res[0]
 	require.NotEmpty(t, parent.TraceID)
@@ -317,19 +317,19 @@ func testGRPCKProbeTraces(t *testing.T) {
 
 	var trace jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := getJaeger(jaegerQueryURL + "?service=" + svcName + "&operation=%2Frouteguide.RouteGuide%2FDebug")
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + svcName + "&operation=routeguide.RouteGuide%2FDebug")
 		require.NoError(ct, err)
 		require.Equal(ct, http.StatusOK, resp.StatusCode)
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		traces := tq.FindBySpan(jaeger.Tag{Key: "rpc.method", Type: "string", Value: "/routeguide.RouteGuide/Debug"})
+		traces := tq.FindBySpan(jaeger.Tag{Key: "rpc.method", Type: "string", Value: "routeguide.RouteGuide/Debug"})
 		require.Len(ct, traces, 1)
 		trace = traces[0]
 		require.Len(ct, trace.Spans, 1) // single span for kprobes, we don't track goroutines
 	}, testTimeout, 100*time.Millisecond)
 
 	// Check the information of the parent span
-	res := trace.FindByOperationName("/routeguide.RouteGuide/Debug", "server")
+	res := trace.FindByOperationName("routeguide.RouteGuide/Debug", "server")
 	require.Len(t, res, 1)
 	parent := res[0]
 	require.NotEmpty(t, parent.TraceID)
@@ -340,7 +340,7 @@ func testGRPCKProbeTraces(t *testing.T) {
 	sd := parent.Diff(
 		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(5051)},
 		jaeger.Tag{Key: "rpc.response.status_code", Type: "string", Value: "UNKNOWN"},
-		jaeger.Tag{Key: "rpc.method", Type: "string", Value: "/routeguide.RouteGuide/Debug"},
+		jaeger.Tag{Key: "rpc.method", Type: "string", Value: "routeguide.RouteGuide/Debug"},
 		jaeger.Tag{Key: "rpc.system.name", Type: "string", Value: "grpc"},
 		jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
 	)
@@ -708,7 +708,7 @@ func testHTTP2GRPCTracesNestedCalls(t *testing.T, contextPropagation bool) {
 		numNestedGRPC = 2
 	}
 
-	res = trace.FindByOperationName("/routeguide.RouteGuide/GetFeature", "")
+	res = trace.FindByOperationName("routeguide.RouteGuide/GetFeature", "")
 	require.Len(t, res, numNestedGRPC)
 	for index := range res {
 		grpc := res[index]
@@ -731,7 +731,7 @@ func testHTTP2GRPCTracesNestedCalls(t *testing.T, contextPropagation bool) {
 		}
 
 		sd = grpc.Diff(
-			jaeger.Tag{Key: "rpc.method", Type: "string", Value: "/routeguide.RouteGuide/GetFeature"},
+			jaeger.Tag{Key: "rpc.method", Type: "string", Value: "routeguide.RouteGuide/GetFeature"},
 			jaeger.Tag{Key: "rpc.response.status_code", Type: "string", Value: "OK"},
 		)
 		assert.Empty(t, sd, sd.String())

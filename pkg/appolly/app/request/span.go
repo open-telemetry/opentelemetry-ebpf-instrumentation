@@ -1709,20 +1709,22 @@ func spanAttributes(s *Span) SpanAttributes {
 		addHeaderAttributes(attrs, s)
 		return attrs
 	case EventTypeGRPC:
-		return SpanAttributes{
-			"method":     s.Path,
+		attrs := SpanAttributes{
 			"status":     strconv.Itoa(s.Status),
 			"clientAddr": SpanPeer(s),
 			"serverAddr": SpanHost(s),
 			"serverPort": strconv.Itoa(s.HostPort),
 		}
+		addGRPCMethodAttributes(attrs, s)
+		return attrs
 	case EventTypeGRPCClient:
-		return SpanAttributes{
-			"method":     s.Path,
+		attrs := SpanAttributes{
 			"status":     strconv.Itoa(s.Status),
 			"serverAddr": SpanHost(s),
 			"serverPort": strconv.Itoa(s.HostPort),
 		}
+		addGRPCMethodAttributes(attrs, s)
+		return attrs
 	case EventTypeSQLClient, EventTypeSQLServer:
 		var (
 			code              uint16
@@ -1846,6 +1848,14 @@ func spanAttributes(s *Span) SpanAttributes {
 	}
 
 	return SpanAttributes{}
+}
+
+func addGRPCMethodAttributes(attrs SpanAttributes, s *Span) {
+	method, original := GRPCMethod(s)
+	attrs["method"] = method
+	if original != "" {
+		attrs["methodOriginal"] = original
+	}
 }
 
 func addHeaderAttributes(attrs SpanAttributes, s *Span) {
@@ -2271,7 +2281,7 @@ func (s *Span) TraceName() string {
 		}
 		return name
 	case EventTypeGRPC, EventTypeGRPCClient:
-		return s.Path
+		return grpcSpanName(s)
 	case EventTypeSQLClient, EventTypeSQLServer:
 		if s.Method != "" && s.DBQuerySummary != "" {
 			return s.DBQuerySummary
