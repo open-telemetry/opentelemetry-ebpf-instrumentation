@@ -63,6 +63,32 @@ func TestPrometheusReporterQueueBufferUtilization(t *testing.T) {
 	assert.InDelta(t, 0.9, gaugeValue("traces"), 0.001)
 }
 
+func TestPrometheusReporterBPFRingbufWriteCounts(t *testing.T) {
+	reporter := NewPrometheusReporter(&InternalMetricsConfig{}, nil, prometheus.NewRegistry())
+
+	counterMetric := func(counter prometheus.Counter) *dto.Metric {
+		var metric dto.Metric
+		require.NoError(t, counter.Write(&metric))
+		return &metric
+	}
+
+	reporter.BPFRingbufWriteCounts("events", 10, 2)
+	reporter.BPFRingbufWriteCounts("events", 5, 2)
+	reporter.BPFRingbufWriteCounts("gpu_events", 7, 1)
+
+	writes := counterMetric(reporter.bpfRingbufWrites.WithLabelValues("events"))
+	failures := counterMetric(reporter.bpfRingbufFailures.WithLabelValues("events"))
+	assert.InDelta(t, 15, writes.GetCounter().GetValue(), 0)
+	assert.InDelta(t, 4, failures.GetCounter().GetValue(), 0)
+	assert.Equal(t, "events", metricLabels(writes)["bpf_map_name"])
+	assert.Equal(t, "events", metricLabels(failures)["bpf_map_name"])
+
+	gpuWrites := counterMetric(reporter.bpfRingbufWrites.WithLabelValues("gpu_events"))
+	gpuFailures := counterMetric(reporter.bpfRingbufFailures.WithLabelValues("gpu_events"))
+	assert.InDelta(t, 7, gpuWrites.GetCounter().GetValue(), 0)
+	assert.InDelta(t, 1, gpuFailures.GetCounter().GetValue(), 0)
+}
+
 type noopEmbeddingReporter struct {
 	NoopReporter
 }
