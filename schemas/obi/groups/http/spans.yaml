@@ -162,6 +162,9 @@ spans:
         requirement_level: required
       - ref: rpc.method
         requirement_level: required
+      - ref: rpc.method_original
+        requirement_level:
+          conditionally_required: if the qualified method differs from the raw one
       - ref: jsonrpc.protocol.version
         requirement_level:
           conditionally_required: upstream declares it conditional; OBI always emits it, since it recognises only JSON-RPC 2.0

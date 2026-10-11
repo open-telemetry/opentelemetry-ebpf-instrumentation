@@ -746,6 +746,60 @@ func testHTTP2GRPCTracesNestedCallsWithContextPropagation(t *testing.T) {
 	testHTTP2GRPCTracesNestedCalls(t, true)
 }
 
+// goNetRPCServerTags are the RPC attributes of a span OBI reports for a Go
+// net/rpc JSON-RPC server, which names its methods as `Service.Method`.
+func goNetRPCServerTags(service, method string) []jaeger.Tag {
+	return []jaeger.Tag{
+		{Key: "span.kind", Type: "string", Value: "server"},
+		{Key: "rpc.system.name", Type: "string", Value: "jsonrpc"},
+		{Key: "rpc.method", Type: "string", Value: service + "/" + method},
+		{Key: "rpc.method_original", Type: "string", Value: service + "." + method},
+		{Key: "jsonrpc.protocol.version", Type: "string", Value: "1.0"},
+		{Key: "server.port", Type: "int64", Value: float64(8088)},
+	}
+}
+
+func testGoJSONRPCTraces(t *testing.T) {
+	params := url.Values{}
+	params.Add("service", "testserver")
+	params.Add("operation", "Arith/Multiply")
+	jaegerURL := jaegerQueryURL + "?" + params.Encode()
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := jsonRPCCall(instrumentedServiceJSONRPCURL+"/jsonrpc", "Arith.Multiply", 1, []map[string]int{{"A": 7, "B": 8}})
+		require.NoError(ct, err)
+		resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		resp, err = getJaeger(jaegerURL)
+		require.NoError(ct, err)
+		if resp == nil {
+			return
+		}
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "rpc.method", Type: "string", Value: "Arith/Multiply"})
+		require.NotEmpty(ct, traces)
+
+		res := traces[0].FindByOperationName("Arith/Multiply", "server")
+		require.Len(ct, res, 1)
+		span := res[0]
+
+		sd := span.Diff(goNetRPCServerTags("Arith", "Multiply")...)
+		assert.Empty(ct, sd, sd.String())
+
+		// The span still carries the HTTP transport it was read from.
+		sd = span.Diff(
+			jaeger.Tag{Key: "http.request.method", Type: "string", Value: "POST"},
+			jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
+			jaeger.Tag{Key: "url.path", Type: "string", Value: "/jsonrpc"},
+			jaeger.Tag{Key: "http.route", Type: "string", Value: "/jsonrpc"},
+		)
+		assert.Empty(ct, sd, sd.String())
+	}, testTimeout, time.Second)
+}
+
 func testNestedHTTPTracesKProbes(t *testing.T) {
 	var traceID string
 
@@ -863,29 +917,14 @@ func testNestedHTTPTracesKProbes(t *testing.T) {
 			)
 			assert.Empty(ct, sd, sd.String())
 
-			/* FIXME flaky
-						// Check the information of the go jsonrpc parent span
-						require.EventuallyWithT(t, func(ct *assert.CollectT) {
-							res := trace.FindByOperationName("Arith.T /jsonrpc", "server")
-							require.Len(ct, res, 1)
-							parent := res[0]
-							require.NotEmpty(ct, parent.TraceID)
-							require.Equal(ct, traceID, parent.TraceID)
-							require.NotEmpty(ct, parent.SpanID)
-							// check duration is at least 2us
-							assert.Less(ct, (2 * time.Microsecond).Microseconds(), parent.Duration)
-							// check span attributes
-							sd := parent.Diff(
-								jaeger.Tag{Key: "http.request.method", Type: "string", Value: "Arith.T"},
-								jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
-								jaeger.Tag{Key: "url.path", Type: "string", Value: "/jsonrpc"},
-								jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8088)},
-								jaeger.Tag{Key: "http.route", Type: "string", Value: "/jsonrpc"},
-								jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
-							)
-							assert.Empty(ct, sd, sd.String())
-			            }, testTimeout, 100*time.Millisecond)
-			*/
+			// Check the information of the go jsonrpc parent span
+			res = trace.FindByOperationName("Arith/Traceme", "server")
+			require.Len(ct, res, 1, traceID)
+			parent = res[0]
+			require.Equal(ct, traceID, parent.TraceID)
+			require.NotEmpty(ct, parent.SpanID)
+			sd = parent.Diff(goNetRPCServerTags("Arith", "Traceme")...)
+			assert.Empty(ct, sd, sd.String())
 
 			// Check the information of the python parent span
 			res = trace.FindByOperationName("GET /tracemetoo", "server")

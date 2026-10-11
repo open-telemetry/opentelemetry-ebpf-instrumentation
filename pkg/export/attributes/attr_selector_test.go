@@ -200,6 +200,7 @@ func TestDefault_DBClientDuration(t *testing.T) {
 	p, err := NewAttrSelector(0, &SelectorConfig{})
 	require.NoError(t, err)
 	assert.Equal(t, []attr.Name{
+		attr.DBCollectionName,
 		attr.DBNamespace,
 		attr.DBOperation,
 		attr.DBResponseStatusCode,
@@ -214,6 +215,7 @@ func TestDefault_DBServerDuration(t *testing.T) {
 	p, err := NewAttrSelector(0, &SelectorConfig{})
 	require.NoError(t, err)
 	assert.Equal(t, []attr.Name{
+		attr.DBCollectionName,
 		attr.DBNamespace,
 		attr.DBOperation,
 		attr.DBResponseStatusCode,
@@ -222,6 +224,32 @@ func TestDefault_DBServerDuration(t *testing.T) {
 		attr.ServerAddr,
 		attr.ServerPort,
 	}, p.For(DBServerDuration))
+}
+
+func TestDefault_RPCClientDuration(t *testing.T) {
+	p, err := NewAttrSelector(0, &SelectorConfig{})
+	require.NoError(t, err)
+	assert.Equal(t, []attr.Name{
+		attr.ErrorType,
+		attr.RPCMethod,
+		attr.RPCResponseStatusCode,
+		attr.RPCSystem,
+		attr.ServerAddr,
+		attr.ServerPort,
+	}, p.For(RPCClientDuration))
+}
+
+func TestDefault_RPCServerDuration(t *testing.T) {
+	p, err := NewAttrSelector(0, &SelectorConfig{})
+	require.NoError(t, err)
+	assert.Equal(t, []attr.Name{
+		attr.ErrorType,
+		attr.RPCMethod,
+		attr.RPCResponseStatusCode,
+		attr.RPCSystem,
+		attr.ServerAddr,
+		attr.ServerPort,
+	}, p.For(RPCServerDuration))
 }
 
 func TestDefault_HTTPServerMetrics(t *testing.T) {

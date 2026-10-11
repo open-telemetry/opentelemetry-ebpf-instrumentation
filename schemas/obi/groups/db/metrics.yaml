@@ -11,7 +11,8 @@ metrics:
     requirement_level: recommended
     attributes:
       - ref: db.collection.name
-        requirement_level: opt_in
+        requirement_level:
+          conditionally_required: if the operation targets a single collection
       - ref: db.namespace
         requirement_level:
           conditionally_required: if the exchange named a database
@@ -26,7 +27,8 @@ metrics:
       - ref: server.address
         requirement_level: recommended
       - ref: server.port
-        requirement_level: recommended
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
       - ref: db.response.status_code
         requirement_level:
           conditionally_required: if the operation failed and the status code is available
@@ -56,7 +58,8 @@ metrics:
         requirement_level:
           conditionally_required: if the operation ended in an error
       - ref: db.collection.name
-        requirement_level: opt_in
+        requirement_level:
+          conditionally_required: if the operation targets a single collection
       - ref: server.address
         requirement_level: recommended
       - ref: server.port
