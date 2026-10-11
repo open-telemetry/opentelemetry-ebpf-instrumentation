@@ -4,6 +4,7 @@
 package tracesgen
 
 import (
+	"path"
 	"strconv"
 	"testing"
 
@@ -176,4 +177,47 @@ func TestSQLPPSpanNameBracketsIPv6(t *testing.T) {
 		DBSystem: "couchbase",
 	}
 	assert.Equal(t, "SELECT [2001:db8::1]:8093", span.TraceName())
+}
+
+func TestTraceAttributesSelector_ElasticsearchPathParameters(t *testing.T) {
+	esSpan := func(index, id string) *request.Span {
+		return &request.Span{
+			Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeElasticsearch,
+			Method: "GET", Path: path.Join("/", index, "_doc", id), Host: "es", HostPort: 9200,
+			Status: 200,
+			Elasticsearch: &request.Elasticsearch{
+				DBSystemName:     "elasticsearch",
+				DBOperationName:  "doc",
+				DBCollectionName: index,
+				DocumentID:       id,
+			},
+		}
+	}
+
+	t.Run("reports the index and document id", func(t *testing.T) {
+		attrs := AttrsToMap(TraceAttributesSelector(esSpan("my-index", "42"), map[attr.Name]struct{}{}))
+		index, ok := attrs.Get("db.operation.parameter.index")
+		require.True(t, ok)
+		assert.Equal(t, "my-index", index.Str())
+		id, ok := attrs.Get("db.operation.parameter.id")
+		require.True(t, ok)
+		assert.Equal(t, "42", id.Str())
+	})
+
+	t.Run("reports only the index when no document is targeted", func(t *testing.T) {
+		attrs := AttrsToMap(TraceAttributesSelector(esSpan("my-index", ""), map[attr.Name]struct{}{}))
+		index, ok := attrs.Get("db.operation.parameter.index")
+		require.True(t, ok)
+		assert.Equal(t, "my-index", index.Str())
+		_, ok = attrs.Get("db.operation.parameter.id")
+		assert.False(t, ok)
+	})
+
+	t.Run("omitted when the path has no mapped parameters", func(t *testing.T) {
+		attrs := AttrsToMap(TraceAttributesSelector(esSpan("", ""), map[attr.Name]struct{}{}))
+		_, ok := attrs.Get("db.operation.parameter.index")
+		assert.False(t, ok)
+		_, ok = attrs.Get("db.operation.parameter.id")
+		assert.False(t, ok)
+	})
 }

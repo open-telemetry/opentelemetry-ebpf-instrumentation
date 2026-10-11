@@ -367,6 +367,7 @@ type GraphQL struct {
 
 type Elasticsearch struct {
 	DBCollectionName string `json:"dbCollectionName"`
+	DocumentID       string `json:"documentId"`
 	NodeName         string `json:"nodeName"`
 	DBOperationName  string `json:"dbOperationName"`
 	DBQueryText      string `json:"dbQueryText"`
@@ -1654,6 +1655,7 @@ func spanAttributes(s *Span) SpanAttributes {
 		}
 		if s.SubType == HTTPSubtypeElasticsearch && s.Elasticsearch != nil {
 			attrs["dbCollectionName"] = s.Elasticsearch.DBCollectionName
+			attrs["documentID"] = s.Elasticsearch.DocumentID
 			attrs["nodeName"] = s.Elasticsearch.NodeName
 			attrs["dbNamespace"] = s.DBNamespace
 			attrs["dbOperationName"] = s.Elasticsearch.DBOperationName

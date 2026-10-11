@@ -20,6 +20,7 @@ type elasticsearchOperation struct {
 	NodeName         string
 	DBQueryText      string
 	DBCollectionName string
+	DocumentID       string
 	DBSytemName      string
 }
 
@@ -68,6 +69,7 @@ func ElasticsearchSpan(baseSpan *request.Span, req *http.Request, resp *http.Res
 		NodeName:         op.NodeName,
 		DBOperationName:  operationName,
 		DBCollectionName: op.DBCollectionName,
+		DocumentID:       op.DocumentID,
 		DBQueryText:      op.DBQueryText,
 		DBSystemName:     dbSystemName,
 	}
@@ -92,6 +94,7 @@ func parseElasticsearchRequest(req *http.Request) (elasticsearchOperation, error
 	req.Body = io.NopCloser(bytes.NewBuffer(reqB))
 	op.DBQueryText = string(reqB)
 	op.DBCollectionName = extractElasticsearchDBCollectionName(req)
+	op.DocumentID = extractElasticsearchDocumentID(req)
 	return op, nil
 }
 
@@ -177,4 +180,14 @@ func extractElasticsearchDBCollectionName(req *http.Request) string {
 		return ""
 	}
 	return first
+}
+
+// extractElasticsearchDocumentID returns the {id} path parameter of the
+// /{index}/_doc/{id} document endpoint.
+func extractElasticsearchDocumentID(req *http.Request) string {
+	parts := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
+	if len(parts) != 3 || parts[1] != "_doc" {
+		return ""
+	}
+	return parts[2]
 }

@@ -109,6 +109,7 @@ func TestParseElasticsearchRequest(t *testing.T) {
 			expected: elasticsearchOperation{
 				DBQueryText:      "",
 				DBCollectionName: "test_index",
+				DocumentID:       "1",
 			},
 			wantErr: false,
 		},
@@ -118,6 +119,16 @@ func TestParseElasticsearchRequest(t *testing.T) {
 			expected: elasticsearchOperation{
 				DBQueryText:      "{\"message\":\"hello world\"}",
 				DBCollectionName: "test_index",
+			},
+			wantErr: false,
+		},
+		{
+			name:  "Valid PUT request for a doc operation with an id",
+			input: newRequest(http.MethodPut, "/test_index/_doc/abc-123", `{"message":"hello world"}`),
+			expected: elasticsearchOperation{
+				DBQueryText:      "{\"message\":\"hello world\"}",
+				DBCollectionName: "test_index",
+				DocumentID:       "abc-123",
 			},
 			wantErr: false,
 		},
@@ -137,6 +148,9 @@ func TestParseElasticsearchRequest(t *testing.T) {
 				}
 				if op.DBQueryText != tt.expected.DBQueryText {
 					t.Errorf("DBQueryText = %q, want %q", op.DBQueryText, tt.expected.DBQueryText)
+				}
+				if op.DocumentID != tt.expected.DocumentID {
+					t.Errorf("DocumentID = %q, want %q", op.DocumentID, tt.expected.DocumentID)
 				}
 			}
 		})
@@ -237,6 +251,8 @@ func TestElasticsearchSpan(t *testing.T) {
 		expectedNamespace string
 		expectedNodeName  string
 		expectedIndex     string
+		expectedOperation string
+		expectedDocID     string
 	}{
 		{
 			name:   "Elastic Cloud response reports cluster and node",
@@ -248,17 +264,27 @@ func TestElasticsearchSpan(t *testing.T) {
 			expectedNamespace: "8b3f5a1c9d2e4f6a",
 			expectedNodeName:  "instance-0000000001",
 			expectedIndex:     "test_index",
+			expectedOperation: "search",
 		},
 		{
 			name:              "Elastic Cloud response without an index",
 			target:            "/_search",
 			headers:           map[string]string{"X-Found-Handling-Cluster": "8b3f5a1c9d2e4f6a"},
 			expectedNamespace: "8b3f5a1c9d2e4f6a",
+			expectedOperation: "search",
 		},
 		{
-			name:          "self-hosted response reports no cluster",
-			target:        "/test_index/_search",
-			expectedIndex: "test_index",
+			name:              "self-hosted response reports no cluster",
+			target:            "/test_index/_search",
+			expectedIndex:     "test_index",
+			expectedOperation: "search",
+		},
+		{
+			name:              "document request reports the document id",
+			target:            "/test_index/_doc/1",
+			expectedIndex:     "test_index",
+			expectedOperation: "doc",
+			expectedDocID:     "1",
 		},
 	}
 	for _, tt := range tests {
@@ -281,8 +307,11 @@ func TestElasticsearchSpan(t *testing.T) {
 			if span.Elasticsearch.DBCollectionName != tt.expectedIndex {
 				t.Errorf("DBCollectionName = %q, want %q", span.Elasticsearch.DBCollectionName, tt.expectedIndex)
 			}
-			if span.Elasticsearch.DBOperationName != "search" {
-				t.Errorf("DBOperationName = %q, want %q", span.Elasticsearch.DBOperationName, "search")
+			if span.Elasticsearch.DocumentID != tt.expectedDocID {
+				t.Errorf("DocumentID = %q, want %q", span.Elasticsearch.DocumentID, tt.expectedDocID)
+			}
+			if span.Elasticsearch.DBOperationName != tt.expectedOperation {
+				t.Errorf("DBOperationName = %q, want %q", span.Elasticsearch.DBOperationName, tt.expectedOperation)
 			}
 			if span.Elasticsearch.DBSystemName != "elasticsearch" {
 				t.Errorf("DBSystemName = %q, want %q", span.Elasticsearch.DBSystemName, "elasticsearch")

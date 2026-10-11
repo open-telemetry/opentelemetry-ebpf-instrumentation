@@ -125,9 +125,9 @@ func declaredSpanAttributes(t *testing.T, spanType string) []string {
 	return keys
 }
 
-// A templated attribute is emitted one key per header, while the registry
-// declares the template root once. Compare against the root.
-var attributeTemplates = []string{"http.request.header", "http.response.header"}
+// A templated attribute is emitted one key per header or path parameter,
+// while the registry declares the template root once. Compare against the root.
+var attributeTemplates = []string{"http.request.header", "http.response.header", "db.operation.parameter"}
 
 func templateRoot(key string) string {
 	for _, t := range attributeTemplates {
