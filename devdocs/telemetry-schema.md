@@ -148,6 +148,10 @@ section empty once drained.
 - The ONC RPC `rpc.method` value on `rpc.client.call.duration` and `rpc.server.call.duration`
   changes from the procedure number (for example `0`) to `{program}/{procedure}` (for example
   `portmapper/0`), and is omitted when no CALL was captured (previously `reply`).
+- The registry moves to weaver's `definition/2` format. A span definition is identified
+  by its `type`, so the span ids in `site/docs/spans.md` lose their `span.` prefix
+  (`span.obi.http.server` becomes `obi.http.server`) and a link anchored on an old id no
+  longer resolves. The emitted telemetry is unchanged.
 
 ## Hosting notes
 

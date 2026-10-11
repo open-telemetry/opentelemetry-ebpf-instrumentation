@@ -1,8 +1,7 @@
-groups:
+file_format: definition/2
+metrics:
   # --- Metrics ----------------------------------------------------------
-  - id: metric.obi.http.client.request.body.size
-    type: metric
-    metric_name: http.client.request.body.size
+  - name: http.client.request.body.size
     annotations:
       obi:
         upstream_override: true
@@ -10,6 +9,7 @@ groups:
     instrument: histogram
     unit: "By"
     stability: development
+    requirement_level: recommended
     attributes:
       - ref: error.type
         requirement_level:
@@ -32,9 +32,7 @@ groups:
         requirement_level: opt_in
       - ref: url.scheme
         requirement_level: recommended
-  - id: metric.obi.http.client.request.duration
-    type: metric
-    metric_name: http.client.request.duration
+  - name: http.client.request.duration
     annotations:
       obi:
         upstream_override: true
@@ -42,6 +40,7 @@ groups:
     instrument: histogram
     unit: "s"
     stability: stable
+    requirement_level: recommended
     attributes:
       - ref: error.type
         requirement_level:
@@ -64,9 +63,7 @@ groups:
         requirement_level: opt_in
       - ref: url.scheme
         requirement_level: recommended
-  - id: metric.obi.http.client.response.body.size
-    type: metric
-    metric_name: http.client.response.body.size
+  - name: http.client.response.body.size
     annotations:
       obi:
         upstream_override: true
@@ -74,6 +71,7 @@ groups:
     instrument: histogram
     unit: "By"
     stability: development
+    requirement_level: recommended
     attributes:
       - ref: error.type
         requirement_level:
@@ -96,9 +94,7 @@ groups:
         requirement_level: opt_in
       - ref: url.scheme
         requirement_level: recommended
-  - id: metric.obi.http.server.request.body.size
-    type: metric
-    metric_name: http.server.request.body.size
+  - name: http.server.request.body.size
     annotations:
       obi:
         upstream_override: true
@@ -106,6 +102,7 @@ groups:
     instrument: histogram
     unit: "By"
     stability: development
+    requirement_level: recommended
     attributes:
       - ref: client.address
         requirement_level: opt_in
@@ -129,9 +126,7 @@ groups:
       - ref: url.scheme
         requirement_level:
           conditionally_required: if the front end reported a scheme, and the params frame carrying it was captured whole
-  - id: metric.obi.http.server.request.duration
-    type: metric
-    metric_name: http.server.request.duration
+  - name: http.server.request.duration
     annotations:
       obi:
         upstream_override: true
@@ -139,6 +134,7 @@ groups:
     instrument: histogram
     unit: "s"
     stability: stable
+    requirement_level: recommended
     attributes:
       - ref: client.address
         requirement_level: opt_in
@@ -162,9 +158,7 @@ groups:
       - ref: url.scheme
         requirement_level:
           conditionally_required: if the front end reported a scheme, and the params frame carrying it was captured whole
-  - id: metric.obi.http.server.response.body.size
-    type: metric
-    metric_name: http.server.response.body.size
+  - name: http.server.response.body.size
     annotations:
       obi:
         upstream_override: true
@@ -172,6 +166,7 @@ groups:
     instrument: histogram
     unit: "By"
     stability: development
+    requirement_level: recommended
     attributes:
       - ref: client.address
         requirement_level: opt_in

@@ -1,7 +1,6 @@
-groups:
-  - id: metric.obi.messaging.client.operation.duration
-    type: metric
-    metric_name: messaging.client.operation.duration
+file_format: definition/2
+metrics:
+  - name: messaging.client.operation.duration
     annotations:
       obi:
         upstream_override: true
@@ -9,6 +8,7 @@ groups:
     instrument: histogram
     unit: "s"
     stability: development
+    requirement_level: recommended
     attributes:
       # Reachable only through the AWS SQS and SNS clients, which are HTTP
       # client spans where parsedErrorType applies. A broker span reaches
@@ -28,9 +28,7 @@ groups:
         requirement_level:
           recommended: if the server address could be resolved
 
-  - id: metric.obi.messaging.process.duration
-    type: metric
-    metric_name: messaging.process.duration
+  - name: messaging.process.duration
     annotations:
       obi:
         upstream_override: true
@@ -38,6 +36,7 @@ groups:
     instrument: histogram
     unit: "s"
     stability: development
+    requirement_level: recommended
     attributes:
       # Declared but not yet populated: SpanStatusCode has no case for the
       # broker event types and no parsedErrorType branch applies to them, so

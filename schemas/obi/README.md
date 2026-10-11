@@ -5,6 +5,10 @@ semantic-conventions registry with the signals and attributes OBI emits in
 addition to — or as overrides of — the standard semconv set. Together with the
 upstream dependency it forms the complete contract of what OBI emits
 
+Every file under `groups/` uses weaver's `definition/2` format: attributes are
+defined under `attributes:`, and spans, metrics and attribute groups reference
+them with `ref:` (or a whole internal attribute group with `ref_group:`).
+
 ## Adding telemetry
 
 Every metric, span or attribute OBI starts emitting over OTLP must be declared
@@ -13,15 +17,14 @@ here in the same change:
 - **An upstream metric emitted unchanged** (same name, unit, instrument and
   data-point attributes): import it in the domain's `imports.yaml`, as
   `groups/nodejs/imports.yaml` and `groups/dotnet/imports.yaml` do.
-- **An upstream metric OBI emits differently**, or one of OBI's own: add a
-  `metric.obi.<metric_name>` group to `groups/<domain>/metrics.yaml` listing
-  every attribute the metric's `attr_defs.go` section can carry, each with a
-  requirement level.
-- **A span**: add its attributes to the `span.obi.*` group of the emitter branch
-  that produces it, or add a group for a new branch, and a case to
+- **An upstream metric OBI emits differently**, or one of OBI's own: add it to
+  the `metrics:` list of `groups/<domain>/metrics.yaml`, listing every attribute
+  the metric's `attr_defs.go` section can carry, each with a requirement level.
+- **A span**: add its attributes to the `obi.*` span type of the emitter branch
+  that produces it, or add a span type for a new branch, and a case to
   `internal/schemacheck/emitted_contract_test.go`.
-- **An attribute upstream does not define**: declare it in the domain's
-  `registry.yaml` under `registry.obi.<namespace>`.
+- **An attribute upstream does not define**: declare it under `attributes:` in
+  the domain's `registry.yaml`.
 
 Then run `make lint-schema` and `make generate-schema-docs`, and make sure an
 integration suite that runs weaver exercises the new telemetry (see below).
@@ -33,9 +36,9 @@ Checked on every change, without running OBI:
 - `make lint-schema`: the registry resolves and is well-formed.
 - `internal/schemacheck`: every signal attribute declares a requirement level;
   the span attributes the exporter emits for each case in
-  `emitted_contract_test.go` match their `span.obi.*` group exactly; OBI's
-  copies of upstream metrics keep upstream's unit, instrument and stability, and
-  win resolution over the upstream group.
+  `emitted_contract_test.go` match their span type exactly; OBI's copies of
+  upstream metrics keep upstream's unit, instrument and stability, and win
+  resolution over the upstream definition.
 
 Checked only when an integration suite that runs weaver exercises it:
 
@@ -49,70 +52,57 @@ Not enforced today:
 - There is no deterministic check that every metric in
   `pkg/export/attributes/metric.go` is declared; an undeclared metric fails
   only once a weaver-validated suite emits it.
-- Spans are not matched to a `span.obi.*` group by live-check, which checks each
-  span attribute against the registry as a whole. Group membership, span kind
+- Spans are not matched to a span type by live-check, which checks each span
+  attribute against the registry as a whole. Span type membership, span kind
   and required span attributes are checked only for the cases in
-  `emitted_contract_test.go`.
+  `emitted_contract_test.go`, and span names are not checked.
 - `conditionally_required` conditions are prose and are not evaluated.
-- Span names, and output specific to the Prometheus exporter, are not described
-  by the registry.
+- Output specific to the Prometheus exporter is not described by the registry.
 
 ## Overriding an upstream definition
 
-Weaver has **no precedence or merge semantics** between a local group and the
-groups a dependency contributes to the resolved registry (OBI's group files
-`import` the definitions they refine and `ref` the attributes they emit, both
-of which pull the upstream groups in). When the same attribute id is
-declared by more than one group, live-check silently resolves
-the duplicate in favor of the group whose id sorts **last lexicographically** —
-including the upstream `span.*` / `metric.*` groups that `ref` an attribute
-and therefore carry an embedded copy of its upstream definition. Tracked
-upstream in <https://github.com/open-telemetry/weaver/issues/1578>.
+An attribute defined in this registry takes precedence over the definition of
+the same key in the upstream dependency: weaver resolves every `ref` against
+the registry's own `attributes:` first and only then looks in its
+dependencies. An override is therefore a plain definition, under
+`attributes:`, of the upstream key, and every signal in this registry that
+references the key sees OBI's definition. Refinements cannot express these
+overrides, because a refinement of an attribute may change its brief, note,
+examples, annotations and requirement level, but not its type or enum members.
 
-Until weaver defines local-wins override semantics, every override in
-`groups/` must follow these rules:
+Every override in `groups/` follows these rules:
 
-1. **Group id**: use the `x.obi.<namespace>` prefix so the override sorts
-   after every upstream group id (`registry.*`, `span.*`, `metric.*`, …) and
-   wins the resolution. Do not rename an override to something that sorts
-   earlier, and do not reuse an upstream group id (a same-id redefinition
-   loses the tie to the dependency AND trips `DuplicateGroupId` in
-   `registry check`).
-2. **Replacement, not merge**: an override REPLACES the upstream attribute
+1. **Replacement, not merge**: an override REPLACES the upstream attribute
    definition wholesale. An enum override must therefore carry the FULL
    upstream member list plus OBI's extensions; when bumping the semconv
    dependency, re-sync the upstream members verbatim from
    `.deps/upstream-<version>/model/<ns>/registry.yaml`. A missing member
    resurfaces as an `undefined_enum_variant` failure in the weaver-validated
    suites, so drift is caught, not silent.
-3. **Expected lint duplicates**: `weaver registry check` flags each override
-   as a `DuplicateAttributeId` error even though
-   live-check resolves it. Each expected duplicate is allowlisted — tightly,
-   by attribute id and group pair — in `scripts/lint-schema-filter.jq`
-   (covered by `scripts/lint_schema_filter_test.go`). Anything else still
-   fails `make lint-schema`.
+2. **Documented in an `x.obi.<namespace>` attribute group**: the file that
+   defines an override also declares a public `x.obi.<namespace>` attribute
+   group referencing it, with a brief that says what the override changes. The
+   generated reference lists overrides under those groups.
 
-## Group ids
+## Ids
 
-A metric group's id is `metric.obi.<metric_name>`, derived from the metric it
-declares so the two cannot drift apart.
+A metric is identified by its `name`, and a span by its `type`, which carries
+the `obi.` prefix so it cannot collide with an upstream span type.
 
-Do not rely on that id sorting after the upstream `metric.<metric_name>` group.
-It does for most namespaces, but `obi.` loses to any namespace ordering after
-it: `metric.obi.rpc.client.call.duration` sorts before
-`metric.rpc.client.call.duration`, and the `target.info` / `traces.*` ids lose
-to `metric.t*` the same way. What keeps the local definition authoritative is
-that live-check runs without `--include-unreferenced`, so unreferenced upstream
-groups drop out of resolution and only one group per metric name survives.
+A metric OBI redeclares from upstream keeps the upstream name. The local
+definition stays authoritative because live-check resolves without
+`--include-unreferenced`, so the upstream metric, which nothing in this
+registry imports, drops out of resolution.
 `TestOBIMetricOverridesResolveToLocalNarrowedDefinition` fails closed if that
 stops holding.
 
-Attribute groups declaring OBI-own attributes use `registry.obi.<namespace>`;
-overrides of an upstream attribute use `x.obi.<namespace>` per the rules above.
-An attribute group that declares no attribute of its own and exists only as the
-base a signal's groups `extends` is named after that signal — the messaging span
-groups share `span.obi.messaging.common` — so it stays out of the attribute
-pages, which document what OBI defines.
+Attribute groups referencing OBI-own attributes use `registry.obi.<namespace>`;
+those referencing overrides of an upstream attribute use `x.obi.<namespace>`
+per the rules above. An attribute set shared by several spans is an internal
+attribute group named `attributes.obi.<shared part>` — the messaging spans
+share `attributes.obi.messaging.common` and the HTTP server spans
+`attributes.obi.http.server` — so it stays out of the attribute pages, which
+document what OBI defines.
 
 ## Two override styles
 

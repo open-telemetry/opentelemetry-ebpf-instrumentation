@@ -1,8 +1,11 @@
-groups:
-  - id: span.obi.db.client
-    type: span
-    span_kind: client
+file_format: definition/2
+spans:
+  - type: obi.db.client
+    kind: client
+    name:
+      note: Not documented yet.
     stability: development
+    requirement_level: recommended
     brief: OBI outbound database client span.
     attributes:
       - ref: db.system.name
@@ -44,11 +47,13 @@ groups:
           recommended: if `network.peer.address` is set and the port is known
 
   # SQL client spans come from their own emitter branch, separate from the
-  # other native database protocols `span.obi.db.client` covers.
-  - id: span.obi.db.sql.client
-    type: span
-    span_kind: client
+  # other native database protocols `obi.db.client` covers.
+  - type: obi.db.sql.client
+    kind: client
+    name:
+      note: Not documented yet.
     stability: stable
+    requirement_level: recommended
     brief: OBI outbound SQL database client span.
     attributes:
       - ref: db.system.name
@@ -91,12 +96,14 @@ groups:
 
   # Elasticsearch is recognised from HTTP client traffic, so these spans carry
   # the HTTP client base set on top of the db.* attributes. The native database
-  # protocols covered by span.obi.db.client never emit http.* / url.*, which is
+  # protocols covered by obi.db.client never emit http.* / url.*, which is
   # why this is a separate group rather than extra refs on the shared one.
-  - id: span.obi.elasticsearch.client
-    type: span
-    span_kind: client
+  - type: obi.elasticsearch.client
+    kind: client
+    name:
+      note: Not documented yet.
     stability: development
+    requirement_level: recommended
     brief: OBI Elasticsearch client span, detected from HTTP client traffic.
     attributes:
       - ref: http.request.method
@@ -147,10 +154,13 @@ groups:
       - ref: db.response.status_code
         requirement_level:
           conditionally_required: if a response was received
-  - id: span.obi.db.server
-    type: span
-    span_kind: server
+
+  - type: obi.db.server
+    kind: server
+    name:
+      note: Not documented yet.
     stability: development
+    requirement_level: recommended
     brief: OBI inbound database server span.
     attributes:
       - ref: db.system.name

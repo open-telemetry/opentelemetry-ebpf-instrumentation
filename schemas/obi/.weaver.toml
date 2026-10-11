@@ -1,11 +1,29 @@
-# weaver live-check policy for the OBI semantic-convention registry.
+# weaver configuration for the OBI semantic-convention registry.
 #
-# Auto-discovered by `weaver registry live-check` from the registry working
-# directory. Only the `live-check` section is used; `registry check` ignores it.
+# Auto-discovered by every weaver command that runs from the registry working
+# directory. The `registry` section applies to all of them; the `live-check`
+# section only to `registry live-check`.
 #
 # This replaces two filters that previously lived in the Go harness
 # (internal/test/weavercheck): the advice-message ignore list and the
 # information-to-violation promotion. Weaver 0.25 can express both declaratively.
+
+# The registry is written in weaver's definition/2 format.
+[registry]
+v2 = true
+
+[live-check]
+# A v2 registry checks an attribute only against the definition its sample
+# matched. Searching every definition, including the upstream dependency, keeps
+# type, enum and stability checks on every attribute, and on resources, which
+# no definition describes.
+search_all_attributes = true
+# Weaver's default advice preprocessor builds its attribute sets from this
+# registry alone for a definition/2 registry, so upstream keys would fail
+# `invalid_format` and `extends_namespace`. `.live_check_policies` carries the
+# default policies and a preprocessor that adds the dependency's attributes.
+advice_policies = ".live_check_policies"
+advice_preprocessor = ".live_check_policies/advice.jq"
 
 # Promote advice weaver classifies as `information` to `violation` so live-check
 # fails on it. `extends_namespace` catches an attribute emitted under an existing

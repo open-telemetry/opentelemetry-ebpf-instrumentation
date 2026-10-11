@@ -1,7 +1,6 @@
-groups:
-  - id: metric.obi.rpc.client.call.duration
-    type: metric
-    metric_name: rpc.client.call.duration
+file_format: definition/2
+metrics:
+  - name: rpc.client.call.duration
     annotations:
       obi:
         upstream_override: true
@@ -9,6 +8,7 @@ groups:
     instrument: histogram
     unit: "s"
     stability: release_candidate
+    requirement_level: recommended
     attributes:
       - ref: error.type
         requirement_level:
@@ -24,9 +24,7 @@ groups:
         requirement_level:
           recommended: if the server address could be resolved
 
-  - id: metric.obi.rpc.server.call.duration
-    type: metric
-    metric_name: rpc.server.call.duration
+  - name: rpc.server.call.duration
     annotations:
       obi:
         upstream_override: true
@@ -34,6 +32,7 @@ groups:
     instrument: histogram
     unit: "s"
     stability: release_candidate
+    requirement_level: recommended
     attributes:
       - ref: client.address
         requirement_level: opt_in

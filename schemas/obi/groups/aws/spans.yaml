@@ -8,11 +8,14 @@
 # different attribute sets for objects, queues and topics. Declared as
 # one group, no attribute beyond the shared AWS request metadata could be
 # `required`, and a consumer could not tell which attributes occur together.
-groups:
-  - id: span.obi.aws.s3.client
-    type: span
-    span_kind: client
+file_format: definition/2
+spans:
+  - type: obi.aws.s3.client
+    kind: client
+    name:
+      note: Not documented yet.
     stability: development
+    requirement_level: recommended
     brief: OBI AWS S3 client span.
     attributes:
       - ref: rpc.system.name
@@ -55,10 +58,12 @@ groups:
       - ref: span.metrics.skip
         requirement_level: opt_in
 
-  - id: span.obi.aws.sqs.client
-    type: span
-    span_kind: client
+  - type: obi.aws.sqs.client
+    kind: client
+    name:
+      note: Not documented yet.
     stability: development
+    requirement_level: recommended
     brief: OBI AWS SQS client span.
     attributes:
       - ref: messaging.system
@@ -104,10 +109,12 @@ groups:
       - ref: span.metrics.skip
         requirement_level: opt_in
 
-  - id: span.obi.aws.sns.client
-    type: span
-    span_kind: client
+  - type: obi.aws.sns.client
+    kind: client
+    name:
+      note: Not documented yet.
     stability: development
+    requirement_level: recommended
     brief: OBI AWS SNS client span.
     attributes:
       - ref: rpc.system.name

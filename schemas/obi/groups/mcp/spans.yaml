@@ -4,13 +4,16 @@
 # provider and so has no `gen_ai.provider.name` to report.
 #
 # MCP traffic seen on the *server* side keeps the full HTTP server set, which the
-# server branch emits for every subtype, so its group extends
-# `span.obi.http.server` with the MCP attributes.
-groups:
-  - id: span.obi.mcp.client
-    type: span
-    span_kind: client
+# server branch emits for every subtype, so its span references
+# `attributes.obi.http.server` alongside the MCP attributes.
+file_format: definition/2
+spans:
+  - type: obi.mcp.client
+    kind: client
+    name:
+      note: Not documented yet.
     stability: development
+    requirement_level: recommended
     brief: OBI Model Context Protocol client span.
     attributes:
       - ref: mcp.method.name
@@ -71,13 +74,15 @@ groups:
       - ref: span.metrics.skip
         requirement_level: opt_in
 
-  - id: span.obi.mcp.server
-    type: span
-    span_kind: server
-    extends: span.obi.http.server
+  - type: obi.mcp.server
+    kind: server
+    name:
+      note: Not documented yet.
     stability: development
+    requirement_level: recommended
     brief: OBI inbound Model Context Protocol over HTTP server span.
     attributes:
+      - ref_group: attributes.obi.http.server
       - ref: mcp.method.name
         requirement_level: required
       - ref: mcp.protocol.version
