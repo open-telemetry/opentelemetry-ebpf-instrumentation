@@ -8,6 +8,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/docker"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
@@ -80,4 +81,6 @@ type ContextInfo struct {
 type AppO11y struct {
 	// ReportRoutes sets whether the metrics should set the http.route attribute
 	ReportRoutes bool
+	// EBPFEventContext provides shared eBPF maps to application observability nodes.
+	EBPFEventContext *ebpfcommon.EBPFEventContext
 }
