@@ -607,7 +607,10 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		}
 	case attr.GenAIRequestModel:
 		getter = func(s *Span) attribute.KeyValue {
-			return semconv.GenAIRequestModelKey.String(s.GenAIRequestModel())
+			if model := s.GenAIRequestModel(); model != "" {
+				return semconv.GenAIRequestModelKey.String(model)
+			}
+			return attribute.KeyValue{}
 		}
 	case attr.GenAIResponseModel:
 		getter = func(s *Span) attribute.KeyValue {
