@@ -1,7 +1,50 @@
 #!/usr/bin/env bash
+#MISE description="Tidy all Go modules in parallel"
 set -euo pipefail
+
+max_jobs="${GO_MOD_TIDY_JOBS:-4}"
+if [[ ! "$max_jobs" =~ ^([1-9]|1[0-6])$ ]]; then
+  echo "GO_MOD_TIDY_JOBS must be an integer from 1 to 16 (got '$max_jobs')" >&2
+  exit 2
+fi
+
+modules=()
 while IFS= read -r file; do
-  dir="$(dirname "$file")"; echo "### Running go mod tidy in $dir"
-  if [[ "$dir" == *testserver_1.17 ]]; then (cd "$dir" && go mod tidy -go=1.17 -compat=1.17)
-  else (cd "$dir" && go mod tidy); fi
+  modules+=("$file")
 done < <(find . -type f -name go.mod ! -path './NOTICES/*' | sort)
+
+run_tidy() {
+  local file="$1"
+  local dir
+  dir="$(dirname "$file")"
+  echo "### Running go mod tidy in $dir"
+
+  if [[ "$dir" == *testserver_1.17 ]]; then
+    (cd "$dir" && go mod tidy -go=1.17 -compat=1.17)
+  else
+    (cd "$dir" && go mod tidy)
+  fi
+}
+
+pids=()
+for file in "${modules[@]}"; do
+  run_tidy "$file" &
+  pids+=("$!")
+
+  while :; do
+    active_jobs="$(jobs -pr | wc -l)"
+    if (( active_jobs < max_jobs )); then
+      break
+    fi
+    sleep 0.1
+  done
+done
+
+status=0
+for pid in "${pids[@]}"; do
+  if ! wait "$pid"; then
+    status=1
+  fi
+done
+
+exit "$status"

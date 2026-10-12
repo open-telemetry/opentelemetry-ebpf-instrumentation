@@ -1,4 +1,5 @@
 monorepo_root = true
+min_version = "2026.9.16"
 
 [monorepo]
 config_roots = [
@@ -9,6 +10,7 @@ config_roots = [
   "internal/test/integration/components/old_grpc/worker",
   "pkg/internal/java",
   "pkg/internal/java/agent",
+  "pkg/internal/nodejs/spanbridge_test",
   "pkg/internal/transform/route/harvest/dotnet/testdata",
 ]
 lockfile = true
@@ -16,11 +18,12 @@ lockfile = true
 [monorepo.path_aliases]
 "bpf-tests" = "bpf/tests"
 "vm-tests" = "internal/test/vm"
-"grpc-backend" = "internal/test/integration/components/old_grpc/backend"
-"grpc-distributed-service-example" = "internal/test/integration/components/old_grpc/backend/internal/distributed-service-example"
-"grpc-worker" = "internal/test/integration/components/old_grpc/worker"
+"old-grpc-backend" = "internal/test/integration/components/old_grpc/backend"
+"old-grpc-distributed-service-example" = "internal/test/integration/components/old_grpc/backend/internal/distributed-service-example"
+"old-grpc-worker" = "internal/test/integration/components/old_grpc/worker"
 java = "pkg/internal/java"
 "java-agent" = "pkg/internal/java/agent"
+nodejs = "pkg/internal/nodejs/spanbridge_test"
 "dotnet-route-harvest-testdata" = "pkg/internal/transform/route/harvest/dotnet/testdata"
 
 [tools]
@@ -29,11 +32,6 @@ clang = "22.1.8"
 clang-format = "22.1.8"
 golangci-lint = "2.13.2"
 markdownlint-cli2 = "0.23.3"
-gradle = "9.8.0"
-python = ["3.9", "3.14"]
-uv = "0.10.9"
-java = "temurin-21.0.8+9.0.LTS"
-node = "24.21.0"
 
 [tools."github:cpp-linter/clang-tools-static-binaries"]
 version = "2026.09.01-5fb8802d"
@@ -48,10 +46,11 @@ bin = "weaver"
 version = "22.1.8"
 
 [tasks.format-go]
-run = "golangci-lint fmt"
 description = "Format Go code and imports"
+run = "golangci-lint fmt"
 
 [tasks.install-hooks]
+description = "Install repository Git hooks"
 run = """
 hook_path="$(git rev-parse --git-path hooks/pre-commit)"
 if [ ! -f "$hook_path" ]; then
@@ -62,30 +61,35 @@ if [ ! -f "$hook_path" ]; then
   echo 'Pre-commit hook installed.'
 fi
 """
-description = "Install repository git hooks"
 
 [tasks.fetch-upstream-semconv]
+description = "Fetch the upstream semantic-convention registry"
 run = "./scripts/fetch-upstream-semconv.sh"
-description = "Fetch the upstream semantic convention registry"
 
 [tasks.prereqs]
-depends = ["install-hooks", "fetch-upstream-semconv"]
+hide = true
+depends = ["fetch-upstream-semconv"]
 run = "mkdir -p \"${TEST_OUTPUT:-./testoutput}/run\""
 
 [tasks.clang-tidy]
+description = "Lint BPF C code with clang-tidy"
 dir = "bpf"
 run = '''find . -type f \( -name '*.c' -o -name '*.h' \) ! -path './bpfcore/*' ! -path './NOTICES/*' ! -path './tests/*' -print0 | xargs -0 -r ${CLANG_TIDY:-clang-tidy}'''
 
 [tasks.lint-clean-cache]
+hide = true
 run = "golangci-lint cache clean"
 
 [tasks.lint]
-run = [{ tasks = ["vanity-import-check", "lint-dependency-policy", "lint-collectt", "lint-preempt-guard", "lint-golangci"] }]
+description = "Run all Go lint checks in parallel"
+depends = ["vanity-import-check", "lint-dependency-policy", "lint-collectt", "lint-preempt-guard", "lint-golangci"]
 
 [tasks.lint-golangci]
+hide = true
 run = "golangci-lint run ./... --timeout=6m"
 
 [tasks.lint-fix]
+description = "Apply available Go lint fixes"
 run = [
   { task = "vanity-import-fix-check" },
   { task = "lint-dependency-policy" },
@@ -95,218 +99,257 @@ run = [
 ]
 
 [tasks.lint-schema]
+description = "Lint the telemetry schema registry"
 depends = ["fetch-upstream-semconv"]
 run = "./scripts/lint-schema.sh \"$MISE_CONFIG_ROOT/schemas/obi\""
 
 [tasks.test-schema]
+description = "Test telemetry schema provenance"
 depends = ["fetch-upstream-semconv"]
 run = "go test -race -count=1 ./internal/schemacheck/..."
 
 [tasks.check-schema-files]
+description = "Check published telemetry schema files"
 run = "./scripts/check-schema-files.sh \"$MISE_CONFIG_ROOT/site/schemas/obi\""
 
 [tasks.generate-schema-next]
+description = "Create the next telemetry schema version"
 run = "./scripts/generate-schema-next.sh"
 
 [tasks.generate-schema-docs]
+description = "Generate telemetry reference documentation"
 depends = ["fetch-upstream-semconv"]
 run = "./scripts/generate-schema-docs.sh \"$MISE_CONFIG_ROOT/schemas/obi\""
 
-[tasks.check-schema-docs]
-depends = ["fetch-upstream-semconv"]
-
 [tasks.lint-dependency-policy]
+description = "Check dependency policy in container definitions"
 run = "if [ -n \"${CI:-}\" ]; then ./scripts/lint-dependency-policy.sh --verbose; else ./scripts/lint-dependency-policy.sh; fi"
 
 [tasks.lint-preempt-guard]
+description = "Check tests for preemption-sensitive patterns"
 run = "./scripts/lint-preempt-guard.sh"
 
 [tasks.lint-collectt]
+description = "Lint collectt usage in Go tests"
 run = "go run ./internal/test/analyzer/collectt/cmd/collecttlint ./..."
 
 [tasks.lint-collectt-fix]
+description = "Fix and lint collectt usage in Go tests"
 run = "go run ./internal/test/analyzer/collectt/cmd/collecttlint -fix ./... && go run ./internal/test/analyzer/collectt/cmd/collecttlint ./..."
 
 [tasks.lint-markdown]
+description = "Lint Markdown documentation"
+tools = { node = "24.21.0" }
 run = "markdownlint-cli2 --config .markdownlint-cli2.yaml '**/*.md'"
 
 [tasks.lint-markdown-fix]
+description = "Fix Markdown formatting issues"
+tools = { node = "24.21.0" }
 run = "markdownlint-cli2 --config .markdownlint-cli2.yaml --fix '**/*.md'"
 
 [tasks.update-offsets]
+description = "Update Go runtime offset data"
 run = "go run ./internal/gooffsets -i configs/offsets/tracker_input.json -abi configs/offsets/go_abi_input.json pkg/internal/goexec/offsets.json"
 
 [tasks.update-python-offsets]
+description = "Update Python runtime offset data"
 run = "go run ./scripts/python-offsets"
 
 [tasks.generate]
+description = "Generate BPF Go bindings for supported architectures"
 run = "make -f bpf/Makefile generate"
 
 [tasks."generate/all"]
 run = "make -f bpf/Makefile generate/all"
 
-[tasks.docker-generate]
-depends = ["generate"]
-
 [tasks.verify]
-depends = ["prereqs"]
+description = "Tidy modules, then run lint, tests, and license checks"
+depends = ["prereqs", "go-mod-tidy"]
 run = [
-  { task = "go-mod-tidy" },
   { tasks = ["lint", "test", "license-header-check"] },
 ]
 
 [tasks.build]
+description = "Generate BPF bindings, verify, and compile OBI"
+depends = ["generate"]
 run = [
-  { task = "docker-generate" },
   { task = "verify" },
   { task = "compile" },
 ]
 
 [tasks.all]
+description = "Generate BPF bindings, update notices, and build OBI"
+depends = ["notices-update"]
 run = [
-  { task = "docker-generate" },
-  { task = "notices-update" },
-  { task = "build" },
+  { task = "verify" },
+  { task = "compile" },
 ]
 
 [tasks.compile-cache]
+description = "Compile the k8s-cache binary"
 env = { CMD = "k8s-cache" }
 run = [{ task = "compile" }]
 
 [tasks.fmt]
+description = "Format Go code and imports"
 run = "golangci-lint fmt"
 
 [tasks.debug]
+description = "Compile OBI with debug symbols"
 env = { DEBUG_BUILD = "true" }
 run = [{ task = "compile" }]
 
 [tasks.dev]
-depends = ["prereqs"]
-run = [
-  { task = "generate" },
-  { task = "compile-for-coverage" },
-]
+description = "Generate BPF bindings and compile a coverage-enabled OBI binary"
+depends = ["prereqs", "generate"]
+run = [{ task = "compile-for-coverage" }]
 
 [tasks.compile-for-coverage]
+description = "Compile OBI with coverage instrumentation"
 env = { COVERAGE_BUILD = "true" }
 run = [{ task = "compile" }]
 
 [tasks.compile-cache-for-coverage]
+description = "Compile k8s-cache with coverage instrumentation"
 env = { CMD = "k8s-cache", COVERAGE_BUILD = "true" }
 run = [{ task = "compile" }]
 
 [tasks.test]
+description = "Run Go unit tests with race detection and coverage"
 run = "mkdir -p \"${TEST_OUTPUT:-./testoutput}\" && KUBEBUILDER_ASSETS=\"$(go tool -modfile=internal/tools/go.mod setup-envtest use \"${ENVTEST_K8S_VERSION:-1.30.0}\" -p path)\" go test -short -race ./... -coverpkg=./... -coverprofile \"${TEST_OUTPUT:-./testoutput}/cover.all.txt\""
 
-[tasks.test-nodejs]
-dir = "pkg/internal/nodejs/spanbridge_test"
-run = "npm ci && node --test"
-
 [tasks.test-rerun-flaky]
+description = "Test the flaky-test rerun supervisor"
 run = "./scripts/rerun-flaky_test.sh"
 
 [tasks.run-bpf-verifier-vm]
+description = "Run BPF verifier tests in the VM test suite"
 run = "go test -count=1 -timeout 55m -parallel 8 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/..."
 
 [tasks.coverage-report]
+description = "Show function coverage from the test report"
 depends = ["cov-exclude-generated"]
 run = "go tool cover --func=${TEST_OUTPUT:-./testoutput}/cover.txt"
 
 [tasks.coverage-report-html]
+description = "Open an HTML view of test coverage"
 depends = ["cov-exclude-generated"]
 run = "go tool cover --html=${TEST_OUTPUT:-./testoutput}/cover.txt"
 
 [tasks.generator-image-build]
+description = "Build the BPF generator container image"
 run = "${OCI_BIN:-docker} buildx build --load -t ${GEN_IMG:-ghcr.io/open-telemetry/obi-generator:0.2.17} -f generator.Dockerfile ."
 
 [tasks.prepare-integration-test]
+hide = true
 run = [
   "mkdir -p \"${TEST_OUTPUT:-./testoutput}\" && rm -rf \"${TEST_OUTPUT:-./testoutput}\"/*",
   { task = "cleanup-integration-test" },
 ]
 
 [tasks.integration-test]
+description = "Run integration tests and clean up their resources"
 depends = ["prereqs"]
 
 [tasks.integration-test-k8s]
+description = "Run Kubernetes integration tests and clean up"
 depends = ["prereqs"]
 
 [tasks.run-integration-test]
+hide = true
 run = "go clean -testcache && go test -p 1 -failfast -v -timeout 60m ./internal/test/integration"
 
 [tasks.run-integration-test-k8s]
+hide = true
 run = "go clean -testcache && go test -p 1 -failfast -v -timeout 60m ./internal/test/integration/k8s/..."
 
 [tasks.unit-test-matrix-json]
+hide = true
 run = "go list ./... | go tool -modfile=internal/tools/go.mod gotestsum tool ci-matrix --partitions \"${PARTITIONS:-3}\" --timing-files=\"${TEST_OUTPUT:-./testoutput}/unit-test-shard-*.log\""
 
 [tasks.integration-test-matrix-json]
+hide = true
 run = "./scripts/generate-integration-matrix.sh internal/test/integration \"${PARTITIONS:-5}\""
 
 [tasks.multiprocess-integration-test-matrix-json]
+hide = true
 run = "./scripts/generate-integration-matrix.sh internal/test/integration \"${PARTITIONS:-5}\" '(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest)'"
 
 [tasks.k8s-integration-test-matrix-json]
+hide = true
 run = "./scripts/generate-dir-matrix.sh internal/test/integration/k8s common"
 
 [tasks.oats-integration-test-matrix-json]
+hide = true
 run = "./scripts/generate-dir-matrix.sh internal/test/oats"
 
 [tasks.oats-prereq]
-depends = ["docker-generate", "fetch-upstream-semconv"]
+hide = true
+depends = ["generate", "fetch-upstream-semconv"]
 run = "mkdir -p \"${TEST_OUTPUT:-./testoutput}/run\""
 
 [tasks.oats-test-sql]
+description = "Run OATS tests for SQL databases"
 depends = ["oats-prereq"]
 dir = "internal/test/oats/sql"
 run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-redis]
+description = "Run OATS tests for Redis"
 depends = ["oats-prereq"]
 dir = "internal/test/oats/redis"
 run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-kafka]
+description = "Run OATS tests for Kafka"
 depends = ["oats-prereq"]
 dir = "internal/test/oats/kafka"
 run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-http]
+description = "Run OATS tests for HTTP"
 depends = ["oats-prereq"]
 dir = "internal/test/oats/http"
 run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-mongo]
+description = "Run OATS tests for MongoDB"
 depends = ["oats-prereq"]
 dir = "internal/test/oats/mongo"
 run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-memcached]
+description = "Run OATS tests for Memcached"
 depends = ["oats-prereq"]
 dir = "internal/test/oats/memcached"
 run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-ai]
+description = "Run OATS tests for AI instrumentation"
 depends = ["oats-prereq"]
 dir = "internal/test/oats/ai"
 run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-nats]
+description = "Run OATS tests for NATS"
 depends = ["oats-prereq"]
 dir = "internal/test/oats/nats"
 run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-amqp]
+description = "Run OATS tests for AMQP"
 depends = ["oats-prereq"]
 dir = "internal/test/oats/amqp"
 run = "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test-debug]
+description = "Run the OATS Kafka suite in manual debug mode"
 depends = ["oats-prereq"]
 dir = "internal/test/oats/kafka"
 run = "TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r"
 
 [tasks.oats-test]
+description = "Run the OATS component suites sequentially"
 depends = ["oats-prereq"]
 run = [
   { task = "oats-test-components" },
@@ -317,19 +360,23 @@ run = [
 hide = true
 
 [tasks.artifact]
-depends = ["docker-generate", "//java:docker-build"]
+description = "Build the OBI release artifact"
+depends = ["generate", "//java:docker-build"]
 run = [
   { task = "compile" },
   { task = "package-artifact" },
 ]
 
 [tasks.release]
+description = "Build and verify release archives, then write checksums"
 depends = ["artifact"]
 
 [tasks.release-source]
-depends = ["docker-generate", "//java:docker-build"]
+description = "Create a source release archive"
+depends = ["generate", "//java:docker-build"]
 
 [tasks.prerelease]
+description = "Prepare generated schema files and module release metadata"
 run = [
   "go tool -modfile=internal/tools/go.mod multimod verify",
   "test -n \"${MODSET:-}\" || { echo '>> env var MODSET is not set'; exit 1; }",
@@ -339,70 +386,100 @@ run = [
 ]
 
 [tasks.go-notices-update]
-depends = ["docker-generate"]
+description = "Update Go dependency notices"
+hide = true
+depends = ["generate"]
 
 [tasks.check-go-mod]
+description = "Check that Go modules are tidy"
 depends = ["go-mod-tidy"]
 
 [tasks.clean-release-dir]
+hide = true
 run = "rm -rf \"${RELEASE_DIR:-./dist}/\" bin/obi-*.tar.gz bin/LICENSE bin/NOTICE bin/NOTICES"
 
 [tasks.testoutput]
+hide = true
 run = "mkdir -p \"${TEST_OUTPUT:-./testoutput}\""
 
 [tasks.clean-testoutput]
+hide = true
 run = "mkdir -p \"${TEST_OUTPUT:-./testoutput}\" && echo \"### Cleaning ${TEST_OUTPUT:-./testoutput} folder\" && rm -rf \"${TEST_OUTPUT:-./testoutput}\"/*"
 
 [tasks.protoc-gen]
+description = "Generate Go sources from the Kubernetes informer protobuf"
 run = "${OCI_BIN:-docker} run --rm -v \"$MISE_CONFIG_ROOT:/src\" -w /src --entrypoint protoc ${GEN_IMG:-ghcr.io/open-telemetry/obi-generator:0.2.17} --go_out=pkg/kube/kubecache --go-grpc_out=pkg/kube/kubecache proto/informer.proto"
 
 [tasks.clang-format]
+description = "Format BPF C source and headers"
 run = "find ./bpf -type f \\( -name '*.c' -o -name '*.h' \\) ! -path './bpf/bpfcore/*' -print0 | xargs -0 -r -P 0 ${CLANG_FORMAT:-clang-format} -i"
 
 [tasks.clean-ebpf-generated-files]
+description = "Remove generated eBPF Go bindings and objects"
+hide = true
 run = "find . -name '*_bpfel*' -print0 | xargs -0 -r rm"
 
 [tasks.notices-update]
+description = "Update third-party license notices"
 depends = ["go-notices-update", "//java:notices-update"]
 
 [tasks.verify-mods]
+description = "Verify the repository Go module set"
 run = "go tool -modfile=internal/tools/go.mod multimod verify"
 
 [tasks.add-tags]
+description = "Tag the requested Go module set"
 run = "go tool -modfile=internal/tools/go.mod multimod tag -m \"${MODSET:?MODSET is not set}\" -c \"${COMMIT:-HEAD}\""
 
 [tasks.check-ebpf-ver-synced]
+description = "Check the cilium/ebpf version matches BPF core metadata"
 run = "grep -Fq \"github.com/cilium/ebpf ${CILIUM_EBPF_VER:-v0.22.0}\" go.mod && grep -Fq \"github.com/cilium/ebpf ${CILIUM_EBPF_VER:-v0.22.0}\" bpf/bpfcore/placeholder.go"
 
 [tasks.vanity-import-check]
+description = "Check Go import paths for vanity-import conventions"
 run = "go tool -modfile=internal/tools/go.mod porto --include-internal --skip-dirs '^NOTICES$' -l ."
 
 [tasks.vanity-import-fix-check]
+description = "Check the Go import rewrite is clean"
+hide = true
 run = [
   { task = "vanity-import-fix" },
   { task = "vanity-import-check" },
 ]
 
 [tasks.vanity-import-fix]
+description = "Rewrite Go imports to vanity paths"
 run = "go tool -modfile=internal/tools/go.mod porto --include-internal --skip-dirs '^NOTICES$' -w ."
 
 [tasks.regenerate-port-lookup]
+description = "Regenerate the port-name lookup table"
 run = [
   "go run cmd/generate-port-lookup/main.go -dst pkg/internal/netolly/flow/transport/protocol.go",
   { task = "fmt" },
 ]
 
 [tasks.check-config-v2-parity]
+description = "Check Config v2 compatibility parity"
 run = "go run ./cmd/check-config-v2-parity -v2-default \"${CONFIG_V2_DEFAULT_REFERENCE_FILE:-devdocs/config/version-2.0/examples/default-values-reference.fragment.yaml}\""
 
 [tasks.check-config-v2-artifacts]
+description = "Check generated Config v2 artifacts"
 depends = ["check-config-v2-parity"]
 
 [tasks.fix-store-demo-architecture]
+description = "Update the store demo architecture diagram"
+tools.python = "3.14"
 run = "python3 examples/store-demo/fix_architecture.py"
 
 [tasks.check-store-demo-architecture]
+description = "Check the store demo architecture diagram"
+tools.python = "3.14"
 run = "python3 examples/store-demo/fix_architecture.py --check"
 
 [tasks.test-store-demo-architecture]
+description = "Test store demo architecture generation"
+tools.python = "3.14"
 run = "python3 examples/store-demo/test_fix_architecture.py"
+
+[tasks.python-requirements-update]
+tools.uv = "0.10.9"

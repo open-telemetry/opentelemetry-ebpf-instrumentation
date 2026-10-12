@@ -1,19 +1,29 @@
+[tools]
+gradle = "9.8.0"
+java = "temurin-21.0.8+9.0.LTS"
+
 [tasks.build]
+description = "Build the Java agent JAR"
 run = "gradle build && mkdir -p embedded && cp build/obi-java-agent.jar embedded/obi-java-agent.jar"
 
 [tasks.test]
+description = "Run Java agent tests"
 run = "gradle test -PnativeOnly=true"
 
 [tasks.spotless-check]
+description = "Check Java formatting"
 run = "gradle spotlessCheck -PnativeOnly=true"
 
 [tasks.spotless-apply]
+description = "Apply Java formatting"
 run = "gradle spotlessApply -PnativeOnly=true"
 
 [tasks.clean]
+description = "Clean Java build outputs"
 run = "gradle clean"
 
 [tasks.verify]
+description = "Check formatting, run tests, and build the Java agent"
 run = [
   { task = "spotless-check" },
   { task = "test" },

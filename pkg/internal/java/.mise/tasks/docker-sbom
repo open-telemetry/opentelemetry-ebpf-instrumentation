@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE description="Generate the Java agent container SBOM"
 set -euo pipefail
 version="${RELEASE_VERSION:-$(git -C "$MISE_MONOREPO_ROOT" describe --all | cut -d/ -f2-)}"
 release_dir="${RELEASE_DIR:-dist}"

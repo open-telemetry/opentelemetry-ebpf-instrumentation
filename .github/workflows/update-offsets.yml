@@ -13,7 +13,7 @@ jobs:
       contents: write  # Required for creating PRs
     runs-on: ubuntu-latest
     env:
-      MISE_ENABLE_TOOLS: go,python
+      MISE_ENABLE_TOOLS: go
     if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation'
     steps:
     - name: "Checkout repo"

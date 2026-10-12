@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE description="Run integration tests in the VM"
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"

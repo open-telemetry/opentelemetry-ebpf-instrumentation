@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE hide=true
 set -euo pipefail
 test_output="${TEST_OUTPUT:-./testoutput}"
 mkdir -p "$test_output"

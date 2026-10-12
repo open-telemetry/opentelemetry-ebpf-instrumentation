@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE description="Check source-file license headers"
 set -euo pipefail
 bad=""
 while IFS= read -r -d '' file; do
@@ -6,4 +7,8 @@ while IFS= read -r -d '' file; do
     bad+="${file}"$'\n'
   fi
 done < <(find . -type f \( -iname '*.go' -o -iname '*.sh' -o -iname '*.c' -o -iname '*.h' \) ! -path './.git/*' ! -path './.tmp/*' ! -path './NOTICES/*' ! -path './examples/store-demo/app/*' -print0)
-if [[ -n "$bad" ]]; then echo 'license header checking failed:'; printf '%s' "$bad"; exit 1; fi
+if [[ -n "$bad" ]]; then
+  echo 'license header checking failed:'
+  printf '%s' "$bad"
+  exit 1
+fi

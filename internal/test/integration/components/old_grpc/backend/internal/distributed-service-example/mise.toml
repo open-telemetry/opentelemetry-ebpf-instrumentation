@@ -1,5 +1,7 @@
 [tasks.proto]
+description = "Generate distributed-service gRPC code"
 run = "protoc --go_out=. --go-grpc_out=. proto/service.proto"
 
 [tasks.compile]
+description = "Compile the distributed-service test example"
 run = "go build -o bin/backend ./cmd/backend/main.go"

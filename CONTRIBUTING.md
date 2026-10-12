@@ -40,8 +40,8 @@ run the development tasks:
 ```sh
 mise install
 mise run format-go
-mise run lint-go
-mise run test-go
+mise run lint
+mise run test
 mise run compile
 ```
 
@@ -113,13 +113,13 @@ mise run format-go
 #### Linting the Go code
 
 ```
-mise run lint-go
+mise run lint
 ```
 
 #### Running unit tests
 
 ```
-mise run test-go
+mise run test
 ```
 
 #### Running integration tests

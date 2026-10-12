@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE description="Update Java agent third-party notices"
 set -euo pipefail
 notices="${NOTICES_DIR:-NOTICES}/java/agent"
 if [[ "$notices" != /* ]]; then

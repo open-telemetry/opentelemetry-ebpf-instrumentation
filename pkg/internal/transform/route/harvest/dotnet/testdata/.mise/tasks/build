@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE description="Build the .NET route-harvest test fixture"
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"

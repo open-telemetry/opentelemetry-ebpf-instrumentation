@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE description="Build the Java agent container artifact"
 set -euo pipefail
 
 mkdir -p "$MISE_CONFIG_ROOT/embedded"

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE description="Run tests requiring elevated privileges"
 set -euo pipefail
 mkdir -p "${TEST_OUTPUT:-./testoutput}"
 assets="$(go tool -modfile=internal/tools/go.mod setup-envtest use "${ENVTEST_K8S_VERSION:-1.30.0}" -p path)"

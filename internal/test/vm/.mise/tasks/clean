@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE description="Remove VM root filesystem images"
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"

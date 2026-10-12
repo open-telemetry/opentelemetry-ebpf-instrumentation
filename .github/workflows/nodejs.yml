@@ -52,4 +52,4 @@ jobs:
           cache-dependency-path: pkg/internal/nodejs/spanbridge_test/package-lock.json
 
       - name: Run Node.js span-bridge tests
-        run: mise run test-nodejs
+        run: mise run //nodejs:test

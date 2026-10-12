@@ -122,16 +122,6 @@
   ],
   "packageRules": [
     {
-      "description": "Keep the mise golangci-lint tool and its Go module source in sync",
-      "groupName": "golangci-lint",
-      "matchManagers": ["mise", "gomod"],
-      "matchPackageNames": [
-        "golangci-lint",
-        "golangci/golangci-lint",
-        "github.com/golangci/golangci-lint/v2"
-      ]
-    },
-    {
       // The upstream clang-tools repo uses date+commit release tags rather
       // than SemVer. Keep the date as the sortable version and the commit as
       // build metadata so Renovate can track the GitHub-backed Mise tool.

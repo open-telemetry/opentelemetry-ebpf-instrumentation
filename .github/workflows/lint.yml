@@ -98,8 +98,12 @@ jobs:
         with:
           name: bpf-generated-${{ github.run_id }}
 
+      - name: Validate Mise tasks
+        if: matrix.platform.arch == 'amd64'
+        run: mise tasks validate
+
       - name: Lint
-        run: mise run lint-go
+        run: mise run lint
 
       # Schema lint is arch-neutral (weaver YAML/JSON). Keep it on amd64 only.
       - name: Lint OBI semantic-convention registry
@@ -149,4 +153,4 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Lint
-        run: mise run lint-go
+        run: mise run lint
