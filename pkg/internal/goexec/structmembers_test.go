@@ -231,6 +231,24 @@ func TestHTTP2ClientConnTLSStateOffsets(t *testing.T) {
 	}
 }
 
+func TestHTTP2ClientConnFramerOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		version string
+		want    uint64
+	}{
+		{"1.27.0", 368},
+		{"1.27.1", 368},
+		{"1.27.2", 360},
+	} {
+		t.Run(tc.version, func(t *testing.T) {
+			assertPrefetchedOffset(t, track, "net/http/internal/http2.ClientConn", "fr", tc.version, tc.want)
+		})
+	}
+}
+
 func TestGoRuntimeGCGoalFieldUnavailableAfterTrackedRange(t *testing.T) {
 	offsets, err := structMemberOffsets(smallELF)
 	require.NoError(t, err)
@@ -619,6 +637,7 @@ func TestPrefetchedGoRuntimeHeapStatsOffset(t *testing.T) {
 		{"1.19.0", 0},
 		{"1.23.0", 0},
 		{"1.27.1", 0},
+		{"1.27.2", 0},
 	} {
 		t.Run(tc.version, func(t *testing.T) {
 			offset, found := track.Find("runtime.mstats", "heapStats", tc.version)
@@ -633,7 +652,7 @@ func TestPrefetchedGoRuntimeWorkFullOffset(t *testing.T) {
 	require.NoError(t, err)
 	_, found := track.Find("runtime.workType", "full", "1.22.12")
 	require.False(t, found)
-	for _, version := range []string{"1.23.0", "1.24.0", "1.25.0", "1.26.0", "1.27.1"} {
+	for _, version := range []string{"1.23.0", "1.24.0", "1.25.0", "1.26.0", "1.27.1", "1.27.2"} {
 		t.Run(version, func(t *testing.T) {
 			value, found := track.Find("runtime.workType", "full", version)
 			require.True(t, found)
@@ -649,7 +668,7 @@ func TestPrefetchedGoRuntimeSchedGoIDOffset(t *testing.T) {
 	require.False(t, found)
 	for _, version := range []string{
 		"1.17.0", "1.18.0", "1.19.0", "1.20.0", "1.21.0", "1.22.0",
-		"1.23.0", "1.24.0", "1.25.0", "1.26.0", "1.27.1",
+		"1.23.0", "1.24.0", "1.25.0", "1.26.0", "1.27.1", "1.27.2",
 	} {
 		t.Run(version, func(t *testing.T) {
 			value, found := track.Find("runtime.schedt", "goidgen", version)
