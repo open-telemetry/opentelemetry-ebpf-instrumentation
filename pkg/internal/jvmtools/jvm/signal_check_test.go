@@ -306,6 +306,14 @@ func launchJVM(t *testing.T, env []string, args ...string) *procs.ProcessHandle 
 
 	t.Cleanup(func() { _ = handle.Close() })
 
+	// The kernel serves an empty cmdline and environ until exec has laid out the
+	// new image, which a starved runner can leave unfinished after the handle
+	// opens.
+	require.Eventually(t, func() bool {
+		commandLine, err := readProcFile(handle, "cmdline")
+		return err == nil && len(commandLine) > 0
+	}, 30*time.Second, 10*time.Millisecond, "JVM never exposed its command line")
+
 	return handle
 }
 
