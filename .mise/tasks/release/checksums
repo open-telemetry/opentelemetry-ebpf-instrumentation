@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #MISE hide=true
+#MISE hide=true
 set -euo pipefail
 release_dir="${RELEASE_DIR:-./dist}"
 version="${RELEASE_VERSION:-$(git describe --all | cut -d/ -f2-)}"

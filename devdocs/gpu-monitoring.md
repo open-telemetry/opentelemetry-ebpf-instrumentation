@@ -212,7 +212,7 @@ the GPU instrumentation being enabled.
    `pkg/export/attributes/names/attrs.go`.
 4. Emit it in `pkg/export/otel/metrics.go` and mirror the emitter in
    `pkg/export/prom/prom.go`.
-5. Run `mise run generate-schema-docs` to refresh the reference docs under
+5. Run `mise run generate:schema-docs` to refresh the reference docs under
    `site/docs/`.
 6. If the change renames emitted telemetry, record the transformation in
    [telemetry-schema.md](telemetry-schema.md).

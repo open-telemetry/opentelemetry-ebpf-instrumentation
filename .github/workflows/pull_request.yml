@@ -101,11 +101,11 @@ jobs:
           mise run go-mod-tidy
           mise run license-header-check
           mise run notices-update
-          mise run check-go-mod
-          mise run check-ebpf-ver-synced
-          mise run check-config-schema
-          mise run check-config-v2-artifacts
-          mise run check-clean-work-tree
+          mise run check:go-mod
+          mise run check:ebpf-ver-synced
+          mise run check:config-schema
+          mise run check:config-v2-artifacts
+          mise run check:clean-work-tree
 
   clang-format:
     name: Clang format

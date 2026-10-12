@@ -30,5 +30,5 @@ if [[ ! -x "$release_dir/verify-$arch/$cmd" ]]; then
   exit 1
 fi
 rm -rf "$release_dir/verify-$arch"
-mise run release-checksums
+mise run release:checksums
 ls -lh "$release_dir/"

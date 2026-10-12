@@ -18,7 +18,7 @@ accepts `amd64`, `arm64`, or both (default); amd64 outputs use the bpf2go `x86`
 suffix. Other architectures are rejected.
 
 On an initial checkout, or when dependency metadata is missing, Make generates
-all BPF packages. `mise run generate/all` forces full generation; use it after
+all BPF packages. `mise run generate:all` forces full generation; use it after
 adding/removing a bpf2go directive or changing generator tools/flags, which are
 not themselves represented by bpf2go's C/header depfiles. The generator image
 installs Make and uses the same `bpf/Makefile`, with the image's pinned Go,
@@ -34,7 +34,7 @@ task `sources`/`outputs` can represent bpf2go's changing include graph.
 
 | Task | Purpose |
 | --- | --- |
-| `mise run format-go` | Format Go code and imports. |
+| `mise run fmt` | Format Go code and imports. |
 | `mise run lint` | Run all Go lint checks in parallel. |
 | `mise run test` | Run short, race-enabled Go tests and coverage. |
 | `mise run compile` | Compile the `obi` binary; `CMD`, `GOOS`, `GOARCH`, version, and source-file overrides are supported. |

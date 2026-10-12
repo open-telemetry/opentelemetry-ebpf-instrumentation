@@ -39,7 +39,7 @@ run the development tasks:
 
 ```sh
 mise install
-mise run format-go
+mise run fmt
 mise run lint
 mise run test
 mise run compile
@@ -107,7 +107,7 @@ pinned in `mise.toml`. The pre-commit hook uses the same pinned local tool.
 #### Formatting the Go code
 
 ```
-mise run format-go
+mise run fmt
 ```
 
 #### Linting the Go code

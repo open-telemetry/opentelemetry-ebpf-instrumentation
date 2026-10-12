@@ -45,7 +45,7 @@ Requirements:
 ```bash
 mise run integration-test
 mise run integration-test-k8s
-mise run oats-test
+mise run //oats:test
 ```
 
 , or all the above tasks. Each integration test target can take up to 50 minutes to complete, but you can

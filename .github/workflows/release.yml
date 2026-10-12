@@ -354,7 +354,7 @@ jobs:
         run: mise run release
 
       - name: Build source-generated release artifacts
-        run: mise run release-source
+        run: mise run release:source
 
       - name: Generate Java agent SBOM
         run: mise run //java:docker-sbom
@@ -450,7 +450,7 @@ jobs:
       - name: Regenerate release checksums
         env:
           RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
-        run: RELEASE_VERSION="${RELEASE_VERSION}" mise run release-checksums
+        run: RELEASE_VERSION="${RELEASE_VERSION}" mise run release:checksums
 
       - name: Sign release artifacts
         run: |

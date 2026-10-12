@@ -9,16 +9,16 @@ Commit this change to a new branch (i.e. `release-vX.X.X`).
 
 Update all crosslink dependencies and any version references in code.
 
-1. Run the `prerelease` Mise task.
+1. Run the `release:prerelease` Mise task.
 
    ```console
-   MODSET=<module set> mise run prerelease
+   MODSET=<module set> mise run release:prerelease
    ```
 
    For example, to prepare a release for the `obi` module set, run:
 
    ```console
-   MODSET=obi mise run prerelease
+   MODSET=obi mise run release:prerelease
    ```
 
    This will create a branch `prerelease_<module set>_<new tag>` that will contain all release changes.
@@ -185,7 +185,7 @@ To test the release artifact generation locally before tagging:
 ```console
 GOARCH=amd64 mise run release
 GOARCH=arm64 mise run release
-mise run release-source
+mise run release:source
 ```
 
 This will:
