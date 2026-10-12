@@ -169,7 +169,9 @@ section empty once drained.
   For Elasticsearch and OpenSearch, `db.collection.name` is the index name, so
   time-suffixed indices add a new label value per index; drop it with attribute
   selection if that cardinality is unwanted.
-- ONC RPC spans now carry `rpc.response.status_code`.
+- ONC RPC spans now carry `rpc.response.status_code` when the REPLY was captured.
+- `rpc.client.call.duration` and `rpc.server.call.duration` omit `rpc.response.status_code` for an
+  ONC RPC call whose REPLY was not captured, instead of reporting `0` (success).
 - The registry moves to weaver's `definition/2` format. A span definition is identified
   by its `type`, so the span ids in `site/docs/spans.md` lose their `span.` prefix
   (`span.obi.http.server` becomes `obi.http.server`) and a link anchored on an old id no

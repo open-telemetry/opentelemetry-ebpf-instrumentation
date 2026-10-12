@@ -665,6 +665,9 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.RPCResponseStatusCode:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeSunRPCClient || s.Type == EventTypeSunRPCServer {
+				if s.ResponseObservation != ResponseParsed {
+					return attribute.KeyValue{}
+				}
 				return semconv.RPCResponseStatusCode(SunRPCResponseStatusCode(s.Status))
 			}
 			if mcp := s.MCP(); mcp != nil && mcp.ErrorCode != 0 {

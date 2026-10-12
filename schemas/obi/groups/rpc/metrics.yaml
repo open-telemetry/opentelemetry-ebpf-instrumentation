@@ -18,7 +18,7 @@ metrics:
           conditionally_required: if the call was captured
       - ref: rpc.response.status_code
         requirement_level:
-          conditionally_required: if the status is inside the gRPC enum
+          conditionally_required: if the status is inside the gRPC enum, or an ONC RPC REPLY was captured
       - ref: rpc.system.name
         requirement_level: required
       - ref: server.address
@@ -48,7 +48,7 @@ metrics:
           conditionally_required: if the call was captured
       - ref: rpc.response.status_code
         requirement_level:
-          conditionally_required: if the status is inside the gRPC enum
+          conditionally_required: if the status is inside the gRPC enum, or an ONC RPC REPLY was captured
       - ref: rpc.system.name
         requirement_level: required
       - ref: server.address

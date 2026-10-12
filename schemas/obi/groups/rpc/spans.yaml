@@ -117,7 +117,7 @@ spans:
           conditionally_required: if the call carried an auth flavor
       - ref: rpc.response.status_code
         requirement_level:
-          conditionally_required: if available
+          conditionally_required: if the REPLY was captured
       - ref: server.address
         requirement_level:
           conditionally_required: if the host address was resolved from the connection
@@ -169,7 +169,7 @@ spans:
           conditionally_required: if the call carried an auth flavor
       - ref: rpc.response.status_code
         requirement_level:
-          conditionally_required: if available
+          conditionally_required: if the REPLY was captured
       - ref: service.peer.name
         requirement_level: opt_in
       - ref: server.address
