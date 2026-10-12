@@ -2443,9 +2443,9 @@
           "$ref": "#/$defs/DynamicSpanTarget"
         },
         "attributes": {
-          "type": "object",
-          "description": "Explicitly selected span attributes; arguments not listed here are not captured.",
-          "additionalProperties": {
+          "type": "array",
+          "description": "Explicitly mapped span attributes.",
+          "items": {
             "$ref": "#/$defs/DynamicSpanAttribute"
           }
         }
@@ -2556,34 +2556,45 @@
     },
     "DynamicSpanAttribute": {
       "type": "object",
-      "description": "Extract one explicitly selected probe argument as a span attribute. Other arguments are not captured implicitly. If type is omitted, USDT probe metadata is used when available; callable argument captures require an explicit type.",
+      "description": "Map one decoded source argument to a span attribute. The decoded value determines its OpenTelemetry attribute type.",
       "additionalProperties": false,
       "required": [
+        "name",
         "argument"
       ],
       "properties": {
-        "type": {
+        "name": {
           "type": "string",
-          "enum": [
-            "bool",
-            "bool_array",
-            "double",
-            "double_array",
-            "int",
-            "int_array",
-            "string",
-            "string_array"
-          ],
-          "description": "OpenTelemetry attribute type. Array types represent homogeneous arrays."
+          "minLength": 1
         },
         "argument": {
-          "$ref": "#/$defs/DynamicArgument"
+          "$ref": "#/$defs/DynamicSpanAttributeArgument"
+        }
+      }
+    },
+    "DynamicSpanAttributeArgument": {
+      "type": "object",
+      "description": "Argument index and optional source decoding type. Omission is valid only when runtime/probe metadata supplies decoding.",
+      "additionalProperties": false,
+      "required": [
+        "index"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 11
+        },
+        "type": {
+          "type": "string",
+          "enum": ["u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "string"],
+          "description": "Source decoding type; no separate OTel output type is configured."
         }
       }
     },
     "DynamicArgument": {
       "type": "object",
-      "description": "Select a function parameter or probe argument by zero-based index (0-11). Named argument selection is deferred until runtime support is demonstrated.",
+      "description": "Select a USDT probe argument by zero-based index (0-11). Named argument selection is deferred until runtime support is demonstrated.",
       "additionalProperties": false,
       "properties": {
         "index": {

@@ -561,18 +561,19 @@ list using OBI's glob discovery selectors and a `spans` list. Each span has a
 name and exactly one probe target under `on`: `function`, `function_noret`,
 `usdt_span`, or `usdt_noret`. The `function` target identifies a callable with
 `name` and optional ordered `parameters` type names to disambiguate overloaded
-functions and methods. Optional `attributes` select individual runtime
-arguments to add as span attributes; unlisted arguments are not captured. Each selection uses an
-`argument` reference by zero-based `index` (0 through 11). Named argument
-selection is deferred until runtime support is demonstrated. This is separate
-from `parameters`, which remains an ordered list of type names used to
-disambiguate overloaded functions and methods. The
-`type`, when specified, uses OpenTelemetry attribute type names: `bool`,
-`bool_array`, `double`, `double_array`, `int`, `int_array`, `string`, or
-`string_array`. Array types describe homogeneous attribute arrays. The type may
-be omitted when USDT probe metadata provides it; callable argument captures
-require an explicit type. Argument indexes are limited to 0 through 11.
-`on.match` filters USDT events. This is
+functions and methods. Optional `attributes` is a list mapping source
+arguments to span attribute names. Each entry has a `name` and an `argument`
+with a zero-based `index` (0 through 11); `argument.type` optionally describes
+source decoding using `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, or
+`string`. Omit the decoding type only when runtime or probe metadata supplies
+it. The decoded value determines the resulting OpenTelemetry attribute type;
+there is no separate output-conversion setting. Named argument selection is
+deferred until runtime support is demonstrated. This is separate from
+`parameters`, which remains an ordered list of type names used to disambiguate
+overloaded functions and methods. `on.match` filters USDT events using its
+own index/value argument form. Explicit attribute mappings are separate from
+automatic function argument/result capture behavior;
+declaring mappings does not disable that automatic capture. This is
 currently declarative schema data only: runtime integration is planned for a
 later change; the v2 parser does not convert these entries into runtime rules
 or apply them to running processes.
@@ -593,14 +594,12 @@ extensions:
                 on:
                   function:
                     name: "com.example.SearchService.search"
-                    parameters: ["java.lang.String", "int", "java.lang.String[]"]
+                    parameters: ["java.lang.String", "int"]
                 attributes:
-                  search.query:
-                    argument: {index: 0}
-                    type: string
-                  search.tags:
-                    argument: {index: 2}
-                    type: string_array
+                  - name: search.query
+                    argument: {index: 0, type: string}
+                  - name: search.limit
+                    argument: {index: 1, type: i32}
 ```
 
 ### `capture.network` Section

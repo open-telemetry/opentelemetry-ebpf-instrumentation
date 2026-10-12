@@ -165,19 +165,24 @@ extensions:
                     name: "com.example.Checkout.placeOrder"
                     parameters: ["java.lang.String", "long"]
                 attributes:
-                  order.id: {argument: {index: 0}, type: string}
+                  - name: order.id
+                    argument: {index: 0, type: string}
+                  - name: order.count
+                    argument: {index: 1}
               - name: go.checkout
                 on:
                   function:
                     name: "main.(*Checkout).PlaceOrder"
                 attributes:
-                  order.id: {argument: {index: 0}, type: string}
+                  - name: order.id
+                    argument: {index: 0, type: string}
               - name: native.operation
                 on:
                   usdt_span: "checkout:operation"
                   match: {argument: {index: 1}, value: "orders"}
                 attributes:
-                  operation.id: {argument: {index: 0}, type: int}
+                  - name: operation.id
+                    argument: {index: 0, type: u32}
               - name: native.cache_hit
                 on:
                   usdt_noret: "checkout:cache_hit"
@@ -203,8 +208,9 @@ extensions:
 				Name:       "com.example.Checkout.placeOrder",
 				Parameters: []string{"java.lang.String", "long"},
 			}},
-			Attributes: map[string]DynamicSpanAttribute{
-				"order.id": {Argument: DynamicArgument{Index: uint8Ptr(0)}, Type: "string"},
+			Attributes: []DynamicSpanAttribute{
+				{Name: "order.id", Argument: DynamicSpanAttributeArgument{Index: uint8Ptr(0), Type: DynamicArgumentString}},
+				{Name: "order.count", Argument: DynamicSpanAttributeArgument{Index: uint8Ptr(1)}},
 			},
 		},
 		{
@@ -212,9 +218,7 @@ extensions:
 			On: DynamicSpanTarget{Function: &DynamicFunction{
 				Name: "main.(*Checkout).PlaceOrder",
 			}},
-			Attributes: map[string]DynamicSpanAttribute{
-				"order.id": {Argument: DynamicArgument{Index: uint8Ptr(0)}, Type: "string"},
-			},
+			Attributes: []DynamicSpanAttribute{{Name: "order.id", Argument: DynamicSpanAttributeArgument{Index: uint8Ptr(0), Type: DynamicArgumentString}}},
 		},
 		{
 			Name: "native.operation",
@@ -222,9 +226,7 @@ extensions:
 				USDTSpan: "checkout:operation",
 				Match:    &DynamicSpanMatch{Argument: DynamicArgument{Index: uint8Ptr(1)}, Value: "orders"},
 			},
-			Attributes: map[string]DynamicSpanAttribute{
-				"operation.id": {Argument: DynamicArgument{Index: uint8Ptr(0)}, Type: "int"},
-			},
+			Attributes: []DynamicSpanAttribute{{Name: "operation.id", Argument: DynamicSpanAttributeArgument{Index: uint8Ptr(0), Type: DynamicArgumentU32}}},
 		},
 		{Name: "native.cache_hit", On: DynamicSpanTarget{USDTNoRet: "checkout:cache_hit"}},
 		{Name: "native.initialized", On: DynamicSpanTarget{FunctionNoRet: "setup"}},

@@ -19,9 +19,9 @@ type DynamicInstrumentationRule struct {
 
 // DynamicSpanSpec declares a named span and its probe target.
 type DynamicSpanSpec struct {
-	Name       string                          `yaml:"name"`
-	On         DynamicSpanTarget               `yaml:"on"`
-	Attributes map[string]DynamicSpanAttribute `yaml:"attributes,omitempty"`
+	Name       string                 `yaml:"name"`
+	On         DynamicSpanTarget      `yaml:"on"`
+	Attributes []DynamicSpanAttribute `yaml:"attributes,omitempty"`
 }
 
 // DynamicSpanTarget is one of the four language-neutral probe forms. Function
@@ -41,23 +41,42 @@ type DynamicFunction struct {
 	Parameters []string `yaml:"parameters,omitempty"`
 }
 
-// DynamicArgument identifies one function parameter or probe argument by its
-// zero-based index. Indexes are limited to the first 12 arguments.
-type DynamicArgument struct {
-	Index *uint8 `yaml:"index,omitempty"`
-}
-
 // DynamicSpanMatch filters USDT events by a string-valued probe argument.
 type DynamicSpanMatch struct {
 	Argument DynamicArgument `yaml:"argument"`
 	Value    string          `yaml:"value"`
 }
 
-// DynamicSpanAttribute extracts one explicitly selected argument as a span
-// attribute. Other arguments are not captured implicitly. Type names use the
-// OpenTelemetry attribute types. If omitted, type may be inferred from
-// USDT probe metadata; callable argument captures require an explicit type.
+// DynamicArgument identifies a USDT probe argument by its zero-based index.
+type DynamicArgument struct {
+	Index *uint8 `yaml:"index,omitempty"`
+}
+
+// DynamicArgumentType is the source representation used to decode an argument.
+type DynamicArgumentType string
+
+const (
+	DynamicArgumentU8     DynamicArgumentType = "u8"
+	DynamicArgumentU16    DynamicArgumentType = "u16"
+	DynamicArgumentU32    DynamicArgumentType = "u32"
+	DynamicArgumentU64    DynamicArgumentType = "u64"
+	DynamicArgumentI8     DynamicArgumentType = "i8"
+	DynamicArgumentI16    DynamicArgumentType = "i16"
+	DynamicArgumentI32    DynamicArgumentType = "i32"
+	DynamicArgumentI64    DynamicArgumentType = "i64"
+	DynamicArgumentString DynamicArgumentType = "string"
+)
+
+// DynamicSpanAttribute maps one explicitly selected argument to a span
+// attribute. Argument.Type describes source decoding, not output conversion.
 type DynamicSpanAttribute struct {
-	Argument DynamicArgument `yaml:"argument"`
-	Type     string          `yaml:"type,omitempty"`
+	Name     string                       `yaml:"name"`
+	Argument DynamicSpanAttributeArgument `yaml:"argument"`
+}
+
+// DynamicSpanAttributeArgument selects an argument and optionally describes
+// its source decoding; runtime/probe metadata may supply the type when absent.
+type DynamicSpanAttributeArgument struct {
+	Index *uint8              `yaml:"index,omitempty"`
+	Type  DynamicArgumentType `yaml:"type,omitempty"`
 }
