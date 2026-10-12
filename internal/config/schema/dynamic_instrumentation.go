@@ -19,9 +19,9 @@ type DynamicInstrumentationRule struct {
 
 // DynamicSpanSpec declares a named span and its probe target.
 type DynamicSpanSpec struct {
-	Name  string                          `yaml:"name"`
-	On    DynamicSpanTarget               `yaml:"on"`
-	Attrs map[string]DynamicSpanAttribute `yaml:"attrs,omitempty"`
+	Name       string                          `yaml:"name"`
+	On         DynamicSpanTarget               `yaml:"on"`
+	Attributes map[string]DynamicSpanAttribute `yaml:"attributes,omitempty"`
 }
 
 // DynamicSpanTarget is one of the four language-neutral probe forms. Function
@@ -41,16 +41,25 @@ type DynamicFunction struct {
 	Parameters []string `yaml:"parameters,omitempty"`
 }
 
-// DynamicSpanMatch filters USDT events by a string-valued probe argument.
-type DynamicSpanMatch struct {
-	Arg   uint8  `yaml:"arg"`
-	Value string `yaml:"value"`
+// DynamicArgument identifies one function parameter or probe argument. Exactly
+// one of Index or Name should be set. Indexes are limited to the first 12
+// arguments; name resolution requires runtime metadata that exposes names.
+type DynamicArgument struct {
+	Index *uint8 `yaml:"index,omitempty"`
+	Name  string `yaml:"name,omitempty"`
 }
 
-// DynamicSpanAttribute extracts a probe argument as a span attribute. USDT
-// integer types may be inferred from the probe metadata; function targets
-// require an explicit type.
+// DynamicSpanMatch filters USDT events by a string-valued probe argument.
+type DynamicSpanMatch struct {
+	Argument DynamicArgument `yaml:"argument"`
+	Value    string          `yaml:"value"`
+}
+
+// DynamicSpanAttribute extracts one explicitly selected argument as a span
+// attribute. Other arguments are not captured implicitly. Type names use the
+// OpenTelemetry attribute types. If omitted, type may be inferred from
+// USDT probe metadata; callable argument captures require an explicit type.
 type DynamicSpanAttribute struct {
-	Arg  uint8  `yaml:"arg"`
-	Type string `yaml:"type,omitempty"`
+	Argument DynamicArgument `yaml:"argument"`
+	Type     string          `yaml:"type,omitempty"`
 }

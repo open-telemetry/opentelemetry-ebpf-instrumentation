@@ -136,6 +136,8 @@ extensions:
 	require.Equal(t, AttributeFilter{Match: "5*"}, cfg.Capture.Rules[0].Refine.HTTP.Filters.Traces["status_code"])
 }
 
+func uint8Ptr(value uint8) *uint8 { return &value }
+
 func TestDynamicInstrumentationV2ParseMarshal(t *testing.T) {
 	t.Parallel()
 
@@ -163,20 +165,20 @@ extensions:
                   function:
                     name: "com.example.Checkout.placeOrder"
                     parameters: ["java.lang.String", "long"]
-                attrs:
-                  order.id: {arg: 0, type: string}
+                attributes:
+                  order.id: {argument: {index: 0}, type: string}
               - name: go.checkout
                 on:
                   function:
                     name: "main.(*Checkout).PlaceOrder"
-                attrs:
-                  order.id: {arg: 0, type: string}
+                attributes:
+                  order.id: {argument: {name: orderID}, type: string}
               - name: native.operation
                 on:
                   usdt_span: "checkout:operation"
-                  match: {arg: 1, value: "orders"}
-                attrs:
-                  operation.id: {arg: 0, type: u64}
+                  match: {argument: {index: 1}, value: "orders"}
+                attributes:
+                  operation.id: {argument: {index: 0}, type: int64}
               - name: native.cache_hit
                 on:
                   usdt_noret: "checkout:cache_hit"
@@ -202,8 +204,8 @@ extensions:
 				Name:       "com.example.Checkout.placeOrder",
 				Parameters: []string{"java.lang.String", "long"},
 			}},
-			Attrs: map[string]DynamicSpanAttribute{
-				"order.id": {Arg: 0, Type: "string"},
+			Attributes: map[string]DynamicSpanAttribute{
+				"order.id": {Argument: DynamicArgument{Index: uint8Ptr(0)}, Type: "string"},
 			},
 		},
 		{
@@ -211,18 +213,18 @@ extensions:
 			On: DynamicSpanTarget{Function: &DynamicFunction{
 				Name: "main.(*Checkout).PlaceOrder",
 			}},
-			Attrs: map[string]DynamicSpanAttribute{
-				"order.id": {Arg: 0, Type: "string"},
+			Attributes: map[string]DynamicSpanAttribute{
+				"order.id": {Argument: DynamicArgument{Name: "orderID"}, Type: "string"},
 			},
 		},
 		{
 			Name: "native.operation",
 			On: DynamicSpanTarget{
 				USDTSpan: "checkout:operation",
-				Match:    &DynamicSpanMatch{Arg: 1, Value: "orders"},
+				Match:    &DynamicSpanMatch{Argument: DynamicArgument{Index: uint8Ptr(1)}, Value: "orders"},
 			},
-			Attrs: map[string]DynamicSpanAttribute{
-				"operation.id": {Arg: 0, Type: "u64"},
+			Attributes: map[string]DynamicSpanAttribute{
+				"operation.id": {Argument: DynamicArgument{Index: uint8Ptr(0)}, Type: "int64"},
 			},
 		},
 		{Name: "native.cache_hit", On: DynamicSpanTarget{USDTNoRet: "checkout:cache_hit"}},

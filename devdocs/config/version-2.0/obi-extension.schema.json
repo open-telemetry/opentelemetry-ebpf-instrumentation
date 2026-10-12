@@ -2442,9 +2442,9 @@
         "on": {
           "$ref": "#/$defs/DynamicSpanTarget"
         },
-        "attrs": {
+        "attributes": {
           "type": "object",
-          "description": "Span attributes extracted from probe arguments.",
+          "description": "Explicitly selected span attributes; arguments not listed here are not captured.",
           "additionalProperties": {
             "$ref": "#/$defs/DynamicSpanAttribute"
           }
@@ -2541,49 +2541,73 @@
       "description": "Filter USDT events by a string-valued probe argument.",
       "additionalProperties": false,
       "required": [
-        "arg",
+        "argument",
         "value"
       ],
       "properties": {
-        "arg": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 11
-        },
         "value": {
           "type": "string",
           "minLength": 1
+        },
+        "argument": {
+          "$ref": "#/$defs/DynamicArgument"
         }
       }
     },
     "DynamicSpanAttribute": {
       "type": "object",
-      "description": "Extract one probe argument as a span attribute.",
+      "description": "Extract one explicitly selected probe argument as a span attribute. Other arguments are not captured implicitly. If type is omitted, USDT probe metadata is used when available; callable argument captures require an explicit type.",
       "additionalProperties": false,
       "required": [
-        "arg"
+        "argument"
       ],
       "properties": {
-        "arg": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "bool",
+            "bool_array",
+            "double",
+            "double_array",
+            "int",
+            "int_array",
+            "string",
+            "string_array"
+          ],
+          "description": "OpenTelemetry attribute type. Array types represent homogeneous arrays."
+        },
+        "argument": {
+          "$ref": "#/$defs/DynamicArgument"
+        }
+      }
+    },
+    "DynamicArgument": {
+      "type": "object",
+      "description": "Select a parameter or probe argument by zero-based index (0-11) or name. Name resolution requires runtime metadata that exposes parameter names.",
+      "additionalProperties": false,
+      "properties": {
+        "index": {
           "type": "integer",
           "minimum": 0,
           "maximum": 11
         },
-        "type": {
+        "name": {
           "type": "string",
-          "enum": [
-            "u8",
-            "u16",
-            "u32",
-            "u64",
-            "i8",
-            "i16",
-            "i32",
-            "i64",
-            "string"
+          "minLength": 1
+        }
+      },
+      "oneOf": [
+        {
+          "required": [
+            "index"
+          ]
+        },
+        {
+          "required": [
+            "name"
           ]
         }
-      }
+      ]
     }
   },
   "required": ["version"]

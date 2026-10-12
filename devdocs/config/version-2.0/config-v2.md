@@ -561,8 +561,16 @@ list using OBI's glob discovery selectors and a `spans` list. Each span has a
 name and exactly one probe target under `on`: `function`, `function_noret`,
 `usdt_span`, or `usdt_noret`. The `function` target identifies a callable with
 `name` and optional ordered `parameters` type names to disambiguate overloaded
-functions and methods. Optional `attrs` independently extract runtime probe
-arguments into span attributes, and `on.match` filters USDT events. This is
+functions and methods. Optional `attributes` select individual runtime
+arguments to add as span attributes; unlisted arguments are not captured. Each selection uses an
+`argument` reference by zero-based `index` or by `name`. Name-based references
+work only when the target runtime exposes parameter names in its metadata. The
+`type`, when specified, uses OpenTelemetry attribute type names: `bool`,
+`bool_array`, `double`, `double_array`, `int`, `int_array`, `string`, or
+`string_array`. Array types describe homogeneous attribute arrays. The type may
+be omitted when USDT probe metadata provides it; callable argument captures
+require an explicit type. Argument indexes are limited to 0 through 11.
+`on.match` filters USDT events. This is
 currently declarative schema data only: runtime integration is planned for a
 later change; the v2 parser does not convert these entries into runtime rules
 or apply them to running processes.
@@ -583,9 +591,14 @@ extensions:
                 on:
                   function:
                     name: "com.example.SearchService.search"
-                    parameters: ["java.lang.String", "int"]
-                attrs:
-                  search.query: {arg: 0, type: string}
+                    parameters: ["java.lang.String", "int", "java.lang.String[]"]
+                attributes:
+                  search.query:
+                    argument: {index: 0}
+                    type: string
+                  search.tags:
+                    argument: {index: 2}
+                    type: string_array
 ```
 
 ### `capture.network` Section
