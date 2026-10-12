@@ -101,6 +101,10 @@ published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
+- Config v2 protocol `enabled.metrics: false` now suppresses span metrics and
+  service graphs for that protocol, for both OTLP and Prometheus. Config v1
+  retains its existing behavior. The migration CLI reports configurations whose
+  derived metric coverage cannot be preserved by the generated v2 switches.
 - GenAI client span names follow `{gen_ai.operation.name} {gen_ai.request.model}`
   (retrieval: `{gen_ai.operation.name} {gen_ai.data_source.id}`), built only from the
   values emitted on the span:

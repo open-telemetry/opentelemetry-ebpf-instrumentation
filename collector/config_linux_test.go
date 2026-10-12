@@ -43,6 +43,7 @@ func TestReceiverConfigUnmarshalV2(t *testing.T) {
 	require.NoError(t, component.Unmarshal(cfg))
 	require.NoError(t, cfg.Validate())
 	require.Equal(t, 123, cfg.runtime.ChannelBufferLen)
+	require.True(t, cfg.v2)
 	require.Len(t, cfg.runtime.Discovery.Instrument, 2)
 
 	var hasOpenPortSelector, hasDefaultSelector bool
@@ -70,6 +71,7 @@ func TestReceiverConfigUnmarshalLegacy(t *testing.T) {
 	require.NoError(t, component.Unmarshal(cfg))
 	require.NoError(t, cfg.Validate())
 	require.Equal(t, []int{8080}, cfg.runtime.Port.AllValues())
+	require.False(t, cfg.v2)
 }
 
 func TestReceiverConfigRejectsStandaloneSections(t *testing.T) {

@@ -758,6 +758,7 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 	for _, comparison := range []struct {
 		path    string
 		enabled bool
+		metrics bool
 		before  []instrumentations.Instrumentation
 		after   []instrumentations.Instrumentation
 	}{
@@ -770,12 +771,14 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 		{
 			path:    "otel_metrics_export.instrumentations",
 			enabled: before.OTELMetrics.EndpointEnabled(),
+			metrics: true,
 			before:  before.OTELMetrics.Instrumentations,
 			after:   after.OTELMetrics.Instrumentations,
 		},
 		{
 			path:    "prometheus_export.instrumentations",
 			enabled: before.Prometheus.EndpointEnabled(),
+			metrics: true,
 			before:  before.Prometheus.Instrumentations,
 			after:   after.Prometheus.Instrumentations,
 		},
@@ -784,9 +787,36 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 			!equalMigrationInstrumentations(comparison.before, comparison.after) {
 			changed = append(changed, comparison.path)
 		}
+		if comparison.enabled && comparison.metrics &&
+			(before.Metrics.Features.AnySpanMetrics() || before.Metrics.Features.ServiceGraph()) &&
+			!preservesV1DerivedMetricProtocols(comparison.after) {
+			changed = append(changed, comparison.path)
+		}
 	}
 	sort.Strings(changed)
 	return slices.Compact(changed), nil
+}
+
+func preservesV1DerivedMetricProtocols(protocols []instrumentations.Instrumentation) bool {
+	selection := instrumentations.NewInstrumentationSelection(protocols)
+	// V1 derived metrics bypass protocol selection. DNS does not emit derived
+	// metrics; protocols without a v2 switch retain their default selection.
+	for _, protocol := range []instrumentations.Instrumentation{
+		instrumentations.InstrumentationHTTP,
+		instrumentations.InstrumentationGRPC,
+		instrumentations.InstrumentationSQL,
+		instrumentations.InstrumentationRedis,
+		instrumentations.InstrumentationKafka,
+		instrumentations.InstrumentationMongo,
+		instrumentations.InstrumentationCouchbase,
+		instrumentations.InstrumentationGPU,
+		instrumentations.InstrumentationAerospike,
+	} {
+		if !selection.Enabled(protocol) {
+			return false
+		}
+	}
+	return true
 }
 
 func equalMigrationFeatures(before, after featureexport.Features) bool {

@@ -1490,6 +1490,58 @@ prometheus_export:
 	}
 }
 
+func TestMigrateConfigReportsDerivedMetricProtocolLoss(t *testing.T) {
+	for _, exporter := range []struct {
+		name   string
+		config string
+	}{
+		{"prometheus_export", "port: 9090"},
+		{"otel_metrics_export", "endpoint: http://collector:4317\n  protocol: grpc"},
+	} {
+		for _, features := range []string{
+			"application_red, application_span_otel, application_service_graph",
+			"application_span_otel",
+			"application_span",
+			"application_span_sizes",
+			"application_service_graph",
+		} {
+			t.Run(exporter.name+"/"+features, func(t *testing.T) {
+				source := []byte(fmt.Sprintf(`
+open_port: '8080'
+metrics:
+  features: [%s]
+%s:
+  %s
+  instrumentations: [grpc, sql, redis, kafka, mqtt, nats, amqp, gpu, mongo, dns, couchbase, genai, memcached, sunrpc, aerospike]
+`, features, exporter.name, exporter.config))
+				output, _, err := migrateConfig(source)
+				require.ErrorContains(t, err, exporter.name+".instrumentations")
+				require.Empty(t, output)
+
+				output, report, partial, err := migrateConfigForModeWithOptions(
+					source, validationModeStandalone, migrationOptions{allowPartial: true},
+				)
+				require.NoError(t, err)
+				require.True(t, partial)
+				require.Contains(t, report, exporter.name+".instrumentations")
+				require.NoError(t, validateConfig(output, validationModeStandalone))
+			})
+		}
+	}
+}
+
+func TestMigrateConfigPreservesDerivedMetricsWithoutDNS(t *testing.T) {
+	_, _, err := migrateConfig([]byte(`
+open_port: '8080'
+metrics:
+  features: [application_red, application_span_otel, application_service_graph]
+prometheus_export:
+  port: 9090
+  instrumentations: [http, grpc, sql, redis, kafka, mqtt, nats, amqp, gpu, mongo, couchbase, genai, memcached, sunrpc, aerospike]
+`))
+	require.NoError(t, err)
+}
+
 func TestMigrateConfigPreservesDisabledNetworkCapture(t *testing.T) {
 	tests := []struct {
 		name string

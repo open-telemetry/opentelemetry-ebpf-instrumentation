@@ -135,7 +135,7 @@ func TestShutdownWithoutStartCleansSharedController(t *testing.T) {
 func newTestController(t *testing.T, id component.ID, cfg *obi.Config) *Controller {
 	t.Helper()
 
-	c, err := NewController(id, cfg)
+	c, err := NewController(id, cfg, false)
 	if err != nil {
 		t.Fatalf("NewController returned error: %v", err)
 	}
