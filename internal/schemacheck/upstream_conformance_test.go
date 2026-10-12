@@ -90,6 +90,16 @@ func mandatory(level string) bool {
 	return level == levelRequired || level == levelConditionallyRequired
 }
 
+// meets reports whether OBI's level keeps upstream's requirement: a required
+// attribute must stay required, and a conditionally required one must stay
+// mandatory.
+func meets(obiLevel, upstreamLevel string) bool {
+	if upstreamLevel == levelRequired {
+		return obiLevel == levelRequired
+	}
+	return mandatory(obiLevel)
+}
+
 type upstreamRegistry struct {
 	spans      map[string]resolvedSignal
 	metrics    map[string]resolvedSignal
@@ -329,6 +339,8 @@ func linkProblems(s localSignal) []string {
 		return []string{s.label + ": upstream is none without an upstream_reason"}
 	case link.none() && len(annotations.UpstreamOmits) > 0:
 		return []string{s.label + ": upstream_omits on a signal that names no upstream signal"}
+	case link.none() && len(annotations.UpstreamRelaxes) > 0:
+		return []string{s.label + ": upstream_relaxes on a signal that names no upstream signal"}
 	case link.none() && len(annotations.UpstreamExtras) > 0:
 		return []string{s.label + ": upstream_extras on a signal that names no upstream signal"}
 	case link.none():
@@ -390,6 +402,7 @@ func conformanceProblems(t *testing.T, s localSignal, up upstreamRegistry, trans
 		return nil
 	}
 	omits := s.signal.Annotations.OBI.UpstreamOmits
+	relaxes := s.signal.Annotations.OBI.UpstreamRelaxes
 	extras := s.signal.Annotations.OBI.UpstreamExtras
 
 	declared := map[string]string{}
@@ -405,8 +418,8 @@ func conformanceProblems(t *testing.T, s localSignal, up upstreamRegistry, trans
 	for key, level := range levels {
 		obiLevel, ok := declared[key]
 		switch {
-		case !mandatory(level), ok && mandatory(obiLevel):
-		case omits[key] != "":
+		case !mandatory(level), ok && meets(obiLevel, level):
+		case !ok && omits[key] != "", ok && relaxes[key] != "":
 		case !ok:
 			report(key, "upstream makes it "+level+", OBI does not declare it")
 		default:
@@ -414,8 +427,13 @@ func conformanceProblems(t *testing.T, s localSignal, up upstreamRegistry, trans
 		}
 	}
 	for key := range omits {
-		if obiLevel, ok := declared[key]; !mandatory(levels[key]) || (ok && mandatory(obiLevel)) {
+		if _, ok := declared[key]; !mandatory(levels[key]) || ok {
 			report(key, "upstream_omits names an attribute upstream does not require or OBI declares")
+		}
+	}
+	for key := range relaxes {
+		if obiLevel, ok := declared[key]; !mandatory(levels[key]) || !ok || meets(obiLevel, levels[key]) {
+			report(key, "upstream_relaxes names an attribute OBI does not declare below upstream's level")
 		}
 	}
 	unlisted := func(key string) bool {
@@ -442,8 +460,10 @@ func conformanceProblems(t *testing.T, s localSignal, up upstreamRegistry, trans
 
 // TestSignalsConformToUpstream compares every linked span and metric with the
 // upstream signals it names. It fails when OBI does not declare, or declares
-// as optional, an attribute the named signals require or conditionally
-// require, unless the signal's upstream_omits gives a reason; and when OBI
+// at a lower level, an attribute the named signals require or conditionally
+// require (a required attribute declared conditionally required counts),
+// unless the signal's upstream_omits or upstream_relaxes gives a reason; and
+// when OBI
 // declares an upstream attribute that none of the named signals lists, unless
 // it is a transport attribute on a span or the signal's upstream_extras gives
 // a reason.

@@ -75,6 +75,9 @@ spans:
     annotations:
       obi:
         upstream: http.server
+        upstream_relaxes:
+          url.path: missing for a FastCGI request whose parameters are too large to capture
+          url.scheme: missing for a FastCGI request whose parameters are too large to capture
         upstream_omits:
           network.protocol.name: required only for a protocol other than HTTP, which OBI never reports on this signal
     kind: server
@@ -90,6 +93,10 @@ spans:
     annotations:
       obi:
         upstream: http.client
+        upstream_relaxes:
+          server.address: missing when OBI cannot tell which connection the request used
+          server.port: missing when OBI cannot tell which connection the request used
+          url.full: missing when neither the scheme nor the host of the request is known
         upstream_omits:
           network.protocol.name: required only for a protocol other than HTTP, which OBI never reports on this signal
     kind: client

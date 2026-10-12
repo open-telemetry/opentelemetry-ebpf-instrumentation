@@ -42,13 +42,13 @@ spans:
       obi:
         upstream: [messaging.kafka, messaging.attributes]
         upstream_omits:
-          messaging.destination.template: OBI sees the concrete destination on the wire, never the template it was built from
+          messaging.destination.template: only the application knows the template a destination name was built from
           messaging.destination.subscription.name: a subscription applies only to receiving messages
-          messaging.destination.temporary: OBI cannot tell from the wire whether the destination is temporary
-          messaging.destination.anonymous: OBI cannot tell from the wire whether the destination is anonymous
-          error.type: OBI does not parse broker error responses yet
-          messaging.kafka.message.tombstone: detecting a tombstone needs the record body, which OBI does not decode
-          messaging.batch.message_count: OBI does not count the records in a Kafka produce or fetch
+          messaging.destination.temporary: the traffic does not show whether the destination is temporary
+          messaging.destination.anonymous: the traffic does not show whether the destination is anonymous
+          error.type: OBI does not report broker errors
+          messaging.kafka.message.tombstone: OBI does not report tombstones
+          messaging.batch.message_count: OBI does not report Kafka batch sizes
     kind: producer
     name:
       note: Not documented yet.
@@ -70,13 +70,13 @@ spans:
       obi:
         upstream: [messaging.kafka, messaging.attributes]
         upstream_omits:
-          messaging.destination.template: OBI sees the concrete destination on the wire, never the template it was built from
-          messaging.destination.temporary: OBI cannot tell from the wire whether the destination is temporary
-          messaging.destination.anonymous: OBI cannot tell from the wire whether the destination is anonymous
-          error.type: OBI does not parse broker error responses yet
-          messaging.kafka.message.tombstone: detecting a tombstone needs the record body, which OBI does not decode
+          messaging.destination.template: only the application knows the template a destination name was built from
+          messaging.destination.temporary: the traffic does not show whether the destination is temporary
+          messaging.destination.anonymous: the traffic does not show whether the destination is anonymous
+          error.type: OBI does not report broker errors
+          messaging.kafka.message.tombstone: OBI does not report tombstones
           messaging.destination.subscription.name: Kafka and AMQP 1.0 have no subscriptions
-          messaging.batch.message_count: OBI does not count the records in a Kafka produce or fetch
+          messaging.batch.message_count: OBI does not report Kafka batch sizes
     kind: consumer
     name:
       note: Not documented yet.
@@ -104,12 +104,12 @@ spans:
       obi:
         upstream: messaging.attributes
         upstream_omits:
-          messaging.destination.template: OBI sees the concrete destination on the wire, never the template it was built from
+          messaging.destination.template: only the application knows the template a destination name was built from
           messaging.consumer.group.name: a consumer group applies only to receiving messages
           messaging.destination.subscription.name: a subscription applies only to receiving messages
-          messaging.destination.temporary: OBI cannot tell from the wire whether the destination is temporary
-          messaging.destination.anonymous: OBI cannot tell from the wire whether the destination is anonymous
-          error.type: OBI does not parse broker error responses yet
+          messaging.destination.temporary: the traffic does not show whether the destination is temporary
+          messaging.destination.anonymous: the traffic does not show whether the destination is anonymous
+          error.type: OBI does not report broker errors
           messaging.batch.message_count: each span describes a single message
     kind: producer
     name:
@@ -129,10 +129,10 @@ spans:
       obi:
         upstream: messaging.attributes
         upstream_omits:
-          messaging.destination.template: OBI sees the concrete destination on the wire, never the template it was built from
-          messaging.destination.temporary: OBI cannot tell from the wire whether the destination is temporary
-          messaging.destination.anonymous: OBI cannot tell from the wire whether the destination is anonymous
-          error.type: OBI does not parse broker error responses yet
+          messaging.destination.template: only the application knows the template a destination name was built from
+          messaging.destination.temporary: the traffic does not show whether the destination is temporary
+          messaging.destination.anonymous: the traffic does not show whether the destination is anonymous
+          error.type: OBI does not report broker errors
           messaging.batch.message_count: each span describes a single message
     kind: consumer
     name:
@@ -152,12 +152,12 @@ spans:
       obi:
         upstream: messaging.attributes
         upstream_omits:
-          messaging.destination.template: OBI sees the concrete destination on the wire, never the template it was built from
+          messaging.destination.template: only the application knows the template a destination name was built from
           messaging.consumer.group.name: a consumer group applies only to receiving messages
           messaging.destination.subscription.name: a subscription applies only to receiving messages
-          messaging.destination.temporary: OBI cannot tell from the wire whether the destination is temporary
-          messaging.destination.anonymous: OBI cannot tell from the wire whether the destination is anonymous
-          error.type: OBI does not parse broker error responses yet
+          messaging.destination.temporary: the traffic does not show whether the destination is temporary
+          messaging.destination.anonymous: the traffic does not show whether the destination is anonymous
+          error.type: OBI does not report broker errors
           messaging.batch.message_count: each span describes a single message
     kind: producer
     name:
@@ -179,12 +179,12 @@ spans:
       obi:
         upstream: messaging.attributes
         upstream_omits:
-          messaging.destination.template: OBI sees the concrete destination on the wire, never the template it was built from
-          messaging.destination.temporary: OBI cannot tell from the wire whether the destination is temporary
-          messaging.destination.anonymous: OBI cannot tell from the wire whether the destination is anonymous
-          error.type: OBI does not parse broker error responses yet
+          messaging.destination.template: only the application knows the template a destination name was built from
+          messaging.destination.temporary: the traffic does not show whether the destination is temporary
+          messaging.destination.anonymous: the traffic does not show whether the destination is anonymous
+          error.type: OBI does not report broker errors
           messaging.batch.message_count: each span describes a single message
-          messaging.consumer.group.name: the queue group is only on the SUB frame, which OBI does not track yet
+          messaging.consumer.group.name: OBI does not report NATS queue groups
           messaging.destination.subscription.name: NATS identifies a subscription only by a per-connection id, which is not a name
     kind: consumer
     name:
@@ -206,14 +206,14 @@ spans:
       obi:
         upstream: messaging.attributes
         upstream_omits:
-          messaging.destination.template: OBI sees the concrete destination on the wire, never the template it was built from
+          messaging.destination.template: only the application knows the template a destination name was built from
           messaging.consumer.group.name: a consumer group applies only to receiving messages
           messaging.destination.subscription.name: a subscription applies only to receiving messages
-          messaging.destination.temporary: OBI cannot tell from the wire whether the destination is temporary
-          messaging.destination.anonymous: OBI cannot tell from the wire whether the destination is anonymous
-          error.type: OBI does not parse broker error responses yet
+          messaging.destination.temporary: the traffic does not show whether the destination is temporary
+          messaging.destination.anonymous: the traffic does not show whether the destination is anonymous
+          error.type: OBI does not report broker errors
           messaging.batch.message_count: each span describes a single message
-          messaging.destination.name: OBI does not parse the AMQP 1.0 link address yet
+          messaging.destination.name: OBI does not report AMQP 1.0 destinations
     kind: producer
     name:
       note: Not documented yet.
@@ -228,14 +228,14 @@ spans:
       obi:
         upstream: messaging.attributes
         upstream_omits:
-          messaging.destination.template: OBI sees the concrete destination on the wire, never the template it was built from
-          messaging.destination.temporary: OBI cannot tell from the wire whether the destination is temporary
-          messaging.destination.anonymous: OBI cannot tell from the wire whether the destination is anonymous
-          error.type: OBI does not parse broker error responses yet
+          messaging.destination.template: only the application knows the template a destination name was built from
+          messaging.destination.temporary: the traffic does not show whether the destination is temporary
+          messaging.destination.anonymous: the traffic does not show whether the destination is anonymous
+          error.type: OBI does not report broker errors
           messaging.batch.message_count: each span describes a single message
           messaging.destination.subscription.name: Kafka and AMQP 1.0 have no subscriptions
           messaging.consumer.group.name: AMQP 1.0 has no consumer groups
-          messaging.destination.name: OBI does not parse the AMQP 1.0 link address yet
+          messaging.destination.name: OBI does not report AMQP 1.0 destinations
     kind: consumer
     name:
       note: Not documented yet.

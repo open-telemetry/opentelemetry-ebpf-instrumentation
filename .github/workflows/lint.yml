@@ -94,19 +94,19 @@ jobs:
 
       # Schema lint is arch-neutral (weaver YAML/JSON). Keep it on amd64 only.
       - name: Lint OBI semantic-convention registry
-        if: matrix.platform.arch == 'amd64'
+        if: ${{ !cancelled() && matrix.platform.arch == 'amd64' }}
         run: make lint-schema
 
       - name: Test OBI semantic-convention registry provenance
-        if: matrix.platform.arch == 'amd64'
+        if: ${{ !cancelled() && matrix.platform.arch == 'amd64' }}
         run: make test-schema
 
       - name: Check published OBI telemetry schema files
-        if: matrix.platform.arch == 'amd64'
+        if: ${{ !cancelled() && matrix.platform.arch == 'amd64' }}
         run: make check-schema-files
 
       - name: Check generated OBI telemetry reference docs
-        if: matrix.platform.arch == 'amd64'
+        if: ${{ !cancelled() && matrix.platform.arch == 'amd64' }}
         run: make check-schema-docs
 
   lint-darwin:

@@ -65,10 +65,11 @@ type resolvedSignal struct {
 	Attributes  []resolvedAttribute `json:"attributes"`
 	Annotations struct {
 		OBI struct {
-			Upstream       upstreamLink      `json:"upstream"`
-			UpstreamReason string            `json:"upstream_reason"`
-			UpstreamOmits  map[string]string `json:"upstream_omits"`
-			UpstreamExtras map[string]string `json:"upstream_extras"`
+			Upstream        upstreamLink      `json:"upstream"`
+			UpstreamReason  string            `json:"upstream_reason"`
+			UpstreamOmits   map[string]string `json:"upstream_omits"`
+			UpstreamRelaxes map[string]string `json:"upstream_relaxes"`
+			UpstreamExtras  map[string]string `json:"upstream_extras"`
 		} `json:"obi"`
 	} `json:"annotations"`
 }

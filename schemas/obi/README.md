@@ -110,18 +110,21 @@ namespace, sets `annotations.obi.upstream`:
 The test fails when:
 
 - a signal names no upstream signal, sets `none` without an
-  `upstream_reason`, or carries an `upstream_reason`, `upstream_omits` or
-  `upstream_extras` that its link makes meaningless;
+  `upstream_reason`, or carries an `upstream_reason`, `upstream_omits`,
+  `upstream_relaxes` or `upstream_extras` that its link makes meaningless;
 - a named upstream signal does not exist in the pinned semconv release;
 - a named signal requires or conditionally requires an attribute that OBI
-  does not declare, or declares as `recommended` or `opt_in`. Where several
+  does not declare, or declares at a lower level: `recommended` or `opt_in`,
+  or `conditionally_required` where upstream makes it `required`. Where several
   named signals list the same attribute, the one named first sets its level,
   so Elasticsearch keeps `db.namespace` recommended although the generic
   database span conditionally requires it. When the condition can never
-  hold for OBI's signal, or OBI deliberately keeps the attribute optional,
-  `annotations.obi.upstream_omits` on the signal names the attribute with the
-  reason, e.g. a consumer group on a producer span, or `dns.question.name`
-  kept opt-in for its cardinality;
+  hold for OBI's signal, `annotations.obi.upstream_omits` on the signal names
+  the attribute with the reason, e.g. a consumer group on a producer span.
+  When OBI declares it at a lower level because it cannot always observe it,
+  or deliberately keeps it optional, `annotations.obi.upstream_relaxes` names
+  it with the reason, e.g. `server.address` read from a connection a BPF event
+  may not carry, or `dns.question.name` kept opt-in for its cardinality;
 - OBI declares an upstream attribute that none of the named signals lists,
   such as `http.route` on a client metric, unless
   `annotations.obi.upstream_extras` on the signal names it with the reason it
@@ -135,7 +138,7 @@ The test fails when:
 - OBI defines an attribute in a namespace upstream owns, outside `obi.`,
   without an `upstream_deviation` reason on the definition.
 
-The test also fails on an `upstream_omits` or `upstream_extras` entry that no
+The test also fails on an `upstream_omits`, `upstream_relaxes` or `upstream_extras` entry that no
 longer waives or justifies anything, so an entry is removed once OBI or
 upstream changes. OBI's own `obi.*` attributes, and requirement levels of
 attributes upstream makes `recommended` or `opt_in`, are not compared.

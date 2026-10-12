@@ -9,6 +9,8 @@ spans:
     annotations:
       obi:
         upstream: [rpc.grpc.call.server, rpc.call.server]
+        upstream_relaxes:
+          rpc.response.status_code: missing when the peer reports a code outside the gRPC status codes
     kind: server
     name:
       note: Not documented yet.
@@ -53,6 +55,9 @@ spans:
     annotations:
       obi:
         upstream: [rpc.grpc.call.client, rpc.call.client]
+        upstream_relaxes:
+          server.address: missing when OBI cannot tell which connection the request used
+          rpc.response.status_code: missing when the peer reports a code outside the gRPC status codes
     kind: client
     name:
       note: Not documented yet.
@@ -98,7 +103,7 @@ spans:
       obi:
         upstream: rpc.call.server
         upstream_omits:
-          rpc.method_original: OBI reports the method it read, so it never differs from rpc.method
+          rpc.method_original: rpc.method is the method as called, so there is no different original
         upstream_extras:
           onc_rpc.program.name: upstream defines the ONC RPC attributes but no ONC RPC span
           onc_rpc.procedure.name: upstream defines the ONC RPC attributes but no ONC RPC span
@@ -160,7 +165,7 @@ spans:
       obi:
         upstream: rpc.call.client
         upstream_omits:
-          rpc.method_original: OBI reports the method it read, so it never differs from rpc.method
+          rpc.method_original: rpc.method is the method as called, so there is no different original
         upstream_extras:
           onc_rpc.program.name: upstream defines the ONC RPC attributes but no ONC RPC span
           onc_rpc.procedure.name: upstream defines the ONC RPC attributes but no ONC RPC span
