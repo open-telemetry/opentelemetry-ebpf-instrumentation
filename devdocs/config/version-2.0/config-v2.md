@@ -563,8 +563,10 @@ name and exactly one probe target under `on`: `function`, `function_noret`,
 `name` and optional ordered `parameters` type names to disambiguate overloaded
 functions and methods. Optional `attributes` select individual runtime
 arguments to add as span attributes; unlisted arguments are not captured. Each selection uses an
-`argument` reference by zero-based `index` or by `name`. Name-based references
-work only when the target runtime exposes parameter names in its metadata. The
+`argument` reference by zero-based `index` (0 through 11). Named argument
+selection is deferred until runtime support is demonstrated. This is separate
+from `parameters`, which remains an ordered list of type names used to
+disambiguate overloaded functions and methods. The
 `type`, when specified, uses OpenTelemetry attribute type names: `bool`,
 `bool_array`, `double`, `double_array`, `int`, `int_array`, `string`, or
 `string_array`. Array types describe homogeneous attribute arrays. The type may

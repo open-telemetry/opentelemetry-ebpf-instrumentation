@@ -41,12 +41,10 @@ type DynamicFunction struct {
 	Parameters []string `yaml:"parameters,omitempty"`
 }
 
-// DynamicArgument identifies one function parameter or probe argument. Exactly
-// one of Index or Name should be set. Indexes are limited to the first 12
-// arguments; name resolution requires runtime metadata that exposes names.
+// DynamicArgument identifies one function parameter or probe argument by its
+// zero-based index. Indexes are limited to the first 12 arguments.
 type DynamicArgument struct {
 	Index *uint8 `yaml:"index,omitempty"`
-	Name  string `yaml:"name,omitempty"`
 }
 
 // DynamicSpanMatch filters USDT events by a string-valued probe argument.

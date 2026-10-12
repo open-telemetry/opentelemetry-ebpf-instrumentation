@@ -2583,30 +2583,17 @@
     },
     "DynamicArgument": {
       "type": "object",
-      "description": "Select a parameter or probe argument by zero-based index (0-11) or name. Name resolution requires runtime metadata that exposes parameter names.",
+      "description": "Select a function parameter or probe argument by zero-based index (0-11). Named argument selection is deferred until runtime support is demonstrated.",
       "additionalProperties": false,
       "properties": {
         "index": {
           "type": "integer",
           "minimum": 0,
           "maximum": 11
-        },
-        "name": {
-          "type": "string",
-          "minLength": 1
         }
       },
-      "oneOf": [
-        {
-          "required": [
-            "index"
-          ]
-        },
-        {
-          "required": [
-            "name"
-          ]
-        }
+      "required": [
+        "index"
       ]
     }
   },

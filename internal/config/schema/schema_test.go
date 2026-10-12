@@ -4,7 +4,6 @@
 package schema
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -136,7 +135,7 @@ extensions:
 	require.Equal(t, AttributeFilter{Match: "5*"}, cfg.Capture.Rules[0].Refine.HTTP.Filters.Traces["status_code"])
 }
 
-func uint8Ptr(value uint8) *uint8 { return &value }
+func uint8Ptr(value uint8) *uint8 { return new(value) }
 
 func TestDynamicInstrumentationV2ParseMarshal(t *testing.T) {
 	t.Parallel()
@@ -172,13 +171,13 @@ extensions:
                   function:
                     name: "main.(*Checkout).PlaceOrder"
                 attributes:
-                  order.id: {argument: {name: orderID}, type: string}
+                  order.id: {argument: {index: 0}, type: string}
               - name: native.operation
                 on:
                   usdt_span: "checkout:operation"
                   match: {argument: {index: 1}, value: "orders"}
                 attributes:
-                  operation.id: {argument: {index: 0}, type: int64}
+                  operation.id: {argument: {index: 0}, type: int}
               - name: native.cache_hit
                 on:
                   usdt_noret: "checkout:cache_hit"
@@ -214,7 +213,7 @@ extensions:
 				Name: "main.(*Checkout).PlaceOrder",
 			}},
 			Attributes: map[string]DynamicSpanAttribute{
-				"order.id": {Argument: DynamicArgument{Name: "orderID"}, Type: "string"},
+				"order.id": {Argument: DynamicArgument{Index: uint8Ptr(0)}, Type: "string"},
 			},
 		},
 		{
@@ -224,7 +223,7 @@ extensions:
 				Match:    &DynamicSpanMatch{Argument: DynamicArgument{Index: uint8Ptr(1)}, Value: "orders"},
 			},
 			Attributes: map[string]DynamicSpanAttribute{
-				"operation.id": {Argument: DynamicArgument{Index: uint8Ptr(0)}, Type: "int64"},
+				"operation.id": {Argument: DynamicArgument{Index: uint8Ptr(0)}, Type: "int"},
 			},
 		},
 		{Name: "native.cache_hit", On: DynamicSpanTarget{USDTNoRet: "checkout:cache_hit"}},
@@ -237,15 +236,32 @@ extensions:
 	require.Contains(t, string(encoded), "parameters:")
 	require.Contains(t, string(encoded), "usdt_span: checkout:operation")
 
-	roundTripInput := []byte(`file_format: "1.0"
-extensions:
-  obi:
-    version: "2.0"
-    capture:
-      dynamic_instrumentation:
-` + strings.ReplaceAll(string(encoded), "\n", "\n        "))
+	type dynamicCaptureConfig struct {
+		DynamicInstrumentation *DynamicInstrumentation `yaml:"dynamic_instrumentation"`
+	}
+	type dynamicOBIConfig struct {
+		Version string               `yaml:"version"`
+		Capture dynamicCaptureConfig `yaml:"capture"`
+	}
+	type dynamicExtensionConfig struct {
+		OBI dynamicOBIConfig `yaml:"obi"`
+	}
+	roundTripInput, err := yaml.Marshal(struct {
+		FileFormat string                 `yaml:"file_format"`
+		Extensions dynamicExtensionConfig `yaml:"extensions"`
+	}{
+		FileFormat: "1.0",
+		Extensions: dynamicExtensionConfig{OBI: dynamicOBIConfig{
+			Version: "2.0",
+			Capture: dynamicCaptureConfig{
+				DynamicInstrumentation: extension.Capture.DynamicInstrumentation,
+			},
+		}},
+	})
+	require.NoError(t, err)
 	_, roundTripped, err := ParseStandaloneYAML(roundTripInput)
 	require.NoError(t, err)
+	require.NotNil(t, roundTripped.Capture.DynamicInstrumentation)
 	roundTripYAML, err := yaml.Marshal(roundTripped.Capture.DynamicInstrumentation)
 	require.NoError(t, err)
 	originalYAML, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
