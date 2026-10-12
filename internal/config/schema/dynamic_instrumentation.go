@@ -30,8 +30,15 @@ type DynamicSpanTarget struct {
 	USDTNoRet     string            `yaml:"usdt_noret,omitempty"`
 	USDTSpan      string            `yaml:"usdt_span,omitempty"`
 	FunctionNoRet string            `yaml:"function_noret,omitempty"`
-	FunctionSpan  string            `yaml:"function_span,omitempty"`
+	Function      *DynamicFunction  `yaml:"function,omitempty"`
 	Match         *DynamicSpanMatch `yaml:"match,omitempty"`
+}
+
+// DynamicFunction identifies a callable and optionally its ordered parameter
+// types, which disambiguate overloaded functions.
+type DynamicFunction struct {
+	Name       string   `yaml:"name"`
+	Parameters []string `yaml:"parameters,omitempty"`
 }
 
 // DynamicSpanMatch filters USDT events by a string-valued probe argument.

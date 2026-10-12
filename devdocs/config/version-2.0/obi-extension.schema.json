@@ -2458,12 +2458,11 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "function_span"
+            "function"
           ],
           "properties": {
-            "function_span": {
-              "type": "string",
-              "description": "Function symbol or glob matched using target-language symbol conventions."
+            "function": {
+              "$ref": "#/$defs/DynamicFunction"
             }
           }
         },
@@ -2513,6 +2512,29 @@
           }
         }
       ]
+    },
+    "DynamicFunction": {
+      "type": "object",
+      "description": "Identify a callable; ordered parameter type names disambiguate overloaded functions.",
+      "additionalProperties": false,
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Function or method name in the target language's symbol format."
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Ordered parameter type names used to disambiguate overloads."
+        }
+      }
     },
     "DynamicSpanMatch": {
       "type": "object",

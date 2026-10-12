@@ -558,13 +558,14 @@ supported by the current adapter; use capture rules for workload selection.
 `capture.dynamic_instrumentation.rules` is a language-neutral data model for
 named spans selected by service/workload criteria. Each rule has a `service`
 list using OBI's glob discovery selectors and a `spans` list. Each span has a
-name and exactly one probe target under `on`: `function_span`,
-`function_noret`, `usdt_span`, or `usdt_noret`. Function targets name a function
-symbol using the target language's symbol format; Java class/method selection
-is one language-specific function target, not a separate schema model. Optional
-`attrs` extract probe arguments, and `on.match` filters USDT events. This is
-currently declarative schema data only: the v2 parser does not convert these
-entries into runtime rules or apply them to running processes.
+name and exactly one probe target under `on`: `function`, `function_noret`,
+`usdt_span`, or `usdt_noret`. The `function` target identifies a callable with
+`name` and optional ordered `parameters` type names to disambiguate overloaded
+functions and methods. Optional `attrs` independently extract runtime probe
+arguments into span attributes, and `on.match` filters USDT events. This is
+currently declarative schema data only: runtime integration is planned for a
+later change; the v2 parser does not convert these entries into runtime rules
+or apply them to running processes.
 
 ```yaml
 extensions:
@@ -580,7 +581,11 @@ extensions:
             spans:
               - name: search
                 on:
-                  function_span: "com.example.SearchService.search*"
+                  function:
+                    name: "com.example.SearchService.search"
+                    parameters: ["java.lang.String", "int"]
+                attrs:
+                  search.query: {arg: 0, type: string}
 ```
 
 ### `capture.network` Section

@@ -4,6 +4,7 @@
 package schema
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -150,16 +151,24 @@ extensions:
         rules:
           - service:
               - exe_path: "*/checkout"
-                languages: go
+                languages: "*"
               - open_ports: "8080-8089"
                 k8s_namespace: shop
                 k8s_deployment_name: checkout
                 k8s_pod_labels:
                   app: checkout
             spans:
+              - name: java.checkout
+                on:
+                  function:
+                    name: "com.example.Checkout.placeOrder"
+                    parameters: ["java.lang.String", "long"]
+                attrs:
+                  order.id: {arg: 0, type: string}
               - name: go.checkout
                 on:
-                  function_span: "main.(*Checkout).PlaceOrder"
+                  function:
+                    name: "main.(*Checkout).PlaceOrder"
                 attrs:
                   order.id: {arg: 0, type: string}
               - name: native.operation
@@ -176,34 +185,70 @@ extensions:
                   function_noret: "setup"
 `)
 
-	doc, extension, err := ParseStandaloneYAML(input)
+	_, extension, err := ParseStandaloneYAML(input)
 	require.NoError(t, err)
 	require.NotNil(t, extension.Capture.DynamicInstrumentation)
 	require.Len(t, extension.Capture.DynamicInstrumentation.Rules, 1)
 	rule := extension.Capture.DynamicInstrumentation.Rules[0]
 	require.Len(t, rule.Service, 2)
 	require.True(t, rule.Service[0].Path.MatchString("/opt/checkout"))
+	require.True(t, rule.Service[0].Languages.MatchString("java"))
 	require.True(t, rule.Service[0].Languages.MatchString("go"))
 	require.True(t, rule.Service[1].Metadata["k8s_deployment_name"].MatchString("checkout"))
-	require.Len(t, rule.Spans, 4)
-	require.Equal(t, "main.(*Checkout).PlaceOrder", rule.Spans[0].On.FunctionSpan)
-	require.Equal(t, "checkout:operation", rule.Spans[1].On.USDTSpan)
-	require.Equal(t, &DynamicSpanMatch{Arg: 1, Value: "orders"}, rule.Spans[1].On.Match)
-	require.Equal(t, "checkout:cache_hit", rule.Spans[2].On.USDTNoRet)
-	require.Equal(t, "setup", rule.Spans[3].On.FunctionNoRet)
+	require.Equal(t, []DynamicSpanSpec{
+		{
+			Name: "java.checkout",
+			On: DynamicSpanTarget{Function: &DynamicFunction{
+				Name:       "com.example.Checkout.placeOrder",
+				Parameters: []string{"java.lang.String", "long"},
+			}},
+			Attrs: map[string]DynamicSpanAttribute{
+				"order.id": {Arg: 0, Type: "string"},
+			},
+		},
+		{
+			Name: "go.checkout",
+			On: DynamicSpanTarget{Function: &DynamicFunction{
+				Name: "main.(*Checkout).PlaceOrder",
+			}},
+			Attrs: map[string]DynamicSpanAttribute{
+				"order.id": {Arg: 0, Type: "string"},
+			},
+		},
+		{
+			Name: "native.operation",
+			On: DynamicSpanTarget{
+				USDTSpan: "checkout:operation",
+				Match:    &DynamicSpanMatch{Arg: 1, Value: "orders"},
+			},
+			Attrs: map[string]DynamicSpanAttribute{
+				"operation.id": {Arg: 0, Type: "u64"},
+			},
+		},
+		{Name: "native.cache_hit", On: DynamicSpanTarget{USDTNoRet: "checkout:cache_hit"}},
+		{Name: "native.initialized", On: DynamicSpanTarget{FunctionNoRet: "setup"}},
+	}, rule.Spans)
 
-	encoded, err := yaml.Marshal(doc)
+	encoded, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
 	require.NoError(t, err)
-	require.Contains(t, string(encoded), "function_span: main.(*Checkout).PlaceOrder")
+	require.Contains(t, string(encoded), "function:")
+	require.Contains(t, string(encoded), "parameters:")
 	require.Contains(t, string(encoded), "usdt_span: checkout:operation")
 
-	_, roundTripped, err := ParseStandaloneYAML(encoded)
+	roundTripInput := []byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      dynamic_instrumentation:
+` + strings.ReplaceAll(string(encoded), "\n", "\n        "))
+	_, roundTripped, err := ParseStandaloneYAML(roundTripInput)
 	require.NoError(t, err)
 	roundTripYAML, err := yaml.Marshal(roundTripped.Capture.DynamicInstrumentation)
 	require.NoError(t, err)
 	originalYAML, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
 	require.NoError(t, err)
-	require.Equal(t, string(originalYAML), string(roundTripYAML))
+	require.YAMLEq(t, string(originalYAML), string(roundTripYAML))
 }
 
 func TestParseFlowLimitAliasPresence(t *testing.T) {
