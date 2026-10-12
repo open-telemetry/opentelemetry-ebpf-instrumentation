@@ -4,6 +4,7 @@
 package schema
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -135,8 +136,6 @@ extensions:
 	require.Equal(t, AttributeFilter{Match: "5*"}, cfg.Capture.Rules[0].Refine.HTTP.Filters.Traces["status_code"])
 }
 
-func uint8Ptr(value uint8) *uint8 { return new(value) }
-
 func TestDynamicInstrumentationV2ParseMarshal(t *testing.T) {
 	t.Parallel()
 
@@ -191,43 +190,84 @@ extensions:
 	_, extension, err := ParseStandaloneYAML(input)
 	require.NoError(t, err)
 	require.NotNil(t, extension.Capture.DynamicInstrumentation)
-	require.Len(t, extension.Capture.DynamicInstrumentation.Rules, 1)
-	rule := extension.Capture.DynamicInstrumentation.Rules[0]
-	require.Len(t, rule.Service, 2)
-	require.True(t, rule.Service[0].Path.MatchString("/opt/checkout"))
-	require.True(t, rule.Service[0].Languages.MatchString("java"))
-	require.True(t, rule.Service[0].Languages.MatchString("go"))
-	require.True(t, rule.Service[1].Metadata["k8s_deployment_name"].MatchString("checkout"))
-	require.Equal(t, []DynamicSpanSpec{
-		{
-			Name: "java.checkout",
-			On:   DynamicSpanTarget{Function: "com.example.Checkout#placeOrder(java.lang.String,long)"},
-			Attributes: []DynamicSpanAttribute{
-				{Name: "order.id", Argument: DynamicSpanAttributeArgument{Index: uint8Ptr(0), Type: DynamicArgumentString}},
-				{Name: "order.count", Argument: DynamicSpanAttributeArgument{Index: uint8Ptr(1)}},
-			},
-		},
-		{
-			Name:       "go.checkout",
-			On:         DynamicSpanTarget{Function: "main.(*Checkout).PlaceOrder"},
-			Attributes: []DynamicSpanAttribute{{Name: "order.id", Argument: DynamicSpanAttributeArgument{Index: uint8Ptr(0), Type: DynamicArgumentString}}},
-		},
-		{
-			Name: "native.operation",
-			On: DynamicSpanTarget{
-				USDTSpan: "checkout:operation",
-				Match:    &DynamicSpanMatch{Argument: DynamicArgument{Index: uint8Ptr(1)}, Value: "orders"},
-			},
-			Attributes: []DynamicSpanAttribute{{Name: "operation.id", Argument: DynamicSpanAttributeArgument{Index: uint8Ptr(0), Type: DynamicArgumentU32}}},
-		},
-		{Name: "native.cache_hit", On: DynamicSpanTarget{USDTNoRet: "checkout:cache_hit"}},
-		{Name: "native.initialized", On: DynamicSpanTarget{FunctionNoRet: "setup"}},
-	}, rule.Spans)
-
 	encoded, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
 	require.NoError(t, err)
-	require.Contains(t, string(encoded), "function: com.example.Checkout#placeOrder(java.lang.String,long)")
-	require.Contains(t, string(encoded), "usdt_span: checkout:operation")
+	// Empty selector fields are the existing GlobAttributes serialization defaults.
+	require.YAMLEq(t, `
+rules:
+  - service:
+      - name: ""
+        namespace: ""
+        open_ports: ""
+        languages: "*"
+        target_pids: []
+        exe_path: "*/checkout"
+        cmd_args: ""
+        k8s_pod_labels: {}
+        k8s_pod_annotations: {}
+        containers_only: false
+        exports: null
+        sampler: null
+        routes: null
+        metrics:
+          features: null
+      - name: ""
+        namespace: ""
+        open_ports: 8080-8089
+        languages: ""
+        target_pids: []
+        exe_path: ""
+        cmd_args: ""
+        k8s_pod_labels:
+          app: checkout
+        k8s_pod_annotations: {}
+        containers_only: false
+        exports: null
+        sampler: null
+        routes: null
+        metrics:
+          features: null
+        k8s_deployment_name: checkout
+        k8s_namespace: shop
+    spans:
+      - name: java.checkout
+        on:
+          function: com.example.Checkout#placeOrder(java.lang.String,long)
+        attributes:
+          - name: order.id
+            argument:
+              index: 0
+              type: string
+          - name: order.count
+            argument:
+              index: 1
+      - name: go.checkout
+        on:
+          function: main.(*Checkout).PlaceOrder
+        attributes:
+          - name: order.id
+            argument:
+              index: 0
+              type: string
+      - name: native.operation
+        on:
+          usdt_span: checkout:operation
+          match:
+            argument:
+              index: 1
+            value: orders
+        attributes:
+          - name: operation.id
+            argument:
+              index: 0
+              type: u32
+      - name: native.cache_hit
+        on:
+          usdt_noret: checkout:cache_hit
+      - name: native.initialized
+        on:
+          function_noret: setup
+`, string(encoded))
 
 	type dynamicCaptureConfig struct {
 		DynamicInstrumentation *DynamicInstrumentation `yaml:"dynamic_instrumentation"`
@@ -265,7 +305,20 @@ extensions:
 func TestDynamicJavaReferencesParseMarshal(t *testing.T) {
 	t.Parallel()
 
-	input := []byte(`file_format: "1.0"
+	for _, tc := range []struct {
+		name      string
+		reference string
+	}{
+		{name: "exact overload", reference: "java.lang.StringBuffer#append(char)"},
+		{name: "unambiguous method", reference: "java.lang.Runtime.Version#interim"},
+		{name: "zero-argument method", reference: "com.example.Target#ready()"},
+		{name: "all overloads", reference: "java.lang.StringBuffer#append(*)"},
+		{name: "nested constructor", reference: "java.lang.Runtime.Version#Version"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			input := []byte(fmt.Sprintf(`file_format: "1.0"
 extensions:
   obi:
     version: "2.0"
@@ -274,41 +327,25 @@ extensions:
         rules:
           - service: [{languages: java}]
             spans:
-              - name: exact_overload
-                on: {function: "java.lang.StringBuffer#append(char)"}
-              - name: unambiguous_method
-                on: {function: "java.lang.Runtime.Version#interim"}
-              - name: zero_argument_method
-                on: {function: "com.example.Target#ready()"}
-              - name: all_overloads
-                on: {function: "java.lang.StringBuffer#append(*)"}
-              - name: nested_constructor
-                on: {function: "java.lang.Runtime.Version#Version"}
-`)
+              - name: java.reference
+                on: {function: %q}
+`, tc.reference))
 
-	_, extension, err := ParseStandaloneYAML(input)
-	require.NoError(t, err)
-	spans := extension.Capture.DynamicInstrumentation.Rules[0].Spans
-	expectedReferences := []string{
-		"java.lang.StringBuffer#append(char)",
-		"java.lang.Runtime.Version#interim",
-		"com.example.Target#ready()",
-		"java.lang.StringBuffer#append(*)",
-		"java.lang.Runtime.Version#Version",
-	}
-	require.Len(t, spans, len(expectedReferences))
-	for i, reference := range expectedReferences {
-		require.Equal(t, reference, spans[i].On.Function)
-	}
+			_, extension, err := ParseStandaloneYAML(input)
+			require.NoError(t, err)
+			rule := extension.Capture.DynamicInstrumentation.Rules[0]
+			require.Len(t, rule.Spans, 1)
+			require.Equal(t, tc.reference, rule.Spans[0].On.Function)
 
-	encoded, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
-	require.NoError(t, err)
-	var roundTripped DynamicInstrumentation
-	err = yaml.Unmarshal(encoded, &roundTripped)
-	require.NoError(t, err)
-	roundTripYAML, err := yaml.Marshal(&roundTripped)
-	require.NoError(t, err)
-	require.YAMLEq(t, string(encoded), string(roundTripYAML))
+			encoded, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
+			require.NoError(t, err)
+			var roundTripped DynamicInstrumentation
+			require.NoError(t, yaml.Unmarshal(encoded, &roundTripped))
+			roundTripYAML, err := yaml.Marshal(&roundTripped)
+			require.NoError(t, err)
+			require.YAMLEq(t, string(encoded), string(roundTripYAML))
+		})
+	}
 }
 
 func TestParseFlowLimitAliasPresence(t *testing.T) {
