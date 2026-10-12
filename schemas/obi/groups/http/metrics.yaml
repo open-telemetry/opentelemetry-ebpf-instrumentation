@@ -4,6 +4,9 @@ metrics:
   - name: http.client.request.body.size
     annotations:
       obi:
+        upstream_relaxes:
+          server.address: missing when OBI cannot tell which connection the request used
+          server.port: missing when OBI cannot tell which connection the request used
         upstream_omits:
           network.protocol.name: required only for a protocol other than HTTP, which OBI never reports on this signal
     brief: OBI-emitted http.client.request.body.size
@@ -34,6 +37,9 @@ metrics:
   - name: http.client.request.duration
     annotations:
       obi:
+        upstream_relaxes:
+          server.address: missing when OBI cannot tell which connection the request used
+          server.port: missing when OBI cannot tell which connection the request used
         upstream_omits:
           network.protocol.name: required only for a protocol other than HTTP, which OBI never reports on this signal
     brief: OBI-emitted http.client.request.duration
@@ -63,6 +69,9 @@ metrics:
   - name: http.client.response.body.size
     annotations:
       obi:
+        upstream_relaxes:
+          server.address: missing when OBI cannot tell which connection the request used
+          server.port: missing when OBI cannot tell which connection the request used
         upstream_omits:
           network.protocol.name: required only for a protocol other than HTTP, which OBI never reports on this signal
     brief: OBI-emitted http.client.response.body.size
@@ -93,6 +102,8 @@ metrics:
   - name: http.server.request.body.size
     annotations:
       obi:
+        upstream_relaxes:
+          url.scheme: missing for a FastCGI request whose parameters are too large to capture
         upstream_omits:
           network.protocol.name: required only for a protocol other than HTTP, which OBI never reports on this signal
     brief: OBI-emitted http.server.request.body.size
@@ -122,6 +133,8 @@ metrics:
   - name: http.server.request.duration
     annotations:
       obi:
+        upstream_relaxes:
+          url.scheme: missing for a FastCGI request whose parameters are too large to capture
         upstream_omits:
           network.protocol.name: required only for a protocol other than HTTP, which OBI never reports on this signal
     brief: OBI-emitted http.server.request.duration
@@ -151,6 +164,8 @@ metrics:
   - name: http.server.response.body.size
     annotations:
       obi:
+        upstream_relaxes:
+          url.scheme: missing for a FastCGI request whose parameters are too large to capture
         upstream_omits:
           network.protocol.name: required only for a protocol other than HTTP, which OBI never reports on this signal
     brief: OBI-emitted http.server.response.body.size

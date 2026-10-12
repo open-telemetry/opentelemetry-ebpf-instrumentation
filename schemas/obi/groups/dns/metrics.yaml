@@ -15,7 +15,7 @@ metrics:
   - name: dns.lookup.duration
     annotations:
       obi:
-        upstream_omits:
+        upstream_relaxes:
           dns.question.name: raw question names are unbounded and attacker-controlled, so OBI keeps it opt-in
     brief: OBI-emitted dns.lookup.duration
     instrument: histogram

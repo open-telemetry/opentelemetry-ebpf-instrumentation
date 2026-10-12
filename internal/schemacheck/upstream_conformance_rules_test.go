@@ -73,6 +73,7 @@ func TestConformanceProblems(t *testing.T) {
 		name     string
 		span     bool
 		omits    map[string]string
+		relaxes  map[string]string
 		extras   map[string]string
 		declared map[string]string
 		want     []string
@@ -91,6 +92,10 @@ func TestConformanceProblems(t *testing.T) {
 			declared: with(map[string]string{"db.query": levelRecommended}), want: []string{"db.query"},
 		},
 		{
+			name: "a requirement is declared conditionally required", span: true,
+			declared: with(map[string]string{"db.query": levelConditionallyRequired}), want: []string{"db.query"},
+		},
+		{
 			name: "upstream_omits waives a missing requirement", span: true,
 			omits:    map[string]string{"db.query": "reason"},
 			declared: map[string]string{"db.system.name": levelRequired},
@@ -101,7 +106,32 @@ func TestConformanceProblems(t *testing.T) {
 		},
 		{
 			name: "upstream_omits on an attribute OBI declares", span: true,
-			omits: map[string]string{"db.query": "reason"}, declared: complete, want: []string{"db.query"},
+			omits:    map[string]string{"db.query": "reason"},
+			declared: with(map[string]string{"db.query": levelRecommended}), want: []string{"db.query", "db.query"},
+		},
+		{
+			name: "upstream_relaxes waives a requirement declared optional", span: true,
+			relaxes:  map[string]string{"db.query": "reason"},
+			declared: with(map[string]string{"db.query": levelRecommended}),
+		},
+		{
+			name: "upstream_relaxes waives a requirement declared conditionally required", span: true,
+			relaxes:  map[string]string{"db.query": "reason"},
+			declared: with(map[string]string{"db.query": levelConditionallyRequired}),
+		},
+		{
+			name: "upstream_relaxes on an attribute OBI does not declare", span: true,
+			relaxes:  map[string]string{"db.query": "reason"},
+			declared: map[string]string{"db.system.name": levelRequired}, want: []string{"db.query", "db.query"},
+		},
+		{
+			name: "upstream_relaxes on an attribute OBI declares at upstream's level", span: true,
+			relaxes: map[string]string{"db.query": "reason"}, declared: complete, want: []string{"db.query"},
+		},
+		{
+			name: "upstream_relaxes on an attribute upstream does not require", span: true,
+			relaxes:  map[string]string{"db.namespace": "reason"},
+			declared: with(map[string]string{"db.namespace": levelRecommended}), want: []string{"db.namespace"},
 		},
 		{
 			name: "an upstream attribute no link lists", span: true,
@@ -142,6 +172,7 @@ func TestConformanceProblems(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			signal := testSignal(link, tc.omits, tc.declared)
+			signal.Annotations.OBI.UpstreamRelaxes = tc.relaxes
 			signal.Annotations.OBI.UpstreamExtras = tc.extras
 			s := localSignal{label: "obi.test", span: tc.span, signal: signal, known: up.spans}
 			assert.Equal(t, tc.want, findingAttributes(conformanceProblems(t, s, up, transport)))
@@ -156,6 +187,7 @@ func TestLinkProblems(t *testing.T) {
 		link     upstreamLink
 		reason   string
 		omits    map[string]string
+		relaxes  map[string]string
 		extras   map[string]string
 		metric   bool
 		selfLink bool
@@ -174,6 +206,10 @@ func TestLinkProblems(t *testing.T) {
 			omits: map[string]string{"http.route": "reason"}, want: "upstream_omits on a signal that names no upstream signal",
 		},
 		{
+			name: "none with upstream_relaxes", link: upstreamLink{upstreamNone}, reason: "reason",
+			relaxes: map[string]string{"http.route": "reason"}, want: "upstream_relaxes on a signal that names no upstream signal",
+		},
+		{
 			name: "none with upstream_extras", link: upstreamLink{upstreamNone}, reason: "reason",
 			extras: map[string]string{"http.route": "reason"}, want: "upstream_extras on a signal that names no upstream signal",
 		},
@@ -190,6 +226,7 @@ func TestLinkProblems(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			signal := testSignal(tc.link, tc.omits, nil)
 			signal.Annotations.OBI.UpstreamReason = tc.reason
+			signal.Annotations.OBI.UpstreamRelaxes = tc.relaxes
 			signal.Annotations.OBI.UpstreamExtras = tc.extras
 			problems := linkProblems(localSignal{label: "obi.test", span: !tc.metric, signal: signal, known: known, selfLink: tc.selfLink, relinked: tc.relinked})
 			if tc.want == "" {

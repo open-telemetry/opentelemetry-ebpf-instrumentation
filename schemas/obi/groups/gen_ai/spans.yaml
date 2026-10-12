@@ -24,6 +24,8 @@ spans:
     annotations:
       obi:
         upstream: [gen_ai.inference.client, openai.inference.client, anthropic.inference.client, aws.bedrock.client, gen_ai.embeddings.client]
+        upstream_relaxes:
+          aws.bedrock.guardrail.id: only a Bedrock request that configured a guardrail carries one
     kind: client
     name:
       note: Not documented yet.
