@@ -148,6 +148,9 @@ section empty once drained.
 - The ONC RPC `rpc.method` value on `rpc.client.call.duration` and `rpc.server.call.duration`
   changes from the procedure number (for example `0`) to `{program}/{procedure}` (for example
   `portmapper/0`), and is omitted when no CALL was captured (previously `reply`).
+- On the OTLP `gen_ai.client.*` metrics, a request that names no model now omits
+  `gen_ai.request.model` instead of reporting it as `""`. Prometheus output is unchanged,
+  since it does not tell an empty label from a missing one.
 - The registry moves to weaver's `definition/2` format. A span definition is identified
   by its `type`, so the span ids in `site/docs/spans.md` lose their `span.` prefix
   (`span.obi.http.server` becomes `obi.http.server`) and a link anchored on an old id no
