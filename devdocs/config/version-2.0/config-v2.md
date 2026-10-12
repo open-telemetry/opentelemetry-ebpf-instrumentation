@@ -558,14 +558,13 @@ supported by the current adapter; use capture rules for workload selection.
 `capture.dynamic_instrumentation.rules` is a data model for named spans selected
 by service/workload criteria. Each rule has a `service` list using OBI's glob
 discovery selectors and a `spans` list. Each span has a name and exactly one
-probe target under `on`: `function`, `function_noret`, `java`, `usdt_span`, or
-`usdt_noret`. Generic `function` and `function_noret` targets use native or Go
-symbol names/globs, or Node.js exported CommonJS function names/globs when
-supported by a runtime adapter. For example, the Node.js runtime represents an
-export as `/path/module.cjs:exports.method`; nested properties append `.name`.
-These symbol patterns are not Java method-reference syntax. Java uses a
-separate typed target, `java.reference`, with a source-style class and method
-reference:
+probe target under `on`: `function`, `function_noret`, `usdt_span`, or
+`usdt_noret`. `function` is a scalar string interpreted according to the
+selected service's runtime. Native/Go targets use symbol names or globs; Node.js
+targets use exported CommonJS function names/globs when supported by a runtime
+adapter. For example, a Node.js export is represented as
+`/path/module.cjs:exports.method`; nested properties append `.name`. Java uses
+the same `function` field with a source-style class and method reference:
 
 | Reference form | Intended selection |
 | --- | --- |
@@ -609,10 +608,9 @@ extensions:
                 k8s_deployment_name: search
             spans:
               - name: search
-                # Choose exactly one target under on: java, function, function_noret, usdt_span, or usdt_noret.
+                # Choose exactly one target under on: function, function_noret, usdt_span, or usdt_noret.
                 on:
-                  java:
-                    reference: "com.example.SearchService#search(java.lang.String,int)"
+                  function: "com.example.SearchService#search(java.lang.String,int)"
                 attributes:
                   - name: search.query
                     argument: {index: 0, type: string}
@@ -623,15 +621,13 @@ extensions:
             spans:
               - name: checkout.place_order
                 on:
-                  function:
-                    name: "main.(*Checkout).PlaceOrder"
+                  function: "main.(*Checkout).PlaceOrder"
           - service:
               - languages: nodejs
             spans:
               - name: checkout.place_order
                 on:
-                  function:
-                    name: "/opt/checkout/handlers.cjs:exports.placeOrder"
+                  function: "/opt/checkout/handlers.cjs:exports.placeOrder"
 ```
 
 ### `capture.network` Section

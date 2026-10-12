@@ -24,26 +24,13 @@ type DynamicSpanSpec struct {
 	Attributes []DynamicSpanAttribute `yaml:"attributes,omitempty"`
 }
 
-// DynamicSpanTarget is one of the shared native/Go/Node, Java, or USDT probe forms.
+// DynamicSpanTarget is one of the shared function or USDT probe forms.
 type DynamicSpanTarget struct {
-	USDTNoRet     string             `yaml:"usdt_noret,omitempty"`
-	USDTSpan      string             `yaml:"usdt_span,omitempty"`
-	FunctionNoRet string             `yaml:"function_noret,omitempty"`
-	Function      *DynamicFunction   `yaml:"function,omitempty"`
-	Java          *DynamicJavaTarget `yaml:"java,omitempty"`
-	Match         *DynamicSpanMatch  `yaml:"match,omitempty"`
-}
-
-// DynamicFunction identifies a native, Go, or Node.js callable by its
-// target-language symbol or glob.
-type DynamicFunction struct {
-	Name string `yaml:"name"`
-}
-
-// DynamicJavaTarget identifies a Java constructor or method using a
-// source-style class and method reference.
-type DynamicJavaTarget struct {
-	Reference string `yaml:"reference"`
+	USDTNoRet     string            `yaml:"usdt_noret,omitempty"`
+	USDTSpan      string            `yaml:"usdt_span,omitempty"`
+	FunctionNoRet string            `yaml:"function_noret,omitempty"`
+	Function      string            `yaml:"function,omitempty"`
+	Match         *DynamicSpanMatch `yaml:"match,omitempty"`
 }
 
 // DynamicSpanMatch filters USDT events by a string-valued probe argument.

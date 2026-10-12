@@ -2452,7 +2452,7 @@
       }
     },
     "DynamicSpanTarget": {
-      "description": "Exactly one language-specific function or USDT target form is required.",
+      "description": "Exactly one function or USDT target form is required.",
       "oneOf": [
         {
           "type": "object",
@@ -2462,19 +2462,9 @@
           ],
           "properties": {
             "function": {
-              "$ref": "#/$defs/DynamicFunction"
-            }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "java"
-          ],
-          "properties": {
-            "java": {
-              "$ref": "#/$defs/DynamicJavaTarget"
+              "type": "string",
+              "minLength": 1,
+              "description": "Target-language function selector. For Java, use Class#method(types), #method() for zero arguments, or #method(*) for all overloads; omit the parameter list only when the callable is unambiguous."
             }
           }
         },
@@ -2524,36 +2514,6 @@
           }
         }
       ]
-    },
-    "DynamicFunction": {
-      "type": "object",
-      "description": "Identify a native, Go, or Node.js callable by its target-specific symbol or glob pattern.",
-      "additionalProperties": false,
-      "required": [
-        "name"
-      ],
-      "properties": {
-        "name": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Native, Go, or Node.js function symbol or glob in the target runtime's symbol format."
-        }
-      }
-    },
-    "DynamicJavaTarget": {
-      "type": "object",
-      "description": "A Java constructor or method reference. Exact parameter lists select an overload; omit parentheses only for an unambiguous callable, use empty parentheses for a zero-argument callable, and use (*) for all overloads. Nested types use source-style dotted names.",
-      "additionalProperties": false,
-      "required": [
-        "reference"
-      ],
-      "properties": {
-        "reference": {
-          "type": "string",
-          "minLength": 1,
-          "description": "For example java.lang.StringBuffer#append(char), java.lang.Runtime.Version#Version, or java.lang.Runtime.Version#interim. This declares a selection contract; the schema does not resolve or instrument Java methods."
-        }
-      }
     },
     "DynamicSpanMatch": {
       "type": "object",

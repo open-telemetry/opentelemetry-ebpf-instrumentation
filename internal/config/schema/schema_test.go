@@ -161,8 +161,7 @@ extensions:
             spans:
               - name: java.checkout
                 on:
-                  java:
-                    reference: "com.example.Checkout#placeOrder(java.lang.String,long)"
+                  function: "com.example.Checkout#placeOrder(java.lang.String,long)"
                 attributes:
                   - name: order.id
                     argument: {index: 0, type: string}
@@ -170,8 +169,7 @@ extensions:
                     argument: {index: 1}
               - name: go.checkout
                 on:
-                  function:
-                    name: "main.(*Checkout).PlaceOrder"
+                  function: "main.(*Checkout).PlaceOrder"
                 attributes:
                   - name: order.id
                     argument: {index: 0, type: string}
@@ -203,17 +201,15 @@ extensions:
 	require.Equal(t, []DynamicSpanSpec{
 		{
 			Name: "java.checkout",
-			On:   DynamicSpanTarget{Java: &DynamicJavaTarget{Reference: "com.example.Checkout#placeOrder(java.lang.String,long)"}},
+			On:   DynamicSpanTarget{Function: "com.example.Checkout#placeOrder(java.lang.String,long)"},
 			Attributes: []DynamicSpanAttribute{
 				{Name: "order.id", Argument: DynamicSpanAttributeArgument{Index: uint8Ptr(0), Type: DynamicArgumentString}},
 				{Name: "order.count", Argument: DynamicSpanAttributeArgument{Index: uint8Ptr(1)}},
 			},
 		},
 		{
-			Name: "go.checkout",
-			On: DynamicSpanTarget{Function: &DynamicFunction{
-				Name: "main.(*Checkout).PlaceOrder",
-			}},
+			Name:       "go.checkout",
+			On:         DynamicSpanTarget{Function: "main.(*Checkout).PlaceOrder"},
 			Attributes: []DynamicSpanAttribute{{Name: "order.id", Argument: DynamicSpanAttributeArgument{Index: uint8Ptr(0), Type: DynamicArgumentString}}},
 		},
 		{
@@ -230,9 +226,7 @@ extensions:
 
 	encoded, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
 	require.NoError(t, err)
-	require.Contains(t, string(encoded), "java:")
-	require.Contains(t, string(encoded), "reference: com.example.Checkout#placeOrder(java.lang.String,long)")
-	require.Contains(t, string(encoded), "function:")
+	require.Contains(t, string(encoded), "function: com.example.Checkout#placeOrder(java.lang.String,long)")
 	require.Contains(t, string(encoded), "usdt_span: checkout:operation")
 
 	type dynamicCaptureConfig struct {
@@ -281,15 +275,15 @@ extensions:
           - service: [{languages: java}]
             spans:
               - name: exact_overload
-                on: {java: {reference: "java.lang.StringBuffer#append(char)"}}
+                on: {function: "java.lang.StringBuffer#append(char)"}
               - name: unambiguous_method
-                on: {java: {reference: "java.lang.Runtime.Version#interim"}}
+                on: {function: "java.lang.Runtime.Version#interim"}
               - name: zero_argument_method
-                on: {java: {reference: "com.example.Target#ready()"}}
+                on: {function: "com.example.Target#ready()"}
               - name: all_overloads
-                on: {java: {reference: "java.lang.StringBuffer#append(*)"}}
+                on: {function: "java.lang.StringBuffer#append(*)"}
               - name: nested_constructor
-                on: {java: {reference: "java.lang.Runtime.Version#Version"}}
+                on: {function: "java.lang.Runtime.Version#Version"}
 `)
 
 	_, extension, err := ParseStandaloneYAML(input)
@@ -304,7 +298,7 @@ extensions:
 	}
 	require.Len(t, spans, len(expectedReferences))
 	for i, reference := range expectedReferences {
-		require.Equal(t, reference, spans[i].On.Java.Reference)
+		require.Equal(t, reference, spans[i].On.Function)
 	}
 
 	encoded, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
