@@ -609,6 +609,7 @@ extensions:
                 k8s_deployment_name: search
             spans:
               - name: search
+                # Choose exactly one target under on: java, function, function_noret, usdt_span, or usdt_noret.
                 on:
                   java:
                     reference: "com.example.SearchService#search(java.lang.String,int)"
@@ -617,6 +618,20 @@ extensions:
                     argument: {index: 0, type: string}
                   - name: search.limit
                     argument: {index: 1, type: i32}
+          - service:
+              - languages: go
+            spans:
+              - name: checkout.place_order
+                on:
+                  function:
+                    name: "main.(*Checkout).PlaceOrder"
+          - service:
+              - languages: nodejs
+            spans:
+              - name: checkout.place_order
+                on:
+                  function:
+                    name: "/opt/checkout/handlers.cjs:exports.placeOrder"
 ```
 
 ### `capture.network` Section
