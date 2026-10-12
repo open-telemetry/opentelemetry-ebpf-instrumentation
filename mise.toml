@@ -11,6 +11,7 @@ config_roots = [
   "pkg/internal/java/agent",
   "pkg/internal/transform/route/harvest/dotnet/testdata",
 ]
+lockfile = true
 
 [monorepo.path_aliases]
 "bpf-tests" = "bpf/tests"
