@@ -789,6 +789,43 @@ func TestJavaInjector_NewExecutableCancellationJoinsResponseRead(t *testing.T) {
 	}
 }
 
+// When an attach error and cancellation are both ready, the select in
+// NewExecutable may deliver the error. It must still be reported as the abort
+// rather than as the attach failure the handshake surfaces.
+func TestJavaInjector_AttachResultErrorReportsAbortOverAttachError(t *testing.T) {
+	injector := &JavaInjector{
+		log: slog.Default(),
+		cfg: &obi.Config{Java: obi.JavaConfig{Enabled: true, Timeout: time.Hour}},
+	}
+	pid := app.PID(os.Getpid())
+	attachErr := &JavaInjectError{Message: "unsupported Java version for OpenTelemetry eBPF instrumentation"}
+
+	canceled, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	expired, cancelExpired := context.WithTimeout(context.Background(), 0)
+	t.Cleanup(cancelExpired)
+	<-expired.Done()
+
+	tests := []struct {
+		name string
+		ctx  context.Context
+		err  error
+		want error
+	}{
+		{name: "canceled context reports cancellation", ctx: canceled, err: attachErr, want: &JavaInjectError{Message: "java attach canceled"}},
+		{name: "expired context reports timeout", ctx: expired, err: attachErr, want: &JavaInjectError{Message: "java attach timed out"}},
+		{name: "live context keeps attach error", ctx: context.Background(), err: attachErr, want: attachErr},
+		{name: "canceled context keeps success", ctx: canceled, err: nil, want: nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, injector.attachResultError(tt.ctx, pid, tt.err))
+		})
+	}
+}
+
 func TestJavaInjector_NewExecutable_IgnoresNonJavaTarget(t *testing.T) {
 	injector := &JavaInjector{
 		log: slog.Default(),

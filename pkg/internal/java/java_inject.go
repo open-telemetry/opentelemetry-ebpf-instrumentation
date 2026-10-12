@@ -332,14 +332,7 @@ func (i *JavaInjector) NewExecutable(ctx context.Context, target InjectionTarget
 	// Wait for either completion or timeout
 	select {
 	case result := <-resultChan:
-		// Aborting the attach closes the response reader, which the attach
-		// goroutine reports as an unsupported JVM. When that result and
-		// ctx.Done() are both ready the select picks either, so an error that
-		// arrives after the context ended is reported as the abort it is.
-		if result.err != nil && ctx.Err() != nil {
-			return i.abortedAttachError(ctx, target.Pid)
-		}
-		return result.err
+		return i.attachResultError(ctx, target.Pid, result.err)
 	case <-ctx.Done():
 		if err := attacher.Terminate(); err != nil {
 			i.log.Warn("error terminating canceled JVM attach", "pid", target.Pid, "error", err)
@@ -350,6 +343,17 @@ func (i *JavaInjector) NewExecutable(ctx context.Context, target InjectionTarget
 		<-resultChan
 		return i.abortedAttachError(ctx, target.Pid)
 	}
+}
+
+// attachResultError reports an attach error that arrived after ctx ended as
+// the abort it is. Aborting the attach closes the response reader, which the
+// attach goroutine reports as an unsupported JVM, and when that result and
+// ctx.Done() are both ready the select in NewExecutable picks either.
+func (i *JavaInjector) attachResultError(ctx context.Context, pid app.PID, err error) error {
+	if err != nil && ctx.Err() != nil {
+		return i.abortedAttachError(ctx, pid)
+	}
+	return err
 }
 
 func (i *JavaInjector) abortedAttachError(ctx context.Context, pid app.PID) error {
