@@ -1759,6 +1759,50 @@
           "type": "string",
           "default": "10s",
           "description": "Java attach timeout.\nIf omitted, `10s` is used.\n"
+        },
+        "dynamic_spans": {
+          "type": "array",
+          "description": "Named Java method spans selected by class and method globs. This declarative model does not by itself apply rules to a running JVM.\n",
+          "items": {
+            "$ref": "#/$defs/JavaDynamicSpan"
+          }
+        }
+      }
+    },
+    "JavaDynamicSpan": {
+      "type": "object",
+      "description": "A named span selected from Java methods.",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "selector"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name emitted for the selected method span.\n"
+        },
+        "selector": {
+          "$ref": "#/$defs/JavaMethodSelector"
+        }
+      }
+    },
+    "JavaMethodSelector": {
+      "type": "object",
+      "description": "Select Java methods using class-name and method-name glob patterns.",
+      "additionalProperties": false,
+      "required": [
+        "class_glob",
+        "method_glob"
+      ],
+      "properties": {
+        "class_glob": {
+          "type": "string",
+          "description": "Glob pattern matched against the Java class name.\n"
+        },
+        "method_glob": {
+          "type": "string",
+          "description": "Glob pattern matched against the Java method name.\n"
         }
       }
     },

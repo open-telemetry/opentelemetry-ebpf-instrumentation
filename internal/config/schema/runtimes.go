@@ -18,10 +18,25 @@ type Runtime struct {
 
 // JavaRuntime describes Java runtime capture and debug settings.
 type JavaRuntime struct {
-	Enabled       bool             `yaml:"enabled"`
-	Filter        AttributeFilters `yaml:"filter,omitempty"`
-	Debug         JavaDebug        `yaml:"debug"`
-	AttachTimeout Duration         `yaml:"attach_timeout"`
+	Enabled       bool              `yaml:"enabled"`
+	Filter        AttributeFilters  `yaml:"filter,omitempty"`
+	Debug         JavaDebug         `yaml:"debug"`
+	AttachTimeout Duration          `yaml:"attach_timeout"`
+	DynamicSpans  []JavaDynamicSpan `yaml:"dynamic_spans,omitempty"`
+}
+
+// JavaDynamicSpan describes a named span selected by a Java method's class and
+// method name globs. This is declarative data only; parsing it does not apply
+// instrumentation to a running JVM.
+type JavaDynamicSpan struct {
+	Name     string             `yaml:"name"`
+	Selector JavaMethodSelector `yaml:"selector"`
+}
+
+// JavaMethodSelector selects methods by class-name and method-name globs.
+type JavaMethodSelector struct {
+	ClassGlob  string `yaml:"class_glob"`
+	MethodGlob string `yaml:"method_glob"`
 }
 
 // JavaDebug describes Java runtime debug instrumentation settings.

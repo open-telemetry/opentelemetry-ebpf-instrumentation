@@ -555,6 +555,25 @@ Java also includes additional runtime-specific configuration such as debug contr
 Runtime `filter` fields are reserved by the schema but non-empty values are not
 supported by the current adapter; use capture rules for workload selection.
 
+The Java runtime schema also has a `dynamic_spans` data model for named method
+spans. Each entry has a `selector` with `class_glob` and `method_glob` string
+patterns. This is currently a declarative schema only: OBI does not yet convert
+these entries into runtime rules or apply them to running JVMs.
+
+```yaml
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      runtimes:
+        java:
+          dynamic_spans:
+            - name: search
+              selector:
+                class_glob: com.example.SearchService
+                method_glob: search*
+```
+
 ### `capture.network` Section
 
 The `capture.network` section defines how network observability is configured, including endpoint identity, selection criteria, flow lifecycle controls, interface discovery behavior, enrichment options, and diagnostics.

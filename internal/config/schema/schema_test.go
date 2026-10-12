@@ -135,6 +135,42 @@ extensions:
 	require.Equal(t, AttributeFilter{Match: "5*"}, cfg.Capture.Rules[0].Refine.HTTP.Filters.Traces["status_code"])
 }
 
+func TestJavaDynamicSpansV2ParseMarshal(t *testing.T) {
+	t.Parallel()
+
+	input := []byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      runtimes:
+        java:
+          dynamic_spans:
+            - name: search
+              selector:
+                class_glob: com.example.SearchService
+                method_glob: search*
+`)
+
+	doc, extension, err := ParseStandaloneYAML(input)
+	require.NoError(t, err)
+	require.Equal(t, []JavaDynamicSpan{{
+		Name: "search",
+		Selector: JavaMethodSelector{
+			ClassGlob:  "com.example.SearchService",
+			MethodGlob: "search*",
+		},
+	}}, extension.Capture.Runtimes.Java.DynamicSpans)
+
+	encoded, err := yaml.Marshal(doc)
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), "method_glob: search*")
+
+	_, roundTripped, err := ParseStandaloneYAML(encoded)
+	require.NoError(t, err)
+	require.Equal(t, extension.Capture.Runtimes.Java.DynamicSpans, roundTripped.Capture.Runtimes.Java.DynamicSpans)
+}
+
 func TestParseFlowLimitAliasPresence(t *testing.T) {
 	t.Parallel()
 
