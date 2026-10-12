@@ -555,23 +555,32 @@ Java also includes additional runtime-specific configuration such as debug contr
 Runtime `filter` fields are reserved by the schema but non-empty values are not
 supported by the current adapter; use capture rules for workload selection.
 
-The Java runtime schema also has a `dynamic_spans` data model for named method
-spans. Each entry has a `selector` with `class_glob` and `method_glob` string
-patterns. This is currently a declarative schema only: OBI does not yet convert
-these entries into runtime rules or apply them to running JVMs.
+`capture.dynamic_instrumentation.rules` is a language-neutral data model for
+named spans selected by service/workload criteria. Each rule has a `service`
+list using OBI's glob discovery selectors and a `spans` list. Each span has a
+name and exactly one probe target under `on`: `function_span`,
+`function_noret`, `usdt_span`, or `usdt_noret`. Function targets name a function
+symbol using the target language's symbol format; Java class/method selection
+is one language-specific function target, not a separate schema model. Optional
+`attrs` extract probe arguments, and `on.match` filters USDT events. This is
+currently declarative schema data only: the v2 parser does not convert these
+entries into runtime rules or apply them to running processes.
 
 ```yaml
 extensions:
   obi:
     version: "2.0"
     capture:
-      runtimes:
-        java:
-          dynamic_spans:
-            - name: search
-              selector:
-                class_glob: com.example.SearchService
-                method_glob: search*
+      dynamic_instrumentation:
+        rules:
+          - service:
+              - languages: java
+                k8s_namespace: shop
+                k8s_deployment_name: search
+            spans:
+              - name: search
+                on:
+                  function_span: "com.example.SearchService.search*"
 ```
 
 ### `capture.network` Section

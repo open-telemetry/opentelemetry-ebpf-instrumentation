@@ -14,17 +14,18 @@ import (
 // Known capture sections are typed so exporter-owned fields and nesting have
 // compile-time coverage.
 type Capture struct {
-	Policy          CapturePolicy    `yaml:"policy"`
-	Rules           []Rule           `yaml:"rules"`
-	Instrumentation Instrumentation  `yaml:"instrumentation"`
-	Runtimes        CaptureRuntimes  `yaml:"runtimes"`
-	Network         CaptureNetwork   `yaml:"network"`
-	Metrics         CaptureMetrics   `yaml:"metrics"`
-	Limits          CaptureLimits    `yaml:"limits"`
-	Engine          CaptureEngine    `yaml:"engine"`
-	Safety          CaptureSafety    `yaml:"safety"`
-	Channels        CaptureChannels  `yaml:"channels"`
-	Telemetry       CaptureTelemetry `yaml:"telemetry"`
+	Policy                 CapturePolicy           `yaml:"policy"`
+	Rules                  []Rule                  `yaml:"rules"`
+	Instrumentation        Instrumentation         `yaml:"instrumentation"`
+	Runtimes               CaptureRuntimes         `yaml:"runtimes"`
+	DynamicInstrumentation *DynamicInstrumentation `yaml:"dynamic_instrumentation,omitempty"`
+	Network                CaptureNetwork          `yaml:"network"`
+	Metrics                CaptureMetrics          `yaml:"metrics"`
+	Limits                 CaptureLimits           `yaml:"limits"`
+	Engine                 CaptureEngine           `yaml:"engine"`
+	Safety                 CaptureSafety           `yaml:"safety"`
+	Channels               CaptureChannels         `yaml:"channels"`
+	Telemetry              CaptureTelemetry        `yaml:"telemetry"`
 }
 
 // MatchOrder describes how capture rules are evaluated when multiple rules

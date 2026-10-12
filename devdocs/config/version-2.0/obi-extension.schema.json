@@ -974,6 +974,10 @@
               "description": "Metric features using the same names as Config v1. An explicit list replaces the selection inferred from protocol and network switches; [] disables all metric features. When omitted, protocol and network enablement determines the features."
             }
           }
+        },
+        "dynamic_instrumentation": {
+          "$ref": "#/$defs/DynamicInstrumentation",
+          "description": "Language-neutral named dynamic span rules for selected services. Declarative schema data only; no runtime rules are applied by parsing.\n"
         }
       }
     },
@@ -1759,50 +1763,6 @@
           "type": "string",
           "default": "10s",
           "description": "Java attach timeout.\nIf omitted, `10s` is used.\n"
-        },
-        "dynamic_spans": {
-          "type": "array",
-          "description": "Named Java method spans selected by class and method globs. This declarative model does not by itself apply rules to a running JVM.\n",
-          "items": {
-            "$ref": "#/$defs/JavaDynamicSpan"
-          }
-        }
-      }
-    },
-    "JavaDynamicSpan": {
-      "type": "object",
-      "description": "A named span selected from Java methods.",
-      "additionalProperties": false,
-      "required": [
-        "name",
-        "selector"
-      ],
-      "properties": {
-        "name": {
-          "type": "string",
-          "description": "Name emitted for the selected method span.\n"
-        },
-        "selector": {
-          "$ref": "#/$defs/JavaMethodSelector"
-        }
-      }
-    },
-    "JavaMethodSelector": {
-      "type": "object",
-      "description": "Select Java methods using class-name and method-name glob patterns.",
-      "additionalProperties": false,
-      "required": [
-        "class_glob",
-        "method_glob"
-      ],
-      "properties": {
-        "class_glob": {
-          "type": "string",
-          "description": "Glob pattern matched against the Java class name.\n"
-        },
-        "method_glob": {
-          "type": "string",
-          "description": "Glob pattern matched against the Java method name.\n"
         }
       }
     },
@@ -2324,9 +2284,285 @@
           "description": "Attribute enrichment rules and defaults.\nIf omitted, implementation defaults are used.\n"
         }
       }
+    },
+    "DynamicInstrumentation": {
+      "type": "object",
+      "description": "Language-neutral dynamic instrumentation rules.",
+      "additionalProperties": false,
+      "properties": {
+        "rules": {
+          "type": "array",
+          "description": "Rules associating service/workload selectors with named spans.",
+          "items": {
+            "$ref": "#/$defs/DynamicInstrumentationRule"
+          }
+        }
+      }
+    },
+    "DynamicInstrumentationRule": {
+      "type": "object",
+      "description": "Select services/workloads and declare spans for them.",
+      "additionalProperties": false,
+      "required": [
+        "service",
+        "spans"
+      ],
+      "properties": {
+        "service": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Alternative OBI glob selectors; fields within an entry are conjunctive.",
+          "items": {
+            "$ref": "#/$defs/DynamicServiceSelector"
+          }
+        },
+        "spans": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Named spans to create for matching services.",
+          "items": {
+            "$ref": "#/$defs/DynamicSpanSpec"
+          }
+        }
+      }
+    },
+    "DynamicServiceSelector": {
+      "type": "object",
+      "description": "OBI glob discovery criteria for a service/workload. Supported selectors follow the legacy OBI glob service criteria shape.",
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Deprecated service name selector."
+        },
+        "namespace": {
+          "type": "string",
+          "description": "Deprecated service namespace selector."
+        },
+        "open_ports": {
+        "oneOf": [
+          {
+            "type": "string",
+            "description": "Port numbers and ranges, for example `8080-8089`."
+          },
+          {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65535
+            },
+            "description": "Port numbers to match."
+          }
+        ]
+        },
+        "languages": {
+          "type": "string",
+          "description": "Glob matching the language name, such as `go` or `java`."
+        },
+        "target_pids": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "description": "Host process IDs."
+        },
+        "exe_path": {
+          "type": "string",
+          "description": "Glob matching the full executable path."
+        },
+        "cmd_args": {
+          "type": "string",
+          "description": "Glob matching command-line arguments."
+        },
+        "containers_only": {
+          "type": "boolean"
+        },
+        "k8s_namespace": {
+          "type": "string"
+        },
+        "k8s_pod_name": {
+          "type": "string"
+        },
+        "k8s_deployment_name": {
+          "type": "string"
+        },
+        "k8s_replicaset_name": {
+          "type": "string"
+        },
+        "k8s_daemonset_name": {
+          "type": "string"
+        },
+        "k8s_statefulset_name": {
+          "type": "string"
+        },
+        "k8s_job_name": {
+          "type": "string"
+        },
+        "k8s_cronjob_name": {
+          "type": "string"
+        },
+        "k8s_owner_name": {
+          "type": "string"
+        },
+        "k8s_container_name": {
+          "type": "string"
+        },
+        "container_name": {
+          "type": "string"
+        },
+        "k8s_pod_labels": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "k8s_pod_annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "DynamicSpanSpec": {
+      "type": "object",
+      "description": "A named span declared from one probe target.",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "on"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name emitted for the span."
+        },
+        "on": {
+          "$ref": "#/$defs/DynamicSpanTarget"
+        },
+        "attrs": {
+          "type": "object",
+          "description": "Span attributes extracted from probe arguments.",
+          "additionalProperties": {
+            "$ref": "#/$defs/DynamicSpanAttribute"
+          }
+        }
+      }
+    },
+    "DynamicSpanTarget": {
+      "description": "Exactly one function or USDT target form is required.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "function_span"
+          ],
+          "properties": {
+            "function_span": {
+              "type": "string",
+              "description": "Function symbol or glob matched using target-language symbol conventions."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "function_noret"
+          ],
+          "properties": {
+            "function_noret": {
+              "type": "string",
+              "description": "Function symbol or glob for an entry-only zero-duration marker."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "usdt_span"
+          ],
+          "properties": {
+            "usdt_span": {
+              "type": "string",
+              "description": "`provider:base` for paired `<base>_start` and `<base>_end` probes."
+            },
+            "match": {
+              "$ref": "#/$defs/DynamicSpanMatch"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "usdt_noret"
+          ],
+          "properties": {
+            "usdt_noret": {
+              "type": "string",
+              "description": "`provider:name` for a single zero-duration marker probe."
+            },
+            "match": {
+              "$ref": "#/$defs/DynamicSpanMatch"
+            }
+          }
+        }
+      ]
+    },
+    "DynamicSpanMatch": {
+      "type": "object",
+      "description": "Filter USDT events by a string-valued probe argument.",
+      "additionalProperties": false,
+      "required": [
+        "arg",
+        "value"
+      ],
+      "properties": {
+        "arg": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 11
+        },
+        "value": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "DynamicSpanAttribute": {
+      "type": "object",
+      "description": "Extract one probe argument as a span attribute.",
+      "additionalProperties": false,
+      "required": [
+        "arg"
+      ],
+      "properties": {
+        "arg": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 11
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "u8",
+            "u16",
+            "u32",
+            "u64",
+            "i8",
+            "i16",
+            "i32",
+            "i64",
+            "string"
+          ]
+        }
+      }
     }
   },
-  "required": [
-    "version"
-  ]
+  "required": ["version"]
 }
