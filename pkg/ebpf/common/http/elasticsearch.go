@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -183,11 +184,16 @@ func extractElasticsearchDBCollectionName(req *http.Request) string {
 }
 
 // extractElasticsearchDocumentID returns the {id} path parameter of the
-// /{index}/_doc/{id} document endpoint.
+// /{index}/_doc/{id} document endpoint. It splits the escaped path, since a
+// document ID may contain an encoded slash, and decodes only the ID.
 func extractElasticsearchDocumentID(req *http.Request) string {
-	parts := strings.Split(strings.Trim(req.URL.Path, "/"), "/")
+	parts := strings.Split(strings.Trim(req.URL.EscapedPath(), "/"), "/")
 	if len(parts) != 3 || parts[1] != "_doc" {
 		return ""
 	}
-	return parts[2]
+	id, err := url.PathUnescape(parts[2])
+	if err != nil {
+		return ""
+	}
+	return id
 }

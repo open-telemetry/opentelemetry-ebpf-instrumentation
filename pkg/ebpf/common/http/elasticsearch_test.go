@@ -132,6 +132,30 @@ func TestParseElasticsearchRequest(t *testing.T) {
 			},
 			wantErr: false,
 		},
+		{
+			name:  "Valid GET request for a doc whose id contains an encoded slash",
+			input: newRequest(http.MethodGet, "/test_index/_doc/abc%2F", ""),
+			expected: elasticsearchOperation{
+				DBCollectionName: "test_index",
+				DocumentID:       "abc/",
+			},
+		},
+		{
+			name:  "Valid GET request for a doc whose id is an encoded slash",
+			input: newRequest(http.MethodGet, "/test_index/_doc/%2F", ""),
+			expected: elasticsearchOperation{
+				DBCollectionName: "test_index",
+				DocumentID:       "/",
+			},
+		},
+		{
+			name:  "Valid GET request for a doc whose id contains an encoded space",
+			input: newRequest(http.MethodGet, "/test_index/_doc/a%20b", ""),
+			expected: elasticsearchOperation{
+				DBCollectionName: "test_index",
+				DocumentID:       "a b",
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
