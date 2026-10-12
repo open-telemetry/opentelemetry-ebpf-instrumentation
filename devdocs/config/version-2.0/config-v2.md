@@ -555,23 +555,40 @@ Java also includes additional runtime-specific configuration such as debug contr
 Runtime `filter` fields are reserved by the schema but non-empty values are not
 supported by the current adapter; use capture rules for workload selection.
 
-`capture.dynamic_instrumentation.rules` is a language-neutral data model for
-named spans selected by service/workload criteria. Each rule has a `service`
-list using OBI's glob discovery selectors and a `spans` list. Each span has a
-name and exactly one probe target under `on`: `function`, `function_noret`,
-`usdt_span`, or `usdt_noret`. The `function` target identifies a callable with
-`name` and optional ordered `parameters` type names to disambiguate overloaded
-functions and methods. Optional `attributes` is a list mapping source
+`capture.dynamic_instrumentation.rules` is a data model for named spans selected
+by service/workload criteria. Each rule has a `service` list using OBI's glob
+discovery selectors and a `spans` list. Each span has a name and exactly one
+probe target under `on`: `function`, `function_noret`, `java`, `usdt_span`, or
+`usdt_noret`. Generic `function` and `function_noret` targets use native or Go
+symbol names/globs, or Node.js exported CommonJS function names/globs when
+supported by a runtime adapter. For example, the Node.js runtime represents an
+export as `/path/module.cjs:exports.method`; nested properties append `.name`.
+These symbol patterns are not Java method-reference syntax. Java uses a
+separate typed target, `java.reference`, with a source-style class and method
+reference:
+
+| Reference form | Intended selection |
+| --- | --- |
+| `java.lang.StringBuffer#append(char)` | Exact overload |
+| `java.lang.Runtime.Version#Version` | Unambiguous constructor |
+| `java.lang.Runtime.Version#interim` | Callable selected by name when unambiguous |
+| `com.example.Target#ready()` | Exactly zero arguments |
+| `java.lang.StringBuffer#append(*)` | All overloads |
+
+A reference without a parameter list is valid only when its callable name is
+unambiguous; it does not assert zero arguments. Nested types use Java source
+notation with dots (for example, `Runtime.Version`); a later runtime resolver
+is responsible for resolving those to JVM binary names. These references
+specify the intended selection contract; this schema-only change does not
+resolve or instrument Java methods. Optional `attributes` is a list mapping source
 arguments to span attribute names. Each entry has a `name` and an `argument`
 with a zero-based `index` (0 through 11); `argument.type` optionally describes
 source decoding using `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, or
 `string`. Omit the decoding type only when runtime or probe metadata supplies
 it. The decoded value determines the resulting OpenTelemetry attribute type;
 there is no separate output-conversion setting. Named argument selection is
-deferred until runtime support is demonstrated. This is separate from
-`parameters`, which remains an ordered list of type names used to disambiguate
-overloaded functions and methods. `on.match` filters USDT events using its
-own index/value argument form. Explicit attribute mappings are separate from
+deferred until runtime support is demonstrated. `on.match` filters USDT events
+using its own index/value argument form. Explicit attribute mappings are separate from
 automatic function argument/result capture behavior;
 declaring mappings does not disable that automatic capture. This is
 currently declarative schema data only: runtime integration is planned for a
@@ -579,6 +596,7 @@ later change; the v2 parser does not convert these entries into runtime rules
 or apply them to running processes.
 
 ```yaml
+file_format: "1.0"
 extensions:
   obi:
     version: "2.0"
@@ -592,9 +610,8 @@ extensions:
             spans:
               - name: search
                 on:
-                  function:
-                    name: "com.example.SearchService.search"
-                    parameters: ["java.lang.String", "int"]
+                  java:
+                    reference: "com.example.SearchService#search(java.lang.String,int)"
                 attributes:
                   - name: search.query
                     argument: {index: 0, type: string}

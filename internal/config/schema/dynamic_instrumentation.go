@@ -24,21 +24,26 @@ type DynamicSpanSpec struct {
 	Attributes []DynamicSpanAttribute `yaml:"attributes,omitempty"`
 }
 
-// DynamicSpanTarget is one of the four language-neutral probe forms. Function
-// symbols are interpreted by the target language's runtime.
+// DynamicSpanTarget is one of the shared native/Go/Node, Java, or USDT probe forms.
 type DynamicSpanTarget struct {
-	USDTNoRet     string            `yaml:"usdt_noret,omitempty"`
-	USDTSpan      string            `yaml:"usdt_span,omitempty"`
-	FunctionNoRet string            `yaml:"function_noret,omitempty"`
-	Function      *DynamicFunction  `yaml:"function,omitempty"`
-	Match         *DynamicSpanMatch `yaml:"match,omitempty"`
+	USDTNoRet     string             `yaml:"usdt_noret,omitempty"`
+	USDTSpan      string             `yaml:"usdt_span,omitempty"`
+	FunctionNoRet string             `yaml:"function_noret,omitempty"`
+	Function      *DynamicFunction   `yaml:"function,omitempty"`
+	Java          *DynamicJavaTarget `yaml:"java,omitempty"`
+	Match         *DynamicSpanMatch  `yaml:"match,omitempty"`
 }
 
-// DynamicFunction identifies a callable and optionally its ordered parameter
-// types, which disambiguate overloaded functions.
+// DynamicFunction identifies a native, Go, or Node.js callable by its
+// target-language symbol or glob.
 type DynamicFunction struct {
-	Name       string   `yaml:"name"`
-	Parameters []string `yaml:"parameters,omitempty"`
+	Name string `yaml:"name"`
+}
+
+// DynamicJavaTarget identifies a Java constructor or method using a
+// source-style class and method reference.
+type DynamicJavaTarget struct {
+	Reference string `yaml:"reference"`
 }
 
 // DynamicSpanMatch filters USDT events by a string-valued probe argument.

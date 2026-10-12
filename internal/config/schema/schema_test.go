@@ -161,9 +161,8 @@ extensions:
             spans:
               - name: java.checkout
                 on:
-                  function:
-                    name: "com.example.Checkout.placeOrder"
-                    parameters: ["java.lang.String", "long"]
+                  java:
+                    reference: "com.example.Checkout#placeOrder(java.lang.String,long)"
                 attributes:
                   - name: order.id
                     argument: {index: 0, type: string}
@@ -204,10 +203,7 @@ extensions:
 	require.Equal(t, []DynamicSpanSpec{
 		{
 			Name: "java.checkout",
-			On: DynamicSpanTarget{Function: &DynamicFunction{
-				Name:       "com.example.Checkout.placeOrder",
-				Parameters: []string{"java.lang.String", "long"},
-			}},
+			On:   DynamicSpanTarget{Java: &DynamicJavaTarget{Reference: "com.example.Checkout#placeOrder(java.lang.String,long)"}},
 			Attributes: []DynamicSpanAttribute{
 				{Name: "order.id", Argument: DynamicSpanAttributeArgument{Index: uint8Ptr(0), Type: DynamicArgumentString}},
 				{Name: "order.count", Argument: DynamicSpanAttributeArgument{Index: uint8Ptr(1)}},
@@ -234,8 +230,9 @@ extensions:
 
 	encoded, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
 	require.NoError(t, err)
+	require.Contains(t, string(encoded), "java:")
+	require.Contains(t, string(encoded), "reference: com.example.Checkout#placeOrder(java.lang.String,long)")
 	require.Contains(t, string(encoded), "function:")
-	require.Contains(t, string(encoded), "parameters:")
 	require.Contains(t, string(encoded), "usdt_span: checkout:operation")
 
 	type dynamicCaptureConfig struct {
@@ -269,6 +266,55 @@ extensions:
 	originalYAML, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
 	require.NoError(t, err)
 	require.YAMLEq(t, string(originalYAML), string(roundTripYAML))
+}
+
+func TestDynamicJavaReferencesParseMarshal(t *testing.T) {
+	t.Parallel()
+
+	input := []byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      dynamic_instrumentation:
+        rules:
+          - service: [{languages: java}]
+            spans:
+              - name: exact_overload
+                on: {java: {reference: "java.lang.StringBuffer#append(char)"}}
+              - name: unambiguous_method
+                on: {java: {reference: "java.lang.Runtime.Version#interim"}}
+              - name: zero_argument_method
+                on: {java: {reference: "com.example.Target#ready()"}}
+              - name: all_overloads
+                on: {java: {reference: "java.lang.StringBuffer#append(*)"}}
+              - name: nested_constructor
+                on: {java: {reference: "java.lang.Runtime.Version#Version"}}
+`)
+
+	_, extension, err := ParseStandaloneYAML(input)
+	require.NoError(t, err)
+	spans := extension.Capture.DynamicInstrumentation.Rules[0].Spans
+	expectedReferences := []string{
+		"java.lang.StringBuffer#append(char)",
+		"java.lang.Runtime.Version#interim",
+		"com.example.Target#ready()",
+		"java.lang.StringBuffer#append(*)",
+		"java.lang.Runtime.Version#Version",
+	}
+	require.Len(t, spans, len(expectedReferences))
+	for i, reference := range expectedReferences {
+		require.Equal(t, reference, spans[i].On.Java.Reference)
+	}
+
+	encoded, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
+	require.NoError(t, err)
+	var roundTripped DynamicInstrumentation
+	err = yaml.Unmarshal(encoded, &roundTripped)
+	require.NoError(t, err)
+	roundTripYAML, err := yaml.Marshal(&roundTripped)
+	require.NoError(t, err)
+	require.YAMLEq(t, string(encoded), string(roundTripYAML))
 }
 
 func TestParseFlowLimitAliasPresence(t *testing.T) {
