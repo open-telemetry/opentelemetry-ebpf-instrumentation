@@ -464,6 +464,19 @@ func histogramUpperBounds(metric *dto.Metric) []float64 {
 	return bounds
 }
 
+func gatheredHistogramBounds(t require.TestingT, registry *prometheus.Registry, name string) []float64 {
+	families, err := registry.Gather()
+	require.NoError(t, err)
+
+	for _, family := range families {
+		if family.GetName() == name && len(family.GetMetric()) > 0 {
+			return histogramUpperBounds(family.GetMetric()[0])
+		}
+	}
+
+	return nil
+}
+
 // A pedantic registry rejects a collector that emits a descriptor it never described, so this
 // covers both the exposed metric names and Describe agreeing with Collect.
 func TestBPFCollectorRegistersMapMetrics(t *testing.T) {

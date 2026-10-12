@@ -175,6 +175,118 @@ func TestAppMetrics_HTTPErrorType(t *testing.T) {
 	}, timeout, 100*time.Millisecond)
 }
 
+func TestAppMetrics_REDHistogramBucketBoundaries(t *testing.T) {
+	features := export.FeatureApplicationRED | export.FeatureApplicationSizes
+	// non-default and distinct per field, so a histogram that ignores cfg.Buckets or uses
+	// another field's buckets fails the bounds assertion
+	buckets := export.Buckets{
+		DurationHistogram:     []float64{0.002, 0.2, 2},
+		RequestSizeHistogram:  []float64{3, 300, 3000},
+		ResponseSizeHistogram: []float64{7, 700, 7000},
+	}
+	ctx := t.Context()
+	registry, _ := newPrometheusTestServer(t)
+
+	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	exporter, err := PrometheusEndpoint(
+		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+		&PrometheusConfig{
+			Registry:                    registry,
+			Path:                        "/metrics",
+			TTL:                         3 * time.Minute,
+			SpanMetricsServiceCacheSize: 10,
+			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+			Buckets:                     buckets,
+		},
+		&perapp.GlobalMetricsConfig{Features: features},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		promInput,
+		processEvents,
+		nil,
+	)(ctx)
+	require.NoError(t, err)
+
+	go exporter(ctx)
+
+	svcAttrs := svc.Attrs{Features: features, UID: svc.UID{Instance: "foo"}}
+	end := 1 * time.Second.Nanoseconds()
+	promInput.Send([]request.Span{
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Status: 200, End: end},
+		{Service: svcAttrs, Type: request.EventTypeHTTPClient, Status: 200, End: end},
+	})
+
+	expected := map[string][]float64{
+		"http_server_request_duration_seconds": buckets.DurationHistogram,
+		"http_client_request_duration_seconds": buckets.DurationHistogram,
+		"http_server_request_body_size_bytes":  buckets.RequestSizeHistogram,
+		"http_client_request_body_size_bytes":  buckets.RequestSizeHistogram,
+		"http_server_response_body_size_bytes": buckets.ResponseSizeHistogram,
+		"http_client_response_body_size_bytes": buckets.ResponseSizeHistogram,
+	}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		for name, want := range expected {
+			assert.Equal(ct, want, gatheredHistogramBounds(ct, registry, name), name)
+		}
+	}, timeout, 100*time.Millisecond)
+}
+
+func TestAppMetrics_GenAIHistogramBucketBoundaries(t *testing.T) {
+	// non-default and distinct per field, so a histogram that ignores cfg.Buckets or uses
+	// another field's buckets fails the bounds assertion
+	buckets := export.Buckets{
+		GenAIClientDurationHistogram: []float64{0.004, 0.4, 4},
+		GenAITokenUsageHistogram:     []float64{5, 500, 5000},
+	}
+	ctx := t.Context()
+	registry, _ := newPrometheusTestServer(t)
+
+	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	exporter, err := PrometheusEndpoint(
+		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
+		&PrometheusConfig{
+			Registry:                    registry,
+			Path:                        "/metrics",
+			TTL:                         3 * time.Minute,
+			SpanMetricsServiceCacheSize: 10,
+			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
+			Buckets:                     buckets,
+		},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		promInput,
+		processEvents,
+		nil,
+	)(ctx)
+	require.NoError(t, err)
+
+	go exporter(ctx)
+
+	var usage request.OpenAIUsage
+	require.NoError(t, json.Unmarshal([]byte(`{"prompt_tokens":10,"completion_tokens":20}`), &usage))
+	promInput.Send([]request.Span{{
+		Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "genai"}},
+		Type:         request.EventTypeHTTPClient,
+		SubType:      request.HTTPSubtypeOpenAI,
+		RequestStart: 100,
+		End:          200,
+		GenAI:        &request.GenAI{OpenAI: &request.VendorOpenAI{Usage: usage}},
+	}})
+
+	expected := map[string][]float64{
+		"gen_ai_client_operation_duration_seconds": buckets.GenAIClientDurationHistogram,
+		"gen_ai_client_token_usage":                buckets.GenAITokenUsageHistogram,
+	}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		for name, want := range expected {
+			assert.Equal(ct, want, gatheredHistogramBounds(ct, registry, name), name)
+		}
+	}, timeout, 100*time.Millisecond)
+}
+
 func TestAppMetricsExpiration(t *testing.T) {
 	now := syncedClock{now: time.Now()}
 	timeNow = now.Now
