@@ -318,6 +318,10 @@ meter_provider:
             encoding: protobuf
 ```
 
+JSON encoding applies to traces only. The metrics exporter always sends
+protobuf, and logs a warning when it is configured for JSON, either through v1
+`http/json` or v2 `encoding: json`.
+
 These are provider fragments, not a complete configuration. Preserve an
 explicit v1 signal endpoint exactly, including any path. A v1 common
 `OTEL_EXPORTER_OTLP_ENDPOINT` appends `/v1/traces` and `/v1/metrics`; when
