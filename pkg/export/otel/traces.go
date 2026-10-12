@@ -287,6 +287,9 @@ func getTracesExporter(ctx context.Context, cfg otelcfg.TracesConfig, im imetric
 		disabledRetry.Enabled = false
 		config.QueueConfig = configoptional.None[exporterhelper.QueueBatchConfig]()
 		config.RetryConfig = disabledRetry
+		if proto == otelcfg.ProtocolHTTPJSON {
+			config.Encoding = otlphttpexporter.EncodingJSON
+		}
 		config.ClientConfig = confighttp.ClientConfig{
 			Endpoint: opts.Scheme + "://" + opts.Endpoint + opts.BaseURLPath,
 			TLS: configtls.ClientConfig{
