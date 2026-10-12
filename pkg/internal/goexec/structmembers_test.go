@@ -377,6 +377,19 @@ func TestPrefetchedGrpcStreamOffsets(t *testing.T) {
 	}
 }
 
+func TestPrefetchedGrpcBufWriterOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	const structName = "google.golang.org/grpc/internal/transport.bufWriter"
+	assertPrefetchedOffset(t, track, structName, "buf", "1.83.2", 8)
+	_, found := track.Find(structName, "bufHandle", "1.83.2")
+	assert.False(t, found)
+	assertPrefetchedOffset(t, track, structName, "bufHandle", "1.84.0", 8)
+	assertPrefetchedOffset(t, track, structName, "offset", "1.84.0", 16)
+	assertPrefetchedOffset(t, track, structName, "conn", "1.84.0", 32)
+}
+
 func TestGoOffsetsFromDwarf_ErrorIfConstantNotFound(t *testing.T) {
 	structMembers["net/http.response"] = structInfo{
 		lib: "go",

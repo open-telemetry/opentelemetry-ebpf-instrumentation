@@ -205,6 +205,7 @@ var goAutoSDKSpanContextOffsetFields = [...]goexec.GoOffset{
 
 var goGRPCBufWriterOffsetFields = [...]goexec.GoOffset{
 	goexec.GrpcTransportBufWriterBufPos,
+	goexec.GrpcTransportBufWriterBufHandlePos,
 	goexec.GrpcTransportBufWriterOffsetPos,
 	goexec.GrpcTransportBufWriterConnPos,
 }
@@ -573,6 +574,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.GrpcTSchemePos,
 		goexec.GrpcTransportStreamIDPos,
 		goexec.GrpcTransportBufWriterBufPos,
+		goexec.GrpcTransportBufWriterBufHandlePos,
 		goexec.GrpcTransportBufWriterOffsetPos,
 		goexec.GrpcTransportBufWriterConnPos,
 		// redis
