@@ -23,7 +23,7 @@ on:
       - "mise.toml"
       - "mise.lock"
       - ".mise/tasks/**"
-      - "scripts/bpf-generate.py"
+      - ".mise/scripts/**"
       - "Dockerfile"
       - "**/*Dockerfile*"
   workflow_call:

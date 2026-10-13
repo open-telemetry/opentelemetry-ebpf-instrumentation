@@ -138,6 +138,3 @@ internal/test/integration/components/ai/openai/go/testserver
 
 # rendered site output (`mise run render-site`)
 build/
-
-# Runtime state for incremental Mise-managed bpf2go generation.
-.mise/bpf-generate-fingerprint.json

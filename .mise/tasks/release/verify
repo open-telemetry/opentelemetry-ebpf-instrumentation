@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
+#MISE hide=true
 set -euo pipefail
-release_dir="${RELEASE_DIR:-./dist}"
+release_dir="$RELEASE_DIR"
 arch="${GOARCH:-$(go env GOARCH)}"
 version="${RELEASE_VERSION:-$(git describe --all | cut -d/ -f2-)}"
 cmd="${CMD:-obi}"
@@ -30,5 +31,3 @@ if [[ ! -x "$release_dir/verify-$arch/$cmd" ]]; then
   exit 1
 fi
 rm -rf "$release_dir/verify-$arch"
-mise run release:checksums
-ls -lh "$release_dir/"

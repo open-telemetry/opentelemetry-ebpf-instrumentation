@@ -13,38 +13,21 @@ while IFS= read -r file; do
   modules+=("$file")
 done < <(find . -type f -name go.mod ! -path './NOTICES/*' | sort)
 
-run_tidy() {
-  local file="$1"
-  local dir
-  dir="$(dirname "$file")"
-  echo "### Running go mod tidy in $dir"
+if ((${#modules[@]} == 0)); then
+  exit 0
+fi
 
-  if [[ "$dir" == *testserver_1.17 ]]; then
-    (cd "$dir" && go mod tidy -go=1.17 -compat=1.17)
-  else
-    (cd "$dir" && go mod tidy)
-  fi
-}
+# xargs processes queued modules after failures, then returns nonzero.
+printf '%s\0' "${modules[@]}" |
+  xargs -0 -n 1 -P "$max_jobs" bash -c '
+    set -euo pipefail
+    file="$1"
+    dir="$(dirname "$file")"
+    echo "### Running go mod tidy in $dir"
 
-pids=()
-for file in "${modules[@]}"; do
-  run_tidy "$file" &
-  pids+=("$!")
-
-  while :; do
-    active_jobs="$(jobs -pr | wc -l)"
-    if (( active_jobs < max_jobs )); then
-      break
+    if [[ "$dir" == *testserver_1.17 ]]; then
+      (cd "$dir" && go mod tidy -go=1.17 -compat=1.17)
+    else
+      (cd "$dir" && go mod tidy)
     fi
-    sleep 0.1
-  done
-done
-
-status=0
-for pid in "${pids[@]}"; do
-  if ! wait "$pid"; then
-    status=1
-  fi
-done
-
-exit "$status"
+  ' _

@@ -20,7 +20,7 @@ on:
       - "mise.toml"
       - "mise.lock"
       - ".mise/tasks/**"
-      - "scripts/bpf-generate.py"
+      - ".mise/scripts/**"
   workflow_call:
     inputs:
       ref:

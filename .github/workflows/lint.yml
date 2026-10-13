@@ -12,7 +12,7 @@ on:
       - "mise.toml"
       - "mise.lock"
       - ".mise/tasks/**"
-      - "scripts/bpf-generate.py"
+      - ".mise/scripts/**"
       - "**.go"
       - "go.mod"
       - "go.sum"

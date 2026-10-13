@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 #MISE hide=true
 set -euo pipefail
-go tool -modfile=internal/tools/go.mod kind delete cluster -n test-kind-cluster || true
-oci_bin="${OCI_BIN:-docker}"
+"$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" kind delete cluster -n test-kind-cluster || true
+oci_bin="$OCI_BIN"
 containers="$("$oci_bin" ps --format '{{.Names}}' | grep 'integration-' || true)"
 if [[ -n "$containers" ]]; then
   "$oci_bin" rm -f $containers

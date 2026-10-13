@@ -5,7 +5,15 @@ schema="${CONFIG_SCHEMA_FILE:-devdocs/config/config-schema.json}"
 docs="${CONFIG_DOCS_FILE:-devdocs/config/CONFIG.md}"
 mkdir -p "$(dirname "$schema")"
 go run ./cmd/obi-schema -output "${schema}.tmp"
-if ! diff -q "$schema" "${schema}.tmp" >/dev/null 2>&1; then
+if diff -q "$schema" "${schema}.tmp" >/dev/null; then
+		:
+else
+	status=$?
+	if [ "$status" -ne 1 ] && [ -f "$schema" ]; then
+		rm -f "${schema}.tmp"
+		exit "$status"
+	fi
+  echo "CONFIG_SCHEMA_STALE"
   echo "JSON schema is out of date. Run 'mise run generate:config-schema' to update it."
   diff "$schema" "${schema}.tmp" || true
   rm -f "${schema}.tmp"
@@ -13,7 +21,15 @@ if ! diff -q "$schema" "${schema}.tmp" >/dev/null 2>&1; then
 fi
 rm -f "${schema}.tmp"
 go run ./cmd/config-docs -schema "$schema" -output "${docs}.tmp"
-if ! diff -q "$docs" "${docs}.tmp" >/dev/null 2>&1; then
+if diff -q "$docs" "${docs}.tmp" >/dev/null; then
+	:
+else
+	status=$?
+	if [ "$status" -ne 1 ] && [ -f "$docs" ]; then
+		rm -f "${docs}.tmp"
+		exit "$status"
+	fi
+  echo "CONFIG_SCHEMA_STALE"
   echo "Configuration docs are out of date. Run 'mise run generate:config-schema' to update."
   diff "$docs" "${docs}.tmp" || true
   rm -f "${docs}.tmp"

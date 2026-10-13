@@ -46,6 +46,30 @@ mise run compile
 ```
 
 The task names and required tools are defined in `mise.toml` and `.mise/tasks/`.
+Development is supported on Linux, macOS, and Windows. The committed `mise.lock`
+records the resolved tool versions and platform-specific artifacts for these
+platforms; keep it in sync with `mise.toml` when changing tool versions. Run
+`mise install` to install the entries for your current platform. Tasks that
+require Linux or eBPF-capable kernel features may still need the development
+container described above.
+
+Tasks that used to be `make` targets keep their names, except that a `-` joining
+a task group and its variant became `:` (for example `make lint-markdown` is now
+`mise run lint:markdown`). The other renames are:
+
+| Former `make` target | Mise task |
+| --- | --- |
+| `lint-run` | `lint:go` |
+| `compile-for-coverage` | `compile:coverage` |
+| `compile-cache-for-coverage` | `compile:cache-coverage` |
+| `artifact` | `release:artifact` |
+| `prerelease` | `release:prerelease` |
+| `release-source` | `release:source` |
+| `release-checksums` | `release:checksums` |
+| `generate/all` | `generate:all` |
+| `java-<name>` | `//java:<name>` |
+| `oats-test-<name>` | `//oats:test:<name>` |
+| `test-nodejs` | `//nodejs:test` |
 
 ### Compiling the project
 

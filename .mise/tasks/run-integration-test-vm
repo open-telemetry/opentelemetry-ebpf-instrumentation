@@ -12,5 +12,5 @@ elif [[ -f "${PRECOMPILED_TESTS_DIR:-/precompiled-tests}/integration.test" ]]; t
   chmod +x "$dir/integration.test"
   "$dir/integration.test" -test.parallel=1 -test.timeout="$TEST_TIMEOUT" -test.v -test.run="^(${pattern})$"
 else
-  go tool -modfile=internal/tools/go.mod gotestsum --rerun-fails=2 --rerun-fails-max-failures=2 -ftestname --jsonfile="testoutput/vm-test-run-${RUN_NUMBER:-}.log" -- -p 1 -timeout "$TEST_TIMEOUT" -v -run="^(${pattern})$" ./internal/test/integration
+  "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" gotestsum --rerun-fails=2 --rerun-fails-max-failures=2 -ftestname --jsonfile="testoutput/vm-test-run-${RUN_NUMBER:-}.log" -- -p 1 -timeout "$TEST_TIMEOUT" -v -run="^(${pattern})$" ./internal/test/integration
 fi

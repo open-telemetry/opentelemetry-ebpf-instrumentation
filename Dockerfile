@@ -1,4 +1,4 @@
-ARG TAG=0.2.17@sha256:1ae9406f2566e32ccf5d8ba8e5ff0586a322300ae82870988ad605429021174a
+ARG GENERATOR_BASE=ghcr.io/open-telemetry/obi-generator:0.2.17@sha256:1ae9406f2566e32ccf5d8ba8e5ff0586a322300ae82870988ad605429021174a
 
 # Build JNI native library using Go image (has gcc, no apt install needed)
 FROM golang:1.27.1@sha256:e0174e51e81218523251d85d248a90d24c3d5e81543b4f07a5d66229397db190 AS jni-builder
@@ -51,7 +51,7 @@ COPY --from=jni-builder /build/target/classes/native/linux-aarch64/libobijni.so 
 RUN gradle build -x buildNativeLib-amd64 -x buildNativeLib-aarch64 --no-daemon
 
 # Build the autoinstrumenter binary
-FROM ghcr.io/open-telemetry/obi-generator:${TAG} AS builder
+FROM ${GENERATOR_BASE} AS builder
 
 ARG TARGETARCH
 ARG RELEASE_VERSION=unset
@@ -61,16 +61,12 @@ ENV GOARCH=$TARGETARCH
 
 WORKDIR /src
 
-RUN apk add --no-cache git bash make mise
-
-ENV PATH="/usr/lib/llvm22/bin:${PATH}"
+ENV CLANG=clang
 ENV BPF2GO=/go/bin/bpf2go
-ENV CLANG=clang-22
 
 COPY go.mod go.sum mise.toml mise.lock ./
-RUN MISE_ENABLE_TOOLS=go mise install go
 # Cache module cache.
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
+RUN --mount=type=cache,target=/go/pkg/mod MISE_ENABLE_TOOLS=go mise exec -- go mod download
 
 COPY bpf/ bpf/
 COPY cmd/ cmd/
@@ -83,7 +79,7 @@ COPY --from=javaagent-builder /build/build/obi-java-agent.jar /src/pkg/internal/
 # Build
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg \
-	MISE_ENABLE_TOOLS=go mise exec -- make -f bpf/Makefile generate \
+	MISE_ENABLE_TOOLS=go,clang,conda:llvm-tools mise exec -- make -f bpf/Makefile generate \
 	&& mkdir -p bin \
 	&& MISE_ENABLE_TOOLS=go mise exec -- env CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build \
 	  -ldflags="-X 'go.opentelemetry.io/obi/pkg/buildinfo.Version=${RELEASE_VERSION}' -X 'go.opentelemetry.io/obi/pkg/buildinfo.Revision=${RELEASE_REVISION}'" \

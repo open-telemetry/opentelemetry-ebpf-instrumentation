@@ -1,5 +1,22 @@
 #!/bin/bash
 
+# Check generated configuration files only when Go sources or generated files
+# that affect the schema are staged.
+staged_files=$(git diff --cached --name-only --diff-filter=ACMRD) || exit 1
+if printf '%s\n' "$staged_files" | grep -Eq '(^|/).*\.go$|^(go\.mod|go\.sum|devdocs/config/(config-schema\.json|CONFIG\.md))$'; then
+	check_output=$(mise run check:config-schema 2>&1)
+	status=$?
+	if printf '%s\n' "$check_output" | grep -q '^CONFIG_SCHEMA_STALE$'; then
+		echo "Found differences in config schema. Generating new config schema..."
+		mise run generate:config-schema || exit $?
+		git add devdocs/config/config-schema.json devdocs/config/CONFIG.md
+	elif [ "$status" -ne 0 ]; then
+		printf '%s\n' "$check_output" >&2
+		echo "Failed to check configuration schema (exit $status); not regenerating." >&2
+		exit "$status"
+	fi
+fi
+
 # Format all staged C/C++ files
 files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(c|cpp|h)$' | grep -v -e '^NOTICES/' -e '^bpf/bpfcore/')
 
@@ -12,11 +29,4 @@ if [ -n "$files" ]; then
 		"${CLANG_FORMAT:-clang-format}" -i "$file"
 		git add "$file" # Re-add formatted files to staging
 	done
-fi
-
-# check if the configuration schema is up to date
-if ! mise run check:config-schema >/dev/null 2>&1; then
-  echo "Found differences in config schema. Generating new config schema..."
-  mise run generate:config-schema
-  git add devdocs/config/config-schema.json
 fi

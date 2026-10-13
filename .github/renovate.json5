@@ -45,7 +45,7 @@
       "customType": "regex",
       "managerFilePatterns": ["/^mise\\.toml$/"],
       "matchStrings": [
-        "\\[tools\\.\\\"conda:llvm-tools\\\"\\]\\s*\\nversion\\s*=\\s*\\\"(?<currentValue>[^\\\"]+)\\\""
+        "\\\"conda:llvm-tools\\\"\\s*=\\s*\\\"(?<currentValue>[^\\\"]+)\\\""
       ],
       "depNameTemplate": "llvm-tools",
       "datasourceTemplate": "conda",

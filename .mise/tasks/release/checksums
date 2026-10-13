@@ -2,7 +2,7 @@
 #MISE hide=true
 #MISE hide=true
 set -euo pipefail
-release_dir="${RELEASE_DIR:-./dist}"
+release_dir="$RELEASE_DIR"
 version="${RELEASE_VERSION:-$(git describe --all | cut -d/ -f2-)}"
 mkdir -p "$release_dir"
 cd "$release_dir"

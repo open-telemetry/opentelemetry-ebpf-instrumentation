@@ -53,6 +53,11 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Set up mise
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install: false
+
       - name: Compute short SHA
         id: short_sha
         run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
@@ -72,6 +77,12 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build Mise-enabled generator image
+        env:
+          MISE_ENABLE_TOOLS: ""
+          GENERATOR_OCI_LAYOUT: ${{ runner.temp }}/obi-generator-layout-${{ steps.short_sha.outputs.sha }}-${{ matrix.artifact_suffix }}
+        run: mise run generator-image-build
 
       - name: Extract metadata for Docker
         id: meta
@@ -102,6 +113,8 @@ jobs:
           build-args: |
             RELEASE_VERSION=${{ inputs.ref || steps.short_sha.outputs.sha }}
             RELEASE_REVISION=${{ steps.short_sha.outputs.sha }}
+            GENERATOR_BASE=ghcr.io/open-telemetry/obi-generator:local
+          build-contexts: ghcr.io/open-telemetry/obi-generator:local=oci-layout://${{ runner.temp }}/obi-generator-layout-${{ steps.short_sha.outputs.sha }}-${{ matrix.artifact_suffix }}:local
           outputs: type=image,"name=ghcr.io/${{ github.repository }}/${{ env.IMAGE_NAME }},docker.io/otel/${{ env.IMAGE_NAME }}",push-by-digest=true,name-canonical=true,push=true
 
       - name: Export digest

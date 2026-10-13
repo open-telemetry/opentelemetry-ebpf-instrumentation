@@ -13,7 +13,7 @@ depends = ["prereqs"]
 dir = "sql"
 run = [
   'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r",
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
 ]
 
 [tasks."test:redis"]
@@ -22,7 +22,7 @@ depends = ["prereqs"]
 dir = "redis"
 run = [
   'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r",
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
 ]
 
 [tasks."test:kafka"]
@@ -31,7 +31,7 @@ depends = ["prereqs"]
 dir = "kafka"
 run = [
   'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r",
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
 ]
 
 [tasks."test:http"]
@@ -40,7 +40,7 @@ depends = ["prereqs"]
 dir = "http"
 run = [
   'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r",
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
 ]
 
 [tasks."test:mongo"]
@@ -49,7 +49,7 @@ depends = ["prereqs"]
 dir = "mongo"
 run = [
   'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r",
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
 ]
 
 [tasks."test:memcached"]
@@ -58,7 +58,7 @@ depends = ["prereqs"]
 dir = "memcached"
 run = [
   'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r",
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
 ]
 
 [tasks."test:ai"]
@@ -67,7 +67,7 @@ depends = ["prereqs"]
 dir = "ai"
 run = [
   'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r",
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
 ]
 
 [tasks."test:nats"]
@@ -76,7 +76,7 @@ depends = ["prereqs"]
 dir = "nats"
 run = [
   'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r",
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
 ]
 
 [tasks."test:amqp"]
@@ -85,7 +85,7 @@ depends = ["prereqs"]
 dir = "amqp"
 run = [
   'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  "TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r",
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
 ]
 
 [tasks."test:debug"]
@@ -94,7 +94,7 @@ depends = ["prereqs"]
 dir = "kafka"
 run = [
   'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
-  "TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h go tool -modfile=../../../../internal/tools/go.mod ginkgo -v -r",
+  'TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
 ]
 
 [tasks.test]
