@@ -70,6 +70,7 @@ jobs:
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
           install: false
+          cache: false
 
       - name: Build Mise-enabled generator image
         if: matrix.file == 'Dockerfile'

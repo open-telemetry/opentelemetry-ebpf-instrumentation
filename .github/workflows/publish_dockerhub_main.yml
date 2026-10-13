@@ -54,9 +54,10 @@ jobs:
           persist-credentials: false
 
       - name: Set up mise
-        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] release job installs tools without restoring mise cache
         with:
           install: false
+          cache: false
 
       - name: Compute short SHA
         id: short_sha
