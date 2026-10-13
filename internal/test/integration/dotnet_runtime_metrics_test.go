@@ -38,8 +38,8 @@ func TestDotnetRuntimeMetrics(t *testing.T) {
 		version string
 		image   string
 	}{
-		{"8.0", "mcr.microsoft.com/dotnet/runtime:8.0-bookworm-slim@sha256:37466ea190f696105c1c3ae67c15e32d4e199face9a0b2ad5b9a37c464db8f30"},
-		{"9.0", "mcr.microsoft.com/dotnet/runtime:9.0-bookworm-slim@sha256:8922cef0719da00335c6e3356007362b7015de9d2b15fb6e9d790f2e6e729c9a"},
+		{"8.0", "mcr.microsoft.com/dotnet/runtime:8.0-bookworm-slim@sha256:47c36b770db8f712ceb03e9220d799b068c769b8bc89c61d62cd41600633d9c2"},
+		{"9.0", "mcr.microsoft.com/dotnet/runtime:9.0-bookworm-slim@sha256:39908ee925eb8179ebab37c72e73599b377aa76c27f130458780a73434eb9a0f"},
 		{"10.0", "mcr.microsoft.com/dotnet/runtime:10.0-noble@sha256:b89586dc17781f25531909993658aa8161205ae38b8cec8847df4a8221a403d5"},
 	} {
 		t.Run(runtime.version, func(t *testing.T) {
