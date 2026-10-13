@@ -14,12 +14,12 @@ and protocol details.
   logger abstraction; its diagnostics use direct standard error output and
   optional Byte Buddy diagnostics. Use the existing debug options where
   appropriate, and do not add routine output to application processes.
-- Keep runtime dependencies deliberate: the agent depends on Byte Buddy and
-  Byte Buddy Agent. Do not add dependencies without a concrete need. Advice
-  and helpers injected into the bootstrap class loader must remain independent
-  of Byte Buddy and the OpenTelemetry SDK/API, which are not runtime
-  dependencies of the agent. The packaged agent shades and relocates Byte
-  Buddy; preserve that isolation from application classpaths.
+- Keep runtime dependencies deliberate: Byte Buddy and Byte Buddy Agent are
+  shaded/relocated into the packaged agent, which uses them at runtime without
+  requiring them on the host application's runtime classpath. The agent does
+  not bundle or require the OpenTelemetry SDK/API. Do not add dependencies
+  without a concrete need. Advice and helpers injected into the bootstrap class
+  loader must remain independent of Byte Buddy and the OpenTelemetry SDK/API.
 - Compile Java sources for Java 8 (`sourceCompatibility` and
   `targetCompatibility` in `agent/build.gradle.kts`). Avoid newer language or
   library APIs unless compatibility is explicitly changed.
