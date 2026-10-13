@@ -259,6 +259,7 @@ func BuildCommonContextInfo(
 		ResyncPeriod:             config.Attributes.Kubernetes.InformersResyncPeriod,
 		DisabledInformers:        config.Attributes.Kubernetes.DisableInformers,
 		MetaCacheAddr:            config.Attributes.Kubernetes.MetaCacheAddress,
+		MetaCacheSecurity:        config.Attributes.Kubernetes.MetaCacheSecurity,
 		ResourceLabels:           resourceLabels,
 		RestrictLocalNode:        config.Attributes.Kubernetes.MetaRestrictLocalNode,
 		ServiceNameTemplate:      templ,

@@ -40,6 +40,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/transform"
@@ -813,6 +814,9 @@ func (c *Config) validate(context validationContext) error {
 	if err := validate.Struct(c); err != nil {
 		return ConfigError(err.Error())
 	}
+	if err := c.validateMetadataCacheSecurity(); err != nil {
+		return err
+	}
 
 	if c.NameResolver != nil {
 		for _, source := range c.NameResolver.Sources {
@@ -1122,8 +1126,24 @@ func LoadConfig(file io.Reader) (*Config, error) {
 	}
 
 	cfg.normalize()
+	if err := cfg.validateMetadataCacheSecurity(); err != nil {
+		return nil, err
+	}
 
 	return &cfg, nil
+}
+
+func (c *Config) validateMetadataCacheSecurity() error {
+	if c.Attributes.Kubernetes.MetaCacheAddress == "" {
+		if c.Attributes.Kubernetes.MetaCacheSecurity != (kubecache.GRPCSecurity{}) {
+			return ConfigError("meta_cache_security requires meta_cache_address")
+		}
+		return nil
+	}
+	if err := c.Attributes.Kubernetes.MetaCacheSecurity.ValidateClient(); err != nil {
+		return ConfigError(err.Error())
+	}
+	return nil
 }
 
 func registerCustomValidations(validate *validator.Validate, customValidations CustomValidations) error {

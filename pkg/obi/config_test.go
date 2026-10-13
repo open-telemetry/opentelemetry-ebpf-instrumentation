@@ -40,6 +40,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
@@ -1170,6 +1171,32 @@ func TestConfigValidateStaticSkipsHostCompatibility(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "host is incompatible")
 	require.NoError(t, cfg.ValidateStatic())
+}
+
+func TestConfigKubernetesCacheGRPCSecurity(t *testing.T) {
+	t.Setenv("OTEL_EBPF_KUBE_META_CACHE_SECURITY_MODE", "tls")
+	t.Setenv("OTEL_EBPF_KUBE_META_CACHE_SECURITY_CA_FILE", "/etc/obi/ca.pem")
+	cfg, err := LoadConfig(bytes.NewBufferString("attributes:\n  kubernetes:\n    meta_cache_address: cache:50055\n"))
+	require.ErrorContains(t, err, "reading Kubernetes metadata cache gRPC CA file")
+	require.Nil(t, cfg)
+
+	t.Setenv("OTEL_EBPF_KUBE_META_CACHE_SECURITY_CA_FILE", "")
+	cfg, err = LoadConfig(bytes.NewBufferString("attributes:\n  kubernetes:\n    meta_cache_address: cache:50055\n"))
+	require.NoError(t, err)
+	require.Equal(t, "tls", cfg.Attributes.Kubernetes.MetaCacheSecurity.Mode)
+	cfg.Attributes.Kubernetes.MetaCacheAddress = ""
+	cfg.Attributes.Kubernetes.MetaCacheSecurity = kubecache.GRPCSecurity{Mode: "tls"}
+	require.ErrorContains(t, cfg.ValidateStatic(), "meta_cache_security requires meta_cache_address")
+
+	t.Setenv("OTEL_EBPF_KUBE_META_CACHE_SECURITY_MODE", "mtls")
+	_, err = LoadConfig(bytes.NewBufferString("attributes:\n  kubernetes:\n    meta_cache_address: cache:50055\n    meta_cache_security:\n      mode: mtls\n"))
+	require.ErrorContains(t, err, "requires cert_file and key_file")
+
+	_, err = LoadConfig(bytes.NewBufferString("attributes:\n  kubernetes:\n    meta_cache_security:\n      mode: unknown\n"))
+	require.ErrorContains(t, err, "meta_cache_security requires meta_cache_address")
+	t.Setenv("OTEL_EBPF_KUBE_META_CACHE_SECURITY_MODE", "unknown")
+	_, err = LoadConfig(bytes.NewBufferString("attributes:\n  kubernetes:\n    meta_cache_address: cache:50055\n"))
+	require.ErrorContains(t, err, "unsupported Kubernetes metadata cache gRPC security mode")
 }
 
 func TestConfigValidatePrometheusPaths(t *testing.T) {

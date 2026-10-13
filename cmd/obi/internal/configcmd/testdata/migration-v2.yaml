@@ -411,6 +411,11 @@ extensions:
                             - app.kubernetes.io/version
                     metadata_cache:
                         address: ""
+                        security:
+                            mode: ""
+                            cert_file: ""
+                            key_file: ""
+                            ca_file: ""
                         restrict_local_node: false
                         source_labels:
                             service_name: ""

@@ -1991,6 +1991,7 @@ func applyFullV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.Kubernetes
 	cfg.Attributes.Kubernetes.DropExternal = kubernetes.DropExternal
 	cfg.Attributes.Kubernetes.DisableInformers = cloneStrings(kubernetes.Informers.Disabled)
 	cfg.Attributes.Kubernetes.MetaCacheAddress = kubernetes.MetadataCache.Address
+	cfg.Attributes.Kubernetes.MetaCacheSecurity = kubernetes.MetadataCache.Security
 	cfg.Attributes.Kubernetes.MetaRestrictLocalNode = kubernetes.MetadataCache.RestrictLocalNode
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName = kubernetes.MetadataCache.SourceLabels.ServiceName
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace = kubernetes.MetadataCache.SourceLabels.ServiceNamespace
@@ -2031,6 +2032,18 @@ func applyPartialV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.Kuberne
 	}
 	if kubernetes.MetadataCache.Address != "" {
 		cfg.Attributes.Kubernetes.MetaCacheAddress = kubernetes.MetadataCache.Address
+	}
+	if kubernetes.MetadataCache.Security.Mode != "" {
+		cfg.Attributes.Kubernetes.MetaCacheSecurity.Mode = kubernetes.MetadataCache.Security.Mode
+	}
+	if kubernetes.MetadataCache.Security.CertFile != "" {
+		cfg.Attributes.Kubernetes.MetaCacheSecurity.CertFile = kubernetes.MetadataCache.Security.CertFile
+	}
+	if kubernetes.MetadataCache.Security.KeyFile != "" {
+		cfg.Attributes.Kubernetes.MetaCacheSecurity.KeyFile = kubernetes.MetadataCache.Security.KeyFile
+	}
+	if kubernetes.MetadataCache.Security.CAFile != "" {
+		cfg.Attributes.Kubernetes.MetaCacheSecurity.CAFile = kubernetes.MetadataCache.Security.CAFile
 	}
 	if kubernetes.MetadataCache.RestrictLocalNode {
 		cfg.Attributes.Kubernetes.MetaRestrictLocalNode = kubernetes.MetadataCache.RestrictLocalNode
