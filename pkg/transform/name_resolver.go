@@ -206,7 +206,7 @@ func (nr *NameResolver) resolveNames(span *request.Span) {
 		if hn == "" || hn == span.Host {
 			hostHeader := request.HostFromSchemeHost(span)
 			if hostHeader != "" {
-				hn, span.OtherNamespace = parseK8sFQDN(hostHeader)
+				hn, span.OtherNamespace = parseK8sFQDN(request.HostWithoutPort(hostHeader))
 			}
 		}
 		pn, ns, _ = nr.resolve(&span.Service, span.Peer, span.PeerName)

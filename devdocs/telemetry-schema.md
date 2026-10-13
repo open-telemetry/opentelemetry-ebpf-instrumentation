@@ -105,6 +105,13 @@ section empty once drained.
   service graphs for that protocol, for both OTLP and Prometheus. Config v1
   retains its existing behavior. The migration CLI reports configurations whose
   derived metric coverage cannot be preserved by the generated v2 switches.
+- `server.address` on HTTP client spans and on the `http.client.*` metrics no longer
+  includes the port when the request's `Host` header names one (`api.example.com:8080`
+  becomes `api.example.com`); the port stays in `server.port` and in `url.full`. An IP
+  address with a port is now replaced by the configured unresolved-name tag, like any
+  other IP address. A Kubernetes Service name with a port in the `Host` header now
+  resolves to the service and its namespace, so `service.peer.name` and the service
+  graph name it instead of carrying the raw `host:port`.
 - GenAI client span names follow `{gen_ai.operation.name} {gen_ai.request.model}`
   (retrieval: `{gen_ai.operation.name} {gen_ai.data_source.id}`), built only from the
   values emitted on the span:
