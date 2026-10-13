@@ -253,7 +253,7 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	setupContainerWeaver(t, network)
 	setupContainerCollector(t, network, "otelcol-config-weaver.yml")
 	setupGoOTelTestServer(t, network, []string{
-		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4319",
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
 	})
 
@@ -288,7 +288,7 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	setupContainerWeaver(t, network)
 	setupContainerCollector(t, network, "otelcol-config-weaver.yml")
 	setupGoOTelTestServer(t, network, []string{
-		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4319",
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
 	})
 
