@@ -81,7 +81,7 @@ jobs:
       pull-requests: write
     runs-on: ${{ matrix.platform.runner }}
     env:
-      MISE_ENABLE_TOOLS: go
+      MISE_ENABLE_TOOLS: go,clang,conda:llvm-tools
     timeout-minutes: 45
     strategy:
       fail-fast: false

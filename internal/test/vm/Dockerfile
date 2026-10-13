@@ -273,7 +273,7 @@ if [ -n "$target" ]; then
         docker load -i /precompiled-tests/base-images.tar
     fi
 
-    cd /build && TEST_PATTERN="$test_pattern" RUN_NUMBER="$run_number" PRECOMPILED_TESTS_DIR=/precompiled-tests MISE_ENABLE_TOOLS=go mise run "$target" && touch /build/testoutput/success
+    cd /build && TEST_PATTERN="$test_pattern" RUN_NUMBER="$run_number" PRECOMPILED_TESTS_DIR=/precompiled-tests MISE_TRUSTED_CONFIG_PATHS=/build MISE_ENABLE_TOOLS=go mise run "$target" && touch /build/testoutput/success
     poweroff
 else
     echo "Entering interactive mode (no /build/testoutput/test-env)"
