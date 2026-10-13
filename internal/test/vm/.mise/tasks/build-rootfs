@@ -20,9 +20,11 @@ root_img="${ROOT_IMG:-$workdir/rootfs${root_suffix}.qcow2}"
 root_image_raw="${ROOT_IMAGE_RAW:-$workdir/rootfs${root_suffix}.raw}"
 img_size="${IMG_SIZE:-20G}"
 mnt="${MNT:-mnt}"
+mise_version="$(mise --version | awk '{print $1}')"
 
 DOCKER_BUILDKIT=1 docker build --quiet -f Dockerfile \
 	--build-arg "CGROUP_MODE=$cgroup_mode" \
+	--build-arg "MISE_VERSION=$mise_version" \
 	--output "type=tar,dest=$tarball" .
 
 fallocate -l "$img_size" "$root_image_raw"

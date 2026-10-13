@@ -13,13 +13,16 @@ RUN apk update && apk add --no-cache \
     agetty \
     bash \
     ca-certificates \
+    curl \
     docker \
     docker-cli-compose \
     git \
-    mise \
     iptables \
     iptables-legacy \
     openrc
+
+ARG MISE_VERSION
+RUN curl -fsSL https://mise.run | MISE_INSTALL_PATH=/usr/local/bin/mise MISE_VERSION="v${MISE_VERSION}" MISE_INSTALL_HELP=0 sh
 
 # Default iptables symlink to legacy; modules-load may relink to nft on
 # RHEL kernels that lack CONFIG_IP_NF_NAT modules.
