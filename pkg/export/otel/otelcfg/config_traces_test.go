@@ -238,6 +238,15 @@ func testTracesGRPCOptions(t *testing.T, expected OTLPOptions, tcfg *TracesConfi
 	assert.Equal(t, expected, opts)
 }
 
+func unsetProtocolEnv(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{envProtocol, envMetricsProtocol, envTracesProtocol} {
+		// t.Setenv registers the restore of the original value; it cannot unset by itself.
+		t.Setenv(name, "")
+		require.NoError(t, os.Unsetenv(name))
+	}
+}
+
 func TestTracesSetupHTTP_Protocol(t *testing.T) {
 	testCases := []struct {
 		Endpoint              string
@@ -270,6 +279,7 @@ func TestTracesSetupHTTP_Protocol(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.Endpoint+"/"+string(tc.ProtoVal)+"/"+string(tc.TraceProtoVal), func(t *testing.T) {
 			defer RestoreEnvAfterExecution()()
+			unsetProtocolEnv(t)
 			_, err := HTTPTracesEndpointOptions(&TracesConfig{
 				CommonEndpoint:   "http://host:3333",
 				TracesEndpoint:   tc.Endpoint,
@@ -288,6 +298,7 @@ func TestTracesSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 	defer RestoreEnvAfterExecution()()
 	t.Run("setting both variables", func(t *testing.T) {
 		defer RestoreEnvAfterExecution()()
+		unsetProtocolEnv(t)
 		t.Setenv(envProtocol, "foo-proto")
 		t.Setenv(envTracesProtocol, "bar-proto")
 		_, err := HTTPTracesEndpointOptions(&TracesConfig{
@@ -302,6 +313,7 @@ func TestTracesSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 	})
 	t.Run("setting only proto env var", func(t *testing.T) {
 		defer RestoreEnvAfterExecution()()
+		unsetProtocolEnv(t)
 		t.Setenv(envProtocol, "foo-proto")
 		_, err := HTTPTracesEndpointOptions(&TracesConfig{
 			CommonEndpoint:   "http://host:3333",

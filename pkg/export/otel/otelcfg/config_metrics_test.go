@@ -168,6 +168,7 @@ func TestMetricsSetupHTTP_Protocol(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.Endpoint+"/"+string(tc.ProtoVal)+"/"+string(tc.MetricProtoVal), func(t *testing.T) {
 			defer RestoreEnvAfterExecution()()
+			unsetProtocolEnv(t)
 			_, err := httpMetricEndpointOptions(&MetricsConfig{
 				CommonEndpoint:   "http://host:3333",
 				MetricsEndpoint:  tc.Endpoint,
@@ -185,6 +186,7 @@ func TestMetricsSetupHTTP_Protocol(t *testing.T) {
 func TestMetricSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 	t.Run("setting both variables", func(t *testing.T) {
 		defer RestoreEnvAfterExecution()()
+		unsetProtocolEnv(t)
 		t.Setenv(envProtocol, "foo-proto")
 		t.Setenv(envMetricsProtocol, "bar-proto")
 		_, err := httpMetricEndpointOptions(&MetricsConfig{
@@ -196,6 +198,7 @@ func TestMetricSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 	})
 	t.Run("setting only proto env var", func(t *testing.T) {
 		defer RestoreEnvAfterExecution()()
+		unsetProtocolEnv(t)
 		t.Setenv(envProtocol, "foo-proto")
 		_, err := httpMetricEndpointOptions(&MetricsConfig{
 			CommonEndpoint: "http://host:3333", Protocol: "foo", Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
