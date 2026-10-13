@@ -886,7 +886,7 @@
       "buf": {
         "versions": {
           "oldest": "1.40.0",
-          "newest": "1.84.0"
+          "newest": "1.83.2"
         },
         "offsets": [
           {
@@ -896,9 +896,17 @@
           {
             "offset": 8,
             "since": "1.58.0"
-          },
+          }
+        ]
+      },
+      "bufHandle": {
+        "versions": {
+          "oldest": "1.84.0",
+          "newest": "1.84.0"
+        },
+        "offsets": [
           {
-            "offset": 64,
+            "offset": 8,
             "since": "1.84.0"
           }
         ]

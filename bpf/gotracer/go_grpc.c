@@ -1086,17 +1086,32 @@ static __always_inline int on_grpcFramerWriteHeadersReturns(struct pt_regs *ctx)
             s64 cap = -1;
             const u64 buf_pos =
                 go_offset_of(ot, (go_offset){.v = _grpc_transport_buf_writer_buf_pos});
+            const u64 buf_handle_pos =
+                go_offset_of(ot, (go_offset){.v = _grpc_transport_buf_writer_buf_handle_pos});
             const u64 n_pos =
                 go_offset_of(ot, (go_offset){.v = _grpc_transport_buf_writer_offset_pos});
-            if (buf_pos == (u64)-1 || n_pos == (u64)-1) {
+            if (n_pos == (u64)-1) {
                 goto done_framer;
             }
 
-            long read_err =
-                bpf_probe_read_user(&buf_arr, sizeof(buf_arr), (void *)(w_ptr + buf_pos));
+            const unsigned char *buf_slice = NULL;
+            if (buf_handle_pos != (u64)-1) {
+                // grpc-go 1.84 stores a pointer to the buffer slice header.
+                if (bpf_probe_read_user(&buf_slice,
+                                        sizeof(buf_slice),
+                                        (unsigned char *)w_ptr + buf_handle_pos) != 0 ||
+                    !buf_slice) {
+                    goto done_framer;
+                }
+            } else if (buf_pos != (u64)-1) {
+                buf_slice = (unsigned char *)w_ptr + buf_pos;
+            } else {
+                goto done_framer;
+            }
+
+            long read_err = bpf_probe_read_user(&buf_arr, sizeof(buf_arr), buf_slice);
             read_err |= bpf_probe_read_user(&n, sizeof(n), (void *)(w_ptr + n_pos));
-            read_err |= bpf_probe_read_user(
-                &cap, sizeof(cap), (void *)(w_ptr + buf_pos + 2 * sizeof(void *)));
+            read_err |= bpf_probe_read_user(&cap, sizeof(cap), buf_slice + 2 * sizeof(void *));
             if (read_err) {
                 goto done_framer;
             }

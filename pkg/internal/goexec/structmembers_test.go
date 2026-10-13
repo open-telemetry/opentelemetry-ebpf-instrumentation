@@ -160,14 +160,17 @@ func TestGrpcOffsetsFromDwarf(t *testing.T) {
 	offsets, _ := structMemberOffsetsFromDwarf(grpcElf)
 	// this test might fail if a future Go gRPC version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
-		GrpcServerStreamStPtr:  uint64(0x168),
-		GrpcStreamMethodPtrPos: uint64(0x10),
-		GrpcStatusSPos:         uint64(0),
-		ConnFdPos:              uint64(0),
-		FdLaddrPos:             uint64(96),
-		NetFdPfdPos:            uint64(0),
-		PollFdSysfdPos:         uint64(16),
-		GrpcStatusCodePtrPos:   uint64(40),
+		GrpcServerStreamStPtr:              uint64(0x168),
+		GrpcStreamMethodPtrPos:             uint64(0x10),
+		GrpcStatusSPos:                     uint64(0),
+		ConnFdPos:                          uint64(0),
+		FdLaddrPos:                         uint64(96),
+		NetFdPfdPos:                        uint64(0),
+		PollFdSysfdPos:                     uint64(16),
+		GrpcStatusCodePtrPos:               uint64(40),
+		GrpcTransportBufWriterBufHandlePos: uint64(8),
+		GrpcTransportBufWriterOffsetPos:    uint64(16),
+		GrpcTransportBufWriterConnPos:      uint64(32),
 	}, offsets)
 }
 
@@ -294,15 +297,18 @@ func TestGrpcOffsetsWithoutDwarf(t *testing.T) {
 	offsets, _ := structMemberOffsets(smallGRPCElf)
 	// this test might fail if a future Go gRPC version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
-		GrpcServerStreamStPtr:  uint64(0x168),
-		GrpcStreamStPtrPos:     uint64(0x168),
-		GrpcStreamMethodPtrPos: uint64(0x10),
-		GrpcStatusSPos:         uint64(0),
-		GrpcStatusCodePtrPos:   uint64(40),
-		ConnFdPos:              uint64(0),
-		FdLaddrPos:             uint64(96),
-		NetFdPfdPos:            uint64(0),
-		PollFdSysfdPos:         uint64(16),
+		GrpcServerStreamStPtr:              uint64(0x168),
+		GrpcStreamStPtrPos:                 uint64(0x168),
+		GrpcStreamMethodPtrPos:             uint64(0x10),
+		GrpcStatusSPos:                     uint64(0),
+		GrpcStatusCodePtrPos:               uint64(40),
+		ConnFdPos:                          uint64(0),
+		FdLaddrPos:                         uint64(96),
+		NetFdPfdPos:                        uint64(0),
+		PollFdSysfdPos:                     uint64(16),
+		GrpcTransportBufWriterBufHandlePos: uint64(8),
+		GrpcTransportBufWriterOffsetPos:    uint64(16),
+		GrpcTransportBufWriterConnPos:      uint64(32),
 	}, offsets)
 }
 
@@ -393,6 +399,19 @@ func TestPrefetchedGrpcStreamOffsets(t *testing.T) {
 		assertPrefetchedOffset(t, track, structName, "st", "1.83.0", 0x148)
 		assertPrefetchedOffset(t, track, structName, "st", "1.83.1", 0x168)
 	}
+}
+
+func TestPrefetchedGrpcBufWriterOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	const structName = "google.golang.org/grpc/internal/transport.bufWriter"
+	assertPrefetchedOffset(t, track, structName, "buf", "1.83.2", 8)
+	_, found := track.Find(structName, "bufHandle", "1.83.2")
+	assert.False(t, found)
+	assertPrefetchedOffset(t, track, structName, "bufHandle", "1.84.0", 8)
+	assertPrefetchedOffset(t, track, structName, "offset", "1.84.0", 16)
+	assertPrefetchedOffset(t, track, structName, "conn", "1.84.0", 32)
 }
 
 func TestGoOffsetsFromDwarf_ErrorIfConstantNotFound(t *testing.T) {

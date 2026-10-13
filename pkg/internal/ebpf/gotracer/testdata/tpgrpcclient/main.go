@@ -64,9 +64,10 @@ var service = grpc.ServiceDesc{
 }
 
 var (
-	useTLS   = flag.Bool("tls", false, "use TLS for the loopback connection")
-	certFile = flag.String("cert", "", "server certificate")
-	keyFile  = flag.String("key", "", "server private key")
+	useTLS            = flag.Bool("tls", false, "use TLS for the loopback connection")
+	certFile          = flag.String("cert", "", "server certificate")
+	keyFile           = flag.String("key", "", "server private key")
+	sharedWriteBuffer = flag.Bool("shared-write-buffer", false, "pool the client write buffer")
 )
 
 func main() {
@@ -120,6 +121,7 @@ func call(address string, conn **grpc.ClientConn) (string, error) {
 		client, err := grpc.NewClient(
 			address,
 			grpc.WithTransportCredentials(transportCredentials),
+			grpc.WithSharedWriteBuffer(*sharedWriteBuffer),
 			grpc.WithDefaultCallOptions(grpc.ForceCodec(jsonCodec{})),
 		)
 		if err != nil {

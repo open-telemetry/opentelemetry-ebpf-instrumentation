@@ -120,7 +120,8 @@
         "scheme"
       ],
       "google.golang.org/grpc/internal/transport.bufWriter": [
-        "buf",
+        "[1.40.0,1.83.99]buf",
+        "[1.84.0]bufHandle",
         "offset",
         "conn"
       ],

@@ -141,6 +141,7 @@ const (
 	GrpcTSchemePos
 	GrpcTransportStreamIDPos
 	GrpcTransportBufWriterBufPos
+	GrpcTransportBufWriterBufHandlePos
 	GrpcTransportBufWriterOffsetPos
 	GrpcTransportBufWriterConnPos
 	// redis
@@ -525,9 +526,10 @@ var structMembers = map[string]structInfo{
 	"google.golang.org/grpc/internal/transport.bufWriter": {
 		lib: "google.golang.org/grpc",
 		fields: map[string]GoOffset{
-			"buf":    GrpcTransportBufWriterBufPos,
-			"offset": GrpcTransportBufWriterOffsetPos,
-			"conn":   GrpcTransportBufWriterConnPos,
+			"buf":       GrpcTransportBufWriterBufPos,
+			"bufHandle": GrpcTransportBufWriterBufHandlePos,
+			"offset":    GrpcTransportBufWriterOffsetPos,
+			"conn":      GrpcTransportBufWriterConnPos,
 		},
 	},
 	"github.com/IBM/sarama.Broker": {
