@@ -475,7 +475,7 @@ func TestDocumentToRuntimeRejectsMetricOTLPHTTPJSONEncoding(t *testing.T) {
 	require.ErrorContains(
 		t,
 		err,
-		"meter_provider.readers[0].periodic.exporter.otlp_http.encoding is not supported by the OBI runtime converter",
+		`meter_provider.readers[0].periodic.exporter.otlp_http.encoding has unsupported value "json"`,
 	)
 }
 

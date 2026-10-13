@@ -512,7 +512,7 @@ func applyV2MetricHTTPExporter(
 		return unsupportedV2Field(path + ".timeout")
 	}
 	if exporter.Encoding != nil && *exporter.Encoding == otelconfx.OTLPHttpEncodingJson {
-		return unsupportedV2Field(path + ".encoding")
+		return fmt.Errorf("%s has unsupported value %q", path+".encoding", *exporter.Encoding)
 	}
 	if err := validateHTTPTLS(exporter.Tls, path+".tls"); err != nil {
 		return err
