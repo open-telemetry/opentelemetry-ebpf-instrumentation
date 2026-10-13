@@ -690,8 +690,49 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
 		attrs := spans.At(0).Attributes()
-		ensureTraceStrAttr(t, attrs, semconv.RPCMethodKey, "/routeguide.RouteGuide/GetFeature")
+		ensureTraceStrAttr(t, attrs, semconv.RPCMethodKey, "routeguide.RouteGuide/GetFeature")
+		ensureTraceAttrNotExists(t, attrs, semconv.RPCMethodOriginalKey)
 		ensureTraceStrAttr(t, attrs, semconv.RPCResponseStatusCodeKey, "OK")
+		assert.Equal(t, "routeguide.RouteGuide/GetFeature", spans.At(0).Name())
+	})
+
+	t.Run("test gRPC trace generation reports a malformed method as _OTHER", func(t *testing.T) {
+		span := request.Span{Type: request.EventTypeGRPC, Path: "/healthz", Status: 0}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.RPCMethodKey, "_OTHER")
+		ensureTraceStrAttr(t, attrs, semconv.RPCMethodOriginalKey, "/healthz")
+		assert.Equal(t, "grpc", spans.At(0).Name())
+	})
+
+	t.Run("test gRPC client trace generation reports an unread method as _OTHER", func(t *testing.T) {
+		span := request.Span{Type: request.EventTypeGRPCClient, Path: "*", Status: 0}
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+		attrs := spans.At(0).Attributes()
+		ensureTraceStrAttr(t, attrs, semconv.RPCMethodKey, "_OTHER")
+		ensureTraceAttrNotExists(t, attrs, semconv.RPCMethodOriginalKey)
+		assert.Equal(t, "grpc", spans.At(0).Name())
+	})
+
+	t.Run("test gRPC trace generation keeps an UNIMPLEMENTED method", func(t *testing.T) {
+		for _, eventType := range []request.EventType{request.EventTypeGRPC, request.EventTypeGRPCClient} {
+			span := request.Span{Type: eventType, Path: "/routeguide.RouteGuide/Unknown", Status: 12}
+			tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+			traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+
+			spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+			attrs := spans.At(0).Attributes()
+			ensureTraceStrAttr(t, attrs, semconv.RPCMethodKey, "routeguide.RouteGuide/Unknown")
+			ensureTraceAttrNotExists(t, attrs, semconv.RPCMethodOriginalKey)
+			ensureTraceStrAttr(t, attrs, semconv.RPCResponseStatusCodeKey, "UNIMPLEMENTED")
+			assert.Equal(t, "routeguide.RouteGuide/Unknown", spans.At(0).Name())
+		}
 	})
 
 	t.Run("test gRPC trace generation omits leaked HTTP status", func(t *testing.T) {
@@ -703,7 +744,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
 		attrs := spans.At(0).Attributes()
-		ensureTraceStrAttr(t, attrs, semconv.RPCMethodKey, "/routeguide.RouteGuide/GetFeature")
+		ensureTraceStrAttr(t, attrs, semconv.RPCMethodKey, "routeguide.RouteGuide/GetFeature")
 		ensureTraceAttrNotExists(t, attrs, semconv.RPCResponseStatusCodeKey)
 	})
 
@@ -2744,7 +2785,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{
 			name:     "all instrumentations",
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
-			expected: []string{"GET /foo", "PUT /bar", "/grpcFoo", "/grpcGoo", "SELECT credentials", "SET", "GET", "send important-topic", "process important-topic", "publish sensors/temperature", "process sensors/#", "publish updates.orders", "process updates.orders", "portmapper/0", "insert mycollection", "GET couchbase-collection", "GET", "DELETE"},
+			expected: []string{"GET /foo", "PUT /bar", "grpc.Svc/Foo", "grpc.Svc/Goo", "SELECT credentials", "SET", "GET", "send important-topic", "process important-topic", "publish sensors/temperature", "process sensors/#", "publish updates.orders", "process updates.orders", "portmapper/0", "insert mycollection", "GET couchbase-collection", "GET", "DELETE"},
 		},
 		{
 			name:     "http only",
@@ -2754,7 +2795,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{
 			name:     "grpc only",
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC},
-			expected: []string{"/grpcFoo", "/grpcGoo"},
+			expected: []string{"grpc.Svc/Foo", "grpc.Svc/Goo"},
 		},
 		{
 			name:     "redis only",
@@ -2799,7 +2840,7 @@ func TestTracesInstrumentations(t *testing.T) {
 		{
 			name:     "kafka and grpc",
 			instr:    []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC, instrumentations.InstrumentationKafka},
-			expected: []string{"/grpcFoo", "/grpcGoo", "send important-topic", "process important-topic"},
+			expected: []string{"grpc.Svc/Foo", "grpc.Svc/Goo", "send important-topic", "process important-topic"},
 		},
 		{
 			name:     "mongo",
@@ -2821,8 +2862,8 @@ func TestTracesInstrumentations(t *testing.T) {
 	spans := []request.Span{
 		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Method: "GET", Route: "/foo", RequestStart: 100, End: 200},
 		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTPClient, Method: "PUT", Route: "/bar", RequestStart: 150, End: 175},
-		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPC, Path: "/grpcFoo", RequestStart: 100, End: 200},
-		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPCClient, Path: "/grpcGoo", RequestStart: 150, End: 175},
+		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPC, Path: "/grpc.Svc/Foo", RequestStart: 100, End: 200},
+		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeGRPCClient, Path: "/grpc.Svc/Goo", RequestStart: 150, End: 175},
 		makeSQLRequestSpan("SELECT password FROM credentials WHERE username=\"bill\""),
 		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisClient, Method: "SET", Path: "redis_db", RequestStart: 150, End: 175},
 		{Service: svc.Attrs{UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeRedisServer, Method: "GET", Path: "redis_db", RequestStart: 150, End: 175},

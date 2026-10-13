@@ -90,6 +90,10 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {
 				return semconv.RPCMethod(S3RPCMethod(s.AWS.S3.Method))
 			}
+			if s.Type == EventTypeGRPC || s.Type == EventTypeGRPCClient {
+				method, _ := GRPCMethod(s)
+				return semconv.RPCMethod(method)
+			}
 			return semconv.RPCMethod(s.Path)
 		}
 	case attr.RPCSystem:
