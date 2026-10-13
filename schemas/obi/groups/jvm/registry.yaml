@@ -1,0 +1,20 @@
+groups:
+  # OBI reports `telemetry.sdk.language=java` for JVM instrumentation.
+  # `jvm.language` describes positive language evidence from the resolved
+  # application entry point, not every language used by the process.
+  - id: registry.obi.jvm
+    type: attribute_group
+    display_name: JVM Application Language
+    brief: >
+      Language evidenced by the resolved application entry point of a JVM process.
+    attributes:
+      - id: jvm.language
+        type: string
+        stability: development
+        brief: >
+          Language associated with the resolved application entry point of a
+          JVM process. Emitted only when a recognized compiler marker or launch
+          mode provides positive evidence. Omitted when the entry point is
+          unresolved or has no recognized marker. This does not describe every
+          language used by a mixed-language application.
+        examples: ["java", "kotlin", "scala"]
