@@ -15,6 +15,8 @@ const testTimeout = 5 * time.Second
 // Tests that the Instantiate method of Exporter always returns the same instance
 // even if invoked concurrently
 func TestSingleton(t *testing.T) {
+	defer RestoreEnvAfterExecution()()
+
 	concurrency := 50
 	instancer := MetricsExporterInstancer{
 		Cfg: &MetricsConfig{
