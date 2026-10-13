@@ -203,11 +203,61 @@ the fan-out to OBI clients. If you need HA, run multiple replicas behind the
 same `Service` — each OBI instance connects to one of them and will reconnect
 to another on failure.
 
-The k8s-cache gRPC endpoint currently uses plaintext gRPC without built-in
+By default, the k8s-cache gRPC endpoint uses plaintext gRPC without built-in
 authentication or authorization. A subscriber receives the current Kubernetes
 metadata snapshot and future updates, including pod, service, and node metadata
 used by OBI for enrichment. Do not expose this `Service` to pods or namespaces
 that are not trusted to read that metadata.
+
+For encrypted connections, set `security.mode` on the cache service and
+`attributes.kubernetes.meta_cache_security.mode` on OBI to `tls` or `mtls`.
+Set the cache service to `mtls` when it must require client certificates;
+setting only OBI to `mtls` does not make a `tls` cache server authenticate
+clients. For example, with mutual TLS:
+
+```yaml
+# k8s-cache configuration
+security:
+  mode: mtls
+  cert_file: /etc/k8s-cache/tls.crt
+  key_file: /etc/k8s-cache/tls.key
+  ca_file: /etc/k8s-cache/ca.crt
+```
+
+```yaml
+# OBI configuration
+attributes:
+  kubernetes:
+    meta_cache_address: k8s-cache.default.svc:50055
+    meta_cache_security:
+      mode: mtls
+      ca_file: /etc/obi/ca.crt
+      cert_file: /etc/obi/tls.crt
+      key_file: /etc/obi/tls.key
+```
+
+Mount the certificate, private key, and CA files into the corresponding pods.
+The cache service certificate needs a SAN matching the hostname in
+`meta_cache_address`. In
+`tls` mode, the cache service needs only `cert_file` and `key_file`; OBI
+verifies its certificate using `ca_file` or the system trust store. In `mtls`
+mode, the cache service additionally requires `ca_file` to verify client
+certificates, and OBI requires its own `cert_file` and `key_file`. Restart the
+cache service after rotating its certificate or CA. Network policy is still
+recommended to limit which workloads can reach the endpoint. Use a dedicated
+client CA for authorized OBI instances: every certificate with client-auth
+usage issued by the configured CA is accepted, regardless of its subject or
+SAN. mTLS here authenticates membership in that CA's trust domain, not an
+individual client identity.
+
+The same client settings are available in the v2 configuration at
+`extensions.obi.enrich.enrichers.kubernetes.metadata_cache.security`. The service
+accepts environment variables prefixed `OTEL_EBPF_K8S_CACHE_SECURITY_`. For v1,
+OBI also accepts `OTEL_EBPF_KUBE_META_CACHE_SECURITY_` (for example, `..._MODE`
+and `..._CA_FILE`). V2 does not apply v1 environment overrides. Set `mode: tls`
+or `mode: mtls` explicitly in v2 YAML; use YAML substitution for certificate
+paths if needed. An unset substitution in `mode` becomes an empty value and
+would select plaintext.
 
 If your CNI does not enforce `NetworkPolicy` for the selected source pods, use
 an equivalent CNI-specific host policy, firewall rule, service-mesh mTLS
@@ -243,6 +293,10 @@ Configuration is loaded in this order (later overrides earlier):
 | `profile_port`           | `OTEL_EBPF_K8S_CACHE_PROFILE_PORT`                     | `0` (disabled) | If non-zero, starts a `net/http/pprof` listener.                          |
 | `informer_resync_period` | `OTEL_EBPF_K8S_CACHE_INFORMER_RESYNC_PERIOD`           | `30m`          | Full informer resync interval. Increase to lower API load.                |
 | `informer_send_timeout`  | `OTEL_EBPF_K8S_CACHE_INFORMER_SEND_TIMEOUT`            | `10s`          | Per-message send deadline before a slow subscriber connection is closed.  |
+| `security.mode`          | `OTEL_EBPF_K8S_CACHE_SECURITY_MODE`                     | `insecure`     | `insecure`, `tls`, or `mtls`.                                              |
+| `security.cert_file`     | `OTEL_EBPF_K8S_CACHE_SECURITY_CERT_FILE`                | unset          | Server certificate for `tls` and `mtls`.                                  |
+| `security.key_file`      | `OTEL_EBPF_K8S_CACHE_SECURITY_KEY_FILE`                 | unset          | Server private key for `tls` and `mtls`.                                  |
+| `security.ca_file`       | `OTEL_EBPF_K8S_CACHE_SECURITY_CA_FILE`                  | unset          | Trusted client CA, required for `mtls`.                                   |
 | `internal_metrics.port`  | `OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PORT` | `0` (disabled) | If non-zero, serves Prometheus metrics.                                   |
 | `internal_metrics.path`  | `OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PATH` | `/metrics`     | Metrics endpoint path.                                                    |
 
