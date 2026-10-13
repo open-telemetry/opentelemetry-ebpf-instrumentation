@@ -15,6 +15,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,4 +142,38 @@ func TestGRPCSecurityRejectsInvalidConfiguration(t *testing.T) {
 	require.Error(t, err)
 	_, err = (GRPCSecurity{Mode: "mtls", CertFile: "missing", KeyFile: "missing"}).ServerOption()
 	require.Error(t, err)
+}
+
+func TestLoadConfigGRPCSecurity(t *testing.T) {
+	t.Run("YAML", func(t *testing.T) {
+		_, cert, key, _, _ := testCertificates(t)
+		cfg, err := LoadConfig(strings.NewReader("security:\n  mode: tls\n  cert_file: " + cert + "\n  key_file: " + key + "\n"))
+		require.NoError(t, err)
+		require.Equal(t, "tls", cfg.Security.Mode)
+	})
+	t.Run("environment", func(t *testing.T) {
+		_, cert, key, _, _ := testCertificates(t)
+		t.Setenv("OTEL_EBPF_K8S_CACHE_SECURITY_MODE", "tls")
+		t.Setenv("OTEL_EBPF_K8S_CACHE_SECURITY_CERT_FILE", cert)
+		t.Setenv("OTEL_EBPF_K8S_CACHE_SECURITY_KEY_FILE", key)
+		cfg, err := LoadConfig(nil)
+		require.NoError(t, err)
+		require.Equal(t, cert, cfg.Security.CertFile)
+	})
+	t.Run("invalid", func(t *testing.T) {
+		_, err := LoadConfig(strings.NewReader("security:\n  mode: mtls\n"))
+		require.Error(t, err)
+	})
+	t.Run("invalid mode", func(t *testing.T) {
+		_, err := LoadConfig(strings.NewReader("security:\n  mode: unknown\n"))
+		require.ErrorContains(t, err, "unsupported Kubernetes metadata cache gRPC security mode")
+	})
+	t.Run("certificate settings in plaintext mode", func(t *testing.T) {
+		_, err := LoadConfig(strings.NewReader("security:\n  cert_file: server.pem\n"))
+		require.ErrorContains(t, err, "certificate settings require tls or mtls")
+	})
+	t.Run("missing server key", func(t *testing.T) {
+		_, err := LoadConfig(strings.NewReader("security:\n  mode: tls\n  cert_file: server.pem\n"))
+		require.ErrorContains(t, err, "requires cert_file and key_file")
+	})
 }
