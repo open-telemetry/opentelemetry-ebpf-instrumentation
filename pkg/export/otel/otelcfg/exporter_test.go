@@ -66,7 +66,7 @@ func TestHTTPJSONMetricsProtocolWarns(t *testing.T) {
 		wantWarn        bool
 	}{
 		{name: "http/json warns", protocol: ProtocolHTTPJSON, wantWarn: true},
-		// Config v2 sets the metrics-specific protocol from otlp_http.encoding.
+		// Set from OTEL_EXPORTER_OTLP_METRICS_PROTOCOL.
 		{name: "metrics-specific http/json warns", metricsProtocol: ProtocolHTTPJSON, wantWarn: true},
 		{name: "http/protobuf does not warn", protocol: ProtocolHTTPProtobuf, wantWarn: false},
 	} {

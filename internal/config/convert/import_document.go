@@ -511,6 +511,9 @@ func applyV2MetricHTTPExporter(
 	if exporter.Timeout != nil {
 		return unsupportedV2Field(path + ".timeout")
 	}
+	if exporter.Encoding != nil && *exporter.Encoding == otelconfx.OTLPHttpEncodingJson {
+		return unsupportedV2Field(path + ".encoding")
+	}
 	if err := validateHTTPTLS(exporter.Tls, path+".tls"); err != nil {
 		return err
 	}

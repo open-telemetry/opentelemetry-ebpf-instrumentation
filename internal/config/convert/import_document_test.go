@@ -462,6 +462,23 @@ func TestDocumentToRuntimeImportsOTLPHTTPExporters(t *testing.T) {
 	}, metricHeaders)
 }
 
+func TestDocumentToRuntimeRejectsMetricOTLPHTTPJSONEncoding(t *testing.T) {
+	t.Parallel()
+
+	doc := documentWithRuntimeTelemetry()
+	encoding := otelconfx.OTLPHttpEncodingJson
+	doc.MeterProvider.Readers[0].Periodic.Exporter = otelconfx.PushMetricExporter{
+		OTLPHttp: &otelconfx.OTLPHttpMetricExporter{Encoding: &encoding},
+	}
+
+	_, err := DocumentToRuntime(doc)
+	require.ErrorContains(
+		t,
+		err,
+		"meter_provider.readers[0].periodic.exporter.otlp_http.encoding is not supported by the OBI runtime converter",
+	)
+}
+
 func TestDocumentToRuntimeRejectsInvalidOTLPHeadersList(t *testing.T) {
 	t.Parallel()
 

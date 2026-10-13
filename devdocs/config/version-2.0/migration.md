@@ -298,8 +298,8 @@ also allows a non-standard gRPC port to migrate.
 HTTP export does have a manual declarative representation in a release that
 includes the gated
 [standalone HTTP importer](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pull/2682).
-Use `encoding: protobuf` for v1 `http/protobuf` or an inferred HTTP endpoint,
-and `encoding: json` for v1 `http/json`:
+Use `encoding: protobuf` for v1 `http/protobuf` or an inferred HTTP endpoint.
+For v1 `http/json`, use `encoding: json` on the trace exporter only:
 
 ```yaml
 tracer_provider:
@@ -318,9 +318,9 @@ meter_provider:
             encoding: protobuf
 ```
 
-JSON encoding applies to traces only. The metrics exporter always sends
-protobuf, and logs a warning when it is configured for JSON, either through v1
-`http/json` or v2 `encoding: json`.
+The metrics exporter supports protobuf only, so v2 rejects `encoding: json` on
+it. A v1 `http/json` configuration still loads: it sends metrics as protobuf
+and logs a warning.
 
 These are provider fragments, not a complete configuration. Preserve an
 explicit v1 signal endpoint exactly, including any path. A v1 common
