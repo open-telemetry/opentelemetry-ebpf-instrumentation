@@ -51,6 +51,8 @@ If both paths are active, each path owns a separate collector.
 | `obi_bpf_probe_latency_seconds_total` | `obi.bpf.probe.latency` | Probe latency distribution in seconds |
 | `obi_bpf_map_entries` | `obi.bpf.map.entries` | Current map entry count |
 | `obi_bpf_map_max_entries` | `obi.bpf.map.max_entries` | Configured maximum map entries |
+| `obi_bpf_ringbuf_writes_total` | `obi.bpf.ringbuf.writes` | Attempted ring buffer writes by map name |
+| `obi_bpf_ringbuf_write_failures_total` | `obi.bpf.ringbuf.write.failures` | Failed ring buffer writes by map name |
 
 Probe metrics use the program ID, type, and function name as attributes or
 labels. Map metrics use the map ID, type, and name. Both endpoints take these
