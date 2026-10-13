@@ -261,6 +261,24 @@ SQL++ requests can be sent in two formats:
 statement=SELECT+*+FROM+users&query_context=default:`mybucket`.`myscope`
 ```
 
+### Prepared Statements
+
+SDKs can prepare a statement once and then execute it by name. gocb does this by default; other SDKs do it when the query is not ad hoc. The request shapes are:
+
+| Request                                                       | Meaning                                                                   |
+|---------------------------------------------------------------|---------------------------------------------------------------------------|
+| `{"statement": "PREPARE <stmt>", "auto_execute": true}`       | Prepare and run. The server returns the name in a top-level `"prepared"`. |
+| `{"statement": "PREPARE <stmt>"}`                             | Prepare only. The name is in `results[0].name`.                           |
+| `{"statement": "PREPARE [FORCE] <name> FROM\|AS <stmt>"}`     | Prepare under a client-chosen name.                                       |
+| `{"prepared": "<name>"}` (optionally with `encoded_plan`)     | Execute by name. No `statement` field.                                    |
+| `{"statement": "EXECUTE <name> [USING ...]"}`                 | Execute by name in SQL++.                                                 |
+
+OBI strips the `PREPARE` prefix before parsing, so a PREPARE span reports the inner statement. The first token after `PREPARE [FORCE]` is only taken as a name when the text after `FROM`/`AS` starts a statement, so `PREPARE DELETE FROM ...` stays anonymous.
+
+When a PREPARE succeeds, OBI remembers the name and its statement in a 1024-entry LRU keyed by process, `query_context` and name. Executions by name are filled in from it. The generic and Go tracers each keep their own cache; a process's traffic only reaches one of them. Entries never expire, because SDKs never re-prepare a cached name; an evicted name stays unresolved until the application prepares it again.
+
+`EXECUTE FUNCTION` calls user-defined functions and is parsed as a plain statement.
+
 ### Namespace Resolution
 
 The parser extracts bucket and collection information from multiple sources:
@@ -308,6 +326,8 @@ SQL++ spans are generated with the following attributes:
 | `db.query.text`           | Request body               | `"SELECT * FROM users WHERE id = ?"` |
 | `db.response.status_code` | Error code (on error)      | `"12003"`                            |
 | `error.type`              | Error message (on error)   | `"Keyspace not found..."`            |
+
+For prepared statements, `db.operation.name` and `db.query.text` come from the prepared statement. A PREPARE without `auto_execute` reports `db.operation.name` = `"PREPARE"`. An execution whose name OBI never saw prepared reports `db.operation.name` = `"EXECUTE"`; `db.query.text` is the `EXECUTE ...` text when the SQL++ form was used, and empty for a name-only request.
 
 ### Configuration
 

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
@@ -341,7 +342,7 @@ func TestSQLPPSpan(t *testing.T) {
 			}
 
 			baseSpan := &request.Span{}
-			resultSpan, detected := SQLPPSpan(baseSpan, req, resp, endpointPatterns)
+			resultSpan, detected := SQLPPSpan(baseSpan, req, resp, endpointPatterns, nil)
 
 			assert.Equal(t, tt.expectedDetected, detected)
 
@@ -424,7 +425,7 @@ func TestSQLPPSpanWithError(t *testing.T) {
 	}
 
 	baseSpan := &request.Span{}
-	resultSpan, detected := SQLPPSpan(baseSpan, req, resp, endpointPatterns)
+	resultSpan, detected := SQLPPSpan(baseSpan, req, resp, endpointPatterns, nil)
 
 	assert.True(t, detected)
 	assert.Equal(t, request.HTTPSubtypeSQLPP, resultSpan.SubType)
@@ -581,4 +582,340 @@ func TestExtractSQLPPNamespace(t *testing.T) {
 			assert.Equal(t, tt.expectedNamespace, result)
 		})
 	}
+}
+
+func TestParseSQLPPRequestPrepared(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		contentType string
+		expected    sqlppRequest
+	}{
+		{
+			name:        "execute by prepared name",
+			body:        `{"prepared": "p1", "query_context": "default:b.s"}`,
+			contentType: "application/json",
+			expected:    sqlppRequest{Prepared: "p1", QueryCtx: "default:b.s"},
+		},
+		{
+			name:        "legacy execute with encoded plan",
+			body:        `{"prepared": "p2", "encoded_plan": "H4sIAAAA"}`,
+			contentType: "application/json",
+			expected:    sqlppRequest{Prepared: "p2"},
+		},
+		{
+			name:        "enhanced prepare with auto execute",
+			body:        `{"statement": "PREPARE SELECT * FROM b", "auto_execute": true}`,
+			contentType: "application/json",
+			expected:    sqlppRequest{Statement: "PREPARE SELECT * FROM b", AutoExecute: true},
+		},
+		{
+			name:        "non-string prepared is ignored",
+			body:        `{"statement": "SELECT 1", "prepared": {"name": "x"}}`,
+			contentType: "application/json",
+			expected:    sqlppRequest{Statement: "SELECT 1"},
+		},
+		{
+			name:        "form-encoded prepared",
+			body:        `prepared="p3"&auto_execute=true`,
+			contentType: "application/x-www-form-urlencoded",
+			expected:    sqlppRequest{Prepared: "p3", AutoExecute: true},
+		},
+		{
+			name:        "url-encoded prepared",
+			body:        `prepared=%22p4%22&auto_execute=%22true%22`,
+			contentType: "application/x-www-form-urlencoded",
+			expected:    sqlppRequest{Prepared: "p4", AutoExecute: true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &http.Request{
+				Header: http.Header{"Content-Type": []string{tt.contentType}},
+				Body:   io.NopCloser(bytes.NewBufferString(tt.body)),
+			}
+			result, err := parseSQLPPRequest(req)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, *result)
+		})
+	}
+}
+
+func TestParseSQLPPPrepare(t *testing.T) {
+	tests := []struct {
+		statement string
+		ok        bool
+		name      string
+		inner     string
+	}{
+		{statement: "PREPARE SELECT * FROM b", ok: true, inner: "SELECT * FROM b"},
+		{statement: "  prepare\nSELECT * FROM b", ok: true, inner: "SELECT * FROM b"},
+		{statement: "PREPARE FORCE SELECT * FROM b", ok: true, inner: "SELECT * FROM b"},
+		{statement: "PREPARE q1 FROM SELECT * FROM b", ok: true, name: "q1", inner: "SELECT * FROM b"},
+		{statement: "PREPARE `my q` AS SELECT * FROM b", ok: true, name: "my q", inner: "SELECT * FROM b"},
+		{statement: "PREPARE FORCE q1 from SELECT a FROM b", ok: true, name: "q1", inner: "SELECT a FROM b"},
+		{statement: "PREPARE SELECT a AS x FROM b", ok: true, inner: "SELECT a AS x FROM b"},
+		{statement: "PREPARE DELETE FROM `b`.`s`.`c` WHERE id = $1", ok: true, inner: "DELETE FROM `b`.`s`.`c` WHERE id = $1"},
+		{statement: "PREPARE FORCE DELETE FROM b", ok: true, inner: "DELETE FROM b"},
+		{statement: "prepare delete from b where x = 1", ok: true, inner: "delete from b where x = 1"},
+		{statement: "PREPARE q1 FROM DELETE FROM b", ok: true, name: "q1", inner: "DELETE FROM b"},
+		{statement: "PREPARE q1 AS (SELECT 1)", ok: true, name: "q1", inner: "(SELECT 1)"},
+		{statement: "PREPARE q1 FROM WITH x AS (SELECT 1) SELECT * FROM x", ok: true, name: "q1", inner: "WITH x AS (SELECT 1) SELECT * FROM x"},
+		{statement: "PREPARE", ok: false},
+		{statement: "PREPARED SELECT 1", ok: false},
+		{statement: "SELECT * FROM b", ok: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.statement, func(t *testing.T) {
+			name, inner, ok := parseSQLPPPrepare(tt.statement)
+			assert.Equal(t, tt.ok, ok)
+			assert.Equal(t, tt.name, name)
+			assert.Equal(t, tt.inner, inner)
+		})
+	}
+}
+
+func TestParseSQLPPExecute(t *testing.T) {
+	tests := []struct {
+		statement string
+		ok        bool
+		name      string
+	}{
+		{statement: "EXECUTE q1", ok: true, name: "q1"},
+		{statement: "execute `q1` USING [1]", ok: true, name: "q1"},
+		{statement: `EXECUTE "q1"`, ok: true, name: "q1"},
+		{statement: "EXECUTE FUNCTION add(1, 2)", ok: false},
+		{statement: "EXECUTE", ok: false},
+		{statement: "SELECT 1", ok: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.statement, func(t *testing.T) {
+			name, ok := parseSQLPPExecute(tt.statement)
+			assert.Equal(t, tt.ok, ok)
+			assert.Equal(t, tt.name, name)
+		})
+	}
+}
+
+type sqlppExchange struct {
+	pid      app.PID
+	reqBody  string
+	respBody string
+}
+
+func runSQLPPExchange(t *testing.T, prepared *SQLPPPreparedStatements, ex sqlppExchange) (request.Span, bool) {
+	t.Helper()
+	req := &http.Request{
+		URL:    &url.URL{Path: "/query/service"},
+		Header: http.Header{"Content-Type": []string{"application/json"}},
+		Body:   io.NopCloser(bytes.NewBufferString(ex.reqBody)),
+	}
+	resp := &http.Response{
+		Header: http.Header{"Content-Type": []string{"application/json; version=2.0.0-N1QL"}},
+		Body:   io.NopCloser(bytes.NewBufferString(ex.respBody)),
+	}
+	return SQLPPSpan(&request.Span{Pid: request.PidInfo{HostPID: ex.pid}}, req, resp, []string{"/query/service"}, prepared)
+}
+
+func newTestSQLPPPreparedStatements(t *testing.T) *SQLPPPreparedStatements {
+	t.Helper()
+	prepared, err := NewSQLPPPreparedStatements(16)
+	require.NoError(t, err)
+	return prepared
+}
+
+func TestSQLPPSpanPreparedStatements(t *testing.T) {
+	const statement = "SELECT * FROM `b`.`s`.`c` WHERE id = $1"
+	prepare := `{"statement": "PREPARE ` + statement + `"`
+
+	type expectation struct {
+		statement  string
+		operation  string
+		namespace  string
+		collection string
+	}
+	resolved := expectation{statement: statement, operation: "SELECT", namespace: "b", collection: "s.c"}
+
+	tests := []struct {
+		name      string
+		exchanges []sqlppExchange
+		expected  []expectation
+	}{
+		{
+			name: "enhanced prepare learns the name from the response",
+			exchanges: []sqlppExchange{
+				{
+					reqBody:  prepare + `, "auto_execute": true, "args": [1]}`,
+					respBody: `{"requestID": "r1", "signature": {"*": "*"}, "prepared": "p1", "results": [{"id": 1}], "status": "success"}`,
+				},
+				{
+					reqBody:  `{"prepared": "p1", "args": [2]}`,
+					respBody: `{"requestID": "r2", "results": [{"id": 2}], "status": "success"}`,
+				},
+			},
+			expected: []expectation{resolved, resolved},
+		},
+		{
+			name: "enhanced prepare tolerates a truncated response",
+			exchanges: []sqlppExchange{
+				{
+					reqBody:  prepare + `, "auto_execute": true}`,
+					respBody: `{"requestID": "r1", "prepared": "p1", "results": [{"id": 1}, {"i`,
+				},
+				{reqBody: `{"prepared": "p1"}`},
+			},
+			expected: []expectation{resolved, resolved},
+		},
+		{
+			name: "legacy prepare learns the name from the results",
+			exchanges: []sqlppExchange{
+				{
+					reqBody:  prepare + `}`,
+					respBody: `{"requestID": "r1", "results": [{"encoded_plan": "H4sI", "name": "p2", "text": "PREPARE ..."}], "status": "success"}`,
+				},
+				{reqBody: `{"prepared": "p2", "encoded_plan": "H4sI"}`},
+			},
+			expected: []expectation{
+				{statement: statement, operation: "PREPARE", namespace: "b", collection: "s.c"},
+				resolved,
+			},
+		},
+		{
+			name: "auto executed result rows never name the statement",
+			exchanges: []sqlppExchange{
+				{
+					reqBody:  prepare + `, "auto_execute": true}`,
+					respBody: `{"requestID": "r1", "results": [{"name": "row"}], "status": "success"}`,
+				},
+				{reqBody: `{"prepared": "row"}`},
+			},
+			expected: []expectation{resolved, {operation: "EXECUTE"}},
+		},
+		{
+			name: "anonymous prepared DELETE learns the server name",
+			exchanges: []sqlppExchange{
+				{
+					reqBody:  "{\"statement\": \"PREPARE DELETE FROM `b`.`s`.`c` WHERE id = $1\", \"auto_execute\": true}",
+					respBody: `{"requestID": "r1", "prepared": "srv-name", "results": [], "status": "success"}`,
+				},
+				{reqBody: `{"prepared": "srv-name"}`},
+			},
+			expected: []expectation{
+				{statement: "DELETE FROM `b`.`s`.`c` WHERE id = $1", operation: "DELETE", namespace: "b", collection: "s.c"},
+				{statement: "DELETE FROM `b`.`s`.`c` WHERE id = $1", operation: "DELETE", namespace: "b", collection: "s.c"},
+			},
+		},
+		{
+			name: "rejected prepare is not cached",
+			exchanges: []sqlppExchange{
+				{
+					reqBody:  `{"statement": "PREPARE q1 FROM SELECT * FROM c"}`,
+					respBody: `{"requestID": "r1", "errors": [{"code": 3000, "msg": "syntax error"}], "status": "fatal"}`,
+				},
+				{reqBody: `{"prepared": "q1"}`},
+			},
+			expected: []expectation{
+				{statement: "SELECT * FROM c", operation: "PREPARE", namespace: "c"},
+				{operation: "EXECUTE"},
+			},
+		},
+		{
+			name: "names are scoped by process",
+			exchanges: []sqlppExchange{
+				{pid: 1, reqBody: `{"statement": "PREPARE q1 FROM SELECT * FROM c1"}`},
+				{pid: 2, reqBody: `{"statement": "PREPARE q1 FROM SELECT * FROM c2"}`},
+				{pid: 1, reqBody: `{"prepared": "q1"}`},
+				{pid: 3, reqBody: `{"prepared": "q1"}`},
+			},
+			expected: []expectation{
+				{statement: "SELECT * FROM c1", operation: "PREPARE", namespace: "c1"},
+				{statement: "SELECT * FROM c2", operation: "PREPARE", namespace: "c2"},
+				{statement: "SELECT * FROM c1", operation: "SELECT", namespace: "c1"},
+				{operation: "EXECUTE"},
+			},
+		},
+		{
+			name: "unknown EXECUTE statement keeps its text",
+			exchanges: []sqlppExchange{
+				{reqBody: `{"statement": "EXECUTE q9 USING [1]"}`},
+			},
+			expected: []expectation{{statement: "EXECUTE q9 USING [1]", operation: "EXECUTE"}},
+		},
+		{
+			name: "named prepare and EXECUTE statement",
+			exchanges: []sqlppExchange{
+				{reqBody: `{"statement": "PREPARE q1 FROM ` + statement + `"}`},
+				{reqBody: "{\"statement\": \"EXECUTE `q1` USING [1]\"}"},
+			},
+			expected: []expectation{
+				{statement: statement, operation: "PREPARE", namespace: "b", collection: "s.c"},
+				resolved,
+			},
+		},
+		{
+			name: "unknown prepared name is still a SQL++ span",
+			exchanges: []sqlppExchange{
+				{reqBody: `{"prepared": "unknown", "query_context": "default:b.s"}`},
+			},
+			expected: []expectation{{operation: "EXECUTE", namespace: "b"}},
+		},
+		{
+			name: "names are scoped by query context",
+			exchanges: []sqlppExchange{
+				{reqBody: `{"statement": "PREPARE q1 FROM SELECT * FROM c", "query_context": "default:b1.s"}`},
+				{reqBody: `{"prepared": "q1", "query_context": "default:b2.s"}`},
+				{reqBody: `{"prepared": "q1", "query_context": "default:b1.s"}`},
+			},
+			expected: []expectation{
+				{statement: "SELECT * FROM c", operation: "PREPARE", namespace: "b1", collection: "c"},
+				{operation: "EXECUTE", namespace: "b2"},
+				{statement: "SELECT * FROM c", operation: "SELECT", namespace: "b1", collection: "c"},
+			},
+		},
+		{
+			name: "EXECUTE FUNCTION is a plain statement",
+			exchanges: []sqlppExchange{
+				{reqBody: `{"statement": "EXECUTE FUNCTION add(1, 2)"}`},
+			},
+			expected: []expectation{{statement: "EXECUTE FUNCTION add(1, 2)", operation: "query"}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prepared := newTestSQLPPPreparedStatements(t)
+			for i, ex := range tt.exchanges {
+				span, detected := runSQLPPExchange(t, prepared, ex)
+				require.True(t, detected, "exchange %d", i)
+				assert.Equal(t, request.HTTPSubtypeSQLPP, span.SubType, "exchange %d", i)
+				assert.Equal(t, "couchbase", span.DBSystem, "exchange %d", i)
+				assert.Equal(t, tt.expected[i].statement, span.Statement, "exchange %d", i)
+				assert.Equal(t, tt.expected[i].operation, span.Method, "exchange %d", i)
+				assert.Equal(t, tt.expected[i].namespace, span.DBNamespace, "exchange %d", i)
+				assert.Equal(t, tt.expected[i].collection, span.Route, "exchange %d", i)
+			}
+		})
+	}
+}
+
+func TestSQLPPSpanPreparedWithoutCache(t *testing.T) {
+	span, detected := runSQLPPExchange(t, nil, sqlppExchange{reqBody: `{"prepared": "p1"}`})
+	require.True(t, detected)
+	assert.Equal(t, "EXECUTE", span.Method)
+	assert.Empty(t, span.Statement)
+}
+
+func TestSQLPPPreparedStatementsEviction(t *testing.T) {
+	prepared, err := NewSQLPPPreparedStatements(1)
+	require.NoError(t, err)
+	prepared.store(0, "", "p1", "SELECT 1")
+	prepared.store(0, "", "p2", "SELECT 2")
+	_, ok := prepared.lookup(0, "", "p1")
+	assert.False(t, ok)
+	text, ok := prepared.lookup(0, "", "p2")
+	assert.True(t, ok)
+	assert.Equal(t, "SELECT 2", text)
 }
