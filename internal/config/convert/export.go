@@ -414,6 +414,7 @@ func captureEngine(cfg *obi.Config) schema.CaptureEngine {
 	return schema.CaptureEngine{
 		Debug: schema.EngineDebug{
 			BPF:           cfg.EBPF.BpfDebug,
+			BPFMode:       cfg.EBPF.BpfDebugMode,
 			ProtocolPrint: cfg.EBPF.ProtocolDebug,
 		},
 		PIDFilter: schema.PIDFilter{

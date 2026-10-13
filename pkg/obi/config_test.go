@@ -1499,6 +1499,25 @@ time=\S+ level=DEBUG msg=debug arg=debug$`),
 	}
 }
 
+func TestLoadConfig_BPFDebugModeEnv(t *testing.T) {
+	t.Setenv("OTEL_EBPF_BPF_DEBUG_MODE", "trace_pipe")
+
+	cfg, err := LoadConfig(nil)
+	require.NoError(t, err)
+	require.Equal(t, config.BPFDebugTracePipe, cfg.EBPF.DebugMode())
+}
+
+func TestConfig_RejectsLegacyAndBPFDebugModeTogether(t *testing.T) {
+	mode := config.BPFDebugTracePipe
+	cfg := Config{EBPF: config.EBPFTracer{
+		BpfDebug:     true,
+		BpfDebugMode: &mode,
+	}}
+
+	err := cfg.ValidateStatic()
+	require.ErrorContains(t, err, "ebpf.bpf_debug and BPF debug mode cannot both be set")
+}
+
 func TestDefaultExclusionFilter(t *testing.T) {
 	c := DefaultConfig.Discovery.DefaultExcludeInstrument
 

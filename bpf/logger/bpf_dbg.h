@@ -41,10 +41,12 @@ enum bpf_func_id___x {
 
 #define bpf_dbg_printk(fmt, args...)                                                               \
     do {                                                                                           \
-        if (!g_bpf_debug) {                                                                        \
+        if (g_bpf_debug & k_bpf_debug_trace_pipe) {                                                \
+            bpf_printk(fmt, ##args);                                                               \
+        }                                                                                          \
+        if (!(g_bpf_debug & k_bpf_debug_userspace)) {                                              \
             break;                                                                                 \
         }                                                                                          \
-        bpf_printk(fmt, ##args);                                                                   \
         log_info_t *__trace__ = bpf_ringbuf_reserve(&debug_events, sizeof(log_info_t), 0);         \
         if (!__trace__) {                                                                          \
             break;                                                                                 \
@@ -71,7 +73,7 @@ enum bpf_func_id___x {
 
 #define bpf_d_printk(fmt, args...)                                                                 \
     do {                                                                                           \
-        if (!g_bpf_debug) {                                                                        \
+        if (!(g_bpf_debug & k_bpf_debug_trace_pipe)) {                                             \
             break;                                                                                 \
         }                                                                                          \
         bpf_printk(fmt, ##args);                                                                   \

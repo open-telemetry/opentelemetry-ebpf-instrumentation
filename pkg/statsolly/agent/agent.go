@@ -147,7 +147,7 @@ func (s *Stats) Run(ctx context.Context) error {
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	if s.cfg.EBPF.BpfDebug {
+	if s.cfg.EBPF.DebugMode().IsUserspaceEnabled() {
 		go logger.ReadDebugEventsMap(runCtx, s.fetcher.DebugEventsMap(),
 			slog.With("component", "statsolly.BPFDebug"))
 	}

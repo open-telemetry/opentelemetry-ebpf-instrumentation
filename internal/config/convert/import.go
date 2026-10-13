@@ -1125,6 +1125,7 @@ func applyV2Engine(cfg *obi.Config, engine schema.CaptureEngine, complete bool) 
 
 func applyFullV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	cfg.EBPF.BpfDebug = engine.Debug.BPF
+	cfg.EBPF.BpfDebugMode = engine.Debug.BPFMode
 	cfg.EBPF.ProtocolDebug = engine.Debug.ProtocolPrint
 	cfg.Discovery.BPFPidFilterOff = engine.PIDFilter.Disabled
 	cfg.EBPF.WakeupLen = engine.Batching.WakeupLen
@@ -1145,6 +1146,9 @@ func applyFullV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	if engine.Debug.BPF {
 		cfg.EBPF.BpfDebug = true
+	}
+	if engine.Debug.BPFMode != nil {
+		cfg.EBPF.BpfDebugMode = engine.Debug.BPFMode
 	}
 	if engine.Debug.ProtocolPrint {
 		cfg.EBPF.ProtocolDebug = true
