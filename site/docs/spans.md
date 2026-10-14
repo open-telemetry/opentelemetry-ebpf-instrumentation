@@ -195,6 +195,7 @@ OBI Elasticsearch client span, detected from HTTP client traffic.
 | `db.collection.name` | string | `conditionally_required`: if the operation targets a named collection | stable | The name of a collection (table, container) within the database. | public.users; customers |
 | `db.namespace` | string | `recommended`: if the response identified the cluster | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
 | `db.operation.name` | string | `required` | stable | The name of the operation or command being executed. | findAndModify; HMSET; SELECT |
+| `db.operation.parameter` | template[string] | `conditionally_required`: when the url has path parameters OBI maps (index, document id) | development | A database operation parameter, with `<key>` being the parameter name, and the attribute value being a string representation of the parameter value. | someval; 55 |
 | `db.query.text` | string | `opt_in` | stable | The database query being executed. | SELECT * FROM wuser_table where username = ?; SET mykey ? |
 | `db.response.status_code` | string | `conditionally_required`: if a response was received | stable | Database response status code. | 102; ORA-17002; 08P01; 404 |
 | `db.system.name` | enum | `required` | stable | The database management system (DBMS) product as identified by the client instrumentation. | other_sql; softwareag.adabas; actian.ingres; aws.dynamodb; aws.redshift; azure.cosmosdb; intersystems.cache; cassandra; … |
