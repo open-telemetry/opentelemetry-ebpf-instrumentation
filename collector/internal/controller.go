@@ -36,6 +36,9 @@ type Controller struct {
 	shared *sharedController
 }
 
+// runOBI is a variable so tests can replace the OBI run loop.
+var runOBI = instrumenter.RunWithProtocolMetricSelection
+
 var (
 	// sharedControllers holds shared controller instances keyed by component ID.
 	// This allows multiple OBI receivers (e.g., obi/instance1, obi/instance2) to run
@@ -94,7 +97,7 @@ func NewController(id component.ID, cfg *obi.Config, v2 bool) (*Controller, erro
 
 // Start starts the receiver. Only the first call actually starts OBI;
 // subsequent calls just increase the reference count.
-func (c *Controller) Start(ctx context.Context, _ component.Host) error {
+func (c *Controller) Start(_ context.Context, _ component.Host) error {
 	c.shared.mu.Lock()
 	defer c.shared.mu.Unlock()
 
@@ -105,8 +108,9 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 		return nil
 	}
 
-	// First caller - start OBI
-	runCtx, cancel := context.WithCancel(ctx)
+	// First caller - start OBI. The Start context only covers startup, so OBI
+	// runs on its own context, which Shutdown cancels.
+	runCtx, cancel := context.WithCancel(context.Background())
 	ctxInfo, err := instrumenter.BuildCommonContextInfo(runCtx, c.shared.config)
 	if err != nil {
 		cancel()
@@ -126,7 +130,7 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 			selection := instrumentations.NewInstrumentationSelection(c.shared.config.OTELMetrics.Instrumentations)
 			policy = &selection
 		}
-		c.shared.runErr = instrumenter.RunWithProtocolMetricSelection(runCtx, c.shared.config, ctxInfo, policy)
+		c.shared.runErr = runOBI(runCtx, c.shared.config, ctxInfo, policy)
 	}()
 
 	return nil

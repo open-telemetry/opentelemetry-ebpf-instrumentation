@@ -14,7 +14,12 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componenttest"
 
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/instrumenter"
+	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/pipe/global"
 )
 
 func TestShutdownAfterStartFailureCleansSharedController(t *testing.T) {
@@ -61,6 +66,53 @@ func TestShutdownAfterStartFailureCleansSharedController(t *testing.T) {
 
 	if err := retried.Shutdown(context.Background()); err != nil {
 		t.Fatalf("retry Shutdown returned error without Start: %v", err)
+	}
+}
+
+func TestRunOutlivesStartContext(t *testing.T) {
+	runCtxs := make(chan context.Context, 1)
+	originalRunOBI := runOBI
+	t.Cleanup(func() { runOBI = originalRunOBI })
+	runOBI = func(
+		ctx context.Context, _ *obi.Config, _ *global.ContextInfo,
+		_ *instrumentations.InstrumentationSelection, _ ...instrumenter.Option,
+	) error {
+		runCtxs <- ctx
+		<-ctx.Done()
+		return nil
+	}
+
+	id := component.MustNewIDWithName("obi", "start-context")
+	cfg := &obi.Config{}
+	cfg.Attributes.HostID.Override = "test-host-id"
+	cfg.Attributes.MetadataRetry = metadata.RetryConfig{Timeout: time.Millisecond}
+	cfg.Attributes.Kubernetes.Enable = kubeflags.EnabledFalse
+	c := newTestController(t, id, cfg)
+
+	startCtx, cancelStart := context.WithCancel(context.Background())
+	if err := c.Start(startCtx, componenttest.NewNopHost()); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	cancelStart()
+
+	timer := newShutdownTimer(t)
+	defer stopTestTimer(timer)
+
+	var runCtx context.Context
+	select {
+	case runCtx = <-runCtxs:
+	case <-timer.C:
+		t.Fatal("OBI run loop was not started")
+	}
+	if runCtx.Err() != nil {
+		t.Fatal("canceling the Start context stopped OBI")
+	}
+
+	if err := c.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown returned error: %v", err)
+	}
+	if runCtx.Err() == nil {
+		t.Fatal("Shutdown did not stop OBI")
 	}
 }
 
