@@ -219,7 +219,7 @@ jobs:
         run: |
           # Pin ocb to the Collector release line OBI itself depends on, so the
           # example is always built against a compatible builder (see #2264).
-          version=$(grep -E '^[[:space:]]*go\.opentelemetry\.io/collector v[0-9]' go.mod | awk '{print $2}')
+          version=$(grep -E '^[[:space:]]*go\.opentelemetry\.io/collector/exporter/otlpexporter v[0-9]' go.mod | awk '{print $2}')
           if [ -z "$version" ]; then
             echo "could not determine collector version from go.mod" >&2
             exit 1
