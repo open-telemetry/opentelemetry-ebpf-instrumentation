@@ -82,8 +82,8 @@ require (
 	github.com/ghostiam/protogetter v0.3.21 // indirect
 	github.com/go-critic/go-critic v0.14.4 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
-	github.com/go-git/go-billy/v5 v5.8.0 // indirect
-	github.com/go-git/go-git/v5 v5.18.0 // indirect
+	github.com/go-git/go-billy/v5 v5.9.0 // indirect
+	github.com/go-git/go-git/v5 v5.19.2 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/zapr v1.3.0 // indirect
 	github.com/go-task/slim-sprig/v3 v3.0.0 // indirect
@@ -173,7 +173,7 @@ require (
 	github.com/otiai10/copy v1.14.0 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
-	github.com/pjbgf/sha1cd v0.5.0 // indirect
+	github.com/pjbgf/sha1cd v0.6.0 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/prometheus/client_golang v1.12.1 // indirect
 	github.com/prometheus/client_model v0.2.0 // indirect
@@ -237,7 +237,7 @@ require (
 	go.opentelemetry.io/build-tools/multimod v0.30.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
-	go.yaml.in/yaml/v2 v2.4.3 // indirect
+	go.yaml.in/yaml/v2 v2.4.4 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.57.0 // indirect
 	golang.org/x/exp/typeparams v0.0.0-20260811152304-ee035b5b010f // indirect
@@ -256,8 +256,8 @@ require (
 	k8s.io/klog/v2 v2.90.1 // indirect
 	mvdan.cc/gofumpt v0.11.0 // indirect
 	mvdan.cc/unparam v0.0.0-20260823230713-2fa3d841b0c8 // indirect
-	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.0.0-20260331052815-773c064a8064 // indirect
-	sigs.k8s.io/kind v0.31.0 // indirect
+	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.2 // indirect
+	sigs.k8s.io/kind v0.33.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
 

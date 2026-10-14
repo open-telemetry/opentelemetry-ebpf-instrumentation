@@ -206,10 +206,10 @@ spans:
       - ref: span.metrics.skip
         requirement_level: opt_in
 
-  # Vector retrieval and rerank share this group: both describe a search over a
-  # document set rather than a model invocation, and neither reports the
-  # inference request parameters. The retrieval emitter reports the requested
-  # result count as the semconv `gen_ai.request.top_k`.
+  # Vector retrieval describes a search over a document set rather than a model
+  # invocation, so it reports none of the inference request parameters. The
+  # emitter reports the requested result count as the semconv
+  # `gen_ai.request.top_k`. Rerank has its own span below.
   - type: obi.gen_ai.retrieval.client
     kind: client
     name:
@@ -240,10 +240,6 @@ spans:
       - ref: gen_ai.data_source.id
         requirement_level:
           conditionally_required: if the request named a collection
-      - ref: gen_ai.input.messages
-        requirement_level: opt_in
-      - ref: gen_ai.output.messages
-        requirement_level: opt_in
       - ref: error.type
         requirement_level:
           conditionally_required: if the operation ended in an error

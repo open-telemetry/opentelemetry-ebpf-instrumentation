@@ -110,6 +110,7 @@ func NewWithProtocolMetricSelection(ctx context.Context, ctxInfo *global.Context
 
 	runtimeMetrics := newRuntimeMetricsQueue(config, ctxInfo.Metrics)
 	ebpfEventContext := ebpfcommon.NewEBPFEventContext()
+	ctxInfo.AppO11y.EBPFEventContext = ebpfEventContext
 
 	bp, err := appolly.BuildWithProtocolMetricSelection(ctx, config, ctxInfo, tracesInput, processEventCloudDecorated, runtimeMetrics, selection)
 	if err != nil {

@@ -496,13 +496,13 @@ func goAutoSDKActivationTestModules() moduleVersions {
 	return moduleVersions{
 		versions: map[string]string{
 			"go.opentelemetry.io/auto/sdk":   "v1.2.1",
-			"go.opentelemetry.io/otel":       "v1.45.0",
-			"go.opentelemetry.io/otel/trace": "v1.45.0",
+			"go.opentelemetry.io/otel":       "v1.47.0",
+			"go.opentelemetry.io/otel/trace": "v1.47.0",
 		},
 		sums: map[string]string{
 			"go.opentelemetry.io/auto/sdk":   "h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=",
-			"go.opentelemetry.io/otel":       "h1:pdrWmLHofpubmArBv1LgFSv1Z0Ie/ppdZzu+kUN5EeU=",
-			"go.opentelemetry.io/otel/trace": "h1:l/mP6Uv7oNO7/TblbhpbgMidxhq1uO/rPsikOyVhxag=",
+			"go.opentelemetry.io/otel":       "h1:j7ALJ/zgkS7Z6aeJW09p8VC9804bC+PpeTfCD4XPnOM=",
+			"go.opentelemetry.io/otel/trace": "h1:JOjX/Oci8K94QHddo+bbfya/Ai/nf6/dt9ZfrFNWSrM=",
 		},
 		replacements: map[string]struct{}{},
 	}

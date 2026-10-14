@@ -125,9 +125,9 @@ func declaredSpanAttributes(t *testing.T, spanType string) []string {
 	return keys
 }
 
-// A templated attribute is emitted one key per header, while the registry
-// declares the template root once. Compare against the root.
-var attributeTemplates = []string{"http.request.header", "http.response.header"}
+// A templated attribute is emitted one key per header or path parameter,
+// while the registry declares the template root once. Compare against the root.
+var attributeTemplates = []string{"http.request.header", "http.response.header", "db.operation.parameter"}
 
 func templateRoot(key string) string {
 	for _, t := range attributeTemplates {
@@ -356,7 +356,7 @@ func emittedSpanCases() []emittedSpanCase {
 		},
 		{
 			name:     "jsonrpc client",
-			absent:   []string{"service.peer.name"},
+			absent:   []string{"service.peer.name", "rpc.method_original"},
 			spanType: "obi.jsonrpc.client",
 			span: &request.Span{
 				Type:                request.EventTypeHTTPClient,
@@ -378,6 +378,43 @@ func emittedSpanCases() []emittedSpanCase {
 					Version:   "2.0",
 					RequestID: "1",
 					ErrorCode: -32600,
+				},
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.NetworkProtocolVersion,
+				attr.UserAgentOriginal,
+				attr.ErrorType,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+		},
+		{
+			name:     "jsonrpc client service-qualified",
+			absent:   []string{"service.peer.name"},
+			spanType: "obi.jsonrpc.client",
+			span: &request.Span{
+				Type:                request.EventTypeHTTPClient,
+				SubType:             request.HTTPSubtypeJSONRPC,
+				Method:              "POST",
+				Path:                "/rpc",
+				Host:                "10.0.0.1",
+				HostPort:            8545,
+				Peer:                "10.0.0.1",
+				PeerPort:            54321,
+				Status:              200,
+				ProtoVersion:        request.ProtoVersionHTTP11,
+				RequestHeaders:      map[string][]string{"x-trace": {"1"}, "user-agent": {"curl/8.0"}},
+				ResponseHeaders:     map[string][]string{"x-reply": {"2"}},
+				RequestBodyContent:  "{}",
+				ResponseBodyContent: "{}",
+				JSONRPC: &request.JSONRPC{
+					Method:           "Arith.Multiply",
+					Version:          request.JSONRPCVersionV1,
+					RequestID:        "1",
+					ErrorCode:        -32600,
+					ServiceQualified: true,
 				},
 			},
 			optional: []attr.Name{
