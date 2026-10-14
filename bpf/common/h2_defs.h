@@ -297,11 +297,15 @@ h2_sniff_check_frame(h2_sniff_state_t *st, u32 length, u8 type, u8 flags, u8 r_b
     return 1;
 }
 
+static __always_inline u32 h2_frame_payload_len(const unsigned char *d) {
+    return ((u32)d[0] << 16) | ((u32)d[1] << 8) | (u32)d[2];
+}
+
 // Validates one raw 9-byte frame header, returns payload length via frame_len, 0 to reject
 static __always_inline u8 h2_sniff_frame_header(h2_sniff_state_t *st,
                                                 const unsigned char *d,
                                                 u32 *frame_len) {
-    *frame_len = ((u32)d[0] << 16) | ((u32)d[1] << 8) | (u32)d[2];
+    *frame_len = h2_frame_payload_len(d);
     const u32 stream_id = (((u32)(d[5] & ~(u8)k_h2_reserved_bit_mask) << 24) | ((u32)d[6] << 16) |
                            ((u32)d[7] << 8) | (u32)d[8]);
     return h2_sniff_check_frame(
@@ -315,7 +319,7 @@ static __always_inline u8 h2_sniff_tiles(const h2_sniff_state_t *st, u32 pos, u3
 typedef enum {
     k_h2_walk_mismatch = 0, // a frame broke the rules, ran past the buffer, or left a block open
     k_h2_walk_tiled,        // the frames tiled the buffer exactly
-    k_h2_walk_unfinished,   // every frame walked was valid, but the walk stopped before the end
+    k_h2_walk_unfinished,   // every frame walked passed its checks, but the walk stopped short
 } h2_walk_result_t;
 
 // A walk only stops short of the buffer end when it ran out of frames to look at, which proves

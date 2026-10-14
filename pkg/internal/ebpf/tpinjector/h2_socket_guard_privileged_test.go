@@ -235,6 +235,24 @@ func TestH2SocketGuard(t *testing.T) {
 		requireInjected(t, c, 1)
 	})
 
+	// only the framing decides probation, so legal frames the first sniff refuses confirm too
+	legal := []struct {
+		name  string
+		frame []byte
+	}{
+		{name: "empty DATA without END_STREAM", frame: []byte{0, 0, 0, 0, 0, 0, 0, 0, 1}},
+		{name: "unknown frame type", frame: []byte{0, 0, 4, 0x2b, 0, 0, 0, 0, 0, 0, 0, 0, 0}},
+	}
+	for _, l := range legal {
+		t.Run("probation confirms on "+l.name, func(t *testing.T) {
+			c := sniff(t)
+			c.send(l.frame)
+			require.Equal(t, h2SockConfirmed, c.state())
+			c.send(h2ProbeFrame(3))
+			requireInjected(t, c, 1)
+		})
+	}
+
 	malformed := []struct {
 		name  string
 		frame func() []byte

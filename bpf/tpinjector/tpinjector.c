@@ -1059,9 +1059,11 @@ static __always_inline bool is_http2_preface(const unsigned char *d, const unsig
 }
 
 // Mid-stream H2 recognition for sockets whose preface predates attachment. Walks up to
-// k_h2_sniff_max_frames strict frames; hpack_at holds the HPACK offset of the first HEADERS
-// frame, 0 if the walk met none.
-static __always_inline h2_walk_result_t sniff_http2_frames(struct sk_msg_md *msg, u32 *hpack_at) {
+// k_h2_sniff_max_frames frames: strict applies the sniff rules to each one, otherwise only the
+// framing is checked. hpack_at holds the HPACK offset of the first HEADERS frame, 0 if none.
+static __always_inline h2_walk_result_t sniff_http2_frames(struct sk_msg_md *msg,
+                                                           const bool strict,
+                                                           u32 *hpack_at) {
     const u32 msg_size = msg->size;
     u32 pos = 0;
     h2_sniff_state_t st = {0};
@@ -1085,8 +1087,8 @@ static __always_inline h2_walk_result_t sniff_http2_frames(struct sk_msg_md *msg
         const u8 fflags = d[4];
         const bool first_headers = !st.seen_headers;
 
-        u32 frame_len;
-        if (!h2_sniff_frame_header(&st, d, &frame_len)) {
+        u32 frame_len = h2_frame_payload_len(d);
+        if (strict && !h2_sniff_frame_header(&st, d, &frame_len)) {
             return k_h2_walk_mismatch;
         }
 
@@ -1161,11 +1163,13 @@ int obi_packet_extender_sniff_h2(struct sk_msg_md *msg) {
     const bool on_probation = h2_sock_state(msg) == k_h2_sock_probation;
     u32 hpack_at = 0;
 
-    // walked once for both cases: the frame walk is this program's whole verifier budget
-    const h2_walk_result_t walk = sniff_http2_frames(msg, &hpack_at);
+    // Walked once for both cases: the frame walk is this program's whole verifier budget.
+    // The deciding send is checked on framing only: a tunnel's own framing and a TLS record
+    // already fail there, and rejecting a legal frame would cost the connection for good.
+    const h2_walk_result_t walk = sniff_http2_frames(msg, !on_probation, &hpack_at);
 
     if (on_probation) {
-        // more valid frames than the walk covers: let the next send decide
+        // more frames than the walk covers: let the next send decide
         if (walk == k_h2_walk_unfinished) {
             return SK_PASS;
         }
