@@ -295,6 +295,11 @@ func TestDynamicInstrumentationValidation(t *testing.T) {
 			want: "rules must not be empty",
 		},
 		{
+			name: "missing rules",
+			body: "{}",
+			want: "rules must not be empty",
+		},
+		{
 			name: "empty service selectors",
 			body: "rules: [{service: [], spans: [{name: test, on: {function: f}}]}]",
 			want: "service must not be empty",
@@ -308,6 +313,16 @@ func TestDynamicInstrumentationValidation(t *testing.T) {
 			name: "empty target",
 			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {}}]}]",
 			want: "must define exactly one target",
+		},
+		{
+			name: "unknown target key",
+			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {functoin: f}}]}]",
+			want: "functoin",
+		},
+		{
+			name: "unknown match key",
+			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {usdt_span: checkout:op, match: {argument: {index: 0}, value: orders, valu: typo}}}]}]",
+			want: "valu",
 		},
 		{
 			name: "multiple targets",
@@ -444,8 +459,16 @@ extensions:
 
 	spanName := definitions["DynamicSpanSpec"].(map[string]any)["properties"].(map[string]any)["name"].(map[string]any)
 	require.EqualValues(t, 1, spanName["minLength"])
+	dynamicRequired := definitions["DynamicInstrumentation"].(map[string]any)["required"].([]any)
+	require.Equal(t, []any{"rules"}, dynamicRequired)
 	functionNoRet := definitions["DynamicSpanTarget"].(map[string]any)["oneOf"].([]any)[1].(map[string]any)["properties"].(map[string]any)["function_noret"].(map[string]any)
 	require.EqualValues(t, 1, functionNoRet["minLength"])
+	require.Error(t, compiledSchema.Validate(map[string]any{
+		"version": "2.0",
+		"capture": map[string]any{
+			"dynamic_instrumentation": map[string]any{},
+		},
+	}))
 }
 
 var schemaUnicodeEscape = regexp.MustCompile(`\\u([0-9a-fA-F]{4})`)

@@ -2289,6 +2289,9 @@
       "type": "object",
       "description": "Language-neutral dynamic instrumentation rules.",
       "additionalProperties": false,
+      "required": [
+        "rules"
+      ],
       "properties": {
         "rules": {
           "type": "array",

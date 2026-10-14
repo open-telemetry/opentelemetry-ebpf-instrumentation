@@ -144,10 +144,12 @@ type DynamicSpanTarget struct {
 
 func (t *DynamicSpanTarget) UnmarshalYAML(node *yaml.Node) error {
 	type plain DynamicSpanTarget
-	t.targetKeyCount = 0
-	if err := node.Decode((*plain)(t)); err != nil {
+	var decoded plain
+	if err := decodeKnownFields(node, &decoded); err != nil {
 		return err
 	}
+	*t = DynamicSpanTarget(decoded)
+	t.targetKeyCount = 0
 	for i := 0; i < len(node.Content)-1; i += 2 {
 		switch node.Content[i].Value {
 		case "usdt_noret", "usdt_span", "function_noret", "function":
