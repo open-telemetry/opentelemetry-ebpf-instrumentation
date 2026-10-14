@@ -78,8 +78,7 @@ func testREDMetricsForHTTP2Library(t *testing.T, route, svcNs string) {
 			`http_response_status_code="200",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="server",` +
-			`http_route="` + route + `",` +
-			`url_path="` + route + `"`
+			`http_route="` + route + `"`
 		clientLabels = `http_request_method="GET",` +
 			`http_response_status_code="200",` +
 			`service_namespace="` + svcNs + `",` +

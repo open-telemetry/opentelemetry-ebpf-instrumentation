@@ -335,11 +335,19 @@ func getDefinitions(
 		extraGroupAttributes[GroupHTTPRoutes],
 	)
 
+	httpClientRoutes := NewAttrReportGroup(
+		!groups.Has(GroupHTTPRoutes),
+		nil,
+		map[attr.Name]Default{
+			attr.HTTPUrlTemplate: true,
+		},
+		nil,
+	)
+
 	serverInfo := NewAttrReportGroup(
 		false,
 		nil,
 		map[attr.Name]Default{
-			attr.ClientAddr: false,
 			attr.ServerAddr: true,
 			attr.ServerPort: true,
 		},
@@ -368,12 +376,11 @@ func getDefinitions(
 
 	httpCommon := NewAttrReportGroup(
 		false,
-		[]*AttrReportGroup{&httpRoutes},
+		nil,
 		map[attr.Name]Default{
 			attr.HTTPRequestMethod:      true,
 			attr.HTTPURLScheme:          true,
 			attr.HTTPResponseStatusCode: true,
-			attr.HTTPUrlPath:            false,
 			attr.ErrorType:              true,
 		},
 		extraGroupAttributes[GroupHTTPCommon],
@@ -404,22 +411,22 @@ func getDefinitions(
 			SubGroups: []*AttrReportGroup{&networkInterZone, &networkInterZoneCIDR, &networkGeoIP, &networkInterZoneKube},
 		},
 		HTTPServerDuration.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &serverInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpRoutes, &serverInfo},
 		},
 		HTTPServerRequestSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &serverInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpRoutes, &serverInfo},
 		},
 		HTTPServerResponseSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &serverInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpRoutes, &serverInfo},
 		},
 		HTTPClientDuration.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientRoutes, &httpClientInfo},
 		},
 		HTTPClientRequestSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientRoutes, &httpClientInfo},
 		},
 		HTTPClientResponseSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientRoutes, &httpClientInfo},
 		},
 		RPCClientDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &grpcClientInfo},
@@ -455,6 +462,7 @@ func getDefinitions(
 		DBServerDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &serverInfo},
 			Attributes: map[attr.Name]Default{
+				attr.ClientAddr:           false,
 				attr.DBOperation:          true,
 				attr.DBSystemName:         true,
 				attr.ErrorType:            true,
@@ -955,6 +963,10 @@ func copyDisabled(src AttrReportGroup) AttrReportGroup {
 	return dst
 }
 
+// filterOnlyAttributes are span attributes that no metric reports, but that
+// attribute filters still match on.
+var filterOnlyAttributes = []attr.Name{attr.HTTPUrlPath}
+
 // AllAttributeNames returns a set with all the names in the attributes database
 // as returned by the getDefinitions function
 func AllAttributeNames(
@@ -971,6 +983,9 @@ func AllAttributeNames(
 		for _, section := range extraDefinitionsProvider(-1, extraGroupAttributes) {
 			maps.Copy(names, section.All())
 		}
+	}
+	for _, name := range filterOnlyAttributes {
+		names[name] = struct{}{}
 	}
 	return names
 }

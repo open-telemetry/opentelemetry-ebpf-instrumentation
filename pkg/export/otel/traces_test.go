@@ -2150,7 +2150,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api?foo=bar")
 	})
-	t.Run("test HTTP client url.full includes query with opt-in", func(t *testing.T) {
+	t.Run("test HTTP client url.full includes query and url.query is not emitted", func(t *testing.T) {
 		span := request.Span{
 			Type:      request.EventTypeHTTPClient,
 			Method:    "GET",
@@ -2168,9 +2168,9 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api?foo=bar")
-		ensureTraceStrAttr(t, attrs, semconv.URLQueryKey, "foo=bar")
+		ensureTraceAttrNotExists(t, attrs, semconv.URLQueryKey)
 	})
-	t.Run("test HTTP client url.full includes query through selector config opt-in", func(t *testing.T) {
+	t.Run("test HTTP client url.query is not emitted even when selected", func(t *testing.T) {
 		tr := makeTracesTestReceiver([]instrumentations.Instrumentation{instrumentations.InstrumentationHTTP})
 		tr.selectorCfg = &attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
@@ -2195,7 +2195,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := traces[0].ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api?foo=bar")
-		ensureTraceStrAttr(t, attrs, semconv.URLQueryKey, "foo=bar")
+		ensureTraceAttrNotExists(t, attrs, semconv.URLQueryKey)
 	})
 	t.Run("test HTTP client url.full falls back to Path when FullPath is empty", func(t *testing.T) {
 		span := request.Span{
