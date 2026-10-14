@@ -70,7 +70,7 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 	case attr.ServerAddr:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeHTTPClient {
-				return ServerAddr(HTTPClientHost(s))
+				return ServerAddr(HTTPClientServerAddr(s))
 			}
 			return ServerAddr(HostAsServer(s))
 		}

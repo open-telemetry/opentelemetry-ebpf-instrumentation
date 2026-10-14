@@ -830,7 +830,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		attrs = []attribute.KeyValue{
 			request.ServerPort(span.HostPort),
 		}
-		attrs = appendIfSet(attrs, request.ServerAddr, host)
+		attrs = appendIfSet(attrs, request.ServerAddr, request.HostWithoutPort(host))
 		attrs = appendPeerService(attrs, span, optionalAttrs)
 
 		if transport != httpTransportNone {
