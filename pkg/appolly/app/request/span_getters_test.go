@@ -86,6 +86,17 @@ func TestSpanOTELGetters_K8SClientNamespace(t *testing.T) {
 	}
 }
 
+func TestSpanOTELGetters_GenAIRequestModel(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.GenAIRequestModel)
+	require.True(t, ok)
+
+	named := &Span{GenAI: &GenAI{OpenAI: &VendorOpenAI{Request: OpenAIInput{Model: "gpt-4o"}}}}
+	assert.Equal(t, "gpt-4o", getter(named).Value.AsString())
+
+	unnamed := &Span{GenAI: &GenAI{OpenAI: &VendorOpenAI{}}}
+	assert.False(t, getter(unnamed).Valid(), "a request that named no model reports no gen_ai.request.model")
+}
+
 func TestSpanOTELGetters_DBCollectionName(t *testing.T) {
 	tests := []struct {
 		name     string

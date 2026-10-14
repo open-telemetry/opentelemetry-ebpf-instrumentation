@@ -264,10 +264,10 @@ OBI-emitted gen_ai.client.operation.duration
 | `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `gen_ai.operation.name` | string | `required` | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
 | `gen_ai.provider.name` | enum | `required` | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
-| `gen_ai.request.model` | string | `recommended`: if the request named a model | development | The name of the GenAI model a request is being made to. | gpt-4 |
+| `gen_ai.request.model` | string | `conditionally_required`: if the request named a model | development | The name of the GenAI model a request is being made to. | gpt-4 |
 | `gen_ai.response.model` | string | `recommended`: if the provider returned it | development | The name of the model that generated the response. | gpt-4-0613 |
 | `server.address` | string | `conditionally_required`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
+| `server.port` | int | `conditionally_required`: if `server.address` is set | stable | Server port number. | 80; 8080; 443 |
 
 ## `gen_ai.client.token.usage`
 
@@ -281,11 +281,11 @@ OBI-emitted gen_ai.client.token.usage
 | --- | --- | --- | --- | --- | --- |
 | `gen_ai.operation.name` | string | `required` | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
 | `gen_ai.provider.name` | enum | `required` | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
-| `gen_ai.request.model` | string | `recommended`: if the request named a model | development | The name of the GenAI model a request is being made to. | gpt-4 |
+| `gen_ai.request.model` | string | `conditionally_required`: if the request named a model | development | The name of the GenAI model a request is being made to. | gpt-4 |
 | `gen_ai.response.model` | string | `recommended`: if the provider returned it | development | The name of the model that generated the response. | gpt-4-0613 |
 | `gen_ai.token.type` | enum | `required` | development | The type of token being counted. | input; output |
 | `server.address` | string | `conditionally_required`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
+| `server.port` | int | `conditionally_required`: if `server.address` is set | stable | Server port number. | 80; 8080; 443 |
 
 ## `go.config.gogc`
 
