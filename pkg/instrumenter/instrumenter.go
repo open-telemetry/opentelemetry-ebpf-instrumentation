@@ -12,6 +12,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"go.opentelemetry.io/obi/pkg/cloud"
 	"go.opentelemetry.io/obi/pkg/docker"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
@@ -21,7 +22,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/appolly"
-	"go.opentelemetry.io/obi/pkg/internal/cloud"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	netagent "go.opentelemetry.io/obi/pkg/netolly/agent"

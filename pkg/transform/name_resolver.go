@@ -15,8 +15,8 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/cloud"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
-	"go.opentelemetry.io/obi/pkg/internal/cloud"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 	memorystore "go.opentelemetry.io/obi/pkg/internal/rdns/store"
 	"go.opentelemetry.io/obi/pkg/kube"
