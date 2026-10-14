@@ -214,15 +214,14 @@ jobs:
         with:
           name: bpf-generated-${{ github.run_id }}
 
-      - name: Resolve ocb version from go.mod
+      - name: Resolve ocb version from builder config
         id: ocb
         shell: bash
         run: |
-          # Pin ocb to the Collector release line OBI itself depends on, so the
-          # example is always built against a compatible builder (see #2264).
-          version=$(grep -E '^[[:space:]]*go\.opentelemetry\.io/collector/exporter/otlpexporter v[0-9]' go.mod | awk '{print $2}')
+          # Pin ocb to the Collector release line used by the example (see #2264).
+          version=$(awk '$1 == "go.opentelemetry.io/collector/exporter/otlpexporter" { print $2; exit }' examples/otel-collector/builder-config.yaml)
           if [ -z "$version" ]; then
-            echo "could not determine collector version from go.mod" >&2
+            echo "could not determine collector version from builder config" >&2
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
