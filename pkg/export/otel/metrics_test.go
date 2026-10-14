@@ -972,6 +972,72 @@ func TestAppMetrics_HTTPErrorType(t *testing.T) {
 	}
 }
 
+func TestAppMetrics_HTTPRouteAttributes(t *testing.T) {
+	features := export.FeatureApplicationRED | export.FeatureApplicationSizes
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 20)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		MetricsConsumer:   testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{
+			MetricAttributeGroups: attributes.GroupHTTPRoutes,
+			OTELMetricsExporter:   &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
+		},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: features},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	svcAttrs := svc.Attrs{Features: features, UID: svc.UID{Instance: "foo"}}
+	metrics.Send([]request.Span{
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Method: "GET", Route: "/server/{id}", Path: "/server/1", Status: 200, RequestStart: 100, End: 200},
+		{Service: svcAttrs, Type: request.EventTypeHTTPClient, Method: "GET", Route: "/client/{id}", Path: "/client/1", Status: 200, RequestStart: 100, End: 200},
+	})
+
+	pending := map[string]bool{}
+	for _, name := range []string{
+		attributes.HTTPServerDuration.OTEL, attributes.HTTPServerRequestSize.OTEL, attributes.HTTPServerResponseSize.OTEL,
+		attributes.HTTPClientDuration.OTEL, attributes.HTTPClientRequestSize.OTEL, attributes.HTTPClientResponseSize.OTEL,
+	} {
+		pending[name] = true
+	}
+
+	deadline := time.After(timeout)
+	for len(pending) > 0 {
+		select {
+		case record := <-metricRecords:
+			if !pending[record.Name] {
+				continue
+			}
+			assert.NotContains(t, record.Attributes, string(attr.HTTPUrlPath), record.Name)
+			if strings.HasPrefix(record.Name, "http.client.") {
+				assert.Equal(t, "/client/{id}", record.Attributes[string(attr.HTTPUrlTemplate)], record.Name)
+				assert.NotContains(t, record.Attributes, string(attr.HTTPRoute), record.Name)
+			} else {
+				assert.Equal(t, "/server/{id}", record.Attributes[string(attr.HTTPRoute)], record.Name)
+				assert.NotContains(t, record.Attributes, string(attr.HTTPUrlTemplate), record.Name)
+			}
+			delete(pending, record.Name)
+		case <-deadline:
+			require.Failf(t, "timeout while waiting for metric records", "missing: %v", pending)
+		}
+	}
+}
+
 func TestAppMetrics_REDHistogramBucketBoundaries(t *testing.T) {
 	features := export.FeatureApplicationRED | export.FeatureApplicationSizes
 	// non-default and distinct per field, so a histogram that ignores cfg.Buckets or uses
