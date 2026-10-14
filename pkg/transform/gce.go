@@ -45,7 +45,7 @@ func gceInventoryRefresher(ctx context.Context, node *metadata.NodeMeta,
 		return nil, errors.New("initializing GCE name resolver: a positive refresh interval is required")
 	}
 	if settings.ProjectID == "" || settings.Zone == "" {
-		return nil, errors.New("initializing GCE name resolver: configure name_resolver.gce.project_id and zone when cloud metadata does not supply them")
+		return nil, errors.New("initializing GCE name resolver: configure extensions.obi.enrich.service_name.gce.project_id and extensions.obi.enrich.service_name.gce.zone when cloud metadata does not supply them")
 	}
 
 	options := []option.ClientOption{option.WithScopes(compute.ComputeReadonlyScope)}

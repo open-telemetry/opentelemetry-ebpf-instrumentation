@@ -68,12 +68,12 @@ func resolverSources(src []Source) maps.Bits {
 }
 
 type NameResolverConfig struct {
-	// Sources specifies the backends used for name resolving. Accepted values: dns, ecs, gce, k8s, rdns, route53.
+	// Sources specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns, route53.
 	// The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions.
 	// The "route53" source requires route53:ListResourceRecordSets on the configured hosted zones.
-	// The "gce" source requires compute.instanceGroupManagers.list, compute.instanceGroupManagers.get, and compute.instances.get permissions.
-	Sources []Source              `yaml:"sources" env:"OTEL_EBPF_NAME_RESOLVER_SOURCES" envSeparator:","`
-	GCE     GCENameResolverConfig `yaml:"gce"`
+	Sources []Source `yaml:"sources" env:"OTEL_EBPF_NAME_RESOLVER_SOURCES" envSeparator:","`
+	// GCE holds service name enrichment settings loaded from Config v2.
+	GCE GCENameResolverConfig `yaml:"-" env:"-"`
 	// CacheLen specifies the max size of the LRU cache that is checked before
 	// performing the name lookup. Default: 256
 	CacheLen int `yaml:"cache_len" env:"OTEL_EBPF_NAME_RESOLVER_CACHE_LEN" validate:"gt=0"`
@@ -99,12 +99,12 @@ type CloudMetadataConfig struct {
 // GCENameResolverConfig configures service resolution for zonal managed instance groups.
 type GCENameResolverConfig struct {
 	// ProjectID defaults to the project detected from cloud metadata.
-	ProjectID string `yaml:"project_id" env:"OTEL_EBPF_NAME_RESOLVER_GCE_PROJECT_ID"`
+	ProjectID string `yaml:"project_id"`
 	// Zone defaults to the availability zone detected from cloud metadata.
-	Zone string `yaml:"zone" env:"OTEL_EBPF_NAME_RESOLVER_GCE_ZONE"`
+	Zone string `yaml:"zone"`
 	// Endpoint overrides the Compute API base URL for an emulator or API proxy.
 	// Empty uses the Google Compute API endpoint.
-	Endpoint string `yaml:"endpoint" env:"OTEL_EBPF_NAME_RESOLVER_GCE_ENDPOINT"`
+	Endpoint string `yaml:"endpoint"`
 }
 
 type NameResolver struct {

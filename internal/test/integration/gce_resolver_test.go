@@ -99,30 +99,21 @@ func testGCEServiceResolution(t *testing.T, detect bool) {
 	endpoint := "http://" + net.JoinHostPort(gateway, strconv.Itoa(listener.Addr().(*net.TCPAddr).Port))
 	o := obi{
 		Env: []string{
-			// Only the frontend listens on 8080. The checkout has no OBI or SDK.
-			"OTEL_EBPF_OPEN_PORT=8080",
-			"OTEL_EBPF_BPF_DEBUG=false",
-			"OTEL_EBPF_PROMETHEUS_PORT=8999",
-			"OTEL_EBPF_METRICS_FEATURES=application,application_span_otel,application_service_graph",
-			"OTEL_EBPF_PROMETHEUS_FEATURES=application,application_span_otel,application_service_graph",
-			"OTEL_EBPF_NAME_RESOLVER_SOURCES=gce",
-			"OTEL_EBPF_NAME_RESOLVER_GCE_ENDPOINT=" + endpoint,
-			"OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL=1s",
-			"OTEL_EBPF_HOST_ID=custom-exported-host",
+			"GCE_TEST_ENDPOINT=" + endpoint,
 			"GCE_METADATA_HOST=mock-imds",
 		},
 		Logs: createLogOutput(t, "gce-resolver"),
 	}
 	if !detect {
 		o.Env = append(o.Env,
-			"OTEL_EBPF_NAME_RESOLVER_GCE_PROJECT_ID=my-test-project",
-			"OTEL_EBPF_NAME_RESOLVER_GCE_ZONE=us-central1-a",
+			"GCE_TEST_PROJECT_ID=my-test-project",
+			"GCE_TEST_ZONE=us-central1-a",
 		)
 	}
 	if !KernelLockdownMode() {
 		o.SecurityConfigSuffix = "_none"
 	}
-	o.instrument(t, network, "obi-config.yml")
+	o.instrument(t, network, "obi-config-gce-v2.yml")
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		assert.Positive(ct, denied.Load())
