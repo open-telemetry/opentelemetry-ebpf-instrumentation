@@ -116,6 +116,48 @@ func TestRunOutlivesStartContext(t *testing.T) {
 	}
 }
 
+func TestStartWithCanceledContextDoesNotRunOBI(t *testing.T) {
+	runCalls := make(chan struct{}, 1)
+	originalRunOBI := runOBI
+	t.Cleanup(func() { runOBI = originalRunOBI })
+	runOBI = func(
+		_ context.Context, _ *obi.Config, _ *global.ContextInfo,
+		_ *instrumentations.InstrumentationSelection, _ ...instrumenter.Option,
+	) error {
+		runCalls <- struct{}{}
+		return nil
+	}
+
+	id := component.MustNewIDWithName("obi", "canceled-start")
+	cfg := &obi.Config{}
+	cfg.Attributes.HostID.Override = "test-host-id"
+	cfg.Attributes.MetadataRetry = metadata.RetryConfig{Timeout: time.Millisecond}
+	cfg.Attributes.Kubernetes.Enable = kubeflags.EnabledFalse
+	c := newTestController(t, id, cfg)
+
+	startCtx, cancelStart := context.WithCancel(context.Background())
+	cancelStart()
+
+	if err := c.Start(startCtx, componenttest.NewNopHost()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected Start to return context.Canceled, got %v", err)
+	}
+	select {
+	case <-runCalls:
+		t.Fatal("OBI was started with a canceled Start context")
+	default:
+	}
+
+	if err := c.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown returned error after canceled start: %v", err)
+	}
+	sharedControllersMu.Lock()
+	_, stillRegistered := sharedControllers[id]
+	sharedControllersMu.Unlock()
+	if stillRegistered {
+		t.Fatal("shared controller was not removed after canceled start")
+	}
+}
+
 func TestShutdownRespectsContextDeadline(t *testing.T) {
 	id := component.MustNewIDWithName("obi", "ctx-deadline")
 	c := newTestController(t, id, &obi.Config{})
