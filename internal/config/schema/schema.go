@@ -486,7 +486,13 @@ func ParseReceiverYAML(data []byte) (*Extension, error) {
 
 // ValidateStandalone checks version support for a standalone OBI extension.
 func ValidateStandalone(cfg *Extension) error {
-	return validateVersion(cfg)
+	if err := validateVersion(cfg); err != nil {
+		return err
+	}
+	if err := cfg.Capture.DynamicInstrumentation.Validate(); err != nil {
+		return err
+	}
+	return validateDynamicSelectorSchema(cfg.source)
 }
 
 // ValidateReceiver checks version support and receiver section boundaries for an
@@ -503,6 +509,53 @@ func ValidateReceiver(cfg *Extension) error {
 	}
 	if cfg.Daemon != nil {
 		return &SectionNotAllowedError{Section: sectionDaemon}
+	}
+	if err := cfg.Capture.DynamicInstrumentation.Validate(); err != nil {
+		return err
+	}
+	return validateDynamicSelectorSchema(cfg.source)
+}
+
+func validateDynamicSelectorSchema(source *yaml.Node) error {
+	if source == nil {
+		return nil
+	}
+	dynamic, ok := nestedNode(source, "capture", "dynamic_instrumentation")
+	if !ok {
+		return nil
+	}
+	if dynamic.Kind != yaml.MappingNode {
+		return errors.New("dynamic_instrumentation must be an object")
+	}
+	rules, ok := mappingValue(dynamic, "rules")
+	if !ok || rules.Kind != yaml.SequenceNode {
+		return nil
+	}
+	selectorFields := map[string]struct{}{
+		"name": {}, "namespace": {}, "open_ports": {}, "languages": {},
+		"target_pids": {}, "exe_path": {}, "cmd_args": {}, "containers_only": {},
+		"k8s_namespace": {}, "k8s_pod_name": {}, "k8s_deployment_name": {},
+		"k8s_replicaset_name": {}, "k8s_daemonset_name": {}, "k8s_statefulset_name": {},
+		"k8s_job_name": {}, "k8s_cronjob_name": {}, "k8s_owner_name": {},
+		"k8s_container_name": {}, "container_name": {}, "k8s_pod_labels": {},
+		"k8s_pod_annotations": {},
+	}
+	for ruleIndex, rule := range rules.Content {
+		service, ok := mappingValue(rule, "service")
+		if !ok || service.Kind != yaml.SequenceNode {
+			continue
+		}
+		for selectorIndex, selector := range service.Content {
+			if selector.Kind != yaml.MappingNode {
+				continue
+			}
+			for i := 0; i < len(selector.Content)-1; i += 2 {
+				field := selector.Content[i].Value
+				if _, ok := selectorFields[field]; !ok {
+					return fmt.Errorf("dynamic_instrumentation.rules[%d].service[%d].%s is not a supported selector", ruleIndex, selectorIndex, field)
+				}
+			}
+		}
 	}
 	return nil
 }

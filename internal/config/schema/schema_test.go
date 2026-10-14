@@ -4,10 +4,16 @@
 package schema
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
+	"regexp"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
 
@@ -192,41 +198,14 @@ extensions:
 	require.NotNil(t, extension.Capture.DynamicInstrumentation)
 	encoded, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
 	require.NoError(t, err)
-	// Empty selector fields are the existing GlobAttributes serialization defaults.
 	require.YAMLEq(t, `
 rules:
   - service:
-      - name: ""
-        namespace: ""
-        open_ports: ""
-        languages: "*"
-        target_pids: []
+      - languages: "*"
         exe_path: "*/checkout"
-        cmd_args: ""
-        k8s_pod_labels: {}
-        k8s_pod_annotations: {}
-        containers_only: false
-        exports: null
-        sampler: null
-        routes: null
-        metrics:
-          features: null
-      - name: ""
-        namespace: ""
-        open_ports: 8080-8089
-        languages: ""
-        target_pids: []
-        exe_path: ""
-        cmd_args: ""
+      - open_ports: 8080-8089
         k8s_pod_labels:
           app: checkout
-        k8s_pod_annotations: {}
-        containers_only: false
-        exports: null
-        sampler: null
-        routes: null
-        metrics:
-          features: null
         k8s_deployment_name: checkout
         k8s_namespace: shop
     spans:
@@ -300,6 +279,194 @@ rules:
 	originalYAML, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
 	require.NoError(t, err)
 	require.YAMLEq(t, string(originalYAML), string(roundTripYAML))
+}
+
+func TestDynamicInstrumentationValidation(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "empty rules",
+			body: "rules: []",
+			want: "rules must not be empty",
+		},
+		{
+			name: "empty service selectors",
+			body: "rules: [{service: [], spans: [{name: test, on: {function: f}}]}]",
+			want: "service must not be empty",
+		},
+		{
+			name: "empty spans",
+			body: "rules: [{service: [{languages: java}], spans: []}]",
+			want: "spans must not be empty",
+		},
+		{
+			name: "empty target",
+			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {}}]}]",
+			want: "must define exactly one target",
+		},
+		{
+			name: "multiple targets",
+			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {function: f, function_noret: g}}]}]",
+			want: "must define exactly one target",
+		},
+		{
+			name: "empty and non-empty target keys",
+			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {function: '', function_noret: g}}]}]",
+			want: "must define exactly one target",
+		},
+		{
+			name: "empty span name",
+			body: "rules: [{service: [{languages: java}], spans: [{name: '', on: {function: f}}]}]",
+			want: "name must not be empty",
+		},
+		{
+			name: "argument index out of range",
+			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {function: f}, attributes: [{name: id, argument: {index: 12}}]}]}]",
+			want: "between 0 and 11",
+		},
+		{
+			name: "match argument index out of range",
+			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {usdt_span: checkout:operation, match: {argument: {index: 12}, value: orders}}}]}]",
+			want: "between 0 and 11",
+		},
+		{
+			name: "unknown argument type",
+			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {function: f}, attributes: [{name: id, argument: {index: 0, type: bytes}}]}]}]",
+			want: "type \"bytes\" is not supported",
+		},
+		{
+			name: "empty function noret",
+			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {function_noret: ''}}]}]",
+			want: "target must not be empty",
+		},
+		{
+			name: "empty attribute name",
+			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {function: f}, attributes: [{name: '', argument: {index: 0}}]}]}]",
+			want: "attributes[0].name must not be empty",
+		},
+		{
+			name: "empty match value",
+			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {usdt_span: checkout:operation, match: {argument: {index: 0}, value: ''}}}]}]",
+			want: "match.value must not be empty",
+		},
+		{
+			name: "selector contains unsupported exporter config",
+			body: "rules: [{service: [{languages: java, exports: metrics}], spans: [{name: test, on: {function: f}}]}]",
+			want: "exports is not a supported selector",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			input := fmt.Sprintf(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      dynamic_instrumentation:
+        %s
+`, tc.body)
+			_, _, err := ParseStandaloneYAML([]byte(input))
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
+}
+
+func TestParseReceiverValidatesDynamicInstrumentation(t *testing.T) {
+	t.Parallel()
+
+	_, err := ParseReceiverYAML([]byte(`version: "2.0"
+dynamic_instrumentation:
+  rules: []
+`))
+	require.ErrorContains(t, err, "rules must not be empty")
+}
+
+func TestDynamicInstrumentationMarshalMatchesSchema(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile("../../../devdocs/config/version-2.0/obi-extension.schema.json")
+	require.NoError(t, err)
+	var document map[string]any
+	require.NoError(t, json.Unmarshal(data, &document))
+	compiler := jsonschema.NewCompiler()
+	compiler.UseRegexpEngine(compileSchemaRegexp)
+	const schemaURL = "https://opentelemetry.io/obi/schemas/obi-extension.schema.json"
+	require.NoError(t, compiler.AddResource(schemaURL, document))
+	compiledSchema, err := compiler.Compile(schemaURL)
+	require.NoError(t, err)
+	definitions := document["$defs"].(map[string]any)
+	dynamicServiceSchema := definitions["DynamicServiceSelector"].(map[string]any)
+	properties := dynamicServiceSchema["properties"].(map[string]any)
+
+	_, extension, err := ParseStandaloneYAML([]byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      dynamic_instrumentation:
+        rules:
+          - service:
+              - languages: java
+                exe_path: "*/checkout"
+                k8s_namespace: shop
+                k8s_pod_labels: {app: checkout}
+            spans:
+              - name: java.checkout
+                on: {function_noret: setup}
+`))
+	require.NoError(t, err)
+	encoded, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
+	require.NoError(t, err)
+	var marshaled map[string]any
+	require.NoError(t, yaml.Unmarshal(encoded, &marshaled))
+	config := map[string]any{
+		"version": "2.0",
+		"capture": map[string]any{
+			"dynamic_instrumentation": marshaled,
+		},
+	}
+	require.NoError(t, compiledSchema.Validate(config))
+	rule := marshaled["rules"].([]any)[0].(map[string]any)
+	selectors := rule["service"].([]any)
+	for _, selector := range selectors {
+		for key := range selector.(map[string]any) {
+			require.Contains(t, properties, key)
+		}
+	}
+	for _, exporterField := range []string{"exports", "sampler", "routes", "metrics"} {
+		require.NotContains(t, properties, exporterField)
+	}
+
+	spanName := definitions["DynamicSpanSpec"].(map[string]any)["properties"].(map[string]any)["name"].(map[string]any)
+	require.EqualValues(t, 1, spanName["minLength"])
+	functionNoRet := definitions["DynamicSpanTarget"].(map[string]any)["oneOf"].([]any)[1].(map[string]any)["properties"].(map[string]any)["function_noret"].(map[string]any)
+	require.EqualValues(t, 1, functionNoRet["minLength"])
+}
+
+var schemaUnicodeEscape = regexp.MustCompile(`\\u([0-9a-fA-F]{4})`)
+
+func compileSchemaRegexp(pattern string) (jsonschema.Regexp, error) {
+	var conversionError error
+	pattern = schemaUnicodeEscape.ReplaceAllStringFunc(pattern, func(escape string) string {
+		if conversionError != nil {
+			return escape
+		}
+		codePoint, err := strconv.ParseUint(escape[2:], 16, 16)
+		if err != nil {
+			conversionError = err
+			return escape
+		}
+		return fmt.Sprintf(`\x{%04X}`, codePoint)
+	})
+	if conversionError != nil {
+		return nil, conversionError
+	}
+	return regexp.Compile(strings.ReplaceAll(pattern, `\/`, `/`))
 }
 
 func TestDynamicJavaReferencesParseMarshal(t *testing.T) {

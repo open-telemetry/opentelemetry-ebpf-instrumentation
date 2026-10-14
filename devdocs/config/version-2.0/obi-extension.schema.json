@@ -2292,6 +2292,7 @@
       "properties": {
         "rules": {
           "type": "array",
+          "minItems": 1,
           "description": "Rules associating service/workload selectors with named spans.",
           "items": {
             "$ref": "#/$defs/DynamicInstrumentationRule"
@@ -2437,6 +2438,7 @@
       "properties": {
         "name": {
           "type": "string",
+          "minLength": 1,
           "description": "Name emitted for the span."
         },
         "on": {
@@ -2477,6 +2479,7 @@
           "properties": {
             "function_noret": {
               "type": "string",
+              "minLength": 1,
               "description": "Function symbol or glob for an entry-only zero-duration marker."
             }
           }
@@ -2490,6 +2493,7 @@
           "properties": {
             "usdt_span": {
               "type": "string",
+              "minLength": 1,
               "description": "`provider:base` for paired `<base>_start` and `<base>_end` probes."
             },
             "match": {
@@ -2506,6 +2510,7 @@
           "properties": {
             "usdt_noret": {
               "type": "string",
+              "minLength": 1,
               "description": "`provider:name` for a single zero-duration marker probe."
             },
             "match": {

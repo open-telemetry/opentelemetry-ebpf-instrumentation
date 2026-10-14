@@ -46,6 +46,7 @@ require (
 	github.com/prometheus/common v0.71.0
 	github.com/prometheus/otlptranslator v1.0.0
 	github.com/prometheus/procfs v0.22.0
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/shirou/gopsutil/v4 v4.26.9
 	github.com/stretchr/testify v1.12.1
 	github.com/tidwall/jsonc v0.3.3
