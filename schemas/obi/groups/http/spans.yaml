@@ -162,9 +162,12 @@ spans:
         requirement_level: required
       - ref: rpc.method
         requirement_level: required
+      - ref: rpc.method_original
+        requirement_level:
+          conditionally_required: if the qualified method differs from the raw one
       - ref: jsonrpc.protocol.version
         requirement_level:
-          conditionally_required: upstream declares it conditional; OBI always emits it, since it recognises only JSON-RPC 2.0
+          conditionally_required: upstream declares it conditional; OBI always emits it, taking the version from the request, or 1.0 for Go net/rpc, whose requests carry none
       - ref: jsonrpc.request.id
         requirement_level:
           conditionally_required: if the request carried a JSON-RPC id
@@ -243,7 +246,7 @@ spans:
           conditionally_required: if the qualified method differs from the raw one
       - ref: jsonrpc.protocol.version
         requirement_level:
-          conditionally_required: upstream declares it conditional; OBI always emits it, since it recognises only JSON-RPC 2.0
+          conditionally_required: upstream declares it conditional; OBI always emits it, taking the version from the request, or 1.0 for Go net/rpc, whose requests carry none
       - ref: jsonrpc.request.id
         requirement_level:
           conditionally_required: if the request carried a JSON-RPC id

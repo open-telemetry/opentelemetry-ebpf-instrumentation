@@ -162,6 +162,16 @@ section empty once drained.
 - On the OTLP `gen_ai.client.*` metrics, a request that names no model now omits
   `gen_ai.request.model` instead of reporting it as `""`. Prometheus output is unchanged,
   since it does not tell an empty label from a missing one.
+- New default metric attributes split existing series: `db.collection.name` on
+  `db.client.operation.duration` and `db.server.operation.duration` (when the operation
+  targets a collection), `server.port` on `rpc.client.call.duration`, and `error.type` on
+  `rpc.server.call.duration` (when the call failed).
+  For Elasticsearch and OpenSearch, `db.collection.name` is the index name, so
+  time-suffixed indices add a new label value per index; drop it with attribute
+  selection if that cardinality is unwanted.
+- ONC RPC spans now carry `rpc.response.status_code` when the REPLY was captured.
+- `rpc.client.call.duration` and `rpc.server.call.duration` omit `rpc.response.status_code` for an
+  ONC RPC call whose REPLY was not captured, instead of reporting `0` (success).
 - The registry moves to weaver's `definition/2` format. A span definition is identified
   by its `type`, so the span ids in `site/docs/spans.md` lose their `span.` prefix
   (`span.obi.http.server` becomes `obi.http.server`) and a link anchored on an old id no

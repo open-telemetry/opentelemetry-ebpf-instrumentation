@@ -4,12 +4,15 @@
 package otel
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -19,6 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
@@ -501,4 +505,33 @@ func readChan(t require.TestingT, inCh <-chan collector.MetricRecord) collector.
 		require.Failf(t, "timeout while waiting for event in input channel", "timeout: %s", timeout)
 	}
 	return collector.MetricRecord{}
+}
+
+type noopRemovable struct{}
+
+func (noopRemovable) Remove(context.Context, ...metric.RemoveOption) {}
+
+func TestExpirer_ForRecordKeepsOmittedAttributesApart(t *testing.T) {
+	field := func(key string) attributes.Field[map[string]string, attribute.KeyValue] {
+		return attributes.Field[map[string]string, attribute.KeyValue]{
+			ExposedName: key,
+			Get: func(r map[string]string) attribute.KeyValue {
+				if v, ok := r[key]; ok {
+					return attribute.String(key, v)
+				}
+				return attribute.KeyValue{}
+			},
+		}
+	}
+	exp := NewExpirer[map[string]string, noopRemovable, float64](
+		t.Context(), noopRemovable{},
+		[]attributes.Field[map[string]string, attribute.KeyValue]{field("db.collection.name"), field("db.namespace")},
+		time.Now, time.Minute)
+
+	_, collection := exp.ForRecord(map[string]string{"db.collection.name": "customers"})
+	_, namespace := exp.ForRecord(map[string]string{"db.namespace": "customers"})
+
+	assert.True(t, collection.HasValue("db.collection.name"))
+	assert.True(t, namespace.HasValue("db.namespace"))
+	assert.False(t, namespace.HasValue("db.collection.name"))
 }

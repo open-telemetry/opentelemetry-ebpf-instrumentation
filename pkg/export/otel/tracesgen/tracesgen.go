@@ -1598,6 +1598,9 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.ServerPort(span.HostPort),
 			request.RPCSystem(request.RPCSystemONCRPC),
 		}
+		if span.ResponseObservation == request.ResponseParsed {
+			attrs = append(attrs, semconv.RPCResponseStatusCode(request.SunRPCResponseStatusCode(span.Status)))
+		}
 		attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
 		attrs = appendIfSet(attrs, semconv.RPCMethod, span.SunRPCMethodForExport())
 		attrs = appendIfSet(attrs, semconv.OncRPCProgramName, span.Path)

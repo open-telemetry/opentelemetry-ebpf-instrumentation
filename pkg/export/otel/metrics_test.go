@@ -1076,6 +1076,63 @@ func TestAppMetrics_GenAIHistogramBucketBoundaries(t *testing.T) {
 	assert.Equal(t, expected, readHistogramBounds(t, records, slices.Collect(maps.Keys(expected))...))
 }
 
+func TestAppMetrics_GRPCServerErrorType(t *testing.T) {
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 10)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC},
+		MetricsConsumer:   testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	svcAttrs := svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}
+	metrics.Send([]request.Span{
+		{Service: svcAttrs, Type: request.EventTypeGRPC, Path: "/pkg.Service/Method", Status: 0, RequestStart: 100, End: 200},
+		{Service: svcAttrs, Type: request.EventTypeGRPC, Path: "/pkg.Service/Method", Status: 2, RequestStart: 100, End: 200},
+	})
+
+	pending := map[string]string{"OK": "", "UNKNOWN": "UNKNOWN"}
+	deadline := time.After(timeout)
+	for len(pending) > 0 {
+		select {
+		case record := <-metricRecords:
+			if record.Name != attributes.RPCServerDuration.OTEL {
+				continue
+			}
+			status := record.Attributes[string(attr.RPCResponseStatusCode)]
+			want, ok := pending[status]
+			if !ok {
+				continue
+			}
+			if want == "" {
+				assert.NotContains(t, record.Attributes, string(attr.ErrorType), status)
+			} else {
+				assert.Equal(t, want, record.Attributes[string(attr.ErrorType)], status)
+			}
+			delete(pending, status)
+		case <-deadline:
+			require.Failf(t, "timeout while waiting for metric records", "missing: %v", pending)
+		}
+	}
+}
+
 func TestAppMetrics_DBClientServerPortDefaultSelection(t *testing.T) {
 	ctx := t.Context()
 	metricRecords := make(chan collector.MetricRecord, 10)

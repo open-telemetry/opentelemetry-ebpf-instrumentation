@@ -14,15 +14,19 @@ metrics:
         requirement_level:
           conditionally_required: if the operation ended in an error
       - ref: rpc.method
-        requirement_level: recommended
+        requirement_level:
+          conditionally_required: if the call was captured
       - ref: rpc.response.status_code
         requirement_level:
-          conditionally_required: if the status is inside the gRPC enum
+          conditionally_required: if the status is inside the gRPC enum, or an ONC RPC REPLY was captured
       - ref: rpc.system.name
         requirement_level: required
       - ref: server.address
         requirement_level:
-          recommended: if the server address could be resolved
+          conditionally_required: if the server address could be resolved
+      - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
 
   - name: rpc.server.call.duration
     annotations:
@@ -36,11 +40,15 @@ metrics:
     attributes:
       - ref: client.address
         requirement_level: opt_in
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
       - ref: rpc.method
-        requirement_level: recommended
+        requirement_level:
+          conditionally_required: if the call was captured
       - ref: rpc.response.status_code
         requirement_level:
-          conditionally_required: if the status is inside the gRPC enum
+          conditionally_required: if the status is inside the gRPC enum, or an ONC RPC REPLY was captured
       - ref: rpc.system.name
         requirement_level: required
       - ref: server.address

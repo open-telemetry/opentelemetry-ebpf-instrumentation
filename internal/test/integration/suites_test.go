@@ -61,6 +61,7 @@ func TestSuite_Go(t *testing.T) {
 
 			t.Run("RED metrics", testREDMetricsHTTP)
 			t.Run("RED JSON RPC metrics", testREDMetricsJSONRPCHTTP)
+			t.Run("JSON RPC traces", testGoJSONRPCTraces)
 			t.Run("HTTP traces", testHTTPTraces)
 			t.Run("HTTP traces (no traceID)", testHTTPTracesNoTraceID)
 			t.Run("HTTP traces (url.query redaction)", testHTTPTracesURLQuery)
