@@ -16,7 +16,6 @@ import (
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/receiver/receivertest"
-
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/obi"
 )

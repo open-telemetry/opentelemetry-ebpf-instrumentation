@@ -6,6 +6,10 @@ module-sets:
     version: v1.0.0-rc.1
     modules:
       - go.opentelemetry.io/obi
+  collector:
+    version: v0.15.0
+    modules:
+      - go.opentelemetry.io/obi/collector
 excluded-modules:
   - github.com/GoogleCloudPlatform/microservices-demo/src/checkoutservice
   - github.com/GoogleCloudPlatform/microservices-demo/src/frontend

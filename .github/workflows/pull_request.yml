@@ -178,10 +178,11 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Build collector package
+        working-directory: collector
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: go build ./collector/...
+        run: go build ./...
 
   otel-collector-example:
     name: OTel Collector example (ocb build)
