@@ -789,14 +789,12 @@ func testGoJSONRPCTraces(t *testing.T) {
 		sd := span.Diff(goNetRPCServerTags("Arith", "Multiply")...)
 		assert.Empty(ct, sd, sd.String())
 
-		// The span still carries the HTTP transport it was read from.
-		sd = span.Diff(
-			jaeger.Tag{Key: "http.request.method", Type: "string", Value: "POST"},
-			jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(200)},
-			jaeger.Tag{Key: "url.path", Type: "string", Value: "/jsonrpc"},
-			jaeger.Tag{Key: "http.route", Type: "string", Value: "/jsonrpc"},
-		)
-		assert.Empty(ct, sd, sd.String())
+		// A JSON-RPC server span reports the RPC convention alone, not the HTTP
+		// transport it was read from.
+		for _, key := range []string{"http.request.method", "http.response.status_code", "url.path", "http.route"} {
+			_, found := jaeger.FindIn(span.Tags, key)
+			assert.False(ct, found, key)
+		}
 	}, testTimeout, time.Second)
 }
 

@@ -157,8 +157,9 @@ func emittedSpanAttributes(span *request.Span, optional ...attr.Name) []string {
 	return keys
 }
 
-// The server branch emits the same HTTP set whatever the subtype, so every
-// server span that references attributes.obi.http.server starts from this span.
+// Every server span that references attributes.obi.http.server.common starts
+// from this span, so a protocol server span proves it sheds the HTTP request
+// and response attributes the plain HTTP server span carries.
 func populatedHTTPServerSpan(subType int) *request.Span {
 	return &request.Span{
 		Type:                request.EventTypeHTTP,
@@ -760,7 +761,6 @@ func emittedSpanCases() []emittedSpanCase {
 				return s
 			}(),
 			optional: append([]attr.Name{attr.GraphQLDocument}, httpSpanOptional...),
-			absent:   []string{"obi.http.response.observed"},
 		},
 		{
 			name:     "mcp server",
@@ -783,7 +783,6 @@ func emittedSpanCases() []emittedSpanCase {
 				return s
 			}(),
 			optional: append([]attr.Name{attr.GenAIToolCallArguments, attr.GenAIToolCallResult}, httpSpanOptional...),
-			absent:   []string{"obi.http.response.observed"},
 		},
 		{
 			name:     "jsonrpc server",
@@ -800,7 +799,6 @@ func emittedSpanCases() []emittedSpanCase {
 				return s
 			}(),
 			optional: httpSpanOptional,
-			absent:   []string{"obi.http.response.observed"},
 		},
 		{
 			name:     "http client",

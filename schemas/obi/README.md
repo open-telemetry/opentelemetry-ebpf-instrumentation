@@ -101,7 +101,7 @@ those referencing overrides of an upstream attribute use `x.obi.<namespace>`
 per the rules above. An attribute set shared by several spans is an internal
 attribute group named `attributes.obi.<shared part>` — the messaging spans
 share `attributes.obi.messaging.common` and the HTTP server spans
-`attributes.obi.http.server` — so it stays out of the attribute pages, which
+`attributes.obi.http.server.common` — so it stays out of the attribute pages, which
 document what OBI defines.
 
 ## Two override styles

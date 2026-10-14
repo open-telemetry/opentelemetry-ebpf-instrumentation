@@ -1,10 +1,51 @@
 file_format: definition/2
 attribute_groups:
-  # The HTTP server set, shared by the plain HTTP server span and the server
-  # spans of the protocols OBI identifies inside an inbound request.
-  - id: attributes.obi.http.server
+  # The set every server span on an inbound HTTP request carries, shared by the
+  # plain HTTP server span and the server spans of the protocols OBI identifies
+  # inside the request. Only the plain HTTP server span adds the HTTP request
+  # and response attributes.
+  - id: attributes.obi.http.server.common
     visibility: internal
     attributes:
+      - ref: client.address
+        requirement_level: recommended
+      - ref: server.address
+        requirement_level: recommended
+      - ref: server.port
+        requirement_level:
+          conditionally_required: if the port was observed on the connection
+      - ref: http.request.body.content
+        requirement_level: opt_in
+      - ref: http.response.body.content
+        requirement_level: opt_in
+      - ref: span.metrics.skip
+        requirement_level: opt_in
+      - ref: network.peer.address
+        requirement_level:
+          recommended: if the peer address is an IP rather than a name
+      - ref: network.peer.port
+        requirement_level:
+          recommended: if `network.peer.address` is set and the port is known
+      - ref: network.protocol.version
+        requirement_level:
+          recommended: if the protocol version was observed on the wire
+      - ref: error.type
+        requirement_level:
+          conditionally_required: if the operation ended in an error
+
+spans:
+  # --- Spans ------------------------------------------------------------
+  # Captured request / response bodies and headers appear on the HTTP span
+  # itself, behind their own opt-in selectors.
+  - type: obi.http.server
+    kind: server
+    name:
+      note: Not documented yet.
+    stability: stable
+    requirement_level: recommended
+    brief: OBI inbound HTTP server span.
+    attributes:
+      - ref_group: attributes.obi.http.server.common
       - ref: http.request.method
         requirement_level: required
       - ref: http.response.status_code
@@ -25,39 +66,14 @@ attribute_groups:
       - ref: http.route
         requirement_level:
           conditionally_required: if route collection is enabled and the route was matched
-      - ref: client.address
-        requirement_level: recommended
-      - ref: server.address
-        requirement_level: recommended
-      - ref: server.port
-        requirement_level:
-          conditionally_required: if the port was observed on the connection
       - ref: http.request.body.size
         requirement_level: opt_in
       - ref: http.response.body.size
-        requirement_level: opt_in
-      - ref: http.request.body.content
-        requirement_level: opt_in
-      - ref: http.response.body.content
         requirement_level: opt_in
       - ref: http.request.header
         requirement_level: opt_in
       - ref: http.response.header
         requirement_level: opt_in
-      - ref: span.metrics.skip
-        requirement_level: opt_in
-      - ref: network.peer.address
-        requirement_level:
-          recommended: if the peer address is an IP rather than a name
-      - ref: network.peer.port
-        requirement_level:
-          recommended: if `network.peer.address` is set and the port is known
-      - ref: network.protocol.version
-        requirement_level:
-          recommended: if the protocol version was observed on the wire
-      - ref: error.type
-        requirement_level:
-          conditionally_required: if the operation ended in an error
       - ref: http.request.method_original
         requirement_level:
           conditionally_required: if the wire method was read and differs from `http.request.method`
@@ -66,20 +82,6 @@ attribute_groups:
           recommended: if the request carried a user agent header
       - ref: obi.http.response.observed
         requirement_level: opt_in
-
-spans:
-  # --- Spans ------------------------------------------------------------
-  # Captured request / response bodies and headers appear on the HTTP span
-  # itself, behind their own opt-in selectors.
-  - type: obi.http.server
-    kind: server
-    name:
-      note: Not documented yet.
-    stability: stable
-    requirement_level: recommended
-    brief: OBI inbound HTTP server span.
-    attributes:
-      - ref_group: attributes.obi.http.server
 
   - type: obi.http.client
     kind: client
@@ -149,7 +151,7 @@ spans:
 
   # JSON-RPC over HTTP takes the default-deny transport scope, so the span
   # reports the RPC convention alone and none of the HTTP request or response
-  # attributes a plain HTTP client span carries.
+  # attributes, headers included, a plain HTTP client span carries.
   - type: obi.jsonrpc.client
     kind: client
     name:
@@ -182,10 +184,6 @@ spans:
           conditionally_required: if the port was observed on the connection
       - ref: service.peer.name
         requirement_level: opt_in
-      - ref: http.request.header
-        requirement_level: opt_in
-      - ref: http.response.header
-        requirement_level: opt_in
       - ref: http.request.body.content
         requirement_level: opt_in
       - ref: http.response.body.content
@@ -204,12 +202,11 @@ spans:
       - ref: error.type
         requirement_level:
           conditionally_required: if the operation ended in an error
-      - ref: user_agent.original
-        requirement_level: opt_in
 
-  # The server branch emits the full HTTP server set for every subtype, so the
-  # protocols OBI identifies inside an inbound request add their own attributes
-  # to `attributes.obi.http.server` rather than replacing it.
+  # The server branch takes a default-deny transport scope too, so the
+  # protocols OBI identifies inside an inbound request report their own
+  # convention on top of `attributes.obi.http.server.common`, without the HTTP
+  # request or response attributes.
   - type: obi.graphql.server
     kind: server
     name:
@@ -218,7 +215,7 @@ spans:
     requirement_level: recommended
     brief: OBI inbound GraphQL over HTTP server span.
     attributes:
-      - ref_group: attributes.obi.http.server
+      - ref_group: attributes.obi.http.server.common
       - ref: graphql.operation.name
         requirement_level:
           conditionally_required: if the GraphQL document was parsed
@@ -236,7 +233,7 @@ spans:
     requirement_level: recommended
     brief: OBI inbound JSON-RPC over HTTP server span.
     attributes:
-      - ref_group: attributes.obi.http.server
+      - ref_group: attributes.obi.http.server.common
       - ref: rpc.system.name
         requirement_level: required
       - ref: rpc.method
