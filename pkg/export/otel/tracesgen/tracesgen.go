@@ -638,6 +638,14 @@ func messagingOperationAttrs(method string) []attribute.KeyValue {
 	}
 }
 
+func appendMessagingSubscription(attrs []attribute.KeyValue, span *request.Span) []attribute.KeyValue {
+	if span.MessagingInfo == nil {
+		return attrs
+	}
+	attrs = appendIfSet(attrs, semconv.MessagingDestinationSubscriptionName, span.MessagingInfo.SubscriptionName)
+	return appendIfSet(attrs, request.MessagingConsumerGroupName, span.MessagingInfo.ConsumerGroup)
+}
+
 type httpTransportScope int
 
 const (
@@ -896,11 +904,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 
 		if span.SubType == request.HTTPSubtypeAWSSNS && span.AWS != nil {
 			sns := span.AWS.SNS
-			attrs = append(attrs,
-				request.RPCSystem(request.RPCSystemAWSAPI),
-				semconv.MessagingSystemAWSSNS,
-			)
-			attrs = appendIfSet(attrs, semconv.RPCMethod, request.SNSRPCMethod(sns.OperationName))
+			attrs = append(attrs, semconv.MessagingSystemAWSSNS)
 			attrs = appendIfSet(attrs, request.MessagingOperationName, sns.OperationName)
 			attrs = appendIfSet(attrs, request.MessagingOperationType, sns.OperationType)
 			if sns.TopicARN != "" {
@@ -1565,6 +1569,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		attrs = appendIfSet(attrs, semconv.MessagingClientID, span.Statement)
 		attrs = appendIfSet(attrs, request.ServerAddr, request.HostAsServer(span))
 		attrs = append(attrs, messagingOperationAttrs(span.Method)...)
+		attrs = appendMessagingSubscription(attrs, span)
 
 		if span.Type == request.EventTypeMQTTClient {
 			attrs = appendPeerService(attrs, span, optionalAttrs)

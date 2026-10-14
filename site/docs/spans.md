@@ -56,8 +56,6 @@ OBI AWS SNS client span.
 | `network.peer.address` | string | `recommended`: if the peer address is an IP rather than a name | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | `recommended`: if `network.peer.address` is set and the port is known | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | `recommended`: if the protocol version was observed on the wire | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
-| `rpc.method` | string | `recommended` | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
-| `rpc.system.name` | enum | `required` | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
 | `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -717,7 +715,8 @@ OBI MQTT span for a process operation.
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `messaging.client.id` | string | `recommended` | development | A unique identifier for the client that consumes or produces a message. | client-5; myhost@8742@s8083jm |
-| `messaging.destination.name` | string | `required` | development | The message destination name | MyQueue; MyTopic |
+| `messaging.consumer.group.name` | string | `conditionally_required`: if the topic filter is a shared subscription | development | The name of the consumer group with which a consumer is associated. | my-group; indexer |
+| `messaging.destination.subscription.name` | string | `required` | development | The name of the destination subscription from which a message is consumed. | subscription-a |
 | `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
 | `messaging.operation.type` | enum | `conditionally_required`: upstream declares it conditional; OBI always emits it, since group membership requires the operation to have been parsed | development | A string identifying the type of the messaging operation. | create; send; receive; process; settle; deliver; publish |
 | `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
