@@ -61,11 +61,11 @@ func NewController(id component.ID, cfg *obi.Config, v2 bool) (*Controller, erro
 	} else {
 		// Update config with any new consumers
 		// The traces or metrics consumer might be set by different receivers
-		if cfg.Traces.TracesConsumer != nil {
-			shared.config.Traces.TracesConsumer = cfg.Traces.TracesConsumer
+		if cfg.Traces.TracesExport != nil {
+			shared.config.Traces.TracesExport = cfg.Traces.TracesExport
 		}
-		if cfg.OTELMetrics.MetricsConsumer != nil {
-			shared.config.OTELMetrics.MetricsConsumer = cfg.OTELMetrics.MetricsConsumer
+		if cfg.OTELMetrics.MetricsExport != nil {
+			shared.config.OTELMetrics.MetricsExport = cfg.OTELMetrics.MetricsExport
 		}
 	}
 

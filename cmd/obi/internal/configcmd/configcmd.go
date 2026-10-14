@@ -5,6 +5,7 @@ package configcmd // import "go.opentelemetry.io/obi/cmd/obi/internal/configcmd"
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -20,8 +21,6 @@ import (
 
 	"go.yaml.in/yaml/v3"
 	legacyyaml "gopkg.in/yaml.v3"
-
-	"go.opentelemetry.io/collector/consumer/consumertest"
 
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
@@ -640,8 +639,8 @@ func taggedYAMLFields(structType reflect.Type) map[string]struct{} {
 }
 
 func setReceiverConsumers(cfg *obi.Config) {
-	cfg.Traces.TracesConsumer = consumertest.NewNop()
-	cfg.OTELMetrics.MetricsConsumer = consumertest.NewNop()
+	cfg.Traces.TracesExport = func(context.Context, []byte) error { return nil }
+	cfg.OTELMetrics.MetricsExport = func(context.Context, []byte) error { return nil }
 }
 
 type yamlPath []any

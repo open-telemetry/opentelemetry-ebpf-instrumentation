@@ -25,8 +25,8 @@ import (
 func TestInternalMetricsReporterBpfProbeStats(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
@@ -120,8 +120,8 @@ func TestBpfProbeLatencyProducerBucketCounts(t *testing.T) {
 func TestInternalMetricsReporterQueueBufferUtilization(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
@@ -149,8 +149,8 @@ func TestInternalMetricsReporterQueueBufferUtilization(t *testing.T) {
 func TestInternalMetricsReporterBPFRingbufWriteCounts(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
@@ -194,8 +194,8 @@ func TestInternalMetricsReporterBPFRingbufWriteCounts(t *testing.T) {
 func TestInternalMetricsReporterInvalidUTF8ProcessName(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
@@ -222,8 +222,8 @@ func TestInternalMetricsReporterInvalidUTF8ProcessName(t *testing.T) {
 func TestInternalMetricsReporterAvoidedServicesBounded(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
@@ -277,8 +277,8 @@ func TestInternalMetricsReporterAvoidedServicesBounded(t *testing.T) {
 func TestInternalMetricsReporterAvoidedServicesDisabled(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},

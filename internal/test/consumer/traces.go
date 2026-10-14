@@ -8,14 +8,12 @@ import (
 	"context"
 	"net/http"
 
-	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 )
 
 type MockTraceConsumer struct {
 	Endpoint string
-	consumer.Traces
 }
 
 // ConsumeTraces implements the consumer.Traces interface, sends pdata.Traces to the collector

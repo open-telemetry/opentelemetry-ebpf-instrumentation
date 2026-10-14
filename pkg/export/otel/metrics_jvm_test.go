@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 
@@ -64,7 +63,7 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryPoolUsed(t *testing.T) {
 		Interval:          20 * time.Millisecond,
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
-		MetricsConsumer:   testJVMRuntimeMetricsConsumer(records),
+		MetricsExport:     testJVMRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,
@@ -118,7 +117,7 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryAsUpDownCounter(t *testing.T) {
 		Interval:          20 * time.Millisecond,
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
-		MetricsConsumer:   testJVMRuntimeMetricsConsumer(records),
+		MetricsExport:     testJVMRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,
@@ -171,7 +170,7 @@ func TestRuntimeMetricsReporterRecordsJVMGCDuration(t *testing.T) {
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
 		Buckets:           buckets,
-		MetricsConsumer:   testJVMRuntimeMetricsConsumer(records),
+		MetricsExport:     testJVMRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,
@@ -230,7 +229,7 @@ func testJVMClassMetrics(t *testing.T, unloaded uint64) {
 		Interval:          20 * time.Millisecond,
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
-		MetricsConsumer:   testJVMRuntimeMetricsConsumer(records),
+		MetricsExport:     testJVMRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,
@@ -365,7 +364,7 @@ func TestRuntimeMetricsReporterRetainsJVMCounterBaselineBeyondTTL(t *testing.T) 
 		Interval:          20 * time.Millisecond,
 		TTL:               ttl,
 		ReportersCacheLen: 10,
-		MetricsConsumer:   testJVMRuntimeMetricsConsumer(records),
+		MetricsExport:     testJVMRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,
@@ -446,8 +445,8 @@ type jvmMetricRecord struct {
 	ResourceAttrs map[string]string
 }
 
-func testJVMRuntimeMetricsConsumer(out chan<- jvmMetricRecord) consumer.Metrics {
-	c, err := consumer.NewMetrics(func(_ context.Context, md pmetric.Metrics) error {
+func testJVMRuntimeMetricsConsumer(out chan<- jvmMetricRecord) otelcfg.OTLPExportFunc {
+	return testOTLPMetricsExport(func(_ context.Context, md pmetric.Metrics) error {
 		rm := md.ResourceMetrics()
 		for i := 0; i < rm.Len(); i++ {
 			resourceAttrs := attrsToMap(rm.At(i).Resource().Attributes())
@@ -498,10 +497,6 @@ func testJVMRuntimeMetricsConsumer(out chan<- jvmMetricRecord) consumer.Metrics 
 		}
 		return nil
 	})
-	if err != nil {
-		panic(err)
-	}
-	return c
 }
 
 func readJVMMetricRecord(t *testing.T, records <-chan jvmMetricRecord, name string) jvmMetricRecord {

@@ -37,9 +37,9 @@ func collectorRecordingEncoding(t *testing.T, got *atomic.Pointer[string]) *http
 
 func exportOneSpan(t *testing.T, cfg otelcfg.TracesConfig) {
 	t.Helper()
-	exp, host, err := getTracesExporter(context.Background(), cfg, imetrics.NoopReporter{})
+	exp, err := getTracesExporter(context.Background(), cfg, imetrics.NoopReporter{})
 	require.NoError(t, err)
-	require.NoError(t, exp.Start(context.Background(), host))
+	require.NoError(t, exp.Start(context.Background()))
 	t.Cleanup(func() { _ = exp.Shutdown(context.Background()) })
 	require.NoError(t, exp.ConsumeTraces(context.Background(), oneSpan()))
 }
