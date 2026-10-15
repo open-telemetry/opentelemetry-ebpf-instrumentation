@@ -1080,6 +1080,7 @@ func newReporter(
 			mr.dotnetRuntimeMetrics.monitorLockContentions,
 			mr.dotnetRuntimeMetrics.processMemoryWorkingSet,
 			mr.dotnetRuntimeMetrics.gcCommittedMemory,
+			mr.dotnetRuntimeMetrics.gcHeapSize,
 			mr.dotnetRuntimeMetrics.threadPoolThreadCount,
 			mr.dotnetRuntimeMetrics.threadPoolQueueLength,
 			mr.dotnetRuntimeMetrics.timerCount,

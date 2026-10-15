@@ -70,6 +70,7 @@ func TestPrometheusNames(t *testing.T) {
 		{DotnetProcessMemoryWorkingSet, "dotnet_process_memory_working_set_bytes"},
 		{DotnetProcessCPUCount, "dotnet_process_cpu_count"},
 		{DotnetProcessCPUTime, "dotnet_process_cpu_time_seconds_total"},
+		{DotnetGCHeapSize, "dotnet_gc_last_collection_heap_size_bytes"},
 		{DotnetGCCommittedMemory, "dotnet_gc_last_collection_memory_committed_size_bytes"},
 		{DotnetThreadPoolThreadCount, "dotnet_thread_pool_thread_count"},
 		{DotnetThreadPoolQueueLength, "dotnet_thread_pool_queue_length"},
