@@ -68,6 +68,26 @@ jobs:
           echo -n "matrix=" >> "$GITHUB_OUTPUT"
           make oats-integration-test-matrix-json >> "$GITHUB_OUTPUT"
 
+  harness-unit-tests:
+    name: "OATS harness unit tests"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: "go.mod"
+          cache: false
+
+      - name: Run harness unit tests
+        working-directory: internal/test/oats/harness
+        run: go test -race ./...
+
   build-obi-image:
     name: "Build OBI test image (${{ matrix.platform.arch }})"
     runs-on: ${{ matrix.platform.runner }}
