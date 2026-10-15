@@ -4,43 +4,34 @@
 package otel // import "go.opentelemetry.io/obi/pkg/export/otel"
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
-	"github.com/cenkalti/backoff/v5"
 	"golang.org/x/sync/semaphore"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
-	grpcgzip "google.golang.org/grpc/encoding/gzip"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 )
 
 const (
-	defaultTraceQueueSize      = 1000
-	defaultTraceFlushDelay     = 200 * time.Millisecond
-	defaultTraceRetryStart     = 5 * time.Second
-	defaultTraceRetryMax       = 30 * time.Second
-	defaultTraceRetryTotal     = 5 * time.Minute
-	defaultTraceRequestTimeout = 5 * time.Second
+	defaultTraceQueueSize  = 1000
+	defaultTraceFlushDelay = 200 * time.Millisecond
+	defaultTraceRetryStart = 5 * time.Second
+	defaultTraceRetryMax   = 30 * time.Second
+	defaultTraceRetryTotal = 5 * time.Minute
 )
 
 type traceSender func(context.Context, ptrace.Traces) error
@@ -58,12 +49,8 @@ type tracesExporter interface {
 
 type obiTracesExporter struct {
 	send          traceSender
-	close         func() error
+	client        otlptrace.Client
 	reporter      imetrics.Reporter
-	retry         bool
-	retryStart    time.Duration
-	retryMax      time.Duration
-	retryTotal    time.Duration
 	queue         chan queuedTraces
 	queueSize     int64
 	queueSlots    *semaphore.Weighted
@@ -84,6 +71,11 @@ func (e *obiTracesExporter) Start(ctx context.Context) error {
 	if e.queueClosed {
 		return errors.New("trace exporter is shut down")
 	}
+	if e.client != nil {
+		if err := e.client.Start(ctx); err != nil {
+			return err
+		}
+	}
 	if e.queue != nil && !e.workerStarted {
 		e.workerStarted = true
 		// The queue must flush after the pipeline context is canceled.
@@ -92,7 +84,7 @@ func (e *obiTracesExporter) Start(ctx context.Context) error {
 	return nil
 }
 
-func (e *obiTracesExporter) Shutdown(context.Context) error {
+func (e *obiTracesExporter) Shutdown(ctx context.Context) error {
 	e.shutdownOnce.Do(func() {
 		if e.queue != nil {
 			e.queueCancel()
@@ -110,8 +102,8 @@ func (e *obiTracesExporter) Shutdown(context.Context) error {
 			e.queueMu.Unlock()
 		}
 	})
-	if e.close != nil {
-		return e.close()
+	if e.client != nil {
+		return e.client.Stop(ctx)
 	}
 	return nil
 }
@@ -153,17 +145,7 @@ func (e *obiTracesExporter) enqueue(ctx context.Context, traces ptrace.Traces) e
 
 func (e *obiTracesExporter) export(ctx context.Context, traces ptrace.Traces) error {
 	spanCount := traces.SpanCount()
-	var err error
-	if e.retry {
-		strategy := backoff.NewExponentialBackOff()
-		strategy.InitialInterval = e.retryStart
-		strategy.MaxInterval = e.retryMax
-		_, err = backoff.Retry(ctx, func() (struct{}, error) {
-			return struct{}{}, e.send(ctx, traces)
-		}, backoff.WithBackOff(strategy), backoff.WithMaxElapsedTime(e.retryTotal))
-	} else {
-		err = e.send(ctx, traces)
-	}
+	err := e.send(ctx, traces)
 	if e.reporter != nil && !imetrics.IsBuiltinNoopReporter(e.reporter) {
 		if err != nil {
 			e.reporter.OTELTraceExportError(err)
@@ -226,24 +208,11 @@ func (e *obiTracesExporter) runQueue(ctx context.Context) {
 	}
 }
 
-func newOBITracesExporter(cfg otelcfg.TracesConfig, reporter imetrics.Reporter, send traceSender, closeFn func() error, retry bool) tracesExporter {
+func newOBITracesExporter(cfg otelcfg.TracesConfig, reporter imetrics.Reporter, send traceSender, client otlptrace.Client) tracesExporter {
 	exporter := &obiTracesExporter{
-		send:       send,
-		close:      closeFn,
-		reporter:   reporter,
-		retry:      retry,
-		retryStart: defaultTraceRetryStart,
-		retryMax:   defaultTraceRetryMax,
-		retryTotal: defaultTraceRetryTotal,
-	}
-	if cfg.BackOffInitialInterval > 0 {
-		exporter.retryStart = cfg.BackOffInitialInterval
-	}
-	if cfg.BackOffMaxInterval > 0 {
-		exporter.retryMax = cfg.BackOffMaxInterval
-	}
-	if cfg.BackOffMaxElapsedTime > 0 {
-		exporter.retryTotal = cfg.BackOffMaxElapsedTime
+		send:     send,
+		client:   client,
+		reporter: reporter,
 	}
 	if cfg.QueueSize > 0 || cfg.BatchMaxSize > 0 || cfg.BatchTimeout > 0 {
 		queueSize := cfg.QueueSize
@@ -273,22 +242,22 @@ func getTracesExporter(_ context.Context, cfg otelcfg.TracesConfig, reporter ime
 			}
 			return cfg.TracesExport(ctx, data)
 		}
-		return newOBITracesExporter(cfg, reporter, send, nil, false), nil
+		return newOBITracesExporter(cfg, reporter, send, nil), nil
 	}
 
 	switch cfg.GetProtocol() {
 	case otelcfg.ProtocolHTTPJSON, otelcfg.ProtocolHTTPProtobuf, "":
-		send, closeFn, err := newHTTPTraceSender(cfg)
+		client, err := newHTTPTraceClient(cfg)
 		if err != nil {
 			return nil, err
 		}
-		return newOBITracesExporter(cfg, reporter, send, closeFn, true), nil
+		return newOTLPTracesExporter(cfg, reporter, client), nil
 	case otelcfg.ProtocolGRPC:
-		send, closeFn, err := newGRPCTraceSender(cfg)
+		client, err := newGRPCTraceClient(cfg)
 		if err != nil {
 			return nil, err
 		}
-		return newOBITracesExporter(cfg, reporter, send, closeFn, true), nil
+		return newOTLPTracesExporter(cfg, reporter, client), nil
 	case otelcfg.ProtocolDebug:
 		send := func(_ context.Context, traces ptrace.Traces) error {
 			data, err := (&ptrace.JSONMarshaler{}).MarshalTraces(traces)
@@ -298,114 +267,86 @@ func getTracesExporter(_ context.Context, cfg otelcfg.TracesConfig, reporter ime
 			slog.Info("traces", "data", string(data))
 			return nil
 		}
-		return newOBITracesExporter(cfg, reporter, send, nil, false), nil
+		return newOBITracesExporter(cfg, reporter, send, nil), nil
 	default:
 		return nil, fmt.Errorf("invalid protocol value: %q", cfg.GetProtocol())
 	}
 }
 
-func newHTTPTraceSender(cfg otelcfg.TracesConfig) (traceSender, func() error, error) {
-	opts, err := otelcfg.HTTPTracesEndpointOptions(&cfg)
-	if err != nil {
-		return nil, nil, err
-	}
-	path := opts.URLPath
-	if path == "" {
-		path = "/v1/traces"
-	}
-	endpoint := opts.Scheme + "://" + opts.Endpoint + path
-	transport := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: opts.SkipTLSVerify}}
-	if opts.UnixSocketAddr != "" {
-		transport = otelcfg.UnixTransport(opts.UnixSocketAddr)
-	}
-	client := &http.Client{Transport: transport, Timeout: defaultTraceRequestTimeout}
+func newOTLPTracesExporter(cfg otelcfg.TracesConfig, reporter imetrics.Reporter, client otlptrace.Client) tracesExporter {
 	send := func(ctx context.Context, traces ptrace.Traces) error {
-		data, err := ptraceotlp.NewExportRequestFromTraces(traces).MarshalProto()
+		data, err := (&ptrace.ProtoMarshaler{}).MarshalTraces(traces)
 		if err != nil {
 			return err
 		}
-		var body io.Reader = bytes.NewReader(data)
-		compressed := cfg.GetCompression() == "gzip"
-		if compressed {
-			var buf bytes.Buffer
-			writer := gzip.NewWriter(&buf)
-			if _, err := writer.Write(data); err != nil {
-				return err
-			}
-			if err := writer.Close(); err != nil {
-				return err
-			}
-			body = &buf
-		}
-		request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, body)
-		if err != nil {
+		var payload tracepb.TracesData
+		if err := proto.Unmarshal(data, &payload); err != nil {
 			return err
 		}
-		request.Header.Set("Content-Type", "application/x-protobuf")
-		if compressed {
-			request.Header.Set("Content-Encoding", "gzip")
-		}
-		for key, value := range opts.Headers {
-			request.Header.Set(key, value)
-		}
-		response, err := client.Do(request)
-		if err != nil {
-			return err
-		}
-		defer response.Body.Close()
-		_, _ = io.Copy(io.Discard, response.Body)
-		if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
-			err := fmt.Errorf("OTLP HTTP export returned %s", response.Status)
-			if response.StatusCode < http.StatusInternalServerError && response.StatusCode != http.StatusTooManyRequests {
-				return backoff.Permanent(err)
-			}
-			return err
-		}
-		return nil
+		return client.UploadTraces(ctx, payload.ResourceSpans)
 	}
-	return send, func() error { transport.CloseIdleConnections(); return nil }, nil
+	return newOBITracesExporter(cfg, reporter, send, client)
 }
 
-func newGRPCTraceSender(cfg otelcfg.TracesConfig) (traceSender, func() error, error) {
+func traceRetrySettings(cfg otelcfg.TracesConfig) (time.Duration, time.Duration, time.Duration) {
+	initial, maxInterval, maxElapsed := defaultTraceRetryStart, defaultTraceRetryMax, defaultTraceRetryTotal
+	if cfg.BackOffInitialInterval > 0 {
+		initial = cfg.BackOffInitialInterval
+	}
+	if cfg.BackOffMaxInterval > 0 {
+		maxInterval = cfg.BackOffMaxInterval
+	}
+	if cfg.BackOffMaxElapsedTime > 0 {
+		maxElapsed = cfg.BackOffMaxElapsedTime
+	}
+	return initial, maxInterval, maxElapsed
+}
+
+func newHTTPTraceClient(cfg otelcfg.TracesConfig) (otlptrace.Client, error) {
+	opts, err := otelcfg.HTTPTracesEndpointOptions(&cfg)
+	if err != nil {
+		return nil, err
+	}
+	initial, maxInterval, maxElapsed := traceRetrySettings(cfg)
+	options := opts.AsTraceHTTP()
+	options = append(options,
+		otlptracehttp.WithTimeout(maxElapsed),
+		otlptracehttp.WithRetry(otlptracehttp.RetryConfig{
+			Enabled: true, InitialInterval: initial, MaxInterval: maxInterval, MaxElapsedTime: maxElapsed,
+		}),
+	)
+	if cfg.GetCompression() == "gzip" {
+		options = append(options, otlptracehttp.WithCompression(otlptracehttp.GzipCompression))
+	}
+	if cfg.GetProtocol() == otelcfg.ProtocolHTTPJSON {
+		options = append(options, otlptracehttp.WithEncoding(otlptracehttp.EncodingJSON))
+	}
+	if opts.UnixSocketAddr != "" {
+		options = append(options, otlptracehttp.WithHTTPClient(&http.Client{
+			Transport: otelcfg.UnixTransport(opts.UnixSocketAddr),
+			Timeout:   maxElapsed,
+		}))
+	}
+	return otlptracehttp.NewClient(options...), nil
+}
+
+func newGRPCTraceClient(cfg otelcfg.TracesConfig) (otlptrace.Client, error) {
 	opts, err := otelcfg.GRPCTracesEndpointOptions(&cfg)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	transport := credentials.NewTLS(&tls.Config{InsecureSkipVerify: opts.SkipTLSVerify})
-	dialOption := grpc.WithTransportCredentials(transport)
-	if opts.Insecure {
-		dialOption = grpc.WithTransportCredentials(insecure.NewCredentials())
+	initial, maxInterval, maxElapsed := traceRetrySettings(cfg)
+	options := opts.AsTraceGRPC()
+	options = append(options,
+		otlptracegrpc.WithTimeout(maxElapsed),
+		otlptracegrpc.WithRetry(otlptracegrpc.RetryConfig{
+			Enabled: true, InitialInterval: initial, MaxInterval: maxInterval, MaxElapsedTime: maxElapsed,
+		}),
+	)
+	if cfg.GetCompression() == "gzip" {
+		options = append(options, otlptracegrpc.WithCompressor("gzip"))
 	}
-	conn, err := grpc.NewClient(opts.Endpoint, dialOption)
-	if err != nil {
-		return nil, nil, err
-	}
-	client := ptraceotlp.NewGRPCClient(conn)
-	send := func(ctx context.Context, traces ptrace.Traces) error {
-		request := ptraceotlp.NewExportRequestFromTraces(traces)
-		if len(opts.Headers) > 0 {
-			headers := metadata.MD{}
-			for key, value := range opts.Headers {
-				headers.Set(strings.ToLower(key), value)
-			}
-			ctx = metadata.NewOutgoingContext(ctx, headers)
-		}
-		var callOptions []grpc.CallOption
-		if cfg.GetCompression() == "gzip" {
-			callOptions = append(callOptions, grpc.UseCompressor(grpcgzip.Name))
-		}
-		requestCtx, cancel := context.WithTimeout(ctx, defaultTraceRequestTimeout)
-		defer cancel()
-		_, err = client.Export(requestCtx, request, callOptions...)
-		switch status.Code(err) {
-		case codes.InvalidArgument, codes.NotFound, codes.AlreadyExists,
-			codes.PermissionDenied, codes.Unauthenticated, codes.FailedPrecondition,
-			codes.OutOfRange, codes.Unimplemented, codes.DataLoss:
-			return backoff.Permanent(err)
-		}
-		return err
-	}
-	return send, conn.Close, nil
+	return otlptracegrpc.NewClient(options...), nil
 }
 
 var _ tracesExporter = (*obiTracesExporter)(nil)
