@@ -142,7 +142,19 @@ The same programs are also attached to `task_step_impl`, which does the actual
 step and takes the same arguments. Optimizing builds can inline `task_step`
 into its callers (`TaskStepMethWrapper_call`, `task_wakeup`), which then call
 `task_step_impl` directly, so a `task_step` probe alone misses those steps.
-When both fire, they nest and set and clear the same state.
+When both fire for the same task, they are one level and set and clear the same
+state.
+
+A step can also start while another task's step is still running: on Python
+3.12+ an eager task (for example with `asyncio.eager_task_factory`) runs its
+first step inside the step of the parent that created it, through
+`task_step_impl`. The enclosing task is kept on a small per-thread stack
+(`outer_tasks`, four levels), and when the nested step returns its task and
+`traces_ctx_v1` entry are restored instead of cleared, so the parent's
+following code stays attributed to its request. Deeper nesting is counted but
+not stored; such a step returns to no current task, as before. A step started
+from the event loop (no current task) drops anything left on the stack by
+missed returns.
 
 ### `context_run`
 

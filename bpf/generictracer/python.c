@@ -17,6 +17,7 @@
 #include <common/connection_info.h>
 #include <common/preempt_guard.h>
 #include <common/python_task.h>
+#include <common/python_task_step.h>
 #include <common/protocol_defs.h>
 
 #include <generictracer/maps/pid_tid_to_conn.h>
@@ -24,24 +25,6 @@
 #include <pid/pid.h>
 
 #include <shared/obi_ctx.h>
-
-// Python task/context pointers use 0 to mean "no active state" in thread-local tracking.
-enum { k_python_state_none = 0 };
-
-static __always_inline void refresh_obi_ctx_for_task(u64 pid_tgid,
-                                                     const python_task_ref_t *task_ref) {
-    if (!task_ref || !task_ref->addr) {
-        obi_ctx__del(pid_tgid);
-        return;
-    }
-    python_task_resolution_t resolution = PYTHON_TASK_NOT_FOUND;
-    tp_info_pid_t *tp = find_python_owning_server_trace(pid_tgid, *task_ref, &resolution);
-    if (tp && tp->valid) {
-        obi_ctx__set(pid_tgid, &tp->tp);
-        return;
-    }
-    obi_ctx__del(pid_tgid);
-}
 
 static __always_inline void map_context_to_task(u64 pid_tgid, u64 context, u64 task) {
     python_context_task_t mapping = {
@@ -87,10 +70,7 @@ static __always_inline int update_current_task(u64 id, u64 task) {
         return 0;
     }
 
-    thread_state->current_task = task;
-    python_task_ref_t task_ref = {};
-    resolve_python_task_ref(id, task, &task_ref);
-    refresh_obi_ctx_for_task(id, &task_ref);
+    python_task_step_enter(id, thread_state, task);
     return 0;
 }
 
@@ -133,9 +113,7 @@ int GUARDED_PROG(obi_uprobe_task_step_ret, struct pt_regs *, ctx) {
         return 0;
     }
 
-    thread_state->current_task = k_python_state_none;
-    thread_state->start_monotime_ns = bpf_ktime_get_ns();
-    obi_ctx__del(id);
+    python_task_step_exit(id, thread_state);
 
     return 0;
 }

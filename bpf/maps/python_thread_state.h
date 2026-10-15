@@ -9,11 +9,20 @@
 #include <common/map_sizing.h>
 #include <common/pin_internal.h>
 
+// Must be a power of two (it masks the index for the verifier).
+enum { k_python_outer_tasks_max = 4 };
+
 typedef struct python_thread_state {
     u64 current_task;
     u64 current_context;
     u64 inflight_task;
     u64 start_monotime_ns;
+    // Tasks whose step is still running under a nested step on this thread (an eager task
+    // starting inside its parent), innermost last. Restored when the nested step returns.
+    u64 outer_tasks[k_python_outer_tasks_max];
+    u8 outer_depth;
+    u8 outer_overflow;
+    u8 _pad[6];
 } python_thread_state_t;
 
 struct {
