@@ -103,7 +103,7 @@ jobs:
     secrets: inherit # zizmor: ignore[secrets-inherit]
     with:
       ref: ${{ inputs.tag || github.ref_name }}
-      mise_cache: false
+      skip_mise_cache: true
 
   lint:
     name: Lint
@@ -114,7 +114,7 @@ jobs:
     secrets: inherit # zizmor: ignore[secrets-inherit]
     with:
       ref: ${{ inputs.tag || github.ref_name }}
-      mise_cache: false
+      skip_mise_cache: true
 
   unit-tests:
     name: Unit tests
@@ -333,7 +333,7 @@ jobs:
           ref: ${{ inputs.tag || github.ref_name }}
 
       - name: Set up mise tools
-        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] release jobs install tools without restoring mise cache
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
           cache: false
 

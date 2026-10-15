@@ -32,11 +32,11 @@ on:
         description: "Git ref (commit, branch, or tag) to check out"
         required: false
         type: string
-      mise_cache:
-        description: "Whether to use the mise-action tool cache"
+      skip_mise_cache:
+        description: "Skip restoring the Mise download and Go caches"
         required: false
         type: boolean
-        default: true
+        default: false
 
 concurrency:
   group: pr-lint-${{ github.head_ref || github.run_id }}
@@ -59,6 +59,9 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/generate-bpf
+        with:
+          cache-downloads: ${{ !inputs.skip_mise_cache && (inputs.ref == '' || inputs.ref == null) }}
+          cache-go-build: ${{ !inputs.skip_mise_cache && (inputs.ref == '' || inputs.ref == null) }}
 
   lint-linux:
     name: Lint on linux (${{ matrix.platform.arch }})
@@ -80,12 +83,20 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up mise tools
-        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref; release callers disable this cache
+      - name: Mise downloads cache
+        if: ${{ !inputs.skip_mise_cache && (inputs.ref == '' || inputs.ref == null) }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] mise verifies every download against mise.lock checksums
         with:
-          cache: ${{ toJSON(inputs.mise_cache) != 'false' }}
+          path: ~/.cache/mise/downloads-cas
+          key: mise-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.lock') }}
+
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          cache: false
 
       - name: Go build cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
@@ -134,12 +145,21 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up mise tools
-        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref; release callers disable this cache
+      - name: Mise downloads cache
+        if: ${{ !inputs.skip_mise_cache && (inputs.ref == '' || inputs.ref == null) }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] mise verifies every download against mise.lock checksums
         with:
-          cache: ${{ toJSON(inputs.mise_cache) != 'false' }}
+          # mise's default cache dir on macOS
+          path: ~/Library/Caches/mise/downloads-cas
+          key: mise-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.lock') }}
+
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          cache: false
 
       - name: Go build cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build

@@ -13,16 +13,34 @@ inputs:
     description: 'Prefix for the Go build cache. Defaults to the umbrella PR prefix.'
     required: false
     default: go-build-pr-race
+  cache-downloads:
+    description: Whether to cache Mise downloads.
+    required: false
+    default: 'true'
+  cache-go-build:
+    description: Whether to cache the Go build directory.
+    required: false
+    default: 'true'
 
 runs:
   using: composite
   steps:
+    - name: Mise downloads cache
+      if: ${{ inputs.cache-downloads == 'true' }}
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/mise/downloads-cas
+        key: mise-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.lock') }}
+
     - name: Set up mise
-      uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref
+      uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+      with:
+        cache: false
       env:
         MISE_ENABLE_TOOLS: go,clang,conda:llvm-tools,go:github.com/cilium/ebpf/cmd/bpf2go
 
     - name: Go build cache
+      if: ${{ inputs.cache-go-build == 'true' }}
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
       with:
         path: ~/.cache/go-build
