@@ -34,7 +34,13 @@ type sharedController struct {
 type Controller struct {
 	id     component.ID
 	shared *sharedController
+	// started reports whether this receiver holds a reference on shared.refCnt.
+	// Guarded by shared.mu.
+	started bool
 }
+
+// runOBI is a variable so tests can replace the OBI run loop.
+var runOBI = instrumenter.RunWithProtocolMetricSelection
 
 var (
 	// sharedControllers holds shared controller instances keyed by component ID.
@@ -98,19 +104,27 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 	c.shared.mu.Lock()
 	defer c.shared.mu.Unlock()
 
+	// Checked under the lock: the context can be canceled while waiting for it.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	c.shared.refCnt++
+	c.started = true
 
 	if c.shared.refCnt > 1 {
 		// Already running, just increased ref count
 		return nil
 	}
 
-	// First caller - start OBI
-	runCtx, cancel := context.WithCancel(ctx)
+	// First caller - start OBI. The Start context only covers startup, so OBI
+	// runs on its own context, which Shutdown cancels.
+	runCtx, cancel := context.WithCancel(context.Background())
 	ctxInfo, err := instrumenter.BuildCommonContextInfo(runCtx, c.shared.config)
 	if err != nil {
 		cancel()
 		c.shared.refCnt-- // rollback on failure
+		c.started = false
 		slog.Error("building common context info for OBI", "error", err, "id", c.id)
 		return err
 	}
@@ -126,21 +140,26 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 			selection := instrumentations.NewInstrumentationSelection(c.shared.config.OTELMetrics.Instrumentations)
 			policy = &selection
 		}
-		c.shared.runErr = instrumenter.RunWithProtocolMetricSelection(runCtx, c.shared.config, ctxInfo, policy)
+		c.shared.runErr = runOBI(runCtx, c.shared.config, ctxInfo, policy)
 	}()
 
 	return nil
 }
 
 // Shutdown stops the receiver. Only the last shutdown call actually stops OBI.
+// A receiver that never acquired a reference leaves the shared instance alone.
 func (c *Controller) Shutdown(ctx context.Context) error {
 	c.shared.mu.Lock()
-	if c.shared.refCnt == 0 {
+	if !c.started {
+		active := c.shared.refCnt > 0
 		c.shared.mu.Unlock()
-		c.cleanupSharedController()
+		if !active {
+			c.cleanupSharedController()
+		}
 		return nil
 	}
 
+	c.started = false
 	c.shared.refCnt--
 
 	if c.shared.refCnt > 0 {
