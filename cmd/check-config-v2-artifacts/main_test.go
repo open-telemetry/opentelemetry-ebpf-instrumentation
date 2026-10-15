@@ -7,8 +7,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 func TestRunCurrentArtifacts(t *testing.T) {
@@ -19,6 +22,59 @@ func TestRunCurrentArtifacts(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestSelectionRuleSpansSchema(t *testing.T) {
+	schemaPath := filepath.Join("..", "..", defaultSchemaPath)
+	schemaData, err := os.ReadFile(schemaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schemaDocument any
+	if err := json.Unmarshal(schemaData, &schemaDocument); err != nil {
+		t.Fatal(err)
+	}
+	compiler := jsonschema.NewCompiler()
+	compiler.UseRegexpEngine(func(pattern string) (jsonschema.Regexp, error) {
+		pattern = regexp.MustCompile(`\\u([[:xdigit:]]{4})`).ReplaceAllString(pattern, `\x{$1}`)
+		return regexp.Compile(pattern)
+	})
+	const schemaURL = "https://opentelemetry.io/obi/schemas/obi-extension.schema.json"
+	if err := compiler.AddResource(schemaURL, schemaDocument); err != nil {
+		t.Fatal(err)
+	}
+	schema, err := compiler.Compile(schemaURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name    string
+		action  string
+		spans   any
+		wantErr bool
+	}{
+		{name: "include with spans", action: "include", spans: []any{map[string]any{"name": "custom", "on": map[string]any{"function": "example.Func"}}}},
+		{name: "exclude with empty spans", action: "exclude", spans: []any{}},
+		{name: "exclude with spans", action: "exclude", spans: []any{map[string]any{"name": "custom", "on": map[string]any{"function": "example.Func"}}}, wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rule := map[string]any{
+				"action": tc.action,
+				"match":  map[string]any{"process": map[string]any{"language_glob": []any{"java"}}},
+			}
+			if tc.spans != nil {
+				rule["refine"] = map[string]any{"spans": tc.spans}
+			}
+			err := schema.Validate(map[string]any{
+				"version": "2.0",
+				"capture": map[string]any{"rules": []any{rule}},
+			})
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("schema validation error = %v, want error %v", err, tc.wantErr)
+			}
+		})
 	}
 }
 

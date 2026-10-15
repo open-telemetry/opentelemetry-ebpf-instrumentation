@@ -649,6 +649,25 @@
         "required": [
           "action",
           "match"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "action": {"const": "exclude"}
+              },
+              "required": ["action"]
+            },
+            "then": {
+              "properties": {
+                "refine": {
+                  "properties": {
+                    "spans": {"maxItems": 0}
+                  }
+                }
+              }
+            }
+          }
         ]
       }
     },
