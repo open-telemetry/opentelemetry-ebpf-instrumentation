@@ -21,7 +21,6 @@ COPY cmd/ cmd/
 COPY internal/goabi/ internal/goabi/
 COPY internal/goversion/ internal/goversion/
 COPY internal/config/ internal/config/
-COPY internal/tracesgen/ internal/tracesgen/
 COPY pkg/ pkg/
 COPY Makefile Makefile
 

@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"go.opentelemetry.io/obi/internal/tracesgen"
+	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )

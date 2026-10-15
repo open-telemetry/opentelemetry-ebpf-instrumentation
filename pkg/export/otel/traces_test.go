@@ -23,7 +23,7 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 
-	"go.opentelemetry.io/obi/internal/tracesgen"
+	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/export/attributes"

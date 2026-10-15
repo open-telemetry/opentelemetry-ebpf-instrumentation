@@ -17,7 +17,6 @@ COPY .git/ .git/
 COPY bpf/ bpf/
 COPY cmd/ cmd/
 COPY internal/config/ internal/config/
-COPY internal/tracesgen/ internal/tracesgen/
 COPY internal/tools/debug/ internal/tools/debug/
 COPY pkg/ pkg/
 COPY go.mod go.mod

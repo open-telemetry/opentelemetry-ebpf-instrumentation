@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/trace"
 
-	"go.opentelemetry.io/obi/internal/tracesgen"
+	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
