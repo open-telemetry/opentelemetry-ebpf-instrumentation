@@ -1682,7 +1682,7 @@ func readNChan(t require.TestingT, inCh <-chan collector.MetricRecord, numRecord
 	return records
 }
 
-func testMetricsConsumer(out chan<- collector.MetricRecord) otelcfg.OTLPExportFunc {
+func testMetricsConsumer(out chan<- collector.MetricRecord) otelcfg.MetricsExportFunc {
 	return testOTLPMetricsExport(func(_ context.Context, md pmetric.Metrics) error {
 		collector.VisitMetricRecords(md, func(record collector.MetricRecord) {
 			out <- record
@@ -1696,7 +1696,7 @@ type histogramBoundsRecord struct {
 	Bounds []float64
 }
 
-func testHistogramBoundsConsumer(out chan<- histogramBoundsRecord) otelcfg.OTLPExportFunc {
+func testHistogramBoundsConsumer(out chan<- histogramBoundsRecord) otelcfg.MetricsExportFunc {
 	return testOTLPMetricsExport(func(_ context.Context, md pmetric.Metrics) error {
 		for _, rm := range md.ResourceMetrics().All() {
 			for _, sm := range rm.ScopeMetrics().All() {

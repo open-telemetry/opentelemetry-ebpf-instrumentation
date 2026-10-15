@@ -40,8 +40,8 @@ func mlog() *slog.Logger {
 }
 
 type MetricsConfig struct {
-	// MetricsExport sends an OTLP protobuf export request instead of using HTTP/gRPC.
-	MetricsExport OTLPExportFunc `yaml:"-"`
+	// MetricsExport sends metrics to a consumer in the same process.
+	MetricsExport MetricsExportFunc `yaml:"-"`
 
 	Interval time.Duration `yaml:"interval" env:"OTEL_EBPF_METRICS_INTERVAL"`
 	// OTELIntervalMS supports metric intervals as specified by the standard OTEL definition.

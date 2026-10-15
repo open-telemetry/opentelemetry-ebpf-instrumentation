@@ -3,8 +3,15 @@
 
 package otelcfg // import "go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 
-import "context"
+import (
+	"context"
 
-// OTLPExportFunc sends a protobuf-encoded OTLP export request. The request's
-// signal is determined by the configuration field using this function.
-type OTLPExportFunc func(context.Context, []byte) error
+	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/pdata/ptrace"
+)
+
+// TracesExportFunc sends traces to a consumer in the same process.
+type TracesExportFunc func(context.Context, ptrace.Traces) error
+
+// MetricsExportFunc sends metrics to a consumer in the same process.
+type MetricsExportFunc func(context.Context, pmetric.Metrics) error

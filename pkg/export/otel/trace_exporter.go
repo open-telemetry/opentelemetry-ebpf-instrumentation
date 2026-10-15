@@ -21,7 +21,6 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"go.opentelemetry.io/collector/pdata/ptrace"
-	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -43,7 +42,7 @@ const (
 	defaultTraceShutdownTimeout = 10 * time.Second
 )
 
-type traceSender func(context.Context, ptrace.Traces) error
+type traceSender = otelcfg.TracesExportFunc
 
 type traceAttemptKey struct{}
 
@@ -333,15 +332,8 @@ func newOBITracesExporter(cfg otelcfg.TracesConfig, reporter imetrics.Reporter, 
 
 func getTracesExporter(_ context.Context, cfg otelcfg.TracesConfig, reporter imetrics.Reporter) (tracesExporter, error) {
 	if cfg.TracesExport != nil {
-		send := func(ctx context.Context, traces ptrace.Traces) error {
-			data, err := ptraceotlp.NewExportRequestFromTraces(traces).MarshalProto()
-			if err != nil {
-				return err
-			}
-			return cfg.TracesExport(ctx, data)
-		}
 		// The Collector callback consumes traces synchronously, before OBI's network batching.
-		return newOBITracesExporter(otelcfg.TracesConfig{}, reporter, send, nil), nil
+		return newOBITracesExporter(otelcfg.TracesConfig{}, reporter, cfg.TracesExport, nil), nil
 	}
 
 	switch cfg.GetProtocol() {

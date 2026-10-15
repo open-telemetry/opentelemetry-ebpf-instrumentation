@@ -219,7 +219,7 @@ func TestTraceQueueFlushesAfterPipelineCancellation(t *testing.T) {
 func TestTraceCallbackDoesNotBatch(t *testing.T) {
 	called := false
 	cfg := otelcfg.TracesConfig{
-		TracesExport: func(context.Context, []byte) error {
+		TracesExport: func(context.Context, ptrace.Traces) error {
 			called = true
 			return nil
 		},

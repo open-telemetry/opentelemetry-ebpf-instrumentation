@@ -445,7 +445,7 @@ type jvmMetricRecord struct {
 	ResourceAttrs map[string]string
 }
 
-func testJVMRuntimeMetricsConsumer(out chan<- jvmMetricRecord) otelcfg.OTLPExportFunc {
+func testJVMRuntimeMetricsConsumer(out chan<- jvmMetricRecord) otelcfg.MetricsExportFunc {
 	return testOTLPMetricsExport(func(_ context.Context, md pmetric.Metrics) error {
 		rm := md.ResourceMetrics()
 		for i := 0; i < rm.Len(); i++ {

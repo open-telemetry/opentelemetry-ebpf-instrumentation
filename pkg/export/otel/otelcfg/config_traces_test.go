@@ -13,6 +13,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/collector/pdata/ptrace"
+
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 )
 
@@ -313,7 +315,7 @@ func TestTracesSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 }
 
 func TestTracesConfig_Enabled(t *testing.T) {
-	tracesExport := func(context.Context, []byte) error { return nil }
+	tracesExport := func(context.Context, ptrace.Traces) error { return nil }
 
 	providerCalls := 0
 	assert.True(t, (&TracesConfig{CommonEndpoint: "foo"}).Enabled())

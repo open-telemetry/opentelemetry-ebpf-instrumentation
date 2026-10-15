@@ -16,9 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/collector/pdata/pmetric"
-	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
 	"go.opentelemetry.io/collector/pdata/ptrace"
-	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
@@ -73,24 +71,16 @@ prometheus_export:
 			var tracesMu, metricsMu sync.Mutex
 			var traceBatches []ptrace.Traces
 			var metricBatches []pmetric.Metrics
-			cfg.Traces.TracesExport = func(_ context.Context, data []byte) error {
-				request := ptraceotlp.NewExportRequest()
-				if err := request.UnmarshalProto(data); err != nil {
-					return err
-				}
+			cfg.Traces.TracesExport = func(_ context.Context, traces ptrace.Traces) error {
 				tracesMu.Lock()
-				traceBatches = append(traceBatches, request.Traces())
+				traceBatches = append(traceBatches, traces)
 				tracesMu.Unlock()
 				return nil
 			}
 			cfg.Traces.BatchTimeout = 10 * time.Millisecond
-			cfg.OTELMetrics.MetricsExport = func(_ context.Context, data []byte) error {
-				request := pmetricotlp.NewExportRequest()
-				if err := request.UnmarshalProto(data); err != nil {
-					return err
-				}
+			cfg.OTELMetrics.MetricsExport = func(_ context.Context, metrics pmetric.Metrics) error {
 				metricsMu.Lock()
-				metricBatches = append(metricBatches, request.Metrics())
+				metricBatches = append(metricBatches, metrics)
 				metricsMu.Unlock()
 				return nil
 			}

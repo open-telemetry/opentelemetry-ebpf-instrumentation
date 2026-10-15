@@ -8,20 +8,19 @@ import (
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
-	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/sdk/resource"
 )
 
-// OTLPConsumerExporter converts SDK metrics into OTLP for an export callback.
+// OTLPConsumerExporter converts SDK metrics to pdata for an in-process consumer.
 type OTLPConsumerExporter struct {
-	export OTLPExportFunc
+	export MetricsExportFunc
 }
 
-// NewOTLPConsumerExporter creates an exporter for an OTLP callback.
-func NewOTLPConsumerExporter(export OTLPExportFunc) *OTLPConsumerExporter {
+// NewOTLPConsumerExporter creates an exporter for an in-process consumer.
+func NewOTLPConsumerExporter(export MetricsExportFunc) *OTLPConsumerExporter {
 	return &OTLPConsumerExporter{export: export}
 }
 
@@ -42,11 +41,7 @@ func (e *OTLPConsumerExporter) Export(ctx context.Context, rm *metricdata.Resour
 		return nil
 	}
 	pm := convertResourceMetrics(rm)
-	data, err := pmetricotlp.NewExportRequestFromMetrics(pm).MarshalProto()
-	if err != nil {
-		return err
-	}
-	return e.export(ctx, data)
+	return e.export(ctx, pm)
 }
 
 // ForceFlush is a no-op for this exporter.

@@ -37,7 +37,7 @@ type nodejsMetricRecord struct {
 	ResourceAttrs map[string]string
 }
 
-func testNodejsRuntimeMetricsConsumer(out chan<- nodejsMetricRecord) otelcfg.OTLPExportFunc {
+func testNodejsRuntimeMetricsConsumer(out chan<- nodejsMetricRecord) otelcfg.MetricsExportFunc {
 	return testOTLPMetricsExport(func(_ context.Context, md pmetric.Metrics) error {
 		rm := md.ResourceMetrics()
 		for i := 0; i < rm.Len(); i++ {

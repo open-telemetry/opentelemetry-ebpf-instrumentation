@@ -22,6 +22,9 @@ import (
 	"go.yaml.in/yaml/v3"
 	legacyyaml "gopkg.in/yaml.v3"
 
+	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/pdata/ptrace"
+
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/discover"
@@ -639,8 +642,8 @@ func taggedYAMLFields(structType reflect.Type) map[string]struct{} {
 }
 
 func setReceiverConsumers(cfg *obi.Config) {
-	cfg.Traces.TracesExport = func(context.Context, []byte) error { return nil }
-	cfg.OTELMetrics.MetricsExport = func(context.Context, []byte) error { return nil }
+	cfg.Traces.TracesExport = func(context.Context, ptrace.Traces) error { return nil }
+	cfg.OTELMetrics.MetricsExport = func(context.Context, pmetric.Metrics) error { return nil }
 }
 
 type yamlPath []any
