@@ -97,8 +97,7 @@ func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
 			`http_response_status_code="200",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="rolldice",` +
-			`http_route="` + route + `",` +
-			`url_path="` + route + `"`
+			`http_route="` + route + `"`
 	)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -170,8 +169,7 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 			`http_response_status_code="200",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="rolldice",` +
-			`http_route="` + route + `",` +
-			`url_path="` + route + `"}`)
+			`http_route="` + route + `"}`)
 		require.NoError(ct, err)
 		require.Empty(ct, results)
 	}, testTimeout, 100*time.Millisecond)

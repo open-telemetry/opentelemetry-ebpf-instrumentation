@@ -69,7 +69,7 @@ func TestSuite_DjangoRoutes(t *testing.T) {
 				require.NoError(ct, readErr)
 				require.Equal(ct, tc.status, resp.StatusCode)
 
-				query := fmt.Sprintf(`http_server_request_duration_seconds_count{service_name="django-testserver",http_request_method="GET",http_response_status_code="%d",http_route=%q,url_path=%q}`, tc.status, tc.route, tc.path)
+				query := fmt.Sprintf(`http_server_request_duration_seconds_count{service_name="django-testserver",http_request_method="GET",http_response_status_code="%d",http_route=%q}`, tc.status, tc.route)
 				results, err := pq.Query(query)
 				require.NoError(ct, err)
 				require.NotEmpty(ct, results)

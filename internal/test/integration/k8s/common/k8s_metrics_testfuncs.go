@@ -87,7 +87,7 @@ func DoWaitForComponentsAvailable(t *testing.T) {
 		// now, verify that the metric has been reported.
 		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
-		results, err = pq.Query(`http_server_request_duration_seconds_count{url_path="` + subpath + `",k8s_pod_name=~"testserver-.*"}`)
+		results, err = pq.Query(`http_server_request_duration_seconds_count{k8s_pod_name=~"testserver-.*"}`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
 	}, 4*testTimeout, time.Second)
@@ -148,7 +148,7 @@ func FeatureHTTPMetricsDecoration(manifest string, overrideAttrs map[string]stri
 					"k8s_cluster_name",
 				), "k8s_deployment_name")).
 		Assess("all the server metrics are properly decorated",
-			testMetricsDecoration(httpServerMetrics, `{url_path="/iping",k8s_pod_name=~"testserver-.*"}`,
+			testMetricsDecoration(httpServerMetrics, `{http_route="/iping",k8s_pod_name=~"testserver-.*"}`,
 				attributeMap(allAttributes, overrideAttrs,
 					"k8s_namespace_name",
 					"k8s_node_name",

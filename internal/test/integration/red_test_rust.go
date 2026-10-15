@@ -42,7 +42,7 @@ func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string,
 			`http_response_status_code="200",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
-			`url_path="` + urlPath + `"}`)
+			`http_route="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -133,7 +133,7 @@ func validateLargeDownloadURLSeen(t *testing.T, comm, namespace, urlPath string)
 			`http_response_status_code="200",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
-			`url_path="` + urlPath + `"}`)
+			`http_route="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -208,7 +208,7 @@ func checkReportedRustEvents(t *testing.T, comm, namespace string, numEvents int
 			`http_response_status_code="200",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
-			`url_path="` + urlPath + `"}`)
+			`http_route="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -245,7 +245,7 @@ func testREDMetricsForRustHTTP2Library(t *testing.T, url, comm, namespace string
 			`http_response_status_code="200",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
-			`url_path="` + urlPath + `"}`)
+			`http_route="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)

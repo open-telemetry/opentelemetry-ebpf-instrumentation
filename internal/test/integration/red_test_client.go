@@ -23,7 +23,7 @@ func testClientWithMethodAndStatusCode(t *testing.T, method string, statusCode i
 		pq     = promtest.Client{HostPort: prometheusHostPort}
 		labels = fmt.Sprintf(`http_request_method="%s",`, method) +
 			fmt.Sprintf(`http_response_status_code="%d",`, statusCode) +
-			`http_route="/oss/",` +
+			`url_template="/oss/",` +
 			`server_address="grafana.com",` +
 			`service_namespace="integration-test",` +
 			`service_name="pingclient"`
