@@ -35,10 +35,8 @@ const (
 	churnResidueBound = 64
 )
 
-// loads tpinjector and attaches its sockops program to a private cgroup that
-// contains only the test process, so every loopback connection made here goes
-// through bpf_sock_ops_active_est_cb exactly as in production
-func setupSockopsHarness(t *testing.T) *BpfObjects {
+// loads every tpinjector program with private, unpinned maps
+func loadTPInjectorObjects(t *testing.T) *BpfObjects {
 	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
 	require.NoError(t, rlimit.RemoveMemlock())
 
@@ -54,6 +52,15 @@ func setupSockopsHarness(t *testing.T) *BpfObjects {
 	objs := &BpfObjects{}
 	require.NoError(t, spec.LoadAndAssign(objs, nil))
 	t.Cleanup(func() { objs.Close() })
+
+	return objs
+}
+
+// loads tpinjector and attaches its sockops program to a private cgroup that
+// contains only the test process, so every loopback connection made here goes
+// through bpf_sock_ops_active_est_cb exactly as in production
+func setupSockopsHarness(t *testing.T) *BpfObjects {
+	objs := loadTPInjectorObjects(t)
 
 	cgroupDir := enterTempCgroup(t)
 

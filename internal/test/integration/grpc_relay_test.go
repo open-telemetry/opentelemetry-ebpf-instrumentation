@@ -6,7 +6,6 @@ package integration
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"path"
 	"strings"
 	"testing"
@@ -90,25 +89,11 @@ func TestSuite_GRPCRelay(t *testing.T) {
 	})
 }
 
-// bpf_loop landed in 5.17, and the huffman decode is gated on it
-func kernelSupportsBPFLoop(t *testing.T) bool {
-	t.Helper()
-
-	release, err := os.ReadFile("/proc/sys/kernel/osrelease")
-	require.NoError(t, err)
-
-	var major, minor int
-	if _, err := fmt.Sscanf(string(release), "%d.%d", &major, &minor); err != nil {
-		return false
-	}
-
-	return major > 5 || (major == 5 && minor >= 17)
-}
-
 // The sender compresses the traceparent value, so nothing on the wire is the plain 55 bytes.
 // Without the decode, the receiver's server span starts a trace of its own.
 func assertHuffmanTraceparentAdopted(t *testing.T, driverURL, receiver string) {
-	if !kernelSupportsBPFLoop(t) {
+	// bpf_loop landed in 5.17, and the huffman decode is gated on it
+	if !kernelAtLeast(t, 5, 17) {
 		t.Skip("huffman traceparent decoding needs bpf_loop, 5.17+")
 	}
 

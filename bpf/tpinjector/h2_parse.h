@@ -12,13 +12,14 @@
 // hpack_offset_in_msg / hpack_len delimit the actual HPACK header block
 // (PADDED prefix and trailing pad bytes are excluded).
 typedef struct {
-    u32 stream_id;
+    u32 stream_id;           // reserved bit masked off
     u32 payload_len;         // raw frame payload length (after 9-byte header)
     u32 hpack_offset_in_msg; // start of HPACK bytes inside the sk_msg
     u32 hpack_len;           // HPACK block length
     bool is_headers_end;     // true for HEADERS with END_HEADERS, payload_len > 0
     u8 ftype;                // raw HTTP/2 frame type byte
-    u8 _pad[2];
+    u8 flags;                // raw HTTP/2 frame flags byte
+    u8 r_bit;                // reserved stream-id bit, set by no conforming sender
 } h2_frame_info_t;
 
 // Parses the HTTP/2 frame header at `pos` inside `msg` and fills `out`.
@@ -51,15 +52,16 @@ parse_h2_frame_at(struct sk_msg_md *msg, u32 pos, u32 msg_size, h2_frame_info_t 
 
     out->payload_len = len;
     out->ftype = ftype;
+    out->flags = flags;
+    out->r_bit = d[5] & k_h2_reserved_bit_mask;
+    out->stream_id = (((u32)(d[5] & ~(u8)k_h2_reserved_bit_mask) << 24) | ((u32)d[6] << 16) |
+                      ((u32)d[7] << 8) | (u32)d[8]);
     out->is_headers_end =
         (ftype == k_h2_frame_headers) && (flags & k_h2_flag_end_headers) && (len > 0);
 
     if (!out->is_headers_end) {
         return 1;
     }
-
-    out->stream_id =
-        (((u32)(d[5] & 0x7f) << 24) | ((u32)d[6] << 16) | ((u32)d[7] << 8) | (u32)d[8]);
 
     // RFC 7540 §6.2: PADDED/PRIORITY take bytes off the HPACK window
     u32 prefix = 0;

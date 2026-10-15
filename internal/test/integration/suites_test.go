@@ -5,6 +5,7 @@ package integration
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path"
 	"strings"
@@ -1614,4 +1615,18 @@ func KernelLockdownMode() bool {
 	}
 
 	return false
+}
+
+func kernelAtLeast(t *testing.T, wantMajor, wantMinor int) bool {
+	t.Helper()
+
+	release, err := os.ReadFile("/proc/sys/kernel/osrelease")
+	require.NoError(t, err)
+
+	var major, minor int
+	if _, err := fmt.Sscanf(string(release), "%d.%d", &major, &minor); err != nil {
+		return false
+	}
+
+	return major > wantMajor || (major == wantMajor && minor >= wantMinor)
 }
