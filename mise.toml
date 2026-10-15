@@ -92,6 +92,9 @@ depends = ["vanity-import-check", "lint:dependency-policy", "lint:collectt", "li
 [tasks."lint:go"]
 alias = "lint-run"
 hide = true
+# collectt fills the Go build cache with export data that golangci-lint
+# reuses; running both at once makes each recompute it
+wait_for = ["lint:collectt"]
 run = "golangci-lint run ./... --timeout=10m"
 
 [tasks.fmt]
