@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 	"go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
+	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 )
 
 func TestHTTPRequestTraceToSpan_QueryRedaction(t *testing.T) {
