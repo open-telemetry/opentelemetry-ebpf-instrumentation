@@ -101,6 +101,10 @@ published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
+- A SQL++ span from a server other than Couchbase (`db.system.name` `other_sql`) that names no
+  collection or bucket is named `{db.operation.name}`, like other SQL spans, instead of
+  `{db.operation.name} {server.address}:{server.port}`. Couchbase SQL++ spans are unchanged.
+
 ## Hosting notes
 
 `site/` is published as static files with no markdown processing, so the generated
