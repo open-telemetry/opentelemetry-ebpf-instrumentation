@@ -73,17 +73,17 @@ reports, exhaustive restatements of the code, or a play-by-play of the work.
 
 Before proposing changes, ensure the repository generates required artifacts, passes validation, and compiles successfully.
 
-Preferred validation targets:
+Preferred validation tasks:
 
-- `make verify` for the main validation flow
-- `make build` when generation and compilation are also required
-- `make generate` or `make docker-generate` when any `.c` file in `bpf/` is added or modified
+- `mise run verify` for the main validation flow
+- `mise run build` when generation and compilation are also required
+- `mise run generate` when any `.c` file in `bpf/` is added or modified
 
-Use `make lint`, `make test`, and `make compile` for targeted iteration when a full validation run is unnecessary.
+Use `mise run lint`, `mise run test`, and `mise run compile` for targeted iteration when a full validation run is unnecessary.
 
-For Markdown-only changes, run `make lint-markdown`.
+For Markdown-only changes, run `mise run lint:markdown`.
 
-C code must be formatted and linted before proposing changes. Run `make install-hooks` to install pre-commit hooks that enforce this automatically, or run `make docker-clang-format` and `make docker-clang-tidy` manually to use the same LLVM version as CI (`make clang-format` and `make clang-tidy` use the local tools).
+C code must be formatted and linted before proposing changes. Run `mise run install-hooks` to install pre-commit hooks that enforce this automatically, or run `mise run clang-format` and `mise run clang-tidy` to use the pinned LLVM tools.
 
 Integration tests live in `internal/test/integration/`:
 
@@ -97,12 +97,12 @@ Do not propose changes that fail local validation.
 
 OBI publishes an OpenTelemetry telemetry schema under `site/schemas/obi/` and
 emits a `schema_url` on its telemetry. Cutting a new version and bumping the
-emitted URL (`OBISchemaURL`) are automated at release prep (`make prerelease` runs
-`make generate-schema-next`), and `make check-schema-files` guards their
+emitted URL (`OBISchemaURL`) are automated at release prep (`mise run release:prerelease` runs
+`mise run generate:schema-next`), and `mise run check:schema-files` guards their
 consistency in CI.
 
 Reference docs for what OBI emits are rendered from the same registry into
-`site/docs/` by `make generate-schema-docs`, which `make prerelease` also runs so
+`site/docs/` by `mise run generate:schema-docs`, which `mise run release:prerelease` also runs so
 each release ships docs matching its registry. Between releases, rerun it and
 commit the result whenever the registry changes; it is not verified in CI.
 

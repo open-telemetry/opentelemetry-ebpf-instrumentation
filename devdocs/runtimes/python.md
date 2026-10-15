@@ -140,7 +140,7 @@ compatibility set.
 
 ## Updating offsets
 
-Run `make update-python-offsets` from a Linux `amd64` checkout. The target
+Run `mise run update-python-offsets` from a Linux `amd64` checkout. The task
 downloads the latest CPython releases, compiles the ABI validation probe, and
 updates the embedded offsets and version checkpoint when the layouts remain
 compatible. Review both generated files and run the Python runtime package

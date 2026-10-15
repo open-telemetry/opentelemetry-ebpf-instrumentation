@@ -19,12 +19,24 @@ jobs:
   check:
     name: ARCHITECTURE.md matches manifests
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: python
     steps:
       - name: Checkout Repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: Mise downloads cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/mise/downloads-cas
+          key: mise-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.lock') }}
+
+      - name: Set up mise
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          cache: false
       - name: Test the generator
-        run: python3 examples/store-demo/test_fix_architecture.py
+        run: mise run test-store-demo-architecture
       - name: Verify store-demo architecture is in sync
-        run: python3 examples/store-demo/fix_architecture.py --check
+        run: mise run check:store-demo-architecture

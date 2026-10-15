@@ -64,20 +64,20 @@ func TestWeaverRunning(t *testing.T) {
 	require.False(t, weaverRunning(nil))
 }
 
-func TestDependencyImageFindsTheScraperImage(t *testing.T) {
-	image, err := dependencyImage(busyboxDependencyStage)
+func TestRuntimeImageFindsTheScraperImage(t *testing.T) {
+	image, err := runtimeImage(busyboxRuntimeImageKey)
 	require.NoError(t, err)
-	require.True(t, strings.HasPrefix(image, "busybox:"), image)
+	require.Contains(t, image, "busybox:")
 	require.Contains(t, image, "@sha256:")
 }
 
-func TestDependencyImageInIgnoresOtherStages(t *testing.T) {
-	dockerfile := "FROM golang:1.26 AS builder\nFROM busybox:musl@sha256:abc AS busybox-musl\n"
+func TestRuntimeImageInIgnoresCommentsAndOtherKeys(t *testing.T) {
+	imageList := "# Runtime image pins\nOTHER_IMAGE=golang:1.26\nBUSYBOX_IMAGE=docker.io/busybox:musl@sha256:abc\n"
 
-	image, ok := dependencyImageIn(dockerfile, "busybox-musl")
+	image, ok := runtimeImageIn(imageList, "BUSYBOX_IMAGE")
 	require.True(t, ok)
-	require.Equal(t, "busybox:musl@sha256:abc", image)
+	require.Equal(t, "docker.io/busybox:musl@sha256:abc", image)
 
-	_, ok = dependencyImageIn(dockerfile, "missing")
+	_, ok = runtimeImageIn(imageList, "MISSING_IMAGE")
 	require.False(t, ok)
 }

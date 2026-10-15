@@ -117,7 +117,7 @@ func overrideMetrics(t *testing.T) map[string]metricDef {
 func upstreamMetrics(t *testing.T) map[string]metricDef {
 	t.Helper()
 	if _, err := os.Stat(upstreamDeps); os.IsNotExist(err) {
-		t.Skipf("%s is not populated; run `make fetch-upstream-semconv`", upstreamDeps)
+		t.Skipf("%s is not populated; run `mise run fetch-upstream-semconv`", upstreamDeps)
 	}
 	out := map[string]metricDef{}
 	err := filepath.WalkDir(upstreamDeps, func(path string, d os.DirEntry, err error) error {

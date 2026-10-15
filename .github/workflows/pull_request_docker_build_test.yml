@@ -6,15 +6,18 @@ on:
     paths:
       - ".github/workflows/pull_request_docker_build_test.yml"
       - "Dockerfile"
+      - "generator.Dockerfile"
       - "k8scache.Dockerfile"
-      - "dependencies.Dockerfile"
       - ".dockerignore"
       - "**.go"
       - "go.mod"
       - "go.sum"
       - "bpf/**"
       - "pkg/internal/java/**"
-      - "Makefile"
+      - "mise.toml"
+      - "mise.lock"
+      - ".mise/tasks/**"
+      - ".mise/scripts/**"
   workflow_call:
     inputs:
       ref:
@@ -62,6 +65,20 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      - name: Set up mise
+        if: matrix.file == 'Dockerfile'
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          install: false
+          cache: false
+
+      - name: Build Mise-enabled generator image
+        if: matrix.file == 'Dockerfile'
+        env:
+          MISE_ENABLE_TOOLS: ""
+          GENERATOR_OCI_LAYOUT: ${{ runner.temp }}/obi-generator-layout-${{ steps.short_sha.outputs.sha }}-${{ runner.arch }}
+        run: mise run generator-image-build
+
       - name: Build Docker image
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -72,3 +89,5 @@ jobs:
           build-args: |
             RELEASE_VERSION=${{ inputs.ref || github.ref_name }}
             RELEASE_REVISION=${{ steps.short_sha.outputs.sha }}
+            GENERATOR_BASE=ghcr.io/open-telemetry/obi-generator:local
+          build-contexts: ${{ matrix.file == 'Dockerfile' && format('ghcr.io/open-telemetry/obi-generator:local=oci-layout://{0}/obi-generator-layout-{1}-{2}:local', runner.temp, steps.short_sha.outputs.sha, runner.arch) || '' }}

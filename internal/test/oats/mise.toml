@@ -1,0 +1,106 @@
+[tasks."integration-test-matrix-json"]
+hide = true
+run = 'cd "$MISE_MONOREPO_ROOT" && ./scripts/generate-dir-matrix.sh internal/test/oats'
+
+[tasks.prereqs]
+hide = true
+depends = ["//:generate", "//:fetch-upstream-semconv"]
+run = 'mkdir -p "${TEST_OUTPUT:-$MISE_MONOREPO_ROOT/testoutput}/run"'
+
+[tasks."test:sql"]
+description = "Run OATS tests for SQL databases"
+depends = ["prereqs"]
+dir = "sql"
+run = [
+  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
+]
+
+[tasks."test:redis"]
+description = "Run OATS tests for Redis"
+depends = ["prereqs"]
+dir = "redis"
+run = [
+  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
+]
+
+[tasks."test:kafka"]
+description = "Run OATS tests for Kafka"
+depends = ["prereqs"]
+dir = "kafka"
+run = [
+  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
+]
+
+[tasks."test:http"]
+description = "Run OATS tests for HTTP"
+depends = ["prereqs"]
+dir = "http"
+run = [
+  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
+]
+
+[tasks."test:mongo"]
+description = "Run OATS tests for MongoDB"
+depends = ["prereqs"]
+dir = "mongo"
+run = [
+  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
+]
+
+[tasks."test:memcached"]
+description = "Run OATS tests for Memcached"
+depends = ["prereqs"]
+dir = "memcached"
+run = [
+  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
+]
+
+[tasks."test:ai"]
+description = "Run OATS tests for AI instrumentation"
+depends = ["prereqs"]
+dir = "ai"
+run = [
+  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
+]
+
+[tasks."test:nats"]
+description = "Run OATS tests for NATS"
+depends = ["prereqs"]
+dir = "nats"
+run = [
+  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
+]
+
+[tasks."test:amqp"]
+description = "Run OATS tests for AMQP"
+depends = ["prereqs"]
+dir = "amqp"
+run = [
+  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
+  'TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
+]
+
+[tasks."test:debug"]
+description = "Run the OATS Kafka suite in manual debug mode"
+depends = ["prereqs"]
+dir = "kafka"
+run = [
+  'mkdir -p "${TEST_OUTPUT:-testoutput}/run"',
+  'TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" ginkgo -v -r',
+]
+
+[tasks.test]
+description = "Run the OATS component suites in parallel"
+depends = ["prereqs"]
+run = [
+  { tasks = ["test:sql", "test:mongo", "test:redis", "test:kafka", "test:http", "test:memcached", "test:ai", "test:nats", "test:amqp"] },
+  { task = "//:itest-coverage-data" },
+]

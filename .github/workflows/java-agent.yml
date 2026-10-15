@@ -7,7 +7,9 @@ on:
     branches: ["main", "release-*"]
     paths:
       - "pkg/internal/java/**"
-      - "dependencies.Dockerfile"
+      - "mise.toml"
+      - "mise.lock"
+      - ".mise/tasks/**"
       - ".github/workflows/java-agent.yml"
   workflow_dispatch:
   workflow_call:
@@ -32,6 +34,8 @@ jobs:
   build:
     name: Build and test (Java ${{ matrix.test-java }})
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: gradle
 
     strategy:
       matrix:
@@ -45,26 +49,17 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Resolve Gradle source of truth
-        id: gradle-source
-        working-directory: .
-        run: |
-          set -euo pipefail
+      - name: Mise downloads cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] mise verifies every download against mise.lock checksums
+        with:
+          path: ~/.cache/mise/downloads-cas
+          key: mise-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.lock') }}
 
-          gradle_image="$(awk '$1=="FROM" && $4=="gradle-java" {print $2}' dependencies.Dockerfile)"
-          if [[ -z "$gradle_image" ]]; then
-            echo "Unable to find gradle-java image in dependencies.Dockerfile" >&2
-            exit 1
-          fi
-
-          gradle_version="$(printf '%s' "$gradle_image" | sed -E 's#^gradle:([0-9.]+)-.*#\1#')"
-          if [[ -z "$gradle_version" || "$gradle_version" == "$gradle_image" ]]; then
-            echo "Unable to parse Gradle version from image: $gradle_image" >&2
-            exit 1
-          fi
-
-          echo "image=$gradle_image" >> "$GITHUB_OUTPUT"
-          echo "version=$gradle_version" >> "$GITHUB_OUTPUT"
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          cache: false
 
       - name: Set up JDK for running Gradle
         id: gradle-jdk
@@ -79,11 +74,6 @@ jobs:
           distribution: temurin
           java-version: ${{ matrix.test-java }}
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
-        with:
-          gradle-version: ${{ steps.gradle-source.outputs.version }}
-          cache-disabled: true
 
       - name: Install cross compiler
         run: |

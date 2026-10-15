@@ -9,7 +9,10 @@ on:
       - ".github/workflows/lint.yml"
       - "Dockerfile"
       - "**/*Dockerfile*"
-      - "Makefile"
+      - "mise.toml"
+      - "mise.lock"
+      - ".mise/tasks/**"
+      - ".mise/scripts/**"
       - "**.go"
       - "go.mod"
       - "go.sum"
@@ -29,6 +32,11 @@ on:
         description: "Git ref (commit, branch, or tag) to check out"
         required: false
         type: string
+      skip_mise_cache:
+        description: "Skip restoring the Mise download and Go caches"
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: pr-lint-${{ github.head_ref || github.run_id }}
@@ -38,7 +46,7 @@ permissions:
   contents: read
 
 jobs:
-  # macOS runners lack Docker so they can't run `make docker-generate`. Run it
+  # macOS runners lack Docker, so generate the eBPF bindings once on Linux.
   # once on Linux, share artifact with all lint jobs.
   generate-bpf:
     name: Generate BPF
@@ -51,11 +59,16 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/generate-bpf
+        with:
+          cache-downloads: ${{ !inputs.skip_mise_cache && (inputs.ref == '' || inputs.ref == null) }}
+          cache-go-build: ${{ !inputs.skip_mise_cache && (inputs.ref == '' || inputs.ref == null) }}
 
   lint-linux:
     name: Lint on linux (${{ matrix.platform.arch }})
     needs: generate-bpf
     runs-on: ${{ matrix.platform.runner }}
+    env:
+      MISE_ENABLE_TOOLS: go,golangci-lint,github:open-telemetry/weaver
     strategy:
       fail-fast: false
       matrix:
@@ -70,13 +83,29 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      - name: Mise downloads cache
+        if: ${{ !inputs.skip_mise_cache && (inputs.ref == '' || inputs.ref == null) }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] mise verifies every download against mise.lock checksums
         with:
-          go-version-file: "go.mod"
-          cache: true
+          path: ~/.cache/mise/downloads-cas
+          key: mise-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.lock') }}
+
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          cache: false
+
+      - name: Go module cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          path: ~/go/pkg/mod
+          key: go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-mod-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Go build cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
@@ -89,46 +118,70 @@ jobs:
         with:
           name: bpf-generated-${{ github.run_id }}
 
+      - name: Validate Mise tasks
+        if: matrix.platform.arch == 'amd64'
+        run: mise tasks validate
+
       - name: Lint
-        run: make lint
+        run: mise run lint
 
       # Schema lint is arch-neutral (weaver YAML/JSON). Keep it on amd64 only.
       - name: Lint OBI semantic-convention registry
         if: matrix.platform.arch == 'amd64'
-        run: make lint-schema
+        run: mise run lint:schema
 
       - name: Test OBI semantic-convention registry provenance
         if: matrix.platform.arch == 'amd64'
-        run: make test-schema
+        run: mise run test-schema
 
       - name: Check published OBI telemetry schema files
         if: matrix.platform.arch == 'amd64'
-        run: make check-schema-files
+        run: mise run check:schema-files
 
       - name: Check generated OBI telemetry reference docs
         if: matrix.platform.arch == 'amd64'
-        run: make check-schema-docs
+        run: mise run check:schema-docs
 
   lint-darwin:
     name: Lint on macOS
     needs: generate-bpf
     runs-on: macos-latest
+    env:
+      MISE_ENABLE_TOOLS: go,golangci-lint
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      - name: Mise downloads cache
+        if: ${{ !inputs.skip_mise_cache && (inputs.ref == '' || inputs.ref == null) }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] mise verifies every download against mise.lock checksums
         with:
-          go-version-file: "go.mod"
-          cache: true
+          # mise's default cache dir on macOS
+          path: ~/Library/Caches/mise/downloads-cas
+          key: mise-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.lock') }}
+
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        with:
+          cache: false
+
+      - name: Go module cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          path: ~/go/pkg/mod
+          key: go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-mod-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Go build cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
-          path: ~/.cache/go-build
+          # Go's default GOCACHE on macOS
+          path: ~/Library/Caches/go-build
           key: go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
           restore-keys: |
             go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
@@ -139,4 +192,4 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Lint
-        run: make lint
+        run: mise run lint

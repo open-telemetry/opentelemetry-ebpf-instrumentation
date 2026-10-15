@@ -5,7 +5,7 @@ COPY --from=go /usr/local/go /usr/local/go
 
 # Include the runtime dependencies needed by the IDE backends.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash ca-certificates curl docker-cli gcc git jq libc6-dev make procps sudo unzip \
+    bash ca-certificates curl docker-cli gcc git jq libc6-dev procps sudo unzip \
     libfreetype6 libstdc++6 libxext6 libxi6 libxrender1 libxtst6 \
     && rm -rf /var/lib/apt/lists/*
 
