@@ -110,6 +110,9 @@ typedef enum {
     _mongo_topology_connection_pos,
     _mongo_connection_addr_pos,
     _mongo_v1_topology_connection_type_addr,
+    // go mongodb v2
+    _mongo_mnet_describer_pos,
+    _mongo_v2_topology_connection_type_addr,
     // database/sql stdlib
     _driverconn_ci_pos,
     // lib/pq driver

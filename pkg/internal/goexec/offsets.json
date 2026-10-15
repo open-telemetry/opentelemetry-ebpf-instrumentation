@@ -476,6 +476,52 @@
         ]
       }
     },
+    "go.mongodb.org/mongo-driver/v2/x/mongo/driver/mnet.Connection": {
+      "Describer": {
+        "versions": {
+          "oldest": "2.0.1",
+          "newest": "2.9.1"
+        },
+        "offsets": [
+          {
+            "offset": 16,
+            "since": "2.0.1"
+          },
+          {
+            "offset": 24,
+            "since": "2.6.0"
+          }
+        ]
+      }
+    },
+    "go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology.Connection": {
+      "connection": {
+        "versions": {
+          "oldest": "2.0.1",
+          "newest": "2.9.1"
+        },
+        "offsets": [
+          {
+            "offset": 0,
+            "since": "2.0.1"
+          }
+        ]
+      }
+    },
+    "go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology.connection": {
+      "addr": {
+        "versions": {
+          "oldest": "2.0.1",
+          "newest": "2.9.1"
+        },
+        "offsets": [
+          {
+            "offset": 40,
+            "since": "2.0.1"
+          }
+        ]
+      }
+    },
     "go.mongodb.org/mongo-driver/x/mongo/driver.Operation": {
       "Database": {
         "versions": {
