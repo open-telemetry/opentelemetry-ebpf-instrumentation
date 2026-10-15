@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Check Go module files are tidy"
+#MISE alias="check-go-mod"
 set -euo pipefail
 if ! git diff --quiet -- ':(glob)**/go.mod' ':(glob)**/go.sum' ':(exclude,glob)NOTICES/**'; then
   echo 'go.mod/go.sum files are not clean, did you forget to run mise run go-mod-tidy?' >&2

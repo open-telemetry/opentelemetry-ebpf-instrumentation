@@ -81,6 +81,7 @@ dir = "bpf"
 run = '''find . -type f \( -name '*.c' -o -name '*.h' \) ! -path './bpfcore/*' ! -path './NOTICES/*' ! -path './tests/*' -print0 | xargs -0 -r clang-tidy'''
 
 [tasks."lint:clean-cache"]
+alias = "lint-clean-cache"
 hide = true
 run = "golangci-lint cache clean"
 
@@ -89,6 +90,7 @@ description = "Run all Go lint checks in parallel"
 depends = ["vanity-import-check", "lint:dependency-policy", "lint:collectt", "lint:preempt-guard", "lint:go", "check:go-toolchain"]
 
 [tasks."lint:go"]
+alias = "lint-run"
 hide = true
 run = "golangci-lint run ./... --timeout=10m"
 
@@ -97,6 +99,7 @@ description = "Format Go code and imports"
 run = "golangci-lint fmt"
 
 [tasks."lint:fix"]
+alias = "lint-fix"
 description = "Apply available Go lint fixes"
 run = [
   { task = "vanity-import-fix-check" },
@@ -107,6 +110,7 @@ run = [
 ]
 
 [tasks."lint:schema"]
+alias = "lint-schema"
 description = "Lint the telemetry schema registry"
 depends = ["fetch-upstream-semconv"]
 run = "./scripts/lint-schema.sh \"$MISE_CONFIG_ROOT/schemas/obi\""
@@ -117,40 +121,49 @@ depends = ["fetch-upstream-semconv"]
 run = "go test -race -count=1 ./internal/schemacheck/..."
 
 [tasks."check:schema-files"]
+alias = "check-schema-files"
 description = "Check published telemetry schema files"
 run = "./scripts/check-schema-files.sh \"$MISE_CONFIG_ROOT/site/schemas/obi\""
 
 [tasks."generate:schema-next"]
+alias = "generate-schema-next"
 description = "Create the next telemetry schema version"
 run = "./scripts/generate-schema-next.sh"
 
 [tasks."generate:schema-docs"]
+alias = "generate-schema-docs"
 description = "Generate telemetry reference documentation"
 depends = ["fetch-upstream-semconv"]
 run = "./scripts/generate-schema-docs.sh \"$MISE_CONFIG_ROOT/schemas/obi\""
 
 [tasks."lint:dependency-policy"]
+alias = "lint-dependency-policy"
 description = "Check dependency policy in container definitions"
 run = "if [ -n \"${CI:-}\" ]; then ./scripts/lint-dependency-policy.sh --verbose; else ./scripts/lint-dependency-policy.sh; fi"
 
 [tasks."lint:preempt-guard"]
+alias = "lint-preempt-guard"
 description = "Check tests for preemption-sensitive patterns"
 run = "./scripts/lint-preempt-guard.sh"
 
 [tasks."lint:collectt"]
+alias = "lint-collectt"
 description = "Lint collectt usage in Go tests"
 run = "go run ./internal/test/analyzer/collectt/cmd/collecttlint ./..."
 
 [tasks."lint:collectt-fix"]
+alias = "lint-collectt-fix"
 description = "Fix and lint collectt usage in Go tests"
 run = "go run ./internal/test/analyzer/collectt/cmd/collecttlint -fix ./... && go run ./internal/test/analyzer/collectt/cmd/collecttlint ./..."
 
 [tasks."lint:markdown"]
+alias = "lint-markdown"
 description = "Lint Markdown documentation"
 tools = { node = "24.21.0" }
 run = "markdownlint-cli2 --config .markdownlint-cli2.yaml '**/*.md'"
 
 [tasks."lint:markdown-fix"]
+alias = "lint-markdown-fix"
 description = "Fix Markdown formatting issues"
 tools = { node = "24.21.0" }
 run = "markdownlint-cli2 --config .markdownlint-cli2.yaml --fix '**/*.md'"
@@ -168,6 +181,7 @@ description = "Generate BPF Go bindings for supported architectures"
 run = "make -f bpf/Makefile generate"
 
 [tasks."generate:all"]
+alias = "generate/all"
 description = "Generate BPF bindings and objects for all supported architectures"
 run = "make -f bpf/Makefile generate/all"
 
@@ -195,6 +209,7 @@ run = [
 ]
 
 [tasks."compile:cache"]
+alias = "compile-cache"
 description = "Compile the k8s-cache binary"
 env = { CMD = "k8s-cache" }
 run = [{ task = "compile" }]
@@ -210,11 +225,13 @@ depends = ["prereqs", "generate"]
 run = [{ task = "compile:coverage" }]
 
 [tasks."compile:coverage"]
+alias = "compile-for-coverage"
 description = "Compile OBI with coverage instrumentation"
 env = { COVERAGE_BUILD = "true" }
 run = [{ task = "compile" }]
 
 [tasks."compile:cache-coverage"]
+alias = "compile-cache-for-coverage"
 description = "Compile k8s-cache with coverage instrumentation"
 env = { CMD = "k8s-cache", COVERAGE_BUILD = "true" }
 run = [{ task = "compile" }]
@@ -232,11 +249,13 @@ description = "Run BPF verifier tests in the VM test suite"
 run = "go test -count=1 -timeout 55m -parallel 8 -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/..."
 
 [tasks."coverage:report"]
+alias = "coverage-report"
 description = "Show function coverage from the test report"
 depends = ["cov-exclude-generated"]
 run = "go tool cover --func=${TEST_OUTPUT:-./testoutput}/cover.txt"
 
 [tasks."coverage:report-html"]
+alias = "coverage-report-html"
 description = "Open an HTML view of test coverage"
 depends = ["cov-exclude-generated"]
 run = "go tool cover --html=${TEST_OUTPUT:-./testoutput}/cover.txt"
@@ -293,6 +312,7 @@ hide = true
 run = "./scripts/generate-dir-matrix.sh internal/test/integration/k8s common"
 
 [tasks."release:artifact"]
+alias = "artifact"
 description = "Build the OBI release artifact"
 depends = ["generate", "//java:docker-build"]
 run = [
@@ -310,6 +330,7 @@ run = [
 ]
 
 [tasks."release:prerelease"]
+alias = "prerelease"
 description = "Prepare generated schema files and module release metadata"
 run = [
   '"$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" multimod verify',
@@ -358,6 +379,7 @@ description = "Update third-party license notices"
 depends = ["go-notices-update", "//java:notices-update"]
 
 [tasks."verify:mods"]
+alias = "verify-mods"
 description = "Verify the repository Go module set"
 run = '"$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" multimod verify'
 
@@ -366,6 +388,7 @@ description = "Tag the requested Go module set"
 run = '"$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" multimod tag -m "${MODSET:?MODSET is not set}" -c "${COMMIT:-HEAD}"'
 
 [tasks."check:ebpf-ver-synced"]
+alias = "check-ebpf-ver-synced"
 description = "Check the cilium/ebpf version matches BPF core metadata"
 run = '''
 ver="v$(mise current go:github.com/cilium/ebpf/cmd/bpf2go)"
@@ -397,6 +420,7 @@ run = [
 ]
 
 [tasks."check:config-v2-parity"]
+alias = "check-config-v2-parity"
 description = "Check Config v2 compatibility parity"
 run = "go run ./cmd/check-config-v2-parity -v2-default \"${CONFIG_V2_DEFAULT_REFERENCE_FILE:-devdocs/config/version-2.0/examples/default-values-reference.fragment.yaml}\""
 
@@ -410,6 +434,7 @@ tools.python = "3.14"
 run = "python3 examples/store-demo/fix_architecture.py"
 
 [tasks."check:store-demo-architecture"]
+alias = "check-store-demo-architecture"
 description = "Check the store demo architecture diagram"
 tools.python = "3.14"
 run = "python3 examples/store-demo/fix_architecture.py --check"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #MISE hide=true
-#MISE hide=true
+#MISE alias="release-checksums"
 set -euo pipefail
 release_dir="$RELEASE_DIR"
 version="${RELEASE_VERSION:-$(git describe --all | cut -d/ -f2-)}"

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Check generated Config v2 artifacts"
+#MISE alias="check-config-v2-artifacts"
 set -euo pipefail
 dir="${CONFIG_V2_DIR:-devdocs/config/version-2.0}"
 go run ./cmd/check-config-v2-artifacts -schema "${CONFIG_V2_SCHEMA_FILE:-$dir/obi-extension.schema.json}" -default-reference "${CONFIG_V2_DEFAULT_REFERENCE_FILE:-$dir/examples/default-values-reference.fragment.yaml}" -runnable-example "${CONFIG_V2_RUNNABLE_EXAMPLE_FILE:-$dir/examples/default-configuration.yaml}"

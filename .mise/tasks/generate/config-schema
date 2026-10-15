@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Generate configuration schema and docs"
+#MISE alias="generate-config-schema"
 set -euo pipefail
 schema="${CONFIG_SCHEMA_FILE:-devdocs/config/config-schema.json}"
 docs="${CONFIG_DOCS_FILE:-devdocs/config/CONFIG.md}"

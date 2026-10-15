@@ -55,7 +55,10 @@ container described above.
 
 Tasks that used to be `make` targets keep their names, except that a `-` joining
 a task group and its variant became `:` (for example `make lint-markdown` is now
-`mise run lint:markdown`). The other renames are:
+`mise run lint:markdown`). Former names of root tasks remain available as task
+aliases, so `mise run lint-markdown` still works; the `java-*`, `oats-test-*`
+and `test-nodejs` tasks moved into their subprojects and have no alias. The
+other renames are:
 
 | Former `make` target | Mise task |
 | --- | --- |
