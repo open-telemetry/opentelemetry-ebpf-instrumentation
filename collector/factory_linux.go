@@ -15,10 +15,10 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/receiver"
-
-	"go.opentelemetry.io/obi/collector/internal"
 	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
 	"go.opentelemetry.io/obi/pkg/obi"
+
+	"go.opentelemetry.io/obi/collector/internal"
 )
 
 var loggerOnce sync.Once
@@ -42,7 +42,7 @@ func BuildTracesReceiver() receiver.CreateTracesFunc {
 		if !ok {
 			return nil, errInvalidConfig
 		}
-		cfg.Traces.TracesConsumer = nextConsumer
+		cfg.Traces.TracesExport = tracesExport(nextConsumer)
 
 		v2 := false
 		if receiverCfg, ok := baseCfg.(*receiverConfig); ok {
@@ -64,7 +64,7 @@ func BuildMetricsReceiver() receiver.CreateMetricsFunc {
 		if !ok {
 			return nil, errInvalidConfig
 		}
-		cfg.OTELMetrics.MetricsConsumer = nextConsumer
+		cfg.OTELMetrics.MetricsExport = metricsExport(nextConsumer)
 
 		v2 := false
 		if receiverCfg, ok := baseCfg.(*receiverConfig); ok {

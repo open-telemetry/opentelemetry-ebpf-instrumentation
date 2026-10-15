@@ -21,6 +21,7 @@ import (
 
 type recordedRequest struct {
 	contentType string
+	path        string
 	body        []byte
 }
 
@@ -32,11 +33,37 @@ func collectorRecordingRequest(t *testing.T, got *atomic.Pointer[recordedRequest
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		got.CompareAndSwap(nil, &recordedRequest{contentType: r.Header.Get("Content-Type"), body: body})
+		got.CompareAndSwap(nil, &recordedRequest{contentType: r.Header.Get("Content-Type"), path: r.URL.Path, body: body})
 		w.WriteHeader(http.StatusOK)
 	}))
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+func TestTracesExportHTTPPath(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		path     string
+		wantPath string
+	}{
+		{name: "endpoint without path", wantPath: "/v1/traces"},
+		{name: "explicit path", path: "/custom/traces", wantPath: "/custom/traces"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got atomic.Pointer[recordedRequest]
+			coll := collectorRecordingRequest(t, &got)
+			endpoint := coll.URL + tc.path
+			t.Setenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", endpoint)
+
+			cfg := baseTracesConfig("")
+			cfg.TracesEndpoint = endpoint
+			exportOneSpan(t, cfg)
+
+			require.Eventually(t, func() bool { return got.Load() != nil }, 5*time.Second, 20*time.Millisecond,
+				"the collector never received an export")
+			assert.Equal(t, tc.wantPath, got.Load().path)
+		})
+	}
 }
 
 func TestTracesExportEncodingHTTP(t *testing.T) {

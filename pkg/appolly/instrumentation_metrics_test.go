@@ -7,13 +7,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 
@@ -67,11 +67,32 @@ prometheus_export:
 			}
 			require.NoError(t, err)
 			cfg.NameResolver = nil
-			traces := &consumertest.TracesSink{}
-			metrics := &consumertest.MetricsSink{}
-			cfg.Traces.TracesConsumer = traces
+			var tracesMu, metricsMu sync.Mutex
+			var traceBatches []ptrace.Traces
+			var metricBatches []pmetric.Metrics
+			cfg.Traces.TracesExport = func(_ context.Context, traces ptrace.Traces) error {
+				tracesMu.Lock()
+				traceBatches = append(traceBatches, traces)
+				tracesMu.Unlock()
+				return nil
+			}
 			cfg.Traces.BatchTimeout = 10 * time.Millisecond
-			cfg.OTELMetrics.MetricsConsumer = metrics
+			cfg.OTELMetrics.MetricsExport = func(_ context.Context, metrics pmetric.Metrics) error {
+				metricsMu.Lock()
+				metricBatches = append(metricBatches, metrics)
+				metricsMu.Unlock()
+				return nil
+			}
+			getTraces := func() []ptrace.Traces {
+				tracesMu.Lock()
+				defer tracesMu.Unlock()
+				return append([]ptrace.Traces(nil), traceBatches...)
+			}
+			getMetrics := func() []pmetric.Metrics {
+				metricsMu.Lock()
+				defer metricsMu.Unlock()
+				return append([]pmetric.Metrics(nil), metricBatches...)
+			}
 			cfg.OTELMetrics.Interval = 10 * time.Millisecond
 			promServer := testutil.NewPrometheusServer(t)
 			cfg.Prometheus.Port = promServer.Port
@@ -100,9 +121,9 @@ prometheus_export:
 
 			metricNames := []attributes.Name{attributes.SpanMetricsCallsOTel, attributes.ServiceGraphServer}
 			require.EventuallyWithT(t, func(ct *assert.CollectT) {
-				assert.True(ct, traceServices(traces.AllTraces())["http-service"])
-				assert.True(ct, traceServices(traces.AllTraces())["grpc-service"])
-				got := metricServices(metrics.AllMetrics())
+				assert.True(ct, traceServices(getTraces())["http-service"])
+				assert.True(ct, traceServices(getTraces())["grpc-service"])
+				got := metricServices(getMetrics())
 				families, gatherErr := promServer.Gather()
 				assert.NoError(ct, gatherErr)
 				for _, name := range metricNames {
@@ -124,7 +145,7 @@ prometheus_export:
 
 			cancel()
 			require.NoError(t, <-done)
-			got := metricServices(metrics.AllMetrics())
+			got := metricServices(getMetrics())
 			for _, name := range metricNames {
 				assert.Equal(t, test.wantHTTP, got[name.OTEL]["http-service"], name.OTEL)
 			}

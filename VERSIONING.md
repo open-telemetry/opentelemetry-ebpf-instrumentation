@@ -41,7 +41,16 @@ A release tag `vX.Y.Z` identifies one coherent core OBI release across:
 - release container images
 - the generated configuration schema and documented configuration behavior
 
-If ancillary tooling is later split into separately versioned modules, this document MUST identify which modules remain part of the core OBI release line and which modules are versioned separately.
+The Collector receiver is a separate Go module, `go.opentelemetry.io/obi/collector`,
+with its own `v0` version line and tags of the form `collector/vX.Y.Z`. It depends
+on the root module but is not part of the core OBI release line. The receiver's
+package import path remains `go.opentelemetry.io/obi/collector`.
+
+The first split receiver release is `collector/v0.15.0` and requires root
+`v0.15.0`. Both modules need to be released together for existing receiver
+users to upgrade with `go get -u`: root `v0.15.0` removes the package, and
+`collector/v0.15.0` provides it at the same import path. RC tags on their own
+do not make the new module discoverable through a plain `go get -u`.
 
 ## Version numbers before v1
 

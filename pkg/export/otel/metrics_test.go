@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
@@ -619,7 +618,7 @@ func TestAppMetrics_GenAITokenAvailability(t *testing.T) {
 				TTL:               30 * time.Minute,
 				ReportersCacheLen: 10,
 				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
-				MetricsConsumer:   testMetricsConsumer(metricRecords),
+				MetricsExport:     testMetricsConsumer(metricRecords),
 			}
 			reporter, err := newMetricsReporter(
 				ctx,
@@ -711,7 +710,7 @@ func TestAppMetrics_MCPOperationDuration(t *testing.T) {
 				TTL:               30 * time.Minute,
 				ReportersCacheLen: 10,
 				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP, instrumentations.InstrumentationGenAI},
-				MetricsConsumer:   testMetricsConsumer(metricRecords),
+				MetricsExport:     testMetricsConsumer(metricRecords),
 			}
 			reporter, err := newMetricsReporter(
 				ctx,
@@ -802,7 +801,7 @@ func TestAppMetrics_MCPSessionDurationExportsDuringShutdown(t *testing.T) {
 		TTL:               time.Hour,
 		ReportersCacheLen: 1,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
-		MetricsConsumer:   testMetricsConsumer(metricRecords),
+		MetricsExport:     testMetricsConsumer(metricRecords),
 	}
 	reporter, err := newMetricsReporter(
 		ctx,
@@ -862,7 +861,7 @@ func TestAppMetrics_DBClientAttributes(t *testing.T) {
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 10,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationSQL},
-		MetricsConsumer:   testMetricsConsumer(metricRecords),
+		MetricsExport:     testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -916,7 +915,7 @@ func TestAppMetrics_HTTPErrorType(t *testing.T) {
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 10,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
-		MetricsConsumer:   testMetricsConsumer(metricRecords),
+		MetricsExport:     testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -992,7 +991,7 @@ func TestAppMetrics_REDHistogramBucketBoundaries(t *testing.T) {
 		ReportersCacheLen: 10,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 		Buckets:           buckets,
-		MetricsConsumer:   testHistogramBoundsConsumer(records),
+		MetricsExport:     testHistogramBoundsConsumer(records),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -1042,7 +1041,7 @@ func TestAppMetrics_GenAIHistogramBucketBoundaries(t *testing.T) {
 		ReportersCacheLen: 10,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
 		Buckets:           buckets,
-		MetricsConsumer:   testHistogramBoundsConsumer(records),
+		MetricsExport:     testHistogramBoundsConsumer(records),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -1086,7 +1085,7 @@ func TestAppMetrics_GRPCServerErrorType(t *testing.T) {
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 10,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC},
-		MetricsConsumer:   testMetricsConsumer(metricRecords),
+		MetricsExport:     testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -1143,7 +1142,7 @@ func TestAppMetrics_DBClientServerPortDefaultSelection(t *testing.T) {
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 10,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationSQL},
-		MetricsConsumer:   testMetricsConsumer(metricRecords),
+		MetricsExport:     testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -1224,7 +1223,7 @@ func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
 		ReportersCacheLen:       100,
 		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 		ExtraSpanResourceLabels: []string{"deployment.environment"},
-		MetricsConsumer:         testMetricsConsumer(metricRecords),
+		MetricsExport:           testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -1313,7 +1312,7 @@ func TestSpanMetrics_EmittedAttributes(t *testing.T) {
 				TTL:               30 * time.Minute,
 				ReportersCacheLen: 100,
 				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
-				MetricsConsumer:   testMetricsConsumer(metricRecords),
+				MetricsExport:     testMetricsConsumer(metricRecords),
 			}
 
 			reporter, err := newMetricsReporter(
@@ -1430,7 +1429,7 @@ func TestSpanSizeMetrics_ExtraResourceAttributes(t *testing.T) {
 		ReportersCacheLen:       100,
 		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 		ExtraSpanResourceLabels: []string{"deployment.environment"},
-		MetricsConsumer:         testMetricsConsumer(metricRecords),
+		MetricsExport:           testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -1683,18 +1682,13 @@ func readNChan(t require.TestingT, inCh <-chan collector.MetricRecord, numRecord
 	return records
 }
 
-func testMetricsConsumer(out chan<- collector.MetricRecord) consumer.Metrics {
-	c, err := consumer.NewMetrics(func(_ context.Context, md pmetric.Metrics) error {
+func testMetricsConsumer(out chan<- collector.MetricRecord) otelcfg.MetricsExportFunc {
+	return testOTLPMetricsExport(func(_ context.Context, md pmetric.Metrics) error {
 		collector.VisitMetricRecords(md, func(record collector.MetricRecord) {
 			out <- record
 		})
 		return nil
 	})
-	if err != nil {
-		panic(err)
-	}
-
-	return c
 }
 
 type histogramBoundsRecord struct {
@@ -1702,8 +1696,8 @@ type histogramBoundsRecord struct {
 	Bounds []float64
 }
 
-func testHistogramBoundsConsumer(out chan<- histogramBoundsRecord) consumer.Metrics {
-	c, err := consumer.NewMetrics(func(_ context.Context, md pmetric.Metrics) error {
+func testHistogramBoundsConsumer(out chan<- histogramBoundsRecord) otelcfg.MetricsExportFunc {
+	return testOTLPMetricsExport(func(_ context.Context, md pmetric.Metrics) error {
 		for _, rm := range md.ResourceMetrics().All() {
 			for _, sm := range rm.ScopeMetrics().All() {
 				for _, m := range sm.Metrics().All() {
@@ -1718,11 +1712,6 @@ func testHistogramBoundsConsumer(out chan<- histogramBoundsRecord) consumer.Metr
 		}
 		return nil
 	})
-	if err != nil {
-		panic(err)
-	}
-
-	return c
 }
 
 // readHistogramBounds returns the explicit bucket bounds of the first data point received for each named histogram

@@ -14,11 +14,8 @@ import (
 	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/zap/zapcore"
 	grpc_codes "google.golang.org/grpc/codes"
 
-	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/otel/attribute"
@@ -3344,58 +3341,6 @@ func TestTraceGrouping(t *testing.T) {
 	})
 }
 
-func TestCreateZapLoggerDevLevels(t *testing.T) {
-	tests := []struct {
-		name    string
-		level   string
-		enabled map[zapcore.Level]bool
-	}{
-		{
-			name:  "panic downgraded to error",
-			level: "panic",
-			enabled: map[zapcore.Level]bool{
-				zapcore.DebugLevel: false,
-				zapcore.InfoLevel:  false,
-				zapcore.WarnLevel:  false,
-				zapcore.ErrorLevel: true,
-				zapcore.PanicLevel: true,
-			},
-		},
-		{
-			name:  "unsupported level - using default",
-			level: "wrongLevel",
-			enabled: map[zapcore.Level]bool{
-				zapcore.DebugLevel: false,
-				zapcore.InfoLevel:  false,
-				zapcore.WarnLevel:  false,
-				zapcore.ErrorLevel: false,
-				zapcore.PanicLevel: false,
-			},
-		},
-		{
-			name:  "warn level",
-			level: "warn",
-			enabled: map[zapcore.Level]bool{
-				zapcore.DebugLevel: false,
-				zapcore.InfoLevel:  false,
-				zapcore.WarnLevel:  true,
-				zapcore.ErrorLevel: true,
-				zapcore.PanicLevel: true,
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			logger := createZapLoggerDev(tt.level)
-			require.NotNil(t, logger)
-			for level, expected := range tt.enabled {
-				assert.Equal(t, expected, logger.Core().Enabled(level))
-			}
-		})
-	}
-}
-
 func makeSQLRequestSpan(sql string) request.Span {
 	method, path := sqlprune.SQLParseOperationAndTable(sql)
 	return request.Span{Type: request.EventTypeSQLClient, Method: method, Path: path, Statement: sql}
@@ -3517,7 +3462,7 @@ type TestExporter struct {
 	collector func(td ptrace.Traces)
 }
 
-func (e TestExporter) Start(_ context.Context, _ component.Host) error {
+func (e TestExporter) Start(_ context.Context) error {
 	return nil
 }
 
@@ -3528,8 +3473,4 @@ func (e TestExporter) Shutdown(_ context.Context) error {
 func (e TestExporter) ConsumeTraces(_ context.Context, td ptrace.Traces) error {
 	e.collector(td)
 	return nil
-}
-
-func (e TestExporter) Capabilities() consumer.Capabilities {
-	return consumer.Capabilities{}
 }

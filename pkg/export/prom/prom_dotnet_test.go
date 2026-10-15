@@ -517,10 +517,10 @@ func TestDotnetRuntimeCounterSnapshots(t *testing.T) {
 }
 
 func TestDotnetHeapSizeLifecycle(t *testing.T) {
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter, err := newReporter(t.Context(),
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&PrometheusConfig{Registry: registry},
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics"},
 		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
 			attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},

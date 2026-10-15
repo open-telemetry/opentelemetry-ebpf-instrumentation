@@ -50,9 +50,9 @@ func TestUnixSocketTracesExporter(t *testing.T) {
 		TracesEndpoint:   "unix://@obi-test-traces",
 		Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 	}
-	exp, host, err := getTracesExporter(context.Background(), cfg, nil)
+	exp, err := getTracesExporter(context.Background(), cfg, nil)
 	require.NoError(t, err)
-	require.NoError(t, exp.Start(context.Background(), host))
+	require.NoError(t, exp.Start(context.Background()))
 	t.Cleanup(func() { _ = exp.Shutdown(context.Background()) })
 
 	traces := ptrace.NewTraces()

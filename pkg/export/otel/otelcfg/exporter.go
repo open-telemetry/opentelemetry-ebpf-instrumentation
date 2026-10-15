@@ -35,10 +35,10 @@ func (i *MetricsExporterInstancer) Instantiate(ctx context.Context) (sdkmetric.E
 		return i.instance, nil
 	}
 
-	// If a MetricsConsumer is configured, use the ConsumerExporter
-	if i.Cfg.MetricsConsumer != nil {
-		meilog().Debug("instantiating Consumer MetricsReporter")
-		i.instance = NewConsumerExporter(i.Cfg.MetricsConsumer)
+	// If a metrics export callback is configured, use the OTLP exporter.
+	if i.Cfg.MetricsExport != nil {
+		meilog().Debug("instantiating OTLP MetricsReporter")
+		i.instance = NewOTLPConsumerExporter(i.Cfg.MetricsExport)
 		return i.instance, nil
 	}
 

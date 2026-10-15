@@ -16,7 +16,6 @@ import (
 	"go.opentelemetry.io/collector/confmap"
 	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/receiver/receivertest"
-
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
@@ -58,8 +57,8 @@ func TestReceiverConfigUnmarshalV2(t *testing.T) {
 
 	require.True(t, hasOpenPortSelector)
 	require.True(t, hasDefaultSelector)
-	require.NotNil(t, cfg.runtime.Traces.TracesConsumer)
-	require.NotNil(t, cfg.runtime.OTELMetrics.MetricsConsumer)
+	require.NotNil(t, cfg.runtime.Traces.TracesExport)
+	require.NotNil(t, cfg.runtime.OTELMetrics.MetricsExport)
 }
 
 func TestReceiverConfigUnmarshalLegacy(t *testing.T) {
@@ -200,7 +199,7 @@ func TestReceiverV2PipelineModes(t *testing.T) {
 				consumer := consumertest.NewNop()
 				receiver, err := factory.CreateTraces(t.Context(), settings, cfg, consumer)
 				require.NoError(t, err)
-				require.Same(t, consumer, cfg.runtime.Traces.TracesConsumer)
+				require.NotNil(t, cfg.runtime.Traces.TracesExport)
 				t.Cleanup(func() {
 					require.NoError(t, receiver.Shutdown(context.Background()))
 				})
@@ -210,7 +209,7 @@ func TestReceiverV2PipelineModes(t *testing.T) {
 				consumer := consumertest.NewNop()
 				receiver, err := factory.CreateMetrics(t.Context(), settings, cfg, consumer)
 				require.NoError(t, err)
-				require.Same(t, consumer, cfg.runtime.OTELMetrics.MetricsConsumer)
+				require.NotNil(t, cfg.runtime.OTELMetrics.MetricsExport)
 				t.Cleanup(func() {
 					require.NoError(t, receiver.Shutdown(context.Background()))
 				})

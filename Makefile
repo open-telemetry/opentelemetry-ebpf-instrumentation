@@ -172,6 +172,7 @@ lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt-fix l
 lint-run lint-fix-run:
 	@echo "### Linting code"
 	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
+	cd collector && go tool -modfile=../internal/tools/go.mod golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
 
 WEAVERIMAGE = $(shell awk '$$4=="weaver" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 .PHONY: lint-schema
@@ -421,6 +422,7 @@ compile-cache-for-coverage:
 test: testoutput
 	@echo "### Testing code"
 	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" go test -short -race ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+	cd collector && go test -short -race ./...
 
 .PHONY: test-nodejs
 test-nodejs:
