@@ -12,7 +12,10 @@ spans:
   - type: obi.mcp.client
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{mcp.method.name} {gen_ai.tool.name}"
+        - "{mcp.method.name} {gen_ai.prompt.name}"
+        - "{mcp.method.name}"
     stability: development
     requirement_level: recommended
     brief: OBI Model Context Protocol client span.
@@ -78,7 +81,10 @@ spans:
   - type: obi.mcp.server
     kind: server
     name:
-      note: Not documented yet.
+      templates:
+        - "{mcp.method.name} {gen_ai.tool.name}"
+        - "{mcp.method.name} {gen_ai.prompt.name}"
+        - "{mcp.method.name}"
     stability: development
     requirement_level: recommended
     brief: OBI inbound Model Context Protocol over HTTP server span.

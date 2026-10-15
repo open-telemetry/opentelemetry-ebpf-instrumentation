@@ -1736,6 +1736,26 @@ func TestOptInSpanAttributesOffByDefault(t *testing.T) {
 	}
 }
 
+func TestAerospikePeerServiceOnlyOnClientSpans(t *testing.T) {
+	selected := map[attr.Name]struct{}{attr.ServicePeerName: {}}
+
+	for _, tc := range []struct {
+		event request.EventType
+		want  bool
+	}{
+		{event: request.EventTypeAerospikeClient, want: true},
+		{event: request.EventTypeAerospikeServer, want: false},
+	} {
+		span := &request.Span{
+			Type: tc.event, Method: "GET", Path: "test.demo",
+			Host: "10.0.0.1", HostPort: 3000, HostName: "aerospike-1", Peer: "10.0.0.2",
+		}
+
+		_, ok := AttrsToMap(TraceAttributesSelector(span, selected)).Get("service.peer.name")
+		assert.Equal(t, tc.want, ok, "%s", tc.event)
+	}
+}
+
 func defaultTraceAttrs(t *testing.T) map[attr.Name]struct{} {
 	t.Helper()
 	selected, err := UserSelectedAttributes(&attributes.SelectorConfig{})
