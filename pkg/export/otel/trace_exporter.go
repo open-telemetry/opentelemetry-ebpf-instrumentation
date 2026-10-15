@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	//nolint:depguard // The public OTLP client API requires protobuf resource spans.
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
@@ -27,11 +28,12 @@ import (
 )
 
 const (
-	defaultTraceQueueSize  = 1000
-	defaultTraceFlushDelay = 200 * time.Millisecond
-	defaultTraceRetryStart = 5 * time.Second
-	defaultTraceRetryMax   = 30 * time.Second
-	defaultTraceRetryTotal = 5 * time.Minute
+	defaultTraceQueueSize       = 1000
+	defaultTraceFlushDelay      = 200 * time.Millisecond
+	defaultTraceRetryStart      = 5 * time.Second
+	defaultTraceRetryMax        = 30 * time.Second
+	defaultTraceRetryTotal      = 5 * time.Minute
+	defaultTraceShutdownTimeout = 10 * time.Second
 )
 
 type traceSender func(context.Context, ptrace.Traces) error
@@ -56,6 +58,7 @@ type obiTracesExporter struct {
 	queueSlots    *semaphore.Weighted
 	queueContext  context.Context
 	queueCancel   context.CancelFunc
+	workerCancel  context.CancelFunc
 	queueMu       sync.RWMutex
 	queueClosed   bool
 	workerStarted bool
@@ -78,13 +81,15 @@ func (e *obiTracesExporter) Start(ctx context.Context) error {
 	}
 	if e.queue != nil && !e.workerStarted {
 		e.workerStarted = true
-		// The queue must flush after the pipeline context is canceled.
-		go e.runQueue(context.WithoutCancel(ctx))
+		workerCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		e.workerCancel = cancel
+		go e.runQueue(workerCtx)
 	}
 	return nil
 }
 
 func (e *obiTracesExporter) Shutdown(ctx context.Context) error {
+	var drainErr error
 	e.shutdownOnce.Do(func() {
 		if e.queue != nil {
 			e.queueCancel()
@@ -94,7 +99,12 @@ func (e *obiTracesExporter) Shutdown(ctx context.Context) error {
 			started := e.workerStarted
 			e.queueMu.Unlock()
 			if started {
-				<-e.workerDone
+				select {
+				case <-e.workerDone:
+				case <-ctx.Done():
+					drainErr = ctx.Err()
+				}
+				e.workerCancel()
 			}
 		} else {
 			e.queueMu.Lock()
@@ -103,9 +113,9 @@ func (e *obiTracesExporter) Shutdown(ctx context.Context) error {
 		}
 	})
 	if e.client != nil {
-		return e.client.Stop(ctx)
+		return errors.Join(drainErr, e.client.Stop(ctx))
 	}
-	return nil
+	return drainErr
 }
 
 func (e *obiTracesExporter) ConsumeTraces(ctx context.Context, traces ptrace.Traces) error {
@@ -159,16 +169,18 @@ func (e *obiTracesExporter) export(ctx context.Context, traces ptrace.Traces) er
 func (e *obiTracesExporter) runQueue(ctx context.Context) {
 	defer close(e.workerDone)
 	batch := ptrace.NewTraces()
+	batchSpans := 0
 	var timer *time.Timer
 	var timeout <-chan time.Time
 	flush := func() {
-		if batch.SpanCount() == 0 {
+		if batchSpans == 0 {
 			return
 		}
 		if err := e.export(ctx, batch); err != nil {
 			slog.Warn("error sending trace to consumer", "error", err)
 		}
 		batch = ptrace.NewTraces()
+		batchSpans = 0
 		if timer != nil {
 			if !timer.Stop() {
 				select {
@@ -187,14 +199,44 @@ func (e *obiTracesExporter) runQueue(ctx context.Context) {
 				return
 			}
 			e.queueSlots.Release(queued.spans)
-			for _, resource := range queued.traces.ResourceSpans().All() {
-				resource.CopyTo(batch.ResourceSpans().AppendEmpty())
-			}
-			if e.batchMaxSize == 0 || batch.SpanCount() >= e.batchMaxSize {
+			if e.batchMaxSize == 0 {
+				for _, resource := range queued.traces.ResourceSpans().All() {
+					resource.CopyTo(batch.ResourceSpans().AppendEmpty())
+				}
+				batchSpans += queued.traces.SpanCount()
 				flush()
-				continue
+			} else {
+				for _, resource := range queued.traces.ResourceSpans().All() {
+					var dstResource ptrace.ResourceSpans
+					haveResource := false
+					for _, scope := range resource.ScopeSpans().All() {
+						var dstScope ptrace.ScopeSpans
+						haveScope := false
+						for _, span := range scope.Spans().All() {
+							if !haveResource {
+								dstResource = batch.ResourceSpans().AppendEmpty()
+								resource.Resource().CopyTo(dstResource.Resource())
+								dstResource.SetSchemaUrl(resource.SchemaUrl())
+								haveResource = true
+							}
+							if !haveScope {
+								dstScope = dstResource.ScopeSpans().AppendEmpty()
+								scope.Scope().CopyTo(dstScope.Scope())
+								dstScope.SetSchemaUrl(scope.SchemaUrl())
+								haveScope = true
+							}
+							span.CopyTo(dstScope.Spans().AppendEmpty())
+							batchSpans++
+							if batchSpans == e.batchMaxSize {
+								flush()
+								haveResource = false
+								haveScope = false
+							}
+						}
+					}
+				}
 			}
-			if timeout == nil {
+			if batchSpans > 0 && timeout == nil {
 				if timer == nil {
 					timer = time.NewTimer(e.batchTimeout)
 				} else {
@@ -242,7 +284,8 @@ func getTracesExporter(_ context.Context, cfg otelcfg.TracesConfig, reporter ime
 			}
 			return cfg.TracesExport(ctx, data)
 		}
-		return newOBITracesExporter(cfg, reporter, send, nil), nil
+		// The Collector callback consumes traces synchronously, before OBI's network batching.
+		return newOBITracesExporter(otelcfg.TracesConfig{}, reporter, send, nil), nil
 	}
 
 	switch cfg.GetProtocol() {
@@ -267,7 +310,7 @@ func getTracesExporter(_ context.Context, cfg otelcfg.TracesConfig, reporter ime
 			slog.Info("traces", "data", string(data))
 			return nil
 		}
-		return newOBITracesExporter(cfg, reporter, send, nil), nil
+		return newOBITracesExporter(otelcfg.TracesConfig{}, reporter, send, nil), nil
 	default:
 		return nil, fmt.Errorf("invalid protocol value: %q", cfg.GetProtocol())
 	}

@@ -21,20 +21,29 @@ import (
 )
 
 func TestOTLPTraceClientReportsPartialSuccess(t *testing.T) {
+	received := make(chan ptrace.Traces, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		request := ptraceotlp.NewExportRequest()
-		require.NoError(t, request.UnmarshalProto(data))
-		require.Equal(t, "test", request.Traces().ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Name())
+		if err := request.UnmarshalProto(data); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		received <- request.Traces()
 
 		response := ptraceotlp.NewExportResponse()
 		response.PartialSuccess().SetRejectedSpans(1)
 		data, err = response.MarshalProto()
-		require.NoError(t, err)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
 		w.Header().Set("Content-Type", "application/x-protobuf")
-		_, err = w.Write(data)
-		require.NoError(t, err)
+		_, _ = w.Write(data)
 	}))
 	defer server.Close()
 
@@ -45,6 +54,7 @@ func TestOTLPTraceClientReportsPartialSuccess(t *testing.T) {
 	defer func() { require.NoError(t, exp.Shutdown(context.Background())) }()
 
 	require.ErrorContains(t, exp.ConsumeTraces(context.Background(), oneSpan()), "1 spans rejected")
+	require.Equal(t, "test", (<-received).ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Name())
 }
 
 func TestTraceQueueCountsSpansAndUnblocksOnShutdown(t *testing.T) {
@@ -92,8 +102,84 @@ func TestTraceQueueFlushesAfterPipelineCancellation(t *testing.T) {
 	require.NoError(t, exp.Start(ctx))
 	require.NoError(t, exp.ConsumeTraces(ctx, oneSpan()))
 	cancel()
-	require.NoError(t, exp.Shutdown(ctx))
+	shutdownCtx, stop := context.WithTimeout(context.Background(), time.Second)
+	defer stop()
+	require.NoError(t, exp.Shutdown(shutdownCtx))
 
 	require.Equal(t, 1, sentSpans)
 	require.NoError(t, sendErr)
+}
+
+func TestTraceCallbackDoesNotBatch(t *testing.T) {
+	called := false
+	cfg := otelcfg.TracesConfig{
+		TracesExport: func(context.Context, []byte) error {
+			called = true
+			return nil
+		},
+		BatchMaxSize: 4096,
+		BatchTimeout: 15 * time.Second,
+		QueueSize:    16384,
+	}
+	exp, err := getTracesExporter(context.Background(), cfg, nil)
+	require.NoError(t, err)
+	require.NoError(t, exp.Start(context.Background()))
+	defer func() { require.NoError(t, exp.Shutdown(context.Background())) }()
+
+	require.NoError(t, exp.ConsumeTraces(context.Background(), oneSpan()))
+	require.True(t, called)
+}
+
+func TestTraceQueueSplitsAtBatchLimit(t *testing.T) {
+	cfg := otelcfg.TracesConfig{QueueSize: 8, BatchMaxSize: 4, BatchTimeout: time.Hour}
+	var batches []ptrace.Traces
+	exp := newOBITracesExporter(cfg, nil, func(_ context.Context, traces ptrace.Traces) error {
+		batches = append(batches, traces)
+		return nil
+	}, nil)
+	require.NoError(t, exp.Start(context.Background()))
+
+	traces := ptrace.NewTraces()
+	resource := traces.ResourceSpans().AppendEmpty()
+	resource.SetSchemaUrl("resource-schema")
+	resource.Resource().Attributes().PutStr("service.name", "test")
+	scope := resource.ScopeSpans().AppendEmpty()
+	scope.SetSchemaUrl("scope-schema")
+	scope.Scope().SetName("instrument")
+	spans := scope.Spans()
+	for range 3 {
+		spans.AppendEmpty()
+	}
+	require.NoError(t, exp.ConsumeTraces(context.Background(), traces))
+	require.NoError(t, exp.ConsumeTraces(context.Background(), traces))
+	require.NoError(t, exp.Shutdown(context.Background()))
+	require.Len(t, batches, 2)
+	require.Equal(t, 4, batches[0].SpanCount())
+	require.Equal(t, 2, batches[1].SpanCount())
+	for _, batch := range batches {
+		for _, gotResource := range batch.ResourceSpans().All() {
+			require.Equal(t, "resource-schema", gotResource.SchemaUrl())
+			name, ok := gotResource.Resource().Attributes().Get("service.name")
+			require.True(t, ok)
+			require.Equal(t, "test", name.Str())
+			for _, gotScope := range gotResource.ScopeSpans().All() {
+				require.Equal(t, "scope-schema", gotScope.SchemaUrl())
+				require.Equal(t, "instrument", gotScope.Scope().Name())
+			}
+		}
+	}
+}
+
+func TestTraceQueueShutdownHonorsDeadline(t *testing.T) {
+	cfg := otelcfg.TracesConfig{QueueSize: 2, BatchMaxSize: 1}
+	exp := newOBITracesExporter(cfg, nil, func(ctx context.Context, _ ptrace.Traces) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}, nil)
+	require.NoError(t, exp.Start(context.Background()))
+	require.NoError(t, exp.ConsumeTraces(context.Background(), oneSpan()))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, exp.Shutdown(ctx), context.DeadlineExceeded)
 }
