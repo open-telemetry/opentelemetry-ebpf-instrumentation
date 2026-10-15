@@ -223,6 +223,33 @@ func TestFindExeSymbolsByNameAndSubstring(t *testing.T) {
 	assert.NotNil(t, substringSym.Prog)
 }
 
+func TestColdPartParent(t *testing.T) {
+	localFunc := elf.ST_INFO(elf.STB_LOCAL, elf.STT_FUNC)
+	tests := []struct {
+		name   string
+		info   byte
+		parent string
+		ok     bool
+	}{
+		{name: "split.cold", info: localFunc, parent: "split", ok: true},
+		{name: "split.cold.3", info: localFunc, parent: "split", ok: true},
+		{name: "split.part.0.cold", info: localFunc, parent: "split.part.0", ok: true},
+		{name: "split", info: localFunc},
+		{name: ".cold", info: localFunc},
+		{name: "split.cold.", info: localFunc},
+		{name: "split.cold.isra.0", info: localFunc},
+		{name: "split.coldness", info: localFunc},
+		{name: "split.cold", info: elf.ST_INFO(elf.STB_GLOBAL, elf.STT_FUNC)},
+		{name: "split.cold", info: elf.ST_INFO(elf.STB_LOCAL, elf.STT_OBJECT)},
+	}
+
+	for _, tt := range tests {
+		parent, ok := coldPartParent(elf.Symbol{Name: tt.name, Info: tt.info})
+		assert.Equal(t, tt.ok, ok, tt.name)
+		assert.Equal(t, tt.parent, parent, tt.name)
+	}
+}
+
 func openSymbolFixtureELF(t *testing.T) *elf.File {
 	t.Helper()
 

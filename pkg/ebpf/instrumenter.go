@@ -1276,6 +1276,9 @@ func gatherOffsetsImpl(elfFile *elf.File, probes map[string][]*ebpfcommon.ProbeD
 			}
 
 			returns, err := goexec.FindReturnOffsets(sym.Off, progData)
+			if err == nil {
+				returns = append(returns, coldPartReturnOffsets(&sym, instrPath, log)...)
+			}
 			applyResolvedSymbolOffsets(probe, sym, returns, err, symbolName, instrPath, log)
 			log.Debug("resolved uprobe symbol",
 				"requested_symbol", symbolName,
@@ -1289,6 +1292,28 @@ func gatherOffsetsImpl(elfFile *elf.File, probes map[string][]*ebpfcommon.ProbeD
 	}
 
 	return nil
+}
+
+// coldPartReturnOffsets finds the returns that a hot/cold split moved out of
+// the symbol. A part that can't be read or decoded only loses its own returns.
+func coldPartReturnOffsets(sym *procs.Sym, instrPath string, log *slog.Logger) []uint64 {
+	var returns []uint64
+	for i := range sym.ColdParts {
+		part := &sym.ColdParts[i]
+		data := readSymbolData(part)
+		if data == nil {
+			log.Debug("error reading cold part data", "symbol", part.Name, "path", instrPath)
+			continue
+		}
+
+		partReturns, err := goexec.FindReturnOffsets(part.Off, data)
+		if err != nil {
+			log.Debug("error finding cold part return offsets", "symbol", part.Name, "path", instrPath, "error", err)
+			continue
+		}
+		returns = append(returns, partReturns...)
+	}
+	return returns
 }
 
 func applyResolvedSymbolOffsets(

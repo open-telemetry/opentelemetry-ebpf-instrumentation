@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"debug/elf"
+	"encoding/binary"
 	"errors"
 	"io"
 	"log/slog"
@@ -99,6 +100,150 @@ func TestGatherOffsetsResolvesSymbolSubstring(t *testing.T) {
 	assert.Equal(t, expected.startOffset, desc.StartOffset)
 	assert.Equal(t, expected.returnOffsets, desc.ReturnOffsets)
 	assert.False(t, desc.Skip)
+}
+
+const (
+	// coldSplitText gives each function a slot of this size
+	textSlotSize = 0x10
+	// the text is mapped at an address other than its file offset, so symbol
+	// addresses must be translated to file offsets
+	testELFTextOffset  = 0x100
+	testELFTextAddress = 0x401100
+)
+
+type testELFSymbol struct {
+	name   string
+	bind   elf.SymBind
+	offset uint64
+}
+
+func TestGatherOffsetsAddsColdPartReturns(t *testing.T) {
+	machine, text := coldSplitText()
+	elfFile := buildTextELF(t, machine, text, []testELFSymbol{
+		// local symbols precede global ones, so a cold part comes before its function
+		{name: "split.cold", bind: elf.STB_LOCAL, offset: 0x00},
+		{name: "multi", bind: elf.STB_LOCAL, offset: 0x20},
+		{name: "multi.cold.1", bind: elf.STB_LOCAL, offset: 0x30},
+		{name: "splitter.cold", bind: elf.STB_LOCAL, offset: 0x40},
+		{name: "split", bind: elf.STB_GLOBAL, offset: 0x10},
+	})
+	defer elfFile.Close()
+
+	probes := probeDescMap{
+		"split": {{}},
+		"multi": {{}},
+	}
+
+	err := gatherOffsetsImpl(elfFile, probes, "libsplit.so", slog.Default())
+	require.NoError(t, err)
+
+	for probeName, expected := range coldSplitValues() {
+		desc := probes[probeName][0]
+		assert.False(t, desc.Skip, probeName)
+		assert.Equal(t, expected.startOffset, desc.StartOffset, probeName)
+		assert.Equal(t, expected.returnOffsets, desc.ReturnOffsets, probeName)
+	}
+}
+
+// buildTextELF writes an ELF whose only segment maps text, with a .symtab of
+// functions that take one textSlotSize slot each, local ones listed first.
+// debug/elf looks sections up by type, so they have no names.
+func buildTextELF(t *testing.T, machine elf.Machine, text []byte, symbols []testELFSymbol) *elf.File {
+	t.Helper()
+
+	const (
+		textSection = iota + 1
+		symtabSection
+		strtabSection
+	)
+
+	strtab := []byte{0}
+	symtab := []elf.Sym64{{}}
+	firstGlobal := uint32(len(symtab))
+	for _, symbol := range symbols {
+		if symbol.bind == elf.STB_LOCAL {
+			firstGlobal++
+		}
+		symtab = append(symtab, elf.Sym64{
+			Name:  uint32(len(strtab)),
+			Info:  elf.ST_INFO(symbol.bind, elf.STT_FUNC),
+			Shndx: textSection,
+			Value: testELFTextAddress + symbol.offset,
+			Size:  textSlotSize,
+		})
+		strtab = append(strtab, symbol.name...)
+		strtab = append(strtab, 0)
+	}
+
+	symtabOffset := uint64(testELFTextOffset + len(text))
+	symtabSize := uint64(len(symtab) * elf.Sym64Size)
+	strtabOffset := symtabOffset + symtabSize
+	sections := []elf.Section64{
+		{},
+		{
+			Type:  uint32(elf.SHT_PROGBITS),
+			Flags: uint64(elf.SHF_ALLOC | elf.SHF_EXECINSTR),
+			Addr:  testELFTextAddress,
+			Off:   testELFTextOffset,
+			Size:  uint64(len(text)),
+		},
+		{
+			Type:    uint32(elf.SHT_SYMTAB),
+			Off:     symtabOffset,
+			Size:    symtabSize,
+			Link:    strtabSection,
+			Info:    firstGlobal,
+			Entsize: elf.Sym64Size,
+		},
+		{
+			Type: uint32(elf.SHT_STRTAB),
+			Off:  strtabOffset,
+			Size: uint64(len(strtab)),
+		},
+	}
+
+	header := elf.Header64{
+		Type:      uint16(elf.ET_DYN),
+		Machine:   uint16(machine),
+		Version:   uint32(elf.EV_CURRENT),
+		Phoff:     uint64(binary.Size(elf.Header64{})),
+		Shoff:     strtabOffset + uint64(len(strtab)),
+		Ehsize:    uint16(binary.Size(elf.Header64{})),
+		Phentsize: uint16(binary.Size(elf.Prog64{})),
+		Phnum:     1,
+		Shentsize: uint16(binary.Size(elf.Section64{})),
+		Shnum:     uint16(len(sections)),
+	}
+	copy(header.Ident[:], elf.ELFMAG)
+	header.Ident[elf.EI_CLASS] = byte(elf.ELFCLASS64)
+	header.Ident[elf.EI_DATA] = byte(elf.ELFDATA2LSB)
+	header.Ident[elf.EI_VERSION] = byte(elf.EV_CURRENT)
+
+	segment := elf.Prog64{
+		Type:   uint32(elf.PT_LOAD),
+		Flags:  uint32(elf.PF_R | elf.PF_X),
+		Off:    testELFTextOffset,
+		Vaddr:  testELFTextAddress,
+		Paddr:  testELFTextAddress,
+		Filesz: uint64(len(text)),
+		Memsz:  uint64(len(text)),
+	}
+
+	var out bytes.Buffer
+	write := func(data any) {
+		require.NoError(t, binary.Write(&out, binary.LittleEndian, data))
+	}
+	write(header)
+	write(segment)
+	write(make([]byte, testELFTextOffset-out.Len()))
+	write(text)
+	write(symtab)
+	write(strtab)
+	write(sections)
+
+	elfFile, err := elf.NewFile(bytes.NewReader(out.Bytes()))
+	require.NoError(t, err)
+	return elfFile
 }
 
 func TestApplyResolvedSymbolOffsetsKeepsStartOffsetWhenReturnScanFails(t *testing.T) {

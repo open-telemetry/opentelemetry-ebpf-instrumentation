@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -113,13 +114,23 @@ type symbolCollector struct {
 	matches     func(string, []string) (string, bool)
 }
 
-func collectSymbols(f *elf.File, syms []elf.Symbol, collectors []symbolCollector, types ...elf.SymType) {
+func collectSymbols(
+	f *elf.File,
+	syms []elf.Symbol,
+	collectors []symbolCollector,
+	coldParts map[string][]Sym,
+	types ...elf.SymType,
+) {
 	if len(types) == 0 {
 		types = []elf.SymType{elf.STT_FUNC}
 	}
 	for _, s := range syms {
 		if !slices.Contains(types, elf.ST_TYPE(s.Info)) {
 			continue
+		}
+
+		if parent, ok := coldPartParent(s); ok && collectorsMatch(collectors, parent) {
+			coldParts[parent] = append(coldParts[parent], resolveSymbol(f, s))
 		}
 
 		var sym *Sym
@@ -134,6 +145,48 @@ func collectSymbols(f *elf.File, syms []elf.Symbol, collectors []symbolCollector
 				sym = &resolvedSym
 			}
 			collector.addresses[key] = *sym
+		}
+	}
+}
+
+func collectorsMatch(collectors []symbolCollector, name string) bool {
+	return slices.ContainsFunc(collectors, func(collector symbolCollector) bool {
+		_, ok := collector.matches(name, collector.symbolNames)
+		return ok
+	})
+}
+
+const coldPartSuffix = ".cold"
+
+// coldPartParent returns the function that a GCC hot/cold split moved this
+// part out of, from the <name>.cold or <name>.cold.<N> name GCC gives it.
+func coldPartParent(s elf.Symbol) (string, bool) {
+	if elf.ST_TYPE(s.Info) != elf.STT_FUNC || elf.ST_BIND(s.Info) != elf.STB_LOCAL {
+		return "", false
+	}
+
+	index := strings.LastIndex(s.Name, coldPartSuffix)
+	if index <= 0 {
+		return "", false
+	}
+
+	parent, suffix := s.Name[:index], s.Name[index+len(coldPartSuffix):]
+	if suffix == "" {
+		return parent, true
+	}
+
+	number, ok := strings.CutPrefix(suffix, ".")
+	if _, err := strconv.ParseUint(number, 10, 64); !ok || err != nil {
+		return "", false
+	}
+	return parent, true
+}
+
+func addColdParts(addresses map[string]Sym, coldParts map[string][]Sym) {
+	for key, sym := range addresses {
+		if parts, ok := coldParts[sym.Name]; ok {
+			sym.ColdParts = parts
+			addresses[key] = sym
 		}
 	}
 }
@@ -164,19 +217,25 @@ func FindExeSymbolsByNameAndSubstring(f *elf.File, symbolNames, symbolSubstrings
 		},
 	}
 
+	// cold parts are local symbols, so they can precede the global they belong to
+	coldParts := map[string][]Sym{}
+
 	syms, err := f.Symbols()
 	if err != nil && !errors.Is(err, elf.ErrNoSymbols) {
 		return nil, nil, err
 	}
 
-	collectSymbols(f, syms, collectors, types...)
+	collectSymbols(f, syms, collectors, coldParts, types...)
 
 	dynsyms, err := f.DynamicSymbols()
 	if err != nil && !errors.Is(err, elf.ErrNoSymbols) {
 		return nil, nil, err
 	}
 
-	collectSymbols(f, dynsyms, collectors, types...)
+	collectSymbols(f, dynsyms, collectors, coldParts, types...)
+
+	addColdParts(exactAddresses, coldParts)
+	addColdParts(substringAddresses, coldParts)
 
 	return exactAddresses, substringAddresses, nil
 }

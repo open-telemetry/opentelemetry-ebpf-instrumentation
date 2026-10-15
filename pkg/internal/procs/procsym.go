@@ -12,4 +12,7 @@ type Sym struct {
 	Value uint64
 	Len   uint64
 	Prog  *elf.Prog
+	// ColdParts are the <Name>.cold and <Name>.cold.<N> parts that GCC splits
+	// out of a function. They can hold some or all of its returns.
+	ColdParts []Sym
 }
