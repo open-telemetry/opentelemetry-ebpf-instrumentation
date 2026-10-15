@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"golang.org/x/sync/semaphore"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 
 	"go.opentelemetry.io/collector/pdata/ptrace"
@@ -33,6 +34,7 @@ const (
 	defaultTraceRetryStart      = 5 * time.Second
 	defaultTraceRetryMax        = 30 * time.Second
 	defaultTraceRetryTotal      = 5 * time.Minute
+	defaultTraceRequestTimeout  = 5 * time.Second
 	defaultTraceShutdownTimeout = 10 * time.Second
 )
 
@@ -353,7 +355,7 @@ func newHTTPTraceClient(cfg otelcfg.TracesConfig) (otlptrace.Client, error) {
 	initial, maxInterval, maxElapsed := traceRetrySettings(cfg)
 	options := opts.AsTraceHTTP()
 	options = append(options,
-		otlptracehttp.WithTimeout(maxElapsed),
+		otlptracehttp.WithTimeout(defaultTraceRequestTimeout),
 		otlptracehttp.WithRetry(otlptracehttp.RetryConfig{
 			Enabled: true, InitialInterval: initial, MaxInterval: maxInterval, MaxElapsedTime: maxElapsed,
 		}),
@@ -367,7 +369,7 @@ func newHTTPTraceClient(cfg otelcfg.TracesConfig) (otlptrace.Client, error) {
 	if opts.UnixSocketAddr != "" {
 		options = append(options, otlptracehttp.WithHTTPClient(&http.Client{
 			Transport: otelcfg.UnixTransport(opts.UnixSocketAddr),
-			Timeout:   maxElapsed,
+			Timeout:   defaultTraceRequestTimeout,
 		}))
 	}
 	return otlptracehttp.NewClient(options...), nil
@@ -382,6 +384,7 @@ func newGRPCTraceClient(cfg otelcfg.TracesConfig) (otlptrace.Client, error) {
 	options := opts.AsTraceGRPC()
 	options = append(options,
 		otlptracegrpc.WithTimeout(maxElapsed),
+		otlptracegrpc.WithDialOption(grpc.WithChainUnaryInterceptor(traceRequestDeadline(defaultTraceRequestTimeout))),
 		otlptracegrpc.WithRetry(otlptracegrpc.RetryConfig{
 			Enabled: true, InitialInterval: initial, MaxInterval: maxInterval, MaxElapsedTime: maxElapsed,
 		}),
@@ -390,6 +393,15 @@ func newGRPCTraceClient(cfg otelcfg.TracesConfig) (otlptrace.Client, error) {
 		options = append(options, otlptracegrpc.WithCompressor("gzip"))
 	}
 	return otlptracegrpc.NewClient(options...), nil
+}
+
+// The gRPC client's WithTimeout covers retries, so each RPC needs its own deadline.
+func traceRequestDeadline(timeout time.Duration) grpc.UnaryClientInterceptor {
+	return func(ctx context.Context, method string, req, reply any, conn *grpc.ClientConn, invoke grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		requestCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		return invoke(requestCtx, method, req, reply, conn, opts...)
+	}
 }
 
 var _ tracesExporter = (*obiTracesExporter)(nil)

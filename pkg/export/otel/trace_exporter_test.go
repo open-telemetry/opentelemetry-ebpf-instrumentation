@@ -7,12 +7,15 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
@@ -55,6 +58,78 @@ func TestOTLPTraceClientReportsPartialSuccess(t *testing.T) {
 
 	require.ErrorContains(t, exp.ConsumeTraces(context.Background(), oneSpan()), "1 spans rejected")
 	require.Equal(t, "test", (<-received).ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Name())
+}
+
+func TestHTTPTraceClientRetriesStalledRequest(t *testing.T) {
+	var attempts atomic.Int32
+	releaseFirst := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if attempts.Add(1) == 1 {
+			<-releaseFirst
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer func() {
+		close(releaseFirst)
+		server.Close()
+	}()
+
+	cfg := otelcfg.TracesConfig{
+		CommonEndpoint:         server.URL,
+		BackOffInitialInterval: 10 * time.Millisecond,
+		BackOffMaxInterval:     10 * time.Millisecond,
+		BackOffMaxElapsedTime:  12 * time.Second,
+	}
+	exp, err := getTracesExporter(context.Background(), cfg, nil)
+	require.NoError(t, err)
+	require.NoError(t, exp.Start(context.Background()))
+	defer func() { require.NoError(t, exp.Shutdown(context.Background())) }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	require.NoError(t, exp.ConsumeTraces(ctx, oneSpan()))
+	require.EqualValues(t, 2, attempts.Load())
+}
+
+type stalledTraceGRPCServer struct {
+	ptraceotlp.UnimplementedGRPCServer
+	attempts atomic.Int32
+}
+
+func (s *stalledTraceGRPCServer) Export(ctx context.Context, _ ptraceotlp.ExportRequest) (ptraceotlp.ExportResponse, error) {
+	if s.attempts.Add(1) == 1 {
+		<-ctx.Done()
+		return ptraceotlp.NewExportResponse(), ctx.Err()
+	}
+	return ptraceotlp.NewExportResponse(), nil
+}
+
+func TestGRPCTraceClientRetriesStalledRequest(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	server := grpc.NewServer()
+	receiver := &stalledTraceGRPCServer{}
+	ptraceotlp.RegisterGRPCServer(server, receiver)
+	go func() { _ = server.Serve(listener) }()
+	defer server.Stop()
+
+	cfg := otelcfg.TracesConfig{
+		CommonEndpoint:         "http://" + listener.Addr().String(),
+		Protocol:               otelcfg.ProtocolGRPC,
+		BackOffInitialInterval: 10 * time.Millisecond,
+		BackOffMaxInterval:     10 * time.Millisecond,
+		BackOffMaxElapsedTime:  12 * time.Second,
+	}
+	exp, err := getTracesExporter(context.Background(), cfg, nil)
+	require.NoError(t, err)
+	require.NoError(t, exp.Start(context.Background()))
+	defer func() { require.NoError(t, exp.Shutdown(context.Background())) }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
+	defer cancel()
+	require.NoError(t, exp.ConsumeTraces(ctx, oneSpan()))
+	require.EqualValues(t, 2, receiver.attempts.Load())
 }
 
 func TestTraceQueueCountsSpansAndUnblocksOnShutdown(t *testing.T) {
