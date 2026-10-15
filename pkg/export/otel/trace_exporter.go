@@ -18,6 +18,7 @@ import (
 
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/encoding"
 	"google.golang.org/protobuf/proto"
 
 	"go.opentelemetry.io/collector/pdata/ptrace"
@@ -412,6 +413,8 @@ func newHTTPTraceClient(cfg otelcfg.TracesConfig, reporter imetrics.Reporter) (o
 	)
 	if cfg.GetCompression() == "gzip" {
 		options = append(options, otlptracehttp.WithCompression(otlptracehttp.GzipCompression))
+	} else if cfg.GetCompression() == "none" {
+		options = append(options, otlptracehttp.WithCompression(otlptracehttp.NoCompression))
 	}
 	if cfg.GetProtocol() == otelcfg.ProtocolHTTPJSON {
 		options = append(options, otlptracehttp.WithEncoding(otlptracehttp.EncodingJSON))
@@ -487,6 +490,11 @@ func newGRPCTraceClient(cfg otelcfg.TracesConfig, reporter imetrics.Reporter) (o
 	)
 	if cfg.GetCompression() == "gzip" {
 		options = append(options, otlptracegrpc.WithCompressor("gzip"))
+	} else if cfg.GetCompression() == "none" {
+		// WithCompressor("none") reports an error in the OTLP client.
+		options = append(options, otlptracegrpc.WithDialOption(
+			grpc.WithDefaultCallOptions(grpc.UseCompressor(encoding.Identity)),
+		))
 	}
 	return otlptracegrpc.NewClient(options...), nil
 }
