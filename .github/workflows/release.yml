@@ -321,7 +321,7 @@ jobs:
     needs: tests-passed
     runs-on: ubuntu-latest
     env:
-      MISE_ENABLE_TOOLS: go,gradle,java,python,clang,conda:llvm-tools
+      MISE_ENABLE_TOOLS: go,gradle,java,python,clang,conda:llvm-tools,go:github.com/cilium/ebpf/cmd/bpf2go
     permissions:
       contents: read
       id-token: write

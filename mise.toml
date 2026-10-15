@@ -34,13 +34,13 @@ GEN_IMG = "{{ env.GEN_IMG | default(value='ghcr.io/open-telemetry/obi-generator:
 GENERATOR_CONTEXT = "{{ env.GENERATOR_CONTEXT | default(value='ghcr.io/open-telemetry/obi-generator:local', boolean=true) }}"
 ENVTEST_K8S_VERSION = "{{ env.ENVTEST_K8S_VERSION | default(value='1.30.0', boolean=true) }}"
 RELEASE_DIR = "{{ env.RELEASE_DIR | default(value='./dist', boolean=true) }}"
-CILIUM_EBPF_VER = "{{ env.CILIUM_EBPF_VER | default(value='v0.22.0', boolean=true) }}"
 
 [tools]
-go = "1.27.1"
+go = "1.27.2"
+"go:github.com/cilium/ebpf/cmd/bpf2go" = "0.22.0"
 clang = "22.1.8"
 clang-format = "22.1.8"
-golangci-lint = "2.13.2"
+golangci-lint = "2.14.0"
 markdownlint-cli2 = "0.23.3"
 "conda:llvm-tools" = "22.1.8"
 
@@ -86,7 +86,7 @@ run = "golangci-lint cache clean"
 
 [tasks.lint]
 description = "Run all Go lint checks in parallel"
-depends = ["vanity-import-check", "lint:dependency-policy", "lint:collectt", "lint:preempt-guard", "lint:go"]
+depends = ["vanity-import-check", "lint:dependency-policy", "lint:collectt", "lint:preempt-guard", "lint:go", "check:go-toolchain"]
 
 [tasks."lint:go"]
 hide = true
@@ -367,7 +367,11 @@ run = '"$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" multimod tag -m "${MODSET:?MO
 
 [tasks."check:ebpf-ver-synced"]
 description = "Check the cilium/ebpf version matches BPF core metadata"
-run = "grep -Fq \"github.com/cilium/ebpf $CILIUM_EBPF_VER\" go.mod && grep -Fq \"github.com/cilium/ebpf $CILIUM_EBPF_VER\" bpf/bpfcore/placeholder.go"
+run = '''
+ver="v$(mise current go:github.com/cilium/ebpf/cmd/bpf2go)"
+grep -Fq "github.com/cilium/ebpf $ver" go.mod
+grep -Fq "github.com/cilium/ebpf $ver" bpf/bpfcore/placeholder.go
+'''
 
 [tasks.vanity-import-check]
 description = "Check Go import paths for vanity-import conventions"

@@ -20,7 +20,7 @@ runs:
     - name: Set up mise
       uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0 # zizmor: ignore[cache-poisoning] GitHub scopes PR caches to their ref
       env:
-        MISE_ENABLE_TOOLS: go,clang,conda:llvm-tools
+        MISE_ENABLE_TOOLS: go,clang,conda:llvm-tools,go:github.com/cilium/ebpf/cmd/bpf2go
 
     - name: Go build cache
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
@@ -33,7 +33,7 @@ runs:
     - name: Generate BPF files
       shell: bash
       env:
-        MISE_ENABLE_TOOLS: go,clang,conda:llvm-tools
+        MISE_ENABLE_TOOLS: go,clang,conda:llvm-tools,go:github.com/cilium/ebpf/cmd/bpf2go
       run: mise run generate
 
     - name: Upload generated BPF files

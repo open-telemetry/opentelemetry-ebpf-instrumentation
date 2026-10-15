@@ -15,14 +15,7 @@ endif
 
 CLANG ?= clang
 CFLAGS := -std=gnu17 -O2 -g -Wunaligned-access -Wpacked -Wpadded -Wall -Werror $(CFLAGS)
-TOOLS_MODFILE := -modfile=$(ROOT)/internal/tools/go.mod
-BPF2GO_WRAPPER := $(ROOT)/.tools/bpf2go
-BPF2GO ?= $(BPF2GO_WRAPPER)
-
-$(BPF2GO_WRAPPER):
-	@mkdir -p $(dir $@)
-	@printf '#!/bin/sh\nexec go tool $(TOOLS_MODFILE) bpf2go "$$@"\n' > $@
-	@chmod +x $@
+BPF2GO ?= bpf2go
 
 export BPF2GO_MAKEBASE := $(ROOT)
 export BPF_CLANG := $(CLANG)
@@ -46,7 +39,7 @@ define generate_package
 endef
 
 .PHONY: generate generate/all
-generate: $(BPF2GO)
+generate:
 ifeq ($(strip $(GENERATED_GO)),)
 	@$(MAKE) -f $(ROOT)/bpf/Makefile generate/all BPF_TARGETS="$(BPF_TARGETS)"
 else ifneq ($(strip $(MISSING_ARCHES)),)
@@ -66,6 +59,6 @@ $(GENERATED_OBJECTS): %.o: %.go
 	  cd $(ROOT) && BPF_TARGETS=$(if $(findstring _x86_bpfel.o,$@),amd64,arm64) go generate -run BPF2GO ./$(@D); \
 	fi
 
-generate/all: $(BPF2GO)
+generate/all:
 	@echo "Generating all BPF files ($(ARCHES))..."
 	@cd $(ROOT) && printf '%s\n' $(ARCHES) | xargs -P $(words $(ARCHES)) -I{} env BPF_TARGETS={} go generate -run BPF2GO ./...

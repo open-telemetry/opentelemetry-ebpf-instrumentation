@@ -39,7 +39,7 @@ jobs:
     name: "Unit tests (privileged ${{ matrix.platform.arch }})"
     runs-on: ${{ matrix.platform.runner }}
     env:
-      MISE_ENABLE_TOOLS: go,python,clang,conda:llvm-tools
+      MISE_ENABLE_TOOLS: go,python,clang,conda:llvm-tools,go:github.com/cilium/ebpf/cmd/bpf2go
     timeout-minutes: 45
     strategy:
       fail-fast: false
