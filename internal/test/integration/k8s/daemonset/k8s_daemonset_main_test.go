@@ -35,7 +35,6 @@ func TestMain(m *testing.M) {
 	}
 
 	if err := docker.Build(os.Stdout, tools.ProjectDir(),
-		docker.ImageBuild{Tag: "testserver:dev", Dockerfile: k8s.DockerfileTestServer},
 		docker.ImageBuild{Tag: "obi:dev", Dockerfile: k8s.DockerfileOBI},
 		docker.ImageBuild{Tag: "grpcpinger:dev", Dockerfile: k8s.DockerfilePinger},
 	); err != nil {
@@ -45,7 +44,6 @@ func TestMain(m *testing.M) {
 
 	cluster = kube.NewKind("test-kind-cluster-daemonset",
 		kube.KindConfig(testpath.Manifests+"/00-kind.yml"),
-		kube.LocalImage("testserver:dev"),
 		kube.LocalImage("obi:dev"),
 		kube.LocalImage("grpcpinger:dev"),
 		kube.Deploy(testpath.Manifests+"/01-volumes.yml"),
