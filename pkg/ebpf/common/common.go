@@ -296,10 +296,7 @@ type CouchbaseBucketInfo struct {
 	Collection string
 }
 
-const (
-	maxPendingGoHTTPClientRequests = 1024
-	maxSQLPPPreparedStatements     = 1024
-)
+const maxPendingGoHTTPClientRequests = 1024
 
 type pendingGoHTTPClientRequest struct {
 	trace     HTTPRequestTrace
@@ -502,7 +499,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 
 	var sqlppPreparedStatements *ebpfhttp.SQLPPPreparedStatements
 	if payloadExtraction.HTTP.SQLPP.Enabled {
-		sqlppPreparedStatements, err = ebpfhttp.NewSQLPPPreparedStatements(maxSQLPPPreparedStatements)
+		sqlppPreparedStatements, err = ebpfhttp.NewSQLPPPreparedStatements(payloadExtraction.HTTP.SQLPP.PreparedStatementsCacheSize)
 		if err != nil {
 			ptlog().Error("failed to create SQL++ prepared statements cache", "error", err)
 		}

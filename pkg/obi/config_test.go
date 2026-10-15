@@ -235,6 +235,7 @@ discovery:
 						EndpointPatterns: []string{
 							"/query/service",
 						},
+						PreparedStatementsCacheSize: 1024,
 					},
 					Enrichment: config.EnrichmentConfig{
 						Policy: config.HTTPParsingPolicy{

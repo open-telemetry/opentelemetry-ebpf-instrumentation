@@ -385,6 +385,7 @@ HTTPParsingPolicy defines the default action for http enrichment rules.
 |---|---|---|---|---|---|---|
 | `ebpf.payload_extraction.http.sqlpp.enabled` | `boolean` | `OTEL_EBPF_HTTP_SQLPP_ENABLED` | `false` |  |  | Enable SQL++ payload extraction and parsing |
 | `ebpf.payload_extraction.http.sqlpp.endpoint_patterns` | `string`[] | `OTEL_EBPF_HTTP_SQLPP_ENDPOINT_PATTERNS` | `/query/service` |  |  | Specifies URL path patterns to detect SQL++ endpoints Example: ["/query/service", "/query"] |
+| `ebpf.payload_extraction.http.sqlpp.prepared_statements_cache_size` | `integer` | `OTEL_EBPF_HTTP_SQLPP_PREPARED_STATEMENTS_CACHE_SIZE` | `1024` |  |  | Bounds the per-node cache that maps prepared statement names to their text |
 
 ### `ebpf.redis_db_cache`
 

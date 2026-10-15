@@ -275,7 +275,13 @@ SDKs can prepare a statement once and then execute it by name. gocb does this by
 
 OBI strips the `PREPARE` prefix before parsing, so a PREPARE span reports the inner statement. The first token after `PREPARE [FORCE]` is only taken as a name when the text after `FROM`/`AS` starts a statement, so `PREPARE DELETE FROM ...` stays anonymous.
 
-When a PREPARE succeeds, OBI remembers the name and its statement in a 1024-entry LRU keyed by process, `query_context` and name. Executions by name are filled in from it. The generic and Go tracers each keep their own cache; a process's traffic only reaches one of them. Entries never expire, because SDKs never re-prepare a cached name; an evicted name stays unresolved until the application prepares it again.
+OBI remembers a server-assigned name whenever an HTTP 200 response carries it, even if the auto-executed query then failed. Server-assigned names are derived from the statement, so they are shared across query nodes. A client-chosen name is remembered only when the PREPARE succeeded, and only for the query node it was sent to. Names and their statements live in an LRU keyed by process, `query_context` and name, sized by `prepared_statements_cache_size` (default 1024). The generic and Go tracers each keep their own cache; a process's traffic only reaches one of them.
+
+Executions stay unresolved, with operation `EXECUTE`, when OBI never saw the PREPARE:
+
+- **OBI attached late:** an application that prepared its statements before OBI started, including after an OBI restart, keeps executing them by name. SDKs re-prepare only when the server reports the plan as missing or invalid, so those executions can stay unresolved for the life of the process.
+- **Eviction:** a name evicted from the cache stays unresolved for the same reason.
+- **Processing order:** Go HTTP client spans wait until their buffers have been idle for `go_http_client_buffer_timeout` (default 1s), so executions in the first moments after a PREPARE can be processed before it.
 
 `EXECUTE FUNCTION` calls user-defined functions and is parsed as a plain statement.
 

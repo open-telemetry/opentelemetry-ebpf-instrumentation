@@ -81,6 +81,8 @@ type SQLPPConfig struct {
 	// EndpointPatterns specifies URL path patterns to detect SQL++ endpoints
 	// Example: ["/query/service", "/query"]
 	EndpointPatterns []string `yaml:"endpoint_patterns" env:"OTEL_EBPF_HTTP_SQLPP_ENDPOINT_PATTERNS"`
+	// PreparedStatementsCacheSize bounds the per-node cache that maps prepared statement names to their text
+	PreparedStatementsCacheSize int `yaml:"prepared_statements_cache_size" env:"OTEL_EBPF_HTTP_SQLPP_PREPARED_STATEMENTS_CACHE_SIZE" validate:"gt=0"`
 }
 
 type GenAIConfig struct {

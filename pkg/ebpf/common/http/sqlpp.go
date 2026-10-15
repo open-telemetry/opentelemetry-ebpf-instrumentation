@@ -43,10 +43,16 @@ type sqlppRequestBody struct {
 	AutoExecute json.RawMessage `json:"auto_execute"`
 }
 
+type sqlppDestination struct {
+	host string
+	port int
+}
+
 type sqlppPreparedKey struct {
-	pid      app.PID
-	queryCtx string
-	name     string
+	pid         app.PID
+	destination sqlppDestination
+	queryCtx    string
+	name        string
 }
 
 type SQLPPPreparedStatements struct {
@@ -61,18 +67,18 @@ func NewSQLPPPreparedStatements(size int) (*SQLPPPreparedStatements, error) {
 	return &SQLPPPreparedStatements{cache: cache}, nil
 }
 
-func (p *SQLPPPreparedStatements) store(pid app.PID, queryCtx, name, statement string) {
-	if p == nil || name == "" || statement == "" {
+func (p *SQLPPPreparedStatements) store(key sqlppPreparedKey, statement string) {
+	if p == nil || key.name == "" || statement == "" {
 		return
 	}
-	p.cache.Add(sqlppPreparedKey{pid: pid, queryCtx: queryCtx, name: name}, statement)
+	p.cache.Add(key, statement)
 }
 
-func (p *SQLPPPreparedStatements) lookup(pid app.PID, queryCtx, name string) (string, bool) {
-	if p == nil || name == "" {
+func (p *SQLPPPreparedStatements) lookup(key sqlppPreparedKey) (string, bool) {
+	if p == nil || key.name == "" {
 		return "", false
 	}
-	return p.cache.Get(sqlppPreparedKey{pid: pid, queryCtx: queryCtx, name: name})
+	return p.cache.Get(key)
 }
 
 // sqlppResponse represents the JSON structure of a SQL++ query response
@@ -106,8 +112,19 @@ func SQLPPSpan(baseSpan *request.Span, req *http.Request, resp *http.Response, e
 		dbSystem = "couchbase"
 	}
 
-	errInfo := parseSQLPPResponse(resp)
-	statement, forcedOperation := resolveSQLPPStatement(sqlppInfo, resp, errInfo == nil, prepared.forProcess(baseSpan.Pid.HostPID))
+	respBody := readSQLPPResponseBody(resp)
+	errInfo := parseSQLPPResponse(respBody)
+	result := sqlppResult{
+		body:      respBody,
+		httpOK:    resp != nil && resp.StatusCode == http.StatusOK,
+		succeeded: errInfo == nil,
+	}
+	scope := sqlppPreparedScope{
+		statements:  prepared,
+		pid:         baseSpan.Pid.HostPID,
+		destination: sqlppDestination{host: baseSpan.Host, port: baseSpan.HostPort},
+	}
+	statement, forcedOperation := resolveSQLPPStatement(sqlppInfo, result, scope)
 
 	// Use the standard SQL parser to extract operation and table
 	operation, table := sqlprune.SQLParseOperationAndTable(statement)
@@ -247,7 +264,7 @@ func parseSQLPPRequest(req *http.Request) (*sqlppRequest, error) {
 		} else {
 			sqlppReq.Statement = body.Statement
 			sqlppReq.QueryCtx = body.QueryCtx
-			_ = json.Unmarshal(body.Prepared, &sqlppReq.Prepared)
+			sqlppReq.Prepared = sqlppPreparedName(body.Prepared)
 			sqlppReq.AutoExecute = isSQLPPTrue(string(body.AutoExecute))
 		}
 	}
@@ -257,6 +274,14 @@ func parseSQLPPRequest(req *http.Request) (*sqlppRequest, error) {
 	}
 
 	return &sqlppReq, nil
+}
+
+func sqlppPreparedName(raw json.RawMessage) string {
+	var name string
+	if err := json.Unmarshal(raw, &name); err != nil {
+		return ""
+	}
+	return name
 }
 
 func isSQLPPTrue(value string) bool {
@@ -270,52 +295,66 @@ func unescapeSQLPPFormValue(value string) string {
 	return value
 }
 
-type sqlppProcessStatements struct {
-	statements *SQLPPPreparedStatements
-	pid        app.PID
+type sqlppResult struct {
+	body      []byte
+	httpOK    bool
+	succeeded bool
 }
 
-func (p *SQLPPPreparedStatements) forProcess(pid app.PID) sqlppProcessStatements {
-	return sqlppProcessStatements{statements: p, pid: pid}
+type sqlppPreparedScope struct {
+	statements  *SQLPPPreparedStatements
+	pid         app.PID
+	destination sqlppDestination
 }
 
-func (p sqlppProcessStatements) store(queryCtx, name, statement string) {
-	p.statements.store(p.pid, queryCtx, name, statement)
+func (p sqlppPreparedScope) key(destination sqlppDestination, queryCtx, name string) sqlppPreparedKey {
+	return sqlppPreparedKey{pid: p.pid, destination: destination, queryCtx: queryCtx, name: name}
 }
 
-func (p sqlppProcessStatements) lookup(queryCtx, name string) (string, bool) {
-	return p.statements.lookup(p.pid, queryCtx, name)
+func (p sqlppPreparedScope) storeServerNamed(queryCtx, name, statement string) {
+	p.statements.store(p.key(sqlppDestination{}, queryCtx, name), statement)
 }
 
-func resolveSQLPPStatement(info *sqlppRequest, resp *http.Response, succeeded bool, prepared sqlppProcessStatements) (statement, forcedOperation string) {
-	name := info.Prepared
-	if info.Statement != "" {
-		if prepareName, inner, ok := parseSQLPPPrepare(info.Statement); ok {
-			if succeeded {
-				if prepareName == "" {
-					prepareName = preparedNameFromSQLPPResponse(resp, info.AutoExecute)
-				}
-				prepared.store(info.QueryCtx, prepareName, inner)
-			}
-			if info.AutoExecute {
-				return inner, ""
-			}
-			return inner, sqlppOperationPrepare
-		}
-		executeName, ok := parseSQLPPExecute(info.Statement)
-		if !ok {
-			return info.Statement, ""
-		}
-		if text, found := prepared.lookup(info.QueryCtx, executeName); found {
+func (p sqlppPreparedScope) storeClientNamed(queryCtx, name, statement string) {
+	p.statements.store(p.key(p.destination, queryCtx, name), statement)
+}
+
+func (p sqlppPreparedScope) lookup(queryCtx, name string) (string, bool) {
+	if text, ok := p.statements.lookup(p.key(p.destination, queryCtx, name)); ok {
+		return text, true
+	}
+	return p.statements.lookup(p.key(sqlppDestination{}, queryCtx, name))
+}
+
+func resolveSQLPPStatement(info *sqlppRequest, result sqlppResult, prepared sqlppPreparedScope) (statement, forcedOperation string) {
+	if info.Statement == "" {
+		if text, ok := prepared.lookup(info.QueryCtx, info.Prepared); ok {
 			return text, ""
 		}
-		return info.Statement, sqlppOperationExecute
+		return "", sqlppOperationExecute
 	}
 
-	if text, ok := prepared.lookup(info.QueryCtx, name); ok {
+	if prepareName, inner, ok := parseSQLPPPrepare(info.Statement); ok {
+		switch {
+		case prepareName == "" && result.httpOK:
+			prepared.storeServerNamed(info.QueryCtx, preparedNameFromSQLPPResponse(result.body, info.AutoExecute), inner)
+		case prepareName != "" && result.succeeded:
+			prepared.storeClientNamed(info.QueryCtx, prepareName, inner)
+		}
+		if info.AutoExecute {
+			return inner, ""
+		}
+		return inner, sqlppOperationPrepare
+	}
+
+	executeName, ok := parseSQLPPExecute(info.Statement)
+	if !ok {
+		return info.Statement, ""
+	}
+	if text, found := prepared.lookup(info.QueryCtx, executeName); found {
 		return text, ""
 	}
-	return "", sqlppOperationExecute
+	return info.Statement, sqlppOperationExecute
 }
 
 var sqlppStatementKeywords = []string{"SELECT", "INSERT", "UPSERT", "UPDATE", "DELETE", "MERGE", "WITH", "INFER"}
@@ -406,11 +445,18 @@ func unquoteSQLPPIdentifier(s string) string {
 	return s
 }
 
-func preparedNameFromSQLPPResponse(resp *http.Response, autoExecute bool) string {
+func readSQLPPResponseBody(resp *http.Response) []byte {
 	if resp == nil || resp.Body == nil {
-		return ""
+		return nil
 	}
-	body, _ := getResponseBody(resp)
+	body, err := getResponseBody(resp)
+	if err != nil {
+		slog.Debug("partial SQL++ response body", "error", err, "bytes", len(body))
+	}
+	return body
+}
+
+func preparedNameFromSQLPPResponse(body []byte, autoExecute bool) string {
 	if len(body) == 0 {
 		return ""
 	}
@@ -470,17 +516,10 @@ func extractSQLPPNamespace(sqlppReq *sqlppRequest) string {
 }
 
 // parseSQLPPResponse parses the SQL++ response body for errors
-func parseSQLPPResponse(resp *http.Response) *request.DBError {
-	if resp == nil || resp.Body == nil {
+func parseSQLPPResponse(respB []byte) *request.DBError {
+	if len(respB) == 0 {
 		return nil
 	}
-
-	respB, err := io.ReadAll(resp.Body)
-	if err != nil {
-		slog.Debug("failed to read SQL++ response body", "error", err)
-		return nil
-	}
-	resp.Body = io.NopCloser(bytes.NewBuffer(respB))
 
 	var sqlppResp sqlppResponse
 	if err := json.Unmarshal(respB, &sqlppResp); err != nil {
