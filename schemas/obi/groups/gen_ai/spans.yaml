@@ -21,6 +21,11 @@ spans:
   # path rather than through the dedicated embeddings subtype, which is why the
   # two embedding attributes appear here too, conditioned on the operation.
   - type: obi.gen_ai.inference.client
+    annotations:
+      obi:
+        upstream: [gen_ai.inference.client, openai.inference.client, anthropic.inference.client, aws.bedrock.client, gen_ai.embeddings.client]
+        upstream_relaxes:
+          aws.bedrock.guardrail.id: only a Bedrock request that configured a guardrail carries one
     kind: client
     name:
       note: Not documented yet.
@@ -153,6 +158,11 @@ spans:
   # embeddings payload. Sampling and generation parameters have no meaning
   # here, so none of the inference tuning attributes can appear.
   - type: obi.gen_ai.embeddings.client
+    annotations:
+      obi:
+        upstream: gen_ai.embeddings.client
+        upstream_extras:
+          gen_ai.usage.output_tokens: reported by the provider's response
     kind: client
     name:
       note: Not documented yet.
@@ -211,6 +221,14 @@ spans:
   # emitter reports the requested result count as the semconv
   # `gen_ai.request.top_k`. Rerank has its own span below.
   - type: obi.gen_ai.retrieval.client
+    annotations:
+      obi:
+        upstream: gen_ai.retrieval.client
+        upstream_extras:
+          gen_ai.response.id: reported by the provider's response
+          gen_ai.response.model: reported by the provider's response
+          gen_ai.usage.input_tokens: reported by the provider's response
+          gen_ai.usage.output_tokens: reported by the provider's response
     kind: client
     name:
       note: Not documented yet.
@@ -266,6 +284,10 @@ spans:
   # reports gen_ai.operation.name as a fixed `rerank`. It carries no data source
   # and no request top-k; retrieval carries neither of its top-n.
   - type: obi.gen_ai.rerank.client
+    annotations:
+      obi:
+        upstream: none
+        upstream_reason: upstream defines no rerank operation
     kind: client
     name:
       note: Not documented yet.

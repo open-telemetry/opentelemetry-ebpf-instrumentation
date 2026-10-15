@@ -1,6 +1,10 @@
 file_format: definition/2
 spans:
   - type: obi.dns
+    annotations:
+      obi:
+        upstream: none
+        upstream_reason: upstream defines no DNS lookup span
     kind: internal
     name:
       note: Not documented yet.

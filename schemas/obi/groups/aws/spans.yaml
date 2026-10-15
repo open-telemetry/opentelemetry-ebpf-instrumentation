@@ -11,6 +11,11 @@
 file_format: definition/2
 spans:
   - type: obi.aws.s3.client
+    annotations:
+      obi:
+        upstream: aws.s3.client
+        upstream_extras:
+          error.type: semconv's error-recording guidance sets error.type on any failed operation
     kind: client
     name:
       note: Not documented yet.
@@ -59,6 +64,18 @@ spans:
         requirement_level: opt_in
 
   - type: obi.aws.sqs.client
+    annotations:
+      obi:
+        upstream: [messaging.aws.sqs, messaging.attributes]
+        upstream_omits:
+          messaging.destination.template: only the application knows the template a destination name was built from
+          messaging.consumer.group.name: SQS has no consumer groups
+          messaging.destination.subscription.name: SQS has no subscriptions
+          messaging.destination.temporary: the traffic does not show whether the destination is temporary
+          messaging.destination.anonymous: the traffic does not show whether the destination is anonymous
+          messaging.batch.message_count: OBI does not report SQS batch sizes
+        upstream_extras:
+          cloud.region: the AWS region the request was sent to, as on any AWS SDK call
     kind: client
     name:
       note: Not documented yet.
@@ -110,6 +127,17 @@ spans:
         requirement_level: opt_in
 
   - type: obi.aws.sns.client
+    annotations:
+      obi:
+        upstream: [messaging.aws.sns, messaging.attributes]
+        upstream_omits:
+          messaging.destination.template: only the application knows the template a destination name was built from
+          messaging.consumer.group.name: SNS has no consumer groups
+          messaging.destination.subscription.name: OBI reports SNS publish calls, which name a topic rather than a subscription
+          messaging.destination.temporary: the traffic does not show whether the destination is temporary
+          messaging.destination.anonymous: the traffic does not show whether the destination is anonymous
+        upstream_extras:
+          cloud.region: the AWS region the request was sent to, as on any AWS SDK call
     kind: client
     name:
       note: Not documented yet.

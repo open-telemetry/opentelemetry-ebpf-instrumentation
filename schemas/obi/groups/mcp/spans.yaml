@@ -9,6 +9,11 @@
 file_format: definition/2
 spans:
   - type: obi.mcp.client
+    annotations:
+      obi:
+        upstream: mcp.client
+        upstream_extras:
+          gen_ai.tool.type: MCP tool call spans are compatible with GenAI execute_tool spans (semconv MCP model)
     kind: client
     name:
       note: Not documented yet.
@@ -75,6 +80,13 @@ spans:
         requirement_level: opt_in
 
   - type: obi.mcp.server
+    annotations:
+      obi:
+        upstream: mcp.server
+        upstream_extras:
+          gen_ai.tool.type: MCP tool call spans are compatible with GenAI execute_tool spans (semconv MCP model)
+          gen_ai.tool.call.arguments: MCP tool call spans are compatible with GenAI execute_tool spans (semconv MCP model)
+          gen_ai.tool.call.result: MCP tool call spans are compatible with GenAI execute_tool spans (semconv MCP model)
     kind: server
     name:
       note: Not documented yet.

@@ -106,6 +106,9 @@ attributes:
     examples: ["discover.CriteriaMatcher", "traceAttacher"]
 
   - key: telemetry.type
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no attribute naming an OBI pipeline
     type: string
     stability: development
     brief: >
@@ -114,6 +117,9 @@ attributes:
     examples: ["metrics", "traces"]
 
   - key: otel.metric.overflow
+    annotations:
+      obi:
+        upstream_deviation: set by the OpenTelemetry SDK cardinality limiter, which semconv does not define as an attribute
     type: boolean
     stability: development
     brief: >
