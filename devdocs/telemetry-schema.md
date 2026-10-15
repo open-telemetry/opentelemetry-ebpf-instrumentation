@@ -209,6 +209,9 @@ section empty once drained.
 - Captured `http.request.header.*` and `http.response.header.*` now appear only on plain
   HTTP and GraphQL spans. Protocol spans parsed from HTTP traffic never carried them, so
   in practice this only changes Go `net/rpc` JSON-RPC spans.
+- A SQL++ span from a server other than Couchbase (`db.system.name` `other_sql`) that names no
+  collection or bucket is named `{db.operation.name}`, like other SQL spans, instead of
+  `{db.operation.name} {server.address}:{server.port}`. Couchbase SQL++ spans are unchanged.
 
 ## Hosting notes
 
