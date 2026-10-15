@@ -6,7 +6,7 @@ require (
 	github.com/grafana/oats v0.7.0
 	github.com/onsi/ginkgo/v2 v2.32.0
 	github.com/onsi/gomega v1.41.0
-	go.opentelemetry.io/obi v0.15.1
+	go.opentelemetry.io/obi v1.0.0-rc.2
 	go.yaml.in/yaml/v3 v3.0.5
 )
 
