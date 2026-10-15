@@ -14,10 +14,13 @@ adapter; this schema does not define or guarantee a Java, Go, Node.js, or native
 reference syntax. USDT targets identify probes, and `on.match` can filter USDT
 events by an argument index and string value.
 
-Each `attributes` entry names a span attribute and selects a zero-based source
-argument index (0 through 11). Its optional `type` describes source decoding
-using `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, or `string`. The
-`automatic_attributes` boolean opts into automatic argument/result capture;
+Each `attributes` entry names a span attribute and has an `argument` object.
+`argument.index` selects the zero-based source argument (0 through 11), and
+optional `argument.type` describes that same argument using an OBI-defined
+decoding hint: `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, or
+`string`. These hints are not language-specific types and do not configure the
+output OpenTelemetry attribute type. The `automatic_attributes` boolean opts
+into automatic argument/result capture;
 it defaults to `false`. Explicit `attributes` mappings coexist with and add to
 automatically captured attributes when the option is `true`. If both sources
 produce the same attribute name, collision behavior is not defined yet and
