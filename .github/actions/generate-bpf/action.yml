@@ -39,6 +39,15 @@ runs:
       env:
         MISE_ENABLE_TOOLS: go,clang,conda:llvm-tools,go:github.com/cilium/ebpf/cmd/bpf2go
 
+    - name: Go module cache
+      if: ${{ inputs.cache-go-build == 'true' }}
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      with:
+        path: ~/go/pkg/mod
+        key: go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          go-mod-${{ runner.os }}-${{ runner.arch }}-
+
     - name: Go build cache
       if: ${{ inputs.cache-go-build == 'true' }}
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
