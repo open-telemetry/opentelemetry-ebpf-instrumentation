@@ -117,10 +117,9 @@ spans:
     requirement_level: recommended
     brief: OBI AWS SNS client span.
     attributes:
-      - ref: rpc.system.name
-        requirement_level: required
-      - ref: rpc.method
-        requirement_level: recommended
+      # No rpc.* attributes: semconv v1.41.0 defines no SNS span (only the
+      # messaging.aws.sns group), and v1.44 models SNS, like SQS, as a messaging
+      # span without them.
       - ref: messaging.system
         requirement_level: required
       - ref: messaging.operation.name

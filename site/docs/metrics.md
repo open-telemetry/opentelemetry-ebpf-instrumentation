@@ -955,9 +955,11 @@ OBI-emitted messaging.client.operation.duration
 | --- | --- | --- | --- | --- | --- |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error, which OBI can determine only for the AWS SQS and SNS clients | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `messaging.destination.name` | string | `conditionally_required`: if the exchange named a destination | development | The message destination name | MyQueue; MyTopic |
+| `messaging.destination.subscription.name` | string | `conditionally_required`: if the operation named a subscription, which no client operation OBI records does yet | development | The name of the destination subscription from which a message is consumed. | subscription-a |
 | `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
+| `messaging.operation.type` | enum | `conditionally_required`: if the operation maps to a semantic-convention operation type | development | A string identifying the type of the messaging operation. | create; send; receive; process; settle; deliver; publish |
 | `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
-| `server.address` | string | `recommended`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.address` | string | `conditionally_required`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 
 ## `messaging.process.duration`
 
@@ -970,11 +972,12 @@ OBI-emitted messaging.process.duration
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error, which OBI cannot yet determine for a consume operation | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `messaging.consumer.group.name` | string | `conditionally_required`: if OBI attributed the fetch to a single consumer group of the process | development | The name of the consumer group with which a consumer is associated. | my-group; indexer |
+| `messaging.consumer.group.name` | string | `conditionally_required`: if OBI attributed the Kafka fetch to a single consumer group of the process, or the MQTT topic filter is a shared subscription | development | The name of the consumer group with which a consumer is associated. | my-group; indexer |
 | `messaging.destination.name` | string | `conditionally_required`: if the exchange named a destination | development | The message destination name | MyQueue; MyTopic |
+| `messaging.destination.subscription.name` | string | `conditionally_required`: if the operation is an MQTT SUBSCRIBE, whose topic filter names the subscription | development | The name of the destination subscription from which a message is consumed. | subscription-a |
 | `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
 | `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
-| `server.address` | string | `recommended`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.address` | string | `conditionally_required`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 
 ## `obi.avoided.services`
 

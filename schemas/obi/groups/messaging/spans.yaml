@@ -99,9 +99,16 @@ spans:
     requirement_level: recommended
     brief: OBI MQTT span for a process operation.
     attributes:
+      # A SUBSCRIBE names a topic filter, which identifies a subscription rather
+      # than a destination, so the span carries no messaging.destination.name:
+      # the subscription name is the first topic filter of the packet, and the
+      # consumer group is the share name of a `$share/{ShareName}/{filter}` one.
       - ref_group: attributes.obi.messaging.common
-      - ref: messaging.destination.name
+      - ref: messaging.destination.subscription.name
         requirement_level: required
+      - ref: messaging.consumer.group.name
+        requirement_level:
+          conditionally_required: if the topic filter is a shared subscription
       - ref: messaging.client.id
         requirement_level: recommended
 

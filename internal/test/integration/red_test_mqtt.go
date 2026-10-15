@@ -116,11 +116,11 @@ func testREDMetricsPythonMQTTSubscribe(t *testing.T) {
 			Comm:    "pythonmqtt",
 			Spans: []TestCaseSpan{
 				{
-					Name: "process test/topic",
+					Name: "process",
 					Attributes: []attribute.KeyValue{
 						attribute.String("span.kind", "consumer"),
 						attribute.String("messaging.operation.type", "process"),
-						attribute.String("messaging.destination.name", "test/topic"),
+						attribute.String("messaging.destination.subscription.name", "test/topic"),
 					},
 				},
 			},
