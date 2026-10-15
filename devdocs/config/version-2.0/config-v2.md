@@ -555,14 +555,13 @@ Java also includes additional runtime-specific configuration such as debug contr
 Runtime `filter` fields are reserved by the schema but non-empty values are not
 supported by the current adapter; use capture rules for workload selection.
 
-### `capture.dynamic_instrumentation` Section
+### Dynamic spans on capture rules
 
-`capture.dynamic_instrumentation.rules` declares service-scoped named spans,
-their function or USDT targets, and optional positional argument attributes.
-This is a declarative data model only: the v2 parser does not convert these
-entries into runtime rules or apply them to running processes. See the
-[dynamic instrumentation reference](dynamic-instrumentation.md) for target
-syntax, attribute semantics, and a full example.
+`capture.rules[].refine.spans` declares optional function or USDT spans for that
+rule. These declarations are schema-only; the runtime converter rejects them
+until runtime application is supported. See the
+[dynamic instrumentation reference](dynamic-instrumentation.md) for the
+current syntax and attribute semantics.
 
 ### `capture.network` Section
 

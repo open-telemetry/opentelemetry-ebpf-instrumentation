@@ -489,10 +489,7 @@ func ValidateStandalone(cfg *Extension) error {
 	if err := validateVersion(cfg); err != nil {
 		return err
 	}
-	if err := cfg.Capture.DynamicInstrumentation.Validate(); err != nil {
-		return err
-	}
-	return validateDynamicSelectorSchema(cfg.source)
+	return validateCaptureSpans(cfg.Capture.Rules)
 }
 
 // ValidateReceiver checks version support and receiver section boundaries for an
@@ -510,49 +507,35 @@ func ValidateReceiver(cfg *Extension) error {
 	if cfg.Daemon != nil {
 		return &SectionNotAllowedError{Section: sectionDaemon}
 	}
-	if err := cfg.Capture.DynamicInstrumentation.Validate(); err != nil {
-		return err
-	}
-	return validateDynamicSelectorSchema(cfg.source)
+	return validateCaptureSpans(cfg.Capture.Rules)
 }
 
-func validateDynamicSelectorSchema(source *yaml.Node) error {
-	if source == nil {
-		return nil
-	}
-	dynamic, ok := nestedNode(source, "capture", "dynamic_instrumentation")
-	if !ok {
-		return nil
-	}
-	if dynamic.Kind != yaml.MappingNode {
-		return errors.New("dynamic_instrumentation must be an object")
-	}
-	rules, ok := mappingValue(dynamic, "rules")
-	if !ok || rules.Kind != yaml.SequenceNode {
-		return nil
-	}
-	selectorFields := map[string]struct{}{
-		"name": {}, "namespace": {}, "open_ports": {}, "languages": {},
-		"target_pids": {}, "exe_path": {}, "cmd_args": {}, "containers_only": {},
-		"k8s_namespace": {}, "k8s_pod_name": {}, "k8s_deployment_name": {},
-		"k8s_replicaset_name": {}, "k8s_daemonset_name": {}, "k8s_statefulset_name": {},
-		"k8s_job_name": {}, "k8s_cronjob_name": {}, "k8s_owner_name": {},
-		"k8s_container_name": {}, "container_name": {}, "k8s_pod_labels": {},
-		"k8s_pod_annotations": {},
-	}
-	for ruleIndex, rule := range rules.Content {
-		service, ok := mappingValue(rule, "service")
-		if !ok || service.Kind != yaml.SequenceNode {
-			continue
+func validateCaptureSpans(rules []Rule) error {
+	for i, rule := range rules {
+		if rule.Action == CaptureActionExclude && len(rule.Refine.Spans) > 0 {
+			return fmt.Errorf("capture.rules[%d].refine.spans cannot be used with exclude rules", i)
 		}
-		for selectorIndex, selector := range service.Content {
-			if selector.Kind != yaml.MappingNode {
-				continue
+		for j, span := range rule.Refine.Spans {
+			path := fmt.Sprintf("capture.rules[%d].refine.spans[%d]", i, j)
+			if span.Name == "" {
+				return fmt.Errorf("%s.name must not be empty", path)
 			}
-			for i := 0; i < len(selector.Content)-1; i += 2 {
-				field := selector.Content[i].Value
-				if _, ok := selectorFields[field]; !ok {
-					return fmt.Errorf("dynamic_instrumentation.rules[%d].service[%d].%s is not a supported selector", ruleIndex, selectorIndex, field)
+			if err := span.On.validate(path); err != nil {
+				return err
+			}
+			if span.On.Match != nil && span.On.Match.Value == "" {
+				return fmt.Errorf("%s.on.match.value must not be empty", path)
+			}
+			for k, attr := range span.Attributes {
+				attrPath := fmt.Sprintf("%s.attributes[%d]", path, k)
+				if attr.Name == "" {
+					return fmt.Errorf("%s.name must not be empty", attrPath)
+				}
+				if err := validateArgumentIndex(attr.Argument.Index, attrPath+".argument.index"); err != nil {
+					return err
+				}
+				if !attr.Argument.Type.valid() {
+					return fmt.Errorf("%s.argument.type %q is not supported", attrPath, attr.Argument.Type)
 				}
 			}
 		}

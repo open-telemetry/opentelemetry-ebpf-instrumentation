@@ -231,6 +231,11 @@ func validateV2HTTPRoutePolicy(path string, policy *schema.HTTPRoutePolicy) erro
 }
 
 func validateUnsupportedV2Fields(src *schema.Extension) error {
+	for ruleIndex, rule := range src.Capture.Rules {
+		if len(rule.Refine.Spans) > 0 {
+			return fmt.Errorf("capture.rules[%d].refine.spans is not supported by the runtime converter", ruleIndex)
+		}
+	}
 	runtimeFilters := []struct {
 		path    string
 		filters schema.AttributeFilters

@@ -4,16 +4,10 @@
 package schema
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"regexp"
-	"strconv"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/santhosh-tekuri/jsonschema/v6"
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
 
@@ -142,7 +136,7 @@ extensions:
 	require.Equal(t, AttributeFilter{Match: "5*"}, cfg.Capture.Rules[0].Refine.HTTP.Filters.Traces["status_code"])
 }
 
-func TestDynamicInstrumentationV2ParseMarshal(t *testing.T) {
+func TestCaptureRuleSpansParseMarshal(t *testing.T) {
 	t.Parallel()
 
 	input := []byte(`file_format: "1.0"
@@ -150,230 +144,48 @@ extensions:
   obi:
     version: "2.0"
     capture:
-      policy:
-        default_action: include
-        match_order: first_match_wins
-      dynamic_instrumentation:
-        rules:
-          - service:
-              - exe_path: "*/checkout"
-                languages: "*"
-              - open_ports: "8080-8089"
-                k8s_namespace: shop
-                k8s_deployment_name: checkout
-                k8s_pod_labels:
-                  app: checkout
+      rules:
+        - action: include
+          name: checkout
+          match:
+            process:
+              language_glob: [java]
+          refine:
             spans:
-              - name: java.checkout
+              - name: checkout.place_order
                 on:
-                  function: "com.example.Checkout#placeOrder(java.lang.String,long)"
+                  function_span: "com.example.Checkout#placeOrder"
                 attributes:
                   - name: order.id
                     argument: {index: 0, type: string}
-                  - name: order.count
-                    argument: {index: 1}
-              - name: go.checkout
-                on:
-                  function: "main.(*Checkout).PlaceOrder"
-                attributes:
-                  - name: order.id
-                    argument: {index: 0, type: string}
-              - name: native.operation
-                on:
-                  usdt_span: "checkout:operation"
-                  match: {argument: {index: 1}, value: "orders"}
-                attributes:
-                  - name: operation.id
-                    argument: {index: 0, type: u32}
-              - name: native.cache_hit
-                on:
-                  usdt_noret: "checkout:cache_hit"
-              - name: native.initialized
-                on:
-                  function_noret: "setup"
+                automatic_attributes: false
 `)
-
 	_, extension, err := ParseStandaloneYAML(input)
 	require.NoError(t, err)
-	require.NotNil(t, extension.Capture.DynamicInstrumentation)
-	encoded, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
+	require.Len(t, extension.Capture.Rules, 1)
+	spans := extension.Capture.Rules[0].Refine.Spans
+	require.Len(t, spans, 1)
+	require.Equal(t, "com.example.Checkout#placeOrder", spans[0].On.Function)
+	require.False(t, spans[0].AutomaticAttributes)
+	encoded, err := yaml.Marshal(spans)
 	require.NoError(t, err)
-	require.YAMLEq(t, `
-rules:
-  - service:
-      - languages: "*"
-        exe_path: "*/checkout"
-      - open_ports: 8080-8089
-        k8s_pod_labels:
-          app: checkout
-        k8s_deployment_name: checkout
-        k8s_namespace: shop
-    spans:
-      - name: java.checkout
-        on:
-          function: com.example.Checkout#placeOrder(java.lang.String,long)
-        attributes:
-          - name: order.id
-            argument:
-              index: 0
-              type: string
-          - name: order.count
-            argument:
-              index: 1
-      - name: go.checkout
-        on:
-          function: main.(*Checkout).PlaceOrder
-        attributes:
-          - name: order.id
-            argument:
-              index: 0
-              type: string
-      - name: native.operation
-        on:
-          usdt_span: checkout:operation
-          match:
-            argument:
-              index: 1
-            value: orders
-        attributes:
-          - name: operation.id
-            argument:
-              index: 0
-              type: u32
-      - name: native.cache_hit
-        on:
-          usdt_noret: checkout:cache_hit
-      - name: native.initialized
-        on:
-          function_noret: setup
-`, string(encoded))
-
-	type dynamicCaptureConfig struct {
-		DynamicInstrumentation *DynamicInstrumentation `yaml:"dynamic_instrumentation"`
-	}
-	type dynamicOBIConfig struct {
-		Version string               `yaml:"version"`
-		Capture dynamicCaptureConfig `yaml:"capture"`
-	}
-	type dynamicExtensionConfig struct {
-		OBI dynamicOBIConfig `yaml:"obi"`
-	}
-	roundTripInput, err := yaml.Marshal(struct {
-		FileFormat string                 `yaml:"file_format"`
-		Extensions dynamicExtensionConfig `yaml:"extensions"`
-	}{
-		FileFormat: "1.0",
-		Extensions: dynamicExtensionConfig{OBI: dynamicOBIConfig{
-			Version: "2.0",
-			Capture: dynamicCaptureConfig{
-				DynamicInstrumentation: extension.Capture.DynamicInstrumentation,
-			},
-		}},
-	})
-	require.NoError(t, err)
-	_, roundTripped, err := ParseStandaloneYAML(roundTripInput)
-	require.NoError(t, err)
-	require.NotNil(t, roundTripped.Capture.DynamicInstrumentation)
-	roundTripYAML, err := yaml.Marshal(roundTripped.Capture.DynamicInstrumentation)
-	require.NoError(t, err)
-	originalYAML, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
-	require.NoError(t, err)
-	require.YAMLEq(t, string(originalYAML), string(roundTripYAML))
+	require.Contains(t, string(encoded), "function_span:")
+	require.NotContains(t, string(encoded), "automatic_attributes:")
 }
 
-func TestDynamicInstrumentationValidation(t *testing.T) {
+func TestCaptureRuleSpanValidation(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
 		name string
-		body string
+		span string
 		want string
 	}{
-		{
-			name: "empty rules",
-			body: "rules: []",
-			want: "rules must not be empty",
-		},
-		{
-			name: "missing rules",
-			body: "{}",
-			want: "rules must not be empty",
-		},
-		{
-			name: "empty service selectors",
-			body: "rules: [{service: [], spans: [{name: test, on: {function: f}}]}]",
-			want: "service must not be empty",
-		},
-		{
-			name: "empty spans",
-			body: "rules: [{service: [{languages: java}], spans: []}]",
-			want: "spans must not be empty",
-		},
-		{
-			name: "empty target",
-			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {}}]}]",
-			want: "must define exactly one target",
-		},
-		{
-			name: "unknown target key",
-			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {functoin: f}}]}]",
-			want: "functoin",
-		},
-		{
-			name: "unknown match key",
-			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {usdt_span: checkout:op, match: {argument: {index: 0}, value: orders, valu: typo}}}]}]",
-			want: "valu",
-		},
-		{
-			name: "multiple targets",
-			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {function: f, function_noret: g}}]}]",
-			want: "must define exactly one target",
-		},
-		{
-			name: "empty and non-empty target keys",
-			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {function: '', function_noret: g}}]}]",
-			want: "must define exactly one target",
-		},
-		{
-			name: "empty span name",
-			body: "rules: [{service: [{languages: java}], spans: [{name: '', on: {function: f}}]}]",
-			want: "name must not be empty",
-		},
-		{
-			name: "argument index out of range",
-			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {function: f}, attributes: [{name: id, argument: {index: 12}}]}]}]",
-			want: "between 0 and 11",
-		},
-		{
-			name: "match argument index out of range",
-			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {usdt_span: checkout:operation, match: {argument: {index: 12}, value: orders}}}]}]",
-			want: "between 0 and 11",
-		},
-		{
-			name: "unknown argument type",
-			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {function: f}, attributes: [{name: id, argument: {index: 0, type: bytes}}]}]}]",
-			want: "type \"bytes\" is not supported",
-		},
-		{
-			name: "empty function noret",
-			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {function_noret: ''}}]}]",
-			want: "target must not be empty",
-		},
-		{
-			name: "empty attribute name",
-			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {function: f}, attributes: [{name: '', argument: {index: 0}}]}]}]",
-			want: "attributes[0].name must not be empty",
-		},
-		{
-			name: "empty match value",
-			body: "rules: [{service: [{languages: java}], spans: [{name: test, on: {usdt_span: checkout:operation, match: {argument: {index: 0}, value: ''}}}]}]",
-			want: "match.value must not be empty",
-		},
-		{
-			name: "selector contains unsupported exporter config",
-			body: "rules: [{service: [{languages: java, exports: metrics}], spans: [{name: test, on: {function: f}}]}]",
-			want: "exports is not a supported selector",
-		},
+		{name: "empty target", span: `{name: test, on: {}}`, want: "must define exactly one target"},
+		{name: "multiple targets", span: `{name: test, on: {function_span: f, function_noret: g}}`, want: "must define exactly one target"},
+		{name: "empty name", span: `{name: '', on: {function_span: f}}`, want: "name must not be empty"},
+		{name: "invalid argument index", span: `{name: test, on: {function_span: f}, attributes: [{name: id, argument: {index: 12}}]}`, want: "between 0 and 11"},
+		{name: "USDT match empty", span: `{name: test, on: {usdt_span: probe, match: {argument: {index: 0}, value: ''}}}`, want: "match.value must not be empty"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -382,160 +194,73 @@ extensions:
   obi:
     version: "2.0"
     capture:
-      dynamic_instrumentation:
-        %s
-`, tc.body)
+      rules:
+        - action: include
+          match: {process: {language_glob: [java]}}
+          refine:
+            spans: [%s]
+`, tc.span)
 			_, _, err := ParseStandaloneYAML([]byte(input))
 			require.ErrorContains(t, err, tc.want)
 		})
 	}
 }
 
-func TestParseReceiverValidatesDynamicInstrumentation(t *testing.T) {
+func TestDynamicSpanTargetCountsMergedTargets(t *testing.T) {
 	t.Parallel()
 
-	_, err := ParseReceiverYAML([]byte(`version: "2.0"
-dynamic_instrumentation:
-  rules: []
-`))
-	require.ErrorContains(t, err, "rules must not be empty")
-}
-
-func TestDynamicInstrumentationMarshalMatchesSchema(t *testing.T) {
-	t.Parallel()
-
-	data, err := os.ReadFile("../../../devdocs/config/version-2.0/obi-extension.schema.json")
-	require.NoError(t, err)
-	var document map[string]any
-	require.NoError(t, json.Unmarshal(data, &document))
-	compiler := jsonschema.NewCompiler()
-	compiler.UseRegexpEngine(compileSchemaRegexp)
-	const schemaURL = "https://opentelemetry.io/obi/schemas/obi-extension.schema.json"
-	require.NoError(t, compiler.AddResource(schemaURL, document))
-	compiledSchema, err := compiler.Compile(schemaURL)
-	require.NoError(t, err)
-	definitions := document["$defs"].(map[string]any)
-	dynamicServiceSchema := definitions["DynamicServiceSelector"].(map[string]any)
-	properties := dynamicServiceSchema["properties"].(map[string]any)
-
-	_, extension, err := ParseStandaloneYAML([]byte(`file_format: "1.0"
+	_, _, err := ParseStandaloneYAML([]byte(`file_format: "1.0"
 extensions:
   obi:
     version: "2.0"
     capture:
-      dynamic_instrumentation:
-        rules:
-          - service:
-              - languages: java
-                exe_path: "*/checkout"
-                k8s_namespace: shop
-                k8s_pod_labels: {app: checkout}
+      rules:
+        - action: include
+          match: {process: {language_glob: [java]}}
+          refine:
             spans:
-              - name: java.checkout
-                on: {function_noret: setup}
+              - name: test
+                on:
+                  <<: &target {function_span: f}
+                  usdt_span: probe
 `))
-	require.NoError(t, err)
-	encoded, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
-	require.NoError(t, err)
-	var marshaled map[string]any
-	require.NoError(t, yaml.Unmarshal(encoded, &marshaled))
-	config := map[string]any{
-		"version": "2.0",
-		"capture": map[string]any{
-			"dynamic_instrumentation": marshaled,
-		},
-	}
-	require.NoError(t, compiledSchema.Validate(config))
-	rule := marshaled["rules"].([]any)[0].(map[string]any)
-	selectors := rule["service"].([]any)
-	for _, selector := range selectors {
-		for key := range selector.(map[string]any) {
-			require.Contains(t, properties, key)
-		}
-	}
-	for _, exporterField := range []string{"exports", "sampler", "routes", "metrics"} {
-		require.NotContains(t, properties, exporterField)
-	}
+	require.ErrorContains(t, err, "must define exactly one target")
 
-	spanName := definitions["DynamicSpanSpec"].(map[string]any)["properties"].(map[string]any)["name"].(map[string]any)
-	require.EqualValues(t, 1, spanName["minLength"])
-	dynamicRequired := definitions["DynamicInstrumentation"].(map[string]any)["required"].([]any)
-	require.Equal(t, []any{"rules"}, dynamicRequired)
-	functionNoRet := definitions["DynamicSpanTarget"].(map[string]any)["oneOf"].([]any)[1].(map[string]any)["properties"].(map[string]any)["function_noret"].(map[string]any)
-	require.EqualValues(t, 1, functionNoRet["minLength"])
-	require.Error(t, compiledSchema.Validate(map[string]any{
-		"version": "2.0",
-		"capture": map[string]any{
-			"dynamic_instrumentation": map[string]any{},
-		},
-	}))
-}
-
-var schemaUnicodeEscape = regexp.MustCompile(`\\u([0-9a-fA-F]{4})`)
-
-func compileSchemaRegexp(pattern string) (jsonschema.Regexp, error) {
-	var conversionError error
-	pattern = schemaUnicodeEscape.ReplaceAllStringFunc(pattern, func(escape string) string {
-		if conversionError != nil {
-			return escape
-		}
-		codePoint, err := strconv.ParseUint(escape[2:], 16, 16)
-		if err != nil {
-			conversionError = err
-			return escape
-		}
-		return fmt.Sprintf(`\x{%04X}`, codePoint)
-	})
-	if conversionError != nil {
-		return nil, conversionError
-	}
-	return regexp.Compile(strings.ReplaceAll(pattern, `\/`, `/`))
-}
-
-func TestDynamicJavaReferencesParseMarshal(t *testing.T) {
-	t.Parallel()
-
-	for _, tc := range []struct {
-		name      string
-		reference string
-	}{
-		{name: "exact overload", reference: "java.lang.StringBuffer#append(char)"},
-		{name: "unambiguous method", reference: "java.lang.Runtime.Version#interim"},
-		{name: "zero-argument method", reference: "com.example.Target#ready()"},
-		{name: "all overloads", reference: "java.lang.StringBuffer#append(*)"},
-		{name: "nested constructor", reference: "java.lang.Runtime.Version#Version"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			input := []byte(fmt.Sprintf(`file_format: "1.0"
+	_, _, err = ParseStandaloneYAML([]byte(`file_format: "1.0"
 extensions:
   obi:
     version: "2.0"
     capture:
-      dynamic_instrumentation:
-        rules:
-          - service: [{languages: java}]
+      rules:
+        - action: include
+          match: {process: {language_glob: [java]}}
+          refine:
             spans:
-              - name: java.reference
-                on: {function: %q}
-`, tc.reference))
+              - name: test
+                on:
+                  <<: &target {function_span: old}
+                  function_span: new
+`))
+	require.NoError(t, err)
+}
 
-			_, extension, err := ParseStandaloneYAML(input)
-			require.NoError(t, err)
-			rule := extension.Capture.DynamicInstrumentation.Rules[0]
-			require.Len(t, rule.Spans, 1)
-			require.Equal(t, tc.reference, rule.Spans[0].On.Function)
+func TestCaptureRuleSpansRejectExcludeRule(t *testing.T) {
+	t.Parallel()
 
-			encoded, err := yaml.Marshal(extension.Capture.DynamicInstrumentation)
-			require.NoError(t, err)
-			var roundTripped DynamicInstrumentation
-			require.NoError(t, yaml.Unmarshal(encoded, &roundTripped))
-			roundTripYAML, err := yaml.Marshal(&roundTripped)
-			require.NoError(t, err)
-			require.YAMLEq(t, string(encoded), string(roundTripYAML))
-		})
-	}
+	_, _, err := ParseStandaloneYAML([]byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: exclude
+          match: {process: {language_glob: [java]}}
+          refine:
+            spans:
+              - name: test
+                on: {function_span: f}
+`))
+	require.ErrorContains(t, err, "refine.spans cannot be used with exclude rules")
 }
 
 func TestParseFlowLimitAliasPresence(t *testing.T) {

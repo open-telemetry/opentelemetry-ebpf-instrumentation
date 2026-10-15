@@ -22,6 +22,27 @@ import (
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
+func TestV2ToRuntimeRejectsDynamicSpans(t *testing.T) {
+	t.Parallel()
+
+	_, extension, err := schema.ParseStandaloneYAML([]byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: include
+          match: {process: {language_glob: [java]}}
+          refine:
+            spans:
+              - name: example
+                on: {function_span: "com.example.Foo#bar"}
+`))
+	require.NoError(t, err)
+	_, err = V2ToRuntime(extension)
+	require.ErrorContains(t, err, "capture.rules[0].refine.spans is not supported")
+}
+
 func TestV2ToRuntimeDefaultExportFoundation(t *testing.T) {
 	t.Parallel()
 
