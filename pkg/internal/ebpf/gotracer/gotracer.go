@@ -596,6 +596,8 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.MongoOpNamePos,
 		goexec.MongoOpDBPos,
 		goexec.MongoOneThirteenOne,
+		goexec.MongoTopologyConnectionPos,
+		goexec.MongoConnectionAddrPos,
 		// database/sql stdlib
 		goexec.DriverConnCiPos,
 		// lib/pq driver
@@ -659,6 +661,10 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		{
 			symbol: "*github.com/lib/pq.conn",
 			field:  goexec.PqConnTypeOffset,
+		},
+		{
+			symbol: "*go.mongodb.org/mongo-driver/x/mongo/driver/topology.Connection",
+			field:  goexec.MongoV1TopologyConnectionTypeAddress,
 		},
 		{
 			symbol: "*google.golang.org/grpc/internal/credentials.syscallConn",
@@ -1938,6 +1944,9 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"go.mongodb.org/mongo-driver/v2/x/mongo/driver.Operation.Execute": {{
 			Start: p.bpfObjects.ObiUprobeMongoOpExecute,
 			End:   p.bpfObjects.ObiUprobeMongoOpExecuteRet,
+		}},
+		"go.mongodb.org/mongo-driver/x/mongo/driver.Operation.getServerAndConnection": {{
+			End: p.bpfObjects.ObiUretprobeMongoV1GetServerAndConnection,
 		}},
 		// all of these point to the same probe, we just use it to find start time and collection name
 		"go.mongodb.org/mongo-driver/mongo.(*Collection).insert": {{
