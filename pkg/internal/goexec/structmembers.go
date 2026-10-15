@@ -634,13 +634,13 @@ var structMembers = map[string]structInfo{
 		},
 	},
 	"go.mongodb.org/mongo-driver/v2/mongo.Collection": {
-		lib: "go.mongodb.org/mongo-driver",
+		lib: "go.mongodb.org/mongo-driver/v2",
 		fields: map[string]GoOffset{
 			"name": MongoConnNamePos,
 		},
 	},
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver.Operation": {
-		lib: "go.mongodb.org/mongo-driver",
+		lib: "go.mongodb.org/mongo-driver/v2",
 		fields: map[string]GoOffset{
 			"Name":     MongoOpNamePos,
 			"Database": MongoOpDBPos,
