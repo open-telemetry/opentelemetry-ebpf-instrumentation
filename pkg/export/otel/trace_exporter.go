@@ -400,6 +400,10 @@ func newHTTPTraceClient(cfg otelcfg.TracesConfig, reporter imetrics.Reporter) (o
 	}
 	initial, maxInterval, maxElapsed := traceRetrySettings(cfg)
 	options := opts.AsTraceHTTP()
+	if opts.URLPath == "" {
+		// A pathless OTLP traces endpoint in the environment otherwise becomes "/".
+		options = append(options, otlptracehttp.WithURLPath("/v1/traces"))
+	}
 	options = append(options,
 		otlptracehttp.WithTimeout(defaultTraceRequestTimeout),
 		otlptracehttp.WithRetry(otlptracehttp.RetryConfig{
