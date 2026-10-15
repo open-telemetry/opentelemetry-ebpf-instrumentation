@@ -112,6 +112,8 @@ section empty once drained.
   other IP address. A Kubernetes Service name with a port in the `Host` header now
   resolves to the service and its namespace, so `service.peer.name` and the service
   graph name it instead of carrying the raw `host:port`.
+- Removed `PrometheusConfig.Registry`. Embedders can no longer supply a custom
+  Prometheus registry; Prometheus export requires a configured HTTP port.
 - GenAI client span names follow `{gen_ai.operation.name} {gen_ai.request.model}`
   (retrieval: `{gen_ai.operation.name} {gen_ai.data_source.id}`), built only from the
   values emitted on the span:

@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -23,8 +22,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
-	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -74,9 +73,11 @@ prometheus_export:
 			cfg.Traces.BatchTimeout = 10 * time.Millisecond
 			cfg.OTELMetrics.MetricsConsumer = metrics
 			cfg.OTELMetrics.Interval = 10 * time.Millisecond
-			cfg.Prometheus.Registry = prometheus.NewRegistry()
+			promServer := testutil.NewPrometheusServer(t)
+			cfg.Prometheus.Port = promServer.Port
+			cfg.Prometheus.Path = "/metrics"
 			ctxInfo := gctx(0, &cfg.OTELMetrics)
-			ctxInfo.Prometheus = &connector.PrometheusManager{}
+			ctxInfo.Prometheus = promServer.Manager
 			input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
 			ctx, cancel := context.WithCancel(t.Context())
@@ -102,7 +103,7 @@ prometheus_export:
 				assert.True(ct, traceServices(traces.AllTraces())["http-service"])
 				assert.True(ct, traceServices(traces.AllTraces())["grpc-service"])
 				got := metricServices(metrics.AllMetrics())
-				families, gatherErr := cfg.Prometheus.Registry.Gather()
+				families, gatherErr := promServer.Gather()
 				assert.NoError(ct, gatherErr)
 				for _, name := range metricNames {
 					assert.Contains(ct, got[name.OTEL], "grpc-service")
