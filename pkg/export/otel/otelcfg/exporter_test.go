@@ -4,8 +4,13 @@
 package otelcfg
 
 import (
+	"bytes"
+	"log/slog"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
@@ -50,5 +55,41 @@ func TestSingleton(t *testing.T) {
 		if exp := get(); exp != ref {
 			t.Fatalf("expected exporter to be the same as %p, got %p", ref, exp)
 		}
+	}
+}
+
+func TestHTTPJSONMetricsProtocolWarns(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		protocol        Protocol
+		metricsProtocol Protocol
+		wantWarn        bool
+	}{
+		{name: "http/json warns", protocol: ProtocolHTTPJSON, wantWarn: true},
+		// Set from OTEL_EXPORTER_OTLP_METRICS_PROTOCOL.
+		{name: "metrics-specific http/json warns", metricsProtocol: ProtocolHTTPJSON, wantWarn: true},
+		{name: "http/protobuf does not warn", protocol: ProtocolHTTPProtobuf, wantWarn: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			defer RestoreEnvAfterExecution()()
+
+			var logOutput bytes.Buffer
+			previous := slog.Default()
+			slog.SetDefault(slog.New(slog.NewTextHandler(&logOutput, nil)))
+			t.Cleanup(func() { slog.SetDefault(previous) })
+
+			instancer := MetricsExporterInstancer{
+				Cfg: &MetricsConfig{
+					MetricsEndpoint: "http://localhost:4318",
+					Protocol:        tc.protocol,
+					MetricsProtocol: tc.metricsProtocol,
+				},
+			}
+			_, err := instancer.Instantiate(t.Context())
+			require.NoError(t, err)
+
+			warned := bytes.Contains(logOutput.Bytes(), []byte("does not support JSON encoding"))
+			assert.Equal(t, tc.wantWarn, warned)
+		})
 	}
 }
