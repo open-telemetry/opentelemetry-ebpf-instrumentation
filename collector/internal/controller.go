@@ -98,12 +98,13 @@ func NewController(id component.ID, cfg *obi.Config, v2 bool) (*Controller, erro
 // Start starts the receiver. Only the first call actually starts OBI;
 // subsequent calls just increase the reference count.
 func (c *Controller) Start(ctx context.Context, _ component.Host) error {
+	c.shared.mu.Lock()
+	defer c.shared.mu.Unlock()
+
+	// Checked under the lock: the context can be canceled while waiting for it.
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-
-	c.shared.mu.Lock()
-	defer c.shared.mu.Unlock()
 
 	c.shared.refCnt++
 
