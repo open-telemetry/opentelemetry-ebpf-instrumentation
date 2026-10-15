@@ -200,6 +200,15 @@ section empty once drained.
 - `messaging.client.operation.duration` and `messaging.process.duration` gain
   `messaging.destination.subscription.name` (on by default, omitted when empty), which adds a
   label to the Prometheus series.
+- GraphQL, MCP and JSON-RPC server spans no longer carry the HTTP request and response
+  attributes: `http.request.method`, `http.request.method_original`,
+  `http.response.status_code`, `obi.http.response.observed`, `http.route`, `url.path`,
+  `url.query`, `url.scheme`, `http.request.body.size`, `http.response.body.size` and
+  `user_agent.original`. They keep their own protocol attributes, `client.address`,
+  `server.address`, `server.port`, `network.*` and `error.type`.
+- Captured `http.request.header.*` and `http.response.header.*` now appear only on plain
+  HTTP and GraphQL spans. Protocol spans parsed from HTTP traffic never carried them, so
+  in practice this only changes Go `net/rpc` JSON-RPC spans.
 
 ## Hosting notes
 
