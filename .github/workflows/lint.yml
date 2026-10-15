@@ -180,7 +180,8 @@ jobs:
         if: ${{ inputs.ref == '' || inputs.ref == null }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
-          path: ~/.cache/go-build
+          # Go's default GOCACHE on macOS
+          path: ~/Library/Caches/go-build
           key: go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
           restore-keys: |
             go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
