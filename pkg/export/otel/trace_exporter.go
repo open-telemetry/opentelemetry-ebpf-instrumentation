@@ -86,7 +86,8 @@ func (e *obiTracesExporter) Start(ctx context.Context) error {
 	}
 	if e.queue != nil && !e.workerStarted {
 		e.workerStarted = true
-		go e.runQueue(ctx)
+		// The queue must flush after the pipeline context is canceled.
+		go e.runQueue(context.WithoutCancel(ctx))
 	}
 	return nil
 }

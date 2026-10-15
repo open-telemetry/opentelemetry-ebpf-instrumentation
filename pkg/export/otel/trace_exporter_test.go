@@ -42,3 +42,27 @@ func TestTraceQueueCountsSpansAndUnblocksOnShutdown(t *testing.T) {
 		t.Fatal("producer remained blocked after shutdown")
 	}
 }
+
+func TestTraceQueueFlushesAfterPipelineCancellation(t *testing.T) {
+	cfg := otelcfg.TracesConfig{
+		QueueSize:    2,
+		BatchMaxSize: 2,
+		BatchTimeout: time.Hour,
+	}
+	var sentSpans int
+	var sendErr error
+	exp := newOBITracesExporter(cfg, nil, func(ctx context.Context, traces ptrace.Traces) error {
+		sentSpans = traces.SpanCount()
+		sendErr = ctx.Err()
+		return sendErr
+	}, nil, false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	require.NoError(t, exp.Start(ctx))
+	require.NoError(t, exp.ConsumeTraces(ctx, oneSpan()))
+	cancel()
+	require.NoError(t, exp.Shutdown(ctx))
+
+	require.Equal(t, 1, sentSpans)
+	require.NoError(t, sendErr)
+}
