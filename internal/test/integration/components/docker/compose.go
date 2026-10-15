@@ -91,13 +91,9 @@ func (c *Compose) Up() error {
 // Returns ok=false (build everything) when the mechanism is off or the file
 // can't be parsed
 func (c *Compose) servicesToBuild() ([]string, bool) {
-	prebuiltEnv := os.Getenv("PREBUILT_IMAGES")
-	if prebuiltEnv == "" {
+	prebuilt := prebuiltImages()
+	if len(prebuilt) == 0 {
 		return nil, false
-	}
-	prebuilt := strings.Split(prebuiltEnv, ",")
-	for i := range prebuilt {
-		prebuilt[i] = strings.TrimSpace(prebuilt[i])
 	}
 
 	data, err := os.ReadFile(c.Path)
