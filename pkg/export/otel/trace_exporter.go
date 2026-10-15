@@ -5,11 +5,15 @@ package otel // import "go.opentelemetry.io/obi/pkg/export/otel"
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/semaphore"
@@ -30,6 +34,7 @@ import (
 
 const (
 	defaultTraceQueueSize       = 1000
+	defaultTraceWorkers         = 10
 	defaultTraceFlushDelay      = 200 * time.Millisecond
 	defaultTraceRetryStart      = 5 * time.Second
 	defaultTraceRetryMax        = 30 * time.Second
@@ -39,6 +44,37 @@ const (
 )
 
 type traceSender func(context.Context, ptrace.Traces) error
+
+type traceAttemptKey struct{}
+
+type traceAttemptCount struct {
+	failures atomic.Int64
+}
+
+func reportTraceAttempt(ctx context.Context, reporter imetrics.Reporter, err error) {
+	if err == nil || reporter == nil || imetrics.IsBuiltinNoopReporter(reporter) {
+		return
+	}
+	reporter.OTELTraceExportError(err)
+	if count, ok := ctx.Value(traceAttemptKey{}).(*traceAttemptCount); ok {
+		count.failures.Add(1)
+	}
+}
+
+type traceRoundTripper struct {
+	base     http.RoundTripper
+	reporter imetrics.Reporter
+}
+
+func (t traceRoundTripper) RoundTrip(request *http.Request) (*http.Response, error) {
+	response, err := t.base.RoundTrip(request)
+	if err != nil {
+		reportTraceAttempt(request.Context(), t.reporter, err)
+	} else if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		reportTraceAttempt(request.Context(), t.reporter, fmt.Errorf("trace export returned HTTP %d", response.StatusCode))
+	}
+	return response, err
+}
 
 type queuedTraces struct {
 	traces ptrace.Traces
@@ -157,11 +193,13 @@ func (e *obiTracesExporter) enqueue(ctx context.Context, traces ptrace.Traces) e
 
 func (e *obiTracesExporter) export(ctx context.Context, traces ptrace.Traces) error {
 	spanCount := traces.SpanCount()
+	attempts := &traceAttemptCount{}
+	ctx = context.WithValue(ctx, traceAttemptKey{}, attempts)
 	err := e.send(ctx, traces)
 	if e.reporter != nil && !imetrics.IsBuiltinNoopReporter(e.reporter) {
-		if err != nil {
+		if err != nil && attempts.failures.Load() == 0 {
 			e.reporter.OTELTraceExportError(err)
-		} else {
+		} else if err == nil {
 			e.reporter.OTELTraceExport(spanCount)
 		}
 	}
@@ -170,6 +208,21 @@ func (e *obiTracesExporter) export(ctx context.Context, traces ptrace.Traces) er
 
 func (e *obiTracesExporter) runQueue(ctx context.Context) {
 	defer close(e.workerDone)
+	batches := make(chan ptrace.Traces)
+	var workers sync.WaitGroup
+	for range defaultTraceWorkers {
+		workers.Go(func() {
+			for batch := range batches {
+				if err := e.export(ctx, batch); err != nil {
+					slog.Warn("error sending trace to consumer", "error", err)
+				}
+			}
+		})
+	}
+	defer func() {
+		close(batches)
+		workers.Wait()
+	}()
 	batch := ptrace.NewTraces()
 	batchSpans := 0
 	var timer *time.Timer
@@ -178,8 +231,9 @@ func (e *obiTracesExporter) runQueue(ctx context.Context) {
 		if batchSpans == 0 {
 			return
 		}
-		if err := e.export(ctx, batch); err != nil {
-			slog.Warn("error sending trace to consumer", "error", err)
+		select {
+		case batches <- batch:
+		case <-ctx.Done():
 		}
 		batch = ptrace.NewTraces()
 		batchSpans = 0
@@ -292,13 +346,13 @@ func getTracesExporter(_ context.Context, cfg otelcfg.TracesConfig, reporter ime
 
 	switch cfg.GetProtocol() {
 	case otelcfg.ProtocolHTTPJSON, otelcfg.ProtocolHTTPProtobuf, "":
-		client, err := newHTTPTraceClient(cfg)
+		client, err := newHTTPTraceClient(cfg, reporter)
 		if err != nil {
 			return nil, err
 		}
 		return newOTLPTracesExporter(cfg, reporter, client), nil
 	case otelcfg.ProtocolGRPC:
-		client, err := newGRPCTraceClient(cfg)
+		client, err := newGRPCTraceClient(cfg, reporter)
 		if err != nil {
 			return nil, err
 		}
@@ -347,7 +401,7 @@ func traceRetrySettings(cfg otelcfg.TracesConfig) (time.Duration, time.Duration,
 	return initial, maxInterval, maxElapsed
 }
 
-func newHTTPTraceClient(cfg otelcfg.TracesConfig) (otlptrace.Client, error) {
+func newHTTPTraceClient(cfg otelcfg.TracesConfig, reporter imetrics.Reporter) (otlptrace.Client, error) {
 	opts, err := otelcfg.HTTPTracesEndpointOptions(&cfg)
 	if err != nil {
 		return nil, err
@@ -366,16 +420,62 @@ func newHTTPTraceClient(cfg otelcfg.TracesConfig) (otlptrace.Client, error) {
 	if cfg.GetProtocol() == otelcfg.ProtocolHTTPJSON {
 		options = append(options, otlptracehttp.WithEncoding(otlptracehttp.EncodingJSON))
 	}
-	if opts.UnixSocketAddr != "" {
-		options = append(options, otlptracehttp.WithHTTPClient(&http.Client{
-			Transport: otelcfg.UnixTransport(opts.UnixSocketAddr),
-			Timeout:   defaultTraceRequestTimeout,
-		}))
+	if opts.UnixSocketAddr != "" || (reporter != nil && !imetrics.IsBuiltinNoopReporter(reporter)) {
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		if opts.UnixSocketAddr != "" {
+			transport = otelcfg.UnixTransport(opts.UnixSocketAddr)
+		} else {
+			transport.TLSClientConfig, err = traceTLSConfig(opts.SkipTLSVerify)
+			if err != nil {
+				return nil, err
+			}
+		}
+		client := &http.Client{Transport: transport, Timeout: defaultTraceRequestTimeout}
+		if reporter != nil && !imetrics.IsBuiltinNoopReporter(reporter) {
+			client.Transport = traceRoundTripper{base: transport, reporter: reporter}
+		}
+		options = append(options, otlptracehttp.WithHTTPClient(client))
 	}
 	return otlptracehttp.NewClient(options...), nil
 }
 
-func newGRPCTraceClient(cfg otelcfg.TracesConfig) (otlptrace.Client, error) {
+func traceTLSConfig(skipVerify bool) (*tls.Config, error) {
+	certFile := os.Getenv("OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE")
+	if certFile == "" {
+		certFile = os.Getenv("OTEL_EXPORTER_OTLP_CERTIFICATE")
+	}
+	clientCertFile := os.Getenv("OTEL_EXPORTER_OTLP_TRACES_CLIENT_CERTIFICATE")
+	clientKeyFile := os.Getenv("OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY")
+	if clientCertFile == "" || clientKeyFile == "" {
+		clientCertFile = os.Getenv("OTEL_EXPORTER_OTLP_CLIENT_CERTIFICATE")
+		clientKeyFile = os.Getenv("OTEL_EXPORTER_OTLP_CLIENT_KEY")
+	}
+	if certFile == "" && clientCertFile == "" && !skipVerify {
+		return nil, nil
+	}
+	config := &tls.Config{InsecureSkipVerify: skipVerify}
+	if certFile != "" {
+		data, err := os.ReadFile(certFile)
+		if err != nil {
+			return nil, err
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(data) {
+			return nil, fmt.Errorf("no certificates found in %s", certFile)
+		}
+		config.RootCAs = pool
+	}
+	if clientCertFile != "" && clientKeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(clientCertFile, clientKeyFile)
+		if err != nil {
+			return nil, err
+		}
+		config.Certificates = []tls.Certificate{cert}
+	}
+	return config, nil
+}
+
+func newGRPCTraceClient(cfg otelcfg.TracesConfig, reporter imetrics.Reporter) (otlptrace.Client, error) {
 	opts, err := otelcfg.GRPCTracesEndpointOptions(&cfg)
 	if err != nil {
 		return nil, err
@@ -384,7 +484,7 @@ func newGRPCTraceClient(cfg otelcfg.TracesConfig) (otlptrace.Client, error) {
 	options := opts.AsTraceGRPC()
 	options = append(options,
 		otlptracegrpc.WithTimeout(maxElapsed),
-		otlptracegrpc.WithDialOption(grpc.WithChainUnaryInterceptor(traceRequestDeadline(defaultTraceRequestTimeout))),
+		otlptracegrpc.WithDialOption(grpc.WithChainUnaryInterceptor(traceRequestDeadline(defaultTraceRequestTimeout, reporter))),
 		otlptracegrpc.WithRetry(otlptracegrpc.RetryConfig{
 			Enabled: true, InitialInterval: initial, MaxInterval: maxInterval, MaxElapsedTime: maxElapsed,
 		}),
@@ -396,11 +496,13 @@ func newGRPCTraceClient(cfg otelcfg.TracesConfig) (otlptrace.Client, error) {
 }
 
 // The gRPC client's WithTimeout covers retries, so each RPC needs its own deadline.
-func traceRequestDeadline(timeout time.Duration) grpc.UnaryClientInterceptor {
+func traceRequestDeadline(timeout time.Duration, reporter imetrics.Reporter) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply any, conn *grpc.ClientConn, invoke grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		requestCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
-		return invoke(requestCtx, method, req, reply, conn, opts...)
+		err := invoke(requestCtx, method, req, reply, conn, opts...)
+		reportTraceAttempt(ctx, reporter, err)
+		return err
 	}
 }
 
