@@ -50,8 +50,6 @@ static __always_inline void urand_bytes(unsigned char *buf, u32 size) {
 }
 
 static __always_inline void decode_hex(unsigned char *dst, const unsigned char *src, u32 src_len) {
-    // Avoid nested loop exploration when decoding a traceparent found by the header scan.
-#pragma unroll
     for (u32 i = 1, j = 0; i < src_len; i += 2) {
         unsigned char p = *src++;
         unsigned char q = *src++;

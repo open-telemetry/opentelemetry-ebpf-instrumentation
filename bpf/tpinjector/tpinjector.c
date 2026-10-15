@@ -142,10 +142,12 @@ enum {
     k_tail_validate_h2_tp,
     k_tail_detect_h2,
     k_tail_sniff_h2,
+    k_tail_parse_existing_tp,
 };
 
 int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg);
 int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg);
+int obi_packet_extender_parse_existing_tp(struct sk_msg_md *msg);
 int obi_packet_extender_create_tp(struct sk_msg_md *msg);
 int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg);
 int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg);
@@ -156,7 +158,7 @@ int obi_packet_extender_sniff_h2(struct sk_msg_md *msg);
 
 struct {
     __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
-    __uint(max_entries, 9);
+    __uint(max_entries, 10);
     __uint(key_size, sizeof(u32));
     __array(values, int(void *));
 } extender_jump_table SEC(".maps") = {
@@ -171,6 +173,7 @@ struct {
             [k_tail_validate_h2_tp] = (void *)&obi_packet_extender_validate_h2_tp,
             [k_tail_detect_h2] = (void *)&obi_packet_extender_detect_h2,
             [k_tail_sniff_h2] = (void *)&obi_packet_extender_sniff_h2,
+            [k_tail_parse_existing_tp] = (void *)&obi_packet_extender_parse_existing_tp,
         },
 };
 
@@ -186,6 +189,7 @@ typedef struct tailcall_ctx {
     u32 h2_hpack_len;             // HPACK length (frame payload minus prefix and trailing pad)
     u32 h2_scan_pos;              // resume offset for detect_h2 across tail calls
     u32 h2_tp_candidate_pos;      // HPACK scan start or found candidate offset (>= max = none)
+    u32 http1_tp_offset;          // start of the HTTP/1 traceparent header
     h2_sniff_state_t h2_framing;  // strict frame rules, carried across detect_h2 hops
     u8 niter;                     // HTTP/1 find-existing scan iteration counter
     u8 h2_frames;                 // H2 frames already injected this packet (capped)
@@ -195,6 +199,7 @@ typedef struct tailcall_ctx {
     bool tp_present;              // frame already carries a traceparent we cannot adopt
     bool scan_exhausted;          // retry budget ran out before the block was walked
     u8 opener;                    // first HPACK field byte of the frame being considered
+    u8 _pad[4];
 } tailcall_ctx;
 
 SCRATCH_MEM(tailcall_ctx);
@@ -1359,33 +1364,29 @@ assign_parent_tp(const tailcall_ctx *t_ctx, tp_info_t *tp, unsigned char *span_i
     }
 }
 
+enum {
+    k_http1_max_scan_iters = 4,
+    k_http1_scan_chunk_size = 1024,
+};
+
 //k_tail_find_existing_tp
 SEC("sk_msg")
 int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
-    const u32 k_max_iter = 4;          // iterate up to 4KB
-    const u32 k_max_chunk_size = 1024; // 1KB chunks per iteration
-
     tailcall_ctx *t_ctx = tailcall_ctx_mem();
 
     if (!t_ctx) {
         return SK_PASS;
     }
 
-    tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
-
-    if (!tp_p) {
-        return SK_PASS;
-    }
-
     const u32 niter = t_ctx->niter;
 
-    if (niter >= k_max_iter) {
+    if (niter >= k_http1_max_scan_iters) {
         return SK_PASS;
     }
 
     unsigned char *b = msg->data;
     const unsigned char *e = msg->data_end;
-    unsigned char *ptr = b + (niter * k_max_chunk_size);
+    unsigned char *ptr = b + (niter * k_http1_scan_chunk_size);
 
     if (ptr + 1 > e) {
         return SK_PASS;
@@ -1395,8 +1396,8 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
 
     u32 data_size = e - ptr;
 
-    if (data_size > k_max_chunk_size) {
-        data_size = k_max_chunk_size;
+    if (data_size > k_http1_scan_chunk_size) {
+        data_size = k_http1_scan_chunk_size;
     }
 
     for (u32 i = 0; i < data_size; ++i) {
@@ -1406,55 +1407,8 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
         }
 
         if (is_traceparent(ptr)) {
-            ptr += TP_TID_PREFIX_SIZE;
-
-            decode_hex(tp_p->tp.trace_id, ptr, TRACE_ID_CHAR_LEN);
-
-            ptr += TRACE_ID_CHAR_LEN;
-
-            if (*ptr++ != '-') {
-                return SK_PASS;
-            }
-
-            decode_hex(tp_p->tp.span_id, ptr, SPAN_ID_CHAR_LEN);
-
-            unsigned char *span_id = ptr;
-
-            ptr += SPAN_ID_CHAR_LEN;
-
-            if (*ptr++ != '-') {
-                return SK_PASS;
-            }
-
-            decode_hex((unsigned char *)&tp_p->tp.flags, ptr, FLAGS_CHAR_LEN);
-
-            ptr += FLAGS_CHAR_LEN;
-
-            if (*ptr++ != '\r' || *ptr != '\n') {
-                return SK_PASS;
-            }
-
-            // if we got to this point, we managed to parse a valid
-            // 'Traceparent: ...' header that we can utilise
-
-            bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
-            assign_parent_tp(t_ctx, &tp_p->tp, span_id);
-
-            tp_p->tp.ts = bpf_ktime_get_ns();
-            tp_p->tp.flags = 1;
-            tp_p->valid = 1;
-            tp_p->written = 1;
-            tp_p->pid = t_ctx->p_conn.pid;
-            tp_p->req_type = k_event_type_http_client;
-
-            print_tp("found TP in headers", &tp_p->tp);
-
-            set_tp_info_pid(&t_ctx->e_key, tp_p);
-
-            if (inject_flags & k_inject_tcp_options) {
-                schedule_write_tcp_option(msg, tp_p);
-            }
-
+            t_ctx->http1_tp_offset = niter * k_http1_scan_chunk_size + i;
+            bpf_tail_call_static(msg, &extender_jump_table, k_tail_parse_existing_tp);
             return SK_PASS;
         }
 
@@ -1463,10 +1417,83 @@ int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
 
     t_ctx->niter++;
 
-    if (t_ctx->niter < k_max_iter) {
+    if (t_ctx->niter < k_http1_max_scan_iters) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
     } else {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_tp);
+    }
+
+    return SK_PASS;
+}
+
+// Decoding outside the scan loop keeps verifier exploration within its instruction budget.
+SEC("sk_msg")
+int obi_packet_extender_parse_existing_tp(struct sk_msg_md *msg) {
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+    if (!t_ctx) {
+        return SK_PASS;
+    }
+
+    tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
+    if (!tp_p) {
+        return SK_PASS;
+    }
+
+    u32 offset = t_ctx->http1_tp_offset;
+    bpf_clamp_umax(offset, k_http1_max_scan_iters * k_http1_scan_chunk_size - 1);
+    unsigned char *ptr = msg->data + offset;
+    const unsigned char *end = msg->data_end;
+    if (ptr + TP_SIZE + 1 > end || !is_traceparent(ptr)) {
+        return SK_PASS;
+    }
+
+    ptr += TP_TID_PREFIX_SIZE;
+
+    decode_hex(tp_p->tp.trace_id, ptr, TRACE_ID_CHAR_LEN);
+
+    ptr += TRACE_ID_CHAR_LEN;
+
+    if (*ptr++ != '-') {
+        return SK_PASS;
+    }
+
+    decode_hex(tp_p->tp.span_id, ptr, SPAN_ID_CHAR_LEN);
+
+    unsigned char *span_id = ptr;
+
+    ptr += SPAN_ID_CHAR_LEN;
+
+    if (*ptr++ != '-') {
+        return SK_PASS;
+    }
+
+    decode_hex((unsigned char *)&tp_p->tp.flags, ptr, FLAGS_CHAR_LEN);
+
+    ptr += FLAGS_CHAR_LEN;
+
+    if (*ptr++ != '\r' || *ptr != '\n') {
+        return SK_PASS;
+    }
+
+    // if we got to this point, we managed to parse a valid
+    // 'Traceparent: ...' header that we can utilise
+
+    bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+    assign_parent_tp(t_ctx, &tp_p->tp, span_id);
+
+    tp_p->tp.ts = bpf_ktime_get_ns();
+    tp_p->tp.flags = 1;
+    tp_p->valid = 1;
+    tp_p->written = 1;
+    tp_p->pid = t_ctx->p_conn.pid;
+    tp_p->req_type = k_event_type_http_client;
+
+    print_tp("found TP in headers", &tp_p->tp);
+
+    set_tp_info_pid(&t_ctx->e_key, tp_p);
+
+    if (inject_flags & k_inject_tcp_options) {
+        schedule_write_tcp_option(msg, tp_p);
     }
 
     return SK_PASS;
