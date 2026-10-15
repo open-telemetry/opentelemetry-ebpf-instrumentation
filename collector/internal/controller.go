@@ -34,6 +34,9 @@ type sharedController struct {
 type Controller struct {
 	id     component.ID
 	shared *sharedController
+	// started reports whether this receiver holds a reference on shared.refCnt.
+	// Guarded by shared.mu.
+	started bool
 }
 
 // runOBI is a variable so tests can replace the OBI run loop.
@@ -107,6 +110,7 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 	}
 
 	c.shared.refCnt++
+	c.started = true
 
 	if c.shared.refCnt > 1 {
 		// Already running, just increased ref count
@@ -120,6 +124,7 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 	if err != nil {
 		cancel()
 		c.shared.refCnt-- // rollback on failure
+		c.started = false
 		slog.Error("building common context info for OBI", "error", err, "id", c.id)
 		return err
 	}
@@ -142,14 +147,19 @@ func (c *Controller) Start(ctx context.Context, _ component.Host) error {
 }
 
 // Shutdown stops the receiver. Only the last shutdown call actually stops OBI.
+// A receiver that never acquired a reference leaves the shared instance alone.
 func (c *Controller) Shutdown(ctx context.Context) error {
 	c.shared.mu.Lock()
-	if c.shared.refCnt == 0 {
+	if !c.started {
+		active := c.shared.refCnt > 0
 		c.shared.mu.Unlock()
-		c.cleanupSharedController()
+		if !active {
+			c.cleanupSharedController()
+		}
 		return nil
 	}
 
+	c.started = false
 	c.shared.refCnt--
 
 	if c.shared.refCnt > 0 {
