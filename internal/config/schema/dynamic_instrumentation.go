@@ -20,9 +20,9 @@ type DynamicSpanSpec struct {
 // DynamicSpanTarget is one of the shared function or USDT probe forms.
 type DynamicSpanTarget struct {
 	USDTNoRet      string            `yaml:"usdt_noret,omitempty"`
-	USDTSpan       string            `yaml:"usdt_span,omitempty"`
+	USDTSpan       string            `yaml:"usdt,omitempty"`
 	FunctionNoRet  string            `yaml:"function_noret,omitempty"`
-	Function       string            `yaml:"function_span,omitempty"`
+	Function       string            `yaml:"function,omitempty"`
 	Match          *DynamicSpanMatch `yaml:"match,omitempty"`
 	targetKeyCount int
 }
@@ -64,7 +64,7 @@ func collectDynamicTargetKeys(node *yaml.Node, keys map[string]struct{}) {
 			continue
 		}
 		switch key.Value {
-		case "usdt_noret", "usdt_span", "function_noret", "function_span":
+		case "usdt_noret", "usdt", "function_noret", "function":
 			keys[key.Value] = struct{}{}
 		}
 	}

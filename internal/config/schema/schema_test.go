@@ -154,7 +154,7 @@ extensions:
             spans:
               - name: checkout.place_order
                 on:
-                  function_span: "com.example.Checkout#placeOrder"
+                  function: "com.example.Checkout#placeOrder"
                 attributes:
                   - name: order.id
                     argument: {index: 0, type: string}
@@ -169,7 +169,7 @@ extensions:
 	require.False(t, spans[0].AutomaticAttributes)
 	encoded, err := yaml.Marshal(spans)
 	require.NoError(t, err)
-	require.Contains(t, string(encoded), "function_span:")
+	require.Contains(t, string(encoded), "function:")
 	require.NotContains(t, string(encoded), "automatic_attributes:")
 }
 
@@ -182,10 +182,10 @@ func TestCaptureRuleSpanValidation(t *testing.T) {
 		want string
 	}{
 		{name: "empty target", span: `{name: test, on: {}}`, want: "must define exactly one target"},
-		{name: "multiple targets", span: `{name: test, on: {function_span: f, function_noret: g}}`, want: "must define exactly one target"},
-		{name: "empty name", span: `{name: '', on: {function_span: f}}`, want: "name must not be empty"},
-		{name: "invalid argument index", span: `{name: test, on: {function_span: f}, attributes: [{name: id, argument: {index: 12}}]}`, want: "between 0 and 11"},
-		{name: "USDT match empty", span: `{name: test, on: {usdt_span: probe, match: {argument: {index: 0}, value: ''}}}`, want: "match.value must not be empty"},
+		{name: "multiple targets", span: `{name: test, on: {function: f, function_noret: g}}`, want: "must define exactly one target"},
+		{name: "empty name", span: `{name: '', on: {function: f}}`, want: "name must not be empty"},
+		{name: "invalid argument index", span: `{name: test, on: {function: f}, attributes: [{name: id, argument: {index: 12}}]}`, want: "between 0 and 11"},
+		{name: "USDT match empty", span: `{name: test, on: {usdt: probe, match: {argument: {index: 0}, value: ''}}}`, want: "match.value must not be empty"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -221,8 +221,8 @@ extensions:
             spans:
               - name: test
                 on:
-                  <<: &target {function_span: f}
-                  usdt_span: probe
+                  <<: &target {function: f}
+                  usdt: probe
 `))
 	require.ErrorContains(t, err, "must define exactly one target")
 
@@ -238,8 +238,8 @@ extensions:
             spans:
               - name: test
                 on:
-                  <<: &target {function_span: old}
-                  function_span: new
+                  <<: &target {function: old}
+                  function: new
 `))
 	require.NoError(t, err)
 }
@@ -258,7 +258,7 @@ extensions:
           refine:
             spans:
               - name: test
-                on: {function_span: f}
+                on: {function: f}
 `))
 	require.ErrorContains(t, err, "refine.spans cannot be used with exclude rules")
 }

@@ -2324,10 +2324,10 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "function_span"
+            "function"
           ],
           "properties": {
-            "function_span": {
+            "function": {
               "type": "string",
               "minLength": 1,
               "description": "Opaque function reference interpreted by a future runtime-specific adapter."
@@ -2352,10 +2352,10 @@
           "type": "object",
           "additionalProperties": false,
           "required": [
-            "usdt_span"
+            "usdt"
           ],
           "properties": {
-            "usdt_span": {
+            "usdt": {
               "type": "string",
               "minLength": 1,
               "description": "`provider:base` for paired `<base>_start` and `<base>_end` probes."

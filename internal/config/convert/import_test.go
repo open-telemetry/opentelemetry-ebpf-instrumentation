@@ -36,7 +36,7 @@ extensions:
           refine:
             spans:
               - name: example
-                on: {function_span: "com.example.Foo#bar"}
+                on: {function: "com.example.Foo#bar"}
 `))
 	require.NoError(t, err)
 	_, err = V2ToRuntime(extension)

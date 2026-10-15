@@ -6,13 +6,14 @@ Dynamic span declarations are configured per capture rule under
 `capture.rules[].refine.spans`. This keeps each declaration alongside the
 workload selection it refines. A span has a name, exactly one target under
 `on`, and optional `attributes` mappings. Supported target keys are
-`function_span`, `function_noret`, `usdt_span`, and `usdt_noret`.
+`function`, `function_noret`, `usdt`, and `usdt_noret`.
 
-`function_span` and `function_noret` identify function targets. The function
-reference is an opaque string interpreted by a future runtime-specific
-adapter; this schema does not define or guarantee a Java, Go, Node.js, or native
-reference syntax. USDT targets identify probes, and `on.match` can filter USDT
-events by an argument index and string value.
+`function` and `function_noret` identify function targets; `usdt` and
+`usdt_noret` identify USDT targets. The function reference is an opaque string
+interpreted by a future runtime-specific adapter; this schema does not define
+or guarantee a Java, Go, Node.js, or native reference syntax. The `usdt` target
+identifies a paired probe; `on.match` can filter USDT events by an argument
+index and string value.
 
 Each `attributes` entry names a span attribute and has an `argument` object.
 `argument.index` selects the zero-based source argument (0 through 11), and
@@ -44,7 +45,7 @@ capture:
         spans:
           - name: checkout.place_order
             on:
-              function_span: "com.example.Checkout#placeOrder"
+              function: "com.example.Checkout#placeOrder"
             attributes:
               - name: order.id
                 argument: {index: 0, type: string}
