@@ -1,7 +1,7 @@
 # Dockerfile that will build a container resolving names in a loop over musl's
 # unconnected UDP resolver socket. Alpine is required for musl.
 # Docker command must be invoked from the project root directory
-FROM python:3.14-alpine@sha256:a1321512d6a287428c50dcdf2ab3857761127e03a23b1f648e9c1c0de59288f8
+FROM python:3.15-alpine@sha256:1afb480ba8d3b3b7a8439a84f2365ce5c75ac45a79cf07daa091b49235cbe27b
 
 WORKDIR /
 

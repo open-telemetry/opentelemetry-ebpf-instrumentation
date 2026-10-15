@@ -201,6 +201,7 @@ func testDotnetRuntimeMetrics(t *testing.T, runtimeVersion, runtimeImage, mode s
 		t.Logf("GC round %d: PID %d, Prometheus %v, OTLP %v", round+1, before.PID, baseline[0], baseline[1])
 	}
 	testDotnetCPUMetrics(t, client, workload, endpoints, expectedCPUCount, reconnect)
+	testDotnetHeapMetrics(t, client, workload, endpoints, reconnect)
 	testDotnetCurrentMetrics(t, client, workload, endpoints)
 	testDotnetCumulativeMetrics(t, client, workload, endpoints, func() {
 		previousSession, previousStarts, err := currentSession()

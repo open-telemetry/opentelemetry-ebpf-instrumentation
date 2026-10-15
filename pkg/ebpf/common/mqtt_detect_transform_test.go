@@ -426,6 +426,43 @@ func TestTCPToMQTTToSpan(t *testing.T) {
 	assert.EqualValues(t, 1234, span.Pid.UserPID)
 }
 
+func TestTCPToMQTTToSpan_Subscribe(t *testing.T) {
+	tests := []struct {
+		name   string
+		filter string
+		want   *request.MessagingInfo
+	}{
+		{
+			name:   "plain filter",
+			filter: "sensors/#",
+			want:   &request.MessagingInfo{SubscriptionName: "sensors/#"},
+		},
+		{
+			name:   "shared subscription",
+			filter: "$share/workers/sensors/#",
+			want:   &request.MessagingInfo{SubscriptionName: "$share/workers/sensors/#", ConsumerGroup: "workers"},
+		},
+		{
+			name:   "share prefix without a filter",
+			filter: "$share/workers",
+			want:   &request.MessagingInfo{SubscriptionName: "$share/workers"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			trace := &TCPRequestInfo{Direction: 1}
+			span := TCPToMQTTToSpan(trace, &MQTTInfo{
+				PacketType: mqttparser.PacketTypeSUBSCRIBE,
+				Topic:      tt.filter,
+			})
+
+			assert.Equal(t, request.MessagingProcess, span.Method)
+			assert.Empty(t, span.Path, "a topic filter is not a destination")
+			assert.Equal(t, tt.want, span.MessagingInfo)
+		})
+	}
+}
+
 // Test with real-world MQTT packet captures
 func TestProcessMQTTEvent_RealWorldPackets(t *testing.T) {
 	tests := []struct {

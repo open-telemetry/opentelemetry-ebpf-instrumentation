@@ -178,6 +178,37 @@ section empty once drained.
   longer resolves. The emitted telemetry is unchanged.
 - gRPC `rpc.method` values and gRPC span names drop the leading slash of the HTTP/2 path, following semconv: `/helloworld.Greeter/SayHello` becomes `helloworld.Greeter/SayHello`. This applies to gRPC server and client spans, to the `rpc.method` attribute of `rpc.server.call.duration` and `rpc.client.call.duration` (`rpc_method` label in Prometheus), and to span-derived metrics labelled by span name.
 - A gRPC path that is not `/{service}/{method}`, or that could not be read, now reports `rpc.method` as `_OTHER` and the span name as `grpc`, instead of the raw path (`*` when unread, an empty span name when missing). Spans also carry the raw path as `rpc.method_original` when it was read.
+- AWS SNS client spans no longer carry `rpc.system.name` (`aws-api`) or `rpc.method`
+  (`SNS/{operation}`). Semconv v1.41.0 defines no SNS span (only the `messaging.aws.sns`
+  attribute group), and v1.44 models SNS and SQS as messaging spans without rpc attributes;
+  OBI's SQS spans already carry none, so SNS now matches both. The span name
+  (`SNS.{operation}`) and `cloud.region` are unchanged.
+- MQTT SUBSCRIBE spans report the topic filter as `messaging.destination.subscription.name`
+  instead of `messaging.destination.name`, since a filter names a subscription rather than a
+  destination. The span name loses the filter (`process sensors/#` becomes `process`), and
+  `messaging.process.duration` carries the filter as `messaging.destination.subscription.name`
+  instead of `messaging.destination.name`, so MQTT process series now split by subscription
+  filter. A shared subscription (`$share/{ShareName}/{filter}`) also sets
+  `messaging.consumer.group.name` to the share name, on the span and on
+  `messaging.process.duration`. Only a rename for these spans, so it cannot be recorded as a
+  schema-wide `rename_attributes`.
+- AMQP metrics no longer carry an empty `messaging.destination.name` over OTLP: the attribute
+  is omitted when the exchange named no destination.
+- `messaging.client.operation.duration` gains `messaging.operation.type` (on by default), which
+  adds a label to the Prometheus series. `messaging.process.duration` does not carry it, as in
+  semconv.
+- `messaging.client.operation.duration` and `messaging.process.duration` gain
+  `messaging.destination.subscription.name` (on by default, omitted when empty), which adds a
+  label to the Prometheus series.
+- GraphQL, MCP and JSON-RPC server spans no longer carry the HTTP request and response
+  attributes: `http.request.method`, `http.request.method_original`,
+  `http.response.status_code`, `obi.http.response.observed`, `http.route`, `url.path`,
+  `url.query`, `url.scheme`, `http.request.body.size`, `http.response.body.size` and
+  `user_agent.original`. They keep their own protocol attributes, `client.address`,
+  `server.address`, `server.port`, `network.*` and `error.type`.
+- Captured `http.request.header.*` and `http.response.header.*` now appear only on plain
+  HTTP and GraphQL spans. Protocol spans parsed from HTTP traffic never carried them, so
+  in practice this only changes Go `net/rpc` JSON-RPC spans.
 
 ## Hosting notes
 

@@ -20,13 +20,21 @@ metrics:
       - ref: messaging.destination.name
         requirement_level:
           conditionally_required: if the exchange named a destination
+      # Only an MQTT SUBSCRIBE carries a subscription, and it is a process
+      # operation recorded on messaging.process.duration.
+      - ref: messaging.destination.subscription.name
+        requirement_level:
+          conditionally_required: if the operation named a subscription, which no client operation OBI records does yet
       - ref: messaging.operation.name
         requirement_level: required
+      - ref: messaging.operation.type
+        requirement_level:
+          conditionally_required: if the operation maps to a semantic-convention operation type
       - ref: messaging.system
         requirement_level: required
       - ref: server.address
         requirement_level:
-          recommended: if the server address could be resolved
+          conditionally_required: if the server address could be resolved
 
   - name: messaging.process.duration
     annotations:
@@ -48,14 +56,17 @@ metrics:
           conditionally_required: if the operation ended in an error, which OBI cannot yet determine for a consume operation
       - ref: messaging.consumer.group.name
         requirement_level:
-          conditionally_required: if OBI attributed the fetch to a single consumer group of the process
+          conditionally_required: if OBI attributed the Kafka fetch to a single consumer group of the process, or the MQTT topic filter is a shared subscription
       - ref: messaging.destination.name
         requirement_level:
           conditionally_required: if the exchange named a destination
+      - ref: messaging.destination.subscription.name
+        requirement_level:
+          conditionally_required: if the operation is an MQTT SUBSCRIBE, whose topic filter names the subscription
       - ref: messaging.operation.name
         requirement_level: required
       - ref: messaging.system
         requirement_level: required
       - ref: server.address
         requirement_level:
-          recommended: if the server address could be resolved
+          conditionally_required: if the server address could be resolved

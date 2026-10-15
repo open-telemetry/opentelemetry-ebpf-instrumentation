@@ -50,10 +50,8 @@ func TestTraceAttributesSelector_HTTPAttributesAreExcludable(t *testing.T) {
 	})
 }
 
-// An HTTP subtype carries a different protocol, and the SQL++ branch in
-// particular builds a deliberately DB-only attribute set.
-// Only SQL++ replaces the HTTP attribute set with a DB-only one; the other
-// subtypes keep their HTTP attributes and are still HTTP spans.
+// Only a plain HTTP span, or a GraphQL client span, describes the HTTP
+// exchange; every other subtype reports its own convention without it.
 func TestTraceAttributesSelector_UserAgentPerSubtype(t *testing.T) {
 	const ua = "curl/8.4.0"
 
@@ -65,26 +63,47 @@ func TestTraceAttributesSelector_UserAgentPerSubtype(t *testing.T) {
 		}
 	}
 
-	t.Run("withheld from SQL++", func(t *testing.T) {
-		_, ok := attrValue(
-			TraceAttributesSelector(serverSpan(request.HTTPSubtypeSQLPP), defaultTraceAttrs(t)),
-			"user_agent.original")
-		assert.False(t, ok)
-	})
+	clientSpan := func(sub int) *request.Span {
+		return &request.Span{
+			Type: request.EventTypeHTTPClient, SubType: sub,
+			Method: "POST", Path: "/q", Status: 200,
+			RequestHeaders: map[string][]string{"User-Agent": {ua}},
+		}
+	}
 
-	for _, sub := range []int{
-		request.HTTPSubtypeNone,
-		request.HTTPSubtypeGraphQL,
-		request.HTTPSubtypeMCP,
-		request.HTTPSubtypeElasticsearch,
-		request.HTTPSubtypeAWSS3,
-	} {
-		t.Run("reported for subtype", func(t *testing.T) {
-			v, ok := attrValue(
-				TraceAttributesSelector(serverSpan(sub), defaultTraceAttrs(t)),
-				"user_agent.original")
-			require.True(t, ok, "subtype %d is still an HTTP span", sub)
-			assert.Equal(t, ua, v.AsString())
+	tests := []struct {
+		name     string
+		span     *request.Span
+		reported bool
+	}{
+		{name: "http server", span: serverSpan(request.HTTPSubtypeNone), reported: true},
+		{name: "graphql server", span: serverSpan(request.HTTPSubtypeGraphQL)},
+		{name: "mcp server", span: serverSpan(request.HTTPSubtypeMCP)},
+		{name: "jsonrpc server", span: serverSpan(request.HTTPSubtypeJSONRPC)},
+		{name: "http client", span: clientSpan(request.HTTPSubtypeNone), reported: true},
+		{name: "graphql client", span: clientSpan(request.HTTPSubtypeGraphQL), reported: true},
+		{name: "sql++ client", span: clientSpan(request.HTTPSubtypeSQLPP)},
+		{name: "elasticsearch client", span: clientSpan(request.HTTPSubtypeElasticsearch)},
+		{name: "mcp client", span: clientSpan(request.HTTPSubtypeMCP)},
+		{name: "jsonrpc client", span: clientSpan(request.HTTPSubtypeJSONRPC)},
+		{name: "openai client", span: clientSpan(request.HTTPSubtypeOpenAI)},
+		{name: "s3 client", span: clientSpan(request.HTTPSubtypeAWSS3)},
+		{name: "sqs client", span: clientSpan(request.HTTPSubtypeAWSSQS)},
+		{name: "sns client", span: clientSpan(request.HTTPSubtypeAWSSNS)},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			attrs := TraceAttributesSelector(tc.span, defaultTraceAttrs(t))
+
+			v, ok := attrValue(attrs, "user_agent.original")
+			require.Equal(t, tc.reported, ok)
+			if tc.reported {
+				assert.Equal(t, ua, v.AsString())
+			}
+
+			_, ok = attrValue(attrs, "http.request.header.user-agent")
+			assert.Equal(t, tc.reported && tc.span.Type == request.EventTypeHTTPClient, ok)
 		})
 	}
 }
