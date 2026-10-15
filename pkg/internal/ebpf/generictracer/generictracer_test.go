@@ -447,6 +447,29 @@ func readJVMTestBatch(t *testing.T, events <-chan []runtimemetrics.RuntimeMetric
 
 // The libruby probes sit on symbols the Ruby runtime exercises as a whole, so
 // each symbol set must carry the Ruby version constraint that gates it.
+func TestPythonTaskStepImplSharesTaskStepProbes(t *testing.T) {
+	tracer := &Tracer{}
+	tracer.bpfObjects.ObiUprobeTaskStep = &ebpf.Program{}
+	tracer.bpfObjects.ObiUprobeTaskStepLegacy = &ebpf.Program{}
+	tracer.bpfObjects.ObiUprobeTaskStepRet = &ebpf.Program{}
+
+	probes := tracer.UProbes()
+	for _, lib := range []string{"_asyncio[< 3.12]", "_asyncio[>= 3.12]"} {
+		require.Contains(t, probes, lib)
+		require.Contains(t, probes[lib], "task_step", lib)
+		require.Contains(t, probes[lib], "task_step_impl", lib)
+
+		step, impl := probes[lib]["task_step"], probes[lib]["task_step_impl"]
+		require.Len(t, step, 1, lib)
+		require.Len(t, impl, 1, lib)
+		assert.Same(t, step[0].Start, impl[0].Start, lib)
+		assert.Same(t, step[0].End, impl[0].End, lib)
+		assert.False(t, impl[0].Required, lib)
+	}
+	assert.Same(t, tracer.bpfObjects.ObiUprobeTaskStepLegacy, probes["_asyncio[< 3.12]"]["task_step_impl"][0].Start)
+	assert.Same(t, tracer.bpfObjects.ObiUprobeTaskStep, probes["_asyncio[>= 3.12]"]["task_step_impl"][0].Start)
+}
+
 func TestRubyUProbesAreVersionGated(t *testing.T) {
 	tracer := &Tracer{}
 

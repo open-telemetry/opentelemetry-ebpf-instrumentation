@@ -138,6 +138,12 @@ Responsibilities:
 This is the direct task identity path for async client work that still runs on
 the event loop.
 
+The same programs are also attached to `task_step_impl`, which does the actual
+step and takes the same arguments. Optimizing builds can inline `task_step`
+into its callers (`TaskStepMethWrapper_call`, `task_wakeup`), which then call
+`task_step_impl` directly, so a `task_step` probe alone misses those steps.
+When both fire, they nest and set and clear the same state.
+
 ### `context_run`
 
 Runs when Python activates a `Context` on a thread.
@@ -266,7 +272,8 @@ Two defenses:
 There is no `uvloop`-specific BPF state. The feature works because the
 correlation points are defined by CPython task/context behavior:
 
-- task execution still enters `_asyncio.task_step`,
+- task execution still enters `_asyncio.task_step_impl` (through `task_step`
+  or a caller it was inlined into),
 - task creation still goes through `_asyncio_Task___init__`,
 - copied contexts still come from `PyContext_CopyCurrent()`,
 - worker-thread execution still activates a `Context` via `context_run`.

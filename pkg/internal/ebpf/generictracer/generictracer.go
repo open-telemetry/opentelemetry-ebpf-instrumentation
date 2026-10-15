@@ -588,9 +588,25 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 				Start:    p.bpfObjects.ObiUprobeTaskStepLegacy,
 				End:      p.bpfObjects.ObiUprobeTaskStepRet,
 			}},
+			// Optimizing builds can inline task_step into its callers (TaskStepMethWrapper_call,
+			// task_wakeup), which then call task_step_impl directly. It takes the same arguments
+			// and every step runs through it.
+			"task_step_impl": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeTaskStepLegacy,
+				End:      p.bpfObjects.ObiUprobeTaskStepRet,
+			}},
 		},
 		"_asyncio[>= 3.12]": {
 			"task_step": {{
+				Required: false,
+				Start:    p.bpfObjects.ObiUprobeTaskStep,
+				End:      p.bpfObjects.ObiUprobeTaskStepRet,
+			}},
+			// Optimizing builds can inline task_step into its callers (TaskStepMethWrapper_call,
+			// task_wakeup), which then call task_step_impl directly. It takes the same arguments
+			// and every step runs through it.
+			"task_step_impl": {{
 				Required: false,
 				Start:    p.bpfObjects.ObiUprobeTaskStep,
 				End:      p.bpfObjects.ObiUprobeTaskStepRet,

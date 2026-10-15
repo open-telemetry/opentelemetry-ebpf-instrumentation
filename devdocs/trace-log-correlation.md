@@ -164,7 +164,7 @@ OBI hooks the CPython internals that mark every async transition:
 
 - `_asyncio.Task.__init__` → records the new task and its parent so each task carries the request connection it was created under.
 - `PyContext_CopyCurrent` (and `context_new_from_vars` under tail-call optimization) → binds the copied `PyContext*` to the task that owns it, including child tasks created via `asyncio.create_task` and worker contexts copied for `asyncio.to_thread`.
-- `_asyncio.Task.task_step` (3.12+) / `task_step_legacy` (< 3.12) → fires when the event loop resumes a task. The handler walks the task's parent chain (up to 4 levels) to find the owning server connection in `server_traces_aux` and calls `obi_ctx__set(pid_tgid, &tp)`.
+- `_asyncio.Task.task_step` (3.12+) / `task_step_legacy` (< 3.12), and `task_step_impl` for builds that inline `task_step` into its callers → fires when the event loop resumes a task. The handler walks the task's parent chain (up to 4 levels) to find the owning server connection in `server_traces_aux` and calls `obi_ctx__set(pid_tgid, &tp)`.
 - `task_step_ret` → fires when a task yields back to the loop. The handler calls `obi_ctx__del(pid_tgid)` so logs emitted from idle event-loop code aren't attributed to the previous task.
 - `libpython3.context_run` → covers the `asyncio.to_thread` worker thread, where the user function runs inside a copied context but no `task_step` ever fires. The handler resolves the originating task via `python_context_task[context]` and refreshes `traces_ctx_v1` for the worker `pid_tgid`.
 
