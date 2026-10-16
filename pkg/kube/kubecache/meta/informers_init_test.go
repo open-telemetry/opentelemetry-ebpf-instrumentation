@@ -14,13 +14,24 @@ import (
 	"github.com/stretchr/testify/require"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
 
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 )
 
 type eventObserver struct {
 	id     string
-	events []*informer.Event
+	events chan *informer.Event
+}
+
+type timestampEventObserver struct {
+	*eventObserver
+	fromEpoch int64
+}
+
+func (o *timestampEventObserver) FromEpoch() int64 {
+	return o.fromEpoch
 }
 
 func (o *eventObserver) ID() string {
@@ -28,8 +39,50 @@ func (o *eventObserver) ID() string {
 }
 
 func (o *eventObserver) On(event *informer.Event) error {
-	o.events = append(o.events, event)
+	o.events <- event
 	return nil
+}
+
+func TestInformerSubscribeOrdersSnapshotAndSynchronization(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	pods := cache.NewSharedIndexInformer(&cache.ListWatch{}, &v1.Pod{}, 0, cache.Indexers{})
+	for _, object := range []*informer.ObjectMeta{
+		{Name: "old", StatusTimeEpoch: 1},
+		{Name: "current", StatusTimeEpoch: 2},
+	} {
+		require.NoError(t, pods.GetStore().Add(&indexableEntity{
+			ObjectMeta:  metav1.ObjectMeta{Name: object.Name},
+			EncodedMeta: object,
+		}))
+	}
+	waitForSync := make(chan struct{})
+	close(waitForSync)
+	inf := &Informers{
+		BaseNotifier: NewBaseNotifier(log),
+		log:          log,
+		config: &informersConfig{
+			disableNodes:    true,
+			disableServices: true,
+		},
+		pods:        pods,
+		waitForSync: waitForSync,
+	}
+	observer := &timestampEventObserver{
+		eventObserver: &eventObserver{id: "observer", events: make(chan *informer.Event, 3)},
+		fromEpoch:     2,
+	}
+
+	inf.Subscribe(observer)
+	t.Cleanup(func() { inf.Unsubscribe(observer) })
+
+	snapshot := testutil.ReadChannel(t, observer.events, time.Second)
+	synchronized := testutil.ReadChannel(t, observer.events, time.Second)
+	assert.Equal(t, "current", snapshot.Resource.Name)
+	assert.Equal(t, informer.EventType_SYNC_FINISHED, synchronized.Type)
+
+	inf.Notify(&informer.Event{Resource: &informer.ObjectMeta{Name: "live"}})
+	live := testutil.ReadChannel(t, observer.events, time.Second)
+	assert.Equal(t, "live", live.Resource.Name)
 }
 
 func TestEnvironmentFiltering(t *testing.T) {
@@ -482,7 +535,7 @@ func TestIPInfoEventHandlerRefreshesUpdatedEventTimestamp(t *testing.T) {
 		log:          log,
 		BaseNotifier: NewBaseNotifier(log),
 	}
-	observer := &eventObserver{id: "observer"}
+	observer := &eventObserver{id: "observer", events: make(chan *informer.Event, 1)}
 	inf.BaseNotifier.Subscribe(observer)
 
 	handler := inf.ipInfoEventHandler(context.Background())
@@ -504,9 +557,9 @@ func TestIPInfoEventHandlerRefreshesUpdatedEventTimestamp(t *testing.T) {
 		}},
 	)
 
-	require.Len(t, observer.events, 1)
-	assert.Equal(t, informer.EventType_UPDATED, observer.events[0].Type)
-	assert.GreaterOrEqual(t, observer.events[0].Resource.StatusTimeEpoch, start)
+	event := testutil.ReadChannel(t, observer.events, time.Second)
+	assert.Equal(t, informer.EventType_UPDATED, event.Type)
+	assert.GreaterOrEqual(t, event.Resource.StatusTimeEpoch, start)
 }
 
 func TestIPInfoEventHandlerRefreshesDeletedEventTimestamp(t *testing.T) {
@@ -515,7 +568,7 @@ func TestIPInfoEventHandlerRefreshesDeletedEventTimestamp(t *testing.T) {
 		log:          log,
 		BaseNotifier: NewBaseNotifier(log),
 	}
-	observer := &eventObserver{id: "observer"}
+	observer := &eventObserver{id: "observer", events: make(chan *informer.Event, 1)}
 	inf.BaseNotifier.Subscribe(observer)
 
 	handler := inf.ipInfoEventHandler(context.Background())
@@ -528,9 +581,9 @@ func TestIPInfoEventHandlerRefreshesDeletedEventTimestamp(t *testing.T) {
 		StatusTimeEpoch: staleTimestamp,
 	}})
 
-	require.Len(t, observer.events, 1)
-	assert.Equal(t, informer.EventType_DELETED, observer.events[0].Type)
-	assert.GreaterOrEqual(t, observer.events[0].Resource.StatusTimeEpoch, start)
+	event := testutil.ReadChannel(t, observer.events, time.Second)
+	assert.Equal(t, informer.EventType_DELETED, event.Type)
+	assert.GreaterOrEqual(t, event.Resource.StatusTimeEpoch, start)
 }
 
 func TestRefreshStatusTimeEpochPreservesCurrentTimestamp(t *testing.T) {
