@@ -92,17 +92,20 @@ obi_uprobe_mongo_coll_op(struct pt_regs *ctx, const char *op, const u32 op_len) 
 
 static __always_inline bool mongo_connection_type_matches(const void *itab, u64 expected_itab) {
     if (!itab || !expected_itab) {
-        return false;
+        return 0;
     }
 
-    void *actual_type = 0;
-    void *expected_type = 0;
+    void *actual_type = NULL;
+    void *expected_type = NULL;
     if (bpf_probe_read_user(
-            &actual_type, sizeof(actual_type), (const void *)((u64)itab + sizeof(void *))) != 0 ||
-        bpf_probe_read_user(&expected_type,
+            &actual_type, sizeof(actual_type), (const void *)((u64)itab + sizeof(void *))) != 0) {
+        return 0;
+    }
+
+    if (bpf_probe_read_user(&expected_type,
                             sizeof(expected_type),
                             (const void *)(expected_itab + sizeof(void *))) != 0) {
-        return false;
+        return 0;
     }
 
     return actual_type && actual_type == expected_type;
