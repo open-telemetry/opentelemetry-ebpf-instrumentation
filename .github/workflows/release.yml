@@ -385,11 +385,12 @@ jobs:
             exit 1
           fi
 
-          archives=(
-            "dist/obi-${RELEASE_VERSION}-linux-amd64.tar.gz"
-            "dist/obi-${RELEASE_VERSION}-linux-arm64.tar.gz"
-            "dist/obi-${RELEASE_VERSION}-source-generated.tar.gz"
-          )
+          shopt -s nullglob
+          archives=(dist/"obi-${RELEASE_VERSION}-"*.tar.gz)
+          if [ "${#archives[@]}" -eq 0 ]; then
+            echo "ERROR: no release archives found for ${RELEASE_VERSION}"
+            exit 1
+          fi
 
           for archive in "${archives[@]}"; do
             if [ ! -f "${archive}" ]; then
@@ -427,12 +428,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          sboms=(
-            "dist/obi-${RELEASE_VERSION}-linux-amd64.cyclonedx.json"
-            "dist/obi-${RELEASE_VERSION}-linux-arm64.cyclonedx.json"
-            "dist/obi-${RELEASE_VERSION}-source-generated.cyclonedx.json"
-            "dist/obi-java-agent-${RELEASE_VERSION}.cyclonedx.json"
-          )
+          shopt -s nullglob
+          archives=(dist/"obi-${RELEASE_VERSION}-"*.tar.gz)
+          if [ "${#archives[@]}" -eq 0 ]; then
+            echo "ERROR: no release archives found for ${RELEASE_VERSION}"
+            exit 1
+          fi
+
+          archive_sboms=()
+          for archive in "${archives[@]}"; do
+            archive_sboms+=("${archive%.tar.gz}.cyclonedx.json")
+          done
+          java_sbom="dist/obi-java-agent-${RELEASE_VERSION}.cyclonedx.json"
+          sboms=("${archive_sboms[@]}" "${java_sbom}")
 
           for sbom in "${sboms[@]}"; do
             if [ ! -f "${sbom}" ]; then
@@ -446,11 +454,11 @@ jobs:
           done
 
           jq -e '[.components[] | select(.purl? and (.purl | startswith("pkg:maven/")))] | length > 0' \
-            "dist/obi-java-agent-${RELEASE_VERSION}.cyclonedx.json" >/dev/null
+            "${java_sbom}" >/dev/null
 
-          for sbom in "${sboms[@]:0:3}"; do
+          for sbom in "${archive_sboms[@]}"; do
             jq -e --arg version "${RELEASE_VERSION}" \
-              --slurpfile java_sbom "dist/obi-java-agent-${RELEASE_VERSION}.cyclonedx.json" \
+              --slurpfile java_sbom "${java_sbom}" \
               -f scripts/validate-release-sbom.jq "${sbom}" >/dev/null
           done
 

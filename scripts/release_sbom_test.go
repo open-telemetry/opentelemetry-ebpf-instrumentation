@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.yaml.in/yaml/v3"
 )
 
 const releaseSBOMFixture = `{
@@ -38,12 +39,87 @@ const releaseSBOMFixture = `{
 }`
 
 const releaseJavaSBOMFixture = `{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
   "metadata": {"component": {"bom-ref": "agent", "name": "obi-java-agent", "version": "VERSION",
     "purl": "pkg:maven/io.opentelemetry.obi/obi-java-agent@VERSION"}},
   "components": [{"bom-ref": "buddy", "name": "byte-buddy", "version": "1.18.14-jdk5",
     "purl": "pkg:maven/net.bytebuddy/byte-buddy@1.18.14-jdk5"}],
   "dependencies": [{"ref": "agent", "dependsOn": ["buddy"]}, {"ref": "buddy", "dependsOn": []}]
 }`
+
+func TestReleaseSBOMArchiveInventory(t *testing.T) {
+	contents, err := os.ReadFile("../.github/workflows/release.yml")
+	require.NoError(t, err)
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string `yaml:"name"`
+				Run  string `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	require.NoError(t, yaml.Unmarshal(contents, &workflow))
+	var validation string
+	for _, step := range workflow.Jobs["build-artifacts-and-sign"].Steps {
+		if step.Name == "Validate release SBOMs" {
+			validation = step.Run
+		}
+	}
+	require.NotEmpty(t, validation)
+	scriptsDir, err := filepath.Abs(".")
+	require.NoError(t, err)
+	const version = "v1.0.0-rc.2"
+	input := strings.ReplaceAll(releaseSBOMFixture, "VERSION", version)
+	valid, err := releaseSBOMCommand(t, input, "--arg", "version", version, "-f", "release-sbom.jq")
+	require.NoError(t, err, "%s", valid)
+	archives := []string{"linux-amd64", "linux-arm64", "source-generated", "zz-extra"}
+	for _, tc := range []struct {
+		name     string
+		archives []string
+		missing  bool
+		invalid  bool
+		wantErr  string
+	}{
+		{name: "one archive", archives: archives[:1]},
+		{name: "four archives", archives: archives},
+		{name: "no archives", wantErr: "no release archives found"},
+		{name: "missing fourth SBOM", archives: archives, missing: true, wantErr: "expected SBOM missing"},
+		{name: "invalid fourth SBOM", archives: archives, invalid: true, wantErr: "archive version"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			dist := filepath.Join(root, "dist")
+			require.NoError(t, os.Mkdir(dist, 0o700))
+			require.NoError(t, os.Symlink(scriptsDir, filepath.Join(root, "scripts")))
+			java := strings.ReplaceAll(releaseJavaSBOMFixture, "VERSION", version)
+			require.NoError(t, os.WriteFile(filepath.Join(dist, "obi-java-agent-"+version+".cyclonedx.json"), []byte(java), 0o600))
+			for _, archive := range tc.archives {
+				base := filepath.Join(dist, "obi-"+version+"-"+archive)
+				require.NoError(t, os.WriteFile(base+".tar.gz", nil, 0o600))
+				if tc.missing && archive == "zz-extra" {
+					continue
+				}
+				sbom := valid
+				if tc.invalid && archive == "zz-extra" {
+					sbom, err = releaseSBOMCommand(t, string(valid), `.metadata.component.version = "v0.0.0"`)
+					require.NoError(t, err)
+				}
+				require.NoError(t, os.WriteFile(base+".cyclonedx.json", sbom, 0o600))
+			}
+			cmd := exec.Command("bash", "-c", validation)
+			cmd.Dir = root
+			cmd.Env = append(os.Environ(), "RELEASE_VERSION="+version)
+			out, err := cmd.CombinedOutput()
+			if tc.wantErr == "" {
+				require.NoError(t, err, "%s", out)
+				return
+			}
+			require.Error(t, err, "%s", out)
+			require.Contains(t, string(out), tc.wantErr)
+		})
+	}
+}
 
 func TestReleaseSBOMVersions(t *testing.T) {
 	for _, version := range []string{"v1.0.0", "v1.0.0-rc.2", "v1.0.0+build.123", "v1.0.0-rc.2+build.123"} {
