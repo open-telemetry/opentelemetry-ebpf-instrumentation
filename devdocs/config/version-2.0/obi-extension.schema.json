@@ -1273,6 +1273,12 @@
                     "/query/service"
                   ],
                   "description": "Endpoint patterns eligible for SQL++ payload extraction.\nIf omitted, `/query/service` is used.\n"
+                },
+                "prepared_statements_cache_size": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 1024,
+                  "description": "Maximum number of SQL++ prepared statement names remembered per node, used to\nresolve executions by name to their statement text.\n"
                 }
               }
             },

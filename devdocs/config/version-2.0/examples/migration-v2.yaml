@@ -126,6 +126,7 @@ extensions:
                         sqlpp:
                             endpoint_patterns:
                                 - /query/service
+                            prepared_statements_cache_size: 1024
                         enrichment:
                             policy:
                                 default_action:

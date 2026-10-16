@@ -2979,6 +2979,12 @@
             "/query/service"
           ],
           "x-env-var": "OTEL_EBPF_HTTP_SQLPP_ENDPOINT_PATTERNS"
+        },
+        "prepared_statements_cache_size": {
+          "type": "integer",
+          "description": "Bounds the per-node cache that maps prepared statement names to their text",
+          "default": 1024,
+          "x-env-var": "OTEL_EBPF_HTTP_SQLPP_PREPARED_STATEMENTS_CACHE_SIZE"
         }
       },
       "type": "object"

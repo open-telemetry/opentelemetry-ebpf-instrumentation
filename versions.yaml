@@ -46,6 +46,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/go_otel_grpc
   - go.opentelemetry.io/obi/internal/test/integration/components/go_simple_grpc
   - go.opentelemetry.io/obi/internal/test/integration/components/goautosdk
+  - go.opentelemetry.io/obi/internal/test/integration/components/gocouchbase
   - go.opentelemetry.io/obi/internal/test/integration/components/gogeneric/fiber-example
   - go.opentelemetry.io/obi/internal/test/integration/components/gokafka
   - go.opentelemetry.io/obi/internal/test/integration/components/gokafka-seg

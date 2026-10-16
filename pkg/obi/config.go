@@ -172,6 +172,7 @@ var DefaultConfig = Config{
 					EndpointPatterns: []string{
 						"/query/service",
 					},
+					PreparedStatementsCacheSize: 1024,
 				},
 				GenAI: config.GenAIConfig{
 					OpenAI: config.OpenAIConfig{

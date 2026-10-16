@@ -805,6 +805,7 @@ Important mapping notes:
 | `ebpf.payload_extraction.http.aws.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `aws` | Move + normalize |
 | `ebpf.payload_extraction.http.sqlpp.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `sqlpp` | Move + normalize |
 | `ebpf.payload_extraction.http.sqlpp.endpoint_patterns` | `extensions.obi.capture.instrumentation.http.payload_extraction.sqlpp.endpoint_patterns` | Move |
+| `ebpf.payload_extraction.http.sqlpp.prepared_statements_cache_size` | `extensions.obi.capture.instrumentation.http.payload_extraction.sqlpp.prepared_statements_cache_size` | Move |
 | `ebpf.payload_extraction.http.genai.openai.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `openai` | Move + normalize |
 | `ebpf.payload_extraction.http.genai.anthropic.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `anthropic` | Move + normalize |
 | `ebpf.payload_extraction.http.genai.gemini.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `gemini` | Move + normalize |
