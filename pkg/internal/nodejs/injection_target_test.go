@@ -28,7 +28,7 @@ func stubOpenProcessHandle(
 
 func nodeInstrumentable(pid app.PID, startTime uint64) *ebpf.Instrumentable {
 	return &ebpf.Instrumentable{
-		FileInfo: execdiscover.New(execdiscover.Init{Pid: pid, StartTime: startTime}),
+		FileInfo: execdiscover.New(execdiscover.Init{Pid: pid, StartTime: startTime, Ns: 33}),
 		Type:     svc.InstrumentableNodejs,
 	}
 }
@@ -45,6 +45,7 @@ func TestInjectionTargetFromUsesInspectionIdentity(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, app.PID(1000), target.Pid)
 	assert.Equal(t, app.PID(1000), target.PID())
+	assert.Equal(t, uint32(33), target.Ns)
 }
 
 // A target is only worth a queue slot if the incarnation discovery saw can be

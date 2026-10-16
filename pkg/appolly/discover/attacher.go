@@ -109,7 +109,6 @@ func traceAttacherProvider(ta *traceAttacher) swarm.InstanceFunc {
 func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) {
 	ta.log = slog.With("component", "discover.traceAttacher")
 	ta.existingTracers = map[ebpf.ExecutableKey]executableTracer{}
-	ta.nodeInjector = nodejs.NewNodeInjector(ta.Cfg)
 	javaInjector, err := javaagent.NewJavaInjector(ta.Cfg)
 	if err != nil {
 		ta.log.Warn("unable to inject OBI java agent, Java TLS telemetry generation will not work", "error", err)
@@ -117,7 +116,9 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 		ta.javaInjector = javaInjector
 	}
 	ta.processInstances = maps.Map2[ebpf.ExecutableKey, app.PID, struct{}]{}
-	ta.EbpfEventContext.CommonPIDsFilter = ebpfcommon.NewPIDsFilter(&ta.Cfg.Discovery, slog.With("component", "ebpfCommon.CommonPIDsFilter"), ta.Metrics)
+	pidsFilter := ebpfcommon.NewPIDsFilter(&ta.Cfg.Discovery, slog.With("component", "ebpfCommon.CommonPIDsFilter"), ta.Metrics)
+	ta.EbpfEventContext.CommonPIDsFilter = pidsFilter
+	ta.nodeInjector = nodejs.NewNodeInjector(ta.Cfg, pidsFilter.TrackOwnConn)
 	if ta.RuntimeMetrics != nil {
 		ta.EbpfEventContext.RuntimeMetrics = runtimemetrics.NewQueueSender(ta.RuntimeMetrics)
 	}

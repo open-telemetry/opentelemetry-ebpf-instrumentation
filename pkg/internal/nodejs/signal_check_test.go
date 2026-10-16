@@ -591,7 +591,7 @@ func TestAttachAgent_RefusalWithholdsTheSignal(t *testing.T) {
 	cfg := obi.DefaultConfig
 	cfg.NodeJS.Enabled = true
 	cfg.TracePrinter = debug.TracePrinterText
-	injector := NewNodeInjector(&cfg)
+	injector := NewNodeInjector(&cfg, nil)
 
 	target := InjectionTarget{Pid: pid, Process: handle}
 	err = injector.attachAgent(context.Background(), target, testBinaryELF(t))

@@ -5,6 +5,9 @@ package ebpfcommon
 
 import (
 	"log/slog"
+	"net/netip"
+	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -673,4 +676,147 @@ func TestProcPIDsBlocksTheRightProcessUnderCollision(t *testing.T) {
 	pf.BlockPID(41000, 4026532500)
 
 	assert.ElementsMatch(t, []app.PID{90000}, pf.ProcPIDs(PIDTypeKProbes))
+}
+
+var (
+	injectorEnd  = netip.MustParseAddrPort("127.0.0.1:48486")
+	inspectorEnd = netip.MustParseAddrPort("127.0.0.1:9229")
+)
+
+// a request of pid 123 as its kprobes report it: the client end is the peer
+func requestOn(client, server netip.AddrPort, start time.Duration) request.Span {
+	return request.Span{
+		Pid:          request.PidInfo{UserPID: 123, Namespace: 33},
+		Peer:         client.Addr().String(),
+		PeerPort:     int(client.Port()),
+		Host:         server.Addr().String(),
+		HostPort:     int(server.Port()),
+		RequestStart: int64(start),
+		Start:        int64(start),
+		End:          int64(start + time.Millisecond),
+	}
+}
+
+func ownConnFilter(t *testing.T) (*PIDsFilter, *time.Duration) {
+	t.Helper()
+	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
+		return []app.PID{pid}, nil
+	}
+	now := time.Hour
+	pidsFilterMonoNow = func() time.Duration { return now }
+	t.Cleanup(func() { pidsFilterMonoNow = timing.MonoTimeNow })
+
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+	pf.AllowPID(123, 33, exec.New(exec.Init{}), PIDTypeKProbes)
+	return pf, &now
+}
+
+func TestFilter_OwnConnWindow(t *testing.T) {
+	pf, now := ownConnFilter(t)
+
+	before := requestOn(injectorEnd, inspectorEnd, *now-time.Millisecond)
+	release := pf.TrackOwnConn(33, injectorEnd, inspectorEnd)
+	opening := requestOn(injectorEnd, inspectorEnd, *now)
+	*now += time.Millisecond
+	during := requestOn(injectorEnd, inspectorEnd, *now)
+	// accepted before the connection was tracked, read after
+	accepted := during
+	accepted.RequestStart = int64(*now - 2*time.Millisecond)
+	*now += time.Millisecond
+	release()
+	after := requestOn(injectorEnd, inspectorEnd, *now+time.Millisecond)
+	*now += time.Minute
+
+	assert.Equal(t, []request.Span{before, after}, resetTraceContext(pf.Filter([]request.Span{
+		before, opening, during, accepted, after,
+	})))
+
+	stillOpen := pf.TrackOwnConn(33, injectorEnd, inspectorEnd)
+	defer stillOpen()
+	*now += time.Hour
+	assert.Empty(t, pf.Filter([]request.Span{requestOn(injectorEnd, inspectorEnd, *now)}))
+}
+
+func TestFilter_OwnConnKeepsOtherConnections(t *testing.T) {
+	pf, now := ownConnFilter(t)
+	defer pf.TrackOwnConn(33, injectorEnd, inspectorEnd)()
+	*now += time.Millisecond
+
+	reversed := requestOn(inspectorEnd, injectorEnd, *now)
+	otherClientPort := requestOn(netip.MustParseAddrPort("127.0.0.1:48487"), inspectorEnd, *now)
+	otherServerPort := requestOn(injectorEnd, netip.MustParseAddrPort("127.0.0.1:3000"), *now)
+	otherClientAddr := requestOn(netip.MustParseAddrPort("10.244.1.7:48486"), inspectorEnd, *now)
+	otherServerAddr := requestOn(injectorEnd, netip.MustParseAddrPort("10.244.1.8:9229"), *now)
+	unknownPeer := requestOn(injectorEnd, inspectorEnd, *now)
+	unknownPeer.Peer = ""
+	unknownPort := requestOn(injectorEnd, inspectorEnd, *now)
+	unknownPort.PeerPort = 0
+
+	kept := []request.Span{
+		reversed, otherClientPort, otherServerPort, otherClientAddr,
+		otherServerAddr, unknownPeer, unknownPort,
+	}
+	assert.Equal(t, kept, resetTraceContext(pf.Filter(slices.Clone(kept))))
+}
+
+func TestFilter_OwnConnInTargetNamespace(t *testing.T) {
+	pf, now := ownConnFilter(t)
+	pf.AllowPID(124, 33, exec.New(exec.Init{}), PIDTypeKProbes)
+	pf.AllowPID(123, 44, exec.New(exec.Init{}), PIDTypeKProbes)
+	defer pf.TrackOwnConn(33, injectorEnd, inspectorEnd)()
+	*now += time.Millisecond
+
+	target := requestOn(injectorEnd, inspectorEnd, *now)
+	clusterWorker := target
+	clusterWorker.Pid.UserPID = 124
+	otherNamespace := target
+	otherNamespace.Pid.Namespace = 44
+
+	assert.Equal(t, []request.Span{otherNamespace}, resetTraceContext(pf.Filter([]request.Span{
+		target, clusterWorker, otherNamespace,
+	})))
+}
+
+func TestTrackOwnConnPrunesReleasedConns(t *testing.T) {
+	pf, now := ownConnFilter(t)
+
+	release := pf.TrackOwnConn(33, injectorEnd, inspectorEnd)
+	defer pf.TrackOwnConn(33, netip.MustParseAddrPort("127.0.0.1:50000"), inspectorEnd)()
+	*now += time.Millisecond
+	late := requestOn(injectorEnd, inspectorEnd, *now)
+	release()
+
+	*now += pidRemovalRetention
+	pf.TrackOwnConn(33, netip.MustParseAddrPort("127.0.0.1:50001"), inspectorEnd)()
+	assert.Empty(t, pf.Filter([]request.Span{late}), "kept while its spans may still arrive")
+
+	*now += time.Second
+	pf.TrackOwnConn(33, netip.MustParseAddrPort("127.0.0.1:50002"), inspectorEnd)()
+	assert.Len(t, pf.Filter([]request.Span{late}), 1)
+	assert.NotContains(t, pf.ownConns, 48486)
+	assert.Contains(t, pf.ownConns, 50000, "a connection still in use is never pruned")
+}
+
+func TestTrackOwnConnConcurrently(t *testing.T) {
+	pf, now := ownConnFilter(t)
+	span := requestOn(injectorEnd, inspectorEnd, *now)
+
+	var wg sync.WaitGroup
+	for i := range 4 {
+		wg.Go(func() {
+			for port := range 100 {
+				client := netip.AddrPortFrom(injectorEnd.Addr(), uint16(40000+i*100+port))
+				pf.TrackOwnConn(33, client, inspectorEnd)()
+			}
+		})
+		wg.Go(func() {
+			for range 100 {
+				pf.Filter([]request.Span{span})
+				pf.BlockPID(456, 33)
+			}
+		})
+	}
+	wg.Wait()
+
+	assert.Len(t, pf.ownConns, 400)
 }

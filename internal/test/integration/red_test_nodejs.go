@@ -106,6 +106,15 @@ func testREDMetricsNodeJSHTTPS(t *testing.T) {
 	}
 }
 
+func testNodeJSInspectorNotReported(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	assert.Never(t, func() bool {
+		results, err := pq.Query(`http_server_request_duration_seconds_count{server_port="9229"}`)
+		assert.NoError(t, err)
+		return len(results) > 0
+	}, 5*time.Second, 500*time.Millisecond)
+}
+
 func checkReportedNodeJSEvents(t *testing.T, urlPath, comm, namespace string, numEvents int) {
 	// Eventually, Prometheus would make this query visible
 	pq := promtest.Client{HostPort: prometheusHostPort}

@@ -20,6 +20,7 @@ var openProcessHandle = procs.OpenProcessHandle
 // original's place.
 type InjectionTarget struct {
 	Pid     app.PID
+	Ns      uint32
 	Process *procs.ProcessHandle
 }
 
@@ -33,7 +34,7 @@ func InjectionTargetFrom(ie *ebpf.Instrumentable) (InjectionTarget, error) {
 		return InjectionTarget{}, fmt.Errorf("capturing stable identity for process %d: %w", pid, err)
 	}
 
-	return InjectionTarget{Pid: pid, Process: process}, nil
+	return InjectionTarget{Pid: pid, Ns: ie.FileInfo.Ns(), Process: process}, nil
 }
 
 func (t InjectionTarget) PID() app.PID {
