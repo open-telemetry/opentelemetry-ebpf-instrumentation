@@ -515,7 +515,7 @@ func validateV2CaptureRules(policy schema.CapturePolicy, rules []schema.Rule) er
 		if ruleMatchEmpty(rule.Match) {
 			return fmt.Errorf("%s.match must define at least one selector", path)
 		}
-		if rule.Action == schema.CaptureActionExclude && !zeroValue(rule.Refine) {
+		if rule.Action == schema.CaptureActionExclude && (rule.Refine.Exports != nil || rule.Refine.HTTP != nil || len(rule.Refine.Spans) > 0) {
 			return fmt.Errorf("%s.refine is not supported for exclude rules", path)
 		}
 		if rule.Refine.HTTP != nil && len(rule.Refine.HTTP.Filters.Traces)+len(rule.Refine.HTTP.Filters.Metrics) > 0 {

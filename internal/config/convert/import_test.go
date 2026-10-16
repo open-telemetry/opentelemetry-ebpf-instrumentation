@@ -43,6 +43,42 @@ extensions:
 	require.ErrorContains(t, err, "capture.rules[0].refine.spans is not supported")
 }
 
+func TestV2ToRuntimeAllowsEmptySpansRefinementOnExclude(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name   string
+		refine string
+	}{
+		{name: "omitted"},
+		{name: "empty", refine: "refine: {spans: []}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			config := `file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: exclude
+          match: {process: {exe_path_glob: ["/tmp/*"]}}
+          ` + tc.refine + `
+`
+			_, extension, err := schema.ParseStandaloneYAML([]byte(config))
+			require.NoError(t, err)
+			if tc.name == "empty" {
+				require.NotNil(t, extension.Capture.Rules[0].Refine.Spans)
+				require.Empty(t, extension.Capture.Rules[0].Refine.Spans)
+			}
+
+			_, err = V2ToRuntime(extension)
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestV2ToRuntimeDefaultExportFoundation(t *testing.T) {
 	t.Parallel()
 
