@@ -12,7 +12,7 @@ require (
 	go.opentelemetry.io/collector/pdata v1.69.0
 	go.opentelemetry.io/collector/receiver v1.69.0
 	go.opentelemetry.io/collector/receiver/receivertest v0.163.0
-	go.opentelemetry.io/obi v0.15.1
+	go.opentelemetry.io/obi v0.15.2
 	go.uber.org/zap/exp v0.3.0
 	go.yaml.in/yaml/v3 v3.0.5
 )
