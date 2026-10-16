@@ -3,9 +3,10 @@
 # excludes it, because it is a tool and resource protocol rather than a model
 # provider and so has no `gen_ai.provider.name` to report.
 #
-# MCP traffic seen on the *server* side keeps the full HTTP server set, which the
-# server branch emits for every subtype, so its span references
-# `attributes.obi.http.server` alongside the MCP attributes.
+# MCP traffic seen on the *server* side takes the default-deny server transport
+# scope, so its span references `attributes.obi.http.server.common` alongside
+# the MCP attributes and carries none of the HTTP request or response
+# attributes.
 file_format: definition/2
 spans:
   - type: obi.mcp.client
@@ -82,7 +83,7 @@ spans:
     requirement_level: recommended
     brief: OBI inbound Model Context Protocol over HTTP server span.
     attributes:
-      - ref_group: attributes.obi.http.server
+      - ref_group: attributes.obi.http.server.common
       - ref: mcp.method.name
         requirement_level: required
       - ref: mcp.protocol.version

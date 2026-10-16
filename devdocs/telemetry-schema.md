@@ -101,58 +101,6 @@ published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
-- GenAI client span names follow `{gen_ai.operation.name} {gen_ai.request.model}`
-  (retrieval: `{gen_ai.operation.name} {gen_ai.data_source.id}`), built only from the
-  values emitted on the span:
-  - Anthropic Messages API: `gen_ai.operation.name` changes from `message` to `chat`
-    on spans and on the `gen_ai.client.*` metrics; span name `message claude-sonnet-4-6`
-    becomes `chat claude-sonnet-4-6`.
-  - OpenAI-compatible gateways: span name `POST /v1/chat/completions` (or `POST /*`)
-    becomes `chat gpt-4o-mini`; an unrecognized endpoint becomes `_OTHER {model}`.
-  - Retrieval without a data source id: `retrieval qdrant` becomes `retrieval`.
-  - Anthropic and rerank spans without a request model no longer take the model from
-    the response: `message claude-sonnet-4-6` becomes `chat`, `rerank rerank-v3.5`
-    becomes `rerank`.
-  - A GenAI span with an empty operation is named `_OTHER {model}` instead of the HTTP
-    `{method} {route}` fallback, matching the emitted `_OTHER` attribute. Today's
-    parsers always set an operation, so no emitted span changes.
-- An Elasticsearch or OpenSearch client span that names no index or cluster is now named
-  `{db.operation.name} {server.address}:{server.port}`, as the database span name convention
-  defines, using the requested host (without the port the `Host` header may carry), or else the
-  resolved host name, instead of the peer IP. A span whose host was neither requested nor
-  resolved keeps its name.
-- Database span names follow the database span name convention in more cases. A span with no
-  operation is named after its target, else its `db.system.name`: `SQL`, `REDIS`, `MEMCACHED`,
-  `COUCHBASE` and `AEROSPIKE` become e.g. `postgresql` (or `other_sql`), `redis`, `memcached`,
-  `couchbase` and `aerospike`, and a SQL span with only a `db.namespace` is named after it. A MongoDB or
-  Couchbase span with no collection uses `db.namespace` as its target (`listCollections`
-  becomes `listCollections mydb`). A Couchbase SQL++ span with no operation is named after
-  its target, and its `{server.address}:{server.port}` target uses the host `server.address`
-  reports instead of the peer IP. Native SQL, Redis, Memcached, MongoDB, Couchbase and
-  Aerospike names still never use the `{server.address}:{server.port}` target, which keeps
-  today's names and their cardinality, and Redis names do not use `db.namespace`, as the Redis
-  conventions require. SQL spans are still named after `db.query.summary` when it is available,
-  even if that attribute is not selected for export.
-- Span names now follow semconv v1.41, which also changes the `span.name` (`span_name`)
-  value of span metrics for these spans:
-  - GraphQL server: `GraphQL {graphql.operation.type}` becomes `{graphql.operation.type}`
-    (for example `GraphQL query` becomes `query`).
-  - AWS S3: `s3.{operation}` becomes `S3.{operation}`; with no operation, `s3.Operation`
-    becomes `aws-api`.
-  - AWS SQS: `sqs.{operation}` becomes `SQS.{operation}`, following the AWS SDK
-    `Service.Operation` rule; SQS spans emit no `rpc.*` attributes, so the operation part
-    matches `messaging.operation.name`.
-  - ONC RPC: `{program}/{procedure}` is unchanged; reply-only spans (no captured CALL)
-    become `onc_rpc` instead of `sunrpc/reply`.
-- ONC RPC spans now carry `rpc.method` as `{program}/{procedure}` when the CALL was captured.
-- The ONC RPC `rpc.method` value on `rpc.client.call.duration` and `rpc.server.call.duration`
-  changes from the procedure number (for example `0`) to `{program}/{procedure}` (for example
-  `portmapper/0`), and is omitted when no CALL was captured (previously `reply`).
-- The registry moves to weaver's `definition/2` format. A span definition is identified
-  by its `type`, so the span ids in `site/docs/spans.md` lose their `span.` prefix
-  (`span.obi.http.server` becomes `obi.http.server`) and a link anchored on an old id no
-  longer resolves. The emitted telemetry is unchanged.
-
 ## Hosting notes
 
 `site/` is published as static files with no markdown processing, so the generated

@@ -339,7 +339,7 @@ static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgi
 // span's own override, so a root manual span would otherwise become its own
 // parent.
 static __always_inline int handle_node_span(const char *path, const u64 pid_tgid) {
-    node_span_event_t *ev = bpf_ringbuf_reserve(&events, sizeof(node_span_event_t), 0);
+    node_span_event_t *ev = events_ringbuf_reserve(sizeof(node_span_event_t), 0);
     if (!ev) {
         return 0;
     }
@@ -451,7 +451,7 @@ static __always_inline int handle_runtime_metrics(const char *path, const u64 pi
         }
     }
 
-    struct nodejs_eventloop_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    struct nodejs_eventloop_event *e = events_ringbuf_reserve(sizeof(*e), 0);
     if (!e) {
         return 0;
     }
@@ -544,7 +544,7 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
             return 0;
         }
 
-        struct nodejs_gc_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        struct nodejs_gc_event *e = events_ringbuf_reserve(sizeof(*e), 0);
         if (!e) {
             return 0;
         }
@@ -570,7 +570,7 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
             return 0;
         }
 
-        struct nodejs_heap_space_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        struct nodejs_heap_space_event *e = events_ringbuf_reserve(sizeof(*e), 0);
         if (!e) {
             return 0;
         }
@@ -607,7 +607,7 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
             return 0;
         }
 
-        struct nodejs_resource_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        struct nodejs_resource_event *e = events_ringbuf_reserve(sizeof(*e), 0);
         if (!e) {
             return 0;
         }

@@ -449,27 +449,35 @@ func TestResolveClientFromHost_K8sFQDN(t *testing.T) {
 		sources: resolverSources([]Source{SourceK8s}),
 	}
 
-	// Create a client span representing an HTTP call to a K8s Service
-	// The HTTP Host header contains the K8s Service FQDN
-	clientSpan := request.Span{
-		Type: request.EventTypeHTTPClient,
-		Peer: "10.0.1.1",
-		// Destination: Pod IP after NAT (NOT in K8s store)
-		Host: "10.0.2.5",
-		// HTTP Host header captured by eBPF, stored as "scheme;host"
-		Statement: "http;bar-server.bar-ns.svc.cluster.local",
-		Service: svc.Attrs{
-			UID: svc.UID{
-				Name:      "foo-client",
-				Namespace: "foo-ns",
-			},
-		},
+	// The Host header carries a port when the Service listens on a non-default one
+	for _, hostHeader := range []string{
+		"bar-server.bar-ns.svc.cluster.local",
+		"bar-server.bar-ns.svc.cluster.local:8080",
+	} {
+		t.Run(hostHeader, func(t *testing.T) {
+			// Create a client span representing an HTTP call to a K8s Service
+			// The HTTP Host header contains the K8s Service FQDN
+			clientSpan := request.Span{
+				Type: request.EventTypeHTTPClient,
+				Peer: "10.0.1.1",
+				// Destination: Pod IP after NAT (NOT in K8s store)
+				Host: "10.0.2.5",
+				// HTTP Host header captured by eBPF, stored as "scheme;host"
+				Statement: "http;" + hostHeader,
+				Service: svc.Attrs{
+					UID: svc.UID{
+						Name:      "foo-client",
+						Namespace: "foo-ns",
+					},
+				},
+			}
+
+			nr.resolveNames(&clientSpan)
+
+			assert.Equal(t, "bar-server", clientSpan.HostName)
+			assert.Equal(t, "bar-ns", clientSpan.OtherNamespace)
+		})
 	}
-
-	nr.resolveNames(&clientSpan)
-
-	assert.Equal(t, "bar-server", clientSpan.HostName)
-	assert.Equal(t, "bar-ns", clientSpan.OtherNamespace)
 }
 
 func TestPreserveBPFHostnameWhenResolutionFails(t *testing.T) {

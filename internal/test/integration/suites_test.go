@@ -5,6 +5,7 @@ package integration
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"path"
 	"strings"
@@ -61,6 +62,7 @@ func TestSuite_Go(t *testing.T) {
 
 			t.Run("RED metrics", testREDMetricsHTTP)
 			t.Run("RED JSON RPC metrics", testREDMetricsJSONRPCHTTP)
+			t.Run("JSON RPC traces", testGoJSONRPCTraces)
 			t.Run("HTTP traces", testHTTPTraces)
 			t.Run("HTTP traces (no traceID)", testHTTPTracesNoTraceID)
 			t.Run("HTTP traces (url.query redaction)", testHTTPTracesURLQuery)
@@ -1613,4 +1615,18 @@ func KernelLockdownMode() bool {
 	}
 
 	return false
+}
+
+func kernelAtLeast(t *testing.T, wantMajor, wantMinor int) bool {
+	t.Helper()
+
+	release, err := os.ReadFile("/proc/sys/kernel/osrelease")
+	require.NoError(t, err)
+
+	var major, minor int
+	if _, err := fmt.Sscanf(string(release), "%d.%d", &major, &minor); err != nil {
+		return false
+	}
+
+	return major > wantMajor || (major == wantMajor && minor >= wantMinor)
 }

@@ -42,7 +42,6 @@ func TestSpanName_AWSMatchesRPCMethod(t *testing.T) {
 		expected string
 	}{
 		{name: "S3", subType: request.HTTPSubtypeAWSS3, aws: request.AWS{S3: request.AWSS3{Method: "GetObject"}}, expected: "S3.GetObject"},
-		{name: "SNS", subType: request.HTTPSubtypeAWSSNS, aws: request.AWS{SNS: request.AWSSNS{OperationName: "Publish"}}, expected: "SNS.Publish"},
 	}
 
 	for _, tt := range tests {
@@ -74,6 +73,26 @@ func TestSpanName_SQSIsAWSServicePrefixPlusOperationNameWithoutRPCAttributes(t *
 	operation := requireAttrString(t, span, string(semconv.MessagingOperationNameKey))
 	assert.Equal(t, "SQS.SendMessage", span.TraceName())
 	assert.Equal(t, "SQS."+operation, span.TraceName())
+}
+
+func TestSpanName_SNSIsAWSServicePrefixPlusOperationNameWithoutRPCAttributes(t *testing.T) {
+	span := &request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeAWSSNS,
+		Method:  "POST",
+		Path:    "/",
+		AWS:     &request.AWS{SNS: request.AWSSNS{OperationName: "Publish", OperationType: request.MessagingSend}},
+	}
+
+	attrs := TraceAttributesSelector(span, defaultTraceAttrs(t))
+	_, hasRPCSystem := attrValue(attrs, string(semconv.RPCSystemNameKey))
+	_, hasRPCMethod := attrValue(attrs, string(semconv.RPCMethodKey))
+	assert.False(t, hasRPCSystem)
+	assert.False(t, hasRPCMethod)
+
+	operation := requireAttrString(t, span, string(semconv.MessagingOperationNameKey))
+	assert.Equal(t, "SNS.Publish", span.TraceName())
+	assert.Equal(t, "SNS."+operation, span.TraceName())
 }
 
 func TestSpanName_S3WithoutOperationMatchesRPCSystem(t *testing.T) {

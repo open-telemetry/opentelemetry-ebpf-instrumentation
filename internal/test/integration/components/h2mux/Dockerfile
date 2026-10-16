@@ -1,6 +1,6 @@
 # HTTP/2 client and server that put many streams in one buffer. Standard library
 # only: an HTTP/2 library would send each stream on its own.
-FROM python:3.14@sha256:61346539f7b26521a230e72c11da5ebd872924745074b19736e7d65ba748c366
+FROM python:3.15@sha256:3c24e0b3ef4c5e2409f918894ccd5e05756eea2015ae6ddd289179b20a049f9b
 
 WORKDIR /app
 COPY internal/test/integration/components/h2mux/ /app/

@@ -355,8 +355,9 @@ type MessagingInfo struct {
 	Partition int   `json:"partition"`
 	// HasPartition reports whether Partition and Offset were read from the wire. The
 	// consumer group can be known while the partition list was cut by the kernel buffer.
-	HasPartition  bool   `json:"hasPartition"`
-	ConsumerGroup string `json:"consumerGroup"`
+	HasPartition     bool   `json:"hasPartition"`
+	ConsumerGroup    string `json:"consumerGroup"`
+	SubscriptionName string `json:"subscriptionName"`
 }
 
 type GraphQL struct {
@@ -367,6 +368,7 @@ type GraphQL struct {
 
 type Elasticsearch struct {
 	DBCollectionName string `json:"dbCollectionName"`
+	DocumentID       string `json:"documentId"`
 	NodeName         string `json:"nodeName"`
 	DBOperationName  string `json:"dbOperationName"`
 	DBQueryText      string `json:"dbQueryText"`
@@ -1654,6 +1656,7 @@ func spanAttributes(s *Span) SpanAttributes {
 		}
 		if s.SubType == HTTPSubtypeElasticsearch && s.Elasticsearch != nil {
 			attrs["dbCollectionName"] = s.Elasticsearch.DBCollectionName
+			attrs["documentID"] = s.Elasticsearch.DocumentID
 			attrs["nodeName"] = s.Elasticsearch.NodeName
 			attrs["dbNamespace"] = s.DBNamespace
 			attrs["dbOperationName"] = s.Elasticsearch.DBOperationName
@@ -1709,20 +1712,22 @@ func spanAttributes(s *Span) SpanAttributes {
 		addHeaderAttributes(attrs, s)
 		return attrs
 	case EventTypeGRPC:
-		return SpanAttributes{
-			"method":     s.Path,
+		attrs := SpanAttributes{
 			"status":     strconv.Itoa(s.Status),
 			"clientAddr": SpanPeer(s),
 			"serverAddr": SpanHost(s),
 			"serverPort": strconv.Itoa(s.HostPort),
 		}
+		addGRPCMethodAttributes(attrs, s)
+		return attrs
 	case EventTypeGRPCClient:
-		return SpanAttributes{
-			"method":     s.Path,
+		attrs := SpanAttributes{
 			"status":     strconv.Itoa(s.Status),
 			"serverAddr": SpanHost(s),
 			"serverPort": strconv.Itoa(s.HostPort),
 		}
+		addGRPCMethodAttributes(attrs, s)
+		return attrs
 	case EventTypeSQLClient, EventTypeSQLServer:
 		var (
 			code              uint16
@@ -1772,6 +1777,9 @@ func spanAttributes(s *Span) SpanAttributes {
 			}
 			if s.MessagingInfo.ConsumerGroup != "" {
 				attrs["consumerGroup"] = s.MessagingInfo.ConsumerGroup
+			}
+			if s.MessagingInfo.SubscriptionName != "" {
+				attrs["subscriptionName"] = s.MessagingInfo.SubscriptionName
 			}
 		}
 		return attrs
@@ -1846,6 +1854,14 @@ func spanAttributes(s *Span) SpanAttributes {
 	}
 
 	return SpanAttributes{}
+}
+
+func addGRPCMethodAttributes(attrs SpanAttributes, s *Span) {
+	method, original := GRPCMethod(s)
+	attrs["method"] = method
+	if original != "" {
+		attrs["methodOriginal"] = original
+	}
 }
 
 func addHeaderAttributes(attrs SpanAttributes, s *Span) {
@@ -2199,7 +2215,7 @@ func elasticsearchSpanName(s *Span) string {
 	target := cmp.Or(
 		s.Elasticsearch.DBCollectionName,
 		s.DBNamespace,
-		dbServerTarget(hostWithoutPort(HTTPClientHost(s)), s.HostPort),
+		dbServerTarget(HTTPClientServerAddr(s), s.HostPort),
 	)
 	return dbSpanName(s.Elasticsearch.DBOperationName, target, s.Elasticsearch.DBSystemName)
 }
@@ -2271,7 +2287,7 @@ func (s *Span) TraceName() string {
 		}
 		return name
 	case EventTypeGRPC, EventTypeGRPCClient:
-		return s.Path
+		return grpcSpanName(s)
 	case EventTypeSQLClient, EventTypeSQLServer:
 		if s.Method != "" && s.DBQuerySummary != "" {
 			return s.DBQuerySummary

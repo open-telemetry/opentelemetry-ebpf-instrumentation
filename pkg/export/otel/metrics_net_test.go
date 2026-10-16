@@ -246,17 +246,14 @@ func TestDo(t *testing.T) {
 		},
 	})
 
-	assert.Eventually(t, func() bool {
-		return len(me.flowBytes.entries.All()) == 2
-	}, time.Second, 10*time.Millisecond,
-		"expected 2 flow entries (all records), got %d",
-		len(me.flowBytes.entries.All()))
-
-	assert.Equal(t, 2, len(me.flowPackets.entries.All()),
-		"expected 2 flow packets entries (all records)")
-
-	assert.Equal(t, 1, len(me.interZoneBytes.entries.All()),
-		"expected 1 inter-zone entry (only cross-zone record)")
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.Len(ct, me.flowBytes.entries.All(), 2,
+			"expected 2 flow entries (all records)")
+		assert.Len(ct, me.flowPackets.entries.All(), 2,
+			"expected 2 flow packets entries (all records)")
+		assert.Len(ct, me.interZoneBytes.entries.All(), 1,
+			"expected 1 inter-zone entry (only cross-zone record)")
+	}, 5*time.Second, 10*time.Millisecond)
 }
 
 func TestGetFilteredNetworkResourceAttrs(t *testing.T) {

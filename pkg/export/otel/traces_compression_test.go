@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -15,9 +16,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/encoding"
 	"google.golang.org/grpc/stats"
 
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
+	"go.opentelemetry.io/otel"
 
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
@@ -37,9 +40,9 @@ func collectorRecordingEncoding(t *testing.T, got *atomic.Pointer[string]) *http
 
 func exportOneSpan(t *testing.T, cfg otelcfg.TracesConfig) {
 	t.Helper()
-	exp, host, err := getTracesExporter(context.Background(), cfg, imetrics.NoopReporter{})
+	exp, err := getTracesExporter(context.Background(), cfg, imetrics.NoopReporter{})
 	require.NoError(t, err)
-	require.NoError(t, exp.Start(context.Background(), host))
+	require.NoError(t, exp.Start(context.Background()))
 	t.Cleanup(func() { _ = exp.Shutdown(context.Background()) })
 	require.NoError(t, exp.ConsumeTraces(context.Background(), oneSpan()))
 }
@@ -56,19 +59,23 @@ func baseTracesConfig(endpoint string) otelcfg.TracesConfig {
 
 func TestTracesExportCompressionHTTP(t *testing.T) {
 	for _, tc := range []struct {
-		name        string
-		compression string
-		wantHeader  string
+		name              string
+		compression       string
+		commonCompression string
+		wantHeader        string
 	}{
 		{name: "unset sends uncompressed", compression: "", wantHeader: ""},
 		{name: "gzip compresses", compression: "gzip", wantHeader: "gzip"},
 		{name: "none is explicit off", compression: "none", wantHeader: ""},
+		{name: "none overrides common gzip", compression: "none", commonCompression: "gzip", wantHeader: ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OTEL_EXPORTER_OTLP_COMPRESSION", tc.commonCompression)
 			var got atomic.Pointer[string]
 			coll := collectorRecordingEncoding(t, &got)
 
 			cfg := baseTracesConfig(coll.URL)
+			cfg.CommonCompression = tc.commonCompression
 			cfg.TracesCompression = tc.compression
 			exportOneSpan(t, cfg)
 
@@ -120,14 +127,30 @@ func (h *encodingStatsHandler) HandleConn(context.Context, stats.ConnStats) {}
 
 func TestTracesExportCompressionGRPC(t *testing.T) {
 	for _, tc := range []struct {
-		name         string
-		compression  string
-		wantEncoding string
+		name              string
+		compression       string
+		commonCompression string
+		wantEncoding      string
 	}{
 		{name: "unset sends uncompressed", compression: "", wantEncoding: ""},
 		{name: "gzip compresses", compression: "gzip", wantEncoding: "gzip"},
+		{name: "none is explicit off", compression: "none", wantEncoding: encoding.Identity},
+		{name: "none overrides common gzip", compression: "none", commonCompression: "gzip", wantEncoding: encoding.Identity},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OTEL_EXPORTER_OTLP_COMPRESSION", tc.commonCompression)
+			previousHandler := otel.GetErrorHandler()
+			var errorCalls atomic.Int64
+			otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
+				if strings.Contains(err.Error(), "invalid compression type:") {
+					errorCalls.Add(1)
+				}
+			}))
+			t.Cleanup(func() {
+				otel.SetErrorHandler(previousHandler)
+				require.Zero(t, errorCalls.Load(), "the client must not report an invalid compression option")
+			})
+
 			lis, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
 			handler := &encodingStatsHandler{}
@@ -138,6 +161,7 @@ func TestTracesExportCompressionGRPC(t *testing.T) {
 
 			cfg := baseTracesConfig("http://" + lis.Addr().String())
 			cfg.Protocol = otelcfg.ProtocolGRPC
+			cfg.CommonCompression = tc.commonCompression
 			cfg.TracesCompression = tc.compression
 			exportOneSpan(t, cfg)
 

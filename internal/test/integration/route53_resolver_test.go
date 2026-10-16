@@ -24,7 +24,7 @@ import (
 	"go.opentelemetry.io/obi/internal/test/tools/img"
 )
 
-const imgFloci = img.Docker("floci/floci:2.1.0@sha256:f5aa8c18302cedb4f2385f5c4e455b3efc77fee6bf7b6e5d1712b2817ba102db")
+const imgFloci = img.Docker("floci/floci:2.2.0@sha256:e97cd0c1dc2aa14e7697fb5ef5018404c4d6345169dbd276315f0bed2c7b0520")
 
 func setupFloci(t *testing.T, network dockertest.Network) string {
 	t.Helper()

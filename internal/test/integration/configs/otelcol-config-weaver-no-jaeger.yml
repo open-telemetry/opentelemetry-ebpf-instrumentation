@@ -10,6 +10,13 @@ receivers:
           allowed_origins:
             - "http://*"
             - "https://*"
+  # Test applications instrumented with their own OpenTelemetry SDK export
+  # here. Only OBI's receiver feeds weaver, which validates what OBI emits
+  # against OBI's registry.
+  otlp/apps:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4319
 exporters:
   prometheus:
     endpoint: "otelcol:9464"
@@ -34,7 +41,7 @@ service:
   pipelines:
     # Production metrics path — what the integration tests poll.
     metrics:
-      receivers: [otlp]
+      receivers: [otlp, otlp/apps]
       exporters: [prometheus]
     # Weaver taps with their own independent queues. Traces go only to
     # weaver in this config (no jaeger), so the traces pipeline is

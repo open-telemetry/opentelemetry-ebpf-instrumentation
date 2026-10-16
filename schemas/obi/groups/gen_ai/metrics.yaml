@@ -19,7 +19,7 @@ metrics:
         requirement_level: required
       - ref: gen_ai.request.model
         requirement_level:
-          recommended: if the request named a model
+          conditionally_required: if the request named a model
       - ref: gen_ai.response.model
         requirement_level:
           recommended: if the provider returned it
@@ -27,7 +27,8 @@ metrics:
         requirement_level:
           conditionally_required: if the server address could be resolved
       - ref: server.port
-        requirement_level: recommended
+        requirement_level:
+          conditionally_required: if `server.address` is set
 
   - name: gen_ai.client.token.usage
     annotations:
@@ -45,7 +46,7 @@ metrics:
         requirement_level: required
       - ref: gen_ai.request.model
         requirement_level:
-          recommended: if the request named a model
+          conditionally_required: if the request named a model
       - ref: gen_ai.response.model
         requirement_level:
           recommended: if the provider returned it
@@ -55,4 +56,5 @@ metrics:
         requirement_level:
           conditionally_required: if the server address could be resolved
       - ref: server.port
-        requirement_level: recommended
+        requirement_level:
+          conditionally_required: if `server.address` is set

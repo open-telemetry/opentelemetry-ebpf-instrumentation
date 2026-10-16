@@ -80,7 +80,7 @@ int GUARDED_PROG(obi_uprobe_redis_process_ret, struct pt_regs *, ctx) {
 
     redis_client_req_t *req = bpf_map_lookup_elem(&ongoing_redis_requests, &g_key);
     if (req) {
-        redis_client_req_t *trace = bpf_ringbuf_reserve(&events, sizeof(redis_client_req_t), 0);
+        redis_client_req_t *trace = events_ringbuf_reserve(sizeof(redis_client_req_t), 0);
         if (trace) {
             bpf_dbg_printk("Sending redis client go trace");
             __builtin_memcpy(trace, req, sizeof(redis_client_req_t));

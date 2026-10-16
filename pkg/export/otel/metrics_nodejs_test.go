@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -38,8 +37,8 @@ type nodejsMetricRecord struct {
 	ResourceAttrs map[string]string
 }
 
-func testNodejsRuntimeMetricsConsumer(out chan<- nodejsMetricRecord) consumer.Metrics {
-	c, err := consumer.NewMetrics(func(_ context.Context, md pmetric.Metrics) error {
+func testNodejsRuntimeMetricsConsumer(out chan<- nodejsMetricRecord) otelcfg.MetricsExportFunc {
+	return testOTLPMetricsExport(func(_ context.Context, md pmetric.Metrics) error {
 		rm := md.ResourceMetrics()
 		for i := 0; i < rm.Len(); i++ {
 			resourceAttrs := attrsToMap(rm.At(i).Resource().Attributes())
@@ -90,10 +89,6 @@ func testNodejsRuntimeMetricsConsumer(out chan<- nodejsMetricRecord) consumer.Me
 		}
 		return nil
 	})
-	if err != nil {
-		panic(err)
-	}
-	return c
 }
 
 func readNodejsMetricRecord(t *testing.T, records <-chan nodejsMetricRecord, name, state string) nodejsMetricRecord {
@@ -124,7 +119,7 @@ func TestRuntimeMetricsReporterRecordsNodejsEventLoop(t *testing.T) {
 		Interval:          20 * time.Millisecond,
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
-		MetricsConsumer:   testNodejsRuntimeMetricsConsumer(records),
+		MetricsExport:     testNodejsRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,
@@ -182,7 +177,7 @@ func TestNodejsDelayGaugesSkipEmptyWindows(t *testing.T) {
 		Interval:          20 * time.Millisecond,
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
-		MetricsConsumer:   testNodejsRuntimeMetricsConsumer(records),
+		MetricsExport:     testNodejsRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,
@@ -248,7 +243,7 @@ func TestRuntimeMetricsReporterRecordsV8GCDuration(t *testing.T) {
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
 		Buckets:           buckets,
-		MetricsConsumer:   testNodejsRuntimeMetricsConsumer(records),
+		MetricsExport:     testNodejsRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,
@@ -292,7 +287,7 @@ func TestRuntimeMetricsReporterRecordsV8HeapSpaces(t *testing.T) {
 		Interval:          20 * time.Millisecond,
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
-		MetricsConsumer:   testNodejsRuntimeMetricsConsumer(records),
+		MetricsExport:     testNodejsRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,
@@ -347,7 +342,7 @@ func TestRuntimeMetricsReporterRecordsV8ResourceActive(t *testing.T) {
 		Interval:          20 * time.Millisecond,
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
-		MetricsConsumer:   testNodejsRuntimeMetricsConsumer(records),
+		MetricsExport:     testNodejsRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,
@@ -409,7 +404,7 @@ func TestRuntimeMetricsReporterDropsV8ServiceWithoutRuntimeFeature(t *testing.T)
 		Interval:          20 * time.Millisecond,
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
-		MetricsConsumer:   testNodejsRuntimeMetricsConsumer(records),
+		MetricsExport:     testNodejsRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,
@@ -455,7 +450,7 @@ func TestRuntimeMetricsReporterDropsNodejsServiceWithoutRuntimeFeature(t *testin
 		Interval:          20 * time.Millisecond,
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
-		MetricsConsumer:   testNodejsRuntimeMetricsConsumer(records),
+		MetricsExport:     testNodejsRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,

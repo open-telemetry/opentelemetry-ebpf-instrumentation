@@ -134,7 +134,10 @@ read_skb_bytes(const void *skb, u32 offset, unsigned char *buf, const u32 len) {
         offset += BUF_COPY_BLOCK_SIZE;
     }
 
-    if ((b * BUF_COPY_BLOCK_SIZE) >= len) {
+    // Check the destination offset itself: loop widening can lose its relation to b.
+    u64 copied = b * BUF_COPY_BLOCK_SIZE;
+    bpf_clamp_umax(copied, FULL_BUF_SIZE);
+    if (copied >= len) {
         return;
     }
 
@@ -146,9 +149,9 @@ read_skb_bytes(const void *skb, u32 offset, unsigned char *buf, const u32 len) {
     }
 
     int remaining_to_copy = min(remainder, (BUF_COPY_BLOCK_SIZE - 1));
-    int space_in_buffer = (len < (b * BUF_COPY_BLOCK_SIZE)) ? 0 : len - (b * BUF_COPY_BLOCK_SIZE);
+    int space_in_buffer = len - copied;
 
     if (remaining_to_copy <= space_in_buffer) {
-        bpf_skb_load_bytes(skb, offset, (void *)(&buf[b * BUF_COPY_BLOCK_SIZE]), remaining_to_copy);
+        bpf_skb_load_bytes(skb, offset, (void *)(&buf[copied]), remaining_to_copy);
     }
 }

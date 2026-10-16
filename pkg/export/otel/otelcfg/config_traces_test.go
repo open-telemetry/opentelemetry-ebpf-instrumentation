@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
@@ -238,6 +237,15 @@ func testTracesGRPCOptions(t *testing.T, expected OTLPOptions, tcfg *TracesConfi
 	assert.Equal(t, expected, opts)
 }
 
+func unsetProtocolEnv(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{envProtocol, envMetricsProtocol, envTracesProtocol} {
+		// t.Setenv registers the restore of the original value; it cannot unset by itself.
+		t.Setenv(name, "")
+		require.NoError(t, os.Unsetenv(name))
+	}
+}
+
 func TestTracesSetupHTTP_Protocol(t *testing.T) {
 	testCases := []struct {
 		Endpoint              string
@@ -270,6 +278,7 @@ func TestTracesSetupHTTP_Protocol(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.Endpoint+"/"+string(tc.ProtoVal)+"/"+string(tc.TraceProtoVal), func(t *testing.T) {
 			defer RestoreEnvAfterExecution()()
+			unsetProtocolEnv(t)
 			_, err := HTTPTracesEndpointOptions(&TracesConfig{
 				CommonEndpoint:   "http://host:3333",
 				TracesEndpoint:   tc.Endpoint,
@@ -288,6 +297,7 @@ func TestTracesSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 	defer RestoreEnvAfterExecution()()
 	t.Run("setting both variables", func(t *testing.T) {
 		defer RestoreEnvAfterExecution()()
+		unsetProtocolEnv(t)
 		t.Setenv(envProtocol, "foo-proto")
 		t.Setenv(envTracesProtocol, "bar-proto")
 		_, err := HTTPTracesEndpointOptions(&TracesConfig{
@@ -302,6 +312,7 @@ func TestTracesSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 	})
 	t.Run("setting only proto env var", func(t *testing.T) {
 		defer RestoreEnvAfterExecution()()
+		unsetProtocolEnv(t)
 		t.Setenv(envProtocol, "foo-proto")
 		_, err := HTTPTracesEndpointOptions(&TracesConfig{
 			CommonEndpoint:   "http://host:3333",
@@ -316,8 +327,7 @@ func TestTracesSetupHTTP_DoNotOverrideEnv(t *testing.T) {
 }
 
 func TestTracesConfig_Enabled(t *testing.T) {
-	tracesConsumer, err := consumer.NewTraces(func(context.Context, ptrace.Traces) error { return nil })
-	require.NoError(t, err)
+	tracesExport := func(context.Context, ptrace.Traces) error { return nil }
 
 	providerCalls := 0
 	assert.True(t, (&TracesConfig{CommonEndpoint: "foo"}).Enabled())
@@ -329,7 +339,7 @@ func TestTracesConfig_Enabled(t *testing.T) {
 		},
 	}).Enabled())
 	assert.Equal(t, 1, providerCalls)
-	assert.True(t, (&TracesConfig{TracesConsumer: tracesConsumer}).Enabled())
+	assert.True(t, (&TracesConfig{TracesExport: tracesExport}).Enabled())
 	assert.True(t, (&TracesConfig{Protocol: ProtocolDebug}).Enabled())
 }
 

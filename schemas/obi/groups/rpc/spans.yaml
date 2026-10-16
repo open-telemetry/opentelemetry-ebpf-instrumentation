@@ -17,6 +17,9 @@ spans:
         requirement_level: required
       - ref: rpc.method
         requirement_level: required
+      - ref: rpc.method_original
+        requirement_level:
+          conditionally_required: if `rpc.method` is `_OTHER` and the request path was read
       - ref: rpc.response.status_code
         requirement_level:
           conditionally_required: if the status is inside the gRPC enum
@@ -55,6 +58,9 @@ spans:
         requirement_level: required
       - ref: rpc.method
         requirement_level: required
+      - ref: rpc.method_original
+        requirement_level:
+          conditionally_required: if `rpc.method` is `_OTHER` and the request path was read
       - ref: rpc.response.status_code
         requirement_level:
           conditionally_required: if the status is inside the gRPC enum
@@ -109,6 +115,9 @@ spans:
       - ref: onc_rpc.auth.flavor
         requirement_level:
           conditionally_required: if the call carried an auth flavor
+      - ref: rpc.response.status_code
+        requirement_level:
+          conditionally_required: if the REPLY was captured
       - ref: server.address
         requirement_level:
           conditionally_required: if the host address was resolved from the connection
@@ -158,6 +167,9 @@ spans:
       - ref: onc_rpc.auth.flavor
         requirement_level:
           conditionally_required: if the call carried an auth flavor
+      - ref: rpc.response.status_code
+        requirement_level:
+          conditionally_required: if the REPLY was captured
       - ref: service.peer.name
         requirement_level: opt_in
       - ref: server.address

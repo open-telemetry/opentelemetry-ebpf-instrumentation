@@ -7,6 +7,7 @@ This repository provides eBPF-based instrumentation for applications and integra
 Agents operating on this repository must produce small, correct, and reviewable changes that respect the existing architecture and development workflow.
 
 For an overview of the data pipeline and component relationships, start with [devdocs/pipeline-map.md](devdocs/pipeline-map.md).
+For Java agent changes, see [devdocs/java-agent-design.md](devdocs/java-agent-design.md) for runtime boundaries and development conventions.
 If DeepWiki MCP is configured in the agent environment, agents may also consult the [DeepWiki repository page](https://deepwiki.com/open-telemetry/opentelemetry-ebpf-instrumentation) for additional architecture and codebase context.
 
 When repository files do not fully answer a question, prefer these references:

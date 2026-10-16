@@ -124,6 +124,9 @@ spans:
           conditionally_required: if the operation targets a named collection
       - ref: db.operation.name
         requirement_level: required
+      - ref: db.operation.parameter
+        requirement_level:
+          conditionally_required: when the url has path parameters OBI maps (index, document id)
       - ref: db.query.text
         requirement_level: opt_in
       - ref: elasticsearch.node.name

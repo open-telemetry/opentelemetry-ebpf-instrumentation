@@ -361,6 +361,7 @@ func getDefinitions(
 		nil,
 		map[attr.Name]Default{
 			attr.ServerAddr: true,
+			attr.ServerPort: true,
 		},
 		extraGroupAttributes[GroupGRPCClientInfo],
 	)
@@ -388,6 +389,7 @@ func getDefinitions(
 			attr.ServerAddr:             true,
 			attr.ErrorType:              true,
 			attr.MessagingConsumerGroup: true,
+			attr.MessagingSubscription:  true,
 		},
 		extraGroupAttributes[GroupMessaging],
 	)
@@ -435,6 +437,7 @@ func getDefinitions(
 				attr.RPCMethod:             true,
 				attr.RPCSystem:             true,
 				attr.RPCResponseStatusCode: true,
+				attr.ErrorType:             true,
 			},
 		},
 		DBClientDuration.Section: {
@@ -445,7 +448,7 @@ func getDefinitions(
 				attr.DBOperation:          true,
 				attr.DBSystemName:         true,
 				attr.ErrorType:            true,
-				attr.DBCollectionName:     false,
+				attr.DBCollectionName:     true,
 				attr.DBNamespace:          true,
 				attr.DBResponseStatusCode: true,
 			},
@@ -456,13 +459,16 @@ func getDefinitions(
 				attr.DBOperation:          true,
 				attr.DBSystemName:         true,
 				attr.ErrorType:            true,
-				attr.DBCollectionName:     false,
+				attr.DBCollectionName:     true,
 				attr.DBNamespace:          true,
 				attr.DBResponseStatusCode: true,
 			},
 		},
 		MessagingPublishDuration.Section: {
 			SubGroups: []*AttrReportGroup{&messagingAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.MessagingOpType: true,
+			},
 		},
 		MessagingProcessDuration.Section: {
 			SubGroups: []*AttrReportGroup{&messagingAttributes},
@@ -735,6 +741,12 @@ func getDefinitions(
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
 				attr.CPUMode: true,
+			},
+		},
+		DotnetGCHeapSize.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.DotnetGCHeapGeneration: true,
 			},
 		},
 		DotnetGCCollections.Section: {

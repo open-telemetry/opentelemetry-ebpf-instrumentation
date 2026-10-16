@@ -15,9 +15,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
-	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
@@ -45,11 +45,11 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 			previousClock := timeNow
 			timeNow = func() time.Time { return now }
 			t.Cleanup(func() { timeNow = previousClock })
-			registry := prometheus.NewRegistry()
+			registry := testutil.NewPrometheusServer(t)
 			reporter, err := newReporter(
 				t.Context(),
-				&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-				&PrometheusConfig{Registry: registry, TTL: ttl},
+				&global.ContextInfo{Prometheus: registry.Manager},
+				&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: ttl},
 				&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 				&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
 					attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
@@ -62,6 +62,7 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 				return &runtimemetrics.DotnetRuntimeMetricSnapshot{
 					ProcessCPUCount: &current, ProcessMemoryWorkingSet: &current,
 					GCCollections: [3]*uint64{&collections},
+					GCHeapSize:    [runtimemetrics.DotnetHeapGenerationCount]*int64{&current},
 				}
 			}
 			first := runtimemetrics.RuntimeMetricSnapshot{
@@ -83,6 +84,10 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 					require.NotNil(t, point)
 					require.InDelta(t, want, point.GetGauge().GetValue(), 0)
 				}
+				point := gatheredMetric(t, registry, attributes.DotnetGCHeapSize.Prom,
+					map[string]string{"service_name": "orders", "dotnet_gc_heap_generation": "gen0"})
+				require.NotNil(t, point)
+				require.InDelta(t, want, point.GetGauge().GetValue(), 0)
 			}
 			assertCollections := func(want float64) {
 				t.Helper()
@@ -129,6 +134,7 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 			} else {
 				require.Nil(t, gatheredMetric(t, registry, attributes.DotnetProcessMemoryWorkingSet.Prom, labels))
 				require.Nil(t, gatheredMetric(t, registry, attributes.DotnetProcessCPUCount.Prom, labels))
+				require.Nil(t, gatheredMetric(t, registry, attributes.DotnetGCHeapSize.Prom, map[string]string{"service_name": "orders", "dotnet_gc_heap_generation": "gen0"}))
 			}
 			publish(first)
 			if ttl == 0 {
@@ -141,11 +147,11 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 }
 
 func TestDotnetRuntimeCurrentValuesAggregateProcesses(t *testing.T) {
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter, err := newReporter(
 		t.Context(),
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&PrometheusConfig{Registry: registry, TTL: time.Minute},
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: time.Minute},
 		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
 			attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
@@ -296,11 +302,11 @@ func TestDotnetRuntimeCumulativeCounters(t *testing.T) {
 	previousClock := timeNow
 	timeNow = func() time.Time { return now }
 	t.Cleanup(func() { timeNow = previousClock })
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter, err := newReporter(
 		t.Context(),
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&PrometheusConfig{Registry: registry, TTL: time.Minute},
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: time.Minute},
 		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
 			attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
@@ -439,11 +445,11 @@ func TestDotnetRuntimeCounterSnapshots(t *testing.T) {
 	selection := attributes.Selection{
 		attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
 	}
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter, err := newReporter(
 		t.Context(),
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&PrometheusConfig{Registry: registry, TTL: time.Minute},
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: time.Minute},
 		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{SelectionCfg: selection},
 		request.UnresolvedNames{},
@@ -508,4 +514,70 @@ func TestDotnetRuntimeCounterSnapshots(t *testing.T) {
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{other})
 	require.Empty(t, reporter.dotnetRuntimeMetrics.values)
 	assertCounts([3]uint64{6, 11, 16})
+}
+
+func TestDotnetHeapSizeLifecycle(t *testing.T) {
+	registry := testutil.NewPrometheusServer(t)
+	reporter, err := newReporter(t.Context(),
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics"},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
+		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
+			attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
+		}}, request.UnresolvedNames{}, nil, msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)), nil)
+	require.NoError(t, err)
+	sample := func(base int64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+		values := &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+		for generation := range values.GCHeapSize {
+			value := base + int64(generation)
+			values.GCHeapSize[generation] = &value
+		}
+		return values
+	}
+	assertSizes := func(base int64, contributors int) {
+		t.Helper()
+		for generation, name := range runtimemetrics.DotnetHeapGenerations() {
+			point := gatheredMetric(t, registry, attributes.DotnetGCHeapSize.Prom,
+				map[string]string{"service_name": "orders", "dotnet_gc_heap_generation": name})
+			if contributors == 0 {
+				require.Nil(t, point, name)
+				continue
+			}
+			require.NotNil(t, point, name)
+			require.InDelta(t, float64(base)+float64(generation*contributors), point.GetGauge().GetValue(), 0, name)
+		}
+	}
+	publish := func(snapshot runtimemetrics.RuntimeMetricSnapshot) {
+		reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot})
+	}
+	first := runtimemetrics.RuntimeMetricSnapshot{
+		PID: 1, Generation: 1,
+		Service: svc.Attrs{UID: svc.UID{Name: "orders"}, SDKLanguage: svc.InstrumentableDotnet, Features: export.FeatureApplicationRuntime},
+		Dotnet:  sample(100),
+	}
+	second := first
+	second.PID = 2
+	second.Dotnet = sample(200)
+	publish(first)
+	publish(second)
+	assertSizes(300, 2)
+	first.Dotnet = sample(0)
+	publish(first)
+	assertSizes(200, 2)
+	first.Generation++
+	first.Dotnet = sample(10)
+	publish(first)
+	assertSizes(210, 2)
+	stale := first
+	stale.Generation--
+	stale.Removed = true
+	publish(stale)
+	assertSizes(210, 2)
+	second.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+	publish(second)
+	assertSizes(10, 1)
+	first.Removed = true
+	publish(first)
+	assertSizes(0, 0)
+	require.Empty(t, reporter.dotnetRuntimeMetrics.currentAggregates)
 }
