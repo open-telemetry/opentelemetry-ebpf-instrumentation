@@ -231,6 +231,11 @@ func validateV2HTTPRoutePolicy(path string, policy *schema.HTTPRoutePolicy) erro
 }
 
 func validateUnsupportedV2Fields(src *schema.Extension) error {
+	for ruleIndex, rule := range src.Capture.Rules {
+		if len(rule.Refine.Spans) > 0 {
+			return fmt.Errorf("capture.rules[%d].refine.spans is not supported by the runtime converter", ruleIndex)
+		}
+	}
 	runtimeFilters := []struct {
 		path    string
 		filters schema.AttributeFilters
@@ -510,7 +515,7 @@ func validateV2CaptureRules(policy schema.CapturePolicy, rules []schema.Rule) er
 		if ruleMatchEmpty(rule.Match) {
 			return fmt.Errorf("%s.match must define at least one selector", path)
 		}
-		if rule.Action == schema.CaptureActionExclude && !zeroValue(rule.Refine) {
+		if rule.Action == schema.CaptureActionExclude && (rule.Refine.Exports != nil || rule.Refine.HTTP != nil || len(rule.Refine.Spans) > 0) {
 			return fmt.Errorf("%s.refine is not supported for exclude rules", path)
 		}
 		if rule.Refine.HTTP != nil && len(rule.Refine.HTTP.Filters.Traces)+len(rule.Refine.HTTP.Filters.Metrics) > 0 {
