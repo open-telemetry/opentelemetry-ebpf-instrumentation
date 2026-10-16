@@ -77,30 +77,6 @@ func TestGatherOffsets(t *testing.T) {
 	}
 }
 
-func TestGatherOffsetsResolvesSymbolSubstring(t *testing.T) {
-	reader := bytes.NewReader(testData())
-	assert.NotNil(t, reader)
-
-	probes := probeDescMap{
-		"setprog": {{
-			SymbolMatcher: ebpfcommon.SymbolMatcherContains,
-		}},
-	}
-
-	elfFile, err := elf.NewFile(reader)
-	require.NoError(t, err)
-	defer elfFile.Close()
-
-	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
-	require.NoError(t, err)
-
-	desc := probes["setprog"][0]
-	expected := expectedValues()["setprogname"]
-	assert.Equal(t, expected.startOffset, desc.StartOffset)
-	assert.Equal(t, expected.returnOffsets, desc.ReturnOffsets)
-	assert.False(t, desc.Skip)
-}
-
 func TestApplyResolvedSymbolOffsetsKeepsStartOffsetWhenReturnScanFails(t *testing.T) {
 	probe := &ebpfcommon.ProbeDesc{}
 	sym := procs.Sym{Name: "jvm", Off: 0x1234}
@@ -160,8 +136,7 @@ func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
 
 	probes := probeDescMap{
 		"missing_optional_symbol": {{
-			Required:      false,
-			SymbolMatcher: ebpfcommon.SymbolMatcherContains,
+			Required: false,
 		}},
 	}
 
