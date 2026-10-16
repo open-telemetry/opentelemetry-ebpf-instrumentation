@@ -122,17 +122,16 @@ static __always_inline void handle_light_weight_thread_buf(void *ctx,
 }
 
 static __always_inline void
-read_skb_bytes(const void *skb, u32 offset, unsigned char *buf, const u32 len) {
+read_skb_bytes(const void *skb, u32 offset, unsigned char *buf, const u32 len, const u32 max_len) {
     enum : u32 { k_block_size = 16 };
-    enum : u32 { k_max_len = FULL_BUF_SIZE };
-    const u32 niter = k_max_len / k_block_size;
+    const u32 niter = max_len / k_block_size;
 
     // prevent register narrowing and the verifier from losing track of things
     u64 remaining = len;
     barrier_var(remaining);
 
-    if (remaining > k_max_len) {
-        remaining = k_max_len;
+    if (remaining > max_len) {
+        remaining = max_len;
     }
 
     for (u32 i = 0; i < niter; ++i) {
