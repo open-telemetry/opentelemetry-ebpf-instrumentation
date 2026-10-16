@@ -3,11 +3,11 @@
 
 module-sets:
   obi:
-    version: v0.15.0
+    version: v0.15.1
     modules:
       - go.opentelemetry.io/obi
   collector:
-    version: v0.15.0
+    version: v0.15.1
     modules:
       - go.opentelemetry.io/obi/collector
 excluded-modules:
