@@ -318,6 +318,9 @@ jobs:
     name: Build Release Artifacts
     needs: tests-passed
     runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
+      RELEASE_SOURCE_VERSION: ${{ inputs.tag || github.ref_name }}
     permissions:
       contents: read
       id-token: write
@@ -365,7 +368,6 @@ jobs:
 
       - name: Generate release SBOMs
         env:
-          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
           SYFT_CMD: ${{ steps.syft.outputs.cmd }}
         run: |
           set -euo pipefail
@@ -418,8 +420,6 @@ jobs:
           done
 
       - name: Validate release SBOMs
-        env:
-          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
 
@@ -445,8 +445,6 @@ jobs:
             "dist/obi-java-agent-${RELEASE_VERSION}.cyclonedx.json" >/dev/null
 
       - name: Regenerate release checksums
-        env:
-          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
         run: make release-checksums RELEASE_VERSION="${RELEASE_VERSION}"
 
       - name: Sign release artifacts
