@@ -7,7 +7,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -216,10 +218,44 @@ func testHTTPTracesNestedNginxSQL(t *testing.T) {
 }
 
 func testHTTPTracesRailsPostgres(t *testing.T) {
-	const (
-		serviceName = "my-ruby-app"
-		urlPath     = "/restaurants"
-	)
+	testHTTPTracesRailsPostgresPath(t, "/restaurants", 1)
+}
+
+func testHTTPTracesRailsPostgresPrepared(t *testing.T) {
+	// Verify the application actually prepares SQL before checking its trace in Jaeger.
+	waitForTestComponentsSub(t, "http://localhost:3041", "/healthz")
+	resp, err := testHTTPClient.Get("http://localhost:3041/prepared-restaurants")
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var result struct {
+		PreparedStatementsEnabled bool `json:"prepared_statements_enabled"`
+		Statements                []struct {
+			Name      string `json:"name"`
+			Statement string `json:"statement"`
+			FromSQL   bool   `json:"from_sql"`
+		} `json:"statements"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+	require.True(t, result.PreparedStatementsEnabled)
+	require.NotEmpty(t, result.Statements)
+	var found bool
+	for _, statement := range result.Statements {
+		if strings.Contains(statement.Statement, `"restaurants"`) && strings.Contains(statement.Statement, "$1") {
+			require.NotEmpty(t, statement.Name)
+			require.False(t, statement.FromSQL, "expected protocol-level preparation rather than SQL PREPARE")
+			found = true
+		}
+	}
+	require.True(t, found, "Rails did not prepare the parameterized restaurant query")
+
+	testHTTPTracesRailsPostgresPath(t, "/prepared-restaurants", 2)
+}
+
+func testHTTPTracesRailsPostgresPath(t *testing.T, urlPath string, minRestaurantQueries int) {
+	t.Helper()
+	const serviceName = "my-ruby-app"
 
 	waitForTestComponentsSub(t, "http://localhost:3041", "/healthz")
 	for range 4 {
@@ -227,7 +263,7 @@ func testHTTPTracesRailsPostgres(t *testing.T) {
 	}
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		resp, err := getJaeger(jaegerQueryURL + "?service=" + serviceName + "&tags=%7B%22url.path%22%3A%22%2Frestaurants%22%7D")
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + serviceName + "&tags=" + url.QueryEscape(`{"url.path":"`+urlPath+`"}`))
 		require.NoError(ct, err)
 		if resp == nil {
 			return
@@ -240,9 +276,11 @@ func testHTTPTracesRailsPostgres(t *testing.T) {
 		traces := query.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: urlPath})
 		require.NotEmpty(ct, traces)
 
-		serverSpans := traces[0].FindByOperationName("GET /restaurants", "server")
+		serverSpans := traces[0].FindByOperationName("GET "+urlPath, "server")
 		require.NotEmpty(ct, serverSpans)
 		require.NotEmpty(ct, serverSpans[0].TraceID)
+		// Require the application queries, including execution of the reused prepared statement.
+		require.GreaterOrEqual(ct, len(traces[0].FindByOperationName("SELECT restaurants", "client")), minRestaurantQueries)
 
 		var postgresClients []jaeger.Span
 		for _, span := range traces[0].Spans {

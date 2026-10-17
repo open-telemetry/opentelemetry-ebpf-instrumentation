@@ -1,0 +1,42 @@
+# Reuse the Rails application, seeded PostgreSQL database and telemetry stack.
+services:
+  testserver:
+    extends:
+      file: docker-compose-ruby-postgres.yml
+      service: testserver
+    build:
+      dockerfile: ./internal/test/integration/components/rubytestserver/tapasapi/Dockerfile_ruby348
+    image: hatest-ruby-3.4.8-postgres
+    environment:
+      # Rails disables prepared statements when SQL query tags are enabled.
+      QUERY_LOG_TAGS_ENABLED: "false"
+
+  db:
+    extends:
+      file: docker-compose-ruby-postgres.yml
+      service: db
+
+  obi:
+    extends:
+      file: docker-compose-ruby-postgres.yml
+      service: obi
+
+  otelcol:
+    extends:
+      file: docker-compose-ruby-postgres.yml
+      service: otelcol
+
+  weaver:
+    extends:
+      file: docker-compose-ruby-postgres.yml
+      service: weaver
+
+  prometheus:
+    extends:
+      file: docker-compose-ruby-postgres.yml
+      service: prometheus
+
+  jaeger:
+    extends:
+      file: docker-compose-ruby-postgres.yml
+      service: jaeger

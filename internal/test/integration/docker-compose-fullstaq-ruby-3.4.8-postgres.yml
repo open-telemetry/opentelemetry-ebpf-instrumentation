@@ -1,0 +1,40 @@
+# Reuse the Rails application, seeded PostgreSQL database and telemetry stack.
+services:
+  testserver:
+    extends:
+      file: docker-compose-ruby-3.4.8-postgres.yml
+      service: testserver
+    build:
+      dockerfile: ./internal/test/integration/components/rubytestserver/tapasapi/Dockerfile_fullstaq_ruby348
+    image: hatest-fullstaq-ruby-3.4.8-postgres
+    platform: linux/amd64
+
+  db:
+    extends:
+      file: docker-compose-ruby-3.4.8-postgres.yml
+      service: db
+
+  obi:
+    extends:
+      file: docker-compose-ruby-3.4.8-postgres.yml
+      service: obi
+
+  otelcol:
+    extends:
+      file: docker-compose-ruby-3.4.8-postgres.yml
+      service: otelcol
+
+  weaver:
+    extends:
+      file: docker-compose-ruby-3.4.8-postgres.yml
+      service: weaver
+
+  prometheus:
+    extends:
+      file: docker-compose-ruby-3.4.8-postgres.yml
+      service: prometheus
+
+  jaeger:
+    extends:
+      file: docker-compose-ruby-3.4.8-postgres.yml
+      service: jaeger
