@@ -4,6 +4,7 @@
 package integration // import "go.opentelemetry.io/obi/internal/test/integration"
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -267,21 +268,35 @@ func testHTTPTracesRailsPostgres(t *testing.T) {
 }
 
 func testRailsHarvestedRoutes(t *testing.T, serviceName string) {
+	waitForRubyTestComponents(t, "http://localhost:3041")
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	for _, tc := range []struct {
-		path  string
-		route string
+		path    string
+		route   string
+		graphql bool
 	}{
-		{"/harvest/orders/alpha", "/harvest/orders/:order_id"},
-		{"/harvest/orders/beta", "/harvest/orders/:order_id"},
-		{"/harvest/api/widgets/first", "/harvest/api/widgets/:widget_id"},
+		{"/harvest/orders/alpha", "/harvest/orders/:order_id", false},
+		{"/harvest/orders/beta", "/harvest/orders/:order_id", false},
+		{"/harvest/api/widgets/first", "/harvest/api/widgets/:widget_id", false},
+		{"/graphql", "/graphql", true},
+		{"/graphql/alpha", "/graphql/:tenant_id", true},
+		{"/graphql/beta", "/graphql/:tenant_id", true},
+		{"/harvest/engine/graphql/gamma", "/harvest/engine/graphql/:tenant_id", true},
 	} {
 		t.Run(tc.path, func(t *testing.T) {
+			method := http.MethodGet
+			if tc.graphql {
+				method = http.MethodPost
+			}
 			for range 4 {
-				ti.DoHTTPGet(t, "http://localhost:3041"+tc.path, http.StatusOK)
+				if tc.graphql {
+					testRailsGraphQLResponse(t, "http://localhost:3041"+tc.path)
+				} else {
+					ti.DoHTTPGet(t, "http://localhost:3041"+tc.path, http.StatusOK)
+				}
 			}
 			require.EventuallyWithT(t, func(ct *assert.CollectT) {
-				results, err := pq.Query(`http_server_request_duration_seconds_count{service_name="` + serviceName + `",http_request_method="GET",http_route="` + tc.route + `",url_path="` + tc.path + `"}`)
+				results, err := pq.Query(`http_server_request_duration_seconds_count{service_name="` + serviceName + `",http_request_method="` + method + `",http_route="` + tc.route + `",url_path="` + tc.path + `"}`)
 				require.NoError(ct, err)
 				enoughPromResults(ct, results)
 			}, testTimeout, 100*time.Millisecond)
@@ -297,8 +312,28 @@ func testRailsHarvestedRoutes(t *testing.T, serviceName string) {
 					jaeger.Tag{Key: "http.route", Type: "string", Value: tc.route},
 				)
 				require.NotEmpty(ct, traces)
-				require.NotEmpty(ct, traces[0].FindByOperationName("GET "+tc.route, "server"))
+				require.NotEmpty(ct, traces[0].FindByOperationName(method+" "+tc.route, "server"))
 			}, testTimeout, 100*time.Millisecond)
 		})
 	}
+}
+
+func testRailsGraphQLResponse(t *testing.T, endpoint string) {
+	t.Helper()
+	body := []byte(`{"query":"query Greeting($name: String!) { greeting(name: $name) }","variables":{"name":"OBI"},"operationName":"Greeting"}`)
+	client := &http.Client{Timeout: 5 * time.Second}
+	response, err := client.Post(endpoint, "application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	defer response.Body.Close()
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	var result struct {
+		Data struct {
+			Greeting string `json:"greeting"`
+		} `json:"data"`
+		Errors []json.RawMessage `json:"errors"`
+	}
+	require.NoError(t, json.NewDecoder(response.Body).Decode(&result))
+	// GraphQL can return HTTP 200 even when query execution fails.
+	require.Empty(t, result.Errors)
+	require.Equal(t, "Hello, OBI!", result.Data.Greeting)
 }

@@ -401,7 +401,7 @@ func TestRetrievalSpan_TraceName(t *testing.T) {
 			Retrieval: &request.VendorRetrieval{Provider: "qdrant"},
 		},
 	}
-	assert.Equal(t, "retrieval qdrant", spanNoCollection.TraceName())
+	assert.Equal(t, "retrieval", spanNoCollection.TraceName())
 }
 
 func TestIsGenAISubtype_Retrieval(t *testing.T) {

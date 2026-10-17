@@ -47,10 +47,10 @@ func testElasticsearchSearch(t *testing.T, dbSystemName, queryParam string) {
 	urlPath := "/search"
 	t.Log("Running search test")
 	ti.DoHTTPGet(t, testServerURL+urlPath+queryParam, 200)
-	assertElasticsearchOperation(t, dbSystemName, "search", queryText, testIndex)
+	assertElasticsearchOperation(t, dbSystemName, "search", queryText, testIndex, "")
 }
 
-func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, index string) {
+func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, index, documentID string) {
 	params := neturl.Values{}
 	params.Add("service", comm)
 	var operationName string
@@ -118,6 +118,22 @@ func assertElasticsearchOperation(t *testing.T, dbSystemName, op, queryText, ind
 				assert.Equal(ct, index, tag.Value)
 			}
 
+			tag, found = jaeger.FindIn(span.Tags, "db.operation.parameter.index")
+			if index == "" {
+				assert.False(ct, found)
+			} else {
+				assert.True(ct, found)
+				assert.Equal(ct, index, tag.Value)
+			}
+
+			tag, found = jaeger.FindIn(span.Tags, "db.operation.parameter.id")
+			if documentID == "" {
+				assert.False(ct, found)
+			} else {
+				assert.True(ct, found)
+				assert.Equal(ct, documentID, tag.Value)
+			}
+
 			// Only Elastic Cloud reports the cluster name, so the attribute is
 			// omitted against a self-hosted cluster rather than emitted empty.
 			_, found = jaeger.FindIn(span.Tags, "db.namespace")
@@ -146,7 +162,7 @@ func testElasticsearchMsearch(t *testing.T, dbSystemName, queryParam string) {
 	urlPath := "/msearch"
 	t.Log("Running msearch test")
 	ti.DoHTTPGet(t, testServerURL+urlPath+queryParam, 200)
-	assertElasticsearchOperation(t, dbSystemName, "msearch", queryText, "")
+	assertElasticsearchOperation(t, dbSystemName, "msearch", queryText, "", "")
 }
 
 func testElasticsearchBulk(t *testing.T, dbSystemName, queryParam string) {
@@ -154,7 +170,7 @@ func testElasticsearchBulk(t *testing.T, dbSystemName, queryParam string) {
 	urlPath := "/bulk"
 	t.Log("Running bulk test")
 	ti.DoHTTPGet(t, testServerURL+urlPath+queryParam, 200)
-	assertElasticsearchOperation(t, dbSystemName, "bulk", queryText, "")
+	assertElasticsearchOperation(t, dbSystemName, "bulk", queryText, "", "")
 }
 
 func testElasticsearchDoc(t *testing.T, dbSystemName, queryParam string) {
@@ -162,5 +178,5 @@ func testElasticsearchDoc(t *testing.T, dbSystemName, queryParam string) {
 	urlPath := "/doc"
 	t.Log("Running doc test")
 	ti.DoHTTPGet(t, testServerURL+urlPath+queryParam, 200)
-	assertElasticsearchOperation(t, dbSystemName, "doc", queryText, testIndex)
+	assertElasticsearchOperation(t, dbSystemName, "doc", queryText, testIndex, "1")
 }

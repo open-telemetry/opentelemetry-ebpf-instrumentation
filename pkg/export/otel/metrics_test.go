@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
@@ -619,7 +618,7 @@ func TestAppMetrics_GenAITokenAvailability(t *testing.T) {
 				TTL:               30 * time.Minute,
 				ReportersCacheLen: 10,
 				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
-				MetricsConsumer:   testMetricsConsumer(metricRecords),
+				MetricsExport:     testMetricsConsumer(metricRecords),
 			}
 			reporter, err := newMetricsReporter(
 				ctx,
@@ -711,7 +710,7 @@ func TestAppMetrics_MCPOperationDuration(t *testing.T) {
 				TTL:               30 * time.Minute,
 				ReportersCacheLen: 10,
 				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP, instrumentations.InstrumentationGenAI},
-				MetricsConsumer:   testMetricsConsumer(metricRecords),
+				MetricsExport:     testMetricsConsumer(metricRecords),
 			}
 			reporter, err := newMetricsReporter(
 				ctx,
@@ -802,7 +801,7 @@ func TestAppMetrics_MCPSessionDurationExportsDuringShutdown(t *testing.T) {
 		TTL:               time.Hour,
 		ReportersCacheLen: 1,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
-		MetricsConsumer:   testMetricsConsumer(metricRecords),
+		MetricsExport:     testMetricsConsumer(metricRecords),
 	}
 	reporter, err := newMetricsReporter(
 		ctx,
@@ -862,7 +861,7 @@ func TestAppMetrics_DBClientAttributes(t *testing.T) {
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 10,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationSQL},
-		MetricsConsumer:   testMetricsConsumer(metricRecords),
+		MetricsExport:     testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -916,7 +915,7 @@ func TestAppMetrics_HTTPErrorType(t *testing.T) {
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 10,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
-		MetricsConsumer:   testMetricsConsumer(metricRecords),
+		MetricsExport:     testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -973,6 +972,166 @@ func TestAppMetrics_HTTPErrorType(t *testing.T) {
 	}
 }
 
+func TestAppMetrics_REDHistogramBucketBoundaries(t *testing.T) {
+	features := export.FeatureApplicationRED | export.FeatureApplicationSizes
+	// non-default and distinct per field, so a histogram that ignores cfg.Buckets or uses
+	// another field's buckets fails the bounds assertion
+	buckets := export.Buckets{
+		DurationHistogram:     []float64{0.002, 0.2, 2},
+		RequestSizeHistogram:  []float64{3, 300, 3000},
+		ResponseSizeHistogram: []float64{7, 700, 7000},
+	}
+	ctx := t.Context()
+	records := make(chan histogramBoundsRecord, 100)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		Buckets:           buckets,
+		MetricsExport:     testHistogramBoundsConsumer(records),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: features},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	svcAttrs := svc.Attrs{Features: features, UID: svc.UID{Instance: "foo"}}
+	metrics.Send([]request.Span{
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Method: "GET", Status: 200, RequestStart: 100, End: 200},
+		{Service: svcAttrs, Type: request.EventTypeHTTPClient, Method: "GET", Status: 200, RequestStart: 100, End: 200},
+	})
+
+	expected := map[string][]float64{
+		attributes.HTTPServerDuration.OTEL:     buckets.DurationHistogram,
+		attributes.HTTPClientDuration.OTEL:     buckets.DurationHistogram,
+		attributes.HTTPServerRequestSize.OTEL:  buckets.RequestSizeHistogram,
+		attributes.HTTPClientRequestSize.OTEL:  buckets.RequestSizeHistogram,
+		attributes.HTTPServerResponseSize.OTEL: buckets.ResponseSizeHistogram,
+		attributes.HTTPClientResponseSize.OTEL: buckets.ResponseSizeHistogram,
+	}
+	assert.Equal(t, expected, readHistogramBounds(t, records, slices.Collect(maps.Keys(expected))...))
+}
+
+func TestAppMetrics_GenAIHistogramBucketBoundaries(t *testing.T) {
+	// non-default and distinct per field, so a histogram that ignores cfg.Buckets or uses
+	// another field's buckets fails the bounds assertion
+	buckets := export.Buckets{
+		GenAIClientDurationHistogram: []float64{0.004, 0.4, 4},
+		GenAITokenUsageHistogram:     []float64{5, 500, 5000},
+	}
+	ctx := t.Context()
+	records := make(chan histogramBoundsRecord, 100)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
+		Buckets:           buckets,
+		MetricsExport:     testHistogramBoundsConsumer(records),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	var usage request.OpenAIUsage
+	require.NoError(t, json.Unmarshal([]byte(`{"prompt_tokens":10,"completion_tokens":20}`), &usage))
+	metrics.Send([]request.Span{{
+		Service:      svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "genai"}},
+		Type:         request.EventTypeHTTPClient,
+		SubType:      request.HTTPSubtypeOpenAI,
+		RequestStart: 100,
+		End:          200,
+		GenAI:        &request.GenAI{OpenAI: &request.VendorOpenAI{Usage: usage}},
+	}})
+
+	expected := map[string][]float64{
+		attributes.GenAIClientOperationDuration.OTEL: buckets.GenAIClientDurationHistogram,
+		attributes.GenAIClientInputTokenUsage.OTEL:   buckets.GenAITokenUsageHistogram,
+	}
+	assert.Equal(t, expected, readHistogramBounds(t, records, slices.Collect(maps.Keys(expected))...))
+}
+
+func TestAppMetrics_GRPCServerErrorType(t *testing.T) {
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 10)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC},
+		MetricsExport:     testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	svcAttrs := svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}
+	metrics.Send([]request.Span{
+		{Service: svcAttrs, Type: request.EventTypeGRPC, Path: "/pkg.Service/Method", Status: 0, RequestStart: 100, End: 200},
+		{Service: svcAttrs, Type: request.EventTypeGRPC, Path: "/pkg.Service/Method", Status: 2, RequestStart: 100, End: 200},
+	})
+
+	pending := map[string]string{"OK": "", "UNKNOWN": "UNKNOWN"}
+	deadline := time.After(timeout)
+	for len(pending) > 0 {
+		select {
+		case record := <-metricRecords:
+			if record.Name != attributes.RPCServerDuration.OTEL {
+				continue
+			}
+			status := record.Attributes[string(attr.RPCResponseStatusCode)]
+			want, ok := pending[status]
+			if !ok {
+				continue
+			}
+			if want == "" {
+				assert.NotContains(t, record.Attributes, string(attr.ErrorType), status)
+			} else {
+				assert.Equal(t, want, record.Attributes[string(attr.ErrorType)], status)
+			}
+			delete(pending, status)
+		case <-deadline:
+			require.Failf(t, "timeout while waiting for metric records", "missing: %v", pending)
+		}
+	}
+}
+
 func TestAppMetrics_DBClientServerPortDefaultSelection(t *testing.T) {
 	ctx := t.Context()
 	metricRecords := make(chan collector.MetricRecord, 10)
@@ -983,7 +1142,7 @@ func TestAppMetrics_DBClientServerPortDefaultSelection(t *testing.T) {
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 10,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationSQL},
-		MetricsConsumer:   testMetricsConsumer(metricRecords),
+		MetricsExport:     testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -1064,7 +1223,7 @@ func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
 		ReportersCacheLen:       100,
 		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 		ExtraSpanResourceLabels: []string{"deployment.environment"},
-		MetricsConsumer:         testMetricsConsumer(metricRecords),
+		MetricsExport:           testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -1153,7 +1312,7 @@ func TestSpanMetrics_EmittedAttributes(t *testing.T) {
 				TTL:               30 * time.Minute,
 				ReportersCacheLen: 100,
 				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
-				MetricsConsumer:   testMetricsConsumer(metricRecords),
+				MetricsExport:     testMetricsConsumer(metricRecords),
 			}
 
 			reporter, err := newMetricsReporter(
@@ -1270,7 +1429,7 @@ func TestSpanSizeMetrics_ExtraResourceAttributes(t *testing.T) {
 		ReportersCacheLen:       100,
 		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 		ExtraSpanResourceLabels: []string{"deployment.environment"},
-		MetricsConsumer:         testMetricsConsumer(metricRecords),
+		MetricsExport:           testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -1523,18 +1682,55 @@ func readNChan(t require.TestingT, inCh <-chan collector.MetricRecord, numRecord
 	return records
 }
 
-func testMetricsConsumer(out chan<- collector.MetricRecord) consumer.Metrics {
-	c, err := consumer.NewMetrics(func(_ context.Context, md pmetric.Metrics) error {
+func testMetricsConsumer(out chan<- collector.MetricRecord) otelcfg.MetricsExportFunc {
+	return testOTLPMetricsExport(func(_ context.Context, md pmetric.Metrics) error {
 		collector.VisitMetricRecords(md, func(record collector.MetricRecord) {
 			out <- record
 		})
 		return nil
 	})
-	if err != nil {
-		panic(err)
+}
+
+type histogramBoundsRecord struct {
+	Name   string
+	Bounds []float64
+}
+
+func testHistogramBoundsConsumer(out chan<- histogramBoundsRecord) otelcfg.MetricsExportFunc {
+	return testOTLPMetricsExport(func(_ context.Context, md pmetric.Metrics) error {
+		for _, rm := range md.ResourceMetrics().All() {
+			for _, sm := range rm.ScopeMetrics().All() {
+				for _, m := range sm.Metrics().All() {
+					if m.Type() != pmetric.MetricTypeHistogram {
+						continue
+					}
+					for _, point := range m.Histogram().DataPoints().All() {
+						out <- histogramBoundsRecord{Name: m.Name(), Bounds: point.ExplicitBounds().AsRaw()}
+					}
+				}
+			}
+		}
+		return nil
+	})
+}
+
+// readHistogramBounds returns the explicit bucket bounds of the first data point received for each named histogram
+func readHistogramBounds(t *testing.T, inCh <-chan histogramBoundsRecord, names ...string) map[string][]float64 {
+	t.Helper()
+	bounds := map[string][]float64{}
+	deadline := time.After(timeout)
+	for len(bounds) < len(names) {
+		select {
+		case record := <-inCh:
+			if _, seen := bounds[record.Name]; !seen && slices.Contains(names, record.Name) {
+				bounds[record.Name] = record.Bounds
+			}
+		case <-deadline:
+			require.Failf(t, "timeout while waiting for histograms", "got: %v, want: %v", bounds, names)
+		}
 	}
 
-	return c
+	return bounds
 }
 
 func readMetricsByName(t require.TestingT, inCh <-chan collector.MetricRecord, timeout time.Duration, names ...string) []collector.MetricRecord {
@@ -2152,6 +2348,95 @@ func TestHandleProcessEventCreated(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "PID changing to a service already reported by other PIDs",
+			setup: func(r *MetricsReporter, m *mockEventMetrics) {
+				staleUID := svc.UID{
+					Name:      "old-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}
+				r.pidTracker.AddPID(1234, staleUID)
+				r.targetMetrics[staleUID] = attrsToTargetMetrics(r, &svc.Attrs{
+					Features: export.FeatureApplicationRED,
+					UID:      staleUID,
+					HostName: "test-host",
+				})
+
+				sharedUID := svc.UID{
+					Name:      "new-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}
+				r.pidTracker.AddPID(5678, sharedUID)
+				r.targetMetrics[sharedUID] = attrsToTargetMetrics(r, &svc.Attrs{
+					Features: export.FeatureApplicationRED,
+					UID:      sharedUID,
+					HostName: "test-host",
+				})
+			},
+			event: exec.ProcessEvent{
+				Type: exec.ProcessEventCreated,
+				File: exec.New(exec.Init{
+					Pid: 1234,
+					Service: svc.Attrs{
+						Features: export.FeatureApplicationRED,
+						UID: svc.UID{
+							Name:      "new-service",
+							Namespace: "default",
+							Instance:  "instance-1",
+						},
+						HostName: "test-host",
+					},
+				}),
+			},
+			expectedCreate: []svc.Attrs{
+				{
+					Features: export.FeatureApplicationRED,
+					UID: svc.UID{
+						Name:      "new-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+			expectedDelete: []svc.Attrs{
+				{
+					Features: export.FeatureApplicationRED,
+					UID: svc.UID{
+						Name:      "old-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+				{
+					Features: export.FeatureApplicationRED,
+					UID: svc.UID{
+						Name:      "new-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+			expectedMap: map[svc.UID]svc.Attrs{
+				{
+					Name:      "new-service",
+					Namespace: "default",
+					Instance:  "instance-1",
+				}: {
+					Features: export.FeatureApplicationRED,
+					UID: svc.UID{
+						Name:      "new-service",
+						Namespace: "default",
+						Instance:  "instance-1",
+					},
+					HostName: "test-host",
+				},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -2182,6 +2467,7 @@ func TestHandleProcessEventCreated(t *testing.T) {
 			}
 
 			// Verify delete calls
+			require.Len(t, mockEventsStore.deleteCalls, len(tt.expectedDelete))
 			for i, cc := range tt.expectedDelete {
 				c := attrsToTargetMetrics(reporter, &cc)
 				resourcesMatch(t, c, mockEventsStore.deleteCalls[i])
@@ -2338,6 +2624,54 @@ func TestHandleProcessEventCreated_EdgeCases(t *testing.T) {
 		// Should have created 5 times and deleted 4 times (each update after first deletes previous)
 		assert.Len(t, mockEventsStore.createCalls, 5)
 		assert.Len(t, mockEventsStore.deleteCalls, 4)
+	})
+
+	t.Run("PID moved to a shared service terminates before the other PIDs", func(t *testing.T) {
+		mockEventsStore := newMockEventMetrics()
+
+		reporter := &MetricsReporter{
+			cfg:                &otelcfg.MetricsConfig{},
+			log:                slog.Default(),
+			jointMetricsCfg:    &perapp.GlobalMetricsConfig{},
+			targetMetrics:      make(map[svc.UID]*TargetMetrics),
+			pidTracker:         NewPidServiceTracker(),
+			createEventMetrics: mockEventsStore.createEventMetrics,
+			deleteEventMetrics: mockEventsStore.deleteEventMetrics,
+		}
+
+		oldService := svc.Attrs{
+			Features: export.FeatureAll,
+			UID:      svc.UID{Name: "old-service", Namespace: "default", Instance: "instance-1"},
+			HostName: "test-host",
+		}
+		sharedService := svc.Attrs{
+			Features: export.FeatureAll,
+			UID:      svc.UID{Name: "shared-service", Namespace: "default", Instance: "instance-1"},
+			HostName: "test-host",
+		}
+
+		created := func(pid app.PID, service svc.Attrs) *exec.ProcessEvent {
+			return &exec.ProcessEvent{Type: exec.ProcessEventCreated, File: exec.New(exec.Init{Pid: pid, Service: service})}
+		}
+		terminated := func(pid app.PID, service svc.Attrs) *exec.ProcessEvent {
+			return &exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: exec.New(exec.Init{Pid: pid, Service: service})}
+		}
+
+		reporter.onProcessEvent(created(2222, sharedService))
+		reporter.onProcessEvent(created(1111, oldService))
+		reporter.onProcessEvent(created(1111, sharedService))
+
+		assert.Len(t, mockEventsStore.deleteCalls, 2) // old-service, then shared-service before recreating it
+
+		reporter.onProcessEvent(terminated(1111, sharedService))
+
+		assert.Len(t, mockEventsStore.deleteCalls, 2, "target metrics must stay while PID 2222 runs")
+		assert.Contains(t, reporter.targetMetrics, sharedService.UID)
+
+		reporter.onProcessEvent(terminated(2222, sharedService))
+
+		assert.Len(t, mockEventsStore.deleteCalls, 3)
+		assert.Empty(t, reporter.targetMetrics)
 	})
 }
 

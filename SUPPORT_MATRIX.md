@@ -49,6 +49,10 @@ disabled (the production default), or use a kernel containing the verifier fix
 for spilled `PTR_TO_MEM` values. Production instrumentation with debug disabled
 is unaffected.
 
+OBI can run in the host PID namespace or in another PID namespace: a sidecar sharing the pod's process namespace,
+a container started with `--pid=container:<app>`, or a `hostPID` pod on a node that is itself a container, such as
+a kind node. It instruments the processes of its PID namespace and of the PID namespaces nested below it.
+
 ## Validation Coverage
 
 The support contract is broader than CI coverage, but the following environments are explicitly validated in
@@ -198,6 +202,18 @@ not exported, and OBI does not currently report this condition with a metric or 
 The general Go `1.17+` library-instrumentation baseline elsewhere in this matrix does not widen this Auto SDK
 allowlist.
 
+### Go Trace API Embedded Auto SDK
+
+OBI also activates the Auto SDK embedded in `go.opentelemetry.io/otel/trace` for
+provider lookups from empty contexts and non-recording local or remote span contexts.
+It accepts canonical, unreplaced `otel` and `otel/trace` modules at the exact `.0`
+releases from `v1.35.0` through `v1.46.0`; the external `auto/sdk` module is optional.
+Activation requires the embedded capture symbols and offsets, `amd64` or `arm64`,
+and the same user-memory write permissions and payload limits described above.
+CI covers Go `1.26` and `1.27`, both architectures, and both SDK activation orders.
+Arbitrary remote-parent extraction and context handoff remain tracked in
+[#2794](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/2794).
+
 ### Statistical Metrics
 
 OBI currently documents the following statistical instrumentation support:
@@ -217,7 +233,7 @@ language-runtime metrics for the following environments:
 
 | Runtime | Metrics | Mechanism | Requirements | Limitations | Status |
 |:--------|:--------|:----------|:-------------|:------------|:-------|
-| .NET | `dotnet.gc.collections`, `dotnet.process.memory.working_set`, `dotnet.gc.last_collection.memory.committed_size`, `dotnet.thread_pool.thread.count`, `dotnet.thread_pool.queue.length`, `dotnet.timer.count`, `dotnet.assembly.count` | `System.Runtime` EventCounters read through diagnostic IPC and EventPipe | .NET `8+` on Linux; diagnostic IPC enabled and accessible to OBI; integration coverage validates .NET 8, 9, and 10 | Exclusive gen0, gen1, and gen2 counts since attachment; collections during reconnect gaps are unavailable; current values refresh each sampling interval; details in [devdocs/runtimes/dotnet.md](devdocs/runtimes/dotnet.md) | Experimental |
+| .NET | `dotnet.process.cpu.count`, `dotnet.process.cpu.time`, `dotnet.gc.collections`, `dotnet.process.memory.working_set`, `dotnet.gc.last_collection.memory.committed_size`, `dotnet.gc.last_collection.heap.size`, `dotnet.thread_pool.thread.count`, `dotnet.thread_pool.queue.length`, `dotnet.timer.count`, `dotnet.assembly.count` | `System.Runtime` events and EventCounters through diagnostic IPC and EventPipe; CPU time through the stable process stat handle | .NET `8+` on Linux; diagnostic IPC enabled and accessible to OBI; integration coverage validates .NET 8, 9, and 10 | Exclusive gen0, gen1, and gen2 counts since attachment; collections during reconnect gaps are unavailable; current values refresh each sampling interval; details in [devdocs/runtimes/dotnet.md](devdocs/runtimes/dotnet.md) | Experimental |
 | Go | `go.memory.*`, `go.cpu.time`, `go.goroutine.count`, `go.processor.limit`, `go.config.gogc`, `go.schedule.duration` | GC-cadence entry or return probes reading runtime structures; Linux `amd64` can recover required globals from stripped binaries | Go `1.17+`; ELF symbols on `amd64` or `arm64`, or a supported stripped Linux `amd64` binary; individual metrics have higher version floors | Values refresh once per GC cycle; metric availability depends on the Go version and resolved runtime fields; `go.goroutine.count` currently requires Go `1.25+`; details in [devdocs/runtimes/go.md](devdocs/runtimes/go.md) | Experimental |
 | Java (HotSpot) | `jvm.memory.used`, `jvm.memory.committed`, `jvm.memory.limit`, `jvm.memory.used_after_last_gc` | USDT probes on the HotSpot DTrace probes in `libjvm.so` | HotSpot-based JVM with compiled-in DTrace probes | Values refresh on GC events, throttled by `jvm_runtime_metrics.sampling_interval` | Experimental |
 | Java (agent-backed) | `jvm.gc.duration`, `jvm.class.loaded`, `jvm.class.unloaded`, `jvm.class.count`, `jvm.thread.count`, `jvm.cpu.time`, `jvm.cpu.count`, `jvm.cpu.recent_utilization` | Java management beans and GC notifications read by the injected OBI agent | JDK `8+`; `javaagent.enabled` must be `true` | Class, thread, and CPU values refresh according to `jvm_runtime_metrics.sampling_interval`; GC duration emits one observation per collection; CPU metrics are omitted when the JVM does not expose them; a JVM started with `-Xrs` is not instrumented, because the attach handshake's `SIGQUIT` would terminate it, and one with `-XX:+DisableAttachMechanism` is not instrumented because it never answers the handshake; either becomes instrumentable again with `-XX:+StartAttachListener`, which needs no signal | Experimental |

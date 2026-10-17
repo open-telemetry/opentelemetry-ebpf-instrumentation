@@ -339,7 +339,7 @@ static __always_inline int handle_manual_ctx(const char *path, const u64 pid_tgi
 // span's own override, so a root manual span would otherwise become its own
 // parent.
 static __always_inline int handle_node_span(const char *path, const u64 pid_tgid) {
-    node_span_event_t *ev = bpf_ringbuf_reserve(&events, sizeof(node_span_event_t), 0);
+    node_span_event_t *ev = events_ringbuf_reserve(sizeof(node_span_event_t), 0);
     if (!ev) {
         return 0;
     }
@@ -451,7 +451,7 @@ static __always_inline int handle_runtime_metrics(const char *path, const u64 pi
         }
     }
 
-    struct nodejs_eventloop_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+    struct nodejs_eventloop_event *e = events_ringbuf_reserve(sizeof(*e), 0);
     if (!e) {
         return 0;
     }
@@ -544,7 +544,7 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
             return 0;
         }
 
-        struct nodejs_gc_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        struct nodejs_gc_event *e = events_ringbuf_reserve(sizeof(*e), 0);
         if (!e) {
             return 0;
         }
@@ -570,7 +570,7 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
             return 0;
         }
 
-        struct nodejs_heap_space_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        struct nodejs_heap_space_event *e = events_ringbuf_reserve(sizeof(*e), 0);
         if (!e) {
             return 0;
         }
@@ -607,7 +607,7 @@ static __always_inline int handle_v8_metrics(const char *path, const u64 pid_tgi
             return 0;
         }
 
-        struct nodejs_resource_event *e = bpf_ringbuf_reserve(&events, sizeof(*e), 0);
+        struct nodejs_resource_event *e = events_ringbuf_reserve(sizeof(*e), 0);
         if (!e) {
             return 0;
         }
@@ -764,17 +764,18 @@ int BPF_KPROBE_GUARDED(obi_uv_fs_access, void *loop, void *req, const char *path
 // sys_exit only sees a thread calling exit(2): a process leaving through
 // exit_group(2), as Node's process.exit() does, or through a fatal signal never
 // enters it. Every exit path converges on do_exit, which fires this tracepoint
-// once per exiting thread, so an override shadow cannot outlive its thread and
-// hand its saved base to whichever thread next reuses the pid_tgid.
+// once per exiting thread, so neither an override shadow nor the thread's
+// traces_ctx_v1 entry can outlive its thread and be handed to whichever thread
+// next reuses the pid_tgid. No valid_pid() check: a thread can keep an entry
+// after it stops passing the filter, like a child whose parent has exited.
 SEC("tracepoint/sched/sched_process_exit")
 int GUARDED_PROG(obi_tp_sched_process_exit, void *, ctx) {
     (void)ctx;
 
     const u64 pid_tgid = bpf_get_current_pid_tgid();
-    if (!valid_pid(pid_tgid)) {
-        return 0;
-    }
-
     bpf_map_delete_elem(&node_manual_ctx_shadow, &pid_tgid);
+    // not obi_ctx__del(): the manual span override writes the entry even when
+    // trace context population is off
+    bpf_map_delete_elem(&traces_ctx_v1, &pid_tgid);
     return 0;
 }

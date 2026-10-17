@@ -4,10 +4,8 @@
 # (03-otelcol-weaver.yml + configs/otelcol-config-k8s-weaver.yml) and validates
 # the emitted telemetry against the OBI schema registry under `schemas/obi/`,
 # mounted read-only at /obi-registry via the kind `obi-registry` extraMount
-# (see 00-kind*.yml). It writes its live-check report to
-# /testoutput/weaver-out/live_check.json on the shared testoutput mount; the Go
-# harness reads it from the host after POSTing /stop to the admin port (4320),
-# which the kind config exposes on host port 32320.
+# (see 00-kind*.yml). The Go harness stops it and reads its live-check report
+# through the admin API (4320), which the kind config exposes on host port 32320.
 #
 # This is the in-cluster counterpart of components/weaver/service.yml.
 apiVersion: v1
@@ -67,7 +65,7 @@ spec:
       # v0.25.1+ required: earlier live-check shuts its admin server down 60s
       # after startup (weaver #1645), restarting weaver mid-suite and dropping
       # the early span burst from the teardown report.
-      image: otel/weaver:v0.25.1@sha256:9ad46ca9cd4fa5974b121f886aa3e9946a8ef8ea905001a96c018d21f9db87ca
+      image: otel/weaver:v0.27.0@sha256:3049b4079049d4abb1b5632f511ada2c33505a1c60f3f8535e93f87f0696f056
       # Root, like the docker-compose weaver (user: "0:0").
       securityContext:
         runAsUser: 0
@@ -77,8 +75,6 @@ spec:
         - live-check
         - --registry
         - /obi-registry
-        - --inactivity-timeout
-        - "300"
         - --otlp-grpc-address
         - "0.0.0.0"
         - --admin-port

@@ -80,12 +80,16 @@
     {
       // internal/test/integration/components/weaver/service.yml is a Compose
       // service fragment, but its filename doesn't match the docker-compose
-      // manager's compose*.yml pattern, so its digest-pinned image would
-      // otherwise never be updated (it silently lagged a version behind the
-      // other weaver pins). Track it with the same generic image-ref shape used
-      // for the Go files above.
+      // manager's compose*.yml pattern, and the kind weaver manifests
+      // (k8s/manifests/08-weaver*.yml) match no manager at all, so their
+      // digest-pinned images would otherwise never be updated (both silently
+      // lagged behind the other weaver pins). Track them with the same generic
+      // image-ref shape used for the Go files above.
       "customType": "regex",
-      "managerFilePatterns": ["/^internal\\/test\\/integration\\/components\\/weaver\\/service\\.yml$/"],
+      "managerFilePatterns": [
+        "/^internal\\/test\\/integration\\/components\\/weaver\\/service\\.yml$/",
+        "/^internal\\/test\\/integration\\/k8s\\/manifests\\/08-weaver[^/]*\\.yml$/"
+      ],
       "matchStrings": [
         "(?<depName>[a-z0-9][a-z0-9.\\-]*(?:/[a-z0-9][a-z0-9._\\-]*)+):(?<currentValue>[a-zA-Z0-9][a-zA-Z0-9._\\-]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
       ],
@@ -367,8 +371,11 @@
       "enabled": false
     },
     {
-      "description": "Disable Docker updates for the Python 3.9 uvloop compatibility fixture",
-      "matchFileNames": ["internal/test/integration/components/pythonasync-uvloop/Dockerfile-3.9"],
+      "description": "Disable Docker updates for the Python 3.9 asyncio compatibility fixtures",
+      "matchFileNames": [
+        "internal/test/integration/components/pythonasync-generic/Dockerfile-3.9",
+        "internal/test/integration/components/pythonasync-uvloop/Dockerfile-3.9"
+      ],
       "matchDatasources": ["docker"],
       "enabled": false
     },
@@ -500,8 +507,8 @@
       // Pin every otel/weaver reference to one version in a single PR. The refs
       // live across four managers: dependencies.Dockerfile (dockerfile — the
       // image `make lint-schema` reads), the OATS/integration compose fragments
-      // (docker-compose), the Go test pin (custom regex), and service.yml
-      // (custom regex). Without this, each bumps in its own PR on its own
+      // (docker-compose), the Go test pin (custom regex), and service.yml plus
+      // the kind weaver manifests (custom regex). Without this, each bumps in its own PR on its own
       // schedule, so lint-schema and the live-check suites validate against
       // different weaver builds until the last PR merges — the exact drift #2784
       // caused (it moved only the three compose files). This rule is LAST on

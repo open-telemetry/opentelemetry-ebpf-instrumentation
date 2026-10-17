@@ -76,9 +76,9 @@ func TestTracesExportInternalMetrics(t *testing.T) {
 			QueueSize:        2,
 			BatchTimeout:     10 * time.Millisecond,
 		}
-		exp, host, err := getTracesExporter(context.Background(), cfg, rep)
+		exp, err := getTracesExporter(context.Background(), cfg, rep)
 		require.NoError(t, err)
-		require.NoError(t, exp.Start(context.Background(), host))
+		require.NoError(t, exp.Start(context.Background()))
 		t.Cleanup(func() { _ = exp.Shutdown(context.Background()) })
 
 		require.NoError(t, exp.ConsumeTraces(context.Background(), oneSpan()))
@@ -107,9 +107,9 @@ func TestTracesExportInternalMetrics(t *testing.T) {
 			BackOffMaxInterval:     10 * time.Millisecond,
 			BackOffMaxElapsedTime:  100 * time.Millisecond,
 		}
-		exp, host, err := getTracesExporter(context.Background(), cfg, rep)
+		exp, err := getTracesExporter(context.Background(), cfg, rep)
 		require.NoError(t, err)
-		require.NoError(t, exp.Start(context.Background(), host))
+		require.NoError(t, exp.Start(context.Background()))
 		t.Cleanup(func() { _ = exp.Shutdown(context.Background()) })
 
 		_ = exp.ConsumeTraces(context.Background(), oneSpan())
@@ -130,9 +130,9 @@ func TestTracesExportInternalMetrics(t *testing.T) {
 			QueueSize:        2,
 			BatchTimeout:     10 * time.Millisecond,
 		}
-		exp, host, err := getTracesExporter(context.Background(), cfg, rep)
+		exp, err := getTracesExporter(context.Background(), cfg, rep)
 		require.NoError(t, err)
-		require.NoError(t, exp.Start(context.Background(), host))
+		require.NoError(t, exp.Start(context.Background()))
 		t.Cleanup(func() { _ = exp.Shutdown(context.Background()) })
 
 		require.NoError(t, exp.ConsumeTraces(context.Background(), oneSpan()))
@@ -161,9 +161,9 @@ func TestTracesExportInternalMetrics(t *testing.T) {
 			BackOffMaxInterval:     10 * time.Millisecond,
 			BackOffMaxElapsedTime:  100 * time.Millisecond,
 		}
-		exp, host, err := getTracesExporter(context.Background(), cfg, rep)
+		exp, err := getTracesExporter(context.Background(), cfg, rep)
 		require.NoError(t, err)
-		require.NoError(t, exp.Start(context.Background(), host))
+		require.NoError(t, exp.Start(context.Background()))
 		t.Cleanup(func() { _ = exp.Shutdown(context.Background()) })
 
 		_ = exp.ConsumeTraces(context.Background(), oneSpan())

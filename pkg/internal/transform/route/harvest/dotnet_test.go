@@ -162,9 +162,15 @@ func TestExtractDotnetRoutes(t *testing.T) {
 		assert.Equal(t, PartialRoutes, result.Kind)
 		assert.Equal(t, []string{
 			"/{controller=Home}/{action=Index}/{id?}",
+			"/search/{term}",
 			"/api/Products",
 			"/minimal/{id}",
+			"/named/{id}",
+			"/verbs/{id}",
+			"/v2/search",
 			"/Get/{id}",
+			"/foo/{id}",
+			"/Single",
 			"/health",
 			"/items",
 		}, result.Routes)

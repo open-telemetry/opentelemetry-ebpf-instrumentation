@@ -141,13 +141,21 @@ func TestServiceAttributesAreNotMetricDefaults(t *testing.T) {
 
 func TestDotnetRuntimeDefinitions(t *testing.T) {
 	definitions := getDefinitions(0, NewGroupAttributes(nil))
+	heap, ok := definitions[DotnetGCHeapSize.Section]
+	require.True(t, ok)
+	assert.Contains(t, heap.Default(), attr.DotnetGCHeapGeneration)
+	assert.Equal(t, InstrumentUpDownCounter, DotnetGCHeapSize.Type)
+	cpuTime, ok := definitions[DotnetProcessCPUTime.Section]
+	require.True(t, ok)
+	assert.Contains(t, cpuTime.Default(), attr.CPUMode)
+	assert.NotContains(t, cpuTime.All(), attr.DotnetGCHeapGeneration)
 	definition, ok := definitions[DotnetGCCollections.Section]
 	require.True(t, ok)
 	assert.Contains(t, definition.All(), attr.ServiceName)
 	assert.Contains(t, definition.All(), attr.ServiceNamespace)
 	assert.Contains(t, definition.Default(), attr.DotnetGCHeapGeneration)
 	for _, metric := range []Name{
-		DotnetProcessMemoryWorkingSet, DotnetGCCommittedMemory,
+		DotnetProcessCPUCount, DotnetProcessMemoryWorkingSet, DotnetGCCommittedMemory,
 		DotnetThreadPoolThreadCount, DotnetThreadPoolQueueLength,
 		DotnetTimerCount, DotnetAssemblyCount,
 	} {

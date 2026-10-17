@@ -224,6 +224,67 @@ func TestGRPCClientTraceparentRespectsPropagationMode(t *testing.T) {
 	}
 }
 
+func TestGRPCClientTraceparentWithInlineWriteBuffer(t *testing.T) {
+	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
+	require.NoError(t, rlimit.RemoveMemlock())
+
+	if !ebpfcommon.SupportsContextPropagationWithProbe(slog.Default()) {
+		t.Skip("kernel does not support bpf_probe_write_user context propagation (e.g. lockdown); skipping")
+	}
+
+	targetBin := buildLegacyGRPCClientTarget(t)
+	elfFile, err := elf.Open(targetBin)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = elfFile.Close() })
+	offsets, err := goexec.InspectOffsets(discexec.New(discexec.Init{
+		ELF:        elfFile,
+		CmdExePath: targetBin,
+	}), goFunctionNames(&obi.DefaultConfig))
+	require.NoError(t, err)
+	require.NotContains(t, offsets.Field, goexec.GrpcTransportBufWriterBufHandlePos)
+	require.Equal(t, uint64(8), offsets.Field[goexec.GrpcTransportBufWriterBufPos])
+
+	for _, tt := range []struct {
+		name string
+		tls  bool
+	}{
+		{name: "plaintext"},
+		{name: "tls", tls: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			send := startGRPCClientTarget(t, targetBin, config.ContextPropagationHeaders, tt.tls)
+			for range 4 {
+				assert.Regexp(t, `^1:00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$`, send(t))
+			}
+		})
+	}
+}
+
+func TestGRPCClientTraceparentWithSharedWriteBuffer(t *testing.T) {
+	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
+	require.NoError(t, rlimit.RemoveMemlock())
+
+	if !ebpfcommon.SupportsContextPropagationWithProbe(slog.Default()) {
+		t.Skip("kernel does not support bpf_probe_write_user context propagation (e.g. lockdown); skipping")
+	}
+
+	targetBin := buildGRPCClientTarget(t)
+	for _, tt := range []struct {
+		name string
+		tls  bool
+	}{
+		{name: "plaintext"},
+		{name: "tls", tls: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			send := startGRPCClientTarget(t, targetBin, config.ContextPropagationHeaders, tt.tls, "-shared-write-buffer")
+			for range 4 {
+				assert.Regexp(t, `^1:00-[0-9a-f]{32}-[0-9a-f]{16}-0[01]$`, send(t))
+			}
+		})
+	}
+}
+
 func TestGRPCClientTraceparentWriteFailureContinuity(t *testing.T) {
 	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
 	require.NoError(t, rlimit.RemoveMemlock())
@@ -333,16 +394,34 @@ func buildGRPCClientTarget(t *testing.T) string {
 	return bin
 }
 
+func buildLegacyGRPCClientTarget(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "go.mod"),
+		[]byte("module tpgrpcclient\n\ngo 1.25.0\n\nrequire google.golang.org/grpc v1.83.0\n"), 0o600))
+	source, err := filepath.Abs("testdata/tpgrpcclient/main.go")
+	require.NoError(t, err)
+	bin := filepath.Join(dir, "tpgrpcclient")
+	cmd := osexec.Command("go", "build", "-mod=mod", "-o", bin, source)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOWORK=off")
+	out, err := cmd.CombinedOutput()
+	require.NoErrorf(t, err, "go build legacy tpgrpcclient:\n%s", string(out))
+	return bin
+}
+
 func startGRPCClientTarget(
 	t *testing.T,
 	bin string,
 	mode config.ContextPropagationMode,
 	useTLS bool,
+	extraArgs ...string,
 ) func(t *testing.T) string {
 	t.Helper()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	args := []string{}
+	args := append([]string{}, extraArgs...)
 	if useTLS {
 		cert, err := filepath.Abs("../../../../internal/test/cmd/grpc/x509/server_test_cert.pem")
 		require.NoError(t, err)

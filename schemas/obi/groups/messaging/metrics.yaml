@@ -1,7 +1,6 @@
-groups:
-  - id: metric.obi.messaging.client.operation.duration
-    type: metric
-    metric_name: messaging.client.operation.duration
+file_format: definition/2
+metrics:
+  - name: messaging.client.operation.duration
     annotations:
       obi:
         upstream_override: true
@@ -9,6 +8,7 @@ groups:
     instrument: histogram
     unit: "s"
     stability: development
+    requirement_level: recommended
     attributes:
       # Reachable only through the AWS SQS and SNS clients, which are HTTP
       # client spans where parsedErrorType applies. A broker span reaches
@@ -20,17 +20,23 @@ groups:
       - ref: messaging.destination.name
         requirement_level:
           conditionally_required: if the exchange named a destination
+      # Only an MQTT SUBSCRIBE carries a subscription, and it is a process
+      # operation recorded on messaging.process.duration.
+      - ref: messaging.destination.subscription.name
+        requirement_level:
+          conditionally_required: if the operation named a subscription, which no client operation OBI records does yet
       - ref: messaging.operation.name
         requirement_level: required
+      - ref: messaging.operation.type
+        requirement_level:
+          conditionally_required: if the operation maps to a semantic-convention operation type
       - ref: messaging.system
         requirement_level: required
       - ref: server.address
         requirement_level:
-          recommended: if the server address could be resolved
+          conditionally_required: if the server address could be resolved
 
-  - id: metric.obi.messaging.process.duration
-    type: metric
-    metric_name: messaging.process.duration
+  - name: messaging.process.duration
     annotations:
       obi:
         upstream_override: true
@@ -38,6 +44,7 @@ groups:
     instrument: histogram
     unit: "s"
     stability: development
+    requirement_level: recommended
     attributes:
       # Declared but not yet populated: SpanStatusCode has no case for the
       # broker event types and no parsedErrorType branch applies to them, so
@@ -49,14 +56,17 @@ groups:
           conditionally_required: if the operation ended in an error, which OBI cannot yet determine for a consume operation
       - ref: messaging.consumer.group.name
         requirement_level:
-          conditionally_required: if OBI attributed the fetch to a single consumer group of the process
+          conditionally_required: if OBI attributed the Kafka fetch to a single consumer group of the process, or the MQTT topic filter is a shared subscription
       - ref: messaging.destination.name
         requirement_level:
           conditionally_required: if the exchange named a destination
+      - ref: messaging.destination.subscription.name
+        requirement_level:
+          conditionally_required: if the operation is an MQTT SUBSCRIBE, whose topic filter names the subscription
       - ref: messaging.operation.name
         requirement_level: required
       - ref: messaging.system
         requirement_level: required
       - ref: server.address
         requirement_level:
-          recommended: if the server address could be resolved
+          conditionally_required: if the server address could be resolved

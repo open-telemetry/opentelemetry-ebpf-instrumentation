@@ -1,7 +1,6 @@
-groups:
-  - id: metric.obi.gen_ai.client.operation.duration
-    type: metric
-    metric_name: gen_ai.client.operation.duration
+file_format: definition/2
+metrics:
+  - name: gen_ai.client.operation.duration
     annotations:
       obi:
         upstream_override: true
@@ -9,6 +8,7 @@ groups:
     instrument: histogram
     unit: "s"
     stability: development
+    requirement_level: recommended
     attributes:
       - ref: error.type
         requirement_level:
@@ -19,7 +19,7 @@ groups:
         requirement_level: required
       - ref: gen_ai.request.model
         requirement_level:
-          recommended: if the request named a model
+          conditionally_required: if the request named a model
       - ref: gen_ai.response.model
         requirement_level:
           recommended: if the provider returned it
@@ -27,11 +27,10 @@ groups:
         requirement_level:
           conditionally_required: if the server address could be resolved
       - ref: server.port
-        requirement_level: recommended
+        requirement_level:
+          conditionally_required: if `server.address` is set
 
-  - id: metric.obi.gen_ai.client.token.usage
-    type: metric
-    metric_name: gen_ai.client.token.usage
+  - name: gen_ai.client.token.usage
     annotations:
       obi:
         upstream_override: true
@@ -39,6 +38,7 @@ groups:
     instrument: histogram
     unit: "{token}"
     stability: development
+    requirement_level: recommended
     attributes:
       - ref: gen_ai.operation.name
         requirement_level: required
@@ -46,7 +46,7 @@ groups:
         requirement_level: required
       - ref: gen_ai.request.model
         requirement_level:
-          recommended: if the request named a model
+          conditionally_required: if the request named a model
       - ref: gen_ai.response.model
         requirement_level:
           recommended: if the provider returned it
@@ -56,4 +56,5 @@ groups:
         requirement_level:
           conditionally_required: if the server address could be resolved
       - ref: server.port
-        requirement_level: recommended
+        requirement_level:
+          conditionally_required: if `server.address` is set

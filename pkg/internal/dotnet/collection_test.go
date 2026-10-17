@@ -11,6 +11,49 @@ import (
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
+func TestRuntimeCollectionProcessorCount(t *testing.T) {
+	var collection runtimeCollection
+	observe := func(counter runtimeCounter) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+		snapshot, err := collection.observe(counter)
+		require.NoError(t, err)
+		return snapshot
+	}
+	completeCycle := func() {
+		for _, name := range []string{"gen-0-gc-count", "gen-1-gc-count", "gen-2-gc-count", "time-in-jit"} {
+			require.Nil(t, observe(runtimeCounter{Name: name, Increment: true}))
+		}
+	}
+	require.Nil(t, observe(runtimeCounter{Name: "processor-count", Value: 2}))
+	require.Nil(t, observe(runtimeCounter{Name: "working-set", Value: 1}))
+	completeCycle()
+	first := observe(runtimeCounter{Name: "working-set", Value: 1})
+	require.NotNil(t, first)
+	require.NotNil(t, first.ProcessCPUCount)
+	require.Equal(t, int64(2), *first.ProcessCPUCount)
+
+	completeCycle()
+	second := observe(runtimeCounter{Name: "working-set", Value: 1})
+	require.NotNil(t, second)
+	require.NotNil(t, second.ProcessCPUCount)
+	require.Equal(t, int64(2), *second.ProcessCPUCount)
+
+	require.Nil(t, observe(runtimeCounter{Name: "processor-count", Value: 4}))
+	completeCycle()
+	last := collection.finish()
+	require.NotNil(t, last)
+	require.NotNil(t, last.ProcessCPUCount)
+	require.Equal(t, int64(4), *last.ProcessCPUCount)
+	require.Equal(t, int64(2), *first.ProcessCPUCount)
+	require.Equal(t, int64(2), *second.ProcessCPUCount)
+
+	collection = runtimeCollection{}
+	require.Nil(t, observe(runtimeCounter{Name: "working-set", Value: 1}))
+	completeCycle()
+	fresh := collection.finish()
+	require.NotNil(t, fresh)
+	require.Nil(t, fresh.ProcessCPUCount, "a fresh session must observe its own processor count")
+}
+
 func TestRuntimeCollectionIgnoresPartialStart(t *testing.T) {
 	var collection runtimeCollection
 	for _, counter := range []runtimeCounter{
@@ -166,4 +209,40 @@ func TestRuntimeCollectionCumulativeMissingIntervals(t *testing.T) {
 	require.Equal(t, uint64(101), *resumed.JITCompiledILSize)
 	require.Zero(t, *first.GCHeapTotalAllocated)
 	require.Zero(t, *first.GCPauseTime)
+}
+
+func TestRuntimeCollectionHeapSizes(t *testing.T) {
+	var collection runtimeCollection
+	observe := func(counter runtimeCounter) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+		snapshot, err := collection.observe(counter)
+		require.NoError(t, err)
+		return snapshot
+	}
+	observe(runtimeCounter{Name: "working-set", Value: 1})
+	complete := func() {
+		for _, name := range []string{"gen-0-gc-count", "gen-1-gc-count", "gen-2-gc-count", "time-in-jit"} {
+			observe(runtimeCounter{Name: name, Increment: true})
+		}
+	}
+	for generation, name := range []string{"gen-0-size", "gen-1-size", "gen-2-size", "loh-size", "poh-size"} {
+		observe(runtimeCounter{Name: name, Value: float64(generation * 100)})
+	}
+	complete()
+	first := observe(runtimeCounter{Name: "working-set", Value: 1})
+	require.NotNil(t, first)
+	for generation, value := range first.GCHeapSize {
+		require.NotNil(t, value)
+		require.Equal(t, int64(generation*100), *value)
+	}
+	observe(runtimeCounter{Name: "loh-size", Value: 10})
+	complete()
+	second := collection.finish()
+	require.NotNil(t, second)
+	require.Equal(t, int64(10), *second.GCHeapSize[3])
+	require.Nil(t, second.GCHeapSize[0], "missing values do not carry into a new interval")
+	require.Equal(t, int64(300), *first.GCHeapSize[3], "published snapshots remain immutable")
+	collection = runtimeCollection{}
+	observe(runtimeCounter{Name: "working-set", Value: 1})
+	complete()
+	require.Equal(t, [runtimemetrics.DotnetHeapGenerationCount]*int64{}, collection.finish().GCHeapSize)
 }

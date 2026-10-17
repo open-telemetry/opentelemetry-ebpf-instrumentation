@@ -22,22 +22,42 @@ static void assert_byte(int cond, const char *msg, u8 b) {
 }
 
 // Mirrors the walk in looks_like_http2_frames / sniff_http2_frames
-static u8 tile(const unsigned char *buf, u32 len) {
-    u32 pos = 0;
-    h2_sniff_state_t st = {0};
+static u8
+walk(const unsigned char *buf, u32 len, const bool strict, h2_sniff_state_t *st, u32 *pos) {
+    *pos = 0;
 
-    for (u8 i = 0; i < k_h2_sniff_max_frames && pos < len; i++) {
-        if (pos + k_h2_frame_header_len > len) {
+    for (u8 i = 0; i < k_h2_sniff_max_frames && *pos < len; i++) {
+        if (*pos + k_h2_frame_header_len > len) {
             return 0;
         }
-        u32 frame_len;
-        if (!h2_sniff_frame_header(&st, buf + pos, &frame_len)) {
+        u32 frame_len = h2_frame_payload_len(buf + *pos);
+        if (strict && !h2_sniff_frame_header(st, buf + *pos, &frame_len)) {
             return 0;
         }
-        pos += k_h2_frame_header_len + frame_len;
+        *pos += k_h2_frame_header_len + frame_len;
     }
 
-    return h2_sniff_accept(&st, pos, len);
+    return 1;
+}
+
+// What a first sniff accepts: the buffer has to carry a HEADERS frame
+static u8 tile(const unsigned char *buf, u32 len) {
+    h2_sniff_state_t st = {0};
+    u32 pos;
+
+    return walk(buf, len, true, &st, &pos) && h2_sniff_accept(&st, pos, len);
+}
+
+// What decides probation: tiled confirms, mismatch rejects, unfinished waits for the next send
+static h2_walk_result_t probation_walk(const unsigned char *buf, u32 len) {
+    h2_sniff_state_t st = {0};
+    u32 pos;
+
+    if (!walk(buf, len, false, &st, &pos)) {
+        return k_h2_walk_mismatch;
+    }
+
+    return h2_sniff_walk_result(&st, pos, len);
 }
 
 // Appends one frame header + zeroed payload, returns new write offset
@@ -227,6 +247,73 @@ static void test_rejects_lookalikes(void) {
         }
         assertf(tile(buf, 64) == 0, "random buffer accepted");
     }
+}
+
+// The send after a sniff decides: a genuine connection keeps sending frames, while a tunnel
+// sends its own framing and a TLS stack sends records.
+static void test_probation_tiling(void) {
+    unsigned char buf[4096];
+    u32 n;
+
+    n = frame(buf, 0, 4, k_h2_frame_window_update, 0, 0);
+    assertf(probation_walk(buf, n) == k_h2_walk_tiled, "WINDOW_UPDATE alone ends probation");
+    assertf(tile(buf, n) == 0, "WINDOW_UPDATE alone is not a first sniff");
+
+    n = frame(buf, 0, 32, k_h2_frame_data, 0, 1);
+    assertf(probation_walk(buf, n) == k_h2_walk_tiled, "DATA alone ends probation");
+
+    n = frame(buf, 0, 20, k_h2_frame_headers, k_h2_flag_end_headers, 3);
+    assertf(probation_walk(buf, n) == k_h2_walk_tiled, "a request ends probation");
+    assertf(probation_walk(buf, n - 1) == k_h2_walk_mismatch, "a send cut mid-frame rejects");
+
+    // legal frames the first sniff refuses still end probation: only the framing decides
+    n = frame(buf, 0, 16, k_h2_frame_headers, 0, 3);
+    assertf(probation_walk(buf, n) == k_h2_walk_tiled, "an open header block ends probation");
+
+    n = frame(buf, 0, 0, k_h2_frame_data, 0, 1);
+    assertf(probation_walk(buf, n) == k_h2_walk_tiled,
+            "empty DATA without END_STREAM ends probation");
+
+    n = frame(buf, 0, 4, 0x2b, 0, 0);
+    assertf(probation_walk(buf, n) == k_h2_walk_tiled, "an unknown frame type ends probation");
+
+    assertf(probation_walk(buf, 0) == k_h2_walk_mismatch, "an empty send proves nothing");
+
+    // yamux header: version 0, window update, SYN, stream 3, length 20
+    const unsigned char yamux[] = {0, 1, 0, 1, 0, 0, 0, 3, 0, 0, 0, 20};
+    assertf(probation_walk(yamux, sizeof(yamux)) == k_h2_walk_mismatch, "a yamux header rejects");
+
+    const unsigned char length_prefix[] = {0, 0, 0, 20};
+    assertf(probation_walk(length_prefix, sizeof(length_prefix)) == k_h2_walk_mismatch,
+            "a length prefix rejects");
+
+    const unsigned char tls[] = {0x17, 3, 3, 0, 8, 1, 2, 3, 4, 5, 6, 7, 8};
+    assertf(probation_walk(tls, sizeof(tls)) == k_h2_walk_mismatch, "a TLS record rejects");
+}
+
+// The walk looks at k_h2_sniff_max_frames frames. A longer send of valid frames is not evidence
+// against HTTP/2, so probation has to wait for the next send instead of rejecting.
+static void test_probation_frame_cap(void) {
+    unsigned char buf[4096];
+    u32 n = 0;
+
+    for (u32 i = 0; i < k_h2_sniff_max_frames; i++) {
+        n = frame(buf, n, 4, k_h2_frame_window_update, 0, 0);
+    }
+    assertf(probation_walk(buf, n) == k_h2_walk_tiled, "frames up to the cap still tile");
+
+    n = frame(buf, n, 4, k_h2_frame_window_update, 0, 0);
+    assertf(probation_walk(buf, n) == k_h2_walk_unfinished, "one frame past the cap waits");
+
+    // what follows the cap is never looked at, so even a broken tail waits
+    assertf(probation_walk(buf, n - 1) == k_h2_walk_unfinished, "a cut past the cap waits");
+
+    // a frame that runs past the send within the cap still rejects
+    n = 0;
+    for (u32 i = 0; i < k_h2_sniff_max_frames; i++) {
+        n = frame(buf, n, 4, k_h2_frame_window_update, 0, 0);
+    }
+    assertf(probation_walk(buf, n - 1) == k_h2_walk_mismatch, "a cut within the cap rejects");
 }
 
 // Opener test: request vs response vs non-HPACK bytes. grpc-js and grpcio emit 0xc3 (dyn-table
@@ -471,6 +558,8 @@ int main(void) {
     test_rejects_structural();
     test_rejects_per_type_rules();
     test_rejects_lookalikes();
+    test_probation_tiling();
+    test_probation_frame_cap();
     printf("OK: %s\n", __FILE__);
     return 0;
 }

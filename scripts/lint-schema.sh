@@ -6,9 +6,8 @@
 #
 # We capture `weaver registry check`'s JSON diagnostic stream and fail on any
 # diagnostic that survives the allowlist in `lint-schema-filter.jq` (today:
-# the definition/2 UnstableFileFormat notice, the attribute-override
-# DuplicateAttributeId pairs, and the deprecated --include-unreferenced
-# warning — see that file for the rationale). `--future` promotes pending warnings (e.g. missing examples
+# the definition/2 UnstableFileFormat notice and the deprecated
+# --include-unreferenced warning — see that file for the rationale). `--future` promotes pending warnings (e.g. missing examples
 # on string attributes) to errors so we catch them at PR time rather than in
 # integration logs. Note that weaver exits non-zero when diagnostics exist,
 # so a non-zero exit with parseable diagnostics on stdout is a lint finding,

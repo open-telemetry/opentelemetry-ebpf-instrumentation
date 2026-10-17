@@ -1,12 +1,12 @@
-groups:
+file_format: definition/2
+metrics:
   # Counter has no explicit OTLP unit set; mirror that here so live-check
   # doesn't complain "Unit should be '1', but found ''".
-  - id: metric.obi.traces_service_graph_request_total
-    type: metric
-    metric_name: traces_service_graph_request_total
+  - name: traces_service_graph_request_total
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: >
       Total number of edges in the service graph, grouped by client / server.
     attributes:
@@ -40,12 +40,11 @@ groups:
 
   # Counter has no explicit OTLP unit set; mirror that here so live-check
   # doesn't complain "Unit should be '1', but found ''".
-  - id: metric.obi.traces_service_graph_request_failed_total
-    type: metric
-    metric_name: traces_service_graph_request_failed_total
+  - name: traces_service_graph_request_failed_total
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: >
       Total number of failed edges in the service graph, grouped by
       client / server.
@@ -78,12 +77,11 @@ groups:
         requirement_level:
           conditionally_required: if Kubernetes decoration is enabled
 
-  - id: metric.obi.traces_service_graph_request_server
-    type: metric
-    metric_name: traces_service_graph_request_server
+  - name: traces_service_graph_request_server
     instrument: histogram
     unit: "s"
     stability: development
+    requirement_level: recommended
     brief: >
       Server-side request duration distribution per service-graph edge.
     attributes:
@@ -115,12 +113,11 @@ groups:
         requirement_level:
           conditionally_required: if Kubernetes decoration is enabled
 
-  - id: metric.obi.traces_service_graph_request_client
-    type: metric
-    metric_name: traces_service_graph_request_client
+  - name: traces_service_graph_request_client
     instrument: histogram
     unit: "s"
     stability: development
+    requirement_level: recommended
     brief: >
       Client-side request duration distribution per service-graph edge.
     attributes:

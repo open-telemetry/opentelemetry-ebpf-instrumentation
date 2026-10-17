@@ -6,7 +6,7 @@
 #include <bpfcore/vmlinux.h>
 
 typedef struct pid_info {
-    u32 host_pid; // pid as seen by the root cgroup (and by BPF)
-    u32 user_pid; // pid as seen by the userspace (for example, inside its container)
-    u32 ns;       // pids namespace for the process
+    u32 host_pid; // process id (tgid) in the root pid namespace: what bpf_get_current_pid_tgid() >> 32 returns
+    u32 user_pid; // process id as seen inside its own pid namespace (for example, inside its container)
+    u32 ns;       // pid namespace (inode) user_pid belongs to
 } pid_info;

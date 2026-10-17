@@ -8,8 +8,8 @@
 // report schema and the assertion logic so the transports stay in lockstep.
 //
 // Weaver runs with `--output http` and the `compact` output template;
-// FetchReport POSTs the admin `/stop` endpoint and reads the report back from
-// the response body (kept small enough by the template to avoid truncation).
+// FetchReport stops the run with the admin `/stop` endpoint, reads the report
+// from `/report` and ends the process with `/shutdown`.
 // Which advisories are suppressed (the accepted `server`/`client`/`iface`
 // namespace collisions) and which information-level advice is promoted to a
 // failure (`extends_namespace`, `undefined_enum_variant`) is declared in
@@ -32,6 +32,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+)
+
+const (
+	adminStopPath     = "/stop"
+	adminReportPath   = "/report"
+	adminShutdownPath = "/shutdown"
 )
 
 // TestingT is the minimal test-reporter interface Validate needs. Both
@@ -87,35 +93,56 @@ func Parse(rawReport []byte) (*Report, error) {
 	return &report, nil
 }
 
-// FetchReport stops the weaver live-check container via its admin /stop
-// endpoint and returns the parsed report from the /stop response body (weaver
-// runs with `--output http`). The `compact` template keeps that body small
-// enough to clear the socket buffer before weaver exits, so the response is not
-// truncated. A refused connection (weaver never came up / admin port unmapped)
-// is reported distinctly so callers can hint at a mis-wired stack. It is
-// transport-agnostic and logging-agnostic (returns an error rather than failing
-// a test).
+// FetchReport stops the weaver live-check run via its admin API, reads the
+// report, ends the weaver process, and returns the parsed report. adminURL is
+// the base URL of the admin port. A refused connection (weaver never came up /
+// admin port unmapped) is reported distinctly so callers can hint at a
+// mis-wired stack. It is transport-agnostic and logging-agnostic (returns an
+// error rather than failing a test).
 func FetchReport(ctx context.Context, adminURL string) (*Report, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, adminURL, nil)
+	raw, err := FetchRawReport(ctx, adminURL)
 	if err != nil {
-		return nil, fmt.Errorf("building weaver /stop request: %w", err)
+		return nil, err
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
+	return Parse(raw)
+}
+
+// FetchRawReport is FetchReport without the parsing, for callers that also
+// archive the report verbatim. Once the run is stopped it always asks weaver to
+// shut down, because in `--output http` mode weaver never exits on its own.
+func FetchRawReport(ctx context.Context, adminURL string) ([]byte, error) {
+	if _, err := adminRequest(ctx, http.MethodPost, adminURL, adminStopPath); err != nil {
 		if errors.Is(err, syscall.ECONNREFUSED) {
 			return nil, fmt.Errorf("stopping weaver (is it running and the admin port mapped?): %w", err)
 		}
-		return nil, fmt.Errorf("posting weaver /stop: %w", err)
+		return nil, err
+	}
+	raw, reportErr := adminRequest(ctx, http.MethodGet, adminURL, adminReportPath)
+	_, shutdownErr := adminRequest(ctx, http.MethodPost, adminURL, adminShutdownPath)
+	if err := errors.Join(reportErr, shutdownErr); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+func adminRequest(ctx context.Context, method, adminURL, path string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimSuffix(adminURL, "/")+path, nil)
+	if err != nil {
+		return nil, fmt.Errorf("building weaver %s request: %w", path, err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("calling weaver %s: %w", path, err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("weaver /stop returned HTTP %d", resp.StatusCode)
-	}
-	raw, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, fmt.Errorf("reading weaver /stop response body: %w", err)
+		return nil, fmt.Errorf("reading weaver %s response body: %w", path, err)
 	}
-	return Parse(raw)
+	if resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("weaver %s returned HTTP %d: %s", path, resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	return body, nil
 }
 
 // Validate logs the full advisory breakdown and asserts that weaver reported no

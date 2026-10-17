@@ -571,6 +571,10 @@ func (pf *TestPidsFilter) CurrentPIDs(_ PIDType) map[uint32]map[app.PID]svc.Attr
 	return nil
 }
 
+func (pf *TestPidsFilter) ProcPIDs(_ PIDType) []app.PID {
+	return nil
+}
+
 func (pf *TestPidsFilter) Filter(inputSpans []request.Span) []request.Span {
 	for i := range inputSpans {
 		s := &inputSpans[i]

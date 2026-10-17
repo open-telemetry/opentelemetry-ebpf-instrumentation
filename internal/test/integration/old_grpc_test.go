@@ -57,7 +57,7 @@ func testREDMetricsTracesForOldGRPCLibrary(t *testing.T, svcNs string) {
 		results, err = pq.Query(`rpc_server_call_duration_seconds_count{` +
 			`service_namespace="integration-test",` +
 			`service_name="worker",` +
-			`rpc_method="/fib.Multiplier/Loop"}`)
+			`rpc_method="fib.Multiplier/Loop"}`)
 		require.NoError(ct, err)
 		// check duration_count has at least 3 calls and all the arguments
 		enoughPromResults(ct, results)
@@ -116,7 +116,7 @@ func testGRPCGoClientFailsToConnect(t *testing.T) {
 			`service_namespace="integration-test",` +
 			`service_name="grpcpinger",` +
 			`rpc_response_status_code="UNKNOWN",` +
-			`rpc_method="/routeguide.RouteGuide/GetFeature"}`)
+			`rpc_method="routeguide.RouteGuide/GetFeature"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)

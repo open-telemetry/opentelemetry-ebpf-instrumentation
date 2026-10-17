@@ -318,6 +318,9 @@ jobs:
     name: Build Release Artifacts
     needs: tests-passed
     runs-on: ubuntu-latest
+    env:
+      RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
+      RELEASE_SOURCE_VERSION: ${{ inputs.tag || github.ref_name }}
     permissions:
       contents: read
       id-token: write
@@ -358,14 +361,13 @@ jobs:
 
       - name: Install Syft
         id: syft
-        uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           run: download-syft
           syft-version: v1.42.2
 
       - name: Generate release SBOMs
         env:
-          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
           SYFT_CMD: ${{ steps.syft.outputs.cmd }}
         run: |
           set -euo pipefail
@@ -418,8 +420,6 @@ jobs:
           done
 
       - name: Validate release SBOMs
-        env:
-          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
 
@@ -445,8 +445,6 @@ jobs:
             "dist/obi-java-agent-${RELEASE_VERSION}.cyclonedx.json" >/dev/null
 
       - name: Regenerate release checksums
-        env:
-          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
         run: make release-checksums RELEASE_VERSION="${RELEASE_VERSION}"
 
       - name: Sign release artifacts
@@ -458,7 +456,7 @@ jobs:
           done
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-artifacts
           path: dist/*
@@ -472,7 +470,7 @@ jobs:
       contents: write # https://github.com/softprops/action-gh-release#permissions
     steps:
       - name: Download artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-artifacts
           path: dist/

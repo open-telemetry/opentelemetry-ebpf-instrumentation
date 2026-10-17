@@ -85,10 +85,27 @@ func runtimeCounterStream(t *testing.T, pid int32, counters []runtimeCounter) []
 	writeString(&metadata, "")
 	var events bytes.Buffer
 	writeEvent(&events, 0, metadata.Bytes())
+	metadata.Reset()
+	write(&metadata, uint32(2))
+	writeString(&metadata, "System.Runtime")
+	write(&metadata, uint32(2))
+	writeString(&metadata, "ProcessorCount")
+	write(&metadata, uint64(2))
+	write(&metadata, uint32(0))
+	write(&metadata, uint32(4))
+	write(&metadata, uint32(1))
+	write(&metadata, netTraceTypeInt32)
+	writeString(&metadata, "processorCount")
+	writeEvent(&events, 0, metadata.Bytes())
 	writeBlock("MetadataBlock", events.Bytes())
 	events.Reset()
 	for _, counter := range counters {
 		var payload bytes.Buffer
+		if counter.Name == "processor-count" {
+			write(&payload, int32(counter.Value))
+			writeEvent(&events, 2, payload.Bytes())
+			continue
+		}
 		writeString(&payload, counter.Name)
 		counterType := "Mean"
 		if counter.Increment {

@@ -3,10 +3,9 @@
 # metadata to the meter resource, so these groups list only the runtime
 # data-point attributes. Each carries the obi.upstream_override annotation so
 # the schemacheck drift test pins its unit/instrument/stability to upstream.
-groups:
-  - id: metric.obi.go.config.gogc
-    type: metric
-    metric_name: go.config.gogc
+file_format: definition/2
+metrics:
+  - name: go.config.gogc
     annotations:
       obi:
         upstream_override: true
@@ -14,9 +13,8 @@ groups:
     instrument: updowncounter
     unit: "%"
     stability: development
-  - id: metric.obi.go.cpu.time
-    type: metric
-    metric_name: go.cpu.time
+    requirement_level: recommended
+  - name: go.cpu.time
     annotations:
       obi:
         upstream_override: true
@@ -24,15 +22,14 @@ groups:
     instrument: counter
     unit: "s"
     stability: development
+    requirement_level: recommended
     attributes:
       - ref: go.cpu.state
         requirement_level: required
       - ref: go.cpu.detailed_state
         requirement_level:
           recommended: if the runtime reported a detailed state
-  - id: metric.obi.go.goroutine.count
-    type: metric
-    metric_name: go.goroutine.count
+  - name: go.goroutine.count
     annotations:
       obi:
         upstream_override: true
@@ -40,9 +37,8 @@ groups:
     instrument: updowncounter
     unit: "{goroutine}"
     stability: development
-  - id: metric.obi.go.memory.allocated
-    type: metric
-    metric_name: go.memory.allocated
+    requirement_level: recommended
+  - name: go.memory.allocated
     annotations:
       obi:
         upstream_override: true
@@ -50,9 +46,8 @@ groups:
     instrument: counter
     unit: "By"
     stability: development
-  - id: metric.obi.go.memory.allocations
-    type: metric
-    metric_name: go.memory.allocations
+    requirement_level: recommended
+  - name: go.memory.allocations
     annotations:
       obi:
         upstream_override: true
@@ -60,9 +55,8 @@ groups:
     instrument: counter
     unit: "{allocation}"
     stability: development
-  - id: metric.obi.go.memory.gc.cycles
-    type: metric
-    metric_name: go.memory.gc.cycles
+    requirement_level: recommended
+  - name: go.memory.gc.cycles
     annotations:
       obi:
         upstream_override: true
@@ -70,9 +64,8 @@ groups:
     instrument: counter
     unit: "{gc_cycle}"
     stability: development
-  - id: metric.obi.go.memory.gc.goal
-    type: metric
-    metric_name: go.memory.gc.goal
+    requirement_level: recommended
+  - name: go.memory.gc.goal
     annotations:
       obi:
         upstream_override: true
@@ -80,9 +73,8 @@ groups:
     instrument: updowncounter
     unit: "By"
     stability: development
-  - id: metric.obi.go.memory.gc.pause.duration
-    type: metric
-    metric_name: go.memory.gc.pause.duration
+    requirement_level: recommended
+  - name: go.memory.gc.pause.duration
     annotations:
       obi:
         upstream_override: true
@@ -90,9 +82,8 @@ groups:
     instrument: histogram
     unit: "s"
     stability: development
-  - id: metric.obi.go.memory.limit
-    type: metric
-    metric_name: go.memory.limit
+    requirement_level: recommended
+  - name: go.memory.limit
     annotations:
       obi:
         upstream_override: true
@@ -100,9 +91,8 @@ groups:
     instrument: updowncounter
     unit: "By"
     stability: development
-  - id: metric.obi.go.memory.used
-    type: metric
-    metric_name: go.memory.used
+    requirement_level: recommended
+  - name: go.memory.used
     annotations:
       obi:
         upstream_override: true
@@ -110,12 +100,11 @@ groups:
     instrument: updowncounter
     unit: "By"
     stability: development
+    requirement_level: recommended
     attributes:
       - ref: go.memory.type
         requirement_level: recommended
-  - id: metric.obi.go.processor.limit
-    type: metric
-    metric_name: go.processor.limit
+  - name: go.processor.limit
     annotations:
       obi:
         upstream_override: true
@@ -123,9 +112,8 @@ groups:
     instrument: updowncounter
     unit: "{thread}"
     stability: development
-  - id: metric.obi.go.schedule.duration
-    type: metric
-    metric_name: go.schedule.duration
+    requirement_level: recommended
+  - name: go.schedule.duration
     annotations:
       obi:
         upstream_override: true
@@ -133,3 +121,4 @@ groups:
     instrument: histogram
     unit: "s"
     stability: development
+    requirement_level: recommended

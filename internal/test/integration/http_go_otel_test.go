@@ -253,7 +253,7 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 	setupContainerWeaver(t, network)
 	setupContainerCollector(t, network, "otelcol-config-weaver.yml")
 	setupGoOTelTestServer(t, network, []string{
-		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4319",
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
 	})
 
@@ -263,6 +263,7 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 
 	// Start OBI to instrument the test server
 	o := obi{
+		Logs: createLogOutput(t, "go-otel-avoids-instrumented-app"),
 		Env: []string{
 			"OTEL_EBPF_OPEN_PORT=8080",
 		},
@@ -274,7 +275,8 @@ func TestHTTPGoOTelAvoidsInstrumentedApp(t *testing.T) {
 
 	t.Run("Go RED metrics: http service instrumented with OTel, no istrumentation", func(t *testing.T) {
 		otelWaitForTestComponents(t, "http://localhost:8080", "/smoke")
-		time.Sleep(15 * time.Second) // ensure we see some calls to /v1/metrics /v1/traces
+		waitForAvoidedTelemetry(t, "/smoke", "metrics")
+		waitForAvoidedTelemetry(t, "/smoke", "traces")
 		testInstrumentationMissing(t, "/rolldice", "integration-test")
 	})
 
@@ -288,7 +290,7 @@ func TestHTTPGoOTelDisabledOptInstrumentedApp(t *testing.T) {
 	setupContainerWeaver(t, network)
 	setupContainerCollector(t, network, "otelcol-config-weaver.yml")
 	setupGoOTelTestServer(t, network, []string{
-		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4318",
+		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT=http://otelcol:4319",
 		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT=http://jaeger:4318",
 	})
 

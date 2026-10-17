@@ -10,6 +10,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestDecodeProcessorCount(t *testing.T) {
+	for _, count := range []int32{1, 8, math.MaxInt32} {
+		got, err := decodeProcessorCount(map[string]any{"processorCount": count})
+		require.NoError(t, err)
+		require.Equal(t, runtimeCounter{Name: "processor-count", Value: float64(count)}, got)
+	}
+	for _, value := range []any{nil, int32(0), int32(-1), int64(8), float64(8), "8"} {
+		got, err := decodeProcessorCount(map[string]any{"processorCount": value})
+		require.Error(t, err, "value: %v", value)
+		require.Zero(t, got)
+	}
+	_, err := decodeProcessorCount(nil)
+	require.Error(t, err)
+}
+
 func TestDecodeRuntimeCounter(t *testing.T) {
 	for _, counterType := range []string{"Mean", "Sum"} {
 		t.Run(counterType, func(t *testing.T) {

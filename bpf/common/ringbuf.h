@@ -7,6 +7,7 @@
 
 #include <common/event_defs.h>
 #include <common/pin_internal.h>
+#include <common/ringbuf_metrics.h>
 
 // setting here the following map definitions without pinning them to a global namespace
 // would lead that services running both HTTP and GRPC server would duplicate
@@ -36,4 +37,16 @@ static __always_inline long get_flags() {
 
     const u64 sz = bpf_ringbuf_query(&events, BPF_RB_AVAIL_DATA);
     return sz >= wakeup_data_bytes ? BPF_RB_FORCE_WAKEUP : BPF_RB_NO_WAKEUP;
+}
+
+static __always_inline void *events_ringbuf_reserve(u64 size, u64 flags) {
+    void *event = bpf_ringbuf_reserve(&events, size, flags);
+    account_ringbuf_write(RINGBUF_EVENTS, !event);
+    return event;
+}
+
+static __always_inline long events_ringbuf_output(void *data, u64 size, u64 flags) {
+    const long err = bpf_ringbuf_output(&events, data, size, flags);
+    account_ringbuf_write(RINGBUF_EVENTS, err != 0);
+    return err;
 }

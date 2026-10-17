@@ -27,6 +27,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
@@ -90,6 +92,17 @@ func TestGRPCCorrelationMapsUseProcessScopedKeys(t *testing.T) {
 		uint32(unsafe.Sizeof(grpcStreamKey{})),
 		spec.Maps["ongoing_streams"].KeySize,
 	)
+	require.Contains(t, spec.Maps, "ringbuf_write_stats_storage")
+	assert.Equal(t, ebpf.PerCPUArray, spec.Maps["ringbuf_write_stats_storage"].Type)
+	assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps["ringbuf_write_stats_storage"].Pinning)
+}
+
+func TestRingbufMetricsConstant(t *testing.T) {
+	tracer := New(nil, &obi.Config{}, imetrics.NoopReporter{})
+	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
+
+	tracer = New(nil, &obi.Config{}, struct{ imetrics.NoopReporter }{})
+	assert.Equal(t, true, tracer.constants()["ringbuf_metrics_enabled"])
 }
 
 func TestSetFramerPaddingOffsetUsesExactLayout(t *testing.T) {
@@ -713,7 +726,7 @@ func TestGoAutoSDKActivationProbeGroupRequiresSpanContextOffsets(t *testing.T) {
 		"go.opentelemetry.io/auto/sdk.(*span).ended",
 		"go.opentelemetry.io/otel/internal/global.(*tracer).newSpan",
 	}
-	assert.Equal(t, expectedSymbols, GoAutoSDKActivationProbeSymbols())
+	assert.Equal(t, append(expectedSymbols, embeddedSDKActivationProbeSymbols...), GoAutoSDKActivationProbeSymbols())
 	require.Len(t, groups[0].Probes, len(expectedSymbols))
 	for index, symbol := range expectedSymbols {
 		assert.Equal(t, symbol, groups[0].Probes[index].Symbol)
@@ -782,6 +795,7 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 		"golang.org/x/net/http2.(*Framer).WriteContinuation",
 		"net/http.(*http2Framer).WriteHeaders",
 		"net/http/internal/http2.(*Framer).WriteHeaders",
+		"google.golang.org/grpc/internal/transport.(*http2Client).createHeaderFields",
 	}
 	tracingProbeSymbols := []string{
 		"net/http.(*Transport).roundTrip",
@@ -798,6 +812,8 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 				cfg: &config.EBPFTracer{ContextPropagation: tt.mode},
 				log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 			}
+			tracer.bpfObjects.ObiUprobeTransportHttp2ClientNewStream = &ebpf.Program{}
+			tracer.bpfObjects.ObiUprobeTransportHttp2ClientNewStreamReturns = &ebpf.Program{}
 			constants := tracer.constants()
 			assert.Equal(t, tt.wireEnabled, constants["g_bpf_header_propagation"])
 			assert.Equal(t, tt.writeUser, constants["g_bpf_probe_write_user_enabled"])
@@ -813,6 +829,12 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 			for _, symbol := range tracingProbeSymbols {
 				assert.Contains(t, probes, symbol)
 			}
+			assert.NotContains(t, probes, "google.golang.org/grpc/internal/transport.(*controlBuffer).executeAndPut")
+
+			newStream := probes["google.golang.org/grpc/internal/transport.(*http2Client).NewStream"]
+			require.Len(t, newStream, 1)
+			assert.NotNil(t, newStream[0].Start)
+			assert.Equal(t, tt.wireEnabled, newStream[0].End != nil)
 
 			groups := tracer.GoProbeGroups()
 			if tt.writeProbesEnabled {
@@ -851,7 +873,18 @@ func TestHTTP2PreflushProbeGroupsRespectPropagation(t *testing.T) {
 
 	xnetGroup := groups[7]
 	require.Len(t, xnetGroup.Probes, 2)
-	assert.Equal(t, []string{"golang.org/x/net/http2.(*Framer).WriteHeaders"}, xnetGroup.RequiresAll)
+	assert.Equal(t, []string{
+		"golang.org/x/net/http2.(*Framer).WriteHeaders",
+		"golang.org/x/net/http2.(*ClientConn).writeHeaders",
+	}, xnetGroup.RequiresAll)
+	assert.Equal(t, []string{
+		"net/http.(*http2Framer).WriteHeaders",
+		"net/http.(*http2ClientConn).writeHeaders",
+	}, groups[8].RequiresAll)
+	assert.Equal(t, []string{
+		"net/http/internal/http2.(*Framer).WriteHeaders",
+		"net/http/internal/http2.(*ClientConn).writeHeaders",
+	}, groups[9].RequiresAll)
 	assert.True(t, xnetGroup.Probes[0].Probe.UsePadStart)
 	assert.False(t, xnetGroup.Probes[1].Probe.UsePadStart)
 	assert.Equal(t, xnetGroup.Probes[0].Symbol, xnetGroup.Probes[1].CalledFrom)
@@ -956,7 +989,7 @@ func TestGoH2OwnershipProbeGroupsAreVersionedAndAtomic(t *testing.T) {
 	)
 	assert.Equal(t, []string{
 		"google.golang.org/grpc/internal/transport.(*http2Client).NewStream",
-		"google.golang.org/grpc/internal/transport.(*controlBuffer).executeAndPut",
+		"google.golang.org/grpc/internal/transport.(*http2Client).createHeaderFields",
 		"golang.org/x/net/http2.(*Framer).WriteHeaders",
 	}, groups[5].RequiresAll)
 	assert.Equal(t, groups[5].RequiresAll, groups[6].RequiresAll)
@@ -1474,11 +1507,17 @@ func activationEventRecord(
 	t *testing.T,
 	pid app.PID,
 	generation uint64,
+	sdk ...uint8,
 ) *ringbuf.Record {
 	t.Helper()
 
+	kind := goExternalSDK
+	if len(sdk) > 0 {
+		kind = sdk[0]
+	}
 	var raw bytes.Buffer
 	require.NoError(t, binary.Write(&raw, binary.LittleEndian, goAutoSDKActivationEvent{
+		SDK:        kind,
 		Type:       ebpfcommon.EventTypeGoAutoActivated,
 		Pid:        uint32(pid),
 		Generation: generation,
@@ -1514,6 +1553,9 @@ func TestResetGoAutoSDKActivationAttempts(t *testing.T) {
 		{Generation: 456, Pid: 123, Attempt: 0},
 		{Generation: 456, Pid: 123, Attempt: 1},
 		{Generation: 456, Pid: 123, Attempt: 2},
+		{Generation: 456, Pid: 123, Attempt: 0, Sdk: goEmbeddedSDK},
+		{Generation: 456, Pid: 123, Attempt: 1, Sdk: goEmbeddedSDK},
+		{Generation: 456, Pid: 123, Attempt: 2, Sdk: goEmbeddedSDK},
 	}, attempts.keys)
 	assert.Contains(t, logs.String(), "delete failed")
 	assert.Contains(t, logs.String(), "attempt=1")
@@ -1541,6 +1583,9 @@ func TestGoAutoSDKTargetGenerationsAreStableUntilBlock(t *testing.T) {
 		{Generation: generation, Pid: 123, Attempt: 0},
 		{Generation: generation, Pid: 123, Attempt: 1},
 		{Generation: generation, Pid: 123, Attempt: 2},
+		{Generation: generation, Pid: 123, Attempt: 0, Sdk: goEmbeddedSDK},
+		{Generation: generation, Pid: 123, Attempt: 1, Sdk: goEmbeddedSDK},
+		{Generation: generation, Pid: 123, Attempt: 2, Sdk: goEmbeddedSDK},
 	}, attempts.keys)
 
 	newGeneration, err := activateGoAutoSDKTarget(targets, attempts, active, &next, 123, nil)
@@ -1577,7 +1622,7 @@ func TestGoAutoSDKTargetDeleteFailureFallsBackToZero(t *testing.T) {
 
 	assert.Zero(t, targets.entries[123])
 	assert.NotContains(t, active, app.PID(123))
-	require.Len(t, attempts.keys, goAutoSDKActivationMaxAttempts)
+	require.Len(t, attempts.keys, 2*goAutoSDKActivationMaxAttempts)
 	for _, key := range attempts.keys {
 		assert.Equal(t, uint64(7), key.Generation)
 	}
@@ -1622,6 +1667,9 @@ func TestGoAutoSDKTargetRecoveryPublishesBeforeRetiredAttemptCleanup(t *testing.
 		"attempt-delete",
 		"attempt-delete",
 		"attempt-delete",
+		"attempt-delete",
+		"attempt-delete",
+		"attempt-delete",
 	}, operations)
 	for _, key := range attempts.keys {
 		assert.Equal(t, uint64(7), key.Generation)
@@ -1655,7 +1703,7 @@ func TestGoAutoSDKTargetRecoveryRetriesFailedPublication(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, uint64(9), generation)
 	assert.Equal(t, goAutoSDKTargetState{generation: 9}, active[123])
-	require.Len(t, attempts.keys, goAutoSDKActivationMaxAttempts)
+	require.Len(t, attempts.keys, 2*goAutoSDKActivationMaxAttempts)
 }
 
 func TestGoAutoSDKTargetRecoveryCleanupFailureRetainsCleanupDebt(t *testing.T) {
@@ -1677,7 +1725,7 @@ func TestGoAutoSDKTargetRecoveryCleanupFailureRetainsCleanupDebt(t *testing.T) {
 		generation:         8,
 		cleanupGenerations: []uint64{7},
 	}, active[123])
-	require.Len(t, attempts.keys, goAutoSDKActivationMaxAttempts)
+	require.Len(t, attempts.keys, 2*goAutoSDKActivationMaxAttempts)
 }
 
 func TestGoAutoSDKTargetRecoveryRetriesCleanupDebt(t *testing.T) {
@@ -1704,7 +1752,7 @@ func TestGoAutoSDKTargetRecoveryRetriesCleanupDebt(t *testing.T) {
 	assert.Equal(t, generation, sameGeneration)
 	assert.Equal(t, goAutoSDKTargetState{generation: generation}, active[123])
 	require.Len(t, targets.puts, 1)
-	require.Len(t, attempts.keys, 2*goAutoSDKActivationMaxAttempts)
+	require.Len(t, attempts.keys, 4*goAutoSDKActivationMaxAttempts)
 }
 
 func TestGoAutoSDKTargetDuplicateBlockRetriesCleanupDebt(t *testing.T) {
@@ -1723,7 +1771,7 @@ func TestGoAutoSDKTargetDuplicateBlockRetriesCleanupDebt(t *testing.T) {
 	require.NoError(t, deactivateGoAutoSDKTarget(targets, attempts, active, 123, nil))
 
 	assert.NotContains(t, active, app.PID(123))
-	require.Len(t, attempts.keys, 2*goAutoSDKActivationMaxAttempts)
+	require.Len(t, attempts.keys, 4*goAutoSDKActivationMaxAttempts)
 }
 
 func TestGoAutoSDKTargetDuplicateBlockRetriesDirtyDisable(t *testing.T) {
@@ -1739,7 +1787,7 @@ func TestGoAutoSDKTargetDuplicateBlockRetriesDirtyDisable(t *testing.T) {
 
 	assert.NotContains(t, active, app.PID(123))
 	assert.NotContains(t, targets.entries, uint32(123))
-	require.Len(t, attempts.keys, goAutoSDKActivationMaxAttempts)
+	require.Len(t, attempts.keys, 2*goAutoSDKActivationMaxAttempts)
 }
 
 func TestGoAutoSDKTargetGenerationWrapSkipsZero(t *testing.T) {
@@ -1903,4 +1951,103 @@ func setContextPropagationSupportForTest(t *testing.T, supported bool) {
 		ebpfcommon.IntegrityModeOverride = previousOverride
 		supportsContextPropagationWithProbe = previousProbe
 	})
+}
+
+func TestGoSDKActivationLinksAreIndependent(t *testing.T) {
+	for _, first := range []uint8{goExternalSDK, goEmbeddedSDK} {
+		tracer := activationLifecycleTestTracer(func(app.PID) (uint64, error) { return 9, nil })
+		tracer.goAutoSDKActivationProbes[goAutoSDKExecutableKey{dev: 5, ino: 10, sdk: goEmbeddedSDK}] = goAutoSDKActivationProbe{}
+		closers := []*activationCountingCloser{{}, {}}
+		completedLink, pendingLink := closers[0], closers[1]
+		if first == goEmbeddedSDK {
+			completedLink, pendingLink = pendingLink, completedLink
+		}
+		var attached int
+		tracer.attachGoAutoSDKProbe = func(goAutoSDKActivationProbe, app.PID, uint64, uint64, uint64) (io.Closer, error) {
+			closer := closers[attached]
+			attached++
+			return closer, nil
+		}
+		tracer.AllowPID(123, 0, exec.New(exec.Init{Dev: 5, Ino: 10}))
+		require.Len(t, tracer.goAutoSDKActivationLinks, 2)
+		generation := tracer.goAutoSDKTargets[123].generation
+		_, err := tracer.handleGoAutoSDKActivationEvent(activationEventRecord(t, 123, generation, first))
+		require.NoError(t, err)
+		require.Len(t, tracer.goAutoSDKActivationLinks, 1)
+		assert.Equal(t, int32(1), completedLink.closes.Load())
+		assert.Equal(t, int32(0), pendingLink.closes.Load())
+		require.NoError(t, tracer.ensureGoAutoSDKActivationLinkLocked(123, 10, generation))
+		assert.Equal(t, 2, attached)
+		tracer.BlockPID(123, 0)
+		assert.Empty(t, tracer.goAutoSDKActivationLinks)
+		assert.Equal(t, int32(1), pendingLink.closes.Load())
+	}
+}
+
+func TestEmbeddedSDKActivationProbeGroup(t *testing.T) {
+	setContextPropagationSupportForTest(t, true)
+	tracer := &Tracer{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	fileInfo := exec.New(exec.Init{Ino: 1})
+	offsets := &goexec.Offsets{Field: goexec.FieldOffsets{
+		goexec.SpanContextTraceIDPos: uint64(0), goexec.SpanContextSpanIDPos: uint64(16),
+		goexec.SpanContextTraceFlagsPos: uint64(24), goexec.EmbeddedSDKSpanContextPos: uint64(16),
+		goexec.EmbeddedSDKActivationSupported: uint64(1),
+	}}
+	tracer.recordGoAutoSDKActivationSupport(fileInfo, offsets)
+	tracer.recordGoChannelOffsetAvailability(fileInfo, &goexec.Offsets{})
+	groups := tracer.GoProbeGroups()
+	require.Len(t, groups, 1)
+	assert.Equal(t, "go_embedded_sdk_activation", groups[0].Name)
+	for i, probe := range groups[0].Probes {
+		assert.Equal(t, embeddedSDKActivationProbeSymbols[i], probe.Symbol)
+		assert.Contains(t, GoAutoSDKActivationProbeSymbols(), probe.Symbol)
+		assert.Equal(t, i == len(groups[0].Probes)-1, probe.ProcessScoped)
+	}
+	delete(offsets.Field, goexec.EmbeddedSDKSpanContextPos)
+	tracer.recordGoAutoSDKActivationSupport(fileInfo, offsets)
+	assert.Empty(t, tracer.GoProbeGroups())
+}
+
+func TestRegisterGoSDKActivationProbeBatchesOffsets(t *testing.T) {
+	tracer := activationLinkTestTracer(7)
+	delete(tracer.goAutoSDKActivationProbes, goAutoSDKExecutableKey{dev: 5, ino: 10})
+	var addresses []uint64
+	closers := []*activationCountingCloser{{}, {}}
+	var attached int
+	tracer.attachGoAutoSDKProbe = func(probe goAutoSDKActivationProbe, pid app.PID, _, _, _ uint64) (io.Closer, error) {
+		addresses = goAutoSDKActivationUprobeOptions(probe, pid).Addresses
+		closer := closers[attached]
+		attached++
+		return closer, nil
+	}
+	for _, offset := range []uint64{10, 20, 20} {
+		tracer.RegisterProcessScopedGoProbe(5, 10, ebpfcommon.GoProbe{
+			Symbol: embeddedSDKActivationProbeSymbols[3], ProcessScoped: true,
+			Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}, StartOffset: offset},
+		})
+	}
+	assert.Equal(t, []uint64{10, 20}, addresses)
+	assert.Equal(t, 2, attached)
+	assert.Equal(t, int32(1), closers[0].closes.Load())
+	_, err := tracer.handleGoAutoSDKActivationEvent(activationEventRecord(t, 123, 7, goEmbeddedSDK))
+	require.NoError(t, err)
+	assert.Equal(t, int32(1), closers[1].closes.Load())
+	assert.Empty(t, tracer.goAutoSDKActivationLinks)
+}
+
+func TestRegisterGoSDKActivationProbeRetriesAttachment(t *testing.T) {
+	tracer := activationLinkTestTracer(7)
+	var attempts int
+	tracer.attachGoAutoSDKProbe = func(goAutoSDKActivationProbe, app.PID, uint64, uint64, uint64) (io.Closer, error) {
+		attempts++
+		if attempts == 1 {
+			return nil, errors.New("attachment failed")
+		}
+		return &activationCountingCloser{}, nil
+	}
+	probe := ebpfcommon.GoProbe{ProcessScoped: true, Probe: &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}, StartOffset: 10}}
+	tracer.RegisterProcessScopedGoProbe(5, 10, probe)
+	tracer.RegisterProcessScopedGoProbe(5, 10, probe)
+	assert.Equal(t, 2, attempts)
+	assert.Len(t, tracer.goAutoSDKActivationLinks, 1)
 }
