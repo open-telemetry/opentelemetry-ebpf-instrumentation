@@ -412,6 +412,9 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 	resp, err2 := httpSafeParseResponse(responseBuffer, req)
 	if err != nil || err2 != nil {
 		slog.Debug("error while parsing http request or response, falling back to manual HTTP info parsing", "reqErr", err, "respErr", err2)
+		if err2 != nil {
+			debugLogResponseLargeBufferOnParseFail(responseBuffer, err2)
+		}
 		return httpRequestToSpan(event, requestBuffer), false, nil
 	}
 
