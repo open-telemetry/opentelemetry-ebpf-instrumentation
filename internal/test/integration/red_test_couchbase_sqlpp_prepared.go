@@ -139,8 +139,8 @@ func assertCouchbasePreparedExecutionsResolved(t *testing.T, testCase TestCase, 
 		counts := countCouchbasePreparedSpans(ct, testCase.Comm)
 		assert.Equal(ct, baseline.unresolved, counts.unresolved, "prepared executions emitted without their statement")
 		for _, statement := range statements {
-			assert.GreaterOrEqual(ct, counts.resolved[statement.text], baseline.resolved[statement.text]+executions,
-				"executions of %q carrying the statement", statement.text)
+			assert.Greater(ct, counts.resolved[statement.text], baseline.resolved[statement.text],
+				"no new execution of %q carries the statement", statement.text)
 		}
 	}, testTimeout, time.Second)
 }

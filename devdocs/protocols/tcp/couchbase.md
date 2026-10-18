@@ -275,7 +275,7 @@ SDKs can prepare a statement once and then execute it by name. gocb does this by
 
 OBI strips the `PREPARE` prefix before parsing, so a PREPARE span reports the inner statement. The first token after `PREPARE [FORCE]` is only taken as a name when the text after `FROM`/`AS` starts a statement, so `PREPARE DELETE FROM ...` stays anonymous.
 
-OBI remembers a server-assigned name whenever an HTTP 200 response carries it, even if the auto-executed query then failed. Server-assigned names are derived from the statement, so they are shared across query nodes. A client-chosen name is remembered only when the PREPARE succeeded, and only for the query node it was sent to. Names and their statements live in an LRU keyed by process, `query_context` and name, sized by `prepared_statements_cache_size` (default 1024). The generic and Go tracers each keep their own cache; a process's traffic only reaches one of them.
+OBI remembers a server-assigned name whenever an HTTP 200 response carries it, even if the auto-executed query then failed. Server-assigned names are derived from the statement, so they are shared across query nodes. A client-chosen name is remembered only when the PREPARE succeeded, and only for the query node it was sent to. Names and their statements live in an LRU keyed by process, `query_context` and name, sized by the Config v2 setting `capture.instrumentation.http.payload_extraction.sqlpp.prepared_statements_cache_size` (default 1024). The generic and Go tracers each keep their own cache; a process's traffic only reaches one of them.
 
 Executions stay unresolved, with operation `EXECUTE`, when OBI never saw the PREPARE:
 
