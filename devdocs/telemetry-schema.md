@@ -119,6 +119,9 @@ section empty once drained.
   label changes from `http_route` to `url_template` on `http_client_request_duration_seconds`,
   `http_client_request_body_size_bytes` and `http_client_response_body_size_bytes`, and an
   `attributes.select` entry naming `http.route` for these metrics must name `url.template`.
+  As in semconv, `url.template` is on by default on the two body-size metrics but opt-in on
+  `http.client.request.duration`, so client duration series no longer split by route unless
+  `url.template` is selected.
 - The HTTP metrics no longer offer `url.path`, and the HTTP server metrics and
   `rpc.server.call.duration` no longer offer `client.address`, following the semantic
   conventions, which exclude these high-cardinality attributes from metrics. Both were opt-in,

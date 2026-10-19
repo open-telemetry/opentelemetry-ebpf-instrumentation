@@ -344,6 +344,17 @@ func getDefinitions(
 		nil,
 	)
 
+	// Semconv makes url.template opt-in on the stable client duration metric,
+	// and conditionally required only on the development body-size metrics.
+	httpClientDurationRoutes := NewAttrReportGroup(
+		!groups.Has(GroupHTTPRoutes),
+		nil,
+		map[attr.Name]Default{
+			attr.HTTPUrlTemplate: false,
+		},
+		nil,
+	)
+
 	serverInfo := NewAttrReportGroup(
 		false,
 		nil,
@@ -421,7 +432,7 @@ func getDefinitions(
 			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpRoutes, &serverInfo},
 		},
 		HTTPClientDuration.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientRoutes, &httpClientInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientDurationRoutes, &httpClientInfo},
 		},
 		HTTPClientRequestSize.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientRoutes, &httpClientInfo},

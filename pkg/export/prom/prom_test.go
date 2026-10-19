@@ -221,13 +221,15 @@ func TestAppMetrics_HTTPRouteLabels(t *testing.T) {
 			assert.Regexp(ct, name+`\{[^}]*http_route="/server/\{id\}"[^}]*\} 1`, exported)
 		}
 		for _, name := range []string{
-			"http_client_request_duration_seconds_count",
 			"http_client_request_body_size_bytes_count",
 			"http_client_response_body_size_bytes_count",
 		} {
 			assert.Regexp(ct, name+`\{[^}]*url_template="/client/\{id\}"[^}]*\} 1`, exported)
 			assert.NotRegexp(ct, name+`\{[^}]*http_route=`, exported)
 		}
+		// opt-in on the stable duration metric, as semconv defines it
+		assert.Regexp(ct, `http_client_request_duration_seconds_count\{[^}]*\} 1`, exported)
+		assert.NotRegexp(ct, `http_client_request_duration_seconds_count\{[^}]*(url_template|http_route)=`, exported)
 		assert.NotContains(ct, exported, `url_path=`)
 	}, timeout, 100*time.Millisecond)
 }

@@ -57,8 +57,7 @@ metrics:
       - ref: url.scheme
         requirement_level: recommended
       - ref: url.template
-        requirement_level:
-          conditionally_required: if route collection is enabled and the route was matched
+        requirement_level: opt_in
   - name: http.client.response.body.size
     annotations:
       obi:

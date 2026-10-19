@@ -87,8 +87,7 @@ func testREDMetricsForPHPHTTPLibrary(t *testing.T, url string, nginx, php string
 			`http_request_method="GET",` +
 			`http_response_status_code="200",` +
 			`service_namespace="integration-test",` +
-			`service_name="` + nginx + `",` +
-			`url_template="/ping"}`)
+			`service_name="` + nginx + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)

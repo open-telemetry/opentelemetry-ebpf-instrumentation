@@ -165,9 +165,19 @@ func TestFor_HTTPRouteAttributesByDirection(t *testing.T) {
 		assert.NotContains(t, p.For(metric), attr.HTTPUrlTemplate, metric.Section)
 	}
 	for _, metric := range clientMetrics {
-		assert.Contains(t, p.For(metric), attr.HTTPUrlTemplate, metric.Section)
 		assert.NotContains(t, p.For(metric), attr.HTTPRoute, metric.Section)
 	}
+	// semconv makes url.template opt-in on the stable duration metric and
+	// conditionally required on the development body-size metrics
+	assert.NotContains(t, p.For(HTTPClientDuration), attr.HTTPUrlTemplate)
+	assert.Contains(t, p.For(HTTPClientRequestSize), attr.HTTPUrlTemplate)
+	assert.Contains(t, p.For(HTTPClientResponseSize), attr.HTTPUrlTemplate)
+
+	p, err = NewAttrSelector(GroupHTTPRoutes, &SelectorConfig{SelectionCfg: Selection{
+		HTTPClientDuration.Section: InclusionLists{Include: []string{"url.template"}},
+	}})
+	require.NoError(t, err)
+	assert.Contains(t, p.For(HTTPClientDuration), attr.HTTPUrlTemplate, "url.template can be opted into on the client duration")
 
 	p, err = NewAttrSelector(0, &SelectorConfig{})
 	require.NoError(t, err)

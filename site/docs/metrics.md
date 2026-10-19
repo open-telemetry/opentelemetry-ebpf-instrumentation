@@ -657,7 +657,7 @@ OBI-emitted http.client.request.duration
 | `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 | `url.scheme` | string | `recommended` | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
-| `url.template` | string | `conditionally_required`: if route collection is enabled and the route was matched | development | The low-cardinality template of an [absolute path reference](https://www.rfc-editor.org/rfc/rfc3986#section-4.2). | /users/{id}; /users/:id; /users?id={id} |
+| `url.template` | string | `opt_in` | development | The low-cardinality template of an [absolute path reference](https://www.rfc-editor.org/rfc/rfc3986#section-4.2). | /users/{id}; /users/:id; /users?id={id} |
 
 ## `http.client.response.body.size`
 
