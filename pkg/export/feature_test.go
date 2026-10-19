@@ -31,16 +31,16 @@ func TestFeatureYAML(t *testing.T) {
 func TestConnectionInfoFeatureIsOptIn(t *testing.T) {
 	features := mustLoadFeatures(t, "application_connection_info")
 	assert.True(t, features.ConnectionInfo())
-	assert.True(t, features.Topology())
+	assert.True(t, features.ServiceTopology())
 	assert.True(t, features.AnyAppO11yMetric())
 	assert.False(t, features.ServiceGraph())
 	assert.False(t, features.AppRED())
 }
 
-func TestTopology(t *testing.T) {
-	assert.False(t, Features(0).Topology())
-	assert.True(t, Features(FeatureGraph).Topology())
-	assert.True(t, Features(FeatureConnectionInfo).Topology())
+func TestServiceTopology(t *testing.T) {
+	assert.False(t, Features(0).ServiceTopology())
+	assert.True(t, Features(FeatureGraph).ServiceTopology())
+	assert.True(t, Features(FeatureConnectionInfo).ServiceTopology())
 }
 
 func TestFeatureEnv(t *testing.T) {

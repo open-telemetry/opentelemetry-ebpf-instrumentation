@@ -354,8 +354,8 @@ func (f Features) ConnectionInfo() bool {
 	return f.any(FeatureConnectionInfo)
 }
 
-// Topology reports whether service-graph or connection-info metrics are enabled.
-func (f Features) Topology() bool {
+// ServiceTopology reports whether service-graph or connection-info metrics are enabled.
+func (f Features) ServiceTopology() bool {
 	return f.ServiceGraph() || f.ConnectionInfo()
 }
 

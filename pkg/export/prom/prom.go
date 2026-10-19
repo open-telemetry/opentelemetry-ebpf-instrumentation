@@ -496,7 +496,7 @@ func newReporter(
 	kubeEnabled := ctxInfo.K8sInformer.IsKubeEnabled()
 	dockerEnabled := ctxInfo.DockerMetadata.IsEnabled(ctx)
 
-	if jointMetricsConfig.Features.Topology() {
+	if jointMetricsConfig.Features.ServiceTopology() {
 		attrs := []attr.Name{attr.Client, attr.ClientNamespace, attr.Server, attr.ServerNamespace, attr.Source}
 		if kubeEnabled {
 			attrs = append(attrs, attr.K8SClientCluster, attr.K8SServerCluster, attr.K8SClientNamespace, attr.K8SServerNamespace)

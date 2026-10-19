@@ -83,7 +83,7 @@ func ReportSvcGraphMetrics(
 	processEvents *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
-		if !cfg.EndpointEnabled() || !jointMetricsConfig.Features.Topology() {
+		if !cfg.EndpointEnabled() || !jointMetricsConfig.Features.ServiceTopology() {
 			return swarm.EmptyRunFunc()
 		}
 		otelcfg.SetupInternalOTELSDKLogger(cfg.SDKLogLevel)
@@ -369,7 +369,7 @@ func serviceGraphGetters(unresolved request.UnresolvedNames, k8sEnabled bool) []
 }
 
 func (r *SvcGraphMetrics) record(span *request.Span, mr *SvcGraphMetricsReporter) {
-	if span.IsDNSSpan() || !span.Service.Features.Topology() {
+	if span.IsDNSSpan() || !span.Service.Features.ServiceTopology() {
 		return
 	}
 	if span.Service.Features.ConnectionInfo() {
@@ -527,7 +527,7 @@ func (mr *SvcGraphMetricsReporter) onSpan(spans []request.Span) {
 			continue
 		}
 		// If we are ignoring this span because of route patterns or features, don't do anything
-		if request.IgnoreMetrics(s) || !s.Service.Features.Topology() {
+		if request.IgnoreMetrics(s) || !s.Service.Features.ServiceTopology() {
 			continue
 		}
 		reporter, err := mr.reporters.For(&s.Service)
