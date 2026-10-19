@@ -24,15 +24,25 @@ func rlog() *slog.Logger {
 func CloudMetadataRefreshers(
 	ctx context.Context,
 	nodeMeta *metadata.NodeMeta,
-	sources []Source,
+	cfg *NameResolverConfig,
 	cloudCfg CloudMetadataConfig,
 ) []cloud.MetadataRefresher {
 	var refreshers []cloud.MetadataRefresher
-	enabled := resolverSources(sources)
+	if cfg == nil {
+		return refreshers
+	}
+	enabled := resolverSources(cfg.Sources)
 	if nodeMeta.Features.Has(metadata.ClusterEC2) && enabled.Has(ResolverRoute53) {
 		if refresher, err := route53InventoryRefresher(ctx, nodeMeta, cloudCfg); err != nil {
 			rlog().Warn("cloud metadata not available", "source", SourceRoute53, "error", err)
 		} else {
+			refreshers = append(refreshers, refresher)
+		}
+	}
+	if nodeMeta.Features.Has(metadata.ClusterGCP) && enabled.Has(ResolverGCE) {
+		if refresher, err := gceInventoryRefresher(ctx, nodeMeta, cfg.GCE, cloudCfg); err != nil {
+			rlog().Warn("cloud metadata not available", "source", SourceGCE, "error", err)
+		} else if refresher != nil {
 			refreshers = append(refreshers, refresher)
 		}
 	}
