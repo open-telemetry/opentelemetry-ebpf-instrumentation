@@ -116,6 +116,26 @@ async def sqlpp_query_with_context():
     return {"status": "ok"}
 
 
+prepared_cluster = None
+
+
+@app.get("/sqlpp-prepared")
+async def sqlpp_prepared():
+    global prepared_cluster
+    if prepared_cluster is None:
+        prepared_cluster = get_cluster()
+
+    prepared_stmt = "SELECT META().id FROM `test-bucket`.`test-scope`.`test-collection` WHERE type = $1"
+    result = prepared_cluster.query(
+        prepared_stmt,
+        QueryOptions(adhoc=False, positional_parameters=["prepared-test"])
+    )
+    for row in result:
+        print(f"SELECT prepared result row: {row}")
+
+    return {"status": "ok"}
+
+
 @app.get("/sqlpp-error")
 async def sqlpp_error():
     """Test SQL++ query that returns an error (non-existent keyspace)"""

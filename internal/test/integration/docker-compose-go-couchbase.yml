@@ -1,0 +1,169 @@
+version: "3.8"
+
+services:
+  couchbase:
+    image: couchbase:community-7.6.1@sha256:d7c02936ce46d83b765ea4a89250abff12dc6640ae9abb11eebbc581180e4b53
+    ports:
+      - "8091:8091"
+      - "8093:8093"
+      - "11210:11210"
+    ulimits:
+      nofile:
+        soft: 200000
+        hard: 200000
+    environment:
+      - COUCHBASE_ADMINISTRATOR_USERNAME=Administrator
+      - COUCHBASE_ADMINISTRATOR_PASSWORD=password
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-u", "Administrator:password", "http://localhost:8091/pools"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  couchbase-init:
+    image: couchbase:community-7.6.1@sha256:d7c02936ce46d83b765ea4a89250abff12dc6640ae9abb11eebbc581180e4b53
+    depends_on:
+      couchbase:
+        condition: service_healthy
+    entrypoint: []
+    command:
+      - bash
+      - -c
+      - |
+        echo 'Waiting for Couchbase to be ready...'
+        sleep 5
+        echo 'Initializing cluster...'
+        couchbase-cli cluster-init -c couchbase:8091 \
+          --cluster-username Administrator \
+          --cluster-password password \
+          --cluster-ramsize 512 \
+          --cluster-index-ramsize 256 \
+          --services data,index,query
+        echo 'Creating bucket...'
+        couchbase-cli bucket-create -c couchbase:8091 \
+          -u Administrator -p password \
+          --bucket test-bucket \
+          --bucket-type couchbase \
+          --bucket-ramsize 256
+        echo 'Creating scope and collection...'
+        couchbase-cli collection-manage -c couchbase:8091 \
+          -u Administrator -p password \
+          --bucket test-bucket \
+          --create-scope test-scope
+        couchbase-cli collection-manage -c couchbase:8091 \
+          -u Administrator -p password \
+          --bucket test-bucket \
+          --create-collection test-scope.test-collection
+        echo 'Waiting for query service to be ready...'
+        until curl -s -u Administrator:password http://couchbase:8093/admin/ping > /dev/null 2>&1; do
+          echo 'Query service not ready, waiting...'
+          sleep 2
+        done
+        echo 'Couchbase initialization complete'
+
+  testserver:
+    build:
+      context: ../../../internal/test/integration/components/gocouchbase/
+      dockerfile: Dockerfile
+    image: hatest-testserver-go-couchbase
+    ports:
+      - "${TEST_SERVICE_PORTS}"
+    depends_on:
+      otelcol:
+        condition: service_started
+      couchbase-init:
+        condition: service_completed_successfully
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-go-couchbase:/var/run/obi
+    image: hatest-obi
+    privileged: true
+    network_mode: "service:testserver"
+    pid: "service:testserver"
+    environment:
+      OTEL_EBPF_CONFIG_PATH: "/configs/obi-config.yml"
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_TRACE_PRINTER: "text"
+      OTEL_EBPF_OPEN_PORT: "${OTEL_EBPF_OPEN_PORT}"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
+      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
+      OTEL_EBPF_METRICS_INTERVAL: "1s"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+      OTEL_EBPF_BPF_DEBUG: "TRUE"
+      OTEL_EBPF_HOSTNAME: "obi"
+      OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT: "5s"
+      OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
+      OTEL_EBPF_TRACES_INSTRUMENTATIONS: "http,couchbase"
+      OTEL_EBPF_METRICS_INSTRUMENTATIONS: "http,couchbase"
+      OTEL_EBPF_METRICS_FEATURES: "application"
+      OTEL_EBPF_PROTOCOL_DEBUG_PRINT: "true"
+      # SQL++ settings
+      OTEL_EBPF_BPF_BUFFER_SIZE_HTTP: 2048
+      OTEL_EBPF_HTTP_SQLPP_ENABLED: "true"
+    depends_on:
+      testserver:
+        condition: service_started
+
+  # OpenTelemetry Collector
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6
+    container_name: otel-col
+    deploy:
+      resources:
+        limits:
+          memory: 125M
+    restart: unless-stopped
+    command: ["--config=/etc/otelcol-config/otelcol-config-weaver.yml"]
+    volumes:
+      - ./configs/:/etc/otelcol-config
+    ports:
+      - "4317"
+      - "4318:4318"
+      - "9464"
+      - "8888"
+    depends_on:
+      prometheus:
+        condition: service_started
+      jaeger:
+        condition: service_started
+      weaver:
+        condition: service_healthy
+
+  weaver:
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro
+
+  # Prometheus
+  prometheus:
+    image: quay.io/prometheus/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus-config.yml
+      - --web.enable-lifecycle
+      - --web.route-prefix=/
+    volumes:
+      - ./configs/:/etc/prometheus
+    ports:
+      - "9090:9090"
+
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17
+    ports:
+      - "16686:16686"
+      - "4317"
+      - "4318"
+    command:
+      - "--set=service.telemetry.logs.level=debug"

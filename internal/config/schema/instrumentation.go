@@ -207,7 +207,8 @@ type PayloadExtraction struct {
 
 // SQLPPPayload describes SQL++ payload extraction settings.
 type SQLPPPayload struct {
-	EndpointPatterns []string `yaml:"endpoint_patterns"`
+	EndpointPatterns            []string `yaml:"endpoint_patterns"`
+	PreparedStatementsCacheSize int      `yaml:"prepared_statements_cache_size"`
 }
 
 // HTTPEnrichment describes HTTP payload enrichment policy and rules.
