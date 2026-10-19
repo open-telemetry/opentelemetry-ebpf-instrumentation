@@ -270,6 +270,15 @@ func buildOBIImage(ctx context.Context) error {
 }
 
 func buildDockerImage(ctx context.Context, output io.Writer, tag, dockerfile string, buildArgs ...map[string]*string) error {
+	var args map[string]*string
+	if len(buildArgs) > 0 {
+		args = buildArgs[0]
+	}
+	if os.Getenv("SKIP_DOCKER_BUILD") != "" && isPrebuiltImage(ctx, tag, dockerfile, args) {
+		fmt.Fprintf(output, "Skipping %s image build (pre-built image found)\n", tag)
+		return nil
+	}
+
 	buildContext, err := createBuildContext(pathRoot)
 	if err != nil {
 		return err
@@ -278,10 +287,6 @@ func buildDockerImage(ctx context.Context, output io.Writer, tag, dockerfile str
 		_ = buildContext.Close()
 	}()
 
-	var args map[string]*string
-	if len(buildArgs) > 0 {
-		args = buildArgs[0]
-	}
 	result, err := dockerPool.Client().ImageBuild(ctx, buildContext, client.ImageBuildOptions{
 		Tags:       []string{tag},
 		Dockerfile: dockerfile,
@@ -301,6 +306,27 @@ func buildDockerImage(ctx context.Context, output io.Writer, tag, dockerfile str
 		return fmt.Errorf("closing Docker build response for %q: %w", tag, closeErr)
 	}
 	return nil
+}
+
+const prebuiltBuildSpecLabel = "obi.test.build-spec"
+
+func isPrebuiltImage(ctx context.Context, tag, dockerfile string, buildArgs map[string]*string) bool {
+	inspect, err := dockerPool.Client().ImageInspect(ctx, tag)
+	if err != nil || inspect.Config == nil {
+		return false
+	}
+	return inspect.Config.Labels[prebuiltBuildSpecLabel] == prebuiltBuildSpec(dockerfile, buildArgs)
+}
+
+func prebuiltBuildSpec(dockerfile string, buildArgs map[string]*string) string {
+	pairs := make([]string, 0, len(buildArgs))
+	for name, value := range buildArgs {
+		if value != nil {
+			pairs = append(pairs, name+"="+*value)
+		}
+	}
+	slices.Sort(pairs)
+	return strings.Join(append([]string{dockerfile}, pairs...), ";")
 }
 
 // createBuildContext creates a tar archive of the given directory for Docker build context.
