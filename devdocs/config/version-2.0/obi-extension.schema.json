@@ -1341,12 +1341,19 @@
             },
             "placement": {
               "type": "string",
-              "enum": ["prefix", "suffix"],
+              "enum": [
+                "prefix",
+                "suffix"
+              ],
               "default": "suffix"
             },
             "multiline": {
               "type": "string",
-              "enum": ["first_line", "last_line", "each_line"],
+              "enum": [
+                "first_line",
+                "last_line",
+                "each_line"
+              ],
               "default": "first_line"
             }
           }
@@ -2221,6 +2228,9 @@
                   }
                 }
               }
+            },
+            "peer_metadata": {
+              "$ref": "#/$defs/PeerMetadata"
             }
           }
         },
@@ -2231,6 +2241,127 @@
         "attributes": {
           "type": "object",
           "description": "Attribute enrichment rules and defaults.\nIf omitted, implementation defaults are used.\n"
+        }
+      }
+    },
+    "PeerMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Peer metadata exchange, disabled by default and bypassed when Kubernetes is enabled.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable metadata exchange on directly routable non-Kubernetes hosts."
+        },
+        "listen_address": {
+          "type": "string",
+          "default": "",
+          "description": "IP address to bind. Empty binds all local interfaces."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 8998,
+          "description": "Shared metadata port used by all peers."
+        },
+        "peer_cidrs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Eligible peer networks. Empty automatically enables the entire private blocks represented by active local addresses. Explicit ranges replace detection; only observed peers are queried."
+        },
+        "refresh_interval": {
+          "type": "string",
+          "default": "10s",
+          "description": "Refresh active peers and instrumented listener inventory. Peer requests include jitter and failure backoff. Must be at least 1ms."
+        },
+        "caller_ttl": {
+          "type": "string",
+          "default": "1m0s",
+          "description": "Retain observed service-to-destination relationships. Must be at least 1ms."
+        },
+        "cache_ttl": {
+          "type": "string",
+          "default": "1m0s",
+          "description": "Expire remote metadata after its last successful refresh, and remove inactive peers. Must be at least 1ms."
+        },
+        "request_timeout": {
+          "type": "string",
+          "default": "2s",
+          "description": "Timeout for metadata requests and server reads/writes. Must be at least 1ms."
+        },
+        "max_peers": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1024,
+          "description": "Maximum cached peer hosts."
+        },
+        "max_concurrent": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 8,
+          "description": "Maximum concurrent outbound metadata requests."
+        },
+        "max_caller_entries": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 16384,
+          "description": "Maximum local service-to-destination relationships. Overflow forces hostname fallback until observations expire."
+        },
+        "max_response_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1048576,
+          "description": "Maximum encoded response size, both served and received."
+        },
+        "max_cache_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 67108864,
+          "description": "Total cached response byte budget. Must be at least max_response_bytes."
+        },
+        "token": {
+          "type": "string",
+          "default": "",
+          "description": "Optional shared bearer token for both server and client. Use declarative environment substitution for secrets."
+        },
+        "tls": {
+          "$ref": "#/$defs/PeerMetadataTLS"
+        }
+      }
+    },
+    "PeerMetadataTLS": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use HTTPS for both serving and querying metadata."
+        },
+        "cert_file": {
+          "type": "string",
+          "default": "",
+          "description": "Server certificate PEM file, required when TLS is enabled."
+        },
+        "key_file": {
+          "type": "string",
+          "default": "",
+          "description": "Server private key PEM file, required when TLS is enabled."
+        },
+        "ca_file": {
+          "type": "string",
+          "default": "",
+          "description": "Optional peer CA PEM file. Empty uses system roots."
+        },
+        "server_name": {
+          "type": "string",
+          "default": "",
+          "description": "Optional common TLS server name. Empty verifies each peer IP against its certificate."
         }
       }
     }

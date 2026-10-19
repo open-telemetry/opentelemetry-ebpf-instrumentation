@@ -419,6 +419,27 @@ extensions:
                     route53:
                         refresh_interval: 5m0s
                         hosted_zone_ids: []
+                peer_metadata:
+                    enabled: false
+                    listen_address: ""
+                    port: 8998
+                    peer_cidrs: []
+                    refresh_interval: 10s
+                    caller_ttl: 1m0s
+                    cache_ttl: 1m0s
+                    request_timeout: 2s
+                    max_peers: 1024
+                    max_concurrent: 8
+                    max_caller_entries: 16384
+                    max_response_bytes: 1048576
+                    max_cache_bytes: 67108864
+                    token: ""
+                    tls:
+                        enabled: false
+                        cert_file: ""
+                        key_file: ""
+                        ca_file: ""
+                        server_name: ""
             service_name:
                 unresolved_hosts:
                     names:
