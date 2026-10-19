@@ -171,6 +171,21 @@ func TestFor_KubeDisabled(t *testing.T) {
 	}, p.For(NetworkFlow))
 }
 
+func TestFor_NotNormalizedSection(t *testing.T) {
+	for _, key := range []Section{
+		DotnetProcessMemoryWorkingSet.Section,
+		Section(DotnetProcessMemoryWorkingSet.Prom),
+	} {
+		selection := Selection{
+			key: InclusionLists{Include: []string{"k8s.namespace.name"}},
+		}
+		selection.Normalize()
+		p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection})
+		require.NoError(t, err)
+		assert.Equal(t, []attr.Name{"k8s.namespace.name"}, p.For(DotnetProcessMemoryWorkingSet), "key %q", key)
+	}
+}
+
 func TestNilDoesNotCrash(t *testing.T) {
 	assert.NotPanics(t, func() {
 		p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{})
