@@ -115,6 +115,8 @@ jobs:
     needs: vm-test-matrix
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      NEEDS_LEGACY_ROOTFS: ${{ contains(needs.vm-test-matrix.outputs.kernels, '"cgroup_mode":"legacy"') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -180,31 +182,9 @@ jobs:
           # Hash every discovered build input so source changes cannot reuse stale images.
           key: vm-docker-images-${{ hashFiles('internal/test/integration/**', 'internal/config/**', 'Makefile', '.dockerignore', 'scripts/discover-integration-images.sh', 'bpf/**', 'cmd/**', 'pkg/**', 'go.mod', 'go.sum') }}
 
-      - name: Pre-build Docker images
-        if: steps.docker-images-cache.outputs.cache-hit != 'true'
-        run: |
-          mapfile -t ENTRIES < <(bash scripts/discover-integration-images.sh --build-targets)
-          echo "Discovered ${#ENTRIES[@]} Docker images to pre-build"
-          # -P 4 keeps disk + buildkit pressure manageable on a 4-core runner.
-          printf '%s\n' "${ENTRIES[@]}" | xargs -P 4 -I {} bash -c '
-            entry="$1"; tag="${entry%%=*}"; dockerfile="${entry#*=}"
-            echo "Building ${tag} from ${dockerfile}..."
-            docker build --quiet -t "${tag}" -f "${dockerfile}" .
-          ' _ {}
-
-          IMAGE_TAGS=()
-          for entry in "${ENTRIES[@]}"; do
-            IMAGE_TAGS+=("${entry%%=*}")
-          done
-
-          if [ ${#IMAGE_TAGS[@]} -gt 0 ]; then
-            docker save "${IMAGE_TAGS[@]}" -o compiled-tests/docker-images.tar
-            echo "Docker images saved ($(du -h compiled-tests/docker-images.tar | cut -f1))"
-            docker builder prune -af
-          fi
-
       - name: Compute base-image cache key
         id: cache-key
+        if: steps.docker-images-cache.outputs.cache-hit != 'true'
         env:
           ARCH: ${{ runner.arch }}
           INPUT_REF: ${{ inputs.ref || '' }}
@@ -221,40 +201,82 @@ jobs:
 
       - name: Cache base images
         id: base-images-cache
+        if: steps.docker-images-cache.outputs.cache-hit != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
         with:
-          path: compiled-tests/base-images.tar
+          path: /tmp/base-images.tar
           key: ${{ steps.cache-key.outputs.key }}
 
       - name: Pull and save base images
-        if: steps.base-images-cache.outputs.cache-hit != 'true'
-        run: bash scripts/pull-base-images.sh compiled-tests/base-images.tar
+        if: steps.docker-images-cache.outputs.cache-hit != 'true' && steps.base-images-cache.outputs.cache-hit != 'true'
+        run: bash scripts/pull-base-images.sh /tmp/base-images.tar
 
-      - name: Cache rootfs images
+      - name: Load base images
+        if: steps.docker-images-cache.outputs.cache-hit != 'true' && steps.base-images-cache.outputs.cache-hit == 'true'
+        run: docker load -i /tmp/base-images.tar
+
+      - name: Pre-build Docker images
+        if: steps.docker-images-cache.outputs.cache-hit != 'true'
+        run: |
+          mapfile -t ENTRIES < <(bash scripts/discover-integration-images.sh --build-targets)
+          echo "Discovered ${#ENTRIES[@]} Docker images to pre-build"
+          # -P 4 keeps disk + buildkit pressure manageable on a 4-core runner.
+          printf '%s\n' "${ENTRIES[@]}" | xargs -P 4 -I {} bash -c '
+            entry="$1"; tag="${entry%%=*}"; spec="${entry#*=}"; dockerfile="${spec%%;*}"
+            args=()
+            IFS=";" read -ra pairs <<< "${spec}"
+            for pair in "${pairs[@]:1}"; do
+              args+=(--build-arg "${pair}")
+            done
+            echo "Building ${tag} from ${dockerfile}..."
+            docker build --quiet -t "${tag}" -f "${dockerfile}" --label "obi.test.build-spec=${spec}" "${args[@]}" .
+          ' _ {}
+
+          IMAGE_TAGS=()
+          for entry in "${ENTRIES[@]}"; do
+            IMAGE_TAGS+=("${entry%%=*}")
+          done
+
+          if [ ${#IMAGE_TAGS[@]} -gt 0 ]; then
+            docker save "${IMAGE_TAGS[@]}" -o compiled-tests/docker-images.tar
+            echo "Docker images saved ($(du -h compiled-tests/docker-images.tar | cut -f1))"
+            docker builder prune -af
+          fi
+
+      - name: Cache rootfs image
         id: rootfs-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] keyed on hash of VM Dockerfile
         with:
-          path: |
-            compiled-tests/rootfs.qcow2
-            compiled-tests/rootfs-legacy.qcow2
-          key: vm-rootfs-${{ hashFiles('internal/test/vm/Dockerfile') }}
+          path: rootfs.qcow2
+          key: vm-rootfs-hybrid-${{ hashFiles('internal/test/vm/Dockerfile') }}
+
+      - name: Cache legacy rootfs image
+        id: rootfs-legacy-cache
+        if: env.NEEDS_LEGACY_ROOTFS == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] keyed on hash of VM Dockerfile
+        with:
+          path: rootfs-legacy.qcow2
+          key: vm-rootfs-legacy-${{ hashFiles('internal/test/vm/Dockerfile') }}
 
       - name: Install qemu-utils
-        if: steps.rootfs-cache.outputs.cache-hit != 'true'
+        if: steps.rootfs-cache.outputs.cache-hit != 'true' || (env.NEEDS_LEGACY_ROOTFS == 'true' && steps.rootfs-legacy-cache.outputs.cache-hit != 'true')
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends qemu-utils
 
-      - name: Build rootfs images
+      - name: Build rootfs image
         if: steps.rootfs-cache.outputs.cache-hit != 'true'
         run: |
           sudo make -C internal/test/vm WORKDIR="$(pwd)" build-rootfs
           sudo chown "$(id -u):$(id -g)" rootfs.qcow2
-          mv rootfs.qcow2 compiled-tests/rootfs.qcow2
+          ls -lh rootfs.qcow2
+
+      - name: Build legacy rootfs image
+        if: env.NEEDS_LEGACY_ROOTFS == 'true' && steps.rootfs-legacy-cache.outputs.cache-hit != 'true'
+        run: |
           sudo make -C internal/test/vm WORKDIR="$(pwd)" CGROUP_MODE=legacy build-rootfs
           sudo chown "$(id -u):$(id -g)" rootfs-legacy.qcow2
-          mv rootfs-legacy.qcow2 compiled-tests/rootfs-legacy.qcow2
-          ls -lh compiled-tests/rootfs*.qcow2
+          ls -lh rootfs-legacy.qcow2
 
       - name: Stage schemas/obi/.deps for weaver
         run: |
@@ -311,15 +333,33 @@ jobs:
           mkdir -p schemas/obi/.deps
           cp -a compiled-tests/schemas-deps/. schemas/obi/.deps/
 
+      - name: Restore rootfs image
+        id: rootfs-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] keyed on hash of VM Dockerfile
+        with:
+          path: ${{ matrix.kernel.cgroup_mode == 'legacy' && 'rootfs-legacy.qcow2' || 'rootfs.qcow2' }}
+          key: vm-rootfs-${{ matrix.kernel.cgroup_mode == 'legacy' && 'legacy' || 'hybrid' }}-${{ hashFiles('internal/test/vm/Dockerfile') }}
+
       - name: Stage rootfs.qcow2
         env:
           CGROUP_MODE: ${{ matrix.kernel.cgroup_mode }}
+          CACHE_HIT: ${{ steps.rootfs-cache.outputs.cache-hit }}
         run: |
+          ROOTFS_MODE=""
           if [ "$CGROUP_MODE" = "legacy" ]; then
-            mv compiled-tests/rootfs-legacy.qcow2 ./rootfs.qcow2
-          else
-            mv compiled-tests/rootfs.qcow2 ./rootfs.qcow2
+            ROOTFS_MODE="legacy"
           fi
+
+          if [ "$CACHE_HIT" != "true" ]; then
+            echo "rootfs cache miss, building it"
+            sudo make -C internal/test/vm WORKDIR="$(pwd)" CGROUP_MODE="$ROOTFS_MODE" build-rootfs
+            sudo chown "$(id -u):$(id -g)" rootfs*.qcow2
+          fi
+
+          if [ "$ROOTFS_MODE" = "legacy" ]; then
+            mv rootfs-legacy.qcow2 rootfs.qcow2
+          fi
+          touch rootfs.qcow2
           ls -lh ./rootfs.qcow2
 
       - id: kernel
@@ -352,6 +392,7 @@ jobs:
             KERNEL="$KERNEL" \
             MODULES_DIR="$MODULES_DIR" \
             ARCH=amd64 \
+            QEMU_SMP="$(nproc)" \
             TEST_PATTERN="${MATRIX_TEST_PATTERN}" \
             RUN_NUMBER="${RUN_NUMBER}" \
             PRECOMPILED_TESTS_DIR="$(pwd)/compiled-tests" \
