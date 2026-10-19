@@ -551,7 +551,7 @@ func (s *Store) serviceNameNamespaceOwnerID(om *informer.ObjectMeta, containerNa
 			}
 		}
 
-	} else if nameFromMeta := s.valueFromMetadata(om,
+	} else if nameFromMeta := s.valueFromMetadata(s.serviceMetadata(om),
 		ServiceNameAnnotation,
 		s.resourceLabels["service.name"],
 	); nameFromMeta != "" {
@@ -561,7 +561,7 @@ func (s *Store) serviceNameNamespaceOwnerID(om *informer.ObjectMeta, containerNa
 	}
 	if envName, ok := s.serviceNamespaceFromEnv(om, containerName); ok {
 		serviceNamespace = envName
-	} else if nsFromMeta := s.valueFromMetadata(s.namespaceMeta(om),
+	} else if nsFromMeta := s.valueFromMetadata(s.serviceMetadata(om),
 		ServiceNamespaceAnnotation,
 		s.resourceLabels["service.namespace"],
 	); nsFromMeta != "" {
@@ -707,7 +707,7 @@ func (s *Store) PodIPsForWorkloads(owners []WorkloadOwner) map[WorkloadOwner][]s
 	return out
 }
 
-func (s *Store) namespaceMeta(om *informer.ObjectMeta) *informer.ObjectMeta {
+func (s *Store) serviceMetadata(om *informer.ObjectMeta) *informer.ObjectMeta {
 	if om == nil || om.Pod != nil {
 		return om
 	}

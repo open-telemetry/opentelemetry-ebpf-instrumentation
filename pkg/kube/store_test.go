@@ -23,6 +23,49 @@ import (
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 )
 
+func TestServiceIPNameMatchesPodAnnotation(t *testing.T) {
+	pod := &informer.ObjectMeta{
+		Name:      "inventory-api-abc",
+		Namespace: "shop",
+		Kind:      "Pod",
+		Ips:       []string{"10.0.0.2"},
+		Annotations: map[string]string{
+			ServiceNameAnnotation: "inventory",
+		},
+		Pod: &informer.PodInfo{
+			Owners: []*informer.Owner{
+				{Name: "inventory-api", Kind: "Deployment"},
+			},
+			Containers: []*informer.ContainerInfo{
+				{Id: "inventory-container", Name: "api"},
+			},
+		},
+	}
+	service := &informer.ObjectMeta{
+		Name:      "inventory-api",
+		Namespace: "shop",
+		Kind:      "Service",
+		Ips:       []string{"10.96.0.10"},
+	}
+
+	store := NewStore(&fakeInformer{}, DefaultResourceLabels, nil, imetrics.NoopReporter{})
+	for _, resource := range []*informer.ObjectMeta{service, pod} {
+		require.NoError(t, store.On(&informer.Event{
+			Type:     informer.EventType_CREATED,
+			Resource: resource,
+		}))
+	}
+
+	appName, _ := store.ServiceNameNamespaceForMetadata(pod, "api")
+	podName, _, _ := store.ServiceNameNamespaceForIP("10.0.0.2")
+	serviceName, _, _ := store.ServiceNameNamespaceForIP("10.96.0.10")
+
+	require.Equal(t, "inventory", appName)
+	require.Equal(t, appName, podName)
+	require.Equal(t, appName, serviceName,
+		"Service IP resolution must agree with the application identity")
+}
+
 func TestContainerInfoWithTemplate(t *testing.T) {
 	deployment := informer.Owner{
 		Name: "service",
