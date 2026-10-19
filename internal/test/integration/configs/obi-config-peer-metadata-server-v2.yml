@@ -1,0 +1,57 @@
+file_format: "1.0"
+log_level: debug
+resource:
+  attributes:
+    - name: host.name
+      value: peer-server-host
+tracer_provider:
+  processors:
+    - batch:
+        schedule_delay: 10
+        exporter:
+          otlp_grpc:
+            endpoint: http://jaeger:4317
+            tls:
+              insecure: true
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: exclude
+        poll_interval: 250ms
+        min_process_age: 0s
+      rules:
+        - action: include
+          match:
+            process:
+              cmd_args_glob: ["*/peer-metadata/app.py*"]
+      engine:
+        batching:
+          batch_timeout: 10ms
+      instrumentation:
+        http:
+          enabled:
+            traces: true
+            metrics: false
+          routes:
+            incoming:
+              unmatched: path
+            outgoing:
+              unmatched: path
+    enrich:
+      attributes:
+        select:
+          traces:
+            include: [service.peer.name]
+      enrichers:
+        kubernetes:
+          mode: disabled
+        peer_metadata:
+          enabled: true
+          refresh_interval: 1s
+          caller_ttl: 6s
+          cache_ttl: 6s
+    daemon:
+      logging:
+        debug_trace_output: text
