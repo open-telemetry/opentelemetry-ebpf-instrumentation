@@ -1628,7 +1628,7 @@ func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
 	}
 
 	transportKeys := []string{
-		"url.full", "url.scheme", "url.query", "http.request.method",
+		"url.full", "url.scheme", "http.request.method",
 		"http.response.status_code", "http.request.body.size", "http.response.body.size",
 	}
 
@@ -1704,6 +1704,9 @@ func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
 				_, ok := selected.Get(key)
 				assert.Equal(t, expected[key], ok, key)
 			}
+
+			_, ok := selected.Get("url.query")
+			assert.False(t, ok, "url.query must not be emitted on http client spans")
 
 			for _, key := range []string{"server.address", "server.port", "service.peer.name"} {
 				_, ok := selected.Get(key)

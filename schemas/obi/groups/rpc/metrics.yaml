@@ -38,8 +38,6 @@ metrics:
     stability: release_candidate
     requirement_level: recommended
     attributes:
-      - ref: client.address
-        requirement_level: opt_in
       - ref: error.type
         requirement_level:
           conditionally_required: if the operation ended in an error

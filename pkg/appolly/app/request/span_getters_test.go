@@ -528,6 +528,14 @@ func TestSpanOTELGetters_HTTPURLScheme(t *testing.T) {
 	}
 }
 
+func TestSpanOTELGetters_HTTPUrlTemplate(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.HTTPUrlTemplate)
+	require.True(t, ok)
+
+	kv := getter(&Span{Type: EventTypeHTTPClient, Path: "/users/42", Route: "/users/{id}"})
+	assert.Equal(t, semconv.URLTemplate("/users/{id}"), kv)
+}
+
 func TestSpanOTELGetters_HTTPRequestMethod(t *testing.T) {
 	getter, ok := spanOTELGetters(attr.HTTPRequestMethod)
 	require.True(t, ok, "getter should be found for HTTPRequestMethod")

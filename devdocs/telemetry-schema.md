@@ -90,6 +90,15 @@ A removal goes under "Pending release notes" below instead: the format has
 `rename_attributes` and `rename_metrics` and no operation for dropping something.
 
 ```yaml
+metrics:
+  changes:
+    - rename_attributes:
+        attribute_map:
+          http.route: url.template
+        apply_to_metrics:
+          - http.client.request.duration
+          - http.client.request.body.size
+          - http.client.response.body.size
 ```
 
 ### Pending release notes
@@ -104,6 +113,22 @@ section empty once drained.
 - A SQL++ span from a server other than Couchbase (`db.system.name` `other_sql`) that names no
   collection or bucket is named `{db.operation.name}`, like other SQL spans, instead of
   `{db.operation.name} {server.address}:{server.port}`. Couchbase SQL++ spans are unchanged.
+- The HTTP client metrics (`http.client.request.duration`, `http.client.request.body.size`,
+  `http.client.response.body.size`) carry the route as `url.template` instead of `http.route`,
+  with the same value; the transformation above records it for OTLP. The Prometheus exporter
+  label changes from `http_route` to `url_template` on `http_client_request_duration_seconds`,
+  `http_client_request_body_size_bytes` and `http_client_response_body_size_bytes`, and an
+  `attributes.select` entry naming `http.route` for these metrics must name `url.template`.
+  As in semconv, `url.template` is on by default on the two body-size metrics but opt-in on
+  `http.client.request.duration`, so client duration series no longer split by route unless
+  `url.template` is selected.
+- The HTTP metrics no longer offer `url.path`, and the HTTP server metrics and
+  `rpc.server.call.duration` no longer offer `client.address`, following the semantic
+  conventions, which exclude these high-cardinality attributes from metrics. Both were opt-in,
+  so only an `attributes.select` that included them changes. `url.path` can still be used in
+  attribute filters, and the spans keep both attributes.
+- HTTP client spans no longer carry `url.query`; the scrubbed query string remains part of
+  `url.full`. HTTP server spans keep `url.query`.
 
 ## Hosting notes
 

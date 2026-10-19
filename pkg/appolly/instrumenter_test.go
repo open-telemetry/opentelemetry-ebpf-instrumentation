@@ -126,8 +126,6 @@ func TestBasicPipeline(t *testing.T) {
 		Attributes: map[string]string{
 			string(attr.HTTPRequestMethod):      "GET",
 			string(attr.HTTPResponseStatusCode): "404",
-			string(attr.HTTPUrlPath):            "/foo/bar",
-			string(attr.ClientAddr):             "1.1.1.1",
 			string(semconv.ServiceNameKey):      "foo-svc",
 			string(semconv.ServiceNamespaceKey): "ns",
 			string(attr.HTTPURLScheme):          "http",
@@ -383,7 +381,7 @@ func TestRouteConsolidation(t *testing.T) {
 		OTELMetrics: cfg,
 		Metrics:     mpConfig,
 		Routes:      &transform.RoutesConfig{Patterns: []string{"/user/{id}", "/products/{id}/push"}},
-		Attributes:  obi.Attributes{Select: allMetricsBut("client.address", "url.path"), InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
+		Attributes:  obi.Attributes{Select: allMetricsBut("server.address"), InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"}},
 	}, gctx(attributes.GroupHTTPRoutes, &cfg), tracesInput, processEvents, nil)
 	// Override eBPF tracer to send some fake data
 	tracesInput.Send(newRequest("svc-1", "/user/1234", 200))
@@ -427,7 +425,6 @@ func TestRouteConsolidation(t *testing.T) {
 			string(semconv.HTTPRouteKey):        "/user/{id}",
 			string(attr.HTTPURLScheme):          "http",
 			string(attr.ServerPort):             "8080",
-			string(attr.ServerAddr):             events["/user/{id}"].Attributes["server.address"],
 		},
 		ResourceAttributes: map[string]string{
 			string(semconv.HostIDKey):               "host-id",
@@ -455,7 +452,6 @@ func TestRouteConsolidation(t *testing.T) {
 			string(semconv.HTTPRouteKey):        "/products/{id}/push",
 			string(attr.HTTPURLScheme):          "http",
 			string(attr.ServerPort):             "8080",
-			string(attr.ServerAddr):             events["/products/{id}/push"].Attributes["server.address"],
 		},
 		ResourceAttributes: map[string]string{
 			string(semconv.HostIDKey):               "host-id",
@@ -483,7 +479,6 @@ func TestRouteConsolidation(t *testing.T) {
 			string(semconv.HTTPRouteKey):        "/**",
 			string(attr.HTTPURLScheme):          "http",
 			string(attr.ServerPort):             "8080",
-			string(attr.ServerAddr):             events["/**"].Attributes["server.address"],
 		},
 		ResourceAttributes: map[string]string{
 			string(semconv.HostIDKey):               "host-id",
@@ -550,7 +545,6 @@ func TestGRPCPipeline(t *testing.T) {
 			string(semconv.RPCSystemNameKey):         "grpc",
 			string(semconv.RPCResponseStatusCodeKey): "INVALID_ARGUMENT",
 			string(semconv.RPCMethodKey):             "foo/bar",
-			string(attr.ClientAddr):                  "1.1.1.1",
 			string(attr.ServerPort):                  "8080",
 			string(attr.ServerAddr):                  event.Attributes["server.address"],
 		},
@@ -651,8 +645,6 @@ func TestBasicPipelineInfo(t *testing.T) {
 		Attributes: map[string]string{
 			string(attr.HTTPRequestMethod):      "PATCH",
 			string(attr.HTTPResponseStatusCode): "204",
-			string(attr.HTTPUrlPath):            "/aaa/bbb",
-			string(attr.ClientAddr):             "1.1.1.1",
 			string(semconv.ServiceNameKey):      "comm",
 			string(semconv.ServiceNamespaceKey): "",
 			string(attr.HTTPURLScheme):          "http",
@@ -747,31 +739,27 @@ func TestSpanAttributeFilterNode(t *testing.T) {
 			event = testutil.ReadChannel(t, tc.Records(), testTimeout)
 			require.Equal(ct, "http.server.request.duration", event.Name)
 		}, testTimeout, 100*time.Millisecond)
-		events[event.Attributes["url.path"]] = event.Attributes
+		events[event.Attributes[string(semconv.ServiceNameKey)]] = event.Attributes
 	}
 
 	assert.Equal(t, map[string]map[string]string{
-		"/user/1234": {
+		"svc-1": {
 			string(semconv.ServiceNameKey):      "svc-1",
 			string(semconv.ServiceNamespaceKey): "ns",
-			string(attr.ClientAddr):             "1.1.1.1",
 			string(attr.HTTPRequestMethod):      "GET",
 			string(attr.HTTPResponseStatusCode): "201",
-			string(attr.HTTPUrlPath):            "/user/1234",
 			string(attr.HTTPURLScheme):          "http",
 			string(attr.ServerPort):             "8080",
-			string(attr.ServerAddr):             events["/user/1234"]["server.address"],
+			string(attr.ServerAddr):             events["svc-1"]["server.address"],
 		},
-		"/user/4321": {
+		"svc-3": {
 			string(semconv.ServiceNameKey):      "svc-3",
 			string(semconv.ServiceNamespaceKey): "ns",
-			string(attr.ClientAddr):             "1.1.1.1",
 			string(attr.HTTPRequestMethod):      "GET",
 			string(attr.HTTPResponseStatusCode): "203",
-			string(attr.HTTPUrlPath):            "/user/4321",
 			string(attr.HTTPURLScheme):          "http",
 			string(attr.ServerPort):             "8080",
-			string(attr.ServerAddr):             events["/user/1234"]["server.address"],
+			string(attr.ServerAddr):             events["svc-1"]["server.address"],
 		},
 	}, events)
 

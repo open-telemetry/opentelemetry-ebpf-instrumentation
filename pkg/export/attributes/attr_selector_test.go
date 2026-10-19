@@ -144,14 +144,63 @@ func TestFor_GlobEntries_Order_Default(t *testing.T) {
 				Exclude: []string{"*"},
 			},
 			"http.server.request.duration": InclusionLists{
-				Include: []string{"url.path"},
+				Include: []string{"server.port"},
 			},
 		},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []attr.Name{
-		"url.path",
+		"server.port",
 	}, p.For(HTTPServerDuration))
+}
+
+func TestFor_HTTPRouteAttributesByDirection(t *testing.T) {
+	serverMetrics := []Name{HTTPServerDuration, HTTPServerRequestSize, HTTPServerResponseSize}
+	clientMetrics := []Name{HTTPClientDuration, HTTPClientRequestSize, HTTPClientResponseSize}
+
+	p, err := NewAttrSelector(GroupHTTPRoutes, &SelectorConfig{})
+	require.NoError(t, err)
+	for _, metric := range serverMetrics {
+		assert.Contains(t, p.For(metric), attr.HTTPRoute, metric.Section)
+		assert.NotContains(t, p.For(metric), attr.HTTPUrlTemplate, metric.Section)
+	}
+	for _, metric := range clientMetrics {
+		assert.NotContains(t, p.For(metric), attr.HTTPRoute, metric.Section)
+	}
+	// semconv makes url.template opt-in on the stable duration metric and
+	// conditionally required on the development body-size metrics
+	assert.NotContains(t, p.For(HTTPClientDuration), attr.HTTPUrlTemplate)
+	assert.Contains(t, p.For(HTTPClientRequestSize), attr.HTTPUrlTemplate)
+	assert.Contains(t, p.For(HTTPClientResponseSize), attr.HTTPUrlTemplate)
+
+	p, err = NewAttrSelector(GroupHTTPRoutes, &SelectorConfig{SelectionCfg: Selection{
+		HTTPClientDuration.Section: InclusionLists{Include: []string{"url.template"}},
+	}})
+	require.NoError(t, err)
+	assert.Contains(t, p.For(HTTPClientDuration), attr.HTTPUrlTemplate, "url.template can be opted into on the client duration")
+
+	p, err = NewAttrSelector(0, &SelectorConfig{})
+	require.NoError(t, err)
+	for _, metric := range append(serverMetrics, clientMetrics...) {
+		assert.NotContains(t, p.For(metric), attr.HTTPRoute, metric.Section)
+		assert.NotContains(t, p.For(metric), attr.HTTPUrlTemplate, metric.Section)
+	}
+}
+
+func TestFor_RemovedHTTPMetricAttributes(t *testing.T) {
+	p, err := NewAttrSelector(GroupHTTPRoutes, &SelectorConfig{
+		SelectionCfg: Selection{"*": InclusionLists{Include: []string{"*"}}},
+	})
+	require.NoError(t, err)
+	for _, metric := range []Name{
+		HTTPServerDuration, HTTPServerRequestSize, HTTPServerResponseSize,
+		HTTPClientDuration, HTTPClientRequestSize, HTTPClientResponseSize,
+		RPCServerDuration,
+	} {
+		assert.NotContains(t, p.For(metric), attr.HTTPUrlPath, metric.Section)
+		assert.NotContains(t, p.For(metric), attr.ClientAddr, metric.Section)
+	}
+	assert.Contains(t, p.For(DBServerDuration), attr.ClientAddr)
 }
 
 func TestFor_KubeDisabled(t *testing.T) {
