@@ -807,6 +807,10 @@ func getDefinitions(
 			SubGroups:  []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{},
 		},
+		DotnetExceptions.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{attr.ErrorType: true},
+		},
 		CPythonGCCollections.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{

@@ -109,6 +109,18 @@ Number of loaded .NET assemblies.
 
 No attributes.
 
+## `dotnet.exceptions`
+
+Number of managed exceptions thrown since attachment on .NET 9+, including rethrows.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {exception} | stable |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `error.type` | string | `required` | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+
 ## `dotnet.gc.heap.total_allocated`
 
 Total bytes allocated on the .NET managed heap since the collector baseline.

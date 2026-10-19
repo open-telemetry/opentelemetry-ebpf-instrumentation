@@ -2,6 +2,20 @@
 # Service and container metadata are carried on the meter resource.
 file_format: definition/2
 metrics:
+  # A local definition preserves OBI's open string definition of error.type.
+  # Importing this metric also imports the upstream enum in Weaver resolution.
+  - name: dotnet.exceptions
+    annotations:
+      obi:
+        upstream_override: true
+    brief: Number of managed exceptions thrown since attachment on .NET 9+, including rethrows.
+    instrument: counter
+    unit: "{exception}"
+    stability: stable
+    requirement_level: recommended
+    attributes:
+      - ref: error.type
+        requirement_level: required
   - name: dotnet.process.cpu.count
     annotations:
       obi:
