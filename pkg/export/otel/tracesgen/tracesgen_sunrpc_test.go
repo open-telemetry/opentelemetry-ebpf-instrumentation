@@ -36,10 +36,27 @@ func TestTraceAttributesSelector_SunRPCClient(t *testing.T) {
 	assert.Equal(t, trace2.SpanKindClient, spanKind(span))
 	assert.Contains(t, attrs, request.RPCSystem("onc_rpc"))
 	assert.Contains(t, attrs, semconv.OncRPCProgramName("nfs"))
+	assert.Contains(t, attrs, semconv.RPCMethod("nfs/3"))
 	assert.Contains(t, attrs, semconv.OncRPCProcedureNumber(3))
 	assert.NotContains(t, attrs, semconv.OncRPCProcedureName("3"))
 	assert.Contains(t, attrs, semconv.OncRPCVersion(4))
 	assert.Contains(t, attrs, attribute.String(string(attr.OncRPCAuthFlavor), "rpcsec_gss"))
+	assert.Contains(t, attrs, semconv.RPCResponseStatusCode("0"))
+}
+
+func TestTraceAttributesSelector_SunRPCResponseStatusCode(t *testing.T) {
+	for _, tc := range []struct {
+		status   int
+		expected string
+	}{
+		{status: 0, expected: "0"},
+		{status: 1, expected: "denied"},
+		{status: 2, expected: "1"},
+	} {
+		span := &request.Span{Type: request.EventTypeSunRPCServer, Path: "nfs", Route: "3", Status: tc.status}
+		attrs := TraceAttributesSelector(span, map[attr.Name]struct{}{})
+		assert.Contains(t, attrs, semconv.RPCResponseStatusCode(tc.expected))
+	}
 }
 
 func TestTraceAttributesSelector_SunRPCProcedureName(t *testing.T) {
@@ -64,6 +81,7 @@ func TestTraceAttributesSelector_SunRPCProcedureName(t *testing.T) {
 		for _, kv := range attrs {
 			assert.NotEqual(t, string(semconv.OncRPCProcedureNameKey), string(kv.Key))
 			assert.NotEqual(t, string(semconv.OncRPCProcedureNumberKey), string(kv.Key))
+			assert.NotEqual(t, string(semconv.RPCMethodKey), string(kv.Key))
 		}
 	})
 }
@@ -88,9 +106,11 @@ func TestTraceAttributesSelector_SunRPC_matchesMetricGetters(t *testing.T) {
 
 	for _, name := range []attr.Name{
 		attr.RPCSystem,
+		attr.RPCMethod,
 		attr.OncRPCProgramName,
 		attr.OncRPCProcedureNumber,
 		attr.OncRPCVersion,
+		attr.RPCResponseStatusCode,
 	} {
 		getter, ok := getters(name)
 		require.True(t, ok, "getter should exist for %s", name)

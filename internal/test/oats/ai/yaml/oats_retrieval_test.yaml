@@ -11,7 +11,7 @@ expected:
   traces:
   # Qdrant similarity search, matched on the vendor host map
   - traceql: '{ .gen_ai.provider.name = "qdrant" && .gen_ai.operation.name = "retrieval" }'
-    equals: retrieval qdrant
+    equals: retrieval
     attributes:
       gen_ai.provider.name: qdrant
       gen_ai.operation.name: retrieval

@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 	"go.opentelemetry.io/obi/pkg/internal/sunrpcparser"
 )
@@ -139,6 +140,53 @@ func TestMatchSunRPC_PrefersCallInResponseBuffer(t *testing.T) {
 	assert.Equal(t, uint8(directionRecv), event.Direction)
 }
 
+func TestMatchSunRPC_ResponseStatusCode(t *testing.T) {
+	const progUnavail = 1
+	call := wrapSunRPCTCPRecord(buildSunRPCCallRecord(9, sunrpcparser.ProgramMount, 3, 1, "auth_null"))
+	tests := []struct {
+		name       string
+		req, resp  []byte
+		wantStatus string
+	}{
+		{name: "call only", req: call},
+		{
+			name: "successful reply", req: call, resp: wrapSunRPCTCPRecord(buildSunRPCAcceptedReply(9)),
+			wantStatus: "0",
+		},
+		{
+			name:       "successful reply in the same buffer",
+			req:        append(append([]byte{}, call...), wrapSunRPCTCPRecord(buildSunRPCAcceptedReply(9))...),
+			wantStatus: "0",
+		},
+		{
+			name: "denied reply", req: call, resp: wrapSunRPCTCPRecord(buildSunRPCDeniedReply(9)),
+			wantStatus: "denied",
+		},
+		{
+			name: "rejected reply", req: call, resp: wrapSunRPCTCPRecord(buildSunRPCAcceptedReplyWithStat(9, progUnavail)),
+			wantStatus: "1",
+		},
+	}
+	getter, ok := request.SpanOTELGetters(request.UnresolvedNames{})(attr.RPCResponseStatusCode)
+	require.True(t, ok)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			event := &TCPRequestInfo{Direction: directionSend}
+			span, _, matched, err := matchSunRPC(NewEBPFParseContext(nil, nil, nil), event,
+				largebuf.NewLargeBufferFrom(tc.req), largebuf.NewLargeBufferFrom(tc.resp))
+			require.NoError(t, err)
+			require.True(t, matched)
+
+			kv := getter(&span)
+			if tc.wantStatus == "" {
+				assert.False(t, kv.Valid(), "status code %q reported without a REPLY", kv.Value.Emit())
+				return
+			}
+			assert.Equal(t, tc.wantStatus, kv.Value.AsString())
+		})
+	}
+}
+
 func TestMatchSunRPC_notSunRPC(t *testing.T) {
 	event := &TCPRequestInfo{}
 	req := largebuf.NewLargeBufferFrom([]byte("NOT RPC"))
@@ -189,9 +237,13 @@ func buildSunRPCCallRecord(xid, prog, vers, proc uint32, authFlavor string) []by
 }
 
 func buildSunRPCAcceptedReply(xid uint32) []byte {
+	return buildSunRPCAcceptedReplyWithStat(xid, sunrpcAcceptSuccess)
+}
+
+func buildSunRPCAcceptedReplyWithStat(xid, acceptStat uint32) []byte {
 	body := appendU32BE(nil, 0)
 	body = appendOpaque(body, 0, nil)
-	body = appendU32BE(body, 0)
+	body = appendU32BE(body, acceptStat)
 
 	msg := appendU32BE(nil, xid)
 	msg = appendU32BE(msg, 1)

@@ -23,7 +23,7 @@ func testPythonGraphQL(t *testing.T) {
 		comm          = "main"
 		address       = "http://localhost:8381/graphql/"
 		query         = `{"query": "query TestMe { testme }"}`
-		operationName = "GraphQL query"
+		operationName = "query"
 	)
 
 	var tq jaeger.TracesQuery

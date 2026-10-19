@@ -6,12 +6,34 @@ package gpuevent
 import (
 	"testing"
 
+	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
+	"go.opentelemetry.io/obi/pkg/obi"
 )
+
+func TestRingbufMetrics(t *testing.T) {
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+
+	require.Contains(t, spec.Maps, "ringbuf_write_stats_storage")
+	assert.Equal(t, ebpf.PerCPUArray, spec.Maps["ringbuf_write_stats_storage"].Type)
+	assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps["ringbuf_write_stats_storage"].Pinning)
+}
+
+func TestRingbufMetricsConstant(t *testing.T) {
+	tracer := New(nil, &obi.Config{}, imetrics.NoopReporter{})
+	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
+
+	tracer = New(nil, &obi.Config{}, struct{ imetrics.NoopReporter }{})
+	assert.Equal(t, true, tracer.constants()["ringbuf_metrics_enabled"])
+}
 
 func TestApplyDeviceIdentityRetainsNameOnlyObservation(t *testing.T) {
 	const (

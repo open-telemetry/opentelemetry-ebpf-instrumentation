@@ -1,10 +1,10 @@
-groups:
-  - id: metric.obi.gpu.cuda.kernel.launch.calls
-    type: metric
-    metric_name: gpu.cuda.kernel.launch.calls
+file_format: definition/2
+metrics:
+  - name: gpu.cuda.kernel.launch.calls
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: >
       Count of CUDA kernel launches observed (cudaLaunchKernel).
     attributes:
@@ -15,12 +15,11 @@ groups:
       - ref: cuda.device.model
         requirement_level: recommended
 
-  - id: metric.obi.gpu.cuda.graph.launch.calls
-    type: metric
-    metric_name: gpu.cuda.graph.launch.calls
+  - name: gpu.cuda.graph.launch.calls
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: >
       Count of CUDA graph launches observed (cudaGraphLaunch).
     attributes:
@@ -31,12 +30,11 @@ groups:
       - ref: cuda.device.model
         requirement_level: recommended
 
-  - id: metric.obi.gpu.cuda.memory.allocations
-    type: metric
-    metric_name: gpu.cuda.memory.allocations
+  - name: gpu.cuda.memory.allocations
     instrument: counter
     unit: "By"
     stability: development
+    requirement_level: recommended
     brief: >
       Bytes requested through CUDA device memory allocations (cudaMalloc).
     attributes:
@@ -47,12 +45,11 @@ groups:
       - ref: cuda.device.model
         requirement_level: recommended
 
-  - id: metric.obi.gpu.cuda.kernel.grid.size
-    type: metric
-    metric_name: gpu.cuda.kernel.grid.size
+  - name: gpu.cuda.kernel.grid.size
     instrument: histogram
     unit: "1"
     stability: development
+    requirement_level: recommended
     brief: >
       Distribution of CUDA kernel launch grid sizes (grid.x * grid.y * grid.z).
     attributes:
@@ -63,12 +60,11 @@ groups:
       - ref: cuda.device.model
         requirement_level: recommended
 
-  - id: metric.obi.gpu.cuda.kernel.block.size
-    type: metric
-    metric_name: gpu.cuda.kernel.block.size
+  - name: gpu.cuda.kernel.block.size
     instrument: histogram
     unit: "1"
     stability: development
+    requirement_level: recommended
     brief: >
       Distribution of CUDA kernel launch block sizes
       (block.x * block.y * block.z).
@@ -80,12 +76,11 @@ groups:
       - ref: cuda.device.model
         requirement_level: recommended
 
-  - id: metric.obi.gpu.cuda.memory.copies
-    type: metric
-    metric_name: gpu.cuda.memory.copies
+  - name: gpu.cuda.memory.copies
     instrument: histogram
     unit: "By"
     stability: development
+    requirement_level: recommended
     brief: >
       Distribution of CUDA memory copy sizes (cudaMemcpy / cudaMemcpyAsync),
       broken down by `cuda.memcpy.kind`.
@@ -99,12 +94,11 @@ groups:
       - ref: cuda.device.model
         requirement_level: recommended
 
-  - id: metric.obi.gpu.cuda.memory.free.bytes
-    type: metric
-    metric_name: gpu.cuda.memory.free.bytes
+  - name: gpu.cuda.memory.free.bytes
     instrument: counter
     unit: "By"
     stability: development
+    requirement_level: recommended
     brief: >
       Bytes released through CUDA device memory frees (cudaFree).
     attributes:
@@ -115,12 +109,11 @@ groups:
       - ref: cuda.device.model
         requirement_level: recommended
 
-  - id: metric.obi.gpu.cuda.memset.bytes
-    type: metric
-    metric_name: gpu.cuda.memset.bytes
+  - name: gpu.cuda.memset.bytes
     instrument: counter
     unit: "By"
     stability: development
+    requirement_level: recommended
     brief: >
       Bytes set through CUDA memory set operations (cudaMemset).
     attributes:
@@ -131,12 +124,11 @@ groups:
       - ref: cuda.device.model
         requirement_level: recommended
 
-  - id: metric.obi.gpu.cuda.stream.create.calls
-    type: metric
-    metric_name: gpu.cuda.stream.create.calls
+  - name: gpu.cuda.stream.create.calls
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: >
       Count of CUDA stream creations observed (cudaStreamCreate).
     attributes:
@@ -147,12 +139,11 @@ groups:
       - ref: cuda.device.model
         requirement_level: recommended
 
-  - id: metric.obi.gpu.cuda.stream.destroy.calls
-    type: metric
-    metric_name: gpu.cuda.stream.destroy.calls
+  - name: gpu.cuda.stream.destroy.calls
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: >
       Count of CUDA stream destructions observed (cudaStreamDestroy).
     attributes:
@@ -163,12 +154,11 @@ groups:
       - ref: cuda.device.model
         requirement_level: recommended
 
-  - id: metric.obi.gpu.cuda.event.record.calls
-    type: metric
-    metric_name: gpu.cuda.event.record.calls
+  - name: gpu.cuda.event.record.calls
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: >
       Count of CUDA event records observed (cudaEventRecord).
     attributes:
@@ -179,12 +169,11 @@ groups:
       - ref: cuda.device.model
         requirement_level: recommended
 
-  - id: metric.obi.gpu.cuda.event.synchronize.calls
-    type: metric
-    metric_name: gpu.cuda.event.synchronize.calls
+  - name: gpu.cuda.event.synchronize.calls
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: >
       Count of CUDA event synchronizations observed (cudaEventSynchronize).
     attributes:
@@ -195,12 +184,11 @@ groups:
       - ref: cuda.device.model
         requirement_level: recommended
 
-  - id: metric.obi.gpu.cuda.stream.synchronize.calls
-    type: metric
-    metric_name: gpu.cuda.stream.synchronize.calls
+  - name: gpu.cuda.stream.synchronize.calls
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: >
       Count of CUDA stream synchronizations observed (cudaStreamSynchronize).
     attributes:
@@ -211,12 +199,11 @@ groups:
       - ref: cuda.device.model
         requirement_level: recommended
 
-  - id: metric.obi.gpu.cuda.device.synchronize.calls
-    type: metric
-    metric_name: gpu.cuda.device.synchronize.calls
+  - name: gpu.cuda.device.synchronize.calls
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: >
       Count of CUDA device synchronizations observed (cudaDeviceSynchronize).
     attributes:
@@ -227,12 +214,11 @@ groups:
       - ref: cuda.device.model
         requirement_level: recommended
 
-  - id: metric.obi.gpu.cuda.host.register.bytes
-    type: metric
-    metric_name: gpu.cuda.host.register.bytes
+  - name: gpu.cuda.host.register.bytes
     instrument: counter
     unit: "By"
     stability: development
+    requirement_level: recommended
     brief: >
       Bytes registered through CUDA host memory registration
       (cudaHostRegister).

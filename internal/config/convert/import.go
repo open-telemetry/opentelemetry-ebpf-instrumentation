@@ -39,6 +39,8 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 		return nil, err
 	}
 	_, defaults := RuntimeToV2(nil)
+	// Omitted features retain the protocol and network enablement mapping.
+	defaults.Capture.Metrics.Features = nil
 	var complete bool
 	var err error
 	src, complete, err = src.WithDefaults(defaults)
@@ -87,7 +89,9 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	cfg := runtimeConfigDefaults()
 	applyV2Capture(&cfg, src, policy, complete)
 	applyV2Standalone(&cfg, src, complete)
-	applyV2MetricsEnablement(&cfg, src, complete)
+	if err := applyV2MetricsEnablement(&cfg, src, complete); err != nil {
+		return nil, err
+	}
 	cfg.Attributes.Select.Normalize()
 	if err := cfg.EBPF.LogEnricher.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid log trace annotation: %w", err)
@@ -1447,6 +1451,7 @@ func applyFullV2HTTPPayloadExtraction(cfg *obi.Config, payload schema.PayloadExt
 	http := &cfg.EBPF.PayloadExtraction.HTTP
 	applyV2HTTPPayloadExtractorMembership(http, payload.Enabled)
 	http.SQLPP.EndpointPatterns = cloneStrings(payload.SQLPP.EndpointPatterns)
+	http.SQLPP.PreparedStatementsCacheSize = payload.SQLPP.PreparedStatementsCacheSize
 	http.GenAI.OpenAICompatible.Gateways = payload.OpenAICompatible.Gateways
 	applyFullV2HTTPEnrichment(http, payload.Enrichment)
 }
@@ -1462,6 +1467,9 @@ func applyPartialV2HTTPPayloadExtraction(cfg *obi.Config, payload schema.Payload
 	}
 	if payload.SQLPP.EndpointPatterns != nil {
 		http.SQLPP.EndpointPatterns = cloneStrings(payload.SQLPP.EndpointPatterns)
+	}
+	if payload.SQLPP.PreparedStatementsCacheSize != 0 {
+		http.SQLPP.PreparedStatementsCacheSize = payload.SQLPP.PreparedStatementsCacheSize
 	}
 	if payload.OpenAICompatible.Gateways != nil {
 		http.GenAI.OpenAICompatible.Gateways = payload.OpenAICompatible.Gateways
@@ -1917,6 +1925,7 @@ func applyPartialV2CaptureTelemetry(cfg *obi.Config, telemetry schema.CaptureTel
 func applyV2Standalone(cfg *obi.Config, src *schema.Extension, complete bool) {
 	applyV2EnrichAttributes(cfg, src.Enrich, complete)
 	applyV2KubernetesEnricher(cfg, src.Enrich, complete)
+	applyV2CloudEnricher(cfg, src.Enrich, complete)
 	applyV2EnrichServiceName(cfg, src.Enrich)
 	applyV2Correlation(cfg, src.Correlation, complete)
 	applyV2Daemon(cfg, src.Daemon, complete)
@@ -2035,6 +2044,46 @@ func applyPartialV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.Kuberne
 	}
 	if kubernetes.MetadataCache.SourceLabels.ServiceNamespace != "" {
 		cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace = kubernetes.MetadataCache.SourceLabels.ServiceNamespace
+	}
+}
+
+func applyV2CloudEnricher(cfg *obi.Config, enrich *schema.Enrich, complete bool) {
+	if enrich == nil || zeroValue(enrich.Enrichers.Cloud) && !complete {
+		return
+	}
+
+	cloud := enrich.Enrichers.Cloud
+	if complete || completeCloudEnricher(cloud) {
+		applyFullV2CloudEnricher(cfg, cloud)
+		return
+	}
+
+	applyPartialV2CloudEnricher(cfg, cloud)
+}
+
+func applyFullV2CloudEnricher(cfg *obi.Config, cloud schema.CloudEnricher) {
+	cfg.CloudMetadata.ClusterName = cloud.ClusterName
+	cfg.CloudMetadata.Region = cloud.Region
+	cfg.CloudMetadata.RefreshInterval = cloud.RefreshInterval.TimeDuration()
+	cfg.CloudMetadata.Route53.RefreshInterval = cloud.Route53.RefreshInterval.TimeDuration()
+	cfg.CloudMetadata.Route53.HostedZoneIDs = cloneStrings(cloud.Route53.HostedZoneIDs)
+}
+
+func applyPartialV2CloudEnricher(cfg *obi.Config, cloud schema.CloudEnricher) {
+	if cloud.ClusterName != "" {
+		cfg.CloudMetadata.ClusterName = cloud.ClusterName
+	}
+	if cloud.Region != "" {
+		cfg.CloudMetadata.Region = cloud.Region
+	}
+	if !zeroValue(cloud.RefreshInterval) {
+		cfg.CloudMetadata.RefreshInterval = cloud.RefreshInterval.TimeDuration()
+	}
+	if !zeroValue(cloud.Route53.RefreshInterval) {
+		cfg.CloudMetadata.Route53.RefreshInterval = cloud.Route53.RefreshInterval.TimeDuration()
+	}
+	if cloud.Route53.HostedZoneIDs != nil {
+		cfg.CloudMetadata.Route53.HostedZoneIDs = cloneStrings(cloud.Route53.HostedZoneIDs)
 	}
 }
 
@@ -2256,7 +2305,16 @@ func completeDaemonTelemetry(telemetry schema.DaemonTelemetry) bool {
 	return telemetry.Metrics.Prometheus.SpanMetricsServiceCacheSize != 0
 }
 
-func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete bool) {
+func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete bool) error {
+	if features := src.Capture.Metrics.Features; features != nil {
+		mask, err := export.LoadFeatures(features)
+		if err != nil {
+			return fmt.Errorf("capture.metrics.features: %w", err)
+		}
+		cfg.Metrics.Features = mask
+		return nil
+	}
+
 	appMetricsEnabled, appConfigured := appMetricsEnablement(
 		src.Capture.Instrumentation,
 		complete || completeInstrumentation(src.Capture.Instrumentation),
@@ -2288,6 +2346,7 @@ func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete b
 		cfg.Metrics.Features &^= v2StatsMetricsFeatureMask
 		cfg.Metrics.Features |= statsFeatures
 	}
+	return nil
 }
 
 func appMetricsEnablement(instrumentation schema.Instrumentation, complete bool) (bool, bool) {
@@ -2386,6 +2445,10 @@ func completeCaptureTelemetry(telemetry schema.CaptureTelemetry) bool {
 func completeEnrichmentAttributes(attrs schema.EnrichmentAttributes) bool {
 	return !zeroValue(attrs.MetadataRetry.StartInterval) &&
 		!zeroValue(attrs.MetadataRetry.MaxInterval)
+}
+
+func completeCloudEnricher(cloud schema.CloudEnricher) bool {
+	return !zeroValue(cloud.RefreshInterval) && !zeroValue(cloud.Route53.RefreshInterval) && cloud.Route53.HostedZoneIDs != nil
 }
 
 func completeKubernetesEnricher(kubernetes schema.KubernetesEnricher) bool {

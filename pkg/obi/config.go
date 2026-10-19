@@ -19,9 +19,8 @@ import (
 	"github.com/invopop/jsonschema"
 	"gopkg.in/yaml.v3"
 
-	"go.opentelemetry.io/collector/confmap"
-
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/cloud"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf/tcmanager"
 	"go.opentelemetry.io/obi/pkg/export"
@@ -173,6 +172,7 @@ var DefaultConfig = Config{
 					EndpointPatterns: []string{
 						"/query/service",
 					},
+					PreparedStatementsCacheSize: 1024,
 				},
 				GenAI: config.GenAIConfig{
 					OpenAI: config.OpenAIConfig{
@@ -228,6 +228,7 @@ var DefaultConfig = Config{
 	},
 	CloudMetadata: transform.CloudMetadataConfig{
 		RefreshInterval: 30 * time.Second,
+		Route53:         transform.Route53MetadataConfig{RefreshInterval: cloud.DefaultRoute53RefreshInterval},
 	},
 	NameResolver: &transform.NameResolverConfig{
 		Sources: []transform.Source{
@@ -515,12 +516,11 @@ type HealthCheckConfig struct {
 	UnixSocketPath string `yaml:"unix_socket_path" env:"OTEL_EBPF_HEALTH_CHECK_UNIX_SOCKET_PATH"`
 }
 
-func (c *Config) Unmarshal(component *confmap.Conf) error {
-	if component == nil {
+// UnmarshalMap decodes an OBI configuration from a map of YAML field names.
+func (c *Config) UnmarshalMap(raw map[string]any) error {
+	if raw == nil {
 		return nil
 	}
-
-	raw := component.ToStringMap()
 
 	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		TagName:          "yaml",
@@ -810,6 +810,17 @@ func (c *Config) validate(context validationContext) error {
 
 	if err := validate.Struct(c); err != nil {
 		return ConfigError(err.Error())
+	}
+
+	if c.NameResolver != nil {
+		for _, source := range c.NameResolver.Sources {
+			if strings.EqualFold(string(source), string(transform.SourceRoute53)) {
+				if err := c.CloudMetadata.Route53.Validate(); err != nil {
+					return ConfigError(err.Error())
+				}
+				break
+			}
+		}
 	}
 
 	if err := c.EBPF.LogEnricher.Validate(); err != nil {

@@ -88,3 +88,19 @@ func TestOffsets_SupportsGoAutoSDKActivation(t *testing.T) {
 		AutoSDKActivationSupported: uint64(1),
 	}}).SupportsGoAutoSDKActivation())
 }
+
+func TestOffsetsSupportsEmbeddedSDKActivation(t *testing.T) {
+	offsets := &Offsets{Field: FieldOffsets{
+		SpanContextTraceIDPos: uint64(0), SpanContextSpanIDPos: uint64(16),
+		SpanContextTraceFlagsPos: uint64(24), EmbeddedSDKSpanContextPos: uint64(16),
+		EmbeddedSDKActivationSupported: uint64(1),
+	}}
+	assert.True(t, offsets.SupportsEmbeddedSDKActivation())
+	assert.False(t, offsets.SupportsGoAutoSDKActivation())
+	for field := range offsets.Field {
+		value := offsets.Field[field]
+		delete(offsets.Field, field)
+		assert.False(t, offsets.SupportsEmbeddedSDKActivation())
+		offsets.Field[field] = value
+	}
+}

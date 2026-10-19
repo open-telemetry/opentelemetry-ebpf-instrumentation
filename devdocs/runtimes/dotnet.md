@@ -9,6 +9,7 @@ With `application_runtime` enabled, OBI collects runtime metrics from
 | `dotnet.process.cpu.count` | `dotnet_process_cpu_count` | `{cpu}` |
 | `dotnet.process.cpu.time` | `dotnet_process_cpu_time_seconds_total` | `s` |
 | `dotnet.process.memory.working_set` | `dotnet_process_memory_working_set_bytes` | `By` |
+| `dotnet.gc.last_collection.heap.size` | `dotnet_gc_last_collection_heap_size_bytes` | `By` |
 | `dotnet.gc.last_collection.memory.committed_size` | `dotnet_gc_last_collection_memory_committed_size_bytes` | `By` |
 | `dotnet.thread_pool.thread.count` | `dotnet_thread_pool_thread_count` | `{thread}` |
 | `dotnet.thread_pool.queue.length` | `dotnet_thread_pool_queue_length` | `{work_item}` |
@@ -22,9 +23,16 @@ With `application_runtime` enabled, OBI collects runtime metrics from
 | `dotnet.thread_pool.work_item.count` | `dotnet_thread_pool_work_item_count_total` | `{work_item}` |
 | `dotnet.monitor.lock_contentions` | `dotnet_monitor_lock_contentions_total` | `{contention}` |
 
-The `dotnet.gc.heap.generation` attribute identifies `gen0`, `gen1`, and `gen2`.
+For GC collection counts, `dotnet.gc.heap.generation` identifies `gen0`, `gen1`, and `gen2`.
 Counts are exclusive: a full gen2 collection adds one to gen2, while gen0 and
 gen1 remain unchanged.
+
+Heap size reports bytes after the latest collection, including fragmentation,
+with `dotnet.gc.heap.generation` values `gen0`, `gen1`, `gen2`, `loh`, and `poh`.
+The five generation-size EventCounters supply these values on .NET 8, 9, and 10.
+Each value can increase or decrease and remains unchanged until another GC.
+The runtime polls each generation separately; a GC during polling can span two
+collection states. Missing values are omitted from that sampling round.
 
 CPU time has separate `cpu.mode=user` and `cpu.mode=system` series. CPU count
 reports the runtime's `Environment.ProcessorCount`, including its processor-count

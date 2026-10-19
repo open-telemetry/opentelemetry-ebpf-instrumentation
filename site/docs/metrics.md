@@ -57,14 +57,14 @@ OBI-emitted db.client.operation.duration
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| `db.collection.name` | string | `opt_in` | stable | The name of a collection (table, container) within the database. | public.users; customers |
+| `db.collection.name` | string | `conditionally_required`: if the operation targets a single collection | stable | The name of a collection (table, container) within the database. | public.users; customers |
 | `db.namespace` | string | `conditionally_required`: if the exchange named a database | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
 | `db.operation.name` | string | `conditionally_required`: if the operation could be parsed from the exchange | stable | The name of the operation or command being executed. | findAndModify; HMSET; SELECT |
 | `db.response.status_code` | string | `conditionally_required`: if the operation failed and the status code is available | stable | Database response status code. | 102; ORA-17002; 08P01; 404 |
 | `db.system.name` | enum | `required` | stable | The database management system (DBMS) product as identified by the client instrumentation. | other_sql; softwareag.adabas; actian.ingres; aws.dynamodb; aws.redshift; azure.cosmosdb; intersystems.cache; cassandra; … |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
+| `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 
 ## `db.server.operation.duration`
 
@@ -77,7 +77,7 @@ Duration of database operations observed from the server side.
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `client.address` | string | `opt_in` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
-| `db.collection.name` | string | `opt_in` | stable | The name of a collection (table, container) within the database. | public.users; customers |
+| `db.collection.name` | string | `conditionally_required`: if the operation targets a single collection | stable | The name of a collection (table, container) within the database. | public.users; customers |
 | `db.namespace` | string | `conditionally_required`: if the exchange named a database | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
 | `db.operation.name` | string | `conditionally_required`: if the operation could be parsed from the exchange | stable | The name of the operation or command being executed. | findAndModify; HMSET; SELECT |
 | `db.response.status_code` | string | `conditionally_required`: if the database reported a status code | stable | Database response status code. | 102; ORA-17002; 08P01; 404 |
@@ -264,10 +264,10 @@ OBI-emitted gen_ai.client.operation.duration
 | `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `gen_ai.operation.name` | string | `required` | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
 | `gen_ai.provider.name` | enum | `required` | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
-| `gen_ai.request.model` | string | `recommended`: if the request named a model | development | The name of the GenAI model a request is being made to. | gpt-4 |
+| `gen_ai.request.model` | string | `conditionally_required`: if the request named a model | development | The name of the GenAI model a request is being made to. | gpt-4 |
 | `gen_ai.response.model` | string | `recommended`: if the provider returned it | development | The name of the model that generated the response. | gpt-4-0613 |
 | `server.address` | string | `conditionally_required`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
+| `server.port` | int | `conditionally_required`: if `server.address` is set | stable | Server port number. | 80; 8080; 443 |
 
 ## `gen_ai.client.token.usage`
 
@@ -281,11 +281,11 @@ OBI-emitted gen_ai.client.token.usage
 | --- | --- | --- | --- | --- | --- |
 | `gen_ai.operation.name` | string | `required` | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
 | `gen_ai.provider.name` | enum | `required` | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
-| `gen_ai.request.model` | string | `recommended`: if the request named a model | development | The name of the GenAI model a request is being made to. | gpt-4 |
+| `gen_ai.request.model` | string | `conditionally_required`: if the request named a model | development | The name of the GenAI model a request is being made to. | gpt-4 |
 | `gen_ai.response.model` | string | `recommended`: if the provider returned it | development | The name of the model that generated the response. | gpt-4-0613 |
 | `gen_ai.token.type` | enum | `required` | development | The type of token being counted. | input; output |
 | `server.address` | string | `conditionally_required`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
-| `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
+| `server.port` | int | `conditionally_required`: if `server.address` is set | stable | Server port number. | 80; 8080; 443 |
 
 ## `go.config.gogc`
 
@@ -955,9 +955,11 @@ OBI-emitted messaging.client.operation.duration
 | --- | --- | --- | --- | --- | --- |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error, which OBI can determine only for the AWS SQS and SNS clients | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `messaging.destination.name` | string | `conditionally_required`: if the exchange named a destination | development | The message destination name | MyQueue; MyTopic |
+| `messaging.destination.subscription.name` | string | `conditionally_required`: if the operation named a subscription, which no client operation OBI records does yet | development | The name of the destination subscription from which a message is consumed. | subscription-a |
 | `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
+| `messaging.operation.type` | enum | `conditionally_required`: if the operation maps to a semantic-convention operation type | development | A string identifying the type of the messaging operation. | create; send; receive; process; settle; deliver; publish |
 | `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
-| `server.address` | string | `recommended`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.address` | string | `conditionally_required`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 
 ## `messaging.process.duration`
 
@@ -970,11 +972,12 @@ OBI-emitted messaging.process.duration
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error, which OBI cannot yet determine for a consume operation | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `messaging.consumer.group.name` | string | `conditionally_required`: if OBI attributed the fetch to a single consumer group of the process | development | The name of the consumer group with which a consumer is associated. | my-group; indexer |
+| `messaging.consumer.group.name` | string | `conditionally_required`: if OBI attributed the Kafka fetch to a single consumer group of the process, or the MQTT topic filter is a shared subscription | development | The name of the consumer group with which a consumer is associated. | my-group; indexer |
 | `messaging.destination.name` | string | `conditionally_required`: if the exchange named a destination | development | The message destination name | MyQueue; MyTopic |
+| `messaging.destination.subscription.name` | string | `conditionally_required`: if the operation is an MQTT SUBSCRIBE, whose topic filter names the subscription | development | The name of the destination subscription from which a message is consumed. | subscription-a |
 | `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
 | `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
-| `server.address` | string | `recommended`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.address` | string | `conditionally_required`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 
 ## `obi.avoided.services`
 
@@ -1052,6 +1055,30 @@ Latency distribution of the eBPF probe in seconds.
 | `bpf.probe.id` | string | `required` | development | Identifier of the eBPF program (probe) the stats belong to. | 42 |
 | `bpf.probe.name` | string | `required` | development | Name of the eBPF probe. | kprobe_tcp_sendmsg |
 | `bpf.probe.type` | string | `required` | development | eBPF program type of the probe. | kprobe; tracepoint |
+
+## `obi.bpf.ringbuf.write.failures`
+
+How many writes to the named ring buffer failed because the buffer was full.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {write} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `bpf.map.name` | string | `required` | development | Name of the eBPF map. | events; ongoing_http |
+
+## `obi.bpf.ringbuf.writes`
+
+How many writes to the named ring buffer have been attempted.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {write} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `bpf.map.name` | string | `required` | development | Name of the eBPF map. | events; ongoing_http |
 
 ## `obi.ebpf.tracer.flushes`
 
@@ -1540,10 +1567,11 @@ OBI-emitted rpc.client.call.duration
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
-| `rpc.method` | string | `recommended` | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
-| `rpc.response.status_code` | string | `conditionally_required`: if the status is inside the gRPC enum | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
+| `rpc.method` | string | `conditionally_required`: if the call was captured | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
+| `rpc.response.status_code` | string | `conditionally_required`: if the status is inside the gRPC enum, or an ONC RPC REPLY was captured | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
 | `rpc.system.name` | enum | `required` | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
-| `server.address` | string | `recommended`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.address` | string | `conditionally_required`: if the server address could be resolved | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 
 ## `rpc.server.call.duration`
 
@@ -1556,8 +1584,9 @@ OBI-emitted rpc.server.call.duration
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `client.address` | string | `opt_in` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
-| `rpc.method` | string | `recommended` | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
-| `rpc.response.status_code` | string | `conditionally_required`: if the status is inside the gRPC enum | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
+| `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
+| `rpc.method` | string | `conditionally_required`: if the call was captured | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
+| `rpc.response.status_code` | string | `conditionally_required`: if the status is inside the gRPC enum, or an ONC RPC REPLY was captured | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
 | `rpc.system.name` | enum | `required` | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
 | `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |

@@ -36,6 +36,7 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 			Instrumentation: captureInstrumentation(cfg),
 			Runtimes:        captureRuntimes(cfg),
 			Network:         captureNetwork(cfg),
+			Metrics:         schema.CaptureMetrics{Features: cfg.Metrics.Features.Names()},
 			Limits:          captureLimits(cfg),
 			Engine:          captureEngine(cfg),
 			Safety:          captureSafety(cfg),
@@ -292,7 +293,7 @@ func captureRuntimes(cfg *obi.Config) schema.CaptureRuntimes {
 func captureNetwork(cfg *obi.Config) schema.CaptureNetwork {
 	return schema.CaptureNetwork{
 		Capture: schema.NetworkCapture{
-			Enabled:    cfg.NetworkFlows.Enable || cfg.Metrics.Features.AnyNetwork(),
+			Enabled:    cfg.Enabled(obi.FeatureNetO11y),
 			Source:     schema.NetworkSource(cfg.NetworkFlows.Source),
 			BufferSize: cfg.EBPF.BufferSizes.TCP,
 			EndpointIdentity: schema.EndpointIdentity{
@@ -636,6 +637,15 @@ func enrich(cfg *obi.Config) *schema.Enrich {
 						ServiceName:      cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName,
 						ServiceNamespace: cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace,
 					},
+				},
+			},
+			Cloud: schema.CloudEnricher{
+				ClusterName:     cfg.CloudMetadata.ClusterName,
+				Region:          cfg.CloudMetadata.Region,
+				RefreshInterval: schema.Duration(cfg.CloudMetadata.RefreshInterval),
+				Route53: schema.Route53{
+					RefreshInterval: schema.Duration(cfg.CloudMetadata.Route53.RefreshInterval),
+					HostedZoneIDs:   cfg.CloudMetadata.Route53.HostedZoneIDs,
 				},
 			},
 		},

@@ -22,6 +22,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -56,6 +58,23 @@ func newTestTracer(t *testing.T, exclude bool) *Tracer {
 		logPipes:    map[pipeKey]map[uint32][]int{},
 		pidPipes:    map[uint32]map[int]pipeKey{},
 	}
+}
+
+func TestRingbufMetrics(t *testing.T) {
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+
+	require.Contains(t, spec.Maps, "ringbuf_write_stats_storage")
+	assert.Equal(t, ebpf.PerCPUArray, spec.Maps["ringbuf_write_stats_storage"].Type)
+	assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps["ringbuf_write_stats_storage"].Pinning)
+}
+
+func TestRingbufMetricsConstant(t *testing.T) {
+	tracer := &Tracer{cfg: &obi.Config{}, metrics: imetrics.NoopReporter{}}
+	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
+
+	tracer.metrics = struct{ imetrics.NoopReporter }{}
+	assert.Equal(t, true, tracer.constants()["ringbuf_metrics_enabled"])
 }
 
 func TestAllowPIDFollowsLogEnricherSelection(t *testing.T) {

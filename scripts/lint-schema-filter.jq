@@ -1,36 +1,17 @@
 # Filters `weaver registry check` JSON diagnostics down to the ones that must
-# fail `make lint-schema`, removing only the expected findings below. Weaver
-# has no first-class override mechanism between a registry and its
-# dependencies yet, nor a CLI flag to suppress the duplicate checks, while
-# `registry live-check` resolves each duplicate in the local group's favor.
-# Tracked in https://github.com/open-telemetry/weaver/issues/1578; when
-# weaver defines override semantics this filter (and the override groups
-# documented in schemas/obi/README.md) can be dropped.
+# fail `make lint-schema`, removing only the expected findings below.
 #
 # 1. UnstableFileFormat we accept UnstableFileFormat for "definition/2" due to the migration process.
 #
-# 2. DuplicateAttributeId for the attribute overrides in
-#    `schemas/obi/groups/` (see schemas/obi/README.md): each re-declares an
-#    upstream attribute (from group `registry.<ns>`, under the distinct group
-#    id `x.obi.<ns>`) — either an enum extended with the values OBI
-#    intentionally emits, or an open-ended enum re-typed as string.
-#
-# 3. DuplicateMetricName for dns.lookup.duration: OBI declares a narrowed copy
-#    in `schemas/obi/groups/dns/metrics.yaml` while the upstream definition can
-#    still reach the resolved registry, so weaver may see the name twice.
-#    live-check resolves it in OBI's favor. Scoped to exactly two provenances —
-#    OBI's dns file and the upstream dns model — so a third declaration, a
-#    different metric, or an unexpected file still fails.
-#
-# 4. DeprecatedIncludeUnreferencedWarning: weaver 0.25 deprecated the
+# 2. DeprecatedIncludeUnreferencedWarning: weaver 0.25 deprecated the
 #    `--include-unreferenced` flag. OBI no longer relies on it — the emitted
 #    metrics, spans, and resource entities now reference every override and
 #    marker group, so nothing drops from resolution and live-check runs
 #    without the flag. `--future` can still surface the deprecation notice, so
 #    it is filtered defensively.
 #
-# Any other diagnostic — including duplicates for other metrics/attributes,
-# or the expected ones with unexpected provenances/groups — is kept and fails
+# Any other diagnostic — including a duplicate attribute or metric, which the
+# definition/2 registry no longer produces for its overrides — is kept and fails
 # the lint. Covered by scripts/lint_schema_filter_test.go.
 map(select(
   (
@@ -40,29 +21,6 @@ map(select(
         and ($fail.UnstableFileFormat? // null) as $unstable
         | $unstable != null
           and $unstable.file_format == "definition/2"
-    )
-    or
-    (
-      (.error.DuplicateAttributeId? // null) as $dup
-      | $dup != null
-        and ($dup.attribute_id
-             | IN("messaging.system", "gen_ai.provider.name", "gen_ai.operation.name",
-                  "openai.api.type", "telemetry.sdk.language", "db.system.name",
-                  "rpc.system.name", "error.type", "network.type"))
-        and ((($dup.group_ids // []) | sort) as $groups
-             | ($groups | length) == 2
-               and ($groups[0] | startswith("registry."))
-               and $groups[1] == ("x.obi." + ($groups[0] | ltrimstr("registry."))))
-    )
-    or
-    (
-      (.error.DuplicateMetricName? // null) as $dupmetric
-      | $dupmetric != null
-        and $dupmetric.metric_name == "dns.lookup.duration"
-        and (($dupmetric.provenances // []) | map(.path)) as $paths
-            | ($paths | length) == 2
-              and ($paths | any(. == "/obi-registry/groups/dns/metrics.yaml"))
-              and ($paths | any(startswith(".deps/") and endswith("/dns/metrics.yaml")))
     )
     or
     (

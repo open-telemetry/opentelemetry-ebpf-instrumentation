@@ -30,6 +30,7 @@ var (
 	http2ZeroFortyFive  = version.Must(version.NewVersion("0.45.0"))
 	mongoOneThirteenOne = version.Must(version.NewVersion("1.13.1"))
 	pqOneElevenZero     = version.Must(version.NewVersion("1.11.0"))
+	otelEmbeddedSDKMin  = version.Must(version.NewVersion("1.35.0"))
 )
 
 type activationModule struct {
@@ -64,6 +65,7 @@ var goAutoSDKActivationModules = [...]activationModule{
 			"v1.44.0": "h1:JjwHmHpA4iZ3wBxluu2fbbE7j4kqlE8jXyAyPXH7HqU=",
 			"v1.45.0": "h1:pdrWmLHofpubmArBv1LgFSv1Z0Ie/ppdZzu+kUN5EeU=",
 			"v1.46.0": "h1:FHt5/CDyVxi/8IM1CH7VE/rRgq3kLHa2mSTVMO8AWyc=",
+			"v1.47.0": "h1:j7ALJ/zgkS7Z6aeJW09p8VC9804bC+PpeTfCD4XPnOM=",
 		},
 	},
 	{
@@ -83,6 +85,7 @@ var goAutoSDKActivationModules = [...]activationModule{
 			"v1.44.0": "h1:jxF5CsGYCe74MCRx2X4g7WsY/VBKRqqpNvXlX/6gtIk=",
 			"v1.45.0": "h1:l/mP6Uv7oNO7/TblbhpbgMidxhq1uO/rPsikOyVhxag=",
 			"v1.46.0": "h1:OULy7ccdJnZtJ0UDYFOIGaCmiWzJ8Vi2G/Rsu60qs1c=",
+			"v1.47.0": "h1:JOjX/Oci8K94QHddo+bbfya/Ai/nf6/dt9ZfrFNWSrM=",
 		},
 	},
 }
@@ -140,6 +143,7 @@ const (
 	GrpcTSchemePos
 	GrpcTransportStreamIDPos
 	GrpcTransportBufWriterBufPos
+	GrpcTransportBufWriterBufHandlePos
 	GrpcTransportBufWriterOffsetPos
 	GrpcTransportBufWriterConnPos
 	// redis
@@ -172,6 +176,8 @@ const (
 	SpanContextTraceFlagsPos
 	AutoSDKSpanContextPos
 	AutoSDKActivationSupported
+	EmbeddedSDKSpanContextPos
+	EmbeddedSDKActivationSupported
 	// go runtime channels
 	HchanQcountPos
 	HchanDataqsizPos
@@ -522,9 +528,10 @@ var structMembers = map[string]structInfo{
 	"google.golang.org/grpc/internal/transport.bufWriter": {
 		lib: "google.golang.org/grpc",
 		fields: map[string]GoOffset{
-			"buf":    GrpcTransportBufWriterBufPos,
-			"offset": GrpcTransportBufWriterOffsetPos,
-			"conn":   GrpcTransportBufWriterConnPos,
+			"buf":       GrpcTransportBufWriterBufPos,
+			"bufHandle": GrpcTransportBufWriterBufHandlePos,
+			"offset":    GrpcTransportBufWriterOffsetPos,
+			"conn":      GrpcTransportBufWriterConnPos,
 		},
 	},
 	"github.com/IBM/sarama.Broker": {
@@ -610,6 +617,10 @@ var structMembers = map[string]structInfo{
 		fields: map[string]GoOffset{
 			"spanContext": AutoSDKSpanContextPos,
 		},
+	},
+	"go.opentelemetry.io/otel/trace.autoSpan": {
+		lib:    "go.opentelemetry.io/otel/trace",
+		fields: map[string]GoOffset{"spanContext": EmbeddedSDKSpanContextPos},
 	},
 	"runtime.hchan": {
 		lib: "go",
@@ -885,6 +896,13 @@ func setGoAutoSDKActivationSupport(
 	modules moduleVersions,
 	elfFile *elf.File,
 ) {
+	fieldOffsets[EmbeddedSDKActivationSupported] = uint64(0)
+	traceVersion, err := version.NewVersion(modules.versions["go.opentelemetry.io/otel/trace"])
+	if goAutoSDKActivationArchitectureSupported(elfFile) &&
+		err == nil && !traceVersion.LessThan(otelEmbeddedSDKMin) &&
+		activationModulesSupported(modules, goAutoSDKActivationModules[1:]) {
+		fieldOffsets[EmbeddedSDKActivationSupported] = uint64(1)
+	}
 	fieldOffsets[AutoSDKActivationSupported] = uint64(0)
 	if goAutoSDKActivationArchitectureSupported(elfFile) &&
 		goAutoSDKActivationSupported(modules) {
@@ -901,11 +919,15 @@ func goAutoSDKActivationArchitectureSupported(elfFile *elf.File) bool {
 }
 
 func goAutoSDKActivationSupported(modules moduleVersions) bool {
+	return activationModulesSupported(modules, goAutoSDKActivationModules[:])
+}
+
+func activationModulesSupported(modules moduleVersions, requiredModules []activationModule) bool {
 	if modules.invalid {
 		return false
 	}
 
-	for _, required := range goAutoSDKActivationModules {
+	for _, required := range requiredModules {
 		if _, replaced := modules.replacements[required.path]; replaced {
 			return false
 		}

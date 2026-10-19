@@ -21,21 +21,32 @@ const (
 	upstreamDeps = "../../schemas/obi/.deps"
 )
 
+type metricFields struct {
+	Unit        string `yaml:"unit"`
+	Instrument  string `yaml:"instrument"`
+	Stability   string `yaml:"stability"`
+	Annotations struct {
+		OBI struct {
+			// upstream_override marks a metric OBI re-declares as a narrowed
+			// copy of an upstream semconv metric (vs an OBI-invented one).
+			UpstreamOverride bool `yaml:"upstream_override"`
+		} `yaml:"obi"`
+	} `yaml:"annotations"`
+}
+
+// metricGroupsFile reads metrics from both definition formats: OBI's registry
+// is definition/2 (`metrics:`), while the upstream semconv release it pins is
+// still the groups format (`groups:` of `type: metric`).
 type metricGroupsFile struct {
 	Groups []struct {
-		Type        string `yaml:"type"`
-		MetricName  string `yaml:"metric_name"`
-		Unit        string `yaml:"unit"`
-		Instrument  string `yaml:"instrument"`
-		Stability   string `yaml:"stability"`
-		Annotations struct {
-			OBI struct {
-				// upstream_override marks a metric OBI re-declares as a narrowed
-				// copy of an upstream semconv metric (vs an OBI-invented one).
-				UpstreamOverride bool `yaml:"upstream_override"`
-			} `yaml:"obi"`
-		} `yaml:"annotations"`
+		Type         string `yaml:"type"`
+		MetricName   string `yaml:"metric_name"`
+		metricFields `yaml:",inline"`
 	} `yaml:"groups"`
+	Metrics []struct {
+		Name         string `yaml:"name"`
+		metricFields `yaml:",inline"`
+	} `yaml:"metrics"`
 }
 
 type metricDef struct {
@@ -52,17 +63,22 @@ func metricsFromFile(t *testing.T, path string, out map[string]metricDef) {
 	require.NoError(t, err)
 	var f metricGroupsFile
 	require.NoErrorf(t, yaml.Unmarshal(body, &f), "parsing %s", path)
-	for _, g := range f.Groups {
-		if g.Type != "metric" || g.MetricName == "" {
-			continue
-		}
-		out[g.MetricName] = metricDef{
-			unit:       g.Unit,
-			instrument: g.Instrument,
-			stability:  g.Stability,
-			override:   g.Annotations.OBI.UpstreamOverride,
+	add := func(name string, m metricFields) {
+		out[name] = metricDef{
+			unit:       m.Unit,
+			instrument: m.Instrument,
+			stability:  m.Stability,
+			override:   m.Annotations.OBI.UpstreamOverride,
 			source:     path,
 		}
+	}
+	for _, g := range f.Groups {
+		if g.Type == "metric" && g.MetricName != "" {
+			add(g.MetricName, g.metricFields)
+		}
+	}
+	for _, m := range f.Metrics {
+		add(m.Name, m.metricFields)
 	}
 }
 

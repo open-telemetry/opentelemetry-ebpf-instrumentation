@@ -1,8 +1,11 @@
-groups:
-  - id: span.obi.dns
-    type: span
-    span_kind: internal
+file_format: definition/2
+spans:
+  - type: obi.dns
+    kind: internal
+    name:
+      note: Not documented yet.
     stability: development
+    requirement_level: recommended
     brief: OBI DNS resolution span.
     attributes:
       - ref: dns.question.name

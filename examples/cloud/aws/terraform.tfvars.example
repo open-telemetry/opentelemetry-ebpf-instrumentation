@@ -1,0 +1,16 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
+region        = "eu-west-1"
+name          = "obi-cloud"
+instance_type = "t3.micro"
+use_spot      = true
+obi_version   = "v0.14.0"
+
+# Paths are relative to examples/cloud/aws, or absolute.
+# obi_binary_path = "/absolute/path/to/linux-amd64/obi"
+# obi_config_path = "../obi-otlp.yaml"
+# obi_environment = {
+#   OTEL_EXPORTER_OTLP_ENDPOINT = "https://your-collector:4317"
+#   OTEL_EXPORTER_OTLP_HEADERS  = "Authorization=Basic ..."
+# }

@@ -109,6 +109,8 @@ func TestLoadGeneratedGoRuntimeABI(t *testing.T) {
 	for _, goVersion := range []string{
 		"1.27.1",
 		"go1.27.1",
+		"1.27.2",
+		"go1.27.2",
 		"go1.26.2-X:nodwarf5",
 	} {
 		t.Run(goVersion, func(t *testing.T) {

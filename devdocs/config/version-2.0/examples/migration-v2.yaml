@@ -85,6 +85,7 @@ extensions:
                     enabled:
                         traces: true
                         metrics: true
+                        body_size_metrics: true
                     filters:
                         traces:
                             http.request.method:
@@ -125,6 +126,7 @@ extensions:
                         sqlpp:
                             endpoint_patterns:
                                 - /query/service
+                            prepared_statements_cache_size: 1024
                         enrichment:
                             policy:
                                 default_action:
@@ -252,6 +254,7 @@ extensions:
                         metrics:
                             http.request.method:
                                 not_match: OPTIONS
+                    buffer_size: 0
             runtimes:
                 go:
                     enabled: true
@@ -342,6 +345,9 @@ extensions:
                                 ttl: 1h0m0s
                     diagnostics:
                         print_stats: false
+            metrics:
+                features:
+                    - application
             limits:
                 network_packets: 5000
                 metric_span_names: 100
@@ -410,6 +416,13 @@ extensions:
                         source_labels:
                             service_name: ""
                             service_namespace: ""
+                cloud:
+                    cluster_name: ""
+                    region: ""
+                    refresh_interval: 30s
+                    route53:
+                        refresh_interval: 5m0s
+                        hosted_zone_ids: []
             service_name:
                 unresolved_hosts:
                     names:
@@ -418,6 +431,7 @@ extensions:
                         incoming: incoming
                 sources:
                     - k8s
+                    - ecs
                 cache:
                     size: 1024
                     ttl: 5m0s

@@ -160,7 +160,7 @@ func TestAnthropicSpan_JSONResponse(t *testing.T) {
 
 	assert.Equal(t, "msg_01QCj5VkxPS3NQUtrt5Npjcr", span.GenAI.Anthropic.Output.ID)
 	assert.Equal(t, "claude-sonnet-4-6", span.GenAI.Anthropic.Output.Model)
-	assert.Equal(t, "message", span.GenAI.Anthropic.Output.Type)
+	assert.Equal(t, request.ChatOperationName, span.GenAI.Anthropic.Output.Type)
 	assert.Equal(t, "assistant", span.GenAI.Anthropic.Output.Role)
 	assert.Equal(t, "end_turn", span.GenAI.Anthropic.Output.StopReason)
 	assert.Equal(t, 15, tokenValue(span.GenAI.Anthropic.Output.Usage.InputTokens))
@@ -203,7 +203,7 @@ func TestAnthropicSpan_StreamingResponse(t *testing.T) {
 	assert.Equal(t, "claude-sonnet-4-6", span.GenAI.Anthropic.Output.Model)
 	assert.Equal(t, "msg_017VX1VDFNbm2uGebyvLmHwv", span.GenAI.Anthropic.Output.ID)
 	assert.Equal(t, "assistant", span.GenAI.Anthropic.Output.Role)
-	assert.Equal(t, "message", span.GenAI.Anthropic.Output.Type)
+	assert.Equal(t, request.ChatOperationName, span.GenAI.Anthropic.Output.Type)
 	assert.Equal(t, "end_turn", span.GenAI.Anthropic.Output.StopReason)
 	assert.Equal(t, 17, tokenValue(span.GenAI.Anthropic.Output.Usage.InputTokens))
 	assert.Equal(t, 37, tokenValue(span.GenAI.Anthropic.Output.Usage.OutputTokens))
@@ -531,13 +531,13 @@ func TestAnthropicSpan_OperationComesFromTheRequestPath(t *testing.T) {
 			name: "messages success",
 			path: "http://api.anthropic.com/v1/messages",
 			body: anthropicResponseBody,
-			want: request.MessageOperationName,
+			want: request.ChatOperationName,
 		},
 		{
 			name: "messages error",
 			path: "http://api.anthropic.com/v1/messages",
 			body: anthropicErrorResponseBody,
-			want: request.MessageOperationName,
+			want: request.ChatOperationName,
 		},
 		{
 			// Anthropic reports `type: completion` here, which would split the
@@ -557,17 +557,17 @@ func TestAnthropicSpan_OperationComesFromTheRequestPath(t *testing.T) {
 			name: "messages through a gateway prefix",
 			path: "http://gw.internal/anthropic/v1/messages",
 			body: anthropicResponseBody,
-			want: request.MessageOperationName,
+			want: request.ChatOperationName,
 		},
 		{
 			name: "messages with a trailing slash",
 			path: "http://api.anthropic.com/v1/messages/",
 			body: anthropicResponseBody,
-			want: request.MessageOperationName,
+			want: request.ChatOperationName,
 		},
 		{
 			// Sub-resources of the Messages API are endpoints of their own,
-			// so they are not folded into `message`.
+			// so they are not folded into `chat`.
 			name: "token counting",
 			path: "http://api.anthropic.com/v1/messages/count_tokens",
 			body: `{"input_tokens":2095}`,

@@ -172,6 +172,7 @@ lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt-fix l
 lint-run lint-fix-run:
 	@echo "### Linting code"
 	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
+	cd collector && go tool -modfile=../internal/tools/go.mod golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
 
 WEAVERIMAGE = $(shell awk '$$4=="weaver" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 .PHONY: lint-schema
@@ -421,6 +422,7 @@ compile-cache-for-coverage:
 test: testoutput
 	@echo "### Testing code"
 	KUBEBUILDER_ASSETS="$(shell go tool $(TOOLS_MODFILE) setup-envtest use $(ENVTEST_K8S_VERSION) -p path)" go test -short -race ./... -coverpkg=./... -coverprofile $(TEST_OUTPUT)/cover.all.txt
+	cd collector && go test -short -race ./...
 
 .PHONY: test-nodejs
 test-nodejs:
@@ -622,10 +624,10 @@ integration-test-matrix-json:
 
 # Shared matrix for workflows that run the VM-side test suite. Pattern
 # covers multiprocess context propagation, gRPC relay, the HTTP
-# logenricher pipeline, and the large HTTP request body path.
+# logenricher pipeline, large HTTP request bodies, and Go Auto SDK activation.
 .PHONY: multiprocess-integration-test-matrix-json
 multiprocess-integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest)"
+	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest|TestGo.*SDKActivation)"
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:
@@ -633,7 +635,7 @@ k8s-integration-test-matrix-json:
 
 .PHONY: oats-integration-test-matrix-json
 oats-integration-test-matrix-json:
-	@./scripts/generate-dir-matrix.sh internal/test/oats
+	@./scripts/generate-dir-matrix.sh internal/test/oats /harness/
 
 .PHONY: integration-test
 integration-test: prereqs prepare-integration-test
@@ -818,7 +820,7 @@ clean-testoutput: testoutput
 protoc-gen:
 	docker run --rm -v $(PWD):/src -w /src --entrypoint protoc $(GEN_IMG) --go_out=pkg/kube/kubecache --go-grpc_out=pkg/kube/kubecache proto/informer.proto
 
-CLANG_FORMAT_FILES ?= $(shell find ./bpf -type f \( -name "*.c" -o -name "*.h" \) ! -path "./bpf/bpfcore/*")
+CLANG_FORMAT_FILES ?= $(wildcard $(shell git ls-files --cached --others --exclude-standard -- '*.c' '*.h' '*.cpp' ':!NOTICES/' ':!bpf/bpfcore/'))
 
 .PHONY: clang-format
 clang-format:
