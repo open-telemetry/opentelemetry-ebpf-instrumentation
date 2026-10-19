@@ -132,6 +132,54 @@ func TestBPFDebugMode_MarshalText(t *testing.T) {
 	}
 }
 
+func TestBPFDebugMode_EnabledOutputs(t *testing.T) {
+	tests := []struct {
+		name          string
+		mode          BPFDebugMode
+		wantTracePipe bool
+		wantUserspace bool
+		wantEnabled   bool
+	}{
+		{name: "disabled", mode: BPFDebugDisabled},
+		{name: "trace pipe", mode: BPFDebugTracePipe, wantTracePipe: true, wantEnabled: true},
+		{name: "userspace", mode: BPFDebugUserspace, wantUserspace: true, wantEnabled: true},
+		{name: "all", mode: BPFDebugAll, wantTracePipe: true, wantUserspace: true, wantEnabled: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.mode.IsTracePipeEnabled(); got != tt.wantTracePipe {
+				t.Errorf("IsTracePipeEnabled() = %v, want %v", got, tt.wantTracePipe)
+			}
+			if got := tt.mode.IsUserspaceEnabled(); got != tt.wantUserspace {
+				t.Errorf("IsUserspaceEnabled() = %v, want %v", got, tt.wantUserspace)
+			}
+			if got := tt.mode.IsEnabled(); got != tt.wantEnabled {
+				t.Errorf("IsEnabled() = %v, want %v", got, tt.wantEnabled)
+			}
+		})
+	}
+}
+
+func TestBPFDebugMode_JSONSchema(t *testing.T) {
+	schema := BPFDebugMode(0).JSONSchema()
+	if schema.Title != "BPF Debug Mode" {
+		t.Errorf("Title = %q, want %q", schema.Title, "BPF Debug Mode")
+	}
+	if len(schema.OneOf) != 2 {
+		t.Fatalf("len(OneOf) = %d, want 2", len(schema.OneOf))
+	}
+	if got, want := schema.OneOf[0].Enum, []any{StrBPFDebugAll, StrBPFDebugDisabled, ""}; !reflect.DeepEqual(got, want) {
+		t.Errorf("first OneOf enum = %v, want %v", got, want)
+	}
+	if got, want := schema.OneOf[1].Examples, []any{StrBPFDebugTracePipe, StrBPFDebugUserspace, StrBPFDebugTracePipe + "," + StrBPFDebugUserspace}; !reflect.DeepEqual(got, want) {
+		t.Errorf("second OneOf examples = %v, want %v", got, want)
+	}
+	if schema.OneOf[1].Pattern != "^(trace_pipe|userspace)(,(trace_pipe|userspace))*$" {
+		t.Errorf("Pattern = %q, want debug output pattern", schema.OneOf[1].Pattern)
+	}
+}
+
 func TestEBPFTracer_DebugMode(t *testing.T) {
 	mode := BPFDebugTracePipe
 	tests := []struct {
