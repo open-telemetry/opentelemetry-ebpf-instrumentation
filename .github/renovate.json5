@@ -279,6 +279,17 @@
       "enabled": false
     },
     {
+      "description": "Keep the grpc_relay Python image on 3.14: its requirements.txt is pip-compiled for 3.14 and grpcio has no wheels for newer Python releases yet",
+      "matchFileNames": ["internal/test/integration/components/grpc_relay/python/Dockerfile"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": [
+        "python",
+        "docker.io/library/python",
+        "library/python"
+      ],
+      "allowedVersions": "/^3\\.14(\\.|-|$)/"
+    },
+    {
       "groupName": "Github Actions",
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
