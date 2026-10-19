@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"go.opentelemetry.io/contrib/detectors/aws/ec2/v2"
 	"go.opentelemetry.io/contrib/detectors/azure/azurevm"
 	"go.opentelemetry.io/contrib/detectors/gcp"
 	"go.opentelemetry.io/otel/attribute"
@@ -120,7 +119,7 @@ func NewNodeMeta(
 			azurevm.WithAttributeFilter(azureVMAttributeFilter),
 		)),
 		otelNodeFetcher(ClusterGCP, gcp.NewDetector()),
-		otelNodeFetcher(ClusterEC2, ec2.NewResourceDetector()),
+		otelNodeFetcher(ClusterEC2, newEC2Detector()),
 		ecsNodeFetcher,
 		func(_ context.Context) (NodeMeta, error) {
 			return NodeMeta{HostID: overrideHost}, nil
