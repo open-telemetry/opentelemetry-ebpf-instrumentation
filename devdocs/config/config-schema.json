@@ -1060,6 +1060,7 @@
               "application_red",
               "application_runtime",
               "application_service_graph",
+              "application_service_graph_connection_info",
               "application_sizes",
               "application_span_otel",
               "ebpf",
@@ -1304,7 +1305,7 @@
       "properties": {
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, stats, ... envDefault is provided to avoid breaking changes",
+          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, application_service_graph_connection_info, stats, ... envDefault is provided to avoid breaking changes",
           "default": 1536,
           "x-env-var": "OTEL_EBPF_METRICS_FEATURES"
         }
@@ -2019,7 +2020,7 @@
         },
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead.",
+          "description": "Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, application_service_graph_connection_info, ...  use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead.",
           "default": 0,
           "deprecated": true
         },
@@ -2518,7 +2519,7 @@
         },
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ...  use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead.",
+          "description": "Features specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, application_service_graph_connection_info, ...  use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead.",
           "default": 0,
           "deprecated": true,
           "x-env-var": "OTEL_EBPF_PROMETHEUS_FEATURES"
@@ -3081,7 +3082,7 @@
       "properties": {
         "features": {
           "$ref": "#/$defs/Features",
-          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, ..."
+          "description": "Specifies which metric features to export. Accepted values: application, network, application_span, application_service_graph, application_service_graph_connection_info, ..."
         }
       },
       "type": "object",
