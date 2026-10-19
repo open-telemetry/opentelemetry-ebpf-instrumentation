@@ -983,7 +983,7 @@ func TestAppMetrics_HTTPRouteAttributes(t *testing.T) {
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 10,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
-		MetricsConsumer:   testMetricsConsumer(metricRecords),
+		MetricsExport:     testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(

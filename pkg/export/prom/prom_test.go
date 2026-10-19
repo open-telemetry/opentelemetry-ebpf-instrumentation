@@ -185,9 +185,9 @@ func TestAppMetrics_HTTPRouteLabels(t *testing.T) {
 	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
 	exporter, err := PrometheusEndpoint(
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}, MetricAttributeGroups: g},
+		&global.ContextInfo{Prometheus: registry.Manager, MetricAttributeGroups: g},
 		&PrometheusConfig{
-			Registry:                    registry,
+			Port:                        registry.Port,
 			Path:                        "/metrics",
 			TTL:                         3 * time.Minute,
 			SpanMetricsServiceCacheSize: 10,
