@@ -98,15 +98,22 @@ func (incl Selection) Matching(metricName Name) []InclusionLists {
 	// some sections are not normalized (e.g. jvm.thread.count), so we also match their normalized form
 	normalized := normalizeMetric(metricName.Section)
 
-	var matchingMetricGlobs []Section
+	var matchingMetricGlobs, matchingMetricNames []Section
 	for glob := range incl {
 		ok, _ := path.Match(string(glob), string(metricName.Section))
 		okNormalized, _ := path.Match(string(glob), string(normalized))
-		if ok || okNormalized {
+		if !ok && !okNormalized {
+			continue
+		}
+		if strings.ContainsAny(string(glob), "*?[") {
 			matchingMetricGlobs = append(matchingMetricGlobs, glob)
+		} else {
+			matchingMetricNames = append(matchingMetricNames, glob)
 		}
 	}
 	slices.Sort(matchingMetricGlobs)
+	slices.Sort(matchingMetricNames)
+	matchingMetricGlobs = append(matchingMetricGlobs, matchingMetricNames...)
 	inclusionLists := make([]InclusionLists, 0, len(matchingMetricGlobs))
 	for _, glob := range matchingMetricGlobs {
 		inclusionLists = append(inclusionLists, incl[glob])

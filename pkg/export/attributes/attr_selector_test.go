@@ -186,6 +186,26 @@ func TestFor_NotNormalizedSection(t *testing.T) {
 	}
 }
 
+func TestFor_NotNormalizedSection_ExactOverridesGlob(t *testing.T) {
+	selection := Selection{
+		"jvm.thread.*":     InclusionLists{Exclude: []string{"*"}},
+		"jvm.thread.count": InclusionLists{Include: []string{"jvm.thread.daemon"}},
+	}
+	selection.Normalize()
+	p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection})
+	require.NoError(t, err)
+	assert.Equal(t, []attr.Name{"jvm.thread.daemon"}, p.For(JVMThreadCount))
+
+	selection = Selection{
+		"jvm.thread.*":     InclusionLists{Include: []string{"*"}},
+		"jvm.thread.count": InclusionLists{Exclude: []string{"jvm.thread.daemon"}},
+	}
+	selection.Normalize()
+	p, err = NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection})
+	require.NoError(t, err)
+	assert.NotContains(t, p.For(JVMThreadCount), attr.Name("jvm.thread.daemon"))
+}
+
 func TestNilDoesNotCrash(t *testing.T) {
 	assert.NotPanics(t, func() {
 		p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{})
