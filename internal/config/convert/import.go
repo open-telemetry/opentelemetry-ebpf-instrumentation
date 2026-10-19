@@ -87,6 +87,9 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	cfg := runtimeConfigDefaults()
 	applyV2Capture(&cfg, src, policy, complete)
 	applyV2Standalone(&cfg, src, complete)
+	if err := applyV2PeerMetadata(&cfg, src.Enrich, complete); err != nil {
+		return nil, err
+	}
 	applyV2MetricsEnablement(&cfg, src, complete)
 	cfg.Attributes.Select.Normalize()
 	if err := cfg.EBPF.LogEnricher.Validate(); err != nil {

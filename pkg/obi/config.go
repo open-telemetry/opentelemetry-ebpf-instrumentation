@@ -42,6 +42,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/metadata"
+	"go.opentelemetry.io/obi/pkg/metadata/peer"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -227,6 +228,7 @@ var DefaultConfig = Config{
 		BPFFSPath:      "/sys/fs/bpf/",
 		InstrumentCuda: config.CudaModeAuto,
 	},
+	PeerMetadata: peer.DefaultConfig(),
 	CloudMetadata: transform.CloudMetadataConfig{
 		RefreshInterval: 30 * time.Second,
 		Route53:         transform.Route53MetadataConfig{RefreshInterval: cloud.DefaultRoute53RefreshInterval},
@@ -388,6 +390,8 @@ type Config struct {
 
 	Attributes    Attributes                    `yaml:"attributes"`
 	CloudMetadata transform.CloudMetadataConfig `yaml:"cloud_metadata"`
+
+	PeerMetadata peer.Config `yaml:"peer_metadata" validate:"-"`
 	// Routes configures URL path grouping. If not set, data will be directly forwarded to exporters.
 	Routes       *transform.RoutesConfig       `yaml:"routes"`
 	NameResolver *transform.NameResolverConfig `yaml:"name_resolver"`
@@ -569,12 +573,20 @@ func cidrDefinitionsHookFunc() mapstructure.DecodeHookFunc {
 	}
 }
 
+func (c *Config) configForLogging() Config {
+	cfg := *c
+	if cfg.PeerMetadata.Token != "" {
+		cfg.PeerMetadata.Token = "[REDACTED]"
+	}
+	return cfg
+}
+
 func (c *Config) Log() {
 	if c.LogConfig == "" {
 		return
 	}
 	var configString string
-	configYaml, err := yaml.Marshal(c)
+	configYaml, err := yaml.Marshal(c.configForLogging())
 	if err != nil {
 		slog.Warn("can't marshal configuration to YAML", "error", err)
 		return
@@ -921,6 +933,10 @@ func (c *Config) validate(context validationContext) error {
 	}
 	if c.InternalMetrics.Exporter == imetrics.InternalMetricsExporterOTEL && !otelMetricsEnabled {
 		return ConfigError("you can't enable OTEL internal metrics without enabling OTEL metrics")
+	}
+
+	if err := c.PeerMetadata.Validate(); err != nil {
+		return ConfigError(err.Error())
 	}
 
 	return nil
