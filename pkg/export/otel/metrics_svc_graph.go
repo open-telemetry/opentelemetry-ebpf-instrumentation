@@ -215,9 +215,10 @@ func (mr *SvcGraphMetricsReporter) otelHistogramConfig(metricName string, bucket
 func (mr *SvcGraphMetricsReporter) setupGraphMeters(m *SvcGraphMetrics, meter instrument.Meter) error {
 	var err error
 	if m.connectionInfo != nil {
+		now := timeNow
 		_, err := meter.Int64ObservableGauge(attributes.ServiceGraphConnectionInfo.OTEL,
 			instrument.WithInt64Callback(func(_ context.Context, observer instrument.Int64Observer) error {
-				for _, attrs := range m.connectionInfo.active(timeNow()) {
+				for _, attrs := range m.connectionInfo.active(now()) {
 					observer.Observe(1, instrument.WithAttributeSet(attrs))
 				}
 				return nil
