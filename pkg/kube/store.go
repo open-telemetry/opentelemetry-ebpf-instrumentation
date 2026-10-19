@@ -526,9 +526,11 @@ func (s *Store) serviceNameNamespaceOwnerID(om *informer.ObjectMeta, containerNa
 	// ownerName can be the top Owner name, or om.Name in case it's a pod without owner
 	serviceName := om.Name
 	serviceNamespace := om.Namespace
+	podMeta := s.serviceMetadata(om)
+	containers := s.containersFor(om, podMeta)
 	// OTEL_SERVICE_NAME and OTEL_SERVICE_NAMESPACE variables take precedence over user-configured annotations
 	// and labels
-	if envName, ok := s.serviceNameFromEnv(om, containerName); ok {
+	if envName, ok := s.serviceNameFromEnv(containers, containerName); ok {
 		serviceName = envName
 	} else if s.serviceNameTemplate != nil {
 		// defining a serviceNameTemplate disables the resolution via annotation + label (this can be implemented in the template)
@@ -553,7 +555,7 @@ func (s *Store) serviceNameNamespaceOwnerID(om *informer.ObjectMeta, containerNa
 			}
 		}
 
-	} else if nameFromMeta := s.valueFromMetadata(s.serviceMetadata(om),
+	} else if nameFromMeta := s.valueFromMetadata(podMeta,
 		ServiceNameAnnotation,
 		s.resourceLabels["service.name"],
 	); nameFromMeta != "" {
@@ -561,9 +563,9 @@ func (s *Store) serviceNameNamespaceOwnerID(om *informer.ObjectMeta, containerNa
 	} else if own := kube.TopOwner(om.Pod); own != nil {
 		serviceName = own.Name
 	}
-	if envName, ok := s.serviceNamespaceFromEnv(om, containerName); ok {
+	if envName, ok := s.serviceNamespaceFromEnv(containers, containerName); ok {
 		serviceNamespace = envName
-	} else if nsFromMeta := s.valueFromMetadata(s.serviceMetadata(om),
+	} else if nsFromMeta := s.valueFromMetadata(podMeta,
 		ServiceNamespaceAnnotation,
 		s.resourceLabels["service.namespace"],
 	); nsFromMeta != "" {
@@ -601,17 +603,14 @@ func isValidServiceName(name string) bool {
 	return name != "" && !strings.HasPrefix(name, "$(")
 }
 
-func (s *Store) containersFor(om *informer.ObjectMeta) iter.Seq[*informer.ContainerInfo] {
-	if om.Pod != nil {
-		return slices.Values(om.Pod.Containers)
+func (s *Store) containersFor(om, podMeta *informer.ObjectMeta) iter.Seq[*informer.ContainerInfo] {
+	if om.Pod == nil && len(om.Selector) == 0 {
+		return gomaps.Values(s.containersByOwner[ownerID(om.Namespace, om.Name)])
 	}
-	if len(om.Selector) > 0 {
-		return slices.Values(s.selectedPodMeta(om).GetPod().GetContainers())
-	}
-	return gomaps.Values(s.containersByOwner[ownerID(om.Namespace, om.Name)])
+	return slices.Values(podMeta.GetPod().GetContainers())
 }
 
-func (s *Store) serviceNameFromEnv(om *informer.ObjectMeta, containerName string) (string, bool) {
+func (s *Store) serviceNameFromEnv(containers iter.Seq[*informer.ContainerInfo], containerName string) (string, bool) {
 	// for eBPF application data, we know the container name.
 	// However, when we only know the IP address (e.g. when we are checking the Peer address), we still
 	// need to override the service name from the environment variables; otherwise service graph metrics
@@ -621,7 +620,7 @@ func (s *Store) serviceNameFromEnv(om *informer.ObjectMeta, containerName string
 	// There is a known limitation with this approach: if a pod has multiple containers defining
 	// OTEL_SERVICE_NAME with different values, we might get the wrong service name.
 	// However, this looks as an edge case that shouldn't happen in practice.
-	for c := range s.containersFor(om) {
+	for c := range containers {
 		if containerName == "" || c.Name == containerName {
 			if serviceName, ok := c.Env[meta.EnvServiceName]; ok {
 				return serviceName, isValidServiceName(serviceName)
@@ -634,9 +633,9 @@ func (s *Store) serviceNameFromEnv(om *informer.ObjectMeta, containerName string
 	return "", false
 }
 
-func (s *Store) serviceNamespaceFromEnv(om *informer.ObjectMeta, containerName string) (string, bool) {
+func (s *Store) serviceNamespaceFromEnv(containers iter.Seq[*informer.ContainerInfo], containerName string) (string, bool) {
 	// when containerName is empty, we will follow the same assumption as serviceNameFromEnv
-	for c := range s.containersFor(om) {
+	for c := range containers {
 		if containerName == "" || c.Name == containerName {
 			if namespace, ok := s.nameFromResourceAttrs(serviceNamespaceKey, c); ok {
 				return namespace, isValidServiceName(namespace)
@@ -739,7 +738,11 @@ func (s *Store) selectedPodMeta(om *informer.ObjectMeta) *informer.ObjectMeta {
 		if !selector.Matches(labels.Set(pod.Labels)) {
 			continue
 		}
-		if selected == nil || pod.Name < selected.Name {
+		hasContainers := len(pod.Pod.Containers) > 0
+		selectedHasContainers := len(selected.GetPod().GetContainers()) > 0
+		if selected == nil ||
+			(hasContainers && !selectedHasContainers) ||
+			(hasContainers == selectedHasContainers && pod.Name < selected.Name) {
 			selected = pod
 		}
 	}

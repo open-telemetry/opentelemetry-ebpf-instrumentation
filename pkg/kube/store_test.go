@@ -80,6 +80,10 @@ func TestServiceIPNameUsesSelectedPods(t *testing.T) {
 			},
 		}
 	}
+	withoutContainers := func(pod *informer.ObjectMeta) *informer.ObjectMeta {
+		pod.Pod.Containers = nil
+		return pod
+	}
 	service := func(selector map[string]string) *informer.ObjectMeta {
 		return &informer.ObjectMeta{
 			Name:      "inventory",
@@ -140,6 +144,16 @@ func TestServiceIPNameUsesSelectedPods(t *testing.T) {
 				inventoryPod("pod-4", "inventory-stable", map[string]string{ServiceNameAnnotation: "inventory-stable"}, nil),
 			},
 			expectedName:      "inventory-stable",
+			expectedNamespace: "shop",
+		},
+		{
+			name:    "Pods with reported containers win over Pods still starting",
+			service: service(map[string]string{"app": "inventory-v2"}),
+			pods: []*informer.ObjectMeta{
+				withoutContainers(inventoryPod("pod-0", "inventory-v2", nil, nil)),
+				inventoryPod("pod-3", "inventory-v2", nil, map[string]string{"OTEL_SERVICE_NAME": "inventory-env"}),
+			},
+			expectedName:      "inventory-env",
 			expectedNamespace: "shop",
 		},
 		{
