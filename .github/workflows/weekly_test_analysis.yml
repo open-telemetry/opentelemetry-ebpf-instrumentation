@@ -66,10 +66,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation'
+    permissions:
+      actions: read
+      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          persist-credentials: false
+          persist-credentials: true # zizmor: ignore[artipacked] the push step needs the checkout credentials
 
       - name: Regenerate shard weights from recent main runs
         id: weights
@@ -95,7 +98,6 @@ jobs:
         with:
           client-id: ${{ vars.OTELBOT_CLIENT_ID }}
           private-key: ${{ secrets.OTELBOT_PRIVATE_KEY }}
-          permission-contents: write
           permission-pull-requests: write
 
       - name: Create or update PR
@@ -110,7 +112,6 @@ jobs:
 
           git config user.name otelbot
           git config user.email 197425009+otelbot@users.noreply.github.com
-          gh auth setup-git
 
           git checkout -B "$branch"
           git commit -m "$message" -- scripts/integration-test-weights.generated.json
