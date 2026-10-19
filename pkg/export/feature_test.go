@@ -29,7 +29,7 @@ func TestFeatureYAML(t *testing.T) {
 }
 
 func TestConnectionInfoFeatureIsOptIn(t *testing.T) {
-	features := mustLoadFeatures(t, "application_connection_info")
+	features := mustLoadFeatures(t, "application_service_graph_connection_info")
 	assert.True(t, features.ConnectionInfo())
 	assert.True(t, features.ServiceTopology())
 	assert.True(t, features.AnyAppO11yMetric())

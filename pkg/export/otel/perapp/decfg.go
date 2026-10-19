@@ -13,7 +13,7 @@ import (
 // configuration of metrics.
 type GlobalMetricsConfig struct {
 	// Features specifies which metric features to export. Accepted values: application, network,
-	// application_span, application_service_graph, application_connection_info, stats, ...
+	// application_span, application_service_graph, application_service_graph_connection_info, stats, ...
 	// envDefault is provided to avoid breaking changes
 	Features export.Features `yaml:"features" env:"OTEL_EBPF_METRICS_FEATURES,expand" envDefault:"${OTEL_EBPF_METRIC_FEATURES}" envSeparator:","`
 }
@@ -22,6 +22,6 @@ type GlobalMetricsConfig struct {
 // is a per-service configuration that needs to be defined exclusively in the service definition YAML.
 type SvcMetricsConfig struct {
 	// Features specifies which metric features to export. Accepted values: application, network,
-	// application_span, application_service_graph, application_connection_info, ...
+	// application_span, application_service_graph, application_service_graph_connection_info, ...
 	Features export.Features `yaml:"features"`
 }

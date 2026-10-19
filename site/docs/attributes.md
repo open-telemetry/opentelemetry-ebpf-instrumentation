@@ -138,7 +138,7 @@ RPC attributes OBI emits that are not part of upstream semconv.
 
 ## `registry.obi.service_graph`
 
-Attributes used by OBI's service-graph and connection-info emissions. The metric names and label set match the output of the OTel collector-contrib `servicegraphconnector` so the same dashboards consume both OBI-emitted and connector-emitted data. Emitted when OBI's `application_service_graph` or `application_connection_info` metrics feature is enabled. The OBI-specific `source` attribute is declared in `obi_internal/registry.yaml`. See: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/servicegraphconnector
+Attributes used by OBI's service-graph and connection-info emissions. The metric names and label set match the output of the OTel collector-contrib `servicegraphconnector` so the same dashboards consume both OBI-emitted and connector-emitted data. Emitted when OBI's `application_service_graph` or `application_service_graph_connection_info` metrics feature is enabled. The OBI-specific `source` attribute is declared in `obi_internal/registry.yaml`. See: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/servicegraphconnector
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |

@@ -1089,7 +1089,7 @@ metrics:
 func TestMigrateConfigCarriesMetricFeatures(t *testing.T) {
 	for _, features := range []string{
 		"application_service_graph",
-		"application_connection_info",
+		"application_service_graph_connection_info",
 		"application_span",
 		"application_span_otel",
 		"application_span_sizes",

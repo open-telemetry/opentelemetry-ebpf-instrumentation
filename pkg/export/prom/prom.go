@@ -108,7 +108,7 @@ type PrometheusConfig struct {
 	DisableBuildInfo bool `yaml:"disable_build_info" env:"OTEL_EBPF_PROMETHEUS_DISABLE_BUILD_INFO"`
 
 	// Features specifies which metric features to export. Accepted values: application, network,
-	// application_span, application_service_graph, application_connection_info, ...
+	// application_span, application_service_graph, application_service_graph_connection_info, ...
 	//
 	// Deprecated: use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead.
 	DeprFeatures export.Features `yaml:"features" env:"OTEL_EBPF_PROMETHEUS_FEATURES" envSeparator:","`
