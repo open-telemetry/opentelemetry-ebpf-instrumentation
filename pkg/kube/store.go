@@ -14,6 +14,8 @@ import (
 	"text/template"
 	"time"
 
+	"k8s.io/apimachinery/pkg/labels"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -599,10 +601,12 @@ func isValidServiceName(name string) bool {
 	return name != "" && !strings.HasPrefix(name, "$(")
 }
 
-// if the object is not a pod, we would need to dig into the internal owner:containers store
 func (s *Store) containersFor(om *informer.ObjectMeta) iter.Seq[*informer.ContainerInfo] {
 	if om.Pod != nil {
 		return slices.Values(om.Pod.Containers)
+	}
+	if len(om.Selector) > 0 {
+		return slices.Values(s.selectedPodMeta(om).GetPod().GetContainers())
 	}
 	return gomaps.Values(s.containersByOwner[ownerID(om.Namespace, om.Name)])
 }
@@ -711,10 +715,35 @@ func (s *Store) serviceMetadata(om *informer.ObjectMeta) *informer.ObjectMeta {
 	if om == nil || om.Pod != nil {
 		return om
 	}
-	if ownerPod := s.ownerPodMeta(om); ownerPod != nil {
-		return ownerPod
+	if pod := s.podMetadataForObject(om); pod != nil {
+		return pod
 	}
 	return om
+}
+
+func (s *Store) podMetadataForObject(om *informer.ObjectMeta) *informer.ObjectMeta {
+	if len(om.Selector) > 0 {
+		return s.selectedPodMeta(om)
+	}
+	return s.ownerPodMeta(om)
+}
+
+func (s *Store) selectedPodMeta(om *informer.ObjectMeta) *informer.ObjectMeta {
+	selector := labels.SelectorFromValidatedSet(om.Selector)
+	var selected *informer.ObjectMeta
+	for _, cmeta := range s.objectMetaByQName {
+		pod := cmeta.Meta
+		if pod == nil || pod.Pod == nil || pod.Namespace != om.Namespace {
+			continue
+		}
+		if !selector.Matches(labels.Set(pod.Labels)) {
+			continue
+		}
+		if selected == nil || pod.Name < selected.Name {
+			selected = pod
+		}
+	}
+	return selected
 }
 
 // ownerPodMeta returns any pod metadata associated with the given non-pod object.

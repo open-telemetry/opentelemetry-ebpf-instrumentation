@@ -99,6 +99,14 @@ func TestUnchanged(t *testing.T) {
 			false,
 		},
 		{
+			"selector",
+			informer.ObjectMeta{
+				Selector: map[string]string{"foo": "bar"},
+			},
+			informer.ObjectMeta{},
+			false,
+		},
+		{
 			"nilpod",
 			informer.ObjectMeta{
 				Pod: nil,

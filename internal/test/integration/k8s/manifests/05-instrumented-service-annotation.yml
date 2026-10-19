@@ -12,7 +12,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: inventory-api
+  name: inventory-api-v2
 spec:
   replicas: 1
   selector:

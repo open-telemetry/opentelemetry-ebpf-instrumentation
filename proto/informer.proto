@@ -26,6 +26,9 @@ message ObjectMeta {
   // Timestamp of the last status: creation/update/deletion, in Unix seconds
   // We don't need more precision as Kubernetes events are timestamped in seconds
   int64 status_time_epoch = 7;
+
+  // If the Kube object is not a Service, this field will be empty.
+  map<string,string> selector = 9;
 }
 
 message PodInfo {

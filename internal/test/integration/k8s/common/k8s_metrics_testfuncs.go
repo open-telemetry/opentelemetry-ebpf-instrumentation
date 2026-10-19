@@ -227,7 +227,7 @@ func FeatureGraphMetricsAnnotatedServer() features.Feature {
 		Teardown(server.Delete()).
 		Assess("target info uses the annotated name",
 			testMetricsDecoration([]string{"traces_target_info"},
-				`{k8s_deployment_name="inventory-api",source="obi"}`,
+				`{k8s_deployment_name="inventory-api-v2",source="obi"}`,
 				map[string]string{"service_name": "^inventory$"})).
 		Assess("client-side graph metrics use the same name for the Service IP",
 			// Select the emitting client Pod so server-side metrics cannot satisfy this check.
