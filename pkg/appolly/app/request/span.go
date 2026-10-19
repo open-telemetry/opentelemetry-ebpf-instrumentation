@@ -355,8 +355,9 @@ type MessagingInfo struct {
 	Partition int   `json:"partition"`
 	// HasPartition reports whether Partition and Offset were read from the wire. The
 	// consumer group can be known while the partition list was cut by the kernel buffer.
-	HasPartition  bool   `json:"hasPartition"`
-	ConsumerGroup string `json:"consumerGroup"`
+	HasPartition     bool   `json:"hasPartition"`
+	ConsumerGroup    string `json:"consumerGroup"`
+	SubscriptionName string `json:"subscriptionName"`
 }
 
 type GraphQL struct {
@@ -367,6 +368,7 @@ type GraphQL struct {
 
 type Elasticsearch struct {
 	DBCollectionName string `json:"dbCollectionName"`
+	DocumentID       string `json:"documentId"`
 	NodeName         string `json:"nodeName"`
 	DBOperationName  string `json:"dbOperationName"`
 	DBQueryText      string `json:"dbQueryText"`
@@ -1654,6 +1656,7 @@ func spanAttributes(s *Span) SpanAttributes {
 		}
 		if s.SubType == HTTPSubtypeElasticsearch && s.Elasticsearch != nil {
 			attrs["dbCollectionName"] = s.Elasticsearch.DBCollectionName
+			attrs["documentID"] = s.Elasticsearch.DocumentID
 			attrs["nodeName"] = s.Elasticsearch.NodeName
 			attrs["dbNamespace"] = s.DBNamespace
 			attrs["dbOperationName"] = s.Elasticsearch.DBOperationName
@@ -1709,20 +1712,22 @@ func spanAttributes(s *Span) SpanAttributes {
 		addHeaderAttributes(attrs, s)
 		return attrs
 	case EventTypeGRPC:
-		return SpanAttributes{
-			"method":     s.Path,
+		attrs := SpanAttributes{
 			"status":     strconv.Itoa(s.Status),
 			"clientAddr": SpanPeer(s),
 			"serverAddr": SpanHost(s),
 			"serverPort": strconv.Itoa(s.HostPort),
 		}
+		addGRPCMethodAttributes(attrs, s)
+		return attrs
 	case EventTypeGRPCClient:
-		return SpanAttributes{
-			"method":     s.Path,
+		attrs := SpanAttributes{
 			"status":     strconv.Itoa(s.Status),
 			"serverAddr": SpanHost(s),
 			"serverPort": strconv.Itoa(s.HostPort),
 		}
+		addGRPCMethodAttributes(attrs, s)
+		return attrs
 	case EventTypeSQLClient, EventTypeSQLServer:
 		var (
 			code              uint16
@@ -1772,6 +1777,9 @@ func spanAttributes(s *Span) SpanAttributes {
 			}
 			if s.MessagingInfo.ConsumerGroup != "" {
 				attrs["consumerGroup"] = s.MessagingInfo.ConsumerGroup
+			}
+			if s.MessagingInfo.SubscriptionName != "" {
+				attrs["subscriptionName"] = s.MessagingInfo.SubscriptionName
 			}
 		}
 		return attrs
@@ -1846,6 +1854,14 @@ func spanAttributes(s *Span) SpanAttributes {
 	}
 
 	return SpanAttributes{}
+}
+
+func addGRPCMethodAttributes(attrs SpanAttributes, s *Span) {
+	method, original := GRPCMethod(s)
+	attrs["method"] = method
+	if original != "" {
+		attrs["methodOriginal"] = original
+	}
 }
 
 func addHeaderAttributes(attrs SpanAttributes, s *Span) {
@@ -2195,13 +2211,31 @@ func dbServerTarget(address string, port int) string {
 	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
+// sqlppSpanName names a SQL++ span after its collection or bucket. Couchbase
+// falls back to the server, as the other Couchbase spans do; any other SQL++
+// server reports other_sql and follows the SQL spans, which never use it.
+func sqlppSpanName(s *Span) string {
+	target := cmp.Or(s.Route, s.DBNamespace)
+	if target == "" && s.DBSystem == semconv.DBSystemNameCouchbase.Value.AsString() {
+		target = dbServerTarget(HostAsServer(s), s.HostPort)
+	}
+	return dbSpanName(s.Method, target, s.DBSystem)
+}
+
 func elasticsearchSpanName(s *Span) string {
 	target := cmp.Or(
 		s.Elasticsearch.DBCollectionName,
 		s.DBNamespace,
-		dbServerTarget(hostWithoutPort(HTTPClientHost(s)), s.HostPort),
+		dbServerTarget(HTTPClientServerAddr(s), s.HostPort),
 	)
 	return dbSpanName(s.Elasticsearch.DBOperationName, target, s.Elasticsearch.DBSystemName)
+}
+
+func awsTraceName(service, operation string) string {
+	if operation == "" {
+		return RPCSystemAWSAPI
+	}
+	return service + "." + operation
 }
 
 func (s *Span) TraceName() string {
@@ -2212,7 +2246,7 @@ func (s *Span) TraceName() string {
 	case EventTypeHTTP, EventTypeHTTPClient:
 		if s.Type == EventTypeHTTP && s.SubType == HTTPSubtypeGraphQL && s.GraphQL != nil {
 			if s.GraphQL.OperationType != "" {
-				return "GraphQL " + s.GraphQL.OperationType
+				return s.GraphQL.OperationType
 			} else {
 				return "GraphQL Operation"
 			}
@@ -2222,28 +2256,19 @@ func (s *Span) TraceName() string {
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSS3 && s.AWS != nil {
-			if s.AWS.S3.Method != "" {
-				return "s3." + s.AWS.S3.Method
-			} else {
-				return "s3.Operation"
-			}
+			return awsTraceName(awsServiceS3, s.AWS.S3.Method)
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSQS && s.AWS != nil {
-			if s.AWS.SQS.OperationName != "" {
-				return "sqs." + s.AWS.SQS.OperationName
-			} else {
-				return "sqs.Operation"
-			}
+			return awsTraceName(awsServiceSQS, s.AWS.SQS.OperationName)
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeAWSSNS && s.AWS != nil {
-			return "SNS." + s.AWS.SNS.OperationName
+			return awsServiceSNS + "." + s.AWS.SNS.OperationName
 		}
 
 		if s.Type == EventTypeHTTPClient && s.SubType == HTTPSubtypeSQLPP {
-			target := cmp.Or(s.Route, s.DBNamespace, dbServerTarget(HostAsServer(s), s.HostPort))
-			return dbSpanName(s.Method, target, s.DBSystem)
+			return sqlppSpanName(s)
 		}
 
 		if s.Type == EventTypeHTTPClient && IsGenAISubtype(s.SubType) && s.GenAI != nil {
@@ -2272,7 +2297,7 @@ func (s *Span) TraceName() string {
 		}
 		return name
 	case EventTypeGRPC, EventTypeGRPCClient:
-		return s.Path
+		return grpcSpanName(s)
 	case EventTypeSQLClient, EventTypeSQLServer:
 		if s.Method != "" && s.DBQuerySummary != "" {
 			return s.DBQuerySummary
@@ -2290,10 +2315,10 @@ func (s *Span) TraceName() string {
 		}
 		return s.Method + " " + s.Path
 	case EventTypeSunRPCClient, EventTypeSunRPCServer:
-		if s.Path == "" {
-			return "sunrpc/" + s.Method
+		if method := s.SunRPCMethodForExport(); method != "" {
+			return method
 		}
-		return s.Path + "/" + s.Method
+		return RPCSystemONCRPC
 	case EventTypeMongoClient, EventTypeCouchbaseClient:
 		return dbSpanName(s.Method, cmp.Or(s.Path, s.DBNamespace), dbSystemNameForSpan(s))
 	case EventTypeManualSpan:

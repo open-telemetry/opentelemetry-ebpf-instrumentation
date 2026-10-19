@@ -309,7 +309,7 @@ func testREDMetricsForHTTPServerError(t *testing.T, url, svcName, svcNs string) 
 			`error_type="500",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `",` +
-			`url_path="` + path + `"}`)
+			`http_route="/basic/:rnd"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -323,7 +323,7 @@ func testREDMetricsForHTTPServerError(t *testing.T, url, svcName, svcNs string) 
 			`error_type="",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `",` +
-			`url_path="` + path + `"}`)
+			`http_route="/basic/:rnd"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -365,8 +365,7 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 			`service_name="` + svcName + `",` +
 			`server_port="` + serverPort + `",` +
 			`http_route="/basic/:rnd",` +
-			`url_scheme="http",` +
-			`url_path="` + path + `"}`)
+			`url_scheme="http"}`)
 		require.NoError(ct, err)
 		// check duration_count has 3 calls and all the arguments
 		enoughPromResults(ct, results)
@@ -386,8 +385,7 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `",` +
 			`http_route="/basic/:rnd",` +
-			`url_scheme="http",` +
-			`url_path="` + path + `"`
+			`url_scheme="http"`
 		query := fmt.Sprintf("http_server_request_body_size_bytes_count{%s}", labels)
 		checkServerPromQueryResult(ct, pq, query, 3)
 	}, testTimeout, 100*time.Millisecond)
@@ -398,8 +396,7 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 			`service_namespace="` + svcNs + `",` +
 			`service_name="` + svcName + `",` +
 			`http_route="/basic/:rnd",` +
-			`url_scheme="http",` +
-			`url_path="` + path + `"`
+			`url_scheme="http"`
 		query := fmt.Sprintf("http_server_response_body_size_bytes_count{%s}", labels)
 		checkServerPromQueryResult(ct, pq, query, 3)
 	}, testTimeout, 100*time.Millisecond)
@@ -516,7 +513,7 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 				`rpc_response_status_code="OK",` +
 				`service_name="` + svcName + `",` +
 				`service_namespace="` + svcNs + `",` +
-				`rpc_method="/routeguide.RouteGuide/GetFeature"}`)
+				`rpc_method="routeguide.RouteGuide/GetFeature"}`)
 			require.NoError(ct, err)
 			// check duration_count has at least 3 calls
 			enoughPromResults(ct, results)
@@ -532,8 +529,8 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 		`http_response_status_code="404",` +
 		`service_name="` + svcName + `",` +
 		`service_namespace="` + svcNs + `",` +
-		`http_route="/basic/:rnd",` +
-		`url_path="` + path + `"}`)
+		`server_port="` + serverPort + `",` +
+		`http_route="/basic/:rnd"}`)
 	require.NoError(t, err)
 	enoughPromResults(t, results)
 	res := results[0]
@@ -551,8 +548,8 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 		`http_response_status_code="404",` +
 		`service_name="` + svcName + `",` +
 		`service_namespace="` + svcNs + `",` +
-		`http_route="/basic/:rnd",` +
-		`url_path="` + path + `"}`)
+		`server_port="` + serverPort + `",` +
+		`http_route="/basic/:rnd"}`)
 	require.NoError(t, err)
 	enoughPromResults(t, results)
 	res = results[0]
@@ -569,8 +566,8 @@ func testREDMetricsForHTTPLibrary(t *testing.T, url, svcName, svcNs string) {
 		`http_response_status_code="404",` +
 		`service_name="` + svcName + `",` +
 		`service_namespace="` + svcNs + `",` +
-		`http_route="/basic/:rnd",` +
-		`url_path="` + path + `"}`)
+		`server_port="` + serverPort + `",` +
+		`http_route="/basic/:rnd"}`)
 	require.NoError(t, err)
 	enoughPromResults(t, results)
 	res = results[0]
@@ -612,10 +609,9 @@ func testREDMetricsGRPCInternal(t *testing.T, opts []grpcclient.PingOption, serv
 		results, err = pq.Query(`rpc_server_call_duration_seconds_count{` +
 			`rpc_response_status_code="OK",` +
 			`service_namespace="integration-test",` +
-			`client_address!="127.0.0.1",` + // discard the metrics from testREDMetricsForHTTPLibrary/GorillaURL
 			`service_name="testserver",` +
 			`server_port="` + serverPort + `",` +
-			`rpc_method="/routeguide.RouteGuide/GetFeature"}`)
+			`rpc_method="routeguide.RouteGuide/GetFeature"}`)
 		require.NoError(ct, err)
 		// check duration_count has at least 3 calls and all the arguments
 		enoughPromResults(ct, results)
@@ -653,8 +649,7 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 			`http_response_status_code="404",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + svcName + `",` +
-			`http_route="/basic/*",` +
-			`url_path="` + path + `"}`)
+			`http_route="/basic/*"}`)
 		require.NoError(ct, err)
 		// check duration_count has 3 calls and all the arguments
 		enoughPromResults(ct, results)
@@ -673,8 +668,7 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 			`service_namespace="integration-test",` +
 			`service_name="` + svcName + `",` +
 			`http_route="/basic/*",` +
-			`url_scheme="http",` +
-			`url_path="` + path + `"`
+			`url_scheme="http"`
 		query := fmt.Sprintf("http_server_request_body_size_bytes_count{%s}", labels)
 		checkServerPromQueryResult(ct, pq, query, 3)
 	}, testTimeout, 100*time.Millisecond)
@@ -685,8 +679,7 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 			`service_namespace="integration-test",` +
 			`service_name="` + svcName + `",` +
 			`http_route="/basic/*",` +
-			`url_scheme="http",` +
-			`url_path="` + path + `"`
+			`url_scheme="http"`
 		query := fmt.Sprintf("http_server_response_body_size_bytes_count{%s}", labels)
 		checkServerPromQueryResult(ct, pq, query, 3)
 	}, testTimeout, 100*time.Millisecond)
@@ -802,7 +795,7 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 			`rpc_response_status_code="OK",` +
 			`service_name="` + svcName + `",` +
 			`service_namespace="integration-test",` +
-			`rpc_method="/routeguide.RouteGuide/GetFeature"}`)
+			`rpc_method="routeguide.RouteGuide/GetFeature"}`)
 		require.NoError(ct, err)
 		// check duration_count has at least 3 calls
 		enoughPromResults(ct, results)
@@ -817,8 +810,7 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 		`http_response_status_code="404",` +
 		`service_name="` + svcName + `",` +
 		`service_namespace="integration-test",` +
-		`http_route="/basic/*",` +
-		`url_path="` + path + `"}`)
+		`http_route="/basic/*"}`)
 	require.NoError(t, err)
 	enoughPromResults(t, results)
 	res := results[0]
@@ -836,8 +828,7 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 		`http_response_status_code="404",` +
 		`service_name="` + svcName + `",` +
 		`service_namespace="integration-test",` +
-		`http_route="/basic/*",` +
-		`url_path="` + path + `"}`)
+		`http_route="/basic/*"}`)
 	require.NoError(t, err)
 	enoughPromResults(t, results)
 	res = results[0]
@@ -854,8 +845,7 @@ func testREDMetricsForHTTPLibraryNoRoute(t *testing.T, url, svcName string) {
 		`http_response_status_code="404",` +
 		`service_name="` + svcName + `",` +
 		`service_namespace="integration-test",` +
-		`http_route="/basic/*",` +
-		`url_path="` + path + `"}`)
+		`http_route="/basic/*"}`)
 	require.NoError(t, err)
 	enoughPromResults(t, results)
 	res = results[0]
@@ -986,8 +976,7 @@ func testREDMetricsRouteHarvesting(t *testing.T, url, svcName, svcNameSpace, rou
 			`http_response_status_code="200",` +
 			`service_name="` + svcName + `",` +
 			`service_namespace="` + svcNameSpace + `",` +
-			`http_route="` + route + `",` +
-			`url_path="` + path + `"}`)
+			`http_route="` + route + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)

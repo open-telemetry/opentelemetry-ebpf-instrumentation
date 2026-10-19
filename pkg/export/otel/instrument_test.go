@@ -10,25 +10,12 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/collector/component"
-	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/ptrace"
-
-	"go.opentelemetry.io/obi/pkg/export/imetrics"
 )
 
-// consumingTracesExporter simulates a real exporter that takes ownership of
-// the trace data and invalidates the underlying proto structures (as happens
-// with proto pooling / data recycling in production pipelines).
-type consumingTracesExporter struct{}
-
-func (consumingTracesExporter) Start(context.Context, component.Host) error { return nil }
-
-func (consumingTracesExporter) Shutdown(context.Context) error { return nil }
-
-func (consumingTracesExporter) Capabilities() consumer.Capabilities { return consumer.Capabilities{} }
-
-func (consumingTracesExporter) ConsumeTraces(_ context.Context, td ptrace.Traces) error {
+// consumeTraces invalidates the underlying proto structures, as a real
+// exporter may do after taking ownership of the trace data.
+func consumeTraces(_ context.Context, td ptrace.Traces) error {
 	type traces struct {
 		orig  unsafe.Pointer
 		state unsafe.Pointer
@@ -41,15 +28,14 @@ func (consumingTracesExporter) ConsumeTraces(_ context.Context, td ptrace.Traces
 	return nil
 }
 
-func TestInstrumentedTracesExporter_ConsumeTraces(t *testing.T) {
+func TestTracesExporterCountsBeforeConsumption(t *testing.T) {
 	td := ptrace.NewTraces()
 	rs := td.ResourceSpans().AppendEmpty()
 	ss := rs.ScopeSpans().AppendEmpty()
 	ss.Spans().AppendEmpty()
 
-	ie := &instrumentedTracesExporter{
-		Traces:   consumingTracesExporter{},
-		internal: imetrics.NoopReporter{},
-	}
+	reporter := &countingTracesReporter{}
+	ie := &obiTracesExporter{send: consumeTraces, reporter: reporter}
 	require.NotPanics(t, func() { require.NoError(t, ie.ConsumeTraces(t.Context(), td)) })
+	require.EqualValues(t, 1, reporter.exports.Load())
 }

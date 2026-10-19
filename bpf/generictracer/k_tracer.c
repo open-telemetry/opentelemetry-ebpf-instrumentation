@@ -1396,7 +1396,8 @@ int GUARDED_PROG(obi_socket_flt_buf, struct __sk_buff *, skb) {
     }
 
     if (capture_buf) {
-        read_skb_bytes(skb, t_ctx->tcp.hdr_len, (void *)capture_buf, k_backup_buffer_len);
+        read_skb_bytes(
+            skb, t_ctx->tcp.hdr_len, (void *)capture_buf, k_backup_buffer_len, k_backup_buffer_len);
 
         bpf_d_printk("captured fallback buffer %s", capture_buf);
     }

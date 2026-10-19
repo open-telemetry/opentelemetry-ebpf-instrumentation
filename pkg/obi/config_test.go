@@ -23,8 +23,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
-	"go.opentelemetry.io/collector/confmap"
-
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export"
@@ -235,6 +233,7 @@ discovery:
 						EndpointPatterns: []string{
 							"/query/service",
 						},
+						PreparedStatementsCacheSize: 1024,
 					},
 					Enrichment: config.EnrichmentConfig{
 						Policy: config.HTTPParsingPolicy{
@@ -540,6 +539,52 @@ name_resolver:
 	assert.Equal(t, "env-cluster", cfg.CloudMetadata.ClusterName)
 	assert.Equal(t, "eu-west-1", cfg.CloudMetadata.Region)
 	assert.Equal(t, "kube-cluster", cfg.Attributes.Kubernetes.ClusterName)
+}
+
+func TestConfigV1IgnoresGCESettings(t *testing.T) {
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_GCE_PROJECT_ID", "env-project")
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_GCE_ZONE", "us-central1-a")
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_GCE_ENDPOINT", "http://compute-mock/")
+	for _, tc := range []struct {
+		name string
+		yaml string
+	}{
+		{name: "defaults"},
+		{name: "YAML", yaml: `name_resolver:
+  sources: [GCE, rdns]
+  gce:
+    project_id: test-project
+    zone: us-central1-a
+    endpoint: http://compute-mock/
+`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := LoadConfig(bytes.NewBufferString(tc.yaml))
+			require.NoError(t, err)
+			assert.Empty(t, cfg.NameResolver.GCE)
+			assert.NotContains(t, cfg.NameResolver.Sources, transform.SourceGCE)
+			if tc.yaml != "" {
+				assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
+			}
+		})
+	}
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "gce,rdns")
+	cfg, err := LoadConfig(nil)
+	require.NoError(t, err)
+	assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
+}
+
+func TestUnmarshalMapIgnoresGCESettings(t *testing.T) {
+	cfg := Config{NameResolver: &transform.NameResolverConfig{}}
+	err := cfg.UnmarshalMap(map[string]any{
+		"name_resolver": map[string]any{
+			"sources": []string{"GCE", "rdns"},
+			"gce":     map[string]any{"project_id": "test-project", "zone": "us-central1-a"},
+		},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, cfg.NameResolver.GCE)
+	assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
 }
 
 func TestConfig_ShutdownTimeout(t *testing.T) {
@@ -1718,13 +1763,13 @@ func TestNormalizeConfig_Network(t *testing.T) {
 
 // stringSliceToTextUnmarshalerHookFunc exists so that Features and ExportModes accept a
 // YAML sequence as well as the comma-separated text their UnmarshalText parses. Both shapes
-// have to decode through confmap, which is how the collector receiver loads the
-// configuration; plain YAML loading only ever reaches UnmarshalYAML.
-func TestUnmarshalConfmapSequences(t *testing.T) {
+// have to decode through the receiver's map path; plain YAML loading only ever
+// reaches UnmarshalYAML.
+func TestUnmarshalMapSequences(t *testing.T) {
 	unmarshal := func(t *testing.T, raw map[string]any) *Config {
 		t.Helper()
 		cfg := DefaultConfig
-		require.NoError(t, cfg.Unmarshal(confmap.NewFromStringMap(raw)))
+		require.NoError(t, cfg.UnmarshalMap(raw))
 		return &cfg
 	}
 
@@ -1808,14 +1853,14 @@ func TestConfigCIDRShapePreserved(t *testing.T) {
 			},
 		},
 		{
-			name: "Config.Unmarshal",
+			name: "Config.UnmarshalMap",
 			load: func(t *testing.T) *Config {
 				cfg := DefaultConfig
-				err := cfg.Unmarshal(confmap.NewFromStringMap(map[string]any{
+				err := cfg.UnmarshalMap(map[string]any{
 					"network": map[string]any{
 						"cidrs": expected,
 					},
-				}))
+				})
 				require.NoError(t, err)
 				return &cfg
 			},
@@ -1885,17 +1930,72 @@ func TestConfigValidate_TracesCompression(t *testing.T) {
 	})
 }
 
-func TestConfigV1IgnoresRoute53Settings(t *testing.T) {
-	t.Setenv("OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS", "env-zone")
-	t.Setenv("OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL", "1s")
-	for _, data := range []string{"", `cloud_metadata:
-  route53:
-    hosted_zone_ids: [yaml-zone]
-    refresh_interval: 2s
-`} {
-		cfg, err := LoadConfig(bytes.NewBufferString(data))
-		require.NoError(t, err)
-		assert.Equal(t, DefaultConfig.CloudMetadata.Route53, cfg.CloudMetadata.Route53)
+func TestConfigV1Route53Settings(t *testing.T) {
+	unsetEnv(t,
+		"OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS",
+		"OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL",
+	)
+	for _, tc := range []struct {
+		name     string
+		yaml     string
+		env      envMap
+		interval time.Duration
+		zones    []string
+	}{
+		{
+			name:     "YAML with default interval",
+			yaml:     "cloud_metadata:\n  route53:\n    hosted_zone_ids: [yaml-zone]\n",
+			interval: DefaultConfig.CloudMetadata.Route53.RefreshInterval,
+			zones:    []string{"yaml-zone"},
+		},
+		{
+			name:     "YAML",
+			yaml:     "cloud_metadata:\n  route53:\n    hosted_zone_ids: [yaml-zone, /hostedzone/other-zone]\n    refresh_interval: 2s\n",
+			interval: 2 * time.Second,
+			zones:    []string{"yaml-zone", "/hostedzone/other-zone"},
+		},
+		{
+			name: "environment",
+			env: envMap{
+				"OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS":  "env-zone,/hostedzone/other-zone",
+				"OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL": "1s",
+			},
+			interval: time.Second,
+			zones:    []string{"env-zone", "/hostedzone/other-zone"},
+		},
+		{
+			name: "environment overrides YAML",
+			yaml: "cloud_metadata:\n  route53:\n    hosted_zone_ids: [yaml-zone]\n    refresh_interval: 2s\n",
+			env: envMap{
+				"OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS":  "env-zone",
+				"OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL": "1s",
+			},
+			interval: time.Second,
+			zones:    []string{"env-zone"},
+		},
+		{
+			name:     "interval override preserves YAML zones",
+			yaml:     "cloud_metadata:\n  route53:\n    hosted_zone_ids: [yaml-zone]\n",
+			env:      envMap{"OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL": "1s"},
+			interval: time.Second,
+			zones:    []string{"yaml-zone"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for key, value := range tc.env {
+				t.Setenv(key, value)
+			}
+			cfg, err := LoadConfig(bytes.NewBufferString(`name_resolver:
+  sources: [route53]
+executable_path: /srv/*
+trace_printer: text
+` + tc.yaml))
+			require.NoError(t, err)
+			assert.Equal(t, []transform.Source{transform.SourceRoute53}, cfg.NameResolver.Sources)
+			assert.Equal(t, tc.interval, cfg.CloudMetadata.Route53.RefreshInterval)
+			assert.Equal(t, tc.zones, cfg.CloudMetadata.Route53.HostedZoneIDs)
+			require.NoError(t, cfg.ValidateStatic())
+		})
 	}
 }
 

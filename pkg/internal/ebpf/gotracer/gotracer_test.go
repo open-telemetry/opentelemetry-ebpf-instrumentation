@@ -27,6 +27,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
@@ -90,6 +92,17 @@ func TestGRPCCorrelationMapsUseProcessScopedKeys(t *testing.T) {
 		uint32(unsafe.Sizeof(grpcStreamKey{})),
 		spec.Maps["ongoing_streams"].KeySize,
 	)
+	require.Contains(t, spec.Maps, "ringbuf_write_stats_storage")
+	assert.Equal(t, ebpf.PerCPUArray, spec.Maps["ringbuf_write_stats_storage"].Type)
+	assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps["ringbuf_write_stats_storage"].Pinning)
+}
+
+func TestRingbufMetricsConstant(t *testing.T) {
+	tracer := New(nil, &obi.Config{}, imetrics.NoopReporter{})
+	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
+
+	tracer = New(nil, &obi.Config{}, struct{ imetrics.NoopReporter }{})
+	assert.Equal(t, true, tracer.constants()["ringbuf_metrics_enabled"])
 }
 
 func TestSetFramerPaddingOffsetUsesExactLayout(t *testing.T) {
@@ -782,6 +795,7 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 		"golang.org/x/net/http2.(*Framer).WriteContinuation",
 		"net/http.(*http2Framer).WriteHeaders",
 		"net/http/internal/http2.(*Framer).WriteHeaders",
+		"google.golang.org/grpc/internal/transport.(*http2Client).createHeaderFields",
 	}
 	tracingProbeSymbols := []string{
 		"net/http.(*Transport).roundTrip",
@@ -798,6 +812,8 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 				cfg: &config.EBPFTracer{ContextPropagation: tt.mode},
 				log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 			}
+			tracer.bpfObjects.ObiUprobeTransportHttp2ClientNewStream = &ebpf.Program{}
+			tracer.bpfObjects.ObiUprobeTransportHttp2ClientNewStreamReturns = &ebpf.Program{}
 			constants := tracer.constants()
 			assert.Equal(t, tt.wireEnabled, constants["g_bpf_header_propagation"])
 			assert.Equal(t, tt.writeUser, constants["g_bpf_probe_write_user_enabled"])
@@ -813,6 +829,12 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 			for _, symbol := range tracingProbeSymbols {
 				assert.Contains(t, probes, symbol)
 			}
+			assert.NotContains(t, probes, "google.golang.org/grpc/internal/transport.(*controlBuffer).executeAndPut")
+
+			newStream := probes["google.golang.org/grpc/internal/transport.(*http2Client).NewStream"]
+			require.Len(t, newStream, 1)
+			assert.NotNil(t, newStream[0].Start)
+			assert.Equal(t, tt.wireEnabled, newStream[0].End != nil)
 
 			groups := tracer.GoProbeGroups()
 			if tt.writeProbesEnabled {
@@ -851,7 +873,18 @@ func TestHTTP2PreflushProbeGroupsRespectPropagation(t *testing.T) {
 
 	xnetGroup := groups[7]
 	require.Len(t, xnetGroup.Probes, 2)
-	assert.Equal(t, []string{"golang.org/x/net/http2.(*Framer).WriteHeaders"}, xnetGroup.RequiresAll)
+	assert.Equal(t, []string{
+		"golang.org/x/net/http2.(*Framer).WriteHeaders",
+		"golang.org/x/net/http2.(*ClientConn).writeHeaders",
+	}, xnetGroup.RequiresAll)
+	assert.Equal(t, []string{
+		"net/http.(*http2Framer).WriteHeaders",
+		"net/http.(*http2ClientConn).writeHeaders",
+	}, groups[8].RequiresAll)
+	assert.Equal(t, []string{
+		"net/http/internal/http2.(*Framer).WriteHeaders",
+		"net/http/internal/http2.(*ClientConn).writeHeaders",
+	}, groups[9].RequiresAll)
 	assert.True(t, xnetGroup.Probes[0].Probe.UsePadStart)
 	assert.False(t, xnetGroup.Probes[1].Probe.UsePadStart)
 	assert.Equal(t, xnetGroup.Probes[0].Symbol, xnetGroup.Probes[1].CalledFrom)
@@ -956,7 +989,7 @@ func TestGoH2OwnershipProbeGroupsAreVersionedAndAtomic(t *testing.T) {
 	)
 	assert.Equal(t, []string{
 		"google.golang.org/grpc/internal/transport.(*http2Client).NewStream",
-		"google.golang.org/grpc/internal/transport.(*controlBuffer).executeAndPut",
+		"google.golang.org/grpc/internal/transport.(*http2Client).createHeaderFields",
 		"golang.org/x/net/http2.(*Framer).WriteHeaders",
 	}, groups[5].RequiresAll)
 	assert.Equal(t, groups[5].RequiresAll, groups[6].RequiresAll)

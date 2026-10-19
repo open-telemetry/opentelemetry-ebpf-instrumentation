@@ -13,7 +13,7 @@ import (
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 
-	"go.opentelemetry.io/obi/pkg/internal/cloud"
+	"go.opentelemetry.io/obi/pkg/cloud"
 	"go.opentelemetry.io/obi/pkg/metadata"
 )
 
@@ -25,9 +25,9 @@ const route53DefaultRegion = "us-east-1"
 // Aliases, CNAMEs, and wildcard records are excluded. ECS names take precedence.
 type Route53MetadataConfig struct {
 	// RefreshInterval controls Route53 polling independently of other cloud sources.
-	RefreshInterval time.Duration `yaml:"-" env:"-" validate:"gt=0"`
+	RefreshInterval time.Duration `yaml:"refresh_interval" env:"OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL" validate:"gt=0"`
 	// HostedZoneIDs restricts discovery to these hosted zones. Required when route53 is enabled.
-	HostedZoneIDs []string `yaml:"-" env:"-"`
+	HostedZoneIDs []string `yaml:"hosted_zone_ids" env:"OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS" envSeparator:","`
 }
 
 // Validate checks settings required when the Route53 source is enabled.

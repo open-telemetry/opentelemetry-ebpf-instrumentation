@@ -160,14 +160,17 @@ func TestGrpcOffsetsFromDwarf(t *testing.T) {
 	offsets, _ := structMemberOffsetsFromDwarf(grpcElf)
 	// this test might fail if a future Go gRPC version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
-		GrpcServerStreamStPtr:  uint64(0x168),
-		GrpcStreamMethodPtrPos: uint64(0x10),
-		GrpcStatusSPos:         uint64(0),
-		ConnFdPos:              uint64(0),
-		FdLaddrPos:             uint64(96),
-		NetFdPfdPos:            uint64(0),
-		PollFdSysfdPos:         uint64(16),
-		GrpcStatusCodePtrPos:   uint64(40),
+		GrpcServerStreamStPtr:              uint64(0x168),
+		GrpcStreamMethodPtrPos:             uint64(0x10),
+		GrpcStatusSPos:                     uint64(0),
+		ConnFdPos:                          uint64(0),
+		FdLaddrPos:                         uint64(96),
+		NetFdPfdPos:                        uint64(0),
+		PollFdSysfdPos:                     uint64(16),
+		GrpcStatusCodePtrPos:               uint64(40),
+		GrpcTransportBufWriterBufHandlePos: uint64(8),
+		GrpcTransportBufWriterOffsetPos:    uint64(16),
+		GrpcTransportBufWriterConnPos:      uint64(32),
 	}, offsets)
 }
 
@@ -231,6 +234,24 @@ func TestHTTP2ClientConnTLSStateOffsets(t *testing.T) {
 	}
 }
 
+func TestHTTP2ClientConnFramerOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		version string
+		want    uint64
+	}{
+		{"1.27.0", 368},
+		{"1.27.1", 368},
+		{"1.27.2", 360},
+	} {
+		t.Run(tc.version, func(t *testing.T) {
+			assertPrefetchedOffset(t, track, "net/http/internal/http2.ClientConn", "fr", tc.version, tc.want)
+		})
+	}
+}
+
 func TestGoRuntimeGCGoalFieldUnavailableAfterTrackedRange(t *testing.T) {
 	offsets, err := structMemberOffsets(smallELF)
 	require.NoError(t, err)
@@ -276,15 +297,18 @@ func TestGrpcOffsetsWithoutDwarf(t *testing.T) {
 	offsets, _ := structMemberOffsets(smallGRPCElf)
 	// this test might fail if a future Go gRPC version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
-		GrpcServerStreamStPtr:  uint64(0x168),
-		GrpcStreamStPtrPos:     uint64(0x168),
-		GrpcStreamMethodPtrPos: uint64(0x10),
-		GrpcStatusSPos:         uint64(0),
-		GrpcStatusCodePtrPos:   uint64(40),
-		ConnFdPos:              uint64(0),
-		FdLaddrPos:             uint64(96),
-		NetFdPfdPos:            uint64(0),
-		PollFdSysfdPos:         uint64(16),
+		GrpcServerStreamStPtr:              uint64(0x168),
+		GrpcStreamStPtrPos:                 uint64(0x168),
+		GrpcStreamMethodPtrPos:             uint64(0x10),
+		GrpcStatusSPos:                     uint64(0),
+		GrpcStatusCodePtrPos:               uint64(40),
+		ConnFdPos:                          uint64(0),
+		FdLaddrPos:                         uint64(96),
+		NetFdPfdPos:                        uint64(0),
+		PollFdSysfdPos:                     uint64(16),
+		GrpcTransportBufWriterBufHandlePos: uint64(8),
+		GrpcTransportBufWriterOffsetPos:    uint64(16),
+		GrpcTransportBufWriterConnPos:      uint64(32),
 	}, offsets)
 }
 
@@ -377,6 +401,19 @@ func TestPrefetchedGrpcStreamOffsets(t *testing.T) {
 	}
 }
 
+func TestPrefetchedGrpcBufWriterOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	const structName = "google.golang.org/grpc/internal/transport.bufWriter"
+	assertPrefetchedOffset(t, track, structName, "buf", "1.83.2", 8)
+	_, found := track.Find(structName, "bufHandle", "1.83.2")
+	assert.False(t, found)
+	assertPrefetchedOffset(t, track, structName, "bufHandle", "1.84.0", 8)
+	assertPrefetchedOffset(t, track, structName, "offset", "1.84.0", 16)
+	assertPrefetchedOffset(t, track, structName, "conn", "1.84.0", 32)
+}
+
 func TestGoOffsetsFromDwarf_ErrorIfConstantNotFound(t *testing.T) {
 	structMembers["net/http.response"] = structInfo{
 		lib: "go",
@@ -459,13 +496,13 @@ func goAutoSDKActivationTestModules() moduleVersions {
 	return moduleVersions{
 		versions: map[string]string{
 			"go.opentelemetry.io/auto/sdk":   "v1.2.1",
-			"go.opentelemetry.io/otel":       "v1.45.0",
-			"go.opentelemetry.io/otel/trace": "v1.45.0",
+			"go.opentelemetry.io/otel":       "v1.47.0",
+			"go.opentelemetry.io/otel/trace": "v1.47.0",
 		},
 		sums: map[string]string{
 			"go.opentelemetry.io/auto/sdk":   "h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=",
-			"go.opentelemetry.io/otel":       "h1:pdrWmLHofpubmArBv1LgFSv1Z0Ie/ppdZzu+kUN5EeU=",
-			"go.opentelemetry.io/otel/trace": "h1:l/mP6Uv7oNO7/TblbhpbgMidxhq1uO/rPsikOyVhxag=",
+			"go.opentelemetry.io/otel":       "h1:j7ALJ/zgkS7Z6aeJW09p8VC9804bC+PpeTfCD4XPnOM=",
+			"go.opentelemetry.io/otel/trace": "h1:JOjX/Oci8K94QHddo+bbfya/Ai/nf6/dt9ZfrFNWSrM=",
 		},
 		replacements: map[string]struct{}{},
 	}
@@ -619,6 +656,7 @@ func TestPrefetchedGoRuntimeHeapStatsOffset(t *testing.T) {
 		{"1.19.0", 0},
 		{"1.23.0", 0},
 		{"1.27.1", 0},
+		{"1.27.2", 0},
 	} {
 		t.Run(tc.version, func(t *testing.T) {
 			offset, found := track.Find("runtime.mstats", "heapStats", tc.version)
@@ -633,7 +671,7 @@ func TestPrefetchedGoRuntimeWorkFullOffset(t *testing.T) {
 	require.NoError(t, err)
 	_, found := track.Find("runtime.workType", "full", "1.22.12")
 	require.False(t, found)
-	for _, version := range []string{"1.23.0", "1.24.0", "1.25.0", "1.26.0", "1.27.1"} {
+	for _, version := range []string{"1.23.0", "1.24.0", "1.25.0", "1.26.0", "1.27.1", "1.27.2"} {
 		t.Run(version, func(t *testing.T) {
 			value, found := track.Find("runtime.workType", "full", version)
 			require.True(t, found)
@@ -649,7 +687,7 @@ func TestPrefetchedGoRuntimeSchedGoIDOffset(t *testing.T) {
 	require.False(t, found)
 	for _, version := range []string{
 		"1.17.0", "1.18.0", "1.19.0", "1.20.0", "1.21.0", "1.22.0",
-		"1.23.0", "1.24.0", "1.25.0", "1.26.0", "1.27.1",
+		"1.23.0", "1.24.0", "1.25.0", "1.26.0", "1.27.1", "1.27.2",
 	} {
 		t.Run(version, func(t *testing.T) {
 			value, found := track.Find("runtime.schedt", "goidgen", version)

@@ -24,6 +24,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/connector"
+	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/mcpsession"
 	"go.opentelemetry.io/obi/pkg/export/otel"
@@ -133,10 +134,6 @@ type PrometheusConfig struct {
 	// Uses recommended values if not specified.
 	NativeHistogram NativeHistogramConfig `yaml:"native_histogram"`
 
-	// Registry is only used for embedding OBI within third-party collectors.
-	// It must be nil when OBI runs as standalone
-	Registry *prometheus.Registry `yaml:"-"`
-
 	// ExtraResourceLabels adds extra metadata labels to Prometheus metrics from sources whose availability can't be known
 	// beforehand. For example, to add the OTEL deployment.environment resource attribute as a Prometheus resource attribute,
 	// you should add `deployment.environment`.
@@ -153,7 +150,7 @@ func mlog() *slog.Logger {
 }
 
 func (p *PrometheusConfig) EndpointEnabled() bool {
-	return p.Port != 0 || p.Registry != nil
+	return p.Port != 0
 }
 
 type metricsReporter struct {
@@ -320,9 +317,6 @@ func PrometheusEndpoint(
 		)
 		if err != nil {
 			return nil, fmt.Errorf("instantiating Prometheus endpoint: %w", err)
-		}
-		if cfg.Registry != nil {
-			return reporter.collectMetrics, nil
 		}
 		return reporter.reportMetrics, nil
 	}
@@ -1079,6 +1073,7 @@ func newReporter(
 			mr.dotnetRuntimeMetrics.monitorLockContentions,
 			mr.dotnetRuntimeMetrics.processMemoryWorkingSet,
 			mr.dotnetRuntimeMetrics.gcCommittedMemory,
+			mr.dotnetRuntimeMetrics.gcHeapSize,
 			mr.dotnetRuntimeMetrics.threadPoolThreadCount,
 			mr.dotnetRuntimeMetrics.threadPoolQueueLength,
 			mr.dotnetRuntimeMetrics.timerCount,
@@ -1106,11 +1101,7 @@ func newReporter(
 		)
 	}
 
-	if mr.cfg.Registry != nil {
-		mr.cfg.Registry.MustRegister(registeredMetrics...)
-	} else {
-		mr.promConnect.Register(cfg.Port, cfg.Path, registeredMetrics...)
-	}
+	mr.promConnect.Register(cfg.Port, cfg.Path, registeredMetrics...)
 
 	return mr, nil
 }
@@ -1880,8 +1871,8 @@ func (r *metricsReporter) deleteMetricsForServicePreservingRuntimeHistograms(ser
 }
 
 func (r *metricsReporter) deleteMetricsForAttributeUpdate(previous, current *svc.Attrs) {
-	previousLabels := runtimeMetricLabelTuple(r.labelValuesTargetInfo(previous))
-	currentLabels := runtimeMetricLabelTuple(r.labelValuesTargetInfo(current))
+	previousLabels := expire.LabelsKey(r.labelValuesTargetInfo(previous))
+	currentLabels := expire.LabelsKey(r.labelValuesTargetInfo(current))
 	if previousLabels == currentLabels && r.deleteEventMetricsPreservingHistograms != nil {
 		r.deleteEventMetricsPreservingHistograms(previous)
 		return

@@ -36,6 +36,7 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 			Instrumentation: captureInstrumentation(cfg),
 			Runtimes:        captureRuntimes(cfg),
 			Network:         captureNetwork(cfg),
+			Metrics:         schema.CaptureMetrics{Features: cfg.Metrics.Features.Names()},
 			Limits:          captureLimits(cfg),
 			Engine:          captureEngine(cfg),
 			Safety:          captureSafety(cfg),
@@ -292,7 +293,7 @@ func captureRuntimes(cfg *obi.Config) schema.CaptureRuntimes {
 func captureNetwork(cfg *obi.Config) schema.CaptureNetwork {
 	return schema.CaptureNetwork{
 		Capture: schema.NetworkCapture{
-			Enabled:    cfg.NetworkFlows.Enable || cfg.Metrics.Features.AnyNetwork(),
+			Enabled:    cfg.Enabled(obi.FeatureNetO11y),
 			Source:     schema.NetworkSource(cfg.NetworkFlows.Source),
 			BufferSize: cfg.EBPF.BufferSizes.TCP,
 			EndpointIdentity: schema.EndpointIdentity{
@@ -679,6 +680,10 @@ func serviceNameEnrichment(cfg *obi.Config) schema.ServiceName {
 	}
 
 	out.Sources = cfg.NameResolver.Sources
+	if !zeroValue(cfg.NameResolver.GCE) {
+		gce := cfg.NameResolver.GCE
+		out.GCE = &gce
+	}
 	out.Cache = schema.Cache{
 		Size: cfg.NameResolver.CacheLen,
 		TTL:  schema.Duration(cfg.NameResolver.CacheTTL),

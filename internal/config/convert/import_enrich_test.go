@@ -18,6 +18,20 @@ import (
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
+func TestV2GCEServiceNameRoundTrip(t *testing.T) {
+	cfg := defaultRuntimeConfig()
+	cfg.NameResolver.Sources = []transform.Source{transform.SourceGCE}
+	cfg.NameResolver.GCE = transform.GCENameResolverConfig{
+		ProjectID: "project", Zone: "us-central1-a",
+		Endpoint: "http://compute-mock/",
+	}
+	_, ext := RuntimeToV2(&cfg)
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.Equal(t, cfg.NameResolver.GCE, got.NameResolver.GCE)
+	require.Equal(t, cfg.NameResolver.Sources, got.NameResolver.Sources)
+}
+
 func TestV2ToRuntimeEnrichAttributesAndKubernetesRoundTrip(t *testing.T) {
 	t.Parallel()
 

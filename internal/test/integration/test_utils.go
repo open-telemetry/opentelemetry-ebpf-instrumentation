@@ -203,7 +203,7 @@ func waitForTestComponentsSubWithTime(t *testing.T, url, subpath string, minutes
 		// now, verify that the metric has been reported.
 		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
-		results, err := pq.Query(`http_server_request_duration_seconds_count{url_path="` + subpath + `"}`)
+		results, err := pq.Query(`http_server_request_duration_seconds_count`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
 	}, time.Duration(minutes)*time.Minute, time.Second)
@@ -222,7 +222,7 @@ func waitForTestComponentsSubWithTimeAndCode(t *testing.T, url, subpath string, 
 		// now, verify that the metric has been reported.
 		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
-		results, err := pq.Query(`http_server_request_duration_seconds_count{url_path="` + subpath + `"}`)
+		results, err := pq.Query(`http_server_request_duration_seconds_count`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
 	}, time.Duration(minutes)*time.Minute, time.Second)
@@ -337,7 +337,7 @@ func waitForTestComponentsHTTP2Sub(t *testing.T, url, subpath string, minutes in
 		// now, verify that the metric has been reported.
 		// we don't really care that this metric could be from a previous
 		// test. Once one it is visible, it means that Otel and Prometheus are healthy
-		results, err := pq.Query(`http_server_request_duration_seconds_count{url_path="` + subpath + `"}`)
+		results, err := pq.Query(`http_server_request_duration_seconds_count`)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
 	}, time.Duration(minutes)*time.Minute, time.Second)

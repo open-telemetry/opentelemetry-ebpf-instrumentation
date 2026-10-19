@@ -76,7 +76,7 @@ jobs:
             go-build-pr-race-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Download generated BPF files
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: bpf-generated-${{ github.run_id }}
 
@@ -173,15 +173,16 @@ jobs:
             go-build-cross-${{ matrix.goos }}-${{ matrix.goarch }}-
 
       - name: Download generated BPF files
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Build collector package
+        working-directory: collector
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: go build ./collector/...
+        run: go build ./...
 
   otel-collector-example:
     name: OTel Collector example (ocb build)
@@ -209,19 +210,18 @@ jobs:
             go-build-otelcol-example-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Download generated BPF files
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: bpf-generated-${{ github.run_id }}
 
-      - name: Resolve ocb version from go.mod
+      - name: Resolve ocb version from builder config
         id: ocb
         shell: bash
         run: |
-          # Pin ocb to the Collector release line OBI itself depends on, so the
-          # example is always built against a compatible builder (see #2264).
-          version=$(grep -E '^[[:space:]]*go\.opentelemetry\.io/collector v[0-9]' go.mod | awk '{print $2}')
+          # Pin ocb to the Collector release line used by the example (see #2264).
+          version=$(awk '$1 == "go.opentelemetry.io/collector/exporter/otlpexporter" { print $2; exit }' examples/otel-collector/builder-config.yaml)
           if [ -z "$version" ]; then
-            echo "could not determine collector version from go.mod" >&2
+            echo "could not determine collector version from builder config" >&2
             exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"

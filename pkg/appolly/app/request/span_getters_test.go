@@ -86,6 +86,17 @@ func TestSpanOTELGetters_K8SClientNamespace(t *testing.T) {
 	}
 }
 
+func TestSpanOTELGetters_GenAIRequestModel(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.GenAIRequestModel)
+	require.True(t, ok)
+
+	named := &Span{GenAI: &GenAI{OpenAI: &VendorOpenAI{Request: OpenAIInput{Model: "gpt-4o"}}}}
+	assert.Equal(t, "gpt-4o", getter(named).Value.AsString())
+
+	unnamed := &Span{GenAI: &GenAI{OpenAI: &VendorOpenAI{}}}
+	assert.False(t, getter(unnamed).Valid(), "a request that named no model reports no gen_ai.request.model")
+}
+
 func TestSpanOTELGetters_DBCollectionName(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -144,6 +155,10 @@ func TestSpanOTELGetters_DBCollectionName(t *testing.T) {
 			name: "unsupported span type",
 			span: &Span{Type: EventTypeHTTP, Path: "ignored"},
 		},
+		{
+			name: "SQL client without collection",
+			span: &Span{Type: EventTypeSQLClient},
+		},
 	}
 
 	getter, ok := spanOTELGetters(attr.DBCollectionName)
@@ -152,6 +167,10 @@ func TestSpanOTELGetters_DBCollectionName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			kv := getter(tt.span)
+			if tt.expected == "" {
+				assert.False(t, kv.Valid())
+				return
+			}
 			assert.Equal(t, attribute.Key(attr.DBCollectionName), kv.Key)
 			assert.Equal(t, tt.expected, kv.Value.AsString())
 		})
@@ -509,6 +528,14 @@ func TestSpanOTELGetters_HTTPURLScheme(t *testing.T) {
 	}
 }
 
+func TestSpanOTELGetters_HTTPUrlTemplate(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.HTTPUrlTemplate)
+	require.True(t, ok)
+
+	kv := getter(&Span{Type: EventTypeHTTPClient, Path: "/users/42", Route: "/users/{id}"})
+	assert.Equal(t, semconv.URLTemplate("/users/{id}"), kv)
+}
+
 func TestSpanOTELGetters_HTTPRequestMethod(t *testing.T) {
 	getter, ok := spanOTELGetters(attr.HTTPRequestMethod)
 	require.True(t, ok, "getter should be found for HTTPRequestMethod")
@@ -555,7 +582,7 @@ func TestSpanOTELGetters_SunRPC(t *testing.T) {
 		expected string
 	}{
 		{name: "rpc system", attrName: attr.RPCSystem, expected: "onc_rpc"},
-		{name: "rpc method", attrName: attr.RPCMethod, expected: "0"},
+		{name: "rpc method", attrName: attr.RPCMethod, expected: "portmapper/0"},
 		{name: "program name", attrName: attr.OncRPCProgramName, expected: "portmapper"},
 		{name: "response status code", attrName: attr.RPCResponseStatusCode, expected: "0"},
 	}
@@ -581,6 +608,13 @@ func TestSpanOTELGetters_SunRPC(t *testing.T) {
 		getter, ok := spanOTELGetters(attr.OncRPCVersion)
 		require.True(t, ok)
 		assert.Equal(t, semconv.OncRPCVersion(2), getter(span))
+	})
+
+	t.Run("rpc method omitted for reply-only", func(t *testing.T) {
+		getter, ok := spanOTELGetters(attr.RPCMethod)
+		require.True(t, ok)
+		replyOnly := &Span{Type: EventTypeSunRPCServer, Path: "sunrpc", Method: SunRPCSyntheticReplyMethod}
+		assert.False(t, getter(replyOnly).Valid())
 	})
 }
 
@@ -994,6 +1028,36 @@ func TestSpanOTELGetters_MessagingAttributes_NATS(t *testing.T) {
 
 	span.Method = MessagingProcess
 	assert.Equal(t, MessagingProcess, opTypeGetter(span).Value.AsString())
+}
+
+// AMQP spans carry no destination: the attribute is omitted, not emitted empty.
+func TestSpanOTELGetters_MessagingDestinationOmittedWhenUnknown(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.MessagingDestination)
+	require.True(t, ok)
+
+	assert.False(t, getter(&Span{Type: EventTypeAMQPClient, Method: MessagingPublish}).Valid())
+	assert.False(t, getter(&Span{Type: EventTypeKafkaClient}).Valid())
+	assert.Equal(t, "orders", getter(&Span{Type: EventTypeKafkaClient, Path: "orders"}).Value.AsString())
+}
+
+func TestSpanOTELGetters_MessagingSubscription(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.MessagingSubscription)
+	require.True(t, ok)
+
+	subscribe := &Span{Type: EventTypeMQTTClient, Method: MessagingProcess, MessagingInfo: &MessagingInfo{SubscriptionName: "sensors/#"}}
+	kv := getter(subscribe)
+	require.True(t, kv.Valid())
+	assert.Equal(t, string(attr.MessagingSubscription), string(kv.Key))
+	assert.Equal(t, "sensors/#", kv.Value.AsString())
+	assert.Equal(t, "sensors/#", spanPromGetters(attr.MessagingSubscription)(subscribe))
+
+	for _, span := range []*Span{
+		{Type: EventTypeMQTTClient, Method: MessagingPublish, Path: "sensors/1"},
+		{Type: EventTypeKafkaClient, Method: MessagingProcess, MessagingInfo: &MessagingInfo{ConsumerGroup: "g"}},
+	} {
+		assert.False(t, getter(span).Valid())
+		assert.Empty(t, spanPromGetters(attr.MessagingSubscription)(span))
+	}
 }
 
 // TestSpanOTELGetters_MessagingOpTypeOmitted ensures messaging.operation.type

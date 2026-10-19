@@ -178,6 +178,17 @@ func MessagingMessageID(val string) attribute.KeyValue {
 	return attribute.Key(attr.MessagingMessageID).String(val)
 }
 
+const (
+	RPCSystemAWSAPI = "aws-api"
+	RPCSystemONCRPC = "onc_rpc"
+)
+
+const (
+	awsServiceS3  = "S3"
+	awsServiceSQS = "SQS"
+	awsServiceSNS = "SNS"
+)
+
 func RPCSystem(val string) attribute.KeyValue {
 	return attribute.Key(attr.RPCSystem).String(val)
 }
@@ -191,15 +202,7 @@ func S3RPCMethod(method string) string {
 	if method == "" {
 		return ""
 	}
-	return "S3/" + method
-}
-
-// SNSRPCMethod returns the fully-qualified rpc.method value for AWS SNS operations.
-func SNSRPCMethod(method string) string {
-	if method == "" {
-		return ""
-	}
-	return "SNS/" + method
+	return awsServiceS3 + "/" + method
 }
 
 func AWSRequestID(val string) attribute.KeyValue {
@@ -259,6 +262,8 @@ func HostFromSchemeHost(span *Span) string {
 	return ""
 }
 
+// HTTPClientHost returns the host an HTTP client request was sent to, as the
+// request named it: the Host header keeps a non-default port.
 func HTTPClientHost(span *Span) string {
 	if host := HostFromSchemeHost(span); host != "" {
 		return host
@@ -267,7 +272,15 @@ func HTTPClientHost(span *Span) string {
 	return HostAsServer(span)
 }
 
-func hostWithoutPort(hostPort string) string {
+// HTTPClientServerAddr returns the server.address of an HTTP client request,
+// which semconv defines without the port.
+func HTTPClientServerAddr(span *Span) string {
+	return HostWithoutPort(HTTPClientHost(span))
+}
+
+// HostWithoutPort strips the port, and the brackets of an IPv6 literal, from a
+// host as an HTTP Host header carries it.
+func HostWithoutPort(hostPort string) string {
 	if host, _, err := net.SplitHostPort(hostPort); err == nil {
 		return host
 	}

@@ -217,8 +217,11 @@ func TestTraceName(t *testing.T) {
 		{name: "HTTP empty method", span: &Span{Type: EventTypeHTTP, Route: "/users"}, expected: "HTTP /users"},
 
 		// gRPC spans
-		{name: "gRPC server", span: &Span{Type: EventTypeGRPC, Path: "/service/Method"}, expected: "/service/Method"},
-		{name: "gRPC client", span: &Span{Type: EventTypeGRPCClient, Path: "/service/Call"}, expected: "/service/Call"},
+		{name: "gRPC server", span: &Span{Type: EventTypeGRPC, Path: "/service/Method"}, expected: "service/Method"},
+		{name: "gRPC client", span: &Span{Type: EventTypeGRPCClient, Path: "/service/Call"}, expected: "service/Call"},
+		{name: "gRPC unreadable path", span: &Span{Type: EventTypeGRPC, Path: "*"}, expected: "grpc"},
+		{name: "gRPC empty path", span: &Span{Type: EventTypeGRPCClient}, expected: "grpc"},
+		{name: "gRPC path without method", span: &Span{Type: EventTypeGRPC, Path: "/healthz"}, expected: "grpc"},
 
 		// SQL spans
 		{name: "SQL client", span: &Span{Type: EventTypeSQLClient, Method: "SELECT", Path: "users"}, expected: "SELECT users"},
@@ -262,7 +265,20 @@ func TestTraceName(t *testing.T) {
 
 		// SunRPC spans
 		{name: "SunRPC client", span: &Span{Type: EventTypeSunRPCClient, Path: "portmapper", Method: "0"}, expected: "portmapper/0"},
-		{name: "SunRPC no program", span: &Span{Type: EventTypeSunRPCServer, Method: "6"}, expected: "sunrpc/6"},
+		{name: "SunRPC mapped procedure", span: &Span{Type: EventTypeSunRPCClient, Path: "mount", Method: "MOUNTPROC_EXPORT", Route: "5"}, expected: "mount/MOUNTPROC_EXPORT"},
+		{name: "SunRPC no program", span: &Span{Type: EventTypeSunRPCServer, Method: "6"}, expected: "onc_rpc"},
+		{name: "SunRPC reply only", span: &Span{Type: EventTypeSunRPCServer, Path: "sunrpc", Method: SunRPCSyntheticReplyMethod}, expected: "onc_rpc"},
+
+		// GraphQL spans
+		{name: "GraphQL operation type", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeGraphQL, GraphQL: &GraphQL{OperationType: "query", OperationName: "Q"}}, expected: "query"},
+		{name: "GraphQL no operation type", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeGraphQL, GraphQL: &GraphQL{}}, expected: "GraphQL Operation"},
+
+		// AWS spans
+		{name: "AWS S3", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAWSS3, AWS: &AWS{S3: AWSS3{Method: "GetObject"}}}, expected: "S3.GetObject"},
+		{name: "AWS S3 no operation", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAWSS3, AWS: &AWS{}}, expected: "aws-api"},
+		{name: "AWS SQS", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAWSSQS, AWS: &AWS{SQS: AWSSQS{OperationName: "SendMessage"}}}, expected: "SQS.SendMessage"},
+		{name: "AWS SQS no operation", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAWSSQS, AWS: &AWS{}}, expected: "aws-api"},
+		{name: "AWS SNS", span: &Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeAWSSNS, AWS: &AWS{SNS: AWSSNS{OperationName: "Publish"}}}, expected: "SNS.Publish"},
 
 		// JSON-RPC spans
 		{name: "JSON-RPC with method", span: &Span{Type: EventTypeHTTP, SubType: HTTPSubtypeJSONRPC, JSONRPC: &JSONRPC{Method: "subtract", Version: "2.0"}}, expected: "subtract"},
@@ -634,20 +650,22 @@ func TestSerializeJSONSpans(t *testing.T) {
 		{
 			eventType: EventTypeGRPC,
 			attribs: map[string]any{
-				"method":     "path",
-				"status":     "200",
-				"clientAddr": "peername",
-				"serverAddr": "hostname",
-				"serverPort": "5678",
+				"method":         "_OTHER",
+				"methodOriginal": "path",
+				"status":         "200",
+				"clientAddr":     "peername",
+				"serverAddr":     "hostname",
+				"serverPort":     "5678",
 			},
 		},
 		{
 			eventType: EventTypeGRPCClient,
 			attribs: map[string]any{
-				"method":     "path",
-				"status":     "200",
-				"serverAddr": "hostname",
-				"serverPort": "5678",
+				"method":         "_OTHER",
+				"methodOriginal": "path",
+				"status":         "200",
+				"serverAddr":     "hostname",
+				"serverPort":     "5678",
 			},
 		},
 		{

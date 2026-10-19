@@ -249,6 +249,7 @@ func TestV2ToRuntimeHTTPBodySizeMetrics(t *testing.T) {
 		t.Parallel()
 
 		_, ext := RuntimeToV2(nil)
+		ext.Capture.Metrics.Features = nil
 		ext.Capture.Instrumentation.HTTP.Enabled.BodySizeMetrics = false
 
 		got, err := V2ToRuntime(ext)
@@ -261,6 +262,7 @@ func TestV2ToRuntimeHTTPBodySizeMetrics(t *testing.T) {
 		t.Parallel()
 
 		_, ext := RuntimeToV2(nil)
+		ext.Capture.Metrics.Features = nil
 		ext.Capture.Instrumentation.HTTP.Enabled.BodySizeMetrics = true
 
 		got, err := V2ToRuntime(ext)
@@ -275,6 +277,7 @@ func TestV2ToRuntimeHTTPBodySizeMetrics(t *testing.T) {
 		t.Parallel()
 
 		_, ext := RuntimeToV2(nil)
+		ext.Capture.Metrics.Features = nil
 		ext.Capture.Instrumentation.HTTP.Enabled.Metrics = false
 		ext.Capture.Instrumentation.HTTP.Enabled.BodySizeMetrics = true
 

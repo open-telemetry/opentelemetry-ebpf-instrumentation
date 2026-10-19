@@ -71,7 +71,7 @@ offset recovers the containing global:
 memstats base = heapStats address - heapStats field offset
 ```
 
-The field offset is 5960 bytes for Go 1.17/1.18 and zero for Go 1.19 through 1.27.1.
+The field offset is 5960 bytes for Go 1.17/1.18 and zero for Go 1.19 through 1.27.2.
 The resolver rejects missing metadata, conflicting addresses, invalid alignment,
 storage ranges, and arithmetic overflow. It then adds the process load bias
 to obtain the base address in the target process.

@@ -4,12 +4,15 @@
 package otel
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -19,6 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
@@ -164,6 +168,7 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 
 	var g attributes.AttrGroups
 	g.Add(attributes.GroupKubernetes)
+	g.Add(attributes.GroupHTTPRoutes)
 
 	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
 	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
@@ -184,7 +189,7 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 		}, cfg, &mpConfig, &attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
-					Include: []string{"url.path", "k8s.app.version"},
+					Include: []string{"http.route", "k8s.app.version"},
 				},
 			},
 			ExtraGroupAttributesCfg: map[string][]attr.Name{
@@ -206,11 +211,11 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 				},
 			},
 			Type:         request.EventTypeHTTP,
-			Path:         "/foo",
+			Route:        "/foo",
 			RequestStart: 100,
 			End:          200,
 		},
-		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/bar", RequestStart: 150, End: 175},
+		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Route: "/bar", RequestStart: 150, End: 175},
 	})
 
 	// THEN the metrics are exported
@@ -219,7 +224,7 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 		assert.Equal(ct, "http.server.request.duration", metric.Name)
 		// k8s.app.version attribute is missing because the otel exporter
 		// does not read values from span metadata
-		assert.Equal(ct, map[string]string{"url.path": "/foo"}, metric.Attributes)
+		assert.Equal(ct, map[string]string{"http.route": "/foo"}, metric.Attributes)
 		assert.InEpsilon(ct, 100/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(ct, 1, metric.Count)
 	}, timeout, 100*time.Millisecond)
@@ -227,7 +232,7 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		metric := readChan(ct, otlp.Records())
 		require.Equal(ct, "http.server.request.duration", metric.Name)
-		assert.Equal(ct, map[string]string{"url.path": "/bar"}, metric.Attributes)
+		assert.Equal(ct, map[string]string{"http.route": "/bar"}, metric.Attributes)
 		assert.InEpsilon(ct, 25/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(ct, 1, metric.Count)
 	}, timeout, 100*time.Millisecond)
@@ -235,21 +240,21 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 	// AND WHEN it keeps receiving a subset of the initial metrics during the TTL
 	now.Advance(2 * time.Minute)
 	metrics.Send([]request.Span{
-		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 250, End: 280},
+		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Route: "/foo", RequestStart: 250, End: 280},
 	})
 
 	// THEN THE metrics that have been received during the TTL period are still visible
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		metric := readChan(ct, otlp.Records())
 		require.Equal(ct, "http.server.request.duration", metric.Name)
-		assert.Equal(ct, map[string]string{"url.path": "/foo"}, metric.Attributes)
+		assert.Equal(ct, map[string]string{"http.route": "/foo"}, metric.Attributes)
 		assert.InEpsilon(ct, 130/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(ct, 2, metric.Count)
 	}, timeout, 100*time.Millisecond)
 
 	now.Advance(2 * time.Minute)
 	metrics.Send([]request.Span{
-		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 300, End: 310},
+		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Route: "/foo", RequestStart: 300, End: 310},
 	})
 
 	// Wait until the third /foo span is processed (count=3 confirms it).
@@ -258,7 +263,7 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		metric := readChan(ct, otlp.Records())
 		require.Equal(ct, "http.server.request.duration", metric.Name)
-		assert.Equal(ct, map[string]string{"url.path": "/foo"}, metric.Attributes)
+		assert.Equal(ct, map[string]string{"http.route": "/foo"}, metric.Attributes)
 		assert.Equal(ct, 3, metric.Count)
 	}, timeout, 100*time.Millisecond)
 	// Discard any records that arrived in the same batch as the count=3 record
@@ -276,7 +281,7 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 			i--
 			continue
 		}
-		require.Equal(t, map[string]string{"url.path": "/foo"}, metric.Attributes)
+		require.Equal(t, map[string]string{"http.route": "/foo"}, metric.Attributes)
 		require.InEpsilon(t, 140/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(t, 3, metric.Count)
 	}
@@ -284,14 +289,14 @@ func TestAppMetricsExpiration_ByMetricAttrs(t *testing.T) {
 	// AND WHEN the metrics labels that disappeared are received again
 	now.Advance(2 * time.Minute)
 	metrics.Send([]request.Span{
-		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/bar", RequestStart: 450, End: 520},
+		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Route: "/bar", RequestStart: 450, End: 520},
 	})
 
 	// THEN they are reported again, starting from zero in the case of counters
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		metric := readChan(ct, otlp.Records())
 		require.Equal(ct, "http.server.request.duration", metric.Name)
-		assert.Equal(ct, map[string]string{"url.path": "/bar"}, metric.Attributes)
+		assert.Equal(ct, map[string]string{"http.route": "/bar"}, metric.Attributes)
 		assert.InEpsilon(ct, 70/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(ct, 1, metric.Count)
 	}, timeout, 100*time.Millisecond)
@@ -324,12 +329,15 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 		},
 	}
 	otelExporter, err := ReportMetrics(
-		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
+		&global.ContextInfo{
+			MetricAttributeGroups: attributes.GroupHTTPRoutes,
+			OTELMetricsExporter:   &otelcfg.MetricsExporterInstancer{Cfg: cfg},
+		},
 		cfg, &mpConfig,
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
-					Include: []string{"url.path"},
+					Include: []string{"http.route"},
 				},
 			},
 		}, request.UnresolvedNames{}, metrics, processEvents)(ctx)
@@ -339,15 +347,15 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 
 	// WHEN it receives metrics
 	metrics.Send([]request.Span{
-		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 100, End: 200},
-		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "bar"}}, Type: request.EventTypeHTTP, Path: "/bar", RequestStart: 150, End: 175},
+		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Route: "/foo", RequestStart: 100, End: 200},
+		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "bar"}}, Type: request.EventTypeHTTP, Route: "/bar", RequestStart: 150, End: 175},
 	})
 
 	// THEN the metrics are exported
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		metric := readChan(ct, otlp.Records())
 		assert.Equal(ct, "http.server.request.duration", metric.Name)
-		assert.Equal(ct, map[string]string{"url.path": "/foo"}, metric.Attributes)
+		assert.Equal(ct, map[string]string{"http.route": "/foo"}, metric.Attributes)
 		assert.InEpsilon(ct, 100/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(ct, 1, metric.Count)
 	}, timeout, 100*time.Millisecond)
@@ -355,7 +363,7 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		metric := readChan(ct, otlp.Records())
 		require.Equal(ct, "http.server.request.duration", metric.Name)
-		assert.Equal(ct, map[string]string{"url.path": "/bar"}, metric.Attributes)
+		assert.Equal(ct, map[string]string{"http.route": "/bar"}, metric.Attributes)
 		assert.InEpsilon(ct, 25/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(ct, 1, metric.Count)
 	}, timeout, 100*time.Millisecond)
@@ -363,21 +371,21 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 	// AND WHEN it keeps receiving a subset of the initial metrics during the TTL
 	now.Advance(2 * time.Minute)
 	metrics.Send([]request.Span{
-		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 250, End: 280},
+		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Route: "/foo", RequestStart: 250, End: 280},
 	})
 
 	// THEN THE metrics that have been received during the TTL period are still visible
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		metric := readChan(ct, otlp.Records())
 		require.Equal(ct, "http.server.request.duration", metric.Name)
-		require.Equal(ct, map[string]string{"url.path": "/foo"}, metric.Attributes)
+		require.Equal(ct, map[string]string{"http.route": "/foo"}, metric.Attributes)
 		assert.InEpsilon(ct, 130/float64(time.Second), metric.FloatVal, 0.001)
 		assert.Equal(ct, 2, metric.Count)
 	}, timeout, 100*time.Millisecond)
 
 	now.Advance(2 * time.Minute)
 	metrics.Send([]request.Span{
-		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Path: "/foo", RequestStart: 300, End: 310},
+		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}}, Type: request.EventTypeHTTP, Route: "/foo", RequestStart: 300, End: 310},
 	})
 
 	// BUT not the metrics that haven't been received during that time.
@@ -398,7 +406,7 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 				i--
 				continue
 			}
-			require.Equal(ct, map[string]string{"url.path": "/foo"}, metric.Attributes)
+			require.Equal(ct, map[string]string{"http.route": "/foo"}, metric.Attributes)
 			require.InEpsilon(ct, 140/float64(time.Second), metric.FloatVal, 0.001)
 			assert.Equal(ct, 3, metric.Count)
 		}
@@ -406,14 +414,14 @@ func TestAppMetricsExpiration_BySvcID(t *testing.T) {
 	// AND WHEN the metrics labels that disappeared are received again
 	now.Advance(2 * time.Minute)
 	metrics.Send([]request.Span{
-		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "bar"}}, Type: request.EventTypeHTTP, Path: "/bar", RequestStart: 450, End: 520},
+		{Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "bar"}}, Type: request.EventTypeHTTP, Route: "/bar", RequestStart: 450, End: 520},
 	})
 
 	// THEN they are reported again, starting from zero in the case of counters
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		metric := readChan(ct, otlp.Records())
 		require.Equal(ct, "http.server.request.duration", metric.Name)
-		assert.Equal(ct, map[string]string{"url.path": "/bar"}, metric.Attributes)
+		assert.Equal(ct, map[string]string{"http.route": "/bar"}, metric.Attributes)
 		assert.InEpsilon(ct, 70/float64(time.Second), metric.FloatVal, 0.0001)
 		assert.Equal(ct, 1, metric.Count)
 	}, timeout, 100*time.Millisecond)
@@ -445,12 +453,15 @@ func TestAppMetrics_InvalidUTF8AttributeDoesNotDropBatch(t *testing.T) {
 		},
 	}
 	otelExporter, err := ReportMetrics(
-		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg}},
+		&global.ContextInfo{
+			MetricAttributeGroups: attributes.GroupHTTPRoutes,
+			OTELMetricsExporter:   &otelcfg.MetricsExporterInstancer{Cfg: cfg},
+		},
 		cfg, &mpConfig,
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
-					Include: []string{"url.path"},
+					Include: []string{"http.route"},
 				},
 			},
 		}, request.UnresolvedNames{}, metrics, processEvents)(ctx)
@@ -462,7 +473,7 @@ func TestAppMetrics_InvalidUTF8AttributeDoesNotDropBatch(t *testing.T) {
 		{
 			Service:      svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Instance: "foo"}},
 			Type:         request.EventTypeHTTP,
-			Path:         "/valid\xff\xfe",
+			Route:        "/valid\xff\xfe",
 			RequestStart: 100,
 			End:          200,
 		},
@@ -471,7 +482,7 @@ func TestAppMetrics_InvalidUTF8AttributeDoesNotDropBatch(t *testing.T) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		metric := readChan(ct, otlp.Records())
 		require.Equal(ct, "http.server.request.duration", metric.Name)
-		assert.Equal(ct, map[string]string{"url.path": "/valid"}, metric.Attributes)
+		assert.Equal(ct, map[string]string{"http.route": "/valid"}, metric.Attributes)
 		assert.InEpsilon(ct, 100/float64(time.Second), metric.FloatVal, 0.001)
 	}, timeout, 100*time.Millisecond)
 }
@@ -501,4 +512,33 @@ func readChan(t require.TestingT, inCh <-chan collector.MetricRecord) collector.
 		require.Failf(t, "timeout while waiting for event in input channel", "timeout: %s", timeout)
 	}
 	return collector.MetricRecord{}
+}
+
+type noopRemovable struct{}
+
+func (noopRemovable) Remove(context.Context, ...metric.RemoveOption) {}
+
+func TestExpirer_ForRecordKeepsOmittedAttributesApart(t *testing.T) {
+	field := func(key string) attributes.Field[map[string]string, attribute.KeyValue] {
+		return attributes.Field[map[string]string, attribute.KeyValue]{
+			ExposedName: key,
+			Get: func(r map[string]string) attribute.KeyValue {
+				if v, ok := r[key]; ok {
+					return attribute.String(key, v)
+				}
+				return attribute.KeyValue{}
+			},
+		}
+	}
+	exp := NewExpirer[map[string]string, noopRemovable, float64](
+		t.Context(), noopRemovable{},
+		[]attributes.Field[map[string]string, attribute.KeyValue]{field("db.collection.name"), field("db.namespace")},
+		time.Now, time.Minute)
+
+	_, collection := exp.ForRecord(map[string]string{"db.collection.name": "customers"})
+	_, namespace := exp.ForRecord(map[string]string{"db.namespace": "customers"})
+
+	assert.True(t, collection.HasValue("db.collection.name"))
+	assert.True(t, namespace.HasValue("db.namespace"))
+	assert.False(t, namespace.HasValue("db.collection.name"))
 }

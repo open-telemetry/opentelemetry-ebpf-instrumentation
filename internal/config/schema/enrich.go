@@ -107,10 +107,11 @@ type Route53 struct {
 
 // ServiceName describes service name resolution settings.
 type ServiceName struct {
-	UnresolvedHosts      UnresolvedHosts    `yaml:"unresolved_hosts"`
-	Sources              []transform.Source `yaml:"sources"`
-	Cache                Cache              `yaml:"cache"`
-	AdditionalProperties map[string]any     `yaml:",inline"`
+	UnresolvedHosts      UnresolvedHosts                  `yaml:"unresolved_hosts"`
+	Sources              []transform.Source               `yaml:"sources"`
+	GCE                  *transform.GCENameResolverConfig `yaml:"gce,omitempty"`
+	Cache                Cache                            `yaml:"cache"`
+	AdditionalProperties map[string]any                   `yaml:",inline"`
 }
 
 // UnresolvedHosts describes names assigned to unresolved hosts.

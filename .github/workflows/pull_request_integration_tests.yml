@@ -7,6 +7,7 @@ on:
     branches: [main, release-*]
     paths:
       - ".github/workflows/pull_request_integration_tests.yml"
+      - ".github/actions/free-disk/**"
       - "**.go"
       - "go.mod"
       - "go.sum"
@@ -144,7 +145,7 @@ jobs:
           persist-credentials: false
 
       - name: Download generated BPF files
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: bpf-generated-${{ github.run_id }}
 
@@ -156,7 +157,7 @@ jobs:
           docker save hatest-obi -o /tmp/hatest-obi.tar
 
       - name: Upload OBI test image
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: obi-image-${{ matrix.platform.arch }}-${{ github.run_id }}
           path: /tmp/hatest-obi.tar
@@ -217,7 +218,7 @@ jobs:
             go-build-integration-race-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Download generated BPF files
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: bpf-generated-${{ github.run_id }}
 
@@ -260,16 +261,17 @@ jobs:
           fi
 
       - name: Download prebuilt OBI image
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: obi-image-${{ matrix.arch }}-${{ github.run_id }}
           path: /tmp/obi-image
 
-      # hatest-obi-b is the same plain build under a second tag
+      # hatest-obi-b and hatest-javaobi are the same plain build under other tags
       - name: Load prebuilt OBI image
         run: |
           docker load -i /tmp/obi-image/hatest-obi.tar
           docker tag hatest-obi hatest-obi-b
+          docker tag hatest-obi hatest-javaobi
 
       - name: Check disk usage before tests
         run: df -h
@@ -307,7 +309,7 @@ jobs:
         id: previous-results
         if: github.run_attempt > 1
         continue-on-error: true
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: integration-retry-${{ matrix.id }}-${{ matrix.arch }}-${{ github.run_id }}-*
           path: ${{ runner.temp }}/previous-integration-results
@@ -326,7 +328,7 @@ jobs:
           TEST_REPORT: /home/runner/reports/test-run-${{ github.run_number }}-${{ matrix.id }}-${{ github.run_attempt }}.log
           # the OBI image is prebuilt and loaded above; component images keep
           # rebuilding per suite (their tags are not unique per Dockerfile)
-          PREBUILT_IMAGES: "hatest-obi,hatest-obi-b"
+          PREBUILT_IMAGES: "hatest-obi,hatest-obi-b,hatest-javaobi"
         run: |
           echo Partition
           echo "${MATRIX_JSON}"
@@ -349,7 +351,7 @@ jobs:
 
       - name: Upload shard results
         if: always() && steps.integration-tests.outcome != 'skipped'
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: integration-retry-${{ matrix.id }}-${{ matrix.arch }}-${{ github.run_id }}-${{ github.run_attempt }}
           path: testoutput/integration-retry/
@@ -396,7 +398,7 @@ jobs:
 
       - name: Upload eBPF metrics snapshots (PoC)
         if: ${{ always() && matrix.arch == 'amd64' }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bpf-metrics-${{ matrix.id }}-${{ github.run_number }}-${{ github.run_attempt }}
           path: /tmp/bpfsamples/
@@ -416,14 +418,14 @@ jobs:
 
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: integration-reports-${{ matrix.id }}-${{ matrix.arch }}-${{ github.run_number }}-${{ github.run_attempt }}
           path: /home/runner/reports/*.log
           retention-days: 5
 
       - name: Upload test logs
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: integration-logs-${{ matrix.id }}-${{ matrix.arch }}-${{ github.run_number }}-${{ github.run_attempt }}
@@ -458,7 +460,7 @@ jobs:
       # (uploaded later in this same job on reruns sharing a run_number)
       # is not pulled back in.
       - name: Download per-shard eBPF metrics artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: bpf-metrics-[0-9]*-${{ github.run_number }}-*
           path: ./all-shards
@@ -473,7 +475,7 @@ jobs:
 
       - name: Upload aggregated summary
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: bpf-metrics-aggregate-${{ github.run_number }}-${{ github.run_attempt }}
           path: /tmp/bpf-aggregate/

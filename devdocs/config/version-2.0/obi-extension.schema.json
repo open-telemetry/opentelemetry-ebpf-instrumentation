@@ -927,6 +927,53 @@
               }
             }
           }
+        },
+        "metrics": {
+          "type": "object",
+          "description": "Select the metric families emitted by OBI.",
+          "additionalProperties": false,
+          "properties": {
+            "features": {
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "*",
+                      "all",
+                      "application",
+                      "application_red",
+                      "application_runtime",
+                      "application_service_graph",
+                      "application_sizes",
+                      "application_span_otel",
+                      "ebpf",
+                      "network",
+                      "network_flow_packets",
+                      "network_inter_zone",
+                      "stats",
+                      "stats_tcp_failed_connections",
+                      "stats_tcp_io",
+                      "stats_tcp_retransmits",
+                      "stats_tcp_rtt",
+                      "stats_tcp_successful_connections"
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "application_span",
+                      "application_span_sizes"
+                    ],
+                    "description": "Deprecated feature names, kept for backwards compatibility: application_span (use application_span_otel), application_span_sizes (no direct replacement).",
+                    "deprecated": true
+                  }
+                ]
+              },
+              "type": "array",
+              "description": "Metric features using the same names as Config v1. An explicit list replaces the selection inferred from protocol and network switches; [] disables all metric features. When omitted, protocol and network enablement determines the features."
+            }
+          }
         }
       }
     },
@@ -1226,6 +1273,12 @@
                     "/query/service"
                   ],
                   "description": "Endpoint patterns eligible for SQL++ payload extraction.\nIf omitted, `/query/service` is used.\n"
+                },
+                "prepared_statements_cache_size": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 1024,
+                  "description": "Maximum number of SQL++ prepared statement names remembered per node, used to\nresolve executions by name to their statement text.\n"
                 }
               }
             },
@@ -2236,7 +2289,31 @@
         },
         "service_name": {
           "type": "object",
-          "description": "Service name derivation controls.\nIf omitted, implementation defaults are used.\n"
+          "description": "Service name derivation controls.\nIf omitted, implementation defaults are used.\n",
+          "properties": {
+            "gce": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Zonal Google Compute Engine managed instance group discovery settings. Enabled by the gce service name source.",
+              "properties": {
+                "project_id": {
+                  "type": "string",
+                  "default": "",
+                  "description": "Project to query. Empty uses detected cloud metadata."
+                },
+                "zone": {
+                  "type": "string",
+                  "default": "",
+                  "description": "Zone to query. Empty uses the detected availability zone."
+                },
+                "endpoint": {
+                  "type": "string",
+                  "default": "",
+                  "description": "HTTP(S) Compute API base URL for an emulator or proxy. Empty uses the Google Compute API endpoint."
+                }
+              }
+            }
+          }
         },
         "attributes": {
           "type": "object",

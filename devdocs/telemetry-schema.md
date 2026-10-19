@@ -90,6 +90,15 @@ A removal goes under "Pending release notes" below instead: the format has
 `rename_attributes` and `rename_metrics` and no operation for dropping something.
 
 ```yaml
+metrics:
+  changes:
+    - rename_attributes:
+        attribute_map:
+          http.route: url.template
+        apply_to_metrics:
+          - http.client.request.duration
+          - http.client.request.body.size
+          - http.client.response.body.size
 ```
 
 ### Pending release notes
@@ -101,38 +110,25 @@ published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
-- GenAI client span names follow `{gen_ai.operation.name} {gen_ai.request.model}`
-  (retrieval: `{gen_ai.operation.name} {gen_ai.data_source.id}`), built only from the
-  values emitted on the span:
-  - Anthropic Messages API: `gen_ai.operation.name` changes from `message` to `chat`
-    on spans and on the `gen_ai.client.*` metrics; span name `message claude-sonnet-4-6`
-    becomes `chat claude-sonnet-4-6`.
-  - OpenAI-compatible gateways: span name `POST /v1/chat/completions` (or `POST /*`)
-    becomes `chat gpt-4o-mini`; an unrecognized endpoint becomes `_OTHER {model}`.
-  - Retrieval without a data source id: `retrieval qdrant` becomes `retrieval`.
-  - Anthropic and rerank spans without a request model no longer take the model from
-    the response: `message claude-sonnet-4-6` becomes `chat`, `rerank rerank-v3.5`
-    becomes `rerank`.
-  - A GenAI span with an empty operation is named `_OTHER {model}` instead of the HTTP
-    `{method} {route}` fallback, matching the emitted `_OTHER` attribute. Today's
-    parsers always set an operation, so no emitted span changes.
-- An Elasticsearch or OpenSearch client span that names no index or cluster is now named
-  `{db.operation.name} {server.address}:{server.port}`, as the database span name convention
-  defines, using the requested host (without the port the `Host` header may carry), or else the
-  resolved host name, instead of the peer IP. A span whose host was neither requested nor
-  resolved keeps its name.
-- Database span names follow the database span name convention in more cases. A span with no
-  operation is named after its target, else its `db.system.name`: `SQL`, `REDIS`, `MEMCACHED`,
-  `COUCHBASE` and `AEROSPIKE` become e.g. `postgresql` (or `other_sql`), `redis`, `memcached`,
-  `couchbase` and `aerospike`, and a SQL span with only a `db.namespace` is named after it. A MongoDB or
-  Couchbase span with no collection uses `db.namespace` as its target (`listCollections`
-  becomes `listCollections mydb`). A Couchbase SQL++ span with no operation is named after
-  its target, and its `{server.address}:{server.port}` target uses the host `server.address`
-  reports instead of the peer IP. Native SQL, Redis, Memcached, MongoDB, Couchbase and
-  Aerospike names still never use the `{server.address}:{server.port}` target, which keeps
-  today's names and their cardinality, and Redis names do not use `db.namespace`, as the Redis
-  conventions require. SQL spans are still named after `db.query.summary` when it is available,
-  even if that attribute is not selected for export.
+- A SQL++ span from a server other than Couchbase (`db.system.name` `other_sql`) that names no
+  collection or bucket is named `{db.operation.name}`, like other SQL spans, instead of
+  `{db.operation.name} {server.address}:{server.port}`. Couchbase SQL++ spans are unchanged.
+- The HTTP client metrics (`http.client.request.duration`, `http.client.request.body.size`,
+  `http.client.response.body.size`) carry the route as `url.template` instead of `http.route`,
+  with the same value; the transformation above records it for OTLP. The Prometheus exporter
+  label changes from `http_route` to `url_template` on `http_client_request_duration_seconds`,
+  `http_client_request_body_size_bytes` and `http_client_response_body_size_bytes`, and an
+  `attributes.select` entry naming `http.route` for these metrics must name `url.template`.
+  As in semconv, `url.template` is on by default on the two body-size metrics but opt-in on
+  `http.client.request.duration`, so client duration series no longer split by route unless
+  `url.template` is selected.
+- The HTTP metrics no longer offer `url.path`, and the HTTP server metrics and
+  `rpc.server.call.duration` no longer offer `client.address`, following the semantic
+  conventions, which exclude these high-cardinality attributes from metrics. Both were opt-in,
+  so only an `attributes.select` that included them changes. `url.path` can still be used in
+  attribute filters, and the spans keep both attributes.
+- HTTP client spans no longer carry `url.query`; the scrubbed query string remains part of
+  `url.full`. HTTP server spans keep `url.query`.
 
 ## Hosting notes
 

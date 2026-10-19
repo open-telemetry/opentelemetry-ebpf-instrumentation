@@ -53,6 +53,7 @@ instrumentation:
         enabled:
             traces: true
             metrics: true
+            body_size_metrics: true
         filters:
             traces:
                 http.request.method:
@@ -93,6 +94,7 @@ instrumentation:
             sqlpp:
                 endpoint_patterns:
                     - /query/service
+                prepared_statements_cache_size: 1024
             enrichment:
                 policy:
                     default_action:
@@ -220,6 +222,7 @@ instrumentation:
             metrics:
                 http.request.method:
                     not_match: OPTIONS
+        buffer_size: 0
 runtimes:
     go:
         enabled: true
@@ -310,6 +313,9 @@ network:
                     ttl: 1h0m0s
         diagnostics:
             print_stats: false
+metrics:
+    features:
+        - application
 limits:
     network_packets: 5000
     metric_span_names: 100

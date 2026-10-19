@@ -22,9 +22,6 @@
 # app.kubernetes.io/version label and from the Java application manifest, so
 # it is declared alongside service.name / service.namespace on the target.info
 # carriers in obi_internal/metrics.yaml.
-#
-# Imports must live in their own definition/2 file: weaver's imports directive
-# is file-level and cannot be mixed into a groups-format domain file.
 file_format: definition/2
 
 imports:

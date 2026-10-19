@@ -29,6 +29,7 @@ import (
 	"github.com/invopop/jsonschema"
 
 	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/transform"
 )
 
 // SchemaGenerator holds the state for schema generation.
@@ -897,6 +898,12 @@ func (g *SchemaGenerator) customMapper() func(reflect.Type) *jsonschema.Schema {
 		// Check if this type has enum values in our registry
 		typeName := t.Name()
 		if values, ok := g.enums[typeName]; ok && len(values) > 0 {
+			if t == reflect.TypeFor[transform.Source]() {
+				// The v1 schema retains its resolver sources as v2 adds GCE support.
+				values = slices.DeleteFunc(slices.Clone(values), func(value any) bool {
+					return value == string(transform.SourceGCE)
+				})
+			}
 			return &jsonschema.Schema{
 				Type: "string",
 				Enum: values,

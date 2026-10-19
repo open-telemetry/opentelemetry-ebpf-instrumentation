@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-FROM --platform=$BUILDPLATFORM gradle:8.14.5-jdk21-noble@sha256:c3dbf585165204a35635e0d6c4c15bc8f9b1effe787f18ded27805e1766992b5 AS builder
+FROM --platform=$BUILDPLATFORM gradle:8.14.6-jdk21-noble@sha256:566f76c0c946a2f68e10d4374d61f28ad8411f36f364a41a981ab46ded096d18 AS builder
 
 WORKDIR /app
 

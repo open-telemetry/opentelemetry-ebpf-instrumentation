@@ -12,15 +12,16 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"go.opentelemetry.io/obi/pkg/cloud"
 	"go.opentelemetry.io/obi/pkg/docker"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/appolly"
-	"go.opentelemetry.io/obi/pkg/internal/cloud"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	netagent "go.opentelemetry.io/obi/pkg/netolly/agent"
@@ -61,6 +62,29 @@ func RunWithContextInfo(
 	ctx context.Context, cfg *obi.Config, ctxInfo *global.ContextInfo,
 	opts ...Option,
 ) error {
+	return runWithContextInfo(ctx, cfg, ctxInfo, nil, opts...)
+}
+
+// RunWithProtocolMetricSelection restricts all span-based metric families to selection.
+// A nil context info is initialized as in Run; a nil selection preserves legacy behavior.
+func RunWithProtocolMetricSelection(
+	ctx context.Context, cfg *obi.Config, ctxInfo *global.ContextInfo,
+	selection *instrumentations.InstrumentationSelection, opts ...Option,
+) error {
+	if ctxInfo == nil {
+		var err error
+		ctxInfo, err = BuildCommonContextInfo(ctx, cfg)
+		if err != nil {
+			return fmt.Errorf("can't build common context info: %w", err)
+		}
+	}
+	return runWithContextInfo(ctx, cfg, ctxInfo, selection, opts...)
+}
+
+func runWithContextInfo(
+	ctx context.Context, cfg *obi.Config, ctxInfo *global.ContextInfo,
+	selection *instrumentations.InstrumentationSelection, opts ...Option,
+) error {
 	for _, opt := range opts {
 		opt(ctxInfo)
 	}
@@ -79,7 +103,7 @@ func RunWithContextInfo(
 
 	if app {
 		g.Go(func() error {
-			if err := setupAppO11y(ctx, ctxInfo, cfg); err != nil {
+			if err := setupAppO11y(ctx, ctxInfo, cfg, selection); err != nil {
 				return fmt.Errorf("setupAppO11y: %w", err)
 			}
 			return nil
@@ -111,10 +135,10 @@ func RunWithContextInfo(
 	return nil
 }
 
-func setupAppO11y(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) error {
+func setupAppO11y(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config, selection *instrumentations.InstrumentationSelection) error {
 	slog.Info("starting Application Observability mode")
 
-	instr, err := appolly.New(ctx, ctxInfo, config)
+	instr, err := appolly.NewWithProtocolMetricSelection(ctx, ctxInfo, config, selection)
 	if err != nil {
 		slog.Debug("can't create new instrumenter", "error", err)
 		return fmt.Errorf("can't create new instrumenter: %w", err)
@@ -260,7 +284,7 @@ func BuildCommonContextInfo(
 
 	if config.NameResolver != nil {
 		ctxInfo.CloudMetaInventory = cloud.NewInventory(transform.CloudMetadataRefreshers(
-			ctx, &ctxInfo.NodeMeta, config.NameResolver.Sources, config.CloudMetadata,
+			ctx, &ctxInfo.NodeMeta, config.NameResolver, config.CloudMetadata,
 		))
 	}
 
@@ -286,9 +310,6 @@ func internalMetrics(
 		// TODO: remove this dependency cycle and let prommgr to create and return the PrometheusReporter
 		promMgr.InstrumentWith(metrics)
 		return metrics, nil
-	case config.Prometheus.Registry != nil:
-		slog.Debug("reporting internal metrics with Prometheus Registry")
-		return imetrics.NewPrometheusReporter(&config.InternalMetrics, nil, config.Prometheus.Registry), nil
 	default:
 		slog.Debug("not reporting internal metrics")
 		return imetrics.NoopReporter{}, nil

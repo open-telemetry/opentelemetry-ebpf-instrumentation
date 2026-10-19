@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/tracefs"
 	msg2 "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -68,6 +69,10 @@ type finisher struct {
 
 // New Instrumenter, given a Config
 func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (*Instrumenter, error) {
+	return NewWithProtocolMetricSelection(ctx, ctxInfo, config, nil)
+}
+
+func NewWithProtocolMetricSelection(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config, selection *instrumentations.InstrumentationSelection) (*Instrumenter, error) {
 	setupFeatureContextInfo(ctx, ctxInfo, config)
 
 	tracesInput := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "tracesInput")
@@ -100,13 +105,14 @@ func New(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config) (
 
 	processEventCloudDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, ctxInfo.Metrics, "processEventsECSDecorated")
 	swi.Add(transform.CloudProcessEventDecoratorProvider(
-		ctxInfo, processEventsDockerDecorated, processEventCloudDecorated,
+		ctxInfo, config.NameResolver, processEventsDockerDecorated, processEventCloudDecorated,
 	), swarm.WithID("CloudProcessEventDecorator"))
 
 	runtimeMetrics := newRuntimeMetricsQueue(config, ctxInfo.Metrics)
 	ebpfEventContext := ebpfcommon.NewEBPFEventContext()
+	ctxInfo.AppO11y.EBPFEventContext = ebpfEventContext
 
-	bp, err := appolly.Build(ctx, config, ctxInfo, tracesInput, processEventCloudDecorated, runtimeMetrics)
+	bp, err := appolly.BuildWithProtocolMetricSelection(ctx, config, ctxInfo, tracesInput, processEventCloudDecorated, runtimeMetrics, selection)
 	if err != nil {
 		return nil, fmt.Errorf("can't instantiate instrumentation pipeline: %w", err)
 	}

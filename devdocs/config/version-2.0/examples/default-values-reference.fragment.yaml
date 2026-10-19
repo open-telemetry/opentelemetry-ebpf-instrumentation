@@ -277,6 +277,7 @@ extensions:
             sqlpp:
               endpoint_patterns:
                 - /query/service
+              prepared_statements_cache_size: 1024
             openai_compatible:
               gateways: []
             enrichment:
@@ -557,6 +558,9 @@ extensions:
         buffer_len: 50
         send_timeout: 1m0s
         panic_on_send_timeout: false
+
+      metrics:
+        features: [application]
 
       # telemetry tunes reporter caches and metric TTLs for OBI capture internals.
       telemetry:

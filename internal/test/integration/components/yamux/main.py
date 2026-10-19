@@ -43,6 +43,13 @@ Endpoints (both roles):
     POST /reset  -> zero the counters
 Client only:
     GET  /call   -> perform one downstream yamux exchange (send Traceparent!)
+
+PERSISTENT=1 (client) keeps a single connection open from startup instead of one
+per /call. Started before OBI, that connection is one OBI never sees the preface
+of, so it can only recognize the tunneled frames by sniffing them mid-stream.
+/health returns 200 only once that connection is up, so the compose file can
+hold OBI back until then. Its frames carry an :authority literal: the 12-byte
+frame above is too small to reach the sniff at all.
 """
 
 import json
@@ -50,6 +57,7 @@ import os
 import socket
 import struct
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # 24-byte HTTP/2 client connection preface.
@@ -62,6 +70,13 @@ PREFACE = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 # an HPACK traceparent onto the end.
 HEADERS_FRAME = bytes([0x00, 0x00, 0x03, 0x01, 0x04, 0x00, 0x00, 0x00, 0x01,
                        0x83, 0x86, 0x84])
+
+# The same request plus ":authority: localhost" (name index 1, plain literal),
+# length=14, so the frame is 23 bytes.
+HEADERS_FRAME_AUTHORITY = bytes([0x00, 0x00, 0x0e, 0x01, 0x04, 0x00, 0x00, 0x00, 0x01,
+                                 0x83, 0x86, 0x84, 0x41, 0x09]) + b"localhost"
+
+KNOWN_FRAMES = {HEADERS_FRAME, HEADERS_FRAME_AUTHORITY}
 
 # HEADERS frames sent per /call (each an independent injection target).
 FRAMES_PER_CALL = 5
@@ -117,7 +132,7 @@ def handle_conn(conn):
             if hdr is None:
                 return
             length = struct.unpack(">I", hdr)[0]
-            if length != len(HEADERS_FRAME):
+            if length not in {len(f) for f in KNOWN_FRAMES}:
                 # The committed length no longer matches the body actually on the
                 # wire: injection shifted the framing.
                 C.add("corruption")
@@ -125,7 +140,7 @@ def handle_conn(conn):
             body = recvn(conn, length)
             if body is None:
                 return
-            if body != HEADERS_FRAME:
+            if body not in KNOWN_FRAMES:
                 # The HEADERS frame was mutated (length field rewritten / bytes
                 # spliced in) — the exact #2706 corruption.
                 C.add("corruption")
@@ -154,6 +169,24 @@ def run_server():
 
 # ---- client role ----
 
+def send_frames(s, frame):
+    for _ in range(FRAMES_PER_CALL):
+        # Length and body as SEPARATE writes (like yamux). The length is
+        # committed before the body; injection into the body breaks the
+        # contract.
+        s.sendall(struct.pack(">I", len(frame)))
+        s.sendall(frame)
+
+
+def open_tunnel(target):
+    host, port = target.rsplit(":", 1)
+    s = socket.create_connection((host, int(port)), timeout=5)
+    s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    # Own write -> preface at offset 0 -> OBI flags the socket HTTP/2.
+    s.sendall(PREFACE)
+    return s
+
+
 def make_downstream_call(target):
     """Open a fresh connection and perform one preface + N-HEADERS exchange.
 
@@ -162,29 +195,43 @@ def make_downstream_call(target):
     write). Called synchronously inside the /call HTTP handler so OBI propagates
     that request's Traceparent into these downstream writes.
     """
-    host, port = target.rsplit(":", 1)
-    s = socket.create_connection((host, int(port)), timeout=5)
+    s = open_tunnel(target)
     try:
-        s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        # Own write -> preface at offset 0 -> OBI flags the socket HTTP/2.
-        s.sendall(PREFACE)
-        for _ in range(FRAMES_PER_CALL):
-            # Length and body as SEPARATE writes (like yamux). The length is
-            # committed before the body; injection into the body breaks the
-            # contract.
-            s.sendall(struct.pack(">I", len(HEADERS_FRAME)))
-            s.sendall(HEADERS_FRAME)
+        send_frames(s, HEADERS_FRAME)
         C.add("successes")
     finally:
         s.close()
 
 
+class PersistentTunnel:
+    """One connection for the client's whole life, opened before OBI starts."""
+
+    def __init__(self, target):
+        self._lock = threading.Lock()
+        self._sock = None
+        while self._sock is None:
+            try:
+                self._sock = open_tunnel(target)
+            except OSError:
+                time.sleep(0.2)
+        print("persistent tunnel connected", flush=True)
+
+    def call(self):
+        with self._lock:
+            send_frames(self._sock, HEADERS_FRAME_AUTHORITY)
+            C.add("successes")
+
+
 def run_client():
     target = os.environ.get("TARGET", "server:50051")
+    tunnel = PersistentTunnel(target) if os.environ.get("PERSISTENT") == "1" else None
 
     def on_call():
         try:
-            make_downstream_call(target)
+            if tunnel:
+                tunnel.call()
+            else:
+                make_downstream_call(target)
         except OSError:
             # A downstream failure is the client-side face of the corruption:
             # the injected bytes desynced the stream and the peer tore it down.
