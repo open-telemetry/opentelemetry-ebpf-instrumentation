@@ -25,7 +25,9 @@ The `remaining_len` specifies the number of bytes remaining in the packet (varia
 OBI tracks the following packet types for span creation:
 
 - **PUBLISH (type 3)**: Creates `publish` spans with topic name and QoS level.
-- **SUBSCRIBE (type 8)**: Creates `process` spans with the first topic filter.
+- **SUBSCRIBE (type 8)**: Creates `process` spans that report the first topic filter as
+  `messaging.destination.subscription.name`, and the share name of a shared subscription
+  (`$share/{ShareName}/{filter}`) as `messaging.consumer.group.name`.
 
 Control packets (CONNECT, CONNACK, PINGREQ, etc.) are parsed but ignored for span creation.
 

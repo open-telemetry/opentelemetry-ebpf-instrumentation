@@ -944,6 +944,53 @@
               }
             }
           }
+        },
+        "metrics": {
+          "type": "object",
+          "description": "Select the metric families emitted by OBI.",
+          "additionalProperties": false,
+          "properties": {
+            "features": {
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "*",
+                      "all",
+                      "application",
+                      "application_red",
+                      "application_runtime",
+                      "application_service_graph",
+                      "application_sizes",
+                      "application_span_otel",
+                      "ebpf",
+                      "network",
+                      "network_flow_packets",
+                      "network_inter_zone",
+                      "stats",
+                      "stats_tcp_failed_connections",
+                      "stats_tcp_io",
+                      "stats_tcp_retransmits",
+                      "stats_tcp_rtt",
+                      "stats_tcp_successful_connections"
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "application_span",
+                      "application_span_sizes"
+                    ],
+                    "description": "Deprecated feature names, kept for backwards compatibility: application_span (use application_span_otel), application_span_sizes (no direct replacement).",
+                    "deprecated": true
+                  }
+                ]
+              },
+              "type": "array",
+              "description": "Metric features using the same names as Config v1. An explicit list replaces the selection inferred from protocol and network switches; [] disables all metric features. When omitted, protocol and network enablement determines the features."
+            }
+          }
         }
       }
     },
@@ -1243,6 +1290,12 @@
                     "/query/service"
                   ],
                   "description": "Endpoint patterns eligible for SQL++ payload extraction.\nIf omitted, `/query/service` is used.\n"
+                },
+                "prepared_statements_cache_size": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "default": 1024,
+                  "description": "Maximum number of SQL++ prepared statement names remembered per node, used to\nresolve executions by name to their statement text.\n"
                 }
               }
             },
@@ -2197,6 +2250,45 @@
                   ],
                   "default": "autodetect",
                   "description": "Kubernetes enricher activation mode.\n`autodetect`: enable if a Kubernetes environment is detected (default).\n`enabled`: always enable.\n`disabled`: disable. Recommended when running as a Collector receiver and using `k8sattributesprocessor`.\nIf omitted, `autodetect` is used.\n"
+                }
+              }
+            },
+            "cloud": {
+              "type": "object",
+              "description": "Cloud metadata enricher configuration.\nIf omitted, implementation defaults are used.\n",
+              "additionalProperties": true,
+              "properties": {
+                "cluster_name": {
+                  "type": "string",
+                  "description": "Overrides automatic cloud cluster detection.\n"
+                },
+                "region": {
+                  "type": "string",
+                  "description": "Overrides automatic cloud region detection.\n"
+                },
+                "refresh_interval": {
+                  "type": "string",
+                  "default": "30s",
+                  "description": "How often the cloud metadata inventory is refreshed.\n"
+                },
+                "route53": {
+                  "type": "object",
+                  "description": "Route53 metadata used by the `route53` service name source.\n",
+                  "additionalProperties": true,
+                  "properties": {
+                    "refresh_interval": {
+                      "type": "string",
+                      "default": "5m0s",
+                      "description": "Route53 polling interval, independently of other cloud sources. Polls include jitter and back off after throttling."
+                    },
+                    "hosted_zone_ids": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      },
+                      "description": "Hosted zones whose A/AAAA records are used for name resolution.\nRequired when the `route53` service name source is enabled.\n"
+                    }
+                  }
                 }
               }
             }

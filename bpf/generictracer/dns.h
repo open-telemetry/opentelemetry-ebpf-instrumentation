@@ -465,14 +465,14 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
             .pid = conn_pid->p_info.host_pid,
         };
 
-        dns_req_t *req = bpf_ringbuf_reserve(&events, sizeof(dns_req_t), 0);
+        dns_req_t *req = events_ringbuf_reserve(sizeof(dns_req_t), 0);
 
         if (req) {
             u32 len = skb->len - dns_off;
-            bpf_clamp_umax(len, 512);
+            bpf_clamp_umax(len, k_dns_max_len);
             populate_dns_record(req, &p_conn, orig_dport, len, qr, hdr.id, conn_pid);
 
-            read_skb_bytes(skb, dns_off, req->buf, len);
+            read_skb_bytes(skb, dns_off, req->buf, len, k_dns_max_len);
             bpf_d_printk("sending dns trace [%s]", __FUNCTION__);
             bpf_ringbuf_submit(req, get_flags());
         }
@@ -513,7 +513,7 @@ static __always_inline u8 handle_dns_buf(const unsigned char *buf,
             return 0;
         }
 
-        dns_req_t *req = bpf_ringbuf_reserve(&events, sizeof(dns_req_t), 0);
+        dns_req_t *req = events_ringbuf_reserve(sizeof(dns_req_t), 0);
         if (req) {
             populate_dns_record(req, p_conn, orig_dport, size, qr, hdr.id, conn_pid);
 

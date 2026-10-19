@@ -12,7 +12,7 @@ expected:
   # It requires that a span name is unique, e.g. always expects the tempo response
   # to return one result only.
   - traceql: '{ .db.system.name = "redis" && status = error }'
-    equals: REDIS
+    equals: redis
   metrics:
   - promql: db_client_operation_duration_seconds_sum{error_type!="", db_system_name="redis"}
     value: '> 0'

@@ -5,6 +5,7 @@ require "rails/all"
 # Require the gems listed in Gemfile, including any gems
 # you've limited to :test, :development, or :production.
 Bundler.require(*Rails.groups)
+require_relative "../components/harvest_graphql/lib/harvest_graphql/engine"
 
 module Testapi
   class Application < Rails::Application

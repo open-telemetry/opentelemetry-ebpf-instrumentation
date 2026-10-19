@@ -4,6 +4,7 @@
 package tracesgen
 
 import (
+	"path"
 	"strconv"
 	"testing"
 
@@ -93,5 +94,142 @@ func TestTraceAttributesSelector_ElasticsearchNamespace(t *testing.T) {
 		_, ok := attrs.Get("db.namespace")
 		assert.False(t, ok)
 		assert.Equal(t, "search es:9200", span.TraceName())
+	})
+
+	t.Run("names the server as server.address does", func(t *testing.T) {
+		resolved := esSpan("", "")
+		resolved.Host = "172.18.0.2"
+		resolved.HostName = "opensearchserver"
+
+		requested := esSpan("", "")
+		requested.Host = "172.18.0.2"
+		requested.Statement = "http" + request.SchemeHostSeparator + "search.internal"
+
+		requestedWithPort := esSpan("", "")
+		requestedWithPort.Host = "172.18.0.2"
+		requestedWithPort.Statement = "http" + request.SchemeHostSeparator + "opensearchserver:9200"
+
+		for _, span := range []*request.Span{resolved, requested} {
+			attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+			address, ok := attrs.Get("server.address")
+			require.True(t, ok)
+			assert.NotEqual(t, "172.18.0.2", address.Str())
+			assert.Equal(t, "search "+address.Str()+":9200", span.TraceName())
+		}
+	})
+
+	t.Run("does not repeat the port the Host header carries", func(t *testing.T) {
+		span := esSpan("", "")
+		span.Host = "172.18.0.2"
+		span.Statement = "http" + request.SchemeHostSeparator + "opensearchserver:9200"
+		assert.Equal(t, "search opensearchserver:9200", span.TraceName())
+	})
+
+	t.Run("brackets an IPv6 address", func(t *testing.T) {
+		resolved := esSpan("", "")
+		resolved.Host = "2001:db8::1"
+
+		requested := esSpan("", "")
+		requested.Host = "2001:db8::2"
+		requested.Statement = "http" + request.SchemeHostSeparator + "[2001:db8::1]:9200"
+
+		for _, span := range []*request.Span{resolved, requested} {
+			assert.Equal(t, "search [2001:db8::1]:9200", span.TraceName())
+		}
+	})
+}
+
+func TestElasticsearchSpanNameWithoutOperation(t *testing.T) {
+	esSpan := func(index string) *request.Span {
+		return &request.Span{
+			Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeElasticsearch,
+			Elasticsearch: &request.Elasticsearch{
+				DBSystemName:     "opensearch",
+				DBCollectionName: index,
+			},
+		}
+	}
+
+	assert.Equal(t, "my-index", esSpan("my-index").TraceName())
+	assert.Equal(t, "opensearch", esSpan("").TraceName())
+}
+
+func TestSQLPPSpanNameUsesServerAddress(t *testing.T) {
+	span := &request.Span{
+		Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeSQLPP,
+		Method: "SELECT", Host: "10.1.2.3", HostName: "couchbase", HostPort: 8093,
+		DBSystem: "couchbase",
+	}
+	attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+	address, ok := attrs.Get("server.address")
+	require.True(t, ok)
+	assert.Equal(t, "couchbase", address.Str())
+	assert.Equal(t, "SELECT couchbase:8093", span.TraceName())
+
+	span.Method = ""
+	assert.Equal(t, "couchbase:8093", span.TraceName())
+}
+
+func TestSQLPPSpanNameWithoutCouchbaseOmitsServer(t *testing.T) {
+	span := &request.Span{
+		Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeSQLPP,
+		Method: "query", Host: "10.1.2.3", HostPort: 8093,
+		DBSystem: "other_sql",
+	}
+	assert.Equal(t, "query", span.TraceName())
+
+	span.Method = ""
+	assert.Equal(t, "other_sql", span.TraceName())
+}
+
+func TestSQLPPSpanNameBracketsIPv6(t *testing.T) {
+	span := &request.Span{
+		Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeSQLPP,
+		Method: "SELECT", Host: "2001:db8::1", HostPort: 8093,
+		DBSystem: "couchbase",
+	}
+	assert.Equal(t, "SELECT [2001:db8::1]:8093", span.TraceName())
+}
+
+func TestTraceAttributesSelector_ElasticsearchPathParameters(t *testing.T) {
+	esSpan := func(index, id string) *request.Span {
+		return &request.Span{
+			Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeElasticsearch,
+			Method: "GET", Path: path.Join("/", index, "_doc", id), Host: "es", HostPort: 9200,
+			Status: 200,
+			Elasticsearch: &request.Elasticsearch{
+				DBSystemName:     "elasticsearch",
+				DBOperationName:  "doc",
+				DBCollectionName: index,
+				DocumentID:       id,
+			},
+		}
+	}
+
+	t.Run("reports the index and document id", func(t *testing.T) {
+		attrs := AttrsToMap(TraceAttributesSelector(esSpan("my-index", "42"), map[attr.Name]struct{}{}))
+		index, ok := attrs.Get("db.operation.parameter.index")
+		require.True(t, ok)
+		assert.Equal(t, "my-index", index.Str())
+		id, ok := attrs.Get("db.operation.parameter.id")
+		require.True(t, ok)
+		assert.Equal(t, "42", id.Str())
+	})
+
+	t.Run("reports only the index when no document is targeted", func(t *testing.T) {
+		attrs := AttrsToMap(TraceAttributesSelector(esSpan("my-index", ""), map[attr.Name]struct{}{}))
+		index, ok := attrs.Get("db.operation.parameter.index")
+		require.True(t, ok)
+		assert.Equal(t, "my-index", index.Str())
+		_, ok = attrs.Get("db.operation.parameter.id")
+		assert.False(t, ok)
+	})
+
+	t.Run("omitted when the path has no mapped parameters", func(t *testing.T) {
+		attrs := AttrsToMap(TraceAttributesSelector(esSpan("", ""), map[attr.Name]struct{}{}))
+		_, ok := attrs.Get("db.operation.parameter.index")
+		assert.False(t, ok)
+		_, ok = attrs.Get("db.operation.parameter.id")
+		assert.False(t, ok)
 	})
 }

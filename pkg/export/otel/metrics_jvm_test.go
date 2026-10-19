@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 
@@ -64,7 +63,7 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryPoolUsed(t *testing.T) {
 		Interval:          20 * time.Millisecond,
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
-		MetricsConsumer:   testJVMRuntimeMetricsConsumer(records),
+		MetricsExport:     testJVMRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,
@@ -118,7 +117,7 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryAsUpDownCounter(t *testing.T) {
 		Interval:          20 * time.Millisecond,
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
-		MetricsConsumer:   testJVMRuntimeMetricsConsumer(records),
+		MetricsExport:     testJVMRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,
@@ -164,11 +163,14 @@ func TestRuntimeMetricsReporterRecordsJVMGCDuration(t *testing.T) {
 	defer cancel()
 
 	records := make(chan jvmMetricRecord, 10)
+	// non-default buckets, so a histogram that ignores cfg.Buckets fails the bounds assertion
+	buckets := export.Buckets{JVMGCDurationHistogram: []float64{0.002, 0.2, 2}}
 	cfg := &otelcfg.MetricsConfig{
 		Interval:          20 * time.Millisecond,
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
-		MetricsConsumer:   testJVMRuntimeMetricsConsumer(records),
+		Buckets:           buckets,
+		MetricsExport:     testJVMRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,
@@ -204,6 +206,7 @@ func TestRuntimeMetricsReporterRecordsJVMGCDuration(t *testing.T) {
 	assert.Equal(t, pmetric.MetricTypeHistogram, record.Type)
 	assert.Equal(t, int64(1), record.Value)
 	assert.InEpsilon(t, 0.025, record.DoubleValue, 0)
+	assert.Equal(t, buckets.JVMGCDurationHistogram, record.Bounds)
 	assert.Equal(t, "G1 Young Generation", record.Attrs["jvm.gc.name"])
 	assert.Equal(t, "end of minor GC", record.Attrs["jvm.gc.action"])
 }
@@ -226,7 +229,7 @@ func testJVMClassMetrics(t *testing.T, unloaded uint64) {
 		Interval:          20 * time.Millisecond,
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
-		MetricsConsumer:   testJVMRuntimeMetricsConsumer(records),
+		MetricsExport:     testJVMRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,
@@ -361,7 +364,7 @@ func TestRuntimeMetricsReporterRetainsJVMCounterBaselineBeyondTTL(t *testing.T) 
 		Interval:          20 * time.Millisecond,
 		TTL:               ttl,
 		ReportersCacheLen: 10,
-		MetricsConsumer:   testJVMRuntimeMetricsConsumer(records),
+		MetricsExport:     testJVMRuntimeMetricsConsumer(records),
 	}
 	reporter, err := newRuntimeMetricsReporter(
 		ctx,
@@ -436,13 +439,14 @@ type jvmMetricRecord struct {
 	Type          pmetric.MetricType
 	Value         int64
 	DoubleValue   float64
+	Bounds        []float64
 	IsMonotonic   bool
 	Attrs         map[string]string
 	ResourceAttrs map[string]string
 }
 
-func testJVMRuntimeMetricsConsumer(out chan<- jvmMetricRecord) consumer.Metrics {
-	c, err := consumer.NewMetrics(func(_ context.Context, md pmetric.Metrics) error {
+func testJVMRuntimeMetricsConsumer(out chan<- jvmMetricRecord) otelcfg.MetricsExportFunc {
+	return testOTLPMetricsExport(func(_ context.Context, md pmetric.Metrics) error {
 		rm := md.ResourceMetrics()
 		for i := 0; i < rm.Len(); i++ {
 			resourceAttrs := attrsToMap(rm.At(i).Resource().Attributes())
@@ -470,6 +474,7 @@ func testJVMRuntimeMetricsConsumer(out chan<- jvmMetricRecord) consumer.Metrics 
 							point := histogramPoints.At(l)
 							record.Value = int64(point.Count())
 							record.DoubleValue = point.Sum()
+							record.Bounds = point.ExplicitBounds().AsRaw()
 							record.Attrs = attrsToMap(point.Attributes())
 							out <- record
 						}
@@ -492,10 +497,6 @@ func testJVMRuntimeMetricsConsumer(out chan<- jvmMetricRecord) consumer.Metrics 
 		}
 		return nil
 	})
-	if err != nil {
-		panic(err)
-	}
-	return c
 }
 
 func readJVMMetricRecord(t *testing.T, records <-chan jvmMetricRecord, name string) jvmMetricRecord {

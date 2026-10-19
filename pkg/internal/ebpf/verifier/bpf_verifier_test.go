@@ -157,6 +157,9 @@ func forEachCombination(t *testing.T, prefix string, loadFn func() (*ebpf.Collec
 	}
 }
 
+// the valid_pid() paths the loader can pick (ebpfcommon.PIDFilterConstants)
+var pidNamespaceModes = []any{uint32(ebpfcommon.PIDNamespaceInit), uint32(ebpfcommon.PIDNamespacePod)}
+
 // TestBPFVerifierWithConstants verifies that BPF programs pass the kernel verifier
 // across all combinations of constant values (also default ones).
 // Different constant values cause the verifier to evaluate different code paths
@@ -193,6 +196,9 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		// every combination below, and pairing it here would double the matrix
 		{"g_traces_ctx_v1_enabled", []any{true}},
 	})
+	forEachCombination(t, "generictracer/BpfRingbufMetrics", generictracerbpf.LoadBpf, []constOption{
+		{"ringbuf_metrics_enabled", []any{true, false}},
+	})
 
 	// nodejs_runtime_metrics_enabled only gates the decode path in nodejs.c,
 	// which shares no code with the constants above except the debug and
@@ -218,6 +224,15 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"g_traces_ctx_v1_enabled", []any{false}},
 	})
 
+	// Each pid_ns_mode compiles a different valid_pid() path into every
+	// kprobe; a dedicated matrix keeps them verified without doubling the
+	// full generictracer cross-product.
+	forEachCombination(t, "generictracer/BpfPidNamespace", generictracerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"filter_pids", []any{int32(1)}},
+		{"pid_ns_mode", pidNamespaceModes},
+	})
+
 	// gotracer
 	forEachCombination(t, "gotracer/Bpf", gotracerbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
@@ -232,6 +247,9 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"tcp_max_captured_bytes", []any{uint32(0), uint32(65536)}},
 		// pinned on, not paired: see the generictracer matrix above
 		{"g_traces_ctx_v1_enabled", []any{true}},
+	})
+	forEachCombination(t, "gotracer/BpfRingbufMetrics", gotracerbpf.LoadBpf, []constOption{
+		{"ringbuf_metrics_enabled", []any{true, false}},
 	})
 	forEachCombination(t, "gotracer/BpfTracesCtxOff", gotracerbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
@@ -256,6 +274,11 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"filter_pids", []any{int32(0), int32(1)}},
 		{"inject_flags", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
+	})
+	forEachCombination(t, "tpinjector/BpfPidNamespace", tpinjectorbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"filter_pids", []any{int32(1)}},
+		{"pid_ns_mode", pidNamespaceModes},
 	})
 	// tpinjector/BpfIter needs bpf_iter_tcp_get_func_proto (kernel >= 5.11)
 	// for the verifier to recognize the sock_iter ctx type. Runtime loader
@@ -283,6 +306,10 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	forEachCombination(t, "gpuevent/Bpf", gpueventbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		{"filter_pids", []any{int32(0), int32(1)}},
+		{"pid_ns_mode", pidNamespaceModes},
+	})
+	forEachCombination(t, "gpuevent/BpfRingbufMetrics", gpueventbpf.LoadBpf, []constOption{
+		{"ringbuf_metrics_enabled", []any{true, false}},
 	})
 
 	// logger
@@ -293,6 +320,9 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// logenricher
 	forEachCombination(t, "logenricher/Bpf", logenricherbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
+	})
+	forEachCombination(t, "logenricher/BpfRingbufMetrics", logenricherbpf.LoadBpf, []constOption{
+		{"ringbuf_metrics_enabled", []any{true, false}},
 	})
 
 	// rdns xdp

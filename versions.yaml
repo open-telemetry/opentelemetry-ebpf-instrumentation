@@ -3,9 +3,13 @@
 
 module-sets:
   obi:
-    version: v0.14.0
+    version: v1.0.0-rc.2
     modules:
       - go.opentelemetry.io/obi
+  collector:
+    version: v0.15.2
+    modules:
+      - go.opentelemetry.io/obi/collector
 excluded-modules:
   - github.com/GoogleCloudPlatform/microservices-demo/src/checkoutservice
   - github.com/GoogleCloudPlatform/microservices-demo/src/frontend
@@ -42,6 +46,7 @@ excluded-modules:
   - go.opentelemetry.io/obi/internal/test/integration/components/go_otel_grpc
   - go.opentelemetry.io/obi/internal/test/integration/components/go_simple_grpc
   - go.opentelemetry.io/obi/internal/test/integration/components/goautosdk
+  - go.opentelemetry.io/obi/internal/test/integration/components/gocouchbase
   - go.opentelemetry.io/obi/internal/test/integration/components/gogeneric/fiber-example
   - go.opentelemetry.io/obi/internal/test/integration/components/gokafka
   - go.opentelemetry.io/obi/internal/test/integration/components/gokafka-seg

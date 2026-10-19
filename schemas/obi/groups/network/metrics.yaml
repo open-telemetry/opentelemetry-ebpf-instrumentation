@@ -1,10 +1,10 @@
-groups:
-  - id: metric.obi.obi.network.flow.bytes
-    type: metric
-    metric_name: obi.network.flow.bytes
+file_format: definition/2
+metrics:
+  - name: obi.network.flow.bytes
     instrument: counter
     unit: "{bytes}"
     stability: development
+    requirement_level: recommended
     brief: >
       Total bytes observed per network flow, grouped by the configured
       attribute selection.
@@ -109,12 +109,11 @@ groups:
       - ref: service.namespace
         requirement_level: opt_in
 
-  - id: metric.obi.obi.network.flow.packets
-    type: metric
-    metric_name: obi.network.flow.packets
+  - name: obi.network.flow.packets
     instrument: counter
     unit: "{packets}"
     stability: development
+    requirement_level: recommended
     brief: >
       Total packets observed per network flow, grouped by the configured
       attribute selection. Emitted when the `network_flow_packets` feature is
@@ -220,12 +219,11 @@ groups:
       - ref: service.namespace
         requirement_level: opt_in
 
-  - id: metric.obi.obi.network.inter.zone.bytes
-    type: metric
-    metric_name: obi.network.inter.zone.bytes
+  - name: obi.network.inter.zone.bytes
     instrument: counter
     unit: "{bytes}"
     stability: development
+    requirement_level: recommended
     brief: >
       Total bytes for flows that cross a zone boundary (`src.zone` !=
       `dst.zone`). Emitted when the `network_inter_zone` feature is enabled.

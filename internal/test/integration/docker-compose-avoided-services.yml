@@ -15,10 +15,11 @@ services:
       - "${TEST_SERVICE_PORTS}"
     environment:
       OTEL_SERVICE_NAME: rolldice
-      # Metrics go to the collector (a working OTLP endpoint) so OBI observes a
-      # SUCCESSFUL export and classifies the process as already-instrumented.
-      # Traces go to jaeger to keep the testserver's spans off the weaver tap.
-      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://otelcol:4318
+      # Metrics go to the collector's app receiver (a working OTLP endpoint that
+      # does not feed weaver) so OBI observes a SUCCESSFUL export and classifies
+      # the process as already-instrumented. Traces go to jaeger to keep the
+      # testserver's spans off the weaver tap.
+      OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: http://otelcol:4319
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318
     depends_on:
       otelcol:
@@ -76,7 +77,7 @@ services:
 
   # OTLP receiver for OBI's internal metrics, fanned out to weaver.
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.161.0@sha256:fd328de2552466ad78385e1b1289c3f2402b1c45f265b252aab1955b42845ac1
+    image: otel/opentelemetry-collector-contrib:0.163.1@sha256:1175b03003053962012f5a231f5567f66a3e8fdb960c7835c0e48f7aa1555806
     container_name: otel-col
     deploy:
       resources:

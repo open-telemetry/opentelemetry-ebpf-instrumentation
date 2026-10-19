@@ -1,12 +1,12 @@
-groups:
+file_format: definition/2
+metrics:
   # Counter has no explicit OTLP unit set; mirror that here so live-check
   # doesn't complain "Unit should be '1', but found ''".
-  - id: metric.obi.traces.span.metrics.calls
-    type: metric
-    metric_name: traces.span.metrics.calls
+  - name: traces.span.metrics.calls
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     brief: >
       Total number of spans observed, grouped by span name / kind / status.
     attributes:
@@ -28,12 +28,11 @@ groups:
       - ref: telemetry.sdk.language
         requirement_level: required
 
-  - id: metric.obi.traces.span.metrics.duration
-    type: metric
-    metric_name: traces.span.metrics.duration
+  - name: traces.span.metrics.duration
     instrument: histogram
     unit: "s"
     stability: development
+    requirement_level: recommended
     brief: >
       Duration distribution for observed spans, grouped by span name / kind
       / status.
@@ -60,12 +59,11 @@ groups:
   # spanmetrics processor output. Emitted by the deprecated `application_span`
   # metrics feature; the `traces.span.metrics.*` names above are the
   # replacement (`OTEL_EBPF_OTEL_METRICS_FEATURES=application_span_otel`).
-  - id: metric.obi.traces_spanmetrics_calls_total
-    type: metric
-    metric_name: traces_spanmetrics_calls_total
+  - name: traces_spanmetrics_calls_total
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     deprecated:
       reason: renamed
       renamed_to: traces.span.metrics.calls
@@ -91,12 +89,11 @@ groups:
       - ref: telemetry.sdk.language
         requirement_level: required
 
-  - id: metric.obi.traces_spanmetrics_latency
-    type: metric
-    metric_name: traces_spanmetrics_latency
+  - name: traces_spanmetrics_latency
     instrument: histogram
     unit: ""
     stability: development
+    requirement_level: recommended
     deprecated:
       reason: renamed
       renamed_to: traces.span.metrics.duration
@@ -122,12 +119,11 @@ groups:
       - ref: telemetry.sdk.language
         requirement_level: required
 
-  - id: metric.obi.traces_spanmetrics_size_total
-    type: metric
-    metric_name: traces_spanmetrics_size_total
+  - name: traces_spanmetrics_size_total
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     deprecated:
       reason: obsoleted
       note: >
@@ -156,12 +152,11 @@ groups:
       - ref: telemetry.sdk.language
         requirement_level: required
 
-  - id: metric.obi.traces_spanmetrics_response_size_total
-    type: metric
-    metric_name: traces_spanmetrics_response_size_total
+  - name: traces_spanmetrics_response_size_total
     instrument: counter
     unit: ""
     stability: development
+    requirement_level: recommended
     deprecated:
       reason: obsoleted
       note: >

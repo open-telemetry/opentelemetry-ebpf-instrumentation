@@ -26,7 +26,7 @@ const (
 	WeaverColMetricsHostPort     = 32888
 	OtelcolWeaverMetricsHostPort = 32889
 
-	// weaverK8sTimeout bounds the wait-for-weaver + /stop + report-read
+	// weaverK8sTimeout bounds the wait-for-weaver + stop + report-read
 	// sequence. Report generation scales with the number of unique samples
 	// weaver received; the interval processor in
 	// otelcol-config-k8s-weavercol.yml keeps that bounded, but
@@ -39,7 +39,7 @@ const (
 	// reconnect backoff, so at least one aggregated batch arrives.
 	weaverK8sDrainWindow = 25 * time.Second
 
-	// weaverK8sEmptyReportAttempts is how many /stop + read cycles to try
+	// weaverK8sEmptyReportAttempts is how many stop + read cycles to try
 	// when the report comes back with zero samples (each cycle restarts the
 	// weaver pod and drains again).
 	weaverK8sEmptyReportAttempts = 3
@@ -154,11 +154,10 @@ func (k *Kind) validateWeaverFinish() env.Func {
 	}
 }
 
-// validateWeaver stops the in-cluster weaver pod (HTTP POST /stop on its
-// host-exposed admin port) and validates the live-check report weaver returns
-// in the /stop response body (weaver runs with --output http). It runs at suite
-// teardown (see validateWeaverFinish), after every test but before the cluster
-// is destroyed.
+// validateWeaver stops the in-cluster weaver pod through its host-exposed admin
+// port and validates the live-check report it serves (weaver runs with
+// --output http). It runs at suite teardown (see validateWeaverFinish), after
+// every test but before the cluster is destroyed.
 //
 // Requirements (wired in the suite's manifests):
 //   - a weaver pod (manifests/08-weaver*.yml) mounting /obi-registry from the
@@ -188,12 +187,12 @@ func (k *Kind) validateWeaver(parent context.Context, t weavercheck.TestingT) {
 	}
 
 	// A weaver that came up mid-suite may still produce an empty report on
-	// the first /stop (the tap was reconnecting / the interval tick had not
-	// flushed). Stopping weaver makes its pod restart (default restartPolicy),
+	// the first stop (the tap was reconnecting / the interval tick had not
+	// flushed). Shutting weaver down makes its pod restart (default restartPolicy),
 	// and OBI keeps emitting until teardown, so simply draining again and
 	// re-fetching from the restarted instance recovers — retry a couple of
 	// times before declaring the tap pipeline broken.
-	adminURL := fmt.Sprintf("http://%s/stop", addr)
+	adminURL := "http://" + addr
 	var report *weavercheck.Report
 	var finalDrops tapDropCounts
 	var finalDropsErr error
@@ -223,7 +222,7 @@ func (k *Kind) validateWeaver(parent context.Context, t weavercheck.TestingT) {
 		t.Logf("empty report on attempt %d/%d, waiting for the restarted weaver to receive telemetry",
 			attempt, weaverK8sEmptyReportAttempts)
 		// The restarted weaver pod needs to be answering again before the
-		// next /stop.
+		// next stop.
 		if err := waitForHTTP(ctx, "http://"+addr+"/"); err != nil {
 			t.Errorf("restarted weaver never became reachable: %v", err)
 			return

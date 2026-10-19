@@ -15,8 +15,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
-	"go.opentelemetry.io/obi/pkg/export/connector"
+	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
@@ -44,11 +45,11 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 			previousClock := timeNow
 			timeNow = func() time.Time { return now }
 			t.Cleanup(func() { timeNow = previousClock })
-			registry := prometheus.NewRegistry()
+			registry := testutil.NewPrometheusServer(t)
 			reporter, err := newReporter(
 				t.Context(),
-				&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-				&PrometheusConfig{Registry: registry, TTL: ttl},
+				&global.ContextInfo{Prometheus: registry.Manager},
+				&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: ttl},
 				&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 				&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
 					attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
@@ -59,8 +60,9 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 			require.NoError(t, err)
 			sample := func(current int64, collections uint64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
 				return &runtimemetrics.DotnetRuntimeMetricSnapshot{
-					ProcessMemoryWorkingSet: &current,
-					GCCollections:           [3]*uint64{&collections},
+					ProcessCPUCount: &current, ProcessMemoryWorkingSet: &current,
+					GCCollections: [3]*uint64{&collections},
+					GCHeapSize:    [runtimemetrics.DotnetHeapGenerationCount]*int64{&current},
 				}
 			}
 			first := runtimemetrics.RuntimeMetricSnapshot{
@@ -77,7 +79,13 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 			labels := map[string]string{"service_name": "orders"}
 			assertCurrent := func(want float64) {
 				t.Helper()
-				point := gatheredMetric(t, registry, attributes.DotnetProcessMemoryWorkingSet.Prom, labels)
+				for _, name := range []string{attributes.DotnetProcessMemoryWorkingSet.Prom, attributes.DotnetProcessCPUCount.Prom} {
+					point := gatheredMetric(t, registry, name, labels)
+					require.NotNil(t, point)
+					require.InDelta(t, want, point.GetGauge().GetValue(), 0)
+				}
+				point := gatheredMetric(t, registry, attributes.DotnetGCHeapSize.Prom,
+					map[string]string{"service_name": "orders", "dotnet_gc_heap_generation": "gen0"})
 				require.NotNil(t, point)
 				require.InDelta(t, want, point.GetGauge().GetValue(), 0)
 			}
@@ -125,6 +133,8 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 				assertCurrent(27)
 			} else {
 				require.Nil(t, gatheredMetric(t, registry, attributes.DotnetProcessMemoryWorkingSet.Prom, labels))
+				require.Nil(t, gatheredMetric(t, registry, attributes.DotnetProcessCPUCount.Prom, labels))
+				require.Nil(t, gatheredMetric(t, registry, attributes.DotnetGCHeapSize.Prom, map[string]string{"service_name": "orders", "dotnet_gc_heap_generation": "gen0"}))
 			}
 			publish(first)
 			if ttl == 0 {
@@ -137,11 +147,11 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 }
 
 func TestDotnetRuntimeCurrentValuesAggregateProcesses(t *testing.T) {
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter, err := newReporter(
 		t.Context(),
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&PrometheusConfig{Registry: registry, TTL: time.Minute},
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: time.Minute},
 		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
 			attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
@@ -152,7 +162,7 @@ func TestDotnetRuntimeCurrentValuesAggregateProcesses(t *testing.T) {
 	require.NoError(t, err)
 	values := func(value int64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
 		return &runtimemetrics.DotnetRuntimeMetricSnapshot{
-			ProcessMemoryWorkingSet: &value, GCCommittedMemory: &value,
+			ProcessCPUCount: &value, ProcessMemoryWorkingSet: &value, GCCommittedMemory: &value,
 			ThreadPoolThreadCount: &value, ThreadPoolQueueLength: &value,
 			TimerCount: &value, AssemblyCount: &value,
 		}
@@ -160,7 +170,7 @@ func TestDotnetRuntimeCurrentValuesAggregateProcesses(t *testing.T) {
 	assertValues := func(service string, expected *int64) {
 		t.Helper()
 		for _, name := range []string{
-			attributes.DotnetProcessMemoryWorkingSet.Prom, attributes.DotnetGCCommittedMemory.Prom,
+			attributes.DotnetProcessCPUCount.Prom, attributes.DotnetProcessMemoryWorkingSet.Prom, attributes.DotnetGCCommittedMemory.Prom,
 			attributes.DotnetThreadPoolThreadCount.Prom, attributes.DotnetThreadPoolQueueLength.Prom,
 			attributes.DotnetTimerCount.Prom, attributes.DotnetAssemblyCount.Prom,
 		} {
@@ -272,8 +282,8 @@ func TestDotnetRuntimeDeleteMatchesExactLabels(t *testing.T) {
 	for _, name := range []string{"orders", "orders-worker"} {
 		collector.collections.WithLabelValues(name, "gen2").Metric.Add(3)
 		collector.values[dotnetRuntimeCounterKey{
-			labels:     runtimeMetricLabelTuple([]string{name, "gen2"}),
-			baseLabels: runtimeMetricLabelTuple([]string{name}),
+			labels:     expire.LabelsKey([]string{name, "gen2"}),
+			baseLabels: expire.LabelsKey([]string{name}),
 		}] = 3
 	}
 	collector.delete([]string{"orders"})
@@ -283,7 +293,7 @@ func TestDotnetRuntimeDeleteMatchesExactLabels(t *testing.T) {
 		map[string]string{"service_name": "orders-worker", "dotnet_gc_heap_generation": "gen2"}))
 	require.Len(t, collector.values, 1)
 	for key := range collector.values {
-		require.Equal(t, runtimeMetricLabelTuple([]string{"orders-worker"}), key.baseLabels)
+		require.Equal(t, expire.LabelsKey([]string{"orders-worker"}), key.baseLabels)
 	}
 }
 
@@ -292,11 +302,11 @@ func TestDotnetRuntimeCumulativeCounters(t *testing.T) {
 	previousClock := timeNow
 	timeNow = func() time.Time { return now }
 	t.Cleanup(func() { timeNow = previousClock })
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter, err := newReporter(
 		t.Context(),
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&PrometheusConfig{Registry: registry, TTL: time.Minute},
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: time.Minute},
 		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
 			attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
@@ -308,14 +318,17 @@ func TestDotnetRuntimeCumulativeCounters(t *testing.T) {
 	metrics := []struct {
 		name  string
 		scale float64
+		mode  string
 	}{
-		{attributes.DotnetGCHeapTotalAllocated.Prom, 1},
-		{attributes.DotnetJITCompiledILSize.Prom, 2},
-		{attributes.DotnetJITCompiledMethods.Prom, 3},
-		{attributes.DotnetThreadPoolWorkItemCount.Prom, 4},
-		{attributes.DotnetMonitorLockContentions.Prom, 5},
-		{attributes.DotnetGCPauseTime.Prom, 0.125},
-		{attributes.DotnetJITCompilationTime.Prom, 0.25},
+		{attributes.DotnetGCHeapTotalAllocated.Prom, 1, ""},
+		{attributes.DotnetJITCompiledILSize.Prom, 2, ""},
+		{attributes.DotnetJITCompiledMethods.Prom, 3, ""},
+		{attributes.DotnetThreadPoolWorkItemCount.Prom, 4, ""},
+		{attributes.DotnetMonitorLockContentions.Prom, 5, ""},
+		{attributes.DotnetGCPauseTime.Prom, 0.125, ""},
+		{attributes.DotnetJITCompilationTime.Prom, 0.25, ""},
+		{attributes.DotnetProcessCPUTime.Prom, 0.125, "user"},
+		{attributes.DotnetProcessCPUTime.Prom, 0.25, "system"},
 	}
 	sample := func(value uint64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
 		il, methods, work, locks := value*2, value*3, value*4, value*5
@@ -324,6 +337,7 @@ func TestDotnetRuntimeCumulativeCounters(t *testing.T) {
 			GCHeapTotalAllocated: &value, JITCompiledILSize: &il, JITCompiledMethods: &methods,
 			ThreadPoolWorkItemCount: &work, MonitorLockContentions: &locks,
 			GCPauseTime: &pause, JITCompilationTime: &jit,
+			ProcessCPUTimeUser: &pause, ProcessCPUTimeSystem: &jit,
 		}
 	}
 	first := runtimemetrics.RuntimeMetricSnapshot{
@@ -334,20 +348,27 @@ func TestDotnetRuntimeCumulativeCounters(t *testing.T) {
 	publish := func(snapshot runtimemetrics.RuntimeMetricSnapshot) {
 		reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot})
 	}
-	labels := map[string]string{"service_name": "orders"}
 	assertTotal := func(want float64) {
 		t.Helper()
 		for _, metric := range metrics {
-			point := gatheredMetric(t, registry, metric.name, labels)
+			metricLabels := map[string]string{"service_name": "orders"}
+			if metric.mode != "" {
+				metricLabels["cpu_mode"] = metric.mode
+			}
+			point := gatheredMetric(t, registry, metric.name, metricLabels)
 			require.NotNil(t, point, metric.name)
 			require.NotNil(t, point.Counter, metric.name)
-			require.Len(t, point.Label, 1, metric.name)
+			require.Len(t, point.Label, len(metricLabels), metric.name)
 			require.InDelta(t, want*metric.scale, point.GetCounter().GetValue(), 0, metric.name)
 		}
 	}
 	publish(first)
 	for _, metric := range metrics {
-		require.Nil(t, gatheredMetric(t, registry, metric.name, labels))
+		metricLabels := map[string]string{"service_name": "orders"}
+		if metric.mode != "" {
+			metricLabels["cpu_mode"] = metric.mode
+		}
+		require.Nil(t, gatheredMetric(t, registry, metric.name, metricLabels))
 	}
 	first.Dotnet = sample(0)
 	publish(first)
@@ -382,7 +403,7 @@ func TestDotnetRuntimeCumulativeCounters(t *testing.T) {
 	publish(first)
 	assertTotal(38)
 	require.Len(t, reporter.dotnetRuntimeMetrics.values, 10)
-	require.Len(t, reporter.dotnetRuntimeMetrics.durationValues, 4)
+	require.Len(t, reporter.dotnetRuntimeMetrics.durationValues, 8)
 	// Repeated samples keep the shared series alive beyond its original TTL.
 	for range 3 {
 		now = now.Add(30 * time.Second)
@@ -395,7 +416,7 @@ func TestDotnetRuntimeCumulativeCounters(t *testing.T) {
 	first.Removed = true
 	publish(first)
 	require.Len(t, reporter.dotnetRuntimeMetrics.values, 5)
-	require.Len(t, reporter.dotnetRuntimeMetrics.durationValues, 2)
+	require.Len(t, reporter.dotnetRuntimeMetrics.durationValues, 4)
 	publish(second)
 	assertTotal(39)
 	second.Removed = true
@@ -410,7 +431,11 @@ func TestDotnetRuntimeCumulativeCounters(t *testing.T) {
 	require.Empty(t, reporter.dotnetRuntimeMetrics.values)
 	require.Empty(t, reporter.dotnetRuntimeMetrics.durationValues)
 	for _, metric := range metrics {
-		require.Nil(t, gatheredMetric(t, registry, metric.name, labels))
+		metricLabels := map[string]string{"service_name": "orders"}
+		if metric.mode != "" {
+			metricLabels["cpu_mode"] = metric.mode
+		}
+		require.Nil(t, gatheredMetric(t, registry, metric.name, metricLabels))
 	}
 	publish(second)
 	assertTotal(20)
@@ -420,11 +445,11 @@ func TestDotnetRuntimeCounterSnapshots(t *testing.T) {
 	selection := attributes.Selection{
 		attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
 	}
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter, err := newReporter(
 		t.Context(),
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&PrometheusConfig{Registry: registry, TTL: time.Minute},
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: time.Minute},
 		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{SelectionCfg: selection},
 		request.UnresolvedNames{},
@@ -489,4 +514,70 @@ func TestDotnetRuntimeCounterSnapshots(t *testing.T) {
 	reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{other})
 	require.Empty(t, reporter.dotnetRuntimeMetrics.values)
 	assertCounts([3]uint64{6, 11, 16})
+}
+
+func TestDotnetHeapSizeLifecycle(t *testing.T) {
+	registry := testutil.NewPrometheusServer(t)
+	reporter, err := newReporter(t.Context(),
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics"},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
+		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
+			attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
+		}}, request.UnresolvedNames{}, nil, msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)), nil)
+	require.NoError(t, err)
+	sample := func(base int64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+		values := &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+		for generation := range values.GCHeapSize {
+			value := base + int64(generation)
+			values.GCHeapSize[generation] = &value
+		}
+		return values
+	}
+	assertSizes := func(base int64, contributors int) {
+		t.Helper()
+		for generation, name := range runtimemetrics.DotnetHeapGenerations() {
+			point := gatheredMetric(t, registry, attributes.DotnetGCHeapSize.Prom,
+				map[string]string{"service_name": "orders", "dotnet_gc_heap_generation": name})
+			if contributors == 0 {
+				require.Nil(t, point, name)
+				continue
+			}
+			require.NotNil(t, point, name)
+			require.InDelta(t, float64(base)+float64(generation*contributors), point.GetGauge().GetValue(), 0, name)
+		}
+	}
+	publish := func(snapshot runtimemetrics.RuntimeMetricSnapshot) {
+		reporter.collectRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{snapshot})
+	}
+	first := runtimemetrics.RuntimeMetricSnapshot{
+		PID: 1, Generation: 1,
+		Service: svc.Attrs{UID: svc.UID{Name: "orders"}, SDKLanguage: svc.InstrumentableDotnet, Features: export.FeatureApplicationRuntime},
+		Dotnet:  sample(100),
+	}
+	second := first
+	second.PID = 2
+	second.Dotnet = sample(200)
+	publish(first)
+	publish(second)
+	assertSizes(300, 2)
+	first.Dotnet = sample(0)
+	publish(first)
+	assertSizes(200, 2)
+	first.Generation++
+	first.Dotnet = sample(10)
+	publish(first)
+	assertSizes(210, 2)
+	stale := first
+	stale.Generation--
+	stale.Removed = true
+	publish(stale)
+	assertSizes(210, 2)
+	second.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+	publish(second)
+	assertSizes(10, 1)
+	first.Removed = true
+	publish(first)
+	assertSizes(0, 0)
+	require.Empty(t, reporter.dotnetRuntimeMetrics.currentAggregates)
 }

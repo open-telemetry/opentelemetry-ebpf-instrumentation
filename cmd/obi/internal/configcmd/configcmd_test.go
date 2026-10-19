@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
 	obiconfig "go.opentelemetry.io/obi/pkg/config"
+	featureexport "go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
@@ -979,6 +980,28 @@ otel_traces_export:
 `, stderr.String())
 }
 
+func TestMigrateConfigRoute53Settings(t *testing.T) {
+	output, _, err := migrateConfig([]byte(`
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+trace_printer: text
+name_resolver:
+  sources: [route53]
+cloud_metadata:
+  route53:
+    refresh_interval: 2s
+    hosted_zone_ids: [Z123, /hostedzone/Z456]
+`))
+	require.NoError(t, err)
+	_, ext, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+	require.Len(t, ext.Enrich.ServiceName.Sources, 1)
+	require.Equal(t, "route53", string(ext.Enrich.ServiceName.Sources[0]))
+	require.Equal(t, "2s", ext.Enrich.Enrichers.Cloud.Route53.RefreshInterval.TimeDuration().String())
+	require.Equal(t, []string{"Z123", "/hostedzone/Z456"}, ext.Enrich.Enrichers.Cloud.Route53.HostedZoneIDs)
+}
+
 // The log enricher's service selection migrates to log_trace_annotation.match
 func TestMigrateConfigLogEnricherServices(t *testing.T) {
 	output, _, err := migrateConfig([]byte(`
@@ -1063,9 +1086,75 @@ metrics:
 	require.True(t, runtimeConfig.Enabled(obi.FeatureNetO11y))
 }
 
-// the body size histograms have to survive the v1-to-v2 round trip: without a v2 key for
-// them the migration contract would report metrics.features as changed and refuse the
-// configuration.
+func TestMigrateConfigCarriesMetricFeatures(t *testing.T) {
+	for _, features := range []string{
+		"application_service_graph",
+		"application_span",
+		"application_span_otel",
+		"application_span_sizes",
+		"application_runtime",
+		"network_inter_zone",
+		"network_flow_packets",
+		"ebpf",
+		"all",
+		"*",
+	} {
+		t.Run(features, func(t *testing.T) {
+			output, _, err := migrateConfig([]byte(`
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+metrics:
+  features: [application, ` + fmt.Sprintf("%q", features) + `]
+prometheus_export:
+  port: 9090
+`))
+			require.NoError(t, err)
+			doc, ext, err := schema.ParseStandaloneYAML(output)
+			require.NoError(t, err)
+			roundTripped, err := convert.DocumentToRuntime(doc)
+			require.NoError(t, err)
+			expected, err := featureexport.LoadFeatures([]string{"application", features})
+			require.NoError(t, err)
+			expected.ResolveSpanMetricsConflict()
+			require.Equal(t, expected.Names(), ext.Capture.Metrics.Features)
+			require.Equal(t, expected.Names(), roundTripped.Metrics.Features.Names())
+		})
+	}
+}
+
+func TestValidateV2MetricFeatures(t *testing.T) {
+	for _, test := range []struct {
+		features string
+		wantErr  string
+	}{
+		{features: "[application_service_graph, application_span_otel]"},
+		{features: "[]"},
+		{features: "[all]"},
+		{features: "[application_sizes]", wantErr: "application_sizes needs the application RED metrics"},
+		{features: "[application_span, application_span_otel]", wantErr: "you can only enable one format of span metrics"},
+		{features: "[service_graph]", wantErr: `unknown metrics feature "service_graph"`},
+	} {
+		t.Run(test.features, func(t *testing.T) {
+			data := strings.Replace(validStandaloneV2, "    capture:\n", "    capture:\n      metrics:\n        features: "+test.features+"\n", 1)
+			data += `
+meter_provider:
+  readers:
+    - pull:
+        exporter:
+          prometheus/development:
+            port: 9090
+`
+			err := validateConfig([]byte(data), validationModeStandalone)
+			if test.wantErr != "" {
+				require.ErrorContains(t, err, test.wantErr)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
 func TestMigrateConfigCarriesApplicationSizes(t *testing.T) {
 	v1 := func(features string) []byte {
 		return []byte(`
@@ -1401,11 +1490,62 @@ prometheus_export:
 	}
 }
 
-func TestMigrateConfigRejectsNetworkEnablementChange(t *testing.T) {
+func TestMigrateConfigReportsDerivedMetricProtocolLoss(t *testing.T) {
+	for _, exporter := range []struct {
+		name   string
+		config string
+	}{
+		{"prometheus_export", "port: 9090"},
+		{"otel_metrics_export", "endpoint: http://collector:4317\n  protocol: grpc"},
+	} {
+		for _, features := range []string{
+			"application_red, application_span_otel, application_service_graph",
+			"application_span_otel",
+			"application_span",
+			"application_span_sizes",
+			"application_service_graph",
+		} {
+			t.Run(exporter.name+"/"+features, func(t *testing.T) {
+				source := []byte(fmt.Sprintf(`
+open_port: '8080'
+metrics:
+  features: [%s]
+%s:
+  %s
+  instrumentations: [grpc, sql, redis, kafka, mqtt, nats, amqp, gpu, mongo, dns, couchbase, genai, memcached, sunrpc, aerospike]
+`, features, exporter.name, exporter.config))
+				output, _, err := migrateConfig(source)
+				require.ErrorContains(t, err, exporter.name+".instrumentations")
+				require.Empty(t, output)
+
+				output, report, partial, err := migrateConfigForModeWithOptions(
+					source, validationModeStandalone, migrationOptions{allowPartial: true},
+				)
+				require.NoError(t, err)
+				require.True(t, partial)
+				require.Contains(t, report, exporter.name+".instrumentations")
+				require.NoError(t, validateConfig(output, validationModeStandalone))
+			})
+		}
+	}
+}
+
+func TestMigrateConfigPreservesDerivedMetricsWithoutDNS(t *testing.T) {
+	_, _, err := migrateConfig([]byte(`
+open_port: '8080'
+metrics:
+  features: [application_red, application_span_otel, application_service_graph]
+prometheus_export:
+  port: 9090
+  instrumentations: [http, grpc, sql, redis, kafka, mqtt, nats, amqp, gpu, mongo, couchbase, genai, memcached, sunrpc, aerospike]
+`))
+	require.NoError(t, err)
+}
+
+func TestMigrateConfigPreservesDisabledNetworkCapture(t *testing.T) {
 	tests := []struct {
 		name string
 		yaml string
-		want string
 	}{
 		{
 			name: "omitted enable",
@@ -1420,7 +1560,6 @@ metrics:
 otel_traces_export:
   endpoint: http://collector:4317
 `,
-			want: "metrics.features",
 		},
 		{
 			name: "explicit false",
@@ -1436,14 +1575,20 @@ metrics:
 otel_traces_export:
   endpoint: http://collector:4317
 `,
-			want: "network.enable",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			_, _, err := migrateConfig([]byte(test.yaml))
-			require.ErrorContains(t, err, test.want)
+			output, _, err := migrateConfig([]byte(test.yaml))
+			require.NoError(t, err)
+			doc, ext, err := schema.ParseStandaloneYAML(output)
+			require.NoError(t, err)
+			require.False(t, ext.Capture.Network.Capture.Enabled)
+			runtimeConfig, err := convert.DocumentToRuntime(doc)
+			require.NoError(t, err)
+			require.False(t, runtimeConfig.Enabled(obi.FeatureNetO11y))
+			require.True(t, runtimeConfig.Metrics.Features.AnyNetwork())
 		})
 	}
 }
@@ -1903,19 +2048,6 @@ func TestRunMigrateRejectsUnsupportedInput(t *testing.T) {
 			want: "prometheus_export.path",
 		},
 		{
-			name: "unsupported metric feature",
-			yaml: `
-discovery:
-  instrument:
-    - exe_path: "/srv/*"
-metrics:
-  features: [application, application_span]
-prometheus_export:
-  port: 9090
-`,
-			want: "metrics.features",
-		},
-		{
 			name: "unknown metric feature",
 			yaml: `
 discovery:
@@ -2132,4 +2264,48 @@ func writeConfig(t *testing.T, name, contents string) string {
 	path := filepath.Join(t.TempDir(), name)
 	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
 	return path
+}
+
+func TestRunValidateRoute53HostedZones(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		source    string
+		zones     string
+		wantError bool
+	}{
+		{name: "enabled without zones", source: "route53", wantError: true},
+		{name: "empty list", source: "route53", zones: "[]", wantError: true},
+		{name: "blank ID", source: "route53", zones: `[""]`, wantError: true},
+		{name: "whitespace ID", source: "route53", zones: `["   "]`, wantError: true},
+		{name: "prefix without ID", source: "route53", zones: `["/hostedzone/"]`, wantError: true},
+		{name: "blank among valid IDs", source: "route53", zones: `[Z123, ""]`, wantError: true},
+		{name: "valid IDs", source: "route53", zones: `[Z123, /hostedzone/Z456]`},
+		{name: "disabled without zones", source: "dns"},
+		{name: "disabled with blank ID", source: "dns", zones: `[""]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			contents := validStandaloneV2 + fmt.Sprintf(`    enrich:
+      service_name:
+        sources: [%s]
+      enrichers:
+        cloud:
+          route53: {}
+`, tc.source)
+			if tc.zones != "" {
+				contents = strings.Replace(contents, "          route53: {}", "          route53:\n            hosted_zone_ids: "+tc.zones, 1)
+			}
+			path := writeConfig(t, "route53.yaml", contents)
+			var stdout, stderr bytes.Buffer
+			code := run([]string{"validate", path}, &stdout, &stderr)
+			if tc.wantError {
+				require.Equal(t, ExitError, code)
+				require.Contains(t, stderr.String(), "route53.hosted_zone_ids")
+				require.Empty(t, stdout.String())
+			} else {
+				require.Equal(t, ExitSuccess, code, stderr.String())
+				require.Equal(t, "configuration is valid\n", stdout.String())
+				require.Empty(t, stderr.String())
+			}
+		})
+	}
 }

@@ -18,12 +18,12 @@ import (
 
 const (
 	// weaverAdminURL is where a weaver-wired OATS group publishes weaver's admin
-	// /stop endpoint on the test host; the POST both stops weaver and returns its
-	// live-check report in the response body. Every group is expected to wire
-	// weaver (append `weaver/docker-compose-weaver.yml` to the test case's compose
-	// file list); an unreachable admin port fails the spec so a new group can't
-	// silently skip semantic-convention validation.
-	weaverAdminURL = "http://localhost:4320/stop"
+	// API on the test host, which stops weaver and serves its live-check report.
+	// Every group is expected to wire weaver (append
+	// `weaver/docker-compose-weaver.yml` to the test case's compose file list);
+	// an unreachable admin port fails the spec so a new group can't silently skip
+	// semantic-convention validation.
+	weaverAdminURL = "http://localhost:4320"
 
 	// skipWeaverEnv opts a run out of weaver validation entirely — intended
 	// only for local debugging of a compose setup, never for CI.

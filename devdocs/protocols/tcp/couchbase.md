@@ -261,6 +261,30 @@ SQL++ requests can be sent in two formats:
 statement=SELECT+*+FROM+users&query_context=default:`mybucket`.`myscope`
 ```
 
+### Prepared Statements
+
+SDKs can prepare a statement once and then execute it by name. gocb does this by default; other SDKs do it when the query is not ad hoc. The request shapes are:
+
+| Request                                                       | Meaning                                                                   |
+|---------------------------------------------------------------|---------------------------------------------------------------------------|
+| `{"statement": "PREPARE <stmt>", "auto_execute": true}`       | Prepare and run. The server returns the name in a top-level `"prepared"`. |
+| `{"statement": "PREPARE <stmt>"}`                             | Prepare only. The name is in `results[0].name`.                           |
+| `{"statement": "PREPARE [FORCE] <name> FROM\|AS <stmt>"}`     | Prepare under a client-chosen name.                                       |
+| `{"prepared": "<name>"}` (optionally with `encoded_plan`)     | Execute by name. No `statement` field.                                    |
+| `{"statement": "EXECUTE <name> [USING ...]"}`                 | Execute by name in SQL++.                                                 |
+
+OBI strips the `PREPARE` prefix before parsing, so a PREPARE span reports the inner statement. The first token after `PREPARE [FORCE]` is only taken as a name when the text after `FROM`/`AS` starts a statement, so `PREPARE DELETE FROM ...` stays anonymous.
+
+OBI remembers a server-assigned name whenever an HTTP 200 response carries it, even if the auto-executed query then failed. Server-assigned names are derived from the statement, so they are shared across query nodes. A client-chosen name is remembered only when the PREPARE succeeded, and only for the query node it was sent to. Names and their statements live in an LRU keyed by process, `query_context` and name, sized by the Config v2 setting `capture.instrumentation.http.payload_extraction.sqlpp.prepared_statements_cache_size` (default 1024). The generic and Go tracers each keep their own cache; a process's traffic only reaches one of them.
+
+Executions stay unresolved, with operation `EXECUTE`, when OBI never saw the PREPARE:
+
+- **OBI attached late:** an application that prepared its statements before OBI started, including after an OBI restart, keeps executing them by name. SDKs re-prepare only when the server reports the plan as missing or invalid, so those executions can stay unresolved for the life of the process.
+- **Eviction:** a name evicted from the cache stays unresolved for the same reason.
+- **Processing order:** Go HTTP client spans wait until their buffers have been idle for `go_http_client_buffer_timeout` (default 1s), so executions in the first moments after a PREPARE can be processed before it.
+
+`EXECUTE FUNCTION` calls user-defined functions and is parsed as a plain statement.
+
 ### Namespace Resolution
 
 The parser extracts bucket and collection information from multiple sources:
@@ -308,6 +332,8 @@ SQL++ spans are generated with the following attributes:
 | `db.query.text`           | Request body               | `"SELECT * FROM users WHERE id = ?"` |
 | `db.response.status_code` | Error code (on error)      | `"12003"`                            |
 | `error.type`              | Error message (on error)   | `"Keyspace not found..."`            |
+
+For prepared statements, `db.operation.name` and `db.query.text` come from the prepared statement. A PREPARE without `auto_execute` reports `db.operation.name` = `"PREPARE"`. An execution whose name OBI never saw prepared reports `db.operation.name` = `"EXECUTE"`; `db.query.text` is the `EXECUTE ...` text when the SQL++ form was used, and empty for a name-only request.
 
 ### Configuration
 

@@ -25,8 +25,8 @@ import (
 func TestInternalMetricsReporterBpfProbeStats(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
@@ -120,8 +120,8 @@ func TestBpfProbeLatencyProducerBucketCounts(t *testing.T) {
 func TestInternalMetricsReporterQueueBufferUtilization(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
@@ -146,14 +146,56 @@ func TestInternalMetricsReporterQueueBufferUtilization(t *testing.T) {
 	assert.InDelta(t, 0.42, records[0].FloatVal, 0.001)
 }
 
+func TestInternalMetricsReporterBPFRingbufWriteCounts(t *testing.T) {
+	metricRecords := make(chan collector.MetricRecord, 16)
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
+	}
+	ctxInfo := &global.ContextInfo{
+		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
+		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
+	}
+
+	reporter, err := NewInternalMetricsReporter(
+		t.Context(),
+		ctxInfo,
+		mcfg,
+		&imetrics.InternalMetricsConfig{BpfMetricScrapeInterval: time.Millisecond},
+	)
+	require.NoError(t, err)
+
+	reporter.BPFRingbufWriteCounts("events", 10, 2)
+	reporter.BPFRingbufWriteCounts("events", 5, 2)
+
+	expected := map[string]int64{
+		attr.VendorPrefix + ".bpf.ringbuf.writes":         15,
+		attr.VendorPrefix + ".bpf.ringbuf.write.failures": 4,
+	}
+	records := readMetricsByName(
+		t,
+		metricRecords,
+		time.Second,
+		attr.VendorPrefix+".bpf.ringbuf.writes",
+		attr.VendorPrefix+".bpf.ringbuf.write.failures",
+	)
+	require.Len(t, records, 2)
+	for _, record := range records {
+		value, ok := expected[record.Name]
+		require.True(t, ok, "unexpected metric %q", record.Name)
+		assert.Equal(t, value, record.IntVal)
+		assert.Equal(t, "events", record.Attributes["bpf.map.name"])
+	}
+}
+
 // A process basename comes straight off the filesystem, where Linux permits invalid UTF-8. The
 // internal metrics build their datapoint attributes directly, so without sanitization such a
 // name poisons every internal-metrics export batch for as long as the series stays aggregated.
 func TestInternalMetricsReporterInvalidUTF8ProcessName(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
@@ -180,8 +222,8 @@ func TestInternalMetricsReporterInvalidUTF8ProcessName(t *testing.T) {
 func TestInternalMetricsReporterAvoidedServicesBounded(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
@@ -235,8 +277,8 @@ func TestInternalMetricsReporterAvoidedServicesBounded(t *testing.T) {
 func TestInternalMetricsReporterAvoidedServicesDisabled(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},

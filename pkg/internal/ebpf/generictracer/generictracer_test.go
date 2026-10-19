@@ -26,44 +26,13 @@ import (
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
-
-func TestBitPositionCalculation(t *testing.T) {
-	for _, v := range [][4]uint32{
-		{0, 1, 0, 1},
-		{0, 2, 0, 2},
-		{0, 65, 1, 1},
-		{0, 66, 1, 2},
-		{0, primeHash, 0, 0},
-		{0, primeHash + 1, 0, 1},
-	} {
-		k := makeKey(v[0], v[1])
-		segment, bit := pidSegmentBit(k)
-		assert.Equal(t, segment, v[2])
-		assert.Equal(t, bit, v[3])
-	}
-}
-
-func makeKey(first, second uint32) uint64 {
-	return (uint64(first) << 32) | uint64(second)
-}
-
-// Mirrors the _Static_assert in bpf/pid/pid.h.
-func TestPidFilterIndexSpaceFitsMap(t *testing.T) {
-	highestSegment := (primeHash - 1) / 64
-
-	assert.Less(t, highestSegment, maxConcurrentPids,
-		"primeHash %d needs %d segments but valid_pids holds %d",
-		primeHash, highestSegment+1, maxConcurrentPids)
-
-	// buildPidFilter must allocate a slot for every reachable segment.
-	assert.Len(t, (&Tracer{pidsFilter: fakeServiceFilter{}}).buildPidFilter(), maxConcurrentPids)
-}
 
 func TestParseJVMMemoryPoolRecordDecoratesServiceByPIDNamespace(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
@@ -246,6 +215,17 @@ func TestJVMBPFMapsAreInternallyPinnedAndUseSharedEventsRingBuffer(t *testing.T)
 		assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps[name].Pinning)
 	}
 	assert.Equal(t, ebpf.LRUHash, spec.Maps["obi_usdt_ip_to_spec_id"].Type)
+	require.Contains(t, spec.Maps, "ringbuf_write_stats_storage")
+	assert.Equal(t, ebpf.PerCPUArray, spec.Maps["ringbuf_write_stats_storage"].Type)
+	assert.Equal(t, ebpfconvenience.PinInternal, spec.Maps["ringbuf_write_stats_storage"].Pinning)
+}
+
+func TestRingbufMetricsConstant(t *testing.T) {
+	tracer := New(nil, &obi.Config{}, imetrics.NoopReporter{})
+	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
+
+	tracer = New(nil, &obi.Config{}, struct{ imetrics.NoopReporter }{})
+	assert.Equal(t, true, tracer.constants()["ringbuf_metrics_enabled"])
 }
 
 func TestPythonAsyncMapsScopePointersByProcess(t *testing.T) {
@@ -483,6 +463,7 @@ func TestRubyUProbesAreVersionGated(t *testing.T) {
 type fakeServiceFilter struct {
 	current          map[uint32]map[app.PID]svc.Attrs
 	currentPIDsCalls *int
+	procPIDs         []app.PID
 }
 
 func (f fakeServiceFilter) AllowPID(app.PID, uint32, *exec.FileInfo, ebpfcommon.PIDType) {}
@@ -497,3 +478,5 @@ func (f fakeServiceFilter) CurrentPIDs(ebpfcommon.PIDType) map[uint32]map[app.PI
 	}
 	return f.current
 }
+
+func (f fakeServiceFilter) ProcPIDs(ebpfcommon.PIDType) []app.PID { return f.procPIDs }

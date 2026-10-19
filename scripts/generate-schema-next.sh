@@ -3,12 +3,14 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Release-driven schema versioning. Reads the OBI release version from
-# versions.yaml and, for that version:
+# versions.yaml and, for stable releases:
 #   1. cuts site/schemas/obi/<version> (previous published file plus a new,
 #      empty <version>: entry on top — a cumulative superset, like semconv),
 #   2. bumps the emitted schema_url constant (OBISchemaURL) and the weaver
 #      registry manifest schema_url to <version>.
 #
+# Prereleases retain the published stable schema because schema consumers do
+# not support prerelease version identifiers.
 # Intended to run at release prep (invoked by `make prerelease`). Files are
 # immutable once published: if telemetry changed in this release, add the
 # rename entries by hand under the new <version>: block before committing
@@ -24,16 +26,26 @@ MANIFEST="$ROOT/schemas/obi/manifest.yaml"
 
 fail() { echo "generate-schema-next: $1" >&2; exit 1; }
 
+numeric_identifier='0|[1-9][0-9]*'
+prerelease_identifier="($numeric_identifier|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)"
+build_identifier='[0-9a-zA-Z-]+'
+version_pattern="($numeric_identifier)\.($numeric_identifier)\.($numeric_identifier)(-$prerelease_identifier(\.$prerelease_identifier)*)?(\+$build_identifier(\.$build_identifier)*)?"
 version="$(awk '/^  obi:/{o=1} o&&/version:/{v=$2; sub(/^v/,"",v); print v; exit}' "$ROOT/versions.yaml")"
 [ -n "$version" ] || fail "could not read the obi version from versions.yaml"
-echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || fail "versions.yaml obi version '$version' is not MAJOR.MINOR.PATCH"
+echo "$version" | grep -Eq "^$version_pattern$" || fail "versions.yaml obi version '$version' is not valid SemVer"
+version="${version%%+*}"
+
+if [[ "$version" == *-* ]]; then
+	echo "generate-schema-next: prerelease $version retains the published stable schema"
+	exit 0
+fi
 
 new_file="$SCHEMA_DIR/$version"
 if [ -f "$new_file" ]; then
 	echo "generate-schema-next: schema file for $version already exists — leaving it (preserving any hand-added transformations)"
 else
-	prev="$(printf '%s\n' "$SCHEMA_DIR"/* | sed 's#.*/##' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1 || true)"
-	[ -n "$prev" ] || fail "no previous schema file under $SCHEMA_DIR to base $version on"
+	prev="$(awk '/^schema_url:/{sub(/.*\//,"",$2); print $2; exit}' "$MANIFEST")"
+	[ -f "$SCHEMA_DIR/$prev" ] || fail "no previous schema file under $SCHEMA_DIR to base $version on"
 	grep -Eq '^versions:[[:space:]]*$' "$SCHEMA_DIR/$prev" || fail "previous file $prev has no 'versions:' block"
 	{
 		echo "file_format: 1.1.0"
@@ -56,5 +68,5 @@ package attr
 
 var OBISchemaURL = "$BASE_URL/$version"
 EOF
-perl -i -pe "s#\\Q$BASE_URL/\\E[0-9]+\\.[0-9]+\\.[0-9]+#$BASE_URL/$version#g" "$MANIFEST"
+perl -i -pe "s#\\Q$BASE_URL/\\E$version_pattern#$BASE_URL/$version#g" "$MANIFEST"
 echo "generate-schema-next: OBISchemaURL and manifest schema_url set to $version"

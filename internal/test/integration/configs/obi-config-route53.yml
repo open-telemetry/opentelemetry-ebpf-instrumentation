@@ -1,0 +1,48 @@
+file_format: "1.0"
+log_level: debug
+meter_provider:
+  readers:
+    - pull:
+        exporter:
+          prometheus/development:
+            port: 8999
+resource:
+  attributes:
+    - name: service.name
+      value: frontend
+    - name: service.namespace
+      value: integration-test
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: exclude
+        poll_interval: 500ms
+      rules:
+        - action: include
+          match:
+            process:
+              open_ports: "8080"
+      engine:
+        batching:
+          batch_timeout: 10ms
+    enrich:
+      enrichers:
+        cloud:
+          route53:
+            # Keep discovery and record replacement fast in the integration test.
+            refresh_interval: 1s
+            hosted_zone_ids: ["${ROUTE53_HOSTED_ZONE_ID}"]
+      service_name:
+        sources: [route53]
+      attributes:
+        # server carries the resolved peer; server.address retains the HTTP Host.
+        extra_group_attributes:
+          app: [server]
+        select:
+          "*":
+            include: ["*"]
+    daemon:
+      shutdown:
+        timeout: 2s

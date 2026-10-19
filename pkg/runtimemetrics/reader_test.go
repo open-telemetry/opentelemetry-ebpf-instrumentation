@@ -711,3 +711,5 @@ func (f runtimeMetricFilter) Filter(spans []request.Span) []request.Span { retur
 func (f runtimeMetricFilter) CurrentPIDs(ebpfcommon.PIDType) map[uint32]map[app.PID]svc.Attrs {
 	return f.current
 }
+
+func (f runtimeMetricFilter) ProcPIDs(ebpfcommon.PIDType) []app.PID { return nil }

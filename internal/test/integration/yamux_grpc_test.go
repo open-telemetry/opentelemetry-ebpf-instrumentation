@@ -70,8 +70,30 @@ func callYamux() {
 // separately-written yamux frame bodies desyncs the stream and the counters
 // climb.
 func TestSuite_YamuxGRPC(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-yamux-grpc.yml", path.Join(pathOutput, "test-suite-yamux-grpc.log"))
+	testYamuxTunnel(t, false, "test-suite-yamux-grpc.log")
+}
+
+// TestSuite_YamuxGRPCPersistent runs the same tunnel on a connection opened before
+// OBI starts, so OBI can classify it only by the mid-stream sniff, which matches
+// every tunneled body. The next write, the tunnel's own length prefix, must reject
+// the socket before any body is touched.
+func TestSuite_YamuxGRPCPersistent(t *testing.T) {
+	// below 6.4 OBI does not attach the socket iterator, so it never sees the
+	// connection and the suite would pass without exercising the sniff
+	if !kernelAtLeast(t, 6, 4) {
+		t.Skip("backfilling pre-existing connections needs the TCP socket iterator, 6.4+")
+	}
+
+	testYamuxTunnel(t, true, "test-suite-yamux-grpc-persistent.log")
+}
+
+func testYamuxTunnel(t *testing.T, persistent bool, logFile string) {
+	compose, err := docker.ComposeSuite("docker-compose-yamux-grpc.yml", path.Join(pathOutput, logFile))
 	require.NoError(t, err)
+
+	if persistent {
+		compose.Env = append(compose.Env, "YAMUX_PERSISTENT=1")
+	}
 
 	if !KernelLockdownMode() {
 		compose.Env = append(compose.Env, `SECURITY_CONFIG_SUFFIX=_none`, `OTEL_EBPF_BPF_DEBUG=true`)
@@ -114,9 +136,10 @@ func TestSuite_YamuxGRPC(t *testing.T) {
 	t.Log("yamux-client instrumented; sk_msg propagation path is now active")
 
 	// Actively drive /call (each carrying a fresh Traceparent) repeated times.
-	// Every call opens a fresh connection (fresh HTTP/2 preface, so OBI
-	// re-flags the socket) and tunnels several HEADERS frames — each one a
-	// traceparent-injection target while OBI has an active trace to propagate.
+	// Every call tunnels several HEADERS frames — each one a traceparent-injection
+	// target while OBI has an active trace to propagate. By default each call
+	// opens a fresh connection (fresh HTTP/2 preface, so OBI re-flags the
+	// socket); in persistent mode all calls share the connection opened before OBI.
 	const calls = 200
 	t.Logf("driving %d Traceparent-carrying calls under active instrumentation", calls)
 	for range calls {

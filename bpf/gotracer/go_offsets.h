@@ -63,6 +63,7 @@ typedef enum {
     _grpc_t_scheme_pos,
     _grpc_transport_stream_id_pos,
     _grpc_transport_buf_writer_buf_pos,
+    _grpc_transport_buf_writer_buf_handle_pos,
     _grpc_transport_buf_writer_offset_pos,
     _grpc_transport_buf_writer_conn_pos,
     // redis
@@ -95,6 +96,8 @@ typedef enum {
     _span_context_trace_flags_pos,
     _auto_sdk_span_context_pos,
     _auto_sdk_activation_supported,
+    _embedded_sdk_span_context_pos,
+    _embedded_sdk_activation_supported,
     // go runtime channels
     _hchan_qcount_pos,
     _hchan_dataqsiz_pos,

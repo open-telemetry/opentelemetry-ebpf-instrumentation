@@ -3,10 +3,9 @@
 # these groups list only the jvm memory pool/type data-point attributes. Each
 # carries the obi.upstream_override annotation so the schemacheck drift test
 # pins its unit/instrument/stability to upstream.
-groups:
-  - id: metric.obi.jvm.memory.committed
-    type: metric
-    metric_name: jvm.memory.committed
+file_format: definition/2
+metrics:
+  - name: jvm.memory.committed
     annotations:
       obi:
         upstream_override: true
@@ -14,14 +13,13 @@ groups:
     instrument: updowncounter
     unit: "By"
     stability: stable
+    requirement_level: recommended
     attributes:
       - ref: jvm.memory.pool.name
         requirement_level: recommended
       - ref: jvm.memory.type
         requirement_level: recommended
-  - id: metric.obi.jvm.memory.limit
-    type: metric
-    metric_name: jvm.memory.limit
+  - name: jvm.memory.limit
     annotations:
       obi:
         upstream_override: true
@@ -29,14 +27,13 @@ groups:
     instrument: updowncounter
     unit: "By"
     stability: stable
+    requirement_level: recommended
     attributes:
       - ref: jvm.memory.pool.name
         requirement_level: recommended
       - ref: jvm.memory.type
         requirement_level: recommended
-  - id: metric.obi.jvm.memory.used
-    type: metric
-    metric_name: jvm.memory.used
+  - name: jvm.memory.used
     annotations:
       obi:
         upstream_override: true
@@ -44,14 +41,13 @@ groups:
     instrument: updowncounter
     unit: "By"
     stability: stable
+    requirement_level: recommended
     attributes:
       - ref: jvm.memory.pool.name
         requirement_level: recommended
       - ref: jvm.memory.type
         requirement_level: recommended
-  - id: metric.obi.jvm.memory.used_after_last_gc
-    type: metric
-    metric_name: jvm.memory.used_after_last_gc
+  - name: jvm.memory.used_after_last_gc
     annotations:
       obi:
         upstream_override: true
@@ -59,14 +55,13 @@ groups:
     instrument: updowncounter
     unit: "By"
     stability: stable
+    requirement_level: recommended
     attributes:
       - ref: jvm.memory.pool.name
         requirement_level: recommended
       - ref: jvm.memory.type
         requirement_level: recommended
-  - id: metric.obi.jvm.class.loaded
-    type: metric
-    metric_name: jvm.class.loaded
+  - name: jvm.class.loaded
     annotations:
       obi:
         upstream_override: true
@@ -74,10 +69,8 @@ groups:
     instrument: counter
     unit: "{class}"
     stability: stable
-    attributes: []
-  - id: metric.obi.jvm.class.unloaded
-    type: metric
-    metric_name: jvm.class.unloaded
+    requirement_level: recommended
+  - name: jvm.class.unloaded
     annotations:
       obi:
         upstream_override: true
@@ -85,10 +78,8 @@ groups:
     instrument: counter
     unit: "{class}"
     stability: stable
-    attributes: []
-  - id: metric.obi.jvm.class.count
-    type: metric
-    metric_name: jvm.class.count
+    requirement_level: recommended
+  - name: jvm.class.count
     annotations:
       obi:
         upstream_override: true
@@ -96,10 +87,8 @@ groups:
     instrument: updowncounter
     unit: "{class}"
     stability: stable
-    attributes: []
-  - id: metric.obi.jvm.thread.count
-    type: metric
-    metric_name: jvm.thread.count
+    requirement_level: recommended
+  - name: jvm.thread.count
     annotations:
       obi:
         upstream_override: true
@@ -107,12 +96,11 @@ groups:
     instrument: updowncounter
     unit: "{thread}"
     stability: stable
+    requirement_level: recommended
     attributes:
       - ref: jvm.thread.daemon
         requirement_level: recommended
-  - id: metric.obi.jvm.cpu.time
-    type: metric
-    metric_name: jvm.cpu.time
+  - name: jvm.cpu.time
     annotations:
       obi:
         upstream_override: true
@@ -120,10 +108,8 @@ groups:
     instrument: counter
     unit: "s"
     stability: stable
-    attributes: []
-  - id: metric.obi.jvm.cpu.count
-    type: metric
-    metric_name: jvm.cpu.count
+    requirement_level: recommended
+  - name: jvm.cpu.count
     annotations:
       obi:
         upstream_override: true
@@ -131,10 +117,8 @@ groups:
     instrument: updowncounter
     unit: "{cpu}"
     stability: stable
-    attributes: []
-  - id: metric.obi.jvm.cpu.recent_utilization
-    type: metric
-    metric_name: jvm.cpu.recent_utilization
+    requirement_level: recommended
+  - name: jvm.cpu.recent_utilization
     annotations:
       obi:
         upstream_override: true
@@ -142,10 +126,8 @@ groups:
     instrument: gauge
     unit: "1"
     stability: stable
-    attributes: []
-  - id: metric.obi.jvm.gc.duration
-    type: metric
-    metric_name: jvm.gc.duration
+    requirement_level: recommended
+  - name: jvm.gc.duration
     annotations:
       obi:
         upstream_override: true
@@ -153,6 +135,7 @@ groups:
     instrument: histogram
     unit: "s"
     stability: stable
+    requirement_level: recommended
     attributes:
       - ref: jvm.gc.name
         requirement_level: recommended

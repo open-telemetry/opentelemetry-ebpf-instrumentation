@@ -45,8 +45,10 @@ func TestSNSAttributes(t *testing.T) {
 			// These spans describe the HTTP transport; they do not supply message creation context.
 			assert.Equal(t, trace2.SpanKindClient, spanKind(span))
 			assert.Contains(t, attrs, semconv.MessagingSystemAWSSNS)
-			assert.Contains(t, attrs, request.RPCSystem("aws-api"))
-			assert.Contains(t, attrs, semconv.RPCMethod("SNS/"+operation))
+			_, found := attrValue(attrs, string(semconv.RPCSystemNameKey))
+			assert.False(t, found, "SNS is a messaging span and carries no rpc.system.name")
+			_, found = attrValue(attrs, string(semconv.RPCMethodKey))
+			assert.False(t, found, "SNS is a messaging span and carries no rpc.method")
 			assert.Contains(t, attrs, request.MessagingOperationName(operation))
 			assert.Contains(t, attrs, semconv.CloudRegion("eu-west-1"))
 			assert.Contains(t, attrs, semconv.AWSRequestID("req-1"))

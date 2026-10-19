@@ -9,8 +9,8 @@
 #   bpf-metrics-aggregate.sh --in <dir-of-shard-dirs> --out-md <file> --out-json <file>
 #
 # Input layout (as produced by actions/download-artifact with a pattern):
-#   <in>/bpf-metrics-<shard>-<run>/summary.json
-#   <in>/bpf-metrics-<shard>-<run>/snap-*.json (ignored here)
+#   <in>/bpf-metrics-<shard>-<run>-<attempt>/summary.json
+#   <in>/bpf-metrics-<shard>-<run>-<attempt>/snap-*.json (ignored here)
 
 set -euo pipefail
 
@@ -52,8 +52,24 @@ if [ ${#summaries[@]} -eq 0 ]; then
   exit 0
 fi
 
-MERGED_JSON=$(jq -s '
-  {
+MERGED_JSON=$(jq -n '
+  [inputs | . + {
+    _attempt: (input_filename
+      | capture("/bpf-metrics-[0-9]+-[0-9]+-(?<attempt>[0-9]+)/summary[.]json$")
+      | .attempt | tonumber)
+  }]
+  | group_by(.shard)
+  | map(
+      max_by(._attempt) as $latest
+      | $latest + {
+          suites: (
+            [.[] | ._attempt as $attempt | .suites[]? | . + {_attempt: $attempt}]
+            | group_by(.name)
+            | map(max_by(._attempt) | del(._attempt))
+          )
+        }
+    )
+  | {
     shards: length,
     per_shard: map({
       shard: .shard,

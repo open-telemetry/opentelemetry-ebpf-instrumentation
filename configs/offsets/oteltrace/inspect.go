@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 
 	"go.opentelemetry.io/otel/trace"
@@ -17,4 +18,7 @@ func main() {
 	})
 
 	fmt.Println(spanContext)
+	_, span := trace.SpanFromContext(context.Background()).TracerProvider().Tracer("offsets").Start(context.Background(), "inspect")
+	fmt.Println(span.SpanContext())
+	span.End()
 }

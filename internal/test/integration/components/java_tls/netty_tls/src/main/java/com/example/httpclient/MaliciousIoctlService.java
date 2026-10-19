@@ -27,8 +27,6 @@ public class MaliciousIoctlService {
     }
 
     public IoctlResult triggerMalformedJavaTlsIoctl() {
-        Native.setProtected(true);
-
         final int savedStdinFd = LibC.INSTANCE.dup(0);
         final int saveErrno = Native.getLastError();
         if (savedStdinFd < 0) {

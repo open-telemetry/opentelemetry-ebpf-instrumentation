@@ -31,8 +31,9 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 			metrics.dotnetMetrics.clock = func() time.Time { return now }
 			sample := func(current int64, collections uint64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
 				return &runtimemetrics.DotnetRuntimeMetricSnapshot{
-					ProcessMemoryWorkingSet: &current,
-					GCCollections:           [3]*uint64{&collections},
+					ProcessCPUCount: &current, ProcessMemoryWorkingSet: &current,
+					GCCollections: [3]*uint64{&collections},
+					GCHeapSize:    [runtimemetrics.DotnetHeapGenerationCount]*int64{&current},
 				}
 			}
 			first := runtimemetrics.RuntimeMetricSnapshot{
@@ -53,9 +54,15 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 			}
 			assertValue := func(name string, want int64) {
 				t.Helper()
-				points := collectGoRuntimeInt64Points(t, reader, name)
-				require.Len(t, points, 1, name)
-				require.Equal(t, want, points[0].Value, name)
+				names := []string{name}
+				if name == attributes.DotnetProcessMemoryWorkingSet.OTEL {
+					names = append(names, attributes.DotnetProcessCPUCount.OTEL, attributes.DotnetGCHeapSize.OTEL)
+				}
+				for _, metricName := range names {
+					points := collectGoRuntimeInt64Points(t, reader, metricName)
+					require.Len(t, points, 1, metricName)
+					require.Equal(t, want, points[0].Value, metricName)
+				}
 			}
 			publish(first)
 			publish(second)
@@ -89,6 +96,8 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 				assertValue(attributes.DotnetProcessMemoryWorkingSet.OTEL, 27)
 			} else {
 				require.Empty(t, collectGoRuntimeInt64Points(t, reader, attributes.DotnetProcessMemoryWorkingSet.OTEL))
+				require.Empty(t, collectGoRuntimeInt64Points(t, reader, attributes.DotnetProcessCPUCount.OTEL))
+				require.Empty(t, collectGoRuntimeInt64Points(t, reader, attributes.DotnetGCHeapSize.OTEL))
 			}
 			publish(first)
 			assertValue(attributes.DotnetGCCollections.OTEL, 14)
@@ -181,7 +190,7 @@ func TestDotnetRuntimeCurrentValuesAggregateProcesses(t *testing.T) {
 	require.NoError(t, setupDotnetRuntimeMeters(&metrics, provider.Meter(reporterName), 0))
 	values := func(value int64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
 		return &runtimemetrics.DotnetRuntimeMetricSnapshot{
-			ProcessMemoryWorkingSet: &value, GCCommittedMemory: &value,
+			ProcessCPUCount: &value, ProcessMemoryWorkingSet: &value, GCCommittedMemory: &value,
 			ThreadPoolThreadCount: &value, ThreadPoolQueueLength: &value,
 			TimerCount: &value, AssemblyCount: &value,
 		}
@@ -189,7 +198,7 @@ func TestDotnetRuntimeCurrentValuesAggregateProcesses(t *testing.T) {
 	assertTotal := func(want int64) {
 		t.Helper()
 		for _, name := range []attributes.Name{
-			attributes.DotnetProcessMemoryWorkingSet, attributes.DotnetGCCommittedMemory,
+			attributes.DotnetProcessCPUCount, attributes.DotnetProcessMemoryWorkingSet, attributes.DotnetGCCommittedMemory,
 			attributes.DotnetThreadPoolThreadCount, attributes.DotnetThreadPoolQueueLength,
 			attributes.DotnetTimerCount, attributes.DotnetAssemblyCount,
 		} {
@@ -229,7 +238,7 @@ func TestDotnetRuntimeCurrentValuesAggregateProcesses(t *testing.T) {
 	second.Removed = true
 	recordDotnetRuntimeMetrics(t.Context(), &metrics, second)
 	for _, name := range []attributes.Name{
-		attributes.DotnetProcessMemoryWorkingSet, attributes.DotnetGCCommittedMemory,
+		attributes.DotnetProcessCPUCount, attributes.DotnetProcessMemoryWorkingSet, attributes.DotnetGCCommittedMemory,
 		attributes.DotnetThreadPoolThreadCount, attributes.DotnetThreadPoolQueueLength,
 		attributes.DotnetTimerCount, attributes.DotnetAssemblyCount,
 	} {
@@ -319,12 +328,15 @@ func TestDotnetRuntimeCounterSnapshots(t *testing.T) {
 func TestDotnetRuntimeCumulativeDurationCounters(t *testing.T) {
 	for _, tc := range []struct {
 		name attributes.Name
+		mode string
 		set  func(*runtimemetrics.DotnetRuntimeMetricSnapshot, *float64)
 	}{
-		{attributes.DotnetGCPauseTime, func(s *runtimemetrics.DotnetRuntimeMetricSnapshot, v *float64) { s.GCPauseTime = v }},
-		{attributes.DotnetJITCompilationTime, func(s *runtimemetrics.DotnetRuntimeMetricSnapshot, v *float64) { s.JITCompilationTime = v }},
+		{attributes.DotnetGCPauseTime, "", func(s *runtimemetrics.DotnetRuntimeMetricSnapshot, v *float64) { s.GCPauseTime = v }},
+		{attributes.DotnetJITCompilationTime, "", func(s *runtimemetrics.DotnetRuntimeMetricSnapshot, v *float64) { s.JITCompilationTime = v }},
+		{attributes.DotnetProcessCPUTime, "user", func(s *runtimemetrics.DotnetRuntimeMetricSnapshot, v *float64) { s.ProcessCPUTimeUser = v }},
+		{attributes.DotnetProcessCPUTime, "system", func(s *runtimemetrics.DotnetRuntimeMetricSnapshot, v *float64) { s.ProcessCPUTimeSystem = v }},
 	} {
-		t.Run(tc.name.OTEL, func(t *testing.T) {
+		t.Run(tc.name.OTEL+"/"+tc.mode, func(t *testing.T) {
 			reader := metric.NewManualReader()
 			provider := metric.NewMeterProvider(metric.WithReader(reader))
 			t.Cleanup(func() { require.NoError(t, provider.Shutdown(t.Context())) })
@@ -350,7 +362,14 @@ func TestDotnetRuntimeCumulativeDurationCounters(t *testing.T) {
 						require.True(t, sum.IsMonotonic)
 						require.Equal(t, metricdata.CumulativeTemporality, sum.Temporality)
 						require.Len(t, sum.DataPoints, 1)
-						require.Zero(t, sum.DataPoints[0].Attributes.Len())
+						if tc.mode == "" {
+							require.Zero(t, sum.DataPoints[0].Attributes.Len())
+						} else {
+							require.Equal(t, 1, sum.DataPoints[0].Attributes.Len())
+							mode, ok := sum.DataPoints[0].Attributes.Value("cpu.mode")
+							require.True(t, ok)
+							require.Equal(t, tc.mode, mode.AsString())
+						}
 						require.InDelta(t, expected, sum.DataPoints[0].Value, 1e-12)
 						return
 					}
@@ -497,4 +516,67 @@ func TestDotnetRuntimeCumulativeIntegerCounters(t *testing.T) {
 			assertTotal(39)
 		})
 	}
+}
+
+func TestDotnetHeapSizeLifecycle(t *testing.T) {
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(t.Context())) })
+	var metrics dotnetRuntimeMetrics
+	require.NoError(t, setupDotnetRuntimeMeters(&metrics, provider.Meter(reporterName), 0))
+	sample := func(base int64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+		values := &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+		for generation := range values.GCHeapSize {
+			value := base + int64(generation)
+			values.GCHeapSize[generation] = &value
+		}
+		return values
+	}
+	assertSizes := func(base int64, contributors int) {
+		t.Helper()
+		points := collectGoRuntimeInt64Points(t, reader, attributes.DotnetGCHeapSize.OTEL)
+		if contributors == 0 {
+			require.Empty(t, points)
+			return
+		}
+		collected := collectGoRuntimeInt64Metric(t, reader, attributes.DotnetGCHeapSize.OTEL)
+		require.Equal(t, "By", collected.Unit)
+		sum, ok := collected.Data.(metricdata.Sum[int64])
+		require.True(t, ok)
+		require.False(t, sum.IsMonotonic)
+		require.Len(t, points, runtimemetrics.DotnetHeapGenerationCount)
+		got := map[string]int64{}
+		for _, point := range points {
+			generation, ok := point.Attributes.Value("dotnet.gc.heap.generation")
+			require.True(t, ok)
+			got[generation.AsString()] = point.Value
+		}
+		for generation, name := range runtimemetrics.DotnetHeapGenerations() {
+			require.Equal(t, base+int64(generation*contributors), got[name], name)
+		}
+	}
+	first := runtimemetrics.RuntimeMetricSnapshot{PID: 1, Generation: 1, Dotnet: sample(100)}
+	second := runtimemetrics.RuntimeMetricSnapshot{PID: 2, Generation: 1, Dotnet: sample(200)}
+	recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+	recordDotnetRuntimeMetrics(t.Context(), &metrics, second)
+	assertSizes(300, 2)
+	first.Dotnet = sample(0)
+	recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+	assertSizes(200, 2)
+	first.Generation++
+	first.Dotnet = sample(10)
+	recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+	assertSizes(210, 2)
+	stale := first
+	stale.Generation--
+	stale.Removed = true
+	recordDotnetRuntimeMetrics(t.Context(), &metrics, stale)
+	assertSizes(210, 2)
+	second.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+	recordDotnetRuntimeMetrics(t.Context(), &metrics, second)
+	assertSizes(10, 1)
+	first.Removed = true
+	recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+	assertSizes(0, 0)
+	require.Equal(t, dotnetRuntimeMetricCounts{}, metrics.activeCurrent)
 }

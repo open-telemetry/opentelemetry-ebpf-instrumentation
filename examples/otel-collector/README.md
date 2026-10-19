@@ -2,9 +2,12 @@
 
 This example demonstrates how to build and run the OpenTelemetry Collector with OBI as a receiver component for zero-code eBPF instrumentation.
 
+The receiver is the separate `go.opentelemetry.io/obi/collector`
+module. Its package import path is the same as before the module split.
+
 ## Prerequisites
 
-- Go 1.25 or later
+- Go 1.26 or later
 - [OTel Collector Builder (`ocb`)](https://opentelemetry.io/docs/collector/extend/ocb/) installed. The `.github/workflows/pull_request.yml` workflow installs the version matching the OpenTelemetry Collector version in `go.mod`.
 - Docker (for generating eBPF files) or a C compiler, clang, and eBPF headers
 - Linux system with elevated privileges (sudo) to run the collector

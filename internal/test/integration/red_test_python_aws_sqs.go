@@ -63,7 +63,7 @@ func sqsRequestWithData[T sqsQueueURL | sqsMessages](t *testing.T, url string) T
 }
 
 func assertSQSOperation(t require.TestingT, op, expectedQueueURL, expectedMessageID, expectedOperationType string) {
-	opName := "sqs." + op
+	opName := "SQS." + op
 
 	span := fetchAWSSpanByOP(t, opName)
 	require.Equal(t, opName, span.OperationName)

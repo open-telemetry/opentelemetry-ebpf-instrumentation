@@ -37,10 +37,10 @@ func TestGenAIProviderNamesMatchRegistry(t *testing.T) {
 	// The provider enum is the first `members:` block in the file; stop at the
 	// next attribute so later enums do not leak in.
 	section := string(body)
-	start := regexp.MustCompile(`(?m)^\s+- id: gen_ai\.provider\.name$`).FindStringIndex(section)
+	start := regexp.MustCompile(`(?m)^\s+- key: gen_ai\.provider\.name$`).FindStringIndex(section)
 	require.NotNil(t, start, "gen_ai.provider.name not declared in %s", path)
 	section = section[start[1]:]
-	if end := regexp.MustCompile(`(?m)^\s+- id: gen_ai\.operation\.name$`).FindStringIndex(section); end != nil {
+	if end := regexp.MustCompile(`(?m)^\s+- key: gen_ai\.operation\.name$`).FindStringIndex(section); end != nil {
 		section = section[:end[0]]
 	}
 
