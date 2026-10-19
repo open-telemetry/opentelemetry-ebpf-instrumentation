@@ -75,11 +75,11 @@ attribute_groups:
   - id: registry.obi.service_graph
     visibility: public
     brief: >
-      Attributes used by OBI's service-graph emission. The metric names and
+      Attributes used by OBI's service-graph and connection-info emissions. The metric names and
       label set match the output of the OTel collector-contrib
       `servicegraphconnector` so the same dashboards consume both
       OBI-emitted and connector-emitted data. Emitted when OBI's
-      `application_service_graph` metrics feature is enabled.
+      `application_service_graph` or `application_connection_info` metrics feature is enabled.
 
       The OBI-specific `source` attribute is declared in `obi_internal/registry.yaml`.
 

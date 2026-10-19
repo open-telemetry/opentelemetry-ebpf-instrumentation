@@ -48,6 +48,101 @@ import (
 
 const timeout = 5 * time.Second
 
+func TestConnectionInfoIsAnIndependentPresenceMetric(t *testing.T) {
+	ctx := t.Context()
+	registry, promURL := newPrometheusTestServer(t)
+	features := export.FeatureConnectionInfo
+	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	exporter, err := PrometheusEndpoint(
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{
+			Port:                        registry.Port,
+			Path:                        "/metrics",
+			TTL:                         time.Second,
+			SpanMetricsServiceCacheSize: 10,
+			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+		},
+		&perapp.GlobalMetricsConfig{Features: features},
+		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{}},
+		request.UnresolvedNames{},
+		promInput,
+		processEvents,
+		nil,
+	)(ctx)
+	require.NoError(t, err)
+	go exporter(ctx)
+
+	client := svc.Attrs{Features: features, UID: svc.UID{Name: "frontend", Namespace: "shop"}}
+	span := request.Span{
+		Service:        client,
+		Type:           request.EventTypeHTTPClient,
+		Host:           "frontend-pod",
+		HostName:       "catalog",
+		OtherNamespace: "shop",
+	}
+	promInput.Send([]request.Span{span})
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		exported := getMetrics(ct, promURL)
+		assert.Contains(ct, exported, "traces_service_graph_connection_info{")
+		assert.Contains(ct, exported, `client="frontend"`)
+		assert.Contains(ct, exported, `server="catalog"`)
+		assert.NotContains(ct, exported, "http_client_request_duration_seconds_count")
+	}, timeout, 100*time.Millisecond)
+
+	time.Sleep(500 * time.Millisecond)
+	promInput.Send([]request.Span{span})
+	awaitSpanProcessing()
+	time.Sleep(600 * time.Millisecond)
+	assert.Contains(t, getMetrics(t, promURL), "traces_service_graph_connection_info{")
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.NotContains(ct, getMetrics(ct, promURL), "traces_service_graph_connection_info{")
+	}, timeout, 100*time.Millisecond)
+}
+
+func TestConnectionInfoPrometheusConnectionTypeLabel(t *testing.T) {
+	getters := attributes.PrometheusGetters(
+		request.SpanPromGetters(request.UnresolvedNames{}),
+		[]attr.Name{attr.Client, attr.ClientNamespace, attr.Server, attr.ServerNamespace, attr.Source},
+	)
+	tracker := otel.NewPidServiceTracker()
+	tracker.AddPID(1, svc.UID{Name: "catalog", Namespace: "shop"})
+	labelNames := labelNamesSvcGraph(getters)
+	assert.Equal(t, attr.ConnectionType.Prom(), labelNames[len(labelNames)-1])
+
+	for _, test := range []struct {
+		name string
+		span request.Span
+		want string
+	}{
+		{
+			name: "direct HTTP uses empty label value",
+			span: request.Span{
+				Type:           request.EventTypeHTTPClient,
+				Service:        svc.Attrs{UID: svc.UID{Name: "frontend", Namespace: "shop"}},
+				HostName:       "catalog",
+				OtherNamespace: "shop",
+			},
+		},
+		{
+			name: "database",
+			span: request.Span{Type: request.EventTypeSQLClient, HostName: "postgres"},
+			want: "database",
+		},
+		{
+			name: "messaging",
+			span: request.Span{Type: request.EventTypeKafkaClient, HostName: "broker"},
+			want: "messaging_system",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			values := labelValuesSvcGraph(&test.span, getters, &tracker)
+			assert.Equal(t, test.want, values[len(values)-1])
+		})
+	}
+}
+
 // application_red keeps the RED histograms while dropping the four Opt-In body size
 // histograms, which is the whole point of splitting them into their own feature.
 func TestAppMetrics_BodySizeFeature(t *testing.T) {

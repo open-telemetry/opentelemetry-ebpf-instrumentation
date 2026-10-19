@@ -56,6 +56,7 @@ const (
 	FeatureGraph
 	FeatureApplicationRuntime
 	FeatureEBPF
+	FeatureConnectionInfo
 	FeatureAll = Features(^uint(0)) // all bits to 1
 )
 
@@ -84,6 +85,7 @@ var FeatureMapper = map[string]Features{
 	"application_span_otel":            FeatureSpanOTel,
 	"application_span_sizes":           FeatureSpanSizes,
 	"application_service_graph":        FeatureGraph,
+	"application_connection_info":      FeatureConnectionInfo,
 	"application_runtime":              FeatureApplicationRuntime,
 	"ebpf":                             FeatureEBPF,
 	"all":                              FeatureAll,
@@ -312,7 +314,7 @@ func (f Features) Empty() bool {
 }
 
 func (f Features) AnyAppO11yMetric() bool {
-	return f.any(AppO11yFeatures | FeatureApplicationRuntime)
+	return f.any(AppO11yFeatures | FeatureApplicationRuntime | FeatureConnectionInfo)
 }
 
 func (f Features) SpanMetrics() bool {
@@ -346,6 +348,15 @@ func (f Features) LegacySpanMetrics() bool {
 
 func (f Features) ServiceGraph() bool {
 	return f.any(FeatureGraph)
+}
+
+func (f Features) ConnectionInfo() bool {
+	return f.any(FeatureConnectionInfo)
+}
+
+// Topology reports whether service-graph or connection-info metrics are enabled.
+func (f Features) Topology() bool {
+	return f.ServiceGraph() || f.ConnectionInfo()
 }
 
 func (f Features) AppRuntime() bool {

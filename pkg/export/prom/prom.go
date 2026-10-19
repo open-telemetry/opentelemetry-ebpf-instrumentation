@@ -53,10 +53,11 @@ var (
 	TracesTargetInfo         = attributes.TracesTargetInfo.Prom
 	TargetInfo               = attributes.TargetInfo.Prom
 
-	ServiceGraphClient = attributes.ServiceGraphClient.Prom
-	ServiceGraphServer = attributes.ServiceGraphServer.Prom
-	ServiceGraphFailed = attributes.ServiceGraphFailed.Prom
-	ServiceGraphTotal  = attributes.ServiceGraphTotal.Prom
+	ServiceGraphClient         = attributes.ServiceGraphClient.Prom
+	ServiceGraphServer         = attributes.ServiceGraphServer.Prom
+	ServiceGraphFailed         = attributes.ServiceGraphFailed.Prom
+	ServiceGraphTotal          = attributes.ServiceGraphTotal.Prom
+	ServiceGraphConnectionInfo = attributes.ServiceGraphConnectionInfo.Prom
 )
 
 const (
@@ -107,7 +108,7 @@ type PrometheusConfig struct {
 	DisableBuildInfo bool `yaml:"disable_build_info" env:"OTEL_EBPF_PROMETHEUS_DISABLE_BUILD_INFO"`
 
 	// Features specifies which metric features to export. Accepted values: application, network,
-	// application_span, application_service_graph, ...
+	// application_span, application_service_graph, application_connection_info, ...
 	//
 	// Deprecated: use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead.
 	DeprFeatures export.Features `yaml:"features" env:"OTEL_EBPF_PROMETHEUS_FEATURES" envSeparator:","`
@@ -223,10 +224,11 @@ type metricsReporter struct {
 	tracesTargetInfo             *prometheus.GaugeVec
 
 	// trace service graph
-	serviceGraphClient *Expirer[prometheus.Histogram]
-	serviceGraphServer *Expirer[prometheus.Histogram]
-	serviceGraphFailed *Expirer[prometheus.Counter]
-	serviceGraphTotal  *Expirer[prometheus.Counter]
+	serviceGraphClient         *Expirer[prometheus.Histogram]
+	serviceGraphServer         *Expirer[prometheus.Histogram]
+	serviceGraphFailed         *Expirer[prometheus.Counter]
+	serviceGraphTotal          *Expirer[prometheus.Counter]
+	serviceGraphConnectionInfo *Expirer[prometheus.Gauge]
 
 	// gpu related metrics
 	cudaKernelCallsTotal            *Expirer[prometheus.Counter]
@@ -494,7 +496,7 @@ func newReporter(
 	kubeEnabled := ctxInfo.K8sInformer.IsKubeEnabled()
 	dockerEnabled := ctxInfo.DockerMetadata.IsEnabled(ctx)
 
-	if jointMetricsConfig.Features.ServiceGraph() {
+	if jointMetricsConfig.Features.Topology() {
 		attrs := []attr.Name{attr.Client, attr.ClientNamespace, attr.Server, attr.ServerNamespace, attr.Source}
 		if kubeEnabled {
 			attrs = append(attrs, attr.K8SClientCluster, attr.K8SServerCluster, attr.K8SClientNamespace, attr.K8SServerNamespace)
@@ -767,6 +769,12 @@ func newReporter(
 			return NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
 				Name: ServiceGraphTotal,
 				Help: "number of service calls in trace service graph metrics format",
+			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, timeNow, cfg.TTL)
+		}),
+		serviceGraphConnectionInfo: optionalGaugeProvider(jointMetricsConfig.Features.ConnectionInfo(), func() *Expirer[prometheus.Gauge] {
+			return NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
+				Name: ServiceGraphConnectionInfo,
+				Help: "whether a client-to-server connection has been observed recently",
 			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, timeNow, cfg.TTL)
 		}),
 		targetInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
@@ -1049,6 +1057,9 @@ func newReporter(
 			mr.serviceGraphTotal,
 		)
 	}
+	if jointMetricsConfig.Features.ConnectionInfo() {
+		registeredMetrics = append(registeredMetrics, mr.serviceGraphConnectionInfo)
+	}
 
 	if jointMetricsConfig.Features.AnySpanMetrics() {
 		registeredMetrics = append(registeredMetrics, mr.tracesTargetInfo)
@@ -1125,6 +1136,14 @@ func optionalHistogramProvider(enable bool, provider func() *Expirer[prometheus.
 }
 
 func optionalCounterProvider(enable bool, provider func() *Expirer[prometheus.Counter]) *Expirer[prometheus.Counter] {
+	if !enable {
+		return nil
+	}
+
+	return provider()
+}
+
+func optionalGaugeProvider(enable bool, provider func() *Expirer[prometheus.Gauge]) *Expirer[prometheus.Gauge] {
 	if !enable {
 		return nil
 	}
@@ -1232,7 +1251,8 @@ func (r *metricsReporter) otelMetricsObserved(span *request.Span) bool {
 }
 
 func (r *metricsReporter) otelSpanMetricsObserved(span *request.Span) bool {
-	return span.Service.Features.AnySpanMetrics() && !span.Service.ExportsOTelMetricsSpan() && !span.IsDNSSpan()
+	return (span.Service.Features.AnySpanMetrics() || span.Service.Features.ConnectionInfo()) &&
+		!span.Service.ExportsOTelMetricsSpan() && !span.IsDNSSpan()
 }
 
 func (r *metricsReporter) otelSpanFiltered(span *request.Span) bool {
@@ -1561,6 +1581,10 @@ func (r *metricsReporter) observe(span *request.Span) {
 					r.addCounter(r.serviceGraphFailed.WithLabelValues(lvg...).Metric, 1, span)
 				}
 			}
+		}
+		if span.Service.Features.ConnectionInfo() && request.HasConnectionInfoEdge(span) {
+			labels := labelValuesSvcGraph(span, r.attrSvcGraph, &r.pidsTracker)
+			r.serviceGraphConnectionInfo.WithLabelValues(labels...).Metric.Set(1)
 		}
 	}
 }

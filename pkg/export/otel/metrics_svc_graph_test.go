@@ -19,8 +19,10 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -82,6 +84,137 @@ func TestServiceGraphMetrics(t *testing.T) {
 		"traces_service_graph_request_failed_total:client-host:server-host": {},
 		"traces_service_graph_request_total:client-host:server-host":        {},
 	}, reported)
+}
+
+func TestConnectionInfoEmitsPresenceGaugeFromOneClientSpan(t *testing.T) {
+	defer otelcfg.RestoreEnvAfterExecution()()
+	ctx := t.Context()
+	otlp, err := collector.Start(ctx)
+	require.NoError(t, err)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(20))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	metricCfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		CommonEndpoint:    otlp.ServerEndpoint,
+		MetricsProtocol:   otelcfg.ProtocolHTTPProtobuf,
+		TTL:               time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+	}
+	features := export.Features(export.FeatureConnectionInfo)
+	run, err := ReportSvcGraphMetrics(
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: metricCfg}},
+		metricCfg, &perapp.GlobalMetricsConfig{Features: features}, &attributes.SelectorConfig{},
+		request.UnresolvedNames{}, metrics, processEvents,
+	)(ctx)
+	require.NoError(t, err)
+	go run(ctx)
+
+	client := svc.Attrs{Features: features, UID: svc.UID{Name: "frontend", Namespace: "shop"}}
+	metrics.Send([]request.Span{{
+		Service:        client,
+		Type:           request.EventTypeHTTPClient,
+		Host:           "frontend-pod",
+		HostName:       "catalog",
+		OtherNamespace: "shop",
+	}})
+
+	records := readNChan(t, otlp.Records(), 2, timeout)
+	for _, record := range records {
+		require.Equal(t, attributes.ServiceGraphConnectionInfo.OTEL, record.Name)
+		assert.Equal(t, int64(1), record.IntVal)
+		assert.Equal(t, "frontend", record.Attributes["client"])
+		assert.Equal(t, "catalog", record.Attributes["server"])
+	}
+}
+
+func TestConnectionInfoOnlyCreatesConnectionInfoInstrument(t *testing.T) {
+	defer otelcfg.RestoreEnvAfterExecution()()
+	ctx := t.Context()
+	metricCfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               time.Minute,
+		ReportersCacheLen: 10,
+	}
+	exporter, err := (&otelcfg.MetricsExporterInstancer{Cfg: metricCfg}).Instantiate(ctx)
+	require.NoError(t, err)
+
+	reporter := &SvcGraphMetricsReporter{
+		ctx:                   ctx,
+		cfg:                   metricCfg,
+		exporter:              exporter,
+		metricAttributes:      serviceGraphGetters(request.UnresolvedNames{}, false),
+		serviceGraphEnabled:   false,
+		connectionInfoEnabled: true,
+		log:                   sglog(),
+	}
+	metrics, err := reporter.newMetricSet(nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		metrics.cleanupAllMetricsInstances()
+		_ = metrics.provider.Shutdown(ctx)
+		_ = exporter.Shutdown(ctx)
+	})
+
+	assert.NotNil(t, metrics.connectionInfo)
+	assert.Nil(t, metrics.serviceGraphClient)
+	assert.Nil(t, metrics.serviceGraphServer)
+	assert.Nil(t, metrics.serviceGraphFailed)
+	assert.Nil(t, metrics.serviceGraphTotal)
+}
+
+func TestConnectionInfoConnectionTypeAttribute(t *testing.T) {
+	tracker := NewPidServiceTracker()
+	tracker.AddPID(1, svc.UID{Name: "catalog", Namespace: "shop"})
+	fields := serviceGraphGetters(request.UnresolvedNames{}, false)
+
+	for _, test := range []struct {
+		name          string
+		span          request.Span
+		wantConnType  string
+		wantAttribute bool
+	}{
+		{
+			name: "direct HTTP is omitted",
+			span: request.Span{
+				Type:           request.EventTypeHTTPClient,
+				Service:        svc.Attrs{UID: svc.UID{Name: "frontend", Namespace: "shop"}},
+				HostName:       "catalog",
+				OtherNamespace: "shop",
+			},
+		},
+		{
+			name: "database",
+			span: request.Span{
+				Type:           request.EventTypeSQLClient,
+				Service:        svc.Attrs{UID: svc.UID{Name: "frontend", Namespace: "shop"}},
+				HostName:       "postgres",
+				OtherNamespace: "shop",
+			},
+			wantConnType:  "database",
+			wantAttribute: true,
+		},
+		{
+			name: "messaging",
+			span: request.Span{
+				Type:           request.EventTypeKafkaClient,
+				Service:        svc.Attrs{UID: svc.UID{Name: "frontend", Namespace: "shop"}},
+				HostName:       "broker",
+				OtherNamespace: "shop",
+			},
+			wantConnType:  "messaging_system",
+			wantAttribute: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			attrs := connectionInfoAttributes(&test.span, fields, &tracker)
+			value, ok := attrs.Value(attr.ConnectionType.OTEL())
+			assert.Equal(t, test.wantAttribute, ok)
+			if test.wantAttribute {
+				assert.Equal(t, test.wantConnType, value.AsString())
+			}
+		})
+	}
 }
 
 func TestServiceGraphConnectionType(t *testing.T) {
