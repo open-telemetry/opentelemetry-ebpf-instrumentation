@@ -1583,7 +1583,7 @@ func (r *metricsReporter) observe(span *request.Span) {
 			}
 		}
 		if span.Service.Features.ConnectionInfo() && request.HasConnectionInfoEdge(span) {
-			labels := labelValuesSvcGraph(span, r.attrSvcGraph, &r.pidsTracker)
+			labels := labelValuesConnectionInfo(span, r.attrSvcGraph, &r.pidsTracker)
 			r.serviceGraphConnectionInfo.WithLabelValues(labels...).Metric.Set(1)
 		}
 	}
@@ -1774,6 +1774,20 @@ func labelNamesSvcGraph(getters []attributes.Field[*request.Span, string]) []str
 
 func labelValuesSvcGraph(span *request.Span, getters []attributes.Field[*request.Span, string], tracker *otel.PidServiceTracker) []string {
 	return append(labelValues(span, getters), otel.ConnectionTypeForSpan(span, tracker))
+}
+
+func labelValuesConnectionInfo(span *request.Span, getters []attributes.Field[*request.Span, string], tracker *otel.PidServiceTracker) []string {
+	values := labelValues(span, getters)
+	for i, getter := range getters {
+		switch getter.ExposedName {
+		case attr.Client.Prom():
+			values[i] = span.Service.UID.Name
+		case attr.ClientNamespace.Prom():
+			values[i] = span.Service.UID.Namespace
+		}
+	}
+	values = sanitizeValues(values)
+	return append(values, otel.ConnectionTypeForSpan(span, tracker))
 }
 
 func labelValues[T any](s T, getters []attributes.Field[T, string]) []string {

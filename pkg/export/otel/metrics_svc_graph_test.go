@@ -133,6 +133,7 @@ func TestConnectionInfoOnlyCreatesConnectionInfoInstrument(t *testing.T) {
 	ctx := t.Context()
 	metricCfg := &otelcfg.MetricsConfig{
 		Interval:          50 * time.Millisecond,
+		CommonEndpoint:    "http://localhost:4318",
 		TTL:               time.Minute,
 		ReportersCacheLen: 10,
 	}

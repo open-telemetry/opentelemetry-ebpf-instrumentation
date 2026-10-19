@@ -438,6 +438,14 @@ func connectionInfoAttributes(
 ) attribute.Set {
 	attrs := make([]attribute.KeyValue, 0, len(fields)+1)
 	for _, field := range fields {
+		if field.ExposedName == string(attr.Client.OTEL()) {
+			attrs = append(attrs, attribute.String(string(attr.Client.OTEL()), span.Service.UID.Name))
+			continue
+		}
+		if field.ExposedName == string(attr.ClientNamespace.OTEL()) {
+			attrs = append(attrs, attribute.String(string(attr.ClientNamespace.OTEL()), span.Service.UID.Namespace))
+			continue
+		}
 		if kv := field.Get(span); kv.Valid() {
 			attrs = append(attrs, kv)
 		}

@@ -49,6 +49,10 @@ import (
 const timeout = 5 * time.Second
 
 func TestConnectionInfoIsAnIndependentPresenceMetric(t *testing.T) {
+	previousTimeNow := timeNow
+	timeNow = time.Now
+	t.Cleanup(func() { timeNow = previousTimeNow })
+
 	ctx := t.Context()
 	registry, promURL := newPrometheusTestServer(t)
 	features := export.FeatureConnectionInfo
@@ -59,7 +63,7 @@ func TestConnectionInfoIsAnIndependentPresenceMetric(t *testing.T) {
 		&PrometheusConfig{
 			Port:                        registry.Port,
 			Path:                        "/metrics",
-			TTL:                         time.Second,
+			TTL:                         2 * time.Second,
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
@@ -72,8 +76,13 @@ func TestConnectionInfoIsAnIndependentPresenceMetric(t *testing.T) {
 	)(ctx)
 	require.NoError(t, err)
 	go exporter(ctx)
-
-	client := svc.Attrs{Features: features, UID: svc.UID{Name: "frontend", Namespace: "shop"}}
+	exportModes := services.NewExportModes()
+	exportModes.AllowMetrics()
+	client := svc.Attrs{
+		Features:    features,
+		ExportModes: exportModes,
+		UID:         svc.UID{Name: "frontend", Namespace: "shop"},
+	}
 	span := request.Span{
 		Service:        client,
 		Type:           request.EventTypeHTTPClient,
@@ -81,9 +90,9 @@ func TestConnectionInfoIsAnIndependentPresenceMetric(t *testing.T) {
 		HostName:       "catalog",
 		OtherNamespace: "shop",
 	}
-	promInput.Send([]request.Span{span})
-
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		promInput.Send([]request.Span{span})
+		awaitSpanProcessing()
 		exported := getMetrics(ct, promURL)
 		assert.Contains(ct, exported, "traces_service_graph_connection_info{")
 		assert.Contains(ct, exported, `client="frontend"`)

@@ -39,8 +39,8 @@ func TestConnectionInfoFeatureIsOptIn(t *testing.T) {
 
 func TestServiceTopology(t *testing.T) {
 	assert.False(t, Features(0).ServiceTopology())
-	assert.True(t, Features(FeatureGraph).ServiceTopology())
-	assert.True(t, Features(FeatureConnectionInfo).ServiceTopology())
+	assert.True(t, FeatureGraph.ServiceTopology())
+	assert.True(t, FeatureConnectionInfo.ServiceTopology())
 }
 
 func TestFeatureEnv(t *testing.T) {
