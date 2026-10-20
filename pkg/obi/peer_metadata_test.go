@@ -85,6 +85,7 @@ func TestConfigV1PeerMetadataYAML(t *testing.T) {
 }
 
 func TestConfigV1PeerMetadataValidation(t *testing.T) {
+	t.Setenv("OTEL_EBPF_EXECUTABLE_PATH", "python")
 	for _, field := range []string{"port: 0", "port: 65536", "caller_ttl: 0s", "max_peers: 0", "peer_cidrs: [invalid]", "tls: {enabled: true}"} {
 		t.Run(field, func(t *testing.T) {
 			cfg, err := LoadConfig(strings.NewReader("peer_metadata:\n  enabled: true\n  " + field + "\n"))
