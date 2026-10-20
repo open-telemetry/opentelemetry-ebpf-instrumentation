@@ -4,9 +4,13 @@
 package cloud
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -324,7 +328,7 @@ func TestRoute53PrivateDiscoveryFailureRetainsSnapshot(t *testing.T) {
 	inventory := NewInventory([]MetadataRefresher{refresher})
 	inventory.refresh(t.Context())
 	require.Equal(t, "local.example", inventory.snapshot.ServiceByIP["10.0.0.2"])
-	for _, err := range []error{errors.New("access denied"), &smithy.GenericAPIError{Code: "Throttling"}} {
+	for _, err := range []error{&smithy.GenericAPIError{Code: "AccessDenied"}, &smithy.GenericAPIError{Code: "Throttling"}} {
 		apiError = err
 		inventory.refresh(t.Context())
 		require.Equal(t, "local.example", inventory.snapshot.ServiceByIP["10.0.0.2"])
@@ -333,4 +337,81 @@ func TestRoute53PrivateDiscoveryFailureRetainsSnapshot(t *testing.T) {
 	apiError = nil
 	inventory.refresh(t.Context())
 	require.Zero(t, refresher.backoff)
+}
+
+func TestRoute53InitialAccessDeniedStopsPolling(t *testing.T) {
+	for _, operation := range []string{"public zones", "private zones", "records", "explicit records"} {
+		for _, code := range []string{"AccessDenied", "AccessDeniedException"} {
+			t.Run(operation+"/"+code, func(t *testing.T) {
+				synctest.Test(t, func(t *testing.T) {
+					var apiError error = &smithy.GenericAPIError{Code: code}
+					denials := 0
+					deny := func(at string) error {
+						if at == strings.TrimPrefix(operation, "explicit ") && apiError != nil {
+							denials++
+							return apiError
+						}
+						return nil
+					}
+					client := fakeRoute53Client{
+						zones: func(*route53.ListHostedZonesInput) (*route53.ListHostedZonesOutput, error) {
+							if err := deny("public zones"); err != nil {
+								return nil, err
+							}
+							return &route53.ListHostedZonesOutput{}, nil
+						},
+						privateZones: func(*route53.ListHostedZonesByVPCInput) (*route53.ListHostedZonesByVPCOutput, error) {
+							if err := deny("private zones"); err != nil {
+								return nil, err
+							}
+							return &route53.ListHostedZonesByVPCOutput{HostedZoneSummaries: []types.HostedZoneSummary{{HostedZoneId: aws.String("private")}}}, nil
+						},
+						list: func(*route53.ListResourceRecordSetsInput) (*route53.ListResourceRecordSetsOutput, error) {
+							if err := deny("records"); err != nil {
+								return nil, err
+							}
+							return &route53.ListResourceRecordSetsOutput{ResourceRecordSets: []types.ResourceRecordSet{route53Record("service.example.", "10.0.0.2", types.RRTypeA)}}, nil
+						},
+					}
+					var zones []string
+					if operation == "explicit records" {
+						zones = []string{"private"}
+					}
+					refresher := NewRoute53Inventory(client, zones)
+					refresher.RefreshInterval = time.Second
+					refresher.VPCID, refresher.VPCRegion = "vpc-local", "us-east-1"
+					inventory := NewInventory([]MetadataRefresher{refresher})
+					var logs bytes.Buffer
+					inventory.log = slog.New(slog.NewTextHandler(&logs, nil))
+					ctx, cancel := context.WithCancel(t.Context())
+					defer cancel()
+					run, err := InventoryRefresherNode(inventory, time.Second)(ctx)
+					require.NoError(t, err)
+					done := make(chan struct{})
+					go func() { defer close(done); run(ctx) }()
+					select {
+					case <-done:
+					case <-time.After(2 * time.Second):
+						t.Fatal("unavailable source kept polling")
+					}
+					require.Equal(t, 1, denials)
+					require.Equal(t, 1, strings.Count(logs.String(), "level=WARN"))
+					require.Contains(t, logs.String(), "route53:ListResourceRecordSets")
+					require.Contains(t, logs.String(), "restart OBI")
+					if operation == "explicit records" {
+						require.NotContains(t, logs.String(), "route53:ListHostedZones")
+					} else {
+						require.Contains(t, logs.String(), "route53:ListHostedZonesByVPC")
+					}
+					apiError = nil
+					inventory.refresh(t.Context())
+					require.Empty(t, inventory.snapshot.ServiceByIP)
+					require.Equal(t, 1, strings.Count(logs.String(), "level=WARN"))
+					restarted := NewInventory([]MetadataRefresher{refresher})
+					restarted.refresh(t.Context())
+					require.Equal(t, "service.example", restarted.snapshot.ServiceByIP["10.0.0.2"])
+				})
+			})
+		}
+	}
 }

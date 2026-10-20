@@ -5,6 +5,7 @@ package cloud // import "go.opentelemetry.io/obi/pkg/cloud"
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"math/rand/v2"
@@ -17,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
 	"github.com/aws/aws-sdk-go-v2/service/route53"
 	"github.com/aws/aws-sdk-go-v2/service/route53/types"
+	"github.com/aws/smithy-go"
 )
 
 // route53EscapedWildcard is the octal escape that Route53 returns for a "*" wildcard label.
@@ -34,6 +36,7 @@ type Route53Inventory struct {
 	RefreshInterval time.Duration
 	VPCID           string
 	VPCRegion       string
+	initialized     bool
 	backoff         time.Duration
 	client          Route53Client
 	hostedZoneIDs   []string
@@ -52,8 +55,21 @@ func (i *Route53Inventory) Name() string { return "route53" }
 func (i *Route53Inventory) Refresh(ctx context.Context, snapshot *MetadataSnapshot) error {
 	err := i.refresh(ctx, snapshot)
 	if err == nil {
+		i.initialized = true
 		i.backoff = 0
 		return nil
+	}
+	var apiErr smithy.APIError
+	if !i.initialized && errors.As(err, &apiErr) &&
+		(apiErr.ErrorCode() == "AccessDenied" || apiErr.ErrorCode() == "AccessDeniedException") {
+		permissions := "route53:ListResourceRecordSets"
+		if len(i.hostedZoneIDs) == 0 {
+			permissions += ", route53:ListHostedZones"
+			if i.VPCID != "" && i.VPCRegion != "" {
+				permissions += ", route53:ListHostedZonesByVPC"
+			}
+		}
+		return fmt.Errorf("%w: grant %s and restart OBI to enable Route53 name resolution: %w", ErrMetadataUnavailable, permissions, err)
 	}
 	if (retry.ThrottleErrorCode{Codes: retry.DefaultThrottleErrorCodes}).IsErrorThrottle(err) == aws.TrueTernary {
 		if i.backoff == 0 {

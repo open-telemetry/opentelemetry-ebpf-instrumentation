@@ -32,8 +32,8 @@ func TestRoute53ResolverRecoversFromInitialFailure(t *testing.T) {
 				w.Header().Set("Content-Type", "text/xml")
 				if !available.Load() {
 					failures.Add(1)
-					w.WriteHeader(http.StatusForbidden)
-					fmt.Fprint(w, `<ErrorResponse><Error><Code>AccessDenied</Code><Message>denied</Message></Error></ErrorResponse>`)
+					w.WriteHeader(http.StatusServiceUnavailable)
+					fmt.Fprint(w, `<ErrorResponse><Error><Code>ServiceUnavailable</Code><Message>temporarily unavailable</Message></Error></ErrorResponse>`)
 					return
 				}
 				if r.URL.Path == "/2013-04-01/hostedzone" {

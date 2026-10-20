@@ -58,6 +58,13 @@ Initial discovery is delayed randomly between zero and one interval to spread
 startup traffic. Later polls wait between 80% and 120% of the interval after the
 previous fetch completes. Names remain unresolved until initial discovery succeeds.
 
+If Route53 returns `AccessDenied` before its first successful refresh, OBI
+marks the source unavailable, logs one warning listing the required permissions,
+and stops polling it. Grant the permissions and restart OBI to enable it.
+Transient startup failures still retry. Permission errors after a successful
+refresh preserve the last snapshot and continue retrying, allowing recovery
+when access is restored.
+
 Each source retains its last successful snapshot. Successful refreshes remove
 deleted records; a failed Route53 fetch preserves its mappings and does not block
 ECS refreshes. Repeated throttling doubles the Route53 polling interval up to
