@@ -261,11 +261,13 @@ if [ -n "$target" ]; then
     fi
     export TEST_PROJECT_DIR=/build
 
-    if [ -f "/precompiled-tests/docker-images.tar" ]; then
-        echo "Loading pre-built Docker images..."
-        docker load -i /precompiled-tests/docker-images.tar
-        export SKIP_DOCKER_BUILD=1
-    fi
+    for images_tar in /precompiled-tests/test-app-images.tar /precompiled-tests/obi-images.tar; do
+        if [ -f "$images_tar" ]; then
+            echo "Loading pre-built Docker images from $images_tar..."
+            docker load -i "$images_tar"
+            export SKIP_DOCKER_BUILD=1
+        fi
+    done
 
     # Pre-pulled base images for services that still auto-build in the VM.
     if [ -f "/precompiled-tests/base-images.tar" ]; then
