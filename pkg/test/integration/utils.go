@@ -26,12 +26,7 @@ func DoHTTPGet(t require.TestingT, path string, status int) {
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 
-	// Each request gets its own connection: OBI tracks context per connection, and a
-	// reused connection merges retried requests into one trace.
-	defer testHTTPClient.CloseIdleConnections()
-
 	r, err := testHTTPClient.Do(req)
 	require.NoError(t, err)
-	defer r.Body.Close()
 	require.Equal(t, status, r.StatusCode)
 }
