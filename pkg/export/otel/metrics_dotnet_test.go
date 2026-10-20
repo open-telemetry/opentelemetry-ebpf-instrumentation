@@ -19,6 +19,41 @@ import (
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
+func TestDotnetExceptions(t *testing.T) {
+	reader := metric.NewManualReader()
+	provider := metric.NewMeterProvider(metric.WithReader(reader))
+	t.Cleanup(func() { require.NoError(t, provider.Shutdown(t.Context())) })
+	var metrics RuntimeMetrics
+	require.NoError(t, setupDotnetRuntimeMeters(&metrics.dotnetMetrics, provider.Meter(reporterName), time.Minute))
+	snapshot := runtimemetrics.RuntimeMetricSnapshot{
+		PID: 1, Generation: 1,
+		Service: svc.Attrs{SDKLanguage: svc.InstrumentableDotnet, Features: export.FeatureApplicationRuntime},
+	}
+	publish := func(count uint64) {
+		snapshot.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{Exceptions: map[string]uint64{"Failure": count}}
+		recordRuntimeMetrics(t.Context(), &metrics, snapshot)
+	}
+	publish(2)
+	publish(2)
+	publish(3)
+	snapshot.PID = 2
+	publish(5)
+	snapshot.PID = 1
+	publish(1) // Counter reset.
+	snapshot.Generation = 2
+	publish(1) // PID reuse.
+	snapshot.Removed = true
+	recordRuntimeMetrics(t.Context(), &metrics, snapshot)
+	snapshot.Removed = false
+	publish(2)
+	points := collectGoRuntimeInt64Points(t, reader, attributes.DotnetExceptions.OTEL)
+	require.Len(t, points, 1)
+	require.Equal(t, int64(12), points[0].Value)
+	label, ok := points[0].Attributes.Value(attribute.Key("error.type"))
+	require.True(t, ok)
+	require.Equal(t, "Failure", label.AsString())
+}
+
 func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 	for _, ttl := range []time.Duration{time.Minute, 0} {
 		t.Run(ttl.String(), func(t *testing.T) {

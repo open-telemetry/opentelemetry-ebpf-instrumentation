@@ -22,6 +22,7 @@ With `application_runtime` enabled, OBI collects runtime metrics from
 | `dotnet.jit.compilation.time` | `dotnet_jit_compilation_time_seconds_total` | `s` |
 | `dotnet.thread_pool.work_item.count` | `dotnet_thread_pool_work_item_count_total` | `{work_item}` |
 | `dotnet.monitor.lock_contentions` | `dotnet_monitor_lock_contentions_total` | `{contention}` |
+| `dotnet.exceptions` | `dotnet_exceptions_total` | `{exception}` |
 
 For GC collection counts, `dotnet.gc.heap.generation` identifies `gen0`, `gen1`, and `gen2`.
 Counts are exclusive: a full gen2 collection adds one to gen2, while gen0 and
@@ -37,6 +38,17 @@ collection states. Missing values are omitted from that sampling round.
 CPU time has separate `cpu.mode=user` and `cpu.mode=system` series. CPU count
 reports the runtime's `Environment.ProcessorCount`, including its processor-count
 override, container CPU quota, and processor affinity.
+
+Exception counts are available on .NET 8. OBI subscribes to CLR
+`ExceptionThrown_V1` events through EventPipe and counts each received throw by
+its short exception type name in `error.type`. Counts start at attachment and
+retain published totals across reconnects.
+
+OBI retains at most 128 distinct names of at most 1,024 bytes each across
+reconnects. Additional or overlong names count under `_OTHER`. The decoder reads
+the exception type and skips the message in the native event payload.
+Each throw produces an event; OBI aggregates counts outside the target
+process and publishes them with each completed counter polling round.
 
 Enable .NET runtime metrics through the shared runtime metrics feature:
 
@@ -120,5 +132,7 @@ application's absolute `TMPDIR`, or `/tmp` when unset, inside that filesystem.
 Keep the application's default diagnostic port enabled.
 `DOTNET_EnableDiagnostics=0` disables collection.
 
-The implementation requests a 16 MiB EventPipe buffer per process and rejects
-detected event loss instead of accumulating incomplete counter deltas.
+The implementation requests a 16 MiB EventPipe buffer per process. Detected
+event loss discards unpublished counts and triggers reconnection. Exceptions
+during the gap are unavailable, and late loss reports cannot retract previously
+published counts.

@@ -44,6 +44,7 @@ static object Snapshot()
 
 static async Task RunHttp()
 {
+    _ = ExceptionReference.Snapshot();
     using var listener = new HttpListener();
     listener.Prefixes.Add("http://*:8080/");
     listener.Start();
@@ -63,6 +64,10 @@ static async Task RunHttp()
         else if (context.Request.HttpMethod == "POST" && context.Request.Url?.AbsolutePath == "/release")
         {
             RuntimeLoad.Release();
+        }
+        else if (context.Request.HttpMethod == "POST" && context.Request.Url?.AbsolutePath == "/exceptions-run")
+        {
+            result = ExceptionReference.Run();
         }
         else if (context.Request.HttpMethod == "POST" && context.Request.Url?.AbsolutePath == "/cumulative-run")
         {

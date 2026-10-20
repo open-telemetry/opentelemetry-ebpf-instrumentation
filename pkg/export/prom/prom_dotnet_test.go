@@ -23,6 +23,52 @@ import (
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
+func TestDotnetExceptions(t *testing.T) {
+	registry := testutil.NewPrometheusServer(t)
+	reporter, err := newReporter(t.Context(),
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: time.Minute},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
+		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
+			attributes.Resource.Section: attributes.InclusionLists{Include: []string{"service.name"}},
+		}}, request.UnresolvedNames{}, nil,
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)), nil)
+	require.NoError(t, err)
+	snapshot := runtimemetrics.RuntimeMetricSnapshot{
+		PID: 1, Generation: 1,
+		Service: svc.Attrs{UID: svc.UID{Name: "orders"}, SDKLanguage: svc.InstrumentableDotnet, Features: export.FeatureApplicationRuntime},
+	}
+	publish := func(count uint64) {
+		snapshot.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{Exceptions: map[string]uint64{"Failure": count}}
+		reporter.collectDotnetRuntimeMetrics(snapshot)
+	}
+	publish(2)
+	publish(2)
+	publish(3)
+	snapshot.PID = 2
+	publish(5)
+	snapshot.PID = 1
+	publish(1)
+	snapshot.Generation = 2
+	publish(1)
+	snapshot.Removed = true
+	reporter.collectDotnetRuntimeMetrics(snapshot)
+	snapshot.Removed = false
+	publish(2)
+	point := gatheredMetric(t, registry, attributes.DotnetExceptions.Prom, map[string]string{"service_name": "orders", "error_type": "Failure"})
+	require.NotNil(t, point)
+	require.InDelta(t, 12, point.GetCounter().GetValue(), 0)
+	// Removal clears process baselines but retains the exported cumulative series.
+	snapshot.Removed = true
+	reporter.collectDotnetRuntimeMetrics(snapshot)
+	snapshot.PID = 2
+	snapshot.Generation = 1
+	reporter.collectDotnetRuntimeMetrics(snapshot)
+	require.Empty(t, reporter.dotnetRuntimeMetrics.values)
+	reporter.dotnetRuntimeMetrics.delete(reporter.labelValuesTargetInfo(&snapshot.Service))
+	require.Nil(t, gatheredMetric(t, registry, attributes.DotnetExceptions.Prom, map[string]string{"service_name": "orders", "error_type": "Failure"}))
+}
+
 func TestDotnetRuntimeCollectorLabels(t *testing.T) {
 	collector := newDotnetRuntimeMetricsCollector([]string{
 		"service_name", "dotnet_gc_heap_generation", "service_namespace",
