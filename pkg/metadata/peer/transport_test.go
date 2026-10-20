@@ -136,3 +136,35 @@ func TestTLSVerification(t *testing.T) {
 		}
 	}
 }
+
+func TestBearerTokenAuthorization(t *testing.T) {
+	for _, test := range []struct {
+		name, token, authorization string
+		status                     int
+	}{
+		{"valid token", "shared-secret", "Bearer shared-secret", http.StatusOK},
+		{"missing header", "shared-secret", "", http.StatusUnauthorized},
+		{"empty token", "shared-secret", "Bearer ", http.StatusUnauthorized},
+		{"wrong token", "shared-secret", "Bearer different-secret", http.StatusUnauthorized},
+		{"truncated token", "shared-secret", "Bearer shared", http.StatusUnauthorized},
+		{"missing scheme", "shared-secret", "shared-secret", http.StatusUnauthorized},
+		{"wrong scheme", "shared-secret", "Basic shared-secret", http.StatusUnauthorized},
+		{"authentication disabled", "", "", http.StatusOK},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			cfg.Token = test.token
+			r := httptest.NewRequest(http.MethodGet, MetadataPath, nil)
+			if test.authorization != "" {
+				r.Header.Set("Authorization", test.authorization)
+			}
+			w := httptest.NewRecorder()
+			metadataHandler(newStore("host", cfg), cfg).ServeHTTP(w, r)
+			require.Equal(t, test.status, w.Code)
+			if test.status == http.StatusUnauthorized {
+				require.NotContains(t, w.Body.String(), test.token)
+				require.NotContains(t, w.Body.String(), `"hostname"`)
+			}
+		})
+	}
+}
