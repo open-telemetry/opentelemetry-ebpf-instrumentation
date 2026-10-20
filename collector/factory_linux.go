@@ -15,10 +15,10 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/receiver"
-	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
-	"go.opentelemetry.io/obi/pkg/obi"
 
 	"go.opentelemetry.io/obi/collector/internal"
+	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
+	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 var loggerOnce sync.Once

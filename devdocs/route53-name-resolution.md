@@ -1,7 +1,10 @@
 # Route53 name resolution
 
-The opt-in `route53` name resolver maps endpoint IPs to fully qualified DNS names
-from selected AWS Route53 hosted zones on detected EC2 hosts.
+The `route53` name resolver is enabled by default and maps endpoint IPs to fully
+qualified DNS names
+from AWS Route53 hosted zones on detected EC2 hosts. Without `hosted_zone_ids`,
+it discovers all public and private hosted zones in the current AWS account
+on every refresh. Explicit IDs restrict discovery to those zones.
 Configure Route53 in Config v2:
 
 ```yaml
@@ -21,8 +24,9 @@ extensions:
 ```
 
 Use the AWS SDK's standard credentials configuration. Grant
-`route53:ListResourceRecordSets` on the configured hosted zones; listing all zones
-is not required. Zone IDs can include the `/hostedzone/` prefix. Select zones
+`route53:ListResourceRecordSets` on the hosted zones. Automatic discovery also
+requires `route53:ListHostedZones` on `*`; explicit IDs bypass zone listing.
+Zone IDs can include the `/hostedzone/` prefix. Use explicit IDs to select zones
 appropriate to the monitored network, since different private networks can reuse
 IP addresses.
 
@@ -47,7 +51,7 @@ eight times the configured interval, with the same jitter. A successful fetch
 restores the configured interval. SDK retries still apply within each fetch.
 
 A longer interval reduces average API traffic; jitter spreads bursts. Each OBI
-instance still lists every configured zone, including all pages. Size the interval
+instance lists every discovered or configured zone, including all pages. Size the interval
 for the number of instances and zones sharing the account, leaving capacity for
 other API clients. There is no coordination between instances.
 
@@ -78,7 +82,8 @@ Config v1 also accepts these environment variables, which override YAML values:
 - `OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS`: comma-separated hosted zone IDs.
 - `OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL`: polling interval (default `5m`).
 
-The hosted zone IDs are required when the `route53` source is enabled.
+Hosted zone IDs are optional. To disable Route53, set service name sources
+explicitly, for example `[k8s, ecs]`.
 `obi config migrate` preserves Route53 settings present in the Config v1 YAML;
 legacy environment overrides must be materialized or explicitly rewired for Config v2.
 
@@ -92,8 +97,8 @@ For local tests, its endpoint override is `AWS_ENDPOINT_URL_ROUTE_53`.
 ## Integration tests
 
 `TestRoute53ServiceResolution` starts a digest-pinned Floci container, creates a
-hosted zone and a record pointing at a backend container, and checks the exported
-HTTP client metric's explicitly enabled `server` label. It uses a one-second Route53 interval and
+hosted zone and a record pointing at a backend container, discovers the zone
+automatically, and checks the exported HTTP client metric's explicitly enabled `server` label. It uses a one-second Route53 interval and
 replaces the record to verify periodic refreshes. Existing EC2/ECS metadata containers and the ECS API failure mock remain unchanged.
 
 ```sh

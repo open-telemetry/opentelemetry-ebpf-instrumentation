@@ -18,11 +18,16 @@ import (
 )
 
 type fakeRoute53Client struct {
-	list func(*route53.ListResourceRecordSetsInput) (*route53.ListResourceRecordSetsOutput, error)
+	zones func(*route53.ListHostedZonesInput) (*route53.ListHostedZonesOutput, error)
+	list  func(*route53.ListResourceRecordSetsInput) (*route53.ListResourceRecordSetsOutput, error)
 }
 
 func (f fakeRoute53Client) ListResourceRecordSets(_ context.Context, in *route53.ListResourceRecordSetsInput, _ ...func(*route53.Options)) (*route53.ListResourceRecordSetsOutput, error) {
 	return f.list(in)
+}
+
+func (f fakeRoute53Client) ListHostedZones(_ context.Context, in *route53.ListHostedZonesInput, _ ...func(*route53.Options)) (*route53.ListHostedZonesOutput, error) {
+	return f.zones(in)
 }
 
 func route53Record(name, ip string, kind types.RRType) types.ResourceRecordSet {
@@ -135,4 +140,72 @@ func TestRoute53PollingBackoff(t *testing.T) {
 	delay := refresher.RefreshDelay(false)
 	assert.GreaterOrEqual(t, delay, interval*4/5)
 	assert.LessOrEqual(t, delay, interval*6/5)
+}
+
+func TestRoute53DiscoversHostedZones(t *testing.T) {
+	for name, configured := range map[string][]string{"omitted": nil, "empty": {}} {
+		t.Run(name, func(t *testing.T) {
+			zoneCalls := 0
+			var recordZones []string
+			client := fakeRoute53Client{
+				zones: func(in *route53.ListHostedZonesInput) (*route53.ListHostedZonesOutput, error) {
+					zoneCalls++
+					if in.Marker == nil {
+						return &route53.ListHostedZonesOutput{
+							HostedZones: []types.HostedZone{{Id: aws.String("/hostedzone/public")}},
+							IsTruncated: true, NextMarker: aws.String("next"),
+						}, nil
+					}
+					require.Equal(t, "next", aws.ToString(in.Marker))
+					return &route53.ListHostedZonesOutput{HostedZones: []types.HostedZone{{Id: aws.String("/hostedzone/private"), Config: &types.HostedZoneConfig{PrivateZone: true}}}}, nil
+				},
+				list: func(in *route53.ListResourceRecordSetsInput) (*route53.ListResourceRecordSetsOutput, error) {
+					recordZones = append(recordZones, aws.ToString(in.HostedZoneId))
+					return &route53.ListResourceRecordSetsOutput{ResourceRecordSets: []types.ResourceRecordSet{route53Record("service.example.", "10.0.0.1", types.RRTypeA)}}, nil
+				},
+			}
+			refresher := NewRoute53Inventory(client, configured)
+			snapshot := &MetadataSnapshot{ServiceByIP: map[string]string{}}
+			require.NoError(t, refresher.Refresh(t.Context(), snapshot))
+			require.Equal(t, 2, zoneCalls)
+			require.Equal(t, []string{"/hostedzone/public", "/hostedzone/private"}, recordZones)
+			require.Equal(t, "service.example", snapshot.ServiceByIP["10.0.0.1"])
+		})
+	}
+}
+
+func TestRoute53DiscoveryRefreshAndRecovery(t *testing.T) {
+	zones := []types.HostedZone{{Id: aws.String("zone-a")}}
+	var discoveryError error
+	client := fakeRoute53Client{
+		zones: func(*route53.ListHostedZonesInput) (*route53.ListHostedZonesOutput, error) {
+			if discoveryError != nil {
+				return nil, discoveryError
+			}
+			return &route53.ListHostedZonesOutput{HostedZones: zones}, nil
+		},
+		list: func(in *route53.ListResourceRecordSetsInput) (*route53.ListResourceRecordSetsOutput, error) {
+			return &route53.ListResourceRecordSetsOutput{ResourceRecordSets: []types.ResourceRecordSet{route53Record(aws.ToString(in.HostedZoneId)+".example.", "10.0.0.1", types.RRTypeA)}}, nil
+		},
+	}
+	refresher := NewRoute53Inventory(client, nil)
+	inventory := NewInventory([]MetadataRefresher{refresher})
+	discoveryError = errors.New("access denied")
+	inventory.refresh(t.Context())
+	require.Empty(t, inventory.snapshot.ServiceByIP)
+	discoveryError = nil
+	inventory.refresh(t.Context())
+	require.Equal(t, "zone-a.example", inventory.snapshot.ServiceByIP["10.0.0.1"])
+	zones = []types.HostedZone{{Id: aws.String("zone-b")}}
+	inventory.refresh(t.Context())
+	require.Equal(t, "zone-b.example", inventory.snapshot.ServiceByIP["10.0.0.1"])
+	discoveryError = &smithy.GenericAPIError{Code: "Throttling", Message: "Rate exceeded"}
+	inventory.refresh(t.Context())
+	require.Equal(t, 2*refresher.RefreshInterval, refresher.backoff)
+	require.Equal(t, "zone-b.example", inventory.snapshot.ServiceByIP["10.0.0.1"])
+	discoveryError = nil
+	zones = nil
+	inventory.refresh(t.Context())
+	require.Empty(t, inventory.snapshot.ServiceByIP)
+	require.Zero(t, refresher.backoff)
 }

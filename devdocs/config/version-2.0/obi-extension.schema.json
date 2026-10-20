@@ -2269,7 +2269,7 @@
                       "items": {
                         "type": "string"
                       },
-                      "description": "Hosted zones whose A/AAAA records are used for name resolution.\nRequired when the `route53` service name source is enabled.\n"
+                      "description": "Hosted zones whose A/AAAA records are used for name resolution.\nEmpty or omitted discovers all public and private hosted zones in the AWS account; requires route53:ListHostedZones.\n"
                     }
                   }
                 }

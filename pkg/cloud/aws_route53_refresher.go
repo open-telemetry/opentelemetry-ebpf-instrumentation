@@ -24,6 +24,7 @@ const route53EscapedWildcard = `\052`
 const DefaultRoute53RefreshInterval = 5 * time.Minute
 
 type Route53Client interface {
+	ListHostedZones(context.Context, *route53.ListHostedZonesInput, ...func(*route53.Options)) (*route53.ListHostedZonesOutput, error)
 	ListResourceRecordSets(context.Context, *route53.ListResourceRecordSetsInput, ...func(*route53.Options)) (*route53.ListResourceRecordSetsOutput, error)
 }
 
@@ -45,20 +46,33 @@ func NewRoute53Inventory(client Route53Client, hostedZoneIDs []string) *Route53I
 func (i *Route53Inventory) Name() string { return "route53" }
 
 func (i *Route53Inventory) Refresh(ctx context.Context, snapshot *MetadataSnapshot) error {
-	for _, zone := range i.hostedZoneIDs {
+	err := i.refresh(ctx, snapshot)
+	if err == nil {
+		i.backoff = 0
+		return nil
+	}
+	if (retry.ThrottleErrorCode{Codes: retry.DefaultThrottleErrorCodes}).IsErrorThrottle(err) == aws.TrueTernary {
+		if i.backoff == 0 {
+			i.backoff = i.RefreshInterval
+		}
+		const maxBackoffMultiplier = 8
+		if i.backoff < i.RefreshInterval*maxBackoffMultiplier {
+			i.backoff *= 2
+		}
+	}
+	return err
+}
+
+func (i *Route53Inventory) refresh(ctx context.Context, snapshot *MetadataSnapshot) error {
+	zones, err := i.zones(ctx)
+	if err != nil {
+		return err
+	}
+	for _, zone := range zones {
 		pages := route53.NewListResourceRecordSetsPaginator(i.client, &route53.ListResourceRecordSetsInput{HostedZoneId: &zone})
 		for pages.HasMorePages() {
 			out, err := pages.NextPage(ctx)
 			if err != nil {
-				if (retry.ThrottleErrorCode{Codes: retry.DefaultThrottleErrorCodes}).IsErrorThrottle(err) == aws.TrueTernary {
-					if i.backoff == 0 {
-						i.backoff = i.RefreshInterval
-					}
-					const maxBackoffMultiplier = 8
-					if i.backoff < i.RefreshInterval*maxBackoffMultiplier {
-						i.backoff *= 2
-					}
-				}
 				return fmt.Errorf("listing Route53 records for hosted zone %q: %w", zone, err)
 			}
 			for _, record := range out.ResourceRecordSets {
@@ -66,8 +80,25 @@ func (i *Route53Inventory) Refresh(ctx context.Context, snapshot *MetadataSnapsh
 			}
 		}
 	}
-	i.backoff = 0
 	return nil
+}
+
+func (i *Route53Inventory) zones(ctx context.Context) ([]string, error) {
+	if len(i.hostedZoneIDs) > 0 {
+		return i.hostedZoneIDs, nil
+	}
+	var zones []string
+	pages := route53.NewListHostedZonesPaginator(i.client, &route53.ListHostedZonesInput{})
+	for pages.HasMorePages() {
+		out, err := pages.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("listing Route53 hosted zones: %w", err)
+		}
+		for _, zone := range out.HostedZones {
+			zones = append(zones, aws.ToString(zone.Id))
+		}
+	}
+	return zones, nil
 }
 
 func addRoute53Record(next map[string]string, record types.ResourceRecordSet) {

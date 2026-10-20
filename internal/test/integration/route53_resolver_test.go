@@ -76,7 +76,6 @@ func TestRoute53ServiceResolution(t *testing.T) {
 	}
 	change(types.ChangeActionCreate, record)
 	o := obi{Env: []string{
-		"ROUTE53_HOSTED_ZONE_ID=" + aws.ToString(zone.HostedZone.Id),
 		"AWS_ENDPOINT_URL_ROUTE_53=http://floci:4566", "AWS_ACCESS_KEY_ID=test", "AWS_SECRET_ACCESS_KEY=test",
 		"AWS_EC2_METADATA_SERVICE_ENDPOINT=http://mock-imds:80",
 	}, Logs: createLogOutput(t, "route53-resolver")}
