@@ -178,13 +178,15 @@ func (x *ObjectMeta) GetStatusTimeEpoch() int64 {
 }
 
 type PodInfo struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Uid           string                 `protobuf:"bytes,1,opt,name=uid,proto3" json:"uid,omitempty"`
-	NodeName      string                 `protobuf:"bytes,2,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
-	StartTimeStr  string                 `protobuf:"bytes,3,opt,name=start_time_str,json=startTimeStr,proto3" json:"start_time_str,omitempty"`
-	HostIp        string                 `protobuf:"bytes,4,opt,name=host_ip,json=hostIp,proto3" json:"host_ip,omitempty"`
-	Containers    []*ContainerInfo       `protobuf:"bytes,5,rep,name=containers,proto3" json:"containers,omitempty"`
-	Owners        []*Owner               `protobuf:"bytes,6,rep,name=owners,proto3" json:"owners,omitempty"`
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	Uid          string                 `protobuf:"bytes,1,opt,name=uid,proto3" json:"uid,omitempty"`
+	NodeName     string                 `protobuf:"bytes,2,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
+	StartTimeStr string                 `protobuf:"bytes,3,opt,name=start_time_str,json=startTimeStr,proto3" json:"start_time_str,omitempty"`
+	HostIp       string                 `protobuf:"bytes,4,opt,name=host_ip,json=hostIp,proto3" json:"host_ip,omitempty"`
+	Containers   []*ContainerInfo       `protobuf:"bytes,5,rep,name=containers,proto3" json:"containers,omitempty"`
+	Owners       []*Owner               `protobuf:"bytes,6,rep,name=owners,proto3" json:"owners,omitempty"`
+	// The Pod phase is Succeeded or Failed. Its IP may already belong to another Pod.
+	Finished      bool `protobuf:"varint,7,opt,name=finished,proto3" json:"finished,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -259,6 +261,13 @@ func (x *PodInfo) GetOwners() []*Owner {
 		return x.Owners
 	}
 	return nil
+}
+
+func (x *PodInfo) GetFinished() bool {
+	if x != nil {
+		return x.Finished
+	}
+	return false
 }
 
 type ContainerInfo struct {
@@ -494,7 +503,7 @@ const file_proto_informer_proto_rawDesc = "" +
 	"\x10AnnotationsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01B\x06\n" +
-	"\x04_pod\"\xd9\x01\n" +
+	"\x04_pod\"\xf5\x01\n" +
 	"\aPodInfo\x12\x10\n" +
 	"\x03uid\x18\x01 \x01(\tR\x03uid\x12\x1b\n" +
 	"\tnode_name\x18\x02 \x01(\tR\bnodeName\x12$\n" +
@@ -503,7 +512,8 @@ const file_proto_informer_proto_rawDesc = "" +
 	"\n" +
 	"containers\x18\x05 \x03(\v2\x17.informer.ContainerInfoR\n" +
 	"containers\x12'\n" +
-	"\x06owners\x18\x06 \x03(\v2\x0f.informer.OwnerR\x06owners\"\x9f\x01\n" +
+	"\x06owners\x18\x06 \x03(\v2\x0f.informer.OwnerR\x06owners\x12\x1a\n" +
+	"\bfinished\x18\a \x01(\bR\bfinished\"\x9f\x01\n" +
 	"\rContainerInfo\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x12\n" +
 	"\x04name\x18\x03 \x01(\tR\x04name\x122\n" +
