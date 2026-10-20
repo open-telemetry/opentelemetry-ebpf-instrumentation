@@ -4,6 +4,7 @@
 package schema
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -133,6 +134,133 @@ extensions:
 	require.Equal(t, []string{"/orders/{id}"}, *routes.Incoming.Patterns)
 	require.Equal(t, []string{"/inventory/{id}"}, *routes.Outgoing.Patterns)
 	require.Equal(t, AttributeFilter{Match: "5*"}, cfg.Capture.Rules[0].Refine.HTTP.Filters.Traces["status_code"])
+}
+
+func TestCaptureRuleSpansParseMarshal(t *testing.T) {
+	t.Parallel()
+
+	input := []byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: include
+          name: checkout
+          match:
+            process:
+              language_glob: [java]
+          refine:
+            spans:
+              - name: checkout.place_order
+                on:
+                  function: "com.example.Checkout#placeOrder"
+                attributes:
+                  - name: order.id
+                    argument: {index: 0, type: string}
+                automatic_attributes: false
+`)
+	_, extension, err := ParseStandaloneYAML(input)
+	require.NoError(t, err)
+	require.Len(t, extension.Capture.Rules, 1)
+	spans := extension.Capture.Rules[0].Refine.Spans
+	require.Len(t, spans, 1)
+	require.Equal(t, "com.example.Checkout#placeOrder", spans[0].On.Function)
+	require.False(t, spans[0].AutomaticAttributes)
+	encoded, err := yaml.Marshal(spans)
+	require.NoError(t, err)
+	require.Contains(t, string(encoded), "function:")
+	require.NotContains(t, string(encoded), "automatic_attributes:")
+}
+
+func TestCaptureRuleSpanValidation(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		span string
+		want string
+	}{
+		{name: "empty target", span: `{name: test, on: {}}`, want: "must define exactly one target"},
+		{name: "multiple targets", span: `{name: test, on: {function: f, function_noret: g}}`, want: "must define exactly one target"},
+		{name: "empty name", span: `{name: '', on: {function: f}}`, want: "name must not be empty"},
+		{name: "invalid argument index", span: `{name: test, on: {function: f}, attributes: [{name: id, argument: {index: 12}}]}`, want: "between 0 and 11"},
+		{name: "USDT match empty", span: `{name: test, on: {usdt: probe, match: {argument: {index: 0}, value: ''}}}`, want: "match.value must not be empty"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			input := fmt.Sprintf(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: include
+          match: {process: {language_glob: [java]}}
+          refine:
+            spans: [%s]
+`, tc.span)
+			_, _, err := ParseStandaloneYAML([]byte(input))
+			require.ErrorContains(t, err, tc.want)
+		})
+	}
+}
+
+func TestDynamicSpanTargetCountsMergedTargets(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ParseStandaloneYAML([]byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: include
+          match: {process: {language_glob: [java]}}
+          refine:
+            spans:
+              - name: test
+                on:
+                  <<: &target {function: f}
+                  usdt: probe
+`))
+	require.ErrorContains(t, err, "must define exactly one target")
+
+	_, _, err = ParseStandaloneYAML([]byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: include
+          match: {process: {language_glob: [java]}}
+          refine:
+            spans:
+              - name: test
+                on:
+                  <<: &target {function: old}
+                  function: new
+`))
+	require.NoError(t, err)
+}
+
+func TestCaptureRuleSpansRejectExcludeRule(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := ParseStandaloneYAML([]byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: exclude
+          match: {process: {language_glob: [java]}}
+          refine:
+            spans:
+              - name: test
+                on: {function: f}
+`))
+	require.ErrorContains(t, err, "refine.spans cannot be used with exclude rules")
 }
 
 func TestParseFlowLimitAliasPresence(t *testing.T) {

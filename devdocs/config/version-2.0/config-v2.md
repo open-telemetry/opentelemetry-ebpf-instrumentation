@@ -555,6 +555,14 @@ Java also includes additional runtime-specific configuration such as debug contr
 Runtime `filter` fields are reserved by the schema but non-empty values are not
 supported by the current adapter; use capture rules for workload selection.
 
+### Dynamic spans on capture rules
+
+`capture.rules[].refine.spans` declares optional function or USDT spans for that
+rule. These declarations are schema-only; the runtime converter rejects them
+until runtime application is supported. See the
+[dynamic instrumentation reference](dynamic-instrumentation.md) for the
+current syntax and attribute semantics.
+
 ### `capture.network` Section
 
 The `capture.network` section defines how network observability is configured, including endpoint identity, selection criteria, flow lifecycle controls, interface discovery behavior, enrichment options, and diagnostics.

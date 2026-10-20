@@ -489,6 +489,11 @@
             }
           }
         },
+        "spans": {
+          "type": "array",
+          "description": "Dynamic span declarations scoped to this capture rule. Schema-only; the runtime converter currently rejects non-empty declarations.",
+          "items": {"$ref": "#/$defs/DynamicSpanSpec"}
+        },
         "http": {
           "type": "object",
           "description": "HTTP-specific per-workload configuration for matched workloads.\n",
@@ -638,12 +643,31 @@
           },
           "refine": {
             "$ref": "#/$defs/SelectionRuleRefine",
-            "description": "Optional workload-scoped configuration overrides for matched workloads.\nOnly meaningful on include rules; ignored on exclude rules.\nIf omitted, global defaults apply without modification.\n"
+            "description": "Optional workload-scoped configuration overrides for matched workloads.\nNon-empty refinements are supported only on include rules; spans on exclude rules are rejected.\nIf omitted, global defaults apply without modification.\n"
           }
         },
         "required": [
           "action",
           "match"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "action": {"const": "exclude"}
+              },
+              "required": ["action"]
+            },
+            "then": {
+              "properties": {
+                "refine": {
+                  "properties": {
+                    "spans": {"maxItems": 0}
+                  }
+                }
+              }
+            }
+          }
         ]
       }
     },
@@ -2280,9 +2304,176 @@
           "description": "Attribute enrichment rules and defaults.\nIf omitted, implementation defaults are used.\n"
         }
       }
+    },
+    "DynamicSpanSpec": {
+      "type": "object",
+      "description": "A named span declared from one probe target.",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "on"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Name emitted for the span."
+        },
+        "on": {
+          "$ref": "#/$defs/DynamicSpanTarget"
+        },
+        "automatic_attributes": {
+          "type": "boolean",
+          "default": false,
+          "description": "Opt in to automatic argument and result attribute capture; defaults to false."
+        },
+        "attributes": {
+          "type": "array",
+          "description": "Explicitly mapped span attributes.",
+          "items": {
+            "$ref": "#/$defs/DynamicSpanAttribute"
+          }
+        }
+      }
+    },
+    "DynamicSpanTarget": {
+      "description": "Exactly one function or USDT target form is required.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "function"
+          ],
+          "properties": {
+            "function": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Opaque function reference interpreted by a future runtime-specific adapter."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "function_noret"
+          ],
+          "properties": {
+            "function_noret": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Function symbol or glob for an entry-only zero-duration marker."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "usdt"
+          ],
+          "properties": {
+            "usdt": {
+              "type": "string",
+              "minLength": 1,
+              "description": "`provider:base` for paired `<base>_start` and `<base>_end` probes."
+            },
+            "match": {
+              "$ref": "#/$defs/DynamicSpanMatch"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "usdt_noret"
+          ],
+          "properties": {
+            "usdt_noret": {
+              "type": "string",
+              "minLength": 1,
+              "description": "`provider:name` for a single zero-duration marker probe."
+            },
+            "match": {
+              "$ref": "#/$defs/DynamicSpanMatch"
+            }
+          }
+        }
+      ]
+    },
+    "DynamicSpanMatch": {
+      "type": "object",
+      "description": "Filter USDT events by a string-valued probe argument.",
+      "additionalProperties": false,
+      "required": [
+        "argument",
+        "value"
+      ],
+      "properties": {
+        "value": {
+          "type": "string",
+          "minLength": 1
+        },
+        "argument": {
+          "$ref": "#/$defs/DynamicArgument"
+        }
+      }
+    },
+    "DynamicSpanAttribute": {
+      "type": "object",
+      "description": "Map one decoded source argument to a span attribute. The decoded value determines its OpenTelemetry attribute type.",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "argument"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "argument": {
+          "$ref": "#/$defs/DynamicSpanAttributeArgument"
+        }
+      }
+    },
+    "DynamicSpanAttributeArgument": {
+      "type": "object",
+      "description": "Argument index and optional source decoding type. Omission is valid only when runtime/probe metadata supplies decoding.",
+      "additionalProperties": false,
+      "required": [
+        "index"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 11
+        },
+        "type": {
+          "type": "string",
+          "enum": ["u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64", "string"],
+          "description": "Source decoding type; no separate OTel output type is configured."
+        }
+      }
+    },
+    "DynamicArgument": {
+      "type": "object",
+      "description": "Select a USDT probe argument by zero-based index (0-11). Named argument selection is deferred until runtime support is demonstrated.",
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 11
+        }
+      },
+      "required": [
+        "index"
+      ]
     }
   },
-  "required": [
-    "version"
-  ]
+  "required": ["version"]
 }

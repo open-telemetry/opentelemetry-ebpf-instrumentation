@@ -82,6 +82,7 @@ type Rule struct {
 type RuleRefinement struct {
 	Exports *ExportModeRefinement `yaml:"exports,omitempty"`
 	HTTP    *HTTPRefinement       `yaml:"http,omitempty"`
+	Spans   []DynamicSpanSpec     `yaml:"spans,omitempty"`
 }
 
 // ExportModeRefinement overrides trace and metric exports for a matched rule.

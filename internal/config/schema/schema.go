@@ -486,7 +486,10 @@ func ParseReceiverYAML(data []byte) (*Extension, error) {
 
 // ValidateStandalone checks version support for a standalone OBI extension.
 func ValidateStandalone(cfg *Extension) error {
-	return validateVersion(cfg)
+	if err := validateVersion(cfg); err != nil {
+		return err
+	}
+	return validateCaptureSpans(cfg.Capture.Rules)
 }
 
 // ValidateReceiver checks version support and receiver section boundaries for an
@@ -503,6 +506,39 @@ func ValidateReceiver(cfg *Extension) error {
 	}
 	if cfg.Daemon != nil {
 		return &SectionNotAllowedError{Section: sectionDaemon}
+	}
+	return validateCaptureSpans(cfg.Capture.Rules)
+}
+
+func validateCaptureSpans(rules []Rule) error {
+	for i, rule := range rules {
+		if rule.Action == CaptureActionExclude && len(rule.Refine.Spans) > 0 {
+			return fmt.Errorf("capture.rules[%d].refine.spans cannot be used with exclude rules", i)
+		}
+		for j, span := range rule.Refine.Spans {
+			path := fmt.Sprintf("capture.rules[%d].refine.spans[%d]", i, j)
+			if span.Name == "" {
+				return fmt.Errorf("%s.name must not be empty", path)
+			}
+			if err := span.On.validate(path); err != nil {
+				return err
+			}
+			if span.On.Match != nil && span.On.Match.Value == "" {
+				return fmt.Errorf("%s.on.match.value must not be empty", path)
+			}
+			for k, attr := range span.Attributes {
+				attrPath := fmt.Sprintf("%s.attributes[%d]", path, k)
+				if attr.Name == "" {
+					return fmt.Errorf("%s.name must not be empty", attrPath)
+				}
+				if err := validateArgumentIndex(attr.Argument.Index, attrPath+".argument.index"); err != nil {
+					return err
+				}
+				if !attr.Argument.Type.valid() {
+					return fmt.Errorf("%s.argument.type %q is not supported", attrPath, attr.Argument.Type)
+				}
+			}
+		}
 	}
 	return nil
 }
