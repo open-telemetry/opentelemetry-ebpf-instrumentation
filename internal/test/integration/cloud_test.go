@@ -114,7 +114,7 @@ func setupMockAzureIMDS(t *testing.T, imdsSubnet dockertest.Network) {
 			pathRoot + "/internal/test/integration/components/azure-imds/nginx.conf:/etc/nginx/nginx.conf",
 			pathRoot + "/internal/test/integration/components/azure-imds/azure-metadata-mock.json:/azure-metadata-mock.json",
 		}),
-		dockertest.WithPortBindings(portBindings("80/tcp", "1338")),
+		dockertest.WithPortBindings(portBindings("80/tcp", "")),
 		dockertest.WithContainerConfig(func(config *container.Config) {
 			config.ExposedPorts = exposedPorts("80/tcp")
 		}),
@@ -131,7 +131,7 @@ func setupMockAzureIMDS(t *testing.T, imdsSubnet dockertest.Network) {
 	})
 	require.NoError(t, err, "could not connect Azure IMDS Mock container to network")
 
-	if err := waitUntilReadyToServe("http://127.0.0.1:1338/metadata/instance/compute"); err != nil {
+	if err := waitUntilReadyToServe("http://" + mockIMDS.GetHostPort("80/tcp") + "/metadata/instance/compute"); err != nil {
 		t.Fatal("Azure IMDS Mock container not available after timeout")
 	}
 
