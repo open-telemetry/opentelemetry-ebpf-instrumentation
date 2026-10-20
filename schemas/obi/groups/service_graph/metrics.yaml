@@ -3,6 +3,10 @@ metrics:
   # Counter has no explicit OTLP unit set; mirror that here so live-check
   # doesn't complain "Unit should be '1', but found ''".
   - name: traces_service_graph_request_total
+    annotations: &service_graph_format
+      obi:
+        upstream: none
+        upstream_reason: service graph metrics derived from traces, a format upstream does not define
     instrument: counter
     unit: ""
     stability: development
@@ -41,6 +45,7 @@ metrics:
   # Counter has no explicit OTLP unit set; mirror that here so live-check
   # doesn't complain "Unit should be '1', but found ''".
   - name: traces_service_graph_request_failed_total
+    annotations: *service_graph_format
     instrument: counter
     unit: ""
     stability: development
@@ -78,6 +83,7 @@ metrics:
           conditionally_required: if Kubernetes decoration is enabled
 
   - name: traces_service_graph_request_server
+    annotations: *service_graph_format
     instrument: histogram
     unit: "s"
     stability: development
@@ -114,6 +120,7 @@ metrics:
           conditionally_required: if Kubernetes decoration is enabled
 
   - name: traces_service_graph_request_client
+    annotations: *service_graph_format
     instrument: histogram
     unit: "s"
     stability: development

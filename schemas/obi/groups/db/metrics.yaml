@@ -1,9 +1,6 @@
 file_format: definition/2
 metrics:
   - name: db.client.operation.duration
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted db.client.operation.duration
     instrument: histogram
     unit: "s"
@@ -39,6 +36,10 @@ metrics:
   # process IS the server), reported here so server-side measurements don't
   # pollute the client metric or double-count against it.
   - name: db.server.operation.duration
+    annotations:
+      obi:
+        upstream: none
+        upstream_reason: upstream defines database metrics for the client side only
     instrument: histogram
     unit: "s"
     stability: development
