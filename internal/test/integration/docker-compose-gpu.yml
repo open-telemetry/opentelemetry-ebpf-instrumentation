@@ -40,6 +40,20 @@ services:
       otelcol:
         condition: service_started
 
+  ptsz-testserver:
+    image: hatest-testserver-gpu-cuda-tester
+    command: ["/app/gpu-cuda-ptsz-tester"]
+    depends_on:
+      otelcol:
+        condition: service_started
+
+  ptsz-driver-testserver:
+    image: hatest-testserver-gpu-cuda-tester
+    command: ["/app/gpu-cuda-ptsz-driver-tester"]
+    depends_on:
+      otelcol:
+        condition: service_started
+
   obi:
     build:
       context: ../../..
@@ -76,6 +90,10 @@ services:
       driver-testserver:
         condition: service_started
       driver-ctx-testserver:
+        condition: service_started
+      ptsz-testserver:
+        condition: service_started
+      ptsz-driver-testserver:
         condition: service_started
 
   prometheus:

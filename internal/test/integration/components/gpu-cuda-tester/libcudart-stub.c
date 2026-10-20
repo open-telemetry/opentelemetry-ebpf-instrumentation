@@ -178,3 +178,71 @@ cudaError_t cudaGetDeviceProperties(cudaDeviceProp *prop, int device) {
   g_sink += (unsigned long)device;
   return 0;
 }
+
+cudaError_t cudaLaunchKernel_ptsz(const void *func, dim3 gridDim, dim3 blockDim,
+                                  void **args, size_t sharedMem,
+                                  cudaStream_t stream) {
+  (void)func;
+  (void)args;
+  (void)sharedMem;
+  (void)stream;
+  g_sink += (unsigned long)gridDim.x * gridDim.y * gridDim.z;
+  g_sink += (unsigned long)blockDim.x * blockDim.y * blockDim.z;
+  return 0;
+}
+
+cudaError_t cudaGraphLaunch_ptsz(cudaGraphExec_t graphExec,
+                                 cudaStream_t stream) {
+  (void)graphExec;
+  (void)stream;
+  g_sink += 1;
+  return 0;
+}
+
+cudaError_t cudaMemcpy_ptds(void *dst, const void *src, size_t count,
+                            enum cudaMemcpyKind kind) {
+  (void)dst;
+  (void)src;
+  g_sink += count + (unsigned long)kind;
+  return 0;
+}
+
+cudaError_t cudaMemcpyAsync_ptsz(void *dst, const void *src, size_t count,
+                                 enum cudaMemcpyKind kind,
+                                 cudaStream_t stream) {
+  (void)dst;
+  (void)src;
+  (void)stream;
+  g_sink += count + (unsigned long)kind;
+  return 0;
+}
+
+cudaError_t cudaMemset_ptds(void *devPtr, int value, size_t count) {
+  (void)devPtr;
+  (void)value;
+  g_sink += count;
+  return 0;
+}
+
+cudaError_t cudaEventRecord_ptsz(cudaEvent_t event, cudaStream_t stream) {
+  (void)event;
+  (void)stream;
+  g_sink += 1;
+  return 0;
+}
+
+cudaError_t cudaEventRecordWithFlags_ptsz(cudaEvent_t event,
+                                          cudaStream_t stream,
+                                          unsigned int flags) {
+  (void)event;
+  (void)stream;
+  (void)flags;
+  g_sink += 1;
+  return 0;
+}
+
+cudaError_t cudaStreamSynchronize_ptsz(cudaStream_t stream) {
+  (void)stream;
+  g_sink += 1;
+  return 0;
+}
