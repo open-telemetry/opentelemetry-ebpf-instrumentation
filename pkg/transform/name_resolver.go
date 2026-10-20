@@ -71,7 +71,7 @@ type NameResolverConfig struct {
 	// Sources specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns, route53.
 	// The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions.
 	// The "route53" source requires route53:ListResourceRecordSets on the hosted zones,
-	// and route53:ListHostedZones when hosted zone IDs are omitted.
+	// and route53:ListHostedZones plus route53:ListHostedZonesByVPC for automatic discovery.
 	Sources []Source `yaml:"sources" env:"OTEL_EBPF_NAME_RESOLVER_SOURCES" envSeparator:","`
 	// GCE holds service name enrichment settings loaded from Config v2.
 	GCE GCENameResolverConfig `yaml:"-" env:"-"`

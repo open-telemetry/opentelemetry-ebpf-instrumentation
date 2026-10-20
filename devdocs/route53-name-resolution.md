@@ -1,10 +1,12 @@
 # Route53 name resolution
 
 The `route53` name resolver is enabled by default and maps endpoint IPs to fully
-qualified DNS names
-from AWS Route53 hosted zones on detected EC2 hosts. Without `hosted_zone_ids`,
-it discovers all public and private hosted zones in the current AWS account
-on every refresh. Explicit IDs restrict discovery to those zones.
+qualified DNS names from AWS Route53 hosted zones on detected EC2 hosts.
+Without `hosted_zone_ids`, each refresh discovers public zones in the current
+AWS account and private zones associated with the detected VPC. The VPC is
+identified through the primary network interface in EC2 instance metadata.
+If the VPC or its region cannot be detected, only public zones are discovered.
+Explicit IDs bypass automatic discovery and use exactly those zones.
 Configure Route53 in Config v2:
 
 ```yaml
@@ -25,15 +27,27 @@ extensions:
 
 Use the AWS SDK's standard credentials configuration. Grant
 `route53:ListResourceRecordSets` on the hosted zones. Automatic discovery also
-requires `route53:ListHostedZones` on `*`; explicit IDs bypass zone listing.
+requires `route53:ListHostedZones` and, when the VPC and region are known,
+`route53:ListHostedZonesByVPC` on `*`. Explicit IDs bypass zone listing.
 Zone IDs can include the `/hostedzone/` prefix. Use explicit IDs to select zones
 appropriate to the monitored network, since different private networks can reuse
 IP addresses.
 
 Literal A and AAAA records contribute IP mappings. Names are lowercase, retain
 all domain labels, and omit the trailing dot. Aliases, CNAMEs, and wildcard records
-are excluded. If multiple names map to the same IP, the lexicographically smallest
-name wins, independently of API response order.
+are excluded. Automatically discovered public zones exclude private IPv4 and
+IPv6 addresses, as well as addresses that are not global unicast, such as
+loopback and link-local addresses. Private-zone names take precedence over
+public-zone names for the same IP. Within each scope, the lexicographically
+smallest name wins, independently of API response order. Explicitly configured
+zones keep the existing alphabetical selection without address filtering.
+
+VPC filtering prevents importing private zones from unrelated networks, but
+multiple names can still refer to the same IP within a VPC. The IP-only map
+cannot determine which name an application used. Private zones associated
+through Route 53 Profiles are not discovered by `ListHostedZonesByVPC`; configure
+those zone IDs explicitly. Associated zones owned by another account or AWS
+service are included, but their records still require permission to read.
 
 Kubernetes and ECS names take precedence over Route53 names. Route53 takes
 precedence over captured DNS responses and reverse DNS. Route53 decorates endpoint
@@ -97,9 +111,12 @@ For local tests, its endpoint override is `AWS_ENDPOINT_URL_ROUTE_53`.
 ## Integration tests
 
 `TestRoute53ServiceResolution` starts a digest-pinned Floci container, creates a
-hosted zone and a record pointing at a backend container, discovers the zone
-automatically, and checks the exported HTTP client metric's explicitly enabled `server` label. It uses a one-second Route53 interval and
-replaces the record to verify periodic refreshes. Existing EC2/ECS metadata containers and the ECS API failure mock remain unchanged.
+private hosted zone associated with the mock host's VPC and a record pointing
+at a backend container, discovers the zone automatically, and checks the exported
+HTTP client metric's explicitly enabled `server` label. Conflicting records in a
+public zone and an unrelated VPC must not replace the local private name. The
+test uses a one-second Route53 interval and replaces the record to verify
+periodic refreshes.
 
 ```sh
 go test -v -run '^TestRoute53ServiceResolution$' -timeout 10m ./internal/test/integration/

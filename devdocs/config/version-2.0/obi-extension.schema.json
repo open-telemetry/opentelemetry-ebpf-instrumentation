@@ -2269,7 +2269,7 @@
                       "items": {
                         "type": "string"
                       },
-                      "description": "Hosted zones whose A/AAAA records are used for name resolution.\nEmpty or omitted discovers all public and private hosted zones in the AWS account; requires route53:ListHostedZones.\n"
+                      "description": "Hosted zones whose A/AAAA records are used for name resolution.\nEmpty or omitted discovers account public zones and private zones associated with the detected VPC; requires route53:ListHostedZones and route53:ListHostedZonesByVPC. Without a detected VPC and region, only public zones are discovered.\n"
                     }
                   }
                 }

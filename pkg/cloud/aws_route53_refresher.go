@@ -6,6 +6,7 @@ package cloud // import "go.opentelemetry.io/obi/pkg/cloud"
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math/rand/v2"
 	"net/netip"
 	"slices"
@@ -24,12 +25,15 @@ const route53EscapedWildcard = `\052`
 const DefaultRoute53RefreshInterval = 5 * time.Minute
 
 type Route53Client interface {
+	ListHostedZonesByVPC(context.Context, *route53.ListHostedZonesByVPCInput, ...func(*route53.Options)) (*route53.ListHostedZonesByVPCOutput, error)
 	ListHostedZones(context.Context, *route53.ListHostedZonesInput, ...func(*route53.Options)) (*route53.ListHostedZonesOutput, error)
 	ListResourceRecordSets(context.Context, *route53.ListResourceRecordSetsInput, ...func(*route53.Options)) (*route53.ListResourceRecordSetsOutput, error)
 }
 
 type Route53Inventory struct {
 	RefreshInterval time.Duration
+	VPCID           string
+	VPCRegion       string
 	backoff         time.Duration
 	client          Route53Client
 	hostedZoneIDs   []string
@@ -68,26 +72,42 @@ func (i *Route53Inventory) refresh(ctx context.Context, snapshot *MetadataSnapsh
 	if err != nil {
 		return err
 	}
+	publicNames := map[string]string{}
+	privateNames := map[string]string{}
 	for _, zone := range zones {
-		pages := route53.NewListResourceRecordSetsPaginator(i.client, &route53.ListResourceRecordSetsInput{HostedZoneId: &zone})
+		names := privateNames
+		if zone.public {
+			names = publicNames
+		}
+		pages := route53.NewListResourceRecordSetsPaginator(i.client, &route53.ListResourceRecordSetsInput{HostedZoneId: &zone.id})
 		for pages.HasMorePages() {
 			out, err := pages.NextPage(ctx)
 			if err != nil {
-				return fmt.Errorf("listing Route53 records for hosted zone %q: %w", zone, err)
+				return fmt.Errorf("listing Route53 records for hosted zone %q: %w", zone.id, err)
 			}
 			for _, record := range out.ResourceRecordSets {
-				addRoute53Record(snapshot.ServiceByIP, record)
+				addRoute53Record(names, record, zone.public)
 			}
 		}
 	}
+	maps.Copy(snapshot.ServiceByIP, publicNames)
+	maps.Copy(snapshot.ServiceByIP, privateNames)
 	return nil
 }
 
-func (i *Route53Inventory) zones(ctx context.Context) ([]string, error) {
+type route53Zone struct {
+	id     string
+	public bool
+}
+
+func (i *Route53Inventory) zones(ctx context.Context) ([]route53Zone, error) {
+	var zones []route53Zone
 	if len(i.hostedZoneIDs) > 0 {
-		return i.hostedZoneIDs, nil
+		for _, id := range i.hostedZoneIDs {
+			zones = append(zones, route53Zone{id: id})
+		}
+		return zones, nil
 	}
-	var zones []string
 	pages := route53.NewListHostedZonesPaginator(i.client, &route53.ListHostedZonesInput{})
 	for pages.HasMorePages() {
 		out, err := pages.NextPage(ctx)
@@ -95,13 +115,34 @@ func (i *Route53Inventory) zones(ctx context.Context) ([]string, error) {
 			return nil, fmt.Errorf("listing Route53 hosted zones: %w", err)
 		}
 		for _, zone := range out.HostedZones {
-			zones = append(zones, aws.ToString(zone.Id))
+			if zone.Config != nil && !zone.Config.PrivateZone {
+				zones = append(zones, route53Zone{id: aws.ToString(zone.Id), public: true})
+			}
 		}
+	}
+	if i.VPCID == "" || i.VPCRegion == "" {
+		return zones, nil
+	}
+	input := &route53.ListHostedZonesByVPCInput{
+		VPCId: &i.VPCID, VPCRegion: types.VPCRegion(i.VPCRegion),
+	}
+	for {
+		out, err := i.client.ListHostedZonesByVPC(ctx, input)
+		if err != nil {
+			return nil, fmt.Errorf("listing Route53 hosted zones for VPC %q: %w", i.VPCID, err)
+		}
+		for _, zone := range out.HostedZoneSummaries {
+			zones = append(zones, route53Zone{id: aws.ToString(zone.HostedZoneId)})
+		}
+		if aws.ToString(out.NextToken) == "" {
+			break
+		}
+		input.NextToken = out.NextToken
 	}
 	return zones, nil
 }
 
-func addRoute53Record(next map[string]string, record types.ResourceRecordSet) {
+func addRoute53Record(next map[string]string, record types.ResourceRecordSet, public bool) {
 	if record.Type != types.RRTypeA && record.Type != types.RRTypeAaaa {
 		return
 	}
@@ -114,7 +155,11 @@ func addRoute53Record(next map[string]string, record types.ResourceRecordSet) {
 		if err != nil || (record.Type == types.RRTypeA) != addr.Is4() {
 			continue
 		}
-		ip := addr.Unmap().String()
+		addr = addr.Unmap()
+		if public && (addr.IsPrivate() || !addr.IsGlobalUnicast()) {
+			continue
+		}
+		ip := addr.String()
 		// DNS names need not be unique per IP; keep selection independent of API order.
 		if previous, ok := next[ip]; !ok || name < previous {
 			next[ip] = name

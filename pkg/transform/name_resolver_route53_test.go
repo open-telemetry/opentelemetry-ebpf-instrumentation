@@ -37,7 +37,13 @@ func TestRoute53ResolverRecoversFromInitialFailure(t *testing.T) {
 					return
 				}
 				if r.URL.Path == "/2013-04-01/hostedzone" {
-					fmt.Fprint(w, `<ListHostedZonesResponse xmlns="https://route53.amazonaws.com/doc/2013-04-01/"><HostedZones><HostedZone><Id>/hostedzone/test-zone</Id><Name>example.com.</Name><CallerReference>test</CallerReference></HostedZone></HostedZones><IsTruncated>false</IsTruncated><MaxItems>100</MaxItems></ListHostedZonesResponse>`)
+					fmt.Fprint(w, `<ListHostedZonesResponse xmlns="https://route53.amazonaws.com/doc/2013-04-01/"><HostedZones><HostedZone><Id>/hostedzone/test-zone</Id><Name>example.com.</Name><CallerReference>test</CallerReference><Config><PrivateZone>true</PrivateZone></Config></HostedZone></HostedZones><IsTruncated>false</IsTruncated><MaxItems>100</MaxItems></ListHostedZonesResponse>`)
+					return
+				}
+				if r.URL.Path == "/2013-04-01/hostedzonesbyvpc" {
+					assert.Equal(t, "vpc-local", r.URL.Query().Get("vpcid"))
+					assert.Equal(t, "us-east-1", r.URL.Query().Get("vpcregion"))
+					fmt.Fprint(w, `<ListHostedZonesByVPCResponse xmlns="https://route53.amazonaws.com/doc/2013-04-01/"><HostedZoneSummaries><HostedZoneSummary><HostedZoneId>test-zone</HostedZoneId><Name>example.com.</Name></HostedZoneSummary></HostedZoneSummaries><MaxItems>100</MaxItems></ListHostedZonesByVPCResponse>`)
 					return
 				}
 				assert.Equal(t, "/2013-04-01/hostedzone/test-zone/rrset", r.URL.Path)
@@ -59,7 +65,7 @@ func TestRoute53ResolverRecoversFromInitialFailure(t *testing.T) {
 				RefreshInterval: 10 * time.Millisecond,
 				Route53:         Route53MetadataConfig{RefreshInterval: 10 * time.Millisecond, HostedZoneIDs: zones},
 			}
-			info := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Features: metadata.ClusterEC2}}
+			info := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Features: metadata.ClusterEC2, EC2VPCID: "vpc-local", Region: "us-east-1"}}
 			refreshers := CloudMetadataRefreshers(ctx, &info.NodeMeta, cfg, cloudCfg)
 			require.Len(t, refreshers, 1)
 			info.CloudMetaInventory = cloud.NewInventory(refreshers)
