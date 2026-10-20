@@ -9,12 +9,24 @@ import (
 	"math/bits"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/invopop/jsonschema"
 	"gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 )
+
+// DefaultConnectionInfoTTL is the retention period for observed connection-info edges.
+const DefaultConnectionInfoTTL = 15 * time.Minute
+
+// ConnectionInfoTTLOrDefault returns ttl when positive, otherwise the default retention period.
+func ConnectionInfoTTLOrDefault(ttl time.Duration) time.Duration {
+	if ttl <= 0 {
+		return DefaultConnectionInfoTTL
+	}
+	return ttl
+}
 
 // Features is a bitmask of enabled metric features.
 // Each Features value can contain data about a single feature or a combination of OR-ed features.

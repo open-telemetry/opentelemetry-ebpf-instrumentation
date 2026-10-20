@@ -7,11 +7,14 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -23,6 +26,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -70,8 +74,6 @@ func TestServiceGraphMetrics(t *testing.T) {
 	reported := map[string]struct{}{}
 	for _, m := range res {
 		reported[m.Name+":"+m.Attributes["client"]+":"+m.Attributes["server"]] = struct{}{}
-		// connection_type is an enum attribute: for direct HTTP/gRPC requests
-		// it must be omitted, not emitted as an empty string
 		if ct, ok := m.Attributes["connection_type"]; ok {
 			assert.Fail(t, "direct HTTP requests must omit connection_type", "metric %s got connection_type=%q", m.Name, ct)
 		}
@@ -84,6 +86,51 @@ func TestServiceGraphMetrics(t *testing.T) {
 		"traces_service_graph_request_failed_total:client-host:server-host": {},
 		"traces_service_graph_request_total:client-host:server-host":        {},
 	}, reported)
+}
+
+func TestConnectionInfoTTLPreventsOTLPReporterEvictionAtMetricsTTL(t *testing.T) {
+	var now atomic.Int64
+	now.Store(time.Unix(100, 0).UnixNano())
+	previousTimeNow := timeNow
+	timeNow = func() time.Time { return time.Unix(0, now.Load()) }
+	t.Cleanup(func() { timeNow = previousTimeNow })
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	metricCfg := &otelcfg.MetricsConfig{
+		TTL:               5 * time.Minute,
+		ConnectionInfoTTL: 15 * time.Minute,
+		ReportersCacheLen: 10,
+		MetricsExport: func(context.Context, pmetric.Metrics) error {
+			return nil
+		},
+	}
+	exporter := &otelcfg.MetricsExporterInstancer{Cfg: metricCfg}
+	jointConfig := &perapp.GlobalMetricsConfig{Features: export.FeatureGraph | export.FeatureConnectionInfo}
+	reporter, err := newSvcGraphMetricsReporter(
+		ctx,
+		&global.ContextInfo{K8sInformer: &kube.MetadataProvider{}, OTELMetricsExporter: exporter},
+		metricCfg,
+		jointConfig,
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		msg.NewQueue[[]request.Span](msg.ChannelBufferLen(1)),
+		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
+	)
+	require.NoError(t, err)
+
+	service := &svc.Attrs{UID: svc.UID{Name: "frontend", Namespace: "shop"}}
+	first, err := reporter.reporters.For(service)
+	require.NoError(t, err)
+	now.Add(int64(6 * time.Minute))
+	stillCached, err := reporter.reporters.For(service)
+	require.NoError(t, err)
+	assert.Same(t, first, stillCached, "connection-info reporter should survive beyond global metrics TTL")
+
+	ctxDone, shutdownCancel := context.WithTimeout(ctx, time.Second)
+	defer shutdownCancel()
+	require.NoError(t, first.provider.Shutdown(ctxDone))
+	require.NoError(t, reporter.exporter.Shutdown(ctxDone))
 }
 
 func TestConnectionInfoEmitsPresenceGaugeFromOneClientSpan(t *testing.T) {
@@ -162,6 +209,38 @@ func TestConnectionInfoOnlyCreatesConnectionInfoInstrument(t *testing.T) {
 	assert.Nil(t, metrics.serviceGraphServer)
 	assert.Nil(t, metrics.serviceGraphFailed)
 	assert.Nil(t, metrics.serviceGraphTotal)
+}
+
+func TestConnectionInfoTTLIsIndependentFromMetricsTTL(t *testing.T) {
+	assert.Equal(t, 5*time.Minute, serviceGraphReporterTTL(5*time.Minute, 15*time.Minute, false))
+	assert.Equal(t, 15*time.Minute, serviceGraphReporterTTL(5*time.Minute, 15*time.Minute, true))
+	assert.Equal(t, 5*time.Minute, serviceGraphReporterTTL(5*time.Minute, 3*time.Minute, true))
+	assert.Equal(t, export.DefaultConnectionInfoTTL, export.ConnectionInfoTTLOrDefault(0))
+
+	metricCfg := &otelcfg.MetricsConfig{TTL: 5 * time.Minute, ConnectionInfoTTL: 15 * time.Minute}
+	reporter := &SvcGraphMetricsReporter{
+		ctx:                   t.Context(),
+		cfg:                   metricCfg,
+		serviceGraphEnabled:   true,
+		connectionInfoEnabled: true,
+		log:                   sglog(),
+		metricAttributes:      serviceGraphGetters(request.UnresolvedNames{}, false),
+		exporter:              otelcfg.NewOTLPConsumerExporter(nil),
+	}
+	metrics := reporter.newSvcGraphMetricsInstance(nil)
+	require.NoError(t, reporter.setupGraphMeters(metrics, metrics.provider.Meter(reporterName)))
+	assert.Equal(t, 15*time.Minute, metrics.connectionInfo.ttl)
+	assert.Equal(t, 5*time.Minute, metricCfg.TTL)
+	assert.Equal(t, 5*time.Minute, metrics.serviceGraphClient.ttl)
+	assert.Equal(t, 5*time.Minute, metrics.serviceGraphTotal.ttl)
+
+	now := time.Unix(100, 0)
+	edge := attribute.NewSet(attribute.String("client", "frontend"), attribute.String("server", "catalog"))
+	metrics.connectionInfo.observe(edge, now)
+	assert.Equal(t, []attribute.Set{edge}, metrics.connectionInfo.active(now.Add(6*time.Minute)))
+	assert.Empty(t, metrics.connectionInfo.active(now.Add(16*time.Minute)))
+	assert.Equal(t, 15*time.Minute, serviceGraphReporterTTL(metricCfg.TTL, metricCfg.ConnectionInfoTTL, true))
+	t.Cleanup(func() { _ = metrics.provider.Shutdown(t.Context()) })
 }
 
 func TestConnectionInfoConnectionTypeAttribute(t *testing.T) {

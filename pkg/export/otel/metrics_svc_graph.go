@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
@@ -19,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
@@ -135,7 +137,11 @@ func newSvcGraphMetricsReporter(
 	}
 
 	var err error
-	mr.reporters, err = otelcfg.NewReporterPool[*svc.Attrs, *SvcGraphMetrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
+	connectionInfoTTL := export.ConnectionInfoTTLOrDefault(cfg.ConnectionInfoTTL)
+	// When connection info is enabled, pooled reporters and their RED instruments live at least as long as its TTL.
+	// TODO: decouple connection-info edge expiry from reporter lifetime.
+	mr.reporters, err = otelcfg.NewReporterPool[*svc.Attrs, *SvcGraphMetrics](
+		cfg.ReportersCacheLen, serviceGraphReporterTTL(cfg.TTL, connectionInfoTTL, mr.connectionInfoEnabled), timeNow,
 		func(id svc.UID, v *SvcGraphMetrics) {
 			llog := log.With("service", id)
 			llog.Debug("evicting metrics reporter from cache")
@@ -161,6 +167,16 @@ func newSvcGraphMetricsReporter(
 	mr.pidTracker = NewPidServiceTracker()
 
 	return &mr, nil
+}
+
+func serviceGraphReporterTTL(metricsTTL, connectionInfoTTL time.Duration, connectionInfoEnabled bool) time.Duration {
+	if !connectionInfoEnabled {
+		return metricsTTL
+	}
+	if connectionInfoTTL > metricsTTL {
+		return connectionInfoTTL
+	}
+	return metricsTTL
 }
 
 func (mr *SvcGraphMetricsReporter) graphMetricOptions() []metric.Option {
@@ -297,7 +313,7 @@ func (mr *SvcGraphMetricsReporter) newSvcGraphMetricsInstance(service *svc.Attrs
 		),
 	}
 	if mr.connectionInfoEnabled {
-		m.connectionInfo = newConnectionInfoStore(mr.cfg.TTL)
+		m.connectionInfo = newConnectionInfoStore(export.ConnectionInfoTTLOrDefault(mr.cfg.ConnectionInfoTTL))
 	}
 	return m
 }

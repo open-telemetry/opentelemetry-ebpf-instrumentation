@@ -567,6 +567,7 @@ extensions:
           reporters_cache_len: 256
         metrics:
           ttl: 5m0s
+          connection_info_ttl: 15m0s
           reporters_cache_len: 256
 
     # enrich defines metadata enrichment behavior for telemetry.

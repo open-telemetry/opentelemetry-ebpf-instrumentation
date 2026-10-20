@@ -306,6 +306,11 @@ The `capture` grouping was introduced for two reasons:
 - `channels`: internal backpressure controls.
 - `telemetry`: reporter cache sizes and metric TTL tuning for OBI capture internals.
 
+Within `capture.telemetry.metrics`, `ttl` controls the general metric-series
+retention (5 minutes by default). `connection_info_ttl` controls connection-info
+edge retention independently (15 minutes by default) for both OTLP and
+Prometheus exporters.
+
 #### Workload selection: `capture.policy` and `capture.rules`
 
 `capture.policy` defines global rule evaluation behavior, and `capture.rules` is an ordered list of workload inclusion/exclusion rules.
@@ -890,6 +895,7 @@ Important mapping notes:
 | `otel_metrics_export.protocol` | Selects `meter_provider.readers[0].periodic.exporter.otlp_grpc` or, with gated HTTP support, `.otlp_http` plus its `encoding` | The exporter shape encodes the protocol; automatic migration currently supports gRPC |
 | `otel_metrics_export.reporters_cache_len` | `extensions.obi.capture.telemetry.metrics.reporters_cache_len` | Move to capture telemetry tuning |
 | `otel_metrics_export.ttl` | `extensions.obi.capture.telemetry.metrics.ttl` | Move to capture telemetry tuning |
+| N/A | `extensions.obi.capture.telemetry.metrics.connection_info_ttl` | Config v2-only connection-info edge retention, defaults to 15 minutes |
 | `otel_traces_export.endpoint` | `tracer_provider.processors[0].batch.exporter.otlp_grpc.endpoint` or, with gated HTTP support, `.otlp_http.endpoint` | OTel ownership move; automatic migration emits gRPC, while HTTP requires the documented manual mapping |
 | `otel_traces_export.instrumentations` | `extensions.obi.capture.instrumentation.<protocol>.enabled.traces` | Only protocols modeled by v2 |
 | `otel_traces_export.protocol` | Selects `tracer_provider.processors[0].batch.exporter.otlp_grpc` or, with gated HTTP support, `.otlp_http` plus its `encoding` | The exporter shape encodes the protocol; automatic migration currently supports gRPC |

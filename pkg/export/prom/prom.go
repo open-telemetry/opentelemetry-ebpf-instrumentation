@@ -120,7 +120,9 @@ type PrometheusConfig struct {
 
 	// TTL specifies the time since a metric was updated for the last time until it is
 	// removed from the metrics set.
-	TTL                         time.Duration `yaml:"ttl" env:"OTEL_EBPF_PROMETHEUS_TTL"`
+	TTL time.Duration `yaml:"ttl" env:"OTEL_EBPF_PROMETHEUS_TTL"`
+	// ConnectionInfoTTL is configured through Config v2 and is not part of the frozen Config v1 surface.
+	ConnectionInfoTTL           time.Duration `yaml:"-" env:"-" validate:"gt=0"`
 	SpanMetricsServiceCacheSize int           `yaml:"service_cache_size" validate:"gt=0"`
 
 	AllowServiceGraphSelfReferences bool `yaml:"allow_service_graph_self_references" env:"OTEL_EBPF_PROMETHEUS_ALLOW_SERVICE_GRAPH_SELF_REFERENCES"`
@@ -503,6 +505,7 @@ func newReporter(
 		}
 		attrSvcGraph = attributes.PrometheusGetters(attributeGetters, attrs)
 	}
+	connectionInfoExpireTTL := export.ConnectionInfoTTLOrDefault(cfg.ConnectionInfoTTL)
 
 	// If service name is not explicitly set, we take the service name as set by the
 	// executable inspector
@@ -775,7 +778,7 @@ func newReporter(
 			return NewExpirer[prometheus.Gauge](prometheus.NewGaugeVec(prometheus.GaugeOpts{
 				Name: ServiceGraphConnectionInfo,
 				Help: "whether a client-to-server connection has been observed recently",
-			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, timeNow, cfg.TTL)
+			}, labelNamesSvcGraph(attrSvcGraph)).MetricVec, timeNow, connectionInfoExpireTTL)
 		}),
 		targetInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
 			Name: TargetInfo,

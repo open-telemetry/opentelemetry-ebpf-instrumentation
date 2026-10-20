@@ -64,6 +64,7 @@ func TestConnectionInfoIsAnIndependentPresenceMetric(t *testing.T) {
 			Port:                        registry.Port,
 			Path:                        "/metrics",
 			TTL:                         2 * time.Second,
+			ConnectionInfoTTL:           4 * time.Second,
 			SpanMetricsServiceCacheSize: 10,
 			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 		},
@@ -105,9 +106,15 @@ func TestConnectionInfoIsAnIndependentPresenceMetric(t *testing.T) {
 	awaitSpanProcessing()
 	time.Sleep(600 * time.Millisecond)
 	assert.Contains(t, getMetrics(t, promURL), "traces_service_graph_connection_info{")
+	time.Sleep(1600 * time.Millisecond)
+	assert.Contains(t, getMetrics(t, promURL), "traces_service_graph_connection_info{", "connection info should outlive the global metrics TTL")
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		assert.NotContains(ct, getMetrics(ct, promURL), "traces_service_graph_connection_info{")
 	}, timeout, 100*time.Millisecond)
+}
+
+func TestConnectionInfoTTLDefaultsToTempoDuration(t *testing.T) {
+	assert.Equal(t, export.DefaultConnectionInfoTTL, export.ConnectionInfoTTLOrDefault(0))
 }
 
 func TestConnectionInfoPrometheusConnectionTypeLabel(t *testing.T) {
