@@ -14,22 +14,25 @@ import (
 	"go.opentelemetry.io/obi/pkg/metadata/peer"
 )
 
-func TestConfigV1PeerMetadataDefaults(t *testing.T) {
-	t.Setenv("OTEL_EBPF_EXECUTABLE_PATH", "python")
-	cfg, err := LoadConfig(strings.NewReader("peer_metadata:\n  enabled: true\n"))
+func TestConfigV1PeerMetadataYAMLIgnored(t *testing.T) {
+	cfg, err := LoadConfig(strings.NewReader(`peer_metadata:
+  enabled: true
+  port: 9000
+  caller_ttl: not-a-duration
+  peer_cidrs: [invalid]
+  token: yaml-token
+  tls:
+    enabled: true
+`))
 	require.NoError(t, err)
-	want := peer.DefaultConfig()
-	want.Enabled = true
-	require.Equal(t, want, cfg.PeerMetadata)
-	require.NoError(t, cfg.ValidateStaticForReceiver())
+	require.Equal(t, peer.DefaultConfig(), cfg.PeerMetadata)
 }
 
-func TestConfigV1PeerMetadataEnvironmentOverrides(t *testing.T) {
-	t.Setenv("OTEL_EBPF_EXECUTABLE_PATH", "python")
+func TestConfigV1PeerMetadataEnvironmentIgnored(t *testing.T) {
 	settings := map[string]string{
 		"ENABLED": "true", "LISTEN_ADDRESS": "127.0.0.1", "PORT": "9000",
 		"PEER_CIDRS": "10.1.0.0/16,fd12::/64", "REFRESH_INTERVAL": "2s",
-		"CALLER_TTL": "20s", "CACHE_TTL": "30s", "REQUEST_TIMEOUT": "500ms",
+		"CALLER_TTL": "not-a-duration", "CACHE_TTL": "30s", "REQUEST_TIMEOUT": "500ms",
 		"MAX_PEERS": "128", "MAX_CONCURRENT": "4", "MAX_CALLER_ENTRIES": "500",
 		"MAX_RESPONSE_BYTES": "4096", "MAX_CACHE_BYTES": "8192", "TOKEN": "env-token",
 		"TLS_ENABLED": "true", "TLS_CERT_FILE": "cert.pem", "TLS_KEY_FILE": "key.pem",
@@ -38,87 +41,84 @@ func TestConfigV1PeerMetadataEnvironmentOverrides(t *testing.T) {
 	for name, value := range settings {
 		t.Setenv("OTEL_EBPF_PEER_METADATA_"+name, value)
 	}
-	cfg, err := LoadConfig(strings.NewReader(`peer_metadata:
-  enabled: false
-  port: 9001
-  caller_ttl: 40s
-  peer_cidrs: [192.168.0.0/16]
-  token: yaml-token
-  tls:
-    cert_file: yaml-cert.pem
-`))
+	cfg, err := LoadConfig(nil)
 	require.NoError(t, err)
-	require.Equal(t, peer.Config{
-		Enabled: true, ListenAddress: "127.0.0.1", Port: 9000,
-		PeerCIDRs: []string{"10.1.0.0/16", "fd12::/64"}, RefreshInterval: 2 * time.Second,
-		CallerTTL: 20 * time.Second, CacheTTL: 30 * time.Second, RequestTimeout: 500 * time.Millisecond,
-		MaxPeers: 128, MaxConcurrent: 4, MaxCallerEntries: 500, MaxResponseBytes: 4096,
-		MaxCacheBytes: 8192, Token: "env-token",
-		TLS: peer.TLSConfig{Enabled: true, CertFile: "cert.pem", KeyFile: "key.pem", CAFile: "ca.pem", ServerName: "agent.test"},
-	}, cfg.PeerMetadata)
-	require.NoError(t, cfg.ValidateStaticForReceiver())
+	require.Equal(t, peer.DefaultConfig(), cfg.PeerMetadata)
 }
 
-func TestConfigV1PeerMetadataYAML(t *testing.T) {
-	cfg, err := LoadConfig(strings.NewReader(`peer_metadata:
-  enabled: true
-  port: 9000
-  peer_cidrs: [10.1.0.0/16]
-  caller_ttl: 20s
-  token: yaml-token
-  tls:
-    enabled: true
-    cert_file: cert.pem
-    key_file: key.pem
-`))
+func TestConfigV1PeerMetadataMapIgnored(t *testing.T) {
+	cfg := DefaultConfig
+	err := cfg.UnmarshalMap(map[string]any{
+		"peer_metadata": map[string]any{"enabled": true, "port": 9000, "caller_ttl": "not-a-duration"},
+	})
 	require.NoError(t, err)
-	require.Equal(t, 9000, cfg.PeerMetadata.Port)
-	require.Equal(t, 20*time.Second, cfg.PeerMetadata.CallerTTL)
-	require.Equal(t, []string{"10.1.0.0/16"}, cfg.PeerMetadata.PeerCIDRs)
-	require.Equal(t, "yaml-token", cfg.PeerMetadata.Token)
-	require.True(t, cfg.PeerMetadata.TLS.Enabled)
+	require.Equal(t, peer.DefaultConfig(), cfg.PeerMetadata)
+}
+
+func TestConfigV1PeerMetadataNotMarshaled(t *testing.T) {
+	cfg := DefaultConfig
+	cfg.PeerMetadata.Enabled = true
 	data, err := yaml.Marshal(cfg)
 	require.NoError(t, err)
-	var decoded Config
-	require.NoError(t, yaml.Unmarshal(data, &decoded))
-	require.Equal(t, cfg.PeerMetadata, decoded.PeerMetadata)
+	require.NotContains(t, string(data), "peer_metadata:")
 }
 
-func TestConfigV1PeerMetadataValidation(t *testing.T) {
+func TestConfigPeerMetadataRuntimeConfiguration(t *testing.T) {
 	t.Setenv("OTEL_EBPF_EXECUTABLE_PATH", "python")
-	for _, field := range []string{"port: 0", "port: 65536", "caller_ttl: 0s", "max_peers: 0", "peer_cidrs: [invalid]", "tls: {enabled: true}"} {
-		t.Run(field, func(t *testing.T) {
-			cfg, err := LoadConfig(strings.NewReader("peer_metadata:\n  enabled: true\n  " + field + "\n"))
+	cfg, err := LoadConfig(nil)
+	require.NoError(t, err)
+	cfg.PeerMetadata.Enabled = true
+	cfg.PeerMetadata.Port = 9000
+	cfg.PeerMetadata.CallerTTL = 20 * time.Second
+	cfg.PeerMetadata.PeerCIDRs = []string{"10.1.0.0/16"}
+	require.NoError(t, cfg.ValidateStaticForReceiver())
+	require.True(t, cfg.PeerMetadata.Enabled)
+}
+
+func TestConfigPeerMetadataRuntimeValidation(t *testing.T) {
+	t.Setenv("OTEL_EBPF_EXECUTABLE_PATH", "python")
+	for _, test := range []struct {
+		name string
+		set  func(*peer.Config)
+	}{
+		{name: "port zero", set: func(c *peer.Config) { c.Port = 0 }},
+		{name: "port too large", set: func(c *peer.Config) { c.Port = 65536 }},
+		{name: "caller TTL", set: func(c *peer.Config) { c.CallerTTL = 0 }},
+		{name: "max peers", set: func(c *peer.Config) { c.MaxPeers = 0 }},
+		{name: "CIDR", set: func(c *peer.Config) { c.PeerCIDRs = []string{"invalid"} }},
+		{name: "TLS", set: func(c *peer.Config) { c.TLS.Enabled = true }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg, err := LoadConfig(nil)
 			require.NoError(t, err)
+			cfg.PeerMetadata.Enabled = true
+			test.set(&cfg.PeerMetadata)
 			require.ErrorContains(t, cfg.ValidateStaticForReceiver(), "peer metadata")
 		})
 	}
-	t.Setenv("OTEL_EBPF_PEER_METADATA_CALLER_TTL", "not-a-duration")
-	_, err := LoadConfig(nil)
-	require.ErrorContains(t, err, "invalid duration")
 }
 
 func TestConfigPeerMetadataLogRedaction(t *testing.T) {
 	cfg := DefaultConfig
 	cfg.PeerMetadata.Token = "private-peer-token"
-	data, err := yaml.Marshal(cfg.configForLogging())
-	require.NoError(t, err)
-	require.Contains(t, string(data), "peer_metadata:")
-	require.Contains(t, string(data), "[REDACTED]")
-	require.NotContains(t, string(data), "private-peer-token")
+	redacted := cfg.configForLogging()
+	require.Equal(t, "[REDACTED]", redacted.PeerMetadata.Token)
 	require.Equal(t, "private-peer-token", cfg.PeerMetadata.Token)
 }
 
 func TestConfigPeerMetadataDelegatesValidation(t *testing.T) {
 	t.Setenv("OTEL_EBPF_EXECUTABLE_PATH", "python")
-	cfg, err := LoadConfig(strings.NewReader("peer_metadata:\n  enabled: true\n  caller_ttl: 999us\n"))
+	cfg, err := LoadConfig(nil)
 	require.NoError(t, err)
+	cfg.PeerMetadata.Enabled = true
+	cfg.PeerMetadata.CallerTTL = 999 * time.Microsecond
 	require.ErrorContains(t, cfg.ValidateStaticForReceiver(), "CallerTTL")
 }
 
 func TestConfigDisabledPeerMetadataSkipsValidation(t *testing.T) {
 	t.Setenv("OTEL_EBPF_EXECUTABLE_PATH", "python")
-	cfg, err := LoadConfig(strings.NewReader("peer_metadata:\n  enabled: false\n  caller_ttl: 0s\n  max_peers: 0\n"))
+	cfg, err := LoadConfig(nil)
 	require.NoError(t, err)
+	cfg.PeerMetadata = peer.Config{}
 	require.NoError(t, cfg.ValidateStaticForReceiver())
 }

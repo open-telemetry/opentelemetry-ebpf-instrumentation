@@ -4,7 +4,6 @@
 package convert
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -56,23 +55,19 @@ func TestPeerMetadataV2Validation(t *testing.T) {
 	}
 }
 
-func TestPeerMetadataV1ToV2RoundTrip(t *testing.T) {
-	cfg, err := obi.LoadConfig(strings.NewReader(`peer_metadata:
-  enabled: true
-  listen_address: 127.0.0.1
-  port: 9000
-  peer_cidrs: [10.1.0.0/16]
-  caller_ttl: 20s
-  token: shared-token
-  tls:
-    enabled: true
-    cert_file: cert.pem
-    key_file: key.pem
-    ca_file: ca.pem
-    server_name: agent.test
-`))
-	require.NoError(t, err)
-	_, extension := RuntimeToV2(cfg)
+func TestPeerMetadataRuntimeToV2RoundTrip(t *testing.T) {
+	cfg := obi.DefaultConfig
+	cfg.PeerMetadata = peer.DefaultConfig()
+	cfg.PeerMetadata.Enabled = true
+	cfg.PeerMetadata.ListenAddress = "127.0.0.1"
+	cfg.PeerMetadata.Port = 9000
+	cfg.PeerMetadata.PeerCIDRs = []string{"10.1.0.0/16"}
+	cfg.PeerMetadata.CallerTTL = 20 * time.Second
+	cfg.PeerMetadata.Token = "shared-token"
+	cfg.PeerMetadata.TLS = peer.TLSConfig{
+		Enabled: true, CertFile: "cert.pem", KeyFile: "key.pem", CAFile: "ca.pem", ServerName: "agent.test",
+	}
+	_, extension := RuntimeToV2(&cfg)
 	restored, err := V2ToRuntime(extension)
 	require.NoError(t, err)
 	require.Equal(t, cfg.PeerMetadata, restored.PeerMetadata)
