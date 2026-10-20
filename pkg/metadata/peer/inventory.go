@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v4/net"
+	"github.com/shirou/gopsutil/v4/process"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -52,7 +53,7 @@ func runInventory(ctx context.Context, events <-chan exec.ProcessEvent, store *l
 			}
 
 			inventory.mu.Lock()
-			updateProcesses(inventory.processes, event)
+			updateProcesses(ctx, inventory.processes, event)
 			inventory.mu.Unlock()
 		}
 	}
@@ -82,7 +83,7 @@ func (i *processInventory) poll(ctx context.Context, store *localStore, interval
 	}
 }
 
-func updateProcesses(processes map[processKey]*exec.FileInfo, event exec.ProcessEvent) {
+func updateProcesses(ctx context.Context, processes map[processKey]*exec.FileInfo, event exec.ProcessEvent) {
 	if event.File == nil {
 		return
 	}
@@ -95,6 +96,44 @@ func updateProcesses(processes map[processKey]*exec.FileInfo, event exec.Process
 	}
 
 	processes[key] = event.ServiceFile()
+	registerChildProcesses(ctx, processes, key)
+}
+
+func registerChildProcesses(ctx context.Context, processes map[processKey]*exec.FileInfo, parent processKey) {
+	start, err := procs.StartTime(app.PID(parent.pid))
+	if err != nil || (parent.start != 0 && start != parent.start) {
+		return
+	}
+
+	proc := &process.Process{Pid: parent.pid}
+	executable, err := proc.ExeWithContext(ctx)
+	if err != nil {
+		return
+	}
+
+	children, err := proc.ChildrenWithContext(ctx)
+	if err != nil {
+		return
+	}
+
+	for _, child := range children {
+		childExecutable, err := child.ExeWithContext(ctx)
+		if err != nil || childExecutable != executable {
+			continue
+		}
+
+		start, err := procs.StartTime(app.PID(child.Pid))
+		if err != nil {
+			continue
+		}
+
+		key := processKey{pid: child.Pid, start: start}
+		if _, exists := processes[key]; !exists {
+			processes[key] = processes[parent]
+		}
+
+		registerChildProcesses(ctx, processes, key)
+	}
 }
 
 func refreshInventory(ctx context.Context, processes map[processKey]*exec.FileInfo, store *localStore) []processKey {
