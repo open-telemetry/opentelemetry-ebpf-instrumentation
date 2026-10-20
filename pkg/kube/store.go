@@ -729,7 +729,8 @@ func (s *Store) podMetadataForObject(om *informer.ObjectMeta) *informer.ObjectMe
 
 func (s *Store) selectedPodMeta(om *informer.ObjectMeta) *informer.ObjectMeta {
 	selector := labels.SelectorFromValidatedSet(om.Selector)
-	var selected *informer.ObjectMeta
+	var fallback *informer.ObjectMeta
+
 	for _, cmeta := range s.objectMetaByQName {
 		pod := cmeta.Meta
 		if pod == nil || pod.Pod == nil || pod.Namespace != om.Namespace {
@@ -738,15 +739,16 @@ func (s *Store) selectedPodMeta(om *informer.ObjectMeta) *informer.ObjectMeta {
 		if !selector.Matches(labels.Set(pod.Labels)) {
 			continue
 		}
-		hasContainers := len(pod.Pod.Containers) > 0
-		selectedHasContainers := len(selected.GetPod().GetContainers()) > 0
-		if selected == nil ||
-			(hasContainers && !selectedHasContainers) ||
-			(hasContainers == selectedHasContainers && pod.Name < selected.Name) {
-			selected = pod
+		// Prefer a Pod whose environment overrides are available.
+		if len(pod.Pod.Containers) > 0 {
+			return pod
+		}
+		// Keep annotation and label metadata available while containers arrive.
+		if fallback == nil {
+			fallback = pod
 		}
 	}
-	return selected
+	return fallback
 }
 
 // ownerPodMeta returns any pod metadata associated with the given non-pod object.

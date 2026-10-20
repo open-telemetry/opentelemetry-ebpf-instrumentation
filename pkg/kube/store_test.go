@@ -48,22 +48,30 @@ func TestServiceIPNameMatchesPodAnnotation(t *testing.T) {
 		Ips:       []string{"10.96.0.10"},
 	}
 
-	store := NewStore(&fakeInformer{}, DefaultResourceLabels, nil, imetrics.NoopReporter{})
-	for _, resource := range []*informer.ObjectMeta{service, pod} {
-		require.NoError(t, store.On(&informer.Event{
-			Type:     informer.EventType_CREATED,
-			Resource: resource,
-		}))
+	orders := map[string][]*informer.ObjectMeta{
+		"service-first": {service, pod},
+		"pod-first":     {pod, service},
 	}
+	for name, resources := range orders {
+		t.Run(name, func(t *testing.T) {
+			store := NewStore(&fakeInformer{}, DefaultResourceLabels, nil, imetrics.NoopReporter{})
+			for _, resource := range resources {
+				require.NoError(t, store.On(&informer.Event{
+					Type:     informer.EventType_CREATED,
+					Resource: resource,
+				}))
+			}
 
-	appName, _ := store.ServiceNameNamespaceForMetadata(pod, "api")
-	podName, _, _ := store.ServiceNameNamespaceForIP("10.0.0.2")
-	serviceName, _, _ := store.ServiceNameNamespaceForIP("10.96.0.10")
+			appName, _ := store.ServiceNameNamespaceForMetadata(pod, "api")
+			podName, _, _ := store.ServiceNameNamespaceForIP("10.0.0.2")
+			serviceName, _, _ := store.ServiceNameNamespaceForIP("10.96.0.10")
 
-	require.Equal(t, "inventory", appName)
-	require.Equal(t, appName, podName)
-	require.Equal(t, appName, serviceName,
-		"Service IP resolution must agree with the application identity")
+			require.Equal(t, "inventory", appName)
+			require.Equal(t, appName, podName)
+			require.Equal(t, appName, serviceName,
+				"Service IP resolution must agree with the application identity")
+		})
+	}
 }
 
 func TestServiceIPNameUsesSelectedPods(t *testing.T) {
@@ -106,6 +114,7 @@ func TestServiceIPNameUsesSelectedPods(t *testing.T) {
 		service           *informer.ObjectMeta
 		pods              []*informer.ObjectMeta
 		expectedName      string
+		expectedNames     []string
 		expectedNamespace string
 	}{
 		{
@@ -137,14 +146,26 @@ func TestServiceIPNameUsesSelectedPods(t *testing.T) {
 			expectedNamespace: "shop",
 		},
 		{
-			name:    "lowest Pod name wins when the selector spans several workloads",
+			name:    "a matching Pod supplies the identity when the selector spans several workloads",
 			service: service(map[string]string{"tier": "inventory"}),
 			pods: []*informer.ObjectMeta{
 				inventoryPod("pod-5", "inventory-canary", map[string]string{ServiceNameAnnotation: "inventory-canary"}, nil),
 				inventoryPod("pod-4", "inventory-stable", map[string]string{ServiceNameAnnotation: "inventory-stable"}, nil),
 			},
-			expectedName:      "inventory-stable",
+			expectedNames:     []string{"inventory-stable", "inventory-canary"},
 			expectedNamespace: "shop",
+		},
+		{
+			name:    "Pod annotations remain available before container metadata arrives",
+			service: service(map[string]string{"app": "inventory-v2"}),
+			pods: []*informer.ObjectMeta{
+				withoutContainers(inventoryPod("pod-0", "inventory-v2", map[string]string{
+					ServiceNameAnnotation:      "inventory-starting",
+					ServiceNamespaceAnnotation: "shop-ns",
+				}, nil)),
+			},
+			expectedName:      "inventory-starting",
+			expectedNamespace: "shop-ns",
 		},
 		{
 			name:    "Pods with reported containers win over Pods still starting",
@@ -175,7 +196,11 @@ func TestServiceIPNameUsesSelectedPods(t *testing.T) {
 			}
 
 			name, namespace, _ := store.ServiceNameNamespaceForIP("10.96.0.10")
-			assert.Equal(t, tc.expectedName, name)
+			if len(tc.expectedNames) > 0 {
+				assert.Contains(t, tc.expectedNames, name)
+			} else {
+				assert.Equal(t, tc.expectedName, name)
+			}
 			assert.Equal(t, tc.expectedNamespace, namespace)
 		})
 	}
