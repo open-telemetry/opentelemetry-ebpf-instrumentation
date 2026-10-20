@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	grpcclient "go.opentelemetry.io/obi/internal/test/integration/components/testserver/grpc/client"
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
@@ -798,16 +799,31 @@ func testGoJSONRPCTraces(t *testing.T) {
 	}, testTimeout, time.Second)
 }
 
+func waitForNestedHTTPService(t *testing.T, endpoint, service string) {
+	t.Helper()
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		response, err := testHTTPClient.Get(endpoint)
+		require.NoError(ct, err)
+		defer response.Body.Close()
+		require.Equal(ct, http.StatusOK, response.StatusCode)
+
+		results, err := pq.Query(`http_server_request_duration_seconds_count{service_name="` + service + `"}`)
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results, "service %s is not instrumented yet", service)
+	}, 2*time.Minute, time.Second)
+}
+
 func testNestedHTTPTracesKProbes(t *testing.T) {
 	var traceID string
 
-	waitForTestComponents(t, "http://localhost:3031")                 // nodejs
-	waitForTestComponents(t, "http://localhost:8080")                 // go
-	waitForTestComponents(t, "http://localhost:7773")                 // python
-	waitForRubyTestComponents(t, "http://localhost:3041")             // ruby
-	waitForTestComponentsSub(t, "http://localhost:8086", "/greeting") // java
-	waitForTestComponents(t, "http://localhost:8091")                 // rust
-	waitForTestComponents(t, instrumentedServiceJSONRPCURL)           // go jsonrpc
+	waitForNestedHTTPService(t, "http://localhost:3031/smoke", "nodejs-service")
+	waitForNestedHTTPService(t, "http://localhost:8080/smoke", "testserver")
+	waitForNestedHTTPService(t, "http://localhost:7773/smoke", "python-service")
+	waitForNestedHTTPService(t, "http://localhost:3041/users", "rails-service")
+	waitForNestedHTTPService(t, "http://localhost:8086/greeting", "java-service")
+	waitForNestedHTTPService(t, "http://localhost:8091/smoke", "rust-service")
+	waitForTestComponents(t, instrumentedServiceJSONRPCURL)
 
 	// Add and check for specific trace ID
 	// Run couple of requests to make sure we flush out any transactions that might be
