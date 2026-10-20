@@ -6,6 +6,7 @@ package peer // import "go.opentelemetry.io/obi/pkg/metadata/peer"
 import (
 	"math/rand/v2"
 	"net/netip"
+	"slices"
 	"sync"
 	"time"
 
@@ -52,7 +53,7 @@ func (c *peerCache) lookup(address netip.Addr, now time.Time) (*cachedSnapshot, 
 
 	peer, exists := c.peers.Get(address)
 	if !exists {
-		peer = &cachedPeer{address: address}
+		peer = &cachedPeer{address: address, nextFetch: now}
 		c.peers.Add(address, peer)
 		c.notify()
 	}
@@ -73,7 +74,7 @@ func (c *peerCache) notify() {
 	}
 }
 
-// due removes inactive peers and reserves up to limit peers for fetching when their refresh is due.
+// due expires inactive peers and reserves the earliest fetch deadlines without changing LRU order.
 func (c *peerCache) due(now time.Time, limit int) []*cachedPeer {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -86,12 +87,25 @@ func (c *peerCache) due(now time.Time, limit int) []*cachedPeer {
 			continue
 		}
 
-		if len(due) >= limit || peer.fetching || now.Before(peer.nextFetch) {
+		if limit <= 0 || peer.fetching || now.Before(peer.nextFetch) {
 			continue
 		}
 
-		peer.fetching = true
 		due = append(due, peer)
+	}
+
+	if len(due) == 0 {
+		return nil
+	}
+
+	slices.SortStableFunc(due, func(a, b *cachedPeer) int {
+		return a.nextFetch.Compare(b.nextFetch)
+	})
+
+	due = due[:min(limit, len(due))]
+
+	for _, peer := range due {
+		peer.fetching = true
 	}
 
 	return due

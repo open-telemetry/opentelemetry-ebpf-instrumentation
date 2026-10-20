@@ -72,3 +72,87 @@ func TestCacheByteBudget(t *testing.T) {
 	require.Equal(t, 100, cache.bytes)
 	require.Equal(t, 1, cache.peers.Len())
 }
+
+func TestCacheRefreshDoesNotStarvePeersUnderSustainedLoad(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.RefreshInterval = time.Millisecond
+	cfg.MaxConcurrent = 1
+	cfg.MaxPeers = 8
+	cache := newPeerCache(cfg)
+	addresses := make([]netip.Addr, cfg.MaxPeers)
+	for i := range addresses {
+		addresses[i] = netip.AddrFrom4([4]byte{10, 1, 0, byte(i + 1)})
+	}
+
+	const requestDuration = 100 * time.Millisecond
+	start := time.Unix(1, 0)
+	jobs := make(chan *cachedPeer, cfg.MaxConcurrent)
+	completed := make(map[netip.Addr]int)
+	var active *cachedPeer
+	var started time.Time
+
+	for elapsed := time.Duration(0); elapsed <= 3*time.Duration(len(addresses))*requestDuration; elapsed += cfg.RefreshInterval {
+		now := start.Add(elapsed)
+		for _, address := range addresses {
+			cache.lookup(address, now)
+		}
+
+		if active != nil && now.Sub(started) >= requestDuration {
+			cache.complete(active, &cachedSnapshot{hostname: "remote"}, 1, started, now)
+			completed[active.address]++
+			active = nil
+		}
+
+		for _, peer := range cache.due(now, cap(jobs)-len(jobs)) {
+			jobs <- peer
+		}
+		if active == nil {
+			select {
+			case active = <-jobs:
+				started = now
+			default:
+			}
+		}
+	}
+
+	for _, address := range addresses {
+		require.GreaterOrEqual(t, completed[address], 2, "peer %s must keep receiving refreshes", address)
+	}
+}
+
+func TestCacheRefreshPrioritizesDeadlineOverRecency(t *testing.T) {
+	cache := newPeerCache(DefaultConfig())
+	now := time.Unix(1, 0)
+	a, b := netip.MustParseAddr("10.1.0.1"), netip.MustParseAddr("10.1.0.2")
+	cache.lookup(a, now)
+	cache.lookup(b, now.Add(time.Millisecond))
+	cache.lookup(a, now.Add(2*time.Millisecond))
+
+	due := cache.due(now.Add(2*time.Millisecond), 1)
+	require.Len(t, due, 1)
+	require.Equal(t, a, due[0].address)
+	due = cache.due(now.Add(2*time.Millisecond), 1)
+	require.Len(t, due, 1)
+	require.Equal(t, b, due[0].address)
+}
+
+func TestCacheRefreshPreservesEvictionRecency(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.MaxPeers = 2
+	cache := newPeerCache(cfg)
+	now := time.Unix(1, 0)
+	a := netip.MustParseAddr("10.1.0.1")
+	b := netip.MustParseAddr("10.1.0.2")
+	c := netip.MustParseAddr("10.1.0.3")
+	cache.lookup(a, now)
+	cache.lookup(b, now)
+	due := cache.due(now, 1)
+	require.Len(t, due, 1)
+	require.Equal(t, a, due[0].address)
+	cache.complete(due[0], &cachedSnapshot{hostname: "remote"}, 1, now, now)
+	cache.lookup(c, now)
+
+	require.False(t, cache.peers.Contains(a))
+	require.True(t, cache.peers.Contains(b))
+	require.True(t, cache.peers.Contains(c))
+}
