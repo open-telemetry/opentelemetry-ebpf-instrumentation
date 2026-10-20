@@ -2101,6 +2101,10 @@ func applyV2EnrichServiceName(cfg *obi.Config, enrich *schema.Enrich) {
 	if serviceName.GCE != nil {
 		cfg.NameResolver.GCE = *serviceName.GCE
 	}
+	cfg.NameResolver.Azure = transform.AzureNameResolverConfig{
+		SubscriptionID: serviceName.Azure.SubscriptionID,
+		ResourceGroup:  serviceName.Azure.ResourceGroup,
+	}
 	cfg.NameResolver.CacheLen = serviceName.Cache.Size
 	cfg.NameResolver.CacheTTL = serviceName.Cache.TTL.TimeDuration()
 	cfg.Attributes.RenameUnresolvedHosts = serviceName.UnresolvedHosts.Names.Default

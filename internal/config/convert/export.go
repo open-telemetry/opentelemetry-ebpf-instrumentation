@@ -683,6 +683,10 @@ func serviceNameEnrichment(cfg *obi.Config) schema.ServiceName {
 		gce := cfg.NameResolver.GCE
 		out.GCE = &gce
 	}
+	out.Azure = schema.AzureServiceName{
+		SubscriptionID: cfg.NameResolver.Azure.SubscriptionID,
+		ResourceGroup:  cfg.NameResolver.Azure.ResourceGroup,
+	}
 	out.Cache = schema.Cache{
 		Size: cfg.NameResolver.CacheLen,
 		TTL:  schema.Duration(cfg.NameResolver.CacheTTL),

@@ -271,6 +271,7 @@ func TestAzureUniformVMs(t *testing.T) {
 
 type azureTestGroup struct {
 	name   string
+	mode   string
 	uuid   string
 	ips    []string
 	status int
@@ -285,9 +286,13 @@ func azureInventoryHandler(t *testing.T, groups *[]azureTestGroup) http.HandlerF
 		var values []map[string]any
 		if r.URL.Path == base {
 			for _, group := range *groups {
+				mode := group.mode
+				if mode == "" {
+					mode = "Uniform"
+				}
 				values = append(values, map[string]any{
 					"name": group.name, "id": base + "/" + group.name,
-					"properties": map[string]any{"orchestrationMode": "Uniform"},
+					"properties": map[string]any{"orchestrationMode": mode},
 				})
 			}
 			if err := json.NewEncoder(w).Encode(map[string]any{"value": values}); err != nil {
@@ -333,6 +338,18 @@ func azureInventoryHandler(t *testing.T, groups *[]azureTestGroup) http.HandlerF
 		t.Errorf("unexpected SDK request: %s", r.URL.Path)
 		w.WriteHeader(http.StatusBadRequest)
 	}
+}
+
+func TestAzureInventorySkipsFlexibleScaleSets(t *testing.T) {
+	groups := []azureTestGroup{
+		{name: "flexible", mode: "Flexible", status: http.StatusForbidden},
+		{name: "checkout", uuid: "vm-a", ips: []string{"10.0.0.1"}},
+	}
+	refresher := newAzureTestRefresher(t, azureInventoryHandler(t, &groups))
+	snapshot := MetadataSnapshot{ServiceByIP: map[string]string{}, ServiceByInstanceID: map[string]string{}}
+	require.NoError(t, refresher.Refresh(t.Context(), &snapshot))
+	assert.Equal(t, map[string]string{"10.0.0.1": "checkout"}, snapshot.ServiceByIP)
+	assert.Equal(t, map[string]string{AzureInstanceID(azureTestSubscription, "vm-a"): "checkout"}, snapshot.ServiceByInstanceID)
 }
 
 func TestAzureInventoryRefreshLifecycle(t *testing.T) {

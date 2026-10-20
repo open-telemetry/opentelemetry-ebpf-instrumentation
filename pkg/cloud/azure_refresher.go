@@ -87,6 +87,10 @@ func (i *AzureInventoryRefresher) refreshScaleSet(ctx context.Context, set *armc
 ) error {
 	if set.Properties != nil && set.Properties.OrchestrationMode != nil &&
 		*set.Properties.OrchestrationMode != armcompute.OrchestrationModeUniform {
+		// Uniform discovery also runs in resource groups containing Flexible sets.
+		if *set.Properties.OrchestrationMode == armcompute.OrchestrationModeFlexible {
+			return nil
+		}
 		return fmt.Errorf("unsupported Azure scale set orchestration mode %q", *set.Properties.OrchestrationMode)
 	}
 	vms, err := i.uniformVMs(ctx, *set.Name)
