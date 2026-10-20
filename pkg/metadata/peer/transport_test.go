@@ -55,6 +55,17 @@ func TestMetadataEndpoint(t *testing.T) {
 	require.Equal(t, "host", snapshot.Hostname)
 	require.ElementsMatch(t, []Service{api}, snapshot.Services)
 	require.Len(t, snapshot.Callers, 1)
+	t.Run("IPv6 query excludes IPv4 wildcard", func(t *testing.T) {
+		r := httptest.NewRequest(http.MethodGet, MetadataPath+"?ip=fd12::2&port=8080", nil)
+		r.Header.Set("Authorization", "Bearer "+cfg.Token)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		require.Equal(t, http.StatusOK, w.Code)
+		var snapshot Snapshot
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &snapshot))
+		require.Empty(t, snapshot.Listeners)
+		require.Empty(t, snapshot.Services)
+	})
 	cfg.MaxResponseBytes = 1
 	w = httptest.NewRecorder()
 	metadataHandler(store, cfg).ServeHTTP(w, r)

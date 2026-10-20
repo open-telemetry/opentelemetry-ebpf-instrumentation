@@ -157,6 +157,10 @@ func filterListeners(snapshot *Snapshot, query url.Values) error {
 			continue
 		}
 
+		if ip.Is6() && addr.Is4() {
+			continue
+		}
+
 		listeners = append(listeners, listener)
 		services[listener.Service] = struct{}{}
 	}
