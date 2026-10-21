@@ -52,6 +52,19 @@ func (q *Queue[T]) Dequeue() T {
 	return item
 }
 
+// TryDequeue retrieves the first element in the queue without blocking. The returned boolean
+// is false if the queue is empty.
+func (q *Queue[T]) TryDequeue() (T, bool) {
+	q.mutex.Lock()
+	defer q.mutex.Unlock()
+
+	if q.head == nil {
+		var zero T
+		return zero, false
+	}
+	return q.remove(), true
+}
+
 // DequeueContext retrieves the first element in the queue. If the queue is empty, DequeueContext
 // blocks until an element is available or the context is canceled.
 func (q *Queue[T]) DequeueContext(ctx context.Context) (T, error) {
