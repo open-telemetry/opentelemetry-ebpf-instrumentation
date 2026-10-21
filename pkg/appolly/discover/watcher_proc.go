@@ -111,7 +111,7 @@ func ProcessWatcherFunc(
 		executableReady:   ExecutableReady,
 		loadBPFWatcher:    loadBPFWatcher,
 		loadBPFLogger:     loadBPFLogger,
-		fetchPorts:        true,  // must be true until we've activated the bpf watcher component
+		fetchPorts:        hasOpenPortCriteria(cfg, findingCriteria),
 		bpfWatcherEnabled: false, // async set by listening on the bpfWatchEvents channel
 		stateMux:          sync.Mutex{},
 		findingCriteria:   findingCriteria,
@@ -263,9 +263,25 @@ func (pa *pollAccounter) refetchPorts() {
 	pa.fetchPorts = true
 }
 
+func hasOpenPortCriteria(cfg *obi.Config, criteria []services.Selector) bool {
+	if cfg != nil && cfg.Port.Len() > 0 {
+		return true
+	}
+	for _, cr := range criteria {
+		if cr != nil && cr.GetOpenPorts() != nil && cr.GetOpenPorts().Len() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (pa *pollAccounter) portFetchRequired() bool {
 	pa.stateMux.Lock()
 	defer pa.stateMux.Unlock()
+
+	if !hasOpenPortCriteria(pa.cfg, pa.findingCriteria) {
+		return false
+	}
 
 	if !pa.bpfWatcherEnabled {
 		return true

@@ -250,6 +250,67 @@ func TestPortsFetchRequired(t *testing.T) {
 	}
 }
 
+func TestPortsFetchNotRequired_WhenNoPortCriteria(t *testing.T) {
+	// GIVEN a configuration with no open_ports and no port in finding criteria
+	userConfig := bytes.NewBufferString("channel_buffer_len: 33")
+	t.Setenv("OTEL_EBPF_OPEN_PORT", "")
+
+	cfg, err := obi.LoadConfig(userConfig)
+	require.NoError(t, err)
+
+	channelReturner := make(chan chan<- watcher.Event)
+	ctx, cancel := context.WithCancel(t.Context())
+
+	acc := pollAccounter{
+		cfg:      cfg,
+		interval: time.Hour,
+		pidPorts: map[pidPort]ProcessAttrs{},
+		listProcesses: func(bool) (map[app.PID]ProcessAttrs, error) {
+			return nil, nil
+		},
+		executableReady: func(_ app.PID) (string, bool) {
+			return "", true
+		},
+		loadBPFWatcher: func(_ context.Context, _ *ebpfcommon.EBPFEventContext, _ *obi.Config, events chan<- watcher.Event) error {
+			channelReturner <- events
+			return nil
+		},
+		loadBPFLogger: func(context.Context, *ebpfcommon.EBPFEventContext, *obi.Config) error {
+			return nil
+		},
+		stateMux:          sync.Mutex{},
+		bpfWatcherEnabled: false,
+		fetchPorts:        hasOpenPortCriteria(cfg, FindingCriteria(cfg)),
+		findingCriteria:   FindingCriteria(cfg),
+		output:            msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(1)),
+	}
+
+	accounterExited := make(chan struct{})
+	go func() {
+		acc.run(ctx)
+		close(accounterExited)
+	}()
+
+	eventsChan := testutil.ReadChannel(t, channelReturner, testTimeout)
+
+	// THEN portFetchRequired must be false from startup because no port criteria exist
+	assert.False(t, acc.portFetchRequired())
+
+	// AND even after new port events arrive, portFetchRequired stays false
+	eventsChan <- watcher.Event{Type: watcher.NewPort, Payload: 8080}
+	assert.False(t, acc.portFetchRequired())
+
+	eventsChan <- watcher.Event{Type: watcher.Ready}
+	assert.False(t, acc.portFetchRequired())
+
+	cancel()
+	select {
+	case <-accounterExited:
+	case <-time.After(testTimeout):
+		assert.Fail(t, "expected to exit the main loop")
+	}
+}
+
 // auxiliary function just to allow comparing slices whose order is not deterministic
 func sort(events []Event[ProcessAttrs]) []Event[ProcessAttrs] {
 	slices.SortFunc(events, func(a, b Event[ProcessAttrs]) int {
