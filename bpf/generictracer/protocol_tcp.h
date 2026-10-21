@@ -127,7 +127,8 @@ static __always_inline void finish_ongoing_tcp_req(pid_connection_info_t *pid_co
         existing_tcp->resp_len = 0;
 
         bpf_dbg_printk("Sending pending TCP trace on close: len=%d", existing_tcp->len);
-        events_ringbuf_output(existing_tcp, sizeof(*existing_tcp), get_flags());
+        events_ringbuf_output(
+            existing_tcp, sizeof(*existing_tcp), get_output_flags(sizeof(*existing_tcp)));
     }
 
     cleanup_trace_info(existing_tcp, pid_conn);
