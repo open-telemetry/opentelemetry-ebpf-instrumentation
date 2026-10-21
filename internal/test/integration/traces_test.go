@@ -1615,6 +1615,30 @@ func testHTTPTracesNestedJSLargeHTTPS(t *testing.T) {
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/api/test-apm"})
 		require.Len(ct, traces, 1)
 		trace = traces[0]
+
+		res := trace.FindByOperationName("GET /api/test-apm", "")
+		require.Len(ct, res, 1)
+		server := res[0]
+
+		res = trace.FindByOperationName("processing", "internal")
+		var processing *jaeger.Span
+		for i := range res {
+			r := &res[i]
+			// Check parenthood
+			p, ok := trace.ParentOf(r)
+
+			if ok {
+				if p.TraceID == server.TraceID && p.SpanID == server.SpanID {
+					processing = r
+					break
+				}
+			}
+		}
+		require.NotNil(ct, processing)
+		// The HTTPS client spans end when Node's keep-alive agent closes its idle
+		// sockets, so they can reach Jaeger later than the server span.
+		// We must see two children
+		assert.Len(ct, trace.ChildrenOf(processing.SpanID), 2)
 	}, testTimeout, 100*time.Millisecond)
 
 	// Check the information of the parent span
@@ -1638,27 +1662,6 @@ func testHTTPTracesNestedJSLargeHTTPS(t *testing.T) {
 
 	children := trace.ChildrenOf(parentID)
 	require.GreaterOrEqual(t, len(children), 2)
-
-	res = trace.FindByOperationName("processing", "internal")
-
-	require.NotEmpty(t, res)
-	var processing *jaeger.Span
-	for i := range res {
-		r := &res[i]
-		// Check parenthood
-		p, ok := trace.ParentOf(r)
-
-		if ok {
-			if p.TraceID == server.TraceID && p.SpanID == server.SpanID {
-				processing = r
-				break
-			}
-		}
-	}
-	require.NotNil(t, processing)
-	children = trace.ChildrenOf(processing.SpanID)
-	// We must see two children
-	assert.Len(t, children, 2)
 }
 
 func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls int) {
