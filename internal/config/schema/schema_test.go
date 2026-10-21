@@ -206,6 +206,69 @@ extensions:
 	}
 }
 
+func TestConfigV2SpanContractYAML(t *testing.T) {
+	t.Parallel()
+
+	for _, target := range []string{
+		`function: "com.example.Foo#bar"`,
+		`function_noret: "com.example.Foo#bar"`,
+		`usdt: "provider:base"`,
+		`usdt_noret: "provider:name"`,
+	} {
+		t.Run(target, func(t *testing.T) {
+			t.Parallel()
+			input := fmt.Sprintf(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: include
+          match: {process: {language_glob: [java]}}
+          refine:
+            spans:
+              - name: example
+                on: {%s}
+                attributes:
+                  - name: request.id
+                    argument: {index: 0, type: string}
+                automatic_attributes: true
+`, target)
+			_, extension, err := ParseStandaloneYAML([]byte(input))
+			require.NoError(t, err)
+			require.Len(t, extension.Capture.Rules[0].Refine.Spans, 1)
+		})
+	}
+
+	for _, tc := range []struct {
+		name  string
+		span  string
+		issue string
+	}{
+		{name: "missing target", span: `{name: example, on: {}}`, issue: "must define exactly one target"},
+		{name: "empty target", span: `{name: example, on: {function: ''}}`, issue: "target must not be empty"},
+		{name: "multiple targets", span: `{name: example, on: {function: f, usdt: p}}`, issue: "must define exactly one target"},
+		{name: "match on function", span: `{name: example, on: {function: f, match: {argument: {index: 0}, value: x}}}`, issue: "only supported for USDT targets"},
+	} {
+		t.Run("invalid/"+tc.name, func(t *testing.T) {
+			t.Parallel()
+			input := fmt.Sprintf(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: include
+          match: {process: {language_glob: [java]}}
+          refine:
+            spans: [%s]
+`, tc.span)
+			_, _, err := ParseStandaloneYAML([]byte(input))
+			require.ErrorContains(t, err, tc.issue)
+		})
+	}
+}
+
 func TestDynamicSpanTargetCountsMergedTargets(t *testing.T) {
 	t.Parallel()
 
