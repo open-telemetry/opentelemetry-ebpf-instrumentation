@@ -234,11 +234,6 @@ func TestConnectionInfoTTLIsIndependentFromMetricsTTL(t *testing.T) {
 	assert.Equal(t, 5*time.Minute, metrics.serviceGraphClient.ttl)
 	assert.Equal(t, 5*time.Minute, metrics.serviceGraphTotal.ttl)
 
-	now := time.Unix(100, 0)
-	edge := attribute.NewSet(attribute.String("client", "frontend"), attribute.String("server", "catalog"))
-	metrics.connectionInfo.observe(edge, now)
-	assert.Equal(t, []attribute.Set{edge}, metrics.connectionInfo.active(now.Add(6*time.Minute)))
-	assert.Empty(t, metrics.connectionInfo.active(now.Add(16*time.Minute)))
 	assert.Equal(t, 15*time.Minute, serviceGraphReporterTTL(metricCfg.TTL, metricCfg.ConnectionInfoTTL, true))
 	t.Cleanup(func() { _ = metrics.provider.Shutdown(t.Context()) })
 }
@@ -287,7 +282,21 @@ func TestConnectionInfoConnectionTypeAttribute(t *testing.T) {
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			attrs := connectionInfoAttributes(&test.span, fields, &tracker)
+			getters := connectionInfoGetters(fields)
+			values := make([]attribute.KeyValue, 0, len(getters)+1)
+			for _, field := range getters {
+				if value := field.Get(&test.span); value.Valid() {
+					values = append(values, value)
+				}
+			}
+			values = append(values, connectionInfoExtraAttrs(&test.span, &tracker)...)
+			attrs := attribute.NewSet(values...)
+			client, ok := attrs.Value(attr.Client.OTEL())
+			require.True(t, ok)
+			assert.Equal(t, "frontend", client.AsString())
+			namespace, ok := attrs.Value(attr.ClientNamespace.OTEL())
+			require.True(t, ok)
+			assert.Equal(t, "shop", namespace.AsString())
 			value, ok := attrs.Value(attr.ConnectionType.OTEL())
 			assert.Equal(t, test.wantAttribute, ok)
 			if test.wantAttribute {

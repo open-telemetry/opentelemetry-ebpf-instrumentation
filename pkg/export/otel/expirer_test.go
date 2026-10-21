@@ -35,6 +35,34 @@ const timeout = 20 * time.Second
 
 var mpConfig = perapp.GlobalMetricsConfig{Features: export.FeatureAll}
 
+type removedMetric struct{ removals int }
+
+func (m *removedMetric) Remove(_ context.Context, _ ...metric.RemoveOption) {
+	m.removals++
+}
+
+func TestExpirerForRecordRemovesExpiredMetrics(t *testing.T) {
+	now := time.Unix(100, 0)
+	clock := func() time.Time { return now }
+	metric := &removedMetric{}
+	exp := NewExpirer[map[string]string, *removedMetric, int64](
+		t.Context(), metric, []attributes.Field[map[string]string, attribute.KeyValue]{
+			{Get: func(record map[string]string) attribute.KeyValue { return attribute.String("edge", record["edge"]) }},
+		}, clock, time.Minute,
+	)
+	_, attrs := exp.ForRecord(map[string]string{"edge": "frontend-catalog"})
+	value, ok := attrs.Value(attribute.Key("edge"))
+	require.True(t, ok)
+	assert.Equal(t, "frontend-catalog", value.AsString())
+
+	now = now.Add(2 * time.Minute)
+	_, attrs = exp.ForRecord(map[string]string{"edge": "frontend-orders"})
+	value, ok = attrs.Value(attribute.Key("edge"))
+	require.True(t, ok)
+	assert.Equal(t, "frontend-orders", value.AsString())
+	require.Equal(t, 1, metric.removals)
+}
+
 func TestNetMetricsExpiration(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
 	ctx := t.Context()

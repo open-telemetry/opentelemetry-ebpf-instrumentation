@@ -68,11 +68,12 @@ type SvcGraphMetrics struct {
 	resourceAttributes       []attribute.KeyValue
 	tracesResourceAttributes attribute.Set
 
-	serviceGraphClient *Expirer[*request.Span, instrument.Float64Histogram, float64]
-	serviceGraphServer *Expirer[*request.Span, instrument.Float64Histogram, float64]
-	serviceGraphFailed *Expirer[*request.Span, instrument.Int64Counter, int64]
-	serviceGraphTotal  *Expirer[*request.Span, instrument.Int64Counter, int64]
-	connectionInfo     *connectionInfoStore
+	serviceGraphClient    *Expirer[*request.Span, instrument.Float64Histogram, float64]
+	serviceGraphServer    *Expirer[*request.Span, instrument.Float64Histogram, float64]
+	serviceGraphFailed    *Expirer[*request.Span, instrument.Int64Counter, int64]
+	serviceGraphTotal     *Expirer[*request.Span, instrument.Int64Counter, int64]
+	connectionInfo        *Expirer[*request.Span, instrument.Int64Gauge, int64]
+	connectionInfoEnabled bool
 }
 
 func ReportSvcGraphMetrics(
@@ -230,19 +231,15 @@ func (mr *SvcGraphMetricsReporter) otelHistogramConfig(metricName string, bucket
 
 func (mr *SvcGraphMetricsReporter) setupGraphMeters(m *SvcGraphMetrics, meter instrument.Meter) error {
 	var err error
-	if m.connectionInfo != nil {
-		now := timeNow
-		_, err := meter.Int64ObservableGauge(attributes.ServiceGraphConnectionInfo.OTEL,
-			instrument.WithInt64Callback(func(_ context.Context, observer instrument.Int64Observer) error {
-				for _, attrs := range m.connectionInfo.active(now()) {
-					observer.Observe(1, instrument.WithAttributeSet(attrs))
-				}
-				return nil
-			}),
-		)
+	if m.connectionInfoEnabled {
+		gauge, err := meter.Int64Gauge(attributes.ServiceGraphConnectionInfo.OTEL)
 		if err != nil {
 			return fmt.Errorf("creating service graph connection info gauge: %w", err)
 		}
+		m.connectionInfo = NewExpirer[*request.Span, instrument.Int64Gauge, int64](
+			m.ctx, gauge, connectionInfoGetters(mr.metricAttributes), timeNow,
+			export.ConnectionInfoTTLOrDefault(mr.cfg.ConnectionInfoTTL),
+		)
 	}
 
 	if !mr.serviceGraphEnabled {
@@ -311,9 +308,7 @@ func (mr *SvcGraphMetricsReporter) newSvcGraphMetricsInstance(service *svc.Attrs
 		provider: metric.NewMeterProvider(
 			opts...,
 		),
-	}
-	if mr.connectionInfoEnabled {
-		m.connectionInfo = newConnectionInfoStore(export.ConnectionInfoTTLOrDefault(mr.cfg.ConnectionInfoTTL))
+		connectionInfoEnabled: mr.connectionInfoEnabled,
 	}
 	return m
 }
@@ -393,8 +388,8 @@ func (r *SvcGraphMetrics) record(span *request.Span, mr *SvcGraphMetricsReporter
 	}
 	if span.Service.Features.ConnectionInfo() {
 		if request.HasConnectionInfoEdge(span) {
-			attrs := connectionInfoAttributes(span, mr.metricAttributes, &mr.pidTracker)
-			r.connectionInfo.observe(attrs, timeNow())
+			gauge, attrs := r.connectionInfo.ForRecord(span, connectionInfoExtraAttrs(span, &mr.pidTracker)...)
+			gauge.Record(r.ctx, 1, instrument.WithAttributeSet(attrs))
 		}
 	}
 	if !mr.serviceGraphEnabled || !span.Service.Features.ServiceGraph() {
@@ -448,29 +443,30 @@ func (r *SvcGraphMetrics) record(span *request.Span, mr *SvcGraphMetricsReporter
 	}
 }
 
-func connectionInfoAttributes(
-	span *request.Span,
+func connectionInfoGetters(
 	fields []attributes.Field[*request.Span, attribute.KeyValue],
-	tracker *PidServiceTracker,
-) attribute.Set {
-	attrs := make([]attribute.KeyValue, 0, len(fields)+1)
-	for _, field := range fields {
-		if field.ExposedName == string(attr.Client.OTEL()) {
-			attrs = append(attrs, attribute.String(string(attr.Client.OTEL()), span.Service.UID.Name))
-			continue
-		}
-		if field.ExposedName == string(attr.ClientNamespace.OTEL()) {
-			attrs = append(attrs, attribute.String(string(attr.ClientNamespace.OTEL()), span.Service.UID.Namespace))
-			continue
-		}
-		if kv := field.Get(span); kv.Valid() {
-			attrs = append(attrs, kv)
+) []attributes.Field[*request.Span, attribute.KeyValue] {
+	getters := append([]attributes.Field[*request.Span, attribute.KeyValue](nil), fields...)
+	for i := range getters {
+		switch getters[i].ExposedName {
+		case string(attr.Client.OTEL()):
+			getters[i].Get = func(span *request.Span) attribute.KeyValue {
+				return attribute.String(string(attr.Client.OTEL()), span.Service.UID.Name)
+			}
+		case string(attr.ClientNamespace.OTEL()):
+			getters[i].Get = func(span *request.Span) attribute.KeyValue {
+				return attribute.String(string(attr.ClientNamespace.OTEL()), span.Service.UID.Namespace)
+			}
 		}
 	}
+	return getters
+}
+
+func connectionInfoExtraAttrs(span *request.Span, tracker *PidServiceTracker) []attribute.KeyValue {
 	if connectionType := ConnectionTypeForSpan(span, tracker); connectionType != "" {
-		attrs = append(attrs, request.ConnectionTypeMetric(connectionType))
+		return []attribute.KeyValue{request.ConnectionTypeMetric(connectionType)}
 	}
-	return attribute.NewSet(attrs...)
+	return nil
 }
 
 func ConnectionTypeForSpan(span *request.Span, tracker *PidServiceTracker) string {
@@ -572,4 +568,7 @@ func (r *SvcGraphMetrics) cleanupAllMetricsInstances() {
 	cleanupMetrics(r.ctx, r.serviceGraphServer)
 	cleanupCounterMetrics(r.ctx, r.serviceGraphFailed)
 	cleanupCounterMetrics(r.ctx, r.serviceGraphTotal)
+	if r.connectionInfo != nil {
+		r.connectionInfo.RemoveAllMetrics(r.ctx)
+	}
 }
