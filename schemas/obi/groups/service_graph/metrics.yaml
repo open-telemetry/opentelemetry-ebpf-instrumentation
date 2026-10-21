@@ -3,6 +3,8 @@ metrics:
   - name: traces_service_graph_connection_info
     instrument: gauge
     unit: ""
+    upstream: none
+    upstream_reason: OBI-specific metric for recently observed client-to-server connections.
     stability: development
     requirement_level: opt_in
     brief: >
