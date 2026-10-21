@@ -21,6 +21,7 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
+	isync "go.opentelemetry.io/obi/pkg/internal/helpers/sync"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
@@ -401,15 +402,14 @@ func TestDecorationProcessEvents(t *testing.T) {
 	}
 	inputQueue := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
 
-	podInfoCh := make(chan Event[*informer.ObjectMeta])
-
 	dec := &procEventMetadataDecorator{
 		log:                 slog.With("component", "transform.KubeProcessEventDecoratorProvider"),
 		store:               store,
 		clusterName:         "the-cluster",
 		input:               inputQueue.Subscribe(msg.SubscriberName("transform.KubeProcessEventDecorator")),
 		output:              msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10)),
-		podsInfoCh:          podInfoCh,
+		podEvents:           isync.NewQueue[Event[*informer.ObjectMeta]](),
+		podEventsReady:      make(chan struct{}, 1),
 		observerDone:        make(chan struct{}),
 		subscribeObserver:   store.Subscribe,
 		waitForSubscription: waitForSubscription,
@@ -631,7 +631,8 @@ func newProcEventDecoratorHarness(t *testing.T) *procEventDecoratorHarness {
 		clusterName:         "the-cluster",
 		input:               input,
 		output:              output,
-		podsInfoCh:          make(chan Event[*informer.ObjectMeta]),
+		podEvents:           isync.NewQueue[Event[*informer.ObjectMeta]](),
+		podEventsReady:      make(chan struct{}, 1),
 		observerDone:        make(chan struct{}),
 		subscribeObserver:   store.Subscribe,
 		waitForSubscription: waitForSubscription,
@@ -729,80 +730,51 @@ func requireOutputClosed(t *testing.T, output <-chan exec.ProcessEvent) {
 	}
 }
 
-func requirePodNotifyReturns(t *testing.T, h *procEventDecoratorHarness) {
+func requireUnsubscribed(t *testing.T, h *procEventDecoratorHarness) {
 	t.Helper()
-	notifyDone := make(chan struct{})
-	go func() {
-		h.store.Notify(procEventDecoratorPodEvent("after-shutdown", 99))
-		close(notifyDone)
-	}()
-
-	select {
-	case <-notifyDone:
-		return
-	case <-time.After(timeout):
-	}
-
-	// Release the callback before failing so the regression test cannot leak a
-	// goroutine when run against the broken implementation.
-	select {
-	case <-h.decorator.podsInfoCh:
-	case <-time.After(timeout):
-		t.Fatal("failed to release blocked pod notification")
-	}
-	select {
-	case <-notifyDone:
-	case <-time.After(timeout):
-		t.Fatal("pod notification remained blocked after the callback was released")
-	}
-	t.Fatal("pod notification blocked after decorator shutdown")
+	h.store.Notify(procEventDecoratorPodEvent("after-shutdown", 99))
+	_, queued := h.decorator.podEvents.TryDequeue()
+	require.False(t, queued, "decorator still receives pod events after shutdown")
 }
 
-func TestProcEventMetadataDecoratorStopsInFlightDelivery(t *testing.T) {
+func TestProcEventMetadataDecoratorOnDoesNotBlock(t *testing.T) {
 	h := newProcEventDecoratorHarness(t)
-	deliveryReady := make(chan struct{}, 1)
-	h.decorator.deliveryReady = deliveryReady
-	deliveryResult := make(chan error, 1)
-	deliveryDone := make(chan struct{})
-	go func() {
-		defer close(deliveryDone)
-		deliveryResult <- h.decorator.On(procEventDecoratorPodEvent("in-flight", 1))
-	}()
-	var stopOnce sync.Once
-	stopObserver := func() {
-		stopOnce.Do(func() {
-			close(h.decorator.observerDone)
-		})
-	}
-	t.Cleanup(func() {
-		stopObserver()
-		select {
-		case <-deliveryDone:
-			return
-		case <-h.decorator.podsInfoCh:
-		case <-time.After(timeout):
-			t.Errorf("in-flight pod callback could not be released")
-			return
-		}
-		select {
-		case <-deliveryDone:
-		case <-time.After(timeout):
-			t.Errorf("in-flight pod callback leaked")
-		}
-	})
 
-	select {
-	case <-deliveryReady:
-	case <-time.After(timeout):
-		t.Fatal("pod callback did not reach the delivery handoff")
+	// the loop is not running: On must neither block nor lose events
+	const events = 100
+	for i := range events {
+		require.NoError(t, h.decorator.On(procEventDecoratorPodEvent("pod", app.PID(i))))
 	}
-	stopObserver()
-	select {
-	case err := <-deliveryResult:
-		require.ErrorIs(t, err, errProcEventDecoratorStopped)
-	case <-time.After(timeout):
-		t.Fatal("in-flight pod delivery did not observe observer shutdown")
+	for range events {
+		_, ok := h.decorator.podEvents.TryDequeue()
+		require.True(t, ok)
 	}
+	_, ok := h.decorator.podEvents.TryDequeue()
+	require.False(t, ok)
+}
+
+func TestProcEventMetadataDecoratorDrainsPodEventsInBatches(t *testing.T) {
+	h := newProcEventDecoratorHarness(t)
+
+	const queued = 2*podEventsBatchSize + 1
+	for i := range queued {
+		require.NoError(t, h.decorator.On(procEventDecoratorPodEvent("pod", app.PID(i))))
+	}
+	<-h.decorator.podEventsReady
+
+	handled := 0
+	require.True(t, h.decorator.drainPodEvents(t.Context(), func(Event[*informer.ObjectMeta]) { handled++ }))
+
+	// the rest is left for later wake-ups, so other sources are served in between
+	assert.Equal(t, podEventsBatchSize, handled)
+	require.Len(t, h.decorator.podEventsReady, 1)
+}
+
+func TestProcEventMetadataDecoratorOnAfterStop(t *testing.T) {
+	h := newProcEventDecoratorHarness(t)
+	close(h.decorator.observerDone)
+
+	require.ErrorIs(t, h.decorator.On(procEventDecoratorPodEvent("late", 1)), errProcEventDecoratorStopped)
 }
 
 func TestProcEventMetadataDecoratorCachedAndLiveDelivery(t *testing.T) {
@@ -1010,7 +982,7 @@ func TestProcEventMetadataDecoratorShutdown(t *testing.T) {
 			waitForLoop(t, done)
 			requireOutputClosed(t, h.output)
 			h.decorator.observerDone = make(chan struct{})
-			requirePodNotifyReturns(t, h)
+			requireUnsubscribed(t, h)
 		})
 	}
 }
@@ -1092,7 +1064,7 @@ func TestProcEventMetadataDecoratorWaitsForLateSubscription(t *testing.T) {
 	}
 	requireOutputClosed(t, h.output)
 	h.decorator.observerDone = make(chan struct{})
-	requirePodNotifyReturns(t, h)
+	requireUnsubscribed(t, h)
 }
 
 type fakeInformer struct {
