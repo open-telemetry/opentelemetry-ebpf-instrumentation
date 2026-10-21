@@ -73,7 +73,38 @@ func (p *Tracer) canBackfillSockets() bool {
 		return false
 	}
 
+	if !procInOwnPIDNamespace(p.procFS) {
+		p.log.Debug("/proc numbers processes in a pid namespace other than OBI's, so pidfd_open can't find them: " +
+			"context propagation enrolls the TCP client sockets of every process on the host")
+		return false
+	}
+
+	p.log.Debug("context propagation enrolls the TCP client sockets of instrumented processes only")
 	return true
+}
+
+// pidfd_open resolves pids in OBI's own pid namespace
+func procInOwnPIDNamespace(fs procfs.FS) bool {
+	self, err := fs.Self()
+	if err != nil {
+		return false
+	}
+	first, err := fs.Proc(1)
+	if err != nil {
+		return false
+	}
+
+	own, err := self.Namespaces()
+	if err != nil {
+		return false
+	}
+	procs, err := first.Namespaces()
+	if err != nil {
+		return false
+	}
+
+	ownPID, ok := own["pid"]
+	return ok && ownPID == procs["pid"]
 }
 
 // pidfd_getfd moves a duplicated socket to the caller's net_cls and net_prio cgroups (__receive_sock)
@@ -127,10 +158,13 @@ func sameNetCgroups(fs procfs.FS, pid app.PID) error {
 }
 
 // false when the process's sockets can't be duplicated unchanged, so the netns walk has to cover them
-func (p *Tracer) backfillSockets(pid app.PID) bool {
+func (p *Tracer) backfillSockets(pid app.PID, since time.Time) bool {
 	if !p.sockhashSafe() {
 		return true
 	}
+
+	p.socketsMu.Lock()
+	defer p.socketsMu.Unlock()
 
 	if err := sameNetCgroups(p.procFS, pid); err != nil {
 		p.log.Debug("can't duplicate the process's sockets", "pid", pid, "error", err)
@@ -163,29 +197,23 @@ func (p *Tracer) backfillSockets(pid app.PID) bool {
 	}
 
 	var table *tcpTable
-	fresh := false
+	seen := map[uint64]struct{}{}
 	for _, s := range sockets {
-		// only client connections are duplicated: the app can close its descriptor while OBI holds the copy
-		if !isTCPFD(pid, s.fd) {
+		if p.socketsStopped.Load() {
+			return true
+		}
+		if _, ok := seen[s.inode]; ok {
 			continue
 		}
+
 		if table == nil {
-			if table, fresh, err = p.tcpTable(pid, false); err != nil {
+			if table, err = p.tcpTable(pid, since); err != nil {
 				p.log.Debug("can't duplicate the process's sockets", "pid", pid, "error", err)
 				return false
 			}
 		}
-		client, known := table.clients[s.inode]
-		// the cached table predates the sockets connected since
-		if !known && !fresh {
-			if table, fresh, err = p.tcpTable(pid, true); err != nil {
-				p.log.Debug("can't duplicate the process's sockets", "pid", pid, "error", err)
-				return false
-			}
-			client = table.clients[s.inode]
-		}
-		// missing from a fresh table: not connected yet, so marked at connect, or in another netns
-		if !client {
+		// only client connections are duplicated: the app can close its descriptor while OBI holds the copy
+		if !table.clients[s.inode] {
 			continue
 		}
 
@@ -193,6 +221,7 @@ func (p *Tracer) backfillSockets(pid app.PID) bool {
 		if inode, ok := fdSocketInode(pid, s.fd); !ok || inode != s.inode {
 			continue
 		}
+		seen[s.inode] = struct{}{}
 
 		dup, err := unix.PidfdGetfd(pidfd, s.fd, 0)
 		switch {
@@ -257,26 +286,26 @@ func leaderExited(fs procfs.FS, pid app.PID) (bool, error) {
 	return stat.State == "Z", nil
 }
 
-// reused across a burst of discoveries in one netns, a host's table being large; true when read now
-func (p *Tracer) tcpTable(pid app.PID, refresh bool) (*tcpTable, bool, error) {
+// read after the process was enrolled, it lists every connection opened before: later ones are marked at connect
+func (p *Tracer) tcpTable(pid app.PID, since time.Time) (*tcpTable, error) {
 	info, err := os.Stat(fmt.Sprintf("/proc/%d/ns/net", pid))
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	netns := info.Sys().(*syscall.Stat_t).Ino
 
-	if last := p.lastTCPTable; !refresh && last != nil && last.netns == netns && time.Since(last.readAt) < tcpTableTTL {
-		return last, false, nil
+	if last := p.lastTCPTable; last != nil && last.netns == netns && last.readAt.After(since) {
+		return last, nil
 	}
 
 	table, err := readTCPTable(pid)
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	table.netns = netns
 	p.lastTCPTable = table
 
-	return table, true, nil
+	return table, nil
 }
 
 // the TCP sockets of the process's network namespace
@@ -314,19 +343,6 @@ func readTCPTable(pid app.PID) (*tcpTable, error) {
 	}
 
 	return table, nil
-}
-
-// sockfs names a socket after its protocol, which tells a TCP one apart without duplicating it
-func isTCPFD(pid app.PID, fd int) bool {
-	var name [unix.NAME_MAX]byte
-	n, err := unix.Getxattr(fmt.Sprintf("/proc/%d/fd/%d", pid, fd), "system.sockprotoname", name[:])
-	if err != nil {
-		// can't tell: the TCP table decides
-		return true
-	}
-
-	proto := strings.TrimRight(string(name[:n]), "\x00")
-	return proto == "TCP" || proto == "TCPv6"
 }
 
 func socketFDs(pid app.PID) ([]socketFD, error) {

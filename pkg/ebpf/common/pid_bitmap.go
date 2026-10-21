@@ -8,6 +8,7 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 import (
 	"fmt"
 	"log/slog"
+	"slices"
 	"sync"
 
 	"github.com/cilium/ebpf"
@@ -25,8 +26,8 @@ type PIDBitmap struct {
 	words []uint64
 }
 
-// Rebuild sets exactly the bits of pids, writing only the words that changed
-func (b *PIDBitmap) Rebuild(m *ebpf.Map, pids []app.PID, log *slog.Logger) error {
+// Rebuild sets exactly the bits of the filter's pids of the given types and returns the added ones
+func (b *PIDBitmap) Rebuild(m *ebpf.Map, filter ServiceFilter, types PIDType, log *slog.Logger) ([]app.PID, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -34,13 +35,20 @@ func (b *PIDBitmap) Rebuild(m *ebpf.Map, pids []app.PID, log *slog.Logger) error
 		b.words = make([]uint64, PIDBitmapWords)
 	}
 
+	// under the lock, or an older list can be written last
+	pids := filter.ProcPIDs(types)
+
 	want := map[uint32]uint64{}
+	var added []app.PID
 	for _, pid := range pids {
 		if uint64(pid) >= uint64(PIDBitmapWords)*64 {
 			log.Warn("pid beyond the BPF PID filter, it won't be instrumented", "pid", pid)
 			continue
 		}
 		want[uint32(pid/64)] |= 1 << (pid % 64)
+		if !b.contains(pid) {
+			added = append(added, pid)
+		}
 	}
 
 	for word, bits := range b.words {
@@ -50,26 +58,24 @@ func (b *PIDBitmap) Rebuild(m *ebpf.Map, pids []app.PID, log *slog.Logger) error
 	}
 
 	written := 0
+	var err error
 	for word, bits := range want {
 		if b.words[word] == bits {
 			continue
 		}
-		if err := m.Put(word, bits); err != nil {
-			return fmt.Errorf("writing word %d of the BPF PID filter: %w", word, err)
+		if err = m.Put(word, bits); err != nil {
+			err = fmt.Errorf("writing word %d of the BPF PID filter: %w", word, err)
+			break
 		}
 		b.words[word] = bits
 		written++
 	}
 	log.Debug("BPF PID filter rebuilt", "pids", len(pids), "wordsWritten", written)
 
-	return nil
+	return slices.DeleteFunc(added, func(pid app.PID) bool { return !b.contains(pid) }), err
 }
 
-// Contains reports whether the last rebuild set pid's bit
-func (b *PIDBitmap) Contains(pid app.PID) bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
+func (b *PIDBitmap) contains(pid app.PID) bool {
 	word := uint64(pid) / 64
 	return word < uint64(len(b.words)) && b.words[word]&(1<<(pid%64)) != 0
 }

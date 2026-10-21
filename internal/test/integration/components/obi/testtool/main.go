@@ -9,6 +9,7 @@
 //	obitesttool bitmap-pids NAME       prints the pids set in the pid-indexed bitmap named NAME
 //	obitesttool host-pid NSINODE NSPID prints the pid OBI's /proc has for a pid in that namespace
 //	obitesttool can-copy-sockets       prints 1 if this container can duplicate other processes' descriptors, 0 otherwise
+//	obitesttool new-conn-enrolled      prints 1 if a connection opened now enters sock_dir
 //	obitesttool seccomp-exec MODE CMD  execs CMD with pidfd_getfd failing EPERM:
 //	                                   none: never, all: always, probe-only: unless it asks for
 //	                                   OBI's startup probe descriptor
@@ -18,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net"
 	"os"
 	"os/exec"
 	"runtime"
@@ -42,7 +44,7 @@ const (
 
 func main() {
 	if len(os.Args) < 2 {
-		fail("usage: obitesttool map-keys|bitmap-pids NAME | host-pid NSINODE NSPID | can-copy-sockets | seccomp-exec none|all|probe-only CMD [ARGS...]")
+		fail("usage: obitesttool map-keys|bitmap-pids NAME | host-pid NSINODE NSPID | can-copy-sockets | new-conn-enrolled | seccomp-exec none|all|probe-only CMD [ARGS...]")
 	}
 
 	var err error
@@ -64,6 +66,8 @@ func main() {
 		err = printHostPID(os.Args[2], os.Args[3])
 	case "can-copy-sockets":
 		printCanCopySockets()
+	case "new-conn-enrolled":
+		err = printNewConnEnrolled()
 	case "seccomp-exec":
 		if len(os.Args) < 4 {
 			fail("seccomp-exec needs a mode and a command")
@@ -121,20 +125,65 @@ func forEachMap(name string, fn func(*ebpf.Map) error) error {
 }
 
 // a sockhash value can't be read back from user space, so only keys are walked
+func walkKeys(m *ebpf.Map, fn func(key uint64)) error {
+	var key uint64
+	err := m.NextKey(nil, &key)
+	for err == nil {
+		fn(key)
+		prev := key
+		err = m.NextKey(&prev, &key)
+	}
+	if errors.Is(err, ebpf.ErrKeyNotExist) {
+		return nil
+	}
+	return err
+}
+
 func printMapKeys(name string) error {
 	return forEachMap(name, func(m *ebpf.Map) error {
-		var key uint64
-		err := m.NextKey(nil, &key)
-		for err == nil {
-			fmt.Println(key)
-			prev := key
-			err = m.NextKey(&prev, &key)
-		}
-		if errors.Is(err, ebpf.ErrKeyNotExist) {
-			return nil
-		}
-		return err
+		return walkKeys(m, func(key uint64) { fmt.Println(key) })
 	})
+}
+
+// loopback connect() returns after the established callback
+func printNewConnEnrolled() error {
+	lsn, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return err
+	}
+	defer lsn.Close()
+
+	conn, err := net.Dial("tcp", lsn.Addr().String())
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	raw, err := conn.(*net.TCPConn).SyscallConn()
+	if err != nil {
+		return err
+	}
+	var cookie uint64
+	var cookieErr error
+	if err := raw.Control(func(fd uintptr) {
+		cookie, cookieErr = unix.GetsockoptUint64(int(fd), unix.SOL_SOCKET, unix.SO_COOKIE)
+	}); err != nil {
+		return err
+	}
+	if cookieErr != nil {
+		return cookieErr
+	}
+
+	enrolled := false
+	if err := forEachMap("sock_dir", func(m *ebpf.Map) error {
+		return walkKeys(m, func(key uint64) { enrolled = enrolled || key == cookie })
+	}); err != nil {
+		return err
+	}
+	if enrolled {
+		fmt.Println(1)
+	}
+	return nil
 }
 
 func printBitmapPIDs(name string) error {

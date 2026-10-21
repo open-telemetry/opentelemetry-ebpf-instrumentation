@@ -17,8 +17,6 @@ services:
     networks:
       default:
         ipv4_address: 172.29.71.10
-    ports:
-      - "8080:8080"
 
   jaeger:
     image: jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17
@@ -144,6 +142,7 @@ services:
     environment:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "${CP_MODE:-headers}"
+      OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP: "true"
       OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS: "${SKIP_GO:-false}"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"

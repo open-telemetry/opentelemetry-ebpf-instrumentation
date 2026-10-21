@@ -536,7 +536,7 @@ static __always_inline void bpf_sock_ops_set_flags(struct bpf_sock_ops *skops, u
 
 // sock_ops gets bpf_get_current_pid_tgid only from 6.10, and the filter reads just the tgid half
 static __always_inline bool owner_instrumented(void) {
-    const struct task_struct *task = (struct task_struct *)bpf_get_current_task();
+    const struct task_struct *task = (const struct task_struct *)bpf_get_current_task();
     return pid_in_filter(&instrumented_pids, (u64)BPF_CORE_READ(task, tgid) << 32) != 0;
 }
 

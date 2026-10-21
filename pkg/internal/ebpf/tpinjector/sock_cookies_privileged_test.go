@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -272,8 +273,7 @@ func enrolled(t *testing.T, objs *BpfObjects, cookie uint64) bool {
 	return inSockDir(t, objs, cookie) && cookieTracked(objs, cookie)
 }
 
-// a tracer over the harness objects, as after the loader attached them, fed by the shared filter
-// the other tracers write
+// a tracer over the harness objects, fed by the shared filter the other tracers write
 func harnessTracer(objs *BpfObjects) (*Tracer, *ebpfcommon.PIDsFilter) {
 	filter := ebpfcommon.NewPIDsFilter(&services.DiscoveryConfig{}, slog.Default(), nil)
 	tr := New(&obi.Config{}, filter)
@@ -299,8 +299,7 @@ func dialPair(t *testing.T, lsn net.Listener) (*net.TCPConn, net.Conn) {
 	return client.(*net.TCPConn), server
 }
 
-// a connection of a process OBI doesn't instrument must stay out of the sockhash; the established
-// callback has run by the time connect() returns, so the absence is final
+// the established callback has run by the time connect() returns, so the absence is final
 func TestScopedEnrollmentSkipsBystanders(t *testing.T) {
 	objs := setupSockopsHarnessWith(t, scopedEnrollment)
 
@@ -312,8 +311,7 @@ func TestScopedEnrollmentSkipsBystanders(t *testing.T) {
 	assert.False(t, enrolled(t, objs, socketCookie(t, client)), "a bystander connection was enrolled")
 }
 
-// once the process is instrumented its connections made before are backfilled, and new ones are
-// enrolled at establishment; the accepted side and the listener stay out
+// earlier connections are backfilled and new ones enrolled, never the accepted side
 func TestScopedEnrollmentBackfillsAndEnrollsInstrumented(t *testing.T) {
 	objs := setupSockopsHarnessWith(t, scopedEnrollment)
 	tr, filter := harnessTracer(objs)
@@ -340,6 +338,34 @@ func TestScopedEnrollmentBackfillsAndEnrollsInstrumented(t *testing.T) {
 
 	afterBlock, _ := dialPair(t, lsn)
 	assert.False(t, enrolled(t, objs, socketCookie(t, afterBlock)), "a connection made after BlockPID was enrolled")
+}
+
+// the attacher allows parent and child on the other tracers before this one
+func TestScopedEnrollmentBackfillsProcessesAllowedEarlier(t *testing.T) {
+	objs := setupSockopsHarnessWith(t, scopedEnrollment)
+	tr, filter := harnessTracer(objs)
+
+	lsn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lsn.Close()
+
+	before, _ := dialPair(t, lsn)
+	require.False(t, enrolled(t, objs, socketCookie(t, before)))
+
+	first := exec.Command("sleep", "60")
+	require.NoError(t, first.Start())
+	t.Cleanup(func() {
+		_ = first.Process.Kill()
+		_ = first.Wait()
+	})
+
+	firstPID, selfPID, ns := app.PID(first.Process.Pid), app.PID(os.Getpid()), selfPidNamespace(t)
+	filter.AllowPID(firstPID, ns, nil, ebpfcommon.PIDTypeKProbes)
+	filter.AllowPID(selfPID, ns, nil, ebpfcommon.PIDTypeKProbes)
+	tr.AllowPID(firstPID, ns, nil)
+	tr.AllowPID(selfPID, ns, nil)
+
+	assert.True(t, enrolled(t, objs, socketCookie(t, before)), "the pre-existing connection was not backfilled")
 }
 
 // valid_pids leaves Go processes out, so the enrollment filter must take them from the shared one

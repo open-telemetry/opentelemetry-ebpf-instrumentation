@@ -311,7 +311,7 @@ Unlike `outgoing_trace_map`, there is no coordination between layers - each laye
 
 ## The sock_dir sockmap
 
-`sock_dir` (`BPF_MAP_TYPE_SOCKHASH`, keyed by socket cookie) lists the connections tpinjector works on: its `sk_msg` program runs on every send of a listed socket. Only outgoing connections of instrumented processes are listed. Every other connection on the host is left alone.
+`sock_dir` (`BPF_MAP_TYPE_SOCKHASH`, keyed by socket cookie) lists the connections tpinjector works on: its `sk_msg` program runs on every send of a listed socket. Only outgoing connections of instrumented processes are listed, and every other connection on the host is left alone, unless one of the [fallbacks](#fallbacks) applies.
 
 ### How a connection gets in
 
@@ -326,13 +326,13 @@ A connection is listed only once it carries a mark: an entry in the `socket_cook
 
 The mark is set in `connect()` because it runs in the owner process. The established callback usually runs later, from the network stack, where the owner is unknown.
 
-`TCP_CONNECT_CB` checks the connecting process against `instrumented_pids`, with the same check as `valid_pid()`, so a child forked by an instrumented process counts too. `valid_pids` can't be reused: it holds only what the generic tracer instruments, never Go programs. `instrumented_pids` is rebuilt from the shared PID filter on every `AllowPID` and `BlockPID`, so it holds every instrumented process.
+`TCP_CONNECT_CB` checks the connecting process against `instrumented_pids`, with the same check as `valid_pid()`, so a child forked by an instrumented process counts too. `valid_pids` can't be reused: it holds only what the generic tracer instruments, never the processes of the Go tracer. `instrumented_pids` is rebuilt from the shared PID filter on every `AllowPID` and `BlockPID`, so it holds every instrumented process.
 
 ### Connections opened before instrumentation
 
-`AllowPID` copies the process's open sockets with `pidfd_getfd`, marks them, adds them, and closes the copies. It copies only TCP sockets that the network namespace's TCP table shows as outgoing, connected or connecting.
+When a rebuild of `instrumented_pids` adds a process, tpinjector copies the process's open sockets with `pidfd_getfd`, marks them, adds them, and closes the copies. It copies only TCP sockets that the network namespace's TCP table shows as outgoing, connected or connecting.
 
-Copying needs ptrace access to the process. It also moves the socket into OBI's cgroup v1 `net_cls` and `net_prio` groups, which would change how its traffic is classified, so a process in other such groups is never copied.
+Copying needs ptrace access to the process. It also moves the socket into OBI's cgroup v1 `net_cls` and `net_prio` groups, which would change how its traffic is classified, so nothing is copied while cgroup v1 `net_cls` or `net_prio` is in use.
 
 ### Fallbacks
 
@@ -340,7 +340,7 @@ The load-time constant `enroll_instrumented_only` turns all of the above on.
 
 | Situation | What happens |
 |---|---|
-| `pidfd_getfd` unusable for every process (no `CAP_SYS_PTRACE`, Yama `ptrace_scope=3`, missing from the kernel), or cgroup v1 `net_cls`/`net_prio` in use | `enroll_instrumented_only` is off: every outgoing connection on the host is added, and the `iter/tcp` iterator (`bpf/tpinjector/sock_iter.c`, kernels >= 6.4) adds the existing ones |
+| `pidfd_getfd` unusable for every process (no `CAP_SYS_PTRACE`, Yama `ptrace_scope=3`, missing from the kernel), cgroup v1 `net_cls`/`net_prio` in use, or OBI's `/proc` from a pid namespace other than its own | `enroll_instrumented_only` is off: every outgoing connection on the host is added, and the `iter/tcp` iterator (`bpf/tpinjector/sock_iter.c`, kernels >= 6.4) adds the existing ones |
 | One process's sockets can't be copied (ptrace denied, other `net_cls`/`net_prio` groups) | The iterator adds every outgoing connection of that process's network namespace (kernels >= 6.4) |
 
 ### TCP options

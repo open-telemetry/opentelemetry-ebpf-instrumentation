@@ -71,10 +71,6 @@ func TestBackfillSelectsOnlyClientTCPSockets(t *testing.T) {
 		assert.Contains(t, inodes, fd, "socket fd %d not listed", fd)
 	}
 
-	// told apart before any duplication
-	assert.True(t, isTCPFD(pid, clientFD), "the connecting side was not seen as TCP")
-	assert.False(t, isTCPFD(pid, udpFD), "a UDP socket was seen as TCP")
-	assert.False(t, isTCPFD(pid, unixFDs[0]), "a UNIX socket was seen as TCP")
 	assert.True(t, table.clients[inodes[clientFD]], "the connecting side was skipped")
 	assert.False(t, table.clients[inodes[serverFD]], "the accepted side was selected")
 	assert.False(t, table.clients[inodes[listenerFD]], "the listener was selected")
@@ -132,6 +128,28 @@ func TestSameNetCgroups(t *testing.T) {
 		require.Error(t, err)
 		assert.NotErrorIs(t, err, errNetCgroupsDiffer)
 	})
+}
+
+func fakeProcNamespaces(t *testing.T, selfNS, pidNS string) procfs.FS {
+	t.Helper()
+	dir := t.TempDir()
+	for pid, ns := range map[int]string{fakeSelfPID: selfNS, 1: pidNS} {
+		nsDir := filepath.Join(dir, strconv.Itoa(pid), "ns")
+		require.NoError(t, os.MkdirAll(nsDir, 0o755))
+		require.NoError(t, os.Symlink(ns, filepath.Join(nsDir, "pid")))
+	}
+	require.NoError(t, os.Symlink(strconv.Itoa(fakeSelfPID), filepath.Join(dir, "self")))
+
+	fs, err := procfs.NewFS(dir)
+	require.NoError(t, err)
+	return fs
+}
+
+func TestProcInOwnPIDNamespace(t *testing.T) {
+	assert.True(t, procInOwnPIDNamespace(fakeProcNamespaces(t, "pid:[4026531836]", "pid:[4026531836]")))
+	assert.False(t, procInOwnPIDNamespace(fakeProcNamespaces(t, "pid:[4026532561]", "pid:[4026531836]")),
+		"/proc of another pid namespace")
+	assert.False(t, procInOwnPIDNamespace(procfs.FS{}), "unreadable /proc")
 }
 
 func TestNetCgroupsInUse(t *testing.T) {

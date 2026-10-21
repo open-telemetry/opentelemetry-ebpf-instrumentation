@@ -18,15 +18,12 @@ import (
 	"github.com/prometheus/procfs"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 )
 
-// a connection opened before OBI started, one opened after OBI loaded but before the process was
-// discovered, and one opened after discovery, from processes in every combination of host and
-// container pid and network namespaces, next to bystanders OBI must leave alone
+// connections opened before OBI, before discovery and after it, across host and container namespaces
 func TestCPEnrollmentGoTracer(t *testing.T) {
 	runCPEnrollment(t, cpMode{name: "go-tracer", cp: "headers", seccomp: "none"})
 }
@@ -145,19 +142,6 @@ func cpExpectationsFor(t *testing.T, compose *docker.Compose, mode cpMode) cpExp
 	}
 
 	return exp
-}
-
-func kernelAtLeast(t *testing.T, major, minor int) bool {
-	var uts unix.Utsname
-	require.NoError(t, unix.Uname(&uts))
-	release := unix.ByteSliceToString(uts.Release[:])
-	parts := strings.SplitN(release, ".", 3)
-	require.GreaterOrEqual(t, len(parts), 2, release)
-	gotMajor, err := strconv.Atoi(parts[0])
-	require.NoError(t, err, release)
-	gotMinor, err := strconv.Atoi(strings.TrimRightFunc(parts[1], func(r rune) bool { return r < '0' || r > '9' }))
-	require.NoError(t, err, release)
-	return gotMajor > major || (gotMajor == major && gotMinor >= minor)
 }
 
 const cpPollInterval = 500 * time.Millisecond
@@ -339,6 +323,12 @@ func runCPEnrollment(t *testing.T, mode cpMode) {
 	defer func() { require.NoError(t, compose.Close()) }()
 
 	s := &cpSuite{t: t, compose: compose, mode: mode, exp: cpExpectationsFor(t, compose, mode)}
+	// nothing else waits for OBI in global mode
+	if !s.exp.scoped {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			assert.True(ct, cpTool(ct, compose, "new-conn-enrolled")[1], "OBI enrolls no new connection yet")
+		}, testTimeout, cpPollInterval)
+	}
 	siteClient := func(site cpSite, name string) cpGetter {
 		return func(ct require.TestingT) cpClient { return cpSiteClient(ct, site, name) }
 	}

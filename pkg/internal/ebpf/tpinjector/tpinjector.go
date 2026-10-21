@@ -15,6 +15,7 @@ import (
 	"os"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -60,6 +61,8 @@ type Tracer struct {
 	netnsAttempts           *expirable.LRU[uint64, int]
 	backfillDisabled        bool
 	enrollInstrumentedOnly  bool
+	socketsMu               sync.Mutex
+	socketsStopped          atomic.Bool
 	lastTCPTable            *tcpTable
 	procFS                  procfs.FS
 	pidsFilter              ebpfcommon.ServiceFilter
@@ -78,8 +81,6 @@ const (
 	// a namespace that keeps failing is dropped, so one broken container cannot stop the
 	// backfill for every other namespace on the host
 	maxNetnsAttempts = 3
-	// one read of a netns's TCP table serves a burst of discoveries there
-	tcpTableTTL = 2 * time.Second
 )
 
 func New(cfg *obi.Config, pidsFilter ebpfcommon.ServiceFilter) *Tracer {
@@ -99,55 +100,49 @@ func New(cfg *obi.Config, pidsFilter ebpfcommon.ServiceFilter) *Tracer {
 
 // AllowPID enrolls the process's client connections: new ones at connect, earlier ones by backfill
 func (p *Tracer) AllowPID(pid app.PID, _ uint32, _ *exec.FileInfo) {
-	p.pidsMu.Lock()
-	defer p.pidsMu.Unlock()
-
-	if p.pidsStopped {
-		return
-	}
-
 	// every client socket is enrolled at establishment, so only the earlier ones are left
 	if !p.enrollInstrumentedOnly {
 		p.backfillNetns(pid)
 		return
 	}
 
-	// every tracer group allows the same process: the first call backfills it
-	backfilled := p.instrumentedPids.Contains(pid)
-	if err := p.rebuildInstrumentedPids(); err != nil {
-		p.log.Error("can't enroll process for context propagation", "pid", pid, "error", err)
-		return
-	}
-	if backfilled || !p.instrumentedPids.Contains(pid) {
-		return
-	}
-
-	// a process whose sockets can't be duplicated falls back to the namespace-wide backfill
-	if !p.backfillSockets(pid) {
-		p.backfillNetns(pid)
-	}
+	p.syncInstrumentedPids()
 }
 
 func (p *Tracer) BlockPID(app.PID, uint32) {
-	p.pidsMu.Lock()
-	defer p.pidsMu.Unlock()
-
-	if p.pidsStopped || !p.enrollInstrumentedOnly {
-		return
+	if p.enrollInstrumentedOnly {
+		p.syncInstrumentedPids()
 	}
-	if err := p.rebuildInstrumentedPids(); err != nil {
-		p.log.Debug("can't remove process from context propagation", "error", err)
+}
+
+// other tracers can allow a pid before this one does
+func (p *Tracer) syncInstrumentedPids() {
+	added := p.rebuildInstrumentedPids()
+	since := time.Now()
+	for _, pid := range added {
+		// a process whose sockets can't be duplicated falls back to the namespace-wide backfill
+		if !p.backfillSockets(pid, since) {
+			p.backfillNetns(pid)
+		}
 	}
 }
 
 // the processes of every tracer, Go ones included, unlike valid_pids
-func (p *Tracer) rebuildInstrumentedPids() error {
-	if p.bpfObjects.InstrumentedPids == nil {
+func (p *Tracer) rebuildInstrumentedPids() []app.PID {
+	p.pidsMu.Lock()
+	defer p.pidsMu.Unlock()
+
+	if p.pidsStopped || p.bpfObjects.InstrumentedPids == nil {
 		return nil
 	}
 
-	return p.instrumentedPids.Rebuild(p.bpfObjects.InstrumentedPids,
-		p.pidsFilter.ProcPIDs(ebpfcommon.PIDTypeKProbes|ebpfcommon.PIDTypeGo), p.log)
+	added, err := p.instrumentedPids.Rebuild(p.bpfObjects.InstrumentedPids, p.pidsFilter,
+		ebpfcommon.PIDTypeKProbes|ebpfcommon.PIDTypeGo, p.log)
+	if err != nil {
+		p.log.Error("can't update the processes enrolled for context propagation", "error", err)
+	}
+
+	return added
 }
 
 // backfillNetns enrolls the netns's pre-existing client sockets: iter/tcp only walks the opener's netns
@@ -348,7 +343,9 @@ func (p *Tracer) closeAllReverse(closers []io.Closer) {
 }
 
 func (p *Tracer) detach() {
-	// AllowPID's lock order
+	// a running socket backfill stops at its next socket
+	p.socketsStopped.Store(true)
+
 	p.pidsMu.Lock()
 	defer p.pidsMu.Unlock()
 	p.pidsStopped = true
@@ -356,6 +353,9 @@ func (p *Tracer) detach() {
 	p.iterMu.Lock()
 	defer p.iterMu.Unlock()
 	p.backfillDisabled = true
+
+	p.socketsMu.Lock()
+	defer p.socketsMu.Unlock()
 
 	p.closerMu.Lock()
 	closers := p.closers

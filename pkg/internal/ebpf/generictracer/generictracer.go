@@ -115,7 +115,8 @@ func (p *Tracer) rebuildValidPids() error {
 		return nil
 	}
 
-	return p.validPids.Rebuild(p.bpfObjects.ValidPids, p.pidsFilter.ProcPIDs(ebpfcommon.PIDTypeKProbes), p.log)
+	_, err := p.validPids.Rebuild(p.bpfObjects.ValidPids, p.pidsFilter, ebpfcommon.PIDTypeKProbes, p.log)
+	return err
 }
 
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
