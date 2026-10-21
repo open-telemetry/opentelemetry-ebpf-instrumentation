@@ -2,19 +2,27 @@
 # Service and container metadata are carried on the meter resource.
 file_format: definition/2
 metrics:
-  - name: dotnet.process.cpu.count
+  # A local definition preserves OBI's open string definition of error.type.
+  # Importing this metric also imports the upstream enum in Weaver resolution.
+  - name: dotnet.exceptions
     annotations:
       obi:
         upstream_override: true
+    brief: Number of managed exceptions thrown since attachment on .NET 8, including rethrows.
+    instrument: counter
+    unit: "{exception}"
+    stability: stable
+    requirement_level: recommended
+    attributes:
+      - ref: error.type
+        requirement_level: required
+  - name: dotnet.process.cpu.count
     brief: Number of processors available to the .NET process.
     instrument: updowncounter
     unit: "{cpu}"
     stability: stable
     requirement_level: recommended
   - name: dotnet.process.cpu.time
-    annotations:
-      obi:
-        upstream_override: true
     brief: CPU time consumed by the .NET process.
     instrument: counter
     unit: "s"
@@ -25,117 +33,78 @@ metrics:
         requirement_level: required
         examples: ["user", "system"]
   - name: dotnet.gc.heap.total_allocated
-    annotations:
-      obi:
-        upstream_override: true
     brief: Total bytes allocated on the .NET managed heap since the collector baseline.
     instrument: counter
     unit: "By"
     stability: stable
     requirement_level: recommended
   - name: dotnet.gc.pause.time
-    annotations:
-      obi:
-        upstream_override: true
     brief: Total .NET GC pause time since the collector baseline.
     instrument: counter
     unit: "s"
     stability: stable
     requirement_level: recommended
   - name: dotnet.jit.compiled_il.size
-    annotations:
-      obi:
-        upstream_override: true
     brief: Total bytes of intermediate language compiled by the .NET JIT compiler.
     instrument: counter
     unit: "By"
     stability: stable
     requirement_level: recommended
   - name: dotnet.jit.compiled_methods
-    annotations:
-      obi:
-        upstream_override: true
     brief: Total methods compiled by the .NET JIT compiler.
     instrument: counter
     unit: "{method}"
     stability: stable
     requirement_level: recommended
   - name: dotnet.jit.compilation.time
-    annotations:
-      obi:
-        upstream_override: true
     brief: Total .NET JIT compilation time since the collector baseline.
     instrument: counter
     unit: "s"
     stability: stable
     requirement_level: recommended
   - name: dotnet.thread_pool.work_item.count
-    annotations:
-      obi:
-        upstream_override: true
     brief: Total completed .NET thread-pool work items since the collector baseline.
     instrument: counter
     unit: "{work_item}"
     stability: stable
     requirement_level: recommended
   - name: dotnet.monitor.lock_contentions
-    annotations:
-      obi:
-        upstream_override: true
     brief: Total .NET monitor lock contentions since the collector baseline.
     instrument: counter
     unit: "{contention}"
     stability: stable
     requirement_level: recommended
   - name: dotnet.process.memory.working_set
-    annotations:
-      obi:
-        upstream_override: true
     brief: Physical memory mapped to the .NET process.
     instrument: updowncounter
     unit: "By"
     stability: stable
     requirement_level: recommended
   - name: dotnet.gc.last_collection.memory.committed_size
-    annotations:
-      obi:
-        upstream_override: true
     brief: Committed .NET GC memory observed during the latest collection.
     instrument: updowncounter
     unit: "By"
     stability: stable
     requirement_level: recommended
   - name: dotnet.thread_pool.thread.count
-    annotations:
-      obi:
-        upstream_override: true
     brief: Number of .NET thread-pool threads that currently exist.
     instrument: updowncounter
     unit: "{thread}"
     stability: stable
     requirement_level: recommended
   - name: dotnet.thread_pool.queue.length
-    annotations:
-      obi:
-        upstream_override: true
     brief: Number of queued .NET thread-pool work items.
     instrument: updowncounter
     unit: "{work_item}"
     stability: stable
     requirement_level: recommended
   - name: dotnet.timer.count
-    annotations:
-      obi:
-        upstream_override: true
     brief: Number of active .NET timers.
     instrument: updowncounter
     unit: "{timer}"
     stability: stable
     requirement_level: recommended
   - name: dotnet.assembly.count
-    annotations:
-      obi:
-        upstream_override: true
     brief: Number of loaded .NET assemblies.
     instrument: updowncounter
     unit: "{assembly}"

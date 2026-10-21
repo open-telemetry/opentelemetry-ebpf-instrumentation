@@ -540,3 +540,20 @@ func TestRefreshStatusTimeEpochPreservesCurrentTimestamp(t *testing.T) {
 
 	assert.Greater(t, em.StatusTimeEpoch, time.Now().Unix())
 }
+
+func TestPodToIndexableEntityFinished(t *testing.T) {
+	inf := &Informers{config: &informersConfig{}}
+	for phase, finished := range map[v1.PodPhase]bool{
+		v1.PodPending: false, v1.PodRunning: false, v1.PodSucceeded: true, v1.PodFailed: true, v1.PodUnknown: false,
+	} {
+		entity, err := inf.podToIndexableEntity(&v1.Pod{Status: v1.PodStatus{Phase: phase}})
+		require.NoError(t, err)
+		assert.Equal(t, finished, entity.(*indexableEntity).EncodedMeta.Pod.Finished, phase)
+	}
+}
+
+func TestUnchangedDetectsFinishedPod(t *testing.T) {
+	running := &informer.ObjectMeta{Name: "pod", Pod: &informer.PodInfo{}}
+	finished := &informer.ObjectMeta{Name: "pod", Pod: &informer.PodInfo{Finished: true}}
+	assert.False(t, unchanged(running, finished))
+}

@@ -5,6 +5,10 @@
 file_format: definition/2
 spans:
   - type: obi.failed_connect
+    annotations:
+      obi:
+        upstream: none
+        upstream_reason: upstream defines no span for a connection that failed to open
     kind: client
     name:
       note: Not documented yet.

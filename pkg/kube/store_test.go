@@ -1476,6 +1476,56 @@ func createTestStore() *Store {
 	)
 }
 
+func TestIPReusedAfterPodFinished(t *testing.T) {
+	pod := func(name string, finished bool) *informer.ObjectMeta {
+		return &informer.ObjectMeta{
+			Name: name, Namespace: "default", Kind: "Pod", Ips: []string{"10.0.0.1"},
+			Pod: &informer.PodInfo{Finished: finished},
+		}
+	}
+	runningJob, finishedJob := pod("job", false), pod("job", true)
+	newPod := pod("new", false)
+	relabeledFinishedJob := pod("job", true)
+	relabeledFinishedJob.Labels = map[string]string{"foo": "bar"}
+
+	created := func(m *informer.ObjectMeta) *informer.Event {
+		return &informer.Event{Type: informer.EventType_CREATED, Resource: m}
+	}
+	updated := func(m *informer.ObjectMeta) *informer.Event {
+		return &informer.Event{Type: informer.EventType_UPDATED, Resource: m}
+	}
+	deleted := func(m *informer.ObjectMeta) *informer.Event {
+		return &informer.Event{Type: informer.EventType_DELETED, Resource: m}
+	}
+
+	for _, tc := range []struct {
+		name   string
+		events []*informer.Event
+		owner  string
+	}{
+		{"finished Pod keeps its IP while unused", []*informer.Event{created(runningJob), updated(finishedJob)}, "job"},
+		{"new Pod reuses the IP", []*informer.Event{created(finishedJob), created(newPod)}, "new"},
+		{"finished Pod deleted", []*informer.Event{created(finishedJob), created(newPod), deleted(finishedJob)}, "new"},
+		{"finished Pod updated", []*informer.Event{created(finishedJob), created(newPod), updated(relabeledFinishedJob)}, "new"},
+		{"finished Pod updated, then deleted", []*informer.Event{created(finishedJob), created(newPod), updated(relabeledFinishedJob), deleted(relabeledFinishedJob)}, "new"},
+		{"snapshot with the finished Pod last", []*informer.Event{created(newPod), created(finishedJob)}, "new"},
+		{"new Pod deleted", []*informer.Event{created(finishedJob), created(newPod), deleted(newPod)}, ""},
+		{"two running Pods: last write wins", []*informer.Event{created(newPod), created(runningJob)}, "job"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := NewStore(&fakeInformer{}, DefaultResourceLabels, nil, imetrics.NoopReporter{})
+			for _, event := range tc.events {
+				require.NoError(t, store.On(event))
+			}
+			owner := ""
+			if m := store.ObjectMetaByIP("10.0.0.1"); m != nil {
+				owner = m.Meta.Name
+			}
+			assert.Equal(t, tc.owner, owner)
+		})
+	}
+}
+
 type fakeInformer struct {
 	mt        sync.Mutex
 	observers map[string]meta.Observer
