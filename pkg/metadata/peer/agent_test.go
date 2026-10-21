@@ -24,7 +24,7 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.RefreshInterval = time.Hour
 	remote := newStore("remote-host", cfg)
-	api := Service{Name: "api", Namespace: "shop"}
+	api := Service{Name: "api", Namespace: "shop", ServiceGraph: true}
 	frontend := Service{Name: "frontend", Namespace: "shop"}
 	remote.setInventory([]Service{api}, []Listener{
 		{Endpoint: Endpoint{IP: "0.0.0.0", Port: 8080}, Service: api},
@@ -63,6 +63,7 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 	span := request.Span{Type: request.EventTypeHTTPClient, Host: "10.1.0.2", HostPort: 8080, HostName: "dns-host"}
 	agent.Decorate(&span, time.Now())
 	require.Equal(t, "dns-host", span.HostName)
+	require.False(t, request.IgnoreServiceGraphClientCount(&span))
 	select {
 	case <-entered:
 	case <-time.After(2 * time.Second):
@@ -79,6 +80,7 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 		return span.HostName == "api"
 	}, 2*time.Second, 10*time.Millisecond)
 	require.Equal(t, "shop", span.OtherNamespace)
+	require.True(t, request.IgnoreServiceGraphClientCount(&span))
 	serverSpan := request.Span{Type: request.EventTypeHTTP, Peer: "10.1.0.2", Host: localTarget.IP, HostPort: localTarget.Port}
 	agent.Decorate(&serverSpan, time.Now())
 	require.Equal(t, "frontend", serverSpan.PeerName)
@@ -88,6 +90,13 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 	require.Equal(t, "remote-host", serverSpan.PeerName)
 	require.Empty(t, serverSpan.OtherNamespace)
 	require.EqualValues(t, 1, requests.Load())
+	unresolved := request.Span{Type: request.EventTypeHTTPClient, Host: span.Host, HostPort: 1234}
+	agent.Decorate(&unresolved, time.Now())
+	require.Equal(t, "remote-host", unresolved.HostName)
+	require.False(t, request.IgnoreServiceGraphClientCount(&unresolved))
+	expired := request.Span{Type: request.EventTypeHTTPClient, Host: span.Host, HostPort: 8080}
+	agent.Decorate(&expired, time.Now().Add(cfg.CacheTTL))
+	require.False(t, request.IgnoreServiceGraphClientCount(&expired), "expired metadata cannot suppress request counts")
 }
 
 func TestAgentStartupFailureAndCancellation(t *testing.T) {
@@ -98,11 +107,11 @@ func TestAgentStartupFailureAndCancellation(t *testing.T) {
 	cfg.Enabled = true
 	cfg.ListenAddress = "127.0.0.1"
 	cfg.Port = occupied.Addr().(*net.TCPAddr).Port
-	_, err = New(t.Context(), cfg, "host")
+	_, err = New(t.Context(), cfg, "host", false)
 	require.ErrorContains(t, err, "listening for peer metadata")
 	require.NoError(t, occupied.Close())
 	ctx, cancel := context.WithCancel(t.Context())
-	agent, err := New(ctx, cfg, "host")
+	agent, err := New(ctx, cfg, "host", false)
 	require.NoError(t, err)
 	cancel()
 	// Cancellation must release a listener even if the pipeline never runs.
@@ -117,7 +126,7 @@ func TestAgentStartupFailureAndCancellation(t *testing.T) {
 	agent.Close()
 	cfg.TLS.Enabled = true
 	cfg.TLS.CertFile, cfg.TLS.KeyFile = "missing-cert", "missing-key"
-	_, err = New(t.Context(), cfg, "host")
+	_, err = New(t.Context(), cfg, "host", false)
 	require.ErrorContains(t, err, "certificate")
 }
 

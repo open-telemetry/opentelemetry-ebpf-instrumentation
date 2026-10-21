@@ -14,12 +14,15 @@ import (
 	stdexec "os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
 
@@ -193,4 +196,35 @@ func startInventoryProcess(t *testing.T, mode string, files []*os.File) (*exec.F
 		Service: svc.Attrs{UID: svc.UID{Name: "api", Namespace: "shop"}},
 	})
 	return file, strings.TrimSpace(address), stop
+}
+
+func TestInventoryServiceGraphParticipation(t *testing.T) {
+	pid := app.PID(os.Getpid())
+	start, err := procs.StartTime(pid)
+	require.NoError(t, err)
+	traceOnly := services.NewExportModes()
+	traceOnly.AllowTraces()
+	for _, test := range []struct {
+		name     string
+		enabled  bool
+		features export.Features
+		modes    services.ExportModes
+		graph    bool
+	}{
+		{name: "no metrics exporter", features: export.FeatureAll},
+		{name: "graph feature disabled", enabled: true, features: export.FeatureSpanOTel},
+		{name: "metrics disabled for service", enabled: true, features: export.FeatureAll, modes: traceOnly},
+		{name: "graph feature enabled", enabled: true, features: export.FeatureGraph, graph: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			attrs := svc.Attrs{UID: svc.UID{Name: "api", Namespace: "shop"}, Features: test.features, ExportModes: test.modes}
+			file := exec.New(exec.Init{Pid: pid, StartTime: start, Service: attrs})
+			processes := map[processKey]*exec.FileInfo{{pid: int32(pid), start: start}: file}
+			store := newStore("host", DefaultConfig())
+			store.graphEnabled = test.enabled
+			refreshInventory(t.Context(), processes, store)
+			snapshot := store.snapshot(nil, time.Now())
+			require.Equal(t, []Service{{Name: "api", Namespace: "shop", ServiceGraph: test.graph}}, snapshot.Services)
+		})
+	}
 }

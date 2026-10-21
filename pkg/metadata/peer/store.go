@@ -6,11 +6,14 @@ package peer // import "go.opentelemetry.io/obi/pkg/metadata/peer"
 import (
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 )
 
 type localStore struct {
 	mu             sync.RWMutex
 	hostname       string
+	graphEnabled   bool
 	callerTTL      time.Duration
 	maxCallers     int
 	callerCount    int
@@ -30,6 +33,11 @@ func newStore(hostname string, cfg Config) *localStore {
 		listenerIndex: map[Endpoint][]Service{},
 		callers:       map[Endpoint]map[Service]time.Time{},
 	}
+}
+
+func (s *localStore) serviceFor(attrs svc.Attrs) Service {
+	graphEnabled := s.graphEnabled && attrs.Features.ServiceGraph() && attrs.ExportModes.CanExportMetrics()
+	return Service{Name: attrs.UID.Name, Namespace: attrs.UID.Namespace, ServiceGraph: graphEnabled}
 }
 
 func (s *localStore) setInventory(services []Service, listeners []Listener) {
@@ -149,11 +157,11 @@ func (s *localStore) callerService(endpoint Endpoint, now time.Time) Service {
 			continue
 		}
 
-		if selected.Name != "" && selected != service {
+		var matches bool
+		selected, matches = selected.merge(service)
+		if !matches {
 			return fallback
 		}
-
-		selected = service
 	}
 
 	if selected.Name == "" {

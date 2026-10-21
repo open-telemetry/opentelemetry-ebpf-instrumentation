@@ -52,6 +52,10 @@ resolved peer name. A cached hostname does not prevent later service resolution.
 Cold or expired caches keep the existing DNS or unresolved name and schedule a
 background request.
 
+For a resolved service that exports graph metrics, the client agent leaves the
+request-total increment to the server agent. Both agents still report their own
+latency histograms. 
+
 ## Network and lifecycle
 
 An empty `peer_cidrs` list enables automatic eligibility. For each active local
@@ -108,7 +112,8 @@ limit fail instead of returning a partial inventory.
 ## Protocol
 
 `GET /v1/metadata` returns protocol `version`, `hostname`, `services`, TCP
-`listeners`, and recent `callers`. Services contain `name` and `namespace`;
+`listeners`, and recent `callers`. Services contain `name`, `namespace`, and an
+optional `service_graph` flag indicating whether the service exports graph metrics;
 listeners contain an `endpoint` with `ip` and `port`, plus `service`.
 
 Use optional `port` and `ip` query parameters to filter listener inventory.

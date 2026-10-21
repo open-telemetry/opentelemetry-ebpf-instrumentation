@@ -52,3 +52,19 @@ func TestListenerAddressFamilies(t *testing.T) {
 		})
 	}
 }
+
+func TestListenerGraphParticipationRequiresAllMatchingProcesses(t *testing.T) {
+	endpoint := Endpoint{IP: "10.1.0.2", Port: 8080}
+	participating := Service{Name: "api", Namespace: "shop", ServiceGraph: true}
+	tracesOnly := Service{Name: "api", Namespace: "shop"}
+	for _, services := range [][]Service{
+		{participating, tracesOnly}, {tracesOnly, participating},
+	} {
+		listeners := []Listener{
+			{Endpoint: Endpoint{IP: "0.0.0.0", Port: endpoint.Port}, Service: services[0]},
+			{Endpoint: endpoint, Service: services[1]},
+		}
+		snapshot := indexSnapshot(&Snapshot{Hostname: "host", Listeners: listeners})
+		require.Equal(t, tracesOnly, snapshot.destinationService(endpoint), "graph settings do not change the service identity")
+	}
+}

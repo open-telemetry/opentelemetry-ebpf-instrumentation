@@ -21,6 +21,7 @@ import (
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
 	"go.opentelemetry.io/obi/pkg/metadata/peer"
 )
 
@@ -41,6 +42,7 @@ func TestSuite_PeerMetadata(t *testing.T) {
 	require.NoError(t, compose.Up())
 
 	t.Run("inventory includes idle services", testPeerMetadataInventory)
+	t.Run("service graph counts each request once", testPeerMetadataServiceGraph)
 	t.Run("traces resolve service identities", func(t *testing.T) {
 		testPeerMetadataTraces(t, "unique", "frontend.frontend-ns")
 	})
@@ -49,16 +51,17 @@ func TestSuite_PeerMetadata(t *testing.T) {
 	})
 	t.Run("caller identity recovers after expiry", func(t *testing.T) {
 		testPeerMetadataCallers(t, "recovered", []peer.Service{
-			{Name: "frontend", Namespace: "frontend-ns"},
+			{Name: "frontend", Namespace: "frontend-ns", ServiceGraph: true},
 		})
 		testPeerMetadataTraces(t, "recovered", "frontend.frontend-ns")
 	})
+	t.Run("client counts requests when peer metrics are disabled", testPeerMetadataWithoutServerMetrics)
 }
 
 func testPeerMetadataInventory(t *testing.T) {
-	backend := peer.Service{Name: "backend", Namespace: "backend-ns"}
+	backend := peer.Service{Name: "backend", Namespace: "backend-ns", ServiceGraph: true}
 	idle := peer.Service{Name: "idle-backend", Namespace: "backend-ns"}
-	frontend := peer.Service{Name: "frontend", Namespace: "frontend-ns"}
+	frontend := peer.Service{Name: "frontend", Namespace: "frontend-ns", ServiceGraph: true}
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		server := peerMetadataSnapshot(ct, peerMetadataServerURL)
 		assert.Equal(ct, peer.ProtocolVersion, server.Version)
@@ -131,8 +134,8 @@ func testPeerMetadataAmbiguousCaller(t *testing.T, compose *docker.Compose) {
 	})
 	peerMetadataComposeCommand(t, compose, "up", "--detach", "--no-build", "second-caller")
 	testPeerMetadataCallers(t, "ambiguous", []peer.Service{
-		{Name: "frontend", Namespace: "frontend-ns"},
-		{Name: "second-caller", Namespace: "frontend-ns"},
+		{Name: "frontend", Namespace: "frontend-ns", ServiceGraph: true},
+		{Name: "second-caller", Namespace: "frontend-ns", ServiceGraph: true},
 	})
 	testPeerMetadataTraces(t, "ambiguous", "peer-client-host")
 }
@@ -175,4 +178,90 @@ func peerMetadataComposeCommand(t require.TestingT, compose *docker.Compose, arg
 	cmd.Env = compose.Env
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", output)
+}
+
+func testPeerMetadataServiceGraph(t *testing.T) {
+	warmCalls := 0
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		peerMetadataCall(ct, "graph-warmup")
+		warmCalls++
+		assert.Contains(ct, peerMetadataTracePeers(ct, "frontend", "graph-warmup", "client"), "backend.backend-ns")
+		assert.Contains(ct, peerMetadataTracePeers(ct, "backend", "graph-warmup", "server"), "frontend.frontend-ns")
+	}, testTimeout, time.Second)
+
+	endpoints := []struct {
+		url            string
+		service        string
+		histogram      string
+		countsRequests bool
+	}{
+		{"http://localhost:28999/metrics", "", "traces_service_graph_request_client_seconds_count", false},
+		{"http://localhost:18999/metrics", "", "traces_service_graph_request_server_seconds_count", true},
+		{"http://localhost:19464/metrics", "frontend", "traces_service_graph_request_client_seconds_count", false},
+		{"http://localhost:19464/metrics", "backend", "traces_service_graph_request_server_seconds_count", true},
+	}
+	baseline := make([]float64, len(endpoints))
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		for i, endpoint := range endpoints {
+			metrics := peerMetadataGraphMetrics(ct, endpoint.url, endpoint.service, "backend")
+			assert.InDelta(ct, float64(warmCalls), metrics[endpoint.histogram], 0, "%s %s", endpoint.url, endpoint.service)
+			baseline[i] = metrics["traces_service_graph_request_total"]
+		}
+	}, testTimeout, 100*time.Millisecond)
+
+	const calls = 5
+	for range calls {
+		peerMetadataCall(t, "graph-counts")
+	}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		for i, endpoint := range endpoints {
+			metrics := peerMetadataGraphMetrics(ct, endpoint.url, endpoint.service, "backend")
+			assert.InDelta(ct, float64(warmCalls+calls), metrics[endpoint.histogram], 0, "%s %s", endpoint.url, endpoint.service)
+			expected := baseline[i]
+			if endpoint.countsRequests {
+				expected += calls
+			}
+			assert.InDelta(ct, expected, metrics["traces_service_graph_request_total"], 0, "%s %s", endpoint.url, endpoint.service)
+		}
+	}, testTimeout, 100*time.Millisecond)
+}
+
+func peerMetadataGraphMetrics(t require.TestingT, endpoint, service, server string) map[string]float64 {
+	metrics, err := promtest.Scrape(endpoint)
+	require.NoError(t, err)
+	counts := map[string]float64{}
+	for _, metric := range metrics {
+		if service != "" && metric.Labels["service_name"] != service {
+			continue
+		}
+		if metric.Name == "traces_service_graph_request_total" &&
+			(metric.Labels["client"] != "frontend" || metric.Labels["server"] != server) {
+			continue
+		}
+		counts[metric.Name] += metric.Value
+	}
+	return counts
+}
+
+func testPeerMetadataWithoutServerMetrics(t *testing.T) {
+	const calls = 5
+	for range calls {
+		peerMetadataCall(t, "idle/graph-no-server-metrics")
+	}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		for _, endpoint := range []struct{ url, service string }{
+			{"http://localhost:28999/metrics", ""},
+			{"http://localhost:19464/metrics", "frontend"},
+		} {
+			metrics := peerMetadataGraphMetrics(ct, endpoint.url, endpoint.service, "idle-backend")
+			assert.InDelta(ct, float64(calls), metrics["traces_service_graph_request_total"], 0, "%s %s", endpoint.url, endpoint.service)
+		}
+		for _, endpoint := range []struct{ url, service string }{
+			{"http://localhost:18999/metrics", ""},
+			{"http://localhost:19464/metrics", "idle-backend"},
+		} {
+			metrics := peerMetadataGraphMetrics(ct, endpoint.url, endpoint.service, "idle-backend")
+			assert.Zero(ct, metrics["traces_service_graph_request_total"], "%s %s", endpoint.url, endpoint.service)
+		}
+	}, testTimeout, 100*time.Millisecond)
 }

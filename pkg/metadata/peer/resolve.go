@@ -50,12 +50,11 @@ func listenerService(index map[Endpoint][]Service, endpoint Endpoint, hostname s
 		}
 
 		for _, service := range index[Endpoint{IP: ip, Port: endpoint.Port}] {
-			// We found multiple services with different metadata listening on the same port.
-			if selected.Name != "" && selected != service {
+			var matches bool
+			selected, matches = selected.merge(service)
+			if !matches {
 				return fallback
 			}
-
-			selected = service
 		}
 	}
 
@@ -85,11 +84,11 @@ func (s *cachedSnapshot) callerService(endpoint Endpoint, age time.Duration) Ser
 			continue
 		}
 
-		if selected.Name != "" && selected != candidate.Service {
+		var matches bool
+		selected, matches = selected.merge(candidate.Service)
+		if !matches {
 			return fallback
 		}
-
-		selected = candidate.Service
 	}
 
 	if selected.Name == "" {

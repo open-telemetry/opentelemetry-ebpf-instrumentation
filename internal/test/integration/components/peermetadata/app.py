@@ -21,6 +21,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/target":
             body = self.server.destination.encode()
+        elif self.path.startswith("/call/idle/"):
+            target = self.server.destination.removesuffix(":8080") + ":8082"
+            body = call(target + self.path.removeprefix("/call/idle"))
         elif self.path.startswith("/call/"):
             body = call(self.server.destination + self.path.removeprefix("/call"))
         else:

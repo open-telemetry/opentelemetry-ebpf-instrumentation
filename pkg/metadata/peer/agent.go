@@ -33,7 +33,7 @@ type Agent struct {
 	closeOnce sync.Once
 }
 
-func New(ctx context.Context, cfg Config, hostname string) (*Agent, error) {
+func New(ctx context.Context, cfg Config, hostname string, serviceGraphEnabled bool) (*Agent, error) {
 	cfg = cfg.WithDefaults()
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -70,6 +70,8 @@ func New(ctx context.Context, cfg Config, hostname string) (*Agent, error) {
 		client:   newHTTPClient(cfg, clientTLS),
 		listener: listener,
 	}
+
+	agent.store.graphEnabled = serviceGraphEnabled
 
 	agent.server = &http.Server{
 		Handler:           metadataHandler(agent.store, cfg),
@@ -193,10 +195,7 @@ func (a *Agent) Decorate(span *request.Span, now time.Time) {
 	if span.IsClientSpan() {
 		a.store.observe(
 			endpoint,
-			Service{
-				Name:      span.Service.UID.Name,
-				Namespace: span.Service.UID.Namespace,
-			},
+			a.store.serviceFor(span.Service),
 			now,
 		)
 	}
@@ -208,6 +207,9 @@ func (a *Agent) Decorate(span *request.Span, now time.Time) {
 
 	if span.IsClientSpan() {
 		span.HostName = service.Name
+		if service.ServiceGraph {
+			request.SetIgnoreServiceGraphClientCount(span)
+		}
 	} else {
 		span.PeerName = service.Name
 	}

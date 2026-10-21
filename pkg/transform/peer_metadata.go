@@ -18,7 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
-func PeerMetadataProvider(ctxInfo *global.ContextInfo, cfg peer.Config, instance config.InstanceIDConfig,
+func PeerMetadataProvider(ctxInfo *global.ContextInfo, cfg peer.Config, instance config.InstanceIDConfig, serviceGraphEnabled bool,
 	processEvents *msg.Queue[exec.ProcessEvent], input, output *msg.Queue[[]request.Span],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
@@ -27,7 +27,7 @@ func PeerMetadataProvider(ctxInfo *global.ContextInfo, cfg peer.Config, instance
 		}
 
 		hostname := traces.NewHostInstance(&instance).HostName
-		agent, err := peer.New(ctx, cfg, hostname)
+		agent, err := peer.New(ctx, cfg, hostname, serviceGraphEnabled)
 		if err != nil {
 			return nil, err
 		}

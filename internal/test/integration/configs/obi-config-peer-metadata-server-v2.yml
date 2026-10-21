@@ -13,12 +13,24 @@ tracer_provider:
             endpoint: http://jaeger:4317
             tls:
               insecure: true
+meter_provider:
+  readers:
+    - periodic:
+        interval: 50
+        exporter:
+          otlp_http:
+            endpoint: http://otelcol:4318
+    - pull:
+        exporter:
+          prometheus/development:
+            port: 8999
 extensions:
   obi:
     version: "2.0"
     capture:
       policy:
         default_action: exclude
+        match_order: last_match_wins
         poll_interval: 250ms
         min_process_age: 0s
       rules:
@@ -26,6 +38,16 @@ extensions:
           match:
             process:
               cmd_args_glob: ["*/peer-metadata/app.py*"]
+        - action: include
+          match:
+            process:
+              cmd_args_glob: ["*/peer-metadata/app.py server 8082"]
+          refine:
+            exports:
+              traces: true
+              metrics: false
+      metrics:
+        features: [application_span_otel, application_service_graph]
       engine:
         batching:
           batch_timeout: 10ms
@@ -33,7 +55,7 @@ extensions:
         http:
           enabled:
             traces: true
-            metrics: false
+            metrics: true
           routes:
             incoming:
               unmatched: path

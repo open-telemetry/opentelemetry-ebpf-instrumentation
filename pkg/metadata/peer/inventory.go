@@ -154,7 +154,7 @@ func refreshInventory(ctx context.Context, processes map[processKey]*exec.FileIn
 		}
 
 		attrs := file.ServiceAttrs()
-		service := Service{Name: attrs.UID.Name, Namespace: attrs.UID.Namespace}
+		service := store.serviceFor(attrs)
 		if service.Name == "" {
 			continue
 		}
