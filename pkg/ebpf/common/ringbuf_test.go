@@ -233,7 +233,7 @@ func TestForwardRingbuf_Close(t *testing.T) {
 	// Wait a bit for the defer to close resources
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		assert.True(t, closable.closed.Load())
-	}, 2 * time.Second, time.Millisecond)
+	}, 2*time.Second, time.Millisecond)
 
 	// AND metrics haven't been updated
 	assert.Equal(t, 0, metrics.flushes)

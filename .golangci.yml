@@ -21,7 +21,8 @@ formatters:
         - default
         - prefix(github.com/open-telemetry)
         - prefix(go.opentelemetry.io)
-        - localmodule
+        # Keep OBI imports grouped consistently from the root and collector modules.
+        - prefix(go.opentelemetry.io/obi)
 
 linters:
   exclusions:
