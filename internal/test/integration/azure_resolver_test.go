@@ -73,7 +73,7 @@ func testAzureServiceResolution(t *testing.T, detected bool) {
 		}
 		assert.NoError(t, json.NewEncoder(w).Encode(response))
 	}))
-	o := obi{Env: []string{"HTTPS_PROXY=" + proxy, "NO_PROXY=169.254.169.254,otelcol,prometheus,localhost,127.0.0.1", "SSL_CERT_FILE=" + certificate, "AZURE_TOKEN_CREDENTIALS=ManagedIdentityCredential", "AZURE_CLIENT_ID="}, Logs: createLogOutput(t, "azure-resolver")}
+	o := obi{Env: []string{"HTTPS_PROXY=" + proxy, "NO_PROXY=169.254.169.254,otelcol,prometheus,localhost,127.0.0.1", "SSL_CERT_FILE=" + certificate, "AZURE_TOKEN_CREDENTIALS=ManagedIdentityCredential"}, Logs: createLogOutput(t, "azure-resolver")}
 	if !detected {
 		o.Env = append(o.Env, "AZURE_TEST_SUBSCRIPTION_ID=test-subscription", "AZURE_TEST_RESOURCE_GROUP=test-group")
 	}
