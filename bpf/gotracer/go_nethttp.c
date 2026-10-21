@@ -588,9 +588,11 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
         return 0;
     }
 
-    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-    make_tp_string(tp_buf, &invocation->tp);
-    bpf_dbg_printk("tp=%s", tp_buf);
+    if (g_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, &invocation->tp);
+        bpf_dbg_printk("tp=%s", tp_buf);
+    }
 
     connection_info_t conn = {0};
     const connection_info_t *info = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
@@ -641,8 +643,11 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     trace->response_length = invocation->response_length;
     trace->is_jsonrpc = invocation->is_jsonrpc;
 
-    make_tp_string(tp_buf, &invocation->tp);
-    bpf_dbg_printk("tp=%s", tp_buf);
+    if (g_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, &invocation->tp);
+        bpf_dbg_printk("tp=%s", tp_buf);
+    }
     bpf_dbg_printk("method=%s", trace->method);
     bpf_dbg_printk("path=%s", trace->path);
     bpf_dbg_printk("pattern=%s", trace->pattern);
@@ -858,9 +863,11 @@ int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
 
     trace->tp = invocation->tp;
 
-    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-    make_tp_string(tp_buf, &invocation->tp);
-    bpf_dbg_printk("tp_buf=[%s]", tp_buf);
+    if (g_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, &invocation->tp);
+        bpf_dbg_printk("tp_buf=[%s]", tp_buf);
+    }
     bpf_dbg_printk("method=%s", trace->method);
     bpf_dbg_printk("path=%s", trace->path);
 

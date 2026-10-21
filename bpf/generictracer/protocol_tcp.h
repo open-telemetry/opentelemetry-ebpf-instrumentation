@@ -56,9 +56,11 @@ static __always_inline void set_tcp_trace_info(u32 type,
         return;
     }
 
-    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-    make_tp_string(tp_buf, tp);
-    bpf_d_printk("tp_buf=[%s] [%s]", tp_buf, __FUNCTION__);
+    if (g_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, tp);
+        bpf_d_printk("tp_buf=[%s] [%s]", tp_buf, __FUNCTION__);
+    }
 
     tp_p->tp = *tp;
     tp_p->tp.flags = 1;
