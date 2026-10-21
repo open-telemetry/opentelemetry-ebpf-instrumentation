@@ -21,7 +21,7 @@ func TestRuntimeCollectionExceptionSnapshots(t *testing.T) {
 		return snapshot
 	}
 	throw := func() {
-		snapshot, err := collection.observeEvent(netTraceRuntimeEvent{exceptionType: "Example.Failure"})
+		snapshot, err := collection.observeEvent(netTraceRuntimeEvent{exceptionType: "Failure"})
 		require.NoError(t, err)
 		require.Nil(t, snapshot, "throws accumulate until a counter interval completes")
 	}
@@ -46,7 +46,7 @@ func TestRuntimeCollectionExceptionSnapshots(t *testing.T) {
 	require.Equal(t, uint64(1), first.Exceptions["Failure"])
 
 	collection.exceptions["Failure"] = math.MaxInt64
-	require.ErrorContains(t, collection.observeException("Example.Failure"), "overflow")
+	require.ErrorContains(t, collection.observeException("Failure"), "overflow")
 	require.Equal(t, uint64(math.MaxInt64), collection.exceptions["Failure"])
 }
 
@@ -54,7 +54,7 @@ func TestRuntimeCollectionExceptionTypesAcrossSessions(t *testing.T) {
 	var types exceptionTypes
 	first := runtimeCollection{exceptionTypes: &types}
 	for i := range maximumExceptionTypes {
-		require.NoError(t, first.observeException("Example.Failure"+strconv.Itoa(i)))
+		require.NoError(t, first.observeException("Failure"+strconv.Itoa(i)))
 	}
 	next := runtimeCollection{exceptionTypes: &types, exceptions: make(map[string]uint64)}
 	for _, name := range []string{"working-set", "gen-0-gc-count", "gen-1-gc-count", "gen-2-gc-count", "time-in-jit"} {
@@ -65,8 +65,8 @@ func TestRuntimeCollectionExceptionTypesAcrossSessions(t *testing.T) {
 	require.NotNil(t, quiet)
 	require.NotNil(t, quiet.Exceptions)
 	require.Empty(t, quiet.Exceptions)
-	require.NoError(t, next.observeException("Example.NewFailure"))
-	require.NoError(t, next.observeException("Example.Failure0"))
+	require.NoError(t, next.observeException("NewFailure"))
+	require.NoError(t, next.observeException("Failure0"))
 	require.Equal(t, map[string]uint64{exceptionTypeOther: 1, "Failure0": 1}, next.exceptions)
 	require.Empty(t, quiet.Exceptions, "later throws must not mutate the quiet snapshot")
 	require.Len(t, types.names, maximumExceptionTypes)

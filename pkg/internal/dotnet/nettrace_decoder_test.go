@@ -40,9 +40,27 @@ func TestDecodeEventBlockPreservesRuntimeEventOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []netTraceRuntimeEvent{
 		{counter: runtimeCounter{Name: "processor-count", Value: 2}},
-		{exceptionType: "System.InvalidOperationException"},
+		{exceptionType: "InvalidOperationException", exceptionCount: 1},
 		{counter: runtimeCounter{Name: "processor-count", Value: 4}},
 	}, events)
+}
+
+func TestDecodeEventBlockRejectsEmptyNormalizedCLRName(t *testing.T) {
+	for _, name := range []string{"Contoso.", "[System.String]"} {
+		t.Run(name, func(t *testing.T) {
+			decoder := netTraceDecoder{pointerSize: 8, metadata: map[uint32]netTraceMetadata{
+				1: {Header: netTraceMetadataHeader{ProviderName: "Microsoft-Windows-DotNETRuntime", EventID: 80, Version: 1}},
+			}}
+			wire, err := hex.DecodeString("1400010000000000000000000000000000000000")
+			require.NoError(t, err)
+			payload := clrExceptionPayload(name, 8)
+			wire = append(wire, netTraceMetadataIDFlag|netTracePayloadSizeFlag, 1, 0)
+			wire = binary.AppendUvarint(wire, uint64(len(payload)))
+			wire = append(wire, payload...)
+			_, err = decoder.decodeEventBlock("EventBlock", wire)
+			require.ErrorContains(t, err, "empty name")
+		})
+	}
 }
 
 func TestNetTraceSequenceChecks(t *testing.T) {
