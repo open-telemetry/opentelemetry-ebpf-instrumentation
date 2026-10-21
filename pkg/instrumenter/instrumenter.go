@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"sync"
 	"text/template"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 
@@ -22,6 +23,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/appolly"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/tracefs"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	netagent "go.opentelemetry.io/obi/pkg/netolly/agent"
@@ -98,6 +100,8 @@ func runWithContextInfo(
 
 	// if one of nodes fail, the other should stop
 	g, ctx := errgroup.WithContext(ctx)
+	shutdownBudget, cancelShutdownBudget := shutdownBudgetContext(ctx, cfg.ShutdownTimeout)
+	defer cancelShutdownBudget()
 
 	startHealthCheck(ctx, g, cfg.HealthCheck)
 
@@ -128,11 +132,34 @@ func runWithContextInfo(
 		})
 	}
 
-	if err := g.Wait(); err != nil {
+	err := g.Wait()
+	shutdownInternalMetrics(shutdownBudget, ctxInfo.Metrics)
+	if err != nil {
 		return err
 	}
 	slog.Debug("OBI main node finished")
 	return nil
+}
+
+func shutdownBudgetContext(ctx context.Context, shutdownTimeout time.Duration) (context.Context, context.CancelFunc) {
+	budgetCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	stop := context.AfterFunc(ctx, func() {
+		time.AfterFunc(tracefs.EffectiveShutdownTimeout(shutdownTimeout), cancel)
+	})
+	return budgetCtx, func() {
+		stop()
+		cancel()
+	}
+}
+
+func shutdownInternalMetrics(ctx context.Context, metrics imetrics.Reporter) {
+	reporter, ok := metrics.(*otel.InternalMetricsReporter)
+	if !ok {
+		return
+	}
+	if err := reporter.Shutdown(ctx); err != nil {
+		slog.Warn("error shutting down internal metrics provider", "error", err)
+	}
 }
 
 func setupAppO11y(ctx context.Context, ctxInfo *global.ContextInfo, config *obi.Config, selection *instrumentations.InstrumentationSelection) error {

@@ -563,8 +563,9 @@ func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg
 		}
 	}()
 
-	ebpfcommon.ForwardRingbuf(
+	ebpfcommon.ForwardRingbufWithShutdownTimeout(
 		&p.cfg.EBPF,
+		p.cfg.ShutdownTimeout,
 		p.bpfObjects.LogEvents,
 		p.handleLogEvent,
 		nil,

@@ -32,6 +32,7 @@ const internalMetricsMeterName = "obi_internal"
 // InternalMetricsReporter is an internal metrics Reporter that exports to OTEL
 type InternalMetricsReporter struct {
 	ctx                              context.Context
+	provider                         *metric.MeterProvider
 	tracerFlushes                    instrument.Float64Histogram
 	otelMetricExports                instrument.Float64Counter
 	otelMetricExportErrs             instrument.Float64Counter
@@ -233,6 +234,7 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 	return &InternalMetricsReporter{
 		ctx:                              ctx,
+		provider:                         provider,
 		tracerFlushes:                    tracerFlushes,
 		otelMetricExports:                otelMetricExports,
 		otelMetricExportErrs:             otelMetricExportErrs,
@@ -292,6 +294,10 @@ func (p *InternalMetricsReporter) Start(ctx context.Context) {
 		attribute.String(string(p.internalAttrs.Version), buildinfo.Version),
 		attribute.String(string(p.internalAttrs.Revision), buildinfo.Revision),
 	))
+}
+
+func (p *InternalMetricsReporter) Shutdown(ctx context.Context) error {
+	return p.provider.Shutdown(ctx)
 }
 
 func (p *InternalMetricsReporter) TracerFlush(length int) {

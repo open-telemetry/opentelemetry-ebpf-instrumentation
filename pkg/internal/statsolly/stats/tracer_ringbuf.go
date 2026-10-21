@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	ciliumebpf "github.com/cilium/ebpf"
 
@@ -32,11 +33,11 @@ type RingBufTracer struct {
 	forward  func(context.Context, *msg.Queue[[]*ebpf.Stat])
 }
 
-func NewRingBufTracer(statsMap *ciliumebpf.Map, cfg *config.EBPFTracer) *RingBufTracer {
+func NewRingBufTracer(statsMap *ciliumebpf.Map, cfg *config.EBPFTracer, shutdownTimeout time.Duration) *RingBufTracer {
 	return &RingBufTracer{
 		statsMap: statsMap,
 		cfg:      cfg,
-		forward:  ebpfcommon.ForwardRingbuf(cfg, statsMap, parseStat, nil, rtlog(), nil),
+		forward:  ebpfcommon.ForwardRingbufWithShutdownTimeout(cfg, shutdownTimeout, statsMap, parseStat, nil, rtlog(), nil),
 	}
 }
 

@@ -68,6 +68,7 @@ type MetricsReporter struct {
 	attributes       *attributes.AttrSelector
 	exporter         sdkmetric.Exporter
 	reporters        otelcfg.ReporterPool[*svc.Attrs, *Metrics]
+	systemProvider   *metric.MeterProvider
 	targetInfo       instrument.Int64UpDownCounter
 	tracesTargetInfo instrument.Int64UpDownCounter
 	pidTracker       PidServiceTracker
@@ -364,7 +365,7 @@ func newMetricsReporter(
 		func(id svc.UID, v *Metrics) {
 			llog := log.With("service", id)
 			llog.Debug("evicting metrics reporter from cache")
-			v.cleanupAllMetricsInstances()
+			v.closeAllMCPSessions()
 
 			if !mr.pidTracker.ServiceLive(id) {
 				mr.deleteTargetMetrics(&id)
@@ -374,6 +375,7 @@ func newMetricsReporter(
 				if err := v.provider.Shutdown(ctx); err != nil {
 					llog.Warn("error shutting down evicted metrics provider", "error", err)
 				}
+				v.cleanupAllMetricsInstances()
 			}()
 		}, mr.newMetricSet)
 	if err != nil {
@@ -389,6 +391,7 @@ func newMetricsReporter(
 	mr.pidTracker = NewPidServiceTracker()
 
 	systemMetrics := mr.newMetricsInstance(nil)
+	mr.systemProvider = systemMetrics.provider
 	systemMeter := systemMetrics.provider.Meter(reporterName)
 
 	if err := mr.setupTargetInfo(systemMeter); err != nil {
@@ -947,32 +950,38 @@ func (mr *MetricsReporter) isExponentialAggregation() bool {
 // export timeout the SDK PeriodicReader applies when the caller sets no deadline.
 const shutdownTimeout = 30 * time.Second
 
-// shutdownContext returns a context for the reporter's final collection/export.
-// On the normal shutdown path ctx.Done() is what exits reportMetrics, so mr.ctx is
+// shutdownContext returns a context for a reporter's final collection/export.
+// On the normal shutdown path ctx.Done() is what exits the reporter, so its context is
 // already canceled and would abort the flush; the returned context is detached from
 // it and bounded instead.
-func (mr *MetricsReporter) shutdownContext() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(mr.ctx), shutdownTimeout)
+func shutdownContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 }
 
 func (mr *MetricsReporter) close() {
 	// Drain every per-service metric set before shutting down the shared exporter.
 	// provider.Shutdown performs a final collection/export, so sessions and other
 	// pending observations are flushed even when the process stops before TTL eviction.
-	shutdownCtx, cancel := mr.shutdownContext()
+	shutdownCtx, cancel := shutdownContext(mr.ctx)
 	defer cancel()
 	mr.reporters.ForEach(func(id svc.UID, m *Metrics) {
 		llog := mlog().With("service", id)
 		llog.Debug("shutting down metrics reporter")
-		m.cleanupAllMetricsInstances()
+		m.closeAllMCPSessions()
 		if err := m.provider.Shutdown(shutdownCtx); err != nil {
 			llog.Warn("error shutting down metrics provider", "error", err)
 		}
+		m.cleanupAllMetricsInstances()
 	})
+	if mr.systemProvider != nil {
+		if err := mr.systemProvider.Shutdown(shutdownCtx); err != nil {
+			mlog().Warn("error shutting down system metrics provider", "error", err)
+		}
+	}
 
 	go func() {
 		// The context above is canceled when close returns, so bound this one separately.
-		exportCtx, cancel := mr.shutdownContext()
+		exportCtx, cancel := shutdownContext(mr.ctx)
 		defer cancel()
 		if err := mr.exporter.Shutdown(exportCtx); err != nil {
 			mlog().Warn("closing metrics provider", "error", err)
@@ -1736,5 +1745,4 @@ func (r *Metrics) cleanupAllMetricsInstances() {
 	cleanupMetrics(r.ctx, r.genAIOutputTokenUsage)
 	cleanupMetrics(r.ctx, r.mcpClientOperationDuration)
 	cleanupMetrics(r.ctx, r.mcpServerOperationDuration)
-	// Provider shutdown performs the final collection of sessions closed above.
 }

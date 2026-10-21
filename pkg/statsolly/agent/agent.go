@@ -126,7 +126,7 @@ func statsAgent(
 	statsFetcher ebpFetcher,
 	agentIP net.IP,
 ) (*Stats, error) {
-	rbTracer := stats.NewRingBufTracer(statsFetcher.StatsEventsMap(), &cfg.EBPF)
+	rbTracer := stats.NewRingBufTracer(statsFetcher.StatsEventsMap(), &cfg.EBPF, cfg.ShutdownTimeout)
 
 	return &Stats{
 		ctxInfo:  ctxInfo,

@@ -24,6 +24,7 @@ import (
 	"slices"
 	"sync"
 	"syscall"
+	"time"
 	"unsafe"
 
 	"github.com/cilium/ebpf"
@@ -312,6 +313,7 @@ type Tracer struct {
 	log                               *slog.Logger
 	pidsFilter                        ebpfcommon.ServiceFilter
 	cfg                               *config.EBPFTracer
+	shutdownTimeout                   time.Duration
 	metrics                           imetrics.Reporter
 	bpfObjects                        BpfObjects
 	closers                           []io.Closer
@@ -350,6 +352,7 @@ func New(
 		log:                               log,
 		pidsFilter:                        pidFilter,
 		cfg:                               &cfg.EBPF,
+		shutdownTimeout:                   cfg.ShutdownTimeout,
 		metrics:                           metrics,
 		disabledRouteHarvesting:           disabledRouteHarvesting,
 		supportsBPFLoop:                   ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
@@ -459,11 +462,11 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	return []*ebpfcommon.SpecBundle{{
 		Spec:      spec,
 		Objects:   &p.bpfObjects,
-		Constants: p.constants(),
+		Constants: p.constants(ebpfconvenience.ScaledMaxEntries(spec.Maps[BpfMapEvents], p.cfg.MapsConfig.GlobalScaleFactor)),
 	}}, nil
 }
 
-func (p *Tracer) constants() map[string]any {
+func (p *Tracer) constants(eventsRingBufSize uint32) map[string]any {
 	blackBoxCP := uint32(0)
 	if p.cfg.DisableBlackBoxCP {
 		blackBoxCP = uint32(1)
@@ -474,7 +477,7 @@ func (p *Tracer) constants() map[string]any {
 		"g_bpf_header_propagation":       p.cfg.ContextPropagation.HasHeaders(),
 		"g_bpf_probe_write_user_enabled": p.supportsContextPropagation(),
 		"g_go_h2_write_fail_step":        goH2WriteFailStepForTest,
-		"wakeup_data_bytes":              uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
+		"wakeup_data_bytes":              ebpfcommon.WakeupDataBytes(p.cfg.WakeupLen, unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{}), eventsRingBufSize),
 		"ringbuf_metrics_enabled":        p.metrics != nil && !imetrics.IsBuiltinNoopReporter(p.metrics),
 		"disable_black_box_cp":           blackBoxCP,
 		"attr_type_invalid":              uint64(attribute.INVALID),
@@ -2586,9 +2589,10 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 		ebpfconvenience.DrainTraceContextMap[BpfObiCtxInfoT](p.log, p.bpfObjects.TracesCtxV1)
 	}
 
-	ebpfcommon.SharedRingbuf(
+	ebpfcommon.SharedRingbufWithShutdownTimeout(
 		ebpfEventContext,
 		p.cfg,
+		p.shutdownTimeout,
 		p.bpfObjects.Events,
 		func(record *ringbuf.Record) (request.Span, bool, error) {
 			if handled, err := ebpfEventContext.HandleInternalEvent(record); handled {

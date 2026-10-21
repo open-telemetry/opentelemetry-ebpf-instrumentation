@@ -202,6 +202,33 @@ func TestSetupMapSizes_OverflowClampsToMax(t *testing.T) {
 	}
 }
 
+func TestScaledMaxEntriesMatchesSetupMapSizes(t *testing.T) {
+	for _, factor := range []int{-3, -1, 0, 1, 3} {
+		maps := map[string]*ebpf.MapSpec{
+			"ringbuf":    {Type: ebpf.RingBuf, MaxEntries: 1 << 20},
+			"hash":       {Type: ebpf.Hash, MaxEntries: 128},
+			"pinned":     {Type: ebpf.Hash, MaxEntries: 1024, Pinning: ebpf.PinByName},
+			"prog_array": {Type: ebpf.ProgramArray, MaxEntries: 256},
+		}
+		expected := make(map[string]uint32, len(maps))
+		for name, mSpec := range maps {
+			expected[name] = ScaledMaxEntries(mSpec, factor)
+		}
+
+		SetupMapSizes(makeSpec(maps), factor)
+
+		for name, mSpec := range maps {
+			if mSpec.MaxEntries != expected[name] {
+				t.Errorf("factor %d, map %s: SetupMapSizes=%d, ScaledMaxEntries=%d", factor, name, mSpec.MaxEntries, expected[name])
+			}
+		}
+	}
+
+	if got := ScaledMaxEntries(&ebpf.MapSpec{Type: ebpf.RingBuf, MaxEntries: 1 << 20}, -3); got != 128<<10 {
+		t.Errorf("ringbuf scaled by -3: got %d, want %d", got, 128<<10)
+	}
+}
+
 func TestIsResizableMapType(t *testing.T) {
 	nonResizable := []ebpf.MapType{
 		ebpf.Array, ebpf.PerCPUArray,

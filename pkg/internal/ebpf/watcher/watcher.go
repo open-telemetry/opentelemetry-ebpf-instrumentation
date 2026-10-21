@@ -98,8 +98,9 @@ func (p *Watcher) Run(ctx context.Context) {
 		p.forward(ctx, parse)
 		return
 	}
-	ebpfcommon.ForwardRingbuf(
+	ebpfcommon.ForwardRingbufWithShutdownTimeout(
 		&p.cfg.EBPF,
+		p.cfg.ShutdownTimeout,
 		p.bpfObjects.WatchEvents,
 		parse,
 		nil,

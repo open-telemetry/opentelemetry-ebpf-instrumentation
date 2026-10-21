@@ -74,8 +74,9 @@ func (p *BPFLogger) Tracepoints() map[string]ebpfcommon.ProbeDesc {
 }
 
 func (p *BPFLogger) Run(ctx context.Context) {
-	ebpfcommon.ForwardRingbuf(
+	ebpfcommon.ForwardRingbufWithShutdownTimeout(
 		&p.cfg.EBPF,
+		p.cfg.ShutdownTimeout,
 		p.bpfObjects.DebugEvents,
 		p.processLogEvent,
 		nil,

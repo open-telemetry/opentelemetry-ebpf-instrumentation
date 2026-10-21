@@ -40,8 +40,9 @@ func TestForwardRingbuf_CapacityFull(t *testing.T) {
 	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 	fltr.AllowPID(1, 1, exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: "myService"}}}), PIDTypeGo)
 	cfg := &config.EBPFTracer{BatchLength: 10}
-	go ForwardRingbuf(
+	go ForwardRingbufWithShutdownTimeout(
 		cfg,
+		0,
 		nil, // the source ring buffer can be null
 		func(r *ringbuf.Record) (request.Span, bool, error) {
 			s, ignore, err := ReadBPFTraceAsSpan(nil, cfg, r, &fltr)
@@ -98,8 +99,9 @@ func TestForwardRingbuf_Deadline(t *testing.T) {
 	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 	fltr.AllowPID(1, 1, exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: "myService"}}}), PIDTypeGo)
 	cfg := &config.EBPFTracer{BatchLength: 10, BatchTimeout: 20 * time.Millisecond}
-	go ForwardRingbuf(
+	go ForwardRingbufWithShutdownTimeout(
 		cfg,
+		0,
 		nil, // the source ring buffer can be null
 		func(r *ringbuf.Record) (request.Span, bool, error) {
 			s, ignore, err := ReadBPFTraceAsSpan(nil, cfg, r, &fltr)
@@ -159,8 +161,9 @@ func TestForwardRingbuf_FiltersBeforeBatching(t *testing.T) {
 	}
 	validPIDs := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 	cfg := &config.EBPFTracer{BatchLength: 10, BatchTimeout: 20 * time.Millisecond}
-	go ForwardRingbuf(
+	go ForwardRingbufWithShutdownTimeout(
 		cfg,
+		0,
 		nil,
 		func(r *ringbuf.Record) (request.Span, bool, error) {
 			return ReadBPFTraceAsSpan(nil, cfg, r, &validPIDs)
@@ -204,8 +207,9 @@ func TestForwardRingbuf_Close(t *testing.T) {
 	metrics := &metricsReporter{}
 	closable := closableObject{}
 	cfg := &config.EBPFTracer{BatchLength: 10}
-	go ForwardRingbuf(
+	go ForwardRingbufWithShutdownTimeout(
 		cfg,
+		0,
 		nil, // the source ring buffer can be null
 		func(r *ringbuf.Record) (request.Span, bool, error) {
 			s, ignore, err := ReadBPFTraceAsSpan(nil, cfg, r, &IdentityPidsFilter{})
@@ -252,8 +256,8 @@ func TestForwardRingbuf_NoEventLoss(t *testing.T) {
 			out := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(N/batchLen + 10))
 			sub := out.Subscribe()
 
-			go ForwardRingbuf(
-				cfg, nil,
+			go ForwardRingbufWithShutdownTimeout(
+				cfg, 0, nil,
 				func(_ *ringbuf.Record) (request.Span, bool, error) {
 					return request.Span{Type: 1}, false, nil
 				},
@@ -302,7 +306,7 @@ func TestRingbufLastReadAtRace(t *testing.T) {
 	readDone := make(chan struct{})
 	go func() {
 		defer close(readDone)
-		rbf.readAndForwardInner(ctx, eventsReader, msg.NewQueue[[]HTTPRequestTrace](msg.ChannelBufferLen(1)))
+		rbf.readAndForwardInner(ctx, ctx, eventsReader, msg.NewQueue[[]HTTPRequestTrace](msg.ChannelBufferLen(1)))
 	}()
 
 	deadline := time.Now().Add(flushInterval + 500*time.Millisecond)
@@ -346,7 +350,7 @@ func TestRingbufStalledReaderIsFlushedOnConsecutiveTicks(t *testing.T) {
 	readDone := make(chan struct{})
 	go func() {
 		defer close(readDone)
-		rbf.readAndForwardInner(ctx, eventsReader, msg.NewQueue[[]HTTPRequestTrace](msg.ChannelBufferLen(1)))
+		rbf.readAndForwardInner(ctx, ctx, eventsReader, msg.NewQueue[[]HTTPRequestTrace](msg.ChannelBufferLen(1)))
 	}()
 
 	// Two flushes land within two ticks once each one is issued on the tick

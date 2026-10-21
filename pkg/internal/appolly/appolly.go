@@ -34,6 +34,8 @@ import (
 
 var errShutdownTimeout = errors.New("graceful shutdown has timed out while waiting for eBPF tracers to finish")
 
+const pipelineDrainGrace = time.Second
+
 func log() *slog.Logger {
 	return slog.With("component", "obi.Instrumenter")
 }
@@ -58,8 +60,12 @@ type Instrumenter struct {
 	runtimeMetrics *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot]
 
 	// dynamicSelector is the runtime PID set; from WithDynamicSelector or created in New. Finder preloads from config.
-	dynamicSelector *discover.DynamicSelector
-	finishers       []finisher
+	dynamicSelector  *discover.DynamicSelector
+	finishers        []finisher
+	shutdownDeadline time.Time
+
+	pipelineCtx    context.Context
+	cancelPipeline context.CancelFunc
 }
 
 type finisher struct {
@@ -124,6 +130,7 @@ func NewWithProtocolMetricSelection(ctx context.Context, ctxInfo *global.Context
 			processEventsInput.SendCtx(ctx, exec.ProcessEvent{Type: exec.ProcessEventCreated, File: fi})
 		})
 	}
+	pipelineCtx, cancelPipeline := context.WithCancel(context.WithoutCancel(ctx))
 	instr := &Instrumenter{
 		config:            config,
 		ctxInfo:           ctxInfo,
@@ -135,6 +142,8 @@ func NewWithProtocolMetricSelection(ctx context.Context, ctxInfo *global.Context
 		ebpfEventContext:  ebpfEventContext,
 		runtimeMetrics:    runtimeMetrics,
 		dynamicSelector:   sel,
+		pipelineCtx:       pipelineCtx,
+		cancelPipeline:    cancelPipeline,
 	}
 	return instr, nil
 }
@@ -168,16 +177,12 @@ func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
 
 	// In the background process any process found events and annotate them with
 	// the Host or Kubernetes metadata
-	graph, err := i.peGraphBuilder.Instance(ctx)
-	if err != nil {
-		return fmt.Errorf("couldn't start Process Event pipeline: %w", err)
+	if err := i.startProcessEventsPipeline(ctx); err != nil {
+		return err
 	}
-	i.processEventsPipeline(ctx, graph)
 
 	// registers resources that must be done before exiting OBI
-	i.finishers = append(i.finishers,
-		finisher{name: "process finder", done: finder.Done()},
-		finisher{name: "process instrumenter", done: graph.Done()})
+	i.finishers = append(i.finishers, finisher{name: "process finder", done: finder.Done()})
 
 	// In background, listen indefinitely for each new process and run its
 	// associated ebpf.ProcessTracer once it is found.
@@ -187,7 +192,7 @@ func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
 }
 
 func (i *Instrumenter) WaitUntilFinished() error {
-	shutDownTimeout := time.After(tracefs.EffectiveShutdownTimeout(i.config.ShutdownTimeout))
+	shutDownTimeout := i.shutdownTimeout()
 	for _, f := range i.finishers {
 		select {
 		case <-shutDownTimeout:
@@ -241,20 +246,31 @@ func (i *Instrumenter) ReadAndForward(ctx context.Context) error {
 
 	i.finishers = append(i.finishers, finisher{
 		name: "Instrumenter Pipeline",
-		done: i.bp.Start(ctx),
+		done: i.bp.Start(i.pipelineCtx),
 	})
 	<-ctx.Done()
 
 	log.Info("exiting auto-instrumenter")
+	i.shutdownDeadline = time.Now().Add(tracefs.EffectiveShutdownTimeout(i.config.ShutdownTimeout))
 
-	if err := i.stop(); err != nil {
+	stopped := i.tracersStopped()
+	go i.cancelPipelineAfterDrain(stopped)
+
+	if err := i.stop(stopped); err != nil {
 		return fmt.Errorf("failed to stop auto-instrumenter: %w", err)
 	}
 
 	return nil
 }
 
-func (i *Instrumenter) stop() error {
+func (i *Instrumenter) shutdownTimeout() <-chan time.Time {
+	if i.shutdownDeadline.IsZero() {
+		return time.After(tracefs.EffectiveShutdownTimeout(i.config.ShutdownTimeout))
+	}
+	return time.After(time.Until(i.shutdownDeadline))
+}
+
+func (i *Instrumenter) tracersStopped() <-chan struct{} {
 	log := log()
 
 	stopped := make(chan struct{})
@@ -264,11 +280,30 @@ func (i *Instrumenter) stop() error {
 		close(stopped)
 		log.Debug("tracers unloaded, exiting FindAndInstrument")
 	}()
+	return stopped
+}
+
+func (i *Instrumenter) cancelPipelineAfterDrain(tracersStopped <-chan struct{}) {
+	defer i.cancelPipeline()
+
+	latestPipelineCancel := time.After(time.Until(i.shutdownDeadline) / 2)
+	select {
+	case <-tracersStopped:
+	case <-latestPipelineCancel:
+		return
+	}
 
 	select {
-	case <-time.After(tracefs.EffectiveShutdownTimeout(i.config.ShutdownTimeout)):
+	case <-time.After(pipelineDrainGrace):
+	case <-latestPipelineCancel:
+	}
+}
+
+func (i *Instrumenter) stop(tracersStopped <-chan struct{}) error {
+	select {
+	case <-i.shutdownTimeout():
 		return errShutdownTimeout
-	case <-stopped:
+	case <-tracersStopped:
 		return nil
 	}
 }
@@ -314,6 +349,12 @@ func refreshK8sInformerCache(ctx context.Context, ctxInfo *global.ContextInfo) e
 	return err
 }
 
-func (i *Instrumenter) processEventsPipeline(ctx context.Context, graph *swarm.Runner) {
-	graph.Start(ctx, swarm.WithCancelTimeout(i.config.ShutdownTimeout))
+func (i *Instrumenter) startProcessEventsPipeline(ctx context.Context) error {
+	graph, err := i.peGraphBuilder.Instance(ctx)
+	if err != nil {
+		return fmt.Errorf("couldn't start Process Event pipeline: %w", err)
+	}
+	graph.Start(i.pipelineCtx, swarm.WithCancelTimeout(i.config.ShutdownTimeout))
+	i.finishers = append(i.finishers, finisher{name: "process instrumenter", done: graph.Done()})
+	return nil
 }

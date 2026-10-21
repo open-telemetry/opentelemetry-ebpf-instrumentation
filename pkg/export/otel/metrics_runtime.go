@@ -983,8 +983,18 @@ func removeFloatRuntimeCounterWithAttributes(
 }
 
 func (r *RuntimeMetricsReporter) close() {
+	shutdownCtx, cancel := shutdownContext(r.ctx)
+	defer cancel()
+	r.reporters.ForEach(func(id svc.UID, m *RuntimeMetrics) {
+		if err := m.provider.Shutdown(shutdownCtx); err != nil {
+			r.log.Warn("error shutting down runtime metrics provider", "service", id, "error", err)
+		}
+	})
+
 	go func() {
-		if err := r.exporter.Shutdown(r.ctx); err != nil {
+		exportCtx, cancel := shutdownContext(r.ctx)
+		defer cancel()
+		if err := r.exporter.Shutdown(exportCtx); err != nil {
 			rmlog().Warn("closing runtime metrics provider", "error", err)
 			return
 		}
