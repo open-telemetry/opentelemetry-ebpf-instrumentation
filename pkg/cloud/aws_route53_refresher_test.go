@@ -90,7 +90,7 @@ func TestRoute53RetainsSnapshotAndRemovesDeletedRecords(t *testing.T) {
 	empty := false
 	client := fakeRoute53Client{list: func(in *route53.ListResourceRecordSetsInput) (*route53.ListResourceRecordSetsOutput, error) {
 		if fail && aws.ToString(in.HostedZoneId) == "zone-b" {
-			return nil, errors.New("access denied")
+			return nil, errors.New("unavailable")
 		}
 		out := &route53.ListResourceRecordSetsOutput{}
 		if !empty {
@@ -364,7 +364,7 @@ func TestRoute53InitialAccessDeniedStopsPolling(t *testing.T) {
 							if err := deny("private zones"); err != nil {
 								return nil, err
 							}
-							return &route53.ListHostedZonesByVPCOutput{HostedZoneSummaries: []types.HostedZoneSummary{{HostedZoneId: aws.String("private")}}}, nil
+							return &route53.ListHostedZonesByVPCOutput{HostedZoneSummaries: []types.HostedZoneSummary{{HostedZoneId: aws.String("private")}, {HostedZoneId: aws.String("other-private")}}}, nil
 						},
 						list: func(*route53.ListResourceRecordSetsInput) (*route53.ListResourceRecordSetsOutput, error) {
 							if err := deny("records"); err != nil {
@@ -394,7 +394,11 @@ func TestRoute53InitialAccessDeniedStopsPolling(t *testing.T) {
 					case <-time.After(2 * time.Second):
 						t.Fatal("unavailable source kept polling")
 					}
-					require.Equal(t, 1, denials)
+					if operation == "records" {
+						require.Equal(t, 2, denials)
+					} else {
+						require.Equal(t, 1, denials)
+					}
 					require.Equal(t, 1, strings.Count(logs.String(), "level=WARN"))
 					require.Contains(t, logs.String(), "route53:ListResourceRecordSets")
 					require.Contains(t, logs.String(), "restart OBI")
@@ -413,5 +417,91 @@ func TestRoute53InitialAccessDeniedStopsPolling(t *testing.T) {
 				})
 			})
 		}
+	}
+}
+
+func TestRoute53MixedAccessVPC(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		denyLaterPage bool
+		readableEmpty bool
+		readableFirst bool
+	}{
+		{name: "denied zones before readable zone"},
+		{name: "denied zones after readable zone", readableFirst: true},
+		{name: "denied after a partial page", denyLaterPage: true},
+		{name: "readable zone has no records", readableEmpty: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			denied := true
+			name := "local.example."
+			client := fakeRoute53Client{
+				zones: func(*route53.ListHostedZonesInput) (*route53.ListHostedZonesOutput, error) {
+					return &route53.ListHostedZonesOutput{}, nil
+				},
+				privateZones: func(in *route53.ListHostedZonesByVPCInput) (*route53.ListHostedZonesByVPCOutput, error) {
+					require.Equal(t, "vpc-local", aws.ToString(in.VPCId))
+					zones := []types.HostedZoneSummary{
+						{HostedZoneId: aws.String("service-owned"), Owner: &types.HostedZoneOwner{OwningService: aws.String("efs.amazonaws.com")}},
+						{HostedZoneId: aws.String("cross-account"), Owner: &types.HostedZoneOwner{OwningAccount: aws.String("other-account")}},
+					}
+					local := types.HostedZoneSummary{HostedZoneId: aws.String("readable")}
+					if tc.readableFirst {
+						zones = append([]types.HostedZoneSummary{local}, zones...)
+					} else {
+						zones = append(zones, local)
+					}
+					return &route53.ListHostedZonesByVPCOutput{HostedZoneSummaries: zones}, nil
+				},
+				list: func(in *route53.ListResourceRecordSetsInput) (*route53.ListResourceRecordSetsOutput, error) {
+					zone := aws.ToString(in.HostedZoneId)
+					if zone == "readable" {
+						out := &route53.ListResourceRecordSetsOutput{}
+						if !tc.readableEmpty {
+							out.ResourceRecordSets = []types.ResourceRecordSet{route53Record(name, "10.0.0.2", types.RRTypeA)}
+						}
+						return out, nil
+					}
+					if denied {
+						if tc.denyLaterPage && in.StartRecordName == nil {
+							return &route53.ListResourceRecordSetsOutput{
+								IsTruncated: true, NextRecordName: aws.String("next.example."), NextRecordType: types.RRTypeA,
+								ResourceRecordSets: []types.ResourceRecordSet{
+									route53Record("a.partial.example.", "10.0.0.2", types.RRTypeA),
+									route53Record("partial.example.", "10.0.0.9", types.RRTypeA),
+								},
+							}, nil
+						}
+						return nil, &smithy.GenericAPIError{Code: "AccessDenied"}
+					}
+					return &route53.ListResourceRecordSetsOutput{ResourceRecordSets: []types.ResourceRecordSet{
+						route53Record(zone+".example.", "10.0.0.3", types.RRTypeA),
+					}}, nil
+				},
+			}
+			refresher := NewRoute53Inventory(client, nil)
+			refresher.VPCID, refresher.VPCRegion = "vpc-local", "us-east-1"
+			inventory := NewInventory([]MetadataRefresher{refresher})
+			inventory.refresh(t.Context())
+			want := map[string]string{}
+			if !tc.readableEmpty {
+				want["10.0.0.2"] = "local.example"
+			}
+			require.Equal(t, want, inventory.snapshot.ServiceByIP)
+			name = "updated.example."
+			inventory.refresh(t.Context())
+			if !tc.readableEmpty {
+				want["10.0.0.2"] = "updated.example"
+			}
+			require.Equal(t, want, inventory.snapshot.ServiceByIP)
+			denied = false
+			inventory.refresh(t.Context())
+			want["10.0.0.3"] = "cross-account.example"
+			require.Equal(t, want, inventory.snapshot.ServiceByIP)
+			denied = true
+			inventory.refresh(t.Context())
+			delete(want, "10.0.0.3")
+			require.Equal(t, want, inventory.snapshot.ServiceByIP)
+		})
 	}
 }

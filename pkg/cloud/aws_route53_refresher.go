@@ -59,9 +59,7 @@ func (i *Route53Inventory) Refresh(ctx context.Context, snapshot *MetadataSnapsh
 		i.backoff = 0
 		return nil
 	}
-	var apiErr smithy.APIError
-	if !i.initialized && errors.As(err, &apiErr) &&
-		(apiErr.ErrorCode() == "AccessDenied" || apiErr.ErrorCode() == "AccessDeniedException") {
+	if !i.initialized && route53AccessDenied(err) {
 		permissions := "route53:ListResourceRecordSets"
 		if len(i.hostedZoneIDs) == 0 {
 			permissions += ", route53:ListHostedZones"
@@ -90,25 +88,55 @@ func (i *Route53Inventory) refresh(ctx context.Context, snapshot *MetadataSnapsh
 	}
 	publicNames := map[string]string{}
 	privateNames := map[string]string{}
+	readable := false
+	var denied error
 	for _, zone := range zones {
+		zoneNames, err := i.zoneRecords(ctx, zone)
+		if err != nil {
+			if route53AccessDenied(err) {
+				denied = err
+				continue
+			}
+			return err
+		}
+		readable = true
 		names := privateNames
 		if zone.public {
 			names = publicNames
 		}
-		pages := route53.NewListResourceRecordSetsPaginator(i.client, &route53.ListResourceRecordSetsInput{HostedZoneId: &zone.id})
-		for pages.HasMorePages() {
-			out, err := pages.NextPage(ctx)
-			if err != nil {
-				return fmt.Errorf("listing Route53 records for hosted zone %q: %w", zone.id, err)
-			}
-			for _, record := range out.ResourceRecordSets {
-				addRoute53Record(names, record, zone.public)
+		for ip, name := range zoneNames {
+			if previous, ok := names[ip]; !ok || name < previous {
+				names[ip] = name
 			}
 		}
+	}
+	if !readable && denied != nil {
+		return denied
 	}
 	maps.Copy(snapshot.ServiceByIP, publicNames)
 	maps.Copy(snapshot.ServiceByIP, privateNames)
 	return nil
+}
+
+func route53AccessDenied(err error) bool {
+	var apiErr smithy.APIError
+	return errors.As(err, &apiErr) &&
+		(apiErr.ErrorCode() == "AccessDenied" || apiErr.ErrorCode() == "AccessDeniedException")
+}
+
+func (i *Route53Inventory) zoneRecords(ctx context.Context, zone route53Zone) (map[string]string, error) {
+	names := map[string]string{}
+	pages := route53.NewListResourceRecordSetsPaginator(i.client, &route53.ListResourceRecordSetsInput{HostedZoneId: &zone.id})
+	for pages.HasMorePages() {
+		out, err := pages.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("listing Route53 records for hosted zone %q: %w", zone.id, err)
+		}
+		for _, record := range out.ResourceRecordSets {
+			addRoute53Record(names, record, zone.public)
+		}
+	}
+	return names, nil
 }
 
 type route53Zone struct {

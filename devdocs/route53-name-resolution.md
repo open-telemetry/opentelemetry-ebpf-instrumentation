@@ -47,7 +47,11 @@ multiple names can still refer to the same IP within a VPC. The IP-only map
 cannot determine which name an application used. Private zones associated
 through Route 53 Profiles are not discovered by `ListHostedZonesByVPC`; configure
 those zone IDs explicitly. Associated zones owned by another account or AWS
-service are included, but their records still require permission to read.
+service are included when their records are readable. A zone whose records
+return `AccessDenied` is skipped without blocking readable zones. If a later
+page is denied, all records from that zone are discarded. Skipped zones are
+checked again on subsequent refreshes, allowing newly granted access to take
+effect. A successful refresh contains only records from currently readable zones.
 
 Kubernetes and ECS names take precedence over Route53 names. Route53 takes
 precedence over captured DNS responses and reverse DNS. Route53 decorates endpoint
@@ -58,12 +62,12 @@ Initial discovery is delayed randomly between zero and one interval to spread
 startup traffic. Later polls wait between 80% and 120% of the interval after the
 previous fetch completes. Names remain unresolved until initial discovery succeeds.
 
-If Route53 returns `AccessDenied` before its first successful refresh, OBI
-marks the source unavailable, logs one warning listing the required permissions,
-and stops polling it. Grant the permissions and restart OBI to enable it.
-Transient startup failures still retry. Permission errors after a successful
-refresh preserve the last snapshot and continue retrying, allowing recovery
-when access is restored.
+If zone discovery returns `AccessDenied`, or all selected zones deny record
+access, before the first successful refresh, OBI marks the source unavailable,
+logs one warning listing the required permissions, and stops polling it. Grant the permissions and restart OBI to enable it.
+Transient startup failures still retry. After a successful refresh, discovery
+denials or denial by all selected zones preserve the last snapshot and continue
+retrying, allowing recovery when access is restored.
 
 Each source retains its last successful snapshot. Successful refreshes remove
 deleted records; a failed Route53 fetch preserves its mappings and does not block
