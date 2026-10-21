@@ -76,6 +76,22 @@ func TestFetchEntries_RetryAndKeepOrder(t *testing.T) {
 	})
 }
 
+func TestFetchEntries_RetryTimeoutBoundsHangingAttempt(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		// a fetcher whose request hangs until its context is done, like a call to an unreachable API
+		hangs := func(ctx context.Context) (NodeMeta, error) {
+			<-ctx.Done()
+			return NodeMeta{}, ctx.Err()
+		}
+		cfg := RetryConfig{Timeout: 2 * time.Second, StartInterval: 500 * time.Millisecond, MaxInterval: time.Second}
+		start := time.Now()
+		entries := fetchEntries(t.Context(), cfg, hangs, makeFetcherThatFailsNTimes(ClusterEC2, 0, "fetcher1", "value1"))
+		assert.Equal(t, 2*time.Second, time.Since(start))
+		assert.Equal(t, "host_fetcher1", entries.HostID)
+		synctest.Wait()
+	})
+}
+
 func TestFetchEntries_DeduplicateByPriority(t *testing.T) {
 	entries := fetchEntries(t.Context(),
 		DefaultRetryConfig,

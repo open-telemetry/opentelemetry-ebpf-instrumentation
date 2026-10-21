@@ -169,6 +169,12 @@ func fetchEntries(
 func backoffFetch(ctx context.Context, retryCfg RetryConfig, fetch fetcher, log *slog.Logger) NodeMeta {
 	backoff := retryCfg.StartInterval
 	start := time.Now()
+	if retryCfg.Timeout > 0 {
+		// bounds the attempts too: a hanging request would otherwise wait for the fetcher's own timeout
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, retryCfg.Timeout)
+		defer cancel()
+	}
 	for {
 		entries, err := fetch(ctx)
 		if err == nil {
