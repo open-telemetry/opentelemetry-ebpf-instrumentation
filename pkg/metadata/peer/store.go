@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/selection"
 )
 
 type localStore struct {
 	mu             sync.RWMutex
 	hostname       string
 	graphEnabled   bool
+	metricsPIDs    selection.PIDSelector
 	callerTTL      time.Duration
 	maxCallers     int
 	callerCount    int
@@ -37,6 +39,13 @@ func newStore(hostname string, cfg Config) *localStore {
 
 func (s *localStore) serviceFor(attrs svc.Attrs) Service {
 	graphEnabled := s.graphEnabled && attrs.Features.ServiceGraph() && attrs.ExportModes.CanExportMetrics()
+	if graphEnabled && s.metricsPIDs != nil {
+		pid := attrs.DynamicSelectorPID
+		if pid == 0 {
+			pid = attrs.ProcPID
+		}
+		graphEnabled = s.metricsPIDs.IncludesPID(pid)
+	}
 	return Service{Name: attrs.UID.Name, Namespace: attrs.UID.Namespace, ServiceGraph: graphEnabled}
 }
 

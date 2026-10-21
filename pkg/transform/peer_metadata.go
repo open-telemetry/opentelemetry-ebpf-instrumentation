@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
+	"go.opentelemetry.io/obi/pkg/selection"
 )
 
 func PeerMetadataProvider(ctxInfo *global.ContextInfo, cfg peer.Config, instance config.InstanceIDConfig, serviceGraphEnabled bool,
@@ -27,7 +28,11 @@ func PeerMetadataProvider(ctxInfo *global.ContextInfo, cfg peer.Config, instance
 		}
 
 		hostname := traces.NewHostInstance(&instance).HostName
-		agent, err := peer.New(ctx, cfg, hostname, serviceGraphEnabled)
+		var metricsPIDs selection.PIDSelector
+		if ctxInfo.DynamicSelector != nil {
+			metricsPIDs = ctxInfo.DynamicSelector.AppMetrics()
+		}
+		agent, err := peer.New(ctx, cfg, hostname, serviceGraphEnabled, metricsPIDs)
 		if err != nil {
 			return nil, err
 		}

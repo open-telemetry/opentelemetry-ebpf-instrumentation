@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/selection"
 )
 
 type Agent struct {
@@ -33,7 +34,7 @@ type Agent struct {
 	closeOnce sync.Once
 }
 
-func New(ctx context.Context, cfg Config, hostname string, serviceGraphEnabled bool) (*Agent, error) {
+func New(ctx context.Context, cfg Config, hostname string, serviceGraphEnabled bool, metricsPIDs selection.PIDSelector) (*Agent, error) {
 	cfg = cfg.WithDefaults()
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -72,6 +73,7 @@ func New(ctx context.Context, cfg Config, hostname string, serviceGraphEnabled b
 	}
 
 	agent.store.graphEnabled = serviceGraphEnabled
+	agent.store.metricsPIDs = metricsPIDs
 
 	agent.server = &http.Server{
 		Handler:           metadataHandler(agent.store, cfg),

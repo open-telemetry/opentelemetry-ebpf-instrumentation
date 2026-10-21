@@ -114,11 +114,11 @@ func TestAgentStartupFailureAndCancellation(t *testing.T) {
 	cfg.Enabled = true
 	cfg.ListenAddress = "127.0.0.1"
 	cfg.Port = occupied.Addr().(*net.TCPAddr).Port
-	_, err = New(t.Context(), cfg, "host", false)
+	_, err = New(t.Context(), cfg, "host", false, nil)
 	require.ErrorContains(t, err, "listening for peer metadata")
 	require.NoError(t, occupied.Close())
 	ctx, cancel := context.WithCancel(t.Context())
-	agent, err := New(ctx, cfg, "host", false)
+	agent, err := New(ctx, cfg, "host", false, nil)
 	require.NoError(t, err)
 	cancel()
 	// Cancellation must release a listener even if the pipeline never runs.
@@ -133,7 +133,7 @@ func TestAgentStartupFailureAndCancellation(t *testing.T) {
 	agent.Close()
 	cfg.TLS.Enabled = true
 	cfg.TLS.CertFile, cfg.TLS.KeyFile = "missing-cert", "missing-key"
-	_, err = New(t.Context(), cfg, "host", false)
+	_, err = New(t.Context(), cfg, "host", false, nil)
 	require.ErrorContains(t, err, "certificate")
 }
 

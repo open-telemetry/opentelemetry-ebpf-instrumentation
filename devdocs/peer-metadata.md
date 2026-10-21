@@ -54,7 +54,9 @@ background request.
 
 For a resolved service that exports graph metrics, the client agent leaves the
 request-total increment to the server agent. Both agents still report their own
-latency histograms. 
+latency histograms. Participation respects per-service export settings and dynamic
+app-metrics PID selection. Selection changes take effect as inventories and peer
+caches refresh.
 
 ## Network and lifecycle
 
