@@ -22,7 +22,6 @@ type Queue[T any] struct {
 
 type node[T any] struct {
 	value T
-	next  *node[T]
 	prev  *node[T]
 }
 
@@ -85,7 +84,6 @@ func (q *Queue[T]) append(item T) {
 		q.head = &n
 	} else {
 		q.tail.prev = &n
-		n.next = q.tail
 		q.tail = &n
 	}
 }
