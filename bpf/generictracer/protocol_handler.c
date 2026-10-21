@@ -173,6 +173,9 @@ int GUARDED_PROG(obi_handle_buf_with_args, void *, ctx) {
                 if (unparsed_response) {
                     note_unread_response(info, bpf_ktime_get_ns());
                     info->resp_len += args->bytes_len;
+                    if (info->type == k_event_type_http_request) {
+                        mark_http_server_thread_trace_response_sent(info);
+                    }
                 } else if (reading) {
                     info->len += args->bytes_len;
                 } else if (responding) {

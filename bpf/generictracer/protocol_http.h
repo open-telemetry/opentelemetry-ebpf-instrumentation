@@ -26,6 +26,7 @@
 #include <common/tracked_connection.h>
 
 #include <generictracer/maps/http_info_mem.h>
+#include <generictracer/maps/java_http1_requests.h>
 
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/large_buf_tailcall.h>
@@ -475,7 +476,9 @@ static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
                                                          call_protocol_args_t *args,
                                                          http_info_t *info,
                                                          http_connection_metadata_t *meta) {
-    if (meta) {
+    // An adopted Java reservation already owns its span. Connection trace state
+    // can be replaced or removed on another CPU before this continuation runs.
+    if (meta && !valid_span(info->tp.span_id)) {
         const u32 type = trace_type_from_meta(meta);
         tp_info_pid_t *tp_p = trace_info_for_connection(&args->pid_conn.conn, type);
         if (tp_p) {
@@ -664,6 +667,48 @@ int GUARDED_PROG(obi_continue_protocol_http_tp, struct pt_regs *, ctx) {
     return __obi_continue_protocol_http_tp(ctx, args, info, meta, bpf_strstr_tp_loop__legacy);
 }
 
+static __always_inline bool adopt_java_http1_reservation(call_protocol_args_t *args,
+                                                         http_info_t *info,
+                                                         const http_connection_metadata_t *meta) {
+    if (!g_bpf_java_http1_enabled || !g_bpf_header_propagation || !args->ssl || !meta ||
+        meta->type != k_event_type_http_client) {
+        return false;
+    }
+
+    java_http1_request_t *reservation = bpf_map_lookup_elem(&java_http1_requests, &args->pid_conn);
+    unsigned char *scratch = tp_char_buf_mem();
+    if (!reservation || !scratch) {
+        return false;
+    }
+
+    const u32 offset = reservation->value_offset;
+    if (args->bytes_len < TP_MAX_VAL_LENGTH || offset > args->bytes_len - TP_MAX_VAL_LENGTH) {
+        return false;
+    }
+    unsigned char *reserved_traceparent = scratch;
+    unsigned char *plaintext_traceparent = scratch + TP_MAX_VAL_LENGTH;
+    if (bpf_probe_read_user(plaintext_traceparent,
+                            TP_MAX_VAL_LENGTH,
+                            (const unsigned char *)args->u_buf + offset) != 0) {
+        return false;
+    }
+    make_tp_string(reserved_traceparent, &reservation->tp.tp);
+    if (bpf_memcmp(reserved_traceparent, plaintext_traceparent, TP_MAX_VAL_LENGTH) != 0) {
+        return false;
+    }
+
+    // Removal invalidates the map value. Copy the context before claiming it.
+    const tp_info_pid_t client_span = reservation->tp;
+    const u8 parent_status = reservation->parent_status;
+    if (!java_http1_request_retire(&args->pid_conn, reservation)) {
+        return false;
+    }
+    set_trace_info_for_connection(&args->pid_conn.conn, TRACE_TYPE_CLIENT, &client_span);
+    info->tp = client_span.tp;
+    info->parent_status = parent_status;
+    return true;
+}
+
 static __always_inline int
 __obi_continue_protocol_http(struct pt_regs *ctx,
                              call_protocol_args_t *args,
@@ -671,6 +716,10 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
                              unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
     http_connection_metadata_t *meta =
         connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
+
+    if (adopt_java_http1_reservation(args, info, meta)) {
+        goto skip_tp;
+    }
 
     egress_key_t e_key = {
         .d_port = args->pid_conn.conn.d_port,
