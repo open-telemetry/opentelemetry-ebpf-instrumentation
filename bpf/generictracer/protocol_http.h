@@ -30,6 +30,7 @@
 
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/large_buf_tailcall.h>
+#include <generictracer/http_event.h>
 #include <generictracer/http_server_trace.h>
 #include <generictracer/protocol_common.h>
 #include <generictracer/tcp_trace_cleanup.h>
@@ -148,32 +149,13 @@ static __always_inline void mark_http_server_thread_trace_response_sent(http_inf
     }
 }
 
-static __always_inline void submit_http_event(http_info_t *info, pid_connection_info_t *pid_conn) {
-    if (!http_info_emittable(info) || info->submitted) {
-        return;
-    }
-
-    info->submitted = 1;
-    bpf_map_update_elem(&ongoing_http, pid_conn, info, BPF_ANY);
-    http_info_t *trace = events_ringbuf_reserve(sizeof(http_info_t), 0);
-    if (trace) {
-        bpf_dbg_printk("Sending trace %lx, response length %d", info, info->resp_len);
-
-        __builtin_memcpy(trace, info, sizeof(http_info_t));
-        trace->flags = k_event_type_k_http_request;
-        bpf_ringbuf_submit(trace, get_flags());
-    } else {
-        bpf_dbg_printk("failed to reserve space in the ringbuf");
-    }
-}
-
 static __always_inline void
 finish_http(http_info_t *info, pid_connection_info_t *pid_conn, const trace_key_t *current_key) {
     if (!http_info_emittable(info)) {
         return;
     }
 
-    submit_http_event(info, pid_conn);
+    submit_http_event(info);
 
     if (info->type == k_event_type_http_request) {
         cleanup_http_server_thread_trace(info, current_key);
@@ -423,7 +405,7 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
         info->delayed = 1;
         mark_http_server_thread_trace_response_sent(info);
         if (high_request_volume && !info->ssl) {
-            submit_http_event(info, pid_conn);
+            submit_http_event(info);
         }
         return;
     }

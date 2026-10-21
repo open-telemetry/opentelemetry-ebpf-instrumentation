@@ -133,12 +133,20 @@ wall-clock expiry to remove potentially live entries.
 
 These rules apply to the Java reservation map. Shared HTTP tracking retains its
 existing LRU eviction behavior, so losing a request there can still prevent an
-exported client span.
+exported client span. Completed records are marked submitted in place.
+Replacing their LRU entry would release the old slot for reuse while the HTTP
+parser still holds its pointer, allowing export or cleanup to read another
+request's identity. This does not change the map's capacity or eviction policy.
 
+The native event-submission regression simulates that slot reuse and checks
+that export retains the original request identity without duplicate submission.
 The native lifecycle regression reproduces the A/B race described above: it
 consumes A and installs B between A's lookup and cleanup. Kernel tests exercise
 the actual ioctl handler, parser mismatch, adopted trace/span/parent identity,
 acknowledgment rollback, capacity recovery, and the disabled instruction gate.
+A TLS kernel test also checks that `all` propagation publishes the reserved
+client identity through TCP options, with the HTTP header beyond the downstream
+1 KiB scanner so header extraction cannot hide a missing option.
 The fixture's `/propagation-state` endpoint checks Java tracking only; it does
 not measure eBPF map occupancy.
 
