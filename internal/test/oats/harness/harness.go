@@ -86,7 +86,7 @@ func runTestCase(c *model.TestCase, settings model.Settings) {
 	setRunnerEndpoint(runner, endpoint)
 	runner.ExecuteChecks()
 
-	validateWeaver()
+	validateWeaver(c.OutputDir, c.Name)
 }
 
 func setRunnerEndpoint(runner *oatsyaml.Runner, endpoint *remote.Endpoint) {

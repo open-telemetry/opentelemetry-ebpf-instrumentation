@@ -189,6 +189,24 @@ test-schema: fetch-upstream-semconv
 	@echo "### Testing OBI semantic-convention registry provenance"
 	go test -race -count=1 ./internal/schemacheck/...
 
+# Aggregate the per-suite weaver reports into a telemetry-coverage report,
+# measuring the observed telemetry against the schema-resolved denominator.
+# All logic lives in cmd/obi-weaver-coverage; the denominator is resolved from
+# schemas/obi here so CI needs nothing but `make weaver-coverage`.
+WEAVER_REPORTS_DIR ?= ./all-weaver-reports
+WEAVER_COVERAGE_OUT ?= /tmp/weaver-coverage
+.PHONY: weaver-coverage
+weaver-coverage: fetch-upstream-semconv
+	@echo "### Aggregating weaver telemetry coverage"
+	@mkdir -p "$(WEAVER_COVERAGE_OUT)"
+	@go run ./cmd/obi-weaver-coverage \
+		--schema "$(CURDIR)/schemas/obi" \
+		--oci-bin $(OCI_BIN) \
+		--weaver-image $(WEAVERIMAGE) \
+		--in "$(WEAVER_REPORTS_DIR)" \
+		--out-json "$(WEAVER_COVERAGE_OUT)/coverage.json" \
+		$(WEAVER_COVERAGE_ARGS)
+
 .PHONY: check-schema-files
 check-schema-files:
 	@echo "### Checking published OBI telemetry schema files"
