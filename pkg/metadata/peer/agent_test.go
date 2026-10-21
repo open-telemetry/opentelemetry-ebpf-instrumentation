@@ -81,6 +81,13 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 	}, 2*time.Second, 10*time.Millisecond)
 	require.Equal(t, "shop", span.OtherNamespace)
 	require.True(t, request.IgnoreServiceGraphClientCount(&span))
+	t.Run("failed connections retain client request counts", func(t *testing.T) {
+		failed := request.Span{Type: request.EventTypeFailedConnect, Host: span.Host, HostPort: span.HostPort}
+		agent.Decorate(&failed, time.Now())
+		require.Equal(t, "api", failed.HostName)
+		require.Equal(t, "shop", failed.OtherNamespace)
+		require.False(t, request.IgnoreServiceGraphClientCount(&failed), "a failed connection has no server request span to count it")
+	})
 	serverSpan := request.Span{Type: request.EventTypeHTTP, Peer: "10.1.0.2", Host: localTarget.IP, HostPort: localTarget.Port}
 	agent.Decorate(&serverSpan, time.Now())
 	require.Equal(t, "frontend", serverSpan.PeerName)

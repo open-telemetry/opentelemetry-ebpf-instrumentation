@@ -207,7 +207,7 @@ func (a *Agent) Decorate(span *request.Span, now time.Time) {
 
 	if span.IsClientSpan() {
 		span.HostName = service.Name
-		if service.ServiceGraph {
+		if service.ServiceGraph && span.Type != request.EventTypeFailedConnect {
 			request.SetIgnoreServiceGraphClientCount(span)
 		}
 	} else {
