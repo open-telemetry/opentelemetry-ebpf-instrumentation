@@ -80,7 +80,9 @@ func azureARMProxy(t *testing.T, network dockertest.Network, handler http.Handle
 	proxy.Start()
 	t.Cleanup(proxy.Close)
 	require.NotEmpty(t, network.Inspect().IPAM.Config)
-	gateway := network.Inspect().IPAM.Config[0].Gateway.String()
+	gatewayIP := network.Inspect().IPAM.Config[0].Gateway
+	require.True(t, gatewayIP.IsValid(), "Docker IMDS network must have a gateway for the ARM proxy")
+	gateway := gatewayIP.String()
 	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
 		gateway = "host.docker.internal"
 	}

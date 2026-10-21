@@ -31,7 +31,7 @@ func setupIMDSSubnet(t *testing.T) dockertest.Network {
 	create, err := dockerPool.Client().NetworkCreate(t.Context(), fmt.Sprintf("test-imds-network-%d", time.Now().UnixNano()), client.NetworkCreateOptions{
 		IPAM: &network.IPAM{
 			Config: []network.IPAMConfig{
-				{Subnet: prefix},
+				{Subnet: prefix, Gateway: prefix.Addr().Next()},
 			},
 		},
 	})
