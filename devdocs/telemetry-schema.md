@@ -129,6 +129,8 @@ section empty once drained.
   attribute filters, and the spans keep both attributes.
 - HTTP client spans no longer carry `url.query`; the scrubbed query string remains part of
   `url.full`. HTTP server spans keep `url.query`.
+- The span reference (`site/docs/spans.md`) documents every span's name. The emitted
+  telemetry is unchanged.
 
 ## Hosting notes
 
