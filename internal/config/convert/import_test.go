@@ -22,7 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
-func TestV2ToRuntimeRejectsDynamicSpans(t *testing.T) {
+func TestRuntimeConverterRejectsNonEmptySpanDeclarations(t *testing.T) {
 	t.Parallel()
 
 	_, extension, err := schema.ParseStandaloneYAML([]byte(`file_format: "1.0"

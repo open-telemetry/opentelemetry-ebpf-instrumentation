@@ -9,11 +9,18 @@ workload selection it refines. A span has a name, exactly one target under
 `function`, `function_noret`, `usdt`, and `usdt_noret`.
 
 `function` and `function_noret` identify function targets; `usdt` and
-`usdt_noret` identify USDT targets. The function reference is an opaque string
-interpreted by a future runtime-specific adapter; this schema does not define
-or guarantee a Java, Go, Node.js, or native reference syntax. The `usdt` target
-identifies a paired probe; `on.match` can filter USDT events by an argument
-index and string value.
+`usdt_noret` identify USDT targets. The key selects the target family and
+variant; target values must be non-empty strings. `function` is an opaque
+runtime-specific reference. `function_noret` is a function symbol or glob for
+an entry-only, zero-duration marker; its concrete symbol/glob syntax is defined
+by each runtime adapter. `usdt` uses `provider:base` to identify paired
+`<base>_start` and `<base>_end` probes. `usdt_noret` uses `provider:name` to
+identify one zero-duration marker probe. `on.match` is valid only with a USDT
+target and filters by equality against the selected string-valued argument.
+Each runtime implementation must document its accepted function syntax and
+unsupported target combinations before claiming support. Capture selectors
+continue to use the semantics of the corresponding Config v2 selector; they
+do not change the target-value syntax.
 
 Each `attributes` entry names a span attribute and has an `argument` object.
 `argument.index` selects the zero-based source argument (0 through 11), and
@@ -21,17 +28,25 @@ optional `argument.type` describes that same argument using an OBI-defined
 decoding hint: `u8`, `u16`, `u32`, `u64`, `i8`, `i16`, `i32`, `i64`, or
 `string`. These hints are not language-specific types and do not configure the
 output OpenTelemetry attribute type. The `automatic_attributes` boolean opts
-into automatic argument/result capture;
-it defaults to `false`. Explicit `attributes` mappings coexist with and add to
-automatically captured attributes when the option is `true`. If both sources
-produce the same attribute name, collision behavior is not defined yet and
-awaits runtime support. Spans may be declared only on include rules; parsing
-rejects spans under exclude rules. Nested object extraction is not supported
-by this configuration.
+into automatic argument/result capture; it defaults to `false`. When enabled,
+explicit mappings take precedence over automatically captured attributes with
+the same key; the automatic value is omitted. Spans may be declared only on
+include rules; parsing rejects spans under exclude rules. Nested object
+extraction is not supported by this configuration.
+
+Malformed declarations are configuration errors. Once runtime support exists,
+each declaration is evaluated independently: an unresolved or ambiguous target
+must produce a clear error for that rule and must not select an arbitrary
+candidate; a failing rule must not prevent valid sibling rules from applying.
+These per-rule outcomes are part of the contract, not behavior implemented by
+the current runtime converter. Runtime support must add implementation-level
+tests for attribute collisions, resolution errors, and sibling-rule isolation.
 
 This is configuration schema only. The runtime converter rejects non-empty
 dynamic span declarations rather than accepting configuration that it cannot
-apply. No runtime instrumentation is promised by this configuration.
+apply. No target is resolved and no runtime instrumentation is performed by
+this schema or converter. Per-runtime syntax and capabilities remain subject to
+the runtime-specific support documentation and tests.
 
 ```yaml
 capture:
