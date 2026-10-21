@@ -100,6 +100,7 @@ func NewFlowFetcher(
 	spec.Maps[aggregatedFlowsMap].MaxEntries = uint32(cacheMaxSize)
 	spec.Maps[flowDirectionsMap].MaxEntries = uint32(cacheMaxSize)
 	spec.Maps[connInitiatorsMap].MaxEntries = uint32(cacheMaxSize)
+	zeroFilledFlowSlots(spec, reusedSlotsStale())
 
 	// Apply global map scaling factor
 	convenience.SetupMapSizes(spec, cfg.MapsConfig.GlobalScaleFactor)

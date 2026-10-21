@@ -87,8 +87,9 @@ func NewRecord(
 }
 
 func (fm *NetFlowMetrics) Accumulate(src *NetFlowMetrics) {
-	// time == 0 if the value has not been yet set
-	if fm.StartMonoTimeNs == 0 || fm.StartMonoTimeNs > src.StartMonoTimeNs {
+	// time == 0 if the value has not been yet set. A CPU's slot that only added packets to an entry
+	// another CPU created has no start time, direction or initiator: they come from the other slot
+	if src.StartMonoTimeNs != 0 && (fm.StartMonoTimeNs == 0 || fm.StartMonoTimeNs > src.StartMonoTimeNs) {
 		fm.StartMonoTimeNs = src.StartMonoTimeNs
 		// set IfaceDirection here, because the correct value is in the first packet only
 		fm.IfaceDirection = src.IfaceDirection

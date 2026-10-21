@@ -180,29 +180,7 @@ static inline int flow_monitor(struct __sk_buff *skb) {
     // a spinlocked alternative version and use it selectively https://lwn.net/Articles/779120/
     flow_metrics *aggregate_flow = (flow_metrics *)bpf_map_lookup_elem(&aggregated_flows, &id);
     if (aggregate_flow) {
-        aggregate_flow->packets += 1;
-        aggregate_flow->bytes += skb->len;
-        aggregate_flow->end_mono_time_ns = current_time;
-        // it might happen that start_mono_time hasn't been set due to
-        // the way percpu hashmap deal with concurrent map entries
-        if (aggregate_flow->start_mono_time_ns == 0) {
-            aggregate_flow->start_mono_time_ns = current_time;
-        }
-        aggregate_flow->flags |= flags;
-
-        const long ret = bpf_map_update_elem(&aggregated_flows, &id, aggregate_flow, BPF_ANY);
-        if (trace_messages && ret != 0) {
-            // usually error -16 (-EBUSY) is printed here.
-            // In this case, the flow is dropped, as submitting it to the ringbuffer would cause
-            // a duplicated UNION of flows (two different flows with partial aggregation of the same packets),
-            // which can't be deduplicated.
-            // other possible values https://chromium.googlesource.com/chromiumos/docs/+/master/constants/errnos.md
-            bpf_dbg_printk("error updating flow, ret=%d. Bytes=%d\n", ret, skb->len);
-
-            if (packet_stats) {
-                packet_stats->ignored++;
-            }
-        }
+        add_packet(aggregate_flow, skb->len, current_time, flags);
     } else {
         // Key does not exist in the map, and will need to create a new entry.
         flow_metrics new_flow = {
@@ -245,11 +223,11 @@ static inline int flow_monitor(struct __sk_buff *skb) {
 
         new_flow.initiator = get_connection_initiator(&id, flags);
 
-        // even if we know that the entry is new, another CPU might be concurrently inserting a flow
-        // so we need to specify BPF_ANY
-        const long ret = bpf_map_update_elem(&aggregated_flows, &id, &new_flow, BPF_ANY);
+        // BPF_NOEXIST: another CPU may have created the entry since our lookup, and replacing it
+        // would drop what that CPU counted. Then this packet goes through the ring buffer below.
+        const long ret = bpf_map_update_elem(&aggregated_flows, &id, &new_flow, BPF_NOEXIST);
         if (ret != 0) {
-            // usually error -16 (-EBUSY) or -7 (E2BIG) is printed here.
+            // usually error -16 (-EBUSY), -7 (E2BIG) or -17 (-EEXIST) is printed here.
             // In this case, we send the single-packet flow via ringbuffer as in the worst case we can have
             // a repeated INTERSECTION of flows (different flows aggregating different packets),
             // which can be re-aggregated at userspace.

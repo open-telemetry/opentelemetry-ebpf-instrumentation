@@ -18,6 +18,7 @@ import (
 	"github.com/cilium/ebpf/btf"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
@@ -167,6 +168,25 @@ var pidNamespaceModes = []any{uint32(ebpfcommon.PIDNamespaceInit), uint32(ebpfco
 // verifier rejections not caught by default tests.
 // Requires CAP_SYS_ADMIN / root.
 // Run with: go test -exec=sudo -tags=bpf_verifier_tests ./pkg/internal/ebpf/verifier/...
+// the flows map as netolly creates it on kernels that keep stale per-CPU values in reused elements
+func loadNetNoPrealloc() (*ebpf.CollectionSpec, error) {
+	return noPreallocFlows(netollybpf.LoadNet())
+}
+
+func loadNetSkNoPrealloc() (*ebpf.CollectionSpec, error) {
+	return noPreallocFlows(netollybpf.LoadNetSk())
+}
+
+func noPreallocFlows(spec *ebpf.CollectionSpec, err error) (*ebpf.CollectionSpec, error) {
+	if err != nil {
+		return nil, err
+	}
+	flows := spec.Maps["aggregated_flows"]
+	flows.Type = ebpf.PerCPUHash
+	flows.Flags |= unix.BPF_F_NO_PREALLOC
+	return spec, nil
+}
+
 func TestBPFVerifierWithConstants(t *testing.T) {
 	if err := rlimit.RemoveMemlock(); err != nil {
 		t.Skipf("cannot remove memlock limit (insufficient privileges?): %v", err)
@@ -181,6 +201,9 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	}
 	forEachCombination(t, "netolly/Net", netollybpf.LoadNet, netollyOpts)
 	forEachCombination(t, "netolly/NetSk", netollybpf.LoadNetSk, netollyOpts)
+	loadAndVerify(t, "netolly/Net/no-prealloc", loadNetNoPrealloc)
+	loadAndVerify(t, "netolly/NetSk/no-prealloc", loadNetSkNoPrealloc)
+	loadAndVerify(t, "netolly/BpfSlotsProbe", netollybpf.LoadBpfSlotsProbe)
 
 	// generictracer
 	forEachCombination(t, "generictracer/Bpf", generictracerbpf.LoadBpf, []constOption{

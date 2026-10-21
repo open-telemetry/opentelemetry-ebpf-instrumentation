@@ -49,10 +49,10 @@ func (fmd *flowMapLegacyReader[IT]) lookupAndDeleteMap() (map[NetFlowId]*NetFlow
 		perCPUAggregated := &NetFlowMetrics{}
 		for i := range metrics {
 			mt := &metrics[i]
-			// eBPF hashmap values are not zeroed when the entry is removed. That causes that we
-			// might receive entries from previous collect-eviction timeslots.
-			// We need to check the flow time and discard old flows.
-			if mt.StartMonoTimeNs <= fmd.lastReadNS || mt.EndMonoTimeNs <= fmd.lastReadNS {
+			// A CPU that saw no packet of this flow has a zeroed slot (see zeroFilledFlowSlots).
+			// Values are not filtered by time: a slot whose flow started before the last read
+			// still holds bytes that were not read yet.
+			if mt.EndMonoTimeNs == 0 {
 				continue
 			}
 			perCPUAggregated.Accumulate(mt)

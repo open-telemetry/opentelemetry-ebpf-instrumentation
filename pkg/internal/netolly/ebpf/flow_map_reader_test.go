@@ -19,7 +19,8 @@ const (
 
 func TestLookupAndDelete(t *testing.T) {
 	expectedAggregation := map[NetFlowId]*NetFlowMetrics{
-		{IfIndex: 1}: {Packets: 6, StartMonoTimeNs: 101, EndMonoTimeNs: 103},
+		{IfIndex: 1}: {Packets: 10, StartMonoTimeNs: 101, EndMonoTimeNs: 103},
+		{IfIndex: 2}: {Packets: 5, StartMonoTimeNs: 10, EndMonoTimeNs: 130},
 		{IfIndex: 3}: {Packets: 35, StartMonoTimeNs: 101, EndMonoTimeNs: 125},
 		{IfIndex: 4}: {Packets: 22, StartMonoTimeNs: 101, EndMonoTimeNs: 110},
 	}
@@ -28,14 +29,14 @@ func TestLookupAndDelete(t *testing.T) {
 		flows, err := fmd.lookupAndDeleteMap()
 		require.NoError(t, err)
 		assert.Equal(t, expectedAggregation, flows)
-		assert.EqualValues(t, 125, fmd.lastReadNS)
+		assert.EqualValues(t, 130, fmd.lastReadNS)
 	})
 	t.Run("batch", func(t *testing.T) {
 		fmd := batchReader()
 		flows, err := fmd.lookupAndDeleteMap()
 		require.NoError(t, err)
 		assert.Equal(t, expectedAggregation, flows)
-		assert.EqualValues(t, 125, fmd.lastReadNS)
+		assert.EqualValues(t, 130, fmd.lastReadNS)
 	})
 	t.Run("auto", func(t *testing.T) {
 		fmd := flowMapReaderChooser[*fakeMapIterator]{legacy: legacyReader(), batch: batchReader()}
@@ -107,10 +108,10 @@ func inputFlows() fakeBPFMap {
 	}, {
 		// repeated entry in map, will anyway try to aggregate,
 		k: NetFlowId{IfIndex: 1},
-		// will ignore the last flow because is too old
+		// values are not filtered by time: a slot whose flow started before the last read still holds unread bytes
 		v: []NetFlowMetrics{{Packets: 3, StartMonoTimeNs: 101, EndMonoTimeNs: 102}, {Packets: 4, StartMonoTimeNs: 101, EndMonoTimeNs: 80}},
 	}, {
-		// this line is too old, will be ignored
+		// started before the last read but still unread: counted. The zeroed slot is skipped
 		k: NetFlowId{IfIndex: 2},
 		v: []NetFlowMetrics{{Packets: 5, StartMonoTimeNs: 10, EndMonoTimeNs: 130}, { /* zero metric */ }},
 	}, {
