@@ -56,8 +56,10 @@ static __always_inline void *events_ringbuf_reserve(u64 size, u64 flags) {
     return event;
 }
 
-static __always_inline long events_ringbuf_output(void *data, u64 size, u64 flags) {
-    const long err = bpf_ringbuf_output(&events, data, size, flags);
+// events_ringbuf_output picks the wakeup flags itself: the caller cannot pass get_flags(),
+// which would not count this record.
+static __always_inline long events_ringbuf_output(void *data, u64 size) {
+    const long err = bpf_ringbuf_output(&events, data, size, get_output_flags(size));
     account_ringbuf_write(RINGBUF_EVENTS, err != 0);
     return err;
 }

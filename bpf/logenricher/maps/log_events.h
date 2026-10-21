@@ -23,8 +23,8 @@ static __always_inline long log_events_flags(u64 size) {
     return sz >= 4096 ? BPF_RB_FORCE_WAKEUP : BPF_RB_NO_WAKEUP;
 }
 
-static __always_inline long log_events_ringbuf_output(void *data, u64 size, u64 flags) {
-    const long err = bpf_ringbuf_output(&log_events, data, size, flags);
+static __always_inline long log_events_ringbuf_output(void *data, u64 size) {
+    const long err = bpf_ringbuf_output(&log_events, data, size, log_events_flags(size));
     account_ringbuf_write(RINGBUF_LOG_EVENTS, err != 0);
     return err;
 }
