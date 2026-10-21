@@ -35,8 +35,6 @@ var containerInfoForPID = container.InfoForPID
 
 var errProcEventDecoratorStopped = errors.New("process event metadata decorator stopped")
 
-const procEventDecoratorMaxPendingProcessEvents = 1024
-
 // podEventsBatchSize limits how many pod events are handled before the decorator loop
 // gets back to its other sources.
 const podEventsBatchSize = 64
@@ -149,7 +147,6 @@ func KubeProcessEventDecoratorProvider(
 			podEventsReady:      make(chan struct{}, 1),
 			observerDone:        make(chan struct{}),
 			subscribeObserver:   store.Subscribe,
-			waitForSubscription: waitForSubscription,
 			unsubscribeObserver: store.Unsubscribe,
 			tracker:             newPidContainerTracker(),
 		}
@@ -221,14 +218,8 @@ type procEventMetadataDecorator struct {
 	podEventsReady      chan struct{}
 	observerDone        chan struct{}
 	subscribeObserver   func(meta.Observer)
-	waitForSubscription func(<-chan struct{})
 	unsubscribeObserver func(meta.Observer)
 	tracker             *pidContainerTracker
-}
-
-type procEventDecoratorInput struct {
-	processEvent *exec.ProcessEvent
-	podEvent     *Event[*informer.ObjectMeta]
 }
 
 type pidContainerTracker struct {
@@ -317,85 +308,36 @@ func (md *procEventMetadataDecorator) On(event *informer.Event) error {
 
 func (md *procEventMetadataDecorator) k8sLoop(ctx context.Context) {
 	md.log.Debug("starting kubernetes process event decoration loop")
-	subscriptionDone := make(chan struct{})
-	go func() {
-		defer close(subscriptionDone)
-		md.subscribeObserver(md)
-	}()
+	defer md.log.Debug("stopping kubernetes process event decoration loop")
+	md.subscribeObserver(md)
 	defer func() {
 		close(md.observerDone)
-		md.waitForSubscription(subscriptionDone)
 		md.unsubscribeObserver(md)
 	}()
 	// output channel must be closed so later stages in the pipeline can finish in cascade
 	defer md.output.Close()
-	subscribing := (<-chan struct{})(subscriptionDone)
-	var pending []procEventDecoratorInput
-	pendingProcessEvents := 0
 
-mainLoop:
 	for {
-		if subscribing == nil && len(pending) > 0 {
-			select {
-			case <-ctx.Done():
-				break mainLoop
-			default:
-			}
-			event := pending[0]
-			pending[0] = procEventDecoratorInput{}
-			pending = pending[1:]
-			if len(pending) == 0 {
-				pending = nil
-			}
-			if event.processEvent != nil {
-				pendingProcessEvents--
-				md.handleProcessEvent(*event.processEvent)
-			} else {
-				md.handlePodEvent(*event.podEvent)
-			}
-			continue
-		}
-
-		input := md.input
-		if subscribing != nil && pendingProcessEvents >= procEventDecoratorMaxPendingProcessEvents {
-			input = nil
-		}
-
 		select {
 		case <-ctx.Done():
-			break mainLoop
-		case <-subscribing:
-			subscribing = nil
-		case pe, ok := <-input:
+			return
+		case pe, ok := <-md.input:
 			if !ok {
-				break mainLoop
+				return
 			}
-			if subscribing != nil {
-				pending = append(pending, procEventDecoratorInput{processEvent: &pe})
-				pendingProcessEvents++
-			} else {
-				md.handleProcessEvent(pe)
-			}
+			md.handleProcessEvent(pe)
 		case <-md.podEventsReady:
-			if !md.drainPodEvents(ctx, func(podEvent Event[*informer.ObjectMeta]) {
-				if subscribing != nil {
-					pending = append(pending, procEventDecoratorInput{podEvent: &podEvent})
-				} else {
-					md.handlePodEvent(podEvent)
-				}
-			}) {
-				break mainLoop
+			if !md.drainPodEvents(ctx) {
+				return
 			}
 		}
 	}
-
-	md.log.Debug("stopping kubernetes process event decoration loop")
 }
 
-// drainPodEvents passes up to podEventsBatchSize queued pod events to handle. If there might be
-// more, it signals podEventsReady so the loop serves its other sources before coming back.
+// drainPodEvents handles up to podEventsBatchSize queued pod events. If there might be more,
+// it signals podEventsReady so the loop serves its other sources before coming back.
 // It returns false if the context is done before the batch is drained.
-func (md *procEventMetadataDecorator) drainPodEvents(ctx context.Context, handle func(Event[*informer.ObjectMeta])) bool {
+func (md *procEventMetadataDecorator) drainPodEvents(ctx context.Context) bool {
 	for range podEventsBatchSize {
 		if ctx.Err() != nil {
 			return false
@@ -404,7 +346,7 @@ func (md *procEventMetadataDecorator) drainPodEvents(ctx context.Context, handle
 		if !ok {
 			return true
 		}
-		handle(podEvent)
+		md.handlePodEvent(podEvent)
 	}
 	md.signalPodEvents()
 	return true
@@ -415,10 +357,6 @@ func (md *procEventMetadataDecorator) signalPodEvents() {
 	case md.podEventsReady <- struct{}{}:
 	default:
 	}
-}
-
-func waitForSubscription(done <-chan struct{}) {
-	<-done
 }
 
 func (md *procEventMetadataDecorator) handleProcessEvent(pe exec.ProcessEvent) {

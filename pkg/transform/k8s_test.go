@@ -412,7 +412,6 @@ func TestDecorationProcessEvents(t *testing.T) {
 		podEventsReady:      make(chan struct{}, 1),
 		observerDone:        make(chan struct{}),
 		subscribeObserver:   store.Subscribe,
-		waitForSubscription: waitForSubscription,
 		unsubscribeObserver: store.Unsubscribe,
 		tracker:             newPidContainerTracker(),
 	}
@@ -635,7 +634,6 @@ func newProcEventDecoratorHarness(t *testing.T) *procEventDecoratorHarness {
 		podEventsReady:      make(chan struct{}, 1),
 		observerDone:        make(chan struct{}),
 		subscribeObserver:   store.Subscribe,
-		waitForSubscription: waitForSubscription,
 		unsubscribeObserver: store.Unsubscribe,
 		tracker:             newPidContainerTracker(),
 	}
@@ -762,12 +760,18 @@ func TestProcEventMetadataDecoratorDrainsPodEventsInBatches(t *testing.T) {
 	}
 	<-h.decorator.podEventsReady
 
-	handled := 0
-	require.True(t, h.decorator.drainPodEvents(t.Context(), func(Event[*informer.ObjectMeta]) { handled++ }))
+	require.True(t, h.decorator.drainPodEvents(t.Context()))
 
 	// the rest is left for later wake-ups, so other sources are served in between
-	assert.Equal(t, podEventsBatchSize, handled)
 	require.Len(t, h.decorator.podEventsReady, 1)
+	remaining := 0
+	for {
+		if _, ok := h.decorator.podEvents.TryDequeue(); !ok {
+			break
+		}
+		remaining++
+	}
+	assert.Equal(t, queued-podEventsBatchSize, remaining)
 }
 
 func TestProcEventMetadataDecoratorOnAfterStop(t *testing.T) {
@@ -815,7 +819,10 @@ func (g *gatedReplayObserver) On(event *informer.Event) error {
 	return err
 }
 
-func TestProcEventMetadataDecoratorDefersCachedReplayHandling(t *testing.T) {
+// A store writer queued behind a replay in progress must not deadlock the decorator:
+// the replay needs the store read lock until it completes, and the loop needs it to
+// decorate process events.
+func TestProcEventMetadataDecoratorQueuedStoreWriterDuringReplay(t *testing.T) {
 	h := newProcEventDecoratorHarness(t)
 	h.addTrackedPod(t, 1, "cached-pod")
 
@@ -837,126 +844,35 @@ func TestProcEventMetadataDecoratorDefersCachedReplayHandling(t *testing.T) {
 	}
 
 	cancel, done := h.start(t)
-	select {
-	case <-replayDelivered:
-	case <-time.After(timeout):
-		t.Fatal("cached replay did not reach the decorator")
-	}
+	testutil.ReadChannel(t, replayDelivered, timeout)
 
 	writerDone := make(chan struct{})
 	go func() {
 		h.store.AddProcess(2)
 		close(writerDone)
 	}()
-	t.Cleanup(func() {
-		release()
-		select {
-		case <-writerDone:
-		case <-time.After(timeout):
-			t.Errorf("store writer leaked")
-		}
-	})
-
-	inputAccepted := make(chan struct{})
+	inputSent := make(chan struct{})
 	go func() {
 		h.input <- procEventDecoratorProcessEvent(2)
-		close(inputAccepted)
+		close(inputSent)
 	}()
-	t.Cleanup(func() {
-		select {
-		case <-inputAccepted:
-			return
-		default:
-		}
-		select {
-		case <-h.input:
-		case <-inputAccepted:
-		case <-time.After(timeout):
-			t.Errorf("staged process event could not be released")
-			return
-		}
-		select {
-		case <-inputAccepted:
-		case <-time.After(timeout):
-			t.Errorf("staged process event sender leaked")
-		}
-	})
-	select {
-	case <-inputAccepted:
-	case <-time.After(timeout):
-		t.Fatal("process event was not staged during cached replay")
-	}
-	select {
-	case <-h.output:
-		t.Fatal("decorator handled cached replay before subscription completed")
-	default:
-	}
 
 	release()
-	select {
-	case <-writerDone:
-	case <-time.After(timeout):
-		t.Fatal("store writer remained blocked after cached replay")
-	}
+	testutil.ReadChannel(t, writerDone, timeout)
+	testutil.ReadChannel(t, inputSent, timeout)
 
-	cached := testutil.ReadChannel(t, h.output, timeout)
-	require.Equal(t, "the-ns.cached-pod.app", cached.File.ServiceAttrs().UID.Instance)
-	testutil.ReadChannel(t, h.output, timeout)
+	// there is no ordering between the cached pod and the process event
+	instances := map[app.PID]string{}
+	for range 2 {
+		event := testutil.ReadChannel(t, h.output, timeout)
+		instances[event.File.Pid()] = event.File.ServiceAttrs().UID.Instance
+	}
+	require.Contains(t, instances, app.PID(2))
+	require.Equal(t, "the-ns.cached-pod.app", instances[1])
 
 	cancel()
 	waitForLoop(t, done)
 	requireOutputClosed(t, h.output)
-}
-
-func TestProcEventMetadataDecoratorBoundsPendingProcessEvents(t *testing.T) {
-	h := newProcEventDecoratorHarness(t)
-
-	subscribeStarted := make(chan struct{})
-	allowSubscribe := make(chan struct{})
-	h.decorator.subscribeObserver = func(meta.Observer) {
-		close(subscribeStarted)
-		<-allowSubscribe
-	}
-
-	cancel, done := h.start(t)
-	select {
-	case <-subscribeStarted:
-	case <-time.After(timeout):
-		t.Fatal("decorator subscription did not start")
-	}
-
-	inputAccepted := make(chan struct{})
-	senderDone := make(chan struct{})
-	go func() {
-		defer close(senderDone)
-		for i := 0; i <= procEventDecoratorMaxPendingProcessEvents; i++ {
-			h.input <- procEventDecoratorProcessEvent(app.PID(i + 1))
-			inputAccepted <- struct{}{}
-		}
-	}()
-	for range procEventDecoratorMaxPendingProcessEvents {
-		testutil.ReadChannel(t, inputAccepted, timeout)
-	}
-	select {
-	case <-inputAccepted:
-		t.Fatal("decorator accepted process input beyond the pending limit")
-	case <-time.After(100 * time.Millisecond):
-	}
-
-	podDelivered := make(chan error, 1)
-	go func() {
-		podDelivered <- h.decorator.On(procEventDecoratorPodEvent("cached-pod", 1))
-	}()
-	require.NoError(t, testutil.ReadChannel(t, podDelivered, timeout))
-
-	cancel()
-	close(allowSubscribe)
-	waitForLoop(t, done)
-	requireOutputClosed(t, h.output)
-
-	testutil.ReadChannel(t, h.input, timeout)
-	testutil.ReadChannel(t, inputAccepted, timeout)
-	testutil.ReadChannel(t, senderDone, timeout)
 }
 
 func TestProcEventMetadataDecoratorShutdown(t *testing.T) {
@@ -985,86 +901,6 @@ func TestProcEventMetadataDecoratorShutdown(t *testing.T) {
 			requireUnsubscribed(t, h)
 		})
 	}
-}
-
-func TestProcEventMetadataDecoratorWaitsForLateSubscription(t *testing.T) {
-	h := newProcEventDecoratorHarness(t)
-
-	subscribeStarted := make(chan struct{})
-	allowSubscribe := make(chan struct{})
-	var allowSubscribeOnce sync.Once
-	releaseSubscribe := func() {
-		allowSubscribeOnce.Do(func() {
-			close(allowSubscribe)
-		})
-	}
-	t.Cleanup(releaseSubscribe)
-	subscribeObserver := h.decorator.subscribeObserver
-	h.decorator.subscribeObserver = func(observer meta.Observer) {
-		close(subscribeStarted)
-		<-allowSubscribe
-		subscribeObserver(observer)
-	}
-
-	waitStarted := make(chan struct{})
-	allowWait := make(chan struct{})
-	var allowWaitOnce sync.Once
-	releaseWait := func() {
-		allowWaitOnce.Do(func() {
-			close(allowWait)
-		})
-	}
-	t.Cleanup(releaseWait)
-	waitForSubscription := h.decorator.waitForSubscription
-	h.decorator.waitForSubscription = func(done <-chan struct{}) {
-		close(waitStarted)
-		<-allowWait
-		waitForSubscription(done)
-	}
-
-	unsubscribed := make(chan struct{})
-	unsubscribeObserver := h.decorator.unsubscribeObserver
-	h.decorator.unsubscribeObserver = func(observer meta.Observer) {
-		unsubscribeObserver(observer)
-		close(unsubscribed)
-	}
-
-	_, done := h.start(t)
-	select {
-	case <-subscribeStarted:
-	case <-time.After(timeout):
-		t.Fatal("decorator subscription did not start")
-	}
-
-	close(h.input)
-	select {
-	case <-h.decorator.observerDone:
-	case <-time.After(timeout):
-		t.Fatal("decorator did not begin observer shutdown")
-	}
-	select {
-	case <-waitStarted:
-	case <-time.After(timeout):
-		t.Fatal("decorator did not wait for its pending subscription")
-	}
-	requireOutputClosed(t, h.output)
-	select {
-	case <-unsubscribed:
-		t.Fatal("decorator unsubscribed before its pending subscription completed")
-	default:
-	}
-
-	releaseSubscribe()
-	releaseWait()
-	waitForLoop(t, done)
-	select {
-	case <-unsubscribed:
-	default:
-		t.Fatal("decorator did not unsubscribe after its pending subscription completed")
-	}
-	requireOutputClosed(t, h.output)
-	h.decorator.observerDone = make(chan struct{})
-	requireUnsubscribed(t, h)
 }
 
 type fakeInformer struct {
