@@ -220,6 +220,41 @@ func TestFor_KubeDisabled(t *testing.T) {
 	}, p.For(NetworkFlow))
 }
 
+func TestFor_NotNormalizedSection(t *testing.T) {
+	for _, key := range []Section{
+		DotnetProcessMemoryWorkingSet.Section,
+		Section(DotnetProcessMemoryWorkingSet.Prom),
+	} {
+		selection := Selection{
+			key: InclusionLists{Include: []string{"k8s.namespace.name"}},
+		}
+		selection.Normalize()
+		p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection})
+		require.NoError(t, err)
+		assert.Equal(t, []attr.Name{"k8s.namespace.name"}, p.For(DotnetProcessMemoryWorkingSet), "key %q", key)
+	}
+}
+
+func TestFor_NotNormalizedSection_ExactOverridesGlob(t *testing.T) {
+	selection := Selection{
+		"jvm.thread.*":     InclusionLists{Exclude: []string{"*"}},
+		"jvm.thread.count": InclusionLists{Include: []string{"jvm.thread.daemon"}},
+	}
+	selection.Normalize()
+	p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection})
+	require.NoError(t, err)
+	assert.Equal(t, []attr.Name{"jvm.thread.daemon"}, p.For(JVMThreadCount))
+
+	selection = Selection{
+		"jvm.thread.*":     InclusionLists{Include: []string{"*"}},
+		"jvm.thread.count": InclusionLists{Exclude: []string{"jvm.thread.daemon"}},
+	}
+	selection.Normalize()
+	p, err = NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection})
+	require.NoError(t, err)
+	assert.NotContains(t, p.For(JVMThreadCount), attr.Name("jvm.thread.daemon"))
+}
+
 func TestNilDoesNotCrash(t *testing.T) {
 	assert.NotPanics(t, func() {
 		p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{})

@@ -27,9 +27,7 @@ type metricFields struct {
 	Stability   string `yaml:"stability"`
 	Annotations struct {
 		OBI struct {
-			// upstream_override marks a metric OBI re-declares as a narrowed
-			// copy of an upstream semconv metric (vs an OBI-invented one).
-			UpstreamOverride bool `yaml:"upstream_override"`
+			Upstream upstreamLink `yaml:"upstream"`
 		} `yaml:"obi"`
 	} `yaml:"annotations"`
 }
@@ -53,7 +51,7 @@ type metricDef struct {
 	unit       string
 	instrument string
 	stability  string
-	override   bool
+	link       upstreamLink
 	source     string
 }
 
@@ -68,7 +66,7 @@ func metricsFromFile(t *testing.T, path string, out map[string]metricDef) {
 			unit:       m.Unit,
 			instrument: m.Instrument,
 			stability:  m.Stability,
-			override:   m.Annotations.OBI.UpstreamOverride,
+			link:       m.Annotations.OBI.Upstream,
 			source:     path,
 		}
 	}
@@ -99,19 +97,33 @@ func obiMetrics(t *testing.T) map[string]metricDef {
 	return out
 }
 
-// overrideMetrics returns the OBI metrics tagged with the
-// annotations.obi.upstream_override marker across all group files — the
-// narrowed re-declarations of upstream semconv metrics, as opposed to
-// OBI-invented metrics.
+// overrideMetrics returns the OBI metrics declared under an upstream metric's
+// name — the narrowed re-declarations of upstream semconv metrics, as opposed
+// to OBI-invented metrics.
 func overrideMetrics(t *testing.T) map[string]metricDef {
 	t.Helper()
+	upstream := upstreamMetrics(t)
 	out := map[string]metricDef{}
 	for name, m := range obiMetrics(t) {
-		if m.override {
+		if _, ok := upstream[name]; ok {
 			out[name] = m
 		}
 	}
 	return out
+}
+
+// implementedMetric returns the upstream metric a local metric implements: the
+// first one its annotation names or, without an annotation, the upstream
+// metric of the same name, if there is one.
+func implementedMetric(name string, m metricDef, upstream map[string]metricDef) (string, bool) {
+	switch {
+	case m.link.none():
+		return "", false
+	case len(m.link) > 0:
+		return m.link[0], true
+	}
+	_, ok := upstream[name]
+	return name, ok
 }
 
 func upstreamMetrics(t *testing.T) map[string]metricDef {
@@ -134,24 +146,26 @@ func upstreamMetrics(t *testing.T) map[string]metricDef {
 	return out
 }
 
-// TestOBIMetricOverridesMatchUpstream asserts that every metric marked with
-// annotations.obi.upstream_override exists upstream and declares the same unit,
-// instrument and stability. Redeclaring a metric copies that wrapper and lets it
-// drift, so this test pins it; it also fails closed on a metric_name typo or an
-// upstream rename.
+// TestOBIMetricOverridesMatchUpstream asserts that every metric implementing an
+// upstream metric declares the same unit, instrument and stability.
+// Redeclaring a metric copies that wrapper and lets it drift, so this test
+// pins it.
 func TestOBIMetricOverridesMatchUpstream(t *testing.T) {
-	overrides := overrideMetrics(t)
+	local := obiMetrics(t)
 	upstream := upstreamMetrics(t)
-	require.NotEmpty(t, overrides)
+	require.NotEmpty(t, overrideMetrics(t))
 	require.NotEmpty(t, upstream)
 
-	for name, m := range overrides {
-		up, ok := upstream[name]
+	for name, m := range local {
+		target, ok := implementedMetric(name, m, upstream)
+		if !ok {
+			continue
+		}
+		up, ok := upstream[target]
 		require.Truef(t, ok,
-			"metric %q is marked annotations.obi.upstream_override in %s but has no "+
-				"upstream semconv definition; fix the metric_name, or drop the "+
-				"annotation if it is an OBI-only metric",
-			name, m.source)
+			"metric %q in %s implements %q, which has no upstream semconv definition; "+
+				"fix the name or link, or set upstream: none if it is an OBI-only metric",
+			name, m.source, target)
 		assert.Equalf(t, up.unit, m.unit,
 			"metric %q unit %q differs from upstream %q (%s vs %s)",
 			name, m.unit, up.unit, m.source, up.source)
@@ -164,25 +178,20 @@ func TestOBIMetricOverridesMatchUpstream(t *testing.T) {
 	}
 }
 
-// TestLocalMetricsMatchingUpstreamAreMarkedOverrides asserts the inverse of
-// TestOBIMetricOverridesMatchUpstream: a locally declared metric whose
-// metric_name also exists upstream must carry the annotation, so it cannot
-// silently shadow the upstream definition and escape the drift check.
-func TestLocalMetricsMatchingUpstreamAreMarkedOverrides(t *testing.T) {
+// TestLocalMetricsUnderUpstreamNamesAreNotMarkedNone asserts that a locally
+// declared metric whose name also exists upstream is not marked `none`, so it
+// cannot shadow the upstream definition and escape the drift check.
+func TestLocalMetricsUnderUpstreamNamesAreNotMarkedNone(t *testing.T) {
 	local := obiMetrics(t)
 	upstream := upstreamMetrics(t)
 	require.NotEmpty(t, local)
 	require.NotEmpty(t, upstream)
 
 	for name, m := range local {
-		if m.override {
-			continue
-		}
 		_, ok := upstream[name]
-		assert.Falsef(t, ok,
-			"metric %q is declared in %s but also exists upstream; mark it with "+
-				"annotations.obi.upstream_override, or import the upstream "+
-				"definition instead of redeclaring it",
+		assert.Falsef(t, ok && m.link.none(),
+			"metric %q is declared in %s under an upstream metric's name but marked "+
+				"upstream: none; drop the annotation so it is checked against upstream",
 			name, m.source)
 	}
 }
