@@ -561,7 +561,8 @@ supported by the current adapter; use capture rules for workload selection.
 rule. These declarations are schema-only; the runtime converter rejects them
 until runtime application is supported. See the
 [dynamic instrumentation reference](dynamic-instrumentation.md) for the
-current syntax and attribute semantics.
+current syntax and attribute semantics. The proposed Java method selector is
+described in the [Java method reference contract](java-method-reference.md).
 
 ### `capture.network` Section
 
