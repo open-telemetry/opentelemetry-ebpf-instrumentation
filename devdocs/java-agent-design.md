@@ -33,6 +33,19 @@ and protocol details.
   library currently targets Linux amd64 and aarch64; keep both builds and the
   Java-to-native packet ABI in sync when changing this path.
 
+## Custom span transport
+
+The Java-to-OBI custom-span operation uses the existing `ioctl` magic command
+(`0x0b10b1`) on file descriptor 0. Its packet is native-endian: byte 0 is
+operation 8, bytes 1–3 are padding, bytes 4–7 are the payload length, and the
+payload begins at byte 8. The payload is one OTLP JSON trace containing exactly
+one resource span, one scope span, and one completed span. It carries the span's
+name, trace/span/parent IDs, timestamps, status, and attributes. The payload is
+limited to 16 KiB. The eBPF side only copies bounded user memory into the
+ring buffer; OBI validates the OTLP shape and IDs before export. Runtime config
+does not yet create these packets, and Config v2 span declarations remain
+unsupported by the runtime converter.
+
 ## Implementation and validation
 
 - Keep instrumentation focused: Byte Buddy advice captures application

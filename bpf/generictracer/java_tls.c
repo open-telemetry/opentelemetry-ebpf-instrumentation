@@ -9,10 +9,12 @@
 #include <bpfcore/bpf_tracing.h>
 
 #include <common/connection_info.h>
+#include <common/common.h>
 #include <common/event_defs.h>
 #include <common/preempt_guard.h>
 #include <common/protocol_defs.h>
 #include <common/ringbuf.h>
+#include <common/scratch_mem.h>
 #include <common/trace_key.h>
 #include <common/trace_parent.h>
 
@@ -39,12 +41,16 @@ enum {
     k_ioctl_java_vt_unmount = 5, // virtual thread unmounted from this carrier
     k_ioctl_java_runtime_metrics = 6,
     k_ioctl_java_gc_duration = 7,
+    k_ioctl_java_custom_span = 8,
 };
 
 enum { k_ioctl_invalid_op = 0xff };
 // Keep this ceiling aligned with the largest large-buffer capture limit in
 // bpf/common/large_buffers.h.
 enum { k_ioctl_max_payload_len = 1 << 16 };
+enum { k_ioctl_max_custom_span_len = 1 << 14 };
+
+SCRATCH_MEM_SIZED(java_custom_span_event, sizeof(go_auto_span_t) + k_ioctl_max_custom_span_len);
 
 static __always_inline u8 cmd_to_op(u8 cmd) {
     switch (cmd) {
@@ -105,6 +111,32 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_ioctl) {
     // Control opcodes each handle themselves and return; the data opcodes
     // (send/recv) fall through to the connection/payload path below.
     switch (op_cmd) {
+    case k_ioctl_java_custom_span: {
+        u32 len = 0;
+        if (bpf_probe_read_user(&len, sizeof(len), uarg + 4) != 0 || len == 0 ||
+            len > k_ioctl_max_custom_span_len) {
+            return 0;
+        }
+        bpf_clamp_umax(len, k_ioctl_max_custom_span_len);
+
+        go_auto_span_t *event = java_custom_span_event_mem();
+        if (!event) {
+            return 0;
+        }
+
+        __builtin_memset(event, 0, offsetof(go_auto_span_t, buf));
+        event->type = k_event_type_custom_span;
+        event->size = len;
+        task_pid(&event->pid);
+        if (bpf_probe_read_user(event->buf, len, uarg + 8) != 0) {
+            return 0;
+        }
+
+        u64 total_size = offsetof(go_auto_span_t, buf) + len;
+        bpf_clamp_umax(total_size, offsetof(go_auto_span_t, buf) + k_ioctl_max_custom_span_len);
+        events_ringbuf_output(event, total_size, get_flags());
+        return 0;
+    }
     case k_ioctl_java_vt_mount: {
         // The agent reports, on every VirtualThread.mount(), the logical
         // thread id now mounted on this carrier; the current kernel thread
