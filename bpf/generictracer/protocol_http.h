@@ -698,7 +698,7 @@ static __always_inline bool adopt_java_http1_reservation(call_protocol_args_t *a
     }
 
     // Removal invalidates the map value. Copy the context before claiming it.
-    const tp_info_pid_t client_span = reservation->tp;
+    tp_info_pid_t client_span = reservation->tp;
     const u8 parent_status = reservation->parent_status;
     if (!java_http1_request_retire(&args->pid_conn, reservation)) {
         return false;
@@ -706,6 +706,14 @@ static __always_inline bool adopt_java_http1_reservation(call_protocol_args_t *a
     set_trace_info_for_connection(&args->pid_conn.conn, TRACE_TYPE_CLIENT, &client_span);
     info->tp = client_span.tp;
     info->parent_status = parent_status;
+    server_or_client_trace(meta->type,
+                           &args->pid_conn.conn,
+                           args->lw_thread,
+                           &client_span,
+                           args->ssl,
+                           args->orig_dport,
+                           0,
+                           BPF_ANY);
     return true;
 }
 

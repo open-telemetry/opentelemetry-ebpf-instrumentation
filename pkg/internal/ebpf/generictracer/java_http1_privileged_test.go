@@ -54,7 +54,17 @@ const (
 	javaHTTP1HeaderValueOffset = 100
 )
 
-func loadJavaHTTP1Reservations(t *testing.T, enabled bool) (*ebpf.Map, *ebpf.Map, *ebpf.Map) {
+type javaHTTP1TestObjects struct {
+	Ioctl    *ebpf.Program `ebpf:"obi_kprobe_sys_ioctl"`
+	Requests *ebpf.Map     `ebpf:"java_http1_requests"`
+	Jumps    *ebpf.Map     `ebpf:"jump_table"`
+	HTTP     *ebpf.Map     `ebpf:"ongoing_http"`
+	Traces   *ebpf.Map     `ebpf:"trace_map"`
+	Outgoing *ebpf.Map     `ebpf:"outgoing_trace_map"`
+	SSL      *ebpf.Map     `ebpf:"active_ssl_connections"`
+}
+
+func loadJavaHTTP1Reservations(t *testing.T, enabled bool) *javaHTTP1TestObjects {
 	t.Helper()
 	require.NoError(t, rlimit.RemoveMemlock())
 	spec, err := LoadBpf()
@@ -76,13 +86,7 @@ func loadJavaHTTP1Reservations(t *testing.T, enabled bool) (*ebpf.Map, *ebpf.Map
 		"capture_header_buffer":          int32(1),
 		"max_transaction_time":           uint64(time.Minute),
 	}))
-	var objs struct {
-		Ioctl    *ebpf.Program `ebpf:"obi_kprobe_sys_ioctl"`
-		Requests *ebpf.Map     `ebpf:"java_http1_requests"`
-		Jumps    *ebpf.Map     `ebpf:"jump_table"`
-		HTTP     *ebpf.Map     `ebpf:"ongoing_http"`
-		Traces   *ebpf.Map     `ebpf:"trace_map"`
-	}
+	var objs javaHTTP1TestObjects
 	require.NoError(t, spec.LoadAndAssign(&objs, nil))
 	t.Cleanup(func() {
 		objs.Ioctl.Close()
@@ -90,6 +94,8 @@ func loadJavaHTTP1Reservations(t *testing.T, enabled bool) (*ebpf.Map, *ebpf.Map
 		objs.Jumps.Close()
 		objs.HTTP.Close()
 		objs.Traces.Close()
+		objs.Outgoing.Close()
+		objs.SSL.Close()
 	})
 	info, err := objs.Ioctl.Info()
 	require.NoError(t, err)
@@ -103,7 +109,7 @@ func loadJavaHTTP1Reservations(t *testing.T, enabled bool) (*ebpf.Map, *ebpf.Map
 	attachment, err := kprobe.Attach("sys_ioctl", objs.Ioctl, false)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, attachment.Close()) })
-	return objs.Requests, objs.HTTP, objs.Traces
+	return &objs
 }
 
 func javaHTTP1Packet(port uint16) []byte {
@@ -123,12 +129,17 @@ func javaHTTP1Ioctl(packet []byte) {
 }
 
 func javaHTTP1Send(reservation []byte) {
-	headers := []byte("GET / HTTP/1.1\r\nX-Padding: ")
-	headers = append(headers, bytes.Repeat([]byte{'x'}, javaHTTP1HeaderValueOffset-len(headers)-len("\r\ntraceparent: "))...)
+	javaHTTP1Data(reservation, javaHTTP1SendOp, javaHTTP1Headers(reservation))
+}
+
+func javaHTTP1Headers(reservation []byte) []byte {
+	offset := int(binary.NativeEndian.Uint32(reservation[javaHTTP1LengthField:]))
+	headers := []byte("GET / HTTP/1.1\r\nHost: localhost\r\nX-Padding: ")
+	headers = append(headers, bytes.Repeat([]byte{'x'}, offset-len(headers)-len("\r\ntraceparent: "))...)
 	headers = append(headers, []byte("\r\ntraceparent: ")...)
 	headers = append(headers, reservation[javaHTTP1ValueOffset:javaHTTP1ParentOffset]...)
 	headers = append(headers, []byte("\r\n\r\n")...)
-	javaHTTP1Data(reservation, javaHTTP1SendOp, headers)
+	return headers
 }
 
 func javaHTTP1Data(reservation []byte, opcode byte, payload []byte) {
@@ -163,7 +174,8 @@ func TestJavaHTTP1ReservationLifecycle(t *testing.T) {
 	if !supportsJavaHTTP1ReservationCleanup() {
 		t.Skip("this test requires CMPXCHG support")
 	}
-	reservations, httpRequests, _ := loadJavaHTTP1Reservations(t, true)
+	objects := loadJavaHTTP1Reservations(t, true)
+	reservations, httpRequests := objects.Requests, objects.HTTP
 	a := javaHTTP1Packet(40000)
 	javaHTTP1Ioctl(a)
 	require.Zero(t, a[0], "reservation acknowledged")
@@ -222,7 +234,8 @@ func TestJavaHTTP1ReservationLifecycle(t *testing.T) {
 }
 
 func TestJavaHTTP1ReservationsUnsupported(t *testing.T) {
-	reservations, _, _ := loadJavaHTTP1Reservations(t, false)
+	objects := loadJavaHTTP1Reservations(t, false)
+	reservations := objects.Requests
 	packet := javaHTTP1Packet(40000)
 	javaHTTP1Ioctl(packet)
 	require.Equal(t, byte(javaHTTP1Reserve), packet[0])
@@ -233,7 +246,8 @@ func TestJavaHTTP1ReservationSurvivesTraceMapReplacement(t *testing.T) {
 	if !supportsJavaHTTP1ReservationCleanup() {
 		t.Skip("this test requires CMPXCHG support")
 	}
-	_, httpRequests, traces := loadJavaHTTP1Reservations(t, true)
+	objects := loadJavaHTTP1Reservations(t, true)
+	httpRequests, traces := objects.HTTP, objects.Traces
 	conn := BpfPidConnectionInfoT{Pid: uint32(os.Getpid())}
 	conn.Conn.S_addr[15] = 1
 	conn.Conn.D_addr[15] = 2
