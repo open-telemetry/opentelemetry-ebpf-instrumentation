@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"go.opentelemetry.io/collector/component"
+
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/instrumenter"
 	"go.opentelemetry.io/obi/pkg/obi"
