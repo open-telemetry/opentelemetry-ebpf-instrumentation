@@ -18,6 +18,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -80,5 +81,8 @@ func azureARMProxy(t *testing.T, network dockertest.Network, handler http.Handle
 	t.Cleanup(proxy.Close)
 	require.NotEmpty(t, network.Inspect().IPAM.Config)
 	gateway := network.Inspect().IPAM.Config[0].Gateway.String()
+	if runtime.GOOS == "darwin" || runtime.GOOS == "windows" {
+		gateway = "host.docker.internal"
+	}
 	return "http://" + net.JoinHostPort(gateway, strconv.Itoa(proxy.Listener.Addr().(*net.TCPAddr).Port)), "/coverage/" + filepath.Base(certFile.Name())
 }
