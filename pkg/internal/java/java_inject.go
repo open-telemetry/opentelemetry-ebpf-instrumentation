@@ -24,6 +24,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools/jvm"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -282,6 +283,14 @@ func (i *JavaInjector) NewExecutable(ctx context.Context, target InjectionTarget
 				resultChan <- result{err: err}
 				return
 			}
+			if !jdk8 && i.cfg.EBPF.ContextPropagation.HasHeaders() && supportsHeaderPropagation(i.log) {
+				capability, err := i.loadedAgentProperty(ctx, attacher, target.Process, target.Pid,
+					httpClientPropagationProperty)
+				if err != nil || capability != "true" {
+					i.log.Warn("HTTPS HttpClient header propagation unavailable in the loaded Java agent; restart the JVM with a supported runtime and header propagation enabled to activate it",
+						"pid", target.Pid, "error", err)
+				}
+			}
 
 			i.log.Info("OpenTelemetry eBPF Java Agent already loaded, not reloading")
 			resultChan <- result{attached: false}
@@ -433,6 +442,10 @@ func returnCodeLine(line string) (bool, error) {
 	return false, nil
 }
 
+var supportsHeaderPropagation = func(log *slog.Logger) bool {
+	return !ebpfcommon.IntegrityModeOverride && ebpfcommon.SupportsContextPropagationWithProbe(log)
+}
+
 func (i *JavaInjector) attachOpts(runtimeMetricsEnabled bool) string {
 	var opts []string
 	if i.cfg.Java.Debug {
@@ -440,6 +453,9 @@ func (i *JavaInjector) attachOpts(runtimeMetricsEnabled bool) string {
 	}
 	if i.cfg.Java.DebugInstrumentation {
 		opts = append(opts, "debugBB=true")
+	}
+	if i.cfg.EBPF.ContextPropagation.HasHeaders() && supportsHeaderPropagation(i.log) {
+		opts = append(opts, "httpHeaders=true")
 	}
 	if runtimeMetricsEnabled {
 		opts = append(opts, "runtimeMetrics=true")
@@ -610,7 +626,7 @@ func (i *JavaInjector) verifyLoadedAgentVersion(
 		return nil
 	}
 
-	loadedVersion, err := i.loadedAgentVersion(ctx, attacher, process, pid)
+	loadedVersion, err := i.loadedAgentProperty(ctx, attacher, process, pid, agentVersionProperty)
 	if err != nil {
 		return err
 	}
@@ -636,11 +652,12 @@ func (i *JavaInjector) verifyAgentVersion(pid app.PID, loadedVersion string) err
 	}
 }
 
-func (i *JavaInjector) loadedAgentVersion(
+func (i *JavaInjector) loadedAgentProperty(
 	ctx context.Context,
 	attacher jvmAttacher,
 	process *procs.ProcessHandle,
 	pid app.PID,
+	property string,
 ) (string, error) {
 	attacher.Init()
 
@@ -661,7 +678,7 @@ func (i *JavaInjector) loadedAgentVersion(
 	}
 	defer out.Close()
 
-	return javaProperty(out, agentVersionProperty)
+	return javaProperty(out, property)
 }
 
 func (i *JavaInjector) verifyJVMVersion(

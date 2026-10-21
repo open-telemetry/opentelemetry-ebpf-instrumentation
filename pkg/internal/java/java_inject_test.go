@@ -24,6 +24,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools/jvm"
@@ -609,6 +610,31 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 			runtimeMetricsEnabled := ie.FileInfo.ServiceAttrs().Features.AppRuntime()
 			result := injector.attachOpts(runtimeMetricsEnabled)
 			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestJavaInjector_HeaderPropagationAttachOpts(t *testing.T) {
+	previous := supportsHeaderPropagation
+	t.Cleanup(func() { supportsHeaderPropagation = previous })
+	for _, tc := range []struct {
+		mode      config.ContextPropagationMode
+		supported bool
+		want      string
+	}{
+		{config.ContextPropagationDisabled, true, ""},
+		{config.ContextPropagationTCP, true, ""},
+		{config.ContextPropagationHeaders, true, "=httpHeaders=true"},
+		{config.ContextPropagationAll, true, "=httpHeaders=true"},
+		{config.ContextPropagationHeaders, false, ""},
+		{config.ContextPropagationAll, false, ""},
+	} {
+		t.Run(fmt.Sprintf("%d/%t", tc.mode, tc.supported), func(t *testing.T) {
+			supportsHeaderPropagation = func(*slog.Logger) bool { return tc.supported }
+			cfg := &obi.Config{}
+			cfg.EBPF.ContextPropagation = tc.mode
+			injector := &JavaInjector{cfg: cfg}
+			assert.Equal(t, tc.want, injector.attachOpts(false))
 		})
 	}
 }
