@@ -2141,7 +2141,7 @@ func TestTraceAttributesSelector_DBResponseStatusCode(t *testing.T) {
 	})
 }
 
-func TestGenerateTracesSetsOBISchemaURL(t *testing.T) {
+func TestGenerateTracesSetsOBISchemaURLAndScope(t *testing.T) {
 	cache := expirable2.NewLRU[svc.UID, []attribute.KeyValue](10, nil, 0)
 	span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/", Status: 200}
 
@@ -2155,7 +2155,16 @@ func TestGenerateTracesSetsOBISchemaURL(t *testing.T) {
 	)
 
 	require.Equal(t, 1, traces.ResourceSpans().Len())
-	assert.Equal(t, attr.OBISchemaURL, traces.ResourceSpans().At(0).SchemaUrl())
+	rs := traces.ResourceSpans().At(0)
+	assert.Equal(t, attr.OBISchemaURL, rs.SchemaUrl())
+	_, ok := rs.Resource().Attributes().Get("otel.scope.name")
+	assert.False(t, ok)
+
+	require.Equal(t, 1, rs.ScopeSpans().Len())
+	ss := rs.ScopeSpans().At(0)
+	assert.Equal(t, attr.OBISchemaURL, ss.SchemaUrl())
+	assert.Equal(t, "obi", ss.Scope().Name())
+	assert.Equal(t, attr.TelemetryDistroVersion(), ss.Scope().Version())
 }
 
 func TestGenAISpanNameMatchesEmittedAttributes(t *testing.T) {
