@@ -449,7 +449,7 @@ tcp_send_ssl_check(u64 id, void *ssl, pid_connection_info_t *p_conn, u16 orig_dp
     if (!ssl) {
         return;
     }
-    ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
+    ssl_pid_connection_info_t *s_conn = lookup_ssl_conn(p_conn->pid, ssl);
     if (s_conn) {
         finish_possible_delayed_tls_http_request(&s_conn->p_conn);
     }
@@ -457,7 +457,9 @@ tcp_send_ssl_check(u64 id, void *ssl, pid_connection_info_t *p_conn, u16 orig_dp
         .orig_dport = orig_dport,
     };
     __builtin_memcpy(&ssl_conn.p_conn, p_conn, sizeof(pid_connection_info_t));
-    bpf_map_update_elem(&ssl_to_conn, &ssl, &ssl_conn, BPF_ANY);
+    // built late: kept live across the finish above, it overflows obi_kprobe_tcp_sendmsg's stack
+    const pid_ptr_key_t ssl_key = pid_ptr_key(p_conn->pid, ssl);
+    bpf_map_update_elem(&ssl_to_conn, &ssl_key, &ssl_conn, BPF_ANY);
 }
 
 static __always_inline void
