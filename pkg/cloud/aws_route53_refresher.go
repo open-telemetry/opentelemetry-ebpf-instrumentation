@@ -26,6 +26,40 @@ const route53EscapedWildcard = `\052`
 
 const DefaultRoute53RefreshInterval = 5 * time.Minute
 
+// Non-public special-purpose allocations from the IANA IPv4 and IPv6 registries.
+// More-specific globally reachable allocations are preserved below.
+var route53NonPublicPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("0.0.0.0/8"),
+	netip.MustParsePrefix("100.64.0.0/10"),
+	netip.MustParsePrefix("192.0.0.0/24"),
+	netip.MustParsePrefix("192.0.2.0/24"),
+	netip.MustParsePrefix("192.88.99.0/24"),
+	netip.MustParsePrefix("198.18.0.0/15"),
+	netip.MustParsePrefix("198.51.100.0/24"),
+	netip.MustParsePrefix("203.0.113.0/24"),
+	netip.MustParsePrefix("240.0.0.0/4"),
+	netip.MustParsePrefix("64:ff9b:1::/48"),
+	netip.MustParsePrefix("100::/64"),
+	netip.MustParsePrefix("100:0:0:1::/64"),
+	netip.MustParsePrefix("2001::/23"),
+	netip.MustParsePrefix("2001:db8::/32"),
+	netip.MustParsePrefix("3fff::/20"),
+	netip.MustParsePrefix("5f00::/16"),
+}
+
+var route53PublicExceptions = []netip.Prefix{
+	netip.MustParsePrefix("192.0.0.9/32"),
+	netip.MustParsePrefix("192.0.0.10/32"),
+	netip.MustParsePrefix("2001::/32"), // Teredo reachability depends on its embedded IPv4 address.
+	netip.MustParsePrefix("2001:1::1/128"),
+	netip.MustParsePrefix("2001:1::2/128"),
+	netip.MustParsePrefix("2001:1::3/128"),
+	netip.MustParsePrefix("2001:3::/32"),
+	netip.MustParsePrefix("2001:4:112::/48"),
+	netip.MustParsePrefix("2001:20::/28"),
+	netip.MustParsePrefix("2001:30::/28"),
+}
+
 type Route53Client interface {
 	ListHostedZonesByVPC(context.Context, *route53.ListHostedZonesByVPCInput, ...func(*route53.Options)) (*route53.ListHostedZonesByVPCOutput, error)
 	ListHostedZones(context.Context, *route53.ListHostedZonesInput, ...func(*route53.Options)) (*route53.ListHostedZonesOutput, error)
@@ -60,12 +94,9 @@ func (i *Route53Inventory) Refresh(ctx context.Context, snapshot *MetadataSnapsh
 		return nil
 	}
 	if !i.initialized && route53AccessDenied(err) {
-		permissions := "route53:ListResourceRecordSets"
-		if len(i.hostedZoneIDs) == 0 {
-			permissions += ", route53:ListHostedZones"
-			if i.VPCID != "" && i.VPCRegion != "" {
-				permissions += ", route53:ListHostedZonesByVPC"
-			}
+		permissions := "route53:ListResourceRecordSets, route53:ListHostedZones"
+		if i.VPCID != "" && i.VPCRegion != "" {
+			permissions += ", route53:ListHostedZonesByVPC"
 		}
 		return fmt.Errorf("%w: grant %s and restart OBI to enable Route53 name resolution: %w", ErrMetadataUnavailable, permissions, err)
 	}
@@ -91,6 +122,11 @@ func (i *Route53Inventory) refresh(ctx context.Context, snapshot *MetadataSnapsh
 	readable := false
 	var denied error
 	for _, zone := range zones {
+		if len(i.hostedZoneIDs) > 0 && !slices.ContainsFunc(i.hostedZoneIDs, func(id string) bool {
+			return strings.TrimPrefix(id, "/hostedzone/") == strings.TrimPrefix(zone.id, "/hostedzone/")
+		}) {
+			continue
+		}
 		zoneNames, err := i.zoneRecords(ctx, zone)
 		if err != nil {
 			if route53AccessDenied(err) {
@@ -146,12 +182,6 @@ type route53Zone struct {
 
 func (i *Route53Inventory) zones(ctx context.Context) ([]route53Zone, error) {
 	var zones []route53Zone
-	if len(i.hostedZoneIDs) > 0 {
-		for _, id := range i.hostedZoneIDs {
-			zones = append(zones, route53Zone{id: id})
-		}
-		return zones, nil
-	}
 	pages := route53.NewListHostedZonesPaginator(i.client, &route53.ListHostedZonesInput{})
 	for pages.HasMorePages() {
 		out, err := pages.NextPage(ctx)
@@ -200,7 +230,7 @@ func addRoute53Record(next map[string]string, record types.ResourceRecordSet, pu
 			continue
 		}
 		addr = addr.Unmap()
-		if public && (addr.IsPrivate() || !addr.IsGlobalUnicast()) {
+		if public && !route53PublicAddress(addr) {
 			continue
 		}
 		ip := addr.String()
@@ -222,4 +252,21 @@ func (i *Route53Inventory) RefreshDelay(initial bool) time.Duration {
 		interval = i.backoff
 	}
 	return interval - interval/5 + time.Duration(rand.Int64N(int64(2*(interval/5)+1)))
+}
+
+func route53PublicAddress(addr netip.Addr) bool {
+	if addr.IsPrivate() || !addr.IsGlobalUnicast() {
+		return false
+	}
+	for _, prefix := range route53PublicExceptions {
+		if prefix.Contains(addr) {
+			return true
+		}
+	}
+	for _, prefix := range route53NonPublicPrefixes {
+		if prefix.Contains(addr) {
+			return false
+		}
+	}
+	return true
 }
