@@ -290,6 +290,16 @@
       "allowedVersions": "/^3\\.14(\\.|-|$)/"
     },
     {
+      "description": "Keep MongoDB fixtures on 7.x until MongoDB 8+ supports the CI kernels (SERVER-121912)",
+      "matchFileNames": [
+        "internal/test/integration/components/mongo/Dockerfile",
+        "internal/test/oats/mongo/docker-compose-go-mongo*.yml"
+      ],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["mongo", "docker.io/library/mongo", "library/mongo"],
+      "allowedVersions": "/^7\\./"
+    },
+    {
       "groupName": "Github Actions",
       "matchManagers": ["github-actions"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
