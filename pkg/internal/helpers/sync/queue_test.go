@@ -147,3 +147,23 @@ func TestSynchronization(t *testing.T) {
 	}()
 	testutil.ChannelEmpty(t, available, 10*time.Millisecond)
 }
+
+func TestQueueTryDequeue(t *testing.T) {
+	q := NewQueue[int]()
+
+	_, ok := q.TryDequeue()
+	assert.False(t, ok)
+
+	q.Enqueue(1)
+	q.Enqueue(2)
+
+	v, ok := q.TryDequeue()
+	require.True(t, ok)
+	assert.Equal(t, 1, v)
+	v, ok = q.TryDequeue()
+	require.True(t, ok)
+	assert.Equal(t, 2, v)
+
+	_, ok = q.TryDequeue()
+	assert.False(t, ok)
+}
