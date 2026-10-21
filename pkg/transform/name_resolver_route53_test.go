@@ -23,8 +23,8 @@ import (
 )
 
 func TestRoute53ResolverRecoversFromInitialFailure(t *testing.T) {
-	for _, zones := range [][]string{{"test-zone"}, nil} {
-		t.Run(fmt.Sprint(zones), func(t *testing.T) {
+	for name, zones := range map[string][]string{"explicit zones": {"test-zone"}, "discovered zones": nil} {
+		t.Run(name, func(t *testing.T) {
 			var available atomic.Bool
 			var failures atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -361,14 +361,24 @@ func TestRoute53PrivateDiscoveryFailureRetainsSnapshot(t *testing.T) {
 }
 
 func TestRoute53InitialAccessDeniedStopsPolling(t *testing.T) {
-	for _, operation := range []string{"public zones", "private zones", "records", "explicit records"} {
+	for _, tc := range []struct {
+		name        string
+		operation   string
+		zones       []string
+		wantDenials int
+	}{
+		{name: "public zones", operation: "public zones", wantDenials: 1},
+		{name: "private zones", operation: "private zones", wantDenials: 1},
+		{name: "records", operation: "records", wantDenials: 2},
+		{name: "explicit records", operation: "records", zones: []string{"private"}, wantDenials: 1},
+	} {
 		for _, code := range []string{"AccessDenied", "AccessDeniedException"} {
-			t.Run(operation+"/"+code, func(t *testing.T) {
+			t.Run(tc.name+"/"+code, func(t *testing.T) {
 				synctest.Test(t, func(t *testing.T) {
 					var apiError error = &smithy.GenericAPIError{Code: code}
 					denials := 0
 					deny := func(at string) error {
-						if at == strings.TrimPrefix(operation, "explicit ") && apiError != nil {
+						if at == tc.operation && apiError != nil {
 							denials++
 							return apiError
 						}
@@ -394,11 +404,7 @@ func TestRoute53InitialAccessDeniedStopsPolling(t *testing.T) {
 							return &route53.ListResourceRecordSetsOutput{ResourceRecordSets: []types.ResourceRecordSet{route53Record("service.example.", "10.0.0.2", types.RRTypeA)}}, nil
 						},
 					}
-					var zones []string
-					if operation == "explicit records" {
-						zones = []string{"private"}
-					}
-					refresher := NewRoute53Inventory(client, zones)
+					refresher := NewRoute53Inventory(client, tc.zones)
 					refresher.RefreshInterval = time.Second
 					refresher.VPCID, refresher.VPCRegion = "vpc-local", "us-east-1"
 					inventory := NewInventory([]MetadataRefresher{refresher})
@@ -415,11 +421,7 @@ func TestRoute53InitialAccessDeniedStopsPolling(t *testing.T) {
 					case <-time.After(2 * time.Second):
 						t.Fatal("unavailable source kept polling")
 					}
-					if operation == "records" {
-						require.Equal(t, 2, denials)
-					} else {
-						require.Equal(t, 1, denials)
-					}
+					require.Equal(t, tc.wantDenials, denials)
 					require.Equal(t, 1, strings.Count(logs.String(), "level=WARN"))
 					require.Contains(t, logs.String(), "route53:ListResourceRecordSets")
 					require.Contains(t, logs.String(), "restart OBI")
@@ -523,31 +525,6 @@ func TestRoute53MixedAccessVPC(t *testing.T) {
 	}
 }
 
-func TestRoute53SharedAddressSpace(t *testing.T) {
-	for _, tc := range []struct {
-		ip     string
-		shared bool
-	}{
-		{ip: "100.63.255.255"},
-		{ip: "100.64.0.0", shared: true},
-		{ip: "100.64.0.2", shared: true},
-		{ip: "100.127.255.255", shared: true},
-		{ip: "100.128.0.0"},
-	} {
-		t.Run(tc.ip, func(t *testing.T) {
-			for _, public := range []bool{true, false} {
-				names := map[string]string{}
-				addRoute53Record(names, route53Record("service.example.", tc.ip, types.RRTypeA), public)
-				if public && tc.shared {
-					require.Empty(t, names)
-				} else {
-					require.Equal(t, map[string]string{tc.ip: "service.example"}, names)
-				}
-			}
-		})
-	}
-}
-
 func TestRoute53ExplicitZoneAllowlist(t *testing.T) {
 	client := fakeRoute53Client{
 		zones: func(*route53.ListHostedZonesInput) (*route53.ListHostedZonesOutput, error) {
@@ -573,7 +550,8 @@ func TestRoute53ExplicitZoneAllowlist(t *testing.T) {
 
 func TestRoute53PublicAddress(t *testing.T) {
 	for _, ip := range []string{
-		"0.0.0.1", "10.0.0.2", "100.64.0.2", "127.0.0.1", "169.254.1.1",
+		"0.0.0.1", "10.0.0.2", "100.64.0.0", "100.64.0.2", "100.127.255.255",
+		"127.0.0.1", "169.254.1.1",
 		"172.16.0.1", "192.168.0.1", "192.0.0.1", "192.0.0.8", "192.0.0.11",
 		"192.0.2.1", "192.88.99.1", "192.88.99.2", "198.18.0.1", "198.19.255.255",
 		"198.51.100.1", "203.0.113.1", "240.0.0.1", "255.255.255.255", "224.0.0.1",
@@ -588,15 +566,14 @@ func TestRoute53PublicAddress(t *testing.T) {
 			if addr.Is4() {
 				kind = types.RRTypeA
 			}
-			for _, public := range []bool{true, false} {
-				names := map[string]string{}
-				addRoute53Record(names, route53Record("service.example.", ip, kind), public)
-				if public {
-					require.Empty(t, names)
-				} else {
-					require.Equal(t, "service.example", names[ip])
-				}
-			}
+			record := route53Record("service.example.", ip, kind)
+			publicNames := map[string]string{}
+			addRoute53Record(publicNames, record, true)
+			require.Empty(t, publicNames)
+
+			privateNames := map[string]string{}
+			addRoute53Record(privateNames, record, false)
+			require.Equal(t, "service.example", privateNames[ip])
 		})
 	}
 	for _, ip := range []string{
@@ -607,7 +584,17 @@ func TestRoute53PublicAddress(t *testing.T) {
 		"2001:30::1", "2001:4860:4860::8888", "2620:4f:8000::1",
 	} {
 		t.Run("allowed/"+ip, func(t *testing.T) {
-			require.True(t, route53PublicAddress(netip.MustParseAddr(ip)))
+			addr := netip.MustParseAddr(ip)
+			require.True(t, route53PublicAddress(addr))
+			kind := types.RRTypeAaaa
+			if addr.Is4() {
+				kind = types.RRTypeA
+			}
+			for _, public := range []bool{true, false} {
+				names := map[string]string{}
+				addRoute53Record(names, route53Record("service.example.", ip, kind), public)
+				require.Equal(t, map[string]string{ip: "service.example"}, names)
+			}
 		})
 	}
 }

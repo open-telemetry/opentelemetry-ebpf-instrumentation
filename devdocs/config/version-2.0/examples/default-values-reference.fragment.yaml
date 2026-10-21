@@ -604,7 +604,7 @@ extensions:
           region: ""
           # How often the cloud metadata inventory is refreshed.
           refresh_interval: 30s
-          # Empty discovers account public zones and private zones associated with the detected VPC.
+          # Route53 discovers account public zones and private zones associated with the detected VPC.
           route53:
             refresh_interval: 5m0s
             hosted_zone_ids: []

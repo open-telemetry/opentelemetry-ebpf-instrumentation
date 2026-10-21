@@ -367,7 +367,6 @@ extensions:
       enrichers:
         cloud:
           route53:
-            # Keep discovery and record replacement fast in the integration test.
             refresh_interval: 1s
             hosted_zone_ids: ["${ROUTE53_HOSTED_ZONE_ID}"]
       service_name:

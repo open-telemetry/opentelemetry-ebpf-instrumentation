@@ -2,12 +2,12 @@
 
 The `route53` name resolver is enabled by default and maps endpoint IPs to fully
 qualified DNS names from AWS Route53 hosted zones on detected EC2 hosts.
-Without `hosted_zone_ids`, each refresh discovers public zones in the current
-AWS account and private zones associated with the detected VPC. The VPC is
-identified through the primary network interface in EC2 instance metadata.
-If the VPC or its region cannot be detected, only public zones are discovered.
-Explicit `hosted_zone_ids` narrow this selection; they do not bypass VPC or
-address filtering.
+Each refresh discovers public zones in the current AWS account and private zones
+associated with the host's VPC, identified through its primary network interface
+in EC2 instance metadata. If the VPC or region is unknown, only public zones are
+eligible. Optional `hosted_zone_ids` narrow this selection without bypassing the
+VPC or address filters.
+
 Configure Route53 in Config v2:
 
 ```yaml
@@ -38,61 +38,42 @@ Literal A and AAAA records contribute IP mappings. Names are lowercase, retain
 all domain labels, and omit the trailing dot. Aliases, CNAMEs, and wildcard records
 are excluded.
 
-Zone discovery applies two separate rules to avoid importing names from
-unrelated networks:
+Public zones can contain IPs reused across networks, so their records need
+additional filtering:
 
-- **Zone selection:** public zones in the current account and private zones
-  associated with the detected VPC are eligible. Private zones without that VPC
-  association are excluded entirely.
-- **Public-zone address filtering:** private IPv4 ranges (`10.0.0.0/8`,
-  `172.16.0.0/12`, and `192.168.0.0/16`), IPv6 unique-local addresses (`fc00::/7`),
-  and shared address space (`100.64.0.0/10`) are excluded, along with addresses
-  that are not global unicast, such as loopback and link-local addresses.
-  Non-public special-purpose allocations are also excluded, including
-  documentation, benchmarking, reserved IPv4 space, local IPv6 translation,
-  discard-only, and SRv6 SID prefixes. The filter follows the
-  [IANA IPv4](https://www.iana.org/assignments/iana-ipv4-special-registry/) and
-  [IPv6](https://www.iana.org/assignments/iana-ipv6-special-registry/) registries,
-  preserving more-specific globally reachable exceptions. Conditional transition
-  mechanisms such as Teredo and 6to4 are retained; this is not a live reachability
-  check. The prefix tables are maintained in the code, not downloaded at runtime.
-  A public
-  DNS zone can contain addresses reused across networks; its visibility does not
-  make those addresses globally unique.
+| Address type | Treatment in public zones |
+| --- | --- |
+| Private IPv4 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) and IPv6 (`fc00::/7`) | Excluded |
+| Shared address space (`100.64.0.0/10`) | Excluded |
+| Loopback, link-local, multicast, and unspecified addresses | Excluded |
+| Non-public special-purpose ranges, including documentation, benchmarking, and reserved addresses | Excluded |
+| Reachable exceptions within special-purpose ranges | Retained |
 
-Filtering can omit valid IP-to-hostname mappings. For example, a public zone may
-intentionally publish `database.example.com -> 100.64.0.2` for clients on an
-internal network. OBI ignores that public-zone record because the IP alone does
-not identify which network it belongs to. If no eligible private-zone mapping or
-other name resolver supplies a name, Route53 leaves the endpoint unresolved.
-Publishing the mapping in a private zone associated with the monitored VPC makes
-it eligible. Explicit zone IDs cannot override the filter.
+The prefix tables follow the [IANA IPv4](https://www.iana.org/assignments/iana-ipv4-special-registry/)
+and [IPv6](https://www.iana.org/assignments/iana-ipv6-special-registry/) registries
+and are maintained in code. Teredo and 6to4, which carry IPv6 over IPv4, are
+retained because their reachability depends on the underlying IPv4 network.
+OBI does not probe addresses to check reachability.
 
-Records from eligible private zones retain these addresses. OBI checks the
-**zone's VPC association**, not whether each record's IP belongs to a VPC subnet.
-An associated zone can legitimately name endpoints in connected networks.
-Consequently, this does not discard every private IP outside the detected VPC.
+This can omit a valid mapping such as `database.example.com -> 100.64.0.2` in a
+public zone: the IP alone cannot identify which network the record describes.
+If no eligible private zone or other resolver supplies a name, the endpoint
+remains unresolved. Publishing the record in a private zone associated with the
+monitored VPC makes it eligible. Explicit zone IDs cannot override these rules.
 
-Private-zone names take precedence over public-zone names for the same IP.
-Precedence alone does not prevent mislabeling: if no private-zone record exists
-for `100.64.0.2`, an unrelated name for that address in a public zone would
-otherwise be used. Public-zone address filtering prevents that fallback.
-Within each scope, the lexicographically smallest name wins, independently of
-API response order. Multiple names can still refer to the same IP within a VPC;
-the IP-only map cannot determine which name an application used.
+Eligible private zones retain all valid A/AAAA addresses. OBI checks the zone's
+VPC association, not whether each IP belongs to a VPC subnet; a zone may name
+endpoints in connected networks. Private-zone names override public-zone names
+for the same IP. Within either scope, the alphabetically smallest name wins,
+regardless of API response order. The IP-only map cannot determine which of
+several names an application used.
 
-Explicitly configured `hosted_zone_ids` act as an allowlist of discovered zones.
-They cannot include private zones unrelated to the detected VPC or bypass
-public-zone address filtering. If the VPC or region is unknown, configured private
-zones are excluded as well.
-
-Private zones associated through Route 53 Profiles are not discovered by `ListHostedZonesByVPC` and are
-excluded even when explicitly configured. Associated zones owned by another
-account or AWS service are included when their records are readable. A zone whose records
-return `AccessDenied` is skipped without blocking readable zones. If a later
-page is denied, all records from that zone are discarded. Skipped zones are
-checked again on subsequent refreshes, allowing newly granted access to take
-effect. A successful refresh contains only records from currently readable zones.
+Zones associated only through Route 53 Profiles are excluded because
+`ListHostedZonesByVPC` does not discover them, even with explicit zone IDs.
+Associated zones owned by another account or AWS service are eligible if readable.
+If any record page returns `AccessDenied`, OBI discards that zone's records and
+continues with readable zones. Skipped zones are checked on later refreshes;
+each successful refresh contains only records from currently readable zones.
 
 Kubernetes and ECS names take precedence over Route53 names. Route53 takes
 precedence over captured DNS responses and reverse DNS. Route53 decorates endpoint
@@ -103,12 +84,11 @@ Initial discovery is delayed randomly between zero and one interval to spread
 startup traffic. Later polls wait between 80% and 120% of the interval after the
 previous fetch completes. Names remain unresolved until initial discovery succeeds.
 
-If zone discovery returns `AccessDenied`, or all selected zones deny record
-access, before the first successful refresh, OBI marks the source unavailable,
-logs one warning listing the required permissions, and stops polling it. Grant the permissions and restart OBI to enable it.
-Transient startup failures still retry. After a successful refresh, discovery
-denials or denial by all selected zones preserve the last snapshot and continue
-retrying, allowing recovery when access is restored.
+Before the first successful refresh, `AccessDenied` during discovery or from
+every selected zone disables Route53 polling. OBI logs one warning with the
+required permissions. Grant them and restart OBI to enable the source.
+Transient failures still retry. After a successful refresh, discovery failures
+or denial by every selected zone preserve the last snapshot and keep retrying.
 
 Each source retains its last successful snapshot. Successful refreshes remove
 deleted records; a failed Route53 fetch preserves its mappings and does not block
@@ -117,7 +97,7 @@ eight times the configured interval, with the same jitter. A successful fetch
 restores the configured interval. SDK retries still apply within each fetch.
 
 A longer interval reduces average API traffic; jitter spreads bursts. Each OBI
-instance lists every discovered or configured zone, including all pages. Size the interval
+instance reads all record pages of each selected zone. Size the interval
 for the number of instances and zones sharing the account, leaving capacity for
 other API clients. There is no coordination between instances.
 

@@ -2150,7 +2150,7 @@
             ]
           },
           "type": "array",
-          "description": "Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns, route53. The \"ecs\" source requires ecs:ListTasks and ecs:DescribeTasks permissions. The \"route53\" source requires route53:ListResourceRecordSets on the hosted zones, and route53:ListHostedZones plus route53:ListHostedZonesByVPC for automatic discovery.",
+          "description": "Specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns, route53. The \"ecs\" source requires ecs:ListTasks and ecs:DescribeTasks permissions. The \"route53\" source requires route53:ListResourceRecordSets on selected zones and route53:ListHostedZones. When the VPC and region are known, it also requires route53:ListHostedZonesByVPC. Explicit zone IDs require the same permissions.",
           "default": [
             "k8s",
             "ecs",
@@ -2873,7 +2873,7 @@
             "type": "string"
           },
           "type": "array",
-          "description": "Restricts discovery to these hosted zones. Empty discovers account public zones and private zones associated with the detected VPC.",
+          "description": "Optionally restricts the discovered zones. Discovery includes account public zones and private zones associated with the detected VPC. Explicit IDs retain the same VPC and address filters.",
           "x-env-var": "OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS"
         },
         "refresh_interval": {

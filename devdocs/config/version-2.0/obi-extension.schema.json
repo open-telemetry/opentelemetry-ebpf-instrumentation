@@ -2269,7 +2269,7 @@
                       "items": {
                         "type": "string"
                       },
-                      "description": "Hosted zones whose A/AAAA records are used for name resolution.\nEmpty or omitted discovers account public zones and private zones associated with the detected VPC; requires route53:ListHostedZones and route53:ListHostedZonesByVPC. Without a detected VPC and region, only public zones are discovered.\n"
+                      "description": "Optional allowlist of discovered hosted zones.\nDiscovery includes account public zones and private zones associated with the detected VPC. Without a detected VPC and region, only public zones are eligible. Explicit IDs retain the same VPC and address filters. All configurations require route53:ListHostedZones and, when the VPC and region are known, route53:ListHostedZonesByVPC.\n"
                     }
                   }
                 }

@@ -27,30 +27,30 @@ const route53EscapedWildcard = `\052`
 const DefaultRoute53RefreshInterval = 5 * time.Minute
 
 // Non-public special-purpose allocations from the IANA IPv4 and IPv6 registries.
-// More-specific globally reachable allocations are preserved below.
+// The exceptions below preserve reachable allocations within these ranges.
 var route53NonPublicPrefixes = []netip.Prefix{
-	netip.MustParsePrefix("0.0.0.0/8"),
-	netip.MustParsePrefix("100.64.0.0/10"),
-	netip.MustParsePrefix("192.0.0.0/24"),
-	netip.MustParsePrefix("192.0.2.0/24"),
-	netip.MustParsePrefix("192.88.99.0/24"),
-	netip.MustParsePrefix("198.18.0.0/15"),
-	netip.MustParsePrefix("198.51.100.0/24"),
-	netip.MustParsePrefix("203.0.113.0/24"),
-	netip.MustParsePrefix("240.0.0.0/4"),
-	netip.MustParsePrefix("64:ff9b:1::/48"),
-	netip.MustParsePrefix("100::/64"),
-	netip.MustParsePrefix("100:0:0:1::/64"),
-	netip.MustParsePrefix("2001::/23"),
-	netip.MustParsePrefix("2001:db8::/32"),
-	netip.MustParsePrefix("3fff::/20"),
-	netip.MustParsePrefix("5f00::/16"),
+	netip.MustParsePrefix("0.0.0.0/8"),       // Current network
+	netip.MustParsePrefix("100.64.0.0/10"),   // Shared address space (carrier-grade NAT)
+	netip.MustParsePrefix("192.0.0.0/24"),    // IETF protocol assignments
+	netip.MustParsePrefix("192.0.2.0/24"),    // Documentation
+	netip.MustParsePrefix("192.88.99.0/24"),  // Deprecated IPv6 relay addresses
+	netip.MustParsePrefix("198.18.0.0/15"),   // Benchmarking
+	netip.MustParsePrefix("198.51.100.0/24"), // Documentation
+	netip.MustParsePrefix("203.0.113.0/24"),  // Documentation
+	netip.MustParsePrefix("240.0.0.0/4"),     // Reserved
+	netip.MustParsePrefix("64:ff9b:1::/48"),  // Local IPv4-to-IPv6 translation
+	netip.MustParsePrefix("100::/64"),        // Discard-only
+	netip.MustParsePrefix("100:0:0:1::/64"),  // Dummy addresses
+	netip.MustParsePrefix("2001::/23"),       // IETF protocol assignments
+	netip.MustParsePrefix("2001:db8::/32"),   // Documentation
+	netip.MustParsePrefix("3fff::/20"),       // Documentation
+	netip.MustParsePrefix("5f00::/16"),       // Segment routing
 }
 
 var route53PublicExceptions = []netip.Prefix{
 	netip.MustParsePrefix("192.0.0.9/32"),
 	netip.MustParsePrefix("192.0.0.10/32"),
-	netip.MustParsePrefix("2001::/32"), // Teredo reachability depends on its embedded IPv4 address.
+	netip.MustParsePrefix("2001::/32"), // Teredo: IPv6 carried over IPv4; reachability depends on the embedded IPv4 address.
 	netip.MustParsePrefix("2001:1::1/128"),
 	netip.MustParsePrefix("2001:1::2/128"),
 	netip.MustParsePrefix("2001:1::3/128"),
@@ -113,29 +113,27 @@ func (i *Route53Inventory) Refresh(ctx context.Context, snapshot *MetadataSnapsh
 }
 
 func (i *Route53Inventory) refresh(ctx context.Context, snapshot *MetadataSnapshot) error {
-	zones, err := i.zones(ctx)
+	zones, err := i.discoverZones(ctx)
 	if err != nil {
 		return err
 	}
 	publicNames := map[string]string{}
 	privateNames := map[string]string{}
-	readable := false
-	var denied error
+	hasReadableZone := false
+	var accessDenied error
 	for _, zone := range zones {
-		if len(i.hostedZoneIDs) > 0 && !slices.ContainsFunc(i.hostedZoneIDs, func(id string) bool {
-			return strings.TrimPrefix(id, "/hostedzone/") == strings.TrimPrefix(zone.id, "/hostedzone/")
-		}) {
+		if !i.zoneSelected(zone.id) {
 			continue
 		}
-		zoneNames, err := i.zoneRecords(ctx, zone)
+		zoneNames, err := i.readZoneRecords(ctx, zone)
 		if err != nil {
 			if route53AccessDenied(err) {
-				denied = err
+				accessDenied = err
 				continue
 			}
 			return err
 		}
-		readable = true
+		hasReadableZone = true
 		names := privateNames
 		if zone.public {
 			names = publicNames
@@ -146,12 +144,25 @@ func (i *Route53Inventory) refresh(ctx context.Context, snapshot *MetadataSnapsh
 			}
 		}
 	}
-	if !readable && denied != nil {
-		return denied
+	if !hasReadableZone && accessDenied != nil {
+		return accessDenied
 	}
 	maps.Copy(snapshot.ServiceByIP, publicNames)
 	maps.Copy(snapshot.ServiceByIP, privateNames)
 	return nil
+}
+
+func (i *Route53Inventory) zoneSelected(zoneID string) bool {
+	if len(i.hostedZoneIDs) == 0 {
+		return true
+	}
+	zoneID = strings.TrimPrefix(zoneID, "/hostedzone/")
+	for _, configuredID := range i.hostedZoneIDs {
+		if strings.TrimPrefix(configuredID, "/hostedzone/") == zoneID {
+			return true
+		}
+	}
+	return false
 }
 
 func route53AccessDenied(err error) bool {
@@ -160,7 +171,7 @@ func route53AccessDenied(err error) bool {
 		(apiErr.ErrorCode() == "AccessDenied" || apiErr.ErrorCode() == "AccessDeniedException")
 }
 
-func (i *Route53Inventory) zoneRecords(ctx context.Context, zone route53Zone) (map[string]string, error) {
+func (i *Route53Inventory) readZoneRecords(ctx context.Context, zone route53Zone) (map[string]string, error) {
 	names := map[string]string{}
 	pages := route53.NewListResourceRecordSetsPaginator(i.client, &route53.ListResourceRecordSetsInput{HostedZoneId: &zone.id})
 	for pages.HasMorePages() {
@@ -180,7 +191,7 @@ type route53Zone struct {
 	public bool
 }
 
-func (i *Route53Inventory) zones(ctx context.Context) ([]route53Zone, error) {
+func (i *Route53Inventory) discoverZones(ctx context.Context) ([]route53Zone, error) {
 	var zones []route53Zone
 	pages := route53.NewListHostedZonesPaginator(i.client, &route53.ListHostedZonesInput{})
 	for pages.HasMorePages() {

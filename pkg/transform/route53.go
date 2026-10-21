@@ -26,7 +26,7 @@ const route53DefaultRegion = "us-east-1"
 type Route53MetadataConfig struct {
 	// RefreshInterval controls Route53 polling independently of other cloud sources.
 	RefreshInterval time.Duration `yaml:"refresh_interval" env:"OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL" validate:"gt=0"`
-	// HostedZoneIDs restricts discovery to these hosted zones. Empty discovers account public zones and private zones associated with the detected VPC.
+	// HostedZoneIDs optionally restricts the discovered zones. Discovery includes account public zones and private zones associated with the detected VPC. Explicit IDs retain the same VPC and address filters.
 	HostedZoneIDs []string `yaml:"hosted_zone_ids" env:"OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS" envSeparator:","`
 }
 
