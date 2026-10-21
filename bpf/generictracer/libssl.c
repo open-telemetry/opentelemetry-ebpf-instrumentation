@@ -39,7 +39,8 @@ int BPF_UPROBE_GUARDED(obi_uprobe_ssl_read, void *ssl, const void *buf, int num)
 
     bpf_dbg_printk("=== uprobe SSL_read id=%d ssl=%llx ===", id, ssl);
 
-    ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
+    const pid_ptr_key_t ssl_key = pid_ptr_key(pid_from_pid_tgid(id), ssl);
+    ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl_key);
     if (s_conn) {
         finish_possible_delayed_tls_http_request(&s_conn->p_conn);
     }
@@ -51,7 +52,7 @@ int BPF_UPROBE_GUARDED(obi_uprobe_ssl_read, void *ssl, const void *buf, int num)
 
     bpf_map_update_elem(&active_ssl_read_args, &id, &args, BPF_ANY);
     bpf_map_update_elem(&ssl_to_pid_tid,
-                        &args.ssl,
+                        &ssl_key,
                         &id,
                         BPF_NOEXIST); // we must not overwrite here, remember the original thread
 
@@ -94,7 +95,8 @@ int BPF_UPROBE_GUARDED(obi_uprobe_ssl_read_ex,
 
     bpf_dbg_printk("=== SSL_read_ex id=%d ssl=%llx ===", id, ssl);
 
-    ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
+    const pid_ptr_key_t ssl_key = pid_ptr_key(pid_from_pid_tgid(id), ssl);
+    ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl_key);
     if (s_conn) {
         finish_possible_delayed_tls_http_request(&s_conn->p_conn);
     }
@@ -107,7 +109,7 @@ int BPF_UPROBE_GUARDED(obi_uprobe_ssl_read_ex,
 
     bpf_map_update_elem(&active_ssl_read_args, &id, &args, BPF_ANY);
     bpf_map_update_elem(&ssl_to_pid_tid,
-                        &args.ssl,
+                        &ssl_key,
                         &id,
                         BPF_NOEXIST); // we must not overwrite here, remember the original thread
 
@@ -132,9 +134,9 @@ int BPF_URETPROBE_GUARDED(obi_uretprobe_ssl_read_ex, int ret) {
     }
 
     if (ret != 1) {
-        const u64 ssl = args->ssl;
+        const pid_ptr_key_t ssl_key = pid_ptr_key(pid_from_pid_tgid(id), (void *)args->ssl);
         bpf_map_delete_elem(&active_ssl_read_args, &id);
-        bpf_map_delete_elem(&ssl_to_pid_tid, &ssl);
+        bpf_map_delete_elem(&ssl_to_pid_tid, &ssl_key);
         return 0;
     }
 

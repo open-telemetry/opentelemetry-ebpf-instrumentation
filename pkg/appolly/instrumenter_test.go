@@ -891,7 +891,6 @@ func matchTraceEvent(t require.TestingT, name string, event collector.TraceRecor
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry",
 			string(semconv.TelemetryDistroNameKey):  "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 			"overridden":                            "attr",
 		},
 		Kind: ptrace.SpanKindServer,
@@ -920,7 +919,6 @@ func matchInnerTraceEvent(t require.TestingT, name string, event collector.Trace
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry",
 			string(semconv.TelemetryDistroNameKey):  "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 			"overridden":                            "attr",
 		},
 		Kind: ptrace.SpanKindInternal,
@@ -954,7 +952,6 @@ func matchGRPCTraceEvent(t *testing.T, name string, event collector.TraceRecord)
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry",
 			string(semconv.TelemetryDistroNameKey):  "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 		},
 		Kind: ptrace.SpanKindServer,
 	}, event)
@@ -980,7 +977,6 @@ func matchInnerGRPCTraceEvent(t *testing.T, name string, event collector.TraceRe
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry",
 			string(semconv.TelemetryDistroNameKey):  "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 		},
 		Kind: ptrace.SpanKindInternal,
 	}, event)
@@ -1043,7 +1039,6 @@ func matchInfoEvent(t *testing.T, name string, event collector.TraceRecord) {
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry",
 			string(semconv.TelemetryDistroNameKey):  "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 		},
 		Kind: ptrace.SpanKindServer,
 	}, event)

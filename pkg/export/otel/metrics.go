@@ -392,7 +392,7 @@ func newMetricsReporter(
 
 	systemMetrics := mr.newMetricsInstance(nil)
 	mr.systemProvider = systemMetrics.provider
-	systemMeter := systemMetrics.provider.Meter(reporterName)
+	systemMeter := systemMetrics.provider.Meter(reporterName, obiMeterOptions()...)
 
 	if err := mr.setupTargetInfo(systemMeter); err != nil {
 		return nil, fmt.Errorf("setting up target info: %w", err)
@@ -899,7 +899,7 @@ func (mr *MetricsReporter) newMetricSet(service *svc.Attrs) (*Metrics, error) {
 	mlog().Debug("creating new metric set", "service", service)
 	// time units for HTTP and GRPC durations are in seconds, according to the OTEL specification:
 	// https://opentelemetry.io/docs/specs/semconv/http/http-metrics/#metric-httpserverrequestduration
-	meter := m.provider.Meter(reporterName)
+	meter := m.provider.Meter(reporterName, obiMeterOptions()...)
 	var err error
 
 	err = mr.setupMetricExpirers(&m, meter)
@@ -989,6 +989,13 @@ func (mr *MetricsReporter) close() {
 		}
 		mlog().Debug("Metrics reporter closed")
 	}()
+}
+
+func obiMeterOptions() []instrument.MeterOption {
+	return []instrument.MeterOption{
+		instrument.WithInstrumentationVersion(attr.TelemetryDistroVersion()),
+		instrument.WithSchemaURL(attr.OBISchemaURL),
+	}
 }
 
 // sharedExporter wraps an sdkmetric.Exporter so that Shutdown is a no-op.
