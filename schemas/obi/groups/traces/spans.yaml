@@ -34,6 +34,10 @@ spans:
         requirement_level: required
 
   - type: obi.request.phase
+    annotations:
+      obi:
+        upstream: none
+        upstream_reason: upstream defines no span for the phases of a request
     kind: internal
     name:
       note: >
