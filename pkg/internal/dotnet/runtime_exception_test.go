@@ -171,32 +171,12 @@ func TestExceptionMeterRecordedTraces(t *testing.T) {
 				trace, err := os.Open("testdata/exceptions-net" + version + ".nettrace")
 				require.NoError(t, err)
 				defer trace.Close()
-				reader := newNetTraceReader(trace)
-				info, err := readNetTracePreamble(reader)
-				require.NoError(t, err)
-				require.EqualValues(t, 1, info.ProcessID)
-				decoder := netTraceDecoder{pointerSize: info.PointerSize, metricsSessionID: sessionID}
 				counts := map[string]uint64{}
-				for {
-					header, payload, err := readNetTraceBlock(reader)
-					require.NoError(t, err)
-					if header.EndOfStream {
-						break
-					}
-					if header.Name == "SPBlock" {
-						require.NoError(t, decoder.checkSequencePoint(payload))
-						continue
-					}
-					if header.Name != "EventBlock" && header.Name != "MetadataBlock" {
-						continue
-					}
-					events, err := decoder.decodeEventBlock(header.Name, payload)
-					require.NoError(t, err)
-					for _, event := range events {
-						require.NotEmpty(t, event.exceptionType)
-						counts[event.exceptionType] += event.exceptionCount
-					}
-				}
+				require.NoError(t, readRuntimeEvents(trace, 1, sessionID, func(event netTraceRuntimeEvent) error {
+					require.NotEmpty(t, event.exceptionType)
+					counts[event.exceptionType] += event.exceptionCount
+					return nil
+				}))
 				if sessionID != "test-session" {
 					require.Empty(t, counts)
 					return
@@ -275,7 +255,7 @@ func TestCLRExceptionRecordedTrace(t *testing.T) {
 	require.NoError(t, err)
 	defer trace.Close()
 	counts := map[string]uint64{}
-	require.NoError(t, readRuntimeEvents(trace, 1, func(event netTraceRuntimeEvent) error {
+	require.NoError(t, readRuntimeEvents(trace, 1, "", func(event netTraceRuntimeEvent) error {
 		if event.exceptionType != "" {
 			counts[shortCLRExceptionType(event.exceptionType)]++
 		}

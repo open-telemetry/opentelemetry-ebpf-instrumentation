@@ -114,13 +114,13 @@ func TestReadRuntimeEvents(t *testing.T) {
 	}
 	t.Run("explicit end marker", func(t *testing.T) {
 		input := append(bytes.Clone(wire), 1)
-		require.NoError(t, readRuntimeEvents(bytes.NewReader(input), 15, consume))
+		require.NoError(t, readRuntimeEvents(bytes.NewReader(input), 15, "", consume))
 	})
 	t.Run("unexpected EOF", func(t *testing.T) {
-		require.ErrorIs(t, readRuntimeEvents(bytes.NewReader(wire), 15, consume), io.EOF)
+		require.ErrorIs(t, readRuntimeEvents(bytes.NewReader(wire), 15, "", consume), io.EOF)
 	})
 	t.Run("wrong process", func(t *testing.T) {
-		require.ErrorContains(t, readRuntimeEvents(bytes.NewReader(wire), 42, consume),
+		require.ErrorContains(t, readRuntimeEvents(bytes.NewReader(wire), 42, "", consume),
 			"does not match expected PID")
 	})
 }

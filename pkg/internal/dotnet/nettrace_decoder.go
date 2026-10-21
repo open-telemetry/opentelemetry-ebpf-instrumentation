@@ -45,9 +45,9 @@ type netTraceDecoder struct {
 	sequences        map[uint64]uint32
 }
 
-// readRuntimeEvents delivers decoded counters and exception throws in stream order.
+// readRuntimeEvents delivers decoded counters, exception counts, and diagnostics in stream order.
 // The caller owns the stream and closes it to interrupt a blocked read.
-func readRuntimeEvents(stream io.Reader, expectedPID uint64, consume func(netTraceRuntimeEvent) error) error {
+func readRuntimeEvents(stream io.Reader, expectedPID uint64, metricsSessionID string, consume func(netTraceRuntimeEvent) error) error {
 	reader := newNetTraceReader(stream)
 	info, err := readNetTracePreamble(reader)
 	if err != nil {
@@ -56,7 +56,7 @@ func readRuntimeEvents(stream io.Reader, expectedPID uint64, consume func(netTra
 	if info.ProcessID <= 0 || uint64(info.ProcessID) != expectedPID {
 		return fmt.Errorf("NetTrace process ID %d does not match expected PID %d", info.ProcessID, expectedPID)
 	}
-	decoder := netTraceDecoder{pointerSize: info.PointerSize}
+	decoder := netTraceDecoder{pointerSize: info.PointerSize, metricsSessionID: metricsSessionID}
 	for {
 		header, payload, err := readNetTraceBlock(reader)
 		if err != nil {
@@ -87,7 +87,7 @@ func readRuntimeEvents(stream io.Reader, expectedPID uint64, consume func(netTra
 }
 
 // decodeEventBlock retains metadata definitions and decodes runtime counters
-// and CLR exception throws. Calls must follow stream order.
+// and CLR or Meter exception events. Calls must follow stream order.
 func (d *netTraceDecoder) decodeEventBlock(name string, payload []byte) ([]netTraceRuntimeEvent, error) {
 	if name != "MetadataBlock" && name != "EventBlock" {
 		return nil, fmt.Errorf("expected NetTrace event or metadata block, got %q", name)

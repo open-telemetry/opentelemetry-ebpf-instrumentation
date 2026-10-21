@@ -37,10 +37,10 @@ type eventPipeProvider struct {
 	arguments string
 }
 
-// encodeEventPipeStart requests System.Runtime counters and optional CLR exception events.
+// encodeEventPipeStart requests System.Runtime counters and an optional exception source.
 // This is the .NET metrics source.
 // https://github.com/dotnet/diagnostics/blob/f09edf7ea9a17a86b236b91eb4c458d0469546b6/documentation/design-docs/ipc-protocol.md#collecttracing2
-func encodeEventPipeStart(samplingInterval time.Duration, exceptions bool) ([]byte, error) {
+func encodeEventPipeStart(samplingInterval time.Duration, exceptions bool, metricsSessionID string) ([]byte, error) {
 	if samplingInterval <= 0 {
 		return nil, errors.New("EventPipe sampling interval must be greater than 0")
 	}
@@ -51,6 +51,15 @@ func encodeEventPipeStart(samplingInterval time.Duration, exceptions bool) ([]by
 		keywords:  systemRuntimeKeywords,
 		level:     eventLevelInformational,
 		arguments: "EventCounterIntervalSec=" + interval,
+	}
+	if metricsSessionID != "" {
+		return encodeCollectTracing2(provider, eventPipeProvider{
+			name:     "System.Diagnostics.Metrics",
+			keywords: 0x2, // TimeSeriesValues.
+			level:    eventLevelInformational,
+			arguments: "SessionId=" + metricsSessionID + ";Metrics=System.Runtime\\dotnet.exceptions;RefreshInterval=" + interval +
+				";MaxTimeSeries=" + strconv.Itoa(maximumExceptionTypes) + ";MaxHistograms=0",
+		})
 	}
 	if !exceptions {
 		return encodeCollectTracing2(provider)
@@ -84,15 +93,16 @@ func encodeCollectTracing2(providers ...eventPipeProvider) ([]byte, error) {
 }
 
 type eventPipeSession struct {
-	id         uint64
-	socketPath string
-	stream     net.Conn
+	id               uint64
+	socketPath       string
+	stream           net.Conn
+	metricsSessionID string
 }
 
 // startEventPipe starts a .NET runtime metrics session and retains its stream.
 // The context bounds setup; after success, the caller owns the session's lifetime.
-func startEventPipe(ctx context.Context, socketPath string, samplingInterval time.Duration, exceptions bool) (*eventPipeSession, error) {
-	request, err := encodeEventPipeStart(samplingInterval, exceptions)
+func startEventPipe(ctx context.Context, socketPath string, samplingInterval time.Duration, exceptions bool, metricsSessionID string) (*eventPipeSession, error) {
+	request, err := encodeEventPipeStart(samplingInterval, exceptions, metricsSessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -135,9 +145,10 @@ func startEventPipe(ctx context.Context, socketPath string, samplingInterval tim
 
 	keepStream = true
 	return &eventPipeSession{
-		id:         binary.LittleEndian.Uint64(payload),
-		socketPath: socketPath,
-		stream:     conn,
+		id:               binary.LittleEndian.Uint64(payload),
+		socketPath:       socketPath,
+		stream:           conn,
+		metricsSessionID: metricsSessionID,
 	}, nil
 }
 
