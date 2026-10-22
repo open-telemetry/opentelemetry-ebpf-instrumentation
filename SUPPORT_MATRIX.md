@@ -6,6 +6,10 @@ While OBI remains in Development, this matrix is informational and does not yet 
 compatibility contract. After OBI declares `v1`, the entries documented here become part of the
 support matrix described in [VERSIONING.md](./VERSIONING.md).
 
+> An optional `obi_frida` build prototypes HTTP/1.1 header propagation for native
+> OpenSSL callers. This experimental path has additional native dependencies and
+> a bounded write contract; see the [Frida runtime documentation](pkg/internal/frida/README.md).
+
 ## Release Artifacts
 
 OBI publishes the following release artifacts for supported runtime platforms:

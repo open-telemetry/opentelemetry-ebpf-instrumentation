@@ -32,6 +32,10 @@ through language-specific library instrumentation documented later in this file.
 | SQL++         |    All    |         All | All                                                                                      |  Yes   |                 No | Requires HTTP payload capture (`OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`)
 | GenAI         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                   Supported vendors: OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat and /api/generate), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), vector retrieval (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate), MCP. Requires HTTP payload capture.
 
+> An optional `obi_frida` build prototypes HTTP/1.1 header propagation for native
+> OpenSSL callers. This experimental path has additional native dependencies and
+> a bounded write contract; see the [Frida runtime documentation](../pkg/internal/frida/README.md).
+
 ## GenAI token usage availability
 
 OBI exports GenAI token usage only when the provider response reports the
