@@ -28,8 +28,8 @@ extensions:
 This is a configuration fragment, retain the capture rules and exporters from your existing
 configuration. Omit `peer_cidrs` to use automatic private blocks. Reference
 environment variables explicitly using `${env:VARIABLE}` in the corresponding
-setting. The bearer token is optional and is redacted when OBI logs its effective
-configuration.
+setting. The bearer token is optional. Peer metadata settings are omitted when
+OBI logs its runtime configuration.
 
 ## Resolution
 

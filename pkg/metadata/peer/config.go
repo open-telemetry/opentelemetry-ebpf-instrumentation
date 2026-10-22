@@ -20,20 +20,20 @@ var configValidator = validator.New(validator.WithRequiredStructEnabled())
 
 // PeerMetadataConfig configures peer metadata exchange.
 type PeerMetadataConfig struct {
-	Enabled          bool                  `yaml:"enabled" env:"OTEL_EBPF_PEER_METADATA_ENABLED"`
-	ListenAddress    string                `yaml:"listen_address" env:"OTEL_EBPF_PEER_METADATA_LISTEN_ADDRESS"`
-	Port             int                   `yaml:"port" env:"OTEL_EBPF_PEER_METADATA_PORT"`
-	PeerCIDRs        []string              `yaml:"peer_cidrs" env:"OTEL_EBPF_PEER_METADATA_PEER_CIDRS" envSeparator:","`
-	RefreshInterval  time.Duration         `yaml:"refresh_interval" env:"OTEL_EBPF_PEER_METADATA_REFRESH_INTERVAL" validate:"gte=1ms"`
-	CallerTTL        time.Duration         `yaml:"caller_ttl" env:"OTEL_EBPF_PEER_METADATA_CALLER_TTL" validate:"gte=1ms"`
-	CacheTTL         time.Duration         `yaml:"cache_ttl" env:"OTEL_EBPF_PEER_METADATA_CACHE_TTL" validate:"gte=1ms"`
-	RequestTimeout   time.Duration         `yaml:"request_timeout" env:"OTEL_EBPF_PEER_METADATA_REQUEST_TIMEOUT" validate:"gte=1ms"`
-	MaxPeers         int                   `yaml:"max_peers" env:"OTEL_EBPF_PEER_METADATA_MAX_PEERS" validate:"gt=0"`
-	MaxConcurrent    int                   `yaml:"max_concurrent" env:"OTEL_EBPF_PEER_METADATA_MAX_CONCURRENT" validate:"gt=0"`
-	MaxCallerEntries int                   `yaml:"max_caller_entries" env:"OTEL_EBPF_PEER_METADATA_MAX_CALLER_ENTRIES" validate:"gt=0"`
-	MaxResponseBytes int                   `yaml:"max_response_bytes" env:"OTEL_EBPF_PEER_METADATA_MAX_RESPONSE_BYTES" validate:"gt=0"`
-	MaxCacheBytes    int                   `yaml:"max_cache_bytes" env:"OTEL_EBPF_PEER_METADATA_MAX_CACHE_BYTES" validate:"gt=0"`
-	Token            string                `yaml:"token" env:"OTEL_EBPF_PEER_METADATA_TOKEN"`
+	Enabled          bool                  `yaml:"enabled"`
+	ListenAddress    string                `yaml:"listen_address"`
+	Port             int                   `yaml:"port"`
+	PeerCIDRs        []string              `yaml:"peer_cidrs"`
+	RefreshInterval  time.Duration         `yaml:"refresh_interval" validate:"gte=1ms"`
+	CallerTTL        time.Duration         `yaml:"caller_ttl" validate:"gte=1ms"`
+	CacheTTL         time.Duration         `yaml:"cache_ttl" validate:"gte=1ms"`
+	RequestTimeout   time.Duration         `yaml:"request_timeout" validate:"gte=1ms"`
+	MaxPeers         int                   `yaml:"max_peers" validate:"gt=0"`
+	MaxConcurrent    int                   `yaml:"max_concurrent" validate:"gt=0"`
+	MaxCallerEntries int                   `yaml:"max_caller_entries" validate:"gt=0"`
+	MaxResponseBytes int                   `yaml:"max_response_bytes" validate:"gt=0"`
+	MaxCacheBytes    int                   `yaml:"max_cache_bytes" validate:"gt=0"`
+	Token            string                `yaml:"token"`
 	TLS              PeerMetadataTLSConfig `yaml:"tls"`
 }
 
@@ -41,11 +41,11 @@ type PeerMetadataConfig struct {
 type Config = PeerMetadataConfig
 
 type PeerMetadataTLSConfig struct {
-	Enabled    bool   `yaml:"enabled" env:"OTEL_EBPF_PEER_METADATA_TLS_ENABLED"`
-	CertFile   string `yaml:"cert_file" env:"OTEL_EBPF_PEER_METADATA_TLS_CERT_FILE"`
-	KeyFile    string `yaml:"key_file" env:"OTEL_EBPF_PEER_METADATA_TLS_KEY_FILE"`
-	CAFile     string `yaml:"ca_file" env:"OTEL_EBPF_PEER_METADATA_TLS_CA_FILE"`
-	ServerName string `yaml:"server_name" env:"OTEL_EBPF_PEER_METADATA_TLS_SERVER_NAME"`
+	Enabled    bool   `yaml:"enabled"`
+	CertFile   string `yaml:"cert_file"`
+	KeyFile    string `yaml:"key_file"`
+	CAFile     string `yaml:"ca_file"`
+	ServerName string `yaml:"server_name"`
 }
 
 type TLSConfig = PeerMetadataTLSConfig

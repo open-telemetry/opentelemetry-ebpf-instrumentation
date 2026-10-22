@@ -58,9 +58,11 @@ func TestConfigV1PeerMetadataMapIgnored(t *testing.T) {
 func TestConfigV1PeerMetadataNotMarshaled(t *testing.T) {
 	cfg := DefaultConfig
 	cfg.PeerMetadata.Enabled = true
+	cfg.PeerMetadata.Token = "private-peer-token"
 	data, err := yaml.Marshal(cfg)
 	require.NoError(t, err)
 	require.NotContains(t, string(data), "peer_metadata:")
+	require.NotContains(t, string(data), cfg.PeerMetadata.Token)
 }
 
 func TestConfigPeerMetadataRuntimeConfiguration(t *testing.T) {
@@ -96,14 +98,6 @@ func TestConfigPeerMetadataRuntimeValidation(t *testing.T) {
 			require.ErrorContains(t, cfg.ValidateStaticForReceiver(), "peer metadata")
 		})
 	}
-}
-
-func TestConfigPeerMetadataLogRedaction(t *testing.T) {
-	cfg := DefaultConfig
-	cfg.PeerMetadata.Token = "private-peer-token"
-	redacted := cfg.configForLogging()
-	require.Equal(t, "[REDACTED]", redacted.PeerMetadata.Token)
-	require.Equal(t, "private-peer-token", cfg.PeerMetadata.Token)
 }
 
 func TestConfigPeerMetadataDelegatesValidation(t *testing.T) {

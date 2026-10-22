@@ -576,20 +576,12 @@ func cidrDefinitionsHookFunc() mapstructure.DecodeHookFunc {
 	}
 }
 
-func (c *Config) configForLogging() Config {
-	cfg := *c
-	if cfg.PeerMetadata.Token != "" {
-		cfg.PeerMetadata.Token = "[REDACTED]"
-	}
-	return cfg
-}
-
 func (c *Config) Log() {
 	if c.LogConfig == "" {
 		return
 	}
 	var configString string
-	configYaml, err := yaml.Marshal(c.configForLogging())
+	configYaml, err := yaml.Marshal(c)
 	if err != nil {
 		slog.Warn("can't marshal configuration to YAML", "error", err)
 		return
