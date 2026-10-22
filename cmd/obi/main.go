@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/obi/cmd/obi/internal/configcmd"
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
+	"go.opentelemetry.io/obi/pkg/appolly/discover"
 	"go.opentelemetry.io/obi/pkg/buildinfo"
 	obicfg "go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
@@ -167,10 +168,16 @@ func main() {
 	// We must register the hook before we launch the pipe build, otherwise we won't clean up if the
 	// child process isn't found.
 	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	var opts []instrumenter.Option
+	if configVersion == configVersionV2 && configPath != nil && *configPath != "" {
+		updater := discover.NewCriteriaUpdater(config)
+		opts = append(opts, instrumenter.WithCriteriaUpdater(updater))
+		go watchConfig(ctx, *configPath, updater.Update)
+	}
 	var runErr error
 	if configVersion == configVersionV2 {
 		selection := instrumentations.NewInstrumentationSelection(config.OTELMetrics.Instrumentations)
-		runErr = instrumenter.RunWithProtocolMetricSelection(ctx, config, nil, &selection)
+		runErr = instrumenter.RunWithProtocolMetricSelection(ctx, config, nil, &selection, opts...)
 	} else {
 		runErr = instrumenter.Run(ctx, config)
 	}

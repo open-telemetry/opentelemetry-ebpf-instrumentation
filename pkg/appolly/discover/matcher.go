@@ -20,7 +20,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
-	"go.opentelemetry.io/obi/pkg/pipe/swarm/swarms"
 )
 
 var (
@@ -38,6 +37,7 @@ func criteriaMatcherProvider(
 	output *msg.Queue[[]Event[ProcessMatch]],
 	configCriteria []services.Selector,
 	dynamicSelector *DynamicSelector,
+	updates ...*services.CriteriaUpdates,
 ) swarm.InstanceFunc {
 	instrumenterNamespace, _ := namespaceFetcherFunc(app.PID(osPidFunc()))
 	if dynamicSelector != nil {
@@ -56,6 +56,11 @@ func criteriaMatcherProvider(
 		Namespace:           instrumenterNamespace,
 		HasHostPidAccess:    hasHostPidAccess(),
 	}
+
+	if len(updates) > 0 {
+		m.CriteriaUpdates = updates[0]
+	}
+
 	return swarm.DirectInstance(m.Run)
 }
 
@@ -74,6 +79,8 @@ type Matcher struct {
 	Output           *msg.Queue[[]Event[ProcessMatch]]
 	Namespace        string
 	HasHostPidAccess bool
+	CriteriaUpdates  *services.CriteriaUpdates
+	observed         map[app.PID]observedProcess
 }
 
 // ProcessMatch matches a found process with the first selection criteria it fulfilled.
@@ -94,24 +101,51 @@ func (pm ProcessMatch) LogEnricherEnabled() bool {
 func (m *Matcher) Run(ctx context.Context) {
 	defer m.Output.Close()
 	m.Log.Debug("starting criteria matcher node")
-	swarms.ForEachInput(ctx, m.Input, m.Log.Debug, func(i []Event[ProcessAttrs]) {
-		m.Log.Debug("filtering processes", "len", len(i))
-		o := m.filter(i)
-		m.Log.Debug("processes matching selection criteria", "len", len(o))
-		if len(o) > 0 {
-			m.Output.Send(o)
+
+	var updates <-chan services.CriteriaUpdate
+	if m.CriteriaUpdates != nil {
+		updates = m.CriteriaUpdates.Requests()
+		defer m.CriteriaUpdates.Stop()
+		m.observed = map[app.PID]observedProcess{}
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case update := <-updates:
+			m.CriteriaUpdates.Complete(update, m.refresh(ctx, update))
+		case events, ok := <-m.Input:
+			if !ok {
+				return
+			}
+			m.Log.Debug("filtering processes", "len", len(events))
+			matches := m.filter(events)
+			m.Log.Debug("processes matching selection criteria", "len", len(matches))
+			if len(matches) > 0 {
+				m.Output.SendCtx(ctx, matches)
+			}
 		}
-	})
+	}
 }
 
 func (m *Matcher) filter(events []Event[ProcessAttrs]) []Event[ProcessMatch] {
 	var matches []Event[ProcessMatch]
 	for _, ev := range events {
 		if ev.Type == EventDeleted {
+			delete(m.observed, ev.Obj.pid)
 			if ev, ok := m.filterDeleted(ev.Obj); ok {
 				matches = append(matches, ev)
 			}
 		} else {
+			if m.observed != nil {
+				proc, err := processInfo(ev.Obj)
+				if err != nil {
+					m.Log.Debug("can't get information for process", "pid", ev.Obj.pid, "error", err)
+					continue
+				}
+				m.observed[ev.Obj.pid] = observedProcess{attrs: ev.Obj, process: proc}
+			}
 			if ev, ok := m.filterCreated(ev.Obj); ok {
 				matches = append(matches, ev)
 			}
@@ -167,7 +201,7 @@ func (m *Matcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 		return Event[ProcessMatch]{}, false
 	}
 
-	proc, err := processInfo(obj)
+	proc, err := m.processInfo(obj)
 	if err != nil {
 		m.Log.Debug("can't get information for process", "pid", obj.pid, "error", err)
 		return Event[ProcessMatch]{}, false
@@ -543,4 +577,11 @@ var processInfo = func(pp ProcessAttrs) (*services.ProcessInfo, error) {
 		CmdArgs:   cmdLine,
 		OpenPorts: pp.openPorts,
 	}, nil
+}
+
+func (m *Matcher) processInfo(obj ProcessAttrs) (*services.ProcessInfo, error) {
+	if observed, ok := m.observed[obj.pid]; ok {
+		return observed.process, nil
+	}
+	return processInfo(obj)
 }

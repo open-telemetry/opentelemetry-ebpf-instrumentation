@@ -100,6 +100,7 @@ func ProcessWatcherFunc(
 	output *msg.Queue[[]Event[ProcessAttrs]],
 	findingCriteria []services.Selector,
 	rescan ProcessWatcherRescan,
+	updates ...*services.CriteriaUpdates,
 ) swarm.RunFunc {
 	acc := pollAccounter{
 		cfg:               cfg,
@@ -117,6 +118,9 @@ func ProcessWatcherFunc(
 		findingCriteria:   findingCriteria,
 		ebpfContext:       ebpfContext,
 		rescan:            rescan,
+	}
+	if len(updates) > 0 {
+		acc.criteriaUpdates = updates[0]
 	}
 	if acc.interval == 0 {
 		acc.interval = defaultPollInterval
@@ -152,11 +156,13 @@ type pollAccounter struct {
 	bpfWatcherEnabled bool
 	fetchPorts        bool
 	findingCriteria   []services.Selector
+	criteriaUpdates   *services.CriteriaUpdates
 	output            *msg.Queue[[]Event[ProcessAttrs]]
 	ebpfContext       *ebpfcommon.EBPFEventContext
 	rescan            ProcessWatcherRescan
 	// pidsMu protects pids and pidPorts so the rescan goroutine can forget while snapshot runs
-	pidsMu sync.Mutex
+	pidsMu      sync.Mutex
+	forceRescan bool
 }
 
 func (pa *pollAccounter) run(ctx context.Context) {
@@ -222,8 +228,13 @@ func (pa *pollAccounter) runRescanNotify(ctx context.Context, log *slog.Logger) 
 			if !ok {
 				return
 			}
-			pa.forgetAll()
-			log.Debug("forgot all PIDs after dynamic selection targets changed")
+			if pa.criteriaUpdates != nil {
+				pa.rescanProcesses()
+				pa.refetchPorts()
+			} else {
+				pa.forgetAll()
+			}
+			log.Debug("rescanning processes after selection targets changed")
 		}
 	}
 }
@@ -293,7 +304,11 @@ func (pa *pollAccounter) watchForProcessEvents(ctx context.Context, log *slog.Lo
 			pa.bpfWatcherIsReady()
 		case watcher.NewPort:
 			port := int(e.Payload)
-			if pa.cfg.Port.Matches(port) || portOfInterest(pa.findingCriteria, port) {
+			criteria := pa.findingCriteria
+			if pa.criteriaUpdates != nil {
+				criteria, _ = pa.criteriaUpdates.Current()
+			}
+			if pa.cfg.Port.Matches(port) || portOfInterest(criteria, port) {
 				pa.refetchPorts()
 			}
 		default:
@@ -370,6 +385,7 @@ func (pa *pollAccounter) snapshot(fetchedProcs map[app.PID]ProcessAttrs) []Event
 		}
 	}
 
+	pa.forceRescan = false
 	pa.pids = currentProcs
 	pa.pidPorts = currentPidPorts
 	return events
@@ -401,7 +417,7 @@ func (pa *pollAccounter) checkNewProcessConnectionNotification(
 	// the proc existed before iff we already had registered this pid
 	_, existingProcess := pa.pids[proc.pid]
 	// we notify the creation either if the connection and the process is new...
-	if !existingConnection || !existingProcess {
+	if pa.forceRescan || !existingConnection || !existingProcess {
 		// ...also if we haven't already reported the process in the last "snapshot" invocation
 		if _, ok := reportedProcs[pp.Pid]; !ok {
 			// avoid notifying multiple times the same process if it has multiple connections
@@ -422,7 +438,7 @@ func (pa *pollAccounter) checkNewProcessConnectionNotification(
 // It accordingly updates the reportedProcs map
 func (pa *pollAccounter) checkNewProcessNotification(pid app.PID, reportedProcs, notReadyProcs map[app.PID]struct{}) bool {
 	// the proc existed before iff we already had registered this pid from a previous snapshot
-	if _, existingProcess := pa.pids[pid]; !existingProcess {
+	if _, existingProcess := pa.pids[pid]; pa.forceRescan || !existingProcess {
 		// ...also if we haven't already reported the process in the last "snapshot" invocation
 		if _, ok := reportedProcs[pid]; !ok {
 			// avoid notifying multiple times the same process if it has multiple connections
@@ -598,4 +614,11 @@ func loadBPFWatcher(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventC
 func loadBPFLogger(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventContext, cfg *obi.Config) error {
 	wt := logger.New(cfg)
 	return ebpf.RunUtilityTracer(ctx, ebpfEventContext, wt, cfg)
+}
+
+// rescanProcesses re-emits live processes while preserving exit detection across a refresh.
+func (pa *pollAccounter) rescanProcesses() {
+	pa.pidsMu.Lock()
+	defer pa.pidsMu.Unlock()
+	pa.forceRescan = true
 }
