@@ -77,7 +77,7 @@ func TestCacheRefreshDoesNotStarvePeersUnderSustainedLoad(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.RefreshInterval = time.Millisecond
 	cfg.MaxConcurrent = 1
-	cfg.MaxPeers = 8
+	cfg.MaxPeers = 32
 	cache := newPeerCache(cfg)
 	addresses := make([]netip.Addr, cfg.MaxPeers)
 	for i := range addresses {
@@ -196,4 +196,65 @@ func TestKnownCallersRespectCachedLifetimes(t *testing.T) {
 			require.Empty(t, cache.knownCallers(requester, now.Add(cfg.CacheTTL)))
 		})
 	}
+}
+
+func TestSilentPeersDoNotExpireConfirmedMetadata(t *testing.T) {
+	cfg := DefaultConfig()
+	cache := newPeerCache(cfg)
+	start := time.Unix(1, 0)
+	addresses := make([]netip.Addr, cfg.MaxPeers)
+	for i := range addresses {
+		addresses[i] = netip.AddrFrom4([4]byte{10, 1, byte((i + 1) >> 8), byte(i + 1)})
+	}
+	confirmed := addresses[0]
+	metadata := &cachedSnapshot{hostname: "confirmed-peer"}
+	cache.lookup(confirmed, start)
+	cache.complete(cache.due(start, 1)[0], metadata, 1, start, start)
+
+	type fetch struct {
+		peer     *cachedPeer
+		started  time.Time
+		finished time.Time
+	}
+	jobs := make(chan *cachedPeer, cfg.MaxConcurrent)
+	active := make([]fetch, 0, cfg.MaxConcurrent)
+	confirmedFetches, silentFetches := 0, 0
+	const step = 100 * time.Millisecond
+	for elapsed := time.Duration(0); elapsed <= 2*cfg.CacheTTL; elapsed += step {
+		now := start.Add(elapsed)
+		for _, address := range addresses {
+			snapshot, _ := cache.lookup(address, now)
+			if address == confirmed {
+				require.Same(t, metadata, snapshot, "confirmed metadata expired after %s under silent-peer load", elapsed)
+			}
+		}
+		pending := active[:0]
+		for _, request := range active {
+			if now.Before(request.finished) {
+				pending = append(pending, request)
+				continue
+			}
+			if request.peer.address == confirmed {
+				cache.complete(request.peer, metadata, 1, request.started, now)
+				confirmedFetches++
+			} else {
+				cache.complete(request.peer, nil, 0, request.started, now)
+				silentFetches++
+			}
+		}
+		active = pending
+		for _, peer := range cache.due(now, cap(jobs)-len(jobs)) {
+			jobs <- peer
+		}
+		for len(active) < cfg.MaxConcurrent && len(jobs) > 0 {
+			peer := <-jobs
+			duration := cfg.RequestTimeout
+			if peer.address == confirmed {
+				duration = step
+			}
+			active = append(active, fetch{peer: peer, started: now, finished: now.Add(duration)})
+		}
+	}
+	require.GreaterOrEqual(t, confirmedFetches, 2)
+	require.Greater(t, silentFetches, 2*cfg.MaxConcurrent, "discovery must keep making progress")
 }

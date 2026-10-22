@@ -26,11 +26,12 @@ type cachedPeer struct {
 }
 
 type peerCache struct {
-	mu    sync.Mutex
-	cfg   Config
-	peers *simplelru.LRU[netip.Addr, *cachedPeer]
-	bytes int
-	wake  chan struct{}
+	mu           sync.Mutex
+	cfg          Config
+	peers        *simplelru.LRU[netip.Addr, *cachedPeer]
+	bytes        int
+	wake         chan struct{}
+	refreshBurst int
 }
 
 func newPeerCache(cfg Config) *peerCache {
@@ -106,12 +107,12 @@ func (c *peerCache) notify() {
 	}
 }
 
-// due expires inactive peers and reserves the earliest fetch deadlines without changing LRU order.
+// due expires inactive peers and orders refreshes and probes without changing LRU recency.
 func (c *peerCache) due(now time.Time, limit int) []*cachedPeer {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	var due []*cachedPeer
+	var refreshes, probes []*cachedPeer
 	for _, address := range c.peers.Keys() {
 		peer, _ := c.peers.Peek(address)
 		if now.Sub(peer.lastUsed) >= c.cfg.CacheTTL {
@@ -123,24 +124,37 @@ func (c *peerCache) due(now time.Time, limit int) []*cachedPeer {
 			continue
 		}
 
-		due = append(due, peer)
+		if peer.snapshot != nil && peer.failures == 0 {
+			refreshes = append(refreshes, peer)
+		} else {
+			probes = append(probes, peer)
+		}
 	}
 
-	if len(due) == 0 {
-		return nil
-	}
+	byDeadline := func(a, b *cachedPeer) int { return a.nextFetch.Compare(b.nextFetch) }
+	slices.SortStableFunc(refreshes, byDeadline)
+	slices.SortStableFunc(probes, byDeadline)
+	return c.reserveDue(refreshes, probes, limit)
+}
 
-	slices.SortStableFunc(due, func(a, b *cachedPeer) int {
-		return a.nextFetch.Compare(b.nextFetch)
-	})
-
-	due = due[:min(limit, len(due))]
-
-	for _, peer := range due {
+// reserveDue prioritizes responsive peers while keeping discovery probes moving.
+func (c *peerCache) reserveDue(refreshes, probes []*cachedPeer, limit int) []*cachedPeer {
+	var selected []*cachedPeer
+	for len(selected) < limit && len(refreshes)+len(probes) > 0 {
+		var peer *cachedPeer
+		if len(refreshes) > 0 && (len(probes) == 0 || c.refreshBurst < c.cfg.MaxConcurrent) {
+			peer = refreshes[0]
+			refreshes = refreshes[1:]
+			c.refreshBurst = min(c.refreshBurst+1, c.cfg.MaxConcurrent)
+		} else {
+			peer = probes[0]
+			probes = probes[1:]
+			c.refreshBurst = 0
+		}
 		peer.fetching = true
+		selected = append(selected, peer)
 	}
-
-	return due
+	return selected
 }
 
 // complete records a fetch result, schedules the next attempt, and enforces the cache byte budget.

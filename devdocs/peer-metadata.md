@@ -82,7 +82,10 @@ Loopback and local addresses resolve from the local inventory without HTTP.
 Link-local, multicast, and unspecified remote addresses are excluded.
 
 Only active peers refresh. Requests are coalesced per peer, use jitter, and back
-off on failure.
+off on failure. Responsive peers take refresh priority. When both refreshes and
+probes are due, one discovery or failed-peer probe is scheduled after at most
+`max_concurrent` prioritized refreshes. Each group keeps fetch-deadline order, so
+silent peers cannot monopolize refreshes and new peers still make progress.
 Remote failures leave telemetry running. Local bind errors or invalid TLS files
 abort pipeline startup. Cancellation closes the listener and background workers.
 
