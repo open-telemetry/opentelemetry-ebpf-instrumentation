@@ -124,7 +124,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_ioctl) {
             return 0;
         }
 
-        __builtin_memset(event, 0, offsetof(go_auto_span_t, buf));
+        bpf_memset(event, 0, offsetof(go_auto_span_t, buf));
         event->type = k_event_type_custom_span;
         event->size = len;
         task_pid(&event->pid);

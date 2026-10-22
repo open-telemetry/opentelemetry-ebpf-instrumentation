@@ -19,8 +19,10 @@ import (
 	"unsafe"
 
 	"github.com/cilium/ebpf/rlimit"
+	expirable2 "github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -32,6 +34,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -91,20 +94,25 @@ func TestCustomSpanTransportLive(t *testing.T) {
 				require.Greater(t, span.End, span.Start)
 				require.Equal(t, app.PID(os.Getpid()), span.Pid.HostPID)
 				require.NotEmpty(t, span.ManualOTelJSON)
+				service := &svc.Attrs{
+					UID:         svc.UID{Name: "custom-span-live"},
+					SDKLanguage: svc.InstrumentableGolang,
+				}
+				cache := expirable2.NewLRU[svc.UID, []attribute.KeyValue](10, nil, 0)
 				traces := tracesgen.GenerateTracesWithAttributes(
+					cache,
+					service,
 					nil,
-					&span.Service,
-					nil,
-					nil,
+					&metadata.NodeMeta{},
 					[]tracesgen.TraceSpanAndAttributes{{Span: &span}},
 					"custom-span-transport-live",
 				)
 				require.Equal(t, 1, traces.ResourceSpans().Len())
 				exported := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0)
 				require.Equal(t, "custom.transport", exported.Name())
-				require.Equal(t, trace.TraceID{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, exported.TraceID())
-				require.Equal(t, trace.SpanID{0, 0, 0, 0, 0, 0, 0, 2}, exported.SpanID())
-				require.Equal(t, trace.SpanID{0, 0, 0, 0, 0, 0, 0, 3}, exported.ParentSpanID())
+				require.Equal(t, trace.TraceID{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}, trace.TraceID(exported.TraceID()))
+				require.Equal(t, trace.SpanID{0, 0, 0, 0, 0, 0, 0, 2}, trace.SpanID(exported.SpanID()))
+				require.Equal(t, trace.SpanID{0, 0, 0, 0, 0, 0, 0, 3}, trace.SpanID(exported.ParentSpanID()))
 				require.Equal(t, uint64(946684800000000000), uint64(exported.StartTimestamp()))
 				require.Equal(t, uint64(946684801000000000), uint64(exported.EndTimestamp()))
 				value, found := exported.Attributes().Get("transport.source")
