@@ -1243,7 +1243,6 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			reporterName,
 			attribute.String("deployment.environment", "productions"),
 			attribute.String("source.upstream", "OBI"),
-			semconv.OTelScopeName("my-reporter"),
 		)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
@@ -1251,7 +1250,6 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		attrs := rs.Resource().Attributes()
 		ensureTraceStrAttr(t, attrs, "deployment.environment", "productions")
 		ensureTraceStrAttr(t, attrs, "source.upstream", "OBI")
-		ensureTraceStrAttr(t, attrs, "otel.scope.name", "my-reporter")
 	})
 
 	makeOpenAISpan := func(ai *request.VendorOpenAI) request.Span {

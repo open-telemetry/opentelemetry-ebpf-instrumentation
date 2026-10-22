@@ -13,7 +13,9 @@ spans:
           rpc.response.status_code: missing when the peer reports a code outside the gRPC status codes
     kind: server
     name:
-      note: Not documented yet.
+      templates:
+        - "{rpc.method}"
+        - "{rpc.system.name}"
     stability: release_candidate
     requirement_level: recommended
     brief: OBI inbound gRPC server span.
@@ -60,7 +62,9 @@ spans:
           rpc.response.status_code: missing when the peer reports a code outside the gRPC status codes
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{rpc.method}"
+        - "{rpc.system.name}"
     stability: release_candidate
     requirement_level: recommended
     brief: OBI outbound gRPC client span.
@@ -111,7 +115,9 @@ spans:
           onc_rpc.version: upstream defines the ONC RPC attributes but no ONC RPC span
     kind: server
     name:
-      note: Not documented yet.
+      templates:
+        - "{rpc.method}"
+        - "onc_rpc"
     stability: development
     requirement_level: recommended
     brief: OBI inbound ONC/Sun RPC server span.
@@ -173,7 +179,9 @@ spans:
           onc_rpc.version: upstream defines the ONC RPC attributes but no ONC RPC span
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{rpc.method}"
+        - "onc_rpc"
     stability: development
     requirement_level: recommended
     brief: OBI outbound ONC/Sun RPC client span.

@@ -1,6 +1,7 @@
 services:
   mongo:
-    image: mongo:9.0.2@sha256:c73153413b453d7d31199be36e101ab51195a4e6cff7bee8a2aa52a9769e4e11
+    # MongoDB 8+ is incompatible with the CI kernel (SERVER-121912).
+    image: mongo:7.0.30@sha256:da7bfd48ee2e48e6d0a60757f14eb26b0cb2929691ef9eded0f8cff0c77a8f9a
     ports:
       - "27017:27017"
 

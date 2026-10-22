@@ -28,7 +28,9 @@ spans:
           aws.bedrock.guardrail.id: only a Bedrock request that configured a guardrail carries one
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{gen_ai.operation.name} {gen_ai.request.model}"
+        - "{gen_ai.operation.name}"
     stability: development
     requirement_level: recommended
     brief: OBI GenAI inference client span.
@@ -165,7 +167,9 @@ spans:
           gen_ai.usage.output_tokens: reported by the provider's response
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{gen_ai.operation.name} {gen_ai.request.model}"
+        - "{gen_ai.operation.name}"
     stability: development
     requirement_level: recommended
     brief: OBI GenAI embeddings client span.
@@ -231,7 +235,9 @@ spans:
           gen_ai.usage.output_tokens: reported by the provider's response
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{gen_ai.operation.name} {gen_ai.data_source.id}"
+        - "{gen_ai.operation.name}"
     stability: development
     requirement_level: recommended
     brief: OBI GenAI vector-retrieval client span.
@@ -258,6 +264,9 @@ spans:
       - ref: gen_ai.data_source.id
         requirement_level:
           conditionally_required: if the request named a collection
+      - ref: gen_ai.request.top_k
+        requirement_level:
+          recommended: if the request set a result count
       - ref: error.type
         requirement_level:
           conditionally_required: if the operation ended in an error
@@ -290,7 +299,9 @@ spans:
         upstream_reason: upstream defines no rerank operation
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{gen_ai.operation.name} {gen_ai.request.model}"
+        - "{gen_ai.operation.name}"
     stability: development
     requirement_level: recommended
     brief: OBI GenAI rerank client span.

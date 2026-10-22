@@ -231,7 +231,8 @@ static __always_inline void update_http_sent_len(pid_connection_info_t *pid_conn
 static __always_inline http_info_t *get_or_set_http_info(http_info_t *info,
                                                          pid_connection_info_t *pid_conn,
                                                          u8 packet_type,
-                                                         u8 direction) {
+                                                         u8 direction,
+                                                         struct sock *sk) {
     if (packet_type == PACKET_TYPE_REQUEST) {
         // this connection was read as an unknown protocol before it spoke HTTP:
         // that TCP request never completes, so its trace would otherwise keep
@@ -245,7 +246,8 @@ static __always_inline http_info_t *get_or_set_http_info(http_info_t *info,
                 // A record whose response already arrived is finished, whatever came of
                 // the parse, so a request in the same epoch is the next call on a reused
                 // connection rather than a second sighting of this one.
-                if (old_info->type == req_type && !response_unread(old_info) &&
+                const u64 response_bytes = http_response_bytes_from_sock(sk, old_info->type);
+                if (old_info->type == req_type && http_response_pending(old_info, response_bytes) &&
                     is_duplicate_info(old_info)) {
                     return 0;
                 }
@@ -837,8 +839,8 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
     }
     args->self_ref_parent_id = self_ref_parent_id;
 
-    http_info_t *info =
-        get_or_set_http_info(in, &args->pid_conn, args->packet_type, args->direction);
+    http_info_t *info = get_or_set_http_info(
+        in, &args->pid_conn, args->packet_type, args->direction, (struct sock *)args->sock_ptr);
     if (!info) {
         bpf_dbg_printk("No info (or duplicate), pid=%d?", args->pid_conn.pid);
         dbg_print_http_connection_info(&args->pid_conn.conn);

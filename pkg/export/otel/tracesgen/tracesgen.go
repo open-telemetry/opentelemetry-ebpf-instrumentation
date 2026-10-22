@@ -235,7 +235,6 @@ func generateTracesWithAttributes(
 	resourceAttrs = append(resourceAttrs, envResourceAttrs...)
 	resourceAttrs = otelcfg.FilterResourceAttrs(resourceAttrs, attrSelector)
 	resourceAttrsMap := AttrsToMap(resourceAttrs)
-	resourceAttrsMap.PutStr(string(semconv.OTelScopeNameKey), reporterName)
 	extraResAttrs = otelcfg.FilterResourceAttrs(extraResAttrs, attrSelector)
 	addAttrsToMap(extraResAttrs, resourceAttrsMap)
 	resourceAttrsMap.MoveTo(rs.Resource().Attributes())
@@ -252,6 +251,9 @@ func generateTracesWithAttributes(
 		}
 
 		ss := rs.ScopeSpans().AppendEmpty()
+		ss.SetSchemaUrl(attr.OBISchemaURL)
+		ss.Scope().SetName(reporterName)
+		ss.Scope().SetVersion(attr.TelemetryDistroVersion())
 
 		t := span.Timings()
 		start := spanStartTime(t)

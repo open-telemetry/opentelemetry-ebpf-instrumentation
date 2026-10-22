@@ -89,6 +89,7 @@ func testHTTPTracesCommon(t *testing.T, doTraceID bool, httpCode int) {
 		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8080)},
 		jaeger.Tag{Key: "http.route", Type: "string", Value: "/" + slug},
 		jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+		jaeger.Tag{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
 	)
 	assert.Empty(t, sd, sd.String())
 
@@ -161,7 +162,6 @@ func testHTTPTracesCommon(t *testing.T, doTraceID bool, httpCode int) {
 	assert.Regexp(t, `^obi:\d+$$`, serviceInstance.Value)
 
 	jaeger.Diff([]jaeger.Tag{
-		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
 		{Key: "telemetry.sdk.language", Type: "string", Value: "go"},
 		{Key: "telemetry.sdk.name", Type: "string", Value: "opentelemetry"},
 		{Key: "telemetry.distro.name", Type: "string", Value: "opentelemetry-ebpf-instrumentation"},
@@ -262,7 +262,6 @@ func testGRPCTracesForServiceName(t *testing.T, svcName string) {
 	assert.Regexp(t, `^obi:\d+$$`, serviceInstance.Value)
 
 	jaeger.Diff([]jaeger.Tag{
-		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
 		{Key: "telemetry.sdk.language", Type: "string", Value: "go"},
 		{Key: "service.namespace", Type: "string", Value: "integration-test"},
 		serviceInstance,
@@ -409,7 +408,6 @@ func testHTTPTracesKProbes(t *testing.T, serviceName string, validateInstanceID 
 	}
 
 	pd := jaeger.Diff([]jaeger.Tag{
-		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
 		{Key: "telemetry.sdk.language", Type: "string", Value: sdkLanguage},
 		{Key: "telemetry.sdk.name", Type: "string", Value: "opentelemetry"},
 		{Key: "telemetry.distro.name", Type: "string", Value: "opentelemetry-ebpf-instrumentation"},
@@ -1615,6 +1613,30 @@ func testHTTPTracesNestedJSLargeHTTPS(t *testing.T) {
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/api/test-apm"})
 		require.Len(ct, traces, 1)
 		trace = traces[0]
+
+		res := trace.FindByOperationName("GET /api/test-apm", "")
+		require.Len(ct, res, 1)
+		server := res[0]
+
+		res = trace.FindByOperationName("processing", "internal")
+		var processing *jaeger.Span
+		for i := range res {
+			r := &res[i]
+			// Check parenthood
+			p, ok := trace.ParentOf(r)
+
+			if ok {
+				if p.TraceID == server.TraceID && p.SpanID == server.SpanID {
+					processing = r
+					break
+				}
+			}
+		}
+		require.NotNil(ct, processing)
+		// The HTTPS client spans end when Node's keep-alive agent closes its idle
+		// sockets, so they can reach Jaeger later than the server span.
+		// We must see two children
+		assert.Len(ct, trace.ChildrenOf(processing.SpanID), 2)
 	}, testTimeout, 100*time.Millisecond)
 
 	// Check the information of the parent span
@@ -1638,27 +1660,6 @@ func testHTTPTracesNestedJSLargeHTTPS(t *testing.T) {
 
 	children := trace.ChildrenOf(parentID)
 	require.GreaterOrEqual(t, len(children), 2)
-
-	res = trace.FindByOperationName("processing", "internal")
-
-	require.NotEmpty(t, res)
-	var processing *jaeger.Span
-	for i := range res {
-		r := &res[i]
-		// Check parenthood
-		p, ok := trace.ParentOf(r)
-
-		if ok {
-			if p.TraceID == server.TraceID && p.SpanID == server.SpanID {
-				processing = r
-				break
-			}
-		}
-	}
-	require.NotNil(t, processing)
-	children = trace.ChildrenOf(processing.SpanID)
-	// We must see two children
-	assert.Len(t, children, 2)
 }
 
 func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls int) {

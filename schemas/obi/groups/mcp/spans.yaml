@@ -17,7 +17,10 @@ spans:
           gen_ai.tool.type: MCP tool call spans are compatible with GenAI execute_tool spans (semconv MCP model)
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{mcp.method.name} {gen_ai.tool.name}"
+        - "{mcp.method.name} {gen_ai.prompt.name}"
+        - "{mcp.method.name}"
     stability: development
     requirement_level: recommended
     brief: OBI Model Context Protocol client span.
@@ -90,7 +93,10 @@ spans:
           gen_ai.tool.call.result: MCP tool call spans are compatible with GenAI execute_tool spans (semconv MCP model)
     kind: server
     name:
-      note: Not documented yet.
+      templates:
+        - "{mcp.method.name} {gen_ai.tool.name}"
+        - "{mcp.method.name} {gen_ai.prompt.name}"
+        - "{mcp.method.name}"
     stability: development
     requirement_level: recommended
     brief: OBI inbound Model Context Protocol over HTTP server span.

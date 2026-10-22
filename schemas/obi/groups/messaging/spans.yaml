@@ -51,7 +51,9 @@ spans:
           messaging.batch.message_count: OBI does not report Kafka batch sizes
     kind: producer
     name:
-      note: Not documented yet.
+      templates:
+        - "{messaging.operation.name} {messaging.destination.name}"
+        - "{messaging.operation.name}"
     stability: development
     requirement_level: recommended
     brief: OBI Kafka span for a send or a publish operation.
@@ -79,7 +81,9 @@ spans:
           messaging.batch.message_count: OBI does not report Kafka batch sizes
     kind: consumer
     name:
-      note: Not documented yet.
+      templates:
+        - "{messaging.operation.name} {messaging.destination.name}"
+        - "{messaging.operation.name}"
     stability: development
     requirement_level: recommended
     brief: OBI Kafka span for a process operation.
@@ -113,7 +117,9 @@ spans:
           messaging.batch.message_count: each span describes a single message
     kind: producer
     name:
-      note: Not documented yet.
+      templates:
+        - "{messaging.operation.name} {messaging.destination.name}"
+        - "{messaging.operation.name}"
     stability: development
     requirement_level: recommended
     brief: OBI MQTT span for a send or a publish operation.
@@ -137,7 +143,8 @@ spans:
           messaging.batch.message_count: each span describes a single message
     kind: consumer
     name:
-      note: Not documented yet.
+      templates:
+        - "{messaging.operation.name}"
     stability: development
     requirement_level: recommended
     brief: OBI MQTT span for a process operation.
@@ -169,7 +176,9 @@ spans:
           messaging.batch.message_count: each span describes a single message
     kind: producer
     name:
-      note: Not documented yet.
+      templates:
+        - "{messaging.operation.name} {messaging.destination.name}"
+        - "{messaging.operation.name}"
     stability: development
     requirement_level: recommended
     brief: OBI NATS span for a send or a publish operation.
@@ -196,7 +205,9 @@ spans:
           messaging.destination.subscription.name: NATS identifies a subscription only by a per-connection id, which is not a name
     kind: consumer
     name:
-      note: Not documented yet.
+      templates:
+        - "{messaging.operation.name} {messaging.destination.name}"
+        - "{messaging.operation.name}"
     stability: development
     requirement_level: recommended
     brief: OBI NATS span for a process operation.
@@ -224,7 +235,11 @@ spans:
           messaging.destination.name: OBI does not report AMQP 1.0 destinations
     kind: producer
     name:
-      note: Not documented yet.
+      note: >
+        The operation followed by the exchange,
+        `{messaging.operation.name} {exchange}`, or the operation alone when no
+        exchange was read. The exchange is not emitted as an attribute on AMQP
+        spans, so the name cannot be expressed as a template.
     stability: development
     requirement_level: recommended
     brief: OBI AMQP span for a send or a publish operation.
@@ -246,7 +261,11 @@ spans:
           messaging.destination.name: OBI does not report AMQP 1.0 destinations
     kind: consumer
     name:
-      note: Not documented yet.
+      note: >
+        The operation followed by the exchange,
+        `{messaging.operation.name} {exchange}`, or the operation alone when no
+        exchange was read. The exchange is not emitted as an attribute on AMQP
+        spans, so the name cannot be expressed as a template.
     stability: development
     requirement_level: recommended
     brief: OBI AMQP span for a process operation.
