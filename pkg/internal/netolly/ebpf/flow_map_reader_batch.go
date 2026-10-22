@@ -6,6 +6,8 @@ import (
 	"errors"
 
 	"github.com/cilium/ebpf"
+
+	"go.opentelemetry.io/obi/pkg/ebpf/timing"
 )
 
 // TODO: make configurable
@@ -29,20 +31,28 @@ type ebpfBatchMap interface {
 	BatchLookupAndDelete(cursor *ebpf.MapBatchCursor, keysOut, valuesOut any, opts *ebpf.BatchOptions) (int, error)
 }
 
+// monoTimeNow is the CLOCK_MONOTONIC clock that the BPF programs use to timestamp flows.
+// It is a variable so tests can control it.
+var monoTimeNow = timing.MonoTimeNow
+
 // lookupAndDeleteMap reads all the entries from the eBPF map and removes them from it.
 // It returns a map where the key is the network flow identifier (e.g. src/dst addresses)
 // and the value is the aggregated time and metrics for all the packets of this flow.
 func (fmd *flowMapBatchReader) lookupAndDeleteMap() (map[NetFlowId]*NetFlowMetrics, error) {
 	flows := make(map[NetFlowId]*NetFlowMetrics, fmd.cacheMaxSize)
-	oldestFlow := uint64(0)
+	// Entries are deleted while the map is being read, and the eBPF programs recreate them
+	// with a fresh start time right after the deletion. Per-CPU slots that are older than the
+	// start of this read are stale leftovers of deleted entries. Using the start of the read as
+	// the threshold for the next one keeps the slots that were recreated during this read. The
+	// latest flow end time is not a valid threshold: it is later than the recreation time of
+	// the entries that were read before the latest-ending flow, which would discard their bytes.
+	readStart := uint64(monoTimeNow())
 	cursor := ebpf.MapBatchCursor{}
 	for {
 		n, err := fmd.flowMap.BatchLookupAndDelete(&cursor, fmd.cachedKeys, fmd.cachedValues, nil)
-		oldestFlow = max(oldestFlow, fmd.aggregateBatch(n, fmd.cachedKeys, fmd.cachedValues, flows))
+		fmd.aggregateBatch(n, fmd.cachedKeys, fmd.cachedValues, flows)
 		if err != nil {
-			if oldestFlow != 0 {
-				fmd.lastReadNS = oldestFlow
-			}
+			fmd.lastReadNS = readStart
 			if errors.Is(err, ebpf.ErrKeyNotExist) {
 				// reaching the end of the map. We can stop reading
 				return flows, nil
@@ -52,9 +62,8 @@ func (fmd *flowMapBatchReader) lookupAndDeleteMap() (map[NetFlowId]*NetFlowMetri
 	}
 }
 
-func (fmd *flowMapBatchReader) aggregateBatch(n int, keys []NetFlowId, values []NetFlowMetrics, flows map[NetFlowId]*NetFlowMetrics) uint64 {
+func (fmd *flowMapBatchReader) aggregateBatch(n int, keys []NetFlowId, values []NetFlowMetrics, flows map[NetFlowId]*NetFlowMetrics) {
 	vi := 0
-	oldestFlow := uint64(0)
 	for ki := range n {
 		perCPUAggregated := &NetFlowMetrics{}
 		for range fmd.possibleCPUs {
@@ -67,7 +76,6 @@ func (fmd *flowMapBatchReader) aggregateBatch(n int, keys []NetFlowId, values []
 				continue
 			}
 			perCPUAggregated.Accumulate(mt)
-			oldestFlow = max(oldestFlow, mt.EndMonoTimeNs)
 		}
 		if perCPUAggregated.EndMonoTimeNs == 0 {
 			// no recent flows were accounted, skip
@@ -81,5 +89,4 @@ func (fmd *flowMapBatchReader) aggregateBatch(n int, keys []NetFlowId, values []
 			flows[keys[ki]] = perCPUAggregated
 		}
 	}
-	return oldestFlow
 }
