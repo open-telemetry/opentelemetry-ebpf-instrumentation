@@ -18,29 +18,41 @@ type runtimeCollection struct {
 	// ProcessorCount is emitted when the session is enabled, not every interval.
 	processorCount *int64
 	// Type labels survive reconnects; counts belong to this session.
-	exceptionTypes *exceptionTypes
-	exceptions     map[string]uint64
+	exceptionTypes        *exceptionTypes
+	exceptions            map[string]uint64
+	exceptionsUnavailable bool
 }
 
 func (c *runtimeCollection) observeEvent(event netTraceRuntimeEvent) (*runtimemetrics.DotnetRuntimeMetricSnapshot, error) {
+	if event.exceptionsUnavailable {
+		c.exceptions = nil
+		c.exceptionsUnavailable = true
+		return nil, nil
+	}
+	if event.exceptionWarning != "" {
+		return nil, nil
+	}
 	if event.exceptionType != "" {
-		return nil, c.observeException(event.exceptionType)
+		if c.exceptionsUnavailable {
+			return nil, nil
+		}
+		return nil, c.observeException(event.exceptionType, event.exceptionCount)
 	}
 	return c.observe(event.counter)
 }
 
-func (c *runtimeCollection) observeException(rawName string) error {
+func (c *runtimeCollection) observeException(rawName string, count uint64) error {
 	label, err := c.exceptionTypes.labelFor(rawName)
 	if err != nil {
 		return err
 	}
-	if c.exceptions[label] >= math.MaxInt64 {
+	if count > math.MaxInt64-c.exceptions[label] {
 		return fmt.Errorf("cumulative exception count overflow for %q", label)
 	}
 	if c.exceptions == nil {
 		c.exceptions = make(map[string]uint64)
 	}
-	c.exceptions[label]++
+	c.exceptions[label] += count
 	return nil
 }
 

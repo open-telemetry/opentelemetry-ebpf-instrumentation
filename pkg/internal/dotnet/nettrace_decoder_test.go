@@ -40,9 +40,27 @@ func TestDecodeEventBlockPreservesRuntimeEventOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []netTraceRuntimeEvent{
 		{counter: runtimeCounter{Name: "processor-count", Value: 2}},
-		{exceptionType: "System.InvalidOperationException"},
+		{exceptionType: "InvalidOperationException", exceptionCount: 1},
 		{counter: runtimeCounter{Name: "processor-count", Value: 4}},
 	}, events)
+}
+
+func TestDecodeEventBlockRejectsEmptyNormalizedCLRName(t *testing.T) {
+	for _, name := range []string{"Contoso.", "[System.String]"} {
+		t.Run(name, func(t *testing.T) {
+			decoder := netTraceDecoder{pointerSize: 8, metadata: map[uint32]netTraceMetadata{
+				1: {Header: netTraceMetadataHeader{ProviderName: "Microsoft-Windows-DotNETRuntime", EventID: 80, Version: 1}},
+			}}
+			wire, err := hex.DecodeString("1400010000000000000000000000000000000000")
+			require.NoError(t, err)
+			payload := clrExceptionPayload(name, 8)
+			wire = append(wire, netTraceMetadataIDFlag|netTracePayloadSizeFlag, 1, 0)
+			wire = binary.AppendUvarint(wire, uint64(len(payload)))
+			wire = append(wire, payload...)
+			_, err = decoder.decodeEventBlock("EventBlock", wire)
+			require.ErrorContains(t, err, "empty name")
+		})
+	}
 }
 
 func TestNetTraceSequenceChecks(t *testing.T) {
@@ -96,13 +114,13 @@ func TestReadRuntimeEvents(t *testing.T) {
 	}
 	t.Run("explicit end marker", func(t *testing.T) {
 		input := append(bytes.Clone(wire), 1)
-		require.NoError(t, readRuntimeEvents(bytes.NewReader(input), 15, consume))
+		require.NoError(t, readRuntimeEvents(bytes.NewReader(input), 15, "", consume))
 	})
 	t.Run("unexpected EOF", func(t *testing.T) {
-		require.ErrorIs(t, readRuntimeEvents(bytes.NewReader(wire), 15, consume), io.EOF)
+		require.ErrorIs(t, readRuntimeEvents(bytes.NewReader(wire), 15, "", consume), io.EOF)
 	})
 	t.Run("wrong process", func(t *testing.T) {
-		require.ErrorContains(t, readRuntimeEvents(bytes.NewReader(wire), 42, consume),
+		require.ErrorContains(t, readRuntimeEvents(bytes.NewReader(wire), 42, "", consume),
 			"does not match expected PID")
 	})
 }

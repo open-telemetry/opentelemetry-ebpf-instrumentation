@@ -5,6 +5,7 @@ package dotnet // import "go.opentelemetry.io/obi/pkg/internal/dotnet"
 
 import (
 	"context"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -143,8 +144,13 @@ func (c *SessionManager) run(ctx context.Context, process *procs.ProcessHandle, 
 		target, err := resolveDiagnosticTarget(setupCtx, process, file.ServiceAttrs().EnvVars["TMPDIR"])
 		var session *eventPipeSession
 		if err == nil {
-			// CLR throw events provide the exception source for .NET 8.
-			session, err = startEventPipe(setupCtx, target.socketPath, c.interval, strings.HasPrefix(target.info.CLRVersion, "8."))
+			// Socket resolution validates CLR >= 8; the exception Meter starts at 9.
+			clrExceptions := strings.HasPrefix(target.info.CLRVersion, "8.")
+			var metricsSessionID string
+			if !clrExceptions {
+				metricsSessionID = rand.Text()
+			}
+			session, err = startEventPipe(setupCtx, target.socketPath, c.interval, clrExceptions, metricsSessionID)
 		}
 		cancel()
 		if err == nil {
@@ -216,7 +222,11 @@ func (c *SessionManager) readSession(ctx context.Context, session *eventPipeSess
 			exceptionTypes: types,
 			exceptions:     make(map[string]uint64),
 		}
-		err := readRuntimeEvents(session.stream, pid, func(event netTraceRuntimeEvent) error {
+		err := readRuntimeEvents(session.stream, pid, session.metricsSessionID, func(event netTraceRuntimeEvent) error {
+			if event.exceptionWarning != "" {
+				slog.Warn(".NET exception collection diagnostic", "pid", pid,
+					"session", session.id, "reason", event.exceptionWarning)
+			}
 			snapshot, err := collection.observeEvent(event)
 			if err != nil || snapshot == nil {
 				return err

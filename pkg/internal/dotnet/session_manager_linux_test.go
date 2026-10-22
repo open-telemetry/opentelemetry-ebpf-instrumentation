@@ -27,6 +27,19 @@ import (
 )
 
 func TestSessionManagerExceptionStreamFailure(t *testing.T) {
+	testSessionManagerExceptionStreamFailure(t, "")
+}
+
+func TestSessionManagerMeterExceptionStreamFailure(t *testing.T) {
+	testSessionManagerExceptionStreamFailure(t, "test-session")
+}
+
+func testSessionManagerExceptionStreamFailure(t *testing.T, metricsSessionID string) {
+	t.Helper()
+	typeName, delta := "Example.Failure", uint64(1)
+	if metricsSessionID != "" {
+		typeName, delta = "Failure", 3
+	}
 	for _, mode := range []string{"clean", "truncated", "lost event"} {
 		t.Run(mode, func(t *testing.T) {
 			path, stopped := serveDiagnosticIPC(t, func(conn net.Conn) error {
@@ -46,9 +59,9 @@ func TestSessionManagerExceptionStreamFailure(t *testing.T) {
 				for _, name := range []string{"working-set", "gen-0-gc-count", "gen-1-gc-count", "gen-2-gc-count", "time-in-jit"} {
 					records = append(records, netTraceRuntimeEvent{counter: runtimeCounter{Name: name, Increment: name != "working-set"}})
 				}
-				records = append(records, netTraceRuntimeEvent{exceptionType: "Example.Failure"})
+				records = append(records, netTraceRuntimeEvent{exceptionType: typeName, exceptionCount: delta})
 			}
-			wire := runtimeEventStream(t, 15, records, mode == "lost event")
+			wire := runtimeEventStreamWithMeter(t, 15, records, mode == "lost event", metricsSessionID)
 			if mode == "truncated" {
 				wire = wire[:len(wire)-1]
 			}
@@ -66,7 +79,7 @@ func TestSessionManagerExceptionStreamFailure(t *testing.T) {
 			base := totals
 			var snapshots []*runtimemetrics.DotnetRuntimeMetricSnapshot
 			manager := NewSessionManager(t.Context(), time.Second, time.Second, nil)
-			err := manager.readSession(t.Context(), &eventPipeSession{id: 42, socketPath: path, stream: stream}, 15, &exceptionTypes{},
+			err := manager.readSession(t.Context(), &eventPipeSession{id: 42, socketPath: path, stream: stream, metricsSessionID: metricsSessionID}, 15, &exceptionTypes{},
 				func(_ context.Context, snapshot *runtimemetrics.DotnetRuntimeMetricSnapshot) error {
 					if err := totals.merge(base, snapshot); err != nil {
 						return err
@@ -79,7 +92,7 @@ func TestSessionManagerExceptionStreamFailure(t *testing.T) {
 			if mode == "clean" {
 				require.NoError(t, err)
 				require.Len(t, snapshots, 2)
-				require.Equal(t, uint64(12), totals.exceptions["Failure"])
+				require.Equal(t, 10+2*delta, totals.exceptions["Failure"])
 			} else {
 				if mode == "truncated" {
 					require.ErrorIs(t, err, io.EOF)
@@ -87,9 +100,9 @@ func TestSessionManagerExceptionStreamFailure(t *testing.T) {
 					require.ErrorContains(t, err, "event loss")
 				}
 				require.Len(t, snapshots, 1)
-				require.Equal(t, uint64(11), totals.exceptions["Failure"], "the unfinished interval must not advance retained totals")
+				require.Equal(t, 10+delta, totals.exceptions["Failure"], "the unfinished interval must not advance retained totals")
 			}
-			require.Equal(t, uint64(11), snapshots[0].Exceptions["Failure"])
+			require.Equal(t, 10+delta, snapshots[0].Exceptions["Failure"])
 			require.Equal(t, uint64(10), base.exceptions["Failure"])
 		})
 	}
