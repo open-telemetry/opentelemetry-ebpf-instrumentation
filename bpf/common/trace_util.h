@@ -65,6 +65,8 @@ static __always_inline void decode_hex(unsigned char *dst, const unsigned char *
 }
 
 static __always_inline void encode_hex(unsigned char *dst, const unsigned char *src, u32 src_len) {
+    // Packet bounds checks cover constant offsets, not a widened loop index.
+#pragma unroll
     for (u32 i = 0, j = 0; i < src_len; i++) {
         unsigned char p = src[i];
         dst[j++] = hex[(p >> 4) & 0xff];

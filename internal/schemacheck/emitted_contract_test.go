@@ -157,8 +157,9 @@ func emittedSpanAttributes(span *request.Span, optional ...attr.Name) []string {
 	return keys
 }
 
-// The server branch emits the same HTTP set whatever the subtype, so every
-// server span that references attributes.obi.http.server starts from this span.
+// Every server span that references attributes.obi.http.server.common starts
+// from this span, so a protocol server span proves it sheds the HTTP request
+// and response attributes the plain HTTP server span carries.
 func populatedHTTPServerSpan(subType int) *request.Span {
 	return &request.Span{
 		Type:                request.EventTypeHTTP,
@@ -333,19 +334,23 @@ func emittedSpanCases() []emittedSpanCase {
 			},
 		},
 		{
-			// MQTT carries neither partition metadata nor an envelope size.
+			// MQTT carries neither partition metadata nor an envelope size. A
+			// SUBSCRIBE names a subscription, not a destination.
 			name:     "mqtt consumer",
 			absent:   []string{"service.peer.name"},
 			spanType: "obi.messaging.mqtt.consumer",
 			span: &request.Span{
 				Type:      request.EventTypeMQTTClient,
 				Method:    request.MessagingProcess,
-				Path:      "my/topic",
 				Statement: "mqtt-client-1",
 				Host:      "10.0.0.1",
 				HostPort:  1883,
 				Peer:      "10.0.0.1",
 				PeerPort:  54321,
+				MessagingInfo: &request.MessagingInfo{
+					SubscriptionName: "$share/workers/my/topic",
+					ConsumerGroup:    "workers",
+				},
 			},
 			optional: []attr.Name{
 				attr.NetworkPeerAddress,
@@ -692,6 +697,40 @@ func emittedSpanCases() []emittedSpanCase {
 			},
 		},
 		{
+			name:     "aws sns client",
+			spanType: "obi.aws.sns.client",
+			span: &request.Span{
+				Type:         request.EventTypeHTTPClient,
+				SubType:      request.HTTPSubtypeAWSSNS,
+				Host:         "10.0.0.1",
+				HostPort:     443,
+				HostName:     "sns-1",
+				Status:       500,
+				ProtoVersion: request.ProtoVersionHTTP11,
+				AWS: &request.AWS{SNS: request.AWSSNS{
+					Meta: request.AWSMeta{
+						RequestID: "req-3",
+						Region:    "us-east-1",
+					},
+					OperationName: "PublishBatch",
+					OperationType: "send",
+					Destination:   "my-topic",
+					TopicARN:      "arn:aws:sns:us-east-1:1:my-topic",
+					BatchCount:    2,
+				}},
+			},
+			optional: []attr.Name{
+				attr.NetworkPeerAddress,
+				attr.NetworkPeerPort,
+				attr.NetworkProtocolVersion,
+				attr.ErrorType,
+				attr.SkipSpanMetrics,
+				attr.ServicePeerName,
+			},
+			// PublishBatch returns one message id per entry, so the span carries none.
+			absent: []string{"messaging.message.id"},
+		},
+		{
 			name:     "http server",
 			spanType: "obi.http.server",
 			span:     populatedHTTPServerSpan(request.HTTPSubtypeNone),
@@ -722,7 +761,6 @@ func emittedSpanCases() []emittedSpanCase {
 				return s
 			}(),
 			optional: append([]attr.Name{attr.GraphQLDocument}, httpSpanOptional...),
-			absent:   []string{"obi.http.response.observed"},
 		},
 		{
 			name:     "mcp server",
@@ -745,7 +783,6 @@ func emittedSpanCases() []emittedSpanCase {
 				return s
 			}(),
 			optional: append([]attr.Name{attr.GenAIToolCallArguments, attr.GenAIToolCallResult}, httpSpanOptional...),
-			absent:   []string{"obi.http.response.observed"},
 		},
 		{
 			name:     "jsonrpc server",
@@ -762,7 +799,6 @@ func emittedSpanCases() []emittedSpanCase {
 				return s
 			}(),
 			optional: httpSpanOptional,
-			absent:   []string{"obi.http.response.observed"},
 		},
 		{
 			name:     "http client",

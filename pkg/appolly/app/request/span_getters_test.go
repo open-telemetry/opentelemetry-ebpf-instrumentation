@@ -528,6 +528,14 @@ func TestSpanOTELGetters_HTTPURLScheme(t *testing.T) {
 	}
 }
 
+func TestSpanOTELGetters_HTTPUrlTemplate(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.HTTPUrlTemplate)
+	require.True(t, ok)
+
+	kv := getter(&Span{Type: EventTypeHTTPClient, Path: "/users/42", Route: "/users/{id}"})
+	assert.Equal(t, semconv.URLTemplate("/users/{id}"), kv)
+}
+
 func TestSpanOTELGetters_HTTPRequestMethod(t *testing.T) {
 	getter, ok := spanOTELGetters(attr.HTTPRequestMethod)
 	require.True(t, ok, "getter should be found for HTTPRequestMethod")
@@ -1020,6 +1028,36 @@ func TestSpanOTELGetters_MessagingAttributes_NATS(t *testing.T) {
 
 	span.Method = MessagingProcess
 	assert.Equal(t, MessagingProcess, opTypeGetter(span).Value.AsString())
+}
+
+// AMQP spans carry no destination: the attribute is omitted, not emitted empty.
+func TestSpanOTELGetters_MessagingDestinationOmittedWhenUnknown(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.MessagingDestination)
+	require.True(t, ok)
+
+	assert.False(t, getter(&Span{Type: EventTypeAMQPClient, Method: MessagingPublish}).Valid())
+	assert.False(t, getter(&Span{Type: EventTypeKafkaClient}).Valid())
+	assert.Equal(t, "orders", getter(&Span{Type: EventTypeKafkaClient, Path: "orders"}).Value.AsString())
+}
+
+func TestSpanOTELGetters_MessagingSubscription(t *testing.T) {
+	getter, ok := spanOTELGetters(attr.MessagingSubscription)
+	require.True(t, ok)
+
+	subscribe := &Span{Type: EventTypeMQTTClient, Method: MessagingProcess, MessagingInfo: &MessagingInfo{SubscriptionName: "sensors/#"}}
+	kv := getter(subscribe)
+	require.True(t, kv.Valid())
+	assert.Equal(t, string(attr.MessagingSubscription), string(kv.Key))
+	assert.Equal(t, "sensors/#", kv.Value.AsString())
+	assert.Equal(t, "sensors/#", spanPromGetters(attr.MessagingSubscription)(subscribe))
+
+	for _, span := range []*Span{
+		{Type: EventTypeMQTTClient, Method: MessagingPublish, Path: "sensors/1"},
+		{Type: EventTypeKafkaClient, Method: MessagingProcess, MessagingInfo: &MessagingInfo{ConsumerGroup: "g"}},
+	} {
+		assert.False(t, getter(span).Valid())
+		assert.Empty(t, spanPromGetters(attr.MessagingSubscription)(span))
+	}
 }
 
 // TestSpanOTELGetters_MessagingOpTypeOmitted ensures messaging.operation.type

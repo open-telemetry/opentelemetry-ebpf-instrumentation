@@ -9,6 +9,7 @@ With `application_runtime` enabled, OBI collects runtime metrics from
 | `dotnet.process.cpu.count` | `dotnet_process_cpu_count` | `{cpu}` |
 | `dotnet.process.cpu.time` | `dotnet_process_cpu_time_seconds_total` | `s` |
 | `dotnet.process.memory.working_set` | `dotnet_process_memory_working_set_bytes` | `By` |
+| `dotnet.gc.last_collection.heap.size` | `dotnet_gc_last_collection_heap_size_bytes` | `By` |
 | `dotnet.gc.last_collection.memory.committed_size` | `dotnet_gc_last_collection_memory_committed_size_bytes` | `By` |
 | `dotnet.thread_pool.thread.count` | `dotnet_thread_pool_thread_count` | `{thread}` |
 | `dotnet.thread_pool.queue.length` | `dotnet_thread_pool_queue_length` | `{work_item}` |
@@ -21,14 +22,33 @@ With `application_runtime` enabled, OBI collects runtime metrics from
 | `dotnet.jit.compilation.time` | `dotnet_jit_compilation_time_seconds_total` | `s` |
 | `dotnet.thread_pool.work_item.count` | `dotnet_thread_pool_work_item_count_total` | `{work_item}` |
 | `dotnet.monitor.lock_contentions` | `dotnet_monitor_lock_contentions_total` | `{contention}` |
+| `dotnet.exceptions` | `dotnet_exceptions_total` | `{exception}` |
 
-The `dotnet.gc.heap.generation` attribute identifies `gen0`, `gen1`, and `gen2`.
+For GC collection counts, `dotnet.gc.heap.generation` identifies `gen0`, `gen1`, and `gen2`.
 Counts are exclusive: a full gen2 collection adds one to gen2, while gen0 and
 gen1 remain unchanged.
+
+Heap size reports bytes after the latest collection, including fragmentation,
+with `dotnet.gc.heap.generation` values `gen0`, `gen1`, `gen2`, `loh`, and `poh`.
+The five generation-size EventCounters supply these values on .NET 8, 9, and 10.
+Each value can increase or decrease and remains unchanged until another GC.
+The runtime polls each generation separately; a GC during polling can span two
+collection states. Missing values are omitted from that sampling round.
 
 CPU time has separate `cpu.mode=user` and `cpu.mode=system` series. CPU count
 reports the runtime's `Environment.ProcessorCount`, including its processor-count
 override, container CPU quota, and processor affinity.
+
+Exception counts are available on .NET 8. OBI subscribes to CLR
+`ExceptionThrown_V1` events through EventPipe and counts each received throw by
+its short exception type name in `error.type`. Counts start at attachment and
+retain published totals across reconnects.
+
+OBI retains at most 128 distinct names of at most 1,024 bytes each across
+reconnects. Additional or overlong names count under `_OTHER`. The decoder reads
+the exception type and skips the message in the native event payload.
+Each throw produces an event; OBI aggregates counts outside the target
+process and publishes them with each completed counter polling round.
 
 Enable .NET runtime metrics through the shared runtime metrics feature:
 
@@ -112,5 +132,7 @@ application's absolute `TMPDIR`, or `/tmp` when unset, inside that filesystem.
 Keep the application's default diagnostic port enabled.
 `DOTNET_EnableDiagnostics=0` disables collection.
 
-The implementation requests a 16 MiB EventPipe buffer per process and rejects
-detected event loss instead of accumulating incomplete counter deltas.
+The implementation requests a 16 MiB EventPipe buffer per process. Detected
+event loss discards unpublished counts and triggers reconnection. Exceptions
+during the gap are unavailable, and late loss reports cannot retract previously
+published counts.

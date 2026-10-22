@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/otel/sdk/instrumentation"
 	metricdata "go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
@@ -25,8 +26,8 @@ import (
 func TestInternalMetricsReporterBpfProbeStats(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
@@ -85,6 +86,11 @@ func produceHistogramPoint(t *testing.T, producer *bpfProbeLatencyProducer) metr
 	scopeMetrics, err := producer.Produce(t.Context())
 	require.NoError(t, err)
 	require.Len(t, scopeMetrics, 1)
+	assert.Equal(t, instrumentation.Scope{
+		Name:      internalMetricsMeterName,
+		Version:   attr.TelemetryDistroVersion(),
+		SchemaURL: attr.OBISchemaURL,
+	}, scopeMetrics[0].Scope)
 	require.Len(t, scopeMetrics[0].Metrics, 1)
 
 	histogram, ok := scopeMetrics[0].Metrics[0].Data.(metricdata.Histogram[float64])
@@ -120,8 +126,8 @@ func TestBpfProbeLatencyProducerBucketCounts(t *testing.T) {
 func TestInternalMetricsReporterQueueBufferUtilization(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
@@ -149,8 +155,8 @@ func TestInternalMetricsReporterQueueBufferUtilization(t *testing.T) {
 func TestInternalMetricsReporterBPFRingbufWriteCounts(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
@@ -194,8 +200,8 @@ func TestInternalMetricsReporterBPFRingbufWriteCounts(t *testing.T) {
 func TestInternalMetricsReporterInvalidUTF8ProcessName(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
@@ -222,8 +228,8 @@ func TestInternalMetricsReporterInvalidUTF8ProcessName(t *testing.T) {
 func TestInternalMetricsReporterAvoidedServicesBounded(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},
@@ -277,8 +283,8 @@ func TestInternalMetricsReporterAvoidedServicesBounded(t *testing.T) {
 func TestInternalMetricsReporterAvoidedServicesDisabled(t *testing.T) {
 	metricRecords := make(chan collector.MetricRecord, 16)
 	mcfg := &otelcfg.MetricsConfig{
-		Interval:        10 * time.Millisecond,
-		MetricsConsumer: testMetricsConsumer(metricRecords),
+		Interval:      10 * time.Millisecond,
+		MetricsExport: testMetricsConsumer(metricRecords),
 	}
 	ctxInfo := &global.ContextInfo{
 		NodeMeta:            metadata.NodeMeta{HostID: "test-host"},

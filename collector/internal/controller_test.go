@@ -14,7 +14,12 @@ import (
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componenttest"
 
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/instrumenter"
+	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/pipe/global"
 )
 
 func TestShutdownAfterStartFailureCleansSharedController(t *testing.T) {
@@ -64,6 +69,166 @@ func TestShutdownAfterStartFailureCleansSharedController(t *testing.T) {
 	}
 }
 
+func TestRunOutlivesStartContext(t *testing.T) {
+	runCtxs := make(chan context.Context, 1)
+	originalRunOBI := runOBI
+	t.Cleanup(func() { runOBI = originalRunOBI })
+	runOBI = func(
+		ctx context.Context, _ *obi.Config, _ *global.ContextInfo,
+		_ *instrumentations.InstrumentationSelection, _ ...instrumenter.Option,
+	) error {
+		runCtxs <- ctx
+		<-ctx.Done()
+		return nil
+	}
+
+	id := component.MustNewIDWithName("obi", "start-context")
+	cfg := &obi.Config{}
+	cfg.Attributes.HostID.Override = "test-host-id"
+	cfg.Attributes.MetadataRetry = metadata.RetryConfig{Timeout: time.Millisecond}
+	cfg.Attributes.Kubernetes.Enable = kubeflags.EnabledFalse
+	c := newTestController(t, id, cfg)
+
+	startCtx, cancelStart := context.WithCancel(context.Background())
+	if err := c.Start(startCtx, componenttest.NewNopHost()); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+	cancelStart()
+
+	timer := newShutdownTimer(t)
+	defer stopTestTimer(timer)
+
+	var runCtx context.Context
+	select {
+	case runCtx = <-runCtxs:
+	case <-timer.C:
+		t.Fatal("OBI run loop was not started")
+	}
+	if runCtx.Err() != nil {
+		t.Fatal("canceling the Start context stopped OBI")
+	}
+
+	if err := c.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown returned error: %v", err)
+	}
+	if runCtx.Err() == nil {
+		t.Fatal("Shutdown did not stop OBI")
+	}
+}
+
+func TestStartWithCanceledContextDoesNotRunOBI(t *testing.T) {
+	runCalls := make(chan struct{}, 1)
+	originalRunOBI := runOBI
+	t.Cleanup(func() { runOBI = originalRunOBI })
+	runOBI = func(
+		_ context.Context, _ *obi.Config, _ *global.ContextInfo,
+		_ *instrumentations.InstrumentationSelection, _ ...instrumenter.Option,
+	) error {
+		runCalls <- struct{}{}
+		return nil
+	}
+
+	id := component.MustNewIDWithName("obi", "canceled-start")
+	cfg := &obi.Config{}
+	cfg.Attributes.HostID.Override = "test-host-id"
+	cfg.Attributes.MetadataRetry = metadata.RetryConfig{Timeout: time.Millisecond}
+	cfg.Attributes.Kubernetes.Enable = kubeflags.EnabledFalse
+	c := newTestController(t, id, cfg)
+
+	startCtx, cancelStart := context.WithCancel(context.Background())
+	cancelStart()
+
+	if err := c.Start(startCtx, componenttest.NewNopHost()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected Start to return context.Canceled, got %v", err)
+	}
+	select {
+	case <-runCalls:
+		t.Fatal("OBI was started with a canceled Start context")
+	default:
+	}
+
+	if err := c.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown returned error after canceled start: %v", err)
+	}
+	sharedControllersMu.Lock()
+	_, stillRegistered := sharedControllers[id]
+	sharedControllersMu.Unlock()
+	if stillRegistered {
+		t.Fatal("shared controller was not removed after canceled start")
+	}
+}
+
+func TestShutdownOfUnstartedSiblingKeepsOBIRunning(t *testing.T) {
+	runCtxs := make(chan context.Context, 1)
+	originalRunOBI := runOBI
+	t.Cleanup(func() { runOBI = originalRunOBI })
+	runOBI = func(
+		ctx context.Context, _ *obi.Config, _ *global.ContextInfo,
+		_ *instrumentations.InstrumentationSelection, _ ...instrumenter.Option,
+	) error {
+		runCtxs <- ctx
+		<-ctx.Done()
+		return nil
+	}
+
+	id := component.MustNewIDWithName("obi", "unstarted-sibling")
+	cfg := &obi.Config{}
+	cfg.Attributes.HostID.Override = "test-host-id"
+	cfg.Attributes.MetadataRetry = metadata.RetryConfig{Timeout: time.Millisecond}
+	cfg.Attributes.Kubernetes.Enable = kubeflags.EnabledFalse
+	running := newTestController(t, id, cfg)
+	sibling := newTestController(t, id, cfg)
+	if sibling.shared != running.shared {
+		t.Fatal("expected both receivers to share the controller")
+	}
+
+	if err := running.Start(context.Background(), componenttest.NewNopHost()); err != nil {
+		t.Fatalf("Start returned error: %v", err)
+	}
+
+	timer := newShutdownTimer(t)
+	defer stopTestTimer(timer)
+
+	var runCtx context.Context
+	select {
+	case runCtx = <-runCtxs:
+	case <-timer.C:
+		t.Fatal("OBI run loop was not started")
+	}
+
+	canceledCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := sibling.Start(canceledCtx, componenttest.NewNopHost()); !errors.Is(err, context.Canceled) {
+		t.Fatalf("expected sibling Start to return context.Canceled, got %v", err)
+	}
+
+	if err := sibling.Shutdown(context.Background()); err != nil {
+		t.Fatalf("sibling Shutdown returned error: %v", err)
+	}
+	if runCtx.Err() != nil {
+		t.Fatal("shutting down the unstarted sibling stopped OBI")
+	}
+	sharedControllersMu.Lock()
+	registered, stillRegistered := sharedControllers[id]
+	sharedControllersMu.Unlock()
+	if !stillRegistered || registered != running.shared {
+		t.Fatal("shutting down the unstarted sibling removed the running receiver's registration")
+	}
+
+	if err := running.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown returned error: %v", err)
+	}
+	if runCtx.Err() == nil {
+		t.Fatal("Shutdown did not stop OBI")
+	}
+	sharedControllersMu.Lock()
+	_, stillRegistered = sharedControllers[id]
+	sharedControllersMu.Unlock()
+	if stillRegistered {
+		t.Fatal("shared controller was not removed after the last Shutdown")
+	}
+}
+
 func TestShutdownRespectsContextDeadline(t *testing.T) {
 	id := component.MustNewIDWithName("obi", "ctx-deadline")
 	c := newTestController(t, id, &obi.Config{})
@@ -74,6 +239,7 @@ func TestShutdownRespectsContextDeadline(t *testing.T) {
 	_, simulatedCancel := context.WithCancel(context.Background())
 	defer simulatedCancel()
 	c.shared.mu.Lock()
+	c.started = true
 	c.shared.refCnt = 1
 	c.shared.cancel = simulatedCancel
 	c.shared.runDone = neverDone

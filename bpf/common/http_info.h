@@ -95,6 +95,12 @@ static __always_inline bool response_unread(const http_info_t *info) {
     return info->status == 0 && info->response_observation == http_response_unread;
 }
 
+// Socket counters also reveal responses forwarded without a readable payload, as with splice.
+static __always_inline bool http_response_pending(const http_info_t *info, u64 response_bytes) {
+    return still_reading(info) &&
+           !http_response_bytes_advanced(info->response_bytes_at_request, response_bytes);
+}
+
 // Reports whether a buffer traveling in this direction carries the response to this
 // record's request: inbound for a call this process made, outbound for one it served.
 static __always_inline bool http_response_direction(const http_info_t *info, u8 direction) {

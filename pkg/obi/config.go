@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,8 +19,6 @@ import (
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/invopop/jsonschema"
 	"gopkg.in/yaml.v3"
-
-	"go.opentelemetry.io/collector/confmap"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/cloud"
@@ -174,6 +173,7 @@ var DefaultConfig = Config{
 					EndpointPatterns: []string{
 						"/query/service",
 					},
+					PreparedStatementsCacheSize: 1024,
 				},
 				GenAI: config.GenAIConfig{
 					OpenAI: config.OpenAIConfig{
@@ -517,12 +517,11 @@ type HealthCheckConfig struct {
 	UnixSocketPath string `yaml:"unix_socket_path" env:"OTEL_EBPF_HEALTH_CHECK_UNIX_SOCKET_PATH"`
 }
 
-func (c *Config) Unmarshal(component *confmap.Conf) error {
-	if component == nil {
+// UnmarshalMap decodes an OBI configuration from a map of YAML field names.
+func (c *Config) UnmarshalMap(raw map[string]any) error {
+	if raw == nil {
 		return nil
 	}
-
-	raw := component.ToStringMap()
 
 	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		TagName:          "yaml",
@@ -543,7 +542,11 @@ func (c *Config) Unmarshal(component *confmap.Conf) error {
 		return err
 	}
 
-	return dec.Decode(raw)
+	if err := dec.Decode(raw); err != nil {
+		return err
+	}
+	c.normalizeV1ResolverSources()
+	return nil
 }
 
 func cidrDefinitionsHookFunc() mapstructure.DecodeHookFunc {
@@ -1121,9 +1124,22 @@ func LoadConfig(file io.Reader) (*Config, error) {
 		return nil, fmt.Errorf("reading env vars: %w", err)
 	}
 
+	cfg.normalizeV1ResolverSources()
 	cfg.normalize()
 
 	return &cfg, nil
+}
+
+func (c *Config) normalizeV1ResolverSources() {
+	if c.NameResolver == nil {
+		return
+	}
+	// Legacy configurations retain the pre-GCE set of resolver sources.
+	resolver := *c.NameResolver
+	resolver.Sources = slices.DeleteFunc(slices.Clone(resolver.Sources), func(source transform.Source) bool {
+		return strings.EqualFold(string(source), string(transform.SourceGCE))
+	})
+	c.NameResolver = &resolver
 }
 
 func registerCustomValidations(validate *validator.Validate, customValidations CustomValidations) error {

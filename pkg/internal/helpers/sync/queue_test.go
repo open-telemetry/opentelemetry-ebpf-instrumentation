@@ -5,6 +5,7 @@ package sync
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +17,32 @@ import (
 )
 
 const timeout = 5 * time.Second
+
+func TestQueueReleasesDequeuedValues(t *testing.T) {
+	const payloadSize = 1024
+	q := NewQueue[*[payloadSize]byte]()
+	released := make(chan struct{}, 1)
+	func() {
+		value := new([payloadSize]byte)
+		runtime.AddCleanup(value, func(done chan struct{}) { done <- struct{}{} }, released)
+		q.Enqueue(value)
+	}()
+	q.Enqueue(new([payloadSize]byte))
+
+	_, err := q.DequeueContext(t.Context())
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool {
+		runtime.GC()
+		select {
+		case <-released:
+			return true
+		default:
+			return false
+		}
+	}, timeout, 10*time.Millisecond, "dequeued value is still reachable from a non-empty queue")
+	runtime.KeepAlive(q)
+}
 
 func TestQueueDequeueBlockingIfEmpty(t *testing.T) {
 	// GIVEN an empty queue
@@ -119,4 +146,24 @@ func TestSynchronization(t *testing.T) {
 		available <- q.Dequeue()
 	}()
 	testutil.ChannelEmpty(t, available, 10*time.Millisecond)
+}
+
+func TestQueueTryDequeue(t *testing.T) {
+	q := NewQueue[int]()
+
+	_, ok := q.TryDequeue()
+	assert.False(t, ok)
+
+	q.Enqueue(1)
+	q.Enqueue(2)
+
+	v, ok := q.TryDequeue()
+	require.True(t, ok)
+	assert.Equal(t, 1, v)
+	v, ok = q.TryDequeue()
+	require.True(t, ok)
+	assert.Equal(t, 2, v)
+
+	_, ok = q.TryDequeue()
+	assert.False(t, ok)
 }

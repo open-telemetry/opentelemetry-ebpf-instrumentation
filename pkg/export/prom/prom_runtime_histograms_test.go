@@ -20,9 +20,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
-	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/expire"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
@@ -570,14 +570,14 @@ func TestGoRuntimeHistogramCollectorSupportsConcurrentUpdateCollectAndDelete(_ *
 	waitGroup.Wait()
 }
 
-func newGoRuntimeHistogramTestReporter(t *testing.T) (*metricsReporter, *prometheus.Registry) {
+func newGoRuntimeHistogramTestReporter(t *testing.T) (*metricsReporter, prometheus.Gatherer) {
 	t.Helper()
 
-	registry := prometheus.NewRegistry()
+	registry := testutil.NewPrometheusServer(t)
 	reporter, err := newReporter(
 		t.Context(),
-		&global.ContextInfo{Prometheus: &connector.PrometheusManager{}},
-		&PrometheusConfig{Registry: registry, TTL: time.Minute},
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{Port: registry.Port, Path: "/metrics", TTL: time.Minute},
 		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
 		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
 			attributes.Resource.Section: attributes.InclusionLists{
@@ -611,7 +611,7 @@ func testPromRuntimeHistogramMetricSnapshot(
 	}
 }
 
-func assertGoRuntimeHistogramReporterMetrics(t *testing.T, registry *prometheus.Registry, present bool) {
+func assertGoRuntimeHistogramReporterMetrics(t *testing.T, registry prometheus.Gatherer, present bool) {
 	t.Helper()
 
 	labels := map[string]string{

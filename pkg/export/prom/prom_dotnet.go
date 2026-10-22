@@ -5,6 +5,7 @@ package prom // import "go.opentelemetry.io/obi/pkg/export/prom"
 
 import (
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -28,7 +29,9 @@ type dotnetRuntimeMetricsCollector struct {
 	jitCompilationTime      *Expirer[prometheus.Counter]
 	threadPoolWorkItemCount *Expirer[prometheus.Counter]
 	monitorLockContentions  *Expirer[prometheus.Counter]
+	exceptions              *Expirer[prometheus.Counter]
 	processMemoryWorkingSet *Expirer[prometheus.Gauge]
+	gcHeapSize              *Expirer[prometheus.Gauge]
 	gcCommittedMemory       *Expirer[prometheus.Gauge]
 	threadPoolThreadCount   *Expirer[prometheus.Gauge]
 	threadPoolQueueLength   *Expirer[prometheus.Gauge]
@@ -61,6 +64,7 @@ type dotnetRuntimeGaugeAggregate struct {
 type dotnetRuntimeCurrentAggregate struct {
 	processCPUCount         dotnetRuntimeGaugeAggregate
 	processMemoryWorkingSet dotnetRuntimeGaugeAggregate
+	gcHeapSize              [runtimemetrics.DotnetHeapGenerationCount]dotnetRuntimeGaugeAggregate
 	gcCommittedMemory       dotnetRuntimeGaugeAggregate
 	threadPoolThreadCount   dotnetRuntimeGaugeAggregate
 	threadPoolQueueLength   dotnetRuntimeGaugeAggregate
@@ -106,6 +110,12 @@ func (c *dotnetRuntimeMetricsCollector) delete(values []string) {
 	for generation := range runtimemetrics.DotnetGCGenerationCount {
 		labels[len(labels)-1] = fmt.Sprintf("gen%d", generation)
 		c.collections.DeleteLabelValues(labels...)
+	}
+	// Series outlive process baselines, so find them in the exporter cache.
+	for _, entry := range c.exceptions.entries.All() {
+		if slices.Equal(entry.LabelVals[:len(entry.LabelVals)-1], labels[:len(labels)-1]) {
+			c.exceptions.DeleteLabelValues(entry.LabelVals...)
+		}
 	}
 	for key := range c.values {
 		if key.baseLabels == baseLabels {
@@ -190,6 +200,20 @@ func (r *metricsReporter) collectDotnetRuntimeMetrics(snapshot runtimemetrics.Ru
 	replacement := current
 	replacement.values = oldValues
 	c.updateCurrentMetrics(replacement, &current.values)
+	for label, count := range snapshot.Dotnet.Exceptions {
+		counterLabels := append(append([]string(nil), labels...), label)
+		key := dotnetRuntimeCounterKey{
+			pid: snapshot.PID, generation: snapshot.Generation, metric: attributes.DotnetExceptions.Prom,
+			labels: expire.LabelsKey(counterLabels), baseLabels: current.labelTuple,
+		}
+		var baseline *uint64
+		if previous, exists := c.values[key]; exists {
+			baseline = &previous
+		}
+		delta := runtimemetrics.CounterDelta(baseline, count)
+		c.exceptions.WithLabelValues(counterLabels...).Metric.Add(float64(delta))
+		c.values[key] = count
+	}
 	for _, counter := range []struct {
 		name   string
 		metric *Expirer[prometheus.Counter]
@@ -319,23 +343,15 @@ func (c *dotnetRuntimeMetricsCollector) updateCurrentMetrics(entry dotnetRuntime
 		{c.timerCount, &aggregate.timerCount, entry.values.TimerCount, next.TimerCount},
 		{c.assemblyCount, &aggregate.assemblyCount, entry.values.AssemblyCount, next.AssemblyCount},
 	} {
-		if current.value != nil {
-			current.aggregate.sum -= float64(*current.value)
-			current.aggregate.contributors--
-		}
-		if current.aggregate.contributors == 0 {
-			current.aggregate.sum = 0
-		}
-		if current.next != nil {
-			current.aggregate.sum += float64(*current.next)
-			current.aggregate.contributors++
-		}
-		if current.aggregate.contributors > 0 {
+		if current.aggregate.update(current.metric, current.value, current.next, entry.labels) {
 			available = true
-			current.metric.WithLabelValues(entry.labels...).Metric.Set(current.aggregate.sum)
-		} else {
-			current.aggregate.sum = 0
-			current.metric.DeleteLabelValues(entry.labels...)
+		}
+	}
+	for generation, name := range runtimemetrics.DotnetHeapGenerations() {
+		// Expirer retains label slices; each generation owns its labels.
+		labels := append(append([]string(nil), entry.labels...), name)
+		if aggregate.gcHeapSize[generation].update(c.gcHeapSize, entry.values.GCHeapSize[generation], next.GCHeapSize[generation], labels) {
+			available = true
 		}
 	}
 	if !available {
@@ -343,11 +359,32 @@ func (c *dotnetRuntimeMetricsCollector) updateCurrentMetrics(entry dotnetRuntime
 	}
 }
 
+func (a *dotnetRuntimeGaugeAggregate) update(metric *Expirer[prometheus.Gauge], previous, next *int64, labels []string) bool {
+	if previous != nil {
+		a.sum -= float64(*previous)
+		a.contributors--
+	}
+	if a.contributors == 0 {
+		a.sum = 0
+	}
+	if next != nil {
+		a.sum += float64(*next)
+		a.contributors++
+	}
+	if a.contributors > 0 {
+		metric.WithLabelValues(labels...).Metric.Set(a.sum)
+		return true
+	}
+	a.sum = 0
+	metric.DeleteLabelValues(labels...)
+	return false
+}
+
 func newDotnetRuntimeMetricsCollector(runtimeLabelNames []string, clock expire.Clock, ttl time.Duration) dotnetRuntimeMetricsCollector {
 	labels := make([]string, 0, len(runtimeLabelNames)+1)
 	baseLabelIndexes := make([]int, 0, len(runtimeLabelNames))
 	for index, name := range runtimeLabelNames {
-		if name == attr.DotnetGCHeapGeneration.Prom() || name == attr.CPUMode.Prom() {
+		if name == attr.DotnetGCHeapGeneration.Prom() || name == attr.CPUMode.Prom() || name == attr.ErrorType.Prom() {
 			continue
 		}
 		labels = append(labels, name)
@@ -355,6 +392,7 @@ func newDotnetRuntimeMetricsCollector(runtimeLabelNames []string, clock expire.C
 	}
 	baseLabels := labels
 	cpuLabels := append(append([]string(nil), baseLabels...), attr.CPUMode.Prom())
+	exceptionLabels := append(append([]string(nil), baseLabels...), attr.ErrorType.Prom())
 	labels = append(labels, attr.DotnetGCHeapGeneration.Prom())
 	return dotnetRuntimeMetricsCollector{
 		processCPUCount: newRuntimeGauge(attributes.DotnetProcessCPUCount.Prom,
@@ -397,6 +435,12 @@ func newDotnetRuntimeMetricsCollector(runtimeLabelNames []string, clock expire.C
 		}, baseLabels).MetricVec, clock, ttl),
 		processMemoryWorkingSet: newRuntimeGauge(attributes.DotnetProcessMemoryWorkingSet.Prom,
 			"Current physical memory mapped to the .NET process in bytes.", baseLabels, clock, ttl),
+		exceptions: NewExpirer[prometheus.Counter](prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: attributes.DotnetExceptions.Prom,
+			Help: "Managed exceptions observed since attachment, by type.",
+		}, exceptionLabels).MetricVec, clock, ttl),
+		gcHeapSize: newRuntimeGauge(attributes.DotnetGCHeapSize.Prom,
+			"Managed .NET heap size including fragmentation at the latest collection in bytes.", labels, clock, ttl),
 		gcCommittedMemory: newRuntimeGauge(attributes.DotnetGCCommittedMemory.Prom,
 			"Committed .NET GC memory at the latest collection in bytes.", baseLabels, clock, ttl),
 		threadPoolThreadCount: newRuntimeGauge(attributes.DotnetThreadPoolThreadCount.Prom,

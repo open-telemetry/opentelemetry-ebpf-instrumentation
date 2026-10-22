@@ -602,6 +602,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	cfg.EBPF.PayloadExtraction.HTTP.AWS.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.SQLPP.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.SQLPP.EndpointPatterns = []string{"/query", "/analytics"}
+	cfg.EBPF.PayloadExtraction.HTTP.SQLPP.PreparedStatementsCacheSize = 77
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.OpenAI.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Anthropic.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Gemini.Enabled = true
@@ -681,6 +682,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "ollama", "jsonrpc", "enrichment",
 	}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enabled"))
 	require.Equal(t, []string{"/query", "/analytics"}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "sqlpp", "endpoint_patterns"))
+	require.Equal(t, 77, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "sqlpp", "prepared_statements_cache_size"))
 	require.Equal(t, config.HTTPParsingActionInclude, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enrichment", "policy", "default_action", "headers"))
 	require.Equal(t, config.HTTPParsingActionObfuscate, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enrichment", "policy", "default_action", "body"))
 	require.Equal(t, "[redacted]", value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enrichment", "policy", "obfuscation_string"))

@@ -16,6 +16,15 @@ import (
 
 func runtimeCounterStream(t *testing.T, pid int32, counters []runtimeCounter) []byte {
 	t.Helper()
+	events := make([]netTraceRuntimeEvent, len(counters))
+	for i, counter := range counters {
+		events[i].counter = counter
+	}
+	return runtimeEventStream(t, pid, events, false)
+}
+
+func runtimeEventStream(t *testing.T, pid int32, records []netTraceRuntimeEvent, reportLoss bool) []byte {
+	t.Helper()
 	write := func(buffer *bytes.Buffer, value any) {
 		t.Helper()
 		require.NoError(t, binary.Write(buffer, binary.LittleEndian, value))
@@ -97,10 +106,26 @@ func runtimeCounterStream(t *testing.T, pid int32, counters []runtimeCounter) []
 	write(&metadata, netTraceTypeInt32)
 	writeString(&metadata, "processorCount")
 	writeEvent(&events, 0, metadata.Bytes())
+	metadata.Reset()
+	write(&metadata, uint32(3))
+	writeString(&metadata, "Microsoft-Windows-DotNETRuntime")
+	write(&metadata, uint32(80))
+	writeString(&metadata, "ExceptionThrown")
+	write(&metadata, uint64(0x8000))
+	write(&metadata, uint32(1))
+	write(&metadata, uint32(2))
+	write(&metadata, uint32(0))
+	writeEvent(&events, 0, metadata.Bytes())
 	writeBlock("MetadataBlock", events.Bytes())
 	events.Reset()
-	for _, counter := range counters {
+	for _, record := range records {
 		var payload bytes.Buffer
+		if record.exceptionType != "" {
+			payload.Write(clrExceptionPayload(record.exceptionType, 8))
+			writeEvent(&events, 3, payload.Bytes())
+			continue
+		}
+		counter := record.counter
 		if counter.Name == "processor-count" {
 			write(&payload, int32(counter.Value))
 			writeEvent(&events, 2, payload.Bytes())
@@ -118,6 +143,20 @@ func runtimeCounterStream(t *testing.T, pid int32, counters []runtimeCounter) []
 		writeEvent(&events, 1, payload.Bytes())
 	}
 	writeBlock("EventBlock", events.Bytes())
+	if reportLoss {
+		var checkpoint bytes.Buffer
+		write(&checkpoint, uint64(0))              // Timestamp.
+		write(&checkpoint, uint32(1))              // One capture thread.
+		write(&checkpoint, uint64(0))              // Default capture thread used by the events.
+		write(&checkpoint, uint32(len(records)+1)) // One event was not delivered.
+		writeHeader(&stream, "SPBlock", 2)
+		write(&stream, uint32(checkpoint.Len()))
+		for stream.Len()%4 != 0 {
+			stream.WriteByte(0)
+		}
+		stream.Write(checkpoint.Bytes())
+		stream.WriteByte(fastSerializationEndObject)
+	}
 	stream.WriteByte(fastSerializationNullReference)
 	return stream.Bytes()
 }

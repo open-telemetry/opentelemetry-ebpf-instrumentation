@@ -72,6 +72,45 @@ extensions:
 	require.Len(t, cfg.EBPF.LogEnricher.Services, 1)
 }
 
+func TestLoadConfigV2GCEServiceName(t *testing.T) {
+	t.Setenv("GCE_TEST_ENDPOINT", "http://compute-mock/")
+	// Legacy overrides do not change a declarative v2 configuration.
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "rdns")
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_GCE_PROJECT_ID", "legacy-project")
+	for _, tc := range []struct {
+		name    string
+		project string
+		zone    string
+	}{
+		{name: "detected scope"},
+		{name: "explicit scope", project: "test-project", zone: "us-central1-a"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("GCE_TEST_PROJECT_ID", tc.project)
+			t.Setenv("GCE_TEST_ZONE", tc.zone)
+			data, err := os.ReadFile("../../internal/test/integration/configs/obi-config-gce-v2.yml")
+			require.NoError(t, err)
+			cfg, version, err := loadConfigReader(bytes.NewReader(data))
+			require.NoError(t, err)
+			require.Equal(t, configVersionV2, version)
+			require.NoError(t, cfg.Validate())
+			require.Equal(t, []transform.Source{transform.SourceGCE}, cfg.NameResolver.Sources)
+			require.Equal(t, transform.GCENameResolverConfig{
+				ProjectID: tc.project, Zone: tc.zone, Endpoint: "http://compute-mock/",
+			}, cfg.NameResolver.GCE)
+			require.Equal(t, time.Second, cfg.CloudMetadata.RefreshInterval)
+			require.ElementsMatch(t, []string{"application", "application_span_otel", "application_service_graph"}, cfg.Metrics.Features.Names())
+			require.Equal(t, "custom-exported-host", cfg.Attributes.HostID.Override)
+			require.Equal(t, 8999, cfg.Prometheus.Port)
+			require.Equal(t, "http://otelcol:4318", cfg.Traces.TracesEndpoint)
+			require.Equal(t, "http://otelcol:4318", cfg.OTELMetrics.MetricsEndpoint)
+			require.Len(t, cfg.Discovery.Instrument, 1)
+			require.True(t, cfg.Discovery.Instrument[0].OpenPorts.Matches(8080))
+			require.False(t, cfg.Discovery.Instrument[0].OpenPorts.Matches(8081))
+		})
+	}
+}
+
 func TestLoadConfigV2ReplacesEnvironmentVariables(t *testing.T) {
 	t.Setenv("OBI_V2_BUFFER_LEN", "321")
 

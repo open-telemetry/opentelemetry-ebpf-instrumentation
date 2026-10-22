@@ -90,6 +90,15 @@ A removal goes under "Pending release notes" below instead: the format has
 `rename_attributes` and `rename_metrics` and no operation for dropping something.
 
 ```yaml
+metrics:
+  changes:
+    - rename_attributes:
+        attribute_map:
+          http.route: url.template
+        apply_to_metrics:
+          - http.client.request.duration
+          - http.client.request.body.size
+          - http.client.response.body.size
 ```
 
 ### Pending release notes
@@ -101,83 +110,31 @@ published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
-- Config v2 protocol `enabled.metrics: false` now suppresses span metrics and
-  service graphs for that protocol, for both OTLP and Prometheus. Config v1
-  retains its existing behavior. The migration CLI reports configurations whose
-  derived metric coverage cannot be preserved by the generated v2 switches.
-- `server.address` on HTTP client spans and on the `http.client.*` metrics no longer
-  includes the port when the request's `Host` header names one (`api.example.com:8080`
-  becomes `api.example.com`); the port stays in `server.port` and in `url.full`. An IP
-  address with a port is now replaced by the configured unresolved-name tag, like any
-  other IP address. A Kubernetes Service name with a port in the `Host` header now
-  resolves to the service and its namespace, so `service.peer.name` and the service
-  graph name it instead of carrying the raw `host:port`.
-- GenAI client span names follow `{gen_ai.operation.name} {gen_ai.request.model}`
-  (retrieval: `{gen_ai.operation.name} {gen_ai.data_source.id}`), built only from the
-  values emitted on the span:
-  - Anthropic Messages API: `gen_ai.operation.name` changes from `message` to `chat`
-    on spans and on the `gen_ai.client.*` metrics; span name `message claude-sonnet-4-6`
-    becomes `chat claude-sonnet-4-6`.
-  - OpenAI-compatible gateways: span name `POST /v1/chat/completions` (or `POST /*`)
-    becomes `chat gpt-4o-mini`; an unrecognized endpoint becomes `_OTHER {model}`.
-  - Retrieval without a data source id: `retrieval qdrant` becomes `retrieval`.
-  - Anthropic and rerank spans without a request model no longer take the model from
-    the response: `message claude-sonnet-4-6` becomes `chat`, `rerank rerank-v3.5`
-    becomes `rerank`.
-  - A GenAI span with an empty operation is named `_OTHER {model}` instead of the HTTP
-    `{method} {route}` fallback, matching the emitted `_OTHER` attribute. Today's
-    parsers always set an operation, so no emitted span changes.
-- An Elasticsearch or OpenSearch client span that names no index or cluster is now named
-  `{db.operation.name} {server.address}:{server.port}`, as the database span name convention
-  defines, using the requested host (without the port the `Host` header may carry), or else the
-  resolved host name, instead of the peer IP. A span whose host was neither requested nor
-  resolved keeps its name.
-- Database span names follow the database span name convention in more cases. A span with no
-  operation is named after its target, else its `db.system.name`: `SQL`, `REDIS`, `MEMCACHED`,
-  `COUCHBASE` and `AEROSPIKE` become e.g. `postgresql` (or `other_sql`), `redis`, `memcached`,
-  `couchbase` and `aerospike`, and a SQL span with only a `db.namespace` is named after it. A MongoDB or
-  Couchbase span with no collection uses `db.namespace` as its target (`listCollections`
-  becomes `listCollections mydb`). A Couchbase SQL++ span with no operation is named after
-  its target, and its `{server.address}:{server.port}` target uses the host `server.address`
-  reports instead of the peer IP. Native SQL, Redis, Memcached, MongoDB, Couchbase and
-  Aerospike names still never use the `{server.address}:{server.port}` target, which keeps
-  today's names and their cardinality, and Redis names do not use `db.namespace`, as the Redis
-  conventions require. SQL spans are still named after `db.query.summary` when it is available,
-  even if that attribute is not selected for export.
-- Span names now follow semconv v1.41, which also changes the `span.name` (`span_name`)
-  value of span metrics for these spans:
-  - GraphQL server: `GraphQL {graphql.operation.type}` becomes `{graphql.operation.type}`
-    (for example `GraphQL query` becomes `query`).
-  - AWS S3: `s3.{operation}` becomes `S3.{operation}`; with no operation, `s3.Operation`
-    becomes `aws-api`.
-  - AWS SQS: `sqs.{operation}` becomes `SQS.{operation}`, following the AWS SDK
-    `Service.Operation` rule; SQS spans emit no `rpc.*` attributes, so the operation part
-    matches `messaging.operation.name`.
-  - ONC RPC: `{program}/{procedure}` is unchanged; reply-only spans (no captured CALL)
-    become `onc_rpc` instead of `sunrpc/reply`.
-- ONC RPC spans now carry `rpc.method` as `{program}/{procedure}` when the CALL was captured.
-- The ONC RPC `rpc.method` value on `rpc.client.call.duration` and `rpc.server.call.duration`
-  changes from the procedure number (for example `0`) to `{program}/{procedure}` (for example
-  `portmapper/0`), and is omitted when no CALL was captured (previously `reply`).
-- On the OTLP `gen_ai.client.*` metrics, a request that names no model now omits
-  `gen_ai.request.model` instead of reporting it as `""`. Prometheus output is unchanged,
-  since it does not tell an empty label from a missing one.
-- New default metric attributes split existing series: `db.collection.name` on
-  `db.client.operation.duration` and `db.server.operation.duration` (when the operation
-  targets a collection), `server.port` on `rpc.client.call.duration`, and `error.type` on
-  `rpc.server.call.duration` (when the call failed).
-  For Elasticsearch and OpenSearch, `db.collection.name` is the index name, so
-  time-suffixed indices add a new label value per index; drop it with attribute
-  selection if that cardinality is unwanted.
-- ONC RPC spans now carry `rpc.response.status_code` when the REPLY was captured.
-- `rpc.client.call.duration` and `rpc.server.call.duration` omit `rpc.response.status_code` for an
-  ONC RPC call whose REPLY was not captured, instead of reporting `0` (success).
-- The registry moves to weaver's `definition/2` format. A span definition is identified
-  by its `type`, so the span ids in `site/docs/spans.md` lose their `span.` prefix
-  (`span.obi.http.server` becomes `obi.http.server`) and a link anchored on an old id no
-  longer resolves. The emitted telemetry is unchanged.
-- gRPC `rpc.method` values and gRPC span names drop the leading slash of the HTTP/2 path, following semconv: `/helloworld.Greeter/SayHello` becomes `helloworld.Greeter/SayHello`. This applies to gRPC server and client spans, to the `rpc.method` attribute of `rpc.server.call.duration` and `rpc.client.call.duration` (`rpc_method` label in Prometheus), and to span-derived metrics labelled by span name.
-- A gRPC path that is not `/{service}/{method}`, or that could not be read, now reports `rpc.method` as `_OTHER` and the span name as `grpc`, instead of the raw path (`*` when unread, an empty span name when missing). Spans also carry the raw path as `rpc.method_original` when it was read.
+- A SQL++ span from a server other than Couchbase (`db.system.name` `other_sql`) that names no
+  collection or bucket is named `{db.operation.name}`, like other SQL spans, instead of
+  `{db.operation.name} {server.address}:{server.port}`. Couchbase SQL++ spans are unchanged.
+- The HTTP client metrics (`http.client.request.duration`, `http.client.request.body.size`,
+  `http.client.response.body.size`) carry the route as `url.template` instead of `http.route`,
+  with the same value; the transformation above records it for OTLP. The Prometheus exporter
+  label changes from `http_route` to `url_template` on `http_client_request_duration_seconds`,
+  `http_client_request_body_size_bytes` and `http_client_response_body_size_bytes`, and an
+  `attributes.select` entry naming `http.route` for these metrics must name `url.template`.
+  As in semconv, `url.template` is on by default on the two body-size metrics but opt-in on
+  `http.client.request.duration`, so client duration series no longer split by route unless
+  `url.template` is selected.
+- The HTTP metrics no longer offer `url.path`, and the HTTP server metrics and
+  `rpc.server.call.duration` no longer offer `client.address`, following the semantic
+  conventions, which exclude these high-cardinality attributes from metrics. Both were opt-in,
+  so only an `attributes.select` that included them changes. `url.path` can still be used in
+  attribute filters, and the spans keep both attributes.
+- HTTP client spans no longer carry `url.query`; the scrubbed query string remains part of
+  `url.full`. HTTP server spans keep `url.query`.
+- The span reference (`site/docs/spans.md`) documents every span's name.
+- The trace resource no longer carries `otel.scope.name`. Spans now carry the instrumentation
+  scope itself (`go.opentelemetry.io/obi`, the OBI version and the schema URL), so resource
+  filters on `otel.scope.name` must use the instrumentation scope name instead. Exporters to
+  formats without a scope (Jaeger, Zipkin) still report `otel.scope.name` on each span. All
+  OBI metric scopes now carry the OBI version and the schema URL.
 
 ## Hosting notes
 

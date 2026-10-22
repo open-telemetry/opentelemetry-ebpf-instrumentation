@@ -103,7 +103,6 @@ jobs:
     secrets: inherit # zizmor: ignore[secrets-inherit]
     with:
       ref: ${{ inputs.tag || github.ref_name }}
-      skip_mise_cache: true
 
   lint:
     name: Lint
@@ -114,7 +113,6 @@ jobs:
     secrets: inherit # zizmor: ignore[secrets-inherit]
     with:
       ref: ${{ inputs.tag || github.ref_name }}
-      skip_mise_cache: true
 
   unit-tests:
     name: Unit tests
@@ -322,6 +320,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       MISE_ENABLE_TOOLS: go,gradle,java,python,clang,conda:llvm-tools,go:github.com/cilium/ebpf/cmd/bpf2go
+      RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
+      RELEASE_SOURCE_VERSION: ${{ inputs.tag || github.ref_name }}
     permissions:
       contents: read
       id-token: write
@@ -368,7 +368,6 @@ jobs:
 
       - name: Generate release SBOMs
         env:
-          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
           SYFT_CMD: ${{ steps.syft.outputs.cmd }}
         run: |
           set -euo pipefail
@@ -386,11 +385,12 @@ jobs:
             exit 1
           fi
 
-          archives=(
-            "dist/obi-${RELEASE_VERSION}-linux-amd64.tar.gz"
-            "dist/obi-${RELEASE_VERSION}-linux-arm64.tar.gz"
-            "dist/obi-${RELEASE_VERSION}-source-generated.tar.gz"
-          )
+          shopt -s nullglob
+          archives=(dist/"obi-${RELEASE_VERSION}-"*.tar.gz)
+          if [ "${#archives[@]}" -eq 0 ]; then
+            echo "ERROR: no release archives found for ${RELEASE_VERSION}"
+            exit 1
+          fi
 
           for archive in "${archives[@]}"; do
             if [ ! -f "${archive}" ]; then
@@ -402,36 +402,45 @@ jobs:
             (
               stage_dir="$(mktemp -d)"
               trap 'rm -rf "${stage_dir}"' EXIT
+              unpack_dir="${stage_dir}/archive"
+              mkdir -p "${unpack_dir}"
 
-              tar -xzf "${archive}" -C "${stage_dir}"
+              tar -xzf "${archive}" -C "${unpack_dir}"
 
-              case "${archive}" in
-                *-linux-amd64.tar.gz|*-linux-arm64.tar.gz)
-                  # The Java agent is embedded inside the obi binary and is not
-                  # discoverable by Syft from the ELF alone. Stage the shipped
-                  # JAR beside the unpacked archive so the binary SBOM includes
-                  # the Java dependency graph that is actually distributed.
-                  mkdir -p "${stage_dir}/embedded-java-agent"
-                  cp "${embedded_java_agent}" "${stage_dir}/embedded-java-agent/obi-java-agent.jar"
-                  ;;
-              esac
+              # Shading removes the JAR's dependency metadata. Import the build's
+              # dependency graph using a filename recognized by sbom-cataloger.
+              cp "dist/obi-java-agent-${RELEASE_VERSION}.cyclonedx.json" \
+                "${unpack_dir}/obi-java-agent.cdx.json"
 
-              "${SYFT_CMD}" "dir:${stage_dir}" -o "cyclonedx-json=${sbom_path}"
+              "${SYFT_CMD}" "dir:${unpack_dir}" \
+                --select-catalogers +sbom-cataloger \
+                --exclude '**/obi-java-agent.jar' \
+                --source-name "$(basename "${archive}" .tar.gz)" \
+                --source-version "${RELEASE_VERSION}" \
+                -o "cyclonedx-json=${stage_dir}/archive.cdx.json"
+
+              jq --arg version "${RELEASE_VERSION}" -f scripts/release-sbom.jq \
+                "${stage_dir}/archive.cdx.json" > "${sbom_path}"
             )
           done
 
       - name: Validate release SBOMs
-        env:
-          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
 
-          sboms=(
-            "dist/obi-${RELEASE_VERSION}-linux-amd64.cyclonedx.json"
-            "dist/obi-${RELEASE_VERSION}-linux-arm64.cyclonedx.json"
-            "dist/obi-${RELEASE_VERSION}-source-generated.cyclonedx.json"
-            "dist/obi-java-agent-${RELEASE_VERSION}.cyclonedx.json"
-          )
+          shopt -s nullglob
+          archives=(dist/"obi-${RELEASE_VERSION}-"*.tar.gz)
+          if [ "${#archives[@]}" -eq 0 ]; then
+            echo "ERROR: no release archives found for ${RELEASE_VERSION}"
+            exit 1
+          fi
+
+          archive_sboms=()
+          for archive in "${archives[@]}"; do
+            archive_sboms+=("${archive%.tar.gz}.cyclonedx.json")
+          done
+          java_sbom="dist/obi-java-agent-${RELEASE_VERSION}.cyclonedx.json"
+          sboms=("${archive_sboms[@]}" "${java_sbom}")
 
           for sbom in "${sboms[@]}"; do
             if [ ! -f "${sbom}" ]; then
@@ -445,12 +454,16 @@ jobs:
           done
 
           jq -e '[.components[] | select(.purl? and (.purl | startswith("pkg:maven/")))] | length > 0' \
-            "dist/obi-java-agent-${RELEASE_VERSION}.cyclonedx.json" >/dev/null
+            "${java_sbom}" >/dev/null
+
+          for sbom in "${archive_sboms[@]}"; do
+            jq -e --arg version "${RELEASE_VERSION}" \
+              --slurpfile java_sbom "${java_sbom}" \
+              -f scripts/validate-release-sbom.jq "${sbom}" >/dev/null
+          done
 
       - name: Regenerate release checksums
-        env:
-          RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
-        run: RELEASE_VERSION="${RELEASE_VERSION}" mise run release:checksums
+        run: mise run release:checksums
 
       - name: Sign release artifacts
         run: |

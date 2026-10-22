@@ -35,6 +35,8 @@ message PodInfo {
   string host_ip = 4;
   repeated ContainerInfo containers = 5;
   repeated Owner owners = 6;
+  // The Pod phase is Succeeded or Failed. Its IP may already belong to another Pod.
+  bool finished = 7;
 }
 
 message ContainerInfo {

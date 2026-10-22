@@ -7,14 +7,13 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/collector/consumer/consumertest"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 
@@ -23,8 +22,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
-	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -68,15 +67,38 @@ prometheus_export:
 			}
 			require.NoError(t, err)
 			cfg.NameResolver = nil
-			traces := &consumertest.TracesSink{}
-			metrics := &consumertest.MetricsSink{}
-			cfg.Traces.TracesConsumer = traces
+			var tracesMu, metricsMu sync.Mutex
+			var traceBatches []ptrace.Traces
+			var metricBatches []pmetric.Metrics
+			cfg.Traces.TracesExport = func(_ context.Context, traces ptrace.Traces) error {
+				tracesMu.Lock()
+				traceBatches = append(traceBatches, traces)
+				tracesMu.Unlock()
+				return nil
+			}
 			cfg.Traces.BatchTimeout = 10 * time.Millisecond
-			cfg.OTELMetrics.MetricsConsumer = metrics
+			cfg.OTELMetrics.MetricsExport = func(_ context.Context, metrics pmetric.Metrics) error {
+				metricsMu.Lock()
+				metricBatches = append(metricBatches, metrics)
+				metricsMu.Unlock()
+				return nil
+			}
+			getTraces := func() []ptrace.Traces {
+				tracesMu.Lock()
+				defer tracesMu.Unlock()
+				return append([]ptrace.Traces(nil), traceBatches...)
+			}
+			getMetrics := func() []pmetric.Metrics {
+				metricsMu.Lock()
+				defer metricsMu.Unlock()
+				return append([]pmetric.Metrics(nil), metricBatches...)
+			}
 			cfg.OTELMetrics.Interval = 10 * time.Millisecond
-			cfg.Prometheus.Registry = prometheus.NewRegistry()
+			promServer := testutil.NewPrometheusServer(t)
+			cfg.Prometheus.Port = promServer.Port
+			cfg.Prometheus.Path = "/metrics"
 			ctxInfo := gctx(0, &cfg.OTELMetrics)
-			ctxInfo.Prometheus = &connector.PrometheusManager{}
+			ctxInfo.Prometheus = promServer.Manager
 			input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
 			ctx, cancel := context.WithCancel(t.Context())
@@ -99,10 +121,10 @@ prometheus_export:
 
 			metricNames := []attributes.Name{attributes.SpanMetricsCallsOTel, attributes.ServiceGraphServer}
 			require.EventuallyWithT(t, func(ct *assert.CollectT) {
-				assert.True(ct, traceServices(traces.AllTraces())["http-service"])
-				assert.True(ct, traceServices(traces.AllTraces())["grpc-service"])
-				got := metricServices(metrics.AllMetrics())
-				families, gatherErr := cfg.Prometheus.Registry.Gather()
+				assert.True(ct, traceServices(getTraces())["http-service"])
+				assert.True(ct, traceServices(getTraces())["grpc-service"])
+				got := metricServices(getMetrics())
+				families, gatherErr := promServer.Gather()
 				assert.NoError(ct, gatherErr)
 				for _, name := range metricNames {
 					assert.Contains(ct, got[name.OTEL], "grpc-service")
@@ -123,7 +145,7 @@ prometheus_export:
 
 			cancel()
 			require.NoError(t, <-done)
-			got := metricServices(metrics.AllMetrics())
+			got := metricServices(getMetrics())
 			for _, name := range metricNames {
 				assert.Equal(t, test.wantHTTP, got[name.OTEL]["http-service"], name.OTEL)
 			}

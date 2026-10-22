@@ -11,9 +11,17 @@
 file_format: definition/2
 spans:
   - type: obi.aws.s3.client
+    annotations:
+      obi:
+        upstream: aws.s3.client
+        upstream_extras:
+          error.type: semconv's error-recording guidance sets error.type on any failed operation
     kind: client
     name:
-      note: Not documented yet.
+      note: >
+        `S3.{method}`, or `aws-api` when the S3 method was not read.
+        `rpc.method` reports the method as `S3/{method}`, so the name cannot be
+        expressed as a template.
     stability: development
     requirement_level: recommended
     brief: OBI AWS S3 client span.
@@ -59,9 +67,23 @@ spans:
         requirement_level: opt_in
 
   - type: obi.aws.sqs.client
+    annotations:
+      obi:
+        upstream: [messaging.aws.sqs, messaging.attributes]
+        upstream_omits:
+          messaging.destination.template: only the application knows the template a destination name was built from
+          messaging.consumer.group.name: SQS has no consumer groups
+          messaging.destination.subscription.name: SQS has no subscriptions
+          messaging.destination.temporary: the traffic does not show whether the destination is temporary
+          messaging.destination.anonymous: the traffic does not show whether the destination is anonymous
+          messaging.batch.message_count: OBI does not report SQS batch sizes
+        upstream_extras:
+          cloud.region: the AWS region the request was sent to, as on any AWS SDK call
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "SQS.{messaging.operation.name}"
+        - "aws-api"
     stability: development
     requirement_level: recommended
     brief: OBI AWS SQS client span.
@@ -110,17 +132,29 @@ spans:
         requirement_level: opt_in
 
   - type: obi.aws.sns.client
+    annotations:
+      obi:
+        upstream: [messaging.aws.sns, messaging.attributes]
+        upstream_omits:
+          messaging.destination.template: only the application knows the template a destination name was built from
+          messaging.consumer.group.name: SNS has no consumer groups
+          messaging.destination.subscription.name: OBI reports SNS publish calls, which name a topic rather than a subscription
+          messaging.destination.temporary: the traffic does not show whether the destination is temporary
+          messaging.destination.anonymous: the traffic does not show whether the destination is anonymous
+        upstream_extras:
+          cloud.region: the AWS region the request was sent to, as on any AWS SDK call
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "SNS.{messaging.operation.name}"
+        - "SNS."
     stability: development
     requirement_level: recommended
     brief: OBI AWS SNS client span.
     attributes:
-      - ref: rpc.system.name
-        requirement_level: required
-      - ref: rpc.method
-        requirement_level: recommended
+      # No rpc.* attributes: semconv v1.41.0 defines no SNS span (only the
+      # messaging.aws.sns group), and v1.44 models SNS, like SQS, as a messaging
+      # span without them.
       - ref: messaging.system
         requirement_level: required
       - ref: messaging.operation.name

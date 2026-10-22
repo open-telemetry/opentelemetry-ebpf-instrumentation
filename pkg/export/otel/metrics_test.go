@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
@@ -619,7 +618,7 @@ func TestAppMetrics_GenAITokenAvailability(t *testing.T) {
 				TTL:               30 * time.Minute,
 				ReportersCacheLen: 10,
 				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
-				MetricsConsumer:   testMetricsConsumer(metricRecords),
+				MetricsExport:     testMetricsConsumer(metricRecords),
 			}
 			reporter, err := newMetricsReporter(
 				ctx,
@@ -711,7 +710,7 @@ func TestAppMetrics_MCPOperationDuration(t *testing.T) {
 				TTL:               30 * time.Minute,
 				ReportersCacheLen: 10,
 				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP, instrumentations.InstrumentationGenAI},
-				MetricsConsumer:   testMetricsConsumer(metricRecords),
+				MetricsExport:     testMetricsConsumer(metricRecords),
 			}
 			reporter, err := newMetricsReporter(
 				ctx,
@@ -802,7 +801,7 @@ func TestAppMetrics_MCPSessionDurationExportsDuringShutdown(t *testing.T) {
 		TTL:               time.Hour,
 		ReportersCacheLen: 1,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
-		MetricsConsumer:   testMetricsConsumer(metricRecords),
+		MetricsExport:     testMetricsConsumer(metricRecords),
 	}
 	reporter, err := newMetricsReporter(
 		ctx,
@@ -862,7 +861,7 @@ func TestAppMetrics_DBClientAttributes(t *testing.T) {
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 10,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationSQL},
-		MetricsConsumer:   testMetricsConsumer(metricRecords),
+		MetricsExport:     testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -916,7 +915,7 @@ func TestAppMetrics_HTTPErrorType(t *testing.T) {
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 10,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
-		MetricsConsumer:   testMetricsConsumer(metricRecords),
+		MetricsExport:     testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -973,6 +972,77 @@ func TestAppMetrics_HTTPErrorType(t *testing.T) {
 	}
 }
 
+func TestAppMetrics_HTTPRouteAttributes(t *testing.T) {
+	features := export.FeatureApplicationRED | export.FeatureApplicationSizes
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 20)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		MetricsExport:     testMetricsConsumer(metricRecords),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{
+			MetricAttributeGroups: attributes.GroupHTTPRoutes,
+			OTELMetricsExporter:   &otelcfg.MetricsExporterInstancer{Cfg: mcfg},
+		},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: features},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	svcAttrs := svc.Attrs{Features: features, UID: svc.UID{Instance: "foo"}}
+	metrics.Send([]request.Span{
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Method: "GET", Route: "/server/{id}", Path: "/server/1", Status: 200, RequestStart: 100, End: 200},
+		{Service: svcAttrs, Type: request.EventTypeHTTPClient, Method: "GET", Route: "/client/{id}", Path: "/client/1", Status: 200, RequestStart: 100, End: 200},
+	})
+
+	pending := map[string]bool{}
+	for _, name := range []string{
+		attributes.HTTPServerDuration.OTEL, attributes.HTTPServerRequestSize.OTEL, attributes.HTTPServerResponseSize.OTEL,
+		attributes.HTTPClientDuration.OTEL, attributes.HTTPClientRequestSize.OTEL, attributes.HTTPClientResponseSize.OTEL,
+	} {
+		pending[name] = true
+	}
+
+	deadline := time.After(timeout)
+	for len(pending) > 0 {
+		select {
+		case record := <-metricRecords:
+			if !pending[record.Name] {
+				continue
+			}
+			assert.NotContains(t, record.Attributes, string(attr.HTTPUrlPath), record.Name)
+			switch {
+			case record.Name == attributes.HTTPClientDuration.OTEL:
+				// opt-in on the stable duration metric, as semconv defines it
+				assert.NotContains(t, record.Attributes, string(attr.HTTPUrlTemplate), record.Name)
+				assert.NotContains(t, record.Attributes, string(attr.HTTPRoute), record.Name)
+			case strings.HasPrefix(record.Name, "http.client."):
+				assert.Equal(t, "/client/{id}", record.Attributes[string(attr.HTTPUrlTemplate)], record.Name)
+				assert.NotContains(t, record.Attributes, string(attr.HTTPRoute), record.Name)
+			default:
+				assert.Equal(t, "/server/{id}", record.Attributes[string(attr.HTTPRoute)], record.Name)
+				assert.NotContains(t, record.Attributes, string(attr.HTTPUrlTemplate), record.Name)
+			}
+			delete(pending, record.Name)
+		case <-deadline:
+			require.Failf(t, "timeout while waiting for metric records", "missing: %v", pending)
+		}
+	}
+}
+
 func TestAppMetrics_REDHistogramBucketBoundaries(t *testing.T) {
 	features := export.FeatureApplicationRED | export.FeatureApplicationSizes
 	// non-default and distinct per field, so a histogram that ignores cfg.Buckets or uses
@@ -992,7 +1062,7 @@ func TestAppMetrics_REDHistogramBucketBoundaries(t *testing.T) {
 		ReportersCacheLen: 10,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 		Buckets:           buckets,
-		MetricsConsumer:   testHistogramBoundsConsumer(records),
+		MetricsExport:     testHistogramBoundsConsumer(records),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -1025,6 +1095,63 @@ func TestAppMetrics_REDHistogramBucketBoundaries(t *testing.T) {
 	assert.Equal(t, expected, readHistogramBounds(t, records, slices.Collect(maps.Keys(expected))...))
 }
 
+func TestAppMetrics_InstrumentationScope(t *testing.T) {
+	ctx := t.Context()
+	type exportedScope struct {
+		resourceSchemaURL string
+		scope             pmetric.ScopeMetrics
+	}
+	scopes := make(chan exportedScope, 100)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		MetricsExport: testOTLPMetricsExport(func(_ context.Context, md pmetric.Metrics) error {
+			for _, rm := range md.ResourceMetrics().All() {
+				for _, sm := range rm.ScopeMetrics().All() {
+					for _, m := range sm.Metrics().All() {
+						if m.Name() == attributes.HTTPServerDuration.OTEL {
+							scopes <- exportedScope{resourceSchemaURL: rm.SchemaUrl(), scope: sm}
+						}
+					}
+				}
+			}
+			return nil
+		}),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	svcAttrs := svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}
+	metrics.Send([]request.Span{
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Method: "GET", Status: 200, RequestStart: 100, End: 200},
+	})
+
+	select {
+	case exported := <-scopes:
+		assert.Equal(t, attr.OBISchemaURL, exported.resourceSchemaURL)
+		assert.Equal(t, reporterName, exported.scope.Scope().Name())
+		assert.Equal(t, attr.TelemetryDistroVersion(), exported.scope.Scope().Version())
+		assert.Equal(t, attr.OBISchemaURL, exported.scope.SchemaUrl())
+	case <-time.After(timeout):
+		require.Fail(t, "timeout while waiting for http.server.request.duration")
+	}
+}
+
 func TestAppMetrics_GenAIHistogramBucketBoundaries(t *testing.T) {
 	// non-default and distinct per field, so a histogram that ignores cfg.Buckets or uses
 	// another field's buckets fails the bounds assertion
@@ -1042,7 +1169,7 @@ func TestAppMetrics_GenAIHistogramBucketBoundaries(t *testing.T) {
 		ReportersCacheLen: 10,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGenAI},
 		Buckets:           buckets,
-		MetricsConsumer:   testHistogramBoundsConsumer(records),
+		MetricsExport:     testHistogramBoundsConsumer(records),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -1086,7 +1213,7 @@ func TestAppMetrics_GRPCServerErrorType(t *testing.T) {
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 10,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationGRPC},
-		MetricsConsumer:   testMetricsConsumer(metricRecords),
+		MetricsExport:     testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -1143,7 +1270,7 @@ func TestAppMetrics_DBClientServerPortDefaultSelection(t *testing.T) {
 		TTL:               30 * time.Minute,
 		ReportersCacheLen: 10,
 		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationSQL},
-		MetricsConsumer:   testMetricsConsumer(metricRecords),
+		MetricsExport:     testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -1224,7 +1351,7 @@ func TestSpanMetrics_ExtraResourceAttributes(t *testing.T) {
 		ReportersCacheLen:       100,
 		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 		ExtraSpanResourceLabels: []string{"deployment.environment"},
-		MetricsConsumer:         testMetricsConsumer(metricRecords),
+		MetricsExport:           testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -1313,7 +1440,7 @@ func TestSpanMetrics_EmittedAttributes(t *testing.T) {
 				TTL:               30 * time.Minute,
 				ReportersCacheLen: 100,
 				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
-				MetricsConsumer:   testMetricsConsumer(metricRecords),
+				MetricsExport:     testMetricsConsumer(metricRecords),
 			}
 
 			reporter, err := newMetricsReporter(
@@ -1430,7 +1557,7 @@ func TestSpanSizeMetrics_ExtraResourceAttributes(t *testing.T) {
 		ReportersCacheLen:       100,
 		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 		ExtraSpanResourceLabels: []string{"deployment.environment"},
-		MetricsConsumer:         testMetricsConsumer(metricRecords),
+		MetricsExport:           testMetricsConsumer(metricRecords),
 	}
 
 	reporter, err := newMetricsReporter(
@@ -1683,18 +1810,13 @@ func readNChan(t require.TestingT, inCh <-chan collector.MetricRecord, numRecord
 	return records
 }
 
-func testMetricsConsumer(out chan<- collector.MetricRecord) consumer.Metrics {
-	c, err := consumer.NewMetrics(func(_ context.Context, md pmetric.Metrics) error {
+func testMetricsConsumer(out chan<- collector.MetricRecord) otelcfg.MetricsExportFunc {
+	return testOTLPMetricsExport(func(_ context.Context, md pmetric.Metrics) error {
 		collector.VisitMetricRecords(md, func(record collector.MetricRecord) {
 			out <- record
 		})
 		return nil
 	})
-	if err != nil {
-		panic(err)
-	}
-
-	return c
 }
 
 type histogramBoundsRecord struct {
@@ -1702,8 +1824,8 @@ type histogramBoundsRecord struct {
 	Bounds []float64
 }
 
-func testHistogramBoundsConsumer(out chan<- histogramBoundsRecord) consumer.Metrics {
-	c, err := consumer.NewMetrics(func(_ context.Context, md pmetric.Metrics) error {
+func testHistogramBoundsConsumer(out chan<- histogramBoundsRecord) otelcfg.MetricsExportFunc {
+	return testOTLPMetricsExport(func(_ context.Context, md pmetric.Metrics) error {
 		for _, rm := range md.ResourceMetrics().All() {
 			for _, sm := range rm.ScopeMetrics().All() {
 				for _, m := range sm.Metrics().All() {
@@ -1718,11 +1840,6 @@ func testHistogramBoundsConsumer(out chan<- histogramBoundsRecord) consumer.Metr
 		}
 		return nil
 	})
-	if err != nil {
-		panic(err)
-	}
-
-	return c
 }
 
 // readHistogramBounds returns the explicit bucket bounds of the first data point received for each named histogram

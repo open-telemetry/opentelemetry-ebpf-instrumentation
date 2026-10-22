@@ -75,7 +75,9 @@ type dotnetRuntimeMetrics struct {
 	jitCompilationTime      instrument.Float64Counter
 	threadPoolWorkItemCount instrument.Int64Counter
 	monitorLockContentions  instrument.Int64Counter
+	exceptions              instrument.Int64Counter
 	processMemoryWorkingSet instrument.Int64UpDownCounter
+	gcHeapSize              instrument.Int64UpDownCounter
 	gcCommittedMemory       instrument.Int64UpDownCounter
 	threadPoolThreadCount   instrument.Int64UpDownCounter
 	threadPoolQueueLength   instrument.Int64UpDownCounter
@@ -91,6 +93,7 @@ type dotnetRuntimeMetrics struct {
 type dotnetRuntimeMetricCounts struct {
 	processCPUCount         int
 	processMemoryWorkingSet int
+	gcHeapSize              [runtimemetrics.DotnetHeapGenerationCount]int
 	gcCommittedMemory       int
 	threadPoolThreadCount   int
 	threadPoolQueueLength   int
@@ -112,7 +115,9 @@ type dotnetRuntimeMetricValues struct {
 	jitCompilationTime      *float64
 	threadPoolWorkItemCount runtimeCounterValue
 	monitorLockContentions  runtimeCounterValue
+	exceptions              map[string]runtimeCounterValue
 	processMemoryWorkingSet *int64
+	gcHeapSize              [runtimemetrics.DotnetHeapGenerationCount]*int64
 	gcCommittedMemory       *int64
 	threadPoolThreadCount   *int64
 	threadPoolQueueLength   *int64
@@ -269,7 +274,7 @@ func (r *RuntimeMetricsReporter) newMetricsInstance(service *svc.Attrs) RuntimeM
 
 func (r *RuntimeMetricsReporter) newMetricSet(service *svc.Attrs) (*RuntimeMetrics, error) {
 	metrics := r.newMetricsInstance(service)
-	meter := metrics.provider.Meter(reporterName)
+	meter := metrics.provider.Meter(reporterName, obiMeterOptions()...)
 	if err := setupRuntimeMeters(&metrics, meter, r.cfg.TTL, r.runtimeEnabled, r.cfg.Buckets); err != nil {
 		return nil, err
 	}
@@ -325,6 +330,7 @@ func setupDotnetRuntimeMeters(metrics *dotnetRuntimeMetrics, meter instrument.Me
 		{attributes.DotnetJITCompiledMethods, &metrics.jitCompiledMethods},
 		{attributes.DotnetThreadPoolWorkItemCount, &metrics.threadPoolWorkItemCount},
 		{attributes.DotnetMonitorLockContentions, &metrics.monitorLockContentions},
+		{attributes.DotnetExceptions, &metrics.exceptions},
 	} {
 		*counter.metric, err = meter.Int64Counter(counter.name.OTEL, instrument.WithUnit(counter.name.Unit))
 		if err != nil {
@@ -351,6 +357,7 @@ func setupDotnetRuntimeMeters(metrics *dotnetRuntimeMetrics, meter instrument.Me
 		{attributes.DotnetProcessMemoryWorkingSet, &metrics.processMemoryWorkingSet},
 		{attributes.DotnetProcessCPUCount, &metrics.processCPUCount},
 		{attributes.DotnetGCCommittedMemory, &metrics.gcCommittedMemory},
+		{attributes.DotnetGCHeapSize, &metrics.gcHeapSize},
 		{attributes.DotnetThreadPoolThreadCount, &metrics.threadPoolThreadCount},
 		{attributes.DotnetThreadPoolQueueLength, &metrics.threadPoolQueueLength},
 		{attributes.DotnetTimerCount, &metrics.timerCount},
@@ -632,6 +639,15 @@ func recordDotnetRuntimeMetrics(ctx context.Context, metrics *dotnetRuntimeMetri
 	}
 	previous.lastSeen = metrics.clock()
 	recordDotnetCurrentMetrics(ctx, metrics, previous, snapshot.Dotnet)
+	if len(snapshot.Dotnet.Exceptions) > 0 && previous.exceptions == nil {
+		previous.exceptions = make(map[string]runtimeCounterValue)
+	}
+	for label, count := range snapshot.Dotnet.Exceptions {
+		baseline := previous.exceptions[label]
+		recordRuntimeCounterWithAttributes(ctx, metrics.exceptions, &baseline, count,
+			attribute.String(string(attr.ErrorType), label))
+		previous.exceptions[label] = baseline
+	}
 	for generation, count := range snapshot.Dotnet.GCCollections {
 		if count == nil {
 			continue
@@ -718,19 +734,28 @@ func recordDotnetCurrentMetrics(ctx context.Context, metrics *dotnetRuntimeMetri
 		{metrics.timerCount, &previous.timerCount, values.TimerCount, &metrics.activeCurrent.timerCount},
 		{metrics.assemblyCount, &previous.assemblyCount, values.AssemblyCount, &metrics.activeCurrent.assemblyCount},
 	} {
-		if current.value != nil {
-			if *current.previous == nil {
-				(*current.active)++
-			}
-			recordCurrentRuntimeMetric(ctx, current.metric, current.previous, current.value)
-		} else if *current.previous != nil {
-			zero := int64(0)
-			recordCurrentRuntimeMetric(ctx, current.metric, current.previous, &zero)
-			*current.previous = nil
-			(*current.active)--
-			if *current.active == 0 {
-				current.metric.Remove(ctx)
-			}
+		recordDotnetCurrentMetric(ctx, current.metric, current.previous, current.value, current.active)
+	}
+	for generation, name := range runtimemetrics.DotnetHeapGenerations() {
+		recordDotnetCurrentMetric(ctx, metrics.gcHeapSize, &previous.gcHeapSize[generation], values.GCHeapSize[generation],
+			&metrics.activeCurrent.gcHeapSize[generation], attribute.String(string(attr.DotnetGCHeapGeneration), name))
+	}
+}
+
+// Each series remains available while at least one process contributes a value.
+func recordDotnetCurrentMetric(ctx context.Context, metric instrument.Int64UpDownCounter, previous **int64, value *int64, active *int, attrs ...attribute.KeyValue) {
+	if value != nil {
+		if *previous == nil {
+			(*active)++
+		}
+		recordCurrentRuntimeMetric(ctx, metric, previous, value, attrs...)
+	} else if *previous != nil {
+		zero := int64(0)
+		recordCurrentRuntimeMetric(ctx, metric, previous, &zero, attrs...)
+		*previous = nil
+		(*active)--
+		if *active == 0 {
+			metric.Remove(ctx, instrument.WithAttributes(attrs...))
 		}
 	}
 }
@@ -821,20 +846,21 @@ func recordCurrentRuntimeMetric(
 	metric instrument.Int64UpDownCounter,
 	previous **int64,
 	current *int64,
+	attrs ...attribute.KeyValue,
 ) {
 	if current == nil {
 		if *previous != nil {
-			metric.Add(ctx, -**previous)
+			metric.Add(ctx, -**previous, instrument.WithAttributes(attrs...))
 			*previous = nil
 		}
-		metric.Remove(ctx)
+		metric.Remove(ctx, instrument.WithAttributes(attrs...))
 		return
 	}
 
 	if *previous == nil {
-		metric.Add(ctx, *current)
+		metric.Add(ctx, *current, instrument.WithAttributes(attrs...))
 	} else if delta := *current - **previous; delta != 0 {
-		metric.Add(ctx, delta)
+		metric.Add(ctx, delta, instrument.WithAttributes(attrs...))
 	}
 	value := *current
 	*previous = &value

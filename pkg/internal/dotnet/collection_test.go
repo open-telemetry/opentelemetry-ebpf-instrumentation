@@ -4,12 +4,73 @@
 package dotnet
 
 import (
+	"math"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
+
+func TestRuntimeCollectionExceptionSnapshots(t *testing.T) {
+	collection := runtimeCollection{exceptionTypes: &exceptionTypes{}}
+	observe := func(counter runtimeCounter) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+		snapshot, err := collection.observeEvent(netTraceRuntimeEvent{counter: counter})
+		require.NoError(t, err)
+		return snapshot
+	}
+	throw := func() {
+		snapshot, err := collection.observeEvent(netTraceRuntimeEvent{exceptionType: "Example.Failure"})
+		require.NoError(t, err)
+		require.Nil(t, snapshot, "throws accumulate until a counter interval completes")
+	}
+	complete := func() {
+		for _, name := range []string{"gen-0-gc-count", "gen-1-gc-count", "gen-2-gc-count", "time-in-jit"} {
+			require.Nil(t, observe(runtimeCounter{Name: name, Increment: true}))
+		}
+	}
+	require.Nil(t, observe(runtimeCounter{Name: "working-set", Value: 1}))
+	throw()
+	complete()
+	first := observe(runtimeCounter{Name: "working-set", Value: 1})
+	require.NotNil(t, first)
+	throw()
+	require.Equal(t, map[string]uint64{"Failure": 1}, first.Exceptions)
+	complete()
+	last := collection.finish()
+	require.NotNil(t, last)
+	require.Equal(t, map[string]uint64{"Failure": 2}, last.Exceptions)
+	throw()
+	require.Equal(t, uint64(2), last.Exceptions["Failure"])
+	require.Equal(t, uint64(1), first.Exceptions["Failure"])
+
+	collection.exceptions["Failure"] = math.MaxInt64
+	require.ErrorContains(t, collection.observeException("Example.Failure"), "overflow")
+	require.Equal(t, uint64(math.MaxInt64), collection.exceptions["Failure"])
+}
+
+func TestRuntimeCollectionExceptionTypesAcrossSessions(t *testing.T) {
+	var types exceptionTypes
+	first := runtimeCollection{exceptionTypes: &types}
+	for i := range maximumExceptionTypes {
+		require.NoError(t, first.observeException("Example.Failure"+strconv.Itoa(i)))
+	}
+	next := runtimeCollection{exceptionTypes: &types, exceptions: make(map[string]uint64)}
+	for _, name := range []string{"working-set", "gen-0-gc-count", "gen-1-gc-count", "gen-2-gc-count", "time-in-jit"} {
+		_, err := next.observeEvent(netTraceRuntimeEvent{counter: runtimeCounter{Name: name, Increment: name != "working-set"}})
+		require.NoError(t, err)
+	}
+	quiet := next.finish()
+	require.NotNil(t, quiet)
+	require.NotNil(t, quiet.Exceptions)
+	require.Empty(t, quiet.Exceptions)
+	require.NoError(t, next.observeException("Example.NewFailure"))
+	require.NoError(t, next.observeException("Example.Failure0"))
+	require.Equal(t, map[string]uint64{exceptionTypeOther: 1, "Failure0": 1}, next.exceptions)
+	require.Empty(t, quiet.Exceptions, "later throws must not mutate the quiet snapshot")
+	require.Len(t, types.names, maximumExceptionTypes)
+}
 
 func TestRuntimeCollectionProcessorCount(t *testing.T) {
 	var collection runtimeCollection
@@ -209,4 +270,40 @@ func TestRuntimeCollectionCumulativeMissingIntervals(t *testing.T) {
 	require.Equal(t, uint64(101), *resumed.JITCompiledILSize)
 	require.Zero(t, *first.GCHeapTotalAllocated)
 	require.Zero(t, *first.GCPauseTime)
+}
+
+func TestRuntimeCollectionHeapSizes(t *testing.T) {
+	var collection runtimeCollection
+	observe := func(counter runtimeCounter) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+		snapshot, err := collection.observe(counter)
+		require.NoError(t, err)
+		return snapshot
+	}
+	observe(runtimeCounter{Name: "working-set", Value: 1})
+	complete := func() {
+		for _, name := range []string{"gen-0-gc-count", "gen-1-gc-count", "gen-2-gc-count", "time-in-jit"} {
+			observe(runtimeCounter{Name: name, Increment: true})
+		}
+	}
+	for generation, name := range []string{"gen-0-size", "gen-1-size", "gen-2-size", "loh-size", "poh-size"} {
+		observe(runtimeCounter{Name: name, Value: float64(generation * 100)})
+	}
+	complete()
+	first := observe(runtimeCounter{Name: "working-set", Value: 1})
+	require.NotNil(t, first)
+	for generation, value := range first.GCHeapSize {
+		require.NotNil(t, value)
+		require.Equal(t, int64(generation*100), *value)
+	}
+	observe(runtimeCounter{Name: "loh-size", Value: 10})
+	complete()
+	second := collection.finish()
+	require.NotNil(t, second)
+	require.Equal(t, int64(10), *second.GCHeapSize[3])
+	require.Nil(t, second.GCHeapSize[0], "missing values do not carry into a new interval")
+	require.Equal(t, int64(300), *first.GCHeapSize[3], "published snapshots remain immutable")
+	collection = runtimeCollection{}
+	observe(runtimeCounter{Name: "working-set", Value: 1})
+	complete()
+	require.Equal(t, [runtimemetrics.DotnetHeapGenerationCount]*int64{}, collection.finish().GCHeapSize)
 }

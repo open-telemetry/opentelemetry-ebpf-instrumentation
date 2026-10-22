@@ -303,11 +303,12 @@ jobs:
           name: obi-image-${{ matrix.arch }}-${{ github.run_id }}
           path: /tmp/obi-image
 
-      # hatest-obi-b is the same plain build under a second tag
+      # hatest-obi-b and hatest-javaobi are the same plain build under other tags
       - name: Load prebuilt OBI image
         run: |
           docker load -i /tmp/obi-image/hatest-obi.tar
           docker tag hatest-obi hatest-obi-b
+          docker tag hatest-obi hatest-javaobi
 
       - name: Check disk usage before tests
         run: df -h
@@ -364,7 +365,7 @@ jobs:
           TEST_REPORT: /home/runner/reports/test-run-${{ github.run_number }}-${{ matrix.id }}-${{ github.run_attempt }}.log
           # the OBI image is prebuilt and loaded above; component images keep
           # rebuilding per suite (their tags are not unique per Dockerfile)
-          PREBUILT_IMAGES: "hatest-obi,hatest-obi-b"
+          PREBUILT_IMAGES: "hatest-obi,hatest-obi-b,hatest-javaobi"
         run: |
           echo Partition
           echo "${MATRIX_JSON}"

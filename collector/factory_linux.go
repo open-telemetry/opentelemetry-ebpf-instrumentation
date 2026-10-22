@@ -42,7 +42,7 @@ func BuildTracesReceiver() receiver.CreateTracesFunc {
 		if !ok {
 			return nil, errInvalidConfig
 		}
-		cfg.Traces.TracesConsumer = nextConsumer
+		cfg.Traces.TracesExport = tracesExport(nextConsumer)
 
 		v2 := false
 		if receiverCfg, ok := baseCfg.(*receiverConfig); ok {
@@ -64,7 +64,7 @@ func BuildMetricsReceiver() receiver.CreateMetricsFunc {
 		if !ok {
 			return nil, errInvalidConfig
 		}
-		cfg.OTELMetrics.MetricsConsumer = nextConsumer
+		cfg.OTELMetrics.MetricsExport = metricsExport(nextConsumer)
 
 		v2 := false
 		if receiverCfg, ok := baseCfg.(*receiverConfig); ok {

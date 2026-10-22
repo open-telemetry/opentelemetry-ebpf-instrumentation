@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -18,10 +19,17 @@ import (
 	"github.com/grafana/oats/testhelpers/remote"
 	oatsyaml "github.com/grafana/oats/yaml"
 	"github.com/onsi/ginkgo/v2"
+	"go.yaml.in/yaml/v3"
+)
+
+const (
+	prebuiltOBIImage = "hatest-obi"
+	obiDockerfile    = "internal/test/integration/components/obi/Dockerfile"
 )
 
 type compose struct {
 	path   string
+	files  []string
 	logger io.WriteCloser
 	env    []string
 }
@@ -68,17 +76,113 @@ func newCompose(composeFile, logFile string) (*compose, error) {
 
 	return &compose{
 		path:   composeFile,
+		files:  []string{composeFile},
 		logger: logs,
 		env:    os.Environ(),
 	}, nil
 }
 
 func (c *compose) up() error {
-	return c.command("up", "--build", "--detach", "--force-recreate")
+	if !prebuiltOBIAvailable() {
+		return c.command("up", "--build", "--detach", "--force-recreate")
+	}
+
+	obiServices, toBuild, err := c.splitServices()
+	if err != nil {
+		ginkgo.GinkgoWriter.Printf("prebuilt %s not used, building all services: %v\n", prebuiltOBIImage, err)
+		return c.command("up", "--build", "--detach", "--force-recreate")
+	}
+	if len(obiServices) == 0 {
+		ginkgo.GinkgoWriter.Printf("prebuilt %s not used, no service builds the OBI Dockerfile\n", prebuiltOBIImage)
+		return c.command("up", "--build", "--detach", "--force-recreate")
+	}
+
+	if err := c.usePrebuiltOBI(obiServices); err != nil {
+		return err
+	}
+	ginkgo.GinkgoWriter.Printf("using prebuilt %s for %s\n", prebuiltOBIImage, strings.Join(obiServices, ", "))
+	if len(toBuild) > 0 {
+		if err := c.command(append([]string{"build"}, toBuild...)...); err != nil {
+			return err
+		}
+	}
+	return c.command("up", "--detach", "--force-recreate")
+}
+
+func prebuiltOBIAvailable() bool {
+	prebuilt := strings.Split(os.Getenv("PREBUILT_IMAGES"), ",")
+	for i := range prebuilt {
+		prebuilt[i] = strings.TrimSpace(prebuilt[i])
+	}
+	if !slices.Contains(prebuilt, prebuiltOBIImage) {
+		return false
+	}
+	return exec.Command("docker", "image", "inspect", prebuiltOBIImage).Run() == nil
+}
+
+func (c *compose) splitServices() (obiServices, toBuild []string, err error) {
+	data, err := os.ReadFile(c.path)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var doc struct {
+		Services map[string]struct {
+			Build *struct {
+				Context    string         `yaml:"context"`
+				Dockerfile string         `yaml:"dockerfile"`
+				Args       map[string]any `yaml:"args"`
+				Target     string         `yaml:"target"`
+			} `yaml:"build"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return nil, nil, err
+	}
+
+	for name, svc := range doc.Services {
+		if svc.Build == nil {
+			continue
+		}
+		dockerfile := svc.Build.Dockerfile
+		if filepath.IsAbs(dockerfile) {
+			if rel, err := filepath.Rel(svc.Build.Context, dockerfile); err == nil {
+				dockerfile = rel
+			}
+		}
+		if filepath.ToSlash(filepath.Clean(dockerfile)) == obiDockerfile &&
+			len(svc.Build.Args) == 0 && svc.Build.Target == "" {
+			obiServices = append(obiServices, name)
+		} else {
+			toBuild = append(toBuild, name)
+		}
+	}
+	slices.Sort(obiServices)
+	slices.Sort(toBuild)
+
+	return obiServices, toBuild, nil
+}
+
+func (c *compose) usePrebuiltOBI(services []string) error {
+	override := map[string]map[string]map[string]string{"services": {}}
+	for _, name := range services {
+		override["services"][name] = map[string]string{"image": prebuiltOBIImage}
+	}
+	data, err := yaml.Marshal(override)
+	if err != nil {
+		return err
+	}
+
+	path := filepath.Join(filepath.Dir(c.path), "docker-compose-prebuilt-obi.yml")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return err
+	}
+	c.files = append(c.files, path)
+	return nil
 }
 
 func (c *compose) logsToConsumer(consume func(io.ReadCloser, *sync.WaitGroup)) error {
-	cmd := exec.Command("docker", "compose", "--ansi", "never", "-f", c.path, "logs")
+	cmd := exec.Command("docker", append(c.baseArgs(), "logs")...)
 	cmd.Env = c.env
 
 	stdout, err := cmd.StdoutPipe()
@@ -127,9 +231,16 @@ func (c *compose) close() error {
 	return errors.New(strings.Join(errs, " / "))
 }
 
+func (c *compose) baseArgs() []string {
+	args := []string{"compose", "--ansi", "never"}
+	for _, f := range c.files {
+		args = append(args, "-f", f)
+	}
+	return args
+}
+
 func (c *compose) command(args ...string) error {
-	cmdArgs := []string{"compose", "--ansi", "never", "-f", c.path}
-	cmdArgs = append(cmdArgs, args...)
+	cmdArgs := append(c.baseArgs(), args...)
 	cmd := exec.Command("docker", cmdArgs...)
 	cmd.Env = c.env
 	cmd.Stdout = c.logger

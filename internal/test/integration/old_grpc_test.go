@@ -38,7 +38,7 @@ func testREDMetricsTracesForOldGRPCLibrary(t *testing.T, svcNs string) {
 			`http_request_method="GET",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="backend",` +
-			`url_path="` + path + `"}`)
+			`http_route="/factorial/"}`)
 		require.NoError(ct, err)
 		// check duration_count has 3 calls and all the arguments
 		enoughPromResults(ct, results)

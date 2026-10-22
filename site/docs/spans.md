@@ -15,6 +15,8 @@ OBI AWS S3 client span.
 | --- | --- |
 | client | development |
 
+Name: `S3.{method}`, or `aws-api` when the S3 method was not read. `rpc.method` reports the method as `S3/{method}`, so the name cannot be expressed as a template.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `aws.extended_request_id` | string | `conditionally_required`: if the response carried an x-amz-id-2 header | development | The AWS extended request ID as returned in the response header `x-amz-id-2`. | wzHcyEWfmOGDIE5QOhTAqFDoDWP3y8IUvpNINCwL9N4TEHbUw0/gZJ+VZTmCNCWR7fezEN3eCiQ= |
@@ -41,6 +43,8 @@ OBI AWS SNS client span.
 | --- | --- |
 | client | development |
 
+Name, from the first template that applies: `SNS.{messaging.operation.name}`, `SNS.`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `aws.request_id` | string | `recommended` | development | The AWS request ID as returned in the response headers `x-amzn-requestid`, `x-amzn-request-id` or `x-amz-request-id`. | 79b9da39-b7ae-508a-a6bc-864b2829c622; C9ER4AJX75574TDJ |
@@ -56,8 +60,6 @@ OBI AWS SNS client span.
 | `network.peer.address` | string | `recommended`: if the peer address is an IP rather than a name | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | `recommended`: if `network.peer.address` is set and the port is known | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | `recommended`: if the protocol version was observed on the wire | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
-| `rpc.method` | string | `recommended` | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
-| `rpc.system.name` | enum | `required` | release_candidate | The Remote Procedure Call (RPC) system. | grpc; dubbo; connectrpc; jsonrpc; aws-api; onc_rpc |
 | `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
@@ -70,6 +72,8 @@ OBI AWS SQS client span.
 | Span kind | Stability |
 | --- | --- |
 | client | development |
+
+Name, from the first template that applies: `SQS.{messaging.operation.name}`, `aws-api`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -98,6 +102,8 @@ OBI outbound database client span.
 | --- | --- |
 | client | development |
 
+Name: Built per database system from the operation and its target, falling back to the `db.system.name` value: Redis and Memcached report `{db.operation.name}`, or `redis` / `memcached`; MongoDB and Couchbase `{db.operation.name} {db.collection.name}`, `{db.operation.name} {db.namespace}`, `{db.operation.name}`, `{db.collection.name}`, `{db.namespace}` or the system; Aerospike `{db.operation.name} {db.namespace}.{db.collection.name}`, dropping a missing part, or `aerospike`; Couchbase SQL++ `{db.operation.name} {db.collection.name}`, `{db.operation.name} {db.namespace}`, `{db.operation.name} {server.address}:{server.port}`, `{db.operation.name}` or `couchbase`. One template list cannot order the Aerospike and MongoDB forms correctly for both, so the name is described rather than templated.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `db.collection.name` | string | `conditionally_required`: if the exchange named a collection | stable | The name of a collection (table, container) within the database. | public.users; customers |
@@ -123,6 +129,8 @@ OBI inbound database server span.
 | --- | --- |
 | server | development |
 
+Name: The same form as the client span of the database system: SQL servers are named like `obi.db.sql.client`, and Redis, Memcached and Aerospike servers like `obi.db.client`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `db.collection.name` | string | `conditionally_required`: if the exchange named a collection | stable | The name of a collection (table, container) within the database. | public.users; customers |
@@ -146,6 +154,8 @@ OBI outbound SQL database client span.
 | Span kind | Stability |
 | --- | --- |
 | client | stable |
+
+Name, from the first template that applies: `{db.query.summary}`, `{db.operation.name} {db.collection.name}`, `{db.operation.name} {db.namespace}`, `{db.operation.name}`, `{db.collection.name}`, `{db.namespace}`, `{db.system.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -172,6 +182,8 @@ OBI DNS resolution span.
 | --- | --- |
 | internal | development |
 
+Name: The DNS operation followed by the question, `{operation} {dns.question.name}`, the operation alone when no question was read, or `DNS`. The operation is not emitted as an attribute, so the name cannot be expressed as a template.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `client.address` | string | `recommended` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
@@ -189,6 +201,8 @@ OBI Elasticsearch client span, detected from HTTP client traffic.
 | Span kind | Stability |
 | --- | --- |
 | client | development |
+
+Name, from the first template that applies: `{db.operation.name} {db.collection.name}`, `{db.operation.name} {db.namespace}`, `{db.operation.name} {server.address}:{server.port}`, `{db.operation.name}`, `{db.collection.name}`, `{db.namespace}`, `{server.address}:{server.port}`, `{db.system.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -220,6 +234,8 @@ OBI failed outbound connection span.
 | --- | --- |
 | client | development |
 
+Name, from the first template that applies: `CONNECT`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `client.address` | string | `recommended` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
@@ -235,6 +251,8 @@ OBI GenAI embeddings client span.
 | Span kind | Stability |
 | --- | --- |
 | client | development |
+
+Name, from the first template that applies: `{gen_ai.operation.name} {gen_ai.request.model}`, `{gen_ai.operation.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -263,6 +281,8 @@ OBI GenAI inference client span.
 | Span kind | Stability |
 | --- | --- |
 | client | development |
+
+Name, from the first template that applies: `{gen_ai.operation.name} {gen_ai.request.model}`, `{gen_ai.operation.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -318,6 +338,8 @@ OBI GenAI rerank client span.
 | --- | --- |
 | client | development |
 
+Name, from the first template that applies: `{gen_ai.operation.name} {gen_ai.request.model}`, `{gen_ai.operation.name}`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
@@ -347,6 +369,8 @@ OBI GenAI vector-retrieval client span.
 | --- | --- |
 | client | development |
 
+Name, from the first template that applies: `{gen_ai.operation.name} {gen_ai.data_source.id}`, `{gen_ai.operation.name}`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
@@ -354,6 +378,7 @@ OBI GenAI vector-retrieval client span.
 | `gen_ai.operation.name` | string | `required` | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
 | `gen_ai.provider.name` | enum | `required` | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
 | `gen_ai.request.model` | string | `conditionally_required`: if the request named a model | development | The name of the GenAI model a request is being made to. | gpt-4 |
+| `gen_ai.request.top_k` | double | `recommended`: if the request set a result count | development | The top_k sampling setting for the GenAI request. | 1 |
 | `gen_ai.response.id` | string | `recommended`: if the response carried an id | development | The unique identifier for the completion. | chatcmpl-123 |
 | `gen_ai.response.model` | string | `recommended`: if the request or the response named a model | development | The name of the model that generated the response. | gpt-4-0613 |
 | `gen_ai.usage.input_tokens` | int | `recommended`: if the provider reported token usage | development | The number of tokens used in the GenAI input (prompt). | 100 |
@@ -374,6 +399,8 @@ OBI inbound GraphQL over HTTP server span.
 | --- | --- |
 | server | development |
 
+Name, from the first template that applies: `{graphql.operation.type}`, `GraphQL Operation`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `client.address` | string | `recommended` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
@@ -382,26 +409,13 @@ OBI inbound GraphQL over HTTP server span.
 | `graphql.operation.name` | string | `conditionally_required`: if the GraphQL document was parsed | development | The name of the operation being executed. | findBookById |
 | `graphql.operation.type` | enum | `conditionally_required`: if the GraphQL document was parsed | development | The type of the operation being executed. | query; mutation; subscription |
 | `http.request.body.content` | string | `opt_in` | development | Captured HTTP request body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"user":"alice"} |
-| `http.request.body.size` | int | `opt_in` | development | The size of the request payload body in bytes. This is the number of bytes transferred excluding headers and is often, but not always, present as the [Content-Length](https://www.rfc-editor.org/rfc/rfc9110.html#field.content-length) header. For requests using transport encoding, this should be the compressed size. | 3495 |
-| `http.request.header` | template[string[]] | `opt_in` | stable | HTTP request headers, `<key>` being the normalized HTTP Header name (lowercase), the value being the header values. | ["application/json"]; ["1.2.3.4","1.2.3.5"] |
-| `http.request.method_original` | string | `conditionally_required`: if the wire method was read and differs from `http.request.method` | stable | Original HTTP method sent by the client in the request line. | GeT; ACL; foo |
-| `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
 | `http.response.body.content` | string | `opt_in` | development | Captured HTTP response body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"status":"ok"} |
-| `http.response.body.size` | int | `opt_in` | development | The size of the response payload body in bytes. This is the number of bytes transferred excluding headers and is often, but not always, present as the [Content-Length](https://www.rfc-editor.org/rfc/rfc9110.html#field.content-length) header. For requests using transport encoding, this should be the compressed size. | 3495 |
-| `http.response.header` | template[string[]] | `opt_in` | stable | HTTP response headers, `<key>` being the normalized HTTP Header name (lowercase), the value being the header values. | ["application/json"]; ["abc","def"] |
-| `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
-| `http.route` | string | `conditionally_required`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
 | `network.peer.address` | string | `recommended`: if the peer address is an IP rather than a name | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | `recommended`: if `network.peer.address` is set and the port is known | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | `recommended`: if the protocol version was observed on the wire | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
-| `obi.http.response.observed` | boolean | `opt_in` | development | Present and false on an HTTP span whose response was never seen; absent otherwise. `http.response.status_code` is emitted instead once a response is observed. | false |
 | `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
-| `url.path` | string | `conditionally_required`: if the front end reported a request URI, and the params frame carrying it was captured whole | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
-| `url.query` | string | `conditionally_required`: if the request carried a query string | stable | The [URI query](https://www.rfc-editor.org/rfc/rfc3986#section-3.4) component | q=OpenTelemetry |
-| `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
-| `user_agent.original` | string | `recommended`: if the request carried a user agent header | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
 ## `obi.http.client`
 
@@ -410,6 +424,8 @@ OBI outbound HTTP client span.
 | Span kind | Stability |
 | --- | --- |
 | client | stable |
+
+Name: The method, or `HTTP` when it is outside the semantic-convention enum, followed by the route when OBI classified the request path into one: `{http.request.method} {route}`. Client spans do not emit the route as an attribute, so the name cannot be expressed as a template.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -432,7 +448,6 @@ OBI outbound HTTP client span.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 | `url.full` | string | `conditionally_required`: if the scheme or the host was captured on the connection | stable | Absolute URL describing a network resource according to [RFC3986](https://www.rfc-editor.org/rfc/rfc3986) | https://www.foo.bar/search?q=OpenTelemetry#SemConv; //localhost |
-| `url.query` | string | `conditionally_required`: if the request carried a query string | stable | The [URI query](https://www.rfc-editor.org/rfc/rfc3986#section-3.4) component | q=OpenTelemetry |
 | `url.scheme` | string | `conditionally_required`: if the scheme was captured on the connection | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 | `url.template` | string | `opt_in` | development | The low-cardinality template of an [absolute path reference](https://www.rfc-editor.org/rfc/rfc3986#section-4.2). | /users/{id}; /users/:id; /users?id={id} |
 | `user_agent.original` | string | `opt_in` | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
@@ -444,6 +459,8 @@ OBI inbound HTTP server span.
 | Span kind | Stability |
 | --- | --- |
 | server | stable |
+
+Name, from the first template that applies: `{http.request.method} {http.route}`, `{http.request.method}`, `HTTP {http.route}`, `HTTP`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -479,13 +496,13 @@ OBI outbound JSON-RPC over HTTP client span.
 | --- | --- |
 | client | development |
 
+Name, from the first template that applies: `{rpc.method}`, `jsonrpc`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `http.request.body.content` | string | `opt_in` | development | Captured HTTP request body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"user":"alice"} |
-| `http.request.header` | template[string[]] | `opt_in` | stable | HTTP request headers, `<key>` being the normalized HTTP Header name (lowercase), the value being the header values. | ["application/json"]; ["1.2.3.4","1.2.3.5"] |
 | `http.response.body.content` | string | `opt_in` | development | Captured HTTP response body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"status":"ok"} |
-| `http.response.header` | template[string[]] | `opt_in` | stable | HTTP response headers, `<key>` being the normalized HTTP Header name (lowercase), the value being the header values. | ["application/json"]; ["abc","def"] |
 | `jsonrpc.protocol.version` | string | `conditionally_required`: upstream declares it conditional; OBI always emits it, taking the version from the request, or 1.0 for Go net/rpc, whose requests carry none | development | Protocol version, as specified in the `jsonrpc` property of the request and its corresponding response. | 2.0; 1.0 |
 | `jsonrpc.request.id` | string | `conditionally_required`: if the request carried a JSON-RPC id | development | A string representation of the `id` property of the request and its corresponding response. | 10; request-7 |
 | `network.peer.address` | string | `recommended`: if the peer address is an IP rather than a name | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
@@ -499,7 +516,6 @@ OBI outbound JSON-RPC over HTTP client span.
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
-| `user_agent.original` | string | `opt_in` | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
 ## `obi.jsonrpc.server`
 
@@ -509,26 +525,19 @@ OBI inbound JSON-RPC over HTTP server span.
 | --- | --- |
 | server | development |
 
+Name, from the first template that applies: `{rpc.method}`, `jsonrpc`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `client.address` | string | `recommended` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `http.request.body.content` | string | `opt_in` | development | Captured HTTP request body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"user":"alice"} |
-| `http.request.body.size` | int | `opt_in` | development | The size of the request payload body in bytes. This is the number of bytes transferred excluding headers and is often, but not always, present as the [Content-Length](https://www.rfc-editor.org/rfc/rfc9110.html#field.content-length) header. For requests using transport encoding, this should be the compressed size. | 3495 |
-| `http.request.header` | template[string[]] | `opt_in` | stable | HTTP request headers, `<key>` being the normalized HTTP Header name (lowercase), the value being the header values. | ["application/json"]; ["1.2.3.4","1.2.3.5"] |
-| `http.request.method_original` | string | `conditionally_required`: if the wire method was read and differs from `http.request.method` | stable | Original HTTP method sent by the client in the request line. | GeT; ACL; foo |
-| `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
 | `http.response.body.content` | string | `opt_in` | development | Captured HTTP response body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"status":"ok"} |
-| `http.response.body.size` | int | `opt_in` | development | The size of the response payload body in bytes. This is the number of bytes transferred excluding headers and is often, but not always, present as the [Content-Length](https://www.rfc-editor.org/rfc/rfc9110.html#field.content-length) header. For requests using transport encoding, this should be the compressed size. | 3495 |
-| `http.response.header` | template[string[]] | `opt_in` | stable | HTTP response headers, `<key>` being the normalized HTTP Header name (lowercase), the value being the header values. | ["application/json"]; ["abc","def"] |
-| `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
-| `http.route` | string | `conditionally_required`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
 | `jsonrpc.protocol.version` | string | `conditionally_required`: upstream declares it conditional; OBI always emits it, taking the version from the request, or 1.0 for Go net/rpc, whose requests carry none | development | Protocol version, as specified in the `jsonrpc` property of the request and its corresponding response. | 2.0; 1.0 |
 | `jsonrpc.request.id` | string | `conditionally_required`: if the request carried a JSON-RPC id | development | A string representation of the `id` property of the request and its corresponding response. | 10; request-7 |
 | `network.peer.address` | string | `recommended`: if the peer address is an IP rather than a name | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | `recommended`: if `network.peer.address` is set and the port is known | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | `recommended`: if the protocol version was observed on the wire | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
-| `obi.http.response.observed` | boolean | `opt_in` | development | Present and false on an HTTP span whose response was never seen; absent otherwise. `http.response.status_code` is emitted instead once a response is observed. | false |
 | `rpc.method_original` | string | `conditionally_required`: if the qualified method differs from the raw one | release_candidate | The original name of the method used by the client. | com.myservice.EchoService/catchAll; com.myservice.EchoService/unknownMethod; InvalidMethod |
 | `rpc.method` | string | `required` | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
 | `rpc.response.status_code` | string | `conditionally_required`: if the response carried a JSON-RPC error code | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
@@ -536,10 +545,6 @@ OBI inbound JSON-RPC over HTTP server span.
 | `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
-| `url.path` | string | `conditionally_required`: if the front end reported a request URI, and the params frame carrying it was captured whole | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
-| `url.query` | string | `conditionally_required`: if the request carried a query string | stable | The [URI query](https://www.rfc-editor.org/rfc/rfc3986#section-3.4) component | q=OpenTelemetry |
-| `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
-| `user_agent.original` | string | `recommended`: if the request carried a user agent header | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
 ## `obi.mcp.client`
 
@@ -548,6 +553,8 @@ OBI Model Context Protocol client span.
 | Span kind | Stability |
 | --- | --- |
 | client | development |
+
+Name, from the first template that applies: `{mcp.method.name} {gen_ai.tool.name}`, `{mcp.method.name} {gen_ai.prompt.name}`, `{mcp.method.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -580,6 +587,8 @@ OBI inbound Model Context Protocol over HTTP server span.
 | --- | --- |
 | server | development |
 
+Name, from the first template that applies: `{mcp.method.name} {gen_ai.tool.name}`, `{mcp.method.name} {gen_ai.prompt.name}`, `{mcp.method.name}`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `client.address` | string | `recommended` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
@@ -591,15 +600,7 @@ OBI inbound Model Context Protocol over HTTP server span.
 | `gen_ai.tool.name` | string | `conditionally_required`: if the operation executes a tool | development | Name of the tool utilized by the agent. | Flights |
 | `gen_ai.tool.type` | string | `recommended`: if the operation executes a tool | development | Type of the tool utilized by the agent | function; extension; datastore |
 | `http.request.body.content` | string | `opt_in` | development | Captured HTTP request body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"user":"alice"} |
-| `http.request.body.size` | int | `opt_in` | development | The size of the request payload body in bytes. This is the number of bytes transferred excluding headers and is often, but not always, present as the [Content-Length](https://www.rfc-editor.org/rfc/rfc9110.html#field.content-length) header. For requests using transport encoding, this should be the compressed size. | 3495 |
-| `http.request.header` | template[string[]] | `opt_in` | stable | HTTP request headers, `<key>` being the normalized HTTP Header name (lowercase), the value being the header values. | ["application/json"]; ["1.2.3.4","1.2.3.5"] |
-| `http.request.method_original` | string | `conditionally_required`: if the wire method was read and differs from `http.request.method` | stable | Original HTTP method sent by the client in the request line. | GeT; ACL; foo |
-| `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
 | `http.response.body.content` | string | `opt_in` | development | Captured HTTP response body content. Only populated when OBI's body capture is enabled and subject to OBI's body-extraction rules (size limits, content-type filtering, obfuscation). | {"status":"ok"} |
-| `http.response.body.size` | int | `opt_in` | development | The size of the response payload body in bytes. This is the number of bytes transferred excluding headers and is often, but not always, present as the [Content-Length](https://www.rfc-editor.org/rfc/rfc9110.html#field.content-length) header. For requests using transport encoding, this should be the compressed size. | 3495 |
-| `http.response.header` | template[string[]] | `opt_in` | stable | HTTP response headers, `<key>` being the normalized HTTP Header name (lowercase), the value being the header values. | ["application/json"]; ["abc","def"] |
-| `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
-| `http.route` | string | `conditionally_required`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
 | `jsonrpc.request.id` | string | `conditionally_required`: if the request carried a JSON-RPC id | development | A string representation of the `id` property of the request and its corresponding response. | 10; request-7 |
 | `mcp.method.name` | enum | `required` | development | The name of the request or notification method. | notifications/cancelled; initialize; notifications/initialized; notifications/progress; ping; resources/list; resources/templates/list; resources/read; … |
 | `mcp.protocol.version` | string | `recommended`: if the peer reported a protocol version | development | The [version](https://modelcontextprotocol.io/specification/versioning) of the Model Context Protocol used. | 2025-06-18 |
@@ -608,15 +609,10 @@ OBI inbound Model Context Protocol over HTTP server span.
 | `network.peer.address` | string | `recommended`: if the peer address is an IP rather than a name | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | `recommended`: if `network.peer.address` is set and the port is known | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | `recommended`: if the protocol version was observed on the wire | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
-| `obi.http.response.observed` | boolean | `opt_in` | development | Present and false on an HTTP span whose response was never seen; absent otherwise. `http.response.status_code` is emitted instead once a response is observed. | false |
 | `rpc.response.status_code` | string | `conditionally_required`: if the response carried a JSON-RPC error code | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
 | `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
-| `url.path` | string | `conditionally_required`: if the front end reported a request URI, and the params frame carrying it was captured whole | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
-| `url.query` | string | `conditionally_required`: if the request carried a query string | stable | The [URI query](https://www.rfc-editor.org/rfc/rfc3986#section-3.4) component | q=OpenTelemetry |
-| `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
-| `user_agent.original` | string | `recommended`: if the request carried a user agent header | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
 
 ## `obi.messaging.amqp.consumer`
 
@@ -625,6 +621,8 @@ OBI AMQP span for a process operation.
 | Span kind | Stability |
 | --- | --- |
 | consumer | development |
+
+Name: The operation followed by the exchange, `{messaging.operation.name} {exchange}`, or the operation alone when no exchange was read. The exchange is not emitted as an attribute on AMQP spans, so the name cannot be expressed as a template.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -646,6 +644,8 @@ OBI AMQP span for a send or a publish operation.
 | --- | --- |
 | producer | development |
 
+Name: The operation followed by the exchange, `{messaging.operation.name} {exchange}`, or the operation alone when no exchange was read. The exchange is not emitted as an attribute on AMQP spans, so the name cannot be expressed as a template.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
@@ -665,6 +665,8 @@ OBI Kafka span for a process operation.
 | Span kind | Stability |
 | --- | --- |
 | consumer | development |
+
+Name, from the first template that applies: `{messaging.operation.name} {messaging.destination.name}`, `{messaging.operation.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -691,6 +693,8 @@ OBI Kafka span for a send or a publish operation.
 | --- | --- |
 | producer | development |
 
+Name, from the first template that applies: `{messaging.operation.name} {messaging.destination.name}`, `{messaging.operation.name}`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `messaging.client.id` | string | `recommended` | development | A unique identifier for the client that consumes or produces a message. | client-5; myhost@8742@s8083jm |
@@ -714,10 +718,13 @@ OBI MQTT span for a process operation.
 | --- | --- |
 | consumer | development |
 
+Name, from the first template that applies: `{messaging.operation.name}`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `messaging.client.id` | string | `recommended` | development | A unique identifier for the client that consumes or produces a message. | client-5; myhost@8742@s8083jm |
-| `messaging.destination.name` | string | `required` | development | The message destination name | MyQueue; MyTopic |
+| `messaging.consumer.group.name` | string | `conditionally_required`: if the topic filter is a shared subscription | development | The name of the consumer group with which a consumer is associated. | my-group; indexer |
+| `messaging.destination.subscription.name` | string | `required` | development | The name of the destination subscription from which a message is consumed. | subscription-a |
 | `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
 | `messaging.operation.type` | enum | `conditionally_required`: upstream declares it conditional; OBI always emits it, since group membership requires the operation to have been parsed | development | A string identifying the type of the messaging operation. | create; send; receive; process; settle; deliver; publish |
 | `messaging.system` | enum | `required` | development | The messaging system as identified by the client instrumentation. | activemq; aws.sns; aws_sqs; eventgrid; eventhubs; servicebus; gcp_pubsub; jms; … |
@@ -735,6 +742,8 @@ OBI MQTT span for a send or a publish operation.
 | Span kind | Stability |
 | --- | --- |
 | producer | development |
+
+Name, from the first template that applies: `{messaging.operation.name} {messaging.destination.name}`, `{messaging.operation.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -757,6 +766,8 @@ OBI NATS span for a process operation.
 | Span kind | Stability |
 | --- | --- |
 | consumer | development |
+
+Name, from the first template that applies: `{messaging.operation.name} {messaging.destination.name}`, `{messaging.operation.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -781,6 +792,8 @@ OBI NATS span for a send or a publish operation.
 | --- | --- |
 | producer | development |
 
+Name, from the first template that applies: `{messaging.operation.name} {messaging.destination.name}`, `{messaging.operation.name}`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `messaging.client.id` | string | `recommended` | development | A unique identifier for the client that consumes or produces a message. | client-5; myhost@8742@s8083jm |
@@ -796,6 +809,18 @@ OBI NATS span for a send or a publish operation.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
+## `obi.request.phase`
+
+OBI child span splitting a request that waited before it was processed into its queued and processing phases.
+
+| Span kind | Stability |
+| --- | --- |
+| internal | development |
+
+Name: `in queue` for the time between the request arriving and its handler starting, and `processing` for the time the handler ran. Neither is derived from an attribute.
+
+No attributes.
+
 ## `obi.rpc.grpc.client`
 
 OBI outbound gRPC client span.
@@ -803,6 +828,8 @@ OBI outbound gRPC client span.
 | Span kind | Stability |
 | --- | --- |
 | client | release_candidate |
+
+Name, from the first template that applies: `{rpc.method}`, `{rpc.system.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -827,6 +854,8 @@ OBI inbound gRPC server span.
 | --- | --- |
 | server | release_candidate |
 
+Name, from the first template that applies: `{rpc.method}`, `{rpc.system.name}`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `client.address` | string | `recommended` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
@@ -849,6 +878,8 @@ OBI outbound ONC/Sun RPC client span.
 | Span kind | Stability |
 | --- | --- |
 | client | development |
+
+Name, from the first template that applies: `{rpc.method}`, `onc_rpc`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -876,6 +907,8 @@ OBI inbound ONC/Sun RPC server span.
 | Span kind | Stability |
 | --- | --- |
 | server | development |
+
+Name, from the first template that applies: `{rpc.method}`, `onc_rpc`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
