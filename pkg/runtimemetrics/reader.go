@@ -96,6 +96,9 @@ type DotnetRuntimeMetricSnapshot struct {
 	// GCHeapSize contains last-collection bytes, including fragmentation.
 	// Entries follow DotnetHeapGenerations; nil means unavailable.
 	GCHeapSize [DotnetHeapGenerationCount]*int64
+	// GCHeapFragmentation contains fragmented bytes after the last completed collection.
+	// Entries follow DotnetHeapGenerations; nil means unavailable.
+	GCHeapFragmentation [DotnetHeapGenerationCount]*int64
 
 	ProcessCPUCount *int64
 	// CPU times are cumulative process-lifetime seconds; nil means unavailable.
