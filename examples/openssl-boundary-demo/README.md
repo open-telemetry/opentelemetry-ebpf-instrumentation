@@ -87,10 +87,14 @@ docker compose -f examples/openssl-boundary-demo/compose.yaml down -v
 
 This is a controlled HTTP/1.1 proof of concept. It demonstrates propagation for
 native OpenSSL callers with complete request headers in a supported write.
-HTTP/2, QUIC, arbitrary TLS implementations, production overhead, and live arm64
-execution remain outside the validated scope. Enabling Frida changes which engine
+The [proxy matrix](proxy-matrix/README.md) tests tunnels, reverse and forward
+proxies, HTTP/2, HTTP/3, mutual TLS, pooling, retries and header policies, and
+records both supported behavior and implementation gaps. Arbitrary TLS
+implementations, production overhead, and live arm64 execution remain outside
+the validated scope. Enabling Frida changes which engine
 owns OpenSSL interception; attachment failures can leave selected TLS traffic
-without Frida telemetry. See the runtime documentation before testing elsewhere.
+without Frida telemetry in this PoC because automatic fallback is not implemented.
+See the runtime documentation before testing elsewhere.
 
 `native-demo` and `native-fixture.c` are additional assertion tools for buffer
 semantics and exported span ancestry. They are not services in this Compose stack.

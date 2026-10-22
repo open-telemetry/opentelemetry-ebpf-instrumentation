@@ -1,0 +1,57 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
+FROM ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac AS build
+ARG DEBIAN_FRONTEND=noninteractive
+ADD --checksum=sha256:641de77d8f142cfd62a1a6f964ba67b20754d3337c480efb529d086075a06c9a \
+    https://archive.ubuntu.com/ubuntu/pool/main/c/ca-certificates/ca-certificates_20240203_all.deb /tmp/ca.deb
+RUN dpkg-deb -x /tmp/ca.deb /tmp/ca \
+    && mkdir -p /etc/ssl/certs \
+    && cat /tmp/ca/usr/share/ca-certificates/mozilla/*.crt > /etc/ssl/certs/ca-certificates.crt \
+    && sed -i 's|^URIs:.*|URIs: https://snapshot.ubuntu.com/ubuntu/20261020T000000Z/|' /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get -o Acquire::Check-Valid-Until=false -o APT::Update::Error-Mode=any update \
+    && apt-get install -y --no-install-recommends build-essential ca-certificates pkg-config xz-utils \
+    && rm -rf /var/lib/apt/lists/* /tmp/ca /tmp/ca.deb
+WORKDIR /build
+ADD --checksum=sha256:a8c0d28a529ca480f9f36cf5792e2cd21984552a3c8e4aa11a24aa31aeac98e8 \
+    https://github.com/openssl/openssl/releases/download/openssl-3.5.7/openssl-3.5.7.tar.gz openssl.tar.gz
+RUN tar -xzf openssl.tar.gz \
+    && cd openssl-3.5.7 \
+    && ./Configure --prefix=/opt/h3 --libdir=lib no-tests \
+    && make -j4 \
+    && make install_sw
+ADD --checksum=sha256:6da0cd06b428d32a54c58137838505d9dc0371a900bb8070a46b29e1ceaf2e0f \
+    https://github.com/ngtcp2/nghttp3/releases/download/v1.15.0/nghttp3-1.15.0.tar.xz nghttp3.tar.xz
+RUN tar -xJf nghttp3.tar.xz \
+    && cd nghttp3-1.15.0 \
+    && ./configure --prefix=/opt/h3 --enable-lib-only --disable-shared \
+    && make -j4 \
+    && make install
+ADD --checksum=sha256:f11f7da5065f2298f8b5f079a11f1a6f72389271b8dedd893c8eb26aba94bce9 \
+    https://github.com/ngtcp2/ngtcp2/releases/download/v1.19.0/ngtcp2-1.19.0.tar.xz ngtcp2.tar.xz
+RUN tar -xJf ngtcp2.tar.xz \
+    && cd ngtcp2-1.19.0 \
+    && PKG_CONFIG_PATH=/opt/h3/lib/pkgconfig LDFLAGS=-Wl,-rpath,/opt/h3/lib \
+       ./configure --prefix=/opt/h3 --enable-lib-only --disable-shared --with-openssl \
+    && make -j4 \
+    && make install
+ADD --checksum=sha256:8dadd7d2536a314f982ad05a651b713f426bf7d02cc2c76cffb9796f2218e6c5 \
+    https://github.com/curl/curl/releases/download/curl-8_23_0/curl-8.23.0.tar.xz curl.tar.xz
+RUN tar -xJf curl.tar.xz \
+    && cd curl-8.23.0 \
+    && PKG_CONFIG_PATH=/opt/h3/lib/pkgconfig LDFLAGS=-Wl,-rpath,/opt/h3/lib \
+       ./configure --prefix=/opt/h3 --with-openssl=/opt/h3 \
+       --with-nghttp3=/opt/h3 --with-ngtcp2=/opt/h3 --disable-shared \
+       --without-libpsl --without-libidn2 --without-zstd --without-brotli \
+       --without-zlib --without-libssh2 --without-nghttp2 \
+    && make -j4 \
+    && make install
+
+FROM ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
+COPY --from=build /opt/h3/bin/curl /opt/h3/bin/curl
+COPY --from=build /opt/h3/lib/libssl.so.3 /opt/h3/lib/libcrypto.so.3 /opt/h3/lib/
+COPY --from=build /build/openssl-3.5.7/LICENSE.txt /opt/h3/share/licenses/openssl.txt
+COPY --from=build /build/nghttp3-1.15.0/COPYING /opt/h3/share/licenses/nghttp3.txt
+COPY --from=build /build/ngtcp2-1.19.0/COPYING /opt/h3/share/licenses/ngtcp2.txt
+COPY --from=build /build/curl-8.23.0/COPYING /opt/h3/share/licenses/curl.txt
+ENTRYPOINT ["/opt/h3/bin/curl"]
