@@ -58,7 +58,7 @@ OBI-emitted db.client.operation.duration
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `db.collection.name` | string | `conditionally_required`: if the operation targets a single collection | stable | The name of a collection (table, container) within the database. | public.users; customers |
-| `db.namespace` | string | `conditionally_required`: if the exchange named a database | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
+| `db.namespace` | string | `conditionally_required`: if the exchange named a database or schema; PostgreSQL reports `{database}\|{schema}`, or the schema alone when only it is known | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
 | `db.operation.name` | string | `conditionally_required`: if the operation could be parsed from the exchange | stable | The name of the operation or command being executed. | findAndModify; HMSET; SELECT |
 | `db.response.status_code` | string | `conditionally_required`: if the operation failed and the status code is available | stable | Database response status code. | 102; ORA-17002; 08P01; 404 |
 | `db.system.name` | enum | `required` | stable | The database management system (DBMS) product as identified by the client instrumentation. | other_sql; softwareag.adabas; actian.ingres; aws.dynamodb; aws.redshift; azure.cosmosdb; intersystems.cache; cassandra; … |

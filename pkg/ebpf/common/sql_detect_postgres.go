@@ -23,6 +23,11 @@ type postgresPreparedStatementsKey struct {
 	stmtName string
 }
 
+type postgresPreparedStatement struct {
+	query            string
+	searchPathChange postgresSearchPathChange
+}
+
 type postgresPortalsKey struct {
 	connInfo   BpfConnectionInfoT
 	portalName string
@@ -323,17 +328,17 @@ func postgresPreparedStatements(b *largebuf.LargeBuffer) (string, string, string
 }
 
 // StartupMessage: Int32 length, Int32 protocol, then null-terminated key/value pairs
-func parsePostgresStartup(b *largebuf.LargeBuffer) (string, bool) {
+func parsePostgresStartup(b *largebuf.LargeBuffer) (postgresNamespace, bool) {
 	r := b.NewReader()
 	// BPF drops 1-byte reads, so a refused SSL/GSSENC negotiation ('N') glues its request to the startup
 	for range 3 {
 		msgLen, err := r.ReadI32BE()
 		if err != nil || msgLen < 8 || msgLen > pgStartupMaxLen {
-			return "", false
+			return postgresNamespace{}, false
 		}
 		code, err := r.ReadI32BE()
 		if err != nil {
-			return "", false
+			return postgresNamespace{}, false
 		}
 		if (code == pgSSLRequestCode || code == pgGSSENCRequestCode) && msgLen == 8 {
 			continue
@@ -341,15 +346,16 @@ func parsePostgresStartup(b *largebuf.LargeBuffer) (string, bool) {
 		// trailing bytes past the startup's own length = some other length-prefixed protocol
 		if code>>16 != pgStartupProtocolMajor || msgLen < pgStartupMinLen ||
 			int(msgLen)-8 < r.Remaining() {
-			return "", false
+			return postgresNamespace{}, false
 		}
 		return parsePostgresStartupParams(&r, r.Remaining() == int(msgLen)-8)
 	}
-	return "", false
+	return postgresNamespace{}, false
 }
 
-func parsePostgresStartupParams(r *largebuf.LargeBufferReader, complete bool) (string, bool) {
-	var db, user string
+func parsePostgresStartupParams(r *largebuf.LargeBufferReader, complete bool) (postgresNamespace, bool) {
+	var db, user, searchPath, optionsSearchPath string
+	hasSearchPath, hasOptionsSearchPath := false, false
 	for {
 		key, err := r.ReadCStr()
 		if err != nil || len(key) == 0 {
@@ -366,23 +372,21 @@ func parsePostgresStartupParams(r *largebuf.LargeBufferReader, complete bool) (s
 			db = string(val)
 		case "user":
 			user = string(val)
+		case pgSearchPathParam:
+			searchPath, hasSearchPath = string(val), true
+		case pgOptionsParam:
+			optionsSearchPath, hasOptionsSearchPath = searchPathFromStartupOptions(string(val))
 		}
 	}
 	if db == "" && complete {
 		// the database name defaults to the user name, but a truncated capture may hide an explicit database param
 		db = user
 	}
-	return db, db != ""
-}
-
-func postgresDBForConn(parseCtx *EBPFParseContext, connInfo BpfConnectionInfoT) string {
-	if parseCtx.postgresDBNames == nil {
-		return ""
+	if !hasSearchPath && hasOptionsSearchPath {
+		searchPath = optionsSearchPath
 	}
-	if db, ok := parseCtx.postgresDBNames.Get(connInfo); ok {
-		return db
-	}
-	return ""
+	schema := firstSearchPathSchema(searchPath)
+	return postgresNamespace{db: db, startupSchema: schema, schema: schema}, db != ""
 }
 
 type postgresMessage struct {
@@ -503,10 +507,11 @@ func parsePostgresResponse(response []byte) postgresResponse {
 
 func handlePostgres(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBuffer, responseBuffer *largebuf.LargeBuffer) (request.Span, error) {
 	var (
-		hasSpan  bool
-		op, stmt string
-		tables   []string
-		span     request.Span
+		hasSpan          bool
+		op, stmt         string
+		tables           []string
+		span             request.Span
+		searchPathChange postgresSearchPathChange
 	)
 
 	reqR := requestBuffer.NewReader()
@@ -543,6 +548,7 @@ Loop:
 
 		switch msg.typ {
 		case "QUERY":
+			searchPathChange = parsePostgresSearchPathChange(msg.data)
 			op, tables, stmt = detectSQL(msg.data)
 			hasSpan = true
 			break Loop
@@ -555,10 +561,15 @@ Loop:
 			stmtNameLen := len(stmtName)
 			_, _, stmt = detectSQL(msg.data[stmtNameLen:])
 
+			prepared := postgresPreparedStatement{query: stmt}
+			if !msg.partial && stmtNameLen < len(msg.data) {
+				prepared.searchPathChange = parsePostgresSearchPathChange(msg.data[stmtNameLen+1:])
+			}
+
 			parseCtx.postgresPreparedStatements.Add(postgresPreparedStatementsKey{
 				connInfo: event.ConnInfo,
 				stmtName: stmtName,
-			}, stmt)
+			}, prepared)
 
 			if !msg.partial || !response.executed {
 				continue
@@ -597,11 +608,14 @@ Loop:
 				stmtName: stmtName,
 			}
 
-			stmt, found = parseCtx.postgresPreparedStatements.Get(preparedStmtKey)
+			prepared, found := parseCtx.postgresPreparedStatements.Get(preparedStmtKey)
 			if !found {
 				slog.Debug("Postgres EXECUTE command with unknown statement", "stmtName", stmtName)
 				continue
 			}
+
+			stmt = prepared.query
+			searchPathChange = prepared.searchPathChange
 
 			op, tables = sqlprune.SQLParseOperationAndTables(stmt)
 			hasSpan = true
@@ -609,6 +623,10 @@ Loop:
 		default:
 			continue
 		}
+	}
+
+	if sqlError == nil && response.executed {
+		applyPostgresSearchPathChange(parseCtx, event.ConnInfo, searchPathChange)
 	}
 
 	if !hasSpan {
@@ -622,6 +640,6 @@ Loop:
 	}
 
 	span = TCPToSQLToSpan(event, op, tables, stmt, request.DBPostgres, msg.typ, sqlError)
-	span.DBNamespace = postgresDBForConn(parseCtx, event.ConnInfo)
+	span.DBNamespace = postgresNamespaceForConn(parseCtx, event.ConnInfo)
 	return span, nil
 }
