@@ -2,8 +2,8 @@
 #MISE description="Generate configuration schema and docs"
 #MISE alias="generate-config-schema"
 set -euo pipefail
-schema="${CONFIG_SCHEMA_FILE:-devdocs/config/config-schema.json}"
-docs="${CONFIG_DOCS_FILE:-devdocs/config/CONFIG.md}"
+schema="$CONFIG_SCHEMA_FILE"
+docs="$CONFIG_DOCS_FILE"
 mkdir -p "$(dirname "$schema")"
 go run ./cmd/obi-schema -output "$schema"
 go run ./cmd/config-docs -schema "$schema" -output "$docs"

@@ -34,6 +34,8 @@ GEN_IMG = "{{ env.GEN_IMG | default(value='ghcr.io/open-telemetry/obi-generator:
 GENERATOR_CONTEXT = "{{ env.GENERATOR_CONTEXT | default(value='ghcr.io/open-telemetry/obi-generator:local', boolean=true) }}"
 ENVTEST_K8S_VERSION = "{{ env.ENVTEST_K8S_VERSION | default(value='1.30.0', boolean=true) }}"
 RELEASE_DIR = "{{ env.RELEASE_DIR | default(value='./dist', boolean=true) }}"
+CONFIG_SCHEMA_FILE = "{{ env.CONFIG_SCHEMA_FILE | default(value='devdocs/config/config-schema.json', boolean=true) }}"
+CONFIG_DOCS_FILE = "{{ env.CONFIG_DOCS_FILE | default(value='devdocs/config/CONFIG.md', boolean=true) }}"
 
 [tools]
 go = "1.27.2"

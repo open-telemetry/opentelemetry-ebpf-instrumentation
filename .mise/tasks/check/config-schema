@@ -2,8 +2,8 @@
 #MISE description="Check generated configuration schema and docs"
 #MISE alias="check-config-schema"
 set -euo pipefail
-schema="${CONFIG_SCHEMA_FILE:-devdocs/config/config-schema.json}"
-docs="${CONFIG_DOCS_FILE:-devdocs/config/CONFIG.md}"
+schema="$CONFIG_SCHEMA_FILE"
+docs="$CONFIG_DOCS_FILE"
 mkdir -p "$(dirname "$schema")"
 go run ./cmd/obi-schema -output "${schema}.tmp"
 if diff -q "$schema" "${schema}.tmp" >/dev/null; then

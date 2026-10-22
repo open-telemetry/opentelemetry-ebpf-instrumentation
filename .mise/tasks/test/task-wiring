@@ -30,6 +30,11 @@ assert_task_aliases generate:license-notices notices:update notices-update
 assert_task_aliases generate:license-notices:go notices:update-go go-notices-update
 assert_task_aliases test:privileged test-privileged
 
+schema_defaults='[ "$CONFIG_SCHEMA_FILE" = devdocs/config/config-schema.json ] && [ "$CONFIG_DOCS_FILE" = devdocs/config/CONFIG.md ]'
+mise exec -- bash -c "$schema_defaults"
+CONFIG_SCHEMA_FILE= CONFIG_DOCS_FILE= mise exec -- bash -c "$schema_defaults"
+CONFIG_SCHEMA_FILE=custom/schema.json CONFIG_DOCS_FILE=custom/CONFIG.md mise exec -- bash -c '[ "$CONFIG_SCHEMA_FILE" = custom/schema.json ] && [ "$CONFIG_DOCS_FILE" = custom/CONFIG.md ]'
+
 notice_plan="$(mise run --dry-run //:generate:license-notices 2>&1)"
 grep -Fq '.mise/tasks/generate/license-notices/go' <<<"$notice_plan"
 grep -Fq '.mise/tasks/generate/license-notices/bpf' <<<"$notice_plan"
