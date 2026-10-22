@@ -1075,6 +1075,7 @@ func newReporter(
 			mr.dotnetRuntimeMetrics.processMemoryWorkingSet,
 			mr.dotnetRuntimeMetrics.gcCommittedMemory,
 			mr.dotnetRuntimeMetrics.gcHeapSize,
+			mr.dotnetRuntimeMetrics.gcHeapFragmentation,
 			mr.dotnetRuntimeMetrics.threadPoolThreadCount,
 			mr.dotnetRuntimeMetrics.threadPoolQueueLength,
 			mr.dotnetRuntimeMetrics.timerCount,
