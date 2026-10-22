@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 )
 
 func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
@@ -153,6 +154,40 @@ func TestLocalEnrichmentAndCIDRExclusion(t *testing.T) {
 	agent.Decorate(&span, time.Now())
 	require.Equal(t, "existing-name", span.HostName)
 	require.Zero(t, agent.cache.peers.Len())
+}
+
+func TestIneligibleDestinationsDoNotCauseCallerOverflow(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.MaxCallerEntries = 1
+	peers, err := makeNetwork([]netip.Addr{
+		netip.MustParseAddr("10.2.0.1"), netip.MustParseAddr("fd34::1"),
+	}, []string{"10.1.0.0/16", "fd12::/64"})
+	require.NoError(t, err)
+	frontend := Service{Name: "frontend", Namespace: "shop"}
+	now := time.Now()
+	for _, host := range []string{
+		"10.1.0.2", "fd12::2", "::ffff:10.1.0.2",
+		"10.2.0.1", "fd34::1", "::ffff:10.2.0.1", "127.0.0.1", "::1",
+	} {
+		t.Run(host, func(t *testing.T) {
+			agent := &Agent{cfg: cfg, store: newStore("local-host", cfg), cache: newPeerCache(cfg), network: peers}
+			span := request.Span{
+				Type: request.EventTypeHTTPClient, Host: host, HostPort: 8080,
+				Service: svc.Attrs{UID: svc.UID{Name: frontend.Name, Namespace: frontend.Namespace}},
+			}
+			agent.Decorate(&span, now)
+			for _, excluded := range []string{"8.8.8.8", "10.3.0.1", "fd56::1", "2001:4860:4860::8888", "::ffff:8.8.4.4"} {
+				span.Host = excluded
+				agent.Decorate(&span, now)
+			}
+			target := Endpoint{IP: netip.MustParseAddr(host).Unmap().String(), Port: span.HostPort}
+			snapshot := agent.store.snapshot(map[string]struct{}{target.IP: {}}, now)
+			require.Equal(t, 1, agent.store.callerCount)
+			require.Zero(t, snapshot.CallerAmbiguityMillis)
+			require.Equal(t, frontend, agent.store.callerService(target, now))
+			require.Equal(t, frontend, indexSnapshot(&snapshot).callerService(target, 0))
+		})
+	}
 }
 
 func TestCachedPeerHostnameFallbackDoesNotCountClientRequests(t *testing.T) {

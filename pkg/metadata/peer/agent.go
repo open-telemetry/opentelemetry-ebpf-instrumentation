@@ -189,12 +189,17 @@ func (a *Agent) Decorate(span *request.Span, now time.Time) {
 	// there's nothing we can do.
 	destination, err := netip.ParseAddr(span.Host)
 	if err == nil {
-		endpoint.IP = destination.Unmap().String()
+		destination = destination.Unmap()
+		endpoint.IP = destination.String()
 	} else if span.IsClientSpan() {
 		return
 	}
 
 	if span.IsClientSpan() {
+		if !a.network.isLocal(destination) && !a.network.permits(destination) {
+			return
+		}
+
 		a.decorateClient(span, endpoint, now)
 		return
 	}
