@@ -17,8 +17,8 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore/policy"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v8"
-	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v7"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v9"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v12"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -170,7 +170,7 @@ func TestAzureRunningUniformVMs(t *testing.T) {
 }
 
 func TestAzureListUniformNICs(t *testing.T) {
-	const resourcePath = "/subscriptions/" + azureTestSubscription + "/resourceGroups/services/providers/microsoft.Compute/virtualMachineScaleSets/checkout/networkInterfaces"
+	const resourcePath = "/subscriptions/" + azureTestSubscription + "/resourceGroups/services/providers/Microsoft.Compute/virtualMachineScaleSets/checkout/networkInterfaces"
 	for _, failSecondPage := range []bool{false, true} {
 		t.Run(fmt.Sprintf("second page fails=%t", failSecondPage), func(t *testing.T) {
 			calls := 0
