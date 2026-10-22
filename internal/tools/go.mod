@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/tools
 
-go 1.26.0
+go 1.27.3
 
 require github.com/cilium/ebpf v0.22.0 // indirect
 

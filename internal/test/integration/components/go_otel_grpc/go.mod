@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/test/integration/components/go_otel_grpc
 
-go 1.26.0
+go 1.27.3
 
 require (
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0
