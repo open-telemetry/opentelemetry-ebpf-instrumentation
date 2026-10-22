@@ -5,6 +5,7 @@ package peer
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/export/otel"
 )
 
 func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
@@ -33,6 +35,7 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 	localTarget := Endpoint{IP: "127.0.0.1", Port: 9090}
 	remote.observe(localTarget, frontend, time.Now())
 	remote.observe(Endpoint{IP: "10.1.0.99", Port: 9090}, Service{Name: "unrelated"}, time.Now())
+	remoteCache := newPeerCache(cfg)
 	var requests atomic.Int32
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
@@ -44,7 +47,7 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 		case <-r.Context().Done():
 			return
 		}
-		metadataHandler(remote, cfg, testLoopbackNetwork).ServeHTTP(w, r)
+		metadataHandler(remote, cfg, testLoopbackNetwork, remoteCache).ServeHTTP(w, r)
 	}))
 	t.Cleanup(server.Close)
 	client := newHTTPClient(cfg, nil)
@@ -61,7 +64,10 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 	workers.Go(func() { agent.fetchPeers(ctx, jobs) })
 	workers.Go(func() { agent.schedulePeers(ctx, jobs) })
 	t.Cleanup(func() { cancel(); workers.Wait() })
-	span := request.Span{Type: request.EventTypeHTTPClient, Host: "10.1.0.2", HostPort: 8080, HostName: "dns-host"}
+	span := request.Span{
+		Type: request.EventTypeHTTPClient, Host: "10.1.0.2", HostPort: 8080, HostName: "dns-host",
+		Service: svc.Attrs{UID: svc.UID{Name: frontend.Name, Namespace: frontend.Namespace}},
+	}
 	agent.Decorate(&span, time.Now())
 	require.Equal(t, "dns-host", span.HostName)
 	require.False(t, request.IgnoreServiceGraphClientCount(&span))
@@ -75,6 +81,10 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 	}
 	require.EqualValues(t, 1, requests.Load())
 	require.Equal(t, "dns-host", span.HostName)
+	requester := netip.MustParseAddr("127.0.0.1")
+	known := agent.store.snapshot(map[string]struct{}{span.Host: {}}, time.Now())
+	remoteCache.lookup(requester, time.Now())
+	remoteCache.complete(remoteCache.due(time.Now(), 1)[0], indexSnapshot(&known), 1, time.Now(), time.Now())
 	close(release)
 	require.Eventually(t, func() bool {
 		agent.Decorate(&span, time.Now())
@@ -239,6 +249,86 @@ func TestCachedPeerHostnameFallbackDoesNotCountClientRequests(t *testing.T) {
 			require.Equal(t, test.service.Name, span.HostName)
 			require.Equal(t, test.service.Namespace, span.OtherNamespace)
 			require.Equal(t, test.suppress, request.IgnoreServiceGraphClientCount(&span))
+		})
+	}
+}
+
+func TestClientCountRequiresReverseMetadataExchange(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.CallerTTL = time.Second
+	peers, err := makeNetwork(nil, []string{"10.1.0.0/16"})
+	require.NoError(t, err)
+	client := &Agent{cfg: cfg, store: newStore("client-host", cfg), cache: newPeerCache(cfg), network: peers}
+	server := &Agent{cfg: cfg, store: newStore("server-host", cfg), cache: newPeerCache(cfg), network: peers}
+	backend := Service{Name: "backend", Namespace: "shop", ServiceGraph: true}
+	server.store.setInventory([]Service{backend}, []Listener{
+		{Endpoint: Endpoint{IP: "0.0.0.0", Port: 8080}, Service: backend},
+		{Endpoint: Endpoint{IP: "0.0.0.0", Port: 9090}, Service: backend},
+	})
+	clientIP := netip.MustParseAddr("10.1.0.1")
+	serverIP := netip.MustParseAddr("10.1.0.2")
+	exchange := func(from, to *Agent, source, destination netip.Addr) {
+		t.Helper()
+		started := time.Now()
+		r := httptest.NewRequest(http.MethodGet, MetadataPath, nil)
+		r.RemoteAddr = net.JoinHostPort(source.String(), "1234")
+		w := httptest.NewRecorder()
+		metadataHandler(to.store, cfg, peers, to.cache).ServeHTTP(w, r)
+		require.Equal(t, http.StatusOK, w.Code)
+		var snapshot Snapshot
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &snapshot))
+		require.NoError(t, validateSnapshot(&snapshot, cfg.CallerTTL))
+		from.cache.lookup(destination, started)
+		peer, _ := from.cache.peers.Peek(destination)
+		from.cache.complete(peer, indexSnapshot(&snapshot), w.Body.Len(), started, time.Now())
+	}
+	clientSpan := request.Span{
+		Type: request.EventTypeHTTPClient, Host: serverIP.String(), HostPort: 8080,
+		Service: svc.Attrs{UID: svc.UID{Name: "frontend", Namespace: "shop"}},
+	}
+	serverSpan := request.Span{Type: request.EventTypeHTTP, Peer: clientIP.String(), Host: serverIP.String(), HostPort: 8080}
+	tracker := otel.NewPidServiceTracker()
+
+	exchange(client, server, clientIP, serverIP)
+	server.Decorate(&serverSpan, time.Now())
+	require.Empty(t, serverSpan.PeerName, "the reverse metadata exchange has not succeeded")
+	client.Decorate(&clientSpan, time.Now())
+	require.Equal(t, "backend", clientSpan.HostName)
+	require.True(t, otel.ClientSpanToUninstrumentedService(&tracker, &clientSpan), "both exporters must retain the correctly named client edge")
+
+	exchange(server, client, serverIP, clientIP)
+	server.Decorate(&serverSpan, time.Now())
+	require.Equal(t, "frontend", serverSpan.PeerName)
+	exchange(client, server, clientIP, serverIP)
+	client.Decorate(&clientSpan, time.Now())
+	require.False(t, otel.ClientSpanToUninstrumentedService(&tracker, &clientSpan), "the server can now count the same edge")
+
+	for _, test := range []struct {
+		name string
+		span request.Span
+		age  time.Duration
+	}{
+		{name: "different caller", span: request.Span{
+			Type: request.EventTypeHTTPClient, Host: serverIP.String(), HostPort: 8080,
+			Service: svc.Attrs{UID: svc.UID{Name: "other", Namespace: "shop"}},
+		}},
+		{name: "different namespace", span: request.Span{
+			Type: request.EventTypeHTTPClient, Host: serverIP.String(), HostPort: 8080,
+			Service: svc.Attrs{UID: svc.UID{Name: "frontend", Namespace: "other"}},
+		}},
+		{name: "different destination", span: request.Span{
+			Type: request.EventTypeHTTPClient, Host: serverIP.String(), HostPort: 9090,
+			Service: clientSpan.Service,
+		}},
+		{name: "expired acknowledgement", span: request.Span{
+			Type: request.EventTypeHTTPClient, Host: serverIP.String(), HostPort: 8080,
+			Service: clientSpan.Service,
+		}, age: cfg.CallerTTL},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			client.Decorate(&test.span, time.Now().Add(test.age))
+			require.Equal(t, "backend", test.span.HostName)
+			require.True(t, otel.ClientSpanToUninstrumentedService(&tracker, &test.span))
 		})
 	}
 }

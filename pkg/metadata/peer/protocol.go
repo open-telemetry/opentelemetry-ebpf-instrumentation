@@ -41,6 +41,7 @@ type Snapshot struct {
 	Services              []Service  `json:"services"`
 	Listeners             []Listener `json:"listeners"`
 	Callers               []Caller   `json:"callers,omitempty"`
+	KnownCallers          []Caller   `json:"known_callers,omitempty"`
 	CallerAmbiguityMillis int64      `json:"caller_ambiguity_ms,omitempty"`
 }
 

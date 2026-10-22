@@ -156,3 +156,44 @@ func TestCacheRefreshPreservesEvictionRecency(t *testing.T) {
 	require.True(t, cache.peers.Contains(b))
 	require.True(t, cache.peers.Contains(c))
 }
+
+func TestKnownCallersRespectCachedLifetimes(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.CacheTTL = 10 * time.Second
+	cache := newPeerCache(cfg)
+	requester := netip.MustParseAddr("10.1.0.1")
+	now := time.Unix(100, 0)
+	require.Empty(t, cache.knownCallers(requester, now))
+	require.Zero(t, cache.peers.Len(), "serving metadata must not register peers")
+	target := Endpoint{IP: "10.1.0.2", Port: 8080}
+	frontend := Service{Name: "frontend"}
+	for _, test := range []struct {
+		name      string
+		remaining time.Duration
+		ambiguity time.Duration
+		expect    time.Duration
+	}{
+		{name: "cache expiry bounds acknowledgement", remaining: time.Minute, expect: 7 * time.Second},
+		{name: "caller expiry bounds acknowledgement", remaining: 8 * time.Second, expect: 3 * time.Second},
+		{name: "expired caller", remaining: time.Second},
+		{name: "global ambiguity", remaining: time.Minute, ambiguity: time.Minute},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			snapshot := indexSnapshot(&Snapshot{
+				Hostname: "client-host", CallerAmbiguityMillis: test.ambiguity.Milliseconds(),
+				Callers: []Caller{{Destination: target, Services: []CallerService{{Service: frontend, RemainingMillis: test.remaining.Milliseconds()}}}},
+			})
+			cache.lookup(requester, now)
+			peer, _ := cache.peers.Peek(requester)
+			cache.complete(peer, snapshot, 1, now.Add(-2*time.Second), now)
+			known := cache.knownCallers(requester, now.Add(3*time.Second))
+			if test.expect == 0 {
+				require.Empty(t, known)
+			} else {
+				require.Equal(t, []Caller{{Destination: target, Services: []CallerService{{Service: frontend, RemainingMillis: test.expect.Milliseconds()}}}}, known)
+			}
+			require.Equal(t, now, peer.lastUsed, "serving metadata must not keep a peer active")
+			require.Empty(t, cache.knownCallers(requester, now.Add(cfg.CacheTTL)))
+		})
+	}
+}

@@ -76,7 +76,7 @@ func New(ctx context.Context, cfg Config, hostname string, serviceGraphEnabled b
 	agent.store.metricsPIDs = metricsPIDs
 
 	agent.server = &http.Server{
-		Handler:           metadataHandler(agent.store, cfg, network),
+		Handler:           metadataHandler(agent.store, cfg, network, agent.cache),
 		ReadHeaderTimeout: cfg.RequestTimeout,
 		ReadTimeout:       cfg.RequestTimeout,
 		WriteTimeout:      cfg.RequestTimeout,
@@ -215,21 +215,22 @@ func (a *Agent) Decorate(span *request.Span, now time.Time) {
 
 // decorateClient records outgoing callers and enriches the destination.
 func (a *Agent) decorateClient(span *request.Span, destination Endpoint, now time.Time) {
-	a.store.observe(destination, a.store.serviceFor(span.Service), now)
-	service, matched := a.resolveDestination(destination, now)
+	caller := a.store.serviceFor(span.Service)
+	a.store.observe(destination, caller, now)
+	service, ignoreClientCount := a.resolveDestination(destination, caller, now)
 	if service.Name == "" {
 		return
 	}
 
 	span.HostName = service.Name
 	span.OtherNamespace = service.Namespace
-	if (!matched || service.ServiceGraph) && span.Type != request.EventTypeFailedConnect {
+	if ignoreClientCount && span.Type != request.EventTypeFailedConnect {
 		request.SetIgnoreServiceGraphClientCount(span)
 	}
 }
 
-// resolveDestination identifies the listening service using local or cached metadata.
-func (a *Agent) resolveDestination(destination Endpoint, now time.Time) (Service, bool) {
+// resolveDestination identifies the service and whether to suppress the client graph count.
+func (a *Agent) resolveDestination(destination Endpoint, caller Service, now time.Time) (Service, bool) {
 	address, err := netip.ParseAddr(destination.IP)
 	if err != nil {
 		return Service{}, false
@@ -237,19 +238,22 @@ func (a *Agent) resolveDestination(destination Endpoint, now time.Time) (Service
 
 	address = address.Unmap()
 	if a.network.isLocal(address) {
-		return a.store.destinationService(destination)
+		service, matched := a.store.destinationService(destination)
+		return service, !matched || service.ServiceGraph
 	}
 
 	if !a.network.permits(address) {
 		return Service{}, false
 	}
 
-	snapshot, _ := a.cache.lookup(address, now)
+	snapshot, fetchedAt := a.cache.lookup(address, now)
 	if snapshot == nil {
 		return Service{}, false
 	}
 
-	return snapshot.destinationService(destination)
+	service, matched := snapshot.destinationService(destination)
+	ignoreClientCount := !matched || service.ServiceGraph && snapshot.knowsCaller(destination, caller, now.Sub(fetchedAt))
+	return service, ignoreClientCount
 }
 
 // resolveCaller identifies a caller from recent observations, using its hostname as a fallback.

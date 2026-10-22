@@ -90,3 +90,15 @@ func TestListenerGraphParticipationRequiresAllMatchingProcesses(t *testing.T) {
 		require.Equal(t, tracesOnly, service, "graph settings do not change the service identity")
 	}
 }
+
+func TestKnownCallersRequireUniqueIdentity(t *testing.T) {
+	target := Endpoint{IP: "10.1.0.2", Port: 8080}
+	frontend := Service{Name: "frontend", Namespace: "shop"}
+	snapshot := indexSnapshot(&Snapshot{KnownCallers: []Caller{{Destination: target, Services: []CallerService{
+		{Service: frontend, RemainingMillis: 1000},
+		{Service: Service{Name: frontend.Name, Namespace: "other"}, RemainingMillis: 500},
+	}}}})
+	require.False(t, snapshot.knowsCaller(target, frontend, 0), "ambiguous callers cannot take over the client count")
+	require.True(t, snapshot.knowsCaller(target, frontend, 500*time.Millisecond))
+	require.False(t, snapshot.knowsCaller(target, frontend, time.Second))
+}

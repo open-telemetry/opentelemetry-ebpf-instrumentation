@@ -12,6 +12,7 @@ type cachedSnapshot struct {
 	hostname        string
 	listeners       map[Endpoint][]Service
 	callers         map[Endpoint][]CallerService
+	knownCallers    map[Endpoint][]CallerService
 	ambiguityMillis int64
 }
 
@@ -22,6 +23,7 @@ func indexSnapshot(snapshot *Snapshot) *cachedSnapshot {
 		ambiguityMillis: snapshot.CallerAmbiguityMillis,
 		listeners:       make(map[Endpoint][]Service),
 		callers:         make(map[Endpoint][]CallerService),
+		knownCallers:    make(map[Endpoint][]CallerService),
 	}
 
 	for _, listener := range snapshot.Listeners {
@@ -30,6 +32,10 @@ func indexSnapshot(snapshot *Snapshot) *cachedSnapshot {
 
 	for _, caller := range snapshot.Callers {
 		indexed.callers[caller.Destination] = append(indexed.callers[caller.Destination], caller.Services...)
+	}
+
+	for _, caller := range snapshot.KnownCallers {
+		indexed.knownCallers[caller.Destination] = append(indexed.knownCallers[caller.Destination], caller.Services...)
 	}
 
 	return indexed
@@ -78,8 +84,24 @@ func (s *cachedSnapshot) callerService(endpoint Endpoint, age time.Duration) Ser
 		return fallback
 	}
 
+	selected := uniqueCaller(s.callers[endpoint], age)
+	if selected.Name == "" {
+		return fallback
+	}
+
+	return selected
+}
+
+// knowsCaller checks whether the peer can still resolve this caller at the destination.
+func (s *cachedSnapshot) knowsCaller(endpoint Endpoint, caller Service, age time.Duration) bool {
+	known := uniqueCaller(s.knownCallers[endpoint], age)
+	return caller.Name != "" && known.Name == caller.Name && known.Namespace == caller.Namespace
+}
+
+// uniqueCaller selects a single unexpired identity, returning none when ambiguous.
+func uniqueCaller(candidates []CallerService, age time.Duration) Service {
 	var selected Service
-	for _, candidate := range s.callers[endpoint] {
+	for _, candidate := range candidates {
 		if candidate.RemainingMillis <= age.Milliseconds() {
 			continue
 		}
@@ -87,12 +109,8 @@ func (s *cachedSnapshot) callerService(endpoint Endpoint, age time.Duration) Ser
 		var matches bool
 		selected, matches = selected.merge(candidate.Service)
 		if !matches {
-			return fallback
+			return Service{}
 		}
-	}
-
-	if selected.Name == "" {
-		return fallback
 	}
 
 	return selected

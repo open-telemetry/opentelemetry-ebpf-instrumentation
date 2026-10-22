@@ -70,7 +70,7 @@ func newHTTPClient(cfg Config, clientTLS *tls.Config) *http.Client {
 	}
 }
 
-func metadataHandler(store *localStore, cfg Config, peers network) http.Handler {
+func metadataHandler(store *localStore, cfg Config, peers network, cache *peerCache) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(MetadataPath, func(w http.ResponseWriter, r *http.Request) {
 		requester, err := netip.ParseAddrPort(r.RemoteAddr)
@@ -96,7 +96,11 @@ func metadataHandler(store *localStore, cfg Config, peers network) http.Handler 
 			return
 		}
 
-		snapshot := store.snapshot(targets, time.Now())
+		now := time.Now()
+		snapshot := store.snapshot(targets, now)
+		if cache != nil {
+			snapshot.KnownCallers = cache.knownCallers(requester.Addr().Unmap(), now)
+		}
 		if err := filterListeners(&snapshot, r.URL.Query()); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -267,7 +271,10 @@ func validateSnapshot(snapshot *Snapshot, callerTTL time.Duration) error {
 	}
 
 	snapshot.CallerAmbiguityMillis = min(snapshot.CallerAmbiguityMillis, callerTTL.Milliseconds())
-	return validateCallers(snapshot.Callers, callerTTL)
+	if err := validateCallers(snapshot.Callers, callerTTL); err != nil {
+		return err
+	}
+	return validateCallers(snapshot.KnownCallers, callerTTL)
 }
 
 func validateCallers(callers []Caller, ttl time.Duration) error {

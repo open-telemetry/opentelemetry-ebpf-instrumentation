@@ -121,7 +121,7 @@ func TestHTTPSCertificateVerification(t *testing.T) {
 			service := Service{Name: "api", Namespace: "shop"}
 			store.setInventory([]Service{service}, nil)
 			var requests atomic.Int32
-			handler := metadataHandler(store, cfg, testLoopbackNetwork)
+			handler := metadataHandler(store, cfg, testLoopbackNetwork, nil)
 			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests.Add(1)
 				handler.ServeHTTP(w, r)
@@ -216,7 +216,7 @@ func TestHTTPSBearerToken(t *testing.T) {
 			cfg.TLS = TLSConfig{Enabled: true, CertFile: leaf.certFile, KeyFile: leaf.keyFile, CAFile: root.certFile}
 			serverTLS, clientTLS, err := tlsConfigs(cfg.TLS)
 			require.NoError(t, err)
-			server := httptest.NewUnstartedServer(metadataHandler(newStore("remote-host", cfg), cfg, testLoopbackNetwork))
+			server := httptest.NewUnstartedServer(metadataHandler(newStore("remote-host", cfg), cfg, testLoopbackNetwork, nil))
 			server.TLS = serverTLS
 			server.StartTLS()
 			t.Cleanup(server.Close)

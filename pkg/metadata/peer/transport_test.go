@@ -35,7 +35,7 @@ func TestMetadataEndpoint(t *testing.T) {
 	store.observe(Endpoint{IP: "10.1.0.2", Port: 9090}, api, time.Now())
 	peers, err := makeNetwork(nil, cfg.PeerCIDRs)
 	require.NoError(t, err)
-	handler := metadataHandler(store, cfg, peers)
+	handler := metadataHandler(store, cfg, peers, nil)
 	for _, test := range []struct {
 		path, method, token string
 		status              int
@@ -78,7 +78,7 @@ func TestMetadataEndpoint(t *testing.T) {
 	})
 	cfg.MaxResponseBytes = 1
 	w = httptest.NewRecorder()
-	metadataHandler(store, cfg, peers).ServeHTTP(w, r)
+	metadataHandler(store, cfg, peers, nil).ServeHTTP(w, r)
 	require.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
@@ -94,6 +94,19 @@ func TestSnapshotValidation(t *testing.T) {
 	snapshot.Callers[0].Services[0].RemainingMillis = -1
 	require.Error(t, validateSnapshot(&snapshot, time.Minute))
 	snapshot.Version = 2
+	require.Error(t, validateSnapshot(&snapshot, time.Minute))
+}
+
+func TestSnapshotValidatesKnownCallers(t *testing.T) {
+	snapshot := Snapshot{Version: ProtocolVersion, Hostname: "host", KnownCallers: []Caller{
+		{Destination: Endpoint{IP: "::ffff:10.1.0.2", Port: 8080}, Services: []CallerService{
+			{Service: Service{Name: "frontend"}, RemainingMillis: 120000},
+		}},
+	}}
+	require.NoError(t, validateSnapshot(&snapshot, time.Minute))
+	require.Equal(t, "10.1.0.2", snapshot.KnownCallers[0].Destination.IP)
+	require.EqualValues(t, 60000, snapshot.KnownCallers[0].Services[0].RemainingMillis)
+	snapshot.KnownCallers[0].Services[0].RemainingMillis = -1
 	require.Error(t, validateSnapshot(&snapshot, time.Minute))
 }
 
@@ -129,7 +142,7 @@ func TestHTTPFailuresAndResponseLimits(t *testing.T) {
 func TestTLSVerification(t *testing.T) {
 	cfg := DefaultConfig()
 	store := newStore("host", cfg)
-	server := httptest.NewTLSServer(metadataHandler(store, cfg, testLoopbackNetwork))
+	server := httptest.NewTLSServer(metadataHandler(store, cfg, testLoopbackNetwork, nil))
 	defer server.Close()
 	dir := t.TempDir()
 	certificate := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
@@ -181,7 +194,7 @@ func TestBearerTokenAuthorization(t *testing.T) {
 				r.Header.Set("Authorization", test.authorization)
 			}
 			w := httptest.NewRecorder()
-			metadataHandler(newStore("host", cfg), cfg, testLoopbackNetwork).ServeHTTP(w, r)
+			metadataHandler(newStore("host", cfg), cfg, testLoopbackNetwork, nil).ServeHTTP(w, r)
 			require.Equal(t, test.status, w.Code)
 			if test.status == http.StatusUnauthorized {
 				require.NotContains(t, w.Body.String(), test.token)
@@ -229,7 +242,7 @@ func TestMetadataEndpointRestrictsRequesterCIDRs(t *testing.T) {
 				r.Header.Set("Authorization", "Bearer "+test.token)
 			}
 			w := httptest.NewRecorder()
-			metadataHandler(store, cfg, peers).ServeHTTP(w, r)
+			metadataHandler(store, cfg, peers, nil).ServeHTTP(w, r)
 			require.Equal(t, test.status, w.Code)
 			if test.status == http.StatusForbidden {
 				require.NotContains(t, w.Body.String(), "private-host")
@@ -247,7 +260,7 @@ func TestMetadataEndpointRestrictsCallerTargets(t *testing.T) {
 	for _, ip := range []string{"10.1.0.2", "10.1.0.3", "fd12::2", "fd12::3"} {
 		store.observe(Endpoint{IP: ip, Port: 8080}, Service{Name: "caller"}, time.Now())
 	}
-	handler := metadataHandler(store, cfg, peers)
+	handler := metadataHandler(store, cfg, peers, nil)
 	for _, test := range []struct {
 		name, remote, query string
 		status              int
@@ -289,7 +302,7 @@ func TestFetchSnapshotDefaultsToRequesterAddress(t *testing.T) {
 	self := Endpoint{IP: "127.0.0.1", Port: 8080}
 	store.observe(self, Service{Name: "caller"}, time.Now())
 	store.observe(Endpoint{IP: "10.1.0.2", Port: 8080}, Service{Name: "unrelated"}, time.Now())
-	server := httptest.NewServer(metadataHandler(store, cfg, testLoopbackNetwork))
+	server := httptest.NewServer(metadataHandler(store, cfg, testLoopbackNetwork, nil))
 	defer server.Close()
 	cfg.Port = server.Listener.Addr().(*net.TCPAddr).Port
 	client := newHTTPClient(cfg, nil)
@@ -298,4 +311,46 @@ func TestFetchSnapshotDefaultsToRequesterAddress(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, snapshot.Callers, 1)
 	require.Equal(t, self, snapshot.Callers[0].Destination)
+}
+
+func TestKnownCallersAreScopedToRequester(t *testing.T) {
+	cfg := DefaultConfig()
+	peers, err := makeNetwork(nil, []string{"10.1.0.0/16"})
+	require.NoError(t, err)
+	cache := newPeerCache(cfg)
+	target := Endpoint{IP: "10.1.0.2", Port: 8080}
+	now := time.Now()
+	for _, caller := range []struct{ ip, name string }{
+		{ip: "10.1.0.1", name: "frontend"}, {ip: "10.1.0.3", name: "other"},
+	} {
+		address := netip.MustParseAddr(caller.ip)
+		snapshot := indexSnapshot(&Snapshot{Hostname: "host", Callers: []Caller{{
+			Destination: target,
+			Services:    []CallerService{{Service: Service{Name: caller.name}, RemainingMillis: cfg.CallerTTL.Milliseconds()}},
+		}}})
+		cache.lookup(address, now)
+		cache.complete(cache.due(now, 1)[0], snapshot, 1, now, now)
+	}
+	before := cache.peers.Keys()
+	handler := metadataHandler(newStore("server-host", cfg), cfg, peers, cache)
+	for _, test := range []struct{ source, caller string }{
+		{source: "10.1.0.1", caller: "frontend"}, {source: "10.1.0.3", caller: "other"}, {source: "10.1.0.4"},
+	} {
+		r := httptest.NewRequest(http.MethodGet, MetadataPath, nil)
+		r.RemoteAddr = net.JoinHostPort(test.source, "1234")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		require.Equal(t, http.StatusOK, w.Code)
+		var snapshot Snapshot
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &snapshot))
+		if test.caller == "" {
+			require.Empty(t, snapshot.KnownCallers)
+			continue
+		}
+		require.Len(t, snapshot.KnownCallers, 1)
+		require.Equal(t, target, snapshot.KnownCallers[0].Destination)
+		require.Len(t, snapshot.KnownCallers[0].Services, 1)
+		require.Equal(t, test.caller, snapshot.KnownCallers[0].Services[0].Service.Name)
+	}
+	require.Equal(t, before, cache.peers.Keys(), "metadata requests must not register peers or alter eviction order")
 }

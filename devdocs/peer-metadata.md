@@ -60,7 +60,10 @@ Cold or expired caches keep the existing DNS or unresolved name and schedule a
 background request.
 
 For a resolved service that exports graph metrics, the client agent leaves the
-request-total increment to the server agent. Both agents still report their own
+request-total increment to the server agent only after that agent acknowledges
+cached caller observations matching the client service and destination. Until
+then, including when metadata exchange works in only one direction, the client
+keeps its request count. Both agents still report their own
 latency histograms. Participation respects per-service export settings and dynamic
 app-metrics PID selection. When only the hostname can be resolved, the client
 request total remains suppressed conservatively until a listener matches. A matched
@@ -141,7 +144,13 @@ source address observed by the peer. On multihomed hosts, observations for other
 local IPs are not returned by that connection.
 
 Each caller record has a `destination` and a list of services with
-`remaining_ms`. Lifetimes are relative to the snapshot, avoiding a requirement
+`remaining_ms`. Optional `known_callers` records acknowledge the requester's
+observations already cached by the responding agent. They expire with those
+observations or the cache, whichever comes first. They are omitted when the
+cached caller set is globally ambiguous. Older peers without acknowledgements
+retain client-side request counts for matched services.
+
+Lifetimes are relative to the snapshot, avoiding a requirement
 for synchronized host clocks. Receivers subtract time since the request began
 and cap remote lifetimes to their own `caller_ttl`. `caller_ambiguity_ms` marks
 observation overflow conservatively.

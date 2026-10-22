@@ -67,6 +67,38 @@ func (c *peerCache) lookup(address netip.Addr, now time.Time) (*cachedSnapshot, 
 	return peer.snapshot, peer.fetchedAt
 }
 
+// knownCallers reports the requester's cached observations without registering or refreshing it.
+func (c *peerCache) knownCallers(address netip.Addr, now time.Time) []Caller {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	peer, exists := c.peers.Peek(address)
+	if !exists || peer.snapshot == nil || now.Sub(peer.lastGood) >= c.cfg.CacheTTL {
+		return nil
+	}
+
+	age := now.Sub(peer.fetchedAt).Milliseconds()
+	if peer.snapshot.ambiguityMillis > age {
+		return nil
+	}
+
+	cacheRemaining := (c.cfg.CacheTTL - now.Sub(peer.lastGood)).Milliseconds()
+	var callers []Caller
+	for destination, candidates := range peer.snapshot.callers {
+		caller := Caller{Destination: destination}
+		for _, candidate := range candidates {
+			remaining := min(candidate.RemainingMillis-age, cacheRemaining)
+			if remaining > 0 {
+				caller.Services = append(caller.Services, CallerService{Service: candidate.Service, RemainingMillis: remaining})
+			}
+		}
+		if len(caller.Services) > 0 {
+			callers = append(callers, caller)
+		}
+	}
+	return callers
+}
+
 func (c *peerCache) notify() {
 	select {
 	case c.wake <- struct{}{}:
