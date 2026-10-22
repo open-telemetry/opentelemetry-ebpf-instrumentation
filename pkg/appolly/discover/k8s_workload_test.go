@@ -19,7 +19,7 @@ import (
 
 func TestParseK8sWorkload(t *testing.T) {
 	ref, err := ParseK8sWorkload(&appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "payments", Name: "checkout"},
+		Namespace: "payments", Name: "checkout",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, selection.K8sWorkloadRef{Kind: "Deployment", Namespace: "payments", Name: "checkout"}, ref)

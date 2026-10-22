@@ -927,14 +927,14 @@ func TestUprobeModulesRespectsVersionedLibraryAnnotations(t *testing.T) {
 func TestUprobesRecordsFallbackExecutableOnceForMultipleProbeMaps(t *testing.T) {
 	pid := app.PID(os.Getpid())
 	tracer := recordingStubTracer{
-		stubTracer: stubTracer{uprobes: map[string]map[string][]*ebpfcommon.ProbeDesc{
+		uprobes: map[string]map[string][]*ebpfcommon.ProbeDesc{
 			"missing-library-one": {
 				"missing_symbol_one": {{}},
 			},
 			"missing-library-two": {
 				"missing_symbol_two": {{}},
 			},
-		}},
+		},
 	}
 	i := instrumenter{modules: map[uint64]struct{}{}}
 

@@ -33,12 +33,10 @@ func testNodejsRuntimeEvent() nodejsruntime.NodejsRuntimeEvent {
 		PIDNamespaceID: 99,
 		Service:        svc.Attrs{UID: svc.UID{Name: "node-svc"}},
 		Time:           time.Now(),
-		NodejsEventLoopValues: nodejsruntime.NodejsEventLoopValues{
-			ELUIdleNs:   1_000_000_000,
-			ELUActiveNs: 250_000_000,
-			DelayP99Ns:  13_300_000,
-			DelayCount:  181,
-		},
+		ELUIdleNs:      1_000_000_000,
+		ELUActiveNs:    250_000_000,
+		DelayP99Ns:     13_300_000,
+		DelayCount:     181,
 	}
 }
 
@@ -91,17 +89,15 @@ func testNodejsGCEvent() nodejsruntime.NodejsGCEvent {
 
 func testNodejsHeapSpaceEvent() nodejsruntime.NodejsHeapSpaceEvent {
 	return nodejsruntime.NodejsHeapSpaceEvent{
-		PID:            app.PID(55),
-		PIDNamespaceID: 99,
-		Service:        svc.Attrs{UID: svc.UID{Name: "node-svc"}},
-		Time:           time.Now(),
-		SpaceName:      "old_space",
-		NodejsHeapSpaceValues: nodejsruntime.NodejsHeapSpaceValues{
-			SpaceSize:          200 << 20,
-			SpaceUsedSize:      150 << 20,
-			SpaceAvailableSize: 30 << 20,
-			PhysicalSpaceSize:  200 << 20,
-		},
+		PID:                app.PID(55),
+		PIDNamespaceID:     99,
+		Service:            svc.Attrs{UID: svc.UID{Name: "node-svc"}},
+		Time:               time.Now(),
+		SpaceName:          "old_space",
+		SpaceSize:          200 << 20,
+		SpaceUsedSize:      150 << 20,
+		SpaceAvailableSize: 30 << 20,
+		PhysicalSpaceSize:  200 << 20,
 	}
 }
 

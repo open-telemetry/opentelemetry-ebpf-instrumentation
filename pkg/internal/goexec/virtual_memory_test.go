@@ -31,10 +31,8 @@ func TestReadVirtualMemoryWithFlags(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := &elf.File{Progs: []*elf.Prog{{
-				ProgHeader: elf.ProgHeader{
-					Type: elf.PT_LOAD, Flags: tc.flags, Vaddr: 0x1000,
-					Filesz: tc.filesz, Memsz: 16,
-				},
+				Type: elf.PT_LOAD, Flags: tc.flags, Vaddr: 0x1000,
+				Filesz: tc.filesz, Memsz: 16,
 				ReaderAt: bytes.NewReader(tc.data),
 			}}}
 			data, err := readVirtualMemoryWithFlags(f, tc.address, tc.size, elf.PF_X)
@@ -50,8 +48,8 @@ func TestReadVirtualMemoryWithFlags(t *testing.T) {
 
 func TestReadVirtualMemoryWithoutRequiredPermissions(t *testing.T) {
 	f := &elf.File{Progs: []*elf.Prog{{
-		ProgHeader: elf.ProgHeader{Type: elf.PT_LOAD, Flags: elf.PF_R, Vaddr: 0x1000, Filesz: 1},
-		ReaderAt:   bytes.NewReader([]byte{42}),
+		Type: elf.PT_LOAD, Flags: elf.PF_R, Vaddr: 0x1000, Filesz: 1,
+		ReaderAt: bytes.NewReader([]byte{42}),
 	}}}
 	data, err := readVirtualMemory(f, 0x1000, 1)
 	require.NoError(t, err)

@@ -156,9 +156,9 @@ func TestResolveRuntimeMetricAllpFromCode(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// Validate a BSS header without requiring file-backed contents.
-			f := &elf.File{Progs: []*elf.Prog{{ProgHeader: elf.ProgHeader{
+			f := &elf.File{Progs: []*elf.Prog{{
 				Type: elf.PT_LOAD, Flags: tc.flags, Vaddr: 0x2000, Memsz: 0x1000,
-			}}}}
+			}}}
 			var code []byte
 			for _, address := range tc.addresses {
 				start := len(code)
@@ -323,9 +323,9 @@ func TestResolveRuntimeMetricSchedGoIDFromCode(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// The scheduler lives in zero-initialized storage: Memsz, not Filesz,
 			// determines whether the eight-byte field fits.
-			f := &elf.File{Progs: []*elf.Prog{{ProgHeader: elf.ProgHeader{
+			f := &elf.File{Progs: []*elf.Prog{{
 				Type: elf.PT_LOAD, Flags: tc.flags, Vaddr: 0x2000, Memsz: 0x1000,
-			}}}}
+			}}}
 			var code []byte
 			for _, address := range tc.addresses {
 				start := len(code)
@@ -371,9 +371,9 @@ func TestResolveRuntimeMetricAllgLenFromCode(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			// allglen may live in BSS, with no file-backed bytes.
-			f := &elf.File{Progs: []*elf.Prog{{ProgHeader: elf.ProgHeader{
+			f := &elf.File{Progs: []*elf.Prog{{
 				Type: elf.PT_LOAD, Flags: tc.flags, Vaddr: 0x2000, Memsz: 0x1000,
-			}}}}
+			}}}
 			var code []byte
 			for _, address := range tc.addresses {
 				start := len(code)
@@ -467,10 +467,10 @@ func TestResolveRuntimeMetricSizeClassTableFromCode(t *testing.T) {
 				}
 			}
 			f := &elf.File{
-				FileHeader: elf.FileHeader{ByteOrder: binary.LittleEndian},
+				ByteOrder: binary.LittleEndian,
 				Progs: []*elf.Prog{{
-					ProgHeader: elf.ProgHeader{Type: elf.PT_LOAD, Flags: elf.PF_R, Vaddr: 0x3000, Filesz: uint64(len(data))},
-					ReaderAt:   bytes.NewReader(data),
+					Type: elf.PT_LOAD, Flags: elf.PF_R, Vaddr: 0x3000, Filesz: uint64(len(data)),
+					ReaderAt: bytes.NewReader(data),
 				}},
 			}
 			table := &gosym.Table{}
@@ -488,8 +488,8 @@ func TestResolveRuntimeMetricSizeClassTableFromCode(t *testing.T) {
 				name := []string{"runtime.mallocgc", "runtime.lockVerifyMSize"}[anchor]
 				function := gosym.Func{Entry: entry, End: entry + uint64(len(code)), Sym: &gosym.Sym{Name: name}}
 				segment := &elf.Prog{
-					ProgHeader: elf.ProgHeader{Type: elf.PT_LOAD, Flags: elf.PF_R | elf.PF_X, Vaddr: entry, Filesz: uint64(len(code))},
-					ReaderAt:   bytes.NewReader(code),
+					Type: elf.PT_LOAD, Flags: elf.PF_R | elf.PF_X, Vaddr: entry, Filesz: uint64(len(code)),
+					ReaderAt: bytes.NewReader(code),
 				}
 				switch tc.name {
 				case "zero bounds":
@@ -653,9 +653,9 @@ func TestResolveGOMAXPROCSFromCode(t *testing.T) {
 			code := []byte{0x8b, 0x05, 0, 0, 0, 0, 0x85, 0xc0, 0x7c, 1}
 			// MOV ends at functionAddress+6; its displacement points to the candidate.
 			binary.LittleEndian.PutUint32(code[2:6], uint32(tc.address-(functionAddress+6)))
-			f := &elf.File{Progs: []*elf.Prog{{ProgHeader: elf.ProgHeader{
+			f := &elf.File{Progs: []*elf.Prog{{
 				Type: elf.PT_LOAD, Flags: tc.flags, Vaddr: 0x2000, Memsz: tc.size,
-			}}}}
+			}}}
 			address, err := resolveGOMAXPROCSFromCode(f, functionAddress, code)
 			if tc.want == 0 {
 				require.Error(t, err)

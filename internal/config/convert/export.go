@@ -50,14 +50,12 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 	}
 
 	doc := &schema.Document{
-		OpenTelemetryConfiguration: otelconfx.OpenTelemetryConfiguration{
-			FileFormat:     "1.0",
-			Resource:       resource(cfg),
-			Propagator:     &otelconfx.Propagator{},
-			TracerProvider: tracerProvider(cfg),
-			MeterProvider:  meterProvider(cfg),
-		},
-		Extensions: schema.Extensions{OBI: ext},
+		FileFormat:     "1.0",
+		Resource:       resource(cfg),
+		Propagator:     &otelconfx.Propagator{},
+		TracerProvider: tracerProvider(cfg),
+		MeterProvider:  meterProvider(cfg),
+		Extensions:     schema.Extensions{OBI: ext},
 	}
 	doc.SetLogLevel(logLevel(cfg.LogLevel))
 

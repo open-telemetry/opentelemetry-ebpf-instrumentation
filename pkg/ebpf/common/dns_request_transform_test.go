@@ -29,7 +29,7 @@ func newDNSParseContext() *EBPFParseContext {
 func dnsQueryRecord(t *testing.T, id uint16, name string) *ringbuf.Record {
 	t.Helper()
 	return dnsRecord(t, id, dnsmessage.Message{
-		Header:    dnsmessage.Header{ID: id},
+		ID:        id,
 		Questions: []dnsmessage.Question{dnsQuestion(t, name)},
 	})
 }
@@ -38,7 +38,7 @@ func dnsAnswerRecord(t *testing.T, id uint16, name string, addr [4]byte) *ringbu
 	t.Helper()
 	qname := dnsQuestion(t, name).Name
 	return dnsRecord(t, id, dnsmessage.Message{
-		Header:    dnsmessage.Header{ID: id, Response: true, RCode: dnsmessage.RCodeSuccess},
+		ID: id, Response: true, RCode: dnsmessage.RCodeSuccess,
 		Questions: []dnsmessage.Question{dnsQuestion(t, name)},
 		Answers: []dnsmessage.Resource{{
 			Header: dnsmessage.ResourceHeader{Name: qname, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET},

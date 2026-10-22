@@ -133,10 +133,8 @@ func TestAPIs(t *testing.T) {
 
 	// WHEN a pod is created
 	require.NoError(t, k8sClient.Create(ctx, &corev1.Pod{
-		ObjectMeta: v1.ObjectMeta{
-			Name:      "second-pod",
-			Namespace: "default",
-		},
+		Name:      "second-pod",
+		Namespace: "default",
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{Name: "test-container", Image: "nginx"},
@@ -185,10 +183,8 @@ func TestBlockedClients(t *testing.T) {
 	go func() {
 		for n := range createdPods {
 			if err := k8sClient.Create(ctx, &corev1.Pod{
-				ObjectMeta: v1.ObjectMeta{
-					Name:      fmt.Sprintf("pod-%02d", n),
-					Namespace: "default",
-				},
+				Name:      fmt.Sprintf("pod-%02d", n),
+				Namespace: "default",
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{
 						{Name: "test-container", Image: "nginx"},
@@ -230,10 +226,8 @@ func TestAsynchronousStartup(t *testing.T) {
 	const createdPods = 20
 	for n := range createdPods {
 		require.NoError(t, k8sClient.Create(ctx, &corev1.Pod{
-			ObjectMeta: v1.ObjectMeta{
-				Name:      fmt.Sprintf("async-pod-%02d", n),
-				Namespace: "default",
-			},
+			Name:      fmt.Sprintf("async-pod-%02d", n),
+			Namespace: "default",
 			Spec: corev1.PodSpec{
 				Containers: []corev1.Container{
 					{Name: "test-container", Image: "nginx"},
@@ -326,16 +320,16 @@ func TestResultsSortedByTimestamp(t *testing.T) {
 		// submitted on connection
 		if prevTS == -1 {
 			require.NoError(t, k8sClient.Create(ctx, &corev1.Service{
-				ObjectMeta: v1.ObjectMeta{Name: "service1-test-result-sorted", Namespace: "default"},
+				Name: "service1-test-result-sorted", Namespace: "default",
 				Spec: corev1.ServiceSpec{
 					Ports:     []corev1.ServicePort{{Name: "foo", Port: 8080}},
 					ClusterIP: "10.0.0.123", ClusterIPs: []string{"10.0.0.123"},
 				},
 			}))
 			require.NoError(t, k8sClient.Create(ctx, &corev1.Pod{
-				ObjectMeta: v1.ObjectMeta{Name: "test-result-sorted-pod", Namespace: "default"},
-				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "test-container", Image: "nginx"}}},
-				Status:     corev1.PodStatus{PodIP: "10.0.0.124"},
+				Name: "test-result-sorted-pod", Namespace: "default",
+				Spec:   corev1.PodSpec{Containers: []corev1.Container{{Name: "test-container", Image: "nginx"}}},
+				Status: corev1.PodStatus{PodIP: "10.0.0.124"},
 			}))
 		}
 		evntTS := evnt.Resource.StatusTimeEpoch
@@ -370,16 +364,16 @@ func TestFilterByTimestamp(t *testing.T) {
 
 	// filtering any event before this test
 	require.NoError(t, k8sClient.Create(ctx, &corev1.Service{
-		ObjectMeta: v1.ObjectMeta{Name: "service1-filter-by-ts", Namespace: "default"},
+		Name: "service1-filter-by-ts", Namespace: "default",
 		Spec: corev1.ServiceSpec{
 			Ports:     []corev1.ServicePort{{Name: "foo", Port: 8080}},
 			ClusterIP: "10.0.0.125", ClusterIPs: []string{"10.0.0.125"},
 		},
 	}))
 	require.NoError(t, k8sClient.Create(ctx, &corev1.Pod{
-		ObjectMeta: v1.ObjectMeta{Name: "pod-filter-by-ts", Namespace: "default"},
-		Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "test-container", Image: "nginx"}}},
-		Status:     corev1.PodStatus{PodIP: "10.0.0.126"},
+		Name: "pod-filter-by-ts", Namespace: "default",
+		Spec:   corev1.PodSpec{Containers: []corev1.Container{{Name: "test-container", Image: "nginx"}}},
+		Status: corev1.PodStatus{PodIP: "10.0.0.126"},
 	}))
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		svcClient.Start(ctx, ct, discardEventsBefore)
@@ -405,7 +399,7 @@ func TestFilterByTimestamp(t *testing.T) {
 	}
 
 	require.NoError(t, k8sClient.Create(ctx, &corev1.Service{
-		ObjectMeta: v1.ObjectMeta{Name: "more-filter-by-ts", Namespace: "default"},
+		Name: "more-filter-by-ts", Namespace: "default",
 		Spec: corev1.ServiceSpec{
 			Ports:     []corev1.ServicePort{{Name: "foo", Port: 8080}},
 			ClusterIP: "10.0.0.127", ClusterIPs: []string{"10.0.0.127"},
@@ -430,11 +424,9 @@ func TestReconnectReceivesUpdatedObjectAfterFromTimestampEpoch(t *testing.T) {
 	name := "pod-reconnect-update-ts"
 
 	require.NoError(t, k8sClient.Create(ctx, &corev1.Pod{
-		ObjectMeta: v1.ObjectMeta{
-			Name:      name,
-			Namespace: "default",
-			Labels:    map[string]string{"version": "v1"},
-		},
+		Name:      name,
+		Namespace: "default",
+		Labels:    map[string]string{"version": "v1"},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{Name: "test-container", Image: "nginx"},
@@ -503,10 +495,8 @@ func TestReconnectReceivesDeletedObjectAfterFromTimestampEpoch(t *testing.T) {
 	name := "pod-reconnect-delete-ts"
 
 	require.NoError(t, k8sClient.Create(ctx, &corev1.Pod{
-		ObjectMeta: v1.ObjectMeta{
-			Name:      name,
-			Namespace: "default",
-		},
+		Name:      name,
+		Namespace: "default",
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{Name: "test-container", Image: "nginx"},
@@ -552,7 +542,7 @@ func TestReconnectReceivesDeletedObjectAfterFromTimestampEpoch(t *testing.T) {
 		require.NotEqual(t, name, event.Resource.Name)
 	}
 
-	pod := &corev1.Pod{ObjectMeta: v1.ObjectMeta{Name: name, Namespace: "default"}}
+	pod := &corev1.Pod{Name: name, Namespace: "default"}
 	require.NoError(t, k8sClient.Delete(ctx, pod))
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {

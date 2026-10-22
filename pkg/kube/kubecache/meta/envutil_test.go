@@ -25,7 +25,7 @@ func TestSetEnvFromConfigMap(t *testing.T) {
 		{
 			name: "lowercase map",
 			configMap: &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{Name: "testconfigmap"},
+				Name: "testconfigmap",
 				Data: map[string]string{
 					"env":          "prod",
 					"test-key":     "testValue",
@@ -40,7 +40,7 @@ func TestSetEnvFromConfigMap(t *testing.T) {
 		{
 			name: "uppercase map",
 			configMap: &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{Name: "testconfigmapuppercasekey"},
+				Name: "testconfigmapuppercasekey",
 				Data: map[string]string{
 					"ENV":          "prod",
 					"TEST_KEY":     "testValue",
@@ -55,7 +55,7 @@ func TestSetEnvFromConfigMap(t *testing.T) {
 		{
 			name: "key not exists",
 			configMap: &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{Name: "testconfigmapuppercasekey"},
+				Name: "testconfigmapuppercasekey",
 				Data: map[string]string{
 					"ENV":          "prod",
 					"TEST_KEY":     "testValue",
@@ -70,7 +70,7 @@ func TestSetEnvFromConfigMap(t *testing.T) {
 		{
 			name: "uppercase map with error",
 			configMap: &corev1.ConfigMap{
-				ObjectMeta: metav1.ObjectMeta{Name: "testconfigmapuppercasekey"},
+				Name: "testconfigmapuppercasekey",
 				Data: map[string]string{
 					"ENV":          "prod",
 					"TEST_KEY":     "testValue",
@@ -105,7 +105,7 @@ func TestSetEnvFromSecret(t *testing.T) {
 		{
 			name: "lowercase map",
 			configMap: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: "testsecret"},
+				Name: "testsecret",
 				Data: map[string][]byte{
 					"env":          []byte("prod"),
 					"test-key":     []byte("testValue"),
@@ -120,7 +120,7 @@ func TestSetEnvFromSecret(t *testing.T) {
 		{
 			name: "uppercase map",
 			configMap: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: "testsecretuppercasekey"},
+				Name: "testsecretuppercasekey",
 				Data: map[string][]byte{
 					"ENV":          []byte("prod"),
 					"TEST_KEY":     []byte("testValue"),
@@ -135,7 +135,7 @@ func TestSetEnvFromSecret(t *testing.T) {
 		{
 			name: "key not exists",
 			configMap: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: "testsecretuppercasekey"},
+				Name: "testsecretuppercasekey",
 				Data: map[string][]byte{
 					"ENV":          []byte("prod"),
 					"TEST_KEY":     []byte("testValue"),
@@ -150,7 +150,7 @@ func TestSetEnvFromSecret(t *testing.T) {
 		{
 			name: "uppercase map with error",
 			configMap: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{Name: "testsecretuppercasekey"},
+				Name: "testsecretuppercasekey",
 				Data: map[string][]byte{
 					"ENV":          []byte("prod"),
 					"TEST_KEY":     []byte("testValue"),

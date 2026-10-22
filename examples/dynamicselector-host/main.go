@@ -63,10 +63,8 @@ func main() {
 // then tear the workload down.
 func simulateHostDecisions(ctx context.Context, selector *discover.DynamicSelector) {
 	checkout := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "payments",
-			Name:      "checkout",
-		},
+		Namespace: "payments",
+		Name:      "checkout",
 	}
 	opts := selection.DynamicOptions{
 		ServiceName:      "checkout",
