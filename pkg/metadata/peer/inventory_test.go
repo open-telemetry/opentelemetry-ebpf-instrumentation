@@ -53,6 +53,68 @@ func TestIdleInstrumentedListenerInventory(t *testing.T) {
 	require.Empty(t, store.services)
 }
 
+func TestInventoryPollRefreshesAtStartup(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	pid := app.PID(os.Getpid())
+	start, err := procs.StartTime(pid)
+	require.NoError(t, err)
+	file := exec.New(exec.Init{Pid: pid, StartTime: start, Service: svc.Attrs{
+		UID: svc.UID{Name: "api", Namespace: "shop"}, Features: export.FeatureGraph,
+	}})
+	inventory := &processInventory{processes: map[processKey]*exec.FileInfo{{pid: int32(pid), start: start}: file}}
+	store := newStore("host", DefaultConfig())
+	store.graphEnabled = true
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		inventory.poll(ctx, store, time.Hour)
+	}()
+	t.Cleanup(func() { cancel(); <-done })
+	endpoint := Endpoint{IP: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port}
+	service := Service{Name: "api", Namespace: "shop", ServiceGraph: true}
+	require.Eventually(t, func() bool {
+		resolved, matched := store.destinationService(endpoint)
+		return matched && resolved == service
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
+func TestInventoryRefreshesAfterProcessEvents(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	pid := app.PID(os.Getpid())
+	start, err := procs.StartTime(pid)
+	require.NoError(t, err)
+	file := exec.New(exec.Init{Pid: pid, StartTime: start, Service: svc.Attrs{
+		UID: svc.UID{Name: "api", Namespace: "shop"}, Features: export.FeatureGraph,
+	}})
+	store := newStore("host", DefaultConfig())
+	store.graphEnabled = true
+	ctx, cancel := context.WithCancel(t.Context())
+	events := make(chan exec.ProcessEvent, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runInventory(ctx, events, store, time.Hour)
+	}()
+	t.Cleanup(func() { cancel(); <-done })
+	events <- exec.ProcessEvent{Type: exec.ProcessEventCreated, File: file}
+	endpoint := Endpoint{IP: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port}
+	service := Service{Name: "api", Namespace: "shop", ServiceGraph: true}
+	require.Eventually(t, func() bool {
+		resolved, matched := store.destinationService(endpoint)
+		return matched && resolved == service
+	}, 2*time.Second, 10*time.Millisecond)
+	events <- exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: file}
+	require.Eventually(t, func() bool {
+		snapshot := store.snapshot(nil, time.Now())
+		return len(snapshot.Services) == 0 && len(snapshot.Listeners) == 0
+	}, 2*time.Second, 10*time.Millisecond)
+}
+
 func TestInventoryFindsChildOnlyListener(t *testing.T) {
 	worker, address, stopWorker := startInventoryProcess(t, "listen", nil)
 	pid := app.PID(os.Getpid())

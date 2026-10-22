@@ -27,12 +27,16 @@ type processKey struct {
 type processInventory struct {
 	mu        sync.Mutex
 	processes map[processKey]*exec.FileInfo
+	changed   chan struct{}
 }
 
 // This code here keeps an inventory of local servers, e.g. processes that we are instrumenting that are listeners
 // on certain ports.
 func runInventory(ctx context.Context, events <-chan exec.ProcessEvent, store *localStore, interval time.Duration) {
-	inventory := &processInventory{processes: map[processKey]*exec.FileInfo{}}
+	inventory := &processInventory{
+		processes: map[processKey]*exec.FileInfo{},
+		changed:   make(chan struct{}, 1),
+	}
 
 	var polling sync.WaitGroup
 
@@ -55,6 +59,10 @@ func runInventory(ctx context.Context, events <-chan exec.ProcessEvent, store *l
 			inventory.mu.Lock()
 			updateProcesses(ctx, inventory.processes, event)
 			inventory.mu.Unlock()
+			select {
+			case inventory.changed <- struct{}{}:
+			default:
+			}
 		}
 	}
 }
@@ -64,21 +72,23 @@ func (i *processInventory) poll(ctx context.Context, store *localStore, interval
 	defer ticker.Stop()
 
 	for {
+		i.mu.Lock()
+		processes := maps.Clone(i.processes)
+		i.mu.Unlock()
+
+		expired := refreshInventory(ctx, processes, store)
+
+		i.mu.Lock()
+		for _, key := range expired {
+			delete(i.processes, key)
+		}
+		i.mu.Unlock()
+
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			i.mu.Lock()
-			processes := maps.Clone(i.processes)
-			i.mu.Unlock()
-
-			expired := refreshInventory(ctx, processes, store)
-
-			i.mu.Lock()
-			for _, key := range expired {
-				delete(i.processes, key)
-			}
-			i.mu.Unlock()
+		case <-i.changed:
 		}
 	}
 }

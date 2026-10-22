@@ -35,9 +35,10 @@ OBI logs its runtime configuration.
 
 Each agent inventories all selected, instrumented services, including services
 with no recent requests. It polls live processes for TCP listening sockets and
-removes terminated or reused process IDs. Inventory refreshes use
-`refresh_interval`. Newly instrumented listeners may be absent until the next
-refresh. UDP listener attribution is not supported.
+removes terminated or reused process IDs. Inventory refreshes at startup, after
+process events, and periodically using `refresh_interval`. Event bursts are
+coalesced. Listeners opened later are discovered by periodic refreshes. UDP
+listener attribution is not supported.
 
 For a client span, the destination IP and listening port identify the remote
 service. Multiple processes sharing the same service name and namespace count
