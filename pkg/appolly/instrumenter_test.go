@@ -271,6 +271,55 @@ func TestInstrumentationFilterPreservesUnfilteredSQLChild(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
+func TestTracerPipelineSanitizeSQLQueryText(t *testing.T) {
+	const statement = "SELECT * FROM users WHERE ssn = '123-45-6789'"
+	cases := map[bool]string{
+		false: statement,
+		true:  "SELECT * FROM users WHERE ssn = ?",
+	}
+
+	for sanitize, expected := range cases {
+		ctx, cancel := context.WithCancel(t.Context())
+
+		tc, err := collector.Start(ctx)
+		require.NoError(t, err)
+
+		tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+		processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+		gb := newGraphBuilder(&obi.Config{
+			Traces: otelcfg.TracesConfig{
+				BatchTimeout:      10 * time.Millisecond,
+				TracesEndpoint:    tc.ServerEndpoint,
+				ReportersCacheLen: 16,
+				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+			},
+			Attributes: obi.Attributes{
+				InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"},
+				Select: attributes.Selection{
+					"traces": attributes.InclusionLists{Include: []string{"db.query.text"}},
+				},
+				SanitizeSQLQueryText: sanitize,
+			},
+		}, gctx(0, nil), tracesInput, processEvents, nil)
+
+		tracesInput.Send([]request.Span{{
+			Type: request.EventTypeSQLClient, SubType: int(request.DBPostgres), Method: "SELECT", Path: "users",
+			Statement: statement, HostPort: 5432, RequestStart: 1, Start: 1, End: 2,
+			Service: svc.Attrs{HostName: "the-host", UID: svc.UID{Namespace: "ns", Name: "app"}},
+		}})
+
+		pipe, err := gb.buildGraph(ctx)
+		require.NoError(t, err)
+		done := pipe.Start(ctx)
+
+		event := testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
+		assert.Equal(t, expected, event.Attributes[string(attr.DBQueryText)])
+
+		cancel()
+		require.NoError(t, <-done)
+	}
+}
+
 func TestMergedMetricsTracePipeline(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 
