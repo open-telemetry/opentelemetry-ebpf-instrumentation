@@ -14,7 +14,6 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
