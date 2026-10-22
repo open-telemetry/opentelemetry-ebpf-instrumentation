@@ -635,10 +635,10 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     __builtin_memcpy(&trace->conn, &conn, sizeof(connection_info_t));
     trace->tp = invocation->tp;
     trace->content_length = invocation->content_length;
-    __builtin_memcpy(trace->method, invocation->method, sizeof(trace->method));
-    __builtin_memcpy(trace->path, invocation->path, sizeof(trace->path));
-    __builtin_memcpy(trace->raw_query, invocation->raw_query, sizeof(trace->raw_query));
-    __builtin_memcpy(trace->pattern, invocation->pattern, sizeof(trace->pattern));
+    bpf_memcpy(trace->method, invocation->method, sizeof(trace->method));
+    bpf_memcpy(trace->path, invocation->path, sizeof(trace->path));
+    bpf_memcpy(trace->raw_query, invocation->raw_query, sizeof(trace->raw_query));
+    bpf_memcpy(trace->pattern, invocation->pattern, sizeof(trace->pattern));
     trace->status = (u16)invocation->status;
     trace->response_length = invocation->response_length;
     trace->is_jsonrpc = invocation->is_jsonrpc;
