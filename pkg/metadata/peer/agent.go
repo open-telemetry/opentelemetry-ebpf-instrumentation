@@ -195,43 +195,39 @@ func (a *Agent) Decorate(span *request.Span, now time.Time) {
 	}
 
 	if span.IsClientSpan() {
-		a.store.observe(
-			endpoint,
-			a.store.serviceFor(span.Service),
-			now,
-		)
+		a.decorateClient(span, endpoint, now)
+		return
 	}
 
-	service := a.resolve(span, endpoint, now)
+	service := a.resolveCaller(span.Peer, endpoint, now)
 	if service.Name == "" {
 		return
 	}
 
-	if span.IsClientSpan() {
-		span.HostName = service.Name
-		if service.ServiceGraph && span.Type != request.EventTypeFailedConnect {
-			request.SetIgnoreServiceGraphClientCount(span)
-		}
-	} else {
-		span.PeerName = service.Name
-	}
-
+	span.PeerName = service.Name
 	span.OtherNamespace = service.Namespace
 }
 
-// resolve chooses destination lookup for client spans and caller lookup for server spans.
-func (a *Agent) resolve(span *request.Span, destination Endpoint, now time.Time) Service {
-	if span.IsClientSpan() {
-		return a.resolveDestination(destination, now)
+// decorateClient records outgoing callers and enriches the destination.
+func (a *Agent) decorateClient(span *request.Span, destination Endpoint, now time.Time) {
+	a.store.observe(destination, a.store.serviceFor(span.Service), now)
+	service, matched := a.resolveDestination(destination, now)
+	if service.Name == "" {
+		return
 	}
-	return a.resolveCaller(span.Peer, destination, now)
+
+	span.HostName = service.Name
+	span.OtherNamespace = service.Namespace
+	if (!matched || service.ServiceGraph) && span.Type != request.EventTypeFailedConnect {
+		request.SetIgnoreServiceGraphClientCount(span)
+	}
 }
 
 // resolveDestination identifies the listening service using local or cached metadata.
-func (a *Agent) resolveDestination(destination Endpoint, now time.Time) Service {
+func (a *Agent) resolveDestination(destination Endpoint, now time.Time) (Service, bool) {
 	address, err := netip.ParseAddr(destination.IP)
 	if err != nil {
-		return Service{}
+		return Service{}, false
 	}
 
 	address = address.Unmap()
@@ -240,12 +236,12 @@ func (a *Agent) resolveDestination(destination Endpoint, now time.Time) Service 
 	}
 
 	if !a.network.permits(address) {
-		return Service{}
+		return Service{}, false
 	}
 
 	snapshot, _ := a.cache.lookup(address, now)
 	if snapshot == nil {
-		return Service{}
+		return Service{}, false
 	}
 
 	return snapshot.destinationService(destination)

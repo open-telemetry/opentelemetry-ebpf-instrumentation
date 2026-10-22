@@ -46,7 +46,7 @@ func IgnoreDurations(s *Span) bool {
 	return isIgnored(s, ignoreDurations)
 }
 
-// SetIgnoreServiceGraphClientCount leaves the service graph request count to a participating peer.
+// SetIgnoreServiceGraphClientCount suppresses the client's service graph request count.
 func SetIgnoreServiceGraphClientCount(s *Span) {
 	setIgnoreFlag(s, ignoreServiceGraphClientCount)
 }

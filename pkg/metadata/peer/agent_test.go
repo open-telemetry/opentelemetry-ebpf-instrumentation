@@ -100,7 +100,7 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 	unresolved := request.Span{Type: request.EventTypeHTTPClient, Host: span.Host, HostPort: 1234}
 	agent.Decorate(&unresolved, time.Now())
 	require.Equal(t, "remote-host", unresolved.HostName)
-	require.False(t, request.IgnoreServiceGraphClientCount(&unresolved))
+	require.True(t, request.IgnoreServiceGraphClientCount(&unresolved), "a hostname fallback must not create a virtual-node request count")
 	expired := request.Span{Type: request.EventTypeHTTPClient, Host: span.Host, HostPort: 8080}
 	agent.Decorate(&expired, time.Now().Add(cfg.CacheTTL))
 	require.False(t, request.IgnoreServiceGraphClientCount(&expired), "expired metadata cannot suppress request counts")
@@ -153,4 +153,57 @@ func TestLocalEnrichmentAndCIDRExclusion(t *testing.T) {
 	agent.Decorate(&span, time.Now())
 	require.Equal(t, "existing-name", span.HostName)
 	require.Zero(t, agent.cache.peers.Len())
+}
+
+func TestCachedPeerHostnameFallbackDoesNotCountClientRequests(t *testing.T) {
+	cfg := DefaultConfig()
+	network, err := makeNetwork([]netip.Addr{netip.MustParseAddr("10.1.0.1")}, nil)
+	require.NoError(t, err)
+	endpoint := Endpoint{IP: "0.0.0.0", Port: 8080}
+	api := Service{Name: "api", Namespace: "shop", ServiceGraph: true}
+	other := Service{Name: "other", Namespace: "shop", ServiceGraph: true}
+	for _, test := range []struct {
+		name      string
+		listeners []Listener
+		failed    bool
+		service   Service
+		suppress  bool
+	}{
+		{name: "inventory not populated", service: Service{Name: "remote-host"}, suppress: true},
+		{
+			name: "unmatched listener", listeners: []Listener{{Endpoint: Endpoint{IP: endpoint.IP, Port: 9090}, Service: api}},
+			service: Service{Name: "remote-host"}, suppress: true,
+		},
+		{
+			name: "ambiguous listeners", listeners: []Listener{{Endpoint: endpoint, Service: api}, {Endpoint: endpoint, Service: other}},
+			service: Service{Name: "remote-host"}, suppress: true,
+		},
+		{
+			name: "matched service with metrics disabled", listeners: []Listener{{Endpoint: endpoint, Service: Service{Name: "api", Namespace: "shop"}}},
+			service: Service{Name: "api", Namespace: "shop"},
+		},
+		{
+			name: "matched service named after host", listeners: []Listener{{Endpoint: endpoint, Service: Service{Name: "remote-host"}}},
+			service: Service{Name: "remote-host"},
+		},
+		{name: "failed connection with unmatched listener", failed: true, service: Service{Name: "remote-host"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			agent := &Agent{cfg: cfg, store: newStore("local-host", cfg), cache: newPeerCache(cfg), network: network}
+			now := time.Now()
+			agent.cache.lookup(netip.MustParseAddr("10.1.0.2"), now)
+			due := agent.cache.due(now, 1)
+			require.Len(t, due, 1)
+			snapshot := indexSnapshot(&Snapshot{Hostname: "remote-host", Listeners: test.listeners})
+			agent.cache.complete(due[0], snapshot, 1, now, now)
+			span := request.Span{Type: request.EventTypeHTTPClient, Host: "10.1.0.2", HostPort: endpoint.Port}
+			if test.failed {
+				span.Type = request.EventTypeFailedConnect
+			}
+			agent.Decorate(&span, now)
+			require.Equal(t, test.service.Name, span.HostName)
+			require.Equal(t, test.service.Namespace, span.OtherNamespace)
+			require.Equal(t, test.suppress, request.IgnoreServiceGraphClientCount(&span))
+		})
+	}
 }

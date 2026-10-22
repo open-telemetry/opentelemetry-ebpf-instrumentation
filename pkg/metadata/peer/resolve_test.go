@@ -62,8 +62,12 @@ func TestListenerAddressFamilies(t *testing.T) {
 			} {
 				endpoint := Endpoint{IP: target.ip, Port: 8080}
 				expected := Service{Name: target.service}
-				require.Equal(t, expected, store.destinationService(endpoint), "local %s", target.ip)
-				require.Equal(t, expected, cached.destinationService(endpoint), "remote %s", target.ip)
+				local, localMatch := store.destinationService(endpoint)
+				remote, remoteMatch := cached.destinationService(endpoint)
+				require.Equal(t, expected, local, "local %s", target.ip)
+				require.Equal(t, expected, remote, "remote %s", target.ip)
+				require.Equal(t, target.service != "host", localMatch)
+				require.Equal(t, localMatch, remoteMatch)
 			}
 		})
 	}
@@ -81,6 +85,8 @@ func TestListenerGraphParticipationRequiresAllMatchingProcesses(t *testing.T) {
 			{Endpoint: endpoint, Service: services[1]},
 		}
 		snapshot := indexSnapshot(&Snapshot{Hostname: "host", Listeners: listeners})
-		require.Equal(t, tracesOnly, snapshot.destinationService(endpoint), "graph settings do not change the service identity")
+		service, matched := snapshot.destinationService(endpoint)
+		require.True(t, matched)
+		require.Equal(t, tracesOnly, service, "graph settings do not change the service identity")
 	}
 }

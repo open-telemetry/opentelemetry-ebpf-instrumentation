@@ -253,7 +253,11 @@ func TestDualStackListenerResolvesIPv4(t *testing.T) {
 		Endpoint: Endpoint{IP: "::", Port: address.Port}, Service: service,
 	})
 	endpoint := Endpoint{IP: "127.0.0.1", Port: address.Port}
-	require.Equal(t, service, store.destinationService(endpoint))
+	resolved, matched := store.destinationService(endpoint)
+	require.True(t, matched)
+	require.Equal(t, service, resolved)
 	snapshot := store.snapshot(nil, time.Now())
-	require.Equal(t, service, indexSnapshot(&snapshot).destinationService(endpoint))
+	resolved, matched = indexSnapshot(&snapshot).destinationService(endpoint)
+	require.True(t, matched)
+	require.Equal(t, service, resolved)
 }

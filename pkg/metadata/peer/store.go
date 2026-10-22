@@ -145,7 +145,7 @@ func remainingMillis(expires, now time.Time) int64 {
 	return max(int64(0), expires.Sub(now).Milliseconds())
 }
 
-func (s *localStore) destinationService(endpoint Endpoint) Service {
+func (s *localStore) destinationService(endpoint Endpoint) (Service, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return listenerService(s.listenerIndex, endpoint, s.hostname)

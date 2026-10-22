@@ -62,8 +62,11 @@ background request.
 For a resolved service that exports graph metrics, the client agent leaves the
 request-total increment to the server agent. Both agents still report their own
 latency histograms. Participation respects per-service export settings and dynamic
-app-metrics PID selection. Selection changes take effect as inventories and peer
-caches refresh.
+app-metrics PID selection. When only the hostname can be resolved, the client
+request total remains suppressed conservatively until a listener matches. A matched
+service with graph metrics disabled retains normal client counting. Failed
+connection attempts are excluded from this suppression. Selection changes take
+effect as inventories and peer caches refresh.
 
 ## Network and lifecycle
 
