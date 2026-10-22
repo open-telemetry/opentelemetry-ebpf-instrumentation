@@ -1,22 +1,27 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package configwatch // import "go.opentelemetry.io/obi/cmd/obi/internal/configwatch"
 
 import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"time"
 
+	"go.opentelemetry.io/obi/internal/config/convert"
+	"go.opentelemetry.io/obi/internal/config/schema"
+	obicfg "go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 const configWatchInterval = time.Second
 
-func watchConfig(ctx context.Context, path string, refresh func(context.Context, *obi.Config) error) {
+// Watch refreshes discovery criteria when the configuration file changes.
+func Watch(ctx context.Context, path string, refresh func(context.Context, *obi.Config) error) {
 	ticker := time.NewTicker(configWatchInterval)
 	defer ticker.Stop()
 	watchConfigFile(ctx, path, refresh, slog.With("component", "config.Watcher"), ticker.C)
@@ -64,18 +69,28 @@ func watchConfigFile(ctx context.Context, path string, refresh func(context.Cont
 }
 
 func refreshConfig(ctx context.Context, data []byte, refresh func(context.Context, *obi.Config) error) error {
-	cfg, version, err := loadConfigReader(bytes.NewReader(data))
+	cfg, err := loadConfig(data)
 	if err != nil {
 		return err
 	}
-
-	if version != configVersionV2 {
-		return errors.New("configuration version changed; restart OBI to apply this configuration")
-	}
-
-	if err := cfg.ValidateStatic(); err != nil {
-		return err
-	}
-
 	return refresh(ctx, cfg)
+}
+
+func loadConfig(data []byte) (*obi.Config, error) {
+	doc, _, err := schema.ParseStandaloneYAML(obicfg.ReplaceEnv(data))
+	if err != nil {
+		if _, ok := errors.AsType[*schema.NotV2Error](err); ok {
+			return nil, errors.New("configuration version changed; restart OBI to apply this configuration")
+		}
+		return nil, fmt.Errorf("loading config v2: %w", err)
+	}
+
+	cfg, err := convert.DocumentToRuntime(doc)
+	if err != nil {
+		return nil, fmt.Errorf("loading config v2: %w", err)
+	}
+	if err := cfg.ValidateStatic(); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }

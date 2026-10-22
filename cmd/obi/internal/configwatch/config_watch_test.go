@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package main
+package configwatch
 
 import (
 	"context"
@@ -51,9 +51,8 @@ func TestConfigFileWatcher(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "obi.yml")
 	initial := watcherConfig(8080)
 	require.NoError(t, os.WriteFile(path, initial, 0o600))
-	cfg, _, err := loadConfigReader(strings.NewReader(string(initial)))
+	cfg, err := loadConfig(initial)
 	require.NoError(t, err)
-	require.NoError(t, cfg.ValidateStatic())
 	updater := discover.NewCriteriaUpdater(cfg)
 	updates := updater.Updates()
 	ctx, cancel := context.WithCancel(t.Context())

@@ -21,6 +21,7 @@ import (
 	otelsdk "go.opentelemetry.io/otel/sdk"
 
 	"go.opentelemetry.io/obi/cmd/obi/internal/configcmd"
+	"go.opentelemetry.io/obi/cmd/obi/internal/configwatch"
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/discover"
@@ -172,7 +173,7 @@ func main() {
 	if configVersion == configVersionV2 && configPath != nil && *configPath != "" {
 		updater := discover.NewCriteriaUpdater(config)
 		opts = append(opts, instrumenter.WithCriteriaUpdater(updater))
-		go watchConfig(ctx, *configPath, updater.Update)
+		go configwatch.Watch(ctx, *configPath, updater.Update)
 	}
 	var runErr error
 	if configVersion == configVersionV2 {
