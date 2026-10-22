@@ -170,7 +170,7 @@ func TestAzureRunningUniformVMs(t *testing.T) {
 }
 
 func TestAzureListUniformNICs(t *testing.T) {
-	const resourcePath = "/subscriptions/" + azureTestSubscription + "/resourceGroups/services/providers/microsoft.Compute/virtualMachineScaleSets/checkout/networkInterfaces"
+	const resourcePath = "/subscriptions/" + azureTestSubscription + "/resourceGroups/services/providers/Microsoft.Compute/virtualMachineScaleSets/checkout/networkInterfaces"
 	for _, failSecondPage := range []bool{false, true} {
 		t.Run(fmt.Sprintf("second page fails=%t", failSecondPage), func(t *testing.T) {
 			calls := 0
