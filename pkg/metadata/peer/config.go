@@ -123,6 +123,10 @@ func (c Config) Validate() error {
 		return errors.New("peer metadata token must not contain newlines")
 	}
 
+	if c.Token != "" && !c.TLS.Enabled {
+		return errors.New("peer metadata token requires TLS")
+	}
+
 	if c.TLS.Enabled && (c.TLS.CertFile == "" || c.TLS.KeyFile == "") {
 		return errors.New("peer metadata TLS requires cert_file and key_file")
 	}

@@ -42,7 +42,7 @@ func TestPeerMetadataV2Validation(t *testing.T) {
 		"port: 65536", "port: 0", "caller_ttl: 0s", "cache_ttl: -1s", "refresh_interval: 0s",
 		"peer_cidrs: [invalid]", "max_peers: 0", "max_concurrent: -1", "max_cache_bytes: 1",
 		"request_timeout: 0s", "max_caller_entries: 0", "max_response_bytes: 0", "max_cache_bytes: 0",
-		"tls: {enabled: true}", "unsupported: true", "tls: {unsupported: true}",
+		"token: secret", "tls: {enabled: true}", "unsupported: true", "tls: {unsupported: true}",
 	} {
 		t.Run(field, func(t *testing.T) {
 			body := "          enabled: true\n          " + field + "\n"

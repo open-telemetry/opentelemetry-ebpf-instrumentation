@@ -11,10 +11,12 @@ import (
 	"encoding/pem"
 	"math/big"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -118,7 +120,12 @@ func TestHTTPSCertificateVerification(t *testing.T) {
 			store := newStore("remote-host", cfg)
 			service := Service{Name: "api", Namespace: "shop"}
 			store.setInventory([]Service{service}, nil)
-			server := httptest.NewUnstartedServer(metadataHandler(store, cfg))
+			var requests atomic.Int32
+			handler := metadataHandler(store, cfg)
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests.Add(1)
+				handler.ServeHTTP(w, r)
+			}))
 			server.TLS = serverTLS
 			server.StartTLS()
 			t.Cleanup(server.Close)
@@ -141,6 +148,11 @@ func TestHTTPSCertificateVerification(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, "remote-host", snapshot.Hostname)
 				require.Equal(t, []Service{service}, snapshot.Services)
+			}
+			if test.wantError != "" {
+				require.Zero(t, requests.Load(), "certificate verification must fail before sending the HTTP request and bearer token")
+			} else {
+				require.EqualValues(t, 1, requests.Load())
 			}
 		})
 	}

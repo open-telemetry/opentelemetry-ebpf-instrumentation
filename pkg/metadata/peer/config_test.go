@@ -55,3 +55,21 @@ func TestConfigLimitValidationTags(t *testing.T) {
 		})
 	}
 }
+
+func TestBearerTokenRequiresTLS(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Enabled = true
+	cfg.Token = "shared-secret"
+	err := cfg.Validate()
+	require.ErrorContains(t, err, "token requires TLS")
+	require.NotContains(t, err.Error(), cfg.Token)
+
+	cfg.TLS = TLSConfig{Enabled: true, CertFile: "cert.pem", KeyFile: "key.pem"}
+	require.NoError(t, cfg.Validate())
+	cfg.TLS.Enabled = false
+	cfg.Token = ""
+	require.NoError(t, cfg.Validate())
+	cfg.Enabled = false
+	cfg.Token = "shared-secret"
+	require.NoError(t, cfg.Validate())
+}

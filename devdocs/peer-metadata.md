@@ -18,6 +18,11 @@ extensions:
           caller_ttl: 60s
           peer_cidrs: ["10.0.0.0/8"]
           token: ${env:OBI_PEER_METADATA_TOKEN}
+          tls:
+            enabled: true
+            cert_file: /etc/obi/peer/cert.pem
+            key_file: /etc/obi/peer/key.pem
+            ca_file: /etc/obi/peer/ca.pem
 ```
 
 This is a configuration fragment, retain the capture rules and exporters from your existing
@@ -74,12 +79,13 @@ off on failure. Metadata expires after `cache_ttl` without a successful refresh.
 Remote failures leave telemetry running. Local bind errors or invalid TLS files
 abort pipeline startup. Cancellation closes the listener and background workers.
 
-The endpoint accepts a shared bearer token when `token` is configured. TLS uses
-normal certificate verification: configure a CA file for a private CA and
-certificate IP SANs, or a common `server_name`. Without a token, the endpoint
-allows unauthenticated reads. CIDRs govern outgoing queries, but they do not restrict
-incoming requests. This protocol assumes trusted peers and does not account for
-NAT, proxies, or load balancers.
+A configured bearer `token` requires TLS; token-over-HTTP configurations fail
+validation. Peer certificates are verified before the token is sent. Configure a
+CA trusted to issue certificates to peer agents, with certificate IP SANs or a
+common `server_name`. Without a token, HTTP is allowed and the endpoint permits
+unauthenticated reads. CIDRs govern outgoing queries, but they do not authenticate
+peers or restrict incoming requests. This protocol assumes trusted peers and does
+not account for NAT, proxies, or load balancers.
 
 ## Settings
 
@@ -100,7 +106,7 @@ All settings are under `extensions.obi.enrich.enrichers.peer_metadata`.
 | `max_caller_entries` | `16384` | Maximum service-to-destination observations. |
 | `max_response_bytes` | `1048576` | Encoded response limit in both directions. |
 | `max_cache_bytes` | `67108864` | Cached encoded response byte budget. |
-| `token` | `""` | Shared bearer token; supports declarative substitution. |
+| `token` | `""` | Shared bearer token; requires TLS and supports declarative substitution. |
 | `tls.enabled` | `false` | Serve and query over HTTPS. |
 | `tls.cert_file` | `""` | Server certificate PEM file. |
 | `tls.key_file` | `""` | Server private key PEM file. |
