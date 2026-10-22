@@ -103,6 +103,7 @@ const (
 	EventTypeJVMRuntimeMetrics     = uint8(BpfEventTypeK_eventTypeJvmRuntimeMetrics)      // JVM runtime metrics
 	EventTypeNodejsResource        = uint8(BpfEventTypeK_eventTypeNodejsResource)
 	EventTypeJVMGCDuration         = uint8(BpfEventTypeK_eventTypeJvmGcDuration) // JVM garbage-collection duration
+	EventTypeCustomSpan            = uint8(BpfEventTypeK_eventTypeCustomSpan)    // OBI custom-span transport
 )
 
 // Kernel-side classification. These alias the bpf2go-generated constants
@@ -658,6 +659,9 @@ func ReadBPFTraceAsSpan(parseCtx *EBPFParseContext, cfg *config.EBPFTracer, reco
 		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventTypeGoAutoSpan:
 		span, ignore, err := ReadGoAutoSpanEventIntoSpan(record)
+		return finalizeParsedSpan(parseCtx, span, ignore, err)
+	case EventTypeCustomSpan:
+		span, ignore, err := ReadCustomSpanEventIntoSpan(record)
 		return finalizeParsedSpan(parseCtx, span, ignore, err)
 	case EventNodeSpan:
 		span, ignore, err := ReadNodeSpanEventIntoSpan(record)

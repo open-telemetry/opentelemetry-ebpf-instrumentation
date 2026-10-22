@@ -76,6 +76,53 @@ func TestReadBPFTraceAsSpanGoAutoSpan(t *testing.T) {
 	assert.Equal(t, payload, span.ManualOTelJSON)
 }
 
+func TestReadBPFTraceAsSpanCustomSpan(t *testing.T) {
+	payload := marshalAutoSpanPayload(t, validAutoSpanTraces())
+	record := goAutoSpanRecord(payload, uint32(len(payload)))
+	record.RawSample[0] = EventTypeCustomSpan
+
+	span, ignore, err := ReadBPFTraceAsSpan(nil, nil, record, nil)
+	require.NoError(t, err)
+	assert.False(t, ignore)
+	assert.Equal(t, request.EventTypeManualSpan, span.Type)
+	assert.Equal(t, "manual-json", span.Method)
+	assert.Equal(t, trace.TraceID(testAutoTraceID), span.TraceID)
+	assert.Equal(t, trace.SpanID(testAutoSpanID), span.SpanID)
+	assert.Equal(t, trace.SpanID(testAutoParentID), span.ParentSpanID)
+	assert.Equal(t, payload, span.ManualOTelJSON)
+}
+
+func TestReadCustomSpanEventRejectsMalformedRecords(t *testing.T) {
+	payload := marshalAutoSpanPayload(t, validAutoSpanTraces())
+	tests := []struct {
+		name   string
+		record *ringbuf.Record
+	}{
+		{name: "nil record"},
+		{name: "short header", record: &ringbuf.Record{RawSample: make([]byte, unsafe.Offsetof(GoAutoSpanTrace{}.Buf)-1)}},
+		{name: "wrong event type", record: goAutoSpanRecord(payload, uint32(len(payload)))},
+		{name: "empty", record: customSpanRecord(nil, 0)},
+		{name: "truncated", record: customSpanRecord(payload, uint32(len(payload)+1))},
+		{name: "trailing bytes", record: customSpanRecord(payload, uint32(len(payload)-1))},
+		{name: "payload over limit", record: customSpanRecord(make([]byte, goAutoSpanJSONMaxLen+1), goAutoSpanJSONMaxLen+1)},
+		{name: "invalid JSON", record: customSpanRecord([]byte("{"), 1)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			span, ignore, err := ReadCustomSpanEventIntoSpan(tt.record)
+			require.Error(t, err)
+			assert.True(t, ignore)
+			assert.Equal(t, request.Span{}, span)
+		})
+	}
+}
+
+func customSpanRecord(payload []byte, size uint32) *ringbuf.Record {
+	record := goAutoSpanRecord(payload, size)
+	record.RawSample[0] = EventTypeCustomSpan
+	return record
+}
+
 func TestReadGoAutoSpanEventRejectsMalformedRecords(t *testing.T) {
 	validPayload := marshalAutoSpanPayload(t, validAutoSpanTraces())
 	headerSize := int(unsafe.Offsetof(GoAutoSpanTrace{}.Buf))
