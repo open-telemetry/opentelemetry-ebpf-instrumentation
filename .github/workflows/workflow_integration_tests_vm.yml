@@ -8,6 +8,7 @@ on:
   pull_request:
     branches: [main, release-*]
     paths:
+      - ".github/actions/setup-mise/**"
       - ".github/workflows/workflow_integration_tests_vm.yml"
       - ".github/actions/free-disk/**"
       - ".github/actions/setup-lvh-kernel/**"
@@ -93,10 +94,10 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up mise
-        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
         with:
-          cache: false
+          cache-downloads: false
 
       - name: Build test matrix
         id: build-matrix
@@ -131,10 +132,10 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up mise
-        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
         with:
-          cache: false
+          cache-downloads: false
 
       - uses: $/.github/actions/free-disk
 
@@ -320,10 +321,10 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up mise
-        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
         with:
-          cache: false
+          cache-downloads: false
 
       - uses: $/.github/actions/free-disk
         with:

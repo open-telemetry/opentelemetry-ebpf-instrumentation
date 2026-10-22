@@ -6,6 +6,7 @@ on:
   pull_request:
     branches: [main, release-*]
     paths:
+      - ".github/actions/setup-mise/**"
       - ".github/workflows/unit_tests.yml"
       - ".github/actions/generate-bpf/**"
       - "**.go"
@@ -65,17 +66,10 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Mise downloads cache
-        if: ${{ inputs.ref == '' || inputs.ref == null }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] mise verifies every download against mise.lock checksums
-        with:
-          path: ~/.cache/mise/downloads-cas
-          key: mise-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.lock') }}
-
       - name: Set up mise tools
-        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        uses: $/.github/actions/setup-mise
         with:
-          cache: false
+          cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
 
       - name: Test flaky-run supervisor
         run: mise run test:rerun-flaky
@@ -113,17 +107,10 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Mise downloads cache
-        if: ${{ inputs.ref == '' || inputs.ref == null }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] mise verifies every download against mise.lock checksums
-        with:
-          path: ~/.cache/mise/downloads-cas
-          key: mise-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.lock') }}
-
       - name: Set up mise tools
-        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        uses: $/.github/actions/setup-mise
         with:
-          cache: false
+          cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
 
       - name: Go module cache
         if: ${{ inputs.ref == '' || inputs.ref == null }}

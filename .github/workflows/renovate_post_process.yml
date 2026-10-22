@@ -86,16 +86,8 @@ jobs:
           persist-credentials: false
           ref: ${{ needs.inspect.outputs.head_sha }}
 
-      - name: Mise downloads cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/mise/downloads-cas
-          key: mise-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.lock') }}
-
       - name: Set up mise tools
-        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
-        with:
-          cache: false
+        uses: $/.github/actions/setup-mise
 
       - id: guard
         name: Skip post-process follow-up commits

@@ -1,0 +1,26 @@
+name: Set up mise
+description: Set up the selected mise tools and optionally cache verified downloads.
+inputs:
+  cache-downloads:
+    description: Whether to cache mise's verified downloads-cas directory.
+    required: false
+    default: 'true'
+runs:
+  using: composite
+  steps:
+    - name: Hash mise tool selection
+      id: tools
+      shell: bash
+      run: bash "$GITHUB_ACTION_PATH/hash-tool-selector.sh"
+
+    - name: Cache verified mise downloads
+      if: ${{ inputs.cache-downloads == 'true' }}
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] mise verifies every download against mise.lock checksums
+      with:
+        path: ${{ runner.os == 'macOS' && '~/Library/Caches/mise/downloads-cas' || '~/.cache/mise/downloads-cas' }}
+        key: mise-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.lock') }}-${{ steps.tools.outputs.hash }}
+
+    - name: Install mise tools
+      uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+      with:
+        cache: false

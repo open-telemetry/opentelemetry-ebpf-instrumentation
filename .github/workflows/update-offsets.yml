@@ -19,9 +19,9 @@ jobs:
       with:
         persist-credentials: true
     - name: Set up mise tools
-      uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+      uses: $/.github/actions/setup-mise
       with:
-        cache: false
+        cache-downloads: false
     - name: "Update offsets"
       run: 'mise run generate:go-offsets ::: generate:python-offsets'
     - name: "Check for offset changes"

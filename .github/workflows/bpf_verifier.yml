@@ -80,17 +80,10 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Mise downloads cache
-        if: ${{ inputs.ref == '' || inputs.ref == null }}
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] mise verifies every download against mise.lock checksums
-        with:
-          path: ~/.cache/mise/downloads-cas
-          key: mise-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('mise.lock') }}
-
       - name: Set up mise tools
-        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
+        uses: $/.github/actions/setup-mise
         with:
-          cache: false
+          cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
 
       - uses: $/.github/actions/free-disk
         with:
@@ -155,11 +148,21 @@ jobs:
         with:
           name: bpf-generated-${{ github.run_id }}
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      - name: Go module cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
         with:
-          go-version-file: "go.mod"
-          cache: ${{ inputs.ref == '' || inputs.ref == null }}
+          path: ~/go/pkg/mod
+          key: go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-mod-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Set up Go with mise
+        uses: $/.github/actions/setup-mise
+        with:
+          cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
+        env:
+          MISE_ENABLE_TOOLS: go
 
       - name: Install QEMU
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-utils qemu-system-x86 cpio
@@ -182,11 +185,21 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      - name: Go module cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
         with:
-          go-version-file: "go.mod"
-          cache: ${{ inputs.ref == '' || inputs.ref == null }}
+          path: ~/go/pkg/mod
+          key: go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-mod-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Set up Go with mise
+        uses: $/.github/actions/setup-mise
+        with:
+          cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
+        env:
+          MISE_ENABLE_TOOLS: go
 
       - name: Go build cache
         if: ${{ inputs.ref == '' || inputs.ref == null }}
