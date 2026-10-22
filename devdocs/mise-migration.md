@@ -1,10 +1,12 @@
 # Mise build and development tasks
 
-Mise is the repository's tool-version manager and task runner. The general root
-Makefile has been removed; use `mise run <task>` for development, validation,
-generation, integration, packaging, and release tasks. Run `mise tasks` to
-list tasks and `mise tasks validate` to check their definitions. Tool versions
-are pinned in `mise.toml` and resolved by `mise.lock`.
+Mise is the repository's tool-version manager and task runner. Use
+`mise run <task>` for development, validation, generation, integration,
+packaging, and release tasks. The root Makefile remains as a compatibility
+wrapper that forwards `make <task>` to Mise; it reports an install link when
+Mise is unavailable. Run `mise tasks` to list tasks and `mise tasks validate`
+to check their definitions. Tool versions are pinned in `mise.toml` and
+resolved by `mise.lock`.
 
 ## eBPF generation
 

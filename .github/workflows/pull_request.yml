@@ -126,6 +126,7 @@ jobs:
           mise run notices-update
           mise run check:go-mod
           mise run check:ebpf-ver-synced
+          mise run test:build-compat
           mise run check:config-schema
           mise run check:config-v2-artifacts
           mise run check:clean-work-tree

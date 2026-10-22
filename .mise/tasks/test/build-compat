@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+# Copyright The OpenTelemetry Authors
+#MISE description="Test Make compatibility forwarding and bpf2go version consistency"
+#MISE alias="test-build-compat"
+set -euo pipefail
+
+repo_root="${MISE_CONFIG_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+test_dir="$(mktemp -d)"
+trap 'rm -rf "$test_dir"' EXIT
+
+make_bin="$(command -v make)"
+mkdir -p "$test_dir/fake-bin" "$test_dir/repo/bpf/bpfcore"
+cat >"$test_dir/fake-bin/mise" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$MISE_TEST_LOG"
+printf '%s\n' "${MAKE_TEST_VALUE:-}" > "$MISE_TEST_ENV_LOG"
+if [[ "$*" == 'run fails' ]]; then
+	exit 23
+fi
+EOF
+chmod +x "$test_dir/fake-bin/mise"
+
+: >"$test_dir/mise.log"
+MISE_TEST_LOG="$test_dir/mise.log" \
+MISE_TEST_ENV_LOG="$test_dir/mise.env" \
+PATH="$test_dir/fake-bin:$PATH" \
+  "$make_bin" -f "$repo_root/Makefile" -C "$test_dir" >/dev/null
+
+MISE_TEST_LOG="$test_dir/mise.log" \
+MISE_TEST_ENV_LOG="$test_dir/mise.env" \
+PATH="$test_dir/fake-bin:$PATH" \
+  "$make_bin" -f "$repo_root/Makefile" -C "$test_dir" first second MAKE_TEST_VALUE=forwarded >/dev/null
+grep -Fxq forwarded "$test_dir/mise.env"
+
+if MISE_TEST_LOG="$test_dir/mise.log" \
+  MISE_TEST_ENV_LOG="$test_dir/mise.env" \
+  PATH="$test_dir/fake-bin:$PATH" \
+  "$make_bin" -f "$repo_root/Makefile" -C "$test_dir" fails >/dev/null 2>&1; then
+	echo 'Expected make to preserve a failing Mise task status.' >&2
+	exit 1
+fi
+
+printf 'run all\nrun first ::: second\nrun fails\n' >"$test_dir/expected.log"
+diff -u "$test_dir/expected.log" "$test_dir/mise.log"
+
+if output="$(PATH=/usr/bin:/bin "$make_bin" -f "$repo_root/Makefile" -C "$test_dir" only 2>&1)"; then
+	echo 'Expected make to fail when mise is missing.' >&2
+	exit 1
+fi
+grep -Fq 'Error: mise is required' <<<"$output"
+grep -Fq 'https://mise.jdx.dev/installing-mise.html' <<<"$output"
+
+cat >"$test_dir/repo/go.mod" <<'EOF'
+module test
+
+require (
+	github.com/cilium/ebpf v0.22.0
+)
+EOF
+cat >"$test_dir/repo/mise.toml" <<'EOF'
+[tools]
+"go:github.com/cilium/ebpf/cmd/bpf2go" = "0.22.0"
+EOF
+cat >"$test_dir/repo/bpf/bpfcore/placeholder.go" <<'EOF'
+// github.com/cilium/ebpf v0.22.0
+EOF
+
+"$repo_root/.mise/tasks/check/ebpf-ver-synced" "$test_dir/repo"
+cat >"$test_dir/repo/mise.toml" <<'EOF'
+[tools]
+"go:github.com/cilium/ebpf/cmd/bpf2go"  =  "0.22.0" # aligned version with whitespace
+EOF
+"$repo_root/.mise/tasks/check/ebpf-ver-synced" "$test_dir/repo"
+cat >"$test_dir/repo/mise.toml" <<'EOF'
+[tools]
+"go:github.com/cilium/ebpf/cmd/bpf2go"  =  "0.23.0" # simulated drift
+EOF
+if "$repo_root/.mise/tasks/check/ebpf-ver-synced" "$test_dir/repo" >/dev/null 2>&1; then
+	echo 'Expected check to fail when the declared bpf2go version differs from go.mod.' >&2
+	exit 1
+fi

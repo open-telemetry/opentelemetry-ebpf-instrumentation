@@ -241,6 +241,7 @@ run = [{ task = "compile" }]
 
 [tasks.test]
 description = "Run Go unit tests with race detection and coverage"
+depends = ["test:build-compat"]
 run = 'mkdir -p "${TEST_OUTPUT:-./testoutput}" && KUBEBUILDER_ASSETS="$("$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" setup-envtest use "$ENVTEST_K8S_VERSION" -p path)" go test -short -race ./... -coverpkg=./... -coverprofile "${TEST_OUTPUT:-./testoutput}/cover.all.txt"'
 
 [tasks.test-rerun-flaky]
@@ -389,15 +390,6 @@ run = '"$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" multimod verify'
 [tasks.add-tags]
 description = "Tag the requested Go module set"
 run = '"$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" multimod tag -m "${MODSET:?MODSET is not set}" -c "${COMMIT:-HEAD}"'
-
-[tasks."check:ebpf-ver-synced"]
-alias = "check-ebpf-ver-synced"
-description = "Check the cilium/ebpf version matches BPF core metadata"
-run = '''
-ver="v$(mise current go:github.com/cilium/ebpf/cmd/bpf2go)"
-grep -Fq "github.com/cilium/ebpf $ver" go.mod
-grep -Fq "github.com/cilium/ebpf $ver" bpf/bpfcore/placeholder.go
-'''
 
 [tasks.vanity-import-check]
 description = "Check Go import paths for vanity-import conventions"
