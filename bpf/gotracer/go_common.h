@@ -389,7 +389,7 @@ static __always_inline bool read_ip_and_port(void *src, u8 *dst_ip, u16 *dst_por
     }
 
     if (addr_len == 4) {
-        __builtin_memcpy(dst_ip, ip4ip6_prefix, sizeof(ip4ip6_prefix));
+        bpf_memcpy(dst_ip, ip4ip6_prefix, sizeof(ip4ip6_prefix));
         return bpf_probe_read_user(dst_ip + sizeof(ip4ip6_prefix), 4, addr_ip) == 0;
     }
 
@@ -425,7 +425,7 @@ static __always_inline u8 get_conn_info_from_fd(void *fd_ptr,
             // address): it would not match the key this connection has elsewhere.
             if (!read_ip_and_port(laddr_ptr, info->s_addr, &info->s_port) ||
                 !read_ip_and_port(raddr_ptr, info->d_addr, &info->d_port)) {
-                __builtin_memset(info, 0, sizeof(*info));
+                bpf_memset(info, 0, sizeof(*info));
                 return 0;
             }
 
