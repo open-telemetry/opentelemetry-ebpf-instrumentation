@@ -40,19 +40,6 @@
       "datasourceTemplate": "docker"
     },
     {
-      // Renovate's mise manager currently skips arbitrary conda backend tools.
-      // Track llvm-tools from conda-forge explicitly so llvm-strip stays fresh.
-      "customType": "regex",
-      "managerFilePatterns": ["/^mise\\.toml$/"],
-      "matchStrings": [
-        "\\\"conda:llvm-tools\\\"\\s*=\\s*\\\"(?<currentValue>[^\\\"]+)\\\""
-      ],
-      "depNameTemplate": "llvm-tools",
-      "datasourceTemplate": "conda",
-      "registryUrlTemplate": "https://api.anaconda.org/package/conda-forge/",
-      "versioningTemplate": "semver-coerced"
-    },
-    {
       // Keep the LVH kernel images in internal/test/vm/kernels.yaml pinned to
       // both a dated tag and the corresponding sha256 manifest digest. The
       // tag is the human-readable handle; the digest is what `docker pull`
