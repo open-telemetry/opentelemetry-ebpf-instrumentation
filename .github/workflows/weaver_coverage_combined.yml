@@ -100,11 +100,12 @@ jobs:
           mkdir -p all-weaver-reports
           echo "contributing runs: ${RUN_IDS}"
           for id in $RUN_IDS; do
-            # A run without weaver reports is expected; any other failure leaves the
-            # aggregate partial, so it is surfaced rather than swallowed.
+            # A run without weaver reports is expected; any other failure would
+            # leave the aggregate partial, so it fails the job.
             if ! out=$(gh run download "$id" --repo "$REPO" --dir all-weaver-reports --pattern 'weaver-reports-*' 2>&1); then
               if ! grep -q 'no valid artifacts found' <<<"$out"; then
-                echo "::warning title=Weaver coverage::could not download the reports of run ${id}: ${out}"
+                echo "::error title=Weaver coverage::could not download the reports of run ${id}: ${out}"
+                exit 1
               fi
             fi
           done
@@ -113,14 +114,16 @@ jobs:
           echo "count=${count}" >> "$GITHUB_OUTPUT"
 
       - name: Upstream semconv registry cache
-        if: steps.gate.outputs.ready == 'true' && steps.collect.outputs.count != '0'
+        if: steps.gate.outputs.ready == 'true' && (steps.collect.outputs.count != '0' || steps.gate.outputs.complete == 'true')
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] pinned upstream semconv tarball, keyed on the version in schemas/obi/manifest.yaml
         with:
           path: schemas/obi/.deps
           key: semconv-deps-${{ hashFiles('schemas/obi/manifest.yaml') }}
 
+      # When all three suites passed, a commit with no report is aggregated
+      # anyway, so --fail-on-gap fails it instead of the job passing silently.
       - name: Aggregate coverage
-        if: steps.gate.outputs.ready == 'true' && steps.collect.outputs.count != '0'
+        if: steps.gate.outputs.ready == 'true' && (steps.collect.outputs.count != '0' || steps.gate.outputs.complete == 'true')
         env:
           FAIL_ON_GAP: ${{ steps.gate.outputs.complete == 'true' && '--fail-on-gap' || '' }}
         run: make weaver-coverage WEAVER_REPORTS_DIR=all-weaver-reports WEAVER_COVERAGE_OUT=weaver-coverage-out WEAVER_COVERAGE_ARGS="$FAIL_ON_GAP"
@@ -128,7 +131,7 @@ jobs:
       # coverage.json is written before a gap fails the step, so it is uploaded
       # either way.
       - name: Upload coverage result
-        if: ${{ !cancelled() && steps.gate.outputs.ready == 'true' && steps.collect.outputs.count != '0' }}
+        if: ${{ !cancelled() && hashFiles('weaver-coverage-out/coverage.json') != '' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: weaver-coverage-combined-${{ github.event.workflow_run.head_sha }}
