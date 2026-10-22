@@ -988,6 +988,62 @@ Config v2 supports environment substitution in YAML, such as
 through Config v2 only. See the
 [standalone example](examples/gce-service-resolution.yaml).
 
+## Azure service name resolution
+
+The `azure` service name source uses Uniform Virtual Machine Scale Set names
+for automatic local service names and remote private-IP names. Enable it in
+Config v2:
+
+```yaml
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      enrichers:
+        cloud:
+          refresh_interval: 30s
+      service_name:
+        sources: [azure]
+        azure:
+          subscription_id: "${AZURE_SUBSCRIPTION_ID}"
+          resource_group: "${AZURE_RESOURCE_GROUP}"
+```
+
+Both scope settings are optional when the Azure VM metadata service supplies
+the host's ARM resource ID. Each omitted setting uses the detected value. Discovery
+runs only on detected Azure VM hosts outside Kubernetes and covers one subscription
+and resource group. See the [standalone example](examples/azure-service-resolution.yaml).
+
+OBI uses Azure `DefaultAzureCredential`. On Azure, assign a managed identity to
+the VM scale set and grant it Reader access to the selected resource group.
+The resolver reads scale sets, their virtual machines, and their network
+interfaces. The corresponding read actions are:
+
+- `Microsoft.Compute/virtualMachineScaleSets/read`
+- `Microsoft.Compute/virtualMachineScaleSets/virtualMachines/read`
+- `Microsoft.Compute/virtualMachineScaleSets/networkInterfaces/read`
+
+Automatic resource-provider registration is disabled. This implementation targets
+Azure public cloud and Uniform scale sets. Flexible scale sets are skipped.
+
+Only running VMs contribute names. A local automatic name becomes the scale-set
+name when the detected VM UUID belongs to the selected scope. An exported
+`host.id` override does not change this match. Explicit service names and
+container inventory names take precedence; Kubernetes hosts keep their local
+service identity. A scope override can discover remote peers, but only a scope
+matching the detected host can rename local processes.
+
+Discovery refreshes at `enrich.enrichers.cloud.refresh_interval` and has a
+30-second deadline per refresh. Failed refreshes retain the last complete
+inventory. Successful refreshes remove stale mappings and update tracked
+processes, including `target_info`, without waiting for application traffic.
+After membership removal, a process returns to its original automatic name.
+
+Private IPv4 and IPv6 addresses resolve to scale-set names. If multiple VMs
+share an address across networks in the selected resource group, that ambiguous
+address is omitted. Public IPs and Azure Container Apps are outside this source's
+scope. The source and its settings are available only in Config v2.
+
 ## Related docs
 
 - Config v1 to v2 migration guide: [migration.md](migration.md)

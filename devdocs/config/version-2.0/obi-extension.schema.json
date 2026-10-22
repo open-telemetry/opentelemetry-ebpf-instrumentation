@@ -2286,6 +2286,21 @@
           "type": "object",
           "description": "Service name derivation controls.\nIf omitted, implementation defaults are used.\n",
           "properties": {
+            "azure": {
+              "type": "object",
+              "description": "Uniform Azure VM scale set discovery settings, enabled by the azure service name source.",
+              "additionalProperties": false,
+              "properties": {
+                "subscription_id": {
+                  "type": "string",
+                  "description": "Subscription to discover. Defaults to the detected Azure VM subscription."
+                },
+                "resource_group": {
+                  "type": "string",
+                  "description": "Resource group to discover. Defaults to the detected Azure VM resource group."
+                }
+              }
+            },
             "gce": {
               "type": "object",
               "additionalProperties": false,

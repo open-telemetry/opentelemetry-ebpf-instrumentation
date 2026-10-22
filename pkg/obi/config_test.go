@@ -2040,3 +2040,18 @@ func TestConfigValidateRoute53HostedZones(t *testing.T) {
 	cfg.TracePrinter = debug.TracePrinterText
 	require.NoError(t, cfg.Validate())
 }
+
+func TestConfigV1IgnoresAzure(t *testing.T) {
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_AZURE_SUBSCRIPTION_ID", "env-sub")
+	cfg, err := LoadConfig(strings.NewReader("name_resolver:\n  sources: [AZURE, rdns]\n  azure:\n    subscription_id: sub\n    resource_group: group\n"))
+	require.NoError(t, err)
+	require.Empty(t, cfg.NameResolver.Azure)
+	require.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "azure,rdns")
+	cfg, err = LoadConfig(nil)
+	require.NoError(t, err)
+	require.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
+	cfg = &Config{}
+	require.NoError(t, cfg.UnmarshalMap(map[string]any{"name_resolver": map[string]any{"sources": []any{"azure", "rdns"}}}))
+	require.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
+}
