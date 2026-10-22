@@ -39,7 +39,7 @@ const (
 	imgJaeger      = img.Docker("jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17")
 	imgCollector   = img.Docker("otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6")
 	imgAWSMetaMock = img.Docker("amazon/amazon-ec2-metadata-mock:v1.9.2@sha256:55cc3b9fb46d7e30aec202fc8ccab5391f7f9fc7169ae7dc726aae82562d61c4")
-	imgECSMetaMock = img.Docker("public.ecr.aws/ecs-local/amazon-ecs-local-container-endpoints:latest@sha256:d0fb4c7d8ab2fde76252ff3bb87422de201a2a7a5494a19f5c72e5e90a1fe064")
+	imgECSMetaMock = img.Docker("amazon/amazon-ecs-local-container-endpoints:1.4.2-amd64@sha256:2f1be750a040f71540a1bca3c9fe3295030a022595a2fc8d3966623bd3f75bd2")
 	imgNginx       = img.Docker("library/nginx:1.31.6@sha256:60f0d4e986561e08804f75c211dcaf7fc5455699eada29f42cbe8a0a7253dd86")
 	// imgWeaver MUST match the digest pinned in
 	// `internal/test/integration/components/weaver/service.yml` so the
@@ -270,6 +270,15 @@ func buildOBIImage(ctx context.Context) error {
 }
 
 func buildDockerImage(ctx context.Context, output io.Writer, tag, dockerfile string, buildArgs ...map[string]*string) error {
+	var args map[string]*string
+	if len(buildArgs) > 0 {
+		args = buildArgs[0]
+	}
+	if os.Getenv("SKIP_DOCKER_BUILD") != "" && isPrebuiltImage(ctx, tag, dockerfile, args) {
+		fmt.Fprintf(output, "Skipping %s image build (pre-built image found)\n", tag)
+		return nil
+	}
+
 	buildContext, err := createBuildContext(pathRoot)
 	if err != nil {
 		return err
@@ -278,10 +287,6 @@ func buildDockerImage(ctx context.Context, output io.Writer, tag, dockerfile str
 		_ = buildContext.Close()
 	}()
 
-	var args map[string]*string
-	if len(buildArgs) > 0 {
-		args = buildArgs[0]
-	}
 	result, err := dockerPool.Client().ImageBuild(ctx, buildContext, client.ImageBuildOptions{
 		Tags:       []string{tag},
 		Dockerfile: dockerfile,
@@ -301,6 +306,27 @@ func buildDockerImage(ctx context.Context, output io.Writer, tag, dockerfile str
 		return fmt.Errorf("closing Docker build response for %q: %w", tag, closeErr)
 	}
 	return nil
+}
+
+const prebuiltBuildSpecLabel = "obi.test.build-spec"
+
+func isPrebuiltImage(ctx context.Context, tag, dockerfile string, buildArgs map[string]*string) bool {
+	inspect, err := dockerPool.Client().ImageInspect(ctx, tag)
+	if err != nil || inspect.Config == nil {
+		return false
+	}
+	return inspect.Config.Labels[prebuiltBuildSpecLabel] == prebuiltBuildSpec(dockerfile, buildArgs)
+}
+
+func prebuiltBuildSpec(dockerfile string, buildArgs map[string]*string) string {
+	pairs := make([]string, 0, len(buildArgs))
+	for name, value := range buildArgs {
+		if value != nil {
+			pairs = append(pairs, name+"="+*value)
+		}
+	}
+	slices.Sort(pairs)
+	return strings.Join(append([]string{dockerfile}, pairs...), ";")
 }
 
 // createBuildContext creates a tar archive of the given directory for Docker build context.

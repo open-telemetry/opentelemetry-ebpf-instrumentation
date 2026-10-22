@@ -277,6 +277,7 @@ extensions:
             sqlpp:
               endpoint_patterns:
                 - /query/service
+              prepared_statements_cache_size: 1024
             openai_compatible:
               gateways: []
             enrichment:

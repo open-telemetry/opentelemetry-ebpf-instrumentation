@@ -172,14 +172,6 @@ Attributes carried on OBI's per-connection TCP statistics. Emitted when the `sta
 | `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `reason` | enum | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
 
-## `registry.obi.traces_resource`
-
-Resource attributes OBI's trace exporter sets on the exported `ResourceSpans` in addition to the service and infrastructure attributes shared with the metrics pipeline.
-
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `otel.scope.name` | string | stable | The name of the instrumentation scope - (`InstrumentationScope.Name` in OTLP). | io.opentelemetry.contrib.mongodb |
-
 ## `x.obi.db`
 
 OBI override of `db.system.name` extending the upstream enum with the database systems OBI detects that upstream semconv has no member for.

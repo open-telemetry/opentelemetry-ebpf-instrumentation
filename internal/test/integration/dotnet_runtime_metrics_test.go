@@ -202,6 +202,7 @@ func testDotnetRuntimeMetrics(t *testing.T, runtimeVersion, runtimeImage, mode s
 	}
 	testDotnetCPUMetrics(t, client, workload, endpoints, expectedCPUCount, reconnect)
 	testDotnetHeapMetrics(t, client, workload, endpoints, reconnect)
+	testDotnetExceptionMetrics(t, client, workload, runtimeVersion, endpoints, reconnect)
 	testDotnetCurrentMetrics(t, client, workload, endpoints)
 	testDotnetCumulativeMetrics(t, client, workload, endpoints, func() {
 		previousSession, previousStarts, err := currentSession()

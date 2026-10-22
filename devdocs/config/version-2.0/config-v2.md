@@ -945,6 +945,53 @@ Migration writes them identically. If an authored document sets both
 each explicitly authored value must also be greater than zero. Validation
 rejects zero or divergent values instead of silently choosing one.
 
+## GCE service name resolution
+
+Standalone Config v2 enables service name resolution from zonal Google Compute
+Engine managed instance groups through `extensions.obi.enrich.service_name`:
+
+```yaml
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      enrichers:
+        cloud:
+          refresh_interval: 30s
+      service_name:
+        sources: [gce]
+        gce:
+          project_id: my-project
+          zone: us-central1-a
+```
+
+The resolver runs on GCE hosts and enumerates managed instance groups in the
+selected project and zone. Group names identify local VMs by instance ID and
+remote services by private IP address. Explicit application service names take
+precedence.
+
+| Setting under `service_name.gce` | Default | Meaning |
+| --- | --- | --- |
+| `project_id` | Detected project | Project to query |
+| `zone` | Detected availability zone | Zone to query |
+| `endpoint` | Google Compute API endpoint | HTTP(S) base URL for an emulator or API proxy |
+
+Credentials need the read-only Compute scope and
+`compute.instanceGroupManagers.list`, `compute.instanceGroupManagers.get`, and
+`compute.instances.get` permissions. Each refresh has a 30-second deadline.
+A failed refresh retains the previous inventory.
+
+The shared `enrich.enrichers.cloud.refresh_interval` controls polling, with a
+default of 30 seconds. Span-metric and service-graph features use
+`capture.metrics.features`, for example
+`[application, application_span_otel, application_service_graph]`.
+
+Config v2 supports environment substitution in YAML, such as
+`project_id: ${GCE_PROJECT_ID}`. The GCE source and its settings are available
+through Config v2 only. See the
+[standalone example](examples/gce-service-resolution.yaml).
+
 ## Related docs
 
 - Config v1 to v2 migration guide: [migration.md](migration.md)

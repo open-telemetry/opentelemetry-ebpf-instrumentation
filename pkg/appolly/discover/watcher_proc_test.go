@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -172,6 +173,10 @@ func TestProcessNotReady(t *testing.T) {
 }
 
 func TestPortsFetchRequired(t *testing.T) {
+	synctest.Test(t, testPortsFetchRequired)
+}
+
+func testPortsFetchRequired(t *testing.T) {
 	userConfig := bytes.NewBufferString("channel_buffer_len: 33")
 	t.Setenv("OTEL_EBPF_OPEN_PORT", "8080-8089")
 

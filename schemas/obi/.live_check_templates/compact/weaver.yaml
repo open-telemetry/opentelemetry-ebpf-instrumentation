@@ -1,7 +1,25 @@
 # `compact` live-check output format: the statistics block plus a deduplicated
 # list of findings (message, level, advice type, occurrence count, and the
 # distinct signals that triggered it) — the same detail the harness logs, but
-# collapsed.
+# collapsed. It also lists the samples no matcher gave a signal to, grouped by
+# their kind and attribute keys with a few of their names, and how many samples
+# each signal was checked against.
+#
+# `unexpected_attribute` on a metric for the keys in `ignored_unexpected` is
+# dropped here rather than in `.weaver.toml`: weaver attaches that finding to
+# the metric data point, naming the attribute only in its context, so a
+# `finding_filters` entry cannot scope it to an attribute key. The keys are
+# resource attributes OBI copies onto metric data points only when a test opts
+# in:
+#   - service.name, service.namespace, service.version: copied by
+#     `attributes.extra_group_attributes.app` and
+#     `OTEL_EBPF_EXTRA_SPAN_RESOURCE_ATTRIBUTES`.
+#   - deployment.environment.name: set by the workload through
+#     OTEL_RESOURCE_ATTRIBUTES and forwarded onto target.info.
+# The same keys on a span still fail. `exception.message` is dropped the same
+# way, but only on a span that matched no signal: OBI's Go SDK tracer sets it on
+# the application spans it relays (registry.obi.exception), which no span
+# definition describes. On a span OBI builds itself it still fails.
 #
 # Must be a hidden directory: a
 # visible weaver.yaml inside the registry mount is parsed as a registry file
@@ -13,9 +31,25 @@ whitespace_control:
 templates:
   - template: report.json.j2
     filter: >
-      { statistics: .statistics,
+      ["service.name", "service.namespace", "service.version",
+       "deployment.environment.name"] as $ignored_unexpected
+      | { statistics: .statistics,
+        violations_seen: (
+          [ .samples[] | .. | objects | select(has("all_advice")) | .all_advice[]
+            | select(.level == "violation") ] | length
+        ),
         findings: (
-          [ .samples[] | .. | objects | select(has("all_advice")) | .all_advice[] ]
+          [ .samples[] | to_entries[]
+            | (.value.live_check_result.match_info.signal? // null) as $signal
+            | .value | .. | objects | select(has("all_advice")) | .all_advice[]
+            | select(. as $f
+                | ($f.context.attribute_key // "") as $key
+                | ($f.id != "unexpected_attribute")
+                  or (($f.signal_type == "metric")
+                      and (($ignored_unexpected | map(select(. == $key)) | length) == 0))
+                  or (($f.signal_type == "span")
+                      and (($signal != null) or ($key != "exception.message")))
+                  or (($f.signal_type != "metric") and ($f.signal_type != "span"))) ]
           | group_by(.message)
           | map({
               message: .[0].message,
@@ -24,6 +58,29 @@ templates:
               count:   length,
               signals: ([ .[] | select((.signal_name // "") != "") | "\(.signal_type):\(.signal_name)" ] | unique)
             })
+        ),
+        unmatched: (
+          [ .samples[] | to_entries[]
+            | select(.value.live_check_result.match_info.unmatched? == true
+                and .value.live_check_result.match_info.signal_expected == true)
+            | { sample_type: .key,
+                kind:        (.value.kind // ""),
+                name:        (.value.name // ""),
+                attributes:  ([ .value.attributes[]?.name ] | sort) } ]
+          | group_by([.sample_type, .kind, .attributes])
+          | map({
+              sample_type: .[0].sample_type,
+              kind:        .[0].kind,
+              attributes:  .[0].attributes,
+              count:       length,
+              names:       ([ .[].name ] | unique | .[0:5])
+            })
+        ),
+        matched_signals: (
+          [ .samples[] | to_entries[] | .value.live_check_result.match_info.signal? | select(. != null) ]
+          | group_by(.)
+          | map({ key: .[0], value: length })
+          | from_entries
         ) }
     application_mode: single
     file_name: live_check.json

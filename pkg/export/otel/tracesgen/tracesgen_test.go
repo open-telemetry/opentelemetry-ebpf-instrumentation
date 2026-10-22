@@ -1628,7 +1628,7 @@ func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
 	}
 
 	transportKeys := []string{
-		"url.full", "url.scheme", "url.query", "http.request.method",
+		"url.full", "url.scheme", "http.request.method",
 		"http.response.status_code", "http.request.body.size", "http.response.body.size",
 	}
 
@@ -1705,6 +1705,9 @@ func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
 				assert.Equal(t, expected[key], ok, key)
 			}
 
+			_, ok := selected.Get("url.query")
+			assert.False(t, ok, "url.query must not be emitted on http client spans")
+
 			for _, key := range []string{"server.address", "server.port", "service.peer.name"} {
 				_, ok := selected.Get(key)
 				assert.True(t, ok, "%s must survive on every http client subtype when the span carries a value for it", key)
@@ -1733,6 +1736,26 @@ func TestOptInSpanAttributesOffByDefault(t *testing.T) {
 			_, ok := selected.Get(key)
 			assert.False(t, ok, "%s: %s is opt-in", span.Type, key)
 		}
+	}
+}
+
+func TestAerospikePeerServiceOnlyOnClientSpans(t *testing.T) {
+	selected := map[attr.Name]struct{}{attr.ServicePeerName: {}}
+
+	for _, tc := range []struct {
+		event request.EventType
+		want  bool
+	}{
+		{event: request.EventTypeAerospikeClient, want: true},
+		{event: request.EventTypeAerospikeServer, want: false},
+	} {
+		span := &request.Span{
+			Type: tc.event, Method: "GET", Path: "test.demo",
+			Host: "10.0.0.1", HostPort: 3000, HostName: "aerospike-1", Peer: "10.0.0.2",
+		}
+
+		_, ok := AttrsToMap(TraceAttributesSelector(span, selected)).Get("service.peer.name")
+		assert.Equal(t, tc.want, ok, "%s", tc.event)
 	}
 }
 
@@ -2118,7 +2141,7 @@ func TestTraceAttributesSelector_DBResponseStatusCode(t *testing.T) {
 	})
 }
 
-func TestGenerateTracesSetsOBISchemaURL(t *testing.T) {
+func TestGenerateTracesSetsOBISchemaURLAndScope(t *testing.T) {
 	cache := expirable2.NewLRU[svc.UID, []attribute.KeyValue](10, nil, 0)
 	span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/", Status: 200}
 
@@ -2132,7 +2155,16 @@ func TestGenerateTracesSetsOBISchemaURL(t *testing.T) {
 	)
 
 	require.Equal(t, 1, traces.ResourceSpans().Len())
-	assert.Equal(t, attr.OBISchemaURL, traces.ResourceSpans().At(0).SchemaUrl())
+	rs := traces.ResourceSpans().At(0)
+	assert.Equal(t, attr.OBISchemaURL, rs.SchemaUrl())
+	_, ok := rs.Resource().Attributes().Get("otel.scope.name")
+	assert.False(t, ok)
+
+	require.Equal(t, 1, rs.ScopeSpans().Len())
+	ss := rs.ScopeSpans().At(0)
+	assert.Equal(t, attr.OBISchemaURL, ss.SchemaUrl())
+	assert.Equal(t, "obi", ss.Scope().Name())
+	assert.Equal(t, attr.TelemetryDistroVersion(), ss.Scope().Version())
 }
 
 func TestGenAISpanNameMatchesEmittedAttributes(t *testing.T) {

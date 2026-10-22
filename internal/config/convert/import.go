@@ -1454,6 +1454,7 @@ func applyFullV2HTTPPayloadExtraction(cfg *obi.Config, payload schema.PayloadExt
 	http := &cfg.EBPF.PayloadExtraction.HTTP
 	applyV2HTTPPayloadExtractorMembership(http, payload.Enabled)
 	http.SQLPP.EndpointPatterns = cloneStrings(payload.SQLPP.EndpointPatterns)
+	http.SQLPP.PreparedStatementsCacheSize = payload.SQLPP.PreparedStatementsCacheSize
 	http.GenAI.OpenAICompatible.Gateways = payload.OpenAICompatible.Gateways
 	applyFullV2HTTPEnrichment(http, payload.Enrichment)
 }
@@ -1469,6 +1470,9 @@ func applyPartialV2HTTPPayloadExtraction(cfg *obi.Config, payload schema.Payload
 	}
 	if payload.SQLPP.EndpointPatterns != nil {
 		http.SQLPP.EndpointPatterns = cloneStrings(payload.SQLPP.EndpointPatterns)
+	}
+	if payload.SQLPP.PreparedStatementsCacheSize != 0 {
+		http.SQLPP.PreparedStatementsCacheSize = payload.SQLPP.PreparedStatementsCacheSize
 	}
 	if payload.OpenAICompatible.Gateways != nil {
 		http.GenAI.OpenAICompatible.Gateways = payload.OpenAICompatible.Gateways
@@ -2105,6 +2109,9 @@ func applyV2EnrichServiceName(cfg *obi.Config, enrich *schema.Enrich) {
 	}
 
 	cfg.NameResolver.Sources = cloneSources(serviceName.Sources)
+	if serviceName.GCE != nil {
+		cfg.NameResolver.GCE = *serviceName.GCE
+	}
 	cfg.NameResolver.CacheLen = serviceName.Cache.Size
 	cfg.NameResolver.CacheTTL = serviceName.Cache.TTL.TimeDuration()
 	cfg.Attributes.RenameUnresolvedHosts = serviceName.UnresolvedHosts.Names.Default

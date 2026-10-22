@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -122,6 +123,7 @@ func (c *SessionManager) run(ctx context.Context, process *procs.ProcessHandle, 
 	log := slog.With("component", "dotnet.SessionManager", "pid", process.PID())
 	var totals [runtimemetrics.DotnetGCGenerationCount]uint64
 	var cumulativeTotals cumulativeSessionTotals
+	var types exceptionTypes
 	warned := false
 	generation := file.RuntimeMetricGeneration(process.PID())
 	defer func() {
@@ -141,14 +143,15 @@ func (c *SessionManager) run(ctx context.Context, process *procs.ProcessHandle, 
 		target, err := resolveDiagnosticTarget(setupCtx, process, file.ServiceAttrs().EnvVars["TMPDIR"])
 		var session *eventPipeSession
 		if err == nil {
-			session, err = startEventPipe(setupCtx, target.socketPath, c.interval)
+			// CLR throw events provide the exception source for .NET 8.
+			session, err = startEventPipe(setupCtx, target.socketPath, c.interval, strings.HasPrefix(target.info.CLRVersion, "8."))
 		}
 		cancel()
 		if err == nil {
 			log.Debug("started EventPipe GC collection", "session", session.id)
 			base := totals
 			cumulativeBase := cumulativeTotals
-			err = c.readSession(ctx, session, target.info.PID, func(publishCtx context.Context, snapshot *runtimemetrics.DotnetRuntimeMetricSnapshot) error {
+			err = c.readSession(ctx, session, target.info.PID, &types, func(publishCtx context.Context, snapshot *runtimemetrics.DotnetRuntimeMetricSnapshot) error {
 				for gcGeneration, count := range snapshot.GCCollections {
 					if *count > math.MaxInt64-base[gcGeneration] {
 						return errors.New(".NET GC collections exceed exporter integer range")
@@ -203,15 +206,18 @@ func (c *SessionManager) run(ctx context.Context, process *procs.ProcessHandle, 
 
 // readSession drains concurrently with StopTracing. A deadline bounds both
 // control IPC and the final stream drain when the process stops responding.
-func (c *SessionManager) readSession(ctx context.Context, session *eventPipeSession, pid uint64, publish func(context.Context, *runtimemetrics.DotnetRuntimeMetricSnapshot) error) error {
+func (c *SessionManager) readSession(ctx context.Context, session *eventPipeSession, pid uint64, types *exceptionTypes, publish func(context.Context, *runtimemetrics.DotnetRuntimeMetricSnapshot) error) error {
 	defer session.stream.Close()
 	publishCtx, cancelPublish := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelPublish()
 	done := make(chan error, 1)
 	go func() {
-		var collection runtimeCollection
-		err := readRuntimeCounters(session.stream, pid, func(counter runtimeCounter) error {
-			snapshot, err := collection.observe(counter)
+		collection := runtimeCollection{
+			exceptionTypes: types,
+			exceptions:     make(map[string]uint64),
+		}
+		err := readRuntimeEvents(session.stream, pid, func(event netTraceRuntimeEvent) error {
+			snapshot, err := collection.observeEvent(event)
 			if err != nil || snapshot == nil {
 				return err
 			}

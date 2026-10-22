@@ -318,7 +318,7 @@ func (mr *SvcGraphMetricsReporter) newMetricSet(service *svc.Attrs) (*SvcGraphMe
 
 	mr.log.Debug("creating new metric set", "service", service)
 
-	meter := m.provider.Meter(reporterName)
+	meter := m.provider.Meter(reporterName, obiMeterOptions()...)
 
 	if err := mr.setupGraphMeters(m, meter); err != nil {
 		return nil, err

@@ -233,6 +233,7 @@ discovery:
 						EndpointPatterns: []string{
 							"/query/service",
 						},
+						PreparedStatementsCacheSize: 1024,
 					},
 					Enrichment: config.EnrichmentConfig{
 						Policy: config.HTTPParsingPolicy{
@@ -539,6 +540,52 @@ name_resolver:
 	assert.Equal(t, "env-cluster", cfg.CloudMetadata.ClusterName)
 	assert.Equal(t, "eu-west-1", cfg.CloudMetadata.Region)
 	assert.Equal(t, "kube-cluster", cfg.Attributes.Kubernetes.ClusterName)
+}
+
+func TestConfigV1IgnoresGCESettings(t *testing.T) {
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_GCE_PROJECT_ID", "env-project")
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_GCE_ZONE", "us-central1-a")
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_GCE_ENDPOINT", "http://compute-mock/")
+	for _, tc := range []struct {
+		name string
+		yaml string
+	}{
+		{name: "defaults"},
+		{name: "YAML", yaml: `name_resolver:
+  sources: [GCE, rdns]
+  gce:
+    project_id: test-project
+    zone: us-central1-a
+    endpoint: http://compute-mock/
+`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := LoadConfig(bytes.NewBufferString(tc.yaml))
+			require.NoError(t, err)
+			assert.Empty(t, cfg.NameResolver.GCE)
+			assert.NotContains(t, cfg.NameResolver.Sources, transform.SourceGCE)
+			if tc.yaml != "" {
+				assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
+			}
+		})
+	}
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "gce,rdns")
+	cfg, err := LoadConfig(nil)
+	require.NoError(t, err)
+	assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
+}
+
+func TestUnmarshalMapIgnoresGCESettings(t *testing.T) {
+	cfg := Config{NameResolver: &transform.NameResolverConfig{}}
+	err := cfg.UnmarshalMap(map[string]any{
+		"name_resolver": map[string]any{
+			"sources": []string{"GCE", "rdns"},
+			"gce":     map[string]any{"project_id": "test-project", "zone": "us-central1-a"},
+		},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, cfg.NameResolver.GCE)
+	assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
 }
 
 func TestConfig_ShutdownTimeout(t *testing.T) {
