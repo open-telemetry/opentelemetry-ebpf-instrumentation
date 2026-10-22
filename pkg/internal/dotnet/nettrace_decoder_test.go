@@ -47,10 +47,12 @@ func TestDecodeEventBlockPreservesRuntimeEventOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []netTraceRuntimeEvent{
 		{counter: runtimeCounter{Name: "processor-count", Value: 2}},
-		{gc: &gcRuntimeEvent{eventID: clrGCStartEventID, collection: gcCollectionEvent{count: 42, depth: 2, clrInstanceID: 3}}},
 		{exceptionType: "InvalidOperationException", exceptionCount: 1},
 		{counter: runtimeCounter{Name: "processor-count", Value: 4}},
 	}, events)
+	require.Equal(t, []gcRuntimeEvent{
+		{eventID: clrGCStartEventID, collection: gcCollectionEvent{count: 42, depth: 2, clrInstanceID: 3}},
+	}, decoder.gcOrder.pending, "GC events wait for a watermark")
 }
 
 func TestReadCapturedGCRuntimeEvents(t *testing.T) {
@@ -60,10 +62,13 @@ func TestReadCapturedGCRuntimeEvents(t *testing.T) {
 	require.NoError(t, err)
 	counts := map[uint32]int{}
 	var fragmented bool
+	var previousTimestamp int64
 	err = readRuntimeEvents(bytes.NewReader(wire), uint64(info.ProcessID), "", func(event netTraceRuntimeEvent) error {
 		require.NotNil(t, event.gc)
 		require.Positive(t, event.gc.timestamp)
 		require.Positive(t, event.gc.threadID)
+		require.GreaterOrEqual(t, event.gc.timestamp, previousTimestamp)
+		previousTimestamp = event.gc.timestamp
 		counts[event.gc.eventID]++
 		for _, value := range event.gc.perHeapHistory.fragmentation {
 			fragmented = fragmented || value > 0

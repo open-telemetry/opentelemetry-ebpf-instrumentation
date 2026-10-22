@@ -44,6 +44,7 @@ type netTraceDecoder struct {
 	metricsSessionID string
 	metadata         map[uint32]netTraceMetadata
 	sequences        map[uint64]uint32
+	gcOrder          gcEventOrder
 }
 
 // readRuntimeEvents delivers decoded counters, exception counts, and diagnostics in stream order.
@@ -64,11 +65,30 @@ func readRuntimeEvents(stream io.Reader, expectedPID uint64, metricsSessionID st
 			return err
 		}
 		if header.EndOfStream {
+			ordered, err := decoder.gcOrder.finish()
+			if err != nil {
+				return err
+			}
+			for i := range ordered {
+				if err := consume(netTraceRuntimeEvent{gc: &ordered[i]}); err != nil {
+					return err
+				}
+			}
 			return nil
 		}
 		if header.Name == "SPBlock" {
 			if err := decoder.checkSequencePoint(payload); err != nil {
 				return err
+			}
+			watermark := int64(binary.LittleEndian.Uint64(payload))
+			ordered, err := decoder.gcOrder.releaseBefore(watermark)
+			if err != nil {
+				return err
+			}
+			for i := range ordered {
+				if err := consume(netTraceRuntimeEvent{gc: &ordered[i]}); err != nil {
+					return err
+				}
 			}
 			continue
 		}
@@ -145,12 +165,24 @@ func (d *netTraceDecoder) decodeEventBlock(name string, payload []byte) ([]netTr
 		if err := d.checkSequence(event.CaptureThreadID, event.SequenceNumber, true); err != nil {
 			return nil, err
 		}
+		// Ignored events can also establish a timestamp watermark for GC events.
+		if event.Sorted {
+			ordered, err := d.gcOrder.releaseBefore(event.Timestamp)
+			if err != nil {
+				return nil, err
+			}
+			for i := range ordered {
+				events = append(events, netTraceRuntimeEvent{gc: &ordered[i]})
+			}
+		}
 		gc, err := decodeCLRGCEvent(definition.Header, event, valuesReader, d.pointerSize)
 		if err != nil {
 			return nil, err
 		}
 		if gc != nil {
-			events = append(events, netTraceRuntimeEvent{gc: gc})
+			if err := d.gcOrder.add(*gc); err != nil {
+				return nil, err
+			}
 			continue
 		}
 		eventName := definition.Header.EventName
