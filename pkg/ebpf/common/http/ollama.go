@@ -23,6 +23,7 @@ type ollamaRequest struct {
 	System   string          `json:"system"`
 	Stream   *bool           `json:"stream"`
 	Tools    json.RawMessage `json:"tools"`
+	Input    json.RawMessage `json:"input"`
 }
 
 // ollamaResponse represents the Ollama native response body shared
@@ -35,6 +36,11 @@ type ollamaResponse struct {
 	DoneReason      string             `json:"done_reason"`
 	PromptEvalCount request.TokenCount `json:"prompt_eval_count"`
 	EvalCount       request.TokenCount `json:"eval_count"`
+	// Embeddings holds the response of /api/embed:
+	// {"embeddings":[[...],[...]]}. Embedding holds the single vector
+	// returned by the legacy /api/embeddings endpoint.
+	Embeddings json.RawMessage `json:"embeddings"`
+	Embedding  json.RawMessage `json:"embedding"`
 }
 
 // ollamaChatMessage represents a single message in an Ollama chat response.
@@ -44,19 +50,27 @@ type ollamaChatMessage struct {
 	ToolCalls json.RawMessage `json:"tool_calls"`
 }
 
-// isOllamaPath returns true if the URL path ends with /api/chat or /api/generate.
+// isOllamaPath returns true if the URL path ends with /api/chat, /api/generate,
+// /api/embed or the legacy /api/embeddings.
 func isOllamaPath(req *http.Request) bool {
 	path := requestPath(req)
-	return strings.HasSuffix(path, "/api/chat") || strings.HasSuffix(path, "/api/generate")
+	return strings.HasSuffix(path, "/api/chat") ||
+		strings.HasSuffix(path, "/api/generate") ||
+		strings.HasSuffix(path, "/api/embed") ||
+		strings.HasSuffix(path, "/api/embeddings")
 }
 
 // ollamaOperation returns the gen_ai.operation.name for the request path.
 func ollamaOperation(req *http.Request) string {
 	path := requestPath(req)
-	if strings.HasSuffix(path, "/api/chat") {
+	switch {
+	case strings.HasSuffix(path, "/api/chat"):
 		return request.ChatOperationName
+	case strings.HasSuffix(path, "/api/embed"), strings.HasSuffix(path, "/api/embeddings"):
+		return request.EmbeddingOperationName
+	default:
+		return request.CompletionOperationName
 	}
-	return request.CompletionOperationName
 }
 
 // OllamaSpan detects Ollama native /api/chat and /api/generate requests
@@ -126,6 +140,16 @@ func OllamaSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		Stream:   ollamaReq.Stream == nil || *ollamaReq.Stream,
 		Tools:    ollamaReq.Tools,
 	}
+	// /api/embed sends the text to embed in the `input` field (a string
+	// or an array of strings) rather than `prompt` or `messages`.
+	if operation == request.EmbeddingOperationName {
+		parsed.Request.Stream = false
+		var input string
+		if err := json.Unmarshal(ollamaReq.Input, &input); err == nil {
+			parsed.Request.Input = input
+		}
+		parsed.Data = ollamaEmbeddingData(&ollamaResp)
+	}
 
 	// For /api/generate, keep system instructions separate.
 	if !isChat && ollamaReq.System != "" {
@@ -161,6 +185,35 @@ func OllamaSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 	}
 
 	return *baseSpan, true
+}
+
+// ollamaEmbeddingData converts the Ollama embedding response into the
+// OpenAI-style `data` layout understood by GetEmbeddingDimensions:
+// /api/embed returns {"embeddings":[[...]]} (one vector per input), while the
+// legacy /api/embeddings returns a single {"embedding":[...]} vector. Only the
+// first vector is kept, matching the dimension attribute semantics.
+func ollamaEmbeddingData(resp *ollamaResponse) json.RawMessage {
+	var vector json.RawMessage
+	if len(resp.Embeddings) > 0 {
+		var vectors []json.RawMessage
+		if err := json.Unmarshal(resp.Embeddings, &vectors); err != nil || len(vectors) == 0 {
+			return nil
+		}
+		vector = vectors[0]
+	} else if len(resp.Embedding) > 0 {
+		vector = resp.Embedding
+	}
+	if len(vector) == 0 {
+		return nil
+	}
+	type dataEntry struct {
+		Embedding json.RawMessage `json:"embedding"`
+	}
+	b, err := json.Marshal([]dataEntry{{Embedding: vector}})
+	if err != nil {
+		return nil
+	}
+	return b
 }
 
 // buildOllamaChoices constructs the Choices JSON used by GetFinishReasons()
