@@ -44,7 +44,7 @@
   ],
   "publisher": "Canonical",
   "resourceGroupName": "macikgo-test-may-23",
-  "resourceId": "/long/tail/of/stuff",
+  "resourceId": "/subscriptions/test-subscription/resourceGroups/test-group/providers/Microsoft.Compute/virtualMachineScaleSets/storefront/virtualMachines/0",
   "securityProfile": {
     "secureBootEnabled": "true",
     "virtualTpmEnabled": "false",

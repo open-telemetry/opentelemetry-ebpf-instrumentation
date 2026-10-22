@@ -38,9 +38,21 @@ spans:
   # Captured request / response bodies and headers appear on the HTTP span
   # itself, behind their own opt-in selectors.
   - type: obi.http.server
+    annotations:
+      obi:
+        upstream: http.server
+        upstream_relaxes:
+          url.path: missing for a FastCGI request whose parameters are too large to capture
+          url.scheme: missing for a FastCGI request whose parameters are too large to capture
+        upstream_omits:
+          network.protocol.name: required only for a protocol other than HTTP, which OBI never reports on this signal
     kind: server
     name:
-      note: Not documented yet.
+      templates:
+        - "{http.request.method} {http.route}"
+        - "{http.request.method}"
+        - "HTTP {http.route}"
+        - "HTTP"
     stability: stable
     requirement_level: recommended
     brief: OBI inbound HTTP server span.
@@ -84,9 +96,22 @@ spans:
         requirement_level: opt_in
 
   - type: obi.http.client
+    annotations:
+      obi:
+        upstream: http.client
+        upstream_relaxes:
+          server.address: missing when OBI cannot tell which connection the request used
+          server.port: missing when OBI cannot tell which connection the request used
+          url.full: missing when neither the scheme nor the host of the request is known
+        upstream_omits:
+          network.protocol.name: required only for a protocol other than HTTP, which OBI never reports on this signal
     kind: client
     name:
-      note: Not documented yet.
+      note: >
+        The method, or `HTTP` when it is outside the semantic-convention enum,
+        followed by the route when OBI classified the request path into one:
+        `{http.request.method} {route}`. Client spans do not emit the route as
+        an attribute, so the name cannot be expressed as a template.
     stability: stable
     requirement_level: recommended
     brief: OBI outbound HTTP client span.
@@ -150,9 +175,14 @@ spans:
   # reports the RPC convention alone and none of the HTTP request or response
   # attributes, headers included, a plain HTTP client span carries.
   - type: obi.jsonrpc.client
+    annotations:
+      obi:
+        upstream: [rpc.jsonrpc.call.client, rpc.call.client]
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{rpc.method}"
+        - "jsonrpc"
     stability: development
     requirement_level: recommended
     brief: OBI outbound JSON-RPC over HTTP client span.
@@ -205,9 +235,16 @@ spans:
   # convention on top of `attributes.obi.http.server.common`, without the HTTP
   # request or response attributes.
   - type: obi.graphql.server
+    annotations:
+      obi:
+        upstream: graphql.server
+        upstream_extras:
+          error.type: semconv's error-recording guidance sets error.type on any failed operation
     kind: server
     name:
-      note: Not documented yet.
+      templates:
+        - "{graphql.operation.type}"
+        - "GraphQL Operation"
     stability: development
     requirement_level: recommended
     brief: OBI inbound GraphQL over HTTP server span.
@@ -223,9 +260,16 @@ spans:
         requirement_level: opt_in
 
   - type: obi.jsonrpc.server
+    annotations:
+      obi:
+        upstream: [rpc.jsonrpc.call.server, rpc.call.server]
+        upstream_relaxes:
+          server.address: missing when OBI cannot tell which connection the request used
     kind: server
     name:
-      note: Not documented yet.
+      templates:
+        - "{rpc.method}"
+        - "jsonrpc"
     stability: development
     requirement_level: recommended
     brief: OBI inbound JSON-RPC over HTTP server span.

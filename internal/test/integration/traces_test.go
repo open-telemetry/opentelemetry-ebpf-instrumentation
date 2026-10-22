@@ -89,6 +89,7 @@ func testHTTPTracesCommon(t *testing.T, doTraceID bool, httpCode int) {
 		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8080)},
 		jaeger.Tag{Key: "http.route", Type: "string", Value: "/" + slug},
 		jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+		jaeger.Tag{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
 	)
 	assert.Empty(t, sd, sd.String())
 
@@ -161,7 +162,6 @@ func testHTTPTracesCommon(t *testing.T, doTraceID bool, httpCode int) {
 	assert.Regexp(t, `^obi:\d+$$`, serviceInstance.Value)
 
 	jaeger.Diff([]jaeger.Tag{
-		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
 		{Key: "telemetry.sdk.language", Type: "string", Value: "go"},
 		{Key: "telemetry.sdk.name", Type: "string", Value: "opentelemetry"},
 		{Key: "telemetry.distro.name", Type: "string", Value: "opentelemetry-ebpf-instrumentation"},
@@ -262,7 +262,6 @@ func testGRPCTracesForServiceName(t *testing.T, svcName string) {
 	assert.Regexp(t, `^obi:\d+$$`, serviceInstance.Value)
 
 	jaeger.Diff([]jaeger.Tag{
-		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
 		{Key: "telemetry.sdk.language", Type: "string", Value: "go"},
 		{Key: "service.namespace", Type: "string", Value: "integration-test"},
 		serviceInstance,
@@ -409,7 +408,6 @@ func testHTTPTracesKProbes(t *testing.T, serviceName string, validateInstanceID 
 	}
 
 	pd := jaeger.Diff([]jaeger.Tag{
-		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
 		{Key: "telemetry.sdk.language", Type: "string", Value: sdkLanguage},
 		{Key: "telemetry.sdk.name", Type: "string", Value: "opentelemetry"},
 		{Key: "telemetry.distro.name", Type: "string", Value: "opentelemetry-ebpf-instrumentation"},
@@ -798,16 +796,44 @@ func testGoJSONRPCTraces(t *testing.T) {
 	}, testTimeout, time.Second)
 }
 
+func waitForHTTPServerTrace(t *testing.T, baseURL, service string) {
+	t.Helper()
+
+	path := "/smoke-" + createTraceID()
+	params := url.Values{"service": {service}, "operation": {"GET " + path}}
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := testHTTPClient.Get(baseURL + path)
+		require.NoError(ct, err)
+		defer resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		_, err = io.Copy(io.Discard, resp.Body)
+		require.NoError(ct, err)
+
+		resp, err = getJaeger(jaegerQueryURL + "?" + params.Encode())
+		require.NoError(ct, err)
+		defer resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NotEmpty(ct, tq.FindBySpan(
+			jaeger.Tag{Key: "url.path", Type: "string", Value: path},
+			jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+		), "waiting for %s to export a server span for %s", baseURL, path)
+	}, 2*time.Minute, time.Second)
+}
+
 func testNestedHTTPTracesKProbes(t *testing.T) {
 	var traceID string
 
-	waitForTestComponents(t, "http://localhost:3031")                 // nodejs
-	waitForTestComponents(t, "http://localhost:8080")                 // go
-	waitForTestComponents(t, "http://localhost:7773")                 // python
-	waitForRubyTestComponents(t, "http://localhost:3041")             // ruby
-	waitForTestComponentsSub(t, "http://localhost:8086", "/greeting") // java
-	waitForTestComponents(t, "http://localhost:8091")                 // rust
-	waitForTestComponents(t, instrumentedServiceJSONRPCURL)           // go jsonrpc
+	waitForTestComponents(t, "http://localhost:3031")                      // nodejs
+	waitForHTTPServerTrace(t, instrumentedServiceStdURL, "testserver")     // go
+	waitForTestComponents(t, "http://localhost:7773")                      // python
+	waitForRubyTestComponents(t, "http://localhost:3041")                  // ruby
+	waitForTestComponentsSub(t, "http://localhost:8086", "/greeting")      // java
+	waitForTestComponents(t, "http://localhost:8091")                      // rust
+	waitForHTTPServerTrace(t, instrumentedServiceJSONRPCURL, "testserver") // go jsonrpc
 
 	// Add and check for specific trace ID
 	// Run couple of requests to make sure we flush out any transactions that might be
@@ -1615,6 +1641,30 @@ func testHTTPTracesNestedJSLargeHTTPS(t *testing.T) {
 		traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/api/test-apm"})
 		require.Len(ct, traces, 1)
 		trace = traces[0]
+
+		res := trace.FindByOperationName("GET /api/test-apm", "")
+		require.Len(ct, res, 1)
+		server := res[0]
+
+		res = trace.FindByOperationName("processing", "internal")
+		var processing *jaeger.Span
+		for i := range res {
+			r := &res[i]
+			// Check parenthood
+			p, ok := trace.ParentOf(r)
+
+			if ok {
+				if p.TraceID == server.TraceID && p.SpanID == server.SpanID {
+					processing = r
+					break
+				}
+			}
+		}
+		require.NotNil(ct, processing)
+		// The HTTPS client spans end when Node's keep-alive agent closes its idle
+		// sockets, so they can reach Jaeger later than the server span.
+		// We must see two children
+		assert.Len(ct, trace.ChildrenOf(processing.SpanID), 2)
 	}, testTimeout, 100*time.Millisecond)
 
 	// Check the information of the parent span
@@ -1638,27 +1688,6 @@ func testHTTPTracesNestedJSLargeHTTPS(t *testing.T) {
 
 	children := trace.ChildrenOf(parentID)
 	require.GreaterOrEqual(t, len(children), 2)
-
-	res = trace.FindByOperationName("processing", "internal")
-
-	require.NotEmpty(t, res)
-	var processing *jaeger.Span
-	for i := range res {
-		r := &res[i]
-		// Check parenthood
-		p, ok := trace.ParentOf(r)
-
-		if ok {
-			if p.TraceID == server.TraceID && p.SpanID == server.SpanID {
-				processing = r
-				break
-			}
-		}
-	}
-	require.NotNil(t, processing)
-	children = trace.ChildrenOf(processing.SpanID)
-	// We must see two children
-	assert.Len(t, children, 2)
 }
 
 func testPythonAsyncEndpoint(t *testing.T, endpoint string, expectedClientCalls int) {

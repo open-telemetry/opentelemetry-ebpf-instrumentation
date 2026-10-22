@@ -350,7 +350,7 @@ func TestWatcherKubeEnricherWithMultiPIDContainers(t *testing.T) {
 	}
 
 	// Let's add pod metadata now
-	wk.enrichPodEvent(Event[*informer.ObjectMeta]{Type: EventCreated, Obj: podEvent})
+	wk.enrichPodEvent(t.Context(), Event[*informer.ObjectMeta]{Type: EventCreated, Obj: podEvent})
 
 	// We should see us notified about two matched processes, pid 1 and pid 2
 	events := testutil.ReadChannel(t, outputCh, timeout)
@@ -483,13 +483,13 @@ func TestWatcherKubeEnricherNeverForwardsPodSandbox(t *testing.T) {
 		Pod: &informer.PodInfo{Containers: []*informer.ContainerInfo{{Id: "container-1", Name: "app"}}},
 	}
 	fInformer.Notify(&informer.Event{Type: informer.EventType_CREATED, Resource: pod})
-	wk.enrichPodEvent(Event[*informer.ObjectMeta]{Type: EventCreated, Obj: pod})
+	wk.enrichPodEvent(t.Context(), Event[*informer.ObjectMeta]{Type: EventCreated, Obj: pod})
 
 	wk.enrichProcessEvent([]Event[ProcessAttrs]{{Type: EventCreated, Obj: ProcessAttrs{pid: 1}}})
 	testutil.ChannelEmpty(t, outputCh, emptyTimeout)
 
 	// nor on later Pod updates
-	wk.enrichPodEvent(Event[*informer.ObjectMeta]{Type: EventCreated, Obj: pod})
+	wk.enrichPodEvent(t.Context(), Event[*informer.ObjectMeta]{Type: EventCreated, Obj: pod})
 	testutil.ChannelEmpty(t, outputCh, emptyTimeout)
 	assert.Len(t, wk.processByContainer["sandbox-1"], 1)
 }
@@ -619,4 +619,117 @@ func (f *fakeInformer) Notify(event *informer.Event) {
 	for _, observer := range f.observers {
 		_ = observer.On(event)
 	}
+}
+
+func TestWatcherKubeEnricherOnDoesNotBlockAndStopsWithEnrich(t *testing.T) {
+	store := kube.NewStore(&fakeInformer{}, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	input := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	output := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	output.Subscribe()
+	wk := newWatcherKubeEnricher(store, input.Subscribe(), output)
+
+	pod := &informer.ObjectMeta{
+		Name: "pod-1", Namespace: namespace, Kind: "Pod",
+		Pod: &informer.PodInfo{Containers: []*informer.ContainerInfo{{Id: "container-1", Name: "app"}}},
+	}
+	event := &informer.Event{Type: informer.EventType_CREATED, Resource: pod}
+
+	// enrich is not running yet: On must not block regardless of how many events arrive
+	delivered := make(chan struct{})
+	go func() {
+		defer close(delivered)
+		for range 1000 {
+			assert.NoError(t, wk.On(event))
+		}
+	}()
+	testutil.ReadChannel(t, delivered, timeout)
+
+	enrichDone := make(chan struct{})
+	go func() {
+		defer close(enrichDone)
+		wk.enrich(t.Context())
+	}()
+	input.Close()
+	testutil.ReadChannel(t, enrichDone, timeout)
+
+	require.ErrorIs(t, wk.On(event), errWatcherKubeEnricherStopped)
+}
+
+// A pod arriving while its process is held, followed by the process termination, must be
+// published in that order, as the pod and process events are enriched and published by the
+// same loop.
+func TestWatcherKubeEnricherPublishesPodBeforeLaterProcessTermination(t *testing.T) {
+	prevContainerInfoForPID := containerInfoForPID
+	containerInfoForPID = func(_ app.PID) (container.Info, error) {
+		return container.Info{ContainerID: "container-1"}, nil
+	}
+	t.Cleanup(func() { containerInfoForPID = prevContainerInfoForPID })
+
+	store := kube.NewStore(&fakeInformer{}, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	input := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	defer input.Close()
+	// unbuffered, so publishing blocks until the test reads
+	output := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(0))
+	outputCh := output.Subscribe()
+	wk := newWatcherKubeEnricher(store, input.Subscribe(), output)
+
+	go wk.enrich(t.Context())
+
+	process := ProcessAttrs{pid: 1}
+	input.SendCtx(t.Context(), []Event[ProcessAttrs]{{Type: EventCreated, Obj: process}})
+	require.Eventually(t, func() bool {
+		wk.mt.RLock()
+		defer wk.mt.RUnlock()
+		return len(wk.processByContainer["container-1"]) == 1
+	}, timeout, time.Millisecond)
+
+	pod := &informer.ObjectMeta{
+		Name: "pod-1", Namespace: namespace, Kind: "Pod",
+		Pod: &informer.PodInfo{Containers: []*informer.ContainerInfo{{Id: "container-1", Name: "app"}}},
+	}
+	require.NoError(t, wk.On(&informer.Event{Type: informer.EventType_CREATED, Resource: pod}))
+	// once the loop takes the signal it handles the pod event before selecting again,
+	// blocked on publishing it as nobody reads the output yet
+	require.Eventually(t, func() bool { return len(wk.podEventsReady) == 0 }, timeout, time.Millisecond)
+	input.SendCtx(t.Context(), []Event[ProcessAttrs]{{Type: EventDeleted, Obj: process}})
+
+	created := testutil.ReadChannel(t, outputCh, timeout)
+	require.Len(t, created, 1)
+	assert.Equal(t, EventCreated, created[0].Type)
+
+	deleted := testutil.ReadChannel(t, outputCh, timeout)
+	require.Len(t, deleted, 1)
+	assert.Equal(t, EventDeleted, deleted[0].Type)
+}
+
+func TestWatcherKubeEnricherDrainsPodEventsInBatches(t *testing.T) {
+	store := kube.NewStore(&fakeInformer{}, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	input := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	defer input.Close()
+	output := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))
+	output.Subscribe()
+	wk := newWatcherKubeEnricher(store, input.Subscribe(), output)
+
+	pod := &informer.ObjectMeta{
+		Name: "pod-1", Namespace: namespace, Kind: "Pod",
+		Pod: &informer.PodInfo{Containers: []*informer.ContainerInfo{{Id: "container-1", Name: "app"}}},
+	}
+	const queued = 2*podEventsBatchSize + 1
+	for range queued {
+		require.NoError(t, wk.On(&informer.Event{Type: informer.EventType_CREATED, Resource: pod}))
+	}
+	<-wk.podEventsReady
+
+	wk.drainPodEvents(t.Context())
+
+	// the rest is left for later wake-ups, so other sources are served in between
+	require.Len(t, wk.podEventsReady, 1)
+	remaining := 0
+	for {
+		if _, ok := wk.podEvents.TryDequeue(); !ok {
+			break
+		}
+		remaining++
+	}
+	assert.Equal(t, queued-podEventsBatchSize, remaining)
 }

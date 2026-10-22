@@ -4,12 +4,116 @@
 package dotnet
 
 import (
+	"math"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
+
+func TestRuntimeCollectionExceptionSnapshots(t *testing.T) {
+	collection := runtimeCollection{exceptionTypes: &exceptionTypes{}}
+	observe := func(counter runtimeCounter) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+		snapshot, err := collection.observeEvent(netTraceRuntimeEvent{counter: counter})
+		require.NoError(t, err)
+		return snapshot
+	}
+	throw := func() {
+		snapshot, err := collection.observeEvent(netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: 1})
+		require.NoError(t, err)
+		require.Nil(t, snapshot, "throws accumulate until a counter interval completes")
+	}
+	complete := func() {
+		for _, name := range []string{"gen-0-gc-count", "gen-1-gc-count", "gen-2-gc-count", "time-in-jit"} {
+			require.Nil(t, observe(runtimeCounter{Name: name, Increment: true}))
+		}
+	}
+	require.Nil(t, observe(runtimeCounter{Name: "working-set", Value: 1}))
+	throw()
+	complete()
+	first := observe(runtimeCounter{Name: "working-set", Value: 1})
+	require.NotNil(t, first)
+	throw()
+	require.Equal(t, map[string]uint64{"Failure": 1}, first.Exceptions)
+	complete()
+	last := collection.finish()
+	require.NotNil(t, last)
+	require.Equal(t, map[string]uint64{"Failure": 2}, last.Exceptions)
+	throw()
+	require.Equal(t, uint64(2), last.Exceptions["Failure"])
+	require.Equal(t, uint64(1), first.Exceptions["Failure"])
+
+	collection.exceptions["Failure"] = math.MaxInt64
+	require.ErrorContains(t, collection.observeException("Failure", 1), "overflow")
+	require.Equal(t, uint64(math.MaxInt64), collection.exceptions["Failure"])
+}
+
+func TestRuntimeCollectionExceptionDeltas(t *testing.T) {
+	collection := runtimeCollection{exceptionTypes: &exceptionTypes{}}
+	for _, count := range []uint64{3, 0, 2} {
+		snapshot, err := collection.observeEvent(netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: count})
+		require.NoError(t, err)
+		require.Nil(t, snapshot)
+	}
+	require.Equal(t, uint64(5), collection.exceptions["Failure"])
+	_, err := collection.observeEvent(netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: math.MaxInt64 - 4})
+	require.ErrorContains(t, err, "overflow")
+	require.Equal(t, uint64(5), collection.exceptions["Failure"])
+}
+
+func TestRuntimeCollectionExceptionDiagnostics(t *testing.T) {
+	for _, unavailable := range []bool{false, true} {
+		t.Run(strconv.FormatBool(unavailable), func(t *testing.T) {
+			var types exceptionTypes
+			collection := runtimeCollection{exceptionTypes: &types}
+			_, err := collection.observeEvent(netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: 3})
+			require.NoError(t, err)
+			_, err = collection.observeEvent(netTraceRuntimeEvent{exceptionWarning: "subscription diagnostic", exceptionsUnavailable: unavailable})
+			require.NoError(t, err)
+			_, err = collection.observeEvent(netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: 2})
+			require.NoError(t, err)
+			if unavailable {
+				require.Nil(t, collection.exceptions)
+			} else {
+				require.Equal(t, uint64(5), collection.exceptions["Failure"])
+			}
+			_, err = collection.observeEvent(netTraceRuntimeEvent{counter: runtimeCounter{Name: "processor-count", Value: 4}})
+			require.NoError(t, err)
+			require.NotNil(t, collection.processorCount)
+			require.Equal(t, int64(4), *collection.processorCount)
+
+			next := runtimeCollection{exceptionTypes: &types}
+			_, err = next.observeEvent(netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: 2})
+			require.NoError(t, err)
+			require.Equal(t, uint64(2), next.exceptions["Failure"])
+			require.Len(t, types.names, 1)
+		})
+	}
+}
+
+func TestRuntimeCollectionExceptionTypesAcrossSessions(t *testing.T) {
+	var types exceptionTypes
+	first := runtimeCollection{exceptionTypes: &types}
+	for i := range maximumExceptionTypes {
+		require.NoError(t, first.observeException("Failure"+strconv.Itoa(i), 1))
+	}
+	next := runtimeCollection{exceptionTypes: &types, exceptions: make(map[string]uint64)}
+	for _, name := range []string{"working-set", "gen-0-gc-count", "gen-1-gc-count", "gen-2-gc-count", "time-in-jit"} {
+		_, err := next.observeEvent(netTraceRuntimeEvent{counter: runtimeCounter{Name: name, Increment: name != "working-set"}})
+		require.NoError(t, err)
+	}
+	quiet := next.finish()
+	require.NotNil(t, quiet)
+	require.NotNil(t, quiet.Exceptions)
+	require.Empty(t, quiet.Exceptions)
+	require.NoError(t, next.observeException("NewFailure", 1))
+	require.NoError(t, next.observeException("Failure0", 1))
+	require.Equal(t, map[string]uint64{exceptionTypeOther: 1, "Failure0": 1}, next.exceptions)
+	require.Empty(t, quiet.Exceptions, "later throws must not mutate the quiet snapshot")
+	require.Len(t, types.names, maximumExceptionTypes)
+}
 
 func TestRuntimeCollectionProcessorCount(t *testing.T) {
 	var collection runtimeCollection

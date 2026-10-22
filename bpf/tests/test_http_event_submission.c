@@ -29,21 +29,16 @@ long replace_and_recycle(void *map, const void *key, const void *value, u64 flag
     return 0;
 }
 
-static void *reserve_event(u64 size, u64 flags) {
-    (void)size;
+static long
+output_event(void *ringbuf, void *event, unsigned long long size, unsigned long long flags) {
+    (void)ringbuf;
     (void)flags;
-    return &emitted;
-}
-
-static void submit_event(void *event, u64 flags) {
-    (void)event;
-    (void)flags;
+    memcpy(&emitted, event, size);
     submissions++;
+    return 0;
 }
 
 #define bpf_map_update_elem replace_and_recycle
-#define events_ringbuf_reserve reserve_event
-#define bpf_ringbuf_submit submit_event
 #include <generictracer/http_event.h>
 
 static void expect(bool condition, const char *message) {
@@ -54,6 +49,7 @@ static void expect(bool condition, const char *message) {
 }
 
 int main(void) {
+    bpf_ringbuf_output_hook = output_event;
     old_slot = (http_info_t){.start_monotime_ns = 1, .status = 200, .task_tid = 100};
     old_slot.pid.host_pid = 42;
     old_slot.tp.trace_id[0] = 0x11;
@@ -61,6 +57,7 @@ int main(void) {
     current = &old_slot;
     submit_http_event(current);
     expect(submissions == 1, "the completed request is exported once");
+    expect(emitted.flags == k_event_type_k_http_request, "the exported event has the HTTP tag");
     expect(emitted.tp.trace_id[0] == 0x11, "the exported trace belongs to the submitted request");
     expect(emitted.tp.span_id[0] == 0x22, "the exported span belongs to the submitted request");
     expect(emitted.task_tid == 100, "the exported owner belongs to the submitted request");

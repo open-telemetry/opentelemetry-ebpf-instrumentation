@@ -181,8 +181,8 @@ executing.
 
 | Library   | Primitives | Versions | Limitations
 |:----------|:-----------|---------:|------------:
-| libcudart | cudaLaunchKernel, cudaGraphLaunch, cudaMalloc, cudaFree, cudaMemset, cudaMemcpy, cudaMemcpyAsync, cudaStreamCreate, cudaStreamCreateWithFlags, cudaStreamCreateWithPriority, cudaStreamDestroy, cudaEventRecord, cudaEventRecordWithFlags, cudaEventSynchronize, cudaStreamSynchronize, cudaDeviceSynchronize, cudaHostRegister, cudaSetDevice, cudaGetDevice, cudaGetDeviceProperties, cudaGetDeviceProperties_v2 | >= 7.0 | N/A
-| libcuda   | cuLaunchKernel, cuLaunchKernelEx, cuGraphLaunch, cuDeviceGetUuid, cuDeviceGetUuid_v2, cuDeviceGetName | >= 7.0 | N/A
+| libcudart | cudaLaunchKernel, cudaGraphLaunch, cudaMalloc, cudaFree, cudaMemset, cudaMemcpy, cudaMemcpyAsync, cudaStreamCreate, cudaStreamCreateWithFlags, cudaStreamCreateWithPriority, cudaStreamDestroy, cudaEventRecord, cudaEventRecordWithFlags, cudaEventSynchronize, cudaStreamSynchronize, cudaDeviceSynchronize, cudaHostRegister, cudaSetDevice, cudaGetDevice, cudaGetDeviceProperties, cudaGetDeviceProperties_v2, cudaLaunchKernel_ptsz, cudaGraphLaunch_ptsz, cudaMemcpy_ptds, cudaMemcpyAsync_ptsz, cudaMemset_ptds, cudaEventRecord_ptsz, cudaEventRecordWithFlags_ptsz, cudaStreamSynchronize_ptsz | >= 7.0 | N/A
+| libcuda   | cuLaunchKernel, cuLaunchKernelEx, cuGraphLaunch, cuLaunchKernel_ptsz, cuLaunchKernelEx_ptsz, cuGraphLaunch_ptsz, cuDeviceGetUuid, cuDeviceGetUuid_v2, cuDeviceGetName | >= 7.0 | N/A
 
 Enablement is controlled by `ebpf.instrument_cuda` (`OTEL_EBPF_INSTRUMENT_CUDA`); the default `auto` enables the
 instrumentation when `nvidia-smi` is on the `PATH` of the OBI process. Spans and metrics are labelled with the device

@@ -41,6 +41,9 @@ attributes:
     stability: release_candidate
 
   - key: onc_rpc.auth.flavor
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no ONC RPC authentication attribute
     type: string
     stability: development
     brief: ONC/Sun RPC authentication flavor observed on the call.

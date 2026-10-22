@@ -129,6 +129,13 @@ section empty once drained.
   attribute filters, and the spans keep both attributes.
 - HTTP client spans no longer carry `url.query`; the scrubbed query string remains part of
   `url.full`. HTTP server spans keep `url.query`.
+- The span reference (`site/docs/spans.md`) documents every span's name. The emitted
+  telemetry is unchanged.
+- The trace resource no longer carries `otel.scope.name`. Spans now carry the instrumentation
+  scope itself (`go.opentelemetry.io/obi`, the OBI version and the schema URL), so resource
+  filters on `otel.scope.name` must use the instrumentation scope name instead. Exporters to
+  formats without a scope (Jaeger, Zipkin) still report `otel.scope.name` on each span. All
+  OBI metric scopes now carry the OBI version and the schema URL.
 
 ## Hosting notes
 

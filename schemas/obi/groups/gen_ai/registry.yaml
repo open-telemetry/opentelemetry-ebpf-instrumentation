@@ -170,6 +170,9 @@ attributes:
   # `http.request.method`. Pinned by
   # pkg/appolly/app/request/span_getters_test.go.
   - key: gen_ai.operation.name
+    annotations:
+      obi:
+        upstream_deviation: OBI reports each provider's own operation vocabulary, which no fixed enum can list
     stability: development
     type: string
     brief: The name of the operation being performed.
@@ -184,6 +187,9 @@ attributes:
     examples: ['chat', 'embeddings', 'response', 'conversation', 'invoke_model', 'rerank', 'execute_tool', '_OTHER']
 
   - key: gen_ai.metadata
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no attribute for provider-specific metadata
     type: string
     stability: development
     brief: >
@@ -197,6 +203,9 @@ attributes:
     examples: ['{"conversation_id":"conv_abc123"}']
 
   - key: gen_ai.rerank.top_n
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no rerank attributes
     type: int
     stability: development
     brief: >
@@ -206,6 +215,9 @@ attributes:
       semconv defines an official rerank top-N attribute.
 
   - key: gen_ai.request.embedding.input_count
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no embedding input count
     type: int
     stability: development
     brief: >

@@ -17,6 +17,7 @@ import (
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/kube"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
+	"go.opentelemetry.io/obi/internal/test/integration/k8s/common/testpath"
 )
 
 // This file contains some functions and features that are accessed/used
@@ -202,6 +203,40 @@ func FeatureGraphMetricsOverridingClientNameNs(manifest, podName string, env map
 			testMetricsDecoration(spanGraphMetrics, `{server="`+expectedServerName+`",server_service_namespace="`+
 				expectedServerNS+`",client="otel-client",client_service_namespace="otel-namespace"}`, nil),
 		).Feature()
+}
+
+func FeatureGraphMetricsAnnotatedServer() features.Feature {
+	server := kube.Template[struct{}]{
+		TemplateFile: testpath.Manifests + "/05-instrumented-service-annotation.yml",
+	}
+	pinger := kube.Template[Pinger]{
+		TemplateFile: PingerManifest,
+		Data: Pinger{
+			PodName:   "inventory-pinger",
+			TargetURL: "http://inventory-api:8080/iping",
+			Env: map[string]string{
+				"OTEL_EBPF_METRICS_FEATURES": "application,application_service_graph",
+			},
+		},
+	}
+
+	return features.New("Service graph uses the server Pod service-name annotation").
+		Setup(server.Deploy()).
+		Setup(pinger.Deploy()).
+		Teardown(pinger.Delete()).
+		Teardown(server.Delete()).
+		Assess("target info uses the annotated name",
+			testMetricsDecoration([]string{"traces_target_info"},
+				`{k8s_deployment_name="inventory-api-v2",source="obi"}`,
+				map[string]string{"service_name": "^inventory$"})).
+		Assess("client-side graph metrics use the same name for the Service IP",
+			// Select the emitting client Pod so server-side metrics cannot satisfy this check.
+			testMetricsDecoration([]string{
+				"traces_service_graph_request_client_seconds_count",
+				"traces_service_graph_request_total",
+			}, `{k8s_pod_name="inventory-pinger",source="obi"}`,
+				map[string]string{"client": "^inventory-pinger$", "server": "^inventory$"})).
+		Feature()
 }
 
 func attributeMap(original, override map[string]string, fields ...string) map[string]string {

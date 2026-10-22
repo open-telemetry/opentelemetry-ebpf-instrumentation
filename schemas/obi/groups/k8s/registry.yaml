@@ -1,6 +1,9 @@
 file_format: definition/2
 attributes:
   - key: k8s.owner.name
+    annotations: &k8s_owner
+      obi:
+        upstream_deviation: upstream names each workload kind in its own attribute and has none for the top-level owner of any kind
     type: string
     stability: development
     brief: >
@@ -8,6 +11,7 @@ attributes:
       DaemonSet, CronJob, …) of the Pod OBI decorated the signal with.
     examples: ["frontend"]
   - key: k8s.kind
+    annotations: *k8s_owner
     type: string
     stability: development
     brief: >

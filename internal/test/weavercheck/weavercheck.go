@@ -11,12 +11,14 @@
 // FetchReport stops the run with the admin `/stop` endpoint, reads the report
 // from `/report` and ends the process with `/shutdown`.
 // Which advisories are suppressed (the accepted `server`/`client`/`iface`
-// namespace collisions) and which information-level advice is promoted to a
-// failure (`extends_namespace`, `undefined_enum_variant`) is declared in
-// `schemas/obi/.weaver.toml` via `[[live-check.finding_filters]]` and
-// `[[live-check.finding_level_overrides]]`, so weaver applies both before the
-// report reaches this package. What remains here is a single rule: fail on any
-// `violation`-level advisory.
+// namespace collisions) and which advice is promoted to a failure
+// (`undefined_enum_variant`, `unexpected_attribute`, `kind_mismatch`) is
+// declared in `schemas/obi/.weaver.toml` via `[[live-check.finding_filters]]`
+// and `[[live-check.finding_level_overrides]]`, so weaver applies both before
+// the report reaches this package. So are the `[[live-check.matchers]]` that
+// pair each span with its span definition. What remains here is two rules: fail
+// on any `violation`-level advisory, and on any span no matcher paired with a
+// span definition.
 package weavercheck // import "go.opentelemetry.io/obi/internal/test/weavercheck"
 
 import (
@@ -52,14 +54,20 @@ type TestingT interface {
 }
 
 // Report is the top-level JSON structure emitted by weaver's `compact`
-// live-check template: the statistics block plus a deduplicated findings list.
-// The per-sample bodies weaver's builtin `--format json` would emit (attribute
-// values, exemplars, data points) are dropped, and the advisories are collapsed
-// by message, keeping the report small while preserving every finding's level
-// and the signals that triggered it.
+// live-check template: the statistics block plus a deduplicated findings list,
+// the samples no matcher paired with a signal, and how many samples each signal
+// was checked against. The per-sample bodies weaver's builtin `--format json`
+// would emit (attribute values, exemplars, data points) are dropped, and the
+// advisories are collapsed by message, keeping the report small while
+// preserving every finding's level and the signals that triggered it.
 type Report struct {
-	Findings   []Finding  `json:"findings"`
-	Statistics Statistics `json:"statistics"`
+	Findings       []Finding        `json:"findings"`
+	Statistics     Statistics       `json:"statistics"`
+	Unmatched      []UnmatchedGroup `json:"unmatched"`
+	MatchedSignals map[string]int   `json:"matched_signals"`
+	// ViolationsSeen counts the violation-level advice the report template
+	// found in the samples before filtering any out.
+	ViolationsSeen int `json:"violations_seen"`
 }
 
 // Finding is one deduplicated advisory: a message reported at a given level and
@@ -73,12 +81,33 @@ type Finding struct {
 	Signals []string `json:"signals"`
 }
 
+// UnmatchedGroup is a set of samples that expected a signal but that no
+// matcher paired with one, grouped by sample type, span kind and attribute
+// keys, with up to five of their names.
+type UnmatchedGroup struct {
+	SampleType string   `json:"sample_type"`
+	Kind       string   `json:"kind"`
+	Attributes []string `json:"attributes"`
+	Count      int      `json:"count"`
+	Names      []string `json:"names"`
+}
+
 type Statistics struct {
 	TotalEntities       int            `json:"total_entities"`
 	TotalEntitiesByType map[string]int `json:"total_entities_by_type"`
 	TotalAdvisories     int            `json:"total_advisories"`
 	AdviceLevelCounts   map[string]int `json:"advice_level_counts"`
 	RegistryCoverage    float64        `json:"registry_coverage"`
+	Matchers            []Matcher      `json:"matchers"`
+}
+
+// Matcher is what one configured matcher did over the run. A suite exercises
+// only some span definitions, so a matcher that applied to no sample is normal.
+type Matcher struct {
+	ID         string `json:"id"`
+	Matched    int    `json:"matched"`
+	Errors     int    `json:"errors"`
+	FirstError string `json:"first_error"`
 }
 
 // Parse unmarshals a raw weaver JSON report.
@@ -145,12 +174,12 @@ func adminRequest(ctx context.Context, method, adminURL, path string) ([]byte, e
 	return body, nil
 }
 
-// Validate logs the full advisory breakdown and asserts that weaver reported no
-// `violation`-level advisory. Suppression of the accepted namespace collisions
-// and promotion of `extends_namespace` / `undefined_enum_variant` to
-// `violation` are configured in `schemas/obi/.weaver.toml`, so the level counts
-// weaver reports here already reflect them; enforcement is simply "zero
-// violations".
+// Validate logs the full advisory breakdown and the matcher statistics, and
+// asserts that weaver reported no `violation`-level advisory and no sample that
+// expected a signal but matched none. Suppression of the accepted namespace
+// collisions, the promotions to `violation` and the matchers are configured in
+// `schemas/obi/.weaver.toml`, so what weaver reports here already reflects
+// them.
 func Validate(t TestingT, report *Report) {
 	t.Helper()
 
@@ -161,7 +190,14 @@ func Validate(t TestingT, report *Report) {
 	require.Positivef(t, stats.TotalEntities,
 		"weaver received no telemetry — OTLP data did not reach weaver")
 
-	violations := stats.AdviceLevelCounts["violation"]
+	// Counted from the findings rather than the statistics: the compact report
+	// drops findings the template ignores, which the statistics still count.
+	violations := 0
+	for i := range report.Findings {
+		if report.Findings[i].Level == "violation" {
+			violations += report.Findings[i].Count
+		}
+	}
 
 	t.Logf("weaver statistics:")
 	t.Logf("  total entities:   %d", stats.TotalEntities)
@@ -194,8 +230,61 @@ func Validate(t TestingT, report *Report) {
 		}
 	}
 
+	logMatching(t, report)
+
+	// The findings drop what the template ignores, so they cannot be checked
+	// against the statistics directly. Every violation weaver counted must at
+	// least have been seen by the template, or it reads advice from a place the
+	// report no longer puts it and would pass every suite.
+	assert.GreaterOrEqualf(t, report.ViolationsSeen, stats.AdviceLevelCounts["violation"],
+		"weaver counted %d violation(s) but the report template saw %d; update "+
+			"schemas/obi/.live_check_templates/compact/weaver.yaml for weaver's report format",
+		stats.AdviceLevelCounts["violation"], report.ViolationsSeen)
+
+	for _, m := range stats.Matchers {
+		assert.Zerof(t, m.Errors, "matcher %s failed on %d sample(s): %s", m.ID, m.Errors, m.FirstError)
+	}
+
 	assert.Zero(t, violations,
 		"weaver found %d violation-level semantic convention advisory(ies)", violations)
+	assert.Emptyf(t, report.Unmatched,
+		"weaver paired %d sample(s) with no signal; each needs a matcher in schemas/obi/.weaver.toml "+
+			"and a definition in schemas/obi/groups", unmatchedCount(report.Unmatched))
+}
+
+// logMatching logs which matchers applied, how many samples each signal was
+// checked against, and every group of samples that matched no signal.
+func logMatching(t TestingT, report *Report) {
+	t.Helper()
+
+	t.Logf("  matchers:")
+	for _, m := range report.Statistics.Matchers {
+		switch {
+		case m.Errors > 0:
+			t.Logf("    %-45s %d sample(s), %d error(s): %s", m.ID, m.Matched, m.Errors, m.FirstError)
+		case m.Matched > 0:
+			t.Logf("    %-45s %d sample(s)", m.ID, m.Matched)
+		}
+	}
+	t.Logf("  matched signals:")
+	for _, signal := range sortedKeys(report.MatchedSignals) {
+		t.Logf("    %-45s %d", signal, report.MatchedSignals[signal])
+	}
+	if len(report.Unmatched) > 0 {
+		t.Logf("  samples matched to no signal:")
+		for _, u := range report.Unmatched {
+			t.Logf("    [%dx] %s kind=%q attributes=[%s] names=[%s]",
+				u.Count, u.SampleType, u.Kind, strings.Join(u.Attributes, ", "), strings.Join(u.Names, ", "))
+		}
+	}
+}
+
+func unmatchedCount(groups []UnmatchedGroup) int {
+	total := 0
+	for _, g := range groups {
+		total += g.Count
+	}
+	return total
 }
 
 // sortedKeys returns a count map's keys in lexical order, for stable log output.
