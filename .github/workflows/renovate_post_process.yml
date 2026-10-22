@@ -139,7 +139,7 @@ jobs:
         if: steps.guard.outputs.should_run == 'true' && steps.detect.outputs.run_go == 'true'
         run: |
           mise run go-mod-tidy
-          mise run go-notices-update
+          mise run generate:license-notices:go
 
       - name: Update Java dependency notices
         if: steps.guard.outputs.should_run == 'true' && steps.detect.outputs.run_java == 'true'

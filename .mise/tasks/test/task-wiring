@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Copyright The OpenTelemetry Authors
+#MISE description="Check canonical Mise task names and compatibility aliases"
+set -euo pipefail
+
+assert_task_aliases() {
+	local canonical="$1"
+	shift
+	local info
+	info="$(mise tasks info "//:$canonical")"
+	grep -Fq "Task: //:$canonical" <<<"$info"
+	for alias in "$@"; do
+		info="$(mise tasks info "//:$alias")"
+		grep -Fq "Task: //:$canonical" <<<"$info"
+	done
+}
+
+assert_task_aliases fetch-upstream-semconv fetch:upstream-semconv
+assert_task_aliases generate:go-offsets update:offsets update-offsets
+assert_task_aliases generate:python-offsets update:python-offsets update-python-offsets
+assert_task_aliases test:integration integration:test integration-test
+assert_task_aliases test:integration:k8s integration:k8s integration-test-k8s
+assert_task_aliases test:unit:matrix test:matrix-json unit-test-matrix-json
+assert_task_aliases test:integration:matrix integration:matrix-json integration-test-matrix-json
+assert_task_aliases test:integration:matrix:multiprocess integration:matrix-multiprocess-json multiprocess-integration-test-matrix-json
+assert_task_aliases test:integration:k8s:matrix integration:matrix-k8s-json k8s-integration-test-matrix-json
+assert_task_aliases check:license-headers license-header-check
+assert_task_aliases generate:port-lookup regenerate-port-lookup
+assert_task_aliases generate:license-notices notices:update notices-update
+assert_task_aliases generate:license-notices:go notices:update-go go-notices-update
+assert_task_aliases test:privileged test-privileged
+
+notice_plan="$(mise run --dry-run //:generate:license-notices 2>&1)"
+grep -Fq '.mise/tasks/generate/license-notices/go' <<<"$notice_plan"
+grep -Fq '.mise/tasks/generate/license-notices/bpf' <<<"$notice_plan"
+grep -Fq 'pkg/internal/java/.mise/tasks/notices-update' <<<"$notice_plan"
+
+echo 'Mise task names, aliases, and license-notice wiring are consistent.'

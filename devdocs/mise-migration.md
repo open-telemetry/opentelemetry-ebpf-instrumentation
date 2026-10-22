@@ -42,7 +42,7 @@ task `sources`/`outputs` can represent bpf2go's changing include graph.
 | `mise run compile` | Compile the `obi` binary; `CMD`, `GOOS`, `GOARCH`, version, and source-file overrides are supported. |
 | `mise run verify` | Fetch shared prerequisites, tidy Go modules, then run lint, tests, and license-header checks in parallel. |
 | `mise run build` | Generate eBPF code, verify, then compile. |
-| `mise run integration-test` | Prepare, run, collect coverage, and clean up integration tests. |
+| `mise run test:integration` | Prepare, run, collect coverage, and clean up integration tests. |
 | `mise run release` | Build and validate the release archive, then write checksums. |
 
 The previous root Make targets are represented by Mise tasks, including

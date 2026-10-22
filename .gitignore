@@ -122,7 +122,7 @@ examples/otel-collector/otelcol-dev/*
 internal/test/benchmarks/goshorturl/shorturl
 
 # Pre-fetched upstream OpenTelemetry semantic-conventions registry consumed
-# by weaver. Populated by `mise run fetch-upstream-semconv` (a prereqs dep).
+# by weaver. Populated by `mise run fetch:upstream-semconv` (a prereqs dep).
 schemas/obi/.deps/
 internal/test/vm/lvh/out/
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+#MISE description="Copy BPF third-party license notices"
 set -euo pipefail
 notices="${NOTICES_DIR:-./NOTICES}"
 while IFS= read -r -d '' file; do

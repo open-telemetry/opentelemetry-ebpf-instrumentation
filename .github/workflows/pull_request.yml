@@ -122,8 +122,8 @@ jobs:
       - name: Run checks
         run: |
           mise run go-mod-tidy
-          mise run license-header-check
-          mise run notices-update
+          mise run check:license-headers
+          mise run generate:license-notices
           mise run check:go-mod
           mise run check:ebpf-ver-synced
           mise run test:build-compat

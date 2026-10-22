@@ -1,6 +1,6 @@
 [tasks."integration-test-matrix-json"]
 hide = true
-run = 'cd "$MISE_MONOREPO_ROOT" && ./scripts/generate-dir-matrix.sh internal/test/oats'
+run = 'cd "$MISE_MONOREPO_ROOT" && ./scripts/generate-dir-matrix.sh internal/test/oats /harness/'
 
 [tasks.prereqs]
 hide = true

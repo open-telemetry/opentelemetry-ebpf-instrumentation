@@ -37,6 +37,6 @@ jobs:
         with:
           cache: false
       - name: Test the generator
-        run: mise run test-store-demo-architecture
+        run: mise run test:store-demo-architecture
       - name: Verify store-demo architecture is in sync
         run: mise run check:store-demo-architecture

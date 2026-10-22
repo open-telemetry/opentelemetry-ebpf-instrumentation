@@ -43,8 +43,8 @@ Requirements:
 4. To run integration tests, run either:
 
 ```bash
-mise run integration-test
-mise run integration-test-k8s
+mise run test:integration
+mise run test:integration:k8s
 mise run //oats:test
 ```
 

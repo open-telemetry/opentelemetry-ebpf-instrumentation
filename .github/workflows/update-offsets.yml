@@ -23,7 +23,7 @@ jobs:
       with:
         cache: false
     - name: "Update offsets"
-      run: 'mise run update-offsets ::: update-python-offsets'
+      run: 'mise run generate:go-offsets ::: generate:python-offsets'
     - name: "Check for offset changes"
       id: diff
       run: |

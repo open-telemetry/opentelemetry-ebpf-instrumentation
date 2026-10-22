@@ -50,6 +50,9 @@ fi
 grep -Fq 'Error: mise is required' <<<"$output"
 grep -Fq 'https://mise.jdx.dev/installing-mise.html' <<<"$output"
 
+"$repo_root/.mise/tasks/test/oats-matrix"
+"$repo_root/.mise/tasks/test/task-wiring"
+
 cat >"$test_dir/repo/go.mod" <<'EOF'
 module test
 

@@ -105,7 +105,7 @@ func (s resolvedSignal) label(t *testing.T) string {
 func requireWeaver(t *testing.T) {
 	t.Helper()
 	if testing.Short() {
-		t.Skip("provenance checks are skipped in -short mode; run `mise run test-schema`")
+		t.Skip("provenance checks are skipped in -short mode; run `mise run test:schema`")
 	}
 	if _, err := exec.LookPath("weaver"); err != nil {
 		if os.Getenv("CI") != "" {

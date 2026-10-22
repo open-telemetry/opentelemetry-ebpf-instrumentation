@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 #MISE description="Run tests requiring elevated privileges"
+#MISE alias="test-privileged"
 set -euo pipefail
 mkdir -p "${TEST_OUTPUT:-./testoutput}"
 assets="$("$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" setup-envtest use "$ENVTEST_K8S_VERSION" -p path)"

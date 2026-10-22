@@ -104,7 +104,7 @@ jobs:
           PARTITIONS: 2
         run: |
           echo -n "matrix=" >> $GITHUB_OUTPUT
-          mise run multiprocess-integration-test-matrix-json >> $GITHUB_OUTPUT
+          mise run test:integration:matrix:multiprocess >> $GITHUB_OUTPUT
 
       - name: Build kernel matrix
         id: build-kernel-matrix

@@ -82,7 +82,7 @@ jobs:
         id: build-matrix
         run: |
           echo -n "matrix=" >> $GITHUB_OUTPUT
-          mise run k8s-integration-test-matrix-json >> $GITHUB_OUTPUT
+          mise run test:integration:k8s:matrix >> $GITHUB_OUTPUT
 
   build-images:
     name: Build shared test images

@@ -98,7 +98,7 @@ jobs:
           mise run generate
 
       - name: Run privileged unit tests
-        run: sudo -E env PATH="$PATH" mise run test-privileged
+        run: sudo -E env PATH="$PATH" mise run test:privileged
 
       - name: Cleanup coverage data
         run: mise run cov-exclude-generated

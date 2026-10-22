@@ -132,7 +132,7 @@ jobs:
 
       - name: Test OBI semantic-convention registry provenance
         if: ${{ !cancelled() && matrix.platform.arch == 'amd64' }}
-        run: mise run test-schema
+        run: mise run test:schema
 
       - name: Check published OBI telemetry schema files
         if: ${{ !cancelled() && matrix.platform.arch == 'amd64' }}

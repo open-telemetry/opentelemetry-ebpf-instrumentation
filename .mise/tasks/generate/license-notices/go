@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+#MISE description="Update Go dependency notices"
+#MISE alias=["notices:update-go", "go-notices-update"]
+#MISE depends=["generate"]
 set -euo pipefail
 notices="${NOTICES_DIR:-./NOTICES}"
 find "$notices" -mindepth 1 -maxdepth 1 ! -name bpf ! -name java ! -name amd64 ! -name arm64 -exec rm -rf {} +

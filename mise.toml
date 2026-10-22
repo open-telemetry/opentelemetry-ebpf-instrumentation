@@ -67,6 +67,7 @@ fi
 """
 
 [tasks.fetch-upstream-semconv]
+alias = "fetch:upstream-semconv"
 description = "Fetch the upstream semantic-convention registry"
 run = "./scripts/fetch-upstream-semconv.sh"
 
@@ -118,7 +119,8 @@ description = "Lint the telemetry schema registry"
 depends = ["fetch-upstream-semconv"]
 run = "./scripts/lint-schema.sh \"$MISE_CONFIG_ROOT/schemas/obi\""
 
-[tasks.test-schema]
+[tasks."test:schema"]
+alias = "test-schema"
 description = "Test telemetry schema provenance"
 depends = ["fetch-upstream-semconv"]
 run = "go test -race -count=1 ./internal/schemacheck/..."
@@ -171,11 +173,13 @@ description = "Fix Markdown formatting issues"
 tools = { node = "24.21.0" }
 run = "markdownlint-cli2 --config .markdownlint-cli2.yaml --fix '**/*.md'"
 
-[tasks.update-offsets]
+[tasks."generate:go-offsets"]
+alias = ["update:offsets", "update-offsets"]
 description = "Update Go runtime offset data"
 run = "go run ./internal/gooffsets -i configs/offsets/tracker_input.json -abi configs/offsets/go_abi_input.json pkg/internal/goexec/offsets.json"
 
-[tasks.update-python-offsets]
+[tasks."generate:python-offsets"]
+alias = ["update:python-offsets", "update-python-offsets"]
 description = "Update Python runtime offset data"
 run = "go run ./scripts/python-offsets"
 
@@ -192,7 +196,7 @@ run = "make -f bpf/Makefile generate/all"
 description = "Tidy modules, then run lint, tests, and license checks"
 depends = ["prereqs", "go-mod-tidy"]
 run = [
-  { tasks = ["lint", "test", "license-header-check"] },
+  { tasks = ["lint", "test", "check:license-headers"] },
 ]
 
 [tasks.build]
@@ -205,7 +209,7 @@ run = [
 
 [tasks.all]
 description = "Generate BPF bindings, update notices, and build OBI"
-depends = ["notices-update"]
+depends = ["generate:license-notices"]
 run = [
   { task = "verify" },
   { task = "compile" },
@@ -244,7 +248,8 @@ description = "Run Go unit tests with race detection and coverage"
 depends = ["test:build-compat"]
 run = 'mkdir -p "${TEST_OUTPUT:-./testoutput}" && KUBEBUILDER_ASSETS="$("$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" setup-envtest use "$ENVTEST_K8S_VERSION" -p path)" go test -short -race ./... -coverpkg=./... -coverprofile "${TEST_OUTPUT:-./testoutput}/cover.all.txt"'
 
-[tasks.test-rerun-flaky]
+[tasks."test:rerun-flaky"]
+alias = "test-rerun-flaky"
 description = "Test the flaky-test rerun supervisor"
 run = "./scripts/rerun-flaky_test.sh"
 
@@ -271,7 +276,8 @@ run = [
   { task = "cleanup-integration-test" },
 ]
 
-[tasks.integration-test]
+[tasks."test:integration"]
+alias = ["integration:test", "integration-test"]
 description = "Run integration tests and clean up their resources"
 depends = ["prereqs"]
 depends_post = ["cleanup-integration-test"]
@@ -281,7 +287,8 @@ run = [
   { task = "itest-coverage-data" },
 ]
 
-[tasks.integration-test-k8s]
+[tasks."test:integration:k8s"]
+alias = ["integration:k8s", "integration-test-k8s"]
 description = "Run Kubernetes integration tests and clean up"
 depends = ["prereqs"]
 depends_post = ["cleanup-integration-test"]
@@ -299,19 +306,23 @@ run = "go clean -testcache && go test -p 1 -failfast -v -timeout 60m ./internal/
 hide = true
 run = "go clean -testcache && go test -p 1 -failfast -v -timeout 60m ./internal/test/integration/k8s/..."
 
-[tasks.unit-test-matrix-json]
+[tasks."test:unit:matrix"]
+alias = ["test:matrix-json", "unit-test-matrix-json"]
 hide = true
 run = 'go list ./... | "$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" gotestsum tool ci-matrix --partitions "${PARTITIONS:-3}" --timing-files="${TEST_OUTPUT:-./testoutput}/unit-test-shard-*.log"'
 
-[tasks.integration-test-matrix-json]
+[tasks."test:integration:matrix"]
+alias = ["integration:matrix-json", "integration-test-matrix-json"]
 hide = true
 run = "./scripts/generate-integration-matrix.sh internal/test/integration \"${PARTITIONS:-5}\""
 
-[tasks.multiprocess-integration-test-matrix-json]
+[tasks."test:integration:matrix:multiprocess"]
+alias = ["integration:matrix-multiprocess-json", "multiprocess-integration-test-matrix-json"]
 hide = true
 run = "./scripts/generate-integration-matrix.sh internal/test/integration \"${PARTITIONS:-5}\" '(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest)'"
 
-[tasks.k8s-integration-test-matrix-json]
+[tasks."test:integration:k8s:matrix"]
+alias = ["integration:matrix-k8s-json", "k8s-integration-test-matrix-json"]
 hide = true
 run = "./scripts/generate-dir-matrix.sh internal/test/integration/k8s common"
 
@@ -344,11 +355,6 @@ run = [
   '"$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" multimod prerelease -m "$MODSET"',
 ]
 
-[tasks.go-notices-update]
-description = "Update Go dependency notices"
-hide = true
-depends = ["generate"]
-
 [tasks."check:go-mod"]
 description = "Check that Go modules are tidy"
 depends = ["go-mod-tidy"]
@@ -378,9 +384,10 @@ description = "Remove generated eBPF Go bindings and objects"
 hide = true
 run = "find . -name '*_bpfel*' -print0 | xargs -0 -r rm"
 
-[tasks.notices-update]
+[tasks."generate:license-notices"]
+alias = ["notices:update", "notices-update"]
 description = "Update third-party license notices"
-depends = ["go-notices-update", "//java:notices-update"]
+depends = ["generate:license-notices:go", "generate:license-notices:bpf", "//java:notices-update"]
 
 [tasks."verify:mods"]
 alias = "verify-mods"
@@ -407,7 +414,8 @@ run = [
 description = "Rewrite Go imports to vanity paths"
 run = '''"$MISE_MONOREPO_ROOT/.mise/scripts/go-tool" porto --include-internal --skip-dirs '^NOTICES$' -w .'''
 
-[tasks.regenerate-port-lookup]
+[tasks."generate:port-lookup"]
+alias = "regenerate-port-lookup"
 description = "Regenerate the port-name lookup table"
 run = [
   "go run cmd/generate-port-lookup/main.go -dst pkg/internal/netolly/flow/transport/protocol.go",
@@ -434,7 +442,8 @@ description = "Check the store demo architecture diagram"
 tools.python = "3.14"
 run = "python3 examples/store-demo/fix_architecture.py --check"
 
-[tasks.test-store-demo-architecture]
+[tasks."test:store-demo-architecture"]
+alias = "test-store-demo-architecture"
 description = "Test store demo architecture generation"
 tools.python = "3.14"
 run = "python3 examples/store-demo/test_fix_architecture.py"

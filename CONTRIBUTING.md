@@ -152,13 +152,13 @@ mise run test
 #### Running integration tests
 
 ```
-mise run integration-test
+mise run test:integration
 ```
 
 #### Running k8s integration tests
 
 ```
-mise run integration-test-k8s
+mise run test:integration:k8s
 ```
 
 ### Issues
