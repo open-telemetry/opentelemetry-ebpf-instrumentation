@@ -49,7 +49,9 @@ func TestSuite_PeerMetadata(t *testing.T) {
 		defer resp.Body.Close()
 		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
 	})
-	t.Run("service graph counts each request once", testPeerMetadataServiceGraph)
+	t.Run("service graph counts each request once", func(t *testing.T) {
+		testPeerMetadataServiceGraph(t, true)
+	})
 	t.Run("traces resolve service identities", func(t *testing.T) {
 		testPeerMetadataTraces(t, "unique", "frontend.frontend-ns")
 	})
@@ -63,6 +65,33 @@ func TestSuite_PeerMetadata(t *testing.T) {
 		testPeerMetadataTraces(t, "recovered", "frontend.frontend-ns")
 	})
 	t.Run("client counts requests when peer metrics are disabled", testPeerMetadataWithoutServerMetrics)
+}
+
+func TestSuite_PeerMetadataHTTPMetricsDisabled(t *testing.T) {
+	require.NoError(t, os.MkdirAll(pathOutput, 0o755))
+	compose, err := docker.ComposeSuite("docker-compose-peer-metadata.yml",
+		path.Join(pathOutput, "test-suite-peer-metadata-http-metrics-disabled.log"))
+	require.NoError(t, err)
+	compose.Env = append(compose.Env, "PEER_METADATA_SERVER_CONFIG=obi-config-peer-metadata-server-http-traces-only-v2.yml")
+	t.Cleanup(func() { require.NoError(t, compose.Close()) })
+	require.NoError(t, compose.Up())
+
+	t.Run("inventory includes instrumented services", testPeerMetadataInventory)
+	t.Run("metadata advertises protocol eligibility", func(t *testing.T) {
+		snapshot := peerMetadataSnapshot(t, peerMetadataServerURL)
+		require.NotNil(t, snapshot.MetricProtocols)
+		require.False(t, snapshot.MetricProtocols.HTTPEnabled())
+		require.True(t, snapshot.MetricProtocols.GRPCEnabled())
+	})
+	t.Run("client counts HTTP requests", func(t *testing.T) {
+		testPeerMetadataServiceGraph(t, false)
+	})
+	t.Run("HTTP traces still resolve both services", func(t *testing.T) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			assert.Contains(ct, peerMetadataTracePeers(ct, "frontend", "graph-counts", "client"), "backend.backend-ns")
+			assert.Contains(ct, peerMetadataTracePeers(ct, "backend", "graph-counts", "server"), "frontend.frontend-ns")
+		}, testTimeout, time.Second)
+	})
 }
 
 func testPeerMetadataInventory(t *testing.T) {
@@ -192,7 +221,7 @@ func peerMetadataComposeCommand(t require.TestingT, compose *docker.Compose, arg
 	return output
 }
 
-func testPeerMetadataServiceGraph(t *testing.T) {
+func testPeerMetadataServiceGraph(t *testing.T, serverMetrics bool) {
 	warmCalls := 0
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		peerMetadataCall(ct, "graph-warmup")
@@ -206,17 +235,22 @@ func testPeerMetadataServiceGraph(t *testing.T) {
 		service        string
 		histogram      string
 		countsRequests bool
+		hasHistogram   bool
 	}{
-		{"http://localhost:28999/metrics", "", "traces_service_graph_request_client_seconds_count", false},
-		{"http://localhost:18999/metrics", "", "traces_service_graph_request_server_seconds_count", true},
-		{"http://localhost:19464/metrics", "frontend", "traces_service_graph_request_client_seconds_count", false},
-		{"http://localhost:19464/metrics", "backend", "traces_service_graph_request_server_seconds_count", true},
+		{"http://localhost:28999/metrics", "", "traces_service_graph_request_client_seconds_count", !serverMetrics, true},
+		{"http://localhost:18999/metrics", "", "traces_service_graph_request_server_seconds_count", serverMetrics, serverMetrics},
+		{"http://localhost:19464/metrics", "frontend", "traces_service_graph_request_client_seconds_count", !serverMetrics, true},
+		{"http://localhost:19464/metrics", "backend", "traces_service_graph_request_server_seconds_count", serverMetrics, serverMetrics},
 	}
 	baseline := make([]float64, len(endpoints))
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for i, endpoint := range endpoints {
 			metrics := peerMetadataGraphMetrics(ct, endpoint.url, endpoint.service, "backend")
-			assert.InDelta(ct, float64(warmCalls), metrics[endpoint.histogram], 0, "%s %s", endpoint.url, endpoint.service)
+			var expectedHistogram float64
+			if endpoint.hasHistogram {
+				expectedHistogram = float64(warmCalls)
+			}
+			assert.InDelta(ct, expectedHistogram, metrics[endpoint.histogram], 0, "%s %s", endpoint.url, endpoint.service)
 			baseline[i] = metrics["traces_service_graph_request_total"]
 		}
 	}, testTimeout, 100*time.Millisecond)
@@ -228,7 +262,11 @@ func testPeerMetadataServiceGraph(t *testing.T) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for i, endpoint := range endpoints {
 			metrics := peerMetadataGraphMetrics(ct, endpoint.url, endpoint.service, "backend")
-			assert.InDelta(ct, float64(warmCalls+calls), metrics[endpoint.histogram], 0, "%s %s", endpoint.url, endpoint.service)
+			var expectedHistogram float64
+			if endpoint.hasHistogram {
+				expectedHistogram = float64(warmCalls + calls)
+			}
+			assert.InDelta(ct, expectedHistogram, metrics[endpoint.histogram], 0, "%s %s", endpoint.url, endpoint.service)
 			expected := baseline[i]
 			if endpoint.countsRequests {
 				expected += calls

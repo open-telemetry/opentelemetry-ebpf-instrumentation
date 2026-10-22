@@ -20,6 +20,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 )
 
@@ -125,11 +126,11 @@ func TestAgentStartupFailureAndCancellation(t *testing.T) {
 	cfg.Enabled = true
 	cfg.ListenAddress = "127.0.0.1"
 	cfg.Port = occupied.Addr().(*net.TCPAddr).Port
-	_, err = New(t.Context(), cfg, "host", false, nil)
+	_, err = New(t.Context(), cfg, "host", false, nil, nil)
 	require.ErrorContains(t, err, "listening for peer metadata")
 	require.NoError(t, occupied.Close())
 	ctx, cancel := context.WithCancel(t.Context())
-	agent, err := New(ctx, cfg, "host", false, nil)
+	agent, err := New(ctx, cfg, "host", false, nil, nil)
 	require.NoError(t, err)
 	cancel()
 	// Cancellation must release a listener even if the pipeline never runs.
@@ -144,7 +145,7 @@ func TestAgentStartupFailureAndCancellation(t *testing.T) {
 	agent.Close()
 	cfg.TLS.Enabled = true
 	cfg.TLS.CertFile, cfg.TLS.KeyFile = "missing-cert", "missing-key"
-	_, err = New(t.Context(), cfg, "host", false, nil)
+	_, err = New(t.Context(), cfg, "host", false, nil, nil)
 	require.ErrorContains(t, err, "certificate")
 }
 
@@ -207,6 +208,7 @@ func TestCachedPeerHostnameFallbackDoesNotCountClientRequests(t *testing.T) {
 	endpoint := Endpoint{IP: "0.0.0.0", Port: 8080}
 	api := Service{Name: "api", Namespace: "shop", ServiceGraph: true}
 	other := Service{Name: "other", Namespace: "shop", ServiceGraph: true}
+	protocols := instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instrumentations.InstrumentationALL})
 	for _, test := range []struct {
 		name      string
 		listeners []Listener
@@ -239,7 +241,7 @@ func TestCachedPeerHostnameFallbackDoesNotCountClientRequests(t *testing.T) {
 			agent.cache.lookup(netip.MustParseAddr("10.1.0.2"), now)
 			due := agent.cache.due(now, 1)
 			require.Len(t, due, 1)
-			snapshot := indexSnapshot(&Snapshot{Hostname: "remote-host", Listeners: test.listeners})
+			snapshot := indexSnapshot(&Snapshot{Hostname: "remote-host", Listeners: test.listeners, MetricProtocols: &protocols})
 			agent.cache.complete(due[0], snapshot, 1, now, now)
 			span := request.Span{Type: request.EventTypeHTTPClient, Host: "10.1.0.2", HostPort: endpoint.Port}
 			if test.failed {
@@ -329,6 +331,58 @@ func TestClientCountRequiresReverseMetadataExchange(t *testing.T) {
 			client.Decorate(&test.span, time.Now().Add(test.age))
 			require.Equal(t, "backend", test.span.HostName)
 			require.True(t, otel.ClientSpanToUninstrumentedService(&tracker, &test.span))
+		})
+	}
+}
+
+func TestCachedPeerProtocolMetricsEligibility(t *testing.T) {
+	all := instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instrumentations.InstrumentationALL})
+	grpc := instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instrumentations.InstrumentationGRPC})
+	none := instrumentations.InstrumentationSelection(0)
+	for _, test := range []struct {
+		name       string
+		selection  *instrumentations.InstrumentationSelection
+		event      request.EventType
+		listeners  bool
+		suppressed bool
+	}{
+		{name: "older peer without protocol eligibility", event: request.EventTypeHTTPClient, listeners: true},
+		{name: "all protocol metrics enabled", selection: &all, event: request.EventTypeHTTPClient, listeners: true, suppressed: true},
+		{name: "HTTP metrics disabled", selection: &grpc, event: request.EventTypeHTTPClient, listeners: true},
+		{name: "gRPC metrics enabled", selection: &grpc, event: request.EventTypeGRPCClient, listeners: true, suppressed: true},
+		{name: "all protocol metrics disabled", selection: &none, event: request.EventTypeHTTPClient, listeners: true},
+		{name: "HTTP hostname fallback", selection: &grpc, event: request.EventTypeHTTPClient},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := DefaultConfig()
+			peers, err := makeNetwork(nil, []string{"10.1.0.0/16"})
+			require.NoError(t, err)
+			agent := &Agent{cfg: cfg, store: newStore("client-host", cfg), cache: newPeerCache(cfg), network: peers}
+			target := Endpoint{IP: "10.1.0.2", Port: 8080}
+			frontend := Service{Name: "frontend", Namespace: "shop"}
+			payload := map[string]any{
+				"version": ProtocolVersion, "hostname": "server-host",
+				"known_callers": []Caller{{Destination: target, Services: []CallerService{{Service: frontend, RemainingMillis: 60000}}}},
+			}
+			if test.listeners {
+				payload["listeners"] = []Listener{{Endpoint: target, Service: Service{Name: "backend", ServiceGraph: true}}}
+			}
+			if test.selection != nil {
+				payload["metric_protocols"] = *test.selection
+			}
+			data, err := json.Marshal(payload)
+			require.NoError(t, err)
+			var snapshot Snapshot
+			require.NoError(t, json.Unmarshal(data, &snapshot))
+			now := time.Now()
+			agent.cache.lookup(netip.MustParseAddr(target.IP), now)
+			agent.cache.complete(agent.cache.due(now, 1)[0], indexSnapshot(&snapshot), len(data), now, now)
+			span := request.Span{
+				Type: test.event, Host: target.IP, HostPort: target.Port,
+				Service: svc.Attrs{UID: svc.UID{Name: frontend.Name, Namespace: frontend.Namespace}},
+			}
+			agent.Decorate(&span, now)
+			require.Equal(t, test.suppressed, request.IgnoreServiceGraphClientCount(&span))
 		})
 	}
 }

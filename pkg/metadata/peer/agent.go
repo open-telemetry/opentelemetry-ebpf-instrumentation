@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/selection"
 )
 
@@ -34,7 +35,9 @@ type Agent struct {
 	closeOnce sync.Once
 }
 
-func New(ctx context.Context, cfg Config, hostname string, serviceGraphEnabled bool, metricsPIDs selection.PIDSelector) (*Agent, error) {
+func New(ctx context.Context, cfg Config, hostname string, serviceGraphEnabled bool,
+	metricsPIDs selection.PIDSelector, metricProtocols *instrumentations.InstrumentationSelection,
+) (*Agent, error) {
 	cfg = cfg.WithDefaults()
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -74,6 +77,9 @@ func New(ctx context.Context, cfg Config, hostname string, serviceGraphEnabled b
 
 	agent.store.graphEnabled = serviceGraphEnabled
 	agent.store.metricsPIDs = metricsPIDs
+	if metricProtocols != nil {
+		agent.store.metricProtocols = *metricProtocols
+	}
 
 	agent.server = &http.Server{
 		Handler:           metadataHandler(agent.store, cfg, network, agent.cache),
@@ -217,7 +223,7 @@ func (a *Agent) Decorate(span *request.Span, now time.Time) {
 func (a *Agent) decorateClient(span *request.Span, destination Endpoint, now time.Time) {
 	caller := a.store.serviceFor(span.Service)
 	a.store.observe(destination, caller, now)
-	service, ignoreClientCount := a.resolveDestination(destination, caller, now)
+	service, ignoreClientCount := a.resolveDestination(destination, caller, span.Type, now)
 	if service.Name == "" {
 		return
 	}
@@ -230,7 +236,7 @@ func (a *Agent) decorateClient(span *request.Span, destination Endpoint, now tim
 }
 
 // resolveDestination identifies the service and whether to suppress the client graph count.
-func (a *Agent) resolveDestination(destination Endpoint, caller Service, now time.Time) (Service, bool) {
+func (a *Agent) resolveDestination(destination Endpoint, caller Service, event request.EventType, now time.Time) (Service, bool) {
 	address, err := netip.ParseAddr(destination.IP)
 	if err != nil {
 		return Service{}, false
@@ -239,7 +245,7 @@ func (a *Agent) resolveDestination(destination Endpoint, caller Service, now tim
 	address = address.Unmap()
 	if a.network.isLocal(address) {
 		service, matched := a.store.destinationService(destination)
-		return service, !matched || service.ServiceGraph
+		return service, protocolMetricsEnabled(&a.store.metricProtocols, event) && (!matched || service.ServiceGraph)
 	}
 
 	if !a.network.permits(address) {
@@ -252,7 +258,8 @@ func (a *Agent) resolveDestination(destination Endpoint, caller Service, now tim
 	}
 
 	service, matched := snapshot.destinationService(destination)
-	ignoreClientCount := !matched || service.ServiceGraph && snapshot.knowsCaller(destination, caller, now.Sub(fetchedAt))
+	ignoreClientCount := protocolMetricsEnabled(snapshot.metricProtocols, event) &&
+		(!matched || service.ServiceGraph && snapshot.knowsCaller(destination, caller, now.Sub(fetchedAt)))
 	return service, ignoreClientCount
 }
 

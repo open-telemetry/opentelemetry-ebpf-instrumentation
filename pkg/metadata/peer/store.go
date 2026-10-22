@@ -8,22 +8,24 @@ import (
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/selection"
 )
 
 type localStore struct {
-	mu             sync.RWMutex
-	hostname       string
-	graphEnabled   bool
-	metricsPIDs    selection.PIDSelector
-	callerTTL      time.Duration
-	maxCallers     int
-	callerCount    int
-	ambiguousUntil time.Time
-	services       []Service
-	listeners      []Listener
-	listenerIndex  map[Endpoint][]Service
-	callers        map[Endpoint]map[Service]time.Time
+	mu              sync.RWMutex
+	hostname        string
+	graphEnabled    bool
+	metricsPIDs     selection.PIDSelector
+	metricProtocols instrumentations.InstrumentationSelection
+	callerTTL       time.Duration
+	maxCallers      int
+	callerCount     int
+	ambiguousUntil  time.Time
+	services        []Service
+	listeners       []Listener
+	listenerIndex   map[Endpoint][]Service
+	callers         map[Endpoint]map[Service]time.Time
 }
 
 // We could map a single Endpoint to Service for the listenerIndex. But multiple
@@ -32,8 +34,9 @@ type localStore struct {
 func newStore(hostname string, cfg Config) *localStore {
 	return &localStore{
 		hostname: hostname, callerTTL: cfg.CallerTTL, maxCallers: cfg.MaxCallerEntries,
-		listenerIndex: map[Endpoint][]Service{},
-		callers:       map[Endpoint]map[Service]time.Time{},
+		metricProtocols: instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instrumentations.InstrumentationALL}),
+		listenerIndex:   map[Endpoint][]Service{},
+		callers:         map[Endpoint]map[Service]time.Time{},
 	}
 }
 
@@ -114,6 +117,7 @@ func (s *localStore) snapshot(targets map[string]struct{}, now time.Time) Snapsh
 
 	snapshot := Snapshot{
 		Version:               ProtocolVersion,
+		MetricProtocols:       &s.metricProtocols,
 		Hostname:              s.hostname,
 		Services:              append([]Service{}, s.services...),
 		Listeners:             append([]Listener{}, s.listeners...),

@@ -6,6 +6,8 @@ package peer // import "go.opentelemetry.io/obi/pkg/metadata/peer"
 import (
 	"net/netip"
 	"time"
+
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 )
 
 type cachedSnapshot struct {
@@ -14,6 +16,7 @@ type cachedSnapshot struct {
 	callers         map[Endpoint][]CallerService
 	knownCallers    map[Endpoint][]CallerService
 	ambiguityMillis int64
+	metricProtocols *instrumentations.InstrumentationSelection
 }
 
 // indexSnapshot indexes listeners and caller observations by endpoint for cached lookups.
@@ -21,6 +24,7 @@ func indexSnapshot(snapshot *Snapshot) *cachedSnapshot {
 	indexed := &cachedSnapshot{
 		hostname:        snapshot.Hostname,
 		ambiguityMillis: snapshot.CallerAmbiguityMillis,
+		metricProtocols: snapshot.MetricProtocols,
 		listeners:       make(map[Endpoint][]Service),
 		callers:         make(map[Endpoint][]CallerService),
 		knownCallers:    make(map[Endpoint][]CallerService),

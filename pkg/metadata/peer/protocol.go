@@ -3,6 +3,11 @@
 
 package peer // import "go.opentelemetry.io/obi/pkg/metadata/peer"
 
+import (
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+)
+
 const (
 	ProtocolVersion = 1
 	MetadataPath    = "/v1/metadata"
@@ -36,13 +41,14 @@ type Caller struct {
 
 // Relative lifetimes avoid requiring synchronized clocks between agents.
 type Snapshot struct {
-	Version               int        `json:"version"`
-	Hostname              string     `json:"hostname"`
-	Services              []Service  `json:"services"`
-	Listeners             []Listener `json:"listeners"`
-	Callers               []Caller   `json:"callers,omitempty"`
-	KnownCallers          []Caller   `json:"known_callers,omitempty"`
-	CallerAmbiguityMillis int64      `json:"caller_ambiguity_ms,omitempty"`
+	Version               int                                        `json:"version"`
+	Hostname              string                                     `json:"hostname"`
+	Services              []Service                                  `json:"services"`
+	Listeners             []Listener                                 `json:"listeners"`
+	Callers               []Caller                                   `json:"callers,omitempty"`
+	KnownCallers          []Caller                                   `json:"known_callers,omitempty"`
+	MetricProtocols       *instrumentations.InstrumentationSelection `json:"metric_protocols,omitempty"`
+	CallerAmbiguityMillis int64                                      `json:"caller_ambiguity_ms,omitempty"`
 }
 
 // merge combines matching identities, requiring every candidate to export graph metrics.
@@ -55,4 +61,13 @@ func (s Service) merge(other Service) (Service, bool) {
 	}
 	s.ServiceGraph = s.ServiceGraph && other.ServiceGraph
 	return s, true
+}
+
+// protocolMetricsEnabled checks the same event-to-instrumentation mapping as the metrics gate.
+func protocolMetricsEnabled(selection *instrumentations.InstrumentationSelection, event request.EventType) bool {
+	if selection == nil {
+		return false
+	}
+	protocol, ok := event.Instrumentation()
+	return !ok || selection.Enabled(protocol)
 }

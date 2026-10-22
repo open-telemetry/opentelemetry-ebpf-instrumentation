@@ -57,7 +57,7 @@ func TestInventoryTracksDynamicMetricsSelection(t *testing.T) {
 			require.NoError(t, socket.Close())
 			ctx, cancel := context.WithCancel(t.Context())
 			t.Cleanup(cancel)
-			agent, err := peer.New(ctx, cfg, "host", true, selector.AppMetrics())
+			agent, err := peer.New(ctx, cfg, "host", true, selector.AppMetrics(), nil)
 			require.NoError(t, err)
 			events := make(chan exec.ProcessEvent, 1)
 			done := make(chan struct{})

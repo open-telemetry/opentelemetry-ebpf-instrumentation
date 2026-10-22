@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/config"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/internal/traces"
 	"go.opentelemetry.io/obi/pkg/metadata/peer"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
@@ -20,6 +21,7 @@ import (
 )
 
 func PeerMetadataProvider(ctxInfo *global.ContextInfo, cfg peer.Config, instance config.InstanceIDConfig, serviceGraphEnabled bool,
+	metricProtocols *instrumentations.InstrumentationSelection,
 	processEvents *msg.Queue[exec.ProcessEvent], input, output *msg.Queue[[]request.Span],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
@@ -32,7 +34,7 @@ func PeerMetadataProvider(ctxInfo *global.ContextInfo, cfg peer.Config, instance
 		if ctxInfo.DynamicSelector != nil {
 			metricsPIDs = ctxInfo.DynamicSelector.AppMetrics()
 		}
-		agent, err := peer.New(ctx, cfg, hostname, serviceGraphEnabled, metricsPIDs)
+		agent, err := peer.New(ctx, cfg, hostname, serviceGraphEnabled, metricsPIDs, metricProtocols)
 		if err != nil {
 			return nil, err
 		}

@@ -64,13 +64,16 @@ For a resolved service that exports graph metrics, the client agent leaves the
 request-total increment to the server agent only after that agent acknowledges
 cached caller observations matching the client service and destination. Until
 then, including when metadata exchange works in only one direction, the client
-keeps its request count. Both agents still report their own
-latency histograms. Participation respects per-service export settings and dynamic
-app-metrics PID selection. When only the hostname can be resolved, the client
-request total remains suppressed conservatively until a listener matches. A matched
-service with graph metrics disabled retains normal client counting. Failed
-connection attempts are excluded from this suppression. Selection changes take
-effect as inventories and peer caches refresh.
+keeps its request count. Participation also requires the server's protocol metrics
+selection to include the request's protocol. Disabling HTTP metrics while keeping
+HTTP traces enabled therefore retains the client count and trace enrichment.
+For eligible protocols, both agents report their own latency histograms.
+Participation respects per-service export settings and dynamic app-metrics PID
+selection. When only the hostname can be resolved and the protocol is eligible,
+the client request total remains suppressed conservatively until a listener
+matches. A matched service with graph metrics disabled retains normal client
+counting. Failed connection attempts are excluded from this suppression. Selection
+changes take effect as inventories and peer caches refresh.
 
 ## Network and lifecycle
 
@@ -136,8 +139,14 @@ limit fail instead of returning a partial inventory.
 
 `GET /v1/metadata` returns protocol `version`, `hostname`, `services`, TCP
 `listeners`, and recent `callers`. Services contain `name`, `namespace`, and an
-optional `service_graph` flag indicating whether the service exports graph metrics;
+optional `service_graph` flag indicating per-service graph participation;
 listeners contain an `endpoint` with `ip` and `port`, plus `service`.
+
+`metric_protocols` carries the agent-wide unsigned 64-bit
+[`InstrumentationSelection`](../pkg/export/instrumentations/instr_options.go)
+mask used by the protocol metrics gate. Zero explicitly disables all mapped
+protocols; agents without a protocol restriction advertise the all-protocol mask.
+Missing eligibility on older peers retains client-side request counts.
 
 Use optional `port` and `ip` query parameters to filter listener inventory.
 Without filters, the response contains all instrumented services, including

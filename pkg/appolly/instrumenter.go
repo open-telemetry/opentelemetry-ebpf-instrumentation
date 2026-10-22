@@ -140,7 +140,7 @@ func newGraphBuilderWithProtocolMetricSelection(
 		containerDecoratorToNameResolver, nameResolverToPeerMetadata),
 		swarm.WithID("NameResolution"))
 	swi.Add(transform.PeerMetadataProvider(ctxInfo, config.PeerMetadata, config.Attributes.InstanceID,
-		config.OTELMetrics.EndpointEnabled() || config.Prometheus.EndpointEnabled(),
+		config.OTELMetrics.EndpointEnabled() || config.Prometheus.EndpointEnabled(), selection,
 		processEventsCh, nameResolverToPeerMetadata, nameResolverToParentSettler),
 		swarm.WithID("PeerMetadata"))
 

@@ -37,7 +37,7 @@ func TestPeerMetadataBypass(t *testing.T) {
 		}
 		input, output := msg.NewQueue[[]request.Span](), msg.NewQueue[[]request.Span]()
 		result := output.Subscribe()
-		run, err := PeerMetadataProvider(info, cfg, config.InstanceIDConfig{}, false, nil, input, output)(t.Context())
+		run, err := PeerMetadataProvider(info, cfg, config.InstanceIDConfig{}, false, nil, nil, input, output)(t.Context())
 		require.NoError(t, err)
 		go run(t.Context())
 		input.Send([]request.Span{{HostName: "existing"}})
@@ -62,7 +62,7 @@ func TestPeerMetadataPipelineEnrichmentAndShutdown(t *testing.T) {
 	events := msg.NewQueue[exec.ProcessEvent]()
 	result := output.Subscribe()
 	run, err := PeerMetadataProvider(&global.ContextInfo{}, cfg,
-		config.InstanceIDConfig{OverrideHostname: "local-host"}, false, events, input, output)(t.Context())
+		config.InstanceIDConfig{OverrideHostname: "local-host"}, false, nil, events, input, output)(t.Context())
 	require.NoError(t, err)
 	done := make(chan struct{})
 	go func() { defer close(done); run(t.Context()) }()

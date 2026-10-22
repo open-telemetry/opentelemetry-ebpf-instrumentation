@@ -56,7 +56,7 @@ services:
       context: ../../..
       dockerfile: internal/test/integration/components/obi/Dockerfile
     image: hatest-obi-peer-metadata-server
-    command: ["--config=/configs/obi-config-peer-metadata-server-v2.yml"]
+    command: ["--config=/configs/${PEER_METADATA_SERVER_CONFIG:-obi-config-peer-metadata-server-v2.yml}"]
     privileged: true
     network_mode: service:server
     pid: service:server
