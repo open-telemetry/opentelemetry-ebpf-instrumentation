@@ -228,19 +228,10 @@ int obi_socket__filter(struct __sk_buff *skb) {
         }
         aggregate_flow->flags |= flags;
 
-        const long ret = bpf_map_update_elem(&aggregated_flows, &id, aggregate_flow, BPF_ANY);
-        if (trace_messages && ret != 0) {
-            // usually error -16 (-EBUSY) is printed here.
-            // In this case, the flow is dropped, as submitting it to the ringbuffer would cause
-            // a duplicated UNION of flows (two different flows with partial aggregation of the same packets),
-            // which can't be deduplicated.
-            // other possible values https://chromium.googlesource.com/chromiumos/docs/+/master/constants/errnos.md
-            bpf_dbg_printk("error updating flow, ret=%d. Bytes=%d\n", ret, skb->len);
-
-            if (packet_stats) {
-                packet_stats->ignored++;
-            }
-        }
+        // The values of a per-CPU hash map are modified in place through the pointer above, so no
+        // bpf_map_update_elem is needed. Calling it here re-inserts the entry with the accumulated
+        // value of this CPU if user space deleted the entry in between, which resurrects bytes that
+        // were already read, with their old start time.
     } else {
         // Key does not exist in the map, and will need to create a new entry.
         flow_metrics new_flow = {
