@@ -22,6 +22,7 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/asm"
 	"github.com/cilium/ebpf/features"
+	"github.com/cilium/ebpf/link"
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/prometheus/procfs"
 	"golang.org/x/sys/unix"
@@ -64,6 +65,7 @@ type Tracer struct {
 	socketsMu               sync.Mutex
 	socketsStopped          atomic.Bool
 	lastTCPTable            *tcpTable
+	clientsIter             *link.Iter
 	procFS                  procfs.FS
 	pidsFilter              ebpfcommon.ServiceFilter
 	pidsMu                  sync.Mutex

@@ -254,6 +254,61 @@ func TestSocketCookieIteratorLoads(t *testing.T) {
 	require.NoError(t, objects.Close())
 }
 
+func TestClientSocketsIterator(t *testing.T) {
+	major, minor := ebpfcommon.KernelVersion()
+	if major < 5 || (major == 5 && minor < 11) {
+		t.Skip("TCP iterator programs are not loaded below kernel 5.11")
+	}
+	require.Equal(t, 0, os.Geteuid(), "privileged eBPF test must run as root")
+	require.NoError(t, rlimit.RemoveMemlock())
+
+	spec, err := LoadBpfIter()
+	require.NoError(t, err)
+	for _, m := range spec.Maps {
+		m.Pinning = ebpf.PinNone
+	}
+	objects := &BpfIterObjects{}
+	require.NoError(t, spec.LoadAndAssign(objects, nil))
+	t.Cleanup(func() { objects.Close() })
+
+	clients, err := link.AttachIter(link.IterOptions{Program: objects.ObiSkIterTcpClients})
+	require.NoError(t, err)
+	t.Cleanup(func() { clients.Close() })
+
+	lsn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer lsn.Close()
+	client, server := dialPair(t, lsn)
+
+	closedLsn, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	_, orphan := dialPair(t, closedLsn)
+	require.NoError(t, closedLsn.Close())
+
+	// a client on the port another address listens on
+	target, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer target.Close()
+	dialer := net.Dialer{LocalAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, 2), Port: lsn.Addr().(*net.TCPAddr).Port}}
+	bound, err := dialer.Dial("tcp", target.Addr().String())
+	require.NoError(t, err)
+	defer bound.Close()
+
+	pid := app.PID(os.Getpid())
+	table, err := clientSockets(pid, clients)
+	require.NoError(t, err)
+	isClient := func(c net.Conn) bool {
+		inode, ok := fdSocketInode(pid, connFD(t, c.(*net.TCPConn)))
+		require.True(t, ok)
+		return table.clients[inode]
+	}
+
+	assert.True(t, isClient(client), "a client")
+	assert.False(t, isClient(server), "an accepted socket")
+	assert.False(t, isClient(orphan), "an accepted socket whose listener closed")
+	assert.True(t, isClient(bound), "a client on a listening port of another address")
+}
+
 // walks the keys only: a sockhash value can't be read back from user space
 func inSockDir(t *testing.T, objs *BpfObjects, cookie uint64) bool {
 	var next uint64

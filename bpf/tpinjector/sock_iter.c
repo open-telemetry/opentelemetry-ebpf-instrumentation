@@ -87,6 +87,30 @@ static __always_inline void format_sock_addrs(struct sock_common *skc,
     }
 }
 
+// Prints the netns's client socket inodes: an accepted socket keeps its listener's backlog
+SEC("iter/tcp")
+int obi_sk_iter_tcp_clients(struct bpf_iter__tcp *ctx) {
+    const struct sock *sk = (const struct sock *)ctx->sk_common;
+
+    if (!sk) {
+        return 0;
+    }
+
+    // only full sockets are in these states
+    const u8 state = BPF_CORE_READ(sk, __sk_common.skc_state);
+    if (state != TCP_ESTABLISHED && state != TCP_SYN_SENT) {
+        return 0;
+    }
+
+    if (BPF_CORE_READ(sk, sk_max_ack_backlog) != 0) {
+        return 0;
+    }
+
+    BPF_SEQ_PRINTF(ctx->meta->seq, "%llu\n", BPF_CORE_READ(sk, sk_socket, file, f_inode, i_ino));
+
+    return 0;
+}
+
 // First pass, we record every local listening port into iter_listening_ports.
 SEC("iter/tcp")
 int obi_sk_iter_tcp_listen(struct bpf_iter__tcp *ctx) {

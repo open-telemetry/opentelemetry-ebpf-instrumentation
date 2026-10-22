@@ -6,6 +6,7 @@
 package tpinjector // import "go.opentelemetry.io/obi/pkg/internal/ebpf/tpinjector"
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"math"
@@ -17,10 +18,12 @@ import (
 	"time"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/link"
 	"github.com/prometheus/procfs"
 	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/internal/netns"
 )
 
 // TCP states as /proc/net/tcp prints them
@@ -221,7 +224,6 @@ func (p *Tracer) backfillSockets(pid app.PID, since time.Time) bool {
 		if inode, ok := fdSocketInode(pid, s.fd); !ok || inode != s.inode {
 			continue
 		}
-		seen[s.inode] = struct{}{}
 
 		dup, err := unix.PidfdGetfd(pidfd, s.fd, 0)
 		switch {
@@ -239,6 +241,7 @@ func (p *Tracer) backfillSockets(pid app.PID, since time.Time) bool {
 		var st unix.Stat_t
 		if unix.Fstat(dup, &st) == nil && st.Ino == s.inode {
 			p.backfillSocket(dup)
+			seen[s.inode] = struct{}{}
 		}
 		unix.Close(dup)
 	}
@@ -298,7 +301,12 @@ func (p *Tracer) tcpTable(pid app.PID, since time.Time) (*tcpTable, error) {
 		return last, nil
 	}
 
-	table, err := readTCPTable(pid)
+	var table *tcpTable
+	if p.bpfIterObjects.ObiSkIterTcpClients != nil {
+		table, err = p.iterTCPTable(pid)
+	} else {
+		table, err = readTCPTable(pid)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +316,45 @@ func (p *Tracer) tcpTable(pid app.PID, since time.Time) (*tcpTable, error) {
 	return table, nil
 }
 
-// the TCP sockets of the process's network namespace
+func (p *Tracer) iterTCPTable(pid app.PID) (*tcpTable, error) {
+	if p.clientsIter == nil {
+		lnk, err := link.AttachIter(link.IterOptions{Program: p.bpfIterObjects.ObiSkIterTcpClients})
+		if err != nil {
+			return nil, err
+		}
+		p.AddCloser(lnk)
+		p.clientsIter = lnk
+	}
+
+	return clientSockets(pid, p.clientsIter)
+}
+
+// the client sockets of the process's network namespace, as obi_sk_iter_tcp_clients lists them
+func clientSockets(pid app.PID, clients *link.Iter) (*tcpTable, error) {
+	table := &tcpTable{clients: map[uint64]bool{}}
+	err := netns.WithNetNS(int(pid), func() error {
+		rd, err := clients.Open()
+		if err != nil {
+			return err
+		}
+		defer rd.Close()
+
+		scanner := bufio.NewScanner(rd)
+		for scanner.Scan() {
+			inode, err := strconv.ParseUint(scanner.Text(), 10, 64)
+			if err != nil {
+				return err
+			}
+			table.clients[inode] = true
+		}
+		return scanner.Err()
+	})
+	table.readAt = time.Now()
+
+	return table, err
+}
+
+// the TCP sockets of the process's network namespace, below kernel 5.11
 func readTCPTable(pid app.PID) (*tcpTable, error) {
 	fs, err := procfs.NewFS(fmt.Sprintf("/proc/%d", pid))
 	if err != nil {
