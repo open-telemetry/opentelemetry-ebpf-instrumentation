@@ -42,6 +42,13 @@ func TestSuite_PeerMetadata(t *testing.T) {
 	require.NoError(t, compose.Up())
 
 	t.Run("inventory includes idle services", testPeerMetadataInventory)
+	t.Run("caller observations reject other targets", func(t *testing.T) {
+		destination := peerMetadataDestination(t)
+		resp, err := peerMetadataHTTPClient.Get(peerMetadataClientURL + "?target=" + url.QueryEscape(destination.IP))
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	})
 	t.Run("service graph counts each request once", testPeerMetadataServiceGraph)
 	t.Run("traces resolve service identities", func(t *testing.T) {
 		testPeerMetadataTraces(t, "unique", "frontend.frontend-ns")
@@ -50,7 +57,7 @@ func TestSuite_PeerMetadata(t *testing.T) {
 		testPeerMetadataAmbiguousCaller(t, compose)
 	})
 	t.Run("caller identity recovers after expiry", func(t *testing.T) {
-		testPeerMetadataCallers(t, "recovered", []peer.Service{
+		testPeerMetadataCallers(t, compose, "recovered", []peer.Service{
 			{Name: "frontend", Namespace: "frontend-ns", ServiceGraph: true},
 		})
 		testPeerMetadataTraces(t, "recovered", "frontend.frontend-ns")
@@ -133,18 +140,22 @@ func testPeerMetadataAmbiguousCaller(t *testing.T, compose *docker.Compose) {
 		peerMetadataComposeCommand(t, compose, "rm", "--force", "--stop", "--volumes", "second-caller")
 	})
 	peerMetadataComposeCommand(t, compose, "up", "--detach", "--no-build", "second-caller")
-	testPeerMetadataCallers(t, "ambiguous", []peer.Service{
+	testPeerMetadataCallers(t, compose, "ambiguous", []peer.Service{
 		{Name: "frontend", Namespace: "frontend-ns", ServiceGraph: true},
 		{Name: "second-caller", Namespace: "frontend-ns", ServiceGraph: true},
 	})
 	testPeerMetadataTraces(t, "ambiguous", "peer-client-host")
 }
 
-func testPeerMetadataCallers(t *testing.T, phase string, expected []peer.Service) {
+func testPeerMetadataCallers(t *testing.T, compose *docker.Compose, phase string, expected []peer.Service) {
 	destination := peerMetadataDestination(t)
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		peerMetadataCall(ct, phase)
-		snapshot := peerMetadataSnapshot(ct, peerMetadataClientURL+"?target="+url.QueryEscape(destination.IP))
+		data := peerMetadataComposeCommand(ct, compose, "exec", "-T", "server", "python", "-c",
+			"import sys, urllib.request; print(urllib.request.urlopen(sys.argv[1], timeout=5).read().decode())",
+			"http://client:"+strconv.Itoa(peer.DefaultPort)+peer.MetadataPath)
+		var snapshot peer.Snapshot
+		require.NoError(ct, json.Unmarshal(data, &snapshot))
 		var services []peer.Service
 		for _, caller := range snapshot.Callers {
 			if caller.Destination == destination {
@@ -171,13 +182,14 @@ func peerMetadataDestination(t require.TestingT) peer.Endpoint {
 	return peer.Endpoint{IP: destination.Hostname(), Port: port}
 }
 
-func peerMetadataComposeCommand(t require.TestingT, compose *docker.Compose, args ...string) {
+func peerMetadataComposeCommand(t require.TestingT, compose *docker.Compose, args ...string) []byte {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", append([]string{"compose", "-f", compose.Path}, args...)...)
 	cmd.Env = compose.Env
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", output)
+	return output
 }
 
 func testPeerMetadataServiceGraph(t *testing.T) {

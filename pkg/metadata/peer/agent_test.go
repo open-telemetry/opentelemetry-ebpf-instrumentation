@@ -29,7 +29,7 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 	remote.setInventory([]Service{api}, []Listener{
 		{Endpoint: Endpoint{IP: "0.0.0.0", Port: 8080}, Service: api},
 	})
-	localTarget := Endpoint{IP: "10.1.0.1", Port: 9090}
+	localTarget := Endpoint{IP: "127.0.0.1", Port: 9090}
 	remote.observe(localTarget, frontend, time.Now())
 	remote.observe(Endpoint{IP: "10.1.0.99", Port: 9090}, Service{Name: "unrelated"}, time.Now())
 	var requests atomic.Int32
@@ -43,7 +43,7 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 		case <-r.Context().Done():
 			return
 		}
-		metadataHandler(remote, cfg).ServeHTTP(w, r)
+		metadataHandler(remote, cfg, testLoopbackNetwork).ServeHTTP(w, r)
 	}))
 	t.Cleanup(server.Close)
 	client := newHTTPClient(cfg, nil)
@@ -51,7 +51,7 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 		return (&net.Dialer{}).DialContext(ctx, "tcp", server.Listener.Addr().String())
 	}
 	t.Cleanup(client.CloseIdleConnections)
-	network, err := makeNetwork([]netip.Addr{netip.MustParseAddr(localTarget.IP)}, nil)
+	network, err := makeNetwork([]netip.Addr{netip.MustParseAddr(localTarget.IP)}, []string{"10.1.0.0/16"})
 	require.NoError(t, err)
 	agent := &Agent{cfg: cfg, store: newStore("local-host", cfg), cache: newPeerCache(cfg), client: client, network: network}
 	ctx, cancel := context.WithCancel(t.Context())

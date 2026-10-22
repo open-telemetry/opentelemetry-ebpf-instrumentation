@@ -73,22 +73,25 @@ effect as inventories and peer caches refresh.
 An empty `peer_cidrs` list enables automatic eligibility. For each active local
 private address, the agent allows its entire private block: `10.0.0.0/8`,
 `172.16.0.0/12`, `192.168.0.0/16`, or `fc00::/7`. Explicit CIDRs replace automatic
-eligibility. Only peers seen in spans are queried.
+eligibility. The same CIDRs restrict incoming requests using the TCP source IP;
+requests outside them return HTTP 403. Only peers seen in spans are queried.
 Loopback and local addresses resolve from the local inventory without HTTP.
 Link-local, multicast, and unspecified remote addresses are excluded.
 
 Only active peers refresh. Requests are coalesced per peer, use jitter, and back
-off on failure. Metadata expires after `cache_ttl` without a successful refresh.
+off on failure.
 Remote failures leave telemetry running. Local bind errors or invalid TLS files
 abort pipeline startup. Cancellation closes the listener and background workers.
 
 A configured bearer `token` requires TLS; token-over-HTTP configurations fail
 validation. Peer certificates are verified before the token is sent. Configure a
 CA trusted to issue certificates to peer agents, with certificate IP SANs or a
-common `server_name`. Without a token, HTTP is allowed and the endpoint permits
-unauthenticated reads. CIDRs govern outgoing queries, but they do not authenticate
-peers or restrict incoming requests. This protocol assumes trusted peers and does
-not account for NAT, proxies, or load balancers.
+common `server_name`. Without a token, HTTP is allowed and permitted source IPs
+can read inventory without authentication. CIDRs restrict incoming requests and
+outgoing queries; they do not authenticate peers. Forwarded headers are ignored.
+This protocol assumes trusted peers and does not account for NAT, proxies, or load
+balancers. Local HTTP diagnostics require an explicit loopback CIDR when it is
+outside the permitted ranges.
 
 ## Settings
 
@@ -99,7 +102,7 @@ All settings are under `extensions.obi.enrich.enrichers.peer_metadata`.
 | `enabled` | `false` | Enable serving and querying peer metadata. |
 | `listen_address` | `""` | Bind IP; empty binds all local interfaces. |
 | `port` | `8998` | Shared metadata port. |
-| `peer_cidrs` | `[]` | Automatic private blocks, or explicit eligible ranges. |
+| `peer_cidrs` | `[]` | Allowed incoming and outgoing peer networks; empty selects private blocks. |
 | `refresh_interval` | `10s` | Peer and listener inventory refresh interval. |
 | `caller_ttl` | `60s` | Observation retention. |
 | `cache_ttl` | `60s` | Remote metadata expiry and peer inactivity retention. |
@@ -131,9 +134,11 @@ listeners contain an `endpoint` with `ip` and `port`, plus `service`.
 
 Use optional `port` and `ip` query parameters to filter listener inventory.
 Without filters, the response contains all instrumented services, including
-services without listeners. Repeated `target` parameters select the destination
-IPs for caller observations. Without them, the requester IP is used. Agents
-request observations only for their own local IPs.
+services without listeners. Caller observations are limited to the TCP source IP
+of the requester. Optional `target` parameters must all match that address after
+IP normalization; other targets return HTTP 400. Agents omit `target` and use the
+source address observed by the peer. On multihomed hosts, observations for other
+local IPs are not returned by that connection.
 
 Each caller record has a `destination` and a list of services with
 `remaining_ms`. Lifetimes are relative to the snapshot, avoiding a requirement

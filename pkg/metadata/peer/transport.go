@@ -70,9 +70,15 @@ func newHTTPClient(cfg Config, clientTLS *tls.Config) *http.Client {
 	}
 }
 
-func metadataHandler(store *localStore, cfg Config) http.Handler {
+func metadataHandler(store *localStore, cfg Config, peers network) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(MetadataPath, func(w http.ResponseWriter, r *http.Request) {
+		requester, err := netip.ParseAddrPort(r.RemoteAddr)
+		if err != nil || !peers.permits(requester.Addr().Unmap()) {
+			http.Error(w, "peer address is not permitted", http.StatusForbidden)
+			return
+		}
+
 		if r.Method != http.MethodGet {
 			w.Header().Set("Allow", http.MethodGet)
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -84,7 +90,7 @@ func metadataHandler(store *localStore, cfg Config) http.Handler {
 			return
 		}
 
-		targets, err := queryTargets(r)
+		targets, err := queryTargets(r, requester.Addr().Unmap())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
@@ -102,28 +108,18 @@ func metadataHandler(store *localStore, cfg Config) http.Handler {
 	return mux
 }
 
-func queryTargets(r *http.Request) (map[string]struct{}, error) {
-	values := r.URL.Query()["target"]
-	if len(values) == 0 {
-		ip, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			return nil, errors.New("invalid requester address")
-		}
-
-		values = []string{ip}
-	}
-
-	targets := make(map[string]struct{}, len(values))
-	for _, value := range values {
+func queryTargets(r *http.Request, requester netip.Addr) (map[string]struct{}, error) {
+	for _, value := range r.URL.Query()["target"] {
 		addr, err := netip.ParseAddr(value)
 		if err != nil {
 			return nil, errors.New("target must be an IP address")
 		}
-
-		targets[addr.Unmap().String()] = struct{}{}
+		if addr.Unmap() != requester {
+			return nil, errors.New("target must match requester address")
+		}
 	}
 
-	return targets, nil
+	return map[string]struct{}{requester.String(): {}}, nil
 }
 
 func filterListeners(snapshot *Snapshot, query url.Values) error {
@@ -196,7 +192,7 @@ func writeSnapshot(w http.ResponseWriter, snapshot Snapshot, limit int) {
 	_, _ = w.Write(data)
 }
 
-func fetchSnapshot(ctx context.Context, client *http.Client, cfg Config, address netip.Addr, locals []netip.Addr) (*Snapshot, int, error) {
+func fetchSnapshot(ctx context.Context, client *http.Client, cfg Config, address netip.Addr) (*Snapshot, int, error) {
 	scheme := "http"
 	if cfg.TLS.Enabled {
 		scheme = "https"
@@ -208,12 +204,6 @@ func fetchSnapshot(ctx context.Context, client *http.Client, cfg Config, address
 		Path:   MetadataPath,
 	}
 
-	query := url.Values{}
-	for _, local := range locals {
-		query.Add("target", local.String())
-	}
-
-	u.RawQuery = query.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, 0, err

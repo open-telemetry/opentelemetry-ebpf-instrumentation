@@ -54,6 +54,7 @@ func TestPeerMetadataPipelineEnrichmentAndShutdown(t *testing.T) {
 	require.NoError(t, err)
 	cfg := peer.DefaultConfig()
 	cfg.Enabled, cfg.ListenAddress = true, "127.0.0.1"
+	cfg.PeerCIDRs = []string{"127.0.0.0/8"}
 	cfg.Port = metadataSocket.Addr().(*net.TCPAddr).Port
 	cfg.RefreshInterval = 20 * time.Millisecond
 	require.NoError(t, metadataSocket.Close())

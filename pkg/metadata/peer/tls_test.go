@@ -121,7 +121,7 @@ func TestHTTPSCertificateVerification(t *testing.T) {
 			service := Service{Name: "api", Namespace: "shop"}
 			store.setInventory([]Service{service}, nil)
 			var requests atomic.Int32
-			handler := metadataHandler(store, cfg)
+			handler := metadataHandler(store, cfg, testLoopbackNetwork)
 			server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				requests.Add(1)
 				handler.ServeHTTP(w, r)
@@ -132,7 +132,7 @@ func TestHTTPSCertificateVerification(t *testing.T) {
 			cfg.Port = server.Listener.Addr().(*net.TCPAddr).Port
 			client := newHTTPClient(cfg, clientTLS)
 			t.Cleanup(client.CloseIdleConnections)
-			snapshot, _, err := fetchSnapshot(t.Context(), client, cfg, netip.MustParseAddr("127.0.0.1"), nil)
+			snapshot, _, err := fetchSnapshot(t.Context(), client, cfg, netip.MustParseAddr("127.0.0.1"))
 			switch test.wantError {
 			case "authority":
 				var unknownAuthority x509.UnknownAuthorityError
@@ -216,7 +216,7 @@ func TestHTTPSBearerToken(t *testing.T) {
 			cfg.TLS = TLSConfig{Enabled: true, CertFile: leaf.certFile, KeyFile: leaf.keyFile, CAFile: root.certFile}
 			serverTLS, clientTLS, err := tlsConfigs(cfg.TLS)
 			require.NoError(t, err)
-			server := httptest.NewUnstartedServer(metadataHandler(newStore("remote-host", cfg), cfg))
+			server := httptest.NewUnstartedServer(metadataHandler(newStore("remote-host", cfg), cfg, testLoopbackNetwork))
 			server.TLS = serverTLS
 			server.StartTLS()
 			t.Cleanup(server.Close)
@@ -224,7 +224,7 @@ func TestHTTPSBearerToken(t *testing.T) {
 			cfg.Token = test.clientToken
 			client := newHTTPClient(cfg, clientTLS)
 			t.Cleanup(client.CloseIdleConnections)
-			snapshot, _, err := fetchSnapshot(t.Context(), client, cfg, netip.MustParseAddr("127.0.0.1"), nil)
+			snapshot, _, err := fetchSnapshot(t.Context(), client, cfg, netip.MustParseAddr("127.0.0.1"))
 			if test.unauthorized {
 				require.ErrorContains(t, err, "HTTP 401")
 				require.Nil(t, snapshot)

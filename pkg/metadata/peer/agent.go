@@ -76,7 +76,7 @@ func New(ctx context.Context, cfg Config, hostname string, serviceGraphEnabled b
 	agent.store.metricsPIDs = metricsPIDs
 
 	agent.server = &http.Server{
-		Handler:           metadataHandler(agent.store, cfg),
+		Handler:           metadataHandler(agent.store, cfg, network),
 		ReadHeaderTimeout: cfg.RequestTimeout,
 		ReadTimeout:       cfg.RequestTimeout,
 		WriteTimeout:      cfg.RequestTimeout,
@@ -137,7 +137,7 @@ func (a *Agent) fetchPeers(ctx context.Context, jobs <-chan *cachedPeer) {
 			return
 		case peer := <-jobs:
 			started := time.Now()
-			snapshot, size, err := fetchSnapshot(ctx, a.client, a.cfg, peer.address, a.network.addresses)
+			snapshot, size, err := fetchSnapshot(ctx, a.client, a.cfg, peer.address)
 
 			var indexed *cachedSnapshot
 			if err == nil {
