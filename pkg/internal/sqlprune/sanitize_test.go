@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/DataDog/go-sqllexer"
 	"github.com/stretchr/testify/assert"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -87,12 +88,34 @@ var sanitizeCases = []sanitizeCase{
 	{"whitespace preserved", request.DBMySQL, "SELECT\n\ta\nFROM  t\r\nWHERE b =\t'x'", "SELECT\n\ta\nFROM  t\r\nWHERE b =\t?"},
 	{"non ascii identifier", request.DBPostgres, "SELECT naïve1, ü2 FROM t WHERE x = 'é'", "SELECT naïve1, ü2 FROM t WHERE x = ?"},
 	{"multiple statements", request.DBMySQL, "SET a = 1; SELECT -2", "SET a = ?; SELECT ?"},
-	{"generic double quoted identifiers", request.DBGeneric, `SELECT "id" FROM "users" WHERE "a" = 1`, `SELECT "id" FROM "users" WHERE "a" = ?`},
-	{"generic standard string backslash", request.DBGeneric, `INSERT INTO t VALUES ('C:\', 'secret')`, `INSERT INTO t VALUES (?, ?)`},
+	{"generic double quoted identifiers", request.DBGeneric, `SELECT "id" FROM "users" WHERE "a" = 1`, `SELECT ? FROM ? WHERE ? = ?`},
+	{"generic backslash before closing quote is omitted", request.DBGeneric, `INSERT INTO t VALUES ('C:\', 'secret')`, ""},
 	{"generic doubled quote escape", request.DBGeneric, "SELECT 'it''s', 2", "SELECT ?, ?"},
 	{"generic hash is not a comment", request.DBGeneric, "SELECT a FROM t # 'x'", "SELECT a FROM t # ?"},
 	{"postgres json path", request.DBPostgres, "SELECT data->>'name' FROM t WHERE id = 7", "SELECT data->>? FROM t WHERE id = ?"},
-	{"dollar quoted function", request.DBPostgres, "CREATE FUNCTION f() RETURNS int AS $func$ SELECT 1 $func$ LANGUAGE sql", "CREATE FUNCTION f() RETURNS int AS $func$SELECT ?$func$ LANGUAGE sql"},
+	{"dollar quoted function", request.DBPostgres, "CREATE FUNCTION f() RETURNS int AS $func$ SELECT 1 $func$ LANGUAGE sql", "CREATE FUNCTION f() RETURNS int AS ? LANGUAGE sql"},
+	{"postgres func tag is an ordinary dollar quote", request.DBPostgres, "SELECT $func$secret$func$ FROM users", "SELECT ? FROM users"},
+	{"mysql dashes without space are not a comment", request.DBMySQL, "SELECT 1--1, 'secret' FROM users", "SELECT ?-?, ? FROM users"},
+	{"mysql dashes followed by control character", request.DBMySQL, "SELECT 1 --\t'x'\nFROM t", "SELECT ? --\t'x'\nFROM t"},
+	{"mysql compacted identifier before dashes", request.DBMySQL, "SELECT `a` . `b` --1, 'secret'", "SELECT `a`.`b` -?, ?"},
+	{"mysql binary number", request.DBMySQL, "SELECT 0b101010, 0B1 FROM t", "SELECT ?, ? FROM t"},
+	{"postgres non decimal and underscored numbers", request.DBPostgres, "SELECT 0b101, 0o17, 1_000_000, 0x1F_FF FROM t", "SELECT ?, ?, ?, ? FROM t"},
+	{"postgres bit and hex strings", request.DBPostgres, "SELECT X'1F', B'101' FROM t", "SELECT X?, B? FROM t"},
+	{"postgres escape string with escaped quote", request.DBPostgres, `SELECT E'\'secret' FROM t`, `SELECT E? FROM t`},
+	{"postgres array slice is not a placeholder", request.DBPostgres, "SELECT items[1:upper_bound] FROM users WHERE ssn=123456789", "SELECT items[?:upper_bound] FROM users WHERE ssn=?"},
+	{"postgres nested comment", request.DBPostgres, "SELECT /* a /* b */ 'secret' */ 1", "SELECT /* a /* b */ ? */ ?"},
+	{"mysql executable comment literal", request.DBMySQL, "SELECT /*!40001 'secret' */ a FROM t WHERE b = 1", "SELECT /*!40001 ? */ a FROM t WHERE b = ?"},
+	{"mariadb executable comment literal", request.DBMySQL, "SELECT /*M!100100 'secret' */ 1", "SELECT /*M!100100 ? */ ?"},
+	{"mysql optimizer hint literal", request.DBMySQL, "SELECT /*+ SET_VAR(x='secret') */ a FROM t", "SELECT /*+ SET_VAR(x=?) */ a FROM t"},
+	{"truncated executable comment", request.DBMySQL, "SELECT /*! 'secret'", "SELECT /*! ?"},
+	{"generic double quoted string", request.DBGeneric, `SELECT * FROM students WHERE name = "secret"`, `SELECT * FROM students WHERE name = ?`},
+	{"generic double quoted string with placeholder", request.DBGeneric, `SELECT * FROM t WHERE a = $1 AND b = "secret" LIMIT 5`, `SELECT * FROM t WHERE a = $1 AND b = ? LIMIT 5`},
+	{"generic truncated double quote", request.DBGeneric, `SELECT "secr`, `SELECT ?`},
+	{"generic escape string is omitted", request.DBGeneric, `SELECT e'\', 'secret'`, ""},
+	{"generic oracle quote is omitted", request.DBGeneric, `SELECT q'[it's secret]' FROM dual`, ""},
+	{"generic backslash without quote", request.DBGeneric, `SELECT 'C:\path' FROM t`, `SELECT ? FROM t`},
+	{"mssql double quoted string", request.DBMSSQL, `SELECT * FROM t WHERE name = "secret"`, `SELECT * FROM t WHERE name = ?`},
+	{"mssql money literal", request.DBMSSQL, "SELECT * FROM t WHERE price = $12.50", "SELECT * FROM t WHERE price = ?.?"},
 	{"empty", request.DBMySQL, "", ""},
 	{"nul byte ends the statement", request.DBMySQL, "SELECT 1\x00 'secret'", "SELECT ?"},
 }
@@ -108,6 +131,7 @@ var sqlppCases = []struct {
 	{"named parameter with string", `SELECT * FROM b WHERE type = $type AND name = "x" LIMIT 5`, `SELECT * FROM b WHERE type = $type AND name = ? LIMIT 5`},
 	{"positional parameters", "SELECT * FROM b WHERE a = $1 AND c = ? LIMIT 5", "SELECT * FROM b WHERE a = $1 AND c = ? LIMIT 5"},
 	{"lone dollar", "SELECT $ FROM b WHERE a = 1", "SELECT $ FROM b WHERE a = ?"},
+	{"hash is not a comment", "SELECT * FROM b WHERE a = 1 # 'secret'", "SELECT * FROM b WHERE a = ? # ?"},
 	{"named parameters around string", `SELECT * FROM b WHERE a = $x AND c = "$y" AND d = $z`, `SELECT * FROM b WHERE a = $x AND c = ? AND d = $z`},
 }
 
@@ -149,6 +173,14 @@ func TestSanitizeSQLParameterizedUnchanged(t *testing.T) {
 	}
 }
 
+func TestHasLiteral(t *testing.T) {
+	assert.False(t, hasLiteral("SELECT ? FROM t", dialectFor(request.DBMySQL)))
+	assert.True(t, hasLiteral("SELECT 'x' FROM t", dialectFor(request.DBMySQL)))
+	assert.True(t, hasLiteral("SELECT $$x$$ FROM t", dialectFor(request.DBPostgres)))
+	assert.False(t, hasLiteral(`SELECT "x" FROM t`, dialectFor(request.DBPostgres)))
+	assert.True(t, hasLiteral(`SELECT "x" FROM t`, dialectFor(request.DBGeneric)))
+}
+
 func FuzzSanitizeSQL(f *testing.F) {
 	for _, tc := range sanitizeCases {
 		f.Add("s3cr3t", tc.query, uint8(tc.kind))
@@ -159,13 +191,20 @@ func FuzzSanitizeSQL(f *testing.F) {
 
 	f.Fuzz(func(t *testing.T, secret, suffix string, dialect uint8) {
 		const prefix = "SELECT "
-		if len(secret) < 3 || strings.ContainsAny(secret, "'?") ||
+		if len(secret) < 3 || strings.ContainsAny(secret, "'\"?") ||
 			strings.Contains(prefix, secret) || strings.Contains(" "+suffix, secret) {
 			return
 		}
 
-		got := sanitize(prefix+"'"+secret+"' "+suffix, fuzzDialects[int(dialect)%len(fuzzDialects)])
-		assert.NotContains(t, got, secret)
+		d := fuzzDialects[int(dialect)%len(fuzzDialects)]
+		quotes := []string{"'"}
+		if d.doubleQuotedStrings || d.dbms == sqllexer.DBMSMySQL {
+			quotes = append(quotes, `"`)
+		}
+		for _, quote := range quotes {
+			got := sanitize(prefix+quote+secret+quote+" "+suffix, d)
+			assert.NotContains(t, got, secret)
+		}
 	})
 }
 

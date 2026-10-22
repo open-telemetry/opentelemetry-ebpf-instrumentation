@@ -76,3 +76,11 @@ func TestDBQueryTextSanitized(t *testing.T) {
 
 	assert.ElementsMatch(t, want, groupedQueryTexts(t, true))
 }
+
+func TestDBQueryTextOmittedWhenSanitizingIsUnsafe(t *testing.T) {
+	span := request.Span{Type: request.EventTypeSQLClient, SubType: int(request.DBGeneric), Method: "SELECT", Statement: `SELECT q'[it's secret]' FROM dual`}
+	selected := map[attr.Name]struct{}{attr.DBQueryText: {}}
+
+	_, ok := attrValue(traceAttributesSelectorInternal(&span, selected, nil, true), string(attr.DBQueryText))
+	assert.False(t, ok)
+}

@@ -544,7 +544,7 @@ HTTP `payload_extraction` uses the same list-based enablement model as other ins
 - Nested extractor blocks are for tuning, not duplicate enablement. For example, `payload_extraction.sqlpp.endpoint_patterns` refines SQL++ matching after `sqlpp` is enabled in the list.
 - If future aliases or families are needed, they should be added as values in the same `enabled` list rather than introducing parallel knobs.
 
-When `db.query.text` is selected, SQL and SQL++ spans carry the query as captured. Set `sql.sanitize_query_text: true` to replace its string, numeric, hexadecimal and boolean literals with `?`, following the semantic conventions. In statements with bind placeholders only string literals are replaced. The setting has no v1 equivalent.
+When `db.query.text` is selected, SQL and SQL++ spans carry the query as captured. Set `sql.sanitize_query_text: true` to replace its string, numeric, hexadecimal and boolean literals with `?`, following the semantic conventions. In statements with bind placeholders only string literals are replaced. Generic SQL from the Go tracer also treats double-quoted text as a string literal, and `db.query.text` is omitted when the literals cannot be located reliably. The setting has no v1 equivalent.
 
 ### `capture.runtimes` Section
 

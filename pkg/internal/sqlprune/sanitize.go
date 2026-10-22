@@ -16,6 +16,11 @@ type sqlDialect struct {
 	questionPlaceholders    bool
 	dollarPlaceholders      bool
 	namedDollarPlaceholders bool
+	mysqlComments           bool
+	hashComments            bool
+	doubleQuotedStrings     bool
+	moneyLiterals           bool
+	ambiguousQuoting        bool
 }
 
 var sqlppDialect = sqlDialect{
@@ -23,6 +28,7 @@ var sqlppDialect = sqlDialect{
 	questionPlaceholders:    true,
 	dollarPlaceholders:      true,
 	namedDollarPlaceholders: true,
+	mysqlComments:           true,
 }
 
 func dialectFor(kind request.SQLKind) sqlDialect {
@@ -30,20 +36,26 @@ func dialectFor(kind request.SQLKind) sqlDialect {
 	case request.DBPostgres:
 		return sqlDialect{dbms: sqllexer.DBMSPostgres, dollarPlaceholders: true}
 	case request.DBMSSQL:
-		return sqlDialect{dbms: sqllexer.DBMSSQLServer}
+		return sqlDialect{dbms: sqllexer.DBMSSQLServer, doubleQuotedStrings: true, moneyLiterals: true}
 	case request.DBMySQL:
-		return sqlDialect{dbms: sqllexer.DBMSMySQL, questionPlaceholders: true}
+		return sqlDialect{dbms: sqllexer.DBMSMySQL, questionPlaceholders: true, mysqlComments: true, hashComments: true}
 	default:
-		return sqlDialect{dbms: sqllexer.DBMSPostgres, dollarPlaceholders: true}
+		return sqlDialect{
+			dbms:                sqllexer.DBMSPostgres,
+			dollarPlaceholders:  true,
+			doubleQuotedStrings: true,
+			ambiguousQuoting:    true,
+		}
 	}
 }
 
 var obfuscator = sqllexer.NewObfuscator(
 	sqllexer.WithReplaceDigits(false),
-	sqllexer.WithDollarQuotedFunc(true),
 	sqllexer.WithReplaceBoolean(true),
 	sqllexer.WithReplaceNull(true),
 )
+
+var executableCommentMarkers = []string{"/*!", "/*M!", "/*+"}
 
 func SanitizeSQL(query string, kind request.SQLKind) string {
 	return sanitize(query, dialectFor(kind))
@@ -54,21 +66,36 @@ func SanitizeSQLPP(query string) string {
 }
 
 func sanitize(query string, d sqlDialect) string {
-	tokens := tokenize(query, d)
+	tokens, ok := tokenize(query, d)
+	if !ok || hasAmbiguousQuoting(tokens, d) {
+		return ""
+	}
+
 	parameterized := hasPlaceholder(tokens, d)
-	if parameterized && !hasStringLiteral(tokens) {
+	if parameterized && !hasStringLiteral(tokens, d) {
 		return query
 	}
 
+	sanitized := replaceLiterals(tokens, d, parameterized)
+	if hasLiteral(sanitized, d) {
+		return ""
+	}
+	return sanitized
+}
+
+func replaceLiterals(tokens []sqllexer.Token, d sqlDialect, parameterized bool) string {
 	var out strings.Builder
-	out.Grow(len(query))
 	for i := range tokens {
 		tok := &tokens[i]
 		switch {
-		case isUnterminatedDollarQuote(tok):
+		case isStringLiteral(tok, d):
 			out.WriteString(sqllexer.StringPlaceholder)
 			continue
-		case !parameterized || isStringLiteral(tok):
+		case parameterized:
+		case isMoneyLiteral(tok, d):
+			out.WriteString(sqllexer.NumberPlaceholder)
+			continue
+		default:
 			obfuscator.ObfuscateTokenValue(tok, nil, sqllexer.WithDBMS(d.dbms))
 		}
 		out.WriteString(tok.Value)
@@ -76,31 +103,112 @@ func sanitize(query string, d sqlDialect) string {
 	return out.String()
 }
 
-func tokenize(query string, d sqlDialect) []sqllexer.Token {
+func hasLiteral(query string, d sqlDialect) bool {
+	tokens, ok := tokenize(query, d)
+	return !ok || hasStringLiteral(tokens, d)
+}
+
+func tokenize(query string, d sqlDialect) ([]sqllexer.Token, bool) {
 	var tokens []sqllexer.Token
 	offset := 0
 	lexer := sqllexer.New(query, sqllexer.WithDBMS(d.dbms))
 	for {
 		tok := lexer.Scan()
 		if tok.Type == sqllexer.EOF {
-			return tokens
+			return mergeNumberSuffixes(tokens), true
 		}
 
-		if d.namedDollarPlaceholders && offset >= 0 && isDollarToken(tok) {
-			dollar := dollarToken(query[offset:])
-			tokens = append(tokens, dollar)
-			offset += len(dollar.Value)
+		if head, split := splitToken(query[offset:], tok, d); split {
+			tokens = append(tokens, head)
+			offset += len(head.Value)
 			lexer = sqllexer.New(query[offset:], sqllexer.WithDBMS(d.dbms))
 			continue
 		}
 
-		if offset >= 0 && strings.HasPrefix(query[offset:], tok.Value) {
-			offset += len(tok.Value)
-		} else {
-			offset = -1
+		consumed, ok := sourceLength(query[offset:], tok.Value)
+		if !ok {
+			return nil, false
 		}
+		offset += consumed
 		tokens = append(tokens, *tok)
 	}
+}
+
+func splitToken(rest string, tok *sqllexer.Token, d sqlDialect) (sqllexer.Token, bool) {
+	switch {
+	case d.namedDollarPlaceholders && isDollarToken(tok):
+		return dollarToken(rest), true
+	case d.mysqlComments && isDashesWithoutSpace(tok):
+		return sqllexer.Token{Type: sqllexer.OPERATOR, Value: "-"}, true
+	case !d.hashComments && tok.Type == sqllexer.COMMENT && strings.HasPrefix(tok.Value, "#"):
+		return sqllexer.Token{Type: sqllexer.OPERATOR, Value: "#"}, true
+	case d.mysqlComments:
+		if prefix, ok := executableCommentPrefix(tok); ok {
+			return sqllexer.Token{Type: sqllexer.COMMENT, Value: prefix}, true
+		}
+	}
+	return sqllexer.Token{}, false
+}
+
+func isDashesWithoutSpace(tok *sqllexer.Token) bool {
+	const dashes = "--"
+	if tok.Type != sqllexer.COMMENT || !strings.HasPrefix(tok.Value, dashes) || len(tok.Value) == len(dashes) {
+		return false
+	}
+	next := tok.Value[len(dashes)]
+	return next > ' ' && next != '\x7f'
+}
+
+func executableCommentPrefix(tok *sqllexer.Token) (string, bool) {
+	if tok.Type != sqllexer.MULTILINE_COMMENT && tok.Type != sqllexer.ERROR {
+		return "", false
+	}
+	for _, marker := range executableCommentMarkers {
+		if strings.HasPrefix(tok.Value, marker) {
+			version := strings.TrimLeft(tok.Value[len(marker):], "0123456789")
+			return tok.Value[:len(tok.Value)-len(version)], true
+		}
+	}
+	return "", false
+}
+
+func sourceLength(rest, value string) (int, bool) {
+	if strings.HasPrefix(rest, value) {
+		return len(value), true
+	}
+
+	i, j := 0, 0
+	for j < len(value) {
+		switch {
+		case i >= len(rest):
+			return 0, false
+		case rest[i] == value[j]:
+			i++
+			j++
+		case isSpace(rest[i]):
+			i++
+		default:
+			return 0, false
+		}
+	}
+	return i, true
+}
+
+func isSpace(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r'
+}
+
+func mergeNumberSuffixes(tokens []sqllexer.Token) []sqllexer.Token {
+	merged := tokens[:0]
+	for _, tok := range tokens {
+		if last := len(merged) - 1; last >= 0 && merged[last].Type == sqllexer.NUMBER &&
+			tok.Value != "" && isNameChar(tok.Value[0], false) {
+			merged[last].Value += tok.Value
+			continue
+		}
+		merged = append(merged, tok)
+	}
+	return merged
 }
 
 func isDollarToken(tok *sqllexer.Token) bool {
@@ -123,6 +231,7 @@ func isNameChar(c byte, first bool) bool {
 }
 
 func hasPlaceholder(tokens []sqllexer.Token, d sqlDialect) bool {
+	bracketDepth := 0
 	for i := range tokens {
 		tok := &tokens[i]
 		switch tok.Type {
@@ -134,16 +243,28 @@ func hasPlaceholder(tokens []sqllexer.Token, d sqlDialect) bool {
 			if !strings.HasPrefix(tok.Value, "@") {
 				return true
 			}
+		case sqllexer.PUNCTUATION:
+			bracketDepth += bracketDelta(tok.Value)
 		case sqllexer.OPERATOR:
 			if d.questionPlaceholders && strings.HasSuffix(tok.Value, "?") {
 				return true
 			}
-			if isNamedColonParameter(tokens, i) {
+			if bracketDepth <= 0 && isNamedColonParameter(tokens, i) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func bracketDelta(punctuation string) int {
+	switch punctuation {
+	case "[":
+		return 1
+	case "]":
+		return -1
+	}
+	return 0
 }
 
 func isNamedColonParameter(tokens []sqllexer.Token, i int) bool {
@@ -154,23 +275,68 @@ func isNamedColonParameter(tokens []sqllexer.Token, i int) bool {
 	return tokens[i+1].Type == sqllexer.IDENT
 }
 
-func hasStringLiteral(tokens []sqllexer.Token) bool {
+func hasStringLiteral(tokens []sqllexer.Token, d sqlDialect) bool {
 	for i := range tokens {
-		if isStringLiteral(&tokens[i]) || isUnterminatedDollarQuote(&tokens[i]) {
+		if isStringLiteral(&tokens[i], d) {
 			return true
 		}
 	}
 	return false
 }
 
-func isStringLiteral(tok *sqllexer.Token) bool {
+func isStringLiteral(tok *sqllexer.Token, d sqlDialect) bool {
 	switch tok.Type {
 	case sqllexer.STRING, sqllexer.INCOMPLETE_STRING, sqllexer.DOLLAR_QUOTED_STRING, sqllexer.DOLLAR_QUOTED_FUNCTION:
 		return true
+	case sqllexer.ERROR:
+		return strings.HasPrefix(tok.Value, "$") || d.doubleQuotedStrings && strings.HasPrefix(tok.Value, `"`)
+	case sqllexer.QUOTED_IDENT:
+		return d.doubleQuotedStrings && strings.HasPrefix(tok.Value, `"`)
 	}
 	return false
 }
 
-func isUnterminatedDollarQuote(tok *sqllexer.Token) bool {
-	return tok.Type == sqllexer.ERROR && strings.HasPrefix(tok.Value, "$")
+func isMoneyLiteral(tok *sqllexer.Token, d sqlDialect) bool {
+	return d.moneyLiterals && tok.Type == sqllexer.POSITIONAL_PARAMETER
+}
+
+func hasAmbiguousQuoting(tokens []sqllexer.Token, d sqlDialect) bool {
+	if !d.ambiguousQuoting {
+		return false
+	}
+	for i := range tokens {
+		tok := &tokens[i]
+		if !isStringLiteral(tok, d) || !startsWithQuote(tok.Value) {
+			continue
+		}
+		if hasBackslashEscapedQuote(tok.Value) || i > 0 && isOracleQuotePrefix(tokens[i-1].Value) {
+			return true
+		}
+	}
+	return false
+}
+
+func startsWithQuote(literal string) bool {
+	return strings.HasPrefix(literal, "'") || strings.HasPrefix(literal, `"`)
+}
+
+func hasBackslashEscapedQuote(literal string) bool {
+	backslashes := 0
+	for i := range len(literal) {
+		switch literal[i] {
+		case '\\':
+			backslashes++
+			continue
+		case '\'', '"':
+			if backslashes%2 == 1 {
+				return true
+			}
+		}
+		backslashes = 0
+	}
+	return false
+}
+
+func isOracleQuotePrefix(value string) bool {
+	return strings.EqualFold(value, "q") || strings.EqualFold(value, "nq")
 }
