@@ -1796,6 +1796,22 @@
             "enabled": true,
             "filter": {}
           }
+        },
+        "frida": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Experimental OpenSSL context propagation through an OBI-managed Frida agent.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "library": {
+              "type": "string",
+              "default": "",
+              "description": "Path to the Frida Core 17.24.3 shared library. Requires an obi_frida build; no Python runtime is used."
+            }
+          }
         }
       }
     },

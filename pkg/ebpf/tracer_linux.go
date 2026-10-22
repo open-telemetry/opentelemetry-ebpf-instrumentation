@@ -225,6 +225,11 @@ func setupBPFMapSizes(spec *ebpf.CollectionSpec, cfg *obi.Config) {
 	ebpfconvenience.SetupMapSizes(spec, cfg.EBPF.MapsConfig.GlobalScaleFactor)
 
 	keepTrackedSockCookiesAtLeast(spec, cookiesDeclared)
+	if !cfg.Frida.Enabled {
+		if contexts := spec.Maps["frida_contexts"]; contexts != nil {
+			contexts.MaxEntries = 1
+		}
+	}
 }
 
 // tracked_sock_cookies mirrors sock_dir membership and sockhashes are not

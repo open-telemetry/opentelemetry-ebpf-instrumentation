@@ -12,3 +12,4 @@ volatile const bool g_bpf_probe_write_user_enabled = false;
 volatile const bool g_bpf_loop_enabled = false;
 volatile const u8 g_go_h2_write_fail_step = 0;
 volatile const bool g_traces_ctx_v1_enabled = false;
+volatile const bool g_frida_enabled = false;

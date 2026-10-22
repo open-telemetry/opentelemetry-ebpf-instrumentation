@@ -26,6 +26,7 @@
 #include <common/tracked_connection.h>
 
 #include <generictracer/maps/http_info_mem.h>
+#include <generictracer/frida.h>
 
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/large_buf_tailcall.h>
@@ -670,6 +671,24 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
     http_connection_metadata_t *meta =
         connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
 
+    if (g_frida_enabled && args->ssl && meta && meta->type == k_event_type_http_client) {
+        frida_buffer_key_t key = {.pid = args->pid_conn.pid, .buffer = args->u_buf};
+        frida_context_t *context = bpf_map_lookup_elem(&frida_contexts, &key);
+        const struct task_struct *task = (const struct task_struct *)bpf_get_current_task();
+        if (context && context->process_start == BPF_CORE_READ(task, group_leader, start_time) &&
+            (max_transaction_time == 0 ||
+             bpf_ktime_get_ns() - context->tp.tp.ts < max_transaction_time)) {
+            tp_info_pid_t *shared = (tp_info_pid_t *)tp_info_mem();
+            if (shared) {
+                *shared = context->tp;
+                info->parent_status = context->parent_status;
+                args->skip_tp_parsing = 1;
+                bpf_map_delete_elem(&frida_contexts, &key);
+                return __obi_continue_protocol_http_tp(ctx, args, info, meta, tp_loop_fn);
+            }
+        }
+    }
+
     egress_key_t e_key = {
         .d_port = args->pid_conn.conn.d_port,
         .s_port = args->pid_conn.conn.s_port,
@@ -747,7 +766,7 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
     // for example can forward headers as-is, which can give us a stale
     // value.
     if (meta) {
-        if (meta->type == k_event_type_http_request && found_tp && args->ssl) {
+        if (meta->type == k_event_type_http_request && found_tp && args->ssl && !g_frida_enabled) {
             bpf_dbg_printk("skipping headers parsing because of existing tp info for SSL call");
             args->skip_tp_parsing = 1;
         }

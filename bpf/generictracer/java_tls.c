@@ -29,6 +29,7 @@
 #include <pid/pid.h>
 
 #include <shared/obi_ctx.h>
+#include <generictracer/frida_tls.h>
 
 enum { k_ioctl_magic_id = 0x0b10b1 };
 enum {
@@ -82,6 +83,14 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_ioctl) {
     // it must be fd == 0 if we are considering this request
     if (fd) {
         return 0;
+    }
+
+    if (g_frida_enabled && cmd == k_frida_ioctl) {
+        return frida_context_request(id, arg);
+    }
+
+    if (g_frida_enabled && cmd == k_frida_payload_ioctl) {
+        return frida_payload_request(ctx, id, arg);
     }
 
     // some other IOCTL by the app

@@ -5,9 +5,10 @@ package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 // CaptureRuntimes groups language runtime capture settings.
 type CaptureRuntimes struct {
-	Go     Runtime     `yaml:"go"`
-	NodeJS Runtime     `yaml:"nodejs"`
-	Java   JavaRuntime `yaml:"java"`
+	Frida  FridaRuntime `yaml:"frida"`
+	Go     Runtime      `yaml:"go"`
+	NodeJS Runtime      `yaml:"nodejs"`
+	Java   JavaRuntime  `yaml:"java"`
 }
 
 // Runtime describes generic language runtime capture settings.
@@ -28,4 +29,10 @@ type JavaRuntime struct {
 type JavaDebug struct {
 	Enabled                 bool `yaml:"enabled"`
 	BytecodeInstrumentation bool `yaml:"bytecode_instrumentation"`
+}
+
+// FridaRuntime controls experimental OpenSSL header propagation.
+type FridaRuntime struct {
+	Enabled bool   `yaml:"enabled"`
+	Library string `yaml:"library"`
 }

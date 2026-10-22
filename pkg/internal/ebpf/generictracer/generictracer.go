@@ -170,7 +170,7 @@ func (p *Tracer) BlockPIDLifecycle(pid app.PID, ns uint32, lifecycle *exec.FileI
 
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	if p.cfg.EBPF.TrackRequestHeaders ||
-		p.cfg.EBPF.ContextPropagation.IsEnabled() {
+		p.cfg.EBPF.ContextPropagation.IsEnabled() || p.cfg.Frida.Enabled {
 		p.log.Info("Enabling trace information parsing", "bpf_loop_enabled", ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled))
 	}
 
@@ -182,6 +182,12 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	ebpfcommon.FixupSpec(spec, p.cfg.EBPF.OverrideBPFLoopEnabled)
 
 	return []*ebpfcommon.SpecBundle{{Spec: spec, Objects: &p.bpfObjects, Constants: p.constants()}}, nil
+}
+
+var supportsFridaContext = ebpfcommon.SupportsContextPropagationWithProbe
+
+func (p *Tracer) fridaEnabled() bool {
+	return p.cfg != nil && p.cfg.Frida.Enabled && !ebpfcommon.IntegrityModeOverride && supportsFridaContext(p.log)
 }
 
 func (p *Tracer) constants() map[string]any {
@@ -202,7 +208,7 @@ func (p *Tracer) constants() map[string]any {
 	maps.Copy(m, ebpfcommon.PIDFilterConstants())
 
 	if p.cfg.EBPF.TrackRequestHeaders ||
-		p.cfg.EBPF.ContextPropagation.IsEnabled() {
+		p.cfg.EBPF.ContextPropagation.IsEnabled() || p.cfg.Frida.Enabled {
 		m["capture_header_buffer"] = int32(1)
 	} else {
 		m["capture_header_buffer"] = int32(0)
@@ -234,7 +240,8 @@ func (p *Tracer) constants() map[string]any {
 	m["max_transaction_time"] = uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds())
 
 	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
-	m["g_bpf_traceparent_enabled"] = p.cfg.EBPF.TrackRequestHeaders || p.cfg.EBPF.ContextPropagation.IsEnabled()
+	m["g_bpf_traceparent_enabled"] = p.cfg.EBPF.TrackRequestHeaders || p.cfg.EBPF.ContextPropagation.IsEnabled() || p.cfg.Frida.Enabled
+	m["g_frida_enabled"] = p.fridaEnabled()
 	m["jvm_sampling_interval_ns"] = uint64(0)
 	if p.cfg.AppRuntimeMetricsEnabled() {
 		m["jvm_sampling_interval_ns"] = uint64(p.cfg.JVMRuntimeMetrics.SamplingInterval.Nanoseconds())
@@ -561,6 +568,12 @@ func (p *Tracer) UProbes() map[string]map[string][]*ebpfcommon.ProbeDesc {
 			}},
 		},
 	}
+	if p.fridaEnabled() {
+		delete(m, "libssl.so")
+		delete(m, "libcrypto.so")
+		delete(m, "libSystem.Security.Cryptography.Native.OpenSsl.so")
+	}
+
 	return m
 }
 

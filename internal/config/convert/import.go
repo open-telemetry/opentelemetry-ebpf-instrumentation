@@ -1862,6 +1862,7 @@ func applyV2Runtimes(cfg *obi.Config, runtimes schema.CaptureRuntimes, complete 
 }
 
 func applyFullV2Runtimes(cfg *obi.Config, runtimes schema.CaptureRuntimes) {
+	cfg.Frida = obi.FridaConfig{Enabled: runtimes.Frida.Enabled, Library: runtimes.Frida.Library}
 	cfg.Discovery.SkipGoSpecificTracers = !runtimes.Go.Enabled
 	cfg.NodeJS.Enabled = runtimes.NodeJS.Enabled
 	cfg.Java.Enabled = runtimes.Java.Enabled
@@ -1871,6 +1872,9 @@ func applyFullV2Runtimes(cfg *obi.Config, runtimes schema.CaptureRuntimes) {
 }
 
 func applyPartialV2Runtimes(cfg *obi.Config, runtimes schema.CaptureRuntimes) {
+	if !zeroValue(runtimes.Frida) {
+		cfg.Frida = obi.FridaConfig{Enabled: runtimes.Frida.Enabled, Library: runtimes.Frida.Library}
+	}
 	if runtimes.Go.Enabled {
 		cfg.Discovery.SkipGoSpecificTracers = false
 	}
