@@ -322,6 +322,7 @@ limits:
 engine:
     debug:
         bpf: false
+        bpf_mode: null
         protocol_print: false
     pid_filter:
         disabled: false

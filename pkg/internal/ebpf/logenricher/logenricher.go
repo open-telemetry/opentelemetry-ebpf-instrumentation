@@ -158,7 +158,7 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 
 func (p *Tracer) constants() map[string]any {
 	return map[string]any{
-		"g_bpf_debug":             p.cfg.EBPF.BpfDebug,
+		"g_bpf_debug":             uint32(p.cfg.EBPF.DebugMode()),
 		"ringbuf_metrics_enabled": p.metrics != nil && !imetrics.IsBuiltinNoopReporter(p.metrics),
 	}
 }
