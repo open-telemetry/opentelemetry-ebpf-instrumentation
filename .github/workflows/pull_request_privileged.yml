@@ -4,7 +4,8 @@ on:
   push:
     branches: [main, release-*]
   pull_request:
-    branches: [main, release-*]
+    # Temporary for dynamic instrumentation; remove before merging to main.
+    branches: [main, release-*, dynamic-instrumentation]
     paths:
       - ".github/workflows/pull_request_privileged.yml"
       - "**.go"
