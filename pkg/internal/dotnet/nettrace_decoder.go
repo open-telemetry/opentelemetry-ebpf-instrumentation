@@ -28,9 +28,10 @@ type netTraceMetadata struct {
 	Fields []netTraceField
 }
 
-// netTraceRuntimeEvent holds a counter, exception count, or subscription diagnostic.
+// netTraceRuntimeEvent holds a counter, GC event, exception count, or subscription diagnostic.
 // Events share one sequence so collection boundaries retain stream order.
 type netTraceRuntimeEvent struct {
+	gc                    *gcRuntimeEvent
 	counter               runtimeCounter
 	exceptionType         string
 	exceptionCount        uint64
@@ -143,6 +144,14 @@ func (d *netTraceDecoder) decodeEventBlock(name string, payload []byte) ([]netTr
 		}
 		if err := d.checkSequence(event.CaptureThreadID, event.SequenceNumber, true); err != nil {
 			return nil, err
+		}
+		gc, err := decodeCLRGCEvent(definition.Header, event, valuesReader, d.pointerSize)
+		if err != nil {
+			return nil, err
+		}
+		if gc != nil {
+			events = append(events, netTraceRuntimeEvent{gc: gc})
+			continue
 		}
 		eventName := definition.Header.EventName
 		isException := isCLRExceptionThrown(definition.Header)
