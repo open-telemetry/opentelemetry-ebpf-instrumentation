@@ -108,7 +108,7 @@ type PrometheusConfig struct {
 	DisableBuildInfo bool `yaml:"disable_build_info" env:"OTEL_EBPF_PROMETHEUS_DISABLE_BUILD_INFO"`
 
 	// Features specifies which metric features to export. Accepted values: application, network,
-	// application_span, application_service_graph, application_service_graph_connection_info, ...
+	// application_span, application_service_graph, ...
 	//
 	// Deprecated: use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead.
 	DeprFeatures export.Features `yaml:"features" env:"OTEL_EBPF_PROMETHEUS_FEATURES" envSeparator:","`
@@ -1788,6 +1788,10 @@ func labelValuesConnectionInfo(span *request.Span, getters []attributes.Field[*r
 			values[i] = span.Service.UID.Name
 		case attr.ClientNamespace.Prom():
 			values[i] = span.Service.UID.Namespace
+		case attr.Server.Prom():
+			values[i] = span.HostName
+		case attr.ServerNamespace.Prom():
+			values[i] = span.OtherNamespace
 		}
 	}
 	values = sanitizeValues(values)

@@ -139,8 +139,7 @@ func newSvcGraphMetricsReporter(
 
 	var err error
 	connectionInfoTTL := export.ConnectionInfoTTLOrDefault(cfg.ConnectionInfoTTL)
-	// When connection info is enabled, pooled reporters and their RED instruments live at least as long as its TTL.
-	// TODO: decouple connection-info edge expiry from reporter lifetime.
+	// The shared reporter may outlive graph instruments so connection-info edges can retain their own TTL.
 	mr.reporters, err = otelcfg.NewReporterPool[*svc.Attrs, *SvcGraphMetrics](
 		cfg.ReportersCacheLen, serviceGraphReporterTTL(cfg.TTL, connectionInfoTTL, mr.connectionInfoEnabled), timeNow,
 		func(id svc.UID, v *SvcGraphMetrics) {
@@ -457,6 +456,14 @@ func connectionInfoGetters(
 			getters[i].Get = func(span *request.Span) attribute.KeyValue {
 				return attribute.String(string(attr.ClientNamespace.OTEL()), span.Service.UID.Namespace)
 			}
+		case string(attr.Server.OTEL()):
+			getters[i].Get = func(span *request.Span) attribute.KeyValue {
+				return attribute.String(string(attr.Server.OTEL()), span.HostName)
+			}
+		case string(attr.ServerNamespace.OTEL()):
+			getters[i].Get = func(span *request.Span) attribute.KeyValue {
+				return attribute.String(string(attr.ServerNamespace.OTEL()), span.OtherNamespace)
+			}
 		}
 	}
 	return getters
@@ -505,6 +512,16 @@ func (mr *SvcGraphMetricsReporter) disassociatePIDFromService(pid app.PID) (bool
 
 func (mr *SvcGraphMetricsReporter) reportMetrics(ctx context.Context) {
 	defer mr.close()
+	var expiryTicker *time.Ticker
+	var expiry <-chan time.Time
+	if mr.connectionInfoEnabled {
+		interval := connectionInfoExpiryInterval(
+			mr.cfg.GetInterval(), mr.cfg.TTL, export.ConnectionInfoTTLOrDefault(mr.cfg.ConnectionInfoTTL),
+		)
+		expiryTicker = time.NewTicker(interval)
+		expiry = expiryTicker.C
+		defer expiryTicker.Stop()
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -522,7 +539,39 @@ func (mr *SvcGraphMetricsReporter) reportMetrics(ctx context.Context) {
 				return
 			}
 			mr.onSpan(spans)
+		case <-expiry:
+			mr.reporters.ForEach(func(_ svc.UID, reporter *SvcGraphMetrics) {
+				reporter.expireMetrics()
+			})
 		}
+	}
+}
+
+func connectionInfoExpiryInterval(interval, metricsTTL, connectionInfoTTL time.Duration) time.Duration {
+	for _, candidate := range []time.Duration{metricsTTL, connectionInfoTTL} {
+		if candidate > 0 && (interval <= 0 || candidate < interval) {
+			interval = candidate
+		}
+	}
+	if interval <= 0 {
+		return connectionInfoTTL
+	}
+	return interval
+}
+
+func (r *SvcGraphMetrics) expireMetrics() {
+	expireMetric(r.serviceGraphClient)
+	expireMetric(r.serviceGraphServer)
+	expireMetric(r.serviceGraphFailed)
+	expireMetric(r.serviceGraphTotal)
+	if r.connectionInfo != nil {
+		r.connectionInfo.Expire()
+	}
+}
+
+func expireMetric[Record any, M removableMetric[V], V any](expirer *Expirer[Record, M, V]) {
+	if expirer != nil {
+		expirer.Expire()
 	}
 }
 

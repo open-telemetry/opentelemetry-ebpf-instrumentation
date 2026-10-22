@@ -69,7 +69,7 @@ type MetricsConfig struct {
 	SDKLogLevel string `yaml:"otel_sdk_log_level" env:"OTEL_EBPF_SDK_LOG_LEVEL" validate:"omitempty,oneofci=debug info warn error"`
 
 	// Features specifies which metric features to export. Accepted values: application, network,
-	// application_span, application_service_graph, application_service_graph_connection_info, ...
+	// application_span, application_service_graph, ...
 	//
 	// Deprecated: use the top-level metrics.features property (perapp.GlobalMetricsConfig.Features) instead.
 	DeprFeatures export.Features `yaml:"features"`

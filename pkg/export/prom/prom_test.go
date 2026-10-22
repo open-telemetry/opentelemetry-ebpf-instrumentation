@@ -159,6 +159,33 @@ func TestConnectionInfoPrometheusConnectionTypeLabel(t *testing.T) {
 	}
 }
 
+func TestConnectionInfoRawIPRemainsDistinctDestination(t *testing.T) {
+	getters := attributes.PrometheusGetters(
+		request.SpanPromGetters(request.UnresolvedNames{Outgoing: "outgoing"}),
+		[]attr.Name{attr.Client, attr.ClientNamespace, attr.Server, attr.ServerNamespace, attr.Source},
+	)
+	labelNames := labelNamesSvcGraph(getters)
+	for _, address := range []string{"10.0.0.8", "2001:db8::8"} {
+		span := &request.Span{
+			Service:  svc.Attrs{UID: svc.UID{Name: "frontend", Namespace: "shop"}},
+			Type:     request.EventTypeHTTPClient,
+			HostName: address,
+		}
+		for _, graphGetter := range getters {
+			if graphGetter.ExposedName == attr.Server.Prom() {
+				assert.Equal(t, "outgoing", graphGetter.Get(span), "the connection-info-specific label must bypass unresolved-name collapse")
+			}
+		}
+		values := labelValuesConnectionInfo(span, getters, &otel.PidServiceTracker{})
+		labels := make(map[string]string, len(values))
+		for i, name := range labelNames {
+			labels[name] = values[i]
+		}
+		assert.Equal(t, address, labels[attr.Server.Prom()])
+		assert.Empty(t, labels[attr.ServerNamespace.Prom()])
+	}
+}
+
 // application_red keeps the RED histograms while dropping the four Opt-In body size
 // histograms, which is the whole point of splitting them into their own feature.
 func TestAppMetrics_BodySizeFeature(t *testing.T) {

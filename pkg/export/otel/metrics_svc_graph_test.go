@@ -175,6 +175,119 @@ func TestConnectionInfoEmitsPresenceGaugeFromOneClientSpan(t *testing.T) {
 	}
 }
 
+func TestConnectionInfoScheduledExpiryIsIndependentFromGraphMetrics(t *testing.T) {
+	for _, serverOnly := range []bool{false, true} {
+		name := "idle"
+		if serverOnly {
+			name = "server-only activity"
+		}
+		t.Run(name, func(t *testing.T) {
+			var now atomic.Int64
+			now.Store(time.Unix(100, 0).UnixNano())
+			previousTimeNow := timeNow
+			timeNow = func() time.Time { return time.Unix(0, now.Load()) }
+			t.Cleanup(func() { timeNow = previousTimeNow })
+
+			ctx, cancel := context.WithCancel(t.Context())
+			metricCfg := &otelcfg.MetricsConfig{
+				Interval:          10 * time.Millisecond,
+				TTL:               100 * time.Millisecond,
+				ConnectionInfoTTL: 300 * time.Millisecond,
+				ReportersCacheLen: 10,
+				MetricsExport:     func(context.Context, pmetric.Metrics) error { return nil },
+			}
+			features := export.FeatureGraph | export.FeatureConnectionInfo
+			input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+			reporter, err := newSvcGraphMetricsReporter(
+				ctx,
+				&global.ContextInfo{K8sInformer: &kube.MetadataProvider{}, OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: metricCfg}},
+				metricCfg, &perapp.GlobalMetricsConfig{Features: features}, &attributes.SelectorConfig{},
+				request.UnresolvedNames{}, input, processEvents,
+			)
+			require.NoError(t, err)
+			var frontendMetrics, graphOnlyMetrics *SvcGraphMetrics
+			done := make(chan struct{})
+			loopStarted := false
+			t.Cleanup(func() {
+				cancel()
+				if loopStarted {
+					select {
+					case <-done:
+					case <-time.After(time.Second):
+						t.Error("metrics reporter did not stop")
+					}
+				}
+				for _, metrics := range []*SvcGraphMetrics{frontendMetrics, graphOnlyMetrics} {
+					if metrics == nil {
+						continue
+					}
+					metrics.cleanupAllMetricsInstances()
+					_ = metrics.provider.Shutdown(context.Background())
+				}
+			})
+
+			client := svc.Attrs{Features: features, UID: svc.UID{Name: "frontend", Namespace: "shop"}}
+			graphOnly := svc.Attrs{Features: export.FeatureGraph, UID: svc.UID{Name: "graph-only", Namespace: "shop"}}
+			reporter.onSpan([]request.Span{{
+				Service: client, Type: request.EventTypeHTTPClient, Host: "frontend-pod", Peer: "client-host", HostName: "10.0.0.8", OtherNamespace: "shop",
+				RequestStart: 100, End: 200, ResponseObservation: request.ResponseReceived,
+			}, {
+				Service: graphOnly, Type: request.EventTypeHTTPClient, Host: "graph-only-pod", Peer: "graph-client", HostName: "upstream", OtherNamespace: "shop",
+				RequestStart: 100, End: 200, ResponseObservation: request.ResponseReceived,
+			}})
+			frontendMetrics, err = reporter.reporters.For(&client)
+			require.NoError(t, err)
+			graphOnlyMetrics, err = reporter.reporters.For(&graphOnly)
+			require.NoError(t, err)
+			require.Len(t, frontendMetrics.connectionInfo.entries.All(), 1)
+			require.Len(t, frontendMetrics.serviceGraphClient.entries.All(), 1)
+			require.Len(t, graphOnlyMetrics.serviceGraphClient.entries.All(), 1)
+			require.Len(t, frontendMetrics.serviceGraphTotal.entries.All(), 1)
+			require.Len(t, graphOnlyMetrics.serviceGraphTotal.entries.All(), 1)
+
+			loopStarted = true
+			go func() {
+				defer close(done)
+				reporter.reportMetrics(ctx)
+			}()
+
+			now.Add(int64(110 * time.Millisecond))
+			if serverOnly {
+				input.Send([]request.Span{{
+					Service: client, Type: request.EventTypeHTTP, Host: "frontend-pod", Peer: "client-host", HostName: "frontend", RequestStart: 200, End: 300,
+					ResponseObservation: request.ResponseReceived,
+				}})
+			}
+			require.Eventually(t, func() bool {
+				wantFrontendTotal := 0
+				wantServer := 0
+				if serverOnly {
+					wantFrontendTotal = 1
+					wantServer = 1
+				}
+				return len(frontendMetrics.serviceGraphTotal.entries.All()) == wantFrontendTotal &&
+					len(graphOnlyMetrics.serviceGraphTotal.entries.All()) == 0 &&
+					len(frontendMetrics.serviceGraphClient.entries.All()) == 0 &&
+					len(graphOnlyMetrics.serviceGraphClient.entries.All()) == 0 &&
+					len(frontendMetrics.connectionInfo.entries.All()) == 1 &&
+					len(frontendMetrics.serviceGraphServer.entries.All()) == wantServer
+			}, timeout, 10*time.Millisecond, "graph series should expire while the connection edge remains")
+
+			now.Add(int64(210 * time.Millisecond))
+			if serverOnly {
+				input.Send([]request.Span{{
+					Service: client, Type: request.EventTypeHTTP, Host: "frontend-pod", Peer: "client-host", HostName: "frontend", RequestStart: 300, End: 400,
+					ResponseObservation: request.ResponseReceived,
+				}})
+			}
+			require.Eventually(t, func() bool {
+				return len(frontendMetrics.connectionInfo.entries.All()) == 0
+			}, timeout, 10*time.Millisecond, "connection edge must expire on timer without another client observation")
+		})
+	}
+}
+
 func TestConnectionInfoOnlyCreatesConnectionInfoInstrument(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
 	ctx := t.Context()
@@ -216,6 +329,8 @@ func TestConnectionInfoTTLIsIndependentFromMetricsTTL(t *testing.T) {
 	assert.Equal(t, 15*time.Minute, serviceGraphReporterTTL(5*time.Minute, 15*time.Minute, true))
 	assert.Equal(t, 5*time.Minute, serviceGraphReporterTTL(5*time.Minute, 3*time.Minute, true))
 	assert.Equal(t, export.DefaultConnectionInfoTTL, export.ConnectionInfoTTLOrDefault(0))
+	assert.Equal(t, 5*time.Second, connectionInfoExpiryInterval(10*time.Second, 5*time.Second, 15*time.Second))
+	assert.Equal(t, 5*time.Second, connectionInfoExpiryInterval(0, 5*time.Second, 15*time.Second))
 
 	metricCfg := &otelcfg.MetricsConfig{TTL: 5 * time.Minute, ConnectionInfoTTL: 15 * time.Minute}
 	reporter := &SvcGraphMetricsReporter{
@@ -241,7 +356,7 @@ func TestConnectionInfoTTLIsIndependentFromMetricsTTL(t *testing.T) {
 func TestConnectionInfoConnectionTypeAttribute(t *testing.T) {
 	tracker := NewPidServiceTracker()
 	tracker.AddPID(1, svc.UID{Name: "catalog", Namespace: "shop"})
-	fields := serviceGraphGetters(request.UnresolvedNames{}, false)
+	fields := serviceGraphGetters(request.UnresolvedNames{Outgoing: "outgoing"}, false)
 
 	for _, test := range []struct {
 		name          string
@@ -257,6 +372,26 @@ func TestConnectionInfoConnectionTypeAttribute(t *testing.T) {
 				HostName:       "catalog",
 				OtherNamespace: "shop",
 			},
+		},
+		{
+			name: "raw IP remains a distinct destination",
+			span: request.Span{
+				Type:     request.EventTypeHTTPClient,
+				Service:  svc.Attrs{UID: svc.UID{Name: "frontend", Namespace: "shop"}},
+				HostName: "10.0.0.8",
+			},
+			wantConnType:  "virtual_node",
+			wantAttribute: true,
+		},
+		{
+			name: "raw IPv6 remains a distinct destination",
+			span: request.Span{
+				Type:     request.EventTypeHTTPClient,
+				Service:  svc.Attrs{UID: svc.UID{Name: "frontend", Namespace: "shop"}},
+				HostName: "2001:db8::8",
+			},
+			wantConnType:  "virtual_node",
+			wantAttribute: true,
 		},
 		{
 			name: "database",
@@ -297,6 +432,22 @@ func TestConnectionInfoConnectionTypeAttribute(t *testing.T) {
 			namespace, ok := attrs.Value(attr.ClientNamespace.OTEL())
 			require.True(t, ok)
 			assert.Equal(t, "shop", namespace.AsString())
+			server, ok := attrs.Value(attr.Server.OTEL())
+			if test.span.HostName != "" {
+				require.True(t, ok)
+				assert.Equal(t, test.span.HostName, server.AsString())
+				serverNamespace, ok := attrs.Value(attr.ServerNamespace.OTEL())
+				require.True(t, ok)
+				assert.Equal(t, test.span.OtherNamespace, serverNamespace.AsString())
+				if test.name == "raw IP remains a distinct destination" || test.name == "raw IPv6 remains a distinct destination" {
+					for _, graphGetter := range fields {
+						if graphGetter.ExposedName == string(attr.Server.OTEL()) {
+							assert.Equal(t, "outgoing", graphGetter.Get(&test.span).Value.AsString(),
+								"the connection-info-specific getter must preserve raw destination identity")
+						}
+					}
+				}
+			}
 			value, ok := attrs.Value(attr.ConnectionType.OTEL())
 			assert.Equal(t, test.wantAttribute, ok)
 			if test.wantAttribute {

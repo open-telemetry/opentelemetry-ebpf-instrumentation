@@ -1089,7 +1089,6 @@ metrics:
 func TestMigrateConfigCarriesMetricFeatures(t *testing.T) {
 	for _, features := range []string{
 		"application_service_graph",
-		"application_service_graph_connection_info",
 		"application_span",
 		"application_span_otel",
 		"application_span_sizes",
@@ -1122,6 +1121,11 @@ prometheus_export:
 			require.Equal(t, expected.Names(), roundTripped.Metrics.Features.Names())
 		})
 	}
+}
+
+func TestMigrateConfigRejectsConfigV2OnlyMetricFeature(t *testing.T) {
+	_, _, err := migrateConfig([]byte("metrics:\n  features: [application_service_graph_connection_info]\n"))
+	require.ErrorContains(t, err, "application_service_graph_connection_info")
 }
 
 func TestValidateV2MetricFeatures(t *testing.T) {

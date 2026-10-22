@@ -69,7 +69,8 @@ const (
 	FeatureApplicationRuntime
 	FeatureEBPF
 	FeatureConnectionInfo
-	FeatureAll = Features(^uint(0)) // all bits to 1
+	// FeatureAll preserves the legacy all-features behavior while keeping connection info opt-in.
+	FeatureAll = Features(^uint(0)) &^ FeatureConnectionInfo
 )
 
 // FeatureStats enables all stat metrics, including TCP IO.
@@ -81,27 +82,26 @@ const FeatureStats = FeatureStatsTCPRtt | FeatureStatsTCPFailedConnections | Fea
 // FeatureMapper stays public so any extension package can add and remove feature
 // definitions before loading them.
 var FeatureMapper = map[string]Features{
-	"stats":                                     FeatureStats,
-	"stats_tcp_rtt":                             FeatureStatsTCPRtt,
-	"stats_tcp_failed_connections":              FeatureStatsTCPFailedConnections,
-	"stats_tcp_retransmits":                     FeatureStatsTCPRetransmits,
-	"stats_tcp_io":                              FeatureStatsTCPIo,
-	"stats_tcp_successful_connections":          FeatureStatsTCPSuccessfulConnections,
-	"network":                                   FeatureNetwork,
-	"network_inter_zone":                        FeatureNetworkInterZone,
-	"network_flow_packets":                      FeatureNetworkFlowPackets,
-	"application":                               FeatureApplicationRED | FeatureApplicationSizes,
-	"application_red":                           FeatureApplicationRED,
-	"application_sizes":                         FeatureApplicationSizes,
-	"application_span":                          FeatureSpanLegacy,
-	"application_span_otel":                     FeatureSpanOTel,
-	"application_span_sizes":                    FeatureSpanSizes,
-	"application_service_graph":                 FeatureGraph,
-	"application_service_graph_connection_info": FeatureConnectionInfo,
-	"application_runtime":                       FeatureApplicationRuntime,
-	"ebpf":                                      FeatureEBPF,
-	"all":                                       FeatureAll,
-	"*":                                         FeatureAll,
+	"stats":                            FeatureStats,
+	"stats_tcp_rtt":                    FeatureStatsTCPRtt,
+	"stats_tcp_failed_connections":     FeatureStatsTCPFailedConnections,
+	"stats_tcp_retransmits":            FeatureStatsTCPRetransmits,
+	"stats_tcp_io":                     FeatureStatsTCPIo,
+	"stats_tcp_successful_connections": FeatureStatsTCPSuccessfulConnections,
+	"network":                          FeatureNetwork,
+	"network_inter_zone":               FeatureNetworkInterZone,
+	"network_flow_packets":             FeatureNetworkFlowPackets,
+	"application":                      FeatureApplicationRED | FeatureApplicationSizes,
+	"application_red":                  FeatureApplicationRED,
+	"application_sizes":                FeatureApplicationSizes,
+	"application_span":                 FeatureSpanLegacy,
+	"application_span_otel":            FeatureSpanOTel,
+	"application_span_sizes":           FeatureSpanSizes,
+	"application_service_graph":        FeatureGraph,
+	"application_runtime":              FeatureApplicationRuntime,
+	"ebpf":                             FeatureEBPF,
+	"all":                              FeatureAll,
+	"*":                                FeatureAll,
 }
 
 // deprecatedFeatures maps each deprecated feature name to the feature that supersedes it.
@@ -242,6 +242,9 @@ func (f Features) Names() []string {
 			remaining = Features(maps.Bits(remaining) &^ maps.Bits(feature))
 		}
 	}
+	if remaining.has(FeatureConnectionInfo) {
+		names = append(names, "application_service_graph_connection_info")
+	}
 	return names
 }
 
@@ -260,20 +263,37 @@ func (f Features) MarshalYAML() (any, error) {
 }
 
 func LoadFeatures(features []string) (Features, error) {
+	return loadFeatures(features, false)
+}
+
+// LoadV2Features loads Config v2 metric features, including v2-only opt-ins.
+func LoadV2Features(features []string) (Features, error) {
+	return loadFeatures(features, true)
+}
+
+func loadFeatures(features []string, allowV2 bool) (Features, error) {
 	if len(features) == 0 {
 		return FeatureEmpty, nil
 	}
 	// convert the public data type to the internal representation
 	feats := Features(0)
+	validNames := validFeatureNames()
+	if allowV2 {
+		validNames = append(validNames, "application_service_graph_connection_info")
+	}
 	for _, f := range features {
 		name := strings.TrimSpace(f)
 		if name == "" {
 			continue
 		}
+		if allowV2 && name == "application_service_graph_connection_info" {
+			feats |= FeatureConnectionInfo
+			continue
+		}
 		feature, ok := FeatureMapper[name]
 		if !ok {
 			return Features(0), fmt.Errorf("unknown metrics feature %q (valid features: %s)",
-				name, strings.Join(validFeatureNames(), ", "))
+				name, strings.Join(validNames, ", "))
 		}
 		feats |= feature
 	}

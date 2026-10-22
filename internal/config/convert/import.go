@@ -2321,7 +2321,7 @@ func completeDaemonTelemetry(telemetry schema.DaemonTelemetry) bool {
 
 func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete bool) error {
 	if features := src.Capture.Metrics.Features; features != nil {
-		mask, err := export.LoadFeatures(features)
+		mask, err := export.LoadV2Features(features)
 		if err != nil {
 			return fmt.Errorf("capture.metrics.features: %w", err)
 		}

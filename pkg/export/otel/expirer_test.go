@@ -63,6 +63,23 @@ func TestExpirerForRecordRemovesExpiredMetrics(t *testing.T) {
 	require.Equal(t, 1, metric.removals)
 }
 
+func TestExpirerExpireRemovesMetricsWithoutAnotherRecord(t *testing.T) {
+	now := time.Unix(100, 0)
+	metric := &removedMetric{}
+	exp := NewExpirer[map[string]string, *removedMetric, int64](
+		t.Context(), metric, []attributes.Field[map[string]string, attribute.KeyValue]{
+			{Get: func(record map[string]string) attribute.KeyValue { return attribute.String("edge", record["edge"]) }},
+		}, func() time.Time { return now }, time.Minute,
+	)
+	exp.ForRecord(map[string]string{"edge": "frontend-catalog"})
+
+	now = now.Add(time.Minute + time.Second)
+	exp.Expire()
+
+	assert.Equal(t, 1, metric.removals)
+	assert.Equal(t, exp.lastExpiration, now)
+}
+
 func TestNetMetricsExpiration(t *testing.T) {
 	defer otelcfg.RestoreEnvAfterExecution()()
 	ctx := t.Context()
