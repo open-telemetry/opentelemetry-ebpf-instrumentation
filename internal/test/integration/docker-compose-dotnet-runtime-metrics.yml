@@ -11,6 +11,8 @@ services:
     environment:
       DOTNET_ThreadPool_ThreadTimeoutMs: "2000"
       DOTNET_PROCESSOR_COUNT: "${DOTNET_RUNTIME_PROCESSOR_COUNT:-}"
+      DOTNET_gcServer: "${DOTNET_RUNTIME_SERVER_GC:-0}"
+      DOTNET_gcConcurrent: "${DOTNET_RUNTIME_BACKGROUND_GC:-1}"
     cpus: ${DOTNET_RUNTIME_CPUS:-2}
     cpuset: "${DOTNET_RUNTIME_CPUSET:-}"
     entrypoint: ["dotnet", "/app/workload/dotnet-runtime-metrics.dll", "--http"]
