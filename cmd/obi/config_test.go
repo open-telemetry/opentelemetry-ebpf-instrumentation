@@ -374,3 +374,23 @@ func TestLoadRoute53IntegrationConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, selector.For(attributes.HTTPClientDuration), attr.Server)
 }
+
+func TestLoadConfigV2AzureServiceResolution(t *testing.T) {
+	t.Setenv("AZURE_SUBSCRIPTION_ID", "subscription")
+	t.Setenv("AZURE_RESOURCE_GROUP", "applications")
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "rdns")
+	for _, path := range []string{"../../devdocs/config/version-2.0/examples/azure-service-resolution.yaml", "../../internal/test/integration/configs/obi-config-azure-v2.yml"} {
+		t.Run(path, func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			cfg, version, err := loadConfigReader(bytes.NewReader(data))
+			require.NoError(t, err)
+			require.Equal(t, configVersionV2, version)
+			require.NoError(t, cfg.Validate())
+			require.Equal(t, []transform.Source{transform.SourceAzure}, cfg.NameResolver.Sources)
+			if path == "../../devdocs/config/version-2.0/examples/azure-service-resolution.yaml" {
+				require.Equal(t, transform.AzureNameResolverConfig{SubscriptionID: "subscription", ResourceGroup: "applications"}, cfg.NameResolver.Azure)
+			}
+		})
+	}
+}

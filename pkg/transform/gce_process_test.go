@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/cloud"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -42,6 +43,7 @@ func TestGCEProcessDecoratorUpdatesTargetInfo(t *testing.T) {
 	d := cloudProcessDecorator{
 		inventory: inventory, instanceID: "123",
 		changes: inventory.SubscribeContainerChanges(), input: input, output: output,
+		containerInfo: func(app.PID) (container.Info, error) { return container.Info{}, container.ErrContainerNotFound },
 	}
 	checkTargetInfo := ecsTargetInfoExporters(ctx, t, output, "process-1")
 	done := make(chan struct{})
