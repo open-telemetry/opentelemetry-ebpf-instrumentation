@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"os"
 	stdexec "os/exec"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -227,4 +228,32 @@ func TestInventoryServiceGraphParticipation(t *testing.T) {
 			require.Equal(t, []Service{{Name: "api", Namespace: "shop", ServiceGraph: test.graph}}, snapshot.Services)
 		})
 	}
+}
+
+func TestDualStackListenerResolvesIPv4(t *testing.T) {
+	listener, err := net.Listen("tcp", ":0")
+	require.NoError(t, err)
+	defer listener.Close()
+	address := listener.Addr().(*net.TCPAddr)
+	if address.IP.String() != "::" {
+		t.Skip("dual-stack listener unavailable")
+	}
+	conn, err := net.DialTimeout("tcp4", net.JoinHostPort("127.0.0.1", strconv.Itoa(address.Port)), time.Second)
+	require.NoError(t, err)
+	defer conn.Close()
+	pid := app.PID(os.Getpid())
+	start, err := procs.StartTime(pid)
+	require.NoError(t, err)
+	file := exec.New(exec.Init{Pid: pid, StartTime: start, Service: svc.Attrs{UID: svc.UID{Name: "api", Namespace: "shop"}}})
+	processes := map[processKey]*exec.FileInfo{{pid: int32(pid), start: start}: file}
+	store := newStore("host", DefaultConfig())
+	refreshInventory(t.Context(), processes, store)
+	service := Service{Name: "api", Namespace: "shop"}
+	require.Contains(t, store.listeners, Listener{
+		Endpoint: Endpoint{IP: "::", Port: address.Port}, Service: service,
+	})
+	endpoint := Endpoint{IP: "127.0.0.1", Port: address.Port}
+	require.Equal(t, service, store.destinationService(endpoint))
+	snapshot := store.snapshot(nil, time.Now())
+	require.Equal(t, service, indexSnapshot(&snapshot).destinationService(endpoint))
 }

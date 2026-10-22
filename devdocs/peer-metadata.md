@@ -37,7 +37,9 @@ refresh. UDP listener attribution is not supported.
 For a client span, the destination IP and listening port identify the remote
 service. Multiple processes sharing the same service name and namespace count
 as one service. Zero or multiple matching service identities use the remote
-hostname.
+hostname. For IPv4 destinations, IPv4 listeners take precedence. If none match,
+`::` listeners are tried as possible dual-stack sockets. The inventory does not
+distinguish IPv6-only sockets.
 
 For a server span, the remote agent supplies services recently observed calling
 that server's destination IP and port. One service identity supplies its name

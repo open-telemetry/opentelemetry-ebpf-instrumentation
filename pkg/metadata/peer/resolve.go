@@ -45,7 +45,7 @@ func listenerService(index map[Endpoint][]Service, endpoint Endpoint, hostname s
 		if ip == "0.0.0.0" && address.Is6() {
 			continue
 		}
-		if ip == "::" && address.Is4() {
+		if ip == "::" && address.Is4() && selected.Name != "" {
 			continue
 		}
 

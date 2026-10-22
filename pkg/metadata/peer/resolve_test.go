@@ -25,9 +25,25 @@ func TestListenerAddressFamilies(t *testing.T) {
 			ipv4Name:  "ipv4", ipv6Name: "ipv6",
 		},
 		{
-			name:      "only IPv6 service instrumented",
+			name:      "dual-stack wildcard service",
 			listeners: []Listener{ipv6},
-			ipv4Name:  "host", ipv6Name: "ipv6",
+			ipv4Name:  "ipv6", ipv6Name: "ipv6",
+		},
+		{
+			name: "specific IPv4 listener takes precedence over IPv6 wildcard",
+			listeners: []Listener{
+				{Endpoint: Endpoint{IP: "10.1.0.2", Port: 8080}, Service: Service{Name: "ipv4"}},
+				ipv6,
+			},
+			ipv4Name: "ipv4", ipv6Name: "ipv6",
+		},
+		{
+			name: "ambiguous IPv6 wildcard services",
+			listeners: []Listener{
+				ipv6,
+				{Endpoint: ipv6.Endpoint, Service: Service{Name: "other"}},
+			},
+			ipv4Name: "host", ipv6Name: "host",
 		},
 		{
 			name:      "only IPv4 service instrumented",
