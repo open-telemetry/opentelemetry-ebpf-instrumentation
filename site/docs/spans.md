@@ -15,6 +15,8 @@ OBI AWS S3 client span.
 | --- | --- |
 | client | development |
 
+Name: `S3.{method}`, or `aws-api` when the S3 method was not read. `rpc.method` reports the method as `S3/{method}`, so the name cannot be expressed as a template.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `aws.extended_request_id` | string | `conditionally_required`: if the response carried an x-amz-id-2 header | development | The AWS extended request ID as returned in the response header `x-amz-id-2`. | wzHcyEWfmOGDIE5QOhTAqFDoDWP3y8IUvpNINCwL9N4TEHbUw0/gZJ+VZTmCNCWR7fezEN3eCiQ= |
@@ -40,6 +42,8 @@ OBI AWS SNS client span.
 | Span kind | Stability |
 | --- | --- |
 | client | development |
+
+Name, from the first template that applies: `SNS.{messaging.operation.name}`, `SNS.`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -69,6 +73,8 @@ OBI AWS SQS client span.
 | --- | --- |
 | client | development |
 
+Name, from the first template that applies: `SQS.{messaging.operation.name}`, `aws-api`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `aws.request_id` | string | `recommended` | development | The AWS request ID as returned in the response headers `x-amzn-requestid`, `x-amzn-request-id` or `x-amz-request-id`. | 79b9da39-b7ae-508a-a6bc-864b2829c622; C9ER4AJX75574TDJ |
@@ -96,6 +102,8 @@ OBI outbound database client span.
 | --- | --- |
 | client | development |
 
+Name: Built per database system from the operation and its target, falling back to the `db.system.name` value: Redis and Memcached report `{db.operation.name}`, or `redis` / `memcached`; MongoDB and Couchbase `{db.operation.name} {db.collection.name}`, `{db.operation.name} {db.namespace}`, `{db.operation.name}`, `{db.collection.name}`, `{db.namespace}` or the system; Aerospike `{db.operation.name} {db.namespace}.{db.collection.name}`, dropping a missing part, or `aerospike`; Couchbase SQL++ `{db.operation.name} {db.collection.name}`, `{db.operation.name} {db.namespace}`, `{db.operation.name} {server.address}:{server.port}`, `{db.operation.name}` or `couchbase`. One template list cannot order the Aerospike and MongoDB forms correctly for both, so the name is described rather than templated.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `db.collection.name` | string | `conditionally_required`: if the exchange named a collection | stable | The name of a collection (table, container) within the database. | public.users; customers |
@@ -121,6 +129,8 @@ OBI inbound database server span.
 | --- | --- |
 | server | development |
 
+Name: The same form as the client span of the database system: SQL servers are named like `obi.db.sql.client`, and Redis, Memcached and Aerospike servers like `obi.db.client`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `db.collection.name` | string | `conditionally_required`: if the exchange named a collection | stable | The name of a collection (table, container) within the database. | public.users; customers |
@@ -144,6 +154,8 @@ OBI outbound SQL database client span.
 | Span kind | Stability |
 | --- | --- |
 | client | stable |
+
+Name, from the first template that applies: `{db.query.summary}`, `{db.operation.name} {db.collection.name}`, `{db.operation.name} {db.namespace}`, `{db.operation.name}`, `{db.collection.name}`, `{db.namespace}`, `{db.system.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -170,6 +182,8 @@ OBI DNS resolution span.
 | --- | --- |
 | internal | development |
 
+Name: The DNS operation followed by the question, `{operation} {dns.question.name}`, the operation alone when no question was read, or `DNS`. The operation is not emitted as an attribute, so the name cannot be expressed as a template.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `client.address` | string | `recommended` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
@@ -187,6 +201,8 @@ OBI Elasticsearch client span, detected from HTTP client traffic.
 | Span kind | Stability |
 | --- | --- |
 | client | development |
+
+Name, from the first template that applies: `{db.operation.name} {db.collection.name}`, `{db.operation.name} {db.namespace}`, `{db.operation.name} {server.address}:{server.port}`, `{db.operation.name}`, `{db.collection.name}`, `{db.namespace}`, `{server.address}:{server.port}`, `{db.system.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -218,6 +234,8 @@ OBI failed outbound connection span.
 | --- | --- |
 | client | development |
 
+Name, from the first template that applies: `CONNECT`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `client.address` | string | `recommended` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
@@ -233,6 +251,8 @@ OBI GenAI embeddings client span.
 | Span kind | Stability |
 | --- | --- |
 | client | development |
+
+Name, from the first template that applies: `{gen_ai.operation.name} {gen_ai.request.model}`, `{gen_ai.operation.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -261,6 +281,8 @@ OBI GenAI inference client span.
 | Span kind | Stability |
 | --- | --- |
 | client | development |
+
+Name, from the first template that applies: `{gen_ai.operation.name} {gen_ai.request.model}`, `{gen_ai.operation.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -316,6 +338,8 @@ OBI GenAI rerank client span.
 | --- | --- |
 | client | development |
 
+Name, from the first template that applies: `{gen_ai.operation.name} {gen_ai.request.model}`, `{gen_ai.operation.name}`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
@@ -345,6 +369,8 @@ OBI GenAI vector-retrieval client span.
 | --- | --- |
 | client | development |
 
+Name, from the first template that applies: `{gen_ai.operation.name} {gen_ai.data_source.id}`, `{gen_ai.operation.name}`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
@@ -352,6 +378,7 @@ OBI GenAI vector-retrieval client span.
 | `gen_ai.operation.name` | string | `required` | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
 | `gen_ai.provider.name` | enum | `required` | development | The Generative AI provider as identified by the client or server instrumentation. | openai; gcp.gen_ai; gcp.vertex_ai; gcp.gemini; anthropic; cohere; azure.ai.inference; azure.ai.openai; … |
 | `gen_ai.request.model` | string | `conditionally_required`: if the request named a model | development | The name of the GenAI model a request is being made to. | gpt-4 |
+| `gen_ai.request.top_k` | double | `recommended`: if the request set a result count | development | The top_k sampling setting for the GenAI request. | 1 |
 | `gen_ai.response.id` | string | `recommended`: if the response carried an id | development | The unique identifier for the completion. | chatcmpl-123 |
 | `gen_ai.response.model` | string | `recommended`: if the request or the response named a model | development | The name of the model that generated the response. | gpt-4-0613 |
 | `gen_ai.usage.input_tokens` | int | `recommended`: if the provider reported token usage | development | The number of tokens used in the GenAI input (prompt). | 100 |
@@ -371,6 +398,8 @@ OBI inbound GraphQL over HTTP server span.
 | Span kind | Stability |
 | --- | --- |
 | server | development |
+
+Name, from the first template that applies: `{graphql.operation.type}`, `GraphQL Operation`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -395,6 +424,8 @@ OBI outbound HTTP client span.
 | Span kind | Stability |
 | --- | --- |
 | client | stable |
+
+Name: The method, or `HTTP` when it is outside the semantic-convention enum, followed by the route when OBI classified the request path into one: `{http.request.method} {route}`. Client spans do not emit the route as an attribute, so the name cannot be expressed as a template.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -428,6 +459,8 @@ OBI inbound HTTP server span.
 | Span kind | Stability |
 | --- | --- |
 | server | stable |
+
+Name, from the first template that applies: `{http.request.method} {http.route}`, `{http.request.method}`, `HTTP {http.route}`, `HTTP`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -463,6 +496,8 @@ OBI outbound JSON-RPC over HTTP client span.
 | --- | --- |
 | client | development |
 
+Name, from the first template that applies: `{rpc.method}`, `jsonrpc`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
@@ -490,6 +525,8 @@ OBI inbound JSON-RPC over HTTP server span.
 | --- | --- |
 | server | development |
 
+Name, from the first template that applies: `{rpc.method}`, `jsonrpc`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `client.address` | string | `recommended` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
@@ -516,6 +553,8 @@ OBI Model Context Protocol client span.
 | Span kind | Stability |
 | --- | --- |
 | client | development |
+
+Name, from the first template that applies: `{mcp.method.name} {gen_ai.tool.name}`, `{mcp.method.name} {gen_ai.prompt.name}`, `{mcp.method.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -547,6 +586,8 @@ OBI inbound Model Context Protocol over HTTP server span.
 | Span kind | Stability |
 | --- | --- |
 | server | development |
+
+Name, from the first template that applies: `{mcp.method.name} {gen_ai.tool.name}`, `{mcp.method.name} {gen_ai.prompt.name}`, `{mcp.method.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -581,6 +622,8 @@ OBI AMQP span for a process operation.
 | --- | --- |
 | consumer | development |
 
+Name: The operation followed by the exchange, `{messaging.operation.name} {exchange}`, or the operation alone when no exchange was read. The exchange is not emitted as an attribute on AMQP spans, so the name cannot be expressed as a template.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
@@ -601,6 +644,8 @@ OBI AMQP span for a send or a publish operation.
 | --- | --- |
 | producer | development |
 
+Name: The operation followed by the exchange, `{messaging.operation.name} {exchange}`, or the operation alone when no exchange was read. The exchange is not emitted as an attribute on AMQP spans, so the name cannot be expressed as a template.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `messaging.operation.name` | string | `required` | development | The system-specific name of the messaging operation. | ack; nack; send |
@@ -620,6 +665,8 @@ OBI Kafka span for a process operation.
 | Span kind | Stability |
 | --- | --- |
 | consumer | development |
+
+Name, from the first template that applies: `{messaging.operation.name} {messaging.destination.name}`, `{messaging.operation.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -646,6 +693,8 @@ OBI Kafka span for a send or a publish operation.
 | --- | --- |
 | producer | development |
 
+Name, from the first template that applies: `{messaging.operation.name} {messaging.destination.name}`, `{messaging.operation.name}`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `messaging.client.id` | string | `recommended` | development | A unique identifier for the client that consumes or produces a message. | client-5; myhost@8742@s8083jm |
@@ -668,6 +717,8 @@ OBI MQTT span for a process operation.
 | Span kind | Stability |
 | --- | --- |
 | consumer | development |
+
+Name, from the first template that applies: `{messaging.operation.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -692,6 +743,8 @@ OBI MQTT span for a send or a publish operation.
 | --- | --- |
 | producer | development |
 
+Name, from the first template that applies: `{messaging.operation.name} {messaging.destination.name}`, `{messaging.operation.name}`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `messaging.client.id` | string | `recommended` | development | A unique identifier for the client that consumes or produces a message. | client-5; myhost@8742@s8083jm |
@@ -713,6 +766,8 @@ OBI NATS span for a process operation.
 | Span kind | Stability |
 | --- | --- |
 | consumer | development |
+
+Name, from the first template that applies: `{messaging.operation.name} {messaging.destination.name}`, `{messaging.operation.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -737,6 +792,8 @@ OBI NATS span for a send or a publish operation.
 | --- | --- |
 | producer | development |
 
+Name, from the first template that applies: `{messaging.operation.name} {messaging.destination.name}`, `{messaging.operation.name}`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `messaging.client.id` | string | `recommended` | development | A unique identifier for the client that consumes or produces a message. | client-5; myhost@8742@s8083jm |
@@ -752,6 +809,18 @@ OBI NATS span for a send or a publish operation.
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 
+## `obi.request.phase`
+
+OBI child span splitting a request that waited before it was processed into its queued and processing phases.
+
+| Span kind | Stability |
+| --- | --- |
+| internal | development |
+
+Name: `in queue` for the time between the request arriving and its handler starting, and `processing` for the time the handler ran. Neither is derived from an attribute.
+
+No attributes.
+
 ## `obi.rpc.grpc.client`
 
 OBI outbound gRPC client span.
@@ -759,6 +828,8 @@ OBI outbound gRPC client span.
 | Span kind | Stability |
 | --- | --- |
 | client | release_candidate |
+
+Name, from the first template that applies: `{rpc.method}`, `{rpc.system.name}`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -783,6 +854,8 @@ OBI inbound gRPC server span.
 | --- | --- |
 | server | release_candidate |
 
+Name, from the first template that applies: `{rpc.method}`, `{rpc.system.name}`.
+
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `client.address` | string | `recommended` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
@@ -805,6 +878,8 @@ OBI outbound ONC/Sun RPC client span.
 | Span kind | Stability |
 | --- | --- |
 | client | development |
+
+Name, from the first template that applies: `{rpc.method}`, `onc_rpc`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
@@ -832,6 +907,8 @@ OBI inbound ONC/Sun RPC server span.
 | Span kind | Stability |
 | --- | --- |
 | server | development |
+
+Name, from the first template that applies: `{rpc.method}`, `onc_rpc`.
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |

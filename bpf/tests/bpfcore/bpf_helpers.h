@@ -71,6 +71,7 @@ static inline unsigned long long bpf_ringbuf_query(void *rb, int flags) {
 #define BPF_RB_NO_WAKEUP 1
 #define BPF_RB_FORCE_WAKEUP 2
 #define BPF_RB_AVAIL_DATA 0
+#define BPF_RINGBUF_HDR_SZ 8
 // Tests that care about time set this; the rest see a frozen clock.
 static unsigned long long bpf_ktime_ns_value;
 static inline unsigned long long bpf_ktime_get_ns(void) {

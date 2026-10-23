@@ -71,6 +71,9 @@ func otelNodeFetcher(clusterKind NodeFeatures, detector resource.Detector) fetch
 				if clusterKind.Has(ClusterGCP) {
 					store.GCEInstanceID = store.HostID
 				}
+				if clusterKind.Has(ClusterAzureVM) {
+					store.AzureInstanceID = store.HostID
+				}
 				continue
 				// TODO: add cluster names from other cloud providers
 			case semconv.AWSECSClusterARNKey:

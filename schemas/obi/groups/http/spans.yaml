@@ -48,7 +48,11 @@ spans:
           network.protocol.name: required only for a protocol other than HTTP, which OBI never reports on this signal
     kind: server
     name:
-      note: Not documented yet.
+      templates:
+        - "{http.request.method} {http.route}"
+        - "{http.request.method}"
+        - "HTTP {http.route}"
+        - "HTTP"
     stability: stable
     requirement_level: recommended
     brief: OBI inbound HTTP server span.
@@ -103,7 +107,11 @@ spans:
           network.protocol.name: required only for a protocol other than HTTP, which OBI never reports on this signal
     kind: client
     name:
-      note: Not documented yet.
+      note: >
+        The method, or `HTTP` when it is outside the semantic-convention enum,
+        followed by the route when OBI classified the request path into one:
+        `{http.request.method} {route}`. Client spans do not emit the route as
+        an attribute, so the name cannot be expressed as a template.
     stability: stable
     requirement_level: recommended
     brief: OBI outbound HTTP client span.
@@ -172,7 +180,9 @@ spans:
         upstream: [rpc.jsonrpc.call.client, rpc.call.client]
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{rpc.method}"
+        - "jsonrpc"
     stability: development
     requirement_level: recommended
     brief: OBI outbound JSON-RPC over HTTP client span.
@@ -232,7 +242,9 @@ spans:
           error.type: semconv's error-recording guidance sets error.type on any failed operation
     kind: server
     name:
-      note: Not documented yet.
+      templates:
+        - "{graphql.operation.type}"
+        - "GraphQL Operation"
     stability: development
     requirement_level: recommended
     brief: OBI inbound GraphQL over HTTP server span.
@@ -255,7 +267,9 @@ spans:
           server.address: missing when OBI cannot tell which connection the request used
     kind: server
     name:
-      note: Not documented yet.
+      templates:
+        - "{rpc.method}"
+        - "jsonrpc"
     stability: development
     requirement_level: recommended
     brief: OBI inbound JSON-RPC over HTTP server span.

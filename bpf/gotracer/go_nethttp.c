@@ -588,9 +588,11 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
         return 0;
     }
 
-    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-    make_tp_string(tp_buf, &invocation->tp);
-    bpf_dbg_printk("tp=%s", tp_buf);
+    if (g_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, &invocation->tp);
+        bpf_dbg_printk("tp=%s", tp_buf);
+    }
 
     connection_info_t conn = {0};
     const connection_info_t *info = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
@@ -633,16 +635,19 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     __builtin_memcpy(&trace->conn, &conn, sizeof(connection_info_t));
     trace->tp = invocation->tp;
     trace->content_length = invocation->content_length;
-    __builtin_memcpy(trace->method, invocation->method, sizeof(trace->method));
-    __builtin_memcpy(trace->path, invocation->path, sizeof(trace->path));
-    __builtin_memcpy(trace->raw_query, invocation->raw_query, sizeof(trace->raw_query));
-    __builtin_memcpy(trace->pattern, invocation->pattern, sizeof(trace->pattern));
+    bpf_memcpy(trace->method, invocation->method, sizeof(trace->method));
+    bpf_memcpy(trace->path, invocation->path, sizeof(trace->path));
+    bpf_memcpy(trace->raw_query, invocation->raw_query, sizeof(trace->raw_query));
+    bpf_memcpy(trace->pattern, invocation->pattern, sizeof(trace->pattern));
     trace->status = (u16)invocation->status;
     trace->response_length = invocation->response_length;
     trace->is_jsonrpc = invocation->is_jsonrpc;
 
-    make_tp_string(tp_buf, &invocation->tp);
-    bpf_dbg_printk("tp=%s", tp_buf);
+    if (g_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, &invocation->tp);
+        bpf_dbg_printk("tp=%s", tp_buf);
+    }
     bpf_dbg_printk("method=%s", trace->method);
     bpf_dbg_printk("path=%s", trace->path);
     bpf_dbg_printk("pattern=%s", trace->pattern);
@@ -858,9 +863,11 @@ int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
 
     trace->tp = invocation->tp;
 
-    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-    make_tp_string(tp_buf, &invocation->tp);
-    bpf_dbg_printk("tp_buf=[%s]", tp_buf);
+    if (g_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, &invocation->tp);
+        bpf_dbg_printk("tp_buf=[%s]", tp_buf);
+    }
     bpf_dbg_printk("method=%s", trace->method);
     bpf_dbg_printk("path=%s", trace->path);
 

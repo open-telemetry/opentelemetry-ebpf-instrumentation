@@ -73,10 +73,10 @@ enum {
     k_kafka_hdr_request_api_key = 2,
     k_kafka_hdr_request_api_version = 2,
     k_kafka_hdr_correlation_id = 4,
-    k_kafka_request_header_fields_without_message_size =
-        k_kafka_hdr_request_api_key + k_kafka_hdr_request_api_version + k_kafka_hdr_correlation_id,
-    k_kafka_min_request_header_size =
-        k_kafka_hdr_message_size + k_kafka_request_header_fields_without_message_size,
+    k_kafka_request_header_fields_without_message_size = k_kafka_hdr_request_api_key +
+        k_kafka_hdr_request_api_version + k_kafka_hdr_correlation_id,
+    k_kafka_min_request_header_size = k_kafka_hdr_message_size +
+        k_kafka_request_header_fields_without_message_size,
 
     k_kafka_min_response_message_size_value = 4, // correlation_id (4)
 
@@ -440,7 +440,7 @@ static __always_inline int kafka_send_large_buffer(tcp_req_t *req,
         lb->len = k_kafka_hdr_message_size;
 
         const u32 total_size = sizeof(tcp_large_buffer_t) + sizeof(void *);
-        events_ringbuf_output(lb, total_size, get_flags());
+        events_ringbuf_output(lb, total_size);
 
         max_available_bytes -= k_kafka_hdr_message_size;
         consumed_bytes += k_kafka_hdr_message_size;

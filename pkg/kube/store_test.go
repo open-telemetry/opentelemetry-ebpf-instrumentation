@@ -23,6 +23,189 @@ import (
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 )
 
+func TestServiceIPNameMatchesPodAnnotation(t *testing.T) {
+	pod := &informer.ObjectMeta{
+		Name:      "inventory-api-abc",
+		Namespace: "shop",
+		Kind:      "Pod",
+		Ips:       []string{"10.0.0.2"},
+		Annotations: map[string]string{
+			ServiceNameAnnotation: "inventory",
+		},
+		Pod: &informer.PodInfo{
+			Owners: []*informer.Owner{
+				{Name: "inventory-api", Kind: "Deployment"},
+			},
+			Containers: []*informer.ContainerInfo{
+				{Id: "inventory-container", Name: "api"},
+			},
+		},
+	}
+	service := &informer.ObjectMeta{
+		Name:      "inventory-api",
+		Namespace: "shop",
+		Kind:      "Service",
+		Ips:       []string{"10.96.0.10"},
+	}
+
+	orders := map[string][]*informer.ObjectMeta{
+		"service-first": {service, pod},
+		"pod-first":     {pod, service},
+	}
+	for name, resources := range orders {
+		t.Run(name, func(t *testing.T) {
+			store := NewStore(&fakeInformer{}, DefaultResourceLabels, nil, imetrics.NoopReporter{})
+			for _, resource := range resources {
+				require.NoError(t, store.On(&informer.Event{
+					Type:     informer.EventType_CREATED,
+					Resource: resource,
+				}))
+			}
+
+			appName, _ := store.ServiceNameNamespaceForMetadata(pod, "api")
+			podName, _, _ := store.ServiceNameNamespaceForIP("10.0.0.2")
+			serviceName, _, _ := store.ServiceNameNamespaceForIP("10.96.0.10")
+
+			require.Equal(t, "inventory", appName)
+			require.Equal(t, appName, podName)
+			require.Equal(t, appName, serviceName,
+				"Service IP resolution must agree with the application identity")
+		})
+	}
+}
+
+func TestServiceIPNameUsesSelectedPods(t *testing.T) {
+	inventoryPod := func(name, deployment string, annotations, env map[string]string) *informer.ObjectMeta {
+		return &informer.ObjectMeta{
+			Name:        name,
+			Namespace:   "shop",
+			Kind:        "Pod",
+			Labels:      map[string]string{"app": deployment, "tier": "inventory"},
+			Annotations: annotations,
+			Pod: &informer.PodInfo{
+				Owners:     []*informer.Owner{{Name: deployment, Kind: "Deployment"}},
+				Containers: []*informer.ContainerInfo{{Id: name + "-container", Name: "api", Env: env}},
+			},
+		}
+	}
+	withoutContainers := func(pod *informer.ObjectMeta) *informer.ObjectMeta {
+		pod.Pod.Containers = nil
+		return pod
+	}
+	service := func(selector map[string]string) *informer.ObjectMeta {
+		return &informer.ObjectMeta{
+			Name:      "inventory",
+			Namespace: "shop",
+			Kind:      "Service",
+			Ips:       []string{"10.96.0.10"},
+			Selector:  selector,
+		}
+	}
+	unrelatedPods := []*informer.ObjectMeta{
+		inventoryPod("pod-1", "inventory", map[string]string{
+			ServiceNameAnnotation:      "inventory-old",
+			ServiceNamespaceAnnotation: "legacy",
+		}, nil),
+		inventoryPod("pod-2", "inventory", nil, map[string]string{"OTEL_SERVICE_NAME": "inventory-old-env"}),
+	}
+
+	tests := []struct {
+		name              string
+		service           *informer.ObjectMeta
+		pods              []*informer.ObjectMeta
+		expectedName      string
+		expectedNames     []string
+		expectedNamespace string
+	}{
+		{
+			name:    "annotations from the selected Pod, not the same-named Deployment",
+			service: service(map[string]string{"app": "inventory-v2"}),
+			pods: append([]*informer.ObjectMeta{
+				inventoryPod("pod-3", "inventory-v2", map[string]string{
+					ServiceNameAnnotation:      "inventory",
+					ServiceNamespaceAnnotation: "shop-ns",
+				}, nil),
+			}, unrelatedPods...),
+			expectedName:      "inventory",
+			expectedNamespace: "shop-ns",
+		},
+		{
+			name:    "env from the selected Pod, not the same-named Deployment",
+			service: service(map[string]string{"app": "inventory-v2"}),
+			pods: append([]*informer.ObjectMeta{
+				inventoryPod("pod-3", "inventory-v2", nil, map[string]string{"OTEL_SERVICE_NAME": "inventory-env"}),
+			}, unrelatedPods...),
+			expectedName:      "inventory-env",
+			expectedNamespace: "shop",
+		},
+		{
+			name:              "selector without matching Pods keeps the Service name",
+			service:           service(map[string]string{"app": "inventory-v2"}),
+			pods:              unrelatedPods[:1],
+			expectedName:      "inventory",
+			expectedNamespace: "shop",
+		},
+		{
+			name:    "a matching Pod supplies the identity when the selector spans several workloads",
+			service: service(map[string]string{"tier": "inventory"}),
+			pods: []*informer.ObjectMeta{
+				inventoryPod("pod-5", "inventory-canary", map[string]string{ServiceNameAnnotation: "inventory-canary"}, nil),
+				inventoryPod("pod-4", "inventory-stable", map[string]string{ServiceNameAnnotation: "inventory-stable"}, nil),
+			},
+			expectedNames:     []string{"inventory-stable", "inventory-canary"},
+			expectedNamespace: "shop",
+		},
+		{
+			name:    "Pod annotations remain available before container metadata arrives",
+			service: service(map[string]string{"app": "inventory-v2"}),
+			pods: []*informer.ObjectMeta{
+				withoutContainers(inventoryPod("pod-0", "inventory-v2", map[string]string{
+					ServiceNameAnnotation:      "inventory-starting",
+					ServiceNamespaceAnnotation: "shop-ns",
+				}, nil)),
+			},
+			expectedName:      "inventory-starting",
+			expectedNamespace: "shop-ns",
+		},
+		{
+			name:    "Pods with reported containers win over Pods still starting",
+			service: service(map[string]string{"app": "inventory-v2"}),
+			pods: []*informer.ObjectMeta{
+				withoutContainers(inventoryPod("pod-0", "inventory-v2", nil, nil)),
+				inventoryPod("pod-3", "inventory-v2", nil, map[string]string{"OTEL_SERVICE_NAME": "inventory-env"}),
+			},
+			expectedName:      "inventory-env",
+			expectedNamespace: "shop",
+		},
+		{
+			name:              "Service without selector falls back to the owner name",
+			service:           service(nil),
+			pods:              unrelatedPods[:1],
+			expectedName:      "inventory-old",
+			expectedNamespace: "legacy",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			store := NewStore(&fakeInformer{}, DefaultResourceLabels, nil, imetrics.NoopReporter{})
+			for _, resource := range append([]*informer.ObjectMeta{tc.service}, tc.pods...) {
+				require.NoError(t, store.On(&informer.Event{
+					Type:     informer.EventType_CREATED,
+					Resource: resource,
+				}))
+			}
+
+			name, namespace, _ := store.ServiceNameNamespaceForIP("10.96.0.10")
+			if len(tc.expectedNames) > 0 {
+				assert.Contains(t, tc.expectedNames, name)
+			} else {
+				assert.Equal(t, tc.expectedName, name)
+			}
+			assert.Equal(t, tc.expectedNamespace, namespace)
+		})
+	}
+}
+
 func TestContainerInfoWithTemplate(t *testing.T) {
 	deployment := informer.Owner{
 		Name: "service",

@@ -60,6 +60,7 @@ func TestInventoryContainerChanges(t *testing.T) {
 func TestInventoryFailedRenewalRetainsMetadata(t *testing.T) {
 	refresher := &snapshotRefresher{snapshot: MetadataSnapshot{
 		ServiceByContainerID: map[string]string{"a": "checkout"},
+		ServiceByInstanceID:  map[string]string{"vm-a": "checkout"},
 	}}
 	inventory := NewInventory([]MetadataRefresher{refresher})
 	changes := inventory.SubscribeContainerChanges()
@@ -71,11 +72,76 @@ func TestInventoryFailedRenewalRetainsMetadata(t *testing.T) {
 	name, ok := inventory.ServiceNameForContainerID("a")
 	require.True(t, ok)
 	assert.Equal(t, "checkout", name)
+	name, ok = inventory.ServiceNameForInstanceID("vm-a")
+	require.True(t, ok)
+	assert.Equal(t, "checkout", name)
 	select {
 	case change := <-changes:
 		t.Fatalf("failed renewal published changes: %+v", change)
 	default:
 	}
+}
+
+func TestInventoryInstanceChanges(t *testing.T) {
+	refresher := &snapshotRefresher{}
+	inventory := NewInventory([]MetadataRefresher{refresher})
+	changes := inventory.SubscribeContainerChanges()
+	for _, step := range []struct {
+		name     string
+		mapping  map[string]string
+		changed  bool
+		wantName string
+	}{
+		{name: "initially empty"},
+		{name: "added", mapping: map[string]string{"vm-a": "checkout"}, changed: true, wantName: "checkout"},
+		{name: "unchanged", mapping: map[string]string{"vm-a": "checkout"}, wantName: "checkout"},
+		{name: "renamed", mapping: map[string]string{"vm-a": "payments"}, changed: true, wantName: "payments"},
+		{name: "removed", mapping: map[string]string{}, changed: true},
+		{name: "still empty"},
+	} {
+		t.Run(step.name, func(t *testing.T) {
+			refresher.snapshot = MetadataSnapshot{ServiceByInstanceID: step.mapping}
+			inventory.refresh(t.Context())
+			name, ok := inventory.ServiceNameForInstanceID("vm-a")
+			assert.Equal(t, step.wantName, name)
+			assert.Equal(t, step.wantName != "", ok)
+			select {
+			case change := <-changes:
+				require.True(t, step.changed, "unchanged instance map published a notification")
+				assert.True(t, change.InstancesChanged)
+				assert.Empty(t, change.Changed)
+				assert.Empty(t, change.Removed)
+			default:
+				require.False(t, step.changed, "instance change did not publish a notification")
+			}
+		})
+	}
+}
+
+func TestInventoryInstanceSourcesRefreshIndependently(t *testing.T) {
+	first := &snapshotRefresher{snapshot: MetadataSnapshot{ServiceByInstanceID: map[string]string{"vm-a": "checkout"}}}
+	second := &snapshotRefresher{snapshot: MetadataSnapshot{ServiceByInstanceID: map[string]string{"vm-b": "payments"}}}
+	inventory := NewInventory([]MetadataRefresher{first, second})
+	inventory.refresh(t.Context())
+
+	first.err = errors.New("unavailable")
+	second.snapshot.ServiceByInstanceID = map[string]string{"vm-b": "payments-updated"}
+	inventory.refresh(t.Context())
+	name, ok := inventory.ServiceNameForInstanceID("vm-a")
+	require.True(t, ok)
+	assert.Equal(t, "checkout", name)
+	name, ok = inventory.ServiceNameForInstanceID("vm-b")
+	require.True(t, ok)
+	assert.Equal(t, "payments-updated", name)
+
+	first.err = nil
+	first.snapshot = MetadataSnapshot{}
+	inventory.refreshSource(t.Context(), 0)
+	_, ok = inventory.ServiceNameForInstanceID("vm-a")
+	assert.False(t, ok)
+	name, ok = inventory.ServiceNameForInstanceID("vm-b")
+	require.True(t, ok)
+	assert.Equal(t, "payments-updated", name)
 }
 
 func TestInventoryRefresherNodeInitialRefresh(t *testing.T) {
