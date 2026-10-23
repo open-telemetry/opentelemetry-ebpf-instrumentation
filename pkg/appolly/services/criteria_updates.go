@@ -55,13 +55,21 @@ func (c *CriteriaUpdates) Replace(ctx context.Context, include, exclude []Select
 		return errors.New("criteria matcher stopped")
 	case c.requests <- update:
 	}
+	var err error
 	select {
 	case <-ctx.Done():
-		return ctx.Err()
+		err = ctx.Err()
 	case err := <-update.result:
 		return err
 	case <-c.done:
-		return errors.New("criteria matcher stopped")
+		err = errors.New("criteria matcher stopped")
+	}
+	// Prefer a completed acknowledgement when cancellation or shutdown also became ready.
+	select {
+	case result := <-update.result:
+		return result
+	default:
+		return err
 	}
 }
 
