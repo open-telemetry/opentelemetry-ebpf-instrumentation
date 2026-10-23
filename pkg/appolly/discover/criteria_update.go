@@ -21,7 +21,6 @@ import (
 
 // CriteriaUpdater replaces discovery predicates without restarting the instrumentation pipeline.
 // Pass it to instrumenter.WithCriteriaUpdater. Configurations must not be mutated after submission.
-// In-process export callbacks stay fixed at startup; callbacks supplied in updates are ignored.
 type CriteriaUpdater struct {
 	mu          sync.Mutex
 	fixedConfig obi.Config
