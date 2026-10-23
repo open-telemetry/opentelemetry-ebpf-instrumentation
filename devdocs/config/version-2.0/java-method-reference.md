@@ -34,6 +34,12 @@ Nested classes and types use dot-separated canonical names. `method-name` is
 one Java identifier and must match the exact method name. Whitespace is not
 allowed within the reference. The whole reference should be quoted in YAML.
 
+Wildcard and glob selectors are not supported by this contract, and there is
+no current plan to add them. A method reference is intended to identify one
+method; a glob could select a broad, less predictable set of methods. A future
+contract could define a separate selector form if selecting method sets is
+needed.
+
 The parameter list is optional:
 
 - Without a parameter list, the reference considers every method with that
@@ -60,26 +66,49 @@ the method's erased parameter types exactly.
 Resolution is exact and scoped to the target JVM:
 
 1. Find classes whose fully qualified name exactly equals `class-name`.
-2. Within the matching class, find methods declared by that class whose name
-   and, when supplied, erased parameter types match the reference.
+2. Within each matching class, find non-synthetic methods declared by that
+   class whose name and, when supplied, erased parameter types match the
+   reference. Synthetic methods, including compiler-generated bridge methods,
+   are excluded before counting matches.
 3. Resolve only when there is exactly one matching class definition and
    exactly one matching method. A method inherited from a superclass or
    interface is not considered declared by the named class; reference its
    declaring class instead. Static and instance methods are both eligible.
 
-No matching class or method is **unresolved**. More than one matching method
-is **ambiguous**. If the same class name is loaded by multiple classloaders in
-the target JVM, the reference is also **ambiguous**; it does not implicitly
-select every classloader copy. Neither unresolved nor ambiguous references
-select a method. They are distinct outcomes and should be reported distinctly
-by a future Java runtime implementation.
+Resolution follows matching class definitions as they are loaded and unloaded
+in the target JVM; it is not a one-time snapshot. The states are:
 
-Each unresolved or ambiguous declaration must report its own resolution error
+- No matching class definition is **pending**. It selects nothing and may
+  resolve when the class is loaded.
+- A matching class definition with no eligible method is **unresolved**. This
+  is a resolution error, not a pending state; loading the class does not
+  silently defer a misspelled or otherwise absent method.
+- Matching definitions of the named class in multiple classloaders are
+  **ambiguous**, regardless of whether each definition declares an eligible
+  method.
+- Exactly one matching class definition with exactly one eligible method is
+  **resolved** and selects that method. The selected method is identified by
+  its declaring class definition, including its defining classloader.
+- More than one eligible method on the unique matching class definition is
+  **ambiguous** and selects nothing.
+
+Resolution is reevaluated after each relevant class load or unload. If the new
+state is not resolved, any active selection must be detached. If the new state
+is resolved to a different class definition or method, the previous selection
+must be detached and the new one attached. A pending reference can resolve
+when a unique matching class and method appear. An unresolved reference remains
+an error while its matching class is loaded, but becomes pending if that class
+is unloaded. An ambiguous reference can recover to resolved, unresolved, or
+pending when unloading leaves a unique matching class with one eligible
+method, a unique matching class without an eligible method, or no matching
+classes, respectively. A future Java runtime implementation should report
+these outcomes distinctly.
+
+Unresolved and ambiguous declarations must report their own resolution error
 and must not prevent valid sibling declarations under the same capture rule
-from applying. This contract does not define when a runtime retries resolution
-for classes loaded after configuration.
+from applying. Pending declarations are not errors while waiting for a
+matching class to load.
 
 Constructors are not supported by this method-reference form. Return-type
-selection, matching inherited methods through a subtype, and selecting among
-classloader copies require a future contract change rather than implicit
-fallback behavior.
+selection and matching inherited methods through a subtype require a future
+contract change rather than implicit fallback behavior.
