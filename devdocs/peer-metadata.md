@@ -146,7 +146,9 @@ listeners contain an `endpoint` with `ip` and `port`, plus `service`.
 [`InstrumentationSelection`](../pkg/export/instrumentations/instr_options.go)
 mask used by the protocol metrics gate. Zero explicitly disables all mapped
 protocols; agents without a protocol restriction advertise the all-protocol mask.
-Missing eligibility on older peers retains client-side request counts.
+Agents without a metrics exporter omit this eligibility, retaining client-side
+request counts even for hostname fallbacks. Missing eligibility on older peers
+also retains client-side request counts.
 
 Use optional `port` and `ip` query parameters to filter listener inventory.
 Without filters, the response contains all instrumented services, including

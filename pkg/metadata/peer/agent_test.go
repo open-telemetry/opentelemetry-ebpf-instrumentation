@@ -28,6 +28,7 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.RefreshInterval = time.Hour
 	remote := newStore("remote-host", cfg)
+	remote.graphEnabled = true
 	api := Service{Name: "api", Namespace: "shop", ServiceGraph: true}
 	frontend := Service{Name: "frontend", Namespace: "shop"}
 	remote.setInventory([]Service{api}, []Listener{
@@ -255,6 +256,49 @@ func TestCachedPeerHostnameFallbackDoesNotCountClientRequests(t *testing.T) {
 	}
 }
 
+func TestHostnameFallbackClientCountWithoutPeerMetrics(t *testing.T) {
+	cfg := DefaultConfig()
+	peers, err := makeNetwork(nil, []string{"10.1.0.0/16"})
+	require.NoError(t, err)
+	for _, test := range []struct {
+		name    string
+		enabled bool
+	}{
+		{name: "no metrics exporter"},
+		{name: "metrics exporter enabled", enabled: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			remote := newStore("remote-host", cfg)
+			remote.graphEnabled = test.enabled
+			captured := Service{Name: "captured", ServiceGraph: test.enabled}
+			remote.setInventory([]Service{captured}, []Listener{
+				{Endpoint: Endpoint{IP: "0.0.0.0", Port: 9090}, Service: captured},
+			})
+			r := httptest.NewRequest(http.MethodGet, MetadataPath, nil)
+			r.RemoteAddr = "10.1.0.1:1234"
+			w := httptest.NewRecorder()
+			metadataHandler(remote, cfg, peers, nil).ServeHTTP(w, r)
+			require.Equal(t, http.StatusOK, w.Code)
+			var snapshot Snapshot
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &snapshot))
+
+			agent := &Agent{cfg: cfg, store: newStore("local-host", cfg), cache: newPeerCache(cfg), network: peers}
+			now := time.Now()
+			address := netip.MustParseAddr("10.1.0.2")
+			agent.cache.lookup(address, now)
+			agent.cache.complete(agent.cache.due(now, 1)[0], indexSnapshot(&snapshot), w.Body.Len(), now, now)
+			span := request.Span{Type: request.EventTypeHTTPClient, Host: address.String(), HostPort: 8080}
+			agent.Decorate(&span, now)
+			require.Equal(t, "remote-host", span.HostName)
+			require.Empty(t, span.OtherNamespace)
+			require.Equal(t, test.enabled, request.IgnoreServiceGraphClientCount(&span))
+			tracker := otel.NewPidServiceTracker()
+			require.Equal(t, !test.enabled, otel.ClientSpanToUninstrumentedService(&tracker, &span),
+				"both exporters must retain the client request total when the peer has no metrics exporter")
+		})
+	}
+}
+
 func TestClientCountRequiresReverseMetadataExchange(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.CallerTTL = time.Second
@@ -262,6 +306,7 @@ func TestClientCountRequiresReverseMetadataExchange(t *testing.T) {
 	require.NoError(t, err)
 	client := &Agent{cfg: cfg, store: newStore("client-host", cfg), cache: newPeerCache(cfg), network: peers}
 	server := &Agent{cfg: cfg, store: newStore("server-host", cfg), cache: newPeerCache(cfg), network: peers}
+	server.store.graphEnabled = true
 	backend := Service{Name: "backend", Namespace: "shop", ServiceGraph: true}
 	server.store.setInventory([]Service{backend}, []Listener{
 		{Endpoint: Endpoint{IP: "0.0.0.0", Port: 8080}, Service: backend},

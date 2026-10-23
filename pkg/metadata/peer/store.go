@@ -117,11 +117,13 @@ func (s *localStore) snapshot(targets map[string]struct{}, now time.Time) Snapsh
 
 	snapshot := Snapshot{
 		Version:               ProtocolVersion,
-		MetricProtocols:       &s.metricProtocols,
 		Hostname:              s.hostname,
 		Services:              append([]Service{}, s.services...),
 		Listeners:             append([]Listener{}, s.listeners...),
 		CallerAmbiguityMillis: remainingMillis(s.ambiguousUntil, now),
+	}
+	if s.graphEnabled {
+		snapshot.MetricProtocols = &s.metricProtocols
 	}
 
 	for destination, services := range s.callers {
