@@ -108,17 +108,56 @@ make lint
 make test
 ```
 
+This runs the Go unit tests in short mode with the race detector, then tests the
+collector. To run one package or test while iterating, use `go test -short` with
+the package path and (optionally) a test-name pattern:
+
+```sh
+go test -short -count=1 ./pkg/obi
+go test -short -count=1 -run '^TestConfig_Overrides$' ./pkg/obi
+```
+
+`-count=1` disables Go's test-result cache. The unit-test target also prepares
+Kubernetes test assets and writes coverage data under `testoutput/`. If a narrow
+`-run` pattern reports no tests to run, check the test name; short mode also
+skips tests that explicitly opt out of it.
+
 #### Running integration tests
 
 ```
 make integration-test
 ```
 
+Integration tests run OBI against test services in containers. They need a
+Linux host with eBPF support and a reachable Docker daemon; test containers may
+need elevated privileges. Generate the eBPF bindings first if they are absent
+or stale (`make docker-generate`). The target runs the full suite and removes
+its test resources before and after the run. Its preparation step also deletes
+existing files under `testoutput/`, so save logs there elsewhere before running
+it. To focus on one test while iterating, run it directly, for example:
+
+```sh
+go test -v -count=1 -run '^TestMultiProcess$' -timeout 60m ./internal/test/integration
+go test -v -count=1 -run '^TestSuite_ConfigV2Standalone$' -timeout 60m ./internal/test/integration
+```
+
+The integration package builds its OBI test image and requires Docker access.
+Test output and service logs are written under `testoutput/`. If an interrupted
+run leaves test resources behind, `make cleanup-integration-test` removes the
+test Kind cluster and containers/images with the integration-test naming
+prefixes; use it only when no other integration run is using them.
+
 #### Running k8s integration tests
 
 ```
 make integration-test-k8s
 ```
+
+This separate suite creates a local Kind cluster and also requires Docker.
+Protocol-specific OATS suites are available through `make oats-test-*` targets;
+see the [OATS test directories](internal/test/oats/) for the available suites.
+Kernel/VM integration runs use dedicated CI VM setup and are not part of the
+usual local test loop; see the [VM integration workflow](.github/workflows/workflow_integration_tests_vm.yml).
 
 ### Issues
 
