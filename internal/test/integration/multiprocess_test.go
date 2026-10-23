@@ -167,6 +167,8 @@ func TestMultiProcessConnectionInfo(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, results, "unexpected metric %s with only connection-info enabled", metric)
 	}
+
+	runWeaverValidation(t)
 }
 
 func TestMultiProcessAppCP(t *testing.T) {
