@@ -942,3 +942,51 @@ func TestEnsureEmbeddedAgent_PlaceholderBytesError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing from this build")
 }
+
+type propertiesAttacher struct {
+	response string
+	calls    int
+	cleanups int
+}
+
+func (*propertiesAttacher) Init() {}
+func (a *propertiesAttacher) Cleanup(context.Context) error {
+	a.cleanups++
+	return nil
+}
+func (*propertiesAttacher) Terminate() error { return nil }
+func (a *propertiesAttacher) Attach(_ context.Context, _ *procs.ProcessHandle, args []string, _ bool) (io.ReadCloser, error) {
+	if strings.Join(args, " ") != "jcmd VM.system_properties" {
+		return nil, fmt.Errorf("unexpected attach command: %v", args)
+	}
+	a.calls++
+	return io.NopCloser(strings.NewReader(a.response)), nil
+}
+
+func TestJavaInjector_VerifyLoadedAgentUsesOnePropertiesRequest(t *testing.T) {
+	for _, capability := range []string{"true", "false", ""} {
+		t.Run(capability, func(t *testing.T) {
+			var logs bytes.Buffer
+			injector := &JavaInjector{
+				log:          slog.New(slog.NewTextHandler(&logs, nil)),
+				agentVersion: "3",
+			}
+			attacher := &propertiesAttacher{
+				response: httpClientPropagationProperty + "=" + capability + "\n" + agentVersionProperty + "=3\n",
+			}
+			require.NoError(t, injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true))
+			require.Equal(t, 1, attacher.calls)
+			require.Equal(t, 1, attacher.cleanups)
+			assert.Equal(t, capability != "true", strings.Contains(logs.String(), "propagation unavailable"))
+		})
+	}
+}
+
+func TestJavaInjector_VerifyLoadedAgentRejectsVersionMismatch(t *testing.T) {
+	injector := &JavaInjector{log: slog.Default(), agentVersion: "3"}
+	attacher := &propertiesAttacher{response: agentVersionProperty + "=2\n" + httpClientPropagationProperty + "=true\n"}
+	err := injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true)
+	require.ErrorContains(t, err, "version 2, expected 3")
+	require.Equal(t, 1, attacher.calls)
+	require.Equal(t, 1, attacher.cleanups)
+}
