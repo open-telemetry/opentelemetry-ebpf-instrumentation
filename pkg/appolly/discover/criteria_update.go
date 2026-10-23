@@ -108,6 +108,25 @@ func settingsFor(s services.Selector) selectorSettings {
 	}
 }
 
+// The v2 converter makes defaults explicit on every include rule once any rule is refined,
+// so the last matching rule wins as a whole. On their own, those explicit defaults behave
+// like unset values and must not be reported as settings changes.
+func (s selectorSettings) withoutExplicitDefaults() selectorSettings {
+	if s.exports.CanExportTraces() && s.exports.CanExportMetrics() && s.exports.CanExportLogs() {
+		s.exports = services.ExportModeUnset
+	}
+
+	if s.routes != nil && len(s.routes.Incoming) == 0 && len(s.routes.Outgoing) == 0 && s.routes.PolicyOverrides == nil {
+		s.routes = nil
+	}
+
+	return s
+}
+
+func sameSettings(a, b selectorSettings) bool {
+	return reflect.DeepEqual(a.withoutExplicitDefaults(), b.withoutExplicitDefaults())
+}
+
 func matchingSettings(criteria []services.Selector) selectorSettings {
 	var settings selectorSettings
 	for _, criterion := range criteria {
@@ -140,9 +159,11 @@ func matchingSettings(criteria []services.Selector) selectorSettings {
 type observedProcess struct {
 	attrs   ProcessAttrs
 	process *services.ProcessInfo
-	// Includes confirmed by watcher events remain matched until removed or excluded.
+	// Includes confirmed by watcher events, directly or through a parent,
+	// remain matched until removed or excluded.
 	// A refresh using cached attributes cannot confirm a newly introduced rule.
-	confirmedCriteria []services.Selector
+	confirmedCriteria            []services.Selector
+	inheritedLogEnricherCriteria []services.Selector
 }
 
 // refresh rematches observed processes and rejects changes to retained services before emitting events.
@@ -166,7 +187,7 @@ func (m *Matcher) refresh(ctx context.Context, update services.CriteriaUpdate) e
 	for pid, previous := range m.ProcessHistory {
 		replacement, retained := next.ProcessHistory[pid]
 		if retained {
-			matchingSettings := reflect.DeepEqual(matchingSettings(previous.Criteria), matchingSettings(replacement.Criteria))
+			matchingSettings := sameSettings(matchingSettings(previous.Criteria), matchingSettings(replacement.Criteria))
 			if !matchingSettings ||
 				previous.LogEnricherEnabled() != replacement.LogEnricherEnabled() {
 				return fmt.Errorf("service settings would change for PID %d; restart OBI to apply this configuration", pid)
@@ -195,6 +216,9 @@ func (m *Matcher) refresh(ctx context.Context, update services.CriteriaUpdate) e
 					observed.confirmedCriteria = append(observed.confirmedCriteria, criterion)
 				}
 			}
+		}
+		if len(observed.confirmedCriteria) == 0 {
+			observed.inheritedLogEnricherCriteria = nil
 		}
 		next.observed[pid] = observed
 	}
@@ -264,7 +288,7 @@ func compatibleDefinitions(current, next []services.Selector) error {
 
 		found := false
 		for _, settings := range previous {
-			if reflect.DeepEqual(settings, settingsFor(candidate)) {
+			if sameSettings(settings, settingsFor(candidate)) {
 				found = true
 				break
 			}
@@ -315,7 +339,7 @@ func definitionsKeepSettings(current, next []services.Selector) bool {
 		matched := -1
 
 		for i, previous := range remaining {
-			if reflect.DeepEqual(settingsFor(previous), settingsFor(candidate)) {
+			if sameSettings(settingsFor(previous), settingsFor(candidate)) {
 				matched = i
 				break
 			}

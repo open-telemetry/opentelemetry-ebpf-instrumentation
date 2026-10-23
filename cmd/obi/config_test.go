@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,13 +15,17 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/cmd/obi/internal/configload"
 	"go.opentelemetry.io/obi/cmd/obi/internal/configwatch"
 	"go.opentelemetry.io/obi/internal/config/schema"
+	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/discover"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
+	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
@@ -142,6 +147,54 @@ extensions:
 	case <-time.After(5 * time.Second):
 		t.Fatal("configuration watcher did not reload the changed file")
 	}
+}
+
+func TestConfigReloadAddsAndRemovesRefinedRule(t *testing.T) {
+	const single = `
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: exclude
+      rules:
+        - action: include
+          match:
+            process:
+              open_ports: 8080
+`
+	const refined = single + `
+        - action: include
+          match:
+            process:
+              open_ports: 9090
+          refine:
+            exports:
+              traces: true
+`
+	initial, err := configload.LoadV2([]byte(single))
+	require.NoError(t, err)
+	updater := discover.NewCriteriaUpdater(initial)
+	matcher := &discover.Matcher{
+		Log:             slog.Default(),
+		Criteria:        discover.FindingCriteria(initial),
+		ProcessHistory:  map[app.PID]discover.ProcessMatch{},
+		Input:           make(chan []discover.Event[discover.ProcessAttrs]),
+		Output:          msg.NewQueue[[]discover.Event[discover.ProcessMatch]](),
+		CriteriaUpdates: updater.Updates(),
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	go matcher.Run(ctx)
+
+	added, err := configload.LoadV2([]byte(refined))
+	require.NoError(t, err)
+	require.NoError(t, updater.Update(ctx, added))
+
+	removed, err := configload.LoadV2([]byte(single))
+	require.NoError(t, err)
+	require.NoError(t, updater.Update(ctx, removed))
 }
 
 func TestLoadConfigV2GCEServiceName(t *testing.T) {

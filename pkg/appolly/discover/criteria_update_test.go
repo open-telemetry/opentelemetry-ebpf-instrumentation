@@ -667,6 +667,112 @@ func TestCriteriaRescanRetainsParentMatch(t *testing.T) {
 	require.Equal(t, []uint32{8080}, matcher.observed[20].process.OpenPorts)
 }
 
+func TestCriteriaRefreshRetainsOrphanedChild(t *testing.T) {
+	for _, notification := range []string{"new port", "rescan"} {
+		for _, removal := range []string{"include removed", "child excluded", "child exited"} {
+			t.Run(notification+"/"+removal, func(t *testing.T) {
+				original := processInfo
+				t.Cleanup(func() { processInfo = original })
+				parent := app.PID(10)
+				processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+					proc := &services.ProcessInfo{Pid: p.pid, ExePath: "/srv/app", OpenPorts: p.openPorts}
+					if p.pid == 20 {
+						proc.PPid = parent
+					}
+					return proc, nil
+				}
+				initial := criteriaConfig(t, "    - name: backend\n      open_ports: 9090\n")
+				output := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+				defer output.Close()
+				events := output.Subscribe()
+				matcher := &Matcher{
+					Log: slog.Default(), Criteria: FindingCriteria(initial),
+					LogEnricherCriteria: FindingCriteria(initial),
+					ProcessHistory:      map[app.PID]ProcessMatch{}, Output: output,
+					observed: map[app.PID]observedProcess{},
+				}
+				acc := pollAccounter{
+					cfg: initial, pids: map[app.PID]ProcessAttrs{}, pidPorts: map[pidPort]ProcessAttrs{},
+					executableReady: func(app.PID) (string, bool) { return "/srv/app", true },
+				}
+				processes := map[app.PID]ProcessAttrs{10: {pid: 10, openPorts: []uint32{9090}}}
+				require.Len(t, matcher.filter(acc.snapshot(processes, false)), 1)
+				processes[20] = ProcessAttrs{pid: 20}
+				created := matcher.filter(acc.snapshot(processes, false))
+				require.Len(t, created, 1)
+				require.Equal(t, app.PID(20), created[0].Obj.Process.Pid)
+				require.True(t, created[0].Obj.LogEnricherEnabled())
+
+				refresh := func(cfg *obi.Config) {
+					t.Helper()
+					require.NoError(t, matcher.refresh(t.Context(), services.CriteriaUpdate{
+						Context: t.Context(), Include: FindingCriteria(cfg), Exclude: ExcludingCriteria(cfg),
+					}))
+				}
+				assertNoEvents := func() {
+					t.Helper()
+					select {
+					case unexpected := <-events:
+						t.Fatalf("unexpected instrumentation change: %v", unexpected)
+					default:
+					}
+				}
+
+				// No configuration update precedes orphaning or the first re-emission.
+				parent = 1
+				delete(processes, 10)
+				deleted := matcher.filter(acc.snapshot(processes, false))
+				require.Len(t, deleted, 1)
+				require.Equal(t, EventDeleted, deleted[0].Type)
+				require.Equal(t, app.PID(10), deleted[0].Obj.Process.Pid)
+				forceRescan := false
+				if notification == "new port" {
+					processes[20] = ProcessAttrs{pid: 20, openPorts: []uint32{8080}}
+				} else {
+					acc.rescanProcesses()
+					var fetchPorts bool
+					fetchPorts, forceRescan = acc.pollRequirements()
+					require.True(t, fetchPorts)
+				}
+				require.Empty(t, matcher.filter(acc.snapshot(processes, forceRescan)))
+				require.Contains(t, matcher.ProcessHistory, app.PID(20))
+				require.Equal(t, app.PID(1), matcher.observed[20].process.PPid)
+
+				for _, cfg := range []*obi.Config{
+					initial,
+					criteriaConfig(t, "    - exe_path: /srv/other\n    - name: backend\n      open_ports: 9090\n"),
+				} {
+					refresh(cfg)
+					assertNoEvents()
+					require.Contains(t, matcher.ProcessHistory, app.PID(20))
+					require.True(t, matcher.ProcessHistory[20].LogEnricherEnabled())
+				}
+
+				switch removal {
+				case "include removed":
+					refresh(criteriaConfig(t, "    []\n"))
+					deleted = testutil.ReadChannel(t, events, time.Second)
+				case "child excluded":
+					excluded := criteriaConfig(t, "    - name: backend\n      open_ports: 9090\n")
+					excluded.Discovery.ExcludeInstrument = services.GlobDefinitionCriteria{{PIDs: []uint32{20}}}
+					refresh(excluded)
+					deleted = testutil.ReadChannel(t, events, time.Second)
+				case "child exited":
+					deleted = matcher.filter(acc.snapshot(map[app.PID]ProcessAttrs{}, false))
+				}
+				require.Len(t, deleted, 1)
+				require.Equal(t, EventDeleted, deleted[0].Type)
+				require.Equal(t, app.PID(20), deleted[0].Obj.Process.Pid)
+				require.NotContains(t, matcher.ProcessHistory, app.PID(20))
+
+				refresh(initial)
+				assertNoEvents()
+				require.Empty(t, matcher.filter(acc.snapshot(processes, true)), "an orphan or reused PID must not inherit a removed match")
+			})
+		}
+	}
+}
+
 func TestCriteriaRefreshAddsDefinitionsAndExclusions(t *testing.T) {
 	original := processInfo
 	t.Cleanup(func() { processInfo = original })
@@ -716,6 +822,48 @@ func TestCriteriaRefreshAddsDefinitionsAndExclusions(t *testing.T) {
 	require.Len(t, stopped, 1)
 	require.Equal(t, EventDeleted, stopped[0].Type)
 	require.Equal(t, app.PID(10), stopped[0].Obj.Process.Pid)
+}
+
+func TestCriteriaRefreshAcceptsExplicitDefaultSettings(t *testing.T) {
+	original := processInfo
+	t.Cleanup(func() { processInfo = original })
+	processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+		return &services.ProcessInfo{Pid: p.pid, ExePath: "/srv/app", OpenPorts: p.openPorts}, nil
+	}
+	initial := criteriaConfig(t, "    - name: first\n      open_ports: 8080\n")
+	updater := NewCriteriaUpdater(initial)
+	input := make(chan []Event[ProcessAttrs])
+	output := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	events := output.Subscribe()
+	matcher := &Matcher{Log: slog.Default(), Criteria: FindingCriteria(initial), ProcessHistory: map[app.PID]ProcessMatch{}, Input: input, Output: output, CriteriaUpdates: updater.Updates()}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go matcher.Run(ctx)
+	input <- []Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 10, openPorts: []uint32{8080}}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 20, openPorts: []uint32{9090}}},
+	}
+	require.Len(t, testutil.ReadChannel(t, events, time.Second), 1)
+
+	// The v2 converter makes defaults explicit on every include rule once another rule is refined.
+	refined := criteriaConfig(t, "    - name: first\n      open_ports: 8080\n    - name: second\n      open_ports: 9090\n      exports: [traces]\n")
+	allSignals := services.NewExportModes()
+	allSignals.AllowTraces()
+	allSignals.AllowMetrics()
+	allSignals.AllowLogs()
+	refined.Discovery.Instrument[0].ExportModes = allSignals
+	refined.Discovery.Instrument[0].Routes = &services.CustomRoutesConfig{}
+	require.NoError(t, updater.Update(ctx, refined))
+	created := testutil.ReadChannel(t, events, time.Second)
+	require.Len(t, created, 1)
+	require.Equal(t, EventCreated, created[0].Type)
+	require.Equal(t, app.PID(20), created[0].Obj.Process.Pid)
+
+	require.NoError(t, updater.Update(ctx, initial))
+	deleted := testutil.ReadChannel(t, events, time.Second)
+	require.Len(t, deleted, 1)
+	require.Equal(t, EventDeleted, deleted[0].Type)
+	require.Equal(t, app.PID(20), deleted[0].Obj.Process.Pid)
 }
 
 func TestCriteriaUpdaterRejectsSwappedNames(t *testing.T) {

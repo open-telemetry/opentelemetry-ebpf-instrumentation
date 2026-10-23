@@ -179,6 +179,15 @@ func (m *Matcher) matchCriteria(obj ProcessAttrs, proc *services.ProcessInfo) *P
 			logEnricherCriteria = append(logEnricherCriteria, m.LogEnricherCriteria[i])
 		}
 	}
+	// Keep inherited log enrichment while an inherited include rule remains confirmed.
+	if len(logEnricherCriteria) == 0 {
+		for _, criterion := range criteria {
+			if m.confirmedMatch(obj.pid, criterion) {
+				logEnricherCriteria = m.observed[obj.pid].inheritedLogEnricherCriteria
+				break
+			}
+		}
+	}
 
 	if len(criteria) > 0 {
 		m.Log.Debug("found process", "pid", proc.Pid, "comm", proc.ExePath, "metadata",
@@ -232,6 +241,11 @@ func (m *Matcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 
 	// We didn't match the process, but let's see if the parent PID is tracked, it might be the child hasn't opened the port yet
 	if procMatch, ok := m.ProcessHistory[proc.PPid]; ok && !m.isExcluded(&obj, proc) {
+		if observed, ok := m.observed[obj.pid]; ok {
+			observed.confirmedCriteria = procMatch.Criteria
+			observed.inheritedLogEnricherCriteria = procMatch.LogEnricherCriteria
+			m.observed[obj.pid] = observed
+		}
 		if tracked {
 			return Event[ProcessMatch]{}, false
 		}
@@ -262,6 +276,7 @@ func (m *Matcher) filterDeleted(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 	delete(m.ProcessHistory, obj.pid)
 	if observed, ok := m.observed[obj.pid]; ok {
 		observed.confirmedCriteria = nil
+		observed.inheritedLogEnricherCriteria = nil
 		m.observed[obj.pid] = observed
 	}
 	m.Log.Debug("stopped process", "pid", procMatch.Process.Pid, "comm", procMatch.Process.ExePath)
