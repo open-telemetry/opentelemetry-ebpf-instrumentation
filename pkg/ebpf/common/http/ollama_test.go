@@ -333,3 +333,61 @@ func runOllamaSpanRaw(t *testing.T, path, reqBody, respBody string) (request.Spa
 
 	return OllamaSpan(baseSpan, req, resp)
 }
+
+// --- Embeddings (/api/embed and legacy /api/embeddings) ---
+
+const ollamaEmbedRequest = `{"model":"nomic-embed-text","input":"why is the sky blue?"}`
+
+const ollamaEmbedResponse = `{"model":"nomic-embed-text","embeddings":[[0.1,0.2,0.3,0.4]],"prompt_eval_count":8,"eval_count":0}`
+
+func TestOllamaSpan_EmbedNonStreaming(t *testing.T) {
+	span, ok := runOllamaSpan(t, "/api/embed", ollamaEmbedRequest, ollamaEmbedResponse)
+	require.True(t, ok)
+
+	require.NotNil(t, span.GenAI)
+	require.NotNil(t, span.GenAI.Ollama)
+
+	ai := span.GenAI.Ollama
+	assert.Equal(t, "embeddings", ai.OperationName)
+	assert.Equal(t, "ollama", ai.ProviderName)
+	assert.Equal(t, "nomic-embed-text", ai.Request.Model)
+	assert.Equal(t, "nomic-embed-text", ai.ResponseModel)
+	assert.Equal(t, 8, tokenValue(ai.Usage.InputTokens))
+	assert.Equal(t, 4, ai.GetEmbeddingDimensions())
+	assert.Equal(t, "why is the sky blue?", ai.Request.Input)
+}
+
+func TestOllamaSpan_EmbedArrayInput(t *testing.T) {
+	reqBody := `{"model":"nomic-embed-text","input":["a","b"]}`
+	span, ok := runOllamaSpan(t, "/api/embed", reqBody, ollamaEmbedResponse)
+	require.True(t, ok)
+
+	ai := span.GenAI.Ollama
+	assert.Equal(t, "embeddings", ai.OperationName)
+	assert.Equal(t, 4, ai.GetEmbeddingDimensions())
+}
+
+func TestOllamaSpan_LegacyEmbeddings(t *testing.T) {
+	reqBody := `{"model":"nomic-embed-text","prompt":"why is the sky blue?"}`
+	respBody := `{"embedding":[0.1,0.2,0.3]}`
+	span, ok := runOllamaSpan(t, "/api/embeddings", reqBody, respBody)
+	require.True(t, ok)
+
+	ai := span.GenAI.Ollama
+	assert.Equal(t, "embeddings", ai.OperationName)
+	assert.Equal(t, "nomic-embed-text", ai.Request.Model)
+	assert.Equal(t, 3, ai.GetEmbeddingDimensions())
+}
+
+func TestOllamaSpan_EmbedStreamingNDJSON(t *testing.T) {
+	// Ollama does not stream embeddings today, but the NDJSON path must not
+	// misclassify an embeddings response.
+	respBody := `{"model":"nomic-embed-text","embeddings":[[0.1,0.2]],"done":true,"prompt_eval_count":3}` + "\n"
+	span, ok := runOllamaSpan(t, "/api/embed", ollamaEmbedRequest, respBody)
+	require.True(t, ok)
+
+	ai := span.GenAI.Ollama
+	assert.Equal(t, "embeddings", ai.OperationName)
+	assert.Equal(t, 3, tokenValue(ai.Usage.InputTokens))
+	assert.Equal(t, 2, ai.GetEmbeddingDimensions())
+}
