@@ -1,6 +1,8 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+//go:build linux
+
 package dotnet // import "go.opentelemetry.io/obi/pkg/internal/dotnet"
 
 import (
