@@ -2,7 +2,7 @@ name: Build test
 
 on:
   pull_request:
-    branches: [main, release-*]
+    branches: [main, mise, release-*]
     paths:
       - ".github/workflows/pull_request_docker_build_test.yml"
       - "Dockerfile"

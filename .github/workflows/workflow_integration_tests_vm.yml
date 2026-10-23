@@ -6,7 +6,7 @@ on:
   push:
     branches: [main, release-*]
   pull_request:
-    branches: [main, release-*]
+    branches: [main, mise, release-*]
     paths:
       - ".github/workflows/workflow_integration_tests_vm.yml"
       - ".github/actions/free-disk/**"
