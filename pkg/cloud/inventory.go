@@ -28,7 +28,7 @@ type MetadataRefresher interface {
 // MetadataSnapshot keeps track of two kinds of cloud resources:
 //   - those that are identifiable by IP address (e.g. an ECS task endpoint).
 //     Useful for service graphs and peer address resolution.
-//   - those that are identifiable by a local ID (e.g. ECS container or GCE VM).
+//   - those that are identifiable by a local ID (e.g. ECS container or cloud VM).
 //     Useful for RED metrics decoration of services in the same host as OBI
 type MetadataSnapshot struct {
 	ServiceByIP          map[string]string

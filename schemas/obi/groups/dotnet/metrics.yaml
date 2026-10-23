@@ -8,7 +8,7 @@ metrics:
     annotations:
       obi:
         upstream_override: true
-    brief: Number of managed exceptions thrown since attachment on .NET 8, including rethrows.
+    brief: Number of managed exceptions thrown since attachment on .NET 8+, including rethrows.
     instrument: counter
     unit: "{exception}"
     stability: stable

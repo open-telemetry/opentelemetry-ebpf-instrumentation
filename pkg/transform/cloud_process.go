@@ -5,11 +5,13 @@ package transform // import "go.opentelemetry.io/obi/pkg/transform"
 
 import (
 	"context"
+	"errors"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/cloud"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -23,17 +25,29 @@ func CloudProcessEventDecoratorProvider(ctxInfo *global.ContextInfo, cfg *NameRe
 			return swarm.Bypass(input, output)
 		}
 		d := cloudProcessDecorator{
+			instanceID:    localCloudInstanceID(&ctxInfo.NodeMeta, cfg),
 			inventory:     ctxInfo.CloudMetaInventory,
 			changes:       ctxInfo.CloudMetaInventory.SubscribeContainerChanges(),
 			input:         input.Subscribe(msg.SubscriberName("CloudProcessEventDecorator")),
 			output:        output,
 			containerInfo: container.InfoForPID,
 		}
-		if cfg != nil && resolverSources(cfg.Sources).Has(ResolverGCE) {
-			d.instanceID = gceLocalInstanceID(ctxInfo.NodeMeta, cfg.GCE)
-		}
 		return d.run, nil
 	}
+}
+
+// localCloudInstanceID selects the detected VM identity for both process and span
+// decoration. Each provider checks that the configured scope matches this host.
+func localCloudInstanceID(node *metadata.NodeMeta, cfg *NameResolverConfig) string {
+	if cfg == nil {
+		return ""
+	}
+	if resolverSources(cfg.Sources).Has(ResolverGCE) {
+		if id := gceLocalInstanceID(*node, cfg.GCE); id != "" {
+			return id
+		}
+	}
+	return localAzureInstanceID(node, cfg)
 }
 
 type cloudProcessDecorator struct {
@@ -111,21 +125,21 @@ func (d *cloudProcessDecorator) decorate(event exec.ProcessEvent, fallbackName s
 	if !service.AutoName() {
 		return false
 	}
-	var name string
-	var ok bool
-	if d.instanceID != "" {
-		name, ok = d.inventory.ServiceNameForInstanceID(d.instanceID)
-	} else {
-		id := service.RuntimeContainerID
-		if id == "" {
-			info, err := d.containerInfo(file.Pid())
-			if err != nil {
-				return false
-			}
+	id := service.RuntimeContainerID
+	if id == "" {
+		info, err := d.containerInfo(file.Pid())
+		switch {
+		case err == nil:
 			id = info.ContainerID
 			file.SetRuntimeContainerID(id)
+		case !errors.Is(err, container.ErrContainerNotFound):
+			return false
 		}
-		name, ok = d.inventory.ServiceNameForContainerID(id)
+	}
+	name, ok := d.inventory.ServiceNameForContainerID(id)
+	// Container identity takes priority; host processes can use VM membership.
+	if !ok && d.instanceID != "" {
+		name, ok = d.inventory.ServiceNameForInstanceID(d.instanceID)
 	}
 	if !ok {
 		name = fallbackName

@@ -28,18 +28,35 @@ func TestEncodeEventPipeStart(t *testing.T) {
 			"010000000000", // Empty CLR provider arguments
 	)
 	require.NoError(t, err)
-	request, err := encodeEventPipeStart(time.Second, true)
+	request, err := encodeEventPipeStart(time.Second, true, "")
 	require.NoError(t, err)
 	require.Equal(t, want, request)
 }
 
 func TestEncodeEventPipeStartWithoutExceptions(t *testing.T) {
-	request, err := encodeEventPipeStart(time.Second, false)
+	request, err := encodeEventPipeStart(time.Second, false, "")
 	require.NoError(t, err)
 	want, err := encodeCollectTracing2(eventPipeProvider{
 		name: "System.Runtime", keywords: systemRuntimeKeywords,
 		level: eventLevelInformational, arguments: "EventCounterIntervalSec=1",
 	})
+	require.NoError(t, err)
+	require.Equal(t, want, request)
+}
+
+func TestEncodeEventPipeStartWithExceptionMeter(t *testing.T) {
+	request, err := encodeEventPipeStart(250*time.Millisecond, false, "test-session")
+	require.NoError(t, err)
+	want, err := encodeCollectTracing2(
+		eventPipeProvider{
+			name: "System.Runtime", keywords: 0x2, level: 4,
+			arguments: "EventCounterIntervalSec=0.25",
+		},
+		eventPipeProvider{
+			name: "System.Diagnostics.Metrics", keywords: 0x2, level: 4,
+			arguments: "SessionId=test-session;Metrics=System.Runtime\\dotnet.exceptions;RefreshInterval=0.25;MaxTimeSeries=128;MaxHistograms=0",
+		},
+	)
 	require.NoError(t, err)
 	require.Equal(t, want, request)
 }
@@ -73,7 +90,7 @@ func TestEncodeEventPipeStartSamplingInterval(t *testing.T) {
 		{10 * time.Second, "EventCounterIntervalSec=10"},
 	} {
 		t.Run(tc.interval.String(), func(t *testing.T) {
-			request, err := encodeEventPipeStart(tc.interval, true)
+			request, err := encodeEventPipeStart(tc.interval, true, "")
 			require.NoError(t, err)
 			// Skip the 20-byte IPC header and 25 bytes of fixed session/provider fields.
 			reader := bytes.NewReader(request[45:])
@@ -98,14 +115,20 @@ func TestEncodeEventPipeStartSamplingInterval(t *testing.T) {
 
 func TestEncodeEventPipeStartInvalidInterval(t *testing.T) {
 	for _, interval := range []time.Duration{0, -time.Second} {
-		request, err := encodeEventPipeStart(interval, true)
+		request, err := encodeEventPipeStart(interval, true, "")
 		require.ErrorContains(t, err, "sampling interval must be greater than 0")
 		require.Nil(t, request)
 	}
 }
 
 func TestStartEventPipeRetainsStream(t *testing.T) {
-	wantRequest, err := encodeEventPipeStart(250*time.Millisecond, true)
+	t.Run("CLR", func(t *testing.T) { testStartEventPipeRetainsStream(t, true, "") })
+	t.Run("Meter", func(t *testing.T) { testStartEventPipeRetainsStream(t, false, "test-session") })
+}
+
+func testStartEventPipeRetainsStream(t *testing.T, exceptions bool, metricsSessionID string) {
+	t.Helper()
+	wantRequest, err := encodeEventPipeStart(250*time.Millisecond, exceptions, metricsSessionID)
 	require.NoError(t, err)
 	socketPath, done := serveDiagnosticIPC(t, func(conn net.Conn) error {
 		request := make([]byte, len(wantRequest))
@@ -126,11 +149,12 @@ func TestStartEventPipeRetainsStream(t *testing.T) {
 	})
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
-	session, err := startEventPipe(ctx, socketPath, 250*time.Millisecond, true)
+	session, err := startEventPipe(ctx, socketPath, 250*time.Millisecond, exceptions, metricsSessionID)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = session.stream.Close() })
 	require.Equal(t, uint64(0x0102030405060708), session.id)
 	require.Equal(t, socketPath, session.socketPath)
+	require.Equal(t, metricsSessionID, session.metricsSessionID)
 
 	// Canceling setup after success must leave the continuation readable.
 	cancel()
@@ -166,7 +190,7 @@ func TestStartEventPipeInvalidResponseClosesSocket(t *testing.T) {
 				}
 				return nil
 			})
-			session, err := startEventPipe(t.Context(), socketPath, time.Second, true)
+			session, err := startEventPipe(t.Context(), socketPath, time.Second, true, "")
 			require.ErrorContains(t, err, tc.err)
 			require.Nil(t, session)
 			require.NoError(t, <-done)
@@ -188,7 +212,7 @@ func TestStartEventPipeCancellationClosesSocket(t *testing.T) {
 		}
 		return nil
 	})
-	session, err := startEventPipe(ctx, socketPath, time.Second, true)
+	session, err := startEventPipe(ctx, socketPath, time.Second, true, "")
 	require.ErrorIs(t, err, context.Canceled)
 	require.Nil(t, session)
 	require.NoError(t, <-done)

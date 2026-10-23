@@ -17,6 +17,7 @@ BUILD_COMPOSE_FILES=(
     docker-compose-multiexec-host.yml
     docker-compose-log-enricher.yml
     docker-compose-large-http-req.yml
+    docker-compose-cp-enrollment.yml
 )
 
 # Registries that rate-limit anonymous pulls with no auth escape hatch. Docker Hub

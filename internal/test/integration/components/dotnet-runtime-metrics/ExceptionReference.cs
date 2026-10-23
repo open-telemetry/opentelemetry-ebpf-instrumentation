@@ -2,16 +2,47 @@
 // SPDX-License-Identifier: Apache-2.0
 
 using System.Runtime.ExceptionServices;
+using System.Diagnostics.Metrics;
 
 static class ExceptionReference
 {
     private static readonly object gate = new();
     private static readonly Dictionary<string, long> counts = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, long> meterCounts = new(StringComparer.Ordinal);
+    private static readonly MeterListener listener = new();
+    private static bool meterAvailable;
+
     [ThreadStatic]
     private static bool recording;
 
     static ExceptionReference()
     {
+        listener.InstrumentPublished = (instrument, current) =>
+        {
+            if (instrument.Meter.Name == "System.Runtime" && instrument.Name == "dotnet.exceptions")
+            {
+                lock (gate)
+                {
+                    meterAvailable = true;
+                }
+                current.EnableMeasurementEvents(instrument);
+            }
+        };
+        listener.SetMeasurementEventCallback<long>((_, value, tags, _) =>
+        {
+            foreach (var tag in tags)
+            {
+                if (tag.Key == "error.type" && tag.Value is string name && name.StartsWith("Pr5", StringComparison.Ordinal))
+                {
+                    lock (gate)
+                    {
+                        meterCounts.TryGetValue(name, out long count);
+                        meterCounts[name] = count + value;
+                    }
+                }
+            }
+        });
+        listener.Start();
         AppDomain.CurrentDomain.FirstChanceException += (_, args) =>
         {
             if (recording || !args.Exception.GetType().Name.StartsWith("Pr5", StringComparison.Ordinal))
@@ -59,7 +90,7 @@ static class ExceptionReference
         Task.Run(() => Catch(() => throw new Pr5Background())).GetAwaiter().GetResult();
         lock (gate)
         {
-            return new { before, after = Snapshot() };
+            return new { before, after = Snapshot(), meterAvailable, meter = new Dictionary<string, long>(meterCounts) };
         }
     }
 
