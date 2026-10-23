@@ -97,6 +97,42 @@ func TestCohereSpan_ToolCalls(t *testing.T) {
 	assert.Contains(t, ai.GetOutput(), `"name":"query_daily_sales_report"`)
 }
 
+func TestCohereSpan_ToolResultInput(t *testing.T) {
+	reqBody := `{"model":"command-a-03-2025","messages":[
+  {"role":"user","content":"What were the sales on 2023-09-29?"},
+  {"role":"assistant","tool_plan":"I will look up the sales report.","tool_calls":[{"id":"query_daily_sales_report_0","type":"function","function":{"name":"query_daily_sales_report","arguments":"{\"day\":\"2023-09-29\"}"}}]},
+  {"role":"tool","tool_call_id":"query_daily_sales_report_0","content":[{"type":"document","document":{"data":"{\"total_sales_amount\":10000}"}}]}
+]}`
+	span, ok := runCohereSpan(t, cohereHost, "/v2/chat", reqBody, cohereChatResponseBody)
+	require.True(t, ok)
+
+	assert.JSONEq(t, `[
+  {"role":"user","parts":[{"type":"text","content":"What were the sales on 2023-09-29?"}]},
+  {"role":"assistant","parts":[{"type":"tool_call","id":"query_daily_sales_report_0","name":"query_daily_sales_report","arguments":"{\"day\":\"2023-09-29\"}"}]},
+  {"role":"tool","parts":[{"type":"tool_call_response","id":"query_daily_sales_report_0","result":"{\"total_sales_amount\":10000}"}]}
+]`, span.GenAI.Cohere.Request.GetInput())
+}
+
+func TestCohereSpan_ToolResultObjectDocument(t *testing.T) {
+	reqBody := `{"model":"command-a-03-2025","messages":[{"role":"tool","tool_call_id":"t0","content":[{"type":"document","document":{"data":{"total_sales_amount":10000}}}]}]}`
+	span, ok := runCohereSpan(t, cohereHost, "/v2/chat", reqBody, cohereChatResponseBody)
+	require.True(t, ok)
+
+	assert.JSONEq(t,
+		`[{"role":"tool","parts":[{"type":"tool_call_response","id":"t0","result":"{\"total_sales_amount\":10000}"}]}]`,
+		span.GenAI.Cohere.Request.GetInput())
+}
+
+func TestCohereSpan_ThinkingOutput(t *testing.T) {
+	response := `{"id":"x","finish_reason":"COMPLETE","message":{"role":"assistant","content":[{"type":"thinking","thinking":"The user greets me."},{"type":"text","text":"Hello!"}]}}`
+	span, ok := runCohereSpan(t, cohereHost, "/v2/chat", cohereChatRequestBody, response)
+	require.True(t, ok)
+
+	assert.JSONEq(t,
+		`[{"role":"assistant","parts":[{"type":"reasoning","content":"The user greets me."},{"type":"text","content":"Hello!"}],"finish_reason":"COMPLETE"}]`,
+		span.GenAI.Cohere.GetOutput())
+}
+
 func TestCohereSpan_MissingUsage(t *testing.T) {
 	response := `{"id":"x","finish_reason":"COMPLETE","message":{"role":"assistant","content":[]}}`
 	span, ok := runCohereSpan(t, cohereHost, "/v2/chat", cohereChatRequestBody, response)

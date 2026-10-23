@@ -35,9 +35,8 @@ type cohereChatRequest struct {
 }
 
 // cohereChatResponse represents the Cohere v2 non-streaming chat response
-// body. The message object (role, content blocks, tool_calls) has the same
-// shape as an OpenAI chat completion message, so it is kept raw and handed to
-// the OpenAI choice normalization.
+// body. The message object is kept raw and converted by convertCohereMessage
+// before it reaches the OpenAI choice normalization.
 type cohereChatResponse struct {
 	ID           string          `json:"id"`
 	FinishReason string          `json:"finish_reason"`
@@ -114,7 +113,7 @@ func CohereSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		TopP:          cohereReq.P,
 		Request: request.OpenAIInput{
 			Model:            cohereReq.Model,
-			Messages:         cohereReq.Messages,
+			Messages:         convertCohereMessages(cohereReq.Messages),
 			MaxTokens:        cohereReq.MaxTokens,
 			Temperature:      cohereReq.Temperature,
 			Stop:             cohereReq.StopSequences,
@@ -161,8 +160,108 @@ func parseCohereChatResponse(respB []byte, parsed *request.VendorOpenAI) {
 	}
 
 	if len(cohereResp.Message) > 0 || cohereResp.FinishReason != "" {
-		buildCohereChoices(parsed, cohereResp.Message, cohereResp.FinishReason)
+		buildCohereChoices(parsed, convertCohereMessage(cohereResp.Message), cohereResp.FinishReason)
 	}
+}
+
+// convertCohereMessages converts a Cohere v2 messages array to the OpenAI chat
+// message shape. A message that cannot be decoded is kept as captured.
+func convertCohereMessages(raw json.RawMessage) json.RawMessage {
+	var messages []json.RawMessage
+	if err := json.Unmarshal(raw, &messages); err != nil {
+		return raw
+	}
+
+	for i := range messages {
+		messages[i] = convertCohereMessage(messages[i])
+	}
+
+	converted, err := json.Marshal(messages)
+	if err != nil {
+		return raw
+	}
+	return converted
+}
+
+// convertCohereMessage converts the content blocks of a Cohere v2 message to
+// their OpenAI equivalents. Role, tool calls and every other field are already
+// OpenAI-shaped and are kept as they are.
+func convertCohereMessage(raw json.RawMessage) json.RawMessage {
+	var message map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &message); err != nil {
+		return raw
+	}
+
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(message["content"], &blocks); err != nil {
+		return raw
+	}
+
+	for i := range blocks {
+		blocks[i] = convertCohereContentBlock(blocks[i])
+	}
+
+	content, err := json.Marshal(blocks)
+	if err != nil {
+		return raw
+	}
+	message["content"] = content
+
+	converted, err := json.Marshal(message)
+	if err != nil {
+		return raw
+	}
+	return converted
+}
+
+// convertCohereContentBlock maps the Cohere-only content blocks onto blocks the
+// OpenAI normalization reads:
+//   - document (tool results) becomes a text block carrying document.data
+//   - thinking becomes a reasoning block, matching the Anthropic normalization
+//
+// Any other block is kept as it is.
+func convertCohereContentBlock(raw json.RawMessage) json.RawMessage {
+	var block struct {
+		Type     string `json:"type"`
+		Thinking string `json:"thinking"`
+		Document struct {
+			Data json.RawMessage `json:"data"`
+		} `json:"document"`
+	}
+	if err := json.Unmarshal(raw, &block); err != nil {
+		return raw
+	}
+
+	type textBlock struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+
+	var converted textBlock
+	switch block.Type {
+	case "document":
+		converted = textBlock{Type: "text", Text: cohereDocumentText(block.Document.Data)}
+	case "thinking":
+		converted = textBlock{Type: "reasoning", Text: block.Thinking}
+	default:
+		return raw
+	}
+
+	b, err := json.Marshal(converted)
+	if err != nil {
+		return raw
+	}
+	return b
+}
+
+// cohereDocumentText returns a document's data as text. Cohere documents carry
+// a JSON-encoded string, but an object is accepted too and kept as JSON.
+func cohereDocumentText(data json.RawMessage) string {
+	var text string
+	if err := json.Unmarshal(data, &text); err == nil {
+		return text
+	}
+	return string(data)
 }
 
 // parseCohereChatStream fills the response fields of parsed from a Cohere v2
