@@ -796,16 +796,44 @@ func testGoJSONRPCTraces(t *testing.T) {
 	}, testTimeout, time.Second)
 }
 
+func waitForHTTPServerTrace(t *testing.T, baseURL, service string) {
+	t.Helper()
+
+	path := "/smoke-" + createTraceID()
+	params := url.Values{"service": {service}, "operation": {"GET " + path}}
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := testHTTPClient.Get(baseURL + path)
+		require.NoError(ct, err)
+		defer resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		_, err = io.Copy(io.Discard, resp.Body)
+		require.NoError(ct, err)
+
+		resp, err = getJaeger(jaegerQueryURL + "?" + params.Encode())
+		require.NoError(ct, err)
+		defer resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		require.NotEmpty(ct, tq.FindBySpan(
+			jaeger.Tag{Key: "url.path", Type: "string", Value: path},
+			jaeger.Tag{Key: "span.kind", Type: "string", Value: "server"},
+		), "waiting for %s to export a server span for %s", baseURL, path)
+	}, 2*time.Minute, time.Second)
+}
+
 func testNestedHTTPTracesKProbes(t *testing.T) {
 	var traceID string
 
-	waitForTestComponents(t, "http://localhost:3031")                 // nodejs
-	waitForTestComponents(t, "http://localhost:8080")                 // go
-	waitForTestComponents(t, "http://localhost:7773")                 // python
-	waitForRubyTestComponents(t, "http://localhost:3041")             // ruby
-	waitForTestComponentsSub(t, "http://localhost:8086", "/greeting") // java
-	waitForTestComponents(t, "http://localhost:8091")                 // rust
-	waitForTestComponents(t, instrumentedServiceJSONRPCURL)           // go jsonrpc
+	waitForTestComponents(t, "http://localhost:3031")                      // nodejs
+	waitForHTTPServerTrace(t, instrumentedServiceStdURL, "testserver")     // go
+	waitForTestComponents(t, "http://localhost:7773")                      // python
+	waitForRubyTestComponents(t, "http://localhost:3041")                  // ruby
+	waitForTestComponentsSub(t, "http://localhost:8086", "/greeting")      // java
+	waitForTestComponents(t, "http://localhost:8091")                      // rust
+	waitForHTTPServerTrace(t, instrumentedServiceJSONRPCURL, "testserver") // go jsonrpc
 
 	// Add and check for specific trace ID
 	// Run couple of requests to make sure we flush out any transactions that might be

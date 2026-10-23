@@ -321,7 +321,7 @@ run = "./scripts/generate-integration-matrix.sh internal/test/integration \"${PA
 [tasks."test:integration:matrix:multiprocess"]
 alias = ["integration:matrix-multiprocess-json", "multiprocess-integration-test-matrix-json"]
 hide = true
-run = "./scripts/generate-integration-matrix.sh internal/test/integration \"${PARTITIONS:-5}\" '(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest)'"
+run = "./scripts/generate-integration-matrix.sh internal/test/integration \"${PARTITIONS:-5}\" '(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest|TestGo.*SDKActivation|TestCPEnrollment)'"
 
 [tasks."test:integration:k8s:matrix"]
 alias = ["integration:matrix-k8s-json", "k8s-integration-test-matrix-json"]

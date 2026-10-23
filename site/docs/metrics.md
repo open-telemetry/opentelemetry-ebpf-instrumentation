@@ -111,7 +111,7 @@ No attributes.
 
 ## `dotnet.exceptions`
 
-Number of managed exceptions thrown since attachment on .NET 8, including rethrows.
+Number of managed exceptions thrown since attachment on .NET 8+, including rethrows.
 
 | Instrument | Unit | Stability |
 | --- | --- | --- |
