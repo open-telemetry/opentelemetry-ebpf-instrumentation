@@ -988,7 +988,7 @@ through Config v2 only. See the
 
 ## Azure service name resolution
 
-The `azure` service name source uses Uniform Virtual Machine Scale Set names
+The `azure` service name source uses Uniform and Flexible Virtual Machine Scale Set names
 for automatic local service names and remote private-IP names. Enable it in
 Config v2:
 
@@ -1020,9 +1020,14 @@ interfaces. The corresponding read actions are:
 - `Microsoft.Compute/virtualMachineScaleSets/read`
 - `Microsoft.Compute/virtualMachineScaleSets/virtualMachines/read`
 - `Microsoft.Compute/virtualMachineScaleSets/networkInterfaces/read`
+- `Microsoft.Compute/virtualMachines/read` for Flexible members
+- `Microsoft.Network/networkInterfaces/read` for Flexible members' interfaces
+
+Flexible members can reference network interfaces in another resource group
+within the selected subscription. Grant read access to those interfaces too.
 
 Automatic resource-provider registration is disabled. This implementation targets
-Azure public cloud and Uniform scale sets. Flexible scale sets are skipped.
+Azure public cloud and supports Uniform and Flexible scale sets.
 
 Only running VMs contribute names. A local automatic name becomes the scale-set
 name when the detected VM UUID belongs to the selected scope. An exported

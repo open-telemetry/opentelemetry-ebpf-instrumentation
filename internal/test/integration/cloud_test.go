@@ -105,6 +105,11 @@ func setupAWSMockIMDS(t *testing.T, net dockertest.Network) {
 // https://learn.microsoft.com/en-us/azure/virtual-machines/instance-metadata-service?tabs=linux
 func setupMockAzureIMDS(t *testing.T, imdsSubnet dockertest.Network) {
 	t.Helper()
+	setupMockAzureIMDSWithFile(t, imdsSubnet, pathRoot+"/internal/test/integration/components/azure-imds/azure-metadata-mock.json")
+}
+
+func setupMockAzureIMDSWithFile(t *testing.T, imdsSubnet dockertest.Network, metadataFile string) {
+	t.Helper()
 	t.Log("Starting Azure IMDS Mock container...")
 
 	mockIMDS, err := dockerPool.Run(t.Context(), imgNginx.Repository(),
@@ -112,7 +117,7 @@ func setupMockAzureIMDS(t *testing.T, imdsSubnet dockertest.Network) {
 		dockertest.WithName(fmt.Sprintf("mock-imds-nginx-%d", time.Now().UnixNano())),
 		dockertest.WithMounts([]string{
 			pathRoot + "/internal/test/integration/components/azure-imds/nginx.conf:/etc/nginx/nginx.conf",
-			pathRoot + "/internal/test/integration/components/azure-imds/azure-metadata-mock.json:/azure-metadata-mock.json",
+			metadataFile + ":/azure-metadata-mock.json",
 		}),
 		dockertest.WithPortBindings(portBindings("80/tcp", "")),
 		dockertest.WithContainerConfig(func(config *container.Config) {

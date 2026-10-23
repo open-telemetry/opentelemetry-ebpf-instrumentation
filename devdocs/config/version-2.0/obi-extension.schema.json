@@ -2283,7 +2283,7 @@
           "properties": {
             "azure": {
               "type": "object",
-              "description": "Uniform Azure VM scale set discovery settings, enabled by the azure service name source.",
+              "description": "Uniform and Flexible Azure VM scale set discovery settings, enabled by the azure service name source.",
               "additionalProperties": false,
               "properties": {
                 "subscription_id": {

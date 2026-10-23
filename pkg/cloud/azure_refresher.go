@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/arm"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/compute/armcompute/v9"
 	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v12"
 )
@@ -80,23 +81,28 @@ func AzureInstanceID(subscription, uuid string) string {
 	return "azure:" + strings.ToLower(subscription) + ":" + strings.ToLower(uuid)
 }
 
-// refreshScaleSet adds a Uniform scale set's running VMs to the candidate snapshot.
+// refreshScaleSet adds a scale set's running VMs to the candidate snapshot.
 // IP ownership spans all scale sets in the refresh so overlapping addresses stay unresolved.
 func (i *AzureInventoryRefresher) refreshScaleSet(ctx context.Context, set *armcompute.VirtualMachineScaleSet,
 	snapshot *MetadataSnapshot, ipOwners map[string]string,
 ) error {
-	if set.Properties != nil && set.Properties.OrchestrationMode != nil &&
-		*set.Properties.OrchestrationMode != armcompute.OrchestrationModeUniform {
-		// Uniform discovery also runs in resource groups containing Flexible sets.
-		if *set.Properties.OrchestrationMode == armcompute.OrchestrationModeFlexible {
-			return nil
-		}
-		return fmt.Errorf("unsupported Azure scale set orchestration mode %q", *set.Properties.OrchestrationMode)
+	mode := armcompute.OrchestrationModeUniform
+	if set.Properties != nil && set.Properties.OrchestrationMode != nil {
+		mode = *set.Properties.OrchestrationMode
 	}
-	vms, err := i.uniformVMs(ctx, *set.Name)
+	var vms []*azureVM
+	var err error
+	switch mode {
+	case armcompute.OrchestrationModeFlexible:
+		vms, err = i.flexibleVMs(ctx, *set.ID)
+	case armcompute.OrchestrationModeUniform:
+		vms, err = i.uniformVMs(ctx, *set.Name)
+	default:
+		return fmt.Errorf("unsupported Azure scale set orchestration mode %q", mode)
+	}
 	if err != nil {
 		var responseErr *azcore.ResponseError
-		if errors.As(err, &responseErr) && responseErr.StatusCode == http.StatusNotFound {
+		if mode == armcompute.OrchestrationModeUniform && errors.As(err, &responseErr) && responseErr.StatusCode == http.StatusNotFound {
 			// A scale set can disappear after enumeration.
 			return nil
 		}
@@ -108,6 +114,80 @@ func (i *AzureInventoryRefresher) refreshScaleSet(ctx context.Context, set *armc
 		}
 	}
 	return nil
+}
+
+// flexibleVMs reads standard VMs associated with the scale set and their NICs.
+func (i *AzureInventoryRefresher) flexibleVMs(ctx context.Context, setID string) ([]*azureVM, error) {
+	filter := "'virtualMachineScaleSet/id' eq '" + setID + "'"
+	expand := armcompute.ExpandTypeForListVMsInstanceView
+	pager := i.compute.NewVirtualMachinesClient().NewListPager(i.resourceGroup,
+		&armcompute.VirtualMachinesClientListOptions{Filter: &filter, Expand: &expand})
+	var vms []*azureVM
+	for pager.More() {
+		page, err := pager.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("listing Azure flexible scale set %q VMs: %w", setID, err)
+		}
+		for _, member := range page.Value {
+			if member == nil || member.Properties == nil {
+				return nil, fmt.Errorf("listed Azure flexible scale set %q contains a VM without properties", setID)
+			}
+			properties := member.Properties
+			if properties.VirtualMachineScaleSet == nil || properties.VirtualMachineScaleSet.ID == nil ||
+				!strings.EqualFold(*properties.VirtualMachineScaleSet.ID, setID) {
+				return nil, fmt.Errorf("listed Azure VM has unexpected scale set membership for %q", setID)
+			}
+			if properties.InstanceView == nil || !azureVMRunning(properties.InstanceView.Statuses) {
+				continue
+			}
+			if member.ID == nil || *member.ID == "" || properties.VMID == nil || *properties.VMID == "" {
+				return nil, errors.New("running Azure flexible VM has no resource ID or UUID")
+			}
+			vm := &azureVM{uuid: *properties.VMID}
+			if properties.NetworkProfile != nil {
+				for _, nic := range properties.NetworkProfile.NetworkInterfaces {
+					if nic == nil || nic.ID == nil || *nic.ID == "" {
+						return nil, fmt.Errorf("running Azure flexible VM %q has a network interface without an ID", vm.uuid)
+					}
+					networkInterface, err := i.flexibleNIC(ctx, *nic.ID)
+					if err != nil {
+						return nil, err
+					}
+					if networkInterface.Properties == nil {
+						return nil, fmt.Errorf("fetched Azure network interface %q has no properties", *nic.ID)
+					}
+					owner := networkInterface.Properties.VirtualMachine
+					if owner == nil || owner.ID == nil || !strings.EqualFold(*owner.ID, *member.ID) {
+						continue
+					}
+					ips, err := azurePrivateIPs(networkInterface.Properties.IPConfigurations)
+					if err != nil {
+						return nil, err
+					}
+					vm.privateIPs = append(vm.privateIPs, ips...)
+				}
+			}
+			vms = append(vms, vm)
+		}
+	}
+	return vms, nil
+}
+
+// flexibleNIC follows a NIC reference within the subscription, including other resource groups.
+func (i *AzureInventoryRefresher) flexibleNIC(ctx context.Context, resourceID string) (*armnetwork.Interface, error) {
+	id, err := arm.ParseResourceID(resourceID)
+	if err != nil {
+		return nil, fmt.Errorf("parsing Azure network interface reference: %w", err)
+	}
+	if !strings.EqualFold(id.SubscriptionID, i.subscription) || id.ResourceGroupName == "" ||
+		!strings.EqualFold(id.ResourceType.String(), "Microsoft.Network/networkInterfaces") {
+		return nil, fmt.Errorf("invalid Azure network interface reference %q", resourceID)
+	}
+	response, err := i.network.Get(ctx, id.ResourceGroupName, id.Name, nil)
+	if err != nil {
+		return nil, fmt.Errorf("reading Azure network interface %q: %w", resourceID, err)
+	}
+	return &response.Interface, nil
 }
 
 func (i *AzureInventoryRefresher) addVM(snapshot *MetadataSnapshot, ipOwners map[string]string, serviceName string, vm *azureVM) error {
