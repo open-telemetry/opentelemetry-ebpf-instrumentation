@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"sync"
 
@@ -137,6 +138,9 @@ func matchingSettings(criteria []services.Selector) selectorSettings {
 type observedProcess struct {
 	attrs   ProcessAttrs
 	process *services.ProcessInfo
+	// Includes confirmed by watcher events remain matched until removed or excluded.
+	// A refresh using cached attributes cannot confirm a newly introduced rule.
+	confirmedCriteria []services.Selector
 }
 
 // refresh rematches observed processes and rejects changes to retained services before emitting events.
@@ -146,6 +150,7 @@ func (m *Matcher) refresh(ctx context.Context, update services.CriteriaUpdate) e
 	}
 
 	next := *m
+	next.observed = maps.Clone(m.observed)
 	next.Criteria = update.Include
 	next.ExcludeCriteria = update.Exclude
 	next.ProcessHistory = map[app.PID]ProcessMatch{}
@@ -180,6 +185,19 @@ func (m *Matcher) refresh(ctx context.Context, update services.CriteriaUpdate) e
 		return err
 	}
 
+	for pid, observed := range next.observed {
+		observed.confirmedCriteria = nil
+		if next.alreadyMatched(pid) {
+			for _, criterion := range next.Criteria {
+				if m.confirmedMatch(pid, criterion) {
+					observed.confirmedCriteria = append(observed.confirmedCriteria, criterion)
+				}
+			}
+		}
+		next.observed[pid] = observed
+	}
+
+	m.observed = next.observed
 	m.Criteria = next.Criteria
 	m.ExcludeCriteria = next.ExcludeCriteria
 	m.ProcessHistory = next.ProcessHistory

@@ -481,6 +481,87 @@ func TestCriteriaRefreshRescanReconcilesTrackedProcess(t *testing.T) {
 	}
 }
 
+func TestCriteriaRefreshRetainsEstablishedPortMatch(t *testing.T) {
+	for _, closeBeforeUpdate := range []bool{false, true} {
+		name := "port closes after update"
+		if closeBeforeUpdate {
+			name = "port closes before update"
+		}
+		t.Run(name, func(t *testing.T) {
+			original := processInfo
+			t.Cleanup(func() { processInfo = original })
+			processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+				return &services.ProcessInfo{Pid: p.pid, ExePath: "/srv/app", OpenPorts: p.openPorts}, nil
+			}
+			initial := criteriaConfig(t, "    - open_ports: 8080\n")
+			output := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+			defer output.Close()
+			events := output.Subscribe()
+			matcher := &Matcher{
+				Log: slog.Default(), Criteria: FindingCriteria(initial),
+				ProcessHistory: map[app.PID]ProcessMatch{}, Output: output,
+				observed: map[app.PID]observedProcess{},
+			}
+			acc := pollAccounter{
+				cfg: initial, pids: map[app.PID]ProcessAttrs{}, pidPorts: map[pidPort]ProcessAttrs{},
+				executableReady: func(app.PID) (string, bool) { return "/srv/app", true },
+			}
+			rescan := func(ports ...uint32) []Event[ProcessMatch] {
+				acc.rescanProcesses()
+				fetchPorts, forceRescan := acc.pollRequirements()
+				require.True(t, fetchPorts)
+				return matcher.filter(acc.snapshot(map[app.PID]ProcessAttrs{10: {pid: 10, openPorts: ports}}, forceRescan))
+			}
+			refresh := func(cfg *obi.Config) {
+				t.Helper()
+				require.NoError(t, matcher.refresh(t.Context(), services.CriteriaUpdate{
+					Context: t.Context(), Include: FindingCriteria(cfg), Exclude: ExcludingCriteria(cfg),
+				}))
+			}
+			assertNoEvents := func() {
+				t.Helper()
+				select {
+				case unexpected := <-events:
+					t.Fatalf("unexpected instrumentation change: %v", unexpected)
+				default:
+				}
+			}
+			require.Len(t, rescan(8080), 1)
+			if closeBeforeUpdate {
+				require.Empty(t, rescan(), "closing the selection port must not remove an established match")
+			}
+
+			unrelated := criteriaConfig(t, "    - exe_path: /srv/other\n    - open_ports: 8080\n")
+			refresh(unrelated)
+			assertNoEvents()
+			for range 2 {
+				require.Empty(t, rescan(), "an unchanged include rule must retain its established match")
+				require.Contains(t, matcher.ProcessHistory, app.PID(10))
+				require.Empty(t, matcher.observed[10].process.OpenPorts, "observations must still reflect current ports")
+				refresh(unrelated)
+				assertNoEvents()
+			}
+
+			// Removing the matching rule must still detach the process.
+			refresh(criteriaConfig(t, "    - exe_path: /srv/other\n"))
+			deleted := testutil.ReadChannel(t, events, time.Second)
+			require.Len(t, deleted, 1)
+			require.Equal(t, EventDeleted, deleted[0].Type)
+			require.NotContains(t, matcher.ProcessHistory, app.PID(10))
+
+			// Re-adding a removed rule requires a new observation of its port.
+			refresh(initial)
+			assertNoEvents()
+			require.Empty(t, rescan())
+			require.Len(t, rescan(8080), 1)
+			deleted = matcher.filter(acc.snapshot(map[app.PID]ProcessAttrs{}, false))
+			require.Len(t, deleted, 1)
+			require.Equal(t, EventDeleted, deleted[0].Type)
+			require.Empty(t, rescan(), "a reused PID must not inherit the exited process's match")
+		})
+	}
+}
+
 func TestCriteriaRescanRetainsParentMatch(t *testing.T) {
 	original := processInfo
 	t.Cleanup(func() { processInfo = original })

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -144,7 +145,9 @@ func (m *Matcher) filter(events []Event[ProcessAttrs]) []Event[ProcessMatch] {
 					m.Log.Debug("can't get information for process", "pid", ev.Obj.pid, "error", err)
 					continue
 				}
-				m.observed[ev.Obj.pid] = observedProcess{attrs: ev.Obj, process: proc}
+				observed := m.observed[ev.Obj.pid]
+				observed.attrs, observed.process = ev.Obj, proc
+				m.observed[ev.Obj.pid] = observed
 			}
 			if ev, ok := m.filterCreated(ev.Obj); ok {
 				matches = append(matches, ev)
@@ -159,10 +162,16 @@ func (m *Matcher) alreadyMatched(pid app.PID) bool {
 	return ok
 }
 
+func (m *Matcher) confirmedMatch(pid app.PID, criterion services.Selector) bool {
+	return slices.ContainsFunc(m.observed[pid].confirmedCriteria, func(previous services.Selector) bool {
+		return reflect.DeepEqual(previous, criterion)
+	})
+}
+
 func (m *Matcher) matchCriteria(obj ProcessAttrs, proc *services.ProcessInfo) *ProcessMatch {
 	criteria := make([]services.Selector, 0, len(m.Criteria))
 	for i := range m.Criteria {
-		if m.matchProcess(&obj, proc, m.Criteria[i]) && !m.isExcluded(&obj, proc) {
+		if (m.confirmedMatch(obj.pid, m.Criteria[i]) || m.matchProcess(&obj, proc, m.Criteria[i])) && !m.isExcluded(&obj, proc) {
 			criteria = append(criteria, m.Criteria[i])
 		}
 	}
@@ -209,6 +218,10 @@ func (m *Matcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 	}
 
 	if processMatch := m.matchCriteria(obj, proc); processMatch != nil {
+		if observed, ok := m.observed[obj.pid]; ok {
+			observed.confirmedCriteria = processMatch.Criteria
+			m.observed[obj.pid] = observed
+		}
 		if tracked {
 			return Event[ProcessMatch]{}, false
 		}
@@ -250,6 +263,10 @@ func (m *Matcher) filterDeleted(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 		return Event[ProcessMatch]{}, false
 	}
 	delete(m.ProcessHistory, obj.pid)
+	if observed, ok := m.observed[obj.pid]; ok {
+		observed.confirmedCriteria = nil
+		m.observed[obj.pid] = observed
+	}
 	m.Log.Debug("stopped process", "pid", procMatch.Process.Pid, "comm", procMatch.Process.ExePath)
 	return Event[ProcessMatch]{
 		Type: EventDeleted,
