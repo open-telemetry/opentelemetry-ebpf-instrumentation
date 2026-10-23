@@ -170,7 +170,7 @@ func main() {
 	// child process isn't found.
 	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	var opts []instrumenter.Option
-	if configVersion == configVersionV2 && configPath != nil && *configPath != "" {
+	if configVersion == configVersionV2 && configPath != nil && *configPath != "" && config.Enabled(obi.FeatureAppO11y) {
 		updater := discover.NewCriteriaUpdater(config)
 		opts = append(opts, instrumenter.WithCriteriaUpdater(updater))
 		go configwatch.Watch(ctx, *configPath, updater.Update)
