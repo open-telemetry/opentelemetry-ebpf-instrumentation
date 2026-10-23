@@ -37,7 +37,8 @@ type mapIterator interface {
 // Race conditions here causes that some flows might be lost in high-load scenarios
 func (fmd *flowMapLegacyReader[IT]) lookupAndDeleteMap() (map[NetFlowId]*NetFlowMetrics, error) {
 	flows := make(map[NetFlowId]*NetFlowMetrics, fmd.cacheMaxSize)
-	oldestFlow := uint64(0)
+	// see flowMapBatchReader.lookupAndDeleteMap for why the start of the read is used
+	readStart := uint64(monoTimeNow())
 
 	id := NetFlowId{}
 	var metrics []NetFlowMetrics
@@ -56,7 +57,6 @@ func (fmd *flowMapLegacyReader[IT]) lookupAndDeleteMap() (map[NetFlowId]*NetFlow
 				continue
 			}
 			perCPUAggregated.Accumulate(mt)
-			oldestFlow = max(oldestFlow, mt.EndMonoTimeNs)
 		}
 		if perCPUAggregated.EndMonoTimeNs == 0 {
 			// no recent flows were accounted, skip
@@ -72,8 +72,6 @@ func (fmd *flowMapLegacyReader[IT]) lookupAndDeleteMap() (map[NetFlowId]*NetFlow
 		}
 		metrics = nil
 	}
-	if oldestFlow != 0 {
-		fmd.lastReadNS = oldestFlow
-	}
+	fmd.lastReadNS = readStart
 	return flows, nil
 }

@@ -5,6 +5,7 @@ package ebpf // import "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
 import (
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
@@ -17,7 +18,17 @@ const (
 	testPossibleCPUs = 2
 )
 
+// setMonoTime makes the readers believe that a read starts at the passed monotonic time.
+func setMonoTime(t *testing.T, ns int64) {
+	t.Helper()
+	prev := monoTimeNow
+	monoTimeNow = func() time.Duration { return time.Duration(ns) }
+	t.Cleanup(func() { monoTimeNow = prev })
+}
+
 func TestLookupAndDelete(t *testing.T) {
+	// the threshold for the next read is the start of this read, not the latest flow end (125)
+	setMonoTime(t, 1000)
 	expectedAggregation := map[NetFlowId]*NetFlowMetrics{
 		{IfIndex: 1}: {Packets: 6, StartMonoTimeNs: 101, EndMonoTimeNs: 103},
 		{IfIndex: 3}: {Packets: 35, StartMonoTimeNs: 101, EndMonoTimeNs: 125},
@@ -28,20 +39,75 @@ func TestLookupAndDelete(t *testing.T) {
 		flows, err := fmd.lookupAndDeleteMap()
 		require.NoError(t, err)
 		assert.Equal(t, expectedAggregation, flows)
-		assert.EqualValues(t, 125, fmd.lastReadNS)
+		assert.EqualValues(t, 1000, fmd.lastReadNS)
 	})
 	t.Run("batch", func(t *testing.T) {
 		fmd := batchReader()
 		flows, err := fmd.lookupAndDeleteMap()
 		require.NoError(t, err)
 		assert.Equal(t, expectedAggregation, flows)
-		assert.EqualValues(t, 125, fmd.lastReadNS)
+		assert.EqualValues(t, 1000, fmd.lastReadNS)
 	})
 	t.Run("auto", func(t *testing.T) {
 		fmd := flowMapReaderChooser[*fakeMapIterator]{legacy: legacyReader(), batch: batchReader()}
 		flows, err := fmd.lookupAndDeleteMap()
 		require.NoError(t, err)
 		assert.Equal(t, expectedAggregation, flows)
+	})
+}
+
+// While a read deletes entries, the eBPF programs recreate them with a new start time. An entry
+// that is recreated after the read started must not be discarded by the next read, even if some
+// other flow was seen ending after that recreation: the flow ended at 1200 in the first read, and
+// the slot of the entry that was deleted and recreated at 1100 must still be accounted.
+func TestLookupAndDelete_KeepsEntriesRecreatedDuringPreviousRead(t *testing.T) {
+	nextRead := func() fakeBPFMap {
+		return []entry{{
+			k: NetFlowId{IfIndex: 1},
+			v: []NetFlowMetrics{
+				{Bytes: 5, Packets: 1, StartMonoTimeNs: 1100, EndMonoTimeNs: 1300}, // recreated after the previous read started
+				{Bytes: 7, Packets: 1, StartMonoTimeNs: 900, EndMonoTimeNs: 950},   // stale slot of a deleted entry
+			},
+		}}
+	}
+	expected := map[NetFlowId]*NetFlowMetrics{
+		{IfIndex: 1}: {Bytes: 5, Packets: 1, StartMonoTimeNs: 1100, EndMonoTimeNs: 1300},
+	}
+	firstRead := func() fakeBPFMap {
+		return []entry{{
+			k: NetFlowId{IfIndex: 9},
+			v: []NetFlowMetrics{{Bytes: 1, Packets: 1, StartMonoTimeNs: 1010, EndMonoTimeNs: 1200}},
+		}}
+	}
+	t.Run("legacy", func(t *testing.T) {
+		fmd := legacyReader()
+		fmd.flowMap = firstRead()
+		setMonoTime(t, 1000)
+		_, err := fmd.lookupAndDeleteMap()
+		require.NoError(t, err)
+		require.EqualValues(t, 1000, fmd.lastReadNS)
+
+		fmd.flowMap = nextRead()
+		setMonoTime(t, 2000)
+		flows, err := fmd.lookupAndDeleteMap()
+		require.NoError(t, err)
+		assert.Equal(t, expected, flows)
+	})
+	t.Run("batch", func(t *testing.T) {
+		fmd := batchReader()
+		first := firstRead()
+		fmd.flowMap = &first
+		setMonoTime(t, 1000)
+		_, err := fmd.lookupAndDeleteMap()
+		require.NoError(t, err)
+		require.EqualValues(t, 1000, fmd.lastReadNS)
+
+		next := nextRead()
+		fmd.flowMap = &next
+		setMonoTime(t, 2000)
+		flows, err := fmd.lookupAndDeleteMap()
+		require.NoError(t, err)
+		assert.Equal(t, expected, flows)
 	})
 }
 
