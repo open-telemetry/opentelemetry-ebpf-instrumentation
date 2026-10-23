@@ -21,6 +21,7 @@ import (
 
 // CriteriaUpdater replaces discovery predicates without restarting the instrumentation pipeline.
 // Pass it to instrumenter.WithCriteriaUpdater. Configurations must not be mutated after submission.
+// In-process export callbacks stay fixed at startup; callbacks supplied in updates are ignored.
 type CriteriaUpdater struct {
 	mu          sync.Mutex
 	fixedConfig obi.Config
@@ -30,7 +31,7 @@ type CriteriaUpdater struct {
 
 func NewCriteriaUpdater(cfg *obi.Config) *CriteriaUpdater {
 	return &CriteriaUpdater{
-		fixedConfig: withoutSelection(cfg),
+		fixedConfig: withoutSelectionAndSinks(cfg),
 		features:    cfg.JoinMetricsConfig().Features,
 		updates: services.NewCriteriaUpdates(
 			refreshableCriteria(cfg),
@@ -46,7 +47,7 @@ func (u *CriteriaUpdater) Update(ctx context.Context, cfg *obi.Config) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	if !reflect.DeepEqual(u.fixedConfig, withoutSelection(cfg)) {
+	if !reflect.DeepEqual(u.fixedConfig, withoutSelectionAndSinks(cfg)) {
 		return errors.New("only discovery selection criteria can be refreshed; restart OBI to apply other configuration changes")
 	}
 
@@ -67,8 +68,10 @@ func (u *CriteriaUpdater) Update(ctx context.Context, cfg *obi.Config) error {
 	return u.updates.Replace(ctx, include, exclude)
 }
 
-func withoutSelection(cfg *obi.Config) obi.Config {
+func withoutSelectionAndSinks(cfg *obi.Config) obi.Config {
 	fixed := *cfg
+	fixed.Traces.TracesExport = nil
+	fixed.OTELMetrics.MetricsExport = nil
 	fixed.Port = services.IntEnum{}
 	fixed.TargetPIDs = services.IntEnum{}
 	fixed.Exec = services.RegexpAttr{}

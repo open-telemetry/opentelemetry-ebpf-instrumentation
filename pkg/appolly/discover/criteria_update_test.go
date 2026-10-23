@@ -13,6 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/collector/pdata/ptrace"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
@@ -54,6 +57,103 @@ func TestCriteriaUpdaterRejectsIncompatibleConfig(t *testing.T) {
 			updater := NewCriteriaUpdater(initial)
 			err := updater.Update(t.Context(), next)
 			require.ErrorContains(t, err, "restart OBI")
+		})
+	}
+}
+
+func TestCriteriaUpdaterPreservesExportCallbacks(t *testing.T) {
+	for _, signals := range []struct {
+		name    string
+		traces  bool
+		metrics bool
+	}{
+		{name: "no callbacks"},
+		{name: "traces", traces: true},
+		{name: "metrics", metrics: true},
+		{name: "traces and metrics", traces: true, metrics: true},
+	} {
+		t.Run(signals.name, func(t *testing.T) {
+			initial := criteriaConfig(t, "    - open_ports: 8080\n")
+			var tracesCalls, metricsCalls int
+			if signals.traces {
+				initial.Traces.TracesExport = func(context.Context, ptrace.Traces) error {
+					tracesCalls++
+					return nil
+				}
+			}
+			if signals.metrics {
+				initial.OTELMetrics.MetricsExport = func(context.Context, pmetric.Metrics) error {
+					metricsCalls++
+					return nil
+				}
+			}
+
+			updater := NewCriteriaUpdater(initial)
+			matcher := &Matcher{
+				Log: slog.Default(), Criteria: FindingCriteria(initial),
+				ProcessHistory:  map[app.PID]ProcessMatch{},
+				Output:          msg.NewQueue[[]Event[ProcessMatch]](),
+				CriteriaUpdates: updater.Updates(),
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			done := make(chan struct{})
+			go func() { defer close(done); matcher.Run(ctx) }()
+			t.Cleanup(func() {
+				cancel()
+				testutil.ReadChannel(t, done, time.Second)
+			})
+
+			// An unchanged config and a selection change both retain the same callbacks.
+			require.NoError(t, updater.Update(ctx, initial))
+			next := criteriaConfig(t, "    - open_ports: 9090\n")
+			next.Traces.TracesExport = initial.Traces.TracesExport
+			next.OTELMetrics.MetricsExport = initial.OTELMetrics.MetricsExport
+			require.NoError(t, updater.Update(ctx, next))
+			include, _ := updater.Updates().Current()
+			require.True(t, include[0].GetOpenPorts().Matches(9090))
+
+			// Reloaded declarative configuration does not contain the startup sinks.
+			reloaded := criteriaConfig(t, "    - open_ports: 7070\n")
+			require.NoError(t, updater.Update(ctx, reloaded))
+			require.Nil(t, reloaded.Traces.TracesExport)
+			require.Nil(t, reloaded.OTELMetrics.MetricsExport)
+
+			replacement := criteriaConfig(t, "    - open_ports: 6060\n")
+			replacement.Traces.TracesExport = func(context.Context, ptrace.Traces) error {
+				t.Error("selection update replaced the startup trace sink")
+				return nil
+			}
+			replacement.OTELMetrics.MetricsExport = func(context.Context, pmetric.Metrics) error {
+				t.Error("selection update replaced the startup metrics sink")
+				return nil
+			}
+			require.NoError(t, updater.Update(ctx, replacement))
+			require.NotNil(t, replacement.Traces.TracesExport)
+			require.NotNil(t, replacement.OTELMetrics.MetricsExport)
+
+			changedExporter := *replacement
+			changedExporter.Traces.TracesEndpoint = "http://localhost:4318"
+			require.ErrorContains(t, updater.Update(ctx, &changedExporter), "restart OBI")
+			changedExporter = *replacement
+			changedExporter.OTELMetrics.MetricsEndpoint = "http://localhost:4318"
+			require.ErrorContains(t, updater.Update(ctx, &changedExporter), "restart OBI")
+			include, _ = updater.Updates().Current()
+			require.True(t, include[0].GetOpenPorts().Matches(6060))
+
+			if signals.traces {
+				require.NotNil(t, initial.Traces.TracesExport)
+				require.NoError(t, initial.Traces.TracesExport(ctx, ptrace.NewTraces()))
+				require.Equal(t, 1, tracesCalls)
+			} else {
+				require.Nil(t, initial.Traces.TracesExport)
+			}
+			if signals.metrics {
+				require.NotNil(t, initial.OTELMetrics.MetricsExport)
+				require.NoError(t, initial.OTELMetrics.MetricsExport(ctx, pmetric.NewMetrics()))
+				require.Equal(t, 1, metricsCalls)
+			} else {
+				require.Nil(t, initial.OTELMetrics.MetricsExport)
+			}
 		})
 	}
 }
