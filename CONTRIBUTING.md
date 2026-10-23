@@ -34,9 +34,6 @@ For a Go development environment with Docker access (especially useful for non-L
 see the [development container instructions](.devcontainer/README.md), including VS Code,
 IntelliJ IDEA, and terminal workflows.
 
-Mise can optionally install the repository Go and golangci-lint versions; see the
-[Mise tool installation guide](devdocs/mise.md). Existing Make tasks remain unchanged.
-
 ### Compiling the project
 
 #### Requirements

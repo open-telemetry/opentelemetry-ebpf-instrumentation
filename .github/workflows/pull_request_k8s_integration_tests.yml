@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, release-*]
   pull_request:
+    # Temporary for the migration branch; remove `mise` before merging to main.
     branches: [main, mise, release-*]
     paths:
       - ".github/workflows/pull_request_k8s_integration_tests.yml"

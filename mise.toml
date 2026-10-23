@@ -1,5 +1,4 @@
-min_version = "2026.10.17"
+min_version = "2026.10.18"
 
 [tools]
 go = "1.27.2"
-golangci-lint = "2.13.2"
