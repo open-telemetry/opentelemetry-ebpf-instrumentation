@@ -97,13 +97,16 @@ traffic OBI observes on the connection:
 
 - The **StartupMessage** gives the database (`database`, defaulting to `user`) and
   the schema: the first entry of the `search_path` parameter, or of a
-  `-c search_path=...` / `--search_path=...` setting in `options`. `"$user"` and
+  `-c search_path=...` / `--search_path=...` setting in `options` (split like
+  libpq does: whitespace separates arguments and `\` escapes the next character). `"$user"` and
   empty entries are skipped; unquoted names have only ASCII letters lower-cased,
   quoted names are kept as written.
 - A successful (no `ErrorResponse`) `SET [SESSION] search_path TO|= ...` or
   `SET [SESSION] SCHEMA '...'` replaces the schema with the first entry of the new
   list. It is applied when sent as a simple query, or when an extended-protocol
-  `Execute` runs that statement, even if it was parsed in an earlier round trip. `RESET search_path`, `RESET ALL`,
+  `Execute` runs that statement, even if it was parsed in an earlier round trip.
+  A prepared statement is only cached once PostgreSQL acknowledges its `Parse` with
+  `ParseComplete`, so a rejected `Parse` never replaces the statement PostgreSQL kept. `RESET search_path`, `RESET ALL`,
   `DISCARD ALL` and `SET search_path TO DEFAULT` restore the startup schema.
   `SET LOCAL` and multi-statement queries are ignored.
 

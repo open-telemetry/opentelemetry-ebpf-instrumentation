@@ -139,7 +139,7 @@ func searchPathFromStartupOptions(options string) (string, bool) {
 		longFlag  = "--"
 		prefix    = pgSearchPathParam + "="
 	)
-	fields := strings.Fields(options)
+	fields := splitPostgresOptions(options)
 	found := ""
 	ok := false
 	for i := 0; i < len(fields); i++ {
@@ -158,6 +158,42 @@ func searchPathFromStartupOptions(options string) (string, bool) {
 		}
 	}
 	return found, ok
+}
+
+func splitPostgresOptions(options string) []string {
+	var (
+		args    []string
+		arg     strings.Builder
+		inArg   bool
+		escaped bool
+	)
+	for i := 0; i < len(options); i++ {
+		c := options[i]
+		switch {
+		case escaped:
+			arg.WriteByte(c)
+			escaped = false
+		case c == '\\':
+			escaped, inArg = true, true
+		case isPostgresOptionsSpace(c):
+			if inArg {
+				args = append(args, arg.String())
+				arg.Reset()
+				inArg = false
+			}
+		default:
+			arg.WriteByte(c)
+			inArg = true
+		}
+	}
+	if inArg {
+		args = append(args, arg.String())
+	}
+	return args
+}
+
+func isPostgresOptionsSpace(c byte) bool {
+	return c == ' ' || ('\t' <= c && c <= '\r')
 }
 
 type postgresTokenKind uint8

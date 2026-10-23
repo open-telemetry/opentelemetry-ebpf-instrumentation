@@ -430,6 +430,7 @@ func serviceToIndexableEntity(svc *v1.Service) (any, error) {
 			Ips:             ips,
 			Kind:            typeService,
 			Annotations:     svc.Annotations,
+			Selector:        svc.Spec.Selector,
 			StatusTimeEpoch: objLastUpdateTime(&svc.ObjectMeta, nil, nil),
 		},
 	}, nil
@@ -631,5 +632,6 @@ func unchanged(o, n *informer.ObjectMeta) bool {
 	return slices.Equal(o.Ips, n.Ips) &&
 		maps.Equal(o.Labels, n.Labels) &&
 		maps.Equal(o.Annotations, n.Annotations) &&
+		maps.Equal(o.Selector, n.Selector) &&
 		podInfoEquals(o.Pod, n.Pod)
 }

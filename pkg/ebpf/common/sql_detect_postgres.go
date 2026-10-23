@@ -38,13 +38,16 @@ const (
 	kPostgresQuery   = byte('Q')
 	kPostgresCommand = byte('C')
 	kPostgresParse   = byte('P')
+	kPostgresSync    = byte('S')
 
+	kPostgresParseComplete      = byte('1')
 	kPostgresBindComplete       = byte('2')
 	kPostgresCommandComplete    = byte('C')
 	kPostgresDataRow            = byte('D')
 	kPostgresEmptyQueryResponse = byte('I')
 	kPostgresErrorResponse      = byte('E')
 	kPostgresPortalSuspended    = byte('s')
+	kPostgresReadyForQuery      = byte('Z')
 
 	// pgHeaderLen is the size of the Postgres message header:
 	// 1 byte type + 4 bytes length field.
@@ -393,6 +396,7 @@ type postgresMessage struct {
 	typ     string
 	data    []byte
 	partial bool
+	sync    bool
 }
 
 func parsePostgresBindNames(data []byte) (portalName, statementName string, ok bool) {
@@ -468,17 +472,23 @@ func (it *postgresMessageIterator) next() (msg postgresMessage) {
 		}
 	}
 
-	msg = postgresMessage{typ: msgType, data: data, partial: partial}
+	msg = postgresMessage{typ: msgType, data: data, partial: partial, sync: hdrBuf[0] == kPostgresSync}
 	return
 }
 
 type postgresResponse struct {
 	executed bool
 	sqlError *request.SQLError
+
+	parsesCompleted []int
+}
+
+func (r postgresResponse) parseCompleted(syncIndex, parseIndex int) bool {
+	return syncIndex < len(r.parsesCompleted) && parseIndex < r.parsesCompleted[syncIndex]
 }
 
 func parsePostgresResponse(response []byte) postgresResponse {
-	var result postgresResponse
+	result := postgresResponse{parsesCompleted: []int{0}}
 	bound := false
 
 	for len(response) >= sqlprune.PostgresHdrSize {
@@ -490,6 +500,10 @@ func parsePostgresResponse(response []byte) postgresResponse {
 
 		message := response[:messageSize]
 		switch message[0] {
+		case kPostgresParseComplete:
+			result.parsesCompleted[len(result.parsesCompleted)-1]++
+		case kPostgresReadyForQuery:
+			result.parsesCompleted = append(result.parsesCompleted, 0)
 		case kPostgresBindComplete:
 			bound = true
 		case kPostgresCommandComplete, kPostgresDataRow, kPostgresEmptyQueryResponse, kPostgresPortalSuspended:
@@ -534,6 +548,9 @@ func handlePostgres(parseCtx *EBPFParseContext, event *TCPRequestInfo, requestBu
 		msg      postgresMessage
 		it       = postgresMessageIterator{r: reqR}
 		sqlError = response.sqlError
+
+		syncIndex, parseIndex int
+		rejectedParses        map[string]postgresPreparedStatement
 	)
 
 Loop:
@@ -544,6 +561,12 @@ Loop:
 		if it.err != nil {
 			slog.Debug("failed to parse Postgres request messages", "error", it.err)
 			return span, errFallback
+		}
+
+		if msg.sync {
+			syncIndex++
+			parseIndex = 0
+			continue
 		}
 
 		switch msg.typ {
@@ -566,10 +589,18 @@ Loop:
 				prepared.searchPathChange = parsePostgresSearchPathChange(msg.data[stmtNameLen+1:])
 			}
 
-			parseCtx.postgresPreparedStatements.Add(postgresPreparedStatementsKey{
-				connInfo: event.ConnInfo,
-				stmtName: stmtName,
-			}, prepared)
+			if response.parseCompleted(syncIndex, parseIndex) {
+				parseCtx.postgresPreparedStatements.Add(postgresPreparedStatementsKey{
+					connInfo: event.ConnInfo,
+					stmtName: stmtName,
+				}, prepared)
+			} else {
+				if rejectedParses == nil {
+					rejectedParses = map[string]postgresPreparedStatement{}
+				}
+				rejectedParses[stmtName] = postgresPreparedStatement{query: stmt}
+			}
+			parseIndex++
 
 			if !msg.partial || !response.executed {
 				continue
@@ -603,12 +634,13 @@ Loop:
 				continue
 			}
 
-			preparedStmtKey := postgresPreparedStatementsKey{
-				connInfo: event.ConnInfo,
-				stmtName: stmtName,
+			prepared, found := rejectedParses[stmtName]
+			if !found {
+				prepared, found = parseCtx.postgresPreparedStatements.Get(postgresPreparedStatementsKey{
+					connInfo: event.ConnInfo,
+					stmtName: stmtName,
+				})
 			}
-
-			prepared, found := parseCtx.postgresPreparedStatements.Get(preparedStmtKey)
 			if !found {
 				slog.Debug("Postgres EXECUTE command with unknown statement", "stmtName", stmtName)
 				continue

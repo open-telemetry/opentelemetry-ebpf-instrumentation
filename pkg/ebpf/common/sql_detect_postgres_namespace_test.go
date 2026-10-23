@@ -46,6 +46,10 @@ func TestParsePostgresStartupSearchPath(t *testing.T) {
 		{name: "options -c", params: []string{"database", "db", "options", "-c search_path=app,public"}, want: "db|app"},
 		{name: "options -c joined", params: []string{"database", "db", "options", "-csearch_path=app"}, want: "db|app"},
 		{name: "options long form", params: []string{"database", "db", "options", "-c statement_timeout=5 --search_path=app"}, want: "db|app"},
+		{name: "options escaped space", params: []string{"database", "db", "options", `-c search_path="$user",\ public`}, want: "db|public"},
+		{name: "options escaped space in schema", params: []string{"database", "db", "options", `-c search_path=my\ app,public`}, want: "db|my app"},
+		{name: "options literal backslash", params: []string{"database", "db", "options", `-c search_path=my\\app`}, want: `db|my\app`},
+		{name: "options tab separated", params: []string{"database", "db", "options", "-c\tsearch_path=app"}, want: "db|app"},
 		{name: "options without search_path", params: []string{"database", "db", "options", "-c statement_timeout=5"}, want: "db"},
 		{name: "search_path param wins over options", params: []string{"database", "db", "options", "-c search_path=fromopts", "search_path", "fromparam"}, want: "db|fromparam"},
 		{name: "database defaults to user", params: []string{"user", "app", "search_path", "s"}, want: "app|s"},
@@ -213,4 +217,86 @@ func TestReadTCPRequestIntoSpan_PostgresSchemaInNamespace(t *testing.T) {
 
 	readSpan(t, pgRequest(pgWireMsg(kPostgresQuery, `SET search_path TO "$user"`), setOK))
 	assert.Equal(t, "conformance", selectNamespace(t))
+}
+
+func TestHandlePostgresRejectedParseKeepsCachedStatement(t *testing.T) {
+	parseComplete := postgresTestPacket('1', nil)
+	bindComplete := postgresTestPacket('2', nil)
+	ready := postgresTestPacket('Z', []byte{'I'})
+	selectDone := postgresTestPacket(kPostgresCommandComplete, []byte("SELECT 1\x00"))
+	setDone := postgresTestPacket(kPostgresCommandComplete, []byte("SET\x00"))
+	duplicate := postgresErrorResponse("42P05", `prepared statement "x" already exists`)
+
+	newCtx := func() (*EBPFParseContext, *TCPRequestInfo) {
+		ctx := newPostgresTestContext()
+		event := &TCPRequestInfo{}
+		ctx.postgresNamespaces.Add(event.ConnInfo, postgresNamespace{db: "db", startupSchema: "public", schema: "public"})
+		return ctx, event
+	}
+
+	handle := func(ctx *EBPFParseContext, event *TCPRequestInfo, req []byte, resp ...[]byte) (request.Span, error) {
+		return handlePostgres(ctx, event, largebuf.NewLargeBufferFrom(req), largebuf.NewLargeBufferFrom(bytes.Join(resp, nil)))
+	}
+
+	cached := func(ctx *EBPFParseContext, event *TCPRequestInfo, stmtName string) (postgresPreparedStatement, bool) {
+		return ctx.postgresPreparedStatements.Get(postgresPreparedStatementsKey{connInfo: event.ConnInfo, stmtName: stmtName})
+	}
+
+	t.Run("duplicate named Parse keeps the original statement", func(t *testing.T) {
+		ctx, event := newCtx()
+
+		_, err := handle(ctx, event, pgParseDescribe("x", "SELECT * FROM accounts"), parseComplete, ready)
+		require.ErrorIs(t, err, errIgnore)
+
+		_, err = handle(ctx, event, pgParseDescribe("x", "SET search_path TO phantom"), duplicate, ready)
+		require.ErrorIs(t, err, errIgnore)
+		prepared, found := cached(ctx, event, "x")
+		require.True(t, found)
+		assert.Equal(t, postgresPreparedStatement{query: "SELECT * FROM accounts"}, prepared)
+
+		span, err := handle(ctx, event, pgBindExecute("x"), bindComplete, selectDone, ready)
+		require.NoError(t, err)
+		assert.Equal(t, "SELECT", span.Method)
+		assert.Equal(t, "SELECT * FROM accounts", span.Statement)
+		assert.Equal(t, "db|public", span.DBNamespace)
+	})
+
+	t.Run("rejected Parse after a Sync in the same packet is not cached", func(t *testing.T) {
+		ctx, event := newCtx()
+
+		req := append(pgParseDescribe("x", "SELECT * FROM accounts"), pgParseDescribe("x", "SET search_path TO phantom")...)
+		_, err := handle(ctx, event, req, parseComplete, ready, duplicate, ready)
+		require.ErrorIs(t, err, errIgnore)
+		prepared, found := cached(ctx, event, "x")
+		require.True(t, found)
+		assert.Equal(t, postgresPreparedStatement{query: "SELECT * FROM accounts"}, prepared)
+	})
+
+	t.Run("rejected Parse reports its error on the Execute in the same packet", func(t *testing.T) {
+		ctx, event := newCtx()
+
+		req := append(pgWireMsg(kPostgresParse, "x\x00SELECT * FROM accounts\x00\x00"), pgBindExecute("x")...)
+		span, err := handle(ctx, event, req, postgresErrorResponse("42P01", `relation "accounts" does not exist`), ready)
+		require.NoError(t, err)
+		assert.Equal(t, "SELECT * FROM accounts", span.Statement)
+		require.NotNil(t, span.SQLError)
+		assert.Equal(t, "42P01", span.SQLError.SQLState)
+
+		_, found := cached(ctx, event, "x")
+		assert.False(t, found)
+	})
+
+	t.Run("Parse with a failing Execute is cached without changing the schema", func(t *testing.T) {
+		ctx, event := newCtx()
+
+		req := append(pgWireMsg(kPostgresParse, "s1\x00SET search_path TO named\x00\x00"), pgBindExecute("s1")...)
+		_, _ = handle(ctx, event, req, parseComplete, bindComplete, postgresErrorResponse("25P02", "current transaction is aborted"), ready)
+		assert.Equal(t, "db|public", postgresNamespaceForConn(ctx, event.ConnInfo))
+		prepared, found := cached(ctx, event, "s1")
+		require.True(t, found)
+		assert.Equal(t, postgresSearchPathChange{action: postgresSearchPathSet, schema: "named"}, prepared.searchPathChange)
+
+		_, _ = handle(ctx, event, pgBindExecute("s1"), bindComplete, setDone, ready)
+		assert.Equal(t, "db|named", postgresNamespaceForConn(ctx, event.ConnInfo))
+	})
 }

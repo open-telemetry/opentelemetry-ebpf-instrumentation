@@ -1137,7 +1137,8 @@ func (c *Config) normalizeV1ResolverSources() {
 	// Legacy configurations retain the pre-GCE set of resolver sources.
 	resolver := *c.NameResolver
 	resolver.Sources = slices.DeleteFunc(slices.Clone(resolver.Sources), func(source transform.Source) bool {
-		return strings.EqualFold(string(source), string(transform.SourceGCE))
+		return strings.EqualFold(string(source), string(transform.SourceGCE)) ||
+			strings.EqualFold(string(source), string(transform.SourceAzure))
 	})
 	c.NameResolver = &resolver
 }
