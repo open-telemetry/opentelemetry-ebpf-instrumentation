@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -56,16 +57,23 @@ func TestConfigReload(t *testing.T) {
 	require.NotEmpty(t, obiID)
 	before, err := cl.ContainerInspect(t.Context(), obiID, client.ContainerInspectOptions{})
 	require.NoError(t, err)
+	serverPIDs := map[string]uint64{
+		"server-a": reloadServerPID(t, compose, "server-a"),
+		"server-b": reloadServerPID(t, compose, "server-b"),
+	}
+	waitForReloadSelection(t, compose, serverPIDs, "server-a")
 
 	secondRule := bytes.ReplaceAll([]byte(configReloadFirstRule), []byte("18060"), []byte("18061"))
 	both := bytes.Replace(initial, []byte(configReloadFirstRule), append([]byte(configReloadFirstRule+"\n"), secondRule...), 1)
 	replaceReloadConfig(t, configPath, both)
+	waitForReloadSelection(t, compose, serverPIDs, "server-a", "server-b")
 	waitForReloadTrace(t, "config-reload-b", configReloadServerB, "/added-selection")
 	waitForReloadTrace(t, "config-reload-a", configReloadServerA, "/retained-selection")
 
 	t.Log("remove the first definition while retaining the second")
 	onlyB := bytes.Replace(initial, []byte(configReloadFirstRule), secondRule, 1)
 	replaceReloadConfig(t, configPath, onlyB)
+	waitForReloadSelection(t, compose, serverPIDs, "server-b")
 	waitForReloadTrace(t, "config-reload-b", configReloadServerB, "/retained-after-removal")
 	assertNoReloadTrace(t, "config-reload-a", configReloadServerA, "/removed-selection")
 
@@ -78,6 +86,7 @@ func TestConfigReload(t *testing.T) {
 
 	t.Log("accept a compatible edit after the rejection")
 	replaceReloadConfig(t, configPath, initial)
+	waitForReloadSelection(t, compose, serverPIDs, "server-a")
 	waitForReloadTrace(t, "config-reload-a", configReloadServerA, "/recovered-selection")
 	assertNoReloadTrace(t, "config-reload-b", configReloadServerB, "/excluded-after-recovery")
 
@@ -94,6 +103,31 @@ func replaceReloadConfig(t *testing.T, path string, data []byte) {
 	replacement := path + ".new"
 	require.NoError(t, os.WriteFile(replacement, data, 0o644))
 	require.NoError(t, os.Rename(replacement, path))
+}
+
+func reloadServerPID(t *testing.T, compose *docker.Compose, service string) uint64 {
+	t.Helper()
+	// Each server runs as PID 1; OBI's filters use the host PID namespace.
+	namespace, err := compose.ExecOutput(service, "python", "-c", "import os; print(os.stat('/proc/1/ns/pid').st_ino)")
+	require.NoError(t, err, namespace)
+	pids := obiTestToolValues(t, compose, "host-pid", namespace, "1")
+	require.Len(t, pids, 1, service)
+	for pid := range pids {
+		return pid
+	}
+	return 0
+}
+
+func waitForReloadSelection(t *testing.T, compose *docker.Compose, serverPIDs map[string]uint64, selected ...string) {
+	t.Helper()
+	// A refresh only queues matcher events. The kernel filter changes after the
+	// attacher processes them, so negative probes must wait for this exact selection.
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		pids := obiTestToolValues(ct, compose, "bitmap-pids", "valid_pids")
+		for service, pid := range serverPIDs {
+			assert.Equal(ct, slices.Contains(selected, service), pids[pid], "instrumentation state for %s (PID %d)", service, pid)
+		}
+	}, testTimeout, 250*time.Millisecond)
 }
 
 func waitForReloadTrace(t *testing.T, service, server, path string) {
