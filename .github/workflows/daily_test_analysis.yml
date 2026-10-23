@@ -33,11 +33,12 @@ jobs:
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Set up Go with mise
+        uses: $/.github/actions/setup-mise
         with:
-          go-version-file: "go.mod"
-          cache: false
+          cache-downloads: false
+        env:
+          MISE_ENABLE_TOOLS: go
 
       - name: Compute snapshot date
         id: date

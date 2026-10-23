@@ -4,7 +4,7 @@ WORKDIR /src
 
 COPY internal/test/integration/components/old_grpc/worker .
 
-RUN make compile
+RUN mkdir -p bin && go build -o bin/worker ./cmd/worker/main.go
 
 FROM ubuntu:noble-20251013@sha256:c35e29c9450151419d9448b0fd75374fec4fff364a27f176fb458d472dfc9e54
 

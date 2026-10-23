@@ -4,7 +4,7 @@ ARG BUILDARCH=amd64
 COPY --from=gradle:9.8.1-jdk21-noble@sha256:d879477a2197b2b8a5eb910d007f0b1594eb440aa2740baac17ea245fcfb02f7 /opt/java/openjdk/include /opt/java/include
 WORKDIR /build
 COPY pkg/internal/java/agent/src/main/c/ src/main/c/
-COPY pkg/internal/java/agent/Makefile.jni Makefile.jni
+COPY pkg/internal/java/agent/build-jni.sh build-jni.sh
 
 # Install the cross compile toolchain
 RUN apt update
@@ -21,7 +21,7 @@ RUN case "$BUILDARCH" in \
       arm64) SLUG=linux-aarch64 ;; \
       *)     CC=gcc ;; \
     esac && \
-    make -f Makefile.jni CC=gcc JAVA_HOME=/opt/java JNI_HEADERS_DIR=src/main/c BUILD_DIR=build/jni/$SLUG TARGET_DIR=target/classes/native/$SLUG
+    CC=gcc JAVA_HOME=/opt/java JNI_HEADERS_DIR=src/main/c BUILD_DIR=build/jni/$SLUG TARGET_DIR=target/classes/native/$SLUG ./build-jni.sh
 
 # Cross-compile the other
 RUN case "$BUILDARCH" in \
@@ -31,7 +31,7 @@ RUN case "$BUILDARCH" in \
              SLUG=linux-amd64 ;; \
       *)     CC=gcc ;; \
     esac && \
-    make -f Makefile.jni CC=$CC JAVA_HOME=/opt/java JNI_HEADERS_DIR=src/main/c BUILD_DIR=build/jni/$SLUG TARGET_DIR=target/classes/native/$SLUG
+    JAVA_HOME=/opt/java JNI_HEADERS_DIR=src/main/c BUILD_DIR=build/jni/$SLUG TARGET_DIR=target/classes/native/$SLUG ./build-jni.sh
 
 FROM gradle:9.8.1-jdk21-noble@sha256:d879477a2197b2b8a5eb910d007f0b1594eb440aa2740baac17ea245fcfb02f7 AS builder
 

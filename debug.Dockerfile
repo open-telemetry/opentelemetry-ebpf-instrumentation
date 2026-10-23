@@ -10,7 +10,7 @@ WORKDIR /src
 RUN go env -w GOCACHE=/go-cache
 RUN go env -w GOMODCACHE=/gomod-cache
 
-RUN apk add make git bash
+RUN apk add git bash
 
 # Copy the go manifests and source
 COPY .git/ .git/
@@ -21,18 +21,20 @@ COPY internal/tools/debug/ internal/tools/debug/
 COPY pkg/ pkg/
 COPY go.mod go.mod
 COPY go.sum go.sum
-COPY Makefile Makefile
 COPY LICENSE LICENSE
 COPY NOTICE NOTICE
 
-# OBI's Makefile doesn't let to override BPF2GO env var: temporary hack until we can
-ENV TOOLS_DIR=/go/bin
 RUN --mount=type=cache,target=/gomod-cache --mount=type=cache,target=/go-cache \
     cd internal/tools/debug && go build -o /go/bin/dlv github.com/go-delve/delve/cmd/dlv
 
-# Prior to using this debug.Dockerfile, you should manually run `make docker-generate`
+# Prior to using this debug.Dockerfile, generate the BPF bindings with `mise run generate`.
 RUN --mount=type=cache,target=/gomod-cache --mount=type=cache,target=/go-cache \
-    make debug
+    release_version="$(git describe --all | cut -d/ -f2-)" && \
+    release_revision="$(git rev-parse --short HEAD)" && \
+    mkdir -p bin && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -gcflags "-N -l" \
+    -ldflags="-X 'go.opentelemetry.io/obi/pkg/buildinfo.Version=$release_version' -X 'go.opentelemetry.io/obi/pkg/buildinfo.Revision=$release_revision'" \
+    -o bin/obi cmd/obi/main.go
 
 FROM alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 

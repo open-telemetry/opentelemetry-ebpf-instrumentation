@@ -131,7 +131,7 @@ func pinnedUpstreamModel(t *testing.T) string {
 func resolveUpstreamRegistry(t *testing.T) upstreamRegistry {
 	t.Helper()
 	model := pinnedUpstreamModel(t)
-	res := resolveRegistryAt(t, "/obi-registry/"+filepath.ToSlash(model))
+	res := resolveRegistryAt(t, filepath.ToSlash(model))
 
 	reg := upstreamRegistry{
 		spans:      map[string]resolvedSignal{},

@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# Copyright The OpenTelemetry Authors
+#MISE description="Check OATS matrix entries resolve to registered test tasks"
+set -euo pipefail
+
+cd "$MISE_MONOREPO_ROOT"
+
+python3 - <<'PY'
+import json
+import subprocess
+
+
+def output(*command):
+    return subprocess.run(command, check=True, text=True, capture_output=True).stdout
+
+
+matrix = json.loads(output("mise", "run", "//oats:integration-test-matrix-json"))
+expected_matrix = json.loads(
+    output("./scripts/generate-dir-matrix.sh", "internal/test/oats", "/harness/")
+)
+if matrix != expected_matrix:
+    raise SystemExit("OATS matrix task does not match the filtered matrix generator output")
+
+tasks = json.loads(output("mise", "tasks", "--json", "--all"))
+task_names = {task["name"] for task in tasks}
+for entry in matrix["include"]:
+    basename = entry["basename"]
+    if basename == "harness":
+        raise SystemExit("OATS harness must not be included in the integration test matrix")
+    task_name = f"//internal/test/oats:test:{basename}"
+    if task_name not in task_names:
+        raise SystemExit(f"OATS matrix entry {basename!r} has no registered task {task_name}")
+PY

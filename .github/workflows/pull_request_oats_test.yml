@@ -6,6 +6,7 @@ on:
   pull_request:
     branches: [main, release-*]
     paths:
+      - ".github/actions/setup-mise/**"
       - ".github/workflows/pull_request_oats_test.yml"
       - ".github/actions/free-disk/**"
       - "**.go"
@@ -62,11 +63,16 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
+        with:
+          cache-downloads: false
+
       - name: Build test matrix
         id: build-matrix
         run: |
           echo -n "matrix=" >> "$GITHUB_OUTPUT"
-          make oats-integration-test-matrix-json >> "$GITHUB_OUTPUT"
+          mise run //oats:integration-test-matrix-json >> "$GITHUB_OUTPUT"
 
   harness-unit-tests:
     name: "OATS harness unit tests"
@@ -78,11 +84,12 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Set up Go with mise
+        uses: $/.github/actions/setup-mise
         with:
-          go-version-file: "go.mod"
-          cache: false
+          cache-downloads: false
+        env:
+          MISE_ENABLE_TOOLS: go
 
       - name: Run harness unit tests
         working-directory: internal/test/oats/harness
@@ -149,6 +156,11 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
+        with:
+          cache-downloads: false
+
       - uses: $/.github/actions/free-disk
 
       - name: Check for Docker Hub token
@@ -169,11 +181,21 @@ jobs:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      - name: Go module cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
         with:
-          go-version-file: "go.mod"
-          cache: true
+          path: ~/go/pkg/mod
+          key: go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-mod-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Set up Go with mise
+        uses: $/.github/actions/setup-mise
+        with:
+          cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
+        env:
+          MISE_ENABLE_TOOLS: go
 
       - name: Go build cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
@@ -195,7 +217,7 @@ jobs:
           key: semconv-deps-${{ hashFiles('schemas/obi/manifest.yaml') }}
 
       - name: Build test tools
-        run: make prereqs
+        run: mise run prereqs
 
       - name: Download prebuilt OBI image
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -213,7 +235,7 @@ jobs:
           MATRIX_BASENAME: ${{ matrix.shard.basename }}
           TESTCASE_TIMEOUT: 5m
           PREBUILT_IMAGES: hatest-obi
-        run: make "oats-test-$MATRIX_BASENAME"
+        run: mise run "//internal/test/oats:test:$MATRIX_BASENAME"
 
       - name: Upload oats test logs
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -223,7 +245,7 @@ jobs:
           path: internal/test/oats/${{ matrix.shard.basename }}/build/*
 
       - name: Process coverage data
-        run: make itest-coverage-data
+        run: mise run itest-coverage-data
 
       - name: Report coverage
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1

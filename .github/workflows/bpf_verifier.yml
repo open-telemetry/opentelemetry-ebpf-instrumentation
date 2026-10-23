@@ -43,6 +43,9 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/generate-bpf
+        with:
+          cache-downloads: ${{ inputs.ref == '' || inputs.ref == null }}
+          cache-go-build: ${{ inputs.ref == '' || inputs.ref == null }}
 
   matrix:
     name: Build matrix
@@ -64,6 +67,8 @@ jobs:
     name: Kernel ${{ matrix.kernel.id }}
     needs: [matrix, generate-bpf]
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: go
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -74,6 +79,11 @@ jobs:
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
+
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
+        with:
+          cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
 
       - uses: $/.github/actions/free-disk
         with:
@@ -93,6 +103,7 @@ jobs:
         uses: $/.github/actions/setup-lvh-kernel
         with:
           kernel-id: ${{ matrix.kernel.id }}
+          cache-enabled: ${{ inputs.ref == '' || inputs.ref == null }}
           lvh-tag: ${{ matrix.kernel.lvh_tag }}
 
       - name: Run BPF verifier tests in VM
@@ -100,13 +111,14 @@ jobs:
           KERNEL: ${{ steps.kernel.outputs.kernel }}
           MODULES_DIR: ${{ steps.kernel.outputs.modules-dir }}
         run: |
-          sudo make -C internal/test/vm \
+          sudo -E env PATH="$PATH" \
             KERNEL="$KERNEL" \
             MODULES_DIR="$MODULES_DIR" \
             ARCH=amd64 \
             QEMU_SMP="$(nproc)" \
             TARGET_TEST=run-bpf-verifier-vm \
-            && [ -f testoutput/success ]
+            mise run //internal/test/vm:run
+          [ -f testoutput/success ]
 
   al2023:
     name: Kernel al2023-${{ matrix.nvr }}
@@ -136,11 +148,21 @@ jobs:
         with:
           name: bpf-generated-${{ github.run_id }}
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      - name: Go module cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
         with:
-          go-version-file: "go.mod"
-          cache: true
+          path: ~/go/pkg/mod
+          key: go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-mod-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Set up Go with mise
+        uses: $/.github/actions/setup-mise
+        with:
+          cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
+        env:
+          MISE_ENABLE_TOOLS: go
 
       - name: Install QEMU
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-utils qemu-system-x86 cpio
@@ -163,13 +185,24 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      - name: Go module cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
         with:
-          go-version-file: "go.mod"
-          cache: true
+          path: ~/go/pkg/mod
+          key: go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-mod-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Set up Go with mise
+        uses: $/.github/actions/setup-mise
+        with:
+          cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
+        env:
+          MISE_ENABLE_TOOLS: go
 
       - name: Go build cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build

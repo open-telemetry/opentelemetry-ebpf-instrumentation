@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -378,7 +379,7 @@ type liveCheckReport struct {
 // schemas/obi/.weaver.toml, and returns its JSON report.
 func liveCheck(t *testing.T, samples []liveCheckSample) liveCheckReport {
 	t.Helper()
-	ociBin := requireWeaverRuntime(t)
+	requireWeaver(t)
 
 	input, err := json.Marshal(samples)
 	require.NoError(t, err)
@@ -386,8 +387,10 @@ func liveCheck(t *testing.T, samples []liveCheckSample) liveCheckReport {
 	ctx, cancel := context.WithTimeout(t.Context(), liveCheckTimeout)
 	defer cancel()
 
-	cmd := weaverCommand(ctx, t, ociBin,
-		"registry", "live-check", "--registry", "/obi-registry",
+	registryAbs, err := filepath.Abs(registryDir)
+	require.NoError(t, err)
+	cmd := weaverCommand(ctx, t,
+		"registry", "live-check", "--registry", registryAbs,
 		"--input-source", "stdin", "--input-format", "json",
 		"--format", "json", "--no-stream")
 	cmd.Stdin = bytes.NewReader(input)
@@ -468,7 +471,7 @@ func TestEmittedSpansMatchTheirDeclaredSpan(t *testing.T) {
 // template the integration suites read, and parses it as weavercheck does.
 func compactReport(t *testing.T, samples []any) *weavercheck.Report {
 	t.Helper()
-	ociBin := requireWeaverRuntime(t)
+	requireWeaver(t)
 
 	input, err := json.Marshal(samples)
 	require.NoError(t, err)
@@ -476,10 +479,12 @@ func compactReport(t *testing.T, samples []any) *weavercheck.Report {
 	ctx, cancel := context.WithTimeout(t.Context(), liveCheckTimeout)
 	defer cancel()
 
-	cmd := weaverCommand(ctx, t, ociBin,
-		"registry", "live-check", "--registry", "/obi-registry",
+	registryAbs, err := filepath.Abs(registryDir)
+	require.NoError(t, err)
+	cmd := weaverCommand(ctx, t,
+		"registry", "live-check", "--registry", registryAbs,
 		"--input-source", "stdin", "--input-format", "json",
-		"--format", "compact", "--templates", "/obi-registry/.live_check_templates", "--no-stream")
+		"--format", "compact", "--templates", filepath.Join(registryAbs, ".live_check_templates"), "--no-stream")
 	cmd.Stdin = bytes.NewReader(input)
 	// live-check exits non-zero when it reports a violation.
 	out, _ := cmd.Output()

@@ -319,6 +319,7 @@ jobs:
     needs: tests-passed
     runs-on: ubuntu-latest
     env:
+      MISE_ENABLE_TOOLS: go,gradle,java,python,clang,conda:llvm-tools,go:github.com/cilium/ebpf/cmd/bpf2go
       RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
       RELEASE_SOURCE_VERSION: ${{ inputs.tag || github.ref_name }}
     permissions:
@@ -331,10 +332,11 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.tag || github.ref_name }}
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Set up mise tools
+        uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
-          go-version-file: "go.mod"
+          # Temporary: remove before merge to restore age-gated Mise selection.
+          version: '2026.10.18'
           cache: false
 
       - name: Install Cosign
@@ -346,18 +348,18 @@ jobs:
       - name: Build amd64 release artifacts
         env:
           GOARCH: amd64
-        run: make release
+        run: mise run release
 
       - name: Build arm64 release artifacts
         env:
           GOARCH: arm64
-        run: make release
+        run: mise run release
 
       - name: Build source-generated release artifacts
-        run: make release-source
+        run: mise run release:source
 
       - name: Generate Java agent SBOM
-        run: make java-docker-sbom
+        run: mise run //java:docker-sbom
 
       - name: Install Syft
         id: syft
@@ -463,7 +465,7 @@ jobs:
           done
 
       - name: Regenerate release checksums
-        run: make release-checksums RELEASE_VERSION="${RELEASE_VERSION}"
+        run: mise run release:checksums
 
       - name: Sign release artifacts
         run: |

@@ -1,7 +1,8 @@
-FROM golang:1.27.3-alpine@sha256:f2c872bcee949b7be9c490efd02b48a8a2fbf947cdf533f1c58525ec9d8170fd AS base
-FROM base AS dist
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS dist
 
 WORKDIR /src
+ENV GOPATH=/go
+ENV PATH="/root/.local/bin:/go/bin:${PATH}"
 
 ENV PROTOC_VERSION=32.0
 ENV PROTOC_X86_64_SHA256="7ca037bfe5e5cabd4255ccd21dd265f79eb82d3c010117994f5dc81d2140ee88"
@@ -9,11 +10,15 @@ ENV PROTOC_AARCH_64_SHA256="56af3fc2e43a0230802e6fadb621d890ba506c5c17a1ae1070f6
 
 ARG TARGETARCH
 
-RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/main" >> /etc/apk/repositories
-RUN echo "https://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories
+# Temporary MISE_VERSION override below: remove before merge once the installer selects the required minimum.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl bash git make unzip \
+    && rm -rf /var/lib/apt/lists/* \
+    && export MISE_VERSION=2026.10.18 \
+    && curl -fsSL https://mise.run | sh
 
-RUN apk add clang22 llvm22 clang22-extra-tools wget unzip curl make bash git
-RUN apk cache purge
+COPY mise.toml mise.lock ./
+RUN mkdir -p /go/bin && MISE_ENABLE_TOOLS=go,clang,conda:llvm-tools mise install go clang conda:llvm-tools
 
 COPY internal/tools/generator/ internal/tools/generator/
 
@@ -33,21 +38,19 @@ RUN if [ "$TARGETARCH" = "arm64" ]; then \
 # Install protoc-gen-go, protoc-gen-go-grpc, and eBPF tools.
 RUN --mount=type=cache,target=/go/pkg \
     cd internal/tools/generator \
-    && go build -o /go/bin/protoc-gen-go google.golang.org/protobuf/cmd/protoc-gen-go \
-    && go build -o /go/bin/protoc-gen-go-grpc google.golang.org/grpc/cmd/protoc-gen-go-grpc \
-    && go build -o /go/bin/bpf2go github.com/cilium/ebpf/cmd/bpf2go \
+    && MISE_ENABLE_TOOLS=go mise exec -- go build -o /go/bin/protoc-gen-go google.golang.org/protobuf/cmd/protoc-gen-go \
+    && MISE_ENABLE_TOOLS=go mise exec -- go build -o /go/bin/protoc-gen-go-grpc google.golang.org/grpc/cmd/protoc-gen-go-grpc \
+    && MISE_ENABLE_TOOLS=go mise exec -- go build -o /go/bin/bpf2go github.com/cilium/ebpf/cmd/bpf2go \
     && protoc --version \
     && /go/bin/protoc-gen-go --version \
     && /go/bin/protoc-gen-go-grpc --version
 
 RUN cat <<EOF > /generate.sh
 #!/bin/sh
-export PATH="/usr/lib/llvm22/bin:\$PATH"
 export BPF2GO=/go/bin/bpf2go
-export BPF_CLANG=clang-22
-export BPF_CFLAGS="-O2 -g -Wall -Werror"
+export CLANG=clang
 export GOCACHE=/tmp/go-build
-make generate
+MISE_ENABLE_TOOLS=go,clang,conda:llvm-tools mise exec -- make -f bpf/Makefile generate
 EOF
 
 RUN chmod +x /generate.sh

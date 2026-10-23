@@ -28,7 +28,7 @@ const (
 	collectorImage               = "otel/opentelemetry-collector-contrib"
 	localRegistryHost            = "localhost"
 	defaultCollectorTelemetryURL = "http://127.0.0.1:8888/metrics"
-	busyboxDependencyStage       = "busybox-musl"
+	busyboxRuntimeImageKey       = "BUSYBOX_IMAGE"
 	telemetryURLLabel            = "io.opentelemetry.obi.weaver-tap.telemetry-url"
 	dockerPSFormat               = `{{.ID}}	{{.Image}}	{{.Networks}}	{{.Label "` + telemetryURLLabel + `"}}`
 	dockerPSFields               = 4
@@ -98,7 +98,7 @@ func weaverRunning(containers []runningContainer) bool {
 }
 
 func weaverTapCollectors(ctx context.Context, containers []runningContainer) ([]tapCollector, error) {
-	scraper, err := dependencyImage(busyboxDependencyStage)
+	scraper, err := runtimeImage(busyboxRuntimeImageKey)
 	if err != nil {
 		return nil, err
 	}
@@ -225,23 +225,27 @@ func scrapeCollectorTelemetry(ctx context.Context, collector tapCollector) (TapS
 	return ParseTapStats(bytes.NewReader(out), weaverTapExporter)
 }
 
-func dependencyImage(stage string) (string, error) {
-	dockerfile := filepath.Join(tools.ProjectDir(), "dependencies.Dockerfile")
-	content, err := os.ReadFile(dockerfile)
+func runtimeImage(key string) (string, error) {
+	imagesFile := filepath.Join(tools.ProjectDir(), "internal/test/runtime-images.env")
+	content, err := os.ReadFile(imagesFile)
 	if err != nil {
 		return "", err
 	}
-	image, ok := dependencyImageIn(string(content), stage)
+	image, ok := runtimeImageIn(string(content), key)
 	if !ok {
-		return "", fmt.Errorf("no %s stage in %s", stage, dockerfile)
+		return "", fmt.Errorf("no %s entry in %s", key, imagesFile)
 	}
 	return image, nil
 }
 
-func dependencyImageIn(dockerfile, stage string) (string, bool) {
-	for line := range strings.SplitSeq(dockerfile, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) == 4 && fields[0] == "FROM" && fields[2] == "AS" && fields[3] == stage {
+func runtimeImageIn(imageList, key string) (string, bool) {
+	for line := range strings.SplitSeq(imageList, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.SplitN(line, "=", 2)
+		if len(fields) == 2 && fields[0] == key && fields[1] != "" {
 			return fields[1], true
 		}
 	}
