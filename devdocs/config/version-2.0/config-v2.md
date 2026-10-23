@@ -1047,6 +1047,58 @@ share an address across networks in the selected resource group, that ambiguous
 address is omitted. Public IPs and Azure Container Apps are outside this source's
 scope. The source and its settings are available only in Config v2.
 
+## Refresh discovery criteria at runtime
+
+Standalone OBI watches its Config v2 file when started with `--config` or
+`OTEL_EBPF_CONFIG_PATH`. It reads the path every second, including after atomic
+file replacement or ConfigMap symlink updates. A change applies once two
+consecutive reads return the same contents, so a read that lands in the middle of
+an in-place write is not applied. In containers, mount the containing
+directory so replacement files remain visible. The legacy v1 loader is unchanged.
+
+Process and Kubernetes matching predicates can be refreshed, and definitions can
+be added or removed. OBI re-evaluates already observed processes, stops
+instrumenting processes no longer selected, and instruments newly selected
+processes. A discovery rescan picks up processes and ports that were not observed
+yet. Processes that remain selected keep their instrumentation.
+
+Existing service names, namespaces, samplers, route policies, export modes and
+metric features cannot change during a refresh. The update also fails if new
+matching criteria would give an already selected process different service
+settings, or if another runtime setting changes, such as exporters or protocol
+enablement. New definitions cannot require metric features that the pipeline did
+not initialize at startup. Replacing a removed definition with different service
+settings in the same edit conservatively requires a restart.
+
+An incompatible or invalid edit logs an `ERROR` stating that OBI cannot refresh
+that config and the user should restart OBI. The running configuration stays
+active. A later compatible edit can still be accepted. Successful refreshes log
+`discovery criteria refreshed`.
+
+To try it, start OBI with the
+[standalone example](examples/default-configuration.yaml), then edit its
+`capture.rules[].match` to select another running application. Change the
+top-level trace sampler to verify rejection without stopping the current capture.
+
+Embedders of OBI can use the same API with an `obi.Config` translated from
+their own configuration format:
+
+```go
+updater := discover.NewCriteriaUpdater(cfg)
+// Run this in the application's normal instrumentation goroutine.
+err := instrumenter.Run(ctx, cfg, instrumenter.WithCriteriaUpdater(updater))
+```
+
+An embedder that owns its discovery pipeline can instead pass
+`discover.WithCriteriaUpdater(updater)` directly to `ProcessFinder.Start`.
+
+From the embedding application's configuration watcher, submit a freshly loaded
+runtime config with `updater.Update(ctx, nextConfig)`. The call waits for the
+matcher to accept or reject the update. Treat submitted configs as immutable and
+keep the original pipeline context alive. This option cannot be combined with
+`WithDynamicSelector`, that API continues to own its PID and workload selections
+independently. Config v1 files are not watched by standalone OBI.
+
 ## Related docs
 
 - Config v1 to v2 migration guide: [migration.md](migration.md)
