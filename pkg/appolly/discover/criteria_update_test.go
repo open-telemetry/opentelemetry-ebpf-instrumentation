@@ -374,6 +374,57 @@ func TestCriteriaRefreshRejectsRetainedServiceChange(t *testing.T) {
 	require.Equal(t, "first", unchanged[0].Obj.Criteria[0].GetName())
 }
 
+func TestCriteriaRefreshReportsStableConflictingPID(t *testing.T) {
+	original := processInfo
+	t.Cleanup(func() { processInfo = original })
+	processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+		return &services.ProcessInfo{Pid: p.pid, ExePath: "/srv/app", OpenPorts: p.openPorts}, nil
+	}
+	const definitions = "    - name: first\n      open_ports: 8080\n    - name: unchanged\n      open_ports: 7070\n"
+	initial := criteriaConfig(t, definitions)
+	next := criteriaConfig(t, definitions+"    - name: second\n      open_ports: 8080-8081\n")
+	output := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	defer output.Close()
+	events := output.Subscribe()
+	matcher := &Matcher{
+		Log: slog.Default(), Criteria: FindingCriteria(initial),
+		ProcessHistory: map[app.PID]ProcessMatch{}, Output: output,
+		observed: map[app.PID]observedProcess{},
+	}
+	require.NoError(t, compatibleDefinitions(FindingCriteria(initial), FindingCriteria(next)))
+	require.Len(t, matcher.filter([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 90, openPorts: []uint32{8080}}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 1, openPorts: []uint32{7070}}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 40, openPorts: []uint32{8080}}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 10, openPorts: []uint32{8080}}},
+	}), 4)
+	update := services.CriteriaUpdate{Context: t.Context(), Include: FindingCriteria(next), Exclude: ExcludingCriteria(next)}
+
+	for _, tc := range []struct {
+		pid app.PID
+		err string
+	}{
+		{10, "service settings would change for PID 10; restart OBI to apply this configuration"},
+		{40, "service settings would change for PID 40; restart OBI to apply this configuration"},
+		{90, "service settings would change for PID 90; restart OBI to apply this configuration"},
+	} {
+		for range 32 {
+			require.EqualError(t, matcher.refresh(t.Context(), update), tc.err)
+		}
+		require.Equal(t, "first", matchingSettings(matcher.ProcessHistory[tc.pid].Criteria).name)
+		select {
+		case unexpected := <-events:
+			t.Fatalf("rejected refresh changed instrumentation: %v", unexpected)
+		default:
+		}
+		require.Len(t, matcher.filter([]Event[ProcessAttrs]{{Type: EventDeleted, Obj: ProcessAttrs{pid: tc.pid}}}), 1)
+	}
+
+	require.NoError(t, matcher.refresh(t.Context(), update))
+	require.Len(t, matcher.ProcessHistory, 1)
+	require.Contains(t, matcher.ProcessHistory, app.PID(1))
+}
+
 func TestCriteriaUpdaterCancellation(t *testing.T) {
 	cfg := criteriaConfig(t, "    - exe_path: /srv/app\n")
 	updater := NewCriteriaUpdater(cfg)

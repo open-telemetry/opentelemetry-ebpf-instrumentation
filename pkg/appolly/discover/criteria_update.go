@@ -184,18 +184,27 @@ func (m *Matcher) refresh(ctx context.Context, update services.CriteriaUpdate) e
 	}
 
 	var events []Event[ProcessMatch]
+	var conflictingPID app.PID
+	var hasConflict bool
 	for pid, previous := range m.ProcessHistory {
 		replacement, retained := next.ProcessHistory[pid]
 		if retained {
 			matchingSettings := sameSettings(matchingSettings(previous.Criteria), matchingSettings(replacement.Criteria))
 			if !matchingSettings ||
 				previous.LogEnricherEnabled() != replacement.LogEnricherEnabled() {
-				return fmt.Errorf("service settings would change for PID %d; restart OBI to apply this configuration", pid)
+				if !hasConflict || pid < conflictingPID {
+					conflictingPID = pid
+				}
+				hasConflict = true
 			}
 			continue
 		}
 
 		events = append(events, Event[ProcessMatch]{Type: EventDeleted, Obj: previous})
+	}
+	if hasConflict {
+		// A stable PID keeps retries of the same rejection from bypassing log deduplication.
+		return fmt.Errorf("service settings would change for PID %d; restart OBI to apply this configuration", conflictingPID)
 	}
 
 	for pid, match := range next.ProcessHistory {
