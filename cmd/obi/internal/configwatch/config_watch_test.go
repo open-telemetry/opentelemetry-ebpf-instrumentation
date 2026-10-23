@@ -6,6 +6,7 @@ package configwatch
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -135,6 +136,64 @@ func TestConfigFileWatcherRetriesRejectedUpdate(t *testing.T) {
 			require.Empty(t, records)
 		})
 	}
+}
+
+func TestConfigFileWatcherRetriesWithoutRepeatingValidation(t *testing.T) {
+	deprecated := []byte(`file_format: "1.0"
+meter_provider:
+  readers:
+    - periodic:
+        exporter:
+          otlp_http:
+            endpoint: https://metrics.example/v1/metrics
+            encoding: protobuf
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: exclude
+      rules:
+        - action: include
+          match:
+            process:
+              open_ports: 9090
+      metrics:
+        features: [application_span]
+`)
+	path := filepath.Join(t.TempDir(), "obi.yml")
+	require.NoError(t, os.WriteFile(path, deprecated, 0o600))
+	// Validation reports deprecated features through the default logger.
+	defaultLogger := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(defaultLogger) })
+	validationLogs := make(chan slog.Record, 20)
+	slog.SetDefault(slog.New(configWatchLog{records: validationLogs}))
+
+	const retries = 3
+	// The first poll waits for the change to settle.
+	ticks := make(chan time.Time, retries)
+	for range cap(ticks) {
+		ticks <- time.Now()
+	}
+	close(ticks)
+	records := make(chan slog.Record, 10)
+	attempts := 0
+	watchConfigFile(t.Context(), path, watcherConfig(8080), func(context.Context, *obi.Config) error {
+		attempts++
+		return errors.New("service settings would change for PID 10; restart OBI to apply this configuration")
+	}, slog.New(configWatchLog{records: records}), ticks)
+	close(validationLogs)
+
+	require.Equal(t, retries, attempts)
+	deprecationWarnings := 0
+	for record := range validationLogs {
+		if strings.Contains(record.Message, "deprecated") {
+			deprecationWarnings++
+		}
+	}
+	require.Equal(t, 1, deprecationWarnings, "retrying unchanged contents must not repeat validation warnings")
+	require.Equal(t, slog.LevelError, readConfigLog(t, records).Level)
+	require.Empty(t, records)
 }
 
 func TestConfigFileWatcherSkipsPartialWrite(t *testing.T) {

@@ -30,6 +30,7 @@ func Watch(ctx context.Context, path string, initial []byte, refresh func(contex
 func watchConfigFile(ctx context.Context, path string, previous []byte, refresh func(context.Context, *obi.Config) error, log *slog.Logger, ticks <-chan time.Time) {
 	lastRead := previous
 	var readError string
+	var loaded *loadedContents
 	var rejected []byte
 	var refreshError string
 	for {
@@ -45,6 +46,7 @@ func watchConfigFile(ctx context.Context, path string, previous []byte, refresh 
 			unchangedSinceLastRead := bytes.Equal(lastRead, data)
 			lastRead = data
 			if bytes.Equal(previous, data) {
+				loaded = nil
 				rejected = nil
 				refreshError = ""
 				break
@@ -56,7 +58,11 @@ func watchConfigFile(ctx context.Context, path string, previous []byte, refresh 
 				break
 			}
 
-			if err := refreshConfig(ctx, data, refresh); err != nil {
+			if loaded == nil || !bytes.Equal(loaded.data, data) {
+				cfg, err := loadConfig(data)
+				loaded = &loadedContents{data: data, cfg: cfg, err: err}
+			}
+			if err := refreshConfig(ctx, loaded, refresh); err != nil {
 				if ctx.Err() != nil {
 					return
 				}
@@ -67,6 +73,7 @@ func watchConfigFile(ctx context.Context, path string, previous []byte, refresh 
 				}
 			} else {
 				previous = data
+				loaded = nil
 				rejected = nil
 				refreshError = ""
 				log.Info("discovery criteria refreshed", "path", path)
@@ -83,12 +90,20 @@ func watchConfigFile(ctx context.Context, path string, previous []byte, refresh 
 	}
 }
 
-func refreshConfig(ctx context.Context, data []byte, refresh func(context.Context, *obi.Config) error) error {
-	cfg, err := loadConfig(data)
-	if err != nil {
-		return err
+// loadedContents keeps the result of loading one version of the file. Retrying the same
+// contents reuses it, so validation and its warnings run once per change. Environment
+// variables are fixed for the process, so identical contents always load the same way.
+type loadedContents struct {
+	data []byte
+	cfg  *obi.Config
+	err  error
+}
+
+func refreshConfig(ctx context.Context, loaded *loadedContents, refresh func(context.Context, *obi.Config) error) error {
+	if loaded.err != nil {
+		return loaded.err
 	}
-	return refresh(ctx, cfg)
+	return refresh(ctx, loaded.cfg)
 }
 
 func loadConfig(data []byte) (*obi.Config, error) {
