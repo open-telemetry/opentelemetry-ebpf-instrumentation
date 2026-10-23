@@ -44,6 +44,23 @@ async def embeddings():
     resp.raise_for_status()
     return resp.json()
 
+@app.get("/decisions")
+async def decisions():
+    payload = {
+        "model": "gpt-6-luna",
+        "input": "The package arrived with a broken screen.",
+        "questions": [
+            {
+                "type": "predicate",
+                "name": "damaged",
+                "instructions": "Does the customer report a damaged item?",
+            }
+        ],
+    }
+    resp = requests.post(f"{OPENAI_BASE_URL}/v1/decisions", json=payload)
+    resp.raise_for_status()
+    return resp.json()
+
 @app.get("/chat")
 async def createobject():
     payload = {
