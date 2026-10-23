@@ -142,6 +142,11 @@ func testNestedHTTP2Traces(t *testing.T, url string) {
 	traceID = parent.TraceID
 	require.NotEmpty(t, parent.SpanID)
 
+	sd := parent.Diff(
+		jaeger.Tag{Key: "network.protocol.version", Type: "string", Value: "2"},
+	)
+	assert.Empty(t, sd, sd.String())
+
 	// Find the same traceID on a server span
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := getJaeger(jaegerQueryURL + "?service=server&operation=GET%20%2F" + url + "&traceID=" + traceID)
@@ -156,6 +161,14 @@ func testNestedHTTP2Traces(t *testing.T, url string) {
 		require.GreaterOrEqual(ct, len(traces), 1)
 		trace = traces[0]
 	}, 1*time.Minute, 100*time.Millisecond)
+
+	res = trace.FindByOperationName("GET /"+url, "server")
+	require.Len(t, res, 1)
+
+	sd = res[0].Diff(
+		jaeger.Tag{Key: "network.protocol.version", Type: "string", Value: "2"},
+	)
+	assert.Empty(t, sd, sd.String())
 }
 
 func TestHTTP2Go(t *testing.T) {
