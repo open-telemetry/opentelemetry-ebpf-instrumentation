@@ -4,14 +4,19 @@ on:
   push:
     branches: [main, release-*]
   pull_request:
-    branches: [main, release-*]
+    # Temporary for the migration branch; remove `mise` before merging to main.
+    branches: [main, mise, release-*]
     paths:
+      - ".github/actions/setup-mise/**"
       - ".github/workflows/lint.yml"
       - "Dockerfile"
       - "**/*Dockerfile*"
       - "Makefile"
       - "**.go"
       - "go.mod"
+      - "mise.toml"
+      - "mise.lock"
+      - ".mise/tasks/**"
       - "go.sum"
       - "bpf/**"
       - "cmd/**"
@@ -56,6 +61,8 @@ jobs:
     name: Lint on linux (${{ matrix.platform.arch }})
     needs: generate-bpf
     runs-on: ${{ matrix.platform.runner }}
+    env:
+      MISE_ENABLE_TOOLS: go
     strategy:
       fail-fast: false
       matrix:
@@ -70,13 +77,29 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
         with:
-          go-version-file: "go.mod"
-          cache: true
+          cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
+
+      - name: Check Go toolchain declarations
+        run: mise run check:go-toolchain
+
+      - name: Test Mise setup action helpers
+        if: ${{ matrix.platform.arch == 'amd64' }}
+        run: mise run test:setup-mise
+
+      - name: Go module cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          path: ~/go/pkg/mod
+          key: go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-mod-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Go build cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
