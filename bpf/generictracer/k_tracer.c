@@ -817,7 +817,9 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         }
         bpf_map_delete_elem(&cp_support_connect_info, &info);
         if (g_bpf_java_http1_enabled) {
-            java_http1_request_retire(&info, bpf_map_lookup_elem(&java_http1_requests, &info));
+            const u64 request_id = java_http1_request_id(&info);
+            java_http1_request_retire(
+                &info, java_http1_request_lookup(&info, request_id), request_id);
         }
     }
 

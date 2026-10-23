@@ -436,9 +436,7 @@ func returnCodeLine(line string) (bool, error) {
 	return false, nil
 }
 
-var supportsHeaderPropagation = func(log *slog.Logger) bool {
-	return !ebpfcommon.IntegrityModeOverride && ebpfcommon.SupportsContextPropagationWithProbe(log)
-}
+var supportsHeaderPropagation = ebpfcommon.SupportsJavaHTTP1Propagation
 
 func (i *JavaInjector) attachOpts(runtimeMetricsEnabled bool) string {
 	var opts []string

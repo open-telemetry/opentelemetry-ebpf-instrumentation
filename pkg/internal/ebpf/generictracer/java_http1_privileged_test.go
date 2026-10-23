@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kprobe"
 )
@@ -29,8 +30,8 @@ const (
 	javaHTTP1SendOp          = 1
 	javaHTTP1ReceiveOp       = 2
 	javaHTTP1Parent          = 8
-	javaHTTP1Reserve         = 9
-	javaHTTP1Release         = 10
+	javaHTTP1Reserve         = 11
+	javaHTTP1Release         = 12
 	javaHTTP1IoctlCmd        = 0x0b10b1
 	javaHTTP1ClientTraceType = 2 // TRACE_TYPE_CLIENT in bpf/common/tracing.h
 
@@ -48,7 +49,8 @@ const (
 	javaHTTP1SpanIDSize         = 8
 	javaHTTP1ParentFlags        = javaHTTP1ParentOffset + javaHTTP1TraceIDSize + javaHTTP1SpanIDSize
 	javaHTTP1ParentStatus       = javaHTTP1ParentFlags + 1
-	javaHTTP1PacketSize         = javaHTTP1ParentStatus + 1
+	javaHTTP1RequestIDOffset    = javaHTTP1ParentStatus + 1
+	javaHTTP1PacketSize         = javaHTTP1RequestIDOffset + 8
 
 	// Pad test headers to exercise matching at a nonzero offset in the plaintext.
 	javaHTTP1HeaderValueOffset = 100
@@ -56,7 +58,9 @@ const (
 
 type javaHTTP1TestObjects struct {
 	Ioctl    *ebpf.Program `ebpf:"obi_kprobe_sys_ioctl"`
-	Requests *ebpf.Map     `ebpf:"java_http1_requests"`
+	Requests *ebpf.Map     `ebpf:"java_http1_connections"`
+	Slots    *ebpf.Map     `ebpf:"java_http1_requests"`
+	Sequence *ebpf.Map     `ebpf:"java_http1_sequence"`
 	Jumps    *ebpf.Map     `ebpf:"jump_table"`
 	HTTP     *ebpf.Map     `ebpf:"ongoing_http"`
 	Traces   *ebpf.Map     `ebpf:"trace_map"`
@@ -76,9 +80,15 @@ func loadJavaHTTP1Reservations(t *testing.T, enabled bool) *javaHTTP1TestObjects
 		}
 	}
 	spec.Maps["java_http1_requests"].MaxEntries = 1
-	require.Equal(t, uint32(unix.BPF_F_NO_PREALLOC), spec.Maps["java_http1_requests"].Flags)
+	spec.Maps["java_http1_connections"].MaxEntries = 1
+	require.Zero(t, spec.Maps["java_http1_requests"].Flags)
+	require.Zero(t, spec.Maps["java_http1_connections"].Flags)
+	if !enabled || !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
+		disableJavaHTTP1Atomics(spec)
+	}
 	require.NoError(t, ebpfconvenience.RewriteConstants(spec, map[string]any{
 		"filter_pids":                    int32(0),
+		"java_http1_max_requests":        uint32(1),
 		"g_bpf_java_http1_enabled":       enabled,
 		"g_bpf_header_propagation":       true,
 		"g_bpf_probe_write_user_enabled": true,
@@ -91,6 +101,8 @@ func loadJavaHTTP1Reservations(t *testing.T, enabled bool) *javaHTTP1TestObjects
 	t.Cleanup(func() {
 		objs.Ioctl.Close()
 		objs.Requests.Close()
+		objs.Slots.Close()
+		objs.Sequence.Close()
 		objs.Jumps.Close()
 		objs.HTTP.Close()
 		objs.Traces.Close()
@@ -171,7 +183,7 @@ func javaHTTP1MapSize(t *testing.T, reservations *ebpf.Map) int {
 }
 
 func TestJavaHTTP1ReservationLifecycle(t *testing.T) {
-	if !supportsJavaHTTP1ReservationCleanup() {
+	if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
 		t.Skip("this test requires CMPXCHG support")
 	}
 	objects := loadJavaHTTP1Reservations(t, true)
@@ -196,6 +208,8 @@ func TestJavaHTTP1ReservationLifecycle(t *testing.T) {
 	b[javaHTTP1ParentStatus] = 1
 	javaHTTP1Ioctl(b)
 	require.Zero(t, b[0])
+	require.NotEqual(t, binary.NativeEndian.Uint64(a[javaHTTP1RequestIDOffset:]), binary.NativeEndian.Uint64(b[javaHTTP1RequestIDOffset:]),
+		"reusing the only physical slot gives B a new request generation")
 	require.NotEqual(t, a[javaHTTP1ValueOffset:javaHTTP1ParentOffset], b[javaHTTP1ValueOffset:javaHTTP1ParentOffset])
 	javaHTTP1Ioctl(a)
 	require.Equal(t, 1, javaHTTP1MapSize(t, reservations), "stale release preserves a newer reservation")
@@ -243,7 +257,7 @@ func TestJavaHTTP1ReservationsUnsupported(t *testing.T) {
 }
 
 func TestJavaHTTP1ReservationSurvivesTraceMapReplacement(t *testing.T) {
-	if !supportsJavaHTTP1ReservationCleanup() {
+	if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
 		t.Skip("this test requires CMPXCHG support")
 	}
 	objects := loadJavaHTTP1Reservations(t, true)
@@ -297,7 +311,7 @@ func TestJavaHTTP1ReservationSurvivesTraceMapReplacement(t *testing.T) {
 }
 
 func TestJavaHTTP1ParentAfterUnparsedResponse(t *testing.T) {
-	if !supportsJavaHTTP1ReservationCleanup() {
+	if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
 		t.Skip("this test requires CMPXCHG support")
 	}
 	loadJavaHTTP1Reservations(t, true)
@@ -324,7 +338,7 @@ func TestJavaHTTP1ParentAfterUnparsedResponse(t *testing.T) {
 }
 
 func TestJavaHTTP1AmbiguousParentSkipsInjection(t *testing.T) {
-	if !supportsJavaHTTP1ReservationCleanup() {
+	if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
 		t.Skip("this test requires CMPXCHG support")
 	}
 	loadJavaHTTP1Reservations(t, true)
@@ -339,4 +353,21 @@ func TestJavaHTTP1AmbiguousParentSkipsInjection(t *testing.T) {
 	parent[0] = javaHTTP1Parent
 	javaHTTP1Ioctl(parent)
 	require.Equal(t, byte(javaHTTP1Parent), parent[0], "an ambiguous capture is not acknowledged")
+}
+
+func TestJavaHTTP1ReservationSequenceDoesNotWrap(t *testing.T) {
+	if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
+		t.Skip("this test requires CMPXCHG support")
+	}
+	objects := loadJavaHTTP1Reservations(t, true)
+	key := uint32(0)
+	lastID := uint64(1<<63 - 1)
+	require.NoError(t, objects.Sequence.Put(&key, &lastID))
+	packet := javaHTTP1Packet(40000)
+	javaHTTP1Ioctl(packet)
+	require.Equal(t, byte(javaHTTP1Reserve), packet[0], "exhausted IDs skip injection")
+	require.Zero(t, javaHTTP1MapSize(t, objects.Requests))
+	var sequence uint64
+	require.NoError(t, objects.Sequence.Lookup(&key, &sequence))
+	require.Equal(t, lastID, sequence, "the sequence saturates instead of reusing an old ID")
 }

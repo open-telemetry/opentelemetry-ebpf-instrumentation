@@ -42,8 +42,8 @@ enum {
     k_ioctl_java_runtime_metrics = 6,
     k_ioctl_java_gc_duration = 7,
     k_ioctl_java_http1_parent = 8,
-    k_ioctl_java_http1_traceparent = 9,
-    k_ioctl_java_http1_traceparent_release = 10,
+    k_ioctl_java_http1_traceparent = 11,
+    k_ioctl_java_http1_traceparent_release = 12,
 };
 
 enum { k_ioctl_invalid_op = 0xff };
@@ -58,9 +58,10 @@ enum {
     k_http1_value_offset_field = k_http1_connection_offset + sizeof(connection_info_t),
     k_http1_traceparent_offset = k_http1_value_offset_field + sizeof(u32),
     k_http1_parent_offset = k_http1_traceparent_offset + TP_MAX_VAL_LENGTH,
+    k_http1_request_id_offset = k_http1_parent_offset + sizeof(java_http1_parent_t),
 };
 
-SCRATCH_MEM_TYPED(java_http1_request, java_http1_request_t);
+SCRATCH_MEM_TYPED(java_http1_request, java_http1_request_data_t);
 
 static __always_inline void java_http1_parent(unsigned char *uarg) {
     if (!g_bpf_java_http1_enabled || !g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
@@ -100,7 +101,7 @@ static __always_inline void java_http1_traceparent(unsigned char *uarg) {
         return;
     }
     sort_connection_info(&conn.conn);
-    java_http1_request_t *request = java_http1_request_mem();
+    java_http1_request_data_t *request = java_http1_request_mem();
     unsigned char *traceparent = tp_char_buf_mem();
     if (!request || !traceparent) {
         return;
@@ -114,6 +115,7 @@ static __always_inline void java_http1_traceparent(unsigned char *uarg) {
     if (request->value_offset > k_ioctl_max_payload_len - TP_MAX_VAL_LENGTH) {
         return;
     }
+    request->conn = conn;
     tp_info_pid_t *tp = &request->tp;
     init_new_trace(&tp->tp);
     java_http1_parent_t parent = {};
@@ -140,21 +142,18 @@ static __always_inline void java_http1_traceparent(unsigned char *uarg) {
     }
     make_tp_string(traceparent, &tp->tp);
 
-    // Save the client span before TLS encrypts the headers. The plaintext SEND
-    // notification may arrive after ciphertext reaches sock_msg; the HTTP parser
-    // must recover the span ID that was already injected into the header.
-    if (bpf_map_update_elem(&java_http1_requests, &conn, request, BPF_NOEXIST) != 0) {
+    const u64 request_id = java_http1_request_reserve(request);
+    if (!request_id) {
         return;
     }
     const u8 complete = 0;
-    if (bpf_probe_write_user(uarg + k_http1_parent_offset, &parent, sizeof(parent)) != 0 ||
+    if (bpf_probe_write_user(uarg + k_http1_request_id_offset, &request_id, sizeof(request_id)) !=
+            0 ||
+        bpf_probe_write_user(uarg + k_http1_parent_offset, &parent, sizeof(parent)) != 0 ||
         bpf_probe_write_user(uarg + k_http1_traceparent_offset, traceparent, TP_MAX_VAL_LENGTH) !=
             0 ||
         bpf_probe_write_user(uarg, &complete, sizeof(complete)) != 0) {
-        java_http1_request_t *reserved = bpf_map_lookup_elem(&java_http1_requests, &conn);
-        if (reserved && bpf_memcmp(&reserved->tp, &request->tp, sizeof(request->tp)) == 0) {
-            java_http1_request_retire(&conn, reserved);
-        }
+        java_http1_request_retire(&conn, java_http1_request_lookup(&conn, request_id), request_id);
     }
 }
 
@@ -167,7 +166,12 @@ static __always_inline void java_http1_traceparent_release(const unsigned char *
         return;
     }
     sort_connection_info(&conn.conn);
-    java_http1_request_t *request = bpf_map_lookup_elem(&java_http1_requests, &conn);
+    u64 request_id = 0;
+    if (bpf_probe_read_user(&request_id, sizeof(request_id), uarg + k_http1_request_id_offset) !=
+        0) {
+        return;
+    }
+    java_http1_request_t *request = java_http1_request_lookup(&conn, request_id);
     unsigned char *scratch = tp_char_buf_mem();
     if (!request || !scratch) {
         return;
@@ -178,10 +182,10 @@ static __always_inline void java_http1_traceparent_release(const unsigned char *
             released_traceparent, TP_MAX_VAL_LENGTH, uarg + k_http1_traceparent_offset) != 0) {
         return;
     }
-    make_tp_string(reserved_traceparent, &request->tp.tp);
+    make_tp_string(reserved_traceparent, &request->data.tp.tp);
     // A delayed cleanup must not delete a later request on a reused connection.
     if (bpf_memcmp(reserved_traceparent, released_traceparent, TP_MAX_VAL_LENGTH) == 0) {
-        java_http1_request_retire(&conn, request);
+        java_http1_request_retire(&conn, request, request_id);
     }
 }
 

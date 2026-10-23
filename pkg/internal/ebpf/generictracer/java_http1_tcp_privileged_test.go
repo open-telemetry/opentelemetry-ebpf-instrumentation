@@ -26,6 +26,7 @@ import (
 	"github.com/cilium/ebpf/link"
 	"github.com/stretchr/testify/require"
 
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/tpinjector"
 )
@@ -55,7 +56,7 @@ func javaHTTP1TCPCgroup(t *testing.T) string {
 }
 
 func TestJavaHTTP1ReservationPreservesTCPOptions(t *testing.T) {
-	if !supportsJavaHTTP1ReservationCleanup() {
+	if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
 		t.Skip("this test requires CMPXCHG support")
 	}
 	java := loadJavaHTTP1Reservations(t, true)

@@ -30,21 +30,23 @@ static void expect(bool condition, const char *message) {
 int main(void) {
     g_bpf_java_http1_enabled = true;
     const pid_connection_info_t conn = {.pid = 42};
-    java_http1_request_t a = {};
-    java_http1_request_t b = {};
-    current_request = &a;
+    java_http1_request_t slot = {.state = 1};
+    current_request = &slot;
+    java_http1_request_t *delayed_release = &slot;
 
-    // A's release has already looked up and matched A. Another CPU consumes A
-    // and installs B before that release reaches its deletion.
-    java_http1_request_t *delayed_release = current_request;
-    expect(java_http1_request_retire(&conn, &a), "the parser consumes A");
-    current_request = &b;
-    expect(!java_http1_request_retire(&conn, delayed_release),
-           "A's delayed cleanup cannot retire twice");
-    expect(current_request == &b, "A's delayed cleanup preserves B");
+    expect(java_http1_request_retire(&conn, &slot, 1), "the parser consumes A");
+    // Reuse the exact same physical storage for B, as preallocated maps do.
+    slot = (java_http1_request_t){.state = 2};
+    current_request = &slot;
+    expect(!java_http1_request_retire(&conn, delayed_release, 1),
+           "A's delayed cleanup cannot retire B at the same address");
+    expect(current_request == &slot, "A's delayed cleanup preserves B");
+    expect(slot.state == 2, "stale cleanup does not modify B's generation");
     expect(deletions == 1, "only the retirement winner deletes");
-    expect(java_http1_request_retire(&conn, &b), "B remains independently releasable");
+    expect(java_http1_request_retire(&conn, &slot, 2), "B remains independently releasable");
     expect(current_request == NULL, "a failed send releases its reservation");
+    expect(slot.state == 0, "retirement frees the array slot");
+    expect(!java_http1_request_retire(&conn, &slot, 2), "retirement cannot win twice");
     puts("Java HTTP/1 reservation lifecycle checks passed");
     return 0;
 }

@@ -42,6 +42,7 @@ public final class JdkHttpClientPropagation {
   private static final int PACKET_TRACEPARENT_OFFSET = PACKET_VALUE_OFFSET_FIELD + Integer.BYTES;
   private static final int PACKET_PARENT_OFFSET = PACKET_TRACEPARENT_OFFSET + TRACEPARENT_SIZE;
   private static final int PARENT_SIZE = TRACE_ID_SIZE + SPAN_ID_SIZE + 2;
+  private static final int REQUEST_ID_SIZE = Long.BYTES;
   private static final byte[] HEADER = "traceparent: ".getBytes(StandardCharsets.US_ASCII);
   private static final int HEADER_NAME_LENGTH = HEADER.length - 2; // exclude colon and space
   private static final int CRLF_SIZE = 2;
@@ -299,7 +300,7 @@ public final class JdkHttpClientPropagation {
 
   // Called with this send's monitor held, so exit() cannot release a packet mid-injection.
   private NativeMemory reserveClientSpan(Connection connection, int headerValueOffset) {
-    NativeMemory packet = new NativeMemory(PACKET_PARENT_OFFSET + PARENT_SIZE);
+    NativeMemory packet = new NativeMemory(PACKET_PARENT_OFFSET + PARENT_SIZE + REQUEST_ID_SIZE);
     packet.setByte(0, OperationType.HTTP1_TRACEPARENT.code);
     ConnectionInfo.writeSendConnectionInfo(packet, PACKET_CONNECTION_OFFSET, connection);
     packet.setInt(PACKET_VALUE_OFFSET_FIELD, headerValueOffset);

@@ -167,13 +167,14 @@ the existing agent contract version. The capability property
 `otel.obi.java.agent.httpclient.propagation` identifies an agent with this
 feature enabled. Multibyte integers use native byte order, as in the existing packet ABI.
 
-| Offset | Size | Operation 9: reserve HTTP/1.1 traceparent |
+| Offset | Size | Operation 11: reserve HTTP/1.1 traceparent |
 | --- | --- | --- |
-| 0 | 1 byte | Opcode `9` |
+| 0 | 1 byte | Opcode `11` |
 | 1 | 36 bytes | Outbound connection tuple |
 | 37 | 4 bytes | Traceparent value offset in the serialized HTTP headers |
 | 41 | 55 bytes | Zeroed output buffer; eBPF writes the serialized traceparent on success |
 | 96 | 26 bytes | Parent context: trace ID (16), parent span ID (8), flags (1), parent status (1) |
+| 122 | 8 bytes | Request ID returned by eBPF and retained for release |
 
 Opcode `8` captures the current Java server parent at entry to `send()`. Its
 packet contains the opcode byte followed by the 26-byte parent context. eBPF
@@ -181,16 +182,17 @@ sets the opcode byte to zero only after writing a complete response. A zeroed
 parent context means no server parent was found. Without an acknowledgment,
 the agent skips injection for this call.
 
-The captured parent is supplied in opcode `9`. A successful reservation returns
-the adopted context and sets its opcode byte to zero after both outputs have
-been written. The agent supplies that context on later attempts within the same `send()`.
+The captured parent is supplied in opcode `11`. A successful reservation returns
+the adopted context and sets its opcode byte to zero after the context,
+traceparent, and request ID have been written. The agent supplies that context on later attempts within the same `send()`.
 Each attempt still gets a fresh client span ID. The agent retains these buffers
-until `send()` exits and sends opcode `10` with the same connection and
-traceparent value to release any unconsumed reservation. Release compares the
-value and atomically claims retirement before deleting state. All removal paths
-share that ownership protocol; a delayed cleanup cannot delete a replacement.
-The wire layout is unchanged. The kernel must support the probed atomic
-instruction; otherwise parent capture is not acknowledged and injection is skipped.
+until `send()` exits and sends opcode `12` with the same connection and
+traceparent value and request ID to release any unconsumed reservation. Release
+compares the value and atomically claims that ID before deleting state.
+All removal paths share that ownership protocol; a delayed cleanup cannot delete a replacement.
+The reserve/release operations use additive opcodes; existing data packets
+retain their layout. The kernel must support the probed atomic instruction;
+otherwise parent capture is not acknowledged and injection is skipped.
 
 ## 🔨 Building
 

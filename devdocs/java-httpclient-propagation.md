@@ -56,9 +56,8 @@ extracts the outgoing header creates a child of the outbound client span.
 
 Java request tracking and retained native packets are each capped at 10,000
 entries per JVM; capacity exhaustion skips injection without evicting active
-requests. Reservations are keyed by PID and the full connection tuple. The bounded hash
-map does not evict active reservations; when full, new requests are sent without
-injection. Reservations are consumed on matching observation, released when `send()`
+requests. Reservations are keyed by PID and the full connection tuple. Preallocated slots and a bounded connection index do not evict active
+reservations; unavailable capacity skips injection. Reservations are consumed on matching observation, released when `send()`
 exits, and removed when the socket closes. A mismatching plaintext notification
 leaves the reservation for its owner to clean up.
 
@@ -79,50 +78,54 @@ calls and eBPF programs on other CPUs can still run independently.
 
 #### Ownership protocol
 
-The [reservation map and retirement helper](../bpf/generictracer/maps/java_http1_requests.h)
-protect each entry through three rules:
+The [slot storage and ownership helpers](../bpf/generictracer/maps/java_http1_requests.h)
+separate request identity from the connection used to find it. Cleanup carries
+the original request ID in its native packet. The parser and socket-close path
+read that ID from the connection index.
 
-1. **Insert only into an empty key.** `BPF_NOEXIST` prevents a new reservation
-   from replacing an entry that is still present, including one awaiting deletion.
-2. **Claim the entry before deleting it.** Compare-and-swap checks that the
-   entry is still live and changes it to retired as one indivisible operation.
-   Only the caller that makes this transition may delete the key. A delayed
-   cleanup holding A's retired entry cannot win ownership again and delete B.
-3. **Keep the reserved context immutable.** The
-   [plaintext parser](../bpf/generictracer/protocol_http.h) copies the context
-   before attempting retirement and adopts it only if that attempt succeeds.
-   If acknowledgment to Java fails, rollback uses the same ownership check.
+The context lives in preallocated array slots with stable addresses. A separate
+preallocated hash map indexes the connection to its request ID; it never holds a
+pointer to recyclable hash storage. Request IDs come from a monotonic counter and
+also identify their array slot. The counter stops at its limit instead of wrapping.
 
-The map also uses `BPF_F_NO_PREALLOC` so a deleted entry's memory is not
-immediately reused for a new reservation. The kernel uses read-copy-update
-(RCU) to defer freeing that memory until existing readers have finished
-([kernel reclamation path](https://github.com/torvalds/linux/blob/v5.8/kernel/bpf/hashtab.c#L745-L755)).
-This matters because a delayed cleanup can still hold a pointer to the old entry;
-its retirement state must continue to describe that entry, not a replacement.
+Each slot has a state: free, readable under its request ID, or owned by that ID.
+Reservation claims a free slot, fills its context, inserts the connection index
+with `BPF_NOEXIST`, and then publishes the slot as readable. Cleanup atomically
+claims that exact request ID before deleting the index and freeing the slot.
+The parser copies and matches the context before making the same claim. If the
+slot was reused during those reads, the claim fails and the copy is not adopted.
+A delayed cleanup holding A's slot cannot claim B's new request ID, even when
+both requests use the same physical slot and connection.
+
+This avoids runtime allocation in tracing programs, which
+[older verifiers reject on PREEMPT_RT kernels](https://github.com/torvalds/linux/blob/v5.8/kernel/bpf/verifier.c#L8486-L8515).
+It does not depend on hash-map reclamation timing.
 
 #### Cost and alternatives
 
-Each attempt to claim an entry performs one atomic operation. The kernel also
-allocates memory for each reservation and reclaims it after RCU readers finish.
-Map capacity bounds active entries, while deleted entries can temporarily remain
-allocated pending reclamation. Allocation failure skips injection.
+Storage is preallocated for 10,000 contexts and their connection index. Reservation
+tries at most 16 candidate slots and bounds contention on the ID counter. If it
+cannot claim a slot or insert the index, it skips injection; this can happen
+before every slot is occupied. Publication, lookup validation, and retirement
+use atomic compare-and-swap operations. There is no application-thread wait or
+per-request kernel memory allocation.
 
 A Kprobe program-load probe checks support for 64-bit `CMPXCHG`, the instruction
-used for this compare-and-swap. Without it, this feature stays inactive and emits
-a diagnostic.
-The constant gate keeps unsupported instructions out of reachable kernel code;
-existing Java TLS observation and other propagation paths remain available.
+used for ownership. Java attachment and the eBPF loader share that check. On
+unsupported kernels, the loader also replaces unreachable `CMPXCHG` instructions:
+older verifiers reject unknown instruction encodings before eliminating branches
+behind a false feature constant. Existing Java TLS observation remains available.
 
-The chosen design keeps ownership in one connection-keyed map. The following
-table compares it with alternatives for identifying and cleaning up reservations,
-and explains why those alternatives were not selected for this implementation.
+The following table compares ownership approaches and explains the choice for
+this implementation.
 
 | Approach | Lifecycle and cost | Decision |
 | --- | --- | --- |
-| Single reservation map with atomic retirement | Constant-time lookup and one retirement winner, without a second index or an application-thread wait; requires atomic instruction support and deferred reclamation | Implemented |
-| Unique request/generation keys | Cleanup can name one generation, but the parser must recover that key. Current header scanners do not cover the full 16 KiB injection limit; adding a connection index also needs an ownership protocol | Requires additional identity lookup and index ownership |
-| Context carried with plaintext SEND | Could remove reservations and release packets, but context must stay with captured bytes through TLS buffering and ciphertext-to-plaintext correlation. Context stored only on the caller thread does not follow pooled workers or delayed writes | Requires buffer-owned context and validation of partial writes and retries |
-| Bounded expiry | Can recover abandoned capacity, but cannot distinguish a slow request from an abandoned reservation. Expiry still has to claim retirement before deletion | A separate capacity-recovery policy; does not replace ownership protection |
+| Preallocated slots with unique request IDs and a connection index | Bounded allocation and atomic generation claims; stable slot addresses prevent stale-pointer deletion after reuse | Implemented |
+| Connection-keyed non-preallocated hash with retirement | Depends on allocator reclamation; older tracing verifiers warn, and older PREEMPT_RT kernels reject it | Rejected |
+| Request IDs stored only in preallocated hash values | The hash node can be reused while a reader holds its address; its state is overwritten during initialization of another entry | Does not provide stable ownership storage |
+| Context carried with plaintext SEND | Could remove reservations and release packets, but context must follow captured bytes through TLS buffering and ciphertext-to-plaintext correlation | Requires buffer-owned context and validation of partial writes and retries |
+| Bounded expiry | Can recover abandoned capacity, but cannot distinguish slow requests from abandoned ones | A separate capacity-recovery policy; does not replace ownership protection |
 
 #### Cleanup limits and regression coverage
 
@@ -141,7 +144,7 @@ request's identity. This does not change the map's capacity or eviction policy.
 The native event-submission regression simulates that slot reuse and checks
 that export retains the original request identity without duplicate submission.
 The native lifecycle regression reproduces the A/B race described above: it
-consumes A and installs B between A's lookup and cleanup. Kernel tests exercise
+consumes A and reuses the exact same slot for B before A's delayed cleanup. Kernel tests exercise
 the actual ioctl handler, parser mismatch, adopted trace/span/parent identity,
 acknowledgment rollback, capacity recovery, and the disabled instruction gate.
 A TLS kernel test also checks that `all` propagation publishes the reserved

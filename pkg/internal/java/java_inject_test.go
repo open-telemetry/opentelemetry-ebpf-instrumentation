@@ -26,6 +26,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools/jvm"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
@@ -989,4 +990,13 @@ func TestJavaInjector_VerifyLoadedAgentRejectsVersionMismatch(t *testing.T) {
 	require.ErrorContains(t, err, "version 2, expected 3")
 	require.Equal(t, 1, attacher.calls)
 	require.Equal(t, 1, attacher.cleanups)
+}
+
+func TestJavaInjector_HeaderPropagationRequiresAtomicOwnership(t *testing.T) {
+	previous := ebpfcommon.SupportsJavaHTTP1ReservationCleanup
+	t.Cleanup(func() { ebpfcommon.SupportsJavaHTTP1ReservationCleanup = previous })
+	ebpfcommon.SupportsJavaHTTP1ReservationCleanup = func() bool { return false }
+	injector := &JavaInjector{cfg: &obi.Config{}, log: slog.Default()}
+	injector.cfg.EBPF.ContextPropagation = config.ContextPropagationHeaders
+	require.Empty(t, injector.attachOpts(false), "Java must use the same atomic capability gate as eBPF")
 }

@@ -659,13 +659,14 @@ static __always_inline bool adopt_java_http1_reservation(call_protocol_args_t *a
         return false;
     }
 
-    java_http1_request_t *reservation = bpf_map_lookup_elem(&java_http1_requests, &args->pid_conn);
+    const u64 request_id = java_http1_request_id(&args->pid_conn);
+    java_http1_request_t *reservation = java_http1_request_lookup(&args->pid_conn, request_id);
     unsigned char *scratch = tp_char_buf_mem();
     if (!reservation || !scratch) {
         return false;
     }
 
-    const u32 offset = reservation->value_offset;
+    const u32 offset = reservation->data.value_offset;
     if (args->bytes_len < TP_MAX_VAL_LENGTH || offset > args->bytes_len - TP_MAX_VAL_LENGTH) {
         return false;
     }
@@ -676,15 +677,16 @@ static __always_inline bool adopt_java_http1_reservation(call_protocol_args_t *a
                             (const unsigned char *)args->u_buf + offset) != 0) {
         return false;
     }
-    make_tp_string(reserved_traceparent, &reservation->tp.tp);
+    make_tp_string(reserved_traceparent, &reservation->data.tp.tp);
     if (bpf_memcmp(reserved_traceparent, plaintext_traceparent, TP_MAX_VAL_LENGTH) != 0) {
         return false;
     }
 
-    // Removal invalidates the map value. Copy the context before claiming it.
-    tp_info_pid_t client_span = reservation->tp;
-    const u8 parent_status = reservation->parent_status;
-    if (!java_http1_request_retire(&args->pid_conn, reservation)) {
+    // Copy before retirement can free the slot. A successful claim proves this
+    // generation stayed live throughout the copy and the plaintext comparison.
+    tp_info_pid_t client_span = reservation->data.tp;
+    const u8 parent_status = reservation->data.parent_status;
+    if (!java_http1_request_retire(&args->pid_conn, reservation, request_id)) {
         return false;
     }
     set_trace_info_for_connection(&args->pid_conn.conn, TRACE_TYPE_CLIENT, &client_span);
