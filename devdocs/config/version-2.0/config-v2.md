@@ -1046,7 +1046,9 @@ scope. The source and its settings are available only in Config v2.
 
 Standalone OBI watches its Config v2 file when started with `--config` or
 `OTEL_EBPF_CONFIG_PATH`. It reads the path every second, including after atomic
-file replacement or ConfigMap symlink updates. In containers, mount the containing
+file replacement or ConfigMap symlink updates. A change applies once two
+consecutive reads return the same contents, so a read that lands in the middle of
+an in-place write is not applied. In containers, mount the containing
 directory so replacement files remain visible. The legacy v1 loader is unchanged.
 
 Process and Kubernetes matching predicates can be refreshed, and definitions can

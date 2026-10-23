@@ -4,6 +4,7 @@
 package configwatch
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -64,7 +66,9 @@ func TestConfigFileWatcherStartup(t *testing.T) {
 			if tc.refresh {
 				require.NoError(t, os.WriteFile(path, watcherConfig(tc.port), 0o600))
 			}
-			ticks := make(chan time.Time)
+			// A change applies once a second poll reads it unchanged.
+			ticks := make(chan time.Time, 1)
+			ticks <- time.Now()
 			close(ticks)
 			records := make(chan slog.Record, 10)
 			logger := slog.New(configWatchLog{records: records})
@@ -100,7 +104,8 @@ func TestConfigFileWatcherRetriesRejectedUpdate(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "obi.yml")
 			initial := watcherConfig(8080)
 			require.NoError(t, os.WriteFile(path, watcherConfig(9090), 0o600))
-			ticks := make(chan time.Time, len(tc.pids)+1)
+			// One poll waits for the change to settle and one confirms the accepted file is skipped.
+			ticks := make(chan time.Time, len(tc.pids)+2)
 			for range cap(ticks) {
 				ticks <- time.Now()
 			}
@@ -130,6 +135,68 @@ func TestConfigFileWatcherRetriesRejectedUpdate(t *testing.T) {
 			require.Empty(t, records)
 		})
 	}
+}
+
+func TestConfigFileWatcherSkipsPartialWrite(t *testing.T) {
+	complete := []byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    daemon:
+      logging:
+        debug_trace_output: text
+    capture:
+      policy:
+        default_action: exclude
+      rules:
+        - action: include
+          match:
+            process:
+              open_ports: 8080
+        - action: include
+          match:
+            process:
+              open_ports: 9090
+`)
+	// The first rule alone is still a valid configuration.
+	partial := complete[:bytes.LastIndex(complete, []byte("        - action"))]
+	_, err := loadConfig(partial)
+	require.NoError(t, err)
+
+	synctest.Test(t, func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "obi.yml")
+		initial := watcherConfig(7070)
+		require.NoError(t, os.WriteFile(path, initial, 0o600))
+		ticks := make(chan time.Time)
+		records := make(chan slog.Record, 10)
+		logger := slog.New(configWatchLog{records: records})
+		refreshed := make(chan *obi.Config, 10)
+		ctx, cancel := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			watchConfigFile(ctx, path, initial, func(_ context.Context, cfg *obi.Config) error {
+				refreshed <- cfg
+				return nil
+			}, logger, ticks)
+		}()
+
+		// Waiting for the watcher to block between polls makes each write visible to exactly one poll.
+		for _, contents := range [][]byte{partial, complete, complete} {
+			synctest.Wait()
+			require.NoError(t, os.WriteFile(path, contents, 0o600))
+			ticks <- time.Now()
+		}
+		synctest.Wait()
+		cancel()
+		<-done
+
+		require.Len(t, refreshed, 1)
+		criteria := discover.FindingCriteria(<-refreshed)
+		require.Len(t, criteria, 2)
+		require.Equal(t, slog.LevelInfo, readConfigLog(t, records).Level)
+		require.Empty(t, records)
+	})
 }
 
 func TestConfigFileWatcher(t *testing.T) {
@@ -162,6 +229,11 @@ func TestConfigFileWatcher(t *testing.T) {
 	logger := slog.New(configWatchLog{records: records})
 	done := make(chan struct{})
 	go func() { defer close(done); watchConfigFile(ctx, path, initial, updater.Update, logger, ticks) }()
+	// A change applies once a second poll reads it unchanged.
+	pollChange := func() {
+		ticks <- time.Now()
+		ticks <- time.Now()
+	}
 	for range 2 {
 		select {
 		case ticks <- time.Now():
@@ -175,7 +247,7 @@ func TestConfigFileWatcher(t *testing.T) {
 	replacement := path + ".new"
 	require.NoError(t, os.WriteFile(replacement, watcherConfig(9090), 0o600))
 	require.NoError(t, os.Rename(replacement, path))
-	ticks <- time.Now()
+	pollChange()
 	require.Equal(t, slog.LevelInfo, readConfigLog(t, records).Level)
 	criteria, _ := updates.Current()
 	require.True(t, criteria[0].GetOpenPorts().Matches(9090))
@@ -183,7 +255,7 @@ func TestConfigFileWatcher(t *testing.T) {
 
 	incompatible := strings.ReplaceAll(string(watcherConfig(9090)), "debug_trace_output: text", "debug_trace_output: json")
 	require.NoError(t, os.WriteFile(path, []byte(incompatible), 0o600))
-	ticks <- time.Now()
+	pollChange()
 	failure := readConfigLog(t, records)
 	require.Equal(t, slog.LevelError, failure.Level)
 	require.Contains(t, failure.Message, "can't refresh configuration")
@@ -192,7 +264,7 @@ func TestConfigFileWatcher(t *testing.T) {
 	require.True(t, criteria[0].GetOpenPorts().Matches(9090))
 
 	require.NoError(t, os.WriteFile(path, []byte("extensions: ["), 0o600))
-	ticks <- time.Now()
+	pollChange()
 	require.Equal(t, slog.LevelError, readConfigLog(t, records).Level)
 
 	// Removing the final include rule must reach the updater even with no other active features.
@@ -209,7 +281,7 @@ extensions:
         debug_trace_output: text
 `)
 	require.NoError(t, os.WriteFile(path, idle, 0o600))
-	ticks <- time.Now()
+	pollChange()
 	result := readConfigLog(t, records)
 	require.Equal(t, slog.LevelInfo, result.Level, "%v", result)
 	criteria, _ = updates.Current()
@@ -217,7 +289,7 @@ extensions:
 
 	// Adding an include rule resumes selection after the pipeline became idle.
 	require.NoError(t, os.WriteFile(path, initial, 0o600))
-	ticks <- time.Now()
+	pollChange()
 	require.Equal(t, slog.LevelInfo, readConfigLog(t, records).Level)
 	criteria, _ = updates.Current()
 	require.True(t, criteria[0].GetOpenPorts().Matches(8080))

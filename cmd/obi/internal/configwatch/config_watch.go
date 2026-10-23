@@ -28,6 +28,7 @@ func Watch(ctx context.Context, path string, initial []byte, refresh func(contex
 
 // Reading the path on every poll also handles atomic file replacements and ConfigMap symlinks.
 func watchConfigFile(ctx context.Context, path string, previous []byte, refresh func(context.Context, *obi.Config) error, log *slog.Logger, ticks <-chan time.Time) {
+	lastRead := previous
 	var readError string
 	var rejected []byte
 	var refreshError string
@@ -41,9 +42,17 @@ func watchConfigFile(ctx context.Context, path string, previous []byte, refresh 
 			}
 		default:
 			readError = ""
+			unchangedSinceLastRead := bytes.Equal(lastRead, data)
+			lastRead = data
 			if bytes.Equal(previous, data) {
 				rejected = nil
 				refreshError = ""
+				break
+			}
+
+			// A poll can land in the middle of an in-place write, so contents apply
+			// only once two consecutive polls read them unchanged.
+			if !unchangedSinceLastRead {
 				break
 			}
 
