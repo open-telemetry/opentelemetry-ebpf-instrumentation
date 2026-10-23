@@ -10,9 +10,11 @@ ENV PROTOC_AARCH_64_SHA256="56af3fc2e43a0230802e6fadb621d890ba506c5c17a1ae1070f6
 
 ARG TARGETARCH
 
+# Temporary MISE_VERSION override below: remove before merge once the installer selects the required minimum.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl bash git make unzip \
     && rm -rf /var/lib/apt/lists/* \
+    && export MISE_VERSION=2026.10.18 \
     && curl -fsSL https://mise.run | sh
 
 COPY mise.toml mise.lock ./
