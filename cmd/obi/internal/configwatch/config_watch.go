@@ -31,6 +31,8 @@ func Watch(ctx context.Context, path string, initial []byte, refresh func(contex
 // Reading the path on every poll also handles atomic file replacements and ConfigMap symlinks.
 func watchConfigFile(ctx context.Context, path string, previous []byte, refresh func(context.Context, *obi.Config) error, log *slog.Logger, ticks <-chan time.Time) {
 	var readError string
+	var rejected []byte
+	var refreshError string
 	for {
 		data, err := os.ReadFile(path)
 		switch {
@@ -42,16 +44,24 @@ func watchConfigFile(ctx context.Context, path string, previous []byte, refresh 
 		default:
 			readError = ""
 			if bytes.Equal(previous, data) {
+				rejected = nil
+				refreshError = ""
 				break
 			}
 
-			previous = data
 			if err := refreshConfig(ctx, data, refresh); err != nil {
 				if ctx.Err() != nil {
 					return
 				}
-				log.Error("can't refresh configuration; restart OBI to apply this config", "path", path, "error", err)
+				if !bytes.Equal(rejected, data) || refreshError != err.Error() {
+					log.Error("can't refresh configuration; continuing with the running configuration and retrying", "path", path, "error", err)
+					rejected = data
+					refreshError = err.Error()
+				}
 			} else {
+				previous = data
+				rejected = nil
+				refreshError = ""
 				log.Info("discovery criteria refreshed", "path", path)
 			}
 		}

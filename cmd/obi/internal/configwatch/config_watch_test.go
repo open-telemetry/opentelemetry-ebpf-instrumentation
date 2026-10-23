@@ -87,6 +87,51 @@ func TestConfigFileWatcherStartup(t *testing.T) {
 	}
 }
 
+func TestConfigFileWatcherRetriesRejectedUpdate(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		pids      []int
+		errorLogs int
+	}{
+		{name: "same rejection", pids: []int{10, 10}, errorLogs: 1},
+		{name: "different rejection", pids: []int{10, 20}, errorLogs: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "obi.yml")
+			initial := watcherConfig(8080)
+			require.NoError(t, os.WriteFile(path, watcherConfig(9090), 0o600))
+			ticks := make(chan time.Time, len(tc.pids)+1)
+			for range cap(ticks) {
+				ticks <- time.Now()
+			}
+			close(ticks)
+			records := make(chan slog.Record, 10)
+			logger := slog.New(configWatchLog{records: records})
+			attempts := 0
+			var applied *obi.Config
+			watchConfigFile(t.Context(), path, initial, func(_ context.Context, cfg *obi.Config) error {
+				attempts++
+				criteria := discover.FindingCriteria(cfg)
+				require.True(t, criteria[0].GetOpenPorts().Matches(9090))
+				if attempts <= len(tc.pids) {
+					return fmt.Errorf("service settings would change for PID %d; restart OBI to apply this configuration", tc.pids[attempts-1])
+				}
+				// The blocking processes have exited; the unchanged file can now apply.
+				applied = cfg
+				return nil
+			}, logger, ticks)
+
+			require.Equal(t, len(tc.pids)+1, attempts, "retry until accepted, then skip the unchanged file")
+			require.NotNil(t, applied)
+			for range tc.errorLogs {
+				require.Equal(t, slog.LevelError, readConfigLog(t, records).Level)
+			}
+			require.Equal(t, slog.LevelInfo, readConfigLog(t, records).Level)
+			require.Empty(t, records)
+		})
+	}
+}
+
 func TestConfigFileWatcher(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "obi.yml")
 	initial := watcherConfig(8080)
@@ -142,7 +187,7 @@ func TestConfigFileWatcher(t *testing.T) {
 	failure := readConfigLog(t, records)
 	require.Equal(t, slog.LevelError, failure.Level)
 	require.Contains(t, failure.Message, "can't refresh configuration")
-	require.Contains(t, failure.Message, "restart OBI")
+	require.Contains(t, failure.Message, "retrying")
 	criteria, _ = updates.Current()
 	require.True(t, criteria[0].GetOpenPorts().Matches(9090))
 
