@@ -123,9 +123,15 @@ func dwarfStructField(t *testing.T, structType *dwarf.StructType, name string) *
 
 func TestGoOffsetsFromDwarf(t *testing.T) {
 	offsets, _ := structMemberOffsetsFromDwarf(debugData)
+	requestType := dwarfStruct(t, debugData, "net/http.Request")
+	responseType := dwarfStruct(t, debugData, "net/http.Response")
 	// this test might fail if a future Go version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
 		URLPtrPos:         uint64(16),
+		ReqProtoMajorPos:  uint64(dwarfStructField(t, requestType, "ProtoMajor").ByteOffset),
+		ReqProtoMinorPos:  uint64(dwarfStructField(t, requestType, "ProtoMinor").ByteOffset),
+		RespProtoMajorPos: uint64(dwarfStructField(t, responseType, "ProtoMajor").ByteOffset),
+		RespProtoMinorPos: uint64(dwarfStructField(t, responseType, "ProtoMinor").ByteOffset),
 		PathPtrPos:        uint64(56),
 		ConnFdPos:         uint64(0),
 		FdLaddrPos:        uint64(96),
@@ -177,9 +183,15 @@ func TestGrpcOffsetsFromDwarf(t *testing.T) {
 func TestGoOffsetsWithoutDwarf(t *testing.T) {
 	offsets, err := structMemberOffsets(smallELF)
 	require.NoError(t, err)
+	requestType := dwarfStruct(t, debugData, "net/http.Request")
+	responseType := dwarfStruct(t, debugData, "net/http.Response")
 	// this test might fail if a future Go version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
 		URLPtrPos:                         uint64(16),
+		ReqProtoMajorPos:                  uint64(dwarfStructField(t, requestType, "ProtoMajor").ByteOffset),
+		ReqProtoMinorPos:                  uint64(dwarfStructField(t, requestType, "ProtoMinor").ByteOffset),
+		RespProtoMajorPos:                 uint64(dwarfStructField(t, responseType, "ProtoMajor").ByteOffset),
+		RespProtoMinorPos:                 uint64(dwarfStructField(t, responseType, "ProtoMinor").ByteOffset),
 		PathPtrPos:                        uint64(56),
 		ConnFdPos:                         uint64(0),
 		FdLaddrPos:                        uint64(96),

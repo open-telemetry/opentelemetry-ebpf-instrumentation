@@ -7,10 +7,12 @@
         "Method",
         "URL",
         "ContentLength",
-        "Header"
+        "Header",
+        "ProtoMajor",
+        "ProtoMinor"
       ],
       "net/url.URL": ["Path", "RawQuery", "Host", "Scheme"],
-      "net/http.Response": ["StatusCode", "ContentLength"],
+      "net/http.Response": ["StatusCode", "ContentLength", "ProtoMajor", "ProtoMinor"],
       "net.TCPAddr": ["IP", "Port"],
       "context.valueCtx": ["val"],
       "bufio.Writer": ["buf", "n", "wr"],
