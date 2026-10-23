@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"unsafe"
 
+	"go.opentelemetry.io/obi/pkg/internal/split"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -541,7 +542,7 @@ func memcachedFirstLineFromReader(r *largebuf.LargeBufferReader) ([]byte, bool) 
 }
 
 func memcachedToken(line []byte) []byte {
-	if before, _, ok := bytes.Cut(line, []byte{' '}); ok {
+	if before, _, ok := split.CutByte(line, ' '); ok {
 		return before
 	}
 

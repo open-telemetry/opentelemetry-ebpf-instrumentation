@@ -14,6 +14,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
+	"go.opentelemetry.io/obi/pkg/internal/split"
 )
 
 const (
@@ -221,7 +222,7 @@ func cgiScheme(kv map[string]string, paramsComplete bool) string {
 // is the scheme the client used. The header arrives from the wire, so anything
 // outside the two schemes semconv defines is discarded rather than reported.
 func forwardedProto(header string) string {
-	proto, _, _ := strings.Cut(header, ",")
+	proto, _, _ := split.StringsCutByte(header, ',')
 	switch proto = strings.ToLower(strings.TrimSpace(proto)); proto {
 	case "http", "https":
 		return proto
@@ -277,7 +278,7 @@ func detectFastCGI(b, rb *largebuf.LargeBuffer) (fastCGIRequest, bool) {
 			statusPos := bytes.Index(rbRaw, []byte(responseStatusKey))
 			if statusPos >= 0 {
 				rbRaw = rbRaw[statusPos+len(responseStatusKey):]
-				nextSpace := bytes.Index(rbRaw, []byte(" "))
+				nextSpace := bytes.IndexByte(rbRaw, ' ')
 				if nextSpace > 0 {
 					statusStr := string(rbRaw[:nextSpace])
 					if parsed, err := strconv.ParseInt(statusStr, 10, 32); err == nil {

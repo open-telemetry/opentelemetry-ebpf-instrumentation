@@ -214,7 +214,7 @@ func extractGeminiModelFromPath(path string) string {
 		return ""
 	}
 	model := after
-	if colonIdx := strings.Index(model, ":"); colonIdx >= 0 {
+	if colonIdx := strings.IndexByte(model, ':'); colonIdx >= 0 {
 		model = model[:colonIdx]
 	}
 	return model
@@ -233,7 +233,7 @@ func extractGeminiOperation(req *http.Request) string {
 		return request.DefaultGeminiOperation
 	}
 	after := after0
-	colonIdx := strings.Index(after, ":")
+	colonIdx := strings.IndexByte(after, ':')
 	if colonIdx < 0 || colonIdx+1 >= len(after) {
 		return request.DefaultGeminiOperation
 	}

@@ -19,6 +19,7 @@ import (
 	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
+	"go.opentelemetry.io/obi/pkg/internal/split"
 )
 
 const ephemeralPortMin = 32768
@@ -44,7 +45,7 @@ func sortConnectionInfo(info *BpfConnectionInfoT) {
 }
 
 func removeQuery(url string) string {
-	before, _, ok := strings.Cut(url, "?")
+	before, _, ok := split.StringsCutByte(url, '?')
 	if ok {
 		return before
 	}
@@ -652,7 +653,7 @@ func httpMethodFromBuf(req []byte) string {
 		req = req[:end]
 	}
 
-	method, _, found := bytes.Cut(req, []byte(" "))
+	method, _, found := split.CutByte(req, ' ')
 	if !found {
 		return ""
 	}
@@ -677,7 +678,7 @@ func httpHostFromBuf(req []byte) (string, int) {
 
 	// only parse full host information, partial may
 	// get the wrong name or wrong port
-	hostPort, _, found := bytes.Cut(req, []byte("\r"))
+	hostPort, _, found := split.CutByte(req, '\r')
 	if !found {
 		return "", -1
 	}

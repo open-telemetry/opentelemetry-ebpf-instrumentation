@@ -6,6 +6,8 @@ package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 import (
 	"encoding/json"
 	"strings"
+
+	"go.opentelemetry.io/obi/pkg/internal/split"
 )
 
 type openAIInputAudio struct {
@@ -256,7 +258,7 @@ func openAIImageURLPart(imageURL string) (normalizedPart, bool) {
 }
 
 func openAIBase64DataURL(value string) (data, mimeType string, ok bool) {
-	metadata, data, ok := strings.Cut(value, ",")
+	metadata, data, ok := split.StringsCutByte(value, ',')
 	if !ok || !strings.HasPrefix(metadata, "data:") || !strings.HasSuffix(metadata, ";base64") {
 		return "", "", false
 	}

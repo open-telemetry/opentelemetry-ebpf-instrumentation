@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/internal/split"
 )
 
 func isBedrock(respHeader http.Header, req *http.Request) bool {
@@ -131,7 +132,7 @@ func extractBedrockModel(req *http.Request) string {
 		return ""
 	}
 	remainder := after
-	before, _, ok := strings.Cut(remainder, "/")
+	before, _, ok := split.StringsCutByte(remainder, '/')
 	if !ok {
 		return remainder
 	}
@@ -159,7 +160,7 @@ func extractBedrockGuardrailID(req *http.Request, resp *http.Response) string {
 		const prefix = "/guardrail/"
 		if _, after, ok := strings.Cut(path, prefix); ok {
 			remainder := after
-			if before, _, ok := strings.Cut(remainder, "/"); ok {
+			if before, _, ok := split.StringsCutByte(remainder, '/'); ok {
 				return before
 			}
 			return remainder
