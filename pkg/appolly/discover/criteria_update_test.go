@@ -7,6 +7,7 @@ import (
 	"context"
 	"log/slog"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -305,6 +306,71 @@ func TestCriteriaUpdaterCancellation(t *testing.T) {
 	require.ErrorIs(t, updater.Update(ctx, cfg), context.Canceled)
 	updater.Updates().Stop()
 	require.ErrorContains(t, updater.Update(t.Context(), cfg), "matcher stopped")
+}
+
+func TestCriteriaUpdaterDeadlineDuringReconciliation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		original := processInfo
+		t.Cleanup(func() { processInfo = original })
+		processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+			return &services.ProcessInfo{Pid: p.pid, ExePath: "/srv/app"}, nil
+		}
+		initial := criteriaConfig(t, "    - exe_path: /srv/app\n")
+		updater := NewCriteriaUpdater(initial)
+		input := make(chan []Event[ProcessAttrs])
+		output := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(0))
+		events := output.Subscribe()
+		matcher := &Matcher{
+			Log: slog.Default(), Criteria: FindingCriteria(initial),
+			ProcessHistory: map[app.PID]ProcessMatch{}, Input: input, Output: output,
+			CriteriaUpdates: updater.Updates(),
+		}
+		pipelineCtx, stop := context.WithCancel(t.Context())
+		done := make(chan struct{})
+		go func() { defer close(done); matcher.Run(pipelineCtx) }()
+		t.Cleanup(func() {
+			stop()
+			testutil.ReadChannel(t, done, time.Second)
+		})
+
+		input <- []Event[ProcessAttrs]{{Type: EventCreated, Obj: ProcessAttrs{pid: 10}}}
+		require.Len(t, testutil.ReadChannel(t, events, time.Second), 1)
+		empty := criteriaConfig(t, "    []\n")
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		result := make(chan error, 1)
+		go func() { result <- updater.Update(ctx, empty) }()
+
+		// The matcher has applied the change but cannot send its deletion event yet.
+		synctest.Wait()
+		require.Empty(t, matcher.ProcessHistory)
+		require.NoError(t, ctx.Err())
+		time.Sleep(time.Second)
+		require.ErrorIs(t, testutil.ReadChannel(t, result, time.Second), context.DeadlineExceeded)
+
+		// A subsequent caller can acquire the updater mutex and honor cancellation
+		// even while the matcher is still blocked on the first update's output.
+		canceledCtx, cancelNext := context.WithCancel(t.Context())
+		cancelNext()
+		go func() { result <- updater.Update(canceledCtx, initial) }()
+		require.ErrorIs(t, testutil.ReadChannel(t, result, time.Second), context.Canceled)
+
+		// Cancellation did not roll back the update; it can still be acknowledged.
+		deleted := testutil.ReadChannel(t, events, time.Second)
+		require.Len(t, deleted, 1)
+		require.Equal(t, EventDeleted, deleted[0].Type)
+		require.Equal(t, app.PID(10), deleted[0].Obj.Process.Pid)
+		synctest.Wait()
+		criteria, _ := updater.Updates().Current()
+		require.Empty(t, criteria)
+
+		go func() { result <- updater.Update(t.Context(), initial) }()
+		created := testutil.ReadChannel(t, events, time.Second)
+		require.Len(t, created, 1)
+		require.Equal(t, EventCreated, created[0].Type)
+		require.Equal(t, app.PID(10), created[0].Obj.Process.Pid)
+		require.NoError(t, testutil.ReadChannel(t, result, time.Second))
+	})
 }
 
 func TestCriteriaRescanPreservesProcessExits(t *testing.T) {

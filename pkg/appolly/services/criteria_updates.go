@@ -56,6 +56,8 @@ func (c *CriteriaUpdates) Replace(ctx context.Context, include, exclude []Select
 	case c.requests <- update:
 	}
 	select {
+	case <-ctx.Done():
+		return ctx.Err()
 	case err := <-update.result:
 		return err
 	case <-c.done:
