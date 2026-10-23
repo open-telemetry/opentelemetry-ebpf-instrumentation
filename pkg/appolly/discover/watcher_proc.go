@@ -155,14 +155,14 @@ type pollAccounter struct {
 	stateMux          sync.Mutex
 	bpfWatcherEnabled bool
 	fetchPorts        bool
+	forceRescan       bool
 	findingCriteria   []services.Selector
 	criteriaUpdates   *services.CriteriaUpdates
 	output            *msg.Queue[[]Event[ProcessAttrs]]
 	ebpfContext       *ebpfcommon.EBPFEventContext
 	rescan            ProcessWatcherRescan
 	// pidsMu protects pids and pidPorts so the rescan goroutine can forget while snapshot runs
-	pidsMu      sync.Mutex
-	forceRescan bool
+	pidsMu sync.Mutex
 }
 
 func (pa *pollAccounter) run(ctx context.Context) {
@@ -191,11 +191,15 @@ func (pa *pollAccounter) run(ctx context.Context) {
 	}
 
 	for {
-		procs, err := pa.listProcesses(pa.portFetchRequired())
+		fetchPorts, forceRescan := pa.pollRequirements()
+		procs, err := pa.listProcesses(fetchPorts)
 		if err != nil {
+			if forceRescan {
+				pa.rescanProcesses()
+			}
 			log.Warn("can't get system processes", "error", err)
 		} else {
-			if events := pa.snapshot(procs); len(events) > 0 {
+			if events := pa.snapshot(procs, forceRescan); len(events) > 0 {
 				log.Debug("new process watching events", "len", len(events))
 				pa.output.Send(events)
 			}
@@ -230,7 +234,6 @@ func (pa *pollAccounter) runRescanNotify(ctx context.Context, log *slog.Logger) 
 			}
 			if pa.criteriaUpdates != nil {
 				pa.rescanProcesses()
-				pa.refetchPorts()
 			} else {
 				pa.forgetAll()
 			}
@@ -274,18 +277,22 @@ func (pa *pollAccounter) refetchPorts() {
 	pa.fetchPorts = true
 }
 
-func (pa *pollAccounter) portFetchRequired() bool {
+// Consume both decisions before listing processes so a later rescan request
+// cannot be applied to results collected without ports.
+func (pa *pollAccounter) pollRequirements() (fetchPorts, forceRescan bool) {
 	pa.stateMux.Lock()
 	defer pa.stateMux.Unlock()
 
+	forceRescan = pa.forceRescan
+	pa.forceRescan = false
 	if !pa.bpfWatcherEnabled {
-		return true
+		return true, forceRescan
 	}
 
-	ret := pa.fetchPorts
+	fetchPorts = pa.fetchPorts
 	pa.fetchPorts = false
 
-	return ret
+	return fetchPorts, forceRescan
 }
 
 func portOfInterest(criteria []services.Selector, port int) bool {
@@ -329,7 +336,7 @@ func (pa *pollAccounter) processTooNew(proc ProcessAttrs) bool {
 
 // snapshot compares the current processes with the status of the previous poll
 // and forwards a list of process creation/deletion events
-func (pa *pollAccounter) snapshot(fetchedProcs map[app.PID]ProcessAttrs) []Event[ProcessAttrs] {
+func (pa *pollAccounter) snapshot(fetchedProcs map[app.PID]ProcessAttrs, forceRescan bool) []Event[ProcessAttrs] {
 	pa.pidsMu.Lock()
 	defer pa.pidsMu.Unlock()
 	log := wplog()
@@ -342,7 +349,7 @@ func (pa *pollAccounter) snapshot(fetchedProcs map[app.PID]ProcessAttrs) []Event
 		// if the process does not have open ports, we might still notify it
 		// for example, if it's a client with ephemeral connections, which might be later matched by executable name
 		if len(proc.openPorts) == 0 {
-			if pa.checkNewProcessNotification(pid, reportedProcs, notReadyProcs) {
+			if pa.checkNewProcessNotification(pid, reportedProcs, notReadyProcs, forceRescan) {
 				if pa.processTooNew(proc) {
 					log.Debug("delaying process analysis, too soon", "pid", pid, "age", proc.processAge)
 					notReadyProcs[pid] = struct{}{}
@@ -353,7 +360,7 @@ func (pa *pollAccounter) snapshot(fetchedProcs map[app.PID]ProcessAttrs) []Event
 			}
 		} else {
 			for _, port := range proc.openPorts {
-				if pa.checkNewProcessConnectionNotification(proc, port, currentPidPorts, reportedProcs, notReadyProcs) {
+				if pa.checkNewProcessConnectionNotification(proc, port, currentPidPorts, reportedProcs, notReadyProcs, forceRescan) {
 					events = append(events, Event[ProcessAttrs]{Type: EventCreated, Obj: proc})
 					log.Debug("process added", "pid", pid, "port", port)
 					// skip checking new connections for that process
@@ -385,7 +392,6 @@ func (pa *pollAccounter) snapshot(fetchedProcs map[app.PID]ProcessAttrs) []Event
 		}
 	}
 
-	pa.forceRescan = false
 	pa.pids = currentProcs
 	pa.pidPorts = currentPidPorts
 	return events
@@ -409,6 +415,7 @@ func (pa *pollAccounter) checkNewProcessConnectionNotification(
 	port uint32,
 	currentPidPorts map[pidPort]ProcessAttrs,
 	reportedProcs, notReadyProcs map[app.PID]struct{},
+	forceRescan bool,
 ) bool {
 	pp := pidPort{Pid: proc.pid, Port: port}
 	currentPidPorts[pp] = proc
@@ -417,7 +424,7 @@ func (pa *pollAccounter) checkNewProcessConnectionNotification(
 	// the proc existed before iff we already had registered this pid
 	_, existingProcess := pa.pids[proc.pid]
 	// we notify the creation either if the connection and the process is new...
-	if pa.forceRescan || !existingConnection || !existingProcess {
+	if forceRescan || !existingConnection || !existingProcess {
 		// ...also if we haven't already reported the process in the last "snapshot" invocation
 		if _, ok := reportedProcs[pp.Pid]; !ok {
 			// avoid notifying multiple times the same process if it has multiple connections
@@ -436,9 +443,9 @@ func (pa *pollAccounter) checkNewProcessConnectionNotification(
 
 // checkNewProcessNotification returns true if the process has to be notified as new.
 // It accordingly updates the reportedProcs map
-func (pa *pollAccounter) checkNewProcessNotification(pid app.PID, reportedProcs, notReadyProcs map[app.PID]struct{}) bool {
+func (pa *pollAccounter) checkNewProcessNotification(pid app.PID, reportedProcs, notReadyProcs map[app.PID]struct{}, forceRescan bool) bool {
 	// the proc existed before iff we already had registered this pid from a previous snapshot
-	if _, existingProcess := pa.pids[pid]; pa.forceRescan || !existingProcess {
+	if _, existingProcess := pa.pids[pid]; forceRescan || !existingProcess {
 		// ...also if we haven't already reported the process in the last "snapshot" invocation
 		if _, ok := reportedProcs[pid]; !ok {
 			// avoid notifying multiple times the same process if it has multiple connections
@@ -618,7 +625,8 @@ func loadBPFLogger(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventCo
 
 // rescanProcesses re-emits live processes while preserving exit detection across a refresh.
 func (pa *pollAccounter) rescanProcesses() {
-	pa.pidsMu.Lock()
-	defer pa.pidsMu.Unlock()
+	pa.stateMux.Lock()
+	defer pa.stateMux.Unlock()
 	pa.forceRescan = true
+	pa.fetchPorts = true
 }

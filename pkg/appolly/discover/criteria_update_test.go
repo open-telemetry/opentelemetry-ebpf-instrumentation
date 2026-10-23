@@ -379,16 +379,18 @@ func TestCriteriaRescanPreservesProcessExits(t *testing.T) {
 		executableReady: func(app.PID) (string, bool) { return "/srv/app", true },
 	}
 	before := map[app.PID]ProcessAttrs{10: {pid: 10}, 20: {pid: 20, openPorts: []uint32{8080}}}
-	require.Len(t, acc.snapshot(before), 2)
+	require.Len(t, acc.snapshot(before, false), 2)
 	acc.rescanProcesses()
+	fetchPorts, forceRescan := acc.pollRequirements()
+	require.True(t, fetchPorts)
 	after := map[app.PID]ProcessAttrs{20: before[20]}
-	events := acc.snapshot(after)
+	events := acc.snapshot(after, forceRescan)
 	changes := map[app.PID]WatchEventType{}
 	for _, event := range events {
 		changes[event.Obj.pid] = event.Type
 	}
 	require.Equal(t, map[app.PID]WatchEventType{10: EventDeleted, 20: EventCreated}, changes)
-	require.Empty(t, acc.snapshot(after))
+	require.Empty(t, acc.snapshot(after, false))
 }
 
 func TestCriteriaRefreshRescanReconcilesTrackedProcess(t *testing.T) {
@@ -433,7 +435,7 @@ func TestCriteriaRefreshRescanReconcilesTrackedProcess(t *testing.T) {
 				10: {pid: 10, openPorts: tc.previousPorts},
 				20: {pid: 20, openPorts: tc.previousPorts},
 			}
-			require.Len(t, matcher.filter(acc.snapshot(before)), 2)
+			require.Len(t, matcher.filter(acc.snapshot(before, false)), 2)
 
 			next := criteriaConfig(t, tc.include)
 			require.NoError(t, yaml.Unmarshal([]byte(tc.exclude), next))
@@ -451,8 +453,10 @@ func TestCriteriaRefreshRescanReconcilesTrackedProcess(t *testing.T) {
 			}
 
 			acc.rescanProcesses()
+			fetchPorts, forceRescan := acc.pollRequirements()
+			require.True(t, fetchPorts)
 			after := map[app.PID]ProcessAttrs{10: {pid: 10, openPorts: []uint32{8080}}, 20: before[20]}
-			changes := matcher.filter(acc.snapshot(after))
+			changes := matcher.filter(acc.snapshot(after, forceRescan))
 			require.Len(t, changes, 1)
 			require.Equal(t, EventDeleted, changes[0].Type)
 			require.Equal(t, app.PID(10), changes[0].Obj.Process.Pid)
@@ -461,7 +465,9 @@ func TestCriteriaRefreshRescanReconcilesTrackedProcess(t *testing.T) {
 			require.Equal(t, []uint32{8080}, matcher.observed[10].process.OpenPorts)
 
 			acc.rescanProcesses()
-			require.Empty(t, matcher.filter(acc.snapshot(after)))
+			fetchPorts, forceRescan = acc.pollRequirements()
+			require.True(t, fetchPorts)
+			require.Empty(t, matcher.filter(acc.snapshot(after, forceRescan)))
 
 			// Deselection must retain the observation so a later update can select the live PID again.
 			require.NoError(t, matcher.refresh(t.Context(), services.CriteriaUpdate{
