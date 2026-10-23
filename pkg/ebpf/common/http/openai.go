@@ -153,6 +153,7 @@ const (
 	openAIAPITypeTextCompletions = "text_completions"
 	openAIAPITypeEmbeddings      = "embeddings"
 	openAIAPITypeResponses       = "responses"
+	openAIAPITypeDecisions       = "decisions"
 )
 
 var openAIAPITypes = map[string]struct{}{
@@ -160,6 +161,7 @@ var openAIAPITypes = map[string]struct{}{
 	openAIAPITypeTextCompletions: {},
 	openAIAPITypeEmbeddings:      {},
 	openAIAPITypeResponses:       {},
+	openAIAPITypeDecisions:       {},
 }
 
 // Endpoints that name a GenAI operation, matched in order so that
@@ -173,6 +175,7 @@ var openAIEndpoints = []struct {
 	{"/completions", request.CompletionOperationName, openAIAPITypeTextCompletions},
 	{"/embeddings", request.EmbeddingOperationName, openAIAPITypeEmbeddings},
 	{"/responses", request.ResponseOperationName, openAIAPITypeResponses},
+	{"/v1/decisions", request.DecisionOperationName, openAIAPITypeDecisions},
 	{"/conversations", request.ConversationOperationName, ""},
 	{"/chatkit/sessions", request.ChatKitSessionOperationName, ""},
 	{"/chatkit/threads", request.ChatKitThreadOperationName, ""},
