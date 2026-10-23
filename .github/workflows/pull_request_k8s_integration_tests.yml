@@ -218,7 +218,7 @@ jobs:
 
           mkdir -p /home/runner/reports
 
-          go tool -modfile=./internal/tools/go.mod gotestsum \
+          ./.mise/scripts/go-tool gotestsum \
               --rerun-fails=2 --rerun-fails-max-failures=2 --rerun-fails-abort-on-data-race \
               --packages="${MATRIX_TEST_PATTERN}" -ftestname \
               --jsonfile=/home/runner/reports/test-run-"${RUN_NUMBER}"-"${MATRIX_ID}".log \
