@@ -20,7 +20,8 @@ import (
 
 const configWatchInterval = time.Second
 
-// Watch refreshes discovery criteria when the configuration file changes.
+// Watch refreshes discovery criteria for an initialized application pipeline
+// when the configuration file changes.
 func Watch(ctx context.Context, path string, refresh func(context.Context, *obi.Config) error) {
 	ticker := time.NewTicker(configWatchInterval)
 	defer ticker.Stop()
@@ -89,7 +90,7 @@ func loadConfig(data []byte) (*obi.Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("loading config v2: %w", err)
 	}
-	if err := cfg.ValidateStatic(); err != nil {
+	if err := cfg.ValidateStaticForApplicationRefresh(); err != nil {
 		return nil, err
 	}
 	return cfg, nil

@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/discover"
+	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 func watcherConfig(port int) []byte {
@@ -53,6 +54,9 @@ func TestConfigFileWatcher(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, initial, 0o600))
 	cfg, err := loadConfig(initial)
 	require.NoError(t, err)
+	require.True(t, cfg.Enabled(obi.FeatureAppO11y))
+	require.False(t, cfg.Enabled(obi.FeatureNetO11y))
+	require.False(t, cfg.Enabled(obi.FeatureStatsO11y))
 	updater := discover.NewCriteriaUpdater(cfg)
 	updates := updater.Updates()
 	ctx, cancel := context.WithCancel(t.Context())
@@ -99,7 +103,27 @@ func TestConfigFileWatcher(t *testing.T) {
 	ticks <- time.Now()
 	require.Equal(t, slog.LevelError, readConfigLog(t, records).Level)
 
-	// A valid edit after rejection still refreshes from the last accepted criteria.
+	// Removing the final include rule must reach the updater even with no other active features.
+	idle := []byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: exclude
+      rules: []
+    daemon:
+      logging:
+        debug_trace_output: text
+`)
+	require.NoError(t, os.WriteFile(path, idle, 0o600))
+	ticks <- time.Now()
+	result := readConfigLog(t, records)
+	require.Equal(t, slog.LevelInfo, result.Level, "%v", result)
+	criteria, _ = updates.Current()
+	require.Empty(t, criteria)
+
+	// Adding an include rule resumes selection after the pipeline became idle.
 	require.NoError(t, os.WriteFile(path, initial, 0o600))
 	ticks <- time.Now()
 	require.Equal(t, slog.LevelInfo, readConfigLog(t, records).Level)
