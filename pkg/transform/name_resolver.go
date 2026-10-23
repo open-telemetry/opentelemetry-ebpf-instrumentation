@@ -88,7 +88,7 @@ type NameResolverConfig struct {
 	Azure AzureNameResolverConfig `yaml:"-" env:"-"`
 }
 
-// AzureNameResolverConfig configures the discovery scope for Uniform scale sets.
+// AzureNameResolverConfig configures the discovery scope for Uniform and Flexible scale sets.
 type AzureNameResolverConfig struct {
 	SubscriptionID string
 	ResourceGroup  string
