@@ -123,6 +123,7 @@ func (g *SchemaGenerator) checkTypeNameCollisions() error {
 // packagesToScan lists packages that contain types used in the config
 var packagesToScan = []string{
 	"pkg/obi",
+	"pkg/metadata/peer",
 	"pkg/config",
 	"pkg/export",
 	"pkg/export/debug",

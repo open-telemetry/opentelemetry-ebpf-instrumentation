@@ -21,9 +21,10 @@ type Enrich struct {
 
 // Enrichers groups metadata enricher settings.
 type Enrichers struct {
-	Kubernetes           KubernetesEnricher `yaml:"kubernetes"`
-	Cloud                CloudEnricher      `yaml:"cloud"`
-	AdditionalProperties map[string]any     `yaml:",inline"`
+	Kubernetes           KubernetesEnricher   `yaml:"kubernetes"`
+	Cloud                CloudEnricher        `yaml:"cloud"`
+	PeerMetadata         PeerMetadataEnricher `yaml:"peer_metadata"`
+	AdditionalProperties map[string]any       `yaml:",inline"`
 }
 
 // KubernetesMode describes Kubernetes metadata enricher activation.

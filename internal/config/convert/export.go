@@ -615,6 +615,7 @@ func insecureOTLPTransport(endpoint string) bool {
 func enrich(cfg *obi.Config) *schema.Enrich {
 	return &schema.Enrich{
 		Enrichers: schema.Enrichers{
+			PeerMetadata: peerMetadataEnrichment(cfg.PeerMetadata),
 			Kubernetes: schema.KubernetesEnricher{
 				Mode:                v2KubernetesMode(cfg.Attributes.Kubernetes.Enable),
 				ClusterName:         cfg.Attributes.Kubernetes.ClusterName,
