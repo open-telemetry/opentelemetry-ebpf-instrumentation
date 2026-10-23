@@ -433,6 +433,15 @@ jobs:
             testoutput/*.log
             testoutput/kind
 
+      - name: Upload weaver live-check reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: weaver-reports-${{ matrix.id }}-${{ matrix.arch }}-${{ github.run_number }}-${{ github.run_attempt }}
+          path: testoutput/weaver-report-*.json
+          if-no-files-found: ignore
+          retention-days: 5
+
       - name: Check final disk usage
         if: always()
         run: df -h

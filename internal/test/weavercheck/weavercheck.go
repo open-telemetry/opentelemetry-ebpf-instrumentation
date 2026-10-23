@@ -27,7 +27,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -172,6 +175,37 @@ func adminRequest(ctx context.Context, method, adminURL, path string) ([]byte, e
 		return nil, fmt.Errorf("weaver %s returned HTTP %d: %s", path, resp.StatusCode, strings.TrimSpace(string(body)))
 	}
 	return body, nil
+}
+
+// ArchiveReport writes a raw report to dir as weaver-report-<name>.json, the
+// name cmd/obi-weaver-coverage collects, and returns the path written. A
+// report already archived under that name is kept and the new one is written
+// as weaver-report-<name>-<n>.json: a rerun of the failed tests covers only
+// those tests, so replacing the earlier report would drop the rest.
+func ArchiveReport(dir, name string, raw []byte) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("creating %s: %w", dir, err)
+	}
+	base := "weaver-report-" + strings.ReplaceAll(name, "/", "_")
+	reportPath := filepath.Join(dir, base+".json")
+	for n := 2; ; n++ {
+		f, err := os.OpenFile(reportPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if errors.Is(err, fs.ErrExist) {
+			reportPath = filepath.Join(dir, fmt.Sprintf("%s-%d.json", base, n))
+			continue
+		}
+		if err != nil {
+			return "", fmt.Errorf("creating %s: %w", reportPath, err)
+		}
+		_, err = f.Write(raw)
+		if closeErr := f.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			return "", fmt.Errorf("writing %s: %w", reportPath, err)
+		}
+		return reportPath, nil
+	}
 }
 
 // Validate logs the full advisory breakdown and the matcher statistics, and
