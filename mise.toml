@@ -1,4 +1,8 @@
 min_version = "2026.10.18"
+monorepo_root = true
+
+[monorepo]
+config_roots = ["."]
 
 [tools]
 go = "1.27.2"
