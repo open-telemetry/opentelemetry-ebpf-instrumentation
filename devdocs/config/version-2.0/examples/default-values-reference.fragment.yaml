@@ -548,6 +548,10 @@ extensions:
           global_scale_factor: 0
         bpf_filesystem:
           path: /sys/fs/bpf/
+        # Empty auto-detects the cgroup v2 hierarchy (/sys/fs/cgroup, then
+        # /sys/fs/cgroup/unified, then a private mount).
+        cgroup_filesystem:
+          path: ""
 
       # safety enforces host/runtime capability checks.
       safety:
