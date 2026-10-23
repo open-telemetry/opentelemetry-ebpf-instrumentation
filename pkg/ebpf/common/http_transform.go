@@ -144,7 +144,10 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 	defer req.Body.Close()
 	defer resp.Body.Close()
 
-	peer, host := (*BPFConnInfo)(&event.ConnInfo).reqHostInfo()
+	var peer, host string
+	if event.ConnInfo.S_port != 0 || event.ConnInfo.D_port != 0 {
+		peer, host = (*BPFConnInfo)(&event.ConnInfo).reqHostInfo()
+	}
 
 	scheme := req.URL.Scheme
 	if scheme == "" {
