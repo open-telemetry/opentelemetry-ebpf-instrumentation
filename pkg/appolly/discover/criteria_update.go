@@ -71,7 +71,9 @@ func (u *CriteriaUpdater) Update(ctx context.Context, cfg *obi.Config) error {
 func withoutSelectionAndSinks(cfg *obi.Config) obi.Config {
 	fixed := *cfg
 	fixed.Traces.TracesExport = nil
+	fixed.Traces.InjectHeaders = nil
 	fixed.OTELMetrics.MetricsExport = nil
+	fixed.OTELMetrics.InjectHeaders = nil
 	fixed.Port = services.IntEnum{}
 	fixed.TargetPIDs = services.IntEnum{}
 	fixed.Exec = services.RegexpAttr{}
