@@ -73,7 +73,7 @@ type Matcher struct {
 	LogEnricherCriteria []services.Selector
 	// ProcessHistory keeps track of the processes that have been already matched and submitted for
 	// instrumentation.
-	// This avoids keep inspecting again and again client processes each time they open a new connection port
+	// Without criteria updates, this avoids inspecting matched processes again when they open new ports.
 	ProcessHistory   map[app.PID]ProcessMatch
 	Input            <-chan []Event[ProcessAttrs]
 	Output           *msg.Queue[[]Event[ProcessMatch]]
@@ -197,7 +197,8 @@ func (m *Matcher) matchCriteria(obj ProcessAttrs, proc *services.ProcessInfo) *P
 }
 
 func (m *Matcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
-	if m.alreadyMatched(obj.pid) {
+	tracked := m.alreadyMatched(obj.pid)
+	if tracked && m.observed == nil {
 		return Event[ProcessMatch]{}, false
 	}
 
@@ -208,6 +209,9 @@ func (m *Matcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 	}
 
 	if processMatch := m.matchCriteria(obj, proc); processMatch != nil {
+		if tracked {
+			return Event[ProcessMatch]{}, false
+		}
 		m.ProcessHistory[obj.pid] = *processMatch
 
 		return Event[ProcessMatch]{
@@ -218,6 +222,9 @@ func (m *Matcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 
 	// We didn't match the process, but let's see if the parent PID is tracked, it might be the child hasn't opened the port yet
 	if procMatch, ok := m.ProcessHistory[proc.PPid]; ok && !m.isExcluded(&obj, proc) {
+		if tracked {
+			return Event[ProcessMatch]{}, false
+		}
 		m.Log.Debug("found process by matching the process parent id", "pid", proc.Pid, "ppid", proc.PPid, "comm", proc.ExePath, "metadata", obj.metadata)
 
 		procMatch.Process = proc
@@ -230,6 +237,9 @@ func (m *Matcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 		}, true
 	}
 
+	if tracked {
+		return m.filterDeleted(obj)
+	}
 	return Event[ProcessMatch]{}, false
 }
 

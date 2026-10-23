@@ -220,6 +220,53 @@ func TestCriteriaRefreshRunningProcesses(t *testing.T) {
 	}
 }
 
+func TestCriteriaRefreshRemovesNowExcludedProcess(t *testing.T) {
+	original := processInfo
+	t.Cleanup(func() { processInfo = original })
+	processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+		return &services.ProcessInfo{Pid: p.pid, ExePath: "/srv/app", OpenPorts: p.openPorts}, nil
+	}
+	initial := criteriaConfig(t, "    - name: app\n      exe_path: /srv/app\n")
+	updater := NewCriteriaUpdater(initial)
+	input := make(chan []Event[ProcessAttrs])
+	output := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	events := output.Subscribe()
+	matcher := &Matcher{Log: slog.Default(), Criteria: FindingCriteria(initial), ProcessHistory: map[app.PID]ProcessMatch{}, Input: input, Output: output, CriteriaUpdates: updater.Updates()}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	done := make(chan struct{})
+	go func() { defer close(done); matcher.Run(ctx) }()
+
+	// The process matches by executable before opening port 8080.
+	input <- []Event[ProcessAttrs]{{Type: EventCreated, Obj: ProcessAttrs{pid: 10, openPorts: []uint32{}}}}
+	first := testutil.ReadChannel(t, events, time.Second)
+	require.Len(t, first, 1)
+	require.Equal(t, app.PID(10), first[0].Obj.Process.Pid)
+
+	// Add an exclusion for port 8080. At refresh time the process has no open ports,
+	// so the exclusion does not yet apply and the process is retained.
+	next := criteriaConfig(t, "    - name: app\n      exe_path: /srv/app\n")
+	next.Discovery.ExcludeInstrument = services.GlobDefinitionCriteria{{
+		OpenPorts: services.IntEnum{Ranges: []services.IntRange{{Start: 8080, End: 0}}},
+	}}
+	require.NoError(t, updater.Update(ctx, next))
+
+	// A rescan now discovers port 8080 on the same process. Re-notification must
+	// reconcile the tracked process against the fresh attributes and remove it.
+	input <- []Event[ProcessAttrs]{{Type: EventCreated, Obj: ProcessAttrs{pid: 10, openPorts: []uint32{8080}}}}
+	removed := testutil.ReadChannel(t, events, time.Second)
+	require.Len(t, removed, 1)
+	require.Equal(t, EventDeleted, removed[0].Type)
+	require.Equal(t, app.PID(10), removed[0].Obj.Process.Pid)
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("matcher did not stop")
+	}
+}
+
 func TestCriteriaRefreshRejectsRetainedServiceChange(t *testing.T) {
 	original := processInfo
 	t.Cleanup(func() { processInfo = original })
@@ -276,6 +323,119 @@ func TestCriteriaRescanPreservesProcessExits(t *testing.T) {
 	}
 	require.Equal(t, map[app.PID]WatchEventType{10: EventDeleted, 20: EventCreated}, changes)
 	require.Empty(t, acc.snapshot(after))
+}
+
+func TestCriteriaRefreshRescanReconcilesTrackedProcess(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		previousPorts []uint32
+		include       string
+		exclude       string
+	}{
+		{
+			name:    "new exclusion matches fresh ports",
+			include: "    - exe_path: /srv/app\n",
+			exclude: "discovery:\n  exclude_instrument:\n    - open_ports: 8080\n",
+		},
+		{
+			name:          "new inclusion no longer matches fresh ports",
+			previousPorts: []uint32{9090},
+			include:       "    - open_ports: 9090\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			original := processInfo
+			t.Cleanup(func() { processInfo = original })
+			processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+				return &services.ProcessInfo{Pid: p.pid, ExePath: "/srv/app", OpenPorts: p.openPorts}, nil
+			}
+
+			initial := criteriaConfig(t, "    - exe_path: /srv/app\n")
+			output := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+			defer output.Close()
+			events := output.Subscribe()
+			matcher := &Matcher{
+				Log: slog.Default(), Criteria: FindingCriteria(initial),
+				ProcessHistory: map[app.PID]ProcessMatch{}, Output: output,
+				observed: map[app.PID]observedProcess{},
+			}
+			acc := pollAccounter{
+				cfg: initial, pids: map[app.PID]ProcessAttrs{}, pidPorts: map[pidPort]ProcessAttrs{},
+				executableReady: func(app.PID) (string, bool) { return "/srv/app", true },
+			}
+			before := map[app.PID]ProcessAttrs{
+				10: {pid: 10, openPorts: tc.previousPorts},
+				20: {pid: 20, openPorts: tc.previousPorts},
+			}
+			require.Len(t, matcher.filter(acc.snapshot(before)), 2)
+
+			next := criteriaConfig(t, tc.include)
+			require.NoError(t, yaml.Unmarshal([]byte(tc.exclude), next))
+			// The refresh is accepted before the watcher has fetched the newly opened port.
+			require.NoError(t, matcher.refresh(t.Context(), services.CriteriaUpdate{
+				Context: t.Context(), Include: FindingCriteria(next), Exclude: ExcludingCriteria(next),
+			}))
+			retained := matcher.ProcessHistory[20]
+			require.Contains(t, matcher.ProcessHistory, app.PID(10))
+			require.Equal(t, tc.previousPorts, matcher.observed[10].process.OpenPorts)
+			select {
+			case unexpected := <-events:
+				t.Fatalf("refresh changed targets before the port rescan: %v", unexpected)
+			default:
+			}
+
+			acc.rescanProcesses()
+			after := map[app.PID]ProcessAttrs{10: {pid: 10, openPorts: []uint32{8080}}, 20: before[20]}
+			changes := matcher.filter(acc.snapshot(after))
+			require.Len(t, changes, 1)
+			require.Equal(t, EventDeleted, changes[0].Type)
+			require.Equal(t, app.PID(10), changes[0].Obj.Process.Pid)
+			require.NotContains(t, matcher.ProcessHistory, app.PID(10))
+			require.Equal(t, retained, matcher.ProcessHistory[20])
+			require.Equal(t, []uint32{8080}, matcher.observed[10].process.OpenPorts)
+
+			acc.rescanProcesses()
+			require.Empty(t, matcher.filter(acc.snapshot(after)))
+
+			// Deselection must retain the observation so a later update can select the live PID again.
+			require.NoError(t, matcher.refresh(t.Context(), services.CriteriaUpdate{
+				Context: t.Context(), Include: FindingCriteria(initial), Exclude: ExcludingCriteria(initial),
+			}))
+			reselected := testutil.ReadChannel(t, events, time.Second)
+			require.Len(t, reselected, 1)
+			require.Equal(t, EventCreated, reselected[0].Type)
+			require.Equal(t, app.PID(10), reselected[0].Obj.Process.Pid)
+		})
+	}
+}
+
+func TestCriteriaRescanRetainsParentMatch(t *testing.T) {
+	original := processInfo
+	t.Cleanup(func() { processInfo = original })
+	processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+		proc := &services.ProcessInfo{Pid: p.pid, ExePath: "/srv/app", OpenPorts: p.openPorts}
+		if p.pid == 20 {
+			proc.PPid = 10
+		}
+		return proc, nil
+	}
+	cfg := criteriaConfig(t, "    - open_ports: 9090\n")
+	matcher := &Matcher{
+		Log: slog.Default(), Criteria: FindingCriteria(cfg),
+		ProcessHistory: map[app.PID]ProcessMatch{}, observed: map[app.PID]observedProcess{},
+	}
+	require.Len(t, matcher.filter([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 10, openPorts: []uint32{9090}}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 20}},
+	}), 2)
+	retained := matcher.ProcessHistory[20]
+
+	// The child's own ports do not match, but its parent still selects it.
+	require.Empty(t, matcher.filter([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 20, openPorts: []uint32{8080}}},
+	}))
+	require.Equal(t, retained, matcher.ProcessHistory[20])
+	require.Equal(t, []uint32{8080}, matcher.observed[20].process.OpenPorts)
 }
 
 func TestCriteriaRefreshAddsDefinitionsAndExclusions(t *testing.T) {

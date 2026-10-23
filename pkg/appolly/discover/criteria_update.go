@@ -203,6 +203,16 @@ func (m *Matcher) rematch(pid app.PID, visiting map[app.PID]bool) {
 
 	visiting[pid] = true
 	m.rematch(observed.process.PPid, visiting)
+
+	// Re-fetch fresh process information so a port/executable change that
+	// happened without a new creation event is reflected at refresh time.
+	proc, err := processInfo(observed.attrs)
+	if err != nil {
+		m.Log.Debug("can't refresh information for process", "pid", observed.attrs.pid, "error", err)
+		return
+	}
+	observed.process = proc
+	m.observed[pid] = observed
 	m.filterCreated(observed.attrs)
 }
 
