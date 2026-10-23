@@ -638,6 +638,87 @@ func TestCriteriaRefreshRetainsEstablishedPortMatch(t *testing.T) {
 	}
 }
 
+func TestCriteriaRefreshDoesNotAdoptUnappliedMatches(t *testing.T) {
+	for _, closePort := range []bool{false, true} {
+		name := "new port stays open"
+		if closePort {
+			name = "new port closes"
+		}
+		t.Run(name, func(t *testing.T) {
+			original := processInfo
+			t.Cleanup(func() { processInfo = original })
+			processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+				return &services.ProcessInfo{Pid: p.pid, ExePath: "/srv/app", OpenPorts: p.openPorts}, nil
+			}
+			const definitions = "    - name: first\n      open_ports: 8080\n    - name: second\n      open_ports: 9090\n"
+			initial := criteriaConfig(t, definitions)
+			output := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+			defer output.Close()
+			events := output.Subscribe()
+			matcher := &Matcher{
+				Log: slog.Default(), Criteria: FindingCriteria(initial),
+				ProcessHistory: map[app.PID]ProcessMatch{}, Output: output,
+				observed: map[app.PID]observedProcess{},
+			}
+			emit := func(pid app.PID, ports ...uint32) []Event[ProcessMatch] {
+				return matcher.filter([]Event[ProcessAttrs]{{Type: EventCreated, Obj: ProcessAttrs{pid: pid, openPorts: ports}}})
+			}
+			refresh := func(cfg *obi.Config) error {
+				return matcher.refresh(t.Context(), services.CriteriaUpdate{
+					Context: t.Context(), Include: FindingCriteria(cfg), Exclude: ExcludingCriteria(cfg),
+				})
+			}
+			require.Len(t, emit(10, 8080), 1)
+			applied := matcher.ProcessHistory[10].Criteria
+			require.Empty(t, emit(10, 8080, 9090))
+			require.Equal(t, applied, matcher.ProcessHistory[10].Criteria)
+			assert.Equal(t, applied, matcher.observed[10].confirmedCriteria)
+			if closePort {
+				require.Empty(t, emit(10, 8080))
+			}
+
+			for _, cfg := range []*obi.Config{
+				initial,
+				criteriaConfig(t, "    - exe_path: /srv/other\n"+definitions),
+			} {
+				require.NoError(t, refresh(cfg))
+				require.Equal(t, applied, matcher.ProcessHistory[10].Criteria)
+				require.Equal(t, applied, matcher.observed[10].confirmedCriteria)
+				select {
+				case unexpected := <-events:
+					t.Fatalf("unrelated refresh changed instrumentation: %v", unexpected)
+				default:
+				}
+				ports := []uint32{8080, 9090}
+				if closePort {
+					ports = []uint32{8080}
+				}
+				require.Empty(t, emit(10, ports...))
+				require.Equal(t, applied, matcher.observed[10].confirmedCriteria)
+			}
+
+			// Added and edited rules still undergo the applied service-settings checks.
+			for _, cfg := range []*obi.Config{
+				criteriaConfig(t, definitions+"    - name: third\n      exe_path: /srv/app\n"),
+				criteriaConfig(t, "    - name: first\n      open_ports: 8080\n    - name: second\n      exe_path: /srv/app\n"),
+			} {
+				require.ErrorContains(t, refresh(cfg), "service settings would change for PID 10")
+			}
+			require.Equal(t, applied, matcher.ProcessHistory[10].Criteria)
+			created := emit(20, 9090)
+			require.Len(t, created, 1)
+			require.Equal(t, "second", matchingSettings(created[0].Obj.Criteria).name)
+
+			require.NoError(t, refresh(criteriaConfig(t, "    []\n")))
+			deleted := testutil.ReadChannel(t, events, time.Second)
+			require.Len(t, deleted, 2)
+			for _, event := range deleted {
+				require.Equal(t, EventDeleted, event.Type)
+			}
+		})
+	}
+}
+
 func TestCriteriaRescanRetainsParentMatch(t *testing.T) {
 	original := processInfo
 	t.Cleanup(func() { processInfo = original })

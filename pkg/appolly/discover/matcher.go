@@ -146,7 +146,7 @@ func (m *Matcher) filter(events []Event[ProcessAttrs]) []Event[ProcessMatch] {
 				observed.attrs, observed.process = ev.Obj, proc
 				m.observed[ev.Obj.pid] = observed
 			}
-			if ev, ok := m.filterCreated(ev.Obj); ok {
+			if ev, ok := m.filterCreated(ev.Obj, m.Criteria); ok {
 				matches = append(matches, ev)
 			}
 		}
@@ -160,16 +160,39 @@ func (m *Matcher) alreadyMatched(pid app.PID) bool {
 }
 
 func (m *Matcher) confirmedMatch(pid app.PID, criterion services.Selector) bool {
-	return slices.ContainsFunc(m.observed[pid].confirmedCriteria, func(previous services.Selector) bool {
+	return containsCriterion(m.observed[pid].confirmedCriteria, criterion)
+}
+
+func containsCriterion(criteria []services.Selector, criterion services.Selector) bool {
+	return slices.ContainsFunc(criteria, func(previous services.Selector) bool {
 		return reflect.DeepEqual(previous, criterion)
 	})
 }
 
-func (m *Matcher) matchCriteria(obj ProcessAttrs, proc *services.ProcessInfo) *ProcessMatch {
-	criteria := make([]services.Selector, 0, len(m.Criteria))
-	for i := range m.Criteria {
-		if (m.confirmedMatch(obj.pid, m.Criteria[i]) || m.matchProcess(&obj, proc, m.Criteria[i])) && !m.isExcluded(&obj, proc) {
-			criteria = append(criteria, m.Criteria[i])
+func (m *Matcher) confirmCriteria(pid app.PID, criteria []services.Selector) {
+	observed, ok := m.observed[pid]
+	if !ok {
+		return
+	}
+	// Re-emissions cannot change the criteria already sent for instrumentation.
+	if previous, tracked := m.ProcessHistory[pid]; tracked {
+		confirmed := make([]services.Selector, 0, len(previous.Criteria))
+		for _, criterion := range criteria {
+			if containsCriterion(previous.Criteria, criterion) {
+				confirmed = append(confirmed, criterion)
+			}
+		}
+		criteria = confirmed
+	}
+	observed.confirmedCriteria = criteria
+	m.observed[pid] = observed
+}
+
+func (m *Matcher) matchCriteria(obj ProcessAttrs, proc *services.ProcessInfo, findingCriteria []services.Selector) *ProcessMatch {
+	criteria := make([]services.Selector, 0, len(findingCriteria))
+	for _, criterion := range findingCriteria {
+		if (m.confirmedMatch(obj.pid, criterion) || m.matchProcess(&obj, proc, criterion)) && !m.isExcluded(&obj, proc) {
+			criteria = append(criteria, criterion)
 		}
 	}
 
@@ -211,7 +234,7 @@ func (m *Matcher) matchCriteria(obj ProcessAttrs, proc *services.ProcessInfo) *P
 	return nil
 }
 
-func (m *Matcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
+func (m *Matcher) filterCreated(obj ProcessAttrs, findingCriteria []services.Selector) (Event[ProcessMatch], bool) {
 	tracked := m.alreadyMatched(obj.pid)
 	if tracked && m.observed == nil {
 		return Event[ProcessMatch]{}, false
@@ -223,11 +246,8 @@ func (m *Matcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 		return Event[ProcessMatch]{}, false
 	}
 
-	if processMatch := m.matchCriteria(obj, proc); processMatch != nil {
-		if observed, ok := m.observed[obj.pid]; ok {
-			observed.confirmedCriteria = processMatch.Criteria
-			m.observed[obj.pid] = observed
-		}
+	if processMatch := m.matchCriteria(obj, proc, findingCriteria); processMatch != nil {
+		m.confirmCriteria(obj.pid, processMatch.Criteria)
 		if tracked {
 			return Event[ProcessMatch]{}, false
 		}
@@ -241,8 +261,8 @@ func (m *Matcher) filterCreated(obj ProcessAttrs) (Event[ProcessMatch], bool) {
 
 	// We didn't match the process, but let's see if the parent PID is tracked, it might be the child hasn't opened the port yet
 	if procMatch, ok := m.ProcessHistory[proc.PPid]; ok && !m.isExcluded(&obj, proc) {
+		m.confirmCriteria(obj.pid, procMatch.Criteria)
 		if observed, ok := m.observed[obj.pid]; ok {
-			observed.confirmedCriteria = procMatch.Criteria
 			observed.inheritedLogEnricherCriteria = procMatch.LogEnricherCriteria
 			m.observed[obj.pid] = observed
 		}

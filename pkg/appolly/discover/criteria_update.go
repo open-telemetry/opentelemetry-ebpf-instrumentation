@@ -180,7 +180,7 @@ func (m *Matcher) refresh(ctx context.Context, update services.CriteriaUpdate) e
 	visited := map[app.PID]bool{}
 
 	for pid := range m.observed {
-		next.rematch(pid, visited)
+		next.rematch(pid, visited, m)
 	}
 
 	var events []Event[ProcessMatch]
@@ -235,7 +235,7 @@ func (m *Matcher) refresh(ctx context.Context, update services.CriteriaUpdate) e
 	return nil
 }
 
-func (m *Matcher) rematch(pid app.PID, visiting map[app.PID]bool) {
+func (m *Matcher) rematch(pid app.PID, visiting map[app.PID]bool, previous *Matcher) {
 	if m.alreadyMatched(pid) || visiting[pid] {
 		return
 	}
@@ -246,10 +246,34 @@ func (m *Matcher) rematch(pid app.PID, visiting map[app.PID]bool) {
 	}
 
 	visiting[pid] = true
-	m.rematch(observed.process.PPid, visiting)
+	m.rematch(observed.process.PPid, visiting, previous)
 
 	// Rematch the last successful observation; the watcher rescan supplies fresh ports and exits.
-	m.filterCreated(observed.attrs)
+	m.filterCreated(observed.attrs, m.criteriaForRefresh(pid, previous))
+}
+
+func (m *Matcher) criteriaForRefresh(pid app.PID, previous *Matcher) []services.Selector {
+	applied, tracked := previous.ProcessHistory[pid]
+	if !tracked {
+		return m.Criteria
+	}
+
+	retainsApplied := false
+	criteria := make([]services.Selector, 0, len(m.Criteria))
+	for _, criterion := range m.Criteria {
+		if containsCriterion(applied.Criteria, criterion) {
+			retainsApplied = true
+			criteria = append(criteria, criterion)
+		} else if !containsCriterion(previous.Criteria, criterion) {
+			criteria = append(criteria, criterion)
+		}
+	}
+	if !retainsApplied {
+		return m.Criteria
+	}
+	// Unchanged rules that were never applied must not alter a retained service.
+	// Added or edited rules still undergo the usual service-settings checks.
+	return criteria
 }
 
 func refreshableCriteria(cfg *obi.Config) []services.Selector {
