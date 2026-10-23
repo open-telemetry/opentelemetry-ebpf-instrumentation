@@ -177,6 +177,52 @@ func TestOpenAISpan_Responses(t *testing.T) {
 	assert.Equal(t, "gpt-5-mini", ai.Request.Model)
 }
 
+func TestOpenAISpan_Decisions(t *testing.T) {
+	requestBody := `{"model":"gpt-6-luna","input":"The package arrived with a broken screen.","questions":[{"type":"predicate","name":"damaged","instructions":"Does the customer report a damaged item?"}]}`
+	responseBody := `{
+  "model": "gpt-6-luna",
+  "answers": [
+    {"type": "predicate", "name": "damaged", "probability": 0.95}
+  ],
+  "usage": {
+    "input_tokens": 42,
+    "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+    "output_tokens": 0,
+    "output_tokens_details": {"reasoning_tokens": 0},
+    "total_tokens": 42
+  }
+}`
+	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/decisions", requestBody)
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), responseBody)
+
+	span, ok := OpenAISpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, request.HTTPSubtypeOpenAI, span.SubType)
+
+	ai := span.GenAI.OpenAI
+	assert.Equal(t, "gpt-6-luna", ai.ResponseModel)
+	assert.Equal(t, "gpt-6-luna", ai.Request.Model)
+	assert.Equal(t, "The package arrived with a broken screen.", ai.Request.Input)
+	assertTokenCount(t, ai.Usage.InputTokens, 42, true)
+	assertTokenCount(t, ai.Usage.OutputTokens, 0, true)
+	assert.Equal(t, "decision", ai.OperationName)
+	assert.Equal(t, "decisions", ai.APIType)
+}
+
+func TestOpenAISpan_DecisionsUsageDoesNotReportInferenceOperation(t *testing.T) {
+	req := makeRequest(t, http.MethodGet, "http://api.openai.com/v1/organization/usage/decisions", "")
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), `{}`)
+
+	span, ok := OpenAISpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, request.OtherOperationName, span.GenAI.OpenAI.OperationName)
+	assert.Empty(t, span.GenAI.OpenAI.APIType)
+}
+
 func TestOpenAISpan_ChatCompletions(t *testing.T) {
 	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/chat/completions", completionsRequestBody)
 	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), completionsResponseBody)

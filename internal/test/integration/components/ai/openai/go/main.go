@@ -97,6 +97,21 @@ func embeddings(w http.ResponseWriter, _ *http.Request) {
 	proxyPost(w, "/v1/embeddings", payload, true)
 }
 
+func decisions(w http.ResponseWriter, _ *http.Request) {
+	payload := map[string]any{
+		"model": "gpt-6-luna",
+		"input": "The package arrived with a broken screen.",
+		"questions": []map[string]any{
+			{
+				"type":         "predicate",
+				"name":         "damaged",
+				"instructions": "Does the customer report a damaged item?",
+			},
+		},
+	}
+	proxyPost(w, "/v1/decisions", payload, true)
+}
+
 func cohereEmbeddings(w http.ResponseWriter, _ *http.Request) {
 	payload := map[string]any{
 		"texts":           []string{"The food was delicious"},
@@ -154,6 +169,7 @@ func main() {
 	mux.HandleFunc("GET /messages", messages)
 	mux.HandleFunc("GET /error", errorMessages)
 	mux.HandleFunc("GET /embeddings", embeddings)
+	mux.HandleFunc("GET /decisions", decisions)
 	mux.HandleFunc("GET /chat", chat)
 	mux.HandleFunc("GET /conversations", conversations)
 	mux.HandleFunc("GET /embeddings/cohere", cohereEmbeddings)

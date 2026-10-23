@@ -1119,6 +1119,7 @@ const (
 	InvokeModelOperationName    = "invoke_model"
 	EmbeddingOperationName      = "embeddings"
 	ResponseOperationName       = "response"
+	DecisionOperationName       = "decision"
 	ConversationOperationName   = "conversation"
 	ExecuteToolOperationName    = "execute_tool"
 	ChatKitSessionOperationName = "chatkit.session"
