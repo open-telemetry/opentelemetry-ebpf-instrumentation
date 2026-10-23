@@ -4,7 +4,10 @@
 package meta // import "go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -31,18 +34,16 @@ func ownersFrom(meta *metav1.ObjectMeta) []*informer.Owner {
 		owners = append(owners, &informer.Owner{Kind: or.Kind, Name: or.Name})
 		// ReplicaSets usually have a Deployment as owner too. Returning it as well
 		if or.APIVersion == "apps/v1" && or.Kind == "ReplicaSet" {
-			// we heuristically extract the Deployment name from the replicaset name
-			if idx := strings.LastIndexByte(or.Name, '-'); idx > 0 {
-				owners = append(owners, &informer.Owner{Kind: "Deployment", Name: or.Name[:idx]})
+			if name := deploymentOfReplicaSet(or.Name, meta.Labels); name != "" {
+				owners = append(owners, &informer.Owner{Kind: "Deployment", Name: name})
 				// we already have what we need for decoration and selection. Ignoring any other owner
 				// it might hypothetically have (it would be a rare case)
 				return owners
 			}
 		}
 		if or.APIVersion == "batch/v1" && or.Kind == "Job" {
-			// we heuristically extract the CronJob name from the Job name
-			if idx := strings.LastIndexByte(or.Name, '-'); idx > 0 {
-				owners = append(owners, &informer.Owner{Kind: "CronJob", Name: or.Name[:idx]})
+			if name := cronJobOfJob(or.Name, meta.CreationTimestamp.Time); name != "" {
+				owners = append(owners, &informer.Owner{Kind: "CronJob", Name: name})
 				// we already have what we need for decoration and selection. Ignoring any other owner
 				// it might hypothetically have (it would be a rare case)
 				return owners
@@ -50,4 +51,41 @@ func ownersFrom(meta *metav1.ObjectMeta) []*informer.Owner {
 		}
 	}
 	return owners
+}
+
+// deploymentOfReplicaSet follows the OpenTelemetry Collector's k8sattributes
+// processor: a Deployment's ReplicaSet is named <deployment>-<pod-template-hash>.
+// Argo Rollouts name their ReplicaSets the same way with
+// rollouts-pod-template-hash, and keep being reported as a Deployment.
+func deploymentOfReplicaSet(replicaSet string, podLabels map[string]string) string {
+	for _, label := range []string{"pod-template-hash", "rollouts-pod-template-hash"} {
+		if hash := podLabels[label]; hash != "" && strings.HasSuffix(replicaSet, "-"+hash) {
+			return strings.TrimSuffix(replicaSet, "-"+hash)
+		}
+	}
+	return ""
+}
+
+// cronJobJobName matches the Jobs a CronJob creates: <cronjob>-<scheduled time
+// in Unix minutes>.
+var cronJobJobName = regexp.MustCompile(`^(.+)-(\d{8})$`)
+
+// cronJobSkewMinutes is the k8sattributes processor's bound between that
+// scheduled time and the pod's creation.
+const cronJobSkewMinutes = 60 * 24
+
+func cronJobOfJob(job string, podCreated time.Time) string {
+	parts := cronJobJobName.FindStringSubmatch(job)
+	if parts == nil {
+		return ""
+	}
+	scheduled, err := strconv.ParseInt(parts[2], 10, 64)
+	if err != nil {
+		return ""
+	}
+	diff := podCreated.Unix()/60 - scheduled
+	if diff < -cronJobSkewMinutes || diff > cronJobSkewMinutes {
+		return ""
+	}
+	return parts[1]
 }
