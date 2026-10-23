@@ -200,7 +200,7 @@ func (i *Route53Inventory) discoverZones(ctx context.Context) ([]route53Zone, er
 			return nil, fmt.Errorf("listing Route53 hosted zones: %w", err)
 		}
 		for _, zone := range out.HostedZones {
-			if zone.Config != nil && !zone.Config.PrivateZone {
+			if zone.Config == nil || !zone.Config.PrivateZone {
 				zones = append(zones, route53Zone{id: aws.ToString(zone.Id), public: true})
 			}
 		}

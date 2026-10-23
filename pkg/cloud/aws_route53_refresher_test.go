@@ -249,8 +249,8 @@ func TestRoute53DiscoveryNetworkScope(t *testing.T) {
 		configured          []string
 	}{
 		{name: "local VPC", vpcID: "vpc-local", region: "us-east-1", wantPrivate: true},
-		{name: "explicit local VPC", vpcID: "vpc-local", region: "us-east-1", wantPrivate: true, configured: []string{"/hostedzone/public", "private", "/hostedzone/private-other", "unrelated", "unknown"}},
-		{name: "explicit unknown VPC", region: "us-east-1", configured: []string{"public", "private", "unrelated"}},
+		{name: "explicit local VPC", vpcID: "vpc-local", region: "us-east-1", wantPrivate: true, configured: []string{"/hostedzone/public", "private", "/hostedzone/private-other", "unrelated", "public-no-config"}},
+		{name: "explicit unknown VPC", region: "us-east-1", configured: []string{"public", "private", "unrelated", "public-no-config"}},
 		{name: "unknown VPC", region: "us-east-1"},
 		{name: "unknown region", vpcID: "vpc-local"},
 	} {
@@ -262,7 +262,7 @@ func TestRoute53DiscoveryNetworkScope(t *testing.T) {
 					return &route53.ListHostedZonesOutput{HostedZones: []types.HostedZone{
 						{Id: aws.String("public"), Config: &types.HostedZoneConfig{}},
 						{Id: aws.String("unrelated"), Config: &types.HostedZoneConfig{PrivateZone: true}},
-						{Id: aws.String("unknown")},
+						{Id: aws.String("public-no-config")},
 					}}, nil
 				},
 				privateZones: func(in *route53.ListHostedZonesByVPCInput) (*route53.ListHostedZonesByVPCOutput, error) {
@@ -295,6 +295,12 @@ func TestRoute53DiscoveryNetworkScope(t *testing.T) {
 							route53Record("a.loopback.", "127.0.0.1", types.RRTypeA),
 							route53Record("a.link-local.", "169.254.169.254", types.RRTypeA),
 						}}, nil
+					case "public-no-config":
+						return &route53.ListResourceRecordSetsOutput{ResourceRecordSets: []types.ResourceRecordSet{
+							route53Record("no-config.example.", "1.1.1.1", types.RRTypeA),
+							route53Record("private.example.", "10.0.0.9", types.RRTypeA),
+							route53Record("shared.example.", "100.64.0.9", types.RRTypeA),
+						}}, nil
 					case "private", "private-other":
 						return &route53.ListResourceRecordSetsOutput{ResourceRecordSets: []types.ResourceRecordSet{
 							route53Record("z."+zone+".", "8.8.8.8", types.RRTypeA),
@@ -310,13 +316,13 @@ func TestRoute53DiscoveryNetworkScope(t *testing.T) {
 			refresher.VPCID, refresher.VPCRegion = tc.vpcID, tc.region
 			snapshot := &MetadataSnapshot{ServiceByIP: map[string]string{}}
 			require.NoError(t, refresher.Refresh(t.Context(), snapshot))
-			want := map[string]string{"8.8.8.8": "a.public", "2606:4700:4700::1111": "a.public-v6"}
+			want := map[string]string{"8.8.8.8": "a.public", "2606:4700:4700::1111": "a.public-v6", "1.1.1.1": "no-config.example"}
 			if tc.wantPrivate {
 				want["8.8.8.8"], want["10.0.0.2"] = "z.private", "z.private"
-				require.Equal(t, []string{"public", "private", "private-other"}, recordZones)
+				require.Equal(t, []string{"public", "public-no-config", "private", "private-other"}, recordZones)
 				require.Equal(t, 2, privatePages)
 			} else {
-				require.Equal(t, []string{"public"}, recordZones)
+				require.Equal(t, []string{"public", "public-no-config"}, recordZones)
 				require.Zero(t, privatePages)
 			}
 			require.Equal(t, want, snapshot.ServiceByIP)
