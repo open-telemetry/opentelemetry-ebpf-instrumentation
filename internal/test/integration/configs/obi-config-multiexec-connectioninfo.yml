@@ -39,7 +39,7 @@ extensions:
         http:
           enabled:
             traces: true
-            metrics: false
+            metrics: true
     enrich:
       enrichers:
         kubernetes:

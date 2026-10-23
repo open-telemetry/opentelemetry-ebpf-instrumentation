@@ -140,8 +140,8 @@ func TestMultiProcessConnectionInfo(t *testing.T) {
 	query := `traces_service_graph_connection_info{` +
 		`client="connectioninfo-client",` +
 		`client_service_namespace="integration-client",` +
-		`server="connectioninfo-server",` +
-		`server_service_namespace="integration-server",` +
+		`server="pytestserver",` +
+		`server_service_namespace="",` +
 		`source="obi"}`
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := http.Get("http://localhost:8080/gotracemetoo")
