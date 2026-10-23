@@ -136,6 +136,11 @@ section empty once drained.
   filters on `otel.scope.name` must use the instrumentation scope name instead. Exporters to
   formats without a scope (Jaeger, Zipkin) still report `otel.scope.name` on each span. All
   OBI metric scopes now carry the OBI version and the schema URL.
+- PostgreSQL `db.namespace` is `{database}|{schema}` when the connection's schema is known
+  (the first `search_path` entry from the startup message, then `SET search_path`/`SET SCHEMA`),
+  and the database alone otherwise. Spans and `db.client.operation.duration` series change
+  value accordingly, splitting metric series per schema, and span names that fall back to the
+  namespace change with it.
 
 ## Hosting notes
 
