@@ -789,13 +789,13 @@ func (p *Tracer) Run(
 		}
 	}
 
-	ebpfcommon.SharedRingbufWithShutdownTimeout(
+	ebpfcommon.SharedRingbufWithDrainContext(
 		ebpfEventContext,
 		cfg,
 		p.cfg.ShutdownTimeout,
 		p.bpfObjects.Events,
-		func(record *ringbuf.Record) (request.Span, bool, error) {
-			return p.processSharedRingbufRecord(ctx, parseContext, cfg, record)
+		func(drainCtx context.Context, record *ringbuf.Record) (request.Span, bool, error) {
+			return p.processSharedRingbufRecord(drainCtx, parseContext, cfg, record)
 		},
 		p.pidsFilter.Filter,
 		p.log,

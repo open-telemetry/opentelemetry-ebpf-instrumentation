@@ -134,7 +134,9 @@ func newSvcGraphMetricsReporter(
 			llog.Debug("evicting metrics reporter from cache")
 
 			go func() {
-				if err := v.provider.Shutdown(ctx); err != nil {
+				shutdownCtx, cancel := shutdownContext(ctx)
+				defer cancel()
+				if err := v.provider.Shutdown(shutdownCtx); err != nil {
 					llog.Warn("error shutting down evicted metrics provider", "error", err)
 				}
 				v.cleanupAllMetricsInstances()

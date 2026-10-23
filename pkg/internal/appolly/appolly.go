@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/tracefs"
 	msg2 "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
+	"go.opentelemetry.io/obi/pkg/internal/shutdown"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -66,6 +67,7 @@ type Instrumenter struct {
 
 	pipelineCtx    context.Context
 	cancelPipeline context.CancelFunc
+	drains         *shutdown.Drains
 }
 
 type finisher struct {
@@ -118,8 +120,10 @@ func NewWithProtocolMetricSelection(ctx context.Context, ctxInfo *global.Context
 	ebpfEventContext := ebpfcommon.NewEBPFEventContext()
 	ctxInfo.AppO11y.EBPFEventContext = ebpfEventContext
 
-	bp, err := appolly.BuildWithProtocolMetricSelection(ctx, config, ctxInfo, tracesInput, processEventCloudDecorated, runtimeMetrics, selection)
+	pipelineCtx, cancelPipeline := context.WithCancel(context.WithoutCancel(ctx))
+	bp, err := appolly.BuildWithProtocolMetricSelection(pipelineCtx, config, ctxInfo, tracesInput, processEventCloudDecorated, runtimeMetrics, selection)
 	if err != nil {
+		cancelPipeline()
 		return nil, fmt.Errorf("can't instantiate instrumentation pipeline: %w", err)
 	}
 
@@ -130,7 +134,6 @@ func NewWithProtocolMetricSelection(ctx context.Context, ctxInfo *global.Context
 			processEventsInput.SendCtx(ctx, exec.ProcessEvent{Type: exec.ProcessEventCreated, File: fi})
 		})
 	}
-	pipelineCtx, cancelPipeline := context.WithCancel(context.WithoutCancel(ctx))
 	instr := &Instrumenter{
 		config:            config,
 		ctxInfo:           ctxInfo,
@@ -144,6 +147,7 @@ func NewWithProtocolMetricSelection(ctx context.Context, ctxInfo *global.Context
 		dynamicSelector:   sel,
 		pipelineCtx:       pipelineCtx,
 		cancelPipeline:    cancelPipeline,
+		drains:            shutdown.NewDrains(),
 	}
 	return instr, nil
 }
@@ -172,12 +176,14 @@ func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
 	}
 	processEvents, err := finder.Start(ctx, opts...)
 	if err != nil {
+		i.cancelPipeline()
 		return fmt.Errorf("couldn't start Process Finder: %w", err)
 	}
 
 	// In the background process any process found events and annotate them with
 	// the Host or Kubernetes metadata
-	if err := i.startProcessEventsPipeline(ctx); err != nil {
+	if err := i.startProcessEventsPipeline(); err != nil {
+		i.cancelPipeline()
 		return err
 	}
 
@@ -186,7 +192,7 @@ func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
 
 	// In background, listen indefinitely for each new process and run its
 	// associated ebpf.ProcessTracer once it is found.
-	go i.instrumentedEventLoop(ctx, processEvents)
+	go i.instrumentedEventLoop(shutdown.WithDrains(ctx, i.drains), processEvents)
 
 	return nil
 }
@@ -253,10 +259,9 @@ func (i *Instrumenter) ReadAndForward(ctx context.Context) error {
 	log.Info("exiting auto-instrumenter")
 	i.shutdownDeadline = time.Now().Add(tracefs.EffectiveShutdownTimeout(i.config.ShutdownTimeout))
 
-	stopped := i.tracersStopped()
-	go i.cancelPipelineAfterDrain(stopped)
+	go i.cancelPipelineAfterDrain()
 
-	if err := i.stop(stopped); err != nil {
+	if err := i.stop(i.tracersStopped()); err != nil {
 		return fmt.Errorf("failed to stop auto-instrumenter: %w", err)
 	}
 
@@ -283,20 +288,10 @@ func (i *Instrumenter) tracersStopped() <-chan struct{} {
 	return stopped
 }
 
-func (i *Instrumenter) cancelPipelineAfterDrain(tracersStopped <-chan struct{}) {
+func (i *Instrumenter) cancelPipelineAfterDrain() {
 	defer i.cancelPipeline()
 
-	latestPipelineCancel := time.After(time.Until(i.shutdownDeadline) / 2)
-	select {
-	case <-tracersStopped:
-	case <-latestPipelineCancel:
-		return
-	}
-
-	select {
-	case <-time.After(pipelineDrainGrace):
-	case <-latestPipelineCancel:
-	}
+	i.drains.WaitSettled(pipelineDrainGrace, time.After(time.Until(i.shutdownDeadline)/2))
 }
 
 func (i *Instrumenter) stop(tracersStopped <-chan struct{}) error {
@@ -349,8 +344,8 @@ func refreshK8sInformerCache(ctx context.Context, ctxInfo *global.ContextInfo) e
 	return err
 }
 
-func (i *Instrumenter) startProcessEventsPipeline(ctx context.Context) error {
-	graph, err := i.peGraphBuilder.Instance(ctx)
+func (i *Instrumenter) startProcessEventsPipeline() error {
+	graph, err := i.peGraphBuilder.Instance(i.pipelineCtx)
 	if err != nil {
 		return fmt.Errorf("couldn't start Process Event pipeline: %w", err)
 	}

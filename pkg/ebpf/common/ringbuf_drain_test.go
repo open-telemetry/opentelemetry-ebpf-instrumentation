@@ -29,6 +29,7 @@ var drainDeadline = shutdownDrainTimeout(testShutdownTimeout) + time.Second
 type pendingRingBufReader struct {
 	mu        sync.Mutex
 	pending   int
+	sample    []byte
 	flushed   bool
 	flushes   chan struct{}
 	closed    chan struct{}
@@ -39,6 +40,7 @@ type pendingRingBufReader struct {
 func newPendingRingBufReader(pending int) *pendingRingBufReader {
 	return &pendingRingBufReader{
 		pending: pending,
+		sample:  []byte{1},
 		flushes: make(chan struct{}, 1),
 		closed:  make(chan struct{}),
 	}
@@ -83,7 +85,7 @@ func (r *pendingRingBufReader) ReadInto(record *ringbuf.Record) error {
 		return ringbuf.ErrFlushed
 	}
 	r.pending--
-	record.RawSample = []byte{1}
+	record.RawSample = r.sample
 	return nil
 }
 
@@ -132,7 +134,13 @@ func TestForwardRingbuf_DrainsPendingRecordsOnCancel(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(t.Context())
 	done := runUntilDone(func() {
-		forwardOneRecordType(&config.EBPFTracer{BatchLength: 10}, testShutdownTimeout, &closable)(ctx, out)
+		ForwardRingbuf(&config.EBPFTracer{BatchLength: 10}, nil,
+			func(_ *ringbuf.Record) (int, bool, error) { return 1, false, nil },
+			nil,
+			slog.New(slog.NewTextHandler(io.Discard, nil)),
+			nil,
+			&closable,
+		)(ctx, out)
 	})
 
 	cancel()
@@ -181,7 +189,7 @@ func TestSharedRingbuf_DrainsPendingRecordsAndClosesResourcesOnCancel(t *testing
 	sub := out.Subscribe()
 	closable := closableObject{}
 
-	forward := SharedRingbufWithShutdownTimeout(NewEBPFEventContext(), &config.EBPFTracer{BatchLength: 10}, testShutdownTimeout, nil,
+	forward := SharedRingbuf(NewEBPFEventContext(), &config.EBPFTracer{BatchLength: 10}, nil,
 		func(_ *ringbuf.Record) (int, bool, error) { return 1, false, nil },
 		nil,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
@@ -224,4 +232,116 @@ func TestForwardRingbuf_ClosesTheReaderWhenTheDrainStalls(t *testing.T) {
 		require.FailNow(t, "forwarder did not finish")
 	}
 	assert.True(t, reader.isClosed.Load())
+}
+
+func TestForwardRingbuf_DrainIsBoundedWhenTheParserBlocks(t *testing.T) {
+	replacePendingRingBuf(3)
+	unblock := make(chan struct{})
+	defer close(unblock)
+	parsing := make(chan struct{}, 3)
+
+	forward := ForwardRingbufWithShutdownTimeout(&config.EBPFTracer{BatchLength: 10}, testShutdownTimeout, nil,
+		func(_ *ringbuf.Record) (int, bool, error) {
+			parsing <- struct{}{}
+			<-unblock
+			return 1, false, nil
+		},
+		nil,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		nil,
+	)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := runUntilDone(func() {
+		forward(ctx, msg.NewQueue[[]int](msg.ChannelBufferLen(10)))
+	})
+
+	cancel()
+	testutil.ReadChannel(t, parsing, testTimeout)
+
+	select {
+	case <-done:
+	case <-time.After(drainDeadline):
+		require.FailNow(t, "forwarder did not finish while the parser was blocked")
+	}
+}
+
+func TestForwardRingbuf_ParserContextOutlivesTheSignal(t *testing.T) {
+	replacePendingRingBuf(3)
+	parseErrs := make(chan error, 3)
+
+	forward := ForwardRingbufWithDrainContext(&config.EBPFTracer{BatchLength: 10}, testShutdownTimeout, nil,
+		func(ctx context.Context, _ *ringbuf.Record) (int, bool, error) {
+			parseErrs <- ctx.Err()
+			return 1, false, nil
+		},
+		nil,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		nil,
+	)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := runUntilDone(func() {
+		forward(ctx, msg.NewQueue[[]int](msg.ChannelBufferLen(10)))
+	})
+
+	cancel()
+	for range 3 {
+		require.NoError(t, testutil.ReadChannel(t, parseErrs, testTimeout),
+			"records drained after the signal must be parsed with a live context")
+	}
+
+	select {
+	case <-done:
+	case <-time.After(drainDeadline):
+		require.FailNow(t, "forwarder did not finish")
+	}
+}
+
+type queueRuntimeMetricsSender struct {
+	fakeRuntimeMetricsSender
+	queue *msg.Queue[int]
+}
+
+func (s *queueRuntimeMetricsSender) SendGoRuntimeMetricRecord(ctx context.Context, _ *ringbuf.Record, _ ServiceFilter) error {
+	s.queue.SendCtx(ctx, 1)
+	return nil
+}
+
+func TestSharedRingbuf_DrainsRuntimeMetricRecordsIntoATemporarilyFullQueue(t *testing.T) {
+	const pending = 3
+	reader := replacePendingRingBuf(pending)
+	reader.sample = []byte{EventTypeGoRuntimeMetric}
+
+	runtimeMetrics := msg.NewQueue[int](msg.ChannelBufferLen(0))
+	received := runtimeMetrics.Subscribe()
+	eventContext := NewEBPFEventContext()
+	eventContext.RuntimeMetrics = &queueRuntimeMetricsSender{queue: runtimeMetrics}
+
+	forward := SharedRingbufWithDrainContext(eventContext, &config.EBPFTracer{BatchLength: 10}, testShutdownTimeout, nil,
+		func(ctx context.Context, record *ringbuf.Record) (int, bool, error) {
+			handled, err := HandleRuntimeMetricsRecord(ctx, eventContext, record, &IdentityPidsFilter{}, nil)
+			return 0, handled, err
+		},
+		nil,
+		slog.New(slog.NewTextHandler(io.Discard, nil)),
+		nil,
+	)
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := runUntilDone(func() {
+		forward(ctx, nil, msg.NewQueue[[]int]())
+	})
+
+	cancel()
+	time.Sleep(shutdownDrainTimeout(testShutdownTimeout) / 4)
+	for range pending {
+		testutil.ReadChannel(t, received, testTimeout)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(drainDeadline):
+		require.FailNow(t, "forwarder did not finish")
+	}
 }

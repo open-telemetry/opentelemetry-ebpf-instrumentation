@@ -122,7 +122,7 @@ func newStatMetricsExporter(
 	ctxInfo *global.ContextInfo,
 	cfg *StatMetricsConfig,
 	input *msg.Queue[[]*ebpf.Stat],
-) (*statMetricsExporter, error) {
+) (_ *statMetricsExporter, retErr error) {
 	log := smlog()
 	log.Debug("instantiating stat metrics exporter provider")
 	exporter, err := ctxInfo.OTELMetricsExporter.Instantiate(ctx)
@@ -130,6 +130,7 @@ func newStatMetricsExporter(
 		log.Error("can't instantiate metrics exporter", "error", err)
 		return nil, err
 	}
+	defer releaseExporterOnError(ctx, exporter, &retErr)
 	exporter = instrumentMetricsExporter(ctxInfo.Metrics, exporter)
 
 	resource := createFilteredStatsResource(ctxInfo.NodeMeta.HostID, cfg.SelectorCfg.SelectionCfg)

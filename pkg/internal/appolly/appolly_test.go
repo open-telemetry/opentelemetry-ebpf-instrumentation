@@ -30,6 +30,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/internal/shutdown"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
@@ -212,7 +213,7 @@ func TestReadAndForwardRecordsMetricsForSpansDrainedAfterTheSignal(t *testing.T)
 		cfg,
 	)
 	require.NoError(t, err)
-	require.NoError(t, instr.startProcessEventsPipeline(ctx))
+	require.NoError(t, instr.startProcessEventsPipeline())
 
 	readDone := make(chan error, 1)
 	go func() {
@@ -249,6 +250,127 @@ func TestReadAndForwardRecordsMetricsForSpansDrainedAfterTheSignal(t *testing.T)
 			}
 		case <-time.After(5 * time.Second):
 			require.FailNow(t, "the span drained after the signal was not recorded in the RED metrics")
+		}
+	}
+}
+
+func TestPipelineGraceStartsWhenTheRingbufDrainEnds(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	instr, err := New(ctx,
+		&global.ContextInfo{Metrics: imetrics.NoopReporter{}, Prometheus: &connector.PrometheusManager{}},
+		&obi.Config{ChannelBufferLen: 10, ChannelSendTimeout: time.Minute, ShutdownTimeout: 10 * time.Second},
+	)
+	require.NoError(t, err)
+
+	unloadTracer := make(chan struct{})
+	instr.tracersWg.Go(func() { <-unloadTracer })
+	t.Cleanup(func() { close(unloadTracer) })
+
+	go func() { _ = instr.ReadAndForward(ctx) }()
+
+	start := time.Now()
+	cancel()
+	select {
+	case <-instr.pipelineCtx.Done():
+	case <-time.After(pipelineDrainGrace + 2*time.Second):
+		require.FailNow(t, "the pipeline waited for the tracers to unload instead of the ringbuf drain")
+	}
+	assert.GreaterOrEqual(t, time.Since(start), pipelineDrainGrace)
+}
+
+func TestPipelineWaitsForAReaderThatStartsDrainingAfterTheSignal(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	instr, err := New(ctx,
+		&global.ContextInfo{Metrics: imetrics.NoopReporter{}, Prometheus: &connector.PrometheusManager{}},
+		&obi.Config{ChannelBufferLen: 10, ChannelSendTimeout: time.Minute, ShutdownTimeout: 20 * time.Second},
+	)
+	require.NoError(t, err)
+
+	go func() { _ = instr.ReadAndForward(ctx) }()
+
+	cancel()
+	time.Sleep(signalPropagation)
+	endLateDrain := shutdown.RegisterReader(shutdown.WithDrains(ctx, instr.drains))
+	lateDrain := 2 * pipelineDrainGrace
+
+	select {
+	case <-instr.pipelineCtx.Done():
+		require.FailNow(t, "the pipeline was cancelled while a late reader was still draining")
+	case <-time.After(lateDrain):
+	}
+
+	drainEnded := time.Now()
+	endLateDrain()
+	select {
+	case <-instr.pipelineCtx.Done():
+	case <-time.After(pipelineDrainGrace + 2*time.Second):
+		require.FailNow(t, "the pipeline was not cancelled after the late reader finished draining")
+	}
+	assert.GreaterOrEqual(t, time.Since(drainEnded), pipelineDrainGrace)
+}
+
+func TestReadAndForwardExportsServicesEvictedAfterTheSignal(t *testing.T) {
+	records := make(chan collector.MetricRecord, 100)
+	cfg := &obi.Config{
+		ChannelBufferLen:   10,
+		ChannelSendTimeout: time.Minute,
+		ShutdownTimeout:    10 * time.Second,
+		Metrics:            perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		OTELMetrics: otelcfg.MetricsConfig{
+			Interval:          time.Hour,
+			TTL:               time.Hour,
+			ReportersCacheLen: 1,
+			Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+			MetricsExport: func(ctx context.Context, md pmetric.Metrics) error {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				collector.VisitMetricRecords(md, func(record collector.MetricRecord) {
+					records <- record
+				})
+				return nil
+			},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	instr, err := New(ctx,
+		&global.ContextInfo{
+			Metrics:             imetrics.NoopReporter{},
+			Prometheus:          &connector.PrometheusManager{},
+			OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: &cfg.OTELMetrics},
+		},
+		cfg,
+	)
+	require.NoError(t, err)
+	require.NoError(t, instr.startProcessEventsPipeline())
+
+	readDone := make(chan error, 1)
+	go func() {
+		readDone <- instr.ReadAndForward(ctx)
+	}()
+
+	evicted := svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Name: "evicted", Instance: "evicted-1"}}
+	other := svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Name: "other", Instance: "other-1"}}
+
+	cancel()
+	time.Sleep(signalPropagation)
+	for _, service := range []svc.Attrs{evicted, other} {
+		instr.tracesInput.SendCtx(t.Context(), []request.Span{{
+			Service: service, Type: request.EventTypeHTTP,
+			Method: "GET", Path: "/drained", RequestStart: 100, End: 200, Status: 200,
+		}})
+	}
+
+	for {
+		select {
+		case record := <-records:
+			if record.Name == attributes.HTTPServerDuration.OTEL && record.ResourceAttributes["service.name"] == "evicted" {
+				require.NoError(t, <-readDone)
+				return
+			}
+		case <-time.After(5 * time.Second):
+			require.FailNow(t, "the service evicted after the signal lost its final export")
 		}
 	}
 }

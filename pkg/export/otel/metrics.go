@@ -29,6 +29,7 @@ import (
 	instrument "go.opentelemetry.io/obi/pkg/export/otel/metric/api/metric"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
+	"go.opentelemetry.io/obi/pkg/internal/shutdown"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -231,7 +232,7 @@ func newMetricsReporter(
 	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
 	processEventCh *msg.Queue[exec.ProcessEvent],
-) (*MetricsReporter, error) {
+) (_ *MetricsReporter, retErr error) {
 	log := mlog()
 
 	attribProvider, err := attributes.NewAttrSelector(ctxInfo.MetricAttributeGroups, selectorCfg)
@@ -372,7 +373,9 @@ func newMetricsReporter(
 			}
 
 			go func() {
-				if err := v.provider.Shutdown(ctx); err != nil {
+				shutdownCtx, cancel := shutdownContext(ctx)
+				defer cancel()
+				if err := v.provider.Shutdown(shutdownCtx); err != nil {
 					llog.Warn("error shutting down evicted metrics provider", "error", err)
 				}
 				v.cleanupAllMetricsInstances()
@@ -386,6 +389,7 @@ func newMetricsReporter(
 	if err != nil {
 		return nil, err
 	}
+	defer releaseExporterOnError(ctx, exporter, &retErr)
 	mr.exporter = instrumentMetricsExporter(ctxInfo.Metrics, exporter)
 
 	mr.pidTracker = NewPidServiceTracker()
@@ -953,9 +957,9 @@ const shutdownTimeout = 30 * time.Second
 // shutdownContext returns a context for a reporter's final collection/export.
 // On the normal shutdown path ctx.Done() is what exits the reporter, so its context is
 // already canceled and would abort the flush; the returned context is detached from
-// it and bounded instead.
+// it and bounded by the remaining shutdown budget instead.
 func shutdownContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
+	return shutdown.Bounded(ctx, shutdownTimeout)
 }
 
 func (mr *MetricsReporter) close() {
@@ -1009,6 +1013,12 @@ func (sharedExporter) Shutdown(_ context.Context) error { return nil }
 
 // instrumentMetricsExporter checks whether the context is configured to report internal metrics and,
 // in this case, wraps the passed metrics exporter inside an instrumented exporter
+func releaseExporterOnError(ctx context.Context, exporter sdkmetric.Exporter, err *error) {
+	if *err != nil {
+		_ = exporter.Shutdown(ctx)
+	}
+}
+
 func instrumentMetricsExporter(internalMetrics imetrics.Reporter, in sdkmetric.Exporter) sdkmetric.Exporter {
 	// avoid wrapping the instrumented exporter if we don't have
 	// internal instrumentation (NoopReporter)

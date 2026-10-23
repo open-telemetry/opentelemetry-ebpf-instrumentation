@@ -2589,16 +2589,16 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 		ebpfconvenience.DrainTraceContextMap[BpfObiCtxInfoT](p.log, p.bpfObjects.TracesCtxV1)
 	}
 
-	ebpfcommon.SharedRingbufWithShutdownTimeout(
+	ebpfcommon.SharedRingbufWithDrainContext(
 		ebpfEventContext,
 		p.cfg,
 		p.shutdownTimeout,
 		p.bpfObjects.Events,
-		func(record *ringbuf.Record) (request.Span, bool, error) {
+		func(drainCtx context.Context, record *ringbuf.Record) (request.Span, bool, error) {
 			if handled, err := ebpfEventContext.HandleInternalEvent(record); handled {
 				return request.Span{}, true, err
 			}
-			if handled, err := ebpfcommon.HandleRuntimeMetricsRecord(ctx, ebpfEventContext, record, p.pidsFilter, p.log); handled {
+			if handled, err := ebpfcommon.HandleRuntimeMetricsRecord(drainCtx, ebpfEventContext, record, p.pidsFilter, p.log); handled {
 				return request.Span{}, true, err
 			}
 			s, ignore, err := ebpfcommon.ReadBPFTraceAsSpan(parseContext, p.cfg, record, p.pidsFilter)

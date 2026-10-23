@@ -205,13 +205,14 @@ func newRuntimeMetricsReporter(
 	selectorCfg *attributes.SelectorConfig,
 	input *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 	processEvents *msg.Queue[exec.ProcessEvent],
-) (*RuntimeMetricsReporter, error) {
+) (_ *RuntimeMetricsReporter, retErr error) {
 	log := rmlog()
 
 	exporter, err := ctxInfo.OTELMetricsExporter.Instantiate(ctx)
 	if err != nil {
 		return nil, err
 	}
+	defer releaseExporterOnError(ctx, exporter, &retErr)
 
 	reporter := &RuntimeMetricsReporter{
 		ctx:            ctx,
@@ -232,7 +233,9 @@ func newRuntimeMetricsReporter(
 			llog.Debug("evicting runtime metrics reporter from cache")
 
 			go func() {
-				if err := v.provider.Shutdown(ctx); err != nil {
+				shutdownCtx, cancel := shutdownContext(ctx)
+				defer cancel()
+				if err := v.provider.Shutdown(shutdownCtx); err != nil {
 					llog.Warn("error shutting down evicted runtime metrics provider", "error", err)
 				}
 			}()

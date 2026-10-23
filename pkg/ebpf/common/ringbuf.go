@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	"go.opentelemetry.io/obi/pkg/internal/shutdown"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
@@ -56,6 +57,8 @@ var readerFactory = func(rb *ebpf.Map) (ringBufReader, error) {
 // RecordParserFunc reads one ring buffer record and returns (item, ignore, err).
 type RecordParserFunc[T any] func(*ringbuf.Record) (T, bool, error)
 
+type ContextRecordParserFunc[T any] func(context.Context, *ringbuf.Record) (T, bool, error)
+
 // BatchFilterFunc is an optional filter applied to each parsed group before batching (nil = identity).
 type BatchFilterFunc[T any] func([]T) []T
 
@@ -74,7 +77,7 @@ type ringBufForwarder[T any] struct {
 
 	// parse reads one record and returns (item, ignore, err).
 	// Callers close over whatever context they need (parse ctx, filter, etc.)
-	parse RecordParserFunc[T]
+	parse ContextRecordParserFunc[T]
 
 	// filter is optional and runs on each parsed group before it enters the batch
 	// (nil = identity). In appolly it drops the spans of processes that do not match
@@ -108,15 +111,15 @@ func SharedRingbuf[T any](
 	logger *slog.Logger,
 	metrics imetrics.Reporter,
 ) func(context.Context, []io.Closer, *msg.Queue[[]T]) {
-	return sharedRingbuf(eventContext, cfg, maxShutdownDrain, ringbuffer, parse, filter, logger, metrics)
+	return sharedRingbuf(eventContext, cfg, maxShutdownDrain, ringbuffer, ignoreContext(parse), filter, logger, metrics)
 }
 
-func SharedRingbufWithShutdownTimeout[T any](
+func SharedRingbufWithDrainContext[T any](
 	eventContext *EBPFEventContext,
 	cfg *config.EBPFTracer,
 	shutdownTimeout time.Duration,
 	ringbuffer *ebpf.Map,
-	parse RecordParserFunc[T],
+	parse ContextRecordParserFunc[T],
 	filter BatchFilterFunc[T], // nil = no filter
 	logger *slog.Logger,
 	metrics imetrics.Reporter,
@@ -129,7 +132,7 @@ func sharedRingbuf[T any](
 	cfg *config.EBPFTracer,
 	drainTimeout time.Duration,
 	ringbuffer *ebpf.Map,
-	parse RecordParserFunc[T],
+	parse ContextRecordParserFunc[T],
 	filter BatchFilterFunc[T],
 	logger *slog.Logger,
 	metrics imetrics.Reporter,
@@ -165,7 +168,7 @@ func ForwardRingbuf[T any](
 	metrics imetrics.Reporter,
 	closers ...io.Closer,
 ) func(context.Context, *msg.Queue[[]T]) {
-	return forwardRingbuf(cfg, maxShutdownDrain, ringbuffer, parse, filter, logger, metrics, closers...)
+	return forwardRingbuf(cfg, maxShutdownDrain, ringbuffer, ignoreContext(parse), filter, logger, metrics, closers...)
 }
 
 func ForwardRingbufWithShutdownTimeout[T any](
@@ -178,6 +181,19 @@ func ForwardRingbufWithShutdownTimeout[T any](
 	metrics imetrics.Reporter,
 	closers ...io.Closer,
 ) func(context.Context, *msg.Queue[[]T]) {
+	return forwardRingbuf(cfg, shutdownDrainTimeout(shutdownTimeout), ringbuffer, ignoreContext(parse), filter, logger, metrics, closers...)
+}
+
+func ForwardRingbufWithDrainContext[T any](
+	cfg *config.EBPFTracer,
+	shutdownTimeout time.Duration,
+	ringbuffer *ebpf.Map,
+	parse ContextRecordParserFunc[T],
+	filter BatchFilterFunc[T], // nil = no filter
+	logger *slog.Logger,
+	metrics imetrics.Reporter,
+	closers ...io.Closer,
+) func(context.Context, *msg.Queue[[]T]) {
 	return forwardRingbuf(cfg, shutdownDrainTimeout(shutdownTimeout), ringbuffer, parse, filter, logger, metrics, closers...)
 }
 
@@ -185,7 +201,7 @@ func forwardRingbuf[T any](
 	cfg *config.EBPFTracer,
 	drainTimeout time.Duration,
 	ringbuffer *ebpf.Map,
-	parse RecordParserFunc[T],
+	parse ContextRecordParserFunc[T],
 	filter BatchFilterFunc[T],
 	logger *slog.Logger,
 	metrics imetrics.Reporter,
@@ -200,8 +216,16 @@ func forwardRingbuf[T any](
 	return rbf.readAndForward
 }
 
+func ignoreContext[T any](parse RecordParserFunc[T]) ContextRecordParserFunc[T] {
+	return func(_ context.Context, record *ringbuf.Record) (T, bool, error) {
+		return parse(record)
+	}
+}
+
 func (rbf *ringBufForwarder[T]) sharedReadAndForward(ctx context.Context, closers []io.Closer, out *msg.Queue[[]T]) {
 	rbf.logger.Debug("start reading and forwarding")
+	endDrain := shutdown.RegisterReader(ctx)
+	defer endDrain()
 	// BPF will send each measured item via Ring Buffer, so we listen for them from the
 	// user space.
 	eventsReader, err := readerFactory(rbf.ringbuffer)
@@ -219,12 +243,15 @@ func (rbf *ringBufForwarder[T]) sharedReadAndForward(ctx context.Context, closer
 		rbf.bgListenSharedContextCancelation(ctx, drainCtx, closers, eventsReader)
 	})
 	rbf.readAndForwardInner(ctx, drainCtx, eventsReader, out)
+	endDrain()
 	cancelDrain()
 	closerDone.Wait()
 }
 
 func (rbf *ringBufForwarder[T]) readAndForward(ctx context.Context, out *msg.Queue[[]T]) {
 	rbf.logger.Debug("start reading and forwarding")
+	endDrain := shutdown.RegisterReader(ctx)
+	defer endDrain()
 	// BPF will send each measured item via Ring Buffer, so we listen for them from the
 	// user space.
 	eventsReader, err := readerFactory(rbf.ringbuffer)
@@ -241,6 +268,7 @@ func (rbf *ringBufForwarder[T]) readAndForward(ctx context.Context, out *msg.Que
 	// once the pending events are drained, so the function can exit.
 	go rbf.bgListenContextCancelation(ctx, drainCtx, eventsReader)
 	rbf.readAndForwardInner(ctx, drainCtx, eventsReader, out)
+	endDrain()
 }
 
 func (rbf *ringBufForwarder[T]) drainContext(ctx context.Context) (context.Context, context.CancelFunc) {
@@ -319,7 +347,11 @@ func (rbf *ringBufForwarder[T]) readAndForwardInner(ctx, drainCtx context.Contex
 
 	rbf.logger.Debug("starting to read ring buffer")
 	rbf.readerLoop(drainCtx, eventsReader, records, freeIdx, workIdx)
-	<-parserDone
+	select {
+	case <-parserDone:
+	case <-drainCtx.Done():
+		rbf.logger.Debug("parser did not finish within the shutdown drain timeout")
+	}
 	rbf.flushPendingItems(drainCtx, out)
 }
 
@@ -431,7 +463,7 @@ func (rbf *ringBufForwarder[T]) parserLoop(
 
 		// Parse outside the lock, return each slot to the pool immediately.
 		for _, i := range pending {
-			item, ignore, err := rbf.parse(&records[i])
+			item, ignore, err := rbf.parse(ctx, &records[i])
 			freeIdx <- i
 			if err != nil {
 				rbf.logger.Debug("error parsing ring buffer event", "error", err)

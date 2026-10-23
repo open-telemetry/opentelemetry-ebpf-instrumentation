@@ -6,12 +6,16 @@ package otel
 import (
 	"context"
 	"maps"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/collector/pdata/pmetric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -25,6 +29,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	netebpf "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/shutdown"
 	statsebpf "go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -48,6 +53,43 @@ func httpClientSpan(service svc.Attrs) request.Span {
 		Service: service, Type: request.EventTypeHTTPClient,
 		Method: "GET", Path: "/", RequestStart: 100, End: 200, Status: 200,
 	}
+}
+
+func TestFailingConstructorReleasesTheSharedExporter(t *testing.T) {
+	defer otelcfg.RestoreEnvAfterExecution()()
+
+	collectorServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer collectorServer.Close()
+
+	mcfg := &otelcfg.MetricsConfig{
+		MetricsEndpoint:  collectorServer.URL,
+		Protocol:         otelcfg.ProtocolHTTPProtobuf,
+		Interval:         noPeriodicExport,
+		TTL:              time.Hour,
+		Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+	}
+	instancer := &otelcfg.MetricsExporterInstancer{Cfg: mcfg}
+
+	remainingUser, err := instancer.Instantiate(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, remainingUser.Export(t.Context(), &metricdata.ResourceMetrics{}))
+
+	_, err = newRuntimeMetricsReporter(
+		t.Context(),
+		&global.ContextInfo{OTELMetricsExporter: instancer},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
+		&attributes.SelectorConfig{},
+		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](),
+		msg.NewQueue[exec.ProcessEvent](),
+	)
+	require.Error(t, err, "a zero reporters cache length fails after the exporter is instantiated")
+
+	require.NoError(t, remainingUser.Shutdown(t.Context()))
+	assert.Error(t, remainingUser.Export(t.Context(), &metricdata.ResourceMetrics{}),
+		"the real exporter is shut down once the remaining user releases it")
 }
 
 func TestAppMetrics_FinalExportOnShutdown(t *testing.T) {
@@ -295,4 +337,80 @@ func closeDiscardingExports[T any](closeReporter func(), records <-chan T) {
 	}()
 	closeReporter()
 	close(closed)
+}
+
+func newTestMetricsReporter(t *testing.T, ctx context.Context, mcfg *otelcfg.MetricsConfig) *MetricsReporter {
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		msg.NewQueue[[]request.Span](),
+		msg.NewQueue[exec.ProcessEvent](),
+	)
+	require.NoError(t, err)
+	return reporter
+}
+
+func TestAppMetrics_FinalExportIsBoundedByTheShutdownBudget(t *testing.T) {
+	const budget = 200 * time.Millisecond
+	ctx, signal := context.WithCancel(t.Context())
+	defer signal()
+	ctx, cancelBudget := shutdown.WithBudget(ctx, budget)
+	defer cancelBudget()
+
+	mcfg := shutdownTestConfig(nil, 10)
+	mcfg.MetricsExport = func(ctx context.Context, _ pmetric.Metrics) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	reporter := newTestMetricsReporter(t, ctx, mcfg)
+	service := svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Name: "svc", Instance: "svc-1"}}
+	reporter.onSpan([]request.Span{httpClientSpan(service)})
+
+	signal()
+	closed := runUntilDoneT(reporter.close)
+	select {
+	case <-closed:
+	case <-time.After(budget + 5*time.Second):
+		require.FailNow(t, "the final export to an unreachable endpoint overran the shutdown budget")
+	}
+}
+
+func TestAppMetrics_EvictionAfterTheSignalExportsTheLastPoints(t *testing.T) {
+	ctx, signal := context.WithCancel(t.Context())
+	ctx, cancelBudget := shutdown.WithBudget(ctx, 5*time.Second)
+	defer cancelBudget()
+
+	records := make(chan collector.MetricRecord, 100)
+	mcfg := shutdownTestConfig(records, 1)
+	consume := mcfg.MetricsExport
+	mcfg.MetricsExport = func(ctx context.Context, md pmetric.Metrics) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		return consume(ctx, md)
+	}
+	reporter := newTestMetricsReporter(t, ctx, mcfg)
+
+	signal()
+	evicted := svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Name: "evicted", Instance: "evicted-1"}}
+	other := svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Name: "other", Instance: "other-1"}}
+	reporter.onSpan([]request.Span{httpClientSpan(evicted)})
+	reporter.onSpan([]request.Span{httpClientSpan(other)})
+
+	exported := readMetricsByName(t, records, 5*time.Second, attributes.HTTPClientDuration.OTEL)
+	require.Len(t, exported, 1)
+	assert.Equal(t, "evicted-1", exported[0].ResourceAttributes["service.instance.id"])
+}
+
+func runUntilDoneT(fn func()) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		fn()
+	}()
+	return done
 }

@@ -109,7 +109,7 @@ func newMetricsExporter(
 	ctxInfo *global.ContextInfo,
 	cfg *NetMetricsConfig,
 	input *msg.Queue[[]*ebpf.Record],
-) (*netMetricsExporter, error) {
+) (_ *netMetricsExporter, retErr error) {
 	log := nmlog()
 	log.Debug("instantiating network metrics exporter provider")
 	exporter, err := ctxInfo.OTELMetricsExporter.Instantiate(ctx)
@@ -117,6 +117,7 @@ func newMetricsExporter(
 		log.Error("can't instantiate metrics exporter", "error", err)
 		return nil, err
 	}
+	defer releaseExporterOnError(ctx, exporter, &retErr)
 	exporter = instrumentMetricsExporter(ctxInfo.Metrics, exporter)
 
 	resource := createFilteredNetworkResource(ctxInfo.NodeMeta.HostID, cfg.SelectorCfg.SelectionCfg)

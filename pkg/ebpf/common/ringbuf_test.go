@@ -207,9 +207,8 @@ func TestForwardRingbuf_Close(t *testing.T) {
 	metrics := &metricsReporter{}
 	closable := closableObject{}
 	cfg := &config.EBPFTracer{BatchLength: 10}
-	go ForwardRingbufWithShutdownTimeout(
+	go ForwardRingbuf(
 		cfg,
-		0,
 		nil, // the source ring buffer can be null
 		func(r *ringbuf.Record) (request.Span, bool, error) {
 			s, ignore, err := ReadBPFTraceAsSpan(nil, cfg, r, &IdentityPidsFilter{})
@@ -297,7 +296,7 @@ func TestRingbufLastReadAtRace(t *testing.T) {
 	rbf := &ringBufForwarder[HTTPRequestTrace]{
 		cfg:    &config.EBPFTracer{BatchLength: 1},
 		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		parse: func(*ringbuf.Record) (HTTPRequestTrace, bool, error) {
+		parse: func(context.Context, *ringbuf.Record) (HTTPRequestTrace, bool, error) {
 			return HTTPRequestTrace{}, true, nil
 		},
 	}
@@ -341,7 +340,7 @@ func TestRingbufStalledReaderIsFlushedOnConsecutiveTicks(t *testing.T) {
 	rbf := &ringBufForwarder[HTTPRequestTrace]{
 		cfg:    &config.EBPFTracer{BatchLength: 1},
 		logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
-		parse: func(*ringbuf.Record) (HTTPRequestTrace, bool, error) {
+		parse: func(context.Context, *ringbuf.Record) (HTTPRequestTrace, bool, error) {
 			return HTTPRequestTrace{}, true, nil
 		},
 	}
