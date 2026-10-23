@@ -217,7 +217,7 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 
 	ebpfcommon.FixupSpec(spec, p.cfg.EBPF.OverrideBPFLoopEnabled)
 	if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
-		disableJavaHTTP1Atomics(spec)
+		ebpfcommon.DisableJavaHTTP1Atomics(spec)
 	}
 
 	return []*ebpfcommon.SpecBundle{{Spec: spec, Objects: &p.bpfObjects, Constants: p.constants()}}, nil

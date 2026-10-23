@@ -124,3 +124,19 @@ func javaHTTP1CompareAndSwapProbe() asm.Instructions {
 func SupportsJavaHTTP1Propagation(log *slog.Logger) bool {
 	return !IntegrityModeOverride && SupportsJavaHTTP1ReservationCleanup() && SupportsContextPropagationWithProbe(log)
 }
+
+// DisableJavaHTTP1Atomics removes unreachable reservation instructions on
+// kernels without CMPXCHG. Both the generic and Go tracers include the shared
+// HTTP parser. Older verifiers reject unknown encodings before eliminating
+// branches behind a false g_bpf_java_http1_enabled constant.
+func DisableJavaHTTP1Atomics(spec *ebpf.CollectionSpec) {
+	for _, program := range spec.Programs {
+		for n, instruction := range program.Instructions {
+			if instruction.OpCode.AtomicOp() == asm.CmpXchg {
+				// Keep one instruction so jump offsets remain valid. R0 is
+				// CMPXCHG's result; -1 cannot be a readable request ID.
+				program.Instructions[n] = asm.Mov.Imm(asm.R0, -1).WithMetadata(instruction.Metadata)
+			}
+		}
+	}
+}

@@ -84,7 +84,7 @@ func loadJavaHTTP1Reservations(t *testing.T, enabled bool) *javaHTTP1TestObjects
 	require.Zero(t, spec.Maps["java_http1_requests"].Flags)
 	require.Zero(t, spec.Maps["java_http1_connections"].Flags)
 	if !enabled || !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
-		disableJavaHTTP1Atomics(spec)
+		ebpfcommon.DisableJavaHTTP1Atomics(spec)
 	}
 	require.NoError(t, ebpfconvenience.RewriteConstants(spec, map[string]any{
 		"filter_pids":                    int32(0),
