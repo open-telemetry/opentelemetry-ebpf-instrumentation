@@ -36,12 +36,10 @@ func moduledataField(
 	assign func(*Moduledata, uint64),
 ) definition {
 	return definition{
-		Requirement: Requirement{
-			OutputType:  "runtime.moduledata",
-			OutputField: fieldName,
-			Since:       since,
-		},
-		query: fieldQuery{typeName: "runtime.moduledata", fieldName: fieldName},
+		OutputType:  "runtime.moduledata",
+		OutputField: fieldName,
+		Since:       since,
+		query:       fieldQuery{typeName: "runtime.moduledata", fieldName: fieldName},
 		assign: func(abi *ABI, value uint64) {
 			assign(&abi.Moduledata, value)
 		},
@@ -54,12 +52,10 @@ func typeMetadataField(
 	assign func(*TypeMetadata, uint64),
 ) definition {
 	return definition{
-		Requirement: Requirement{
-			OutputType:  typeName,
-			OutputField: fieldName,
-			Since:       go127,
-		},
-		query: fieldQuery{typeName: typeName, fieldName: fieldName},
+		OutputType:  typeName,
+		OutputField: fieldName,
+		Since:       go127,
+		query:       fieldQuery{typeName: typeName, fieldName: fieldName},
 		assign: func(abi *ABI, value uint64) {
 			assign(abi.typeMetadata(), value)
 		},
@@ -68,12 +64,10 @@ func typeMetadataField(
 
 func typeMetadataSize(typeName string, assign func(*TypeMetadata, uint64)) definition {
 	return definition{
-		Requirement: Requirement{
-			OutputType:  typeName,
-			OutputField: sizeField,
-			Since:       go127,
-		},
-		query: sizeQuery{typeName: typeName},
+		OutputType:  typeName,
+		OutputField: sizeField,
+		Since:       go127,
+		query:       sizeQuery{typeName: typeName},
 		assign: func(abi *ABI, value uint64) {
 			assign(abi.typeMetadata(), value)
 		},
@@ -86,12 +80,10 @@ func typeMetadataConstant(
 	assign func(*TypeMetadata, uint64),
 ) definition {
 	return definition{
-		Requirement: Requirement{
-			OutputType:  "internal/abi",
-			OutputField: outputField,
-			Since:       go127,
-		},
-		query: constantQuery{constantName: constantName},
+		OutputType:  "internal/abi",
+		OutputField: outputField,
+		Since:       go127,
+		query:       constantQuery{constantName: constantName},
 		assign: func(abi *ABI, value uint64) {
 			assign(abi.typeMetadata(), value)
 		},

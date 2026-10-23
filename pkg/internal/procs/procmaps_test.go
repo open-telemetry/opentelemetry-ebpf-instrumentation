@@ -49,11 +49,9 @@ func TestExeLoadBias(t *testing.T) {
 		Pathname:  "/proc/123/exe",
 	}}
 	progs := []*elf.Prog{{
-		ProgHeader: elf.ProgHeader{
-			Type:  elf.PT_LOAD,
-			Off:   0,
-			Vaddr: 0x400000,
-		},
+		Type:  elf.PT_LOAD,
+		Off:   0,
+		Vaddr: 0x400000,
 	}}
 
 	bias, err := exeLoadBias("/proc/123/exe", maps, progs)
@@ -68,11 +66,9 @@ func TestExeLoadBiasETExec(t *testing.T) {
 		Pathname:  "/proc/123/exe",
 	}}
 	progs := []*elf.Prog{{
-		ProgHeader: elf.ProgHeader{
-			Type:  elf.PT_LOAD,
-			Off:   0,
-			Vaddr: 0x400000,
-		},
+		Type:  elf.PT_LOAD,
+		Off:   0,
+		Vaddr: 0x400000,
 	}}
 
 	bias, err := exeLoadBias("/proc/123/exe", maps, progs)
@@ -87,11 +83,9 @@ func TestExeLoadBiasMatchesMappingOffset(t *testing.T) {
 		Pathname:  "/proc/123/exe",
 	}}
 	progs := []*elf.Prog{{
-		ProgHeader: elf.ProgHeader{
-			Type:  elf.PT_LOAD,
-			Off:   0x1000,
-			Vaddr: 0x401000,
-		},
+		Type:  elf.PT_LOAD,
+		Off:   0x1000,
+		Vaddr: 0x401000,
 	}}
 
 	bias, err := exeLoadBias("/proc/123/exe", maps, progs)
@@ -106,9 +100,9 @@ func TestFindMappingLoadBias(t *testing.T) {
 		Dev:       42,
 		Inode:     99,
 	}}
-	progs := []*elf.Prog{{ProgHeader: elf.ProgHeader{
+	progs := []*elf.Prog{{
 		Type: elf.PT_LOAD, Off: 0x1000, Vaddr: 0x401000,
-	}}}
+	}}
 
 	bias, err := FindMappingLoadBias(maps, progs, 42, 99)
 	require.NoError(t, err)

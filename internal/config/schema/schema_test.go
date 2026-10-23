@@ -17,15 +17,13 @@ func TestDocumentMarshalYAMLOmitsNullAdditionalProperties(t *testing.T) {
 	t.Parallel()
 
 	doc := Document{
-		OpenTelemetryConfiguration: otelconfx.OpenTelemetryConfiguration{
-			FileFormat: "1.0",
-			MeterProvider: &otelconfx.MeterProvider{
-				Readers: []otelconfx.MetricReader{{
-					Periodic: &otelconfx.PeriodicMetricReader{
-						Exporter: otelconfx.PushMetricExporter{},
-					},
-				}},
-			},
+		FileFormat: "1.0",
+		MeterProvider: &otelconfx.MeterProvider{
+			Readers: []otelconfx.MetricReader{{
+				Periodic: &otelconfx.PeriodicMetricReader{
+					Exporter: otelconfx.PushMetricExporter{},
+				},
+			}},
 		},
 	}
 

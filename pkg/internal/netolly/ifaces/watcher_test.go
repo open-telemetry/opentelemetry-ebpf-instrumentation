@@ -94,12 +94,12 @@ func TestWatcher(t *testing.T) {
 func upAndRunning(name string, index int) netlink.LinkUpdate {
 	return netlink.LinkUpdate{
 		IfInfomsg: nl.IfInfomsg{IfInfomsg: unix.IfInfomsg{Flags: syscall.IFF_UP | syscall.IFF_RUNNING}},
-		Link:      &netlink.GenericLink{LinkAttrs: netlink.LinkAttrs{Name: name, Index: index}},
+		Link:      &netlink.GenericLink{Name: name, Index: index},
 	}
 }
 
 func down(name string, index int) netlink.LinkUpdate {
 	return netlink.LinkUpdate{
-		Link: &netlink.GenericLink{LinkAttrs: netlink.LinkAttrs{Name: name, Index: index}},
+		Link: &netlink.GenericLink{Name: name, Index: index},
 	}
 }

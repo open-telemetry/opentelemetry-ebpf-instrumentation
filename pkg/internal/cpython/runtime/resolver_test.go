@@ -31,9 +31,9 @@ func TestSupportedELF(t *testing.T) {
 		file *elf.File
 		want bool
 	}{
-		{file: &elf.File{FileHeader: elf.FileHeader{Class: elf.ELFCLASS64, Data: elf.ELFDATA2LSB, Machine: elf.EM_X86_64}}, want: true},
-		{file: &elf.File{FileHeader: elf.FileHeader{Class: elf.ELFCLASS64, Data: elf.ELFDATA2LSB, Machine: elf.EM_AARCH64}}, want: true},
-		{file: &elf.File{FileHeader: elf.FileHeader{Class: elf.ELFCLASS32, Data: elf.ELFDATA2LSB, Machine: elf.EM_X86_64}}},
+		{file: &elf.File{Class: elf.ELFCLASS64, Data: elf.ELFDATA2LSB, Machine: elf.EM_X86_64}, want: true},
+		{file: &elf.File{Class: elf.ELFCLASS64, Data: elf.ELFDATA2LSB, Machine: elf.EM_AARCH64}, want: true},
+		{file: &elf.File{Class: elf.ELFCLASS32, Data: elf.ELFDATA2LSB, Machine: elf.EM_X86_64}},
 		{},
 	}
 	for _, test := range tests {
@@ -151,7 +151,7 @@ func TestReadVirtualBytesReportsShortRead(t *testing.T) {
 }
 
 func TestRuntimeAnchor(t *testing.T) {
-	file := &elf.File{Sections: []*elf.Section{{SectionHeader: elf.SectionHeader{Name: ".PyRuntime", Addr: 0x1000}}}}
+	file := &elf.File{Sections: []*elf.Section{{Name: ".PyRuntime", Addr: 0x1000}}}
 
 	address, ok := runtimeAnchor(file, map[string]procs.Sym{"_PyRuntime": {Value: 0x2000}})
 	require.True(t, ok)
@@ -291,11 +291,9 @@ func TestResolveLiveCPythonBPFPlan(t *testing.T) {
 
 func elfFileWithLoadSegment(address uint64, data []byte) *elf.File {
 	return &elf.File{Progs: []*elf.Prog{{
-		ProgHeader: elf.ProgHeader{
-			Type:   elf.PT_LOAD,
-			Vaddr:  address,
-			Filesz: uint64(len(data)),
-		},
+		Type:     elf.PT_LOAD,
+		Vaddr:    address,
+		Filesz:   uint64(len(data)),
 		ReaderAt: bytes.NewReader(data),
 	}}}
 }

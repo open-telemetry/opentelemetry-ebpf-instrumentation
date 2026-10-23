@@ -56,7 +56,7 @@ func (s *stubMultiPIDSelector) AttrsUpdatedNotify() <-chan app.PID {
 
 func TestDynamicFlowAttrs_Apply_srcAndDst(t *testing.T) {
 	sel := &stubMultiPIDSelector{
-		stubPIDSelector: stubPIDSelector{pids: []app.PID{42}},
+		pids: []app.PID{42},
 		entries: map[app.PID]DynamicPIDEntry{
 			42: {
 				PID:              42,
@@ -91,7 +91,7 @@ func TestDynamicFlowAttrs_Apply_srcAndDst(t *testing.T) {
 
 func TestDynamicFlowAttrs_rebuild_clearsWhenEmpty(t *testing.T) {
 	sel := &stubMultiPIDSelector{
-		stubPIDSelector: stubPIDSelector{pids: []app.PID{1}},
+		pids: []app.PID{1},
 		entries: map[app.PID]DynamicPIDEntry{
 			1: {PID: 1, ServiceName: "a"},
 		},
@@ -113,7 +113,7 @@ func TestDynamicFlowAttrs_rebuild_clearsWhenEmpty(t *testing.T) {
 
 func TestDynamicFlowAttrs_rebuild_doesNotTrackPIDWithoutDecoration(t *testing.T) {
 	sel := &stubMultiPIDSelector{
-		stubPIDSelector: stubPIDSelector{pids: []app.PID{1, 2}},
+		pids: []app.PID{1, 2},
 		entries: map[app.PID]DynamicPIDEntry{
 			1: {PID: 1, ServiceName: "a"},
 			2: {PID: 2},
@@ -140,7 +140,7 @@ func TestDynamicFlowAttrs_rebuild_netnsFallbackWithoutStore(t *testing.T) {
 	})
 
 	sel := &stubMultiPIDSelector{
-		stubPIDSelector: stubPIDSelector{pids: []app.PID{42}},
+		pids: []app.PID{42},
 		entries: map[app.PID]DynamicPIDEntry{
 			42: {PID: 42, ServiceName: "coupon", ServiceNamespace: "demo"},
 		},
@@ -162,7 +162,7 @@ func TestDynamicFlowAttrs_rebuild_sharedHostNetNS_doesNotDecorate(t *testing.T) 
 	stubSharedHostNetNS(t)
 
 	sel := &stubMultiPIDSelector{
-		stubPIDSelector: stubPIDSelector{pids: []app.PID{100}},
+		pids: []app.PID{100},
 		entries: map[app.PID]DynamicPIDEntry{
 			100: {PID: 100, ServiceName: "sshd"},
 		},
@@ -182,7 +182,7 @@ func TestDynamicFlowAttrs_rebuild_twoSelectedSharedNetNS_noLastWriterWins(t *tes
 	stubSharedHostNetNS(t)
 
 	sel := &stubMultiPIDSelector{
-		stubPIDSelector: stubPIDSelector{pids: []app.PID{10, 20}},
+		pids: []app.PID{10, 20},
 		entries: map[app.PID]DynamicPIDEntry{
 			10: {PID: 10, ServiceName: "sshd"},
 			20: {PID: 20, ServiceName: "nginx"},
@@ -215,7 +215,7 @@ func TestDynamicFlowAttrs_rebuild_twoIsolatedNetNS_eachKeepsOwnAttrs(t *testing.
 	})
 
 	sel := &stubMultiPIDSelector{
-		stubPIDSelector: stubPIDSelector{pids: []app.PID{1, 2}},
+		pids: []app.PID{1, 2},
 		entries: map[app.PID]DynamicPIDEntry{
 			1: {PID: 1, ServiceName: "payments"},
 			2: {PID: 2, ServiceName: "checkout"},

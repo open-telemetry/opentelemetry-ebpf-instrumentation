@@ -69,13 +69,11 @@ func environmentConfig() (config, error) {
 		return config{}, errors.New("invalid GITHUB_RUN_ATTEMPT")
 	}
 	cfg := config{
-		scope: scope{
-			RunID:   os.Getenv("GITHUB_RUN_ID"),
-			Commit:  os.Getenv("TEST_COMMIT"),
-			Shard:   os.Getenv("MATRIX_ID"),
-			Arch:    os.Getenv("MATRIX_ARCH"),
-			Pattern: os.Getenv("MATRIX_TEST_PATTERN"),
-		},
+		RunID:       os.Getenv("GITHUB_RUN_ID"),
+		Commit:      os.Getenv("TEST_COMMIT"),
+		Shard:       os.Getenv("MATRIX_ID"),
+		Arch:        os.Getenv("MATRIX_ARCH"),
+		Pattern:     os.Getenv("MATRIX_TEST_PATTERN"),
 		attempt:     attempt,
 		previousDir: os.Getenv("PREVIOUS_RESULTS_DIR"),
 		stateDir:    os.Getenv("RETRY_STATE_DIR"),

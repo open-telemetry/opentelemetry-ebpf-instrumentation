@@ -596,10 +596,10 @@ func TestGoAutoSDKActivationRejectsUnsupportedVersions(t *testing.T) {
 func TestSetGoAutoSDKActivationSupportClearsInvalidState(t *testing.T) {
 	offsets := FieldOffsets{}
 	modules := goAutoSDKActivationTestModules()
-	elfFile := &elf.File{FileHeader: elf.FileHeader{
+	elfFile := &elf.File{
 		Class:   elf.ELFCLASS64,
 		Machine: elf.EM_X86_64,
-	}}
+	}
 
 	setGoAutoSDKActivationSupport(offsets, modules, elfFile)
 	assert.Equal(t, uint64(1), offsets[AutoSDKActivationSupported])
@@ -632,10 +632,10 @@ func TestSetGoAutoSDKActivationSupportRequiresSupportedArchitecture(t *testing.T
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			offsets := FieldOffsets{AutoSDKActivationSupported: 1}
-			elfFile := &elf.File{FileHeader: elf.FileHeader{
+			elfFile := &elf.File{
 				Class:   tt.class,
 				Machine: tt.machine,
-			}}
+			}
 
 			setGoAutoSDKActivationSupport(offsets, modules, elfFile)
 
@@ -878,7 +878,7 @@ func (f *fakeDwarfReader) Next() (*dwarf.Entry, error) {
 }
 
 func TestEmbeddedSDKActivationEligibility(t *testing.T) {
-	elfFile := &elf.File{FileHeader: elf.FileHeader{Class: elf.ELFCLASS64, Machine: elf.EM_X86_64}}
+	elfFile := &elf.File{Class: elf.ELFCLASS64, Machine: elf.EM_X86_64}
 	for traceVersion := range goAutoSDKActivationModules[1].sums {
 		t.Run(traceVersion, func(t *testing.T) {
 			modules := moduleVersions{versions: map[string]string{}, sums: map[string]string{}}

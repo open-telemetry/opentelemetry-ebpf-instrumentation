@@ -45,7 +45,7 @@ func TestInternalMetrics_ForwardLag(t *testing.T) {
 				require.NoError(t, err)
 				services := client.CoreV1().Services("default")
 				_, err = services.Create(ctx, &corev1.Service{
-					ObjectMeta: metav1.ObjectMeta{Name: forwardLagServiceName},
+					Name: forwardLagServiceName,
 					Spec: corev1.ServiceSpec{
 						Ports: []corev1.ServicePort{{Port: 80}},
 					},
