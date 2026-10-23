@@ -58,9 +58,7 @@ func equalFoldASCII(a, b []byte) bool {
 	return true
 }
 
-// asciiIndexFold returns the index of the first occurrence of substr in s,
-// matching ASCII letters case-insensitively. Returns -1 if not found.
-func asciiIndexFold(s, substr []byte) int {
+func asciiIndexFoldScalar(s, substr []byte) int {
 	n := len(substr)
 	if n == 0 || len(s) < n {
 		return -1
