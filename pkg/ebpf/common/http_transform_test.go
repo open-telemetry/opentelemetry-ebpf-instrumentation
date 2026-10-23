@@ -130,6 +130,30 @@ func TestHTTPRequestResponseToSpanSetsFullPath(t *testing.T) {
 	})
 }
 
+func TestHTTPRequestResponseToSpanDoesNotRenderSSLPointerAsPeerAddress(t *testing.T) {
+	req := &http.Request{
+		Method: http.MethodGet,
+		URL:    &url.URL{Scheme: "https", Host: "example.com", Path: "/test"},
+		Host:   "example.com",
+		Body:   io.NopCloser(strings.NewReader("")),
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewReader(nil)),
+	}
+	event := &BPFHTTPInfo{
+		Type: uint8(request.EventTypeHTTP),
+		Ssl:  1,
+		ConnInfo: BpfConnectionInfoT{
+			S_addr: [16]byte{0x90, 0x78, 0x56, 0x34, 0x12, 0x7f},
+		},
+	}
+
+	span := httpRequestResponseToSpan(nil, event, req, resp)
+
+	assert.Empty(t, span.Peer)
+}
+
 func TestHostInfo(t *testing.T) {
 	event := BPFHTTPInfo{
 		ConnInfo: BpfConnectionInfoT{
