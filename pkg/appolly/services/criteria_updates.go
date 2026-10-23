@@ -18,6 +18,7 @@ type CriteriaUpdates struct {
 	requests chan CriteriaUpdate
 	changed  chan struct{}
 	done     chan struct{}
+	stopOnce sync.Once
 }
 
 type CriteriaUpdate struct {
@@ -73,7 +74,10 @@ func (c *CriteriaUpdates) Replace(ctx context.Context, include, exclude []Select
 	}
 }
 
-func (c *CriteriaUpdates) Stop() { close(c.done) }
+// Stop notifies callers that the matcher has stopped. It is safe to call repeatedly or concurrently.
+func (c *CriteriaUpdates) Stop() {
+	c.stopOnce.Do(func() { close(c.done) })
+}
 
 // Complete publishes accepted criteria only after the matcher has validated the refresh.
 func (c *CriteriaUpdates) Complete(update CriteriaUpdate, err error) {

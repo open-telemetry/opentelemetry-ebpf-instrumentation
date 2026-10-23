@@ -425,6 +425,23 @@ func TestCriteriaRefreshReportsStableConflictingPID(t *testing.T) {
 	require.Contains(t, matcher.ProcessHistory, app.PID(1))
 }
 
+func TestCriteriaUpdaterRepeatedMatcherShutdown(t *testing.T) {
+	cfg := criteriaConfig(t, "    - exe_path: /srv/app\n")
+	updater := NewCriteriaUpdater(cfg)
+	for range 2 {
+		input := make(chan []Event[ProcessAttrs])
+		close(input)
+		matcher := &Matcher{
+			Log: slog.Default(), Criteria: FindingCriteria(cfg),
+			ProcessHistory: map[app.PID]ProcessMatch{}, Input: input,
+			Output:          msg.NewQueue[[]Event[ProcessMatch]](),
+			CriteriaUpdates: updater.Updates(),
+		}
+		require.NotPanics(t, func() { matcher.Run(t.Context()) })
+	}
+	require.ErrorContains(t, updater.Update(t.Context(), cfg), "matcher stopped")
+}
+
 func TestCriteriaUpdaterCancellation(t *testing.T) {
 	cfg := criteriaConfig(t, "    - exe_path: /srv/app\n")
 	updater := NewCriteriaUpdater(cfg)

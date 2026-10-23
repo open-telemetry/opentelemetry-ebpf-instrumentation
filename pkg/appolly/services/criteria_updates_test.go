@@ -13,6 +13,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestCriteriaUpdatesConcurrentStop(t *testing.T) {
+	for _, accepted := range []bool{false, true} {
+		name := "waiting for matcher"
+		if accepted {
+			name = "waiting for acknowledgement"
+		}
+		t.Run(name, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				initial := []Selector{&GlobAttributes{PIDs: []uint32{10}}}
+				updates := NewCriteriaUpdates(initial, nil)
+				result := make(chan error, 1)
+				go func() { result <- updates.Replace(t.Context(), nil, nil) }()
+				if accepted {
+					<-updates.Requests()
+				}
+				synctest.Wait()
+
+				for range 8 {
+					go updates.Stop()
+				}
+				synctest.Wait()
+				require.ErrorContains(t, <-result, "criteria matcher stopped")
+				require.NotPanics(t, updates.Stop)
+				require.ErrorContains(t, updates.Replace(t.Context(), nil, nil), "criteria matcher stopped")
+				current, _ := updates.Current()
+				require.Equal(t, initial, current)
+			})
+		})
+	}
+}
+
 func TestCriteriaUpdatesReplacePrefersCompletedResult(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
