@@ -69,6 +69,8 @@ jobs:
         if: matrix.file == 'Dockerfile'
         uses: jdx/mise-action@9149ea85001c7435d5a66bb127d6a1b6227cb0a5 # v5.0.0
         with:
+          # Temporary: remove before merge to restore age-gated Mise selection.
+          version: '2026.10.18'
           install: false
           cache: false
 

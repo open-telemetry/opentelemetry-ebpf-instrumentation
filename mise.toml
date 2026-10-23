@@ -1,5 +1,5 @@
 monorepo_root = true
-min_version = "2026.9.16"
+min_version = "2026.10.18"
 
 [monorepo]
 config_roots = [
