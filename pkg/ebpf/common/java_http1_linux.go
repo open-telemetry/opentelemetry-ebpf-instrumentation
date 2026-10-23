@@ -78,6 +78,11 @@ func javaHTTP1CompareAndSwapProbe() asm.Instructions {
 		expected = asm.R0
 	)
 
+	compareAndSwap := asm.CmpXchg.Mem(stateAddress, replacement, asm.DWord, 0)
+	// cilium/ebpf v0.22 marshals the immediate before translating AtomicOp.
+	// Supply it explicitly so the kernel sees CMPXCHG, rather than atomic ADD.
+	compareAndSwap.Constant = int64(asm.CmpXchg >> 8)
+
 	return asm.Instructions{
 		// R0 = 0: supply the expected old state for the later comparison.
 		// This zero also supplies the value used to initialize the stack slot.
@@ -102,7 +107,7 @@ func javaHTTP1CompareAndSwapProbe() asm.Instructions {
 		// If equal, store R2 there. Either way, put the old memory value in R0.
 		// The final argument is a byte offset from R1, not the expected value.
 		// If executed here, state would change from 0 to 1 and R0 would be 0.
-		asm.CmpXchg.Mem(stateAddress, replacement, asm.DWord, 0),
+		compareAndSwap,
 
 		// R0 = 0: explicitly set the program's return value after CMPXCHG,
 		// which uses the same register for its own result.
