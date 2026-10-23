@@ -21,17 +21,15 @@ import (
 const configWatchInterval = time.Second
 
 // Watch refreshes discovery criteria for an initialized application pipeline
-// when the configuration file changes.
-func Watch(ctx context.Context, path string, refresh func(context.Context, *obi.Config) error) {
+// when the configuration file changes from the contents loaded at startup.
+func Watch(ctx context.Context, path string, initial []byte, refresh func(context.Context, *obi.Config) error) {
 	ticker := time.NewTicker(configWatchInterval)
 	defer ticker.Stop()
-	watchConfigFile(ctx, path, refresh, slog.With("component", "config.Watcher"), ticker.C)
+	watchConfigFile(ctx, path, initial, refresh, slog.With("component", "config.Watcher"), ticker.C)
 }
 
 // Reading the path on every poll also handles atomic file replacements and ConfigMap symlinks.
-func watchConfigFile(ctx context.Context, path string, refresh func(context.Context, *obi.Config) error, log *slog.Logger, ticks <-chan time.Time) {
-	var previous []byte
-	var seen bool
+func watchConfigFile(ctx context.Context, path string, previous []byte, refresh func(context.Context, *obi.Config) error, log *slog.Logger, ticks <-chan time.Time) {
 	var readError string
 	for {
 		data, err := os.ReadFile(path)
@@ -43,11 +41,10 @@ func watchConfigFile(ctx context.Context, path string, refresh func(context.Cont
 			}
 		default:
 			readError = ""
-			if seen && bytes.Equal(previous, data) {
+			if bytes.Equal(previous, data) {
 				break
 			}
 
-			seen = true
 			previous = data
 			if err := refreshConfig(ctx, data, refresh); err != nil {
 				if ctx.Err() != nil {

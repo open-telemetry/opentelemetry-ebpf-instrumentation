@@ -38,7 +38,7 @@ const (
 	configVersionV2 = "v2"
 )
 
-func loadConfig(configPath *string) (*obi.Config, string) {
+func loadConfig(configPath *string) (*obi.Config, string, []byte) {
 	var configReader io.ReadCloser
 	if configPath != nil && *configPath != "" {
 		var err error
@@ -49,13 +49,18 @@ func loadConfig(configPath *string) (*obi.Config, string) {
 		defer configReader.Close()
 	}
 
-	config, version, err := loadConfigReader(configReader)
+	var configData bytes.Buffer
+	var reader io.Reader
+	if configReader != nil {
+		reader = io.TeeReader(configReader, &configData)
+	}
+	config, version, err := loadConfigReader(reader)
 	if err != nil {
 		slog.Error("wrong configuration", "error", err)
 		//nolint:gocritic
 		os.Exit(-1)
 	}
-	return config, version
+	return config, version, configData.Bytes()
 }
 
 func loadConfigReader(file io.Reader) (*obi.Config, string, error) {
@@ -110,7 +115,7 @@ func main() {
 	if cfg := os.Getenv("OTEL_EBPF_CONFIG_PATH"); cfg != "" {
 		configPath = &cfg
 	}
-	config, configVersion := loadConfig(configPath)
+	config, configVersion, configData := loadConfig(configPath)
 	if err := lvl.UnmarshalText([]byte(config.LogLevel)); err != nil {
 		slog.Error("unknown log level specified, choices are [DEBUG, INFO, WARN, ERROR]", "error", err)
 		os.Exit(-1)
@@ -173,7 +178,7 @@ func main() {
 	if configVersion == configVersionV2 && configPath != nil && *configPath != "" && config.Enabled(obi.FeatureAppO11y) {
 		updater := discover.NewCriteriaUpdater(config)
 		opts = append(opts, instrumenter.WithCriteriaUpdater(updater))
-		go configwatch.Watch(ctx, *configPath, updater.Update)
+		go configwatch.Watch(ctx, *configPath, configData, updater.Update)
 	}
 	var runErr error
 	if configVersion == configVersionV2 {

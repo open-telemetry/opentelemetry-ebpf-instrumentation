@@ -58,7 +58,10 @@ extensions:
         timeout: 12s
 `), 0o600))
 
-	cfg, version := loadConfig(&path)
+	cfg, version, configData := loadConfig(&path)
+	contents, err := os.ReadFile(path)
+	require.NoError(t, err)
+	require.Equal(t, contents, configData)
 
 	require.Equal(t, configVersionV2, version)
 	require.NoError(t, cfg.Validate())

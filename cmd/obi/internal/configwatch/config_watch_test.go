@@ -48,6 +48,45 @@ func (l configWatchLog) Handle(_ context.Context, record slog.Record) error {
 	return nil
 }
 
+func TestConfigFileWatcherStartup(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		port    int
+		refresh bool
+	}{
+		{name: "unchanged startup file", port: 8080},
+		{name: "file changed before watcher starts", port: 9090, refresh: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "obi.yml")
+			initial := watcherConfig(8080)
+			require.NoError(t, os.WriteFile(path, initial, 0o600))
+			if tc.refresh {
+				require.NoError(t, os.WriteFile(path, watcherConfig(tc.port), 0o600))
+			}
+			ticks := make(chan time.Time)
+			close(ticks)
+			records := make(chan slog.Record, 10)
+			logger := slog.New(configWatchLog{records: records})
+			var refreshed []*obi.Config
+			watchConfigFile(t.Context(), path, initial, func(_ context.Context, cfg *obi.Config) error {
+				refreshed = append(refreshed, cfg)
+				return nil
+			}, logger, ticks)
+
+			if tc.refresh {
+				require.Len(t, refreshed, 1)
+				criteria := discover.FindingCriteria(refreshed[0])
+				require.True(t, criteria[0].GetOpenPorts().Matches(tc.port))
+				require.Equal(t, slog.LevelInfo, readConfigLog(t, records).Level)
+			} else {
+				require.Empty(t, refreshed, "startup configuration must not trigger a refresh")
+			}
+			require.Empty(t, records)
+		})
+	}
+}
+
 func TestConfigFileWatcher(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "obi.yml")
 	initial := watcherConfig(8080)
@@ -77,8 +116,16 @@ func TestConfigFileWatcher(t *testing.T) {
 	records := make(chan slog.Record, 10)
 	logger := slog.New(configWatchLog{records: records})
 	done := make(chan struct{})
-	go func() { defer close(done); watchConfigFile(ctx, path, updater.Update, logger, ticks) }()
-	require.Equal(t, slog.LevelInfo, readConfigLog(t, records).Level)
+	go func() { defer close(done); watchConfigFile(ctx, path, initial, updater.Update, logger, ticks) }()
+	for range 2 {
+		select {
+		case ticks <- time.Now():
+		case <-time.After(time.Second):
+			t.Fatal("config watcher did not finish the unchanged poll")
+		}
+		require.Empty(t, records)
+		require.Empty(t, updates.Changed(), "unchanged configuration must not trigger a rescan")
+	}
 
 	replacement := path + ".new"
 	require.NoError(t, os.WriteFile(replacement, watcherConfig(9090), 0o600))
