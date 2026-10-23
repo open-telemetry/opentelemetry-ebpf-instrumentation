@@ -69,7 +69,7 @@ func main() {
 	}
 	if len(reports) == 0 {
 		fmt.Printf("## Weaver telemetry coverage\n\n_No weaver reports (`weaver-report-*.json`) found under `%s`._\n", *in)
-		writeJSON(Aggregate(nil, nil), *outJSON)
+		writeJSON(Aggregate(signals, nil), *outJSON)
 		if *failOnGap {
 			os.Exit(1)
 		}
