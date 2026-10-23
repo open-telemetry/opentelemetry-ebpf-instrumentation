@@ -31,6 +31,7 @@
 #include <generictracer/k_unix_sock.h>
 #include <generictracer/maps/active_accept_args.h>
 #include <generictracer/maps/active_connect_args.h>
+#include <generictracer/maps/java_http1_requests.h>
 #include <generictracer/maps/listening_ports.h>
 #include <generictracer/maps/sock_filter_buffers.h>
 #include <generictracer/maps/tcp_connection_map.h>
@@ -815,6 +816,11 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
             }
         }
         bpf_map_delete_elem(&cp_support_connect_info, &info);
+        if (g_bpf_java_http1_enabled) {
+            const u64 request_id = java_http1_request_id(&info);
+            java_http1_request_retire(
+                &info, java_http1_request_lookup(&info, request_id), request_id);
+        }
     }
 
     bool unreadable = false;

@@ -24,7 +24,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools/jvm"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
@@ -613,6 +615,31 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 	}
 }
 
+func TestJavaInjector_HeaderPropagationAttachOpts(t *testing.T) {
+	previous := supportsHeaderPropagation
+	t.Cleanup(func() { supportsHeaderPropagation = previous })
+	for _, tc := range []struct {
+		mode      config.ContextPropagationMode
+		supported bool
+		want      string
+	}{
+		{config.ContextPropagationDisabled, true, ""},
+		{config.ContextPropagationTCP, true, ""},
+		{config.ContextPropagationHeaders, true, "=httpHeaders=true"},
+		{config.ContextPropagationAll, true, "=httpHeaders=true"},
+		{config.ContextPropagationHeaders, false, ""},
+		{config.ContextPropagationAll, false, ""},
+	} {
+		t.Run(fmt.Sprintf("%d/%t", tc.mode, tc.supported), func(t *testing.T) {
+			supportsHeaderPropagation = func(*slog.Logger) bool { return tc.supported }
+			cfg := &obi.Config{}
+			cfg.EBPF.ContextPropagation = tc.mode
+			injector := &JavaInjector{cfg: cfg}
+			assert.Equal(t, tc.want, injector.attachOpts(false))
+		})
+	}
+}
+
 // The attach deadline must be derived from the caller's context, so a shutdown
 // abandons the attach instead of signaling a JVM and waiting out the timeout.
 func TestJavaInjector_NewExecutable_CanceledContextStartsNoAttach(t *testing.T) {
@@ -915,4 +942,61 @@ func TestEnsureEmbeddedAgent_PlaceholderBytesError(t *testing.T) {
 	err := ensureEmbeddedAgent()
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "embedded OBI java agent artifact is missing from this build")
+}
+
+type propertiesAttacher struct {
+	response string
+	calls    int
+	cleanups int
+}
+
+func (*propertiesAttacher) Init() {}
+func (a *propertiesAttacher) Cleanup(context.Context) error {
+	a.cleanups++
+	return nil
+}
+func (*propertiesAttacher) Terminate() error { return nil }
+func (a *propertiesAttacher) Attach(_ context.Context, _ *procs.ProcessHandle, args []string, _ bool) (io.ReadCloser, error) {
+	if strings.Join(args, " ") != "jcmd VM.system_properties" {
+		return nil, fmt.Errorf("unexpected attach command: %v", args)
+	}
+	a.calls++
+	return io.NopCloser(strings.NewReader(a.response)), nil
+}
+
+func TestJavaInjector_VerifyLoadedAgentUsesOnePropertiesRequest(t *testing.T) {
+	for _, capability := range []string{"true", "false", ""} {
+		t.Run(capability, func(t *testing.T) {
+			var logs bytes.Buffer
+			injector := &JavaInjector{
+				log:          slog.New(slog.NewTextHandler(&logs, nil)),
+				agentVersion: "3",
+			}
+			attacher := &propertiesAttacher{
+				response: httpClientPropagationProperty + "=" + capability + "\n" + agentVersionProperty + "=3\n",
+			}
+			require.NoError(t, injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true))
+			require.Equal(t, 1, attacher.calls)
+			require.Equal(t, 1, attacher.cleanups)
+			assert.Equal(t, capability != "true", strings.Contains(logs.String(), "propagation unavailable"))
+		})
+	}
+}
+
+func TestJavaInjector_VerifyLoadedAgentRejectsVersionMismatch(t *testing.T) {
+	injector := &JavaInjector{log: slog.Default(), agentVersion: "3"}
+	attacher := &propertiesAttacher{response: agentVersionProperty + "=2\n" + httpClientPropagationProperty + "=true\n"}
+	err := injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true)
+	require.ErrorContains(t, err, "version 2, expected 3")
+	require.Equal(t, 1, attacher.calls)
+	require.Equal(t, 1, attacher.cleanups)
+}
+
+func TestJavaInjector_HeaderPropagationRequiresAtomicOwnership(t *testing.T) {
+	previous := ebpfcommon.SupportsJavaHTTP1ReservationCleanup
+	t.Cleanup(func() { ebpfcommon.SupportsJavaHTTP1ReservationCleanup = previous })
+	ebpfcommon.SupportsJavaHTTP1ReservationCleanup = func() bool { return false }
+	injector := &JavaInjector{cfg: &obi.Config{}, log: slog.Default()}
+	injector.cfg.EBPF.ContextPropagation = config.ContextPropagationHeaders
+	require.Empty(t, injector.attachOpts(false), "Java must use the same atomic capability gate as eBPF")
 }

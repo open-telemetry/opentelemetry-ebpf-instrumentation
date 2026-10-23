@@ -1,0 +1,40 @@
+file_format: "1.0"
+log_level: debug
+tracer_provider:
+  processors:
+    - batch:
+        schedule_delay: 100
+        exporter:
+          otlp_grpc:
+            endpoint: http://127.0.0.1:4317
+            tls:
+              insecure: true
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: exclude
+        poll_interval: 500ms
+        min_process_age: 0s
+      rules:
+        - action: include
+          match:
+            process:
+              open_ports: "8080,8086"
+      instrumentation:
+        http:
+          enabled:
+            traces: true
+          track_request_headers: true
+          request_timeout: 10s
+          routes:
+            incoming:
+              unmatched: path
+            outgoing:
+              unmatched: path
+      engine:
+        batching:
+          batch_timeout: 10ms
+        propagation:
+          context_propagation: "${JAVA_HTTPCLIENT_PROPAGATION:-headers}"
