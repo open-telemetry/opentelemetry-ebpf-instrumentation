@@ -5,6 +5,7 @@ package discover
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"testing"
 	"testing/synctest"
@@ -266,6 +267,81 @@ func TestCriteriaRefreshRemovesNowExcludedProcess(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("matcher did not stop")
 	}
+}
+
+func TestCriteriaRefreshUsesLastSuccessfulObservation(t *testing.T) {
+	original := processInfo
+	t.Cleanup(func() { processInfo = original })
+	var readErr error
+	processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+		if readErr != nil {
+			return nil, readErr
+		}
+		proc := &services.ProcessInfo{Pid: p.pid, ExePath: "/srv/app", OpenPorts: p.openPorts}
+		if p.pid == 11 {
+			proc.PPid = 10
+		}
+		return proc, nil
+	}
+	initial := criteriaConfig(t, "    - open_ports: 8080\n")
+	output := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	defer output.Close()
+	events := output.Subscribe()
+	matcher := &Matcher{
+		Log: slog.Default(), Criteria: FindingCriteria(initial),
+		ProcessHistory: map[app.PID]ProcessMatch{}, Output: output,
+		observed: map[app.PID]observedProcess{},
+	}
+	require.Len(t, matcher.filter([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 10, openPorts: []uint32{8080}}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 11}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 20, openPorts: []uint32{9090}}},
+	}), 2)
+	refresh := func(cfg *obi.Config) {
+		t.Helper()
+		require.NoError(t, matcher.refresh(t.Context(), services.CriteriaUpdate{
+			Context: t.Context(), Include: FindingCriteria(cfg), Exclude: ExcludingCriteria(cfg),
+		}))
+	}
+
+	readErr = errors.New("temporary /proc read failure")
+	refresh(initial)
+	require.Contains(t, matcher.ProcessHistory, app.PID(10))
+	require.Contains(t, matcher.ProcessHistory, app.PID(11))
+	select {
+	case unexpected := <-events:
+		t.Fatalf("read failure changed instrumentation: %v", unexpected)
+	default:
+	}
+
+	refresh(criteriaConfig(t, "    - open_ports: 8080\n    - open_ports: 9090\n"))
+	created := testutil.ReadChannel(t, events, time.Second)
+	require.Len(t, created, 1)
+	require.Equal(t, EventCreated, created[0].Type)
+	require.Equal(t, app.PID(20), created[0].Obj.Process.Pid)
+
+	// Config-driven removals must still apply while process reads are failing.
+	refresh(criteriaConfig(t, "    - open_ports: 9090\n"))
+	deleted := testutil.ReadChannel(t, events, time.Second)
+	require.Len(t, deleted, 2)
+	deletedPIDs := make([]app.PID, 0, len(deleted))
+	for _, event := range deleted {
+		require.Equal(t, EventDeleted, event.Type)
+		deletedPIDs = append(deletedPIDs, event.Obj.Process.Pid)
+	}
+	require.ElementsMatch(t, []app.PID{10, 11}, deletedPIDs)
+	require.Contains(t, matcher.ProcessHistory, app.PID(20))
+
+	rescan := []Event[ProcessAttrs]{{Type: EventCreated, Obj: ProcessAttrs{pid: 20, openPorts: []uint32{8080}}}}
+	require.Empty(t, matcher.filter(rescan))
+	require.Contains(t, matcher.ProcessHistory, app.PID(20))
+	readErr = nil
+	// Only a successful fresh observation can invalidate the cached port match.
+	deleted = matcher.filter(rescan)
+	require.Len(t, deleted, 1)
+	require.Equal(t, EventDeleted, deleted[0].Type)
+	require.Equal(t, app.PID(20), deleted[0].Obj.Process.Pid)
+	require.Equal(t, []uint32{8080}, matcher.observed[20].process.OpenPorts)
 }
 
 func TestCriteriaRefreshRejectsRetainedServiceChange(t *testing.T) {
