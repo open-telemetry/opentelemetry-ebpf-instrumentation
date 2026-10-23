@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/mqttparser"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
+	"go.opentelemetry.io/obi/pkg/internal/split"
 )
 
 var (
@@ -288,7 +289,7 @@ func mqttSubscriptionInfo(filter string) *request.MessagingInfo {
 	}
 	info := &request.MessagingInfo{SubscriptionName: filter}
 	if rest, shared := strings.CutPrefix(filter, mqttSharedSubscriptionPrefix); shared {
-		if group, _, found := strings.Cut(rest, "/"); found {
+		if group, _, found := split.StringsCutByte(rest, '/'); found {
 			info.ConsumerGroup = group
 		}
 	}

@@ -478,7 +478,7 @@ func extractFormValue(data, key string) string {
 	for pair, eof := iter.Next(); !eof; pair, eof = iter.Next() {
 		pair = strings.TrimSuffix(pair, "&")
 		// Split by first "=" only (equivalent to SplitN with 2)
-		idx := strings.Index(pair, "=")
+		idx := strings.IndexByte(pair, ':')
 		if idx > 0 && pair[:idx] == key {
 			// URL decode the value
 			return strings.ReplaceAll(pair[idx+1:], "+", " ")
@@ -501,14 +501,14 @@ func extractSQLPPNamespace(sqlppReq *sqlppRequest) string {
 	// Extract the first identifier (bucket name)
 	// Handle backtick-quoted: `bucket`.`scope` or `bucket`
 	if strings.HasPrefix(ctx, "`") {
-		end := strings.Index(ctx[1:], "`")
+		end := strings.IndexByte(ctx[1:], '`')
 		if end > 0 {
 			return ctx[1 : end+1]
 		}
 	}
 
 	// Handle unquoted: bucket.scope or bucket
-	if idx := strings.Index(ctx, "."); idx > 0 {
+	if idx := strings.IndexByte(ctx, '.'); idx > 0 {
 		return ctx[:idx]
 	}
 
