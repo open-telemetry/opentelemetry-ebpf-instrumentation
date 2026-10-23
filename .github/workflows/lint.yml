@@ -85,6 +85,10 @@ jobs:
       - name: Check Go toolchain declarations
         run: mise run check:go-toolchain
 
+      - name: Test Mise setup action helpers
+        if: ${{ matrix.platform.arch == 'amd64' }}
+        run: mise run test:setup-mise
+
       - name: Go module cache
         if: ${{ inputs.ref == '' || inputs.ref == null }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity

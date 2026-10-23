@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Test shared Mise setup action helpers"
+set -euo pipefail
+
+repo_root=$(git rev-parse --show-toplevel)
+"$repo_root/.github/actions/setup-mise/test.sh"
