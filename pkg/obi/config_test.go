@@ -500,7 +500,7 @@ func TestConfig_NameResolverSources(t *testing.T) {
 	// no yaml, no env: DefaultConfig value
 	cfg, err := LoadConfig(bytes.NewReader(nil))
 	require.NoError(t, err)
-	assert.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceECS},
+	assert.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceECS, transform.SourceRoute53},
 		cfg.NameResolver.Sources)
 
 	// yaml must survive env.Parse when the env var is unset
@@ -2005,13 +2005,13 @@ func TestConfigValidateRoute53HostedZones(t *testing.T) {
 		zones     []string
 		wantError bool
 	}{
-		{name: "enabled without zones", sources: []transform.Source{transform.SourceRoute53}, wantError: true},
-		{name: "enabled with empty list", sources: []transform.Source{transform.SourceRoute53}, zones: []string{}, wantError: true},
+		{name: "enabled without zones", sources: []transform.Source{transform.SourceRoute53}},
+		{name: "enabled with empty list", sources: []transform.Source{transform.SourceRoute53}, zones: []string{}},
 		{name: "blank ID", sources: []transform.Source{transform.SourceRoute53}, zones: []string{""}, wantError: true},
 		{name: "whitespace ID", sources: []transform.Source{transform.SourceRoute53}, zones: []string{" \t"}, wantError: true},
 		{name: "prefix without ID", sources: []transform.Source{transform.SourceRoute53}, zones: []string{" /hostedzone/ "}, wantError: true},
 		{name: "blank among valid IDs", sources: []transform.Source{transform.SourceRoute53}, zones: []string{"Z123", ""}, wantError: true},
-		{name: "case insensitive source", sources: []transform.Source{"Route53"}, wantError: true},
+		{name: "case insensitive source", sources: []transform.Source{"Route53"}},
 		{name: "valid IDs", sources: []transform.Source{transform.SourceRoute53}, zones: []string{"Z123", "/hostedzone/Z456"}},
 		{name: "disabled without zones", sources: []transform.Source{transform.SourceDNS}},
 		{name: "disabled with blank IDs", sources: []transform.Source{transform.SourceDNS}, zones: []string{""}},

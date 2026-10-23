@@ -235,6 +235,7 @@ var DefaultConfig = Config{
 		Sources: []transform.Source{
 			transform.SourceK8s,
 			transform.SourceECS,
+			transform.SourceRoute53,
 		},
 		CacheLen: 1024,
 		CacheTTL: 5 * time.Minute,
