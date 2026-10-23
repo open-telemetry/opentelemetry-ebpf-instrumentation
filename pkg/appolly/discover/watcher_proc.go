@@ -75,14 +75,15 @@ func wplog() *slog.Logger {
 	return slog.With("component", "discover.ProcessWatcher")
 }
 
-// ProcessWatcherRescan connects the process watcher to dynamic selector changes.
+// ProcessWatcherRescan connects the process watcher to selector and criteria changes.
 // Nil channels are ignored.
 type ProcessWatcherRescan struct {
 	// AddedPIDs forgets the given PIDs so they are re-emitted on the next poll
 	// (e.g. after an explicit AddPID of an already-seen process).
 	AddedPIDs <-chan []app.PID
-	// TargetsChanged forgets all tracked PIDs so already-running processes are
-	// re-evaluated (e.g. after AddK8sWorkload).
+	// TargetsChanged requests re-evaluation of all running processes. With criteria
+	// updates enabled, tracked PIDs are preserved for exit detection; otherwise
+	// they are forgotten (e.g. after AddK8sWorkload).
 	TargetsChanged <-chan struct{}
 }
 
@@ -92,8 +93,7 @@ func (r ProcessWatcherRescan) enabled() bool {
 
 // ProcessWatcherFunc polls every PollInterval for new processes and forwards either new or deleted process PIDs
 // as well as PIDs from processes that setup a new connection.
-// When rescan is enabled, the watcher forgets tracked processes so they can be re-emitted and rematched
-// after dynamic selector changes.
+// When rescan is enabled, the watcher re-emits processes for matching after selector or criteria changes.
 func ProcessWatcherFunc(
 	cfg *obi.Config,
 	ebpfContext *ebpfcommon.EBPFEventContext,
@@ -212,8 +212,9 @@ func (pa *pollAccounter) run(ctx context.Context) {
 	}
 }
 
-// runRescanNotify forgets tracked processes when the dynamic selector changes so they are
-// re-emitted on the next poll. AddedPIDs is targeted; TargetsChanged clears everything.
+// runRescanNotify handles requests to re-emit processes on the next poll.
+// AddedPIDs forgets only the given PIDs. TargetsChanged preserves tracked PIDs for
+// exit detection when criteria updates are enabled, and forgets them otherwise.
 // Nil channels are inert in the select.
 func (pa *pollAccounter) runRescanNotify(ctx context.Context, log *slog.Logger) {
 	for {
