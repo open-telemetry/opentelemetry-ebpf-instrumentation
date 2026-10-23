@@ -350,3 +350,50 @@ func TestRuntimeCollectionHeapSizes(t *testing.T) {
 	complete()
 	require.Equal(t, [runtimemetrics.DotnetHeapGenerationCount]*int64{}, collection.finish().GCHeapSize)
 }
+
+func TestRuntimeCollectionFragmentation(t *testing.T) {
+	var collection runtimeCollection
+	observe := func(event netTraceRuntimeEvent) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+		snapshot, err := collection.observeEvent(event)
+		require.NoError(t, err)
+		return snapshot
+	}
+	completeRound := func() {
+		for _, name := range []string{"gen-0-gc-count", "gen-1-gc-count", "gen-2-gc-count", "time-in-jit"} {
+			require.Nil(t, observe(netTraceRuntimeEvent{counter: runtimeCounter{Name: name, Increment: true}}))
+		}
+	}
+	workingSet := netTraceRuntimeEvent{counter: runtimeCounter{Name: "working-set", Value: 1}}
+	require.Nil(t, observe(workingSet))
+	identity := gcCollectionEvent{count: 1, depth: 2}
+	for _, event := range []gcRuntimeEvent{
+		{eventID: clrGCStartEventID, collection: identity},
+		{eventID: clrGCGlobalHeapHistoryEventID, threadID: 1, globalHistory: gcGlobalHeapHistory{depth: 2, heapCount: 1}},
+		{eventID: clrGCPerHeapHistoryEventID, threadID: 1, perHeapHistory: gcPerHeapHistory{fragmentation: [5]uint64{10, 20, 30, 40, 50}}},
+		{eventID: clrGCEndEventID, collection: identity},
+	} {
+		require.Nil(t, observe(netTraceRuntimeEvent{gc: &event}), "GC events accumulate until a polling boundary")
+	}
+	completeRound()
+	first := observe(workingSet)
+	require.NotNil(t, first)
+	for generation, value := range first.GCHeapFragmentation {
+		require.NotNil(t, value)
+		require.Equal(t, int64((generation+1)*10), *value)
+	}
+	completeRound()
+	last := collection.finish()
+	require.NotNil(t, last)
+	require.Equal(t, first.GCHeapFragmentation, last.GCHeapFragmentation, "last-collection values persist across polling rounds")
+	require.Nil(t, observe(netTraceRuntimeEvent{gc: &gcRuntimeEvent{eventID: clrGCEndEventID, collection: gcCollectionEvent{count: 2, depth: 2}}}))
+	require.Equal(t, int64(10), *first.GCHeapFragmentation[0])
+	require.Equal(t, int64(10), *last.GCHeapFragmentation[0])
+	collection = runtimeCollection{}
+	require.Nil(t, observe(workingSet))
+	completeRound()
+	fresh := collection.finish()
+	require.NotNil(t, fresh)
+	require.Equal(t, [runtimemetrics.DotnetHeapGenerationCount]*int64{}, fresh.GCHeapFragmentation, "a new session needs fresh GC history")
+	_, err := collection.observeEvent(netTraceRuntimeEvent{gc: &gcRuntimeEvent{eventID: 999}})
+	require.ErrorContains(t, err, "unexpected CLR GC event")
+}
