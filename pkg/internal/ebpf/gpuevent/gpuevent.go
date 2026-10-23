@@ -354,8 +354,9 @@ func (p *Tracer) AlreadyInstrumentedLib(id uint64) bool {
 }
 
 func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventContext, eventsChan *msg.Queue[[]request.Span]) {
-	ebpfcommon.ForwardRingbuf(
+	ebpfcommon.ForwardRingbufWithShutdownTimeout(
 		&p.cfg.EBPF,
+		p.cfg.ShutdownTimeout,
 		p.bpfObjects.GpuEvents,
 		p.processCudaEvent,
 		ebpfEventContext.CommonPIDsFilter.Filter,

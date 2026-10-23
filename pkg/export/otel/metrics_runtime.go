@@ -205,13 +205,14 @@ func newRuntimeMetricsReporter(
 	selectorCfg *attributes.SelectorConfig,
 	input *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 	processEvents *msg.Queue[exec.ProcessEvent],
-) (*RuntimeMetricsReporter, error) {
+) (_ *RuntimeMetricsReporter, retErr error) {
 	log := rmlog()
 
 	exporter, err := ctxInfo.OTELMetricsExporter.Instantiate(ctx)
 	if err != nil {
 		return nil, err
 	}
+	defer releaseExporterOnError(ctx, exporter, &retErr)
 
 	reporter := &RuntimeMetricsReporter{
 		ctx:            ctx,
@@ -232,7 +233,9 @@ func newRuntimeMetricsReporter(
 			llog.Debug("evicting runtime metrics reporter from cache")
 
 			go func() {
-				if err := v.provider.Shutdown(ctx); err != nil {
+				shutdownCtx, cancel := shutdownContext(ctx)
+				defer cancel()
+				if err := v.provider.Shutdown(shutdownCtx); err != nil {
 					llog.Warn("error shutting down evicted runtime metrics provider", "error", err)
 				}
 			}()
@@ -983,8 +986,18 @@ func removeFloatRuntimeCounterWithAttributes(
 }
 
 func (r *RuntimeMetricsReporter) close() {
+	shutdownCtx, cancel := shutdownContext(r.ctx)
+	defer cancel()
+	r.reporters.ForEach(func(id svc.UID, m *RuntimeMetrics) {
+		if err := m.provider.Shutdown(shutdownCtx); err != nil {
+			r.log.Warn("error shutting down runtime metrics provider", "service", id, "error", err)
+		}
+	})
+
 	go func() {
-		if err := r.exporter.Shutdown(r.ctx); err != nil {
+		exportCtx, cancel := shutdownContext(r.ctx)
+		defer cancel()
+		if err := r.exporter.Shutdown(exportCtx); err != nil {
 			rmlog().Warn("closing runtime metrics provider", "error", err)
 			return
 		}

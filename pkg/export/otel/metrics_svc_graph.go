@@ -132,12 +132,14 @@ func newSvcGraphMetricsReporter(
 		func(id svc.UID, v *SvcGraphMetrics) {
 			llog := log.With("service", id)
 			llog.Debug("evicting metrics reporter from cache")
-			v.cleanupAllMetricsInstances()
 
 			go func() {
-				if err := v.provider.Shutdown(ctx); err != nil {
+				shutdownCtx, cancel := shutdownContext(ctx)
+				defer cancel()
+				if err := v.provider.Shutdown(shutdownCtx); err != nil {
 					llog.Warn("error shutting down evicted metrics provider", "error", err)
 				}
+				v.cleanupAllMetricsInstances()
 			}()
 		}, mr.newMetricSet)
 	if err != nil {
@@ -286,8 +288,18 @@ func (mr *SvcGraphMetricsReporter) newMetricSet(service *svc.Attrs) (*SvcGraphMe
 }
 
 func (mr *SvcGraphMetricsReporter) close() {
+	shutdownCtx, cancel := shutdownContext(mr.ctx)
+	defer cancel()
+	mr.reporters.ForEach(func(id svc.UID, m *SvcGraphMetrics) {
+		if err := m.provider.Shutdown(shutdownCtx); err != nil {
+			mr.log.Warn("error shutting down metrics provider", "service", id, "error", err)
+		}
+	})
+
 	go func() {
-		if err := mr.exporter.Shutdown(mr.ctx); err != nil {
+		exportCtx, cancel := shutdownContext(mr.ctx)
+		defer cancel()
+		if err := mr.exporter.Shutdown(exportCtx); err != nil {
 			mr.log.Warn("closing metrics provider", "error", err)
 			return
 		}
