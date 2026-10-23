@@ -38,7 +38,7 @@ func criteriaMatcherProvider(
 	output *msg.Queue[[]Event[ProcessMatch]],
 	configCriteria []services.Selector,
 	dynamicSelector *DynamicSelector,
-	updates ...*services.CriteriaUpdates,
+	updates *services.CriteriaUpdates,
 ) swarm.InstanceFunc {
 	instrumenterNamespace, _ := namespaceFetcherFunc(app.PID(osPidFunc()))
 	if dynamicSelector != nil {
@@ -56,10 +56,7 @@ func criteriaMatcherProvider(
 		Output:              output,
 		Namespace:           instrumenterNamespace,
 		HasHostPidAccess:    hasHostPidAccess(),
-	}
-
-	if len(updates) > 0 {
-		m.CriteriaUpdates = updates[0]
+		CriteriaUpdates:     updates,
 	}
 
 	return swarm.DirectInstance(m.Run)

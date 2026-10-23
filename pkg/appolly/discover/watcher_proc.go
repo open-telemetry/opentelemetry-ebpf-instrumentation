@@ -100,7 +100,7 @@ func ProcessWatcherFunc(
 	output *msg.Queue[[]Event[ProcessAttrs]],
 	findingCriteria []services.Selector,
 	rescan ProcessWatcherRescan,
-	updates ...*services.CriteriaUpdates,
+	updates *services.CriteriaUpdates,
 ) swarm.RunFunc {
 	acc := pollAccounter{
 		cfg:               cfg,
@@ -118,9 +118,7 @@ func ProcessWatcherFunc(
 		findingCriteria:   findingCriteria,
 		ebpfContext:       ebpfContext,
 		rescan:            rescan,
-	}
-	if len(updates) > 0 {
-		acc.criteriaUpdates = updates[0]
+		criteriaUpdates:   updates,
 	}
 	if acc.interval == 0 {
 		acc.interval = defaultPollInterval
