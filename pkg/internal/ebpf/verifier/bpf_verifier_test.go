@@ -338,3 +338,22 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"stats_wakeup_data_bytes", []any{uint32(0), uint32(1 << 20)}},
 	})
 }
+
+func TestFridaBPFVerifier(t *testing.T) {
+	if err := rlimit.RemoveMemlock(); err != nil {
+		t.Skipf("cannot remove memlock limit: %v", err)
+	}
+	for _, debug := range []bool{true, false} {
+		for _, duration := range []uint64{0, 60_000_000_000} {
+			t.Run(fmt.Sprintf("debug=%t/duration=%d", debug, duration), func(t *testing.T) {
+				loadAndVerify(t, "Frida", generictracerbpf.LoadBpf, map[string]any{
+					"g_frida_enabled":           true,
+					"g_bpf_traceparent_enabled": true,
+					"capture_header_buffer":     int32(1),
+					"g_bpf_debug":               debug,
+					"max_transaction_time":      duration,
+				})
+			})
+		}
+	}
+}

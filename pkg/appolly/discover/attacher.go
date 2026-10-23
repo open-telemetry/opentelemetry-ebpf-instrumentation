@@ -23,9 +23,11 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/dotnet"
+	"go.opentelemetry.io/obi/pkg/internal/frida"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 	javaagent "go.opentelemetry.io/obi/pkg/internal/java"
 	"go.opentelemetry.io/obi/pkg/internal/nodejs"
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route/harvest"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -140,10 +142,19 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 			defer dotnetSessions.Close()
 		}
 
-		// One slot for both queues: a Java attach switches OBI's credentials
+		// One slot for runtime injections: a Java attach switches OBI's credentials
 		// process-wide, which a concurrent injection of any runtime would run
 		// under.
 		injectionSlot := newInjectionSlot()
+		fridaManager := frida.New(ta.Cfg.Frida, ta.log)
+		defer fridaManager.Close()
+		var fridaInjections *injectionQueue[*procs.ProcessHandle]
+		if fridaManager != nil {
+			fridaInjections = newInjectionQueue(ta.log, "frida", injectionSlot, 64,
+				fridaManager.Attach, nil)
+			fridaInjections.start(ctx)
+			defer fridaInjections.wait()
+		}
 
 		var javaInjections *injectionQueue[javaagent.InjectionTarget]
 		if ta.javaInjector != nil {
@@ -217,10 +228,33 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 						nodeInjections.enqueue(*nodeTarget)
 					}
 
+					if fridaInjections != nil && instr.Obj.Type != svc.InstrumentableJava && instr.Obj.Type != svc.InstrumentableGolang {
+						pids := append([]app.PID{instr.Obj.FileInfo.Pid()}, instr.Obj.ChildPids...)
+						for _, pid := range pids {
+							start := instr.Obj.FileInfo.StartTime()
+							if pid != instr.Obj.FileInfo.Pid() {
+								var err error
+								start, err = procs.StartTime(pid)
+								if err != nil {
+									ta.log.Debug("child exited before Frida attachment", "pid", pid, "error", err)
+									continue
+								}
+							}
+							target, err := procs.OpenProcessHandle(pid, start)
+							if err != nil {
+								ta.log.Warn("capturing Frida target", "pid", pid, "error", err)
+								continue
+							}
+							fridaManager.Select(target)
+							fridaInjections.enqueue(target)
+						}
+					}
+
 					if instr.Obj.FileInfo.ELF() != nil {
 						_ = instr.Obj.FileInfo.ELF().Close()
 					}
 				case EventDeleted:
+					fridaManager.Remove(instr.Obj.FileInfo)
 					if dotnetSessions != nil {
 						dotnetSessions.Remove(instr.Obj.FileInfo)
 					}

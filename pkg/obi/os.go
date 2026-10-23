@@ -172,6 +172,10 @@ func testAndSet(caps *helpers.OSCapabilities, capError *osCapabilitiesError, c h
 }
 
 func checkCapabilitiesForSetOptions(config *Config, caps *helpers.OSCapabilities, capError *osCapabilitiesError) {
+	if config.Frida.Enabled {
+		testAndSet(caps, capError, unix.CAP_SYS_ADMIN)
+		testAndSet(caps, capError, unix.CAP_SYS_PTRACE)
+	}
 	if config.Enabled(FeatureAppO11y) {
 		testAndSet(caps, capError, unix.CAP_CHECKPOINT_RESTORE)
 		testAndSet(caps, capError, unix.CAP_DAC_READ_SEARCH)

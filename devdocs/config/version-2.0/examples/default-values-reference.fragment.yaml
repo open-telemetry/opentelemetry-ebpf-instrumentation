@@ -378,6 +378,9 @@ extensions:
       # injection. Non-empty runtime filters are not supported by the current adapter;
       # use capture rules for workload selection.
       runtimes:
+        frida:
+          enabled: false
+          library: ""
         # Go runtime instrumentation allows Go packages to be instrumented with probes.
         # When enabled, Go services can use Go-specific probes. When disabled, they fall back
         # to generic network-only instrumentation.

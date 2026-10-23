@@ -465,6 +465,7 @@ type Config struct {
 
 	NodeJS NodeJSConfig `yaml:"nodejs"`
 	Java   JavaConfig   `yaml:"javaagent"`
+	Frida  FridaConfig  `yaml:"-"`
 
 	JVMRuntimeMetrics    JVMRuntimeMetricsConfig    `yaml:"jvm_runtime_metrics"`
 	DotnetRuntimeMetrics DotnetRuntimeMetricsConfig `yaml:"dotnet_runtime_metrics"`
@@ -723,6 +724,12 @@ type Attributes struct {
 type HostIDConfig struct {
 	// Override allows overriding the reported host.id in OBI
 	Override string `yaml:"override" env:"OTEL_EBPF_HOST_ID"`
+}
+
+// FridaConfig is configured through the v2 runtime settings.
+type FridaConfig struct {
+	Enabled bool
+	Library string
 }
 
 type NodeJSConfig struct {

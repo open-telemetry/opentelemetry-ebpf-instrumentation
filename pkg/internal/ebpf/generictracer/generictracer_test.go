@@ -7,6 +7,7 @@ package generictracer
 
 import (
 	"context"
+	"log/slog"
 	"math"
 	"strings"
 	"testing"
@@ -480,3 +481,19 @@ func (f fakeServiceFilter) CurrentPIDs(ebpfcommon.PIDType) map[uint32]map[app.PI
 }
 
 func (f fakeServiceFilter) ProcPIDs(ebpfcommon.PIDType) []app.PID { return f.procPIDs }
+
+func TestFridaOwnsOpenSSLInterception(t *testing.T) {
+	previous := supportsFridaContext
+	supportsFridaContext = func(*slog.Logger) bool { return true }
+	t.Cleanup(func() { supportsFridaContext = previous })
+	config := obi.DefaultConfig
+	tracer := &Tracer{cfg: &config}
+	require.Contains(t, tracer.UProbes(), "libssl.so")
+	config.Frida.Enabled = true
+	require.NotContains(t, tracer.UProbes(), "libssl.so")
+	require.NotContains(t, tracer.UProbes(), "libSystem.Security.Cryptography.Native.OpenSsl.so")
+	require.Contains(t, tracer.UProbes(), "nginx")
+	supportsFridaContext = func(*slog.Logger) bool { return false }
+	require.Contains(t, tracer.UProbes(), "libssl.so")
+	require.False(t, tracer.fridaEnabled())
+}

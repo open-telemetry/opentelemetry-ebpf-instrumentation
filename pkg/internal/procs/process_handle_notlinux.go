@@ -18,6 +18,8 @@ func OpenProcessHandle(app.PID, uint64) (*ProcessHandle, error) {
 	return nil, errors.New("stable process handles are only supported on Linux")
 }
 
+func (*ProcessHandle) StartTime() uint64 { return 0 }
+
 func (*ProcessHandle) PID() app.PID                       { return 0 }
 func (*ProcessHandle) Open(string, int) (*os.File, error) { return nil, errors.New("unsupported") }
 func (*ProcessHandle) Alive() error                       { return errors.New("unsupported") }

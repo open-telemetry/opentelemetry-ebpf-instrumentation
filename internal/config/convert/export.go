@@ -273,6 +273,7 @@ func protocolSelected(list []instrumentations.Instrumentation, mapping protocolM
 
 func captureRuntimes(cfg *obi.Config) schema.CaptureRuntimes {
 	return schema.CaptureRuntimes{
+		Frida: schema.FridaRuntime{Enabled: cfg.Frida.Enabled, Library: cfg.Frida.Library},
 		Go: schema.Runtime{
 			Enabled: !cfg.Discovery.SkipGoSpecificTracers,
 		},

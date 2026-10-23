@@ -1,0 +1,17 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+exporters:
+  file:
+    path: /artifacts/traces.jsonl
+    flush_interval: 100ms
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [file]

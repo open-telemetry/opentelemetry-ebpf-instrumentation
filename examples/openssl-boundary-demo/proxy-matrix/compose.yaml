@@ -1,0 +1,63 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
+services:
+  backend:
+    image: nginx:1.31.7@sha256:8632b3314d74c61f0e27f59055bab13f7793b988c94c090154d867bc29e0f39b
+    entrypoint: [nginx, -c, /example/obi-proxy-matrix-backend.conf]
+    volumes:
+      - ./backend.conf:/example/obi-proxy-matrix-backend.conf:ro
+      - ${MATRIX_ARTIFACTS:?Set MATRIX_ARTIFACTS}:/artifacts:ro
+    ports:
+      - "127.0.0.1::8443"
+      - "127.0.0.1::9444"
+  backend2:
+    extends: backend
+    ports: !override []
+  nginx:
+    image: nginx:1.31.7@sha256:8632b3314d74c61f0e27f59055bab13f7793b988c94c090154d867bc29e0f39b
+    entrypoint: [nginx, -c, /example/obi-proxy-matrix-nginx.conf]
+    volumes:
+      - ./nginx.conf:/example/obi-proxy-matrix-nginx.conf:ro
+      - ${MATRIX_ARTIFACTS}:/artifacts:ro
+    ports:
+      - "127.0.0.1::8443"
+      - "127.0.0.1::8443/udp"
+      - "127.0.0.1::9443"
+      - "127.0.0.1::8444"
+    depends_on: [backend, backend2, apache]
+  unobserved:
+    extends: nginx
+    entrypoint: [nginx, -c, /example/unobserved-proxy.conf]
+    volumes:
+      - ./nginx.conf:/example/unobserved-proxy.conf:ro
+    ports: !override ["127.0.0.1::8443"]
+  apache:
+    image: httpd:2.4.69@sha256:a30cd4cd57f3f3c3be9b2d16384d2488839996bb14c67df2b51f1ecbb3e584a1
+    command: [httpd, -DFOREGROUND, -f, /example/obi-proxy-matrix-httpd.conf]
+    volumes:
+      - ./httpd.conf:/example/obi-proxy-matrix-httpd.conf:ro
+      - ./proxy.htpasswd:/example/proxy.htpasswd:ro
+      - ${MATRIX_ARTIFACTS}:/artifacts:ro
+    ports:
+      - "127.0.0.1::8080"
+      - "127.0.0.1::8081"
+      - "127.0.0.1::8443"
+    depends_on: [backend]
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6
+    user: "${MATRIX_UID:?Set MATRIX_UID}:${MATRIX_GID:?Set MATRIX_GID}"
+    command: [--config, /example/collector.yaml]
+    volumes:
+      - ./collector.yaml:/example/collector.yaml:ro
+      - ${MATRIX_ARTIFACTS}:/artifacts
+  obi:
+    image: ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
+    privileged: true
+    pid: host
+    entrypoint: [/obi, --config, /artifacts/obi.yaml]
+    volumes:
+      - ../../../bin/obi:/obi:ro
+      - ../../../bin/frida/libfrida-core.so:/opt/frida/libfrida-core.so:ro
+      - ${MATRIX_ARTIFACTS}:/artifacts:ro
+    depends_on: [backend, backend2, nginx, apache, collector]

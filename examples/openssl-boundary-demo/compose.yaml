@@ -1,0 +1,76 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
+name: obi-frida-example
+
+services:
+  server:
+    image: nginx:1.31.7@sha256:8632b3314d74c61f0e27f59055bab13f7793b988c94c090154d867bc29e0f39b
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+          -subj /CN=openssl-frida-peer -addext subjectAltName=DNS:openssl-frida-peer \
+          -keyout /tls/key.pem -out /tls/cert.pem 2>/dev/null
+        exec nginx -c /example/openssl-frida.conf
+    volumes:
+      - tls:/tls
+      - ./compose/nginx.conf:/example/openssl-frida.conf:ro
+    networks:
+      default:
+        aliases: [openssl-frida-peer]
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /tmp/nginx.pid && kill -0 $$(cat /tmp/nginx.pid)"]
+      interval: 1s
+      timeout: 1s
+      retries: 30
+
+  client:
+    image: nginx:1.31.7@sha256:8632b3314d74c61f0e27f59055bab13f7793b988c94c090154d867bc29e0f39b
+    init: true
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        while sleep 3; do
+          printf 'GET / HTTP/1.1\r\nHost: server\r\n\r\n'
+        done | openssl s_client -quiet -nocommands -connect openssl-frida-peer:8443 \
+          -servername openssl-frida-peer -verify_hostname openssl-frida-peer -verify_return_error \
+          -CAfile /tls/cert.pem
+    volumes:
+      - tls:/tls:ro
+    depends_on:
+      server:
+        condition: service_healthy
+
+  obi:
+    image: ubuntu:24.04@sha256:68ee22004a9109b44973313b02ff7b1de250f1de0f5ecb628d73f579aaff33ac
+    privileged: true
+    pid: host
+    entrypoint: ["/obi"]
+    command: ["--config", "/example/obi.yaml"]
+    volumes:
+      - type: bind
+        source: ../../bin/obi
+        target: /obi
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../../bin/frida/libfrida-core.so
+        target: /opt/frida/libfrida-core.so
+        read_only: true
+        bind:
+          create_host_path: false
+      - ./compose/obi.yaml:/example/obi.yaml:ro
+    depends_on:
+      - client
+      - collector
+
+  collector:
+    image: otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6
+    command: ["--config", "/example/collector.yaml"]
+    volumes:
+      - ./compose/collector.yaml:/example/collector.yaml:ro
+
+volumes:
+  tls:

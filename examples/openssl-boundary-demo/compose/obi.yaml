@@ -1,0 +1,43 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
+file_format: "1.0"
+log_level: info
+tracer_provider:
+  processors:
+    - batch:
+        exporter:
+          otlp_http:
+            endpoint: http://collector:4318/v1/traces
+        schedule_delay: 100
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: exclude
+        min_process_age: 1ms
+        poll_interval: 100ms
+      rules:
+        - action: include
+          match:
+            process:
+              exe_path_regex: '(^|/)openssl$'
+              cmd_args_regex: 's_client .*openssl-frida-peer:8443'
+        - action: include
+          match:
+            process:
+              exe_path_regex: '(^|/)nginx$'
+              cmd_args_regex: '/example/openssl-frida.conf'
+      runtimes:
+        frida:
+          enabled: true
+          library: /opt/frida/libfrida-core.so
+      engine:
+        batching:
+          batch_timeout: 100ms
+          batch_length: 1
+    enrich:
+      enrichers:
+        kubernetes:
+          mode: disabled
