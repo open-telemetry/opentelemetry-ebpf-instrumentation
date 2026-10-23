@@ -21,12 +21,11 @@ import (
 	otelsdk "go.opentelemetry.io/otel/sdk"
 
 	"go.opentelemetry.io/obi/cmd/obi/internal/configcmd"
+	"go.opentelemetry.io/obi/cmd/obi/internal/configload"
 	"go.opentelemetry.io/obi/cmd/obi/internal/configwatch"
-	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/discover"
 	"go.opentelemetry.io/obi/pkg/buildinfo"
-	obicfg "go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/instrumenter"
 	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
@@ -74,24 +73,20 @@ func loadConfigReader(file io.Reader) (*obi.Config, string, error) {
 		}
 	}
 
-	doc, _, err := schema.ParseStandaloneYAML(obicfg.ReplaceEnv(data))
+	config, err := configload.LoadV2(data)
 	if err == nil {
-		config, err := convert.DocumentToRuntime(doc)
-		if err != nil {
-			return nil, "", fmt.Errorf("loading config v2: %w", err)
-		}
 		return config, configVersionV2, nil
 	}
 
 	if _, ok := errors.AsType[*schema.NotV2Error](err); !ok {
-		return nil, "", fmt.Errorf("loading config v2: %w", err)
+		return nil, "", err
 	}
 
 	var legacyReader io.Reader
 	if fileProvided {
 		legacyReader = bytes.NewReader(data)
 	}
-	config, err := obi.LoadConfig(legacyReader)
+	config, err = obi.LoadConfig(legacyReader)
 	if err != nil {
 		return nil, "", fmt.Errorf("loading config v1: %w", err)
 	}

@@ -7,14 +7,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"os"
 	"time"
 
-	"go.opentelemetry.io/obi/internal/config/convert"
+	"go.opentelemetry.io/obi/cmd/obi/internal/configload"
 	"go.opentelemetry.io/obi/internal/config/schema"
-	obicfg "go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -85,17 +83,12 @@ func refreshConfig(ctx context.Context, data []byte, refresh func(context.Contex
 }
 
 func loadConfig(data []byte) (*obi.Config, error) {
-	doc, _, err := schema.ParseStandaloneYAML(obicfg.ReplaceEnv(data))
+	cfg, err := configload.LoadV2(data)
 	if err != nil {
 		if _, ok := errors.AsType[*schema.NotV2Error](err); ok {
 			return nil, errors.New("configuration version changed; restart OBI to apply this configuration")
 		}
-		return nil, fmt.Errorf("loading config v2: %w", err)
-	}
-
-	cfg, err := convert.DocumentToRuntime(doc)
-	if err != nil {
-		return nil, fmt.Errorf("loading config v2: %w", err)
+		return nil, err
 	}
 	if err := cfg.ValidateStaticForApplicationRefresh(); err != nil {
 		return nil, err
