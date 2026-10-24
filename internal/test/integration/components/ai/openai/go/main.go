@@ -154,6 +154,7 @@ func cohereChat(w http.ResponseWriter, _ *http.Request) {
 		},
 		"max_tokens":  256,
 		"temperature": 0.3,
+		"k":           40,
 	}
 	proxyPostURL(w, os.Getenv("COHERE_BASE_URL")+"/v2/chat", payload, true)
 }

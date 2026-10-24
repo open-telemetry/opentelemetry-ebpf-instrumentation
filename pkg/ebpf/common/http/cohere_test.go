@@ -49,6 +49,7 @@ func TestCohereSpan_ChatNonStreaming(t *testing.T) {
 	assert.Equal(t, 256, ai.Request.MaxTokens)
 	assert.InDelta(t, 0.3, ai.Request.Temperature, 1e-9)
 	assert.InDelta(t, 0.75, ai.TopP, 1e-9)
+	assert.Equal(t, 40, ai.Request.TopK)
 	assert.InDelta(t, 0.1, ai.Request.FrequencyPenalty, 1e-9)
 	assert.InDelta(t, 0.2, ai.Request.PresencePenalty, 1e-9)
 	require.NotNil(t, ai.Request.Seed)

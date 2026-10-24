@@ -18,6 +18,7 @@ expected:
       gen_ai.response.model: command-a-03-2025
       gen_ai.request.max_tokens: 256
       gen_ai.request.temperature: 0.3
+      gen_ai.request.top_k: 40
       gen_ai.usage.input_tokens: 512
       gen_ai.usage.output_tokens: 12
       gen_ai.input.messages: '[{"role":"system","parts":[{"type":"text","content":"You are a sales assistant."}]},{"role":"user","parts":[{"type":"text","content":"What were the sales on 2023-09-29?"}]},{"role":"assistant","parts":[{"type":"tool_call","id":"query_daily_sales_report_0","name":"query_daily_sales_report","arguments":"{\"day\":\"2023-09-29\"}"}]},{"role":"tool","parts":[{"type":"tool_call_response","result":"{\"total_sales_amount\":10000}","id":"query_daily_sales_report_0"}]}]'

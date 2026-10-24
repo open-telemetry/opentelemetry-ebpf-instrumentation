@@ -1309,6 +1309,9 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			if ai.TopP > 0.0 {
 				attrs = append(attrs, semconv.GenAIRequestTopP(ai.TopP))
 			}
+			if ai.Request.TopK > 0 {
+				attrs = append(attrs, semconv.GenAIRequestTopK(float64(ai.Request.TopK)))
+			}
 			if ai.Request.FrequencyPenalty != 0 {
 				attrs = append(attrs, semconv.GenAIRequestFrequencyPenalty(ai.Request.FrequencyPenalty))
 			}

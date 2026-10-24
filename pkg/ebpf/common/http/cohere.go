@@ -26,6 +26,7 @@ type cohereChatRequest struct {
 	MaxTokens        int             `json:"max_tokens"`
 	Temperature      float64         `json:"temperature"`
 	P                float64         `json:"p"`
+	K                int             `json:"k"`
 	StopSequences    json.RawMessage `json:"stop_sequences"`
 	Seed             *int            `json:"seed"`
 	FrequencyPenalty float64         `json:"frequency_penalty"`
@@ -116,6 +117,7 @@ func CohereSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 			Messages:         convertCohereMessages(cohereReq.Messages),
 			MaxTokens:        cohereReq.MaxTokens,
 			Temperature:      cohereReq.Temperature,
+			TopK:             cohereReq.K,
 			Stop:             cohereReq.StopSequences,
 			Seed:             cohereReq.Seed,
 			FrequencyPenalty: cohereReq.FrequencyPenalty,

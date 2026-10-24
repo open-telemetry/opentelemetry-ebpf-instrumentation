@@ -641,6 +641,7 @@ type OpenAIInput struct {
 	Messages         json.RawMessage `json:"messages"`
 	Items            json.RawMessage `json:"items"`
 	Temperature      float64         `json:"temperature"`
+	TopK             int             `json:"top_k,omitempty"`
 	Dimensions       int             `json:"dimensions,omitempty"`
 	MaxTokens        int             `json:"max_tokens,omitempty"`
 	N                int             `json:"n,omitempty"`
