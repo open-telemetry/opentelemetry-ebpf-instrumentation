@@ -1309,6 +1309,55 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAISystemInstructionsKey)
 	})
 
+	t.Run("OpenAI Decisions questions are opt-in", func(t *testing.T) {
+		questions := `[{"type":"predicate","name":"damaged","instructions":"Is it damaged?"}]`
+		span := makeOpenAISpan(&request.VendorOpenAI{
+			OperationName: request.DecisionOperationName,
+			APIType:       "decisions",
+			Request: request.OpenAIInput{
+				Model:     "gpt-6-luna",
+				Questions: []byte(questions),
+			},
+		})
+
+		withoutOptIn := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, withoutOptIn), reporterName)
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key("openai.request.questions"))
+
+		withOptIn := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.OpenAIRequestQuestions: {}})
+		traces = tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, withOptIn), reporterName)
+		spanAttrs = traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, attribute.Key("openai.request.questions"), questions)
+	})
+
+	t.Run("OpenAI questions are not emitted for unrelated operations", func(t *testing.T) {
+		span := makeOpenAISpan(&request.VendorOpenAI{
+			OperationName: request.ChatOperationName,
+			Request: request.OpenAIInput{
+				Model:     "gpt-4o-mini",
+				Questions: []byte(`[{"type":"predicate","instructions":"Ignored"}]`),
+			},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.OpenAIRequestQuestions: {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key("openai.request.questions"))
+	})
+
+	t.Run("OpenAI Decisions empty questions are omitted", func(t *testing.T) {
+		span := makeOpenAISpan(&request.VendorOpenAI{
+			OperationName: request.DecisionOperationName,
+			Request:       request.OpenAIInput{Model: "gpt-6-luna"},
+		})
+
+		tAttrs := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.OpenAIRequestQuestions: {}})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, tAttrs), reporterName)
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key("openai.request.questions"))
+	})
+
 	t.Run("OpenAI span - optional GenAIInput enabled", func(t *testing.T) {
 		span := makeOpenAISpan(&request.VendorOpenAI{
 			ID:            "resp_abc123",

@@ -178,7 +178,8 @@ func TestOpenAISpan_Responses(t *testing.T) {
 }
 
 func TestOpenAISpan_Decisions(t *testing.T) {
-	requestBody := `{"model":"gpt-6-luna","input":"The package arrived with a broken screen.","questions":[{"type":"predicate","name":"damaged","instructions":"Does the customer report a damaged item?"}]}`
+	questions := `[{"type":"predicate","name":"damaged","instructions":[{"type":"input_text","text":"Does the customer report a damaged item?"},{"type":"input_json","data":{"policy":"returns"}}]},{"type":"choice","name":"priority","instructions":"Choose the handling priority.","choices":[{"value":"urgent","description":"Immediate handling"},{"value":true,"description":"Flag for manual review"}]},{"type":"score","name":"severity","instructions":"Rate the damage severity.","levels":[{"label":"minor","description":"Cosmetic damage"},{"label":"major","description":"Item is unusable"}]}]`
+	requestBody := `{"model":"gpt-6-luna","input":"The package arrived with a broken screen.","questions":` + questions + `}`
 	responseBody := `{
   "model": "gpt-6-luna",
   "answers": [
@@ -205,10 +206,24 @@ func TestOpenAISpan_Decisions(t *testing.T) {
 	assert.Equal(t, "gpt-6-luna", ai.ResponseModel)
 	assert.Equal(t, "gpt-6-luna", ai.Request.Model)
 	assert.Equal(t, "The package arrived with a broken screen.", ai.Request.Input)
+	assert.Equal(t, questions, string(ai.Request.Questions))
 	assertTokenCount(t, ai.Usage.InputTokens, 42, true)
 	assertTokenCount(t, ai.Usage.OutputTokens, 0, true)
 	assert.Equal(t, "decision", ai.OperationName)
 	assert.Equal(t, "decisions", ai.APIType)
+}
+
+func TestOpenAISpan_NonDecisionsRequestDoesNotCaptureQuestions(t *testing.T) {
+	requestBody := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}],"questions":[{"type":"predicate","instructions":"Ignored"}]}`
+	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/chat/completions", requestBody)
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), completionsResponseBody)
+
+	span, ok := OpenAISpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, request.ChatOperationName, span.GenAI.OpenAI.OperationName)
+	assert.Empty(t, span.GenAI.OpenAI.Request.Questions)
 }
 
 func TestOpenAISpan_DecisionsUsageDoesNotReportInferenceOperation(t *testing.T) {

@@ -104,6 +104,7 @@ var (
 	genAIUsageCacheReadInputTokens     = attribute.Key("gen_ai.usage.cache_read.input_tokens")
 	genAIUsageReasoningOutputTokens    = attribute.Key("gen_ai.usage.reasoning.output_tokens")
 	openAIAPITypeKey                   = attribute.Key("openai.api.type")
+	openAIRequestQuestionsKey          = attribute.Key("openai.request.questions")
 	awsBedrockGuardrailIDKey           = attribute.Key("aws.bedrock.guardrail.id")
 	genAIResponseErrorControlKey       = attribute.Key("obi.internal.gen_ai.response.error")
 )
@@ -1007,6 +1008,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			attrs = appendIfSet(attrs, semconv.OpenAIResponseServiceTier, ai.ServiceTier)
 			attrs = appendIfSet(attrs, semconv.OpenAIResponseSystemFingerprint, ai.SystemFingerprint)
 			attrs = appendIfSet(attrs, openAIAPITypeKey.String, ai.APIType)
+			if ai.OperationName == request.DecisionOperationName {
+				if _, ok := optionalAttrs[attr.OpenAIRequestQuestions]; ok {
+					attrs = appendIfSet(attrs, openAIRequestQuestionsKey.String, string(ai.Request.Questions))
+				}
+			}
 			if _, ok := optionalAttrs[attr.GenAIInput]; ok {
 				attrs = appendIfSet(attrs, semconv.GenAIInputMessagesKey.String, ai.Request.GetInput())
 			}

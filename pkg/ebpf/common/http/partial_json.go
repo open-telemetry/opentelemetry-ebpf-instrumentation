@@ -252,6 +252,19 @@ func isOpenAIResponsesRequest(req *http.Request) bool {
 	return strings.HasSuffix(strings.TrimSuffix(requestPath(req), "/"), "/v1/responses")
 }
 
+func isOpenAIDecisionsRequest(req *http.Request) bool {
+	return strings.HasSuffix(strings.TrimSuffix(requestPath(req), "/"), "/v1/decisions")
+}
+
+func extractOpenAIDecisionQuestions(body []byte) json.RawMessage {
+	raw := extractJSONRawField(body, "questions")
+	var questions []json.RawMessage
+	if err := json.Unmarshal(raw, &questions); err != nil || len(questions) == 0 {
+		return nil
+	}
+	return raw
+}
+
 func parseOpenAIInput(body []byte, captureInputItems bool) request.OpenAIInput {
 	var parsed request.OpenAIInput
 	unmarshalJSONBestEffort(body, &parsed)

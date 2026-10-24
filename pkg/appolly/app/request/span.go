@@ -648,8 +648,10 @@ type OpenAIInput struct {
 	EncodingFormat   string          `json:"encoding_format,omitempty"`
 	Seed             *int            `json:"seed,omitempty"`
 	Tools            json.RawMessage `json:"tools,omitempty"`
-	ServiceTier      string          `json:"service_tier,omitempty"`
-	Parameters       json.RawMessage `json:"parameters,omitempty"`
+	// Questions retains the Decisions API `questions` array for opt-in export.
+	Questions   json.RawMessage `json:"-"`
+	ServiceTier string          `json:"service_tier,omitempty"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
 	// InputItems retains the Responses API `input` array (function_call /
 	// function_call_output items), which cannot be held by the string Input
 	// field. Populated only for /v1/responses traffic.
