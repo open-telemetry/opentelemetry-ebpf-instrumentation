@@ -72,6 +72,12 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 			if s.Type == EventTypeHTTPClient {
 				return ServerAddr(HTTPClientHost(s))
 			}
+			if s.Type == EventTypeHTTP {
+				if host := HostWithoutPortFromSchemeHost(s); host != "" {
+					return ServerAddr(host)
+				}
+				return attribute.KeyValue{}
+			}
 			return ServerAddr(HostAsServer(s))
 		}
 	case attr.ServerPort:

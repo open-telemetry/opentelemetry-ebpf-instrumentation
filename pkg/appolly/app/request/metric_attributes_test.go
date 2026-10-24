@@ -70,3 +70,27 @@ func TestJobAndInstanceAttributesUseOwnKeys(t *testing.T) {
 	assert.Equal(t, string(attr.Instance), string(instance.Key))
 	assert.Equal(t, "pod-123", instance.Value.AsString())
 }
+
+func TestHostWithoutPortFromSchemeHost(t *testing.T) {
+	tests := []struct {
+		statement string
+		want      string
+	}{
+		{"http;example.com:8080", "example.com"},
+		{"https;example.com", "example.com"},
+		{"http;127.0.0.1:8080", "127.0.0.1"},
+		{"http;127.0.0.1", "127.0.0.1"},
+		{"http;[2001:db8::1]:8080", "2001:db8::1"},
+		{"http;[2001:db8::1]", "2001:db8::1"},
+		{"http;2001:db8::1", "2001:db8::1"},
+		{"http;", ""},
+		{"http", ""},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.statement, func(t *testing.T) {
+			span := &Span{Type: EventTypeHTTP, Statement: tt.statement}
+			assert.Equal(t, tt.want, HostWithoutPortFromSchemeHost(span))
+		})
+	}
+}

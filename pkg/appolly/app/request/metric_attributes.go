@@ -4,6 +4,7 @@
 package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
+	"net"
 	"strconv"
 	"strings"
 
@@ -256,6 +257,17 @@ func HostFromSchemeHost(span *Span) string {
 	}
 
 	return ""
+}
+
+func HostWithoutPortFromSchemeHost(span *Span) string {
+	host := HostFromSchemeHost(span)
+	if hostname, _, err := net.SplitHostPort(host); err == nil {
+		return hostname
+	}
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		return host[1 : len(host)-1]
+	}
+	return host
 }
 
 func HTTPClientHost(span *Span) string {

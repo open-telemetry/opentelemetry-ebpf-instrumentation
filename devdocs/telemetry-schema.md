@@ -88,6 +88,10 @@ published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
+- HTTP server spans and metrics now derive `server.address` from the captured HTTP request
+  host, without its port, instead of the resolved service name. When the request host is
+  unavailable, the OTLP attribute is omitted and the Prometheus label is empty.
+
 ## Hosting notes
 
 `site/` is published as static files with no markdown processing, so the generated
