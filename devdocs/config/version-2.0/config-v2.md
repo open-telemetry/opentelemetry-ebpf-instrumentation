@@ -610,6 +610,11 @@ metrics and the conflict between the two span metric formats.
 
 The `capture.engine` section controls eBPF engine internals: event batching, PID-based filtering, BPF filesystem path, context propagation mode, traffic control backend, transaction duration limits, and debug toggles.
 
+`capture.engine.cgroup_filesystem.path` sets the host cgroup v2 mount that context propagation attaches its sockops programs to.
+An unprivileged container has its own cgroup namespace, so its `/sys/fs/cgroup` covers only OBI's own cgroup.
+Mount the host hierarchy at another path, for example `/host/sys/fs/cgroup`, and set it here to propagate context for connections from every process on the node without hiding the container's own cgroup.
+If omitted, the hierarchy is detected automatically. This field is available through Config v2 only.
+
 **Why `engine`, not `capture.capture`**
 
 Earlier drafts named this sub-section `capture` (i.e., `operations.capture`), which would have produced the awkward path `capture.capture.*` after the restructure.

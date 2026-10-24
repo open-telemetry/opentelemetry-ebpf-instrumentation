@@ -427,6 +427,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.EBPF.ForceBPFMapReader = config.MapReaderLegacy
 	cfg.EBPF.MapsConfig.GlobalScaleFactor = 2
 	cfg.EBPF.BPFFSPath = "/tmp/bpf"
+	cfg.EBPF.CgroupFSPath = "/host/sys/fs/cgroup"
 	cfg.EBPF.MaxTransactionTime = 11 * time.Second
 	cfg.EBPF.TrackRequestHeaders = true
 	cfg.EBPF.HTTPRequestTimeout = 12 * time.Second
@@ -1348,6 +1349,9 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 				Debug: schema.EngineDebug{
 					BPF: true,
 				},
+				CgroupFileSystem: schema.CgroupFileSystem{
+					Path: "/host/sys/fs/cgroup",
+				},
 			},
 			Network: schema.CaptureNetwork{
 				Capture: schema.NetworkCapture{
@@ -1389,6 +1393,8 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.ChannelSendTimeoutPanic, got.ChannelSendTimeoutPanic)
 
 	require.True(t, got.EBPF.BpfDebug)
+	require.Equal(t, "/host/sys/fs/cgroup", got.EBPF.CgroupFSPath)
+	require.Equal(t, obi.DefaultConfig.EBPF.BPFFSPath, got.EBPF.BPFFSPath)
 	require.Equal(t, obi.DefaultConfig.EBPF.WakeupLen, got.EBPF.WakeupLen)
 	require.Equal(t, obi.DefaultConfig.EBPF.BatchLength, got.EBPF.BatchLength)
 	require.Equal(t, obi.DefaultConfig.EBPF.TCBackend, got.EBPF.TCBackend)

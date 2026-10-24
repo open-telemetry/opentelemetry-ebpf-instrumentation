@@ -344,6 +344,8 @@ engine:
         global_scale_factor: 0
     bpf_filesystem:
         path: /sys/fs/bpf/
+    cgroup_filesystem:
+        path: ""
 safety:
     enforce_system_capabilities: false
 channels:

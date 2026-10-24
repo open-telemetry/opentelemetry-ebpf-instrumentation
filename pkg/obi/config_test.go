@@ -586,6 +586,23 @@ func TestUnmarshalMapIgnoresGCESettings(t *testing.T) {
 	assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
 }
 
+func TestConfig_CgroupFSPath(t *testing.T) {
+	cfg, err := LoadConfig(bytes.NewBufferString("ebpf:\n  cgroup_fs_path: /host/sys/fs/cgroup\n"))
+	require.NoError(t, err)
+	assert.Equal(t, "/host/sys/fs/cgroup", cfg.EBPF.CgroupFSPath)
+
+	cfg = &Config{}
+	require.NoError(t, cfg.UnmarshalMap(map[string]any{
+		"ebpf": map[string]any{"cgroup_fs_path": "/host/sys/fs/cgroup"},
+	}))
+	assert.Equal(t, "/host/sys/fs/cgroup", cfg.EBPF.CgroupFSPath)
+
+	t.Setenv("OTEL_EBPF_CGROUP_FS_PATH", "/run/obi/cgroupv2")
+	cfg, err = LoadConfig(bytes.NewBufferString("ebpf:\n  cgroup_fs_path: /host/sys/fs/cgroup\n"))
+	require.NoError(t, err)
+	assert.Equal(t, "/run/obi/cgroupv2", cfg.EBPF.CgroupFSPath)
+}
+
 func TestConfig_ShutdownTimeout(t *testing.T) {
 	t.Setenv("OTEL_EBPF_SHUTDOWN_TIMEOUT", "1m")
 	cfg, err := LoadConfig(bytes.NewReader(nil))

@@ -500,6 +500,7 @@ func parityChecks() []parityCheck {
 		{[]string{"ebpf", "wakeup_len"}, []string{"obi", "capture", "engine", "batching", "wakeup_len"}},
 		{[]string{"ebpf", "traffic_control_backend"}, []string{"obi", "capture", "engine", "traffic", "control_backend"}},
 		{[]string{"ebpf", "bpf_fs_path"}, []string{"obi", "capture", "engine", "bpf_filesystem", "path"}},
+		{[]string{"ebpf", "cgroup_fs_path"}, []string{"obi", "capture", "engine", "cgroup_filesystem", "path"}},
 		{[]string{"ebpf", "max_transaction_time"}, []string{"obi", "capture", "engine", "transactions", "max_duration"}},
 		{[]string{"discovery", "bpf_pid_filter_off"}, []string{"obi", "capture", "engine", "pid_filter", "disabled"}},
 		{[]string{"ebpf", "dns_request_timeout"}, []string{"obi", "capture", "instrumentation", "dns", "request_timeout"}},
