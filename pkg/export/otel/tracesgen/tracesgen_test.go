@@ -2373,3 +2373,38 @@ func TestGenAISpanNameMatchesEmittedAttributes(t *testing.T) {
 		})
 	}
 }
+
+func TestHTTPServerAddressFromRequestHost(t *testing.T) {
+	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+	tests := []struct {
+		statement string
+		want      string
+	}{
+		{"http;api.example.com:8080", "api.example.com"},
+		{"https;api.example.com", "api.example.com"},
+		{"http;127.0.0.1", "127.0.0.1"},
+		{"http;[2001:db8::1]:8080", "2001:db8::1"},
+		{"http;", ""},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.statement, func(t *testing.T) {
+			span := &request.Span{
+				Type:      request.EventTypeHTTP,
+				Method:    "GET",
+				Path:      "/",
+				Status:    200,
+				Statement: tt.statement,
+				HostName:  "service-name",
+				Host:      "10.0.0.1",
+			}
+			selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+			got, ok := selected.Get("server.address")
+			assert.Equal(t, tt.want != "", ok)
+			if ok {
+				assert.Equal(t, tt.want, got.Str())
+			}
+		})
+	}
+}

@@ -807,7 +807,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.ServerPort(span.HostPort),
 		}
 		attrs = appendIfSet(attrs, request.ClientAddr, request.PeerAsClient(span))
-		attrs = appendIfSet(attrs, request.ServerAddr, request.SpanHost(span))
+		attrs = appendIfSet(attrs, request.ServerAddr, request.HostWithoutPort(request.HostFromSchemeHost(span)))
 
 		if httpServerTransportScope(span.SubType) == httpTransportAll {
 			attrs = appendHTTPRequestBodySize(attrs, span, optionalAttrs)
