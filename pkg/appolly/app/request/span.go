@@ -128,6 +128,7 @@ const (
 	HTTPSubtypeOpenAICompatible = 16 // http + OpenAI-compatible API (custom provider)
 	HTTPSubtypeOllama           = 17 // http + Ollama native API
 	HTTPSubtypeAWSSNS           = 18 // http + aws sns
+	HTTPSubtypeCohere           = 19 // http + Cohere native chat API
 )
 
 // IsGenAISubtype reports whether a subtype is recorded on the GenAI client
@@ -145,7 +146,8 @@ func IsGenAISubtype(subtype int) bool {
 		subtype == HTTPSubtypeRerank ||
 		subtype == HTTPSubtypeRetrieval ||
 		subtype == HTTPSubtypeOpenAICompatible ||
-		subtype == HTTPSubtypeOllama
+		subtype == HTTPSubtypeOllama ||
+		subtype == HTTPSubtypeCohere
 }
 
 //nolint:cyclop
@@ -435,6 +437,7 @@ type GenAI struct {
 	Rerank           *VendorRerank
 	Retrieval        *VendorRetrieval
 	Ollama           *VendorOpenAI
+	Cohere           *VendorOpenAI
 	OpenAICompatible *VendorOpenAI
 }
 
@@ -2541,6 +2544,10 @@ func (s *Span) GenAIInputTokenCount() (int, bool) {
 		return s.GenAI.Ollama.Usage.InputTokenCount()
 	}
 
+	if s.GenAI.Cohere != nil {
+		return s.GenAI.Cohere.Usage.InputTokenCount()
+	}
+
 	if s.GenAI.OpenAICompatible != nil {
 		return s.GenAI.OpenAICompatible.InputTokenCount()
 	}
@@ -2590,6 +2597,10 @@ func (s *Span) GenAIOutputTokenCount() (int, bool) {
 		return s.GenAI.Ollama.Usage.OutputTokenCount()
 	}
 
+	if s.GenAI.Cohere != nil {
+		return s.GenAI.Cohere.Usage.OutputTokenCount()
+	}
+
 	if s.GenAI.OpenAICompatible != nil {
 		return s.GenAI.OpenAICompatible.Usage.OutputTokenCount()
 	}
@@ -2636,6 +2647,9 @@ func (s *Span) GenAIOperationName() string {
 	}
 	if s.GenAI.Ollama != nil {
 		return s.GenAI.Ollama.OperationName
+	}
+	if s.GenAI.Cohere != nil {
+		return s.GenAI.Cohere.OperationName
 	}
 	if s.GenAI.OpenAICompatible != nil {
 		return s.GenAI.OpenAICompatible.OperationName
@@ -2697,6 +2711,9 @@ func (s *Span) GenAIProviderName() string {
 	}
 	if s.GenAI.Ollama != nil {
 		return "ollama"
+	}
+	if s.GenAI.Cohere != nil {
+		return semconv.GenAIProviderNameCohere.Value.AsString()
 	}
 	if s.GenAI.OpenAICompatible != nil {
 		return openAICompatibleProviderName(s.GenAI.OpenAICompatible.ProviderName)
@@ -2769,6 +2786,9 @@ func (s *Span) GenAIRequestModel() string {
 	if s.GenAI.Ollama != nil {
 		return s.GenAI.Ollama.Request.Model
 	}
+	if s.GenAI.Cohere != nil {
+		return s.GenAI.Cohere.Request.Model
+	}
 	if s.GenAI.OpenAICompatible != nil {
 		return s.GenAI.OpenAICompatible.Request.Model
 	}
@@ -2817,6 +2837,9 @@ func (s *Span) GenAIResponseModel() string {
 			return s.GenAI.Ollama.ResponseModel
 		}
 		return s.GenAI.Ollama.Request.Model
+	}
+	if s.GenAI.Cohere != nil {
+		return s.GenAI.Cohere.Request.Model
 	}
 	if s.GenAI.OpenAICompatible != nil {
 		if s.GenAI.OpenAICompatible.ResponseModel != "" {

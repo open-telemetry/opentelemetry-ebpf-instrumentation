@@ -125,6 +125,60 @@ func rerank(w http.ResponseWriter, _ *http.Request) {
 	proxyPostURL(w, os.Getenv("COHERE_BASE_URL")+"/v2/rerank", payload, true)
 }
 
+func cohereChat(w http.ResponseWriter, _ *http.Request) {
+	payload := map[string]any{
+		"model": "command-a-03-2025",
+		"messages": []map[string]any{
+			{"role": "system", "content": "You are a sales assistant."},
+			{"role": "user", "content": "What were the sales on 2023-09-29?"},
+			{
+				"role":      "assistant",
+				"tool_plan": "I will look up the daily sales report.",
+				"tool_calls": []map[string]any{{
+					"id":   "query_daily_sales_report_0",
+					"type": "function",
+					"function": map[string]any{
+						"name":      "query_daily_sales_report",
+						"arguments": `{"day":"2023-09-29"}`,
+					},
+				}},
+			},
+			{
+				"role":         "tool",
+				"tool_call_id": "query_daily_sales_report_0",
+				"content": []map[string]any{{
+					"type":     "document",
+					"document": map[string]any{"data": `{"total_sales_amount":10000}`},
+				}},
+			},
+		},
+		"max_tokens":  256,
+		"temperature": 0.3,
+	}
+	proxyPostURL(w, os.Getenv("COHERE_BASE_URL")+"/v2/chat", payload, true)
+}
+
+func cohereChatStream(w http.ResponseWriter, _ *http.Request) {
+	payload := map[string]any{
+		"model": "command-a-03-2025",
+		"messages": []map[string]any{
+			{"role": "user", "content": "Say hello."},
+		},
+		"stream": true,
+	}
+	proxyPostURL(w, os.Getenv("COHERE_BASE_URL")+"/v2/chat", payload, true)
+}
+
+func cohereChatError(w http.ResponseWriter, _ *http.Request) {
+	payload := map[string]any{
+		"model": "command-unknown",
+		"messages": []map[string]any{
+			{"role": "user", "content": "Say hello."},
+		},
+	}
+	proxyPostURL(w, os.Getenv("COHERE_BASE_URL")+"/v2/chat?error", payload, false)
+}
+
 func chat(w http.ResponseWriter, _ *http.Request) {
 	payload := map[string]any{
 		"messages": []map[string]any{
@@ -159,6 +213,9 @@ func main() {
 	mux.HandleFunc("GET /embeddings/cohere", cohereEmbeddings)
 	mux.HandleFunc("GET /embeddings/voyage", voyageEmbeddings)
 	mux.HandleFunc("GET /rerank", rerank)
+	mux.HandleFunc("GET /cohere/chat", cohereChat)
+	mux.HandleFunc("GET /cohere/chat/stream", cohereChatStream)
+	mux.HandleFunc("GET /cohere/chat/error", cohereChatError)
 
 	const port = 8080
 	fmt.Printf("Server running: port=%d process_id=%d\n", port, os.Getpid())
