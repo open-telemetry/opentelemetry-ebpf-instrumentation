@@ -22,6 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/appolly"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/rdns"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	netagent "go.opentelemetry.io/obi/pkg/netolly/agent"
@@ -287,6 +288,8 @@ func BuildCommonContextInfo(
 			ctx, &ctxInfo.NodeMeta, config.NameResolver, config.CloudMetadata,
 		))
 	}
+
+	ctxInfo.EBPFReverseDNS = rdns.NewEBPFLookup(ctx, &config.EBPF, &config.NetworkFlows.ReverseDNS, &config.Stats.ReverseDNS)
 
 	attributeGroups(config, ctxInfo)
 
