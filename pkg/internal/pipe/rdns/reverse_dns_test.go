@@ -139,7 +139,7 @@ func TestReverseDNS_Cache(t *testing.T) {
 }
 
 func TestReverseDNS_EBPFSharedByPipelines(t *testing.T) {
-	starts := fakeDNSPacketInspector(t)
+	started := fakeDNSPacketInspector(t)
 
 	// Given two pipelines using the eBPF reverse DNS in the same OBI run
 	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
@@ -148,7 +148,7 @@ func TestReverseDNS_EBPFSharedByPipelines(t *testing.T) {
 	in2, out2 := startReverseDNS(t, cfg, ebpfLookup)
 
 	// THEN the DNS packet inspector is started only once
-	assert.Equal(t, 1, *starts)
+	assert.Len(t, *started, 1)
 
 	// AND both pipelines decorate their flows
 	in1.Send([]*testRecord{newTestRecord()})
@@ -189,7 +189,7 @@ func TestReverseDNS_EBPFAndLocalPipelines(t *testing.T) {
 }
 
 func TestReverseDNS_EBPFRestartedOnNewRun(t *testing.T) {
-	starts := fakeDNSPacketInspector(t)
+	started := fakeDNSPacketInspector(t)
 	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
 
 	// Given an OBI run using the eBPF reverse DNS that is stopped
@@ -197,11 +197,15 @@ func TestReverseDNS_EBPFRestartedOnNewRun(t *testing.T) {
 	startReverseDNS(t, cfg, NewEBPFLookup(firstRun, nil, cfg))
 	stopFirstRun()
 
+	// THEN its DNS packet inspector is stopped too
+	require.Len(t, *started, 1)
+	require.Error(t, (*started)[0].Err())
+
 	// When OBI runs again in the same process
 	in, out := startReverseDNS(t, cfg, NewEBPFLookup(t.Context(), nil, cfg))
 
 	// THEN the DNS packet inspector is started again
-	assert.Equal(t, 2, *starts)
+	assert.Len(t, *started, 2)
 
 	// AND the new run decorates its flows
 	in.Send([]*testRecord{newTestRecord()})
@@ -219,18 +223,19 @@ func TestNewEBPFLookup_LargestCacheLen(t *testing.T) {
 	assert.Equal(t, 300, ebpfLookup.cacheLen)
 }
 
-func fakeDNSPacketInspector(t *testing.T) *int {
+// fakeDNSPacketInspector returns the contexts the inspector has been started with
+func fakeDNSPacketInspector(t *testing.T) *[]context.Context {
 	start := startDNSPacketInspector
 	t.Cleanup(func() { startDNSPacketInspector = start })
 
-	starts := 0
-	startDNSPacketInspector = func(_ context.Context, dnsCache *store.InMemory, _ *config.EBPFTracer) error {
-		starts++
+	var started []context.Context
+	startDNSPacketInspector = func(ctx context.Context, dnsCache *store.InMemory, _ *config.EBPFTracer) error {
+		started = append(started, ctx)
 		dnsCache.StorePair("140.82.121.4", "ebpf.github.com")
 		dnsCache.StorePair("127.0.0.1", "ebpf.localdomain")
 		return nil
 	}
-	return &starts
+	return &started
 }
 
 func startReverseDNS(

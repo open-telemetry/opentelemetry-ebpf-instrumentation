@@ -100,6 +100,8 @@ func runWithContextInfo(
 	// if one of nodes fail, the other should stop
 	g, ctx := errgroup.WithContext(ctx)
 
+	ctxInfo.EBPFReverseDNS = rdns.NewEBPFLookup(ctx, &cfg.EBPF, &cfg.NetworkFlows.ReverseDNS, &cfg.Stats.ReverseDNS)
+
 	startHealthCheck(ctx, g, cfg.HealthCheck)
 
 	if app {
@@ -288,8 +290,6 @@ func BuildCommonContextInfo(
 			ctx, &ctxInfo.NodeMeta, config.NameResolver, config.CloudMetadata,
 		))
 	}
-
-	ctxInfo.EBPFReverseDNS = rdns.NewEBPFLookup(ctx, &config.EBPF, &config.NetworkFlows.ReverseDNS, &config.Stats.ReverseDNS)
 
 	attributeGroups(config, ctxInfo)
 
