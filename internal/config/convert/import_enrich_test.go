@@ -87,6 +87,7 @@ func TestV2ToRuntimeCloudEnricherRoundTrip(t *testing.T) {
 	t.Parallel()
 
 	cfg := defaultRuntimeConfig()
+	cfg.CloudMetadata.DetectionEnabled = false
 	cfg.CloudMetadata.ClusterName = "cluster-a"
 	cfg.CloudMetadata.Region = "us-gov-west-1"
 	cfg.CloudMetadata.RefreshInterval = 45 * time.Second
@@ -124,11 +125,34 @@ extensions:
 	require.NoError(t, err)
 
 	require.Equal(t, transform.CloudMetadataConfig{
-		Region:          "us-gov-west-1",
-		RefreshInterval: obi.DefaultConfig.CloudMetadata.RefreshInterval,
-		Route53:         transform.Route53MetadataConfig{RefreshInterval: 2 * time.Minute, HostedZoneIDs: []string{"Z123", "Z456"}},
+		DetectionEnabled: true,
+		Region:           "us-gov-west-1",
+		RefreshInterval:  obi.DefaultConfig.CloudMetadata.RefreshInterval,
+		Route53:          transform.Route53MetadataConfig{RefreshInterval: 2 * time.Minute, HostedZoneIDs: []string{"Z123", "Z456"}},
 	}, got.CloudMetadata)
 	require.Equal(t, []transform.Source{transform.SourceRoute53}, got.NameResolver.Sources)
+}
+
+func TestDocumentToRuntimeCloudDetectionDisabled(t *testing.T) {
+	t.Parallel()
+
+	doc, _, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      enrichers:
+        cloud:
+          detection:
+            enabled: false
+`))
+	require.NoError(t, err)
+
+	got, err := DocumentToRuntime(doc)
+	require.NoError(t, err)
+
+	require.False(t, got.CloudMetadata.DetectionEnabled)
 }
 
 func TestV2ToRuntimeKubernetesMode(t *testing.T) {
@@ -235,6 +259,13 @@ func TestV2ToRuntimeRejectsUnsupportedEnrichment(t *testing.T) {
 			path: "enrich.enrichers.cloud.custom",
 			mutate: func(enrich *schema.Enrich) {
 				enrich.Enrichers.Cloud.AdditionalProperties = map[string]any{"custom": true}
+			},
+		},
+		{
+			name: "cloud detection",
+			path: "enrich.enrichers.cloud.detection.enable",
+			mutate: func(enrich *schema.Enrich) {
+				enrich.Enrichers.Cloud.Detection.AdditionalProperties = map[string]any{"enable": false}
 			},
 		},
 		{

@@ -641,6 +641,9 @@ func enrich(cfg *obi.Config) *schema.Enrich {
 				},
 			},
 			Cloud: schema.CloudEnricher{
+				Detection: schema.CloudDetection{
+					Enabled: &cfg.CloudMetadata.DetectionEnabled,
+				},
 				ClusterName:     cfg.CloudMetadata.ClusterName,
 				Region:          cfg.CloudMetadata.Region,
 				RefreshInterval: schema.Duration(cfg.CloudMetadata.RefreshInterval),

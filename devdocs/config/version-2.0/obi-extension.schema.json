@@ -2248,6 +2248,17 @@
               "description": "Cloud metadata enricher configuration.\nIf omitted, implementation defaults are used.\n",
               "additionalProperties": true,
               "properties": {
+                "detection": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "default": true,
+                      "description": "Enable cloud metadata detection at startup.\nIf false, Azure VM, GCP, EC2, and ECS detection is skipped.\nIf omitted, true is used.\n"
+                    }
+                  }
+                },
                 "cluster_name": {
                   "type": "string",
                   "description": "Overrides automatic cloud cluster detection.\n"

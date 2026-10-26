@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -118,11 +119,29 @@ func TestNewNodeMetaECS(t *testing.T) {
 	defer server.Close()
 	t.Setenv("ECS_CONTAINER_METADATA_URI_V4", server.URL)
 	t.Setenv("ECS_CONTAINER_METADATA_URI", "")
-	got := NewNodeMeta(t.Context(), "host-override", nil, DefaultRetryConfig)
+	got := NewNodeMeta(t.Context(), "host-override", nil, DefaultRetryConfig, true)
 	assert.Equal(t, "host-override", got.HostID)
 	assert.Equal(t, "arn:aws:ecs:us-east-1:123456789012:cluster/test", got.Cluster)
 	assert.Equal(t, "us-east-1", got.Region)
 	assert.Contains(t, got.Metadata, Entry{Key: "aws.ecs.cluster.arn", Value: got.Cluster})
 	assert.Contains(t, got.Metadata, Entry{Key: "cloud.region", Value: got.Region})
 	assert.Contains(t, got.Metadata, Entry{Key: "cloud.platform", Value: "aws_ecs"})
+}
+
+func TestNewNodeMetaECSDetectionDisabled(t *testing.T) {
+	requests := atomic.Int32{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		fmt.Fprint(w, "{}")
+	}))
+	defer server.Close()
+
+	t.Setenv("ECS_CONTAINER_METADATA_URI_V4", server.URL)
+	t.Setenv("ECS_CONTAINER_METADATA_URI", "")
+
+	got := NewNodeMeta(t.Context(), "host-override", nil, DefaultRetryConfig, false)
+
+	assert.Zero(t, requests.Load())
+	assert.Equal(t, "host-override", got.HostID)
 }

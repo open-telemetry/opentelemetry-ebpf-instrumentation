@@ -228,8 +228,9 @@ var DefaultConfig = Config{
 		InstrumentCuda: config.CudaModeAuto,
 	},
 	CloudMetadata: transform.CloudMetadataConfig{
-		RefreshInterval: 30 * time.Second,
-		Route53:         transform.Route53MetadataConfig{RefreshInterval: cloud.DefaultRoute53RefreshInterval},
+		DetectionEnabled: true,
+		RefreshInterval:  30 * time.Second,
+		Route53:          transform.Route53MetadataConfig{RefreshInterval: cloud.DefaultRoute53RefreshInterval},
 	},
 	NameResolver: &transform.NameResolverConfig{
 		Sources: []transform.Source{

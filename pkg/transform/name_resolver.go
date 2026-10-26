@@ -97,6 +97,8 @@ type AzureNameResolverConfig struct {
 
 // CloudMetadataConfig configures overrides for detected cloud metadata.
 type CloudMetadataConfig struct {
+	// DetectionEnabled controls startup cloud metadata detection through Config v2.
+	DetectionEnabled bool `yaml:"-" env:"-"`
 	// ClusterName overrides automatic cluster detection.
 	ClusterName string `yaml:"cluster_name" env:"OTEL_EBPF_CLUSTER_NAME"`
 	// Region overrides automatic region detection.

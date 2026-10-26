@@ -601,6 +601,9 @@ extensions:
               service_name: ""
               service_namespace: ""
         cloud:
+          # Set to false to skip cloud metadata detection at startup.
+          detection:
+            enabled: true
           # Overrides automatic cloud cluster and region detection.
           cluster_name: ""
           region: ""

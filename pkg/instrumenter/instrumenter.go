@@ -269,6 +269,7 @@ func BuildCommonContextInfo(
 		config.Attributes.HostID.Override,
 		ctxInfo.K8sInformer,
 		config.Attributes.MetadataRetry,
+		config.CloudMetadata.DetectionEnabled,
 	)
 
 	ctxInfo.Metrics, err = internalMetrics(ctx, config, ctxInfo, promMgr)

@@ -2070,6 +2070,10 @@ func applyV2CloudEnricher(cfg *obi.Config, enrich *schema.Enrich, complete bool)
 	}
 
 	cloud := enrich.Enrichers.Cloud
+	if cloud.Detection.Enabled != nil {
+		cfg.CloudMetadata.DetectionEnabled = *cloud.Detection.Enabled
+	}
+
 	if complete || completeCloudEnricher(cloud) {
 		applyFullV2CloudEnricher(cfg, cloud)
 		return
