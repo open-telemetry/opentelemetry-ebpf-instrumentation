@@ -155,8 +155,8 @@ as new instrumentation or bug fixes.
 
 ### HTTP/1.1 propagation control packets
 
-With OBI header propagation enabled, synchronous Java 11+ HTTPS HTTP/1.1
-`HttpClient.send()` requests can inject `traceparent` before encryption.
+With OBI header propagation enabled, Java 11+ HTTPS HTTP/1.1
+`HttpClient.send()` and both `sendAsync()` overloads can inject `traceparent` before encryption.
 Application-owned values are preserved. Requests with `expectContinue(true)`
 skip injection because an early final response can overtake plaintext reporting. See
 [Java HttpClient propagation](../../../devdocs/java-httpclient-propagation.md)
@@ -164,8 +164,14 @@ for compatibility checks, limits, and integration tests.
 
 Three additive control operations use the same JNI/ioctl channel and preserve
 the existing agent contract version. The capability property
-`otel.obi.java.agent.httpclient.propagation` identifies an agent with this
-feature enabled. Multibyte integers use native byte order, as in the existing packet ABI.
+`otel.obi.java.agent.httpclient.propagation` identifies the synchronous path;
+`otel.obi.java.agent.httpclient.async.propagation` identifies the async extension.
+These report path availability, not successful injection. Async ownership follows
+the internal exchange future, so cancelling the original application future
+cannot retire transport state prematurely. Callers regain their previous scope
+at API return; completion cleanup never installs scope on worker threads.
+No new JNI or eBPF operations are required. Multibyte integers use native byte
+order, as in the existing packet ABI.
 
 | Offset | Size | Operation 11: reserve HTTP/1.1 traceparent |
 | --- | --- | --- |
