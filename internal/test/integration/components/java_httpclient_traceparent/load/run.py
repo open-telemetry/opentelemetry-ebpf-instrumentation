@@ -305,8 +305,8 @@ def run_case(args, label, binary, api, mode):
     for name in pids:
         cpu = sum(after[name][field] - before[name][field] for field in ["user_s", "system_s"])
         metadata[name + "_cpu_us_per_request"] = cpu * 1e6 / measured["requests"]
-    with gzip.open(args.output / f"{label}-records.json.gz", "wt") as output:
-        json.dump(records, output)
+    with gzip.open(args.output / f"{label}-records.json.gz", "wb", compresslevel=1) as output:
+        output.write(json.dumps(records, separators=(",", ":")).encode())
     (args.output / f"{label}.json").write_text(json.dumps(metadata, indent=2))
     print(json.dumps({"label": label, "requests": measured["requests"], "rps": measured["rps"],
                       "counts": analysis["counts"], "java_state": java_state, "native_state": state}), flush=True)
@@ -333,6 +333,7 @@ def main():
     parser.add_argument("--cpu-sets", nargs=4, default=["0,1", "2,3", "4,5", "6,7"],
                         metavar=("APP", "OBI", "PEER", "DRIVER"))
     parser.add_argument("--pilot", action="store_true")
+    parser.add_argument("--resume", action="store_true")
     args = parser.parse_args()
     args.repo, args.binary, args.baseline, args.output = [p.resolve() for p in [args.repo, args.binary, args.baseline, args.output]]
     args.output.mkdir(parents=True, exist_ok=True)
@@ -351,7 +352,21 @@ def main():
         for round_id in range(1, args.rounds + 1):
             order = selected if round_id % 2 else list(reversed(selected))
             for name in order:
-                run_case(args, f"{round_id}-{name}-c{args.concurrency}-s{args.size}-r{args.rate}", *variants[name])
+                label = f"{round_id}-{name}-c{args.concurrency}-s{args.size}-r{args.rate}"
+                previous = args.output / f"{label}.json"
+                if args.resume and previous.exists():
+                    result = json.loads(previous.read_text())
+                    binary, api, mode = variants[name]
+                    if (result["binary_sha256"] != hashlib.sha256(binary.read_bytes()).hexdigest()
+                            or result["api"] != api or result["mode"] != mode
+                            or result["workload"]["duration_seconds"] < args.duration
+                            or result["warmup"]["duration_seconds"] < args.warmup
+                            or result["cpu_sets"] != args.cpu_sets
+                            or not (args.output / f"{label}-records.json.gz").exists()):
+                        raise RuntimeError(f"Completed result does not match the resumed workload: {label}")
+                    print(f"Preserving completed measurement: {label}", flush=True)
+                    continue
+                run_case(args, label, *variants[name])
     finally:
         cleanup(args.output, "final")
 

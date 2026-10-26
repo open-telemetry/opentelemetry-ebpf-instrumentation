@@ -39,6 +39,9 @@ placement. It reserves ports 28080, 28082, and 24317 and containers labelled
 `obi.issue3855=load`. Run without another OBI process instrumenting this source.
 It refuses to replace unrelated containers or networks. `--pilot` provides a
 short fixture check, which is insufficient for performance conclusions.
+`--resume` preserves completed measurements after checking the binary,
+API, propagation mode, durations, CPU placement, and raw-record artifact.
+Raw-record compression runs outside the timed workload interval.
 
 Each round compares baseline synchronous, final synchronous, final asynchronous,
 and final asynchronous with header propagation disabled. TLS tracing stays on.
