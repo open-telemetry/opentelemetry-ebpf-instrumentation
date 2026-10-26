@@ -13,14 +13,22 @@
   }
 
   const orig = global[STORE];
+  // Older injections did not save the socket teardown method.
+  if (!orig.socketDestroy) {
+    orig.socketDestroy = net.Socket.prototype._destroy;
+  }
   net.Server.prototype.emit = orig.serverEmit;
   net.Socket.prototype.connect = orig.socketConnect;
   net.Socket.prototype.write = orig.socketWrite;
+  net.Socket.prototype._destroy = orig.socketDestroy;
   if (orig.ctxHook) {
     orig.ctxHook.disable();
     orig.ctxHook = undefined;
   }
   orig.requestFd = undefined;
+  if (orig.fdCache) {
+    orig.fdCache.clear();
+  }
 
   const { AsyncLocalStorage, createHook, executionAsyncResource } = require('async_hooks');
   const {
@@ -63,7 +71,6 @@
   if (TRACES_ENABLED) {
     const als = new AsyncLocalStorage();
     const fdCache = orig.fdCache || new Map();
-    fdCache.clear();
     orig.fdCache = fdCache;
 
     const pad4 = n => String(n).padStart(4, '0');
@@ -118,8 +125,13 @@
     };
 
     function correlate(incomingFd, outFd, socket) {
-      if (incomingFd < 0 || outFd < 0 || incomingFd === outFd) {
-        return Promise.resolve();
+      if (
+        !orig.requestFd ||
+        socket.destroyed ||
+        incomingFd == null || outFd == null ||
+        incomingFd < 0 || outFd < 0 || incomingFd === outFd
+      ) {
+        return;
       }
 
       const now = performance.now();
@@ -148,6 +160,15 @@
       } catch (err) {
       }
     }
+
+    net.Socket.prototype._destroy = function (err, callback) {
+      const outFd = this._handle && this._handle.fd;
+      const entry = fdCache.get(outFd);
+      if (entry && entry.socket === this) {
+        fdCache.delete(outFd);
+      }
+      return orig.socketDestroy.call(this, err, callback);
+    };
 
     net.Socket.prototype.connect = function (...args) {
       const store = als.getStore();
