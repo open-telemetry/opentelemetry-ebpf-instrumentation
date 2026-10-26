@@ -134,7 +134,9 @@ need elevated privileges. Generate the eBPF bindings first if they are absent
 or stale (`make docker-generate`). The target runs the full suite and removes
 its test resources before and after the run. Its preparation step also deletes
 existing files under `testoutput/`, so save logs there elsewhere before running
-it. To focus on one test while iterating, run it directly, for example:
+it. On a fresh checkout, run `make prereqs` first; it creates the test output
+directory and fetches the local Weaver schema registry required by these tests.
+Then run one test directly while iterating, for example:
 
 ```sh
 go test -v -count=1 -run '^TestMultiProcess$' -timeout 60m ./internal/test/integration
