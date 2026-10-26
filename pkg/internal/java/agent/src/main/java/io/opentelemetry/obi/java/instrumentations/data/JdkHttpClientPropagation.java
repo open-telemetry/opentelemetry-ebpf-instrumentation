@@ -20,14 +20,17 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.BiConsumer;
 
 /**
- * One instance owns the propagation state for one synchronous HttpClient.send() call. The caller
- * thread captures its parent; JDK worker threads find the same state through request identity. On
- * return or failure, exit() untracks request copies and releases unused reservations.
+ * One instance owns a send's propagation state. The caller captures its parent; workers find the
+ * same state through internal request identity. Async ownership ends with the internal exchange,
+ * independently of cancellation or completion of the application's future.
  */
-public final class JdkHttpClientPropagation {
+public final class JdkHttpClientPropagation implements BiConsumer<Object, Throwable> {
   public static final String PROPERTY = "otel.obi.java.agent.httpclient.propagation";
+  public static final String ASYNC_PROPERTY = "otel.obi.java.agent.httpclient.async.propagation";
   private static final int MAX_TRACKED_REQUESTS = 10_000;
   private static final int CONNECTION_SIZE = 36;
   private static final int TRACE_ID_SIZE = 16;
@@ -59,11 +62,15 @@ public final class JdkHttpClientPropagation {
   public static volatile Method[] connectionMethods;
   private static volatile boolean available = true;
 
-  private final JdkHttpClientPropagation previousScope;
+  private JdkHttpClientPropagation previousScope;
   private final List<Object> trackedRequests = new ArrayList<>();
   private final List<NativeMemory> reservations = new ArrayList<>();
   private byte[] parent;
   private boolean active = true;
+  private boolean asynchronous;
+  private boolean callerExited;
+  private boolean transportAttached;
+  private boolean transportCompleted;
 
   private JdkHttpClientPropagation(JdkHttpClientPropagation previousScope) {
     this.previousScope = previousScope;
@@ -75,6 +82,14 @@ public final class JdkHttpClientPropagation {
     }
     JdkHttpClientPropagation scope = new JdkHttpClientPropagation(currentSend.get());
     currentSend.set(scope);
+    return scope;
+  }
+
+  public static JdkHttpClientPropagation enterAsync() {
+    JdkHttpClientPropagation scope = enter();
+    if (scope != null) {
+      scope.asynchronous = true;
+    }
     return scope;
   }
 
@@ -101,6 +116,7 @@ public final class JdkHttpClientPropagation {
       ((java.nio.Buffer) value).position(1);
       value.get(scope.parent);
     } catch (Throwable error) {
+      scope.active = false;
       disable(error);
     }
   }
@@ -147,22 +163,65 @@ public final class JdkHttpClientPropagation {
     currentSend.remove();
     restore(scope.previousScope);
     synchronized (scope) {
-      scope.active = false;
-      for (Object request : scope.trackedRequests) {
-        requestScopes.remove(request);
-      }
-      for (NativeMemory packet : scope.reservations) {
-        try {
-          packet.setByte(0, OperationType.HTTP1_TRACEPARENT_RELEASE.code);
-          Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, packet.getAddress());
-        } catch (Throwable error) {
-          disable(error);
-        }
-      }
-      synchronized (requestScopes) {
-        retainedReservations -= scope.reservations.size();
+      scope.previousScope = null;
+      scope.callerExited = true;
+      if (!scope.transportAttached || scope.transportCompleted) {
+        scope.release();
       }
     }
+  }
+
+  public static void trackTransport(Object request, CompletableFuture<?> future) {
+    JdkHttpClientPropagation scope = requestScopes.get(request);
+    if (scope == null || !scope.asynchronous || future == null) {
+      return;
+    }
+    synchronized (scope) {
+      if (!scope.active || scope.transportAttached) {
+        return;
+      }
+      scope.transportAttached = true;
+    }
+    // Observe the internal future, never the cancellable application-facing dependent stage.
+    try {
+      future.whenComplete(scope);
+    } catch (Throwable error) {
+      disable(error);
+      // A failed listener registration must not retire state still needed by transport.
+      if (future.isDone()) {
+        scope.accept(null, error);
+      }
+    }
+  }
+
+  @Override
+  public void accept(Object response, Throwable failure) {
+    synchronized (this) {
+      transportCompleted = true;
+      if (callerExited) {
+        release();
+      }
+    }
+  }
+
+  private void release() {
+    active = false;
+    for (Object request : trackedRequests) {
+      requestScopes.remove(request);
+    }
+    for (NativeMemory packet : reservations) {
+      try {
+        packet.setByte(0, OperationType.HTTP1_TRACEPARENT_RELEASE.code);
+        Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, packet.getAddress());
+      } catch (Throwable error) {
+        disable(error);
+      }
+    }
+    synchronized (requestScopes) {
+      retainedReservations -= reservations.size();
+    }
+    trackedRequests.clear();
+    reservations.clear();
   }
 
   public static synchronized void disable(Throwable error) {
@@ -170,6 +229,7 @@ public final class JdkHttpClientPropagation {
       available = false;
       try {
         System.setProperty(PROPERTY, "false");
+        System.setProperty(ASYNC_PROPERTY, "false");
       } catch (SecurityException ignored) {
       }
       if (SSLStorage.debugOn) {

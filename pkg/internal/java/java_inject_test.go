@@ -634,8 +634,15 @@ func TestJavaInjector_HeaderPropagationAttachOpts(t *testing.T) {
 			supportsHeaderPropagation = func(*slog.Logger) bool { return tc.supported }
 			cfg := &obi.Config{}
 			cfg.EBPF.ContextPropagation = tc.mode
-			injector := &JavaInjector{cfg: cfg}
+			var logs bytes.Buffer
+			injector := &JavaInjector{cfg: cfg, log: slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))}
 			assert.Equal(t, tc.want, injector.attachOpts(false))
+			if !tc.mode.HasHeaders() {
+				assert.Contains(t, logs.String(), "effective=disabled")
+			} else if !tc.supported {
+				assert.Contains(t, logs.String(), "effective=unavailable")
+				assert.Contains(t, logs.String(), "kernel write-user or atomic reservation support")
+			}
 		})
 	}
 }
@@ -973,7 +980,7 @@ func TestJavaInjector_VerifyLoadedAgentUsesOnePropertiesRequest(t *testing.T) {
 				agentVersion: "3",
 			}
 			attacher := &propertiesAttacher{
-				response: httpClientPropagationProperty + "=" + capability + "\n" + agentVersionProperty + "=3\n",
+				response: httpClientPropagationProperty + "=" + capability + "\n" + httpClientAsyncPropagationProperty + "=" + capability + "\n" + agentVersionProperty + "=3\n",
 			}
 			require.NoError(t, injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true))
 			require.Equal(t, 1, attacher.calls)
@@ -988,6 +995,21 @@ func TestJavaInjector_VerifyLoadedAgentRejectsVersionMismatch(t *testing.T) {
 	attacher := &propertiesAttacher{response: agentVersionProperty + "=2\n" + httpClientPropagationProperty + "=true\n"}
 	err := injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true)
 	require.ErrorContains(t, err, "version 2, expected 3")
+	require.Equal(t, 1, attacher.calls)
+	require.Equal(t, 1, attacher.cleanups)
+}
+
+func TestJavaInjector_ReportsMissingAsyncCapabilityOnOlderAgent(t *testing.T) {
+	var logs bytes.Buffer
+	injector := &JavaInjector{
+		log:          slog.New(slog.NewTextHandler(&logs, nil)),
+		agentVersion: "3",
+	}
+	attacher := &propertiesAttacher{response: agentVersionProperty + "=3\n" + httpClientPropagationProperty + "=true\n"}
+	require.NoError(t, injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true))
+	assert.Contains(t, logs.String(), "HttpClient.sendAsync header propagation unavailable")
+	assert.Contains(t, logs.String(), "effective=unavailable")
+	assert.Contains(t, logs.String(), "restart the JVM")
 	require.Equal(t, 1, attacher.calls)
 	require.Equal(t, 1, attacher.cleanups)
 }
