@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
@@ -19,8 +20,9 @@ var openProcessHandle = procs.OpenProcessHandle
 // alone would let a recycled one be identified, signaled and injected in the
 // original's place.
 type InjectionTarget struct {
-	Pid     app.PID
-	Process *procs.ProcessHandle
+	Pid          app.PID
+	Process      *procs.ProcessHandle
+	DynamicSpans []services.DynamicSpan
 }
 
 // InjectionTargetFrom pins the process inspected by discovery. The caller owns
@@ -33,7 +35,11 @@ func InjectionTargetFrom(ie *ebpf.Instrumentable) (InjectionTarget, error) {
 		return InjectionTarget{}, fmt.Errorf("capturing stable identity for process %d: %w", pid, err)
 	}
 
-	return InjectionTarget{Pid: pid, Process: process}, nil
+	return InjectionTarget{
+		Pid:          pid,
+		Process:      process,
+		DynamicSpans: ie.FileInfo.ServiceAttrs().DynamicSpans,
+	}, nil
 }
 
 func (t InjectionTarget) PID() app.PID {

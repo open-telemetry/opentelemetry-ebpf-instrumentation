@@ -68,6 +68,45 @@ extensions:
 	}
 }
 
+func TestRuntimeConverterAcceptsNodeDynamicSpansWithOptionalLanguageSelector(t *testing.T) {
+	t.Parallel()
+
+	for _, match := range []string{
+		`{process: {exe_path_glob: ["/opt/app"]}}`,
+		`{process: {language_glob: [nodejs]}}`,
+	} {
+		config := `file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: include
+          match: ` + match + `
+          refine:
+            spans:
+              - name: checkout.place_order
+                on: {function: "./checkout.js#placeOrder"}
+`
+		_, extension, err := schema.ParseStandaloneYAML([]byte(config))
+		require.NoError(t, err)
+		converted, err := V2ToRuntime(extension)
+		require.NoError(t, err)
+		var dynamicSelector *services.GlobAttributes
+		for i := range converted.Discovery.Instrument {
+			if len(converted.Discovery.Instrument[i].DynamicSpans) > 0 {
+				dynamicSelector = &converted.Discovery.Instrument[i]
+				break
+			}
+		}
+		require.NotNil(t, dynamicSelector)
+		require.Equal(t, []services.DynamicSpan{{
+			Name:              "checkout.place_order",
+			FunctionReference: "./checkout.js#placeOrder",
+		}}, dynamicSelector.DynamicSpans)
+	}
+}
+
 func TestRuntimeConverterRejectsUnsupportedJavaDynamicSpans(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {

@@ -17,8 +17,8 @@ function runScenario(name) {
   return JSON.parse(out);
 }
 
-function runScript(file) {
-  const out = execFileSync(process.execPath, [path.join(__dirname, file)], { encoding: 'utf8' });
+function runScript(file, ...args) {
+  const out = execFileSync(process.execPath, [path.join(__dirname, file), ...args], { encoding: 'utf8' });
   return JSON.parse(out);
 }
 
@@ -151,6 +151,55 @@ test('bundled/unreachable api copy: bridge never blocks the app SDK registration
   const r = runScript('scenario_bundled.js');
   assert.ok(r.app.includes('bundled-after'), 'the app SDK registers and captures its spans (not blocked)');
   assert.deepStrictEqual(r.bridge, [], 'bundled spans are not captured — the accepted limitation');
+});
+
+test('dynamic function spans wrap already-loaded and late-loaded CommonJS exports', () => {
+  const result = runScript('scenario_dynamic_spans.js', 'selected');
+  assert.deepStrictEqual(result.values, [2, 4]);
+  assert.strictEqual(result.thrown, 'expected failure', 'the original exception must propagate');
+  assert.strictEqual(result.late, 'late');
+  assert.strictEqual(result.callable, 'callable nested');
+  assert.deepStrictEqual(
+    result.spans.map((span) => span.name).sort(),
+    ['dynamic.async', 'dynamic.callable-parent', 'dynamic.fail', 'dynamic.late', 'dynamic.sync'],
+  );
+  assert.strictEqual(result.diagnostics.length, 2, 'bad targets should each produce one diagnostic');
+  assert.ok(result.diagnostics.every((diagnostic) => diagnostic.code === 'OBI_DYNAMIC_SPAN_TARGET'));
+  assert.ok(result.diagnostics.some((diagnostic) => diagnostic.message.includes('dynamic.missing')));
+  assert.ok(result.diagnostics.some((diagnostic) => diagnostic.message.includes('dynamic.proxy-failure')));
+  assert.ok(result.diagnostics.every((diagnostic) => diagnostic.message.includes('export path')));
+  const failed = result.spans.find((span) => span.name === 'dynamic.fail');
+  assert.strictEqual(failed.status, 2, 'thrown errors must set the span error status');
+  assert.strictEqual(failed.attrs['exception.message'], 'expected failure');
+});
+
+test('unselected Node.js process receives no dynamic function spans', () => {
+  const result = runScript('scenario_dynamic_spans.js', 'unselected');
+  assert.deepStrictEqual(result.values, [2, 4]);
+  assert.strictEqual(result.thrown, 'expected failure');
+  assert.strictEqual(result.late, 'late');
+  assert.strictEqual(result.callable, 'callable nested');
+  assert.deepStrictEqual(result.spans, []);
+});
+
+test('dynamic function spans use an application SDK when one already owns the API', () => {
+  const result = runScript('scenario_dynamic_spans.js', 'app-sdk');
+  assert.deepStrictEqual(result.spans, [], 'OBI manual transport must stay inert');
+  assert.deepStrictEqual(
+    result.appSpans.sort(),
+    ['dynamic.async', 'dynamic.callable-parent', 'dynamic.fail', 'dynamic.late', 'dynamic.sync'],
+  );
+});
+
+test('span end failures do not mask dynamic function results or errors', () => {
+  const result = runScript('scenario_dynamic_spans.js', 'app-sdk-end-throws');
+  assert.deepStrictEqual(result.values, [2, 4]);
+  assert.strictEqual(result.thrown, 'expected failure');
+  assert.strictEqual(result.late, 'late');
+  assert.strictEqual(result.callable, 'callable nested');
+  assert.strictEqual(result.diagnostics.length, 2, 'bad targets should warn by default');
+  assert.ok(result.diagnostics.every((diagnostic) => diagnostic.code === 'OBI_DYNAMIC_SPAN_TARGET'));
+  assert.ok(result.diagnostics.every((diagnostic) => !diagnostic.message.includes('export path')));
 });
 
 test('mixed reachable + unreachable copies: registry-appearance drives the handoff', () => {
