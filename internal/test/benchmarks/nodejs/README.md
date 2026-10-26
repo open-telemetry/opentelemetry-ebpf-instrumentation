@@ -12,10 +12,11 @@ To eliminate variability and expose the corrent performance issue, the benchmark
 Load generator -> Service B (the test service) -> Service R (server)
 ```
 
-We only measure the impact of the agent on Service B, that's our service for analysis. Service R is here just to allow us to 
-perform the downstream client call on a local service with minimal delay, exposing the overhead the agent will introduce. 
+We only measure the impact of the agent on Service B, that's our service for analysis. Service R is here just to allow us to
+perform the downstream client call on a local service with minimal delay, exposing the overhead the agent will introduce.
 
 The Service B comes in three flavours:
+
 - Basline
 - With the OBI fdextractor.js enabled for tracing
 - With the OBI fdextractor.js optimized with local FD cache
@@ -39,10 +40,10 @@ AMD Ryzen AI 9 HX PRO 370 with 12 cores and 24 threads, boosting up to approxima
 ```
 
 Since I had 12 physical cores, I split the benchmark as follows:
+
 - Core 0 - reserved for Service B which we are testing, so that we can push the overhead to 100% of CPU utilization.
 - Cores 1, 2 - reserved for Service R. This was an overkill because Service R doesn't go beyond 20%.
 - Cores 3, 4, 5 - reserved for the load generator.
-
 
 First start the service we are not testing, Service R:
 
