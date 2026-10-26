@@ -84,6 +84,7 @@ func testHTTPTracesCommon(t *testing.T, doTraceID bool, httpCode int) {
 	// check span attributes
 	sd := parent.Diff(
 		jaeger.Tag{Key: "http.request.method", Type: "string", Value: "GET"},
+		jaeger.Tag{Key: "network.protocol.version", Type: "string", Value: "1.1"},
 		jaeger.Tag{Key: "http.response.status_code", Type: "int64", Value: float64(httpCode)},
 		jaeger.Tag{Key: "url.path", Type: "string", Value: "/" + slug},
 		jaeger.Tag{Key: "server.port", Type: "int64", Value: float64(8080)},

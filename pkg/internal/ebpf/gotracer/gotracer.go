@@ -525,6 +525,12 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	initMissingGoOffsets(&offTable, goHTTPClientRequestOffsetFields[:])
 	initMissingGoOffsets(&offTable, goAutoSDKSpanContextOffsetFields[:])
 	initMissingGoOffsets(&offTable, goGRPCBufWriterOffsetFields[:])
+	initMissingGoOffsets(&offTable, []goexec.GoOffset{
+		goexec.ReqProtoMajorPos,
+		goexec.ReqProtoMinorPos,
+		goexec.RespProtoMajorPos,
+		goexec.RespProtoMinorPos,
+	})
 	offTable.Table[goexec.FramerPadLengthStackPos] = missingGoOffset
 	offTable.Table[goexec.FramerPadLengthStackVendoredPos] = missingGoOffset
 	// Set the field offsets and the logLevel for the Go BPF program in a map
@@ -545,6 +551,10 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.ResponseLengthPtrPos,
 		goexec.ContentLengthPtrPos,
 		goexec.ReqHeaderPtrPos,
+		goexec.ReqProtoMajorPos,
+		goexec.ReqProtoMinorPos,
+		goexec.RespProtoMajorPos,
+		goexec.RespProtoMinorPos,
 		goexec.IoWriterBufPtrPos,
 		goexec.IoWriterNPos,
 		goexec.IoWriterWrPos,
