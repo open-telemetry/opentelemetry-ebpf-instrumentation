@@ -206,10 +206,29 @@ func TestOpenAISpan_Decisions(t *testing.T) {
 	assert.Equal(t, "gpt-6-luna", ai.ResponseModel)
 	assert.Equal(t, "gpt-6-luna", ai.Request.Model)
 	assert.Equal(t, "The package arrived with a broken screen.", ai.Request.Input)
+	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"The package arrived with a broken screen."}]}]`, ai.Request.GetInput())
 	assert.Equal(t, questions, string(ai.Request.Questions))
 	assertTokenCount(t, ai.Usage.InputTokens, 42, true)
 	assertTokenCount(t, ai.Usage.OutputTokens, 0, true)
 	assert.Equal(t, "decision", ai.OperationName)
+	assert.Equal(t, "decisions", ai.APIType)
+}
+
+func TestOpenAISpan_DecisionsInputArray(t *testing.T) {
+	input := `[{"role":"developer","content":"Assess the customer report."},{"role":"user","content":[{"type":"input_text","text":"The package arrived with a broken screen."},{"type":"input_text","text":"The screen does not turn on."}]}]`
+	questions := `[{"type":"predicate","name":"damaged","instructions":"Is it damaged?"}]`
+	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/decisions", `{"model":"gpt-6-luna","input":`+input+`,"questions":`+questions+`}`)
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), `{}`)
+
+	span, ok := OpenAISpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	ai := span.GenAI.OpenAI
+	assert.Equal(t, input, string(ai.Request.InputItems))
+	assert.JSONEq(t, `[{"role":"developer","parts":[{"type":"text","content":"Assess the customer report."}]},{"role":"user","parts":[{"type":"text","content":"The package arrived with a broken screen."},{"type":"text","content":"The screen does not turn on."}]}]`, ai.Request.GetInput())
+	assert.Equal(t, questions, string(ai.Request.Questions))
+	assert.Equal(t, request.DecisionOperationName, ai.OperationName)
 	assert.Equal(t, "decisions", ai.APIType)
 }
 

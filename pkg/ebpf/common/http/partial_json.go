@@ -275,9 +275,9 @@ func parseOpenAIInput(body []byte, captureInputItems bool) request.OpenAIInput {
 		parsed.Messages = extractJSONRawField(body, "messages")
 	}
 	// The `input` field is a plain string for Chat/text Completions, but an
-	// array of items for the Responses API and an object wrapping `messages`
-	// for native DashScope generation. Retain Responses items and unwrap the
-	// nested messages so content normalization can reach both schemas.
+	// array of items for the Responses and Decisions APIs and an object wrapping
+	// `messages` for native DashScope generation. Retain input items and unwrap
+	// the nested messages so content normalization can reach both schemas.
 	if len(body) > 0 {
 		switch raw := extractJSONRawField(body, "input"); firstJSONByte(raw) {
 		case '[':

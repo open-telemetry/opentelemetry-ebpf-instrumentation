@@ -55,6 +55,7 @@ expected:
     equals: decision gpt-6-luna
     attributes:
       gen_ai.operation.name: decision
+      gen_ai.input.messages: '[{"role":"developer","parts":[{"type":"text","content":"Assess the customer report."}]},{"role":"user","parts":[{"type":"text","content":"The package arrived with a broken screen."},{"type":"text","content":"The screen does not turn on."}]}]'
       openai.api.type: decisions
       openai.request.questions: '[{"type":"predicate","name":"damaged","instructions":[{"type":"input_text","text":"Does the customer report a damaged item?"},{"type":"input_json","data":{"policy":"returns"}}]},{"type":"choice","name":"priority","instructions":"Choose the handling priority.","choices":[{"value":"urgent","description":"Immediate handling"},{"value":true,"description":"Flag for manual review"}]},{"type":"score","name":"severity","instructions":"Rate the damage severity.","levels":[{"label":"minor","description":"Cosmetic damage"},{"label":"major","description":"Item is unusable"}]}]'
   metrics:

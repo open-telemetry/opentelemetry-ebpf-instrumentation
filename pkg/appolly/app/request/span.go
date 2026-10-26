@@ -652,9 +652,9 @@ type OpenAIInput struct {
 	Questions   json.RawMessage `json:"-"`
 	ServiceTier string          `json:"service_tier,omitempty"`
 	Parameters  json.RawMessage `json:"parameters,omitempty"`
-	// InputItems retains the Responses API `input` array (function_call /
-	// function_call_output items), which cannot be held by the string Input
-	// field. Populated only for /v1/responses traffic.
+	// InputItems retains the Responses and Decisions API `input` array,
+	// which cannot be held by the string Input field. Populated only for
+	// /v1/responses and /v1/decisions traffic.
 	InputItems json.RawMessage `json:"-"`
 }
 

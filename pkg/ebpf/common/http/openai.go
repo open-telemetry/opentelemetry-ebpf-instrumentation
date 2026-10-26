@@ -117,7 +117,7 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 
 	slog.Debug("OpenAI", "request", string(reqB), "response", string(respB))
 
-	parsedRequest := parseOpenAIInput(reqB, isOpenAIResponsesRequest(req))
+	parsedRequest := parseOpenAIInput(reqB, isOpenAIResponsesRequest(req) || isOpenAIDecisionsRequest(req))
 	if isOpenAIDecisionsRequest(req) {
 		parsedRequest.Questions = extractOpenAIDecisionQuestions(reqB)
 	}

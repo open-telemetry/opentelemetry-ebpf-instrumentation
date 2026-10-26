@@ -1331,6 +1331,31 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		ensureTraceStrAttr(t, spanAttrs, attribute.Key("openai.request.questions"), questions)
 	})
 
+	t.Run("OpenAI Decisions input messages are opt-in", func(t *testing.T) {
+		span := makeOpenAISpan(&request.VendorOpenAI{
+			OperationName: request.DecisionOperationName,
+			APIType:       "decisions",
+			Request: request.OpenAIInput{
+				Model:      "gpt-6-luna",
+				InputItems: []byte(`[{"role":"developer","content":"Assess the customer report."},{"role":"user","content":[{"type":"input_text","text":"The package arrived with a broken screen."},{"type":"input_text","text":"The screen does not turn on."}]}]`),
+				Questions:  []byte(`[{"type":"predicate","name":"damaged","instructions":"Is it damaged?"}]`),
+			},
+		})
+		span.Path = "https://api.openai.com/v1/decisions"
+
+		withoutOptIn := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, withoutOptIn), reporterName)
+		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
+		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key("openai.request.questions"))
+
+		withOptIn := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.GenAIInput: {}})
+		traces = tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, withOptIn), reporterName)
+		spanAttrs = traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIInputMessagesKey, `[{"role":"developer","parts":[{"type":"text","content":"Assess the customer report."}]},{"role":"user","parts":[{"type":"text","content":"The package arrived with a broken screen."},{"type":"text","content":"The screen does not turn on."}]}]`)
+		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key("openai.request.questions"))
+	})
+
 	t.Run("OpenAI questions are not emitted for unrelated operations", func(t *testing.T) {
 		span := makeOpenAISpan(&request.VendorOpenAI{
 			OperationName: request.ChatOperationName,
