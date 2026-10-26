@@ -355,15 +355,13 @@ public class Main {
             && !"write-failure".equals(testMode)) {
           throw expected;
         }
-        Throwable cause =
-            expected instanceof java.util.concurrent.CompletionException
-                ? expected.getCause()
-                : expected;
-        if ("timeout".equals(testMode) && !(cause instanceof java.net.http.HttpTimeoutException)
+        if ("timeout".equals(testMode)
+                && !hasCause(expected, java.net.http.HttpTimeoutException.class)
             || "tls-failure".equals(testMode)
-                && !(cause instanceof javax.net.ssl.SSLHandshakeException)
-            || "connect-failure".equals(testMode) && !(cause instanceof java.net.ConnectException)
-            || "interrupt".equals(testMode) && !(cause instanceof InterruptedException)) {
+                && !hasCause(expected, javax.net.ssl.SSLHandshakeException.class)
+            || "connect-failure".equals(testMode)
+                && !hasCause(expected, java.net.ConnectException.class)
+            || "interrupt".equals(testMode) && !hasCause(expected, InterruptedException.class)) {
           throw new IllegalStateException("unexpected application exception", expected);
         }
         if ("write-failure".equals(testMode)) {
@@ -424,6 +422,15 @@ public class Main {
     } catch (ReflectiveOperationException error) {
       throw new IllegalStateException(error);
     }
+  }
+
+  private static boolean hasCause(Throwable failure, Class<? extends Throwable> type) {
+    for (Throwable error = failure; error != null; error = error.getCause()) {
+      if (type.isInstance(error)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static CompletableFuture<Object> fillTrackingCapacity() throws Exception {

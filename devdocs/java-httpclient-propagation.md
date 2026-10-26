@@ -218,6 +218,10 @@ that negotiates HTTP/1.1 is still an HTTP/1.1 request.
 experiment observed cleanup overtaking SEND on a final `417` response; enabling
 injection for these requests requires separate validation of their interim and
 final response handling.
+The immediate `417` regression is skipped on JDK 11: both the merged baseline
+and an uninstrumented control hang with this response, matching
+[JDK-8286171](https://github.com/openjdk/jdk/pull/9093).
+Successful Expect-Continue requests still run in every runtime regression.
 
 The complete serialized header block after injection must fit within the
 existing Java plaintext capture limit of 16 KiB. Larger headers are sent

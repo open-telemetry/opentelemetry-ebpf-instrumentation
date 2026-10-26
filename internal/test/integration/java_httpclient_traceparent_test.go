@@ -88,6 +88,9 @@ func TestJavaHTTPClientTraceparent(t *testing.T) {
 				testJavaHTTPClientTraceparent(t, run+"-expect-owned", "dddddddddddddddddddddddddddddddd", javaApplicationTraceparent, mode, "expect-continue")
 			})
 			t.Run("expect-reject", func(t *testing.T) {
+				if javaFeature == 11 {
+					t.Skip("JDK-8286171: JDK 11 hangs on immediate 417, also without instrumentation")
+				}
 				id := run + "-expect-reject"
 				req, err := http.NewRequest(http.MethodGet, "http://localhost:18080/call/"+id, nil)
 				require.NoError(t, err)

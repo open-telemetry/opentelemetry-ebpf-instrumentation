@@ -58,8 +58,10 @@ func main() {
 		attempt := len(records[r.URL.Path])
 		mu.Unlock()
 		if strings.HasSuffix(r.URL.Path, "-expect-reject") {
+			w.Header().Set("Connection", "close")
 			w.WriteHeader(http.StatusExpectationFailed)
 			_, _ = w.Write([]byte("expectation rejected"))
+			w.(http.Flusher).Flush()
 			return
 		}
 		body, err := io.ReadAll(r.Body)
