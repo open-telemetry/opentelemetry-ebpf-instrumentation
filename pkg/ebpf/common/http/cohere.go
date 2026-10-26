@@ -64,7 +64,8 @@ type cohereStreamEvent struct {
 		FinishReason string `json:"finish_reason"`
 		Message      struct {
 			Content struct {
-				Text string `json:"text"`
+				Text     string `json:"text"`
+				Thinking string `json:"thinking"`
 			} `json:"content"`
 			ToolCalls cohereToolCall `json:"tool_calls"`
 		} `json:"message"`
@@ -274,6 +275,7 @@ func parseCohereChatStream(respB []byte, parsed *request.VendorOpenAI) {
 	scanner.Buffer(make([]byte, 0, 256*1024), 256*1024)
 
 	var content strings.Builder
+	var thinking strings.Builder
 	var toolCalls []cohereToolCall
 	var finishReason string
 
@@ -292,6 +294,7 @@ func parseCohereChatStream(respB []byte, parsed *request.VendorOpenAI) {
 			parsed.ID = event.ID
 		case "content-delta":
 			content.WriteString(event.Delta.Message.Content.Text)
+			thinking.WriteString(event.Delta.Message.Content.Thinking)
 		case "tool-call-start":
 			toolCalls = append(toolCalls, event.Delta.Message.ToolCalls)
 		case "tool-call-delta":
@@ -308,13 +311,16 @@ func parseCohereChatStream(respB []byte, parsed *request.VendorOpenAI) {
 		slog.Debug("failed to parse complete Cohere stream, continuing with partial fields", "error", err)
 	}
 
-	if content.Len() == 0 && len(toolCalls) == 0 && finishReason == "" {
+	if content.Len() == 0 && thinking.Len() == 0 && len(toolCalls) == 0 && finishReason == "" {
 		return
 	}
 
+	// The message is rebuilt in the Cohere shape, so the same conversion as a
+	// non-streaming message applies to it.
 	type contentBlock struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type     string `json:"type"`
+		Text     string `json:"text,omitempty"`
+		Thinking string `json:"thinking,omitempty"`
 	}
 	message := struct {
 		Role      string           `json:"role"`
@@ -324,15 +330,18 @@ func parseCohereChatStream(respB []byte, parsed *request.VendorOpenAI) {
 		Role:      "assistant",
 		ToolCalls: toolCalls,
 	}
+	if thinking.Len() > 0 {
+		message.Content = append(message.Content, contentBlock{Type: "thinking", Thinking: thinking.String()})
+	}
 	if content.Len() > 0 {
-		message.Content = []contentBlock{{Type: "text", Text: content.String()}}
+		message.Content = append(message.Content, contentBlock{Type: "text", Text: content.String()})
 	}
 
 	messageB, err := json.Marshal(message)
 	if err != nil {
 		return
 	}
-	buildCohereChoices(parsed, messageB, finishReason)
+	buildCohereChoices(parsed, convertCohereMessage(messageB), finishReason)
 }
 
 // buildCohereChoices wraps a Cohere message into the OpenAI choices layout

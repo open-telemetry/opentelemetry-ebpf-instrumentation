@@ -206,6 +206,43 @@ func TestCohereSpan_ChatStreaming(t *testing.T) {
 		ai.GetOutput())
 }
 
+func TestCohereSpan_ChatStreamingThinking(t *testing.T) {
+	response := `event: message-start
+data: {"id":"r1","type":"message-start","delta":{"message":{"role":"assistant"}}}
+
+event: content-start
+data: {"type":"content-start","index":0,"delta":{"message":{"content":{"type":"thinking","thinking":""}}}}
+
+event: content-delta
+data: {"type":"content-delta","index":0,"delta":{"message":{"content":{"thinking":"The user "}}}}
+
+event: content-delta
+data: {"type":"content-delta","index":0,"delta":{"message":{"content":{"thinking":"greets me."}}}}
+
+event: content-end
+data: {"type":"content-end","index":0}
+
+event: content-start
+data: {"type":"content-start","index":1,"delta":{"message":{"content":{"type":"text","text":""}}}}
+
+event: content-delta
+data: {"type":"content-delta","index":1,"delta":{"message":{"content":{"text":"Hello!"}}}}
+
+event: content-end
+data: {"type":"content-end","index":1}
+
+event: message-end
+data: {"type":"message-end","delta":{"finish_reason":"COMPLETE","usage":{"tokens":{"input_tokens":12,"output_tokens":20}}}}
+`
+	reqBody := `{"model":"command-a-reasoning-08-2025","messages":[{"role":"user","content":"Hi"}],"stream":true}`
+	span, ok := runCohereSpan(t, cohereHost, "/v2/chat", reqBody, response)
+	require.True(t, ok)
+
+	assert.JSONEq(t,
+		`[{"role":"assistant","parts":[{"type":"reasoning","content":"The user greets me."},{"type":"text","content":"Hello!"}],"finish_reason":"COMPLETE"}]`,
+		span.GenAI.Cohere.GetOutput())
+}
+
 func TestCohereSpan_ChatStreamingToolCalls(t *testing.T) {
 	response := `event: message-start
 data: {"id":"a1","type":"message-start","delta":{"message":{"role":"assistant"}}}
