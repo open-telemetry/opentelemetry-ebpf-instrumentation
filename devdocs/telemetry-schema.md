@@ -29,13 +29,13 @@ which is the `schema_url` OBI stamps onto its OTLP telemetry (see
   permanent identity. Never edit a released file; add a new version instead.
 - The `versions:` block records the transformations (attribute/metric renames)
   between versions, newest first. The first release is an empty baseline.
-- The `schema_url:` inside each file MUST equal its served URL. `make
-  check-schema-files` enforces this.
+- The `schema_url:` inside each file MUST equal its served URL. `mise run
+  check:schema-files` enforces this.
 
 ## Releasing a new version
 
 Version management is release-driven. The version comes from `versions.yaml`
-(the OBI release version), and `make prerelease` runs `make generate-schema-next`
+(the OBI release version), and `mise run release:prerelease` runs `mise run generate:schema-next`
 automatically. For stable releases, it:
 
 - cuts `site/schemas/obi/<version>` (previous file plus a new, empty `<version>:`
@@ -45,7 +45,7 @@ automatically. For stable releases, it:
   `schema_url` in `schemas/obi/manifest.yaml` to `<version>`.
 
 These changes are part of the release-prep commit; on merge to `main` the file is
-deployed by `publish-schemas.yml`. `make check-schema-files` (run in CI) enforces
+deployed by `publish-schemas.yml`. `mise run check:schema-files` (run in CI) enforces
 that the emitted `OBISchemaURL` and the manifest both name the `versions.yaml`
 version and that a schema file for that version is actually published. For
 prereleases, generation leaves the published schemas and both URLs unchanged;
@@ -129,8 +129,7 @@ section empty once drained.
   attribute filters, and the spans keep both attributes.
 - HTTP client spans no longer carry `url.query`; the scrubbed query string remains part of
   `url.full`. HTTP server spans keep `url.query`.
-- The span reference (`site/docs/spans.md`) documents every span's name. The emitted
-  telemetry is unchanged.
+- The span reference (`site/docs/spans.md`) documents every span's name.
 - The trace resource no longer carries `otel.scope.name`. Spans now carry the instrumentation
   scope itself (`go.opentelemetry.io/obi`, the OBI version and the schema URL), so resource
   filters on `otel.scope.name` must use the instrumentation scope name instead. Exporters to

@@ -1,5 +1,5 @@
 # Filters `weaver registry check` JSON diagnostics down to the ones that must
-# fail `make lint-schema`, removing only the expected findings below.
+# fail `mise run lint-schema`, removing only the expected findings below.
 #
 # 1. UnstableFileFormat we accept UnstableFileFormat for "definition/2" due to the migration process.
 #

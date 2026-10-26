@@ -1,0 +1,3 @@
+[tasks.jni]
+description = "Build the Java agent JNI library"
+run = "bash build-jni.sh"

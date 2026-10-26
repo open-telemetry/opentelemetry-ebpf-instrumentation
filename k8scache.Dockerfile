@@ -13,12 +13,13 @@ COPY go.mod go.mod
 COPY go.sum go.sum
 COPY LICENSE LICENSE
 COPY NOTICE NOTICE
-COPY Makefile Makefile
 COPY cmd/ cmd/
 COPY pkg/ pkg/
 
 # Build
-RUN make compile-cache RELEASE_VERSION=${RELEASE_VERSION} RELEASE_REVISION=${RELEASE_REVISION}
+RUN mkdir -p bin && CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build \
+    -ldflags="-X 'go.opentelemetry.io/obi/pkg/buildinfo.Version=${RELEASE_VERSION}' -X 'go.opentelemetry.io/obi/pkg/buildinfo.Revision=${RELEASE_REVISION}'" \
+    -o bin/k8s-cache cmd/k8s-cache/main.go
 
 # Create final image from minimal + built binary
 FROM scratch

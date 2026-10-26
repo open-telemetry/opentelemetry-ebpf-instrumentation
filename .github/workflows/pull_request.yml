@@ -6,6 +6,7 @@ on:
   pull_request:
     branches: [main, release-*]
     paths:
+      - ".github/actions/setup-mise/**"
       - ".github/workflows/pull_request.yml"
       - ".github/actions/generate-bpf/**"
       - "**.go"
@@ -20,7 +21,10 @@ on:
       - "pkg/**"
       - "schemas/**"
       - "scripts/**"
-      - "Makefile"
+      - "mise.toml"
+      - "mise.lock"
+      - ".mise/tasks/**"
+      - ".mise/scripts/**"
       - "Dockerfile"
       - "**/*Dockerfile*"
   workflow_call:
@@ -29,6 +33,11 @@ on:
         description: "Git ref (commit, branch, or tag) to check out"
         required: false
         type: string
+      skip_mise_cache:
+        description: "Skip restoring the Mise download and Go caches"
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: pr-checks-${{ github.head_ref || github.run_id }}
@@ -49,11 +58,16 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/generate-bpf
+        with:
+          cache-downloads: ${{ !inputs.skip_mise_cache && (inputs.ref == '' || inputs.ref == null) }}
+          cache-go-build: ${{ !inputs.skip_mise_cache && (inputs.ref == '' || inputs.ref == null) }}
 
   checks:
     name: Generated files and repo hygiene
     needs: generate-bpf
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: go,gradle,python,java,clang,conda:llvm-tools,go:github.com/cilium/ebpf/cmd/bpf2go
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -61,13 +75,25 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      - name: Test setup-mise action helpers
+        run: bash .github/actions/setup-mise/test.sh
+
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
         with:
-          go-version-file: "go.mod"
-          cache: true
+          cache-downloads: "${{ !inputs.skip_mise_cache && (inputs.ref == '' || inputs.ref == null) }}"
+
+      - name: Go module cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          path: ~/go/pkg/mod
+          key: go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-mod-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Go build cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
@@ -81,20 +107,32 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Upstream semconv registry cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] pinned upstream semconv tarball, keyed on the version in schemas/obi/manifest.yaml
         with:
           path: schemas/obi/.deps
           key: semconv-deps-${{ hashFiles('schemas/obi/manifest.yaml') }}
 
       - name: Build test tools
-        run: make prereqs
+        run: mise run prereqs
 
       - name: Run checks
-        run: make go-mod-tidy license-header-check notices-update check-go-mod check-ebpf-ver-synced check-config-schema check-config-v2-artifacts check-clean-work-tree
+        run: |
+          mise run go-mod-tidy
+          mise run check:license-headers
+          mise run generate:license-notices
+          mise run check:go-mod
+          mise run check:ebpf-ver-synced
+          mise run test:build-compat
+          mise run check:config-schema
+          mise run check:config-v2-artifacts
+          mise run check:clean-work-tree
 
   clang-format:
     name: Clang format
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: clang-format
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -103,6 +141,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
+        with:
+          cache-downloads: "${{ !inputs.skip_mise_cache && (inputs.ref == '' || inputs.ref == null) }}"
       - name: Check clang-format
         run: |
           files=$( \
@@ -113,15 +155,17 @@ jobs:
             echo "No C/C++ files modified."
             exit 0
           fi
-          make docker-clang-format CLANG_FORMAT_FILES="$(echo $files)"
+          mise exec -- clang-format -i $files
           if ! git diff --exit-code $files; then
-            echo "Error: Some files are not formatted correctly. Run make docker-clang-format CLANG_FORMAT_FILES=\"$(echo $files)\"."
+            echo "Error: Some files are not formatted correctly. Run mise exec -- clang-format -i on the modified files."
             exit 1
           fi
 
   clang-tidy:
     name: Clang tidy
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: github:cpp-linter/clang-tools-static-binaries
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -129,8 +173,16 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
+        with:
+          cache-downloads: "${{ !inputs.skip_mise_cache && (inputs.ref == '' || inputs.ref == null) }}"
+
+      - name: Check clang-tidy version
+        run: mise exec -- clang-tidy --version
+
       - name: Run clang-tidy
-        run: make docker-clang-tidy
+        run: mise run clang-tidy
 
   collector-cross-compile:
     name: "Collector cross-compile (${{ matrix.goos }}/${{ matrix.goarch }})"
@@ -158,13 +210,24 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      - name: Go module cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
         with:
-          go-version-file: "go.mod"
-          cache: true
+          path: ~/go/pkg/mod
+          key: go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-mod-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Set up Go with mise
+        uses: $/.github/actions/setup-mise
+        with:
+          cache-downloads: "${{ !inputs.skip_mise_cache && (inputs.ref == '' || inputs.ref == null) }}"
+        env:
+          MISE_ENABLE_TOOLS: go
 
       - name: Go build cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
@@ -195,13 +258,24 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      - name: Go module cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
         with:
-          go-version-file: "go.mod"
-          cache: true
+          path: ~/go/pkg/mod
+          key: go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-mod-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Set up Go with mise
+        uses: $/.github/actions/setup-mise
+        with:
+          cache-downloads: "${{ !inputs.skip_mise_cache && (inputs.ref == '' || inputs.ref == null) }}"
+        env:
+          MISE_ENABLE_TOOLS: go
 
       - name: Go build cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
@@ -229,11 +303,17 @@ jobs:
       - name: Install ocb
         env:
           OCB_VERSION: ${{ steps.ocb.outputs.version }}
-        run: go install go.opentelemetry.io/collector/cmd/builder@"${OCB_VERSION}"
+          GOBIN: ${{ runner.temp }}/ocb-bin
+        run: |
+          mkdir -p "$GOBIN"
+          go install go.opentelemetry.io/collector/cmd/builder@"${OCB_VERSION}"
 
       - name: Build collector distribution
         working-directory: examples/otel-collector
-        run: "$(go env GOPATH)/bin/builder --config ./builder-config.yaml"
+        env:
+          GOBIN: ${{ runner.temp }}/ocb-bin
+        run: |
+          "$GOBIN/builder" --config ./builder-config.yaml
 
       - name: Validate Config v2 collector configuration
         working-directory: examples/otel-collector

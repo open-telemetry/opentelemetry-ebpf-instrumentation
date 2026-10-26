@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+#MISE description="Build the BPF generator container image"
+set -euo pipefail
+
+oci_layout="${GENERATOR_OCI_LAYOUT:-$MISE_CONFIG_ROOT/testoutput/mise-generator-layout}"
+oci_bin="${OCI_BIN:-docker}"
+mkdir -p -- "$oci_layout"
+oci_layout="$(cd -- "$oci_layout" && pwd -P)"
+repo_root="$(cd -- "$MISE_CONFIG_ROOT" && pwd -P)"
+
+if [[ "$oci_layout" == "/" || "$oci_layout" == "$repo_root" ]]; then
+  echo "GENERATOR_OCI_LAYOUT must be a dedicated output directory" >&2
+  exit 1
+fi
+
+rm -rf "$oci_layout"
+
+builder=""
+driver="$("$oci_bin" buildx inspect --format '{{.Driver}}' 2>/dev/null || true)"
+if [[ "$driver" == "docker" ]]; then
+  builder="mise-generator-$$"
+  "$oci_bin" buildx create --name "$builder" --driver docker-container >/dev/null
+  trap '"$oci_bin" buildx rm "$builder" >/dev/null 2>&1 || true' EXIT
+fi
+
+builder_args=()
+if [[ -n "$builder" ]]; then
+  builder_args=(--builder "$builder")
+fi
+
+"$oci_bin" buildx build "${builder_args[@]}" \
+  --output "type=oci,name=local,dest=$oci_layout,tar=false" \
+  -f generator.Dockerfile .

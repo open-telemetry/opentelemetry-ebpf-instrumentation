@@ -1,8 +1,8 @@
 name: Generate BPF
 description: |
-  Run `make docker-generate` and publish the resulting `_bpfel.go` +
+  Run the Mise BPF generation task and publish the resulting `_bpfel.go` +
   `_bpfel.o` files as a workflow artifact. Caller must `actions/checkout`
-  first so this composite can resolve the local Go module + Makefile.
+  first so the task can resolve the repository configuration.
 
 inputs:
   artifact-name:
@@ -13,17 +13,36 @@ inputs:
     description: 'Prefix for the Go build cache. Defaults to the umbrella PR prefix.'
     required: false
     default: go-build-pr-race
+  cache-downloads:
+    description: Whether to cache Mise downloads.
+    required: false
+    default: 'true'
+  cache-go-build:
+    description: Whether to cache the Go build directory.
+    required: false
+    default: 'true'
 
 runs:
   using: composite
   steps:
-    - name: Set up Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+    - name: Set up mise
+      uses: $/.github/actions/setup-mise
       with:
-        go-version-file: "go.mod"
-        cache: true
+        cache-downloads: ${{ inputs.cache-downloads }}
+      env:
+        MISE_ENABLE_TOOLS: go,clang,conda:llvm-tools,go:github.com/cilium/ebpf/cmd/bpf2go
+
+    - name: Go module cache
+      if: ${{ inputs.cache-go-build == 'true' }}
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      with:
+        path: ~/go/pkg/mod
+        key: go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          go-mod-${{ runner.os }}-${{ runner.arch }}-
 
     - name: Go build cache
+      if: ${{ inputs.cache-go-build == 'true' }}
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
       with:
         path: ~/.cache/go-build
@@ -31,23 +50,11 @@ runs:
         restore-keys: |
           ${{ inputs.cache-key-prefix }}-${{ runner.os }}-${{ runner.arch }}-
 
-    - name: Pre-pull generator image
-      shell: bash
-      run: |
-        IMG=$(grep -E "^GEN_IMG \?= " Makefile | awk '{print $3}')
-        for i in 1 2 3 4 5; do
-          if docker pull "$IMG"; then
-            exit 0
-          fi
-          echo "pull attempt $i failed, retrying in $((i*5))s"
-          sleep $((i*5))
-        done
-        echo "all pull attempts failed"
-        exit 1
-
     - name: Generate BPF files
       shell: bash
-      run: make docker-generate
+      env:
+        MISE_ENABLE_TOOLS: go,clang,conda:llvm-tools,go:github.com/cilium/ebpf/cmd/bpf2go
+      run: mise run generate
 
     - name: Upload generated BPF files
       uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

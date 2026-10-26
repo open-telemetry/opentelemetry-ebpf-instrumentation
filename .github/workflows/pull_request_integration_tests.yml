@@ -6,6 +6,7 @@ on:
   pull_request:
     branches: [main, release-*]
     paths:
+      - ".github/actions/setup-mise/**"
       - ".github/workflows/pull_request_integration_tests.yml"
       - ".github/actions/free-disk/**"
       - "**.go"
@@ -48,11 +49,15 @@ jobs:
 
       - uses: $/.github/actions/generate-bpf
         with:
+          cache-downloads: ${{ inputs.ref == '' || inputs.ref == null }}
+          cache-go-build: ${{ inputs.ref == '' || inputs.ref == null }}
           cache-key-prefix: go-build-integration-race
 
   test-matrix:
     name: "Build matrix"
     runs-on: ubuntu-latest
+    env:
+      MISE_ENABLE_TOOLS: go
     timeout-minutes: 45
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
@@ -62,6 +67,11 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
+        with:
+          cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
+
       # amd64 runs the full suite (10 shards). arm64 keeps the current
       # multiprocess subset (2 shards) until coverage is expanded.
       - name: Build test matrix
@@ -70,8 +80,8 @@ jobs:
           {
             echo -n "matrix="
             jq -nc \
-              --argjson amd64 "$(PARTITIONS=10 make integration-test-matrix-json)" \
-              --argjson arm64 "$(PARTITIONS=2 make multiprocess-integration-test-matrix-json)" \
+              --argjson amd64 "$(PARTITIONS=10 mise run test:integration:matrix)" \
+              --argjson arm64 "$(PARTITIONS=2 mise run test:integration:matrix:multiprocess)" \
               '{
                 include: (
                   ($amd64.include | map(. + {runner: "ubuntu-latest", arch: "amd64"}))
@@ -115,6 +125,7 @@ jobs:
           echo "key=base-images-${ARCH}-${REF_SCOPE}-${IMAGE_SCOPE}" >> "$GITHUB_OUTPUT"
 
       - name: Cache base images
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
         id: base-images-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
         with:
@@ -173,6 +184,8 @@ jobs:
       checks: write
       pull-requests: write
     runs-on: ${{ matrix.runner }}
+    env:
+      MISE_ENABLE_TOOLS: go
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -203,13 +216,22 @@ jobs:
           username: ${{ vars.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
         with:
-          go-version-file: "go.mod"
-          cache: true
+          cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
+
+      - name: Go module cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          path: ~/go/pkg/mod
+          key: go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            go-mod-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Go build cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
         with:
           path: ~/.cache/go-build
@@ -223,13 +245,14 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Upstream semconv registry cache
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] pinned upstream semconv tarball, keyed on the version in schemas/obi/manifest.yaml
         with:
           path: schemas/obi/.deps
           key: semconv-deps-${{ hashFiles('schemas/obi/manifest.yaml') }}
 
       - name: Build test tools
-        run: make prereqs
+        run: mise run prereqs
 
       - name: Compute base-image cache key
         id: cache-key
@@ -247,6 +270,7 @@ jobs:
           echo "key=base-images-${ARCH}-${REF_SCOPE}-${IMAGE_SCOPE}" >> "$GITHUB_OUTPUT"
 
       - name: Restore base images
+        if: ${{ inputs.ref == '' || inputs.ref == null }}
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
         with:
           path: /tmp/base-images.tar
@@ -405,7 +429,7 @@ jobs:
           retention-days: 5
 
       - name: Process coverage data
-        run: make itest-coverage-data
+        run: mise run itest-coverage-data
 
       - name: Report coverage
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1

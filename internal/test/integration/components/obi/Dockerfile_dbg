@@ -23,10 +23,9 @@ COPY internal/config/ internal/config/
 COPY pkg/ pkg/
 COPY go.mod go.mod
 COPY go.sum go.sum
-COPY Makefile Makefile
 
 # Build
-RUN make compile-for-coverage
+RUN mkdir -p bin && CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build -cover -o bin/obi cmd/obi/main.go
 
 FROM scratch
 

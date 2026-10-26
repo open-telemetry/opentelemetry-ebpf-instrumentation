@@ -85,7 +85,7 @@ func findNodeBinary(t *testing.T) string {
 // line names no entry point.
 func startNodeScript(t *testing.T, script string) *exec.Cmd {
 	t.Helper()
-	// Skips when node is absent, so `make test` on a host without it does not
+	// Skips when node is absent, so Go tests on a host without it do not
 	// fail. Every spawn helper guards here rather than at each call site.
 	findNodeBinary(t)
 

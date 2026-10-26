@@ -49,7 +49,7 @@ for the IDE workflow. Rebuild the container after changing its configuration.
 
 Development sessions run as the non-root `vscode` user so permission-sensitive
 unit tests work correctly. On startup, this user joins the mounted Docker socket's
-group, allowing `make docker-generate` without running tests as root. Use `sudo`
+group, allowing Docker-based integration tests without running tests as root. Use `sudo`
 only for commands that need elevated permissions.
 
 After updating an existing root-based container, rebuild it in your IDE or run
