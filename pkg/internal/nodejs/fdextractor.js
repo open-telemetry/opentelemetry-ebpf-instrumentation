@@ -32,6 +32,14 @@
   const v8 = require('v8');
 
   const debug_enabled = false;
+  const MAX_FD_CACHE_ENTRIES = 10000;
+  const DEFAULT_FD_REFRESH_INTERVAL_MS = 1000;
+  const configuredFdRefreshIntervalMs = Number(
+    process.env.OBI_FD_CACHE_REFRESH_INTERVAL_MS || DEFAULT_FD_REFRESH_INTERVAL_MS,
+  );
+  const FD_REFRESH_INTERVAL_MS = Number.isFinite(configuredFdRefreshIntervalMs) && configuredFdRefreshIntervalMs >= 0
+    ? configuredFdRefreshIntervalMs
+    : DEFAULT_FD_REFRESH_INTERVAL_MS;
 
   // Substituted by the injector: trace-context propagation machinery is
   // per-async-operation cost (net prototype wraps + an async_hooks before
@@ -54,6 +62,10 @@
 
   if (TRACES_ENABLED) {
     const als = new AsyncLocalStorage();
+    const fdCache = orig.fdCache || new Map();
+    fdCache.clear();
+    orig.fdCache = fdCache;
+
     const pad4 = n => String(n).padStart(4, '0');
 
     orig.requestFd = () => {
@@ -110,6 +122,14 @@
         return Promise.resolve();
       }
 
+      const now = performance.now();
+      const cached = fdCache.get(outFd);
+      const hit = cached && cached.socket === socket && cached.incomingFd === incomingFd;
+
+      if (hit && now - cached.lastSentMs < FD_REFRESH_INTERVAL_MS) {
+        return;
+      }
+
       if (debug_enabled) {
         const addr = socket.remoteAddress || 'unknown';
         const port = socket.remotePort || 'unknown';
@@ -120,7 +140,11 @@
       }
 
       try {
-        fs.existsSync(`/dev/null/obi/${pad4(incomingFd)}${pad4(outFd)}`)
+        fs.existsSync(`/dev/null/obi/${pad4(incomingFd)}${pad4(outFd)}`);
+        if (!cached && fdCache.size >= MAX_FD_CACHE_ENTRIES) {
+          fdCache.delete(fdCache.keys().next().value);
+        }
+        fdCache.set(outFd, { incomingFd, socket, lastSentMs: now });
       } catch (err) {
       }
     }
@@ -133,6 +157,7 @@
       if (store) {
         sock.once('connect', () => {
           const outFd = sock._handle && sock._handle.fd;
+          fdCache.delete(outFd);
           correlate(store.incomingFd, outFd, sock);
         });
       }
