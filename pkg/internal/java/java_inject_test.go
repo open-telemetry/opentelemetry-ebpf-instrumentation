@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -953,6 +954,8 @@ func TestEnsureEmbeddedAgent_PlaceholderBytesError(t *testing.T) {
 
 type propertiesAttacher struct {
 	response string
+	reader   io.ReadCloser
+	err      error
 	calls    int
 	cleanups int
 }
@@ -968,7 +971,44 @@ func (a *propertiesAttacher) Attach(_ context.Context, _ *procs.ProcessHandle, a
 		return nil, fmt.Errorf("unexpected attach command: %v", args)
 	}
 	a.calls++
+	if a.err != nil {
+		return nil, a.err
+	}
+	if a.reader != nil {
+		return a.reader, nil
+	}
 	return io.NopCloser(strings.NewReader(a.response)), nil
+}
+
+func TestJavaInjector_VerifyLoadedAgentHandlesPropertiesFailure(t *testing.T) {
+	for _, version := range []string{"3", ""} {
+		for _, failure := range []string{"attach", "read"} {
+			t.Run(version+"/"+failure, func(t *testing.T) {
+				var logs bytes.Buffer
+				injector := &JavaInjector{
+					log:          slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+					agentVersion: version,
+				}
+				attacher := &propertiesAttacher{}
+				if failure == "attach" {
+					attacher.err = io.ErrUnexpectedEOF
+				} else {
+					attacher.reader = io.NopCloser(iotest.ErrReader(io.ErrUnexpectedEOF))
+				}
+				err := injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true)
+				if version != "" {
+					require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+				} else {
+					require.NoError(t, err)
+					assert.Contains(t, logs.String(), "HttpClient.sendAsync header propagation unavailable")
+					assert.Contains(t, logs.String(), "effective=unavailable")
+				}
+				assert.NotContains(t, logs.String(), "injection path available")
+				require.Equal(t, 1, attacher.calls)
+				require.Equal(t, 1, attacher.cleanups)
+			})
+		}
+	}
 }
 
 func TestJavaInjector_VerifyLoadedAgentUsesOnePropertiesRequest(t *testing.T) {
