@@ -256,8 +256,15 @@ To select another JDK, set `JAVA_HTTPCLIENT_RUNTIME_IMAGE` to a digest-pinned
 Java 11+ runtime image before building the fixture. Unit compatibility tests
 also run in the Java agent CI JDK matrix (8, 11, 17, 21); the transport CI matrix
 selects JDK 11, 17, and 21 on amd64 and arm64. Java 8 has no JDK HttpClient API.
+The runtime matrix has passed on native amd64 and arm64 with Temurin
+11.0.32.1, 17.0.20.1, and 21.0.12.1. Other vendors and JDK releases are not
+established by these runs; their internal layouts must pass the same gates.
 Bundling both JNI libraries or compiling Java 8 bytecode does not establish
 runtime coverage. The JMH
 `JdkHttpClientPropagationBenchmark` compares bounded byte-buffer preparation
 against the prototype's string decoding and splitting; it does not measure
 total application or eBPF overhead.
+
+See the [async validation results](validation/java-httpclient-async/README.md)
+for repeated sustained workloads, enabled/disabled overhead controls, retained
+Java/native state, exact revisions, and observed baseline correlation gaps.
