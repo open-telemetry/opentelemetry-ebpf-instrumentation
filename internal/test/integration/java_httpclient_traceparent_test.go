@@ -168,7 +168,7 @@ func testJavaHTTPClientTraceparent(t *testing.T, id, traceID, owned, mode string
 	if len(testModes) > 0 {
 		testMode = testModes[0]
 	}
-	injected := mode == "headers" && testMode != "async" && testMode != "http2" && testMode != "oversized" && testMode != "expect-continue"
+	injected := mode == "headers" && testMode != "http2" && testMode != "oversized" && testMode != "expect-continue"
 	method := http.MethodGet
 	if testMode == "post" || testMode == "expect-continue" {
 		method = http.MethodPost
@@ -239,7 +239,12 @@ func testJavaHTTPClientTraceparent(t *testing.T, id, traceID, owned, mode string
 	if testMode == "reentrant-async" {
 		nested := javaProxyObservations(t, id+"-nested")
 		require.Len(t, nested, 1)
-		require.Empty(t, nested[0].Headers, "reentrant sendAsync must not inherit synchronous eligibility")
+		if mode == "headers" {
+			require.Len(t, nested[0].Headers, 1)
+			require.Regexp(t, `^00-`+traceID+`-[0-9a-f]{16}-01$`, nested[0].Headers[0])
+		} else {
+			require.Empty(t, nested[0].Headers)
+		}
 	}
 	var downstream jaeger.Trace
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -330,10 +335,12 @@ func testJavaHTTPClientTraceparent(t *testing.T, id, traceID, owned, mode string
 }
 
 type javaProxyObservation struct {
-	Headers    []string `json:"headers"`
-	Protocol   int      `json:"protocol"`
-	Connection string   `json:"connection"`
-	Body       string   `json:"body"`
+	Headers     []string `json:"headers"`
+	Protocol    int      `json:"protocol"`
+	Connection  string   `json:"connection"`
+	Body        string   `json:"body"`
+	Application string   `json:"application"`
+	Tracestate  string   `json:"tracestate"`
 }
 
 func javaSpanDescendsFrom(trace jaeger.Trace, span jaeger.Span, ancestor string) bool {

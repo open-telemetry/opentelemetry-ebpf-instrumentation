@@ -36,6 +36,78 @@ permissions:
   contents: read
 
 jobs:
+  java-httpclient:
+    name: "Java HttpClient (JDK ${{ matrix.runtime.version }}, ${{ matrix.platform.arch }})"
+    needs: [generate-bpf, build-obi-image]
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - runner: ubuntu-latest
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+        runtime:
+          - version: 11
+            image: eclipse-temurin@sha256:149ed37838b04397f2f3dbf3334d4a9f52a867e85e10cc3e6609de6467a56ea5
+          - version: 17
+            image: eclipse-temurin@sha256:fdae60b4aee31b7228cd10fa883141fe8da67b59ba4d6292af47ccf8e5fd59d2
+          - version: 21
+            image: ""
+    env:
+      JAVA_HTTPCLIENT_RUNTIME_IMAGE: ${{ matrix.runtime.image }}
+      JAVA_HTTPCLIENT_OBI_IMAGE: hatest-obi
+      SKIP_DOCKER_BUILD: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/free-disk
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          go-version-file: go.mod
+
+      - name: Download generated BPF files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bpf-generated-${{ github.run_id }}
+
+      - name: Download OBI test image
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: obi-image-${{ matrix.platform.arch }}-${{ github.run_id }}
+          path: /tmp
+
+      - name: Run Java HttpClient transport regressions
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          docker load -i /tmp/hatest-obi.tar
+          build_args=()
+          if [[ -z "${JAVA_HTTPCLIENT_RUNTIME_IMAGE}" ]]; then
+            unset JAVA_HTTPCLIENT_RUNTIME_IMAGE
+          else
+            build_args+=(--build-arg "JAVA_HTTPCLIENT_RUNTIME_IMAGE=${JAVA_HTTPCLIENT_RUNTIME_IMAGE}")
+          fi
+          docker build "${build_args[@]}" -t hatest-java-httpclient-traceparent \
+            -f internal/test/integration/components/java_httpclient_traceparent/Dockerfile .
+          make testoutput
+          go test -v -count=1 -run '^TestJavaHTTPClient(Async)?Traceparent$' \
+            -timeout 20m ./internal/test/integration/ 2>&1 | tee testoutput/java-httpclient.log
+
+      - name: Upload Java HttpClient evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: java-httpclient-jdk${{ matrix.runtime.version }}-${{ matrix.platform.arch }}
+          path: testoutput/*java-httpclient*
+          retention-days: 14
+
   generate-bpf:
     name: Generate BPF
     runs-on: ubuntu-latest
