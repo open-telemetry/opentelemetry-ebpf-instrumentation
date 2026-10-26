@@ -12,9 +12,10 @@ import (
 )
 
 type runtimeCollection struct {
-	gc         gcRound
-	cumulative cumulativeCounters
-	polling    runtimemetrics.DotnetRuntimeMetricSnapshot
+	gc            gcRound
+	fragmentation gcFragmentation
+	cumulative    cumulativeCounters
+	polling       runtimemetrics.DotnetRuntimeMetricSnapshot
 	// ProcessorCount is emitted when the session is enabled, not every interval.
 	processorCount *int64
 	// Type labels survive reconnects; counts belong to this session.
@@ -24,6 +25,9 @@ type runtimeCollection struct {
 }
 
 func (c *runtimeCollection) observeEvent(event netTraceRuntimeEvent) (*runtimemetrics.DotnetRuntimeMetricSnapshot, error) {
+	if event.gc != nil {
+		return nil, c.fragmentation.observe(*event.gc)
+	}
 	if event.exceptionsUnavailable {
 		c.exceptions = nil
 		c.exceptionsUnavailable = true
@@ -72,6 +76,7 @@ func (c *runtimeCollection) observe(counter runtimeCounter) (*runtimemetrics.Dot
 			snapshot := c.polling
 			snapshot.ProcessCPUCount = c.processorCount
 			snapshot.Exceptions = maps.Clone(c.exceptions)
+			snapshot.GCHeapFragmentation = c.fragmentation.snapshot()
 			completed = &snapshot
 		}
 		c.polling = runtimemetrics.DotnetRuntimeMetricSnapshot{}
@@ -100,6 +105,7 @@ func (c *runtimeCollection) finish() *runtimemetrics.DotnetRuntimeMetricSnapshot
 	snapshot := c.polling
 	snapshot.ProcessCPUCount = c.processorCount
 	snapshot.Exceptions = maps.Clone(c.exceptions)
+	snapshot.GCHeapFragmentation = c.fragmentation.snapshot()
 	c.polling = runtimemetrics.DotnetRuntimeMetricSnapshot{}
 	return &snapshot
 }

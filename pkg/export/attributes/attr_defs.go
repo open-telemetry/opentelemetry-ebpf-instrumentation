@@ -768,6 +768,12 @@ func getDefinitions(
 				attr.DotnetGCHeapGeneration: true,
 			},
 		},
+		DotnetGCHeapFragmentation.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.DotnetGCHeapGeneration: true,
+			},
+		},
 		DotnetGCCollections.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{

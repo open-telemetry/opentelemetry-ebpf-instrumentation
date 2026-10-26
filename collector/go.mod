@@ -29,7 +29,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/network/armnetwork/v12 v12.1.0 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.10.1 // indirect
 	github.com/Microsoft/go-winio v0.6.3 // indirect
-	github.com/andybalholm/brotli v1.2.6 // indirect
+	github.com/andybalholm/brotli v1.2.7 // indirect
 	github.com/aws/aws-sdk-go-v2 v1.47.3 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.33.9 // indirect
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.9 // indirect
