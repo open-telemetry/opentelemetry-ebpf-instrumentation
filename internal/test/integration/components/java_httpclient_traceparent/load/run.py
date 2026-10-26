@@ -205,6 +205,8 @@ def analyze(records, measured, enabled):
         flag("header_identity_unverified_missing_export", not clients, key, record)
         flag("downstream_parent_mismatch", any(s["Trace"] != parts[1] or s["Parent"] != parts[2] for s in downstream), key, record)
     return {"counts": counts, "examples": examples,
+            "negotiated_tls": collections.Counter(r["TLS"] for r in measured.values()),
+            "negotiated_ciphers": collections.Counter(r["Cipher"] for r in measured.values()),
             "egress_connections": len({r["Connection"] for r in measured.values()})}
 
 

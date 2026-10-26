@@ -54,6 +54,8 @@ type spanRecord struct {
 type requestRecord struct {
 	Protocol   int
 	Connection string
+	TLS        string
+	Cipher     string
 	Headers    []string
 	Spans      []spanRecord
 }
@@ -139,6 +141,8 @@ func serve(cert, key string) {
 		record(strings.TrimPrefix(r.URL.Path, "/backend/")).Headers = append([]string{}, headers...)
 		record(strings.TrimPrefix(r.URL.Path, "/backend/")).Protocol = r.ProtoMajor
 		record(strings.TrimPrefix(r.URL.Path, "/backend/")).Connection = r.RemoteAddr
+		record(strings.TrimPrefix(r.URL.Path, "/backend/")).TLS = tls.VersionName(r.TLS.Version)
+		record(strings.TrimPrefix(r.URL.Path, "/backend/")).Cipher = tls.CipherSuiteName(r.TLS.CipherSuite)
 		records.Unlock()
 		if len(headers) > 0 {
 			metrics.WithHeader.Add(1)
