@@ -15,5 +15,5 @@ With agent traces enabled:
     Service B at 100% CPU, Service R at 16.8% CPU
     
 optimized:
-    iteration_duration.............: avg=31.01ms min=11.76ms med=29.93ms max=730.67ms p(90)=43.04ms p(95)=50.17ms
+    iteration_duration.............: avg=22.72ms min=12.66ms med=21.93ms max=711.16ms p(90)=26.42ms p(95)=27.94ms
     Service B at 100% CPU, Service R at 19.7% CPU
