@@ -66,8 +66,11 @@ func TestRun_WithDynamicSelector(t *testing.T) {
 	require.True(t, cfg.Enabled(obi.FeatureAppO11y), "test config must enable App O11y")
 
 	opts := []Option{WithDynamicSelector(sel)}
-	done := make(chan error, 1)
-	go func() { done <- Run(ctx, cfg, opts...) }()
+	done := make(chan struct{})
+	go func() {
+		_ = Run(ctx, cfg, opts...)
+		close(done)
+	}()
 
 	time.Sleep(2 * time.Second)
 	sel.AddPIDs(42, 100)
