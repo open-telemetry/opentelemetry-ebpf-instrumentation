@@ -165,7 +165,7 @@ func handleHeaderField(hf *bhpack.HeaderField) bool {
 		return true
 	case ":path":
 		val := hf.Value
-		if pos := strings.Index(val, "?"); pos >= 0 {
+		if pos := strings.IndexByte(val, '?'); pos >= 0 {
 			val = val[:pos]
 		}
 		if validPath.MatchString(val) {
@@ -617,7 +617,7 @@ func http2EventToSpan(parseContext *EBPFParseContext, pending *pendingH2Event) (
 				return request.Span{}, true, nil // response HEADERS misread as a request start
 			}
 			fullPath := path
-			if pos := strings.Index(path, "?"); pos >= 0 {
+			if pos := strings.IndexByte(path, '?'); pos >= 0 {
 				path = path[:pos]
 			}
 			if path == "" || !validPath.MatchString(path) {

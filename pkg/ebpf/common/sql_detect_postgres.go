@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"go.opentelemetry.io/obi/pkg/internal/split"
 	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -312,7 +313,7 @@ func postgresPreparedStatements(b *largebuf.LargeBuffer) (string, string, string
 			if asciiIndexFold(text, sqlExecuteKeyword) == 0 {
 				op = "EXECUTE"
 				rest := text[len(sqlExecuteKeyword):]
-				before, _, _ := bytes.Cut(rest, []byte{' '})
+				before, _, _ := split.CutByte(rest, ' ')
 				table = string(before)
 				sql = string(text)
 			}
