@@ -139,8 +139,10 @@ func newGraphBuilderWithProtocolMetricSelection(
 	swi.Add(transform.NameResolutionProvider(ctxInfo, config.NameResolver,
 		containerDecoratorToNameResolver, nameResolverToPeerMetadata),
 		swarm.WithID("NameResolution"))
+	jointMetricsConfig := JoinMetricsConfig(config)
 	swi.Add(transform.PeerMetadataProvider(ctxInfo, config.PeerMetadata, config.Attributes.InstanceID,
-		config.OTELMetrics.EndpointEnabled() || config.Prometheus.EndpointEnabled(), selection,
+		jointMetricsConfig.Features.ServiceGraph() &&
+			(config.OTELMetrics.EndpointEnabled() || config.Prometheus.EndpointEnabled()), selection,
 		processEventsCh, nameResolverToPeerMetadata, nameResolverToParentSettler),
 		swarm.WithID("PeerMetadata"))
 
@@ -185,7 +187,6 @@ func newGraphBuilderWithProtocolMetricSelection(
 	// some nodes (ipNodesFilter, span name limiter...) are only passed to the metrics export nodes.
 	// The exportableSpans queue already carries any dynamic per-signal trace/metrics gating.
 	// If no metrics exporter is configured, we will not start the metrics subpipeline to save resources.
-	jointMetricsConfig := JoinMetricsConfig(config)
 	exportingMetrics := jointMetricsConfig.Features.AnyAppO11yMetric() &&
 		(config.OTELMetrics.EndpointEnabled() || config.Prometheus.EndpointEnabled())
 	if exportingMetrics {
