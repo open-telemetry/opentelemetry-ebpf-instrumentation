@@ -14,7 +14,6 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
@@ -63,10 +62,8 @@ func main() {
 // then tear the workload down.
 func simulateHostDecisions(ctx context.Context, selector *discover.DynamicSelector) {
 	checkout := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "payments",
-			Name:      "checkout",
-		},
+		Namespace: "payments",
+		Name:      "checkout",
 	}
 	opts := selection.DynamicOptions{
 		ServiceName:      "checkout",

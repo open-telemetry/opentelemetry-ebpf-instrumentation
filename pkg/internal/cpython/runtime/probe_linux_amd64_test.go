@@ -626,30 +626,22 @@ func newProbeTestELF(t *testing.T, functions map[uint64][]byte, starts []uint64)
 	}
 	header := functionStartTable(starts)
 	return &elf.File{
-		FileHeader: elf.FileHeader{
-			Class: elf.ELFCLASS64, Data: elf.ELFDATA2LSB,
-			ByteOrder: binary.LittleEndian, Machine: elf.EM_X86_64,
-		},
+		Class: elf.ELFCLASS64, Data: elf.ELFDATA2LSB,
+		ByteOrder: binary.LittleEndian, Machine: elf.EM_X86_64,
 		Progs: []*elf.Prog{{
-			ProgHeader: elf.ProgHeader{
-				Type: elf.PT_LOAD, Flags: elf.PF_R | elf.PF_X, Off: testCodeFileOffset,
-				Vaddr: testCodeBaseAddress, Filesz: uint64(len(code)), Memsz: uint64(len(code)),
-			},
+			Type: elf.PT_LOAD, Flags: elf.PF_R | elf.PF_X, Off: testCodeFileOffset,
+			Vaddr: testCodeBaseAddress, Filesz: uint64(len(code)), Memsz: uint64(len(code)),
 			ReaderAt: bytes.NewReader(code),
 		}},
 		Sections: []*elf.Section{
 			{
-				SectionHeader: elf.SectionHeader{
-					Name: ".eh_frame_hdr", Type: elf.SHT_PROGBITS,
-					Addr: testFrameHeaderAddress, Size: uint64(len(header)),
-				},
+				Name: ".eh_frame_hdr", Type: elf.SHT_PROGBITS,
+				Addr: testFrameHeaderAddress, Size: uint64(len(header)),
 				ReaderAt: bytes.NewReader(header),
 			},
 			{
-				SectionHeader: elf.SectionHeader{
-					Name: ".plt", Type: elf.SHT_PROGBITS, Flags: elf.SHF_ALLOC | elf.SHF_EXECINSTR,
-					Addr: testPLTAddress, Size: 0x40,
-				},
+				Name: ".plt", Type: elf.SHT_PROGBITS, Flags: elf.SHF_ALLOC | elf.SHF_EXECINSTR,
+				Addr: testPLTAddress, Size: 0x40,
 			},
 		},
 	}

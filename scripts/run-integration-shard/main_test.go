@@ -378,7 +378,7 @@ func testConfig(t *testing.T) config {
 	t.Helper()
 	dir := t.TempDir()
 	return config{
-		scope:   scope{RunID: "42", Commit: "commit", Shard: "1", Arch: "amd64", Pattern: "TestAlpha|TestBeta|TestGamma"},
+		RunID: "42", Commit: "commit", Shard: "1", Arch: "amd64", Pattern: "TestAlpha|TestBeta|TestGamma",
 		attempt: 1, previousDir: filepath.Join(dir, "previous"), stateDir: filepath.Join(dir, "current"), coverageDir: filepath.Join(dir, "coverage"), report: filepath.Join(dir, "report.log"),
 	}
 }

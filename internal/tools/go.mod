@@ -1,8 +1,6 @@
 module go.opentelemetry.io/obi/internal/tools
 
-go 1.26.0
-
-require github.com/cilium/ebpf v0.22.0 // indirect
+go 1.27.3
 
 require (
 	4d63.com/gocheckcompilerdirectives v1.4.0 // indirect
@@ -59,6 +57,7 @@ require (
 	github.com/charmbracelet/x/term v0.2.2 // indirect
 	github.com/charmbracelet/x/termios v0.1.1 // indirect
 	github.com/charmbracelet/x/windows v0.2.2 // indirect
+	github.com/cilium/ebpf v0.22.0 // indirect
 	github.com/ckaznocha/intrange v0.3.1 // indirect
 	github.com/clipperhouse/displaywidth v0.11.0 // indirect
 	github.com/clipperhouse/uax29/v2 v2.7.0 // indirect

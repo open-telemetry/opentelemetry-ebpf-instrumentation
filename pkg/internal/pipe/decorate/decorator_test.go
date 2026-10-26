@@ -37,11 +37,11 @@ func TestDecoration(t *testing.T) {
 	go dec(t.Context())
 
 	// When it receives items
-	f1 := &testRecord{CommonAttrs: pipe.CommonAttrs{SrcName: "source"}}
+	f1 := &testRecord{SrcName: "source"}
 	f1.SrcAddr = pipe.IPAddr(srcIP)
 	f1.DstAddr = pipe.IPAddr(dstIP)
 
-	f2 := &testRecord{CommonAttrs: pipe.CommonAttrs{DstName: "destination"}}
+	f2 := &testRecord{DstName: "destination"}
 	f2.SrcAddr = pipe.IPAddr(srcIP)
 	f2.DstAddr = pipe.IPAddr(dstIP)
 

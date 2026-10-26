@@ -48,7 +48,7 @@ func TestRuntimeMetricsJobLabel(t *testing.T) {
 					ValueBytes: 42,
 				},
 				Nodejs: &runtimemetrics.NodejsRuntimeMetricSnapshot{
-					NodejsEventLoopValues: appruntime.NodejsEventLoopValues{ELUActiveNs: 1_000_000},
+					ELUActiveNs: 1_000_000,
 				},
 			}})
 

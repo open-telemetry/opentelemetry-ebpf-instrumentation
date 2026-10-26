@@ -10,7 +10,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
@@ -19,7 +18,7 @@ import (
 
 func TestParseK8sWorkload(t *testing.T) {
 	ref, err := ParseK8sWorkload(&appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{Namespace: "payments", Name: "checkout"},
+		Namespace: "payments", Name: "checkout",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, selection.K8sWorkloadRef{Kind: "Deployment", Namespace: "payments", Name: "checkout"}, ref)

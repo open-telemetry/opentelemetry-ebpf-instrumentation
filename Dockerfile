@@ -1,7 +1,7 @@
-ARG TAG=0.2.17@sha256:1ae9406f2566e32ccf5d8ba8e5ff0586a322300ae82870988ad605429021174a
+ARG TAG=0.2.18@sha256:00da54aef610c9d8ed77757afab9c419079f17852bad0e02fe0102e5ce508be4
 
 # Build JNI native library using Go image (has gcc, no apt install needed)
-FROM golang:1.27.2@sha256:007a316059246276cb214df93950be77837545dc78007a73e0291a4963d5d3bf AS jni-builder
+FROM golang:1.27.3@sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86abcc63ba4efc AS jni-builder
 ARG BUILDARCH=amd64
 COPY --from=gradle:9.8.1-jdk21-noble@sha256:d879477a2197b2b8a5eb910d007f0b1594eb440aa2740baac17ea245fcfb02f7 /opt/java/openjdk/include /opt/java/include
 WORKDIR /build

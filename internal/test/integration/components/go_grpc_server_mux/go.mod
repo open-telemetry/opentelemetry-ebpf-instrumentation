@@ -1,6 +1,6 @@
 module go.opentelemetry.io/obi/internal/test/integration/components/go_grpc_server_mux
 
-go 1.26.0
+go 1.27.3
 
 require (
 	golang.org/x/net v0.59.0

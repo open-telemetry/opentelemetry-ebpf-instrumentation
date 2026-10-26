@@ -63,12 +63,10 @@ func TestRuntimeMetricValidSizeClassTable(t *testing.T) {
 				binary.LittleEndian.PutUint16(data[tc.index*2:], tc.value)
 			}
 			f := &elf.File{
-				FileHeader: elf.FileHeader{ByteOrder: binary.LittleEndian},
+				ByteOrder: binary.LittleEndian,
 				Progs: []*elf.Prog{{
-					ProgHeader: elf.ProgHeader{
-						Type: elf.PT_LOAD, Flags: tc.flags, Vaddr: tableAddress,
-						Filesz: tc.fileSize, Memsz: uint64(len(data)),
-					},
+					Type: elf.PT_LOAD, Flags: tc.flags, Vaddr: tableAddress,
+					Filesz: tc.fileSize, Memsz: uint64(len(data)),
 					ReaderAt: bytes.NewReader(data),
 				}},
 			}
@@ -340,9 +338,9 @@ func TestRuntimeMetricSchedBase(t *testing.T) {
 		{"address overflow", math.MaxUint64 - 7, 0, 0, "invalid sched.goidgen storage"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := &elf.File{Progs: []*elf.Prog{{ProgHeader: elf.ProgHeader{
+			f := &elf.File{Progs: []*elf.Prog{{
 				Type: elf.PT_LOAD, Flags: elf.PF_R | elf.PF_W, Vaddr: 0x2000, Memsz: 0x2000,
-			}}}}
+			}}}
 			got, err := runtimeMetricSchedBase(f, tc.field, tc.offset)
 			if tc.wantError == "" {
 				require.NoError(t, err)
@@ -372,10 +370,10 @@ func TestRuntimeMetricMemstatsBase(t *testing.T) {
 		{"address overflow", math.MaxUint64 - 7, 0, 0, "invalid memstats.heapStats storage"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := &elf.File{Progs: []*elf.Prog{{ProgHeader: elf.ProgHeader{
+			f := &elf.File{Progs: []*elf.Prog{{
 				Type: elf.PT_LOAD, Flags: elf.PF_R | elf.PF_W,
 				Vaddr: 0x2000, Filesz: 0x100, Memsz: 0x2000,
-			}}}}
+			}}}
 			got, err := runtimeMetricMemstatsBase(f, tc.heapStats, tc.offset)
 			if tc.wantError != "" {
 				require.EqualError(t, err, tc.wantError)
@@ -433,24 +431,24 @@ func TestRuntimeMetricWritableRange(t *testing.T) {
 		{"address overflow", math.MaxUint64 - 1, 4, readWrite, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := &elf.File{Progs: []*elf.Prog{{ProgHeader: elf.ProgHeader{
+			f := &elf.File{Progs: []*elf.Prog{{
 				Type: elf.PT_LOAD, Flags: tc.flags,
 				Vaddr: 0x1000, Filesz: 0x800, Memsz: 0x1000,
-			}}}}
+			}}}
 			require.Equal(t, tc.want, runtimeMetricWritableRange(f, tc.address, tc.size))
 		})
 	}
 
 	t.Run("non-loadable segment", func(t *testing.T) {
-		f := &elf.File{Progs: []*elf.Prog{{ProgHeader: elf.ProgHeader{
+		f := &elf.File{Progs: []*elf.Prog{{
 			Type: elf.PT_NOTE, Flags: readWrite, Vaddr: 0x1000, Memsz: 0x1000,
-		}}}}
+		}}}
 		require.False(t, runtimeMetricWritableRange(f, 0x1000, 4))
 	})
 	t.Run("segment address overflow", func(t *testing.T) {
-		f := &elf.File{Progs: []*elf.Prog{{ProgHeader: elf.ProgHeader{
+		f := &elf.File{Progs: []*elf.Prog{{
 			Type: elf.PT_LOAD, Flags: readWrite, Vaddr: math.MaxUint64 - 7, Memsz: 16,
-		}}}}
+		}}}
 		require.False(t, runtimeMetricWritableRange(f, math.MaxUint64-7, 4))
 	})
 }
