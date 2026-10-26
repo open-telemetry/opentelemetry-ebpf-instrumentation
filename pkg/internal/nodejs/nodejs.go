@@ -7,6 +7,7 @@ import (
 	"context"
 	"debug/elf"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -17,6 +18,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/netns"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
@@ -48,7 +50,22 @@ func NewNodeInjector(cfg *obi.Config) *NodeInjector {
 // unless nodejs.enabled, the global opt-out, is set to false.
 func (i *NodeInjector) Enabled() bool {
 	return i.cfg.NodeJS.Enabled &&
-		(i.cfg.Traces.Enabled() || i.cfg.TracePrinter.Enabled() || i.cfg.AppRuntimeMetricsEnabled())
+		(i.cfg.Traces.Enabled() || i.cfg.TracePrinter.Enabled() || i.cfg.AppRuntimeMetricsEnabled() ||
+			i.hasConfiguredDynamicSpans())
+}
+
+func (i *NodeInjector) hasConfiguredDynamicSpans() bool {
+	for _, selector := range i.cfg.Discovery.Instrument {
+		if len(selector.DynamicSpans) > 0 {
+			return true
+		}
+	}
+	for _, selector := range i.cfg.Discovery.Services {
+		if len(selector.DynamicSpans) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // injectionTrigger names what turned the injection on, so the logs explain a
@@ -56,6 +73,9 @@ func (i *NodeInjector) Enabled() bool {
 func (i *NodeInjector) injectionTrigger() string {
 	if i.cfg.Traces.Enabled() || i.cfg.TracePrinter.Enabled() {
 		return "traces"
+	}
+	if i.hasConfiguredDynamicSpans() {
+		return "dynamic spans"
 	}
 	return "runtime metrics"
 }
@@ -133,7 +153,7 @@ func (i *NodeInjector) Inject(ctx context.Context, target InjectionTarget) {
 func (i *NodeInjector) attachAgent(ctx context.Context, target InjectionTarget, elfFile *elf.File) error {
 	pid := int(target.Pid)
 
-	injected, err := i.injectViaOpenInspector(pid)
+	injected, err := i.injectViaOpenInspector(pid, target.DynamicSpans)
 	if injected || err != nil {
 		return err
 	}
@@ -162,7 +182,7 @@ func (i *NodeInjector) attachAgent(ctx context.Context, target InjectionTarget, 
 		}
 
 		// SIGUSR1 opened this port, so this injection closes it again.
-		return i.injectViaConn(conn, true)
+		return i.injectViaConn(conn, true, target.DynamicSpans)
 	})
 }
 
@@ -171,7 +191,7 @@ func (i *NodeInjector) attachAgent(ctx context.Context, target InjectionTarget, 
 // value reports whether the injection was carried out.
 //
 // The port was the application's before OBI connected, so it is left open.
-func (i *NodeInjector) injectViaOpenInspector(pid int) (bool, error) {
+func (i *NodeInjector) injectViaOpenInspector(pid int, dynamicSpans []services.DynamicSpan) (bool, error) {
 	injected := false
 
 	err := netns.WithNetNS(pid, func() error {
@@ -189,7 +209,7 @@ func (i *NodeInjector) injectViaOpenInspector(pid int) (bool, error) {
 
 		i.log.Debug("Node.js inspector already open, injecting directly", "pid", pid)
 		injected = true
-		return i.injectViaConn(conn, false)
+		return i.injectViaConn(conn, false, dynamicSpans)
 	})
 
 	return injected, err
@@ -204,7 +224,7 @@ const (
 	// Refusing the whole injection rather than dropping the bridge alone: the
 	// two scripts are evaluated as one expression, and manual spans are opt-in,
 	// so silently not delivering them would be worse than saying so.
-	refusalManualSpansTooOld = "nodejs.manual_spans needs Node.js %s or newer for the span " +
+	refusalManualSpansTooOld = "Node.js custom spans need Node.js %s or newer for the span " +
 		"bridge to parse, and this process runs %s"
 
 	refusalSignalIsFatal           = "SIGUSR1 is neither caught nor ignored, so it would terminate the process"
@@ -231,7 +251,7 @@ func (i *NodeInjector) runtimeRefusal(target InjectionTarget, elfFile *elf.File)
 			node13Backport.Original(), minInjectableVersion.Original())
 	}
 
-	if i.cfg.NodeJS.ManualSpans && !supportsManualSpans(nodeVersion) {
+	if (i.cfg.NodeJS.ManualSpans || len(target.DynamicSpans) > 0) && !supportsManualSpans(nodeVersion) {
 		return fmt.Sprintf(refusalManualSpansTooOld,
 			minManualSpansVersion.Original(), nodeVersion.Original())
 	}
@@ -296,6 +316,9 @@ var _extractorCode string
 //go:embed spanbridge.js
 var _spanBridgeCode string
 
+//go:embed dynamic_spans.js
+var _dynamicSpansCode string
+
 // Substituted at injection time so each injection installs only the
 // machinery its configuration asks for (see the OBI_RT_ENABLED and
 // OBI_TRACES_ENABLED comments in fdextractor.js).
@@ -316,6 +339,10 @@ const (
 // self-contained IIFEs, joined with an explicit ';' so the bridge's leading
 // '(' is not parsed as a call of the extractor IIFE's return value.
 func (i *NodeInjector) agentCode() string {
+	return i.agentCodeForSpans(nil)
+}
+
+func (i *NodeInjector) agentCodeForSpans(dynamicSpans []services.DynamicSpan) string {
 	code := _extractorCode
 	if i.cfg.AppRuntimeMetricsEnabled() {
 		code = strings.Replace(code, rtEnabledPlaceholder, rtEnabledOn, 1)
@@ -326,8 +353,35 @@ func (i *NodeInjector) agentCode() string {
 	if i.cfg.PopulateTraceContext() {
 		code = strings.Replace(code, ctxHookEnabledPlaceholder, ctxHookEnabledOn, 1)
 	}
-	if i.cfg.NodeJS.ManualSpans {
+	if i.cfg.NodeJS.ManualSpans || len(dynamicSpans) > 0 {
 		code += ";\n" + _spanBridgeCode
+	}
+	if len(dynamicSpans) > 0 {
+		type rule struct {
+			Name            string   `json:"name"`
+			ModuleSpecifier string   `json:"moduleSpecifier"`
+			ExportPath      []string `json:"exportPath"`
+		}
+		rules := make([]rule, 0, len(dynamicSpans))
+		for _, span := range dynamicSpans {
+			reference, err := services.ParseNodeFunctionReference(span.FunctionReference)
+			if err != nil {
+				i.log.Error("cannot parse Node.js dynamic span target", "name", span.Name, "error", err)
+				return code
+			}
+			rules = append(rules, rule{
+				Name:            span.Name,
+				ModuleSpecifier: reference.ModuleSpecifier,
+				ExportPath:      reference.ExportPath,
+			})
+		}
+		encoded, err := json.Marshal(rules)
+		if err != nil {
+			i.log.Error("cannot encode Node.js dynamic spans", "error", err)
+			return code
+		}
+		dynamicCode := strings.Replace(_dynamicSpansCode, "__OBI_DYNAMIC_SPAN_RULES__", string(encoded), 1)
+		code += ";\n" + dynamicCode
 	}
 	return code
 }

@@ -232,8 +232,8 @@ func validateV2HTTPRoutePolicy(path string, policy *schema.HTTPRoutePolicy) erro
 
 func validateUnsupportedV2Fields(src *schema.Extension) error {
 	for ruleIndex, rule := range src.Capture.Rules {
-		if len(rule.Refine.Spans) > 0 {
-			return fmt.Errorf("capture.rules[%d].refine.spans is not supported by the runtime converter", ruleIndex)
+		if err := validateV2NodeDynamicSpans(ruleIndex, rule); err != nil {
+			return err
 		}
 	}
 	runtimeFilters := []struct {
@@ -252,6 +252,30 @@ func validateUnsupportedV2Fields(src *schema.Extension) error {
 
 	if src.Correlation != nil && len(src.Correlation.LogTraceAnnotation.Filter) != 0 {
 		return errors.New("correlation.log_trace_annotation.filter is not supported")
+	}
+	return nil
+}
+
+func validateV2NodeDynamicSpans(ruleIndex int, rule schema.Rule) error {
+	if len(rule.Refine.Spans) == 0 {
+		return nil
+	}
+	path := fmt.Sprintf("capture.rules[%d].refine.spans", ruleIndex)
+	if len(rule.Match.Process.LanguageGlob) != 1 || rule.Match.Process.LanguageGlob[0] != "nodejs" ||
+		rule.Match.Process.LanguageRegex != "" {
+		return fmt.Errorf("%s is currently supported only for rules matching process.language_glob: [nodejs]", path)
+	}
+	for spanIndex, span := range rule.Refine.Spans {
+		spanPath := fmt.Sprintf("%s[%d]", path, spanIndex)
+		if span.On.Function == "" || span.On.FunctionNoRet != "" || span.On.USDTSpan != "" || span.On.USDTNoRet != "" {
+			return fmt.Errorf("%s.on.function is the only currently supported Node.js span target", spanPath)
+		}
+		if len(span.Attributes) != 0 || span.AutomaticAttributes {
+			return fmt.Errorf("%s.attributes and automatic_attributes are not currently supported", spanPath)
+		}
+		if _, err := services.ParseNodeFunctionReference(span.On.Function); err != nil {
+			return fmt.Errorf("%s.on.function: %w", spanPath, err)
+		}
 	}
 	return nil
 }
@@ -833,6 +857,7 @@ func selectorFromRule(
 			return nil, nil, false
 		}
 		selector := regexSelectorFromRule(rule)
+		selector.DynamicSpans = dynamicSpansFromRule(rule)
 		selector.ExportModes, selector.Routes = v2RuleRefinement(
 			rule.Refine,
 			completeExports,
@@ -842,6 +867,7 @@ func selectorFromRule(
 	}
 
 	selector := globSelectorFromRule(rule)
+	selector.DynamicSpans = dynamicSpansFromRule(rule)
 	selector.ExportModes, selector.Routes = v2RuleRefinement(
 		rule.Refine,
 		completeExports,
@@ -909,6 +935,17 @@ func regexSelectorFromRule(rule schema.Rule) services.RegexSelector {
 		PodLabels:      regexpAttrMap(match.Kubernetes.PodLabelsRegex),
 		PodAnnotations: regexpAttrMap(match.Kubernetes.PodAnnotationsRegex),
 	}
+}
+
+func dynamicSpansFromRule(rule schema.Rule) []services.DynamicSpan {
+	spans := make([]services.DynamicSpan, 0, len(rule.Refine.Spans))
+	for _, span := range rule.Refine.Spans {
+		spans = append(spans, services.DynamicSpan{
+			Name:              span.Name,
+			FunctionReference: span.On.Function,
+		})
+	}
+	return spans
 }
 
 func v2RuleRefinement(

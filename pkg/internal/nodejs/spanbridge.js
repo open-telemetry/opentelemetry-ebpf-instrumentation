@@ -755,6 +755,58 @@
 
   g.__obiSpanBridge = {
     version: 2,
+    withSpan(name, fn, thisArg, args) {
+      const appTracer = activeAppTracer('obi.dynamic', '1.0.0');
+      if (yielded && !appTracer) return Reflect.apply(fn, thisArg, args || []);
+      const tracer = appTracer || tracerProvider.getTracer('obi.dynamic', '1.0.0');
+      return tracer.startActiveSpan(name, (span) => {
+        const endSafely = () => {
+          try {
+            span.end();
+          } catch (_) {
+            // Bridge failures must not change application behavior.
+          }
+        };
+        const fail = (err) => {
+          try {
+            try {
+              span.recordException(err);
+              span.setStatus({ code: 2 });
+            } catch (_) {
+              // Keep instrumentation failures from changing application errors.
+            }
+          } finally {
+            endSafely();
+          }
+        };
+        let result;
+        try {
+          result = Reflect.apply(fn, thisArg, args || []);
+        } catch (err) {
+          fail(err);
+          throw err;
+        }
+        try {
+          if (result && typeof result.then === 'function') {
+            return result.then(
+              (value) => {
+                endSafely();
+                return value;
+              },
+              (err) => {
+                fail(err);
+                throw err;
+              },
+            );
+          }
+        } catch (err) {
+          fail(err);
+          throw err;
+        }
+        endSafely();
+        return result;
+      });
+    },
     rehook() {
       if (!mspanHook || hookFailed) return;
       mspanHook.disable();

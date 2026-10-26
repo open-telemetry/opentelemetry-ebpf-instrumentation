@@ -22,7 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
-func TestRuntimeConverterRejectsNonEmptySpanDeclarations(t *testing.T) {
+func TestV2ToRuntimeAcceptsNodeDynamicFunctionSpans(t *testing.T) {
 	t.Parallel()
 
 	_, extension, err := schema.ParseStandaloneYAML([]byte(`file_format: "1.0"
@@ -32,15 +32,79 @@ extensions:
     capture:
       rules:
         - action: include
-          match: {process: {language_glob: [java]}}
+          match: {process: {language_glob: [nodejs], cmd_args_glob: ["node app.js"]}}
           refine:
             spans:
-              - name: example
-                on: {function: "com.example.Foo#bar"}
+              - name: checkout.place_order
+                on: {function: "./checkout.js#placeOrder"}
 `))
 	require.NoError(t, err)
-	_, err = V2ToRuntime(extension)
-	require.ErrorContains(t, err, "capture.rules[0].refine.spans is not supported")
+
+	got, err := V2ToRuntime(extension)
+	require.NoError(t, err)
+	var selectedSpans []services.DynamicSpan
+	for _, selector := range got.Discovery.Instrument {
+		if len(selector.DynamicSpans) != 0 {
+			selectedSpans = selector.DynamicSpans
+		}
+	}
+	require.Equal(t, []services.DynamicSpan{{
+		Name:              "checkout.place_order",
+		FunctionReference: "./checkout.js#placeOrder",
+	}}, selectedSpans)
+}
+
+func TestV2ToRuntimeRejectsUnsupportedDynamicSpanDeclarations(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		rule string
+		want string
+	}{
+		{
+			name: "other runtime",
+			rule: `match: {process: {language_glob: [java]}}
+          refine: {spans: [{name: example, on: {function: "com.example.Foo#bar"}}]}`,
+			want: "currently supported only",
+		},
+		{
+			name: "function noret",
+			rule: `match: {process: {language_glob: [nodejs]}}
+          refine: {spans: [{name: example, on: {function_noret: "./foo.js#bar"}}]}`,
+			want: "on.function is the only currently supported",
+		},
+		{
+			name: "attributes",
+			rule: `match: {process: {language_glob: [nodejs]}}
+          refine: {spans: [{name: example, on: {function: "./foo.js#bar"}, attributes: [{name: a, argument: {index: 0}}]}]}`,
+			want: "attributes and automatic_attributes are not currently supported",
+		},
+		{
+			name: "invalid reference",
+			rule: `match: {process: {language_glob: [nodejs]}}
+          refine: {spans: [{name: example, on: {function: "./foo.js"}}]}`,
+			want: "moduleSpecifier#exportPath",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			config := `file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: include
+          ` + test.rule + `
+`
+			_, extension, err := schema.ParseStandaloneYAML([]byte(config))
+			require.NoError(t, err)
+			_, err = V2ToRuntime(extension)
+			require.ErrorContains(t, err, test.want)
+		})
+	}
 }
 
 func TestV2ToRuntimeAllowsEmptySpansRefinementOnExclude(t *testing.T) {

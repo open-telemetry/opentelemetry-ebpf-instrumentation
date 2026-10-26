@@ -33,6 +33,7 @@ type dummyCriterion struct {
 	sampler   *services.SamplerConfig
 	routes    *services.CustomRoutesConfig
 	features  export.Features
+	spans     []services.DynamicSpan
 }
 
 func (d dummyCriterion) GetName() string { return d.name }
@@ -64,6 +65,8 @@ func (d dummyCriterion) GetExportModes() services.ExportModes { return d.export 
 func (d dummyCriterion) GetSamplerConfig() *services.SamplerConfig { return d.sampler }
 
 func (d dummyCriterion) GetRoutesConfig() *services.CustomRoutesConfig { return d.routes }
+
+func (d dummyCriterion) GetDynamicSpans() []services.DynamicSpan { return d.spans }
 
 func (d dummyCriterion) MetricsConfig() perapp.SvcMetricsConfig {
 	return perapp.SvcMetricsConfig{Features: d.features}
@@ -134,6 +137,26 @@ func TestMakeServiceAttrs(t *testing.T) {
 	assert.NotNil(t, attrs2.Sampler)
 	assert.NotNil(t, attrs2.CustomInRouteMatcher)
 	assert.NotNil(t, attrs2.CustomOutRouteMatcher)
+}
+
+func TestMakeServiceAttrsCarriesSpansFromMatchedSelectors(t *testing.T) {
+	t.Parallel()
+
+	spans := []services.DynamicSpan{{Name: "checkout.place_order", FunctionReference: "./checkout.js#placeOrder"}}
+	process := &ProcessMatch{
+		Process: &services.ProcessInfo{Pid: 1234},
+		Criteria: []services.Selector{
+			dummyCriterion{spans: spans},
+		},
+	}
+	ty := typer{cfg: &obi.Config{Routes: &transform.RoutesConfig{}}}
+
+	attrs := ty.makeServiceAttrs(process)
+	assert.Equal(t, spans, attrs.DynamicSpans)
+
+	process.Criteria = nil
+	attrs = ty.makeServiceAttrs(process)
+	assert.Empty(t, attrs.DynamicSpans)
 }
 
 func TestMakeServiceAttrsUsesGlobalServiceIdentityWithDiscoveryRules(t *testing.T) {

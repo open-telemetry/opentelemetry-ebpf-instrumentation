@@ -34,19 +34,21 @@ the same key; the automatic value is omitted. Spans may be declared only on
 include rules; parsing rejects spans under exclude rules. Nested object
 extraction is not supported by this configuration.
 
-Malformed declarations are configuration errors. Once runtime support exists,
-each declaration is evaluated independently: an unresolved or ambiguous target
-must produce a clear error for that rule and must not select an arbitrary
-candidate; a failing rule must not prevent valid sibling rules from applying.
-These per-rule outcomes are part of the contract, not behavior implemented by
-the current runtime converter. Runtime support must add implementation-level
-tests for attribute collisions, resolution errors, and sibling-rule isolation.
+Malformed declarations are configuration errors. Each runtime evaluates
+declarations independently: a failing rule must not prevent valid sibling
+rules from applying, and an ambiguous target must not select an arbitrary
+candidate. For the supported Node.js subset, a resolved module with a missing,
+non-function, or uninspectable export emits a per-rule warning and does not
+block valid siblings. Resolution diagnostics for module specifiers that never
+resolve, and attribute-collision behavior, remain to be specified or hardened
+as additional runtime support is added.
 
-This is configuration schema only. The runtime converter rejects non-empty
-dynamic span declarations rather than accepting configuration that it cannot
-apply. No target is resolved and no runtime instrumentation is performed by
-this schema or converter. Per-runtime syntax and capabilities remain subject to
-the runtime-specific support documentation and tests.
+The runtime converter currently accepts only the Node.js subset documented in
+the [Node.js function-reference contract](nodejs-function-reference.md): exact
+CommonJS module exports, no attributes, and rules explicitly selecting
+`nodejs`. Java, Go, native, other runtimes, and unsupported Node.js target forms
+remain rejected until implemented. The [Java selector contract](java-method-reference.md)
+defines Java syntax but does not imply Java runtime support.
 
 ```yaml
 capture:
@@ -55,14 +57,10 @@ capture:
       action: include
       match:
         process:
-          language_glob: [java]
+          language_glob: [nodejs]
       refine:
         spans:
           - name: checkout.place_order
             on:
-              function: "com.example.Checkout#placeOrder"
-            attributes:
-              - name: order.id
-                argument: {index: 0, type: string}
-            automatic_attributes: false
+              function: "./checkout.js#placeOrder"
 ```
