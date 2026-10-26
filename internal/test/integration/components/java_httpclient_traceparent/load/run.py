@@ -20,6 +20,34 @@ NAMES = ["obi3855-load-obi", "obi3855-load-app", "obi3855-load-downstream", "obi
 NETWORK = "obi3855-load"
 TICKS = os.sysconf("SC_CLK_TCK")
 PAGE = os.sysconf("SC_PAGE_SIZE")
+CHECKS = (
+    "ancestry_unverified_missing_server",
+    "client_wrong_trace",
+    "cyclic_ancestry",
+    "downstream_parent_mismatch",
+    "duplicate_client_exports",
+    "duplicate_downstream_exports",
+    "duplicate_header",
+    "duplicate_source_servers",
+    "duplicate_span_exports",
+    "header_client_mismatch_with_export",
+    "header_identity_unverified_missing_export",
+    "invalid_header",
+    "missing_ancestry_intermediate",
+    "missing_client_export",
+    "missing_downstream_export",
+    "missing_header",
+    "missing_header_with_expected_trace_client",
+    "missing_header_with_wrong_trace_client",
+    "missing_header_without_client_export",
+    "missing_source_server",
+    "source_client_parent_link_failure",
+    "source_parent_mismatch",
+    "source_wrong_trace",
+    "unexpected_disabled_header",
+    "wrong_protocol",
+    "wrong_trace_header",
+)
 
 
 def command(*args, check=True):
@@ -88,7 +116,8 @@ def native_state(map_ids):
 
 
 def analyze(records, measured, enabled):
-    counts = collections.Counter(requests=len(measured))
+    counts = collections.Counter(dict.fromkeys(CHECKS, 0))
+    counts["requests"] = len(measured)
     examples = {}
 
     def flag(name, bad, key, record):
@@ -152,6 +181,9 @@ def analyze(records, measured, enabled):
         if not enabled:
             continue
         flag("missing_header", not headers, key, record)
+        flag("missing_header_without_client_export", not headers and not clients, key, record)
+        flag("missing_header_with_wrong_trace_client", not headers and any(s["Trace"] != key for s in clients), key, record)
+        flag("missing_header_with_expected_trace_client", not headers and any(s["Trace"] == key for s in clients), key, record)
         flag("duplicate_header", len(headers) > 1, key, record)
         if not headers:
             continue
