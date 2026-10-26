@@ -1255,6 +1255,7 @@
                   "bedrock",
                   "mcp",
                   "ollama",
+                  "cohere",
                   "openai_compatible",
                   "embedding",
                   "rerank",

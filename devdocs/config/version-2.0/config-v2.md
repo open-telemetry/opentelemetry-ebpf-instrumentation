@@ -545,7 +545,7 @@ Global route discovery remains under `http.routes.discovery` because harvesting 
 HTTP `payload_extraction` uses the same list-based enablement model as other instrumentation selectors:
 
 - `payload_extraction.enabled` is the only enablement surface.
-- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, `retrieval`, `ollama`, `openai_compatible`, `jsonrpc`, and `enrichment`.
+- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, `retrieval`, `ollama`, `cohere`, `openai_compatible`, `jsonrpc`, and `enrichment`.
 - Nested extractor blocks are for tuning, not duplicate enablement. For example, `payload_extraction.sqlpp.endpoint_patterns` refines SQL++ matching after `sqlpp` is enabled in the list.
 - If future aliases or families are needed, they should be added as values in the same `enabled` list rather than introducing parallel knobs.
 

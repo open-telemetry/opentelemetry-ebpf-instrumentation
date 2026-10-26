@@ -103,7 +103,7 @@ through language-specific library instrumentation documented later in this file.
 | AWS SQS | All | All | Yes | No | Requires HTTP payload capture and `ebpf.payload_extraction.http.aws.enabled` |
 | AWS SNS | All | [Supported operations](devdocs/protocols/aws.md#supported-sns-operations) | Yes | No | Requires HTTP payload capture and `ebpf.payload_extraction.http.aws.enabled` |
 | SQL++ | All | All | Yes | No | Requires HTTP payload capture and `ebpf.payload_extraction.http.sqlpp.enabled` |
-| GenAI | All | All | Yes | No | Supported vendors are OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat and /api/generate), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), vector retrieval providers (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate), and MCP. Requires HTTP payload capture and the corresponding `ebpf.payload_extraction.http.genai.*.enabled` option. |
+| GenAI | All | All | Yes | No | Supported vendors are OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat and /api/generate), Cohere (native /v2/chat), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), vector retrieval providers (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate), and MCP. Requires HTTP payload capture and the corresponding `ebpf.payload_extraction.http.genai.*.enabled` option. |
 
 ## Runtime, Server, And Library Instrumentation
 
