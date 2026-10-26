@@ -295,7 +295,8 @@ discovery:
 				MaxSize:  128,
 				MaxScale: 16,
 			},
-			TTL: 5 * time.Minute,
+			TTL:               5 * time.Minute,
+			ConnectionInfoTTL: export.DefaultConnectionInfoTTL,
 		},
 		Traces: otelcfg.TracesConfig{
 			Protocol:          otelcfg.ProtocolUnset,
@@ -328,6 +329,7 @@ discovery:
 				instrumentations.InstrumentationALL,
 			},
 			TTL:                         time.Second,
+			ConnectionInfoTTL:           export.DefaultConnectionInfoTTL,
 			SpanMetricsServiceCacheSize: 10000,
 			NativeHistogram:             prom.DefaultNativeHistogramConfig,
 			Buckets: export.Buckets{
