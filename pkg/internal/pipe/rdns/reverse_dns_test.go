@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/rdns/store"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
 const timeout = 5 * time.Second
@@ -221,6 +222,46 @@ func TestNewEBPFLookup_LargestCacheLen(t *testing.T) {
 		&ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 999},
 	)
 	assert.Equal(t, 300, ebpfLookup.cacheLen)
+}
+
+func TestReverseDNS_EBPFStartError(t *testing.T) {
+	start := startDNSPacketInspector
+	t.Cleanup(func() { startDNSPacketInspector = start })
+	starts := 0
+	startDNSPacketInspector = func(_ context.Context, _ *store.InMemory, _ *config.EBPFTracer) error {
+		starts++
+		return errors.New("no interfaces found")
+	}
+
+	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
+	ebpfLookup := NewEBPFLookup(t.Context(), nil, cfg)
+
+	for range 2 {
+		_, err := instantiateReverseDNS(t, cfg, ebpfLookup)
+		require.ErrorContains(t, err, "starting eBPF-based reverse DNS: no interfaces found")
+	}
+	assert.Equal(t, 1, starts)
+}
+
+func TestReverseDNS_EBPFCacheError(t *testing.T) {
+	fakeDNSPacketInspector(t)
+	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 0, CacheTTL: time.Minute}
+
+	_, err := instantiateReverseDNS(t, cfg, NewEBPFLookup(t.Context(), nil, cfg))
+	require.ErrorContains(t, err, "initializing eBPF-based reverse DNS cache")
+}
+
+func TestReverseDNS_EBPFWithoutLookup(t *testing.T) {
+	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
+
+	_, err := instantiateReverseDNS(t, cfg, nil)
+	require.ErrorContains(t, err, "eBPF-based reverse DNS is not available")
+}
+
+func instantiateReverseDNS(t *testing.T, cfg *ReverseDNS, ebpfLookup *EBPFLookup) (swarm.RunFunc, error) {
+	in := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
+	out := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
+	return ReverseDNSProvider(cfg, attrsOf, ebpfLookup, in, out)(t.Context())
 }
 
 // fakeDNSPacketInspector returns the contexts the inspector has been started with
