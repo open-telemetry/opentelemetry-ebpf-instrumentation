@@ -400,3 +400,31 @@ func TestLoadConfigV2AzureServiceResolution(t *testing.T) {
 		})
 	}
 }
+
+func TestNameResolverDefaultsByConfigVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		yaml string
+		want []transform.Source
+	}{
+		{name: "v1 omitted sources", yaml: "{}", want: []transform.Source{transform.SourceK8s, transform.SourceECS}},
+		{name: "v2 omitted sources", yaml: `file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"`, want: []transform.Source{transform.SourceK8s, transform.SourceECS, transform.SourceRoute53}},
+		{name: "v2 explicit sources", yaml: `file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      service_name:
+        sources: [k8s, ecs]`, want: []transform.Source{transform.SourceK8s, transform.SourceECS}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, _, err := loadConfigReader(bytes.NewBufferString(tc.yaml))
+			require.NoError(t, err)
+			require.Equal(t, tc.want, cfg.NameResolver.Sources)
+		})
+	}
+	require.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceECS}, obi.DefaultConfig.NameResolver.Sources)
+}

@@ -1,7 +1,9 @@
 # Route53 name resolution
 
-The `route53` name resolver is enabled by default and maps endpoint IPs to fully
-qualified DNS names from AWS Route53 hosted zones on detected EC2 hosts.
+The `route53` name resolver maps endpoint IPs to fully qualified DNS names from
+AWS Route53 hosted zones on detected EC2 hosts. It is enabled by default in
+Config v2. Config v1 retains `[k8s, ecs]` as its default sources; migrating a v1
+configuration preserves those sources.
 Each refresh discovers public zones in the current AWS account and private zones
 associated with the host's VPC, identified through its primary network interface
 in EC2 instance metadata. If the VPC or region is unknown, only public zones are

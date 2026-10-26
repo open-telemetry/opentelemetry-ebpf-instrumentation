@@ -432,7 +432,6 @@ extensions:
                 sources:
                     - k8s
                     - ecs
-                    - route53
                 cache:
                     size: 1024
                     ttl: 5m0s
