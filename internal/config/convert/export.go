@@ -469,6 +469,7 @@ func captureTelemetry(cfg *obi.Config) schema.CaptureTelemetry {
 		Metrics: schema.MetricsTelemetry{
 			ReportersCacheLen: cfg.OTELMetrics.ReportersCacheLen,
 			TTL:               schema.Duration(cfg.OTELMetrics.TTL),
+			ConnectionInfoTTL: schema.Duration(cfg.OTELMetrics.ConnectionInfoTTL),
 		},
 	}
 }

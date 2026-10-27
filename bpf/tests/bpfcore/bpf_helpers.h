@@ -15,7 +15,7 @@
 #define NULL ((void *)0)
 #endif
 
-#define __uint(name, val) int (*name)[val]
+#define __uint(name, val) int(*name)[val]
 #define __type(name, val) typeof(val) *name
 #define __array(name, val) typeof(val) *name[]
 
@@ -30,6 +30,7 @@
 
 #define BPF_ANY 0
 #define BPF_NOEXIST 1
+#define BPF_F_NO_PREALLOC 1
 
 static void *(*bpf_map_lookup_elem_hook)(void *map, const void *key);
 static inline void *bpf_map_lookup_elem(void *map, const void *key) {

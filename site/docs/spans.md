@@ -160,7 +160,7 @@ Name, from the first template that applies: `{db.query.summary}`, `{db.operation
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `db.collection.name` | string | `conditionally_required`: if the operation could be parsed and names a table | stable | The name of a collection (table, container) within the database. | public.users; customers |
-| `db.namespace` | string | `conditionally_required`: if the exchange named a database | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
+| `db.namespace` | string | `conditionally_required`: if the exchange named a database or schema; PostgreSQL reports `{database}\|{schema}`, or the schema alone when only it is known | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
 | `db.operation.name` | string | `conditionally_required`: if the operation could be parsed from the query | stable | The name of the operation or command being executed. | findAndModify; HMSET; SELECT |
 | `db.query.summary` | string | `recommended`: if a summary could be derived from the query | stable | Low cardinality summary of a database query. | SELECT wuser_table; INSERT shipping_details SELECT orders; get user by id |
 | `db.query.text` | string | `opt_in` | stable | The database query being executed. | SELECT * FROM wuser_table where username = ?; SET mykey ? |

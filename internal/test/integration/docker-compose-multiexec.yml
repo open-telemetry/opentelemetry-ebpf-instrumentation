@@ -11,6 +11,8 @@ services:
       - "8088:8088" # jsonrpc server
     environment:
       LOG_LEVEL: DEBUG
+      OTEL_SERVICE_NAME: "${MULTI_TEST_CLIENT_SERVICE_NAME:-}"
+      OTEL_RESOURCE_ATTRIBUTES: "${MULTI_TEST_CLIENT_RESOURCE_ATTRIBUTES:-}"
     depends_on:
       otelcol:
         condition: service_started
@@ -75,6 +77,9 @@ services:
     image: hatest-testserver-python
     ports:
       - 7773:7773
+    environment:
+      OTEL_SERVICE_NAME: "${MULTI_TEST_SERVER_SERVICE_NAME:-}"
+      OTEL_RESOURCE_ATTRIBUTES: "${MULTI_TEST_SERVER_RESOURCE_ATTRIBUTES:-}"
 
   ntestserverssl:
     build:

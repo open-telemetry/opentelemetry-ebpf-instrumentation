@@ -67,8 +67,9 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 			sample := func(current int64, collections uint64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
 				return &runtimemetrics.DotnetRuntimeMetricSnapshot{
 					ProcessCPUCount: &current, ProcessMemoryWorkingSet: &current,
-					GCCollections: [3]*uint64{&collections},
-					GCHeapSize:    [runtimemetrics.DotnetHeapGenerationCount]*int64{&current},
+					GCCollections:       [3]*uint64{&collections},
+					GCHeapSize:          [runtimemetrics.DotnetHeapGenerationCount]*int64{&current},
+					GCHeapFragmentation: [runtimemetrics.DotnetHeapGenerationCount]*int64{&current},
 				}
 			}
 			first := runtimemetrics.RuntimeMetricSnapshot{
@@ -91,7 +92,7 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 				t.Helper()
 				names := []string{name}
 				if name == attributes.DotnetProcessMemoryWorkingSet.OTEL {
-					names = append(names, attributes.DotnetProcessCPUCount.OTEL, attributes.DotnetGCHeapSize.OTEL)
+					names = append(names, attributes.DotnetProcessCPUCount.OTEL, attributes.DotnetGCHeapSize.OTEL, attributes.DotnetGCHeapFragmentation.OTEL)
 				}
 				for _, metricName := range names {
 					points := collectGoRuntimeInt64Points(t, reader, metricName)
@@ -133,6 +134,7 @@ func TestDotnetRuntimeCurrentValuesExpirePerProcess(t *testing.T) {
 				require.Empty(t, collectGoRuntimeInt64Points(t, reader, attributes.DotnetProcessMemoryWorkingSet.OTEL))
 				require.Empty(t, collectGoRuntimeInt64Points(t, reader, attributes.DotnetProcessCPUCount.OTEL))
 				require.Empty(t, collectGoRuntimeInt64Points(t, reader, attributes.DotnetGCHeapSize.OTEL))
+				require.Empty(t, collectGoRuntimeInt64Points(t, reader, attributes.DotnetGCHeapFragmentation.OTEL))
 			}
 			publish(first)
 			assertValue(attributes.DotnetGCCollections.OTEL, 14)
@@ -553,65 +555,73 @@ func TestDotnetRuntimeCumulativeIntegerCounters(t *testing.T) {
 	}
 }
 
-func TestDotnetHeapSizeLifecycle(t *testing.T) {
-	reader := metric.NewManualReader()
-	provider := metric.NewMeterProvider(metric.WithReader(reader))
-	t.Cleanup(func() { require.NoError(t, provider.Shutdown(t.Context())) })
-	var metrics dotnetRuntimeMetrics
-	require.NoError(t, setupDotnetRuntimeMeters(&metrics, provider.Meter(reporterName), 0))
-	sample := func(base int64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
-		values := &runtimemetrics.DotnetRuntimeMetricSnapshot{}
-		for generation := range values.GCHeapSize {
-			value := base + int64(generation)
-			values.GCHeapSize[generation] = &value
-		}
-		return values
+func TestDotnetHeapMetricsLifecycle(t *testing.T) {
+	for _, metricName := range []attributes.Name{attributes.DotnetGCHeapSize, attributes.DotnetGCHeapFragmentation} {
+		t.Run(metricName.OTEL, func(t *testing.T) {
+			reader := metric.NewManualReader()
+			provider := metric.NewMeterProvider(metric.WithReader(reader))
+			t.Cleanup(func() { require.NoError(t, provider.Shutdown(t.Context())) })
+			var metrics dotnetRuntimeMetrics
+			require.NoError(t, setupDotnetRuntimeMeters(&metrics, provider.Meter(reporterName), 0))
+			sample := func(base int64) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+				values := &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+				for generation := range runtimemetrics.DotnetHeapGenerationCount {
+					value := base + int64(generation)
+					if metricName == attributes.DotnetGCHeapSize {
+						values.GCHeapSize[generation] = &value
+					} else {
+						values.GCHeapFragmentation[generation] = &value
+					}
+				}
+				return values
+			}
+			assertSizes := func(base int64, contributors int) {
+				t.Helper()
+				points := collectGoRuntimeInt64Points(t, reader, metricName.OTEL)
+				if contributors == 0 {
+					require.Empty(t, points)
+					return
+				}
+				collected := collectGoRuntimeInt64Metric(t, reader, metricName.OTEL)
+				require.Equal(t, "By", collected.Unit)
+				sum, ok := collected.Data.(metricdata.Sum[int64])
+				require.True(t, ok)
+				require.False(t, sum.IsMonotonic)
+				require.Len(t, points, runtimemetrics.DotnetHeapGenerationCount)
+				got := map[string]int64{}
+				for _, point := range points {
+					generation, ok := point.Attributes.Value("dotnet.gc.heap.generation")
+					require.True(t, ok)
+					got[generation.AsString()] = point.Value
+				}
+				for generation, name := range runtimemetrics.DotnetHeapGenerations() {
+					require.Equal(t, base+int64(generation*contributors), got[name], name)
+				}
+			}
+			first := runtimemetrics.RuntimeMetricSnapshot{PID: 1, Generation: 1, Dotnet: sample(100)}
+			second := runtimemetrics.RuntimeMetricSnapshot{PID: 2, Generation: 1, Dotnet: sample(200)}
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, second)
+			assertSizes(300, 2)
+			first.Dotnet = sample(0)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			assertSizes(200, 2)
+			first.Generation++
+			first.Dotnet = sample(10)
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			assertSizes(210, 2)
+			stale := first
+			stale.Generation--
+			stale.Removed = true
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, stale)
+			assertSizes(210, 2)
+			second.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{}
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, second)
+			assertSizes(10, 1)
+			first.Removed = true
+			recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
+			assertSizes(0, 0)
+			require.Equal(t, dotnetRuntimeMetricCounts{}, metrics.activeCurrent)
+		})
 	}
-	assertSizes := func(base int64, contributors int) {
-		t.Helper()
-		points := collectGoRuntimeInt64Points(t, reader, attributes.DotnetGCHeapSize.OTEL)
-		if contributors == 0 {
-			require.Empty(t, points)
-			return
-		}
-		collected := collectGoRuntimeInt64Metric(t, reader, attributes.DotnetGCHeapSize.OTEL)
-		require.Equal(t, "By", collected.Unit)
-		sum, ok := collected.Data.(metricdata.Sum[int64])
-		require.True(t, ok)
-		require.False(t, sum.IsMonotonic)
-		require.Len(t, points, runtimemetrics.DotnetHeapGenerationCount)
-		got := map[string]int64{}
-		for _, point := range points {
-			generation, ok := point.Attributes.Value("dotnet.gc.heap.generation")
-			require.True(t, ok)
-			got[generation.AsString()] = point.Value
-		}
-		for generation, name := range runtimemetrics.DotnetHeapGenerations() {
-			require.Equal(t, base+int64(generation*contributors), got[name], name)
-		}
-	}
-	first := runtimemetrics.RuntimeMetricSnapshot{PID: 1, Generation: 1, Dotnet: sample(100)}
-	second := runtimemetrics.RuntimeMetricSnapshot{PID: 2, Generation: 1, Dotnet: sample(200)}
-	recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
-	recordDotnetRuntimeMetrics(t.Context(), &metrics, second)
-	assertSizes(300, 2)
-	first.Dotnet = sample(0)
-	recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
-	assertSizes(200, 2)
-	first.Generation++
-	first.Dotnet = sample(10)
-	recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
-	assertSizes(210, 2)
-	stale := first
-	stale.Generation--
-	stale.Removed = true
-	recordDotnetRuntimeMetrics(t.Context(), &metrics, stale)
-	assertSizes(210, 2)
-	second.Dotnet = &runtimemetrics.DotnetRuntimeMetricSnapshot{}
-	recordDotnetRuntimeMetrics(t.Context(), &metrics, second)
-	assertSizes(10, 1)
-	first.Removed = true
-	recordDotnetRuntimeMetrics(t.Context(), &metrics, first)
-	assertSizes(0, 0)
-	require.Equal(t, dotnetRuntimeMetricCounts{}, metrics.activeCurrent)
 }

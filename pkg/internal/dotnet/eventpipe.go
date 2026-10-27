@@ -25,9 +25,9 @@ const (
 	// .NET ProcessorCount keyword; EventCounterIntervalSec enables counter polling.
 	systemRuntimeKeywords   uint64 = 0x2
 	eventLevelInformational uint32 = 4
+	clrGCKeywords           uint64 = 0x1
 	// Microsoft-Windows-DotNETRuntime ExceptionKeyword includes exception throws.
 	clrExceptionKeywords uint64 = 0x8000
-	eventLevelWarning    uint32 = 2
 )
 
 type eventPipeProvider struct {
@@ -37,7 +37,7 @@ type eventPipeProvider struct {
 	arguments string
 }
 
-// encodeEventPipeStart requests System.Runtime counters and an optional exception source.
+// encodeEventPipeStart requests runtime counters, CLR GC events, and an optional exception source.
 // This is the .NET metrics source.
 // https://github.com/dotnet/diagnostics/blob/f09edf7ea9a17a86b236b91eb4c458d0469546b6/documentation/design-docs/ipc-protocol.md#collecttracing2
 func encodeEventPipeStart(samplingInterval time.Duration, exceptions bool, metricsSessionID string) ([]byte, error) {
@@ -52,8 +52,13 @@ func encodeEventPipeStart(samplingInterval time.Duration, exceptions bool, metri
 		level:     eventLevelInformational,
 		arguments: "EventCounterIntervalSec=" + interval,
 	}
+	clrProvider := eventPipeProvider{
+		name:     "Microsoft-Windows-DotNETRuntime",
+		keywords: clrGCKeywords,
+		level:    eventLevelInformational,
+	}
 	if metricsSessionID != "" {
-		return encodeCollectTracing2(provider, eventPipeProvider{
+		return encodeCollectTracing2(provider, clrProvider, eventPipeProvider{
 			name:     "System.Diagnostics.Metrics",
 			keywords: 0x2, // TimeSeriesValues.
 			level:    eventLevelInformational,
@@ -61,14 +66,10 @@ func encodeEventPipeStart(samplingInterval time.Duration, exceptions bool, metri
 				";MaxTimeSeries=" + strconv.Itoa(maximumExceptionTypes) + ";MaxHistograms=0",
 		})
 	}
-	if !exceptions {
-		return encodeCollectTracing2(provider)
+	if exceptions {
+		clrProvider.keywords |= clrExceptionKeywords
 	}
-	return encodeCollectTracing2(provider, eventPipeProvider{
-		name:     "Microsoft-Windows-DotNETRuntime",
-		keywords: clrExceptionKeywords,
-		level:    eventLevelWarning,
-	})
+	return encodeCollectTracing2(provider, clrProvider)
 }
 
 // encodeCollectTracing2 enables the supplied providers in one EventPipe session.

@@ -39,6 +39,8 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 		return nil, err
 	}
 	_, defaults := RuntimeToV2(nil)
+	// Enable Route53 for new v2 configurations without changing v1 migration defaults.
+	defaults.Enrich.ServiceName.Sources = []transform.Source{transform.SourceK8s, transform.SourceECS, transform.SourceRoute53}
 	// Omitted features retain the protocol and network enablement mapping.
 	defaults.Capture.Metrics.Features = nil
 	var complete bool
@@ -46,6 +48,9 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	src, complete, err = src.WithDefaults(defaults)
 	if err != nil {
 		return nil, fmt.Errorf("applying config v2 defaults: %w", err)
+	}
+	if src.Capture.Telemetry.Metrics.ConnectionInfoTTL.TimeDuration() < 0 {
+		return nil, errors.New("capture.telemetry.metrics.connection_info_ttl must not be negative")
 	}
 	if err := validateV2Channels(src.Capture.Channels); err != nil {
 		return nil, err
@@ -715,6 +720,7 @@ func validV2HTTPPayloadExtractor(extractor string) bool {
 		payloadExtractorBedrock,
 		payloadExtractorMCP,
 		payloadExtractorOllama,
+		payloadExtractorCohere,
 		payloadExtractorOpenAICompatible,
 		payloadExtractorEmbedding,
 		payloadExtractorRerank,
@@ -1494,6 +1500,7 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 	http.GenAI.Rerank.Enabled = false
 	http.GenAI.Retrieval.Enabled = false
 	http.GenAI.Ollama.Enabled = false
+	http.GenAI.Cohere.Enabled = false
 	http.GenAI.OpenAICompatible.Enabled = false
 	http.JSONRPC.Enabled = false
 	http.Enrichment.Enabled = false
@@ -1528,6 +1535,8 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 			http.GenAI.Retrieval.Enabled = true
 		case payloadExtractorOllama:
 			http.GenAI.Ollama.Enabled = true
+		case payloadExtractorCohere:
+			http.GenAI.Cohere.Enabled = true
 		case payloadExtractorOpenAICompatible:
 			http.GenAI.OpenAICompatible.Enabled = true
 		case payloadExtractorJSONRPC:
@@ -1908,6 +1917,10 @@ func applyFullV2CaptureTelemetry(cfg *obi.Config, telemetry schema.CaptureTeleme
 	cfg.Traces.ReportersCacheLen = telemetry.Traces.ReportersCacheLen
 	cfg.OTELMetrics.ReportersCacheLen = telemetry.Metrics.ReportersCacheLen
 	cfg.OTELMetrics.TTL = telemetry.Metrics.TTL.TimeDuration()
+	if telemetry.Metrics.ConnectionInfoTTL.TimeDuration() > 0 {
+		cfg.OTELMetrics.ConnectionInfoTTL = telemetry.Metrics.ConnectionInfoTTL.TimeDuration()
+		cfg.Prometheus.ConnectionInfoTTL = telemetry.Metrics.ConnectionInfoTTL.TimeDuration()
+	}
 }
 
 func applyPartialV2CaptureTelemetry(cfg *obi.Config, telemetry schema.CaptureTelemetry) {
@@ -1919,6 +1932,10 @@ func applyPartialV2CaptureTelemetry(cfg *obi.Config, telemetry schema.CaptureTel
 	}
 	if !zeroValue(telemetry.Metrics.TTL) {
 		cfg.OTELMetrics.TTL = telemetry.Metrics.TTL.TimeDuration()
+	}
+	if !zeroValue(telemetry.Metrics.ConnectionInfoTTL) {
+		cfg.OTELMetrics.ConnectionInfoTTL = telemetry.Metrics.ConnectionInfoTTL.TimeDuration()
+		cfg.Prometheus.ConnectionInfoTTL = telemetry.Metrics.ConnectionInfoTTL.TimeDuration()
 	}
 }
 
@@ -2314,7 +2331,7 @@ func completeDaemonTelemetry(telemetry schema.DaemonTelemetry) bool {
 
 func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete bool) error {
 	if features := src.Capture.Metrics.Features; features != nil {
-		mask, err := export.LoadFeatures(features)
+		mask, err := export.LoadV2Features(features)
 		if err != nil {
 			return fmt.Errorf("capture.metrics.features: %w", err)
 		}
