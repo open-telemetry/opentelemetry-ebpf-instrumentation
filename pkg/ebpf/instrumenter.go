@@ -728,6 +728,23 @@ func (i *instrumenter) uprobes(pid app.PID, p Tracer, maps []*procfs.ProcMap) er
 	modules := i.uprobeModules(p, pid, maps, exePath, exeIno, log)
 
 	for instrumentedIno, m := range modules {
+		target, err := os.Open(m.instrPath)
+		if err != nil {
+			log.Debug("can't open uprobe target", "error", err)
+			continue
+		}
+		defer target.Close()
+		info, err := target.Stat()
+		if err != nil {
+			continue
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || stat.Ino != instrumentedIno {
+			continue
+		}
+		// Symbol inspection and all attachment backends must resolve the same inode.
+		m.instrPath = fmt.Sprintf("/proc/self/fd/%d", target.Fd())
+
 		// We've already instrumented this module for the executable we have in hand, likely another earlier PID
 		if i.hasModule(instrumentedIno) {
 			log.Debug("already instrumented module for executable, ignoring...", "path", m.instrPath, "ino", instrumentedIno)
@@ -822,6 +839,14 @@ func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer, maps []*proc
 			ilog().Debug("skipping USDT library not found in process maps", "pid", pid, "lib", baseLib)
 			continue
 		}
+
+		target, err := os.Open(instrPath)
+		if err != nil {
+			ilog().Debug("can't open USDT target", "pid", pid, "path", instrPath, "error", err)
+			continue
+		}
+		defer target.Close()
+		instrPath = fmt.Sprintf("/proc/self/fd/%d", target.Fd())
 
 		exe, err := link.OpenExecutable(instrPath)
 		if err != nil {
