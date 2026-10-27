@@ -38,7 +38,7 @@ permissions:
 jobs:
   generate-bpf:
     name: Generate BPF
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,7 +52,7 @@ jobs:
 
   test-matrix:
     name: "Build matrix"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
@@ -74,7 +74,7 @@ jobs:
               --argjson arm64 "$(PARTITIONS=2 make multiprocess-integration-test-matrix-json)" \
               '{
                 include: (
-                  ($amd64.include | map(. + {runner: "ubuntu-latest", arch: "amd64"}))
+                  ($amd64.include | map(. + {runner: "ubuntu-26.04", arch: "amd64"}))
                   +
                   ($arm64.include | map(. + {runner: "ubuntu-24.04-arm", arch: "arm64"}))
                 )
@@ -89,7 +89,7 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - runner: ubuntu-latest
+          - runner: ubuntu-26.04
             arch: amd64
           - runner: ubuntu-24.04-arm
             arch: arm64
@@ -134,7 +134,7 @@ jobs:
       fail-fast: false
       matrix:
         platform:
-          - runner: ubuntu-latest
+          - runner: ubuntu-26.04
             arch: amd64
           - runner: ubuntu-24.04-arm
             arch: arm64
@@ -444,7 +444,7 @@ jobs:
     # Run after the matrix completes, including when shards fail, but skip
     # entirely if the matrix was cancelled or skipped (nothing to aggregate).
     if: ${{ !cancelled() && (needs.test.result == 'success' || needs.test.result == 'failure') }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

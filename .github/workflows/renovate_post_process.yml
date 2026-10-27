@@ -22,7 +22,7 @@ jobs:
       pr_number: ${{ steps.inspect.outputs.pr_number }}
       head_ref: ${{ steps.inspect.outputs.head_ref }}
       head_sha: ${{ steps.inspect.outputs.head_sha }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - id: inspect
         env:
@@ -76,7 +76,7 @@ jobs:
     if: needs.inspect.outputs.enabled == 'true'
     outputs:
       patch_exists: ${{ steps.create-patch.outputs.exists }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -169,7 +169,7 @@ jobs:
     if: needs.generate.outputs.patch_exists == 'true'
     permissions:
       contents: write
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Download patch artifact
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
