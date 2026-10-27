@@ -1671,6 +1671,12 @@ func TestSpanOTELGetters_DBNamespace(t *testing.T) {
 	kv = getter(&Span{Type: EventTypeHTTPClient, SubType: HTTPSubtypeElasticsearch, Elasticsearch: &Elasticsearch{DBSystemName: "elasticsearch"}})
 	assert.False(t, kv.Valid(), "expected db.namespace to be omitted, got %v", kv)
 
+	postgres := &Span{Type: EventTypeSQLClient, SubType: int(DBPostgres), DBNamespace: "conformance|conformance"}
+	kv = getter(postgres)
+	require.True(t, kv.Valid())
+	assert.Equal(t, "conformance|conformance", kv.Value.AsString())
+	assert.Equal(t, "conformance|conformance", spanPromGetters(attr.DBNamespace)(postgres))
+
 	// spans without an available namespace must omit the attribute
 	// instead of emitting an empty value
 	kv = getter(&Span{Type: EventTypeSQLClient, SubType: int(DBMySQL)})

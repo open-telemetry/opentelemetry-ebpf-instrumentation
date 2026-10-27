@@ -130,6 +130,30 @@ func TestHTTPRequestResponseToSpanSetsFullPath(t *testing.T) {
 	})
 }
 
+func TestHTTPRequestResponseToSpanDoesNotRenderSSLPointerAsPeerAddress(t *testing.T) {
+	req := &http.Request{
+		Method: http.MethodGet,
+		URL:    &url.URL{Scheme: "https", Host: "example.com", Path: "/test"},
+		Host:   "example.com",
+		Body:   io.NopCloser(strings.NewReader("")),
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(bytes.NewReader(nil)),
+	}
+	event := &BPFHTTPInfo{
+		Type: uint8(request.EventTypeHTTP),
+		Ssl:  1,
+		ConnInfo: BpfConnectionInfoT{
+			S_addr: [16]byte{0x90, 0x78, 0x56, 0x34, 0x12, 0x7f},
+		},
+	}
+
+	span := httpRequestResponseToSpan(nil, event, req, resp)
+
+	assert.Empty(t, span.Peer)
+}
+
 func TestHostInfo(t *testing.T) {
 	event := BPFHTTPInfo{
 		ConnInfo: BpfConnectionInfoT{
@@ -583,7 +607,7 @@ func TestToRequestTraceLargeBuffers(t *testing.T) {
 		{
 			name:         "large buffer takes precedence over primary buffer",
 			withLargeBuf: true,
-			primaryBuf:   "GET /short HTTP/1.1\r\n\r\n",
+			primaryBuf:   "GET /from-la",
 			largeRequest: "GET /from-large-buffer HTTP/1.1\r\nHost: example.com\r\n\r\n",
 			expectedPath: "/from-large-buffer",
 		},
@@ -630,6 +654,76 @@ func TestToRequestTraceLargeBuffers(t *testing.T) {
 			require.Equal(t, tc.expectedPath, result.Path)
 			require.Equal(t, 200, result.Status)
 		})
+	}
+}
+
+func TestToRequestTraceHeadlessLargeBuffer(t *testing.T) {
+	connInfo := BpfConnectionInfoT{
+		S_port: 50000,
+		D_port: 8080,
+		S_addr: [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 0, 1},
+		D_addr: [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 10, 0, 0, 1},
+	}
+	traceID := [16]uint8{'t', 'r', 'a', 'c', 'e', '0', '0', '0', '0', '0', '0', '0', '0', '0', '0', '1'}
+
+	body := `[{"name":"first item","tags":["a b"]}]`
+	headers := fmt.Sprintf("POST /api/items HTTP/1.1\r\nHost: example.com\r\nContent-Length: %d\r\n\r\n", len(body))
+	response := "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n"
+
+	bodyChunks := []struct {
+		name  string
+		chunk string
+	}{
+		{name: "body", chunk: body},
+		{name: "short body matching the capture", chunk: "POST /api"},
+	}
+
+	for _, bc := range bodyChunks {
+		bodyChunk := bc.chunk
+		for _, withResponse := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s, response buffer %t", bc.name, withResponse), func(t *testing.T) {
+				pctx := NewEBPFParseContext(nil, nil, nil)
+
+				// The chunk carrying the headers never arrived, so the body chunk's
+				// append is the first thing userspace sees for this request.
+				appendChunk := func(packetType uint8, action uint8, payload string) {
+					lbHdr := TCPLargeBufferHeader{
+						PacketType: packetType,
+						Direction:  directionByPacketType(packetType, false),
+						Len:        uint32(len(payload)),
+						Action:     action,
+						Kind:       uint8(KindLayerApp),
+					}
+					lbHdr.Tp.TraceId = traceID
+					lbHdr.ConnInfo = connInfo
+
+					_, _, err := appendTCPLargeBuffer(pctx, toRingbufRecord(t, lbHdr, payload))
+					require.NoError(t, err)
+				}
+
+				appendChunk(packetTypeRequest, largeBufferActionAppend, bodyChunk)
+				if withResponse {
+					appendChunk(packetTypeResponse, largeBufferActionInit, response)
+				}
+
+				var record BPFHTTPInfo
+				record.Type = uint8(request.EventTypeHTTP)
+				record.StartMonotimeNs = 123456
+				record.EndMonotimeNs = 789012
+				record.Status = 202
+				record.HasLargeBuffers = 1
+				record.ConnInfo = connInfo
+				record.Tp.TraceId = traceID
+				copy(record.Buf[:], headers)
+
+				result, _, err := HTTPInfoEventToSpan(pctx, &record)
+				require.NoError(t, err)
+
+				assert.Equal(t, "POST", result.Method)
+				assert.Equal(t, "/api/items", result.Path)
+				assert.Equal(t, 202, result.Status)
+			})
+		}
 	}
 }
 

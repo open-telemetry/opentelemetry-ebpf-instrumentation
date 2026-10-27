@@ -58,7 +58,7 @@ OBI-emitted db.client.operation.duration
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `db.collection.name` | string | `conditionally_required`: if the operation targets a single collection | stable | The name of a collection (table, container) within the database. | public.users; customers |
-| `db.namespace` | string | `conditionally_required`: if the exchange named a database | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
+| `db.namespace` | string | `conditionally_required`: if the exchange named a database or schema; PostgreSQL reports `{database}\|{schema}`, or the schema alone when only it is known | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
 | `db.operation.name` | string | `conditionally_required`: if the operation could be parsed from the exchange | stable | The name of the operation or command being executed. | findAndModify; HMSET; SELECT |
 | `db.response.status_code` | string | `conditionally_required`: if the operation failed and the status code is available | stable | Database response status code. | 102; ORA-17002; 08P01; 404 |
 | `db.system.name` | enum | `required` | stable | The database management system (DBMS) product as identified by the client instrumentation. | other_sql; softwareag.adabas; actian.ingres; aws.dynamodb; aws.redshift; azure.cosmosdb; intersystems.cache; cassandra; … |
@@ -1734,6 +1734,27 @@ OBI counterpart of `target.info` for the traces pipeline. Carries the resource a
 | `telemetry.sdk.language` | enum | `required` | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
 | `telemetry.sdk.name` | string | `required` | stable | The name of the telemetry SDK as defined above. | opentelemetry |
 | `telemetry.sdk.version` | string | `required` | stable | The version string of the telemetry SDK. | 1.2.3 |
+
+## `traces_service_graph_connection_info`
+
+Indicates that a client-to-server connection was observed recently. The value remains 1 while the edge is observed and expires after the configured metric TTL.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| gauge | 1 | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `client_k8s_cluster_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes cluster name of the client (request-initiating) peer. | my-cluster |
+| `client_k8s_namespace_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the client (request-initiating) peer. | integration-test |
+| `client_service_namespace` | string | `conditionally_required`: if the workload has a namespace | development | The service namespace of the client side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
+| `client` | string | `required` | development | Name of the service initiating the request. | frontend |
+| `connection_type` | enum | `conditionally_required`: if the connection was not a direct HTTP or gRPC request | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. | messaging_system; database; virtual_node |
+| `server_k8s_cluster_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes cluster name of the server (request-receiving) peer. | my-cluster |
+| `server_k8s_namespace_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the server (request-receiving) peer. | integration-test |
+| `server_service_namespace` | string | `conditionally_required`: if the workload has a namespace | development | The service namespace of the server side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
+| `server` | string | `required` | development | Name of the service receiving the request. | users-api |
+| `source` | string | `required` | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
 
 ## `traces_service_graph_request_client`
 

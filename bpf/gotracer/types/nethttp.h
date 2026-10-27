@@ -39,7 +39,9 @@ typedef struct server_http_func_invocation {
     u8 pattern[k_pattern_max_len];
     u8 is_tls;
     bool is_jsonrpc;
-    u8 _pad[7];
+    u8 proto_major;
+    u8 proto_minor;
+    u8 _pad[5];
 } server_http_func_invocation_t;
 
 typedef struct http2_owned_stream_ref {
