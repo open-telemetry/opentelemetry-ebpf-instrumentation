@@ -73,7 +73,8 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	}, protocolFilteredEbpfFlows, dedupedEBPFFlows), swarm.WithID("FlowDeduper"))
 
 	kubeDecoratedFlows := msgh.QueueFromConfig[[]*ebpf.Record](f.cfg, f.ctxInfo.Metrics, "kubeDecoratedFlows")
-	swi.Add(k8s.MetadataDecoratorProvider(ctx, &f.cfg.Attributes.Kubernetes, f.ctxInfo.K8sInformer,
+	swi.Add(k8s.MetadataDecoratorProvider(ctx, &f.cfg.Attributes.Kubernetes, f.cfg.CloudMetadata.DetectionEnabled,
+		f.ctxInfo.K8sInformer,
 		recordAttrs,
 		dedupedEBPFFlows, kubeDecoratedFlows), swarm.WithID("K8sMetadataDecorator"))
 

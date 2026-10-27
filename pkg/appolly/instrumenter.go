@@ -125,6 +125,7 @@ func newGraphBuilderWithProtocolMetricSelection(
 	kubeToContainerDecorator := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "kubeToContainerDecorator")
 	swi.Add(transform.KubeDecoratorProvider(
 		ctxInfo, &config.Attributes.Kubernetes,
+		config.CloudMetadata.DetectionEnabled,
 		routerToKubeDecorator, kubeToContainerDecorator,
 	), swarm.WithID("KubeDecorator"))
 

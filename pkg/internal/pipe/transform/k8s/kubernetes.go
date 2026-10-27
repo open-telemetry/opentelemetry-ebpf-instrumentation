@@ -60,6 +60,7 @@ func log() *slog.Logger { return slog.With("component", "k8s.MetadataDecorator")
 func MetadataDecoratorProvider[T any](
 	ctx context.Context,
 	cfg *transform.KubernetesDecorator,
+	cloudDetectionEnabled bool,
 	k8sInformer *kube.MetadataProvider,
 	attrs func(T) *pipe.CommonAttrs,
 	input, output *msg.Queue[[]T],
@@ -68,7 +69,7 @@ func MetadataDecoratorProvider[T any](
 		if !k8sInformer.IsKubeEnabled() {
 			return swarm.Bypass(input, output)
 		}
-		nt, err := newDecorator(ctx, cfg, k8sInformer)
+		nt, err := newDecorator(ctx, cfg, cloudDetectionEnabled, k8sInformer)
 		if err != nil {
 			return nil, fmt.Errorf("instantiating k8s.MetadataDecorator: %w", err)
 		}
@@ -196,14 +197,14 @@ func (n *decorator) nodeLabels(a *pipe.CommonAttrs, prefix string, meta *informe
 }
 
 // newDecorator create a new transform
-func newDecorator(ctx context.Context, cfg *transform.KubernetesDecorator, k8sInformer *kube.MetadataProvider) (*decorator, error) {
+func newDecorator(ctx context.Context, cfg *transform.KubernetesDecorator, cloudDetectionEnabled bool, k8sInformer *kube.MetadataProvider) (*decorator, error) {
 	store, err := k8sInformer.Get(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("instantiating k8s.MetadataDecorator: %w", err)
 	}
 	nt := decorator{
 		log:         log(),
-		clusterName: transform.KubeClusterName(ctx, cfg, k8sInformer),
+		clusterName: transform.KubeClusterName(ctx, cfg, cloudDetectionEnabled, k8sInformer),
 		store:       store,
 	}
 	if nt.log.Enabled(ctx, slog.LevelDebug) {

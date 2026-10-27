@@ -92,6 +92,7 @@ func NewWithProtocolMetricSelection(ctx context.Context, ctxInfo *global.Context
 	swi.Add(transform.KubeProcessEventDecoratorProvider(
 		ctxInfo,
 		&config.Attributes.Kubernetes,
+		config.CloudMetadata.DetectionEnabled,
 		processEventsHostDecorated,
 		processEventsKubeDecorated,
 	), swarm.WithID("KubeProcessEventDecoratorProvider"))

@@ -102,6 +102,7 @@ const (
 func KubeDecoratorProvider(
 	ctxInfo *global.ContextInfo,
 	cfg *KubernetesDecorator,
+	cloudDetectionEnabled bool,
 	input, output *msg.Queue[[]request.Span],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
@@ -115,7 +116,7 @@ func KubeDecoratorProvider(
 		}
 		decorator := &metadataDecorator{
 			store:       store,
-			clusterName: KubeClusterName(ctx, cfg, ctxInfo.K8sInformer),
+			clusterName: KubeClusterName(ctx, cfg, cloudDetectionEnabled, ctxInfo.K8sInformer),
 			input:       input.Subscribe(msg.SubscriberName("transform.KubeDecorator")),
 			output:      output,
 		}
@@ -126,6 +127,7 @@ func KubeDecoratorProvider(
 func KubeProcessEventDecoratorProvider(
 	ctxInfo *global.ContextInfo,
 	cfg *KubernetesDecorator,
+	cloudDetectionEnabled bool,
 	input, output *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
@@ -140,7 +142,7 @@ func KubeProcessEventDecoratorProvider(
 		decorator := &procEventMetadataDecorator{
 			log:                 slog.With("component", "transform.KubeProcessEventDecoratorProvider"),
 			store:               store,
-			clusterName:         KubeClusterName(ctx, cfg, ctxInfo.K8sInformer),
+			clusterName:         KubeClusterName(ctx, cfg, cloudDetectionEnabled, ctxInfo.K8sInformer),
 			input:               input.Subscribe(msg.SubscriberName("transform.KubeProcessEventDecorator")),
 			output:              output,
 			podEvents:           isync.NewQueue[Event[*informer.ObjectMeta]](),
@@ -521,7 +523,7 @@ func OwnerLabelName(kind string) attr.Name {
 	}
 }
 
-func KubeClusterName(ctx context.Context, cfg *KubernetesDecorator, k8sInformer *kube.MetadataProvider) string {
+func KubeClusterName(ctx context.Context, cfg *KubernetesDecorator, cloudDetectionEnabled bool, k8sInformer *kube.MetadataProvider) string {
 	log := klog().With("func", "KubeClusterName")
 	if cfg.ClusterName != "" {
 		log.Debug("using cluster name from configuration", "cluster_name", cfg.ClusterName)
@@ -529,7 +531,7 @@ func KubeClusterName(ctx context.Context, cfg *KubernetesDecorator, k8sInformer 
 	}
 	retries := 0
 	for retries < clusterMetadataRetries {
-		if clusterName := fetchClusterName(ctx, k8sInformer); clusterName != "" {
+		if clusterName := fetchClusterName(ctx, k8sInformer, cloudDetectionEnabled); clusterName != "" {
 			return clusterName
 		}
 		retries++

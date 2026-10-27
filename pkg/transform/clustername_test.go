@@ -6,8 +6,10 @@ package transform
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -90,4 +92,96 @@ func TestOpenshiftClusterNameFetcher(t *testing.T) {
 		_, err := fetcher(t.Context())
 		assert.ErrorContains(t, err, "empty infrastructureName")
 	})
+}
+
+func TestFetchClusterNameOpenShiftWithCloudDetectionDisabled(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != openshiftInfraPath {
+			http.NotFound(w, r)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":{"infrastructureName":"my-cluster"}}`))
+	}))
+	defer server.Close()
+
+	mp := kube.NewMetadataProvider(kube.MetadataConfig{
+		KubeConfigPath: newTestKubeConfig(t, server.URL),
+	}, imetrics.NoopReporter{})
+
+	name := fetchClusterName(t.Context(), mp, false)
+
+	assert.Equal(t, "my-cluster", name)
+}
+
+func TestFetchClusterNameCloudDetection(t *testing.T) {
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
+
+	kubeServer := httptest.NewServer(http.NotFoundHandler())
+	defer kubeServer.Close()
+
+	var cloudRequests atomic.Int32
+
+	cloudServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cloudRequests.Add(1)
+		http.NotFound(w, r)
+	}))
+	defer cloudServer.Close()
+
+	proxyURL, err := url.Parse(cloudServer.URL)
+	require.NoError(t, err)
+
+	transport := &http.Transport{
+		Proxy: http.ProxyURL(proxyURL),
+	}
+
+	originalTransport := metadataClient.Transport
+	metadataClient.Transport = transport
+	t.Cleanup(func() {
+		metadataClient.Transport = originalTransport
+		transport.CloseIdleConnections()
+	})
+
+	tests := []struct {
+		name             string
+		enabled          bool
+		expectedRequests int32
+	}{
+		{
+			name:             "disabled",
+			enabled:          false,
+			expectedRequests: 0,
+		},
+		{
+			name:             "enabled",
+			enabled:          true,
+			expectedRequests: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cloudRequests.Store(0)
+
+			mp := kube.NewMetadataProvider(kube.MetadataConfig{
+				KubeConfigPath: newTestKubeConfig(t, kubeServer.URL),
+			}, imetrics.NoopReporter{})
+
+			name := fetchClusterName(t.Context(), mp, tt.enabled)
+
+			assert.Empty(t, name)
+			assert.Equal(t, tt.expectedRequests, cloudRequests.Load())
+		})
+	}
+}
+
+func TestKubeClusterNameConfiguredWithCloudDetectionDisabled(t *testing.T) {
+	cfg := &KubernetesDecorator{
+		ClusterName: "configured-cluster",
+	}
+
+	name := KubeClusterName(t.Context(), cfg, false, nil)
+
+	assert.Equal(t, "configured-cluster", name)
 }
