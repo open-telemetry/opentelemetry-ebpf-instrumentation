@@ -5,8 +5,7 @@ package ebpf // import "go.opentelemetry.io/obi/pkg/ebpf"
 
 import (
 	"context"
-
-	"github.com/cilium/ebpf/link"
+	"os"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -53,7 +52,7 @@ func (pt *ProcessTracer) Close() error {
 	return pt.closeErr
 }
 
-func (pt *ProcessTracer) NewExecutable(_ *link.Executable, _ *Instrumentable) error {
+func (pt *ProcessTracer) NewExecutable(_ *os.File, _ *Instrumentable) error {
 	return nil
 }
 

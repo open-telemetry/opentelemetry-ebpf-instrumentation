@@ -423,7 +423,9 @@ func (pt *ProcessTracer) NewExecutableInstance(ie *Instrumentable) error {
 	return nil
 }
 
-func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable) error {
+// NewExecutable attaches to a pinned executable. The caller owns file and must
+// keep it open until this method returns.
+func (pt *ProcessTracer) NewExecutable(file *os.File, ie *Instrumentable) error {
 	// held for the whole attachment so shutdown either waits for it or rejects it
 	pt.instrumentablesMu.Lock()
 	defer pt.instrumentablesMu.Unlock()
@@ -432,10 +434,16 @@ func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable)
 		return errTracerStopped
 	}
 
+	exePath := fmt.Sprintf("/proc/self/fd/%d", file.Fd())
+	exe, err := link.OpenExecutable(exePath)
+	if err != nil {
+		return err
+	}
+
 	i := instrumenter{
 		key:         ExecutableKey{Dev: ie.FileInfo.Dev(), Ino: ie.FileInfo.Ino()},
 		exe:         exe,
-		exePath:     ie.FileInfo.ProExeLinkPath(),
+		exePath:     exePath,
 		offsets:     ie.Offsets, // this is needed for the function offsets, not fields
 		modules:     map[uint64]struct{}{},
 		metrics:     pt.metrics,
@@ -458,7 +466,7 @@ func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable)
 		p.RegisterOffsets(ie.FileInfo, ie.Offsets)
 	}
 
-	if uprobeKey, ok := pt.resolveUprobeTarget(exe, ie.FileInfo.ProExeLinkPath(), ie.Offsets); ok {
+	if uprobeKey, ok := pt.resolveUprobeTarget(exe, exePath, ie.Offsets); ok {
 		i.uprobeKey = uprobeKey
 		if existing := pt.instrumenterForUprobeTarget(uprobeKey); existing != nil {
 			for _, p := range pt.Programs {
