@@ -128,6 +128,8 @@ type RegexSelector struct {
 
 	// Metrics configuration that is custom for this service match
 	Metrics perapp.SvcMetricsConfig `yaml:"metrics"`
+
+	DynamicSpans []DynamicSpan `yaml:"-"`
 }
 
 // RegexpAttr stores a regular expression representing an executable file path.
@@ -241,6 +243,8 @@ func (a *RegexSelector) GetExportModes() ExportModes { return a.ExportModes }
 func (a *RegexSelector) GetSamplerConfig() *SamplerConfig { return a.SamplerConfig }
 
 func (a *RegexSelector) GetRoutesConfig() *CustomRoutesConfig { return a.Routes }
+
+func (a *RegexSelector) GetDynamicSpans() []DynamicSpan { return a.DynamicSpans }
 
 func (a *RegexSelector) pids() ([]app.PID, bool) {
 	if len(a.PIDs) == 0 {

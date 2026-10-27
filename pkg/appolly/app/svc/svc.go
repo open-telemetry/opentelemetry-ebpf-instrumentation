@@ -137,6 +137,8 @@ type Attrs struct {
 
 	ExportModes services.ExportModes
 
+	DynamicSpans []services.DynamicSpan
+
 	Sampler trace.Sampler
 
 	// Features that are defined in a per-service basis. For example, we might want to enable

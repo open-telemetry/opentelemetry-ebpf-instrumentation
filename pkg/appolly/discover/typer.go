@@ -106,6 +106,7 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 	exportModes := services.ExportModeUnset
 	var samplerConfig *services.SamplerConfig
 	var routesConfig *services.CustomRoutesConfig
+	var dynamicSpans []services.DynamicSpan
 	svcFeatures := t.cfg.Metrics.Features
 	var metadata map[attr.Name]string
 
@@ -136,6 +137,9 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 		if m := s.GetRoutesConfig(); m != nil {
 			routesConfig = m
 		}
+		if spanSelector, ok := s.(interface{ GetDynamicSpans() []services.DynamicSpan }); ok {
+			dynamicSpans = append(dynamicSpans, spanSelector.GetDynamicSpans()...)
+		}
 
 		// if the matching service > instrument entry does not define features,
 		// the globally defined features apply (and override any previous,
@@ -155,6 +159,7 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 		ProcPID:            processMatch.Process.Pid,
 		DynamicSelectorPID: processMatch.DynamicSelectorPID,
 		ExportModes:        exportModes,
+		DynamicSpans:       dynamicSpans,
 		Sampler:            samplerFromConfig(samplerConfig),
 		Features:           svcFeatures,
 		LogEnricherEnabled: processMatch.LogEnricherEnabled(),
