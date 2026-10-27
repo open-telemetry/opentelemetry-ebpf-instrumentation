@@ -62,6 +62,7 @@ type Event[T any] struct {
 
 type ProcessAttrs struct {
 	pid            app.PID
+	executable     cacheKey
 	openPorts      []uint32
 	metadata       map[string]string
 	podLabels      map[string]string
@@ -320,10 +321,23 @@ func (pa *pollAccounter) snapshot(fetchedProcs map[app.PID]ProcessAttrs) []Event
 	log := wplog()
 	var events []Event[ProcessAttrs]
 	currentPidPorts := make(map[pidPort]ProcessAttrs, len(fetchedProcs))
+	currentProcs := maps.Clone(fetchedProcs)
 	reportedProcs := map[app.PID]struct{}{}
 	notReadyProcs := map[app.PID]struct{}{}
 	// notify processes that are new, or already existed but have a new connection
-	for pid, proc := range fetchedProcs {
+	for pid, proc := range currentProcs {
+		if previous, ok := pa.pids[pid]; ok {
+			if proc.executable.Ino == 0 {
+				// Preserve the last identity when procfs is temporarily unreadable.
+				proc.executable = previous.executable
+				currentProcs[pid] = proc
+			} else if previous.executable != proc.executable {
+				events = append(events, Event[ProcessAttrs]{Type: EventDeleted, Obj: previous})
+				delete(pa.pids, pid)
+				// Exec can inherit listening sockets without a new-port event.
+				pa.refetchPorts()
+			}
+		}
 		// if the process does not have open ports, we might still notify it
 		// for example, if it's a client with ephemeral connections, which might be later matched by executable name
 		if len(proc.openPorts) == 0 {
@@ -355,8 +369,6 @@ func (pa *pollAccounter) snapshot(fetchedProcs map[app.PID]ProcessAttrs) []Event
 			log.Debug("process removed", "pid", pid)
 		}
 	}
-
-	currentProcs := maps.Clone(fetchedProcs)
 
 	// Remove the processes that are not fully instantiated from the list before
 	// caching the current pids in the snapshot.
@@ -571,8 +583,10 @@ func fetchProcessPorts(scanPorts bool) (map[app.PID]ProcessAttrs, error) {
 	}
 
 	for _, pid := range pids {
+		dev, ino, _ := FindINodeForPID(app.PID(pid))
+		executable := cacheKey{Dev: dev, Ino: ino}
 		if !scanPorts {
-			processes[app.PID(pid)] = ProcessAttrs{pid: app.PID(pid), detectedType: svc.InstrumentableUnknown, openPorts: []uint32{}, processAge: processAgeFunc(app.PID(pid))}
+			processes[app.PID(pid)] = ProcessAttrs{pid: app.PID(pid), executable: executable, detectedType: svc.InstrumentableUnknown, openPorts: []uint32{}, processAge: processAgeFunc(app.PID(pid))}
 			continue
 		}
 		conns, err := net.ConnectionsPid("inet", pid)
@@ -585,7 +599,7 @@ func fetchProcessPorts(scanPorts bool) (map[app.PID]ProcessAttrs, error) {
 		for _, conn := range conns {
 			openPorts = append(openPorts, conn.Laddr.Port)
 		}
-		processes[app.PID(pid)] = ProcessAttrs{pid: app.PID(pid), detectedType: svc.InstrumentableUnknown, openPorts: openPorts, processAge: time.Duration(0)}
+		processes[app.PID(pid)] = ProcessAttrs{pid: app.PID(pid), executable: executable, detectedType: svc.InstrumentableUnknown, openPorts: openPorts, processAge: time.Duration(0)}
 	}
 	return processes, nil
 }
