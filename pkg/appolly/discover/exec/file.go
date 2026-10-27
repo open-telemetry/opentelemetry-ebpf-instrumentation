@@ -6,9 +6,12 @@ package exec // import "go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 
 import (
 	"debug/elf"
+	"fmt"
 	"maps"
+	"os"
 	"strings"
 	"sync"
+	"syscall"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	appruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
@@ -137,6 +140,27 @@ func (fi *FileInfo) Ns() uint32             { return fi.ns }
 func (fi *FileInfo) CmdExePath() string     { return fi.cmdExePath }
 func (fi *FileInfo) ProExeLinkPath() string { return fi.proExeLinkPath }
 func (fi *FileInfo) ELF() *elf.File         { return fi.elfFile }
+
+// OpenExecutable pins the inspected inode for attachment. The caller must keep
+// the descriptor open until every probe has been attached.
+func (fi *FileInfo) OpenExecutable() (*os.File, error) {
+	f, err := os.Open(fi.proExeLinkPath)
+	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	//nolint:unconvert // Darwin's device ID is int32.
+	if !ok || uint64(stat.Dev) != fi.dev || stat.Ino != fi.ino {
+		_ = f.Close()
+		return nil, fmt.Errorf("executable identity changed for PID %d", fi.pid)
+	}
+	return f, nil
+}
 
 func (fi *FileInfo) ExecutableName() string {
 	parts := strings.Split(fi.cmdExePath, "/")
