@@ -42,19 +42,19 @@ var startDNSPacketInspector = func(ctx context.Context, dnsCache *store.InMemory
 // EBPFLookup shares the eBPF-based reverse DNS between the pipelines of an OBI run,
 // as an XDP program can be attached only once per interface.
 type EBPFLookup struct {
-	ctx      context.Context
 	ebpfCfg  *config.EBPFTracer
 	cacheLen int
 
-	once       sync.Once
+	mt         sync.Mutex
+	users      int
+	stop       context.CancelFunc
 	lookupAddr func(string) ([]string, error)
-	err        error
 }
 
 // NewEBPFLookup sizes the shared cache with the largest CacheLen of the provided
-// eBPF-based reverse DNS configurations. The DNS packet inspector runs until ctx is done.
-func NewEBPFLookup(ctx context.Context, ebpfCfg *config.EBPFTracer, cfgs ...*ReverseDNS) *EBPFLookup {
-	l := &EBPFLookup{ctx: ctx, ebpfCfg: ebpfCfg}
+// eBPF-based reverse DNS configurations.
+func NewEBPFLookup(ebpfCfg *config.EBPFTracer, cfgs ...*ReverseDNS) *EBPFLookup {
+	l := &EBPFLookup{ebpfCfg: ebpfCfg}
 	for _, cfg := range cfgs {
 		if cfg.Type == ReverseDNSEBPF {
 			l.cacheLen = max(l.cacheLen, cfg.CacheLen)
@@ -63,20 +63,49 @@ func NewEBPFLookup(ctx context.Context, ebpfCfg *config.EBPFTracer, cfgs ...*Rev
 	return l
 }
 
-func (l *EBPFLookup) start() (func(string) ([]string, error), error) {
-	l.once.Do(func() {
-		dnsCache, err := store.NewInMemory(l.cacheLen)
-		if err != nil {
-			l.err = fmt.Errorf("initializing eBPF-based reverse DNS cache: %w", err)
-			return
+// acquire starts the DNS packet inspector if it is not running yet.
+// The inspector stops when the contexts of all its users are done.
+func (l *EBPFLookup) acquire(ctx context.Context) (func(string) ([]string, error), error) {
+	l.mt.Lock()
+	defer l.mt.Unlock()
+
+	if l.users == 0 {
+		if err := l.start(); err != nil {
+			return nil, err
 		}
-		if err := startDNSPacketInspector(l.ctx, dnsCache, l.ebpfCfg); err != nil {
-			l.err = fmt.Errorf("starting eBPF-based reverse DNS: %w", err)
-			return
-		}
-		l.lookupAddr = dnsCache.GetHostnames
-	})
-	return l.lookupAddr, l.err
+	}
+	l.users++
+	context.AfterFunc(ctx, l.release)
+
+	return l.lookupAddr, nil
+}
+
+func (l *EBPFLookup) start() error {
+	dnsCache, err := store.NewInMemory(l.cacheLen)
+	if err != nil {
+		return fmt.Errorf("initializing eBPF-based reverse DNS cache: %w", err)
+	}
+
+	// not bound to the first user, as the other users would lose the inspector when it stops
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := startDNSPacketInspector(ctx, dnsCache, l.ebpfCfg); err != nil {
+		cancel()
+		return fmt.Errorf("starting eBPF-based reverse DNS: %w", err)
+	}
+
+	l.stop = cancel
+	l.lookupAddr = dnsCache.GetHostnames
+	return nil
+}
+
+func (l *EBPFLookup) release() {
+	l.mt.Lock()
+	defer l.mt.Unlock()
+
+	l.users--
+	if l.users == 0 {
+		l.stop()
+	}
 }
 
 // ReverseDNS is currently experimental. It is kept disabled by default and will be hidden
@@ -106,12 +135,12 @@ func (r ReverseDNS) Enabled() bool {
 }
 
 func ReverseDNSProvider[T any](cfg *ReverseDNS, attrs func(T) *pipe.CommonAttrs, ebpfLookup *EBPFLookup, input, output *msg.Queue[[]T]) swarm.InstanceFunc {
-	return func(_ context.Context) (swarm.RunFunc, error) {
+	return func(ctx context.Context) (swarm.RunFunc, error) {
 		if !cfg.Enabled() {
 			return swarm.Bypass(input, output)
 		}
 
-		lookupAddr, err := lookupAddrFunc(cfg, ebpfLookup)
+		lookupAddr, err := lookupAddrFunc(ctx, cfg, ebpfLookup)
 		if err != nil {
 			return nil, err
 		}
@@ -140,14 +169,14 @@ func ReverseDNSProvider[T any](cfg *ReverseDNS, attrs func(T) *pipe.CommonAttrs,
 }
 
 // returns the reverse DNS method according to the provided configuration
-func lookupAddrFunc(cfg *ReverseDNS, ebpfLookup *EBPFLookup) (func(string) ([]string, error), error) {
+func lookupAddrFunc(ctx context.Context, cfg *ReverseDNS, ebpfLookup *EBPFLookup) (func(string) ([]string, error), error) {
 	if cfg.Type != ReverseDNSEBPF {
 		return netLookupAddr, nil
 	}
 	if ebpfLookup == nil {
 		return nil, errors.New("eBPF-based reverse DNS is not available")
 	}
-	return ebpfLookup.start()
+	return ebpfLookup.acquire(ctx)
 }
 
 func optGetName(

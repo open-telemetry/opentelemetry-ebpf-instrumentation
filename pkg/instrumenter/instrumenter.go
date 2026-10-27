@@ -100,8 +100,6 @@ func runWithContextInfo(
 	// if one of nodes fail, the other should stop
 	g, ctx := errgroup.WithContext(ctx)
 
-	ctxInfo.EBPFReverseDNS = rdns.NewEBPFLookup(ctx, &cfg.EBPF, &cfg.NetworkFlows.ReverseDNS, &cfg.Stats.ReverseDNS)
-
 	startHealthCheck(ctx, g, cfg.HealthCheck)
 
 	if app {
@@ -249,6 +247,7 @@ func BuildCommonContextInfo(
 	ctxInfo := &global.ContextInfo{
 		Prometheus:          promMgr,
 		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: &config.OTELMetrics},
+		EBPFReverseDNS:      rdns.NewEBPFLookup(&config.EBPF, &config.NetworkFlows.ReverseDNS, &config.Stats.ReverseDNS),
 	}
 	// Node metadata must be resolved before the internal-metrics reporter is
 	// created, so the reporter's OTLP resource carries host metadata (host.id,

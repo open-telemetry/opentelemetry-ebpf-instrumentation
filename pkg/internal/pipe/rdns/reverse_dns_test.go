@@ -144,9 +144,9 @@ func TestReverseDNS_EBPFSharedByPipelines(t *testing.T) {
 
 	// Given two pipelines using the eBPF reverse DNS in the same OBI run
 	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
-	ebpfLookup := NewEBPFLookup(t.Context(), nil, cfg)
-	in1, out1 := startReverseDNS(t, cfg, ebpfLookup)
-	in2, out2 := startReverseDNS(t, cfg, ebpfLookup)
+	ebpfLookup := NewEBPFLookup(nil, cfg)
+	in1, out1 := startReverseDNS(t.Context(), t, cfg, ebpfLookup)
+	in2, out2 := startReverseDNS(t.Context(), t, cfg, ebpfLookup)
 
 	// THEN the DNS packet inspector is started only once
 	assert.Len(t, *started, 1)
@@ -171,9 +171,9 @@ func TestReverseDNS_EBPFAndLocalPipelines(t *testing.T) {
 	// Given a pipeline using the eBPF reverse DNS and another using the local lookup
 	ebpfCfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
 	localCfg := &ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute}
-	ebpfLookup := NewEBPFLookup(t.Context(), nil, ebpfCfg, localCfg)
-	ebpfIn, ebpfOut := startReverseDNS(t, ebpfCfg, ebpfLookup)
-	localIn, localOut := startReverseDNS(t, localCfg, ebpfLookup)
+	ebpfLookup := NewEBPFLookup(nil, ebpfCfg, localCfg)
+	ebpfIn, ebpfOut := startReverseDNS(t.Context(), t, ebpfCfg, ebpfLookup)
+	localIn, localOut := startReverseDNS(t.Context(), t, localCfg, ebpfLookup)
 
 	// When both receive flows without source nor destination name
 	ebpfIn.Send([]*testRecord{newTestRecord()})
@@ -189,26 +189,35 @@ func TestReverseDNS_EBPFAndLocalPipelines(t *testing.T) {
 	assert.Equal(t, "local", decorated[0].SrcName)
 }
 
-func TestReverseDNS_EBPFRestartedOnNewRun(t *testing.T) {
+func TestReverseDNS_EBPFStoppedWithLastPipeline(t *testing.T) {
 	started := fakeDNSPacketInspector(t)
 	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
+	ebpfLookup := NewEBPFLookup(nil, cfg)
 
-	// Given an OBI run using the eBPF reverse DNS that is stopped
-	firstRun, stopFirstRun := context.WithCancel(t.Context())
-	startReverseDNS(t, cfg, NewEBPFLookup(firstRun, nil, cfg))
-	stopFirstRun()
-
-	// THEN its DNS packet inspector is stopped too
+	// Given two pipelines sharing the eBPF reverse DNS
+	flowsCtx, stopFlows := context.WithCancel(t.Context())
+	statsCtx, stopStats := context.WithCancel(t.Context())
+	startReverseDNS(flowsCtx, t, cfg, ebpfLookup)
+	startReverseDNS(statsCtx, t, cfg, ebpfLookup)
 	require.Len(t, *started, 1)
-	require.Error(t, (*started)[0].Err())
+	inspector := (*started)[0]
 
-	// When OBI runs again in the same process
-	in, out := startReverseDNS(t, cfg, NewEBPFLookup(t.Context(), nil, cfg))
+	// When one of them stops
+	stopFlows()
 
-	// THEN the DNS packet inspector is started again
+	// THEN the DNS packet inspector keeps running for the other
+	assert.Never(t, func() bool { return inspector.Err() != nil }, 100*time.Millisecond, 10*time.Millisecond)
+
+	// When both are stopped
+	stopStats()
+
+	// THEN the DNS packet inspector is stopped too
+	require.Eventually(t, func() bool { return inspector.Err() != nil }, timeout, 10*time.Millisecond)
+
+	// AND it is started again by the next pipeline using it
+	in, out := startReverseDNS(t.Context(), t, cfg, ebpfLookup)
 	assert.Len(t, *started, 2)
 
-	// AND the new run decorates its flows
 	in.Send([]*testRecord{newTestRecord()})
 	decorated := testutil.ReadChannel(t, out, timeout)
 	require.Len(t, decorated, 1)
@@ -216,7 +225,7 @@ func TestReverseDNS_EBPFRestartedOnNewRun(t *testing.T) {
 }
 
 func TestNewEBPFLookup_LargestCacheLen(t *testing.T) {
-	ebpfLookup := NewEBPFLookup(t.Context(), nil,
+	ebpfLookup := NewEBPFLookup(nil,
 		&ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 100},
 		&ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 300},
 		&ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 999},
@@ -227,27 +236,20 @@ func TestNewEBPFLookup_LargestCacheLen(t *testing.T) {
 func TestReverseDNS_EBPFStartError(t *testing.T) {
 	start := startDNSPacketInspector
 	t.Cleanup(func() { startDNSPacketInspector = start })
-	starts := 0
 	startDNSPacketInspector = func(_ context.Context, _ *store.InMemory, _ *config.EBPFTracer) error {
-		starts++
 		return errors.New("no interfaces found")
 	}
-
 	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
-	ebpfLookup := NewEBPFLookup(t.Context(), nil, cfg)
 
-	for range 2 {
-		_, err := instantiateReverseDNS(t, cfg, ebpfLookup)
-		require.ErrorContains(t, err, "starting eBPF-based reverse DNS: no interfaces found")
-	}
-	assert.Equal(t, 1, starts)
+	_, err := instantiateReverseDNS(t, cfg, NewEBPFLookup(nil, cfg))
+	require.ErrorContains(t, err, "starting eBPF-based reverse DNS: no interfaces found")
 }
 
 func TestReverseDNS_EBPFCacheError(t *testing.T) {
 	fakeDNSPacketInspector(t)
 	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 0, CacheTTL: time.Minute}
 
-	_, err := instantiateReverseDNS(t, cfg, NewEBPFLookup(t.Context(), nil, cfg))
+	_, err := instantiateReverseDNS(t, cfg, NewEBPFLookup(nil, cfg))
 	require.ErrorContains(t, err, "initializing eBPF-based reverse DNS cache")
 }
 
@@ -280,14 +282,14 @@ func fakeDNSPacketInspector(t *testing.T) *[]context.Context {
 }
 
 func startReverseDNS(
-	t *testing.T, cfg *ReverseDNS, ebpfLookup *EBPFLookup,
+	ctx context.Context, t *testing.T, cfg *ReverseDNS, ebpfLookup *EBPFLookup,
 ) (*msg.Queue[[]*testRecord], <-chan []*testRecord) {
 	in := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
 	out := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
 	outCh := out.Subscribe()
-	reverseDNS, err := ReverseDNSProvider(cfg, attrsOf, ebpfLookup, in, out)(t.Context())
+	reverseDNS, err := ReverseDNSProvider(cfg, attrsOf, ebpfLookup, in, out)(ctx)
 	require.NoError(t, err)
-	go reverseDNS(t.Context())
+	go reverseDNS(ctx)
 	return in, outCh
 }
 
