@@ -163,10 +163,11 @@ skip injection because an early final response can overtake plaintext reporting.
 for compatibility checks, limits, and integration tests.
 
 Three additive control operations use the same JNI/ioctl channel and preserve
-the existing agent contract version. The capability property
-`otel.obi.java.agent.httpclient.propagation` identifies the synchronous path;
-`otel.obi.java.agent.httpclient.async.propagation` identifies the async path.
-These report path availability, not successful injection. Multibyte integers use native byte order, as in the existing packet ABI.
+the existing agent contract version. The property
+`otel.obi.java.agent.httpclient.propagation` reports whether synchronous
+propagation is available. `otel.obi.java.agent.httpclient.async.propagation`
+reports the same for async calls. These properties do not confirm that a header
+was injected. Multibyte integers use native byte order, as in the existing packet ABI.
 
 | Offset | Size | Operation 11: reserve HTTP/1.1 traceparent |
 | --- | --- | --- |

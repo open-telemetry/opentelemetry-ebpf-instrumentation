@@ -1,10 +1,9 @@
 # Java HttpClient HTTPS propagation
 
-OBI can inject a W3C `traceparent` into Java 11+ `java.net.http.HttpClient.send()`
-and both `sendAsync()` overloads for HTTPS HTTP/1.1 requests. Enable header
-propagation through the existing
-`capture.engine.propagation.context_propagation: headers` setting in Config v2.
-TCP-option propagation is independent and is not required.
+OBI can add a W3C `traceparent` header to HTTPS HTTP/1.1 requests made with
+Java 11+ `java.net.http.HttpClient.send()` or either `sendAsync()` overload.
+Enable it with `capture.engine.propagation.context_propagation: headers` in
+Config v2. Header propagation does not require TCP option propagation.
 
 The injected OBI Java agent must be enabled, and the kernel must support
 `bpf_probe_write_user` under OBI's existing capability and lockdown checks.
@@ -13,15 +12,18 @@ OBI leaves the request unchanged. No additional configuration is introduced.
 
 ## Injection and span identity
 
-The agent tracks internal request copies, including redirects and retries.
-Synchronous tracking ends when `send()` returns or throws. Async tracking ends
-when the internal exchange future completes; cancelling the public future cannot
-release state still needed by transport. The original future is returned unchanged,
-and the caller's previous scope is restored before return. Completion cleanup
-never installs request context on executor threads. Concurrent calls using the
-same immutable request retain separate owners.
-An unfinished exchange retains bounded tracking until completion or JVM exit;
-failed listener registration disables propagation without releasing live state.
+The agent tracks internal request copies through redirects and retries.
+For `send()`, tracking ends when the call returns or throws.
+
+For `sendAsync()`, tracking lasts until the internal exchange completes.
+Cancelling the public future does not release transport state. The agent returns
+the original future and restores the caller's previous scope before returning.
+Completion callbacks do not install context on executor threads. Concurrent
+calls with the same immutable request are tracked separately.
+
+Tracking has a fixed limit. An exchange that never completes can occupy capacity
+until the JVM exits. If registering the completion callback fails, the agent
+disables propagation and keeps the unfinished exchange's state.
 
 The HTTP/1.1 header hook runs before TLS encryption. It obtains the connected
 socket's addresses and asks eBPF to reserve an outbound client span identity.
@@ -61,11 +63,14 @@ server span when a current server context was captured. The incoming header's
 extracts the outgoing header creates a child of the outbound client span.
 
 Java request tracking and retained native packets are each capped at 10,000
-entries per JVM; capacity exhaustion skips injection without evicting active
-requests. Reservations are keyed by PID and the full connection tuple. Preallocated slots and a bounded connection index do not evict active
-reservations; unavailable capacity skips injection. Reservations are consumed on matching observation, released when the synchronous call or internal async exchange
-ends, and removed when the socket closes. A mismatching plaintext notification
-leaves the reservation for its owner to clean up.
+entries per JVM. When capacity runs out, OBI skips injection and leaves active
+requests alone. Reservations use the PID and full connection tuple as their key.
+The preallocated slots and connection index also have fixed limits.
+
+A reservation is consumed when OBI observes the matching request. It is released
+when the synchronous call or internal async exchange ends, or when the socket
+closes. A plaintext notification that does not match the reservation leaves it
+for its owner to clean up.
 
 ### Reservation ownership
 
@@ -170,18 +175,21 @@ their application-provided values; OBI does not synthesize `tracestate`.
 OBI checks the required JDK class, field, and method shapes before installing
 the propagation hooks. The secure-connection and socket accessors are resolved
 once inside the JDK module and cached. An incompatible layout disables this
-feature with one diagnostic. An incompatible async layout disables only async
-propagation. Ordinary socket-close failures leave the original
-headers intact and do not disable propagation for later requests.
+feature with one diagnostic. An incompatible async hook disables async
+propagation only.
+A socket closing during injection leaves the original headers intact and does
+not disable propagation for later requests.
 
-These additional control operations preserve the existing agent contract version.
-The agent publishes `otel.obi.java.agent.httpclient.propagation` for synchronous
-calls and `otel.obi.java.agent.httpclient.async.propagation` for async calls.
-These report path availability, not successful injection. OBI warns when an already attached
-agent cannot provide it. Restart the JVM to load the newer agent; a running
-Java agent cannot be replaced. Agent options are established at attachment, so enabling propagation
-for a JVM originally attached with header propagation disabled also requires a
-JVM restart. Disabling header propagation in OBI always prevents injection.
+The control operations keep the existing agent contract version.
+`otel.obi.java.agent.httpclient.propagation` reports whether synchronous
+propagation is available. `otel.obi.java.agent.httpclient.async.propagation`
+reports the same for async calls. Neither property confirms that a header was
+injected.
+
+OBI warns when an attached agent lacks the required capability. Restart the JVM
+to load the newer agent. The agent cannot be replaced while the JVM is running.
+Enabling header propagation also requires a restart if the agent was attached
+with propagation disabled. Disabling header propagation in OBI prevents injection.
 
 ## Scope and validation
 
