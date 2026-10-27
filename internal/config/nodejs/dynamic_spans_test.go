@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package services
+package nodejs
 
 import (
 	"testing"
@@ -9,16 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestParseNodeFunctionReference(t *testing.T) {
+func TestParseFunctionReference(t *testing.T) {
 	t.Parallel()
 
-	got, err := ParseNodeFunctionReference("@example/checkout#orders.create")
+	got, err := ParseFunctionReference("@example/checkout#orders.create")
 	require.NoError(t, err)
 	require.Equal(t, "@example/checkout", got.ModuleSpecifier)
 	require.Equal(t, []string{"orders", "create"}, got.ExportPath)
 }
 
-func TestParseNodeFunctionReferenceRejectsUnsupportedSyntax(t *testing.T) {
+func TestParseFunctionReferenceRejectsUnsupportedSyntax(t *testing.T) {
 	t.Parallel()
 
 	for _, reference := range []string{
@@ -32,8 +32,9 @@ func TestParseNodeFunctionReferenceRejectsUnsupportedSyntax(t *testing.T) {
 	} {
 		t.Run(reference, func(t *testing.T) {
 			t.Parallel()
-			_, err := ParseNodeFunctionReference(reference)
+			_, err := ParseFunctionReference(reference)
 			require.Error(t, err)
 		})
 	}
 }
+

@@ -50,6 +50,31 @@ selector syntax and resolves targets at the runtime boundary.
 The following is an illustrative schema example; runtime acceptance depends
 on the runtime-specific reference and tests.
 
+The shared schema also permits explicit source-argument mappings. This Java
+example documents the contract only; the current converter rejects it because
+Java runtime span support and attribute capture are not implemented:
+
+```yaml
+capture:
+  rules:
+    - name: checkout
+      action: include
+      match:
+        process:
+          language_glob: [java]
+      refine:
+        spans:
+          - name: checkout.place_order
+            on:
+              function: "com.example.Checkout#placeOrder"
+            attributes:
+              - name: order.id
+                argument: {index: 0, type: string}
+```
+
+The following exact CommonJS rule is accepted by the current Node.js runtime
+slice:
+
 ```yaml
 capture:
   rules:
