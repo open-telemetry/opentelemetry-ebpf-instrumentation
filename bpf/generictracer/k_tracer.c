@@ -31,6 +31,7 @@
 #include <generictracer/k_unix_sock.h>
 #include <generictracer/maps/active_accept_args.h>
 #include <generictracer/maps/active_connect_args.h>
+#include <generictracer/maps/java_http1_requests.h>
 #include <generictracer/maps/listening_ports.h>
 #include <generictracer/maps/sock_filter_buffers.h>
 #include <generictracer/maps/tcp_connection_map.h>
@@ -449,7 +450,7 @@ tcp_send_ssl_check(u64 id, void *ssl, pid_connection_info_t *p_conn, u16 orig_dp
     if (!ssl) {
         return;
     }
-    ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
+    ssl_pid_connection_info_t *s_conn = lookup_ssl_conn(p_conn->pid, ssl);
     if (s_conn) {
         finish_possible_delayed_tls_http_request(&s_conn->p_conn);
     }
@@ -457,7 +458,9 @@ tcp_send_ssl_check(u64 id, void *ssl, pid_connection_info_t *p_conn, u16 orig_dp
         .orig_dport = orig_dport,
     };
     __builtin_memcpy(&ssl_conn.p_conn, p_conn, sizeof(pid_connection_info_t));
-    bpf_map_update_elem(&ssl_to_conn, &ssl, &ssl_conn, BPF_ANY);
+    // built late: kept live across the finish above, it overflows obi_kprobe_tcp_sendmsg's stack
+    const pid_ptr_key_t ssl_key = pid_ptr_key(p_conn->pid, ssl);
+    bpf_map_update_elem(&ssl_to_conn, &ssl_key, &ssl_conn, BPF_ANY);
 }
 
 static __always_inline void
@@ -813,6 +816,11 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
             }
         }
         bpf_map_delete_elem(&cp_support_connect_info, &info);
+        if (g_bpf_java_http1_enabled) {
+            const u64 request_id = java_http1_request_id(&info);
+            java_http1_request_retire(
+                &info, java_http1_request_lookup(&info, request_id), request_id);
+        }
     }
 
     bool unreadable = false;

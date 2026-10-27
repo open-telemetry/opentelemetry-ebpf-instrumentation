@@ -198,6 +198,47 @@ const rerankBody = `{
   }
 }`
 
+const cohereChatBody = `{
+  "id": "c14c80c3-18eb-4519-9460-6c92edd8cfb4",
+  "finish_reason": "COMPLETE",
+  "message": {
+    "role": "assistant",
+    "content": [{"type": "text", "text": "Total sales on 2023-09-29 were $10,000."}]
+  },
+  "usage": {
+    "billed_units": {"input_tokens": 35, "output_tokens": 12},
+    "tokens": {"input_tokens": 512, "output_tokens": 12}
+  }
+}`
+
+const cohereChatStreamBody = `event: message-start
+data: {"id":"29f14a5a-11de-4cae-9800-25e4747408ea","type":"message-start","delta":{"message":{"role":"assistant","content":[],"tool_plan":"","tool_calls":[],"citations":[]}}}
+
+event: content-start
+data: {"type":"content-start","index":0,"delta":{"message":{"content":{"type":"text","text":""}}}}
+
+event: content-delta
+data: {"type":"content-delta","index":0,"delta":{"message":{"content":{"text":"Hello"}}}}
+
+event: content-delta
+data: {"type":"content-delta","index":0,"delta":{"message":{"content":{"text":"!"}}}}
+
+event: content-end
+data: {"type":"content-end","index":0}
+
+event: message-end
+data: {"type":"message-end","delta":{"finish_reason":"COMPLETE","usage":{"billed_units":{"input_tokens":5,"output_tokens":2},"tokens":{"input_tokens":71,"output_tokens":2}}}}
+
+`
+
+const cohereChatErrorBody = `{"id":"0a1b2c3d-4e5f-6789-abcd-ef0123456789","message":"invalid request: model 'command-unknown' not found"}`
+
+type cohereChatRequest struct {
+	Model    string          `json:"model"`
+	Messages json.RawMessage `json:"messages"`
+	Stream   bool            `json:"stream"`
+}
+
 type responsesRequest struct {
 	Input        string `json:"input"`
 	Instructions string `json:"instructions"`
@@ -426,6 +467,49 @@ func handleStatic(responseBody string) http.HandlerFunc {
 	}
 }
 
+func handleCohereChat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to read request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	var req cohereChatRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		http.Error(w, fmt.Sprintf("invalid JSON: %v", err), http.StatusBadRequest)
+		return
+	}
+	if req.Model == "" || len(req.Messages) == 0 {
+		http.Error(w, "request validation failed: model and messages are required", http.StatusBadRequest)
+		return
+	}
+
+	if r.URL.Query().Has("error") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(cohereChatErrorBody))
+		return
+	}
+
+	if req.Stream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(cohereChatStreamBody))
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(cohereChatBody))
+}
+
 func handleConversations(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -521,6 +605,7 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v1/conversations", handleConversations)
 	mux.HandleFunc("/v2/embed", handleStatic(cohereEmbedBody))
 	mux.HandleFunc("/v2/rerank", handleStatic(rerankBody))
+	mux.HandleFunc("/v2/chat", handleCohereChat)
 	return mux
 }
 

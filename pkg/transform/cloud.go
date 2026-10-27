@@ -17,7 +17,7 @@ import (
 )
 
 func rlog() *slog.Logger {
-	return slog.With("component", "AWSMetadataRefresher")
+	return slog.With("component", "CloudMetadataRefresher")
 }
 
 // CloudMetadataRefreshers returns enabled refreshers in order of increasing priority.
@@ -32,6 +32,14 @@ func CloudMetadataRefreshers(
 		return refreshers
 	}
 	enabled := resolverSources(cfg.Sources)
+	if nodeMeta.Features.Has(metadata.ClusterAzureVM) && !nodeMeta.Features.Has(metadata.ClusterK8s) &&
+		enabled.Has(ResolverAzure) {
+		if refresher, err := azureInventoryRefresher(nodeMeta, cfg.Azure, cloudCfg); err != nil {
+			rlog().Warn("cloud metadata not available", "source", SourceAzure, "error", err)
+		} else {
+			refreshers = append(refreshers, refresher)
+		}
+	}
 	if nodeMeta.Features.Has(metadata.ClusterEC2) && enabled.Has(ResolverRoute53) {
 		if refresher, err := route53InventoryRefresher(ctx, nodeMeta, cloudCfg); err != nil {
 			rlog().Warn("cloud metadata not available", "source", SourceRoute53, "error", err)

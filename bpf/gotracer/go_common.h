@@ -287,9 +287,11 @@ server_trace_parent(void *goroutine_addr, tp_info_t *tp, tp_info_t *found_tp) {
     tp->ts = bpf_ktime_get_ns();
     bpf_map_update_elem(&go_trace_map, &g_key, tp, BPF_ANY);
 
-    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-    make_tp_string(tp_buf, tp);
-    bpf_dbg_printk("tp_buf=[%s]", tp_buf);
+    if (g_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, tp);
+        bpf_dbg_printk("tp_buf=[%s]", tp_buf);
+    }
 }
 
 static __always_inline tp_info_t *tp_info_from_parent_go(go_addr_key_t *g_key, u64 *parent_found) {
@@ -361,29 +363,43 @@ static __always_inline u8 client_trace_parent(void *goroutine_addr, tp_info_t *t
     return found_trace_id;
 }
 
-static __always_inline void read_ip_and_port(void *src, u8 *dst_ip, u16 *dst_port) {
+// Returns false when any user memory read fails. Such reads fail transiently, e.g. while
+// NUMA balancing has the page marked PROT_NONE, and must not yield a zeroed address.
+static __always_inline bool read_ip_and_port(void *src, u8 *dst_ip, u16 *dst_port) {
     s64 addr_len = 0;
     void *addr_ip = 0;
     off_table_t *ot = get_offsets_table();
+    const u64 ip_ptr_pos = go_offset_of(ot, (go_offset){.v = _tcp_addr_ip_ptr_pos});
 
-    bpf_probe_read_user(dst_port,
-                        sizeof(u16),
-                        (void *)(src + go_offset_of(ot, (go_offset){.v = _tcp_addr_port_ptr_pos})));
-    bpf_probe_read_user(&addr_ip,
-                        sizeof(addr_ip),
-                        (void *)(src + go_offset_of(ot, (go_offset){.v = _tcp_addr_ip_ptr_pos})));
-    if (addr_ip) {
-        bpf_probe_read_user(
-            &addr_len,
-            sizeof(addr_len),
-            (void *)(src + go_offset_of(ot, (go_offset){.v = _tcp_addr_ip_ptr_pos}) + 8));
-        if (addr_len == 4) {
-            __builtin_memcpy(dst_ip, ip4ip6_prefix, sizeof(ip4ip6_prefix));
-            bpf_probe_read_user(dst_ip + sizeof(ip4ip6_prefix), 4, addr_ip);
-        } else if (addr_len == 16) {
-            bpf_probe_read_user(dst_ip, 16, addr_ip);
-        }
+    if (bpf_probe_read_user(
+            dst_port,
+            sizeof(*dst_port),
+            (void *)(src + go_offset_of(ot, (go_offset){.v = _tcp_addr_port_ptr_pos})))) {
+        return false;
     }
+
+    if (bpf_probe_read_user(&addr_ip, sizeof(addr_ip), (void *)(src + ip_ptr_pos))) {
+        return false;
+    }
+
+    if (!addr_ip) {
+        return true;
+    }
+
+    if (bpf_probe_read_user(&addr_len, sizeof(addr_len), (void *)(src + ip_ptr_pos + 8))) {
+        return false;
+    }
+
+    if (addr_len == 4) {
+        bpf_memcpy(dst_ip, ip4ip6_prefix, sizeof(ip4ip6_prefix));
+        return bpf_probe_read_user(dst_ip + sizeof(ip4ip6_prefix), 4, addr_ip) == 0;
+    }
+
+    if (addr_len == 16) {
+        return bpf_probe_read_user(dst_ip, 16, addr_ip) == 0;
+    }
+
+    return true;
 }
 
 static __always_inline u8 get_conn_info_from_fd(void *fd_ptr,
@@ -407,12 +423,13 @@ static __always_inline u8 get_conn_info_from_fd(void *fd_ptr,
                        laddr_ptr,
                        raddr_ptr);
         if (laddr_ptr && raddr_ptr) {
-
-            // read local
-            read_ip_and_port(laddr_ptr, info->s_addr, &info->s_port);
-
-            // read remote
-            read_ip_and_port(raddr_ptr, info->d_addr, &info->d_port);
+            // A failed read must not leave a partially filled connection (e.g. a zeroed
+            // address): it would not match the key this connection has elsewhere.
+            if (!read_ip_and_port(laddr_ptr, info->s_addr, &info->s_port) ||
+                !read_ip_and_port(raddr_ptr, info->d_addr, &info->d_port)) {
+                bpf_memset(info, 0, sizeof(*info));
+                return 0;
+            }
 
             //dbg_print_http_connection_info(info);
 

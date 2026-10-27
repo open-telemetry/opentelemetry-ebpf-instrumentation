@@ -272,7 +272,8 @@ extensions:
             # List-based enablement, consistent with other instrumentation selectors.
             # Supported values today: graphql, elasticsearch, aws, sqlpp,
             # openai, anthropic, gemini, qwen, bedrock, mcp, embedding,
-            # rerank, retrieval, ollama, openai_compatible, jsonrpc, enrichment.
+            # rerank, retrieval, ollama, cohere, openai_compatible, jsonrpc,
+            # enrichment.
             enabled: []
             sqlpp:
               endpoint_patterns:
@@ -568,6 +569,7 @@ extensions:
           reporters_cache_len: 256
         metrics:
           ttl: 5m0s
+          connection_info_ttl: 15m0s
           reporters_cache_len: 256
 
     # enrich defines metadata enrichment behavior for telemetry.
@@ -604,7 +606,7 @@ extensions:
           region: ""
           # How often the cloud metadata inventory is refreshed.
           refresh_interval: 30s
-          # Route53 hosted zones used by the route53 service_name source.
+          # Route53 discovers account public zones and private zones associated with the detected VPC.
           route53:
             refresh_interval: 5m0s
             hosted_zone_ids: []
@@ -634,6 +636,8 @@ extensions:
         # Ordered backends used for peer and host name resolution.
         sources:
           - k8s
+          - ecs
+          - route53
         # Shared cache for peer/host service-name lookups.
         cache:
           size: 1024

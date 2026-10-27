@@ -1095,6 +1095,63 @@ func TestAppMetrics_REDHistogramBucketBoundaries(t *testing.T) {
 	assert.Equal(t, expected, readHistogramBounds(t, records, slices.Collect(maps.Keys(expected))...))
 }
 
+func TestAppMetrics_InstrumentationScope(t *testing.T) {
+	ctx := t.Context()
+	type exportedScope struct {
+		resourceSchemaURL string
+		scope             pmetric.ScopeMetrics
+	}
+	scopes := make(chan exportedScope, 100)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		MetricsExport: testOTLPMetricsExport(func(_ context.Context, md pmetric.Metrics) error {
+			for _, rm := range md.ResourceMetrics().All() {
+				for _, sm := range rm.ScopeMetrics().All() {
+					for _, m := range sm.Metrics().All() {
+						if m.Name() == attributes.HTTPServerDuration.OTEL {
+							scopes <- exportedScope{resourceSchemaURL: rm.SchemaUrl(), scope: sm}
+						}
+					}
+				}
+			}
+			return nil
+		}),
+	}
+
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		metrics,
+		processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	svcAttrs := svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}
+	metrics.Send([]request.Span{
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Method: "GET", Status: 200, RequestStart: 100, End: 200},
+	})
+
+	select {
+	case exported := <-scopes:
+		assert.Equal(t, attr.OBISchemaURL, exported.resourceSchemaURL)
+		assert.Equal(t, reporterName, exported.scope.Scope().Name())
+		assert.Equal(t, attr.TelemetryDistroVersion(), exported.scope.Scope().Version())
+		assert.Equal(t, attr.OBISchemaURL, exported.scope.SchemaUrl())
+	case <-time.After(timeout):
+		require.Fail(t, "timeout while waiting for http.server.request.duration")
+	}
+}
+
 func TestAppMetrics_GenAIHistogramBucketBoundaries(t *testing.T) {
 	// non-default and distinct per field, so a histogram that ignores cfg.Buckets or uses
 	// another field's buckets fails the bounds assertion

@@ -8,6 +8,8 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 )
 
@@ -19,14 +21,13 @@ const (
 
 // exceptionTypes retains admitted names for one process incarnation, across sessions.
 type exceptionTypes struct {
-	// Values hold canonical copies independent of the CLR payload strings.
+	// Values hold canonical copies independent of the event payload strings.
 	names map[string]string
 }
 
-func (t *exceptionTypes) labelFor(rawName string) (string, error) {
-	name := shortCLRExceptionType(rawName)
+func (t *exceptionTypes) labelFor(name string) (string, error) {
 	if name == "" {
-		return "", errors.New("CLR exception type normalizes to an empty name")
+		return "", errors.New("exception type has an empty name")
 	}
 	if len(name) > maximumExceptionTypeBytes || name == exceptionTypeOther {
 		return exceptionTypeOther, nil
@@ -43,6 +44,55 @@ func (t *exceptionTypes) labelFor(rawName string) (string, error) {
 	name = strings.Clone(name)
 	t.names[name] = name
 	return name, nil
+}
+
+func decodeExceptionMetric(eventName string, values map[string]any, sessionID string) (netTraceRuntimeEvent, error) {
+	if eventName == "MultipleSessionsNotSupportedError" {
+		owner, ok := values["runningSessionId"].(string)
+		if !ok {
+			return netTraceRuntimeEvent{}, errors.New("missing Meter session owner")
+		}
+		if owner != sessionID {
+			return netTraceRuntimeEvent{
+				exceptionsUnavailable: true,
+				exceptionWarning:      "another diagnostics client owns the Meter subscription",
+			}, nil
+		}
+		return netTraceRuntimeEvent{}, nil
+	}
+	if values["sessionId"] != sessionID {
+		return netTraceRuntimeEvent{}, nil
+	}
+	switch eventName {
+	case "TimeSeriesLimitReached":
+		return netTraceRuntimeEvent{exceptionWarning: "runtime exception time-series limit reached; additional types are omitted"}, nil
+	case "Error":
+		return netTraceRuntimeEvent{
+			exceptionsUnavailable: true,
+			exceptionWarning:      "runtime Meter collection failed",
+		}, nil
+	}
+	if values["meterName"] != "System.Runtime" || values["instrumentName"] != "dotnet.exceptions" {
+		return netTraceRuntimeEvent{}, nil
+	}
+	tags, ok := values["tags"].(string)
+	name, valid := strings.CutPrefix(tags, "error.type=")
+	if !ok || !valid || name == "" {
+		return netTraceRuntimeEvent{}, errors.New("exception metric has no error.type")
+	}
+	// The runtime sends interval deltas in rate; value is session-relative.
+	rate, ok := values["rate"].(string)
+	if !ok {
+		return netTraceRuntimeEvent{}, errors.New("exception metric has no delta")
+	}
+	if rate == "" {
+		return netTraceRuntimeEvent{}, nil
+	}
+	count, err := strconv.ParseFloat(rate, 64)
+	if err != nil || math.IsNaN(count) || math.IsInf(count, 0) || count < 0 || count >= math.Exp2(63) || math.Trunc(count) != count {
+		return netTraceRuntimeEvent{}, fmt.Errorf("invalid exception metric delta: %q", rate)
+	}
+	return netTraceRuntimeEvent{exceptionType: name, exceptionCount: uint64(count)}, nil
 }
 
 func isCLRExceptionThrown(header netTraceMetadataHeader) bool {

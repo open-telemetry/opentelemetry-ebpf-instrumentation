@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
@@ -128,6 +129,65 @@ func TestInjectClosesOnlyAnInspectorItOpened(t *testing.T) {
 
 			require.NotContains(t, expressions, "process._debugEnd();",
 				"an inspector the application already had open must be left alone")
+		})
+	}
+}
+
+func TestInjectViaConnDisconnectsFromApplicationInspector(t *testing.T) {
+	for _, failEvaluation := range []bool{false, true} {
+		name := "successful evaluation"
+		if failEvaluation {
+			name = "failed evaluation"
+		}
+		t.Run(name, func(t *testing.T) {
+			disconnected := make(chan struct{})
+			upgrader := websocket.Upgrader{}
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/json/list" {
+					_ = json.NewEncoder(w).Encode([]inspectorTarget{{
+						WebSocketDebuggerURL: "ws://" + r.Host + "/session",
+					}})
+					return
+				}
+
+				conn, err := upgrader.Upgrade(w, r, nil)
+				if err != nil {
+					return
+				}
+				defer conn.Close()
+				defer close(disconnected)
+
+				if _, _, err := conn.ReadMessage(); err != nil {
+					return
+				}
+				response := cdpResponse{ID: 1}
+				if failEvaluation {
+					response.Error = map[string]any{"message": "evaluation failed"}
+				}
+				if err := conn.WriteJSON(response); err != nil {
+					return
+				}
+				_, _, _ = conn.ReadMessage()
+			}))
+			defer srv.Close()
+
+			conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+			require.NoError(t, err)
+			defer conn.Close()
+
+			cfg := obi.DefaultConfig
+			err = NewNodeInjector(&cfg).injectViaConn(conn, false)
+			if failEvaluation {
+				require.ErrorContains(t, err, "evaluation failed")
+			} else {
+				require.NoError(t, err)
+			}
+
+			select {
+			case <-disconnected:
+			case <-time.After(testInspectorOperationTimeout):
+				t.Fatal("injection left its inspector session connected")
+			}
 		})
 	}
 }

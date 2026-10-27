@@ -105,9 +105,9 @@ static __always_inline u8 bio_owner_is_current(u32 pid,
 
 // True when this SSL has no known peer yet, so correlating is worth the work.
 // A connection awaiting a peer is recorded with a zeroed destination port.
-static __always_inline u8 tls_prefix_needs_binding(u64 ssl_ptr) {
-    void *ssl = (void *)ssl_ptr;
-    ssl_pid_connection_info_t *conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
+static __always_inline u8 tls_prefix_needs_binding(u32 pid, u64 ssl_ptr) {
+    const pid_ptr_key_t ssl_key = pid_ptr_key(pid, (void *)ssl_ptr);
+    ssl_pid_connection_info_t *conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl_key);
 
     return !conn || conn->orig_dport == 0;
 }
@@ -142,7 +142,7 @@ static __always_inline void tls_prefix_register_egress(void *bio, const void *bu
         return;
     }
 
-    if (!tls_prefix_needs_binding(info->ssl)) {
+    if (!tls_prefix_needs_binding(pid, info->ssl)) {
         return;
     }
 

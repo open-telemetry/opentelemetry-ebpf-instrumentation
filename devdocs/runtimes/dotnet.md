@@ -1,7 +1,7 @@
 # .NET runtime metrics
 
 With `application_runtime` enabled, OBI collects runtime metrics from
-.NET 8 and newer processes on Linux through their diagnostic Unix sockets.
+.NET 8+ processes on Linux through their diagnostic Unix sockets.
 
 | OTel metric | Prometheus metric | Unit |
 | --- | --- | --- |
@@ -10,6 +10,7 @@ With `application_runtime` enabled, OBI collects runtime metrics from
 | `dotnet.process.cpu.time` | `dotnet_process_cpu_time_seconds_total` | `s` |
 | `dotnet.process.memory.working_set` | `dotnet_process_memory_working_set_bytes` | `By` |
 | `dotnet.gc.last_collection.heap.size` | `dotnet_gc_last_collection_heap_size_bytes` | `By` |
+| `dotnet.gc.last_collection.heap.fragmentation.size` | `dotnet_gc_last_collection_heap_fragmentation_size_bytes` | `By` |
 | `dotnet.gc.last_collection.memory.committed_size` | `dotnet_gc_last_collection_memory_committed_size_bytes` | `By` |
 | `dotnet.thread_pool.thread.count` | `dotnet_thread_pool_thread_count` | `{thread}` |
 | `dotnet.thread_pool.queue.length` | `dotnet_thread_pool_queue_length` | `{work_item}` |
@@ -35,20 +36,41 @@ Each value can increase or decrease and remains unchanged until another GC.
 The runtime polls each generation separately; a GC during polling can span two
 collection states. Missing values are omitted from that sampling round.
 
+Heap fragmentation reports `FragmentationAfterBytes` for the same five generation
+labels. OBI subscribes to CLR GC events and sums the free-list and free-object
+bytes from every heap in the latest completed collection. Values remain
+unavailable until a complete collection is observed after attachment or reconnect.
+OBI does not request a GC. Complete values persist across sampling rounds and
+can increase or decrease.
+
 CPU time has separate `cpu.mode=user` and `cpu.mode=system` series. CPU count
 reports the runtime's `Environment.ProcessorCount`, including its processor-count
 override, container CPU quota, and processor affinity.
 
-Exception counts are available on .NET 8. OBI subscribes to CLR
-`ExceptionThrown_V1` events through EventPipe and counts each received throw by
-its short exception type name in `error.type`. Counts start at attachment and
+Exception counts are available on .NET 8+, including caught throws and
+rethrows. On .NET 8, OBI subscribes to CLR `ExceptionThrown_V1` events through
+EventPipe and counts each received throw by its short exception type name in
+`error.type`. On .NET 9 and newer, OBI subscribes to the built-in
+`System.Runtime` Meter's `dotnet.exceptions` instrument through
+`System.Diagnostics.Metrics` EventPipe events. The Meter counts first-chance
+exceptions and supplies the short type name. Counts start at attachment and
 retain published totals across reconnects.
 
 OBI retains at most 128 distinct names of at most 1,024 bytes each across
 reconnects. Additional or overlong names count under `_OTHER`. The decoder reads
 the exception type and skips the message in the native event payload.
-Each throw produces an event; OBI aggregates counts outside the target
-process and publishes them with each completed counter polling round.
+On .NET 8, each throw produces an event that OBI aggregates. On .NET 9 and newer,
+the runtime aggregates measurements and sends interval deltas. OBI publishes
+counts with each completed counter polling round.
+
+The Meter subscription tracks at most 128 time series per session. The runtime
+omits additional types and OBI logs the limit. Runtime Meter instrumentation
+adds per-throw work and allocations.
+
+The Meter provider permits one exclusive diagnostics subscription at a time.
+If another client owns it, OBI logs the conflict and omits exception updates for
+that session while collecting other runtime metrics. Reconnection retries the
+subscription. In-process MeterListeners can coexist with this subscription.
 
 Enable .NET runtime metrics through the shared runtime metrics feature:
 
@@ -59,7 +81,9 @@ metrics:
 ```
 
 `dotnet_runtime_metrics.sampling_interval` controls `System.Runtime` EventCounter
-polling and the delay before reconnecting after a collection session ends.
+polling, exception Meter refresh, and the delay before reconnecting after a
+collection session ends. The runtime clamps Meter refresh intervals below
+100 ms to 100 ms.
 `dotnet_runtime_metrics.timeout` bounds diagnostic IPC setup and the final
 EventPipe shutdown and drain.
 
@@ -82,9 +106,13 @@ runtime metrics export queue:
 2. A stable process handle provides the namespace PID and access to the target's
    temporary directory (`TMPDIR`, or `/tmp`).
 3. `ProcessInfo2` verifies the socket's PID and confirms that the CLR version is
-   .NET 8 or newer.
+   .NET 8+.
 4. The collector starts an EventPipe session and decodes its NetTrace stream.
    The `ProcessorCount` event supplies the CPU count retained for that session.
+   CLR GC events are ordered using NetTrace watermarks, then grouped by collection
+   and emitting thread. Fragmentation requires the completion event and every
+   expected heap record; overlapping full and ephemeral collections are tracked
+   separately.
 5. Sampling rounds containing GC counts, cumulative counters, and available
    current values enter the runtime metrics queue and reach the OTLP and
    Prometheus exporters.
@@ -121,7 +149,7 @@ the stream.
 
 ## Requirements and limitations
 
-This collector accepts .NET 8 and newer. Integration coverage targets .NET 8, 9,
+This collector accepts .NET 8+. Integration coverage targets .NET 8, 9,
 and 10. Later versions can attempt collection, but compatibility is not guaranteed.
 CLR versions below 8 are skipped.
 
@@ -136,3 +164,9 @@ The implementation requests a 16 MiB EventPipe buffer per process. Detected
 event loss discards unpublished counts and triggers reconnection. Exceptions
 during the gap are unavailable, and late loss reports cannot retract previously
 published counts.
+
+Fragmentation collection buffers at most 4,096 decoded GC events and accepts up
+to 4,096 heaps per collection. Malformed or ambiguous GC histories, event loss,
+or capacity limits end the session and trigger reconnection. The new session
+waits for fresh GC history. Native payload versions are checked; 32-bit layouts
+have unit coverage, while live coverage uses Linux amd64.

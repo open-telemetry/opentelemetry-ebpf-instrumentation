@@ -180,7 +180,7 @@ lint-schema: fetch-upstream-semconv
 	@echo "### Linting OBI semantic-convention registry"
 	@./scripts/lint-schema.sh $(OCI_BIN) $(WEAVERIMAGE) "$(CURDIR)/schemas/obi"
 
-# The schemacheck provenance tests resolve the registry through the pinned
+# The schemacheck provenance and live-check matching tests run the pinned
 # weaver image, so they cannot run under the `-short` unit-test targets. They
 # run here instead, alongside lint-schema, which already provides both the
 # container runtime and the pre-fetched upstream semconv registry.
@@ -188,6 +188,24 @@ lint-schema: fetch-upstream-semconv
 test-schema: fetch-upstream-semconv
 	@echo "### Testing OBI semantic-convention registry provenance"
 	go test -race -count=1 ./internal/schemacheck/...
+
+# Aggregate the per-suite weaver reports into a telemetry-coverage report,
+# measuring the observed telemetry against the schema-resolved denominator.
+# All logic lives in cmd/obi-weaver-coverage; the denominator is resolved from
+# schemas/obi here so CI needs nothing but `make weaver-coverage`.
+WEAVER_REPORTS_DIR ?= ./all-weaver-reports
+WEAVER_COVERAGE_OUT ?= /tmp/weaver-coverage
+.PHONY: weaver-coverage
+weaver-coverage: fetch-upstream-semconv
+	@echo "### Aggregating weaver telemetry coverage"
+	@mkdir -p "$(WEAVER_COVERAGE_OUT)"
+	@go run ./cmd/obi-weaver-coverage \
+		--schema "$(CURDIR)/schemas/obi" \
+		--oci-bin $(OCI_BIN) \
+		--weaver-image $(WEAVERIMAGE) \
+		--in "$(WEAVER_REPORTS_DIR)" \
+		--out-json "$(WEAVER_COVERAGE_OUT)/coverage.json" \
+		$(WEAVER_COVERAGE_ARGS)
 
 .PHONY: check-schema-files
 check-schema-files:
@@ -624,10 +642,11 @@ integration-test-matrix-json:
 
 # Shared matrix for workflows that run the VM-side test suite. Pattern
 # covers multiprocess context propagation, gRPC relay, the HTTP
-# logenricher pipeline, large HTTP request bodies, and Go Auto SDK activation.
+# logenricher pipeline, large HTTP request bodies, Go Auto SDK activation, and
+# context propagation enrollment.
 .PHONY: multiprocess-integration-test-matrix-json
 multiprocess-integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest|TestGo.*SDKActivation)"
+	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest|TestGo.*SDKActivation|TestCPEnrollment)"
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:

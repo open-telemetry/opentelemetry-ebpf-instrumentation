@@ -31,6 +31,38 @@ func TestParseGraphQLRequest(t *testing.T) {
 			wantErr: false,
 		},
 		{
+			name:  "Select second named operation",
+			input: []byte(`{"query":"query First { hello } mutation Second { doSomething }","operationName":"Second"}`),
+			expected: graphQLOperation{
+				Type:     "mutation",
+				Name:     "Second",
+				Document: "query First { hello } mutation Second { doSomething }",
+			},
+		},
+		{
+			name:  "Unknown operation name falls back to first operation",
+			input: []byte(`{"query":"query MyQuery { hello }","operationName":"Missing"}`),
+			expected: graphQLOperation{
+				Type:     "query",
+				Name:     "MyQuery",
+				Document: "query MyQuery { hello }",
+			},
+		},
+		{
+			name:  "Multiple operations without selection fall back to first operation",
+			input: []byte(`{"query":"query First { hello } query Second { hello }"}`),
+			expected: graphQLOperation{
+				Type:     "query",
+				Name:     "First",
+				Document: "query First { hello } query Second { hello }",
+			},
+		},
+		{
+			name:    "Fragment without operations",
+			input:   []byte(`{"query":"fragment Fields on Query { hello }"}`),
+			wantErr: true,
+		},
+		{
 			name:  "Valid mutation operation",
 			input: []byte(`{"mutation":"mutation DoSomething { doSomething }"}`),
 			expected: graphQLOperation{
@@ -141,9 +173,9 @@ func TestParseGraphQLRequest(t *testing.T) {
 }
 
 func TestGraphQLSpanExtractsOperationMetadata(t *testing.T) {
-	const document = `mutation ChangeEmail { updateUser(email: "secret@example.com") { id } }`
+	const document = `query CurrentUser { user { id } } mutation ChangeEmail { updateUser(email: "secret@example.com") { id } }`
 
-	body, err := json.Marshal(graphQLRequest{Query: document})
+	body, err := json.Marshal(graphQLRequest{Query: document, OperationName: "ChangeEmail"})
 	if err != nil {
 		t.Fatalf("failed to marshal request: %v", err)
 	}

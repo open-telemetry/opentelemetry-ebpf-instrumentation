@@ -21,7 +21,7 @@ func TestRuntimeCollectionExceptionSnapshots(t *testing.T) {
 		return snapshot
 	}
 	throw := func() {
-		snapshot, err := collection.observeEvent(netTraceRuntimeEvent{exceptionType: "Example.Failure"})
+		snapshot, err := collection.observeEvent(netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: 1})
 		require.NoError(t, err)
 		require.Nil(t, snapshot, "throws accumulate until a counter interval completes")
 	}
@@ -46,15 +46,58 @@ func TestRuntimeCollectionExceptionSnapshots(t *testing.T) {
 	require.Equal(t, uint64(1), first.Exceptions["Failure"])
 
 	collection.exceptions["Failure"] = math.MaxInt64
-	require.ErrorContains(t, collection.observeException("Example.Failure"), "overflow")
+	require.ErrorContains(t, collection.observeException("Failure", 1), "overflow")
 	require.Equal(t, uint64(math.MaxInt64), collection.exceptions["Failure"])
+}
+
+func TestRuntimeCollectionExceptionDeltas(t *testing.T) {
+	collection := runtimeCollection{exceptionTypes: &exceptionTypes{}}
+	for _, count := range []uint64{3, 0, 2} {
+		snapshot, err := collection.observeEvent(netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: count})
+		require.NoError(t, err)
+		require.Nil(t, snapshot)
+	}
+	require.Equal(t, uint64(5), collection.exceptions["Failure"])
+	_, err := collection.observeEvent(netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: math.MaxInt64 - 4})
+	require.ErrorContains(t, err, "overflow")
+	require.Equal(t, uint64(5), collection.exceptions["Failure"])
+}
+
+func TestRuntimeCollectionExceptionDiagnostics(t *testing.T) {
+	for _, unavailable := range []bool{false, true} {
+		t.Run(strconv.FormatBool(unavailable), func(t *testing.T) {
+			var types exceptionTypes
+			collection := runtimeCollection{exceptionTypes: &types}
+			_, err := collection.observeEvent(netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: 3})
+			require.NoError(t, err)
+			_, err = collection.observeEvent(netTraceRuntimeEvent{exceptionWarning: "subscription diagnostic", exceptionsUnavailable: unavailable})
+			require.NoError(t, err)
+			_, err = collection.observeEvent(netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: 2})
+			require.NoError(t, err)
+			if unavailable {
+				require.Nil(t, collection.exceptions)
+			} else {
+				require.Equal(t, uint64(5), collection.exceptions["Failure"])
+			}
+			_, err = collection.observeEvent(netTraceRuntimeEvent{counter: runtimeCounter{Name: "processor-count", Value: 4}})
+			require.NoError(t, err)
+			require.NotNil(t, collection.processorCount)
+			require.Equal(t, int64(4), *collection.processorCount)
+
+			next := runtimeCollection{exceptionTypes: &types}
+			_, err = next.observeEvent(netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: 2})
+			require.NoError(t, err)
+			require.Equal(t, uint64(2), next.exceptions["Failure"])
+			require.Len(t, types.names, 1)
+		})
+	}
 }
 
 func TestRuntimeCollectionExceptionTypesAcrossSessions(t *testing.T) {
 	var types exceptionTypes
 	first := runtimeCollection{exceptionTypes: &types}
 	for i := range maximumExceptionTypes {
-		require.NoError(t, first.observeException("Example.Failure"+strconv.Itoa(i)))
+		require.NoError(t, first.observeException("Failure"+strconv.Itoa(i), 1))
 	}
 	next := runtimeCollection{exceptionTypes: &types, exceptions: make(map[string]uint64)}
 	for _, name := range []string{"working-set", "gen-0-gc-count", "gen-1-gc-count", "gen-2-gc-count", "time-in-jit"} {
@@ -65,8 +108,8 @@ func TestRuntimeCollectionExceptionTypesAcrossSessions(t *testing.T) {
 	require.NotNil(t, quiet)
 	require.NotNil(t, quiet.Exceptions)
 	require.Empty(t, quiet.Exceptions)
-	require.NoError(t, next.observeException("Example.NewFailure"))
-	require.NoError(t, next.observeException("Example.Failure0"))
+	require.NoError(t, next.observeException("NewFailure", 1))
+	require.NoError(t, next.observeException("Failure0", 1))
 	require.Equal(t, map[string]uint64{exceptionTypeOther: 1, "Failure0": 1}, next.exceptions)
 	require.Empty(t, quiet.Exceptions, "later throws must not mutate the quiet snapshot")
 	require.Len(t, types.names, maximumExceptionTypes)
@@ -306,4 +349,51 @@ func TestRuntimeCollectionHeapSizes(t *testing.T) {
 	observe(runtimeCounter{Name: "working-set", Value: 1})
 	complete()
 	require.Equal(t, [runtimemetrics.DotnetHeapGenerationCount]*int64{}, collection.finish().GCHeapSize)
+}
+
+func TestRuntimeCollectionFragmentation(t *testing.T) {
+	var collection runtimeCollection
+	observe := func(event netTraceRuntimeEvent) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+		snapshot, err := collection.observeEvent(event)
+		require.NoError(t, err)
+		return snapshot
+	}
+	completeRound := func() {
+		for _, name := range []string{"gen-0-gc-count", "gen-1-gc-count", "gen-2-gc-count", "time-in-jit"} {
+			require.Nil(t, observe(netTraceRuntimeEvent{counter: runtimeCounter{Name: name, Increment: true}}))
+		}
+	}
+	workingSet := netTraceRuntimeEvent{counter: runtimeCounter{Name: "working-set", Value: 1}}
+	require.Nil(t, observe(workingSet))
+	identity := gcCollectionEvent{count: 1, depth: 2}
+	for _, event := range []gcRuntimeEvent{
+		{eventID: clrGCStartEventID, collection: identity},
+		{eventID: clrGCGlobalHeapHistoryEventID, threadID: 1, globalHistory: gcGlobalHeapHistory{depth: 2, heapCount: 1}},
+		{eventID: clrGCPerHeapHistoryEventID, threadID: 1, perHeapHistory: gcPerHeapHistory{fragmentation: [5]uint64{10, 20, 30, 40, 50}}},
+		{eventID: clrGCEndEventID, collection: identity},
+	} {
+		require.Nil(t, observe(netTraceRuntimeEvent{gc: &event}), "GC events accumulate until a polling boundary")
+	}
+	completeRound()
+	first := observe(workingSet)
+	require.NotNil(t, first)
+	for generation, value := range first.GCHeapFragmentation {
+		require.NotNil(t, value)
+		require.Equal(t, int64((generation+1)*10), *value)
+	}
+	completeRound()
+	last := collection.finish()
+	require.NotNil(t, last)
+	require.Equal(t, first.GCHeapFragmentation, last.GCHeapFragmentation, "last-collection values persist across polling rounds")
+	require.Nil(t, observe(netTraceRuntimeEvent{gc: &gcRuntimeEvent{eventID: clrGCEndEventID, collection: gcCollectionEvent{count: 2, depth: 2}}}))
+	require.Equal(t, int64(10), *first.GCHeapFragmentation[0])
+	require.Equal(t, int64(10), *last.GCHeapFragmentation[0])
+	collection = runtimeCollection{}
+	require.Nil(t, observe(workingSet))
+	completeRound()
+	fresh := collection.finish()
+	require.NotNil(t, fresh)
+	require.Equal(t, [runtimemetrics.DotnetHeapGenerationCount]*int64{}, fresh.GCHeapFragmentation, "a new session needs fresh GC history")
+	_, err := collection.observeEvent(netTraceRuntimeEvent{gc: &gcRuntimeEvent{eventID: 999}})
+	require.ErrorContains(t, err, "unexpected CLR GC event")
 }

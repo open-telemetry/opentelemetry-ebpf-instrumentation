@@ -78,6 +78,7 @@ type dotnetRuntimeMetrics struct {
 	exceptions              instrument.Int64Counter
 	processMemoryWorkingSet instrument.Int64UpDownCounter
 	gcHeapSize              instrument.Int64UpDownCounter
+	gcHeapFragmentation     instrument.Int64UpDownCounter
 	gcCommittedMemory       instrument.Int64UpDownCounter
 	threadPoolThreadCount   instrument.Int64UpDownCounter
 	threadPoolQueueLength   instrument.Int64UpDownCounter
@@ -94,6 +95,7 @@ type dotnetRuntimeMetricCounts struct {
 	processCPUCount         int
 	processMemoryWorkingSet int
 	gcHeapSize              [runtimemetrics.DotnetHeapGenerationCount]int
+	gcHeapFragmentation     [runtimemetrics.DotnetHeapGenerationCount]int
 	gcCommittedMemory       int
 	threadPoolThreadCount   int
 	threadPoolQueueLength   int
@@ -118,6 +120,7 @@ type dotnetRuntimeMetricValues struct {
 	exceptions              map[string]runtimeCounterValue
 	processMemoryWorkingSet *int64
 	gcHeapSize              [runtimemetrics.DotnetHeapGenerationCount]*int64
+	gcHeapFragmentation     [runtimemetrics.DotnetHeapGenerationCount]*int64
 	gcCommittedMemory       *int64
 	threadPoolThreadCount   *int64
 	threadPoolQueueLength   *int64
@@ -274,7 +277,7 @@ func (r *RuntimeMetricsReporter) newMetricsInstance(service *svc.Attrs) RuntimeM
 
 func (r *RuntimeMetricsReporter) newMetricSet(service *svc.Attrs) (*RuntimeMetrics, error) {
 	metrics := r.newMetricsInstance(service)
-	meter := metrics.provider.Meter(reporterName)
+	meter := metrics.provider.Meter(reporterName, obiMeterOptions()...)
 	if err := setupRuntimeMeters(&metrics, meter, r.cfg.TTL, r.runtimeEnabled, r.cfg.Buckets); err != nil {
 		return nil, err
 	}
@@ -358,6 +361,7 @@ func setupDotnetRuntimeMeters(metrics *dotnetRuntimeMetrics, meter instrument.Me
 		{attributes.DotnetProcessCPUCount, &metrics.processCPUCount},
 		{attributes.DotnetGCCommittedMemory, &metrics.gcCommittedMemory},
 		{attributes.DotnetGCHeapSize, &metrics.gcHeapSize},
+		{attributes.DotnetGCHeapFragmentation, &metrics.gcHeapFragmentation},
 		{attributes.DotnetThreadPoolThreadCount, &metrics.threadPoolThreadCount},
 		{attributes.DotnetThreadPoolQueueLength, &metrics.threadPoolQueueLength},
 		{attributes.DotnetTimerCount, &metrics.timerCount},
@@ -739,6 +743,8 @@ func recordDotnetCurrentMetrics(ctx context.Context, metrics *dotnetRuntimeMetri
 	for generation, name := range runtimemetrics.DotnetHeapGenerations() {
 		recordDotnetCurrentMetric(ctx, metrics.gcHeapSize, &previous.gcHeapSize[generation], values.GCHeapSize[generation],
 			&metrics.activeCurrent.gcHeapSize[generation], attribute.String(string(attr.DotnetGCHeapGeneration), name))
+		recordDotnetCurrentMetric(ctx, metrics.gcHeapFragmentation, &previous.gcHeapFragmentation[generation], values.GCHeapFragmentation[generation],
+			&metrics.activeCurrent.gcHeapFragmentation[generation], attribute.String(string(attr.DotnetGCHeapGeneration), name))
 	}
 }
 

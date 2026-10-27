@@ -1,0 +1,63 @@
+services:
+  testserver:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/java_httpclient_traceparent/Dockerfile
+      args:
+        - JAVA_HTTPCLIENT_RUNTIME_IMAGE
+    image: "${JAVA_HTTPCLIENT_FIXTURE_IMAGE:-hatest-java-httpclient-traceparent}"
+    command: [service]
+    environment:
+      OTEL_SERVICE_NAME: java-httpclient
+    ports:
+      - "18080:8080"
+      - "18081:8081"
+
+  proxy:
+    image: "${JAVA_HTTPCLIENT_FIXTURE_IMAGE:-hatest-java-httpclient-traceparent}"
+    entrypoint: [/fixture/proxy]
+    ports:
+      - "18082:8082"
+    depends_on:
+      testserver:
+        condition: service_started
+
+  downstream:
+    image: "${JAVA_HTTPCLIENT_FIXTURE_IMAGE:-hatest-java-httpclient-traceparent}"
+    command: [downstream]
+    environment:
+      OTEL_SERVICE_NAME: java-downstream
+    ports:
+      - "18086:8086"
+    depends_on:
+      testserver:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/obi/Dockerfile-with-javaagent
+    image: "${JAVA_HTTPCLIENT_OBI_IMAGE:-hatest-obi-javaagent}"
+    privileged: true
+    pid: host
+    network_mode: host
+    command: ["--config=/configs/obi-config-java-httpclient-traceparent.yml"]
+    environment:
+      JAVA_HTTPCLIENT_PROPAGATION: "${JAVA_HTTPCLIENT_PROPAGATION:-headers}"
+    volumes:
+      - ./configs:/configs:ro
+      - ./system/sys/kernel/security_none:/sys/kernel/security:ro
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup
+    depends_on:
+      testserver:
+        condition: service_started
+      downstream:
+        condition: service_started
+      jaeger:
+        condition: service_started
+
+  jaeger:
+    extends:
+      file: docker-compose-java-dist.yml
+      service: jaeger

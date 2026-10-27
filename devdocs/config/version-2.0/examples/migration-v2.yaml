@@ -388,6 +388,7 @@ extensions:
                 metrics:
                     reporters_cache_len: 256
                     ttl: 5m0s
+                    connection_info_ttl: 15m0s
         enrich:
             enrichers:
                 kubernetes:

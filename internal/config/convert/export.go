@@ -469,6 +469,7 @@ func captureTelemetry(cfg *obi.Config) schema.CaptureTelemetry {
 		Metrics: schema.MetricsTelemetry{
 			ReportersCacheLen: cfg.OTELMetrics.ReportersCacheLen,
 			TTL:               schema.Duration(cfg.OTELMetrics.TTL),
+			ConnectionInfoTTL: schema.Duration(cfg.OTELMetrics.ConnectionInfoTTL),
 		},
 	}
 }
@@ -683,6 +684,10 @@ func serviceNameEnrichment(cfg *obi.Config) schema.ServiceName {
 	if !zeroValue(cfg.NameResolver.GCE) {
 		gce := cfg.NameResolver.GCE
 		out.GCE = &gce
+	}
+	out.Azure = schema.AzureServiceName{
+		SubscriptionID: cfg.NameResolver.Azure.SubscriptionID,
+		ResourceGroup:  cfg.NameResolver.Azure.ResourceGroup,
 	}
 	out.Cache = schema.Cache{
 		Size: cfg.NameResolver.CacheLen,

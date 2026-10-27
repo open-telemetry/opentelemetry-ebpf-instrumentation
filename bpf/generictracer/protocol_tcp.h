@@ -56,9 +56,11 @@ static __always_inline void set_tcp_trace_info(u32 type,
         return;
     }
 
-    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-    make_tp_string(tp_buf, tp);
-    bpf_d_printk("tp_buf=[%s] [%s]", tp_buf, __FUNCTION__);
+    if (g_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, tp);
+        bpf_d_printk("tp_buf=[%s] [%s]", tp_buf, __FUNCTION__);
+    }
 
     tp_p->tp = *tp;
     tp_p->tp.flags = 1;
@@ -125,7 +127,7 @@ static __always_inline void finish_ongoing_tcp_req(pid_connection_info_t *pid_co
         existing_tcp->resp_len = 0;
 
         bpf_dbg_printk("Sending pending TCP trace on close: len=%d", existing_tcp->len);
-        events_ringbuf_output(existing_tcp, sizeof(*existing_tcp), get_flags());
+        events_ringbuf_output(existing_tcp, sizeof(*existing_tcp));
     }
 
     cleanup_trace_info(existing_tcp, pid_conn);
