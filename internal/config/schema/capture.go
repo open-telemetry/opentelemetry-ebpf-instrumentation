@@ -15,18 +15,19 @@ import (
 // Known capture sections are typed so exporter-owned fields and nesting have
 // compile-time coverage.
 type Capture struct {
-	Attributes      *CaptureAttributes `yaml:"attributes,omitempty"`
-	Policy          CapturePolicy      `yaml:"policy"`
-	Rules           []Rule             `yaml:"rules"`
-	Instrumentation Instrumentation    `yaml:"instrumentation"`
-	Runtimes        CaptureRuntimes    `yaml:"runtimes"`
-	Network         CaptureNetwork     `yaml:"network"`
-	Metrics         CaptureMetrics     `yaml:"metrics"`
-	Limits          CaptureLimits      `yaml:"limits"`
-	Engine          CaptureEngine      `yaml:"engine"`
-	Safety          CaptureSafety      `yaml:"safety"`
-	Channels        CaptureChannels    `yaml:"channels"`
-	Telemetry       CaptureTelemetry   `yaml:"telemetry"`
+	Exceptions      services.ExceptionsConfig `yaml:"exceptions"`
+	Attributes      *CaptureAttributes        `yaml:"attributes,omitempty"`
+	Policy          CapturePolicy             `yaml:"policy"`
+	Rules           []Rule                    `yaml:"rules"`
+	Instrumentation Instrumentation           `yaml:"instrumentation"`
+	Runtimes        CaptureRuntimes           `yaml:"runtimes"`
+	Network         CaptureNetwork            `yaml:"network"`
+	Metrics         CaptureMetrics            `yaml:"metrics"`
+	Limits          CaptureLimits             `yaml:"limits"`
+	Engine          CaptureEngine             `yaml:"engine"`
+	Safety          CaptureSafety             `yaml:"safety"`
+	Channels        CaptureChannels           `yaml:"channels"`
+	Telemetry       CaptureTelemetry          `yaml:"telemetry"`
 }
 
 // CaptureAttributes selects supported fields while OBI constructs telemetry.
@@ -87,14 +88,16 @@ type Rule struct {
 
 // RuleRefinement holds per-rule overrides that apply after a rule matches.
 type RuleRefinement struct {
-	Exports *ExportModeRefinement `yaml:"exports,omitempty"`
-	HTTP    *HTTPRefinement       `yaml:"http,omitempty"`
+	Exceptions *services.ExceptionsOverride `yaml:"exceptions,omitempty"`
+	Exports    *ExportModeRefinement        `yaml:"exports,omitempty"`
+	HTTP       *HTTPRefinement              `yaml:"http,omitempty"`
 }
 
 // ExportModeRefinement overrides trace and metric exports for a matched rule.
 type ExportModeRefinement struct {
-	Traces  bool `yaml:"traces"`
-	Metrics bool `yaml:"metrics"`
+	Logs    *bool `yaml:"logs,omitempty"`
+	Traces  bool  `yaml:"traces"`
+	Metrics bool  `yaml:"metrics"`
 }
 
 // RuleMatch contains process and Kubernetes selectors for a capture rule.

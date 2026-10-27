@@ -496,7 +496,13 @@ func exportModeRefinement(modes services.ExportModes) *schema.ExportModeRefineme
 	if modes == services.ExportModeUnset {
 		return nil
 	}
+	var logs *bool
+	if modes.CanExportLogs() {
+		enabled := true
+		logs = &enabled
+	}
 	return &schema.ExportModeRefinement{
+		Logs:    logs,
 		Traces:  modes.CanExportTraces(),
 		Metrics: modes.CanExportMetrics(),
 	}

@@ -309,6 +309,7 @@ func runtimeConfigDefaults() obi.Config {
 }
 
 func applyV2Capture(cfg *obi.Config, src *schema.Extension, policy schema.CapturePolicy, complete bool) {
+	cfg.Exceptions = src.Capture.Exceptions
 	applyV2Policy(cfg, policy, complete || completePolicy(policy))
 	hasRuleRoutePolicies := applyV2Rules(cfg, src.Capture.Rules, policy)
 	applyV2Limits(cfg, src.Capture.Limits, complete || completeLimits(src.Capture.Limits))
@@ -840,6 +841,7 @@ func selectorFromRule(
 			return nil, nil, false
 		}
 		selector := regexSelectorFromRule(rule)
+		selector.Exceptions = rule.Refine.Exceptions
 		selector.ExportModes, selector.Routes = v2RuleRefinement(
 			rule.Refine,
 			completeExports,
@@ -849,6 +851,7 @@ func selectorFromRule(
 	}
 
 	selector := globSelectorFromRule(rule)
+	selector.Exceptions = rule.Refine.Exceptions
 	selector.ExportModes, selector.Routes = v2RuleRefinement(
 		rule.Refine,
 		completeExports,
@@ -972,6 +975,9 @@ func v2RoutePolicyOverride(policy *schema.HTTPRoutePolicy) *services.RoutePolicy
 
 func exportModesFromRefinement(refine schema.ExportModeRefinement) services.ExportModes {
 	modes := services.NewExportModes()
+	if refine.Logs != nil && *refine.Logs {
+		modes.AllowLogs()
+	}
 	if refine.Traces {
 		modes.AllowTraces()
 	}
