@@ -10,6 +10,7 @@ communicates with eBPF programs for distributed tracing and monitoring.
 - **Socket-level tracing** - Instruments `javax.net.ssl.SSLSocket` and `java.nio.channels.SocketChannel` operations
 - **SSL/TLS support** - Intercepts `javax.net.ssl.SSLEngine` for encrypted traffic
 - **Netty support** - Instruments Netty channels for reactive applications
+- **Dynamic method spans** - Emits spans for configured Java methods and class/method globs on selected Java processes
 
 ## 📋 Basic concepts
 

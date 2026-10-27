@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	execdiscover "go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
@@ -45,6 +46,9 @@ func TestInjectionTargetFromUsesInspectionIdentity(t *testing.T) {
 			StartTime: 4242,
 			Service: svc.Attrs{
 				Features: export.FeatureApplicationRuntime,
+				DynamicSpans: []services.DynamicSpan{{
+					Name: "selected.span", FunctionReference: "com.example.Selected#run()",
+				}},
 				EnvVars: map[string]string{
 					"TMPDIR": "/custom/tmp",
 				},
@@ -58,6 +62,7 @@ func TestInjectionTargetFromUsesInspectionIdentity(t *testing.T) {
 	assert.Equal(t, uint64(4242), target.StartTime)
 	assert.Equal(t, "/custom/tmp", target.TempDirEnv)
 	assert.True(t, target.RuntimeMetricsEnabled)
+	assert.Equal(t, []services.DynamicSpan{{Name: "selected.span", FunctionReference: "com.example.Selected#run()"}}, target.DynamicSpans)
 }
 
 func TestInjectionTargetFromFailsWhenStableIdentityCannotBeOpened(t *testing.T) {

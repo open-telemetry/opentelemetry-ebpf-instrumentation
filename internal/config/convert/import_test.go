@@ -22,7 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
-func TestRuntimeConverterRejectsNonEmptySpanDeclarations(t *testing.T) {
+func TestRuntimeConverterAcceptsJavaDynamicSpans(t *testing.T) {
 	t.Parallel()
 
 	_, extension, err := schema.ParseStandaloneYAML([]byte(`file_format: "1.0"
@@ -39,8 +39,46 @@ extensions:
                 on: {function: "com.example.Foo#bar"}
 `))
 	require.NoError(t, err)
-	_, err = V2ToRuntime(extension)
-	require.ErrorContains(t, err, "capture.rules[0].refine.spans is not supported")
+	converted, err := V2ToRuntime(extension)
+	require.NoError(t, err)
+	require.NotEmpty(t, converted.Discovery.Instrument)
+	require.Equal(t, []services.DynamicSpan{{Name: "example", FunctionReference: "com.example.Foo#bar"}}, converted.Discovery.Instrument[0].DynamicSpans)
+}
+
+func TestRuntimeConverterRejectsUnsupportedJavaDynamicSpans(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		match   string
+		span    string
+		wantErr string
+	}{
+		{name: "other runtime", match: "nodejs", span: `on: {function: "com.example.Foo#bar"}`, wantErr: "only for rules matching process.language_glob: [java]"},
+		{name: "attributes", match: "java", span: `on: {function: "com.example.Foo#bar"}
+                attributes: [{name: id, argument: {index: 0}}]`, wantErr: ".attributes and automatic_attributes are not currently supported"},
+		{name: "unsupported target", match: "java", span: `on: {function_noret: "com.example.Foo#bar"}`, wantErr: ".on.function is the only currently supported Java span target"},
+		{name: "malformed selector", match: "java", span: `on: {function: "com.example.Foo#"}`, wantErr: "invalid Java method reference"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			config := `file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: include
+          match: {process: {language_glob: [` + tc.match + `]}}
+          refine:
+            spans:
+              - name: example
+                ` + tc.span + `
+`
+			_, extension, err := schema.ParseStandaloneYAML([]byte(config))
+			require.NoError(t, err)
+			_, err = V2ToRuntime(extension)
+			require.ErrorContains(t, err, tc.wantErr)
+		})
+	}
 }
 
 func TestV2ToRuntimeAllowsEmptySpansRefinementOnExclude(t *testing.T) {

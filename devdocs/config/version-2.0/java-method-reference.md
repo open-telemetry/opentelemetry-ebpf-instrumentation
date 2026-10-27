@@ -12,9 +12,11 @@ on:
   function: "io.opentelemetry.contrib.dynamic.policy.PolicyProviderConfig#create"
 ```
 
-This is a selector contract, not a promise of runtime support. The Config v2
-converter continues to reject non-empty dynamic span declarations until Java
-instrumentation is implemented.
+The Java runtime supports this selector for named method spans on explicitly
+selected Java processes. It resolves loaded classes and methods according to
+the rules below, reevaluating matching classes as they load and unload. The
+converter rejects unsupported Java targets and attribute capture; support for
+those remains a separate runtime change.
 
 ## Syntax
 
@@ -151,3 +153,12 @@ not suppress valid selections for other FQCNs matched by the same pattern.
 Constructors are not supported by this method-reference form. Return-type
 selection and matching inherited methods through a subtype require a future
 contract change rather than implicit fallback behavior.
+
+## Java runtime support
+
+Java accepts `on.function` references using this syntax when the capture rule
+explicitly matches `process.language_glob: [java]`. Class and method `*` and
+`?` globs are supported. A selected method emits one completed span through
+the existing custom-span event transport; returned values and arguments are
+not captured. `attributes`, `automatic_attributes`, `function_noret`, and USDT
+targets remain rejected by the runtime converter.

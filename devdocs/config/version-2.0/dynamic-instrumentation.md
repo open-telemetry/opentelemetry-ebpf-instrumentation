@@ -42,11 +42,12 @@ These per-rule outcomes are part of the contract, not behavior implemented by
 the current runtime converter. Runtime support must add implementation-level
 tests for attribute collisions, resolution errors, and sibling-rule isolation.
 
-This is configuration schema only. The runtime converter rejects non-empty
-dynamic span declarations rather than accepting configuration that it cannot
-apply. No target is resolved and no runtime instrumentation is performed by
-this schema or converter. Per-runtime syntax and capabilities remain subject to
-the runtime-specific support documentation and tests.
+The Java runtime currently accepts the `function` target described in
+[Java dynamic method references](java-method-reference.md) for rules explicitly
+matching `process.language_glob: [java]`. Java attributes, automatic attributes,
+`function_noret`, and USDT targets remain unsupported and rejected. Other runtime
+targets are accepted only when their runtime-specific implementation and tests
+support them; otherwise the runtime converter rejects them.
 
 ```yaml
 capture:
