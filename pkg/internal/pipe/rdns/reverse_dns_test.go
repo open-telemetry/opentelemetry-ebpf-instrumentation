@@ -6,6 +6,7 @@ package rdns
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -224,6 +225,47 @@ func TestReverseDNS_EBPFStoppedWithLastPipeline(t *testing.T) {
 	assert.Equal(t, "ebpf.github.com", decorated[0].SrcName)
 }
 
+func TestReverseDNS_EBPFRestartWaitsForDetach(t *testing.T) {
+	_, started := lateDetachDNSPacketInspector(t)
+	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
+	ebpfLookup := NewEBPFLookup(nil, cfg)
+
+	// Given a pipeline using the eBPF reverse DNS that is stopped
+	ctx, stop := context.WithCancel(t.Context())
+	startReverseDNS(ctx, t, cfg, ebpfLookup)
+	stop()
+	require.Eventually(t, func() bool { return (*started)[0].Err() != nil }, timeout, time.Millisecond)
+
+	// THEN a new pipeline can start it again, once the previous one is detached
+	_, err := instantiateReverseDNS(t, cfg, ebpfLookup)
+	require.NoError(t, err)
+}
+
+func TestReverseDNS_EBPFDetachedBeforeRunEnds(t *testing.T) {
+	attached, _ := lateDetachDNSPacketInspector(t)
+	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
+
+	// When an OBI run using the eBPF reverse DNS is stopped
+	runCtx, stopRun := context.WithCancel(t.Context())
+	in := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
+	out := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
+	swi := &swarm.Instancer{}
+	swi.Add(ReverseDNSProvider(cfg, attrsOf, NewEBPFLookup(nil, cfg), in, out))
+	runner, err := swi.Instance(runCtx)
+	require.NoError(t, err)
+	runner.Start(runCtx)
+	stopRun()
+	in.Close()
+	require.NoError(t, <-runner.Done())
+
+	// THEN the inspector is detached by the time the run finishes
+	assert.False(t, attached.Load())
+
+	// AND the next run, with its own context info, can attach it again
+	_, err = instantiateReverseDNS(t, cfg, NewEBPFLookup(nil, cfg))
+	require.NoError(t, err)
+}
+
 func TestNewEBPFLookup_LargestCacheLen(t *testing.T) {
 	ebpfLookup := NewEBPFLookup(nil,
 		&ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 100},
@@ -236,8 +278,8 @@ func TestNewEBPFLookup_LargestCacheLen(t *testing.T) {
 func TestReverseDNS_EBPFStartError(t *testing.T) {
 	start := startDNSPacketInspector
 	t.Cleanup(func() { startDNSPacketInspector = start })
-	startDNSPacketInspector = func(_ context.Context, _ *store.InMemory, _ *config.EBPFTracer) error {
-		return errors.New("no interfaces found")
+	startDNSPacketInspector = func(_ context.Context, _ *store.InMemory, _ *config.EBPFTracer) (<-chan struct{}, error) {
+		return nil, errors.New("no interfaces found")
 	}
 	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
 
@@ -266,17 +308,43 @@ func instantiateReverseDNS(t *testing.T, cfg *ReverseDNS, ebpfLookup *EBPFLookup
 	return ReverseDNSProvider(cfg, attrsOf, ebpfLookup, in, out)(t.Context())
 }
 
+// lateDetachDNSPacketInspector detaches a while after being stopped, and can't be
+// attached again until then. It returns whether it is attached, and the contexts
+// it has been started with.
+func lateDetachDNSPacketInspector(t *testing.T) (*atomic.Bool, *[]context.Context) {
+	start := startDNSPacketInspector
+	t.Cleanup(func() { startDNSPacketInspector = start })
+
+	attached := &atomic.Bool{}
+	var started []context.Context
+	startDNSPacketInspector = func(ctx context.Context, _ *store.InMemory, _ *config.EBPFTracer) (<-chan struct{}, error) {
+		if !attached.CompareAndSwap(false, true) {
+			return nil, errors.New("no interfaces found")
+		}
+		started = append(started, ctx)
+		stopped := make(chan struct{})
+		go func() {
+			<-ctx.Done()
+			time.Sleep(100 * time.Millisecond)
+			attached.Store(false)
+			close(stopped)
+		}()
+		return stopped, nil
+	}
+	return attached, &started
+}
+
 // fakeDNSPacketInspector returns the contexts the inspector has been started with
 func fakeDNSPacketInspector(t *testing.T) *[]context.Context {
 	start := startDNSPacketInspector
 	t.Cleanup(func() { startDNSPacketInspector = start })
 
 	var started []context.Context
-	startDNSPacketInspector = func(ctx context.Context, dnsCache *store.InMemory, _ *config.EBPFTracer) error {
+	startDNSPacketInspector = func(ctx context.Context, dnsCache *store.InMemory, _ *config.EBPFTracer) (<-chan struct{}, error) {
 		started = append(started, ctx)
 		dnsCache.StorePair("140.82.121.4", "ebpf.github.com")
 		dnsCache.StorePair("127.0.0.1", "ebpf.localdomain")
-		return nil
+		return ctx.Done(), nil
 	}
 	return &started
 }
