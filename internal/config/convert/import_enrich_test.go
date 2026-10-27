@@ -4,6 +4,7 @@
 package convert
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -93,6 +94,7 @@ func TestV2ToRuntimeCloudEnricherRoundTrip(t *testing.T) {
 	cfg.CloudMetadata.RefreshInterval = 45 * time.Second
 	cfg.CloudMetadata.Route53.RefreshInterval = 7 * time.Minute
 	cfg.CloudMetadata.Route53.HostedZoneIDs = []string{"Z123", "/hostedzone/Z456"}
+	cfg.NameResolver.Sources = []transform.Source{transform.SourceK8s}
 
 	_, ext := RuntimeToV2(&cfg)
 	got, err := V2ToRuntime(ext)
@@ -153,6 +155,93 @@ extensions:
 	require.NoError(t, err)
 
 	require.False(t, got.CloudMetadata.DetectionEnabled)
+	require.Equal(t, []transform.Source{transform.SourceK8s}, got.NameResolver.Sources)
+}
+
+func TestDocumentToRuntimeRejectsCloudSourcesWhenDetectionDisabled(t *testing.T) {
+	t.Parallel()
+
+	for _, source := range []string{"ecs", "route53", "gce", "azure", "ECS"} {
+		t.Run(source, func(t *testing.T) {
+			t.Parallel()
+
+			doc, _, err := schema.ParseStandaloneYAML([]byte(fmt.Sprintf(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      enrichers:
+        cloud:
+          detection:
+            enabled: false
+      service_name:
+        sources: [%s]
+`, source)))
+			require.NoError(t, err)
+
+			_, err = DocumentToRuntime(doc)
+
+			require.ErrorContains(t, err, fmt.Sprintf(
+				"enrich.service_name.sources: %q requires enrich.enrichers.cloud.detection.enabled to be true",
+				source,
+			))
+		})
+	}
+}
+
+func TestDocumentToRuntimePreservesNonCloudSourcesWhenDetectionDisabled(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		sources     string
+		wantSources []transform.Source
+	}{
+		{
+			name:    "explicit non-cloud sources",
+			sources: "[k8s, dns, rdns]",
+			wantSources: []transform.Source{
+				transform.SourceK8s,
+				transform.SourceDNS,
+				transform.SourceRDNS,
+			},
+		},
+		{
+			name:    "empty sources",
+			sources: "[]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc, _, err := schema.ParseStandaloneYAML([]byte(fmt.Sprintf(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      enrichers:
+        cloud:
+          detection:
+            enabled: false
+      service_name:
+        sources: %s
+`, tt.sources)))
+			require.NoError(t, err)
+
+			got, err := DocumentToRuntime(doc)
+			require.NoError(t, err)
+
+			if len(tt.wantSources) == 0 {
+				require.Empty(t, got.NameResolver.Sources)
+			} else {
+				require.Equal(t, tt.wantSources, got.NameResolver.Sources)
+			}
+		})
+	}
 }
 
 func TestV2ToRuntimeKubernetesMode(t *testing.T) {
