@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	nodejsconfig "go.opentelemetry.io/obi/internal/config/nodejs"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/ebpf"
@@ -364,7 +365,7 @@ func (i *NodeInjector) agentCodeForSpans(dynamicSpans []services.DynamicSpan) st
 		}
 		rules := make([]rule, 0, len(dynamicSpans))
 		for _, span := range dynamicSpans {
-			reference, err := services.ParseNodeFunctionReference(span.FunctionReference)
+			reference, err := nodejsconfig.ParseFunctionReference(span.FunctionReference)
 			if err != nil {
 				i.log.Error("cannot parse Node.js dynamic span target", "name", span.Name, "error", err)
 				return code
