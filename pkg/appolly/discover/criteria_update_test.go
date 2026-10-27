@@ -6,7 +6,10 @@ package discover
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net"
+	"os"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -34,6 +37,19 @@ func criteriaConfig(t *testing.T, definitions string) *obi.Config {
 	cfg.Discovery.DefaultExcludeInstrument = nil
 	require.NoError(t, yaml.Unmarshal([]byte("discovery:\n  instrument:\n"+definitions), cfg))
 	return cfg
+}
+
+func mockProcessPorts(t *testing.T, ports map[app.PID][]uint32) {
+	t.Helper()
+	original := processPorts
+	t.Cleanup(func() { processPorts = original })
+	processPorts = func(_ context.Context, pid app.PID) ([]uint32, error) {
+		current, ok := ports[pid]
+		if !ok {
+			return nil, fmt.Errorf("unexpected port read for PID %d", pid)
+		}
+		return current, nil
+	}
 }
 
 func TestCriteriaUpdaterRejectsIncompatibleConfig(t *testing.T) {
@@ -374,7 +390,120 @@ func TestCriteriaRefreshRejectsRetainedServiceChange(t *testing.T) {
 	require.Equal(t, "first", unchanged[0].Obj.Criteria[0].GetName())
 }
 
+func TestCriteriaRefreshChecksFreshPortsBeforeAcceptingServiceChange(t *testing.T) {
+	for _, observedBeforeUpdate := range []bool{false, true} {
+		t.Run(fmt.Sprintf("observed_before_update=%t", observedBeforeUpdate), func(t *testing.T) {
+			listen := func() uint32 {
+				t.Helper()
+				listener, err := net.Listen("tcp", "127.0.0.1:0")
+				require.NoError(t, err)
+				t.Cleanup(func() { require.NoError(t, listener.Close()) })
+				return uint32(listener.Addr().(*net.TCPAddr).Port)
+			}
+			firstPort := listen()
+			pid := app.PID(os.Getpid())
+			definitions := fmt.Sprintf("    - name: first\n      open_ports: %d\n", firstPort)
+			initial := criteriaConfig(t, definitions)
+			output := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+			defer output.Close()
+			events := output.Subscribe()
+			matcher := &Matcher{
+				Log: slog.Default(), Criteria: FindingCriteria(initial),
+				ProcessHistory: map[app.PID]ProcessMatch{}, Output: output,
+				observed: map[app.PID]observedProcess{},
+			}
+			require.Len(t, matcher.filter([]Event[ProcessAttrs]{
+				{Type: EventCreated, Obj: ProcessAttrs{pid: pid, openPorts: []uint32{firstPort}}},
+			}), 1)
+			secondPort := listen()
+			if observedBeforeUpdate {
+				require.Empty(t, matcher.filter([]Event[ProcessAttrs]{
+					{Type: EventCreated, Obj: ProcessAttrs{pid: pid, openPorts: []uint32{firstPort, secondPort}}},
+				}))
+			}
+			before := matcher.observed[pid]
+			next := criteriaConfig(t, definitions+fmt.Sprintf("    - name: second\n      open_ports: %d\n", secondPort))
+			require.NoError(t, compatibleDefinitions(matcher.Criteria, FindingCriteria(next)))
+			err := matcher.refresh(t.Context(), services.CriteriaUpdate{
+				Context: t.Context(), Include: FindingCriteria(next), Exclude: ExcludingCriteria(next),
+			})
+			require.EqualError(t, err, fmt.Sprintf("service settings would change for PID %d; restart OBI to apply this configuration", pid))
+			require.Equal(t, FindingCriteria(initial), matcher.Criteria)
+			require.Equal(t, before, matcher.observed[pid], "a rejected update must not mutate the cached observation")
+			require.Equal(t, "first", matchingSettings(matcher.ProcessHistory[pid].Criteria).name)
+			select {
+			case unexpected := <-events:
+				t.Fatalf("rejected refresh changed instrumentation: %v", unexpected)
+			default:
+			}
+
+			// The new port can also override an earlier rule back to the applied settings.
+			compatible := criteriaConfig(t, definitions+fmt.Sprintf(
+				"    - name: second\n      target_pids: [%d]\n    - name: first\n      open_ports: %d\n", pid, secondPort))
+			require.NoError(t, matcher.refresh(t.Context(), services.CriteriaUpdate{
+				Context: t.Context(), Include: FindingCriteria(compatible), Exclude: ExcludingCriteria(compatible),
+			}))
+			require.Equal(t, "first", matchingSettings(matcher.ProcessHistory[pid].Criteria).name)
+		})
+	}
+}
+
+func TestCriteriaRefreshPortReadFailureRetainsState(t *testing.T) {
+	originalInfo, originalPorts := processInfo, processPorts
+	t.Cleanup(func() { processInfo, processPorts = originalInfo, originalPorts })
+	processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+		return &services.ProcessInfo{Pid: p.pid, ExePath: "/srv/app", OpenPorts: p.openPorts}, nil
+	}
+	readErr := errors.New("temporary /proc read failure")
+	var reads int
+	ports := []uint32{8080, 9090}
+	processPorts = func(_ context.Context, pid app.PID) ([]uint32, error) {
+		reads++
+		require.Equal(t, app.PID(10), pid)
+		return ports, readErr
+	}
+	const definitions = "    - name: first\n      open_ports: 8080\n"
+	initial := criteriaConfig(t, definitions)
+	next := criteriaConfig(t, definitions+"    - name: second\n      open_ports: 9090\n")
+	output := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	defer output.Close()
+	events := output.Subscribe()
+	matcher := &Matcher{
+		Log: slog.Default(), Criteria: FindingCriteria(initial),
+		ProcessHistory: map[app.PID]ProcessMatch{}, Output: output,
+		observed: map[app.PID]observedProcess{},
+	}
+	require.Len(t, matcher.filter([]Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 10, openPorts: []uint32{8080}}},
+	}), 1)
+	previousMatch, previousObservation := matcher.ProcessHistory[10], matcher.observed[10]
+	update := services.CriteriaUpdate{Context: t.Context(), Include: FindingCriteria(next), Exclude: ExcludingCriteria(next)}
+	require.ErrorIs(t, matcher.refresh(t.Context(), update), readErr)
+	require.Equal(t, FindingCriteria(initial), matcher.Criteria)
+	require.Equal(t, previousMatch, matcher.ProcessHistory[10])
+	require.Equal(t, previousObservation, matcher.observed[10])
+
+	readErr = nil
+	require.ErrorContains(t, matcher.refresh(t.Context(), update), "service settings would change for PID 10")
+	require.Equal(t, previousMatch, matcher.ProcessHistory[10])
+	require.Equal(t, previousObservation, matcher.observed[10])
+
+	ports = []uint32{8080}
+	require.NoError(t, matcher.refresh(t.Context(), update))
+	require.Equal(t, "first", matchingSettings(matcher.ProcessHistory[10].Criteria).name)
+	require.Equal(t, 3, reads)
+	// An unchanged rule that was never applied must not trigger another read or alter settings.
+	require.NoError(t, matcher.refresh(t.Context(), update))
+	require.Equal(t, 3, reads)
+	select {
+	case unexpected := <-events:
+		t.Fatalf("port checks changed instrumentation: %v", unexpected)
+	default:
+	}
+}
+
 func TestCriteriaRefreshReportsStableConflictingPID(t *testing.T) {
+	mockProcessPorts(t, map[app.PID][]uint32{1: {7070}, 10: {8080}, 40: {8080}, 90: {8080}})
 	original := processInfo
 	t.Cleanup(func() { processInfo = original })
 	processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
@@ -923,6 +1052,7 @@ func TestCriteriaRefreshRetainsOrphanedChild(t *testing.T) {
 }
 
 func TestCriteriaRefreshAddsDefinitionsAndExclusions(t *testing.T) {
+	mockProcessPorts(t, map[app.PID][]uint32{10: {8080}, 20: {9090}})
 	original := processInfo
 	t.Cleanup(func() { processInfo = original })
 	processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
@@ -974,6 +1104,7 @@ func TestCriteriaRefreshAddsDefinitionsAndExclusions(t *testing.T) {
 }
 
 func TestCriteriaRefreshAcceptsExplicitDefaultSettings(t *testing.T) {
+	mockProcessPorts(t, map[app.PID][]uint32{10: {8080}, 20: {9090}})
 	original := processInfo
 	t.Cleanup(func() { processInfo = original })
 	processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {

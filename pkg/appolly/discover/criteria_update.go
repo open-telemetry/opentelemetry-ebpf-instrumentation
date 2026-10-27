@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"slices"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -193,6 +194,10 @@ func (m *Matcher) refresh(ctx context.Context, update services.CriteriaUpdate) e
 	next.Criteria = update.Include
 	next.ExcludeCriteria = update.Exclude
 	next.ProcessHistory = map[app.PID]ProcessMatch{}
+	freshPorts, err := next.refreshRetainedPorts(update.Context, m)
+	if err != nil {
+		return err
+	}
 	visited := map[app.PID]bool{}
 
 	for pid := range m.observed {
@@ -234,6 +239,10 @@ func (m *Matcher) refresh(ctx context.Context, update services.CriteriaUpdate) e
 	}
 
 	for pid, observed := range next.observed {
+		if freshPorts[pid] && next.alreadyMatched(pid) {
+			// These matches were confirmed with current ports, including newly added rules.
+			continue
+		}
 		observed.confirmedCriteria = nil
 		if next.alreadyMatched(pid) {
 			for _, criterion := range next.Criteria {
@@ -260,6 +269,46 @@ func (m *Matcher) refresh(ctx context.Context, update services.CriteriaUpdate) e
 	return nil
 }
 
+func (m *Matcher) refreshRetainedPorts(ctx context.Context, previous *Matcher) (map[app.PID]bool, error) {
+	fresh := map[app.PID]bool{}
+	for _, pid := range slices.Sorted(maps.Keys(previous.ProcessHistory)) {
+		applied := matchingSettings(previous.ProcessHistory[pid].Criteria)
+		var needsPorts, settingsMayChange bool
+		for _, criterion := range m.criteriaForRefresh(pid, previous) {
+			needsPorts = needsPorts || (criterion.GetOpenPorts().Len() > 0 && !previous.confirmedMatch(pid, criterion))
+			settingsMayChange = settingsMayChange || !sameSettings(applied, settingsFor(criterion))
+		}
+
+		for _, criterion := range m.ExcludeCriteria {
+			needsPorts = needsPorts || criterion.GetOpenPorts().Len() > 0
+		}
+
+		// Only retained services whose settings could change need a synchronous port read.
+		if !needsPorts || !settingsMayChange {
+			continue
+		}
+
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+
+		ports, err := processPorts(ctx, pid)
+		if err != nil {
+			return nil, fmt.Errorf("refreshing ports for PID %d: %w", pid, err)
+		}
+
+		observed := m.observed[pid]
+		proc := *observed.process
+		proc.OpenPorts = ports
+		observed.attrs.openPorts = ports
+		observed.process = &proc
+		m.observed[pid] = observed
+		fresh[pid] = true
+	}
+
+	return fresh, nil
+}
+
 func (m *Matcher) rematch(pid app.PID, visiting map[app.PID]bool, previous *Matcher) {
 	if m.alreadyMatched(pid) || visiting[pid] {
 		return
@@ -273,7 +322,7 @@ func (m *Matcher) rematch(pid app.PID, visiting map[app.PID]bool, previous *Matc
 	visiting[pid] = true
 	m.rematch(observed.process.PPid, visiting, previous)
 
-	// Rematch the last successful observation; the watcher rescan supplies fresh ports and exits.
+	// Retained-service checks may refresh ports; other attributes use the last successful observation.
 	m.filterCreated(observed.attrs, m.criteriaForRefresh(pid, previous))
 }
 

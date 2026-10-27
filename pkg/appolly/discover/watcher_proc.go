@@ -597,19 +597,28 @@ func fetchProcessPorts(scanPorts bool) (map[app.PID]ProcessAttrs, error) {
 			processes[app.PID(pid)] = ProcessAttrs{pid: app.PID(pid), detectedType: svc.InstrumentableUnknown, openPorts: []uint32{}, processAge: processAgeFunc(app.PID(pid))}
 			continue
 		}
-		conns, err := net.ConnectionsPid("inet", pid)
+		openPorts, err := processPorts(context.Background(), app.PID(pid))
 		if err != nil {
 			log.Debug("can't get connections for process. Skipping", "pid", pid, "error", err)
 			continue
 		}
-		var openPorts []uint32
-		// TODO: Cap the size of this array, leaking client ephemeral ports will cause this to grow very long
-		for _, conn := range conns {
-			openPorts = append(openPorts, conn.Laddr.Port)
-		}
 		processes[app.PID(pid)] = ProcessAttrs{pid: app.PID(pid), detectedType: svc.InstrumentableUnknown, openPorts: openPorts, processAge: time.Duration(0)}
 	}
 	return processes, nil
+}
+
+// Replaceable for tests with synthetic processes.
+var processPorts = func(ctx context.Context, pid app.PID) ([]uint32, error) {
+	conns, err := net.ConnectionsPidWithContext(ctx, "inet", int32(pid))
+	if err != nil {
+		return nil, err
+	}
+	var ports []uint32
+	// TODO: Cap the size of this array, leaking client ephemeral ports will cause this to grow very long.
+	for _, conn := range conns {
+		ports = append(ports, conn.Laddr.Port)
+	}
+	return ports, nil
 }
 
 func loadBPFWatcher(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventContext, cfg *obi.Config, events chan<- watcher.Event) error {
