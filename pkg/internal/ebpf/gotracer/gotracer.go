@@ -455,6 +455,9 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	}
 
 	ebpfcommon.FixupSpec(spec, p.cfg.OverrideBPFLoopEnabled)
+	if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
+		ebpfcommon.DisableJavaHTTP1Atomics(spec)
+	}
 
 	return []*ebpfcommon.SpecBundle{{
 		Spec:      spec,

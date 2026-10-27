@@ -141,10 +141,31 @@ func runtimeEventStreamWithMeter(t *testing.T, pid int32, records []netTraceRunt
 		writeString(&metadata, "instrumentId")
 		writeEvent(&events, 0, metadata.Bytes())
 	}
+	metadata.Reset()
+	write(&metadata, uint32(5))
+	writeString(&metadata, "Microsoft-Windows-DotNETRuntime")
+	write(&metadata, clrGCStartEventID)
+	writeString(&metadata, "GCStart")
+	write(&metadata, uint64(1))
+	write(&metadata, uint32(2))
+	write(&metadata, uint32(4))
+	write(&metadata, uint32(0))
+	writeEvent(&events, 0, metadata.Bytes())
 	writeBlock("MetadataBlock", events.Bytes())
 	events.Reset()
 	for _, record := range records {
 		var payload bytes.Buffer
+		if record.gc != nil {
+			require.Equal(t, clrGCStartEventID, record.gc.eventID)
+			write(&payload, record.gc.collection.count)
+			write(&payload, record.gc.collection.depth)
+			write(&payload, uint32(0)) // Reason.
+			write(&payload, uint32(0)) // Type.
+			write(&payload, record.gc.collection.clrInstanceID)
+			write(&payload, uint64(0)) // Client sequence number.
+			writeEvent(&events, 5, payload.Bytes())
+			continue
+		}
 		if record.exceptionType != "" {
 			if metricsSessionID != "" {
 				count := strconv.FormatUint(record.exceptionCount, 10)

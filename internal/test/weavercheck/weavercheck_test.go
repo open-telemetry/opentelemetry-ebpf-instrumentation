@@ -4,8 +4,33 @@
 package weavercheck
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+// TestArchiveReportKeepsEarlierReports pins the name cmd/obi-weaver-coverage
+// collects, and that a rerun archived under the same name does not replace
+// the earlier report.
+func TestArchiveReportKeepsEarlierReports(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "out")
+
+	first, err := ArchiveReport(dir, "TestSuite/sub", []byte("first"))
+	require.NoError(t, err)
+	second, err := ArchiveReport(dir, "TestSuite/sub", []byte("second"))
+	require.NoError(t, err)
+
+	assert.Equal(t, filepath.Join(dir, "weaver-report-TestSuite_sub.json"), first)
+	assert.Equal(t, filepath.Join(dir, "weaver-report-TestSuite_sub-2.json"), second)
+	for path, want := range map[string]string{first: "first", second: "second"} {
+		got, err := os.ReadFile(path)
+		require.NoError(t, err)
+		assert.Equal(t, want, string(got))
+	}
+}
 
 // recorder is a minimal TestingT that records whether Validate reported a
 // failure, without aborting the enclosing test.

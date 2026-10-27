@@ -346,6 +346,15 @@
       "enabled": false
     },
     {
+      "description": "Keep the Java HttpClient fixture's pinned Gradle images current",
+      "matchManagers": ["dockerfile"],
+      "matchFileNames": ["internal/test/integration/components/java_httpclient_traceparent/Dockerfile"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["gradle", "docker.io/library/gradle", "library/gradle"],
+      "matchUpdateTypes": ["patch", "digest"],
+      "enabled": true
+    },
+    {
       "description": "Keep the Go Auto SDK latest fixture on rolling OpenTelemetry releases",
       "groupName": "Go Auto SDK latest fixture",
       "matchManagers": ["gomod"],

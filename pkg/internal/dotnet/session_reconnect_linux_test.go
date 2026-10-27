@@ -240,33 +240,35 @@ func testSessionManagerCumulativeReconnect(t *testing.T, version string) {
 
 func exceptionSessionIDFromRequest(payload []byte) (string, error) {
 	reader := bytes.NewReader(payload)
-	// Session fields and first provider's keywords and level precede its strings.
-	if _, err := io.CopyN(io.Discard, reader, 25); err != nil {
+	// Buffer size, format and rundown flag precede the provider count.
+	if _, err := io.CopyN(io.Discard, reader, 9); err != nil {
 		return "", err
 	}
-	for range 2 {
-		if _, err := readIPCString(reader); err != nil {
+	var providerCount uint32
+	if err := binary.Read(reader, binary.LittleEndian, &providerCount); err != nil {
+		return "", err
+	}
+	for range providerCount {
+		if _, err := io.CopyN(io.Discard, reader, 12); err != nil {
 			return "", err
 		}
+		provider, err := readIPCString(reader)
+		if err != nil {
+			return "", err
+		}
+		arguments, err := readIPCString(reader)
+		if err != nil {
+			return "", err
+		}
+		if provider != "System.Diagnostics.Metrics" {
+			continue
+		}
+		value, ok := strings.CutPrefix(arguments, "SessionId=")
+		if !ok {
+			return "", errors.New("Meter provider has no session ID")
+		}
+		sessionID, _, _ := strings.Cut(value, ";")
+		return sessionID, nil
 	}
-	if _, err := io.CopyN(io.Discard, reader, 12); err != nil {
-		return "", err
-	}
-	provider, err := readIPCString(reader)
-	if err != nil {
-		return "", err
-	}
-	arguments, err := readIPCString(reader)
-	if err != nil || provider == "Microsoft-Windows-DotNETRuntime" {
-		return "", err
-	}
-	if provider != "System.Diagnostics.Metrics" {
-		return "", fmt.Errorf("unexpected exception provider %q", provider)
-	}
-	value, ok := strings.CutPrefix(arguments, "SessionId=")
-	if !ok {
-		return "", errors.New("Meter provider has no session ID")
-	}
-	sessionID, _, _ := strings.Cut(value, ";")
-	return sessionID, nil
+	return "", nil
 }
