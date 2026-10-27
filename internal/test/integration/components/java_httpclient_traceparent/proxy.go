@@ -63,8 +63,14 @@ func main() {
 			return
 		}
 		mu.Lock()
-		records[r.URL.Path] = append(records[r.URL.Path], observation{Headers: headers, Protocol: r.ProtoMajor, Connection: r.RemoteAddr, Body: string(body),
-			Application: r.Header.Get("X-Application"), Tracestate: r.Header.Get("Tracestate")})
+		records[r.URL.Path] = append(records[r.URL.Path], observation{
+			Headers:     headers,
+			Protocol:    r.ProtoMajor,
+			Connection:  r.RemoteAddr,
+			Body:        string(body),
+			Application: r.Header.Get("X-Application"),
+			Tracestate:  r.Header.Get("Tracestate"),
+		})
 		attempt := len(records[r.URL.Path])
 		mu.Unlock()
 		log.Printf("TRACEPARENT %s protocol=%s values=%q", r.URL.Path, r.Proto, headers)

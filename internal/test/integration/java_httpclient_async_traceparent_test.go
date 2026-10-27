@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -54,7 +55,7 @@ func TestJavaHTTPClientAsyncTraceparent(t *testing.T) {
 			}
 			t.Run("shared-immutable", func(t *testing.T) {
 				for i := range 4 {
-					t.Run(fmt.Sprint(i), func(t *testing.T) {
+					t.Run(strconv.Itoa(i), func(t *testing.T) {
 						t.Parallel()
 						testJavaHTTPClientAsync(t, fmt.Sprintf("%s-shared-concurrent-%d", run, i), mode, "shared-immutable")
 					})
@@ -98,9 +99,10 @@ func testJavaHTTPClientAsync(t *testing.T, id, mode, testMode string) {
 	req.Header.Set("X-Async", "true")
 	req.Header.Set("X-Test-Mode", testMode)
 	owned := ""
-	if testMode == "owned" {
+	switch testMode {
+	case "owned":
 		owned = javaApplicationTraceparent
-	} else if testMode == "owned-invalid" {
+	case "owned-invalid":
 		owned = "invalid"
 	}
 	if owned != "" {
@@ -133,11 +135,12 @@ func testJavaHTTPClientAsync(t *testing.T, id, mode, testMode string) {
 		require.Equal(t, 1, record.Protocol)
 		require.Equal(t, "preserved", record.Application)
 		require.Equal(t, "fixture=preserved", record.Tracestate)
-		if owned != "" {
+		switch {
+		case owned != "":
 			require.Equal(t, []string{owned}, record.Headers)
-		} else if mode == "disabled" {
+		case mode == "disabled":
 			require.Empty(t, record.Headers)
-		} else {
+		default:
 			require.Len(t, record.Headers, 1)
 		}
 	}
