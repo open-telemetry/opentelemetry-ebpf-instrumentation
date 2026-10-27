@@ -33,7 +33,7 @@ concurrency:
 jobs:
   aggregate:
     name: Aggregate weaver telemetry coverage (all suites)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       # Check out the trusted default branch, NOT the workflow_run head SHA: only
