@@ -504,6 +504,16 @@ func TestOffsetsForLibVersions_PreVersionFlags(t *testing.T) {
 	}, offsets)
 }
 
+func TestOffsetsForLibVersions_MongoV2(t *testing.T) {
+	offsets := offsetsForLibVersions(FieldOffsets{}, map[string]string{
+		"go.mongodb.org/mongo-driver/v2": "v2.8.0",
+	}, slog.Default())
+
+	mustMatch(t, FieldOffsets{
+		MongoOneThirteenOne: uint64(1),
+	}, offsets)
+}
+
 func goAutoSDKActivationTestModules() moduleVersions {
 	return moduleVersions{
 		versions: map[string]string{

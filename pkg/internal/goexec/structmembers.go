@@ -898,7 +898,7 @@ func offsetsForLibVersions(fieldOffsets FieldOffsets, libVersions map[string]str
 			} else {
 				log.Debug("can't parse version for", "library", lib)
 			}
-		case "go.mongodb.org/mongo-driver":
+		case "go.mongodb.org/mongo-driver", "go.mongodb.org/mongo-driver/v2":
 			ver = cleanLibVersion(ver, true, lib, log)
 
 			if v, err := version.NewVersion(ver); err == nil {
