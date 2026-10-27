@@ -24,16 +24,20 @@ import (
 // Pass it to instrumenter.WithCriteriaUpdater. Configurations must not be mutated after submission.
 // Create a new updater for each pipeline run.
 type CriteriaUpdater struct {
-	mu          sync.Mutex
-	fixedConfig obi.Config
-	features    export.Features
-	updates     *services.CriteriaUpdates
+	mu            sync.Mutex
+	fixedConfig   obi.Config
+	traceHeaders  map[string]string
+	metricHeaders map[string]string
+	features      export.Features
+	updates       *services.CriteriaUpdates
 }
 
 func NewCriteriaUpdater(cfg *obi.Config) *CriteriaUpdater {
 	return &CriteriaUpdater{
-		fixedConfig: withoutSelectionAndSinks(cfg),
-		features:    cfg.JoinMetricsConfig().Features,
+		fixedConfig:   withoutSelectionAndSinks(cfg),
+		traceHeaders:  injectedHeaders(cfg.Traces.InjectHeaders),
+		metricHeaders: injectedHeaders(cfg.OTELMetrics.InjectHeaders),
+		features:      cfg.JoinMetricsConfig().Features,
 		updates: services.NewCriteriaUpdates(
 			refreshableCriteria(cfg),
 			ExcludingCriteria(cfg),
@@ -48,7 +52,9 @@ func (u *CriteriaUpdater) Update(ctx context.Context, cfg *obi.Config) error {
 	u.mu.Lock()
 	defer u.mu.Unlock()
 
-	if !reflect.DeepEqual(u.fixedConfig, withoutSelectionAndSinks(cfg)) {
+	if !reflect.DeepEqual(u.fixedConfig, withoutSelectionAndSinks(cfg)) ||
+		!maps.Equal(u.traceHeaders, injectedHeaders(cfg.Traces.InjectHeaders)) ||
+		!maps.Equal(u.metricHeaders, injectedHeaders(cfg.OTELMetrics.InjectHeaders)) {
 		return errors.New("only discovery selection criteria can be refreshed; restart OBI to apply other configuration changes")
 	}
 
@@ -87,6 +93,15 @@ func withoutSelectionAndSinks(cfg *obi.Config) obi.Config {
 	fixed.Discovery.DefaultExcludeInstrument = nil
 	fixed.Discovery.DefaultExcludeServices = nil
 	return fixed
+}
+
+// V2 stores declarative headers in closures, so compare their resolved values.
+func injectedHeaders(inject func(map[string]string)) map[string]string {
+	headers := map[string]string{}
+	if inject != nil {
+		inject(headers)
+	}
+	return headers
 }
 
 type selectorSettings struct {
