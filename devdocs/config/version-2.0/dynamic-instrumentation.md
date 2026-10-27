@@ -34,25 +34,20 @@ the same key; the automatic value is omitted. Spans may be declared only on
 include rules; parsing rejects spans under exclude rules. Nested object
 extraction is not supported by this configuration.
 
-Malformed declarations are configuration errors. Each runtime evaluates
-declarations independently: a failing rule must not prevent valid sibling
-rules from applying, and an ambiguous target must not select an arbitrary
-candidate. For the supported Node.js subset, a resolved module with a missing,
-non-function, or uninspectable export emits a per-rule warning and does not
-block valid siblings. Resolution diagnostics for module specifiers that never
-resolve, and attribute-collision behavior, remain to be specified or hardened
-as additional runtime support is added.
+Malformed declarations are configuration errors. Runtime implementations must
+evaluate each declaration independently: unresolved or ambiguous targets must
+not select arbitrary candidates, and a failing rule must not prevent valid
+siblings from applying. Each runtime documents resolution diagnostics and
+attribute-collision behavior in its runtime reference.
 
-The runtime converter currently accepts only the Node.js subset documented in
-the [Node.js function-reference contract](nodejs-function-reference.md): exact
-CommonJS module exports, no attributes, and rules explicitly selecting
-`nodejs`. Java, Go, native, other runtimes, and unsupported Node.js target forms
-remain rejected until implemented. The [Java selector contract](java-method-reference.md)
-defines Java syntax but does not imply Java runtime support.
+The schema describes a shared contract, not support in every runtime. Each
+runtime documents its accepted function syntax, target types, and attributes in
+its runtime-specific reference. A converter accepts a declaration only when
+that runtime can apply it; unsupported targets, attributes, and selector forms
+must be rejected.
 
-The shared schema also permits explicit source-argument mappings. This Java
-example documents the contract only; the current converter rejects it because
-Java runtime span support and attribute capture are not implemented:
+The following is an illustrative schema example; runtime acceptance depends
+on the runtime-specific reference and tests.
 
 ```yaml
 capture:
@@ -70,22 +65,5 @@ capture:
             attributes:
               - name: order.id
                 argument: {index: 0, type: string}
-```
-
-The following exact CommonJS rule is accepted by the current Node.js runtime
-slice:
-
-```yaml
-capture:
-  rules:
-    - name: checkout
-      action: include
-      match:
-        process:
-          language_glob: [nodejs]
-      refine:
-        spans:
-          - name: checkout.place_order
-            on:
-              function: "./checkout.js#placeOrder"
+            automatic_attributes: false
 ```
