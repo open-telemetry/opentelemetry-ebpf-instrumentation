@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"log/slog"
 	stdmaps "maps"
+	"os"
 	"slices"
 	"time"
 
-	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -368,13 +368,12 @@ func (ta *traceAttacher) getTracer(ctx context.Context, ie *ebpf.Instrumentable)
 	// Must be called after we've set the SDKLanguage
 	ta.harvestRoutes(ie, false)
 
-	// Instead of the executable file in the disk, we pass the /proc/<pid>/exec
-	// to allow loading it from different container/pods in containerized environments
 	exe, ok := ta.loadExecutable(ie)
 	if !ok {
 		ta.Metrics.InstrumentationError(ie.FileInfo.ExecutableName(), imetrics.InstrumentationErrorInspectionFailed)
 		return false
 	}
+	defer exe.Close()
 
 	tracer := ebpf.NewProcessTracer(tracerType, programs, ta.Cfg, ta.Metrics)
 
@@ -474,10 +473,12 @@ func (ta *traceAttacher) harvestRoutes(ie *ebpf.Instrumentable, reused bool) {
 	ta.harvestRoutesProcessor(ie, reused)
 }
 
-func (ta *traceAttacher) loadExecutable(ie *ebpf.Instrumentable) (*link.Executable, bool) {
-	// Instead of the executable file in the disk, we pass the /proc/<pid>/exec
-	// to allow loading it from different container/pods in containerized environments
-	exe, err := link.OpenExecutable(ie.FileInfo.ProExeLinkPath())
+func (ta *traceAttacher) loadExecutable(ie *ebpf.Instrumentable) (*os.File, bool) {
+	// Open through /proc/<pid>/exe to access executables whose paths on disk
+	// belong to a different container mount namespace.
+	// Do not use Cilium's eBPF loader based on path, it can't handle execve changing
+	// the underlying executable.
+	exe, err := ie.FileInfo.OpenExecutable()
 	if err != nil {
 		ta.log.Debug("can't open executable. Ignoring",
 			"error", err, "pid", ie.FileInfo.Pid(), "cmd", ie.FileInfo.CmdExePath())
@@ -495,6 +496,7 @@ func (ta *traceAttacher) reuseTracer(ctx context.Context, tracer *ebpf.ProcessTr
 	if !ok {
 		return false
 	}
+	defer exe.Close()
 
 	if err := tracer.NewExecutable(exe, ie); err != nil {
 		ta.log.Debug("Failed to attach uprobes for new executable", "pid", ie.FileInfo.Pid(), "error", err)
