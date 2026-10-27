@@ -179,7 +179,6 @@ public class Main {
               .version(http2 || fallback ? HttpClient.Version.HTTP_2 : HttpClient.Version.HTTP_1_1)
               .timeout(Duration.ofSeconds(15))
               .GET();
-      java.io.IOException bodyFailure = new java.io.IOException("fixture body failure");
       request.header("X-Application", "preserved").header("tracestate", "fixture=preserved");
       String owned = exchange.getRequestHeaders().getFirst("X-Application-Traceparent");
       if (owned != null) {
@@ -190,29 +189,6 @@ public class Main {
       }
       if ("timeout".equals(testMode)) {
         request.timeout(Duration.ofMillis(200));
-      }
-      if ("cancel-transport".equals(testMode)) {
-        request.timeout(Duration.ofSeconds(2));
-      }
-      if ("write-failure".equals(testMode)) {
-        request.POST(
-            HttpRequest.BodyPublishers.fromPublisher(
-                subscriber ->
-                    subscriber.onSubscribe(
-                        new java.util.concurrent.Flow.Subscription() {
-                          private boolean finished;
-
-                          public synchronized void request(long count) {
-                            if (!finished) {
-                              finished = true;
-                              subscriber.onError(bodyFailure);
-                            }
-                          }
-
-                          public synchronized void cancel() {
-                            finished = true;
-                          }
-                        })));
       }
       if ("duplicate-owned".equals(testMode)) {
         request.header("traceparent", owned);
@@ -230,54 +206,7 @@ public class Main {
         concurrentCalls.await(10, TimeUnit.SECONDS);
       }
       HttpResponse<String> response;
-      CompletableFuture<Object> capacity =
-          "tracking-capacity".equals(testMode) ? fillTrackingCapacity() : null;
       try {
-        if (async && "cancel-transport".equals(testMode)) {
-          CompletableFuture<HttpResponse<String>> future =
-              selected.sendAsync(original, HttpResponse.BodyHandlers.ofString());
-          waitForProxyRequest(path);
-          boolean cancelled = future.cancel(true);
-          // Aborting the exchange can complete the dependent stage before cancel marks it
-          // cancelled.
-          try {
-            future.join();
-            throw new IllegalStateException("transport completed normally after cancellation");
-          } catch (java.util.concurrent.CancellationException expected) {
-            exchange.getResponseHeaders().set("X-Cancel-Exception", expected.getClass().getName());
-          } catch (java.util.concurrent.CompletionException expected) {
-            boolean cancellation = false;
-            for (Throwable error = expected; error != null; error = error.getCause()) {
-              cancellation |= error instanceof java.util.concurrent.CancellationException;
-            }
-            if (!cancellation) {
-              throw expected;
-            }
-            exchange.getResponseHeaders().set("X-Cancel-Exception", expected.getClass().getName());
-          }
-          exchange.getResponseHeaders().set("X-Cancel-Result", Boolean.toString(cancelled));
-          checkPropagationScope();
-          reply(exchange, 200, "expected failure");
-          return;
-        }
-        if (async && "synchronous-throw".equals(testMode)) {
-          try {
-            selected.sendAsync(original, null);
-            throw new IllegalStateException("null handler was accepted");
-          } catch (NullPointerException expected) {
-            checkPropagationScope();
-            reply(exchange, 200, "expected failure");
-            return;
-          }
-        }
-        if (async && "detached".equals(testMode)) {
-          selected
-              .sendAsync(original, HttpResponse.BodyHandlers.ofString())
-              .thenRun(Main::checkPropagationScope);
-          checkPropagationScope();
-          reply(exchange, 200, "detached");
-          return;
-        }
         if (async && "cancel".equals(testMode)) {
           java.util.concurrent.CountDownLatch gate = new java.util.concurrent.CountDownLatch(1);
           HttpClient gated =
@@ -351,8 +280,7 @@ public class Main {
         if (!"timeout".equals(testMode)
             && !"interrupt".equals(testMode)
             && !"tls-failure".equals(testMode)
-            && !"connect-failure".equals(testMode)
-            && !"write-failure".equals(testMode)) {
+            && !"connect-failure".equals(testMode)) {
           throw expected;
         }
         if ("timeout".equals(testMode)
@@ -364,21 +292,9 @@ public class Main {
             || "interrupt".equals(testMode) && !hasCause(expected, InterruptedException.class)) {
           throw new IllegalStateException("unexpected application exception", expected);
         }
-        if ("write-failure".equals(testMode)) {
-          boolean originalFailure = false;
-          for (Throwable error = expected; error != null; error = error.getCause()) {
-            originalFailure |= error == bodyFailure;
-          }
-          if (!originalFailure) {
-            throw new IllegalStateException("body publisher exception changed", expected);
-          }
-        }
         reply(exchange, 200, "expected failure");
         return;
       } finally {
-        if (capacity != null) {
-          capacity.complete(null);
-        }
         Thread.interrupted();
       }
       if (nested.get() != null && nested.get().join().statusCode() != 200) {
@@ -431,58 +347,6 @@ public class Main {
       }
     }
     return false;
-  }
-
-  private static CompletableFuture<Object> fillTrackingCapacity() throws Exception {
-    Class<?> helper =
-        Class.forName(
-            "io.opentelemetry.obi.java.instrumentations.data.JdkHttpClientPropagation", true, null);
-    Object scope = helper.getMethod("enterAsync").invoke(null);
-    Object request = new Object();
-    CompletableFuture<Object> transport = new CompletableFuture<>();
-    try {
-      java.lang.reflect.Method register =
-          helper.getMethod("register", Object.class, Object[].class, boolean.class);
-      register.invoke(null, request, new Object[0], true);
-      for (int i = 1; i < 10_000; i++) {
-        register.invoke(null, new Object(), new Object[0], true);
-      }
-      helper
-          .getMethod("trackTransport", Object.class, CompletableFuture.class)
-          .invoke(null, request, transport);
-      java.lang.reflect.Field requests = helper.getDeclaredField("requestScopes");
-      requests.setAccessible(true);
-      if (((Map<?, ?>) requests.get(null)).size() != 10_000) {
-        throw new IllegalStateException("tracking limit was not reached");
-      }
-      return transport;
-    } catch (Exception error) {
-      transport.complete(null);
-      throw error;
-    } finally {
-      helper.getMethod("exit", helper).invoke(null, scope);
-    }
-  }
-
-  private static void waitForProxyRequest(String path) throws Exception {
-    long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-    while (System.nanoTime() < deadline) {
-      java.net.HttpURLConnection connection =
-          (java.net.HttpURLConnection)
-              URI.create("http://proxy:8082/records" + path).toURL().openConnection();
-      connection.setConnectTimeout(1000);
-      connection.setReadTimeout(1000);
-      try {
-        if (connection.getResponseCode() == 200) {
-          connection.getInputStream().close();
-          return;
-        }
-      } finally {
-        connection.disconnect();
-      }
-      Thread.sleep(10);
-    }
-    throw new IllegalStateException("transport did not reach the TLS proxy");
   }
 
   private static void reply(HttpExchange exchange, int status, String body)

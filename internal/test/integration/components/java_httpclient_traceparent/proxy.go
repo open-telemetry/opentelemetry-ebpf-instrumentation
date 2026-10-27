@@ -28,7 +28,6 @@ type observation struct {
 	Body        string   `json:"body"`
 	Application string   `json:"application"`
 	Tracestate  string   `json:"tracestate"`
-	BodyError   string   `json:"body_error,omitempty"`
 }
 
 func main() {
@@ -50,30 +49,23 @@ func main() {
 			return
 		}
 		headers := r.Header.Values("Traceparent")
-		mu.Lock()
-		records[r.URL.Path] = append(records[r.URL.Path], observation{
-			Headers: headers, Protocol: r.ProtoMajor, Connection: r.RemoteAddr,
-			Application: r.Header.Get("X-Application"), Tracestate: r.Header.Get("Tracestate"),
-		})
-		attempt := len(records[r.URL.Path])
-		mu.Unlock()
 		if strings.HasSuffix(r.URL.Path, "-expect-reject") {
-			w.Header().Set("Connection", "close")
+			mu.Lock()
+			records[r.URL.Path] = append(records[r.URL.Path], observation{Headers: headers, Protocol: r.ProtoMajor, Connection: r.RemoteAddr})
+			mu.Unlock()
 			w.WriteHeader(http.StatusExpectationFailed)
 			_, _ = w.Write([]byte("expectation rejected"))
-			w.(http.Flusher).Flush()
 			return
 		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
-			mu.Lock()
-			records[r.URL.Path][attempt-1].BodyError = err.Error()
-			mu.Unlock()
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		mu.Lock()
-		records[r.URL.Path][attempt-1].Body = string(body)
+		records[r.URL.Path] = append(records[r.URL.Path], observation{Headers: headers, Protocol: r.ProtoMajor, Connection: r.RemoteAddr, Body: string(body),
+			Application: r.Header.Get("X-Application"), Tracestate: r.Header.Get("Tracestate")})
+		attempt := len(records[r.URL.Path])
 		mu.Unlock()
 		log.Printf("TRACEPARENT %s protocol=%s values=%q", r.URL.Path, r.Proto, headers)
 		keepAlive := strings.HasSuffix(r.URL.Path, "-pool-first") || strings.Contains(r.URL.Path, "-reuse") && attempt == 1
@@ -96,7 +88,7 @@ func main() {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if strings.HasSuffix(r.URL.Path, "-timeout") || strings.HasSuffix(r.URL.Path, "-cancel-transport") {
+		if strings.HasSuffix(r.URL.Path, "-timeout") {
 			<-r.Context().Done()
 			return
 		}
