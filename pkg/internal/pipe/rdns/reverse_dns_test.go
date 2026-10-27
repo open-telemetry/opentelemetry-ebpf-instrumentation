@@ -266,6 +266,29 @@ func TestReverseDNS_EBPFDetachedBeforeRunEnds(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestReverseDNS_EBPFDetachedAfterFailedBuild(t *testing.T) {
+	attached, _ := lateDetachDNSPacketInspector(t)
+	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
+	ebpfLookup := NewEBPFLookup(nil, cfg)
+
+	// Given an OBI run whose graph fails to build after the reverse DNS node
+	in := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
+	out := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
+	swi := &swarm.Instancer{}
+	swi.Add(ReverseDNSProvider(cfg, attrsOf, ebpfLookup, in, out))
+	swi.Add(func(_ context.Context) (swarm.RunFunc, error) { return nil, errors.New("can't build") })
+	_, err := swi.Instance(t.Context())
+	require.Error(t, err)
+
+	// THEN the inspector is detached once the run is waited for
+	ebpfLookup.Wait()
+	assert.False(t, attached.Load())
+
+	// AND the next run can attach it again
+	_, err = instantiateReverseDNS(t, cfg, NewEBPFLookup(nil, cfg))
+	require.NoError(t, err)
+}
+
 func TestNewEBPFLookup_LargestCacheLen(t *testing.T) {
 	ebpfLookup := NewEBPFLookup(nil,
 		&ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 100},

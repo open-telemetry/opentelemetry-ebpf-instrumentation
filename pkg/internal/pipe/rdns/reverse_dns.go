@@ -104,6 +104,18 @@ func (l *EBPFLookup) start() error {
 	return nil
 }
 
+// Wait blocks until the DNS packet inspector, if it was started, has detached its
+// XDP program. To be called once the pipelines of the run have ended.
+func (l *EBPFLookup) Wait() {
+	l.mt.Lock()
+	stopped := l.stopped
+	l.mt.Unlock()
+
+	if stopped != nil {
+		<-stopped
+	}
+}
+
 func (l *EBPFLookup) release() {
 	l.mt.Lock()
 	defer l.mt.Unlock()

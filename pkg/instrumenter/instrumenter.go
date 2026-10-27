@@ -100,6 +100,11 @@ func runWithContextInfo(
 	// if one of nodes fail, the other should stop
 	g, ctx := errgroup.WithContext(ctx)
 
+	// a new run can't attach the eBPF reverse DNS until this one has detached it
+	if ctxInfo.EBPFReverseDNS != nil {
+		defer ctxInfo.EBPFReverseDNS.Wait()
+	}
+
 	startHealthCheck(ctx, g, cfg.HealthCheck)
 
 	if app {
