@@ -21,7 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cilium/ebpf/link"
 	"github.com/cilium/ebpf/rlimit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -484,8 +483,9 @@ func attachGoTracer(t *testing.T, pid app.PID, mode config.ContextPropagationMod
 
 	processTracer.AllowPID(pid, fileInfo.Ns(), fileInfo)
 
-	executable, err := link.OpenExecutable(fileInfo.ProExeLinkPath())
+	executable, err := fileInfo.OpenExecutable()
 	require.NoError(t, err)
+	defer executable.Close()
 	require.NoError(t, processTracer.NewExecutable(executable, &ebpftracer.Instrumentable{
 		Type:     svc.InstrumentableGolang,
 		FileInfo: fileInfo,

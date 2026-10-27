@@ -6,6 +6,7 @@ package discover
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"slices"
 	"sync"
 	"testing"
@@ -24,6 +25,36 @@ import (
 )
 
 const testTimeout = 5 * time.Second
+
+func TestWatcherExecutableReplacement(t *testing.T) {
+	for _, ports := range [][]uint32{nil, {8080, 8081}} {
+		for _, replacement := range []cacheKey{{Dev: 1, Ino: 3}, {Dev: 2, Ino: 2}} {
+			t.Run(fmt.Sprintf("ports=%v/executable=%v", ports, replacement), func(t *testing.T) {
+				acc := pollAccounter{
+					cfg:               &obi.Config{},
+					executableReady:   func(app.PID) (string, bool) { return "", true },
+					bpfWatcherEnabled: true,
+				}
+				original := ProcessAttrs{pid: 123, executable: cacheKey{Dev: 1, Ino: 2}, openPorts: ports}
+				require.Equal(t, []Event[ProcessAttrs]{{Type: EventCreated, Obj: original}}, acc.snapshot(map[app.PID]ProcessAttrs{123: original}))
+				require.Empty(t, acc.snapshot(map[app.PID]ProcessAttrs{123: original}))
+				unreadable := original
+				unreadable.executable = cacheKey{}
+				require.Empty(t, acc.snapshot(map[app.PID]ProcessAttrs{123: unreadable}))
+				require.Equal(t, original.executable, acc.pids[123].executable)
+				current := original
+				current.executable = replacement
+				require.Equal(t, []Event[ProcessAttrs]{
+					{Type: EventDeleted, Obj: original},
+					{Type: EventCreated, Obj: current},
+				}, acc.snapshot(map[app.PID]ProcessAttrs{123: current}))
+				require.True(t, acc.portFetchRequired())
+				require.Empty(t, acc.snapshot(map[app.PID]ProcessAttrs{123: current}))
+				require.Equal(t, []Event[ProcessAttrs]{{Type: EventDeleted, Obj: current}}, acc.snapshot(nil))
+			})
+		}
+	}
+}
 
 func TestWatcher_Poll(t *testing.T) {
 	// mocking a fake listProcesses method
