@@ -1,0 +1,45 @@
+oats-schema-version: 2
+docker-compose:
+  files:
+  - ../docker-compose-cohere.yml
+  - ../../weaver/docker-compose-weaver.yml
+input:
+- path: /cohere/chat
+- path: /cohere/chat/stream
+- path: /cohere/chat/error
+interval: 500ms
+expected:
+  traces:
+  # Chat with a tool result: the document block must reach gen_ai.input.messages
+  - traceql: '{ .gen_ai.provider.name = "cohere" && .gen_ai.request.model = "command-a-03-2025" && .gen_ai.response.id = "c14c80c3-18eb-4519-9460-6c92edd8cfb4"}'
+    equals: chat command-a-03-2025
+    attributes:
+      gen_ai.operation.name: chat
+      gen_ai.response.model: command-a-03-2025
+      gen_ai.request.max_tokens: 256
+      gen_ai.request.temperature: 0.3
+      gen_ai.request.top_k: 40
+      gen_ai.usage.input_tokens: 512
+      gen_ai.usage.output_tokens: 12
+      gen_ai.input.messages: '[{"role":"system","parts":[{"type":"text","content":"You are a sales assistant."}]},{"role":"user","parts":[{"type":"text","content":"What were the sales on 2023-09-29?"}]},{"role":"assistant","parts":[{"type":"tool_call","id":"query_daily_sales_report_0","name":"query_daily_sales_report","arguments":"{\"day\":\"2023-09-29\"}"}]},{"role":"tool","parts":[{"type":"tool_call_response","result":"{\"total_sales_amount\":10000}","id":"query_daily_sales_report_0"}]}]'
+      gen_ai.output.messages: '[{"role":"assistant","parts":[{"type":"text","content":"Total sales on 2023-09-29 were $10,000."}],"finish_reason":"COMPLETE"}]'
+  # Streaming (SSE) chat
+  - traceql: '{ .gen_ai.provider.name = "cohere" && .gen_ai.request.model = "command-a-03-2025" && .gen_ai.response.id = "29f14a5a-11de-4cae-9800-25e4747408ea"}'
+    equals: chat command-a-03-2025
+    attributes:
+      gen_ai.operation.name: chat
+      gen_ai.request.stream: true
+      gen_ai.usage.input_tokens: 71
+      gen_ai.usage.output_tokens: 2
+      gen_ai.output.messages: '[{"role":"assistant","parts":[{"type":"text","content":"Hello!"}],"finish_reason":"COMPLETE"}]'
+  # Error response: Cohere reports no error type, so error.type is the HTTP status
+  - traceql: '{ .error.type = "400" && .gen_ai.provider.name = "cohere" && .gen_ai.request.model = "command-unknown"}'
+    equals: chat command-unknown
+    attributes:
+      gen_ai.operation.name: chat
+      gen_ai.response.id: 0a1b2c3d-4e5f-6789-abcd-ef0123456789
+  metrics:
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="chat",gen_ai_provider_name="cohere",gen_ai_token_type="input",gen_ai_request_model="command-a-03-2025",gen_ai_response_model="command-a-03-2025"}
+    value: '> 0'
+  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="chat",gen_ai_provider_name="cohere",gen_ai_request_model="command-a-03-2025"}
+    value: '> 0'

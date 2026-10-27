@@ -1655,6 +1655,30 @@
           }
         ]
       },
+      "ProtoMajor": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.27.3"
+        },
+        "offsets": [
+          {
+            "offset": 40,
+            "since": "1.17.0"
+          }
+        ]
+      },
+      "ProtoMinor": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.27.3"
+        },
+        "offsets": [
+          {
+            "offset": 48,
+            "since": "1.17.0"
+          }
+        ]
+      },
       "URL": {
         "versions": {
           "oldest": "1.17.0",
@@ -1677,6 +1701,30 @@
         "offsets": [
           {
             "offset": 80,
+            "since": "1.17.0"
+          }
+        ]
+      },
+      "ProtoMajor": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.27.3"
+        },
+        "offsets": [
+          {
+            "offset": 40,
+            "since": "1.17.0"
+          }
+        ]
+      },
+      "ProtoMinor": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.27.3"
+        },
+        "offsets": [
+          {
+            "offset": 48,
             "since": "1.17.0"
           }
         ]
