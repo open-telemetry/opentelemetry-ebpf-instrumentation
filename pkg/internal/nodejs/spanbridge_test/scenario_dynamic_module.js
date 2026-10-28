@@ -9,10 +9,23 @@ exports.fail = () => {
   throw new Error('expected failure');
 };
 exports.proxyFailure = () => 'proxy failure target';
-exports.callable = function () {};
+exports.callable = function () {
+  return 'callable parent';
+};
+exports.callable.marker = 'callable marker';
 exports.callable.nested = {
   work: () => 'callable nested',
 };
+
+function ExampleConstructor(value) {
+  this.value = value;
+  this.constructedWith = new.target;
+}
+ExampleConstructor.marker = 'constructor marker';
+ExampleConstructor.prototype.describe = function () {
+  return `example:${this.value}`;
+};
+exports.ExampleConstructor = ExampleConstructor;
 
 module.exports = new Proxy(exports, {
   getOwnPropertyDescriptor(target, property) {

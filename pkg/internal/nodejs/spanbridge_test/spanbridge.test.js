@@ -158,10 +158,28 @@ test('dynamic function spans wrap already-loaded and late-loaded CommonJS export
   assert.deepStrictEqual(result.values, [2, 4]);
   assert.strictEqual(result.thrown, 'expected failure', 'the original exception must propagate');
   assert.strictEqual(result.late, 'late');
+  assert.strictEqual(result.entry, 'entry module', 'the already-loaded entry module is matched by filename');
+  assert.strictEqual(result.randomBytesLength, 7, 'crypto.randomBytes remains callable when instrumented');
+  assert.strictEqual(result.callableParent, 'callable parent');
   assert.strictEqual(result.callable, 'callable nested');
+  assert.strictEqual(result.callableMarkerPreserved, true, 'wrapping a callable export preserves its own properties');
+  assert.strictEqual(result.constructorValue, 'example:value');
+  assert.strictEqual(result.constructorUsesOriginalNewTarget, true, 'new.target remains the original constructor');
+  assert.strictEqual(result.constructorPrototypePreserved, true, 'instances retain the original prototype');
+  assert.strictEqual(result.constructorMarkerPreserved, true, 'wrapping a constructor preserves its own properties');
   assert.deepStrictEqual(
     result.spans.map((span) => span.name).sort(),
-    ['dynamic.async', 'dynamic.callable-parent', 'dynamic.fail', 'dynamic.late', 'dynamic.sync'],
+    [
+      'dynamic.async',
+      'dynamic.callable-nested',
+      'dynamic.callable-parent',
+      'dynamic.constructor',
+      'dynamic.entry',
+      'dynamic.fail',
+      'dynamic.late',
+      'dynamic.random-bytes',
+      'dynamic.sync',
+    ],
   );
   assert.strictEqual(result.diagnostics.length, 2, 'bad targets should each produce one diagnostic');
   assert.ok(result.diagnostics.every((diagnostic) => diagnostic.code === 'OBI_DYNAMIC_SPAN_TARGET'));
@@ -171,6 +189,18 @@ test('dynamic function spans wrap already-loaded and late-loaded CommonJS export
   const failed = result.spans.find((span) => span.name === 'dynamic.fail');
   assert.strictEqual(failed.status, 2, 'thrown errors must set the span error status');
   assert.strictEqual(failed.attrs['exception.message'], 'expected failure');
+});
+
+test('dynamic spans do not enable application API span capture without ManualSpans', () => {
+  const result = runScript('scenario_dynamic_spans.js', 'dynamic-only');
+  assert.ok(!result.spans.some((span) => span.name === 'manual.disabled'));
+  assert.ok(result.spans.some((span) => span.name === 'dynamic.sync'), 'private dynamic span capture remains active');
+});
+
+test('dynamic spans do not wire a late application API copy without ManualSpans', () => {
+  const result = runScript('scenario_dynamic_spans.js', 'dynamic-only-late');
+  assert.ok(!result.spans.some((span) => span.name === 'manual.disabled'));
+  assert.ok(result.spans.some((span) => span.name === 'dynamic.sync'), 'private dynamic span capture remains active');
 });
 
 test('unselected Node.js process receives no dynamic function spans', () => {
@@ -187,7 +217,17 @@ test('dynamic function spans use an application SDK when one already owns the AP
   assert.deepStrictEqual(result.spans, [], 'OBI manual transport must stay inert');
   assert.deepStrictEqual(
     result.appSpans.sort(),
-    ['dynamic.async', 'dynamic.callable-parent', 'dynamic.fail', 'dynamic.late', 'dynamic.sync'],
+    [
+      'dynamic.async',
+      'dynamic.callable-nested',
+      'dynamic.callable-parent',
+      'dynamic.constructor',
+      'dynamic.entry',
+      'dynamic.fail',
+      'dynamic.late',
+      'dynamic.random-bytes',
+      'dynamic.sync',
+    ],
   );
 });
 
