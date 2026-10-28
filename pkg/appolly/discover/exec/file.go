@@ -154,7 +154,7 @@ func (fi *FileInfo) OpenExecutable() (*os.File, error) {
 		return nil, err
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	//nolint:unconvert // Darwin's device ID is int32.
+	//nolint:unconvert,nolintlint // Dev is int32 on Darwin but uint64 on Linux, so the conversion is only redundant on Linux.
 	if !ok || uint64(stat.Dev) != fi.dev || stat.Ino != fi.ino {
 		_ = f.Close()
 		return nil, fmt.Errorf("executable identity changed for PID %d", fi.pid)
