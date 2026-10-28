@@ -9,6 +9,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -16,10 +17,13 @@ import (
 	cebpf "github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -245,6 +249,40 @@ func TestCloseInstrumentersWaitsForInFlightAttachment(t *testing.T) {
 
 	assert.Equal(t, int32(1), attached.closes.Load())
 	assert.Empty(t, pt.Instrumentables)
+}
+
+func TestNewExecutableDoesNotRetainAttachmentTarget(t *testing.T) {
+	file, err := os.Open("/proc/self/exe")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = file.Close() })
+	var stat unix.Stat_t
+	require.NoError(t, unix.Fstat(int(file.Fd()), &stat))
+	key := ExecutableKey{Dev: stat.Dev, Ino: stat.Ino}
+	offsets := &goexec.Offsets{}
+	ie := &Instrumentable{
+		FileInfo: exec.New(exec.Init{
+			Pid:        app.PID(os.Getpid()),
+			CmdExePath: "/proc/self/exe",
+			Dev:        key.Dev,
+			Ino:        key.Ino,
+		}),
+		Offsets: offsets,
+	}
+	pt := NewProcessTracer(Go, []Tracer{&stubTracer{}}, &obi.Config{}, imetrics.NoopReporter{})
+	t.Cleanup(func() { require.NoError(t, pt.Close()) })
+
+	require.NoError(t, pt.NewExecutable(file, ie))
+	require.NoError(t, file.Close())
+
+	// Compare all retained state so a borrowed executable or FD path cannot survive attachment.
+	require.Equal(t, &instrumenter{
+		key:         key,
+		offsets:     offsets,
+		modules:     map[uint64]struct{}{},
+		metrics:     imetrics.NoopReporter{},
+		processName: "exe",
+	}, pt.Instrumentables[key])
+	require.NoError(t, pt.NewExecutableInstance(ie))
 }
 
 func TestNewExecutableRejectedAfterShutdown(t *testing.T) {

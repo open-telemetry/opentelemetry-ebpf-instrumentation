@@ -40,8 +40,6 @@ type instrumenter struct {
 	key                   ExecutableKey
 	uprobeKey             ExecutableKey
 	offsets               *goexec.Offsets
-	exe                   *link.Executable
-	exePath               string
 	closables             []io.Closer
 	processScopedGoProbes []processScopedGoProbeRegistration
 	modules               map[uint64]struct{}
@@ -442,8 +440,6 @@ func (pt *ProcessTracer) NewExecutable(file *os.File, ie *Instrumentable) error 
 
 	i := instrumenter{
 		key:         ExecutableKey{Dev: ie.FileInfo.Dev(), Ino: ie.FileInfo.Ino()},
-		exe:         exe,
-		exePath:     exePath,
 		offsets:     ie.Offsets, // this is needed for the function offsets, not fields
 		modules:     map[uint64]struct{}{},
 		metrics:     pt.metrics,
@@ -489,7 +485,7 @@ func (pt *ProcessTracer) NewExecutable(file *os.File, ie *Instrumentable) error 
 
 	for _, p := range pt.Programs {
 		// Go style Uprobes
-		if err := i.goprobes(p); err != nil {
+		if err := i.goprobes(exe, exePath, p); err != nil {
 			printVerifierErrorInfo(err)
 			return err
 		}

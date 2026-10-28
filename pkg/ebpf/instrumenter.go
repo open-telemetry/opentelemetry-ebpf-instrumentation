@@ -151,12 +151,12 @@ func (c *usdtLinkCloser) Close() error {
 	return c.err
 }
 
-func (i *instrumenter) goprobes(p Tracer) error {
+func (i *instrumenter) goprobes(exe *link.Executable, exePath string, p Tracer) error {
 	goProbes := p.GoProbes()
 
 	i.gatherGoOffsets(goProbes)
 
-	closers, attachedSymbols, err := i.instrumentProbesWithResults(i.exe, i.exePath, goProbes)
+	closers, attachedSymbols, err := i.instrumentProbesWithResults(exe, exePath, goProbes)
 	if err != nil {
 		return err
 	}
@@ -180,7 +180,7 @@ func (i *instrumenter) goprobes(p Tracer) error {
 				if goProbeGroupConflictsWithAttached(resolvedGroup, attachedGroupSymbols) {
 					continue
 				}
-				groupClosers := i.instrumentOptionalGoProbeGroup(i.exe, i.exePath, resolvedGroup.group)
+				groupClosers := i.instrumentOptionalGoProbeGroup(exe, exePath, resolvedGroup.group)
 				if len(groupClosers) == 0 {
 					continue
 				}
