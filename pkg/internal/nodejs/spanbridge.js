@@ -30,6 +30,7 @@
 (() => {
   'use strict';
 
+  const MANUAL_SPANS_ENABLED = /*OBI_MANUAL_SPANS_ENABLED*/ true;
   const API_KEY = Symbol.for('opentelemetry.js.api.1');
   // Same Symbol.for key the api uses internally (createContextKey).
   const SPAN_KEY = Symbol.for('OpenTelemetry Context Key SPAN');
@@ -70,6 +71,8 @@
 
   const fs = require('fs');
   const crypto = require('crypto');
+  // Dynamic instrumentation may replace the module export after this bridge loads.
+  const bridgeRandomBytes = crypto.randomBytes;
   const { AsyncLocalStorage, createHook } = require('async_hooks');
 
   // Diagnostics are OFF by default: this code runs inside the customer's
@@ -247,7 +250,7 @@
   let idPoolOffset = 0;
   const randomHex = (bytes) => {
     if (idPool === null || idPoolOffset + bytes > ID_POOL_BYTES) {
-      idPool = crypto.randomBytes(ID_POOL_BYTES);
+      idPool = bridgeRandomBytes(ID_POOL_BYTES);
       idPoolOffset = 0;
     }
     const hex = idPool.toString('hex', idPoolOffset, idPoolOffset + bytes);
@@ -704,53 +707,45 @@
     wrapSetter(contextApi, 'setGlobalContextManager', 'setGlobalContextManager');
   };
 
-  // Copies already loaded before us (present in require.cache).
-  for (const key of Object.keys(require.cache ?? {})) {
-    if (!/[\\/]@opentelemetry[\\/]api[\\/]/.test(key)) continue;
+  if (MANUAL_SPANS_ENABLED) {
+    // Copies already loaded before us (present in require.cache).
+    for (const key of Object.keys(require.cache ?? {})) {
+      if (!/[\\/]@opentelemetry[\\/]api[\\/]/.test(key)) continue;
+      try {
+        wireApiCopy(require.cache[key] && require.cache[key].exports);
+      } catch (err) {
+        // never let bridge wiring break the app; surface only under debug
+        debug('failed to wire pre-loaded @opentelemetry/api copy ' + key, err);
+      }
+    }
+
+    // We do NOT set registry.trace / registry.context (see the note above):
+    // the bridge captures only through the per-copy ProxyTracerProvider
+    // delegate wired in wireApiCopy, never by occupying the global registry.
+
+    // Cover @opentelemetry/api copies loaded AFTER injection. Only manual-span
+    // capture needs to redirect their ProxyTracerProvider to this bridge.
     try {
-      wireApiCopy(require.cache[key] && require.cache[key].exports);
-    } catch (err) {
-      // never let bridge wiring break the app; surface only under debug
-      debug('failed to wire pre-loaded @opentelemetry/api copy ' + key, err);
-    }
-  }
-
-  // We do NOT set registry.trace / registry.context (see the note above): the
-  // bridge captures only through the per-copy ProxyTracerProvider delegate wired
-  // in wireApiCopy, never by occupying the global registry.
-
-  // Cover @opentelemetry/api copies loaded AFTER injection: an app that requires
-  // the api (and its SDK) only after we injected needs that copy wired too, so
-  // its ProxyTracerProvider routes to us and its setGlobalTracerProvider is
-  // wrapped for the step-aside. Hook the CommonJS module loader and wire each
-  // api copy as it loads. We call the original loader first and guard
-  // everything, so this composes with other loader patches (e.g.
-  // import-in-the-middle) and can never break a require. Note: `import
-  // '@opentelemetry/api'` also flows through here, because the package ships a
-  // CommonJS entry (no `import`/`node` export condition), so native-ESM apps are
-  // covered too. Only an api copy that never reaches the CommonJS loader — a
-  // bundled/inlined copy, or a hypothetical native-ESM build of the api — is
-  // left unwired (and, per the design, unblocked).
-  try {
-    const Module = require('module');
-    const origLoad = Module._load;
-    if (typeof origLoad === 'function' && !origLoad.__obiWrapped) {
-      const patchedLoad = function (request) {
-        const exported = origLoad.apply(this, arguments);
-        try {
-          if (!yielded && /(?:^|[\\/])@opentelemetry[\\/]api(?:[\\/]|$)/.test(String(request))) {
-            wireApiCopy(exported);
+      const Module = require('module');
+      const origLoad = Module._load;
+      if (typeof origLoad === 'function' && !origLoad.__obiWrapped) {
+        const patchedLoad = function (request) {
+          const exported = origLoad.apply(this, arguments);
+          try {
+            if (!yielded && /(?:^|[\\/])@opentelemetry[\\/]api(?:[\\/]|$)/.test(String(request))) {
+              wireApiCopy(exported);
+            }
+          } catch (err) {
+            debug('module-load api wiring failed', err);
           }
-        } catch (err) {
-          debug('module-load api wiring failed', err);
-        }
-        return exported;
-      };
-      patchedLoad.__obiWrapped = true;
-      Module._load = patchedLoad;
+          return exported;
+        };
+        patchedLoad.__obiWrapped = true;
+        Module._load = patchedLoad;
+      }
+    } catch (err) {
+      debug('failed to install module-load hook', err);
     }
-  } catch (err) {
-    debug('failed to install module-load hook', err);
   }
 
   g.__obiSpanBridge = {

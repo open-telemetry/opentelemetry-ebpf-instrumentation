@@ -10,7 +10,7 @@
 
   const Module = require('module');
   const originalLoad = Module._load;
-  const wrapped = Symbol.for('otel-ebpf-instrumentation.dynamic-span-wrapper');
+  const wrappedFunctions = new WeakMap();
   const diagnosedRules = new Set();
   const diagnose = (index, message, err) => {
     if (diagnosedRules.has(index)) return;
@@ -104,30 +104,35 @@
     const target = getExport(exports, rule.exportPath);
     if (!target) return false;
 
-    let wrapper = target.original;
-    let spanNames = wrapper[wrapped];
+    let spanNames = wrappedFunctions.get(target.original);
     if (Array.isArray(spanNames)) {
       if (!spanNames.includes(rule.name)) spanNames.push(rule.name);
       return true;
     }
-    {
-      const original = target.original;
-      spanNames = [];
-      wrapper = function (...args) {
-        if (new.target) return Reflect.construct(original, args, new.target);
-        const invoke = (index) => {
-          if (index === spanNames.length) return Reflect.apply(original, this, args);
-          return withSpan(spanNames[index], () => invoke(index + 1), undefined, []);
-        };
-        return invoke(0);
+
+    const original = target.original;
+    spanNames = [];
+    const invokeWithSpans = (invoke) => {
+      const invokeAt = (index) => {
+        if (index === spanNames.length) return invoke();
+        return withSpan(spanNames[index], () => invokeAt(index + 1), undefined, []);
       };
-      Object.defineProperty(wrapper, wrapped, { value: spanNames });
-      target.descriptor.value = wrapper;
-      try {
-        Object.defineProperty(target.parent, target.key, target.descriptor);
-      } catch (_) {
-        return false;
-      }
+      return invokeAt(0);
+    };
+    const wrapper = new Proxy(original, {
+      apply(fn, thisArg, args) {
+        return invokeWithSpans(() => Reflect.apply(fn, thisArg, args));
+      },
+      construct(fn, args, newTarget) {
+        return invokeWithSpans(() => Reflect.construct(fn, args, newTarget === wrapper ? fn : newTarget));
+      },
+    });
+    wrappedFunctions.set(wrapper, spanNames);
+    target.descriptor.value = wrapper;
+    try {
+      Object.defineProperty(target.parent, target.key, target.descriptor);
+    } catch (_) {
+      return false;
     }
     if (!spanNames.includes(rule.name)) spanNames.push(rule.name);
     return true;
@@ -157,7 +162,7 @@
 
   for (const loaded of Object.values(require.cache)) {
     if (!loaded) continue;
-    instrumentResolved(loaded.id, loaded.exports, loaded.parent || require.main || module, false);
+    instrumentResolved(loaded.filename, loaded.exports, loaded.parent || require.main || module, false);
   }
 
   if (originalLoad && !originalLoad.__obiDynamicSpanWrapped) {

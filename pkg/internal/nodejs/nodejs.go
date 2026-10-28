@@ -329,16 +329,16 @@ const (
 	tracesEnabledPlaceholder = "= false; /*OBI_TRACES_ENABLED*/"
 	tracesEnabledOn          = "= true; /*OBI_TRACES_ENABLED*/"
 
-	ctxHookEnabledPlaceholder = "= false; /*OBI_CTX_HOOK_ENABLED*/"
-	ctxHookEnabledOn          = "= true; /*OBI_CTX_HOOK_ENABLED*/"
+	ctxHookEnabledPlaceholder     = "= false; /*OBI_CTX_HOOK_ENABLED*/"
+	ctxHookEnabledOn              = "= true; /*OBI_CTX_HOOK_ENABLED*/"
+	manualSpansEnabledPlaceholder = "/*OBI_MANUAL_SPANS_ENABLED*/ true"
+	manualSpansDisabled           = "/*OBI_MANUAL_SPANS_ENABLED*/ false"
 )
 
-// agentCode returns the extractor script with the RT gate substituted from
-// the same predicate that sets the nodejs_runtime_metrics_enabled BPF
-// constant, so the agent and the eBPF side cannot disagree. When manual
-// spans are enabled the span bridge is appended as a second script: both are
-// self-contained IIFEs, joined with an explicit ';' so the bridge's leading
-// '(' is not parsed as a call of the extractor IIFE's return value.
+// agentCode returns the extractor script with its feature gates substituted
+// from the same predicates that configure the eBPF side. The span bridge is
+// appended when manual spans or dynamic spans are enabled; its API wiring is
+// independently gated by ManualSpans.
 func (i *NodeInjector) agentCode() string {
 	return i.agentCodeForSpans(nil)
 }
@@ -354,35 +354,53 @@ func (i *NodeInjector) agentCodeForSpans(dynamicSpans []services.DynamicSpan) st
 	if i.cfg.PopulateTraceContext() {
 		code = strings.Replace(code, ctxHookEnabledPlaceholder, ctxHookEnabledOn, 1)
 	}
+	bridgeCode := ""
 	if i.cfg.NodeJS.ManualSpans || len(dynamicSpans) > 0 {
-		code += ";\n" + _spanBridgeCode
+		bridgeCode = _spanBridgeCode
+		if !i.cfg.NodeJS.ManualSpans {
+			bridgeCode = strings.Replace(bridgeCode, manualSpansEnabledPlaceholder, manualSpansDisabled, 1)
+		}
 	}
+
+	dynamicCode := ""
 	if len(dynamicSpans) > 0 {
-		type rule struct {
-			Name            string   `json:"name"`
-			ModuleSpecifier string   `json:"moduleSpecifier"`
-			ExportPath      []string `json:"exportPath"`
-		}
-		rules := make([]rule, 0, len(dynamicSpans))
-		for _, span := range dynamicSpans {
-			reference, err := nodejsconfig.ParseFunctionReference(span.FunctionReference)
-			if err != nil {
-				i.log.Error("cannot parse Node.js dynamic span target", "name", span.Name, "error", err)
-				return code
-			}
-			rules = append(rules, rule{
-				Name:            span.Name,
-				ModuleSpecifier: reference.ModuleSpecifier,
-				ExportPath:      reference.ExportPath,
-			})
-		}
-		encoded, err := json.Marshal(rules)
-		if err != nil {
-			i.log.Error("cannot encode Node.js dynamic spans", "error", err)
-			return code
-		}
-		dynamicCode := strings.Replace(_dynamicSpansCode, "__OBI_DYNAMIC_SPAN_RULES__", string(encoded), 1)
+		dynamicCode = i.dynamicSpanCode(dynamicSpans)
+	}
+	if bridgeCode == "" && dynamicCode == "" {
+		return code
+	}
+	if bridgeCode != "" {
+		code += ";\n" + bridgeCode
+	}
+	if dynamicCode != "" {
 		code += ";\n" + dynamicCode
 	}
 	return code
+}
+
+func (i *NodeInjector) dynamicSpanCode(dynamicSpans []services.DynamicSpan) string {
+	type rule struct {
+		Name            string   `json:"name"`
+		ModuleSpecifier string   `json:"moduleSpecifier"`
+		ExportPath      []string `json:"exportPath"`
+	}
+	rules := make([]rule, 0, len(dynamicSpans))
+	for _, span := range dynamicSpans {
+		reference, err := nodejsconfig.ParseFunctionReference(span.FunctionReference)
+		if err != nil {
+			i.log.Error("cannot parse Node.js dynamic span target", "name", span.Name, "error", err)
+			return ""
+		}
+		rules = append(rules, rule{
+			Name:            span.Name,
+			ModuleSpecifier: reference.ModuleSpecifier,
+			ExportPath:      reference.ExportPath,
+		})
+	}
+	encoded, err := json.Marshal(rules)
+	if err != nil {
+		i.log.Error("cannot encode Node.js dynamic spans", "error", err)
+		return ""
+	}
+	return strings.Replace(_dynamicSpansCode, "__OBI_DYNAMIC_SPAN_RULES__", string(encoded), 1)
 }

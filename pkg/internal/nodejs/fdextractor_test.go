@@ -87,6 +87,8 @@ func TestAgentCodeGatesRuntimeMetrics(t *testing.T) {
 }
 
 func TestAgentCodeCarriesOnlySelectedDynamicSpans(t *testing.T) {
+	require.Equal(t, 1, strings.Count(_spanBridgeCode, manualSpansEnabledPlaceholder),
+		"manual-span capture placeholder missing or duplicated in spanbridge.js")
 	injector := &NodeInjector{cfg: &obi.Config{TracePrinter: "text"}}
 	selected := []services.DynamicSpan{{
 		Name:              "checkout.place_order",
@@ -95,6 +97,10 @@ func TestAgentCodeCarriesOnlySelectedDynamicSpans(t *testing.T) {
 
 	selectedCode := injector.agentCodeForSpans(selected)
 	require.Contains(t, selectedCode, "__obiSpanBridge")
+	require.Contains(t, selectedCode, manualSpansDisabled,
+		"dynamic spans must not enable application API capture")
+	require.NotContains(t, selectedCode, manualSpansEnabledPlaceholder,
+		"manual-span placeholder must be substituted")
 	require.Contains(t, selectedCode, `"name":"checkout.place_order"`)
 	require.Contains(t, selectedCode, `"moduleSpecifier":"./checkout.js"`)
 	require.Contains(t, selectedCode, `"exportPath":["placeOrder"]`)
@@ -102,6 +108,12 @@ func TestAgentCodeCarriesOnlySelectedDynamicSpans(t *testing.T) {
 	unselectedCode := injector.agentCodeForSpans(nil)
 	require.NotContains(t, unselectedCode, "dynamic_spans.js")
 	require.NotContains(t, unselectedCode, "checkout.place_order")
+
+	manualSpansCode := (&NodeInjector{cfg: &obi.Config{
+		NodeJS: obi.NodeJSConfig{ManualSpans: true},
+	}}).agentCode()
+	require.Contains(t, manualSpansCode, manualSpansEnabledPlaceholder,
+		"manual spans must enable application API capture")
 }
 
 // TestAgentCodeGatesCtxHook pins the before hook to the same predicate that
