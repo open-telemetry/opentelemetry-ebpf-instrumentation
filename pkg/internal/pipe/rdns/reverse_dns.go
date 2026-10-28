@@ -42,20 +42,22 @@ var startDNSPacketInspector = func(ctx context.Context, dnsCache *store.InMemory
 // EBPFLookup shares the eBPF-based reverse DNS between the pipelines of an OBI run,
 // as an XDP program can be attached only once per interface.
 type EBPFLookup struct {
+	ctx      context.Context
+	cancel   context.CancelFunc
 	ebpfCfg  *config.EBPFTracer
 	cacheLen int
 
-	mt         sync.Mutex
-	users      int
-	stop       context.CancelFunc
-	stopped    <-chan struct{}
+	once       sync.Once
 	lookupAddr func(string) ([]string, error)
+	stopped    <-chan struct{}
+	err        error
 }
 
-// NewEBPFLookup sizes the shared cache with the largest CacheLen of the provided
+// NewEBPFLookup sizes the shared cache with the largest CacheLen of the provided configs
 // eBPF-based reverse DNS configurations.
-func NewEBPFLookup(ebpfCfg *config.EBPFTracer, cfgs ...*ReverseDNS) *EBPFLookup {
-	l := &EBPFLookup{ebpfCfg: ebpfCfg}
+func NewEBPFLookup(ctx context.Context, ebpfCfg *config.EBPFTracer, cfgs ...*ReverseDNS) *EBPFLookup {
+	ctx, cancel := context.WithCancel(ctx)
+	l := &EBPFLookup{ctx: ctx, cancel: cancel, ebpfCfg: ebpfCfg}
 	for _, cfg := range cfgs {
 		if cfg.Type == ReverseDNSEBPF {
 			l.cacheLen = max(l.cacheLen, cfg.CacheLen)
@@ -64,67 +66,33 @@ func NewEBPFLookup(ebpfCfg *config.EBPFTracer, cfgs ...*ReverseDNS) *EBPFLookup 
 	return l
 }
 
-// acquire starts the DNS packet inspector if it is not running yet, and returns
-// the function that releases the user. The inspector stops with its last user.
-func (l *EBPFLookup) acquire(ctx context.Context) (func(string) ([]string, error), func(), error) {
-	l.mt.Lock()
-	defer l.mt.Unlock()
-
-	if l.users == 0 {
-		if err := l.start(); err != nil {
-			return nil, nil, err
+func (l *EBPFLookup) start() (func(string) ([]string, error), error) {
+	l.once.Do(func() {
+		dnsCache, err := store.NewInMemory(l.cacheLen)
+		if err != nil {
+			l.err = fmt.Errorf("initializing eBPF-based reverse DNS cache: %w", err)
+			return
 		}
-	}
-	l.users++
-
-	// released by the node when it ends, and when ctx is done in case the node never runs
-	release := sync.OnceFunc(l.release)
-	context.AfterFunc(ctx, release)
-
-	return l.lookupAddr, release, nil
+		l.stopped, err = startDNSPacketInspector(l.ctx, dnsCache, l.ebpfCfg)
+		if err != nil {
+			l.err = fmt.Errorf("starting eBPF-based reverse DNS: %w", err)
+			return
+		}
+		l.lookupAddr = dnsCache.GetHostnames
+	})
+	return l.lookupAddr, l.err
 }
 
-func (l *EBPFLookup) start() error {
-	dnsCache, err := store.NewInMemory(l.cacheLen)
-	if err != nil {
-		return fmt.Errorf("initializing eBPF-based reverse DNS cache: %w", err)
+// Close stops the DNS packet inspector and waits until it is detached, or until timeout.
+func (l *EBPFLookup) Close(timeout time.Duration) {
+	l.cancel()
+	if l.stopped == nil {
+		return
 	}
-
-	// not bound to the first user, as the other users would lose the inspector when it stops
-	ctx, cancel := context.WithCancel(context.Background())
-	stopped, err := startDNSPacketInspector(ctx, dnsCache, l.ebpfCfg)
-	if err != nil {
-		cancel()
-		return fmt.Errorf("starting eBPF-based reverse DNS: %w", err)
-	}
-
-	l.stop = cancel
-	l.stopped = stopped
-	l.lookupAddr = dnsCache.GetHostnames
-	return nil
-}
-
-// Wait blocks until the DNS packet inspector, if it was started, has detached its
-// XDP program. To be called once the pipelines of the run have ended.
-func (l *EBPFLookup) Wait() {
-	l.mt.Lock()
-	stopped := l.stopped
-	l.mt.Unlock()
-
-	if stopped != nil {
-		<-stopped
-	}
-}
-
-func (l *EBPFLookup) release() {
-	l.mt.Lock()
-	defer l.mt.Unlock()
-
-	l.users--
-	if l.users == 0 {
-		l.stop()
-		// wait for the XDP program to be detached, so a following run can attach it again
-		<-l.stopped
+	select {
+	case <-l.stopped:
+	case <-time.After(timeout):
+		rdlog().Warn("timed out waiting for the eBPF-based reverse DNS to stop")
 	}
 }
 
@@ -155,12 +123,12 @@ func (r ReverseDNS) Enabled() bool {
 }
 
 func ReverseDNSProvider[T any](cfg *ReverseDNS, attrs func(T) *pipe.CommonAttrs, ebpfLookup *EBPFLookup, input, output *msg.Queue[[]T]) swarm.InstanceFunc {
-	return func(ctx context.Context) (swarm.RunFunc, error) {
+	return func(_ context.Context) (swarm.RunFunc, error) {
 		if !cfg.Enabled() {
 			return swarm.Bypass(input, output)
 		}
 
-		lookupAddr, release, err := lookupAddrFunc(ctx, cfg, ebpfLookup)
+		lookupAddr, err := lookupAddrFunc(cfg, ebpfLookup)
 		if err != nil {
 			return nil, err
 		}
@@ -170,7 +138,6 @@ func ReverseDNSProvider[T any](cfg *ReverseDNS, attrs func(T) *pipe.CommonAttrs,
 		log := rdlog()
 		in := input.Subscribe(msg.SubscriberName("rdns.ReverseDNS"))
 		return func(_ context.Context) {
-			defer release()
 			defer output.Close()
 			log.Debug("starting reverse DNS node")
 			for items := range in {
@@ -190,16 +157,14 @@ func ReverseDNSProvider[T any](cfg *ReverseDNS, attrs func(T) *pipe.CommonAttrs,
 }
 
 // returns the reverse DNS method according to the provided configuration
-func lookupAddrFunc(
-	ctx context.Context, cfg *ReverseDNS, ebpfLookup *EBPFLookup,
-) (lookupAddr func(string) ([]string, error), release func(), err error) {
+func lookupAddrFunc(cfg *ReverseDNS, ebpfLookup *EBPFLookup) (func(string) ([]string, error), error) {
 	if cfg.Type != ReverseDNSEBPF {
-		return netLookupAddr, func() {}, nil
+		return netLookupAddr, nil
 	}
 	if ebpfLookup == nil {
-		return nil, nil, errors.New("eBPF-based reverse DNS is not available")
+		return nil, errors.New("eBPF-based reverse DNS is not available")
 	}
-	return ebpfLookup.acquire(ctx)
+	return ebpfLookup.start()
 }
 
 func optGetName(

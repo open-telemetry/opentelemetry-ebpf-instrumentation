@@ -145,7 +145,7 @@ func TestReverseDNS_EBPFSharedByPipelines(t *testing.T) {
 
 	// Given two pipelines using the eBPF reverse DNS in the same OBI run
 	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
-	ebpfLookup := NewEBPFLookup(nil, cfg)
+	ebpfLookup := NewEBPFLookup(t.Context(), nil, cfg)
 	in1, out1 := startReverseDNS(t.Context(), t, cfg, ebpfLookup)
 	in2, out2 := startReverseDNS(t.Context(), t, cfg, ebpfLookup)
 
@@ -172,7 +172,7 @@ func TestReverseDNS_EBPFAndLocalPipelines(t *testing.T) {
 	// Given a pipeline using the eBPF reverse DNS and another using the local lookup
 	ebpfCfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
 	localCfg := &ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 255, CacheTTL: time.Minute}
-	ebpfLookup := NewEBPFLookup(nil, ebpfCfg, localCfg)
+	ebpfLookup := NewEBPFLookup(t.Context(), nil, ebpfCfg, localCfg)
 	ebpfIn, ebpfOut := startReverseDNS(t.Context(), t, ebpfCfg, ebpfLookup)
 	localIn, localOut := startReverseDNS(t.Context(), t, localCfg, ebpfLookup)
 
@@ -190,88 +190,35 @@ func TestReverseDNS_EBPFAndLocalPipelines(t *testing.T) {
 	assert.Equal(t, "local", decorated[0].SrcName)
 }
 
-func TestReverseDNS_EBPFStoppedWithLastPipeline(t *testing.T) {
+func TestReverseDNS_EBPFRunsWithTheOBIRun(t *testing.T) {
 	started := fakeDNSPacketInspector(t)
 	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
-	ebpfLookup := NewEBPFLookup(nil, cfg)
 
-	// Given two pipelines sharing the eBPF reverse DNS
-	flowsCtx, stopFlows := context.WithCancel(t.Context())
-	statsCtx, stopStats := context.WithCancel(t.Context())
-	startReverseDNS(flowsCtx, t, cfg, ebpfLookup)
-	startReverseDNS(statsCtx, t, cfg, ebpfLookup)
+	// Given the eBPF reverse DNS of an OBI run, used by a pipeline
+	runCtx, stopRun := context.WithCancel(t.Context())
+	ebpfLookup := NewEBPFLookup(runCtx, nil, cfg)
+	pipelineCtx, stopPipeline := context.WithCancel(runCtx)
+	startReverseDNS(pipelineCtx, t, cfg, ebpfLookup)
 	require.Len(t, *started, 1)
 	inspector := (*started)[0]
 
-	// When one of them stops
-	stopFlows()
+	// When the pipeline stops
+	stopPipeline()
 
-	// THEN the DNS packet inspector keeps running for the other
+	// THEN the DNS packet inspector keeps running for the rest of the run
 	assert.Never(t, func() bool { return inspector.Err() != nil }, 100*time.Millisecond, 10*time.Millisecond)
 
-	// When both are stopped
-	stopStats()
-
-	// THEN the DNS packet inspector is stopped too
-	require.Eventually(t, func() bool { return inspector.Err() != nil }, timeout, 10*time.Millisecond)
-
-	// AND it is started again by the next pipeline using it
-	in, out := startReverseDNS(t.Context(), t, cfg, ebpfLookup)
-	assert.Len(t, *started, 2)
-
-	in.Send([]*testRecord{newTestRecord()})
-	decorated := testutil.ReadChannel(t, out, timeout)
-	require.Len(t, decorated, 1)
-	assert.Equal(t, "ebpf.github.com", decorated[0].SrcName)
-}
-
-func TestReverseDNS_EBPFRestartWaitsForDetach(t *testing.T) {
-	_, started := lateDetachDNSPacketInspector(t)
-	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
-	ebpfLookup := NewEBPFLookup(nil, cfg)
-
-	// Given a pipeline using the eBPF reverse DNS that is stopped
-	ctx, stop := context.WithCancel(t.Context())
-	startReverseDNS(ctx, t, cfg, ebpfLookup)
-	stop()
-	require.Eventually(t, func() bool { return (*started)[0].Err() != nil }, timeout, time.Millisecond)
-
-	// THEN a new pipeline can start it again, once the previous one is detached
-	_, err := instantiateReverseDNS(t, cfg, ebpfLookup)
-	require.NoError(t, err)
-}
-
-func TestReverseDNS_EBPFDetachedBeforeRunEnds(t *testing.T) {
-	attached, _ := lateDetachDNSPacketInspector(t)
-	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
-
-	// When an OBI run using the eBPF reverse DNS is stopped
-	runCtx, stopRun := context.WithCancel(t.Context())
-	in := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
-	out := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
-	swi := &swarm.Instancer{}
-	swi.Add(ReverseDNSProvider(cfg, attrsOf, NewEBPFLookup(nil, cfg), in, out))
-	runner, err := swi.Instance(runCtx)
-	require.NoError(t, err)
-	runner.Start(runCtx)
+	// AND it is stopped when the OBI run is stopped
 	stopRun()
-	in.Close()
-	require.NoError(t, <-runner.Done())
-
-	// THEN the inspector is detached by the time the run finishes
-	assert.False(t, attached.Load())
-
-	// AND the next run, with its own context info, can attach it again
-	_, err = instantiateReverseDNS(t, cfg, NewEBPFLookup(nil, cfg))
-	require.NoError(t, err)
+	require.Eventually(t, func() bool { return inspector.Err() != nil }, timeout, 10*time.Millisecond)
 }
 
-func TestReverseDNS_EBPFDetachedAfterFailedBuild(t *testing.T) {
-	attached, _ := lateDetachDNSPacketInspector(t)
+func TestEBPFLookup_CloseWaitsForDetach(t *testing.T) {
+	attached := lateDetachDNSPacketInspector(t)
 	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
-	ebpfLookup := NewEBPFLookup(nil, cfg)
 
 	// Given an OBI run whose graph fails to build after the reverse DNS node
+	ebpfLookup := NewEBPFLookup(t.Context(), nil, cfg)
 	in := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
 	out := msg.NewQueue[[]*testRecord](msg.ChannelBufferLen(10))
 	swi := &swarm.Instancer{}
@@ -279,18 +226,55 @@ func TestReverseDNS_EBPFDetachedAfterFailedBuild(t *testing.T) {
 	swi.Add(func(_ context.Context) (swarm.RunFunc, error) { return nil, errors.New("can't build") })
 	_, err := swi.Instance(t.Context())
 	require.Error(t, err)
+	require.True(t, attached.Load())
 
-	// THEN the inspector is detached once the run is waited for
-	ebpfLookup.Wait()
+	// When the run is closed
+	ebpfLookup.Close(timeout)
+
+	// THEN the inspector has been detached
 	assert.False(t, attached.Load())
 
-	// AND the next run can attach it again
-	_, err = instantiateReverseDNS(t, cfg, NewEBPFLookup(nil, cfg))
+	// AND the next run, with its own context info, can attach it again
+	_, err = instantiateReverseDNS(t, cfg, NewEBPFLookup(t.Context(), nil, cfg))
 	require.NoError(t, err)
 }
 
+func TestEBPFLookup_CloseTimeout(t *testing.T) {
+	start := startDNSPacketInspector
+	t.Cleanup(func() { startDNSPacketInspector = start })
+	startDNSPacketInspector = func(_ context.Context, _ *store.InMemory, _ *config.EBPFTracer) (<-chan struct{}, error) {
+		return make(chan struct{}), nil
+	}
+	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
+
+	// Given an inspector that never detaches
+	ebpfLookup := NewEBPFLookup(t.Context(), nil, cfg)
+	_, err := instantiateReverseDNS(t, cfg, ebpfLookup)
+	require.NoError(t, err)
+
+	// THEN Close gives up after the timeout
+	closed := make(chan struct{})
+	go func() {
+		ebpfLookup.Close(10 * time.Millisecond)
+		close(closed)
+	}()
+	testutil.ReadChannel(t, closed, timeout)
+}
+
+func TestEBPFLookup_CloseNotStarted(t *testing.T) {
+	started := fakeDNSPacketInspector(t)
+	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
+
+	// Given an eBPF reverse DNS that no pipeline has used
+	ebpfLookup := NewEBPFLookup(t.Context(), nil, cfg)
+
+	// THEN Close returns without starting it
+	ebpfLookup.Close(timeout)
+	assert.Empty(t, *started)
+}
+
 func TestNewEBPFLookup_LargestCacheLen(t *testing.T) {
-	ebpfLookup := NewEBPFLookup(nil,
+	ebpfLookup := NewEBPFLookup(t.Context(), nil,
 		&ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 100},
 		&ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 300},
 		&ReverseDNS{Type: ReverseDNSLocalLookup, CacheLen: 999},
@@ -301,20 +285,27 @@ func TestNewEBPFLookup_LargestCacheLen(t *testing.T) {
 func TestReverseDNS_EBPFStartError(t *testing.T) {
 	start := startDNSPacketInspector
 	t.Cleanup(func() { startDNSPacketInspector = start })
+	starts := 0
 	startDNSPacketInspector = func(_ context.Context, _ *store.InMemory, _ *config.EBPFTracer) (<-chan struct{}, error) {
+		starts++
 		return nil, errors.New("no interfaces found")
 	}
 	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 255, CacheTTL: time.Minute}
+	ebpfLookup := NewEBPFLookup(t.Context(), nil, cfg)
 
-	_, err := instantiateReverseDNS(t, cfg, NewEBPFLookup(nil, cfg))
-	require.ErrorContains(t, err, "starting eBPF-based reverse DNS: no interfaces found")
+	// THEN both pipelines get the error of the only start attempt
+	for range 2 {
+		_, err := instantiateReverseDNS(t, cfg, ebpfLookup)
+		require.ErrorContains(t, err, "starting eBPF-based reverse DNS: no interfaces found")
+	}
+	assert.Equal(t, 1, starts)
 }
 
 func TestReverseDNS_EBPFCacheError(t *testing.T) {
 	fakeDNSPacketInspector(t)
 	cfg := &ReverseDNS{Type: ReverseDNSEBPF, CacheLen: 0, CacheTTL: time.Minute}
 
-	_, err := instantiateReverseDNS(t, cfg, NewEBPFLookup(nil, cfg))
+	_, err := instantiateReverseDNS(t, cfg, NewEBPFLookup(t.Context(), nil, cfg))
 	require.ErrorContains(t, err, "initializing eBPF-based reverse DNS cache")
 }
 
@@ -332,19 +323,16 @@ func instantiateReverseDNS(t *testing.T, cfg *ReverseDNS, ebpfLookup *EBPFLookup
 }
 
 // lateDetachDNSPacketInspector detaches a while after being stopped, and can't be
-// attached again until then. It returns whether it is attached, and the contexts
-// it has been started with.
-func lateDetachDNSPacketInspector(t *testing.T) (*atomic.Bool, *[]context.Context) {
+// attached again until then. It returns whether it is attached.
+func lateDetachDNSPacketInspector(t *testing.T) *atomic.Bool {
 	start := startDNSPacketInspector
 	t.Cleanup(func() { startDNSPacketInspector = start })
 
 	attached := &atomic.Bool{}
-	var started []context.Context
 	startDNSPacketInspector = func(ctx context.Context, _ *store.InMemory, _ *config.EBPFTracer) (<-chan struct{}, error) {
 		if !attached.CompareAndSwap(false, true) {
 			return nil, errors.New("no interfaces found")
 		}
-		started = append(started, ctx)
 		stopped := make(chan struct{})
 		go func() {
 			<-ctx.Done()
@@ -354,7 +342,7 @@ func lateDetachDNSPacketInspector(t *testing.T) (*atomic.Bool, *[]context.Contex
 		}()
 		return stopped, nil
 	}
-	return attached, &started
+	return attached
 }
 
 // fakeDNSPacketInspector returns the contexts the inspector has been started with
