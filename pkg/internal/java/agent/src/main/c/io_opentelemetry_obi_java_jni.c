@@ -40,5 +40,10 @@ Java_io_opentelemetry_obi_java_Agent_00024NativeLib_ioctl(JNIEnv *env,
 JNIEXPORT jint JNICALL
 Java_io_opentelemetry_obi_java_Agent_00024NativeLib_gettid(JNIEnv *env,
                                                            jclass clazz) {
-  return (jint)syscall(SYS_gettid);
+  // Native TLS follows the carrier OS thread when virtual threads migrate.
+  static _Thread_local jint tid;
+  if (tid == 0) {
+    tid = (jint)syscall(SYS_gettid);
+  }
+  return tid;
 }
