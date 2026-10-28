@@ -375,13 +375,13 @@ func applyV2Rules(cfg *obi.Config, rules []schema.Rule, policy schema.CapturePol
 
 func addDefaultIncludeSelector(rules *runtimeDiscoveryRules) {
 	if len(rules.includeRegex) > 0 || len(rules.excludeRegex) > 0 {
-		rules.includeRegex = append(rules.includeRegex, services.RegexSelector{
+		rules.includeRegex = slices.Insert(rules.includeRegex, 0, services.RegexSelector{
 			Path: services.NewRegexp(".*"),
 		})
 		return
 	}
 
-	rules.includeGlobs = append(rules.includeGlobs, services.GlobAttributes{
+	rules.includeGlobs = slices.Insert(rules.includeGlobs, 0, services.GlobAttributes{
 		Path: services.NewGlob("*"),
 	})
 }

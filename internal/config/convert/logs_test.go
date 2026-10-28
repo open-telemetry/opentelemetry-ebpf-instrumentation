@@ -140,7 +140,9 @@ extensions:
 `)
 	require.False(t, cfg.Exceptions.Enabled)
 	require.True(t, cfg.ExceptionsEnabled())
-	require.True(t, cfg.Discovery.Instrument[0].Exceptions.Resolve(cfg.Exceptions).Enabled)
+	require.Len(t, cfg.Discovery.Instrument, 2)
+	require.False(t, cfg.Discovery.Instrument[0].Exceptions.Resolve(cfg.Exceptions).Enabled)
+	require.True(t, cfg.Discovery.Instrument[1].Exceptions.Resolve(cfg.Exceptions).Enabled)
 	require.NoError(t, cfg.ValidateStatic())
 }
 

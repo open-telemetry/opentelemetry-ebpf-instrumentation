@@ -33,6 +33,7 @@ import (
 	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
 
 	"go.opentelemetry.io/obi/pkg/exceptions"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
@@ -54,7 +55,7 @@ const (
 type logsSender = otelcfg.LogsExportFunc
 
 // ExceptionLogsReceiver exports exception observations independently of request spans.
-func ExceptionLogsReceiver(info *global.ContextInfo, cfg otelcfg.LogsConfig, input *msg.Queue[[]exceptions.Event]) swarm.InstanceFunc {
+func ExceptionLogsReceiver(info *global.ContextInfo, cfg otelcfg.LogsConfig, selection attributes.Selection, input *msg.Queue[[]exceptions.Event]) swarm.InstanceFunc {
 	return func(_ context.Context) (swarm.RunFunc, error) {
 		if input == nil || !cfg.Enabled() {
 			return swarm.EmptyRunFunc()
@@ -74,7 +75,7 @@ func ExceptionLogsReceiver(info *global.ContextInfo, cfg otelcfg.LogsConfig, inp
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
-				batchExceptionLogs(sendCtx, info, cfg, queue, send)
+				batchExceptionLogs(sendCtx, info, cfg, selection, queue, send)
 			}()
 
 			swarms.ForEachInput(ctx, subscription, slog.Debug, func(events []exceptions.Event) {
@@ -86,7 +87,6 @@ func ExceptionLogsReceiver(info *global.ContextInfo, cfg otelcfg.LogsConfig, inp
 			case <-done:
 			case <-time.After(logsShutdownTimeout):
 				cancelSend()
-				<-done
 			}
 			if err := closeSender(); err != nil {
 				slog.Warn("exception logs shutdown failed", "error", err)
@@ -107,7 +107,7 @@ func enqueueExceptions(queue chan<- exceptions.Event, events []exceptions.Event)
 	}
 }
 
-func batchExceptionLogs(ctx context.Context, info *global.ContextInfo, cfg otelcfg.LogsConfig, queue <-chan exceptions.Event, send logsSender) {
+func batchExceptionLogs(ctx context.Context, info *global.ContextInfo, cfg otelcfg.LogsConfig, selection attributes.Selection, queue <-chan exceptions.Event, send logsSender) {
 	batch := make([]exceptions.Event, 0, cfg.BatchMaxSize)
 	timer := time.NewTimer(cfg.BatchTimeout)
 	timer.Stop()
@@ -115,7 +115,7 @@ func batchExceptionLogs(ctx context.Context, info *global.ContextInfo, cfg otelc
 
 	flush := func() {
 		timer.Stop()
-		logs := exceptionLogs(info, batch)
+		logs := exceptionLogs(info, selection, batch)
 		batch = batch[:0]
 		if logs.LogRecordCount() == 0 {
 			return
@@ -126,6 +126,9 @@ func batchExceptionLogs(ctx context.Context, info *global.ContextInfo, cfg otelc
 	}
 
 	for {
+		if ctx.Err() != nil {
+			return
+		}
 		select {
 		case e, ok := <-queue:
 			if !ok {
@@ -145,7 +148,7 @@ func batchExceptionLogs(ctx context.Context, info *global.ContextInfo, cfg otelc
 	}
 }
 
-func exceptionLogs(info *global.ContextInfo, events []exceptions.Event) logdata.Logs {
+func exceptionLogs(info *global.ContextInfo, selection attributes.Selection, events []exceptions.Event) logdata.Logs {
 	logs := logdata.NewLogs()
 	for i := range events {
 		e := &events[i]
@@ -157,6 +160,7 @@ func exceptionLogs(info *global.ContextInfo, events []exceptions.Event) logdata.
 		attrs := otelcfg.GetAppResourceAttrs(&info.NodeMeta, &e.Service)
 		attrs = append(attrs, otelcfg.ResourceAttrsFromEnv(&e.Service)...)
 		attrs = append(attrs, info.ExtraResourceAttributes...)
+		attrs = otelcfg.FilterResourceAttrs(attrs, selection)
 		tracesgen.AttrsToMap(attrs).CopyTo(resource.Resource().Attributes())
 		scope := resource.ScopeLogs().AppendEmpty()
 		scope.Scope().SetName(reporterName)
@@ -263,11 +267,40 @@ func newHTTPLogsSender(cfg otelcfg.LogsConfig) (logsSender, *http.Client) {
 				return err
 			}
 			defer resp.Body.Close()
-			_, _ = io.Copy(io.Discard, resp.Body)
-			return httpLogsExportError(resp)
+			if err := httpLogsExportError(resp); err != nil {
+				_, _ = io.Copy(io.Discard, resp.Body)
+				return err
+			}
+			return readHTTPLogsResponse(resp.Body, cfg.Protocol)
 		})
 	}
 	return send, client
+}
+
+// A successful HTTP status may mean records were accepted, so response errors
+// are permanent to prevent duplicate exports.
+func readHTTPLogsResponse(body io.Reader, protocol otelcfg.Protocol) error {
+	data, err := io.ReadAll(body)
+	if err != nil {
+		return backoff.Permanent(fmt.Errorf("read logs export response: %w", err))
+	}
+	response := plogotlp.NewExportResponse()
+	if protocol == otelcfg.ProtocolHTTPJSON {
+		err = response.UnmarshalJSON(data)
+	} else {
+		err = response.UnmarshalProto(data)
+	}
+	if err != nil {
+		return backoff.Permanent(fmt.Errorf("decode logs export response: %w", err))
+	}
+	return logsPartialSuccessError(response.PartialSuccess())
+}
+
+func logsPartialSuccessError(partial plogotlp.ExportPartialSuccess) error {
+	if partial.RejectedLogRecords() > 0 || partial.ErrorMessage() != "" {
+		return backoff.Permanent(fmt.Errorf("logs export partial success: rejected %d records: %s", partial.RejectedLogRecords(), partial.ErrorMessage()))
+	}
+	return nil
 }
 
 func marshalLogsRequest(protocol otelcfg.Protocol, logs logdata.Logs, compress bool) ([]byte, error) {
@@ -340,8 +373,11 @@ func newGRPCLogsSender(cfg otelcfg.LogsConfig) (logsSender, *grpc.ClientConn, er
 		req := plogotlp.NewExportRequestFromLogs(logs)
 		ctx = metadata.NewOutgoingContext(ctx, md)
 		return retryLogsExport(ctx, func(ctx context.Context) error {
-			_, err := client.Export(ctx, req)
-			return grpcLogsExportError(err)
+			resp, err := client.Export(ctx, req)
+			if err != nil {
+				return grpcLogsExportError(err)
+			}
+			return logsPartialSuccessError(resp.PartialSuccess())
 		})
 	}
 	return send, conn, nil

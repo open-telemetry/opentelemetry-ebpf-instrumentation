@@ -179,7 +179,7 @@ func newGraphBuilderWithProtocolMetricSelection(
 	swi.Add(DynamicSignalSpanGate(ctxInfo.DynamicSelector, protocolFilteredSpans, exportableSpans),
 		swarm.WithID("DynamicSignalSpanGate"))
 
-	swi.Add(otel.ExceptionLogsReceiver(ctxInfo, config.Logs, ctxInfo.ExceptionInput), swarm.WithID("ExceptionLogsReceiver"))
+	swi.Add(otel.ExceptionLogsReceiver(ctxInfo, config.Logs, config.Attributes.Select, ctxInfo.ExceptionInput), swarm.WithID("ExceptionLogsReceiver"))
 
 	swi.Add(otel.TracesReceiver(
 		ctxInfo, config.Traces, config.SpanMetricsEnabledForTraces(), selectorCfg, exportableSpans,

@@ -12,7 +12,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -21,11 +23,14 @@ import (
 
 	logdata "go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/exceptions"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -50,7 +55,7 @@ func TestExceptionLogsIndependentOfTraceExport(t *testing.T) {
 	disabled.Service.Exceptions.Enabled = false
 	blocked := e
 	blocked.Service.ExportModes = services.NewExportModes()
-	logs := exceptionLogs(&global.ContextInfo{}, []exceptions.Event{e, unknown, disabled, blocked})
+	logs := exceptionLogs(&global.ContextInfo{}, nil, []exceptions.Event{e, unknown, disabled, blocked})
 	require.Equal(t, 2, logs.LogRecordCount())
 	r := logs.ResourceLogs().At(0)
 	name, ok := r.Resource().Attributes().Get("service.name")
@@ -76,7 +81,7 @@ func TestExceptionLogsSeverity(t *testing.T) {
 	for number, text := range map[int32]string{17: "ERROR", 21: "FATAL", 22: "FATAL2"} {
 		e := exceptionFixture()
 		e.SeverityNumber = number
-		record := exceptionLogs(&global.ContextInfo{}, []exceptions.Event{e}).ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+		record := exceptionLogs(&global.ContextInfo{}, nil, []exceptions.Event{e}).ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
 		require.EqualValues(t, number, record.SeverityNumber())
 		require.Equal(t, text, record.SeverityText())
 	}
@@ -85,7 +90,7 @@ func TestExceptionLogsSeverity(t *testing.T) {
 func TestExceptionLogsNoSpanContextWhenAppExportsTraces(t *testing.T) {
 	e := exceptionFixture()
 	e.Service.SetExportsOTelTraces()
-	record := exceptionLogs(&global.ContextInfo{}, []exceptions.Event{e}).ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
+	record := exceptionLogs(&global.ContextInfo{}, nil, []exceptions.Event{e}).ResourceLogs().At(0).ScopeLogs().At(0).LogRecords().At(0)
 	require.True(t, record.TraceID().IsEmpty())
 	require.True(t, record.SpanID().IsEmpty())
 	v, ok := record.Attributes().Get("exception.type")
@@ -129,7 +134,7 @@ func TestExceptionLogsOTLPHTTP(t *testing.T) {
 			cfg.InjectHeaders = func(h map[string]string) { h["X-Exception-Test"] = "test" }
 			send, closeSender, err := newLogsSender(cfg)
 			require.NoError(t, err)
-			require.NoError(t, send(t.Context(), exceptionLogs(&global.ContextInfo{}, []exceptions.Event{exceptionFixture()})))
+			require.NoError(t, send(t.Context(), exceptionLogs(&global.ContextInfo{}, nil, []exceptions.Event{exceptionFixture()})))
 			require.NoError(t, closeSender())
 			select {
 			case got := <-received:
@@ -145,14 +150,81 @@ func TestExceptionLogsOTLPHTTP(t *testing.T) {
 	}
 }
 
+func TestExceptionLogsHTTPResponse(t *testing.T) {
+	for _, protocol := range []otelcfg.Protocol{otelcfg.ProtocolHTTPProtobuf, otelcfg.ProtocolHTTPJSON} {
+		for _, tc := range []struct {
+			name      string
+			rejected  int64
+			message   string
+			malformed bool
+			wantError string
+		}{
+			{name: "success"},
+			{name: "rejected records", rejected: 1, message: "invalid record", wantError: "rejected 1 records: invalid record"},
+			{name: "rejection without message", rejected: 1, wantError: "rejected 1 records"},
+			{name: "warning", message: "collector warning", wantError: "rejected 0 records: collector warning"},
+			{name: "malformed response", malformed: true, wantError: "decode logs export response"},
+		} {
+			t.Run(string(protocol)+"/"+tc.name, func(t *testing.T) {
+				response := plogotlp.NewExportResponse()
+				response.PartialSuccess().SetRejectedLogRecords(tc.rejected)
+				response.PartialSuccess().SetErrorMessage(tc.message)
+				var body []byte
+				var err error
+				if protocol == otelcfg.ProtocolHTTPJSON {
+					body, err = response.MarshalJSON()
+				} else {
+					body, err = response.MarshalProto()
+				}
+				require.NoError(t, err)
+				if tc.malformed {
+					body = []byte{0xff}
+				}
+				var requests atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					requests.Add(1)
+					_, _ = w.Write(body)
+				}))
+				defer server.Close()
+				cfg := logsTestConfig()
+				cfg.Endpoint = server.URL + "/v1/logs"
+				cfg.Protocol = protocol
+				send, closeSender, err := newLogsSender(cfg)
+				require.NoError(t, err)
+				defer func() { require.NoError(t, closeSender()) }()
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+				defer cancel()
+				err = send(ctx, exceptionLogs(&global.ContextInfo{}, nil, []exceptions.Event{exceptionFixture(), exceptionFixture()}))
+				if tc.wantError == "" {
+					require.NoError(t, err)
+				} else {
+					require.ErrorContains(t, err, tc.wantError)
+				}
+				require.EqualValues(t, 1, requests.Load(), "successful HTTP responses must not trigger retries")
+			})
+		}
+	}
+}
+
 type exceptionGRPCServer struct {
 	plogotlp.UnimplementedGRPCServer
 	received chan logdata.Logs
+	rejected int64
+	message  string
+	requests atomic.Int32
 }
 
 func (s *exceptionGRPCServer) Export(_ context.Context, r plogotlp.ExportRequest) (plogotlp.ExportResponse, error) {
-	s.received <- r.Logs()
-	return plogotlp.NewExportResponse(), nil
+	s.requests.Add(1)
+	if s.received != nil {
+		s.received <- r.Logs()
+	}
+	response := plogotlp.NewExportResponse()
+	if s.rejected > 0 || s.message != "" {
+		response.PartialSuccess().SetRejectedLogRecords(s.rejected)
+		response.PartialSuccess().SetErrorMessage(s.message)
+	}
+	return response, nil
 }
 
 func TestExceptionLogsOTLPGRPC(t *testing.T) {
@@ -168,7 +240,7 @@ func TestExceptionLogsOTLPGRPC(t *testing.T) {
 	cfg.Protocol = otelcfg.ProtocolGRPC
 	send, closeSender, err := newLogsSender(cfg)
 	require.NoError(t, err)
-	require.NoError(t, send(t.Context(), exceptionLogs(&global.ContextInfo{}, []exceptions.Event{exceptionFixture()})))
+	require.NoError(t, send(t.Context(), exceptionLogs(&global.ContextInfo{}, nil, []exceptions.Event{exceptionFixture()})))
 	require.NoError(t, closeSender())
 	select {
 	case got := <-sink.received:
@@ -182,12 +254,51 @@ func TestExceptionLogsOTLPGRPC(t *testing.T) {
 	}
 }
 
+func TestExceptionLogsGRPCResponse(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		rejected  int64
+		message   string
+		wantError string
+	}{
+		{name: "success"},
+		{name: "rejected records", rejected: 1, message: "invalid record", wantError: "rejected 1 records: invalid record"},
+		{name: "rejection without message", rejected: 1, wantError: "rejected 1 records"},
+		{name: "warning", message: "collector warning", wantError: "rejected 0 records: collector warning"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			server := grpc.NewServer()
+			defer server.Stop()
+			sink := &exceptionGRPCServer{rejected: tc.rejected, message: tc.message}
+			plogotlp.RegisterGRPCServer(server, sink)
+			go func() { _ = server.Serve(listener) }()
+			cfg := logsTestConfig()
+			cfg.Endpoint = "http://" + listener.Addr().String()
+			cfg.Protocol = otelcfg.ProtocolGRPC
+			send, closeSender, err := newLogsSender(cfg)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, closeSender()) }()
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+			defer cancel()
+			err = send(ctx, exceptionLogs(&global.ContextInfo{}, nil, []exceptions.Event{exceptionFixture(), exceptionFixture()}))
+			if tc.wantError == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.wantError)
+			}
+			require.EqualValues(t, 1, sink.requests.Load(), "successful gRPC responses must not trigger retries")
+		})
+	}
+}
+
 func TestExceptionLogsReceiver(t *testing.T) {
 	received := make(chan logdata.Logs, 1)
 	cfg := logsTestConfig()
 	cfg.LogsExport = func(_ context.Context, l logdata.Logs) error { received <- l; return nil }
 	input := msg.NewQueue[[]exceptions.Event]()
-	run, err := ExceptionLogsReceiver(&global.ContextInfo{}, cfg, input)(t.Context())
+	run, err := ExceptionLogsReceiver(&global.ContextInfo{}, cfg, nil, input)(t.Context())
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
@@ -211,6 +322,161 @@ func TestExceptionLogsReceiver(t *testing.T) {
 	}
 }
 
+func TestExceptionLogsReceiverShutdownTimeout(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		defer close(release)
+		cfg := logsTestConfig()
+		cfg.BatchMaxSize = 1
+		cfg.LogsExport = func(_ context.Context, _ logdata.Logs) error {
+			close(entered)
+			<-release
+			return nil
+		}
+		input := msg.NewQueue[[]exceptions.Event]()
+		run, err := ExceptionLogsReceiver(&global.ContextInfo{}, cfg, nil, input)(t.Context())
+		require.NoError(t, err)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		done := make(chan struct{})
+		go func() { defer close(done); run(ctx) }()
+		input.Send([]exceptions.Event{exceptionFixture()})
+		<-entered
+		cancel()
+		synctest.Wait()
+		time.Sleep(logsShutdownTimeout)
+		synctest.Wait()
+		select {
+		case <-done:
+		default:
+			t.Fatal("receiver waited for a blocked consumer after the shutdown timeout")
+		}
+	})
+}
+
+func TestBatchExceptionLogsStopsAfterCancellation(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		entered := make(chan struct{})
+		release := make(chan struct{})
+		cfg := logsTestConfig()
+		cfg.BatchMaxSize = 1
+		queue := make(chan exceptions.Event, 2)
+		queue <- exceptionFixture()
+		queue <- exceptionFixture()
+		close(queue)
+		calls := 0
+		send := func(_ context.Context, _ logdata.Logs) error {
+			calls++
+			if calls == 1 {
+				close(entered)
+				<-release
+			}
+			return nil
+		}
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			batchExceptionLogs(ctx, &global.ContextInfo{}, cfg, nil, queue, send)
+		}()
+		<-entered
+		cancel()
+		close(release)
+		<-done
+		require.Equal(t, 1, calls, "queued events must not be exported after cancellation")
+	})
+}
+
+func TestExceptionLogsReceiverResourceSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		selection attributes.Selection
+		removed   []string
+	}{
+		{name: "default preserves resources"},
+		{
+			name: "exclude all resource sources",
+			selection: attributes.Selection{"resource": attributes.InclusionLists{
+				Exclude: []string{"cloud.account.id", "deployment.environment", "extra.private"},
+			}},
+			removed: []string{"cloud.account.id", "deployment.environment", "extra.private"},
+		},
+		{
+			name: "include with explicit exclusion",
+			selection: attributes.Selection{"resource": attributes.InclusionLists{
+				Include: []string{"service.name", "cloud.*", "deployment.*", "extra.*"},
+				Exclude: []string{"cloud.account.id"},
+			}},
+			removed: []string{"cloud.account.id", "k8s.pod.name"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := exceptionFixture()
+			e.Service.Metadata = map[attr.Name]string{
+				"cloud.account.id": "account-1",
+				"cloud.region":     "eu-central-1",
+				"k8s.pod.name":     "checkout-1",
+			}
+			e.Service.EnvVars = map[string]string{"OTEL_RESOURCE_ATTRIBUTES": "deployment.environment=prod"}
+			info := &global.ContextInfo{ExtraResourceAttributes: []attribute.KeyValue{
+				attribute.String("extra.private", "private-value"),
+				attribute.String("extra.public", "public-value"),
+			}}
+			received := make(chan logdata.Logs, 1)
+			cfg := logsTestConfig()
+			cfg.LogsExport = func(_ context.Context, logs logdata.Logs) error { received <- logs; return nil }
+			input := msg.NewQueue[[]exceptions.Event]()
+			tc.selection.Normalize()
+			run, err := ExceptionLogsReceiver(info, cfg, tc.selection, input)(t.Context())
+			require.NoError(t, err)
+			ctx, cancel := context.WithCancel(t.Context())
+			done := make(chan struct{})
+			go func() { defer close(done); run(ctx) }()
+			t.Cleanup(func() {
+				cancel()
+				select {
+				case <-done:
+				case <-time.After(5 * time.Second):
+					t.Error("receiver did not shut down")
+				}
+			})
+			input.Send([]exceptions.Event{e})
+			select {
+			case logs := <-received:
+				require.Equal(t, 1, logs.LogRecordCount())
+				resource := logs.ResourceLogs().At(0)
+				want := map[string]string{
+					"service.name":           "checkout",
+					"cloud.account.id":       "account-1",
+					"cloud.region":           "eu-central-1",
+					"k8s.pod.name":           "checkout-1",
+					"deployment.environment": "prod",
+					"extra.private":          "private-value",
+					"extra.public":           "public-value",
+				}
+				for _, key := range tc.removed {
+					delete(want, key)
+					_, ok := resource.Resource().Attributes().Get(key)
+					assert.False(t, ok, key)
+				}
+				for key, value := range want {
+					got, ok := resource.Resource().Attributes().Get(key)
+					assert.True(t, ok, key)
+					assert.Equal(t, value, got.Str(), key)
+				}
+				record := resource.ScopeLogs().At(0).LogRecords().At(0)
+				message, ok := record.Attributes().Get("exception.message")
+				require.True(t, ok)
+				require.Equal(t, e.Message, message.Str())
+			case <-time.After(5 * time.Second):
+				t.Fatal("logs export received nothing")
+			}
+		})
+	}
+}
+
 func TestExceptionLogsHTTPPermanentError(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -223,7 +489,7 @@ func TestExceptionLogsHTTPPermanentError(t *testing.T) {
 	cfg.Protocol = otelcfg.ProtocolHTTPProtobuf
 	send, closeSender, err := newLogsSender(cfg)
 	require.NoError(t, err)
-	require.ErrorContains(t, send(t.Context(), exceptionLogs(&global.ContextInfo{}, []exceptions.Event{exceptionFixture()})), "HTTP 400")
+	require.ErrorContains(t, send(t.Context(), exceptionLogs(&global.ContextInfo{}, nil, []exceptions.Event{exceptionFixture()})), "HTTP 400")
 	require.NoError(t, closeSender())
 	require.Equal(t, 1, requests)
 }
@@ -252,7 +518,7 @@ func TestExceptionLogsDebugStdout(t *testing.T) {
 	require.True(t, cfg.Enabled())
 	send, closeSender, err := newLogsSender(cfg)
 	require.NoError(t, err)
-	require.NoError(t, send(t.Context(), exceptionLogs(&global.ContextInfo{}, []exceptions.Event{exceptionFixture()})))
+	require.NoError(t, send(t.Context(), exceptionLogs(&global.ContextInfo{}, nil, []exceptions.Event{exceptionFixture()})))
 	require.NoError(t, closeSender())
 }
 
@@ -293,7 +559,7 @@ func TestExceptionLogsUnixSocket(t *testing.T) {
 			cfg.Protocol = protocol
 			send, closeSender, err := newLogsSender(cfg)
 			require.NoError(t, err)
-			require.NoError(t, send(t.Context(), exceptionLogs(&global.ContextInfo{}, []exceptions.Event{exceptionFixture()})))
+			require.NoError(t, send(t.Context(), exceptionLogs(&global.ContextInfo{}, nil, []exceptions.Event{exceptionFixture()})))
 			require.NoError(t, closeSender())
 			select {
 			case got := <-received:
