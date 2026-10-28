@@ -1240,7 +1240,9 @@
                 "enum": [
                   "graphql",
                   "elasticsearch",
-                  "aws",
+                  "aws_s3",
+                  "aws_sqs",
+                  "aws_sns",
                   "sqlpp",
                   "openai",
                   "anthropic",
@@ -1254,11 +1256,15 @@
                   "rerank",
                   "retrieval",
                   "jsonrpc",
-                  "enrichment"
+                  "genai",
+                  "database",
+                  "aws",
+                  "all",
+                  "*"
                 ]
               },
               "default": [],
-              "description": "Payload extractors enabled for HTTP-derived parsing.\nIf omitted, no payload extractors are enabled.\n"
+              "description": "Payload extractors enabled for HTTP-derived parsing.\n`genai` enables openai, anthropic, gemini, qwen, bedrock, mcp, ollama, openai_compatible, embedding, rerank, and retrieval.\n`database` enables elasticsearch and sqlpp.\n`aws` enables aws_s3, aws_sqs, and aws_sns.\n`all` and `*` enable every extractor.\nIf omitted, no payload extractors are enabled.\n"
             },
             "sqlpp": {
               "type": "object",
@@ -1287,6 +1293,11 @@
               "description": "HTTP header and body enrichment policy and rules.",
               "additionalProperties": false,
               "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Enable HTTP header and body enrichment.\nIf omitted, false is used.\n"
+                },
                 "policy": {
                   "type": "object",
                   "additionalProperties": false,

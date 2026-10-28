@@ -96,6 +96,7 @@ instrumentation:
                     - /query/service
                 prepared_statements_cache_size: 1024
             enrichment:
+                enabled: false
                 policy:
                     default_action:
                         headers: exclude
