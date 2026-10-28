@@ -351,6 +351,12 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeSysExit,
 		},
+		"wake_up_new_task": {
+			Start: p.bpfObjects.ObiKprobeWakeUpNewTask,
+		},
+		"setup_new_exec": {
+			Start: p.bpfObjects.ObiKprobeSetupNewExec,
+		},
 		"unix_stream_recvmsg": {
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeUnixStreamRecvmsg,
@@ -781,6 +787,10 @@ func (p *Tracer) processSharedRingbufRecord(
 	record *ringbuf.Record,
 ) (request.Span, bool, error) {
 	if handled, err := p.eventCtx.HandleInternalEvent(record); handled {
+		return request.Span{}, true, err
+	}
+
+	if handled, err := ebpfcommon.HandleProcessEventRecord(record, p.pidsFilter); handled {
 		return request.Span{}, true, err
 	}
 

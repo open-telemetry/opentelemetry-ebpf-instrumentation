@@ -284,6 +284,14 @@ typedef struct node_span_event {
     u8 _epad[4];
 } node_span_event_t;
 
+typedef struct process_event {
+    u8 type; // Must be first
+    u8 _pad[7];
+    u64 ts;
+    pid_info pid;
+    pid_info parent; // zero for exec
+} process_event_t;
+
 typedef struct channel_link_trace {
     u8 type; // Must be first
     u8 _pad[7];

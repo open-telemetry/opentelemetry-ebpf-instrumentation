@@ -30,10 +30,8 @@ ns_pid_ppid(const struct task_struct *task, int *pid, int *ppid, u32 *pid_ns_id)
     *pid_ns_id = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, ns.inum);
 }
 
-// sets the pid_info value from the current task
-static __always_inline void task_pid(pid_info *pid) {
+static __always_inline void task_pid_of(const struct task_struct *task, pid_info *pid) {
     struct upid upid;
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
 
     // set host-side PID
     pid->host_pid = (u32)BPF_CORE_READ(task, tgid);
@@ -46,6 +44,11 @@ static __always_inline void task_pid(pid_info *pid) {
 
     // set PIDs namespace
     pid->ns = (u32)BPF_CORE_READ(task, nsproxy, pid_ns_for_children, ns.inum);
+}
+
+// sets the pid_info value from the current task
+static __always_inline void task_pid(pid_info *pid) {
+    task_pid_of((const struct task_struct *)bpf_get_current_task(), pid);
 }
 
 static __always_inline u32 get_task_tid() {
