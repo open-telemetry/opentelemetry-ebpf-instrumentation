@@ -366,7 +366,7 @@ func TestBatchExceptionLogsStopsAfterCancellation(t *testing.T) {
 		queue <- exceptionFixture()
 		close(queue)
 		calls := 0
-		send := func(_ context.Context, _ logdata.Logs) error {
+		var send logsSender = func(_ context.Context, _ logdata.Logs) error {
 			calls++
 			if calls == 1 {
 				close(entered)
