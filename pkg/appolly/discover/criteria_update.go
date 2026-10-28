@@ -22,6 +22,7 @@ import (
 )
 
 // CriteriaUpdater replaces discovery predicates without restarting the instrumentation pipeline.
+// Exporter callbacks and endpoint providers remain those supplied at startup.
 // Pass it to instrumenter.WithCriteriaUpdater. Configurations must not be mutated after submission.
 // Create a new updater for each pipeline run.
 type CriteriaUpdater struct {
@@ -79,8 +80,10 @@ func (u *CriteriaUpdater) Update(ctx context.Context, cfg *obi.Config) error {
 func withoutSelectionAndSinks(cfg *obi.Config) obi.Config {
 	fixed := *cfg
 	fixed.Traces.TracesExport = nil
+	fixed.Traces.OTLPEndpointProvider = nil
 	fixed.Traces.InjectHeaders = nil
 	fixed.OTELMetrics.MetricsExport = nil
+	fixed.OTELMetrics.OTLPEndpointProvider = nil
 	fixed.OTELMetrics.InjectHeaders = nil
 	fixed.Port = services.IntEnum{}
 	fixed.TargetPIDs = services.IntEnum{}

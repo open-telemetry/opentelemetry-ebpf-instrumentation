@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"reflect"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -50,6 +51,41 @@ func mockProcessPorts(t *testing.T, ports map[app.PID][]uint32) {
 		}
 		return current, nil
 	}
+}
+
+// New callback fields need an explicit refresh policy, even when defaults leave them nil.
+func TestCriteriaUpdaterConfigCallbackInventory(t *testing.T) {
+	var callbacks []string
+	ancestors := map[reflect.Type]bool{}
+	var visit func(reflect.Type, string)
+	visit = func(typ reflect.Type, path string) {
+		if ancestors[typ] {
+			return
+		}
+		ancestors[typ] = true
+		defer delete(ancestors, typ)
+
+		switch typ.Kind() {
+		case reflect.Func:
+			callbacks = append(callbacks, path)
+		case reflect.Struct:
+			for field := range typ.Fields() {
+				visit(field.Type, path+"."+field.Name)
+			}
+		case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+			visit(typ.Elem(), path)
+		}
+	}
+	visit(reflect.TypeFor[obi.Config](), "Config")
+
+	require.ElementsMatch(t, []string{
+		"Config.Traces.TracesExport",
+		"Config.Traces.OTLPEndpointProvider",
+		"Config.Traces.InjectHeaders",
+		"Config.OTELMetrics.MetricsExport",
+		"Config.OTELMetrics.OTLPEndpointProvider",
+		"Config.OTELMetrics.InjectHeaders",
+	}, callbacks, "new configuration callbacks need an explicit comparison policy and update tests")
 }
 
 func TestCriteriaUpdaterRejectsIncompatibleConfig(t *testing.T) {
@@ -172,6 +208,78 @@ func TestCriteriaUpdaterPreservesExportCallbacks(t *testing.T) {
 			} else {
 				require.Nil(t, initial.OTELMetrics.MetricsExport)
 			}
+		})
+	}
+}
+
+func TestCriteriaUpdaterPreservesEndpointProviders(t *testing.T) {
+	for _, signal := range []string{"traces", "metrics"} {
+		t.Run(signal, func(t *testing.T) {
+			setProvider := func(cfg *obi.Config, provider func() (string, bool)) {
+				if signal == "traces" {
+					cfg.Traces.OTLPEndpointProvider = provider
+				} else {
+					cfg.OTELMetrics.OTLPEndpointProvider = provider
+				}
+			}
+			initial := criteriaConfig(t, "    - open_ports: 8080\n")
+			var providerCalls int
+			provider := func() (string, bool) {
+				providerCalls++
+				return "http://startup.example:4318", true
+			}
+			setProvider(initial, provider)
+			updater := NewCriteriaUpdater(initial)
+			matcher := &Matcher{
+				Log: slog.Default(), Criteria: FindingCriteria(initial),
+				ProcessHistory:  map[app.PID]ProcessMatch{},
+				Output:          msg.NewQueue[[]Event[ProcessMatch]](),
+				CriteriaUpdates: updater.Updates(),
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+			done := make(chan struct{})
+			go func() { defer close(done); matcher.Run(ctx) }()
+			t.Cleanup(func() {
+				cancel()
+				testutil.ReadChannel(t, done, time.Second)
+			})
+
+			require.NoError(t, updater.Update(ctx, initial))
+			next := criteriaConfig(t, "    - open_ports: 9090\n")
+			setProvider(next, provider)
+			require.NoError(t, updater.Update(ctx, next))
+			include, _ := updater.Updates().Current()
+			require.Len(t, include, 1)
+			require.True(t, include[0].GetOpenPorts().Matches(9090))
+
+			reloaded := criteriaConfig(t, "    - open_ports: 7070\n")
+			require.NoError(t, updater.Update(ctx, reloaded))
+			replacement := criteriaConfig(t, "    - open_ports: 6060\n")
+			setProvider(replacement, func() (string, bool) {
+				t.Error("selection refresh invoked a replacement endpoint provider")
+				return "http://replacement.example:4318", false
+			})
+			require.NoError(t, updater.Update(ctx, replacement))
+			require.Zero(t, providerCalls, "selection refresh must not evaluate endpoint providers")
+
+			var endpoint string
+			var common bool
+			if signal == "traces" {
+				require.NotNil(t, initial.Traces.OTLPEndpointProvider)
+				require.NotNil(t, next.Traces.OTLPEndpointProvider)
+				require.Nil(t, reloaded.Traces.OTLPEndpointProvider)
+				require.NotNil(t, replacement.Traces.OTLPEndpointProvider)
+				endpoint, common = initial.Traces.OTLPTracesEndpoint()
+			} else {
+				require.NotNil(t, initial.OTELMetrics.OTLPEndpointProvider)
+				require.NotNil(t, next.OTELMetrics.OTLPEndpointProvider)
+				require.Nil(t, reloaded.OTELMetrics.OTLPEndpointProvider)
+				require.NotNil(t, replacement.OTELMetrics.OTLPEndpointProvider)
+				endpoint, common = initial.OTELMetrics.OTLPMetricsEndpoint()
+			}
+			require.Equal(t, "http://startup.example:4318", endpoint)
+			require.True(t, common)
+			require.Equal(t, 1, providerCalls)
 		})
 	}
 }
