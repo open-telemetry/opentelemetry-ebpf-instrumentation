@@ -184,8 +184,8 @@ func (m *DynamicMatcher) filterDeleted(obj ProcessAttrs) (Event[ProcessMatch], b
 // syntheticDeletesForRemovedPIDs returns EventDeleted for the specific PIDs removed from the
 // dynamic selector. This is the matcher side of the edge-based removal path: the selector sends
 // the exact removed PIDs, so we can look them up directly instead of doing a level-based scan of
-// ProcessHistory against the selector's current PID set. A queued removal can arrive after
-// executable replacement rematerializes the PID, so check that it is still deselected.
+// ProcessHistory against the selector's current PID set. A queued removal can arrive after the
+// PID was selected again, so it is ignored when the selection did not change in the meantime.
 func (m *DynamicMatcher) syntheticDeletesForRemovedPIDs(removedPIDs []app.PID) []Event[ProcessMatch] {
 	if len(removedPIDs) == 0 {
 		return nil
@@ -193,7 +193,7 @@ func (m *DynamicMatcher) syntheticDeletesForRemovedPIDs(removedPIDs []app.PID) [
 	var out []Event[ProcessMatch]
 	for _, pid := range removedPIDs {
 		procMatch, instrumented := m.ProcessHistory[pid]
-		if !instrumented || m.DynamicSelector.IncludesPID(pid) {
+		if !instrumented || m.selectionUnchanged(pid, procMatch) {
 			continue
 		}
 		delete(m.ProcessHistory, pid)
@@ -201,4 +201,15 @@ func (m *DynamicMatcher) syntheticDeletesForRemovedPIDs(removedPIDs []app.PID) [
 		out = append(out, Event[ProcessMatch]{Type: EventDeleted, Obj: procMatch})
 	}
 	return out
+}
+
+// selectionUnchanged reports whether the PID is still selected with the same attributes the
+// tracked match was created with.
+func (m *DynamicMatcher) selectionUnchanged(pid app.PID, tracked ProcessMatch) bool {
+	current, ok := m.DynamicSelector.SelectorForPID(pid).(*dynamicPIDCriteriaAdapter)
+	if !ok || len(tracked.Criteria) == 0 {
+		return false
+	}
+	previous, ok := tracked.Criteria[0].(*dynamicPIDCriteriaAdapter)
+	return ok && previous.attrs.equal(current.attrs)
 }

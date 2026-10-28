@@ -301,6 +301,53 @@ func TestDynamicMatcher_ExecutableReplacementIgnoresStaleRemoval(t *testing.T) {
 	}
 }
 
+func TestDynamicMatcher_ReselectedPIDWithNewOptionsIsRemoved(t *testing.T) {
+	d := NewDynamicSelector()
+	removed := d.appSignals().RemovedNotifyContext(t.Context())
+	m := DynamicMatcher{
+		Log:             slog.Default(),
+		DynamicSelector: d.appSignals(),
+		ProcessHistory:  map[app.PID]ProcessMatch{},
+	}
+
+	d.appSignals().AddPID(51, selection.DynamicOptions{ServiceName: "a"})
+	tracked := ProcessMatch{
+		Criteria: []services.Selector{d.appSignals().SelectorForPID(51)},
+		Process:  &services.ProcessInfo{Pid: 51},
+	}
+	m.ProcessHistory[51] = tracked
+
+	d.appSignals().RemovePIDs(51)
+	d.appSignals().AddPID(51, selection.DynamicOptions{ServiceName: "b"})
+
+	deletes := m.syntheticDeletesForRemovedPIDs(testutil.ReadChannel(t, removed, testTimeout))
+	assert.Equal(t, []Event[ProcessMatch]{{Type: EventDeleted, Obj: tracked}}, deletes)
+	assert.NotContains(t, m.ProcessHistory, app.PID(51))
+}
+
+func TestDynamicMatcher_ReselectedPIDWithSameOptionsIgnoresRemoval(t *testing.T) {
+	d := NewDynamicSelector()
+	removed := d.appSignals().RemovedNotifyContext(t.Context())
+	m := DynamicMatcher{
+		Log:             slog.Default(),
+		DynamicSelector: d.appSignals(),
+		ProcessHistory:  map[app.PID]ProcessMatch{},
+	}
+
+	opts := selection.DynamicOptions{ServiceName: "a", ResourceAttributes: map[string]string{"k": "v"}}
+	d.appSignals().AddPID(52, opts)
+	m.ProcessHistory[52] = ProcessMatch{
+		Criteria: []services.Selector{d.appSignals().SelectorForPID(52)},
+		Process:  &services.ProcessInfo{Pid: 52},
+	}
+
+	d.appSignals().RemovePIDs(52)
+	d.appSignals().AddPID(52, opts)
+
+	assert.Empty(t, m.syntheticDeletesForRemovedPIDs(testutil.ReadChannel(t, removed, testTimeout)))
+	assert.Contains(t, m.ProcessHistory, app.PID(52))
+}
+
 func TestDynamicMatcher_ProcessExitKeepsExplicitPID(t *testing.T) {
 	d := NewDynamicSelector()
 	d.appSignals().AddPID(41, selection.DynamicOptions{ServiceName: "explicit"})
