@@ -10,6 +10,7 @@ With `application_runtime` enabled, OBI collects runtime metrics from
 | `dotnet.process.cpu.time` | `dotnet_process_cpu_time_seconds_total` | `s` |
 | `dotnet.process.memory.working_set` | `dotnet_process_memory_working_set_bytes` | `By` |
 | `dotnet.gc.last_collection.heap.size` | `dotnet_gc_last_collection_heap_size_bytes` | `By` |
+| `dotnet.gc.last_collection.heap.fragmentation.size` | `dotnet_gc_last_collection_heap_fragmentation_size_bytes` | `By` |
 | `dotnet.gc.last_collection.memory.committed_size` | `dotnet_gc_last_collection_memory_committed_size_bytes` | `By` |
 | `dotnet.thread_pool.thread.count` | `dotnet_thread_pool_thread_count` | `{thread}` |
 | `dotnet.thread_pool.queue.length` | `dotnet_thread_pool_queue_length` | `{work_item}` |
@@ -34,6 +35,13 @@ The five generation-size EventCounters supply these values on .NET 8, 9, and 10.
 Each value can increase or decrease and remains unchanged until another GC.
 The runtime polls each generation separately; a GC during polling can span two
 collection states. Missing values are omitted from that sampling round.
+
+Heap fragmentation reports `FragmentationAfterBytes` for the same five generation
+labels. OBI subscribes to CLR GC events and sums the free-list and free-object
+bytes from every heap in the latest completed collection. Values remain
+unavailable until a complete collection is observed after attachment or reconnect.
+OBI does not request a GC. Complete values persist across sampling rounds and
+can increase or decrease.
 
 CPU time has separate `cpu.mode=user` and `cpu.mode=system` series. CPU count
 reports the runtime's `Environment.ProcessorCount`, including its processor-count
@@ -101,6 +109,10 @@ runtime metrics export queue:
    .NET 8+.
 4. The collector starts an EventPipe session and decodes its NetTrace stream.
    The `ProcessorCount` event supplies the CPU count retained for that session.
+   CLR GC events are ordered using NetTrace watermarks, then grouped by collection
+   and emitting thread. Fragmentation requires the completion event and every
+   expected heap record; overlapping full and ephemeral collections are tracked
+   separately.
 5. Sampling rounds containing GC counts, cumulative counters, and available
    current values enter the runtime metrics queue and reach the OTLP and
    Prometheus exporters.
@@ -152,3 +164,9 @@ The implementation requests a 16 MiB EventPipe buffer per process. Detected
 event loss discards unpublished counts and triggers reconnection. Exceptions
 during the gap are unavailable, and late loss reports cannot retract previously
 published counts.
+
+Fragmentation collection buffers at most 4,096 decoded GC events and accepts up
+to 4,096 heaps per collection. Malformed or ambiguous GC histories, event loss,
+or capacity limits end the session and trigger reconnection. The new session
+waits for fresh GC history. Native payload versions are checked; 32-bit layouts
+have unit coverage, while live coverage uses Linux amd64.

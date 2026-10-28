@@ -235,6 +235,36 @@ func TestTCPToAMQPSpan(t *testing.T) {
 	})
 }
 
+func TestTCPToAMQPSpanDoesNotRenderSSLPointerAsPeerAddress(t *testing.T) {
+	trace := &TCPRequestInfo{
+		StartMonotimeNs: 100,
+		EndMonotimeNs:   200,
+		Direction:       directionSend,
+		ConnInfo: BpfConnectionInfoT{
+			S_addr: [16]byte{0x90, 0x78, 0x56, 0x34, 0x12, 0x7f},
+		},
+	}
+
+	span := TCPToAMQPToSpan(trace, AMQPInfo{Direction: directionSend})
+
+	assert.Empty(t, span.Peer)
+}
+
+func TestTCPToAMQPSpanDoesNotRenderSSLPointerAsHostAddress(t *testing.T) {
+	trace := &TCPRequestInfo{
+		StartMonotimeNs: 100,
+		EndMonotimeNs:   200,
+		Direction:       directionRecv,
+		ConnInfo: BpfConnectionInfoT{
+			S_addr: [16]byte{0x90, 0x78, 0x56, 0x34, 0x12, 0x7f},
+		},
+	}
+
+	span := TCPToAMQPToSpan(trace, AMQPInfo{Direction: directionRecv})
+
+	assert.Empty(t, span.Host)
+}
+
 func TestAMQPOperation(t *testing.T) {
 	assert.Equal(t, request.MessagingPublish, amqpOperation(directionSend))
 	assert.Equal(t, request.MessagingProcess, amqpOperation(directionRecv))

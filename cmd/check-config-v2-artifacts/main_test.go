@@ -22,6 +22,34 @@ func TestRunCurrentArtifacts(t *testing.T) {
 	}
 }
 
+func TestConnectionInfoFeatureIsInConfigSchemaEnum(t *testing.T) {
+	root, err := readJSONMap(filepath.Join("..", "..", defaultSchemaPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasMetricFeature(root, "application_service_graph_connection_info") {
+		t.Fatal("connection-info feature must be accepted by the config v2 schema")
+	}
+}
+
+func TestConnectionInfoFeatureMustBeInMetricsFeatureEnum(t *testing.T) {
+	root := map[string]any{
+		"unrelated": map[string]any{"enum": []any{"application_service_graph_connection_info"}},
+		"$defs": map[string]any{"Capture": map[string]any{
+			"properties": map[string]any{"metrics": map[string]any{
+				"properties": map[string]any{"features": map[string]any{
+					"items": map[string]any{"oneOf": []any{
+						map[string]any{"enum": []any{"application_service_graph"}},
+					}},
+				}},
+			}},
+		}},
+	}
+	if hasMetricFeature(root, "application_service_graph_connection_info") {
+		t.Fatal("an unrelated enum must not satisfy metrics.features")
+	}
+}
+
 func TestCheckSchemaArtifactRejectsWrongVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "schema.json")
 	writeFile(t, path, `{

@@ -1735,6 +1735,27 @@ OBI counterpart of `target.info` for the traces pipeline. Carries the resource a
 | `telemetry.sdk.name` | string | `required` | stable | The name of the telemetry SDK as defined above. | opentelemetry |
 | `telemetry.sdk.version` | string | `required` | stable | The version string of the telemetry SDK. | 1.2.3 |
 
+## `traces_service_graph_connection_info`
+
+Indicates that a client-to-server connection was observed recently. The value remains 1 while the edge is observed and expires after the configured metric TTL.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| gauge | 1 | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `client_k8s_cluster_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes cluster name of the client (request-initiating) peer. | my-cluster |
+| `client_k8s_namespace_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the client (request-initiating) peer. | integration-test |
+| `client_service_namespace` | string | `conditionally_required`: if the workload has a namespace | development | The service namespace of the client side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
+| `client` | string | `required` | development | Name of the service initiating the request. | frontend |
+| `connection_type` | enum | `conditionally_required`: if the connection was not a direct HTTP or gRPC request | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. | messaging_system; database; virtual_node |
+| `server_k8s_cluster_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes cluster name of the server (request-receiving) peer. | my-cluster |
+| `server_k8s_namespace_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the server (request-receiving) peer. | integration-test |
+| `server_service_namespace` | string | `conditionally_required`: if the workload has a namespace | development | The service namespace of the server side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
+| `server` | string | `required` | development | Name of the service receiving the request. | users-api |
+| `source` | string | `required` | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
+
 ## `traces_service_graph_request_client`
 
 Client-side request duration distribution per service-graph edge.

@@ -17,6 +17,7 @@ type sqlDialect struct {
 	dollarPlaceholders      bool
 	namedDollarPlaceholders bool
 	mysqlComments           bool
+	executableComments      bool
 	hashComments            bool
 	doubleQuotedStrings     bool
 	moneyLiterals           bool
@@ -29,6 +30,7 @@ var sqlppDialect = sqlDialect{
 	dollarPlaceholders:      true,
 	namedDollarPlaceholders: true,
 	mysqlComments:           true,
+	executableComments:      true,
 }
 
 func dialectFor(kind request.SQLKind) sqlDialect {
@@ -38,12 +40,19 @@ func dialectFor(kind request.SQLKind) sqlDialect {
 	case request.DBMSSQL:
 		return sqlDialect{dbms: sqllexer.DBMSSQLServer, doubleQuotedStrings: true, moneyLiterals: true}
 	case request.DBMySQL:
-		return sqlDialect{dbms: sqllexer.DBMSMySQL, questionPlaceholders: true, mysqlComments: true, hashComments: true}
+		return sqlDialect{
+			dbms:                 sqllexer.DBMSMySQL,
+			questionPlaceholders: true,
+			mysqlComments:        true,
+			executableComments:   true,
+			hashComments:         true,
+		}
 	default:
 		return sqlDialect{
 			dbms:                sqllexer.DBMSPostgres,
 			dollarPlaceholders:  true,
 			doubleQuotedStrings: true,
+			executableComments:  true,
 			ambiguousQuoting:    true,
 		}
 	}
@@ -142,7 +151,7 @@ func splitToken(rest string, tok *sqllexer.Token, d sqlDialect) (sqllexer.Token,
 		return sqllexer.Token{Type: sqllexer.OPERATOR, Value: "-"}, true
 	case !d.hashComments && tok.Type == sqllexer.COMMENT && strings.HasPrefix(tok.Value, "#"):
 		return sqllexer.Token{Type: sqllexer.OPERATOR, Value: "#"}, true
-	case d.mysqlComments:
+	case d.executableComments:
 		if prefix, ok := executableCommentPrefix(tok); ok {
 			return sqllexer.Token{Type: sqllexer.COMMENT, Value: prefix}, true
 		}

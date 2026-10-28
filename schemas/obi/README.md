@@ -184,6 +184,40 @@ and are mutually exclusive; `TestEmittedSpansMatchTheirDeclaredSpan` in
 when a span matches any type other than its own. A new span type needs a
 matcher, or the weaver-validated suites fail on its unmatched spans.
 
+## Telemetry coverage
+
+Every weaver-validated suite archives its `compact` live-check report as
+`weaver-report-<name>.json`, and `cmd/obi-weaver-coverage` measures their union
+against this registry, resolved with `weaver registry resolve --v2`:
+
+- **Signals**: every metric and span definition. A signal is covered when
+  live-check matched a sample to it in some report.
+- **Signal attributes**: for each covered signal, its declared attributes
+  against the keys seen on its matched samples (span attributes, metric
+  data-point attributes), which the template lists under `signal_attributes`.
+  Gaps are grouped by requirement level and reported, without failing.
+
+Coverage is measured against the registry only. A metric or span that a suite
+emits but the registry does not declare already fails that suite in live-check.
+A suite whose
+report was not archived, such as one that failed before weaver reported, is
+missing from the numbers, and a report that does not parse is skipped. To run
+it on a directory of downloaded reports:
+
+```sh
+make weaver-coverage WEAVER_REPORTS_DIR=<dir> WEAVER_COVERAGE_OUT=<out-dir>
+```
+
+It prints the report as Markdown and writes `coverage.json` to the output
+directory. Add
+`WEAVER_COVERAGE_ARGS=--fail-on-gap` to exit non-zero when a signal definition
+was never observed; attribute gaps are reported but never fail. In CI,
+`weaver_coverage_combined.yml` aggregates the reports of every suite for a
+commit, prints the report in the job log and uploads `coverage.json` as the
+`weaver-coverage-combined-<sha>` artifact. It runs with `--fail-on-gap` when
+all three suites ran for the commit and passed, as on every push to `main`; a
+pull request whose path filters skip a suite gets the report only.
+
 ## Two override styles
 
 - **Closed enum, extended**: the upstream value space is enumerable and OBI

@@ -32,6 +32,7 @@ type dotnetRuntimeMetricsCollector struct {
 	exceptions              *Expirer[prometheus.Counter]
 	processMemoryWorkingSet *Expirer[prometheus.Gauge]
 	gcHeapSize              *Expirer[prometheus.Gauge]
+	gcHeapFragmentation     *Expirer[prometheus.Gauge]
 	gcCommittedMemory       *Expirer[prometheus.Gauge]
 	threadPoolThreadCount   *Expirer[prometheus.Gauge]
 	threadPoolQueueLength   *Expirer[prometheus.Gauge]
@@ -65,6 +66,7 @@ type dotnetRuntimeCurrentAggregate struct {
 	processCPUCount         dotnetRuntimeGaugeAggregate
 	processMemoryWorkingSet dotnetRuntimeGaugeAggregate
 	gcHeapSize              [runtimemetrics.DotnetHeapGenerationCount]dotnetRuntimeGaugeAggregate
+	gcHeapFragmentation     [runtimemetrics.DotnetHeapGenerationCount]dotnetRuntimeGaugeAggregate
 	gcCommittedMemory       dotnetRuntimeGaugeAggregate
 	threadPoolThreadCount   dotnetRuntimeGaugeAggregate
 	threadPoolQueueLength   dotnetRuntimeGaugeAggregate
@@ -353,6 +355,9 @@ func (c *dotnetRuntimeMetricsCollector) updateCurrentMetrics(entry dotnetRuntime
 		if aggregate.gcHeapSize[generation].update(c.gcHeapSize, entry.values.GCHeapSize[generation], next.GCHeapSize[generation], labels) {
 			available = true
 		}
+		if aggregate.gcHeapFragmentation[generation].update(c.gcHeapFragmentation, entry.values.GCHeapFragmentation[generation], next.GCHeapFragmentation[generation], labels) {
+			available = true
+		}
 	}
 	if !available {
 		delete(c.currentAggregates, entry.labelTuple)
@@ -441,6 +446,8 @@ func newDotnetRuntimeMetricsCollector(runtimeLabelNames []string, clock expire.C
 		}, exceptionLabels).MetricVec, clock, ttl),
 		gcHeapSize: newRuntimeGauge(attributes.DotnetGCHeapSize.Prom,
 			"Managed .NET heap size including fragmentation at the latest collection in bytes.", labels, clock, ttl),
+		gcHeapFragmentation: newRuntimeGauge(attributes.DotnetGCHeapFragmentation.Prom,
+			"Managed .NET heap fragmentation after the latest completed collection in bytes.", labels, clock, ttl),
 		gcCommittedMemory: newRuntimeGauge(attributes.DotnetGCCommittedMemory.Prom,
 			"Committed .NET GC memory at the latest collection in bytes.", baseLabels, clock, ttl),
 		threadPoolThreadCount: newRuntimeGauge(attributes.DotnetThreadPoolThreadCount.Prom,

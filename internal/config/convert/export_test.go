@@ -1230,3 +1230,11 @@ func keys(root any) []string {
 	}
 	return out
 }
+
+func TestMigratedV1PreservesNameResolverDefaults(t *testing.T) {
+	cfg := obi.DefaultConfig
+	_, ext := RuntimeToV2(&cfg)
+	migrated, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceECS}, migrated.NameResolver.Sources)
+}

@@ -6,9 +6,7 @@ package integration // import "go.opentelemetry.io/obi/internal/test/integration
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
-	"path"
 	"strings"
 	"testing"
 	"time"
@@ -30,12 +28,6 @@ const (
 func SemconvVersion() string {
 	// semconv.SchemaURL is "https://opentelemetry.io/schemas/1.41.0"
 	return semconv.SchemaURL[strings.LastIndex(semconv.SchemaURL, "/")+1:]
-}
-
-func weaverReportPath(t *testing.T) string {
-	t.Helper()
-	name := strings.ReplaceAll(t.Name(), "/", "_")
-	return path.Join(pathOutput, fmt.Sprintf("weaver-report-%s.json", name))
 }
 
 // runWeaverValidation stops the weaver container (Docker transport) and
@@ -104,9 +96,8 @@ func archiveAndParseWeaverReport(t *testing.T, rawReport []byte) (*weavercheck.R
 		t.Errorf("weaver report is empty")
 		return nil, false
 	}
-	reportPath := weaverReportPath(t)
-	if err := os.WriteFile(reportPath, rawReport, 0o644); err != nil {
-		t.Logf("warn: failed to archive weaver report to %s: %v", reportPath, err)
+	if reportPath, err := weavercheck.ArchiveReport(pathOutput, t.Name(), rawReport); err != nil {
+		t.Logf("warn: failed to archive weaver report: %v", err)
 	} else {
 		t.Logf("weaver report saved to %s", reportPath)
 	}
