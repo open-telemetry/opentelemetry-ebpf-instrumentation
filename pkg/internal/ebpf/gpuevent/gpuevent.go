@@ -354,7 +354,7 @@ func (p *Tracer) AlreadyInstrumentedLib(id uint64) bool {
 }
 
 func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventContext, eventsChan *msg.Queue[[]request.Span]) {
-	ebpfcommon.ForwardRingbufWithShutdownTimeout(
+	ebpfcommon.ForwardRingbufWithDrainContext(
 		&p.cfg.EBPF,
 		p.cfg.ShutdownTimeout,
 		p.bpfObjects.GpuEvents,
@@ -366,7 +366,7 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 	)(ctx, eventsChan)
 }
 
-func (p *Tracer) processCudaEvent(record *ringbuf.Record) (request.Span, bool, error) {
+func (p *Tracer) processCudaEvent(_ context.Context, record *ringbuf.Record) (request.Span, bool, error) {
 	if len(record.RawSample) == 0 {
 		return request.Span{}, true, errors.New("invalid ringbuffer record size")
 	}

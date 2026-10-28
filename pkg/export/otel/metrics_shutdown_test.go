@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
@@ -413,4 +415,150 @@ func runUntilDoneT(fn func()) <-chan struct{} {
 		fn()
 	}()
 	return done
+}
+
+func blockFirstExport(mcfg *otelcfg.MetricsConfig) (exporting <-chan struct{}, release chan<- struct{}) {
+	started := make(chan struct{})
+	unblock := make(chan struct{})
+	var first atomic.Bool
+	consume := mcfg.MetricsExport
+	mcfg.MetricsExport = func(ctx context.Context, md pmetric.Metrics) error {
+		if first.CompareAndSwap(false, true) {
+			close(started)
+			<-unblock
+		}
+		return consume(ctx, md)
+	}
+	return started, unblock
+}
+
+func requireCloseAwaitsBlockedEviction(t *testing.T, closeReporter func(), exporting <-chan struct{}, release chan<- struct{}) {
+	select {
+	case <-exporting:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "the eviction export did not start")
+	}
+
+	closed := runUntilDoneT(closeReporter)
+	select {
+	case <-closed:
+		require.FailNow(t, "close returned while an eviction export was pending")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	close(release)
+	select {
+	case <-closed:
+	case <-time.After(5 * time.Second):
+		require.FailNow(t, "close did not finish after the eviction export completed")
+	}
+}
+
+func readServiceInstances(t *testing.T, records <-chan collector.MetricRecord, name string, count int) []string {
+	instances := make([]string, 0, count)
+	deadline := time.After(5 * time.Second)
+	for len(instances) < count {
+		select {
+		case record := <-records:
+			if record.Name == name {
+				instances = append(instances, record.ResourceAttributes["service.instance.id"])
+			}
+		case <-deadline:
+			require.FailNow(t, "timeout while waiting for metric records", "got %v", instances)
+		}
+	}
+	return instances
+}
+
+func TestAppMetrics_CloseAwaitsABlockedEvictionExport(t *testing.T) {
+	ctx, signal := context.WithCancel(t.Context())
+	defer signal()
+	ctx, cancelBudget := shutdown.WithBudget(ctx, 5*time.Second)
+	defer cancelBudget()
+
+	records := make(chan collector.MetricRecord, 100)
+	mcfg := shutdownTestConfig(records, 1)
+	exporting, release := blockFirstExport(mcfg)
+	reporter := newTestMetricsReporter(t, ctx, mcfg)
+
+	evicted := svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Name: "evicted", Instance: "evicted-1"}}
+	other := svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Name: "other", Instance: "other-1"}}
+	reporter.onSpan([]request.Span{httpClientSpan(evicted)})
+	reporter.onSpan([]request.Span{httpClientSpan(other)})
+
+	signal()
+	requireCloseAwaitsBlockedEviction(t, reporter.close, exporting, release)
+
+	instances := readServiceInstances(t, records, attributes.HTTPClientDuration.OTEL, 2)
+	assert.ElementsMatch(t, []string{"evicted-1", "other-1"}, instances)
+}
+
+func TestSvcGraphMetrics_CloseAwaitsABlockedEvictionExport(t *testing.T) {
+	records := make(chan collector.MetricRecord, 100)
+	mcfg := shutdownTestConfig(records, 1)
+	exporting, release := blockFirstExport(mcfg)
+	reporter, err := newSvcGraphMetricsReporter(
+		t.Context(),
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&attributes.SelectorConfig{},
+		request.UnresolvedNames{},
+		msg.NewQueue[[]request.Span](),
+		msg.NewQueue[exec.ProcessEvent](),
+	)
+	require.NoError(t, err)
+
+	for _, name := range []string{"evicted", "other"} {
+		reporter.onSpan([]request.Span{{
+			Service: svc.Attrs{Features: export.FeatureAll, UID: svc.UID{Name: name, Instance: name + "-1"}},
+			Type:    request.EventTypeHTTPClient,
+			Peer:    name + "-host", Host: "server-host", HostName: "server",
+			Path: "/", RequestStart: 100, End: 200, Status: 200,
+		}})
+	}
+
+	requireCloseAwaitsBlockedEviction(t, reporter.close, exporting, release)
+
+	instances := readServiceInstances(t, records, attributes.ServiceGraphTotal.OTEL, 2)
+	assert.ElementsMatch(t, []string{"evicted-1", "other-1"}, instances)
+}
+
+func TestRuntimeMetrics_CloseAwaitsABlockedEvictionExport(t *testing.T) {
+	records := make(chan collector.MetricRecord, 100)
+	mcfg := shutdownTestConfig(records, 1)
+	exporting, release := blockFirstExport(mcfg)
+	reporter, err := newRuntimeMetricsReporter(
+		t.Context(),
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRuntime},
+		&attributes.SelectorConfig{},
+		msg.NewQueue[[]runtimemetrics.RuntimeMetricSnapshot](),
+		msg.NewQueue[exec.ProcessEvent](),
+	)
+	require.NoError(t, err)
+
+	goroutines := int64(7)
+	for i, name := range []string{"evicted", "other"} {
+		pid := app.PID(101 + i)
+		service := svc.Attrs{
+			Features:    export.FeatureApplicationRuntime,
+			UID:         svc.UID{Name: name, Instance: name + "-1"},
+			SDKLanguage: svc.InstrumentableGolang,
+		}
+		reporter.onProcessEvent(&exec.ProcessEvent{
+			Type: exec.ProcessEventCreated,
+			File: exec.New(exec.Init{Pid: pid, Service: service}),
+		})
+		reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
+			PID:     pid,
+			Service: service,
+			Go:      &runtimemetrics.GoRuntimeMetricSnapshot{GoroutineCount: &goroutines},
+		}})
+	}
+
+	requireCloseAwaitsBlockedEviction(t, reporter.close, exporting, release)
+
+	instances := readServiceInstances(t, records, attributes.GoRuntimeGoroutineCount.OTEL, 2)
+	assert.ElementsMatch(t, []string{"evicted-1", "other-1"}, instances)
 }

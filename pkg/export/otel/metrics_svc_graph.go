@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
@@ -40,6 +41,7 @@ func sglog() *slog.Logger {
 // instances and forwards them as OTEL metrics.
 type SvcGraphMetricsReporter struct {
 	ctx              context.Context
+	evictions        sync.WaitGroup
 	cfg              *otelcfg.MetricsConfig
 	nodeMeta         metadata.NodeMeta
 	exporter         sdkmetric.Exporter
@@ -133,14 +135,14 @@ func newSvcGraphMetricsReporter(
 			llog := log.With("service", id)
 			llog.Debug("evicting metrics reporter from cache")
 
-			go func() {
+			mr.evictions.Go(func() {
 				shutdownCtx, cancel := shutdownContext(ctx)
 				defer cancel()
 				if err := v.provider.Shutdown(shutdownCtx); err != nil {
 					llog.Warn("error shutting down evicted metrics provider", "error", err)
 				}
 				v.cleanupAllMetricsInstances()
-			}()
+			})
 		}, mr.newMetricSet)
 	if err != nil {
 		return nil, fmt.Errorf("creating service graph metrics reporters pool: %w", err)
@@ -295,6 +297,7 @@ func (mr *SvcGraphMetricsReporter) close() {
 			mr.log.Warn("error shutting down metrics provider", "service", id, "error", err)
 		}
 	})
+	waitWithin(shutdownCtx, &mr.evictions)
 
 	go func() {
 		exportCtx, cancel := shutdownContext(mr.ctx)

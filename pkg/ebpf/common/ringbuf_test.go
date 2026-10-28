@@ -40,11 +40,11 @@ func TestForwardRingbuf_CapacityFull(t *testing.T) {
 	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 	fltr.AllowPID(1, 1, exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: "myService"}}}), PIDTypeGo)
 	cfg := &config.EBPFTracer{BatchLength: 10}
-	go ForwardRingbufWithShutdownTimeout(
+	go ForwardRingbufWithDrainContext(
 		cfg,
 		0,
 		nil, // the source ring buffer can be null
-		func(r *ringbuf.Record) (request.Span, bool, error) {
+		func(_ context.Context, r *ringbuf.Record) (request.Span, bool, error) {
 			s, ignore, err := ReadBPFTraceAsSpan(nil, cfg, r, &fltr)
 			if !ignore && err == nil && !s.IsValid() {
 				return s, true, nil
@@ -99,11 +99,11 @@ func TestForwardRingbuf_Deadline(t *testing.T) {
 	fltr := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 	fltr.AllowPID(1, 1, exec.New(exec.Init{Service: svc.Attrs{UID: svc.UID{Name: "myService"}}}), PIDTypeGo)
 	cfg := &config.EBPFTracer{BatchLength: 10, BatchTimeout: 20 * time.Millisecond}
-	go ForwardRingbufWithShutdownTimeout(
+	go ForwardRingbufWithDrainContext(
 		cfg,
 		0,
 		nil, // the source ring buffer can be null
-		func(r *ringbuf.Record) (request.Span, bool, error) {
+		func(_ context.Context, r *ringbuf.Record) (request.Span, bool, error) {
 			s, ignore, err := ReadBPFTraceAsSpan(nil, cfg, r, &fltr)
 			if !ignore && err == nil && !s.IsValid() {
 				return s, true, nil
@@ -161,11 +161,11 @@ func TestForwardRingbuf_FiltersBeforeBatching(t *testing.T) {
 	}
 	validPIDs := TestPidsFilter{services: map[app.PID]svc.Attrs{}}
 	cfg := &config.EBPFTracer{BatchLength: 10, BatchTimeout: 20 * time.Millisecond}
-	go ForwardRingbufWithShutdownTimeout(
+	go ForwardRingbufWithDrainContext(
 		cfg,
 		0,
 		nil,
-		func(r *ringbuf.Record) (request.Span, bool, error) {
+		func(_ context.Context, r *ringbuf.Record) (request.Span, bool, error) {
 			return ReadBPFTraceAsSpan(nil, cfg, r, &validPIDs)
 		},
 		filter,
@@ -255,9 +255,9 @@ func TestForwardRingbuf_NoEventLoss(t *testing.T) {
 			out := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(N/batchLen + 10))
 			sub := out.Subscribe()
 
-			go ForwardRingbufWithShutdownTimeout(
+			go ForwardRingbufWithDrainContext(
 				cfg, 0, nil,
-				func(_ *ringbuf.Record) (request.Span, bool, error) {
+				func(_ context.Context, _ *ringbuf.Record) (request.Span, bool, error) {
 					return request.Span{Type: 1}, false, nil
 				},
 				nil,

@@ -108,8 +108,8 @@ func replacePendingRingBuf(pending int) *pendingRingBufReader {
 }
 
 func forwardOneRecordType(cfg *config.EBPFTracer, shutdownTimeout time.Duration, closers ...io.Closer) func(context.Context, *msg.Queue[[]int]) {
-	return ForwardRingbufWithShutdownTimeout(cfg, shutdownTimeout, nil,
-		func(_ *ringbuf.Record) (int, bool, error) { return 1, false, nil },
+	return ForwardRingbufWithDrainContext(cfg, shutdownTimeout, nil,
+		func(_ context.Context, _ *ringbuf.Record) (int, bool, error) { return 1, false, nil },
 		nil,
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		nil,
@@ -240,8 +240,8 @@ func TestForwardRingbuf_DrainIsBoundedWhenTheParserBlocks(t *testing.T) {
 	defer close(unblock)
 	parsing := make(chan struct{}, 3)
 
-	forward := ForwardRingbufWithShutdownTimeout(&config.EBPFTracer{BatchLength: 10}, testShutdownTimeout, nil,
-		func(_ *ringbuf.Record) (int, bool, error) {
+	forward := ForwardRingbufWithDrainContext(&config.EBPFTracer{BatchLength: 10}, testShutdownTimeout, nil,
+		func(_ context.Context, _ *ringbuf.Record) (int, bool, error) {
 			parsing <- struct{}{}
 			<-unblock
 			return 1, false, nil

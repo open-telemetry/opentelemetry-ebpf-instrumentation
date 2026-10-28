@@ -171,19 +171,6 @@ func ForwardRingbuf[T any](
 	return forwardRingbuf(cfg, maxShutdownDrain, ringbuffer, ignoreContext(parse), filter, logger, metrics, closers...)
 }
 
-func ForwardRingbufWithShutdownTimeout[T any](
-	cfg *config.EBPFTracer,
-	shutdownTimeout time.Duration,
-	ringbuffer *ebpf.Map,
-	parse RecordParserFunc[T],
-	filter BatchFilterFunc[T], // nil = no filter
-	logger *slog.Logger,
-	metrics imetrics.Reporter,
-	closers ...io.Closer,
-) func(context.Context, *msg.Queue[[]T]) {
-	return forwardRingbuf(cfg, shutdownDrainTimeout(shutdownTimeout), ringbuffer, ignoreContext(parse), filter, logger, metrics, closers...)
-}
-
 func ForwardRingbufWithDrainContext[T any](
 	cfg *config.EBPFTracer,
 	shutdownTimeout time.Duration,
