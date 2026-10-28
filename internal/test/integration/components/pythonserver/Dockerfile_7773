@@ -1,5 +1,5 @@
 # Dockerfile that will build a container that runs python flask with gunicorn on port 7770
-FROM python:3.15.2-slim@sha256:c4158543ecb725b99e57d129dfd43d761d4c43e4577b5e23326aabb223cf7f4e
+FROM python:3.14.3-slim@sha256:6a27522252aef8432841f224d9baaa6e9fce07b07584154fa0b9a96603af7456
 EXPOSE 7773
 COPY internal/test/integration/components/pythonserver/requirements.txt /requirements.txt
 RUN pip install --require-hashes -r /requirements.txt

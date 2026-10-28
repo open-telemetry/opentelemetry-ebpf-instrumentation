@@ -1,5 +1,5 @@
 # Dockerfile that will build a container that runs python with FastAPI and uvicorn on port 8080
-FROM python:3.15@sha256:f17ec845ebdd4f3347431579e1c22eaeec82913f039f2a54b937c7ff870bacdb
+FROM python:3.14@sha256:61346539f7b26521a230e72c11da5ebd872924745074b19736e7d65ba748c366
 EXPOSE 8080
 COPY requirements.txt /requirements.txt
 RUN pip install --require-hashes -r /requirements.txt
