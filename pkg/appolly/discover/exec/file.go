@@ -154,12 +154,17 @@ func (fi *FileInfo) OpenExecutable() (*os.File, error) {
 		return nil, err
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	//nolint:unconvert,nolintlint // Dev is int32 on Darwin but uint64 on Linux, so the conversion is only redundant on Linux.
-	if !ok || uint64(stat.Dev) != fi.dev || stat.Ino != fi.ino {
+	if !ok || deviceID(stat.Dev) != fi.dev || stat.Ino != fi.ino {
 		_ = f.Close()
 		return nil, fmt.Errorf("executable identity changed for PID %d", fi.pid)
 	}
 	return f, nil
+}
+
+// deviceID widens syscall.Stat_t.Dev, which is int32 on Darwin and uint64 on Linux. The generic
+// conversion keeps the unconvert linter quiet on platforms where it would be redundant.
+func deviceID[T ~int32 | ~uint64](dev T) uint64 {
+	return uint64(dev)
 }
 
 func (fi *FileInfo) ExecutableName() string {
