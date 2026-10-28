@@ -653,10 +653,18 @@ metric-specific pattern to affect only metrics. Selecting an attribute does
 not enable a payload extractor or metadata resolver. `service.peer.name`
 requires an eligible client span with a peer name available to OBI.
 
-Existing standalone `enrich.attributes.select` generation entries remain
-accepted. Migration emits trace and metric selection only in
-`capture.attributes.select`. Supplying trace or metric selection in both
-locations is an error, including entries for different signals.
+Existing standalone configurations using `enrich.attributes.select` continue
+working unchanged after upgrade. Migration emits trace and metric selection
+only in `capture.attributes.select`.
+
+Use one location for all trace and metric selection. If adopting
+`capture.attributes.select`, move all trace and metric entries there and remove
+them from `enrich.attributes.select`. The two locations are not merged, and
+neither takes precedence. Configuring the new selection block while keeping
+trace or metric entries in the old location is an error, even when the entries
+are identical, address different signals, or the new block is `select: {}`.
+When combining configuration fragments, check the resulting configuration for
+this conflict.
 
 Resource selection stays under `enrich.attributes.select.resource` in
 standalone mode and may accompany capture attribute selection. The `resource`

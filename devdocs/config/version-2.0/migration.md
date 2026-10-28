@@ -721,6 +721,9 @@ its existing wildcard semantics. In standalone output the same entries are
 under `extensions.obi.capture.attributes.select`. Existing standalone v2
 generation entries under `enrich.attributes.select` remain accepted as
 compatibility inputs; no migration of those existing files is required.
+If moving an existing v2 configuration to the new location, move all trace and
+metric selection entries together; see the
+[attribute selection compatibility rules](config-v2.md#captureattributesselect-section).
 
 Legacy receiver fields whose v2 destinations are standalone-only—such as
 Kubernetes enrichment, resource-attribute filtering, name resolution, log
