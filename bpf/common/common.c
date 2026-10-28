@@ -45,3 +45,4 @@ const enum ringbuf_id *unused_21 __attribute__((unused));
 const exception_event_header_t *unused_22 __attribute__((unused));
 const enum exception_runtime *unused_23 __attribute__((unused));
 const enum exception_owner *unused_24 __attribute__((unused));
+const process_event_t *unused_25 __attribute__((unused));
