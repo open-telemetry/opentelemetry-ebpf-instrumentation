@@ -312,6 +312,45 @@ func TestAppMetrics_HTTPErrorType(t *testing.T) {
 	}, timeout, 100*time.Millisecond)
 }
 
+func TestAppMetrics_HTTP2ServerAddress(t *testing.T) {
+	ctx := t.Context()
+	registry, promURL := newPrometheusTestServer(t)
+	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	exporter, err := PrometheusEndpoint(
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{
+			Port:                        registry.Port,
+			Path:                        "/metrics",
+			TTL:                         3 * time.Minute,
+			SpanMetricsServiceCacheSize: 10,
+			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
+			attributes.HTTPServerDuration.Section: attributes.InclusionLists{Include: []string{string(attr.ServerAddr)}},
+		}},
+		request.UnresolvedNames{}, promInput, processEvents, nil,
+	)(ctx)
+	require.NoError(t, err)
+	go exporter(ctx)
+
+	span := request.Span{
+		Type:             request.EventTypeHTTP,
+		Method:           "GET",
+		Path:             "/users",
+		Status:           200,
+		Host:             "10.0.0.1",
+		RequestAuthority: "api.example.com:8443",
+	}
+	span.HostName = "service-name"
+	span.Service = svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}
+	promInput.Send([]request.Span{span})
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.Regexp(ct, `http_server_request_duration_seconds_count\{[^}]*server_address="api.example.com"[^}]*\} 1`, getMetrics(ct, promURL))
+	}, timeout, 100*time.Millisecond)
+}
+
 func TestAppMetrics_HTTPRouteLabels(t *testing.T) {
 	features := export.FeatureApplicationRED | export.FeatureApplicationSizes
 	ctx := t.Context()
