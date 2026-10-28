@@ -39,8 +39,10 @@ func testDotnetExceptionMetrics(t *testing.T, client *http.Client, workload, run
 			previous[index] = values
 		}
 		var reference struct {
-			Before map[string]uint64 `json:"before"`
-			After  map[string]uint64 `json:"after"`
+			Before         map[string]uint64 `json:"before"`
+			After          map[string]uint64 `json:"after"`
+			MeterAvailable bool              `json:"meterAvailable"`
+			Meter          map[string]uint64 `json:"meter"`
 		}
 		response, err := client.Post(workload+"/exceptions-run", "application/json", nil)
 		require.NoError(t, err)
@@ -48,18 +50,18 @@ func testDotnetExceptionMetrics(t *testing.T, client *http.Client, workload, run
 		require.NoError(t, json.NewDecoder(response.Body).Decode(&reference))
 		require.NoError(t, response.Body.Close())
 		require.Len(t, reference.After, 7)
-		if runtimeVersion != "8.0" {
-			require.Never(t, func() bool {
-				for _, endpoint := range endpoints {
-					values, err := scrapeDotnetExceptions(client, endpoint)
-					require.NoError(t, err)
-					if len(values) != 0 {
-						return true
-					}
-				}
-				return false
-			}, 3*time.Second, time.Second)
-			return
+		if runtimeVersion == "8.0" {
+			require.False(t, reference.MeterAvailable)
+			require.Empty(t, reference.Meter)
+		} else {
+			require.True(t, reference.MeterAvailable)
+			require.Equal(t, reference.After, reference.Meter, "built-in Meter must match FirstChance counts")
+		}
+		for name, count := range map[string]uint64{
+			"Pr5Caught": 1, "Pr5Rethrown": 2, "Pr5ExplicitRethrow": 2, "Pr5Dispatch": 2,
+			"Pr5Generic`1": 1, "Pr5Nested": 1, "Pr5Background": 1,
+		} {
+			require.Equal(t, count, reference.After[name]-reference.Before[name], name)
 		}
 		for index, endpoint := range endpoints {
 			want := make(map[string]float64)

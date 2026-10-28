@@ -306,6 +306,11 @@ The `capture` grouping was introduced for two reasons:
 - `channels`: internal backpressure controls.
 - `telemetry`: reporter cache sizes and metric TTL tuning for OBI capture internals.
 
+Within `capture.telemetry.metrics`, `ttl` controls the general metric-series
+retention (5 minutes by default). `connection_info_ttl` controls connection-info
+edge retention independently (15 minutes by default) for both OTLP and
+Prometheus exporters.
+
 #### Workload selection: `capture.policy` and `capture.rules`
 
 `capture.policy` defines global rule evaluation behavior, and `capture.rules` is an ordered list of workload inclusion/exclusion rules.
@@ -540,7 +545,7 @@ Global route discovery remains under `http.routes.discovery` because harvesting 
 HTTP `payload_extraction` uses the same list-based enablement model as other instrumentation selectors:
 
 - `payload_extraction.enabled` is the only enablement surface.
-- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, `retrieval`, `ollama`, `openai_compatible`, `jsonrpc`, and `enrichment`.
+- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, `retrieval`, `ollama`, `cohere`, `openai_compatible`, `jsonrpc`, and `enrichment`.
 - Nested extractor blocks are for tuning, not duplicate enablement. For example, `payload_extraction.sqlpp.endpoint_patterns` refines SQL++ matching after `sqlpp` is enabled in the list.
 - If future aliases or families are needed, they should be added as values in the same `enabled` list rather than introducing parallel knobs.
 
@@ -890,6 +895,7 @@ Important mapping notes:
 | `otel_metrics_export.protocol` | Selects `meter_provider.readers[0].periodic.exporter.otlp_grpc` or, with gated HTTP support, `.otlp_http` plus its `encoding` | The exporter shape encodes the protocol; automatic migration currently supports gRPC |
 | `otel_metrics_export.reporters_cache_len` | `extensions.obi.capture.telemetry.metrics.reporters_cache_len` | Move to capture telemetry tuning |
 | `otel_metrics_export.ttl` | `extensions.obi.capture.telemetry.metrics.ttl` | Move to capture telemetry tuning |
+| N/A | `extensions.obi.capture.telemetry.metrics.connection_info_ttl` | Config v2-only connection-info edge retention, defaults to 15 minutes |
 | `otel_traces_export.endpoint` | `tracer_provider.processors[0].batch.exporter.otlp_grpc.endpoint` or, with gated HTTP support, `.otlp_http.endpoint` | OTel ownership move; automatic migration emits gRPC, while HTTP requires the documented manual mapping |
 | `otel_traces_export.instrumentations` | `extensions.obi.capture.instrumentation.<protocol>.enabled.traces` | Only protocols modeled by v2 |
 | `otel_traces_export.protocol` | Selects `tracer_provider.processors[0].batch.exporter.otlp_grpc` or, with gated HTTP support, `.otlp_http` plus its `encoding` | The exporter shape encodes the protocol; automatic migration currently supports gRPC |
@@ -985,6 +991,67 @@ Config v2 supports environment substitution in YAML, such as
 `project_id: ${GCE_PROJECT_ID}`. The GCE source and its settings are available
 through Config v2 only. See the
 [standalone example](examples/gce-service-resolution.yaml).
+
+## Azure service name resolution
+
+The `azure` service name source uses Uniform and Flexible Virtual Machine Scale Set names
+for automatic local service names and remote private-IP names. Enable it in
+Config v2:
+
+```yaml
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      enrichers:
+        cloud:
+          refresh_interval: 30s
+      service_name:
+        sources: [azure]
+        azure:
+          subscription_id: "${AZURE_SUBSCRIPTION_ID}"
+          resource_group: "${AZURE_RESOURCE_GROUP}"
+```
+
+Both scope settings are optional when the Azure VM metadata service supplies
+the host's ARM resource ID. Each omitted setting uses the detected value. Discovery
+runs only on detected Azure VM hosts outside Kubernetes and covers one subscription
+and resource group. See the [standalone example](examples/azure-service-resolution.yaml).
+
+OBI uses Azure `DefaultAzureCredential`. On Azure, assign a managed identity to
+the VM scale set and grant it Reader access to the selected resource group.
+The resolver reads scale sets, their virtual machines, and their network
+interfaces. The corresponding read actions are:
+
+- `Microsoft.Compute/virtualMachineScaleSets/read`
+- `Microsoft.Compute/virtualMachineScaleSets/virtualMachines/read`
+- `Microsoft.Compute/virtualMachineScaleSets/networkInterfaces/read`
+- `Microsoft.Compute/virtualMachines/read` for Flexible members
+- `Microsoft.Network/networkInterfaces/read` for Flexible members' interfaces
+
+Flexible members can reference network interfaces in another resource group
+within the selected subscription. Grant read access to those interfaces too.
+
+Automatic resource-provider registration is disabled. This implementation targets
+Azure public cloud and supports Uniform and Flexible scale sets.
+
+Only running VMs contribute names. A local automatic name becomes the scale-set
+name when the detected VM UUID belongs to the selected scope. An exported
+`host.id` override does not change this match. Explicit service names and
+container inventory names take precedence; Kubernetes hosts keep their local
+service identity. A scope override can discover remote peers, but only a scope
+matching the detected host can rename local processes.
+
+Discovery refreshes at `enrich.enrichers.cloud.refresh_interval` and has a
+30-second deadline per refresh. Failed refreshes retain the last complete
+inventory. Successful refreshes remove stale mappings and update tracked
+processes, including `target_info`, without waiting for application traffic.
+After membership removal, a process returns to its original automatic name.
+
+Private IPv4 and IPv6 addresses resolve to scale-set names. If multiple VMs
+share an address across networks in the selected resource group, that ambiguous
+address is omitted. Public IPs and Azure Container Apps are outside this source's
+scope. The source and its settings are available only in Config v2.
 
 ## Related docs
 

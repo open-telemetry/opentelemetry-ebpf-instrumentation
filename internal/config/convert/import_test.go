@@ -57,6 +57,43 @@ func TestV2ToRuntimeDefaultExportFoundation(t *testing.T) {
 	require.NotContains(t, got.Traces.Instrumentations, instrumentations.InstrumentationDNS)
 	require.Contains(t, got.OTELMetrics.Instrumentations, instrumentations.InstrumentationHTTP)
 	require.NotContains(t, got.OTELMetrics.Instrumentations, instrumentations.InstrumentationDNS)
+	require.Equal(t, export.DefaultConnectionInfoTTL, got.OTELMetrics.ConnectionInfoTTL)
+	require.Equal(t, export.DefaultConnectionInfoTTL, got.Prometheus.ConnectionInfoTTL)
+}
+
+func TestV2ConnectionInfoTTLOverrideIsIndependentFromMetricsTTL(t *testing.T) {
+	t.Parallel()
+
+	_, ext := RuntimeToV2(nil)
+	ext.Capture.Telemetry.Metrics.TTL = schema.Duration(4 * time.Minute)
+	ext.Capture.Telemetry.Metrics.ConnectionInfoTTL = schema.Duration(11 * time.Minute)
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.Equal(t, 4*time.Minute, got.OTELMetrics.TTL)
+	require.Equal(t, 11*time.Minute, got.OTELMetrics.ConnectionInfoTTL)
+	require.Equal(t, 11*time.Minute, got.Prometheus.ConnectionInfoTTL)
+
+	ext.Capture.Telemetry.Metrics.ConnectionInfoTTL = schema.Duration(-time.Minute)
+	_, err = V2ToRuntime(ext)
+	require.EqualError(t, err, "capture.telemetry.metrics.connection_info_ttl must not be negative")
+
+	_, parsed, err := schema.ParseStandaloneYAML([]byte(`file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      telemetry:
+        metrics:
+          ttl: 4m
+          connection_info_ttl: 11m
+`))
+	require.NoError(t, err)
+	parsedConfig, err := V2ToRuntime(parsed)
+	require.NoError(t, err)
+	require.Equal(t, 4*time.Minute, parsedConfig.OTELMetrics.TTL)
+	require.Equal(t, 11*time.Minute, parsedConfig.OTELMetrics.ConnectionInfoTTL)
+	require.Equal(t, 11*time.Minute, parsedConfig.Prometheus.ConnectionInfoTTL)
 }
 
 func TestV2ToRuntimeFlowLimitAliases(t *testing.T) {
@@ -457,6 +494,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.OTELMetrics.ReportersCacheLen = 302
 	cfg.OTELMetrics.MetricsEndpoint = "http://localhost:4318"
 	cfg.OTELMetrics.TTL = 303 * time.Second
+	cfg.OTELMetrics.ConnectionInfoTTL = 304 * time.Second
 	cfg.OTELMetrics.Instrumentations = []instrumentations.Instrumentation{
 		instrumentations.InstrumentationHTTP,
 	}
@@ -604,6 +642,8 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.Equal(t, 301, got.Traces.ReportersCacheLen)
 	require.Equal(t, 302, got.OTELMetrics.ReportersCacheLen)
 	require.Equal(t, 303*time.Second, got.OTELMetrics.TTL)
+	require.Equal(t, 304*time.Second, got.OTELMetrics.ConnectionInfoTTL)
+	require.Equal(t, 304*time.Second, got.Prometheus.ConnectionInfoTTL)
 
 	require.Equal(t, "198.51.100.1", got.Stats.AgentIP)
 	require.Equal(t, obi.AgentTypeIface(obi.NetworkAgentIPIfaceLocal), got.Stats.AgentIPIface)

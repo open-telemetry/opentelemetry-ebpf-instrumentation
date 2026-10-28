@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"io"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -23,6 +24,9 @@ func TestDecodeEventBlockPreservesRuntimeEventOrder(t *testing.T) {
 		2: {
 			Header: netTraceMetadataHeader{ProviderName: "Microsoft-Windows-DotNETRuntime", EventID: 80, Version: 1},
 		},
+		3: {
+			Header: netTraceMetadataHeader{ProviderName: "Microsoft-Windows-DotNETRuntime", EventID: clrGCStartEventID, Version: 2},
+		},
 	}}
 	// Compressed block with zero timestamp bounds.
 	wire, err := hex.DecodeString("1400010000000000000000000000000000000000")
@@ -33,6 +37,9 @@ func TestDecodeEventBlockPreservesRuntimeEventOrder(t *testing.T) {
 		wire = append(wire, payload...)
 	}
 	appendEvent(1, binary.LittleEndian.AppendUint32(nil, 2))
+	start, err := hex.DecodeString("2a00000002000000070000000100000003006300000000000000")
+	require.NoError(t, err)
+	appendEvent(3, start)
 	appendEvent(2, clrExceptionPayload("System.InvalidOperationException", 8))
 	appendEvent(1, binary.LittleEndian.AppendUint32(nil, 4))
 
@@ -40,9 +47,58 @@ func TestDecodeEventBlockPreservesRuntimeEventOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []netTraceRuntimeEvent{
 		{counter: runtimeCounter{Name: "processor-count", Value: 2}},
-		{exceptionType: "System.InvalidOperationException"},
+		{exceptionType: "InvalidOperationException", exceptionCount: 1},
 		{counter: runtimeCounter{Name: "processor-count", Value: 4}},
 	}, events)
+	require.Equal(t, []gcRuntimeEvent{
+		{eventID: clrGCStartEventID, collection: gcCollectionEvent{count: 42, depth: 2, clrInstanceID: 3}},
+	}, decoder.gcOrder.pending, "GC events wait for a watermark")
+}
+
+func TestReadCapturedGCRuntimeEvents(t *testing.T) {
+	wire, err := os.ReadFile("testdata/gc-net10.nettrace")
+	require.NoError(t, err)
+	info, err := readNetTracePreamble(newNetTraceReader(bytes.NewReader(wire)))
+	require.NoError(t, err)
+	counts := map[uint32]int{}
+	var fragmented bool
+	var previousTimestamp int64
+	err = readRuntimeEvents(bytes.NewReader(wire), uint64(info.ProcessID), "", func(event netTraceRuntimeEvent) error {
+		require.NotNil(t, event.gc)
+		require.Positive(t, event.gc.timestamp)
+		require.Positive(t, event.gc.threadID)
+		require.GreaterOrEqual(t, event.gc.timestamp, previousTimestamp)
+		previousTimestamp = event.gc.timestamp
+		counts[event.gc.eventID]++
+		for _, value := range event.gc.perHeapHistory.fragmentation {
+			fragmented = fragmented || value > 0
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.True(t, fragmented, "captured heap records contain nonzero fragmentation")
+	require.Equal(t, map[uint32]int{
+		clrGCStartEventID: 17, clrGCEndEventID: 17,
+		clrGCGlobalHeapHistoryEventID: 17, clrGCPerHeapHistoryEventID: 30,
+	}, counts)
+}
+
+func TestDecodeEventBlockRejectsEmptyNormalizedCLRName(t *testing.T) {
+	for _, name := range []string{"Contoso.", "[System.String]"} {
+		t.Run(name, func(t *testing.T) {
+			decoder := netTraceDecoder{pointerSize: 8, metadata: map[uint32]netTraceMetadata{
+				1: {Header: netTraceMetadataHeader{ProviderName: "Microsoft-Windows-DotNETRuntime", EventID: 80, Version: 1}},
+			}}
+			wire, err := hex.DecodeString("1400010000000000000000000000000000000000")
+			require.NoError(t, err)
+			payload := clrExceptionPayload(name, 8)
+			wire = append(wire, netTraceMetadataIDFlag|netTracePayloadSizeFlag, 1, 0)
+			wire = binary.AppendUvarint(wire, uint64(len(payload)))
+			wire = append(wire, payload...)
+			_, err = decoder.decodeEventBlock("EventBlock", wire)
+			require.ErrorContains(t, err, "empty name")
+		})
+	}
 }
 
 func TestNetTraceSequenceChecks(t *testing.T) {
@@ -96,13 +152,13 @@ func TestReadRuntimeEvents(t *testing.T) {
 	}
 	t.Run("explicit end marker", func(t *testing.T) {
 		input := append(bytes.Clone(wire), 1)
-		require.NoError(t, readRuntimeEvents(bytes.NewReader(input), 15, consume))
+		require.NoError(t, readRuntimeEvents(bytes.NewReader(input), 15, "", consume))
 	})
 	t.Run("unexpected EOF", func(t *testing.T) {
-		require.ErrorIs(t, readRuntimeEvents(bytes.NewReader(wire), 15, consume), io.EOF)
+		require.ErrorIs(t, readRuntimeEvents(bytes.NewReader(wire), 15, "", consume), io.EOF)
 	})
 	t.Run("wrong process", func(t *testing.T) {
-		require.ErrorContains(t, readRuntimeEvents(bytes.NewReader(wire), 42, consume),
+		require.ErrorContains(t, readRuntimeEvents(bytes.NewReader(wire), 42, "", consume),
 			"does not match expected PID")
 	})
 }

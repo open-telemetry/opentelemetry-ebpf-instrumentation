@@ -8,6 +8,7 @@ package dotnet
 import (
 	"bytes"
 	"encoding/binary"
+	"strconv"
 	"testing"
 	"unicode/utf16"
 
@@ -24,6 +25,11 @@ func runtimeCounterStream(t *testing.T, pid int32, counters []runtimeCounter) []
 }
 
 func runtimeEventStream(t *testing.T, pid int32, records []netTraceRuntimeEvent, reportLoss bool) []byte {
+	t.Helper()
+	return runtimeEventStreamWithMeter(t, pid, records, reportLoss, "")
+}
+
+func runtimeEventStreamWithMeter(t *testing.T, pid int32, records []netTraceRuntimeEvent, reportLoss bool, metricsSessionID string) []byte {
 	t.Helper()
 	write := func(buffer *bytes.Buffer, value any) {
 		t.Helper()
@@ -116,11 +122,60 @@ func runtimeEventStream(t *testing.T, pid int32, records []netTraceRuntimeEvent,
 	write(&metadata, uint32(2))
 	write(&metadata, uint32(0))
 	writeEvent(&events, 0, metadata.Bytes())
+	if metricsSessionID != "" {
+		metadata.Reset()
+		write(&metadata, uint32(4))
+		writeString(&metadata, "System.Diagnostics.Metrics")
+		write(&metadata, uint32(4))
+		writeString(&metadata, "CounterRateValuePublished")
+		write(&metadata, uint64(2))
+		write(&metadata, uint32(0))
+		write(&metadata, uint32(4))
+		names := []string{"sessionId", "meterName", "meterVersion", "instrumentName", "unit", "tags", "rate", "value"}
+		write(&metadata, uint32(len(names)+1))
+		for _, name := range names {
+			write(&metadata, netTraceTypeString)
+			writeString(&metadata, name)
+		}
+		write(&metadata, netTraceTypeInt32)
+		writeString(&metadata, "instrumentId")
+		writeEvent(&events, 0, metadata.Bytes())
+	}
+	metadata.Reset()
+	write(&metadata, uint32(5))
+	writeString(&metadata, "Microsoft-Windows-DotNETRuntime")
+	write(&metadata, clrGCStartEventID)
+	writeString(&metadata, "GCStart")
+	write(&metadata, uint64(1))
+	write(&metadata, uint32(2))
+	write(&metadata, uint32(4))
+	write(&metadata, uint32(0))
+	writeEvent(&events, 0, metadata.Bytes())
 	writeBlock("MetadataBlock", events.Bytes())
 	events.Reset()
 	for _, record := range records {
 		var payload bytes.Buffer
+		if record.gc != nil {
+			require.Equal(t, clrGCStartEventID, record.gc.eventID)
+			write(&payload, record.gc.collection.count)
+			write(&payload, record.gc.collection.depth)
+			write(&payload, uint32(0)) // Reason.
+			write(&payload, uint32(0)) // Type.
+			write(&payload, record.gc.collection.clrInstanceID)
+			write(&payload, uint64(0)) // Client sequence number.
+			writeEvent(&events, 5, payload.Bytes())
+			continue
+		}
 		if record.exceptionType != "" {
+			if metricsSessionID != "" {
+				count := strconv.FormatUint(record.exceptionCount, 10)
+				for _, value := range []string{metricsSessionID, "System.Runtime", "", "dotnet.exceptions", "{exception}", "error.type=" + record.exceptionType, count, count} {
+					writeString(&payload, value)
+				}
+				write(&payload, int32(1))
+				writeEvent(&events, 4, payload.Bytes())
+				continue
+			}
 			payload.Write(clrExceptionPayload(record.exceptionType, 8))
 			writeEvent(&events, 3, payload.Bytes())
 			continue

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
@@ -20,6 +21,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
@@ -40,16 +42,18 @@ func sglog() *slog.Logger {
 // SvcGraphMetricsReporter implements the graph node that receives request.Span
 // instances and forwards them as OTEL metrics.
 type SvcGraphMetricsReporter struct {
-	ctx              context.Context
-	evictions        sync.WaitGroup
-	cfg              *otelcfg.MetricsConfig
-	nodeMeta         metadata.NodeMeta
-	exporter         sdkmetric.Exporter
-	reporters        otelcfg.ReporterPool[*svc.Attrs, *SvcGraphMetrics]
-	pidTracker       PidServiceTracker
-	is               instrumentations.InstrumentationSelection
-	metricAttributes []attributes.Field[*request.Span, attribute.KeyValue]
-	selector         attributes.Selection
+	ctx                   context.Context
+	evictions             sync.WaitGroup
+	cfg                   *otelcfg.MetricsConfig
+	nodeMeta              metadata.NodeMeta
+	exporter              sdkmetric.Exporter
+	reporters             otelcfg.ReporterPool[*svc.Attrs, *SvcGraphMetrics]
+	pidTracker            PidServiceTracker
+	is                    instrumentations.InstrumentationSelection
+	metricAttributes      []attributes.Field[*request.Span, attribute.KeyValue]
+	selector              attributes.Selection
+	serviceGraphEnabled   bool
+	connectionInfoEnabled bool
 
 	input         <-chan []request.Span
 	processEvents <-chan exec.ProcessEvent
@@ -66,10 +70,12 @@ type SvcGraphMetrics struct {
 	resourceAttributes       []attribute.KeyValue
 	tracesResourceAttributes attribute.Set
 
-	serviceGraphClient *Expirer[*request.Span, instrument.Float64Histogram, float64]
-	serviceGraphServer *Expirer[*request.Span, instrument.Float64Histogram, float64]
-	serviceGraphFailed *Expirer[*request.Span, instrument.Int64Counter, int64]
-	serviceGraphTotal  *Expirer[*request.Span, instrument.Int64Counter, int64]
+	serviceGraphClient    *Expirer[*request.Span, instrument.Float64Histogram, float64]
+	serviceGraphServer    *Expirer[*request.Span, instrument.Float64Histogram, float64]
+	serviceGraphFailed    *Expirer[*request.Span, instrument.Int64Counter, int64]
+	serviceGraphTotal     *Expirer[*request.Span, instrument.Int64Counter, int64]
+	connectionInfo        *Expirer[*request.Span, instrument.Int64Gauge, int64]
+	connectionInfoEnabled bool
 }
 
 func ReportSvcGraphMetrics(
@@ -82,7 +88,7 @@ func ReportSvcGraphMetrics(
 	processEvents *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
-		if !cfg.EndpointEnabled() || !jointMetricsConfig.Features.ServiceGraph() {
+		if !cfg.EndpointEnabled() || !jointMetricsConfig.Features.ServiceTopology() {
 			return swarm.EmptyRunFunc()
 		}
 		otelcfg.SetupInternalOTELSDKLogger(cfg.SDKLogLevel)
@@ -91,6 +97,7 @@ func ReportSvcGraphMetrics(
 			ctx,
 			ctxInfo,
 			cfg,
+			jointMetricsConfig,
 			selectorCfg,
 			unresolved,
 			input,
@@ -108,6 +115,7 @@ func newSvcGraphMetricsReporter(
 	ctx context.Context,
 	ctxInfo *global.ContextInfo,
 	cfg *otelcfg.MetricsConfig,
+	jointMetricsConfig *perapp.GlobalMetricsConfig,
 	selectorCfg *attributes.SelectorConfig,
 	unresolved request.UnresolvedNames,
 	input *msg.Queue[[]request.Span],
@@ -118,19 +126,24 @@ func newSvcGraphMetricsReporter(
 	is := instrumentations.NewInstrumentationSelection(cfg.Instrumentations)
 
 	mr := SvcGraphMetricsReporter{
-		ctx:              ctx,
-		cfg:              cfg,
-		is:               is,
-		nodeMeta:         ctxInfo.NodeMeta,
-		input:            input.Subscribe(msg.SubscriberName("otel.SvcGraphMetricsReporter.input")),
-		processEvents:    processEventCh.Subscribe(msg.SubscriberName("otel.SvcGraphMetricsReporter.processEvents")),
-		metricAttributes: serviceGraphGetters(unresolved, ctxInfo.K8sInformer.IsKubeEnabled()),
-		selector:         selectorCfg.SelectionCfg,
-		log:              log,
+		ctx:                   ctx,
+		cfg:                   cfg,
+		is:                    is,
+		nodeMeta:              ctxInfo.NodeMeta,
+		input:                 input.Subscribe(msg.SubscriberName("otel.SvcGraphMetricsReporter.input")),
+		processEvents:         processEventCh.Subscribe(msg.SubscriberName("otel.SvcGraphMetricsReporter.processEvents")),
+		metricAttributes:      serviceGraphGetters(unresolved, ctxInfo.K8sInformer.IsKubeEnabled()),
+		selector:              selectorCfg.SelectionCfg,
+		serviceGraphEnabled:   jointMetricsConfig.Features.ServiceGraph(),
+		connectionInfoEnabled: jointMetricsConfig.Features.ConnectionInfo(),
+		log:                   log,
 	}
 
 	var err error
-	mr.reporters, err = otelcfg.NewReporterPool[*svc.Attrs, *SvcGraphMetrics](cfg.ReportersCacheLen, cfg.TTL, timeNow,
+	connectionInfoTTL := export.ConnectionInfoTTLOrDefault(cfg.ConnectionInfoTTL)
+	// The shared reporter may outlive graph instruments so connection-info edges can retain their own TTL.
+	mr.reporters, err = otelcfg.NewReporterPool[*svc.Attrs, *SvcGraphMetrics](
+		cfg.ReportersCacheLen, serviceGraphReporterTTL(cfg.TTL, connectionInfoTTL, mr.connectionInfoEnabled), timeNow,
 		func(id svc.UID, v *SvcGraphMetrics) {
 			llog := log.With("service", id)
 			llog.Debug("evicting metrics reporter from cache")
@@ -158,6 +171,16 @@ func newSvcGraphMetricsReporter(
 	mr.pidTracker = NewPidServiceTracker()
 
 	return &mr, nil
+}
+
+func serviceGraphReporterTTL(metricsTTL, connectionInfoTTL time.Duration, connectionInfoEnabled bool) time.Duration {
+	if !connectionInfoEnabled {
+		return metricsTTL
+	}
+	if connectionInfoTTL > metricsTTL {
+		return connectionInfoTTL
+	}
+	return metricsTTL
 }
 
 func (mr *SvcGraphMetricsReporter) graphMetricOptions() []metric.Option {
@@ -211,6 +234,20 @@ func (mr *SvcGraphMetricsReporter) otelHistogramConfig(metricName string, bucket
 
 func (mr *SvcGraphMetricsReporter) setupGraphMeters(m *SvcGraphMetrics, meter instrument.Meter) error {
 	var err error
+	if m.connectionInfoEnabled {
+		gauge, err := meter.Int64Gauge(attributes.ServiceGraphConnectionInfo.OTEL)
+		if err != nil {
+			return fmt.Errorf("creating service graph connection info gauge: %w", err)
+		}
+		m.connectionInfo = NewExpirer[*request.Span, instrument.Int64Gauge, int64](
+			m.ctx, gauge, connectionInfoGetters(mr.metricAttributes), timeNow,
+			export.ConnectionInfoTTLOrDefault(mr.cfg.ConnectionInfoTTL),
+		)
+	}
+
+	if !mr.serviceGraphEnabled {
+		return nil
+	}
 
 	client := attributes.ServiceGraphClient
 	serviceGraphClient, err := meter.Float64Histogram(client.OTEL, instrument.WithUnit(client.Unit))
@@ -262,9 +299,11 @@ func (mr *SvcGraphMetricsReporter) newSvcGraphMetricsInstance(service *svc.Attrs
 			metric.WithInterval(mr.cfg.Interval))),
 	}
 
-	opts = append(opts, mr.graphMetricOptions()...)
+	if mr.serviceGraphEnabled {
+		opts = append(opts, mr.graphMetricOptions()...)
+	}
 
-	return &SvcGraphMetrics{
+	m := &SvcGraphMetrics{
 		ctx:                      mr.ctx,
 		service:                  service,
 		resourceAttributes:       resourceAttributes,
@@ -272,7 +311,9 @@ func (mr *SvcGraphMetricsReporter) newSvcGraphMetricsInstance(service *svc.Attrs
 		provider: metric.NewMeterProvider(
 			opts...,
 		),
+		connectionInfoEnabled: mr.connectionInfoEnabled,
 	}
+	return m
 }
 
 func (mr *SvcGraphMetricsReporter) newMetricSet(service *svc.Attrs) (*SvcGraphMetrics, error) {
@@ -356,7 +397,16 @@ func serviceGraphGetters(unresolved request.UnresolvedNames, k8sEnabled bool) []
 }
 
 func (r *SvcGraphMetrics) record(span *request.Span, mr *SvcGraphMetricsReporter) {
-	if span.IsDNSSpan() {
+	if span.IsDNSSpan() || !span.Service.Features.ServiceTopology() {
+		return
+	}
+	if span.Service.Features.ConnectionInfo() {
+		if request.HasConnectionInfoEdge(span) {
+			gauge, attrs := r.connectionInfo.ForRecord(span, connectionInfoExtraAttrs(span, &mr.pidTracker)...)
+			gauge.Record(r.ctx, 1, instrument.WithAttributeSet(attrs))
+		}
+	}
+	if !mr.serviceGraphEnabled || !span.Service.Features.ServiceGraph() {
 		return
 	}
 
@@ -407,6 +457,40 @@ func (r *SvcGraphMetrics) record(span *request.Span, mr *SvcGraphMetricsReporter
 	}
 }
 
+func connectionInfoGetters(
+	fields []attributes.Field[*request.Span, attribute.KeyValue],
+) []attributes.Field[*request.Span, attribute.KeyValue] {
+	getters := append([]attributes.Field[*request.Span, attribute.KeyValue](nil), fields...)
+	for i := range getters {
+		switch getters[i].ExposedName {
+		case string(attr.Client.OTEL()):
+			getters[i].Get = func(span *request.Span) attribute.KeyValue {
+				return attribute.String(string(attr.Client.OTEL()), span.Service.UID.Name)
+			}
+		case string(attr.ClientNamespace.OTEL()):
+			getters[i].Get = func(span *request.Span) attribute.KeyValue {
+				return attribute.String(string(attr.ClientNamespace.OTEL()), span.Service.UID.Namespace)
+			}
+		case string(attr.Server.OTEL()):
+			getters[i].Get = func(span *request.Span) attribute.KeyValue {
+				return attribute.String(string(attr.Server.OTEL()), span.HostName)
+			}
+		case string(attr.ServerNamespace.OTEL()):
+			getters[i].Get = func(span *request.Span) attribute.KeyValue {
+				return attribute.String(string(attr.ServerNamespace.OTEL()), span.OtherNamespace)
+			}
+		}
+	}
+	return getters
+}
+
+func connectionInfoExtraAttrs(span *request.Span, tracker *PidServiceTracker) []attribute.KeyValue {
+	if connectionType := ConnectionTypeForSpan(span, tracker); connectionType != "" {
+		return []attribute.KeyValue{request.ConnectionTypeMetric(connectionType)}
+	}
+	return nil
+}
+
 func ConnectionTypeForSpan(span *request.Span, tracker *PidServiceTracker) string {
 	connType := span.ServiceGraphConnectionType()
 	if connType != "" {
@@ -443,6 +527,16 @@ func (mr *SvcGraphMetricsReporter) disassociatePIDFromService(pid app.PID) (bool
 
 func (mr *SvcGraphMetricsReporter) reportMetrics(ctx context.Context) {
 	defer mr.close()
+	var expiryTicker *time.Ticker
+	var expiry <-chan time.Time
+	if mr.connectionInfoEnabled {
+		interval := connectionInfoExpiryInterval(
+			mr.cfg.GetInterval(), mr.cfg.TTL, export.ConnectionInfoTTLOrDefault(mr.cfg.ConnectionInfoTTL),
+		)
+		expiryTicker = time.NewTicker(interval)
+		expiry = expiryTicker.C
+		defer expiryTicker.Stop()
+	}
 	for {
 		select {
 		case <-ctx.Done():
@@ -460,7 +554,39 @@ func (mr *SvcGraphMetricsReporter) reportMetrics(ctx context.Context) {
 				return
 			}
 			mr.onSpan(spans)
+		case <-expiry:
+			mr.reporters.ForEach(func(_ svc.UID, reporter *SvcGraphMetrics) {
+				reporter.expireMetrics()
+			})
 		}
+	}
+}
+
+func connectionInfoExpiryInterval(interval, metricsTTL, connectionInfoTTL time.Duration) time.Duration {
+	for _, candidate := range []time.Duration{metricsTTL, connectionInfoTTL} {
+		if candidate > 0 && (interval <= 0 || candidate < interval) {
+			interval = candidate
+		}
+	}
+	if interval <= 0 {
+		return connectionInfoTTL
+	}
+	return interval
+}
+
+func (r *SvcGraphMetrics) expireMetrics() {
+	expireMetric(r.serviceGraphClient)
+	expireMetric(r.serviceGraphServer)
+	expireMetric(r.serviceGraphFailed)
+	expireMetric(r.serviceGraphTotal)
+	if r.connectionInfo != nil {
+		r.connectionInfo.Expire()
+	}
+}
+
+func expireMetric[Record any, M removableMetric[V], V any](expirer *Expirer[Record, M, V]) {
+	if expirer != nil {
+		expirer.Expire()
 	}
 }
 
@@ -488,7 +614,7 @@ func (mr *SvcGraphMetricsReporter) onSpan(spans []request.Span) {
 			continue
 		}
 		// If we are ignoring this span because of route patterns or features, don't do anything
-		if request.IgnoreMetrics(s) || !s.Service.Features.ServiceGraph() {
+		if request.IgnoreMetrics(s) || !s.Service.Features.ServiceTopology() {
 			continue
 		}
 		reporter, err := mr.reporters.For(&s.Service)
@@ -506,4 +632,7 @@ func (r *SvcGraphMetrics) cleanupAllMetricsInstances() {
 	cleanupMetrics(r.ctx, r.serviceGraphServer)
 	cleanupCounterMetrics(r.ctx, r.serviceGraphFailed)
 	cleanupCounterMetrics(r.ctx, r.serviceGraphTotal)
+	if r.connectionInfo != nil {
+		r.connectionInfo.RemoveAllMetrics(r.ctx)
+	}
 }

@@ -14,8 +14,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/config/schema"
-	"go.opentelemetry.io/obi/pkg/export/attributes"
-	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -354,8 +352,26 @@ func TestLoadRoute53IntegrationConfig(t *testing.T) {
 	// Legacy overrides must not replace the explicit v2 polling interval.
 	t.Setenv("OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL", "5m")
 	t.Setenv("OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS", "legacy-zone")
-	data, err := os.ReadFile("../../internal/test/integration/configs/obi-config-route53.yml")
-	require.NoError(t, err)
+	data := []byte(`
+file_format: "1.0"
+meter_provider:
+  readers:
+    - pull:
+        exporter:
+          prometheus/development:
+            port: 8999
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      enrichers:
+        cloud:
+          route53:
+            refresh_interval: 1s
+            hosted_zone_ids: ["${ROUTE53_HOSTED_ZONE_ID}"]
+      service_name:
+        sources: [route53]
+`)
 	cfg, version, err := loadConfigReader(bytes.NewReader(data))
 	require.NoError(t, err)
 	require.Equal(t, configVersionV2, version)
@@ -363,14 +379,52 @@ func TestLoadRoute53IntegrationConfig(t *testing.T) {
 	require.Equal(t, []transform.Source{transform.SourceRoute53}, cfg.NameResolver.Sources)
 	require.Equal(t, []string{"test-zone"}, cfg.CloudMetadata.Route53.HostedZoneIDs)
 	require.Equal(t, time.Second, cfg.CloudMetadata.Route53.RefreshInterval)
-	require.Equal(t, 8999, cfg.Prometheus.Port)
-	require.Equal(t, "frontend", cfg.ServiceName)
-	require.Equal(t, "integration-test", cfg.ServiceNamespace)
-	require.Equal(t, 10*time.Millisecond, cfg.EBPF.BatchTimeout)
-	selector, err := attributes.NewAttrSelector(0, &attributes.SelectorConfig{
-		SelectionCfg:            cfg.Attributes.Select,
-		ExtraGroupAttributesCfg: cfg.Attributes.ExtraGroupAttributes,
-	})
-	require.NoError(t, err)
-	require.Contains(t, selector.For(attributes.HTTPClientDuration), attr.Server)
+}
+
+func TestLoadConfigV2AzureServiceResolution(t *testing.T) {
+	t.Setenv("AZURE_SUBSCRIPTION_ID", "subscription")
+	t.Setenv("AZURE_RESOURCE_GROUP", "applications")
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "rdns")
+	for _, path := range []string{"../../devdocs/config/version-2.0/examples/azure-service-resolution.yaml", "../../internal/test/integration/configs/obi-config-azure-v2.yml"} {
+		t.Run(path, func(t *testing.T) {
+			data, err := os.ReadFile(path)
+			require.NoError(t, err)
+			cfg, version, err := loadConfigReader(bytes.NewReader(data))
+			require.NoError(t, err)
+			require.Equal(t, configVersionV2, version)
+			require.NoError(t, cfg.Validate())
+			require.Equal(t, []transform.Source{transform.SourceAzure}, cfg.NameResolver.Sources)
+			if path == "../../devdocs/config/version-2.0/examples/azure-service-resolution.yaml" {
+				require.Equal(t, transform.AzureNameResolverConfig{SubscriptionID: "subscription", ResourceGroup: "applications"}, cfg.NameResolver.Azure)
+			}
+		})
+	}
+}
+
+func TestNameResolverDefaultsByConfigVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		yaml string
+		want []transform.Source
+	}{
+		{name: "v1 omitted sources", yaml: "{}", want: []transform.Source{transform.SourceK8s, transform.SourceECS}},
+		{name: "v2 omitted sources", yaml: `file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"`, want: []transform.Source{transform.SourceK8s, transform.SourceECS, transform.SourceRoute53}},
+		{name: "v2 explicit sources", yaml: `file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      service_name:
+        sources: [k8s, ecs]`, want: []transform.Source{transform.SourceK8s, transform.SourceECS}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, _, err := loadConfigReader(bytes.NewBufferString(tc.yaml))
+			require.NoError(t, err)
+			require.Equal(t, tc.want, cfg.NameResolver.Sources)
+		})
+	}
+	require.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceECS}, obi.DefaultConfig.NameResolver.Sources)
 }

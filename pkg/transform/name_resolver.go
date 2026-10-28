@@ -41,6 +41,7 @@ const (
 	SourceECS        Source = "ecs"
 	SourceRoute53    Source = "route53"
 	SourceGCE        Source = "gce"
+	SourceAzure      Source = "azure"
 )
 
 const (
@@ -50,6 +51,7 @@ const (
 	ResolverECS
 	ResolverRoute53
 	ResolverGCE
+	ResolverAzure
 )
 
 func resolverSources(src []Source) maps.Bits {
@@ -62,6 +64,7 @@ func resolverSources(src []Source) maps.Bits {
 		SourceECS:        ResolverECS,
 		SourceRoute53:    ResolverRoute53,
 		SourceGCE:        ResolverGCE,
+		SourceAzure:      ResolverAzure,
 	}, maps.WithTransform(func(s Source) Source {
 		return Source(strings.ToLower(string(s)))
 	}))
@@ -70,7 +73,8 @@ func resolverSources(src []Source) maps.Bits {
 type NameResolverConfig struct {
 	// Sources specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns, route53.
 	// The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions.
-	// The "route53" source requires route53:ListResourceRecordSets on the configured hosted zones.
+	// The "route53" source requires route53:ListResourceRecordSets on selected zones and route53:ListHostedZones.
+	// When the VPC and region are known, it also requires route53:ListHostedZonesByVPC. Explicit zone IDs require the same permissions.
 	Sources []Source `yaml:"sources" env:"OTEL_EBPF_NAME_RESOLVER_SOURCES" envSeparator:","`
 	// GCE holds service name enrichment settings loaded from Config v2.
 	GCE GCENameResolverConfig `yaml:"-" env:"-"`
@@ -81,6 +85,14 @@ type NameResolverConfig struct {
 	// cached entry becomes older than this time, the IP->hostname entry will be looked
 	// up again.
 	CacheTTL time.Duration `yaml:"cache_expiry" env:"OTEL_EBPF_NAME_RESOLVER_CACHE_TTL" validate:"gt=0"`
+	// Azure holds service name enrichment settings loaded from Config v2.
+	Azure AzureNameResolverConfig `yaml:"-" env:"-"`
+}
+
+// AzureNameResolverConfig configures the discovery scope for Uniform and Flexible scale sets.
+type AzureNameResolverConfig struct {
+	SubscriptionID string
+	ResourceGroup  string
 }
 
 // CloudMetadataConfig configures overrides for detected cloud metadata.
@@ -113,7 +125,7 @@ type NameResolver struct {
 	store          *kube.Store
 	dnsCache       *memorystore.InMemory
 	cloudInventory *cloud.Inventory
-	gceInstanceID  string
+	instanceID     string
 	logger         *slog.Logger
 
 	sources maps.Bits
@@ -159,12 +171,10 @@ func nameResolver(ctx context.Context, ctxInfo *global.ContextInfo, cfg *NameRes
 		store:          store,
 		dnsCache:       dnsCache,
 		cloudInventory: ctxInfo.CloudMetaInventory,
+		instanceID:     localCloudInstanceID(&ctxInfo.NodeMeta, cfg),
 		cache:          expirable.NewLRU[string, string](cfg.CacheLen, nil, cfg.CacheTTL),
 		sources:        sources,
 		logger:         logger,
-	}
-	if sources.Has(ResolverGCE) {
-		nr.gceInstanceID = gceLocalInstanceID(ctxInfo.NodeMeta, cfg.GCE)
 	}
 
 	in := input.Subscribe(msg.SubscriberName("transform.NameResolver"))
@@ -277,8 +287,8 @@ func (nr *NameResolver) resolveLocalCloudInventory(span *request.Span) {
 		span.Service.UID.Name = name
 		return
 	}
-	if nr.gceInstanceID != "" {
-		if name, ok := nr.cloudInventory.ServiceNameForInstanceID(nr.gceInstanceID); ok {
+	if nr.instanceID != "" {
+		if name, ok := nr.cloudInventory.ServiceNameForInstanceID(nr.instanceID); ok {
 			span.Service.UID.Name = name
 		}
 	}

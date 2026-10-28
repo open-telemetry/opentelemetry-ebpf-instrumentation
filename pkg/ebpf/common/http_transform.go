@@ -144,7 +144,10 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 	defer req.Body.Close()
 	defer resp.Body.Close()
 
-	peer, host := (*BPFConnInfo)(&event.ConnInfo).reqHostInfo()
+	var peer, host string
+	if event.ConnInfo.S_port != 0 || event.ConnInfo.D_port != 0 {
+		peer, host = (*BPFConnInfo)(&event.ConnInfo).reqHostInfo()
+	}
 
 	scheme := req.URL.Scheme
 	if scheme == "" {
@@ -277,6 +280,13 @@ func postProcessHTTPSpan(parseCtx *EBPFParseContext, httpSpan *request.Span, req
 		}
 	}
 
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Cohere.Enabled {
+		span, ok := ebpfhttp.CohereSpan(httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
 	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.OpenAI.Enabled {
 		span, ok := ebpfhttp.OpenAISpan(httpSpan, req, resp)
 		if ok {
@@ -377,11 +387,15 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 
 	if event.HasLargeBuffers == 1 {
 		b, ok := extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, event.Tp.SpanId, packetTypeRequest, directionByPacketType(packetTypeRequest, isClient), event.ConnInfo, ProtocolTypeHTTP)
-		if ok {
-			requestBuffer = b
-		} else {
+		switch {
+		case !ok:
 			slog.Debug("missing large buffer for HTTP request", "traceID", event.Tp.TraceId, "conn", event.ConnInfo, "packetType", packetTypeRequest)
 			requestBuffer = largebuf.NewLargeBufferFrom(event.Buf[:])
+		case !largeBufferHasRequestHead(b, event.Buf[:]):
+			slog.Debug("large buffer for HTTP request lost its head", "traceID", event.Tp.TraceId, "conn", event.ConnInfo, "packetType", packetTypeRequest)
+			requestBuffer = largebuf.NewLargeBufferFrom(event.Buf[:])
+		default:
+			requestBuffer = b
 		}
 
 		b, ok = extractTCPLargeBuffer(parseCtx, event.Tp.TraceId, event.Tp.SpanId, packetTypeResponse, directionByPacketType(packetTypeResponse, isClient), event.ConnInfo, ProtocolTypeHTTP)
@@ -428,6 +442,25 @@ func HTTPInfoEventToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo) (reques
 	}
 
 	return httpRequestResponseToSpan(parseCtx, event, req, resp), false, nil
+}
+
+// largeBufferHasRequestHead reports whether the large buffer starts with the request
+// bytes captured in the event. When the chunk carrying the request line is dropped or
+// evicted, the next appended chunk starts the buffer mid-request, and parsing it would
+// turn body bytes into the method and path. A buffer shorter than the capture is
+// rejected too: it adds nothing, and a short body chunk can match by chance.
+func largeBufferHasRequestHead(lb *largebuf.LargeBuffer, eventBuf []byte) bool {
+	if end := bytes.IndexByte(eventBuf, 0); end >= 0 {
+		eventBuf = eventBuf[:end]
+	}
+
+	if len(eventBuf) == 0 || lb.Len() < len(eventBuf) {
+		return false
+	}
+
+	head, err := lb.UnsafeViewAt(0, len(eventBuf))
+
+	return err == nil && bytes.Equal(head, eventBuf)
 }
 
 func recoverRequestBody(req *http.Request, requestBuffer *largebuf.LargeBuffer) {

@@ -33,19 +33,33 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 )
 
+var dotnetRuntimeImages = []struct {
+	version string
+	image   string
+}{
+	{"8.0", "mcr.microsoft.com/dotnet/runtime:8.0-bookworm-slim@sha256:47c36b770db8f712ceb03e9220d799b068c769b8bc89c61d62cd41600633d9c2"},
+	{"9.0", "mcr.microsoft.com/dotnet/runtime:9.0-bookworm-slim@sha256:39908ee925eb8179ebab37c72e73599b377aa76c27f130458780a73434eb9a0f"},
+	{"10.0", "mcr.microsoft.com/dotnet/runtime:10.0-noble@sha256:b89586dc17781f25531909993658aa8161205ae38b8cec8847df4a8221a403d5"},
+}
+
 func TestDotnetRuntimeMetrics(t *testing.T) {
-	for _, runtime := range []struct {
-		version string
-		image   string
-	}{
-		{"8.0", "mcr.microsoft.com/dotnet/runtime:8.0-bookworm-slim@sha256:47c36b770db8f712ceb03e9220d799b068c769b8bc89c61d62cd41600633d9c2"},
-		{"9.0", "mcr.microsoft.com/dotnet/runtime:9.0-bookworm-slim@sha256:39908ee925eb8179ebab37c72e73599b377aa76c27f130458780a73434eb9a0f"},
-		{"10.0", "mcr.microsoft.com/dotnet/runtime:10.0-noble@sha256:b89586dc17781f25531909993658aa8161205ae38b8cec8847df4a8221a403d5"},
-	} {
+	for _, runtime := range dotnetRuntimeImages {
 		t.Run(runtime.version, func(t *testing.T) {
 			for _, mode := range []string{"override", "quota", "affinity"} {
 				t.Run(mode, func(t *testing.T) {
 					testDotnetRuntimeMetrics(t, runtime.version, runtime.image, mode)
+				})
+			}
+		})
+	}
+}
+
+func TestDotnetRuntimeFragmentation(t *testing.T) {
+	for _, runtime := range dotnetRuntimeImages {
+		t.Run(runtime.version, func(t *testing.T) {
+			for _, mode := range []string{"workstation", "server", "workstation-blocking", "server-blocking"} {
+				t.Run(mode, func(t *testing.T) {
+					testDotnetRuntimeMetrics(t, runtime.version, runtime.image, "fragmentation-"+mode)
 				})
 			}
 		})
@@ -63,6 +77,17 @@ func testDotnetRuntimeMetrics(t *testing.T, runtimeVersion, runtimeImage, mode s
 		"DOTNET_RUNTIME_IMAGE="+runtimeImage,
 		fmt.Sprintf("DOTNET_RUNTIME_USER=%d:%d", os.Getuid(), os.Getgid()))
 	expectedCPUCount := 1
+	if strings.HasPrefix(mode, "fragmentation-") {
+		server, background := "0", "1"
+		if strings.HasPrefix(mode, "fragmentation-server") {
+			server = "1"
+		}
+		if strings.HasSuffix(mode, "-blocking") {
+			background = "0"
+		}
+		compose.Env = append(compose.Env, "DOTNET_RUNTIME_PROCESSOR_COUNT=2", "DOTNET_RUNTIME_CPUS=2", "DOTNET_RUNTIME_CPUSET=",
+			"DOTNET_RUNTIME_SERVER_GC="+server, "DOTNET_RUNTIME_BACKGROUND_GC="+background)
+	}
 	switch mode {
 	case "override":
 		compose.Env = append(compose.Env, "DOTNET_RUNTIME_PROCESSOR_COUNT=2", "DOTNET_RUNTIME_CPUS=1", "DOTNET_RUNTIME_CPUSET=")
@@ -136,6 +161,11 @@ func testDotnetRuntimeMetrics(t *testing.T, runtimeVersion, runtimeImage, mode s
 	}
 	_, _, err = currentSession()
 	require.NoError(t, err, "CPU validation requires an active EventPipe session")
+	if strings.HasPrefix(mode, "fragmentation-") {
+		testDotnetFragmentationMetrics(t, client, workload, endpoints, reconnect,
+			strings.HasPrefix(mode, "fragmentation-server"), !strings.HasSuffix(mode, "-blocking"))
+		return
+	}
 	if mode != "override" {
 		testDotnetCPUMetrics(t, client, workload, endpoints, expectedCPUCount, reconnect)
 		return
