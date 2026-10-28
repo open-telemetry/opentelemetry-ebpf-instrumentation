@@ -14,6 +14,8 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
+	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/selection"
 )
 
@@ -223,6 +225,80 @@ func TestDynamicMatcher_ClearsWorkloadSourcesOnProcessExit(t *testing.T) {
 	assert.False(t, d.IncludesPID(31), "workload-only PID must leave the selector on exit")
 	_, stillTracked := m.ProcessHistory[31]
 	assert.False(t, stillTracked)
+}
+
+func TestDynamicMatcher_ExecutableReplacementIgnoresStaleRemoval(t *testing.T) {
+	for _, timing := range []string{"before_rescan", "after_rescan"} {
+		t.Run(timing, func(t *testing.T) {
+			originalProcessInfo := processInfo
+			processInfo = func(attrs ProcessAttrs) (*services.ProcessInfo, error) {
+				path := "/bin/launcher"
+				if attrs.executable.Ino == 2 {
+					path = "/bin/replacement"
+				}
+				return &services.ProcessInfo{Pid: attrs.pid, ExePath: path}, nil
+			}
+			t.Cleanup(func() { processInfo = originalProcessInfo })
+
+			d := NewDynamicSelector()
+			workload := selection.K8sWorkloadRef{Kind: "Deployment", Namespace: "ns", Name: "checkout"}
+			require.NoError(t, d.AddK8sWorkload(workload, selection.DynamicOptions{}))
+			added := d.appSignals().AddedPIDsNotifyContext(t.Context())
+			removed := d.appSignals().RemovedNotifyContext(t.Context())
+			m := DynamicMatcher{
+				Log:             slog.Default(),
+				DynamicSelector: d.appSignals(),
+				ProcessHistory:  map[app.PID]ProcessMatch{},
+			}
+			acc := pollAccounter{
+				cfg:             &obi.Config{},
+				executableReady: func(app.PID) (string, bool) { return "", true },
+			}
+			original := ProcessAttrs{
+				pid:        31,
+				executable: cacheKey{Dev: 1, Ino: 1},
+				metadata: map[string]string{
+					services.AttrNamespace:      "ns",
+					services.AttrDeploymentName: "checkout",
+				},
+			}
+			require.Len(t, m.filter(acc.snapshot(map[app.PID]ProcessAttrs{original.pid: original})), 1)
+			require.Equal(t, []app.PID{original.pid}, testutil.ReadChannel(t, added, testTimeout))
+
+			replacement := original
+			replacement.executable.Ino = 2
+			processes := map[app.PID]ProcessAttrs{replacement.pid: replacement}
+			matches := m.filter(acc.snapshot(processes))
+			require.Len(t, matches, 2)
+			require.Equal(t, EventDeleted, matches[0].Type)
+			require.Equal(t, "/bin/launcher", matches[0].Obj.Process.ExePath)
+			require.Equal(t, EventCreated, matches[1].Type)
+			require.Equal(t, "/bin/replacement", matches[1].Obj.Process.ExePath)
+			staleRemoval := testutil.ReadChannel(t, removed, testTimeout)
+			readded := testutil.ReadChannel(t, added, testTimeout)
+			require.Equal(t, []app.PID{replacement.pid}, staleRemoval)
+			require.Equal(t, []app.PID{replacement.pid}, readded)
+			require.True(t, d.appSignals().IncludesPID(replacement.pid))
+
+			if timing == "after_rescan" {
+				acc.forgetPIDs(readded)
+				events := acc.snapshot(processes)
+				require.Len(t, events, 1)
+				require.Empty(t, m.filter(events))
+			}
+			require.Empty(t, m.syntheticDeletesForRemovedPIDs(staleRemoval))
+			require.Same(t, matches[1].Obj.Process, m.ProcessHistory[replacement.pid].Process)
+			require.Empty(t, acc.snapshot(processes))
+
+			d.NetworkMetrics().AddPID(uint32(replacement.pid), selection.DynamicOptions{})
+			require.NoError(t, d.RemoveK8sWorkload(workload))
+			require.True(t, d.IncludesPID(replacement.pid))
+			require.False(t, d.appSignals().IncludesPID(replacement.pid))
+			deletes := m.syntheticDeletesForRemovedPIDs(testutil.ReadChannel(t, removed, testTimeout))
+			require.Equal(t, []Event[ProcessMatch]{{Type: EventDeleted, Obj: matches[1].Obj}}, deletes)
+			require.NotContains(t, m.ProcessHistory, replacement.pid)
+		})
+	}
 }
 
 func TestDynamicMatcher_ProcessExitKeepsExplicitPID(t *testing.T) {

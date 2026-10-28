@@ -184,7 +184,8 @@ func (m *DynamicMatcher) filterDeleted(obj ProcessAttrs) (Event[ProcessMatch], b
 // syntheticDeletesForRemovedPIDs returns EventDeleted for the specific PIDs removed from the
 // dynamic selector. This is the matcher side of the edge-based removal path: the selector sends
 // the exact removed PIDs, so we can look them up directly instead of doing a level-based scan of
-// ProcessHistory against the selector's current PID set.
+// ProcessHistory against the selector's current PID set. A queued removal can arrive after
+// executable replacement rematerializes the PID, so check that it is still deselected.
 func (m *DynamicMatcher) syntheticDeletesForRemovedPIDs(removedPIDs []app.PID) []Event[ProcessMatch] {
 	if len(removedPIDs) == 0 {
 		return nil
@@ -192,7 +193,7 @@ func (m *DynamicMatcher) syntheticDeletesForRemovedPIDs(removedPIDs []app.PID) [
 	var out []Event[ProcessMatch]
 	for _, pid := range removedPIDs {
 		procMatch, instrumented := m.ProcessHistory[pid]
-		if !instrumented {
+		if !instrumented || m.DynamicSelector.IncludesPID(pid) {
 			continue
 		}
 		delete(m.ProcessHistory, pid)
