@@ -1,4 +1,14 @@
 version: "2.0"
+attributes:
+    select:
+        http.server.request.duration:
+            include: []
+            exclude:
+                - http.route
+        traces:
+            include:
+                - service.peer.name
+            exclude: []
 policy:
     default_action: exclude
     match_order: first_match_wins
