@@ -1,9 +1,9 @@
-ARG JAVA_HTTPCLIENT_RUNTIME_IMAGE=gradle:9.8.1-jdk21-noble@sha256:d879477a2197b2b8a5eb910d007f0b1594eb440aa2740baac17ea245fcfb02f7
+ARG JAVA_HTTPCLIENT_RUNTIME_IMAGE=gradle:9.8.2-jdk21-noble@sha256:accd9bab093a3331697ede5aa9cecbb57d43217327e93d3cae989f1d28b49c0c
 FROM golang:1.27.2@sha256:007a316059246276cb214df93950be77837545dc78007a73e0291a4963d5d3bf AS proxy
 WORKDIR /proxy
 COPY internal/test/integration/components/java_httpclient_traceparent/proxy.go .
 RUN CGO_ENABLED=0 go build -o proxy proxy.go && ./proxy certificate
-FROM gradle:9.8.1-jdk21-noble@sha256:d879477a2197b2b8a5eb910d007f0b1594eb440aa2740baac17ea245fcfb02f7 AS build
+FROM gradle:9.8.2-jdk21-noble@sha256:accd9bab093a3331697ede5aa9cecbb57d43217327e93d3cae989f1d28b49c0c AS build
 
 WORKDIR /fixture
 COPY internal/test/integration/components/java_httpclient_traceparent/Main.java .
