@@ -336,6 +336,7 @@ func TestV2ToRuntimeHTTPPayloadExtractionRoundTrip(t *testing.T) {
 	http.GenAI.Rerank.Enabled = true
 	http.GenAI.Retrieval.Enabled = true
 	http.GenAI.Ollama.Enabled = true
+	http.GenAI.Cohere.Enabled = true
 	http.JSONRPC.Enabled = true
 	http.Enrichment.Enabled = true
 	http.Enrichment.Policy.DefaultAction.Headers = config.HTTPParsingActionInclude
@@ -379,6 +380,7 @@ func TestV2ToRuntimeHTTPPayloadExtractionRoundTrip(t *testing.T) {
 	require.True(t, gotHTTP.GenAI.Rerank.Enabled)
 	require.True(t, gotHTTP.GenAI.Retrieval.Enabled)
 	require.True(t, gotHTTP.GenAI.Ollama.Enabled)
+	require.True(t, gotHTTP.GenAI.Cohere.Enabled)
 	require.True(t, gotHTTP.JSONRPC.Enabled)
 	require.True(t, gotHTTP.Enrichment.Enabled)
 	require.Equal(t, http.Enrichment.Policy, gotHTTP.Enrichment.Policy)
@@ -636,6 +638,7 @@ func TestV2ToRuntimeHTTPPayloadExtractionGroups(t *testing.T) {
 		payloadExtractorRerank,
 		payloadExtractorRetrieval,
 		payloadExtractorOllama,
+		payloadExtractorCohere,
 		payloadExtractorOpenAICompatible,
 	}
 	everyExtractor := append([]string{
@@ -744,6 +747,19 @@ func TestV2ToRuntimeHTTPEnrichmentEnabledSeparatelyFromExtractors(t *testing.T) 
 			},
 			enrichment: true,
 		},
+		{
+			name:       "deprecated enrichment value enables it",
+			payload:    schema.PayloadExtraction{Enabled: []string{payloadExtractorDeprecatedEnrichment}},
+			enrichment: true,
+		},
+		{
+			name: "deprecated enrichment value with explicit false block",
+			payload: schema.PayloadExtraction{
+				Enabled:    []string{payloadExtractorGraphQL, payloadExtractorDeprecatedEnrichment},
+				Enrichment: schema.HTTPEnrichment{Enabled: false},
+			},
+			enrichment: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -765,19 +781,15 @@ func TestV2ToRuntimeHTTPEnrichmentEnabledSeparatelyFromExtractors(t *testing.T) 
 	}
 }
 
-func TestV2ToRuntimeHTTPPayloadExtractionRejectsEnrichmentInEnabled(t *testing.T) {
+func TestRuntimeToV2HTTPEnrichmentExportsOnlyCanonicalForm(t *testing.T) {
 	t.Parallel()
 
-	_, err := V2ToRuntime(&schema.Extension{
-		Version: schema.SupportedVersion,
-		Capture: schema.Capture{
-			Instrumentation: schema.Instrumentation{
-				HTTP: schema.HTTPInstrumentation{
-					PayloadExtraction: schema.PayloadExtraction{Enabled: []string{"enrichment"}},
-				},
-			},
-		},
-	})
+	cfg := defaultRuntimeConfig()
+	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Enabled = true
 
-	require.ErrorContains(t, err, `capture.instrumentation.http.payload_extraction.enabled[0]: unknown payload extractor "enrichment"`)
+	_, ext := RuntimeToV2(&cfg)
+
+	payload := ext.Capture.Instrumentation.HTTP.PayloadExtraction
+	require.True(t, payload.Enrichment.Enabled)
+	require.NotContains(t, payload.Enabled, payloadExtractorDeprecatedEnrichment)
 }

@@ -1568,6 +1568,85 @@ func TestEmptyMessagingClientID(t *testing.T) {
 	}
 }
 
+func TestCohereChatAttributes(t *testing.T) {
+	seed := 42
+	span := &request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeCohere,
+		Method:  "POST",
+		Path:    "/v2/chat",
+		Host:    "api.cohere.com",
+		Status:  200,
+		GenAI: &request.GenAI{Cohere: &request.VendorOpenAI{
+			OperationName: request.ChatOperationName,
+			ID:            "c14c80c3",
+			TopP:          0.75,
+			Choices:       json.RawMessage(`[{"message":{"role":"assistant","content":[{"type":"text","text":"Hi"}]},"finish_reason":"COMPLETE"}]`),
+			Request: request.OpenAIInput{
+				Model:            "command-a-03-2025",
+				MaxTokens:        256,
+				Temperature:      0.3,
+				TopK:             40,
+				FrequencyPenalty: 0.1,
+				PresencePenalty:  0.2,
+				Seed:             &seed,
+				Stop:             json.RawMessage(`["END"]`),
+				Stream:           true,
+			},
+		}},
+	}
+
+	attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+
+	for key, expected := range map[attribute.Key]any{
+		semconv.GenAIProviderNameKey:            "cohere",
+		semconv.GenAIOperationNameKey:           "chat",
+		semconv.GenAIResponseIDKey:              "c14c80c3",
+		semconv.GenAIRequestModelKey:            "command-a-03-2025",
+		semconv.GenAIResponseModelKey:           "command-a-03-2025",
+		semconv.GenAIRequestMaxTokensKey:        int64(256),
+		semconv.GenAIRequestTemperatureKey:      0.3,
+		semconv.GenAIRequestTopPKey:             0.75,
+		semconv.GenAIRequestTopKKey:             40.0,
+		semconv.GenAIRequestFrequencyPenaltyKey: 0.1,
+		semconv.GenAIRequestPresencePenaltyKey:  0.2,
+		semconv.GenAIRequestSeedKey:             int64(42),
+		genAIRequestStreamKey:                   true,
+	} {
+		v, ok := attrs.Get(string(key))
+		require.True(t, ok, "missing %s", key)
+		assert.Equal(t, expected, v.AsRaw(), "attribute %s", key)
+	}
+
+	reasons, ok := attrs.Get(string(semconv.GenAIResponseFinishReasonsKey))
+	require.True(t, ok)
+	assert.Equal(t, []any{"COMPLETE"}, reasons.Slice().AsRaw())
+
+	stops, ok := attrs.Get(string(semconv.GenAIRequestStopSequencesKey))
+	require.True(t, ok)
+	assert.Equal(t, []any{"END"}, stops.Slice().AsRaw())
+}
+
+func TestCohereChatErrorStatusMessage(t *testing.T) {
+	const message = "invalid request: model 'unknown' not found"
+	span := &request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeCohere,
+		Method:  "POST",
+		Status:  404,
+		GenAI: &request.GenAI{Cohere: &request.VendorOpenAI{
+			OperationName: request.ChatOperationName,
+			Error:         request.OpenAIError{Message: message},
+		}},
+	}
+
+	selectedSpan := generateSingleTraceSpan(t, span, map[attr.Name]struct{}{
+		attr.GenAIResponseError: {},
+	})
+	assert.Equal(t, ptrace.StatusCodeError, selectedSpan.Status().Code())
+	assert.Equal(t, message, selectedSpan.Status().Message())
+}
+
 // The response model falls back to the request model, which is itself reported
 // only when the parser recovered one, so neither is emitted when both are empty.
 func TestGenAIResponseModelFallbackIsGuarded(t *testing.T) {
@@ -2233,6 +2312,13 @@ func TestGenAISpanNameMatchesEmittedAttributes(t *testing.T) {
 			genAI:    &request.GenAI{Ollama: &request.VendorOpenAI{OperationName: request.ChatOperationName, Request: request.OpenAIInput{Model: "llama3.2"}}},
 			target:   semconv.GenAIRequestModelKey,
 			expected: "chat llama3.2",
+		},
+		{
+			name:     "Cohere",
+			subType:  request.HTTPSubtypeCohere,
+			genAI:    &request.GenAI{Cohere: &request.VendorOpenAI{OperationName: request.ChatOperationName, Request: request.OpenAIInput{Model: "command-a-03-2025"}}},
+			target:   semconv.GenAIRequestModelKey,
+			expected: "chat command-a-03-2025",
 		},
 		{
 			name:     "Bedrock",

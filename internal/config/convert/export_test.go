@@ -613,6 +613,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Rerank.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Retrieval.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Ollama.Enabled = true
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Cohere.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.JSONRPC.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultAction.Headers = config.HTTPParsingActionInclude
@@ -679,7 +680,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 
 	require.ElementsMatch(t, []string{
 		"graphql", "elasticsearch", "aws_s3", "aws_sqs", "aws_sns", "sqlpp", "openai", "anthropic", "gemini",
-		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "ollama", "jsonrpc",
+		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "ollama", "cohere", "jsonrpc",
 	}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enabled"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enrichment", "enabled"))
 	require.Equal(t, []string{"/query", "/analytics"}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "sqlpp", "endpoint_patterns"))
@@ -1228,4 +1229,12 @@ func keys(root any) []string {
 		}
 	}
 	return out
+}
+
+func TestMigratedV1PreservesNameResolverDefaults(t *testing.T) {
+	cfg := obi.DefaultConfig
+	_, ext := RuntimeToV2(&cfg)
+	migrated, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceECS}, migrated.NameResolver.Sources)
 }

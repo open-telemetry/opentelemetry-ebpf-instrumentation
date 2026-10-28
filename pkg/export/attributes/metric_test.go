@@ -123,6 +123,7 @@ func TestPrometheusNames(t *testing.T) {
 		{ServiceGraphServer, "traces_service_graph_request_server_seconds"},
 		{ServiceGraphFailed, "traces_service_graph_request_failed_total"},
 		{ServiceGraphTotal, "traces_service_graph_request_total"},
+		{ServiceGraphConnectionInfo, "traces_service_graph_connection_info"},
 		{TargetInfo, "target_info"},
 		{TracesTargetInfo, "traces_target_info"},
 	}...)

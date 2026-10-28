@@ -22,6 +22,8 @@ description: |
   - Service-graph metrics matching the OTel collector-contrib
     `servicegraphconnector` output (emitted when the
     `application_service_graph` metrics feature is enabled)
+  - Lightweight connection-info metrics emitted from client-side observations
+    (emitted when the `application_service_graph_connection_info` metrics feature is enabled)
   - OBI-internal markers consumed by downstream processors
 
   Together with the upstream registry referenced in `dependencies`, this

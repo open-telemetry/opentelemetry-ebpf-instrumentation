@@ -178,6 +178,8 @@ type TracesTelemetry struct {
 type MetricsTelemetry struct {
 	ReportersCacheLen int      `yaml:"reporters_cache_len"`
 	TTL               Duration `yaml:"ttl"`
+	// ConnectionInfoTTL controls how long observed connection-info edges remain active.
+	ConnectionInfoTTL Duration `yaml:"connection_info_ttl"`
 }
 
 // CaptureMetrics selects the metric families emitted by OBI.

@@ -18,7 +18,7 @@ permissions:
 jobs:
   changedfiles:
     name: changed files
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     outputs:
       md: ${{ steps.changes.outputs.md }}
     steps:
@@ -57,7 +57,7 @@ jobs:
 
   lint:
     name: lint markdown files
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: changedfiles
     if: ${{needs.changedfiles.outputs.md}}
     steps:

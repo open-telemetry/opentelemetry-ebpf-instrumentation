@@ -18,7 +18,8 @@ import (
 const (
 	// agentVersionProperty is the JVM system property the OBI Java agent publishes when it
 	// loads, so that OBI can tell which agent an already instrumented JVM is running.
-	agentVersionProperty = "otel.obi.java.agent.version"
+	agentVersionProperty          = "otel.obi.java.agent.version"
+	httpClientPropagationProperty = "otel.obi.java.agent.httpclient.propagation"
 
 	// agentVersionResource is the agent JAR entry holding agentVersionProperty. The agent reads
 	// it at load time and OBI reads it from the JAR it injects, so both sides of the comparison

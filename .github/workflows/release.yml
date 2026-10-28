@@ -28,7 +28,7 @@ jobs:
   # Validate tag format before proceeding with release.
   validate-tag:
     name: Validate Tag Format
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
     steps:
@@ -226,7 +226,7 @@ jobs:
 
   determine-latest:
     name: Determine if Latest Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     needs: validate-tag
     permissions:
       contents: read
@@ -279,7 +279,7 @@ jobs:
       - vm-integration-tests
       - java-agent-tests
       - docker-build-test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions: {}
     if: success()
     steps:
@@ -317,7 +317,7 @@ jobs:
   build-artifacts-and-sign:
     name: Build Release Artifacts
     needs: tests-passed
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     env:
       RELEASE_VERSION: ${{ inputs.tag || github.ref_name }}
       RELEASE_SOURCE_VERSION: ${{ inputs.tag || github.ref_name }}
@@ -483,7 +483,7 @@ jobs:
   release:
     name: Draft Release
     needs: build-artifacts-and-sign
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write # https://github.com/softprops/action-gh-release#permissions
     steps:

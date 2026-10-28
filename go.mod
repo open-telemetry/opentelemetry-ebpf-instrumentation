@@ -2,7 +2,7 @@ module go.opentelemetry.io/obi
 
 go 1.26.0
 
-toolchain go1.27.2
+toolchain go1.27.3
 
 require (
 	github.com/AlessandroPomponio/go-gibberish v0.0.0-20191004143433-a2d4156f0396
@@ -14,6 +14,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.47.3
 	github.com/aws/aws-sdk-go-v2/config v1.33.9
 	github.com/aws/aws-sdk-go-v2/credentials v1.20.9
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.3
 	github.com/aws/aws-sdk-go-v2/service/ecs v1.100.3
 	github.com/aws/aws-sdk-go-v2/service/route53 v1.70.4
 	github.com/aws/smithy-go v1.28.5
@@ -37,7 +38,7 @@ require (
 	github.com/json-iterator/go v1.1.12
 	github.com/klauspost/compress v1.20.3
 	github.com/lib/pq v1.12.3
-	github.com/microsoft/go-winmd v0.0.0-20260929074142-364b6859d0c4
+	github.com/microsoft/go-winmd v0.0.0-20261026085843-5b48fee0edb4
 	github.com/mitchellh/copystructure v1.2.0
 	github.com/moby/moby/api v1.56.1
 	github.com/moby/moby/client v0.6.2
@@ -108,7 +109,6 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.13.0 // indirect
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.10.1 // indirect
 	github.com/Microsoft/go-winio v0.6.3 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.20.3 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.5.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.8.6 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/v4a v1.5.6 // indirect

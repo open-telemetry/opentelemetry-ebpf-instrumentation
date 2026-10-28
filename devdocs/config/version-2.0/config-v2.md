@@ -306,6 +306,11 @@ The `capture` grouping was introduced for two reasons:
 - `channels`: internal backpressure controls.
 - `telemetry`: reporter cache sizes and metric TTL tuning for OBI capture internals.
 
+Within `capture.telemetry.metrics`, `ttl` controls the general metric-series
+retention (5 minutes by default). `connection_info_ttl` controls connection-info
+edge retention independently (15 minutes by default) for both OTLP and
+Prometheus exporters.
+
 #### Workload selection: `capture.policy` and `capture.rules`
 
 `capture.policy` defines global rule evaluation behavior, and `capture.rules` is an ordered list of workload inclusion/exclusion rules.
@@ -540,9 +545,9 @@ Global route discovery remains under `http.routes.discovery` because harvesting 
 HTTP `payload_extraction` uses the same list-based enablement model as other instrumentation selectors:
 
 - `payload_extraction.enabled` is the only enablement surface.
-- Concrete values currently supported are `graphql`, `elasticsearch`, `aws_s3`, `aws_sqs`, `aws_sns`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, `retrieval`, `ollama`, `openai_compatible`, and `jsonrpc`.
-- Group aliases expand to several extractors: `genai` enables `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `ollama`, `openai_compatible`, `embedding`, `rerank`, and `retrieval`; `database` enables `elasticsearch` and `sqlpp`; `aws` enables `aws_s3`, `aws_sqs`, and `aws_sns`; `all` and `*` enable every extractor. Aliases can be combined with concrete values, for example `["genai", "graphql"]`.
-- HTTP header and body enrichment is not an extractor: it is enabled with `payload_extraction.enrichment.enabled`, next to its policy and rules, so `all` and `*` never turn it on.
+- Concrete values currently supported are `graphql`, `elasticsearch`, `aws_s3`, `aws_sqs`, `aws_sns`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, `retrieval`, `ollama`, `cohere`, `openai_compatible`, and `jsonrpc`.
+- Group aliases expand to several extractors: `genai` enables `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `ollama`, `cohere`, `openai_compatible`, `embedding`, `rerank`, and `retrieval`; `database` enables `elasticsearch` and `sqlpp`; `aws` enables `aws_s3`, `aws_sqs`, and `aws_sns`; `all` and `*` enable every extractor. Aliases can be combined with concrete values, for example `["genai", "graphql"]`.
+- HTTP header and body enrichment is not an extractor: it is enabled with `payload_extraction.enrichment.enabled`, next to its policy and rules, so `all` and `*` never turn it on. Listing `enrichment` in `enabled` is deprecated but still enables it, and logs a warning.
 - Nested extractor blocks are for tuning, not duplicate enablement. For example, `payload_extraction.sqlpp.endpoint_patterns` refines SQL++ matching after `sqlpp` is enabled in the list.
 - If future aliases or families are needed, they should be added as values in the same `enabled` list rather than introducing parallel knobs.
 
@@ -892,6 +897,7 @@ Important mapping notes:
 | `otel_metrics_export.protocol` | Selects `meter_provider.readers[0].periodic.exporter.otlp_grpc` or, with gated HTTP support, `.otlp_http` plus its `encoding` | The exporter shape encodes the protocol; automatic migration currently supports gRPC |
 | `otel_metrics_export.reporters_cache_len` | `extensions.obi.capture.telemetry.metrics.reporters_cache_len` | Move to capture telemetry tuning |
 | `otel_metrics_export.ttl` | `extensions.obi.capture.telemetry.metrics.ttl` | Move to capture telemetry tuning |
+| N/A | `extensions.obi.capture.telemetry.metrics.connection_info_ttl` | Config v2-only connection-info edge retention, defaults to 15 minutes |
 | `otel_traces_export.endpoint` | `tracer_provider.processors[0].batch.exporter.otlp_grpc.endpoint` or, with gated HTTP support, `.otlp_http.endpoint` | OTel ownership move; automatic migration emits gRPC, while HTTP requires the documented manual mapping |
 | `otel_traces_export.instrumentations` | `extensions.obi.capture.instrumentation.<protocol>.enabled.traces` | Only protocols modeled by v2 |
 | `otel_traces_export.protocol` | Selects `tracer_provider.processors[0].batch.exporter.otlp_grpc` or, with gated HTTP support, `.otlp_http` plus its `encoding` | The exporter shape encodes the protocol; automatic migration currently supports gRPC |
