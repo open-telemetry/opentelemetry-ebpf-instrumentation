@@ -6,6 +6,7 @@
 package discover
 
 import (
+	"debug/elf"
 	"fmt"
 	"log/slog"
 	"os"
@@ -116,4 +117,22 @@ type execveProbeTracer struct {
 
 func (t *execveProbeTracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 	return map[string][]*ebpfcommon.ProbeDesc{execveProbeFunction: {{Start: t.program, Required: true}}}
+}
+
+func execveSymbolOffset(t *testing.T, file *elf.File, name string) uint64 {
+	t.Helper()
+	syms, err := file.Symbols()
+	require.NoError(t, err)
+	for _, sym := range syms {
+		if sym.Name != name {
+			continue
+		}
+		for _, prog := range file.Progs {
+			if prog.Type == elf.PT_LOAD && sym.Value >= prog.Vaddr && sym.Value < prog.Vaddr+prog.Filesz {
+				return sym.Value - prog.Vaddr + prog.Off
+			}
+		}
+	}
+	t.Fatalf("symbol %s has no file offset", name)
+	return 0
 }

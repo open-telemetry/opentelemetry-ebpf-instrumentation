@@ -7,7 +7,6 @@ package discover
 
 import (
 	"context"
-	"debug/elf"
 	"io"
 	"log/slog"
 	"os"
@@ -159,24 +158,6 @@ func buildExecveRepro(t *testing.T) (string, string) {
 		require.NoError(t, err, "%s", out)
 	}
 	return launcher, target
-}
-
-func execveSymbolOffset(t *testing.T, file *elf.File, name string) uint64 {
-	t.Helper()
-	syms, err := file.Symbols()
-	require.NoError(t, err)
-	for _, sym := range syms {
-		if sym.Name != name {
-			continue
-		}
-		for _, prog := range file.Progs {
-			if prog.Type == elf.PT_LOAD && sym.Value >= prog.Vaddr && sym.Value < prog.Vaddr+prog.Filesz {
-				return sym.Value - prog.Vaddr + prog.Off
-			}
-		}
-	}
-	t.Fatalf("symbol %s has no file offset", name)
-	return 0
 }
 
 type execveReproProcess struct {
