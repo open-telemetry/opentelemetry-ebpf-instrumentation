@@ -855,6 +855,17 @@
                   "description": "Filesystem path used for pinned BPF objects/maps.\nIf omitted, `/sys/fs/bpf/` is used.\n"
                 }
               }
+            },
+            "cgroup_filesystem": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "default": "",
+                  "description": "Host cgroup v2 mount used to attach sockops programs for context propagation.\nSet it when the host hierarchy is mounted outside `/sys/fs/cgroup`, for example\nin a container with its own cgroup namespace.\nIf omitted, the hierarchy is detected automatically.\n"
+                }
+              }
             }
           }
         },
