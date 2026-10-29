@@ -593,7 +593,7 @@ func TestHTTPRequestResponseToSpan_OpenAIDecisionsContentCapture(t *testing.T) {
 					},
 				},
 			}
-			req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/decisions", strings.NewReader(`{"model":"gpt-6-luna","input":[{"role":"user","content":"The package arrived with a broken screen."}]}`))
+			req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/decisions", strings.NewReader(`{"model":"gpt-6-luna","input":[{"role":"user","content":[{"type":"input_text","text":"Check the charges."},{"type":"input_json","data":{"order":{"charges":[49,49]}}},{"type":"input_text","text":"Are they duplicates?"}]}]}`))
 			require.NoError(t, err)
 			resp := &http.Response{
 				StatusCode: http.StatusOK,
@@ -610,7 +610,7 @@ func TestHTTPRequestResponseToSpan_OpenAIDecisionsContentCapture(t *testing.T) {
 			}
 			require.NotNil(t, span.GenAI)
 			require.NotNil(t, span.GenAI.OpenAI)
-			assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"The package arrived with a broken screen."}]}]`, span.GenAI.OpenAI.Request.GetInput())
+			assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"Check the charges."},{"type":"input_json","data":{"order":{"charges":[49,49]}}},{"type":"text","content":"Are they duplicates?"}]}]`, span.GenAI.OpenAI.Request.GetInput())
 		})
 	}
 }

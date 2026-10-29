@@ -232,6 +232,19 @@ func TestOpenAISpan_DecisionsInputArray(t *testing.T) {
 	assert.Equal(t, "decisions", ai.APIType)
 }
 
+func TestOpenAISpan_DecisionsInputJSON(t *testing.T) {
+	input := `[{"role":"user","content":[{"type":"input_json","data":{"order":{"charges":[49,49]}}}]}]`
+	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/decisions", `{"model":"gpt-6-luna","input":`+input+`}`)
+	resp := makeGzipResponse(t, http.StatusOK, openAIHeaders(), `{}`)
+
+	span, ok := OpenAISpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, input, string(span.GenAI.OpenAI.Request.InputItems))
+	assert.JSONEq(t, `[{"role":"user","parts":[{"type":"input_json","data":{"order":{"charges":[49,49]}}}]}]`, span.GenAI.OpenAI.Request.GetInput())
+}
+
 func TestOpenAISpan_NonDecisionsRequestDoesNotCaptureQuestions(t *testing.T) {
 	requestBody := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}],"questions":[{"type":"predicate","instructions":"Ignored"}]}`
 	req := makeRequest(t, http.MethodPost, "http://api.openai.com/v1/chat/completions", requestBody)

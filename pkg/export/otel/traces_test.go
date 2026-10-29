@@ -6,6 +6,8 @@ package otel
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"strconv"
 	"strings"
 	"testing"
@@ -25,6 +27,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
@@ -1332,16 +1335,16 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 
 	t.Run("OpenAI Decisions input messages are opt-in", func(t *testing.T) {
-		span := makeOpenAISpan(&request.VendorOpenAI{
-			OperationName: request.DecisionOperationName,
-			APIType:       "decisions",
-			Request: request.OpenAIInput{
-				Model:      "gpt-6-luna",
-				InputItems: []byte(`[{"role":"developer","content":"Assess the customer report."},{"role":"user","content":[{"type":"input_text","text":"The package arrived with a broken screen."},{"type":"input_text","text":"The screen does not turn on."}]}]`),
-				Questions:  []byte(`[{"type":"predicate","name":"damaged","instructions":"Is it damaged?"}]`),
-			},
-		})
-		span.Path = "https://api.openai.com/v1/decisions"
+		base := request.Span{Type: request.EventTypeHTTPClient, Method: http.MethodPost, Path: "https://api.openai.com/v1/decisions", Status: http.StatusOK}
+		req, err := http.NewRequest(http.MethodPost, base.Path, strings.NewReader(`{"model":"gpt-6-luna","input":[{"role":"developer","content":"Assess the customer report."},{"role":"user","content":[{"type":"input_text","text":"Check the charges."},{"type":"input_json","data":{"order":{"charges":[49,49]}}},{"type":"input_text","text":"Are they duplicates?"}]}],"questions":[{"type":"predicate","name":"duplicate","instructions":"Are there duplicate charges?"}]}`))
+		require.NoError(t, err)
+		resp := &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Openai-Version": []string{"2020-10-01"}},
+			Body:       io.NopCloser(strings.NewReader(`{}`)),
+		}
+		span, ok := ebpfhttp.OpenAISpan(&base, req, resp)
+		require.True(t, ok)
 
 		withoutOptIn := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
 		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, withoutOptIn), reporterName)
@@ -1352,8 +1355,14 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		withOptIn := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.GenAIInput: {}})
 		traces = tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, withOptIn), reporterName)
 		spanAttrs = traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
-		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIInputMessagesKey, `[{"role":"developer","parts":[{"type":"text","content":"Assess the customer report."}]},{"role":"user","parts":[{"type":"text","content":"The package arrived with a broken screen."},{"type":"text","content":"The screen does not turn on."}]}]`)
+		ensureTraceStrAttr(t, spanAttrs, semconv.GenAIInputMessagesKey, `[{"role":"developer","parts":[{"type":"text","content":"Assess the customer report."}]},{"role":"user","parts":[{"type":"text","content":"Check the charges."},{"type":"input_json","data":{"order":{"charges":[49,49]}}},{"type":"text","content":"Are they duplicates?"}]}]`)
 		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key("openai.request.questions"))
+
+		span.GenAI = nil
+		withoutCapture := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.GenAIInput: {}})
+		traces = tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, withoutCapture), reporterName)
+		spanAttrs = traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+		ensureTraceAttrNotExists(t, spanAttrs, semconv.GenAIInputMessagesKey)
 	})
 
 	t.Run("OpenAI questions are not emitted for unrelated operations", func(t *testing.T) {
