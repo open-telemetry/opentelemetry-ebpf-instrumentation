@@ -134,11 +134,20 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	}
 
 	if err := p.rebuildValidPids(); err != nil {
-		p.log.Error("rebuilding the BPF PID filter", "error", err)
+		p.logValidPidsError(err)
 		return
 	}
 
 	p.runItersForPID(pid)
+}
+
+// valid_pids is shared and closed on shutdown while the attacher can still update it
+func (p *Tracer) logValidPidsError(err error) {
+	if errors.Is(err, syscall.EBADF) {
+		p.log.Debug("BPF PID filter already closed", "error", err)
+		return
+	}
+	p.log.Error("rebuilding the BPF PID filter", "error", err)
 }
 
 func ensureJVMRuntimeMetricGeneration(fi *exec.FileInfo) uint64 {
@@ -156,7 +165,7 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.pidsFilter.BlockPID(pid, ns)
 
 	if err := p.rebuildValidPids(); err != nil {
-		p.log.Error("rebuilding the BPF PID filter", "error", err)
+		p.logValidPidsError(err)
 	}
 }
 

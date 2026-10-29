@@ -6,6 +6,9 @@
 package generictracer
 
 import (
+	"bytes"
+	"log/slog"
+	"syscall"
 	"testing"
 
 	"github.com/cilium/ebpf"
@@ -14,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 )
 
 func newTestValidPids(t *testing.T, words uint32) *ebpf.Map {
@@ -104,4 +108,25 @@ func TestValidateValidPidsMapRejectsAnotherSize(t *testing.T) {
 
 	tracer.bpfObjects.ValidPids = newTestValidPids(t, validPidsWords-1)
 	require.Error(t, tracer.validateValidPidsMap())
+}
+
+func TestRebuildValidPidsOnClosedMapFailsWithEBADF(t *testing.T) {
+	// on shutdown the shared valid_pids map is closed while the attacher can still update it
+	tracer := newTestValidPidsTracer(t, 41000)
+	require.NoError(t, tracer.bpfObjects.ValidPids.Close())
+
+	require.ErrorIs(t, tracer.rebuildValidPids(), syscall.EBADF)
+}
+
+func TestValidPidsUpdateOnClosedMapIsNotLoggedAsError(t *testing.T) {
+	tracer := newTestValidPidsTracer(t, 41000)
+	var logs bytes.Buffer
+	tracer.log = slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	require.NoError(t, tracer.bpfObjects.ValidPids.Close())
+
+	tracer.AllowPID(41000, 0, exec.New(exec.Init{Pid: 41000}))
+	tracer.BlockPID(41000, 0)
+
+	assert.NotContains(t, logs.String(), `"level":"ERROR"`)
+	assert.Equal(t, 2, bytes.Count(logs.Bytes(), []byte("BPF PID filter already closed")))
 }
