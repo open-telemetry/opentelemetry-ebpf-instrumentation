@@ -92,10 +92,19 @@ def cleanup(output, label):
 
 
 def native_state(map_ids):
-    maps = [m for m in bpf("map", "show") if m["id"] in map_ids and m.get("name", "").startswith("java_http1")]
+    maps = [m for m in bpf("map", "show") if m["id"] in map_ids and (m.get("name", "").startswith("java_http1") or m.get("name") == "ongoing_http")]
     result = []
     for m in maps:
         row = {k: m[k] for k in ["id", "name", "type", "max_entries", "bytes_memlock"] if k in m}
+        if m["name"] == "ongoing_http":
+            entries = bpf("map", "dump", "id", str(m["id"]))
+            values = [entry.get("formatted", {}).get("value", {}) for entry in entries]
+            known = all(isinstance(value, dict) and "java_http1_request_id" in value for value in values)
+            row["java_write_scope_layout"] = "present" if known and values else "unavailable-or-empty"
+            if known:
+                row["active_java_write_scopes"] = sum(bool(value["java_http1_request_id"]) for value in values)
+            result.append(row)
+            continue
         if m["type"] == "hash":
             row["entries"] = len(bpf("map", "dump", "id", str(m["id"])))
         if m["type"] == "array" and m["max_entries"] == 10000:

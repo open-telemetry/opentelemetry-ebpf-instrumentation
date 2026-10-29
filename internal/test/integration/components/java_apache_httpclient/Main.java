@@ -187,11 +187,17 @@ public class Main {
         new java.util.concurrent.atomic.AtomicBoolean();
     try {
       if (mode.equals("capacity")) {
-        Class<?> helper = Class.forName("io.opentelemetry.obi.java.instrumentations.data.JdkHttpClientPropagation", false, null);
+        Class<?> helper =
+            Class.forName(
+                "io.opentelemetry.obi.java.instrumentations.data.JdkHttpClientPropagation",
+                false,
+                null);
         capacity = helper.getDeclaredField("retainedReservations");
         capacity.setAccessible(true);
         previousCapacity = capacity.getInt(null);
-        if (previousCapacity != 0) { throw new IllegalStateException("capacity test requires a drained source"); }
+        if (previousCapacity != 0) {
+          throw new IllegalStateException("capacity test requires a drained source");
+        }
         Field limit = helper.getDeclaredField("MAX_TRACKED_REQUESTS");
         limit.setAccessible(true);
         capacity.setInt(null, limit.getInt(null));
@@ -210,9 +216,11 @@ public class Main {
         request = new HttpGet(address);
       } else {
         HttpPost post = new HttpPost(address);
-        if (mode.equals("write-failure")) {
+        boolean bodyLike = mode.equals("body-like");
+        if (mode.equals("write-failure") || bodyLike) {
           post.setEntity(
-              new ByteArrayEntity(new byte[1024 * 1024]) {
+              new ByteArrayEntity(
+                  bodyLike ? readAll(exchange.getRequestBody()) : new byte[1024 * 1024]) {
                 @Override
                 public void writeTo(java.io.OutputStream output) throws IOException {
                   try {
@@ -307,11 +315,13 @@ public class Main {
       }
     } finally {
       if (capacity != null) {
-        try { capacity.setInt(null, previousCapacity); }
-        catch (Exception error) { throw new IllegalStateException(error); }
+        try {
+          capacity.setInt(null, previousCapacity);
+        } catch (Exception error) {
+          throw new IllegalStateException(error);
+        }
       }
     }
-
   }
 
   private static byte[] readAll(InputStream input) throws IOException {

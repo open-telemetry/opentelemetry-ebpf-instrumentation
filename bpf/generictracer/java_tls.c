@@ -25,6 +25,7 @@
 
 #include <maps/active_ssl_connections.h>
 #include <maps/java_tasks.h>
+#include <maps/ongoing_http.h>
 #include <maps/java_vt_threads.h>
 #include <maps/tp_char_buf_mem.h>
 
@@ -170,6 +171,11 @@ static __always_inline void java_http1_traceparent_release(const unsigned char *
     if (bpf_probe_read_user(&request_id, sizeof(request_id), uarg + k_http1_request_id_offset) !=
         0) {
         return;
+    }
+    http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &conn);
+    if (info && request_id) {
+        // The slot may already be consumed; end only this request's body-write scope.
+        __sync_val_compare_and_swap(&info->java_http1_request_id, request_id, 0);
     }
     java_http1_request_t *request = java_http1_request_lookup(&conn, request_id);
     unsigned char *scratch = tp_char_buf_mem();

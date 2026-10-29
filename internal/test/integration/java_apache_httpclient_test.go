@@ -64,7 +64,7 @@ func TestJavaApacheHTTPClientTraceparent(t *testing.T) {
 			t.Run("application-owned", func(t *testing.T) {
 				testJavaApacheTraceparent(t, run+"-owned", "22222222222222222222222222222222", javaApplicationTraceparent, mode)
 			})
-			for i, scenario := range []string{"overload-0", "overload-1", "overload-2", "overload-3", "overload-4", "overload-5", "overload-6", "overload-7", "retry", "redirect", "auth", "reuse", "reentrant", "handler-reentrant", "split", "oversized", "capacity", "expect-continue", "expect-reject", "unsampled", "empty-owned", "invalid-owned", "duplicate-owned", "ancestor-owned", "unsampled-owned"} {
+			for i, scenario := range []string{"overload-0", "overload-1", "overload-2", "overload-3", "overload-4", "overload-5", "overload-6", "overload-7", "retry", "redirect", "auth", "reuse", "reentrant", "handler-reentrant", "body-like", "split", "oversized", "capacity", "expect-continue", "expect-reject", "unsampled", "empty-owned", "invalid-owned", "duplicate-owned", "ancestor-owned", "unsampled-owned"} {
 				t.Run(scenario, func(t *testing.T) {
 					testJavaApacheScenario(t, run+"-"+scenario, fmt.Sprintf("%032x", 0x400+i), scenario, mode)
 					if scenario == "capacity" {
@@ -145,6 +145,9 @@ func testJavaApacheConcurrentContexts(t *testing.T, run, mode string) {
 }
 
 func apacheRequestBody(id string) string {
+	if strings.Contains(id, "-body-like") {
+		return "GET /__body_probe__ HTTP/1.1\r\nX-Body: preserved\r\n\r\npayload"
+	}
 	return "body-preserved-" + id + "\r\ntraceparent: body-content\r\n\r\n"
 }
 
@@ -427,4 +430,9 @@ func testJavaApacheScenario(t *testing.T, id, traceID, scenario, mode string) {
 			require.True(ct, found, "downstream server must parent to the transmitted client identity")
 		}
 	}, time.Minute, time.Second)
+	if scenario == "body-like" && injected {
+		unexpected, err := apacheHTTPClientTrace("java-apache-httpclient", "GET /__body_probe__")
+		require.NoError(t, err)
+		require.Empty(t, unexpected.TraceID, "a later body write must not be exported as another request")
+	}
 }

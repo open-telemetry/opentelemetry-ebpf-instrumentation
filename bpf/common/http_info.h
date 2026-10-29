@@ -59,6 +59,7 @@ typedef struct http_info {
     u64 end_monotime_ns;
     u64 req_monotime_ns;
     u64 extra_id;
+    u64 java_http1_request_id;
     // The byte counter when the request was recorded: received bytes for a
     // client, sent bytes for a server. Zero when the recording path held no
     // socket (TLS uprobes, unix sockets).

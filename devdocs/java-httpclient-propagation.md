@@ -190,7 +190,11 @@ reservation and request-ID cleanup protocol. Its retained packet is released whe
 Retries, redirects, and authentication exchanges therefore receive fresh client
 identities without accumulating packets for the whole execution. Execution exit
 also releases an unfinished attempt. Socket-close cleanup retains the native
-request-ID protections described above. No ioctl ABI or C/eBPF changes are needed.
+request-ID protections described above. The Java ioctl contract is unchanged.
+After consuming a reservation, native HTTP tracking retains its request ID until
+the matching release, so delayed body writes resembling HTTP cannot replace the
+reserved client identity. Cleanup compares that ID before clearing it, preserving
+a newer request on the same connection.
 
 The entire first write after injection, including any coalesced body bytes, must
 fit within 16 KiB, and it must contain complete HTTP/1.1 headers. Split, oversized,
