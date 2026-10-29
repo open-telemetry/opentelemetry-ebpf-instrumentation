@@ -13,6 +13,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	execdiscover "go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
@@ -45,6 +46,22 @@ func TestInjectionTargetFromUsesInspectionIdentity(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, app.PID(1000), target.Pid)
 	assert.Equal(t, app.PID(1000), target.PID())
+}
+
+func TestInjectionTargetFromCarriesOnlyMatchedDynamicSpans(t *testing.T) {
+	spans := []services.DynamicSpan{{Name: "checkout.place_order", FunctionReference: "./checkout.js#placeOrder"}}
+	inst := nodeInstrumentable(1000, 4242)
+	inst.FileInfo = execdiscover.New(execdiscover.Init{
+		Pid:       1000,
+		StartTime: 4242,
+		Service:   svc.Attrs{DynamicSpans: spans},
+	})
+	stubOpenProcessHandle(t, func(app.PID, uint64) (*procs.ProcessHandle, error) { return nil, nil })
+
+	target, err := InjectionTargetFrom(inst)
+
+	require.NoError(t, err)
+	assert.Equal(t, spans, target.DynamicSpans)
 }
 
 // A target is only worth a queue slot if the incarnation discovery saw can be

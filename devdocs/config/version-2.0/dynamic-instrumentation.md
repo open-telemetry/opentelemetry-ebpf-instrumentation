@@ -34,19 +34,20 @@ the same key; the automatic value is omitted. Spans may be declared only on
 include rules; parsing rejects spans under exclude rules. Nested object
 extraction is not supported by this configuration.
 
-Malformed declarations are configuration errors. Once runtime support exists,
-each declaration is evaluated independently: an unresolved or ambiguous target
-must produce a clear error for that rule and must not select an arbitrary
-candidate; a failing rule must not prevent valid sibling rules from applying.
-These per-rule outcomes are part of the contract, not behavior implemented by
-the current runtime converter. Runtime support must add implementation-level
-tests for attribute collisions, resolution errors, and sibling-rule isolation.
+Malformed declarations are configuration errors. Runtime implementations must
+evaluate each declaration independently: unresolved or ambiguous targets must
+not select arbitrary candidates, and a failing rule must not prevent valid
+siblings from applying. Each runtime documents resolution diagnostics and
+attribute-collision behavior in its runtime reference.
 
-This is configuration schema only. The runtime converter rejects non-empty
-dynamic span declarations rather than accepting configuration that it cannot
-apply. No target is resolved and no runtime instrumentation is performed by
-this schema or converter. Per-runtime syntax and capabilities remain subject to
-the runtime-specific support documentation and tests.
+The schema describes a shared contract, not support in every runtime. Each
+runtime documents its accepted function syntax, target types, and attributes in
+its runtime-specific reference. A converter accepts a declaration only when
+that runtime can apply it; unsupported targets, attributes, and selector forms
+must be rejected.
+
+The following is an illustrative schema example; runtime acceptance depends
+on the runtime-specific reference and tests.
 
 ```yaml
 capture:

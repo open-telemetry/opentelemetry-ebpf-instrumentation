@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
@@ -83,6 +84,36 @@ func TestAgentCodeGatesRuntimeMetrics(t *testing.T) {
 		"traces-only injection must not enable runtime sampling")
 	require.Contains(t, tracesOnly.agentCode(), ctxHookEnabledPlaceholder,
 		"tracing alone must not install the per-callback context hook")
+}
+
+func TestAgentCodeCarriesOnlySelectedDynamicSpans(t *testing.T) {
+	require.Equal(t, 1, strings.Count(_spanBridgeCode, manualSpansEnabledPlaceholder),
+		"manual-span capture placeholder missing or duplicated in spanbridge.js")
+	injector := &NodeInjector{cfg: &obi.Config{TracePrinter: "text"}}
+	selected := []services.DynamicSpan{{
+		Name:              "checkout.place_order",
+		FunctionReference: "./checkout.js#placeOrder",
+	}}
+
+	selectedCode := injector.agentCodeForSpans(selected)
+	require.Contains(t, selectedCode, "__obiSpanBridge")
+	require.Contains(t, selectedCode, manualSpansDisabled,
+		"dynamic spans must not enable application API capture")
+	require.NotContains(t, selectedCode, manualSpansEnabledPlaceholder,
+		"manual-span placeholder must be substituted")
+	require.Contains(t, selectedCode, `"name":"checkout.place_order"`)
+	require.Contains(t, selectedCode, `"moduleSpecifier":"./checkout.js"`)
+	require.Contains(t, selectedCode, `"exportPath":["placeOrder"]`)
+
+	unselectedCode := injector.agentCodeForSpans(nil)
+	require.NotContains(t, unselectedCode, "dynamic_spans.js")
+	require.NotContains(t, unselectedCode, "checkout.place_order")
+
+	manualSpansCode := (&NodeInjector{cfg: &obi.Config{
+		NodeJS: obi.NodeJSConfig{ManualSpans: true},
+	}}).agentCode()
+	require.Contains(t, manualSpansCode, manualSpansEnabledPlaceholder,
+		"manual spans must enable application API capture")
 }
 
 // TestAgentCodeGatesCtxHook pins the before hook to the same predicate that
