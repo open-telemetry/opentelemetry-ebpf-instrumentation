@@ -975,7 +975,7 @@ func v2RoutePolicyOverride(policy *schema.HTTPRoutePolicy) *services.RoutePolicy
 
 func exportModesFromRefinement(refine schema.ExportModeRefinement) services.ExportModes {
 	modes := services.NewExportModes()
-	if refine.Logs != nil && *refine.Logs {
+	if refine.Logs {
 		modes.AllowLogs()
 	}
 	if refine.Traces {

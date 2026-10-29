@@ -95,9 +95,9 @@ type RuleRefinement struct {
 
 // ExportModeRefinement overrides trace and metric exports for a matched rule.
 type ExportModeRefinement struct {
-	Logs    *bool `yaml:"logs,omitempty"`
-	Traces  bool  `yaml:"traces"`
-	Metrics bool  `yaml:"metrics"`
+	Logs    bool `yaml:"logs,omitempty"`
+	Traces  bool `yaml:"traces"`
+	Metrics bool `yaml:"metrics"`
 }
 
 // RuleMatch contains process and Kubernetes selectors for a capture rule.
