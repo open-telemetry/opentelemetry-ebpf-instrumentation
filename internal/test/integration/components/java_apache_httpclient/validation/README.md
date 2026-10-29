@@ -72,11 +72,3 @@ controls before attributing accepted bounded-LRU losses to Apache. OBI process
 CPU excludes eBPF execution charged to application/network contexts. Separate
 runs on a shared host cannot isolate propagation overhead or establish statistical
 significance.
-
-## Evidence status
-
-Base: upstream main `1d6df6a4ce8db0de39c5924da14eb1bc20667013`, including #3798
-and merge `549de846bb1ca2863590887ae2c8b156439008c9` from #3941.
-The [validation evidence](../../../../../../devdocs/java-apache4-validation.md)
-records the tested revisions, runtime matrix, measurements, and limitations.
-Historical prototype results are not counted as current validation.

@@ -211,15 +211,18 @@ checks an accepted 100-Continue body and an immediate final 417 response, withou
 claiming injected interim-response handling. Plaintext, HTTP/2, HttpClient 5,
 asynchronous clients, and custom transports/executors that bypass these hooks are
 excluded. The minimum supported Apache HttpClient version is **4.3**, within the
-4.x series. That release introduced `CloseableHttpClient` and
-`ManagedHttpClientConnection.getSocket()`, which the execution and socket hooks
-require. HttpClient 4.2 and earlier lack these APIs. Compatibility checks inspect
-the required method signatures rather than comparing version numbers.
+4.x series. That release introduced
+[`CloseableHttpClient`](https://hc.apache.org/httpcomponents-client-4.5.x/current/httpclient/apidocs/org/apache/http/impl/client/CloseableHttpClient.html)
+and
+[`ManagedHttpClientConnection`](https://hc.apache.org/httpcomponents-client-4.5.x/current/httpclient/apidocs/org/apache/http/conn/ManagedHttpClientConnection.html),
+whose `getSocket()` method provides access to the TLS socket. Compatibility checks
+inspect the required method signatures rather than comparing version numbers.
 
 The existing header-propagation configuration, kernel write-user/atomic feature
-checks, and permissions apply. Apache 4.3 and 4.5.14 have runtime coverage recorded
-in the validation evidence, separately from the JDK client's Java 11 minimum. The
-[validation evidence](java-apache4-validation.md) lists exact builds and kernels.
+checks, and permissions apply. Apache propagation supports Java 8 and later,
+separately from the JDK client's Java 11 minimum. The
+[fixture README](../internal/test/integration/components/java_apache_httpclient/validation/README.md)
+describes how to run the regression suite and select Apache and JDK versions.
 Agent upgrades and enabling propagation after a disabled attachment require a JVM
 restart. Disabling propagation in OBI prevents injection without a restart.
 
