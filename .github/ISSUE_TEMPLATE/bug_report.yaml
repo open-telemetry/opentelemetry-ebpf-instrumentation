@@ -13,6 +13,14 @@ body:
         - Both / unsure
     validations:
       required: true
+  - type: dropdown
+    id: discovery
+    attributes:
+      label: How was this bug found?
+      options:
+        - Observed in a running system
+        - Code inspection / static analysis
+        - Other
   - type: textarea
     id: what-happened
     attributes:
