@@ -27,9 +27,7 @@ public class ThreadInfo {
   }
 
   public static void sendParentThreadContext(long parentId) {
-    NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize);
-    IOCTLPacket.writePacket(p, 0, OperationType.THREAD, parentId);
-    Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
+    Agent.NativeLib.sendThreadContext(Agent.IOCTL_CMD, OperationType.THREAD.code, parentId);
   }
 
   // Emit variant for the thread-pool task advices. On a virtual thread the
