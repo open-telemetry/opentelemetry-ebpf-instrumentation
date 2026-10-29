@@ -45,8 +45,16 @@ func indexSnapshot(snapshot *Snapshot) *cachedSnapshot {
 	return indexed
 }
 
-// listenerService returns a unique service and whether it matched, falling back to the hostname.
-func listenerService(index map[Endpoint][]Service, endpoint Endpoint, hostname string) (Service, bool) {
+type listenerMatch uint8
+
+const (
+	listenerMissing listenerMatch = iota
+	listenerUnique
+	listenerAmbiguous
+)
+
+// listenerService distinguishes missing, unique, and ambiguous listeners, falling back to the hostname.
+func listenerService(index map[Endpoint][]Service, endpoint Endpoint, hostname string) (Service, listenerMatch) {
 	fallback := Service{Name: hostname}
 	var selected Service
 	address, _ := netip.ParseAddr(endpoint.IP)
@@ -63,20 +71,20 @@ func listenerService(index map[Endpoint][]Service, endpoint Endpoint, hostname s
 			var matches bool
 			selected, matches = selected.merge(service)
 			if !matches {
-				return fallback, false
+				return fallback, listenerAmbiguous
 			}
 		}
 	}
 
 	if selected.Name == "" {
-		return fallback, false
+		return fallback, listenerMissing
 	}
 
-	return selected, true
+	return selected, listenerUnique
 }
 
 // destinationService resolves a destination from the cached listener inventory.
-func (s *cachedSnapshot) destinationService(endpoint Endpoint) (Service, bool) {
+func (s *cachedSnapshot) destinationService(endpoint Endpoint) (Service, listenerMatch) {
 	return listenerService(s.listeners, endpoint, s.hostname)
 }
 

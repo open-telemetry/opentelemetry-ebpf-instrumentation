@@ -18,16 +18,20 @@ func TestListenerAddressFamilies(t *testing.T) {
 		listeners []Listener
 		ipv4Name  string
 		ipv6Name  string
+		ipv4Match listenerMatch
+		ipv6Match listenerMatch
 	}{
 		{
 			name:      "separate IPv4 and IPv6-only services",
 			listeners: []Listener{ipv4, ipv6},
 			ipv4Name:  "ipv4", ipv6Name: "ipv6",
+			ipv4Match: listenerUnique, ipv6Match: listenerUnique,
 		},
 		{
 			name:      "dual-stack wildcard service",
 			listeners: []Listener{ipv6},
 			ipv4Name:  "ipv6", ipv6Name: "ipv6",
+			ipv4Match: listenerUnique, ipv6Match: listenerUnique,
 		},
 		{
 			name: "specific IPv4 listener takes precedence over IPv6 wildcard",
@@ -36,6 +40,7 @@ func TestListenerAddressFamilies(t *testing.T) {
 				ipv6,
 			},
 			ipv4Name: "ipv4", ipv6Name: "ipv6",
+			ipv4Match: listenerUnique, ipv6Match: listenerUnique,
 		},
 		{
 			name: "ambiguous IPv6 wildcard services",
@@ -44,11 +49,13 @@ func TestListenerAddressFamilies(t *testing.T) {
 				{Endpoint: ipv6.Endpoint, Service: Service{Name: "other"}},
 			},
 			ipv4Name: "host", ipv6Name: "host",
+			ipv4Match: listenerAmbiguous, ipv6Match: listenerAmbiguous,
 		},
 		{
 			name:      "only IPv4 service instrumented",
 			listeners: []Listener{ipv4},
 			ipv4Name:  "ipv4", ipv6Name: "host",
+			ipv4Match: listenerUnique, ipv6Match: listenerMissing,
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -56,9 +63,12 @@ func TestListenerAddressFamilies(t *testing.T) {
 			store.setInventory(nil, test.listeners)
 			snapshot := store.snapshot(nil, time.Now())
 			cached := indexSnapshot(&snapshot)
-			for _, target := range []struct{ ip, service string }{
-				{ip: "10.1.0.2", service: test.ipv4Name},
-				{ip: "fd12::2", service: test.ipv6Name},
+			for _, target := range []struct {
+				ip, service string
+				match       listenerMatch
+			}{
+				{ip: "10.1.0.2", service: test.ipv4Name, match: test.ipv4Match},
+				{ip: "fd12::2", service: test.ipv6Name, match: test.ipv6Match},
 			} {
 				endpoint := Endpoint{IP: target.ip, Port: 8080}
 				expected := Service{Name: target.service}
@@ -66,7 +76,7 @@ func TestListenerAddressFamilies(t *testing.T) {
 				remote, remoteMatch := cached.destinationService(endpoint)
 				require.Equal(t, expected, local, "local %s", target.ip)
 				require.Equal(t, expected, remote, "remote %s", target.ip)
-				require.Equal(t, target.service != "host", localMatch)
+				require.Equal(t, target.match, localMatch)
 				require.Equal(t, localMatch, remoteMatch)
 			}
 		})
@@ -85,8 +95,8 @@ func TestListenerGraphParticipationRequiresAllMatchingProcesses(t *testing.T) {
 			{Endpoint: endpoint, Service: services[1]},
 		}
 		snapshot := indexSnapshot(&Snapshot{Hostname: "host", Listeners: listeners})
-		service, matched := snapshot.destinationService(endpoint)
-		require.True(t, matched)
+		service, match := snapshot.destinationService(endpoint)
+		require.Equal(t, listenerUnique, match)
 		require.Equal(t, tracesOnly, service, "graph settings do not change the service identity")
 	}
 }

@@ -69,22 +69,22 @@ func TestListenerIdentity(t *testing.T) {
 		{Endpoint: target, Service: service},
 		{Endpoint: Endpoint{IP: "0.0.0.0", Port: 8080}, Service: service},
 	})
-	resolved, matched := store.destinationService(target)
-	require.True(t, matched)
+	resolved, match := store.destinationService(target)
+	require.Equal(t, listenerUnique, match)
 	require.Equal(t, service, resolved)
 	snapshot := store.snapshot(nil, time.Now())
-	resolved, matched = indexSnapshot(&snapshot).destinationService(target)
-	require.True(t, matched)
+	resolved, match = indexSnapshot(&snapshot).destinationService(target)
+	require.Equal(t, listenerUnique, match)
 	require.Equal(t, service, resolved)
 	store.setInventory(nil, []Listener{
 		{Endpoint: target, Service: service},
 		{Endpoint: target, Service: Service{Name: "api", Namespace: "other"}},
 	})
-	resolved, matched = store.destinationService(target)
-	require.False(t, matched)
+	resolved, match = store.destinationService(target)
+	require.Equal(t, listenerAmbiguous, match)
 	require.Equal(t, Service{Name: "server-host"}, resolved)
-	resolved, matched = store.destinationService(Endpoint{IP: target.IP, Port: 9090})
-	require.False(t, matched)
+	resolved, match = store.destinationService(Endpoint{IP: target.IP, Port: 9090})
+	require.Equal(t, listenerMissing, match)
 	require.Equal(t, Service{Name: "server-host"}, resolved)
 }
 
@@ -94,7 +94,7 @@ func TestIPv6DoesNotMatchIPv4Wildcard(t *testing.T) {
 	store.setInventory(nil, []Listener{
 		{Endpoint: Endpoint{IP: "0.0.0.0", Port: 8080}, Service: service},
 	})
-	resolved, matched := store.destinationService(Endpoint{IP: "fd12::2", Port: 8080})
-	require.False(t, matched)
+	resolved, match := store.destinationService(Endpoint{IP: "fd12::2", Port: 8080})
+	require.Equal(t, listenerMissing, match)
 	require.Equal(t, Service{Name: "host"}, resolved)
 }

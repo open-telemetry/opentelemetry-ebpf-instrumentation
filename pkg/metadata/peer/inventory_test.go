@@ -76,8 +76,8 @@ func TestInventoryPollRefreshesAtStartup(t *testing.T) {
 	endpoint := Endpoint{IP: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port}
 	service := Service{Name: "api", Namespace: "shop", ServiceGraph: true}
 	require.Eventually(t, func() bool {
-		resolved, matched := store.destinationService(endpoint)
-		return matched && resolved == service
+		resolved, match := store.destinationService(endpoint)
+		return match == listenerUnique && resolved == service
 	}, 2*time.Second, 10*time.Millisecond)
 }
 
@@ -105,8 +105,8 @@ func TestInventoryRefreshesAfterProcessEvents(t *testing.T) {
 	endpoint := Endpoint{IP: "127.0.0.1", Port: listener.Addr().(*net.TCPAddr).Port}
 	service := Service{Name: "api", Namespace: "shop", ServiceGraph: true}
 	require.Eventually(t, func() bool {
-		resolved, matched := store.destinationService(endpoint)
-		return matched && resolved == service
+		resolved, match := store.destinationService(endpoint)
+		return match == listenerUnique && resolved == service
 	}, 2*time.Second, 10*time.Millisecond)
 	events <- exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: file}
 	require.Eventually(t, func() bool {
@@ -315,11 +315,11 @@ func TestDualStackListenerResolvesIPv4(t *testing.T) {
 		Endpoint: Endpoint{IP: "::", Port: address.Port}, Service: service,
 	})
 	endpoint := Endpoint{IP: "127.0.0.1", Port: address.Port}
-	resolved, matched := store.destinationService(endpoint)
-	require.True(t, matched)
+	resolved, match := store.destinationService(endpoint)
+	require.Equal(t, listenerUnique, match)
 	require.Equal(t, service, resolved)
 	snapshot := store.snapshot(nil, time.Now())
-	resolved, matched = indexSnapshot(&snapshot).destinationService(endpoint)
-	require.True(t, matched)
+	resolved, match = indexSnapshot(&snapshot).destinationService(endpoint)
+	require.Equal(t, listenerUnique, match)
 	require.Equal(t, service, resolved)
 }

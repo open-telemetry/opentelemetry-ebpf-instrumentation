@@ -113,7 +113,7 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 	unresolved := request.Span{Type: request.EventTypeHTTPClient, Host: span.Host, HostPort: 1234}
 	agent.Decorate(&unresolved, time.Now())
 	require.Equal(t, "remote-host", unresolved.HostName)
-	require.True(t, request.IgnoreServiceGraphClientCount(&unresolved), "a hostname fallback must not create a virtual-node request count")
+	require.False(t, request.IgnoreServiceGraphClientCount(&unresolved), "a destination with no instrumented listener needs a client count")
 	expired := request.Span{Type: request.EventTypeHTTPClient, Host: span.Host, HostPort: 8080}
 	agent.Decorate(&expired, time.Now().Add(cfg.CacheTTL))
 	require.False(t, request.IgnoreServiceGraphClientCount(&expired), "expired metadata cannot suppress request counts")
@@ -202,7 +202,48 @@ func TestIneligibleDestinationsDoNotCauseCallerOverflow(t *testing.T) {
 	}
 }
 
-func TestCachedPeerHostnameFallbackDoesNotCountClientRequests(t *testing.T) {
+func TestUninstrumentedDestinationRetainsClientCount(t *testing.T) {
+	for _, host := range []string{"10.1.0.1", "10.1.0.2"} {
+		for _, hasOtherListener := range []bool{false, true} {
+			t.Run(host+"/other_listener="+strconv.FormatBool(hasOtherListener), func(t *testing.T) {
+				cfg := DefaultConfig()
+				network, err := makeNetwork([]netip.Addr{netip.MustParseAddr("10.1.0.1")}, []string{"10.1.0.0/16"})
+				require.NoError(t, err)
+				agent := &Agent{cfg: cfg, store: newStore("local-host", cfg), cache: newPeerCache(cfg), network: network}
+				agent.store.graphEnabled = true
+				catalog := Service{Name: "catalog", Namespace: "shop", ServiceGraph: true}
+				var listeners []Listener
+				if hasOtherListener {
+					listeners = []Listener{{Endpoint: Endpoint{IP: "0.0.0.0", Port: 8080}, Service: catalog}}
+				}
+				now := time.Now()
+				hostname := "local-host"
+				if host == "10.1.0.1" {
+					agent.store.setInventory([]Service{catalog}, listeners)
+				} else {
+					hostname = "remote-host"
+					protocols := instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instrumentations.InstrumentationALL})
+					snapshot := indexSnapshot(&Snapshot{Hostname: hostname, Services: []Service{catalog}, Listeners: listeners, MetricProtocols: &protocols})
+					agent.cache.lookup(netip.MustParseAddr(host), now)
+					agent.cache.complete(agent.cache.due(now, 1)[0], snapshot, 1, now, now)
+				}
+				span := request.Span{
+					Type: request.EventTypeSQLClient, SubType: int(request.DBPostgres), Host: host, HostPort: 5432,
+					Service: svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "shop"}},
+				}
+				agent.Decorate(&span, now)
+				require.Equal(t, hostname, span.HostName)
+				require.False(t, request.IgnoreServiceGraphClientCount(&span))
+				tracker := otel.NewPidServiceTracker()
+				tracker.AddPID(42, span.Service.UID)
+				require.True(t, otel.ClientSpanToUninstrumentedService(&tracker, &span),
+					"both exporters need the client count when no instrumented service listens on the destination port")
+			})
+		}
+	}
+}
+
+func TestListenerResolutionClientCounts(t *testing.T) {
 	cfg := DefaultConfig()
 	network, err := makeNetwork([]netip.Addr{netip.MustParseAddr("10.1.0.1")}, nil)
 	require.NoError(t, err)
@@ -217,46 +258,56 @@ func TestCachedPeerHostnameFallbackDoesNotCountClientRequests(t *testing.T) {
 		service   Service
 		suppress  bool
 	}{
-		{name: "inventory not populated", service: Service{Name: "remote-host"}, suppress: true},
+		{name: "inventory not populated", service: Service{Name: "destination-host"}},
 		{
 			name: "unmatched listener", listeners: []Listener{{Endpoint: Endpoint{IP: endpoint.IP, Port: 9090}, Service: api}},
-			service: Service{Name: "remote-host"}, suppress: true,
+			service: Service{Name: "destination-host"},
 		},
 		{
 			name: "ambiguous listeners", listeners: []Listener{{Endpoint: endpoint, Service: api}, {Endpoint: endpoint, Service: other}},
-			service: Service{Name: "remote-host"}, suppress: true,
+			service: Service{Name: "destination-host"}, suppress: true,
 		},
 		{
 			name: "matched service with metrics disabled", listeners: []Listener{{Endpoint: endpoint, Service: Service{Name: "api", Namespace: "shop"}}},
 			service: Service{Name: "api", Namespace: "shop"},
 		},
 		{
-			name: "matched service named after host", listeners: []Listener{{Endpoint: endpoint, Service: Service{Name: "remote-host"}}},
-			service: Service{Name: "remote-host"},
+			name: "matched service named after host", listeners: []Listener{{Endpoint: endpoint, Service: Service{Name: "destination-host"}}},
+			service: Service{Name: "destination-host"},
 		},
-		{name: "failed connection with unmatched listener", failed: true, service: Service{Name: "remote-host"}},
+		{name: "failed connection with unmatched listener", failed: true, service: Service{Name: "destination-host"}},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			agent := &Agent{cfg: cfg, store: newStore("local-host", cfg), cache: newPeerCache(cfg), network: network}
-			now := time.Now()
-			agent.cache.lookup(netip.MustParseAddr("10.1.0.2"), now)
-			due := agent.cache.due(now, 1)
-			require.Len(t, due, 1)
-			snapshot := indexSnapshot(&Snapshot{Hostname: "remote-host", Listeners: test.listeners, MetricProtocols: &protocols})
-			agent.cache.complete(due[0], snapshot, 1, now, now)
-			span := request.Span{Type: request.EventTypeHTTPClient, Host: "10.1.0.2", HostPort: endpoint.Port}
-			if test.failed {
-				span.Type = request.EventTypeFailedConnect
-			}
-			agent.Decorate(&span, now)
-			require.Equal(t, test.service.Name, span.HostName)
-			require.Equal(t, test.service.Namespace, span.OtherNamespace)
-			require.Equal(t, test.suppress, request.IgnoreServiceGraphClientCount(&span))
-		})
+		for _, local := range []bool{false, true} {
+			t.Run(test.name+"/local="+strconv.FormatBool(local), func(t *testing.T) {
+				agent := &Agent{cfg: cfg, store: newStore("destination-host", cfg), cache: newPeerCache(cfg), network: network}
+				now := time.Now()
+				host := "10.1.0.2"
+				if local {
+					host = "10.1.0.1"
+					agent.store.setInventory(nil, test.listeners)
+				} else {
+					agent.cache.lookup(netip.MustParseAddr(host), now)
+					due := agent.cache.due(now, 1)
+					require.Len(t, due, 1)
+					snapshot := indexSnapshot(&Snapshot{Hostname: "destination-host", Listeners: test.listeners, MetricProtocols: &protocols})
+					agent.cache.complete(due[0], snapshot, 1, now, now)
+				}
+				span := request.Span{Type: request.EventTypeHTTPClient, Host: host, HostPort: endpoint.Port}
+				if test.failed {
+					span.Type = request.EventTypeFailedConnect
+				}
+				agent.Decorate(&span, now)
+				require.Equal(t, test.service.Name, span.HostName)
+				require.Equal(t, test.service.Namespace, span.OtherNamespace)
+				require.Equal(t, test.suppress, request.IgnoreServiceGraphClientCount(&span))
+				tracker := otel.NewPidServiceTracker()
+				require.Equal(t, !test.suppress, otel.ClientSpanToUninstrumentedService(&tracker, &span))
+			})
+		}
 	}
 }
 
-func TestHostnameFallbackClientCountWithoutPeerMetrics(t *testing.T) {
+func TestUnmatchedListenerClientCountIndependentOfPeerMetrics(t *testing.T) {
 	cfg := DefaultConfig()
 	peers, err := makeNetwork(nil, []string{"10.1.0.0/16"})
 	require.NoError(t, err)
@@ -291,10 +342,10 @@ func TestHostnameFallbackClientCountWithoutPeerMetrics(t *testing.T) {
 			agent.Decorate(&span, now)
 			require.Equal(t, "remote-host", span.HostName)
 			require.Empty(t, span.OtherNamespace)
-			require.Equal(t, test.enabled, request.IgnoreServiceGraphClientCount(&span))
+			require.False(t, request.IgnoreServiceGraphClientCount(&span))
 			tracker := otel.NewPidServiceTracker()
-			require.Equal(t, !test.enabled, otel.ClientSpanToUninstrumentedService(&tracker, &span),
-				"both exporters must retain the client request total when the peer has no metrics exporter")
+			require.True(t, otel.ClientSpanToUninstrumentedService(&tracker, &span),
+				"an exporter on the peer cannot count requests to a service it does not instrument")
 		})
 	}
 }

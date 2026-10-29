@@ -244,8 +244,9 @@ func (a *Agent) resolveDestination(destination Endpoint, caller Service, event r
 
 	address = address.Unmap()
 	if a.network.isLocal(address) {
-		service, matched := a.store.destinationService(destination)
-		return service, protocolMetricsEnabled(&a.store.metricProtocols, event) && (!matched || service.ServiceGraph)
+		service, match := a.store.destinationService(destination)
+		return service, protocolMetricsEnabled(&a.store.metricProtocols, event) &&
+			(match == listenerAmbiguous || (match == listenerUnique && service.ServiceGraph))
 	}
 
 	if !a.network.permits(address) {
@@ -257,9 +258,9 @@ func (a *Agent) resolveDestination(destination Endpoint, caller Service, event r
 		return Service{}, false
 	}
 
-	service, matched := snapshot.destinationService(destination)
+	service, match := snapshot.destinationService(destination)
 	ignoreClientCount := protocolMetricsEnabled(snapshot.metricProtocols, event) &&
-		(!matched || service.ServiceGraph && snapshot.knowsCaller(destination, caller, now.Sub(fetchedAt)))
+		(match == listenerAmbiguous || (match == listenerUnique && service.ServiceGraph && snapshot.knowsCaller(destination, caller, now.Sub(fetchedAt))))
 	return service, ignoreClientCount
 }
 
