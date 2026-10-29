@@ -60,6 +60,7 @@ func TestReceiverConfigUnmarshalV2(t *testing.T) {
 	require.True(t, hasDefaultSelector)
 	require.NotNil(t, cfg.runtime.Traces.TracesExport)
 	require.NotNil(t, cfg.runtime.OTELMetrics.MetricsExport)
+	require.NotNil(t, cfg.runtime.Logs.LogsExport)
 }
 
 func TestReceiverConfigUnmarshalLegacy(t *testing.T) {
@@ -179,10 +180,13 @@ func TestReceiverV2PipelineModes(t *testing.T) {
 		name    string
 		traces  bool
 		metrics bool
+		logs    bool
 	}{
 		{name: "traces", traces: true},
 		{name: "metrics", metrics: true},
 		{name: "traces and metrics", traces: true, metrics: true},
+		{name: "logs", logs: true},
+		{name: "all signals", traces: true, metrics: true, logs: true},
 	}
 
 	for _, test := range tests {
@@ -206,6 +210,12 @@ func TestReceiverV2PipelineModes(t *testing.T) {
 				})
 			}
 
+			if test.logs {
+				receiver, err := factory.CreateLogs(t.Context(), settings, cfg, consumertest.NewNop())
+				require.NoError(t, err)
+				require.NotNil(t, cfg.runtime.Logs.LogsExport)
+				t.Cleanup(func() { require.NoError(t, receiver.Shutdown(context.Background())) })
+			}
 			if test.metrics {
 				consumer := consumertest.NewNop()
 				receiver, err := factory.CreateMetrics(t.Context(), settings, cfg, consumer)
@@ -225,4 +235,16 @@ func newTestReceiverConfig(t *testing.T) *receiverConfig {
 	cfg, ok := NewFactory().CreateDefaultConfig().(*receiverConfig)
 	require.True(t, ok)
 	return cfg
+}
+
+func TestReceiverConfigV2ExceptionsUseLogsConsumer(t *testing.T) {
+	cfg := newTestReceiverConfig(t)
+	require.NoError(t, confmap.NewFromStringMap(map[string]any{
+		"version":    "2.0",
+		"exceptions": map[string]any{"enabled": true},
+	}).Unmarshal(cfg))
+	require.True(t, cfg.runtime.ExceptionsEnabled())
+	require.Empty(t, cfg.runtime.Logs.Endpoint)
+	require.NotNil(t, cfg.runtime.Logs.LogsExport)
+	require.NoError(t, cfg.Validate())
 }
