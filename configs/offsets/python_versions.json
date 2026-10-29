@@ -5,16 +5,16 @@
       "commit": "acb4dc12b6df8615af7b43120ef601e04072f7d2"
     },
     "3.11": {
-      "tag": "v3.11.17",
-      "commit": "e6392eb68a39cef49c9fe6431253050caa17a426"
+      "tag": "v3.11.18",
+      "commit": "26badd80b6dc7786cd8fb63c3608a31f04754219"
     },
     "3.12": {
-      "tag": "v3.12.15",
-      "commit": "e848e4b09ca4bc67c0041c9ce7526dae471d4c36"
+      "tag": "v3.12.16",
+      "commit": "2c2462afc5d978d31f3d073001fc202d269917ff"
     },
     "3.13": {
-      "tag": "v3.13.17",
-      "commit": "64e080d38154391ff2d2caa1161c298bb7cd8f30"
+      "tag": "v3.13.18",
+      "commit": "0d4bd512fc429e3d4eacdd113c975e161f21644d"
     },
     "3.14": {
       "tag": "v3.14.9",

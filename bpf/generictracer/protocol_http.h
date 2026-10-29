@@ -26,9 +26,11 @@
 #include <common/tracked_connection.h>
 
 #include <generictracer/maps/http_info_mem.h>
+#include <generictracer/maps/java_http1_requests.h>
 
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/large_buf_tailcall.h>
+#include <generictracer/http_event.h>
 #include <generictracer/http_server_trace.h>
 #include <generictracer/protocol_common.h>
 #include <generictracer/tcp_trace_cleanup.h>
@@ -147,28 +149,13 @@ static __always_inline void mark_http_server_thread_trace_response_sent(http_inf
     }
 }
 
-static __always_inline void submit_http_event(http_info_t *info, pid_connection_info_t *pid_conn) {
-    if (!http_info_emittable(info) || info->submitted) {
-        return;
-    }
-
-    info->submitted = 1;
-    info->flags = k_event_type_k_http_request;
-    bpf_map_update_elem(&ongoing_http, pid_conn, info, BPF_ANY);
-
-    bpf_dbg_printk("Sending trace %lx, response length %d", info, info->resp_len);
-    if (events_ringbuf_output(info, sizeof(*info)) != 0) {
-        bpf_dbg_printk("failed to write the trace to the ringbuf");
-    }
-}
-
 static __always_inline void
 finish_http(http_info_t *info, pid_connection_info_t *pid_conn, const trace_key_t *current_key) {
     if (!http_info_emittable(info)) {
         return;
     }
 
-    submit_http_event(info, pid_conn);
+    submit_http_event(info);
 
     if (info->type == k_event_type_http_request) {
         cleanup_http_server_thread_trace(info, current_key);
@@ -420,7 +407,7 @@ static __always_inline void handle_http_response(unsigned char *small_buf,
         info->delayed = 1;
         mark_http_server_thread_trace_response_sent(info);
         if (high_request_volume && !info->ssl) {
-            submit_http_event(info, pid_conn);
+            submit_http_event(info);
         }
         return;
     }
@@ -473,7 +460,9 @@ static __always_inline int __obi_continue2_protocol_http(struct pt_regs *ctx,
                                                          call_protocol_args_t *args,
                                                          http_info_t *info,
                                                          http_connection_metadata_t *meta) {
-    if (meta) {
+    // An adopted Java reservation already owns its span. Connection trace state
+    // can be replaced or removed on another CPU before this continuation runs.
+    if (meta && !valid_span(info->tp.span_id)) {
         const u32 type = trace_type_from_meta(meta);
         tp_info_pid_t *tp_p = trace_info_for_connection(&args->pid_conn.conn, type);
         if (tp_p) {
@@ -662,6 +651,58 @@ int GUARDED_PROG(obi_continue_protocol_http_tp, struct pt_regs *, ctx) {
     return __obi_continue_protocol_http_tp(ctx, args, info, meta, bpf_strstr_tp_loop__legacy);
 }
 
+static __always_inline bool adopt_java_http1_reservation(call_protocol_args_t *args,
+                                                         http_info_t *info,
+                                                         const http_connection_metadata_t *meta) {
+    if (!g_bpf_java_http1_enabled || !g_bpf_header_propagation || !args->ssl || !meta ||
+        meta->type != k_event_type_http_client) {
+        return false;
+    }
+
+    const u64 request_id = java_http1_request_id(&args->pid_conn);
+    java_http1_request_t *reservation = java_http1_request_lookup(&args->pid_conn, request_id);
+    unsigned char *scratch = tp_char_buf_mem();
+    if (!reservation || !scratch) {
+        return false;
+    }
+
+    const u32 offset = reservation->data.value_offset;
+    if (args->bytes_len < TP_MAX_VAL_LENGTH || offset > args->bytes_len - TP_MAX_VAL_LENGTH) {
+        return false;
+    }
+    unsigned char *reserved_traceparent = scratch;
+    unsigned char *plaintext_traceparent = scratch + TP_MAX_VAL_LENGTH;
+    if (bpf_probe_read_user(plaintext_traceparent,
+                            TP_MAX_VAL_LENGTH,
+                            (const unsigned char *)args->u_buf + offset) != 0) {
+        return false;
+    }
+    make_tp_string(reserved_traceparent, &reservation->data.tp.tp);
+    if (bpf_memcmp(reserved_traceparent, plaintext_traceparent, TP_MAX_VAL_LENGTH) != 0) {
+        return false;
+    }
+
+    // Copy before retirement can free the slot. A successful claim proves this
+    // generation stayed live throughout the copy and the plaintext comparison.
+    tp_info_pid_t client_span = reservation->data.tp;
+    const u8 parent_status = reservation->data.parent_status;
+    if (!java_http1_request_retire(&args->pid_conn, reservation, request_id)) {
+        return false;
+    }
+    set_trace_info_for_connection(&args->pid_conn.conn, TRACE_TYPE_CLIENT, &client_span);
+    info->tp = client_span.tp;
+    info->parent_status = parent_status;
+    server_or_client_trace(meta->type,
+                           &args->pid_conn.conn,
+                           args->lw_thread,
+                           &client_span,
+                           args->ssl,
+                           args->orig_dport,
+                           0,
+                           BPF_ANY);
+    return true;
+}
+
 static __always_inline int
 __obi_continue_protocol_http(struct pt_regs *ctx,
                              call_protocol_args_t *args,
@@ -669,6 +710,10 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
                              unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
     http_connection_metadata_t *meta =
         connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
+
+    if (adopt_java_http1_reservation(args, info, meta)) {
+        goto skip_tp;
+    }
 
     egress_key_t e_key = {
         .d_port = args->pid_conn.conn.d_port,

@@ -14,7 +14,7 @@
 file_format: definition/2
 spans:
   # Union across the provider inference flows: OpenAI, Anthropic, Gemini, Qwen,
-  # Ollama, OpenAI-compatible and AWS Bedrock. An attribute is `required` here
+  # Ollama, Cohere, OpenAI-compatible and AWS Bedrock. An attribute is `required` here
   # only when every one of those providers emits it unconditionally.
   #
   # The OpenAI-shaped providers route their `/embeddings` endpoint through this

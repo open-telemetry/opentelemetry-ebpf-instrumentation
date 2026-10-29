@@ -77,6 +77,37 @@ function httpScenario(connections, handler) {
 }
 
 switch (scenario) {
+  case 'fd-cache-close': {
+    const useTLS = process.env.FD_CACHE_PROTOCOL === 'https';
+    const transport = useTLS ? require('https') : http;
+    const certDir = path.join(__dirname, '../../../../internal/test/integration/components/nodejsserver');
+    const tlsOptions = useTLS ? {
+      cert: fs.readFileSync(path.join(certDir, 'cert.pem')),
+      key: fs.readFileSync(path.join(certDir, 'key.pem')),
+    } : {};
+    const sink = transport.createServer(tlsOptions, (_req, res) => res.end('ok'));
+    const cache = globalThis[Symbol.for('otel-ebpf-instrumentation.fdextractor')].fdCache;
+    extra.cachedBeforeClose = [];
+    extra.cacheSizesAfterClose = [];
+    sink.listen(0, '127.0.0.1', () => {
+      httpScenario(1, async () => {
+        await new Promise((resolve, reject) => {
+          const req = transport.get({
+            host: '127.0.0.1', port: sink.address().port, agent: false,
+            rejectUnauthorized: false, // Self-signed test certificate.
+          }, (res) => {
+            extra.cachedBeforeClose.push(cache.has(res.socket._handle.fd));
+            res.resume();
+          });
+          req.once('socket', (socket) => socket.once('close', resolve));
+          req.once('error', reject);
+        });
+        extra.cacheSizesAfterClose.push(cache.size);
+        if (extra.cacheSizesAfterClose.length === REQUESTS) sink.close();
+      });
+    });
+    break;
+  }
   case 'continuations': {
     httpScenario(1, async () => {
       events.push('start');

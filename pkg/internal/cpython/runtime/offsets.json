@@ -1,9 +1,9 @@
 {
   "supported": {
     "3.10": 22,
-    "3.11": 17,
-    "3.12": 15,
-    "3.13": 17,
+    "3.11": 18,
+    "3.12": 16,
+    "3.13": 18,
     "3.14": 9,
     "3.9": 25
   },
@@ -12,7 +12,7 @@
       "gc": {
         "versions": {
           "oldest": "3.9.0",
-          "newest": "3.12.15"
+          "newest": "3.12.16"
         },
         "offsets": [
           {
@@ -34,7 +34,7 @@
       "_finalizing": {
         "versions": {
           "oldest": "3.9.0",
-          "newest": "3.12.15"
+          "newest": "3.12.16"
         },
         "offsets": [
           {
@@ -50,7 +50,7 @@
       "interpreters.main": {
         "versions": {
           "oldest": "3.9.0",
-          "newest": "3.12.15"
+          "newest": "3.12.16"
         },
         "offsets": [
           {
@@ -102,7 +102,7 @@
       "collecting": {
         "versions": {
           "oldest": "3.9.0",
-          "newest": "3.12.15"
+          "newest": "3.12.16"
         },
         "offsets": [
           {

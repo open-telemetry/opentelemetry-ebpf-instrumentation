@@ -116,6 +116,61 @@ func TestMultiProcess(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+func TestMultiProcessConnectionInfo(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-multiexec.yml", path.Join(pathOutput, "test-suite-multiexec-connectioninfo.log"))
+	require.NoError(t, err)
+	compose.Env = append(compose.Env,
+		`OTEL_EBPF_EXECUTABLE_PATH=`,
+		`OTEL_EBPF_OPEN_PORT=`,
+		`MULTI_TEST_MODE=-connectioninfo`,
+		`MULTI_TEST_CLIENT_SERVICE_NAME=connectioninfo-client`,
+		`MULTI_TEST_CLIENT_RESOURCE_ATTRIBUTES=service.namespace=integration-client`,
+		`MULTI_TEST_SERVER_SERVICE_NAME=connectioninfo-server`,
+		`MULTI_TEST_SERVER_RESOURCE_ATTRIBUTES=service.namespace=integration-server`,
+	)
+	t.Cleanup(func() {
+		assert.NoError(t, compose.Close())
+	})
+	require.NoError(t, compose.Up())
+
+	waitForTestComponentsNoMetrics(t, "http://localhost:8080/smoke")
+	waitForTestComponentsNoMetrics(t, "http://localhost:7773/smoke")
+
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	query := `traces_service_graph_connection_info{` +
+		`client="connectioninfo-client",` +
+		`client_service_namespace="integration-client",` +
+		`server="pytestserver",` +
+		`server_service_namespace="",` +
+		`source="obi"}`
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := http.Get("http://localhost:8080/gotracemetoo")
+		require.NoError(ct, err)
+		assert.Equal(ct, http.StatusOK, resp.StatusCode)
+		assert.NoError(ct, resp.Body.Close())
+
+		results, err := pq.Query(query)
+		require.NoError(ct, err)
+		require.Len(ct, results, 1)
+		assert.Equal(ct, "1", results[0].Value[1])
+	}, testTimeout, 500*time.Millisecond)
+
+	for _, metric := range []string{
+		"http_server_request_duration_seconds_count",
+		"http_client_request_duration_seconds_count",
+		"traces_service_graph_request_total",
+		"traces_service_graph_request_failed_total",
+		"traces_service_graph_request_client_seconds_count",
+		"traces_service_graph_request_server_seconds_count",
+	} {
+		results, err := pq.Query(metric)
+		require.NoError(t, err)
+		assert.Empty(t, results, "unexpected metric %s with only connection-info enabled", metric)
+	}
+
+	runWeaverValidation(t)
+}
+
 func TestMultiProcessAppCP(t *testing.T) {
 	compose, err := docker.ComposeSuite("docker-compose-multiexec-host.yml", path.Join(pathOutput, "test-suite-multiexec-app-cp.log"))
 	require.NoError(t, err)

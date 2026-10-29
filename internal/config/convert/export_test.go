@@ -239,6 +239,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.TCBackend = config.TCBackendTCX
 	cfg.EBPF.HighRequestVolume = true
 	cfg.EBPF.BPFFSPath = "/tmp/bpf"
+	cfg.EBPF.CgroupFSPath = "/host/sys/fs/cgroup"
 	cfg.EBPF.MaxTransactionTime = 11 * time.Second
 	cfg.EBPF.TrackRequestHeaders = true
 	cfg.EBPF.HTTPRequestTimeout = 12 * time.Second
@@ -368,6 +369,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, config.TCBackendTCX, value(t, ext.Capture.Engine, "traffic", "control_backend"))
 	require.Equal(t, true, value(t, ext.Capture.Engine, "traffic", "high_request_volume"))
 	require.Equal(t, "/tmp/bpf", value(t, ext.Capture.Engine, "bpf_filesystem", "path"))
+	require.Equal(t, "/host/sys/fs/cgroup", value(t, ext.Capture.Engine, "cgroup_filesystem", "path"))
 
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "traces"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "metrics"))
@@ -613,6 +615,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Rerank.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Retrieval.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Ollama.Enabled = true
+	cfg.EBPF.PayloadExtraction.HTTP.GenAI.Cohere.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.JSONRPC.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Enabled = true
 	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Policy.DefaultAction.Headers = config.HTTPParsingActionInclude
@@ -679,7 +682,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 
 	require.ElementsMatch(t, []string{
 		"graphql", "elasticsearch", "aws", "sqlpp", "openai", "anthropic", "gemini",
-		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "ollama", "jsonrpc", "enrichment",
+		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "ollama", "cohere", "jsonrpc", "enrichment",
 	}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enabled"))
 	require.Equal(t, []string{"/query", "/analytics"}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "sqlpp", "endpoint_patterns"))
 	require.Equal(t, 77, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "sqlpp", "prepared_statements_cache_size"))
@@ -1227,4 +1230,12 @@ func keys(root any) []string {
 		}
 	}
 	return out
+}
+
+func TestMigratedV1PreservesNameResolverDefaults(t *testing.T) {
+	cfg := obi.DefaultConfig
+	_, ext := RuntimeToV2(&cfg)
+	migrated, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceECS}, migrated.NameResolver.Sources)
 }

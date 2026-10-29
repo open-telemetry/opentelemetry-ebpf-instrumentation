@@ -11,7 +11,7 @@ jobs:
   UpdateOffsets:
     permissions:
       contents: write  # Required for creating PRs
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation'
     steps:
     - name: "Checkout repo"

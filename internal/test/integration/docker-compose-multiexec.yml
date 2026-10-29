@@ -11,6 +11,8 @@ services:
       - "8088:8088" # jsonrpc server
     environment:
       LOG_LEVEL: DEBUG
+      OTEL_SERVICE_NAME: "${MULTI_TEST_CLIENT_SERVICE_NAME:-}"
+      OTEL_RESOURCE_ATTRIBUTES: "${MULTI_TEST_CLIENT_RESOURCE_ATTRIBUTES:-}"
     depends_on:
       otelcol:
         condition: service_started
@@ -75,6 +77,9 @@ services:
     image: hatest-testserver-python
     ports:
       - 7773:7773
+    environment:
+      OTEL_SERVICE_NAME: "${MULTI_TEST_SERVER_SERVICE_NAME:-}"
+      OTEL_RESOURCE_ATTRIBUTES: "${MULTI_TEST_SERVER_RESOURCE_ATTRIBUTES:-}"
 
   ntestserverssl:
     build:
@@ -148,7 +153,7 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.163.1@sha256:1175b03003053962012f5a231f5567f66a3e8fdb960c7835c0e48f7aa1555806
+    image: otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b
     container_name: otel-col
     deploy:
       resources:
