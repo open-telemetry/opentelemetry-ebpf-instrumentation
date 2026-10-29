@@ -1,0 +1,41 @@
+services:
+  testserver:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/java_apache_httpclient/Dockerfile
+      args:
+        - JAVA_APACHE_RUNTIME_IMAGE
+    image: "${JAVA_APACHE_FIXTURE_IMAGE:-hatest-java-apache-httpclient}"
+    environment:
+      OTEL_SERVICE_NAME: java-apache-httpclient
+    ports:
+      - "24180:24180"
+
+  proxy:
+    image: "${JAVA_APACHE_FIXTURE_IMAGE:-hatest-java-apache-httpclient}"
+    entrypoint: [/fixture/proxy]
+    ports:
+      - "24182:8082"
+    depends_on:
+      testserver:
+        condition: service_started
+
+  downstream:
+    image: "${JAVA_APACHE_FIXTURE_IMAGE:-hatest-java-apache-httpclient}"
+    entrypoint: [/fixture/downstream]
+    depends_on:
+      testserver:
+        condition: service_started
+
+  obi:
+    extends:
+      file: docker-compose-java-httpclient-traceparent.yml
+      service: obi
+    command: ["--config=/configs/obi-config-java-apache-httpclient.yml"]
+
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17
+    ports:
+      - "24186:16686"
+      - "24317:4317"
+      - "24318:4318"
