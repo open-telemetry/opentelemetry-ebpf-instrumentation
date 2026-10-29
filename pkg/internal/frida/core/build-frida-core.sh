@@ -3,13 +3,14 @@
 # SPDX-License-Identifier: Apache-2.0
 set -Eeuo pipefail
 
-readonly version=17.24.3
+readonly version="${FRIDA_VERSION:-17.24.3}"
 work_dir=""
 
 usage() {
     printf 'Usage: %s OUTPUT_DIRECTORY [amd64|arm64]\n' "${0##*/}"
     printf 'Build a Frida Core shared library from a checksum-pinned official devkit.\n'
     printf 'CC selects one compiler executable; use a target compiler for cross-linking.\n'
+    printf 'FRIDA_VERSION selects a release; FRIDA_DEVKIT_SHA256 supplies its archive checksum.\n'
 }
 
 cleanup() {
@@ -31,18 +32,33 @@ main() {
         usage >&2
         return 1
     fi
-    local output_dir="$1" architecture="${2:-$(uname -m)}" target checksum
+    if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]]; then
+        printf 'Invalid Frida release tag: %s\n' "$version" >&2
+        return 1
+    fi
+    local output_dir="$1" architecture="${2:-$(uname -m)}" target checksum="${FRIDA_DEVKIT_SHA256:-}"
     case "$architecture" in
         amd64|x86_64)
             target=x86_64
-            checksum=9a11abf474899a33af6dd9af8a064448b23947a29a3af747eb3c7851591ffec2
             ;;
         arm64|aarch64)
             target=arm64
-            checksum=925bda0e1628b7b282dda370e293ab84aedaacfc11d259378ee6a0885a9b99f7
             ;;
         *) printf 'Unsupported architecture: %s\n' "$architecture" >&2; return 1 ;;
     esac
+    if [[ -z "$checksum" ]]; then
+        case "$version:$target" in
+            17.24.3:x86_64) checksum=9a11abf474899a33af6dd9af8a064448b23947a29a3af747eb3c7851591ffec2 ;;
+            17.24.3:arm64) checksum=925bda0e1628b7b282dda370e293ab84aedaacfc11d259378ee6a0885a9b99f7 ;;
+            17.2.17:x86_64) checksum=f5e94ea24098d5bc731b688be2238e0c2ffba9abf09fbedad3338406902d4fc4 ;;
+            17.2.17:arm64) checksum=8e4f012a6a7754dbc260aea4806a2e14e0440a80da1a2590f04cd9bc1c0bedc7 ;;
+            *) printf 'Set FRIDA_DEVKIT_SHA256 for Frida %s on %s\n' "$version" "$target" >&2; return 1 ;;
+        esac
+    fi
+    if [[ ! "$checksum" =~ ^[a-fA-F0-9]{64}$ ]]; then
+        printf 'FRIDA_DEVKIT_SHA256 must contain a 64-digit SHA-256 checksum\n' >&2
+        return 1
+    fi
     local compiler="${CC:-cc}" dependency
     for dependency in curl sha256sum tar mktemp readelf "$compiler"; do
         command -v "$dependency" >/dev/null || { printf 'Missing command: %s\n' "$dependency" >&2; return 1; }

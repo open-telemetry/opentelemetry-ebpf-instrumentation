@@ -13,16 +13,42 @@ remain unchanged.
 
 ## Supply the native library
 
-Users supply **Frida Core 17.24.3**. OBI does not download libraries at startup or
-distribute Frida binaries in its release images. Native version changes require
-updating the binding, checksums, compatibility documentation, and lifecycle tests
-together. Operators are responsible for provisioning and updating their library.
+Users supply a compatible **Frida Core shared library**. OBI does not download
+libraries at startup or distribute Frida binaries in its release images. Operators
+can update their library independently of OBI; the binding does not reject versions
+based on their version number.
 
-The official [Core devkit](https://github.com/frida/frida/releases/tag/17.24.3)
+`Open` resolves the C entry points used for attachment, script management, signals,
+the GLib loop, cancellation, and teardown before initializing Frida. Missing
+dependencies or required symbols return `ErrUnavailable` with a diagnostic naming
+the failure. Unavailable builds return the same error, allowing callers to disable
+this optional backend and retain their existing observation path. Failed library
+checks release the handle and allow another library to be tried.
+
+Compatibility requires the C signatures and GLib object ABI used by the binding;
+symbol presence alone cannot prove that an arbitrary library implements that ABI.
+The native lifecycle test exercises this contract against several releases in CI.
+Those releases are test references, not a runtime allowlist. The subsequent
+OpenSSL integration must preserve or restore ordinary TLS observation whenever
+initialization or attachment fails.
+
+The official [Core devkit](https://github.com/frida/frida/releases)
 contains a static archive rather than the shared library required by `purego`.
 The helper verifies the pinned devkit SHA-256 before extracting it and links its
 archive into `libfrida-core.so`. It also writes `SHA256SUMS` and a build manifest
 with the compiler, source digest, ELF dependencies, and symbol versions.
+Its default release is pinned for reproducibility, independently of the runtime
+compatibility checks. Set `FRIDA_VERSION` to select another release. For a release
+without a checksum recorded in the helper, also supply `FRIDA_DEVKIT_SHA256` from
+the official release asset's digest or another trusted verification source:
+
+```sh
+FRIDA_VERSION=17.2.17 pkg/internal/frida/core/build-frida-core.sh "$PWD/bin/frida" amd64
+```
+
+Updating a library does not require editing or rebuilding the Go binding when
+the required ABI remains compatible. Run the native tests against the supplied
+library to validate it in your environment.
 
 On a glibc Linux host with a C compiler, curl, binutils, tar, and xz:
 
@@ -56,9 +82,9 @@ not use CGO.
 
 | Boundary | Current evidence or requirement |
 | --- | --- |
-| Native version | Exactly Frida Core 17.24.3; the binding checks the version before initialization |
-| Linux amd64 | Live lifecycle tests passed with the prototype's Ubuntu 24.04 library |
-| Linux arm64 | Compiled in the prototype; live validation runs on the dedicated CI runner |
+| Native API | Required C/GLib entry points and ABI; no version-number restriction |
+| CI references | Frida Core 17.2.17 and 17.24.3 on Linux amd64 and arm64 |
+| Additional live validation | Frida Core 16.7.19 on Linux amd64 |
 | libc | The inspected amd64 library requires glibc symbols through 2.38 |
 | Native dependencies | The inspected amd64 build needs glibc, libm, libgcc_s, and the ELF loader |
 | Unsupported packaging | Musl/Alpine, older glibc hosts, and standard OBI images are unvalidated |
@@ -70,9 +96,10 @@ a compiler, and development headers are unnecessary at runtime.
 
 - **Library fails to load:** use an absolute path and check its architecture,
   required GLIBC symbol versions, and runtime dependencies against the host.
-- **Missing symbol or wrong Frida version:** use the pinned Core devkit and helper;
+- **Missing required symbol:** check the named API entry point in the supplied library;
   a Frida Server binary or a library that hides the namespaced GLib exports cannot
-  satisfy this binding. Failures before initialization release the library handle.
+  satisfy this binding. The error leaves the backend unavailable; callers can keep
+  ordinary observation enabled. Failures before initialization release the handle.
 - **Attachment denied:** check permissions to trace the target, Yama/ptrace policy,
   container seccomp, and other instrumentation already using the target entry points.
 - **Backend unavailable:** build the caller with `-tags=obi_frida` on Linux amd64 or

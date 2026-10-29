@@ -46,7 +46,6 @@ type Engine struct {
 	manager, device, loop                          uintptr
 	loopDone                                       chan struct{}
 	init, shutdown, deinit                         func()
-	version                                        func() string
 	newManager                                     func() uintptr
 	getDevice                                      func(uintptr, int32, int32, uintptr, **nativeError) uintptr
 	attach                                         func(uintptr, uint32, uintptr, uintptr, **nativeError) uintptr
@@ -84,11 +83,11 @@ func Open(ctx context.Context, path string) (*Engine, error) {
 		return nil, errors.New("frida Core has already been initialized in this process")
 	}
 	if path == "" {
-		return nil, errors.New("frida Core library path is required")
+		return nil, fmt.Errorf("%w: library path is required", ErrUnavailable)
 	}
 	handle, err := purego.Dlopen(path, purego.RTLD_NOW|purego.RTLD_LOCAL)
 	if err != nil {
-		return nil, fmt.Errorf("loading Frida Core: %w", err)
+		return nil, fmt.Errorf("%w: loading Frida Core: %w", ErrUnavailable, err)
 	}
 	initialized := false
 	defer func() {
@@ -104,7 +103,6 @@ func Open(ctx context.Context, path string) (*Engine, error) {
 		{&e.init, "frida_init"},
 		{&e.shutdown, "frida_shutdown"},
 		{&e.deinit, "frida_deinit"},
-		{&e.version, "frida_version_string"},
 		{&e.newManager, "frida_device_manager_new"},
 		{&e.getDevice, "frida_device_manager_get_device_by_type_sync"},
 		{&e.attach, "frida_device_attach_sync"},
@@ -131,12 +129,9 @@ func Open(ctx context.Context, path string) (*Engine, error) {
 	for _, b := range bindings {
 		symbol, lookupErr := purego.Dlsym(handle, b.name)
 		if lookupErr != nil {
-			return nil, fmt.Errorf("frida symbol %s: %w", b.name, lookupErr)
+			return nil, fmt.Errorf("%w: library %q is missing required symbol %s: %w", ErrUnavailable, path, b.name, lookupErr)
 		}
 		purego.RegisterFunc(b.target, symbol)
-	}
-	if v := e.version(); v != Version {
-		return nil, fmt.Errorf("frida %s required; got %s", Version, v)
 	}
 	callbacks.Do(func() {
 		callbacks.message = purego.NewCallback(func(_ uintptr, message *byte, _ uintptr, id uintptr) {

@@ -21,12 +21,13 @@ permissions:
 
 jobs:
   test:
-    name: Native lifecycle (${{ matrix.platform.arch }})
+    name: Native lifecycle (${{ matrix.platform.arch }}, Frida ${{ matrix.frida }})
     runs-on: ${{ matrix.platform.runner }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
+        frida: ["17.2.17", "17.24.3"]
         platform:
           - runner: ubuntu-24.04
             arch: amd64
@@ -51,6 +52,7 @@ jobs:
       - name: Build the pinned Frida Core library
         env:
           FRIDA_ARCH: ${{ matrix.platform.arch }}
+          FRIDA_VERSION: ${{ matrix.frida }}
         run: pkg/internal/frida/core/build-frida-core.sh "$RUNNER_TEMP/frida" "$FRIDA_ARCH"
 
       - name: Test native lifecycle and callbacks

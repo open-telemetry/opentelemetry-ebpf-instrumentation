@@ -7,7 +7,7 @@ package core // import "go.opentelemetry.io/obi/pkg/internal/frida/core"
 
 import (
 	"context"
-	"errors"
+	"fmt"
 )
 
 // Session is the unavailable native session in the default build.
@@ -18,11 +18,11 @@ type Engine struct {
 }
 
 func Open(context.Context, string) (*Engine, error) {
-	return nil, errors.New("frida requires a Linux amd64/arm64 OBI build with -tags=obi_frida")
+	return nil, fmt.Errorf("%w: requires a Linux amd64/arm64 OBI build with -tags=obi_frida", ErrUnavailable)
 }
 
 func (*Engine) Attach(context.Context, uint32, string) (*Session, error) {
-	return nil, errors.New("frida backend unavailable")
+	return nil, ErrUnavailable
 }
 func (*Engine) Close() error      { return nil }
 func (*Session) Close(bool) error { return nil }

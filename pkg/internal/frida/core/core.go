@@ -12,7 +12,8 @@ import (
 	"sync"
 )
 
-const Version = "17.24.3"
+// ErrUnavailable means the optional backend cannot be used with this build or library.
+var ErrUnavailable = errors.New("frida Core backend unavailable")
 
 type reply struct {
 	value json.RawMessage
