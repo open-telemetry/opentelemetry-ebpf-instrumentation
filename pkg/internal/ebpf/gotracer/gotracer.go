@@ -1593,8 +1593,9 @@ func (p *Tracer) deleteRuntimeMetricTarget(pid app.PID, ns uint32) {
 }
 
 func runtimeMetricPIDInfo(pid app.PID, ns uint32) (BpfPidInfo, error) {
+	// HostPid stays zero: go_runtime_metric_targets is keyed on {user_pid, ns}
+	// (see go_runtime_metric_target_lookup in bpf/gotracer/go_runtime.c).
 	pidInfo := BpfPidInfo{
-		HostPid: uint32(pid),
 		UserPid: uint32(pid),
 		Ns:      ns,
 	}
@@ -1607,7 +1608,6 @@ func runtimeMetricPIDInfo(pid app.PID, ns uint32) (BpfPidInfo, error) {
 		return pidInfo, nil
 	}
 
-	pidInfo.HostPid = uint32(pids[0])
 	pidInfo.UserPid = uint32(pids[len(pids)-1])
 	return pidInfo, nil
 }
