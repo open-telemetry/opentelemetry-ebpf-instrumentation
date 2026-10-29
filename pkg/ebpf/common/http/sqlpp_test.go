@@ -194,6 +194,18 @@ func TestParseSQLPPRequest(t *testing.T) {
 			expectErr: false,
 		},
 		{
+			name: "percent-encoded statement and query context",
+			body: url.Values{
+				"statement":     {"SELECT * FROM `mycollection` WHERE n = 1 + 2 AND value = '50%'"},
+				"query_context": {"default:`mybucket`.`myscope`"},
+			}.Encode(),
+			contentType: "application/x-www-form-urlencoded",
+			expected: &sqlppRequest{
+				Statement: "SELECT * FROM `mycollection` WHERE n = 1 + 2 AND value = '50%'",
+				QueryCtx:  "default:`mybucket`.`myscope`",
+			},
+		},
+		{
 			name:        "empty body",
 			body:        "",
 			contentType: "application/json",
@@ -300,6 +312,18 @@ func TestSQLPPSpan(t *testing.T) {
 			expectedOperation:  "SELECT",
 			expectedNamespace:  "test-bucket",
 			expectedCollection: "test-collection",
+		},
+		{
+			name:               "Couchbase SQL++ percent-encoded form",
+			reqPath:            "/query/service",
+			reqBody:            "statement=SELECT%20%2A%20FROM%20%60mycollection%60&query_context=default%3A%60mybucket%60.%60myscope%60",
+			reqContentType:     "application/x-www-form-urlencoded",
+			respContentType:    "application/json; version=2.0.0-N1QL",
+			expectedDetected:   true,
+			expectedDBSystem:   "couchbase",
+			expectedOperation:  "SELECT",
+			expectedNamespace:  "mybucket",
+			expectedCollection: "mycollection",
 		},
 		{
 			name:               "Endpoint does not match patterns",

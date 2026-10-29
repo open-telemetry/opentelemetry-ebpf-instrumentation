@@ -1220,6 +1220,58 @@ func TestConfigValidateStaticSkipsHostCompatibility(t *testing.T) {
 	require.NoError(t, cfg.ValidateStatic())
 }
 
+func TestConfigValidateStaticForApplicationRefresh(t *testing.T) {
+	cfg := loadConfig(t, envMap{"OTEL_EBPF_TRACE_PRINTER": "text"})
+	require.False(t, cfg.Enabled(FeatureAppO11y))
+	require.False(t, cfg.Enabled(FeatureNetO11y))
+	require.False(t, cfg.Enabled(FeatureStatsO11y))
+	require.ErrorContains(t, cfg.ValidateStatic(), "at least one of")
+	require.ErrorContains(t, cfg.Validate(), "at least one of")
+	require.NoError(t, cfg.ValidateStaticForApplicationRefresh())
+	require.False(t, cfg.Enabled(FeatureAppO11y))
+
+	for _, tc := range []struct {
+		name   string
+		change func(*Config)
+		error  string
+	}{
+		{
+			name:   "runtime settings",
+			change: func(c *Config) { c.JVMRuntimeMetrics.SamplingInterval = 0 },
+			error:  "jvm_runtime_metrics.sampling_interval must be greater than 0",
+		},
+		{
+			name:   "trace printer",
+			change: func(c *Config) { c.TracePrinter = "invalid" },
+			error:  "invalid value for trace_printer",
+		},
+		{
+			name:   "application exporter",
+			change: func(c *Config) { c.TracePrinter = debug.TracePrinterDisabled },
+			error:  "you need to define at least one exporter",
+		},
+		{
+			name: "application metrics",
+			change: func(c *Config) {
+				c.Prometheus.Port = 9090
+				c.Metrics.Features = export.FeatureApplicationSizes
+			},
+			error: "application_sizes needs the application RED metrics",
+		},
+		{
+			name:   "network exporter",
+			change: func(c *Config) { c.NetworkFlows.Enable = true },
+			error:  "enabling network metrics requires",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			invalid := *cfg
+			tc.change(&invalid)
+			require.ErrorContains(t, invalid.ValidateStaticForApplicationRefresh(), tc.error)
+		})
+	}
+}
+
 func TestConfigValidatePrometheusPaths(t *testing.T) {
 	testCases := map[string]struct {
 		yamlConfig string

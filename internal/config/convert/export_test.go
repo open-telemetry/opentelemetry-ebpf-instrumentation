@@ -239,6 +239,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.TCBackend = config.TCBackendTCX
 	cfg.EBPF.HighRequestVolume = true
 	cfg.EBPF.BPFFSPath = "/tmp/bpf"
+	cfg.EBPF.CgroupFSPath = "/host/sys/fs/cgroup"
 	cfg.EBPF.MaxTransactionTime = 11 * time.Second
 	cfg.EBPF.TrackRequestHeaders = true
 	cfg.EBPF.HTTPRequestTimeout = 12 * time.Second
@@ -368,6 +369,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, config.TCBackendTCX, value(t, ext.Capture.Engine, "traffic", "control_backend"))
 	require.Equal(t, true, value(t, ext.Capture.Engine, "traffic", "high_request_volume"))
 	require.Equal(t, "/tmp/bpf", value(t, ext.Capture.Engine, "bpf_filesystem", "path"))
+	require.Equal(t, "/host/sys/fs/cgroup", value(t, ext.Capture.Engine, "cgroup_filesystem", "path"))
 
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "traces"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "metrics"))

@@ -444,6 +444,9 @@ func captureEngine(cfg *obi.Config) schema.CaptureEngine {
 		BPFFileSystem: schema.BPFFileSystem{
 			Path: cfg.EBPF.BPFFSPath,
 		},
+		CgroupFileSystem: schema.CgroupFileSystem{
+			Path: cfg.EBPF.CgroupFSPath,
+		},
 	}
 }
 

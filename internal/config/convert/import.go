@@ -1149,6 +1149,7 @@ func applyFullV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	cfg.EBPF.MaxTransactionTime = engine.Transactions.MaxDuration.TimeDuration()
 	cfg.EBPF.MapsConfig.GlobalScaleFactor = engine.Maps.GlobalScaleFactor
 	cfg.EBPF.BPFFSPath = engine.BPFFileSystem.Path
+	cfg.EBPF.CgroupFSPath = engine.CgroupFileSystem.Path
 }
 
 func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
@@ -1199,6 +1200,9 @@ func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	}
 	if engine.BPFFileSystem.Path != "" {
 		cfg.EBPF.BPFFSPath = engine.BPFFileSystem.Path
+	}
+	if engine.CgroupFileSystem.Path != "" {
+		cfg.EBPF.CgroupFSPath = engine.CgroupFileSystem.Path
 	}
 }
 

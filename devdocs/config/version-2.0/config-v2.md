@@ -616,6 +616,11 @@ metrics and the conflict between the two span metric formats.
 
 The `capture.engine` section controls eBPF engine internals: event batching, PID-based filtering, BPF filesystem path, context propagation mode, traffic control backend, transaction duration limits, and debug toggles.
 
+`capture.engine.cgroup_filesystem.path` sets the host cgroup v2 mount that context propagation attaches its sockops programs to.
+An unprivileged container has its own cgroup namespace, so its `/sys/fs/cgroup` covers only OBI's own cgroup.
+Mount the host hierarchy at another path, for example `/host/sys/fs/cgroup`, and set it here to propagate context for connections from every process on the node without hiding the container's own cgroup.
+If omitted, the hierarchy is detected automatically. This field is available through Config v2 only.
+
 **Why `engine`, not `capture.capture`**
 
 Earlier drafts named this sub-section `capture` (i.e., `operations.capture`), which would have produced the awkward path `capture.capture.*` after the restructure.
@@ -1053,6 +1058,58 @@ Private IPv4 and IPv6 addresses resolve to scale-set names. If multiple VMs
 share an address across networks in the selected resource group, that ambiguous
 address is omitted. Public IPs and Azure Container Apps are outside this source's
 scope. The source and its settings are available only in Config v2.
+
+## Refresh discovery criteria at runtime
+
+Standalone OBI watches its Config v2 file when started with `--config` or
+`OTEL_EBPF_CONFIG_PATH`. It reads the path every second, including after atomic
+file replacement or ConfigMap symlink updates. A change applies once two
+consecutive reads return the same contents, so a read that lands in the middle of
+an in-place write is not applied. In containers, mount the containing
+directory so replacement files remain visible. The legacy v1 loader is unchanged.
+
+Process and Kubernetes matching predicates can be refreshed, and definitions can
+be added or removed. OBI re-evaluates already observed processes, stops
+instrumenting processes no longer selected, and instruments newly selected
+processes. A discovery rescan picks up processes and ports that were not observed
+yet. Processes that remain selected keep their instrumentation.
+
+Existing service names, namespaces, samplers, route policies, export modes and
+metric features cannot change during a refresh. The update also fails if new
+matching criteria would give an already selected process different service
+settings, or if another runtime setting changes, such as exporters or protocol
+enablement. New definitions cannot require metric features that the pipeline did
+not initialize at startup. Replacing a removed definition with different service
+settings in the same edit conservatively requires a restart.
+
+An incompatible or invalid edit logs an `ERROR` stating that OBI cannot refresh
+that config and the user should restart OBI. The running configuration stays
+active. A later compatible edit can still be accepted. Successful refreshes log
+`discovery criteria refreshed`.
+
+To try it, start OBI with the
+[standalone example](examples/default-configuration.yaml), then edit its
+`capture.rules[].match` to select another running application. Change the
+top-level trace sampler to verify rejection without stopping the current capture.
+
+Embedders of OBI can use the same API with an `obi.Config` translated from
+their own configuration format:
+
+```go
+updater := discover.NewCriteriaUpdater(cfg)
+// Run this in the application's normal instrumentation goroutine.
+err := instrumenter.Run(ctx, cfg, instrumenter.WithCriteriaUpdater(updater))
+```
+
+An embedder that owns its discovery pipeline can instead pass
+`discover.WithCriteriaUpdater(updater)` directly to `ProcessFinder.Start`.
+
+From the embedding application's configuration watcher, submit a freshly loaded
+runtime config with `updater.Update(ctx, nextConfig)`. The call waits for the
+matcher to accept or reject the update. Treat submitted configs as immutable and
+keep the original pipeline context alive. This option cannot be combined with
+`WithDynamicSelector`, that API continues to own its PID and workload selections
+independently. Config v1 files are not watched by standalone OBI.
 
 ## Related docs
 
