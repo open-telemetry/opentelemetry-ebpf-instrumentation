@@ -17,6 +17,7 @@ services:
       - ./system/sys/kernel/security:/sys/kernel/security
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-netolly:/var/run/obi
+      - /sys/kernel/tracing:/sys/kernel/tracing:rw
     image: hatest-obi
     privileged: true
     network_mode: host
@@ -24,6 +25,7 @@ services:
       OTEL_EBPF_CONFIG_PATH: /configs/obi-config-netolly.yml
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_NETWORK_METRICS: "true" # explicitly enabling network metrics
+      OTEL_EBPF_METRICS_FEATURES: "network,stats" # stats also uses the eBPF reverse DNS
       OTEL_EBPF_NETWORK_PRINT_FLOWS: "true"
       OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"

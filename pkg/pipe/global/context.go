@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	netebpf "go.opentelemetry.io/obi/pkg/internal/netolly/ebpf"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/rdns"
 	statsebpf "go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/metadata"
@@ -47,6 +48,8 @@ type ContextInfo struct {
 	// ECSInventory is shared by endpoint resolution and process metadata enrichment.
 	// TODO: add AWS name resolution features to network metrics
 	CloudMetaInventory *cloud.Inventory
+	// EBPFReverseDNS is shared by the network and stats pipelines.
+	EBPFReverseDNS *rdns.EBPFLookup
 
 	// OverrideAppExportQueue allows overriding the output queue of the application exporter
 	// to connect your own application exporters outside the OBI code base. If left unset, OBI will

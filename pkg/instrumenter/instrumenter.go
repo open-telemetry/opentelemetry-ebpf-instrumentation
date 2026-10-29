@@ -22,6 +22,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/appolly"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/rdns"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	netagent "go.opentelemetry.io/obi/pkg/netolly/agent"
@@ -98,6 +99,10 @@ func runWithContextInfo(
 
 	// if one of nodes fail, the other should stop
 	g, ctx := errgroup.WithContext(ctx)
+
+	if ctxInfo.EBPFReverseDNS != nil {
+		defer ctxInfo.EBPFReverseDNS.Close(cfg.ShutdownTimeout)
+	}
 
 	startHealthCheck(ctx, g, cfg.HealthCheck)
 
@@ -246,6 +251,7 @@ func BuildCommonContextInfo(
 	ctxInfo := &global.ContextInfo{
 		Prometheus:          promMgr,
 		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: &config.OTELMetrics},
+		EBPFReverseDNS:      rdns.NewEBPFLookup(ctx, &config.EBPF, &config.NetworkFlows.ReverseDNS, &config.Stats.ReverseDNS),
 	}
 	// Node metadata must be resolved before the internal-metrics reporter is
 	// created, so the reporter's OTLP resource carries host metadata (host.id,
