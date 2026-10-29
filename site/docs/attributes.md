@@ -170,6 +170,7 @@ Attributes carried on OBI's per-connection TCP statistics. Emitted when the `sta
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
 | `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `network.tcp.reset.cause` | enum | development | Inferred cause of a TCP reset sent by the local endpoint, from the code path that sent it: `application` when the socket was closed before the reset (close() with unread data, SO_LINGER{0}), `timeout` when the reset was sent with the connection still open, by a keepalive, user-timeout or orphan timer, or by a forced socket destroy such as `ss -K`. Not set when the cause cannot be inferred: received resets, and sent resets that answer an incoming segment. | application; timeout |
 | `reason` | enum | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
 
 ## `x.obi.db`

@@ -393,4 +393,5 @@ const (
 	TCPFailedConnectionReason = Name("reason")
 	NetworkTCPHandshakeRole   = Name("network.tcp.handshake.role")
 	NetworkIoDirection        = Name(semconv.NetworkIODirectionKey)
+	NetworkTCPResetCause      = Name("network.tcp.reset.cause")
 )

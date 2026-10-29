@@ -149,6 +149,18 @@ The RST **sender** is not affected because it goes through the normal applicatio
 
 StatsO11y probes fire at different points relative to `inet_put_port()`, so the behaviour is not uniform across metrics. For example, `obi_kprobe_tcp_close_srtt` (kprobe on `tcp_close`) may still observe a valid port in some RST-receiver scenarios, while `obi_tracepoint_inet_sock_set_state` (tracepoint on `inet_sock_set_state`) consistently sees `0`. Metrics with `src_port="0"` still carry useful signal — `dst_port`, `src_address`, `dst_address`, `reason`, and `network_tcp_handshake_role` remain valid.
 
+#### `obi_stat_tcp_resets_total` scope and cause
+
+The metric counts RST segments that the TCP stack sends (`tcp_send_reset`) or accepts (`tcp_receive_reset`) on connections past the handshake. It is enabled only from Config v2 (`capture.network.stats.features: [tcp_resets]`) and is not part of the default stats families.
+
+- Resets seen while the socket is in `SYN_SENT`, `SYN_RECV` or `NEW_SYN_RECV` are skipped, because they make the connection attempt fail and are counted by `obi_stat_tcp_failed_connections_total`.
+- Resets a `LISTEN` socket sends in reply to an unexpected ACK are skipped too, and no other metric counts them. This happens, for example, when a failover moves established clients to a host that only has the listener.
+- Resets that abort an established connection with a socket error are counted by both metrics: a received reset, keepalive expiry and `tcp_abort()` also move the socket to `TCP_CLOSE` with an error, which `obi_stat_tcp_failed_connections_total` counts. Application aborts (`close()` with unread data, `SO_LINGER{0}`) leave no error and are counted only here. Do not add the two metrics together.
+- Only resets the stack accepts are counted as received: resets that fail sequence validation, and resets that reach a `TIME_WAIT` socket, are dropped before `tcp_reset()`.
+- Resets sent for ports with no listener are not counted on any kernel, because there is no socket to attribute them to: kernel 6.10 and newer fire `tcp_send_reset` without a socket, and older kernels do not fire it. Older kernels also do not trace resets sent from `TIME_WAIT`, which 6.10 and newer count.
+- When data arrives on a `FIN_WAIT1`/`FIN_WAIT2` socket whose application already shut down reading, the kernel calls `tcp_reset()` on itself and then sends a reset. This single abort is counted once as `receive` and once as `transmit`.
+- `network.tcp.reset.cause` is inferred only for sent resets, from the code path that sends them, not from what triggered it. An active reset on a socket already moved to `TCP_CLOSE` is `application`: `close()` with unread data, `SO_LINGER{0}`, `TCP_LINGER2 < 0`, or an orphan or memory limit hit inside `close()`. An active reset with the state unchanged is `timeout`: keepalive and user timeout, orphan timers, the same orphan or memory limit hit by the retransmit timer, and `tcp_abort()` (`ss -K`, `bpf_sock_destroy`), which no timer triggers. Resets answering an incoming segment, and all received resets, carry no cause: the attribute is omitted on OTLP and the Prometheus label is empty.
+
 ### Performance considerations
 
 Some stat metrics attach to kernel functions that are called very frequently (e.g. `tcp_sendmsg`, `tcp_cleanup_rbuf` for TCP IO). These probes add a small overhead on every call, so the aggregate cost is proportional to the rate of TCP sends/receives on the node. Consider:

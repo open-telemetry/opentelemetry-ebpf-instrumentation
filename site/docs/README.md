@@ -6,7 +6,7 @@
 Generated from the OBI semantic-convention registry in `schemas/obi/`.
 
 - [Attributes](attributes.md) — 20 attribute groups
-- [Metrics](metrics.md) — 116 metrics
+- [Metrics](metrics.md) — 117 metrics
 - [Spans](spans.md) — 33 spans
 
 Counts cover what OBI defines. Metrics OBI emits unchanged from upstream are imported
