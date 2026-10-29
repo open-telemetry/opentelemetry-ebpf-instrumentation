@@ -611,6 +611,66 @@ independently of the feature list. The existing V1 feature validation applies,
 including the requirement that `application_sizes` accompany application RED
 metrics and the conflict between the two span metric formats.
 
+### `capture.attributes.select` Section
+
+Select optional span attributes and metric dimensions before aggregation.
+The `traces` key selects optional span attributes; other keys name metrics or
+metric patterns.
+
+Standalone fragment:
+
+```yaml
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      attributes:
+        select:
+          traces:
+            include: [service.peer.name]
+          http.server.request.duration:
+            exclude: [http.route]
+```
+
+Receiver fragment (the children of `capture` are flattened):
+
+```yaml
+receivers:
+  obi:
+    version: "2.0"
+    attributes:
+      select:
+        traces:
+          include: [service.peer.name]
+        http.server.request.duration:
+          exclude: [http.route]
+```
+
+Omission preserves the default attribute selection. Include/exclude rules,
+metric-name normalization, and exact-name opt-ins use the existing selection
+semantics. A `"*"` selection matches both metrics and `traces`; use a
+metric-specific pattern to affect only metrics. Selecting an attribute does
+not enable a payload extractor or metadata resolver. `service.peer.name`
+requires an eligible client span with a peer name available to OBI.
+
+Existing standalone configurations using `enrich.attributes.select` continue
+working unchanged after upgrade. Migration emits trace and metric selection
+only in `capture.attributes.select`.
+
+Use one location for all trace and metric selection. If adopting
+`capture.attributes.select`, move all trace and metric entries there and remove
+them from `enrich.attributes.select`. The two locations are not merged, and
+neither takes precedence. Configuring the new selection block while keeping
+trace or metric entries in the old location is an error, even when the entries
+are identical, address different signals, or the new block is `select: {}`.
+When combining configuration fragments, check the resulting configuration for
+this conflict.
+
+Resource selection stays under `enrich.attributes.select.resource` in
+standalone mode and may accompany capture attribute selection. The `resource`
+key is rejected under capture selection. In receiver mode, configure resource
+filtering and general attribute transformations with Collector processors.
+
 ### `capture.engine` Section
 
 The `capture.engine` section controls eBPF engine internals: event batching, PID-based filtering, BPF filesystem path, context propagation mode, traffic control backend, transaction duration limits, and debug toggles.
@@ -743,7 +803,8 @@ Important mapping notes:
 | `attributes.rename_unresolved_hosts` | `extensions.obi.enrich.service_name.unresolved_hosts.names.default` | Move |
 | `attributes.rename_unresolved_hosts_incoming` | `extensions.obi.enrich.service_name.unresolved_hosts.names.incoming` | Move |
 | `attributes.rename_unresolved_hosts_outgoing` | `extensions.obi.enrich.service_name.unresolved_hosts.names.outgoing` | Move |
-| `attributes.select` | `extensions.obi.enrich.attributes.select` | Move |
+| `attributes.select` | `extensions.obi.capture.attributes.select` | Trace and metric selection; the existing standalone `enrich.attributes.select` location remains accepted |
+| `attributes.select.resource` | `extensions.obi.enrich.attributes.select.resource` | Standalone only; use Collector processors in receiver mode |
 | `channel_buffer_len` | `extensions.obi.capture.channels.buffer_len` | Move |
 | `channel_send_timeout` | `extensions.obi.capture.channels.send_timeout` | Move |
 | `channel_send_timeout_panic` | `extensions.obi.capture.channels.panic_on_send_timeout` | Move + rename |

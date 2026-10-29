@@ -447,7 +447,7 @@ v1 control to Config v2.
 | Multiple include selectors that mix explicit and omitted `exports`, or mix explicit and omitted `routes` | V1 layers each refinement field across every matching selector, while v2 applies one winning rule and resets its omitted refinements. Refactor the selectors so each effective selector states its intended refinement, then test both overlapping and selector-only matches. If behavior depends on conditional inheritance from another selector, keep v1. The command rejects the mixed shape rather than broadening telemetry or changing routes. | Manual rewrite; inheritance limits: [#3928](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/3928) |
 | Non-empty global `routes.patterns` combined with non-empty selector `routes.incoming` or `.outgoing` | V1 uses global-first additive matching while v2 arrays replace inherited patterns. The command rejects the selector route path; keep v1 or redesign and canary-test the policy. | Manual rewrite or compatibility decision: [#3928](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/3928) |
 | `attributes.sensitive_query_params` | No v2 field exists. Do not remove a redaction setting without an equivalent privacy review. | [#3930](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/3930) |
-| Receiver `attributes.select` | Standalone v2 supports selection under `enrich.attributes.select`, but receiver v2 rejects `enrich` and has no equivalent selection field. Keep v1 when the receiver must emit opt-in attributes that the Collector cannot reconstruct. | [#3929](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/3929) |
+| Receiver `attributes.select.resource` | Resource filtering is standalone-only in OBI. Configure it with a resource or transform processor in the Collector pipeline. Trace and metric selections migrate to receiver `attributes.select`. | Collector processing |
 | `discovery.exclude_otel_instrumented_services_span_metrics` | No independent v2 selector exists for this legacy span-metrics exception. | Scope decision: [#3928](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/3928) |
 | Non-default `otel_traces_export.instrumentations`, `otel_metrics_export.instrumentations`, or `prometheus_export.instrumentations` selections involving protocols not modeled by v2 | The v2 protocol enablement section cannot represent every v1 instrumentation. Keep v1 when the command reports a changed instrumentation list. | Protocol coverage decision: [#3928](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/3928) |
 | OTLP HTTP protocol or an implicitly HTTP endpoint | Automatic migration supports the emitted OTLP/gRPC provider subset only. In a release that includes [#2682](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pull/2682), map it manually to the signal's `otlp_http` exporter and preserve the effective endpoint and encoding as described above; otherwise keep v1. | Supported manual mapping; richer providers: [#2627](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/2627) |
@@ -715,8 +715,18 @@ receivers:
 ```
 
 Before reporting success, the command round trips the exact flattened capture
-body it will emit. Legacy receiver fields whose v2 destinations are
-standalone-only—such as Kubernetes/attribute enrichment, name resolution, log
+body it will emit. Supported v1 trace and metric attribute selections migrate
+to `attributes.select` in the receiver body, preserving the selection map and
+its existing wildcard semantics. In standalone output the same entries are
+under `extensions.obi.capture.attributes.select`. Existing standalone v2
+generation entries under `enrich.attributes.select` remain accepted as
+compatibility inputs; no migration of those existing files is required.
+If moving an existing v2 configuration to the new location, move all trace and
+metric selection entries together; see the
+[attribute selection compatibility rules](config-v2.md#captureattributesselect-section).
+
+Legacy receiver fields whose v2 destinations are standalone-only—such as
+Kubernetes enrichment, resource-attribute filtering, name resolution, log
 correlation, daemon logging, and internal metrics—are rejected with their v1
 paths. Move those responsibilities to Collector processors or service
 telemetry; do not discard them merely to make migration pass.
