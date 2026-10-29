@@ -898,7 +898,7 @@ func offsetsForLibVersions(fieldOffsets FieldOffsets, libVersions map[string]str
 			} else {
 				log.Debug("can't parse version for", "library", lib)
 			}
-		case "go.mongodb.org/mongo-driver", "go.mongodb.org/mongo-driver/v2":
+		case "go.mongodb.org/mongo-driver":
 			ver = cleanLibVersion(ver, true, lib, log)
 
 			if v, err := version.NewVersion(ver); err == nil {
@@ -907,6 +907,13 @@ func offsetsForLibVersions(fieldOffsets FieldOffsets, libVersions map[string]str
 				} else {
 					fieldOffsets[MongoOneThirteenOne] = uint64(0)
 				}
+			}
+		case "go.mongodb.org/mongo-driver/v2":
+			// Every v2 release has Operation.Name. The flag and that offset are
+			// shared with v1, so when v1 is linked too, its version decides and a
+			// v1 older than 1.13.1 keeps its spans.
+			if _, v1Linked := libVersions["go.mongodb.org/mongo-driver"]; !v1Linked {
+				fieldOffsets[MongoOneThirteenOne] = uint64(1)
 			}
 		case "golang.org/x/net":
 			ver = cleanLibVersion(ver, true, lib, log)
