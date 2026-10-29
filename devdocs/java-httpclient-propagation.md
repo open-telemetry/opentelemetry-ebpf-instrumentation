@@ -243,7 +243,7 @@ The bootstrap helper's fixed counters distinguish first writes, prepared headers
 unsupported header layouts/sizes, application-owned fields, Expect exclusions,
 and unavailable parent/reservation state. A final gauge counts active executions.
 Preparation is not evidence of delivery or export. The validation fixture exposes
-snapshots for testing; the unchanged native ABI does not identify which kernel
+snapshots for testing; the unchanged Java ioctl contract does not identify which kernel
 capacity/contention/parent check declined an individual reservation.
 
 Run the Apache transport suite with:

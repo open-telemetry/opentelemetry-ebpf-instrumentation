@@ -107,6 +107,8 @@ jobs:
           fi
           docker build "${apache_args[@]}" -t hatest-java-apache-httpclient \
             -f internal/test/integration/components/java_apache_httpclient/Dockerfile .
+          uname -srvm
+          docker run --rm --entrypoint java hatest-java-apache-httpclient -version
           make testoutput
           tests='^TestJava(Apache)?HTTPClient(Async)?Traceparent$'
           if [[ "${{ matrix.runtime.version }}" == "8" ]]; then
