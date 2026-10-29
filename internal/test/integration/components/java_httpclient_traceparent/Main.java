@@ -24,10 +24,20 @@ import java.util.concurrent.atomic.AtomicReference;
 
 public class Main {
   private static final CyclicBarrier concurrentCalls = new CyclicBarrier(4);
+  private static final java.util.concurrent.ExecutorService httpExecutor =
+      Executors.newFixedThreadPool(2);
   private static final HttpClient client =
       HttpClient.newBuilder()
           .version(HttpClient.Version.HTTP_1_1)
+          .executor(httpExecutor)
           .connectTimeout(Duration.ofSeconds(10))
+          .build();
+  private static final HttpRequest sharedRequest =
+      HttpRequest.newBuilder(URI.create("https://proxy:8443/shared-immutable"))
+          .header("X-Application", "preserved")
+          .header("tracestate", "fixture=preserved")
+          .timeout(Duration.ofSeconds(15))
+          .GET()
           .build();
 
   public static void main(String[] args) throws Exception {
@@ -84,6 +94,7 @@ public class Main {
     try {
       String path = exchange.getRequestURI().getPath().substring("/call".length());
       String testMode = exchange.getRequestHeaders().getFirst("X-Test-Mode");
+      boolean async = "true".equals(exchange.getRequestHeaders().getFirst("X-Async"));
       boolean http2 = "http2".equals(testMode);
       boolean fallback = "http2-fallback".equals(testMode);
       HttpClient selected = client;
@@ -168,6 +179,7 @@ public class Main {
               .version(http2 || fallback ? HttpClient.Version.HTTP_2 : HttpClient.Version.HTTP_1_1)
               .timeout(Duration.ofSeconds(15))
               .GET();
+      request.header("X-Application", "preserved").header("tracestate", "fixture=preserved");
       String owned = exchange.getRequestHeaders().getFirst("X-Application-Traceparent");
       if (owned != null) {
         request.header("TrAcEpArEnT", owned);
@@ -189,12 +201,42 @@ public class Main {
       if ("expect-continue".equals(testMode) || "expect-reject".equals(testMode)) {
         request.expectContinue(true);
       }
-      HttpRequest original = request.build();
+      HttpRequest original = "shared-immutable".equals(testMode) ? sharedRequest : request.build();
       if (path.contains("-concurrent-")) {
         concurrentCalls.await(10, TimeUnit.SECONDS);
       }
       HttpResponse<String> response;
       try {
+        if (async && "cancel".equals(testMode)) {
+          java.util.concurrent.CountDownLatch gate = new java.util.concurrent.CountDownLatch(1);
+          HttpClient gated =
+              HttpClient.newBuilder()
+                  .version(HttpClient.Version.HTTP_1_1)
+                  .executor(
+                      task ->
+                          httpExecutor.execute(
+                              () -> {
+                                try {
+                                  gate.await();
+                                  task.run();
+                                } catch (InterruptedException interrupted) {
+                                  Thread.currentThread().interrupt();
+                                }
+                              }))
+                  .build();
+          CompletableFuture<HttpResponse<String>> future =
+              gated.sendAsync(original, HttpResponse.BodyHandlers.ofString());
+          try {
+            if (!future.cancel(false) || !future.isCancelled()) {
+              throw new IllegalStateException("future cancellation changed");
+            }
+            checkPropagationScope();
+          } finally {
+            gate.countDown();
+          }
+          reply(exchange, 200, "cancelled");
+          return;
+        }
         if ("interrupt".equals(testMode)) {
           Thread.currentThread().interrupt();
         }
@@ -204,18 +246,51 @@ public class Main {
           }
         }
         response =
-            "async".equals(testMode)
-                ? selected.sendAsync(original, HttpResponse.BodyHandlers.ofString()).join()
+            async || "async".equals(testMode)
+                ? ("push-overload".equals(testMode)
+                        ? selected.sendAsync(
+                            original,
+                            HttpResponse.BodyHandlers.ofString(),
+                            (initiating, push, acceptor) -> {
+                              throw new IllegalStateException("unexpected HTTP/1.1 push");
+                            })
+                        : selected.sendAsync(original, HttpResponse.BodyHandlers.ofString()))
+                    .thenApply(
+                        value -> {
+                          if (async) {
+                            checkPropagationScope();
+                          }
+                          return value;
+                        })
+                    .join()
                 : selected.send(original, HttpResponse.BodyHandlers.ofString());
         if ("reuse".equals(testMode)) {
-          response = selected.send(original, HttpResponse.BodyHandlers.ofString());
+          response =
+              async
+                  ? selected.sendAsync(original, HttpResponse.BodyHandlers.ofString()).join()
+                  : selected.send(original, HttpResponse.BodyHandlers.ofString());
         }
-      } catch (java.io.IOException | InterruptedException expected) {
+        if (async) {
+          checkPropagationScope();
+          CompletableFuture.runAsync(Main::checkPropagationScope, httpExecutor).join();
+        }
+      } catch (java.io.IOException
+          | InterruptedException
+          | java.util.concurrent.CompletionException expected) {
         if (!"timeout".equals(testMode)
             && !"interrupt".equals(testMode)
             && !"tls-failure".equals(testMode)
             && !"connect-failure".equals(testMode)) {
           throw expected;
+        }
+        if ("timeout".equals(testMode)
+                && !hasCause(expected, java.net.http.HttpTimeoutException.class)
+            || "tls-failure".equals(testMode)
+                && !hasCause(expected, javax.net.ssl.SSLHandshakeException.class)
+            || "connect-failure".equals(testMode)
+                && !hasCause(expected, java.net.ConnectException.class)
+            || "interrupt".equals(testMode) && !hasCause(expected, InterruptedException.class)) {
+          throw new IllegalStateException("unexpected application exception", expected);
         }
         reply(exchange, 200, "expected failure");
         return;
@@ -245,6 +320,33 @@ public class Main {
       } catch (Exception ignored) {
       }
     }
+  }
+
+  private static void checkPropagationScope() {
+    try {
+      Class<?> helper =
+          Class.forName(
+              "io.opentelemetry.obi.java.instrumentations.data.JdkHttpClientPropagation",
+              true,
+              null);
+      java.lang.reflect.Field field = helper.getDeclaredField("currentSend");
+      field.setAccessible(true);
+      if (((ThreadLocal<?>) field.get(null)).get() != null) {
+        throw new IllegalStateException(
+            "HttpClient propagation scope leaked into application code");
+      }
+    } catch (ReflectiveOperationException error) {
+      throw new IllegalStateException(error);
+    }
+  }
+
+  private static boolean hasCause(Throwable failure, Class<? extends Throwable> type) {
+    for (Throwable error = failure; error != null; error = error.getCause()) {
+      if (type.isInstance(error)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static void reply(HttpExchange exchange, int status, String body)

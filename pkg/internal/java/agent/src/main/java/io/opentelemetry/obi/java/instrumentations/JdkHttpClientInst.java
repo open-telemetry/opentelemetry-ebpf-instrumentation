@@ -13,6 +13,8 @@ import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.asm.Advice;
 import net.bytebuddy.description.type.TypeDescription;
@@ -27,19 +29,22 @@ public class JdkHttpClientInst {
   private static final String ASYNC_EVENT_CLASS = "jdk.internal.net.http.AsyncEvent";
   private static final String HTTP_REQUEST_CLASS = "jdk.internal.net.http.HttpRequestImpl";
   private static final String HTTP1_REQUEST_CLASS = "jdk.internal.net.http.Http1Request";
+  private static final String MULTI_EXCHANGE_CLASS = "jdk.internal.net.http.MultiExchange";
 
   public static ElementMatcher<? super TypeDescription> type() {
     return ElementMatchers.hasSuperType(ElementMatchers.named(HTTP_CLIENT_CLASS))
         .or(ElementMatchers.named(SELECTOR_MANAGER_CLASS))
         .or(ElementMatchers.named(HTTP_REQUEST_CLASS))
         .or(ElementMatchers.named(HTTP1_REQUEST_CLASS))
+        .or(ElementMatchers.named(MULTI_EXCHANGE_CLASS))
         .or(ElementMatchers.hasSuperType(ElementMatchers.named(ASYNC_EVENT_CLASS)));
   }
 
   public static boolean matches(Class<?> clazz) {
     if (SELECTOR_MANAGER_CLASS.equals(clazz.getName())
         || HTTP_REQUEST_CLASS.equals(clazz.getName())
-        || HTTP1_REQUEST_CLASS.equals(clazz.getName())) {
+        || HTTP1_REQUEST_CLASS.equals(clazz.getName())
+        || MULTI_EXCHANGE_CLASS.equals(clazz.getName())) {
       return true;
     }
     for (Class<?> current = clazz; current != null; current = current.getSuperclass()) {
@@ -53,8 +58,10 @@ public class JdkHttpClientInst {
 
   public static AgentBuilder.Transformer transformer(boolean propagation) {
     final boolean enabled = propagation && propagationCompatible();
+    final boolean asyncEnabled = enabled && asyncCompatible();
     try {
       System.setProperty(JdkHttpClientPropagation.PROPERTY, Boolean.toString(enabled));
+      System.setProperty(JdkHttpClientPropagation.ASYNC_PROPERTY, Boolean.toString(asyncEnabled));
     } catch (SecurityException ignored) {
     }
     return (builder, type, classLoader, module, protectionDomain) -> {
@@ -82,14 +89,30 @@ public class JdkHttpClientInst {
                                     ElementMatchers.returns(
                                         ElementMatchers.named("java.net.http.HttpResponse")))))
                 .visit(
-                    Advice.to(AsynchronousSendAdvice.class)
+                    Advice.to(
+                            asyncEnabled ? AsynchronousSendAdvice.class : SuspendAsyncAdvice.class)
                         .on(
                             ElementMatchers.named("sendAsync")
                                 .and(ElementMatchers.isPublic())
                                 .and(
                                     ElementMatchers.isDeclaredBy(
                                         ElementMatchers.named(
-                                            "jdk.internal.net.http.HttpClientImpl")))))
+                                            "jdk.internal.net.http.HttpClientImpl")))
+                                .and(
+                                    asyncEnabled
+                                        ? ElementMatchers.takesArguments(3)
+                                        : ElementMatchers.any())
+                                .and(ElementMatchers.returns(CompletableFuture.class))))
+                .visit(
+                    Advice.to(TransportAdvice.class)
+                        .on(
+                            ElementMatchers.named("responseAsync")
+                                .and(asyncEnabled ? ElementMatchers.any() : ElementMatchers.none())
+                                .and(ElementMatchers.takesArguments(Executor.class))
+                                .and(ElementMatchers.returns(CompletableFuture.class))
+                                .and(
+                                    ElementMatchers.isDeclaredBy(
+                                        ElementMatchers.named(MULTI_EXCHANGE_CLASS)))))
                 .visit(
                     Advice.to(RequestAdvice.class)
                         .on(
@@ -170,7 +193,7 @@ public class JdkHttpClientInst {
                           ElementMatchers.returns(
                               ElementMatchers.named("java.net.http.HttpResponse"))))
               .isEmpty();
-      // send() delegates to a private overload; public sendAsync() must be excluded.
+      // send() delegates to a private overload, independently of the public async API scopes.
       compatible &=
           !impl.getDeclaredMethods()
               .filter(
@@ -203,6 +226,56 @@ public class JdkHttpClientInst {
                     .and(ElementMatchers.takesArguments(0))
                     .and(ElementMatchers.returns(SocketChannel.class)))
             .isEmpty();
+  }
+
+  static boolean asyncCompatible(TypeDescription impl, TypeDescription exchange) {
+    return !impl.getDeclaredMethods()
+            .filter(
+                ElementMatchers.named("sendAsync")
+                    .and(ElementMatchers.isPublic())
+                    .and(ElementMatchers.takesArguments(3))
+                    .and(
+                        ElementMatchers.takesArgument(
+                            0, ElementMatchers.named("java.net.http.HttpRequest")))
+                    .and(
+                        ElementMatchers.takesArgument(
+                            1, ElementMatchers.named("java.net.http.HttpResponse$BodyHandler")))
+                    .and(
+                        ElementMatchers.takesArgument(
+                            2,
+                            ElementMatchers.named("java.net.http.HttpResponse$PushPromiseHandler")))
+                    .and(ElementMatchers.returns(CompletableFuture.class)))
+            .isEmpty()
+        && !exchange
+            .getDeclaredFields()
+            .filter(
+                ElementMatchers.named("request")
+                    .and(ElementMatchers.fieldType(ElementMatchers.named(HTTP_REQUEST_CLASS))))
+            .isEmpty()
+        && !exchange
+            .getDeclaredMethods()
+            .filter(
+                ElementMatchers.named("responseAsync")
+                    .and(ElementMatchers.takesArguments(Executor.class))
+                    .and(ElementMatchers.returns(CompletableFuture.class)))
+            .isEmpty();
+  }
+
+  private static boolean asyncCompatible() {
+    try {
+      TypePool pool = TypePool.Default.ofSystemLoader();
+      if (asyncCompatible(
+          pool.describe("jdk.internal.net.http.HttpClientImpl").resolve(),
+          pool.describe(MULTI_EXCHANGE_CLASS).resolve())) {
+        return true;
+      }
+    } catch (Throwable ignored) {
+    }
+    if (Agent.debugOn) {
+      System.err.println(
+          "[OBI] Java HttpClient.sendAsync header propagation disabled: unsupported JDK HTTP client layout");
+    }
+    return false;
   }
 
   static boolean headersCompatible(TypeDescription type) {
@@ -241,6 +314,28 @@ public class JdkHttpClientInst {
   }
 
   public static final class AsynchronousSendAdvice {
+    @Advice.OnMethodEnter(suppress = Throwable.class)
+    public static JdkHttpClientPropagation enter() {
+      JdkHttpClientPropagation scope = JdkHttpClientPropagation.enterAsync();
+      JdkHttpClientPropagation.captureParent(scope);
+      return scope;
+    }
+
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    public static void exit(@Advice.Enter JdkHttpClientPropagation scope) {
+      JdkHttpClientPropagation.exit(scope);
+    }
+  }
+
+  public static final class TransportAdvice {
+    @Advice.OnMethodExit(suppress = Throwable.class)
+    public static void exit(
+        @Advice.FieldValue("request") Object request, @Advice.Return CompletableFuture<?> future) {
+      JdkHttpClientPropagation.trackTransport(request, future);
+    }
+  }
+
+  public static final class SuspendAsyncAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static JdkHttpClientPropagation enter() {
       return JdkHttpClientPropagation.suspend();
