@@ -5,7 +5,6 @@
 
 package io.opentelemetry.obi.java.instrumentations.data;
 
-import io.opentelemetry.obi.java.Agent;
 import io.opentelemetry.obi.java.ebpf.ThreadInfo;
 
 public final class JdkHttpClientTask implements Runnable {
@@ -21,7 +20,7 @@ public final class JdkHttpClientTask implements Runnable {
   public void run() {
     long previousContext = SSLStorage.enterJdkHttpClientContext(requestThreadId);
     try {
-      long threadId = Agent.NativeLib.gettid();
+      long threadId = ThreadInfo.currentTid();
       if (requestThreadId != threadId) {
         ThreadInfo.sendTaskParentThreadContext(requestThreadId);
       }

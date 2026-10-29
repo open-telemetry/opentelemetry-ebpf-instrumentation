@@ -5,6 +5,7 @@ package instrumenter // import "go.opentelemetry.io/obi/pkg/instrumenter"
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -22,6 +23,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/health"
 	"go.opentelemetry.io/obi/pkg/internal/appolly"
+	"go.opentelemetry.io/obi/pkg/internal/pipe/rdns"
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	netagent "go.opentelemetry.io/obi/pkg/netolly/agent"
@@ -89,15 +91,23 @@ func runWithContextInfo(
 		opt(ctxInfo)
 	}
 
+	if ctxInfo.CriteriaUpdates != nil && ctxInfo.DynamicSelector != nil {
+		return errors.New("criteria updates cannot be combined with a dynamic PID selector")
+	}
+
 	// Enable App O11y when config enables it or when the caller passed a dynamic selector
 	// (which can select by PID and/or Kubernetes workload).
 	// (allows an "empty" instrumenter that only instruments PIDs added via the selector).
-	app := cfg.Enabled(obi.FeatureAppO11y) || ctxInfo.DynamicSelector != nil
+	app := cfg.Enabled(obi.FeatureAppO11y) || ctxInfo.DynamicSelector != nil || ctxInfo.CriteriaUpdates != nil
 	net := cfg.Enabled(obi.FeatureNetO11y) || ctxInfo.DynamicSelector != nil
 	stats := cfg.Enabled(obi.FeatureStatsO11y) || ctxInfo.DynamicSelector != nil
 
 	// if one of nodes fail, the other should stop
 	g, ctx := errgroup.WithContext(ctx)
+
+	if ctxInfo.EBPFReverseDNS != nil {
+		defer ctxInfo.EBPFReverseDNS.Close(cfg.ShutdownTimeout)
+	}
 
 	startHealthCheck(ctx, g, cfg.HealthCheck)
 
@@ -246,6 +256,7 @@ func BuildCommonContextInfo(
 	ctxInfo := &global.ContextInfo{
 		Prometheus:          promMgr,
 		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: &config.OTELMetrics},
+		EBPFReverseDNS:      rdns.NewEBPFLookup(ctx, &config.EBPF, &config.NetworkFlows.ReverseDNS, &config.Stats.ReverseDNS),
 	}
 	// Node metadata must be resolved before the internal-metrics reporter is
 	// created, so the reporter's OTLP resource carries host metadata (host.id,
