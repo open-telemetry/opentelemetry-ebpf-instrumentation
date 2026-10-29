@@ -61,6 +61,7 @@ jobs:
     env:
       JAVA_HTTPCLIENT_RUNTIME_IMAGE: ${{ matrix.runtime.image }}
       JAVA_APACHE_RUNTIME_IMAGE: ${{ matrix.runtime.image }}
+      JAVA_APACHE_HTTPCLIENT_VERSION: ${{ matrix.runtime.version == 8 && '4.3' || '4.5.14' }}
       JAVA_HTTPCLIENT_OBI_IMAGE: hatest-obi
       SKIP_DOCKER_BUILD: "1"
     steps:
@@ -101,7 +102,7 @@ jobs:
             docker build "${build_args[@]}" -t hatest-java-httpclient-traceparent \
               -f internal/test/integration/components/java_httpclient_traceparent/Dockerfile .
           fi
-          apache_args=()
+          apache_args=(--build-arg "JAVA_APACHE_HTTPCLIENT_VERSION=${JAVA_APACHE_HTTPCLIENT_VERSION}")
           if [[ -n "${JAVA_APACHE_RUNTIME_IMAGE}" ]]; then
             apache_args+=(--build-arg "JAVA_APACHE_RUNTIME_IMAGE=${JAVA_APACHE_RUNTIME_IMAGE}")
           fi

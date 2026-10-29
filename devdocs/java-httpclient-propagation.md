@@ -210,12 +210,15 @@ Requests containing `Expect` are excluded from injection. The transport regressi
 checks an accepted 100-Continue body and an immediate final 417 response, without
 claiming injected interim-response handling. Plaintext, HTTP/2, HttpClient 5,
 asynchronous clients, and custom transports/executors that bypass these hooks are
-excluded. Stock Apache HttpClient 4.5.14 is the compatibility target; other library
-versions require runtime validation, even if their shapes match.
+excluded. The minimum supported Apache HttpClient version is **4.3**, within the
+4.x series. That release introduced `CloseableHttpClient` and
+`ManagedHttpClientConnection.getSocket()`, which the execution and socket hooks
+require. HttpClient 4.2 and earlier lack these APIs. Compatibility checks inspect
+the required method signatures rather than comparing version numbers.
 
 The existing header-propagation configuration, kernel write-user/atomic feature
-checks, and permissions apply. Apache 4.5.14 has native runtime coverage on the tested Temurin Java 8, 11, 17,
-and 21 builds, separately from the JDK client's Java 11 minimum. The
+checks, and permissions apply. Apache 4.3 and 4.5.14 have runtime coverage recorded
+in the validation evidence, separately from the JDK client's Java 11 minimum. The
 [validation evidence](java-apache4-validation.md) lists exact builds and kernels.
 Agent upgrades and enabling propagation after a disabled attachment require a JVM
 restart. Disabling propagation in OBI prevents injection without a restart.

@@ -21,7 +21,18 @@ go test -v -count=1 -run '^TestJavaApacheHTTPClientTraceparent$' -timeout 20m ./
 ```
 
 `JAVA_APACHE_RUNTIME_IMAGE` selects a digest-pinned JDK; CI runs JDK 8/11/17/21
-on amd64 and arm64. Java compilation targets 8. The benchmark service uses JDK
+on amd64 and arm64. `JAVA_APACHE_HTTPCLIENT_VERSION` selects the Apache dependency
+for Compose builds (default: 4.5.14). CI checks the minimum supported version,
+4.3, on JDK 8 and 4.5.14 on JDK 11/17/21. Java compilation targets 8.
+To repeat the minimum-version transport suite:
+
+```sh
+JAVA_APACHE_HTTPCLIENT_VERSION=4.3 go test -v -count=1 -run '^TestJavaApacheHTTPClientTraceparent$' -timeout 20m ./internal/test/integration/
+```
+
+For direct Docker builds, pass `--build-arg JAVA_APACHE_HTTPCLIENT_VERSION=4.3`.
+The agent unit tests accept `gradle :agent:test -PapacheHttpClientVersion=4.3`
+from `pkg/internal/java`. The benchmark service uses JDK
 HttpClient controls and therefore requires Java 11+.
 
 For sustained measurements, build the fixture image and receiver/driver:

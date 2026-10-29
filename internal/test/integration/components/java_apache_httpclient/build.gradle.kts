@@ -6,8 +6,10 @@ repositories {
     mavenCentral()
 }
 
+val apacheHttpClientVersion = providers.gradleProperty("apacheHttpClientVersion").getOrElse("4.5.14")
+
 dependencies {
-    implementation("org.apache.httpcomponents:httpclient:4.5.14")
+    implementation("org.apache.httpcomponents:httpclient:$apacheHttpClientVersion")
 }
 
 sourceSets.main {

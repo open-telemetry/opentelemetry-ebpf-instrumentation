@@ -5,6 +5,33 @@ runtime matrix below and repeated sustained-concurrency checks. Supplied context
 unsupported writes, Expect exclusions, failure recovery, and ownership cleanup
 are covered by the canonical transport suite.
 
+## Minimum Apache version
+
+The minimum supported version is **Apache HttpClient 4.3**, including later 4.x
+releases. Apache documents both
+[`CloseableHttpClient`](https://hc.apache.org/httpcomponents-client-4.5.x/current/httpclient/apidocs/org/apache/http/impl/client/CloseableHttpClient.html)
+and
+[`ManagedHttpClientConnection`](https://hc.apache.org/httpcomponents-client-4.5.x/current/httpclient/apidocs/org/apache/http/conn/ManagedHttpClientConnection.html)
+as introduced in 4.3. The original 4.3 source artifacts contain the required
+`doExecute(HttpHost, HttpRequest, HttpContext)` and `getSocket()` signatures;
+HttpCore 4.3 contains the matching `doSendRequest` hook. HttpClient 4.2.6 lacks
+both client types, so earlier 4.x releases cannot use this instrumentation.
+
+An isolated-class-loader probe against the published Maven artifacts confirmed
+that the production compatibility check rejects HttpClient/HttpCore 4.2.6/4.2.5
+and accepts 4.3/4.3, 4.4/4.4, and 4.5.14/4.4.16. This checks method layouts;
+it does not establish transport behavior for every intervening patch release.
+
+Agent tests against HttpClient/HttpCore 4.3/4.3 passed on Temurin 8u504-b01
+(175 passed; three JDK HttpClient tests require Java 11) and 21.0.12.1+1-LTS
+(178 passed). The 4.5.14 Java 21 control also passed all 178 tests.
+
+The test dependency can be selected with `-PapacheHttpClientVersion=4.3`, and the
+transport fixture accepts `JAVA_APACHE_HTTPCLIENT_VERSION=4.3`. Java agent CI
+checks both 4.3 and 4.5.14 on each JDK. Native transport CI uses 4.3 on JDK 8 and
+4.5.14 on JDK 11/17/21, on both architectures. The historical matrix and load
+results below used 4.5.14.
+
 ## Revisions and reproduction
 
 The load candidate is `c6cb7d42b6abe445d24aff1e1f2dacb6bd6c815d`, based on
@@ -48,8 +75,8 @@ CI kernels were `7.0.0-1017-azure`; full build strings are in the JSON.
 | 21.0.12.1+1-LTS | [Pass](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/actions/runs/40936931084/job/123673555143) | [Pass](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/actions/runs/40936931084/job/123673555258) |
 
 Java 8 therefore has runtime evidence for this Apache path, beyond the Java 8
-bytecode target. Other Apache versions, JDK layouts, and kernels require their
-own runtime validation and existing capability gates.
+bytecode target. The supported Apache range begins at 4.3; the existing method
+layout, JDK, and kernel capability gates still apply.
 
 ## Sustained correctness
 

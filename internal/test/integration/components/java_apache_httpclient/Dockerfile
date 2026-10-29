@@ -11,13 +11,14 @@ COPY internal/test/integration/components/java_apache_httpclient/downstream/main
 RUN CGO_ENABLED=0 go build -o /downstream main.go
 
 FROM gradle:9.8.2-jdk21-noble@sha256:accd9bab093a3331697ede5aa9cecbb57d43217327e93d3cae989f1d28b49c0c AS build
+ARG JAVA_APACHE_HTTPCLIENT_VERSION=4.5.14
 WORKDIR /fixture
 COPY internal/test/integration/components/java_apache_httpclient/Main.java ./
 COPY internal/test/integration/components/java_apache_httpclient/validation/BenchmarkService.java validation/BenchmarkService.java
 COPY internal/test/integration/components/java_apache_httpclient/build.gradle.kts ./
 COPY --from=proxy /proxy/proxy.crt /proxy/proxy.key /proxy/proxy ./
 COPY --from=downstream /downstream ./
-RUN gradle compileJava runtimeLibraries --no-daemon && \
+RUN gradle compileJava runtimeLibraries "-PapacheHttpClientVersion=${JAVA_APACHE_HTTPCLIENT_VERSION}" --no-daemon && \
     javac --release 11 -cp "build/libs/*" -d build/classes/java/main validation/BenchmarkService.java && \
     keytool -importcert -noprompt -alias proxy -file proxy.crt \
       -keystore trust.p12 -storetype PKCS12 -storepass changeit

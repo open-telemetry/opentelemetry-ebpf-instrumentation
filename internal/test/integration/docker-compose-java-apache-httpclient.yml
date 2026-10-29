@@ -5,6 +5,7 @@ services:
       dockerfile: internal/test/integration/components/java_apache_httpclient/Dockerfile
       args:
         - JAVA_APACHE_RUNTIME_IMAGE
+        - JAVA_APACHE_HTTPCLIENT_VERSION
     image: "${JAVA_APACHE_FIXTURE_IMAGE:-hatest-java-apache-httpclient}"
     environment:
       OTEL_SERVICE_NAME: java-apache-httpclient

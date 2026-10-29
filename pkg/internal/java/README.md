@@ -348,9 +348,10 @@ jattach <PID of Java program> load instrument false "/path/to/obi-java-agent.jar
 
 ### Apache HttpClient 4 propagation
 
-The existing `httpHeaders` attachment option also enables synchronous Apache
-HttpClient 4 `CloseableHttpClient.execute()` HTTPS/HTTP/1.1 injection through JSSE
-`SSLSocket`. All stock execute overloads and response handlers share the concrete
+The existing `httpHeaders` attachment option also enables synchronous
+`CloseableHttpClient.execute()` HTTPS/HTTP/1.1 injection through JSSE `SSLSocket`
+with Apache HttpClient 4.3 and later in the 4.x series.
+All stock execute overloads and response handlers share the concrete
 execution hook. Each retry/redirect/authentication attempt reuses the native
 reservation protocol with separate cleanup ownership.
 
