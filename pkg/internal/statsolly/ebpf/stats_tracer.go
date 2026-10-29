@@ -41,6 +41,8 @@ const (
 	progObiStatsTpInetSockSetStateTCPFailedConnection     = "obi_stats_tp_inet_sock_set_state_tcp_failed_connection"
 	progObiStatsTpInetSockSetStateTCPSuccessfulConnection = "obi_stats_tp_inet_sock_set_state_tcp_successful_connection"
 	progObiStatsRawTpTCPRetransmitSkb                     = "obi_stats_raw_tp_tcp_retransmit_skb"
+	progObiStatsRawTpTCPSendReset                         = "obi_stats_raw_tp_tcp_send_reset"
+	progObiStatsRawTpTCPReceiveReset                      = "obi_stats_raw_tp_tcp_receive_reset"
 	progObiStatsKprobeTCPSendmsg                          = "obi_stats_kprobe_tcp_sendmsg"
 	progObiStatsKretprobeTCPSendmsg                       = "obi_stats_kretprobe_tcp_sendmsg"
 	progObiStatsKprobeTCPCleanupRbuf                      = "obi_stats_kprobe_tcp_cleanup_rbuf"
@@ -58,6 +60,8 @@ const (
 
 	// Raw tracepoints: name only (no group prefix).
 	RawTracepointTCPRetransmitSkb = "tcp_retransmit_skb"
+	RawTracepointTCPSendReset     = "tcp_send_reset"
+	RawTracepointTCPReceiveReset  = "tcp_receive_reset"
 )
 
 // $BPF_CLANG and $BPF_CFLAGS are set by the Makefile.
@@ -115,6 +119,9 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	}
 	if !features.StatsTCPRetransmits() {
 		toDisable = append(toDisable, progObiStatsRawTpTCPRetransmitSkb)
+	}
+	if !features.StatsTCPResets() {
+		toDisable = append(toDisable, progObiStatsRawTpTCPSendReset, progObiStatsRawTpTCPReceiveReset)
 	}
 	if !features.StatsTCPIo() {
 		toDisable = append(toDisable, progObiStatsKprobeTCPSendmsg, progObiStatsKretprobeTCPSendmsg, progObiStatsKprobeTCPCleanupRbuf, progObiStatsKprobeTCPCloseIoFlush)
@@ -234,6 +241,16 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 			name:    RawTracepointTCPRetransmitSkb,
 			program: objects.ObiStatsRawTpTcpRetransmitSkb,
 			enabled: features.StatsTCPRetransmits(),
+		},
+		{
+			name:    RawTracepointTCPSendReset,
+			program: objects.ObiStatsRawTpTcpSendReset,
+			enabled: features.StatsTCPResets(),
+		},
+		{
+			name:    RawTracepointTCPReceiveReset,
+			program: objects.ObiStatsRawTpTcpReceiveReset,
+			enabled: features.StatsTCPResets(),
 		},
 	} {
 		if !t.enabled {

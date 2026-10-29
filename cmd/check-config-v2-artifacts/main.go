@@ -101,8 +101,10 @@ func checkSchemaArtifact(path string) error {
 	if err := checkLogFieldNameSchema(root); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
-	if !hasMetricFeature(root, "application_service_graph_connection_info") {
-		return fmt.Errorf("%s: metrics.features enum is missing application_service_graph_connection_info", path)
+	for _, feature := range []string{"application_service_graph_connection_info", "stats_tcp_resets"} {
+		if !hasMetricFeature(root, feature) {
+			return fmt.Errorf("%s: metrics.features enum is missing %s", path, feature)
+		}
 	}
 
 	return nil
