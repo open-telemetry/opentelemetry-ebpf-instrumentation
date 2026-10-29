@@ -168,101 +168,61 @@ not measure eBPF map occupancy.
 
 ## Apache HttpClient 4 synchronous execution
 
-Apache `CloseableHttpClient` overloads, including response handlers, reach a
-concrete `doExecute(HttpHost, HttpRequest, HttpContext)`. OBI captures the parent
-there, without instrumenting forwarding overloads or compiler bridges.
-Reentrant executions have separate scopes and restore the previous scope.
-Calls from a response handler start their own execution after the outer transport
-scope has ended.
-
-`HttpRequestExecutor.doSendRequest()` associates each attempt with its managed
-connection's JSSE `SSLSocket`. Only that socket's first nonempty plaintext write
-can be modified. A split header consumes this opportunity; subsequent body writes
-cannot trigger injection, even when their contents resemble HTTP headers.
-Both byte-array write overloads preserve the selected slice and body. Delegating
-streams share an observation guard. Reporting happens before the application
-write, once per outer stream; a reporting failure leaves the original arguments.
-An application write exception is preserved.
-
-Each attempt copies the captured execution parent and uses the existing native
-reservation and request-ID cleanup protocol. Its retained packet is released when
-`doSendRequest()` returns or throws, after synchronous plaintext observation.
-Retries, redirects, and authentication exchanges therefore receive fresh client
-identities without accumulating packets for the whole execution. Execution exit
-also releases an unfinished attempt. Socket-close cleanup retains the native
-request-ID protections described above. The Java ioctl contract is unchanged.
-After consuming a reservation, native HTTP tracking retains its request ID until
-the matching release, so delayed body writes resembling HTTP cannot replace the
-reserved client identity. Cleanup compares that ID before clearing it, preserving
-a newer request on the same connection.
-
-The entire first write after injection, including any coalesced body bytes, must
-fit within 16 KiB, and it must contain complete HTTP/1.1 headers. Split, oversized,
-unsupported, or uncorrelatable writes pass through unchanged. Apache request
-objects and application-supplied headers are never modified. Any `traceparent`,
-including an empty, invalid, duplicate, or mixed-case field, prevents injection.
-A copied incoming ancestor does not become a new client span ID. `tracestate`
-passes through; OBI does not create it. Under the existing native policy,
-OBI-generated headers use sampled flags (`01`) even for unsampled incoming
-context; supplied flags are preserved.
-
-Requests containing `Expect` are excluded from injection. The transport regression
-checks an accepted 100-Continue body and an immediate final 417 response, without
-claiming injected interim-response handling. Plaintext, HTTP/2, HttpClient 5,
-asynchronous clients, and custom transports/executors that bypass these hooks are
-excluded. The minimum supported Apache HttpClient version is **4.3**, within the
-4.x series. That release introduced
+Synchronous `CloseableHttpClient.execute()` propagation requires Apache HttpClient
+**4.3 or later in the 4.x series** and Java 8 or later. Apache introduced
 [`CloseableHttpClient`](https://hc.apache.org/httpcomponents-client-4.5.x/current/httpclient/apidocs/org/apache/http/impl/client/CloseableHttpClient.html)
 and
-[`ManagedHttpClientConnection`](https://hc.apache.org/httpcomponents-client-4.5.x/current/httpclient/apidocs/org/apache/http/conn/ManagedHttpClientConnection.html),
-whose `getSocket()` method provides access to the TLS socket. Compatibility checks
-inspect the required method signatures rather than comparing version numbers.
+[`ManagedHttpClientConnection`](https://hc.apache.org/httpcomponents-client-4.5.x/current/httpclient/apidocs/org/apache/http/conn/ManagedHttpClientConnection.html)
+in 4.3. The hooks require these types and `getSocket()`; compatibility checks
+inspect method signatures rather than version numbers.
 
-The existing header-propagation configuration, kernel write-user/atomic feature
-checks, and permissions apply. Apache propagation supports Java 8 and later,
-separately from the JDK client's Java 11 minimum. The
-[fixture README](../internal/test/integration/components/java_apache_httpclient/validation/README.md)
-describes how to run the regression suite and select Apache and JDK versions.
-Agent upgrades and enabling propagation after a disabled attachment require a JVM
-restart. Disabling propagation in OBI prevents injection without a restart.
+OBI captures the parent in concrete `doExecute(HttpHost, HttpRequest, HttpContext)`
+implementations. All execute overloads and response handlers share this hook;
+forwarding overloads and compiler bridges are not instrumented. Reentrant calls
+have separate scopes and restore the previous scope on exit.
 
-### Apache capability diagnostics
+`HttpRequestExecutor.doSendRequest()` associates each retry, redirect, or
+authentication attempt with its managed JSSE `SSLSocket`. Each attempt copies the
+execution parent and releases its reservation when the method returns or throws.
+Execution exit also releases an unfinished attempt. Native HTTP tracking retains
+the reserved request ID through body writes so delayed HTTP-looking body bytes
+cannot become another request. Matching-ID cleanup preserves newer requests on
+the same connection.
 
-Inspect `otel.obi.java.agent.apache4.propagation` with the JVM's existing
-`jcmd <pid> VM.system_properties` command:
+Only the matching socket's first nonempty plaintext write is eligible. It must
+contain complete HTTP/1.1 headers and fit within 16 KiB after injection, including
+coalesced body bytes. Split or oversized headers consume that opportunity;
+subsequent body writes cannot trigger injection. Unsupported writes and unavailable
+reservations pass through unchanged. Application request objects are not modified,
+and write exceptions are preserved.
+
+Any supplied `traceparent`, including empty, invalid, duplicate, or mixed-case
+fields, prevents injection. `tracestate` is preserved without being synthesized.
+The existing native sampling policy uses `01` for generated headers, including
+unsampled parents; supplied flags are preserved.
+
+Requests with any `Expect` header are excluded. Plaintext injection, HTTP/2,
+HttpClient 5, async clients, and custom transports/executors that bypass these
+hooks are also excluded. Existing propagation configuration, kernel feature
+checks, and permissions apply. Agent upgrades and enabling propagation after a
+disabled attachment require a JVM restart; disabling propagation does not.
+
+Inspect `otel.obi.java.agent.apache4.propagation` with
+`jcmd <pid> VM.system_properties`:
 
 | Value | Meaning |
 | --- | --- |
-| `disabled` | The agent was attached without the header-propagation option; check OBI configuration and kernel capability diagnostics before restarting |
-| `not-loaded` | No Apache layout has been inspected; client presence and effective support remain unknown |
-| `unavailable-foundation` | A native/control or shared lifecycle failure disabled propagation; restart with a working agent/native path |
-| `unsupported-layout` | A required Apache execution, attempt, or managed-socket shape is missing |
-| `available` | An inspected Apache layout has an injection path; this does not prove an injected or delivered header |
-| Missing property | The loaded agent predates this path; restart with the current agent |
+| `disabled` | Header propagation was disabled at attachment |
+| `not-loaded` | Apache classes have not been inspected; support is unknown |
+| `unsupported-layout` | Required Apache methods or socket access are unavailable |
+| `unavailable-foundation` | Shared Java/native propagation is unavailable |
+| `available` | An inspected class loader supports the path; individual requests may still be skipped |
+| Missing property | The loaded agent predates Apache propagation |
 
-The property summarizes inspected layouts in one JVM; it does not certify every
-application class loader. OBI's existing attachment/rediscovery diagnostics report
-configured propagation separately from capability, including on Java 8. Kernel
-write-user or reservation-atomic failures leave the option disabled and report
-the reason. These diagnostics add no new telemetry or per-request application logs.
-
-The bootstrap helper's fixed counters distinguish first writes, prepared headers,
-unsupported header layouts/sizes, application-owned fields, Expect exclusions,
-and unavailable parent/reservation state. A final gauge counts active executions.
-Preparation is not evidence of delivery or export. The validation fixture exposes
-snapshots for testing; the unchanged Java ioctl contract does not identify which kernel
-capacity/contention/parent check declined an individual reservation.
-
-Run the Apache transport suite with:
-
-```sh
-go test -v -count=1 -run '^TestJavaApacheHTTPClientTraceparent$' -timeout 20m ./internal/test/integration/
-```
-
-Use `JAVA_APACHE_RUNTIME_IMAGE` for another digest-pinned runtime. The canonical
-CI transport matrix includes JDK 8, 11, 17, and 21 on native amd64 and arm64 runners.
-The [validation workflow](../internal/test/integration/components/java_apache_httpclient/validation/README.md)
-records commands, controls, and the distinction between local evidence and CI.
+The [fixture README](../internal/test/integration/components/java_apache_httpclient/README.md)
+describes regression commands and Apache/JDK selection. CI runs enabled/disabled
+transport cases on native amd64 and arm64. The fixture also checks that active
+execution scopes and retained reservations drain after requests finish.
 
 ## Ownership and compatibility
 

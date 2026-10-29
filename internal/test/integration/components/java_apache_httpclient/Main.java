@@ -102,7 +102,7 @@ public class Main {
           }
         });
     server.createContext(
-        "/propagation-outcomes",
+        "/active-executions",
         exchange -> {
           try {
             Class<?> helper =
@@ -110,10 +110,7 @@ public class Main {
                     "io.opentelemetry.obi.java.instrumentations.data.ApacheHttpClientPropagation",
                     false,
                     null);
-            reply(
-                exchange,
-                200,
-                java.util.Arrays.toString((long[]) helper.getMethod("outcomes").invoke(null)));
+            reply(exchange, 200, helper.getMethod("activeExecutions").invoke(null).toString());
           } catch (Exception error) {
             reply(exchange, 500, error.toString());
           }

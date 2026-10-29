@@ -145,8 +145,7 @@ class ApacheHttpClientPropagationTest {
       socket.close();
     }
     assertNull(ApacheHttpClientPropagation.beginAttempt(socket));
-    long[] outcomes = ApacheHttpClientPropagation.outcomes();
-    assertEquals(0, outcomes[outcomes.length - 1]);
+    assertEquals(0, ApacheHttpClientPropagation.activeExecutions());
     ApacheHttpClientPropagation next = ApacheHttpClientPropagation.enter();
     try {
       assertNotNull(next);

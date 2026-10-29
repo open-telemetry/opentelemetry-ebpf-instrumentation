@@ -85,13 +85,12 @@ func TestJavaApacheHTTPClientTraceparent(t *testing.T) {
 				body, err := io.ReadAll(response.Body)
 				require.NoError(t, err)
 				require.Equal(t, "0:0", string(body))
-				outcomeResponse, err := http.Get("http://localhost:24180/propagation-outcomes")
+				activeResponse, err := http.Get("http://localhost:24180/active-executions")
 				require.NoError(t, err)
-				defer outcomeResponse.Body.Close()
-				var outcomes []int64
-				require.NoError(t, json.NewDecoder(outcomeResponse.Body).Decode(&outcomes))
-				require.NotEmpty(t, outcomes)
-				require.Zero(t, outcomes[len(outcomes)-1], "Apache execution scopes must drain")
+				defer activeResponse.Body.Close()
+				active, err := io.ReadAll(activeResponse.Body)
+				require.NoError(t, err)
+				require.Equal(t, "0", string(active), "Apache execution scopes must drain")
 			})
 			t.Run("concurrent", func(t *testing.T) {
 				testJavaApacheConcurrentContexts(t, run, mode)

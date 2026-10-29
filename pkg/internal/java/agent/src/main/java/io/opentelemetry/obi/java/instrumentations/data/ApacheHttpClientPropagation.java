@@ -10,19 +10,12 @@ import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
-import java.util.concurrent.atomic.AtomicLongArray;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.net.ssl.SSLSocket;
 
 public final class ApacheHttpClientPropagation {
   public static final String PROPERTY = "otel.obi.java.agent.apache4.propagation";
-  private static final int FIRST_WRITES = 0;
-  private static final int PREPARED = 1;
-  private static final int UNSUPPORTED_HEADERS = 2;
-  private static final int APPLICATION_OWNED = 3;
-  private static final int EXPECT_CONTINUE = 4;
-  private static final int RESERVATION_UNAVAILABLE = 5;
-  private static final int ACTIVE_EXECUTIONS = RESERVATION_UNAVAILABLE + 1;
-  private static final AtomicLongArray outcomes = new AtomicLongArray(ACTIVE_EXECUTIONS + 1);
+  private static final AtomicInteger activeExecutions = new AtomicInteger();
   private static final byte[] TRACEPARENT = "traceparent:".getBytes(StandardCharsets.US_ASCII);
   private static final byte[] EXPECT = "expect:".getBytes(StandardCharsets.US_ASCII);
   private static final byte[] HTTP11 = " HTTP/1.1\r\n".getBytes(StandardCharsets.US_ASCII);
@@ -47,7 +40,7 @@ public final class ApacheHttpClientPropagation {
     }
     ApacheHttpClientPropagation scope = new ApacheHttpClientPropagation(propagation);
     current.set(scope);
-    outcomes.incrementAndGet(ACTIVE_EXECUTIONS);
+    activeExecutions.incrementAndGet();
     return scope;
   }
 
@@ -65,7 +58,7 @@ public final class ApacheHttpClientPropagation {
         current.set(scope.previous);
       }
       JdkHttpClientPropagation.exit(scope.propagation);
-      outcomes.decrementAndGet(ACTIVE_EXECUTIONS);
+      activeExecutions.decrementAndGet();
     }
   }
 
@@ -105,21 +98,14 @@ public final class ApacheHttpClientPropagation {
     }
   }
 
-  // Counts preparation outcomes, never successful network delivery or exported spans.
-  public static long[] outcomes() {
-    long[] snapshot = new long[outcomes.length()];
-    for (int i = 0; i < snapshot.length; i++) {
-      snapshot[i] = outcomes.get(i);
-    }
-    return snapshot;
+  public static int activeExecutions() {
+    return activeExecutions.get();
   }
 
   public static void skipWrite(Socket socket) {
     ApacheHttpClientPropagation scope = current.get();
     if (scope != null && scope.sending && !scope.written && socket == scope.socket) {
       scope.written = true;
-      outcomes.incrementAndGet(FIRST_WRITES);
-      outcomes.incrementAndGet(UNSUPPORTED_HEADERS);
     }
   }
 
@@ -135,7 +121,7 @@ public final class ApacheHttpClientPropagation {
     }
     // A later write can be a request body, even if it resembles HTTP headers.
     scope.written = true;
-    outcomes.incrementAndGet(FIRST_WRITES);
+
     try {
       ByteBuffer headers = prepareHeaders(bytes, offset, length);
       if (headers == null) {
@@ -147,14 +133,10 @@ public final class ApacheHttpClientPropagation {
               socket.getLocalPort(),
               socket.getInetAddress(),
               socket.getPort());
-      if (JdkHttpClientPropagation.reserve(scope.attempt, connection, headers)) {
-        outcomes.incrementAndGet(PREPARED);
-        return headers.array();
-      }
-      outcomes.incrementAndGet(RESERVATION_UNAVAILABLE);
-      return null;
+      return JdkHttpClientPropagation.reserve(scope.attempt, connection, headers)
+          ? headers.array()
+          : null;
     } catch (Throwable ignored) {
-      outcomes.incrementAndGet(RESERVATION_UNAVAILABLE);
       return null;
     }
   }
@@ -164,7 +146,7 @@ public final class ApacheHttpClientPropagation {
         || length < HTTP11.length
         || offset > bytes.length - length
         || length > ByteBufferExtractor.MAX_SIZE) {
-      return skipped(UNSUPPORTED_HEADERS);
+      return null;
     }
     int lineEnd = offset;
     while (lineEnd < offset + length - 1
@@ -173,11 +155,11 @@ public final class ApacheHttpClientPropagation {
     }
     int version = lineEnd + 2 - HTTP11.length;
     if (version <= offset) {
-      return skipped(UNSUPPORTED_HEADERS);
+      return null;
     }
     for (int i = 0; i < HTTP11.length; i++) {
       if (version + i >= offset + length || bytes[version + i] != HTTP11[i]) {
-        return skipped(UNSUPPORTED_HEADERS);
+        return null;
       }
     }
     for (int end = lineEnd; end <= offset + length - 4; end++) {
@@ -192,10 +174,10 @@ public final class ApacheHttpClientPropagation {
           continue;
         }
         if (headerNamed(bytes, start, end, EXPECT)) {
-          return skipped(EXPECT_CONTINUE);
+          return null;
         }
         if (headerNamed(bytes, start, end, TRACEPARENT)) {
-          return skipped(APPLICATION_OWNED);
+          return null;
         }
       }
       int headerLength = end + 4 - offset;
@@ -203,11 +185,11 @@ public final class ApacheHttpClientPropagation {
           JdkHttpClientPropagation.prepareHeaders(
               Collections.singletonList(ByteBuffer.wrap(bytes, offset, headerLength)));
       if (headers == null) {
-        return skipped(UNSUPPORTED_HEADERS);
+        return null;
       }
       int added = headers.capacity() - headerLength;
       if (length > ByteBufferExtractor.MAX_SIZE - added) {
-        return skipped(UNSUPPORTED_HEADERS);
+        return null;
       }
       byte[] result = new byte[length + added];
       System.arraycopy(headers.array(), 0, result, 0, headers.capacity());
@@ -217,11 +199,6 @@ public final class ApacheHttpClientPropagation {
       ((java.nio.Buffer) prepared).position(headers.position());
       return prepared;
     }
-    return skipped(UNSUPPORTED_HEADERS);
-  }
-
-  private static ByteBuffer skipped(int outcome) {
-    outcomes.incrementAndGet(outcome);
     return null;
   }
 
