@@ -10216,5 +10216,90 @@
       "package_timeout_seconds": 2400
     },
     "matrix_test_result": "ok  \tgo.opentelemetry.io/obi/scripts\t0.555s"
+  },
+  "minimum_version_validation": {
+    "httpclient_minimum": "4.3",
+    "httpclient_major": 4,
+    "httpcore_at_minimum": "4.3",
+    "production_revision": "c6cb7d42b6abe445d24aff1e1f2dacb6bd6c815d",
+    "test_revision": "0189867899e3461c02f7a67dad8e140e2aeb7dec",
+    "obi_binary_sha256": "d85b9ef181ac21031d7c306aa0fd349d0ddedf0e9b1c90b0b0cfb70df38dd29c",
+    "kernel": "Linux 7.0.0-1014-aws #14~24.04.1-Ubuntu SMP PREEMPT Fri Sep 18 21:24:59 UTC 2026 x86_64",
+    "layout_probe": [
+      "httpclient=4.2.6 httpcore=4.2.5 compatible=false",
+      "httpclient=4.3 httpcore=4.3 compatible=true",
+      "httpclient=4.4 httpcore=4.4 compatible=true",
+      "httpclient=4.5.14 httpcore=4.4.16 compatible=true"
+    ],
+    "layout_probe_log_sha256": "4e6cdea1237b10d3787297e95bba4f3439958e607d8000f3fb8f8814704c0fdd",
+    "source_artifacts_sha256": {
+      "httpclient-4.3-sources.jar": "97a6cd16f80ef6a0fca5497010cadd153c546b82d3358e98bcc4c4f76f7c95e1",
+      "httpcore-4.3-sources.jar": "26dd44d2d7598bd0aab989301b0202be47a29f1f7d7ea17fce3eadf60e4386a4",
+      "httpclient-4.2.6-sources.jar": "1b0e7b8db74f3012e399941c41b36bceec11a41f535160f57f71c211f0d2dfa7"
+    },
+    "local_agent_tests": [
+      {
+        "httpclient": "4.3",
+        "httpcore": "4.3",
+        "jdk": "8u504-b01",
+        "passed": 175,
+        "skipped": 3,
+        "skip_reason": "java.net.http requires Java11",
+        "failures": 0
+      },
+      {
+        "httpclient": "4.3",
+        "httpcore": "4.3",
+        "jdk": "21.0.12.1+1-LTS",
+        "passed": 178,
+        "skipped": 0,
+        "failures": 0
+      },
+      {
+        "httpclient": "4.5.14",
+        "httpcore": "4.4.16",
+        "jdk": "21.0.12.1+1-LTS",
+        "passed": 178,
+        "skipped": 0,
+        "failures": 0
+      }
+    ],
+    "agent_ci": {
+      "url": "https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/actions/runs/40970020627",
+      "result": "success",
+      "jdks": [
+        8,
+        11,
+        17,
+        21
+      ],
+      "httpclient_versions": [
+        "4.3",
+        "4.5.14"
+      ]
+    },
+    "transport_runs": [
+      {
+        "jdk": "8",
+        "arch": "amd64",
+        "coverage": "full enabled/disabled transport suite",
+        "result": "pass",
+        "duration_seconds": 785.72,
+        "go_test_filter": "^TestJavaApacheHTTPClientTraceparent$",
+        "log_path": "/tmp/obi-apache4-minimum/transport-4.3-jdk8-final.log",
+        "log_sha256": "5c100b7b6bf5d609d60a26f8361a9888364353592727fb1cb88ab59f828acfad"
+      },
+      {
+        "jdk": "21",
+        "arch": "amd64",
+        "coverage": "enabled/disabled generated context, delayed body, Expect accept/reject, cleanup",
+        "result": "pass",
+        "duration_seconds": 89.01,
+        "go_test_filter": "^TestJavaApacheHTTPClientTraceparent$/(headers|disabled)/(generated|body-like|expect-continue|expect-reject|cleanup)$",
+        "log_path": "/tmp/obi-apache4-minimum/transport-4.3-jdk21-final.log",
+        "log_sha256": "5fb6eefddd7f5eaac5371348bd2f4e1c4dd03fb2c0d60090ac408f35b6eacd9a"
+      }
+    ],
+    "raw_log_policy": "Only the final runs with the rebuilt test binary and checksum-verified OBI image are counted. Earlier runs using stale cached artifacts were discarded."
   }
 }

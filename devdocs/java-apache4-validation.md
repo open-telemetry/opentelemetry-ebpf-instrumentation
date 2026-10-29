@@ -26,6 +26,17 @@ Agent tests against HttpClient/HttpCore 4.3/4.3 passed on Temurin 8u504-b01
 (175 passed; three JDK HttpClient tests require Java 11) and 21.0.12.1+1-LTS
 (178 passed). The 4.5.14 Java 21 control also passed all 178 tests.
 
+The full enabled/disabled HTTPS transport suite passed with 4.3 on native amd64
+Temurin 8u504-b01 (785.72 seconds). Selected enabled/disabled cases also passed on
+Temurin 21.0.12.1+1-LTS (89.01 seconds): generated context, delayed HTTP-looking
+body bytes, accepted/rejected Expect requests, and cleanup. Both used the unchanged
+candidate binary recorded below. The JSON's `minimum_version_validation` records
+filters, artifact hashes, and retained log hashes. These runs add compatibility
+evidence; the sustained-load measurements below remain specific to 4.5.14.
+
+[Agent CI](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/actions/runs/40970020627)
+also passed both library versions on Java 8, 11, 17, and 21.
+
 The test dependency can be selected with `-PapacheHttpClientVersion=4.3`, and the
 transport fixture accepts `JAVA_APACHE_HTTPCLIENT_VERSION=4.3`. Java agent CI
 checks both 4.3 and 4.5.14 on each JDK. Native transport CI uses 4.3 on JDK 8 and
