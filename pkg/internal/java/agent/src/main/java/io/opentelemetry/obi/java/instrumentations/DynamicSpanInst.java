@@ -100,7 +100,11 @@ public final class DynamicSpanInst {
       return false;
     }
     for (int i = 0; i < method.getParameters().size(); i++) {
-      String actual = method.getParameters().get(i).getType().asErasure().getActualName();
+      TypeDescription parameterType = method.getParameters().get(i).getType().asErasure();
+      String actual = parameterType.getCanonicalName();
+      if (actual == null) {
+        actual = parameterType.getActualName().replace('$', '.');
+      }
       if (!reference.parameterTypes().get(i).equals(actual)) {
         return false;
       }

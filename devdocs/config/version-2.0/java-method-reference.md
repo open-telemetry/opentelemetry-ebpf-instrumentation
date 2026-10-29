@@ -150,9 +150,13 @@ can restore that target to resolved, unresolved, or pending. Unloading the
 last definition of a target makes it pending. These per-target outcomes do
 not suppress valid selections for other FQCNs matched by the same pattern.
 
-Constructors are not supported by this method-reference form. Return-type
-selection and matching inherited methods through a subtype require a future
-contract change rather than implicit fallback behavior.
+Constructors are not currently supported. Their `this()`/`super()` delegation
+must run before the instance is initialized, and Byte Buddy throwable advice
+cannot cover that delegation. Full constructor-span semantics need a separate
+design for initialization and failure handling; this is not a permanent
+limitation of dynamic spans. Return-type selection and matching inherited
+methods through a subtype require a future contract change rather than implicit
+fallback behavior.
 
 ## Java runtime support
 

@@ -12,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.example.DynamicSpanFixture;
+import com.example.Nested;
 import com.example.OtherFixture;
 import com.example.ambiguous.AmbiguousFixture;
 import com.example.reload.ReloadFixture;
@@ -49,6 +50,8 @@ class DynamicSpanRuntimeTest {
                 "typed.overload", "com.example.DynamicSpanFixture#overloaded(int)"),
             new DynamicSpanDefinition(
                 "array.signature", "com.example.DynamicSpanFixture#array(java.lang.String[])"),
+            new DynamicSpanDefinition(
+                "nested.parameter", "com.example.Nested#accept(com.example.Nested.Value)"),
             new DynamicSpanDefinition("valid.sibling", "com.example.OtherFixture#ok()"),
             new DynamicSpanDefinition(
                 "ambiguous.class", "com.example.ambiguous.AmbiguousFixture#run()"),
@@ -70,8 +73,9 @@ class DynamicSpanRuntimeTest {
     assertEquals("sibling", DynamicSpanFixture.runSibling());
     assertEquals("5", DynamicSpanFixture.overloaded(5));
     assertEquals("first", DynamicSpanFixture.array(new String[] {"first"}));
+    assertEquals("accepted", Nested.accept(new Nested.Value()));
     assertEquals("ok", OtherFixture.ok());
-    assertEquals(5, payloads.size());
+    assertEquals(6, payloads.size());
     String joined = "";
     for (byte[] payload : payloads) {
       joined += new String(payload, StandardCharsets.UTF_8);
@@ -79,6 +83,7 @@ class DynamicSpanRuntimeTest {
     assertTrue(joined.contains("glob.span"));
     assertTrue(joined.contains("typed.overload"));
     assertTrue(joined.contains("array.signature"));
+    assertTrue(joined.contains("nested.parameter"));
     assertTrue(joined.contains("valid.sibling"));
     assertFalse(joined.contains("unresolved.sibling"));
     assertFalse(joined.contains("ambiguous.overload"));
