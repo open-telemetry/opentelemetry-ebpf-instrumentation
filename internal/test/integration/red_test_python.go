@@ -211,7 +211,7 @@ func checkReportedPythonEvents(t *testing.T, comm, namespace string, numEvents i
 	}, testTimeout, 100*time.Millisecond)
 }
 
-// forked children exit before discovery sees them; exec'd ones run another program
+// forked children exit before discovery sees them; calls after exec wait for discovery
 func testForkedChildrenPython(t *testing.T) {
 	const (
 		url  = "http://localhost:8381"
@@ -241,5 +241,5 @@ func testForkedChildrenPython(t *testing.T) {
 	assert.Never(t, func() bool {
 		results, err := pq.Query(`http_client_request_duration_seconds_count{http_response_status_code="231"}`)
 		return err != nil || len(results) > 0
-	}, 5*time.Second, 500*time.Millisecond, "calls of an exec'd program are not this service's")
+	}, 5*time.Second, 500*time.Millisecond, "calls after exec wait for discovery to evaluate the new program")
 }
