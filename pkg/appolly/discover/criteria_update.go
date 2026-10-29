@@ -30,6 +30,7 @@ type CriteriaUpdater struct {
 	fixedConfig   obi.Config
 	traceHeaders  map[string]string
 	metricHeaders map[string]string
+	logHeaders    map[string]string
 	features      export.Features
 	updates       *services.CriteriaUpdates
 }
@@ -39,6 +40,7 @@ func NewCriteriaUpdater(cfg *obi.Config) *CriteriaUpdater {
 		fixedConfig:   withoutSelectionAndSinks(cfg),
 		traceHeaders:  injectedHeaders(cfg.Traces.InjectHeaders),
 		metricHeaders: injectedHeaders(cfg.OTELMetrics.InjectHeaders),
+		logHeaders:    injectedHeaders(cfg.Logs.InjectHeaders),
 		features:      cfg.JoinMetricsConfig().Features,
 		updates: services.NewCriteriaUpdates(
 			refreshableCriteria(cfg),
@@ -56,7 +58,8 @@ func (u *CriteriaUpdater) Update(ctx context.Context, cfg *obi.Config) error {
 
 	if !reflect.DeepEqual(u.fixedConfig, withoutSelectionAndSinks(cfg)) ||
 		!maps.Equal(u.traceHeaders, injectedHeaders(cfg.Traces.InjectHeaders)) ||
-		!maps.Equal(u.metricHeaders, injectedHeaders(cfg.OTELMetrics.InjectHeaders)) {
+		!maps.Equal(u.metricHeaders, injectedHeaders(cfg.OTELMetrics.InjectHeaders)) ||
+		!maps.Equal(u.logHeaders, injectedHeaders(cfg.Logs.InjectHeaders)) {
 		return errors.New("only discovery selection criteria can be refreshed; restart OBI to apply other configuration changes")
 	}
 
@@ -79,6 +82,8 @@ func (u *CriteriaUpdater) Update(ctx context.Context, cfg *obi.Config) error {
 
 func withoutSelectionAndSinks(cfg *obi.Config) obi.Config {
 	fixed := *cfg
+	fixed.Logs.LogsExport = nil
+	fixed.Logs.InjectHeaders = nil
 	fixed.Traces.TracesExport = nil
 	fixed.Traces.OTLPEndpointProvider = nil
 	fixed.Traces.InjectHeaders = nil

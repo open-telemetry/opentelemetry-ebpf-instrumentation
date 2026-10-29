@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 
@@ -79,6 +80,8 @@ func TestCriteriaUpdaterConfigCallbackInventory(t *testing.T) {
 	visit(reflect.TypeFor[obi.Config](), "Config")
 
 	require.ElementsMatch(t, []string{
+		"Config.Logs.LogsExport",
+		"Config.Logs.InjectHeaders",
 		"Config.Traces.TracesExport",
 		"Config.Traces.OTLPEndpointProvider",
 		"Config.Traces.InjectHeaders",
@@ -1273,4 +1276,23 @@ func TestCriteriaUpdaterRejectsDynamicSelector(t *testing.T) {
 	finder := NewProcessFinder(cfg, &global.ContextInfo{}, nil, nil, nil)
 	_, err := finder.Start(t.Context(), WithCriteriaUpdater(NewCriteriaUpdater(cfg)), WithDynamicSelector(NewDynamicSelector()))
 	require.ErrorContains(t, err, "cannot be combined")
+}
+
+func TestCriteriaUpdaterLogsCallbacks(t *testing.T) {
+	initial := criteriaConfig(t, "    - name: backend\n      exe_path: /srv/backend\n")
+	initial.Logs.LogsExport = func(context.Context, plog.Logs) error { return nil }
+	initial.Logs.InjectHeaders = func(h map[string]string) { h["tenant"] = "one" }
+	updater := NewCriteriaUpdater(initial)
+	matcher := &Matcher{Log: slog.Default(), Criteria: FindingCriteria(initial), ProcessHistory: map[app.PID]ProcessMatch{}, Output: msg.NewQueue[[]Event[ProcessMatch]](), CriteriaUpdates: updater.Updates()}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	done := make(chan struct{})
+	go func() { defer close(done); matcher.Run(ctx) }()
+	t.Cleanup(func() { cancel(); testutil.ReadChannel(t, done, time.Second) })
+	require.NoError(t, updater.Update(ctx, initial))
+	next := *initial
+	next.Logs.LogsExport = func(context.Context, plog.Logs) error { return nil }
+	next.Logs.InjectHeaders = func(h map[string]string) { h["tenant"] = "one" }
+	require.NoError(t, updater.Update(ctx, &next))
+	next.Logs.InjectHeaders = func(h map[string]string) { h["tenant"] = "two" }
+	require.ErrorContains(t, updater.Update(ctx, &next), "restart OBI")
 }
