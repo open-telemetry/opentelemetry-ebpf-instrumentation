@@ -20,7 +20,7 @@ body:
       options:
         - Observed in a running system
         - Code inspection / static analysis
-        - Other
+        - Other (specify)
   - type: textarea
     id: what-happened
     attributes:
