@@ -349,7 +349,9 @@ The load-time constant `enroll_instrumented_only` turns all of the above on.
 
 ### Containers
 
-`BPF_SOCK_OPS` only sees connections from the cgroups below the one OBI attaches to: the root of its own cgroup namespace. Run in a container, OBI needs the host's cgroup namespace (Docker `--cgroupns=host`), or it never sees new connections of other containers.
+`BPF_SOCK_OPS` only sees connections from the cgroups below the one OBI attaches to: by default, the root of its own cgroup namespace. Run in a container, OBI needs the host's cgroup namespace (Docker `--cgroupns=host`), or it never sees new connections of other containers.
+
+Where the container can't share the host's cgroup namespace, such as an unprivileged Kubernetes pod, mount the host cgroup v2 hierarchy at a separate path and point `capture.engine.cgroup_filesystem.path` to it. Mounting it over `/sys/fs/cgroup` instead also hides the container's own cgroup from other code in the same container, such as the Collector's `cgroup_runtime` extension.
 
 ## Summary
 

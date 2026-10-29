@@ -26,7 +26,7 @@ jobs:
       matrix:
         platform:
           - platform: linux/amd64
-            runner: ubuntu-latest
+            runner: ubuntu-26.04
             artifact_suffix: amd64
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
