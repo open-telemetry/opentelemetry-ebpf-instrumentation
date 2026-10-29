@@ -55,6 +55,57 @@
   const MAX_STATUS_MSG_LEN = 128;
 
   const g = globalThis;
+  const executeWithSpan = (tracer, name, fn, thisArg, args) => {
+    if (!tracer) return Reflect.apply(fn, thisArg, args || []);
+    return tracer.startActiveSpan(name, (span) => {
+      const endSafely = () => {
+        try {
+          span.end();
+        } catch (_) {
+          // Bridge failures must not change application behavior.
+        }
+      };
+      const fail = (err) => {
+        try {
+          try {
+            span.recordException(err);
+            span.setStatus({ code: 2 });
+          } catch (_) {
+            // Keep instrumentation failures from changing application errors.
+          }
+        } finally {
+          endSafely();
+        }
+      };
+      let result;
+      try {
+        result = Reflect.apply(fn, thisArg, args || []);
+      } catch (err) {
+        fail(err);
+        throw err;
+      }
+      try {
+        if (result && typeof result.then === 'function') {
+          return result.then(
+            (value) => {
+              endSafely();
+              return value;
+            },
+            (err) => {
+              fail(err);
+              throw err;
+            },
+          );
+        }
+      } catch (err) {
+        fail(err);
+        throw err;
+      }
+      endSafely();
+      return result;
+    });
+  };
+
   if (g.__obiSpanBridgeLoaded) {
     // async_hooks fire in enable order. A re-injected fdextractor re-enables
     // its '-ctx' hook (moving it last), which would then overwrite this
@@ -71,8 +122,10 @@
 
   const fs = require('fs');
   const crypto = require('crypto');
-  // Dynamic instrumentation may replace the module export after this bridge loads.
+  // Dynamic instrumentation may wrap these exports later. Keep the original
+  // functions so bridge-internal calls do not re-enter application wrappers.
   const bridgeRandomBytes = crypto.randomBytes;
+  const bridgeExistsSync = fs.existsSync;
   const { AsyncLocalStorage, createHook } = require('async_hooks');
 
   // Diagnostics are OFF by default: this code runs inside the customer's
@@ -134,9 +187,19 @@
   // between registrants).
   const existing = g[API_KEY];
   // An SDK (or another agent) already registered a provider or context
-  // manager — stay inert rather than fight it.
+  // manager — stay inert for manual spans rather than fight it. Dynamic spans
+  // can still use the app's tracer through the shared execution helper.
   if (existing && (existing.trace || existing.context)) {
     debug('staying inert: a tracer provider/context manager is already registered');
+    const provider = existing.trace;
+    if (provider && typeof provider.getTracer === 'function') {
+      g.__obiSpanBridge = {
+        version: 2,
+        withSpan(name, fn, thisArg, args) {
+          return executeWithSpan(provider.getTracer('obi.dynamic', '1.0.0'), name, fn, thisArg, args);
+        },
+      };
+    }
     return;
   }
   // We deliberately DO NOT write to the global registry (globalThis[API_KEY]).
@@ -190,9 +253,9 @@
     try {
       const fd = requestFd();
       if (fd >= 0 && fd <= MAX_SENTINEL_FD) {
-        fs.existsSync(SENTINEL_PREFIX_FD + String(fd).padStart(SENTINEL_FD_DIGITS, '0') + payload);
+        bridgeExistsSync(SENTINEL_PREFIX_FD + String(fd).padStart(SENTINEL_FD_DIGITS, '0') + payload);
       } else {
-        fs.existsSync(SENTINEL_PREFIX + payload);
+        bridgeExistsSync(SENTINEL_PREFIX + payload);
       }
     } catch (err) {
       debug('unexpected error emitting span', err);
@@ -211,7 +274,7 @@
     const fd = requestFd();
     const fdPart = fd >= 0 && fd <= MAX_SENTINEL_FD ? String(fd).padStart(SENTINEL_FD_DIGITS, '0') : '';
     try {
-      fs.existsSync(MSPAN_PREFIX + fdPart + sc.traceId + sc.spanId);
+      bridgeExistsSync(MSPAN_PREFIX + fdPart + sc.traceId + sc.spanId);
     } catch (err) {
       debug('unexpected error emitting manual-span override', err);
     }
@@ -219,7 +282,7 @@
   const emitPop = () => {
     if (yielded) return;
     try {
-      fs.existsSync(MSPAN_PREFIX + '-');
+      bridgeExistsSync(MSPAN_PREFIX + '-');
     } catch (err) {
       debug('unexpected error emitting manual-span pop', err);
     }
@@ -754,53 +817,7 @@
       const appTracer = activeAppTracer('obi.dynamic', '1.0.0');
       if (yielded && !appTracer) return Reflect.apply(fn, thisArg, args || []);
       const tracer = appTracer || tracerProvider.getTracer('obi.dynamic', '1.0.0');
-      return tracer.startActiveSpan(name, (span) => {
-        const endSafely = () => {
-          try {
-            span.end();
-          } catch (_) {
-            // Bridge failures must not change application behavior.
-          }
-        };
-        const fail = (err) => {
-          try {
-            try {
-              span.recordException(err);
-              span.setStatus({ code: 2 });
-            } catch (_) {
-              // Keep instrumentation failures from changing application errors.
-            }
-          } finally {
-            endSafely();
-          }
-        };
-        let result;
-        try {
-          result = Reflect.apply(fn, thisArg, args || []);
-        } catch (err) {
-          fail(err);
-          throw err;
-        }
-        try {
-          if (result && typeof result.then === 'function') {
-            return result.then(
-              (value) => {
-                endSafely();
-                return value;
-              },
-              (err) => {
-                fail(err);
-                throw err;
-              },
-            );
-          }
-        } catch (err) {
-          fail(err);
-          throw err;
-        }
-        endSafely();
-        return result;
-      });
+      return executeWithSpan(tracer, name, fn, thisArg, args);
     },
     rehook() {
       if (!mspanHook || hookFailed) return;

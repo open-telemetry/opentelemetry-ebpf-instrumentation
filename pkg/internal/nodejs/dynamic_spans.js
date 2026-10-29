@@ -28,60 +28,10 @@
   };
 
   const withSpan = (name, fn, thisArg, args) => {
-    if (bridge && typeof bridge.withSpan === 'function') return bridge.withSpan(name, fn, thisArg, args);
-    let tracer;
-    try {
-      tracer = require('@opentelemetry/api').trace.getTracer('obi.dynamic', '1.0.0');
-    } catch (_) {
-      return Reflect.apply(fn, thisArg, args || []);
+    if (bridge && typeof bridge.withSpan === 'function') {
+      return bridge.withSpan(name, fn, thisArg, args);
     }
-    return tracer.startActiveSpan(name, (span) => {
-      const endSafely = () => {
-        try {
-          span.end();
-        } catch (_) {
-          // Span bridge failures must not change application behavior.
-        }
-      };
-      const fail = (err) => {
-        try {
-          try {
-            span.recordException(err);
-            span.setStatus({ code: 2 });
-          } catch (_) {
-            // Keep instrumentation failures from changing application errors.
-          }
-        } finally {
-          endSafely();
-        }
-      };
-      let result;
-      try {
-        result = Reflect.apply(fn, thisArg, args || []);
-      } catch (err) {
-        fail(err);
-        throw err;
-      }
-      try {
-        if (result && typeof result.then === 'function') {
-          return result.then(
-            (value) => {
-              endSafely();
-              return value;
-            },
-            (err) => {
-              fail(err);
-              throw err;
-            },
-          );
-        }
-      } catch (err) {
-        fail(err);
-        throw err;
-      }
-      endSafely();
-      return result;
-    });
+    return Reflect.apply(fn, thisArg, args || []);
   };
 
   const getExport = (exports, path) => {
@@ -146,6 +96,12 @@
     }
   };
 
+  const isBuiltin = (specifier) => {
+    if (typeof Module.isBuiltin === 'function') return Module.isBuiltin(specifier);
+    const normalized = specifier.startsWith('node:') ? specifier.slice(5) : specifier;
+    return Module.builtinModules.includes(normalized);
+  };
+
   const instrumentResolved = (moduleId, exports, parent, isMain) => {
     for (const [index, rule] of rules.entries()) {
       const targetId = resolveId(rule.moduleSpecifier, parent, isMain);
@@ -163,6 +119,23 @@
   for (const loaded of Object.values(require.cache)) {
     if (!loaded) continue;
     instrumentResolved(loaded.filename, loaded.exports, loaded.parent || require.main || module, false);
+  }
+
+  // Built-ins are absent from require.cache. Load and instrument configured
+  // built-in exports now so references held by the application before
+  // injection point at the same, instrumented export object.
+  const parent = require.main || module;
+  for (const rule of rules) {
+    if (!isBuiltin(rule.moduleSpecifier)) continue;
+    const moduleId = resolveId(rule.moduleSpecifier, parent, false);
+    if (moduleId === null) continue;
+    try {
+      const exports = originalLoad.call(Module, rule.moduleSpecifier, parent, false);
+      instrumentResolved(moduleId, exports, parent, false);
+    } catch (err) {
+      const index = rules.indexOf(rule);
+      diagnose(index, `failed to load built-in module ${rule.moduleSpecifier}`, err);
+    }
   }
 
   if (originalLoad && !originalLoad.__obiDynamicSpanWrapped) {
