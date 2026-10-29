@@ -15,8 +15,8 @@ import (
 // Known capture sections are typed so exporter-owned fields and nesting have
 // compile-time coverage.
 type Capture struct {
-	Exceptions      services.ExceptionsConfig `yaml:"exceptions"`
 	Attributes      *CaptureAttributes        `yaml:"attributes,omitempty"`
+	Exceptions      services.ExceptionsConfig `yaml:"exceptions"`
 	Policy          CapturePolicy             `yaml:"policy"`
 	Rules           []Rule                    `yaml:"rules"`
 	Instrumentation Instrumentation           `yaml:"instrumentation"`
