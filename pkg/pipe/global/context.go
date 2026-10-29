@@ -7,6 +7,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/cloud"
 	"go.opentelemetry.io/obi/pkg/docker"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
@@ -78,6 +79,7 @@ type ContextInfo struct {
 	// DynamicSelector, when set, restricts App O11y, NetO11y, and StatsO11y signals to
 	// the runtime-selected targets for each signal view. Pass via instrumenter.WithDynamicSelector.
 	DynamicSelector selection.MultiSignalPIDSelector
+	CriteriaUpdates *services.CriteriaUpdates
 }
 
 // AppO11y stores context information that is only required for application observability.

@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -31,6 +32,7 @@ import (
 	"github.com/ory/dockertest/v4"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/tools/img"
 )
 
@@ -619,4 +621,20 @@ func createLogOutput(t *testing.T, testCase string) io.Writer {
 		}
 	})
 	return out
+}
+
+// runs the OBI image's test tool, which prints one number per line
+func obiTestToolValues(ct require.TestingT, compose *docker.Compose, args ...string) map[uint64]bool {
+	out, err := compose.ExecOutput("obi", append([]string{"/obitesttool"}, args...)...)
+	require.NoError(ct, err, out)
+	values := map[uint64]bool{}
+	for line := range strings.SplitSeq(out, "\n") {
+		if line == "" {
+			continue
+		}
+		value, err := strconv.ParseUint(line, 10, 64)
+		require.NoError(ct, err, line)
+		values[value] = true
+	}
+	return values
 }
