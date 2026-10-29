@@ -1,7 +1,8 @@
 # Remote entity metadata service
 
-Status: initial design proposal. Protocol details, scale targets, and metric
-counting policy still need validation before implementation.
+Status: initial design proposal. Endpoint discovery and resolution-domain
+decisions are specified below for review. Protocol details, scale targets, and
+the metric counting policy remain pending.
 
 ## Purpose and initial scope
 
@@ -62,12 +63,34 @@ associations and their provenance instead of overwriting a single IP-to-name map
 | Resolution domain and source | Address interpretation, provenance, and conflict handling. |
 | Metric coverage and validity | Whether the entity is known to generate server-side service graph metrics, independently of its identity. |
 
-A resolution domain groups observers that interpret addresses consistently.
-It may span connected VPCs or physical networks; using the observer's VPC ID as the lookup
-scope would hide peers in another connected VPC. Initially configure domains
-explicitly. Overlapping address spaces require separate domains or a future
-translation mechanism. Loopback and local network-namespace identifiers remain
-local and must not become globally resolvable addresses.
+### Resolution domains
+
+OBI automatically uses a common default resolution domain for its registry;
+normal deployments require no domain configuration. An optional identifier
+separates overlapping networks sharing the registry. Each OBI uses one domain,
+and the registry partitions publication, subscriptions, and lookup accordingly.
+The domain is independent of service namespace and is not inferred from a cloud
+account, VPC ID, or hostname. Authorization must restrict domain access.
+
+A domain groups observers that interpret advertised addresses consistently.
+Connected VPCs or physical networks can share a domain when their addresses do
+not collide. Separate domains isolate overlapping networks, even when they use
+the same registry. A domain identifier does not translate addresses or discover
+routes; interpreting one IP differently within a domain is unsupported.
+
+Remote endpoint keys are `(domain, address, transport, port)`, where address is
+an IP or a verified hostname; IP fallback uses `(domain, IP)`. Normalize hostnames
+as lowercase FQDNs without a trailing dot and IPv4-mapped IPv6 as IPv4. A DNS
+record or observed hostname alone does not establish a hostname-to-service
+binding. Retain IPv4 and IPv6 as separate addresses. Local socket associations
+also retain host/session and network namespace; loopback and namespace
+identifiers never become remote lookup keys.
+
+| Topology | Domain assignment |
+| --- | --- |
+| Directly connected, non-overlapping production networks | Common default domain; no additional configuration. |
+| Isolated production/test networks both using `10.0.0.8` | Separate registries or optional distinct domains, such as `prod` and `test`. |
+| Bridge container reachable only through a published host port | No inferred container-to-host endpoint translation; NAT mapping is outside the MVP. |
 
 The existing [cloud inventory](../pkg/cloud/inventory.go) already has independent
 source snapshots and a refresher interface. Extend that boundary and adapt
@@ -98,6 +121,12 @@ endpoint can contribute to step 1; a hostname alone may refer to multiple
 services sharing an address. Keep resolution reasons available for diagnostics
 without adding high-cardinality metric labels.
 
+Specific endpoint lookup also requires one logical identity among its valid
+owner records. Shared listeners or `SO_REUSEPORT` across different services are
+ambiguous; multiple owners with the same name/namespace are not. An ambiguous
+specific association must not fall through to a broader guess. Unknown means
+no valid association; ambiguous means valid evidence identifies several services.
+
 A client's ephemeral port is not a listening endpoint. Without an explicit
 connection association, resolve that client through the agreed IP fallback.
 Tracking such connections across nodes is not required for the first version.
@@ -111,15 +140,99 @@ distinct services sharing a host address are not silently excluded.
 ## Local inventory lifecycle
 
 Maintain the inventory from enriched process events, before filtering by metric
-selection. Publish creations, identity/address/coverage changes, and removals;
-an existing process can receive another creation event when its metadata changes.
-Keep identity available independently of enabled signals.
+selection. Key process ownership by publisher session, host PID, and process
+start time. A repeated creation event updates the existing record; publish
+identity/address/coverage changes and remove only that owner's associations on
+termination. Keep identity available independently of enabled signals.
 
-Endpoint collection needs a focused implementation decision. Isolated-container
-IP helpers are available. Host processes need explicit host
-address handling. Existing process port discovery includes ephemeral ports,
-while the eBPF listener map alone does not associate listeners with service
-identities. Do not advertise either as a complete endpoint inventory.
+### Address collection
+
+Autodetect addresses without requiring IP lists or interface selection. For
+host addresses, prefer the cloud provider's local instance metadata when
+available; use local interface discovery on bare metal or when cloud metadata
+is unavailable. Optional filters are advanced overrides, not prerequisites.
+Cloud metadata establishes assignment to an instance, not process ownership or
+reachability from every peer. Local sockets remain the source of listener
+bindings. Preserve provenance and ambiguity rules in both discovery paths.
+
+Reuse provider detection, SDK clients, and timeout/retry handling from
+[NodeMeta](../pkg/metadata/meta_node.go) and the existing
+[EC2 metadata reader](../pkg/metadata/meta_node_ec2.go). Extend local metadata
+collection with a refreshable network snapshot; `NodeMeta` is collected at
+startup and currently stores no interface-address inventory. Keep network
+discovery data separate from exported resource attributes. Read all relevant
+NICs and assigned addresses, not just the primary interface or an alias prefix.
+
+| Source | Reuse and publication rule |
+| --- | --- |
+| Local cloud instance metadata | Prefer assigned, directly addressed host IPs for host processes, with NIC/network provenance where available. Do not automatically add unrelated local bridge/VPN addresses to a successful cloud snapshot. |
+| Isolated container or task | Prefer metadata tied to that specific container/task when available; otherwise reuse [IPsForPID](../pkg/internal/helpers/container/ips.go). OBI's own task metadata does not describe every instrumented container, and VM addresses must not be copied onto each container. |
+| Local host interfaces | Fallback in the target process's namespace using [WithNetNS](../pkg/internal/netns/netns.go). `IPsForPID` deliberately returns no host addresses. |
+| Remote cloud inventory or DNS | Keep as resolver evidence; do not announce independently discovered remote entities. |
+
+AWS exposes per-NIC addresses through [EC2 IMDS](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-metadata.html);
+[GCE metadata](https://docs.cloud.google.com/compute/docs/metadata/predefined-metadata-keys)
+and [Azure IMDS](https://learn.microsoft.com/en-us/azure/virtual-machines/instance-metadata-service)
+also expose network-interface data. Distinguish directly assigned addresses from
+public/NAT mappings, forwarded addresses, and alias ranges. Do not expand a
+prefix into application endpoints or infer a public listener by copying a
+private listener's port. NAT translation remains outside the MVP.
+
+Reuse or extend NetworkMetrics' interface-monitoring and optional filtering
+primitives behind [InterfaceManager](../pkg/internal/ebpf/tcmanager/ifacemanager.go)
+for local discovery and change hints, without requiring network metrics to be
+enabled or inheriting their capture filters. Current interface events contain
+name/index, not IP changes; reconcile addresses periodically and refresh cloud
+snapshots too. A transient provider failure may retain its last successful
+snapshot only within its validity window; missing data is not a confirmed
+deletion. Fall back automatically when no usable provider snapshot exists,
+retaining the weaker provenance. Exact override fields belong to Config v2.
+
+Enumerate once per network namespace per scan. Exclude unspecified, loopback,
+multicast, and link-local addresses from publication; private unicast addresses
+are valid within their domain. Retain loopback bindings locally. Do not reuse
+the agent IP as the complete application address set: the agent may occupy a
+different namespace or report only one interface.
+
+Associating autodetected host addresses with a process enables the agreed IP
+fallback; it does not prove that the process listens on every interface. A
+client-only process can therefore have IP associations without listener records.
+
+### Listener collection and refresh
+
+Use the existing gopsutil dependency's per-PID TCP socket enumeration, retaining
+local address, port, family, and `LISTEN` state before discovery reduces results
+to port numbers. On Linux it matches process socket descriptors to
+`/proc/<pid>/net/tcp{,6}`. Publish only TCP listeners initially; retain transport
+in the model for future UDP support. Established/client ports are not published
+as listeners or sent as a distributed connection inventory.
+
+For a specific bind, publish its eligible address. Expand wildcard binds only
+over autodetected eligible addresses in the same namespace and address family;
+never publish `0.0.0.0` or `::`. Do not infer IPv4 acceptance from an IPv6 wildcard
+without verifying dual-stack behavior. Loopback listeners remain local.
+
+Scan on process discovery and reconcile while the process is alive, using the
+existing discovery polling cadence initially. A process need not restart for
+listeners or interfaces to change. Deduplicate interface reads and publish only
+diffs. The current [port watcher](../pkg/internal/ebpf/watcher/watcher.go) and
+[listener map](../bpf/generictracer/maps/listening_ports.h) can provide hints, but
+neither supplies a complete service-owned endpoint snapshot; no new eBPF probes
+are required for this initial approach.
+
+Validate process start time and namespace around collection to reject PID-reuse
+races. Check `/proc` access explicitly: gopsutil can return an empty result after
+a descriptor-read failure. Failed or partial scans must not be treated as a
+successful empty inventory or renew unverified associations indefinitely; retain
+previous evidence only within its validity window and expose the failure.
+Remove disappeared bindings after a successful reconciliation, retaining other
+live owners of shared listeners.
+
+The IP fallback considers all valid application records, not only those with
+listeners. Applications excluded from discovery remain invisible and can cause
+incorrect attribution even when the known records agree. Duplicate bridge IPs
+across hosts and translated endpoints require different domains or unsupported
+translation; never select an arbitrary owner.
 
 ## Registry and synchronization
 
@@ -174,9 +287,14 @@ not exactly-once counting during startup, configuration changes, or partitions.
 
 ## Validation and remaining decisions
 
-Before implementing the protocol, settle endpoint collection, resolution-domain
-configuration, and the counting policy for unknown coverage. Select lease and
-cache defaults after confirming deployment topology and expected scale.
+Before implementing the protocol, review the endpoint-discovery decisions above
+and settle the counting policy for unknown coverage. Select lease/cache defaults and
+resource limits after confirming deployment topology and expected scale.
+
+Validate listener ownership, inherited/shared descriptors, namespace entry,
+wildcard/dual-stack binds, permission failures, and binding changes in Linux
+integration tests when implementing the collector. Current discovery evidence
+is source inspection, including gopsutil v4.26.9; it is not a live collector test.
 
 Acceptance scenarios cover separate nodes; distinct services sharing one node
 or IP; loopback and container networking; conflicting sources; mixed replica
