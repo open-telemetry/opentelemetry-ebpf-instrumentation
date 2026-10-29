@@ -605,6 +605,18 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } newproc1 SEC(".maps");
 
+// Targets are keyed on {user_pid, ns} with host_pid zero. Userspace registers a
+// process by the pid its /proc shows, and when OBI shares the pid namespace of
+// the process (a sidecar with shareProcessNamespace), it cannot see the root
+// namespace tgid that task_pid() puts in host_pid.
+static __always_inline go_runtime_metric_target_t *
+go_runtime_metric_target_lookup(const pid_info *pid) {
+    pid_info key = *pid;
+    key.host_pid = 0;
+
+    return bpf_map_lookup_elem(&go_runtime_metric_targets, &key);
+}
+
 SEC("uprobe/go_runtime_metrics")
 int GUARDED_PROG(obi_uprobe_go_runtime_metrics, struct pt_regs *, ctx) {
     (void)ctx;
@@ -614,7 +626,7 @@ int GUARDED_PROG(obi_uprobe_go_runtime_metrics, struct pt_regs *, ctx) {
 
     bpf_dbg_printk("collecting Go runtime metrics pid=%d ns=%d", key.user_pid, key.ns);
 
-    go_runtime_metric_target_t *target = bpf_map_lookup_elem(&go_runtime_metric_targets, &key);
+    go_runtime_metric_target_t *target = go_runtime_metric_target_lookup(&key);
     if (!target) {
         return 0;
     }
@@ -678,7 +690,7 @@ int GUARDED_PROG(obi_uprobe_go_runtime_gc_goal, struct pt_regs *, ctx) {
     pid_info key = {};
     task_pid(&key);
 
-    go_runtime_metric_target_t *target = bpf_map_lookup_elem(&go_runtime_metric_targets, &key);
+    go_runtime_metric_target_t *target = go_runtime_metric_target_lookup(&key);
     if (!target || target->gc_goal_source != go_runtime_gc_goal_source_pace_scavenger_argument) {
         return 0;
     }

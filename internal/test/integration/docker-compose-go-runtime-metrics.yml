@@ -27,7 +27,7 @@ services:
       - /sys/kernel/tracing:/sys/kernel/tracing:rw
     image: hatest-obi
     privileged: true
-    pid: "host"
+    pid: "${OBI_PID_MODE:-host}"
     environment:
       OTEL_EBPF_CONFIG_PATH: /configs/obi-config-go-runtime-metrics${INSTRUMENTER_CONFIG_SUFFIX}.yml
       GOCOVERDIR: "/coverage"

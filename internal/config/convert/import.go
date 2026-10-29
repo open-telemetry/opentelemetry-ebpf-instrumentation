@@ -97,6 +97,9 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	if err := applyV2PeerMetadata(&cfg, src.Enrich, complete); err != nil {
 		return nil, err
 	}
+	if err := applyV2CaptureAttributes(&cfg, src); err != nil {
+		return nil, err
+	}
 	if err := applyV2MetricsEnablement(&cfg, src, complete); err != nil {
 		return nil, err
 	}

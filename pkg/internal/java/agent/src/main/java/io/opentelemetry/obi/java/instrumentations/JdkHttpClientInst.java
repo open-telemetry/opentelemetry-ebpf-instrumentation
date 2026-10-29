@@ -6,6 +6,7 @@
 package io.opentelemetry.obi.java.instrumentations;
 
 import io.opentelemetry.obi.java.Agent;
+import io.opentelemetry.obi.java.ebpf.ThreadInfo;
 import io.opentelemetry.obi.java.instrumentations.data.JdkHttpClientPropagation;
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import java.lang.reflect.Method;
@@ -318,7 +319,7 @@ public class JdkHttpClientInst {
   public static final class SendAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
     public static long enter() {
-      long threadId = Agent.NativeLib.gettid();
+      long threadId = ThreadInfo.currentTid();
       return SSLStorage.enterJdkHttpClientContext(threadId);
     }
 
