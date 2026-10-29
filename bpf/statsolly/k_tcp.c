@@ -54,7 +54,7 @@ static __always_inline void flush_tcp_io_accum(struct sock *sk,
         return;
     }
     connection_info_t conn;
-    if (!parse_sock_info(sk, &conn)) {
+    if (!parse_full_sock_info(sk, &conn)) {
         bpf_ringbuf_discard(se, 0);
         return;
     }
@@ -116,7 +116,7 @@ int BPF_KPROBE(obi_stats_kprobe_tcp_close_srtt, struct sock *sk) {
     (void)ctx;
 
     connection_info_t conn;
-    if (!parse_sock_info(sk, &conn)) {
+    if (!parse_full_sock_info(sk, &conn)) {
         return 0;
     }
 

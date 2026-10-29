@@ -128,6 +128,10 @@ struct sock_common {
 struct sock {
     struct sock_common __sk_common;
 };
+struct inet_sock {
+    struct sock sk;
+    u16 inet_sport;
+};
 
 // Only the fields the failed-connect classification reads, in the order the
 // kernel declares them.

@@ -131,23 +131,20 @@ To add a new metric, follow these guidelines:
 
 ### Known limitations
 
-#### `src.port` may be reported as `0`
+#### `src.port` of sockets that are already closed
 
-The `src.port` attribute (disabled by default) can be `0` in metrics whose probes fire near socket teardown: specifically `obi_stat_tcp_rtt_seconds` and `obi_stat_tcp_failed_connections_total`. Metrics measured while the socket is still active (retransmits) are not affected. The root cause is a kernel-side race between the application's `close()` path and RST processing.
-
-When a socket **receives** a RST and is orphaned (`SOCK_DEAD` set), the kernel calls:
+Moving a TCP socket to `TCP_CLOSE` releases its local port: `tcp_set_state()` calls `inet_put_port()`, which zeroes `skc_num`. This happens for every socket that was not explicitly bound to a port, accepted server sockets included, whether the application closed it or a reset did.
 
 ```
-tcp_done()
-  └── inet_csk_destroy_sock()
-        └── inet_put_port()  <-- zeroes skc_num (the source port)
+tcp_set_state(sk, TCP_CLOSE)
+  └── inet_put_port()             <-- zeroes skc_num (the source port)
+  └── inet_sk_state_store()
+        └── trace_inet_sock_set_state()
 ```
 
-This happens outside the application's `close()` call. By the time `parse_sock_info` in [bpf/common/sockaddr.h](../bpf/common/sockaddr.h) reads `skc_num`, it is already `0`.
+Probes that can run at or after this transition read the port with `parse_full_sock_info` in [bpf/common/sockaddr.h](../bpf/common/sockaddr.h), which falls back to `inet_sport` when `skc_num` is `0`. `inet_sport` is not cleared on close and holds the port the connection used on the wire. These probes are the `inet_sock_set_state` tracepoint (`obi_stat_tcp_failed_connections_total`) and the `tcp_close` kprobes (`obi_stat_tcp_rtt_seconds` and the last `obi_stat_tcp_io_bytes_total` batch), which see a closed socket when a reset arrived before the application called `close()`.
 
-The RST **sender** is not affected because it goes through the normal application `close()` path where the port is still valid at probe time.
-
-StatsO11y probes fire at different points relative to `inet_put_port()`, so the behaviour is not uniform across metrics. For example, `obi_kprobe_tcp_close_srtt` (kprobe on `tcp_close`) may still observe a valid port in some RST-receiver scenarios, while `obi_tracepoint_inet_sock_set_state` (tracepoint on `inet_sock_set_state`) consistently sees `0`. Metrics with `src_port="0"` still carry useful signal — `dst_port`, `src_address`, `dst_address`, `reason`, and `network_tcp_handshake_role` remain valid.
+`src.port` is still `0` for a connection attempt that fails before the kernel assigns a local port, for example when no ephemeral port is free. A socket reused with `connect(AF_UNSPEC)` that hits the same failure reports the port of its previous connection instead, because `inet_sport` still holds it.
 
 ### Performance considerations
 
