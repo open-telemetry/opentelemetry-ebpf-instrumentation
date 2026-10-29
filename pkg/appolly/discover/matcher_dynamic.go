@@ -89,8 +89,8 @@ func (m *DynamicMatcher) Run(ctx context.Context) {
 func (m *DynamicMatcher) filter(events []Event[ProcessAttrs]) []Event[ProcessMatch] {
 	var matches []Event[ProcessMatch]
 	for _, ev := range events {
-		if ev.Type == EventDeleted {
-			if ev, ok := m.filterDeleted(ev.Obj); ok {
+		if ev.Type == EventDeleted || ev.Type == EventExecutableReplaced {
+			if ev, ok := m.filterDeleted(ev.Obj, ev.Type); ok {
 				matches = append(matches, ev)
 			}
 		} else {
@@ -168,15 +168,17 @@ func (m *DynamicMatcher) matchDynamicCriteria(obj ProcessAttrs, proc *services.P
 	}
 }
 
-func (m *DynamicMatcher) filterDeleted(obj ProcessAttrs) (Event[ProcessMatch], bool) {
+func (m *DynamicMatcher) filterDeleted(obj ProcessAttrs, eventType WatchEventType) (Event[ProcessMatch], bool) {
 	procMatch, ok := m.ProcessHistory[obj.pid]
 	if !ok {
 		m.Log.Debug("deleted untracked process. Ignoring", "pid", obj.pid)
 		return Event[ProcessMatch]{}, false
 	}
 	delete(m.ProcessHistory, obj.pid)
-	// Drop materialized workload sources for this PID. Explicit AddPID selection is kept.
-	m.DynamicSelector.clearWorkloadSources(obj.pid)
+	// Workload membership follows the process lifetime, not its executable.
+	if eventType != EventExecutableReplaced {
+		m.DynamicSelector.clearWorkloadSources(obj.pid)
+	}
 	m.Log.Debug("stopped process", "pid", procMatch.Process.Pid, "comm", procMatch.Process.ExePath)
 	return Event[ProcessMatch]{Type: EventDeleted, Obj: procMatch}, true
 }

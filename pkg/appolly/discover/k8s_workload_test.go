@@ -219,7 +219,7 @@ func TestDynamicMatcher_ClearsWorkloadSourcesOnProcessExit(t *testing.T) {
 			31: {Process: &services.ProcessInfo{Pid: 31, ExePath: "/bin/test"}},
 		},
 	}
-	ev, ok := m.filterDeleted(ProcessAttrs{pid: 31})
+	ev, ok := m.filterDeleted(ProcessAttrs{pid: 31}, EventDeleted)
 	require.True(t, ok)
 	assert.Equal(t, EventDeleted, ev.Type)
 	assert.False(t, d.IncludesPID(31), "workload-only PID must leave the selector on exit")
@@ -227,7 +227,7 @@ func TestDynamicMatcher_ClearsWorkloadSourcesOnProcessExit(t *testing.T) {
 	assert.False(t, stillTracked)
 }
 
-func TestDynamicMatcher_ExecutableReplacementIgnoresStaleRemoval(t *testing.T) {
+func TestDynamicMatcher_ExecutableReplacementPreservesWorkloadSelection(t *testing.T) {
 	for _, timing := range []string{"before_rescan", "after_rescan"} {
 		t.Run(timing, func(t *testing.T) {
 			originalProcessInfo := processInfo
@@ -245,6 +245,8 @@ func TestDynamicMatcher_ExecutableReplacementIgnoresStaleRemoval(t *testing.T) {
 			require.NoError(t, d.AddK8sWorkload(workload, selection.DynamicOptions{}))
 			added := d.appSignals().AddedPIDsNotifyContext(t.Context())
 			removed := d.appSignals().RemovedNotifyContext(t.Context())
+			metricsAdded := selection.AddedPIDsNotifyContext(t.Context(), d.AppMetrics())
+			metricsRemoved := selection.RemovedNotifyContext(t.Context(), d.AppMetrics())
 			m := DynamicMatcher{
 				Log:             slog.Default(),
 				DynamicSelector: d.appSignals(),
@@ -256,6 +258,7 @@ func TestDynamicMatcher_ExecutableReplacementIgnoresStaleRemoval(t *testing.T) {
 			}
 			original := ProcessAttrs{
 				pid:        31,
+				startTime:  100,
 				executable: cacheKey{Dev: 1, Ino: 1},
 				metadata: map[string]string{
 					services.AttrNamespace:      "ns",
@@ -263,7 +266,13 @@ func TestDynamicMatcher_ExecutableReplacementIgnoresStaleRemoval(t *testing.T) {
 				},
 			}
 			require.Len(t, m.filter(acc.snapshot(map[app.PID]ProcessAttrs{original.pid: original}, false)), 1)
-			require.Equal(t, []app.PID{original.pid}, testutil.ReadChannel(t, added, testTimeout))
+			initialAdded := testutil.ReadChannel(t, added, testTimeout)
+			require.Equal(t, []app.PID{original.pid}, initialAdded)
+			require.Equal(t, initialAdded, testutil.ReadChannel(t, metricsAdded, testTimeout))
+			acc.forgetPIDs(initialAdded)
+			if timing == "after_rescan" {
+				require.Empty(t, m.filter(acc.snapshot(map[app.PID]ProcessAttrs{original.pid: original}, false)))
+			}
 
 			replacement := original
 			replacement.executable.Ino = 2
@@ -274,21 +283,22 @@ func TestDynamicMatcher_ExecutableReplacementIgnoresStaleRemoval(t *testing.T) {
 			require.Equal(t, "/bin/launcher", matches[0].Obj.Process.ExePath)
 			require.Equal(t, EventCreated, matches[1].Type)
 			require.Equal(t, "/bin/replacement", matches[1].Obj.Process.ExePath)
-			staleRemoval := testutil.ReadChannel(t, removed, testTimeout)
-			readded := testutil.ReadChannel(t, added, testTimeout)
-			require.Equal(t, []app.PID{replacement.pid}, staleRemoval)
-			require.Equal(t, []app.PID{replacement.pid}, readded)
-			require.True(t, d.appSignals().IncludesPID(replacement.pid))
-
-			if timing == "after_rescan" {
-				acc.forgetPIDs(readded)
-				events := acc.snapshot(processes, false)
-				require.Len(t, events, 1)
-				require.Empty(t, m.filter(events))
-			}
-			require.Empty(t, m.syntheticDeletesForRemovedPIDs(staleRemoval))
+			// A later selection edge flushes both notification queues in producer order.
+			const barrierPID = 32
+			d.appSignals().AddPIDs(barrierPID)
+			d.appSignals().RemovePIDs(barrierPID)
+			require.Equal(t, []app.PID{barrierPID}, testutil.ReadChannel(t, removed, testTimeout), "exec must not queue workload removal")
+			require.Equal(t, []app.PID{barrierPID}, testutil.ReadChannel(t, added, testTimeout), "exec must not rematerialize workload membership")
+			require.Equal(t, []app.PID{barrierPID}, testutil.ReadChannel(t, metricsRemoved, testTimeout), "exec must not queue removal for the metrics gate")
+			require.Equal(t, []app.PID{barrierPID}, testutil.ReadChannel(t, metricsAdded, testTimeout), "exec must not queue re-addition for the metrics gate")
+			require.True(t, d.Traces().IncludesPID(replacement.pid))
+			require.True(t, d.AppMetrics().IncludesPID(replacement.pid))
+			require.True(t, d.NetworkMetrics().IncludesPID(replacement.pid))
+			require.True(t, d.StatsMetrics().IncludesPID(replacement.pid))
 			require.Same(t, matches[1].Obj.Process, m.ProcessHistory[replacement.pid].Process)
-			require.Empty(t, acc.snapshot(processes, false))
+			for range 2 {
+				require.Empty(t, acc.snapshot(processes, false))
+			}
 
 			d.NetworkMetrics().AddPID(uint32(replacement.pid), selection.DynamicOptions{})
 			require.NoError(t, d.RemoveK8sWorkload(workload))
@@ -297,6 +307,47 @@ func TestDynamicMatcher_ExecutableReplacementIgnoresStaleRemoval(t *testing.T) {
 			deletes := m.syntheticDeletesForRemovedPIDs(testutil.ReadChannel(t, removed, testTimeout))
 			require.Equal(t, []Event[ProcessMatch]{{Type: EventDeleted, Obj: matches[1].Obj}}, deletes)
 			require.NotContains(t, m.ProcessHistory, replacement.pid)
+		})
+	}
+}
+
+func TestDynamicMatcher_ProcessLifetimeEndClearsWorkloadSelection(t *testing.T) {
+	for _, end := range []string{"exit", "reuse same binary", "reuse different binary"} {
+		t.Run(end, func(t *testing.T) {
+			originalProcessInfo := processInfo
+			processInfo = func(attrs ProcessAttrs) (*services.ProcessInfo, error) {
+				return &services.ProcessInfo{Pid: attrs.pid, ExePath: "/bin/app"}, nil
+			}
+			t.Cleanup(func() { processInfo = originalProcessInfo })
+			d := NewDynamicSelector()
+			require.NoError(t, d.AddK8sWorkload(selection.K8sWorkloadRef{
+				Kind: "Deployment", Namespace: "ns", Name: "checkout",
+			}, selection.DynamicOptions{}))
+			removed := selection.RemovedNotifyContext(t.Context(), d.AppMetrics())
+			m := DynamicMatcher{Log: slog.Default(), DynamicSelector: d.appSignals(), ProcessHistory: map[app.PID]ProcessMatch{}}
+			acc := pollAccounter{cfg: &obi.Config{}, executableReady: func(app.PID) (string, bool) { return "", true }}
+			original := ProcessAttrs{
+				pid: 31, startTime: 100, executable: cacheKey{Dev: 1, Ino: 1},
+				metadata: map[string]string{services.AttrNamespace: "ns", services.AttrDeploymentName: "checkout"},
+			}
+			require.Len(t, m.filter(acc.snapshot(map[app.PID]ProcessAttrs{31: original}, false)), 1)
+			current := map[app.PID]ProcessAttrs{}
+			if end != "exit" {
+				replacement := original
+				replacement.startTime++
+				replacement.metadata = nil
+				if end == "reuse different binary" {
+					replacement.executable.Ino++
+				}
+				current[31] = replacement
+			}
+			matches := m.filter(acc.snapshot(current, false))
+			require.Len(t, matches, 1)
+			require.Equal(t, EventDeleted, matches[0].Type)
+			require.Equal(t, []app.PID{31}, testutil.ReadChannel(t, removed, testTimeout))
+			require.False(t, d.IncludesPID(31))
+			require.NotContains(t, m.ProcessHistory, app.PID(31))
+			require.Empty(t, acc.snapshot(current, false))
 		})
 	}
 }
@@ -367,7 +418,7 @@ func TestDynamicMatcher_ProcessExitKeepsExplicitPID(t *testing.T) {
 			41: {Process: &services.ProcessInfo{Pid: 41, ExePath: "/bin/test"}},
 		},
 	}
-	_, ok := m.filterDeleted(ProcessAttrs{pid: 41})
+	_, ok := m.filterDeleted(ProcessAttrs{pid: 41}, EventDeleted)
 	require.True(t, ok)
 	assert.True(t, d.appSignals().IncludesPID(41), "explicit AddPID must survive process exit")
 	assert.False(t, d.NetworkMetrics().IncludesPID(41), "workload net/stats source must clear")

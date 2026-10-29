@@ -11,7 +11,6 @@ import (
 	"maps"
 	"math"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,6 +26,7 @@ import (
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/logger"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/watcher"
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -53,6 +53,8 @@ const (
 	EventCreated = WatchEventType(iota)
 	EventDeleted
 	EventInstanceDeleted
+	// EventExecutableReplaced retires instrumentation while retaining the process's selection.
+	EventExecutableReplaced
 )
 
 type Event[T any] struct {
@@ -62,6 +64,7 @@ type Event[T any] struct {
 
 type ProcessAttrs struct {
 	pid            app.PID
+	startTime      uint64 // Clock ticks since boot; unchanged by exec.
 	executable     cacheKey
 	openPorts      []uint32
 	metadata       map[string]string
@@ -79,12 +82,11 @@ func wplog() *slog.Logger {
 // ProcessWatcherRescan connects the process watcher to selector and criteria changes.
 // Nil channels are ignored.
 type ProcessWatcherRescan struct {
-	// AddedPIDs forgets the given PIDs so they are re-emitted on the next poll
+	// AddedPIDs re-emits the given PIDs on the next poll while retaining executable identity
 	// (e.g. after an explicit AddPID of an already-seen process).
 	AddedPIDs <-chan []app.PID
-	// TargetsChanged requests re-evaluation of all running processes. With criteria
-	// updates enabled, tracked PIDs are preserved for exit detection; otherwise
-	// they are forgotten (e.g. after AddK8sWorkload).
+	// TargetsChanged requests re-evaluation of all running processes while preserving
+	// executable identity and exit detection (e.g. after AddK8sWorkload).
 	TargetsChanged <-chan struct{}
 }
 
@@ -140,6 +142,8 @@ type pollAccounter struct {
 	interval time.Duration
 	// last polled process:ports accessible by its pid
 	pids map[app.PID]ProcessAttrs
+	// PIDs whose creation notification must be repeated without losing lifecycle history.
+	rescanPIDs map[app.PID]struct{}
 	// last polled process:ports accessible by a combination of pid/connection port
 	// same process might appear several times
 	pidPorts map[pidPort]ProcessAttrs
@@ -160,7 +164,7 @@ type pollAccounter struct {
 	output            *msg.Queue[[]Event[ProcessAttrs]]
 	ebpfContext       *ebpfcommon.EBPFEventContext
 	rescan            ProcessWatcherRescan
-	// pidsMu protects pids and pidPorts so the rescan goroutine can forget while snapshot runs
+	// pidsMu protects pids, pidPorts, and rescanPIDs across rescans and snapshots.
 	pidsMu sync.Mutex
 }
 
@@ -214,8 +218,6 @@ func (pa *pollAccounter) run(ctx context.Context) {
 }
 
 // runRescanNotify handles requests to re-emit processes on the next poll.
-// AddedPIDs forgets only the given PIDs. TargetsChanged preserves tracked PIDs for
-// exit detection when criteria updates are enabled, and forgets them otherwise.
 // Nil channels are inert in the select.
 func (pa *pollAccounter) runRescanNotify(ctx context.Context, log *slog.Logger) {
 	for {
@@ -227,7 +229,7 @@ func (pa *pollAccounter) runRescanNotify(ctx context.Context, log *slog.Logger) 
 				return
 			}
 			pa.forgetPIDs(pids)
-			log.Debug("forgot PIDs so they can be re-emitted as new", "pids", pids)
+			log.Debug("rescanning selected PIDs", "pids", pids)
 		case _, ok := <-pa.rescan.TargetsChanged:
 			if !ok {
 				return
@@ -242,27 +244,26 @@ func (pa *pollAccounter) runRescanNotify(ctx context.Context, log *slog.Logger) 
 	}
 }
 
-// forgetPIDs removes the given PIDs from the watcher's tracked state so they will be
-// reported as new on the next poll (e.g. when added to the dynamic selector).
+// forgetPIDs resets creation notifications while preserving executable identity and exit detection.
 func (pa *pollAccounter) forgetPIDs(pids []app.PID) {
 	pa.pidsMu.Lock()
 	defer pa.pidsMu.Unlock()
-	for _, pid := range pids {
-		delete(pa.pids, pid)
+	if pa.rescanPIDs == nil {
+		pa.rescanPIDs = make(map[app.PID]struct{}, len(pids))
 	}
-	for pp := range pa.pidPorts {
-		if slices.Contains(pids, pp.Pid) {
-			delete(pa.pidPorts, pp)
-		}
+	for _, pid := range pids {
+		pa.rescanPIDs[pid] = struct{}{}
 	}
 }
 
-// forgetAll clears all tracked process state so the next poll re-emits every process.
+// forgetAll resets creation notifications for every tracked process without losing lifecycle history.
 func (pa *pollAccounter) forgetAll() {
 	pa.pidsMu.Lock()
 	defer pa.pidsMu.Unlock()
-	clear(pa.pids)
-	clear(pa.pidPorts)
+	pa.rescanPIDs = make(map[app.PID]struct{}, len(pa.pids))
+	for pid := range pa.pids {
+		pa.rescanPIDs[pid] = struct{}{}
+	}
 }
 
 func (pa *pollAccounter) bpfWatcherIsReady() {
@@ -347,22 +348,34 @@ func (pa *pollAccounter) snapshot(fetchedProcs map[app.PID]ProcessAttrs, forceRe
 	notReadyProcs := map[app.PID]struct{}{}
 	// notify processes that are new, or already existed but have a new connection
 	for pid, proc := range currentProcs {
+		_, rescan := pa.rescanPIDs[pid]
+		rescan = rescan || forceRescan
 		if previous, ok := pa.pids[pid]; ok {
-			if proc.executable.Ino == 0 {
-				// Preserve the last identity when procfs is temporarily unreadable.
-				proc.executable = previous.executable
+			sameProcess := previous.startTime != 0 && previous.startTime == proc.startTime
+			pidReused := previous.startTime != 0 && proc.startTime != 0 && previous.startTime != proc.startTime
+			if proc.startTime == 0 {
+				proc.startTime = previous.startTime
 				currentProcs[pid] = proc
-			} else if previous.executable != proc.executable {
-				events = append(events, Event[ProcessAttrs]{Type: EventDeleted, Obj: previous})
+			}
+			if pidReused || (proc.executable.Ino != 0 && previous.executable != proc.executable) {
+				eventType := EventDeleted
+				if sameProcess {
+					eventType = EventExecutableReplaced
+				}
+				events = append(events, Event[ProcessAttrs]{Type: eventType, Obj: previous})
 				delete(pa.pids, pid)
 				// Exec can inherit listening sockets without a new-port event.
 				pa.refetchPorts()
+			} else if proc.executable.Ino == 0 {
+				// Preserve the last identity when procfs is temporarily unreadable.
+				proc.executable = previous.executable
+				currentProcs[pid] = proc
 			}
 		}
 		// if the process does not have open ports, we might still notify it
 		// for example, if it's a client with ephemeral connections, which might be later matched by executable name
 		if len(proc.openPorts) == 0 {
-			if pa.checkNewProcessNotification(pid, reportedProcs, notReadyProcs, forceRescan) {
+			if pa.checkNewProcessNotification(pid, reportedProcs, notReadyProcs, rescan) {
 				if pa.processTooNew(proc) {
 					log.Debug("delaying process analysis, too soon", "pid", pid, "age", proc.processAge)
 					notReadyProcs[pid] = struct{}{}
@@ -373,7 +386,7 @@ func (pa *pollAccounter) snapshot(fetchedProcs map[app.PID]ProcessAttrs, forceRe
 			}
 		} else {
 			for _, port := range proc.openPorts {
-				if pa.checkNewProcessConnectionNotification(proc, port, currentPidPorts, reportedProcs, notReadyProcs, forceRescan) {
+				if pa.checkNewProcessConnectionNotification(proc, port, currentPidPorts, reportedProcs, notReadyProcs, rescan) {
 					events = append(events, Event[ProcessAttrs]{Type: EventCreated, Obj: proc})
 					log.Debug("process added", "pid", pid, "port", port)
 					// skip checking new connections for that process
@@ -405,6 +418,7 @@ func (pa *pollAccounter) snapshot(fetchedProcs map[app.PID]ProcessAttrs, forceRe
 
 	pa.pids = currentProcs
 	pa.pidPorts = currentPidPorts
+	clear(pa.rescanPIDs)
 	return events
 }
 
@@ -605,10 +619,11 @@ func fetchProcessPorts(scanPorts bool) (map[app.PID]ProcessAttrs, error) {
 	}
 
 	for _, pid := range pids {
+		startTime, _ := procs.StartTime(app.PID(pid))
 		dev, ino, _ := FindINodeForPID(app.PID(pid))
 		executable := cacheKey{Dev: dev, Ino: ino}
 		if !scanPorts {
-			processes[app.PID(pid)] = ProcessAttrs{pid: app.PID(pid), executable: executable, detectedType: svc.InstrumentableUnknown, openPorts: []uint32{}, processAge: processAgeFunc(app.PID(pid))}
+			processes[app.PID(pid)] = ProcessAttrs{pid: app.PID(pid), startTime: startTime, executable: executable, detectedType: svc.InstrumentableUnknown, openPorts: []uint32{}, processAge: processAgeFunc(app.PID(pid))}
 			continue
 		}
 		openPorts, err := processPorts(context.Background(), app.PID(pid))
@@ -616,7 +631,7 @@ func fetchProcessPorts(scanPorts bool) (map[app.PID]ProcessAttrs, error) {
 			log.Debug("can't get connections for process. Skipping", "pid", pid, "error", err)
 			continue
 		}
-		processes[app.PID(pid)] = ProcessAttrs{pid: app.PID(pid), executable: executable, detectedType: svc.InstrumentableUnknown, openPorts: openPorts, processAge: time.Duration(0)}
+		processes[app.PID(pid)] = ProcessAttrs{pid: app.PID(pid), startTime: startTime, executable: executable, detectedType: svc.InstrumentableUnknown, openPorts: openPorts, processAge: time.Duration(0)}
 	}
 	return processes, nil
 }

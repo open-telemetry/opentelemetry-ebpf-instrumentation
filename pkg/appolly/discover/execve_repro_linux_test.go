@@ -80,6 +80,7 @@ func TestExecveDiscovery(t *testing.T) {
 	require.Equal(t, EventCreated, attached.Type)
 	require.Same(t, original, attached.Obj.FileInfo)
 
+	acc.forgetPIDs([]app.PID{pid})
 	child.send(t)
 	child.expect(t, 'R')
 	afterDev, afterIno, err := FindINodeForPID(pid)
@@ -90,7 +91,7 @@ func TestExecveDiscovery(t *testing.T) {
 	require.NotEqual(t, [2]uint64{beforeDev, beforeIno}, [2]uint64{afterDev, afterIno})
 	events := snapshot()
 	require.Len(t, events, 2)
-	require.Equal(t, EventDeleted, events[0].Type)
+	require.Equal(t, EventExecutableReplaced, events[0].Type)
 	require.Equal(t, EventCreated, events[1].Type)
 	matches := matcher.filter(events)
 	require.Len(t, matches, 2)
