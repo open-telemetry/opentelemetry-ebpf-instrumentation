@@ -1313,25 +1313,68 @@ func TestGenerateTracesAttributes(t *testing.T) {
 	})
 
 	t.Run("OpenAI Decisions questions are opt-in", func(t *testing.T) {
-		questions := `[{"type":"predicate","name":"damaged","instructions":"Is it damaged?"}]`
-		span := makeOpenAISpan(&request.VendorOpenAI{
-			OperationName: request.DecisionOperationName,
-			APIType:       "decisions",
-			Request: request.OpenAIInput{
-				Model:     "gpt-6-luna",
-				Questions: []byte(questions),
+		for _, tc := range []struct {
+			name      string
+			questions string
+			want      string
+		}{
+			{
+				name:      "compact",
+				questions: `[{"type":"predicate","name":"damaged","instructions":"Is it damaged?"}]`,
+				want:      `[{"type":"predicate","name":"damaged","instructions":"Is it damaged?"}]`,
 			},
-		})
+			{
+				name: "whitespace",
+				questions: `[
+					{ "type": "predicate", "name": "damaged" }
+				]`,
+				want: `[{"type":"predicate","name":"damaged"}]`,
+			},
+			{
+				name: "nested ordered structures",
+				questions: `[
+					{ "type": "predicate", "name": "damaged", "instructions": [
+						{ "type": "input_text", "text": "Is it  damaged?\nSay \"yes\" \u0061 <>&" },
+						{ "type": "input_json", "data": { "z": 9007199254740993, "a": [true, false, null, 1.00, 1e+03, -0] } }
+					] },
+					{ "type": "choice", "name": "priority", "choices": [
+						{ "value": "urgent", "description": "Immediate handling" },
+						{ "value": true, "description": "Manual review" }
+					] },
+					{ "type": "score", "name": "severity", "levels": [
+						{ "label": "minor", "description": "Cosmetic" },
+						{ "label": "major", "description": "Unusable" }
+					] }
+				]`,
+				want: `[{"type":"predicate","name":"damaged","instructions":[{"type":"input_text","text":"Is it  damaged?\nSay \"yes\" \u0061 <>&"},{"type":"input_json","data":{"z":9007199254740993,"a":[true,false,null,1.00,1e+03,-0]}}]},{"type":"choice","name":"priority","choices":[{"value":"urgent","description":"Immediate handling"},{"value":true,"description":"Manual review"}]},{"type":"score","name":"severity","levels":[{"label":"minor","description":"Cosmetic"},{"label":"major","description":"Unusable"}]}]`,
+			},
+			{
+				name:      "invalid JSON is preserved",
+				questions: `[ { "type": "predicate" },`,
+				want:      `[ { "type": "predicate" },`,
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				span := makeOpenAISpan(&request.VendorOpenAI{
+					OperationName: request.DecisionOperationName,
+					APIType:       "decisions",
+					Request: request.OpenAIInput{
+						Model:     "gpt-6-luna",
+						Questions: []byte(tc.questions),
+					},
+				})
 
-		withoutOptIn := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
-		traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, withoutOptIn), reporterName)
-		spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
-		ensureTraceAttrNotExists(t, spanAttrs, attribute.Key("openai.request.questions"))
+				withoutOptIn := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{})
+				traces := tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, withoutOptIn), reporterName)
+				spanAttrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+				ensureTraceAttrNotExists(t, spanAttrs, attribute.Key("openai.request.questions"))
 
-		withOptIn := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.OpenAIRequestQuestions: {}})
-		traces = tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, withOptIn), reporterName)
-		spanAttrs = traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
-		ensureTraceStrAttr(t, spanAttrs, attribute.Key("openai.request.questions"), questions)
+				withOptIn := tracesgen.TraceAttributesSelector(&span, map[attr.Name]struct{}{attr.OpenAIRequestQuestions: {}})
+				traces = tracesgen.GenerateTracesWithAttributes(cache, &span.Service, []attribute.KeyValue{}, hostID, groupFromSpanAndAttributes(&span, withOptIn), reporterName)
+				spanAttrs = traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
+				ensureTraceStrAttr(t, spanAttrs, attribute.Key("openai.request.questions"), tc.want)
+			})
+		}
 	})
 
 	t.Run("OpenAI Decisions input messages are opt-in", func(t *testing.T) {

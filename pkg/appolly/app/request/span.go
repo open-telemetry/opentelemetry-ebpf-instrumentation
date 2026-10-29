@@ -4,6 +4,7 @@
 package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/base64"
 	"encoding/json"
@@ -686,6 +687,14 @@ func (air *OpenAIInput) GetStopSequences() []string {
 		return []string{s}
 	}
 	return nil
+}
+
+func (air *OpenAIInput) GetQuestions() string {
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, air.Questions); err != nil {
+		return string(air.Questions)
+	}
+	return compact.String()
 }
 
 func (air *OpenAIInput) GetInput() string {

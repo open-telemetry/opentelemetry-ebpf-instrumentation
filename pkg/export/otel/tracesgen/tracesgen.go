@@ -1010,7 +1010,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			attrs = appendIfSet(attrs, openAIAPITypeKey.String, ai.APIType)
 			if ai.OperationName == request.DecisionOperationName {
 				if _, ok := optionalAttrs[attr.OpenAIRequestQuestions]; ok {
-					attrs = appendIfSet(attrs, openAIRequestQuestionsKey.String, string(ai.Request.Questions))
+					attrs = appendIfSet(attrs, openAIRequestQuestionsKey.String, ai.Request.GetQuestions())
 				}
 			}
 			if _, ok := optionalAttrs[attr.GenAIInput]; ok {
