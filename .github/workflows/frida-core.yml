@@ -1,0 +1,62 @@
+name: Frida Core binding
+
+on:
+  push:
+    branches: [main, release-*]
+  pull_request:
+    branches: [main, release-*]
+    paths:
+      - "pkg/internal/frida/core/**"
+      - ".github/workflows/frida-core.yml"
+      - "go.mod"
+      - "go.sum"
+  workflow_dispatch:
+
+concurrency:
+  group: frida-core-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Native lifecycle (${{ matrix.platform.arch }})
+    runs-on: ${{ matrix.platform.runner }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test the default stub
+        env:
+          CGO_ENABLED: "0"
+        run: go test -count=1 ./pkg/internal/frida/core
+
+      - name: Build the pinned Frida Core library
+        env:
+          FRIDA_ARCH: ${{ matrix.platform.arch }}
+        run: pkg/internal/frida/core/build-frida-core.sh "$RUNNER_TEMP/frida" "$FRIDA_ARCH"
+
+      - name: Test native lifecycle and callbacks
+        env:
+          CGO_ENABLED: "0"
+          OBI_FRIDA_LIBRARY: ${{ runner.temp }}/frida/libfrida-core.so
+        run: |
+          test -s "$OBI_FRIDA_LIBRARY"
+          go test -tags=obi_frida -v -count=1 -timeout=2m -cover ./pkg/internal/frida/core
