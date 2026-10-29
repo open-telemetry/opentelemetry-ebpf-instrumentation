@@ -5,9 +5,11 @@
 
 package io.opentelemetry.obi.java.ebpf;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import org.junit.jupiter.api.AfterEach;
@@ -40,6 +42,38 @@ class NestedSSLSocketStreamTest {
 
     assertEquals(1, stream.captures);
     assertEquals(0, delegate.captures);
+  }
+
+  @Test
+  void observationFailurePreservesTheSelectedSliceAndApplicationException() throws Exception {
+    ByteArrayOutputStream output = new ByteArrayOutputStream();
+    ProxyOutputStream stream =
+        new ProxyOutputStream(output, null) {
+          @Override
+          void forwardWrite(byte[] bytes, int offset, int length) {
+            throw new IllegalStateException("observation unavailable");
+          }
+        };
+    stream.write(new byte[] {1, 2});
+    stream.write(new byte[] {3, 4, 5}, 1, 1);
+    assertArrayEquals(new byte[] {1, 2, 4}, output.toByteArray());
+    IOException failure = new IOException("application write failed");
+    ProxyOutputStream failing =
+        new ProxyOutputStream(
+            new OutputStream() {
+              @Override
+              public void write(int value) throws IOException {
+                throw failure;
+              }
+            },
+            null) {
+          @Override
+          void forwardWrite(byte[] bytes, int offset, int length) {}
+        };
+    assertSame(failure, assertThrows(IOException.class, () -> failing.write(new byte[] {1})));
+    assertFalse(SSLStorage.isSSLSocketWriteActive());
+    assertSame(failure, assertThrows(IOException.class, () -> failing.write(new byte[] {1}, 0, 1)));
+    assertFalse(SSLStorage.isSSLSocketWriteActive());
   }
 
   private static class CapturingProxyOutputStream extends ProxyOutputStream {

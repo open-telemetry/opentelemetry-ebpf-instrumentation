@@ -6,6 +6,7 @@
 package io.opentelemetry.obi.java.ebpf;
 
 import io.opentelemetry.obi.java.Agent;
+import io.opentelemetry.obi.java.instrumentations.data.ApacheHttpClientPropagation;
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -29,6 +30,7 @@ public class ProxyOutputStream extends OutputStream {
 
   @Override
   public void write(int b) throws IOException {
+    ApacheHttpClientPropagation.skipWrite(socket);
     delegate.write(b);
   }
 
@@ -46,7 +48,16 @@ public class ProxyOutputStream extends OutputStream {
     boolean capture = SSLStorage.enterSSLSocketWrite();
     try {
       if (capture) {
-        forwardWrite(b, 0, b.length);
+        try {
+          byte[] injected = ApacheHttpClientPropagation.inject(b, 0, b.length, socket);
+          if (injected != null) {
+            forwardWrite(injected, 0, injected.length);
+            b = injected;
+          } else {
+            forwardWrite(b, 0, b.length);
+          }
+        } catch (Throwable ignored) {
+        }
       }
       delegate.write(b);
     } finally {
@@ -61,7 +72,18 @@ public class ProxyOutputStream extends OutputStream {
     boolean capture = SSLStorage.enterSSLSocketWrite();
     try {
       if (capture) {
-        forwardWrite(b, off, len);
+        try {
+          byte[] injected = ApacheHttpClientPropagation.inject(b, off, len, socket);
+          if (injected != null) {
+            forwardWrite(injected, 0, injected.length);
+            b = injected;
+            off = 0;
+            len = b.length;
+          } else {
+            forwardWrite(b, off, len);
+          }
+        } catch (Throwable ignored) {
+        }
       }
       delegate.write(b, off, len);
     } finally {
