@@ -214,8 +214,9 @@ excluded. Stock Apache HttpClient 4.5.14 is the compatibility target; other libr
 versions require runtime validation, even if their shapes match.
 
 The existing header-propagation configuration, kernel write-user/atomic feature
-checks, and permissions apply. The Java 8 bytecode target also applies; Apache's
-runtime minimum is assessed separately from the JDK client's Java 11 minimum.
+checks, and permissions apply. Apache 4.5.14 has native runtime coverage on the tested Temurin Java 8, 11, 17,
+and 21 builds, separately from the JDK client's Java 11 minimum. The
+[validation evidence](java-apache4-validation.md) lists exact builds and kernels.
 Agent upgrades and enabling propagation after a disabled attachment require a JVM
 restart. Disabling propagation in OBI prevents injection without a restart.
 

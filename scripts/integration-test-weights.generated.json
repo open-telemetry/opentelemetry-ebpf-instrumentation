@@ -36,6 +36,7 @@
   "TestInternalOTelMetricsTraces": 53,
   "TestJVMRuntimeEventsLive": 176,
   "TestJVMRuntimeMetrics": 45,
+  "TestJavaApacheHTTPClientTraceparent": 1130,
   "TestJavaMalformedIoctlFailsClosed": 282,
   "TestJavaNestedTraces": 329,
   "TestJavaVirtualThreads": 59,
