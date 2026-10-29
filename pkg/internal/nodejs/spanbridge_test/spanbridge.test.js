@@ -160,6 +160,7 @@ test('dynamic function spans wrap already-loaded and late-loaded CommonJS export
   assert.strictEqual(result.late, 'late');
   assert.strictEqual(result.entry, 'entry module', 'the already-loaded entry module is matched by filename');
   assert.strictEqual(result.randomBytesLength, 7, 'crypto.randomBytes remains callable when instrumented');
+  assert.strictEqual(result.fileExists, true, 'the retained fs module object is instrumented');
   assert.strictEqual(result.callableParent, 'callable parent');
   assert.strictEqual(result.callable, 'callable nested');
   assert.strictEqual(result.callableMarkerPreserved, true, 'wrapping a callable export preserves its own properties');
@@ -175,6 +176,7 @@ test('dynamic function spans wrap already-loaded and late-loaded CommonJS export
       'dynamic.callable-parent',
       'dynamic.constructor',
       'dynamic.entry',
+      'dynamic.exists-sync',
       'dynamic.fail',
       'dynamic.late',
       'dynamic.random-bytes',
@@ -223,6 +225,7 @@ test('dynamic function spans use an application SDK when one already owns the AP
       'dynamic.callable-parent',
       'dynamic.constructor',
       'dynamic.entry',
+      'dynamic.exists-sync',
       'dynamic.fail',
       'dynamic.late',
       'dynamic.random-bytes',

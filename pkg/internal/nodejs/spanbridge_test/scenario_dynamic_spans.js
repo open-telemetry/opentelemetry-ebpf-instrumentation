@@ -18,6 +18,7 @@ fs.existsSync = (pathname, ...rest) => {
 const modulePath = path.join(__dirname, 'scenario_dynamic_module.js');
 const lateModulePath = path.join(__dirname, 'scenario_dynamic_late_module.js');
 const loaded = require(modulePath);
+const retainedCrypto = require('crypto');
 const originalConstructor = loaded.ExampleConstructor;
 const originalConstructorPrototype = originalConstructor.prototype;
 const appSpans = [];
@@ -76,6 +77,7 @@ if (mode === 'selected' || mode.startsWith('dynamic-only') || mode.startsWith('a
     { name: 'dynamic.callable-nested', moduleSpecifier: modulePath, exportPath: ['callable', 'nested', 'work'] },
     { name: 'dynamic.constructor', moduleSpecifier: modulePath, exportPath: ['ExampleConstructor'] },
     { name: 'dynamic.random-bytes', moduleSpecifier: 'crypto', exportPath: ['randomBytes'] },
+    { name: 'dynamic.exists-sync', moduleSpecifier: 'fs', exportPath: ['existsSync'] },
     { name: 'dynamic.entry', moduleSpecifier: __filename, exportPath: ['entryTarget'] },
     { name: 'dynamic.late', moduleSpecifier: lateModulePath, exportPath: ['nested', 'work'] },
   ];
@@ -114,7 +116,8 @@ async function run() {
   const callableMarkerPreserved =
     Object.prototype.hasOwnProperty.call(loaded.callable, 'marker') && loaded.callable.marker === 'callable marker';
   const entry = module.exports.entryTarget();
-  const randomBytesLength = require('crypto').randomBytes(7).length;
+  const randomBytesLength = retainedCrypto.randomBytes(7).length;
+  const fileExists = fs.existsSync(__filename);
   await new Promise((resolve) => setImmediate(resolve));
   fs.existsSync = originalExistsSync;
   process.emitWarning = originalEmitWarning;
@@ -131,6 +134,7 @@ async function run() {
     constructorMarkerPreserved,
     entry,
     randomBytesLength,
+    fileExists,
     appSpans,
     diagnostics,
     spans: spans.map((span) => ({ name: span.name, status: span.status, attrs: span.attrs })),
