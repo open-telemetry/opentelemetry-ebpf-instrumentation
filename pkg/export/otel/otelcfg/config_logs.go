@@ -49,7 +49,7 @@ func (c *LogsConfig) Validate() error {
 		return nil
 	}
 	switch c.Protocol {
-	case ProtocolGRPC, ProtocolHTTPProtobuf, ProtocolHTTPJSON:
+	case ProtocolGRPC, ProtocolHTTPProtobuf:
 	default:
 		return fmt.Errorf("unsupported logs protocol %q", c.Protocol)
 	}

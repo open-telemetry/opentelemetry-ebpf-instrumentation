@@ -160,7 +160,7 @@ OBI adopts the standard declarative fields incrementally. For the first stable v
 | `attribute_limits` | Rejected whenever present by the target adapter in #2682. |
 | `disabled`, `distribution`, `propagator` | `disabled: true`, non-empty `distribution`, and non-empty propagator configuration are rejected. Empty/default placeholders do not enable runtime behavior. |
 | `instrumentation/development` | Rejected when present by the target adapter. |
-| `logger_provider` | One batch processor with one OTLP HTTP, gRPC or console exporter for exception logs. Logger limits, logger configurators, export timeouts and unsupported TLS options are rejected. |
+| `logger_provider` | One batch processor with one OTLP HTTP/protobuf, gRPC or console exporter for exception logs. HTTP/JSON is unsupported for logs. Logger limits, logger configurators, export timeouts and unsupported TLS options are rejected. |
 
 Environment-variable substitution depends on the loader. The upstream `otelconf/x.ParseYAML` path expands `${VAR}`, `${env:VAR}`, `${VAR:-fallback}`, and `${env:VAR:-fallback}` before decoding. OBI's internal `schema.ParseStandaloneYAML` parser decodes the supplied bytes directly, so callers using that parser must perform any desired substitution before calling it.
 

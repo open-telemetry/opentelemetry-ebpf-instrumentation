@@ -32,7 +32,6 @@ func TestExceptionV2LoggerProvider(t *testing.T) {
 	}{
 		{name: "grpc", exporter: "otlp_grpc:\n            endpoint: http://collector:4317", endpoint: "http://collector:4317", protocol: otelcfg.ProtocolGRPC},
 		{name: "http protobuf", exporter: "otlp_http:\n            endpoint: http://collector:4318/custom/logs", endpoint: "http://collector:4318/custom/logs", protocol: otelcfg.ProtocolHTTPProtobuf},
-		{name: "http json", exporter: "otlp_http:\n            endpoint: http://collector:4318/v1/logs\n            encoding: json", endpoint: "http://collector:4318/v1/logs", protocol: otelcfg.ProtocolHTTPJSON},
 		{name: "console", exporter: "console: {}", protocol: otelcfg.ProtocolDebug},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -156,4 +155,22 @@ extensions:
         enabled: true
 `)
 	require.ErrorContains(t, cfg.ValidateStatic(), "exception capture requires a logger_provider exporter")
+}
+
+func TestExceptionV2RejectsHTTPJSON(t *testing.T) {
+	doc, _, err := schema.ParseStandaloneYAML([]byte(`file_format: "1.0"
+logger_provider:
+  processors:
+    - batch:
+        exporter:
+          otlp_http:
+            endpoint: http://collector:4318/v1/logs
+            encoding: json
+extensions:
+  obi:
+    version: "2.0"
+`))
+	require.NoError(t, err)
+	_, err = DocumentToRuntime(doc)
+	require.ErrorContains(t, err, `unsupported logs protocol "http/json"`)
 }

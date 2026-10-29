@@ -33,6 +33,10 @@ func TestLogsValidate(t *testing.T) {
 	c.Endpoint = "unix:///tmp/otlp.sock"
 	require.NoError(t, c.Validate())
 
+	c.Protocol = ProtocolHTTPJSON
+	require.ErrorContains(t, c.Validate(), "unsupported logs protocol")
+	c.Protocol = ProtocolGRPC
+
 	c.QueueSize = 3
 	require.ErrorContains(t, c.Validate(), "max_queue_size")
 }

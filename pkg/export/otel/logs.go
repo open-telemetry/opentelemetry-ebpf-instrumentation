@@ -4,33 +4,27 @@
 package otel // import "go.opentelemetry.io/obi/pkg/export/otel"
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
-	"crypto/tls"
-	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"os"
-	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
-	"github.com/cenkalti/backoff/v5"
+	"github.com/hashicorp/golang-lru/v2/simplelru"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
-	grpcgzip "google.golang.org/grpc/encoding/gzip"
-	"google.golang.org/grpc/metadata"
-	"google.golang.org/grpc/status"
 
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	logdata "go.opentelemetry.io/collector/pdata/plog"
-	"go.opentelemetry.io/collector/pdata/plog/plogotlp"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
+	otellog "go.opentelemetry.io/otel/log"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/sdk/resource"
+	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/exceptions"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
@@ -45,182 +39,232 @@ import (
 
 const (
 	logsRequestTimeout  = 5 * time.Second
-	logsRetryStart      = 5 * time.Second
-	logsRetryMax        = 30 * time.Second
-	logsRetryTotal      = 5 * time.Minute
+	logsExportTimeout   = 5 * time.Minute
 	logsShutdownTimeout = 10 * time.Second
+	logsLoggerCacheSize = 1024
 )
-
-// logsSender delivers one batch of LogRecords.
-type logsSender = otelcfg.LogsExportFunc
 
 // ExceptionLogsReceiver exports exception observations independently of request spans.
 func ExceptionLogsReceiver(info *global.ContextInfo, cfg otelcfg.LogsConfig, selection attributes.Selection, input *msg.Queue[[]exceptions.Event]) swarm.InstanceFunc {
-	return func(_ context.Context) (swarm.RunFunc, error) {
+	return func(ctx context.Context) (swarm.RunFunc, error) {
 		if input == nil || !cfg.Enabled() {
 			return swarm.EmptyRunFunc()
 		}
 		if err := cfg.Validate(); err != nil {
 			return nil, err
 		}
-		send, closeSender, err := newLogsSender(cfg)
+		exporter, err := newLogsExporter(ctx, cfg)
 		if err != nil {
 			return nil, err
 		}
+		exportCtx, cancelExport := context.WithCancel(context.WithoutCancel(ctx))
+		processor := sdklog.NewBatchProcessor(&logsExporterLifetime{Exporter: exporter, ctx: exportCtx},
+			sdklog.WithMaxQueueSize(cfg.QueueSize),
+			sdklog.WithExportMaxBatchSize(cfg.BatchMaxSize),
+			sdklog.WithExportInterval(cfg.BatchTimeout),
+			sdklog.WithExportTimeout(logsExportTimeout),
+		)
+		emitter := newExceptionLogEmitter(processor)
 		subscription := input.Subscribe(msg.SubscriberName("otel.ExceptionLogsReceiver"))
 		return func(ctx context.Context) {
-			sendCtx, cancelSend := context.WithCancel(context.WithoutCancel(ctx))
-			defer cancelSend()
-			queue := make(chan exceptions.Event, cfg.QueueSize)
-			done := make(chan struct{})
-			go func() {
-				defer close(done)
-				batchExceptionLogs(sendCtx, info, cfg, selection, queue, send)
+			defer cancelExport()
+			defer func() {
+				shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), logsShutdownTimeout)
+				defer cancel()
+				if err := processor.Shutdown(shutdownCtx); err != nil {
+					slog.Warn("exception logs shutdown failed", "error", err)
+				}
 			}()
-
 			swarms.ForEachInput(ctx, subscription, slog.Debug, func(events []exceptions.Event) {
-				enqueueExceptions(queue, events)
+				for i := range events {
+					emitter.emit(ctx, info, selection, &events[i])
+				}
 			})
-
-			close(queue)
-			select {
-			case <-done:
-			case <-time.After(logsShutdownTimeout):
-				cancelSend()
-			}
-			if err := closeSender(); err != nil {
-				slog.Warn("exception logs shutdown failed", "error", err)
-			}
 		}, nil
 	}
 }
 
-// enqueueExceptions never blocks: capture must not wait for the exporter.
-func enqueueExceptions(queue chan<- exceptions.Event, events []exceptions.Event) {
-	for i := range events {
-		select {
-		case queue <- events[i]:
-		default:
-			slog.Warn("exception logs queue is full, dropping records", "dropped", len(events)-i)
-			return
-		}
-	}
+// SDK batch exports use their own context. Cancel any in-flight export after
+// the receiver's shutdown deadline, while allowing queued records to drain first.
+type logsExporterLifetime struct {
+	sdklog.Exporter
+	ctx context.Context
 }
 
-func batchExceptionLogs(ctx context.Context, info *global.ContextInfo, cfg otelcfg.LogsConfig, selection attributes.Selection, queue <-chan exceptions.Event, send logsSender) {
-	batch := make([]exceptions.Event, 0, cfg.BatchMaxSize)
-	timer := time.NewTimer(cfg.BatchTimeout)
-	timer.Stop()
-	defer timer.Stop()
-
-	flush := func() {
-		timer.Stop()
-		logs := exceptionLogs(info, selection, batch)
-		batch = batch[:0]
-		if logs.LogRecordCount() == 0 {
-			return
-		}
-		if err := send(ctx, logs); err != nil {
-			slog.Warn("exception logs export failed", "error", err)
-		}
+func (e *logsExporterLifetime) Export(ctx context.Context, records []sdklog.Record) error {
+	if err := e.ctx.Err(); err != nil {
+		return err
 	}
-
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		select {
-		case e, ok := <-queue:
-			if !ok {
-				flush()
-				return
-			}
-			if len(batch) == 0 {
-				timer.Reset(cfg.BatchTimeout)
-			}
-			batch = append(batch, e)
-			if len(batch) == cfg.BatchMaxSize {
-				flush()
-			}
-		case <-timer.C:
-			flush()
-		}
-	}
+	exportCtx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(e.ctx, cancel)
+	defer stop()
+	defer cancel()
+	return e.Exporter.Export(exportCtx, records)
 }
 
-func exceptionLogs(info *global.ContextInfo, selection attributes.Selection, events []exceptions.Event) logdata.Logs {
-	logs := logdata.NewLogs()
-	for i := range events {
-		e := &events[i]
-		if !e.Service.Exceptions.Enabled || !e.Service.ExportModes.CanExportLogs() || (e.Type == "" && e.Message == "") {
-			continue
-		}
-		resource := logs.ResourceLogs().AppendEmpty()
-		resource.SetSchemaUrl(attr.OBISchemaURL)
-		attrs := otelcfg.GetAppResourceAttrs(&info.NodeMeta, &e.Service)
-		attrs = append(attrs, otelcfg.ResourceAttrsFromEnv(&e.Service)...)
-		attrs = append(attrs, info.ExtraResourceAttributes...)
-		attrs = otelcfg.FilterResourceAttrs(attrs, selection)
-		tracesgen.AttrsToMap(attrs).CopyTo(resource.Resource().Attributes())
-		scope := resource.ScopeLogs().AppendEmpty()
-		scope.Scope().SetName(reporterName)
-		record := scope.LogRecords().AppendEmpty()
-		record.SetEventName("exception")
-		if !e.Timestamp.IsZero() {
-			record.SetTimestamp(pcommon.NewTimestampFromTime(e.Timestamp))
-		}
-		observed := e.ObservedTimestamp
-		if observed.IsZero() {
-			observed = time.Now()
-		}
-		record.SetObservedTimestamp(pcommon.NewTimestampFromTime(observed))
-		if e.SeverityNumber >= 1 && e.SeverityNumber <= 24 {
-			severity := logdata.SeverityNumber(e.SeverityNumber)
-			record.SetSeverityNumber(severity)
-			record.SetSeverityText(strings.ToUpper(severity.String()))
-		}
-		// OBI discards its own spans for a process that exports traces itself
-		// (tracesgen.SpanDiscarded), so its span context would link to nothing.
-		if e.TraceID.IsValid() && !e.Service.ExportsOTelTraces() {
-			record.SetTraceID(pcommon.TraceID(e.TraceID))
-			record.SetFlags(logdata.LogRecordFlags(e.TraceFlags))
-			if e.SpanID.IsValid() {
-				record.SetSpanID(pcommon.SpanID(e.SpanID))
-			}
-		}
-		if e.Type != "" {
-			record.Attributes().PutStr("exception.type", e.Type)
-		}
-		if e.Message != "" {
-			record.Attributes().PutStr("exception.message", e.Message)
-		}
-		if e.Stacktrace != "" {
-			record.Attributes().PutStr("exception.stacktrace", e.Stacktrace)
-		}
-	}
-	return logs
+type exceptionLogEmitter struct {
+	processor sdklog.Processor
+	loggers   *simplelru.LRU[attribute.Distinct, otellog.Logger]
 }
 
-func newLogsSender(cfg otelcfg.LogsConfig) (logsSender, func() error, error) {
+func newExceptionLogEmitter(processor sdklog.Processor) *exceptionLogEmitter {
+	loggers, _ := simplelru.NewLRU[attribute.Distinct, otellog.Logger](logsLoggerCacheSize, nil)
+	return &exceptionLogEmitter{processor: processor, loggers: loggers}
+}
+
+func (e *exceptionLogEmitter) emit(ctx context.Context, info *global.ContextInfo, selection attributes.Selection, event *exceptions.Event) {
+	if !event.Service.Exceptions.Enabled || !event.Service.ExportModes.CanExportLogs() || (event.Type == "" && event.Message == "") {
+		return
+	}
+	attrs := otelcfg.GetAppResourceAttrs(&info.NodeMeta, &event.Service)
+	attrs = append(attrs, otelcfg.ResourceAttrsFromEnv(&event.Service)...)
+	attrs = append(attrs, info.ExtraResourceAttributes...)
+	attrs = otelcfg.FilterResourceAttrs(attrs, selection)
+	res := resource.NewWithAttributes(attr.OBISchemaURL, attrs...)
+	key := res.Equivalent()
+	logger, ok := e.loggers.Get(key)
+	if !ok {
+		// Providers hold resource metadata. The receiver owns the shared processor
+		// and shuts it down once; cache eviction only releases the logger.
+		provider := sdklog.NewLoggerProvider(sdklog.WithResource(res), sdklog.WithProcessor(e.processor),
+			sdklog.WithAttributeCountLimit(-1), sdklog.WithAttributeValueLengthLimit(-1))
+		logger = provider.Logger(reporterName)
+		e.loggers.Add(key, logger)
+	}
+	var record otellog.Record
+	record.SetEventName("exception")
+	record.SetTimestamp(event.Timestamp)
+	record.SetObservedTimestamp(event.ObservedTimestamp)
+	if event.SeverityNumber >= 1 && event.SeverityNumber <= 24 {
+		record.SetSeverity(otellog.Severity(event.SeverityNumber))
+		record.SetSeverityText(strings.ToUpper(logdata.SeverityNumber(event.SeverityNumber).String()))
+	}
+	if event.Type != "" {
+		record.AddAttributes(attribute.String("exception.type", event.Type))
+	}
+	if event.Message != "" {
+		record.AddAttributes(attribute.String("exception.message", event.Message))
+	}
+	if event.Stacktrace != "" {
+		record.AddAttributes(attribute.String("exception.stacktrace", event.Stacktrace))
+	}
+	// OBI discards spans for processes that export their own traces.
+	var spanContext trace.SpanContext
+	if event.TraceID.IsValid() && !event.Service.ExportsOTelTraces() {
+		spanContext = trace.NewSpanContext(trace.SpanContextConfig{
+			TraceID: event.TraceID, SpanID: event.SpanID, TraceFlags: event.TraceFlags,
+		})
+	}
+	logger.Emit(trace.ContextWithSpanContext(ctx, spanContext), record)
+}
+
+func newLogsExporter(ctx context.Context, cfg otelcfg.LogsConfig) (sdklog.Exporter, error) {
 	if cfg.LogsExport != nil {
-		return cfg.LogsExport, func() error { return nil }, nil
+		return &consumerLogsExporter{send: cfg.LogsExport}, nil
 	}
 	switch cfg.Protocol {
 	case otelcfg.ProtocolDebug:
-		return writeLogsJSON, func() error { return nil }, nil
-	case otelcfg.ProtocolHTTPProtobuf, otelcfg.ProtocolHTTPJSON:
-		send, client := newHTTPLogsSender(cfg)
-		return send, func() error { client.CloseIdleConnections(); return nil }, nil
-	case otelcfg.ProtocolGRPC:
-		send, conn, err := newGRPCLogsSender(cfg)
-		if err != nil {
-			return nil, nil, err
+		return &consumerLogsExporter{send: writeLogsJSON}, nil
+	case otelcfg.ProtocolHTTPProtobuf:
+		client := &http.Client{Timeout: logsRequestTimeout, Transport: http.DefaultTransport.(*http.Transport).Clone()}
+		opts := []otlploghttp.Option{
+			otlploghttp.WithEndpointURL(cfg.Endpoint),
+			otlploghttp.WithHeaders(cfg.Headers()),
+			otlploghttp.WithTimeout(logsExportTimeout),
+			otlploghttp.WithCompression(otlploghttp.NoCompression),
+			otlploghttp.WithHTTPClient(client),
 		}
-		return send, conn.Close, nil
+		if cfg.Compression == "gzip" {
+			opts = append(opts, otlploghttp.WithCompression(otlploghttp.GzipCompression))
+		}
+		if addr, _ := cfg.UnixSocket(); addr != "" {
+			client.Transport = otelcfg.UnixTransport(addr)
+			opts = append(opts, otlploghttp.WithEndpointURL("http://localhost/v1/logs"))
+		} else {
+			transport := client.Transport.(*http.Transport)
+			tlsConfig, err := otlpTLSConfig("LOGS", false)
+			if err != nil {
+				return nil, err
+			}
+			transport.TLSClientConfig = tlsConfig
+		}
+		exporter, err := otlploghttp.New(ctx, opts...)
+		if err != nil {
+			return nil, err
+		}
+		return &httpLogsExporter{Exporter: exporter, client: client}, nil
+	case otelcfg.ProtocolGRPC:
+		opts := []otlploggrpc.Option{
+			otlploggrpc.WithEndpointURL(cfg.Endpoint),
+			otlploggrpc.WithHeaders(cfg.Headers()),
+			otlploggrpc.WithTimeout(logsExportTimeout),
+			otlploggrpc.WithDialOption(grpc.WithChainUnaryInterceptor(logsRequestDeadline)),
+			otlploggrpc.WithCompressor(cfg.Compression),
+		}
+		if addr, target := cfg.UnixSocket(); addr != "" {
+			opts = append(opts, otlploggrpc.WithEndpoint(target), otlploggrpc.WithInsecure())
+		}
+		return otlploggrpc.New(ctx, opts...)
 	default:
-		return nil, nil, fmt.Errorf("unsupported logs protocol %q", cfg.Protocol)
+		return nil, fmt.Errorf("unsupported logs protocol %q", cfg.Protocol)
 	}
 }
+
+// The SDK does not close idle connections on an injected HTTP client.
+type httpLogsExporter struct {
+	sdklog.Exporter
+	client *http.Client
+}
+
+func (e *httpLogsExporter) Shutdown(ctx context.Context) error {
+	err := e.Exporter.Shutdown(ctx)
+	e.client.CloseIdleConnections()
+	return err
+}
+
+// consumerLogsExporter adapts SDK records for the in-process consumer and console.
+type consumerLogsExporter struct {
+	send    otelcfg.LogsExportFunc
+	stopped atomic.Bool
+}
+
+func (e *consumerLogsExporter) Export(ctx context.Context, records []sdklog.Record) error {
+	if e.stopped.Load() {
+		return sdklog.ErrExporterShutdown
+	}
+	logs := logdata.NewLogs()
+	for i := range records {
+		r := &records[i]
+		res := logs.ResourceLogs().AppendEmpty()
+		res.SetSchemaUrl(r.Resource().SchemaURL())
+		tracesgen.AttrsToMap(r.Resource().Attributes()).CopyTo(res.Resource().Attributes())
+		scope := res.ScopeLogs().AppendEmpty()
+		scope.Scope().SetName(r.InstrumentationScope().Name)
+		record := scope.LogRecords().AppendEmpty()
+		record.SetEventName(r.EventName())
+		if !r.Timestamp().IsZero() {
+			record.SetTimestamp(pcommon.NewTimestampFromTime(r.Timestamp()))
+		}
+		record.SetObservedTimestamp(pcommon.NewTimestampFromTime(r.ObservedTimestamp()))
+		record.SetSeverityNumber(logdata.SeverityNumber(r.Severity()))
+		record.SetSeverityText(r.SeverityText())
+		record.SetTraceID(pcommon.TraceID(r.TraceID()))
+		record.SetSpanID(pcommon.SpanID(r.SpanID()))
+		record.SetFlags(logdata.LogRecordFlags(r.TraceFlags()))
+		record.SetDroppedAttributesCount(uint32(r.DroppedAttributes()))
+		attrs := make([]attribute.KeyValue, 0, r.AttributesLen())
+		r.WalkAttributes(func(kv attribute.KeyValue) bool { attrs = append(attrs, kv); return true })
+		tracesgen.AttrsToMap(attrs).CopyTo(record.Attributes())
+	}
+	return e.send(ctx, logs)
+}
+
+func (e *consumerLogsExporter) Shutdown(context.Context) error {
+	e.stopped.Store(true)
+	return nil
+}
+
+func (*consumerLogsExporter) ForceFlush(context.Context) error { return nil }
 
 func writeLogsJSON(_ context.Context, logs logdata.Logs) error {
 	data, err := (&logdata.JSONMarshaler{}).MarshalLogs(logs)
@@ -231,183 +275,9 @@ func writeLogsJSON(_ context.Context, logs logdata.Logs) error {
 	return err
 }
 
-func newHTTPLogsSender(cfg otelcfg.LogsConfig) (logsSender, *http.Client) {
-	endpoint := cfg.Endpoint
-	client := &http.Client{}
-	if addr, _ := cfg.UnixSocket(); addr != "" {
-		endpoint = "http://localhost/v1/logs"
-		client.Transport = otelcfg.UnixTransport(addr)
-	}
-	headers := cfg.Headers()
-	contentType := "application/x-protobuf"
-	if cfg.Protocol == otelcfg.ProtocolHTTPJSON {
-		contentType = "application/json"
-	}
-	compress := cfg.Compression == "gzip"
-
-	send := func(ctx context.Context, logs logdata.Logs) error {
-		body, err := marshalLogsRequest(cfg.Protocol, logs, compress)
-		if err != nil {
-			return err
-		}
-		return retryLogsExport(ctx, func(ctx context.Context) error {
-			req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-			if err != nil {
-				return backoff.Permanent(err)
-			}
-			req.Header.Set("Content-Type", contentType)
-			if compress {
-				req.Header.Set("Content-Encoding", "gzip")
-			}
-			for k, v := range headers {
-				req.Header.Set(k, v)
-			}
-			resp, err := client.Do(req)
-			if err != nil {
-				return err
-			}
-			defer resp.Body.Close()
-			if err := httpLogsExportError(resp); err != nil {
-				_, _ = io.Copy(io.Discard, resp.Body)
-				return err
-			}
-			return readHTTPLogsResponse(resp.Body, cfg.Protocol)
-		})
-	}
-	return send, client
-}
-
-// A successful HTTP status may mean records were accepted, so response errors
-// are permanent to prevent duplicate exports.
-func readHTTPLogsResponse(body io.Reader, protocol otelcfg.Protocol) error {
-	data, err := io.ReadAll(body)
-	if err != nil {
-		return backoff.Permanent(fmt.Errorf("read logs export response: %w", err))
-	}
-	response := plogotlp.NewExportResponse()
-	if protocol == otelcfg.ProtocolHTTPJSON {
-		err = response.UnmarshalJSON(data)
-	} else {
-		err = response.UnmarshalProto(data)
-	}
-	if err != nil {
-		return backoff.Permanent(fmt.Errorf("decode logs export response: %w", err))
-	}
-	return logsPartialSuccessError(response.PartialSuccess())
-}
-
-func logsPartialSuccessError(partial plogotlp.ExportPartialSuccess) error {
-	if partial.RejectedLogRecords() > 0 || partial.ErrorMessage() != "" {
-		return backoff.Permanent(fmt.Errorf("logs export partial success: rejected %d records: %s", partial.RejectedLogRecords(), partial.ErrorMessage()))
-	}
-	return nil
-}
-
-func marshalLogsRequest(protocol otelcfg.Protocol, logs logdata.Logs, compress bool) ([]byte, error) {
-	req := plogotlp.NewExportRequestFromLogs(logs)
-	var body []byte
-	var err error
-	if protocol == otelcfg.ProtocolHTTPJSON {
-		body, err = req.MarshalJSON()
-	} else {
-		body, err = req.MarshalProto()
-	}
-	if err != nil || !compress {
-		return body, err
-	}
-
-	var buf bytes.Buffer
-	zw := gzip.NewWriter(&buf)
-	if _, err := zw.Write(body); err != nil {
-		return nil, err
-	}
-	if err := zw.Close(); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-// httpLogsExportError retries the status codes that the OTLP specification marks as retryable.
-func httpLogsExportError(resp *http.Response) error {
-	if resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
-		return nil
-	}
-	err := fmt.Errorf("logs export returned HTTP %d", resp.StatusCode)
-	switch resp.StatusCode {
-	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		if seconds, perr := strconv.Atoi(resp.Header.Get("Retry-After")); perr == nil && seconds > 0 {
-			return errors.Join(err, backoff.RetryAfter(seconds))
-		}
-		return err
-	default:
-		return backoff.Permanent(err)
-	}
-}
-
-func newGRPCLogsSender(cfg otelcfg.LogsConfig) (logsSender, *grpc.ClientConn, error) {
-	u, err := url.Parse(cfg.Endpoint)
-	if err != nil {
-		return nil, nil, err
-	}
-	target := u.Host
-	creds := credentials.NewTLS(&tls.Config{MinVersion: tls.VersionTLS12})
-	if u.Scheme == "http" {
-		creds = insecure.NewCredentials()
-	}
-	if addr, unixTarget := cfg.UnixSocket(); addr != "" {
-		target = unixTarget
-		creds = insecure.NewCredentials()
-	}
-	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
-	if cfg.Compression == "gzip" {
-		opts = append(opts, grpc.WithDefaultCallOptions(grpc.UseCompressor(grpcgzip.Name)))
-	}
-	conn, err := grpc.NewClient(target, opts...)
-	if err != nil {
-		return nil, nil, err
-	}
-	client := plogotlp.NewGRPCClient(conn)
-	md := metadata.New(cfg.Headers())
-
-	send := func(ctx context.Context, logs logdata.Logs) error {
-		req := plogotlp.NewExportRequestFromLogs(logs)
-		ctx = metadata.NewOutgoingContext(ctx, md)
-		return retryLogsExport(ctx, func(ctx context.Context) error {
-			resp, err := client.Export(ctx, req)
-			if err != nil {
-				return grpcLogsExportError(err)
-			}
-			return logsPartialSuccessError(resp.PartialSuccess())
-		})
-	}
-	return send, conn, nil
-}
-
-// grpcLogsExportError retries the status codes that the OTLP specification marks as retryable.
-func grpcLogsExportError(err error) error {
-	switch status.Code(err) {
-	case codes.OK:
-		return nil
-	case codes.Canceled, codes.DeadlineExceeded, codes.Aborted, codes.OutOfRange, codes.Unavailable, codes.DataLoss:
-		return err
-	default:
-		return backoff.Permanent(err)
-	}
-}
-
-func retryLogsExport(ctx context.Context, attempt func(context.Context) error) error {
-	_, err := backoff.Retry(ctx, func() (struct{}, error) {
-		attemptCtx, cancel := context.WithTimeout(ctx, logsRequestTimeout)
-		defer cancel()
-		return struct{}{}, attempt(attemptCtx)
-	},
-		backoff.WithBackOff(&backoff.ExponentialBackOff{
-			InitialInterval:     logsRetryStart,
-			RandomizationFactor: backoff.DefaultRandomizationFactor,
-			Multiplier:          backoff.DefaultMultiplier,
-			MaxInterval:         logsRetryMax,
-		}),
-		backoff.WithMaxElapsedTime(logsRetryTotal),
-	)
-	return err
+// The SDK export timeout covers retries; each RPC has its own deadline.
+func logsRequestDeadline(ctx context.Context, method string, req, reply any, conn *grpc.ClientConn, invoke grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	requestCtx, cancel := context.WithTimeout(ctx, logsRequestTimeout)
+	defer cancel()
+	return invoke(requestCtx, method, req, reply, conn, opts...)
 }
