@@ -91,6 +91,7 @@ type statMetricsExporter struct {
 	tcpRetransmits           *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
 	tcpIo                    *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
 	tcpSuccessfulConnections *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
+	tcpResets                *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
 	expireTTL                time.Duration
 	in                       <-chan []*ebpf.Stat
 }
@@ -229,6 +230,22 @@ func newStatMetricsExporter(
 		nme.tcpSuccessfulConnections = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpSuccessfulConnections, attrs, timeNow, cfg.Metrics.TTL)
 	}
 
+	if cfg.CommonCfg.Features.StatsTCPResets() {
+		log := log.With("metricFamily", "StatsTCPResets")
+
+		tcpResets, err := ebpfEvents.Int64Counter(attributes.StatTCPResets.OTEL, metric2.WithUnit(attributes.StatTCPResets.Unit))
+		if err != nil {
+			log.Error("creating stats tcp resets counter", "error", err)
+			return nil, err
+		}
+
+		attrs := attributes.OpenTelemetryGetters(
+			ebpf.StatGetters,
+			attrProv.For(attributes.StatTCPResets))
+
+		nme.tcpResets = NewExpirer[*ebpf.Stat, metric2.Int64Counter, int64](ctx, tcpResets, attrs, timeNow, cfg.Metrics.TTL)
+	}
+
 	nme.in = input.Subscribe(msg.SubscriberName("otel.StatMetricsExporter"))
 	return nme, nil
 }
@@ -255,6 +272,10 @@ func (me *statMetricsExporter) Do(ctx context.Context) {
 			if me.tcpIo != nil && v.TCPIo != nil {
 				tcpIo, attrs := me.tcpIo.ForRecord(v)
 				tcpIo.Add(ctx, int64(v.TCPIo.Bytes), metric2.WithAttributeSet(attrs))
+			}
+			if me.tcpResets != nil && v.TCPReset != nil {
+				tcpResets, attrs := me.tcpResets.ForRecord(v)
+				tcpResets.Add(ctx, 1, metric2.WithAttributeSet(attrs))
 			}
 		}
 	}
