@@ -151,15 +151,15 @@ func (pf *PIDsFilter) ValidPID(userPID app.PID, ns uint32, pidType PIDType) bool
 	return ok && child.pidTypes&pidType != 0
 }
 
-// The generation of the process that was alive when the span was captured, nil
-// when there is none: the span is newer than the last known process, or older
-// than the ones still kept
-func generationFor(info *PIDInfo, span *request.Span) *PIDInfo {
+// The generation of the process that was alive at the given instant, nil when
+// there is none: the instant is after the last known process, or before the
+// ones still kept
+func generationAt(info *PIDInfo, at int64) *PIDInfo {
 	for g := info; g != nil; g = g.previous {
-		if g.removedAt != 0 && span.End > int64(g.removedAt) {
+		if g.removedAt != 0 && at > int64(g.removedAt) {
 			return nil
 		}
-		if g.since == 0 || span.End > int64(g.since) {
+		if g.since == 0 || at > int64(g.since) {
 			return g
 		}
 	}
@@ -262,7 +262,7 @@ func (pf *PIDsFilter) fileInfoFor(span *request.Span) *exec.FileInfo {
 	// saw. We don't check for the host pid, because we can't be sure of the number
 	// of container layers. The Host PID is always the outer most layer.
 	if info, pidExists := pf.current[span.Pid.Namespace][span.Pid.UserPID]; pidExists {
-		if gen := generationFor(&info, span); gen != nil {
+		if gen := generationAt(&info, span.End); gen != nil {
 			return gen.fileInfo
 		}
 	}
@@ -339,12 +339,17 @@ func (pf *PIDsFilter) AllowForkedChild(child, parent request.PidInfo, at time.Du
 
 	// grandchildren never pass the BPF filter, which only checks the parent
 	parentInfo, ok := pf.current[parent.Namespace][parent.UserPID]
-	if !ok || parentInfo.removedAt != 0 {
+	if !ok {
+		return
+	}
+	// discovery may have removed the parent, or given its pid to another process, since it forked
+	forker := generationAt(&parentInfo, int64(at))
+	if forker == nil {
 		return
 	}
 
 	key := forkedChildKey{ns: child.Namespace, pid: child.UserPID}
-	pf.forked.Add(key, forkedChild{fileInfo: parentInfo.fileInfo, pidTypes: parentInfo.pidTypes, forkedAt: at})
+	pf.forked.Add(key, forkedChild{fileInfo: forker.fileInfo, pidTypes: forker.pidTypes, forkedAt: at})
 }
 
 // EndForkedChild stops filing the child under its parent: after exec it runs another program
@@ -361,23 +366,24 @@ func (pf *PIDsFilter) EndForkedChild(child request.PidInfo, at time.Duration) {
 	pf.forked.Add(key, forked)
 }
 
-// HandleProcessEventRecord feeds fork and exec events to a filter that tracks forked children
-func HandleProcessEventRecord(record *ringbuf.Record, filter ServiceFilter) (bool, error) {
-	if record == nil || len(record.RawSample) == 0 {
-		return false, nil
-	}
-	if eventType := record.RawSample[0]; eventType != EventTypeProcessFork && eventType != EventTypeProcessExec {
-		return false, nil
-	}
-
+// RegisterProcessEventHandlers feeds fork and exec events to a filter that tracks forked children
+func RegisterProcessEventHandlers(ctx *EBPFEventContext, filter ServiceFilter) {
 	tracker, ok := filter.(ForkedProcessTracker)
 	if !ok {
-		return true, nil
+		return
 	}
 
+	handle := func(record *ringbuf.Record) error {
+		return handleProcessEvent(record, tracker)
+	}
+	ctx.RegisterInternalEventHandler(EventTypeProcessFork, handle)
+	ctx.RegisterInternalEventHandler(EventTypeProcessExec, handle)
+}
+
+func handleProcessEvent(record *ringbuf.Record, tracker ForkedProcessTracker) error {
 	event, err := ReinterpretCast[ProcessEvent](record.RawSample)
 	if err != nil {
-		return true, err
+		return err
 	}
 
 	pid := request.PidInfo{HostPID: app.PID(event.Pid.HostPid), UserPID: app.PID(event.Pid.UserPid), Namespace: event.Pid.Ns}
@@ -389,7 +395,7 @@ func HandleProcessEventRecord(record *ringbuf.Record, filter ServiceFilter) (boo
 		tracker.EndForkedChild(pid, at)
 	}
 
-	return true, nil
+	return nil
 }
 
 // callers must hold the write lock

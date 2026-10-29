@@ -150,6 +150,48 @@ func TestForkedChildrenAreBounded(t *testing.T) {
 	assert.True(t, pf.ValidPID(childPID+forkedChildrenCapacity, forkNS, PIDTypeKProbes))
 }
 
+func TestForkedChildOfParentRemovedBeforeTheForkIsRead(t *testing.T) {
+	var now time.Duration
+	pf := forkedFilter(t, &now)
+
+	forkTime := now
+	now += time.Second
+	pf.BlockPID(parentPID, forkNS)
+	pf.AllowForkedChild(childInfo, parentInfo, forkTime)
+
+	spans := pf.Filter([]request.Span{childSpan(forkTime + time.Millisecond)})
+	require.Len(t, spans, 1)
+	assert.Equal(t, "worker", spans[0].Service.UID.Name)
+
+	sibling := request.PidInfo{UserPID: 201, Namespace: forkNS}
+	pf.AllowForkedChild(sibling, parentInfo, now+time.Second)
+	assert.False(t, pf.ValidPID(sibling.UserPID, forkNS, PIDTypeKProbes), "a fork after the removal isn't the parent's")
+}
+
+func TestForkedChildOfReusedParentPID(t *testing.T) {
+	var now time.Duration
+	pf := forkedFilter(t, &now)
+
+	oldFork := now
+	now += time.Second
+	pf.BlockPID(parentPID, forkNS)
+	now += time.Second
+	pf.AllowPID(parentPID, forkNS, serviceNamed("other"), PIDTypeKProbes)
+	newFork := now + time.Second
+	sibling := request.PidInfo{UserPID: 201, Namespace: forkNS}
+
+	pf.AllowForkedChild(childInfo, parentInfo, oldFork)
+	pf.AllowForkedChild(sibling, parentInfo, newFork)
+
+	spans := pf.Filter([]request.Span{
+		childSpan(oldFork + time.Millisecond),
+		{Pid: sibling, End: int64(newFork + time.Millisecond)},
+	})
+	require.Len(t, spans, 2)
+	assert.Equal(t, "worker", spans[0].Service.UID.Name, "the process that forked it, not the pid's next owner")
+	assert.Equal(t, "other", spans[1].Service.UID.Name)
+}
+
 func TestForkedChildKeepsLiveDiscoveredPID(t *testing.T) {
 	var now time.Duration
 	pf := forkedFilter(t, &now)
@@ -186,24 +228,22 @@ func processEventRecord(eventType uint8, pid, parent request.PidInfo, at time.Du
 	return &ringbuf.Record{RawSample: append([]byte(nil), raw...)}
 }
 
-func TestHandleProcessEventRecord(t *testing.T) {
+func TestProcessEventHandlers(t *testing.T) {
 	var now time.Duration
 	pf := forkedFilter(t, &now)
+	eventCtx := NewEBPFEventContext()
+	RegisterProcessEventHandlers(eventCtx, pf)
 
-	handled, err := HandleProcessEventRecord(
-		processEventRecord(EventTypeProcessFork, childInfo, parentInfo, forkedTime), pf)
+	handled, err := eventCtx.HandleInternalEvent(
+		processEventRecord(EventTypeProcessFork, childInfo, parentInfo, forkedTime))
 	require.NoError(t, err)
 	require.True(t, handled)
 	require.True(t, pf.ValidPID(childPID, forkNS, PIDTypeKProbes))
 
 	execTime := forkedTime + time.Second
-	handled, err = HandleProcessEventRecord(
-		processEventRecord(EventTypeProcessExec, childInfo, request.PidInfo{}, execTime), pf)
+	handled, err = eventCtx.HandleInternalEvent(
+		processEventRecord(EventTypeProcessExec, childInfo, request.PidInfo{}, execTime))
 	require.NoError(t, err)
 	require.True(t, handled)
 	assert.Empty(t, pf.Filter([]request.Span{childSpan(execTime + time.Millisecond)}))
-
-	handled, err = HandleProcessEventRecord(&ringbuf.Record{RawSample: []byte{EventTypeHTTPRequest}}, pf)
-	require.NoError(t, err)
-	assert.False(t, handled, "other events are left to the span readers")
 }

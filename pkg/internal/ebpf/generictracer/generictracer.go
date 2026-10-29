@@ -790,10 +790,6 @@ func (p *Tracer) processSharedRingbufRecord(
 		return request.Span{}, true, err
 	}
 
-	if handled, err := ebpfcommon.HandleProcessEventRecord(record, p.pidsFilter); handled {
-		return request.Span{}, true, err
-	}
-
 	if handled, err := ebpfcommon.HandleRuntimeMetricsRecord(
 		ctx,
 		p.eventCtx,
@@ -1041,7 +1037,11 @@ func bpfConnInfoT(src ebpfcommon.BpfConnectionInfoT) (dst BpfConnectionInfoT) {
 	return
 }
 
-func (p *Tracer) SetEventContext(ctx *ebpfcommon.EBPFEventContext) { p.eventCtx = ctx }
+func (p *Tracer) SetEventContext(ctx *ebpfcommon.EBPFEventContext) {
+	p.eventCtx = ctx
+	// the Go tracer may be the one reading the shared ring buffer
+	ebpfcommon.RegisterProcessEventHandlers(ctx, p.pidsFilter)
+}
 
 func (p *Tracer) Capabilities() ebpfcommon.TracerCapability { return 0 }
 
