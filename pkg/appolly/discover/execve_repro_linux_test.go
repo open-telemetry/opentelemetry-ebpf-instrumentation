@@ -45,7 +45,7 @@ func TestExecveDiscovery(t *testing.T) {
 		all, err := fetchProcessPorts(false)
 		require.NoError(t, err)
 		require.Contains(t, all, pid)
-		return acc.snapshot(all)
+		return acc.snapshot(all, false)
 	}
 	initial := snapshot()
 	require.Len(t, initial, 1)

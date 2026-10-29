@@ -6,7 +6,9 @@ package discover
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"sync"
 	"testing"
@@ -17,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/watcher"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
@@ -36,21 +39,23 @@ func TestWatcherExecutableReplacement(t *testing.T) {
 					bpfWatcherEnabled: true,
 				}
 				original := ProcessAttrs{pid: 123, executable: cacheKey{Dev: 1, Ino: 2}, openPorts: ports}
-				require.Equal(t, []Event[ProcessAttrs]{{Type: EventCreated, Obj: original}}, acc.snapshot(map[app.PID]ProcessAttrs{123: original}))
-				require.Empty(t, acc.snapshot(map[app.PID]ProcessAttrs{123: original}))
+				require.Equal(t, []Event[ProcessAttrs]{{Type: EventCreated, Obj: original}}, acc.snapshot(map[app.PID]ProcessAttrs{123: original}, false))
+				require.Empty(t, acc.snapshot(map[app.PID]ProcessAttrs{123: original}, false))
 				unreadable := original
 				unreadable.executable = cacheKey{}
-				require.Empty(t, acc.snapshot(map[app.PID]ProcessAttrs{123: unreadable}))
+				require.Empty(t, acc.snapshot(map[app.PID]ProcessAttrs{123: unreadable}, false))
 				require.Equal(t, original.executable, acc.pids[123].executable)
 				current := original
 				current.executable = replacement
 				require.Equal(t, []Event[ProcessAttrs]{
 					{Type: EventDeleted, Obj: original},
 					{Type: EventCreated, Obj: current},
-				}, acc.snapshot(map[app.PID]ProcessAttrs{123: current}))
-				require.True(t, acc.portFetchRequired())
-				require.Empty(t, acc.snapshot(map[app.PID]ProcessAttrs{123: current}))
-				require.Equal(t, []Event[ProcessAttrs]{{Type: EventDeleted, Obj: current}}, acc.snapshot(nil))
+				}, acc.snapshot(map[app.PID]ProcessAttrs{123: current}, false))
+				fetchPorts, forceRescan := acc.pollRequirements()
+				require.True(t, fetchPorts)
+				require.False(t, forceRescan)
+				require.Empty(t, acc.snapshot(map[app.PID]ProcessAttrs{123: current}, false))
+				require.Equal(t, []Event[ProcessAttrs]{{Type: EventDeleted, Obj: current}}, acc.snapshot(nil, false))
 			})
 		}
 	}
@@ -155,6 +160,99 @@ func TestWatcher_Poll(t *testing.T) {
 	}
 }
 
+func TestWatcherRescanDuringPoll(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		original := processInfo
+		t.Cleanup(func() { processInfo = original })
+		processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+			return &services.ProcessInfo{Pid: p.pid, ExePath: "/srv/app", OpenPorts: p.openPorts}, nil
+		}
+		cfg := criteriaConfig(t, "    - open_ports: 8080\n")
+		ctx, cancel := context.WithCancel(t.Context())
+		requests := make(chan bool)
+		type pollResult struct {
+			processes map[app.PID]ProcessAttrs
+			err       error
+		}
+		results := make(chan pollResult)
+		targetsChanged := make(chan struct{})
+		acc := pollAccounter{
+			cfg: cfg, interval: time.Second,
+			pids: map[app.PID]ProcessAttrs{}, pidPorts: map[pidPort]ProcessAttrs{},
+			bpfWatcherEnabled: true, fetchPorts: true,
+			criteriaUpdates: services.NewCriteriaUpdates(FindingCriteria(cfg), nil),
+			rescan:          ProcessWatcherRescan{TargetsChanged: targetsChanged},
+			listProcesses: func(fetchPorts bool) (map[app.PID]ProcessAttrs, error) {
+				select {
+				case requests <- fetchPorts:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+				select {
+				case result := <-results:
+					return result.processes, result.err
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			},
+			executableReady: func(app.PID) (string, bool) { return "/srv/app", true },
+			loadBPFWatcher: func(context.Context, *ebpfcommon.EBPFEventContext, *obi.Config, chan<- watcher.Event) error {
+				return nil
+			},
+			output: msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10)),
+		}
+		events := acc.output.Subscribe()
+		done := make(chan struct{})
+		go func() { defer close(done); acc.run(ctx) }()
+		t.Cleanup(func() {
+			cancel()
+			testutil.ReadChannel(t, done, testTimeout)
+		})
+		matcher := &Matcher{
+			Log: slog.Default(), Criteria: FindingCriteria(cfg),
+			ProcessHistory: map[app.PID]ProcessMatch{}, observed: map[app.PID]observedProcess{},
+		}
+		withPorts := map[app.PID]ProcessAttrs{10: {pid: 10, openPorts: []uint32{8080}}}
+		require.True(t, testutil.ReadChannel(t, requests, testTimeout))
+		results <- pollResult{processes: withPorts}
+		require.Len(t, matcher.filter(testutil.ReadChannel(t, events, testTimeout)), 1)
+
+		// The reload arrives after port fetching was disabled for the active poll.
+		require.False(t, testutil.ReadChannel(t, requests, testTimeout))
+		targetsChanged <- struct{}{}
+		synctest.Wait()
+		results <- pollResult{processes: map[app.PID]ProcessAttrs{10: {pid: 10}}}
+		synctest.Wait()
+		select {
+		case batch := <-events:
+			require.Empty(t, matcher.filter(batch), "the portless poll must not uninstrument a selected process")
+		default:
+		}
+		require.Contains(t, matcher.ProcessHistory, app.PID(10))
+
+		require.True(t, testutil.ReadChannel(t, requests, testTimeout))
+		// A further request during this rescan belongs to the following poll.
+		targetsChanged <- struct{}{}
+		synctest.Wait()
+		results <- pollResult{processes: withPorts}
+		rescanned := testutil.ReadChannel(t, events, testTimeout)
+		require.Len(t, rescanned, 1)
+		require.Equal(t, []uint32{8080}, rescanned[0].Obj.openPorts)
+		require.Empty(t, matcher.filter(rescanned))
+
+		require.True(t, testutil.ReadChannel(t, requests, testTimeout))
+		results <- pollResult{err: errors.New("temporary process listing failure")}
+		// A failed enumeration must not consume the pending rescan.
+		require.True(t, testutil.ReadChannel(t, requests, testTimeout))
+		results <- pollResult{processes: withPorts}
+		rescanned = testutil.ReadChannel(t, events, testTimeout)
+		require.Len(t, rescanned, 1)
+		require.Equal(t, []uint32{8080}, rescanned[0].Obj.openPorts)
+		require.Empty(t, matcher.filter(rescanned))
+		require.False(t, testutil.ReadChannel(t, requests, testTimeout))
+	})
+}
+
 func TestProcessNotReady(t *testing.T) {
 	// mocking a fake listProcesses method
 	p1 := ProcessAttrs{pid: 1, openPorts: []uint32{3030, 3031}}
@@ -184,12 +282,12 @@ func TestProcessNotReady(t *testing.T) {
 	procs, err := acc.listProcesses(true)
 	require.NoError(t, err)
 	assert.Len(t, procs, 5)
-	events := acc.snapshot(procs)
+	events := acc.snapshot(procs, false)
 	assert.Len(t, events, 3)       // 2 are not ready
 	assert.Len(t, acc.pids, 3)     // this should equal the first invocation of snapshot
 	assert.Len(t, acc.pidPorts, 2) // only 2 ports opened, p5 has no ports
 
-	eventsNext := acc.snapshot(procs)
+	eventsNext := acc.snapshot(procs, false)
 	assert.Empty(t, eventsNext) // 0 new events
 	assert.Len(t, acc.pids, 3)  // this should equal the first invocation of snapshot, no changes
 
@@ -197,7 +295,7 @@ func TestProcessNotReady(t *testing.T) {
 		return "", pid != 2
 	}
 
-	eventsNextNext := acc.snapshot(procs)
+	eventsNextNext := acc.snapshot(procs, false)
 	assert.Len(t, eventsNextNext, 1) // 1 net new event
 	assert.Len(t, acc.pids, 4)       // this should increase by one since we have one more app.PID we are caching now
 	assert.Len(t, acc.pidPorts, 4)   // this is now 4 because pid=1 has 2 port mappings
@@ -249,29 +347,33 @@ func testPortsFetchRequired(t *testing.T) {
 	}()
 
 	eventsChan := testutil.ReadChannel(t, channelReturner, testTimeout)
+	portFetchRequired := func() bool {
+		fetchPorts, _ := acc.pollRequirements()
+		return fetchPorts
+	}
 
-	assert.True(t, acc.portFetchRequired()) // initial state means poll all ports until we are ready to look for binds in bpf
+	assert.True(t, portFetchRequired()) // initial state means poll all ports until we are ready to look for binds in bpf
 	eventsChan <- watcher.Event{Type: watcher.NewPort}
-	assert.True(t, acc.portFetchRequired())
+	assert.True(t, portFetchRequired())
 	eventsChan <- watcher.Event{Type: watcher.Ready}
-	assert.True(t, acc.portFetchRequired()) // we must see it true one more time
+	assert.True(t, portFetchRequired()) // we must see it true one more time
 	assert.EventuallyWithTf(t, func(c *assert.CollectT) {
-		assert.False(c, acc.portFetchRequired()) // eventually we'll see this being false
+		assert.False(c, portFetchRequired()) // eventually we'll see this being false
 	}, 5*time.Second, 100*time.Millisecond, "eventsChan was never set")
-	assert.False(t, acc.portFetchRequired()) // another false after that
+	assert.False(t, portFetchRequired()) // another false after that
 
 	// we send new port watcher event which matches the port range
 	eventsChan <- watcher.Event{Type: watcher.NewPort, Payload: 8080}
 	assert.EventuallyWithTf(t, func(c *assert.CollectT) {
-		assert.True(c, acc.portFetchRequired()) // eventually we'll see this being true
+		assert.True(c, portFetchRequired()) // eventually we'll see this being true
 	}, 5*time.Second, 100*time.Millisecond, "eventsChan was never set")
-	assert.False(t, acc.portFetchRequired()) // once we see it true, next time it's false
+	assert.False(t, portFetchRequired()) // once we see it true, next time it's false
 
 	// we send port that's not in our port range
 	eventsChan <- watcher.Event{Type: watcher.NewPort, Payload: 8090}
 	// 5 seconds should be enough to have the channel send something
 	for range 5 {
-		assert.False(t, acc.portFetchRequired()) // once we see it true, next time it's false
+		assert.False(t, portFetchRequired()) // once we see it true, next time it's false
 		time.Sleep(1 * time.Second)
 	}
 
@@ -391,21 +493,21 @@ func TestForgetPIDs_ReemitsExistingProcess(t *testing.T) {
 	}
 	procs, err := acc.listProcesses(false)
 	require.NoError(t, err)
-	events := acc.snapshot(procs)
+	events := acc.snapshot(procs, false)
 	require.Len(t, events, 2)
 	assert.Equal(t, EventCreated, sort(events)[0].Type)
 	assert.Equal(t, EventCreated, sort(events)[1].Type)
 	// Second snapshot: no new events (already seen)
-	events2 := acc.snapshot(procs)
+	events2 := acc.snapshot(procs, false)
 	assert.Empty(t, events2)
 	// Forget p1 only
 	acc.forgetPIDs([]app.PID{1})
 	// Next snapshot: p1 should appear as created again
-	events3 := acc.snapshot(procs)
+	events3 := acc.snapshot(procs, false)
 	require.Len(t, events3, 1)
 	assert.Equal(t, EventCreated, events3[0].Type)
 	assert.Equal(t, app.PID(1), events3[0].Obj.pid)
 	// p2 still not re-emitted
-	events4 := acc.snapshot(procs)
+	events4 := acc.snapshot(procs, false)
 	assert.Empty(t, events4)
 }

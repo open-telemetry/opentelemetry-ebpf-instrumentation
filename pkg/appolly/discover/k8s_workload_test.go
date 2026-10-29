@@ -262,13 +262,13 @@ func TestDynamicMatcher_ExecutableReplacementIgnoresStaleRemoval(t *testing.T) {
 					services.AttrDeploymentName: "checkout",
 				},
 			}
-			require.Len(t, m.filter(acc.snapshot(map[app.PID]ProcessAttrs{original.pid: original})), 1)
+			require.Len(t, m.filter(acc.snapshot(map[app.PID]ProcessAttrs{original.pid: original}, false)), 1)
 			require.Equal(t, []app.PID{original.pid}, testutil.ReadChannel(t, added, testTimeout))
 
 			replacement := original
 			replacement.executable.Ino = 2
 			processes := map[app.PID]ProcessAttrs{replacement.pid: replacement}
-			matches := m.filter(acc.snapshot(processes))
+			matches := m.filter(acc.snapshot(processes, false))
 			require.Len(t, matches, 2)
 			require.Equal(t, EventDeleted, matches[0].Type)
 			require.Equal(t, "/bin/launcher", matches[0].Obj.Process.ExePath)
@@ -282,13 +282,13 @@ func TestDynamicMatcher_ExecutableReplacementIgnoresStaleRemoval(t *testing.T) {
 
 			if timing == "after_rescan" {
 				acc.forgetPIDs(readded)
-				events := acc.snapshot(processes)
+				events := acc.snapshot(processes, false)
 				require.Len(t, events, 1)
 				require.Empty(t, m.filter(events))
 			}
 			require.Empty(t, m.syntheticDeletesForRemovedPIDs(staleRemoval))
 			require.Same(t, matches[1].Obj.Process, m.ProcessHistory[replacement.pid].Process)
-			require.Empty(t, acc.snapshot(processes))
+			require.Empty(t, acc.snapshot(processes, false))
 
 			d.NetworkMetrics().AddPID(uint32(replacement.pid), selection.DynamicOptions{})
 			require.NoError(t, d.RemoveK8sWorkload(workload))
