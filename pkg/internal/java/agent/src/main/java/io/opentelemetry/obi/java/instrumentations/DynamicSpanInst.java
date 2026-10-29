@@ -48,7 +48,7 @@ public final class DynamicSpanInst {
           continue;
         }
         int matches = matchingMethods(type, reference);
-        if (matches == 0 || (!reference.isMethodGlob() && matches > 1)) {
+        if (matches == 0) {
           continue;
         }
         selected = true;

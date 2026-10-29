@@ -114,10 +114,6 @@ public final class DynamicSpanRuntime {
           errors.add(resolutionError(definition, className, "unresolved method reference"));
           continue;
         }
-        if (!reference.isMethodGlob() && matches.size() > 1) {
-          errors.add(resolutionError(definition, className, "ambiguous method reference"));
-          continue;
-        }
         for (Method method : matches) {
           String key = methodKey(method);
           next.computeIfAbsent(key, ignored -> new ArrayList<>()).add(definition.name());

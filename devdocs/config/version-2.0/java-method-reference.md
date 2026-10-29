@@ -64,13 +64,15 @@ class-name pattern to match distinct FQCNs ending in `Repository` and a
 method-name pattern to select all matching methods in each target class. Globs
 intentionally select sets: multiple matched methods are not ambiguous, and a
 class-name glob expands to distinct FQCNs rather than classloader copies.
+For example, `com.example.Repository#find*` selects every overload of each
+method whose name starts with `find`.
 
 The parameter list is optional:
 
 - Without a parameter list, the reference considers every eligible method
   whose name matches the selector on the named class. An exact method name
-  resolves only when exactly one method matches; a glob selects every matching
-  method.
+  selects all overloads; a method-name glob selects every method with a
+  matching name, including its overloads.
 - With a parameter list, each entry is a fully qualified reference type or a
   Java primitive type. Array dimensions use `[]`; varargs are written as the
   equivalent array type. For example, `java.lang.String,int[]`.
@@ -106,11 +108,10 @@ target fully qualified class name (FQCN):
    A method inherited from a superclass or interface is not considered
    declared by the named class; reference its declaring class instead. Static
    and instance methods are both eligible.
-4. With one class definition, no eligible method is **unresolved**. An exact
-   method name with one eligible method is **resolved**; with more than one it
-   is **ambiguous**. A method-name glob with one or more eligible methods is
-   **resolved** to the set of all matches, even when that set contains
-   multiple methods.
+4. With one class definition, no eligible method is **unresolved**. Otherwise,
+   the reference is **resolved** to the set of all eligible methods matching
+   the method name and, when supplied, parameter list. Multiple overloads
+   selected without a parameter list are intentional, not ambiguous.
 
 Resolution is reevaluated as matching classes are loaded and unloaded; it is
 not a one-time snapshot. A class-name glob that currently matches no loaded
@@ -123,27 +124,25 @@ loaded class definitions and eligible methods independently:
   none of those copies are selected. This affects only that target FQCN.
 - With one class definition, no eligible method is **unresolved** and reports
   a resolution error. A loaded class with no method match is not pending.
-- With one class definition, an exact method name is **resolved** when exactly
-  one eligible method matches, and **ambiguous** when more than one matches.
+- With one class definition, an exact method name is **resolved** when one or
+  more eligible methods match; without a parameter list, all overloads match.
   A method-name glob is **resolved** when one or more eligible methods match;
-  the selected set includes every match. Multiple glob matches are
-  intentional, not ambiguous.
+  the selected set includes every match.
 
 The selected method or methods are identified by their declaring class
 definition, including its defining classloader. A class-name glob expands to
 distinct FQCNs, not to classloader copies. An unresolved or ambiguous outcome
 for one target reports that target's resolution error without preventing other
-FQCNs from applying valid methods. This also applies to exact-method overload
-ambiguity for one target in a class-name glob.
+FQCNs from applying valid methods. Method ambiguity only arises from duplicate
+classloader definitions, not from overloaded methods.
 
 On each relevant class load or unload, recompute the set of loaded FQCNs
 matching a class-name glob and reevaluate each target independently. An exact
 class selector continues to name its single FQCN as it loads and unloads.
 When an FQCN leaves a glob's set, detach all methods selected for it; when an
 FQCN enters, resolve it. For any target, pending, unresolved, or ambiguous
-states detach active selections. When a target becomes resolved, attach its
-exact method or every method in its glob result. If a resolved glob's method
-set changes,
+states detach active selections. When a target becomes resolved, attach every
+method in its selected set. If a resolved selector's method set changes,
 detach removed methods and attach newly matching methods. A duplicate
 classloader definition makes only its FQCN ambiguous; unloading the duplicate
 can restore that target to resolved, unresolved, or pending. Unloading the

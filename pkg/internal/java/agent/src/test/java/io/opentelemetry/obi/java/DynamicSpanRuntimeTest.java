@@ -58,7 +58,7 @@ class DynamicSpanRuntimeTest {
             new DynamicSpanDefinition(
                 "unresolved.sibling", "com.example.DynamicSpanFixture#missing()"),
             new DynamicSpanDefinition(
-                "ambiguous.overload", "com.example.DynamicSpanFixture#overloaded"));
+                "all.overloads", "com.example.DynamicSpanFixture#overloaded"));
 
     Instrumentation instrumentation = ByteBuddyAgent.install();
     DynamicSpanRuntime.configure(definitions, instrumentation);
@@ -72,10 +72,11 @@ class DynamicSpanRuntimeTest {
     assertEquals("run", DynamicSpanFixture.run());
     assertEquals("sibling", DynamicSpanFixture.runSibling());
     assertEquals("5", DynamicSpanFixture.overloaded(5));
+    assertEquals("first", DynamicSpanFixture.overloaded("first"));
     assertEquals("first", DynamicSpanFixture.array(new String[] {"first"}));
     assertEquals("accepted", Nested.accept(new Nested.Value()));
     assertEquals("ok", OtherFixture.ok());
-    assertEquals(6, payloads.size());
+    assertEquals(8, payloads.size());
     String joined = "";
     for (byte[] payload : payloads) {
       joined += new String(payload, StandardCharsets.UTF_8);
@@ -85,8 +86,8 @@ class DynamicSpanRuntimeTest {
     assertTrue(joined.contains("array.signature"));
     assertTrue(joined.contains("nested.parameter"));
     assertTrue(joined.contains("valid.sibling"));
+    assertTrue(joined.contains("all.overloads"));
     assertFalse(joined.contains("unresolved.sibling"));
-    assertFalse(joined.contains("ambiguous.overload"));
 
     Method run = AmbiguousFixture.class.getDeclaredMethod("run");
     DynamicSpanRuntime.SpanState[] beforeDuplicate = DynamicSpanRuntime.enter(run);
