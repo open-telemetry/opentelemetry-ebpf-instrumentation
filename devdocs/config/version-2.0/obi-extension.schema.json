@@ -486,6 +486,10 @@
             "metrics": {
               "type": "boolean",
               "description": "Enable or disable metric emission for this workload.\nIf omitted, the global protocol metric enablement applies.\n"
+            },
+            "logs": {
+              "type": "boolean",
+              "description": "Enable logs for this workload. Omitted logs in an explicit exports refinement are disabled."
             }
           }
         },
@@ -512,6 +516,16 @@
             "filters": {
               "$ref": "#/$defs/SignalFilters",
               "description": "Per-workload HTTP trace and metric filters.\nThese replace (not merge with) the global HTTP filters for matched workloads.\nIf omitted, global filters apply.\n"
+            }
+          }
+        },
+        "exceptions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Override global exception capture. Omission inherits the global setting."
             }
           }
         }
@@ -995,6 +1009,9 @@
         "attributes": {
           "$ref": "#/$defs/CaptureAttributes",
           "description": "Optional span attributes and metric dimensions selected during telemetry generation. Omission preserves defaults."
+        },
+        "exceptions": {
+          "$ref": "#/$defs/Exceptions"
         }
       }
     },
@@ -2517,6 +2534,17 @@
           "type": "string",
           "default": "",
           "description": "Optional common TLS server name. Empty verifies each peer IP against its certificate."
+        }
+      }
+    },
+    "Exceptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Runtime exception capture. Exception records use the logs pipeline.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false
         }
       }
     }

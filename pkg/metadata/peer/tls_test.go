@@ -114,7 +114,7 @@ func TestHTTPSCertificateVerification(t *testing.T) {
 			}
 			cfg := DefaultConfig()
 			cfg.Token = "shared-secret"
-			cfg.TLS = TLSConfig{Enabled: true, CertFile: leaf.certFile, KeyFile: leaf.keyFile, CAFile: test.caFile, ServerName: test.serverName}
+			cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: leaf.certFile, KeyFile: leaf.keyFile, CAFile: test.caFile, ServerName: test.serverName}
 			serverTLS, clientTLS, err := tlsConfigs(cfg.TLS)
 			require.NoError(t, err)
 			store := newStore("remote-host", cfg)
@@ -178,7 +178,7 @@ func TestTLSInvalidFiles(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := DefaultConfig()
 			cfg.Enabled = true
-			cfg.TLS = TLSConfig{Enabled: true, CertFile: test.certFile, KeyFile: test.keyFile, CAFile: test.caFile}
+			cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: test.certFile, KeyFile: test.keyFile, CAFile: test.caFile}
 			_, err := New(t.Context(), cfg, "host", false, nil, nil)
 			require.ErrorContains(t, err, test.wantError)
 		})
@@ -186,7 +186,7 @@ func TestTLSInvalidFiles(t *testing.T) {
 }
 
 func TestTLSDisabledIgnoresCertificateFiles(t *testing.T) {
-	server, client, err := tlsConfigs(TLSConfig{CertFile: "missing", KeyFile: "missing", CAFile: "missing"})
+	server, client, err := tlsConfigs(MetadataTLSConfig{CertFile: "missing", KeyFile: "missing", CAFile: "missing"})
 	require.NoError(t, err)
 	require.Nil(t, server)
 	require.Nil(t, client)
@@ -213,7 +213,7 @@ func TestHTTPSBearerToken(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := DefaultConfig()
 			cfg.Token = test.serverToken
-			cfg.TLS = TLSConfig{Enabled: true, CertFile: leaf.certFile, KeyFile: leaf.keyFile, CAFile: root.certFile}
+			cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: leaf.certFile, KeyFile: leaf.keyFile, CAFile: root.certFile}
 			serverTLS, clientTLS, err := tlsConfigs(cfg.TLS)
 			require.NoError(t, err)
 			server := httptest.NewUnstartedServer(metadataHandler(newStore("remote-host", cfg), cfg, testLoopbackNetwork, nil))

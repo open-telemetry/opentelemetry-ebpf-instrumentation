@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/traces"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/exceptions"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/tracefs"
@@ -110,6 +111,12 @@ func NewWithProtocolMetricSelection(ctx context.Context, ctxInfo *global.Context
 
 	runtimeMetrics := newRuntimeMetricsQueue(config, ctxInfo.Metrics)
 	ebpfEventContext := ebpfcommon.NewEBPFEventContext()
+	if config.ExceptionsEnabled() && config.Logs.Enabled() {
+		if ctxInfo.ExceptionInput == nil {
+			ctxInfo.ExceptionInput = msg2.QueueFromConfig[[]exceptions.Event](config, ctxInfo.Metrics, "exceptions")
+		}
+		ebpfEventContext.ExceptionInput = ctxInfo.ExceptionInput
+	}
 	ctxInfo.AppO11y.EBPFEventContext = ebpfEventContext
 
 	bp, err := appolly.BuildWithProtocolMetricSelection(ctx, config, ctxInfo, tracesInput, processEventCloudDecorated, runtimeMetrics, selection)

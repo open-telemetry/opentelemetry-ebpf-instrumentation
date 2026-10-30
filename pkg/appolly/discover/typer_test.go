@@ -543,3 +543,36 @@ func TestAsInstrumentable_UncachedPythonWorkerPreservesLogEnricherEnabled(t *tes
 	assert.Same(t, master, worker.RuntimeMetricServiceSource())
 	assert.True(t, instrumentable.LogEnricherEnabled)
 }
+
+func (d dummyCriterion) GetExceptionsConfig() *services.ExceptionsOverride { return nil }
+
+func TestMakeServiceAttrsExceptionSelection(t *testing.T) {
+	enabled, disabled := true, false
+	cfg := obi.DefaultConfig
+	cfg.Logs.Endpoint = "http://localhost:4318/v1/logs"
+	cfg.Exceptions.Enabled = true
+	ty := typer{cfg: &cfg}
+	allow := &services.GlobAttributes{Exceptions: &services.ExceptionsOverride{Enabled: &enabled}}
+	deny := &services.GlobAttributes{Exceptions: &services.ExceptionsOverride{Enabled: &disabled}}
+	inherit := &services.GlobAttributes{}
+	blocked := &services.GlobAttributes{ExportModes: services.NewExportModes(), Exceptions: &services.ExceptionsOverride{Enabled: &enabled}}
+	for _, tc := range []struct {
+		name     string
+		criteria []services.Selector
+		want     bool
+	}{
+		{"global", nil, true},
+		{"explicit false", []services.Selector{deny}, false},
+		{"later explicit true", []services.Selector{deny, allow}, true},
+		{"omission restores global", []services.Selector{deny, inherit}, true},
+		{"export blocks acquisition", []services.Selector{blocked}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ty.makeServiceAttrs(&ProcessMatch{Process: &services.ProcessInfo{Pid: 1234}, Criteria: tc.criteria})
+			require.Equal(t, tc.want, got.Exceptions.Enabled)
+		})
+	}
+	cfg.Logs.Endpoint = ""
+	got := ty.makeServiceAttrs(&ProcessMatch{Process: &services.ProcessInfo{Pid: 1234}, Criteria: []services.Selector{allow}})
+	require.False(t, got.Exceptions.Enabled)
+}

@@ -13,7 +13,7 @@ import (
 )
 
 func TestRuntimeDefaultsAndValidation(t *testing.T) {
-	cfg := (Config{Enabled: true, PeerCIDRs: []string{"10.1.0.0/16"}}).WithDefaults()
+	cfg := (MetadataConfig{Enabled: true, PeerCIDRs: []string{"10.1.0.0/16"}}).WithDefaults()
 	require.NoError(t, cfg.Validate())
 	require.Equal(t, time.Minute, cfg.CallerTTL)
 	require.Equal(t, 1024, cfg.MaxPeers)
@@ -38,6 +38,7 @@ func TestConfigLimitValidationTags(t *testing.T) {
 		{field: "max_caller_entries", invalid: "0", valid: "1"},
 		{field: "max_response_bytes", invalid: "0", valid: "1"},
 		{field: "max_cache_bytes", invalid: "0", valid: "1"},
+		{field: "mode", invalid: "unknown", valid: "central"},
 	} {
 		t.Run(test.field, func(t *testing.T) {
 			cfg := DefaultConfig()
@@ -64,7 +65,7 @@ func TestBearerTokenRequiresTLS(t *testing.T) {
 	require.ErrorContains(t, err, "token requires TLS")
 	require.NotContains(t, err.Error(), cfg.Token)
 
-	cfg.TLS = TLSConfig{Enabled: true, CertFile: "cert.pem", KeyFile: "key.pem"}
+	cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: "cert.pem", KeyFile: "key.pem"}
 	require.NoError(t, cfg.Validate())
 	cfg.TLS.Enabled = false
 	cfg.Token = ""

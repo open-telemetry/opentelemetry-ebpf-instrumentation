@@ -10,9 +10,11 @@ require (
 	go.opentelemetry.io/collector/consumer v1.69.0
 	go.opentelemetry.io/collector/consumer/consumertest v0.163.0
 	go.opentelemetry.io/collector/pdata v1.69.0
+	go.opentelemetry.io/collector/pipeline v1.69.0
 	go.opentelemetry.io/collector/receiver v1.69.0
 	go.opentelemetry.io/collector/receiver/receivertest v0.163.0
-	go.opentelemetry.io/obi v1.0.0-rc.2
+	go.opentelemetry.io/obi v1.0.0
+	go.opentelemetry.io/otel/trace v1.47.0
 	go.uber.org/zap/exp v0.3.0
 	go.yaml.in/yaml/v3 v3.0.5
 )
@@ -155,7 +157,6 @@ require (
 	go.opentelemetry.io/collector/featuregate v1.69.0 // indirect
 	go.opentelemetry.io/collector/internal/componentalias v0.163.0 // indirect
 	go.opentelemetry.io/collector/pdata/pprofile v0.163.0 // indirect
-	go.opentelemetry.io/collector/pipeline v1.69.0 // indirect
 	go.opentelemetry.io/collector/receiver/xreceiver v0.163.0 // indirect
 	go.opentelemetry.io/contrib/detectors/aws/ec2/v2 v2.6.0 // indirect
 	go.opentelemetry.io/contrib/detectors/aws/ecs v1.47.0 // indirect
@@ -187,7 +188,6 @@ require (
 	go.opentelemetry.io/otel/sdk v1.47.0 // indirect
 	go.opentelemetry.io/otel/sdk/log v1.47.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.47.0 // indirect
-	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.1 // indirect
 	go.opentelemetry.io/proto/otlp/processcontext/v1development v0.4.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect

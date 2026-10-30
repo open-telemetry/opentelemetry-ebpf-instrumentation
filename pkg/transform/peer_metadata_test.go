@@ -30,7 +30,7 @@ import (
 
 func TestPeerMetadataBypass(t *testing.T) {
 	for _, kubernetes := range []bool{false, true} {
-		cfg := peer.Config{Enabled: kubernetes, Port: -1}
+		cfg := peer.MetadataConfig{Enabled: kubernetes, Port: -1}
 		info := &global.ContextInfo{}
 		if kubernetes {
 			info.K8sInformer = kube.NewMetadataProvider(kube.MetadataConfig{Enable: kubeflags.EnabledTrue}, imetrics.NoopReporter{})

@@ -16,6 +16,7 @@
 
 #include <common/common.h>
 #include <common/event_defs.h>
+#include <common/exception_event.h>
 #include <common/ringbuf_types.h>
 #include <common/sampler.h>
 
@@ -43,3 +44,6 @@ const enum valid_pids_size *unused_19 __attribute__((unused));
 const ringbuf_write_stats_t *unused_20 __attribute__((unused));
 const enum ringbuf_id *unused_21 __attribute__((unused));
 const sampler_t *unused_22 __attribute__((unused));
+const exception_event_header_t *unused_23 __attribute__((unused));
+const enum exception_runtime *unused_24 __attribute__((unused));
+const enum exception_owner *unused_25 __attribute__((unused));

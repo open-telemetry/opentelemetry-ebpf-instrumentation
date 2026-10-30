@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/cloud"
 	"go.opentelemetry.io/obi/pkg/docker"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/exceptions"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/export/connector"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
@@ -57,6 +58,9 @@ type ContextInfo struct {
 	// create its own private queue.
 	// This is useful when OBI runs in vendored mode
 	OverrideAppExportQueue *msg.Queue[[]request.Span]
+
+	// ExceptionInput carries capture-time events independently of span sampling.
+	ExceptionInput *msg.Queue[[]exceptions.Event]
 
 	// OverrideNetExportQueue allows overriding the output queue of the network exporter
 	// to connect your own network exporters outside the OBI code base. If left unset, OBI will

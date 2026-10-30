@@ -159,7 +159,8 @@ OBI adopts the standard declarative fields incrementally. For the first stable v
 | `log_level` | Supported for OBI daemon logging. OTel `trace*` and `debug*` severities map to `DEBUG`; `info*` to `INFO`; `warn*` to `WARN`; `error*` and `fatal*` to `ERROR`. `extensions.obi.daemon.logging.level` is not part of v2; use the top-level field. |
 | `attribute_limits` | Rejected whenever present by the target adapter in #2682. |
 | `disabled`, `distribution`, `propagator` | `disabled: true`, non-empty `distribution`, and non-empty propagator configuration are rejected. Empty/default placeholders do not enable runtime behavior. |
-| `instrumentation/development`, `logger_provider` | Rejected when present by the target adapter in #2682. |
+| `instrumentation/development` | Rejected when present by the target adapter. |
+| `logger_provider` | One batch processor with one OTLP HTTP/protobuf, gRPC or console exporter for exception logs. HTTP/JSON is unsupported for logs. Logger limits, logger configurators, export timeouts and unsupported TLS options are rejected. |
 
 Environment-variable substitution depends on the loader. The upstream `otelconf/x.ParseYAML` path expands `${VAR}`, `${env:VAR}`, `${VAR:-fallback}`, and `${env:VAR:-fallback}` before decoding. OBI's internal `schema.ParseStandaloneYAML` parser decodes the supplied bytes directly, so callers using that parser must perform any desired substitution before calling it.
 
@@ -299,6 +300,7 @@ The `capture` grouping was introduced for two reasons:
 - `policy`: global rule evaluation behavior (default action, match order, timing).
 - `rules`: ordered workload selection rules (include/exclude by process identity, Kubernetes metadata, etc.).
 - `instrumentation`: protocol-specific capture controls (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU, Aerospike).
+- `exceptions`: runtime exception capture enablement; records use the logs pipeline.
 - `runtimes`: language runtime injection controls (Go probes, Node.js SIGUSR1, Java agent attachment).
 - `network`: network flow capture configuration.
 - `limits`: cardinality and memory guardrails.
@@ -442,7 +444,8 @@ This was rejected because:
 
 Current overridable fields in `refine`:
 
-- `exports`: override which signals (`traces`, `metrics`) are emitted for this workload.
+- `exports`: override which signals (`traces`, `metrics`, `logs`) are emitted for this workload.
+- `exceptions`: override global exception capture enablement. Omitted fields inherit global settings.
 - `http.routes`: refine the direction-scoped HTTP route policy for this workload.
 
 The schema reserves refinement `http.filters`, but the target runtime adapter

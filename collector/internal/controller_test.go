@@ -13,6 +13,7 @@ import (
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/component/componenttest"
+	"go.opentelemetry.io/collector/pipeline"
 
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/instrumenter"
@@ -301,7 +302,7 @@ func TestShutdownWithoutStartCleansSharedController(t *testing.T) {
 func newTestController(t *testing.T, id component.ID, cfg *obi.Config) *Controller {
 	t.Helper()
 
-	c, err := NewController(id, cfg, false)
+	c, err := NewController(id, cfg, false, pipeline.SignalTraces)
 	if err != nil {
 		t.Fatalf("NewController returned error: %v", err)
 	}
