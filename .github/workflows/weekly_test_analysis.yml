@@ -21,49 +21,10 @@ permissions:
 jobs:
   rollup:
     name: "Roll up weekly CI test results"
-    runs-on: ubuntu-26.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          sparse-checkout: |
-            scripts/ci-analysis/
-            .github/actions/setup-mise/
-            go.mod
-            go.sum
-            mise.toml
-            mise.lock
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-
-      - name: Set up mise tools
-        uses: $/.github/actions/setup-mise
-        env:
-          MISE_ENABLE_TOOLS: go
-        with:
-          cache-downloads: "false"
-
-      - name: Compute snapshot date
-        id: date
-        run: echo "today=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
-
-      - name: Generate weekly test analysis report
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SINCE: ${{ inputs.since || '' }}
-          SNAPSHOT_OUT: ${{ github.workspace }}/weekly-snapshot/snapshot.json
-        run: bash scripts/ci-analysis/weekly.sh >> "$GITHUB_STEP_SUMMARY"
-
-      # Retention of 32 days covers a future monthly rollup with safety
-      # margin (4 weeklies + ~4 days), mirroring the 8-day retention on
-      # daily snapshots vs. the 7-day weekly window.
-      - name: Upload weekly snapshot
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ci-weekly-snapshot-${{ steps.date.outputs.today }}-${{ github.run_id }}
-          path: weekly-snapshot/snapshot.json
-          retention-days: 32
-          if-no-files-found: error
+    uses: $/.github/workflows/test_analysis_report.yml
+    with:
+      mode: weekly
+      since: ${{ inputs.since || '' }}
 
   update-test-weights:
     name: "Update integration test shard weights"

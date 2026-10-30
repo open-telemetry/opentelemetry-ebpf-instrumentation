@@ -1,0 +1,93 @@
+name: Test analysis report
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: "Report mode (daily or weekly)"
+        required: true
+        type: string
+      lookback_days:
+        description: "Number of days to include in the daily report"
+        required: false
+        default: "5"
+        type: string
+      since:
+        description: "Only include runs or snapshots created on or after this date"
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  report:
+    name: ${{ inputs.mode == 'daily' && 'Analyze CI test results' || 'Roll up weekly CI test results' }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: |
+            scripts/ci-analysis/
+            .github/actions/setup-mise/
+            go.mod
+            go.sum
+            mise.toml
+            mise.lock
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
+        env:
+          MISE_ENABLE_TOOLS: go
+        with:
+          cache-downloads: "false"
+
+      - name: Compute snapshot date
+        id: date
+        run: echo "today=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
+
+      - name: Generate test analysis report
+        if: inputs.mode == 'daily'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LOOKBACK_DAYS: ${{ inputs.lookback_days || '5' }}
+          SNAPSHOT_OUT: ${{ github.workspace }}/snapshot/snapshot.json
+        run: bash scripts/ci-analysis/collect.sh >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate weekly test analysis report
+        if: inputs.mode == 'weekly'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SINCE: ${{ inputs.since || '' }}
+          SNAPSHOT_OUT: ${{ github.workspace }}/weekly-snapshot/snapshot.json
+        run: bash scripts/ci-analysis/weekly.sh >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload daily snapshot
+        if: inputs.mode == 'daily'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-daily-snapshot-${{ steps.date.outputs.today }}-${{ github.run_id }}
+          path: snapshot/snapshot.json
+          # Snapshot is consumed by the weekly rollup workflow. Retention of 8
+          # days gives a one-day safety margin over the 7-day weekly window.
+          # The date prefix makes artifacts scannable; run_id keeps manual
+          # reruns on the same day unique.
+          retention-days: 8
+          if-no-files-found: error
+
+      # Retention of 32 days covers a future monthly rollup with safety
+      # margin (4 weeklies + ~4 days), mirroring the 8-day retention on
+      # daily snapshots vs. the 7-day weekly window.
+      - name: Upload weekly snapshot
+        if: inputs.mode == 'weekly'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ci-weekly-snapshot-${{ steps.date.outputs.today }}-${{ github.run_id }}
+          path: weekly-snapshot/snapshot.json
+          retention-days: 32
+          if-no-files-found: error

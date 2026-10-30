@@ -21,48 +21,7 @@ permissions:
 jobs:
   analyze:
     name: "Analyze CI test results"
-    runs-on: ubuntu-26.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          sparse-checkout: |
-            scripts/ci-analysis/
-            .github/actions/setup-mise/
-            go.mod
-            go.sum
-            mise.toml
-            mise.lock
-          sparse-checkout-cone-mode: false
-          persist-credentials: false
-
-      - name: Set up mise tools
-        uses: $/.github/actions/setup-mise
-        env:
-          MISE_ENABLE_TOOLS: go
-        with:
-          cache-downloads: "false"
-
-      - name: Compute snapshot date
-        id: date
-        run: echo "today=$(date -u +%Y-%m-%d)" >> "$GITHUB_OUTPUT"
-
-      - name: Generate test analysis report
-        env:
-          GH_TOKEN: ${{ github.token }}
-          LOOKBACK_DAYS: ${{ inputs.lookback_days || '5' }}
-          SNAPSHOT_OUT: ${{ github.workspace }}/snapshot/snapshot.json
-        run: bash scripts/ci-analysis/collect.sh >> "$GITHUB_STEP_SUMMARY"
-
-      # Snapshot is consumed by the weekly rollup workflow. Retention of 8
-      # days gives a one-day safety margin over the 7-day rollup window
-      # (the weekly job runs ~1h after the previous Monday's daily job).
-      # Date prefix makes the artifact list scannable; run_id keeps the
-      # name unique across manual workflow_dispatch reruns on the same day.
-      - name: Upload daily snapshot
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: ci-daily-snapshot-${{ steps.date.outputs.today }}-${{ github.run_id }}
-          path: snapshot/snapshot.json
-          retention-days: 8
-          if-no-files-found: error
+    uses: $/.github/workflows/test_analysis_report.yml
+    with:
+      mode: daily
+      lookback_days: ${{ inputs.lookback_days || '5' }}
