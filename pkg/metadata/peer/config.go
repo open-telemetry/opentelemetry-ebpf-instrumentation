@@ -18,29 +18,37 @@ const DefaultPort = 8998
 
 var configValidator = validator.New(validator.WithRequiredStructEnabled())
 
-// PeerMetadataConfig configures peer metadata exchange.
-type PeerMetadataConfig struct {
-	Enabled          bool                  `yaml:"enabled"`
-	ListenAddress    string                `yaml:"listen_address"`
-	Port             int                   `yaml:"port"`
-	PeerCIDRs        []string              `yaml:"peer_cidrs"`
-	RefreshInterval  time.Duration         `yaml:"refresh_interval" validate:"gte=1ms"`
-	CallerTTL        time.Duration         `yaml:"caller_ttl" validate:"gte=1ms"`
-	CacheTTL         time.Duration         `yaml:"cache_ttl" validate:"gte=1ms"`
-	RequestTimeout   time.Duration         `yaml:"request_timeout" validate:"gte=1ms"`
-	MaxPeers         int                   `yaml:"max_peers" validate:"gt=0"`
-	MaxConcurrent    int                   `yaml:"max_concurrent" validate:"gt=0"`
-	MaxCallerEntries int                   `yaml:"max_caller_entries" validate:"gt=0"`
-	MaxResponseBytes int                   `yaml:"max_response_bytes" validate:"gt=0"`
-	MaxCacheBytes    int                   `yaml:"max_cache_bytes" validate:"gt=0"`
-	Token            string                `yaml:"token"`
-	TLS              PeerMetadataTLSConfig `yaml:"tls"`
+// Mode selects how agents exchange metadata.
+type Mode string
+
+const (
+	// ModePeer exchanges metadata directly between agents.
+	ModePeer Mode = "peer"
+	// ModeCentral exchanges metadata through a central metadata service.
+	ModeCentral Mode = "central"
+)
+
+// Config configures peer metadata exchange.
+type Config struct {
+	Enabled          bool              `yaml:"enabled"`
+	Mode             Mode              `yaml:"mode" validate:"omitempty,oneof=peer central"`
+	ListenAddress    string            `yaml:"listen_address"`
+	Port             int               `yaml:"port"`
+	PeerCIDRs        []string          `yaml:"peer_cidrs"`
+	RefreshInterval  time.Duration     `yaml:"refresh_interval" validate:"gte=1ms"`
+	CallerTTL        time.Duration     `yaml:"caller_ttl" validate:"gte=1ms"`
+	CacheTTL         time.Duration     `yaml:"cache_ttl" validate:"gte=1ms"`
+	RequestTimeout   time.Duration     `yaml:"request_timeout" validate:"gte=1ms"`
+	MaxPeers         int               `yaml:"max_peers" validate:"gt=0"`
+	MaxConcurrent    int               `yaml:"max_concurrent" validate:"gt=0"`
+	MaxCallerEntries int               `yaml:"max_caller_entries" validate:"gt=0"`
+	MaxResponseBytes int               `yaml:"max_response_bytes" validate:"gt=0"`
+	MaxCacheBytes    int               `yaml:"max_cache_bytes" validate:"gt=0"`
+	Token            string            `yaml:"token"`
+	TLS              MetadataTLSConfig `yaml:"tls"`
 }
 
-// Config retains the public runtime configuration name.
-type Config = PeerMetadataConfig
-
-type PeerMetadataTLSConfig struct {
+type MetadataTLSConfig struct {
 	Enabled    bool   `yaml:"enabled"`
 	CertFile   string `yaml:"cert_file"`
 	KeyFile    string `yaml:"key_file"`
@@ -48,10 +56,9 @@ type PeerMetadataTLSConfig struct {
 	ServerName string `yaml:"server_name"`
 }
 
-type TLSConfig = PeerMetadataTLSConfig
-
 func DefaultConfig() Config {
 	return Config{
+		Mode:             ModePeer,
 		Port:             DefaultPort,
 		RefreshInterval:  10 * time.Second,
 		CallerTTL:        time.Minute,
@@ -68,6 +75,9 @@ func DefaultConfig() Config {
 // WithDefaults returns a copy with defaults for unspecified runtime settings.
 func (c Config) WithDefaults() Config {
 	d := DefaultConfig()
+	if c.Mode == "" {
+		c.Mode = d.Mode
+	}
 	setIntDefault(&c.Port, d.Port)
 	setIntDefault(&c.MaxPeers, d.MaxPeers)
 	setIntDefault(&c.MaxConcurrent, d.MaxConcurrent)

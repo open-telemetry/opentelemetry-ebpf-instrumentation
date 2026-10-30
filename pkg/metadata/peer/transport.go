@@ -24,7 +24,7 @@ import (
 	"unicode/utf8"
 )
 
-func tlsConfigs(cfg TLSConfig) (*tls.Config, *tls.Config, error) {
+func tlsConfigs(cfg MetadataTLSConfig) (*tls.Config, *tls.Config, error) {
 	if !cfg.Enabled {
 		return nil, nil, nil
 	}

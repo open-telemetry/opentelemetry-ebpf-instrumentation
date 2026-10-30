@@ -32,13 +32,15 @@ func applyV2PeerMetadata(cfg *obi.Config, enrich *schema.Enrich, complete bool) 
 		MaxResponseBytes: src.MaxResponseBytes,
 		MaxCacheBytes:    src.MaxCacheBytes,
 		Token:            src.Token,
-		TLS: peer.TLSConfig{
+		TLS: peer.MetadataTLSConfig{
 			Enabled:    src.TLS.Enabled,
 			CertFile:   src.TLS.CertFile,
 			KeyFile:    src.TLS.KeyFile,
 			CAFile:     src.TLS.CAFile,
 			ServerName: src.TLS.ServerName,
 		},
+		// Config v2 does not expose the exchange mode yet, so the runtime default is kept.
+		Mode: cfg.PeerMetadata.Mode,
 	}
 
 	if !complete {

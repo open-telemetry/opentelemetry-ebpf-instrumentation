@@ -38,6 +38,7 @@ func TestConfigLimitValidationTags(t *testing.T) {
 		{field: "max_caller_entries", invalid: "0", valid: "1"},
 		{field: "max_response_bytes", invalid: "0", valid: "1"},
 		{field: "max_cache_bytes", invalid: "0", valid: "1"},
+		{field: "mode", invalid: "unknown", valid: "central"},
 	} {
 		t.Run(test.field, func(t *testing.T) {
 			cfg := DefaultConfig()
@@ -64,7 +65,7 @@ func TestBearerTokenRequiresTLS(t *testing.T) {
 	require.ErrorContains(t, err, "token requires TLS")
 	require.NotContains(t, err.Error(), cfg.Token)
 
-	cfg.TLS = TLSConfig{Enabled: true, CertFile: "cert.pem", KeyFile: "key.pem"}
+	cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: "cert.pem", KeyFile: "key.pem"}
 	require.NoError(t, cfg.Validate())
 	cfg.TLS.Enabled = false
 	cfg.Token = ""

@@ -5,15 +5,9 @@ package peer // import "go.opentelemetry.io/obi/pkg/metadata/peer"
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
-	"fmt"
-	"log/slog"
-	"net"
-	"net/http"
 	"net/netip"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -25,14 +19,10 @@ import (
 )
 
 type Agent struct {
-	cfg       Config
-	network   network
-	store     *localStore
-	cache     *peerCache
-	client    *http.Client
-	server    *http.Server
-	listener  net.Listener
-	closeOnce sync.Once
+	cfg      Config
+	network  network
+	store    *localStore
+	exchange exchange
 }
 
 func New(ctx context.Context, cfg Config, hostname string, serviceGraphEnabled bool,
@@ -52,43 +42,23 @@ func New(ctx context.Context, cfg Config, hostname string, serviceGraphEnabled b
 		return nil, err
 	}
 
-	serverTLS, clientTLS, err := tlsConfigs(cfg.TLS)
+	store := newStore(hostname, cfg)
+	store.graphEnabled = serviceGraphEnabled
+	store.metricsPIDs = metricsPIDs
+	if metricProtocols != nil {
+		store.metricProtocols = *metricProtocols
+	}
+
+	exchange, err := newExchange(ctx, cfg, store, network)
 	if err != nil {
 		return nil, err
-	}
-
-	listener, err := net.Listen("tcp", net.JoinHostPort(cfg.ListenAddress, strconv.Itoa(cfg.Port)))
-	if err != nil {
-		return nil, fmt.Errorf("listening for peer metadata: %w", err)
-	}
-
-	if serverTLS != nil {
-		listener = tls.NewListener(listener, serverTLS)
 	}
 
 	agent := &Agent{
 		cfg:      cfg,
 		network:  network,
-		store:    newStore(hostname, cfg),
-		cache:    newPeerCache(cfg),
-		client:   newHTTPClient(cfg, clientTLS),
-		listener: listener,
-	}
-
-	agent.store.graphEnabled = serviceGraphEnabled
-	agent.store.metricsPIDs = metricsPIDs
-	if metricProtocols != nil {
-		agent.store.metricProtocols = *metricProtocols
-	}
-
-	agent.server = &http.Server{
-		Handler:           metadataHandler(agent.store, cfg, network, agent.cache),
-		ReadHeaderTimeout: cfg.RequestTimeout,
-		ReadTimeout:       cfg.RequestTimeout,
-		WriteTimeout:      cfg.RequestTimeout,
-		IdleTimeout:       3 * cfg.RefreshInterval,
-		MaxHeaderBytes:    16 << 10,
-		BaseContext:       func(net.Listener) context.Context { return ctx },
+		store:    store,
+		exchange: exchange,
 	}
 
 	context.AfterFunc(ctx, agent.Close)
@@ -96,14 +66,10 @@ func New(ctx context.Context, cfg Config, hostname string, serviceGraphEnabled b
 }
 
 func (a *Agent) Close() {
-	a.closeOnce.Do(func() {
-		_ = a.server.Close()
-		_ = a.listener.Close()
-		a.client.CloseIdleConnections()
-	})
+	a.exchange.close()
 }
 
-// Run serves local metadata, tracks process inventory, and refreshes peers until cancellation.
+// Run tracks process inventory, expires caller observations, and runs the metadata exchange until cancellation.
 func (a *Agent) Run(ctx context.Context, events <-chan exec.ProcessEvent) {
 	defer a.Close()
 
@@ -119,66 +85,25 @@ func (a *Agent) Run(ctx context.Context, events <-chan exec.ProcessEvent) {
 	})
 
 	workers.Go(func() {
-		if err := a.server.Serve(a.listener); err != nil && !errors.Is(err, http.ErrServerClosed) && ctx.Err() == nil {
-			slog.Error("peer metadata server stopped", "error", err)
-		}
+		a.expireCallers(ctx)
 	})
 
-	jobs := make(chan *cachedPeer, a.cfg.MaxConcurrent)
-	for range a.cfg.MaxConcurrent {
-		workers.Go(func() {
-			a.fetchPeers(ctx, jobs)
-		})
-	}
-
-	a.schedulePeers(ctx, jobs)
+	a.exchange.run(ctx)
 	workers.Wait()
 }
 
-// fetchPeers downloads queued peer snapshots and records each refresh result in the cache.
-func (a *Agent) fetchPeers(ctx context.Context, jobs <-chan *cachedPeer) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case peer := <-jobs:
-			started := time.Now()
-			snapshot, size, err := fetchSnapshot(ctx, a.client, a.cfg, peer.address)
-
-			var indexed *cachedSnapshot
-			if err == nil {
-				indexed = indexSnapshot(snapshot)
-			} else if ctx.Err() == nil {
-				slog.Debug("peer metadata unavailable", "peer", peer.address, "error", err)
-			}
-
-			a.cache.complete(peer, indexed, size, started, time.Now())
-		}
-	}
-}
-
-// schedulePeers expires caller observations and queues peer refreshes as capacity allows.
-func (a *Agent) schedulePeers(ctx context.Context, jobs chan<- *cachedPeer) {
+// expireCallers periodically drops expired caller observations from the local store.
+func (a *Agent) expireCallers(ctx context.Context) {
 	ticker := time.NewTicker(max(time.Millisecond, min(time.Second, a.cfg.RefreshInterval/4)))
 	defer ticker.Stop()
 
 	for {
-		now := time.Now()
-		a.store.expire(now)
-
-		for _, peer := range a.cache.due(now, cap(jobs)-len(jobs)) {
-			select {
-			case jobs <- peer:
-			case <-ctx.Done():
-				return
-			}
-		}
+		a.store.expire(time.Now())
 
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-		case <-a.cache.wake:
 		}
 	}
 }
@@ -253,7 +178,7 @@ func (a *Agent) resolveDestination(destination Endpoint, caller Service, event r
 		return Service{}, false
 	}
 
-	snapshot, fetchedAt := a.cache.lookup(address, now)
+	snapshot, fetchedAt := a.exchange.lookup(address, now)
 	if snapshot == nil {
 		return Service{}, false
 	}
@@ -280,7 +205,7 @@ func (a *Agent) resolveCaller(remoteIP string, destination Endpoint, now time.Ti
 		return Service{}
 	}
 
-	snapshot, fetchedAt := a.cache.lookup(address, now)
+	snapshot, fetchedAt := a.exchange.lookup(address, now)
 	if snapshot == nil {
 		return Service{}
 	}
