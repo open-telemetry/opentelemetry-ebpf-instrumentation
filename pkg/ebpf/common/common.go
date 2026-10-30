@@ -39,7 +39,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target $BPF_TARGETS -type protocol_type -type event_type -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type go_auto_span_t -type mongo_go_client_req_t -type dns_req_t -type node_span_event_t -type pid_namespace_mode -type valid_pids_size -type ringbuf_write_stats_t -type ringbuf_id Bpf ../../../bpf/common/common.c -- -I../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target $BPF_TARGETS -type protocol_type -type event_type -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type go_auto_span_t -type mongo_go_client_req_t -type dns_req_t -type node_span_event_t -type process_event_t -type pid_namespace_mode -type valid_pids_size -type ringbuf_write_stats_t -type ringbuf_id Bpf ../../../bpf/common/common.c -- -I../../../bpf
 
 // HTTPRequestTrace contains information from an HTTP request as directly received from the
 // eBPF layer. This contains low-level C structures for accurate binary read from ring buffer.
@@ -59,6 +59,7 @@ type (
 	GoMongoClientInfo    BpfMongoGoClientReqT
 	DNSInfo              BpfDnsReqT
 	NodeSpanEvent        BpfNodeSpanEventT
+	ProcessEvent         BpfProcessEventT
 )
 
 // Go mirror of tp_info.h -> enum tp_flags
@@ -103,6 +104,8 @@ const (
 	EventTypeJVMRuntimeMetrics     = uint8(BpfEventTypeK_eventTypeJvmRuntimeMetrics)      // JVM runtime metrics
 	EventTypeNodejsResource        = uint8(BpfEventTypeK_eventTypeNodejsResource)
 	EventTypeJVMGCDuration         = uint8(BpfEventTypeK_eventTypeJvmGcDuration) // JVM garbage-collection duration
+	EventTypeProcessFork           = uint8(BpfEventTypeK_eventTypeProcessFork)   // An instrumented process forked a process
+	EventTypeProcessExec           = uint8(BpfEventTypeK_eventTypeProcessExec)   // A forked process ran exec
 )
 
 // Kernel-side classification. These alias the bpf2go-generated constants

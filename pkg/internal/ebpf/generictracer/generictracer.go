@@ -351,6 +351,12 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeSysExit,
 		},
+		"wake_up_new_task": {
+			Start: p.bpfObjects.ObiKprobeWakeUpNewTask,
+		},
+		"setup_new_exec": {
+			Start: p.bpfObjects.ObiKprobeSetupNewExec,
+		},
 		"unix_stream_recvmsg": {
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeUnixStreamRecvmsg,
@@ -1031,7 +1037,11 @@ func bpfConnInfoT(src ebpfcommon.BpfConnectionInfoT) (dst BpfConnectionInfoT) {
 	return
 }
 
-func (p *Tracer) SetEventContext(ctx *ebpfcommon.EBPFEventContext) { p.eventCtx = ctx }
+func (p *Tracer) SetEventContext(ctx *ebpfcommon.EBPFEventContext) {
+	p.eventCtx = ctx
+	// the Go tracer may be the one reading the shared ring buffer
+	ebpfcommon.RegisterProcessEventHandlers(ctx, p.pidsFilter)
+}
 
 func (p *Tracer) Capabilities() ebpfcommon.TracerCapability { return 0 }
 

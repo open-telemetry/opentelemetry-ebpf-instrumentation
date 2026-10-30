@@ -1524,6 +1524,45 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_exit, int status) {
     return 0;
 }
 
+// lets user space attribute forked children that exit before discovery polls them
+SEC("kprobe/wake_up_new_task")
+int BPF_KPROBE_GUARDED(obi_kprobe_wake_up_new_task, struct task_struct *task) {
+    (void)ctx;
+
+    if (!valid_pid(bpf_get_current_pid_tgid())) {
+        return 0;
+    }
+
+    // threads belong to an already known process
+    if (BPF_CORE_READ(task, pid) != BPF_CORE_READ(task, tgid)) {
+        return 0;
+    }
+
+    process_event_t event = {.type = k_event_type_process_fork, .ts = bpf_ktime_get_ns()};
+    task_pid_of(task, &event.pid);
+    task_pid(&event.parent);
+
+    events_ringbuf_output(&event, sizeof(event));
+
+    return 0;
+}
+
+SEC("kprobe/setup_new_exec")
+int BPF_KPROBE_GUARDED(obi_kprobe_setup_new_exec) {
+    (void)ctx;
+
+    if (!valid_pid(bpf_get_current_pid_tgid())) {
+        return 0;
+    }
+
+    process_event_t event = {.type = k_event_type_process_exec, .ts = bpf_ktime_get_ns()};
+    task_pid(&event.pid);
+
+    events_ringbuf_output(&event, sizeof(event));
+
+    return 0;
+}
+
 SEC("kprobe/inet_csk_listen_stop")
 int BPF_KPROBE_GUARDED(obi_kprobe_inet_csk_listen_stop, struct sock *sk) {
     (void)ctx;

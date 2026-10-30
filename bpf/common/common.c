@@ -41,3 +41,4 @@ const enum pid_namespace_mode *unused_18 __attribute__((unused));
 const enum valid_pids_size *unused_19 __attribute__((unused));
 const ringbuf_write_stats_t *unused_20 __attribute__((unused));
 const enum ringbuf_id *unused_21 __attribute__((unused));
+const process_event_t *unused_22 __attribute__((unused));
