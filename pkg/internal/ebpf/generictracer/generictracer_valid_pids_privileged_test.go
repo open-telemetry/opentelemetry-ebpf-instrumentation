@@ -8,7 +8,7 @@ package generictracer
 import (
 	"bytes"
 	"log/slog"
-	"syscall"
+	"sync/atomic"
 	"testing"
 
 	"github.com/cilium/ebpf"
@@ -18,6 +18,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 )
 
 func newTestValidPids(t *testing.T, words uint32) *ebpf.Map {
@@ -110,23 +111,88 @@ func TestValidateValidPidsMapRejectsAnotherSize(t *testing.T) {
 	require.Error(t, tracer.validateValidPidsMap())
 }
 
-func TestRebuildValidPidsOnClosedMapFailsWithEBADF(t *testing.T) {
-	// on shutdown the shared valid_pids map is closed while the attacher can still update it
-	tracer := newTestValidPidsTracer(t, 41000)
-	require.NoError(t, tracer.bpfObjects.ValidPids.Close())
+// mirrors unloadInternalMaps in pkg/ebpf, which this package can't import
+func unloadTestInternalMaps(eventCtx *ebpfcommon.EBPFEventContext) {
+	eventCtx.MapsLock.Lock()
+	defer eventCtx.MapsLock.Unlock()
 
-	require.ErrorIs(t, tracer.rebuildValidPids(), syscall.EBADF)
+	for _, m := range eventCtx.EBPFMaps {
+		m.Close()
+	}
+	eventCtx.EBPFMaps = map[string]*ebpf.Map{}
 }
 
-func TestValidPidsUpdateOnClosedMapIsNotLoggedAsError(t *testing.T) {
-	tracer := newTestValidPidsTracer(t, 41000)
+func newTestSharedValidPidsTracer(t *testing.T, pids ...app.PID) *Tracer {
+	t.Helper()
+
+	tracer := newTestValidPidsTracer(t, pids...)
+	tracer.eventCtx = &ebpfcommon.EBPFEventContext{
+		EBPFMaps: map[string]*ebpf.Map{"valid_pids": tracer.bpfObjects.ValidPids},
+	}
+
+	return tracer
+}
+
+func TestValidPidsUpdateAfterUnloadIsSkipped(t *testing.T) {
+	// on shutdown the shared valid_pids map is unloaded while the attacher can still update it
+	tracer := newTestSharedValidPidsTracer(t, 41000)
 	var logs bytes.Buffer
-	tracer.log = slog.New(slog.NewJSONHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	require.NoError(t, tracer.bpfObjects.ValidPids.Close())
+	tracer.log = slog.New(slog.NewJSONHandler(&logs, nil))
 
 	tracer.AllowPID(41000, 0, exec.New(exec.Init{Pid: 41000}))
+	assert.Equal(t, uint64(1<<40), validPidsWord(t, tracer.bpfObjects.ValidPids, 640))
+
+	unloadTestInternalMaps(tracer.eventCtx)
+	tracer.pidsFilter = fakeServiceFilter{}
 	tracer.BlockPID(41000, 0)
+	tracer.pidsFilter = fakeServiceFilter{procPIDs: []app.PID{41007}}
+	tracer.AllowPID(41007, 0, exec.New(exec.Init{Pid: 41007}))
 
 	assert.NotContains(t, logs.String(), `"level":"ERROR"`)
-	assert.Equal(t, 2, bytes.Count(logs.Bytes(), []byte("BPF PID filter already closed")))
+}
+
+// alternates two pids of the same word, so every rebuild writes the map
+type alternatingPidsFilter struct {
+	fakeServiceFilter
+	calls atomic.Uint64
+}
+
+func (f *alternatingPidsFilter) ProcPIDs(ebpfcommon.PIDType) []app.PID {
+	if f.calls.Add(1)%2 == 0 {
+		return []app.PID{41000}
+	}
+	return []app.PID{41007}
+}
+
+func TestValidPidsRebuildRacingUnloadNeverWritesAClosedMap(t *testing.T) {
+	tracer := newTestSharedValidPidsTracer(t)
+	tracer.pidsFilter = &alternatingPidsFilter{}
+
+	started := make(chan struct{})
+	unloaded := make(chan struct{})
+	errs := make(chan error, 1)
+	go func() {
+		defer close(errs)
+		// keeps rebuilding after the unload, like an attacher batch still in flight
+		for i, after := 0, 0; after < 100; i++ {
+			if err := tracer.rebuildValidPids(); err != nil {
+				errs <- err
+				return
+			}
+			if i == 10 {
+				close(started)
+			}
+			select {
+			case <-unloaded:
+				after++
+			default:
+			}
+		}
+	}()
+
+	<-started
+	unloadTestInternalMaps(tracer.eventCtx)
+	close(unloaded)
+
+	require.NoError(t, <-errs)
 }

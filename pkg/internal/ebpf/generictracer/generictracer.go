@@ -110,11 +110,18 @@ func (p *Tracer) validateValidPidsMap() error {
 	return nil
 }
 
+// valid_pids is shared: unloadInternalMaps closes it under MapsLock on shutdown
 func (p *Tracer) rebuildValidPids() error {
 	if p.bpfObjects.ValidPids == nil {
 		return nil
 	}
-
+	if p.eventCtx != nil {
+		p.eventCtx.MapsLock.Lock()
+		defer p.eventCtx.MapsLock.Unlock()
+		if p.eventCtx.EBPFMaps["valid_pids"] == nil {
+			return nil
+		}
+	}
 	_, err := p.validPids.Rebuild(p.bpfObjects.ValidPids, p.pidsFilter, ebpfcommon.PIDTypeKProbes, p.log)
 	return err
 }
@@ -134,20 +141,11 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	}
 
 	if err := p.rebuildValidPids(); err != nil {
-		p.logValidPidsError(err)
+		p.log.Error("rebuilding the BPF PID filter", "error", err)
 		return
 	}
 
 	p.runItersForPID(pid)
-}
-
-// valid_pids is shared and closed on shutdown while the attacher can still update it
-func (p *Tracer) logValidPidsError(err error) {
-	if errors.Is(err, syscall.EBADF) {
-		p.log.Debug("BPF PID filter already closed", "error", err)
-		return
-	}
-	p.log.Error("rebuilding the BPF PID filter", "error", err)
 }
 
 func ensureJVMRuntimeMetricGeneration(fi *exec.FileInfo) uint64 {
@@ -165,7 +163,7 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.pidsFilter.BlockPID(pid, ns)
 
 	if err := p.rebuildValidPids(); err != nil {
-		p.logValidPidsError(err)
+		p.log.Error("rebuilding the BPF PID filter", "error", err)
 	}
 }
 

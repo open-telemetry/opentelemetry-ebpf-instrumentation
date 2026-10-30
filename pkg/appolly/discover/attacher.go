@@ -161,9 +161,6 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 
 		swarms.ForEachInput(ctx, in, ta.log.Debug, func(instrumentables []Event[ebpf.Instrumentable]) {
 			for _, instr := range instrumentables {
-				if ctx.Err() != nil {
-					return
-				}
 				ta.log.Debug("Instrumentable", "created", instr.Type, "type", instr.Obj.Type,
 					"exec", instr.Obj.FileInfo.CmdExePath(), "pid", instr.Obj.FileInfo.Pid())
 				switch instr.Type {
