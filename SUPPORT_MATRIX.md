@@ -2,9 +2,9 @@
 
 This document defines the environments and artifact platforms that OBI documents as supported.
 
-While OBI remains in Development, this matrix is informational and does not yet create a stable `v1`
-compatibility contract. After OBI declares `v1`, the entries documented here become part of the
-support matrix described in [VERSIONING.md](./VERSIONING.md).
+Starting with v1.0.0, the entries documented here are part of the support
+matrix described in [VERSIONING.md](./VERSIONING.md). Entries explicitly
+classified as experimental or Development remain outside the stable contract.
 
 ## Release Artifacts
 
