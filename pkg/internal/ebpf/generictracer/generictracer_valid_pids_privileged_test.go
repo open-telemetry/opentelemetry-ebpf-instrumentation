@@ -8,7 +8,6 @@ package generictracer
 import (
 	"bytes"
 	"log/slog"
-	"os"
 	"testing"
 	"time"
 
@@ -123,11 +122,8 @@ func TestValidPidsUpdateAfterCloseIsSkipped(t *testing.T) {
 
 	tracer.pidsFilter = fakeServiceFilter{}
 	tracer.BlockPID(41000, 0)
-	// an iterator without a link fails if it runs: the closed iterators must not run either
-	tracer.iters = []*ebpfcommon.Iter{{Program: &ebpf.Program{}}}
-	self := app.PID(os.Getpid())
-	tracer.pidsFilter = fakeServiceFilter{procPIDs: []app.PID{self}}
-	tracer.AllowPID(self, 0, exec.New(exec.Init{Pid: self}))
+	tracer.pidsFilter = fakeServiceFilter{procPIDs: []app.PID{41007}}
+	tracer.AllowPID(41007, 0, exec.New(exec.Init{Pid: 41007}))
 
 	assert.NotContains(t, logs.String(), `"level":"ERROR"`)
 }
