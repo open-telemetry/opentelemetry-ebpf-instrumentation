@@ -28,16 +28,20 @@ jobs:
         with:
           sparse-checkout: |
             scripts/ci-analysis/
+            .github/actions/setup-mise/
             go.mod
             go.sum
+            mise.toml
+            mise.lock
           sparse-checkout-cone-mode: false
           persist-credentials: false
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Set up mise tools
+        uses: $/.github/actions/setup-mise
+        env:
+          MISE_ENABLE_TOOLS: go
         with:
-          go-version-file: "go.mod"
-          cache: false
+          cache-downloads: "false"
 
       - name: Compute snapshot date
         id: date
