@@ -110,19 +110,22 @@ func (p *Tracer) validateValidPidsMap() error {
 	return nil
 }
 
-// valid_pids is shared: unloadInternalMaps closes it under MapsLock on shutdown
+// valid_pids is shared: write it through the shared handle, which unloadInternalMaps
+// closes under MapsLock. p.bpfObjects holds a clone that the ringbuf closes on
+// cancellation without that lock.
 func (p *Tracer) rebuildValidPids() error {
-	if p.bpfObjects.ValidPids == nil {
+	m := p.bpfObjects.ValidPids
+	if m == nil {
 		return nil
 	}
 	if p.eventCtx != nil {
 		p.eventCtx.MapsLock.Lock()
 		defer p.eventCtx.MapsLock.Unlock()
-		if p.eventCtx.EBPFMaps["valid_pids"] == nil {
+		if m = p.eventCtx.EBPFMaps["valid_pids"]; m == nil {
 			return nil
 		}
 	}
-	_, err := p.validPids.Rebuild(p.bpfObjects.ValidPids, p.pidsFilter, ebpfcommon.PIDTypeKProbes, p.log)
+	_, err := p.validPids.Rebuild(m, p.pidsFilter, ebpfcommon.PIDTypeKProbes, p.log)
 	return err
 }
 

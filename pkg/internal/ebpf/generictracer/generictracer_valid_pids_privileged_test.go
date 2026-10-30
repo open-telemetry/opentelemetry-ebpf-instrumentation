@@ -122,15 +122,40 @@ func unloadTestInternalMaps(eventCtx *ebpfcommon.EBPFEventContext) {
 	eventCtx.EBPFMaps = map[string]*ebpf.Map{}
 }
 
+// like the eBPF loader, gives the tracer a clone of the shared valid_pids map
 func newTestSharedValidPidsTracer(t *testing.T, pids ...app.PID) *Tracer {
 	t.Helper()
 
 	tracer := newTestValidPidsTracer(t, pids...)
+	shared := tracer.bpfObjects.ValidPids
+	clone, err := shared.Clone()
+	require.NoError(t, err)
+	t.Cleanup(func() { clone.Close() })
+
+	tracer.bpfObjects.ValidPids = clone
 	tracer.eventCtx = &ebpfcommon.EBPFEventContext{
-		EBPFMaps: map[string]*ebpf.Map{"valid_pids": tracer.bpfObjects.ValidPids},
+		EBPFMaps: map[string]*ebpf.Map{"valid_pids": shared},
 	}
 
 	return tracer
+}
+
+func TestValidPidsUpdateAfterTracerObjectsCloseUsesSharedMap(t *testing.T) {
+	// on cancellation the ringbuf closes the tracer's clone while the attacher can still update it
+	tracer := newTestSharedValidPidsTracer(t, 41000)
+	shared := tracer.eventCtx.EBPFMaps["valid_pids"]
+	var logs bytes.Buffer
+	tracer.log = slog.New(slog.NewJSONHandler(&logs, nil))
+
+	tracer.AllowPID(41000, 0, exec.New(exec.Init{Pid: 41000}))
+	assert.Equal(t, uint64(1<<40), validPidsWord(t, shared, 640))
+
+	require.NoError(t, tracer.bpfObjects.ValidPids.Close())
+	tracer.pidsFilter = fakeServiceFilter{}
+	tracer.BlockPID(41000, 0)
+
+	assert.NotContains(t, logs.String(), `"level":"ERROR"`)
+	assert.Equal(t, uint64(0), validPidsWord(t, shared, 640))
 }
 
 func TestValidPidsUpdateAfterUnloadIsSkipped(t *testing.T) {
@@ -140,8 +165,8 @@ func TestValidPidsUpdateAfterUnloadIsSkipped(t *testing.T) {
 	tracer.log = slog.New(slog.NewJSONHandler(&logs, nil))
 
 	tracer.AllowPID(41000, 0, exec.New(exec.Init{Pid: 41000}))
-	assert.Equal(t, uint64(1<<40), validPidsWord(t, tracer.bpfObjects.ValidPids, 640))
 
+	require.NoError(t, tracer.bpfObjects.ValidPids.Close())
 	unloadTestInternalMaps(tracer.eventCtx)
 	tracer.pidsFilter = fakeServiceFilter{}
 	tracer.BlockPID(41000, 0)
@@ -164,7 +189,7 @@ func (f *alternatingPidsFilter) ProcPIDs(ebpfcommon.PIDType) []app.PID {
 	return []app.PID{41007}
 }
 
-func TestValidPidsRebuildRacingUnloadNeverWritesAClosedMap(t *testing.T) {
+func TestValidPidsRebuildRacingShutdownNeverWritesAClosedMap(t *testing.T) {
 	tracer := newTestSharedValidPidsTracer(t)
 	tracer.pidsFilter = &alternatingPidsFilter{}
 
@@ -191,6 +216,8 @@ func TestValidPidsRebuildRacingUnloadNeverWritesAClosedMap(t *testing.T) {
 	}()
 
 	<-started
+	// as on shutdown: the ringbuf closes the tracer's clone, then the shared map is unloaded
+	require.NoError(t, tracer.bpfObjects.ValidPids.Close())
 	unloadTestInternalMaps(tracer.eventCtx)
 	close(unloaded)
 
