@@ -394,7 +394,7 @@ type Config struct {
 	Attributes    Attributes                    `yaml:"attributes"`
 	CloudMetadata transform.CloudMetadataConfig `yaml:"cloud_metadata"`
 
-	PeerMetadata peer.Config `yaml:"-" env:"-" jsonschema:"-" validate:"-"`
+	PeerMetadata peer.MetadataConfig `yaml:"-" env:"-" jsonschema:"-" validate:"-"`
 	// Routes configures URL path grouping. If not set, data will be directly forwarded to exporters.
 	Routes       *transform.RoutesConfig       `yaml:"routes"`
 	NameResolver *transform.NameResolverConfig `yaml:"name_resolver"`

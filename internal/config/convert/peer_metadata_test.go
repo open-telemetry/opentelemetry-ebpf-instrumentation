@@ -30,7 +30,7 @@ func TestPeerMetadataV2DefaultsAndRoundTrip(t *testing.T) {
 	cfg.PeerMetadata.CallerTTL = 20 * time.Second
 	cfg.PeerMetadata.PeerCIDRs = []string{"10.1.0.0/16"}
 	cfg.PeerMetadata.Token = "secret"
-	cfg.PeerMetadata.TLS = peer.TLSConfig{Enabled: true, CertFile: "cert", KeyFile: "key", CAFile: "ca", ServerName: "agent"}
+	cfg.PeerMetadata.TLS = peer.MetadataTLSConfig{Enabled: true, CertFile: "cert", KeyFile: "key", CAFile: "ca", ServerName: "agent"}
 	_, exported := RuntimeToV2(cfg)
 	roundTrip, err := V2ToRuntime(exported)
 	require.NoError(t, err)
@@ -64,7 +64,7 @@ func TestPeerMetadataRuntimeToV2RoundTrip(t *testing.T) {
 	cfg.PeerMetadata.PeerCIDRs = []string{"10.1.0.0/16"}
 	cfg.PeerMetadata.CallerTTL = 20 * time.Second
 	cfg.PeerMetadata.Token = "shared-token"
-	cfg.PeerMetadata.TLS = peer.TLSConfig{
+	cfg.PeerMetadata.TLS = peer.MetadataTLSConfig{
 		Enabled: true, CertFile: "cert.pem", KeyFile: "key.pem", CAFile: "ca.pem", ServerName: "agent.test",
 	}
 	_, extension := RuntimeToV2(&cfg)

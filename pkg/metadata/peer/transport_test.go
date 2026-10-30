@@ -152,7 +152,7 @@ func TestTLSVerification(t *testing.T) {
 	require.NoError(t, os.WriteFile(certFile, certificate, 0o600))
 	require.NoError(t, os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key}), 0o600))
 	cfg.Port = server.Listener.Addr().(*net.TCPAddr).Port
-	cfg.TLS = TLSConfig{Enabled: true, CertFile: certFile, KeyFile: keyFile}
+	cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: certFile, KeyFile: keyFile}
 	for _, trusted := range []bool{false, true} {
 		if trusted {
 			cfg.TLS.CAFile = certFile
