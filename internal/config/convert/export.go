@@ -114,9 +114,10 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 
 	sql := protocols[protocolSQL]
 	sqlInstrumentation := schema.SQLInstrumentation{
-		Enabled:         sql.Enabled,
-		Filters:         sql.Filters,
-		HeuristicDetect: cfg.EBPF.HeuristicSQLDetect,
+		Enabled:           sql.Enabled,
+		Filters:           sql.Filters,
+		HeuristicDetect:   cfg.EBPF.HeuristicSQLDetect,
+		SanitizeQueryText: cfg.Attributes.SanitizeSQLQueryText,
 		MySQL: schema.SQLDatabaseInstrumentation{
 			BufferSize:                  cfg.EBPF.BufferSizes.MySQL,
 			PreparedStatementsCacheSize: cfg.EBPF.MySQLPreparedStatementsCacheSize,

@@ -305,6 +305,7 @@ extensions:
             traces: {}
             metrics: {}
           heuristic_detect: false
+          sanitize_query_text: false
           mysql:
             buffer_size: 0
             prepared_statements_cache_size: 1024

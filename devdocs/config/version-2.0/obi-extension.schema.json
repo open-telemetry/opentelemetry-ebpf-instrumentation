@@ -1522,6 +1522,11 @@
           "default": false,
           "description": "Enable heuristic SQL protocol detection.\nIf omitted, false is used.\n"
         },
+        "sanitize_query_text": {
+          "type": "boolean",
+          "default": false,
+          "description": "Replace string, numeric, hexadecimal and boolean literals in `db.query.text` of SQL and SQL++ spans with `?`. By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
+        },
         "mysql": {
           "type": "object",
           "additionalProperties": false,
