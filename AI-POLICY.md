@@ -57,6 +57,16 @@ These uses are acceptable provided you:
 6. Report the use of Generative AI tools for non-trivial preparation of
   submissions (that is, at level 2 or higher on the [AI Influence Level]).
 
+### Versioning and compatibility
+
+Every contribution must comply with [VERSIONING.md](VERSIONING.md). For
+AI-assisted PRs, contributors must verify the
+[compatibility check in AGENTS.md](AGENTS.md#compatibility-check) and include
+its compatibility assessment in the PR description. Apply the post-v1 rules
+to core OBI; historical Development or `v0` wording is not a blanket exemption.
+Contributors remain responsible for checking the applicable stability contract
+and release impact, even when an agent reports that the change is compatible.
+
 ### GitHub Communication
 
 Issue and pull request descriptions, reviews, and comments must be written for

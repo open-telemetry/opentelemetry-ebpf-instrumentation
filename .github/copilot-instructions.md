@@ -1,6 +1,8 @@
 # Copilot Instructions
 
-- Read `AGENTS.md` and `CONTRIBUTING.md` before suggesting code, reviewing a PR, or answering repository-specific questions. Treat them as the source of truth.
+- Read `AGENTS.md`, `CONTRIBUTING.md`, and `VERSIONING.md` before suggesting code, reviewing a PR, or answering repository-specific questions. Treat them as the source of truth.
+- Apply the compatibility check in `AGENTS.md` to every PR, including refactors and dependency updates. Use the post-v1 rules for core OBI; historical Development or `v0` wording is not a blanket exemption.
+- Consult `TELEMETRY.md` and `SUPPORT_MATRIX.md` for affected contracts. Require a concise PR compatibility assessment with stability evidence, release impact, and validation; flag policy violations and unresolved stability questions as blockers.
 - Start with `devdocs/pipeline-map.md` when you need architecture or data-flow context.
 - Prefer repository code and local documentation over external references when they disagree.
 - This repository provides eBPF-based instrumentation for applications and integrates with OpenTelemetry.
