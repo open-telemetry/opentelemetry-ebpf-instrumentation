@@ -267,9 +267,11 @@ func BuildCommonContextInfo(
 	ctxInfo.NodeMeta = metadata.NewNodeMeta(
 		ctx,
 		config.Attributes.HostID.Override,
-		ctxInfo.K8sInformer,
+		&metadata.MetadataProvider{
+			K8sInformer:   ctxInfo.K8sInformer,
+			CloudMetadata: config.CloudMetadata,
+		},
 		config.Attributes.MetadataRetry,
-		config.CloudMetadata.DetectionEnabled,
 	)
 
 	ctxInfo.Metrics, err = internalMetrics(ctx, config, ctxInfo, promMgr)

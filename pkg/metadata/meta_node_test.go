@@ -137,7 +137,9 @@ func TestFetchEntries_DeduplicateByPriority(t *testing.T) {
 
 func TestHostIDOverride(t *testing.T) {
 	connectionTimeout = 50 * time.Millisecond
-	nm := NewNodeMeta(t.Context(), "host_override", nil, DefaultRetryConfig, true)
+	nm := NewNodeMeta(t.Context(), "host_override", &MetadataProvider{
+		CloudMetadata: CloudMetadataConfig{DetectionEnabled: true},
+	}, DefaultRetryConfig)
 	assert.Equal(t, "host_override", nm.HostID)
 }
 

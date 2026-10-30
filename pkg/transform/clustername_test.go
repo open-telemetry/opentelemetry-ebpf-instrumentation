@@ -17,6 +17,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/metadata"
 )
 
 func newTestKubeConfig(t *testing.T, serverURL string) string {
@@ -110,7 +111,10 @@ func TestFetchClusterNameOpenShiftWithCloudDetectionDisabled(t *testing.T) {
 		KubeConfigPath: newTestKubeConfig(t, server.URL),
 	}, imetrics.NoopReporter{})
 
-	name := fetchClusterName(t.Context(), mp, false)
+	name := fetchClusterName(t.Context(), &metadata.MetadataProvider{
+		K8sInformer:   mp,
+		CloudMetadata: CloudMetadataConfig{DetectionEnabled: false},
+	})
 
 	assert.Equal(t, "my-cluster", name)
 }
@@ -168,7 +172,10 @@ func TestFetchClusterNameCloudDetection(t *testing.T) {
 				KubeConfigPath: newTestKubeConfig(t, kubeServer.URL),
 			}, imetrics.NoopReporter{})
 
-			name := fetchClusterName(t.Context(), mp, tt.enabled)
+			name := fetchClusterName(t.Context(), &metadata.MetadataProvider{
+				K8sInformer:   mp,
+				CloudMetadata: CloudMetadataConfig{DetectionEnabled: tt.enabled},
+			})
 
 			assert.Empty(t, name)
 			assert.Equal(t, tt.expectedRequests, cloudRequests.Load())
@@ -181,7 +188,9 @@ func TestKubeClusterNameConfiguredWithCloudDetectionDisabled(t *testing.T) {
 		ClusterName: "configured-cluster",
 	}
 
-	name := KubeClusterName(t.Context(), cfg, false, nil)
+	name := KubeClusterName(t.Context(), cfg, &metadata.MetadataProvider{
+		CloudMetadata: CloudMetadataConfig{DetectionEnabled: false},
+	})
 
 	assert.Equal(t, "configured-cluster", name)
 }

@@ -18,7 +18,6 @@ import (
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
-	"go.opentelemetry.io/obi/pkg/kube"
 )
 
 func nslog() *slog.Logger {
@@ -114,19 +113,18 @@ type Entry struct {
 func NewNodeMeta(
 	ctx context.Context,
 	overrideHost string,
-	kubeInformer *kube.MetadataProvider,
+	provider *MetadataProvider,
 	retryCfg RetryConfig,
-	cloudDetectionEnabled bool,
 ) NodeMeta {
 	// some fetchers will only retrieve the host name while others
 	// will retrieve also host attributes that will be merged
 	// in order of the priority below (the later the highest)
 	fetchers := []fetcher{
 		linuxLocalFetcher,
-		kubeNodeFetcher(kubeInformer),
+		kubeNodeFetcher(provider.K8sInformer),
 	}
 
-	if cloudDetectionEnabled {
+	if provider.CloudMetadata.DetectionEnabled {
 		fetchers = append(fetchers,
 			otelNodeFetcher(ClusterAzureVM, azurevm.NewResourceDetector(
 				azurevm.WithAttributeFilter(azureVMAttributeFilter),

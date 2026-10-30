@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/tracefs"
 	msg2 "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -90,9 +91,11 @@ func NewWithProtocolMetricSelection(ctx context.Context, ctxInfo *global.Context
 
 	processEventsKubeDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, ctxInfo.Metrics, "processEventsKubeDecorated")
 	swi.Add(transform.KubeProcessEventDecoratorProvider(
-		ctxInfo,
+		&metadata.MetadataProvider{
+			K8sInformer:   ctxInfo.K8sInformer,
+			CloudMetadata: config.CloudMetadata,
+		},
 		&config.Attributes.Kubernetes,
-		config.CloudMetadata.DetectionEnabled,
 		processEventsHostDecorated,
 		processEventsKubeDecorated,
 	), swarm.WithID("KubeProcessEventDecoratorProvider"))

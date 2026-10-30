@@ -119,7 +119,9 @@ func TestNewNodeMetaECS(t *testing.T) {
 	defer server.Close()
 	t.Setenv("ECS_CONTAINER_METADATA_URI_V4", server.URL)
 	t.Setenv("ECS_CONTAINER_METADATA_URI", "")
-	got := NewNodeMeta(t.Context(), "host-override", nil, DefaultRetryConfig, true)
+	got := NewNodeMeta(t.Context(), "host-override", &MetadataProvider{
+		CloudMetadata: CloudMetadataConfig{DetectionEnabled: true},
+	}, DefaultRetryConfig)
 	assert.Equal(t, "host-override", got.HostID)
 	assert.Equal(t, "arn:aws:ecs:us-east-1:123456789012:cluster/test", got.Cluster)
 	assert.Equal(t, "us-east-1", got.Region)
@@ -140,7 +142,9 @@ func TestNewNodeMetaECSDetectionDisabled(t *testing.T) {
 	t.Setenv("ECS_CONTAINER_METADATA_URI_V4", server.URL)
 	t.Setenv("ECS_CONTAINER_METADATA_URI", "")
 
-	got := NewNodeMeta(t.Context(), "host-override", nil, DefaultRetryConfig, false)
+	got := NewNodeMeta(t.Context(), "host-override", &MetadataProvider{
+		CloudMetadata: CloudMetadataConfig{DetectionEnabled: false},
+	}, DefaultRetryConfig)
 
 	assert.Zero(t, requests.Load())
 	assert.Equal(t, "host-override", got.HostID)
