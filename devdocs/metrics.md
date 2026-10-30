@@ -144,7 +144,7 @@ tcp_set_state(sk, TCP_CLOSE)
 
 Probes that can run at or after this transition read the port with `parse_full_sock_info` in [bpf/common/sockaddr.h](../bpf/common/sockaddr.h), which falls back to `inet_sport` when `skc_num` is `0`. `inet_sport` is not cleared on close and holds the port the connection used on the wire. These probes are the `inet_sock_set_state` tracepoint (`obi_stat_tcp_failed_connections_total`) and the `tcp_close` kprobes (`obi_stat_tcp_rtt_seconds` and the last `obi_stat_tcp_io_bytes_total` batch), which see a closed socket when a reset arrived before the application called `close()`.
 
-`src.port` is still `0` for a connection attempt that fails before the kernel assigns a local port, for example when no ephemeral port is free. A socket reused with `connect(AF_UNSPEC)` that hits the same failure reports the port of its previous connection instead, because `inet_sport` still holds it.
+`src.port` is still `0` for a connection attempt that fails before sending its SYN, for example when no ephemeral port is free. The failed-connections probe does not fall back to `inet_sport` for these attempts, because on a socket reused with `connect(AF_UNSPEC)` it still holds the port of the previous connection. `tcp_disconnect()` resets `segs_out` and the SYN increments it, so `segs_out == 0` identifies them.
 
 ### Performance considerations
 
