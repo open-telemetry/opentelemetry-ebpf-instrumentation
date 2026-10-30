@@ -9,8 +9,8 @@ import (
 	"bytes"
 	"log/slog"
 	"os"
-	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/rlimit"
@@ -132,48 +132,47 @@ func TestValidPidsUpdateAfterCloseIsSkipped(t *testing.T) {
 	assert.NotContains(t, logs.String(), `"level":"ERROR"`)
 }
 
-// alternates two pids of the same word, so every rebuild writes the map
-type alternatingPidsFilter struct {
+// holds the valid_pids rebuild in flight until released
+type blockingPidsFilter struct {
 	fakeServiceFilter
-	calls atomic.Uint64
+	entered chan struct{}
+	release chan struct{}
 }
 
-func (f *alternatingPidsFilter) ProcPIDs(ebpfcommon.PIDType) []app.PID {
-	if f.calls.Add(1)%2 == 0 {
-		return []app.PID{41000}
-	}
-	return []app.PID{41007}
+func (f *blockingPidsFilter) ProcPIDs(ebpfcommon.PIDType) []app.PID {
+	close(f.entered)
+	<-f.release
+	return []app.PID{41000}
 }
 
-func TestValidPidsUpdatesRacingCloseNeverWriteAClosedMap(t *testing.T) {
+func TestCloseWaitsForAnInFlightValidPidsUpdate(t *testing.T) {
 	tracer := newTestValidPidsTracer(t)
-	tracer.pidsFilter = &alternatingPidsFilter{}
+	filter := &blockingPidsFilter{entered: make(chan struct{}), release: make(chan struct{})}
+	tracer.pidsFilter = filter
 	var logs bytes.Buffer
 	tracer.log = slog.New(slog.NewJSONHandler(&logs, nil))
+	// a second handle reads the map after Close closes the tracer's one
+	readback, err := tracer.bpfObjects.ValidPids.Clone()
+	require.NoError(t, err)
+	t.Cleanup(func() { readback.Close() })
 
-	started := make(chan struct{})
-	closed := make(chan struct{})
-	done := make(chan struct{})
+	updated := make(chan struct{})
 	go func() {
-		defer close(done)
-		// keeps updating after the close, like an attacher batch still in flight
-		for i, after := 0, 0; after < 100; i++ {
-			tracer.BlockPID(41000, 0)
-			if i == 10 {
-				close(started)
-			}
-			select {
-			case <-closed:
-				after++
-			default:
-			}
-		}
+		defer close(updated)
+		tracer.BlockPID(41007, 0)
 	}()
+	<-filter.entered
 
-	<-started
-	require.NoError(t, tracer.Close())
-	close(closed)
-	<-done
+	closed := make(chan error, 1)
+	go func() { closed <- tracer.Close() }()
+	require.Never(t, func() bool { return len(closed) > 0 }, 100*time.Millisecond, 10*time.Millisecond,
+		"Close returned while a valid_pids update was in flight")
+
+	close(filter.release)
+	<-updated
+	require.NoError(t, <-closed)
 
 	assert.NotContains(t, logs.String(), `"level":"ERROR"`)
+	// the in-flight update was written before the map was closed
+	assert.Equal(t, uint64(1<<40), validPidsWord(t, readback, 640))
 }

@@ -278,7 +278,7 @@ func (p *Tracer) AddCloser(c ...io.Closer) {
 	p.closers = append(p.closers, c...)
 }
 
-// waits for an in-flight PID update and rejects the later ones before closing what they write
+// Close waits for an in-flight PID update and rejects the later ones before closing what they write
 func (p *Tracer) Close() error {
 	p.pidsMu.Lock()
 	p.pidsClosed = true
