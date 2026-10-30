@@ -1,8 +1,8 @@
 # Remote entity metadata service
 
-Status: initial design, revised after review. Reuse boundaries and topology
-conflict handling are specified below; protocol details, scale targets, and the
-metric counting policy remain pending.
+Status: initial design, revised after review. Reuse boundaries, topology conflict
+handling, and the existing service graph integration contract are specified
+below; protocol details and scale targets remain pending.
 
 ## Purpose and initial scope
 
@@ -75,7 +75,7 @@ associations and their provenance instead of overwriting a single IP-to-name map
 | Stable host identity, hostname, and network provenance | Distinguish service ambiguity from cross-host address collisions and provide a human-readable fallback. |
 | Addresses and optional port/transport | Exact endpoint lookup and IP fallback. |
 | Resolution domain and source | Address interpretation, provenance, and conflict handling. |
-| Metric coverage and validity | Whether the entity is known to generate server-side service graph metrics, independently of its identity. |
+| Existing graph-participation metadata and validity | Preserve inputs already used by the shared peer/exporter implementation, independently of service naming. |
 
 ### Resolution domains
 
@@ -325,8 +325,8 @@ instrumentation or block span processing indefinitely.
 
 Use leases with a grace period to recover from missing deletes. Propagate enough
 validity information for disconnected consumers to expire stale records too.
-Identity and metric-coverage validity may differ: a cached name can remain useful
-after the claim that its server metrics are active becomes uncertain.
+Preserve the existing validity of reused identity, participation, and caller
+metadata; a cached name alone does not establish current metric participation.
 Renewal requires the owner to confirm the entity still exists, including during
 idle periods with no application traffic. Subscriber reads do not renew that
 validity, and lack of reads does not establish that a service has stopped.
@@ -343,33 +343,57 @@ Independent replicas behind a load balancer would hold different inventories.
 True replication needs shared state or consensus and is deferred. A passive
 replacement without replicated state still needs to rebuild its inventory.
 
-## Service graph semantics
+## Service graph integration
 
-Share identities and observation capabilities, not spans or metric values.
-Durations, errors, and protocol-specific connection types remain derived from
-local spans. Preserve separate client and server latency histograms.
+This service supplies remote entity metadata to existing service graph metric
+generation. It does not define new request/error counting, status classification,
+latency, or `connection_type` semantics. Those decisions remain in the shared
+OBI exporter and peer-resolution implementation.
 
-Today, [client-side request counting](../pkg/export/otel/metrics_svc_graph.go)
-uses a local service-name tracker to decide whether the server is instrumented;
-errors can be counted from both sides. Remote metadata alone does not fix these
-semantics. Define one counting policy for both Prometheus and OTLP exporters,
-including failures, `virtual_node`, partial instrumentation, and stale coverage.
+### Decoration contract
 
-Represent coverage as active, inactive, or unknown at entity/endpoint granularity
-where possible. One observed replica does not establish coverage for every
-replica of the logical service. The registry provides eventual consistency,
-not exactly-once counting during startup, configuration changes, or partitions.
-Reuse the peer proposal's per-service graph flags, protocol selection, and
-caller-acknowledgement evidence as inputs to this policy. A hostname fallback
-must not be mistaken for an instrumented application. Retention of these fields
-through a registry transport is part of the counting design, not automatic
-equivalence of delivery acknowledgements and server observation coverage.
+Populate the existing remote span fields (`HostName`, `PeerName`, and
+`OtherNamespace`, according to span direction) before metric export. Preserve
+the local application's identity. Apply the same identity/hostname fallback
+rules for peer and registry metadata, retaining ambiguity and topology-conflict
+information rather than selecting an arbitrary service.
+
+Existing metric generation can consume identity and participation metadata:
+[ClientSpanToUninstrumentedService](../pkg/export/otel/metrics_svc_graph.go)
+already uses resolved destination identity and local tracking. Where the reused
+peer implementation also uses `ServiceGraph`, `metric_protocols`, caller expiry,
+or `known_callers`, preserve those inputs and invoke its existing logic. A name
+alone must not manufacture a service namespace or participation flag.
+
+The registry changes how these metadata reach OBI, not how the exporter
+interprets equivalent inputs. Do not introduce a separate counting-ownership
+policy, serving-resolver receipt protocol, or a new treatment of HTTP 4xx,
+unknown coverage, failed connections, or `virtual_node` as part of this work.
+
+### Compatibility validation
+
+Record the existing metadata-to-exporter integration points when extracting the
+shared peer components. Compare equivalent decorated spans through peer and
+registry transports in both Prometheus and OTLP, covering service/hostname
+fallbacks, ambiguous and expired metadata, traces-only/disabled metrics, protocol
+selection, and failed connections. Preserve existing request/error increments
+and measured histogram observations for equivalent inputs.
+
+Newly resolved identities naturally change graph labels and may affect decisions
+that existing exporter logic already derives from those identities. That is an
+integration dependency to test, not a requirement to keep every previously
+unenriched output series identical or to redesign counting.
+
+If this investigation exposes an existing duplication or status-classification
+problem, report it separately. Any change to those metric semantics needs its
+own scope and review; it is not a prerequisite for implementing remote metadata
+decoration.
 
 ## Validation and remaining decisions
 
-Endpoint-discovery decisions are specified above. Before implementing the
-protocol, settle the counting policy for unknown coverage. Select lease/cache
-defaults and resource limits after confirming deployment topology and expected scale.
+Endpoint-discovery decisions and the decoration integration contract are
+specified above. Select lease/cache defaults and resource limits after confirming
+deployment topology and expected scale.
 Before implementing the inventory/publisher, identify the shared extraction
 points from the peer proposal and review compatibility while it remains unmerged.
 
