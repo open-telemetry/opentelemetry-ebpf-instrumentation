@@ -72,16 +72,16 @@ func javaExtract(fn func(context.Context, app.PID) (*RouteHarvesterResult, error
 	}
 }
 
-func successfulNodeExtractRoutes(pid app.PID) (*RouteHarvesterResult, error) {
-	return successfulExtractRoutes(context.Background(), pid)
+func successfulNodeExtractRoutes(ctx context.Context, pid app.PID) (*RouteHarvesterResult, error) {
+	return successfulExtractRoutes(ctx, pid)
 }
 
-func errorNodeExtractRoutes(pid app.PID) (*RouteHarvesterResult, error) {
-	return errorExtractRoutes(context.Background(), pid)
+func errorNodeExtractRoutes(ctx context.Context, pid app.PID) (*RouteHarvesterResult, error) {
+	return errorExtractRoutes(ctx, pid)
 }
 
-func successfulPythonExtractRoutes(fi *exec.FileInfo) (*RouteHarvesterResult, error) {
-	return successfulExtractRoutes(context.Background(), fi.Pid())
+func successfulPythonExtractRoutes(ctx context.Context, fi *exec.FileInfo) (*RouteHarvesterResult, error) {
+	return successfulExtractRoutes(ctx, fi.Pid())
 }
 
 func successfulPHPExtractRoutes(ctx context.Context, fi *exec.FileInfo) (*RouteHarvesterResult, error) {
@@ -270,9 +270,39 @@ func TestHarvestNodejsRoutes_Successful(t *testing.T) {
 	assert.Equal(t, CompleteRoutes, result.Kind)
 }
 
+func TestHarvestRoutes_TimeoutStopsSourceExtractor(t *testing.T) {
+	for _, runtime := range []svc.InstrumentableType{svc.InstrumentableNodejs, svc.InstrumentableDeno, svc.InstrumentablePython} {
+		t.Run(runtime.String(), func(t *testing.T) {
+			harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, nil, 10*time.Millisecond)
+			exited := make(chan error, 1)
+			harvester.nodeExtractRoutes = func(ctx context.Context, _ app.PID) (*RouteHarvesterResult, error) {
+				<-ctx.Done()
+				exited <- ctx.Err()
+				return nil, ctx.Err()
+			}
+			harvester.denoExtractRoutes = harvester.nodeExtractRoutes
+			harvester.pythonExtractRoutes = func(ctx context.Context, fi *exec.FileInfo) (*RouteHarvesterResult, error) {
+				return harvester.nodeExtractRoutes(ctx, fi.Pid())
+			}
+
+			for range 3 {
+				result, err := harvester.HarvestRoutes(createTestFileInfo(runtime))
+				require.ErrorContains(t, err, "route harvesting timed out")
+				assert.Nil(t, result)
+				select {
+				case err := <-exited:
+					require.ErrorIs(t, err, context.DeadlineExceeded)
+				case <-time.After(time.Second):
+					t.Fatal("extractor is still running after harvest timeout")
+				}
+			}
+		})
+	}
+}
+
 func TestHarvestDenoRoutes_UsesDenoExtractor(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, time.Second)
-	harvester.nodeExtractRoutes = func(app.PID) (*RouteHarvesterResult, error) {
+	harvester.nodeExtractRoutes = func(context.Context, app.PID) (*RouteHarvesterResult, error) {
 		t.Fatal("Deno route harvesting should not use the Node.js launch parser")
 		return nil, nil
 	}
@@ -294,7 +324,7 @@ func TestHarvestDenoRoutes_DisabledWithNodejs(t *testing.T) {
 		[]services.RouteHarvesterLanguage{services.RouteHarvesterLanguageNodejs},
 		time.Second,
 	)
-	harvester.denoExtractRoutes = func(app.PID) (*RouteHarvesterResult, error) {
+	harvester.denoExtractRoutes = func(context.Context, app.PID) (*RouteHarvesterResult, error) {
 		t.Fatal("Deno route harvesting should be disabled with Node.js route harvesting")
 		return nil, nil
 	}
@@ -322,7 +352,7 @@ func TestHarvestPythonRoutesDisabled(t *testing.T) {
 		[]services.RouteHarvesterLanguage{services.RouteHarvesterLanguagePython},
 		time.Second,
 	)
-	harvester.pythonExtractRoutes = func(*exec.FileInfo) (*RouteHarvesterResult, error) {
+	harvester.pythonExtractRoutes = func(context.Context, *exec.FileInfo) (*RouteHarvesterResult, error) {
 		t.Fatal("disabled Python harvester was called")
 		return nil, nil
 	}

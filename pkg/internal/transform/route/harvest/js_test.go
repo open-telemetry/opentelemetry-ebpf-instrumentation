@@ -44,14 +44,14 @@ func TestRouteExtractorSkipsOversizedFile(t *testing.T) {
 	writeOversizedJSFile(t, path, `app.get('/too-large', handler);`)
 
 	extractor := NewRouteExtractor()
-	require.NoError(t, extractor.scanFile(path))
+	require.NoError(t, extractor.scanFile(t.Context(), path))
 	assert.Empty(t, extractor.GetRoutes())
 }
 
 func TestRouteExtractor_ExpressApp(t *testing.T) {
 	extractor := NewRouteExtractor()
 	exampleFile := filepath.Join("nodejs", "test_files", "express-app.js")
-	err := extractor.scanFile(exampleFile)
+	err := extractor.scanFile(t.Context(), exampleFile)
 	require.NoError(t, err)
 
 	routes := extractor.GetRoutes()
@@ -93,7 +93,7 @@ func TestRouteExtractor_ExpressApp(t *testing.T) {
 func TestRouteExtractor_FastifyApp(t *testing.T) {
 	extractor := NewRouteExtractor()
 	exampleFile := filepath.Join("nodejs", "test_files", "fastify-app.js")
-	err := extractor.scanFile(exampleFile)
+	err := extractor.scanFile(t.Context(), exampleFile)
 	require.NoError(t, err)
 
 	routes := extractor.GetRoutes()
@@ -133,7 +133,7 @@ func TestRouteExtractor_FastifyApp(t *testing.T) {
 func TestRouteExtractor_HttpDispatcherApp(t *testing.T) {
 	extractor := NewRouteExtractor()
 	exampleFile := filepath.Join("nodejs", "test_files", "httpdispatcher-app.js")
-	err := extractor.scanFile(exampleFile)
+	err := extractor.scanFile(t.Context(), exampleFile)
 	require.NoError(t, err)
 
 	routes := extractor.GetRoutes()
@@ -215,7 +215,7 @@ func TestRouteExtractor_AllExamples(t *testing.T) {
 	err := extractor.extractNextJSRoutesFromManifest(examplesDir)
 	require.NoError(t, err)
 
-	err = extractor.ScanDirectory(examplesDir)
+	err = extractor.ScanDirectory(t.Context(), examplesDir)
 	require.NoError(t, err)
 
 	routes := extractor.GetRoutes()
@@ -255,7 +255,7 @@ func TestRouteExtractor_AllExamples(t *testing.T) {
 func TestRouteExtractor_ParameterizedRoutes(t *testing.T) {
 	extractor := NewRouteExtractor()
 	examplesDir := filepath.Join("nodejs", "test_files")
-	err := extractor.ScanDirectory(examplesDir)
+	err := extractor.ScanDirectory(t.Context(), examplesDir)
 	require.NoError(t, err)
 
 	routes := extractor.GetRoutes()
@@ -279,7 +279,7 @@ func TestRouteExtractor_ParameterizedRoutes(t *testing.T) {
 func TestRouteExtractor_RegexRoutes(t *testing.T) {
 	extractor := NewRouteExtractor()
 	exampleFile := filepath.Join("nodejs", "test_files", "httpdispatcher-app.js")
-	err := extractor.scanFile(exampleFile)
+	err := extractor.scanFile(t.Context(), exampleFile)
 	require.NoError(t, err)
 
 	routes := extractor.GetRoutes()
@@ -1222,9 +1222,11 @@ export default { books, users };
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 
 	extractor := NewRouteExtractor()
-	require.NoError(t, extractor.scanFile(path))
+	require.NoError(t, extractor.scanFile(t.Context(), path))
 
-	assert.ElementsMatch(t, []string{"/books/:id", "/users/:id"}, extractor.GetHarvestedRoutes())
+	routes, err := extractor.GetHarvestedRoutes(t.Context())
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"/books/:id", "/users/:id"}, routes)
 	assert.Equal(t, 2, extractor.FrameworkRoutes())
 }
 
@@ -1662,7 +1664,7 @@ app.get('/api/health', (req, res) => {
 			}
 
 			// Execute the function
-			result, err := ExtractNodejsRoutes(tt.pid)
+			result, err := ExtractNodejsRoutes(t.Context(), tt.pid)
 
 			// Verify results
 			if tt.expectedErr != "" {
@@ -1781,7 +1783,7 @@ func TestExtractNodejsRoutes_EmptyDirectory(t *testing.T) {
 		return "/empty", nil
 	}
 
-	result, err := ExtractNodejsRoutes(12345)
+	result, err := ExtractNodejsRoutes(t.Context(), 12345)
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -2006,9 +2008,10 @@ func TestExtractNextJSRoutesFromManifest(t *testing.T) {
 func TestExtractNestJSFastifyApp(t *testing.T) {
 	extractor := NewRouteExtractor()
 	appDir := filepath.Join("nodejs", "test_files_nest")
-	require.NoError(t, extractor.ScanDirectory(appDir))
+	require.NoError(t, extractor.ScanDirectory(t.Context(), appDir))
 
-	routes := extractor.GetHarvestedRoutes()
+	routes, err := extractor.GetHarvestedRoutes(t.Context())
+	require.NoError(t, err)
 
 	assert.ElementsMatch(t, []string{
 		"/uptime",
@@ -2024,9 +2027,10 @@ func TestExtractNestJSFastifyApp(t *testing.T) {
 func TestNestJSControllerPrefixSwitchesPerClass(t *testing.T) {
 	extractor := NewRouteExtractor()
 	exampleFile := filepath.Join("nodejs", "test_files", "nestjs-controller.ts")
-	require.NoError(t, extractor.scanFile(exampleFile))
+	require.NoError(t, extractor.scanFile(t.Context(), exampleFile))
 
-	routes := extractor.GetHarvestedRoutes()
+	routes, err := extractor.GetHarvestedRoutes(t.Context())
+	require.NoError(t, err)
 
 	// The fixture declares three controllers ('users', 'api/v1/posts', 'health');
 	// each method decorator resolves against the prefix of its own controller,
@@ -2043,10 +2047,12 @@ func TestNestJSControllerPrefixSwitchesPerClass(t *testing.T) {
 func TestCompiledNestJSFragmentExtraction(t *testing.T) {
 	extractor := NewCompiledRouteExtractor()
 	appDir := filepath.Join("nodejs", "test_files_dist")
-	require.NoError(t, extractor.ScanDirectory(appDir))
+	require.NoError(t, extractor.ScanDirectory(t.Context(), appDir))
 
 	// Compiled decorators lose the controller/method association, so prefixes
 	// and method paths are harvested as separate fragments.
+	routes, err := extractor.GetHarvestedRoutes(t.Context())
+	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{
 		"/invoice",
 		"/catalog",
@@ -2054,7 +2060,7 @@ func TestCompiledNestJSFragmentExtraction(t *testing.T) {
 		"/:id",
 		"/:id/receipt",
 		"/callbacks/acme",
-	}, extractor.GetHarvestedRoutes())
+	}, routes)
 }
 
 func TestExtractNodejsRoutes_CompiledDistOnly(t *testing.T) {
@@ -2087,7 +2093,7 @@ func TestExtractNodejsRoutes_CompiledDistOnly(t *testing.T) {
 			cmdlineForPID = func(_ app.PID) (string, []string, error) { return "node", tt.cmdline, nil }
 			cwdForPID = func(_ app.PID) (string, error) { return "/", nil }
 
-			result, err := ExtractNodejsRoutes(4242)
+			result, err := ExtractNodejsRoutes(t.Context(), 4242)
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.Equal(t, PartialRoutes, result.Kind)
@@ -2104,13 +2110,15 @@ func TestExtractNodejsRoutes_CompiledDistOnly(t *testing.T) {
 func TestExtractNestJSVersionedApp(t *testing.T) {
 	extractor := NewRouteExtractor()
 	appDir := filepath.Join("nodejs", "test_files_nest_versioned")
-	require.NoError(t, extractor.ScanDirectory(appDir))
+	require.NoError(t, extractor.ScanDirectory(t.Context(), appDir))
 
 	// setGlobalPrefix('api') and URI versioning with defaultVersion '1' apply to
 	// every Nest route; @Controller({version: '2'}) overrides the default and
 	// @Version('3') overrides the controller. @Version() applies whether it
 	// appears above or below the method decorator in the stack, and a bare
 	// @Get() on a prefix-less controller still yields the /api/v1 root route.
+	routes, err := extractor.GetHarvestedRoutes(t.Context())
+	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{
 		"/api/v2/catalog/featured",
 		"/api/v2/catalog/:sku",
@@ -2122,17 +2130,19 @@ func TestExtractNestJSVersionedApp(t *testing.T) {
 		"/api/v1/ledger",
 		"/api/v1/books",
 		"/api/v1",
-	}, extractor.GetHarvestedRoutes())
+	}, routes)
 }
 
 func TestCompiledNestJSVersionedFragments(t *testing.T) {
 	extractor := NewCompiledRouteExtractor()
 	appDir := filepath.Join("nodejs", "test_files_dist_versioned")
-	require.NoError(t, extractor.ScanDirectory(appDir))
+	require.NoError(t, extractor.ScanDirectory(t.Context(), appDir))
 
 	// In compiled mode, association is lost: global prefix, versions
 	// (including the enableVersioning defaultVersion), and controller paths
 	// all become standalone fragments.
+	routes, err := extractor.GetHarvestedRoutes(t.Context())
+	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{
 		"/edge",
 		"/catalog",
@@ -2141,7 +2151,7 @@ func TestCompiledNestJSVersionedFragments(t *testing.T) {
 		"/v3",
 		"/featured",
 		"/preview",
-	}, extractor.GetHarvestedRoutes())
+	}, routes)
 }
 
 func TestExtractNodejsRoutes_CompiledVersionedDist(t *testing.T) {
@@ -2163,7 +2173,7 @@ func TestExtractNodejsRoutes_CompiledVersionedDist(t *testing.T) {
 	}
 	cwdForPID = func(_ app.PID) (string, error) { return "/", nil }
 
-	result, err := ExtractNodejsRoutes(4243)
+	result, err := ExtractNodejsRoutes(t.Context(), 4243)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, PartialRoutes, result.Kind)
@@ -2183,7 +2193,7 @@ func TestEnableVersioningMultiLine(t *testing.T) {
 		path := filepath.Join(dir, "main.ts")
 		require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 		extractor := NewRouteExtractor()
-		require.NoError(t, extractor.scanFile(path))
+		require.NoError(t, extractor.scanFile(t.Context(), path))
 		return extractor
 	}
 
@@ -2235,9 +2245,11 @@ export class SecondController {
 `
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o644))
 	extractor := NewRouteExtractor()
-	require.NoError(t, extractor.scanFile(path))
+	require.NoError(t, extractor.scanFile(t.Context(), path))
 
 	// the unresolvable prefix must not inherit the previous controller's
 	// prefix: /beta, not /first/beta
-	assert.ElementsMatch(t, []string{"/first/alpha", "/beta"}, extractor.GetHarvestedRoutes())
+	routes, err := extractor.GetHarvestedRoutes(t.Context())
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"/first/alpha", "/beta"}, routes)
 }

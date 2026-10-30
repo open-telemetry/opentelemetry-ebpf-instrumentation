@@ -4,10 +4,13 @@
 package harvest
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp/syntax"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,7 +36,7 @@ urlpatterns = [
 		routes:       map[string]struct{}{},
 		djangoRoutes: map[string][]djangoRoute{},
 	}
-	err := e.scanFile(file)
+	err := e.scanFile(t.Context(), file)
 
 	require.NoError(t, err)
 	assert.Equal(t, []djangoRoute{{path: "orders/<int:order_id>/", listName: "urlpatterns"}}, e.djangoRoutes[file])
@@ -61,7 +64,7 @@ urlpatterns = [
 ]
 `), 0o644))
 
-			result, err := extractPythonRoutes(dir)
+			result, err := extractPythonRoutes(t.Context(), dir)
 
 			require.NoError(t, err)
 			assert.Equal(t, []string{"/health/", "/shop/orders/<int:order_id>/"}, result.Routes)
@@ -80,7 +83,7 @@ extra_patterns = [
 urlpatterns = [path("credit/", include(extra_patterns))]
 `), 0o644))
 
-	result, err := extractPythonRoutes(dir)
+	result, err := extractPythonRoutes(t.Context(), dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/credit/reports/"}, result.Routes)
@@ -171,7 +174,7 @@ base_patterns = [path("health/", health_view)]
 other_patterns = [path("ready/", ready_view)]
 `+tc.assignment), 0o644))
 
-			result, err := extractPythonRoutes(dir)
+			result, err := extractPythonRoutes(t.Context(), dir)
 
 			require.NoError(t, err)
 			assert.Equal(t, CompleteRoutes, result.Kind)
@@ -210,7 +213,7 @@ from app.urls import urlpatterns as imported_patterns
 urlpatterns = [path("credit/", include(extra_patterns))]
 `), 0o644))
 
-			result, err := extractPythonRoutes(dir)
+			result, err := extractPythonRoutes(t.Context(), dir)
 
 			require.NoError(t, err)
 			require.NotNil(t, result)
@@ -233,7 +236,7 @@ urlpatterns = [
 ]
 `), 0o644))
 
-	result, err := extractPythonRoutes(dir)
+	result, err := extractPythonRoutes(t.Context(), dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/credit/billing/reports/", "/debit/billing/reports/"}, result.Routes)
@@ -248,7 +251,7 @@ extra_patterns = [path("reports/", reports)]
 urlpatterns = [path("credit/", include((extra_patterns, "credit"), namespace="billing"))]
 `), 0o644))
 
-	result, err := extractPythonRoutes(dir)
+	result, err := extractPythonRoutes(t.Context(), dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/credit/reports/"}, result.Routes)
@@ -266,7 +269,7 @@ from django.urls import include, path
 urlpatterns = [path("credit/", include(("credit.urls", "credit"), namespace="billing"))]
 `), 0o644))
 
-	result, err := extractPythonRoutes(dir)
+	result, err := extractPythonRoutes(t.Context(), dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/credit/reports/"}, result.Routes)
@@ -280,7 +283,7 @@ from django.urls import re_path
 urlpatterns = [re_path(r"^reports/(?P<id>[0-9]+)/$", reports)]
 `), 0o644))
 
-	result, err := extractPythonRoutes(dir)
+	result, err := extractPythonRoutes(t.Context(), dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/reports/<id>/"}, result.Routes)
@@ -306,7 +309,7 @@ from django.urls import re_path
 urlpatterns = [re_path(r"`+tc.pattern+`", health)]
 `), 0o644))
 
-			result, err := extractPythonRoutes(dir)
+			result, err := extractPythonRoutes(t.Context(), dir)
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.routes, result.Routes)
@@ -334,7 +337,7 @@ from django.urls import include, re_path
 urlpatterns = [re_path(r"`+tc.pattern+`", include("child"))]
 `), 0o644))
 
-			result, err := extractPythonRoutes(dir)
+			result, err := extractPythonRoutes(t.Context(), dir)
 
 			require.NoError(t, err)
 			assert.Equal(t, tc.routes, result.Routes)
@@ -349,7 +352,7 @@ from django.urls import re_path
 urlpatterns = [re_path(r"^articles/(?P<year>[0-9]{4})/$", year_archive)]
 `), 0o644))
 
-	result, err := extractPythonRoutes(dir)
+	result, err := extractPythonRoutes(t.Context(), dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/articles/<year>/"}, result.Routes)
@@ -368,7 +371,7 @@ from django.urls import include, path
 urlpatterns = [path("shop/", include("reports"))]
 `), 0o644))
 
-	result, err := extractPythonRoutes(dir)
+	result, err := extractPythonRoutes(t.Context(), dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/shop/reports/<id>/"}, result.Routes)
@@ -427,7 +430,7 @@ urlpatterns = [
 ]
 `), 0o644))
 
-	result, err := extractPythonRoutes(dir)
+	result, err := extractPythonRoutes(t.Context(), dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/health/"}, result.Routes)
@@ -460,7 +463,7 @@ urlpatterns = i18n_patterns(
 ) + [path("health/", health_view)]
 `), 0o644))
 
-	result, err := extractPythonRoutes(dir)
+	result, err := extractPythonRoutes(t.Context(), dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/<language>/orders/<int:order_id>/", "/health/"}, result.Routes)
@@ -483,7 +486,7 @@ urlpatterns = i18n_patterns(
 )
 `), 0o644))
 
-	result, err := extractPythonRoutes(dir)
+	result, err := extractPythonRoutes(t.Context(), dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{
@@ -511,7 +514,7 @@ urlpatterns = i18n_patterns(
 )
 `), 0o644))
 
-	result, err := extractPythonRoutes(dir)
+	result, err := extractPythonRoutes(t.Context(), dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/<language>/shop/orders/<int:order_id>/"}, result.Routes)
@@ -569,10 +572,29 @@ func TestResolveDjangoRoutes(t *testing.T) {
 	}
 	routes := map[string]struct{}{}
 
-	resolveDjangoRoutes(dir, files, routes)
+	require.NoError(t, resolveDjangoRoutes(t.Context(), dir, files, routes))
 
 	assert.Equal(t, map[string]struct{}{
 		"/shop/orders/<int:order_id>/":      {},
 		"/wholesale/orders/<int:order_id>/": {},
 	}, routes)
+}
+
+func TestResolveDjangoRoutesStopsAtDeadline(t *testing.T) {
+	const levels = 16
+	dir := t.TempDir()
+	files := map[string][]djangoRoute{}
+	for i := range levels - 1 {
+		next := fmt.Sprintf("level%d", i+1)
+		files[filepath.Join(dir, fmt.Sprintf("level%d.py", i))] = []djangoRoute{
+			{path: "a/", includeModule: next},
+			{path: "b/", includeModule: next},
+		}
+	}
+	files[filepath.Join(dir, fmt.Sprintf("level%d.py", levels-1))] = []djangoRoute{{path: "users/"}}
+	routes := map[string]struct{}{}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, resolveDjangoRoutes(ctx, dir, files, routes), context.DeadlineExceeded)
+	assert.Less(t, len(routes), 1<<(levels-1))
 }

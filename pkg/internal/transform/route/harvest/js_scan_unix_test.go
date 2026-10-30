@@ -32,7 +32,7 @@ func TestWalkJSFilesSkipsNonRegularFiles(t *testing.T) {
 	require.NoError(t, os.Symlink(filepath.Join(dir, "target.txt"), filepath.Join(dir, "link.js")))
 
 	var files []string
-	err = WalkJSFiles(dir, func(path string) error {
+	err = WalkJSFiles(t.Context(), dir, func(path string) error {
 		files = append(files, filepath.Base(path))
 		return nil
 	})
