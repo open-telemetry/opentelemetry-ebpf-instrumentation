@@ -709,6 +709,10 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 			symbol: "*crypto/tls.Conn",
 			field:  goexec.TLSConnTypeAddress,
 		},
+		{
+			symbol: "*net.TCPConn",
+			field:  goexec.TCPConnTypeAddress,
+		},
 	} {
 		if address, ok := offsets.ITypes[iType.symbol]; ok {
 			offTable.Table[iType.field] = address
