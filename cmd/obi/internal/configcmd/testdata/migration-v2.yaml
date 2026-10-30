@@ -31,6 +31,16 @@ extensions:
     obi:
         version: "2.0"
         capture:
+            attributes:
+                select:
+                    http.server.request.duration:
+                        include: []
+                        exclude:
+                            - http.route
+                    traces:
+                        include:
+                            - service.peer.name
+                        exclude: []
             policy:
                 default_action: exclude
                 match_order: first_match_wins
@@ -126,6 +136,7 @@ extensions:
                         sqlpp:
                             endpoint_patterns:
                                 - /query/service
+                            prepared_statements_cache_size: 1024
                         enrichment:
                             policy:
                                 default_action:
@@ -375,6 +386,8 @@ extensions:
                     global_scale_factor: 0
                 bpf_filesystem:
                     path: /sys/fs/bpf/
+                cgroup_filesystem:
+                    path: ""
             safety:
                 enforce_system_capabilities: false
             channels:
@@ -387,6 +400,7 @@ extensions:
                 metrics:
                     reporters_cache_len: 256
                     ttl: 5m0s
+                    connection_info_ttl: 15m0s
         enrich:
             enrichers:
                 kubernetes:
@@ -422,6 +436,27 @@ extensions:
                     route53:
                         refresh_interval: 5m0s
                         hosted_zone_ids: []
+                peer_metadata:
+                    enabled: false
+                    listen_address: ""
+                    port: 8998
+                    peer_cidrs: []
+                    refresh_interval: 10s
+                    caller_ttl: 1m0s
+                    cache_ttl: 1m0s
+                    request_timeout: 2s
+                    max_peers: 1024
+                    max_concurrent: 8
+                    max_caller_entries: 16384
+                    max_response_bytes: 1048576
+                    max_cache_bytes: 67108864
+                    token: ""
+                    tls:
+                        enabled: false
+                        cert_file: ""
+                        key_file: ""
+                        ca_file: ""
+                        server_name: ""
             service_name:
                 unresolved_hosts:
                     names:

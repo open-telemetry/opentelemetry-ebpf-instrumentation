@@ -25,6 +25,8 @@ import (
 	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
+const goOTelTestServerImage = "hatest-testserver-go-otel"
+
 var (
 	buildGoOTelTestServerOnce sync.Once
 	buildGoOTelTestServerErr  error
@@ -56,7 +58,7 @@ func setupGoOTelTestServer(t *testing.T, net dockertest.Network, env []string) {
 
 	buildGoOTelTestServerOnce.Do(func() {
 		t.Log("Building Go OpenTelemetry test server image...")
-		buildGoOTelTestServerErr = buildDockerImage(t.Context(), t.Output(), "hatest-testserver", "internal/test/integration/components/go_otel/Dockerfile")
+		buildGoOTelTestServerErr = buildDockerImage(t.Context(), t.Output(), goOTelTestServerImage, "internal/test/integration/components/go_otel/Dockerfile")
 		if buildGoOTelTestServerErr != nil {
 			return
 		}
@@ -65,7 +67,7 @@ func setupGoOTelTestServer(t *testing.T, net dockertest.Network, env []string) {
 	require.NoError(t, buildGoOTelTestServerErr, "could not build test server Docker image")
 
 	t.Log("Starting Go OpenTelemetry test server container...")
-	testserver, err := dockerPool.Run(t.Context(), "hatest-testserver",
+	testserver, err := dockerPool.Run(t.Context(), goOTelTestServerImage,
 		dockertest.WithName(fmt.Sprintf("testserver-otel-test-%d", time.Now().UnixNano())),
 		dockertest.WithEnv(env),
 		dockertest.WithPortBindings(portBindings("8080/tcp", "8080")),
@@ -97,8 +99,7 @@ func testForHTTPGoOTelLibrary(t *testing.T, route, svcNs string) {
 			`http_response_status_code="200",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="rolldice",` +
-			`http_route="` + route + `",` +
-			`url_path="` + route + `"`
+			`http_route="` + route + `"`
 	)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -170,8 +171,7 @@ func testInstrumentationMissing(t *testing.T, route, svcNs string) {
 			`http_response_status_code="200",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="rolldice",` +
-			`http_route="` + route + `",` +
-			`url_path="` + route + `"}`)
+			`http_route="` + route + `"}`)
 		require.NoError(ct, err)
 		require.Empty(ct, results)
 	}, testTimeout, 100*time.Millisecond)

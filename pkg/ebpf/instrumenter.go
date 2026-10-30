@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1074,11 +1075,11 @@ func (i *instrumenter) sockmsgs(p Tracer) error {
 	return nil
 }
 
-func (i *instrumenter) sockops(p Tracer) error {
+func (i *instrumenter) sockops(p Tracer, cgroupPath string) error {
 	for _, sockops := range p.SockOps() {
 		slog.Info("Attaching sock ops")
 
-		l, err := AttachCgroupSockOps(sockops.Program, sockops.AttachAs)
+		l, err := AttachCgroupSockOps(sockops.Program, sockops.AttachAs, cgroupPath)
 		if err != nil {
 			if i.metrics != nil {
 				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingCgroup)
@@ -1208,21 +1209,6 @@ func processMaps(pid app.PID) ([]*procfs.ProcMap, error) {
 	return procs.FindLibMaps(pid)
 }
 
-func symbolNames(m map[string][]*ebpfcommon.ProbeDesc, matcher ebpfcommon.SymbolMatcher) []string {
-	keys := make([]string, 0, len(m))
-
-	for name, probes := range m {
-		for _, probe := range probes {
-			if probe.SymbolMatcher == matcher {
-				keys = append(keys, name)
-				break
-			}
-		}
-	}
-
-	return keys
-}
-
 func gatherOffsets(instrPath string, probes map[string][]*ebpfcommon.ProbeDesc, log *slog.Logger) error {
 	elfFile, err := elf.Open(instrPath)
 	if err != nil {
@@ -1237,22 +1223,13 @@ func gatherOffsets(instrPath string, probes map[string][]*ebpfcommon.ProbeDesc, 
 func gatherOffsetsImpl(elfFile *elf.File, probes map[string][]*ebpfcommon.ProbeDesc,
 	instrPath string, log *slog.Logger,
 ) error {
-	exactSyms, substringSyms, err := procs.FindExeSymbolsByNameAndSubstring(
-		elfFile,
-		symbolNames(probes, ebpfcommon.SymbolMatcherExact),
-		symbolNames(probes, ebpfcommon.SymbolMatcherContains),
-	)
+	syms, err := procs.FindExeSymbols(elfFile, slices.Collect(maps.Keys(probes)))
 	if err != nil {
 		return fmt.Errorf("failed to lookup symbols for %s: %w", instrPath, err)
 	}
 
 	for symbolName, probeArray := range probes {
 		for _, probe := range probeArray {
-			syms := exactSyms
-			if probe.SymbolMatcher == ebpfcommon.SymbolMatcherContains {
-				syms = substringSyms
-			}
-
 			sym, ok := syms[symbolName]
 
 			if !ok {

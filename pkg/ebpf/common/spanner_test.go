@@ -72,6 +72,59 @@ func assertMatches(
 	assert.Equal(t, int64(durationMs*1000000), span.Start-span.RequestStart)
 }
 
+func TestHTTPRequestTraceToSpan_ProtoVersion(t *testing.T) {
+	tests := []struct {
+		name     string
+		major    uint8
+		minor    uint8
+		expected request.ProtoVersion
+	}{
+		{
+			name:     "HTTP/1.0",
+			major:    1,
+			minor:    0,
+			expected: request.ProtoVersionHTTP10,
+		},
+		{
+			name:     "HTTP/1.1",
+			major:    1,
+			minor:    1,
+			expected: request.ProtoVersionHTTP11,
+		},
+		{
+			name:     "HTTP/2",
+			major:    2,
+			minor:    0,
+			expected: request.ProtoVersionHTTP2,
+		},
+		{
+			name:     "unknown",
+			major:    0,
+			minor:    0,
+			expected: request.ProtoVersionUnknown,
+		},
+	}
+
+	for _, eventType := range []request.EventType{
+		request.EventTypeHTTP,
+		request.EventTypeHTTPClient,
+	} {
+		for _, tt := range tests {
+			t.Run(eventType.String()+"/"+tt.name, func(t *testing.T) {
+				tr := HTTPRequestTrace{
+					Type:       uint8(eventType),
+					ProtoMajor: tt.major,
+					ProtoMinor: tt.minor,
+				}
+
+				s := HTTPRequestTraceToSpan(nil, &tr)
+
+				assert.Equal(t, tt.expected, s.ProtoVersion)
+			})
+		}
+	}
+}
+
 func TestHTTPRequestTraceToSpan_FullPath(t *testing.T) {
 	t.Run("RawQuery appended to FullPath with separator", func(t *testing.T) {
 		p := [100]uint8{}

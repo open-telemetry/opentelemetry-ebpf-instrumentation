@@ -1,7 +1,7 @@
 # Build JNI native library using Go image (has gcc, no apt install needed)
-FROM golang:1.27.2@sha256:007a316059246276cb214df93950be77837545dc78007a73e0291a4963d5d3bf AS jni-builder
+FROM golang:1.27.3@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b AS jni-builder
 ARG BUILDARCH=amd64
-COPY --from=gradle:9.8.1-jdk21-noble@sha256:d879477a2197b2b8a5eb910d007f0b1594eb440aa2740baac17ea245fcfb02f7 /opt/java/openjdk/include /opt/java/include
+COPY --from=gradle:9.8.2-jdk21-noble@sha256:accd9bab093a3331697ede5aa9cecbb57d43217327e93d3cae989f1d28b49c0c /opt/java/openjdk/include /opt/java/include
 WORKDIR /build
 COPY pkg/internal/java/agent/src/main/c/ src/main/c/
 COPY pkg/internal/java/agent/Makefile.jni Makefile.jni
@@ -33,7 +33,7 @@ RUN case "$BUILDARCH" in \
     esac && \
     make -f Makefile.jni CC=$CC JAVA_HOME=/opt/java JNI_HEADERS_DIR=src/main/c BUILD_DIR=build/jni/$SLUG TARGET_DIR=target/classes/native/$SLUG
 
-FROM gradle:9.8.1-jdk21-noble@sha256:d879477a2197b2b8a5eb910d007f0b1594eb440aa2740baac17ea245fcfb02f7 AS builder
+FROM gradle:9.8.2-jdk21-noble@sha256:accd9bab093a3331697ede5aa9cecbb57d43217327e93d3cae989f1d28b49c0c AS builder
 
 WORKDIR /build
 

@@ -7,10 +7,12 @@
         "Method",
         "URL",
         "ContentLength",
-        "Header"
+        "Header",
+        "ProtoMajor",
+        "ProtoMinor"
       ],
       "net/url.URL": ["Path", "RawQuery", "Host", "Scheme"],
-      "net/http.Response": ["StatusCode", "ContentLength"],
+      "net/http.Response": ["StatusCode", "ContentLength", "ProtoMajor", "ProtoMinor"],
       "net.TCPAddr": ["IP", "Port"],
       "context.valueCtx": ["val"],
       "bufio.Writer": ["buf", "n", "wr"],
@@ -209,6 +211,12 @@
       "go.mongodb.org/mongo-driver/x/mongo/driver.Operation": [
         "Name",
         "Database"
+      ],
+      "go.mongodb.org/mongo-driver/x/mongo/driver/topology.Connection": [
+        "connection"
+      ],
+      "go.mongodb.org/mongo-driver/x/mongo/driver/topology.connection": [
+        "addr"
       ]
     }
   },
@@ -220,6 +228,15 @@
       "go.mongodb.org/mongo-driver/v2/x/mongo/driver.Operation": [
         "Name",
         "Database"
+      ],
+      "go.mongodb.org/mongo-driver/v2/x/mongo/driver/mnet.Connection": [
+        "Describer"
+      ],
+      "go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology.Connection": [
+        "connection"
+      ],
+      "go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology.connection": [
+        "addr"
       ]
     }
   },

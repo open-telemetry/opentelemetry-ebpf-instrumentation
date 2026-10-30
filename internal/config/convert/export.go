@@ -32,6 +32,7 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 	ext := &schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
+			Attributes:      captureAttributes(cfg),
 			Policy:          capturePolicy(cfg),
 			Instrumentation: captureInstrumentation(cfg),
 			Runtimes:        captureRuntimes(cfg),
@@ -444,6 +445,9 @@ func captureEngine(cfg *obi.Config) schema.CaptureEngine {
 		BPFFileSystem: schema.BPFFileSystem{
 			Path: cfg.EBPF.BPFFSPath,
 		},
+		CgroupFileSystem: schema.CgroupFileSystem{
+			Path: cfg.EBPF.CgroupFSPath,
+		},
 	}
 }
 
@@ -469,6 +473,7 @@ func captureTelemetry(cfg *obi.Config) schema.CaptureTelemetry {
 		Metrics: schema.MetricsTelemetry{
 			ReportersCacheLen: cfg.OTELMetrics.ReportersCacheLen,
 			TTL:               schema.Duration(cfg.OTELMetrics.TTL),
+			ConnectionInfoTTL: schema.Duration(cfg.OTELMetrics.ConnectionInfoTTL),
 		},
 	}
 }
@@ -615,6 +620,7 @@ func insecureOTLPTransport(endpoint string) bool {
 func enrich(cfg *obi.Config) *schema.Enrich {
 	return &schema.Enrich{
 		Enrichers: schema.Enrichers{
+			PeerMetadata: peerMetadataEnrichment(cfg.PeerMetadata),
 			Kubernetes: schema.KubernetesEnricher{
 				Mode:                v2KubernetesMode(cfg.Attributes.Kubernetes.Enable),
 				ClusterName:         cfg.Attributes.Kubernetes.ClusterName,
@@ -651,7 +657,7 @@ func enrich(cfg *obi.Config) *schema.Enrich {
 		},
 		ServiceName: serviceNameEnrichment(cfg),
 		Attributes: schema.EnrichmentAttributes{
-			Select:               cfg.Attributes.Select,
+			Select:               resourceAttributeSelection(cfg.Attributes.Select),
 			ExtraGroupAttributes: schema.ExtraGroupAttributes(cfg.Attributes.ExtraGroupAttributes),
 			MetadataRetry: schema.MetadataRetry{
 				Timeout:       schema.Duration(cfg.Attributes.MetadataRetry.Timeout),
@@ -679,6 +685,14 @@ func serviceNameEnrichment(cfg *obi.Config) schema.ServiceName {
 	}
 
 	out.Sources = cfg.NameResolver.Sources
+	if !zeroValue(cfg.NameResolver.GCE) {
+		gce := cfg.NameResolver.GCE
+		out.GCE = &gce
+	}
+	out.Azure = schema.AzureServiceName{
+		SubscriptionID: cfg.NameResolver.Azure.SubscriptionID,
+		ResourceGroup:  cfg.NameResolver.Azure.ResourceGroup,
+	}
 	out.Cache = schema.Cache{
 		Size: cfg.NameResolver.CacheLen,
 		TTL:  schema.Duration(cfg.NameResolver.CacheTTL),

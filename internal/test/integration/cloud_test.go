@@ -31,7 +31,7 @@ func setupIMDSSubnet(t *testing.T) dockertest.Network {
 	create, err := dockerPool.Client().NetworkCreate(t.Context(), fmt.Sprintf("test-imds-network-%d", time.Now().UnixNano()), client.NetworkCreateOptions{
 		IPAM: &network.IPAM{
 			Config: []network.IPAMConfig{
-				{Subnet: prefix},
+				{Subnet: prefix, Gateway: prefix.Addr().Next()},
 			},
 		},
 	})
@@ -105,6 +105,11 @@ func setupAWSMockIMDS(t *testing.T, net dockertest.Network) {
 // https://learn.microsoft.com/en-us/azure/virtual-machines/instance-metadata-service?tabs=linux
 func setupMockAzureIMDS(t *testing.T, imdsSubnet dockertest.Network) {
 	t.Helper()
+	setupMockAzureIMDSWithFile(t, imdsSubnet, pathRoot+"/internal/test/integration/components/azure-imds/azure-metadata-mock.json")
+}
+
+func setupMockAzureIMDSWithFile(t *testing.T, imdsSubnet dockertest.Network, metadataFile string) {
+	t.Helper()
 	t.Log("Starting Azure IMDS Mock container...")
 
 	mockIMDS, err := dockerPool.Run(t.Context(), imgNginx.Repository(),
@@ -112,9 +117,9 @@ func setupMockAzureIMDS(t *testing.T, imdsSubnet dockertest.Network) {
 		dockertest.WithName(fmt.Sprintf("mock-imds-nginx-%d", time.Now().UnixNano())),
 		dockertest.WithMounts([]string{
 			pathRoot + "/internal/test/integration/components/azure-imds/nginx.conf:/etc/nginx/nginx.conf",
-			pathRoot + "/internal/test/integration/components/azure-imds/azure-metadata-mock.json:/azure-metadata-mock.json",
+			metadataFile + ":/azure-metadata-mock.json",
 		}),
-		dockertest.WithPortBindings(portBindings("80/tcp", "1338")),
+		dockertest.WithPortBindings(portBindings("80/tcp", "")),
 		dockertest.WithContainerConfig(func(config *container.Config) {
 			config.ExposedPorts = exposedPorts("80/tcp")
 		}),
@@ -131,7 +136,7 @@ func setupMockAzureIMDS(t *testing.T, imdsSubnet dockertest.Network) {
 	})
 	require.NoError(t, err, "could not connect Azure IMDS Mock container to network")
 
-	if err := waitUntilReadyToServe("http://127.0.0.1:1338/metadata/instance/compute"); err != nil {
+	if err := waitUntilReadyToServe("http://" + mockIMDS.GetHostPort("80/tcp") + "/metadata/instance/compute"); err != nil {
 		t.Fatal("Azure IMDS Mock container not available after timeout")
 	}
 

@@ -1,9 +1,24 @@
 file_format: definition/2
 spans:
   - type: obi.db.client
+    annotations:
+      obi:
+        upstream: db.client
     kind: client
     name:
-      note: Not documented yet.
+      note: >
+        Built per database system from the operation and its target, falling
+        back to the `db.system.name` value: Redis and Memcached report
+        `{db.operation.name}`, or `redis` / `memcached`; MongoDB and Couchbase
+        `{db.operation.name} {db.collection.name}`, `{db.operation.name}
+        {db.namespace}`, `{db.operation.name}`, `{db.collection.name}`,
+        `{db.namespace}` or the system; Aerospike `{db.operation.name}
+        {db.namespace}.{db.collection.name}`, dropping a missing part, or
+        `aerospike`; Couchbase SQL++ `{db.operation.name} {db.collection.name}`,
+        `{db.operation.name} {db.namespace}`, `{db.operation.name}
+        {server.address}:{server.port}`, `{db.operation.name}` or
+        `couchbase`. One template list cannot order the Aerospike and MongoDB
+        forms correctly for both, so the name is described rather than templated.
     stability: development
     requirement_level: recommended
     brief: OBI outbound database client span.
@@ -49,9 +64,19 @@ spans:
   # SQL client spans come from their own emitter branch, separate from the
   # other native database protocols `obi.db.client` covers.
   - type: obi.db.sql.client
+    annotations:
+      obi:
+        upstream: [db.sql.client, db.client]
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{db.query.summary}"
+        - "{db.operation.name} {db.collection.name}"
+        - "{db.operation.name} {db.namespace}"
+        - "{db.operation.name}"
+        - "{db.collection.name}"
+        - "{db.namespace}"
+        - "{db.system.name}"
     stability: stable
     requirement_level: recommended
     brief: OBI outbound SQL database client span.
@@ -60,7 +85,9 @@ spans:
         requirement_level: required
       - ref: db.namespace
         requirement_level:
-          conditionally_required: if the exchange named a database
+          conditionally_required: >-
+            if the exchange named a database or schema; PostgreSQL reports
+            `{database}|{schema}`, or the schema alone when only it is known
       - ref: db.collection.name
         requirement_level:
           conditionally_required: if the operation could be parsed and names a table
@@ -99,9 +126,22 @@ spans:
   # protocols covered by obi.db.client never emit http.* / url.*, which is
   # why this is a separate group rather than extra refs on the shared one.
   - type: obi.elasticsearch.client
+    annotations:
+      obi:
+        upstream: [db.elasticsearch.client, db.client]
+        upstream_extras:
+          http.response.body.size: the response size of the HTTP exchange that carries the Elasticsearch query
     kind: client
     name:
-      note: Not documented yet.
+      templates:
+        - "{db.operation.name} {db.collection.name}"
+        - "{db.operation.name} {db.namespace}"
+        - "{db.operation.name} {server.address}:{server.port}"
+        - "{db.operation.name}"
+        - "{db.collection.name}"
+        - "{db.namespace}"
+        - "{server.address}:{server.port}"
+        - "{db.system.name}"
     stability: development
     requirement_level: recommended
     brief: OBI Elasticsearch client span, detected from HTTP client traffic.
@@ -159,9 +199,16 @@ spans:
           conditionally_required: if a response was received
 
   - type: obi.db.server
+    annotations:
+      obi:
+        upstream: none
+        upstream_reason: upstream defines database spans for the client side only
     kind: server
     name:
-      note: Not documented yet.
+      note: >
+        The same form as the client span of the database system: SQL servers are
+        named like `obi.db.sql.client`, and Redis, Memcached and Aerospike
+        servers like `obi.db.client`.
     stability: development
     requirement_level: recommended
     brief: OBI inbound database server span.

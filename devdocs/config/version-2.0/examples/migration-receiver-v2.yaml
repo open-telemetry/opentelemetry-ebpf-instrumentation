@@ -1,4 +1,14 @@
 version: "2.0"
+attributes:
+    select:
+        http.server.request.duration:
+            include: []
+            exclude:
+                - http.route
+        traces:
+            include:
+                - service.peer.name
+            exclude: []
 policy:
     default_action: exclude
     match_order: first_match_wins
@@ -94,6 +104,7 @@ instrumentation:
             sqlpp:
                 endpoint_patterns:
                     - /query/service
+                prepared_statements_cache_size: 1024
             enrichment:
                 policy:
                     default_action:
@@ -343,6 +354,8 @@ engine:
         global_scale_factor: 0
     bpf_filesystem:
         path: /sys/fs/bpf/
+    cgroup_filesystem:
+        path: ""
 safety:
     enforce_system_capabilities: false
 channels:
@@ -355,3 +368,4 @@ telemetry:
     metrics:
         reporters_cache_len: 256
         ttl: 5m0s
+        connection_info_ttl: 15m0s

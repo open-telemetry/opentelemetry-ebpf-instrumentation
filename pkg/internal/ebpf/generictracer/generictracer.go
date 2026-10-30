@@ -60,8 +60,7 @@ type Tracer struct {
 	iters              []*ebpfcommon.Iter
 	iterMu             sync.Mutex
 	// the valid_pids words as last written to the BPF map
-	validPids      []uint64
-	validPidsMu    sync.Mutex
+	validPids      ebpfcommon.PIDBitmap
 	seenNetns      *expirable.LRU[uint64, struct{}]
 	eventCtx       *ebpfcommon.EBPFEventContext
 	jvmUSDTManager ebpfcommon.USDTSpecManager
@@ -76,7 +75,7 @@ const (
 	seenNetnsCacheLen = 1024
 	seenNetnsTTL      = 5 * time.Minute
 
-	validPidsWords = uint32(ebpfcommon.BpfValidPidsSizeK_validPidsWords)
+	validPidsWords = ebpfcommon.PIDBitmapWords
 )
 
 func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.Reporter) *Tracer {
@@ -116,43 +115,8 @@ func (p *Tracer) rebuildValidPids() error {
 		return nil
 	}
 
-	p.validPidsMu.Lock()
-	defer p.validPidsMu.Unlock()
-
-	if p.validPids == nil {
-		p.validPids = make([]uint64, validPidsWords)
-	}
-
-	pids := p.pidsFilter.ProcPIDs(ebpfcommon.PIDTypeKProbes)
-	want := map[uint32]uint64{}
-	for _, pid := range pids {
-		if uint64(pid) >= uint64(validPidsWords)*64 {
-			p.log.Warn("pid beyond the BPF PID filter, it won't be instrumented", "pid", pid)
-			continue
-		}
-		want[uint32(pid/64)] |= 1 << (pid % 64)
-	}
-
-	for word, bits := range p.validPids {
-		if _, ok := want[uint32(word)]; bits != 0 && !ok {
-			want[uint32(word)] = 0
-		}
-	}
-
-	written := 0
-	for word, bits := range want {
-		if p.validPids[word] == bits {
-			continue
-		}
-		if err := p.bpfObjects.ValidPids.Put(word, bits); err != nil {
-			return fmt.Errorf("writing word %d of the BPF PID filter: %w", word, err)
-		}
-		p.validPids[word] = bits
-		written++
-	}
-	p.log.Debug("BPF PID filter rebuilt", "pids", len(pids), "wordsWritten", written)
-
-	return nil
+	_, err := p.validPids.Rebuild(p.bpfObjects.ValidPids, p.pidsFilter, ebpfcommon.PIDTypeKProbes, p.log)
+	return err
 }
 
 func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
@@ -216,6 +180,9 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	}
 
 	ebpfcommon.FixupSpec(spec, p.cfg.EBPF.OverrideBPFLoopEnabled)
+	if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
+		ebpfcommon.DisableJavaHTTP1Atomics(spec)
+	}
 
 	return []*ebpfcommon.SpecBundle{{Spec: spec, Objects: &p.bpfObjects, Constants: p.constants()}}, nil
 }
@@ -271,6 +238,11 @@ func (p *Tracer) constants() map[string]any {
 
 	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
 	m["g_bpf_traceparent_enabled"] = p.cfg.EBPF.TrackRequestHeaders || p.cfg.EBPF.ContextPropagation.IsEnabled()
+	m["g_bpf_header_propagation"] = p.cfg.EBPF.ContextPropagation.HasHeaders()
+	canWriteHeaders := p.cfg.EBPF.ContextPropagation.HasHeaders() && !ebpfcommon.IntegrityModeOverride &&
+		ebpfcommon.SupportsContextPropagationWithProbe(p.log)
+	m["g_bpf_probe_write_user_enabled"] = canWriteHeaders
+	m["g_bpf_java_http1_enabled"] = p.cfg.EBPF.ContextPropagation.HasHeaders() && ebpfcommon.SupportsJavaHTTP1Propagation(p.log)
 	m["jvm_sampling_interval_ns"] = uint64(0)
 	if p.cfg.AppRuntimeMetricsEnabled() {
 		m["jvm_sampling_interval_ns"] = uint64(p.cfg.JVMRuntimeMetrics.SamplingInterval.Nanoseconds())

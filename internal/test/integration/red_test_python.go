@@ -34,7 +34,7 @@ func testREDMetricsForPythonHTTPLibrary(t *testing.T, url, comm, namespace strin
 			`http_response_status_code="200",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
-			`url_path="` + urlPath + `"}`)
+			`http_route="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -70,8 +70,7 @@ func testREDMetricsForPythonRoutes(t *testing.T, url, comm, namespace string) {
 					`http_response_status_code="200",` +
 					`service_namespace="` + namespace + `",` +
 					`service_name="` + comm + `",` +
-					`http_route="` + tc.route + `",` +
-					`url_path="` + tc.path + `"}`)
+					`http_route="` + tc.route + `"}`)
 				require.NoError(ct, err)
 				enoughPromResults(ct, results)
 				assert.LessOrEqual(ct, 3, totalPromCount(ct, results))
@@ -95,7 +94,7 @@ func testREDMetricsTimeoutForPythonHTTPLibrary(t *testing.T, url, comm, namespac
 			`http_response_status_code="408",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
-			`url_path="` + urlPath + `"}`)
+			`http_route="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -198,7 +197,7 @@ func checkReportedPythonEvents(t *testing.T, comm, namespace string, numEvents i
 			`http_response_status_code="200",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
-			`url_path="` + urlPath + `"}`)
+			`http_route="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)

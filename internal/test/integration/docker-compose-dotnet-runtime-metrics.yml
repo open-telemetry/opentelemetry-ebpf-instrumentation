@@ -11,6 +11,8 @@ services:
     environment:
       DOTNET_ThreadPool_ThreadTimeoutMs: "2000"
       DOTNET_PROCESSOR_COUNT: "${DOTNET_RUNTIME_PROCESSOR_COUNT:-}"
+      DOTNET_gcServer: "${DOTNET_RUNTIME_SERVER_GC:-0}"
+      DOTNET_gcConcurrent: "${DOTNET_RUNTIME_BACKGROUND_GC:-1}"
     cpus: ${DOTNET_RUNTIME_CPUS:-2}
     cpuset: "${DOTNET_RUNTIME_CPUSET:-}"
     entrypoint: ["dotnet", "/app/workload/dotnet-runtime-metrics.dll", "--http"]
@@ -50,7 +52,7 @@ services:
         condition: service_started
 
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6
+    image: otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b
     command: ["--config=/etc/otelcol-config.yml"]
     volumes:
       - ./configs/otelcol-config-dotnet-runtime-metrics.yml:/etc/otelcol-config.yml:ro

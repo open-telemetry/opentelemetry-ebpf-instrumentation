@@ -1243,7 +1243,6 @@ func TestGenerateTracesAttributes(t *testing.T) {
 			reporterName,
 			attribute.String("deployment.environment", "productions"),
 			attribute.String("source.upstream", "OBI"),
-			semconv.OTelScopeName("my-reporter"),
 		)
 
 		assert.Equal(t, 1, traces.ResourceSpans().Len())
@@ -1251,7 +1250,6 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		attrs := rs.Resource().Attributes()
 		ensureTraceStrAttr(t, attrs, "deployment.environment", "productions")
 		ensureTraceStrAttr(t, attrs, "source.upstream", "OBI")
-		ensureTraceStrAttr(t, attrs, "otel.scope.name", "my-reporter")
 	})
 
 	makeOpenAISpan := func(ai *request.VendorOpenAI) request.Span {
@@ -2147,7 +2145,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api?foo=bar")
 	})
-	t.Run("test HTTP client url.full includes query with opt-in", func(t *testing.T) {
+	t.Run("test HTTP client url.full includes query and url.query is not emitted", func(t *testing.T) {
 		span := request.Span{
 			Type:      request.EventTypeHTTPClient,
 			Method:    "GET",
@@ -2165,9 +2163,9 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api?foo=bar")
-		ensureTraceStrAttr(t, attrs, semconv.URLQueryKey, "foo=bar")
+		ensureTraceAttrNotExists(t, attrs, semconv.URLQueryKey)
 	})
-	t.Run("test HTTP client url.full includes query through selector config opt-in", func(t *testing.T) {
+	t.Run("test HTTP client url.query is not emitted even when selected", func(t *testing.T) {
 		tr := makeTracesTestReceiver([]instrumentations.Instrumentation{instrumentations.InstrumentationHTTP})
 		tr.selectorCfg = &attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
@@ -2192,7 +2190,7 @@ func TestGenerateTracesAttributes(t *testing.T) {
 
 		attrs := traces[0].ResourceSpans().At(0).ScopeSpans().At(0).Spans().At(0).Attributes()
 		ensureTraceStrAttr(t, attrs, semconv.URLFullKey, "https://api.example.com/external/api?foo=bar")
-		ensureTraceStrAttr(t, attrs, semconv.URLQueryKey, "foo=bar")
+		ensureTraceAttrNotExists(t, attrs, semconv.URLQueryKey)
 	})
 	t.Run("test HTTP client url.full falls back to Path when FullPath is empty", func(t *testing.T) {
 		span := request.Span{

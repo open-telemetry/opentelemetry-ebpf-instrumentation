@@ -119,6 +119,43 @@ func mysqlOKResponsePacket() []byte {
 	return mysqlPacket(0x00, nil)
 }
 
+func TestMySQLQueryTextBoundedToPacket(t *testing.T) {
+	first := "INSERT INTO conformance.items (id, name) VALUES (1, 'first')"
+	next := mysqlPacket(kMySQLQuery, []byte("INSERT INTO conformance.items (id, name) VALUES (2, 'second')"))
+
+	t.Run("query", func(t *testing.T) {
+		req := append(mysqlPacket(kMySQLQuery, []byte(first)), next...)
+		span, err := handleMySQL(newPostgresTestContext(), &TCPRequestInfo{}, largebuf.NewLargeBufferFrom(req), largebuf.NewLargeBufferFrom(mysqlOKResponsePacket()))
+		require.NoError(t, err)
+		assert.Equal(t, "INSERT", span.Method)
+		assert.Equal(t, first, span.Statement)
+	})
+
+	t.Run("prepared statement", func(t *testing.T) {
+		ctx := newPostgresTestContext()
+		req := append(mysqlPreparePacket(first), next...)
+		_, err := handleMySQL(ctx, &TCPRequestInfo{}, largebuf.NewLargeBufferFrom(req), largebuf.NewLargeBufferFrom(mysqlPrepareResponsePacket(4)))
+		require.ErrorIs(t, err, errIgnore)
+
+		stmt, found := ctx.mysqlPreparedStatements.Get(mysqlPreparedStatementsKey{stmtID: 4})
+		require.True(t, found)
+		assert.Equal(t, first, stmt)
+	})
+
+	t.Run("payload detection", func(t *testing.T) {
+		req := append(mysqlPacket(kMySQLQuery, []byte(first)), next...)
+		op, tables, statement, kind := detectSQLPayload(false, largebuf.NewLargeBufferFrom(req))
+		assert.Equal(t, request.DBMySQL, kind)
+		assert.Equal(t, "INSERT", op)
+		assert.Equal(t, []string{"conformance.items"}, tables)
+		assert.Equal(t, first, statement)
+	})
+
+	t.Run("empty packet", func(t *testing.T) {
+		assert.Empty(t, mysqlQueryText([]byte{0, 0, 0, 0, kMySQLQuery}))
+	})
+}
+
 func TestSkipMySQLNoResponseCommands(t *testing.T) {
 	prepare := mysqlPreparePacket("SELECT 1")
 	execute := mysqlExecutePacket(1)

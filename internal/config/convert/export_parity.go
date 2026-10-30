@@ -85,6 +85,7 @@ const (
 	payloadExtractorRerank           = "rerank"
 	payloadExtractorRetrieval        = "retrieval"
 	payloadExtractorOllama           = "ollama"
+	payloadExtractorCohere           = "cohere"
 	payloadExtractorOpenAICompatible = "openai_compatible"
 	payloadExtractorJSONRPC          = "jsonrpc"
 	payloadExtractorEnrichment       = "enrichment"
@@ -135,6 +136,9 @@ func payloadExtraction(cfg *obi.Config) schema.PayloadExtraction {
 	if http.GenAI.Ollama.Enabled {
 		enabled = append(enabled, payloadExtractorOllama)
 	}
+	if http.GenAI.Cohere.Enabled {
+		enabled = append(enabled, payloadExtractorCohere)
+	}
 	if http.GenAI.OpenAICompatible.Enabled {
 		enabled = append(enabled, payloadExtractorOpenAICompatible)
 	}
@@ -148,7 +152,8 @@ func payloadExtraction(cfg *obi.Config) schema.PayloadExtraction {
 	return schema.PayloadExtraction{
 		Enabled: enabled,
 		SQLPP: schema.SQLPPPayload{
-			EndpointPatterns: http.SQLPP.EndpointPatterns,
+			EndpointPatterns:            http.SQLPP.EndpointPatterns,
+			PreparedStatementsCacheSize: http.SQLPP.PreparedStatementsCacheSize,
 		},
 		OpenAICompatible: schema.OpenAICompatiblePayload{
 			Gateways: http.GenAI.OpenAICompatible.Gateways,

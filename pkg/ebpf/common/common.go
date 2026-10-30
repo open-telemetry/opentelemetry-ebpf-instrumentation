@@ -131,13 +131,6 @@ var IntegrityModeOverride = false
 
 type TracerCapability uint64
 
-type SymbolMatcher uint8
-
-const (
-	SymbolMatcherExact SymbolMatcher = iota
-	SymbolMatcherContains
-)
-
 // ProbeDesc holds the information of the instrumentation points of a given
 // function/symbol
 type ProbeDesc struct {
@@ -162,10 +155,6 @@ type ProbeDesc struct {
 	// UsePadStart attaches Start after WriteHeaders has spilled PadLength to
 	// its stack slot and before the value is first consumed.
 	UsePadStart bool
-
-	// SymbolMatcher controls how the map key for this probe is matched against
-	// executable symbols. The zero value preserves exact symbol matching.
-	SymbolMatcher SymbolMatcher
 
 	// Skip is set when an optional uprobe symbol was not resolved.
 	Skip bool
@@ -318,14 +307,15 @@ type EBPFParseContext struct {
 	largeBuffers                *expirable.LRU[largeBufferKey, *largebuf.LargeBuffer]
 	mongoRequestCache           PendingMongoDBRequests
 	mysqlPreparedStatements     *simplelru.LRU[mysqlPreparedStatementsKey, string]
-	postgresPreparedStatements  *simplelru.LRU[postgresPreparedStatementsKey, string]
+	postgresPreparedStatements  *simplelru.LRU[postgresPreparedStatementsKey, postgresPreparedStatement]
 	postgresPortals             *simplelru.LRU[postgresPortalsKey, string]
-	postgresDBNames             *simplelru.LRU[BpfConnectionInfoT, string]
+	postgresNamespaces          *simplelru.LRU[BpfConnectionInfoT, postgresNamespace]
 	mssqlPreparedStatements     *simplelru.LRU[mssqlPreparedStatementsKey, string]
 	kafkaTopicUUIDToName        *simplelru.LRU[kafkaparser.UUID, string]
 	kafkaConsumerGroups         *KafkaConsumerGroups
 	payloadExtraction           config.PayloadExtraction
 	httpEnricher                *ebpfhttp.HTTPEnricher
+	sqlppPreparedStatements     *ebpfhttp.SQLPPPreparedStatements
 	dnsEvents                   *expirable.LRU[dnsparser.DNSId, *request.Span]
 	pendingSpanLinks            *pendingSpanLinks
 	pendingGoHTTPClientRequests *expirable.LRU[pendingGoHTTPClientKey, *pendingGoHTTPClientRequest]
@@ -412,7 +402,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		redisDBCache               *simplelru.LRU[BpfConnectionInfoT, int]
 		couchbaseBucketCache       *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]
 		mysqlPreparedStatements    *simplelru.LRU[mysqlPreparedStatementsKey, string]
-		postgresPreparedStatements *simplelru.LRU[postgresPreparedStatementsKey, string]
+		postgresPreparedStatements *simplelru.LRU[postgresPreparedStatementsKey, postgresPreparedStatement]
 		postgresPortals            *simplelru.LRU[postgresPortalsKey, string]
 		mssqlPreparedStatements    *simplelru.LRU[mssqlPreparedStatementsKey, string]
 		kafkaTopicUUIDToName       *simplelru.LRU[kafkaparser.UUID, string]
@@ -425,7 +415,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 
 	h2c, _ := lru.New[uint64, *h2Connection](1024 * 10)
 	largeBuffers := expirable.NewLRU[largeBufferKey, *largebuf.LargeBuffer](1024, nil, 5*time.Minute)
-	postgresDBNames, _ := simplelru.NewLRU[BpfConnectionInfoT, string](4096, nil)
+	postgresNamespaces, _ := simplelru.NewLRU[BpfConnectionInfoT, postgresNamespace](4096, nil)
 
 	emitCtx, stopEmitting := context.WithCancel(context.Background())
 	if spansChan != nil {
@@ -462,7 +452,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 			ptlog().Error("failed to create MySQL prepared statements cache", "error", err)
 		}
 
-		postgresPreparedStatements, err = simplelru.NewLRU[postgresPreparedStatementsKey, string](cfg.PostgresPreparedStatementsCacheSize, nil)
+		postgresPreparedStatements, err = simplelru.NewLRU[postgresPreparedStatementsKey, postgresPreparedStatement](cfg.PostgresPreparedStatementsCacheSize, nil)
 		if err != nil {
 			ptlog().Error("failed to create Postgres prepared statements cache", "error", err)
 		}
@@ -496,6 +486,14 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		httpEnricher = ebpfhttp.NewHTTPEnricher(payloadExtraction.HTTP.Enrichment)
 	}
 
+	var sqlppPreparedStatements *ebpfhttp.SQLPPPreparedStatements
+	if payloadExtraction.HTTP.SQLPP.Enabled {
+		sqlppPreparedStatements, err = ebpfhttp.NewSQLPPPreparedStatements(payloadExtraction.HTTP.SQLPP.PreparedStatementsCacheSize)
+		if err != nil {
+			ptlog().Error("failed to create SQL++ prepared statements cache", "error", err)
+		}
+	}
+
 	parseCtx := &EBPFParseContext{
 		protocolDebug:              protocolDebug,
 		h2c:                        h2c,
@@ -506,12 +504,13 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		mysqlPreparedStatements:    mysqlPreparedStatements,
 		postgresPreparedStatements: postgresPreparedStatements,
 		postgresPortals:            postgresPortals,
-		postgresDBNames:            postgresDBNames,
+		postgresNamespaces:         postgresNamespaces,
 		mssqlPreparedStatements:    mssqlPreparedStatements,
 		kafkaTopicUUIDToName:       kafkaTopicUUIDToName,
 		kafkaConsumerGroups:        kafkaConsumerGroups,
 		payloadExtraction:          payloadExtraction,
 		httpEnricher:               httpEnricher,
+		sqlppPreparedStatements:    sqlppPreparedStatements,
 		dnsEvents:                  dnsEvents,
 		emitSpans:                  emitSpans,
 		stopEmitting:               stopEmitting,

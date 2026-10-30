@@ -1,24 +1,24 @@
 {
   "series": {
     "3.10": {
-      "tag": "v3.10.20",
-      "commit": "842e987df856a5d4db37933c62a3456930a19092"
+      "tag": "v3.10.22",
+      "commit": "acb4dc12b6df8615af7b43120ef601e04072f7d2"
     },
     "3.11": {
-      "tag": "v3.11.15",
-      "commit": "2340a037f7450e70fccfe411e6531afb4d57a312"
+      "tag": "v3.11.18",
+      "commit": "26badd80b6dc7786cd8fb63c3608a31f04754219"
     },
     "3.12": {
-      "tag": "v3.12.14",
-      "commit": "2abcf904b8dac8c999d2b3aac76681abb333798a"
+      "tag": "v3.12.16",
+      "commit": "2c2462afc5d978d31f3d073001fc202d269917ff"
     },
     "3.13": {
-      "tag": "v3.13.15",
-      "commit": "4061bc4c35f7c26f25264666d4ba083b93d2f6f9"
+      "tag": "v3.13.18",
+      "commit": "0d4bd512fc429e3d4eacdd113c975e161f21644d"
     },
     "3.14": {
-      "tag": "v3.14.7",
-      "commit": "823f0323ee6ec1402088b73bce1a38473cac36dc"
+      "tag": "v3.14.10",
+      "commit": "b703b2c5e704341d61e367b9b940b77ed11dded0"
     },
     "3.9": {
       "tag": "v3.9.25",

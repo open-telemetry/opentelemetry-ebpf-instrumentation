@@ -30,6 +30,10 @@ typedef enum {
     _response_length_ptr_pos,
     _content_length_ptr_pos,
     _req_header_ptr_pos,
+    _req_proto_major_pos,
+    _req_proto_minor_pos,
+    _resp_proto_major_pos,
+    _resp_proto_minor_pos,
     _io_writer_buf_ptr_pos,
     _io_writer_n_pos,
     _io_writer_wr_pos,
@@ -110,6 +114,12 @@ typedef enum {
     _mongo_op_name_pos,
     _mongo_db_name_pos,
     _mongo_op_name_new,
+    _mongo_topology_connection_pos,
+    _mongo_connection_addr_pos,
+    _mongo_v1_topology_connection_type_addr,
+    // go mongodb v2
+    _mongo_mnet_describer_pos,
+    _mongo_v2_topology_connection_type_addr,
     // database/sql stdlib
     _driverconn_ci_pos,
     // lib/pq driver

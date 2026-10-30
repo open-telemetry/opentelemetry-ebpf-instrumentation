@@ -233,6 +233,7 @@ discovery:
 						EndpointPatterns: []string{
 							"/query/service",
 						},
+						PreparedStatementsCacheSize: 1024,
 					},
 					Enrichment: config.EnrichmentConfig{
 						Policy: config.HTTPParsingPolicy{
@@ -294,7 +295,8 @@ discovery:
 				MaxSize:  128,
 				MaxScale: 16,
 			},
-			TTL: 5 * time.Minute,
+			TTL:               5 * time.Minute,
+			ConnectionInfoTTL: export.DefaultConnectionInfoTTL,
 		},
 		Traces: otelcfg.TracesConfig{
 			Protocol:          otelcfg.ProtocolUnset,
@@ -327,6 +329,7 @@ discovery:
 				instrumentations.InstrumentationALL,
 			},
 			TTL:                         time.Second,
+			ConnectionInfoTTL:           export.DefaultConnectionInfoTTL,
 			SpanMetricsServiceCacheSize: 10000,
 			NativeHistogram:             prom.DefaultNativeHistogramConfig,
 			Buckets: export.Buckets{
@@ -392,6 +395,7 @@ discovery:
 			CacheLen: 1024,
 			CacheTTL: 5 * time.Minute,
 		},
+		PeerMetadata: DefaultConfig.PeerMetadata,
 		CloudMetadata: transform.CloudMetadataConfig{
 			Route53:         transform.Route53MetadataConfig{RefreshInterval: 5 * time.Minute},
 			RefreshInterval: 30 * time.Second,
@@ -537,6 +541,52 @@ name_resolver:
 	assert.Equal(t, "env-cluster", cfg.CloudMetadata.ClusterName)
 	assert.Equal(t, "eu-west-1", cfg.CloudMetadata.Region)
 	assert.Equal(t, "kube-cluster", cfg.Attributes.Kubernetes.ClusterName)
+}
+
+func TestConfigV1IgnoresGCESettings(t *testing.T) {
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_GCE_PROJECT_ID", "env-project")
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_GCE_ZONE", "us-central1-a")
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_GCE_ENDPOINT", "http://compute-mock/")
+	for _, tc := range []struct {
+		name string
+		yaml string
+	}{
+		{name: "defaults"},
+		{name: "YAML", yaml: `name_resolver:
+  sources: [GCE, rdns]
+  gce:
+    project_id: test-project
+    zone: us-central1-a
+    endpoint: http://compute-mock/
+`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := LoadConfig(bytes.NewBufferString(tc.yaml))
+			require.NoError(t, err)
+			assert.Empty(t, cfg.NameResolver.GCE)
+			assert.NotContains(t, cfg.NameResolver.Sources, transform.SourceGCE)
+			if tc.yaml != "" {
+				assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
+			}
+		})
+	}
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "gce,rdns")
+	cfg, err := LoadConfig(nil)
+	require.NoError(t, err)
+	assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
+}
+
+func TestUnmarshalMapIgnoresGCESettings(t *testing.T) {
+	cfg := Config{NameResolver: &transform.NameResolverConfig{}}
+	err := cfg.UnmarshalMap(map[string]any{
+		"name_resolver": map[string]any{
+			"sources": []string{"GCE", "rdns"},
+			"gce":     map[string]any{"project_id": "test-project", "zone": "us-central1-a"},
+		},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, cfg.NameResolver.GCE)
+	assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
 }
 
 func TestConfig_ShutdownTimeout(t *testing.T) {
@@ -1168,6 +1218,58 @@ func TestConfigValidateStaticSkipsHostCompatibility(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "host is incompatible")
 	require.NoError(t, cfg.ValidateStatic())
+}
+
+func TestConfigValidateStaticForApplicationRefresh(t *testing.T) {
+	cfg := loadConfig(t, envMap{"OTEL_EBPF_TRACE_PRINTER": "text"})
+	require.False(t, cfg.Enabled(FeatureAppO11y))
+	require.False(t, cfg.Enabled(FeatureNetO11y))
+	require.False(t, cfg.Enabled(FeatureStatsO11y))
+	require.ErrorContains(t, cfg.ValidateStatic(), "at least one of")
+	require.ErrorContains(t, cfg.Validate(), "at least one of")
+	require.NoError(t, cfg.ValidateStaticForApplicationRefresh())
+	require.False(t, cfg.Enabled(FeatureAppO11y))
+
+	for _, tc := range []struct {
+		name   string
+		change func(*Config)
+		error  string
+	}{
+		{
+			name:   "runtime settings",
+			change: func(c *Config) { c.JVMRuntimeMetrics.SamplingInterval = 0 },
+			error:  "jvm_runtime_metrics.sampling_interval must be greater than 0",
+		},
+		{
+			name:   "trace printer",
+			change: func(c *Config) { c.TracePrinter = "invalid" },
+			error:  "invalid value for trace_printer",
+		},
+		{
+			name:   "application exporter",
+			change: func(c *Config) { c.TracePrinter = debug.TracePrinterDisabled },
+			error:  "you need to define at least one exporter",
+		},
+		{
+			name: "application metrics",
+			change: func(c *Config) {
+				c.Prometheus.Port = 9090
+				c.Metrics.Features = export.FeatureApplicationSizes
+			},
+			error: "application_sizes needs the application RED metrics",
+		},
+		{
+			name:   "network exporter",
+			change: func(c *Config) { c.NetworkFlows.Enable = true },
+			error:  "enabling network metrics requires",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			invalid := *cfg
+			tc.change(&invalid)
+			require.ErrorContains(t, invalid.ValidateStaticForApplicationRefresh(), tc.error)
+		})
+	}
 }
 
 func TestConfigValidatePrometheusPaths(t *testing.T) {
@@ -1958,13 +2060,13 @@ func TestConfigValidateRoute53HostedZones(t *testing.T) {
 		zones     []string
 		wantError bool
 	}{
-		{name: "enabled without zones", sources: []transform.Source{transform.SourceRoute53}, wantError: true},
-		{name: "enabled with empty list", sources: []transform.Source{transform.SourceRoute53}, zones: []string{}, wantError: true},
+		{name: "enabled without zones", sources: []transform.Source{transform.SourceRoute53}},
+		{name: "enabled with empty list", sources: []transform.Source{transform.SourceRoute53}, zones: []string{}},
 		{name: "blank ID", sources: []transform.Source{transform.SourceRoute53}, zones: []string{""}, wantError: true},
 		{name: "whitespace ID", sources: []transform.Source{transform.SourceRoute53}, zones: []string{" \t"}, wantError: true},
 		{name: "prefix without ID", sources: []transform.Source{transform.SourceRoute53}, zones: []string{" /hostedzone/ "}, wantError: true},
 		{name: "blank among valid IDs", sources: []transform.Source{transform.SourceRoute53}, zones: []string{"Z123", ""}, wantError: true},
-		{name: "case insensitive source", sources: []transform.Source{"Route53"}, wantError: true},
+		{name: "case insensitive source", sources: []transform.Source{"Route53"}},
 		{name: "valid IDs", sources: []transform.Source{transform.SourceRoute53}, zones: []string{"Z123", "/hostedzone/Z456"}},
 		{name: "disabled without zones", sources: []transform.Source{transform.SourceDNS}},
 		{name: "disabled with blank IDs", sources: []transform.Source{transform.SourceDNS}, zones: []string{""}},
@@ -1992,4 +2094,19 @@ func TestConfigValidateRoute53HostedZones(t *testing.T) {
 	cfg.Port = services.IntEnum{Ranges: []services.IntRange{{Start: 8080}}}
 	cfg.TracePrinter = debug.TracePrinterText
 	require.NoError(t, cfg.Validate())
+}
+
+func TestConfigV1IgnoresAzure(t *testing.T) {
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_AZURE_SUBSCRIPTION_ID", "env-sub")
+	cfg, err := LoadConfig(strings.NewReader("name_resolver:\n  sources: [AZURE, rdns]\n  azure:\n    subscription_id: sub\n    resource_group: group\n"))
+	require.NoError(t, err)
+	require.Empty(t, cfg.NameResolver.Azure)
+	require.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
+	t.Setenv("OTEL_EBPF_NAME_RESOLVER_SOURCES", "azure,rdns")
+	cfg, err = LoadConfig(nil)
+	require.NoError(t, err)
+	require.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
+	cfg = &Config{}
+	require.NoError(t, cfg.UnmarshalMap(map[string]any{"name_resolver": map[string]any{"sources": []any{"azure", "rdns"}}}))
+	require.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
 }

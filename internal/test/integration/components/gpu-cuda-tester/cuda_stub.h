@@ -85,4 +85,20 @@ cudaError_t cudaHostRegister(void *ptr, size_t size, unsigned int flags);
 cudaError_t cudaSetDevice(int device);
 cudaError_t cudaGetDeviceProperties(cudaDeviceProp *prop, int device);
 
+cudaError_t cudaLaunchKernel_ptsz(const void *func, dim3 gridDim, dim3 blockDim,
+                                  void **args, size_t sharedMem,
+                                  cudaStream_t stream);
+cudaError_t cudaGraphLaunch_ptsz(cudaGraphExec_t graphExec,
+                                 cudaStream_t stream);
+cudaError_t cudaMemcpy_ptds(void *dst, const void *src, size_t count,
+                            enum cudaMemcpyKind kind);
+cudaError_t cudaMemcpyAsync_ptsz(void *dst, const void *src, size_t count,
+                                 enum cudaMemcpyKind kind, cudaStream_t stream);
+cudaError_t cudaMemset_ptds(void *devPtr, int value, size_t count);
+cudaError_t cudaEventRecord_ptsz(cudaEvent_t event, cudaStream_t stream);
+cudaError_t cudaEventRecordWithFlags_ptsz(cudaEvent_t event,
+                                          cudaStream_t stream,
+                                          unsigned int flags);
+cudaError_t cudaStreamSynchronize_ptsz(cudaStream_t stream);
+
 #endif // CUDA_STUB_H

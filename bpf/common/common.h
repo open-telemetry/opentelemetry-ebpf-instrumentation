@@ -41,6 +41,7 @@ enum : u32 {
     k_kafka_max_len = 256,
     k_redis_max_len = 256,
     k_mongo_max_len = 256,
+    k_mongo_hostname_max_len = 262,
     k_max_topic_name_len = 64,
     k_host_max_len = 100,
     k_scheme_max_len = 10,
@@ -79,7 +80,9 @@ typedef struct http_request_trace {
     u16 status;
     unsigned char method[k_method_max_len];
     unsigned char scheme[k_scheme_max_len];
-    u8 _pad[11];
+    u8 proto_major;
+    u8 proto_minor;
+    u8 _pad[9];
     u64 go_start_monotime_ns;
     u64 start_monotime_ns;
     u64 end_monotime_ns;
@@ -306,6 +309,8 @@ typedef struct mongo_go_client_req {
     unsigned char op[32];
     unsigned char db[32];
     unsigned char coll[32];
+    unsigned char hostname[k_mongo_hostname_max_len];
+    u8 _pad1[2];
     connection_info_t conn;
     tp_info_t tp;
 } mongo_go_client_req_t;

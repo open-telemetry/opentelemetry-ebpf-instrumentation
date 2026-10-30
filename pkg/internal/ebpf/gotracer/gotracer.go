@@ -455,6 +455,9 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	}
 
 	ebpfcommon.FixupSpec(spec, p.cfg.OverrideBPFLoopEnabled)
+	if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
+		ebpfcommon.DisableJavaHTTP1Atomics(spec)
+	}
 
 	return []*ebpfcommon.SpecBundle{{
 		Spec:      spec,
@@ -522,6 +525,12 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 	initMissingGoOffsets(&offTable, goHTTPClientRequestOffsetFields[:])
 	initMissingGoOffsets(&offTable, goAutoSDKSpanContextOffsetFields[:])
 	initMissingGoOffsets(&offTable, goGRPCBufWriterOffsetFields[:])
+	initMissingGoOffsets(&offTable, []goexec.GoOffset{
+		goexec.ReqProtoMajorPos,
+		goexec.ReqProtoMinorPos,
+		goexec.RespProtoMajorPos,
+		goexec.RespProtoMinorPos,
+	})
 	offTable.Table[goexec.FramerPadLengthStackPos] = missingGoOffset
 	offTable.Table[goexec.FramerPadLengthStackVendoredPos] = missingGoOffset
 	// Set the field offsets and the logLevel for the Go BPF program in a map
@@ -542,6 +551,10 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.ResponseLengthPtrPos,
 		goexec.ContentLengthPtrPos,
 		goexec.ReqHeaderPtrPos,
+		goexec.ReqProtoMajorPos,
+		goexec.ReqProtoMinorPos,
+		goexec.RespProtoMajorPos,
+		goexec.RespProtoMinorPos,
 		goexec.IoWriterBufPtrPos,
 		goexec.IoWriterNPos,
 		goexec.IoWriterWrPos,
@@ -613,6 +626,9 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.MongoOpNamePos,
 		goexec.MongoOpDBPos,
 		goexec.MongoOneThirteenOne,
+		goexec.MongoTopologyConnectionPos,
+		goexec.MongoConnectionAddrPos,
+		goexec.MongoMnetDescriberPos,
 		// database/sql stdlib
 		goexec.DriverConnCiPos,
 		// lib/pq driver
@@ -676,6 +692,14 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		{
 			symbol: "*github.com/lib/pq.conn",
 			field:  goexec.PqConnTypeOffset,
+		},
+		{
+			symbol: "*go.mongodb.org/mongo-driver/x/mongo/driver/topology.Connection",
+			field:  goexec.MongoV1TopologyConnectionTypeAddress,
+		},
+		{
+			symbol: "*go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology.Connection",
+			field:  goexec.MongoV2TopologyConnectionTypeAddress,
 		},
 		{
 			symbol: "*google.golang.org/grpc/internal/credentials.syscallConn",
@@ -1569,8 +1593,9 @@ func (p *Tracer) deleteRuntimeMetricTarget(pid app.PID, ns uint32) {
 }
 
 func runtimeMetricPIDInfo(pid app.PID, ns uint32) (BpfPidInfo, error) {
+	// HostPid stays zero: go_runtime_metric_targets is keyed on {user_pid, ns}
+	// (see go_runtime_metric_target_lookup in bpf/gotracer/go_runtime.c).
 	pidInfo := BpfPidInfo{
-		HostPid: uint32(pid),
 		UserPid: uint32(pid),
 		Ns:      ns,
 	}
@@ -1583,7 +1608,6 @@ func runtimeMetricPIDInfo(pid app.PID, ns uint32) (BpfPidInfo, error) {
 		return pidInfo, nil
 	}
 
-	pidInfo.HostPid = uint32(pids[0])
 	pidInfo.UserPid = uint32(pids[len(pids)-1])
 	return pidInfo, nil
 }
@@ -1997,6 +2021,12 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		"go.mongodb.org/mongo-driver/v2/x/mongo/driver.Operation.Execute": {{
 			Start: p.bpfObjects.ObiUprobeMongoOpExecute,
 			End:   p.bpfObjects.ObiUprobeMongoOpExecuteRet,
+		}},
+		"go.mongodb.org/mongo-driver/x/mongo/driver.Operation.getServerAndConnection": {{
+			End: p.bpfObjects.ObiUretprobeMongoV1GetServerAndConnection,
+		}},
+		"go.mongodb.org/mongo-driver/v2/x/mongo/driver.Operation.getServerAndConnection": {{
+			End: p.bpfObjects.ObiUretprobeMongoV2GetServerAndConnection,
 		}},
 		// all of these point to the same probe, we just use it to find start time and collection name
 		"go.mongodb.org/mongo-driver/mongo.(*Collection).insert": {{

@@ -148,6 +148,25 @@ int GUARDED_PROG(obi_uprobe_ServeHTTP, struct pt_regs *, ctx) {
             bpf_dbg_printk("can't read http Request.ContentLength");
             goto done;
         }
+
+        const u64 proto_major_pos = go_offset_of(ot, (go_offset){.v = _req_proto_major_pos});
+        const u64 proto_minor_pos = go_offset_of(ot, (go_offset){.v = _req_proto_minor_pos});
+
+        s64 proto_major = 0;
+        s64 proto_minor = 0;
+
+        if (proto_major_pos != (u64)-1 && proto_minor_pos != (u64)-1 &&
+            bpf_probe_read_user(&proto_major,
+                                sizeof(proto_major),
+                                (const unsigned char *)req + proto_major_pos) == 0 &&
+            bpf_probe_read_user(&proto_minor,
+                                sizeof(proto_minor),
+                                (const unsigned char *)req + proto_minor_pos) == 0 &&
+            proto_major >= 0 && proto_major <= (u8)-1 && proto_minor >= 0 &&
+            proto_minor <= (u8)-1) {
+            invocation->proto_major = (u8)proto_major;
+            invocation->proto_minor = (u8)proto_minor;
+        }
     } else {
         goto done;
     }
@@ -588,9 +607,11 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
         return 0;
     }
 
-    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-    make_tp_string(tp_buf, &invocation->tp);
-    bpf_dbg_printk("tp=%s", tp_buf);
+    if (g_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, &invocation->tp);
+        bpf_dbg_printk("tp=%s", tp_buf);
+    }
 
     connection_info_t conn = {0};
     const connection_info_t *info = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
@@ -633,16 +654,21 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     __builtin_memcpy(&trace->conn, &conn, sizeof(connection_info_t));
     trace->tp = invocation->tp;
     trace->content_length = invocation->content_length;
-    __builtin_memcpy(trace->method, invocation->method, sizeof(trace->method));
-    __builtin_memcpy(trace->path, invocation->path, sizeof(trace->path));
-    __builtin_memcpy(trace->raw_query, invocation->raw_query, sizeof(trace->raw_query));
-    __builtin_memcpy(trace->pattern, invocation->pattern, sizeof(trace->pattern));
+    bpf_memcpy(trace->method, invocation->method, sizeof(trace->method));
+    bpf_memcpy(trace->path, invocation->path, sizeof(trace->path));
+    bpf_memcpy(trace->raw_query, invocation->raw_query, sizeof(trace->raw_query));
+    bpf_memcpy(trace->pattern, invocation->pattern, sizeof(trace->pattern));
     trace->status = (u16)invocation->status;
     trace->response_length = invocation->response_length;
     trace->is_jsonrpc = invocation->is_jsonrpc;
+    trace->proto_major = invocation->proto_major;
+    trace->proto_minor = invocation->proto_minor;
 
-    make_tp_string(tp_buf, &invocation->tp);
-    bpf_dbg_printk("tp=%s", tp_buf);
+    if (g_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, &invocation->tp);
+        bpf_dbg_printk("tp=%s", tp_buf);
+    }
     bpf_dbg_printk("method=%s", trace->method);
     bpf_dbg_printk("path=%s", trace->path);
     bpf_dbg_printk("pattern=%s", trace->pattern);
@@ -822,6 +848,8 @@ int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
     trace->end_monotime_ns = bpf_ktime_get_ns();
     trace->pattern[0] = '\0';
     trace->is_jsonrpc = false;
+    trace->proto_major = 0;
+    trace->proto_minor = 0;
 
     // Copy the values read on request start
     __builtin_memcpy(trace->method, data->method, sizeof(trace->method));
@@ -834,6 +862,24 @@ int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
     // Get request/response struct
 
     void *resp_ptr = (void *)GO_PARAM1(ctx);
+
+    const u64 proto_major_pos = go_offset_of(ot, (go_offset){.v = _resp_proto_major_pos});
+    const u64 proto_minor_pos = go_offset_of(ot, (go_offset){.v = _resp_proto_minor_pos});
+
+    s64 proto_major = 0;
+    s64 proto_minor = 0;
+
+    if (resp_ptr && proto_major_pos != (u64)-1 && proto_minor_pos != (u64)-1 &&
+        bpf_probe_read_user(&proto_major,
+                            sizeof(proto_major),
+                            (const unsigned char *)resp_ptr + proto_major_pos) == 0 &&
+        bpf_probe_read_user(&proto_minor,
+                            sizeof(proto_minor),
+                            (const unsigned char *)resp_ptr + proto_minor_pos) == 0 &&
+        proto_major >= 0 && proto_major <= (u8)-1 && proto_minor >= 0 && proto_minor <= (u8)-1) {
+        trace->proto_major = (u8)proto_major;
+        trace->proto_minor = (u8)proto_minor;
+    }
 
     connection_info_t *info = bpf_map_lookup_elem(&ongoing_client_connections, &g_key);
     if (info) {
@@ -858,30 +904,38 @@ int GUARDED_PROG(obi_uprobe_roundTripReturn, struct pt_regs *, ctx) {
 
     trace->tp = invocation->tp;
 
-    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-    make_tp_string(tp_buf, &invocation->tp);
-    bpf_dbg_printk("tp_buf=[%s]", tp_buf);
+    if (g_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, &invocation->tp);
+        bpf_dbg_printk("tp_buf=[%s]", tp_buf);
+    }
     bpf_dbg_printk("method=%s", trace->method);
     bpf_dbg_printk("path=%s", trace->path);
 
-    const u64 status_code_ptr_pos = go_offset_of(ot, (go_offset){.v = _status_code_ptr_pos});
-    bpf_probe_read(&trace->status, sizeof(trace->status), (void *)(resp_ptr + status_code_ptr_pos));
+    trace->status = 0;
+    trace->response_length = 0;
 
-    bpf_dbg_printk("status=%d, status_code_ptr_pos=%d, resp_ptr=%lx",
-                   trace->status,
-                   status_code_ptr_pos,
-                   (u64)resp_ptr);
+    if (resp_ptr) {
+        const u64 status_code_ptr_pos = go_offset_of(ot, (go_offset){.v = _status_code_ptr_pos});
+        bpf_probe_read(
+            &trace->status, sizeof(trace->status), (void *)(resp_ptr + status_code_ptr_pos));
 
-    const u64 response_length_ptr_pos =
-        go_offset_of(ot, (go_offset){.v = _response_length_ptr_pos});
-    bpf_probe_read(&trace->response_length,
-                   sizeof(trace->response_length),
-                   (void *)(resp_ptr + response_length_ptr_pos));
+        bpf_dbg_printk("status=%d, status_code_ptr_pos=%d, resp_ptr=%lx",
+                       trace->status,
+                       status_code_ptr_pos,
+                       (u64)resp_ptr);
 
-    bpf_dbg_printk("response_length=%llx, response_length_ptr_pos=%llu, resp_ptr=%llx",
-                   trace->response_length,
-                   response_length_ptr_pos,
-                   (u64)resp_ptr);
+        const u64 response_length_ptr_pos =
+            go_offset_of(ot, (go_offset){.v = _response_length_ptr_pos});
+        bpf_probe_read(&trace->response_length,
+                       sizeof(trace->response_length),
+                       (void *)(resp_ptr + response_length_ptr_pos));
+
+        bpf_dbg_printk("response_length=%llx, response_length_ptr_pos=%llu, resp_ptr=%llx",
+                       trace->response_length,
+                       response_length_ptr_pos,
+                       (u64)resp_ptr);
+    }
 
     // submit the completed trace via ringbuffer
     bpf_ringbuf_submit(trace, get_flags());

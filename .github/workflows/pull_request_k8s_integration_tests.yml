@@ -38,7 +38,7 @@ permissions:
 jobs:
   generate-bpf:
     name: Generate BPF
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,7 +52,7 @@ jobs:
 
   test-matrix:
     name: "Build matrix"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
@@ -70,7 +70,7 @@ jobs:
 
   build-images:
     name: Build shared test images
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
     needs: [generate-bpf]
     steps:
@@ -80,7 +80,7 @@ jobs:
           persist-credentials: false
 
       - name: Download generated BPF files
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: bpf-generated-${{ github.run_id }}
 
@@ -92,7 +92,7 @@ jobs:
           docker save obi:dev testserver:dev httppinger:dev -o /tmp/k8s-test-images.tar
 
       - name: Upload shared test images
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: k8s-test-images-amd64-${{ github.run_id }}
           path: /tmp/k8s-test-images.tar
@@ -105,7 +105,7 @@ jobs:
     permissions:
       checks: write
       pull-requests: write
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
@@ -165,7 +165,7 @@ jobs:
         run: make prereqs
 
       - name: Download shared test images
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: k8s-test-images-amd64-${{ github.run_id }}
           path: /tmp/k8s-test-images
@@ -231,6 +231,15 @@ jobs:
           path: |
             testoutput/*.log
             testoutput/kind
+
+      - name: Upload weaver live-check reports
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: weaver-reports-k8s-${{ matrix.basename }}-${{ github.run_number }}-${{ github.run_attempt }}
+          path: testoutput/kind/weaver-report-*.json
+          if-no-files-found: ignore
+          retention-days: 5
 
       - name: Check final disk usage
         if: always()

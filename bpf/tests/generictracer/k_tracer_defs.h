@@ -9,11 +9,12 @@
 
 // The skb path is not exercised; dependents only need the symbol
 static __always_inline void
-read_skb_bytes(const void *skb, u32 offset, unsigned char *buf, const u32 len) {
+read_skb_bytes(const void *skb, u32 offset, unsigned char *buf, const u32 len, const u32 max_len) {
     (void)skb;
     (void)offset;
     (void)buf;
     (void)len;
+    (void)max_len;
 }
 
 extern int test_parser_call_count;

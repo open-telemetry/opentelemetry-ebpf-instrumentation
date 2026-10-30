@@ -150,6 +150,10 @@ func (g *DocGenerator) Generate(schemaLink string) string {
 	var objectProps []propEntry
 
 	for name, prop := range g.root.Properties {
+		// Peer metadata is documented only in the Config v2 reference.
+		if name == "peer_metadata" {
+			continue
+		}
 		resolved := g.resolve(prop)
 		if g.isObjectType(resolved) {
 			objectProps = append(objectProps, propEntry{name, prop})

@@ -24,7 +24,7 @@ import (
 	"go.opentelemetry.io/obi/internal/test/tools/img"
 )
 
-const imgFloci = img.Docker("floci/floci:2.2.0@sha256:e97cd0c1dc2aa14e7697fb5ef5018404c4d6345169dbd276315f0bed2c7b0520")
+const imgFloci = img.Docker("floci/floci:2.3.0@sha256:e0b292df4dc9559b7b1bf4f51bdda4bb8e269276236438cd03cae661260ea8a9")
 
 func setupFloci(t *testing.T, network dockertest.Network) string {
 	t.Helper()
@@ -57,6 +57,8 @@ func TestRoute53ServiceResolution(t *testing.T) {
 	}, testTimeout, time.Second)
 	zone, err := r53.CreateHostedZone(t.Context(), &route53.CreateHostedZoneInput{
 		Name: aws.String("internal.example.com"), CallerReference: aws.String(t.Name()),
+		HostedZoneConfig: &types.HostedZoneConfig{PrivateZone: true},
+		VPC:              &types.VPC{VPCId: aws.String("vpc-d295a6a7"), VPCRegion: types.VPCRegionUsEast1},
 	})
 	require.NoError(t, err)
 	setupContainerPrometheus(t, network, "prometheus-config-perapp.yml")
@@ -75,8 +77,24 @@ func TestRoute53ServiceResolution(t *testing.T) {
 		require.NoError(t, err)
 	}
 	change(types.ChangeActionCreate, record)
+	for name, vpc := range map[string]*types.VPC{
+		"public.example.com":    nil,
+		"unrelated.example.com": {VPCId: aws.String("vpc-unrelated"), VPCRegion: types.VPCRegionUsEast1},
+	} {
+		other, err := r53.CreateHostedZone(t.Context(), &route53.CreateHostedZoneInput{
+			Name: aws.String(name), CallerReference: aws.String(t.Name() + name),
+			HostedZoneConfig: &types.HostedZoneConfig{PrivateZone: vpc != nil}, VPC: vpc,
+		})
+		require.NoError(t, err)
+		conflicting := record
+		conflicting.Name = aws.String("a." + name + ".")
+		_, err = r53.ChangeResourceRecordSets(t.Context(), &route53.ChangeResourceRecordSetsInput{
+			HostedZoneId: other.HostedZone.Id,
+			ChangeBatch:  &types.ChangeBatch{Changes: []types.Change{{Action: types.ChangeActionCreate, ResourceRecordSet: &conflicting}}},
+		})
+		require.NoError(t, err)
+	}
 	o := obi{Env: []string{
-		"ROUTE53_HOSTED_ZONE_ID=" + aws.ToString(zone.HostedZone.Id),
 		"AWS_ENDPOINT_URL_ROUTE_53=http://floci:4566", "AWS_ACCESS_KEY_ID=test", "AWS_SECRET_ACCESS_KEY=test",
 		"AWS_EC2_METADATA_SERVICE_ENDPOINT=http://mock-imds:80",
 	}, Logs: createLogOutput(t, "route53-resolver")}
