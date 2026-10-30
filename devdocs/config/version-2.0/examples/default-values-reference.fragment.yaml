@@ -73,6 +73,8 @@ extensions:
     # A receiver component flattens every child of this block beside version;
     # it does not retain the capture wrapper.
     capture:
+      exceptions:
+        enabled: false
       # policy controls global rule evaluation behavior.
       policy:
         # Include by default unless matched by an exclude rule.

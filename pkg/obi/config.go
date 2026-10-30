@@ -119,6 +119,7 @@ var (
 )
 
 var DefaultConfig = Config{
+	Logs:                    otelcfg.LogsConfig{BatchMaxSize: 512, QueueSize: 2048, BatchTimeout: time.Second},
 	ChannelBufferLen:        50,
 	ChannelSendTimeout:      time.Minute,
 	ChannelSendTimeoutPanic: false,
@@ -401,6 +402,10 @@ type Config struct {
 	Traces       otelcfg.TracesConfig          `yaml:"otel_traces_export"`
 	Prometheus   prom.PrometheusConfig         `yaml:"prometheus_export"`
 	TracePrinter debug.TracePrinter            `yaml:"trace_printer" env:"OTEL_EBPF_TRACE_PRINTER"`
+
+	// Exceptions and Logs are set only by config v2.
+	Exceptions services.ExceptionsConfig `yaml:"-" env:"-"`
+	Logs       otelcfg.LogsConfig        `yaml:"-" env:"-"`
 
 	// Exec allows selecting the instrumented executable whose complete path contains the Exec value.
 	//
@@ -893,6 +898,12 @@ func (c *Config) validate(context validationContext) error {
 		}
 	}
 
+	if err := c.Logs.Validate(); err != nil {
+		return ConfigError(err.Error())
+	}
+	if c.ExceptionsEnabled() && !c.Logs.Enabled() {
+		return ConfigError("exception capture requires a logger_provider exporter or a logs consumer")
+	}
 	otelMetricsEnabled := context.hostMetricsSink || c.OTELMetrics.EndpointEnabled()
 	tracesEnabled := context.hostTracesSink || c.Traces.Enabled()
 
@@ -917,7 +928,7 @@ func (c *Config) validate(context validationContext) error {
 	}
 
 	if applicationEnabled && !c.TracePrinter.Enabled() &&
-		!otelMetricsEnabled && !tracesEnabled &&
+		!otelMetricsEnabled && !tracesEnabled && !c.Logs.Enabled() &&
 		!c.Prometheus.EndpointEnabled() && !c.TracePrinter.Enabled() {
 		return ConfigError("you need to define at least one exporter: trace_printer," +
 			" otel_metrics_export, otel_traces_export or prometheus_export")
@@ -1188,4 +1199,22 @@ func (c *Config) normalize() {
 	if c.NetworkFlows.Enable {
 		c.Metrics.Features |= export.FeatureNetwork
 	}
+}
+
+// ExceptionsEnabled reports whether any selected workload can request capture.
+func (c *Config) ExceptionsEnabled() bool {
+	if c.Exceptions.Enabled {
+		return true
+	}
+	for _, s := range c.Discovery.Instrument {
+		if s.Exceptions.Resolve(c.Exceptions).Enabled {
+			return true
+		}
+	}
+	for _, s := range c.Discovery.Services {
+		if s.Exceptions.Resolve(c.Exceptions).Enabled {
+			return true
+		}
+	}
+	return false
 }

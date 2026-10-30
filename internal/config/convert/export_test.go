@@ -730,6 +730,28 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	require.Equal(t, []string{"/inventory/{id}"}, *ext.Capture.Rules[2].Refine.HTTP.Routes.Outgoing.Patterns)
 }
 
+func TestRuntimeToV2PreservesLogsExportMode(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	exports := services.NewExportModes()
+	exports.AllowTraces()
+	exports.AllowLogs()
+	cfg.Discovery.Instrument = services.GlobDefinitionCriteria{
+		{Path: services.NewGlob("/app/*"), ExportModes: exports},
+	}
+
+	_, ext := RuntimeToV2(&cfg)
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+
+	require.Len(t, got.Discovery.Instrument, 1)
+	modes := got.Discovery.Instrument[0].ExportModes
+	require.True(t, modes.CanExportTraces())
+	require.True(t, modes.CanExportLogs())
+	require.False(t, modes.CanExportMetrics())
+}
+
 func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {
 	t.Parallel()
 
