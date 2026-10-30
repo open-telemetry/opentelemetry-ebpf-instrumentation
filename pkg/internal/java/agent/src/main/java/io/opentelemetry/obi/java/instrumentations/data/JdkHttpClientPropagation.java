@@ -152,6 +152,13 @@ public final class JdkHttpClientPropagation implements BiConsumer<Object, Throwa
     }
   }
 
+  static JdkHttpClientPropagation attempt(JdkHttpClientPropagation owner) {
+    JdkHttpClientPropagation attempt = new JdkHttpClientPropagation(null);
+    attempt.active = available && owner.active;
+    attempt.parent = owner.parent == null ? null : owner.parent.clone();
+    return attempt;
+  }
+
   public static boolean contains(Object request) {
     return available && requestScopes.containsKey(request);
   }
@@ -204,7 +211,7 @@ public final class JdkHttpClientPropagation implements BiConsumer<Object, Throwa
     }
   }
 
-  private void release() {
+  void release() {
     active = false;
     for (Object request : trackedRequests) {
       requestScopes.remove(request);
@@ -230,6 +237,7 @@ public final class JdkHttpClientPropagation implements BiConsumer<Object, Throwa
       try {
         System.setProperty(PROPERTY, "false");
         System.setProperty(ASYNC_PROPERTY, "false");
+        System.setProperty(ApacheHttpClientPropagation.PROPERTY, "unavailable-foundation");
       } catch (SecurityException ignored) {
       }
       if (SSLStorage.debugOn) {
@@ -339,13 +347,18 @@ public final class JdkHttpClientPropagation implements BiConsumer<Object, Throwa
     InetSocketAddress remote = (InetSocketAddress) channel.getRemoteAddress();
     Connection connection =
         new Connection(local.getAddress(), local.getPort(), remote.getAddress(), remote.getPort());
+    return reserve(scope, connection, headers) ? Collections.singletonList(headers) : buffers;
+  }
+
+  static boolean reserve(
+      JdkHttpClientPropagation scope, Connection connection, ByteBuffer headers) {
     synchronized (scope) {
       if (!scope.active || scope.parent == null) {
-        return buffers;
+        return false;
       }
       NativeMemory packet = scope.reserveClientSpan(connection, headers.position());
       if (packet == null) {
-        return buffers;
+        return false;
       }
       ByteBuffer value = packet.getBuffer().duplicate();
       ((java.nio.Buffer) value).position(PACKET_PARENT_OFFSET);
@@ -354,7 +367,7 @@ public final class JdkHttpClientPropagation implements BiConsumer<Object, Throwa
       ((java.nio.Buffer) value).position(PACKET_TRACEPARENT_OFFSET);
       headers.put(value);
       ((java.nio.Buffer) headers).position(0);
-      return Collections.singletonList(headers);
+      return true;
     }
   }
 

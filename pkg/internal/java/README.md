@@ -346,6 +346,23 @@ jattach <PID of Java program> load instrument false "/path/to/obi-java-agent.jar
 - `wrap()` - Extracts connection info
 - `unwrap()` - Extracts connection info
 
+### Apache HttpClient 4 propagation
+
+The existing `httpHeaders` attachment option also enables synchronous
+`CloseableHttpClient.execute()` HTTPS/HTTP/1.1 injection through JSSE `SSLSocket`
+with Apache HttpClient 4.3 and later in the 4.x series.
+All stock execute overloads and response handlers share the concrete
+execution hook. Each retry/redirect/authentication attempt reuses the native
+reservation protocol with separate cleanup ownership.
+
+The first complete serialized write after injection must fit within 16 KiB.
+Application-owned `traceparent` and `tracestate` are preserved. Expect-Continue,
+plaintext injection, HttpClient 5, async APIs, HTTP/2, and bypassing custom
+transports are excluded. The separate Apache capability property is
+`otel.obi.java.agent.apache4.propagation`; availability does not prove injection.
+See [propagation design and validation](../../../devdocs/java-httpclient-propagation.md#apache-httpclient-4-synchronous-execution)
+for tested versions, permissions, diagnostics, and restart requirements.
+
 ## 💻 Development
 
 ### Key Technologies

@@ -29,6 +29,7 @@ import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.dynamic.ClassFileLocator;
 import net.bytebuddy.dynamic.loading.ClassInjector;
+import net.bytebuddy.pool.TypePool;
 import net.bytebuddy.utility.JavaModule;
 
 public class Agent {
@@ -171,6 +172,8 @@ public class Agent {
         .transform(JavaExecutorInst.transformer())
         .type(JdkHttpClientInst.type())
         .transform(JdkHttpClientInst.transformer(optEnabled(opts, "httpHeaders")))
+        .type(ApacheHttpClientInst.type())
+        .transform(ApacheHttpClientInst.transformer(optEnabled(opts, "httpHeaders")))
         .type(CallableInst.type())
         .transform(CallableInst.transformer())
         .type(RunnableInst.type())
@@ -219,6 +222,7 @@ public class Agent {
           || SocketChannelInst.matches(clazz)
           || JavaExecutorInst.matches(clazz)
           || JdkHttpClientInst.matches(clazz)
+          || ApacheHttpClientInst.matches(clazz)
           || CallableInst.matches(clazz)
           || RunnableInst.matches(clazz)
           || JavaForkJoinTaskInst.matches(clazz)
@@ -290,6 +294,14 @@ public class Agent {
         }
       }
     }
+
+    // Apache advice must resolve the same bootstrap helper as the TLS advice. Loading an
+    // agent-loader copy first would cache that distinct class in the application loader.
+    TypeDescription apachePropagation =
+        TypePool.Default.of(agentClassLoader)
+            .describe("io.opentelemetry.obi.java.instrumentations.data.ApacheHttpClientPropagation")
+            .resolve();
+    typeMap.put(apachePropagation, locator.locate(apachePropagation.getName()).resolve());
 
     ClassInjector injector =
         ClassInjector.UsingInstrumentation.of(tempDir, BOOTSTRAP, instrumentation);

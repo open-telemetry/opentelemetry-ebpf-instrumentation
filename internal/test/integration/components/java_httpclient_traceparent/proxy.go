@@ -14,6 +14,7 @@ import (
 	"io"
 	"log"
 	"math/big"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -27,6 +28,7 @@ type observation struct {
 	Connection  string   `json:"connection"`
 	Body        string   `json:"body"`
 	Application string   `json:"application"`
+	Unrelated   string   `json:"unrelated"`
 	Tracestate  string   `json:"tracestate"`
 }
 
@@ -57,6 +59,18 @@ func main() {
 			_, _ = w.Write([]byte("expectation rejected"))
 			return
 		}
+		if strings.HasSuffix(r.URL.Path, "-write-failure") {
+			connection, _, err := w.(http.Hijacker).Hijack()
+			if err == nil {
+				if secured, ok := connection.(*tls.Conn); ok {
+					if tcp, ok := secured.NetConn().(*net.TCPConn); ok {
+						_ = tcp.SetLinger(0)
+					}
+				}
+				_ = connection.Close()
+			}
+			return
+		}
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
@@ -69,6 +83,7 @@ func main() {
 			Connection:  r.RemoteAddr,
 			Body:        string(body),
 			Application: r.Header.Get("X-Application"),
+			Unrelated:   r.Header.Get("X-Unrelated"),
 			Tracestate:  r.Header.Get("Tracestate"),
 		})
 		attempt := len(records[r.URL.Path])
@@ -94,7 +109,7 @@ func main() {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		if strings.HasSuffix(r.URL.Path, "-timeout") {
+		if strings.HasSuffix(r.URL.Path, "-timeout") || strings.HasSuffix(r.URL.Path, "-abort") {
 			<-r.Context().Done()
 			return
 		}

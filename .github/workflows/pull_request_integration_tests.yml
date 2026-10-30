@@ -50,6 +50,8 @@ jobs:
           - runner: ubuntu-24.04-arm
             arch: arm64
         runtime:
+          - version: 8
+            image: eclipse-temurin@sha256:30875dc74fbba9949689e87e62981c5361beb2baa578e85f6b8508b49f8a7bf7
           - version: 11
             image: eclipse-temurin@sha256:149ed37838b04397f2f3dbf3334d4a9f52a867e85e10cc3e6609de6467a56ea5
           - version: 17
@@ -58,6 +60,8 @@ jobs:
             image: ""
     env:
       JAVA_HTTPCLIENT_RUNTIME_IMAGE: ${{ matrix.runtime.image }}
+      JAVA_APACHE_RUNTIME_IMAGE: ${{ matrix.runtime.image }}
+      JAVA_APACHE_HTTPCLIENT_VERSION: ${{ matrix.runtime.version == 8 && '4.3' || '4.5.14' }}
       JAVA_HTTPCLIENT_OBI_IMAGE: hatest-obi
       SKIP_DOCKER_BUILD: "1"
     steps:
@@ -94,18 +98,34 @@ jobs:
           else
             build_args+=(--build-arg "JAVA_HTTPCLIENT_RUNTIME_IMAGE=${JAVA_HTTPCLIENT_RUNTIME_IMAGE}")
           fi
-          docker build "${build_args[@]}" -t hatest-java-httpclient-traceparent \
-            -f internal/test/integration/components/java_httpclient_traceparent/Dockerfile .
+          if [[ "${{ matrix.runtime.version }}" != "8" ]]; then
+            docker build "${build_args[@]}" -t hatest-java-httpclient-traceparent \
+              -f internal/test/integration/components/java_httpclient_traceparent/Dockerfile .
+          fi
+          apache_args=(--build-arg "JAVA_APACHE_HTTPCLIENT_VERSION=${JAVA_APACHE_HTTPCLIENT_VERSION}")
+          if [[ -n "${JAVA_APACHE_RUNTIME_IMAGE}" ]]; then
+            apache_args+=(--build-arg "JAVA_APACHE_RUNTIME_IMAGE=${JAVA_APACHE_RUNTIME_IMAGE}")
+          fi
+          docker build "${apache_args[@]}" -t hatest-java-apache-httpclient \
+            -f internal/test/integration/components/java_apache_httpclient/Dockerfile .
+          uname -srvm
+          docker run --rm --entrypoint java hatest-java-apache-httpclient -version
           make testoutput
-          go test -v -count=1 -run '^TestJavaHTTPClient(Async)?Traceparent$' \
-            -timeout 20m ./internal/test/integration/ 2>&1 | tee testoutput/java-httpclient.log
+          tests='^TestJava(Apache)?HTTPClient(Async)?Traceparent$'
+          if [[ "${{ matrix.runtime.version }}" == "8" ]]; then
+            tests='^TestJavaApacheHTTPClientTraceparent$'
+          fi
+          go test -v -count=1 -run "$tests" \
+            -timeout 35m ./internal/test/integration/ 2>&1 | tee testoutput/java-httpclient.log
 
       - name: Upload Java HttpClient evidence
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: java-httpclient-jdk${{ matrix.runtime.version }}-${{ matrix.platform.arch }}
-          path: testoutput/*java-httpclient*
+          path: |
+            testoutput/*java-httpclient*
+            testoutput/*java-apache-httpclient*
           retention-days: 14
 
   generate-bpf:
