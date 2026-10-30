@@ -17,10 +17,10 @@ map(select(
   (
     (
       (.error.FailToResolveDefinition? // null) as $fail
-      | ($fail.UnstableFileFormat? // null) as $unstable
       | $fail != null
-        and $unstable != null
-        and $unstable.file_format == "definition/2"
+        and ($fail.UnstableFileFormat? // null) as $unstable
+        | $unstable != null
+          and $unstable.file_format == "definition/2"
     )
     or
     (
