@@ -14,6 +14,7 @@
 #include <common/preempt_guard.h>
 #include <common/protocol_defs.h>
 #include <common/ringbuf.h>
+#include <common/sampling.h>
 #include <common/trace_helpers.h>
 #include <common/trace_lifecycle.h>
 #include <common/trace_parent.h>
@@ -63,7 +64,6 @@ static __always_inline void set_tcp_trace_info(u32 type,
     }
 
     tp_p->tp = *tp;
-    tp_p->tp.flags = 1;
     tp_p->valid = 1;
     tp_p->pid = pid; // used for avoiding finding stale server requests with client port reuse
     tp_p->req_type = k_event_type_tcp_request;
@@ -102,6 +102,7 @@ static __always_inline void tcp_get_or_set_trace_info(tcp_req_t *req,
         bpf_dbg_printk("Looking up server trace info, found=%d", found);
         if (found) {
             urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
+            sample_remote_child(&req->tp);
         } else {
             init_new_trace(&req->tp);
         }

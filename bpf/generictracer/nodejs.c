@@ -355,6 +355,8 @@ static __always_inline int handle_node_span(const char *path, const u64 pid_tgid
     task_pid(&ev->pid);
 
     ev->has_parent_ctx = 0;
+    // obi_ctx_info_t carries no flags, so only a server trace gives them
+    ev->parent_flags = k_flag_sampled;
     u32 payload_offset = k_span_payload_offset;
 
     unsigned char fd_part[k_span_fd_marker_len + k_max_fd_digits] = {};
@@ -372,6 +374,7 @@ static __always_inline int handle_node_span(const char *path, const u64 pid_tgid
             ev->has_parent_ctx = 1;
             bpf_memcpy(ev->parent_trace_id, (void *)tp->tp.trace_id, TRACE_ID_SIZE_BYTES);
             bpf_memcpy(ev->parent_span_id, (void *)tp->tp.span_id, SPAN_ID_SIZE_BYTES);
+            ev->parent_flags = tp->tp.flags;
         }
     } else if (variant == k_span_variant_plain) {
         const obi_ctx_info_t *shadow = bpf_map_lookup_elem(&node_manual_ctx_shadow, &pid_tgid);

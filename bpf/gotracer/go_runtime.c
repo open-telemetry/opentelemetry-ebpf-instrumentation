@@ -845,7 +845,8 @@ static __always_inline bool current_obi_handoff(struct pt_regs *ctx, chan_handof
         __builtin_memcpy(handoff->tp.trace_id, obi_ctx->trace_id, sizeof(handoff->tp.trace_id));
         __builtin_memcpy(handoff->tp.span_id, obi_ctx->span_id, sizeof(handoff->tp.span_id));
         *((u64 *)handoff->tp.parent_id) = 0;
-        handoff->tp.flags = 0;
+        // obi_ctx_info_t carries no flags, so fall back to the default for traces OBI starts
+        handoff->tp.flags = k_flag_sampled;
         return true;
     }
 

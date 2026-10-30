@@ -19,6 +19,7 @@
 #include <common/preempt_guard.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
+#include <common/sampling.h>
 #include <common/scratch_mem.h>
 #include <common/trace_helpers.h>
 #include <common/trace_lifecycle.h>
@@ -539,7 +540,6 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
         if (!capture_header_buffer) {
             if (meta) {
                 tp_p->tp.ts = bpf_ktime_get_ns();
-                tp_p->tp.flags = 1;
                 tp_p->valid = 1;
                 tp_p->pid = args->pid_conn.pid;
                 tp_p->req_type = meta->type;
@@ -586,6 +586,7 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
                 decode_hex((unsigned char *)&tp_p->tp.flags, f_id, FLAGS_CHAR_LEN);
                 if (meta && meta->type != k_event_type_http_client) {
                     decode_hex(tp_p->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
+                    sample_remote_child(&tp_p->tp);
                 } else if (previous_trace_id &&
                            bpf_memcmp(previous_trace_id, tp_p->tp.trace_id, TRACE_ID_SIZE_BYTES) !=
                                0) {
@@ -767,6 +768,9 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
             // For server requests, we first look for TCP info (setup by TC ingress) and then we fall back to black-box info.
             found_tp = find_trace_for_server_request(
                 &args->pid_conn.conn, &tp_p->tp, k_event_type_http_request);
+            if (found_tp) {
+                sample_remote_child(&tp_p->tp);
+            }
         }
     }
 
@@ -774,6 +778,7 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
         bpf_dbg_printk("Generating new traceparent id");
         new_trace_id(&tp_p->tp);
         __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+        sample_new_trace(&tp_p->tp);
     } else {
         bpf_dbg_printk("Using old traceparent id");
     }

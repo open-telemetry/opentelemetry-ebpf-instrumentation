@@ -274,7 +274,8 @@ typedef struct otel_span {
 typedef struct node_span_event {
     u8 type; // Must be first, k_event_type_node_span
     u8 has_parent_ctx;
-    u8 _pad[2];
+    u8 parent_flags; // the parent's trace flags, sampled when unknown
+    u8 _pad[1];
     u32 payload_len; // bytes of payload actually written (excluding NUL)
     u64 end_ktime;   // bpf_ktime_get_ns() when the sentinel fired (~span end)
     unsigned char parent_trace_id[TRACE_ID_SIZE_BYTES];

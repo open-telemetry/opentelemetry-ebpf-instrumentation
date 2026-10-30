@@ -87,6 +87,7 @@ static __always_inline u8 find_trace_for_server_request(connection_info_t *conn,
         bpf_dbg_printk("Found incoming (TCP/IP) tp for server request");
         __builtin_memcpy(tp->trace_id, existing_tp->tp.trace_id, sizeof(tp->trace_id));
         __builtin_memcpy(tp->parent_id, existing_tp->tp.span_id, sizeof(tp->parent_id));
+        tp->flags = existing_tp->tp.flags;
         bpf_map_delete_elem(&incoming_trace_map, &sorted_conn);
     } else {
         bpf_dbg_printk("Looking up tracemap for");
@@ -108,6 +109,7 @@ static __always_inline u8 find_trace_for_server_request(connection_info_t *conn,
                     found_tp = 1;
                     __builtin_memcpy(tp->trace_id, existing_tp->tp.trace_id, sizeof(tp->trace_id));
                     __builtin_memcpy(tp->parent_id, existing_tp->tp.span_id, sizeof(tp->parent_id));
+                    tp->flags = existing_tp->tp.flags;
                     // We ensure that server requests match the client type, otherwise SSL
                     // can often be confused with TCP.
                     existing_tp->valid = 0;

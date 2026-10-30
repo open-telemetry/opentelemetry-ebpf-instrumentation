@@ -6,6 +6,7 @@
 #include <bpfcore/utils.h>
 
 #include <common/globals.h>
+#include <common/sampling.h>
 #include <common/tp_info.h>
 #include <common/trace_util.h>
 #include <common/tracing.h>
@@ -66,7 +67,7 @@ static __always_inline void init_new_trace(tp_info_t *tp) {
     __builtin_memset(tp->parent_id, 0, sizeof(tp->span_id));
     // ts gates should_be_in_same_transaction
     tp->ts = bpf_ktime_get_ns();
-    tp->flags = 1;
+    sample_new_trace(tp);
 
     if (g_bpf_debug) {
         unsigned char tp_buf[TP_MAX_VAL_LENGTH];
