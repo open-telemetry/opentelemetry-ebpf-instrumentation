@@ -1257,30 +1257,48 @@
             "enabled": {
               "type": "array",
               "items": {
-                "type": "string",
-                "enum": [
-                  "graphql",
-                  "elasticsearch",
-                  "aws",
-                  "sqlpp",
-                  "openai",
-                  "anthropic",
-                  "gemini",
-                  "qwen",
-                  "bedrock",
-                  "mcp",
-                  "ollama",
-                  "cohere",
-                  "openai_compatible",
-                  "embedding",
-                  "rerank",
-                  "retrieval",
-                  "jsonrpc",
-                  "enrichment"
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "graphql",
+                      "elasticsearch",
+                      "aws_s3",
+                      "aws_sqs",
+                      "aws_sns",
+                      "sqlpp",
+                      "openai",
+                      "anthropic",
+                      "gemini",
+                      "qwen",
+                      "bedrock",
+                      "mcp",
+                      "ollama",
+                      "cohere",
+                      "openai_compatible",
+                      "embedding",
+                      "rerank",
+                      "retrieval",
+                      "jsonrpc",
+                      "genai",
+                      "database",
+                      "aws",
+                      "all",
+                      "*"
+                    ]
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "enrichment"
+                    ],
+                    "description": "Deprecated value, kept for backwards compatibility: enrichment (use payload_extraction.enrichment.enabled). It is never enabled by all or *.",
+                    "deprecated": true
+                  }
                 ]
               },
               "default": [],
-              "description": "Payload extractors enabled for HTTP-derived parsing.\nIf omitted, no payload extractors are enabled.\n"
+              "description": "Payload extractors enabled for HTTP-derived parsing.\n`genai` enables openai, anthropic, gemini, qwen, bedrock, mcp, ollama, cohere, openai_compatible, embedding, rerank, and retrieval.\n`database` enables elasticsearch and sqlpp.\n`aws` enables aws_s3, aws_sqs, and aws_sns.\n`all` and `*` enable every extractor.\nIf omitted, no payload extractors are enabled.\n"
             },
             "sqlpp": {
               "type": "object",
@@ -1309,6 +1327,11 @@
               "description": "HTTP header and body enrichment policy and rules.",
               "additionalProperties": false,
               "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Enable HTTP header and body enrichment.\nIf omitted, false is used.\n"
+                },
                 "policy": {
                   "type": "object",
                   "additionalProperties": false,

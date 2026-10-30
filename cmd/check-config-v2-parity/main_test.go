@@ -119,7 +119,7 @@ func TestVerifyDefaultsCurrentExample(t *testing.T) {
 	if len(failures) > 0 {
 		t.Fatalf("expected current defaults to match v2 example, got %d failures: %v", len(failures), failures)
 	}
-	if mappedChecks != len(parityChecks())+24 {
+	if mappedChecks != len(parityChecks())+25 {
 		t.Fatalf("unexpected mapped check count: %d", mappedChecks)
 	}
 }

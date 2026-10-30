@@ -545,7 +545,9 @@ Global route discovery remains under `http.routes.discovery` because harvesting 
 HTTP `payload_extraction` uses the same list-based enablement model as other instrumentation selectors:
 
 - `payload_extraction.enabled` is the only enablement surface.
-- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, `retrieval`, `ollama`, `cohere`, `openai_compatible`, `jsonrpc`, and `enrichment`.
+- Concrete values currently supported are `graphql`, `elasticsearch`, `aws_s3`, `aws_sqs`, `aws_sns`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, `retrieval`, `ollama`, `cohere`, `openai_compatible`, and `jsonrpc`.
+- Group aliases expand to several extractors: `genai` enables `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `ollama`, `cohere`, `openai_compatible`, `embedding`, `rerank`, and `retrieval`; `database` enables `elasticsearch` and `sqlpp`; `aws` enables `aws_s3`, `aws_sqs`, and `aws_sns`; `all` and `*` enable every extractor. Aliases can be combined with concrete values, for example `["genai", "graphql"]`.
+- HTTP header and body enrichment is not an extractor: it is enabled with `payload_extraction.enrichment.enabled`, next to its policy and rules, so `all` and `*` never turn it on. Listing `enrichment` in `enabled` is deprecated but still enables it, and logs a warning.
 - Nested extractor blocks are for tuning, not duplicate enablement. For example, `payload_extraction.sqlpp.endpoint_patterns` refines SQL++ matching after `sqlpp` is enabled in the list.
 - If future aliases or families are needed, they should be added as values in the same `enabled` list rather than introducing parallel knobs.
 
@@ -873,7 +875,7 @@ Important mapping notes:
 | `ebpf.mysql_prepared_statements_cache_size` | `extensions.obi.capture.instrumentation.sql.mysql.prepared_statements_cache_size` | Move |
 | `ebpf.payload_extraction.http.graphql.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `graphql` | Move + normalize |
 | `ebpf.payload_extraction.http.elasticsearch.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `elasticsearch` | Move + normalize |
-| `ebpf.payload_extraction.http.aws.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `aws` | Move + normalize |
+| `ebpf.payload_extraction.http.aws.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `aws_s3`, `aws_sqs`, and `aws_sns` | Move + normalize |
 | `ebpf.payload_extraction.http.sqlpp.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `sqlpp` | Move + normalize |
 | `ebpf.payload_extraction.http.sqlpp.endpoint_patterns` | `extensions.obi.capture.instrumentation.http.payload_extraction.sqlpp.endpoint_patterns` | Move |
 | `ebpf.payload_extraction.http.genai.openai.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `openai` | Move + normalize |
@@ -889,7 +891,7 @@ Important mapping notes:
 | `ebpf.payload_extraction.http.genai.rerank.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `rerank` | Move + normalize |
 | `ebpf.payload_extraction.http.genai.retrieval.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `retrieval` | Move + normalize |
 | `ebpf.payload_extraction.http.jsonrpc.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `jsonrpc` | Move + normalize |
-| `ebpf.payload_extraction.http.enrichment.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `enrichment` | Move + normalize |
+| `ebpf.payload_extraction.http.enrichment.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enrichment.enabled` | Move |
 | `ebpf.payload_extraction.http.enrichment.policy.default_action.headers` | `extensions.obi.capture.instrumentation.http.payload_extraction.enrichment.policy.default_action.headers` | Move |
 | `ebpf.payload_extraction.http.enrichment.policy.default_action.body` | `extensions.obi.capture.instrumentation.http.payload_extraction.enrichment.policy.default_action.body` | Move |
 | `ebpf.payload_extraction.http.enrichment.policy.obfuscation_string` | `extensions.obi.capture.instrumentation.http.payload_extraction.enrichment.policy.obfuscation_string` | Move |

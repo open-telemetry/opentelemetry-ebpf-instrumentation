@@ -34,3 +34,38 @@ func TestPostProcessSNS(t *testing.T) {
 		}
 	}
 }
+
+func TestPostProcessAWSPerServiceSelection(t *testing.T) {
+	newSNSRequest := func() *http.Request {
+		req, err := http.NewRequest(http.MethodPost, "https://sns.eu-west-1.amazonaws.com/", strings.NewReader("Action=Publish&TopicArn=arn:aws:sns:eu-west-1:123456789012:orders&Message=hello"))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		return req
+	}
+
+	tests := []struct {
+		name    string
+		aws     config.AWSConfig
+		wantSNS bool
+	}{
+		{name: "sns selected", aws: config.AWSConfig{SNS: true}, wantSNS: true},
+		{name: "only s3 and sqs selected", aws: config.AWSConfig{S3: true, SQS: true}, wantSNS: false},
+		{name: "v1 enabled covers every service", aws: config.AWSConfig{Enabled: true}, wantSNS: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			resp := &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}
+			ctx := &EBPFParseContext{payloadExtraction: config.PayloadExtraction{HTTP: config.HTTPConfig{AWS: test.aws}}}
+
+			span := postProcessHTTPSpan(ctx, &request.Span{Type: request.EventTypeHTTPClient}, newSNSRequest(), resp)
+
+			if !test.wantSNS {
+				assert.Nil(t, span.AWS)
+				return
+			}
+			assert.Equal(t, request.HTTPSubtypeAWSSNS, span.SubType)
+			require.NotNil(t, span.AWS)
+		})
+	}
+}

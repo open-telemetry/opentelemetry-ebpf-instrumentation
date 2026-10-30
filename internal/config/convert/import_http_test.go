@@ -364,7 +364,9 @@ func TestV2ToRuntimeHTTPPayloadExtractionRoundTrip(t *testing.T) {
 	gotHTTP := got.EBPF.PayloadExtraction.HTTP
 	require.True(t, gotHTTP.GraphQL.Enabled)
 	require.True(t, gotHTTP.Elasticsearch.Enabled)
-	require.True(t, gotHTTP.AWS.Enabled)
+	require.True(t, gotHTTP.AWS.S3Enabled())
+	require.True(t, gotHTTP.AWS.SQSEnabled())
+	require.True(t, gotHTTP.AWS.SNSEnabled())
 	require.True(t, gotHTTP.SQLPP.Enabled)
 	require.Equal(t, []string{"/query", "/analytics"}, gotHTTP.SQLPP.EndpointPatterns)
 	require.Equal(t, 77, gotHTTP.SQLPP.PreparedStatementsCacheSize)
@@ -620,4 +622,174 @@ func TestV2ToRuntimeHTTPPayloadExtractionRejectsUnknownEnabled(t *testing.T) {
 	})
 
 	require.ErrorContains(t, err, `capture.instrumentation.http.payload_extraction.enabled[1]: unknown payload extractor "unknown"`)
+}
+
+func TestV2ToRuntimeHTTPPayloadExtractionGroups(t *testing.T) {
+	t.Parallel()
+
+	genAI := []string{
+		payloadExtractorOpenAI,
+		payloadExtractorAnthropic,
+		payloadExtractorGemini,
+		payloadExtractorQwen,
+		payloadExtractorBedrock,
+		payloadExtractorMCP,
+		payloadExtractorEmbedding,
+		payloadExtractorRerank,
+		payloadExtractorRetrieval,
+		payloadExtractorOllama,
+		payloadExtractorCohere,
+		payloadExtractorOpenAICompatible,
+	}
+	everyExtractor := append([]string{
+		payloadExtractorGraphQL,
+		payloadExtractorElasticsearch,
+		payloadExtractorAWSS3,
+		payloadExtractorAWSSQS,
+		payloadExtractorAWSSNS,
+		payloadExtractorSQLPP,
+		payloadExtractorJSONRPC,
+	}, genAI...)
+
+	tests := []struct {
+		name    string
+		enabled []string
+		want    []string
+	}{
+		{
+			name:    "wildcard",
+			enabled: []string{payloadExtractorWildcard},
+			want:    everyExtractor,
+		},
+		{
+			name:    "all",
+			enabled: []string{payloadExtractorAll},
+			want:    everyExtractor,
+		},
+		{
+			name:    "genai",
+			enabled: []string{payloadExtractorGenAI},
+			want:    genAI,
+		},
+		{
+			name:    "database",
+			enabled: []string{payloadExtractorDatabase},
+			want:    []string{payloadExtractorElasticsearch, payloadExtractorSQLPP},
+		},
+		{
+			name:    "aws",
+			enabled: []string{payloadExtractorAWS},
+			want:    []string{payloadExtractorAWSS3, payloadExtractorAWSSQS, payloadExtractorAWSSNS},
+		},
+		{
+			name:    "single aws service",
+			enabled: []string{payloadExtractorAWSSQS},
+			want:    []string{payloadExtractorAWSSQS},
+		},
+		{
+			name:    "database and genai",
+			enabled: []string{payloadExtractorDatabase, payloadExtractorGenAI},
+			want:    append([]string{payloadExtractorElasticsearch, payloadExtractorSQLPP}, genAI...),
+		},
+		{
+			name:    "genai with concrete extractor",
+			enabled: []string{payloadExtractorGenAI, payloadExtractorGraphQL},
+			want:    append([]string{payloadExtractorGraphQL}, genAI...),
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := V2ToRuntime(&schema.Extension{
+				Version: schema.SupportedVersion,
+				Capture: schema.Capture{
+					Instrumentation: schema.Instrumentation{
+						HTTP: schema.HTTPInstrumentation{
+							PayloadExtraction: schema.PayloadExtraction{Enabled: test.enabled},
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
+
+			require.ElementsMatch(t, test.want, payloadExtraction(got).Enabled)
+		})
+	}
+}
+
+func TestV2ToRuntimeHTTPEnrichmentEnabledSeparatelyFromExtractors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		payload    schema.PayloadExtraction
+		enrichment bool
+	}{
+		{
+			name:       "wildcard leaves enrichment off",
+			payload:    schema.PayloadExtraction{Enabled: []string{payloadExtractorWildcard}},
+			enrichment: false,
+		},
+		{
+			name: "enrichment block enables it",
+			payload: schema.PayloadExtraction{
+				Enrichment: schema.HTTPEnrichment{Enabled: true},
+			},
+			enrichment: true,
+		},
+		{
+			name: "wildcard with enrichment block",
+			payload: schema.PayloadExtraction{
+				Enabled:    []string{payloadExtractorWildcard},
+				Enrichment: schema.HTTPEnrichment{Enabled: true},
+			},
+			enrichment: true,
+		},
+		{
+			name:       "deprecated enrichment value enables it",
+			payload:    schema.PayloadExtraction{Enabled: []string{payloadExtractorDeprecatedEnrichment}},
+			enrichment: true,
+		},
+		{
+			name: "deprecated enrichment value with explicit false block",
+			payload: schema.PayloadExtraction{
+				Enabled:    []string{payloadExtractorGraphQL, payloadExtractorDeprecatedEnrichment},
+				Enrichment: schema.HTTPEnrichment{Enabled: false},
+			},
+			enrichment: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := V2ToRuntime(&schema.Extension{
+				Version: schema.SupportedVersion,
+				Capture: schema.Capture{
+					Instrumentation: schema.Instrumentation{
+						HTTP: schema.HTTPInstrumentation{PayloadExtraction: test.payload},
+					},
+				},
+			})
+			require.NoError(t, err)
+
+			require.Equal(t, test.enrichment, got.EBPF.PayloadExtraction.HTTP.Enrichment.Enabled)
+		})
+	}
+}
+
+func TestRuntimeToV2HTTPEnrichmentExportsOnlyCanonicalForm(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	cfg.EBPF.PayloadExtraction.HTTP.Enrichment.Enabled = true
+
+	_, ext := RuntimeToV2(&cfg)
+
+	payload := ext.Capture.Instrumentation.HTTP.PayloadExtraction
+	require.True(t, payload.Enrichment.Enabled)
+	require.NotContains(t, payload.Enabled, payloadExtractorDeprecatedEnrichment)
 }
