@@ -260,7 +260,7 @@ func TestParseTCPIoBoundsBatchCount(t *testing.T) {
 }
 
 func TestNewRingBufTracerInitializesForwarder(t *testing.T) {
-	tracer := NewRingBufTracer(nil, nil)
+	tracer := NewRingBufTracer(nil, nil, 0)
 
 	assert.NotNil(t, tracer.forward)
 }

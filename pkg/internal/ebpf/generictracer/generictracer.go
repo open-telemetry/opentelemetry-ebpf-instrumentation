@@ -184,13 +184,13 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 		ebpfcommon.DisableJavaHTTP1Atomics(spec)
 	}
 
-	return []*ebpfcommon.SpecBundle{{Spec: spec, Objects: &p.bpfObjects, Constants: p.constants()}}, nil
+	return []*ebpfcommon.SpecBundle{{Spec: spec, Objects: &p.bpfObjects, Constants: p.constants(ebpfconvenience.ScaledMaxEntries(spec.Maps[BpfMapEvents], p.cfg.EBPF.MapsConfig.GlobalScaleFactor))}}, nil
 }
 
-func (p *Tracer) constants() map[string]any {
+func (p *Tracer) constants(eventsRingBufSize uint32) map[string]any {
 	m := make(map[string]any, 2)
 
-	m["wakeup_data_bytes"] = uint32(p.cfg.EBPF.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{}))
+	m["wakeup_data_bytes"] = ebpfcommon.WakeupDataBytes(p.cfg.EBPF.WakeupLen, unsafe.Sizeof(ebpfcommon.BPFHTTPInfo{}), eventsRingBufSize)
 	m["ringbuf_metrics_enabled"] = p.metrics != nil && !imetrics.IsBuiltinNoopReporter(p.metrics)
 
 	// The eBPF side does some basic filtering of events that do not belong to
@@ -761,12 +761,13 @@ func (p *Tracer) Run(
 		}
 	}
 
-	ebpfcommon.SharedRingbuf(
+	ebpfcommon.SharedRingbufWithDrainContext(
 		ebpfEventContext,
 		cfg,
+		p.cfg.ShutdownTimeout,
 		p.bpfObjects.Events,
-		func(record *ringbuf.Record) (request.Span, bool, error) {
-			return p.processSharedRingbufRecord(ctx, parseContext, cfg, record)
+		func(drainCtx context.Context, record *ringbuf.Record) (request.Span, bool, error) {
+			return p.processSharedRingbufRecord(drainCtx, parseContext, cfg, record)
 		},
 		p.pidsFilter.Filter,
 		p.log,

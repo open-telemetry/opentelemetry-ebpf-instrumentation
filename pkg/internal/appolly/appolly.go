@@ -23,6 +23,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/tracefs"
 	msg2 "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
+	"go.opentelemetry.io/obi/pkg/internal/shutdown"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -33,6 +34,8 @@ import (
 )
 
 var errShutdownTimeout = errors.New("graceful shutdown has timed out while waiting for eBPF tracers to finish")
+
+const pipelineDrainGrace = time.Second
 
 func log() *slog.Logger {
 	return slog.With("component", "obi.Instrumenter")
@@ -58,8 +61,13 @@ type Instrumenter struct {
 	runtimeMetrics *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot]
 
 	// dynamicSelector is the runtime PID set; from WithDynamicSelector or created in New. Finder preloads from config.
-	dynamicSelector *discover.DynamicSelector
-	finishers       []finisher
+	dynamicSelector  *discover.DynamicSelector
+	finishers        []finisher
+	shutdownDeadline time.Time
+
+	pipelineCtx    context.Context
+	cancelPipeline context.CancelFunc
+	drains         *shutdown.Drains
 }
 
 type finisher struct {
@@ -112,8 +120,10 @@ func NewWithProtocolMetricSelection(ctx context.Context, ctxInfo *global.Context
 	ebpfEventContext := ebpfcommon.NewEBPFEventContext()
 	ctxInfo.AppO11y.EBPFEventContext = ebpfEventContext
 
-	bp, err := appolly.BuildWithProtocolMetricSelection(ctx, config, ctxInfo, tracesInput, processEventCloudDecorated, runtimeMetrics, selection)
+	pipelineCtx, cancelPipeline := context.WithCancel(context.WithoutCancel(ctx))
+	bp, err := appolly.BuildWithProtocolMetricSelection(pipelineCtx, config, ctxInfo, tracesInput, processEventCloudDecorated, runtimeMetrics, selection)
 	if err != nil {
+		cancelPipeline()
 		return nil, fmt.Errorf("can't instantiate instrumentation pipeline: %w", err)
 	}
 
@@ -135,6 +145,9 @@ func NewWithProtocolMetricSelection(ctx context.Context, ctxInfo *global.Context
 		ebpfEventContext:  ebpfEventContext,
 		runtimeMetrics:    runtimeMetrics,
 		dynamicSelector:   sel,
+		pipelineCtx:       pipelineCtx,
+		cancelPipeline:    cancelPipeline,
+		drains:            shutdown.NewDrains(),
 	}
 	return instr, nil
 }
@@ -163,31 +176,29 @@ func (i *Instrumenter) FindAndInstrument(ctx context.Context) error {
 	}
 	processEvents, err := finder.Start(ctx, opts...)
 	if err != nil {
+		i.cancelPipeline()
 		return fmt.Errorf("couldn't start Process Finder: %w", err)
 	}
 
 	// In the background process any process found events and annotate them with
 	// the Host or Kubernetes metadata
-	graph, err := i.peGraphBuilder.Instance(ctx)
-	if err != nil {
-		return fmt.Errorf("couldn't start Process Event pipeline: %w", err)
+	if err := i.startProcessEventsPipeline(); err != nil {
+		i.cancelPipeline()
+		return err
 	}
-	i.processEventsPipeline(ctx, graph)
 
 	// registers resources that must be done before exiting OBI
-	i.finishers = append(i.finishers,
-		finisher{name: "process finder", done: finder.Done()},
-		finisher{name: "process instrumenter", done: graph.Done()})
+	i.finishers = append(i.finishers, finisher{name: "process finder", done: finder.Done()})
 
 	// In background, listen indefinitely for each new process and run its
 	// associated ebpf.ProcessTracer once it is found.
-	go i.instrumentedEventLoop(ctx, processEvents)
+	go i.instrumentedEventLoop(shutdown.WithDrains(ctx, i.drains), processEvents)
 
 	return nil
 }
 
 func (i *Instrumenter) WaitUntilFinished() error {
-	shutDownTimeout := time.After(tracefs.EffectiveShutdownTimeout(i.config.ShutdownTimeout))
+	shutDownTimeout := i.shutdownTimeout()
 	for _, f := range i.finishers {
 		select {
 		case <-shutDownTimeout:
@@ -241,20 +252,30 @@ func (i *Instrumenter) ReadAndForward(ctx context.Context) error {
 
 	i.finishers = append(i.finishers, finisher{
 		name: "Instrumenter Pipeline",
-		done: i.bp.Start(ctx),
+		done: i.bp.Start(i.pipelineCtx),
 	})
 	<-ctx.Done()
 
 	log.Info("exiting auto-instrumenter")
+	i.shutdownDeadline = time.Now().Add(tracefs.EffectiveShutdownTimeout(i.config.ShutdownTimeout))
 
-	if err := i.stop(); err != nil {
+	go i.cancelPipelineAfterDrain()
+
+	if err := i.stop(i.tracersStopped()); err != nil {
 		return fmt.Errorf("failed to stop auto-instrumenter: %w", err)
 	}
 
 	return nil
 }
 
-func (i *Instrumenter) stop() error {
+func (i *Instrumenter) shutdownTimeout() <-chan time.Time {
+	if i.shutdownDeadline.IsZero() {
+		return time.After(tracefs.EffectiveShutdownTimeout(i.config.ShutdownTimeout))
+	}
+	return time.After(time.Until(i.shutdownDeadline))
+}
+
+func (i *Instrumenter) tracersStopped() <-chan struct{} {
 	log := log()
 
 	stopped := make(chan struct{})
@@ -264,11 +285,20 @@ func (i *Instrumenter) stop() error {
 		close(stopped)
 		log.Debug("tracers unloaded, exiting FindAndInstrument")
 	}()
+	return stopped
+}
 
+func (i *Instrumenter) cancelPipelineAfterDrain() {
+	defer i.cancelPipeline()
+
+	i.drains.WaitSettled(pipelineDrainGrace, time.After(time.Until(i.shutdownDeadline)/2))
+}
+
+func (i *Instrumenter) stop(tracersStopped <-chan struct{}) error {
 	select {
-	case <-time.After(tracefs.EffectiveShutdownTimeout(i.config.ShutdownTimeout)):
+	case <-i.shutdownTimeout():
 		return errShutdownTimeout
-	case <-stopped:
+	case <-tracersStopped:
 		return nil
 	}
 }
@@ -314,6 +344,12 @@ func refreshK8sInformerCache(ctx context.Context, ctxInfo *global.ContextInfo) e
 	return err
 }
 
-func (i *Instrumenter) processEventsPipeline(ctx context.Context, graph *swarm.Runner) {
-	graph.Start(ctx, swarm.WithCancelTimeout(i.config.ShutdownTimeout))
+func (i *Instrumenter) startProcessEventsPipeline() error {
+	graph, err := i.peGraphBuilder.Instance(i.pipelineCtx)
+	if err != nil {
+		return fmt.Errorf("couldn't start Process Event pipeline: %w", err)
+	}
+	graph.Start(i.pipelineCtx, swarm.WithCancelTimeout(i.config.ShutdownTimeout))
+	i.finishers = append(i.finishers, finisher{name: "process instrumenter", done: graph.Done()})
+	return nil
 }

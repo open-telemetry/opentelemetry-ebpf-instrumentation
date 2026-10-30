@@ -6,6 +6,7 @@
 package logenricher
 
 import (
+	"context"
 	"os"
 	"slices"
 	"strconv"
@@ -55,7 +56,6 @@ func TestTTYEventReopensWritersTerminal(t *testing.T) {
 	pid := uint32(cmd.Process.Pid)
 
 	tr := newPipeTestTracer(t)
-	tr.ctx = t.Context()
 	queued := make(chan LogEvent, 1)
 	tr.asyncWriter = shardedqueue.NewShardedQueue(1, 1, LogEvent.shardKey, func(_ int, ch <-chan LogEvent) {
 		for e := range ch {
@@ -69,11 +69,11 @@ func TestTTYEventReopensWritersTerminal(t *testing.T) {
 
 	other := event
 	other.Ino++
-	_, _, err := tr.handleLogEvent(logRecord(other, "leaked line\n"))
+	_, _, err := tr.handleLogEvent(t.Context(), logRecord(other, "leaked line\n"))
 	require.NoError(t, err)
 	require.Zero(t, tr.fdCache.Len(), "a different terminal must not be opened through the writer's fd")
 
-	_, _, err = tr.handleLogEvent(logRecord(event, "terminal line\n"))
+	_, _, err = tr.handleLogEvent(t.Context(), logRecord(event, "terminal line\n"))
 	require.NoError(t, err)
 
 	var e LogEvent
@@ -98,5 +98,40 @@ func TestTTYEventReopensWritersTerminal(t *testing.T) {
 		assert.Contains(t, got, "terminal line")
 	case <-time.After(5 * time.Second):
 		t.Fatal("line did not reach the writer's terminal")
+	}
+}
+
+func TestLogEventDrainedAfterTheSignalIsEnqueued(t *testing.T) {
+	_, slave := openPTY(t)
+	cmd := startChild(t, slave, slave, "sleep", "30")
+	pid := uint32(cmd.Process.Pid)
+
+	tr := newPipeTestTracer(t)
+	writerStarted := make(chan struct{})
+	queued := make(chan LogEvent, 1)
+	tr.asyncWriter = shardedqueue.NewShardedQueue(1, 0, LogEvent.shardKey, func(_ int, ch <-chan LogEvent) {
+		<-writerStarted
+		for e := range ch {
+			queued <- e
+		}
+	})
+	t.Cleanup(tr.asyncWriter.Close)
+
+	signalCtx, signal := context.WithCancel(t.Context())
+	signal()
+	drainCtx := context.WithoutCancel(signalCtx)
+
+	key := fdKey(t, slave)
+	event := BpfLogEventT{Tgid: pid, Fd: 1, Ino: key.Ino, Dev: uint32(key.Dev), DestKind: logDestTTY}
+
+	time.AfterFunc(100*time.Millisecond, func() { close(writerStarted) })
+	_, _, err := tr.handleLogEvent(drainCtx, logRecord(event, "drained line\n"))
+	require.NoError(t, err)
+
+	select {
+	case e := <-queued:
+		assert.Contains(t, e.logLine, "drained line")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the line drained after the signal was dropped")
 	}
 }

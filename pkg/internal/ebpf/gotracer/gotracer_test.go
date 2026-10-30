@@ -99,10 +99,31 @@ func TestGRPCCorrelationMapsUseProcessScopedKeys(t *testing.T) {
 
 func TestRingbufMetricsConstant(t *testing.T) {
 	tracer := New(nil, &obi.Config{}, imetrics.NoopReporter{})
-	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
+	assert.Equal(t, false, tracer.constants(0)["ringbuf_metrics_enabled"])
 
 	tracer = New(nil, &obi.Config{}, struct{ imetrics.NoopReporter }{})
-	assert.Equal(t, true, tracer.constants()["ringbuf_metrics_enabled"])
+	assert.Equal(t, true, tracer.constants(0)["ringbuf_metrics_enabled"])
+}
+
+func TestWakeupDataBytesUsesScaledRingBufSize(t *testing.T) {
+	setContextPropagationSupportForTest(t, false)
+
+	cfg := &obi.Config{}
+	cfg.EBPF.WakeupLen = 500
+	cfg.EBPF.MapsConfig.GlobalScaleFactor = -3
+	tracer := New(nil, cfg, imetrics.NoopReporter{})
+
+	bundles, err := tracer.LoadSpecs()
+	require.NoError(t, err)
+	require.Len(t, bundles, 1)
+
+	ebpfconvenience.SetupMapSizes(bundles[0].Spec, cfg.EBPF.MapsConfig.GlobalScaleFactor)
+	loadedRingBufSize := bundles[0].Spec.Maps[BpfMapEvents].MaxEntries
+	require.Equal(t, uint32(128<<10), loadedRingBufSize)
+
+	wakeup, ok := bundles[0].Constants["wakeup_data_bytes"].(uint32)
+	require.True(t, ok)
+	assert.Equal(t, loadedRingBufSize/2, wakeup)
 }
 
 func TestSetFramerPaddingOffsetUsesExactLayout(t *testing.T) {
@@ -184,7 +205,7 @@ func TestCasgstatusProbeFollowsTraceContextPopulation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tracer := New(nil, tc.cfg, nil)
 
-			require.Equal(t, tc.expected, tracer.constants()["g_traces_ctx_v1_enabled"])
+			require.Equal(t, tc.expected, tracer.constants(0)["g_traces_ctx_v1_enabled"])
 
 			_, attached := tracer.GoProbes()["runtime.casgstatus"]
 			require.Equal(t, tc.expected, attached)
@@ -814,7 +835,7 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 			}
 			tracer.bpfObjects.ObiUprobeTransportHttp2ClientNewStream = &ebpf.Program{}
 			tracer.bpfObjects.ObiUprobeTransportHttp2ClientNewStreamReturns = &ebpf.Program{}
-			constants := tracer.constants()
+			constants := tracer.constants(0)
 			assert.Equal(t, tt.wireEnabled, constants["g_bpf_header_propagation"])
 			assert.Equal(t, tt.writeUser, constants["g_bpf_probe_write_user_enabled"])
 

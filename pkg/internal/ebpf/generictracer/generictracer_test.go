@@ -222,10 +222,29 @@ func TestJVMBPFMapsAreInternallyPinnedAndUseSharedEventsRingBuffer(t *testing.T)
 
 func TestRingbufMetricsConstant(t *testing.T) {
 	tracer := New(nil, &obi.Config{}, imetrics.NoopReporter{})
-	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
+	assert.Equal(t, false, tracer.constants(0)["ringbuf_metrics_enabled"])
 
 	tracer = New(nil, &obi.Config{}, struct{ imetrics.NoopReporter }{})
-	assert.Equal(t, true, tracer.constants()["ringbuf_metrics_enabled"])
+	assert.Equal(t, true, tracer.constants(0)["ringbuf_metrics_enabled"])
+}
+
+func TestWakeupDataBytesUsesScaledRingBufSize(t *testing.T) {
+	cfg := &obi.Config{}
+	cfg.EBPF.WakeupLen = 500
+	cfg.EBPF.MapsConfig.GlobalScaleFactor = -3
+	tracer := New(nil, cfg, imetrics.NoopReporter{})
+
+	bundles, err := tracer.LoadSpecs()
+	require.NoError(t, err)
+	require.Len(t, bundles, 1)
+
+	ebpfconvenience.SetupMapSizes(bundles[0].Spec, cfg.EBPF.MapsConfig.GlobalScaleFactor)
+	loadedRingBufSize := bundles[0].Spec.Maps[BpfMapEvents].MaxEntries
+	require.Equal(t, uint32(128<<10), loadedRingBufSize)
+
+	wakeup, ok := bundles[0].Constants["wakeup_data_bytes"].(uint32)
+	require.True(t, ok)
+	assert.Equal(t, loadedRingBufSize/2, wakeup)
 }
 
 func TestPythonAsyncMapsScopePointersByProcess(t *testing.T) {
@@ -304,7 +323,7 @@ func TestJVMRuntimeMetricsConstantOverridesUseApplicationRuntimeAsFeatureGate(t 
 			}
 			tracer.cfg.JVMRuntimeMetrics.SamplingInterval = tt.samplingInterval
 
-			overrides := tracer.constants()
+			overrides := tracer.constants(0)
 
 			assert.Equal(t, tt.expectedInterval, overrides["jvm_sampling_interval_ns"])
 		})
