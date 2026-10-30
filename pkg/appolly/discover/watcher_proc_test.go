@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"slices"
 	"sync"
@@ -27,6 +28,110 @@ import (
 )
 
 const testTimeout = 5 * time.Second
+
+func TestWatcherExecutableReplacement(t *testing.T) {
+	for _, ports := range [][]uint32{nil, {8080, 8081}} {
+		for _, replacement := range []cacheKey{{Dev: 1, Ino: 3}, {Dev: 2, Ino: 2}} {
+			t.Run(fmt.Sprintf("ports=%v/executable=%v", ports, replacement), func(t *testing.T) {
+				acc := pollAccounter{
+					cfg:               &obi.Config{},
+					executableReady:   func(app.PID) (string, bool) { return "", true },
+					bpfWatcherEnabled: true,
+				}
+				original := ProcessAttrs{pid: 123, executable: cacheKey{Dev: 1, Ino: 2}, openPorts: ports}
+				require.Equal(t, []Event[ProcessAttrs]{{Type: EventCreated, Obj: original}}, acc.snapshot(map[app.PID]ProcessAttrs{123: original}, false))
+				require.Empty(t, acc.snapshot(map[app.PID]ProcessAttrs{123: original}, false))
+				unreadable := original
+				unreadable.executable = cacheKey{}
+				require.Empty(t, acc.snapshot(map[app.PID]ProcessAttrs{123: unreadable}, false))
+				require.Equal(t, original.executable, acc.pids[123].executable)
+				current := original
+				current.executable = replacement
+				require.Equal(t, []Event[ProcessAttrs]{
+					{Type: EventDeleted, Obj: original},
+					{Type: EventCreated, Obj: current},
+				}, acc.snapshot(map[app.PID]ProcessAttrs{123: current}, false))
+				fetchPorts, forceRescan := acc.pollRequirements()
+				require.True(t, fetchPorts)
+				require.False(t, forceRescan)
+				require.Empty(t, acc.snapshot(map[app.PID]ProcessAttrs{123: current}, false))
+				require.Equal(t, []Event[ProcessAttrs]{{Type: EventDeleted, Obj: current}}, acc.snapshot(nil, false))
+			})
+		}
+	}
+}
+
+func TestWatcherProcessLifetime(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		startTime uint64
+		exe       cacheKey
+		eventType WatchEventType
+	}{
+		{name: "exec", startTime: 100, exe: cacheKey{Dev: 1, Ino: 3}, eventType: EventExecutableReplaced},
+		{name: "pid reuse with same binary", startTime: 200, exe: cacheKey{Dev: 1, Ino: 2}, eventType: EventDeleted},
+		{name: "pid reuse with different binary", startTime: 200, exe: cacheKey{Dev: 1, Ino: 3}, eventType: EventDeleted},
+		{name: "unreadable start time", exe: cacheKey{Dev: 1, Ino: 3}, eventType: EventDeleted},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			acc := pollAccounter{cfg: &obi.Config{}, executableReady: func(app.PID) (string, bool) { return "", true }}
+			original := ProcessAttrs{pid: 123, startTime: 100, executable: cacheKey{Dev: 1, Ino: 2}}
+			require.Len(t, acc.snapshot(map[app.PID]ProcessAttrs{123: original}, false), 1)
+			current := original
+			current.startTime = tc.startTime
+			current.executable = tc.exe
+			processes := map[app.PID]ProcessAttrs{123: current}
+			events := acc.snapshot(processes, false)
+			require.Len(t, events, 2)
+			require.Equal(t, tc.eventType, events[0].Type)
+			require.Equal(t, original, events[0].Obj)
+			require.Equal(t, EventCreated, events[1].Type)
+			require.Equal(t, tc.exe, events[1].Obj.executable)
+			require.Empty(t, acc.snapshot(processes, false))
+		})
+	}
+}
+
+func TestWatcherRescanPreservesExecutableIdentity(t *testing.T) {
+	for _, reset := range []struct {
+		name string
+		run  func(*pollAccounter)
+	}{
+		{name: "pid", run: func(pa *pollAccounter) { pa.forgetPIDs([]app.PID{123}) }},
+		{name: "all", run: (*pollAccounter).forgetAll},
+	} {
+		for _, ports := range [][]uint32{nil, {8080, 8081}} {
+			t.Run(fmt.Sprintf("%s/ports=%v", reset.name, ports), func(t *testing.T) {
+				acc := pollAccounter{
+					cfg:             &obi.Config{},
+					executableReady: func(app.PID) (string, bool) { return "", true },
+				}
+				original := ProcessAttrs{pid: 123, executable: cacheKey{Dev: 1, Ino: 2}, openPorts: ports}
+				require.Equal(t, []Event[ProcessAttrs]{{Type: EventCreated, Obj: original}}, acc.snapshot(map[app.PID]ProcessAttrs{123: original}, false))
+
+				reset.run(&acc)
+				unreadable := original
+				unreadable.executable = cacheKey{}
+				require.Equal(t, []Event[ProcessAttrs]{{Type: EventCreated, Obj: original}}, acc.snapshot(map[app.PID]ProcessAttrs{123: unreadable}, false))
+
+				reset.run(&acc)
+				current := original
+				current.executable.Ino++
+				require.Equal(t, []Event[ProcessAttrs]{
+					{Type: EventDeleted, Obj: original},
+					{Type: EventCreated, Obj: current},
+				}, acc.snapshot(map[app.PID]ProcessAttrs{123: current}, false))
+				for range 2 {
+					require.Empty(t, acc.snapshot(map[app.PID]ProcessAttrs{123: current}, false))
+				}
+
+				reset.run(&acc)
+				require.Equal(t, []Event[ProcessAttrs]{{Type: EventDeleted, Obj: current}}, acc.snapshot(nil, false))
+				require.Empty(t, acc.snapshot(nil, false))
+			})
+		}
+	}
+}
 
 func TestWatcher_Poll(t *testing.T) {
 	// mocking a fake listProcesses method

@@ -9,17 +9,22 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
 	cebpf "github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/link"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -247,6 +252,56 @@ func TestCloseInstrumentersWaitsForInFlightAttachment(t *testing.T) {
 	assert.Empty(t, pt.Instrumentables)
 }
 
+func TestNewExecutableDoesNotRetainAttachmentTarget(t *testing.T) {
+	testExecutableAttachment(t, false)
+}
+
+func TestNewExecutableFileDoesNotRetainAttachmentTarget(t *testing.T) {
+	testExecutableAttachment(t, true)
+}
+
+func testExecutableAttachment(t *testing.T, pinned bool) {
+	t.Helper()
+	file, err := os.Open("/proc/self/exe")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = file.Close() })
+	var stat unix.Stat_t
+	require.NoError(t, unix.Fstat(int(file.Fd()), &stat))
+	key := ExecutableKey{Dev: stat.Dev, Ino: stat.Ino}
+	offsets := &goexec.Offsets{}
+	ie := &Instrumentable{
+		FileInfo: exec.New(exec.Init{
+			Pid:            app.PID(os.Getpid()),
+			CmdExePath:     "/proc/self/exe",
+			ProExeLinkPath: "/proc/self/exe",
+			Dev:            key.Dev,
+			Ino:            key.Ino,
+		}),
+		Offsets: offsets,
+	}
+	pt := NewProcessTracer(Go, []Tracer{&stubTracer{}}, &obi.Config{}, imetrics.NoopReporter{})
+	t.Cleanup(func() { require.NoError(t, pt.Close()) })
+
+	if pinned {
+		require.NoError(t, pt.NewExecutableFile(file, ie))
+	} else {
+		executable, err := link.OpenExecutable(file.Name())
+		require.NoError(t, err)
+		require.NoError(t, pt.NewExecutable(executable, ie))
+	}
+	require.NoError(t, file.Close())
+
+	// Compare all retained state so a borrowed executable or FD path cannot survive attachment.
+	require.Equal(t, &instrumenter{
+		key:         key,
+		offsets:     offsets,
+		modules:     map[uint64]struct{}{},
+		metrics:     imetrics.NoopReporter{},
+		processName: "exe",
+	}, pt.Instrumentables[key])
+	require.NoError(t, pt.NewExecutableInstance(ie))
+}
+
 func TestNewExecutableRejectedAfterShutdown(t *testing.T) {
 	pt := &ProcessTracer{log: slog.Default(), Instrumentables: map[ExecutableKey]*instrumenter{}}
 
@@ -254,6 +309,7 @@ func TestNewExecutableRejectedAfterShutdown(t *testing.T) {
 
 	// nothing is dereferenced because no probe is attached after shutdown
 	require.ErrorIs(t, pt.NewExecutable(nil, &Instrumentable{}), errTracerStopped)
+	require.ErrorIs(t, pt.NewExecutableFile(nil, &Instrumentable{}), errTracerStopped)
 	require.ErrorIs(t, pt.NewExecutableInstance(&Instrumentable{
 		FileInfo: exec.New(exec.Init{Dev: 1, Ino: 2}),
 	}), errTracerStopped)

@@ -40,8 +40,6 @@ type instrumenter struct {
 	key                   ExecutableKey
 	uprobeKey             ExecutableKey
 	offsets               *goexec.Offsets
-	exe                   *link.Executable
-	exePath               string
 	closables             []io.Closer
 	processScopedGoProbes []processScopedGoProbeRegistration
 	modules               map[uint64]struct{}
@@ -424,7 +422,24 @@ func (pt *ProcessTracer) NewExecutableInstance(ie *Instrumentable) error {
 	return nil
 }
 
+// NewExecutable attaches probes to exe.
+//
+// Compatibility v1: Use [ProcessTracer.NewExecutableFile] to pin the attachment target instead.
+// link.Executable is unstable for processes that replace the binary with exec.
 func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable) error {
+	pt.instrumentablesMu.Lock()
+	defer pt.instrumentablesMu.Unlock()
+
+	if pt.stopped {
+		return errTracerStopped
+	}
+
+	return pt.attachExecutable(exe, ie.FileInfo.ProExeLinkPath(), ie)
+}
+
+// NewExecutableFile attaches to a pinned executable. The caller owns file and must
+// keep it open until this method returns.
+func (pt *ProcessTracer) NewExecutableFile(file *os.File, ie *Instrumentable) error {
 	// held for the whole attachment so shutdown either waits for it or rejects it
 	pt.instrumentablesMu.Lock()
 	defer pt.instrumentablesMu.Unlock()
@@ -433,10 +448,19 @@ func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable)
 		return errTracerStopped
 	}
 
+	exePath := fmt.Sprintf("/proc/self/fd/%d", file.Fd())
+	exe, err := link.OpenExecutable(exePath)
+	if err != nil {
+		return err
+	}
+
+	return pt.attachExecutable(exe, exePath, ie)
+}
+
+// The caller holds instrumentablesMu for the entire attachment and commit.
+func (pt *ProcessTracer) attachExecutable(exe *link.Executable, exePath string, ie *Instrumentable) error {
 	i := instrumenter{
 		key:         ExecutableKey{Dev: ie.FileInfo.Dev(), Ino: ie.FileInfo.Ino()},
-		exe:         exe,
-		exePath:     ie.FileInfo.ProExeLinkPath(),
 		offsets:     ie.Offsets, // this is needed for the function offsets, not fields
 		modules:     map[uint64]struct{}{},
 		metrics:     pt.metrics,
@@ -459,7 +483,7 @@ func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable)
 		p.RegisterOffsets(ie.FileInfo, ie.Offsets)
 	}
 
-	if uprobeKey, ok := pt.resolveUprobeTarget(exe, ie.FileInfo.ProExeLinkPath(), ie.Offsets); ok {
+	if uprobeKey, ok := pt.resolveUprobeTarget(exe, exePath, ie.Offsets); ok {
 		i.uprobeKey = uprobeKey
 		if existing := pt.instrumenterForUprobeTarget(uprobeKey); existing != nil {
 			for _, p := range pt.Programs {
@@ -482,7 +506,7 @@ func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable)
 
 	for _, p := range pt.Programs {
 		// Go style Uprobes
-		if err := i.goprobes(p); err != nil {
+		if err := i.goprobes(exe, exePath, p); err != nil {
 			printVerifierErrorInfo(err)
 			return err
 		}

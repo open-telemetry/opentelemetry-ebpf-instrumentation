@@ -98,11 +98,11 @@ func TestFailedAttachDoesNotHoldExecutableInstance(t *testing.T) {
 		exited func(t *testing.T) *execpkg.FileInfo
 	}{{
 		name:   "executable gone",
-		exited: func(t *testing.T) *execpkg.FileInfo { return sameInodeFileInfo(exitedProcessPID(t)) },
+		exited: func(t *testing.T) *execpkg.FileInfo { return sameInodeFileInfo(t, exitedProcessPID(t)) },
 	}, {
 		name: "process gone after its executable was opened",
 		exited: func(t *testing.T) *execpkg.FileInfo {
-			return sameInodeFileInfoWithExe(exitedProcessPID(t), "/proc/self/exe")
+			return sameInodeFileInfoWithExe(t, exitedProcessPID(t), "/proc/self/exe")
 		},
 	}}
 
@@ -133,7 +133,7 @@ func TestFailedAttachDoesNotHoldExecutableInstance(t *testing.T) {
 					instrumentables, tracerEvents := startReusingGenericAttacher(t)
 
 					exited := failure.exited(t)
-					running := sameInodeFileInfo(app.PID(os.Getpid()))
+					running := sameInodeFileInfo(t, app.PID(os.Getpid()))
 					instrumentables.Send(tc.events(exited, running))
 
 					ev := testutil.ReadChannel(t, tracerEvents, testTimeout)
@@ -164,8 +164,8 @@ func TestFoldedChildHoldsExecutableInstance(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			instrumentables, tracerEvents := startReusingGenericAttacher(t)
 
-			parent := sameInodeFileInfo(app.PID(os.Getpid()))
-			child := sameInodeFileInfo(exitedProcessPID(t))
+			parent := sameInodeFileInfo(t, app.PID(os.Getpid()))
+			child := sameInodeFileInfo(t, exitedProcessPID(t))
 			first, last := child, parent
 			if tc.parentExitsFirst {
 				first, last = parent, child
@@ -225,16 +225,20 @@ func exitedProcessPID(t *testing.T) app.PID {
 	return app.PID(cmd.Process.Pid)
 }
 
-func sameInodeFileInfo(pid app.PID) *execpkg.FileInfo {
-	return sameInodeFileInfoWithExe(pid, fmt.Sprintf("/proc/%d/exe", pid))
+func sameInodeFileInfo(t *testing.T, pid app.PID) *execpkg.FileInfo {
+	return sameInodeFileInfoWithExe(t, pid, fmt.Sprintf("/proc/%d/exe", pid))
 }
 
-func sameInodeFileInfoWithExe(pid app.PID, exeLink string) *execpkg.FileInfo {
+func sameInodeFileInfoWithExe(t *testing.T, pid app.PID, exeLink string) *execpkg.FileInfo {
+	t.Helper()
+	dev, ino, err := FindINodeForPID(app.PID(os.Getpid()))
+	require.NoError(t, err)
 	return execpkg.New(execpkg.Init{
 		Service:        svc.Attrs{UID: svc.UID{Name: "svc", Namespace: "ns"}},
 		CmdExePath:     "/bin/test",
 		ProExeLinkPath: exeLink,
 		Pid:            pid,
-		Ino:            1234,
+		Dev:            dev,
+		Ino:            ino,
 	})
 }

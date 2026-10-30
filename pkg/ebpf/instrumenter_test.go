@@ -312,7 +312,7 @@ func TestGoProbesWarnsWhenNoSymbolAttached(t *testing.T) {
 		"net/http.serverHandler.ServeHTTP": {{Start: &ebpf.Program{}}},
 	}}
 
-	require.NoError(t, i.goprobes(tracer))
+	require.NoError(t, i.goprobes(nil, "", tracer))
 
 	assert.Contains(t, logs.String(), "no Go probes attached to executable")
 	assert.Contains(t, logs.String(), "process=svc")
@@ -322,7 +322,7 @@ func TestGoProbesDoesNotWarnWithoutProbes(t *testing.T) {
 	logs := captureLogs(t)
 	i := &instrumenter{offsets: &goexec.Offsets{}}
 
-	require.NoError(t, i.goprobes(&stubTracer{}))
+	require.NoError(t, i.goprobes(nil, "", &stubTracer{}))
 
 	assert.NotContains(t, logs.String(), "no Go probes attached")
 }
