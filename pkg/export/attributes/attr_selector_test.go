@@ -514,3 +514,17 @@ func TestTracesGenAIToolCallAttributes(t *testing.T) {
 	assert.NotContains(t, p.For(Traces), attr.GenAIToolCallArguments)
 	assert.NotContains(t, p.For(Traces), attr.GenAIToolCallResult)
 }
+
+func TestTracesOpenAIRequestQuestionsIsOptIn(t *testing.T) {
+	p, err := NewAttrSelector(GroupTraces, &SelectorConfig{})
+	require.NoError(t, err)
+	assert.NotContains(t, p.For(Traces), attr.OpenAIRequestQuestions)
+
+	p, err = NewAttrSelector(GroupTraces, &SelectorConfig{
+		SelectionCfg: Selection{
+			"traces": InclusionLists{Include: []string{"openai.request.questions"}},
+		},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, p.For(Traces), attr.OpenAIRequestQuestions)
+}

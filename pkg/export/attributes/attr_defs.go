@@ -508,6 +508,7 @@ func getDefinitions(
 				attr.GenAIToolCallArguments: false,
 				attr.GenAIToolCallResult:    false,
 				attr.GenAIResponseError:     false,
+				attr.OpenAIRequestQuestions: false,
 				attr.DBResponseError:        false,
 				// Conditionally Required or Recommended by OTel semconv, so emitted
 				// by default. Opt out via attributes.select.traces.exclude.

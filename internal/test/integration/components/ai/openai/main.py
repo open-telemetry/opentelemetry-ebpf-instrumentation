@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request
+import json
 import os
 import uvicorn
 import requests
@@ -41,6 +42,51 @@ async def embeddings():
         "encoding_format": "float",
     }
     resp = requests.post(f"{OPENAI_BASE_URL}/v1/embeddings", json=payload)
+    resp.raise_for_status()
+    return resp.json()
+
+@app.get("/decisions")
+async def decisions():
+    payload = {
+        "model": "gpt-6-luna",
+        "input": "The package arrived with a broken screen.",
+        "questions": [
+            {
+                "type": "predicate",
+                "name": "damaged",
+                "instructions": [
+                    {
+                        "type": "input_text",
+                        "text": "Does the customer report a damaged item?",
+                    },
+                    {"type": "input_json", "data": {"policy": "returns"}},
+                ],
+            },
+            {
+                "type": "choice",
+                "name": "priority",
+                "instructions": "Choose the handling priority.",
+                "choices": [
+                    {"value": "urgent", "description": "Immediate handling"},
+                    {"value": True, "description": "Flag for manual review"},
+                ],
+            },
+            {
+                "type": "score",
+                "name": "severity",
+                "instructions": "Rate the damage severity.",
+                "levels": [
+                    {"label": "minor", "description": "Cosmetic damage"},
+                    {"label": "major", "description": "Item is unusable"},
+                ],
+            },
+        ],
+    }
+    resp = requests.post(
+        f"{OPENAI_BASE_URL}/v1/decisions",
+        data=json.dumps(payload, separators=(",", ":")),
+        headers={"Content-Type": "application/json"},
+    )
     resp.raise_for_status()
     return resp.json()
 
