@@ -137,6 +137,7 @@ struct inet_sock {
 // kernel declares them.
 struct tcp_sock {
     u64 bytes_received;
+    u32 segs_out;
     u64 bytes_sent;
     u64 bytes_acked;
 };

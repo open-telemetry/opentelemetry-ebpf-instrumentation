@@ -12,6 +12,7 @@
 
 #include <logger/bpf_dbg.h>
 
+#include <statsolly/failed_conn_port.h>
 #include <statsolly/types.h>
 #include <statsolly/maps/stats_events.h>
 #include <statsolly/maps/sock_role.h>
@@ -76,19 +77,6 @@ typedef struct tcp_successful_connection {
 const tcp_failed_connection_t *unused_tcp_failed_connection __attribute__((unused));
 const tcp_retransmit_t *unused_tcp_retransmit_t __attribute__((unused));
 const tcp_successful_connection_t *unused_tcp_successful_connection __attribute__((unused));
-
-// A connect() that fails before sending its SYN may not own a local port in
-// this attempt: after connect(AF_UNSPEC), inet_sport still holds the port of
-// the previous connection. tcp_disconnect() resets segs_out and the SYN
-// increments it, so such an attempt keeps the zeroed skc_num.
-static __always_inline bool
-parse_failed_sock_info(struct sock *sk, const int oldstate, connection_info_t *conn) {
-    if (oldstate == TCP_SYN_SENT && BPF_CORE_READ((struct tcp_sock *)sk, segs_out) == 0) {
-        return parse_sock_info(sk, conn);
-    }
-
-    return parse_full_sock_info(sk, conn);
-}
 
 // obi_stats_tp_inet_sock_set_state_conn_role is the sole owner of the sock_role map.
 // It writes the role (client/server) when a connection is established and
