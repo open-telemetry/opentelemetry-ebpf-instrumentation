@@ -62,3 +62,30 @@ func (s *SamplerConfig) Implementation() trace.Sampler {
 		return defaultSampler()
 	}
 }
+
+// Everysupported sampler is a TraceIDRatioBased one, optionally under ParentBased.
+func (s *SamplerConfig) TraceIDRatio() (ratio float64, parentBased bool) {
+	parsedRatio := func() (float64, bool) {
+		r, err := strconv.ParseFloat(s.Arg, 64)
+		return r, err == nil
+	}
+
+	switch s.Name {
+	case SamplerAlwaysOn:
+		return 1, false
+	case SamplerAlwaysOff:
+		return 0, false
+	case SamplerTraceIDRatio:
+		if r, ok := parsedRatio(); ok {
+			return r, false
+		}
+	case SamplerParentBasedAlwaysOff:
+		return 0, true
+	case SamplerParentBasedTraceIDRatio:
+		if r, ok := parsedRatio(); ok {
+			return r, true
+		}
+	}
+
+	return 1, true
+}

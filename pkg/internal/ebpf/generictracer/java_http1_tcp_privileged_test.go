@@ -137,5 +137,6 @@ func TestJavaHTTP1ReservationPreservesTCPOptions(t *testing.T) {
 	fields := strings.Split(value, "-")
 	require.Equal(t, fields[1], hex.EncodeToString(incoming.Tp.TraceId[:]))
 	require.Equal(t, fields[2], hex.EncodeToString(incoming.Tp.SpanId[:]))
+	require.Equal(t, fields[3], hex.EncodeToString([]byte{incoming.Tp.Flags}))
 	require.ElementsMatch(t, []uint16{uint16(local.Port), uint16(remote.Port)}, []uint16{connection.S_port, connection.D_port})
 }

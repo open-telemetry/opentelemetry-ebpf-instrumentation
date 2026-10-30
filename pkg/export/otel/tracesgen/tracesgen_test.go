@@ -861,6 +861,92 @@ func TestGenAIResponseErrorAttributeCollision(t *testing.T) {
 	}
 }
 
+func TestGroupSpansSamplingFollowsParentDecision(t *testing.T) {
+	traceID := trace2.TraceID{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+	parentSpanID := trace2.SpanID{1, 2, 3, 4, 5, 6, 7, 8}
+
+	tests := []struct {
+		name         string
+		sampler      sdktrace.Sampler
+		parentSpanID trace2.SpanID
+		traceFlags   uint8
+		sampled      bool
+	}{
+		{
+			name:         "parent based drops a span whose parent is not sampled",
+			sampler:      sdktrace.ParentBased(sdktrace.AlwaysSample()),
+			parentSpanID: parentSpanID,
+			traceFlags:   0,
+			sampled:      false,
+		},
+		{
+			name:         "parent based keeps a span whose parent is sampled",
+			sampler:      sdktrace.ParentBased(sdktrace.AlwaysSample()),
+			parentSpanID: parentSpanID,
+			traceFlags:   1,
+			sampled:      true,
+		},
+		{
+			name:         "parent based keeps a root span regardless of its flags",
+			sampler:      sdktrace.ParentBased(sdktrace.AlwaysSample()),
+			parentSpanID: trace2.SpanID{},
+			traceFlags:   0,
+			sampled:      true,
+		},
+		{
+			name:         "parent based keeps a span whose parent is sampled over its root sampler",
+			sampler:      sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0)),
+			parentSpanID: parentSpanID,
+			traceFlags:   1,
+			sampled:      true,
+		},
+		{
+			name:         "parent based applies its root sampler to a root span",
+			sampler:      sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0)),
+			parentSpanID: trace2.SpanID{},
+			traceFlags:   1,
+			sampled:      false,
+		},
+		{
+			name:         "a sampler that is not parent based ignores the parent",
+			sampler:      sdktrace.AlwaysSample(),
+			parentSpanID: parentSpanID,
+			traceFlags:   0,
+			sampled:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			span := request.Span{
+				Type:         request.EventTypeHTTP,
+				Method:       "GET",
+				Path:         "/",
+				TraceID:      traceID,
+				SpanID:       trace2.SpanID{8, 7, 6, 5, 4, 3, 2, 1},
+				ParentSpanID: tt.parentSpanID,
+				TraceFlags:   tt.traceFlags,
+			}
+
+			groups := GroupSpans(
+				t.Context(),
+				[]request.Span{span},
+				map[attr.Name]struct{}{},
+				tt.sampler,
+				instrumentations.NewInstrumentationSelection(
+					[]instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+				),
+			)
+
+			if tt.sampled {
+				assert.Len(t, groups[span.Service.UID], 1)
+			} else {
+				assert.Empty(t, groups[span.Service.UID])
+			}
+		})
+	}
+}
+
 type recordingSampler struct {
 	attributes []attribute.KeyValue
 }
@@ -2372,4 +2458,19 @@ func TestGenAISpanNameMatchesEmittedAttributes(t *testing.T) {
 			assert.Equal(t, fromAttributes, span.TraceName())
 		})
 	}
+}
+
+func TestExportedSpansCarrySampledFlag(t *testing.T) {
+	span := request.Span{
+		Type:         request.EventTypeHTTP,
+		Method:       "GET",
+		Path:         "/",
+		TraceID:      trace2.TraceID{1},
+		SpanID:       trace2.SpanID{1},
+		ParentSpanID: trace2.SpanID{2},
+	}
+
+	exported := generateTraceSpan(t, TraceSpanAndAttributes{Span: &span})
+
+	assert.Equal(t, uint32(trace2.FlagsSampled), exported.Flags())
 }

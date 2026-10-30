@@ -54,3 +54,29 @@ func TestSamplerImplementation(t *testing.T) {
 		})
 	}
 }
+
+func TestSamplerTraceIDRatio(t *testing.T) {
+	for _, tc := range []struct {
+		in          SamplerConfig
+		ratio       float64
+		parentBased bool
+	}{
+		{in: SamplerConfig{}, ratio: 1, parentBased: true},
+		{in: SamplerConfig{Name: "invalid_sampler", Arg: "0.33"}, ratio: 1, parentBased: true},
+		{in: SamplerConfig{Name: "always_on"}, ratio: 1, parentBased: false},
+		{in: SamplerConfig{Name: "always_off"}, ratio: 0, parentBased: false},
+		{in: SamplerConfig{Name: "traceidratio", Arg: "0.25"}, ratio: 0.25, parentBased: false},
+		{in: SamplerConfig{Name: "traceidratio", Arg: "invalid"}, ratio: 1, parentBased: true},
+		{in: SamplerConfig{Name: "parentbased_always_on"}, ratio: 1, parentBased: true},
+		{in: SamplerConfig{Name: "parentbased_always_off"}, ratio: 0, parentBased: true},
+		{in: SamplerConfig{Name: "parentbased_traceidratio", Arg: "0.25"}, ratio: 0.25, parentBased: true},
+		{in: SamplerConfig{Name: "parentbased_traceidratio", Arg: "invalid"}, ratio: 1, parentBased: true},
+	} {
+		t.Run(string(tc.in.Name)+"_"+tc.in.Arg, func(t *testing.T) {
+			ratio, parentBased := tc.in.TraceIDRatio()
+
+			assert.InDelta(t, tc.ratio, ratio, 0)
+			assert.Equal(t, tc.parentBased, parentBased)
+		})
+	}
+}

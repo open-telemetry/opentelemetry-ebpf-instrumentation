@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"slices"
 	"sync"
@@ -312,6 +313,7 @@ type Tracer struct {
 	log                               *slog.Logger
 	pidsFilter                        ebpfcommon.ServiceFilter
 	cfg                               *config.EBPFTracer
+	tracesSampler                     *services.SamplerConfig
 	metrics                           imetrics.Reporter
 	bpfObjects                        BpfObjects
 	closers                           []io.Closer
@@ -350,6 +352,7 @@ func New(
 		log:                               log,
 		pidsFilter:                        pidFilter,
 		cfg:                               &cfg.EBPF,
+		tracesSampler:                     &cfg.Traces.SamplerConfig,
 		metrics:                           metrics,
 		disabledRouteHarvesting:           disabledRouteHarvesting,
 		supportsBPFLoop:                   ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
@@ -416,6 +419,18 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	p.goAutoSDKTargetsMu.Unlock()
 
 	p.registerRuntimeMetricTarget(pid, ns, fi)
+	p.writePIDSampler(pid, fi)
+}
+
+func (p *Tracer) writePIDSampler(pid app.PID, fi *exec.FileInfo) {
+	if p.bpfObjects.PidSamplers == nil || fi == nil {
+		return
+	}
+
+	err := ebpfcommon.WritePIDSampler(p.bpfObjects.PidSamplers, pid, fi.ServiceAttrs().SamplerConfig, p.tracesSampler)
+	if err != nil {
+		p.log.Error("setting the process sampler in eBPF", "pid", pid, "error", err)
+	}
 }
 
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
@@ -428,6 +443,12 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.goAutoSDKTargetsMu.Unlock()
 
 	p.deleteRuntimeMetricTarget(pid, ns)
+
+	if p.bpfObjects.PidSamplers != nil {
+		if err := ebpfcommon.DeletePIDSampler(p.bpfObjects.PidSamplers, pid); err != nil {
+			p.log.Error("removing the process sampler from eBPF", "pid", pid, "error", err)
+		}
+	}
 }
 
 func (p *Tracer) supportsContextPropagation() bool {
@@ -513,6 +534,8 @@ func (p *Tracer) constants() map[string]any {
 	m["kafka_max_captured_bytes"] = p.cfg.BufferSizes.Kafka
 	m["postgres_max_captured_bytes"] = p.cfg.BufferSizes.Postgres
 	m["max_transaction_time"] = uint64(p.cfg.MaxTransactionTime.Nanoseconds())
+	// pid_samplers is keyed by the pid OBI's /proc numbers a process with
+	maps.Copy(m, ebpfcommon.PIDFilterConstants())
 
 	return m
 }

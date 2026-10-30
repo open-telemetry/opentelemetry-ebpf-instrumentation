@@ -57,3 +57,16 @@ func TestReadGoKafkaGoRequestIntoSpanOperation(t *testing.T) {
 		})
 	}
 }
+
+func TestReadGoKafkaGoRequestIntoSpanTraceFlags(t *testing.T) {
+	event := GoKafkaGoClientInfo{Op: kafkaGoAPIProduce}
+	event.Tp.Flags = TPFlagSampled
+
+	var raw bytes.Buffer
+	require.NoError(t, binary.Write(&raw, binary.LittleEndian, event))
+
+	span, _, err := ReadGoKafkaGoRequestIntoSpan(&ringbuf.Record{RawSample: raw.Bytes()})
+
+	require.NoError(t, err)
+	assert.Equal(t, uint8(TPFlagSampled), span.TraceFlags)
+}
