@@ -6,29 +6,30 @@ OBI follows [Semantic Versioning 2.0.0](https://semver.org/) and Go semantic imp
 
 ## Current status
 
-OBI is currently in Development.
-
-All current OBI user-facing surfaces are unstable by default, including:
+OBI has released v1.0.0. The compatibility and release rules below apply to
+the stable v1 surfaces:
 
 - the `go.opentelemetry.io/obi` Go module
 - the `obi` binary and published container image contents
 - published container images corresponding to a release tag
 - configuration files, configuration schema, flags, and environment variables
-- emitted telemetry
+- emitted telemetry classified as stable under [TELEMETRY.md](./TELEMETRY.md)
 - build-time support for Go versions when consuming OBI as a Go module
 - runtime support for kernels, libraries, runtimes, and other instrumented environments
 
-Adding this document does not change the project's maturity. It records the current shared understanding of the project.
+The root Go module's exported API is stable starting with v1.0.0. No further
+stability declaration is required. Existing consumers must continue to compile
+against v1 minor and patch releases, including implementations of exported
+interfaces and callers using the original function signatures.
 
-### What Development means
+Config v1 is frozen for backward compatibility. Configuration fixes and new
+features belong in Config v2; its format version does not authorize breaking
+the OBI v1 Go API or stable telemetry.
 
-While OBI remains in Development:
-
-- users should expect to review release notes before upgrading between minor releases
-- minor releases may include breaking changes to configuration, defaults, behavior, telemetry, supported environments, and other user-facing surfaces
-- users should pin to semver release tags and should not treat `latest` as a stable or compatibility tag
-- dashboards, alerts, and downstream processors should not assume telemetry continuity across `v0` minor releases unless a surface is explicitly documented as stable
-- consumers of the Go module should expect build-time compatibility expectations to evolve until stable guarantees are explicitly declared
+Surfaces explicitly classified as Development or experimental remain outside
+the stable contract. The Collector receiver retains its separate v0 release
+line. Users should pin to semver release tags; the moving `latest` image tag
+is outside the compatibility contract.
 
 ## Release scope
 
@@ -54,7 +55,8 @@ do not make the new module discoverable through a plain `go get -u`.
 
 ## Version numbers before v1
 
-OBI remains in `v0` until the project is ready to make stable compatibility guarantees for explicitly declared stable surfaces.
+The rules in this section describe releases preceding v1.0.0 and modules
+that retain a separate v0 release line.
 
 While OBI is in `v0`:
 
@@ -69,7 +71,7 @@ For `v0` releases:
 
 ## Compatibility and release rules after v1
 
-The rules in this section are forward-looking. They apply only after OBI declares a surface stable.
+These rules apply starting with v1.0.0, subject to the explicit exclusions above.
 
 ### Major version bumps
 

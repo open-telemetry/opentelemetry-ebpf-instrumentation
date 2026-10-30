@@ -339,17 +339,7 @@ func getDefinitions(
 		!groups.Has(GroupHTTPRoutes),
 		nil,
 		map[attr.Name]Default{
-			attr.HTTPUrlTemplate: true,
-		},
-		nil,
-	)
-
-	// Semconv makes url.template opt-in on the stable client duration metric,
-	// and conditionally required only on the development body-size metrics.
-	httpClientDurationRoutes := NewAttrReportGroup(
-		!groups.Has(GroupHTTPRoutes),
-		nil,
-		map[attr.Name]Default{
+			attr.HTTPRoute:       true,
 			attr.HTTPUrlTemplate: false,
 		},
 		nil,
@@ -359,6 +349,7 @@ func getDefinitions(
 		false,
 		nil,
 		map[attr.Name]Default{
+			attr.ClientAddr: false,
 			attr.ServerAddr: true,
 			attr.ServerPort: true,
 		},
@@ -392,6 +383,7 @@ func getDefinitions(
 			attr.HTTPRequestMethod:      true,
 			attr.HTTPURLScheme:          true,
 			attr.HTTPResponseStatusCode: true,
+			attr.HTTPUrlPath:            false,
 			attr.ErrorType:              true,
 		},
 		extraGroupAttributes[GroupHTTPCommon],
@@ -432,7 +424,7 @@ func getDefinitions(
 			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpRoutes, &serverInfo},
 		},
 		HTTPClientDuration.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientDurationRoutes, &httpClientInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientRoutes, &httpClientInfo},
 		},
 		HTTPClientRequestSize.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientRoutes, &httpClientInfo},
@@ -474,7 +466,6 @@ func getDefinitions(
 		DBServerDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &serverInfo},
 			Attributes: map[attr.Name]Default{
-				attr.ClientAddr:           false,
 				attr.DBOperation:          true,
 				attr.DBSystemName:         true,
 				attr.ErrorType:            true,
@@ -994,10 +985,6 @@ func copyDisabled(src AttrReportGroup) AttrReportGroup {
 	return dst
 }
 
-// filterOnlyAttributes are span attributes that no metric reports, but that
-// attribute filters still match on.
-var filterOnlyAttributes = []attr.Name{attr.HTTPUrlPath}
-
 // AllAttributeNames returns a set with all the names in the attributes database
 // as returned by the getDefinitions function
 func AllAttributeNames(
@@ -1014,9 +1001,6 @@ func AllAttributeNames(
 		for _, section := range extraDefinitionsProvider(-1, extraGroupAttributes) {
 			maps.Copy(names, section.All())
 		}
-	}
-	for _, name := range filterOnlyAttributes {
-		names[name] = struct{}{}
 	}
 	return names
 }

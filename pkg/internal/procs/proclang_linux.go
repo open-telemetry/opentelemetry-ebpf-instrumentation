@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -102,7 +103,13 @@ func findLanguageFromElf(filePath string) (result svc.InstrumentableType) {
 	return matchExeSymbols(ctx)
 }
 
-func collectSymbols(f *elf.File, syms []elf.Symbol, symbolNames []string, addresses map[string]Sym, types ...elf.SymType) {
+type symbolCollector struct {
+	addresses   map[string]Sym
+	symbolNames []string
+	matches     func(string, []string) (string, bool)
+}
+
+func collectSymbols(f *elf.File, syms []elf.Symbol, collectors []symbolCollector, types ...elf.SymType) {
 	if len(types) == 0 {
 		types = []elf.SymType{elf.STT_FUNC}
 	}
@@ -111,32 +118,63 @@ func collectSymbols(f *elf.File, syms []elf.Symbol, symbolNames []string, addres
 			continue
 		}
 
-		if !slices.Contains(symbolNames, s.Name) {
-			continue
-		}
+		var sym *Sym
+		for _, collector := range collectors {
+			key, ok := collector.matches(s.Name, collector.symbolNames)
+			if !ok {
+				continue
+			}
 
-		addresses[s.Name] = resolveSymbol(f, s)
+			if sym == nil {
+				resolvedSym := resolveSymbol(f, s)
+				sym = &resolvedSym
+			}
+			collector.addresses[key] = *sym
+		}
 	}
 }
 
 func FindExeSymbols(f *elf.File, symbolNames []string, types ...elf.SymType) (map[string]Sym, error) {
-	addresses := map[string]Sym{}
+	exactSyms, _, err := FindExeSymbolsByNameAndSubstring(f, symbolNames, nil, types...)
+	return exactSyms, err
+}
+
+func FindExeSymbolsBySubstring(f *elf.File, symbolSubstrings []string, types ...elf.SymType) (map[string]Sym, error) {
+	_, substringSyms, err := FindExeSymbolsByNameAndSubstring(f, nil, symbolSubstrings, types...)
+	return substringSyms, err
+}
+
+func FindExeSymbolsByNameAndSubstring(f *elf.File, symbolNames, symbolSubstrings []string, types ...elf.SymType) (map[string]Sym, map[string]Sym, error) {
+	exactAddresses := map[string]Sym{}
+	substringAddresses := map[string]Sym{}
+	collectors := []symbolCollector{
+		{
+			addresses:   exactAddresses,
+			symbolNames: symbolNames,
+			matches:     exactSymbolMatch,
+		},
+		{
+			addresses:   substringAddresses,
+			symbolNames: symbolSubstrings,
+			matches:     substringSymbolMatch,
+		},
+	}
 
 	syms, err := f.Symbols()
 	if err != nil && !errors.Is(err, elf.ErrNoSymbols) {
-		return nil, err
+		return nil, nil, err
 	}
 
-	collectSymbols(f, syms, symbolNames, addresses, types...)
+	collectSymbols(f, syms, collectors, types...)
 
 	dynsyms, err := f.DynamicSymbols()
 	if err != nil && !errors.Is(err, elf.ErrNoSymbols) {
-		return nil, err
+		return nil, nil, err
 	}
 
-	collectSymbols(f, dynsyms, symbolNames, addresses, types...)
+	collectSymbols(f, dynsyms, collectors, types...)
 
-	return addresses, nil
+	return exactAddresses, substringAddresses, nil
 }
 
 func resolveSymbol(f *elf.File, s elf.Symbol) Sym {
@@ -158,6 +196,22 @@ func resolveSymbol(f *elf.File, s elf.Symbol) Sym {
 	}
 
 	return Sym{Name: s.Name, Off: address, Value: s.Value, Len: s.Size, Prog: p}
+}
+
+func exactSymbolMatch(symbolName string, names []string) (string, bool) {
+	if slices.Contains(names, symbolName) {
+		return symbolName, true
+	}
+	return "", false
+}
+
+func substringSymbolMatch(symbolName string, substrings []string) (string, bool) {
+	for _, substring := range substrings {
+		if strings.Contains(symbolName, substring) {
+			return substring, true
+		}
+	}
+	return "", false
 }
 
 func matchExeSymbols(ctx *fastelf.ElfContext) svc.InstrumentableType {

@@ -42,10 +42,10 @@ func TestSelectorMatch_NotNormalizedSections(t *testing.T) {
 	selection.Normalize()
 	assert.Equal(t,
 		[]InclusionLists{ga},
-		selection.Matching(GenAIClientOperationDuration))
+		selection.MatchingV2(GenAIClientOperationDuration))
 	assert.Equal(t,
 		[]InclusionLists{jt},
-		selection.Matching(JVMThreadCount))
+		selection.MatchingV2(JVMThreadCount))
 }
 
 // every metric must be selectable by its name, in dot or underscore notation
@@ -55,7 +55,7 @@ func TestSelectorMatch_AllMetrics(t *testing.T) {
 		for _, key := range []Section{section, Section(asProm(string(section)))} {
 			selection := Selection{key: il}
 			selection.Normalize()
-			assert.Equal(t, []InclusionLists{il}, selection.Matching(Name{Section: section}), "key %q", key)
+			assert.Equal(t, []InclusionLists{il}, selection.MatchingV2(Name{Section: section}), "key %q", key)
 		}
 	}
 }

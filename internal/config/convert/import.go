@@ -39,8 +39,6 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 		return nil, err
 	}
 	_, defaults := RuntimeToV2(nil)
-	// Enable Route53 for new v2 configurations without changing v1 migration defaults.
-	defaults.Enrich.ServiceName.Sources = []transform.Source{transform.SourceK8s, transform.SourceECS, transform.SourceRoute53}
 	// Omitted features retain the protocol and network enablement mapping.
 	defaults.Capture.Metrics.Features = nil
 	var complete bool
@@ -92,6 +90,7 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	src = &normalized
 
 	cfg := runtimeConfigDefaults()
+	cfg.Attributes.UseV2Selection = true
 	applyV2Capture(&cfg, src, policy, complete)
 	applyV2Standalone(&cfg, src, complete)
 	if err := applyV2PeerMetadata(&cfg, src.Enrich, complete); err != nil {
@@ -104,6 +103,11 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 		return nil, err
 	}
 	cfg.Attributes.Select.Normalize()
+	if cfg.NameResolver != nil && len(cfg.CloudMetadata.Route53.HostedZoneIDs) == 0 {
+		cfg.CloudMetadata.Route53.DiscoverHostedZones = slices.ContainsFunc(cfg.NameResolver.Sources, func(source transform.Source) bool {
+			return strings.EqualFold(string(source), string(transform.SourceRoute53))
+		})
+	}
 	if err := cfg.EBPF.LogEnricher.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid log trace annotation: %w", err)
 	}

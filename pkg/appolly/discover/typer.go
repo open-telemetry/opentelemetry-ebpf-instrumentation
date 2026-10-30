@@ -100,6 +100,15 @@ func samplerFromConfig(s *services.SamplerConfig) trace.Sampler {
 	return nil
 }
 
+func selectorExceptions(selector services.Selector) *services.ExceptionsOverride {
+	if provider, ok := selector.(interface {
+		GetExceptionsConfig() *services.ExceptionsOverride
+	}); ok {
+		return provider.GetExceptionsConfig()
+	}
+	return nil
+}
+
 func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 	name := t.cfg.ServiceName
 	namespace := t.cfg.ServiceNamespace
@@ -138,7 +147,7 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 			routesConfig = m
 		}
 
-		exceptions = s.GetExceptionsConfig().Resolve(t.cfg.Exceptions)
+		exceptions = selectorExceptions(s).Resolve(t.cfg.Exceptions)
 
 		// if the matching service > instrument entry does not define features,
 		// the globally defined features apply (and override any previous,

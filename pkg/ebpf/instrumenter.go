@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -1079,7 +1078,7 @@ func (i *instrumenter) sockops(p Tracer, cgroupPath string) error {
 	for _, sockops := range p.SockOps() {
 		slog.Info("Attaching sock ops")
 
-		l, err := AttachCgroupSockOps(sockops.Program, sockops.AttachAs, cgroupPath)
+		l, err := AttachCgroupSockOpsAtPath(sockops.Program, sockops.AttachAs, cgroupPath)
 		if err != nil {
 			if i.metrics != nil {
 				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingCgroup)
@@ -1209,6 +1208,19 @@ func processMaps(pid app.PID) ([]*procfs.ProcMap, error) {
 	return procs.FindLibMaps(pid)
 }
 
+func symbolNames(probes map[string][]*ebpfcommon.ProbeDesc, matcher ebpfcommon.SymbolMatcher) []string {
+	var names []string
+	for name, descriptors := range probes {
+		for _, descriptor := range descriptors {
+			if descriptor.SymbolMatcher == matcher {
+				names = append(names, name)
+				break
+			}
+		}
+	}
+	return names
+}
+
 func gatherOffsets(instrPath string, probes map[string][]*ebpfcommon.ProbeDesc, log *slog.Logger) error {
 	elfFile, err := elf.Open(instrPath)
 	if err != nil {
@@ -1223,13 +1235,21 @@ func gatherOffsets(instrPath string, probes map[string][]*ebpfcommon.ProbeDesc, 
 func gatherOffsetsImpl(elfFile *elf.File, probes map[string][]*ebpfcommon.ProbeDesc,
 	instrPath string, log *slog.Logger,
 ) error {
-	syms, err := procs.FindExeSymbols(elfFile, slices.Collect(maps.Keys(probes)))
+	exactSyms, substringSyms, err := procs.FindExeSymbolsByNameAndSubstring(
+		elfFile,
+		symbolNames(probes, ebpfcommon.SymbolMatcherExact),
+		symbolNames(probes, ebpfcommon.SymbolMatcherContains),
+	)
 	if err != nil {
 		return fmt.Errorf("failed to lookup symbols for %s: %w", instrPath, err)
 	}
 
 	for symbolName, probeArray := range probes {
 		for _, probe := range probeArray {
+			syms := exactSyms
+			if probe.SymbolMatcher == ebpfcommon.SymbolMatcherContains {
+				syms = substringSyms
+			}
 			sym, ok := syms[symbolName]
 
 			if !ok {

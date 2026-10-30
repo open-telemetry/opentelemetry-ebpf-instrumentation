@@ -2320,7 +2320,7 @@
                       "items": {
                         "type": "string"
                       },
-                      "description": "Optional allowlist of discovered hosted zones.\nDiscovery includes account public zones and private zones associated with the detected VPC. Without a detected VPC and region, only public zones are eligible. Explicit IDs retain the same VPC and address filters. All configurations require route53:ListHostedZones and, when the VPC and region are known, route53:ListHostedZonesByVPC.\n"
+                      "description": "Explicit hosted zones are read directly with route53:ListResourceRecordSets permissions.\nWhen omitted, discovery includes account public zones and private zones associated with the detected VPC and additionally requires route53:ListHostedZones and, when the VPC and region are known, route53:ListHostedZonesByVPC.\n"
                     }
                   }
                 }
