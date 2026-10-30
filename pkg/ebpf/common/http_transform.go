@@ -329,6 +329,16 @@ func postProcessHTTPSpan(parseCtx *EBPFParseContext, httpSpan *request.Span, req
 		}
 	}
 
+	// Jev detection must run before OpenAI-compatible gateway fallback
+	// to prevent Jev requests through gateways (e.g., OpenRouter) from
+	// being misclassified as OpenAI-compatible.
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Jev.Enabled {
+		span, ok := ebpfhttp.JevSpan(httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
 	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.OpenAICompatible.Enabled {
 		span, ok := ebpfhttp.OpenAICompatibleSpan(httpSpan, req, resp, parseCtx.payloadExtraction.HTTP.GenAI.OpenAICompatible.Gateways)
 		if ok {
