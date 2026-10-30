@@ -27,14 +27,14 @@ type cachedPeer struct {
 
 type peerCache struct {
 	mu           sync.Mutex
-	cfg          Config
+	cfg          MetadataConfig
 	peers        *simplelru.LRU[netip.Addr, *cachedPeer]
 	bytes        int
 	wake         chan struct{}
 	refreshBurst int
 }
 
-func newPeerCache(cfg Config) *peerCache {
+func newPeerCache(cfg MetadataConfig) *peerCache {
 	c := &peerCache{
 		cfg:  cfg,
 		wake: make(chan struct{}, 1),

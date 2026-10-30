@@ -53,7 +53,7 @@ func tlsConfigs(cfg MetadataTLSConfig) (*tls.Config, *tls.Config, error) {
 	return server, client, nil
 }
 
-func newHTTPClient(cfg Config, clientTLS *tls.Config) *http.Client {
+func newHTTPClient(cfg MetadataConfig, clientTLS *tls.Config) *http.Client {
 	return &http.Client{
 		Timeout: cfg.RequestTimeout,
 		Transport: &http.Transport{
@@ -70,7 +70,7 @@ func newHTTPClient(cfg Config, clientTLS *tls.Config) *http.Client {
 	}
 }
 
-func metadataHandler(store *localStore, cfg Config, peers network, cache *peerCache) http.Handler {
+func metadataHandler(store *localStore, cfg MetadataConfig, peers network, cache *peerCache) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(MetadataPath, func(w http.ResponseWriter, r *http.Request) {
 		requester, err := netip.ParseAddrPort(r.RemoteAddr)
@@ -196,7 +196,7 @@ func writeSnapshot(w http.ResponseWriter, snapshot Snapshot, limit int) {
 	_, _ = w.Write(data)
 }
 
-func fetchSnapshot(ctx context.Context, client *http.Client, cfg Config, address netip.Addr) (*Snapshot, int, error) {
+func fetchSnapshot(ctx context.Context, client *http.Client, cfg MetadataConfig, address netip.Addr) (*Snapshot, int, error) {
 	scheme := "http"
 	if cfg.TLS.Enabled {
 		scheme = "https"

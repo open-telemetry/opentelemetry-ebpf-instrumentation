@@ -17,7 +17,7 @@ func applyV2PeerMetadata(cfg *obi.Config, enrich *schema.Enrich, complete bool) 
 	}
 
 	src := enrich.Enrichers.PeerMetadata
-	cfg.PeerMetadata = peer.Config{
+	cfg.PeerMetadata = peer.MetadataConfig{
 		Enabled:          src.Enabled,
 		ListenAddress:    src.ListenAddress,
 		Port:             src.Port,
@@ -54,7 +54,7 @@ func applyV2PeerMetadata(cfg *obi.Config, enrich *schema.Enrich, complete bool) 
 	return nil
 }
 
-func peerMetadataEnrichment(cfg peer.Config) schema.PeerMetadataEnricher {
+func peerMetadataEnrichment(cfg peer.MetadataConfig) schema.PeerMetadataEnricher {
 	cfg = cfg.WithDefaults()
 	return schema.PeerMetadataEnricher{
 		Enabled:          cfg.Enabled,

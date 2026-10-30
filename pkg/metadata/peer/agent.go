@@ -19,13 +19,13 @@ import (
 )
 
 type Agent struct {
-	cfg      Config
+	cfg      MetadataConfig
 	network  network
 	store    *localStore
 	exchange exchange
 }
 
-func New(ctx context.Context, cfg Config, hostname string, serviceGraphEnabled bool,
+func New(ctx context.Context, cfg MetadataConfig, hostname string, serviceGraphEnabled bool,
 	metricsPIDs selection.PIDSelector, metricProtocols *instrumentations.InstrumentationSelection,
 ) (*Agent, error) {
 	cfg = cfg.WithDefaults()
@@ -94,7 +94,7 @@ func (a *Agent) Run(ctx context.Context, events <-chan exec.ProcessEvent) {
 
 // expireCallers periodically drops expired caller observations from the local store.
 func (a *Agent) expireCallers(ctx context.Context) {
-	ticker := time.NewTicker(max(time.Millisecond, min(time.Second, a.cfg.RefreshInterval/4)))
+	ticker := time.NewTicker(pollInterval(&a.cfg))
 	defer ticker.Stop()
 
 	for {
@@ -106,6 +106,11 @@ func (a *Agent) expireCallers(ctx context.Context) {
 		case <-ticker.C:
 		}
 	}
+}
+
+// pollInterval keeps background housekeeping responsive relative to the refresh interval.
+func pollInterval(cfg *MetadataConfig) time.Duration {
+	return max(time.Millisecond, min(time.Second, cfg.RefreshInterval/4))
 }
 
 // Decorate records outgoing callers and enriches spans from available peer metadata.

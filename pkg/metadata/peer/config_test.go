@@ -13,7 +13,7 @@ import (
 )
 
 func TestRuntimeDefaultsAndValidation(t *testing.T) {
-	cfg := (Config{Enabled: true, PeerCIDRs: []string{"10.1.0.0/16"}}).WithDefaults()
+	cfg := (MetadataConfig{Enabled: true, PeerCIDRs: []string{"10.1.0.0/16"}}).WithDefaults()
 	require.NoError(t, cfg.Validate())
 	require.Equal(t, time.Minute, cfg.CallerTTL)
 	require.Equal(t, 1024, cfg.MaxPeers)

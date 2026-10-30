@@ -31,7 +31,7 @@ type localStore struct {
 // We could map a single Endpoint to Service for the listenerIndex. But multiple
 // processes can share a port through SO_REUSEPORT, so we keep track of multiple
 // Services per endpoint.
-func newStore(hostname string, cfg Config) *localStore {
+func newStore(hostname string, cfg MetadataConfig) *localStore {
 	return &localStore{
 		hostname: hostname, callerTTL: cfg.CallerTTL, maxCallers: cfg.MaxCallerEntries,
 		metricProtocols: instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instrumentations.InstrumentationALL}),

@@ -24,7 +24,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/otel"
 )
 
-func newTestAgent(cfg Config, hostname string, peers network) (*Agent, *peerExchange) {
+func newTestAgent(cfg MetadataConfig, hostname string, peers network) (*Agent, *peerExchange) {
 	store := newStore(hostname, cfg)
 	exchange := &peerExchange{cfg: cfg, store: store, network: peers, cache: newPeerCache(cfg)}
 	return &Agent{cfg: cfg, store: store, network: peers, exchange: exchange}, exchange

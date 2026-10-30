@@ -28,8 +28,8 @@ const (
 	ModeCentral Mode = "central"
 )
 
-// Config configures peer metadata exchange.
-type Config struct {
+// MetadataConfig configures peer metadata exchange.
+type MetadataConfig struct {
 	Enabled          bool              `yaml:"enabled"`
 	Mode             Mode              `yaml:"mode" validate:"omitempty,oneof=peer central"`
 	ListenAddress    string            `yaml:"listen_address"`
@@ -56,8 +56,8 @@ type MetadataTLSConfig struct {
 	ServerName string `yaml:"server_name"`
 }
 
-func DefaultConfig() Config {
-	return Config{
+func DefaultConfig() MetadataConfig {
+	return MetadataConfig{
 		Mode:             ModePeer,
 		Port:             DefaultPort,
 		RefreshInterval:  10 * time.Second,
@@ -73,7 +73,7 @@ func DefaultConfig() Config {
 }
 
 // WithDefaults returns a copy with defaults for unspecified runtime settings.
-func (c Config) WithDefaults() Config {
+func (c MetadataConfig) WithDefaults() MetadataConfig {
 	d := DefaultConfig()
 	if c.Mode == "" {
 		c.Mode = d.Mode
@@ -104,7 +104,7 @@ func setDurationDefault(value *time.Duration, fallback time.Duration) {
 	}
 }
 
-func (c Config) Validate() error {
+func (c MetadataConfig) Validate() error {
 	if !c.Enabled {
 		return nil
 	}

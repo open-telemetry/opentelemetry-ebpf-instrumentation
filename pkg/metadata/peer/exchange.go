@@ -23,7 +23,7 @@ type exchange interface {
 	close()
 }
 
-func newExchange(ctx context.Context, cfg Config, store *localStore, network network) (exchange, error) {
+func newExchange(ctx context.Context, cfg MetadataConfig, store *localStore, network network) (exchange, error) {
 	switch cfg.Mode {
 	case ModePeer:
 		return newPeerExchange(ctx, cfg, store, network)

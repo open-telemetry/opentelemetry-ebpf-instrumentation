@@ -19,7 +19,7 @@ import (
 
 // peerExchange serves the local store over HTTP and fetches snapshots directly from each remote agent.
 type peerExchange struct {
-	cfg       Config
+	cfg       MetadataConfig
 	store     *localStore
 	network   network
 	cache     *peerCache
@@ -29,7 +29,7 @@ type peerExchange struct {
 	closeOnce sync.Once
 }
 
-func newPeerExchange(ctx context.Context, cfg Config, store *localStore, network network) (*peerExchange, error) {
+func newPeerExchange(ctx context.Context, cfg MetadataConfig, store *localStore, network network) (*peerExchange, error) {
 	serverTLS, clientTLS, err := tlsConfigs(cfg.TLS)
 	if err != nil {
 		return nil, err
@@ -123,7 +123,7 @@ func (p *peerExchange) fetchPeers(ctx context.Context, jobs <-chan *cachedPeer) 
 
 // schedulePeers queues peer refreshes as capacity allows.
 func (p *peerExchange) schedulePeers(ctx context.Context, jobs chan<- *cachedPeer) {
-	ticker := time.NewTicker(pollInterval(p.cfg))
+	ticker := time.NewTicker(pollInterval(&p.cfg))
 	defer ticker.Stop()
 
 	for {
