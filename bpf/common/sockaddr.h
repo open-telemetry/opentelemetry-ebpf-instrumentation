@@ -55,16 +55,18 @@ static __always_inline bool parse_sock_info(struct sock *s, connection_info_t *i
     return false;
 }
 
+static __always_inline u16 resolve_local_port(const u16 skc_num, const u16 inet_sport) {
+    // socket may be already in TCP_CLOSE and the port released, resolve from inet_sport
+    return skc_num ? skc_num : bpf_ntohs(inet_sport);
+}
+
 static __always_inline bool parse_full_sock_info(struct sock *s, connection_info_t *info) {
     if (!parse_sock_info(s, info)) {
         return false;
     }
 
-    // socket may be already in TCP_CLOSE and the port released, resolve from inet_sport
-    if (info->s_port == 0) {
-        const struct inet_sock *inet = (const struct inet_sock *)s;
-        info->s_port = bpf_ntohs(BPF_CORE_READ(inet, inet_sport));
-    }
+    const struct inet_sock *inet = (const struct inet_sock *)s;
+    info->s_port = resolve_local_port(info->s_port, BPF_CORE_READ(inet, inet_sport));
 
     return true;
 }
