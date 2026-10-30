@@ -100,6 +100,17 @@ func ProcessWatcherFunc(
 	output *msg.Queue[[]Event[ProcessAttrs]],
 	findingCriteria []services.Selector,
 	rescan ProcessWatcherRescan,
+) swarm.RunFunc {
+	return ProcessWatcherWithCriteriaUpdates(cfg, ebpfContext, output, findingCriteria, rescan, nil)
+}
+
+// ProcessWatcherWithCriteriaUpdates also responds to static criteria refreshes.
+func ProcessWatcherWithCriteriaUpdates(
+	cfg *obi.Config,
+	ebpfContext *ebpfcommon.EBPFEventContext,
+	output *msg.Queue[[]Event[ProcessAttrs]],
+	findingCriteria []services.Selector,
+	rescan ProcessWatcherRescan,
 	updates *services.CriteriaUpdates,
 ) swarm.RunFunc {
 	acc := pollAccounter{

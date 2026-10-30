@@ -23,12 +23,10 @@ func testClientWithMethodAndStatusCode(t *testing.T, method string, statusCode i
 		pq     = promtest.Client{HostPort: prometheusHostPort}
 		labels = fmt.Sprintf(`http_request_method="%s",`, method) +
 			fmt.Sprintf(`http_response_status_code="%d",`, statusCode) +
+			`http_route="/oss/",` +
 			`server_address="grafana.com",` +
 			`service_namespace="integration-test",` +
 			`service_name="pingclient"`
-		// url.template is opt-in on the duration metric and on by default
-		// on the body-size metrics, as semconv defines them
-		sizeLabels = labels + `,url_template="/oss/"`
 	)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
@@ -37,12 +35,12 @@ func testClientWithMethodAndStatusCode(t *testing.T, method string, statusCode i
 	}, testTimeout, 100*time.Millisecond)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		query := fmt.Sprintf("http_client_request_body_size_bytes_count{%s}", sizeLabels)
+		query := fmt.Sprintf("http_client_request_body_size_bytes_count{%s}", labels)
 		checkClientPromQueryResult(ct, pq, query, 1)
 	}, testTimeout, 100*time.Millisecond)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		query := fmt.Sprintf("http_client_response_body_size_bytes_count{%s}", sizeLabels)
+		query := fmt.Sprintf("http_client_response_body_size_bytes_count{%s}", labels)
 		checkClientPromQueryResult(ct, pq, query, 1)
 	}, testTimeout, 100*time.Millisecond)
 

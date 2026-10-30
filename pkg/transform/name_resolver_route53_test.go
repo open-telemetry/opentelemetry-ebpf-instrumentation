@@ -63,10 +63,10 @@ func TestRoute53ResolverRecoversFromInitialFailure(t *testing.T) {
 			}
 			cloudCfg := CloudMetadataConfig{
 				RefreshInterval: 10 * time.Millisecond,
-				Route53:         Route53MetadataConfig{RefreshInterval: 10 * time.Millisecond, HostedZoneIDs: zones},
+				Route53:         Route53MetadataConfig{RefreshInterval: 10 * time.Millisecond, HostedZoneIDs: zones, DiscoverHostedZones: true},
 			}
 			info := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Features: metadata.ClusterEC2, EC2VPCID: "vpc-local", Region: "us-east-1"}}
-			refreshers := CloudMetadataRefreshers(ctx, &info.NodeMeta, cfg, cloudCfg)
+			refreshers := CloudMetadataRefreshersWithConfig(ctx, &info.NodeMeta, cfg, cloudCfg)
 			require.Len(t, refreshers, 1)
 			info.CloudMetaInventory = cloud.NewInventory(refreshers)
 			startCloudInventory(t, info.CloudMetaInventory, cloudCfg.RefreshInterval)
@@ -108,7 +108,7 @@ func TestRoute53ResolverRecoversFromInitialFailure(t *testing.T) {
 func TestRoute53InventoryConfiguration(t *testing.T) {
 	nodeMeta := &metadata.NodeMeta{Features: metadata.ClusterEC2}
 	for _, sources := range [][]Source{nil, {SourceDNS}} {
-		refreshers := CloudMetadataRefreshers(t.Context(), nodeMeta, &NameResolverConfig{Sources: sources}, CloudMetadataConfig{})
+		refreshers := CloudMetadataRefreshersWithConfig(t.Context(), nodeMeta, &NameResolverConfig{Sources: sources}, CloudMetadataConfig{})
 		assert.Empty(t, refreshers)
 	}
 	for _, cfg := range []CloudMetadataConfig{
@@ -116,7 +116,7 @@ func TestRoute53InventoryConfiguration(t *testing.T) {
 		{Route53: Route53MetadataConfig{RefreshInterval: time.Second, HostedZoneIDs: []string{""}}},
 		{Route53: Route53MetadataConfig{RefreshInterval: -time.Second, HostedZoneIDs: []string{"zone"}}},
 	} {
-		refreshers := CloudMetadataRefreshers(t.Context(), nodeMeta, &NameResolverConfig{Sources: []Source{SourceRoute53}}, cfg)
+		refreshers := CloudMetadataRefreshersWithConfig(t.Context(), nodeMeta, &NameResolverConfig{Sources: []Source{SourceRoute53}}, cfg)
 		assert.Empty(t, refreshers)
 	}
 }

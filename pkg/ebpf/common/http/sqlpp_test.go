@@ -368,7 +368,7 @@ func TestSQLPPSpan(t *testing.T) {
 			}
 
 			baseSpan := &request.Span{}
-			resultSpan, detected := SQLPPSpan(baseSpan, req, resp, endpointPatterns, nil)
+			resultSpan, detected := SQLPPSpan(baseSpan, req, resp, endpointPatterns)
 
 			assert.Equal(t, tt.expectedDetected, detected)
 
@@ -447,7 +447,7 @@ func TestSQLPPSpanWithError(t *testing.T) {
 	}
 
 	baseSpan := &request.Span{}
-	resultSpan, detected := SQLPPSpan(baseSpan, req, resp, endpointPatterns, nil)
+	resultSpan, detected := SQLPPSpan(baseSpan, req, resp, endpointPatterns)
 
 	assert.True(t, detected)
 	assert.Equal(t, request.HTTPSubtypeSQLPP, resultSpan.SubType)
@@ -751,7 +751,7 @@ func runSQLPPExchange(t *testing.T, prepared *SQLPPPreparedStatements, ex sqlppE
 		Host:     ex.host,
 		HostPort: sqlppTestQueryPort,
 	}
-	return SQLPPSpan(baseSpan, req, resp, []string{"/query/service"}, prepared)
+	return SQLPPSpanWithPreparedStatements(baseSpan, req, resp, []string{"/query/service"}, prepared)
 }
 
 const sqlppTestQueryPort = 8093
@@ -1030,7 +1030,7 @@ func TestSQLPPSpanLearnsNameFromTruncatedResponse(t *testing.T) {
 	require.NoError(t, err)
 
 	prepared := newTestSQLPPPreparedStatements(t)
-	_, detected := SQLPPSpan(&request.Span{}, req, resp, []string{"/query/service"}, prepared)
+	_, detected := SQLPPSpanWithPreparedStatements(&request.Span{}, req, resp, []string{"/query/service"}, prepared)
 	require.True(t, detected)
 
 	span, detected := runSQLPPExchange(t, prepared, sqlppExchange{reqBody: `{"prepared": "srv-name"}`})

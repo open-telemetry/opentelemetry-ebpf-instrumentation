@@ -92,6 +92,11 @@ field-by-field mapping report. Save both streams and review the generated YAML.
 The CLI has no separate warning class: report bullets are informational, while
 unsupported values make the command fail.
 
+Config v2 fixes metric-name matching and selection precedence. If an existing
+`attributes.select` entry was ignored by v1 or its precedence changes, strict
+migration reports `attributes.select` for review. Use `--allow-partial` to
+inspect the v2 selection, then compare the emitted dimensions before rollout.
+
 V1 exporter `instrumentations` lists restrict application metrics but do not
 restrict span metrics or service graphs. V2 protocol `enabled.metrics` switches
 control all of these families. Migration reports an active exporter's

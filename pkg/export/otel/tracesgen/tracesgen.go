@@ -876,9 +876,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			urlPath = span.FullPath
 		}
 		// Scrub sensitive query parameters from url.full.
+		var scrubbedQS string
 		if idx := strings.IndexByte(urlPath, '?'); idx >= 0 {
 			if qs := scrubQuery(urlPath[idx+1:], redactSet); qs != "" {
 				urlPath = urlPath[:idx+1] + qs
+				scrubbedQS = qs
 			} else {
 				urlPath = urlPath[:idx]
 			}
@@ -907,6 +909,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			attrs = appendURLTemplate(attrs, span, optionalAttrs)
 			attrs = appendHTTPRequestBodySize(attrs, span, optionalAttrs)
 			attrs = appendHTTPResponseBodySize(attrs, span, optionalAttrs)
+			if scrubbedQS != "" {
+				if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok {
+					attrs = append(attrs, request.HTTPUrlQuery(scrubbedQS))
+				}
+			}
 		}
 
 		if span.SubType == request.HTTPSubtypeElasticsearch && span.Elasticsearch != nil {

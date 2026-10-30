@@ -536,7 +536,7 @@ func TestNameResolverDefaultsByConfigVersion(t *testing.T) {
 		{name: "v2 omitted sources", yaml: `file_format: "1.0"
 extensions:
   obi:
-    version: "2.0"`, want: []transform.Source{transform.SourceK8s, transform.SourceECS, transform.SourceRoute53}},
+    version: "2.0"`, want: []transform.Source{transform.SourceK8s, transform.SourceECS}},
 		{name: "v2 explicit sources", yaml: `file_format: "1.0"
 extensions:
   obi:

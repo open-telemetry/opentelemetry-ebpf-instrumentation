@@ -542,8 +542,6 @@ func TestAsInstrumentable_UncachedPythonWorkerPreservesLogEnricherEnabled(t *tes
 	assert.True(t, instrumentable.LogEnricherEnabled)
 }
 
-func (d dummyCriterion) GetExceptionsConfig() *services.ExceptionsOverride { return nil }
-
 func TestMakeServiceAttrsExceptionSelection(t *testing.T) {
 	enabled, disabled := true, false
 	cfg := obi.DefaultConfig

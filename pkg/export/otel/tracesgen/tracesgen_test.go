@@ -193,6 +193,31 @@ func TestTraceAttributesSelector_MCPToolCallPayloadSelection(t *testing.T) {
 	assert.JSONEq(t, `[{"type":"text","text":"api_key=SECRET123"}]`, result.Str())
 }
 
+func TestHTTPClientSpanURLQueryCompatibility(t *testing.T) {
+	span := &request.Span{
+		Type: request.EventTypeHTTPClient, Method: "GET", Path: "/search",
+		FullPath: "/search?q=otel&token=secret", Statement: "https;example.com", Host: "example.com", HostPort: 443,
+	}
+	for _, excluded := range []bool{false, true} {
+		cfg := &attributes.SelectorConfig{}
+		if excluded {
+			cfg.SelectionCfg = attributes.Selection{"traces": {Exclude: []string{"url.query"}}}
+		}
+		attrs, err := UserSelectedAttributes(cfg)
+		require.NoError(t, err)
+		selected := AttrsToMap(TraceAttributesSelector(span, attrs, attributes.DefaultSensitiveQueryParams...))
+		query, exists := selected.Get("url.query")
+		require.Equal(t, !excluded, exists)
+		if exists {
+			assert.Contains(t, query.Str(), "q=otel")
+			assert.NotContains(t, query.Str(), "secret")
+		}
+		full, exists := selected.Get("url.full")
+		require.True(t, exists)
+		assert.NotContains(t, full.Str(), "secret")
+	}
+}
+
 func TestHTTPServerSpanURLQuery(t *testing.T) {
 	optInCfg := &attributes.SelectorConfig{
 		SelectionCfg: attributes.Selection{
@@ -1785,7 +1810,7 @@ func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
 			}
 
 			_, ok := selected.Get("url.query")
-			assert.False(t, ok, "url.query must not be emitted on http client spans")
+			assert.Equal(t, tt.subType == request.HTTPSubtypeNone, ok, "plain HTTP client spans preserve url.query")
 
 			for _, key := range []string{"server.address", "server.port", "service.peer.name"} {
 				_, ok := selected.Get(key)

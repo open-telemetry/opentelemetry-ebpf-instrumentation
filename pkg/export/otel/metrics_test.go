@@ -1024,18 +1024,12 @@ func TestAppMetrics_HTTPRouteAttributes(t *testing.T) {
 				continue
 			}
 			assert.NotContains(t, record.Attributes, string(attr.HTTPUrlPath), record.Name)
-			switch {
-			case record.Name == attributes.HTTPClientDuration.OTEL:
-				// opt-in on the stable duration metric, as semconv defines it
-				assert.NotContains(t, record.Attributes, string(attr.HTTPUrlTemplate), record.Name)
-				assert.NotContains(t, record.Attributes, string(attr.HTTPRoute), record.Name)
-			case strings.HasPrefix(record.Name, "http.client."):
-				assert.Equal(t, "/client/{id}", record.Attributes[string(attr.HTTPUrlTemplate)], record.Name)
-				assert.NotContains(t, record.Attributes, string(attr.HTTPRoute), record.Name)
-			default:
+			if strings.HasPrefix(record.Name, "http.client.") {
+				assert.Equal(t, "/client/{id}", record.Attributes[string(attr.HTTPRoute)], record.Name)
+			} else {
 				assert.Equal(t, "/server/{id}", record.Attributes[string(attr.HTTPRoute)], record.Name)
-				assert.NotContains(t, record.Attributes, string(attr.HTTPUrlTemplate), record.Name)
 			}
+			assert.NotContains(t, record.Attributes, string(attr.HTTPUrlTemplate), record.Name)
 			delete(pending, record.Name)
 		case <-deadline:
 			require.Failf(t, "timeout while waiting for metric records", "missing: %v", pending)

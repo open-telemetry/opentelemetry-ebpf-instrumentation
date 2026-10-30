@@ -4,7 +4,11 @@ metrics:
   - name: http.client.request.body.size
     annotations:
       obi:
+        upstream_extras:
+          http.route: route dimension retained from the OBI v1 contract
+          url.path: optional metric dimension retained from the OBI v1 contract
         upstream_relaxes:
+          url.template: kept opt-in to preserve OBI v1 metric dimensions
           server.address: missing when OBI cannot tell which connection the request used
           server.port: missing when OBI cannot tell which connection the request used
         upstream_omits:
@@ -15,6 +19,11 @@ metrics:
     stability: development
     requirement_level: recommended
     attributes:
+      - ref: url.path
+        requirement_level: opt_in
+      - ref: http.route
+        requirement_level:
+          conditionally_required: if route collection is enabled and the route was matched
       - ref: error.type
         requirement_level:
           conditionally_required: if the request ended in an error
@@ -32,11 +41,13 @@ metrics:
       - ref: url.scheme
         requirement_level: recommended
       - ref: url.template
-        requirement_level:
-          conditionally_required: if route collection is enabled and the route was matched
+        requirement_level: opt_in
   - name: http.client.request.duration
     annotations:
       obi:
+        upstream_extras:
+          http.route: route dimension retained from the OBI v1 contract
+          url.path: optional metric dimension retained from the OBI v1 contract
         upstream_relaxes:
           server.address: missing when OBI cannot tell which connection the request used
           server.port: missing when OBI cannot tell which connection the request used
@@ -48,6 +59,11 @@ metrics:
     stability: stable
     requirement_level: recommended
     attributes:
+      - ref: url.path
+        requirement_level: opt_in
+      - ref: http.route
+        requirement_level:
+          conditionally_required: if route collection is enabled and the route was matched
       - ref: error.type
         requirement_level:
           conditionally_required: if the request ended in an error
@@ -69,7 +85,11 @@ metrics:
   - name: http.client.response.body.size
     annotations:
       obi:
+        upstream_extras:
+          http.route: route dimension retained from the OBI v1 contract
+          url.path: optional metric dimension retained from the OBI v1 contract
         upstream_relaxes:
+          url.template: kept opt-in to preserve OBI v1 metric dimensions
           server.address: missing when OBI cannot tell which connection the request used
           server.port: missing when OBI cannot tell which connection the request used
         upstream_omits:
@@ -80,6 +100,11 @@ metrics:
     stability: development
     requirement_level: recommended
     attributes:
+      - ref: url.path
+        requirement_level: opt_in
+      - ref: http.route
+        requirement_level:
+          conditionally_required: if route collection is enabled and the route was matched
       - ref: error.type
         requirement_level:
           conditionally_required: if the request ended in an error
@@ -97,11 +122,13 @@ metrics:
       - ref: url.scheme
         requirement_level: recommended
       - ref: url.template
-        requirement_level:
-          conditionally_required: if route collection is enabled and the route was matched
+        requirement_level: opt_in
   - name: http.server.request.body.size
     annotations:
       obi:
+        upstream_extras:
+          client.address: optional metric dimension retained from the OBI v1 contract
+          url.path: optional metric dimension retained from the OBI v1 contract
         upstream_relaxes:
           url.scheme: missing for a FastCGI request whose parameters are too large to capture
         upstream_omits:
@@ -112,6 +139,10 @@ metrics:
     stability: development
     requirement_level: recommended
     attributes:
+      - ref: url.path
+        requirement_level: opt_in
+      - ref: client.address
+        requirement_level: opt_in
       - ref: error.type
         requirement_level:
           conditionally_required: if the request ended in an error
@@ -133,6 +164,9 @@ metrics:
   - name: http.server.request.duration
     annotations:
       obi:
+        upstream_extras:
+          client.address: optional metric dimension retained from the OBI v1 contract
+          url.path: optional metric dimension retained from the OBI v1 contract
         upstream_relaxes:
           url.scheme: missing for a FastCGI request whose parameters are too large to capture
         upstream_omits:
@@ -143,6 +177,10 @@ metrics:
     stability: stable
     requirement_level: recommended
     attributes:
+      - ref: url.path
+        requirement_level: opt_in
+      - ref: client.address
+        requirement_level: opt_in
       - ref: error.type
         requirement_level:
           conditionally_required: if the request ended in an error
@@ -164,6 +202,9 @@ metrics:
   - name: http.server.response.body.size
     annotations:
       obi:
+        upstream_extras:
+          client.address: optional metric dimension retained from the OBI v1 contract
+          url.path: optional metric dimension retained from the OBI v1 contract
         upstream_relaxes:
           url.scheme: missing for a FastCGI request whose parameters are too large to capture
         upstream_omits:
@@ -174,6 +215,10 @@ metrics:
     stability: development
     requirement_level: recommended
     attributes:
+      - ref: url.path
+        requirement_level: opt_in
+      - ref: client.address
+        requirement_level: opt_in
       - ref: error.type
         requirement_level:
           conditionally_required: if the request ended in an error
