@@ -6,6 +6,10 @@
 package generictracer
 
 import (
+	"bytes"
+	"log/slog"
+	"os"
+	"sync/atomic"
 	"testing"
 
 	"github.com/cilium/ebpf"
@@ -14,6 +18,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 )
 
 func newTestValidPids(t *testing.T, words uint32) *ebpf.Map {
@@ -104,4 +110,70 @@ func TestValidateValidPidsMapRejectsAnotherSize(t *testing.T) {
 
 	tracer.bpfObjects.ValidPids = newTestValidPids(t, validPidsWords-1)
 	require.Error(t, tracer.validateValidPidsMap())
+}
+
+func TestValidPidsUpdateAfterCloseIsSkipped(t *testing.T) {
+	// on cancellation the ringbuf closes the tracer while the attacher can still update it
+	tracer := newTestValidPidsTracer(t, 41000)
+	var logs bytes.Buffer
+	tracer.log = slog.New(slog.NewJSONHandler(&logs, nil))
+
+	tracer.AllowPID(41000, 0, exec.New(exec.Init{Pid: 41000}))
+	require.NoError(t, tracer.Close())
+
+	tracer.pidsFilter = fakeServiceFilter{}
+	tracer.BlockPID(41000, 0)
+	// an iterator without a link fails if it runs: the closed iterators must not run either
+	tracer.iters = []*ebpfcommon.Iter{{Program: &ebpf.Program{}}}
+	self := app.PID(os.Getpid())
+	tracer.pidsFilter = fakeServiceFilter{procPIDs: []app.PID{self}}
+	tracer.AllowPID(self, 0, exec.New(exec.Init{Pid: self}))
+
+	assert.NotContains(t, logs.String(), `"level":"ERROR"`)
+}
+
+// alternates two pids of the same word, so every rebuild writes the map
+type alternatingPidsFilter struct {
+	fakeServiceFilter
+	calls atomic.Uint64
+}
+
+func (f *alternatingPidsFilter) ProcPIDs(ebpfcommon.PIDType) []app.PID {
+	if f.calls.Add(1)%2 == 0 {
+		return []app.PID{41000}
+	}
+	return []app.PID{41007}
+}
+
+func TestValidPidsUpdatesRacingCloseNeverWriteAClosedMap(t *testing.T) {
+	tracer := newTestValidPidsTracer(t)
+	tracer.pidsFilter = &alternatingPidsFilter{}
+	var logs bytes.Buffer
+	tracer.log = slog.New(slog.NewJSONHandler(&logs, nil))
+
+	started := make(chan struct{})
+	closed := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// keeps updating after the close, like an attacher batch still in flight
+		for i, after := 0, 0; after < 100; i++ {
+			tracer.BlockPID(41000, 0)
+			if i == 10 {
+				close(started)
+			}
+			select {
+			case <-closed:
+				after++
+			default:
+			}
+		}
+	}()
+
+	<-started
+	require.NoError(t, tracer.Close())
+	close(closed)
+	<-done
+
+	assert.NotContains(t, logs.String(), `"level":"ERROR"`)
 }

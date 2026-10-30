@@ -59,6 +59,9 @@ type Tracer struct {
 	jvmGenerations     sync.Map
 	iters              []*ebpfcommon.Iter
 	iterMu             sync.Mutex
+	// serializes the valid_pids and iterator updates with closing the BPF objects
+	pidsMu     sync.Mutex
+	pidsClosed bool
 	// the valid_pids words as last written to the BPF map
 	validPids      ebpfcommon.PIDBitmap
 	seenNetns      *expirable.LRU[uint64, struct{}]
@@ -133,6 +136,11 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 		p.pythonRuntime.allow(pid, ns, fi, serviceSource)
 	}
 
+	p.pidsMu.Lock()
+	defer p.pidsMu.Unlock()
+	if p.pidsClosed {
+		return
+	}
 	if err := p.rebuildValidPids(); err != nil {
 		p.log.Error("rebuilding the BPF PID filter", "error", err)
 		return
@@ -155,6 +163,11 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.jvmGenerations.Delete(pid)
 	p.pidsFilter.BlockPID(pid, ns)
 
+	p.pidsMu.Lock()
+	defer p.pidsMu.Unlock()
+	if p.pidsClosed {
+		return
+	}
 	if err := p.rebuildValidPids(); err != nil {
 		p.log.Error("rebuilding the BPF PID filter", "error", err)
 	}
@@ -265,7 +278,12 @@ func (p *Tracer) AddCloser(c ...io.Closer) {
 	p.closers = append(p.closers, c...)
 }
 
+// waits for an in-flight PID update and rejects the later ones before closing what they write
 func (p *Tracer) Close() error {
+	p.pidsMu.Lock()
+	p.pidsClosed = true
+	p.pidsMu.Unlock()
+
 	return ebpfcommon.CloseResources(append(p.closers, &p.bpfObjects)...)
 }
 
@@ -771,7 +789,7 @@ func (p *Tracer) Run(
 		p.pidsFilter.Filter,
 		p.log,
 		p.metrics,
-	)(ctx, append(p.closers, &p.bpfObjects), eventsChan)
+	)(ctx, []io.Closer{p}, eventsChan)
 }
 
 func (p *Tracer) processSharedRingbufRecord(
