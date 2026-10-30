@@ -386,7 +386,7 @@ func (ta *traceAttacher) getTracer(ctx context.Context, ie *ebpf.Instrumentable)
 		return false
 	}
 
-	if err := tracer.NewExecutable(exe, ie); err != nil {
+	if err := tracer.NewExecutableFile(exe, ie); err != nil {
 		if closeErr := tracer.Close(); closeErr != nil {
 			ta.log.Debug("closing process tracer after failed executable attachment", "error", closeErr)
 		}
@@ -498,7 +498,7 @@ func (ta *traceAttacher) reuseTracer(ctx context.Context, tracer *ebpf.ProcessTr
 	}
 	defer exe.Close()
 
-	if err := tracer.NewExecutable(exe, ie); err != nil {
+	if err := tracer.NewExecutableFile(exe, ie); err != nil {
 		ta.log.Debug("Failed to attach uprobes for new executable", "pid", ie.FileInfo.Pid(), "error", err)
 		return false
 	}

@@ -422,9 +422,24 @@ func (pt *ProcessTracer) NewExecutableInstance(ie *Instrumentable) error {
 	return nil
 }
 
-// NewExecutable attaches to a pinned executable. The caller owns file and must
+// NewExecutable attaches probes to exe.
+//
+// Compatibility v1: Use [ProcessTracer.NewExecutableFile] to pin the attachment target instead.
+// link.Executable is unstable for processes that replace the binary with exec.
+func (pt *ProcessTracer) NewExecutable(exe *link.Executable, ie *Instrumentable) error {
+	pt.instrumentablesMu.Lock()
+	defer pt.instrumentablesMu.Unlock()
+
+	if pt.stopped {
+		return errTracerStopped
+	}
+
+	return pt.attachExecutable(exe, ie.FileInfo.ProExeLinkPath(), ie)
+}
+
+// NewExecutableFile attaches to a pinned executable. The caller owns file and must
 // keep it open until this method returns.
-func (pt *ProcessTracer) NewExecutable(file *os.File, ie *Instrumentable) error {
+func (pt *ProcessTracer) NewExecutableFile(file *os.File, ie *Instrumentable) error {
 	// held for the whole attachment so shutdown either waits for it or rejects it
 	pt.instrumentablesMu.Lock()
 	defer pt.instrumentablesMu.Unlock()
@@ -439,6 +454,11 @@ func (pt *ProcessTracer) NewExecutable(file *os.File, ie *Instrumentable) error 
 		return err
 	}
 
+	return pt.attachExecutable(exe, exePath, ie)
+}
+
+// The caller holds instrumentablesMu for the entire attachment and commit.
+func (pt *ProcessTracer) attachExecutable(exe *link.Executable, exePath string, ie *Instrumentable) error {
 	i := instrumenter{
 		key:         ExecutableKey{Dev: ie.FileInfo.Dev(), Ino: ie.FileInfo.Ino()},
 		offsets:     ie.Offsets, // this is needed for the function offsets, not fields

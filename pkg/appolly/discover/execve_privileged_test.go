@@ -86,7 +86,7 @@ func TestExecveUprobe(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, program.Close()) })
 			tracer := ebpf.NewProcessTracer(ebpf.Go, []ebpf.Tracer{&execveProbeTracer{program: program}}, &obi.Config{}, imetrics.NoopReporter{})
 			t.Cleanup(func() { require.NoError(t, tracer.Close()) })
-			require.NoError(t, tracer.NewExecutable(executable, &inst))
+			require.NoError(t, tracer.NewExecutableFile(executable, &inst))
 			require.NoError(t, executable.Close())
 			for _, proc := range []*execveReproProcess{child, bystander} {
 				proc.send(t)

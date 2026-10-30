@@ -486,7 +486,7 @@ func attachGoTracer(t *testing.T, pid app.PID, mode config.ContextPropagationMod
 	executable, err := fileInfo.OpenExecutable()
 	require.NoError(t, err)
 	defer executable.Close()
-	require.NoError(t, processTracer.NewExecutable(executable, &ebpftracer.Instrumentable{
+	require.NoError(t, processTracer.NewExecutableFile(executable, &ebpftracer.Instrumentable{
 		Type:     svc.InstrumentableGolang,
 		FileInfo: fileInfo,
 		Offsets:  offsets,

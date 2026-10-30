@@ -15,6 +15,7 @@ import (
 	"time"
 
 	cebpf "github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/link"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
@@ -252,6 +253,15 @@ func TestCloseInstrumentersWaitsForInFlightAttachment(t *testing.T) {
 }
 
 func TestNewExecutableDoesNotRetainAttachmentTarget(t *testing.T) {
+	testExecutableAttachment(t, false)
+}
+
+func TestNewExecutableFileDoesNotRetainAttachmentTarget(t *testing.T) {
+	testExecutableAttachment(t, true)
+}
+
+func testExecutableAttachment(t *testing.T, pinned bool) {
+	t.Helper()
 	file, err := os.Open("/proc/self/exe")
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = file.Close() })
@@ -261,17 +271,24 @@ func TestNewExecutableDoesNotRetainAttachmentTarget(t *testing.T) {
 	offsets := &goexec.Offsets{}
 	ie := &Instrumentable{
 		FileInfo: exec.New(exec.Init{
-			Pid:        app.PID(os.Getpid()),
-			CmdExePath: "/proc/self/exe",
-			Dev:        key.Dev,
-			Ino:        key.Ino,
+			Pid:            app.PID(os.Getpid()),
+			CmdExePath:     "/proc/self/exe",
+			ProExeLinkPath: "/proc/self/exe",
+			Dev:            key.Dev,
+			Ino:            key.Ino,
 		}),
 		Offsets: offsets,
 	}
 	pt := NewProcessTracer(Go, []Tracer{&stubTracer{}}, &obi.Config{}, imetrics.NoopReporter{})
 	t.Cleanup(func() { require.NoError(t, pt.Close()) })
 
-	require.NoError(t, pt.NewExecutable(file, ie))
+	if pinned {
+		require.NoError(t, pt.NewExecutableFile(file, ie))
+	} else {
+		executable, err := link.OpenExecutable(file.Name())
+		require.NoError(t, err)
+		require.NoError(t, pt.NewExecutable(executable, ie))
+	}
 	require.NoError(t, file.Close())
 
 	// Compare all retained state so a borrowed executable or FD path cannot survive attachment.
@@ -292,6 +309,7 @@ func TestNewExecutableRejectedAfterShutdown(t *testing.T) {
 
 	// nothing is dereferenced because no probe is attached after shutdown
 	require.ErrorIs(t, pt.NewExecutable(nil, &Instrumentable{}), errTracerStopped)
+	require.ErrorIs(t, pt.NewExecutableFile(nil, &Instrumentable{}), errTracerStopped)
 	require.ErrorIs(t, pt.NewExecutableInstance(&Instrumentable{
 		FileInfo: exec.New(exec.Init{Dev: 1, Ino: 2}),
 	}), errTracerStopped)
