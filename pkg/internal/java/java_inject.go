@@ -10,6 +10,7 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -24,6 +25,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools/jvm"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -219,7 +221,7 @@ func (i *JavaInjector) NewExecutable(ctx context.Context, target InjectionTarget
 		return err
 	}
 
-	agentOpts := i.attachOpts(target.RuntimeMetricsEnabled)
+	agentOpts := i.attachOpts(target.RuntimeMetricsEnabled, target.DynamicSpans)
 	attachID := i.nextAttachID()
 
 	ctx, cancel := context.WithTimeout(ctx, i.cfg.Java.Timeout)
@@ -433,7 +435,7 @@ func returnCodeLine(line string) (bool, error) {
 	return false, nil
 }
 
-func (i *JavaInjector) attachOpts(runtimeMetricsEnabled bool) string {
+func (i *JavaInjector) attachOpts(runtimeMetricsEnabled bool, dynamicSpans []services.DynamicSpan) string {
 	var opts []string
 	if i.cfg.Java.Debug {
 		opts = append(opts, "debug=true")
@@ -445,6 +447,15 @@ func (i *JavaInjector) attachOpts(runtimeMetricsEnabled bool) string {
 		opts = append(opts, "runtimeMetrics=true")
 		opts = append(opts, fmt.Sprintf("runtimeMetricsIntervalNanos=%d",
 			i.cfg.JVMRuntimeMetrics.SamplingInterval.Nanoseconds()))
+	}
+	if len(dynamicSpans) > 0 {
+		records := make([]string, 0, len(dynamicSpans))
+		for _, span := range dynamicSpans {
+			name := base64.RawURLEncoding.EncodeToString([]byte(span.Name))
+			reference := base64.RawURLEncoding.EncodeToString([]byte(span.FunctionReference))
+			records = append(records, name+"."+reference)
+		}
+		opts = append(opts, "dynamicSpans="+strings.Join(records, "~"))
 	}
 
 	if len(opts) == 0 {

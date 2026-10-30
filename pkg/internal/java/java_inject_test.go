@@ -8,6 +8,7 @@ package javaagent
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log/slog"
@@ -24,6 +25,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/internal/jvmtools/jvm"
@@ -546,6 +548,7 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 		debug          bool
 		debugBB        bool
 		runtimeMetrics bool
+		dynamicSpans   []services.DynamicSpan
 		expected       string
 	}{
 		{
@@ -578,6 +581,12 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 			runtimeMetrics: true,
 			expected:       "=debug=true,debugBB=true,runtimeMetrics=true,runtimeMetricsIntervalNanos=2000000000",
 		},
+		{
+			name:         "dynamic spans only",
+			dynamicSpans: []services.DynamicSpan{{Name: "checkout.place_order", FunctionReference: "com.example.Checkout#placeOrder()"}},
+			expected: "=dynamicSpans=" + base64.RawURLEncoding.EncodeToString([]byte("checkout.place_order")) + "." +
+				base64.RawURLEncoding.EncodeToString([]byte("com.example.Checkout#placeOrder()")),
+		},
 	}
 
 	for _, tt := range tests {
@@ -607,10 +616,18 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 			}
 
 			runtimeMetricsEnabled := ie.FileInfo.ServiceAttrs().Features.AppRuntime()
-			result := injector.attachOpts(runtimeMetricsEnabled)
+			result := injector.attachOpts(runtimeMetricsEnabled, tt.dynamicSpans)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestJavaInjector_AttachOptsKeepsDynamicSpansProcessScoped(t *testing.T) {
+	injector := &JavaInjector{cfg: &obi.Config{}}
+	selected := injector.attachOpts(false, []services.DynamicSpan{{Name: "selected", FunctionReference: "com.example.Selected#run()"}})
+	unselected := injector.attachOpts(false, nil)
+	require.Contains(t, selected, "dynamicSpans=")
+	require.Empty(t, unselected)
 }
 
 // The attach deadline must be derived from the caller's context, so a shutdown
