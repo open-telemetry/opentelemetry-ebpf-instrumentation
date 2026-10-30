@@ -301,40 +301,50 @@ static __always_inline void track_server_connection(go_addr_key_t *g_key, void *
     }
 }
 
-// Reuse the reader's captured socket tuple for wrapped connections. Otherwise read
-// only a verified TCPConn, optionally inside a tls.Conn; unknown layouts are ignored.
+// Prefer the reader's captured tuple; otherwise follow leading connection interfaces
+// through wrappers (including TLS), reading socket fields only from a verified TCPConn.
 static __always_inline void read_server_conn_info(void *iface, connection_info_t *conn) {
+    enum { k_max_conn_depth = 6 };
     off_table_t *ot = get_offsets_table();
-    void *itab = NULL;
-    void *ptr = NULL;
-    bpf_probe_read_user(&itab, sizeof(itab), iface);
-    bpf_probe_read_user(&ptr, sizeof(ptr), iface + k_go_iface_data_offset);
+    const u64 tcp_type = go_offset_of(ot, (go_offset){.v = _tcp_conn_type_addr});
 
-    go_addr_key_t conn_key = {};
-    go_addr_key_from_id(&conn_key, ptr);
-    const go_addr_key_t *owner = bpf_map_lookup_elem(&server_conn_goroutines, &conn_key);
-    if (owner) {
-        const http_server_connection_t *server =
-            bpf_map_lookup_elem(&ongoing_server_connections, owner);
-        if (server && server->net_conn == (u64)ptr && server->conn.s_port && server->conn.d_port) {
-            *conn = server->conn;
+    for (u8 depth = 0; depth < k_max_conn_depth; depth++) {
+        void *itab = NULL;
+        void *ptr = NULL;
+        if (bpf_probe_read_user(&itab, sizeof(itab), iface) != 0) {
             return;
         }
-    }
+        if (!itab) {
+            return;
+        }
 
-    const u64 tls_type = go_offset_of(ot, (go_offset){.v = _tls_conn_type_addr});
-    if (go_interface_type_matches(itab, tls_type)) {
+        if (bpf_probe_read_user(&ptr, sizeof(ptr), iface + k_go_iface_data_offset) != 0) {
+            return;
+        }
+        if (!ptr) {
+            return;
+        }
+
+        go_addr_key_t conn_key = {};
+        go_addr_key_from_id(&conn_key, ptr);
+        const go_addr_key_t *owner = bpf_map_lookup_elem(&server_conn_goroutines, &conn_key);
+        if (owner) {
+            const http_server_connection_t *server =
+                bpf_map_lookup_elem(&ongoing_server_connections, owner);
+            if (server && server->net_conn == (u64)ptr && server->conn.s_port &&
+                server->conn.d_port) {
+                *conn = server->conn;
+                return;
+            }
+        }
+
+        if (go_interface_type_matches(itab, tcp_type)) {
+            get_conn_info(ptr, conn);
+            return;
+        }
+
         iface = ptr;
-        bpf_probe_read_user(&itab, sizeof(itab), iface);
-        bpf_probe_read_user(&ptr, sizeof(ptr), iface + k_go_iface_data_offset);
     }
-
-    const u64 tcp_type = go_offset_of(ot, (go_offset){.v = _tcp_conn_type_addr});
-    if (!go_interface_type_matches(itab, tcp_type)) {
-        return;
-    }
-
-    get_conn_info(ptr, conn);
 }
 
 SEC("uprobe/readRequest")

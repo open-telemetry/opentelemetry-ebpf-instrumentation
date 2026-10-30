@@ -4,6 +4,7 @@
 package goexec
 
 import (
+	"debug/elf"
 	"errors"
 	"testing"
 
@@ -182,8 +183,12 @@ func TestFindGRPCInterfaceImplsFromGo127Moduledata(t *testing.T) {
 		t.Skip("Go 1.27 moduledata is not available")
 	}
 
+	_, err = smallGRPCElf.Symbols()
+	require.ErrorIs(t, err, elf.ErrNoSymbols)
+
 	implementations, err := findInterfaceImpls(smallGRPCElf)
 	require.NoError(t, err)
+	assert.NotZero(t, implementations["*net.TCPConn"])
 	assert.NotZero(t, implementations["*google.golang.org/grpc/internal/credentials.syscallConn"])
 	assert.NotZero(t, implementations["*crypto/tls.Conn"])
 }
