@@ -19,6 +19,7 @@ Prefer repository code and local documentation when there is any discrepancy wit
 
 ## Task-oriented starting points
 
+- **Plan, implement, or review any PR:** read [VERSIONING.md](VERSIONING.md) and apply its compatibility and release rules; follow the [compatibility check](#compatibility-check) below.
 - **Understand how data flows through OpenTelemetry eBPF Instrumentation (OBI):** start with [devdocs/pipeline-map.md](devdocs/pipeline-map.md), then follow the named components into `pkg/` and `pkg/internal/`.
 - **Change or investigate network, application, or stats metrics:** read [devdocs/metrics.md](devdocs/metrics.md); for eBPF map and probe metrics, also read [devdocs/bpf-metrics-collection.md](devdocs/bpf-metrics-collection.md).
 - **Work on a protocol or runtime:** check the relevant documentation under [devdocs/protocols/](devdocs/protocols/) or [devdocs/runtimes/](devdocs/runtimes/) and trace the implementation from there.
@@ -60,6 +61,46 @@ Do not assume boundaries can be changed without explicit instruction.
 - Refactors are allowed only when they are directly relevant to the task.
 
 If the task is unclear or underspecified, ask for clarification before making changes.
+
+## Compatibility check
+
+Every PR must comply with [VERSIONING.md](VERSIONING.md). Apply the post-v1
+compatibility rules to core OBI changes; do not use historical Development or
+`v0` wording as a blanket exemption. The Collector receiver has its own version
+line; assess it separately as described in the policy.
+
+Before implementation and again before submitting or approving a PR:
+
+1. Identify affected user-facing surfaces: exported Go APIs, CLI and environment
+   variables, configuration and defaults, emitted telemetry, binaries and images,
+   and build-time or runtime support. Internal refactors and dependency updates
+   must also be checked for observable effects on these surfaces.
+2. Determine the applicable stability contract from `VERSIONING.md`,
+   [TELEMETRY.md](TELEMETRY.md), [SUPPORT_MATRIX.md](SUPPORT_MATRIX.md), and the
+   relevant configuration documentation. For telemetry, check registry stability
+   for signals and attributes independently, including both OTLP and Prometheus
+   representations. Cite an explicit exclusion before treating a surface as
+   unprotected; flag unclear or conflicting declarations for maintainer resolution.
+3. Classify the change against the intended release: breaking stable changes
+   require a major release where the policy permits them; minor releases allow
+   compatible additions; patch releases allow only compatible fixes and other
+   changes permitted by the policy. Preserve existing usage of stable surfaces,
+   including valid configurations, invocations, and telemetry queries, on minor
+   and patch release lines.
+   If a proposed change violates the policy, preserve compatibility or flag it
+   as a blocker. Do not silently expand the scope to a major release or weaken
+   the stability contract to accommodate it.
+4. Document deprecations before removal and add any required migration guidance,
+   telemetry schema transformations, release notes, and generated documentation.
+   A deprecation, migration guide, or schema transformation does not waive the
+   major-release requirement for a breaking stable change.
+5. Include a concise compatibility assessment in the PR description: affected
+   surfaces, stability evidence, required release level, and relevant validation.
+   For changes with no user-facing effect, say so and explain why. Use regression
+   coverage where behavior changes to verify that existing usage remains valid.
+
+Do not declare a PR ready or approve it while a versioning violation or an
+unresolved stability question remains.
 
 ## GitHub Communication
 

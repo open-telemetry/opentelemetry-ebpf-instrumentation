@@ -2,6 +2,21 @@
 
 This document provides recommendations for contributors who use coding agents when working in this repository.
 
+## Versioning and compatibility
+
+Every AI-assisted PR must follow [VERSIONING.md](../VERSIONING.md) and the
+[compatibility check in AGENTS.md](../AGENTS.md#compatibility-check). Ask the
+agent to apply that check when planning, implementing, and reviewing changes,
+and verify the result yourself before submission. Apply the post-v1 rules to
+core OBI; historical Development or `v0` wording is not a blanket exemption.
+
+The PR description must state the affected surfaces, their documented stability,
+the required release level, and validation of compatibility. A documentation-only
+or internal change can state that it has no user-facing effect with a brief
+reason. Resolve policy violations or unclear stability declarations before
+marking the PR ready for review. Passing tests alone does not establish compliance
+with the versioning policy.
+
 ## DeepWiki
 
 DeepWiki is useful for fast architecture lookup, codebase orientation, and identifying likely areas to inspect before reading the repository in detail.

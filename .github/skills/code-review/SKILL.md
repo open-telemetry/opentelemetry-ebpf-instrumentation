@@ -13,11 +13,13 @@ Establish the intended behavior from the PR and related issues, then verify thos
 
 Use the repository instructions for detailed checks. Pay particular attention to these relationships when relevant to the diff:
 
-- Compatibility: check changes to user-facing surfaces (exported Go API, CLI flags and environment variables, Config v2 schema, emitted telemetry, release artifacts, and support matrix) against `VERSIONING.md` and `TELEMETRY.md`; flag breaking changes to declared stable surfaces. Config v1 is frozen.
+- Compatibility: apply the compatibility check in `AGENTS.md` to every PR, including refactors and dependency updates. Check affected surfaces against `VERSIONING.md`, `TELEMETRY.md`, and `SUPPORT_MATRIX.md`, verify the PR's compatibility assessment against the base and head behavior, and flag changes that violate the intended release's rules. Use the post-v1 rules for core OBI; do not infer a blanket exemption from historical Development or `v0` wording. Config v1 is frozen.
 - eBPF: follow C event and map changes through Go loaders and consumers; check ABI consistency, verifier constraints, supported kernels, and required generated artifacts.
 - Protocol parsers: compare buffer handling with nearby implementations; check partial and malformed input, bounds, allocations, and error paths.
 - Telemetry: follow emitted changes through exporters and the registry; consult `devdocs/telemetry-schema.md` for transformation, release-note, and generated-documentation requirements.
 
 Inspect relevant tests and available CI results. Distinguish validation you performed, results you inspected, and contributor claims. Connect any validation concern to a specific uncovered behavior or repository requirement.
+
+Do not approve a PR with a versioning violation or an unresolved stability question. Deprecation notices, migration guides, and telemetry schema transformations do not make a breaking stable change compatible with a minor or patch release.
 
 Report actionable issues introduced by the PR, including concrete violations of repository requirements around reuse, abstraction, and scope. For each finding, identify the affected location, consequence, supporting code or requirement, and a focused correction or rationale question. Keep comments concise, avoid duplicate findings, and omit unsupported speculation and personal style preferences. State material review limitations; if no actionable issue is found, say so without claiming correctness is proven.
