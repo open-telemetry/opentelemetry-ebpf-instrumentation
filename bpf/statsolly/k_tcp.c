@@ -165,7 +165,7 @@ int BPF_KPROBE(obi_stats_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg
 }
 
 SEC("kretprobe/tcp_sendmsg")
-int BPF_KRETPROBE(obi_stats_kretprobe_tcp_sendmsg, long sent) {
+int BPF_KRETPROBE(obi_stats_kretprobe_tcp_sendmsg, int sent) {
     (void)ctx;
     const u64 pid_tgid = bpf_get_current_pid_tgid();
     struct sock *const *skp = bpf_map_lookup_elem(&tcp_sendmsg_sock, &pid_tgid);
