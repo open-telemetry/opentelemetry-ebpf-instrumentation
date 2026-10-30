@@ -2072,3 +2072,16 @@ func TestRegisterGoSDKActivationProbeRetriesAttachment(t *testing.T) {
 	assert.Equal(t, 2, attempts)
 	assert.Len(t, tracer.goAutoSDKActivationLinks, 1)
 }
+
+func TestRuntimeMetricPIDInfoLeavesHostPIDZero(t *testing.T) {
+	// go_runtime_metric_target_lookup in BPF clears host_pid before the lookup,
+	// so the key written here must not carry one.
+	const ns = uint32(4026531836)
+
+	pidInfo, err := runtimeMetricPIDInfo(app.PID(os.Getpid()), ns)
+	require.NoError(t, err)
+
+	assert.Zero(t, pidInfo.HostPid)
+	assert.Equal(t, ns, pidInfo.Ns)
+	assert.NotZero(t, pidInfo.UserPid)
+}

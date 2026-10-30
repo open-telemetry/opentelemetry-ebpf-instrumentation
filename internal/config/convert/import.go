@@ -94,6 +94,9 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	cfg := runtimeConfigDefaults()
 	applyV2Capture(&cfg, src, policy, complete)
 	applyV2Standalone(&cfg, src, complete)
+	if err := applyV2CaptureAttributes(&cfg, src); err != nil {
+		return nil, err
+	}
 	if err := applyV2MetricsEnablement(&cfg, src, complete); err != nil {
 		return nil, err
 	}
@@ -1146,6 +1149,7 @@ func applyFullV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	cfg.EBPF.MaxTransactionTime = engine.Transactions.MaxDuration.TimeDuration()
 	cfg.EBPF.MapsConfig.GlobalScaleFactor = engine.Maps.GlobalScaleFactor
 	cfg.EBPF.BPFFSPath = engine.BPFFileSystem.Path
+	cfg.EBPF.CgroupFSPath = engine.CgroupFileSystem.Path
 }
 
 func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
@@ -1196,6 +1200,9 @@ func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	}
 	if engine.BPFFileSystem.Path != "" {
 		cfg.EBPF.BPFFSPath = engine.BPFFileSystem.Path
+	}
+	if engine.CgroupFileSystem.Path != "" {
+		cfg.EBPF.CgroupFSPath = engine.CgroupFileSystem.Path
 	}
 }
 

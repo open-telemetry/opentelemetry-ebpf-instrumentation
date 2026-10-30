@@ -855,6 +855,17 @@
                   "description": "Filesystem path used for pinned BPF objects/maps.\nIf omitted, `/sys/fs/bpf/` is used.\n"
                 }
               }
+            },
+            "cgroup_filesystem": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "default": "",
+                  "description": "Host cgroup v2 mount used to attach sockops programs for context propagation.\nSet it when the host hierarchy is mounted outside `/sys/fs/cgroup`, for example\nin a container with its own cgroup namespace.\nIf omitted, the hierarchy is detected automatically.\n"
+                }
+              }
             }
           }
         },
@@ -980,6 +991,10 @@
               "description": "Metric features using the same names as Config v1. An explicit list replaces the selection inferred from protocol and network switches; [] disables all metric features. When omitted, protocol and network enablement determines the features."
             }
           }
+        },
+        "attributes": {
+          "$ref": "#/$defs/CaptureAttributes",
+          "description": "Optional span attributes and metric dimensions selected during telemetry generation. Omission preserves defaults."
         }
       }
     },
@@ -2329,12 +2344,88 @@
         },
         "attributes": {
           "type": "object",
-          "description": "Attribute enrichment rules and defaults.\nIf omitted, implementation defaults are used.\n"
+          "description": "Attribute enrichment rules and defaults. Use capture.attributes.select for trace and metric selection; existing select entries remain supported. Resource selection remains standalone-only."
+        }
+      }
+    },
+    "CaptureAttributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "select": {
+          "type": "object",
+          "propertyNames": {
+            "not": {
+              "const": "resource"
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/GenerationInclusionLists"
+          },
+          "description": "Map traces or metric names and patterns to attribute include/exclude lists. Resource selection is not allowed here."
+        }
+      }
+    },
+    "GenerationInclusionLists": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       }
     }
   },
   "required": [
     "version"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "capture"
+        ],
+        "properties": {
+          "capture": {
+            "required": [
+              "attributes"
+            ],
+            "properties": {
+              "attributes": {
+                "required": [
+                  "select"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "enrich": {
+            "properties": {
+              "attributes": {
+                "properties": {
+                  "select": {
+                    "propertyNames": {
+                      "const": "resource"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   ]
 }

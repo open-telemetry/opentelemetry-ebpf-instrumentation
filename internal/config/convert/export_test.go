@@ -239,6 +239,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.TCBackend = config.TCBackendTCX
 	cfg.EBPF.HighRequestVolume = true
 	cfg.EBPF.BPFFSPath = "/tmp/bpf"
+	cfg.EBPF.CgroupFSPath = "/host/sys/fs/cgroup"
 	cfg.EBPF.MaxTransactionTime = 11 * time.Second
 	cfg.EBPF.TrackRequestHeaders = true
 	cfg.EBPF.HTTPRequestTimeout = 12 * time.Second
@@ -368,6 +369,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, config.TCBackendTCX, value(t, ext.Capture.Engine, "traffic", "control_backend"))
 	require.Equal(t, true, value(t, ext.Capture.Engine, "traffic", "high_request_volume"))
 	require.Equal(t, "/tmp/bpf", value(t, ext.Capture.Engine, "bpf_filesystem", "path"))
+	require.Equal(t, "/host/sys/fs/cgroup", value(t, ext.Capture.Engine, "cgroup_filesystem", "path"))
 
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "traces"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "http", "enabled", "metrics"))
@@ -428,7 +430,8 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, 901, value(t, ext.Enrich, "service_name", "cache", "size"))
 	require.Equal(t, schema.Duration(902*time.Second), value(t, ext.Enrich, "service_name", "cache", "ttl"))
 	require.Equal(t, "unknown-out", value(t, ext.Enrich, "service_name", "unresolved_hosts", "names", "outgoing"))
-	require.Equal(t, cfg.Attributes.Select, value(t, ext.Enrich, "attributes", "select"))
+	require.Equal(t, cfg.Attributes.Select, ext.Capture.Attributes.Select)
+	require.Empty(t, ext.Enrich.Attributes.Select)
 	require.Equal(t, schema.ExtraGroupAttributes(cfg.Attributes.ExtraGroupAttributes), value(t, ext.Enrich, "attributes", "extra_group_attributes"))
 	require.Equal(t, schema.Duration(45*time.Second), value(t, ext.Enrich, "attributes", "metadata_retry", "timeout"))
 	require.Equal(t, schema.Duration(46*time.Millisecond), value(t, ext.Enrich, "attributes", "metadata_retry", "start_interval"))

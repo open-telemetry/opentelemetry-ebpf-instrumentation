@@ -32,6 +32,7 @@ func RuntimeToV2(cfg *obi.Config) (*schema.Document, *schema.Extension) {
 	ext := &schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
+			Attributes:      captureAttributes(cfg),
 			Policy:          capturePolicy(cfg),
 			Instrumentation: captureInstrumentation(cfg),
 			Runtimes:        captureRuntimes(cfg),
@@ -444,6 +445,9 @@ func captureEngine(cfg *obi.Config) schema.CaptureEngine {
 		BPFFileSystem: schema.BPFFileSystem{
 			Path: cfg.EBPF.BPFFSPath,
 		},
+		CgroupFileSystem: schema.CgroupFileSystem{
+			Path: cfg.EBPF.CgroupFSPath,
+		},
 	}
 }
 
@@ -652,7 +656,7 @@ func enrich(cfg *obi.Config) *schema.Enrich {
 		},
 		ServiceName: serviceNameEnrichment(cfg),
 		Attributes: schema.EnrichmentAttributes{
-			Select:               cfg.Attributes.Select,
+			Select:               resourceAttributeSelection(cfg.Attributes.Select),
 			ExtraGroupAttributes: schema.ExtraGroupAttributes(cfg.Attributes.ExtraGroupAttributes),
 			MetadataRetry: schema.MetadataRetry{
 				Timeout:       schema.Duration(cfg.Attributes.MetadataRetry.Timeout),

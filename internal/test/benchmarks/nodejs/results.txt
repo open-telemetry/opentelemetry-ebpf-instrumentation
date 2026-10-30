@@ -1,0 +1,19 @@
+Test environment:
+CPU: AMD Ryzen AI 9 HX PRO 370, x86-64
+Cores: 12 physical cores, 24 hardware threads
+Clock speed: Dynamic, up to 5.16 GHz reported by Linux; boost enabled, performance governor
+OS: Ubuntu 24.04.5 LTS
+Kernel: Linux 6.17.0-1033-oem
+Node.js: v24.14.1
+
+Baseline:
+    iteration_duration.............: avg=21.59ms min=2.57ms med=21.19ms max=79.6ms  p(90)=25.42ms p(95)=26.66ms
+    Service B at 100% CPU, Service R at 20% CPU
+ 
+With agent traces enabled:
+    iteration_duration.............: avg=28.88ms min=10.56ms med=26.36ms max=709.6ms p(90)=37.35ms p(95)=46.5ms 
+    Service B at 100% CPU, Service R at 16.8% CPU
+    
+optimized:
+    iteration_duration.............: avg=22.72ms min=12.66ms med=21.93ms max=711.16ms p(90)=26.42ms p(95)=27.94ms
+    Service B at 100% CPU, Service R at 19.7% CPU

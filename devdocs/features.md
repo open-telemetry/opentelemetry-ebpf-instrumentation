@@ -81,6 +81,13 @@ request details, customer usage data, account or billing details, and other
 sensitive data. Review backend access, retention, and downstream processing
 before enabling it.
 
+## Attribute selection
+
+Config v2 supports optional span attributes and metric dimensions in both
+standalone and Collector receiver deployments. See the
+[attribute selection configuration](config/version-2.0/config-v2.md#captureattributesselect-section)
+for examples and compatibility with existing standalone settings.
+
 ## Go Instrumentation
 
 Specifically for Go applications, OBI chooses to instrument libraries directly using Uprobes, instead of instrumenting

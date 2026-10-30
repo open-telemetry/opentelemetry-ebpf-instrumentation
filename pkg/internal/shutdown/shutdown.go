@@ -11,10 +11,24 @@ import (
 
 type budgetKey struct{}
 
+const exportHeadroomDivisor = 4
+
 func WithBudget(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	return withBudget(ctx, func() time.Duration { return timeout })
+}
+
+func WithExportBudget(ctx context.Context, shutdownTimeout func() time.Duration) (context.Context, context.CancelFunc) {
+	return withBudget(ctx, func() time.Duration { return ExportBudget(shutdownTimeout()) })
+}
+
+func ExportBudget(shutdownTimeout time.Duration) time.Duration {
+	return shutdownTimeout - shutdownTimeout/exportHeadroomDivisor
+}
+
+func withBudget(ctx context.Context, timeout func() time.Duration) (context.Context, context.CancelFunc) {
 	budget, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	stop := context.AfterFunc(ctx, func() {
-		time.AfterFunc(timeout, cancel)
+		time.AfterFunc(timeout(), cancel)
 	})
 	return context.WithValue(ctx, budgetKey{}, budget), func() {
 		stop()

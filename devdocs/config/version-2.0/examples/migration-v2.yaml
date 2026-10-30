@@ -31,6 +31,16 @@ extensions:
     obi:
         version: "2.0"
         capture:
+            attributes:
+                select:
+                    http.server.request.duration:
+                        include: []
+                        exclude:
+                            - http.route
+                    traces:
+                        include:
+                            - service.peer.name
+                        exclude: []
             policy:
                 default_action: exclude
                 match_order: first_match_wins
@@ -376,6 +386,8 @@ extensions:
                     global_scale_factor: 0
                 bpf_filesystem:
                     path: /sys/fs/bpf/
+                cgroup_filesystem:
+                    path: ""
             safety:
                 enforce_system_capabilities: false
             channels:

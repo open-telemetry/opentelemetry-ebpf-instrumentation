@@ -34,6 +34,27 @@ func TestBoundedOutlivesTheSignalUntilTheBudgetExpires(t *testing.T) {
 	assert.Eventually(t, func() bool { return bounded.Err() != nil }, eventual, pollEvery)
 }
 
+func TestExportBudgetLeavesHeadroomBeforeTheShutdownTimeout(t *testing.T) {
+	assert.Equal(t, 750*time.Millisecond, ExportBudget(time.Second))
+	assert.Equal(t, 22500*time.Millisecond, ExportBudget(30*time.Second))
+}
+
+func TestWithExportBudgetReadsTheShutdownTimeoutAtTheSignal(t *testing.T) {
+	ctx, signal := context.WithCancel(t.Context())
+	defer signal()
+	shutdownTimeout := time.Hour
+	ctx, cancelBudget := WithExportBudget(ctx, func() time.Duration { return shutdownTimeout })
+	defer cancelBudget()
+
+	shutdownTimeout = 4 * budget
+	signal()
+
+	bounded, cancel := Bounded(ctx, time.Hour)
+	defer cancel()
+	require.NoError(t, bounded.Err())
+	assert.Eventually(t, func() bool { return bounded.Err() != nil }, eventual, pollEvery)
+}
+
 func TestBoundedIsCappedByTheMaxTimeout(t *testing.T) {
 	ctx, cancelBudget := WithBudget(t.Context(), time.Hour)
 	defer cancelBudget()

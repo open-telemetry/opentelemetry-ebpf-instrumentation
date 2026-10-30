@@ -7,6 +7,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 )
 
 // Capture contains receiver-embeddable OBI capture settings.
@@ -14,17 +15,23 @@ import (
 // Known capture sections are typed so exporter-owned fields and nesting have
 // compile-time coverage.
 type Capture struct {
-	Policy          CapturePolicy    `yaml:"policy"`
-	Rules           []Rule           `yaml:"rules"`
-	Instrumentation Instrumentation  `yaml:"instrumentation"`
-	Runtimes        CaptureRuntimes  `yaml:"runtimes"`
-	Network         CaptureNetwork   `yaml:"network"`
-	Metrics         CaptureMetrics   `yaml:"metrics"`
-	Limits          CaptureLimits    `yaml:"limits"`
-	Engine          CaptureEngine    `yaml:"engine"`
-	Safety          CaptureSafety    `yaml:"safety"`
-	Channels        CaptureChannels  `yaml:"channels"`
-	Telemetry       CaptureTelemetry `yaml:"telemetry"`
+	Attributes      *CaptureAttributes `yaml:"attributes,omitempty"`
+	Policy          CapturePolicy      `yaml:"policy"`
+	Rules           []Rule             `yaml:"rules"`
+	Instrumentation Instrumentation    `yaml:"instrumentation"`
+	Runtimes        CaptureRuntimes    `yaml:"runtimes"`
+	Network         CaptureNetwork     `yaml:"network"`
+	Metrics         CaptureMetrics     `yaml:"metrics"`
+	Limits          CaptureLimits      `yaml:"limits"`
+	Engine          CaptureEngine      `yaml:"engine"`
+	Safety          CaptureSafety      `yaml:"safety"`
+	Channels        CaptureChannels    `yaml:"channels"`
+	Telemetry       CaptureTelemetry   `yaml:"telemetry"`
+}
+
+// CaptureAttributes selects supported fields while OBI constructs telemetry.
+type CaptureAttributes struct {
+	Select attributes.Selection `yaml:"select"`
 }
 
 // MatchOrder describes how capture rules are evaluated when multiple rules

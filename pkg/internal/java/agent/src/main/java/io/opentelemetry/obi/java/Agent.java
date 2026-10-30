@@ -41,6 +41,8 @@ public class Agent {
     // Used to send data to the eBPF side, both TLS traffic and thread Parent Context
     public static native int ioctl(int fd, int cmd, long argp);
 
+    public static native int sendThreadContext(int cmd, byte operation, long parentId);
+
     // Used to find the OS thread id for thread correlation.
     public static native int gettid();
   }
