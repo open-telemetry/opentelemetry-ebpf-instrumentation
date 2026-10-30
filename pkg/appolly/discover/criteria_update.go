@@ -114,22 +114,24 @@ func injectedHeaders(inject func(map[string]string)) map[string]string {
 }
 
 type selectorSettings struct {
-	name      string
-	namespace string
-	exports   services.ExportModes
-	sampler   *services.SamplerConfig
-	routes    *services.CustomRoutesConfig
-	metrics   perapp.SvcMetricsConfig
+	name       string
+	namespace  string
+	exports    services.ExportModes
+	sampler    *services.SamplerConfig
+	routes     *services.CustomRoutesConfig
+	metrics    perapp.SvcMetricsConfig
+	exceptions *services.ExceptionsOverride
 }
 
 func settingsFor(s services.Selector) selectorSettings {
 	return selectorSettings{
-		name:      s.GetName(),
-		namespace: s.GetNamespace(),
-		exports:   s.GetExportModes(),
-		sampler:   s.GetSamplerConfig(),
-		routes:    s.GetRoutesConfig(),
-		metrics:   s.MetricsConfig(),
+		name:       s.GetName(),
+		namespace:  s.GetNamespace(),
+		exports:    s.GetExportModes(),
+		sampler:    s.GetSamplerConfig(),
+		routes:     s.GetRoutesConfig(),
+		metrics:    s.MetricsConfig(),
+		exceptions: s.GetExceptionsConfig(),
 	}
 }
 
@@ -177,6 +179,7 @@ func matchingSettings(criteria []services.Selector) selectorSettings {
 		}
 
 		settings.metrics = next.metrics
+		settings.exceptions = next.exceptions
 	}
 	return settings
 }

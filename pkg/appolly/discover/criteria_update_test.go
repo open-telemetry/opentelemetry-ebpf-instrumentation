@@ -1296,3 +1296,59 @@ func TestCriteriaUpdaterLogsCallbacks(t *testing.T) {
 	next.Logs.InjectHeaders = func(h map[string]string) { h["tenant"] = "two" }
 	require.ErrorContains(t, updater.Update(ctx, &next), "restart OBI")
 }
+
+func TestCriteriaUpdaterRejectsExceptionChanges(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			initial := criteriaConfig(t, "    - exe_path: /srv/app\n")
+			initial.Discovery.Instrument[0].Exceptions = &services.ExceptionsOverride{Enabled: &enabled}
+			next := criteriaConfig(t, "    - exe_path: /srv/app\n")
+			changed := !enabled
+			next.Discovery.Instrument[0].Exceptions = &services.ExceptionsOverride{Enabled: &changed}
+			require.ErrorContains(t, NewCriteriaUpdater(initial).Update(t.Context(), next), "restart OBI")
+		})
+	}
+}
+
+func TestCriteriaRefreshRejectsRetainedExceptionChanges(t *testing.T) {
+	original := processInfo
+	t.Cleanup(func() { processInfo = original })
+	processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+		return &services.ProcessInfo{Pid: p.pid, ExePath: "/srv/app"}, nil
+	}
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			initial := criteriaConfig(t, "    - exe_path: /srv/app\n    - exe_path: /srv/other\n")
+			changed := !enabled
+			initial.Discovery.Instrument[0].Exceptions = &services.ExceptionsOverride{Enabled: &enabled}
+			initial.Discovery.Instrument[1].Exceptions = &services.ExceptionsOverride{Enabled: &changed}
+			next := criteriaConfig(t, "    - exe_path: /srv/missing\n    - exe_path: /srv/*\n")
+			next.Discovery.Instrument[0].Exceptions = initial.Discovery.Instrument[0].Exceptions
+			next.Discovery.Instrument[1].Exceptions = initial.Discovery.Instrument[1].Exceptions
+			require.NoError(t, compatibleDefinitions(FindingCriteria(initial), FindingCriteria(next)))
+			output := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+			defer output.Close()
+			events := output.Subscribe()
+			matcher := &Matcher{
+				Log: slog.Default(), Criteria: FindingCriteria(initial),
+				ProcessHistory: map[app.PID]ProcessMatch{}, Output: output,
+				observed: map[app.PID]observedProcess{},
+			}
+			require.Len(t, matcher.filter([]Event[ProcessAttrs]{{Type: EventCreated, Obj: ProcessAttrs{pid: 10}}}), 1)
+			previous := matcher.ProcessHistory[10]
+			observation := matcher.observed[10]
+			err := matcher.refresh(t.Context(), services.CriteriaUpdate{
+				Context: t.Context(), Include: FindingCriteria(next), Exclude: ExcludingCriteria(next),
+			})
+			require.ErrorContains(t, err, "service settings would change for PID 10")
+			require.Equal(t, FindingCriteria(initial), matcher.Criteria)
+			require.Equal(t, previous, matcher.ProcessHistory[10])
+			require.Equal(t, observation, matcher.observed[10])
+			select {
+			case event := <-events:
+				t.Fatalf("rejected refresh changed instrumentation: %v", event)
+			default:
+			}
+		})
+	}
+}

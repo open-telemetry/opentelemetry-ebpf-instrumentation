@@ -25,7 +25,8 @@ typedef struct exception_record {
 SCRATCH_MEM(exception_record_t)
 
 // Returns per-CPU scratch space with a zeroed header. The caller fills the
-// header and payload, then calls exception_record_submit.
+// header and payload, then calls exception_record_submit in the same program
+// run. State kept across probes belongs in a keyed map.
 static __always_inline exception_record_t *exception_record_start(void) {
     exception_record_t *record = exception_record_t_mem();
     if (!record) {
