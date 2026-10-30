@@ -6,15 +6,19 @@
 package discover
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	osexec "os/exec"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/semaphore"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -23,7 +27,9 @@ import (
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
+	"go.opentelemetry.io/obi/pkg/internal/transform/route/harvest"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
@@ -130,7 +136,7 @@ func TestFailedAttachDoesNotHoldExecutableInstance(t *testing.T) {
 		t.Run(failure.name, func(t *testing.T) {
 			for _, tc := range tests {
 				t.Run(tc.name, func(t *testing.T) {
-					instrumentables, tracerEvents := startReusingGenericAttacher(t)
+					instrumentables, tracerEvents := startReusingGenericAttacher(t, nil)
 
 					exited := failure.exited(t)
 					running := sameInodeFileInfo(app.PID(os.Getpid()))
@@ -162,7 +168,7 @@ func TestFoldedChildHoldsExecutableInstance(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			instrumentables, tracerEvents := startReusingGenericAttacher(t)
+			instrumentables, tracerEvents := startReusingGenericAttacher(t, nil)
 
 			parent := sameInodeFileInfo(app.PID(os.Getpid()))
 			child := sameInodeFileInfo(exitedProcessPID(t))
@@ -194,7 +200,153 @@ func TestFoldedChildHoldsExecutableInstance(t *testing.T) {
 	}
 }
 
-func startReusingGenericAttacher(t *testing.T) (*msg.Queue[[]Event[ebpf.Instrumentable]], <-chan Event[*ebpf.Instrumentable]) {
+type blockingRouteHarvester struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (h *blockingRouteHarvester) HarvestRoutes(*execpkg.FileInfo) (*harvest.RouteHarvesterResult, error) {
+	if h.started != nil {
+		h.started <- struct{}{}
+	}
+	<-h.release
+	return &harvest.RouteHarvesterResult{Routes: []string{"/users/{id}"}, Kind: harvest.CompleteRoutes}, nil
+}
+
+func (h *blockingRouteHarvester) HarvestRoutesDelay(*execpkg.FileInfo) (bool, time.Duration) {
+	return false, 0
+}
+
+// A harvest can run until its timeout; the processes waiting behind it would have their spans dropped meanwhile
+func TestSlowRouteHarvestDoesNotBlockAttacher(t *testing.T) {
+	harvester := &blockingRouteHarvester{started: make(chan struct{}, 2), release: make(chan struct{})}
+	release := sync.OnceFunc(func() { close(harvester.release) })
+	t.Cleanup(release)
+	instrumentables, tracerEvents := startReusingGenericAttacher(t, harvester)
+
+	self := app.PID(os.Getpid())
+	first := runningFileInfo(t, self)
+	second := runningFileInfo(t, self)
+	instrumentables.Send([]Event[ebpf.Instrumentable]{
+		{Type: EventCreated, Obj: ebpf.Instrumentable{Type: svc.InstrumentableGeneric, FileInfo: first}},
+		{Type: EventCreated, Obj: ebpf.Instrumentable{Type: svc.InstrumentableGeneric, FileInfo: second}},
+	})
+
+	for _, fi := range []*execpkg.FileInfo{first, second} {
+		ev := testutil.ReadChannel(t, tracerEvents, testTimeout)
+		require.Equal(t, EventCreated, ev.Type)
+		assert.Same(t, fi, ev.Obj.FileInfo)
+	}
+
+	testutil.ReadChannel(t, harvester.started, testTimeout)
+	time.Sleep(100 * time.Millisecond)
+	assert.Empty(t, harvester.started, "harvests must run one at a time")
+
+	release()
+	assert.Eventually(t, func() bool {
+		return first.ServiceAttrs().HarvestedRouteMatcher != nil && second.ServiceAttrs().HarvestedRouteMatcher != nil
+	}, testTimeout, 10*time.Millisecond)
+}
+
+func TestRouteHarvestSkipsGoneProcesses(t *testing.T) {
+	self := app.PID(os.Getpid())
+	tests := []struct {
+		name      string
+		fileInfo  *execpkg.FileInfo
+		cancelled bool
+		harvested bool
+	}{
+		{name: "running", fileInfo: runningFileInfo(t, self), harvested: true},
+		{name: "executable renamed", fileInfo: runningFileInfo(t, self, func(i *execpkg.Init) { i.CmdExePath = "/renamed" }), harvested: true},
+		{name: "PID reused by the same executable", fileInfo: runningFileInfo(t, self, func(i *execpkg.Init) { i.StartTime-- })},
+		{name: "executable inode changed", fileInfo: runningFileInfo(t, self, func(i *execpkg.Init) { i.Ino++ })},
+		{name: "executable device changed", fileInfo: runningFileInfo(t, self, func(i *execpkg.Init) { i.Dev++ })},
+		{name: "shutting down", fileInfo: runningFileInfo(t, self), cancelled: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			harvester := &blockingRouteHarvester{release: make(chan struct{})}
+			close(harvester.release)
+			ta := &traceAttacher{
+				log:            slog.With("component", t.Name()),
+				routeHarvester: harvester,
+				harvestSlot:    semaphore.NewWeighted(1),
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			if tc.cancelled {
+				cancel()
+			}
+
+			ta.harvestRoutesProcessor(ctx, &ebpf.Instrumentable{FileInfo: tc.fileInfo}, false)
+			assert.Equal(t, tc.harvested, tc.fileInfo.ServiceAttrs().HarvestedRouteMatcher != nil)
+		})
+	}
+}
+
+// The process is checked when its harvest gets the slot, not when the harvest is queued
+func TestQueuedRouteHarvestSkipsExitedProcess(t *testing.T) {
+	cmd := osexec.Command("sleep", "60")
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	fileInfo := runningFileInfo(t, app.PID(cmd.Process.Pid))
+
+	harvester := &blockingRouteHarvester{release: make(chan struct{})}
+	close(harvester.release)
+	ta := &traceAttacher{
+		log:            slog.With("component", t.Name()),
+		routeHarvester: harvester,
+		harvestSlot:    semaphore.NewWeighted(1),
+	}
+	require.NoError(t, ta.harvestSlot.Acquire(t.Context(), 1))
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ta.harvestRoutesProcessor(t.Context(), &ebpf.Instrumentable{FileInfo: fileInfo}, false)
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+	require.NoError(t, cmd.Process.Kill())
+	_ = cmd.Wait()
+	ta.harvestSlot.Release(1)
+
+	testutil.ReadChannel(t, done, testTimeout)
+	assert.Nil(t, fileInfo.ServiceAttrs().HarvestedRouteMatcher)
+}
+
+// A harvest can hold the slot until its extractor ends; the ones queued behind it must still stop on shutdown
+func TestQueuedRouteHarvestStopsOnShutdown(t *testing.T) {
+	harvester := &blockingRouteHarvester{started: make(chan struct{}, 1), release: make(chan struct{})}
+	t.Cleanup(func() { close(harvester.release) })
+	ta := &traceAttacher{
+		log:            slog.With("component", t.Name()),
+		routeHarvester: harvester,
+		harvestSlot:    semaphore.NewWeighted(1),
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	self := app.PID(os.Getpid())
+	running, queued := runningFileInfo(t, self), runningFileInfo(t, self)
+	go ta.harvestRoutesProcessor(ctx, &ebpf.Instrumentable{FileInfo: running}, false)
+	testutil.ReadChannel(t, harvester.started, testTimeout)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ta.harvestRoutesProcessor(ctx, &ebpf.Instrumentable{FileInfo: queued}, false)
+	}()
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	testutil.ReadChannel(t, done, testTimeout)
+	assert.Empty(t, harvester.started)
+	assert.Nil(t, queued.ServiceAttrs().HarvestedRouteMatcher)
+}
+
+func startReusingGenericAttacher(t *testing.T, harvester routesHarvester) (*msg.Queue[[]Event[ebpf.Instrumentable]], <-chan Event[*ebpf.Instrumentable]) {
 	origRemoveMemlock := removeMemlock
 	removeMemlock = func() error { return nil }
 	t.Cleanup(func() { removeMemlock = origRemoveMemlock })
@@ -213,6 +365,9 @@ func startReusingGenericAttacher(t *testing.T) (*msg.Queue[[]Event[ebpf.Instrume
 	}
 	run, err := ta.attacherLoop(t.Context())
 	require.NoError(t, err)
+	if harvester != nil {
+		ta.routeHarvester = harvester
+	}
 	ta.reusableTracer = ebpf.NewProcessTracer(ebpf.Generic, []ebpf.Tracer{&recordingTracer{}}, cfg, imetrics.NoopReporter{})
 
 	go run(t.Context())
@@ -223,6 +378,29 @@ func exitedProcessPID(t *testing.T) app.PID {
 	cmd := osexec.Command("true")
 	require.NoError(t, cmd.Run())
 	return app.PID(cmd.Process.Pid)
+}
+
+func runningFileInfo(t *testing.T, pid app.PID, edits ...func(*execpkg.Init)) *execpkg.FileInfo {
+	exeLink := fmt.Sprintf("/proc/%d/exe", pid)
+	exe, err := os.Readlink(exeLink)
+	require.NoError(t, err)
+	startTime, err := procs.StartTime(pid)
+	require.NoError(t, err)
+	dev, ino, err := FindINodeForPID(pid)
+	require.NoError(t, err)
+	in := execpkg.Init{
+		Service:        svc.Attrs{UID: svc.UID{Name: "svc", Namespace: "ns"}},
+		CmdExePath:     exe,
+		ProExeLinkPath: exeLink,
+		Pid:            pid,
+		StartTime:      startTime,
+		Dev:            dev,
+		Ino:            ino,
+	}
+	for _, edit := range edits {
+		edit(&in)
+	}
+	return execpkg.New(in)
 }
 
 func sameInodeFileInfo(pid app.PID) *execpkg.FileInfo {
