@@ -248,6 +248,7 @@ extensions:
       enrichers:
         kubernetes: {}
         cloud: {}
+        peer_metadata: {}
       service_name: {}
       attributes: {}
 
@@ -1207,3 +1208,10 @@ Decision for OBI v2:
 This is an intentional middle-ground while upstream schema guidance evolves.
 OBI will support `extensions.obi` with its own parser and validation rules until a better
 standardized schema location is available.
+
+## Peer metadata exchange
+
+The optional `extensions.obi.enrich.enrichers.peer_metadata` enricher exchanges
+service identities between agents on directly routable hosts outside Kubernetes.
+See [peer metadata](../../peer-metadata.md) for configuration, resolution behavior,
+and the HTTP protocol.

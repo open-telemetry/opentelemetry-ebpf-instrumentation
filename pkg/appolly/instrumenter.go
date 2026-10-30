@@ -134,10 +134,17 @@ func newGraphBuilderWithProtocolMetricSelection(
 		kubeToContainerDecorator, containerDecoratorToNameResolver,
 	), swarm.WithID("DockerDecorator"))
 
+	nameResolverToPeerMetadata := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "nameResolverToPeerMetadata")
 	nameResolverToParentSettler := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "nameResolverToParentSettler")
 	swi.Add(transform.NameResolutionProvider(ctxInfo, config.NameResolver,
-		containerDecoratorToNameResolver, nameResolverToParentSettler),
+		containerDecoratorToNameResolver, nameResolverToPeerMetadata),
 		swarm.WithID("NameResolution"))
+	jointMetricsConfig := JoinMetricsConfig(config)
+	swi.Add(transform.PeerMetadataProvider(ctxInfo, config.PeerMetadata, config.Attributes.InstanceID,
+		jointMetricsConfig.Features.ServiceGraph() &&
+			(config.OTELMetrics.EndpointEnabled() || config.Prometheus.EndpointEnabled()), selection,
+		processEventsCh, nameResolverToPeerMetadata, nameResolverToParentSettler),
+		swarm.WithID("PeerMetadata"))
 
 	// In vendored mode, the invoker might want to override the export queue for connecting their
 	// own exporters, otherwise we create a new queue
@@ -180,7 +187,6 @@ func newGraphBuilderWithProtocolMetricSelection(
 	// some nodes (ipNodesFilter, span name limiter...) are only passed to the metrics export nodes.
 	// The exportableSpans queue already carries any dynamic per-signal trace/metrics gating.
 	// If no metrics exporter is configured, we will not start the metrics subpipeline to save resources.
-	jointMetricsConfig := JoinMetricsConfig(config)
 	exportingMetrics := jointMetricsConfig.Features.AnyAppO11yMetric() &&
 		(config.OTELMetrics.EndpointEnabled() || config.Prometheus.EndpointEnabled())
 	if exportingMetrics {
