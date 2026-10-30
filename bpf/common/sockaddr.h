@@ -55,14 +55,12 @@ static __always_inline bool parse_sock_info(struct sock *s, connection_info_t *i
     return false;
 }
 
-// Like parse_sock_info, for full sockets that may already be in TCP_CLOSE.
-// Moving a socket to TCP_CLOSE releases its local port: inet_put_port() zeroes
-// skc_num, while inet_sport keeps the port the connection used on the wire.
 static __always_inline bool parse_full_sock_info(struct sock *s, connection_info_t *info) {
     if (!parse_sock_info(s, info)) {
         return false;
     }
 
+    // socket may be already in TCP_CLOSE and the port released, resolve from inet_sport
     if (info->s_port == 0) {
         const struct inet_sock *inet = (const struct inet_sock *)s;
         info->s_port = bpf_ntohs(BPF_CORE_READ(inet, inet_sport));

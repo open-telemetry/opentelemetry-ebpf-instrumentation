@@ -11,11 +11,8 @@
 #include <common/connection_info.h>
 #include <common/sockaddr.h>
 
-// A connect() that fails before sending its SYN may not own a local port in
-// this attempt: after connect(AF_UNSPEC), inet_sport still holds the port of
-// the previous connection. tcp_disconnect() resets segs_out and the SYN
-// increments it, so such an attempt keeps the zeroed skc_num.
 static __always_inline bool failed_connect_owns_inet_sport(const int oldstate, const u32 segs_out) {
+    // no SYN sent in this attempt: inet_sport may still hold a reused socket's previous port
     return oldstate != TCP_SYN_SENT || segs_out > 0;
 }
 
