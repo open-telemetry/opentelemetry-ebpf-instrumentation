@@ -430,6 +430,8 @@ extensions:
                             service_name: ""
                             service_namespace: ""
                 cloud:
+                    detection:
+                        enabled: true
                     cluster_name: ""
                     region: ""
                     refresh_interval: 30s

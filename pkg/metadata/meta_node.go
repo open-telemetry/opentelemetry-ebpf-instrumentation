@@ -18,7 +18,6 @@ import (
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
-	"go.opentelemetry.io/obi/pkg/kube"
 )
 
 func nslog() *slog.Logger {
@@ -114,26 +113,33 @@ type Entry struct {
 func NewNodeMeta(
 	ctx context.Context,
 	overrideHost string,
-	kubeInformer *kube.MetadataProvider,
+	provider *MetadataProvider,
 	retryCfg RetryConfig,
 ) NodeMeta {
-	return fetchEntries(ctx,
-		retryCfg,
-		// some fetchers will only retrieve the host name while others
-		// will retrieve also host attributes that will be merged
-		// in order of the priority below (the later the highest)
+	// some fetchers will only retrieve the host name while others
+	// will retrieve also host attributes that will be merged
+	// in order of the priority below (the later the highest)
+	fetchers := []fetcher{
 		linuxLocalFetcher,
-		kubeNodeFetcher(kubeInformer),
-		otelNodeFetcher(ClusterAzureVM, azurevm.NewResourceDetector(
-			azurevm.WithAttributeFilter(azureVMAttributeFilter),
-		)),
-		otelNodeFetcher(ClusterGCP, gcp.NewDetector()),
-		ec2NodeFetcher,
-		ecsNodeFetcher,
-		func(_ context.Context) (NodeMeta, error) {
-			return NodeMeta{HostID: overrideHost}, nil
-		},
-	)
+		kubeNodeFetcher(provider.K8sInformer),
+	}
+
+	if provider.CloudMetadata.DetectionEnabled {
+		fetchers = append(fetchers,
+			otelNodeFetcher(ClusterAzureVM, azurevm.NewResourceDetector(
+				azurevm.WithAttributeFilter(azureVMAttributeFilter),
+			)),
+			otelNodeFetcher(ClusterGCP, gcp.NewDetector()),
+			ec2NodeFetcher,
+			ecsNodeFetcher,
+		)
+	}
+
+	fetchers = append(fetchers, func(_ context.Context) (NodeMeta, error) {
+		return NodeMeta{HostID: overrideHost}, nil
+	})
+
+	return fetchEntries(ctx, retryCfg, fetchers...)
 }
 
 func fetchEntries(

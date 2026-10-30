@@ -43,6 +43,8 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	defaults.Enrich.ServiceName.Sources = []transform.Source{transform.SourceK8s, transform.SourceECS, transform.SourceRoute53}
 	// Omitted features retain the protocol and network enablement mapping.
 	defaults.Capture.Metrics.Features = nil
+	// Check before applying defaults to distinguish omitted sources from explicit ones.
+	serviceNameSourcesOmitted := src.Enrich == nil || src.Enrich.ServiceName.Sources == nil
 	var complete bool
 	var err error
 	src, complete, err = src.WithDefaults(defaults)
@@ -106,6 +108,21 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	cfg.Attributes.Select.Normalize()
 	if err := cfg.EBPF.LogEnricher.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid log trace annotation: %w", err)
+	}
+	if !cfg.CloudMetadata.DetectionEnabled {
+		if serviceNameSourcesOmitted {
+			cfg.NameResolver.Sources = []transform.Source{transform.SourceK8s}
+		}
+
+		for _, source := range cfg.NameResolver.Sources {
+			switch transform.Source(strings.ToLower(string(source))) {
+			case transform.SourceECS, transform.SourceRoute53, transform.SourceGCE, transform.SourceAzure:
+				return nil, fmt.Errorf(
+					"enrich.service_name.sources: %q requires enrich.enrichers.cloud.detection.enabled to be true",
+					source,
+				)
+			}
+		}
 	}
 
 	return &cfg, nil
@@ -2080,6 +2097,10 @@ func applyV2CloudEnricher(cfg *obi.Config, enrich *schema.Enrich, complete bool)
 	}
 
 	cloud := enrich.Enrichers.Cloud
+	if cloud.Detection.Enabled != nil {
+		cfg.CloudMetadata.DetectionEnabled = *cloud.Detection.Enabled
+	}
+
 	if complete || completeCloudEnricher(cloud) {
 		applyFullV2CloudEnricher(cfg, cloud)
 		return
