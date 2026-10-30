@@ -382,6 +382,7 @@ const (
 	statsFeatureTCPSuccessfulConnections = "tcp_successful_connections"
 	statsFeatureTCPRetransmits           = "tcp_retransmits"
 	statsFeatureTCPIo                    = "tcp_io"
+	statsFeatureTCPResets                = "tcp_resets"
 )
 
 func statsFeatures(features featureexport.Features) []string {
@@ -400,6 +401,9 @@ func statsFeatures(features featureexport.Features) []string {
 	}
 	if features.StatsTCPIo() {
 		out = append(out, statsFeatureTCPIo)
+	}
+	if features.StatsTCPResets() {
+		out = append(out, statsFeatureTCPResets)
 	}
 	return out
 }

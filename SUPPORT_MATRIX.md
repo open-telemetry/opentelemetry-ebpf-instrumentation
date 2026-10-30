@@ -225,6 +225,7 @@ OBI currently documents the following statistical instrumentation support:
 | TCP Successful Connections | Node-wide statistical metric collection | Counts completed TCP handshakes between two endpoints | Reports separate client and server observations identified by `network.tcp.handshake.role` |
 | TCP Retransmits | Node-wide statistical metric collection | Counts data-segment and client-SYN retransmits | Server-side SYN-ACK retransmits are a separate event and not counted |
 | TCP IO | Node-wide statistical metric collection | Count bytes transferred at the socket layer. When enabled, the eBPF probes fire on every `tcp_sendmsg` and `tcp_cleanup_rbuf` call, so consider enabling it standalone with `stats_tcp_io` if overhead is a concern. | On kernels older than ~6.5, traffic sent via `sendfile()` is not captured because it went through `tcp_sendpage` rather than `tcp_sendmsg`; on kernels 6.5+ the splice path was unified and `sendfile()` traffic is captured. The internal accumulation map size can be increased via the `ebpf.*` configuration knobs on nodes with many concurrent connections. |
+| TCP Resets | Node-wide statistical metric collection | Counts RST segments sent or received after the handshake; selectable only from Config v2 (`tcp_resets`) | Resets a listener sends in reply to an unexpected ACK and resets for ports with no listener are not counted; the inferred cause follows the kernel code path, so `tcp_abort()` (`ss -K`) is reported as `timeout`; see [devdocs/metrics.md](devdocs/metrics.md) |
 
 ## Runtime Metrics
 

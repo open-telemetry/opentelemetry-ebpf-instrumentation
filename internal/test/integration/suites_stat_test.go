@@ -25,3 +25,15 @@ func TestStat_GoStatMetrics(t *testing.T) {
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
+
+// TestStat_GoStatMetricsV2 runs the same workload with a Config v2 file,
+// because the tcp_resets stats feature is only selectable from Config v2.
+func TestStat_GoStatMetricsV2(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-go-stat-metrics.yml", path.Join(pathOutput, "test-suite-go-stat-metrics-v2.log"))
+	compose.Env = append(compose.Env, `TEST_SERVICE_PORTS=8381:8080`, `OTEL_EBPF_CONFIG_SUFFIX=-go-stat-metrics-v2`, `PROM_CONFIG_SUFFIX=-promscrape-otel`)
+	require.NoError(t, err)
+	require.NoError(t, compose.Up())
+	t.Run("Go Stat Metrics TCP Resets tests", testStatMetricsTCPResetsGo)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}

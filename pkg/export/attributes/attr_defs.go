@@ -959,6 +959,13 @@ func getDefinitions(
 				attr.NetworkTCPHandshakeRole: false,
 			},
 		},
+		StatTCPResets.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkIoDirection:   true,
+				attr.NetworkTCPResetCause: false,
+			},
+		},
 
 		// span and service graph metrics don't yet implement attribute selection,
 		// but their values can still be filtered, so we list them here just to

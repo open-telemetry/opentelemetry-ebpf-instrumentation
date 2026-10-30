@@ -374,3 +374,82 @@ metrics:
         requirement_level: opt_in
       - ref: service.peer.namespace
         requirement_level: opt_in
+
+  - name: obi.stat.tcp.resets
+    instrument: counter
+    unit: "{segment}"
+    stability: development
+    requirement_level: recommended
+    brief: >
+      Count of TCP RST segments sent or received after the connection
+      handshake. Resets that make a connection attempt fail are counted only
+      by `obi.stat.tcp.failed.connections`. Resets that abort an established
+      connection with a socket error are counted by both metrics.
+    attributes:
+      - ref: obi.ip
+        requirement_level: opt_in
+      - ref: src.address
+        requirement_level: recommended
+      - ref: dst.address
+        requirement_level: recommended
+      - ref: src.port
+        requirement_level: opt_in
+      - ref: dst.port
+        requirement_level: opt_in
+      - ref: src.name
+        requirement_level: opt_in
+      - ref: dst.name
+        requirement_level: opt_in
+      - ref: src.zone
+        requirement_level: opt_in
+      - ref: dst.zone
+        requirement_level: opt_in
+      - ref: network.io.direction
+        requirement_level: recommended
+      - ref: network.tcp.reset.cause
+        requirement_level: opt_in
+      - ref: k8s.cluster.name
+        requirement_level:
+          recommended: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.src.name
+        requirement_level: opt_in
+      - ref: k8s.src.type
+        requirement_level: opt_in
+      - ref: k8s.src.node.ip
+        requirement_level: opt_in
+      - ref: k8s.src.node.name
+        requirement_level: opt_in
+      - ref: k8s.dst.owner.name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.owner.type
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.namespace
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: k8s.dst.name
+        requirement_level: opt_in
+      - ref: k8s.dst.type
+        requirement_level: opt_in
+      - ref: k8s.dst.node.ip
+        requirement_level: opt_in
+      - ref: k8s.dst.node.name
+        requirement_level: opt_in
+      - ref: service.name
+        requirement_level: opt_in
+      - ref: service.namespace
+        requirement_level: opt_in
+      - ref: service.peer.name
+        requirement_level: opt_in
+      - ref: service.peer.namespace
+        requirement_level: opt_in

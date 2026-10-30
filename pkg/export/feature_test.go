@@ -208,6 +208,32 @@ func TestLoadFeaturesRejectsUnknownNames(t *testing.T) {
 	require.ErrorContains(t, err, "application_runtime")
 }
 
+// The TCP resets feature is selectable from Config v2 only: the frozen v1 feature
+// names neither list it nor enable it through the "stats" aggregate.
+func TestFeatureStatsTCPResetsIsV2Only(t *testing.T) {
+	_, err := LoadFeatures([]string{"stats_tcp_resets"})
+	require.ErrorContains(t, err, `unknown metrics feature "stats_tcp_resets"`)
+
+	stats, err := LoadFeatures([]string{"stats"})
+	require.NoError(t, err)
+	assert.False(t, stats.StatsTCPResets())
+
+	assert.False(t, FeatureAll.StatsTCPResets())
+	assert.False(t, mustLoadFeatures(t, "all").StatsTCPResets())
+	assert.False(t, mustLoadFeatures(t, "*").StatsTCPResets())
+
+	resets, err := LoadV2Features([]string{"stats_tcp_resets"})
+	require.NoError(t, err)
+	assert.True(t, resets.StatMetrics())
+	assert.True(t, resets.StatsTCPResets())
+	assert.False(t, resets.StatsTCPRtt())
+	assert.Equal(t, []string{"stats_tcp_resets"}, resets.Names())
+
+	statsWithResets, err := LoadV2Features([]string{"stats", "stats_tcp_resets"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"stats", "stats_tcp_resets"}, statsWithResets.Names())
+}
+
 // An unset OTEL_EBPF_METRICS_FEATURES resolves to an empty envDefault string
 // (perapp.GlobalMetricsConfig), so UnmarshalText("") runs on every default
 // deployment and must keep yielding Undefined rather than an error.

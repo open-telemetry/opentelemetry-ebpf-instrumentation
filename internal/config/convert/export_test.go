@@ -1054,6 +1054,19 @@ func TestRuntimeToV2StatsEnablementAndFeatures(t *testing.T) {
 		}, value(t, ext.Capture.Network, "stats", "features"))
 	})
 
+	t.Run("exports the v2-only resets family", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := defaultRuntimeConfig()
+		cfg.Prometheus.Port = 9090
+		cfg.Metrics.Features = export.FeatureStatsTCPResets
+
+		_, ext := RuntimeToV2(&cfg)
+
+		require.Equal(t, true, value(t, ext.Capture.Network, "stats", "enabled"))
+		require.ElementsMatch(t, []string{"tcp_resets"}, value(t, ext.Capture.Network, "stats", "features"))
+	})
+
 	t.Run("preserves individual stat families", func(t *testing.T) {
 		t.Parallel()
 
