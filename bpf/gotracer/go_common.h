@@ -64,13 +64,27 @@ struct {
     __uint(pinning, OBI_PIN_INTERNAL);
 } ongoing_goroutines SEC(".maps");
 
+typedef struct http_server_connection {
+    connection_info_t conn;
+    u32 _pad;
+    u64 net_conn; // net.Conn data pointer; zero for HTTP/2 stream handlers
+} http_server_connection_t;
+
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // key: pointer to the request goroutine
-    __type(value, connection_info_t);
+    __type(value, http_server_connection_t);
     __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } ongoing_server_connections SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t);   // key: concrete net.Conn pointer
+    __type(value, go_addr_key_t); // the connection's serving goroutine
+    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} server_conn_goroutines SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -245,11 +259,11 @@ server_trace_parent(void *goroutine_addr, tp_info_t *tp, tp_info_t *found_tp) {
         bpf_dbg_printk("Decoded from existing traceparent");
         __builtin_memcpy(tp, found_tp, sizeof(tp_info_t));
     } else {
-        connection_info_t *info = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
+        http_server_connection_t *info = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
         u8 found_info = 0;
 
         if (info) {
-            connection_info_t conn = *info;
+            connection_info_t conn = info->conn;
             // Must sort here, Go connection info retains the original ordering.
             sort_connection_info(&conn);
 
@@ -518,6 +532,27 @@ static __always_inline u8 get_conn_info(void *conn_ptr, connection_info_t *info)
     }
 
     return 0;
+}
+
+static __always_inline bool go_interface_type_matches(const void *itab, u64 expected_itab) {
+    if (!itab || !expected_itab) {
+        return 0;
+    }
+
+    void *actual_type = NULL;
+    void *expected_type = NULL;
+    if (bpf_probe_read_user(
+            &actual_type, sizeof(actual_type), (const void *)((u64)itab + sizeof(void *))) != 0) {
+        return 0;
+    }
+
+    if (bpf_probe_read_user(&expected_type,
+                            sizeof(expected_type),
+                            (const void *)(expected_itab + sizeof(void *))) != 0) {
+        return 0;
+    }
+
+    return actual_type && actual_type == expected_type;
 }
 
 static __always_inline void *unwrap_tls_conn_info(void *conn_ptr, void *tls_state) {
