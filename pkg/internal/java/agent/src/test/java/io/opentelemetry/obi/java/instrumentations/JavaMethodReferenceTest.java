@@ -111,11 +111,124 @@ class JavaMethodReferenceTest {
             "com.example.Service#run(int[ ])",
             "com.example.Service#run(int[][]x)",
             "com.example.Service#run(java..lang.String)",
+            "com/example/Service.run(Lcom/example/Type)V",
+            "com/example/Service.run(V)V",
+            "com/example/Service.run([V)V",
+            "com/example/Service.run(I)VI",
+            "com/example/Service.run(L;)V",
+            "com/example/Service.run(I)?",
+            "com/example/Service.run(I*)",
             "Service#run()",
             "com..example.Service#run()",
             "com.example.Service#run (int)",
             "com.example.Service#bad-name")) {
       assertThrows(IllegalArgumentException.class, () -> JavaMethodReference.parse(value), value);
     }
+  }
+
+  @Test
+  void supportsHotSpotInternalAndBinaryClassNamesExactly() {
+    JavaMethodReference internal = JavaMethodReference.parse("com/example/Outer$Inner.run(I)V");
+    JavaMethodReference binary = JavaMethodReference.parse("com.example.Outer$Inner::run(I)V");
+    assertTrue(
+        internal.matchesClass(
+            "com/example/Outer$Inner", "com.example.Outer$Inner", "com.example.Outer.Inner"));
+    assertFalse(
+        internal.matchesClass(
+            "com/example/Outer/Inner", "com.example.Outer.Inner", "com.example.Outer.Inner"));
+    assertTrue(
+        binary.matchesClass(
+            "com/example/Outer$Inner", "com.example.Outer$Inner", "com.example.Outer.Inner"));
+    assertFalse(
+        binary.matchesClass(
+            "com/example/Outer/Inner", "com.example.Outer.Inner", "com.example.Outer.Inner"));
+    assertTrue(
+        internal.matchesMethod(
+            "run", new String[] {"int"}, new String[] {"int"}, new String[] {"I"}, "V", false));
+    assertFalse(
+        internal.matchesMethod(
+            "run", new String[] {"int"}, new String[] {"int"}, new String[] {"I"}, "J", false));
+  }
+
+  @Test
+  void supportsDefaultPackageHotSpotNames() {
+    JavaMethodReference internal = JavaMethodReference.parse("Foo.run()V");
+    JavaMethodReference binary = JavaMethodReference.parse("Foo::run()V");
+    assertTrue(internal.matchesClass("Foo", "Foo", "Foo"));
+    assertTrue(binary.matchesClass("Foo", "Foo", "Foo"));
+    assertTrue(
+        internal.matchesMethod("run", new String[0], new String[0], new String[0], "V", false));
+    assertTrue(
+        binary.matchesMethod("run", new String[0], new String[0], new String[0], "V", false));
+  }
+
+  @Test
+  void sourceSelectorMatchesCanonicalAndBinaryAliases() {
+    JavaMethodReference reference =
+        JavaMethodReference.parse("com.example.Outer.Inner#run(com.example.Outer.Inner)");
+    assertTrue(
+        reference.matchesClass(
+            "com/example/Outer$Inner", "com.example.Outer$Inner", "com.example.Outer.Inner"));
+    assertTrue(
+        reference.matchesClass(
+            "com/example/Outer/Inner", "com.example.Outer.Inner", "com.example.Outer.Inner"));
+    assertTrue(
+        reference.matchesMethod(
+            "run",
+            new String[] {"com.example.Outer.Inner"},
+            new String[] {"com.example.Outer$Inner"},
+            new String[] {"Lcom/example/Outer$Inner;"},
+            "V",
+            false));
+  }
+
+  @Test
+  void sourceAndParameterOnlyReferencesDoNotConstrainReturnOrMatchBridges() {
+    JavaMethodReference source = JavaMethodReference.parse("com.example.Service#get(int)");
+    JavaMethodReference partial = JavaMethodReference.parse("com/example/Service.get(I)");
+    assertTrue(
+        source.matchesMethod(
+            "get",
+            new String[] {"int"},
+            new String[] {"int"},
+            new String[] {"I"},
+            "Ljava/lang/String;",
+            false));
+    assertFalse(
+        source.matchesMethod(
+            "get",
+            new String[] {"int"},
+            new String[] {"int"},
+            new String[] {"I"},
+            "Ljava/lang/Object;",
+            true));
+    assertTrue(
+        partial.matchesMethod(
+            "get",
+            new String[] {"int"},
+            new String[] {"int"},
+            new String[] {"I"},
+            "Ljava/lang/String;",
+            false));
+    assertFalse(
+        partial.matchesMethod(
+            "get",
+            new String[] {"int"},
+            new String[] {"int"},
+            new String[] {"I"},
+            "Ljava/lang/Object;",
+            true));
+  }
+
+  @Test
+  void onlyExactFullDescriptorCanSelectBridge() {
+    JavaMethodReference bridge =
+        JavaMethodReference.parse("com/example/Service.get()Ljava/lang/Object;");
+    assertTrue(
+        bridge.matchesMethod(
+            "get", new String[0], new String[0], new String[0], "Ljava/lang/Object;", true));
+    assertFalse(
+        bridge.matchesMethod(
+            "get", new String[0], new String[0], new String[0], "Ljava/lang/String;", false));
   }
 }

@@ -25,4 +25,12 @@ public class DynamicSpanFixture {
   public static String array(String[] values) {
     return values.length == 0 ? "empty" : values[0];
   }
+
+  public static int nestedArray(Nested.ActiveValue[] values) {
+    return values.length;
+  }
+
+  public static int primitiveArray(int[] values) {
+    return values.length;
+  }
 }

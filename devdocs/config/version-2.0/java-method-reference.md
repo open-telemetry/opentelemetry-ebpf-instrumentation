@@ -2,11 +2,9 @@
 
 ← [Config v2 dynamic instrumentation](dynamic-instrumentation.md)
 
-This document proposes the Java interpretation of a function target in Config
-v2 dynamic span declarations. This is a design proposal; the current
-implementation does not yet support all behavior described here. Matching is
-best-effort: instrument every valid match, and do not let an unmatched target
-prevent valid sibling matches.
+This document defines the Java interpretation of a function target in Config
+v2 dynamic span declarations. Matching is best-effort: instrument every valid
+match, and do not let an unmatched target prevent valid sibling matches.
 
 ```yaml
 on:
@@ -19,7 +17,7 @@ name followed by `::` and a method name: `java/lang/String.indexOf` or
 These names match the exact internal or binary spelling; they do not fall back
 to canonical nested names. An optional full JVM descriptor is exact, including its return type, e.g.
 `java/lang/String.indexOf(I)I`; see [JVMS §4.3.3](https://docs.oracle.com/javase/specs/jvms/se15/html/jvms-4.html#jvms-4.3.3).
-The proposal also accepts parameter-only forms such as `(I)` as an extension;
+The selector also accepts parameter-only forms such as `(I)` as an extension;
 they omit the return constraint and are not complete JVM descriptors.
 
 HotSpot's dotted class form uses binary nested names such as
@@ -37,17 +35,13 @@ spellings. The `$` character is literal in patterns.
 
 ## Syntax and validation
 
-This Java PR removes the requirement for `process.language_glob: [java]`; this
-is not deferred to a separate follow-up. The language filter remains optional
-and, when set, narrows process selection. The current implementation still
-requires it until this PR's change is implemented.
+`process.language_glob` is optional; when set, it narrows process selection.
 The shared configuration layer validates function-target structure and the
 optional filter, but does not parse Java method syntax. The Java runtime parses
-Java selectors for Java processes. The current implementation still accepts
-only `Class#method` references.
+Java selectors for selected processes.
 
-The table compares proposed selector formats; it does not claim every form is
-currently implemented or emitted by the named tools. Assume `Runner` declares
+The table compares accepted selector formats; it does not claim every form is
+emitted by the named tools. Assume `Runner` declares
 void `run()`, `run(int)`, `run(int[])`, `accept(String[])`, and
 `accept(List<String>)`; generic `consume<T extends Number>(T)`; `Outer.Inner`
 is nested; and a separate top-level `Inner` exists in package
@@ -60,7 +54,7 @@ generated names are not stable guarantees.
 |---|---|---|---|---|
 | C1: All `run` overloads | `com/example/Runner.run` | `com.example.Runner::run` | `com.example.Runner#run` | Omitting parameters selects all eligible overloads. |
 | C2: Exact `run(int)` returning `void` | `com/example/Runner.run(I)V` (full descriptor requires `void`) | `com.example.Runner::run(I)V` (full descriptor requires `void`) | `com.example.Runner#run(int)` (return unspecified) | — |
-| C3: `run(int)`, return unspecified | `com/example/Runner.run(I)` (proposed parameter-only extension; any return, bridge skipped; not a full descriptor) | `com.example.Runner::run(I)` (proposed parameter-only extension; any return, bridge skipped; not a full descriptor) | `com.example.Runner#run(int)` (return unspecified) | — |
+| C3: `run(int)`, return unspecified | `com/example/Runner.run(I)` (parameter-only extension; any return, bridge skipped; not a full descriptor) | `com.example.Runner::run(I)` (parameter-only extension; any return, bridge skipped; not a full descriptor) | `com.example.Runner#run(int)` (return unspecified) | — |
 | C4: Nested: `package com.example; class Outer { class Inner { void run() {} } }` | `com/example/Outer$Inner.run` | `com.example.Outer$Inner::run` | `com.example.Outer.Inner#run` (also matches C5 if both types exist) | — |
 | C5: Top-level: `package com.example.Outer; class Inner { void run() {} }` | `com/example/Outer/Inner.run` (selects only this target) | `com.example.Outer.Inner::run` (selects only this target) | `com.example.Outer.Inner#run` (also matches C4 if both types exist) | — |
 | C6: Anonymous class method | `com/example/Outer$1.run` (`$` is literal; nesting is not inferred) | `com.example.Outer$1::run` (`$` is literal; nesting is not inferred) | `com.example.Outer$1#run` (accepted binary alias; no canonical name assumed) | — |
@@ -85,7 +79,7 @@ undefined. Quote the complete value in YAML.
 
 Without a parameter clause, all overloads with a matching name are selected.
 In the source-style form, `()` selects zero parameters without constraining
-the return type. The proposed parameter-only descriptor extension `()` has
+the return type. The parameter-only descriptor extension `()` has
 the same parameter-only behavior; it is not a complete JVM descriptor. A full
 JVM descriptor such as `()V` selects a zero-parameter void method, and all full
 JVM descriptors include the return type. Source-style parameter
@@ -156,4 +150,4 @@ requires a future contract change rather than implicit fallback behavior.
 A selected method emits one completed span through the existing custom-span
 event transport; returned values and arguments are not captured.
 `attributes`, `automatic_attributes`, `function_noret`, and USDT targets are
-outside this proposal.
+outside this contract.

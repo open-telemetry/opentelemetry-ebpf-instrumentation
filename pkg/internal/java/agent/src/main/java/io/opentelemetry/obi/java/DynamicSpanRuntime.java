@@ -8,6 +8,7 @@ package io.opentelemetry.obi.java;
 import io.opentelemetry.obi.java.ebpf.CustomSpanPacket;
 import io.opentelemetry.obi.java.instrumentations.JavaMethodReference;
 import java.lang.instrument.Instrumentation;
+import java.lang.invoke.MethodType;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
@@ -25,14 +26,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
-import java.util.regex.Pattern;
 
 /** Bootstrap-visible state and custom-span emitter used by dynamic method advice. */
 public final class DynamicSpanRuntime {
   private static final SecureRandom RANDOM = new SecureRandom();
   private static final Object LOCK = new Object();
   private static volatile List<DynamicSpanDefinition> definitions = Collections.emptyList();
-  private static volatile Map<String, List<String>> spansByMethod = Collections.emptyMap();
+  private static volatile Map<Class<?>, Map<String, List<String>>> spansByClass =
+      Collections.synchronizedMap(new WeakHashMap<>());
   private static volatile Set<String> reportedResolutionErrors = Collections.emptySet();
   private static volatile Instrumentation instrumentation;
   private static final Map<Class<?>, String> desiredTransformations = new WeakHashMap<>();
@@ -80,66 +81,54 @@ public final class DynamicSpanRuntime {
       return;
     }
 
-    Map<String, List<Class<?>>> classesByName = new HashMap<>();
-    for (Class<?> type : inst.getAllLoadedClasses()) {
-      String name = canonicalName(type);
-      if (name != null) {
-        classesByName.computeIfAbsent(name, ignored -> new ArrayList<>()).add(type);
-      }
-    }
-
-    Map<String, List<String>> next = new HashMap<>();
+    Class<?>[] loadedClasses = inst.getAllLoadedClasses();
+    Map<Class<?>, Map<String, List<String>>> next = new WeakHashMap<>();
     Set<String> errors = new HashSet<>();
     for (DynamicSpanDefinition definition : definitions) {
       JavaMethodReference reference = definition.reference();
-      for (Map.Entry<String, List<Class<?>>> entry : classesByName.entrySet()) {
-        String className = entry.getKey();
-        if (!globMatches(reference.classSelector(), className)) {
+      for (Class<?> targetClass : loadedClasses) {
+        String canonicalName = null;
+        try {
+          canonicalName = targetClass.getCanonicalName();
+        } catch (LinkageError | SecurityException ignored) {
+          // Binary and internal selectors can still resolve without canonical metadata.
+        }
+        if (!reference.matchesClass(
+            targetClass.getName().replace('.', '/'), targetClass.getName(), canonicalName)) {
           continue;
         }
-        if (entry.getValue().size() != 1) {
-          errors.add(resolutionError(definition, className, "ambiguous classloader definitions"));
-          continue;
-        }
-
-        Class<?> targetClass = entry.getValue().get(0);
         List<Method> matches;
         try {
           matches = matchingMethods(targetClass, reference);
         } catch (LinkageError | SecurityException error) {
-          errors.add(resolutionError(definition, className, "could not inspect methods: " + error));
+          errors.add(
+              resolutionError(definition, targetClass, "could not inspect methods: " + error));
           continue;
         }
         if (matches.isEmpty()) {
-          errors.add(resolutionError(definition, className, "unresolved method reference"));
+          errors.add(resolutionError(definition, targetClass, "unresolved method reference"));
           continue;
         }
         for (Method method : matches) {
-          String key = methodKey(method);
-          next.computeIfAbsent(key, ignored -> new ArrayList<>()).add(definition.name());
+          String signature = methodSignature(method);
+          next.computeIfAbsent(targetClass, ignored -> new HashMap<>())
+              .computeIfAbsent(signature, ignored -> new ArrayList<>())
+              .add(definition.name());
         }
       }
     }
 
-    for (List<String> names : next.values()) {
-      Collections.sort(names);
-    }
-    Map<String, List<String>> immutable = new HashMap<>();
-    for (Map.Entry<String, List<String>> entry : next.entrySet()) {
-      immutable.put(entry.getKey(), Collections.unmodifiableList(entry.getValue()));
-    }
-    spansByMethod = Collections.unmodifiableMap(immutable);
+    Map<Class<?>, Map<String, List<String>>> resolved = freezeByClass(next);
+    spansByClass = resolved;
 
     List<Class<?>> retransform = new ArrayList<>();
     Set<Class<?>> stillLoaded = new HashSet<>();
-    for (List<Class<?>> definitionsForName : classesByName.values()) {
-      for (Class<?> type : definitionsForName) {
-        stillLoaded.add(type);
-        String desired = transformationSignature(type, immutable);
-        String previous = desiredTransformations.put(type, desired);
-        if (previous != null && !previous.equals(desired)) {
-          retransform.add(type);
-        }
+    for (Class<?> type : loadedClasses) {
+      stillLoaded.add(type);
+      String desired = transformationSignature(type, resolved);
+      String previous = desiredTransformations.put(type, desired);
+      if (previous != null && !previous.equals(desired)) {
+        retransform.add(type);
       }
     }
     desiredTransformations.keySet().removeIf(type -> !stillLoaded.contains(type));
@@ -157,10 +146,14 @@ public final class DynamicSpanRuntime {
     if (method == null) {
       return null;
     }
-    List<String> names = spansByMethod.get(methodKey(method));
+    return enter(method.getDeclaringClass(), method.getName(), methodDescriptor(method));
+  }
+
+  public static SpanState[] enter(Class<?> declaringClass, String methodName, String descriptor) {
+    List<String> names = namesFor(declaringClass, methodName + descriptor);
     if (names == null && !definitions.isEmpty()) {
       refreshSafely();
-      names = spansByMethod.get(methodKey(method));
+      names = namesFor(declaringClass, methodName + descriptor);
     }
     if (names == null || names.isEmpty()) {
       return null;
@@ -190,35 +183,40 @@ public final class DynamicSpanRuntime {
     }
   }
 
-  public static boolean isClassloaderUnique(String className, ClassLoader classLoader) {
-    Instrumentation inst = instrumentation;
-    if (inst == null) {
-      return true;
-    }
-    int definitionsFound = 0;
-    boolean currentLoaderFound = false;
-    for (Class<?> loaded : inst.getAllLoadedClasses()) {
-      if (!className.equals(canonicalName(loaded))) {
-        continue;
-      }
-      definitionsFound++;
-      if (loaded.getClassLoader() == classLoader) {
-        currentLoaderFound = true;
-      }
-      if (definitionsFound > 1) {
-        return false;
-      }
-    }
-    return definitionsFound == 0 || currentLoaderFound;
+  private static List<String> namesFor(Class<?> declaringClass, String signature) {
+    Map<String, List<String>> methods = spansByClass.get(declaringClass);
+    return methods == null ? null : methods.get(signature);
   }
 
-  private static String transformationSignature(Class<?> type, Map<String, List<String>> resolved) {
+  private static Map<Class<?>, Map<String, List<String>>> freezeByClass(
+      Map<Class<?>, Map<String, List<String>>> methodsByClass) {
+    Map<Class<?>, Map<String, List<String>>> weak =
+        Collections.synchronizedMap(new WeakHashMap<>());
+    for (Map.Entry<Class<?>, Map<String, List<String>>> entry : methodsByClass.entrySet()) {
+      Map<String, List<String>> methods = new HashMap<>();
+      for (Map.Entry<String, List<String>> method : entry.getValue().entrySet()) {
+        List<String> names = method.getValue();
+        Collections.sort(names);
+        methods.put(method.getKey(), Collections.unmodifiableList(new ArrayList<>(names)));
+      }
+      weak.put(entry.getKey(), Collections.unmodifiableMap(methods));
+    }
+    return weak;
+  }
+
+  private static String transformationSignature(
+      Class<?> type, Map<Class<?>, Map<String, List<String>>> resolved) {
     List<String> methods = new ArrayList<>();
+    Map<String, List<String>> resolvedMethods = resolved.get(type);
+    if (resolvedMethods == null) {
+      return "";
+    }
     try {
       for (Method method : type.getDeclaredMethods()) {
-        List<String> names = resolved.get(methodKey(method));
+        String signature = methodSignature(method);
+        List<String> names = resolvedMethods.get(signature);
         if (names != null) {
-          methods.add(methodKey(method) + "=" + names);
+          methods.add(signature + "=" + names);
         }
       }
     } catch (LinkageError | SecurityException ignored) {
@@ -310,84 +308,88 @@ public final class DynamicSpanRuntime {
   private static List<Method> matchingMethods(Class<?> type, JavaMethodReference reference) {
     List<Method> matches = new ArrayList<>();
     for (Method method : type.getDeclaredMethods()) {
-      if (method.isSynthetic() || method.isBridge() || Modifier.isAbstract(method.getModifiers())) {
+      if (Modifier.isAbstract(method.getModifiers())) {
         continue;
       }
-      if (!globMatches(reference.methodSelector(), method.getName())) {
-        continue;
-      }
-      if (reference.hasParameterList()
-          && !parametersMatch(method.getParameterTypes(), reference.parameterTypes())) {
+      if (!reference.matchesMethod(
+          method.getName(),
+          canonicalParameterNames(method.getParameterTypes()),
+          binaryParameterNames(method.getParameterTypes()),
+          parameterDescriptors(method.getParameterTypes()),
+          typeDescriptor(method.getReturnType()),
+          method.isBridge())) {
         continue;
       }
       matches.add(method);
     }
-    matches.sort(Comparator.comparing(DynamicSpanRuntime::methodKey));
+    matches.sort(Comparator.comparing(DynamicSpanRuntime::methodSignature));
     return matches;
   }
 
-  private static boolean parametersMatch(Class<?>[] actual, List<String> expected) {
-    if (actual.length != expected.size()) {
-      return false;
-    }
-    for (int i = 0; i < actual.length; i++) {
-      if (!expected.get(i).equals(typeName(actual[i]))) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  private static String methodKey(Method method) {
-    StringBuilder key =
-        new StringBuilder(canonicalName(method.getDeclaringClass()))
-            .append('#')
-            .append(method.getName())
-            .append('(');
-    Class<?>[] parameters = method.getParameterTypes();
+  private static String[] canonicalParameterNames(Class<?>[] parameters) {
+    String[] names = new String[parameters.length];
     for (int i = 0; i < parameters.length; i++) {
-      if (i > 0) {
-        key.append(',');
-      }
-      key.append(typeName(parameters[i]));
+      names[i] = sourceTypeName(parameters[i], true);
     }
-    return key.append(')').toString();
+    return names;
   }
 
-  private static String typeName(Class<?> type) {
+  private static String[] binaryParameterNames(Class<?>[] parameters) {
+    String[] names = new String[parameters.length];
+    for (int i = 0; i < parameters.length; i++) {
+      names[i] = sourceTypeName(parameters[i], false);
+    }
+    return names;
+  }
+
+  private static String[] parameterDescriptors(Class<?>[] parameters) {
+    String[] descriptors = new String[parameters.length];
+    for (int i = 0; i < parameters.length; i++) {
+      descriptors[i] = typeDescriptor(parameters[i]);
+    }
+    return descriptors;
+  }
+
+  private static String sourceTypeName(Class<?> type, boolean canonical) {
     if (type.isArray()) {
-      return typeName(type.getComponentType()) + "[]";
+      return sourceTypeName(type.getComponentType(), canonical) + "[]";
     }
-    String name = type.getCanonicalName();
-    return name == null ? type.getName().replace('$', '.') : name;
+    String name = canonical ? type.getCanonicalName() : type.getName();
+    return name == null ? "" : name;
   }
 
-  private static String canonicalName(Class<?> type) {
-    return type.getName().replace('$', '.');
+  private static String methodSignature(Method method) {
+    return method.getName() + methodDescriptor(method);
+  }
+
+  private static String methodDescriptor(Method method) {
+    return MethodType.methodType(method.getReturnType(), method.getParameterTypes())
+        .toMethodDescriptorString();
+  }
+
+  private static String typeDescriptor(Class<?> type) {
+    if (type.isArray()) return type.getName().replace('.', '/');
+    if (!type.isPrimitive()) return "L" + type.getName().replace('.', '/') + ";";
+    if (type == void.class) return "V";
+    if (type == boolean.class) return "Z";
+    if (type == byte.class) return "B";
+    if (type == char.class) return "C";
+    if (type == short.class) return "S";
+    if (type == int.class) return "I";
+    if (type == long.class) return "J";
+    if (type == float.class) return "F";
+    if (type == double.class) return "D";
+    throw new IllegalArgumentException("unsupported Java type " + type);
   }
 
   private static String resolutionError(
-      DynamicSpanDefinition definition, String className, String state) {
-    return definition.name() + " on " + className + " is " + state;
-  }
-
-  public static boolean globMatches(String pattern, String value) {
-    StringBuilder regex = new StringBuilder("^");
-    for (int i = 0; i < pattern.length(); i++) {
-      char c = pattern.charAt(i);
-      if (c == '*') {
-        regex.append(".*");
-      } else if (c == '?') {
-        regex.append('.');
-      } else {
-        if ("\\.[]{}()+-^$|".indexOf(c) >= 0) {
-          regex.append('\\');
-        }
-        regex.append(c);
-      }
-    }
-    regex.append('$');
-    return Pattern.matches(regex.toString(), value);
+      DynamicSpanDefinition definition, Class<?> targetClass, String state) {
+    ClassLoader classLoader = targetClass.getClassLoader();
+    String loader =
+        classLoader == null
+            ? "bootstrap"
+            : classLoader.getClass().getName() + "@" + System.identityHashCode(classLoader);
+    return definition.name() + " on " + targetClass.getName() + " from " + loader + " is " + state;
   }
 
   static void setEmitterForTest(Consumer<byte[]> testEmitter) {
@@ -405,7 +407,7 @@ public final class DynamicSpanRuntime {
         refresher = null;
       }
       definitions = Collections.emptyList();
-      spansByMethod = Collections.emptyMap();
+      spansByClass = Collections.synchronizedMap(new WeakHashMap<>());
       reportedResolutionErrors = Collections.emptySet();
       instrumentation = null;
       desiredTransformations.clear();

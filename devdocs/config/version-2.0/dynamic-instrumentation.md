@@ -34,17 +34,18 @@ the same key; the automatic value is omitted. Spans may be declared only on
 include rules; parsing rejects spans under exclude rules. Nested object
 extraction is not supported by this configuration.
 
-Malformed declarations are configuration errors. Runtime implementations must
-evaluate each declaration independently: unresolved or ambiguous targets must
-not select arbitrary candidates, and a failing rule must not prevent valid
-siblings from applying. Each runtime documents resolution diagnostics and
-attribute-collision behavior in its runtime reference.
+Malformed shared declaration structure is a configuration error. Runtime
+implementations validate runtime-specific selector syntax and evaluate each
+declaration independently: unresolved targets must not select arbitrary
+candidates, and a failing target must not prevent valid siblings from applying.
+Each runtime documents resolution diagnostics and attribute-collision behavior
+in its runtime reference.
 
 The schema describes a shared contract, not support in every runtime. Each
 runtime documents its accepted function syntax, target types, and attributes in
-its runtime-specific reference. A converter accepts a declaration only when
-that runtime can apply it; unsupported targets, attributes, and selector forms
-must be rejected.
+its runtime-specific reference. Shared conversion validates declaration
+structure and common support constraints; the selected runtime parses its
+selector syntax and resolves targets at the runtime boundary.
 
 The following is an illustrative schema example; runtime acceptance depends
 on the runtime-specific reference and tests.
@@ -56,7 +57,7 @@ capture:
       action: include
       match:
         process:
-          language_glob: [java]
+          exe_path_glob: "/opt/apps/*"
       refine:
         spans:
           - name: checkout.place_order

@@ -311,6 +311,7 @@ public class Agent {
           "io.opentelemetry.obi.java.DynamicSpanRuntime$SpanState",
           "io.opentelemetry.obi.java.DynamicSpanDefinition",
           "io.opentelemetry.obi.java.instrumentations.JavaMethodReference",
+          "io.opentelemetry.obi.java.instrumentations.JavaMethodReference$Style",
         }) {
       TypeDescription type = TypePool.Default.of(locator).describe(name).resolve();
       typeMap.put(type, locator.locate(name).resolve());
@@ -379,14 +380,18 @@ public class Agent {
     }
     List<DynamicSpanDefinition> result = new ArrayList<>();
     for (String item : encoded.split("~", -1)) {
-      String[] fields = item.split("\\.", -1);
-      if (fields.length != 2) {
-        throw new IllegalArgumentException("invalid encoded dynamic Java span");
+      try {
+        String[] fields = item.split("\\.", -1);
+        if (fields.length != 2) {
+          throw new IllegalArgumentException("invalid encoded dynamic Java span");
+        }
+        String name = new String(Base64.getUrlDecoder().decode(fields[0]), StandardCharsets.UTF_8);
+        String functionReference =
+            new String(Base64.getUrlDecoder().decode(fields[1]), StandardCharsets.UTF_8);
+        result.add(new DynamicSpanDefinition(name, functionReference));
+      } catch (IllegalArgumentException error) {
+        System.err.println("Skipping invalid dynamic Java span declaration: " + error.getMessage());
       }
-      String name = new String(Base64.getUrlDecoder().decode(fields[0]), StandardCharsets.UTF_8);
-      String functionReference =
-          new String(Base64.getUrlDecoder().decode(fields[1]), StandardCharsets.UTF_8);
-      result.add(new DynamicSpanDefinition(name, functionReference));
     }
     return Collections.unmodifiableList(result);
   }

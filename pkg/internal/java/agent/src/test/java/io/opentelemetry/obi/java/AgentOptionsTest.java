@@ -64,4 +64,30 @@ class AgentOptionsTest {
     assertEquals("com.example.Checkout", spans.get(0).reference().classSelector());
     assertTrue(spans.get(0).reference().hasParameterList());
   }
+
+  @Test
+  void malformedSelectorDoesNotSuppressValidSibling() {
+    String encoded =
+        encodeSpan("first", "com.example.First#run()")
+            + "~"
+            + encodeSpan("bad", "com.example.Bad#")
+            + "~"
+            + encodeSpan("last", "com/example/Last.run()V");
+
+    List<DynamicSpanDefinition> spans = Agent.parseDynamicSpans(encoded);
+
+    assertEquals(2, spans.size());
+    assertEquals("first", spans.get(0).name());
+    assertEquals("last", spans.get(1).name());
+  }
+
+  private static String encodeSpan(String name, String reference) {
+    return Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(name.getBytes(StandardCharsets.UTF_8))
+        + "."
+        + Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(reference.getBytes(StandardCharsets.UTF_8));
+  }
 }

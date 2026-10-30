@@ -8,6 +8,10 @@ package com.example;
 public class Nested {
   public static final class Value {}
 
+  public static final class ActiveValue {
+    public void ping() {}
+  }
+
   public static String accept(Value value) {
     return "accepted";
   }

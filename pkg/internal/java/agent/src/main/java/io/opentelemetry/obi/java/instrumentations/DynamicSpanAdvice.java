@@ -6,15 +6,17 @@
 package io.opentelemetry.obi.java.instrumentations;
 
 import io.opentelemetry.obi.java.DynamicSpanRuntime;
-import java.lang.reflect.Method;
 import net.bytebuddy.asm.Advice;
 
 public final class DynamicSpanAdvice {
   private DynamicSpanAdvice() {}
 
   @Advice.OnMethodEnter(suppress = Throwable.class)
-  public static DynamicSpanRuntime.SpanState[] enter(@Advice.Origin Method method) {
-    return DynamicSpanRuntime.enter(method);
+  public static DynamicSpanRuntime.SpanState[] enter(
+      @Advice.Origin Class<?> declaringClass,
+      @Advice.Origin("#m") String methodName,
+      @Advice.Origin("#d") String descriptor) {
+    return DynamicSpanRuntime.enter(declaringClass, methodName, descriptor);
   }
 
   @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
