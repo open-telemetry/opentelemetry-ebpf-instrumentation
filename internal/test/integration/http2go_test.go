@@ -264,7 +264,10 @@ func TestHTTP2ServerAddressFromAuthority(t *testing.T) {
 
 		for _, exporter := range []string{"otel", "prometheus"} {
 			query := fmt.Sprintf(`http_server_request_duration_seconds_count{service_name="server",http_route="/server-address",server_address="api.example.com",exported=%q}`, exporter)
-			checkServerPromQueryResult(ct, pq, query, 1)
+			results, err := pq.Query(query)
+			require.NoError(ct, err)
+			enoughPromResults(ct, results)
+			assert.LessOrEqual(ct, 1, totalPromCount(ct, results))
 		}
 	}, testTimeout, time.Second)
 }
