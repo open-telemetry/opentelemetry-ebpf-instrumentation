@@ -17,7 +17,7 @@ static const char traceparent[] = "traceparent: ";
 
 typedef struct http_client_data {
     s64 content_length;
-    pid_info pid;
+    pid_info_t pid;
     unsigned char path[k_path_max_len];
     unsigned char raw_query[k_query_max_len];
     unsigned char host[k_host_max_len];

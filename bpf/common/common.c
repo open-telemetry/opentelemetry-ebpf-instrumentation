@@ -18,8 +18,10 @@
 #include <common/event_defs.h>
 #include <common/exception_event.h>
 #include <common/ringbuf_types.h>
+#include <common/sampler.h>
 
 #include <pid/types/pid_filter.h>
+#include <pid/types/pid_info.h>
 
 // Force emitting these types into the ELF so bpf2go generates their Go
 // counterparts (structs, and constants for enums)
@@ -42,6 +44,8 @@ const enum pid_namespace_mode *unused_18 __attribute__((unused));
 const enum valid_pids_size *unused_19 __attribute__((unused));
 const ringbuf_write_stats_t *unused_20 __attribute__((unused));
 const enum ringbuf_id *unused_21 __attribute__((unused));
-const exception_event_header_t *unused_22 __attribute__((unused));
-const enum exception_runtime *unused_23 __attribute__((unused));
-const enum exception_owner *unused_24 __attribute__((unused));
+const sampler_t *unused_22 __attribute__((unused));
+const exception_event_header_t *unused_23 __attribute__((unused));
+const enum exception_runtime *unused_24 __attribute__((unused));
+const enum exception_owner *unused_25 __attribute__((unused));
+const pid_info_t *unused_26 __attribute__((unused));

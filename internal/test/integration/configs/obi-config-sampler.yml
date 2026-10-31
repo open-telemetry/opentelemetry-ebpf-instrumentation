@@ -6,6 +6,10 @@ otel_metrics_export:
   endpoint: http://otelcol:4018
 otel_traces_export:
   endpoint: http://otelcol:4018
+ebpf:
+  context_propagation: headers
+  # the services must join each trace through the propagated traceparent alone
+  disable_black_box_cp: true
 discovery:
   disabled_route_harvesters: ["nodejs"]
   services:
@@ -20,6 +24,9 @@ discovery:
       sampler:
         name: traceidratio
         arg: "0.5"
+    - namespace: multi-k
+      name: service-d
+      open_ports: 5003
 attributes:
   kubernetes:
     cluster_name: my-kube

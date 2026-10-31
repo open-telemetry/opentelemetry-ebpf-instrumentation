@@ -173,7 +173,7 @@ func GroupSpansWithOptions(ctx context.Context, spans []request.Span, traceAttrs
 		}
 
 		sr := spanSampler().ShouldSample(trace.SamplingParameters{
-			ParentContext: ctx,
+			ParentContext: samplingParentContext(ctx, span),
 			Name:          span.TraceName(),
 			TraceID:       span.TraceID,
 			Kind:          spanKind(span),
@@ -200,6 +200,22 @@ func GroupSpansWithOptions(ctx context.Context, spans []request.Span, traceAttrs
 	}
 
 	return spanGroups
+}
+
+// samplingParentContext gives parent-based samplers the parent's decision. eBPF
+// samples each span with its process's sampler, and under a parent-based one a
+// span keeps its parent's flags, so the span's own flags stand for the parent's.
+func samplingParentContext(ctx context.Context, span *request.Span) context.Context {
+	if !span.ParentSpanID.IsValid() {
+		return ctx
+	}
+
+	return trace2.ContextWithSpanContext(ctx, trace2.NewSpanContext(trace2.SpanContextConfig{
+		TraceID:    span.TraceID,
+		SpanID:     span.ParentSpanID,
+		TraceFlags: trace2.TraceFlags(span.TraceFlags),
+		Remote:     true,
+	}))
 }
 
 // GenerateTracesWithAttributes must remain public for collectors embedding OBI
@@ -291,6 +307,7 @@ func generateTracesWithAttributes(
 		// Set trace and span IDs
 		s.SetSpanID(spanID)
 		s.SetTraceID(traceID)
+		s.SetFlags(exportedFlags(span))
 		if span.ParentSpanID.IsValid() {
 			s.SetParentSpanID(pcommon.SpanID(span.ParentSpanID))
 		}
@@ -383,6 +400,11 @@ func SpanDiscarded(span *request.Span, is instrumentations.InstrumentationSelect
 	return request.IgnoreTraces(span) || span.Service.ExportsOTelTraces() || !acceptSpan(is, span)
 }
 
+// exportedFlags are the W3C trace flags of an exported span: exporting it means it was sampled
+func exportedFlags(span *request.Span) uint32 {
+	return uint32(trace2.TraceFlags(span.TraceFlags).WithSampled(true))
+}
+
 // createSubSpans creates the internal spans for a request.Span
 func createSubSpans(span *request.Span, parentSpanID pcommon.SpanID, traceID pcommon.TraceID, ss *ptrace.ScopeSpans, t request.Timings) {
 	// Create a child span showing the queue time
@@ -394,6 +416,7 @@ func createSubSpans(span *request.Span, parentSpanID pcommon.SpanID, traceID pco
 	spQ.SetTraceID(traceID)
 	spQ.SetSpanID(pcommon.SpanID(idgen.RandomSpanID()))
 	spQ.SetParentSpanID(parentSpanID)
+	spQ.SetFlags(exportedFlags(span))
 
 	// Create a child span showing the processing time
 	spP := ss.Spans().AppendEmpty()
@@ -408,6 +431,7 @@ func createSubSpans(span *request.Span, parentSpanID pcommon.SpanID, traceID pco
 		spP.SetSpanID(pcommon.SpanID(idgen.RandomSpanID()))
 	}
 	spP.SetParentSpanID(parentSpanID)
+	spP.SetFlags(exportedFlags(span))
 	appendSpanLinks(spP, span.Links)
 }
 

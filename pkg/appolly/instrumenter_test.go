@@ -239,7 +239,7 @@ func TestInstrumentationFilterPreservesUnfilteredSQLChild(t *testing.T) {
 		{
 			Type: request.EventTypeSQLClient, Method: "SELECT", Path: "orders", HostPort: 5432,
 			RequestStart: 2, Start: 2, End: 3, Service: service,
-			TraceID: traceID, SpanID: trace.SpanID{2}, ParentSpanID: httpSpanID,
+			TraceID: traceID, SpanID: trace.SpanID{2}, ParentSpanID: httpSpanID, TraceFlags: 1,
 		},
 		{
 			Type: request.EventTypeHTTP, Method: http.MethodDelete, Path: "/admin", HostPort: 9999,

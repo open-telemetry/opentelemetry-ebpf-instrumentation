@@ -14,6 +14,7 @@ import (
 	"unsafe"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/asm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -33,6 +34,22 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
+
+func TestSocketFiltersAvoidCurrentPIDHelper(t *testing.T) {
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+	for name, program := range spec.Programs {
+		if program.Type != ebpf.SocketFilter {
+			continue
+		}
+		for _, instruction := range program.Instructions {
+			if instruction.IsBuiltinCall() {
+				assert.NotEqual(t, asm.FnGetCurrentPidTgid, asm.BuiltinFunc(instruction.Constant),
+					"%s must load on the minimum supported kernel", name)
+			}
+		}
+	}
+}
 
 func TestParseJVMMemoryPoolRecordDecoratesServiceByPIDNamespace(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}

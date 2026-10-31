@@ -9,6 +9,7 @@
 #include <common/algorithm.h>
 #include <common/globals.h>
 #include <common/http_buf_size.h>
+#include <common/tp_info.h>
 
 // 55+13
 #define TRACE_PARENT_HEADER_LEN 68
@@ -88,6 +89,37 @@ static __always_inline bool is_eoh(const unsigned char *p) {
     return p[0] == '\r' && p[1] == '\n' && p[2] == '\r' && p[3] == '\n';
 }
 
+static __always_inline u8 traceparent_hex_bits(const unsigned char *p, const u32 len) {
+    u8 bits = 0;
+    for (u32 i = 0; i < len; i++) {
+        bits |= reverse_hex[p[i]];
+    }
+    return bits;
+}
+
+static __always_inline bool valid_traceparent(const unsigned char *p) {
+    enum {
+        k_version_offset = sizeof("traceparent: ") - 1,
+        k_version_len = sizeof("00") - 1,
+        k_trace_id_offset = k_version_offset + k_version_len + 1,
+        k_span_id_offset = k_trace_id_offset + TRACE_ID_SIZE_BYTES * 2 + 1,
+        k_flags_offset = k_span_id_offset + SPAN_ID_SIZE_BYTES * 2 + 1,
+    };
+
+    if (p[k_trace_id_offset - 1] != '-' || p[k_span_id_offset - 1] != '-' ||
+        p[k_flags_offset - 1] != '-') {
+        return false;
+    }
+
+    const u8 version = traceparent_hex_bits(p + k_version_offset, k_version_len);
+    const u8 trace_id = traceparent_hex_bits(p + k_trace_id_offset, TRACE_ID_SIZE_BYTES * 2);
+    const u8 span_id = traceparent_hex_bits(p + k_span_id_offset, SPAN_ID_SIZE_BYTES * 2);
+    const u8 flags = traceparent_hex_bits(p + k_flags_offset, sizeof(u8) * 2);
+
+    return ((version | trace_id | span_id | flags) & 0xf0) == 0 && trace_id != 0 && span_id != 0 &&
+           !((p[k_version_offset] | 0x20) == 'f' && (p[k_version_offset + 1] | 0x20) == 'f');
+}
+
 static int tp_match(u32 index, void *data) {
     if (index >= (TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN)) {
         return 1;
@@ -96,7 +128,7 @@ static int tp_match(u32 index, void *data) {
     struct callback_ctx *ctx = data;
     unsigned char *s = &(ctx->buf[index]);
 
-    if (is_traceparent(s)) {
+    if (is_traceparent(s) && valid_traceparent(s)) {
         ctx->pos = index;
         return 1;
     }
@@ -165,7 +197,7 @@ static __always_inline unsigned char *bpf_strstr_tp_loop__legacy(unsigned char *
                 }
             }
 
-            return buf;
+            return valid_traceparent(buf) ? buf : NULL;
         }
 
         ++buf;

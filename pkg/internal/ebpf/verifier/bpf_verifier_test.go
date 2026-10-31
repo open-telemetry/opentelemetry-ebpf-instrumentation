@@ -163,6 +163,21 @@ func forEachCombination(t *testing.T, prefix string, loadFn func() (*ebpf.Collec
 // the valid_pid() paths the loader can pick (ebpfcommon.PIDFilterConstants)
 var pidNamespaceModes = []any{uint32(ebpfcommon.PIDNamespaceInit), uint32(ebpfcommon.PIDNamespacePod)}
 
+func TestBPFVerifierHTTPSampling(t *testing.T) {
+	forEachCombination(t, "generictracer", generictracerbpf.LoadBpf, []constOption{
+		{"pid_ns_mode", pidNamespaceModes},
+		{"g_bpf_debug", []any{true}},
+		{"g_bpf_traceparent_enabled", []any{true}},
+		{"g_bpf_header_propagation", []any{true}},
+		{"g_bpf_java_http1_enabled", []any{true}},
+		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
+		{"filter_pids", []any{int32(1)}},
+		{"capture_header_buffer", []any{int32(1)}},
+		{"max_transaction_time", []any{uint64(60_000_000_000)}},
+		{"http_max_captured_bytes", []any{uint32(262144)}},
+	})
+}
+
 // TestBPFVerifierWithConstants verifies that BPF programs pass the kernel verifier
 // across all combinations of constant values (also default ones).
 // Different constant values cause the verifier to evaluate different code paths

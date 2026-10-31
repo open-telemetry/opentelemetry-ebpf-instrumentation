@@ -159,6 +159,7 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 		DynamicSelectorPID: processMatch.DynamicSelectorPID,
 		ExportModes:        exportModes,
 		Sampler:            samplerFromConfig(samplerConfig),
+		SamplerConfig:      samplerConfig,
 		Features:           svcFeatures,
 		LogEnricherEnabled: processMatch.LogEnricherEnabled(),
 		Exceptions:         exceptions,
