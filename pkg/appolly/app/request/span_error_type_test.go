@@ -59,6 +59,13 @@ func TestSpanErrorType_GenAI(t *testing.T) {
 			expected: "invalid_model",
 		},
 		{
+			name: "jev reports Error field",
+			genAI: &GenAI{Jev: &VendorJev{
+				Error: "rate_limit_exceeded",
+			}},
+			expected: "rate_limit_exceeded",
+		},
+		{
 			name:     "provider with no error falls back to the status",
 			genAI:    &GenAI{OpenAI: &VendorOpenAI{}},
 			expected: "429",

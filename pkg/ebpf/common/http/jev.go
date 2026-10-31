@@ -4,6 +4,7 @@
 package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 
 import (
+	"bytes"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -14,7 +15,16 @@ import (
 const (
 	jevSystemOnePath   = "/api/v1/systemone"
 	jevSystemOnePathV1 = "/v1/systemone"
+	jevKnownHost       = "jev-ai.org"
 )
+
+// hasJSONKey checks if a top-level JSON key exists in the byte slice,
+// even if its value is incomplete or truncated. It searches for the pattern
+// "key": and verifies it's not inside a string or nested object.
+func hasJSONKey(data []byte, key string) bool {
+	keyPattern := []byte(`"` + key + `":`)
+	return bytes.Contains(data, keyPattern)
+}
 
 func isJevPath(path string) bool {
 	path = strings.TrimSuffix(path, "/")
@@ -37,7 +47,8 @@ func looksLikeJevBody(reqB, respB []byte) bool {
 	}
 
 	// Check for answers field (required in Jev responses)
-	if extractJSONRawField(respB, "answers") == nil {
+	// Use a tolerant check that detects the key even if the value is truncated
+	if !hasJSONKey(respB, "answers") {
 		return false
 	}
 
@@ -54,6 +65,11 @@ func looksLikeJevBody(reqB, respB []byte) bool {
 
 func JevSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (request.Span, bool) {
 	// Jev can be identified by path or by response headers/body
+	// For path-based detection, we need to be careful about false positives:
+	// - Known Jev host (jev-ai.org): path match is sufficient
+	// - Gateway or other hosts: require sufficient Jev-specific evidence
+	knownJevHost := req != nil && strings.HasSuffix(strings.ToLower(req.Host), jevKnownHost)
+
 	if !isJevPath(baseSpan.Path) {
 		// If not a known Jev path, check for Jev-like response body
 		// First validate request shape to avoid unnecessary response processing
@@ -76,6 +92,36 @@ func JevSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (re
 		}
 
 		if !looksLikeJevBody(reqB, respB) {
+			return *baseSpan, false
+		}
+	} else if !knownJevHost {
+		// Path matches but not the known Jev host
+		// Require sufficient Jev-specific evidence to avoid false positives
+		reqB, ok := readHTTPRequestBody("JevSpan", req, baseSpan)
+		if !ok {
+			return *baseSpan, false
+		}
+
+		// Check request has Jev-specific fields
+		if extractJSONRawField(reqB, "state") == nil {
+			return *baseSpan, false
+		}
+		if extractJSONRawField(reqB, "questions") == nil {
+			return *baseSpan, false
+		}
+
+		respB, ok := readHTTPResponseBody("JevSpan", resp, baseSpan)
+		if !ok {
+			return *baseSpan, false
+		}
+
+		// Verify response has Jev model discriminator
+		model := extractJSONStringField(respB, "model", 0)
+		if model == "" {
+			return *baseSpan, false
+		}
+		lowerModel := strings.ToLower(model)
+		if !strings.HasPrefix(lowerModel, "jev-") && lowerModel != "jev-latest" {
 			return *baseSpan, false
 		}
 	}
@@ -118,6 +164,9 @@ func JevSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (re
 		if parsedResponse.Provider == "" {
 			parsedResponse.Provider = extractJSONStringField(respB, "provider", 0)
 		}
+		if parsedResponse.Error == "" {
+			parsedResponse.Error = extractJSONStringField(respB, "error", 0)
+		}
 		// Extract usage container if present
 		var usage request.JevUsage
 		if unmarshalJSONContainerBestEffort(respB, &usage, "usage") {
@@ -129,20 +178,16 @@ func JevSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) (re
 		parsedResponse.OperationName = "decision"
 
 		// Normalize provider name to match semconv enum
-		if parsedResponse.Provider == "" {
-			parsedResponse.Provider = "typesafe"
-		}
-		if parsedResponse.Provider == "jev-ai.org" {
-			parsedResponse.Provider = "typesafe"
-		}
+		// Jev is a fixed TypeSafe provider, always normalize to "typesafe"
+		parsedResponse.Provider = "typesafe"
 	} else {
 		// Body read failed or empty, create minimal span
 		parsedResponse = request.VendorJev{
-			Request:        parsedRequest,
-			Provider:       "typesafe",
-			Model:          parsedRequest.Model,
-			OperationName:  "decision",
-			Usage:          request.JevUsage{},
+			Request:       parsedRequest,
+			Provider:      "typesafe",
+			Model:         parsedRequest.Model,
+			OperationName: "decision",
+			Usage:         request.JevUsage{},
 		}
 	}
 

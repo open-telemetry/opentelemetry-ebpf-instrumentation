@@ -507,14 +507,15 @@ type VendorOpenAI struct {
 // VendorJev represents a Jev (TypeSafe System One) request/response.
 // Jev is a decision evaluation API that answers structured questions about provided state.
 type VendorJev struct {
-	ID           string          `json:"id"`
-	Model        string          `json:"model"`
-	Provider     string          `json:"provider"`
-	Answers      json.RawMessage `json:"answers"`
-	Usage        JevUsage        `json:"usage"`
-	LatencyMs    int             `json:"latency_ms,omitempty"`
-	Request      JevRequest
-	OperationName string          `json:"-"`
+	ID            string          `json:"id"`
+	Model         string          `json:"model"`
+	Provider      string          `json:"provider"`
+	Answers       json.RawMessage `json:"answers"`
+	Error         string          `json:"error,omitempty"`
+	Usage         JevUsage        `json:"usage"`
+	LatencyMs     int             `json:"latency_ms,omitempty"`
+	Request       JevRequest
+	OperationName string `json:"-"`
 }
 
 type JevRequest struct {
@@ -524,10 +525,10 @@ type JevRequest struct {
 }
 
 type JevUsage struct {
-	InputTokens     TokenCount `json:"input_tokens"`
-	OutputTokens    TokenCount `json:"output_tokens"`
-	ChargedTokens   TokenCount `json:"charged_tokens,omitempty"`
-	ChargedCredits  TokenCount `json:"charged_credits,omitempty"`
+	InputTokens    TokenCount `json:"input_tokens"`
+	OutputTokens   TokenCount `json:"output_tokens"`
+	ChargedTokens  TokenCount `json:"charged_tokens,omitempty"`
+	ChargedCredits TokenCount `json:"charged_credits,omitempty"`
 }
 
 func (j *VendorJev) GetInput() string {
@@ -542,12 +543,12 @@ func (j *VendorJev) GetInput() string {
 		inputJSON := fmt.Sprintf("{%s}", strings.Join(inputParts, ","))
 		return wrapTextAsInputMessage(inputJSON)
 	}
-	
+
 	// No questions, just state - preserve numeric precision and handle simple strings
 	if len(j.Request.State) == 0 {
 		return ""
 	}
-	
+
 	// Try to parse state to see if it's a simple string
 	var parsed any
 	if err := json.Unmarshal(j.Request.State, &parsed); err == nil {
@@ -555,7 +556,7 @@ func (j *VendorJev) GetInput() string {
 			return wrapTextAsInputMessage(s)
 		}
 	}
-	
+
 	// Complex state (object/array) - preserve original JSON
 	return wrapTextAsInputMessage(string(j.Request.State))
 }
@@ -565,8 +566,8 @@ func (j *VendorJev) GetOutput() string {
 		return ""
 	}
 	// Normalize answers as an assistant output message for semconv compatibility
-	// Preserve the complete answers structure as-is
-	return fmt.Sprintf(`[{"role":"assistant","content":%s}]`, string(j.Answers))
+	// Preserve the complete answers structure as JSON text content
+	return wrapTextAsOutputMessage("assistant", string(j.Answers), "")
 }
 
 func (j *VendorJev) InputTokenCount() (int, bool) {
@@ -2853,6 +2854,9 @@ func (s *Span) GenAIErrorType() string {
 	}
 	if ai := s.GenAI.Rerank; ai != nil && ai.Output.Error != nil {
 		return ai.Output.Error.Type
+	}
+	if ai := s.GenAI.Jev; ai != nil && ai.Error != "" {
+		return ai.Error
 	}
 
 	return ""

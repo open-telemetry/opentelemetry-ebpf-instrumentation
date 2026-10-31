@@ -86,6 +86,7 @@ const (
 	payloadExtractorRetrieval        = "retrieval"
 	payloadExtractorOllama           = "ollama"
 	payloadExtractorCohere           = "cohere"
+	payloadExtractorJev              = "jev"
 	payloadExtractorOpenAICompatible = "openai_compatible"
 	payloadExtractorJSONRPC          = "jsonrpc"
 	payloadExtractorEnrichment       = "enrichment"
@@ -138,6 +139,9 @@ func payloadExtraction(cfg *obi.Config) schema.PayloadExtraction {
 	}
 	if http.GenAI.Cohere.Enabled {
 		enabled = append(enabled, payloadExtractorCohere)
+	}
+	if http.GenAI.Jev.Enabled {
+		enabled = append(enabled, payloadExtractorJev)
 	}
 	if http.GenAI.OpenAICompatible.Enabled {
 		enabled = append(enabled, payloadExtractorOpenAICompatible)

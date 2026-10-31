@@ -273,6 +273,16 @@ func postProcessHTTPSpan(parseCtx *EBPFParseContext, httpSpan *request.Span, req
 		}
 	}
 
+	// Jev detection must run before OpenAI to prevent Jev requests through
+	// gateways (e.g., OpenRouter) from being misclassified as OpenAI-compatible.
+	// Jev uses improved host/body evidence rules to avoid false positives.
+	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Jev.Enabled {
+		span, ok := ebpfhttp.JevSpan(httpSpan, req, resp)
+		if ok {
+			return span
+		}
+	}
+
 	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Ollama.Enabled {
 		span, ok := ebpfhttp.OllamaSpan(httpSpan, req, resp)
 		if ok {
@@ -324,16 +334,6 @@ func postProcessHTTPSpan(parseCtx *EBPFParseContext, httpSpan *request.Span, req
 
 	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Bedrock.Enabled {
 		span, ok := ebpfhttp.BedrockSpan(httpSpan, req, resp)
-		if ok {
-			return span
-		}
-	}
-
-	// Jev detection must run before OpenAI-compatible gateway fallback
-	// to prevent Jev requests through gateways (e.g., OpenRouter) from
-	// being misclassified as OpenAI-compatible.
-	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.GenAI.Jev.Enabled {
-		span, ok := ebpfhttp.JevSpan(httpSpan, req, resp)
 		if ok {
 			return span
 		}

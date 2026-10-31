@@ -103,6 +103,11 @@ const jevErrorResponse = `{
   }
 }`
 
+const jevTruncatedAnswersResponse = `{
+  "id": "dec_123",
+  "model": "jev-1.13",
+  "answers": {`
+
 func makeJevRequest(t *testing.T, method, url, body string) *http.Request {
 	t.Helper()
 	req, err := http.NewRequest(method, url, strings.NewReader(body))
@@ -333,8 +338,8 @@ func TestJevSpan_GetOutput(t *testing.T) {
 	jev := &request.VendorJev{
 		Answers: json.RawMessage(`{"question1":{"type":"noul","noul":0.9}}`),
 	}
-	// New format wraps answers as an assistant message
-	assert.JSONEq(t, `[{"role":"assistant","content":{"question1":{"type":"noul","noul":0.9}}}]`, jev.GetOutput())
+	// New format wraps answers as an assistant message with typed text parts
+	assert.JSONEq(t, `[{"role":"assistant","parts":[{"type":"text","content":"{\"question1\":{\"type\":\"noul\",\"noul\":0.9}}"}]}]`, jev.GetOutput())
 
 	// Empty answers
 	jev2 := &request.VendorJev{}
@@ -424,6 +429,171 @@ func TestIsJevPath(t *testing.T) {
 		t.Run(tc.path, func(t *testing.T) {
 			result := isJevPath(tc.path)
 			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestJevSpan_TruncatedAnswers(t *testing.T) {
+	// Test detection when answers field is present but truncated
+	req := makeJevRequest(t, http.MethodPost, "https://api.example.com/decisions", jevRequestBody)
+	resp := makeJevResponse(http.StatusOK, http.Header{
+		"Content-Type": []string{"application/json"},
+	}, jevTruncatedAnswersResponse)
+
+	base := &request.Span{}
+	span, ok := JevSpan(base, req, resp)
+
+	require.True(t, ok, "should detect Jev even with truncated answers")
+	require.NotNil(t, span.GenAI.Jev)
+	assert.Equal(t, "jev-1.13", span.GenAI.Jev.Model)
+}
+
+func TestJevSpan_FalsePositivePath(t *testing.T) {
+	// Test that unrelated services using /v1/systemone are not classified as Jev
+	tests := []struct {
+		name     string
+		host     string
+		reqBody  string
+		respBody string
+		expected bool
+	}{
+		{
+			name:     "unrelated host with matching path and empty body",
+			host:     "api.example.com",
+			reqBody:  `{}`,
+			respBody: `{}`,
+			expected: false,
+		},
+		{
+			name:     "unrelated host with matching path and non-Jev payload",
+			host:     "api.example.com",
+			reqBody:  `{"data":"test"}`,
+			respBody: `{"result":"ok"}`,
+			expected: false,
+		},
+		{
+			name:     "known Jev host with valid path",
+			host:     "jev-ai.org",
+			reqBody:  jevRequestBody,
+			respBody: jevResponseBody,
+			expected: true,
+		},
+		{
+			name:     "OpenRouter with valid Jev payload",
+			host:     "openrouter.ai",
+			reqBody:  jevRequestBody,
+			respBody: jevResponseBody,
+			expected: true,
+		},
+		{
+			name:     "gateway with insufficient evidence",
+			host:     "gateway.example.com",
+			reqBody:  `{"model":"gpt-4","messages":[]}`,
+			respBody: `{"choices":[{"message":{"content":"hi"}}]}`,
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := makeJevRequest(t, http.MethodPost, "https://"+tc.host+"/api/v1/systemone", tc.reqBody)
+			resp := makeJevResponse(http.StatusOK, http.Header{
+				"Content-Type": []string{"application/json"},
+			}, tc.respBody)
+
+			base := &request.Span{}
+			base.Path = "/api/v1/systemone"
+			span, ok := JevSpan(base, req, resp)
+
+			assert.Equal(t, tc.expected, ok, "should match expected detection result")
+			if tc.expected {
+				assert.NotNil(t, span.GenAI.Jev)
+			}
+		})
+	}
+}
+
+func TestJevSpan_ProviderNormalization(t *testing.T) {
+	tests := []struct {
+		name         string
+		respBody     string
+		expectedProv string
+	}{
+		{
+			name:         "missing provider",
+			respBody:     `{"id":"dec_123","model":"jev-1.13","answers":{}}`,
+			expectedProv: "typesafe",
+		},
+		{
+			name:         "jev-ai.org",
+			respBody:     `{"id":"dec_123","model":"jev-1.13","provider":"jev-ai.org","answers":{}}`,
+			expectedProv: "typesafe",
+		},
+		{
+			name:         "TypeSafe",
+			respBody:     `{"id":"dec_123","model":"jev-1.13","provider":"TypeSafe","answers":{}}`,
+			expectedProv: "typesafe",
+		},
+		{
+			name:         "arbitrary provider string",
+			respBody:     `{"id":"dec_123","model":"jev-1.13","provider":"custom-provider","answers":{}}`,
+			expectedProv: "typesafe",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := makeJevRequest(t, http.MethodPost, "https://jev-ai.org/api/v1/systemone", jevRequestBody)
+			resp := makeJevResponse(http.StatusOK, http.Header{
+				"Content-Type": []string{"application/json"},
+			}, tc.respBody)
+
+			base := &request.Span{}
+			base.Path = "/api/v1/systemone"
+			span, ok := JevSpan(base, req, resp)
+
+			require.True(t, ok)
+			assert.Equal(t, tc.expectedProv, span.GenAI.Jev.Provider)
+		})
+	}
+}
+
+func TestJevSpan_ErrorParsing(t *testing.T) {
+	tests := []struct {
+		name          string
+		respBody      string
+		expectedError string
+	}{
+		{
+			name:          "valid Jev error body",
+			respBody:      jevErrorResponse,
+			expectedError: "Invalid request",
+		},
+		{
+			name:          "error body with truncated response",
+			respBody:      `{"error":"rate limit"`,
+			expectedError: "rate limit",
+		},
+		{
+			name:          "successful response without error",
+			respBody:      jevResponseBody,
+			expectedError: "",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := makeJevRequest(t, http.MethodPost, "https://jev-ai.org/api/v1/systemone", jevRequestBody)
+			resp := makeJevResponse(http.StatusOK, http.Header{
+				"Content-Type": []string{"application/json"},
+			}, tc.respBody)
+
+			base := &request.Span{}
+			base.Path = "/api/v1/systemone"
+			span, ok := JevSpan(base, req, resp)
+
+			require.True(t, ok)
+			assert.Equal(t, tc.expectedError, span.GenAI.Jev.Error)
 		})
 	}
 }
