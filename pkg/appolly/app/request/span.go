@@ -2856,7 +2856,9 @@ func (s *Span) GenAIErrorType() string {
 		return ai.Output.Error.Type
 	}
 	if ai := s.GenAI.Jev; ai != nil && ai.Error != "" {
-		return ai.Error
+		// Jev uses a free-form error message that should not be exposed in error.type
+		// Return the bounded ErrorTypeOther constant instead
+		return ErrorTypeOther
 	}
 
 	return ""

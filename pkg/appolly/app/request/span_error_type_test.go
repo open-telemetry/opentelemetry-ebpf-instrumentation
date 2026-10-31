@@ -59,11 +59,11 @@ func TestSpanErrorType_GenAI(t *testing.T) {
 			expected: "invalid_model",
 		},
 		{
-			name: "jev reports Error field",
+			name: "jev reports Error field as bounded type",
 			genAI: &GenAI{Jev: &VendorJev{
 				Error: "rate_limit_exceeded",
 			}},
-			expected: "rate_limit_exceeded",
+			expected: ErrorTypeOther,
 		},
 		{
 			name:     "provider with no error falls back to the status",

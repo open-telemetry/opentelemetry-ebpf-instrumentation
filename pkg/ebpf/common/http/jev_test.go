@@ -334,6 +334,95 @@ func TestJevSpan_GetInput(t *testing.T) {
 	assert.Contains(t, input3, "q1")
 }
 
+func TestHasJSONKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     string
+		key      string
+		expected bool
+	}{
+		{
+			name:     "simple key with value",
+			data:     `{"answers":{}}`,
+			key:      "answers",
+			expected: true,
+		},
+		{
+			name:     "key with whitespace before colon",
+			data:     `{"answers" : {}}`,
+			key:      "answers",
+			expected: true,
+		},
+		{
+			name:     "nested key should not match",
+			data:     `{"metadata":{"answers":{}}}`,
+			key:      "answers",
+			expected: false,
+		},
+		{
+			name:     "key inside string value should not match",
+			data:     `{"message":"answers are here"}`,
+			key:      "answers",
+			expected: false,
+		},
+		{
+			name:     "escaped quotes in string",
+			data:     `{"message":"\"answers\" quoted"}`,
+			key:      "answers",
+			expected: false,
+		},
+		{
+			name:     "truncated after key with whitespace",
+			data:     `{"answers" `,
+			key:      "answers",
+			expected: false,
+		},
+		{
+			name:     "truncated at key with whitespace before colon",
+			data:     `{"answers" :`,
+			key:      "answers",
+			expected: true,
+		},
+		{
+			name:     "similar key should not match",
+			data:     `{"answers_extra":{}}`,
+			key:      "answers",
+			expected: false,
+		},
+		{
+			name:     "key with trailing whitespace and colon",
+			data:     `{"answers"   :{}}`,
+			key:      "answers",
+			expected: true,
+		},
+		{
+			name:     "key with newline before colon",
+			data:     `{"answers"\n:{}}`,
+			key:      "answers",
+			expected: true,
+		},
+		{
+			name:     "empty data",
+			data:     ``,
+			key:      "answers",
+			expected: false,
+		},
+		{
+			name:     "key not present",
+			data:     `{"other":{}}`,
+			key:      "answers",
+			expected: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := hasJSONKey([]byte(tc.data), tc.key)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
 func TestJevSpan_GetOutput(t *testing.T) {
 	jev := &request.VendorJev{
 		Answers: json.RawMessage(`{"question1":{"type":"noul","noul":0.9}}`),
@@ -405,6 +494,58 @@ func TestLooksLikeJevBody(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			result := looksLikeJevBody([]byte(tc.reqB), []byte(tc.respB))
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestIsJevHost(t *testing.T) {
+	tests := []struct {
+		name     string
+		host     string
+		expected bool
+	}{
+		{"exact match", "jev-ai.org", true},
+		{"subdomain", "api.jev-ai.org", true},
+		{"multi-level subdomain", "gateway.api.jev-ai.org", true},
+		{"mixed case", "Jev-AI.Org", true},
+		{"subdomain mixed case", "API.JEV-AI.ORG", true},
+		{"with port", "jev-ai.org:443", true},
+		{"subdomain with port", "api.jev-ai.org:443", true},
+		{"notjev-ai.org", "notjev-ai.org", false},
+		{"jev-ai.org.example.com", "jev-ai.org.example.com", false},
+		{"unrelated host", "api.example.com", false},
+		{"empty", "", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodPost, "https://"+tc.host+"/api/v1/systemone", nil)
+			require.NoError(t, err)
+			result := isJevHost(req)
+			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestExtractHostname(t *testing.T) {
+	tests := []struct {
+		name     string
+		host     string
+		expected string
+	}{
+		{"hostname only", "jev-ai.org", "jev-ai.org"},
+		{"hostname with port", "jev-ai.org:443", "jev-ai.org"},
+		{"hostname with custom port", "jev-ai.org:8080", "jev-ai.org"},
+		{"localhost with port", "localhost:8080", "localhost"},
+		{"IP with port", "192.168.1.1:443", "192.168.1.1"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodPost, "https://"+tc.host+"/path", nil)
+			require.NoError(t, err)
+			result := extractHostname(req)
 			assert.Equal(t, tc.expected, result)
 		})
 	}
@@ -594,6 +735,150 @@ func TestJevSpan_ErrorParsing(t *testing.T) {
 
 			require.True(t, ok)
 			assert.Equal(t, tc.expectedError, span.GenAI.Jev.Error)
+		})
+	}
+}
+
+func TestJevSpan_PartialBodyClassification(t *testing.T) {
+	tests := []struct {
+		name          string
+		reqBody       string
+		respBody      string
+		expectedModel string
+		shouldDetect  bool
+	}{
+		{
+			name:          "truncation inside state",
+			reqBody:       `{"model":"jev-1.13","state":"Order #8814 arrived with a cracked`,
+			respBody:      jevResponseBody,
+			expectedModel: "jev-1.13",
+			shouldDetect:  true,
+		},
+		{
+			name:          "truncation inside questions",
+			reqBody:       `{"model":"jev-1.13","state":"test","questions":{"refund_requested":{"type":"noul"`,
+			respBody:      jevResponseBody,
+			expectedModel: "jev-1.13",
+			shouldDetect:  true,
+		},
+		{
+			name:          "complete model before request truncation",
+			reqBody:       `{"model":"jev-1.13"`,
+			respBody:      jevResponseBody,
+			expectedModel: "jev-1.13",
+			shouldDetect:  true,
+		},
+		{
+			name:          "response ID/model before response truncation",
+			reqBody:       jevRequestBody,
+			respBody:      `{"id":"dec_123","model":"jev-1.13"`,
+			expectedModel: "jev-1.13",
+			shouldDetect:  true,
+		},
+		{
+			name:          "response read failure with valid request",
+			reqBody:       jevRequestBody,
+			respBody:      "",
+			expectedModel: "jev-1.13",
+			shouldDetect:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := makeJevRequest(t, http.MethodPost, "https://jev-ai.org/api/v1/systemone", tc.reqBody)
+			resp := makeJevResponse(http.StatusOK, http.Header{
+				"Content-Type": []string{"application/json"},
+			}, tc.respBody)
+
+			base := &request.Span{}
+			base.Path = "/api/v1/systemone"
+			span, ok := JevSpan(base, req, resp)
+
+			assert.Equal(t, tc.shouldDetect, ok)
+			if tc.shouldDetect {
+				assert.NotNil(t, span.GenAI.Jev)
+				assert.Equal(t, tc.expectedModel, span.GenAI.Jev.Model)
+			}
+		})
+	}
+}
+
+func TestJevSpan_FailedGatewayRequests(t *testing.T) {
+	tests := []struct {
+		name          string
+		host          string
+		reqBody       string
+		respBody      string
+		expectedError string
+		shouldDetect  bool
+	}{
+		{
+			name:          "valid Jev gateway request with error response",
+			host:          "openrouter.ai",
+			reqBody:       jevRequestBody,
+			respBody:      `{"error":"Invalid request"}`,
+			expectedError: "Invalid request",
+			shouldDetect:  true,
+		},
+		{
+			name:          "Jev gateway request with truncated error response",
+			host:          "openrouter.ai",
+			reqBody:       jevRequestBody,
+			respBody:      `{"error":"rat`,
+			expectedError: "rat",
+			shouldDetect:  true,
+		},
+		{
+			name:          "generic gateway error with unrelated request model",
+			host:          "api.example.com",
+			reqBody:       `{"model":"gpt-4","messages":[]}`,
+			respBody:      `{"error":"Invalid request"}`,
+			expectedError: "",
+			shouldDetect:  false,
+		},
+		{
+			name:          "ordinary API request to /v1/systemone without Jev evidence",
+			host:          "api.example.com",
+			reqBody:       `{"data":"test"}`,
+			respBody:      `{"result":"ok"}`,
+			expectedError: "",
+			shouldDetect:  false,
+		},
+		{
+			name:          "known Jev host error response without model",
+			host:          "jev-ai.org",
+			reqBody:       jevRequestBody,
+			respBody:      `{"error":"rate limit"}`,
+			expectedError: "rate limit",
+			shouldDetect:  true,
+		},
+		{
+			name:          "response unavailable after sufficiently evidenced Jev request",
+			host:          "jev-ai.org",
+			reqBody:       jevRequestBody,
+			respBody:      "",
+			expectedError: "",
+			shouldDetect:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := makeJevRequest(t, http.MethodPost, "https://"+tc.host+"/api/v1/systemone", tc.reqBody)
+			resp := makeJevResponse(http.StatusOK, http.Header{
+				"Content-Type": []string{"application/json"},
+			}, tc.respBody)
+
+			base := &request.Span{}
+			base.Path = "/api/v1/systemone"
+			span, ok := JevSpan(base, req, resp)
+
+			assert.Equal(t, tc.shouldDetect, ok)
+			if tc.shouldDetect {
+				assert.NotNil(t, span.GenAI.Jev)
+				assert.Equal(t, tc.expectedError, span.GenAI.Jev.Error)
+			}
 		})
 	}
 }

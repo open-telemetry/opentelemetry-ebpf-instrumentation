@@ -1987,8 +1987,9 @@ func genAIResponseErrorMessage(span *request.Span) string {
 			return span.GenAI.Rerank.Output.Error.Message
 		}
 	case request.HTTPSubtypeJev:
-		// Jev doesn't have a structured error field in the current implementation
-		// HTTP status codes are used for error detection
+		if span.GenAI.Jev != nil {
+			return span.GenAI.Jev.Error
+		}
 	}
 
 	return ""
