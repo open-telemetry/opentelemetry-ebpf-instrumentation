@@ -47,7 +47,7 @@ make integration-test-k8s
 make oats-test
 ```
 
-, or all the above tasks. Each integration test target can take up to 50 minutes to complete, but you can
+You can also run all of the above tasks. Each integration test target can take up to 50 minutes to complete, but you can
 use standard `go` command-line tooling to individually run each integration test suite under
 the [internal/test/integration](./internal/test/integration) and [internal/test/integration/k8s](./internal/test/integration/k8s) folder.
 
