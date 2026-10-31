@@ -4,12 +4,16 @@
 package procs // import "go.opentelemetry.io/obi/pkg/internal/procs"
 
 import (
+	"bytes"
 	"debug/elf"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"math"
 	"os"
 	"slices"
+	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -102,41 +106,137 @@ func findLanguageFromElf(filePath string) (result svc.InstrumentableType) {
 	return matchExeSymbols(ctx)
 }
 
-func collectSymbols(f *elf.File, syms []elf.Symbol, symbolNames []string, addresses map[string]Sym, types ...elf.SymType) {
+func FindExeSymbols(f *elf.File, symbolNames []string, types ...elf.SymType) (map[string]Sym, error) {
+	addresses := map[string]Sym{}
 	if len(types) == 0 {
 		types = []elf.SymType{elf.STT_FUNC}
 	}
-	for _, s := range syms {
-		if !slices.Contains(types, elf.ST_TYPE(s.Info)) {
-			continue
+
+	for _, typ := range []elf.SectionType{elf.SHT_SYMTAB, elf.SHT_DYNSYM} {
+		if err := collectSymbols(f, typ, symbolNames, addresses, types); err != nil {
+			return nil, err
 		}
-
-		if !slices.Contains(symbolNames, s.Name) {
-			continue
-		}
-
-		addresses[s.Name] = resolveSymbol(f, s)
 	}
-}
-
-func FindExeSymbols(f *elf.File, symbolNames []string, types ...elf.SymType) (map[string]Sym, error) {
-	addresses := map[string]Sym{}
-
-	syms, err := f.Symbols()
-	if err != nil && !errors.Is(err, elf.ErrNoSymbols) {
-		return nil, err
-	}
-
-	collectSymbols(f, syms, symbolNames, addresses, types...)
-
-	dynsyms, err := f.DynamicSymbols()
-	if err != nil && !errors.Is(err, elf.ErrNoSymbols) {
-		return nil, err
-	}
-
-	collectSymbols(f, dynsyms, symbolNames, addresses, types...)
 
 	return addresses, nil
+}
+
+const symbolReadBufferSize = 64 << 10
+
+func collectSymbols(f *elf.File, typ elf.SectionType, symbolNames []string, addresses map[string]Sym, types []elf.SymType) error {
+	section := f.SectionByType(typ)
+	if section == nil || section.Size == 0 {
+		return nil
+	}
+
+	var symbolSize int
+	switch f.Class {
+	case elf.ELFCLASS32:
+		symbolSize = elf.Sym32Size
+	case elf.ELFCLASS64:
+		symbolSize = elf.Sym64Size
+	default:
+		return errors.New("unsupported ELF class")
+	}
+	if section.Size%uint64(symbolSize) != 0 {
+		return errors.New("length of symbol section is not a multiple of symbol size")
+	}
+	if section.Link == 0 || uint64(section.Link) >= uint64(len(f.Sections)) {
+		return errors.New("section has invalid string table link")
+	}
+
+	names, validStringSize, err := symbolNameOffsets(f.Sections[section.Link], symbolNames)
+	if err != nil {
+		return fmt.Errorf("cannot load string table section: %w", err)
+	}
+
+	reader := section.Open()
+	buffer := make([]byte, symbolReadBufferSize/symbolSize*symbolSize)
+	wantEmpty := slices.Contains(symbolNames, "")
+	for offset := uint64(0); offset < section.Size; {
+		size := int(min(uint64(len(buffer)), section.Size-offset))
+		if _, err := io.ReadFull(reader, buffer[:size]); err != nil {
+			return fmt.Errorf("cannot load symbol section: %w", err)
+		}
+		for start := 0; start < size; start += symbolSize {
+			// ELF symbol tables begin with a reserved null entry.
+			if offset == 0 && start == 0 {
+				continue
+			}
+
+			data := buffer[start : start+symbolSize]
+			nameOffset := f.ByteOrder.Uint32(data[:4])
+			name, ok := names[nameOffset]
+			if !ok && (!wantEmpty || uint64(nameOffset) < validStringSize) {
+				continue
+			}
+
+			symbol := elf.Symbol{Name: name}
+			if f.Class == elf.ELFCLASS64 {
+				symbol.Info = data[4]
+				symbol.Value = f.ByteOrder.Uint64(data[8:16])
+				symbol.Size = f.ByteOrder.Uint64(data[16:24])
+			} else {
+				symbol.Info = data[12]
+				symbol.Value = uint64(f.ByteOrder.Uint32(data[4:8]))
+				symbol.Size = uint64(f.ByteOrder.Uint32(data[8:12]))
+			}
+			if slices.Contains(types, elf.ST_TYPE(symbol.Info)) {
+				addresses[name] = resolveSymbol(f, symbol)
+			}
+		}
+		offset += uint64(size)
+	}
+	return nil
+}
+
+func symbolNameOffsets(section *elf.Section, symbolNames []string) (map[uint32]string, uint64, error) {
+	patterns := make(map[string]string, len(symbolNames))
+	maxNameLen := 0
+	for _, name := range symbolNames {
+		if strings.IndexByte(name, 0) >= 0 {
+			continue
+		}
+		patterns[name+"\x00"] = name
+		maxNameLen = max(maxNameLen, len(name))
+	}
+
+	names := map[uint32]string{}
+	buffer := make([]byte, symbolReadBufferSize+maxNameLen)
+	reader := section.Open()
+	var offset, validStringSize uint64
+	tail := 0
+	for remaining := section.Size; remaining > 0; {
+		size := int(min(uint64(len(buffer)-tail), remaining))
+		if _, err := io.ReadFull(reader, buffer[tail:tail+size]); err != nil {
+			return nil, 0, err
+		}
+		remaining -= uint64(size)
+		data := buffer[:tail+size]
+		if last := bytes.LastIndexByte(data, 0); last >= 0 {
+			validStringSize = offset + uint64(last) + 1
+		}
+		for pattern, name := range patterns {
+			for start := 0; start < len(data); {
+				index := bytes.Index(data[start:], []byte(pattern))
+				if index < 0 {
+					break
+				}
+				start += index
+				if nameOffset := offset + uint64(start); nameOffset <= math.MaxUint32 {
+					names[uint32(nameOffset)] = name
+				}
+				start += len(pattern)
+			}
+		}
+
+		// Keep overlapping bytes for names crossing reads. Matching suffixes also
+		// handles ELF string tables that share storage between symbol names.
+		tail = min(maxNameLen, len(data))
+		offset += uint64(len(data) - tail)
+		copy(buffer, data[len(data)-tail:])
+	}
+	return names, validStringSize, nil
 }
 
 func resolveSymbol(f *elf.File, s elf.Symbol) Sym {
