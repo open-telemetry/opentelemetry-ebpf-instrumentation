@@ -48,6 +48,7 @@ services:
     image: hatest-server
     ports:
       - "7373:7373"
+      - "7374:7374"
     environment:
       TEST_HTTP2_PROTOCOLS: ${TEST_HTTP2_PROTOCOLS}
     depends_on:
@@ -86,6 +87,7 @@ services:
     pid: "host"
     environment:
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS: "${OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS:-false}"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
@@ -144,7 +146,7 @@ services:
     image: quay.io/prometheus/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
     container_name: prometheus
     command:
-      - --config.file=/etc/prometheus/prometheus-config-promscrape.yml
+      - --config.file=/etc/prometheus/${PROMETHEUS_CONFIG:-prometheus-config-promscrape.yml}
       - --web.enable-lifecycle
       - --web.route-prefix=/
     volumes:

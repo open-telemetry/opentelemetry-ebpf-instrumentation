@@ -217,6 +217,61 @@ func testHTTP2GO(t *testing.T, compose *docker.Compose, useHTTPProtocols bool) {
 	require.NoError(t, compose.Close())
 }
 
+func TestHTTP2ServerAddressFromAuthority(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-http2.yml", path.Join(pathOutput, "test-suite-http2-authority.log"))
+	require.NoError(t, err)
+	compose.Env = append(compose.Env,
+		"OTEL_EBPF_EXECUTABLE_PATH=",
+		"OTEL_EBPF_OPEN_PORT=",
+		"OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS=true",
+		"PROMETHEUS_CONFIG=prometheus-config-perapp.yml",
+	)
+	if !KernelLockdownMode() {
+		compose.Env = append(compose.Env, "SECURITY_CONFIG_SUFFIX=_none")
+	}
+	require.NoError(t, compose.Up())
+	t.Cleanup(func() { require.NoError(t, compose.Close()) })
+	t.Cleanup(func() { runWeaverValidation(t) })
+
+	transport := newHTTP2Transport()
+	transport.DisableKeepAlives = true
+	transport.Protocols.SetUnencryptedHTTP2(true)
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: 5 * time.Second}
+	pq := promtest.Client{HostPort: prometheusHostPort}
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		req, err := http.NewRequest(http.MethodGet, "http://localhost:7374/server-address", nil)
+		require.NoError(ct, err)
+		req.Host = "api.example.com:8443"
+		req.Header.Set("Content-Type", "text/plain")
+		resp, err := client.Do(req)
+		require.NoError(ct, err)
+		require.NoError(ct, resp.Body.Close())
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		require.Equal(ct, 2, resp.ProtoMajor)
+
+		resp, err = getJaeger(jaegerQueryURL + "?service=server&operation=GET%20%2Fserver-address")
+		require.NoError(ct, err)
+		defer resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var traces jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&traces))
+		assert.NotEmpty(ct, traces.FindBySpan(
+			jaeger.Tag{Key: "server.address", Type: "string", Value: "api.example.com"},
+			jaeger.Tag{Key: "network.protocol.version", Type: "string", Value: "2"},
+		))
+
+		for _, exporter := range []string{"otel", "prometheus"} {
+			query := fmt.Sprintf(`http_server_request_duration_seconds_count{service_name="server",http_route="/server-address",server_address="api.example.com",exported=%q}`, exporter)
+			results, err := pq.Query(query)
+			require.NoError(ct, err)
+			enoughPromResults(ct, results)
+			assert.LessOrEqual(ct, 1, totalPromCount(ct, results))
+		}
+	}, testTimeout, time.Second)
+}
+
 func testHTTP2TraceparentOwnership(t *testing.T, compose *docker.Compose) {
 	tests := []struct {
 		name       string

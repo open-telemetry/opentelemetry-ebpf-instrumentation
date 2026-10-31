@@ -147,6 +147,9 @@ section empty once drained.
   `count`. This changes the span names and `db.operation.name` on `db.client.operation.duration`,
   and `span.name` on the span metrics. Commands that don't go through a probed `Collection`
   method, such as `BulkWrite`, are now reported as well, which adds spans and metric series.
+- HTTP server spans and metrics now derive `server.address` from the captured HTTP request
+  host, without its port, instead of the resolved service name. When the request host is
+  unavailable, the OTLP attribute is omitted and the Prometheus label is empty.
 
 ## Hosting notes
 
