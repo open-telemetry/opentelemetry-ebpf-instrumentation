@@ -12,7 +12,7 @@
 
 #include <maps/pid_samplers.h>
 
-#include <pid/pid.h>
+#include <pid/pid_helpers.h>
 
 // The key the OpenTelemetry Go SDK TraceIDRatioBased sampler compares with its
 // threshold: the trace id's last 8 bytes, big endian, shifted right by one
@@ -23,30 +23,42 @@ static __always_inline u64 trace_id_ratio_key(const unsigned char *trace_id) {
     return bpf_be64_to_cpu(low) >> 1;
 }
 
-static __always_inline const sampler_t *current_sampler(void) {
-    const u32 pid = obi_pid(bpf_get_current_pid_tgid());
-
-    return bpf_map_lookup_elem(&pid_samplers, &pid);
-}
-
 static __always_inline u8 sampler_decision(const sampler_t *sampler, const tp_info_t *tp) {
     return trace_id_ratio_key(tp->trace_id) < sampler->threshold ? k_flag_sampled : 0;
 }
 
+static __always_inline const sampler_t *sampler_for_pid(const pid_info_t *pid) {
+    const pid_info_t key = {.user_pid = pid->user_pid, .ns = pid->ns};
+
+    return bpf_map_lookup_elem(&pid_samplers, &key);
+}
+
 // A trace this process starts takes its sampler's decision
-static __always_inline void sample_new_trace(tp_info_t *tp) {
-    const sampler_t *sampler = current_sampler();
+static __always_inline void sample_new_trace_for_pid(tp_info_t *tp, const pid_info_t *pid) {
+    const sampler_t *sampler = sampler_for_pid(pid);
 
     tp->flags = sampler ? sampler_decision(sampler, tp) : k_flag_sampled;
 }
 
+static __always_inline void sample_new_trace(tp_info_t *tp) {
+    pid_info_t pid = {};
+    task_pid(&pid);
+    sample_new_trace_for_pid(tp, &pid);
+}
+
 // A span continuing a trace from another process keeps the parent's decision
 // under a parent based sampler, and takes its own otherwise
-static __always_inline void sample_remote_child(tp_info_t *tp) {
-    const sampler_t *sampler = current_sampler();
+static __always_inline void sample_remote_child_for_pid(tp_info_t *tp, const pid_info_t *pid) {
+    const sampler_t *sampler = sampler_for_pid(pid);
     if (!sampler || sampler->parent_based) {
         return;
     }
 
     tp->flags = (u8)(tp->flags & ~k_flag_sampled) | sampler_decision(sampler, tp);
+}
+
+static __always_inline void sample_remote_child(tp_info_t *tp) {
+    pid_info_t pid = {};
+    task_pid(&pid);
+    sample_remote_child_for_pid(tp, &pid);
 }

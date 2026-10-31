@@ -228,7 +228,7 @@ static __always_inline void failed_to_connect_event(pid_connection_info_t *pid_c
                                                     u64 connect_ts) {
     tcp_req_t *req = events_ringbuf_reserve(sizeof(tcp_req_t), 0);
     if (req) {
-        pid_info pid = {};
+        pid_info_t pid = {};
         task_pid(&pid);
         const u64 event_ts = bpf_ktime_get_ns();
         const u64 extra_id = extra_runtime_id();

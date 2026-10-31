@@ -19,7 +19,7 @@
 
 #include <common/sampling.h>
 
-static const u32 k_test_pid = 4242;
+static const pid_info_t k_test_pid = {.host_pid = 9000, .user_pid = 4242, .ns = 42};
 
 // the whole trace id ratio key space: TraceIDRatioBased(1)
 static const u64 k_all_threshold = 1ULL << 63;
@@ -30,7 +30,9 @@ static sampler_t test_sampler;
 static bool test_sampler_set;
 
 static void *lookup_test_sampler(void *map, const void *key) {
-    if (map != &pid_samplers || !test_sampler_set || *(const u32 *)key != k_test_pid) {
+    const pid_info_t *pid = key;
+    if (map != &pid_samplers || !test_sampler_set || pid->host_pid != 0 ||
+        pid->user_pid != k_test_pid.user_pid || pid->ns != k_test_pid.ns) {
         return NULL;
     }
 
@@ -75,7 +77,7 @@ static void test_process_without_sampler_keeps_new_traces(void) {
     use_no_sampler();
     tp_info_t tp = trace_with_low_bytes(~0ULL);
 
-    sample_new_trace(&tp);
+    sample_new_trace_for_pid(&tp, &k_test_pid);
 
     expect(tp.flags == k_flag_sampled, "a process without a sampler samples the traces it starts");
 }
@@ -85,8 +87,8 @@ static void test_ratio_sampler_decides_new_traces(void) {
     tp_info_t below = trace_with_low_bytes((k_half_threshold - 1) << 1);
     tp_info_t at = trace_with_low_bytes(k_half_threshold << 1);
 
-    sample_new_trace(&below);
-    sample_new_trace(&at);
+    sample_new_trace_for_pid(&below, &k_test_pid);
+    sample_new_trace_for_pid(&at, &k_test_pid);
 
     expect(below.flags == k_flag_sampled, "a trace whose key is below the threshold is sampled");
     expect(at.flags == 0, "a trace whose key reaches the threshold is not sampled");
@@ -95,14 +97,21 @@ static void test_ratio_sampler_decides_new_traces(void) {
 static void test_sampler_is_looked_up_by_pid(void) {
     use_sampler(0, 1);
     tp_info_t tp = trace_with_low_bytes(0);
+    pid_info_t pid = k_test_pid;
 
-    bpf_current_pid_tgid_value = (u64)(k_test_pid + 1) << 32;
-    sample_new_trace(&tp);
+    pid.user_pid++;
+    sample_new_trace_for_pid(&tp, &pid);
     expect(tp.flags == k_flag_sampled, "another process's sampler does not apply");
 
-    bpf_current_pid_tgid_value = (u64)k_test_pid << 32;
-    sample_new_trace(&tp);
-    expect(tp.flags == 0, "the current process's sampler applies");
+    pid = k_test_pid;
+    pid.ns++;
+    sample_new_trace_for_pid(&tp, &pid);
+    expect(tp.flags == k_flag_sampled, "the same pid in another namespace has its own sampler");
+
+    pid = k_test_pid;
+    pid.host_pid++;
+    sample_new_trace_for_pid(&tp, &pid);
+    expect(tp.flags == 0, "the namespace identity selects the sampler independently of host pid");
 }
 
 static void test_parent_based_sampler_keeps_remote_decision(void) {
@@ -110,14 +119,14 @@ static void test_parent_based_sampler_keeps_remote_decision(void) {
     sampled.flags = k_flag_sampled;
     // on its own, this sampler drops every trace
     use_sampler(0, 1);
-    sample_remote_child(&sampled);
+    sample_remote_child_for_pid(&sampled, &k_test_pid);
     expect(sampled.flags == k_flag_sampled, "a parent based sampler keeps a sampled parent");
 
     tp_info_t unsampled = trace_with_low_bytes(0);
     unsampled.flags = 0;
     // on its own, this sampler keeps every trace
     use_sampler(k_all_threshold, 1);
-    sample_remote_child(&unsampled);
+    sample_remote_child_for_pid(&unsampled, &k_test_pid);
     expect(unsampled.flags == 0, "a parent based sampler keeps an unsampled parent");
 }
 
@@ -128,8 +137,8 @@ static void test_other_samplers_decide_remote_children(void) {
     tp_info_t sampled_parent = trace_with_low_bytes(~0ULL);
     sampled_parent.flags = k_flag_sampled;
 
-    sample_remote_child(&unsampled_parent);
-    sample_remote_child(&sampled_parent);
+    sample_remote_child_for_pid(&unsampled_parent, &k_test_pid);
+    sample_remote_child_for_pid(&sampled_parent, &k_test_pid);
 
     expect(unsampled_parent.flags == k_flag_sampled,
            "a sampler that is not parent based samples by the trace id");
@@ -141,14 +150,13 @@ static void test_process_without_sampler_keeps_remote_decision(void) {
     tp_info_t tp = trace_with_low_bytes(0);
     tp.flags = 0;
 
-    sample_remote_child(&tp);
+    sample_remote_child_for_pid(&tp, &k_test_pid);
 
     expect(tp.flags == 0, "a process without a sampler keeps the parent's decision");
 }
 
 int main(void) {
     bpf_map_lookup_elem_hook = lookup_test_sampler;
-    bpf_current_pid_tgid_value = (u64)k_test_pid << 32;
 
     test_ratio_key_matches_go_sdk();
     test_process_without_sampler_keeps_new_traces();

@@ -62,6 +62,7 @@ type Tracer struct {
 	iterMu             sync.Mutex
 	// the valid_pids words as last written to the BPF map
 	validPids      ebpfcommon.PIDBitmap
+	pidSamplers    ebpfcommon.PIDSamplers
 	seenNetns      *expirable.LRU[uint64, struct{}]
 	eventCtx       *ebpfcommon.EBPFEventContext
 	jvmUSDTManager ebpfcommon.USDTSpecManager
@@ -130,7 +131,7 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 		serviceSource = source
 	}
 	p.pidsFilter.AllowPID(pid, ns, serviceSource, ebpfcommon.PIDTypeKProbes)
-	p.writePIDSampler(pid, serviceSource)
+	p.writePIDSampler(pid, ns, serviceSource)
 	if p.pythonRuntime != nil {
 		p.pythonRuntime.allow(pid, ns, fi, serviceSource)
 	}
@@ -143,12 +144,12 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	p.runItersForPID(pid)
 }
 
-func (p *Tracer) writePIDSampler(pid app.PID, fi *exec.FileInfo) {
+func (p *Tracer) writePIDSampler(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	if p.bpfObjects.PidSamplers == nil {
 		return
 	}
 
-	err := ebpfcommon.WritePIDSampler(p.bpfObjects.PidSamplers, pid, fi.ServiceAttrs().SamplerConfig, &p.cfg.Traces.SamplerConfig)
+	err := p.pidSamplers.Write(p.bpfObjects.PidSamplers, pid, ns, fi.ServiceAttrs().SamplerConfig, &p.cfg.Traces.SamplerConfig)
 	if err != nil {
 		p.log.Error("setting the process sampler in eBPF", "pid", pid, "error", err)
 	}
@@ -169,7 +170,7 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.pidsFilter.BlockPID(pid, ns)
 
 	if p.bpfObjects.PidSamplers != nil {
-		if err := ebpfcommon.DeletePIDSampler(p.bpfObjects.PidSamplers, pid); err != nil {
+		if err := p.pidSamplers.Delete(p.bpfObjects.PidSamplers, pid); err != nil {
 			p.log.Error("removing the process sampler from eBPF", "pid", pid, "error", err)
 		}
 	}

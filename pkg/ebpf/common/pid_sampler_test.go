@@ -10,12 +10,25 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/trace"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 )
+
+func TestPIDSamplerKeyUsesInnermostNamespace(t *testing.T) {
+	original := readNamespacePIDs
+	t.Cleanup(func() { readNamespacePIDs = original })
+	for _, pids := range [][]app.PID{{1234}, {1234, 70}, {1234, 70, 1}, {70, 1}} {
+		readNamespacePIDs = func(app.PID) ([]app.PID, error) { return pids, nil }
+		key, err := pidSamplerKey(pids[0], 42)
+		require.NoError(t, err)
+		assert.Equal(t, BpfPidInfoT{UserPid: uint32(pids[len(pids)-1]), Ns: 42}, key)
+	}
+}
 
 // bpfDecision mirrors sample_new_trace and sample_remote_child (bpf/common/sampling.h)
 func bpfDecision(sampler BpfSamplerT, hasEntry bool, traceID trace.TraceID, parent *bool) bool {

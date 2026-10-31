@@ -5,6 +5,8 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
 	"errors"
+	"fmt"
+	"sync"
 
 	"github.com/cilium/ebpf"
 
@@ -15,6 +17,12 @@ import (
 // ratioKeySpace is the number of TraceIDRatioBased keys: the 63 bits left of a
 // trace id's last 8 bytes once the OpenTelemetry Go SDK shifts them right by one
 const ratioKeySpace = 1 << 63
+
+// PIDSamplers keeps the namespace keys needed to remove samplers after processes exit.
+type PIDSamplers struct {
+	mu   sync.Mutex
+	keys map[app.PID]BpfPidInfoT
+}
 
 // pidSampler returns the pid_samplers entry (bpf/maps/pid_samplers.h) of a
 // process with the service's sampler, or the global one when it has none. The
@@ -53,21 +61,61 @@ func ratioThreshold(ratio float64) uint64 {
 	}
 }
 
-// WritePIDSampler sets the sampler eBPF applies to the traces the process starts
-func WritePIDSampler(m *ebpf.Map, pid app.PID, service, global *services.SamplerConfig) error {
+// Write sets the sampler eBPF applies to the traces the process starts.
+func (s *PIDSamplers) Write(m *ebpf.Map, pid app.PID, ns uint32, service, global *services.SamplerConfig) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
 	sampler, ok := pidSampler(service, global)
 	if !ok {
-		return DeletePIDSampler(m, pid)
+		return s.delete(m, pid)
 	}
 
-	return m.Put(uint32(pid), sampler)
-}
-
-// DeletePIDSampler leaves the process with the default sampler
-func DeletePIDSampler(m *ebpf.Map, pid app.PID) error {
-	if err := m.Delete(uint32(pid)); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+	key, err := pidSamplerKey(pid, ns)
+	if err != nil {
 		return err
 	}
-
+	if old, exists := s.keys[pid]; exists && old != key {
+		if err := s.delete(m, pid); err != nil {
+			return err
+		}
+	}
+	if err := m.Put(key, sampler); err != nil {
+		return err
+	}
+	if s.keys == nil {
+		s.keys = map[app.PID]BpfPidInfoT{}
+	}
+	s.keys[pid] = key
 	return nil
+}
+
+// Delete leaves the process with the default sampler.
+func (s *PIDSamplers) Delete(m *ebpf.Map, pid app.PID) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.delete(m, pid)
+}
+
+func (s *PIDSamplers) delete(m *ebpf.Map, pid app.PID) error {
+	key, ok := s.keys[pid]
+	if !ok {
+		return nil
+	}
+	if err := m.Delete(key); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
+		return err
+	}
+	delete(s.keys, pid)
+	return nil
+}
+
+func pidSamplerKey(pid app.PID, ns uint32) (BpfPidInfoT, error) {
+	pids, err := readNamespacePIDs(pid)
+	if err != nil {
+		return BpfPidInfoT{}, fmt.Errorf("reading namespaced PIDs: %w", err)
+	}
+	if len(pids) != 0 {
+		pid = pids[len(pids)-1]
+	}
+	return BpfPidInfoT{UserPid: uint32(pid), Ns: ns}, nil
 }

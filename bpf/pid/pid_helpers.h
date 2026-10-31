@@ -30,8 +30,8 @@ ns_pid_ppid(const struct task_struct *task, int *pid, int *ppid, u32 *pid_ns_id)
     *pid_ns_id = BPF_CORE_READ(task, nsproxy, pid_ns_for_children, ns.inum);
 }
 
-// sets the pid_info value from the current task
-static __always_inline void task_pid(pid_info *pid) {
+// sets the pid_info_t value from the current task
+static __always_inline void task_pid(pid_info_t *pid) {
     struct upid upid;
     struct task_struct *task = (struct task_struct *)bpf_get_current_task();
 
@@ -61,7 +61,7 @@ static __always_inline u32 get_task_tid() {
     return (u32)upid.nr;
 }
 
-// TODO: merge pid_key_t and pid_info in a single struct returned by a single
+// TODO: merge pid_key_t and pid_info_t in a single struct returned by a single
 // function replacing both task_pid and task_tid to avoid duplicate work
 static __always_inline void task_tid(pid_key_t *tid) {
     struct upid upid;

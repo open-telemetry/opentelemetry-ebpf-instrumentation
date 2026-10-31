@@ -60,18 +60,24 @@ static __always_inline u8 parent_trace_is_stale(const tp_info_t *parent_tp,
     return child_tp->ts >= parent_tp->ts;
 }
 
-static __always_inline void init_new_trace(tp_info_t *tp) {
+static __always_inline void init_new_trace_for_pid(tp_info_t *tp, const pid_info_t *pid) {
     bpf_d_printk("Generating new traceparent id [%s]", __FUNCTION__);
     new_trace_id(tp);
     urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
     __builtin_memset(tp->parent_id, 0, sizeof(tp->span_id));
     // ts gates should_be_in_same_transaction
     tp->ts = bpf_ktime_get_ns();
-    sample_new_trace(tp);
+    sample_new_trace_for_pid(tp, pid);
 
     if (g_bpf_debug) {
         unsigned char tp_buf[TP_MAX_VAL_LENGTH];
         make_tp_string(tp_buf, tp);
         bpf_dbg_printk("tp_buf=[%s]", tp_buf);
     }
+}
+
+static __always_inline void init_new_trace(tp_info_t *tp) {
+    pid_info_t pid = {};
+    task_pid(&pid);
+    init_new_trace_for_pid(tp, &pid);
 }
