@@ -2492,3 +2492,64 @@ func TestExportedSpansCarrySampledFlag(t *testing.T) {
 
 	assert.Equal(t, uint32(trace2.FlagsSampled), exported.Flags())
 }
+
+type decisionSampler struct {
+	decision sdktrace.SamplingDecision
+}
+
+func (s decisionSampler) ShouldSample(sdktrace.SamplingParameters) sdktrace.SamplingResult {
+	return sdktrace.SamplingResult{Decision: s.decision}
+}
+
+func (decisionSampler) Description() string {
+	return "decision sampler"
+}
+
+func TestExportedSpansCarryTheSamplerDecision(t *testing.T) {
+	tests := []struct {
+		name     string
+		decision sdktrace.SamplingDecision
+		flags    uint32
+	}{
+		{name: "record and sample", decision: sdktrace.RecordAndSample, flags: uint32(trace2.FlagsSampled)},
+		{name: "record only", decision: sdktrace.RecordOnly, flags: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			span := request.Span{
+				Type:         request.EventTypeHTTP,
+				Method:       "GET",
+				Path:         "/",
+				RequestStart: 1,
+				Start:        2,
+				End:          3,
+				TraceID:      trace2.TraceID{1},
+				SpanID:       trace2.SpanID{1},
+				TraceFlags:   uint8(trace2.FlagsSampled),
+			}
+
+			groups := GroupSpans(
+				t.Context(),
+				[]request.Span{span},
+				map[attr.Name]struct{}{},
+				decisionSampler{decision: tt.decision},
+				instrumentations.NewInstrumentationSelection(
+					[]instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+				),
+			)
+			group := groups[span.Service.UID]
+			require.Len(t, group, 1)
+
+			cache := expirable2.NewLRU[svc.UID, []attribute.KeyValue](10, nil, 0)
+			traces := GenerateTracesWithAttributes(cache, &span.Service, nil, &metadata.NodeMeta{}, group, "obi")
+
+			// the request span and its queue and processing subspans
+			spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+			require.Equal(t, 3, spans.Len())
+			for i := range spans.Len() {
+				assert.Equal(t, tt.flags, spans.At(i).Flags(), spans.At(i).Name())
+			}
+		})
+	}
+}
