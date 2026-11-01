@@ -6,7 +6,6 @@ package convert // import "go.opentelemetry.io/obi/internal/config/convert"
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"reflect"
 	"slices"
 	"strings"
@@ -704,19 +703,12 @@ func validateV2HTTPPayloadExtraction(payload schema.PayloadExtraction) error {
 				extractor,
 			)
 		}
-		if extractor == payloadExtractorDeprecatedEnrichment {
-			slog.Warn("capture.instrumentation.http.payload_extraction.enabled value is deprecated and will be removed in a future release",
-				"value", extractor, "use", "capture.instrumentation.http.payload_extraction.enrichment.enabled")
-		}
 	}
 	return nil
 }
 
 func validV2HTTPPayloadExtractor(extractor string) bool {
 	if _, ok := payloadExtractorGroups[extractor]; ok {
-		return true
-	}
-	if extractor == payloadExtractorDeprecatedEnrichment {
 		return true
 	}
 	switch extractor {
@@ -738,7 +730,8 @@ func validV2HTTPPayloadExtractor(extractor string) bool {
 		payloadExtractorEmbedding,
 		payloadExtractorRerank,
 		payloadExtractorRetrieval,
-		payloadExtractorJSONRPC:
+		payloadExtractorJSONRPC,
+		payloadExtractorEnrichment:
 		return true
 	default:
 		return false
@@ -1472,7 +1465,6 @@ func applyFullV2HTTPPayloadExtraction(cfg *obi.Config, payload schema.PayloadExt
 	http.SQLPP.PreparedStatementsCacheSize = payload.SQLPP.PreparedStatementsCacheSize
 	http.GenAI.OpenAICompatible.Gateways = payload.OpenAICompatible.Gateways
 	applyFullV2HTTPEnrichment(http, payload.Enrichment)
-	http.Enrichment.Enabled = v2HTTPEnrichmentEnabled(payload)
 }
 
 func applyPartialV2HTTPPayloadExtraction(cfg *obi.Config, payload schema.PayloadExtraction) {
@@ -1496,13 +1488,6 @@ func applyPartialV2HTTPPayloadExtraction(cfg *obi.Config, payload schema.Payload
 	if !zeroValue(payload.Enrichment) {
 		applyPartialV2HTTPEnrichment(http, payload.Enrichment)
 	}
-	if v2HTTPEnrichmentEnabled(payload) {
-		http.Enrichment.Enabled = true
-	}
-}
-
-func v2HTTPEnrichmentEnabled(payload schema.PayloadExtraction) bool {
-	return payload.Enrichment.Enabled || slices.Contains(payload.Enabled, payloadExtractorDeprecatedEnrichment)
 }
 
 func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled []string) {
@@ -1526,6 +1511,7 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 	http.GenAI.Cohere.Enabled = false
 	http.GenAI.OpenAICompatible.Enabled = false
 	http.JSONRPC.Enabled = false
+	http.Enrichment.Enabled = false
 
 	for _, extractor := range expandV2HTTPPayloadExtractors(enabled) {
 		switch extractor {
@@ -1567,6 +1553,8 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 			http.GenAI.OpenAICompatible.Enabled = true
 		case payloadExtractorJSONRPC:
 			http.JSONRPC.Enabled = true
+		case payloadExtractorEnrichment:
+			http.Enrichment.Enabled = true
 		}
 	}
 }

@@ -90,14 +90,13 @@ const (
 	payloadExtractorCohere           = "cohere"
 	payloadExtractorOpenAICompatible = "openai_compatible"
 	payloadExtractorJSONRPC          = "jsonrpc"
+	payloadExtractorEnrichment       = "enrichment"
 
 	payloadExtractorAll      = "all"
 	payloadExtractorWildcard = "*"
 	payloadExtractorGenAI    = "genai"
 	payloadExtractorDatabase = "database"
 	payloadExtractorAWS      = "aws"
-
-	payloadExtractorDeprecatedEnrichment = "enrichment"
 )
 
 var payloadExtractorAWSMembers = []string{
@@ -201,6 +200,10 @@ func payloadExtraction(cfg *obi.Config) schema.PayloadExtraction {
 	if http.JSONRPC.Enabled {
 		enabled = append(enabled, payloadExtractorJSONRPC)
 	}
+	if http.Enrichment.Enabled {
+		enabled = append(enabled, payloadExtractorEnrichment)
+	}
+
 	return schema.PayloadExtraction{
 		Enabled: enabled,
 		SQLPP: schema.SQLPPPayload{
@@ -217,7 +220,6 @@ func payloadExtraction(cfg *obi.Config) schema.PayloadExtraction {
 func httpEnrichment(cfg *obi.Config) schema.HTTPEnrichment {
 	enrichment := cfg.EBPF.PayloadExtraction.HTTP.Enrichment
 	return schema.HTTPEnrichment{
-		Enabled: enrichment.Enabled,
 		Policy: schema.HTTPEnrichmentPolicy{
 			DefaultAction: schema.HTTPEnrichmentDefaultAction{
 				Headers: enrichment.Policy.DefaultAction.Headers,

@@ -585,7 +585,6 @@ func parityChecks() []parityCheck {
 		{[]string{"routes", "max_path_segment_cardinality"}, []string{"obi", "capture", "instrumentation", "http", "routes", "incoming", "max_path_segment_cardinality"}},
 		{[]string{"routes", "max_path_segment_cardinality"}, []string{"obi", "capture", "instrumentation", "http", "routes", "outgoing", "max_path_segment_cardinality"}},
 		{[]string{"ebpf", "payload_extraction", "http", "sqlpp", "endpoint_patterns"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "sqlpp", "endpoint_patterns"}},
-		{[]string{"ebpf", "payload_extraction", "http", "enrichment", "enabled"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "enrichment", "enabled"}},
 		{[]string{"ebpf", "payload_extraction", "http", "enrichment", "policy", "default_action", "headers"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "enrichment", "policy", "default_action", "headers"}},
 		{[]string{"ebpf", "payload_extraction", "http", "enrichment", "policy", "default_action", "body"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "enrichment", "policy", "default_action", "body"}},
 		{[]string{"ebpf", "payload_extraction", "http", "enrichment", "policy", "obfuscation_string"}, []string{"obi", "capture", "instrumentation", "http", "payload_extraction", "enrichment", "policy", "obfuscation_string"}},
@@ -685,7 +684,7 @@ func verifyDefaults(cur map[string]any, ex map[string]any) ([]error, int) {
 	}
 	derivedChecks++
 
-	for _, extractor := range []string{"graphql", "elasticsearch", "sqlpp", "jsonrpc"} {
+	for _, extractor := range []string{"graphql", "elasticsearch", "sqlpp", "jsonrpc", "enrichment"} {
 		if err := mustMapPayloadExtractionMembership(cur, ex, extractor); err != nil {
 			failures = append(failures, err)
 		}

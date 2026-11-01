@@ -719,47 +719,18 @@ func TestV2ToRuntimeHTTPPayloadExtractionGroups(t *testing.T) {
 	}
 }
 
-func TestV2ToRuntimeHTTPEnrichmentEnabledSeparatelyFromExtractors(t *testing.T) {
+func TestV2ToRuntimeHTTPEnrichmentOnlyWhenListed(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
-		payload    schema.PayloadExtraction
+		enabled    []string
 		enrichment bool
 	}{
-		{
-			name:       "wildcard leaves enrichment off",
-			payload:    schema.PayloadExtraction{Enabled: []string{payloadExtractorWildcard}},
-			enrichment: false,
-		},
-		{
-			name: "enrichment block enables it",
-			payload: schema.PayloadExtraction{
-				Enrichment: schema.HTTPEnrichment{Enabled: true},
-			},
-			enrichment: true,
-		},
-		{
-			name: "wildcard with enrichment block",
-			payload: schema.PayloadExtraction{
-				Enabled:    []string{payloadExtractorWildcard},
-				Enrichment: schema.HTTPEnrichment{Enabled: true},
-			},
-			enrichment: true,
-		},
-		{
-			name:       "deprecated enrichment value enables it",
-			payload:    schema.PayloadExtraction{Enabled: []string{payloadExtractorDeprecatedEnrichment}},
-			enrichment: true,
-		},
-		{
-			name: "deprecated enrichment value with explicit false block",
-			payload: schema.PayloadExtraction{
-				Enabled:    []string{payloadExtractorGraphQL, payloadExtractorDeprecatedEnrichment},
-				Enrichment: schema.HTTPEnrichment{Enabled: false},
-			},
-			enrichment: true,
-		},
+		{name: "all leaves enrichment off", enabled: []string{payloadExtractorAll}, enrichment: false},
+		{name: "wildcard leaves enrichment off", enabled: []string{payloadExtractorWildcard}, enrichment: false},
+		{name: "listed enrichment enables it", enabled: []string{payloadExtractorEnrichment}, enrichment: true},
+		{name: "wildcard with enrichment", enabled: []string{payloadExtractorWildcard, payloadExtractorEnrichment}, enrichment: true},
 	}
 
 	for _, test := range tests {
@@ -770,7 +741,9 @@ func TestV2ToRuntimeHTTPEnrichmentEnabledSeparatelyFromExtractors(t *testing.T) 
 				Version: schema.SupportedVersion,
 				Capture: schema.Capture{
 					Instrumentation: schema.Instrumentation{
-						HTTP: schema.HTTPInstrumentation{PayloadExtraction: test.payload},
+						HTTP: schema.HTTPInstrumentation{
+							PayloadExtraction: schema.PayloadExtraction{Enabled: test.enabled},
+						},
 					},
 				},
 			})
@@ -781,7 +754,7 @@ func TestV2ToRuntimeHTTPEnrichmentEnabledSeparatelyFromExtractors(t *testing.T) 
 	}
 }
 
-func TestRuntimeToV2HTTPEnrichmentExportsOnlyCanonicalForm(t *testing.T) {
+func TestRuntimeToV2HTTPEnrichmentExportsAsListedValue(t *testing.T) {
 	t.Parallel()
 
 	cfg := defaultRuntimeConfig()
@@ -789,7 +762,5 @@ func TestRuntimeToV2HTTPEnrichmentExportsOnlyCanonicalForm(t *testing.T) {
 
 	_, ext := RuntimeToV2(&cfg)
 
-	payload := ext.Capture.Instrumentation.HTTP.PayloadExtraction
-	require.True(t, payload.Enrichment.Enabled)
-	require.NotContains(t, payload.Enabled, payloadExtractorDeprecatedEnrichment)
+	require.Contains(t, ext.Capture.Instrumentation.HTTP.PayloadExtraction.Enabled, payloadExtractorEnrichment)
 }

@@ -213,18 +213,16 @@ type SQLPPPayload struct {
 
 // HTTPEnrichment describes HTTP payload enrichment policy and rules.
 type HTTPEnrichment struct {
-	Enabled bool                     `yaml:"enabled"`
-	Policy  HTTPEnrichmentPolicy     `yaml:"policy"`
-	Rules   []config.HTTPParsingRule `yaml:"rules"`
+	Policy HTTPEnrichmentPolicy     `yaml:"policy"`
+	Rules  []config.HTTPParsingRule `yaml:"rules"`
 }
 
 // UnmarshalYAML keeps the enrichment object strict while accepting the
 // implementation-specific properties allowed inside each rule.
 func (e *HTTPEnrichment) UnmarshalYAML(value *yaml.Node) error {
 	var decoded struct {
-		Enabled bool                 `yaml:"enabled"`
-		Policy  HTTPEnrichmentPolicy `yaml:"policy"`
-		Rules   yaml.Node            `yaml:"rules"`
+		Policy HTTPEnrichmentPolicy `yaml:"policy"`
+		Rules  yaml.Node            `yaml:"rules"`
 	}
 	if err := decodeKnownFields(value, &decoded); err != nil {
 		return err
@@ -236,7 +234,6 @@ func (e *HTTPEnrichment) UnmarshalYAML(value *yaml.Node) error {
 			return err
 		}
 	}
-	e.Enabled = decoded.Enabled
 	e.Policy = decoded.Policy
 	e.Rules = rules
 	return nil
