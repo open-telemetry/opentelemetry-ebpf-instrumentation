@@ -335,6 +335,8 @@ SQL++ spans are generated with the following attributes:
 
 For prepared statements, `db.operation.name` and `db.query.text` come from the prepared statement. A PREPARE without `auto_execute` reports `db.operation.name` = `"PREPARE"`. An execution whose name OBI never saw prepared reports `db.operation.name` = `"EXECUTE"`; `db.query.text` is the `EXECUTE ...` text when the SQL++ form was used, and empty for a name-only request.
 
+Set `capture.instrumentation.sql.sanitize_query_text: true` (config v2) to replace string, numeric and boolean literals in `db.query.text` with `?`, as for SQL spans.
+
 ### Configuration
 
 SQL++ parsing requires the following configuration:

@@ -21,7 +21,7 @@ extensions:
         - action: include
           match:
             process:
-              open_ports: "8080,8086"
+              open_ports: "${JAVA_HTTPCLIENT_PORTS:-8080,8086}"
       instrumentation:
         http:
           enabled:

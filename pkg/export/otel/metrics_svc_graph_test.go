@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/otel/attribute"
 
@@ -607,4 +608,22 @@ drain:
 		"its duration is not a measurement, so it lands in no latency histogram")
 	assert.NotContains(t, reported, "traces_service_graph_request_failed_total:unobserved-peer",
 		"nothing was observed to fail, so it is never counted against the edge")
+}
+
+func TestRemoteServiceGraphParticipation(t *testing.T) {
+	tracker := NewPidServiceTracker()
+	span := request.Span{Type: request.EventTypeHTTPClient, HostName: "backend", OtherNamespace: "shop"}
+	require.True(t, ClientSpanToUninstrumentedService(&tracker, &span), "a named peer without graph participation needs a client count")
+	require.Equal(t, "virtual_node", ConnectionTypeForSpan(&span, &tracker))
+	participating := span
+	request.SetIgnoreMetrics(&participating)
+	request.SetIgnoreServiceGraphClientCount(&participating)
+	require.False(t, ClientSpanToUninstrumentedService(&tracker, &participating))
+	require.Empty(t, ConnectionTypeForSpan(&participating, &tracker))
+	require.True(t, request.IgnoreMetrics(&participating), "peer participation preserves other span flags")
+	require.True(t, ClientSpanToUninstrumentedService(&tracker, &span), "a traces-only peer still needs a client count")
+	tracker.AddPID(42, svc.UID{Name: "backend", Namespace: "shop"})
+	require.False(t, ClientSpanToUninstrumentedService(&tracker, &span), "local service tracking still suppresses the client count")
+	span.HostName = ""
+	require.False(t, ClientSpanToUninstrumentedService(&tracker, &span), "an unresolved peer still produces no client count")
 }

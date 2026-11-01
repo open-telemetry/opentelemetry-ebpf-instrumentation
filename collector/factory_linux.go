@@ -14,6 +14,7 @@ import (
 
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/pipeline"
 	"go.opentelemetry.io/collector/receiver"
 
 	"go.opentelemetry.io/obi/collector/internal"
@@ -48,7 +49,7 @@ func BuildTracesReceiver() receiver.CreateTracesFunc {
 		if receiverCfg, ok := baseCfg.(*receiverConfig); ok {
 			v2 = receiverCfg.v2
 		}
-		return internal.NewController(rs.ID, cfg, v2)
+		return internal.NewController(rs.ID, cfg, v2, pipeline.SignalTraces)
 	}
 }
 
@@ -70,7 +71,29 @@ func BuildMetricsReceiver() receiver.CreateMetricsFunc {
 		if receiverCfg, ok := baseCfg.(*receiverConfig); ok {
 			v2 = receiverCfg.v2
 		}
-		return internal.NewController(rs.ID, cfg, v2)
+		return internal.NewController(rs.ID, cfg, v2, pipeline.SignalMetrics)
+	}
+}
+
+func BuildLogsReceiver() receiver.CreateLogsFunc {
+	return func(_ context.Context,
+		rs receiver.Settings,
+		baseCfg component.Config,
+		nextConsumer consumer.Logs,
+	) (receiver.Logs, error) {
+		initLogger(rs)
+
+		cfg, ok := runtimeConfig(baseCfg)
+		if !ok {
+			return nil, errInvalidConfig
+		}
+		cfg.Logs.LogsExport = logsExport(nextConsumer)
+
+		v2 := false
+		if receiverCfg, ok := baseCfg.(*receiverConfig); ok {
+			v2 = receiverCfg.v2
+		}
+		return internal.NewController(rs.ID, cfg, v2, pipeline.SignalLogs)
 	}
 }
 
@@ -79,12 +102,19 @@ func defaultConfig() component.Config {
 }
 
 func runtimeConfig(baseCfg component.Config) (*obi.Config, bool) {
-	switch cfg := baseCfg.(type) {
+	var cfg *obi.Config
+	switch value := baseCfg.(type) {
 	case *receiverConfig:
-		return cfg.runtime, cfg.runtime != nil
+		if value != nil {
+			cfg = value.runtime
+		}
 	case *obi.Config:
-		return cfg, cfg != nil
-	default:
+		cfg = value
+	}
+	if cfg == nil {
 		return nil, false
 	}
+	// Each receiver binds its consumer on a copy of the validated config.
+	runtime := *cfg
+	return &runtime, true
 }

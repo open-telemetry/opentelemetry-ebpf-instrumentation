@@ -28,6 +28,8 @@ github.com/AzureAD/microsoft-authentication-extensions-for-go/cache v0.1.1 h1:WJ
 github.com/AzureAD/microsoft-authentication-extensions-for-go/cache v0.1.1/go.mod h1:tCcJZ0uHAmvjsVYzEFivsRTN00oz5BEsRgQHu5JZ9WE=
 github.com/AzureAD/microsoft-authentication-library-for-go v1.10.1 h1:0O6j18nQDoIff6/mtosT5LNU2WehEwp+LqfX6699oqY=
 github.com/AzureAD/microsoft-authentication-library-for-go v1.10.1/go.mod h1:xdYAf5bjkOpsd3auA8riiJW4vneBubt9caavL7626jQ=
+github.com/DataDog/go-sqllexer v0.2.5 h1:G+mhNP7zhP/wADAUh4XqKodi02Bjh0IniE1Lxtq5RiA=
+github.com/DataDog/go-sqllexer v0.2.5/go.mod h1:3xTFXBU69vUikYpESggScvC0RKYA7ZIdVrIkLwUOWdE=
 github.com/Microsoft/go-winio v0.6.3 h1:M/52tsoyTfwaxajLnXZm7PqkbMGRH8iSWP+8fcg9MQ4=
 github.com/Microsoft/go-winio v0.6.3/go.mod h1:ma0QpxizD4fyyzJ1C7MIblymTD2Nxz5Mho/3CepwIZg=
 github.com/agnivade/levenshtein v1.2.1 h1:EHBY3UOn1gwdy/VbFwgo4cxecRznFk7fKWN1KOX7eoM=

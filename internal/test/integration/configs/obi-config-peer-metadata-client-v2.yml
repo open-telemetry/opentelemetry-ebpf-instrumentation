@@ -1,0 +1,70 @@
+file_format: "1.0"
+log_level: debug
+resource:
+  attributes:
+    - name: host.name
+      value: peer-client-host
+tracer_provider:
+  processors:
+    - batch:
+        schedule_delay: 10
+        exporter:
+          otlp_grpc:
+            endpoint: http://jaeger:4317
+            tls:
+              insecure: true
+meter_provider:
+  readers:
+    - periodic:
+        interval: 50
+        exporter:
+          otlp_http:
+            endpoint: http://otelcol:4318
+    - pull:
+        exporter:
+          prometheus/development:
+            port: 8999
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: exclude
+        poll_interval: 250ms
+        min_process_age: 0s
+      rules:
+        - action: include
+          match:
+            process:
+              cmd_args_glob: ["*/peer-metadata/app.py*"]
+      metrics:
+        features: [application_span_otel, application_service_graph]
+      engine:
+        batching:
+          batch_timeout: 10ms
+      instrumentation:
+        http:
+          enabled:
+            traces: true
+            metrics: true
+          routes:
+            incoming:
+              unmatched: path
+            outgoing:
+              unmatched: path
+    enrich:
+      attributes:
+        select:
+          traces:
+            include: [service.peer.name]
+      enrichers:
+        kubernetes:
+          mode: disabled
+        peer_metadata:
+          enabled: true
+          refresh_interval: 1s
+          caller_ttl: 6s
+          cache_ttl: 6s
+    daemon:
+      logging:
+        debug_trace_output: text

@@ -497,6 +497,7 @@ func exportModeRefinement(modes services.ExportModes) *schema.ExportModeRefineme
 		return nil
 	}
 	return &schema.ExportModeRefinement{
+		Logs:    modes.CanExportLogs(),
 		Traces:  modes.CanExportTraces(),
 		Metrics: modes.CanExportMetrics(),
 	}

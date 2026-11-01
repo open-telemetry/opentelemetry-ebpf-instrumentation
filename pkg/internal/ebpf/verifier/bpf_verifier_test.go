@@ -74,6 +74,9 @@ func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpe
 		if spec.Programs["obi_protocol_http"] != nil {
 			ebpfcommon.FixupSpec(spec, false)
 		}
+		if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
+			ebpfcommon.DisableJavaHTTP1Atomics(spec)
+		}
 		uprobe.PrepareSpecs(spec)
 
 		if len(consts) > 0 && consts[0] != nil {

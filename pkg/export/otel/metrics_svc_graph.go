@@ -506,6 +506,10 @@ func ConnectionTypeForSpan(span *request.Span, tracker *PidServiceTracker) strin
 }
 
 func ClientSpanToUninstrumentedService(tracker *PidServiceTracker, span *request.Span) bool {
+	if request.IgnoreServiceGraphClientCount(span) {
+		return false
+	}
+
 	if span.HostName != "" {
 		n := svc.ServiceNameNamespace{Name: span.HostName, Namespace: span.OtherNamespace}
 		return !tracker.IsTrackingServerService(n)

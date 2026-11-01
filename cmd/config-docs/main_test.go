@@ -284,6 +284,11 @@ func TestGenerate(t *testing.T) {
 				EnvVar: "LOG_LEVEL", Description: "Log level",
 			},
 			"nested": {Ref: "#/$defs/NestedConfig"},
+			"peer_metadata": {
+				Properties: map[string]*Schema{
+					"enabled": {Type: "boolean", EnvVar: "OTEL_EBPF_PEER_METADATA_ENABLED"},
+				},
+			},
 		},
 		Defs: map[string]*Schema{
 			"NestedConfig": {
@@ -307,6 +312,8 @@ func TestGenerate(t *testing.T) {
 	assert.Contains(t, output, "## `nested`")
 	assert.Contains(t, output, "`nested.enabled`")
 	assert.Contains(t, output, "`NESTED_ENABLED`")
+	assert.NotContains(t, output, "peer_metadata")
+	assert.NotContains(t, output, "OTEL_EBPF_PEER_METADATA_")
 }
 
 func TestGenerateFromRealSchema(t *testing.T) {

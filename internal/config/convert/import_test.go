@@ -476,6 +476,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.EBPF.BufferSizes.TCP = 105
 	cfg.EBPF.BufferSizes.Aerospike = 106
 	cfg.EBPF.HeuristicSQLDetect = true
+	cfg.Attributes.SanitizeSQLQueryText = true
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = 200
 	cfg.EBPF.PostgresPreparedStatementsCacheSize = 201
 	cfg.EBPF.MSSQLPreparedStatementsCacheSize = 202
@@ -610,6 +611,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.Equal(t, 2, got.EBPF.MapsConfig.GlobalScaleFactor)
 	require.Equal(t, uint32(100), got.EBPF.BufferSizes.HTTP)
 	require.Equal(t, uint32(103), got.EBPF.BufferSizes.MSSQL)
+	require.True(t, got.Attributes.SanitizeSQLQueryText)
 	require.Equal(t, 202, got.EBPF.MSSQLPreparedStatementsCacheSize)
 	require.Equal(t, config.CudaModeOn, got.EBPF.InstrumentCuda)
 
@@ -1364,6 +1366,24 @@ func TestV2ToRuntimePartialInstrumentationPreservesDefaults(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.OTELMetrics.Instrumentations, got.OTELMetrics.Instrumentations)
 	require.Equal(t, obi.DefaultConfig.Prometheus.Instrumentations, got.Prometheus.Instrumentations)
 	require.Equal(t, obi.DefaultConfig.Metrics.Features, got.Metrics.Features)
+	require.Equal(t, obi.DefaultConfig.EBPF.MySQLPreparedStatementsCacheSize, got.EBPF.MySQLPreparedStatementsCacheSize)
+}
+
+func TestV2ToRuntimePartialSQLSanitizeQueryText(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Instrumentation: schema.Instrumentation{
+				SQL: schema.SQLInstrumentation{SanitizeQueryText: true},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.True(t, got.Attributes.SanitizeSQLQueryText)
+	require.False(t, obi.DefaultConfig.Attributes.SanitizeSQLQueryText)
 	require.Equal(t, obi.DefaultConfig.EBPF.MySQLPreparedStatementsCacheSize, got.EBPF.MySQLPreparedStatementsCacheSize)
 }
 

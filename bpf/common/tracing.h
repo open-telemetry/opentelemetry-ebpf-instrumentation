@@ -80,11 +80,6 @@ static __always_inline void delete_trace_info_for_connection(connection_info_t *
     bpf_map_delete_elem(&trace_map, &key);
 }
 
-static __always_inline u64 current_epoch(u64 ts) {
-    const u64 temp = ts / NANOSECONDS_PER_EPOCH;
-    return temp * NANOSECONDS_PER_EPOCH;
-}
-
 static __always_inline u64 current_immediate_epoch(u64 ts) {
     const u64 temp = ts / NANOSECONDS_PER_IMM_EPOCH;
     return temp * NANOSECONDS_PER_IMM_EPOCH;
@@ -99,9 +94,9 @@ static __always_inline u8 correlated_requests(const tp_info_t *tp,
     // We check for correlated requests which are in order, but from different PIDs
     // Same PID means that we had client port reuse (*unless one was client and the other
     // was a server request, i.e. the type check), which might falsely match prior
-    // transaction if it happened during the same epoch.
+    // transaction if it happened within NANOSECONDS_PER_EPOCH.
     if (tp->ts >= existing_tp->tp.ts) {
-        return current_epoch(tp->ts) == current_epoch(existing_tp->tp.ts);
+        return tp->ts - existing_tp->tp.ts < NANOSECONDS_PER_EPOCH;
     }
 
     return 0;
@@ -119,9 +114,9 @@ static __always_inline u8 correlated_request_with_current(tp_info_pid_t *existin
 
     // We check for correlated requests which are in order, but from different PIDs
     // Same PID means that we had client port reuse, which might falsely match prior
-    // transaction if it happened during the same epoch.
+    // transaction if it happened within NANOSECONDS_PER_EPOCH.
     if (ts >= existing_tp->tp.ts) {
-        return current_epoch(ts) == current_epoch(existing_tp->tp.ts);
+        return ts - existing_tp->tp.ts < NANOSECONDS_PER_EPOCH;
     }
 
     return 0;

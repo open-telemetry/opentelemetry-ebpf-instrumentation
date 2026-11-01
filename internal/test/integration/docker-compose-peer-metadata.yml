@@ -1,0 +1,110 @@
+services:
+  server:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/peermetadata/Dockerfile
+    image: hatest-peer-metadata-workload
+    command: [server, "8080"]
+    environment:
+      OTEL_SERVICE_NAME: backend
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=backend-ns
+    ports:
+      - "18998:8998"
+      - "18999:8999"
+
+  idle-server:
+    image: hatest-peer-metadata-workload
+    command: [server, "8082"]
+    network_mode: service:server
+    pid: service:server
+    environment:
+      OTEL_SERVICE_NAME: idle-backend
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=backend-ns
+    depends_on:
+      - server
+
+  client:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/peermetadata/Dockerfile
+    image: hatest-peer-metadata-workload
+    command: [client, server]
+    environment:
+      OTEL_SERVICE_NAME: frontend
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=frontend-ns
+    ports:
+      - "8081:8081"
+      - "28998:8998"
+      - "28999:8999"
+    depends_on:
+      - server
+
+  second-caller:
+    image: hatest-peer-metadata-workload
+    profiles: [ambiguous]
+    command: [caller, server]
+    network_mode: service:client
+    pid: service:client
+    environment:
+      OTEL_SERVICE_NAME: second-caller
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=frontend-ns
+    depends_on:
+      - client
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/obi/Dockerfile
+    image: hatest-obi-peer-metadata-server
+    command: ["--config=/configs/${PEER_METADATA_SERVER_CONFIG:-obi-config-peer-metadata-server-v2.yml}"]
+    privileged: true
+    network_mode: service:server
+    pid: service:server
+    environment:
+      GOCOVERDIR: /coverage
+    volumes:
+      - ./configs:/configs:ro
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-peer-metadata-server:/var/run/obi
+    depends_on:
+      - server
+      - idle-server
+      - jaeger
+      - otelcol
+
+  client-obi:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/obi/Dockerfile
+    image: hatest-obi-peer-metadata-client
+    command: ["--config=/configs/obi-config-peer-metadata-client-v2.yml"]
+    privileged: true
+    network_mode: service:client
+    pid: service:client
+    environment:
+      GOCOVERDIR: /coverage
+    volumes:
+      - ./configs:/configs:ro
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-peer-metadata-client:/var/run/obi
+    depends_on:
+      - client
+      - jaeger
+      - otelcol
+
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17
+    ports:
+      - "16686:16686"
+
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.163.1@sha256:1175b03003053962012f5a231f5567f66a3e8fdb960c7835c0e48f7aa1555806
+    command: ["--config=/etc/otelcol-config/otelcol-config.yml"]
+    volumes:
+      - ./configs:/etc/otelcol-config:ro
+    ports:
+      - "19464:9464"
+    depends_on:
+      - jaeger

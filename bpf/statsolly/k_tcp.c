@@ -54,7 +54,7 @@ static __always_inline void flush_tcp_io_accum(struct sock *sk,
         return;
     }
     connection_info_t conn;
-    if (!parse_sock_info(sk, &conn)) {
+    if (!parse_full_sock_info(sk, &conn)) {
         bpf_ringbuf_discard(se, 0);
         return;
     }
@@ -116,7 +116,7 @@ int BPF_KPROBE(obi_stats_kprobe_tcp_close_srtt, struct sock *sk) {
     (void)ctx;
 
     connection_info_t conn;
-    if (!parse_sock_info(sk, &conn)) {
+    if (!parse_full_sock_info(sk, &conn)) {
         return 0;
     }
 
@@ -165,7 +165,7 @@ int BPF_KPROBE(obi_stats_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg
 }
 
 SEC("kretprobe/tcp_sendmsg")
-int BPF_KRETPROBE(obi_stats_kretprobe_tcp_sendmsg, long sent) {
+int BPF_KRETPROBE(obi_stats_kretprobe_tcp_sendmsg, int sent) {
     (void)ctx;
     const u64 pid_tgid = bpf_get_current_pid_tgid();
     struct sock *const *skp = bpf_map_lookup_elem(&tcp_sendmsg_sock, &pid_tgid);

@@ -38,6 +38,8 @@ func TestNewFactoryUnsupportedPlatform(t *testing.T) {
 
 	_, err = BuildMetricsReceiver()(t.Context(), settings, defaultConfig(), consumertest.NewNop())
 	require.ErrorIs(t, err, errUnsupportedPlatform)
+	_, err = BuildLogsReceiver()(t.Context(), settings, defaultConfig(), consumertest.NewNop())
+	require.ErrorIs(t, err, errUnsupportedPlatform)
 }
 
 func TestCreateProfilesReceiver(t *testing.T) {

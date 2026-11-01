@@ -41,3 +41,13 @@ func BuildMetricsReceiver() receiver.CreateMetricsFunc {
 		return nil, errUnsupportedPlatform
 	}
 }
+
+func BuildLogsReceiver() receiver.CreateLogsFunc {
+	return func(_ context.Context,
+		_ receiver.Settings,
+		_ component.Config,
+		_ consumer.Logs,
+	) (receiver.Logs, error) {
+		return nil, errUnsupportedPlatform
+	}
+}

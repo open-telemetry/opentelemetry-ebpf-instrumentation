@@ -251,6 +251,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.BufferSizes.TCP = 105
 	cfg.EBPF.BufferSizes.Aerospike = 106
 	cfg.EBPF.HeuristicSQLDetect = true
+	cfg.Attributes.SanitizeSQLQueryText = true
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = 200
 	cfg.EBPF.PostgresPreparedStatementsCacheSize = 201
 	cfg.EBPF.MSSQLPreparedStatementsCacheSize = 202
@@ -385,6 +386,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, uint32(101), value(t, ext.Capture.Instrumentation, "sql", "mysql", "buffer_size"))
 	require.Equal(t, uint32(103), value(t, ext.Capture.Instrumentation, "sql", "mssql", "buffer_size"))
 	require.Equal(t, 202, value(t, ext.Capture.Instrumentation, "sql", "mssql", "prepared_statements_cache_size"))
+	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "sql", "sanitize_query_text"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "redis", "db_cache", "enabled"))
 	require.Equal(t, 204, value(t, ext.Capture.Instrumentation, "kafka", "topic_uuid_cache_size"))
 	require.Equal(t, uint32(106), value(t, ext.Capture.Instrumentation, "aerospike", "buffer_size"))
@@ -726,6 +728,28 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	require.NotNil(t, ext.Capture.Rules[2].Refine.HTTP)
 	require.Equal(t, []string{"/orders/{id}"}, *ext.Capture.Rules[2].Refine.HTTP.Routes.Incoming.Patterns)
 	require.Equal(t, []string{"/inventory/{id}"}, *ext.Capture.Rules[2].Refine.HTTP.Routes.Outgoing.Patterns)
+}
+
+func TestRuntimeToV2PreservesLogsExportMode(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	exports := services.NewExportModes()
+	exports.AllowTraces()
+	exports.AllowLogs()
+	cfg.Discovery.Instrument = services.GlobDefinitionCriteria{
+		{Path: services.NewGlob("/app/*"), ExportModes: exports},
+	}
+
+	_, ext := RuntimeToV2(&cfg)
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+
+	require.Len(t, got.Discovery.Instrument, 1)
+	modes := got.Discovery.Instrument[0].ExportModes
+	require.True(t, modes.CanExportTraces())
+	require.True(t, modes.CanExportLogs())
+	require.False(t, modes.CanExportMetrics())
 }
 
 func TestRuntimeToV2EffectiveDiscoveryCriteria(t *testing.T) {

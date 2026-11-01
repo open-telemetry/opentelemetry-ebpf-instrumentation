@@ -114,9 +114,10 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 
 	sql := protocols[protocolSQL]
 	sqlInstrumentation := schema.SQLInstrumentation{
-		Enabled:         sql.Enabled,
-		Filters:         sql.Filters,
-		HeuristicDetect: cfg.EBPF.HeuristicSQLDetect,
+		Enabled:           sql.Enabled,
+		Filters:           sql.Filters,
+		HeuristicDetect:   cfg.EBPF.HeuristicSQLDetect,
+		SanitizeQueryText: cfg.Attributes.SanitizeSQLQueryText,
 		MySQL: schema.SQLDatabaseInstrumentation{
 			BufferSize:                  cfg.EBPF.BufferSizes.MySQL,
 			PreparedStatementsCacheSize: cfg.EBPF.MySQLPreparedStatementsCacheSize,
@@ -620,6 +621,7 @@ func insecureOTLPTransport(endpoint string) bool {
 func enrich(cfg *obi.Config) *schema.Enrich {
 	return &schema.Enrich{
 		Enrichers: schema.Enrichers{
+			PeerMetadata: peerMetadataEnrichment(cfg.PeerMetadata),
 			Kubernetes: schema.KubernetesEnricher{
 				Mode:                v2KubernetesMode(cfg.Attributes.Kubernetes.Enable),
 				ClusterName:         cfg.Attributes.Kubernetes.ClusterName,

@@ -159,7 +159,8 @@ OBI adopts the standard declarative fields incrementally. For the first stable v
 | `log_level` | Supported for OBI daemon logging. OTel `trace*` and `debug*` severities map to `DEBUG`; `info*` to `INFO`; `warn*` to `WARN`; `error*` and `fatal*` to `ERROR`. `extensions.obi.daemon.logging.level` is not part of v2; use the top-level field. |
 | `attribute_limits` | Rejected whenever present by the target adapter in #2682. |
 | `disabled`, `distribution`, `propagator` | `disabled: true`, non-empty `distribution`, and non-empty propagator configuration are rejected. Empty/default placeholders do not enable runtime behavior. |
-| `instrumentation/development`, `logger_provider` | Rejected when present by the target adapter in #2682. |
+| `instrumentation/development` | Rejected when present by the target adapter. |
+| `logger_provider` | One batch processor with one OTLP HTTP/protobuf, gRPC or console exporter for exception logs. HTTP/JSON is unsupported for logs. Logger limits, logger configurators, export timeouts and unsupported TLS options are rejected. |
 
 Environment-variable substitution depends on the loader. The upstream `otelconf/x.ParseYAML` path expands `${VAR}`, `${env:VAR}`, `${VAR:-fallback}`, and `${env:VAR:-fallback}` before decoding. OBI's internal `schema.ParseStandaloneYAML` parser decodes the supplied bytes directly, so callers using that parser must perform any desired substitution before calling it.
 
@@ -248,6 +249,7 @@ extensions:
       enrichers:
         kubernetes: {}
         cloud: {}
+        peer_metadata: {}
       service_name: {}
       attributes: {}
 
@@ -298,6 +300,7 @@ The `capture` grouping was introduced for two reasons:
 - `policy`: global rule evaluation behavior (default action, match order, timing).
 - `rules`: ordered workload selection rules (include/exclude by process identity, Kubernetes metadata, etc.).
 - `instrumentation`: protocol-specific capture controls (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU, Aerospike).
+- `exceptions`: runtime exception capture enablement; records use the logs pipeline.
 - `runtimes`: language runtime injection controls (Go probes, Node.js SIGUSR1, Java agent attachment).
 - `network`: network flow capture configuration.
 - `limits`: cardinality and memory guardrails.
@@ -441,7 +444,8 @@ This was rejected because:
 
 Current overridable fields in `refine`:
 
-- `exports`: override which signals (`traces`, `metrics`) are emitted for this workload.
+- `exports`: override which signals (`traces`, `metrics`, `logs`) are emitted for this workload.
+- `exceptions`: override global exception capture enablement. Omitted fields inherit global settings.
 - `http.routes`: refine the direction-scoped HTTP route policy for this workload.
 
 The schema reserves refinement `http.filters`, but the target runtime adapter
@@ -548,6 +552,8 @@ HTTP `payload_extraction` uses the same list-based enablement model as other ins
 - Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, `retrieval`, `ollama`, `cohere`, `openai_compatible`, `jsonrpc`, and `enrichment`.
 - Nested extractor blocks are for tuning, not duplicate enablement. For example, `payload_extraction.sqlpp.endpoint_patterns` refines SQL++ matching after `sqlpp` is enabled in the list.
 - If future aliases or families are needed, they should be added as values in the same `enabled` list rather than introducing parallel knobs.
+
+When `db.query.text` is selected, SQL and SQL++ spans carry the query as captured. Set `sql.sanitize_query_text: true` to replace its string, numeric, hexadecimal and boolean literals with `?`, following the semantic conventions. In statements with bind placeholders only string literals are replaced. Generic SQL from the Go tracer also treats double-quoted text as a string literal, and `db.query.text` is omitted when the literals cannot be located reliably. The setting has no v1 equivalent.
 
 ### `capture.runtimes` Section
 
@@ -1207,3 +1213,10 @@ Decision for OBI v2:
 This is an intentional middle-ground while upstream schema guidance evolves.
 OBI will support `extensions.obi` with its own parser and validation rules until a better
 standardized schema location is available.
+
+## Peer metadata exchange
+
+The optional `extensions.obi.enrich.enrichers.peer_metadata` enricher exchanges
+service identities between agents on directly routable hosts outside Kubernetes.
+See [peer metadata](../../peer-metadata.md) for configuration, resolution behavior,
+and the HTTP protocol.

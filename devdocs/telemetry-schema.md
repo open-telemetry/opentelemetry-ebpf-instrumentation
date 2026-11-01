@@ -141,6 +141,12 @@ section empty once drained.
   and the database alone otherwise. Spans and `db.client.operation.duration` series change
   value accordingly, splitting metric series per schema, and span names that fall back to the
   namespace change with it.
+- Go MongoDB spans from mongo-driver v2 use the driver's command name for a few `Collection`
+  methods, as with mongo-driver v1 1.13.1 and later: `db.operation.name` `updateOrReplace`
+  becomes `update`, `countDocuments` becomes `aggregate` and `estimatedDocumentCount` becomes
+  `count`. This changes the span names and `db.operation.name` on `db.client.operation.duration`,
+  and `span.name` on the span metrics. Commands that don't go through a probed `Collection`
+  method, such as `BulkWrite`, are now reported as well, which adds spans and metric series.
 
 ## Hosting notes
 

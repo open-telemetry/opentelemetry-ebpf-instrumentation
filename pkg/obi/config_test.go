@@ -271,6 +271,7 @@ discovery:
 			// after normalization, network feature is added from network > enable: true
 			Features: export.FeatureApplicationRED | export.FeatureApplicationSizes | export.FeatureNetwork,
 		},
+		Logs: otelcfg.LogsConfig{BatchMaxSize: 512, QueueSize: 2048, BatchTimeout: time.Second},
 		OTELMetrics: otelcfg.MetricsConfig{
 			OTELIntervalMS:    60_000,
 			CommonEndpoint:    "localhost:3131",
@@ -395,6 +396,7 @@ discovery:
 			CacheLen: 1024,
 			CacheTTL: 5 * time.Minute,
 		},
+		PeerMetadata: DefaultConfig.PeerMetadata,
 		CloudMetadata: transform.CloudMetadataConfig{
 			Route53:         transform.Route53MetadataConfig{RefreshInterval: 5 * time.Minute},
 			RefreshInterval: 30 * time.Second,

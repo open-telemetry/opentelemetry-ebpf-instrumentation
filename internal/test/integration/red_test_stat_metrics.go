@@ -52,6 +52,12 @@ func testStatMetricsTCPFailedConnectionsGo(t *testing.T) {
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		assert.Positive(ct, totalPromCount(ct, results))
+
+		// The refused socket released its local port before the tracepoint fired,
+		// so the probe must report the port the SYN was sent from instead.
+		zeroPortResults, err := pq.Query(`obi_stat_tcp_failed_connections_total{dst_port="19999",network_tcp_handshake_role="client",src_port="0"}`)
+		require.NoError(ct, err)
+		assert.Empty(ct, zeroPortResults)
 	}, testTimeout, 100*time.Millisecond)
 }
 
