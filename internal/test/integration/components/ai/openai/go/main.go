@@ -180,6 +180,30 @@ func cohereChatError(w http.ResponseWriter, _ *http.Request) {
 	proxyPostURL(w, os.Getenv("COHERE_BASE_URL")+"/v2/chat?error", payload, false)
 }
 
+func ollamaEmbed(w http.ResponseWriter, _ *http.Request) {
+	payload := map[string]any{
+		"model": "all-minilm:l6-v2",
+		"input": "why is the sky blue?",
+	}
+	proxyPostURL(w, os.Getenv("OLLAMA_BASE_URL")+"/api/embed", payload, true)
+}
+
+func ollamaEmbedLegacy(w http.ResponseWriter, _ *http.Request) {
+	payload := map[string]any{
+		"model":  "nomic-embed-text",
+		"prompt": "why is the sky blue?",
+	}
+	proxyPostURL(w, os.Getenv("OLLAMA_BASE_URL")+"/api/embeddings", payload, true)
+}
+
+func ollamaEmbedError(w http.ResponseWriter, _ *http.Request) {
+	payload := map[string]any{
+		"model": "nope",
+		"input": "why is the sky blue?",
+	}
+	proxyPostURL(w, os.Getenv("OLLAMA_BASE_URL")+"/api/embed?error", payload, false)
+}
+
 func chat(w http.ResponseWriter, _ *http.Request) {
 	payload := map[string]any{
 		"messages": []map[string]any{
@@ -217,6 +241,9 @@ func main() {
 	mux.HandleFunc("GET /cohere/chat", cohereChat)
 	mux.HandleFunc("GET /cohere/chat/stream", cohereChatStream)
 	mux.HandleFunc("GET /cohere/chat/error", cohereChatError)
+	mux.HandleFunc("GET /ollama/embed", ollamaEmbed)
+	mux.HandleFunc("GET /ollama/embeddings", ollamaEmbedLegacy)
+	mux.HandleFunc("GET /ollama/embed/error", ollamaEmbedError)
 
 	const port = 8080
 	fmt.Printf("Server running: port=%d process_id=%d\n", port, os.Getpid())

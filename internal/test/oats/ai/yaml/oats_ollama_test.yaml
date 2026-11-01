@@ -1,0 +1,38 @@
+oats-schema-version: 2
+docker-compose:
+  files:
+  - ../docker-compose-ollama.yml
+  - ../../weaver/docker-compose-weaver.yml
+input:
+- path: /ollama/embed
+- path: /ollama/embeddings
+- path: /ollama/embed/error
+interval: 500ms
+expected:
+  traces:
+  - traceql: '{ .gen_ai.provider.name = "ollama" && .gen_ai.request.model = "all-minilm:l6-v2" && span.gen_ai.output.messages = nil && span.gen_ai.request.stream = nil && span.gen_ai.usage.output_tokens = nil }'
+    equals: embeddings all-minilm:l6-v2
+    attributes:
+      gen_ai.operation.name: embeddings
+      gen_ai.response.model: all-minilm:l6-v2
+      gen_ai.usage.input_tokens: 8
+      gen_ai.embeddings.dimension.count: 4
+      gen_ai.input.messages: '[{"role":"user","parts":[{"type":"text","content":"why is the sky blue?"}]}]'
+  - traceql: '{ .gen_ai.provider.name = "ollama" && .gen_ai.request.model = "nomic-embed-text" && span.gen_ai.output.messages = nil && span.gen_ai.usage.input_tokens = nil }'
+    equals: embeddings nomic-embed-text
+    attributes:
+      gen_ai.operation.name: embeddings
+      gen_ai.response.model: nomic-embed-text
+      gen_ai.embeddings.dimension.count: 3
+      gen_ai.input.messages: '[{"role":"user","parts":[{"type":"text","content":"why is the sky blue?"}]}]'
+  - traceql: '{ .error.type = "404" && .gen_ai.provider.name = "ollama" && .gen_ai.request.model = "nope" }'
+    equals: embeddings nope
+    attributes:
+      gen_ai.operation.name: embeddings
+  metrics:
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="embeddings",gen_ai_provider_name="ollama",gen_ai_token_type="input",gen_ai_request_model="all-minilm:l6-v2"}
+    value: '> 0'
+  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="embeddings",gen_ai_provider_name="ollama",gen_ai_request_model="all-minilm:l6-v2"}
+    value: '> 0'
+  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="embeddings",gen_ai_provider_name="ollama",gen_ai_request_model="nomic-embed-text"}
+    value: '> 0'

@@ -233,6 +233,12 @@ data: {"type":"message-end","delta":{"finish_reason":"COMPLETE","usage":{"billed
 
 const cohereChatErrorBody = `{"id":"0a1b2c3d-4e5f-6789-abcd-ef0123456789","message":"invalid request: model 'command-unknown' not found"}`
 
+const ollamaEmbedBody = `{"model":"all-minilm:l6-v2","embeddings":[[0.0100353705,-0.0017759022,0.05005609,0.04692976]],"total_duration":301430470,"load_duration":283978494,"prompt_eval_count":8}`
+
+const ollamaLegacyEmbeddingBody = `{"embedding":[0.0100353705,-0.0017759022,0.05005609]}`
+
+const ollamaEmbedErrorBody = `{"error":"model \"nope\" not found, try pulling it first"}`
+
 type cohereChatRequest struct {
 	Model    string          `json:"model"`
 	Messages json.RawMessage `json:"messages"`
@@ -510,6 +516,16 @@ func handleCohereChat(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(cohereChatBody))
 }
 
+func handleOllamaEmbed(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Has("error") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(ollamaEmbedErrorBody))
+		return
+	}
+	handleStatic(ollamaEmbedBody)(w, r)
+}
+
 func handleConversations(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -606,6 +622,8 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v2/embed", handleStatic(cohereEmbedBody))
 	mux.HandleFunc("/v2/rerank", handleStatic(rerankBody))
 	mux.HandleFunc("/v2/chat", handleCohereChat)
+	mux.HandleFunc("/api/embed", handleOllamaEmbed)
+	mux.HandleFunc("/api/embeddings", handleStatic(ollamaLegacyEmbeddingBody))
 	return mux
 }
 
