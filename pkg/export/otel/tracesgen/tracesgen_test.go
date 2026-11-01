@@ -866,11 +866,12 @@ func TestGroupSpansSamplingFollowsParentDecision(t *testing.T) {
 	parentSpanID := trace2.SpanID{1, 2, 3, 4, 5, 6, 7, 8}
 
 	tests := []struct {
-		name         string
-		sampler      sdktrace.Sampler
-		parentSpanID trace2.SpanID
-		traceFlags   uint8
-		sampled      bool
+		name              string
+		sampler           sdktrace.Sampler
+		parentSpanID      trace2.SpanID
+		parentConditional bool
+		traceFlags        uint8
+		sampled           bool
 	}{
 		{
 			name:         "parent based drops a span whose parent is not sampled",
@@ -914,18 +915,35 @@ func TestGroupSpansSamplingFollowsParentDecision(t *testing.T) {
 			traceFlags:   0,
 			sampled:      true,
 		},
+		{
+			name:              "parent based drops a span whose detached conditional parent is not sampled",
+			sampler:           sdktrace.ParentBased(sdktrace.AlwaysSample()),
+			parentSpanID:      trace2.SpanID{},
+			parentConditional: true,
+			traceFlags:        0,
+			sampled:           false,
+		},
+		{
+			name:              "parent based keeps a span whose detached conditional parent is sampled over its root sampler",
+			sampler:           sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0)),
+			parentSpanID:      trace2.SpanID{},
+			parentConditional: true,
+			traceFlags:        1,
+			sampled:           true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			span := request.Span{
-				Type:         request.EventTypeHTTP,
-				Method:       "GET",
-				Path:         "/",
-				TraceID:      traceID,
-				SpanID:       trace2.SpanID{8, 7, 6, 5, 4, 3, 2, 1},
-				ParentSpanID: tt.parentSpanID,
-				TraceFlags:   tt.traceFlags,
+				Type:              request.EventTypeHTTP,
+				Method:            "GET",
+				Path:              "/",
+				TraceID:           traceID,
+				SpanID:            trace2.SpanID{8, 7, 6, 5, 4, 3, 2, 1},
+				ParentSpanID:      tt.parentSpanID,
+				ParentConditional: tt.parentConditional,
+				TraceFlags:        tt.traceFlags,
 			}
 
 			groups := GroupSpans(

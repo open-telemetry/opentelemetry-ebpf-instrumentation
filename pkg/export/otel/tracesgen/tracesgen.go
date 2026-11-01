@@ -206,13 +206,18 @@ func GroupSpansWithOptions(ctx context.Context, spans []request.Span, traceAttrs
 // samples each span with its process's sampler, and under a parent-based one a
 // span keeps its parent's flags, so the span's own flags stand for the parent's.
 func samplingParentContext(ctx context.Context, span *request.Span) context.Context {
-	if !span.ParentSpanID.IsValid() {
+	parentSpanID := span.ParentSpanID
+	if !parentSpanID.IsValid() && span.ParentConditional {
+		parentSpanID = span.SpanID
+	}
+
+	if !parentSpanID.IsValid() {
 		return ctx
 	}
 
 	return trace2.ContextWithSpanContext(ctx, trace2.NewSpanContext(trace2.SpanContextConfig{
 		TraceID:    span.TraceID,
-		SpanID:     span.ParentSpanID,
+		SpanID:     parentSpanID,
 		TraceFlags: trace2.TraceFlags(span.TraceFlags),
 		Remote:     true,
 	}))
