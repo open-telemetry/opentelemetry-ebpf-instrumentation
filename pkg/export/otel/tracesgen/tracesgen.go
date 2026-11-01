@@ -1329,6 +1329,9 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, semconv.GenAIResponseModel(ai.Request.Model))
 			}
 			attrs = append(attrs, genAIUsageAttributes(span)...)
+			if ai.Usage.InputDetails != nil {
+				attrs = appendGenAITokenCount(attrs, genAIUsageCacheReadInputTokens, ai.Usage.InputDetails.CachedTokens)
+			}
 			if reasons := ai.GetFinishReasons(); len(reasons) > 0 {
 				attrs = append(attrs, semconv.GenAIResponseFinishReasons(reasons...))
 			}

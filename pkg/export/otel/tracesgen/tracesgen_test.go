@@ -1591,6 +1591,16 @@ func TestTraceAttributesSelector_GenAITokenDetailAvailability(t *testing.T) {
 			},
 			keys: []string{cacheReadKey, cacheCreationKey},
 		},
+		{
+			name:    "Ollama",
+			subType: request.HTTPSubtypeOllama,
+			genAI: func(count request.TokenCount) *request.GenAI {
+				return &request.GenAI{Ollama: &request.VendorOpenAI{Usage: request.OpenAIUsage{
+					InputDetails: &request.OpenAIInputTokensDetails{CachedTokens: count},
+				}}}
+			},
+			keys: []string{cacheReadKey},
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			span := &request.Span{
