@@ -138,7 +138,7 @@ func TestFindExeSymbolsTables(t *testing.T) {
 					f := symbolELFFixture(t, class, order, tables...)
 					f.Progs = []*elf.Prog{{ProgHeader: elf.ProgHeader{Type: elf.PT_LOAD, Flags: elf.PF_X, Vaddr: 0x1000, Off: 0x200, Memsz: 0x1000}}}
 					for _, types := range [][]elf.SymType{nil, {elf.STT_OBJECT}, {elf.STT_FUNC, elf.STT_OBJECT}} {
-						for _, names := range [][]string{nil, {"missing"}, {"target", "target", "object", "dynamic", "zero"}, {""}, {"target\x00dynamic"}} {
+						for _, names := range [][]string{nil, {"missing"}, {"target", "target", "object", "dynamic", "zero"}, {"target\x00dynamic"}} {
 							want, err := decodedExeSymbols(f, names, types...)
 							require.NoError(t, err)
 							got, err := FindExeSymbols(f, names, types...)

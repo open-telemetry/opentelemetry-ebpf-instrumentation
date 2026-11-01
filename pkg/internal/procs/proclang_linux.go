@@ -145,14 +145,13 @@ func collectSymbols(f *elf.File, typ elf.SectionType, symbolNames []string, addr
 		return errors.New("section has invalid string table link")
 	}
 
-	names, validStringSize, err := symbolNameOffsets(f.Sections[section.Link], symbolNames)
+	names, err := symbolNameOffsets(f.Sections[section.Link], symbolNames)
 	if err != nil {
 		return fmt.Errorf("cannot load string table section: %w", err)
 	}
 
 	reader := section.Open()
 	buffer := make([]byte, symbolReadBufferSize/symbolSize*symbolSize)
-	wantEmpty := slices.Contains(symbolNames, "")
 	for offset := uint64(0); offset < section.Size; {
 		size := int(min(uint64(len(buffer)), section.Size-offset))
 		if _, err := io.ReadFull(reader, buffer[:size]); err != nil {
@@ -167,7 +166,7 @@ func collectSymbols(f *elf.File, typ elf.SectionType, symbolNames []string, addr
 			data := buffer[start : start+symbolSize]
 			nameOffset := f.ByteOrder.Uint32(data[:4])
 			name, ok := names[nameOffset]
-			if !ok && (!wantEmpty || uint64(nameOffset) < validStringSize) {
+			if !ok {
 				continue
 			}
 
@@ -202,20 +201,15 @@ func collectSymbols(f *elf.File, typ elf.SectionType, symbolNames []string, addr
 type symbolNameMatcher struct {
 	wanted            map[string]string
 	lengthsByLastByte [math.MaxUint8 + 1][]int
-	wantEmpty         bool
 	maxNameLen        int
 }
 
 func newSymbolNameMatcher(symbolNames []string) *symbolNameMatcher {
 	matcher := &symbolNameMatcher{wanted: make(map[string]string, len(symbolNames))}
 	for _, name := range symbolNames {
-		// A name containing a NULL byte can never be read back from a string table.
-		if strings.IndexByte(name, 0) >= 0 {
-			continue
-		}
-
-		if name == "" {
-			matcher.wantEmpty = true
+		// Empty names are not meaningful lookups, and a name containing a NULL
+		// byte can never be read back from a string table.
+		if name == "" || strings.IndexByte(name, 0) >= 0 {
 			continue
 		}
 
@@ -233,9 +227,6 @@ func newSymbolNameMatcher(symbolNames []string) *symbolNameMatcher {
 
 // matchAt records each requested name that ends right before the NULL at data[end]
 func (m *symbolNameMatcher) matchAt(data []byte, end int, offset uint64, names map[uint32]string) {
-	if m.wantEmpty {
-		recordSymbolName(names, offset+uint64(end), "")
-	}
 	if end == 0 {
 		return
 	}
@@ -263,7 +254,7 @@ func recordSymbolName(names map[uint32]string, nameOffset uint64, name string) {
 
 // symbolNameOffsets reads the string table once and returns the offsets at
 // which the requested names start.
-func symbolNameOffsets(section *elf.Section, symbolNames []string) (map[uint32]string, uint64, error) {
+func symbolNameOffsets(section *elf.Section, symbolNames []string) (map[uint32]string, error) {
 	matcher := newSymbolNameMatcher(symbolNames)
 	names := map[uint32]string{}
 
@@ -274,19 +265,15 @@ func symbolNameOffsets(section *elf.Section, symbolNames []string) (map[uint32]s
 	// carried-over bytes at the front of the buffer.
 	buffer := make([]byte, symbolReadBufferSize+matcher.maxNameLen)
 	reader := section.Open()
-	var offset, validStringSize uint64
+	var offset uint64
 	tail := 0
 	for remaining := section.Size; remaining > 0; {
 		size := int(min(uint64(len(buffer)-tail), remaining))
 		if _, err := io.ReadFull(reader, buffer[tail:tail+size]); err != nil {
-			return nil, 0, err
+			return nil, err
 		}
 		remaining -= uint64(size)
 		data := buffer[:tail+size]
-
-		if last := bytes.LastIndexByte(data, 0); last >= 0 {
-			validStringSize = offset + uint64(last) + 1
-		}
 
 		// Visit each NULL in the new bytes. NULLs in the carried-over bytes were
 		// visited during the previous read, so the scan starts after them.
@@ -304,7 +291,7 @@ func symbolNameOffsets(section *elf.Section, symbolNames []string) (map[uint32]s
 		offset += uint64(len(data) - tail)
 		copy(buffer, data[len(data)-tail:])
 	}
-	return names, validStringSize, nil
+	return names, nil
 }
 
 func resolveSymbol(f *elf.File, s elf.Symbol) Sym {
