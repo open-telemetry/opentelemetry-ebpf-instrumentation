@@ -583,6 +583,47 @@ func TestHTTPRequestResponseToSpan_OpenAIEmbeddingDetectedByOpenAISpan(t *testin
 	assert.Equal(t, request.EmbeddingOperationName, span.GenAI.OpenAI.OperationName)
 }
 
+func TestHTTPRequestResponseToSpan_OpenAIOnOllamaPathStaysOpenAI(t *testing.T) {
+	parseCtx := &EBPFParseContext{
+		payloadExtraction: config.PayloadExtraction{
+			HTTP: config.HTTPConfig{
+				GenAI: config.GenAIConfig{
+					Ollama: config.OllamaConfig{Enabled: true}, OpenAI: config.OpenAIConfig{Enabled: true},
+				},
+			},
+		},
+	}
+
+	reqBody := `{"model":"text-embedding-3-small","input":"hello"}`
+	respBody := `{"object":"list","data":[{"object":"embedding","embedding":[0.1],"index":0}],"model":"text-embedding-3-small","usage":{"prompt_tokens":5,"total_tokens":5}}`
+
+	req := &http.Request{
+		Method: http.MethodPost,
+		URL:    &url.URL{Scheme: "http", Host: "gateway.internal", Path: "/api/embeddings"},
+		Host:   "gateway.internal",
+		Body:   io.NopCloser(strings.NewReader(reqBody)),
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":   []string{"application/json"},
+			"Openai-Version": []string{"2020-10-01"},
+		},
+		Body: io.NopCloser(strings.NewReader(respBody)),
+	}
+	event := &BPFHTTPInfo{
+		Type: uint8(request.EventTypeHTTPClient),
+	}
+
+	span := httpRequestResponseToSpan(parseCtx, event, req, resp)
+
+	assert.Equal(t, request.HTTPSubtypeOpenAI, span.SubType)
+	require.NotNil(t, span.GenAI)
+	assert.Nil(t, span.GenAI.Ollama)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, request.EmbeddingOperationName, span.GenAI.OpenAI.OperationName)
+}
+
 func TestToRequestTraceLargeBuffers(t *testing.T) {
 	connInfo := BpfConnectionInfoT{
 		D_port: 1,
