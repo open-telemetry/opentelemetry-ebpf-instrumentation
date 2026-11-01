@@ -1299,7 +1299,9 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = appendIfSet(attrs, semconv.GenAIInputMessagesKey.String, ai.Request.GetInput())
 			}
 			if _, ok := optionalAttrs[attr.GenAIOutput]; ok {
-				attrs = appendIfSet(attrs, semconv.GenAIOutputMessagesKey.String, ai.GetOutput())
+				if ai.OperationName != request.EmbeddingOperationName {
+					attrs = appendIfSet(attrs, semconv.GenAIOutputMessagesKey.String, ai.GetOutput())
+				}
 			}
 			if _, ok := optionalAttrs[attr.GenAIInstructions]; ok {
 				if ai.Request.Instructions != "" {
@@ -1309,6 +1311,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			if _, ok := optionalAttrs[attr.GenAITools]; ok {
 				if len(ai.Request.Tools) > 0 {
 					attrs = appendIfSet(attrs, semconv.GenAIToolDefinitionsKey.String, request.NormalizeToolDefinitions(ai.Request.Tools))
+				}
+			}
+			if ai.OperationName == request.EmbeddingOperationName {
+				if dims := ai.GetEmbeddingDimensions(); dims > 0 {
+					attrs = append(attrs, semconv.GenAIEmbeddingsDimensionCount(dims))
 				}
 			}
 		}

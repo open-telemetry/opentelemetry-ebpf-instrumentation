@@ -17,8 +17,8 @@ spans:
   # Ollama, Cohere, OpenAI-compatible and AWS Bedrock. An attribute is `required` here
   # only when every one of those providers emits it unconditionally.
   #
-  # The OpenAI-shaped providers route their `/embeddings` endpoint through this
-  # path rather than through the dedicated embeddings subtype, which is why the
+  # The OpenAI-shaped providers and Ollama route their embedding endpoints through
+  # this path rather than through the dedicated embeddings subtype, which is why the
   # two embedding attributes appear here too, conditioned on the operation.
   - type: obi.gen_ai.inference.client
     annotations:
@@ -105,7 +105,7 @@ spans:
           conditionally_required: if the request set a response format
       - ref: gen_ai.embeddings.dimension.count
         requirement_level:
-          recommended: if the operation is an embeddings call on an OpenAI-shaped provider and the provider reported the dimension count
+          recommended: if the operation is an embeddings call on an OpenAI-shaped provider or Ollama and the provider reported the dimension count
       - ref: gen_ai.request.encoding_formats
         requirement_level:
           recommended: if the operation is an embeddings call on an OpenAI-shaped provider and the request set encoding formats

@@ -1568,6 +1568,76 @@ func TestEmptyMessagingClientID(t *testing.T) {
 	}
 }
 
+func TestOllamaEmbeddingAttributes(t *testing.T) {
+	const vector = `[{"embedding":[0.1,0.2,0.3,0.4]}]`
+	span := &request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeOllama,
+		Method:  "POST",
+		Path:    "/api/embed",
+		Status:  200,
+		GenAI: &request.GenAI{Ollama: &request.VendorOpenAI{
+			OperationName: request.EmbeddingOperationName,
+			ResponseModel: "all-minilm:l6-v2",
+			Usage:         request.OpenAIUsage{InputTokens: request.NewTokenCount(8)},
+			Dimensions:    4,
+			Data:          json.RawMessage(vector),
+			Request:       request.OpenAIInput{Model: "all-minilm:l6-v2", Input: "why is the sky blue?"},
+		}},
+	}
+
+	attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{
+		attr.GenAIInput:  {},
+		attr.GenAIOutput: {},
+	}))
+
+	for key, expected := range map[attribute.Key]any{
+		semconv.GenAIProviderNameKey:             "ollama",
+		semconv.GenAIOperationNameKey:            "embeddings",
+		semconv.GenAIRequestModelKey:             "all-minilm:l6-v2",
+		semconv.GenAIResponseModelKey:            "all-minilm:l6-v2",
+		semconv.GenAIUsageInputTokensKey:         int64(8),
+		semconv.GenAIEmbeddingsDimensionCountKey: int64(4),
+	} {
+		v, ok := attrs.Get(string(key))
+		require.True(t, ok, "missing %s", key)
+		assert.Equal(t, expected, v.AsRaw(), "attribute %s", key)
+	}
+
+	input, ok := attrs.Get(string(semconv.GenAIInputMessagesKey))
+	require.True(t, ok)
+	assert.Contains(t, input.Str(), "why is the sky blue?")
+
+	for _, key := range []attribute.Key{
+		semconv.GenAIOutputMessagesKey,
+		semconv.GenAIUsageOutputTokensKey,
+		semconv.GenAIResponseFinishReasonsKey,
+		genAIRequestStreamKey,
+	} {
+		_, ok := attrs.Get(string(key))
+		assert.False(t, ok, "unexpected %s", key)
+	}
+}
+
+func TestOllamaChatKeepsOutputWithoutDimensions(t *testing.T) {
+	span := &request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeOllama,
+		GenAI: &request.GenAI{Ollama: &request.VendorOpenAI{
+			OperationName: request.ChatOperationName,
+			Choices:       json.RawMessage(`[{"message":{"role":"assistant","content":"Hi"},"finish_reason":"stop"}]`),
+			Request:       request.OpenAIInput{Model: "llama3.2", Dimensions: 128},
+		}},
+	}
+
+	attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{attr.GenAIOutput: {}}))
+
+	_, ok := attrs.Get(string(semconv.GenAIOutputMessagesKey))
+	assert.True(t, ok)
+	_, ok = attrs.Get(string(semconv.GenAIEmbeddingsDimensionCountKey))
+	assert.False(t, ok)
+}
+
 func TestCohereChatAttributes(t *testing.T) {
 	seed := 42
 	span := &request.Span{
