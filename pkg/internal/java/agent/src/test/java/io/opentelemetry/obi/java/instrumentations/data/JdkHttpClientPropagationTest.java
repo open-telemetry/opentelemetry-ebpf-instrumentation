@@ -30,6 +30,7 @@ class JdkHttpClientPropagationTest {
     Map<?, ?> tracked = (Map<?, ?>) scopes.get(null);
     String syncCapability = System.getProperty(JdkHttpClientPropagation.PROPERTY);
     String asyncCapability = System.getProperty(JdkHttpClientPropagation.ASYNC_PROPERTY);
+    String apacheCapability = System.getProperty(ApacheHttpClientPropagation.PROPERTY);
     Object request = new Object();
     JdkHttpClientPropagation scope = JdkHttpClientPropagation.enterAsync();
     CompletableFuture<Object> transport =
@@ -46,6 +47,8 @@ class JdkHttpClientPropagationTest {
       JdkHttpClientPropagation.exit(scope);
       assertTrue(tracked.containsKey(request));
       assertFalse(JdkHttpClientPropagation.contains(request));
+      assertEquals(
+          "unavailable-foundation", System.getProperty(ApacheHttpClientPropagation.PROPERTY));
       assertFalse(transport.isDone());
       transport.complete("original result");
       assertEquals("original result", transport.join());
@@ -54,6 +57,11 @@ class JdkHttpClientPropagationTest {
     } finally {
       scope.accept(null, null);
       available.setBoolean(null, true);
+      if (apacheCapability == null) {
+        System.clearProperty(ApacheHttpClientPropagation.PROPERTY);
+      } else {
+        System.setProperty(ApacheHttpClientPropagation.PROPERTY, apacheCapability);
+      }
       if (syncCapability == null) {
         System.clearProperty(JdkHttpClientPropagation.PROPERTY);
       } else {

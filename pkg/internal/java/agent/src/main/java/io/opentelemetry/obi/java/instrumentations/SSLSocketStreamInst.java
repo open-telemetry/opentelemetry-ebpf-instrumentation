@@ -9,6 +9,7 @@ import io.opentelemetry.obi.java.Agent;
 import io.opentelemetry.obi.java.ebpf.IOCTLPacket;
 import io.opentelemetry.obi.java.ebpf.NativeMemory;
 import io.opentelemetry.obi.java.ebpf.OperationType;
+import io.opentelemetry.obi.java.instrumentations.data.ApacheHttpClientPropagation;
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -161,10 +162,12 @@ public class SSLSocketStreamInst {
 
   public static final class OutputStreamWriteAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static void write(
-        @Advice.FieldValue("this$0") Object outer, @Advice.Argument(0) byte[] b) {
+    public static boolean write(
+        @Advice.FieldValue("this$0") Object outer,
+        @Advice.Argument(value = 0, readOnly = false) byte[] b) {
 
-      if (!SSLStorage.isSSLSocketWriteActive() && b != null && b.length > 0) {
+      boolean capture = SSLStorage.enterSSLSocketWrite();
+      if (capture && b != null && b.length > 0) {
         Socket socket = null;
         if (outer instanceof Socket) {
           socket = (Socket) outer;
@@ -179,10 +182,14 @@ public class SSLSocketStreamInst {
         }
         if (socket != null) {
           try {
-            NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + b.length);
-            int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.SEND, socket, b.length);
-            IOCTLPacket.writePacketBuffer(p, wOff, b);
+            byte[] injected = ApacheHttpClientPropagation.inject(b, 0, b.length, socket);
+            byte[] written = injected == null ? b : injected;
+            NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + written.length);
+            int wOff =
+                IOCTLPacket.writePacketPrefix(p, 0, OperationType.SEND, socket, written.length);
+            IOCTLPacket.writePacketBuffer(p, wOff, written);
             Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
+            b = written;
           } catch (Throwable t) {
             if (SSLStorage.debugOn) {
               System.err.println("[SSLSocketStreamInst] Error in write advice: " + t.getMessage());
@@ -190,18 +197,27 @@ public class SSLSocketStreamInst {
           }
         }
       }
+      return capture;
+    }
+
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    public static void exit(@Advice.Enter boolean capture) {
+      if (capture) {
+        SSLStorage.exitSSLSocketWrite();
+      }
     }
   }
 
   public static final class OutputStreamWriteOffsetAdvice {
     @Advice.OnMethodEnter(suppress = Throwable.class)
-    public static void write(
+    public static boolean write(
         @Advice.FieldValue("this$0") Object outer,
-        @Advice.Argument(0) byte[] b,
-        @Advice.Argument(1) int off,
-        @Advice.Argument(2) int len) {
+        @Advice.Argument(value = 0, readOnly = false) byte[] b,
+        @Advice.Argument(value = 1, readOnly = false) int off,
+        @Advice.Argument(value = 2, readOnly = false) int len) {
 
-      if (!SSLStorage.isSSLSocketWriteActive() && b != null && len > 0) {
+      boolean capture = SSLStorage.enterSSLSocketWrite();
+      if (capture && b != null && len > 0) {
         Socket socket = null;
         if (outer instanceof Socket) {
           socket = (Socket) outer;
@@ -216,16 +232,32 @@ public class SSLSocketStreamInst {
         }
         if (socket != null) {
           try {
-            NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + len);
-            int wOff = IOCTLPacket.writePacketPrefix(p, 0, OperationType.SEND, socket, len);
-            IOCTLPacket.writePacketBuffer(p, wOff, b, off, len);
+            byte[] injected = ApacheHttpClientPropagation.inject(b, off, len, socket);
+            byte[] written = injected == null ? b : injected;
+            int writtenOffset = injected == null ? off : 0;
+            int writtenLength = injected == null ? len : injected.length;
+            NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize + writtenLength);
+            int wOff =
+                IOCTLPacket.writePacketPrefix(p, 0, OperationType.SEND, socket, writtenLength);
+            IOCTLPacket.writePacketBuffer(p, wOff, written, writtenOffset, writtenLength);
             Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
+            b = written;
+            off = writtenOffset;
+            len = writtenLength;
           } catch (Throwable t) {
             if (SSLStorage.debugOn) {
               System.err.println("[SSLSocketStreamInst] Error in write advice: " + t.getMessage());
             }
           }
         }
+      }
+      return capture;
+    }
+
+    @Advice.OnMethodExit(onThrowable = Throwable.class, suppress = Throwable.class)
+    public static void exit(@Advice.Enter boolean capture) {
+      if (capture) {
+        SSLStorage.exitSSLSocketWrite();
       }
     }
   }

@@ -16,6 +16,21 @@ import org.junit.jupiter.api.Test;
 class SSLSocketStreamInstTest {
 
   @Test
+  void delegatingWriteOverloadsKeepOneBalancedObservationScope() {
+    boolean outer = SSLSocketStreamInst.OutputStreamWriteAdvice.write(null, new byte[] {1});
+    assertTrue(outer);
+    assertTrue(io.opentelemetry.obi.java.instrumentations.data.SSLStorage.isSSLSocketWriteActive());
+    boolean inner =
+        SSLSocketStreamInst.OutputStreamWriteOffsetAdvice.write(null, new byte[] {1}, 0, 1);
+    assertFalse(inner);
+    SSLSocketStreamInst.OutputStreamWriteOffsetAdvice.exit(inner);
+    assertTrue(io.opentelemetry.obi.java.instrumentations.data.SSLStorage.isSSLSocketWriteActive());
+    SSLSocketStreamInst.OutputStreamWriteAdvice.exit(outer);
+    assertFalse(
+        io.opentelemetry.obi.java.instrumentations.data.SSLStorage.isSSLSocketWriteActive());
+  }
+
+  @Test
   void inputStreamReadPacketUsesBytesReadForPartialBuffer() {
     byte[] buffer = {10, 20, 30, 40, 50};
     int bytesRead = 3;

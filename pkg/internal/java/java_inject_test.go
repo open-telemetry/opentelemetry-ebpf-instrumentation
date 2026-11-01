@@ -995,7 +995,7 @@ func TestJavaInjector_VerifyLoadedAgentHandlesPropertiesFailure(t *testing.T) {
 				} else {
 					attacher.reader = io.NopCloser(iotest.ErrReader(io.ErrUnexpectedEOF))
 				}
-				err := injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true)
+				err := injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true, false)
 				if version != "" {
 					require.ErrorIs(t, err, io.ErrUnexpectedEOF)
 				} else {
@@ -1020,9 +1020,9 @@ func TestJavaInjector_VerifyLoadedAgentUsesOnePropertiesRequest(t *testing.T) {
 				agentVersion: "3",
 			}
 			attacher := &propertiesAttacher{
-				response: httpClientPropagationProperty + "=" + capability + "\n" + httpClientAsyncPropagationProperty + "=" + capability + "\n" + agentVersionProperty + "=3\n",
+				response: httpClientPropagationProperty + "=" + capability + "\n" + httpClientAsyncPropagationProperty + "=" + capability + "\n" + apache4PropagationProperty + "=available\n" + agentVersionProperty + "=3\n",
 			}
-			require.NoError(t, injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true))
+			require.NoError(t, injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true, false))
 			require.Equal(t, 1, attacher.calls)
 			require.Equal(t, 1, attacher.cleanups)
 			assert.Equal(t, capability != "true", strings.Contains(logs.String(), "propagation unavailable"))
@@ -1033,7 +1033,7 @@ func TestJavaInjector_VerifyLoadedAgentUsesOnePropertiesRequest(t *testing.T) {
 func TestJavaInjector_VerifyLoadedAgentRejectsVersionMismatch(t *testing.T) {
 	injector := &JavaInjector{log: slog.Default(), agentVersion: "3"}
 	attacher := &propertiesAttacher{response: agentVersionProperty + "=2\n" + httpClientPropagationProperty + "=true\n"}
-	err := injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true)
+	err := injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true, false)
 	require.ErrorContains(t, err, "version 2, expected 3")
 	require.Equal(t, 1, attacher.calls)
 	require.Equal(t, 1, attacher.cleanups)
@@ -1046,7 +1046,7 @@ func TestJavaInjector_ReportsMissingAsyncCapabilityOnOlderAgent(t *testing.T) {
 		agentVersion: "3",
 	}
 	attacher := &propertiesAttacher{response: agentVersionProperty + "=3\n" + httpClientPropagationProperty + "=true\n"}
-	require.NoError(t, injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true))
+	require.NoError(t, injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true, false))
 	assert.Contains(t, logs.String(), "HttpClient.sendAsync header propagation unavailable")
 	assert.Contains(t, logs.String(), "effective=unavailable")
 	assert.Contains(t, logs.String(), "restart the JVM")
@@ -1061,4 +1061,27 @@ func TestJavaInjector_HeaderPropagationRequiresAtomicOwnership(t *testing.T) {
 	injector := &JavaInjector{cfg: &obi.Config{}, log: slog.Default()}
 	injector.cfg.EBPF.ContextPropagation = config.ContextPropagationHeaders
 	require.Empty(t, injector.attachOpts(false), "Java must use the same atomic capability gate as eBPF")
+}
+
+func TestJavaInjector_ApacheCapabilityOnJava8(t *testing.T) {
+	for _, state := range []string{"available", "disabled", "unsupported-layout", "not-loaded", ""} {
+		t.Run(state, func(t *testing.T) {
+			var logs bytes.Buffer
+			injector := &JavaInjector{log: slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})), agentVersion: "3"}
+			attacher := &propertiesAttacher{response: agentVersionProperty + "=3\n" + apache4PropagationProperty + "=" + state + "\n"}
+			require.NoError(t, injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true, true))
+			assert.NotContains(t, logs.String(), "HttpClient.sendAsync")
+			switch state {
+			case "available":
+				assert.Contains(t, logs.String(), "effective=available")
+			case "not-loaded":
+				assert.Contains(t, logs.String(), "effective=unknown")
+			default:
+				assert.Contains(t, logs.String(), "effective=unavailable")
+				assert.Contains(t, logs.String(), "restart the JVM")
+			}
+			require.Equal(t, 1, attacher.calls)
+			require.Equal(t, 1, attacher.cleanups)
+		})
+	}
 }

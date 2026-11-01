@@ -130,6 +130,7 @@ jobs:
           EOF
 
           gradle test -I /tmp/obi-test-jvm.init.gradle --no-daemon --stacktrace
+          gradle :agent:test -PapacheHttpClientVersion=4.3 -I /tmp/obi-test-jvm.init.gradle --no-daemon --stacktrace
 
       - name: Upload build artifacts
         if: matrix.test-java == 21

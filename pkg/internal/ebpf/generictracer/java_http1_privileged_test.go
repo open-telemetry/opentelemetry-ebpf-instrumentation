@@ -371,3 +371,50 @@ func TestJavaHTTP1ReservationSequenceDoesNotWrap(t *testing.T) {
 	require.NoError(t, objects.Sequence.Lookup(&key, &sequence))
 	require.Equal(t, lastID, sequence, "the sequence saturates instead of reusing an old ID")
 }
+
+func TestJavaHTTP1BodyWriteOwnership(t *testing.T) {
+	if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
+		t.Skip("this test requires CMPXCHG support")
+	}
+	objects := loadJavaHTTP1Reservations(t, true)
+	read := func() BpfHttpInfoT {
+		var key BpfPidConnectionInfoT
+		var info BpfHttpInfoT
+		iterator := objects.HTTP.Iterate()
+		require.True(t, iterator.Next(&key, &info))
+		require.NoError(t, iterator.Err())
+		return info
+	}
+	a := javaHTTP1Packet(40000)
+	javaHTTP1Ioctl(a)
+	javaHTTP1Send(a)
+	initial := read()
+	owner := binary.NativeEndian.Uint64(a[javaHTTP1RequestIDOffset:])
+	require.Equal(t, owner, initial.JavaHttp1RequestId)
+	require.Zero(t, javaHTTP1MapSize(t, objects.Requests), "body ownership does not retain a reservation slot")
+	time.Sleep(200 * time.Millisecond)
+	body := []byte("GET /body HTTP/1.1\r\nX-Body: request-looking\r\n\r\n")
+	javaHTTP1Data(a, javaHTTP1SendOp, body)
+	responseBody := []byte("HTTP/1.1 299 Body\r\nX-Body: response-looking\r\n\r\n")
+	javaHTTP1Data(a, javaHTTP1SendOp, responseBody)
+	continued := read()
+	require.Equal(t, initial.Tp, continued.Tp, "later body writes retain the header's exact identity")
+	require.Equal(t, initial.Len+uint32(len(body)+len(responseBody)), continued.Len)
+	require.Zero(t, continued.Status, "a response-looking body is still request data")
+	require.Equal(t, owner, continued.JavaHttp1RequestId)
+	a[0] = javaHTTP1Release
+	javaHTTP1Ioctl(a)
+	require.Zero(t, read().JavaHttp1RequestId, "release ends body ownership after slot consumption")
+	javaHTTP1Data(a, javaHTTP1ReceiveOp, []byte("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"))
+	b := javaHTTP1Packet(40000)
+	javaHTTP1Ioctl(b)
+	javaHTTP1Send(b)
+	next := read()
+	require.NotZero(t, next.JavaHttp1RequestId)
+	require.NotEqual(t, owner, next.JavaHttp1RequestId)
+	javaHTTP1Ioctl(a)
+	require.Equal(t, next.JavaHttp1RequestId, read().JavaHttp1RequestId, "A's delayed release must preserve B's write scope")
+	b[0] = javaHTTP1Release
+	javaHTTP1Ioctl(b)
+	require.Zero(t, read().JavaHttp1RequestId)
+}

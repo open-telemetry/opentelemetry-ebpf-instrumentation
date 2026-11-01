@@ -20,6 +20,7 @@ const (
 	// loads, so that OBI can tell which agent an already instrumented JVM is running.
 	agentVersionProperty               = "otel.obi.java.agent.version"
 	httpClientPropagationProperty      = "otel.obi.java.agent.httpclient.propagation"
+	apache4PropagationProperty         = "otel.obi.java.agent.apache4.propagation"
 	httpClientAsyncPropagationProperty = "otel.obi.java.agent.httpclient.async.propagation"
 
 	// agentVersionResource is the agent JAR entry holding agentVersionProperty. The agent reads
