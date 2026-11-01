@@ -190,19 +190,89 @@ func collectSymbols(f *elf.File, typ elf.SectionType, symbolNames []string, addr
 	return nil
 }
 
-func symbolNameOffsets(section *elf.Section, symbolNames []string) (map[uint32]string, uint64, error) {
-	patterns := make(map[string]string, len(symbolNames))
-	maxNameLen := 0
+// symbolNameMatcher recognizes requested symbol names in an ELF string table.
+//
+// A string table is a sequence of NULL-terminated strings, and a symbol refers
+// to its name by the table offset at which the name starts. Linkers may share
+// storage between names: "SSL_read" can be stored as the tail of
+// "BIO_SSL_read", with the "SSL_read" symbol pointing into the middle of it.
+// So a requested name always ends right before a NULL byte, but does not
+// necessarily start right after one. The matcher therefore works backwards from
+// each NULL.
+type symbolNameMatcher struct {
+	wanted            map[string]string
+	lengthsByLastByte [math.MaxUint8 + 1][]int
+	wantEmpty         bool
+	maxNameLen        int
+}
+
+func newSymbolNameMatcher(symbolNames []string) *symbolNameMatcher {
+	matcher := &symbolNameMatcher{wanted: make(map[string]string, len(symbolNames))}
 	for _, name := range symbolNames {
+		// A name containing a NULL byte can never be read back from a string table.
 		if strings.IndexByte(name, 0) >= 0 {
 			continue
 		}
-		patterns[name+"\x00"] = name
-		maxNameLen = max(maxNameLen, len(name))
+
+		if name == "" {
+			matcher.wantEmpty = true
+			continue
+		}
+
+		matcher.wanted[name] = name
+		matcher.maxNameLen = max(matcher.maxNameLen, len(name))
+
+		last := name[len(name)-1]
+		if !slices.Contains(matcher.lengthsByLastByte[last], len(name)) {
+			matcher.lengthsByLastByte[last] = append(matcher.lengthsByLastByte[last], len(name))
+		}
 	}
 
+	return matcher
+}
+
+// matchAt records each requested name that ends right before the NULL at data[end]
+func (m *symbolNameMatcher) matchAt(data []byte, end int, offset uint64, names map[uint32]string) {
+	if m.wantEmpty {
+		recordSymbolName(names, offset+uint64(end), "")
+	}
+	if end == 0 {
+		return
+	}
+
+	for _, length := range m.lengthsByLastByte[data[end-1]] {
+		// The name would start before the beginning of the table. This can only
+		// happen during the first read, when no bytes precede the buffer.
+		start := end - length
+		if start < 0 {
+			continue
+		}
+
+		// Converting the bytes to a string in a map index does not allocate.
+		if name, ok := m.wanted[string(data[start:end])]; ok {
+			recordSymbolName(names, offset+uint64(start), name)
+		}
+	}
+}
+
+func recordSymbolName(names map[uint32]string, nameOffset uint64, name string) {
+	if nameOffset <= math.MaxUint32 {
+		names[uint32(nameOffset)] = name
+	}
+}
+
+// symbolNameOffsets reads the string table once and returns the offsets at
+// which the requested names start.
+func symbolNameOffsets(section *elf.Section, symbolNames []string) (map[uint32]string, uint64, error) {
+	matcher := newSymbolNameMatcher(symbolNames)
 	names := map[uint32]string{}
-	buffer := make([]byte, symbolReadBufferSize+maxNameLen)
+
+	// The table is read in fixed-size chunks. The last maxNameLen bytes of each
+	// chunk are carried over to the front of the buffer for the next read, so a
+	// name that straddles two reads is complete by the time its NULL is scanned.
+	// offset is the table position of buffer[0], and tail is the number of
+	// carried-over bytes at the front of the buffer.
+	buffer := make([]byte, symbolReadBufferSize+matcher.maxNameLen)
 	reader := section.Open()
 	var offset, validStringSize uint64
 	tail := 0
@@ -213,26 +283,24 @@ func symbolNameOffsets(section *elf.Section, symbolNames []string) (map[uint32]s
 		}
 		remaining -= uint64(size)
 		data := buffer[:tail+size]
+
 		if last := bytes.LastIndexByte(data, 0); last >= 0 {
 			validStringSize = offset + uint64(last) + 1
 		}
-		for pattern, name := range patterns {
-			for start := 0; start < len(data); {
-				index := bytes.Index(data[start:], []byte(pattern))
-				if index < 0 {
-					break
-				}
-				start += index
-				if nameOffset := offset + uint64(start); nameOffset <= math.MaxUint32 {
-					names[uint32(nameOffset)] = name
-				}
-				start += len(pattern)
+
+		// Visit each NULL in the new bytes. NULLs in the carried-over bytes were
+		// visited during the previous read, so the scan starts after them.
+		for scan := tail; ; {
+			next := bytes.IndexByte(data[scan:], 0)
+			if next < 0 {
+				break
 			}
+			end := scan + next
+			matcher.matchAt(data, end, offset, names)
+			scan = end + 1
 		}
 
-		// Keep overlapping bytes for names crossing reads. Matching suffixes also
-		// handles ELF string tables that share storage between symbol names.
-		tail = min(maxNameLen, len(data))
+		tail = min(matcher.maxNameLen, len(data))
 		offset += uint64(len(data) - tail)
 		copy(buffer, data[len(data)-tail:])
 	}

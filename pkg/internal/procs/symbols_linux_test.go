@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -241,18 +240,30 @@ func TestFindExeSymbolsAllocations(t *testing.T) {
 	assert.Less(t, allocations, float64(maxLookupAllocations), "lookup must not allocate for unrelated symbols")
 }
 
+// benchmarkSymbolNames returns name lists shaped like the probe lists passed by
+// the tracers: mixed lengths, shared prefixes and names longer than 32 bytes.
+func benchmarkSymbolNames(count int) []string {
+	names := []string{"SSL_read", "SSL_write", "SSL_shutdown", "SSL_set_bio", "SSL_free"}
+	for i := len(names); i < count; i++ {
+		names = append(names, fmt.Sprintf("net/http.(*conn%d).serve.func%d", i, i%10))
+	}
+	return names[:count]
+}
+
 func BenchmarkFindExeSymbols(b *testing.B) {
 	for _, count := range []int{10_000, 100_000, 1_000_000} {
-		b.Run(strconv.Itoa(count), func(b *testing.B) {
-			f := largeSymbolELFFixture(b, count)
-			names := []string{"SSL_read", "SSL_write", "SSL_shutdown", "SSL_set_bio", "SSL_free"}
-			b.ReportAllocs()
-			b.ResetTimer()
-			for b.Loop() {
-				symbols, err := FindExeSymbols(f, names)
-				require.NoError(b, err)
-				require.Len(b, symbols, 1)
-			}
-		})
+		for _, nameCount := range []int{5, 50} {
+			b.Run(fmt.Sprintf("symbols=%d/names=%d", count, nameCount), func(b *testing.B) {
+				f := largeSymbolELFFixture(b, count)
+				names := benchmarkSymbolNames(nameCount)
+				b.ReportAllocs()
+				b.ResetTimer()
+				for b.Loop() {
+					symbols, err := FindExeSymbols(f, names)
+					require.NoError(b, err)
+					require.Len(b, symbols, 1)
+				}
+			})
+		}
 	}
 }
