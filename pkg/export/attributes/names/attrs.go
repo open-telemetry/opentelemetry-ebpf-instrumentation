@@ -330,6 +330,7 @@ const (
 	GenAIToolCallResult    = Name(semconv.GenAIToolCallResultKey)
 	GenAIPromptName        = Name(semconv.GenAIPromptNameKey)
 	GenAIResponseError     = Name("gen_ai.response.error")
+	OpenAIRequestQuestions = Name("openai.request.questions")
 )
 
 // OBI specific GPU events

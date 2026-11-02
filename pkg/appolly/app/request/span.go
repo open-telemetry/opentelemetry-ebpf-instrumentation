@@ -4,6 +4,7 @@
 package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/base64"
 	"encoding/json"
@@ -656,11 +657,13 @@ type OpenAIInput struct {
 	EncodingFormat   string          `json:"encoding_format,omitempty"`
 	Seed             *int            `json:"seed,omitempty"`
 	Tools            json.RawMessage `json:"tools,omitempty"`
-	ServiceTier      string          `json:"service_tier,omitempty"`
-	Parameters       json.RawMessage `json:"parameters,omitempty"`
-	// InputItems retains the Responses API `input` array (function_call /
-	// function_call_output items), which cannot be held by the string Input
-	// field. Populated only for /v1/responses traffic.
+	// Questions retains the Decisions API `questions` array for opt-in export.
+	Questions   json.RawMessage `json:"-"`
+	ServiceTier string          `json:"service_tier,omitempty"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+	// InputItems retains the Responses and Decisions API `input` array,
+	// which cannot be held by the string Input field. Populated only for
+	// /v1/responses and /v1/decisions traffic.
 	InputItems json.RawMessage `json:"-"`
 }
 
@@ -692,6 +695,14 @@ func (air *OpenAIInput) GetStopSequences() []string {
 		return []string{s}
 	}
 	return nil
+}
+
+func (air *OpenAIInput) GetQuestions() string {
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, air.Questions); err != nil {
+		return string(air.Questions)
+	}
+	return compact.String()
 }
 
 func (air *OpenAIInput) GetInput() string {
@@ -1127,6 +1138,7 @@ const (
 	InvokeModelOperationName    = "invoke_model"
 	EmbeddingOperationName      = "embeddings"
 	ResponseOperationName       = "response"
+	DecisionOperationName       = "decision"
 	ConversationOperationName   = "conversation"
 	ExecuteToolOperationName    = "execute_tool"
 	ChatKitSessionOperationName = "chatkit.session"
