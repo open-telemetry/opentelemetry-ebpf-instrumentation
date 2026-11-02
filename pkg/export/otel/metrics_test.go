@@ -1028,7 +1028,7 @@ func TestAppMetrics_HTTPRouteAttributes(t *testing.T) {
 			case record.Name == attributes.HTTPClientDuration.OTEL:
 				// opt-in on the stable duration metric, as semconv defines it
 				assert.NotContains(t, record.Attributes, string(attr.HTTPUrlTemplate), record.Name)
-				assert.NotContains(t, record.Attributes, string(attr.HTTPRoute), record.Name)
+				assert.Equal(t, "/client/{id}", record.Attributes[string(attr.HTTPRoute)], record.Name)
 			case strings.HasPrefix(record.Name, "http.client."):
 				assert.Equal(t, "/client/{id}", record.Attributes[string(attr.HTTPUrlTemplate)], record.Name)
 				assert.NotContains(t, record.Attributes, string(attr.HTTPRoute), record.Name)

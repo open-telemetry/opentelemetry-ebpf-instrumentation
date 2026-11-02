@@ -26,13 +26,12 @@ func testClientWithMethodAndStatusCode(t *testing.T, method string, statusCode i
 			`server_address="grafana.com",` +
 			`service_namespace="integration-test",` +
 			`service_name="pingclient"`
-		// url.template is opt-in on the duration metric and on by default
-		// on the body-size metrics, as semconv defines them
-		sizeLabels = labels + `,url_template="/oss/"`
+		durationLabels = labels + `,http_route="/oss/"`
+		sizeLabels     = labels + `,url_template="/oss/"`
 	)
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		query := fmt.Sprintf("http_client_request_duration_seconds_count{%s}", labels)
+		query := fmt.Sprintf("http_client_request_duration_seconds_count{%s}", durationLabels)
 		checkClientPromQueryResult(ct, pq, query, 1)
 	}, testTimeout, 100*time.Millisecond)
 

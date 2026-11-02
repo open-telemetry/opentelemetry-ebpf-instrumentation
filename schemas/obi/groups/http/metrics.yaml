@@ -37,6 +37,9 @@ metrics:
   - name: http.client.request.duration
     annotations:
       obi:
+        upstream_extras:
+          url.path: optional metric dimension retained from the OBI v1 contract
+          http.route: route dimension retained from the OBI v1 contract
         upstream_relaxes:
           server.address: missing when OBI cannot tell which connection the request used
           server.port: missing when OBI cannot tell which connection the request used
@@ -48,6 +51,11 @@ metrics:
     stability: stable
     requirement_level: recommended
     attributes:
+      - ref: url.path
+        requirement_level: opt_in
+      - ref: http.route
+        requirement_level:
+          recommended: if route collection is enabled and the route was matched
       - ref: error.type
         requirement_level:
           conditionally_required: if the request ended in an error
@@ -133,6 +141,9 @@ metrics:
   - name: http.server.request.duration
     annotations:
       obi:
+        upstream_extras:
+          url.path: optional metric dimension retained from the OBI v1 contract
+          client.address: optional metric dimension retained from the OBI v1 contract
         upstream_relaxes:
           url.scheme: missing for a FastCGI request whose parameters are too large to capture
         upstream_omits:
@@ -143,6 +154,10 @@ metrics:
     stability: stable
     requirement_level: recommended
     attributes:
+      - ref: url.path
+        requirement_level: opt_in
+      - ref: client.address
+        requirement_level: opt_in
       - ref: error.type
         requirement_level:
           conditionally_required: if the request ended in an error
