@@ -105,6 +105,7 @@ func StatsAgent(ctxInfo *global.ContextInfo, cfg *obi.Config) (*Stats, error) {
 
 	selectorCfg := &attributes.SelectorConfig{
 		SelectionCfg:            cfg.Attributes.Select,
+		UseV2Selection:          cfg.Attributes.UseV2Selection,
 		ExtraGroupAttributesCfg: cfg.Attributes.ExtraGroupAttributes,
 	}
 	statsFetcher, err = newFetcher(&cfg.EBPF, &cfg.Metrics.Features, selectorCfg)

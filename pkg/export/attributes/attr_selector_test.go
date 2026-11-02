@@ -4,6 +4,7 @@
 package attributes
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -229,7 +230,7 @@ func TestFor_NotNormalizedSection(t *testing.T) {
 			key: InclusionLists{Include: []string{"k8s.namespace.name"}},
 		}
 		selection.Normalize()
-		p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection})
+		p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection, UseV2Selection: true})
 		require.NoError(t, err)
 		assert.Equal(t, []attr.Name{"k8s.namespace.name"}, p.For(DotnetProcessMemoryWorkingSet), "key %q", key)
 	}
@@ -241,7 +242,7 @@ func TestFor_NotNormalizedSection_ExactOverridesGlob(t *testing.T) {
 		"jvm.thread.count": InclusionLists{Include: []string{"jvm.thread.daemon"}},
 	}
 	selection.Normalize()
-	p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection})
+	p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection, UseV2Selection: true})
 	require.NoError(t, err)
 	assert.Equal(t, []attr.Name{"jvm.thread.daemon"}, p.For(JVMThreadCount))
 
@@ -250,7 +251,7 @@ func TestFor_NotNormalizedSection_ExactOverridesGlob(t *testing.T) {
 		"jvm.thread.count": InclusionLists{Exclude: []string{"jvm.thread.daemon"}},
 	}
 	selection.Normalize()
-	p, err = NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection})
+	p, err = NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection, UseV2Selection: true})
 	require.NoError(t, err)
 	assert.NotContains(t, p.For(JVMThreadCount), attr.Name("jvm.thread.daemon"))
 }
@@ -527,4 +528,14 @@ func TestTracesOpenAIRequestQuestionsIsOptIn(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Contains(t, p.For(Traces), attr.OpenAIRequestQuestions)
+}
+
+func TestFor_LegacySelectionIsFrozen(t *testing.T) {
+	selection := Selection{"gen_ai.client.operation.duration": {Exclude: []string{"gen_ai.request.model"}}}
+	selection.Normalize()
+	for _, v2 := range []bool{false, true} {
+		selector, err := NewAttrSelector(0, &SelectorConfig{SelectionCfg: selection, UseV2Selection: v2})
+		require.NoError(t, err)
+		assert.Equal(t, !v2, slices.Contains(selector.For(GenAIClientOperationDuration), attr.GenAIRequestModel))
+	}
 }
