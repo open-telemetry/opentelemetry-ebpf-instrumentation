@@ -4,9 +4,7 @@
 package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 
 import (
-	"bytes"
 	"log/slog"
-	"net"
 	"net/http"
 	"strings"
 
@@ -18,19 +16,6 @@ const (
 	jevSystemOnePathV1 = "/v1/systemone"
 	jevKnownHost       = "jev-ai.org"
 )
-
-// extractHostname returns the hostname from the request, stripping any
-// port number that may be present in req.URL.Host or req.Host.
-func extractHostname(req *http.Request) string {
-	if h := req.URL.Hostname(); h != "" {
-		return h
-	}
-	host := req.Host
-	if h, _, err := net.SplitHostPort(host); err == nil {
-		return h
-	}
-	return host
-}
 
 // isJevHost reports whether the request targets a known Jev host or subdomain.
 // Recognizes exact jev-ai.org and dot-delimited subdomains (e.g., api.jev-ai.org).
