@@ -39,7 +39,6 @@ metrics:
       obi:
         upstream_extras:
           url.path: optional metric dimension retained from the OBI v1 contract
-          http.route: route dimension retained from the OBI v1 contract
         upstream_relaxes:
           server.address: missing when OBI cannot tell which connection the request used
           server.port: missing when OBI cannot tell which connection the request used
@@ -53,9 +52,6 @@ metrics:
     attributes:
       - ref: url.path
         requirement_level: opt_in
-      - ref: http.route
-        requirement_level:
-          recommended: if route collection is enabled and the route was matched
       - ref: error.type
         requirement_level:
           conditionally_required: if the request ended in an error

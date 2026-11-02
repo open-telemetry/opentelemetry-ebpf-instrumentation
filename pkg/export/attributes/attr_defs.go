@@ -344,12 +344,12 @@ func getDefinitions(
 		nil,
 	)
 
-	// Keep the stable duration metric's v1 route dimension.
+	// Semconv makes url.template opt-in on the stable client duration metric,
+	// and conditionally required only on the development body-size metrics.
 	httpClientDurationRoutes := NewAttrReportGroup(
 		!groups.Has(GroupHTTPRoutes),
 		nil,
 		map[attr.Name]Default{
-			attr.HTTPRoute:       true,
 			attr.HTTPUrlTemplate: false,
 		},
 		nil,

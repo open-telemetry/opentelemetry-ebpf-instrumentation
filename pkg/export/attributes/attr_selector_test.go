@@ -164,10 +164,9 @@ func TestFor_HTTPRouteAttributesByDirection(t *testing.T) {
 		assert.Contains(t, p.For(metric), attr.HTTPRoute, metric.Section)
 		assert.NotContains(t, p.For(metric), attr.HTTPUrlTemplate, metric.Section)
 	}
-	for _, metric := range []Name{HTTPClientRequestSize, HTTPClientResponseSize} {
+	for _, metric := range clientMetrics {
 		assert.NotContains(t, p.For(metric), attr.HTTPRoute, metric.Section)
 	}
-	assert.Contains(t, p.For(HTTPClientDuration), attr.HTTPRoute)
 	// semconv makes url.template opt-in on the stable duration metric and
 	// conditionally required on the development body-size metrics
 	assert.NotContains(t, p.For(HTTPClientDuration), attr.HTTPUrlTemplate)
