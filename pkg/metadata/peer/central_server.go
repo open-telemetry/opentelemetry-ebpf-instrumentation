@@ -188,10 +188,9 @@ func (s *CentralServer) parseAddresses(values []string) ([]netip.Addr, error) {
 			return nil, fmt.Errorf("host address %s is not permitted", address)
 		}
 
-		if !slices.Contains(addresses, address) {
-			addresses = append(addresses, address)
-		}
+		addresses = append(addresses, address)
 	}
 
-	return addresses, nil
+	slices.SortFunc(addresses, netip.Addr.Compare)
+	return slices.Compact(addresses), nil
 }

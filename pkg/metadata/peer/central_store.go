@@ -80,9 +80,15 @@ func (s *centralStore) lookup(address netip.Addr, requester []netip.Addr, now ti
 		CallerAmbiguityMillis: max(0, host.snapshot.CallerAmbiguityMillis-age),
 	}
 
+	requesters := make(map[netip.Addr]struct{}, len(requester))
+	for _, address := range requester {
+		requesters[address] = struct{}{}
+	}
+
 	for _, caller := range host.snapshot.Callers {
 		destination, err := netip.ParseAddr(caller.Destination.IP)
-		if err != nil || !slices.Contains(requester, destination) {
+		_, requested := requesters[destination]
+		if err != nil || !requested {
 			continue
 		}
 
