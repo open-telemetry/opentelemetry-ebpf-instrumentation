@@ -100,7 +100,9 @@ spans:
       obi:
         upstream: http.client
         upstream_extras:
-          url.query: scrubbed query attribute retained from the OBI v1 contract
+          url.query: >-
+            URI query component of the outgoing HTTP request, scrubbed with
+            url.full and separately selectable as documented in OBI v1
         upstream_relaxes:
           server.address: missing when OBI cannot tell which connection the request used
           server.port: missing when OBI cannot tell which connection the request used
