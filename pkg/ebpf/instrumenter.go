@@ -522,6 +522,7 @@ func dedupModuleProbes(
 ) map[string][]*ebpfcommon.ProbeDesc {
 	type probeKey struct {
 		symbol     string
+		matcher    ebpfcommon.SymbolMatcher
 		start, end *ebpf.Program
 	}
 
@@ -530,7 +531,7 @@ func dedupModuleProbes(
 	for _, m := range existing {
 		for sym, descs := range m {
 			for _, d := range descs {
-				seen[probeKey{sym, d.Start, d.End}] = struct{}{}
+				seen[probeKey{sym, d.SymbolMatcher, d.Start, d.End}] = struct{}{}
 			}
 		}
 	}
@@ -541,7 +542,7 @@ func dedupModuleProbes(
 		kept := make([]*ebpfcommon.ProbeDesc, 0, len(descs))
 
 		for _, d := range descs {
-			if _, dup := seen[probeKey{sym, d.Start, d.End}]; dup {
+			if _, dup := seen[probeKey{sym, d.SymbolMatcher, d.Start, d.End}]; dup {
 				continue
 			}
 			kept = append(kept, d)

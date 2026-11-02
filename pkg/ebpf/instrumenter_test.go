@@ -1456,6 +1456,15 @@ func TestDedupModuleProbes(t *testing.T) {
 		assert.Empty(t, got)
 	})
 
+	t.Run("same substring and program is dropped", func(t *testing.T) {
+		desc := &ebpfcommon.ProbeDesc{Start: pA, SymbolMatcher: ebpfcommon.SymbolMatcherContains}
+		existing := []map[string][]*ebpfcommon.ProbeDesc{
+			{"uv_fs": {desc}},
+		}
+		pMap := map[string][]*ebpfcommon.ProbeDesc{"uv_fs": {desc}}
+		assert.Empty(t, dedupModuleProbes(existing, pMap))
+	})
+
 	t.Run("same symbol but different program is kept", func(t *testing.T) {
 		existing := []map[string][]*ebpfcommon.ProbeDesc{
 			{"uv_fs_access": {descA}},
@@ -1486,6 +1495,40 @@ func TestDedupModuleProbes(t *testing.T) {
 		require.Len(t, got, 1)
 		assert.Equal(t, []*ebpfcommon.ProbeDesc{descC}, got["uv_fs_access"])
 	})
+}
+
+func TestUprobeModulesPreservesDifferentSymbolMatchers(t *testing.T) {
+	elfFile, err := elf.NewFile(bytes.NewReader(testData()))
+	require.NoError(t, err)
+	defer elfFile.Close()
+
+	start, end := &ebpf.Program{}, &ebpf.Program{}
+	exact := &ebpfcommon.ProbeDesc{Start: start, End: end, SymbolMatcher: ebpfcommon.SymbolMatcherExact}
+	substring := &ebpfcommon.ProbeDesc{
+		Start: start, End: end, SymbolMatcher: ebpfcommon.SymbolMatcherContains, Required: true,
+	}
+	tracer := stubTracer{
+		uprobes: map[string]map[string][]*ebpfcommon.ProbeDesc{
+			"exact-library":     {"setprogna": {exact}},
+			"substring-library": {"setprogna": {substring}},
+		},
+	}
+	i := &instrumenter{}
+	const exeIno = 42
+	modules := i.uprobeModules(&tracer, 123, nil, "libbsd.so", exeIno, slog.Default())
+	require.Len(t, modules, 1)
+	module := modules[exeIno]
+	require.NotNil(t, module)
+	require.Len(t, module.probes, 2)
+
+	for _, probes := range module.probes {
+		require.NoError(t, gatherOffsetsImpl(elfFile, probes, module.instrPath, slog.Default()))
+	}
+	assert.True(t, exact.Skip)
+	assert.False(t, substring.Skip)
+	expected := expectedValues()["setprogname"]
+	assert.Equal(t, expected.startOffset, substring.StartOffset)
+	assert.Equal(t, expected.returnOffsets, substring.ReturnOffsets)
 }
 
 func TestSetupOtelBPFFSPathFallsBackToInternalMaps(t *testing.T) {
