@@ -131,7 +131,7 @@ func settingsFor(s services.Selector) selectorSettings {
 		sampler:    s.GetSamplerConfig(),
 		routes:     s.GetRoutesConfig(),
 		metrics:    s.MetricsConfig(),
-		exceptions: s.GetExceptionsConfig(),
+		exceptions: selectorExceptions(s),
 	}
 }
 
