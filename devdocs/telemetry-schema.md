@@ -127,8 +127,6 @@ section empty once drained.
   conventions, which exclude these high-cardinality attributes from metrics. Both were opt-in,
   so only an `attributes.select` that included them changes. `url.path` can still be used in
   attribute filters, and the spans keep both attributes.
-- HTTP client spans no longer carry `url.query`; the scrubbed query string remains part of
-  `url.full`. HTTP server spans keep `url.query`.
 - The span reference (`site/docs/spans.md`) documents every span's name. The emitted
   telemetry is unchanged.
 - The trace resource no longer carries `otel.scope.name`. Spans now carry the instrumentation
