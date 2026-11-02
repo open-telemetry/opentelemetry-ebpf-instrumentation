@@ -15,7 +15,9 @@ var errTooManyHosts = errors.New("central metadata host limit reached")
 
 type centralHost struct {
 	addresses []netip.Addr
+	// snapshot holds no callers, which are indexed by destination address so lookups only visit the requester's.
 	snapshot  Snapshot
+	callers   map[netip.Addr][]Caller
 	published time.Time
 }
 
@@ -56,8 +58,25 @@ func (s *centralStore) publish(hostID string, addresses []netip.Addr, snapshot S
 		s.addresses[address] = hostID
 	}
 
-	s.hosts[hostID] = &centralHost{addresses: addresses, snapshot: snapshot, published: now}
+	callers := indexCallers(snapshot.Callers)
+	snapshot.Callers = nil
+	s.hosts[hostID] = &centralHost{addresses: addresses, snapshot: snapshot, callers: callers, published: now}
 	return nil
+}
+
+// indexCallers groups callers by destination address. Destinations must already be normalized by validateSnapshot.
+func indexCallers(callers []Caller) map[netip.Addr][]Caller {
+	index := make(map[netip.Addr][]Caller, len(callers))
+	for _, caller := range callers {
+		destination, err := netip.ParseAddr(caller.Destination.IP)
+		if err != nil {
+			continue
+		}
+
+		index[destination] = append(index[destination], caller)
+	}
+
+	return index
 }
 
 // lookup returns the snapshot published for an address, aged to now and with callers limited to the requester.
@@ -80,18 +99,16 @@ func (s *centralStore) lookup(address netip.Addr, requester []netip.Addr, now ti
 		CallerAmbiguityMillis: max(0, host.snapshot.CallerAmbiguityMillis-age),
 	}
 
-	requesters := make(map[netip.Addr]struct{}, len(requester))
 	for _, address := range requester {
-		requesters[address] = struct{}{}
+		snapshot.Callers = appendAgedCallers(snapshot.Callers, host.callers[address], age)
 	}
 
-	for _, caller := range host.snapshot.Callers {
-		destination, err := netip.ParseAddr(caller.Destination.IP)
-		_, requested := requesters[destination]
-		if err != nil || !requested {
-			continue
-		}
+	return &snapshot, true
+}
 
+// appendAgedCallers appends the callers with their remaining lifetimes reduced by age, dropping expired services.
+func appendAgedCallers(dst, callers []Caller, age int64) []Caller {
+	for _, caller := range callers {
 		aged := Caller{Destination: caller.Destination}
 		for _, service := range caller.Services {
 			if remaining := service.RemainingMillis - age; remaining > 0 {
@@ -100,11 +117,11 @@ func (s *centralStore) lookup(address netip.Addr, requester []netip.Addr, now ti
 		}
 
 		if len(aged.Services) > 0 {
-			snapshot.Callers = append(snapshot.Callers, aged)
+			dst = append(dst, aged)
 		}
 	}
 
-	return &snapshot, true
+	return dst
 }
 
 // expire removes hosts that have not published within the TTL.
