@@ -106,7 +106,7 @@ func findLanguageFromElf(filePath string) (result svc.InstrumentableType) {
 type symbolCollector struct {
 	addresses   map[string]Sym
 	symbolNames []string
-	matches     func(string, []string) (string, bool)
+	matches     func(string, string) bool
 }
 
 func collectSymbols(f *elf.File, syms []elf.Symbol, collectors []symbolCollector, types ...elf.SymType) {
@@ -120,16 +120,17 @@ func collectSymbols(f *elf.File, syms []elf.Symbol, collectors []symbolCollector
 
 		var sym *Sym
 		for _, collector := range collectors {
-			key, ok := collector.matches(s.Name, collector.symbolNames)
-			if !ok {
-				continue
-			}
+			for _, name := range collector.symbolNames {
+				if !collector.matches(s.Name, name) {
+					continue
+				}
 
-			if sym == nil {
-				resolvedSym := resolveSymbol(f, s)
-				sym = &resolvedSym
+				if sym == nil {
+					resolvedSym := resolveSymbol(f, s)
+					sym = &resolvedSym
+				}
+				collector.addresses[name] = *sym
 			}
-			collector.addresses[key] = *sym
 		}
 	}
 }
@@ -151,7 +152,7 @@ func FindExeSymbolsByNameAndSubstring(f *elf.File, symbolNames, symbolSubstrings
 		{
 			addresses:   substringAddresses,
 			symbolNames: symbolSubstrings,
-			matches:     substringSymbolMatch,
+			matches:     strings.Contains,
 		},
 	}
 
@@ -193,20 +194,8 @@ func resolveSymbol(f *elf.File, s elf.Symbol) Sym {
 	return Sym{Name: s.Name, Off: address, Value: s.Value, Len: s.Size, Prog: p}
 }
 
-func exactSymbolMatch(symbolName string, names []string) (string, bool) {
-	if slices.Contains(names, symbolName) {
-		return symbolName, true
-	}
-	return "", false
-}
-
-func substringSymbolMatch(symbolName string, substrings []string) (string, bool) {
-	for _, substring := range substrings {
-		if strings.Contains(symbolName, substring) {
-			return substring, true
-		}
-	}
-	return "", false
+func exactSymbolMatch(symbolName, name string) bool {
+	return symbolName == name
 }
 
 func matchExeSymbols(ctx *fastelf.ElfContext) svc.InstrumentableType {

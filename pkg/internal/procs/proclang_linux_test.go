@@ -173,9 +173,10 @@ func TestFindExeSymbolsExactLookup(t *testing.T) {
 
 func TestFindExeSymbolsByNameAndSubstring(t *testing.T) {
 	const (
-		exactSymbolName    = "main.exactLookupTarget"
-		substringSymbol    = "main.substringLookupTarget"
-		symbolNameFragment = "substringLookup"
+		exactSymbolName     = "main.exactLookupTarget"
+		substringSymbol     = "main.substringLookupTarget"
+		symbolNameFragment  = "substringLookup"
+		overlappingFragment = "substringLookupTarget"
 	)
 
 	f := openSymbolFixtureELF(t)
@@ -184,7 +185,7 @@ func TestFindExeSymbolsByNameAndSubstring(t *testing.T) {
 	exactSyms, substringSyms, err := FindExeSymbolsByNameAndSubstring(
 		f,
 		[]string{exactSymbolName},
-		[]string{symbolNameFragment},
+		[]string{symbolNameFragment, overlappingFragment},
 	)
 	require.NoError(t, err)
 
@@ -195,12 +196,14 @@ func TestFindExeSymbolsByNameAndSubstring(t *testing.T) {
 	assert.NotZero(t, exactSym.Len)
 	assert.NotNil(t, exactSym.Prog)
 
-	substringSym, ok := substringSyms[symbolNameFragment]
-	require.True(t, ok)
-	assert.Equal(t, substringSymbol, substringSym.Name)
-	assert.NotZero(t, substringSym.Off)
-	assert.NotZero(t, substringSym.Len)
-	assert.NotNil(t, substringSym.Prog)
+	for _, fragment := range []string{symbolNameFragment, overlappingFragment} {
+		substringSym, ok := substringSyms[fragment]
+		require.True(t, ok, fragment)
+		assert.Equal(t, substringSymbol, substringSym.Name)
+		assert.NotZero(t, substringSym.Off)
+		assert.NotZero(t, substringSym.Len)
+		assert.NotNil(t, substringSym.Prog)
+	}
 }
 
 func openSymbolFixtureELF(t *testing.T) *elf.File {
