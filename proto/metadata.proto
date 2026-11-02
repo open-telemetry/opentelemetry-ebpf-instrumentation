@@ -46,6 +46,9 @@ message PublishRequest {
   // Addresses other agents use to reach the publishing host.
   repeated string addresses = 1;
   Snapshot snapshot = 2;
+  // Unique host identifier (the agent's host.id). Each publish replaces the previous one with the same identifier.
+  // It is distinct from the snapshot hostname, which several hosts may share.
+  string host_id = 3;
 }
 
 message PublishResponse {}

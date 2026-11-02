@@ -182,8 +182,11 @@ The service implements the `MetadataService` gRPC API in
 
 - `Publish` stores the snapshot of the publishing host, together with the
   addresses other agents use to reach it. Each publish replaces the previous
-  snapshot for that hostname. When two hosts publish the same address, the latest
-  publisher owns it. Hosts that stop publishing expire after `host_ttl`.
+  snapshot with the same `host_id`, the agent's unique host identifier (the
+  `host.id` it reports in its telemetry). Hosts are not keyed by hostname, since
+  distinct hosts may share one. When two hosts publish the same address, the
+  latest one to publish owns it. Hosts that stop publishing expire after
+  `host_ttl`.
 - `Lookup` returns the snapshot published for an address, or no snapshot when the
   address is unknown. Caller observations are limited to destinations in the
   requester's addresses, and lifetimes are aged from the publish time. Agents only

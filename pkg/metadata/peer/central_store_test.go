@@ -17,7 +17,7 @@ func TestCentralStoreAgesAndScopesCallers(t *testing.T) {
 	requester := netip.MustParseAddr("10.1.0.1")
 	frontend := Service{Name: "frontend", Namespace: "shop"}
 	api := Service{Name: "api", Namespace: "shop"}
-	require.NoError(t, store.publish([]netip.Addr{netip.MustParseAddr("10.1.0.2")}, Snapshot{
+	require.NoError(t, store.publish("client-host-id", []netip.Addr{netip.MustParseAddr("10.1.0.2")}, Snapshot{
 		Hostname:  "client-host",
 		Services:  []Service{frontend},
 		Listeners: []Listener{{Endpoint: Endpoint{IP: "0.0.0.0", Port: 8080}, Service: frontend}},
@@ -55,16 +55,16 @@ func TestCentralStoreAddressOwnershipAndExpiry(t *testing.T) {
 	store := newCentralStore(time.Minute, 2)
 	now := time.Now()
 	shared, first, second := netip.MustParseAddr("10.1.0.1"), netip.MustParseAddr("10.1.0.2"), netip.MustParseAddr("10.1.0.3")
-	require.NoError(t, store.publish([]netip.Addr{shared, first}, Snapshot{Hostname: "first"}, now))
-	require.NoError(t, store.publish([]netip.Addr{shared, second}, Snapshot{Hostname: "second"}, now.Add(time.Second)))
-	require.ErrorIs(t, store.publish([]netip.Addr{netip.MustParseAddr("10.1.0.4")}, Snapshot{Hostname: "third"}, now), errTooManyHosts)
+	require.NoError(t, store.publish("first", []netip.Addr{shared, first}, Snapshot{Hostname: "first"}, now))
+	require.NoError(t, store.publish("second", []netip.Addr{shared, second}, Snapshot{Hostname: "second"}, now.Add(time.Second)))
+	require.ErrorIs(t, store.publish("third", []netip.Addr{netip.MustParseAddr("10.1.0.4")}, Snapshot{Hostname: "third"}, now), errTooManyHosts)
 
 	snapshot, _ := store.lookup(shared, nil, now.Add(time.Second))
-	require.Equal(t, "second", snapshot.Hostname, "the latest publisher owns a shared address")
+	require.Equal(t, "second", snapshot.Hostname, "the latest publishing host owns a shared address")
 	snapshot, _ = store.lookup(first, nil, now.Add(time.Second))
 	require.Equal(t, "first", snapshot.Hostname)
 
-	require.NoError(t, store.publish([]netip.Addr{first}, Snapshot{Hostname: "first"}, now.Add(2*time.Second)))
+	require.NoError(t, store.publish("first", []netip.Addr{first}, Snapshot{Hostname: "first"}, now.Add(2*time.Second)))
 	snapshot, _ = store.lookup(shared, nil, now.Add(2*time.Second))
 	require.Equal(t, "second", snapshot.Hostname, "republishing does not release addresses owned by other hosts")
 
@@ -75,4 +75,18 @@ func TestCentralStoreAddressOwnershipAndExpiry(t *testing.T) {
 	_, found = store.lookup(first, nil, now.Add(time.Minute+time.Second))
 	require.True(t, found)
 	require.Equal(t, map[netip.Addr]string{first: "first"}, store.addresses)
+}
+
+func TestCentralStoreKeepsHostsSharingHostname(t *testing.T) {
+	store := newCentralStore(time.Minute, 10)
+	now := time.Now()
+	first, second := netip.MustParseAddr("10.1.0.1"), netip.MustParseAddr("10.1.0.2")
+	require.NoError(t, store.publish("first-host-id", []netip.Addr{first}, Snapshot{Hostname: "localhost"}, now))
+	require.NoError(t, store.publish("second-host-id", []netip.Addr{second}, Snapshot{Hostname: "localhost"}, now))
+
+	_, found := store.lookup(first, nil, now)
+	require.True(t, found, "a host sharing its hostname with another host stays resolvable")
+	_, found = store.lookup(second, nil, now)
+	require.True(t, found)
+	require.Len(t, store.hosts, 2)
 }

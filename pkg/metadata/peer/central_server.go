@@ -131,6 +131,11 @@ func (s *CentralServer) authorize(ctx context.Context, request any, _ *grpc.Unar
 }
 
 func (s *CentralServer) Publish(_ context.Context, request *metadatapb.PublishRequest) (*metadatapb.PublishResponse, error) {
+	hostID := request.GetHostId()
+	if !validName(hostID) {
+		return nil, status.Error(codes.InvalidArgument, "a valid host ID is required")
+	}
+
 	addresses, err := s.parseAddresses(request.GetAddresses())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -148,7 +153,7 @@ func (s *CentralServer) Publish(_ context.Context, request *metadatapb.PublishRe
 	// Acknowledgements describe what a host learned from its peers, which the service derives itself.
 	snapshot.KnownCallers = nil
 
-	if err := s.store.publish(addresses, snapshot, time.Now()); err != nil {
+	if err := s.store.publish(hostID, addresses, snapshot, time.Now()); err != nil {
 		return nil, status.Error(codes.ResourceExhausted, err.Error())
 	}
 

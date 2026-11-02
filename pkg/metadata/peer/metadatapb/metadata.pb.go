@@ -386,8 +386,11 @@ func (x *Snapshot) GetCallerAmbiguityMs() int64 {
 type PublishRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Addresses other agents use to reach the publishing host.
-	Addresses     []string  `protobuf:"bytes,1,rep,name=addresses,proto3" json:"addresses,omitempty"`
-	Snapshot      *Snapshot `protobuf:"bytes,2,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
+	Addresses []string  `protobuf:"bytes,1,rep,name=addresses,proto3" json:"addresses,omitempty"`
+	Snapshot  *Snapshot `protobuf:"bytes,2,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
+	// Unique host identifier (the agent's host.id). Each publish replaces the previous one with the same identifier.
+	// It is distinct from the snapshot hostname, which several hosts may share.
+	HostId        string `protobuf:"bytes,3,opt,name=host_id,json=hostId,proto3" json:"host_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -434,6 +437,13 @@ func (x *PublishRequest) GetSnapshot() *Snapshot {
 		return x.Snapshot
 	}
 	return nil
+}
+
+func (x *PublishRequest) GetHostId() string {
+	if x != nil {
+		return x.HostId
+	}
+	return ""
 }
 
 type PublishResponse struct {
@@ -600,10 +610,11 @@ const file_proto_metadata_proto_rawDesc = "" +
 	"\rknown_callers\x18\x05 \x03(\v2\x10.metadata.CallerR\fknownCallers\x12.\n" +
 	"\x10metric_protocols\x18\x06 \x01(\x04H\x00R\x0fmetricProtocols\x88\x01\x01\x12.\n" +
 	"\x13caller_ambiguity_ms\x18\a \x01(\x03R\x11callerAmbiguityMsB\x13\n" +
-	"\x11_metric_protocols\"^\n" +
+	"\x11_metric_protocols\"w\n" +
 	"\x0ePublishRequest\x12\x1c\n" +
 	"\taddresses\x18\x01 \x03(\tR\taddresses\x12.\n" +
-	"\bsnapshot\x18\x02 \x01(\v2\x12.metadata.SnapshotR\bsnapshot\"\x11\n" +
+	"\bsnapshot\x18\x02 \x01(\v2\x12.metadata.SnapshotR\bsnapshot\x12\x17\n" +
+	"\ahost_id\x18\x03 \x01(\tR\x06hostId\"\x11\n" +
 	"\x0fPublishResponse\"Z\n" +
 	"\rLookupRequest\x12\x18\n" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12/\n" +

@@ -56,7 +56,7 @@ func TestCentralServerPublishAndLookup(t *testing.T) {
 	server.observe(Endpoint{IP: clientIP, Port: 9090}, backend, time.Now())
 	published := server.snapshot(map[string]struct{}{clientIP: {}}, time.Now())
 
-	_, err := client.Publish(t.Context(), &metadatapb.PublishRequest{Addresses: []string{serverIP}, Snapshot: snapshotToProto(&published)})
+	_, err := client.Publish(t.Context(), &metadatapb.PublishRequest{HostId: "server-host-id", Addresses: []string{serverIP}, Snapshot: snapshotToProto(&published)})
 	require.NoError(t, err)
 
 	response, err := client.Lookup(t.Context(), &metadatapb.LookupRequest{Address: serverIP, RequesterAddresses: []string{clientIP}})
@@ -85,11 +85,12 @@ func TestCentralServerRejectsInvalidRequests(t *testing.T) {
 		name    string
 		request *metadatapb.PublishRequest
 	}{
-		{name: "no addresses", request: &metadatapb.PublishRequest{Snapshot: valid}},
-		{name: "invalid address", request: &metadatapb.PublishRequest{Addresses: []string{"invalid"}, Snapshot: valid}},
-		{name: "address outside peer CIDRs", request: &metadatapb.PublishRequest{Addresses: []string{"10.2.0.1"}, Snapshot: valid}},
-		{name: "missing hostname", request: &metadatapb.PublishRequest{Addresses: []string{"10.1.0.1"}}},
-		{name: "invalid listener", request: &metadatapb.PublishRequest{Addresses: []string{"10.1.0.1"}, Snapshot: &metadatapb.Snapshot{
+		{name: "missing host ID", request: &metadatapb.PublishRequest{Addresses: []string{"10.1.0.1"}, Snapshot: valid}},
+		{name: "no addresses", request: &metadatapb.PublishRequest{HostId: "host-id", Snapshot: valid}},
+		{name: "invalid address", request: &metadatapb.PublishRequest{HostId: "host-id", Addresses: []string{"invalid"}, Snapshot: valid}},
+		{name: "address outside peer CIDRs", request: &metadatapb.PublishRequest{HostId: "host-id", Addresses: []string{"10.2.0.1"}, Snapshot: valid}},
+		{name: "missing hostname", request: &metadatapb.PublishRequest{HostId: "host-id", Addresses: []string{"10.1.0.1"}}},
+		{name: "invalid listener", request: &metadatapb.PublishRequest{HostId: "host-id", Addresses: []string{"10.1.0.1"}, Snapshot: &metadatapb.Snapshot{
 			Hostname:  "host",
 			Listeners: []*metadatapb.Listener{{Endpoint: &metadatapb.Endpoint{Ip: "10.1.0.1"}, Service: &metadatapb.Service{Name: "api"}}},
 		}}},

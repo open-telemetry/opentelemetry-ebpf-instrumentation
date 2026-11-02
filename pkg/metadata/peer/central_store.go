@@ -20,6 +20,7 @@ type centralHost struct {
 }
 
 // centralStore keeps the latest snapshot published by each host, indexed by the addresses it is reachable at.
+// Hosts are keyed by host ID, since distinct hosts may share a hostname.
 type centralStore struct {
 	mu        sync.RWMutex
 	ttl       time.Duration
@@ -37,26 +38,25 @@ func newCentralStore(ttl time.Duration, maxHosts int) *centralStore {
 	}
 }
 
-// publish replaces the host snapshot. An address claimed by another host moves to the latest publisher.
-func (s *centralStore) publish(addresses []netip.Addr, snapshot Snapshot, now time.Time) error {
+// publish replaces the host snapshot. An address claimed by another host moves to the latest publishing host.
+func (s *centralStore) publish(hostID string, addresses []netip.Addr, snapshot Snapshot, now time.Time) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	hostname := snapshot.Hostname
-	previous, exists := s.hosts[hostname]
+	previous, exists := s.hosts[hostID]
 	if !exists && len(s.hosts) >= s.maxHosts {
 		return errTooManyHosts
 	}
 
 	if exists {
-		s.releaseAddresses(hostname, previous.addresses)
+		s.releaseAddresses(hostID, previous.addresses)
 	}
 
 	for _, address := range addresses {
-		s.addresses[address] = hostname
+		s.addresses[address] = hostID
 	}
 
-	s.hosts[hostname] = &centralHost{addresses: addresses, snapshot: snapshot, published: now}
+	s.hosts[hostID] = &centralHost{addresses: addresses, snapshot: snapshot, published: now}
 	return nil
 }
 
@@ -112,18 +112,18 @@ func (s *centralStore) expire(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for hostname, host := range s.hosts {
+	for hostID, host := range s.hosts {
 		if now.Sub(host.published) >= s.ttl {
-			s.releaseAddresses(hostname, host.addresses)
-			delete(s.hosts, hostname)
+			s.releaseAddresses(hostID, host.addresses)
+			delete(s.hosts, hostID)
 		}
 	}
 }
 
 // releaseAddresses removes the host's address mappings, keeping those already claimed by another host.
-func (s *centralStore) releaseAddresses(hostname string, addresses []netip.Addr) {
+func (s *centralStore) releaseAddresses(hostID string, addresses []netip.Addr) {
 	for _, address := range addresses {
-		if s.addresses[address] == hostname {
+		if s.addresses[address] == hostID {
 			delete(s.addresses, address)
 		}
 	}
