@@ -26,6 +26,7 @@ import java.lang.instrument.Instrumentation;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -169,6 +170,131 @@ class DynamicSpanRuntimeTest {
 
     assertNotNull(DynamicSpanRuntime.enter(run));
     assertNull(DynamicSpanRuntime.enter(duplicate.getDeclaredMethod("run")));
+  }
+
+  @Test
+  void dynamicEntryAndExitWorkDoesNotSuppressNestedApplicationSpans() {
+    List<byte[]> payloads = new ArrayList<>();
+    DynamicSpanRuntime.setEmitterForTest(payloads::add);
+    List<DynamicSpanDefinition> definitions =
+        Arrays.asList(
+            new DynamicSpanDefinition("outer.span", "com.example.DynamicSpanFixture#outer()"),
+            new DynamicSpanDefinition("inner.span", "com.example.DynamicSpanFixture#inner()"));
+
+    Instrumentation instrumentation = ByteBuddyAgent.install();
+    DynamicSpanRuntime.configure(definitions, instrumentation);
+    new AgentBuilder.Default()
+        .disableClassFormatChanges()
+        .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
+        .type(DynamicSpanInst.type(definitions))
+        .transform(DynamicSpanInst.transformer(definitions))
+        .installOn(instrumentation);
+
+    assertEquals("nested", DynamicSpanFixture.outer());
+    assertEquals(2, payloads.size());
+    String joined =
+        payloads.stream()
+            .map(payload -> new String(payload, StandardCharsets.UTF_8))
+            .reduce("", String::concat);
+    assertTrue(joined.contains("outer.span"));
+    assertTrue(joined.contains("inner.span"));
+  }
+
+  @Test
+  void internalWorkGuardIsClearedAfterRefreshAndEmitterFailures() throws Exception {
+    Method run = DynamicSpanFixture.class.getDeclaredMethod("run");
+    List<DynamicSpanDefinition> definitions =
+        Arrays.asList(
+            new DynamicSpanDefinition("run.span", "com.example.DynamicSpanFixture#run()"));
+    int[] loadedClassCalls = {0};
+    Instrumentation instrumentation =
+        (Instrumentation)
+            Proxy.newProxyInstance(
+                Instrumentation.class.getClassLoader(),
+                new Class<?>[] {Instrumentation.class},
+                (proxy, method, arguments) -> {
+                  if (method.getName().equals("getAllLoadedClasses")) {
+                    if (++loadedClassCalls[0] > 1) {
+                      throw new IllegalStateException("simulated refresh failure");
+                    }
+                    return new Class<?>[] {DynamicSpanFixture.class};
+                  }
+                  if (method.getName().equals("isModifiableClass")) return true;
+                  if (method.getName().equals("retransformClasses")) return null;
+                  throw new UnsupportedOperationException(method.getName());
+                });
+    DynamicSpanRuntime.configure(definitions, instrumentation);
+
+    assertNull(DynamicSpanRuntime.enter(OtherFixture.class, "missing", "()V"));
+    DynamicSpanRuntime.setEmitterForTest(
+        payload -> {
+          throw new AssertionError("simulated emitter failure");
+        });
+    DynamicSpanRuntime.SpanState[] first = DynamicSpanRuntime.enter(run);
+    assertNotNull(first);
+    DynamicSpanRuntime.exit(first, null);
+
+    DynamicSpanRuntime.SpanState[] second = DynamicSpanRuntime.enter(run);
+    assertNotNull(second);
+    DynamicSpanRuntime.exit(second, null);
+  }
+
+  @Test
+  void secureRandomSelectedMethodDoesNotRecursivelyInstrumentRuntimeInternals() {
+    SecureRandom random = new SecureRandom();
+    List<byte[]> payloads = new ArrayList<>();
+    AtomicReference<DynamicSpanRuntime.SpanState[]> reentrantDuringRefresh =
+        new AtomicReference<>();
+    AtomicReference<DynamicSpanRuntime.SpanState[]> reentrantDuringEmit = new AtomicReference<>();
+    Method nextBytes;
+    try {
+      nextBytes = SecureRandom.class.getDeclaredMethod("nextBytes", byte[].class);
+    } catch (NoSuchMethodException error) {
+      throw new AssertionError(error);
+    }
+    List<DynamicSpanDefinition> definitions =
+        Arrays.asList(
+            new DynamicSpanDefinition(
+                "secure.random", "java.security.SecureRandom#nextBytes(byte[])"));
+    int[] loadedClassCalls = {0};
+    Instrumentation instrumentation =
+        (Instrumentation)
+            Proxy.newProxyInstance(
+                Instrumentation.class.getClassLoader(),
+                new Class<?>[] {Instrumentation.class},
+                (proxy, method, arguments) -> {
+                  if (method.getName().equals("getAllLoadedClasses")) {
+                    if (++loadedClassCalls[0] > 1) {
+                      reentrantDuringRefresh.set(
+                          DynamicSpanRuntime.enter(
+                              nextBytes.getDeclaringClass(), nextBytes.getName(), "([B)V"));
+                      random.nextBytes(new byte[8]);
+                    }
+                    return new Class<?>[] {SecureRandom.class};
+                  }
+                  if (method.getName().equals("isModifiableClass")) return true;
+                  if (method.getName().equals("retransformClasses")) return null;
+                  throw new UnsupportedOperationException(method.getName());
+                });
+    DynamicSpanRuntime.configure(definitions, instrumentation);
+    DynamicSpanRuntime.setEmitterForTest(
+        payload -> {
+          payloads.add(payload);
+          random.nextBytes(new byte[8]);
+          reentrantDuringEmit.set(
+              DynamicSpanRuntime.enter(
+                  nextBytes.getDeclaringClass(), nextBytes.getName(), "([B)V"));
+        });
+
+    assertNull(DynamicSpanRuntime.enter(OtherFixture.class, "missing", "()V"));
+    assertNull(reentrantDuringRefresh.get());
+    DynamicSpanRuntime.SpanState[] states = DynamicSpanRuntime.enter(nextBytes);
+    assertNotNull(states);
+    DynamicSpanRuntime.exit(states, null);
+
+    assertEquals(1, payloads.size());
+    assertTrue(new String(payloads.get(0), StandardCharsets.UTF_8).contains("secure.random"));
+    assertNull(reentrantDuringEmit.get());
   }
 
   @Test

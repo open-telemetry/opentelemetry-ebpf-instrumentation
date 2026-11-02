@@ -31,6 +31,7 @@ import java.util.function.Consumer;
 public final class DynamicSpanRuntime {
   private static final SecureRandom RANDOM = new SecureRandom();
   private static final Object LOCK = new Object();
+  private static final ThreadLocal<Boolean> INTERNAL_WORK = new ThreadLocal<>();
   private static volatile List<DynamicSpanDefinition> definitions = Collections.emptyList();
   private static volatile Map<Class<?>, Map<String, List<String>>> spansByClass =
       Collections.synchronizedMap(new WeakHashMap<>());
@@ -150,37 +151,55 @@ public final class DynamicSpanRuntime {
   }
 
   public static SpanState[] enter(Class<?> declaringClass, String methodName, String descriptor) {
-    List<String> names = namesFor(declaringClass, methodName + descriptor);
-    if (names == null && !definitions.isEmpty()) {
-      refreshSafely();
-      names = namesFor(declaringClass, methodName + descriptor);
-    }
-    if (names == null || names.isEmpty()) {
+    if (isInternalWork()) {
       return null;
     }
-    long startWall = System.currentTimeMillis() * 1_000_000L;
-    long startMono = System.nanoTime();
-    SpanState[] states = new SpanState[names.size()];
-    for (int i = 0; i < names.size(); i++) {
-      states[i] = new SpanState(names.get(i), startWall, startMono, randomId(16), randomId(8));
+    INTERNAL_WORK.set(Boolean.TRUE);
+    try {
+      List<String> names = namesFor(declaringClass, methodName + descriptor);
+      if (names == null && !definitions.isEmpty()) {
+        refreshSafely();
+        names = namesFor(declaringClass, methodName + descriptor);
+      }
+      if (names == null || names.isEmpty()) {
+        return null;
+      }
+      long startWall = System.currentTimeMillis() * 1_000_000L;
+      long startMono = System.nanoTime();
+      SpanState[] states = new SpanState[names.size()];
+      for (int i = 0; i < names.size(); i++) {
+        states[i] = new SpanState(names.get(i), startWall, startMono, randomId(16), randomId(8));
+      }
+      return states;
+    } finally {
+      INTERNAL_WORK.remove();
     }
-    return states;
   }
 
   public static void exit(SpanState[] states, Throwable error) {
-    if (states == null) {
+    if (states == null || isInternalWork()) {
       return;
     }
-    long end = states[0].startWallNanos + Math.max(1, System.nanoTime() - states[0].startMonoNanos);
-    for (SpanState state : states) {
-      try {
-        emitter.accept(encode(state, end, error));
-      } catch (Throwable emitError) {
-        if (Agent.debugOn) {
-          System.err.println("Failed to emit dynamic Java span: " + emitError);
+    INTERNAL_WORK.set(Boolean.TRUE);
+    try {
+      long end =
+          states[0].startWallNanos + Math.max(1, System.nanoTime() - states[0].startMonoNanos);
+      for (SpanState state : states) {
+        try {
+          emitter.accept(encode(state, end, error));
+        } catch (Throwable emitError) {
+          if (Agent.debugOn) {
+            System.err.println("Failed to emit dynamic Java span: " + emitError);
+          }
         }
       }
+    } finally {
+      INTERNAL_WORK.remove();
     }
+  }
+
+  private static boolean isInternalWork() {
+    return Boolean.TRUE.equals(INTERNAL_WORK.get());
   }
 
   private static List<String> namesFor(Class<?> declaringClass, String signature) {

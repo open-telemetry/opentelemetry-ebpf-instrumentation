@@ -41,6 +41,25 @@ class JavaMethodReferenceTest {
   }
 
   @Test
+  void reusesCompiledGlobMatchersAcrossComparisons() {
+    JavaMethodReference reference =
+        JavaMethodReference.parse("com.example.*Repository#find?By*(java.lang.String)");
+
+    for (int i = 0; i < 3; i++) {
+      assertTrue(
+          reference.matchesClass("com/example/UserRepository", "com.example.UserRepository", null));
+      assertTrue(
+          reference.matchesMethod(
+              "findXByName",
+              new String[] {"java.lang.String"},
+              new String[] {"java.lang.String"},
+              new String[] {"Ljava/lang/String;"},
+              "V",
+              false));
+    }
+  }
+
+  @Test
   void parsesEmptyParameterList() {
     JavaMethodReference reference = JavaMethodReference.parse("com.example.Service#start()");
 

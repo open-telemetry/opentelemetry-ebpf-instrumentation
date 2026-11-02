@@ -73,8 +73,10 @@ public final class JavaMethodReference {
   };
 
   private final String classSelector;
+  private final Pattern classPattern;
   private final Style style;
   private final String methodSelector;
+  private final Pattern methodPattern;
   private final boolean classGlob;
   private final boolean methodGlob;
   private final boolean hasParameterList;
@@ -99,8 +101,10 @@ public final class JavaMethodReference {
       String descriptor,
       boolean fullDescriptor) {
     this.classSelector = classSelector;
+    this.classPattern = compileGlob(classSelector);
     this.style = style;
     this.methodSelector = methodSelector;
+    this.methodPattern = compileGlob(methodSelector);
     this.classGlob = classGlob;
     this.methodGlob = methodGlob;
     this.hasParameterList = hasParameterList;
@@ -197,9 +201,9 @@ public final class JavaMethodReference {
   }
 
   public boolean matchesClass(String internalName, String binaryName, String canonicalName) {
-    if (style == Style.INTERNAL) return glob(classSelector, internalName);
-    if (style == Style.BINARY) return glob(classSelector, binaryName);
-    return glob(classSelector, canonicalName) || glob(classSelector, binaryName);
+    if (style == Style.INTERNAL) return matches(classPattern, internalName);
+    if (style == Style.BINARY) return matches(classPattern, binaryName);
+    return matches(classPattern, canonicalName) || matches(classPattern, binaryName);
   }
 
   public boolean matchesMethod(
@@ -209,7 +213,7 @@ public final class JavaMethodReference {
       String[] parameterDescriptors,
       String returnDescriptor,
       boolean bridge) {
-    if (!glob(methodSelector, name)) return false;
+    if (!matches(methodPattern, name)) return false;
     if (descriptor == null && !hasParameterList) return !bridge;
     if (descriptor != null) {
       if (bridge && (!fullDescriptor || classGlob || methodGlob)) return false;
@@ -230,8 +234,7 @@ public final class JavaMethodReference {
     return true;
   }
 
-  private static boolean glob(String pattern, String value) {
-    if (pattern == null || value == null) return false;
+  private static Pattern compileGlob(String pattern) {
     StringBuilder regex = new StringBuilder();
     for (int i = 0; i < pattern.length(); i++) {
       char c = pattern.charAt(i);
@@ -239,7 +242,11 @@ public final class JavaMethodReference {
       else if (c == '?') regex.append('.');
       else regex.append(Pattern.quote(String.valueOf(c)));
     }
-    return Pattern.matches(regex.toString(), value);
+    return Pattern.compile(regex.toString());
+  }
+
+  private static boolean matches(Pattern pattern, String value) {
+    return value != null && pattern.matcher(value).matches();
   }
 
   public String classSelector() {

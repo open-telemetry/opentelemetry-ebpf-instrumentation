@@ -144,11 +144,13 @@ public class Agent {
       initClassesThatNeedToBeBootstrapped();
       injectBootstrapClasses(inst);
       dynamicSpans = parseDynamicSpans(opts.get("dynamicSpans"));
-      Class<?> bootstrapDynamicSpanRuntime =
-          Class.forName("io.opentelemetry.obi.java.DynamicSpanRuntime", true, null);
-      bootstrapDynamicSpanRuntime
-          .getMethod("configure", List.class, Instrumentation.class)
-          .invoke(null, dynamicSpans, inst);
+      if (!dynamicSpans.isEmpty()) {
+        Class<?> bootstrapDynamicSpanRuntime =
+            Class.forName("io.opentelemetry.obi.java.DynamicSpanRuntime", true, null);
+        bootstrapDynamicSpanRuntime
+            .getMethod("configure", List.class, Instrumentation.class)
+            .invoke(null, dynamicSpans, inst);
+      }
       if (Agent.debugOn) {
         setupInstrumentationsDebugging();
       }
@@ -380,16 +382,23 @@ public class Agent {
     }
     List<DynamicSpanDefinition> result = new ArrayList<>();
     for (String item : encoded.split("~", -1)) {
+      String name;
+      String functionReference;
       try {
         String[] fields = item.split("\\.", -1);
         if (fields.length != 2) {
           throw new IllegalArgumentException("invalid encoded dynamic Java span");
         }
-        String name = new String(Base64.getUrlDecoder().decode(fields[0]), StandardCharsets.UTF_8);
-        String functionReference =
+        name = new String(Base64.getUrlDecoder().decode(fields[0]), StandardCharsets.UTF_8);
+        functionReference =
             new String(Base64.getUrlDecoder().decode(fields[1]), StandardCharsets.UTF_8);
+      } catch (Exception error) {
+        System.err.println("Invalid dynamic Java span encoding: " + error.getMessage());
+        break;
+      }
+      try {
         result.add(new DynamicSpanDefinition(name, functionReference));
-      } catch (IllegalArgumentException error) {
+      } catch (Exception error) {
         System.err.println("Skipping invalid dynamic Java span declaration: " + error.getMessage());
       }
     }

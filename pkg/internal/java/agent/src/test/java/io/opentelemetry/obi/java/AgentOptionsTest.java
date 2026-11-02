@@ -66,6 +66,12 @@ class AgentOptionsTest {
   }
 
   @Test
+  void emptyDynamicSpanConfigurationHasNoDeclarations() {
+    assertTrue(Agent.parseDynamicSpans(null).isEmpty());
+    assertTrue(Agent.parseDynamicSpans("").isEmpty());
+  }
+
+  @Test
   void malformedSelectorDoesNotSuppressValidSibling() {
     String encoded =
         encodeSpan("first", "com.example.First#run()")
@@ -79,6 +85,19 @@ class AgentOptionsTest {
     assertEquals(2, spans.size());
     assertEquals("first", spans.get(0).name());
     assertEquals("last", spans.get(1).name());
+  }
+
+  @Test
+  void malformedTransportStopsParsingLaterDeclarations() {
+    String encoded =
+        encodeSpan("first", "com.example.First#run()")
+            + "~bad!.YQ~"
+            + encodeSpan("last", "com/example/Last.run()V");
+
+    List<DynamicSpanDefinition> spans = Agent.parseDynamicSpans(encoded);
+
+    assertEquals(1, spans.size());
+    assertEquals("first", spans.get(0).name());
   }
 
   private static String encodeSpan(String name, String reference) {

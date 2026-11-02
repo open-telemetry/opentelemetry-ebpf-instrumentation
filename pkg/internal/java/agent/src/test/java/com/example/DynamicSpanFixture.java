@@ -14,6 +14,14 @@ public class DynamicSpanFixture {
     return "sibling";
   }
 
+  public static String outer() {
+    return inner();
+  }
+
+  public static String inner() {
+    return "nested";
+  }
+
   public static String overloaded(String value) {
     return value;
   }
