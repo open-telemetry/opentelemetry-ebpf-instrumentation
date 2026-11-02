@@ -586,6 +586,11 @@ func (pt *ProcessTracer) commitInstrumenterForKey(key ExecutableKey, i *instrume
 	pt.Instrumentables[key] = i
 	ie.ExecutableGeneration = pt.recordExecutableGeneration(key)
 	i.registerProcessScopedGoProbes(key)
+	for _, p := range pt.Programs {
+		if executableTracer, ok := p.(executableScopedTracer); ok {
+			executableTracer.RegisterExecutable(ie.FileInfo)
+		}
+	}
 }
 
 func (pt *ProcessTracer) recordExecutableGeneration(key ExecutableKey) uint64 {
@@ -628,10 +633,20 @@ func (pt *ProcessTracer) UnlinkExecutable(info *exec.FileInfo, generation uint64
 	pt.removeInstrumenter(key, i)
 }
 
+// executableScopedTracer keeps state shared by all processes of an executable
+// while the executable is instrumented.
+type executableScopedTracer interface {
+	RegisterExecutable(*exec.FileInfo)
+	UnregisterExecutable(dev, ino uint64)
+}
+
 func (pt *ProcessTracer) removeInstrumenter(key ExecutableKey, i *instrumenter) {
 	for _, p := range pt.Programs {
 		if processScopedTracer, ok := p.(processScopedGoProbeTracer); ok {
 			processScopedTracer.UnregisterProcessScopedGoProbes(key.Dev, key.Ino)
+		}
+		if executableTracer, ok := p.(executableScopedTracer); ok {
+			executableTracer.UnregisterExecutable(key.Dev, key.Ino)
 		}
 	}
 	delete(pt.Instrumentables, key)

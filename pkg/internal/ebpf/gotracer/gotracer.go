@@ -338,6 +338,11 @@ type Tracer struct {
 	goAutoSDKAttemptMap               mapKeyDeleter
 	attachGoAutoSDKProbe              func(goAutoSDKActivationProbe, app.PID, uint64, uint64, uint64) (io.Closer, error)
 	goAutoSDKProcessStartTime         func(app.PID) (uint64, error)
+	exceptionsEnabled                 bool
+	exceptionsMu                      sync.Mutex
+	exceptionProbes                   map[executableIdentity][]ebpfcommon.GoProbe
+	exceptionProcesses                map[app.PID]goExceptionProcess
+	attachGoExceptionProbe            func(app.PID, executableIdentity, *ebpfcommon.ProbeDesc) ([]io.Closer, error)
 }
 
 func New(
@@ -369,6 +374,10 @@ func New(
 		goAutoSDKActivationLinks:          map[goAutoSDKActivationLinkKey]goAutoSDKActivationLink{},
 		attachGoAutoSDKProbe:              attachGoAutoSDKActivationProbe,
 		goAutoSDKProcessStartTime:         readGoAutoSDKProcessStartTime,
+		exceptionsEnabled:                 cfg.ExceptionsEnabled() && cfg.Logs.Enabled(),
+		exceptionProbes:                   map[executableIdentity][]ebpfcommon.GoProbe{},
+		exceptionProcesses:                map[app.PID]goExceptionProcess{},
+		attachGoExceptionProbe:            attachGoExceptionProbe,
 	}
 }
 
@@ -421,6 +430,7 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 
 	p.registerRuntimeMetricTarget(pid, ns, fi)
 	p.writePIDSampler(pid, ns, fi)
+	p.registerExceptionPID(pid, fi)
 }
 
 func (p *Tracer) writePIDSampler(pid app.PID, ns uint32, fi *exec.FileInfo) {
@@ -444,6 +454,7 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.goAutoSDKTargetsMu.Unlock()
 
 	p.deleteRuntimeMetricTarget(pid, ns)
+	p.unregisterExceptionPID(pid)
 
 	if p.bpfObjects.PidSamplers != nil {
 		if err := p.pidSamplers.Delete(p.bpfObjects.PidSamplers, pid); err != nil {
@@ -480,6 +491,7 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
 		ebpfcommon.DisableJavaHTTP1Atomics(spec)
 	}
+	p.privateExceptionEvents(spec)
 
 	return []*ebpfcommon.SpecBundle{{
 		Spec:      spec,
@@ -514,6 +526,7 @@ func (p *Tracer) constants() map[string]any {
 		"g_bpf_traceparent_enabled":      true,
 		"g_bpf_loop_enabled":             p.supportsBPFLoop,
 		"g_traces_ctx_v1_enabled":        p.traceCtxMapEnabled,
+		"g_exceptions_enabled":           p.exceptionsEnabled,
 	}
 
 	if p.cfg.TrackRequestHeaders ||
@@ -1054,30 +1067,11 @@ func attachGoAutoSDKActivationProbe(
 		return nil, errors.New("process-scoped Go Auto SDK activation probe is incomplete")
 	}
 
-	target, err := os.Open(fmt.Sprintf("/proc/%d/exe", pid))
+	target, err := openTargetExecutable(pid, dev, ino)
 	if err != nil {
-		return nil, fmt.Errorf("opening target executable: %w", err)
+		return nil, err
 	}
 	defer target.Close()
-
-	info, err := target.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("stating target executable: %w", err)
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return nil, errors.New("reading target executable identity")
-	}
-	actualDev := normalizeDeviceID(stat.Dev)
-	if actualDev != dev || stat.Ino != ino {
-		return nil, fmt.Errorf(
-			"target executable identity changed: got %d:%d, want %d:%d",
-			actualDev,
-			stat.Ino,
-			dev,
-			ino,
-		)
-	}
 	if err := validateGoAutoSDKProcessStartTime(pid, startTime); err != nil {
 		return nil, err
 	}
@@ -1102,6 +1096,38 @@ func attachGoAutoSDKActivationProbe(
 		return nil, err
 	}
 	return activationLink, nil
+}
+
+// openTargetExecutable opens the executable of pid, and fails when it is no
+// longer the dev:ino the probes were resolved for.
+func openTargetExecutable(pid app.PID, dev, ino uint64) (*os.File, error) {
+	target, err := os.Open(fmt.Sprintf("/proc/%d/exe", pid))
+	if err != nil {
+		return nil, fmt.Errorf("opening target executable: %w", err)
+	}
+
+	info, err := target.Stat()
+	if err != nil {
+		_ = target.Close()
+		return nil, fmt.Errorf("stating target executable: %w", err)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		_ = target.Close()
+		return nil, errors.New("reading target executable identity")
+	}
+	actualDev := normalizeDeviceID(stat.Dev)
+	if actualDev != dev || stat.Ino != ino {
+		_ = target.Close()
+		return nil, fmt.Errorf(
+			"target executable identity changed: got %d:%d, want %d:%d",
+			actualDev,
+			stat.Ino,
+			dev,
+			ino,
+		)
+	}
+	return target, nil
 }
 
 func validateGoAutoSDKProcessStartTime(pid app.PID, expected uint64) error {
@@ -1134,8 +1160,14 @@ func (p *Tracer) RegisterProcessScopedGoProbe(
 	ino uint64,
 	candidate ebpfcommon.GoProbe,
 ) {
-	if p == nil || !candidate.ProcessScoped || candidate.Probe == nil ||
-		candidate.Probe.Start == nil {
+	if p == nil || !candidate.ProcessScoped || candidate.Probe == nil {
+		return
+	}
+	if isGoExceptionSymbol(candidate.Symbol) {
+		p.registerExceptionProbe(executableIdentity{Dev: dev, Ino: ino}, candidate)
+		return
+	}
+	if candidate.Probe.Start == nil {
 		return
 	}
 
@@ -1177,6 +1209,8 @@ func (p *Tracer) UnregisterProcessScopedGoProbes(dev, ino uint64) {
 	if p == nil {
 		return
 	}
+
+	p.unregisterExceptionProbes(executableIdentity{Dev: dev, Ino: ino})
 
 	p.goAutoSDKTargetsMu.Lock()
 	defer p.goAutoSDKTargetsMu.Unlock()
@@ -2244,7 +2278,7 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 }
 
 func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
-	var groups []ebpfcommon.GoProbeGroup
+	groups := p.goExceptionProbeGroups()
 	if p.headerPropagationEnabled() {
 		groups = append(groups, p.goH2OwnershipProbeGroups()...)
 		groups = append(groups,
@@ -2622,6 +2656,7 @@ func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEvent
 	}()
 
 	p.SetEventContext(ebpfEventContext)
+	p.readExceptionEvents(ctx, ebpfEventContext)
 
 	if !p.traceCtxMapEnabled {
 		ebpfconvenience.DrainTraceContextMap[BpfObiCtxInfoT](p.log, p.bpfObjects.TracesCtxV1)
