@@ -169,3 +169,46 @@ Lifetimes are relative to the snapshot, avoiding a requirement
 for synchronized host clocks. Receivers subtract time since the request began
 and cap remote lifetimes to their own `caller_ttl`. `caller_ambiguity_ms` marks
 observation overflow conservatively.
+
+## Central metadata service
+
+The `metadata-service` binary (`cmd/metadata-service`) is an alternative to the
+direct agent-to-agent exchange. Agents do not use it yet: the `central` exchange
+mode still fails at startup.
+
+The service implements the `MetadataService` gRPC API in
+[`proto/metadata.proto`](../proto/metadata.proto). Regenerate its Go code with
+`make protoc-gen`.
+
+- `Publish` stores the snapshot of the publishing host, together with the
+  addresses other agents use to reach it. Each publish replaces the previous
+  snapshot for that hostname. When two hosts publish the same address, the latest
+  publisher owns it. Hosts that stop publishing expire after `host_ttl`.
+- `Lookup` returns the snapshot published for an address, or no snapshot when the
+  address is unknown. Caller observations are limited to destinations in the
+  requester's addresses, and lifetimes are aged from the publish time. Agents only
+  look up hosts seen in their spans.
+
+The service does not return `known_callers` yet, so client agents keep their
+request counts for edges resolved through it.
+
+Published addresses must fall within `peer_cidrs`, or within the private blocks
+when it is empty. A bearer `token` requires TLS. Like the peer-to-peer protocol,
+the service assumes trusted agents: it does not verify that a host owns the
+addresses it publishes.
+
+Configure the service with a YAML file passed through `-config` or
+`OTEL_EBPF_METADATA_SERVICE_CONFIG_PATH`. Environment variables override the file.
+
+| Setting | Environment variable | Default |
+| --- | --- | --- |
+| `log_level` | `OTEL_EBPF_METADATA_SERVICE_LOG_LEVEL` | `info` |
+| `listen_address` | `OTEL_EBPF_METADATA_SERVICE_LISTEN_ADDRESS` | `""` (all interfaces) |
+| `port` | `OTEL_EBPF_METADATA_SERVICE_PORT` | `8999` |
+| `peer_cidrs` | `OTEL_EBPF_METADATA_SERVICE_PEER_CIDRS` | `[]` |
+| `host_ttl` | `OTEL_EBPF_METADATA_SERVICE_HOST_TTL` | `60s` |
+| `caller_ttl` | `OTEL_EBPF_METADATA_SERVICE_CALLER_TTL` | `60s` |
+| `max_hosts` | `OTEL_EBPF_METADATA_SERVICE_MAX_HOSTS` | `4096` |
+| `max_message_bytes` | `OTEL_EBPF_METADATA_SERVICE_MAX_MESSAGE_BYTES` | `1048576` |
+| `token` | `OTEL_EBPF_METADATA_SERVICE_TOKEN` | `""` |
+| `tls` | — | Same fields as the agent `tls` settings; only the server certificate is used. |
