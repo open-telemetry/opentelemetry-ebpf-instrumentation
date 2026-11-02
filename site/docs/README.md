@@ -5,7 +5,7 @@
 
 Generated from the OBI semantic-convention registry in `schemas/obi/`.
 
-- [Attributes](attributes.md) — 20 attribute groups
+- [Attributes](attributes.md) — 21 attribute groups
 - [Metrics](metrics.md) — 116 metrics
 - [Spans](spans.md) — 33 spans
 

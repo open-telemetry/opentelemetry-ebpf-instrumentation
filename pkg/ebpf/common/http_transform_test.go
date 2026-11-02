@@ -583,6 +583,38 @@ func TestHTTPRequestResponseToSpan_OpenAIEmbeddingDetectedByOpenAISpan(t *testin
 	assert.Equal(t, request.EmbeddingOperationName, span.GenAI.OpenAI.OperationName)
 }
 
+func TestHTTPRequestResponseToSpan_OpenAIDecisionsContentCapture(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			parseCtx := &EBPFParseContext{
+				payloadExtraction: config.PayloadExtraction{
+					HTTP: config.HTTPConfig{
+						GenAI: config.GenAIConfig{OpenAI: config.OpenAIConfig{Enabled: enabled}},
+					},
+				},
+			}
+			req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/decisions", strings.NewReader(`{"model":"gpt-6-luna","input":[{"role":"user","content":[{"type":"input_text","text":"Check the charges."},{"type":"input_json","data":{"order":{"charges":[49,49]}}},{"type":"input_text","text":"Are they duplicates?"}]}]}`))
+			require.NoError(t, err)
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Openai-Version": []string{"2020-10-01"}},
+				Body:       io.NopCloser(strings.NewReader(`{}`)),
+			}
+			event := &BPFHTTPInfo{Type: uint8(request.EventTypeHTTPClient)}
+
+			span := httpRequestResponseToSpan(parseCtx, event, req, resp)
+
+			if !enabled {
+				assert.Nil(t, span.GenAI)
+				return
+			}
+			require.NotNil(t, span.GenAI)
+			require.NotNil(t, span.GenAI.OpenAI)
+			assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"Check the charges."},{"type":"input_json","data":{"order":{"charges":[49,49]}}},{"type":"text","content":"Are they duplicates?"}]}]`, span.GenAI.OpenAI.Request.GetInput())
+		})
+	}
+}
+
 func TestToRequestTraceLargeBuffers(t *testing.T) {
 	connInfo := BpfConnectionInfoT{
 		D_port: 1,
