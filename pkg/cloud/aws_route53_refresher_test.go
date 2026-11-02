@@ -28,6 +28,29 @@ type fakeRoute53Client struct {
 	list         func(*route53.ListResourceRecordSetsInput) (*route53.ListResourceRecordSetsOutput, error)
 }
 
+type recordOnlyRoute53Client struct {
+	list func(*route53.ListResourceRecordSetsInput) (*route53.ListResourceRecordSetsOutput, error)
+}
+
+func (c recordOnlyRoute53Client) ListResourceRecordSets(_ context.Context, input *route53.ListResourceRecordSetsInput, _ ...func(*route53.Options)) (*route53.ListResourceRecordSetsOutput, error) {
+	return c.list(input)
+}
+
+func TestRoute53LegacyExplicitZones(t *testing.T) {
+	client := recordOnlyRoute53Client{list: func(input *route53.ListResourceRecordSetsInput) (*route53.ListResourceRecordSetsOutput, error) {
+		require.Equal(t, "private-zone", aws.ToString(input.HostedZoneId))
+		return &route53.ListResourceRecordSetsOutput{ResourceRecordSets: []types.ResourceRecordSet{
+			route53Record("service.internal.", "10.0.0.1", types.RRTypeA),
+			route53Record("z.internal.", "10.0.0.2", types.RRTypeA),
+		}}, nil
+	}}
+	inventory := NewRoute53Inventory(client, []string{"private-zone"})
+	snapshot := &MetadataSnapshot{ServiceByIP: map[string]string{"10.0.0.2": "a.internal"}}
+	require.NoError(t, inventory.Refresh(t.Context(), snapshot))
+	require.Equal(t, "service.internal", snapshot.ServiceByIP["10.0.0.1"])
+	require.Equal(t, "a.internal", snapshot.ServiceByIP["10.0.0.2"])
+}
+
 func (f fakeRoute53Client) ListResourceRecordSets(_ context.Context, in *route53.ListResourceRecordSetsInput, _ ...func(*route53.Options)) (*route53.ListResourceRecordSetsOutput, error) {
 	return f.list(in)
 }
@@ -55,7 +78,7 @@ func route53PrivateInventory(client fakeRoute53Client, ids []string) *Route53Inv
 		}
 		return out, nil
 	}
-	refresher := NewRoute53Inventory(client, ids)
+	refresher := NewRoute53DiscoveryInventory(client, ids)
 	refresher.VPCID, refresher.VPCRegion = "vpc-local", "us-east-1"
 	return refresher
 }
@@ -195,7 +218,7 @@ func TestRoute53DiscoversHostedZones(t *testing.T) {
 					return &route53.ListHostedZonesByVPCOutput{HostedZoneSummaries: []types.HostedZoneSummary{{HostedZoneId: aws.String("/hostedzone/private")}}}, nil
 				},
 			}
-			refresher := NewRoute53Inventory(client, configured)
+			refresher := NewRoute53DiscoveryInventory(client, configured)
 			refresher.VPCID, refresher.VPCRegion = "vpc-local", "us-east-1"
 			snapshot := &MetadataSnapshot{ServiceByIP: map[string]string{}}
 			require.NoError(t, refresher.Refresh(t.Context(), snapshot))
@@ -220,7 +243,7 @@ func TestRoute53DiscoveryRefreshAndRecovery(t *testing.T) {
 			return &route53.ListResourceRecordSetsOutput{ResourceRecordSets: []types.ResourceRecordSet{route53Record(aws.ToString(in.HostedZoneId)+".example.", "8.8.8.8", types.RRTypeA)}}, nil
 		},
 	}
-	refresher := NewRoute53Inventory(client, nil)
+	refresher := NewRoute53DiscoveryInventory(client, nil)
 	inventory := NewInventory([]MetadataRefresher{refresher})
 	discoveryError = errors.New("access denied")
 	inventory.refresh(t.Context())
@@ -312,7 +335,7 @@ func TestRoute53DiscoveryNetworkScope(t *testing.T) {
 					}
 				},
 			}
-			refresher := NewRoute53Inventory(client, tc.configured)
+			refresher := NewRoute53DiscoveryInventory(client, tc.configured)
 			refresher.VPCID, refresher.VPCRegion = tc.vpcID, tc.region
 			snapshot := &MetadataSnapshot{ServiceByIP: map[string]string{}}
 			require.NoError(t, refresher.Refresh(t.Context(), snapshot))
@@ -350,7 +373,7 @@ func TestRoute53PrivateDiscoveryFailureRetainsSnapshot(t *testing.T) {
 			return &route53.ListResourceRecordSetsOutput{ResourceRecordSets: []types.ResourceRecordSet{route53Record("local.example.", "10.0.0.2", types.RRTypeA)}}, nil
 		},
 	}
-	refresher := NewRoute53Inventory(client, nil)
+	refresher := NewRoute53DiscoveryInventory(client, nil)
 	refresher.VPCID, refresher.VPCRegion = "vpc-local", "us-east-1"
 	inventory := NewInventory([]MetadataRefresher{refresher})
 	inventory.refresh(t.Context())
@@ -410,7 +433,7 @@ func TestRoute53InitialAccessDeniedStopsPolling(t *testing.T) {
 							return &route53.ListResourceRecordSetsOutput{ResourceRecordSets: []types.ResourceRecordSet{route53Record("service.example.", "10.0.0.2", types.RRTypeA)}}, nil
 						},
 					}
-					refresher := NewRoute53Inventory(client, tc.zones)
+					refresher := NewRoute53DiscoveryInventory(client, tc.zones)
 					refresher.RefreshInterval = time.Second
 					refresher.VPCID, refresher.VPCRegion = "vpc-local", "us-east-1"
 					inventory := NewInventory([]MetadataRefresher{refresher})
@@ -504,7 +527,7 @@ func TestRoute53MixedAccessVPC(t *testing.T) {
 					}}, nil
 				},
 			}
-			refresher := NewRoute53Inventory(client, nil)
+			refresher := NewRoute53DiscoveryInventory(client, nil)
 			refresher.VPCID, refresher.VPCRegion = "vpc-local", "us-east-1"
 			inventory := NewInventory([]MetadataRefresher{refresher})
 			inventory.refresh(t.Context())
@@ -548,7 +571,7 @@ func TestRoute53ExplicitZoneAllowlist(t *testing.T) {
 			}}, nil
 		},
 	}
-	refresher := NewRoute53Inventory(client, []string{"selected"})
+	refresher := NewRoute53DiscoveryInventory(client, []string{"selected"})
 	snapshot := &MetadataSnapshot{ServiceByIP: map[string]string{}}
 	require.NoError(t, refresher.Refresh(t.Context(), snapshot))
 	require.Equal(t, map[string]string{"8.8.8.8": "public.example"}, snapshot.ServiceByIP)
