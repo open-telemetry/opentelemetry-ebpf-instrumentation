@@ -26,12 +26,22 @@ type symbolTableFixture struct {
 
 func symbolELFFixture(tb testing.TB, tables ...symbolTableFixture) (*elf.File, string) {
 	tb.Helper()
+	return symbolELFFixtureWithSectionCount(tb, 1+2*len(tables), tables...)
+}
+
+func symbolELFFixtureWithSectionCount(tb testing.TB, sectionCount int, tables ...symbolTableFixture) (*elf.File, string) {
+	tb.Helper()
 
 	headerSize, sectionSize := binary.Size(elf.Header64{}), binary.Size(elf.Section64{})
-	sections := make([]elf.Section64, 1+2*len(tables))
+	sections := make([]elf.Section64, sectionCount)
+	shnum := uint16(sectionCount)
+	if sectionCount >= int(elf.SHN_LORESERVE) {
+		shnum = 0
+		sections[0].Size = uint64(sectionCount)
+	}
 	offset := headerSize + len(sections)*sectionSize
 	for i, table := range tables {
-		strIndex := 1 + 2*i
+		strIndex := len(sections) - 2*len(tables) + 2*i
 		sections[strIndex] = elf.Section64{Type: uint32(elf.SHT_STRTAB), Off: uint64(offset), Size: uint64(len(table.strings))}
 		offset += len(table.strings)
 		sections[strIndex+1] = elf.Section64{
@@ -49,7 +59,7 @@ func symbolELFFixture(tb testing.TB, tables ...symbolTableFixture) (*elf.File, s
 	var data bytes.Buffer
 	require.NoError(tb, binary.Write(&data, binary.NativeEndian, elf.Header64{
 		Ident: ident, Version: uint32(elf.EV_CURRENT), Shoff: uint64(headerSize),
-		Ehsize: uint16(headerSize), Shentsize: uint16(sectionSize), Shnum: uint16(len(sections)),
+		Ehsize: uint16(headerSize), Shentsize: uint16(sectionSize), Shnum: shnum,
 	}))
 	require.NoError(tb, binary.Write(&data, binary.NativeEndian, sections))
 	for _, table := range tables {
@@ -85,6 +95,26 @@ func decodedExeSymbols(f *elf.File, names []string, types ...elf.SymType) (map[s
 		}
 	}
 	return result, nil
+}
+
+func TestFindExeSymbolsExtendedSectionCount(t *testing.T) {
+	for _, count := range []int{int(elf.SHN_LORESERVE), 1<<16 + 1} {
+		for _, typ := range []elf.SectionType{elf.SHT_SYMTAB, elf.SHT_DYNSYM} {
+			t.Run(fmt.Sprintf("sections=%d/%s", count, typ), func(t *testing.T) {
+				f, _ := symbolELFFixtureWithSectionCount(t, count, symbolTableFixture{
+					typ: typ, strings: []byte("\x00target\x00"),
+					symbols: []elf.Sym64{{}, {Name: 1, Info: byte(elf.STT_FUNC), Value: 42, Size: 8}},
+				})
+				require.Len(t, f.Sections, count)
+				want, err := decodedExeSymbols(f, []string{"target"})
+				require.NoError(t, err)
+				require.Len(t, want, 1)
+				got, err := FindExeSymbols(f, []string{"target"})
+				require.NoError(t, err)
+				assert.Equal(t, want, got)
+			})
+		}
+	}
 }
 
 func TestFindExeSymbolsTables(t *testing.T) {

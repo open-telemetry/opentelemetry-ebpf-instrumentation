@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"debug/elf"
 	"encoding/binary"
+	"fmt"
 	"math"
 	"os"
 	"testing"
@@ -36,6 +37,24 @@ func TestElfContextRejectsUnsupportedFormats(t *testing.T) {
 	data[elf.EI_CLASS] = byte(elf.ELFCLASS32)
 	_, err := NewElfContextFromData(data)
 	require.ErrorContains(t, err, "only ELF64")
+}
+
+func TestFastElfExtendedSectionCountOutOfBounds(t *testing.T) {
+	for _, count := range []uint64{uint64(elf.SHN_LORESERVE), math.MaxUint64} {
+		t.Run(fmt.Sprintf("sections=%d", count), func(t *testing.T) {
+			header := Elf64_Ehdr{
+				Shoff:     uint64(binary.Size(Elf64_Ehdr{})),
+				Shentsize: uint16(binary.Size(Elf64_Shdr{})),
+			}
+			copy(header.Ident[:], elf.ELFMAG)
+			header.Ident[elf.EI_CLASS] = byte(elf.ELFCLASS64)
+			var data bytes.Buffer
+			require.NoError(t, binary.Write(&data, binary.NativeEndian, header))
+			require.NoError(t, binary.Write(&data, binary.NativeEndian, Elf64_Shdr{Size: count}))
+			_, err := NewElfContextFromData(data.Bytes())
+			require.ErrorContains(t, err, "section table exceeds file bounds")
+		})
+	}
 }
 
 func TestFastElfNativeByteOrder(t *testing.T) {

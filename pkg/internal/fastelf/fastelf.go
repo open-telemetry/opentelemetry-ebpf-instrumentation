@@ -333,9 +333,29 @@ func NewElfContextFromData(data []byte) (*ElfContext, error) {
 		ctx.Segments[i] = ReadStruct[Elf64_Phdr](data, off)
 	}
 
-	ctx.Sections = make([]*Elf64_Shdr, hdr.Shnum)
+	sectionCount := int(hdr.Shnum)
+	if sectionCount == 0 && hdr.Shoff != 0 {
+		offset, ok := uint64Offset(data, hdr.Shoff)
+		if !ok {
+			return nil, errors.New("invalid extended ELF section table offset")
+		}
 
-	for i := 0; i < int(hdr.Shnum); i++ {
+		// Extended numbering stores the section count in section zero's sh_size.
+		first := ReadStruct[Elf64_Shdr](data, offset)
+		if first == nil || first.Type != SHT_NULL || first.Size < uint64(elf.SHN_LORESERVE) {
+			return nil, errors.New("invalid extended ELF section count")
+		}
+
+		if hdr.Shentsize < uint16(unsafe.Sizeof(Elf64_Shdr{})) || first.Size > uint64((len(data)-offset)/int(hdr.Shentsize)) {
+			return nil, errors.New("extended ELF section table exceeds file bounds")
+		}
+
+		sectionCount = int(first.Size)
+	}
+
+	ctx.Sections = make([]*Elf64_Shdr, sectionCount)
+
+	for i := 0; i < sectionCount; i++ {
 		off := int(hdr.Shoff) + i*int(hdr.Shentsize)
 		ctx.Sections[i] = ReadStruct[Elf64_Shdr](data, off)
 	}
