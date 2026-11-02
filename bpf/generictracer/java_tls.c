@@ -81,7 +81,7 @@ static __always_inline void java_http1_parent(unsigned char *uarg) {
         }
         bpf_memcpy(parent.trace_id, server->tp.trace_id, sizeof(parent.trace_id));
         bpf_memcpy(parent.span_id, server->tp.span_id, sizeof(parent.span_id));
-        parent.flags = k_flag_sampled;
+        parent.flags = server->tp.flags;
         parent.parent_status = parent_kind(server);
     }
     const u8 complete = 0;

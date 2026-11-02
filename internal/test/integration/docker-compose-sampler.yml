@@ -28,11 +28,13 @@ services:
     volumes:
       - ./configs/:/configs
       - ./system/sys/kernel/security:/sys/kernel/security
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-multi:/var/run/obi
     image: hatest-obi
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     pid: "host"
+    cgroup: host
     environment:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel"

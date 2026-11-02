@@ -37,7 +37,7 @@ typedef struct exception_event_header {
     u64 capture_ns;
     tp_info_t tp;
     // filled with task_pid(), as span events are
-    pid_info pid;
+    pid_info_t pid;
     u32 payload_len;
     u8 runtime;
     u8 owner;

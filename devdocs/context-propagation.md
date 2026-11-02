@@ -31,6 +31,7 @@ This document explains how OpenTelemetry context propagation works in the eBPF i
   - [Fallbacks](#fallbacks)
   - [TCP options](#tcp-options)
   - [Containers](#containers)
+- [Sampling](#sampling)
 - [Summary](#summary)
 
 For trace-log correlation (log enricher / `traces_ctx_v1` map), see [trace-log-correlation.md](trace-log-correlation.md).
@@ -352,6 +353,25 @@ The load-time constant `enroll_instrumented_only` turns all of the above on.
 `BPF_SOCK_OPS` only sees connections from the cgroups below the one OBI attaches to: by default, the root of its own cgroup namespace. Run in a container, OBI needs the host's cgroup namespace (Docker `--cgroupns=host`), or it never sees new connections of other containers.
 
 Where the container can't share the host's cgroup namespace, such as an unprivileged Kubernetes pod, mount the host cgroup v2 hierarchy at a separate path and point `capture.engine.cgroup_filesystem.path` to it. Mounting it over `/sys/fs/cgroup` instead also hides the container's own cgroup from other code in the same container, such as the Collector's `cgroup_runtime` extension.
+
+## Sampling
+
+The `sampled` flag OBI writes to `traceparent` and to the TCP option is its own sampling decision, made in eBPF by the sampler the exporter applies (`bpf/common/sampling.h`):
+
+- A trace that OBI starts takes its sampler's decision (`sample_new_trace`), the OpenTelemetry Go SDK `TraceIDRatioBased` test on the trace id.
+- A span continuing a trace from another process, through a header, the TCP option or black-box correlation, keeps the parent's decision under a `parentbased_*` sampler, and decides by the trace id otherwise (`sample_remote_child`).
+- A span whose parent runs in the same process inherits the parent's flags.
+
+The sampler comes from the `pid_samplers` map, keyed by the pid OBI's `/proc` numbers a process with. The generic and Go tracers write a process's entry in `AllowPID`, from its service's `sampler` or the global `otel_traces_export.sampler`, and remove it in `BlockPID`. Processes sampled as `parentbased_always_on`, the default, have no entry and keep every trace.
+
+The exporter applies the same sampler, with the span's flags standing for its parent's decision (`samplingParentContext` in `pkg/export/otel/tracesgen`). `TestPIDSamplerMatchesSDKSampler` checks that eBPF and the OpenTelemetry Go SDK samplers agree.
+
+Limitations:
+
+- A sampler that a collector embedding OBI passes to `tracesgen.GroupSpans` has no eBPF form. eBPF applies the configured sampler, so the propagated decision can differ from the exported one.
+- OBI propagates `traceparent` only: samplers cannot read or write `tracestate`.
+- `obi_ctx_info_t` (`bpf/shared/obi_ctx.h`) carries no flags, so the contexts read from it default to sampled: Node.js manual spans outside a request the bridge names by fd, and Go channel handoff links.
+- The generic tracer reads an incoming `traceparent` header only when context propagation or `track_request_headers` is enabled. Otherwise only OBI-to-OBI propagation carries an upstream decision.
 
 ## Summary
 

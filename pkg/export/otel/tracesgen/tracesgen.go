@@ -113,6 +113,8 @@ var (
 type TraceSpanAndAttributes struct {
 	Span       *request.Span
 	Attributes []attribute.KeyValue
+	// RecordOnly spans are exported without the sampled flag, as the sampler decided
+	RecordOnly bool
 }
 
 type SpanAttr struct {
@@ -174,7 +176,7 @@ func GroupSpansWithOptions(ctx context.Context, spans []request.Span, traceAttrs
 		}
 
 		sr := spanSampler().ShouldSample(trace.SamplingParameters{
-			ParentContext: ctx,
+			ParentContext: samplingParentContext(ctx, span),
 			Name:          span.TraceName(),
 			TraceID:       span.TraceID,
 			Kind:          spanKind(span),
@@ -196,11 +198,33 @@ func GroupSpansWithOptions(ctx context.Context, spans []request.Span, traceAttrs
 		group = append(group, TraceSpanAndAttributes{
 			Span:       span,
 			Attributes: exportAttrs,
+			RecordOnly: sr.Decision == trace.RecordOnly,
 		})
 		spanGroups[span.Service.UID] = group
 	}
 
 	return spanGroups
+}
+
+// samplingParentContext gives parent-based samplers the parent's decision. eBPF
+// samples each span with its process's sampler, and under a parent-based one a
+// span keeps its parent's flags, so the span's own flags stand for the parent's.
+func samplingParentContext(ctx context.Context, span *request.Span) context.Context {
+	parentSpanID := span.ParentSpanID
+	if !parentSpanID.IsValid() && span.ParentConditional {
+		parentSpanID = span.SpanID
+	}
+
+	if !parentSpanID.IsValid() {
+		return ctx
+	}
+
+	return trace2.ContextWithSpanContext(ctx, trace2.NewSpanContext(trace2.SpanContextConfig{
+		TraceID:    span.TraceID,
+		SpanID:     parentSpanID,
+		TraceFlags: trace2.TraceFlags(span.TraceFlags),
+		Remote:     true,
+	}))
 }
 
 // GenerateTracesWithAttributes must remain public for collectors embedding OBI
@@ -276,9 +300,10 @@ func generateTracesWithAttributes(
 		if traceID.IsEmpty() {
 			traceID = pcommon.TraceID(idgen.RandomTraceID())
 		}
+		flags := exportedFlags(span, spanWithAttributes.RecordOnly)
 
 		if hasSubSpans {
-			createSubSpans(span, spanID, traceID, &ss, t)
+			createSubSpans(span, spanID, traceID, flags, &ss, t)
 		} else if span.SpanID.IsValid() {
 			spanID = pcommon.SpanID(span.SpanID)
 		}
@@ -292,6 +317,7 @@ func generateTracesWithAttributes(
 		// Set trace and span IDs
 		s.SetSpanID(spanID)
 		s.SetTraceID(traceID)
+		s.SetFlags(flags)
 		if span.ParentSpanID.IsValid() {
 			s.SetParentSpanID(pcommon.SpanID(span.ParentSpanID))
 		}
@@ -384,8 +410,14 @@ func SpanDiscarded(span *request.Span, is instrumentations.InstrumentationSelect
 	return request.IgnoreTraces(span) || span.Service.ExportsOTelTraces() || !acceptSpan(is, span)
 }
 
+// exportedFlags are the W3C trace flags of an exported span: exporting it means
+// it was sampled, unless the sampler only asked for it to be recorded
+func exportedFlags(span *request.Span, recordOnly bool) uint32 {
+	return uint32(trace2.TraceFlags(span.TraceFlags).WithSampled(!recordOnly))
+}
+
 // createSubSpans creates the internal spans for a request.Span
-func createSubSpans(span *request.Span, parentSpanID pcommon.SpanID, traceID pcommon.TraceID, ss *ptrace.ScopeSpans, t request.Timings) {
+func createSubSpans(span *request.Span, parentSpanID pcommon.SpanID, traceID pcommon.TraceID, flags uint32, ss *ptrace.ScopeSpans, t request.Timings) {
 	// Create a child span showing the queue time
 	spQ := ss.Spans().AppendEmpty()
 	spQ.SetName("in queue")
@@ -395,6 +427,7 @@ func createSubSpans(span *request.Span, parentSpanID pcommon.SpanID, traceID pco
 	spQ.SetTraceID(traceID)
 	spQ.SetSpanID(pcommon.SpanID(idgen.RandomSpanID()))
 	spQ.SetParentSpanID(parentSpanID)
+	spQ.SetFlags(flags)
 
 	// Create a child span showing the processing time
 	spP := ss.Spans().AppendEmpty()
@@ -409,6 +442,7 @@ func createSubSpans(span *request.Span, parentSpanID pcommon.SpanID, traceID pco
 		spP.SetSpanID(pcommon.SpanID(idgen.RandomSpanID()))
 	}
 	spP.SetParentSpanID(parentSpanID)
+	spP.SetFlags(flags)
 	appendSpanLinks(spP, span.Links)
 }
 

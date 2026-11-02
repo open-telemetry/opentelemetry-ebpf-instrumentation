@@ -64,7 +64,7 @@ typedef struct http_info {
     // socket (TLS uprobes, unix sockets).
     u64 response_bytes_at_request;
     tp_info_t tp;
-    pid_info pid;
+    pid_info_t pid;
     u32 len;
     u32 resp_len;
     u32 task_tid;

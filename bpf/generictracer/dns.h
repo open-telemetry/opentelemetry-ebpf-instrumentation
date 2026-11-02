@@ -400,7 +400,7 @@ static __always_inline void populate_dns_record(dns_req_t *req,
     if (found) {
         urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
     } else {
-        init_new_trace(&req->tp);
+        init_new_trace_for_pid(&req->tp, &conn_pid->p_info);
     }
 }
 

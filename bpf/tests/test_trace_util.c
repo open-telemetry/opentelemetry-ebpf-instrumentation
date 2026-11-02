@@ -76,10 +76,30 @@ static void test_fresh_traceparent_still_matches(void) {
     assert_match_pos(1, got, __func__);
 }
 
+static void test_invalid_traceparent_is_ignored(void) {
+    const unsigned char fresh[] =
+        "traceparent: application-owned-invalid\r\nTracestate: fixture=preserved\r\n";
+
+    const u32 got = traceparent_pos_after_read((const unsigned char *)"", fresh, sizeof(fresh) - 1);
+
+    assert_match_pos(k_tp_pos_not_found, got, __func__);
+}
+
+static void test_unsampled_traceparent_still_matches(void) {
+    const unsigned char fresh[] =
+        "traceparent: 00-0123456789abcdef0123456789abcdef-0123456789abcdef-00";
+
+    const u32 got = traceparent_pos_after_read((const unsigned char *)"", fresh, sizeof(fresh) - 1);
+
+    assert_match_pos(0, got, __func__);
+}
+
 int main(void) {
     test_stale_suffix_cannot_complete_traceparent_prefix();
     test_stale_value_cannot_complete_traceparent_header();
     test_fresh_traceparent_still_matches();
+    test_invalid_traceparent_is_ignored();
+    test_unsampled_traceparent_still_matches();
 
     return 0;
 }

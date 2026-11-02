@@ -65,7 +65,7 @@ static void test_failed_connect_record_is_fully_initialized(void) {
     const u64 end_ts = 123456999;
     const u64 extra_id = 0xaabbccddeeff0011;
 
-    const pid_info pid = {
+    const pid_info_t pid = {
         .host_pid = 1001,
         .user_pid = 2002,
         .ns = 3003,

@@ -334,3 +334,14 @@ func goAutoSpanRecord(payload []byte, size uint32) *ringbuf.Record {
 	raw = append(raw, payload...)
 	return &ringbuf.Record{RawSample: raw}
 }
+
+func TestReadGoOTelEventIntoSpanTraceFlags(t *testing.T) {
+	event := GoOTelSpanTrace{Type: EventOTelSDKGo}
+	event.Tp.Flags = TPFlagSampled
+	raw := unsafe.Slice((*byte)(unsafe.Pointer(&event)), int(unsafe.Sizeof(event)))
+
+	span, _, err := ReadGoOTelEventIntoSpan(&ringbuf.Record{RawSample: append([]byte(nil), raw...)})
+
+	require.NoError(t, err)
+	assert.Equal(t, uint8(TPFlagSampled), span.TraceFlags)
+}

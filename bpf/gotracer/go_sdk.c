@@ -28,6 +28,7 @@
 #include <common/map_sizing.h>
 #include <common/preempt_guard.h>
 #include <common/ringbuf.h>
+#include <common/sampling.h>
 #include <common/scratch_mem.h>
 
 #include <gotracer/go_common.h>
@@ -280,11 +281,11 @@ static __always_inline void init_go_auto_span_context(go_auto_span_state_t *stat
         __builtin_memcpy(&state->prev_tp, parent, sizeof(state->prev_tp));
         tp_from_parent(child, parent);
     } else {
-        child->flags = k_flag_sampled;
         urand_bytes(child->trace_id, sizeof(child->trace_id));
         if (!valid_trace(child->trace_id)) {
             child->trace_id[0] = 1;
         }
+        sample_new_trace(child);
     }
 
     state->goroutine = (u64)goroutine_addr;

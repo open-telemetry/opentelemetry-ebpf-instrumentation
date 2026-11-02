@@ -9,6 +9,7 @@
 
 #include <common/preempt_guard.h>
 #include <common/protocol_http2_helpers.h>
+#include <common/sampling.h>
 #include <common/tc_common.h>
 
 #include <generictracer/protocol_aerospike.h>
@@ -144,6 +145,7 @@ int GUARDED_PROG(obi_handle_buf_with_args, void *, ctx) {
                         decode_hex(info->tp.trace_id, t_id, TRACE_ID_CHAR_LEN);
                         decode_hex((unsigned char *)&info->tp.flags, f_id, FLAGS_CHAR_LEN);
                         decode_hex(info->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
+                        sample_remote_child(&info->tp);
 
                         trace_key_t t_key = {0};
                         trace_key_from_pid_tid(&t_key);

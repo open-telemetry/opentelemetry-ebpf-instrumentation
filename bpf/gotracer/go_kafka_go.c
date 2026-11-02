@@ -20,6 +20,7 @@
 #include <common/common.h>
 #include <common/preempt_guard.h>
 #include <common/ringbuf.h>
+#include <common/sampling.h>
 
 #include <gotracer/go_common.h>
 
@@ -113,6 +114,7 @@ int GUARDED_PROG(obi_uprobe_writer_produce, struct pt_regs *, ctx) {
             } else {
                 urand_bytes(topic.tp.trace_id, TRACE_ID_SIZE_BYTES);
                 urand_bytes(topic.tp.span_id, SPAN_ID_SIZE_BYTES);
+                sample_new_trace(&topic.tp);
             }
 
             bpf_probe_read_user(&topic.name, topic_len, topic_ptr);

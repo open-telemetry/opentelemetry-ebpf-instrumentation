@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"slices"
 	"sync"
@@ -312,6 +313,7 @@ type Tracer struct {
 	log                               *slog.Logger
 	pidsFilter                        ebpfcommon.ServiceFilter
 	cfg                               *config.EBPFTracer
+	tracesSampler                     *services.SamplerConfig
 	metrics                           imetrics.Reporter
 	bpfObjects                        BpfObjects
 	closers                           []io.Closer
@@ -319,7 +321,8 @@ type Tracer struct {
 	supportsBPFLoop                   bool
 	traceCtxMapEnabled                bool
 	runtimeMetricsEnabled             bool
-	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfo
+	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfoT
+	pidSamplers                       ebpfcommon.PIDSamplers
 	goChannelOffsetsByExecutable      map[executableIdentity]bool
 	goRuntimeMetricMaskByExecutable   map[executableIdentity]uint64
 	goRuntimeGCGoalSourceByExecutable map[executableIdentity]goRuntimeGCGoalSource
@@ -350,12 +353,13 @@ func New(
 		log:                               log,
 		pidsFilter:                        pidFilter,
 		cfg:                               &cfg.EBPF,
+		tracesSampler:                     &cfg.Traces.SamplerConfig,
 		metrics:                           metrics,
 		disabledRouteHarvesting:           disabledRouteHarvesting,
 		supportsBPFLoop:                   ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
 		traceCtxMapEnabled:                cfg.PopulateTraceContext(),
 		runtimeMetricsEnabled:             cfg.AppRuntimeMetricsEnabled(),
-		runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfo{},
+		runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfoT{},
 		goChannelOffsetsByExecutable:      map[executableIdentity]bool{},
 		goRuntimeMetricMaskByExecutable:   map[executableIdentity]uint64{},
 		goRuntimeGCGoalSourceByExecutable: map[executableIdentity]goRuntimeGCGoalSource{},
@@ -416,6 +420,18 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	p.goAutoSDKTargetsMu.Unlock()
 
 	p.registerRuntimeMetricTarget(pid, ns, fi)
+	p.writePIDSampler(pid, ns, fi)
+}
+
+func (p *Tracer) writePIDSampler(pid app.PID, ns uint32, fi *exec.FileInfo) {
+	if p.bpfObjects.PidSamplers == nil || fi == nil {
+		return
+	}
+
+	err := p.pidSamplers.Write(p.bpfObjects.PidSamplers, pid, ns, fi.ServiceAttrs().SamplerConfig, p.tracesSampler)
+	if err != nil {
+		p.log.Error("setting the process sampler in eBPF", "pid", pid, "error", err)
+	}
 }
 
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
@@ -428,6 +444,12 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.goAutoSDKTargetsMu.Unlock()
 
 	p.deleteRuntimeMetricTarget(pid, ns)
+
+	if p.bpfObjects.PidSamplers != nil {
+		if err := p.pidSamplers.Delete(p.bpfObjects.PidSamplers, pid); err != nil {
+			p.log.Error("removing the process sampler from eBPF", "pid", pid, "error", err)
+		}
+	}
 }
 
 func (p *Tracer) supportsContextPropagation() bool {
@@ -513,6 +535,8 @@ func (p *Tracer) constants() map[string]any {
 	m["kafka_max_captured_bytes"] = p.cfg.BufferSizes.Kafka
 	m["postgres_max_captured_bytes"] = p.cfg.BufferSizes.Postgres
 	m["max_transaction_time"] = uint64(p.cfg.MaxTransactionTime.Nanoseconds())
+	// pid_samplers is keyed by the pid OBI's /proc numbers a process with
+	maps.Copy(m, ebpfcommon.PIDFilterConstants())
 
 	return m
 }
@@ -1529,7 +1553,7 @@ func (p *Tracer) registerRuntimeMetricTarget(pid app.PID, ns uint32, fileInfo *e
 	fileInfo.SetRuntimeMetricGeneration(pid, generation)
 
 	if p.runtimeMetricTargetKeys == nil {
-		p.runtimeMetricTargetKeys = map[runtimeMetricTargetKey]BpfPidInfo{}
+		p.runtimeMetricTargetKeys = map[runtimeMetricTargetKey]BpfPidInfoT{}
 	}
 	p.runtimeMetricTargetKeys[runtimeMetricTargetKey{pid: pid, ns: ns}] = pidInfo
 }
@@ -1592,17 +1616,17 @@ func (p *Tracer) deleteRuntimeMetricTarget(pid app.PID, ns uint32) {
 	delete(p.runtimeMetricTargetKeys, runtimeMetricTargetKey{pid: pid, ns: ns})
 }
 
-func runtimeMetricPIDInfo(pid app.PID, ns uint32) (BpfPidInfo, error) {
+func runtimeMetricPIDInfo(pid app.PID, ns uint32) (BpfPidInfoT, error) {
 	// HostPid stays zero: go_runtime_metric_targets is keyed on {user_pid, ns}
 	// (see go_runtime_metric_target_lookup in bpf/gotracer/go_runtime.c).
-	pidInfo := BpfPidInfo{
+	pidInfo := BpfPidInfoT{
 		UserPid: uint32(pid),
 		Ns:      ns,
 	}
 
 	pids, err := procs.FindNamespacedPids(pid)
 	if err != nil {
-		return BpfPidInfo{}, fmt.Errorf("reading namespaced PIDs: %w", err)
+		return BpfPidInfoT{}, fmt.Errorf("reading namespaced PIDs: %w", err)
 	}
 	if len(pids) == 0 {
 		return pidInfo, nil

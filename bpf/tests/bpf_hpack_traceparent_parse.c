@@ -429,8 +429,21 @@ static void test_plain_value_wins_over_huffman_lookalike(void) {
     assert_tp_match(&tp);
 }
 
+// an upstream that decided not to sample must keep that decision for the spans OBI derives
+static void test_unsampled_flags_are_kept(void) {
+    unsigned char buf[k_kprobes_http2_buf_size] = {0};
+    const u32 len = build_plain_entry(buf);
+    buf[k_hpack_tp_val_offset + k_tp_val_flags_start + 1] = '0';
+
+    tp_info_t tp = {0};
+    h2_tp_huff_candidate_t huff = {0};
+    assertf(parse_hpack_traceparent(buf, len, &tp, &huff) == 1, "unsampled value parses");
+    assertf(tp.flags == 0, "flags != 0");
+}
+
 int main(void) {
     test_plain_name_baseline();
+    test_unsampled_flags_are_kept();
     test_huffman_name_baseline();
     test_plain_name_huffman_value();
     test_indexed_name_huffman_value();
