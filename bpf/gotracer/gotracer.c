@@ -50,6 +50,7 @@ int GUARDED_PROG(obi_capture_go_executable_identity, struct pt_regs *, ctx) {
 #include "go_net.c"
 #include "go_net_tls.c"
 #include "go_nethttp.c"
+#include "go_errors.c"
 #include "go_sql.c"
 #include "go_grpc.c"
 
