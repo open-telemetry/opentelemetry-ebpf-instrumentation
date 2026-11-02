@@ -59,13 +59,10 @@ These uses are acceptable provided you:
 
 ### Versioning and compatibility
 
-Every contribution must comply with [VERSIONING.md](VERSIONING.md). For
-AI-assisted PRs, contributors must verify the
-[compatibility check in AGENTS.md](AGENTS.md#compatibility-check) and include
-its compatibility assessment in the PR description. Apply the post-v1 rules
-to core OBI; historical Development or `v0` wording is not a blanket exemption.
-Contributors remain responsible for checking the applicable stability contract
-and release impact, even when an agent reports that the change is compatible.
+Contributors must verify the
+[compatibility assessment required by AGENTS.md](AGENTS.md#compatibility-check)
+against [VERSIONING.md](VERSIONING.md), even when an agent reports that a change
+is compatible. AI assistance does not transfer responsibility for compliance.
 
 ### GitHub Communication
 

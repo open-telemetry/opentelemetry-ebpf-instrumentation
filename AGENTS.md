@@ -64,40 +64,29 @@ If the task is unclear or underspecified, ask for clarification before making ch
 
 ## Compatibility check
 
-Every PR must comply with [VERSIONING.md](VERSIONING.md). Apply the post-v1
-compatibility rules to core OBI changes; do not use historical Development or
-`v0` wording as a blanket exemption. The Collector receiver has its own version
-line; assess it separately as described in the policy.
+Every PR must comply with [VERSIONING.md](VERSIONING.md), the source of truth
+for stability and release rules, including the Collector receiver's separate
+version line.
 
 Before implementation and again before submitting or approving a PR:
 
-1. Identify affected user-facing surfaces: exported Go APIs, CLI and environment
-   variables, configuration and defaults, emitted telemetry, binaries and images,
-   and build-time or runtime support. Internal refactors and dependency updates
-   must also be checked for observable effects on these surfaces.
-2. Determine the applicable stability contract from `VERSIONING.md`,
-   [TELEMETRY.md](TELEMETRY.md), [SUPPORT_MATRIX.md](SUPPORT_MATRIX.md), and the
-   relevant configuration documentation. For telemetry, check registry stability
-   for signals and attributes independently, including both OTLP and Prometheus
-   representations. Cite an explicit exclusion before treating a surface as
-   unprotected; flag unclear or conflicting declarations for maintainer resolution.
-3. Classify the change against the intended release: breaking stable changes
-   require a major release where the policy permits them; minor releases allow
-   compatible additions; patch releases allow only compatible fixes and other
-   changes permitted by the policy. Preserve existing usage of stable surfaces,
-   including valid configurations, invocations, and telemetry queries, on minor
-   and patch release lines.
-   If a proposed change violates the policy, preserve compatibility or flag it
-   as a blocker. Do not silently expand the scope to a major release or weaken
-   the stability contract to accommodate it.
-4. Document deprecations before removal and add any required migration guidance,
-   telemetry schema transformations, release notes, and generated documentation.
-   A deprecation, migration guide, or schema transformation does not waive the
-   major-release requirement for a breaking stable change.
-5. Include a concise compatibility assessment in the PR description: affected
+1. Identify observable effects on the user-facing surfaces listed in the policy,
+   including effects of internal refactors and dependency updates. For affected
+   contracts, consult [TELEMETRY.md](TELEMETRY.md),
+   [SUPPORT_MATRIX.md](SUPPORT_MATRIX.md), or the relevant configuration docs.
+   Cite the documented classification or exclusion before treating a surface as
+   unprotected.
+2. Compare base and head behavior against the intended release's rules. Preserve
+   compatibility or flag violations as blockers; do not silently expand the task
+   to a major release or weaken the stability contract to accommodate a change.
+3. Add the migration guidance, deprecation notices, release notes, and generated
+   documentation required by the affected contract. For emitted telemetry, follow
+   the [telemetry schema requirements](#telemetry-schema) below.
+4. Include a concise compatibility assessment in the PR description: affected
    surfaces, stability evidence, required release level, and relevant validation.
-   For changes with no user-facing effect, say so and explain why. Use regression
-   coverage where behavior changes to verify that existing usage remains valid.
+   If no user-facing contract changes, explain why in one sentence. Validate
+   changed behavior with relevant regression coverage; for documentation-only
+   changes, follow the Markdown validation requirement below.
 
 Do not declare a PR ready or approve it while a versioning violation or an
 unresolved stability question remains.
