@@ -58,8 +58,9 @@ func TestGatherOffsets(t *testing.T) {
 	probes := makeProbeDescMap(testCases)
 
 	elfFile := instrumenterFixtureELF(t)
-	err := gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
+	errs, err := gatherOffsetsImpl(elfFile, []map[string][]*ebpfcommon.ProbeDesc{probes}, "libbsd.so", slog.Default())
 	require.NoError(t, err)
+	require.NoError(t, errs[0])
 
 	for probeName, probeArr := range probes {
 		assert.NotEmpty(t, probeArr)
@@ -124,6 +125,30 @@ func TestHandleSymbolDataReadFailureKeepsStartOnlyProbeResolved(t *testing.T) {
 	assert.Empty(t, probe.ReturnOffsets)
 }
 
+func TestGatherOffsetsIsolatesProbeMaps(t *testing.T) {
+	testCases := expectedValues()
+	resolvable := makeProbeDescMap(testCases)
+	failing := probeDescMap{
+		"missing_required_symbol": {{Required: true}},
+	}
+
+	elfFile := instrumenterFixtureELF(t)
+	errs, err := gatherOffsetsImpl(
+		elfFile,
+		[]map[string][]*ebpfcommon.ProbeDesc{failing, resolvable},
+		"libbsd.so",
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.Len(t, errs, 2)
+	require.Error(t, errs[0])
+	require.NoError(t, errs[1])
+
+	for probeName, probeArr := range resolvable {
+		assert.Equal(t, testCases[probeName].startOffset, probeArr[0].StartOffset, probeName)
+	}
+}
+
 func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
 	probes := probeDescMap{
 		"missing_optional_symbol": {{
@@ -132,8 +157,9 @@ func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
 	}
 
 	elfFile := instrumenterFixtureELF(t)
-	err := gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
+	errs, err := gatherOffsetsImpl(elfFile, []map[string][]*ebpfcommon.ProbeDesc{probes}, "libbsd.so", slog.Default())
 	require.NoError(t, err)
+	require.NoError(t, errs[0])
 
 	desc := probes["missing_optional_symbol"][0]
 	assert.True(t, desc.Skip)
@@ -149,9 +175,10 @@ func TestGatherOffsetsFailsMissingRequiredSymbol(t *testing.T) {
 	}
 
 	elfFile := instrumenterFixtureELF(t)
-	err := gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "required symbol missing_required_symbol not found")
+	errs, err := gatherOffsetsImpl(elfFile, []map[string][]*ebpfcommon.ProbeDesc{probes}, "libbsd.so", slog.Default())
+	require.NoError(t, err)
+	require.Error(t, errs[0])
+	assert.Contains(t, errs[0].Error(), "required symbol missing_required_symbol not found")
 
 	desc := probes["missing_required_symbol"][0]
 	assert.True(t, desc.Skip)
