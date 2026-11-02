@@ -14,6 +14,8 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
+	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/selection"
 )
 
@@ -217,12 +219,184 @@ func TestDynamicMatcher_ClearsWorkloadSourcesOnProcessExit(t *testing.T) {
 			31: {Process: &services.ProcessInfo{Pid: 31, ExePath: "/bin/test"}},
 		},
 	}
-	ev, ok := m.filterDeleted(ProcessAttrs{pid: 31})
+	ev, ok := m.filterDeleted(ProcessAttrs{pid: 31}, EventDeleted)
 	require.True(t, ok)
 	assert.Equal(t, EventDeleted, ev.Type)
 	assert.False(t, d.IncludesPID(31), "workload-only PID must leave the selector on exit")
 	_, stillTracked := m.ProcessHistory[31]
 	assert.False(t, stillTracked)
+}
+
+func TestDynamicMatcher_ExecutableReplacementPreservesWorkloadSelection(t *testing.T) {
+	for _, timing := range []string{"before_rescan", "after_rescan"} {
+		t.Run(timing, func(t *testing.T) {
+			originalProcessInfo := processInfo
+			processInfo = func(attrs ProcessAttrs) (*services.ProcessInfo, error) {
+				path := "/bin/launcher"
+				if attrs.executable.Ino == 2 {
+					path = "/bin/replacement"
+				}
+				return &services.ProcessInfo{Pid: attrs.pid, ExePath: path}, nil
+			}
+			t.Cleanup(func() { processInfo = originalProcessInfo })
+
+			d := NewDynamicSelector()
+			workload := selection.K8sWorkloadRef{Kind: "Deployment", Namespace: "ns", Name: "checkout"}
+			require.NoError(t, d.AddK8sWorkload(workload, selection.DynamicOptions{}))
+			added := d.appSignals().AddedPIDsNotifyContext(t.Context())
+			removed := d.appSignals().RemovedNotifyContext(t.Context())
+			metricsAdded := selection.AddedPIDsNotifyContext(t.Context(), d.AppMetrics())
+			metricsRemoved := selection.RemovedNotifyContext(t.Context(), d.AppMetrics())
+			m := DynamicMatcher{
+				Log:             slog.Default(),
+				DynamicSelector: d.appSignals(),
+				ProcessHistory:  map[app.PID]ProcessMatch{},
+			}
+			acc := pollAccounter{
+				cfg:             &obi.Config{},
+				executableReady: func(app.PID) (string, bool) { return "", true },
+			}
+			original := ProcessAttrs{
+				pid:        31,
+				startTime:  100,
+				executable: cacheKey{Dev: 1, Ino: 1},
+				metadata: map[string]string{
+					services.AttrNamespace:      "ns",
+					services.AttrDeploymentName: "checkout",
+				},
+			}
+			require.Len(t, m.filter(acc.snapshot(map[app.PID]ProcessAttrs{original.pid: original}, false)), 1)
+			initialAdded := testutil.ReadChannel(t, added, testTimeout)
+			require.Equal(t, []app.PID{original.pid}, initialAdded)
+			require.Equal(t, initialAdded, testutil.ReadChannel(t, metricsAdded, testTimeout))
+			acc.forgetPIDs(initialAdded)
+			if timing == "after_rescan" {
+				require.Empty(t, m.filter(acc.snapshot(map[app.PID]ProcessAttrs{original.pid: original}, false)))
+			}
+
+			replacement := original
+			replacement.executable.Ino = 2
+			processes := map[app.PID]ProcessAttrs{replacement.pid: replacement}
+			matches := m.filter(acc.snapshot(processes, false))
+			require.Len(t, matches, 2)
+			require.Equal(t, EventDeleted, matches[0].Type)
+			require.Equal(t, "/bin/launcher", matches[0].Obj.Process.ExePath)
+			require.Equal(t, EventCreated, matches[1].Type)
+			require.Equal(t, "/bin/replacement", matches[1].Obj.Process.ExePath)
+			// A later selection edge flushes both notification queues in producer order.
+			const barrierPID = 32
+			d.appSignals().AddPIDs(barrierPID)
+			d.appSignals().RemovePIDs(barrierPID)
+			require.Equal(t, []app.PID{barrierPID}, testutil.ReadChannel(t, removed, testTimeout), "exec must not queue workload removal")
+			require.Equal(t, []app.PID{barrierPID}, testutil.ReadChannel(t, added, testTimeout), "exec must not rematerialize workload membership")
+			require.Equal(t, []app.PID{barrierPID}, testutil.ReadChannel(t, metricsRemoved, testTimeout), "exec must not queue removal for the metrics gate")
+			require.Equal(t, []app.PID{barrierPID}, testutil.ReadChannel(t, metricsAdded, testTimeout), "exec must not queue re-addition for the metrics gate")
+			require.True(t, d.Traces().IncludesPID(replacement.pid))
+			require.True(t, d.AppMetrics().IncludesPID(replacement.pid))
+			require.True(t, d.NetworkMetrics().IncludesPID(replacement.pid))
+			require.True(t, d.StatsMetrics().IncludesPID(replacement.pid))
+			require.Same(t, matches[1].Obj.Process, m.ProcessHistory[replacement.pid].Process)
+			for range 2 {
+				require.Empty(t, acc.snapshot(processes, false))
+			}
+
+			d.NetworkMetrics().AddPID(uint32(replacement.pid), selection.DynamicOptions{})
+			require.NoError(t, d.RemoveK8sWorkload(workload))
+			require.True(t, d.IncludesPID(replacement.pid))
+			require.False(t, d.appSignals().IncludesPID(replacement.pid))
+			deletes := m.syntheticDeletesForRemovedPIDs(testutil.ReadChannel(t, removed, testTimeout))
+			require.Equal(t, []Event[ProcessMatch]{{Type: EventDeleted, Obj: matches[1].Obj}}, deletes)
+			require.NotContains(t, m.ProcessHistory, replacement.pid)
+		})
+	}
+}
+
+func TestDynamicMatcher_ProcessLifetimeEndClearsWorkloadSelection(t *testing.T) {
+	for _, end := range []string{"exit", "reuse same binary", "reuse different binary"} {
+		t.Run(end, func(t *testing.T) {
+			originalProcessInfo := processInfo
+			processInfo = func(attrs ProcessAttrs) (*services.ProcessInfo, error) {
+				return &services.ProcessInfo{Pid: attrs.pid, ExePath: "/bin/app"}, nil
+			}
+			t.Cleanup(func() { processInfo = originalProcessInfo })
+			d := NewDynamicSelector()
+			require.NoError(t, d.AddK8sWorkload(selection.K8sWorkloadRef{
+				Kind: "Deployment", Namespace: "ns", Name: "checkout",
+			}, selection.DynamicOptions{}))
+			removed := selection.RemovedNotifyContext(t.Context(), d.AppMetrics())
+			m := DynamicMatcher{Log: slog.Default(), DynamicSelector: d.appSignals(), ProcessHistory: map[app.PID]ProcessMatch{}}
+			acc := pollAccounter{cfg: &obi.Config{}, executableReady: func(app.PID) (string, bool) { return "", true }}
+			original := ProcessAttrs{
+				pid: 31, startTime: 100, executable: cacheKey{Dev: 1, Ino: 1},
+				metadata: map[string]string{services.AttrNamespace: "ns", services.AttrDeploymentName: "checkout"},
+			}
+			require.Len(t, m.filter(acc.snapshot(map[app.PID]ProcessAttrs{31: original}, false)), 1)
+			current := map[app.PID]ProcessAttrs{}
+			if end != "exit" {
+				replacement := original
+				replacement.startTime++
+				replacement.metadata = nil
+				if end == "reuse different binary" {
+					replacement.executable.Ino++
+				}
+				current[31] = replacement
+			}
+			matches := m.filter(acc.snapshot(current, false))
+			require.Len(t, matches, 1)
+			require.Equal(t, EventDeleted, matches[0].Type)
+			require.Equal(t, []app.PID{31}, testutil.ReadChannel(t, removed, testTimeout))
+			require.False(t, d.IncludesPID(31))
+			require.NotContains(t, m.ProcessHistory, app.PID(31))
+			require.Empty(t, acc.snapshot(current, false))
+		})
+	}
+}
+
+func TestDynamicMatcher_ReselectedPIDWithNewOptionsIsRemoved(t *testing.T) {
+	d := NewDynamicSelector()
+	removed := d.appSignals().RemovedNotifyContext(t.Context())
+	m := DynamicMatcher{
+		Log:             slog.Default(),
+		DynamicSelector: d.appSignals(),
+		ProcessHistory:  map[app.PID]ProcessMatch{},
+	}
+
+	d.appSignals().AddPID(51, selection.DynamicOptions{ServiceName: "a"})
+	tracked := ProcessMatch{
+		Criteria: []services.Selector{d.appSignals().SelectorForPID(51)},
+		Process:  &services.ProcessInfo{Pid: 51},
+	}
+	m.ProcessHistory[51] = tracked
+
+	d.appSignals().RemovePIDs(51)
+	d.appSignals().AddPID(51, selection.DynamicOptions{ServiceName: "b"})
+
+	deletes := m.syntheticDeletesForRemovedPIDs(testutil.ReadChannel(t, removed, testTimeout))
+	assert.Equal(t, []Event[ProcessMatch]{{Type: EventDeleted, Obj: tracked}}, deletes)
+	assert.NotContains(t, m.ProcessHistory, app.PID(51))
+}
+
+func TestDynamicMatcher_ReselectedPIDWithSameOptionsIgnoresRemoval(t *testing.T) {
+	d := NewDynamicSelector()
+	removed := d.appSignals().RemovedNotifyContext(t.Context())
+	m := DynamicMatcher{
+		Log:             slog.Default(),
+		DynamicSelector: d.appSignals(),
+		ProcessHistory:  map[app.PID]ProcessMatch{},
+	}
+
+	opts := selection.DynamicOptions{ServiceName: "a", ResourceAttributes: map[string]string{"k": "v"}}
+	d.appSignals().AddPID(52, opts)
+	m.ProcessHistory[52] = ProcessMatch{
+		Criteria: []services.Selector{d.appSignals().SelectorForPID(52)},
+		Process:  &services.ProcessInfo{Pid: 52},
+	}
+
+	d.appSignals().RemovePIDs(52)
+	d.appSignals().AddPID(52, opts)
+
+	assert.Empty(t, m.syntheticDeletesForRemovedPIDs(testutil.ReadChannel(t, removed, testTimeout)))
+	assert.Contains(t, m.ProcessHistory, app.PID(52))
 }
 
 func TestDynamicMatcher_ProcessExitKeepsExplicitPID(t *testing.T) {
@@ -244,7 +418,7 @@ func TestDynamicMatcher_ProcessExitKeepsExplicitPID(t *testing.T) {
 			41: {Process: &services.ProcessInfo{Pid: 41, ExePath: "/bin/test"}},
 		},
 	}
-	_, ok := m.filterDeleted(ProcessAttrs{pid: 41})
+	_, ok := m.filterDeleted(ProcessAttrs{pid: 41}, EventDeleted)
 	require.True(t, ok)
 	assert.True(t, d.appSignals().IncludesPID(41), "explicit AddPID must survive process exit")
 	assert.False(t, d.NetworkMetrics().IncludesPID(41), "workload net/stats source must clear")

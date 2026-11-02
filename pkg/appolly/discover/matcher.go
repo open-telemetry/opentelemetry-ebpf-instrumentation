@@ -130,7 +130,7 @@ func (m *Matcher) Run(ctx context.Context) {
 func (m *Matcher) filter(events []Event[ProcessAttrs]) []Event[ProcessMatch] {
 	var matches []Event[ProcessMatch]
 	for _, ev := range events {
-		if ev.Type == EventDeleted {
+		if ev.Type == EventDeleted || ev.Type == EventExecutableReplaced {
 			delete(m.observed, ev.Obj.pid)
 			if ev, ok := m.filterDeleted(ev.Obj); ok {
 				matches = append(matches, ev)
