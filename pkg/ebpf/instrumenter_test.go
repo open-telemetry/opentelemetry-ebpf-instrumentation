@@ -54,17 +54,11 @@ func makeProbeDescMap(cases map[string]testCase) probeDescMap {
 }
 
 func TestGatherOffsets(t *testing.T) {
-	reader := bytes.NewReader(testData())
-	assert.NotNil(t, reader)
-
 	testCases := expectedValues()
 	probes := makeProbeDescMap(testCases)
 
-	elfFile, err := elf.NewFile(reader)
-	require.NoError(t, err)
-	defer elfFile.Close()
-
-	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
+	elfFile := instrumenterFixtureELF(t)
+	err := gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
 	require.NoError(t, err)
 
 	for probeName, probeArr := range probes {
@@ -131,20 +125,14 @@ func TestHandleSymbolDataReadFailureKeepsStartOnlyProbeResolved(t *testing.T) {
 }
 
 func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
-	reader := bytes.NewReader(testData())
-	assert.NotNil(t, reader)
-
 	probes := probeDescMap{
 		"missing_optional_symbol": {{
 			Required: false,
 		}},
 	}
 
-	elfFile, err := elf.NewFile(reader)
-	require.NoError(t, err)
-	defer elfFile.Close()
-
-	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
+	elfFile := instrumenterFixtureELF(t)
+	err := gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
 	require.NoError(t, err)
 
 	desc := probes["missing_optional_symbol"][0]
@@ -154,20 +142,14 @@ func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
 }
 
 func TestGatherOffsetsFailsMissingRequiredSymbol(t *testing.T) {
-	reader := bytes.NewReader(testData())
-	assert.NotNil(t, reader)
-
 	probes := probeDescMap{
 		"missing_required_symbol": {{
 			Required: true,
 		}},
 	}
 
-	elfFile, err := elf.NewFile(reader)
-	require.NoError(t, err)
-	defer elfFile.Close()
-
-	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
+	elfFile := instrumenterFixtureELF(t)
+	err := gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "required symbol missing_required_symbol not found")
 
@@ -1520,4 +1502,14 @@ func TestMakeOtelBPFFSPathRejectsInaccessibleExistingDirectory(t *testing.T) {
 	_, err := pt.makeOtelBPFFSPath()
 
 	require.ErrorContains(t, err, "accessing bpffs otel path")
+}
+
+func instrumenterFixtureELF(t *testing.T) *elf.File {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "libbsd.so")
+	require.NoError(t, os.WriteFile(path, testData(), 0o600))
+	f, err := elf.Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, f.Close()) })
+	return f
 }

@@ -4,16 +4,12 @@
 package procs // import "go.opentelemetry.io/obi/pkg/internal/procs"
 
 import (
-	"bytes"
 	"debug/elf"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
-	"math"
 	"os"
 	"slices"
-	"strings"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -108,190 +104,72 @@ func findLanguageFromElf(filePath string) (result svc.InstrumentableType) {
 
 func FindExeSymbols(f *elf.File, symbolNames []string, types ...elf.SymType) (map[string]Sym, error) {
 	addresses := map[string]Sym{}
+	if f.SectionByType(elf.SHT_SYMTAB) == nil && f.SectionByType(elf.SHT_DYNSYM) == nil {
+		return addresses, nil
+	}
+
+	ctx, err := fastelf.NewElfContextFromELF(f)
+	if err != nil {
+		return nil, err
+	}
+	defer ctx.Close()
+
 	if len(types) == 0 {
 		types = []elf.SymType{elf.STT_FUNC}
 	}
 
-	for _, typ := range []elf.SectionType{elf.SHT_SYMTAB, elf.SHT_DYNSYM} {
-		if err := collectSymbols(f, typ, symbolNames, addresses, types); err != nil {
-			return nil, err
-		}
-	}
-
-	return addresses, nil
-}
-
-const symbolReadBufferSize = 64 << 10
-
-func collectSymbols(f *elf.File, typ elf.SectionType, symbolNames []string, addresses map[string]Sym, types []elf.SymType) error {
-	section := f.SectionByType(typ)
-	if section == nil || section.Size == 0 {
-		return nil
-	}
-
-	var symbolSize int
-	switch f.Class {
-	case elf.ELFCLASS32:
-		symbolSize = elf.Sym32Size
-	case elf.ELFCLASS64:
-		symbolSize = elf.Sym64Size
-	default:
-		return errors.New("unsupported ELF class")
-	}
-	if section.Size%uint64(symbolSize) != 0 {
-		return errors.New("length of symbol section is not a multiple of symbol size")
-	}
-	if section.Link == 0 || uint64(section.Link) >= uint64(len(f.Sections)) {
-		return errors.New("section has invalid string table link")
-	}
-
-	names, err := symbolNameOffsets(f.Sections[section.Link], symbolNames)
-	if err != nil {
-		return fmt.Errorf("cannot load string table section: %w", err)
-	}
-
-	reader := section.Open()
-	buffer := make([]byte, symbolReadBufferSize/symbolSize*symbolSize)
-	for offset := uint64(0); offset < section.Size; {
-		size := int(min(uint64(len(buffer)), section.Size-offset))
-		if _, err := io.ReadFull(reader, buffer[:size]); err != nil {
-			return fmt.Errorf("cannot load symbol section: %w", err)
-		}
-		for start := 0; start < size; start += symbolSize {
-			// ELF symbol tables begin with a reserved null entry.
-			if offset == 0 && start == 0 {
-				continue
-			}
-
-			data := buffer[start : start+symbolSize]
-			nameOffset := f.ByteOrder.Uint32(data[:4])
-			name, ok := names[nameOffset]
-			if !ok {
-				continue
-			}
-
-			symbol := elf.Symbol{Name: name}
-			if f.Class == elf.ELFCLASS64 {
-				symbol.Info = data[4]
-				symbol.Value = f.ByteOrder.Uint64(data[8:16])
-				symbol.Size = f.ByteOrder.Uint64(data[16:24])
-			} else {
-				symbol.Info = data[12]
-				symbol.Value = uint64(f.ByteOrder.Uint32(data[4:8]))
-				symbol.Size = uint64(f.ByteOrder.Uint32(data[8:12]))
-			}
-			if slices.Contains(types, elf.ST_TYPE(symbol.Info)) {
-				addresses[name] = resolveSymbol(f, symbol)
-			}
-		}
-		offset += uint64(size)
-	}
-	return nil
-}
-
-// symbolNameMatcher recognizes requested symbol names in an ELF string table.
-//
-// A string table is a sequence of NULL-terminated strings, and a symbol refers
-// to its name by the table offset at which the name starts. Linkers may share
-// storage between names: "SSL_read" can be stored as the tail of
-// "BIO_SSL_read", with the "SSL_read" symbol pointing into the middle of it.
-// So a requested name always ends right before a NULL byte, but does not
-// necessarily start right after one. The matcher therefore works backwards from
-// each NULL.
-type symbolNameMatcher struct {
-	wanted            map[string]string
-	lengthsByLastByte [math.MaxUint8 + 1][]int
-	maxNameLen        int
-}
-
-func newSymbolNameMatcher(symbolNames []string) *symbolNameMatcher {
-	matcher := &symbolNameMatcher{wanted: make(map[string]string, len(symbolNames))}
+	wanted := make(map[string]string, len(symbolNames))
 	for _, name := range symbolNames {
-		// Empty names are not meaningful lookups, and a name containing a NULL
-		// byte can never be read back from a string table.
-		if name == "" || strings.IndexByte(name, 0) >= 0 {
-			continue
-		}
-
-		matcher.wanted[name] = name
-		matcher.maxNameLen = max(matcher.maxNameLen, len(name))
-
-		last := name[len(name)-1]
-		if !slices.Contains(matcher.lengthsByLastByte[last], len(name)) {
-			matcher.lengthsByLastByte[last] = append(matcher.lengthsByLastByte[last], len(name))
+		if name != "" {
+			wanted[name] = name
 		}
 	}
 
-	return matcher
-}
+	for _, sectionType := range []uint32{fastelf.SHT_SYMTAB, fastelf.SHT_DYNSYM} {
+		for _, section := range ctx.Sections {
+			if section == nil || section.Type != sectionType {
+				continue
+			}
 
-// matchAt records each requested name that ends right before the NULL at data[end]
-func (m *symbolNameMatcher) matchAt(data []byte, end int, offset uint64, names map[uint32]string) {
-	if end == 0 {
-		return
-	}
-
-	for _, length := range m.lengthsByLastByte[data[end-1]] {
-		// The name would start before the beginning of the table. This can only
-		// happen during the first read, when no bytes precede the buffer.
-		start := end - length
-		if start < 0 {
-			continue
-		}
-
-		// Converting the bytes to a string in a map index does not allocate.
-		if name, ok := m.wanted[string(data[start:end])]; ok {
-			recordSymbolName(names, offset+uint64(start), name)
-		}
-	}
-}
-
-func recordSymbolName(names map[uint32]string, nameOffset uint64, name string) {
-	if nameOffset <= math.MaxUint32 {
-		names[uint32(nameOffset)] = name
-	}
-}
-
-// symbolNameOffsets reads the string table once and returns the offsets at
-// which the requested names start.
-func symbolNameOffsets(section *elf.Section, symbolNames []string) (map[uint32]string, error) {
-	matcher := newSymbolNameMatcher(symbolNames)
-	names := map[uint32]string{}
-
-	// The table is read in fixed-size chunks. The last maxNameLen bytes of each
-	// chunk are carried over to the front of the buffer for the next read, so a
-	// name that straddles two reads is complete by the time its NULL is scanned.
-	// offset is the table position of buffer[0], and tail is the number of
-	// carried-over bytes at the front of the buffer.
-	buffer := make([]byte, symbolReadBufferSize+matcher.maxNameLen)
-	reader := section.Open()
-	var offset uint64
-	tail := 0
-	for remaining := section.Size; remaining > 0; {
-		size := int(min(uint64(len(buffer)-tail), remaining))
-		if _, err := io.ReadFull(reader, buffer[tail:tail+size]); err != nil {
-			return nil, err
-		}
-		remaining -= uint64(size)
-		data := buffer[:tail+size]
-
-		// Visit each NULL in the new bytes. NULLs in the carried-over bytes were
-		// visited during the previous read, so the scan starts after them.
-		for scan := tail; ; {
-			next := bytes.IndexByte(data[scan:], 0)
-			if next < 0 {
+			if section.Size == 0 {
 				break
 			}
-			end := scan + next
-			matcher.matchAt(data, end, offset, names)
-			scan = end + 1
-		}
 
-		tail = min(matcher.maxNameLen, len(data))
-		offset += uint64(len(data) - tail)
-		copy(buffer, data[len(data)-tail:])
+			if section.Link == 0 || uint64(section.Link) >= uint64(len(ctx.Sections)) {
+				return nil, errors.New("section has invalid string table link")
+			}
+
+			strtab, ok := ctx.SectionData(ctx.Sections[section.Link])
+			if !ok {
+				return nil, errors.New("invalid string table bounds")
+			}
+
+			offset, entrySize, count, ok := ctx.SymbolTableBounds(section)
+			if !ok || section.Entsize != elf.Sym64Size || section.Size%section.Entsize != 0 {
+				return nil, errors.New("invalid symbol table bounds or entry size")
+			}
+
+			// Symbol tables begin with a reserved null entry.
+			for i := 1; i < count; i++ {
+				symbol := fastelf.ReadStruct[fastelf.Elf64_Sym](ctx.Data, offset+i*entrySize)
+				if !slices.Contains(types, elf.ST_TYPE(symbol.Info)) {
+					continue
+				}
+
+				name := fastelf.GetCStringUnsafe(strtab, symbol.Name)
+				requested, ok := wanted[name]
+				if !ok {
+					continue
+				}
+
+				addresses[requested] = resolveSymbol(f, elf.Symbol{
+					Name: requested, Value: symbol.Value, Size: symbol.Size,
+				})
+			}
+			break
+		}
 	}
-	return names, nil
+	return addresses, nil
 }
 
 func resolveSymbol(f *elf.File, s elf.Symbol) Sym {
@@ -346,8 +224,7 @@ func matchExeSymbols(ctx *fastelf.ElfContext) svc.InstrumentableType {
 		for i := range symCount {
 			sym := fastelf.ReadStruct[fastelf.Elf64_Sym](ctx.Data, symOffset+i*symEntrySize)
 
-			if sym == nil ||
-				fastelf.SymType(sym.Info) != fastelf.STT_FUNC ||
+			if sym == nil || fastelf.SymType(sym.Info) != fastelf.STT_FUNC ||
 				sym.Size == 0 ||
 				sym.Value == 0 {
 				continue
