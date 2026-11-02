@@ -171,6 +171,38 @@ func TestFindExeSymbolsExactLookup(t *testing.T) {
 	assert.NotNil(t, sym.Prog)
 }
 
+func TestFindExeSymbolsByNameAndSubstring(t *testing.T) {
+	const (
+		exactSymbolName    = "main.exactLookupTarget"
+		substringSymbol    = "main.substringLookupTarget"
+		symbolNameFragment = "substringLookup"
+	)
+
+	f := openSymbolFixtureELF(t)
+	defer f.Close()
+
+	exactSyms, substringSyms, err := FindExeSymbolsByNameAndSubstring(
+		f,
+		[]string{exactSymbolName},
+		[]string{symbolNameFragment},
+	)
+	require.NoError(t, err)
+
+	exactSym, ok := exactSyms[exactSymbolName]
+	require.True(t, ok)
+	assert.Equal(t, exactSymbolName, exactSym.Name)
+	assert.NotZero(t, exactSym.Off)
+	assert.NotZero(t, exactSym.Len)
+	assert.NotNil(t, exactSym.Prog)
+
+	substringSym, ok := substringSyms[symbolNameFragment]
+	require.True(t, ok)
+	assert.Equal(t, substringSymbol, substringSym.Name)
+	assert.NotZero(t, substringSym.Off)
+	assert.NotZero(t, substringSym.Len)
+	assert.NotNil(t, substringSym.Prog)
+}
+
 func openSymbolFixtureELF(t *testing.T) *elf.File {
 	t.Helper()
 
@@ -183,8 +215,12 @@ func openSymbolFixtureELF(t *testing.T) *elf.File {
 //go:noinline
 func exactLookupTarget() {}
 
+//go:noinline
+func substringLookupTarget() {}
+
 func main() {
 	exactLookupTarget()
+	substringLookupTarget()
 }
 `), 0o600))
 

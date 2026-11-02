@@ -1521,3 +1521,25 @@ func TestMakeOtelBPFFSPathRejectsInaccessibleExistingDirectory(t *testing.T) {
 
 	require.ErrorContains(t, err, "accessing bpffs otel path")
 }
+
+func TestGatherOffsetsWithExactAndSubstringMatchers(t *testing.T) {
+	elfFile, err := elf.NewFile(bytes.NewReader(testData()))
+	require.NoError(t, err)
+	defer elfFile.Close()
+
+	probes := probeDescMap{
+		"setprogname": {{SymbolMatcher: ebpfcommon.SymbolMatcherExact, Required: true}},
+		"setprogna": {
+			{SymbolMatcher: ebpfcommon.SymbolMatcherExact},
+			{SymbolMatcher: ebpfcommon.SymbolMatcherContains, Required: true},
+		},
+	}
+	require.NoError(t, gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default()))
+	assert.True(t, probes["setprogna"][0].Skip)
+	expected := expectedValues()["setprogname"]
+	for _, probe := range []*ebpfcommon.ProbeDesc{probes["setprogname"][0], probes["setprogna"][1]} {
+		assert.False(t, probe.Skip)
+		assert.Equal(t, expected.startOffset, probe.StartOffset)
+		assert.Equal(t, expected.returnOffsets, probe.ReturnOffsets)
+	}
+}
