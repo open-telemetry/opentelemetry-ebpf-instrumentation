@@ -174,3 +174,54 @@ extensions:
 	_, err = DocumentToRuntime(doc)
 	require.ErrorContains(t, err, `unsupported logs protocol "http/json"`)
 }
+
+func TestGoExceptionSelectionConfig(t *testing.T) {
+	cfg := exceptionDocument(t, `file_format: "1.0"
+logger_provider:
+  processors:
+    - batch:
+        exporter:
+          console: {}
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      exceptions:
+        enabled: true
+        go:
+          formatted_errors: true
+      rules:
+        - action: include
+          match:
+            process:
+              open_ports: "8080"
+          refine:
+            exceptions:
+              go:
+                panics: false
+        - action: include
+          match:
+            process:
+              open_ports: "8081"
+          refine:
+            exceptions:
+              go:
+                formatted_errors: false
+`)
+	require.True(t, cfg.Exceptions.Go.PanicsEnabled())
+	require.True(t, cfg.Exceptions.Go.FormattedErrors)
+	matched := 0
+	for _, selector := range cfg.Discovery.Instrument {
+		resolved := selector.Exceptions.Resolve(cfg.Exceptions)
+		if selector.OpenPorts.Matches(8080) {
+			matched++
+			require.False(t, resolved.Go.PanicsEnabled())
+			require.True(t, resolved.Go.FormattedErrors)
+		} else if selector.OpenPorts.Matches(8081) {
+			matched++
+			require.True(t, resolved.Go.PanicsEnabled())
+			require.False(t, resolved.Go.FormattedErrors)
+		}
+	}
+	require.Equal(t, 2, matched)
+}
