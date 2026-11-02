@@ -16,7 +16,7 @@ import (
 )
 
 func TestCloudAPIsWithoutCloudMetadata(t *testing.T) {
-	refreshers := transform.CloudMetadataRefreshers(t.Context(), &metadata.NodeMeta{}, nil, transform.CloudMetadataConfig{})
+	refreshers := transform.CloudMetadataRefreshers(t.Context(), &metadata.NodeMeta{}, []transform.Source(nil), transform.CloudMetadataConfig{})
 	require.Empty(t, refreshers)
 	input, output := msg.NewQueue[exec.ProcessEvent](), msg.NewQueue[exec.ProcessEvent]()
 	provider := transform.CloudProcessEventDecoratorProvider(&global.ContextInfo{}, input, output)
