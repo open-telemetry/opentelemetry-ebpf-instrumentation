@@ -128,6 +128,14 @@ Attributes carried on OBI's network-flow metrics. Emitted when the `network`, `n
 | `src.zone` | string | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 | `transport` | string | development | Transport protocol of the flow (e.g. TCP, UDP). | TCP |
 
+## `registry.obi.openai`
+
+OpenAI request content attributes defined by OBI.
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `openai.request.questions` | string | development | The questions submitted to the OpenAI Decisions API, JSON-encoded in request order. | [{"type":"predicate","name":"damaged","instructions":"Does the customer report a damaged item?"}] |
+
 ## `registry.obi.rpc`
 
 RPC attributes OBI emits that are not part of upstream semconv.
@@ -215,11 +223,11 @@ OBI override of `network.type` extending the upstream enum with `arp` for the AR
 
 ## `x.obi.openai`
 
-OBI override of `openai.api.type` extending the upstream enum with the embeddings and legacy text-completions APIs, which OBI detects but upstream semconv has no members for.
+OBI override of `openai.api.type` extending the upstream enum with the Decisions, embeddings and legacy text-completions APIs, which OBI detects but upstream semconv has no members for.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `openai.api.type` | enum | development | The type of OpenAI API being used. | chat_completions; responses; embeddings; text_completions |
+| `openai.api.type` | enum | development | The type of OpenAI API being used. | chat_completions; responses; decisions; embeddings; text_completions |
 
 ## `x.obi.rpc`
 

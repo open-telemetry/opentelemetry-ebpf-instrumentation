@@ -4,11 +4,14 @@
 package global // import "go.opentelemetry.io/obi/pkg/pipe/global"
 
 import (
+	"context"
+
 	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/cloud"
+	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/docker"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/exceptions"
@@ -92,4 +95,8 @@ type AppO11y struct {
 	ReportRoutes bool
 	// EBPFEventContext provides shared eBPF maps to application observability nodes.
 	EBPFEventContext *ebpfcommon.EBPFEventContext
+}
+
+func NewEBPFReverseDNS(ctx context.Context, ebpfCfg *config.EBPFTracer, cfgs ...*rdns.ReverseDNS) *rdns.EBPFLookup {
+	return rdns.NewEBPFLookup(ctx, ebpfCfg, cfgs...)
 }

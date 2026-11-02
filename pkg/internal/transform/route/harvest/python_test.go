@@ -4,10 +4,13 @@
 package harvest
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -65,7 +68,7 @@ func TestExtractPythonRoutes(t *testing.T) {
 @app.get("/notes")
 `), 0o644))
 
-	result, err := extractPythonRoutes(dir)
+	result, err := extractPythonRoutes(t.Context(), dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, PartialRoutes, result.Kind)
@@ -99,7 +102,7 @@ urlpatterns = [
 ]
 `), 0o644))
 
-	result, err := extractPythonRoutes(dir)
+	result, err := extractPythonRoutes(t.Context(), dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{
@@ -126,7 +129,7 @@ from django.urls import path
 urlpatterns = [path("orders/", orders)]
 `), 0o644))
 
-	result, err := extractPythonRoutes(dir)
+	result, err := extractPythonRoutes(t.Context(), dir)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/.", "/orders/", "/v1.orders/"}, result.Routes)
@@ -143,7 +146,7 @@ urlpatterns = [
 ]
 `), 0o644))
 
-	result, err := extractPythonRoutes(dir)
+	result, err := extractPythonRoutes(t.Context(), dir)
 
 	require.NoError(t, err)
 	assert.Contains(t, result.Routes, "/backoffice/login/")
@@ -169,14 +172,14 @@ func TestExtractPythonRoutesSkipsLargeFiles(t *testing.T) {
 	data := strings.Repeat("# filler\n", int(maxPythonFileBytes/9)+1) + `@app.get("/large")`
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "large.py"), []byte(data), 0o644))
 
-	result, err := extractPythonRoutes(dir)
+	result, err := extractPythonRoutes(t.Context(), dir)
 
 	require.NoError(t, err)
 	assert.Empty(t, result.Routes)
 }
 
 func TestExtractPythonRoutesMissingDir(t *testing.T) {
-	result, err := extractPythonRoutes(filepath.Join(t.TempDir(), "missing"))
+	result, err := extractPythonRoutes(t.Context(), filepath.Join(t.TempDir(), "missing"))
 
 	require.Error(t, err)
 	assert.Nil(t, result)
@@ -190,7 +193,7 @@ func TestExtractPythonRoutesFromSymlinkRoot(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "root")
 	require.NoError(t, os.Symlink(dir, root))
 
-	result, err := extractPythonRoutes(root)
+	result, err := extractPythonRoutes(t.Context(), root)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/items/{item_id}"}, result.Routes)
@@ -203,12 +206,64 @@ func TestWalkPythonFilesStopsAtLimit(t *testing.T) {
 	}
 
 	count := 0
-	err := walkPythonFilesN(dir, 2, func(string) {
+	err := walkPythonFilesN(t.Context(), dir, 2, func(string) error {
 		count++
+		return nil
 	})
 
 	require.NoError(t, err)
 	assert.Equal(t, 2, count)
+}
+
+func TestWalkPythonFilesCancellation(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.py", "b.py", "nested/c.py"} {
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, nil, 0o644))
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	visited := 0
+	err := walkPythonFiles(ctx, dir, func(string) error {
+		visited++
+		cancel()
+		return nil
+	})
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, 1, visited)
+}
+
+func TestExtractPythonRoutesCanceled(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "server.py")
+	require.NoError(t, os.WriteFile(path, []byte("@app.get('/users')\n"), 0o644))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	extractor := pythonExtractor{routes: map[string]struct{}{}, djangoRoutes: map[string][]djangoRoute{}}
+	require.ErrorIs(t, extractor.scanFile(ctx, path), context.Canceled)
+	assert.Empty(t, extractor.routes)
+	result, err := extractPythonRoutes(ctx, dir)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, result)
+	result, err = ExtractPythonRoutes(ctx, nil)
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, result)
+}
+
+func TestPythonFileScanStopsAtDeadline(t *testing.T) {
+	const lines = 100000
+	var content strings.Builder
+	for i := range lines {
+		fmt.Fprintf(&content, "@app.get('/users/%d')\n", i)
+	}
+	path := filepath.Join(t.TempDir(), "server.py")
+	require.NoError(t, os.WriteFile(path, []byte(content.String()), 0o644))
+	extractor := pythonExtractor{routes: map[string]struct{}{}, djangoRoutes: map[string][]djangoRoute{}}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
+	defer cancel()
+	require.ErrorIs(t, extractor.scanFile(ctx, path), context.DeadlineExceeded)
+	assert.Less(t, len(extractor.routes), lines)
 }
 
 func routeKeys(routes map[string]struct{}) []string {
