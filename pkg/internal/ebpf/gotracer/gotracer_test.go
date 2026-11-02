@@ -151,43 +151,43 @@ func TestGoChannelLinkProbesRequireChannelOffsets(t *testing.T) {
 	}
 }
 
-// runtime.casgstatus fires on every goroutine status transition and exists only
-// to keep traces_ctx_v1 current, so it must not be attached when nothing reads
-// that map. Built through New so the config predicate is covered too.
-func TestCasgstatusProbeFollowsTraceContextPopulation(t *testing.T) {
+// Built through New so both configuration predicates are covered.
+func TestCasgstatusProbeFollowsContextAndExceptionCapture(t *testing.T) {
 	disableContextPropagationForTest(t)
 
 	for _, tc := range []struct {
-		name     string
-		cfg      *obi.Config
-		expected bool
+		name            string
+		cfg             *obi.Config
+		expectedContext bool
+		expectedProbe   bool
 	}{
-		{name: "default", cfg: &obi.Config{}, expected: false},
+		{name: "default", cfg: &obi.Config{}, expectedContext: false, expectedProbe: false},
+		{name: "exceptions only", cfg: exceptionsConfig(true), expectedContext: false, expectedProbe: true},
 		{
-			name:     "explicit setting",
-			cfg:      &obi.Config{EBPF: config.EBPFTracer{PopulateTraceContext: true}},
-			expected: true,
+			name:            "explicit setting",
+			cfg:             &obi.Config{EBPF: config.EBPFTracer{PopulateTraceContext: true}},
+			expectedContext: true, expectedProbe: true,
 		},
 		{
 			name: "log enricher",
 			cfg: &obi.Config{EBPF: config.EBPFTracer{LogEnricher: config.LogEnricherConfig{
 				Services: []config.LogEnricherServiceConfig{{}},
 			}}},
-			expected: true,
+			expectedContext: true, expectedProbe: true,
 		},
 		{
-			name:     "node.js manual spans",
-			cfg:      &obi.Config{NodeJS: obi.NodeJSConfig{Enabled: true, ManualSpans: true}},
-			expected: false,
+			name:            "node.js manual spans",
+			cfg:             &obi.Config{NodeJS: obi.NodeJSConfig{Enabled: true, ManualSpans: true}},
+			expectedContext: false, expectedProbe: false,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tracer := New(nil, tc.cfg, nil)
 
-			require.Equal(t, tc.expected, tracer.constants()["g_traces_ctx_v1_enabled"])
+			require.Equal(t, tc.expectedContext, tracer.constants()["g_traces_ctx_v1_enabled"])
 
 			_, attached := tracer.GoProbes()["runtime.casgstatus"]
-			require.Equal(t, tc.expected, attached)
+			require.Equal(t, tc.expectedProbe, attached)
 		})
 	}
 }

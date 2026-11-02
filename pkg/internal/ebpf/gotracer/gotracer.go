@@ -1691,6 +1691,7 @@ func (p *Tracer) AddCloser(c ...io.Closer) {
 }
 
 func (p *Tracer) Close() error {
+	p.closeExceptionResources()
 	return ebpfcommon.CloseResources(append(p.closers, &p.bpfObjects)...)
 }
 
@@ -2196,9 +2197,8 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}}
 	}
 
-	// runtime.casgstatus fires on every goroutine status transition and exists only
-	// to keep traces_ctx_v1 pointing at the span the thread is currently running
-	if p.traceCtxMapEnabled {
+	// Track thread context and retire exception request state when goroutines exit.
+	if p.traceCtxMapEnabled || p.exceptionsEnabled {
 		m["runtime.casgstatus"] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeRuntimeCasgstatus,
 		}}
@@ -2649,6 +2649,7 @@ func (p *Tracer) AlreadyInstrumentedLib(_ uint64) bool {
 }
 
 func (p *Tracer) Run(ctx context.Context, ebpfEventContext *ebpfcommon.EBPFEventContext, eventsChan *msg.Queue[[]request.Span]) {
+	defer p.closeExceptionResources()
 	parseContext := ebpfcommon.NewEBPFParseContext(p.cfg, eventsChan, p.pidsFilter)
 	defer parseContext.Close()
 	defer func() {

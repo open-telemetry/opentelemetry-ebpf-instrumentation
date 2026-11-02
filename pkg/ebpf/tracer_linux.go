@@ -641,14 +641,7 @@ type executableScopedTracer interface {
 }
 
 func (pt *ProcessTracer) removeInstrumenter(key ExecutableKey, i *instrumenter) {
-	for _, p := range pt.Programs {
-		if processScopedTracer, ok := p.(processScopedGoProbeTracer); ok {
-			processScopedTracer.UnregisterProcessScopedGoProbes(key.Dev, key.Ino)
-		}
-		if executableTracer, ok := p.(executableScopedTracer); ok {
-			executableTracer.UnregisterExecutable(key.Dev, key.Ino)
-		}
-	}
+	pt.unregisterExecutable(key)
 	delete(pt.Instrumentables, key)
 	delete(pt.instrumentableGenerations, key)
 	for _, remaining := range pt.Instrumentables {
@@ -657,6 +650,17 @@ func (pt *ProcessTracer) removeInstrumenter(key ExecutableKey, i *instrumenter) 
 		}
 	}
 	pt.unlinkInstrumenter(i)
+}
+
+func (pt *ProcessTracer) unregisterExecutable(key ExecutableKey) {
+	for _, p := range pt.Programs {
+		if processScopedTracer, ok := p.(processScopedGoProbeTracer); ok {
+			processScopedTracer.UnregisterProcessScopedGoProbes(key.Dev, key.Ino)
+		}
+		if executableTracer, ok := p.(executableScopedTracer); ok {
+			executableTracer.UnregisterExecutable(key.Dev, key.Ino)
+		}
+	}
 }
 
 // closes in parallel: the kernel waits several RCU grace periods per probe
@@ -684,6 +688,10 @@ func (pt *ProcessTracer) closeInstrumenters() {
 	defer pt.instrumentablesMu.Unlock()
 
 	pt.stopped = true
+
+	for key := range pt.Instrumentables {
+		pt.unregisterExecutable(key)
+	}
 
 	var wg sync.WaitGroup
 	for _, i := range pt.distinctInstrumenters() {

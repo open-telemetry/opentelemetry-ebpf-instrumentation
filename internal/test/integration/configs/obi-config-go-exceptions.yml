@@ -66,5 +66,7 @@ extensions:
             incoming:
               unmatched: path
       engine:
+        propagation:
+          populate_trace_context: false
         batching:
           batch_timeout: 10ms

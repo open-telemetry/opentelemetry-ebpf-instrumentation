@@ -6,6 +6,7 @@
 // obitesttool runs inside the OBI integration image:
 //
 //	obitesttool map-keys NAME          prints the u64 keys of every BPF map named NAME
+//	obitesttool go-map-keys NAME PID   prints goroutine addresses for a host PID
 //	obitesttool bitmap-pids NAME       prints the pids set in the pid-indexed bitmap named NAME
 //	obitesttool host-pid NSINODE NSPID prints the pid OBI's /proc has for a pid in that namespace
 //	obitesttool can-copy-sockets       prints 1 if this container can duplicate other processes' descriptors, 0 otherwise
@@ -54,6 +55,11 @@ func main() {
 			fail("map-keys needs a map name")
 		}
 		err = printMapKeys(os.Args[2])
+	case "go-map-keys":
+		if len(os.Args) < 4 {
+			fail("go-map-keys needs a map name and host PID")
+		}
+		err = printGoMapKeys(os.Args[2], os.Args[3])
 	case "bitmap-pids":
 		if len(os.Args) < 3 {
 			fail("bitmap-pids needs a map name")
@@ -142,6 +148,29 @@ func walkKeys(m *ebpf.Map, fn func(key uint64)) error {
 func printMapKeys(name string) error {
 	return forEachMap(name, func(m *ebpf.Map) error {
 		return walkKeys(m, func(key uint64) { fmt.Println(key) })
+	})
+}
+
+func printGoMapKeys(name, pidText string) error {
+	pid, err := strconv.ParseUint(pidText, 10, 64)
+	if err != nil {
+		return err
+	}
+	return forEachMap(name, func(m *ebpf.Map) error {
+		// Matches go_addr_key_t in bpf/common/go_addr_key.h.
+		var key struct{ PID, Addr uint64 }
+		err := m.NextKey(nil, &key)
+		for err == nil {
+			if key.PID == pid {
+				fmt.Println(key.Addr)
+			}
+			previous := key
+			err = m.NextKey(&previous, &key)
+		}
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			return nil
+		}
+		return err
 	})
 }
 

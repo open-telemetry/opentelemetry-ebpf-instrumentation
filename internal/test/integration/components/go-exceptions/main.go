@@ -9,7 +9,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
+	"time"
 )
 
 var errSentinel = errors.New("sentinel")
@@ -48,6 +50,15 @@ func serveCase(w http.ResponseWriter, r *http.Request) {
 	case "healthy":
 		writeResponse(w, http.StatusOK, "")
 		return
+	case "goexit":
+		writeResponse(w, http.StatusOK, "ready")
+		w.(http.Flusher).Flush()
+		for {
+			if _, err := os.Stat("/tmp/goexit-release"); err == nil {
+				runtime.Goexit()
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 	case "fmt":
 		err = fmt.Errorf("fmt:%s", id)
 	case "fmt-wrap":

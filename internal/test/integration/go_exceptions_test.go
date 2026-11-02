@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -271,6 +272,46 @@ func testGoExceptions(t *testing.T, goVersion, goImage string, builds []goExcept
 	t.Run("disabled service", func(t *testing.T) {
 		assert.Empty(t, goLogsOfService(logs, goExceptionsDisabled))
 	})
+	t.Run("goexit-cleanup", func(t *testing.T) {
+		testGoExceptionGoexitCleanup(t, compose)
+	})
+}
+
+func testGoExceptionGoexitCleanup(t *testing.T, compose *docker.Compose) {
+	namespace, err := compose.ExecOutput("default", "readlink", "/proc/1/ns/pid")
+	require.NoError(t, err)
+	namespace = strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(namespace), "pid:["), "]")
+	pids := obiTestToolValues(t, compose, "host-pid", namespace, "1")
+	require.Len(t, pids, 1)
+	var pid string
+	for value := range pids {
+		pid = strconv.FormatUint(value, 10)
+	}
+	keys := func(ct require.TestingT) map[uint64]bool {
+		return obiTestToolValues(ct, compose, "go-map-keys", "ongoing_http_server_requests", pid)
+	}
+	before := keys(t)
+	response, err := goExceptionsClient.Get(goExceptionsDefault.url + "/case/goexit/cleanup")
+	require.NoError(t, err)
+	t.Cleanup(func() { response.Body.Close() })
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	active := keys(t)
+	for key := range before {
+		delete(active, key)
+	}
+	require.Len(t, active, 1, "the blocked handler must have a request-map entry")
+	var goroutine uint64
+	for key := range active {
+		goroutine = key
+	}
+	t.Logf("request entry before Goexit: pid=%s goroutine=%#x", pid, goroutine)
+	_, err = compose.ExecOutput("default", "touch", "/tmp/goexit-release")
+	require.NoError(t, err)
+	_, err = io.ReadAll(response.Body)
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF, "Goexit closes the unfinished response")
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.NotContains(ct, keys(ct), goroutine, "dead goroutine still owns a request")
+	}, 5*time.Second, 100*time.Millisecond)
 }
 
 func requireGoExceptionCase(t *testing.T, logs []goExceptionLog, spans []goServerSpan,

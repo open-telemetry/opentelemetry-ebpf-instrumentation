@@ -151,6 +151,22 @@ func (p *Tracer) untrackExceptionProcess(pid app.PID) {
 	}
 }
 
+func (p *Tracer) closeExceptionResources() {
+	p.exceptionsMu.Lock()
+	defer p.exceptionsMu.Unlock()
+
+	for pid, process := range p.exceptionProcesses {
+		closeExceptionLinks(process.links)
+		ebpfcommon.GoSymbols.RemovePID(pid)
+		ebpfcommon.GoSymbols.RemoveExecutable(process.executable.Dev, process.executable.Ino)
+	}
+	for executable := range p.exceptionProbes {
+		ebpfcommon.GoSymbols.RemoveExecutable(executable.Dev, executable.Ino)
+	}
+	clear(p.exceptionProcesses)
+	clear(p.exceptionProbes)
+}
+
 func (p *Tracer) attachExceptionProbeLocked(pid app.PID, executable executableIdentity, probe ebpfcommon.GoProbe) []io.Closer {
 	links, err := p.attachGoExceptionProbe(pid, executable, probe.Probe)
 	if err != nil {
