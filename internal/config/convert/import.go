@@ -32,6 +32,16 @@ var v2NetworkMetricsFeatureMask = export.FeatureNetwork |
 
 var v2StatsMetricsFeatureMask = export.FeatureStats
 
+var defaultV2ServiceNameSourcesWithCloud = []transform.Source{
+	transform.SourceK8s,
+	transform.SourceECS,
+	transform.SourceRoute53,
+}
+
+var defaultV2ServiceNameSourcesWithoutCloud = []transform.Source{
+	transform.SourceK8s,
+}
+
 // V2ToRuntime converts a config v2 extension shape into an OBI runtime
 // configuration.
 func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
@@ -40,7 +50,7 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	}
 	_, defaults := RuntimeToV2(nil)
 	// Enable Route53 for new v2 configurations without changing v1 migration defaults.
-	defaults.Enrich.ServiceName.Sources = []transform.Source{transform.SourceK8s, transform.SourceECS, transform.SourceRoute53}
+	defaults.Enrich.ServiceName.Sources = cloneSources(defaultV2ServiceNameSourcesWithCloud)
 	// Omitted features retain the protocol and network enablement mapping.
 	defaults.Capture.Metrics.Features = nil
 	// Check before applying defaults to distinguish omitted sources from explicit ones.
@@ -105,7 +115,7 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	}
 	if !cfg.CloudMetadata.DetectionEnabled {
 		if serviceNameSourcesOmitted {
-			cfg.NameResolver.Sources = []transform.Source{transform.SourceK8s}
+			cfg.NameResolver.Sources = cloneSources(defaultV2ServiceNameSourcesWithoutCloud)
 		}
 
 		for _, source := range cfg.NameResolver.Sources {
