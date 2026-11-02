@@ -164,6 +164,10 @@ func forEachCombination(t *testing.T, prefix string, loadFn func() (*ebpf.Collec
 var pidNamespaceModes = []any{uint32(ebpfcommon.PIDNamespaceInit), uint32(ebpfcommon.PIDNamespacePod)}
 
 func TestBPFVerifierHTTPSampling(t *testing.T) {
+	if err := rlimit.RemoveMemlock(); err != nil {
+		t.Skipf("cannot remove memlock limit (insufficient privileges?): %v", err)
+	}
+
 	forEachCombination(t, "generictracer", generictracerbpf.LoadBpf, []constOption{
 		{"pid_ns_mode", pidNamespaceModes},
 		{"g_bpf_debug", []any{true}},
