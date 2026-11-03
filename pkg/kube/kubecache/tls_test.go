@@ -16,14 +16,14 @@ import (
 )
 
 func TestTLSHandshake(t *testing.T) {
-	ca := testutil.NewTestCA(t)
-	serverCert, serverKey := ca.Issue(t)
-	clientCert, clientKey := ca.Issue(t)
-	other := testutil.NewTestCA(t)
-	otherCert, otherKey := other.Issue(t)
+	ca := testutil.NewTestCA(t, nil)
+	serverCert := testutil.NewLocalhostCertificate(t, &ca)
+	clientCert := testutil.NewLocalhostCertificate(t, &ca)
+	other := testutil.NewTestCA(t, nil)
+	untrustedCert := testutil.NewLocalhostCertificate(t, &other)
 
-	serverTLS := TLSConfig{Enabled: true, CertFile: serverCert, KeyFile: serverKey}
-	serverMTLS := TLSConfig{Enabled: true, CertFile: serverCert, KeyFile: serverKey, ClientCAFile: ca.File}
+	serverTLS := TLSConfig{Enabled: true, CertFile: serverCert.CertFile, KeyFile: serverCert.KeyFile}
+	serverMTLS := TLSConfig{Enabled: true, CertFile: serverCert.CertFile, KeyFile: serverCert.KeyFile, ClientCAFile: ca.CertFile}
 
 	tests := []struct {
 		name    string
@@ -32,19 +32,19 @@ func TestTLSHandshake(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "plaintext", server: TLSConfig{}, client: ClientTLSConfig{}},
-		{name: "tls", server: serverTLS, client: ClientTLSConfig{Enabled: true, CAFile: ca.File}},
-		{name: "tls with untrusted server", server: serverTLS, client: ClientTLSConfig{Enabled: true, CAFile: other.File}, wantErr: true},
+		{name: "tls", server: serverTLS, client: ClientTLSConfig{Enabled: true, CAFile: ca.CertFile}},
+		{name: "tls with untrusted server", server: serverTLS, client: ClientTLSConfig{Enabled: true, CAFile: other.CertFile}, wantErr: true},
 		{name: "plaintext client to tls server", server: serverTLS, client: ClientTLSConfig{}, wantErr: true},
 		{
 			name:   "mtls",
 			server: serverMTLS,
-			client: ClientTLSConfig{Enabled: true, CAFile: ca.File, CertFile: clientCert, KeyFile: clientKey},
+			client: ClientTLSConfig{Enabled: true, CAFile: ca.CertFile, CertFile: clientCert.CertFile, KeyFile: clientCert.KeyFile},
 		},
-		{name: "mtls without client certificate", server: serverMTLS, client: ClientTLSConfig{Enabled: true, CAFile: ca.File}, wantErr: true},
+		{name: "mtls without client certificate", server: serverMTLS, client: ClientTLSConfig{Enabled: true, CAFile: ca.CertFile}, wantErr: true},
 		{
 			name:    "mtls with untrusted client certificate",
 			server:  serverMTLS,
-			client:  ClientTLSConfig{Enabled: true, CAFile: ca.File, CertFile: otherCert, KeyFile: otherKey},
+			client:  ClientTLSConfig{Enabled: true, CAFile: ca.CertFile, CertFile: untrustedCert.CertFile, KeyFile: untrustedCert.KeyFile},
 			wantErr: true,
 		},
 	}
@@ -89,8 +89,8 @@ func TestTLSConfigValidate(t *testing.T) {
 }
 
 func TestTLSCredentialsInvalidFiles(t *testing.T) {
-	ca := testutil.NewTestCA(t)
-	certFile, keyFile := ca.Issue(t)
+	ca := testutil.NewTestCA(t, nil)
+	certFile, keyFile := ca.CertFile, ca.KeyFile
 
 	_, err := TLSConfig{Enabled: true, CertFile: "missing.pem", KeyFile: keyFile}.Credentials()
 	require.Error(t, err)

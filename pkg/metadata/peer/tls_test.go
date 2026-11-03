@@ -4,12 +4,8 @@
 package peer
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/pem"
-	"math/big"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -21,55 +17,14 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 )
 
-type testCertificate struct {
-	certificate *x509.Certificate
-	key         ed25519.PrivateKey
-	certFile    string
-	keyFile     string
-}
-
-func newTestCertificate(t *testing.T, template *x509.Certificate, issuer *testCertificate) testCertificate {
-	t.Helper()
-	publicKey, key, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	serial, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	require.NoError(t, err)
-	template.SerialNumber = serial
-	parent, signingKey := template, key
-	if issuer != nil {
-		parent, signingKey = issuer.certificate, issuer.key
-	}
-	der, err := x509.CreateCertificate(rand.Reader, template, parent, publicKey, signingKey)
-	require.NoError(t, err)
-	certificate, err := x509.ParseCertificate(der)
-	require.NoError(t, err)
-	keyDER, err := x509.MarshalPKCS8PrivateKey(key)
-	require.NoError(t, err)
-	dir := t.TempDir()
-	certFile, keyFile := filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
-	require.NoError(t, os.WriteFile(certFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600))
-	require.NoError(t, os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: keyDER}), 0o600))
-	return testCertificate{certificate: certificate, key: key, certFile: certFile, keyFile: keyFile}
-}
-
-func newTestCA(t *testing.T, issuer *testCertificate) testCertificate {
-	t.Helper()
-	return newTestCertificate(t, &x509.Certificate{
-		Subject:               pkix.Name{CommonName: t.Name()},
-		NotBefore:             time.Now().Add(-time.Hour),
-		NotAfter:              time.Now().Add(time.Hour),
-		IsCA:                  true,
-		BasicConstraintsValid: true,
-		KeyUsage:              x509.KeyUsageCertSign,
-	}, issuer)
-}
-
 func TestHTTPSCertificateVerification(t *testing.T) {
-	root := newTestCA(t, nil)
-	otherRoot := newTestCA(t, nil)
-	intermediate := newTestCA(t, &root)
+	root := testutil.NewTestCA(t, nil)
+	otherRoot := testutil.NewTestCA(t, nil)
+	intermediate := testutil.NewTestCA(t, &root)
 	for _, test := range []struct {
 		name         string
 		caFile       string
@@ -79,14 +34,14 @@ func TestHTTPSCertificateVerification(t *testing.T) {
 		intermediate bool
 		wantError    string
 	}{
-		{name: "trusted CA and IP SAN", caFile: root.certFile},
-		{name: "trusted intermediate chain", caFile: root.certFile, intermediate: true},
+		{name: "trusted CA and IP SAN", caFile: root.CertFile},
+		{name: "trusted intermediate chain", caFile: root.CertFile, intermediate: true},
 		{name: "no custom CA", wantError: "authority"},
-		{name: "unrelated CA", caFile: otherRoot.certFile, wantError: "authority"},
-		{name: "wrong server name", caFile: root.certFile, serverName: "wrong.example", wantError: "hostname"},
-		{name: "DNS certificate queried by IP", caFile: root.certFile, dnsOnly: true, wantError: "hostname"},
-		{name: "explicit server name", caFile: root.certFile, dnsOnly: true, serverName: "peer.example"},
-		{name: "expired certificate", caFile: root.certFile, expired: true, wantError: "expired"},
+		{name: "unrelated CA", caFile: otherRoot.CertFile, wantError: "authority"},
+		{name: "wrong server name", caFile: root.CertFile, serverName: "wrong.example", wantError: "hostname"},
+		{name: "DNS certificate queried by IP", caFile: root.CertFile, dnsOnly: true, wantError: "hostname"},
+		{name: "explicit server name", caFile: root.CertFile, dnsOnly: true, serverName: "peer.example"},
+		{name: "expired certificate", caFile: root.CertFile, expired: true, wantError: "expired"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			template := &x509.Certificate{
@@ -106,15 +61,15 @@ func TestHTTPSCertificateVerification(t *testing.T) {
 			if test.intermediate {
 				issuer = &intermediate
 			}
-			leaf := newTestCertificate(t, template, issuer)
+			leaf := testutil.NewTestCertificate(t, template, issuer)
 			if test.intermediate {
-				chain := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.certificate.Raw})
-				chain = append(chain, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: intermediate.certificate.Raw})...)
-				require.NoError(t, os.WriteFile(leaf.certFile, chain, 0o600))
+				chain := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leaf.Certificate.Raw})
+				chain = append(chain, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: intermediate.Certificate.Raw})...)
+				require.NoError(t, os.WriteFile(leaf.CertFile, chain, 0o600))
 			}
 			cfg := DefaultConfig()
 			cfg.Token = "shared-secret"
-			cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: leaf.certFile, KeyFile: leaf.keyFile, CAFile: test.caFile, ServerName: test.serverName}
+			cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: leaf.CertFile, KeyFile: leaf.KeyFile, CAFile: test.caFile, ServerName: test.serverName}
 			serverTLS, clientTLS, err := tlsConfigs(cfg.TLS)
 			require.NoError(t, err)
 			store := newStore("remote-host", cfg)
@@ -159,21 +114,21 @@ func TestHTTPSCertificateVerification(t *testing.T) {
 }
 
 func TestTLSInvalidFiles(t *testing.T) {
-	certificate := newTestCA(t, nil)
-	other := newTestCA(t, nil)
+	certificate := testutil.NewTestCA(t, nil)
+	other := testutil.NewTestCA(t, nil)
 	invalidFile := filepath.Join(t.TempDir(), "invalid.pem")
 	require.NoError(t, os.WriteFile(invalidFile, []byte("not a PEM certificate"), 0o600))
 	missingFile := filepath.Join(t.TempDir(), "missing.pem")
 	for _, test := range []struct {
 		name, certFile, keyFile, caFile, wantError string
 	}{
-		{"missing certificate", missingFile, certificate.keyFile, "", "loading peer metadata certificate"},
-		{"invalid certificate", invalidFile, certificate.keyFile, "", "loading peer metadata certificate"},
-		{"missing key", certificate.certFile, missingFile, "", "loading peer metadata certificate"},
-		{"invalid key", certificate.certFile, invalidFile, "", "loading peer metadata certificate"},
-		{"mismatched key", certificate.certFile, other.keyFile, "", "loading peer metadata certificate"},
-		{"missing CA", certificate.certFile, certificate.keyFile, missingFile, "loading peer metadata CA"},
-		{"invalid CA", certificate.certFile, certificate.keyFile, invalidFile, "ca_file contains no certificates"},
+		{"missing certificate", missingFile, certificate.KeyFile, "", "loading peer metadata certificate"},
+		{"invalid certificate", invalidFile, certificate.KeyFile, "", "loading peer metadata certificate"},
+		{"missing key", certificate.CertFile, missingFile, "", "loading peer metadata certificate"},
+		{"invalid key", certificate.CertFile, invalidFile, "", "loading peer metadata certificate"},
+		{"mismatched key", certificate.CertFile, other.KeyFile, "", "loading peer metadata certificate"},
+		{"missing CA", certificate.CertFile, certificate.KeyFile, missingFile, "loading peer metadata CA"},
+		{"invalid CA", certificate.CertFile, certificate.KeyFile, invalidFile, "ca_file contains no certificates"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := DefaultConfig()
@@ -193,8 +148,8 @@ func TestTLSDisabledIgnoresCertificateFiles(t *testing.T) {
 }
 
 func TestHTTPSBearerToken(t *testing.T) {
-	root := newTestCA(t, nil)
-	leaf := newTestCertificate(t, &x509.Certificate{
+	root := testutil.NewTestCA(t, nil)
+	leaf := testutil.NewTestCertificate(t, &x509.Certificate{
 		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
 		NotBefore:   time.Now().Add(-time.Hour),
 		NotAfter:    time.Now().Add(time.Hour),
@@ -213,7 +168,7 @@ func TestHTTPSBearerToken(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			cfg := DefaultConfig()
 			cfg.Token = test.serverToken
-			cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: leaf.certFile, KeyFile: leaf.keyFile, CAFile: root.certFile}
+			cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: leaf.CertFile, KeyFile: leaf.KeyFile, CAFile: root.CertFile}
 			serverTLS, clientTLS, err := tlsConfigs(cfg.TLS)
 			require.NoError(t, err)
 			server := httptest.NewUnstartedServer(metadataHandler(newStore("remote-host", cfg), cfg, testLoopbackNetwork, nil))

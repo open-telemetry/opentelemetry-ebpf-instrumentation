@@ -146,9 +146,9 @@ func TestRunStopsServerOnContextCancellationWithActiveStream(t *testing.T) {
 }
 
 func TestRunServesMutualTLS(t *testing.T) {
-	ca := testutil.NewTestCA(t)
-	serverCert, serverKey := ca.Issue(t)
-	clientCert, clientKey := ca.Issue(t)
+	ca := testutil.NewTestCA(t, nil)
+	serverCert := testutil.NewLocalhostCertificate(t, &ca)
+	clientCert := testutil.NewLocalhostCertificate(t, &ca)
 	listener, port := newTestListener(t)
 
 	ic := &InformersCache{
@@ -156,7 +156,7 @@ func TestRunServesMutualTLS(t *testing.T) {
 			Port:           port,
 			MaxConnections: 1,
 			SendTimeout:    10 * time.Millisecond,
-			TLS:            kubecache.TLSConfig{Enabled: true, CertFile: serverCert, KeyFile: serverKey, ClientCAFile: ca.File},
+			TLS:            kubecache.TLSConfig{Enabled: true, CertFile: serverCert.CertFile, KeyFile: serverCert.KeyFile, ClientCAFile: ca.CertFile},
 		},
 		listener: listener,
 	}
@@ -189,9 +189,9 @@ func TestRunServesMutualTLS(t *testing.T) {
 	}
 
 	require.Eventually(t, func() bool {
-		return firstEvent(kubecache.ClientTLSConfig{Enabled: true, CAFile: ca.File, CertFile: clientCert, KeyFile: clientKey}) == nil
+		return firstEvent(kubecache.ClientTLSConfig{Enabled: true, CAFile: ca.CertFile, CertFile: clientCert.CertFile, KeyFile: clientCert.KeyFile}) == nil
 	}, 3*time.Second, 25*time.Millisecond, "client with a trusted certificate was never served")
-	require.Error(t, firstEvent(kubecache.ClientTLSConfig{Enabled: true, CAFile: ca.File}))
+	require.Error(t, firstEvent(kubecache.ClientTLSConfig{Enabled: true, CAFile: ca.CertFile}))
 	require.Error(t, firstEvent(kubecache.ClientTLSConfig{}))
 }
 

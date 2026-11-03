@@ -72,17 +72,17 @@ func TestClientForwardsLastTimestamp(t *testing.T) {
 }
 
 func TestClientConnectsOverMutualTLS(t *testing.T) {
-	ca := testutil.NewTestCA(t)
-	serverCert, serverKey := ca.Issue(t)
-	clientCert, clientKey := ca.Issue(t)
-	serverCreds, err := kubecache.TLSConfig{Enabled: true, CertFile: serverCert, KeyFile: serverKey, ClientCAFile: ca.File}.Credentials()
+	ca := testutil.NewTestCA(t, nil)
+	serverCert := testutil.NewLocalhostCertificate(t, &ca)
+	clientCert := testutil.NewLocalhostCertificate(t, &ca)
+	serverCreds, err := kubecache.TLSConfig{Enabled: true, CertFile: serverCert.CertFile, KeyFile: serverCert.KeyFile, ClientCAFile: ca.CertFile}.Credentials()
 	require.NoError(t, err)
 	fcs := startFakeCacheService(t, grpc.Creds(serverCreds))
 	fcs.serverResponses <- &informer.Event{Type: informer.EventType_SYNC_FINISHED}
 
 	svc := cacheSvcClient{
 		address:                  fmt.Sprintf("127.0.0.1:%d", fcs.port),
-		tls:                      kubecache.ClientTLSConfig{Enabled: true, CAFile: ca.File, CertFile: clientCert, KeyFile: clientKey},
+		tls:                      kubecache.ClientTLSConfig{Enabled: true, CAFile: ca.CertFile, CertFile: clientCert.CertFile, KeyFile: clientCert.KeyFile},
 		BaseNotifier:             meta.NewBaseNotifier(klog()),
 		syncTimeout:              timeout,
 		reconnectInitialInterval: 10 * time.Millisecond,
