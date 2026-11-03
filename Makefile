@@ -463,7 +463,8 @@ JAVA_AGENT_DIR := pkg/internal/java
 JAVA_AGENT_EMBED_DIR := $(JAVA_AGENT_DIR)/embedded
 JAVA_AGENT_EMBED_PATH := $(JAVA_AGENT_EMBED_DIR)/$(JAVA_AGENT)
 JAVA_AGENT_JAVA_VERSION := $(shell tr -d '[:space:]' < $(JAVA_AGENT_DIR)/.java-version)
-JAVA_AGENT_JAVA_HOME_CANDIDATES := /usr/lib/jvm/java-$(JAVA_AGENT_JAVA_VERSION)-openjdk /usr/lib/jvm/java-$(JAVA_AGENT_JAVA_VERSION)-openjdk-amd64
+JAVA_AGENT_JAVA_MAJOR_VERSION := $(word 1,$(subst ., ,$(JAVA_AGENT_JAVA_VERSION)))
+JAVA_AGENT_JAVA_HOME_CANDIDATES := /usr/lib/jvm/java-$(JAVA_AGENT_JAVA_MAJOR_VERSION)-openjdk /usr/lib/jvm/java-$(JAVA_AGENT_JAVA_MAJOR_VERSION)-openjdk-amd64
 JAVA_AGENT_JAVA_HOME_FALLBACK := $(shell ls -d /usr/lib/jvm/java-*-openjdk* 2>/dev/null | sort -V | tail -n 1)
 JAVA_AGENT_JAVA_HOME ?= $(or $(shell for d in $(JAVA_AGENT_JAVA_HOME_CANDIDATES); do [ -d "$$d" ] && { echo "$$d"; break; }; done),$(JAVA_AGENT_JAVA_HOME_FALLBACK))
 JAVA_AGENT_GRADLE_ENV := $(if $(JAVA_AGENT_JAVA_HOME),JAVA_HOME=$(JAVA_AGENT_JAVA_HOME) PATH=$(JAVA_AGENT_JAVA_HOME)/bin:$$PATH,)

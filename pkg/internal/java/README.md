@@ -196,6 +196,11 @@ gradle spotlessApply
 
 ```
 
+To use the Java version pinned in `.java-version` with mise, run `mise install` and verify it
+with `mise exec -- java -version` from `pkg/internal/java`. To make `make java-build` use that
+JDK from the repository root, set `JAVA_AGENT_JAVA_HOME="$(mise -C pkg/internal/java where java)"`
+when invoking make.
+
 #### Option B: Docker-only (no local Gradle)
 
 ```bash
