@@ -47,7 +47,7 @@ const (
 	// `internal/test/integration/components/weaver/service.yml` so the
 	// programmatic-setup tests run weaver with the same image as the
 	// compose-driven ones.
-	imgWeaver = img.Docker("otel/weaver:v0.27.0@sha256:3049b4079049d4abb1b5632f511ada2c33505a1c60f3f8535e93f87f0696f056")
+	imgWeaver = img.Docker("otel/weaver:v0.28.0@sha256:5857bb81d8cc7ed608cdcae37c4b459eb020f21dd4acade35f7933cd6762fbcc")
 
 	weaverOTLPReadyProbe = "wget --timeout=1 -q -O /dev/null http://127.0.0.1:4320/health"
 	weaverReadyTimeout   = 3 * time.Minute
