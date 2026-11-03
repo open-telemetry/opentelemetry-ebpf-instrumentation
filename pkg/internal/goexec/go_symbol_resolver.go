@@ -45,7 +45,7 @@ func newGoSymbolResolver(openELF func() (*pfelf.File, error)) (resolver *GoSymbo
 			if _, ok := value.(goMappedMemoryFault); !ok {
 				panic(value)
 			}
-			resolver, err = nil, fmt.Errorf("Go symbol mapping fault: %v", value)
+			resolver, err = nil, fmt.Errorf("go symbol mapping fault: %v", value)
 		}
 	}()
 

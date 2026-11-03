@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"go.opentelemetry.io/ebpf-profiler/libpf/pfelf"
 )
 
@@ -117,7 +118,7 @@ func TestGoSymbolResolverTruncatedDuringConstruction(t *testing.T) {
 		return mapped, nil
 	})
 	require.Nil(t, resolver)
-	require.ErrorContains(t, err, "Go symbol mapping fault")
+	require.ErrorContains(t, err, "go symbol mapping fault")
 	restored := debug.SetPanicOnFault(false)
 	require.False(t, restored)
 	// Closing the failed constructor's ELF must release its mapping.
