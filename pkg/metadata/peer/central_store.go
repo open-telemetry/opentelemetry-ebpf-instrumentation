@@ -42,6 +42,9 @@ func newCentralStore(ttl time.Duration, maxHosts int) *centralStore {
 
 // publish replaces the host snapshot. An address claimed by another host moves to the latest publishing host.
 func (s *centralStore) publish(hostID string, addresses []netip.Addr, snapshot Snapshot, now time.Time) error {
+	callers := indexCallers(snapshot.Callers)
+	snapshot.Callers = nil
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -57,9 +60,6 @@ func (s *centralStore) publish(hostID string, addresses []netip.Addr, snapshot S
 	for _, address := range addresses {
 		s.addresses[address] = hostID
 	}
-
-	callers := indexCallers(snapshot.Callers)
-	snapshot.Callers = nil
 	s.hosts[hostID] = &centralHost{addresses: addresses, snapshot: snapshot, callers: callers, published: now}
 	return nil
 }
