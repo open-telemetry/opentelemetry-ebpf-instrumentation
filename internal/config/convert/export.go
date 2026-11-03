@@ -640,6 +640,7 @@ func enrich(cfg *obi.Config) *schema.Enrich {
 				MetadataCache: schema.KubernetesMetadataCache{
 					Address:           cfg.Attributes.Kubernetes.MetaCacheAddress,
 					RestrictLocalNode: cfg.Attributes.Kubernetes.MetaRestrictLocalNode,
+					TLS:               schema.KubernetesMetadataCacheTLS(cfg.Attributes.Kubernetes.MetaCacheTLS),
 					SourceLabels: schema.KubernetesSourceLabels{
 						ServiceName:      cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName,
 						ServiceNamespace: cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace,

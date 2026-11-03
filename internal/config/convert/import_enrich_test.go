@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -45,6 +46,9 @@ func TestV2ToRuntimeEnrichAttributesAndKubernetesRoundTrip(t *testing.T) {
 	cfg.Attributes.Kubernetes.DropExternal = true
 	cfg.Attributes.Kubernetes.DisableInformers = []string{"node", "service"}
 	cfg.Attributes.Kubernetes.MetaCacheAddress = "kube-cache:8999"
+	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig{
+		Enabled: true, CAFile: "/tls/ca.crt", CertFile: "/tls/client.crt", KeyFile: "/tls/client.key",
+	}
 	cfg.Attributes.Kubernetes.MetaRestrictLocalNode = true
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName = "app.kubernetes.io/name"
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace = "app.kubernetes.io/part-of"
@@ -81,6 +85,23 @@ func TestV2ToRuntimeEnrichAttributesAndKubernetesRoundTrip(t *testing.T) {
 	require.Equal(t, cfg.Attributes.MetadataRetry, got.Attributes.MetadataRetry)
 	require.Equal(t, cfg.Attributes.Select, got.Attributes.Select)
 	require.Equal(t, cfg.Attributes.ExtraGroupAttributes, got.Attributes.ExtraGroupAttributes)
+}
+
+func TestV2ToRuntimeKubernetesMetadataCacheTLSOverride(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Enrich: &schema.Enrich{Enrichers: schema.Enrichers{Kubernetes: schema.KubernetesEnricher{
+			MetadataCache: schema.KubernetesMetadataCache{
+				Address: "k8s-cache:50055",
+				TLS:     schema.KubernetesMetadataCacheTLS{Enabled: true, CAFile: "/tls/ca.crt"},
+			},
+		}}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "k8s-cache:50055", got.Attributes.Kubernetes.MetaCacheAddress)
+	require.Equal(t, kubecache.ClientTLSConfig{Enabled: true, CAFile: "/tls/ca.crt"}, got.Attributes.Kubernetes.MetaCacheTLS)
 }
 
 func TestV2ToRuntimeCloudEnricherRoundTrip(t *testing.T) {
