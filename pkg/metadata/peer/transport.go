@@ -27,6 +27,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	grpcpeer "google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
+	"google.golang.org/grpc/tap"
 	"google.golang.org/protobuf/proto"
 
 	"go.opentelemetry.io/obi/pkg/metadata/peer/metadatapb"
@@ -71,6 +72,7 @@ func peerServerOptions(cfg *MetadataConfig, serverTLS *tls.Config) []grpc.Server
 		grpc.MaxSendMsgSize(cfg.MaxResponseBytes),
 		grpc.ConnectionTimeout(cfg.RequestTimeout),
 		grpc.KeepaliveParams(keepalive.ServerParameters{MaxConnectionIdle: 3 * cfg.RefreshInterval}),
+		grpc.InTapHandle(requestTimeoutTap(cfg.RequestTimeout)),
 		grpc.UnaryInterceptor(bearerTokenInterceptor(cfg.Token)),
 	}
 	if serverTLS != nil {
@@ -78,6 +80,16 @@ func peerServerOptions(cfg *MetadataConfig, serverTLS *tls.Config) []grpc.Server
 	}
 
 	return options
+}
+
+// requestTimeoutTap bounds each request with a server-owned deadline, covering request decoding, which runs
+// before any interceptor. Otherwise, a client without a deadline could withhold the request message indefinitely.
+func requestTimeoutTap(timeout time.Duration) tap.ServerInHandle {
+	return func(ctx context.Context, _ *tap.Info) (context.Context, error) {
+		// gRPC cancels the parent stream context when the stream ends, which also releases this timeout.
+		ctx, _ = context.WithTimeout(ctx, timeout) //nolint:govet // the returned context replaces the stream context
+		return ctx, nil
+	}
 }
 
 // bearerTokenInterceptor rejects requests without the configured bearer token. An empty token disables the check.
@@ -112,12 +124,15 @@ func requesterAddress(ctx context.Context) (netip.Addr, bool) {
 	return address.Addr().Unmap(), true
 }
 
+var errPeerClientsClosed = errors.New("peer metadata clients closed")
+
 // peerClients keeps one connection per remote agent, so refreshes reuse it.
 type peerClients struct {
 	mu      sync.Mutex
 	port    string
 	options []grpc.DialOption
 	conns   map[netip.Addr]*grpc.ClientConn
+	closed  bool
 }
 
 func newPeerClients(cfg *MetadataConfig, clientTLS *tls.Config, options ...grpc.DialOption) *peerClients {
@@ -148,6 +163,10 @@ func (c *peerClients) get(address netip.Addr) (metadatapb.PeerMetadataServiceCli
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	if c.closed {
+		return nil, errPeerClientsClosed
+	}
+
 	conn, exists := c.conns[address]
 	if !exists {
 		var err error
@@ -174,7 +193,12 @@ func (c *peerClients) retain(keep func(netip.Addr) bool) {
 	}
 }
 
+// close closes all connections and rejects later requests, so workers still running cannot open new ones.
 func (c *peerClients) close() {
+	c.mu.Lock()
+	c.closed = true
+	c.mu.Unlock()
+
 	c.retain(func(netip.Addr) bool { return false })
 }
 

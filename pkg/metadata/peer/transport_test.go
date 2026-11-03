@@ -8,12 +8,14 @@ import (
 	"crypto/tls"
 	"net"
 	"net/netip"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	grpcpeer "google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
@@ -328,4 +330,34 @@ func TestPeerClientsCloseEvictedConnections(t *testing.T) {
 	clients.retain(func(address netip.Addr) bool { return address == kept })
 	require.Len(t, clients.conns, 1)
 	require.Contains(t, clients.conns, kept)
+}
+
+func TestPeerClientsRejectRequestsAfterClose(t *testing.T) {
+	cfg := DefaultConfig()
+	clients := newPeerClients(&cfg, nil)
+	_, err := clients.get(netip.MustParseAddr("10.1.0.1"))
+	require.NoError(t, err)
+
+	clients.close()
+	_, err = clients.get(netip.MustParseAddr("10.1.0.2"))
+	require.ErrorIs(t, err, errPeerClientsClosed)
+	require.Empty(t, clients.conns)
+}
+
+func TestIncompleteRequestTimesOut(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.RequestTimeout = 50 * time.Millisecond
+	cfg.Port = startPeerServer(t, &cfg, &stubPeerServer{snapshot: &metadatapb.Snapshot{Hostname: "peer"}}, nil)
+
+	conn, err := grpc.NewClient(net.JoinHostPort(loopback.String(), strconv.Itoa(cfg.Port)),
+		grpc.WithTransportCredentials(insecure.NewCredentials()))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close() })
+
+	// Open the call without a client deadline and never send the request message.
+	stream, err := conn.NewStream(t.Context(), &grpc.StreamDesc{}, metadatapb.PeerMetadataService_GetSnapshot_FullMethodName)
+	require.NoError(t, err)
+
+	err = stream.RecvMsg(&metadatapb.Snapshot{})
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err), "unexpected error: %v", err)
 }
