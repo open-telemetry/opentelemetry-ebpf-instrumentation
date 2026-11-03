@@ -27,8 +27,12 @@ type ExceptionPayloadDecoder func(hdr *BpfExceptionEventHeaderT, payload []byte,
 
 // exceptionPayloadDecoders holds one decoder per runtime that emits
 // exception_events records.
-var exceptionPayloadDecoders = map[BpfExceptionRuntime]ExceptionPayloadDecoder{
-	BpfExceptionRuntimeK_exceptionRuntimeGo: decodeGoErrorEvent,
+var exceptionPayloadDecoders = map[BpfExceptionRuntime]ExceptionPayloadDecoder{}
+
+// RegisterExceptionPayloadDecoder registers a runtime decoder during package
+// initialization, before exception record readers start.
+func RegisterExceptionPayloadDecoder(runtime BpfExceptionRuntime, decoder ExceptionPayloadDecoder) {
+	exceptionPayloadDecoders[runtime] = decoder
 }
 
 const exceptionHeaderSize = int(unsafe.Sizeof(BpfExceptionEventHeaderT{}))

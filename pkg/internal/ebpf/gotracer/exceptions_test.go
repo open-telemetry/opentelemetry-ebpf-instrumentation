@@ -119,11 +119,11 @@ func TestGoExceptionProbesFollowEachProcess(t *testing.T) {
 }
 
 func TestCloseReleasesActiveGoExceptionResources(t *testing.T) {
-	previous := ebpfcommon.GoSymbols
-	ebpfcommon.GoSymbols = ebpfcommon.NewGoSymbolRegistry()
+	previous := goSymbols
+	goSymbols = ebpfcommon.NewGoSymbolRegistry()
 	t.Cleanup(func() {
-		_ = ebpfcommon.GoSymbols.Close()
-		ebpfcommon.GoSymbols = previous
+		_ = goSymbols.Close()
+		goSymbols = previous
 	})
 
 	tracer := New(nil, exceptionsConfig(true), nil)
@@ -133,7 +133,7 @@ func TestCloseReleasesActiveGoExceptionResources(t *testing.T) {
 	tracer.RegisterProcessScopedGoProbe(executable.Dev, executable.Ino, exceptionProbe(goPanicSymbol, 30))
 	tracer.trackExceptionProcess(1, executable, goExceptionPIDEnabled|goExceptionPIDPanics)
 	sourceCloses := 0
-	require.NoError(t, ebpfcommon.GoSymbols.AddExecutable(executable.Dev, executable.Ino, func() (ebpfcommon.GoSymbolSource, error) {
+	require.NoError(t, goSymbols.AddExecutable(executable.Dev, executable.Ino, func() (ebpfcommon.GoSymbolSource, error) {
 		return ebpfcommon.GoSymbolSource{
 			Open: func() (ebpfcommon.GoSymbolResolver, error) {
 				t.Error("empty stack lookup must not open the symbol source")
@@ -142,16 +142,16 @@ func TestCloseReleasesActiveGoExceptionResources(t *testing.T) {
 			Close: func() error { sourceCloses++; return nil },
 		}, nil
 	}))
-	ebpfcommon.GoSymbols.BindPID(1, executable.Dev, executable.Ino, 0)
+	goSymbols.BindPID(1, executable.Dev, executable.Ino, 0)
 	unrelatedCloses := 0
-	require.NoError(t, ebpfcommon.GoSymbols.AddExecutable(8, 12, func() (ebpfcommon.GoSymbolSource, error) {
+	require.NoError(t, goSymbols.AddExecutable(8, 12, func() (ebpfcommon.GoSymbolSource, error) {
 		return ebpfcommon.GoSymbolSource{
 			Open:  func() (ebpfcommon.GoSymbolResolver, error) { return nil, nil },
 			Close: func() error { unrelatedCloses++; return nil },
 		}, nil
 	}))
-	ebpfcommon.GoSymbols.BindPID(2, 8, 12, 0)
-	_, err := ebpfcommon.GoSymbols.Frames(1, nil)
+	goSymbols.BindPID(2, 8, 12, 0)
+	_, err := goSymbols.Frames(1, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, links.open[1])
 
@@ -160,13 +160,13 @@ func TestCloseReleasesActiveGoExceptionResources(t *testing.T) {
 	assert.Zero(t, links.open[1], "close the active exception probe")
 	assert.Empty(t, tracer.exceptionProcesses, "retire the tracer's process state")
 	assert.Equal(t, 1, sourceCloses, "release the retained symbol source")
-	_, err = ebpfcommon.GoSymbols.Frames(1, nil)
+	_, err = goSymbols.Frames(1, nil)
 	require.ErrorContains(t, err, "go symbol binding not found", "remove the PID binding")
 	require.NoError(t, tracer.Close())
 	assert.Zero(t, links.open[1], "repeated shutdown must not close the probe twice")
 	assert.Equal(t, 1, sourceCloses)
 	assert.Zero(t, unrelatedCloses)
-	_, err = ebpfcommon.GoSymbols.Frames(2, nil)
+	_, err = goSymbols.Frames(2, nil)
 	assert.NoError(t, err, "preserve another tracer's symbols")
 }
 

@@ -170,6 +170,15 @@ func TestGoSymbolRegistryResolvesFaultingPCAfterSigpanic(t *testing.T) {
 		"main.handler\n\tmain.go:20", stack)
 }
 
+type mapSymbolResolver map[uint64]goexec.GoFrame
+
+func (r mapSymbolResolver) PCToFrame(pc uint64) (goexec.GoFrame, bool) {
+	frame, ok := r[pc]
+	return frame, ok
+}
+func (mapSymbolResolver) SetDontNeed() {}
+func (mapSymbolResolver) Close() error { return nil }
+
 func testGoSymbolTable(t *testing.T) (*gosym.Table, *gosym.Func) {
 	t.Helper()
 

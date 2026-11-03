@@ -157,11 +157,11 @@ func (p *Tracer) closeExceptionResources() {
 
 	for pid, process := range p.exceptionProcesses {
 		closeExceptionLinks(process.links)
-		ebpfcommon.GoSymbols.RemovePID(pid)
-		ebpfcommon.GoSymbols.RemoveExecutable(process.executable.Dev, process.executable.Ino)
+		goSymbols.RemovePID(pid)
+		goSymbols.RemoveExecutable(process.executable.Dev, process.executable.Ino)
 	}
 	for executable := range p.exceptionProbes {
-		ebpfcommon.GoSymbols.RemoveExecutable(executable.Dev, executable.Ino)
+		goSymbols.RemoveExecutable(executable.Dev, executable.Ino)
 	}
 	clear(p.exceptionProcesses)
 	clear(p.exceptionProbes)
@@ -249,7 +249,7 @@ func (p *Tracer) RegisterExecutable(fileInfo *exec.FileInfo) {
 		return
 	}
 
-	if err := ebpfcommon.GoSymbols.AddExecutable(fileInfo.Dev(), fileInfo.Ino(), func() (ebpfcommon.GoSymbolSource, error) {
+	if err := goSymbols.AddExecutable(fileInfo.Dev(), fileInfo.Ino(), func() (ebpfcommon.GoSymbolSource, error) {
 		return openGoSymbolSource(fileInfo)
 	}); err != nil {
 		p.log.Debug("Go exception stacks will not be symbolized", "pid", fileInfo.Pid(), "error", err)
@@ -261,7 +261,7 @@ func (p *Tracer) UnregisterExecutable(dev, ino uint64) {
 		return
 	}
 
-	ebpfcommon.GoSymbols.RemoveExecutable(dev, ino)
+	goSymbols.RemoveExecutable(dev, ino)
 }
 
 func (p *Tracer) registerExceptionPID(pid app.PID, fileInfo *exec.FileInfo) {
@@ -276,10 +276,10 @@ func (p *Tracer) registerExceptionPID(pid app.PID, fileInfo *exec.FileInfo) {
 	}
 
 	if loadBias, err := procs.FindExeLoadBias(pid); err != nil {
-		ebpfcommon.GoSymbols.RemovePID(pid)
+		goSymbols.RemovePID(pid)
 		p.log.Debug("Go exception stacks will not be symbolized", "pid", pid, "error", err)
 	} else {
-		ebpfcommon.GoSymbols.BindPID(pid, fileInfo.Dev(), fileInfo.Ino(), loadBias)
+		goSymbols.BindPID(pid, fileInfo.Dev(), fileInfo.Ino(), loadBias)
 	}
 
 	flags := goExceptionPIDEnabled
@@ -310,7 +310,7 @@ func (p *Tracer) unregisterExceptionPID(pid app.PID) {
 	if err := p.bpfObjects.GoExceptionPids.Delete(uint32(pid)); err != nil && !errors.Is(err, ebpf.ErrKeyNotExist) {
 		p.log.Debug("disabling Go exception capture", "pid", pid, "error", err)
 	}
-	ebpfcommon.GoSymbols.RemovePID(pid)
+	goSymbols.RemovePID(pid)
 }
 
 // openGoSymbolSource keeps a descriptor to the executable, so its symbols stay

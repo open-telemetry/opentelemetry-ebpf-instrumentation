@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package ebpfcommon
+package gotracer
 
 import (
 	"bytes"
@@ -15,16 +15,20 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 )
 
-func goExceptionRecord(t *testing.T, owner BpfExceptionOwner, payload *BpfGoExceptionPayloadT) *ringbuf.Record {
+func goExceptionRecord(t *testing.T, owner ebpfcommon.BpfExceptionOwner, payload *BpfGoExceptionPayloadT) *ringbuf.Record {
 	t.Helper()
-	hdr := BpfExceptionEventHeaderT{
+	hdr := ebpfcommon.BpfExceptionEventHeaderT{
 		CaptureNs:  1000,
 		PayloadLen: uint32(unsafe.Sizeof(*payload)),
-		Runtime:    uint8(BpfExceptionRuntimeK_exceptionRuntimeGo),
+		Runtime:    uint8(ebpfcommon.BpfExceptionRuntimeK_exceptionRuntimeGo),
 		Owner:      uint8(owner),
 	}
 	hdr.Pid.HostPid = 1
@@ -56,16 +60,31 @@ func (mapSymbolResolver) Close() error { return nil }
 
 func registerGoExceptionSymbols(t *testing.T, frames mapSymbolResolver) {
 	t.Helper()
-	registerGoSymbols(t, GoSymbols, 1, func() (GoSymbolSource, error) {
-		return GoSymbolSource{
-			Open:  func() (GoSymbolResolver, error) { return frames, nil },
+	require.NoError(t, goSymbols.AddExecutable(7, 11, func() (ebpfcommon.GoSymbolSource, error) {
+		return ebpfcommon.GoSymbolSource{
+			Open:  func() (ebpfcommon.GoSymbolResolver, error) { return frames, nil },
 			Close: func() error { return nil },
 		}, nil
-	})
+	}))
+	goSymbols.BindPID(1, 7, 11, 0)
 	t.Cleanup(func() {
-		GoSymbols.RemovePID(1)
-		GoSymbols.RemoveExecutable(7, 11)
+		goSymbols.RemovePID(1)
+		goSymbols.RemoveExecutable(7, 11)
 	})
+}
+
+type goExceptionServiceFilter struct {
+	ebpfcommon.IdentityPidsFilter
+}
+
+func (*goExceptionServiceFilter) Filter(spans []request.Span) []request.Span {
+	for i := range spans {
+		spans[i].Service = svc.Attrs{
+			UID:        svc.UID{Name: "svc"},
+			Exceptions: services.ExceptionsConfig{Enabled: true},
+		}
+	}
+	return spans
 }
 
 func TestReadGoExceptionRecord(t *testing.T) {
@@ -76,9 +95,9 @@ func TestReadGoExceptionRecord(t *testing.T) {
 		40: {Function: "runtime.goexit", File: "runtime/asm_amd64.s", Line: 1700},
 	})
 
-	event, ignore, err := ReadExceptionRecord(
-		goExceptionRecord(t, BpfExceptionOwnerK_exceptionOwnerOngoing, goExceptionPayload(0, "lookup failed: timeout", 11, 21, 31, 41)),
-		exceptionFilter(true),
+	event, ignore, err := ebpfcommon.ReadExceptionRecord(
+		goExceptionRecord(t, ebpfcommon.BpfExceptionOwnerK_exceptionOwnerOngoing, goExceptionPayload(0, "lookup failed: timeout", 11, 21, 31, 41)),
+		&goExceptionServiceFilter{},
 	)
 
 	require.NoError(t, err)
@@ -98,9 +117,9 @@ func TestReadGoExceptionRecordPanicWithoutOwner(t *testing.T) {
 		20: {Function: "main.worker", File: "main.go", Line: 30},
 	})
 
-	event, ignore, err := ReadExceptionRecord(
-		goExceptionRecord(t, BpfExceptionOwnerK_exceptionOwnerNone, goExceptionPayload(goExceptionKindPanic, "boom", 11, 21)),
-		exceptionFilter(true),
+	event, ignore, err := ebpfcommon.ReadExceptionRecord(
+		goExceptionRecord(t, ebpfcommon.BpfExceptionOwnerK_exceptionOwnerNone, goExceptionPayload(goExceptionKindPanic, "boom", 11, 21)),
+		&goExceptionServiceFilter{},
 	)
 
 	require.NoError(t, err)
@@ -119,9 +138,9 @@ func TestReadGoExceptionRecordBounds(t *testing.T) {
 	payload.MessageLen = 1000
 	payload.Frames = 1000
 
-	event, ignore, err := ReadExceptionRecord(
-		goExceptionRecord(t, BpfExceptionOwnerK_exceptionOwnerNone, payload),
-		exceptionFilter(true),
+	event, ignore, err := ebpfcommon.ReadExceptionRecord(
+		goExceptionRecord(t, ebpfcommon.BpfExceptionOwnerK_exceptionOwnerNone, payload),
+		&goExceptionServiceFilter{},
 	)
 
 	require.NoError(t, err)
@@ -131,11 +150,11 @@ func TestReadGoExceptionRecordBounds(t *testing.T) {
 }
 
 func TestReadGoExceptionRecordTruncated(t *testing.T) {
-	record := goExceptionRecord(t, BpfExceptionOwnerK_exceptionOwnerNone, goExceptionPayload(0, "x"))
-	hdr := (*BpfExceptionEventHeaderT)(unsafe.Pointer(&record.RawSample[0]))
+	record := goExceptionRecord(t, ebpfcommon.BpfExceptionOwnerK_exceptionOwnerNone, goExceptionPayload(0, "x"))
+	hdr := (*ebpfcommon.BpfExceptionEventHeaderT)(unsafe.Pointer(&record.RawSample[0]))
 	hdr.PayloadLen = 4
 
-	_, ignore, err := ReadExceptionRecord(record, exceptionFilter(true))
+	_, ignore, err := ebpfcommon.ReadExceptionRecord(record, &goExceptionServiceFilter{})
 
 	require.Error(t, err)
 	assert.True(t, ignore)
@@ -183,9 +202,9 @@ func TestReadGoExceptionRecordTruncatedMessage(t *testing.T) {
 	payload := goExceptionPayload(goExceptionKindPanic, strings.Repeat("x", 127)+"\xc3")
 	payload.MessageTruncated = 1
 
-	event, _, err := ReadExceptionRecord(
-		goExceptionRecord(t, BpfExceptionOwnerK_exceptionOwnerNone, payload),
-		exceptionFilter(true),
+	event, _, err := ebpfcommon.ReadExceptionRecord(
+		goExceptionRecord(t, ebpfcommon.BpfExceptionOwnerK_exceptionOwnerNone, payload),
+		&goExceptionServiceFilter{},
 	)
 
 	require.NoError(t, err)

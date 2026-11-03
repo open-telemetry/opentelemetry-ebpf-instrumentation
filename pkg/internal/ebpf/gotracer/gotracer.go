@@ -50,7 +50,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target $BPF_TARGETS Bpf ../../../../bpf/gotracer/gotracer.c -- -I../../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target $BPF_TARGETS -type go_exception_payload_t Bpf ../../../../bpf/gotracer/gotracer.c -- -I../../../../bpf
 
 type runtimeMetricTargetKey struct {
 	pid app.PID

@@ -76,4 +76,7 @@ int GUARDED_PROG(obi_uprobe_h2FramerWriteContinuation_returns, struct pt_regs *,
 //FIXME - move common code to common location
 #include "generictracer/protocol_handler.c"
 
+// Force payload BTF emission for bpf2go.
+const go_exception_payload_t *unused_go_exception_payload __attribute__((unused));
+
 char __license[] SEC("license") = "Dual MIT/GPL";

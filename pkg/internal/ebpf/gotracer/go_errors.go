@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
+package gotracer // import "go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
 
 import (
 	"fmt"
@@ -10,14 +10,22 @@ import (
 	"unicode/utf8"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/exceptions"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 )
 
-// GoSymbols symbolizes the stacks of Go exception records. The Go tracer
+// goSymbols symbolizes the stacks of Go exception records. The Go tracer
 // registers every process that captures exceptions.
-var GoSymbols = NewGoSymbolRegistry()
+var goSymbols = ebpfcommon.NewGoSymbolRegistry()
+
+func init() {
+	ebpfcommon.RegisterExceptionPayloadDecoder(
+		ebpfcommon.BpfExceptionRuntimeK_exceptionRuntimeGo,
+		decodeGoErrorEvent,
+	)
+}
 
 // Mirrors enum go_exception_kind in bpf/gotracer/types/errors.h
 const goExceptionKindPanic = 1
@@ -34,8 +42,8 @@ const (
 
 // decodeGoErrorEvent decodes a go_exception_payload_t. A stack that cannot be
 // symbolized leaves only the panic header rather than dropping the record.
-func decodeGoErrorEvent(hdr *BpfExceptionEventHeaderT, payload []byte, event *exceptions.Event) error {
-	p, err := ReinterpretCast[BpfGoExceptionPayloadT](payload)
+func decodeGoErrorEvent(hdr *ebpfcommon.BpfExceptionEventHeaderT, payload []byte, event *exceptions.Event) error {
+	p, err := ebpfcommon.ReinterpretCast[BpfGoExceptionPayloadT](payload)
 	if err != nil {
 		return err
 	}
@@ -51,7 +59,7 @@ func decodeGoErrorEvent(hdr *BpfExceptionEventHeaderT, payload []byte, event *ex
 	event.Message = goExceptionMessage(p.Message[:messageLen], p.MessageTruncated != 0)
 
 	pcs := p.Pcs[:min(int(p.Frames), len(p.Pcs))]
-	frames, err := GoSymbols.Frames(app.PID(hdr.Pid.HostPid), pcs)
+	frames, err := goSymbols.Frames(app.PID(hdr.Pid.HostPid), pcs)
 	if err != nil {
 		frames = nil
 	}
