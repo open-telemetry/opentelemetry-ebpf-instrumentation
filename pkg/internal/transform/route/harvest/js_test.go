@@ -1812,6 +1812,12 @@ func TestExtractNodejsRoutes_RelativeEntryPoint(t *testing.T) {
 			args:     []string{"src/index.js"},
 			expected: []string{"/index", "/sibling"},
 		},
+		{
+			name:     "entry point that leaves and re-enters cwd keeps its sibling sources",
+			cwd:      "/site",
+			args:     []string{"../site/src/index.js"},
+			expected: []string{"/index", "/sibling"},
+		},
 	}
 
 	for _, tt := range tests {

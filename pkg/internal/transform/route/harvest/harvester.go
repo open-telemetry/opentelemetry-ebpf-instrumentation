@@ -266,17 +266,23 @@ func isDir(path string) bool {
 // for testing purposes
 var isDirFunc = isDir
 
-func relativeScriptOutsideCwd(script string) bool {
-	if script == "" || filepath.IsAbs(script) || filepath.IsLocal(script) {
-		return false
+func relativeScriptOutsideCwd(cwd, script string) (string, bool) {
+	if script == "" || filepath.IsAbs(script) {
+		return "", false
 	}
 
-	return !slices.Contains(strings.Split(filepath.Clean(script), string(filepath.Separator)), "node_modules")
+	resolved := langtools.AbsoluteProcessPath(cwd, script)
+	if langtools.PathWithinBoundary(cwd, resolved) ||
+		slices.Contains(strings.Split(resolved, string(filepath.Separator)), "node_modules") {
+		return "", false
+	}
+
+	return resolved, true
 }
 
 func FindScriptDirectory(root, firstArg, cwd string) string {
-	if relativeScriptOutsideCwd(firstArg) {
-		firstArg = langtools.AbsoluteProcessPath(cwd, firstArg)
+	if script, ok := relativeScriptOutsideCwd(cwd, firstArg); ok {
+		firstArg = script
 	}
 
 	if strings.HasPrefix(firstArg, "/") {

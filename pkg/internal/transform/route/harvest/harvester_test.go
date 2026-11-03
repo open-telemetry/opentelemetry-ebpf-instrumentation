@@ -583,6 +583,13 @@ func TestFindScriptDirectory(t *testing.T) {
 			expected: filepath.Join(tempDir, "app") + "/",
 		},
 		{
+			name:     "relative path that leaves and re-enters cwd scans cwd",
+			root:     tempDir,
+			firstArg: "../app/nested/deep/file.js",
+			cwd:      "/app",
+			expected: filepath.Join(tempDir, "app") + "/",
+		},
+		{
 			name:     "relative path through node_modules scans cwd",
 			root:     tempDir,
 			firstArg: "../src/node_modules/.bin/tool.js",
