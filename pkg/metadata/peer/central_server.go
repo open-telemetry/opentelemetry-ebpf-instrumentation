@@ -5,7 +5,6 @@ package peer // import "go.opentelemetry.io/obi/pkg/metadata/peer"
 
 import (
 	"context"
-	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -18,7 +17,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"go.opentelemetry.io/obi/pkg/metadata/peer/metadatapb"
@@ -58,7 +56,7 @@ func NewCentralServer(cfg *CentralServerConfig) (*CentralServer, error) {
 	options := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(cfg.MaxMessageBytes),
 		grpc.MaxSendMsgSize(cfg.MaxMessageBytes),
-		grpc.UnaryInterceptor(s.authorize),
+		grpc.UnaryInterceptor(bearerTokenInterceptor(cfg.Token)),
 	}
 	if serverTLS != nil {
 		options = append(options, grpc.Creds(credentials.NewTLS(serverTLS)))
@@ -114,20 +112,6 @@ func (s *CentralServer) runExpiry(ctx context.Context) func() {
 	}()
 
 	return func() { cancel(); <-done }
-}
-
-func (s *CentralServer) authorize(ctx context.Context, request any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-	if s.cfg.Token == "" {
-		return handler(ctx, request)
-	}
-
-	md, _ := metadata.FromIncomingContext(ctx)
-	values := md.Get("authorization")
-	if len(values) != 1 || subtle.ConstantTimeCompare([]byte(values[0]), []byte("Bearer "+s.cfg.Token)) != 1 {
-		return nil, status.Error(codes.Unauthenticated, "unauthorized")
-	}
-
-	return handler(ctx, request)
 }
 
 func (s *CentralServer) Publish(_ context.Context, request *metadatapb.PublishRequest) (*metadatapb.PublishResponse, error) {

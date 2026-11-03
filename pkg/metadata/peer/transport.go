@@ -8,20 +8,28 @@ import (
 	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"maps"
 	"net"
-	"net/http"
 	"net/netip"
-	"net/url"
 	"os"
-	"slices"
 	"strconv"
+	"sync"
 	"time"
 	"unicode/utf8"
+
+	"google.golang.org/grpc"
+	grpcbackoff "google.golang.org/grpc/backoff"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/metadata"
+	grpcpeer "google.golang.org/grpc/peer"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
+
+	"go.opentelemetry.io/obi/pkg/metadata/peer/metadatapb"
 )
 
 func tlsConfigs(cfg MetadataTLSConfig) (*tls.Config, *tls.Config, error) {
@@ -53,204 +61,147 @@ func tlsConfigs(cfg MetadataTLSConfig) (*tls.Config, *tls.Config, error) {
 	return server, client, nil
 }
 
-func newHTTPClient(cfg MetadataConfig, clientTLS *tls.Config) *http.Client {
-	return &http.Client{
-		Timeout: cfg.RequestTimeout,
-		Transport: &http.Transport{
-			DialContext:         (&net.Dialer{Timeout: cfg.RequestTimeout}).DialContext,
-			TLSClientConfig:     clientTLS,
-			TLSHandshakeTimeout: cfg.RequestTimeout,
-			MaxIdleConns:        cfg.MaxPeers,
-			MaxIdleConnsPerHost: 1,
-			MaxConnsPerHost:     1,
-			IdleConnTimeout:     3 * cfg.RefreshInterval,
-			DisableCompression:  true,
-		},
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
+// maxPeerRequestBytes bounds the headers and body of an incoming snapshot request, which carries no data.
+const maxPeerRequestBytes = 16 << 10
+
+func peerServerOptions(cfg *MetadataConfig, serverTLS *tls.Config) []grpc.ServerOption {
+	options := []grpc.ServerOption{
+		grpc.MaxRecvMsgSize(maxPeerRequestBytes),
+		grpc.MaxHeaderListSize(maxPeerRequestBytes),
+		grpc.MaxSendMsgSize(cfg.MaxResponseBytes),
+		grpc.ConnectionTimeout(cfg.RequestTimeout),
+		grpc.KeepaliveParams(keepalive.ServerParameters{MaxConnectionIdle: 3 * cfg.RefreshInterval}),
+		grpc.UnaryInterceptor(bearerTokenInterceptor(cfg.Token)),
+	}
+	if serverTLS != nil {
+		options = append(options, grpc.Creds(credentials.NewTLS(serverTLS)))
+	}
+
+	return options
+}
+
+// bearerTokenInterceptor rejects requests without the configured bearer token. An empty token disables the check.
+func bearerTokenInterceptor(token string) grpc.UnaryServerInterceptor {
+	expected := []byte("Bearer " + token)
+	return func(ctx context.Context, request any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if token == "" {
+			return handler(ctx, request)
+		}
+
+		values := metadata.ValueFromIncomingContext(ctx, "authorization")
+		if len(values) != 1 || subtle.ConstantTimeCompare([]byte(values[0]), expected) != 1 {
+			return nil, status.Error(codes.Unauthenticated, "unauthorized")
+		}
+
+		return handler(ctx, request)
 	}
 }
 
-func metadataHandler(store *localStore, cfg MetadataConfig, peers network, cache *peerCache) http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc(MetadataPath, func(w http.ResponseWriter, r *http.Request) {
-		requester, err := netip.ParseAddrPort(r.RemoteAddr)
-		if err != nil || !peers.permits(requester.Addr().Unmap()) {
-			http.Error(w, "peer address is not permitted", http.StatusForbidden)
-			return
-		}
-
-		if r.Method != http.MethodGet {
-			w.Header().Set("Allow", http.MethodGet)
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		if cfg.Token != "" && subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte("Bearer "+cfg.Token)) != 1 {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		targets, err := queryTargets(r, requester.Addr().Unmap())
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		now := time.Now()
-		snapshot := store.snapshot(targets, now)
-		if cache != nil {
-			snapshot.KnownCallers = cache.knownCallers(requester.Addr().Unmap(), now)
-		}
-		if err := filterListeners(&snapshot, r.URL.Query()); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-
-		writeSnapshot(w, snapshot, cfg.MaxResponseBytes)
-	})
-
-	return mux
-}
-
-func queryTargets(r *http.Request, requester netip.Addr) (map[string]struct{}, error) {
-	for _, value := range r.URL.Query()["target"] {
-		addr, err := netip.ParseAddr(value)
-		if err != nil {
-			return nil, errors.New("target must be an IP address")
-		}
-		if addr.Unmap() != requester {
-			return nil, errors.New("target must match requester address")
-		}
+// requesterAddress returns the source address of the connection that sent the request.
+func requesterAddress(ctx context.Context) (netip.Addr, bool) {
+	requester, ok := grpcpeer.FromContext(ctx)
+	if !ok || requester.Addr == nil {
+		return netip.Addr{}, false
 	}
 
-	return map[string]struct{}{requester.String(): {}}, nil
-}
-
-func filterListeners(snapshot *Snapshot, query url.Values) error {
-	if query.Get("port") == "" && query.Get("ip") == "" {
-		return nil
-	}
-
-	port, err := queryPort(query.Get("port"))
+	address, err := netip.ParseAddrPort(requester.Addr.String())
 	if err != nil {
-		return err
+		return netip.Addr{}, false
 	}
 
-	var ip netip.Addr
-	if value := query.Get("ip"); value != "" {
-		ip, err = netip.ParseAddr(value)
+	return address.Addr().Unmap(), true
+}
+
+// peerClients keeps one connection per remote agent, so refreshes reuse it.
+type peerClients struct {
+	mu      sync.Mutex
+	port    string
+	options []grpc.DialOption
+	conns   map[netip.Addr]*grpc.ClientConn
+}
+
+func newPeerClients(cfg *MetadataConfig, clientTLS *tls.Config, options ...grpc.DialOption) *peerClients {
+	transport := insecure.NewCredentials()
+	if clientTLS != nil {
+		transport = credentials.NewTLS(clientTLS)
+	}
+
+	// Cap reconnection backoff like peer refreshes, so a recovered agent is not probed later than its retry.
+	reconnect := grpcbackoff.DefaultConfig
+	reconnect.MaxDelay = backoff(cfg.RefreshInterval, maxFailures)
+
+	return &peerClients{
+		port: strconv.Itoa(cfg.Port),
+		options: append([]grpc.DialOption{
+			grpc.WithTransportCredentials(transport),
+			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cfg.MaxResponseBytes)),
+			grpc.WithConnectParams(grpc.ConnectParams{Backoff: reconnect, MinConnectTimeout: cfg.RequestTimeout}),
+			grpc.WithIdleTimeout(3 * cfg.RefreshInterval),
+			// Callers are scoped to the TCP source address, so peers must be dialed directly, never through a proxy.
+			grpc.WithNoProxy(),
+		}, options...),
+		conns: map[netip.Addr]*grpc.ClientConn{},
+	}
+}
+
+func (c *peerClients) get(address netip.Addr) (metadatapb.PeerMetadataServiceClient, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	conn, exists := c.conns[address]
+	if !exists {
+		var err error
+		conn, err = grpc.NewClient(net.JoinHostPort(address.String(), c.port), c.options...)
 		if err != nil {
-			return errors.New("ip must be an IP address")
+			return nil, err
 		}
-		ip = ip.Unmap()
+		c.conns[address] = conn
 	}
 
-	listeners := make([]Listener, 0)
-	services := map[Service]struct{}{}
-	for _, listener := range snapshot.Listeners {
-		addr, _ := netip.ParseAddr(listener.Endpoint.IP)
-		if port != 0 && listener.Endpoint.Port != port {
-			continue
-		}
-
-		if ip.IsValid() && ip != addr && !addr.IsUnspecified() {
-			continue
-		}
-
-		if ip.Is6() && addr.Is4() {
-			continue
-		}
-
-		listeners = append(listeners, listener)
-		services[listener.Service] = struct{}{}
-	}
-
-	snapshot.Listeners = listeners
-	snapshot.Services = slices.AppendSeq(make([]Service, 0, len(services)), maps.Keys(services))
-	return nil
+	return metadatapb.NewPeerMetadataServiceClient(conn), nil
 }
 
-func queryPort(value string) (int, error) {
-	if value == "" {
-		return 0, nil
-	}
+// retain closes the connections to the addresses that keep rejects.
+func (c *peerClients) retain(keep func(netip.Addr) bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	port, err := strconv.Atoi(value)
-	if err != nil || port < 1 || port > 65535 {
-		return 0, errors.New("port must be between 1 and 65535")
+	for address, conn := range c.conns {
+		if !keep(address) {
+			_ = conn.Close()
+			delete(c.conns, address)
+		}
 	}
-
-	return port, nil
 }
 
-func writeSnapshot(w http.ResponseWriter, snapshot Snapshot, limit int) {
-	data, err := json.Marshal(snapshot)
-	if err != nil || len(data) > limit {
-		http.Error(w, "metadata response exceeds size limit", http.StatusServiceUnavailable)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Cache-Control", "no-store")
-
-	_, _ = w.Write(data)
+func (c *peerClients) close() {
+	c.retain(func(netip.Addr) bool { return false })
 }
 
-func fetchSnapshot(ctx context.Context, client *http.Client, cfg MetadataConfig, address netip.Addr) (*Snapshot, int, error) {
-	scheme := "http"
-	if cfg.TLS.Enabled {
-		scheme = "https"
-	}
-
-	u := url.URL{
-		Scheme: scheme,
-		Host:   net.JoinHostPort(address.String(), strconv.Itoa(cfg.Port)),
-		Path:   MetadataPath,
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return nil, 0, err
-	}
+func fetchSnapshot(ctx context.Context, client metadatapb.PeerMetadataServiceClient, cfg *MetadataConfig) (*Snapshot, int, error) {
+	ctx, cancel := context.WithTimeout(ctx, cfg.RequestTimeout)
+	defer cancel()
 
 	if cfg.Token != "" {
-		req.Header.Set("Authorization", "Bearer "+cfg.Token)
+		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+cfg.Token)
 	}
 
-	response, err := client.Do(req)
+	message, err := client.GetSnapshot(ctx, &metadatapb.GetSnapshotRequest{})
 	if err != nil {
 		return nil, 0, err
 	}
 
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		return nil, 0, fmt.Errorf("peer metadata returned HTTP %d", response.StatusCode)
-	}
-
-	data, err := io.ReadAll(io.LimitReader(response.Body, int64(cfg.MaxResponseBytes)+1))
-	if err != nil {
-		return nil, 0, err
-	}
-
-	if len(data) > cfg.MaxResponseBytes {
-		return nil, 0, errors.New("peer metadata response exceeds size limit")
-	}
-
-	var snapshot Snapshot
-	if err := json.Unmarshal(data, &snapshot); err != nil {
-		return nil, 0, err
-	}
-
+	snapshot := snapshotFromProto(message)
 	if err := validateSnapshot(&snapshot, cfg.CallerTTL); err != nil {
 		return nil, 0, err
 	}
 
-	return &snapshot, len(data), nil
+	return &snapshot, proto.Size(message), nil
 }
 
 func validateSnapshot(snapshot *Snapshot, callerTTL time.Duration) error {
-	if snapshot.Version != ProtocolVersion || !validName(snapshot.Hostname) {
-		return errors.New("invalid peer metadata version or hostname")
+	if !validName(snapshot.Hostname) {
+		return errors.New("invalid peer metadata hostname")
 	}
 
 	for _, service := range snapshot.Services {

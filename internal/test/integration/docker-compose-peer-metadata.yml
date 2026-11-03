@@ -51,6 +51,14 @@ services:
     depends_on:
       - client
 
+  # Queries the client agent from the server's network namespace, so caller observations are scoped to the server.
+  server-grpcurl:
+    image: fullstorydev/grpcurl:v1.9.3@sha256:085e183ca334eb4e81ca81ee12cbb2b2737505d1d77f5e33dabc5d066593d998
+    profiles: [tools]
+    network_mode: service:server
+    volumes:
+      - ../../../proto:/proto:ro
+
   obi:
     build:
       context: ../../..

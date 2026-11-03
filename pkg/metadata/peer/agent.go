@@ -49,7 +49,7 @@ func New(ctx context.Context, cfg MetadataConfig, hostname string, serviceGraphE
 		store.metricProtocols = *metricProtocols
 	}
 
-	exchange, err := newExchange(ctx, cfg, store, network)
+	exchange, err := newExchange(cfg, store, network)
 	if err != nil {
 		return nil, err
 	}

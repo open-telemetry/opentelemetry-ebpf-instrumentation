@@ -5,11 +5,7 @@ package appolly
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
-	"strconv"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -19,6 +15,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/metadata/peer"
@@ -71,20 +68,14 @@ func TestPeerMetadataServiceGraphEligibility(t *testing.T) {
 				done := pipeline.Start(ctx)
 				defer func() { cancel(); require.NoError(t, <-done) }()
 
-				client := &http.Client{Timeout: time.Second}
-				defer client.CloseIdleConnections()
-				endpoint := "http://127.0.0.1:" + strconv.Itoa(cfg.PeerMetadata.Port) + peer.MetadataPath
-				response, err := client.Get(endpoint)
+				snapshot, err := testutil.PeerMetadataSnapshot(t.Context(), cfg.PeerMetadata.Port)
 				require.NoError(t, err)
-				defer response.Body.Close()
-				require.Equal(t, http.StatusOK, response.StatusCode)
-				var snapshot peer.Snapshot
-				require.NoError(t, json.NewDecoder(response.Body).Decode(&snapshot))
-				require.Equal(t, "peer-host", snapshot.Hostname)
-				require.Empty(t, snapshot.Listeners)
+				require.Equal(t, "peer-host", snapshot.GetHostname())
+				require.Empty(t, snapshot.GetListeners())
 				if test.wantGraph {
 					require.NotNil(t, snapshot.MetricProtocols)
-					require.True(t, snapshot.MetricProtocols.HTTPEnabled())
+					protocols := instrumentations.InstrumentationSelection(snapshot.GetMetricProtocols())
+					require.True(t, protocols.HTTPEnabled())
 				} else {
 					require.Nil(t, snapshot.MetricProtocols, "application metrics alone must not suppress remote client graph counts")
 				}

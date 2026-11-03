@@ -91,7 +91,6 @@ func (s *centralStore) lookup(address netip.Addr, requester []netip.Addr, now ti
 
 	age := now.Sub(host.published).Milliseconds()
 	snapshot := Snapshot{
-		Version:               ProtocolVersion,
 		Hostname:              host.snapshot.Hostname,
 		Services:              slices.Clone(host.snapshot.Services),
 		Listeners:             slices.Clone(host.snapshot.Listeners),

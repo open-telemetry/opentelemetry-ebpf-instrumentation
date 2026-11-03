@@ -116,7 +116,6 @@ func (s *localStore) snapshot(targets map[string]struct{}, now time.Time) Snapsh
 	defer s.mu.RUnlock()
 
 	snapshot := Snapshot{
-		Version:               ProtocolVersion,
 		Hostname:              s.hostname,
 		Services:              append([]Service{}, s.services...),
 		Listeners:             append([]Listener{}, s.listeners...),

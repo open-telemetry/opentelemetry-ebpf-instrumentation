@@ -31,7 +31,7 @@ message Caller {
   repeated CallerService services = 2;
 }
 
-// Snapshot carries the same metadata as the peer-to-peer HTTP response.
+// Snapshot is the metadata an agent shares about its host.
 message Snapshot {
   string hostname = 1;
   repeated Service services = 2;
@@ -69,4 +69,12 @@ message LookupResponse {
 service MetadataService {
   rpc Publish(PublishRequest) returns (PublishResponse);
   rpc Lookup(LookupRequest) returns (LookupResponse);
+}
+
+message GetSnapshotRequest {}
+
+// PeerMetadataService serves an agent's own metadata to the other agents in peer mode.
+// Caller observations are limited to the requester's source address.
+service PeerMetadataService {
+  rpc GetSnapshot(GetSnapshotRequest) returns (Snapshot);
 }

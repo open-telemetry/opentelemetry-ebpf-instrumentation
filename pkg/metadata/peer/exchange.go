@@ -23,10 +23,10 @@ type exchange interface {
 	close()
 }
 
-func newExchange(ctx context.Context, cfg MetadataConfig, store *localStore, network network) (exchange, error) {
+func newExchange(cfg MetadataConfig, store *localStore, network network) (exchange, error) {
 	switch cfg.Mode {
 	case ModePeer:
-		return newPeerExchange(ctx, cfg, store, network)
+		return newPeerExchange(cfg, store, network)
 	case ModeCentral:
 		return nil, errors.New("peer metadata central mode is not implemented yet")
 	default:
