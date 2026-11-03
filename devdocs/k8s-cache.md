@@ -237,8 +237,10 @@ On OBI, the TLS settings are only available in config v2. The cache
 certificate must be valid for the host in `address`:
 
 ```yaml
+file_format: "1.0"
 extensions:
   obi:
+    version: "2.0"
     enrich:
       enrichers:
         kubernetes:
