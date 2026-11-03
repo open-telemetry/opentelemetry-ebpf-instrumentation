@@ -4,6 +4,10 @@
 package fastelf
 
 import (
+	"bytes"
+	"debug/elf"
+	"encoding/binary"
+	"fmt"
 	"math"
 	"os"
 	"testing"
@@ -11,6 +15,115 @@ import (
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestElfContextFromELFBorrowsFile(t *testing.T) {
+	requireNativeFixture(t, libbsd_so_0_12_2)
+	path, cleanup, err := writeTempFile(libbsd_so_0_12_2)
+	require.NoError(t, err)
+	defer cleanup()
+	f, err := elf.Open(path)
+	require.NoError(t, err)
+	defer f.Close()
+	ctx, err := NewElfContextFromELF(f)
+	require.NoError(t, err)
+	require.NoError(t, ctx.Close())
+	symbols, err := f.DynamicSymbols()
+	require.NoError(t, err)
+	require.NotEmpty(t, symbols)
+}
+
+func TestElfContextRejectsUnsupportedFormats(t *testing.T) {
+	data := bytes.Clone(minimal_elf)
+	data[elf.EI_CLASS] = byte(elf.ELFCLASS32)
+	_, err := NewElfContextFromData(data)
+	require.ErrorContains(t, err, "only ELF64")
+}
+
+func TestFastElfExtendedSectionCountOutOfBounds(t *testing.T) {
+	for _, count := range []uint64{uint64(elf.SHN_LORESERVE), math.MaxUint64} {
+		t.Run(fmt.Sprintf("sections=%d", count), func(t *testing.T) {
+			header := Elf64_Ehdr{
+				Shoff:     uint64(binary.Size(Elf64_Ehdr{})),
+				Shentsize: uint16(binary.Size(Elf64_Shdr{})),
+			}
+			copy(header.Ident[:], elf.ELFMAG)
+			header.Ident[elf.EI_CLASS] = byte(elf.ELFCLASS64)
+			var data bytes.Buffer
+			require.NoError(t, binary.Write(&data, binary.NativeEndian, header))
+			require.NoError(t, binary.Write(&data, binary.NativeEndian, Elf64_Shdr{Size: count}))
+			_, err := NewElfContextFromData(data.Bytes())
+			require.ErrorContains(t, err, "section table exceeds file bounds")
+		})
+	}
+}
+
+func TestFastElfNativeByteOrder(t *testing.T) {
+	strtab := []byte("\x00.symtab\x00.strtab\x00target\x00")
+	symbols := []Elf64_Sym{{}, {
+		Name: uint32(bytes.Index(strtab, []byte("target"))), Info: STT_FUNC, Other: 1,
+		Shndx: 2, Value: 0x123456789abcdef0, Size: 0x10203040,
+	}}
+	sections := []Elf64_Shdr{{}, {
+		Name: uint32(bytes.Index(strtab, []byte(".strtab"))), Type: SHT_STRTAB,
+		Size: uint64(len(strtab)),
+	}, {
+		Name: uint32(bytes.Index(strtab, []byte(".symtab"))), Type: SHT_SYMTAB,
+		Size: uint64(binary.Size(symbols)), Link: 1, Entsize: elf.Sym64Size,
+	}}
+	header := Elf64_Ehdr{
+		Type: uint16(elf.ET_DYN), Machine: uint16(elf.EM_S390), Version: uint32(elf.EV_CURRENT),
+		Entry: 0x123456789abcdef0, Flags: 0x12345678, Phnum: 1,
+		Shnum: uint16(len(sections)), Shstrndx: 1,
+	}
+	copy(header.Ident[:], elf.ELFMAG)
+	header.Ident[elf.EI_CLASS] = byte(elf.ELFCLASS64)
+	header.Ident[elf.EI_VERSION] = byte(elf.EV_CURRENT)
+	header.Ident[elf.EI_DATA] = byte(elf.ELFDATA2LSB)
+	if binary.NativeEndian.Uint16([]byte{1, 0}) != 1 {
+		header.Ident[elf.EI_DATA] = byte(elf.ELFDATA2MSB)
+	}
+	program := Elf64_Phdr{Type: PT_LOAD, Flags: PF_R | PF_X, Vaddr: 0x123456789abc0000, Align: 0x1000}
+	header.Ehsize = uint16(binary.Size(header))
+	header.Phentsize = uint16(binary.Size(program))
+	header.Shentsize = uint16(binary.Size(Elf64_Shdr{}))
+	header.Phoff = uint64(header.Ehsize)
+	header.Shoff = header.Phoff + uint64(header.Phentsize)
+	sections[1].Offset = header.Shoff + uint64(binary.Size(sections))
+	sections[2].Offset = sections[1].Offset + sections[1].Size
+	program.Filesz = sections[2].Offset + sections[2].Size
+	program.Memsz = program.Filesz
+	var data bytes.Buffer
+	for _, value := range []any{header, program, sections, strtab, symbols} {
+		require.NoError(t, binary.Write(&data, binary.NativeEndian, value))
+	}
+	ctx, err := NewElfContextFromData(data.Bytes())
+	require.NoError(t, err)
+	require.Equal(t, header, *ctx.Hdr)
+	require.Equal(t, program, *ctx.Segments[0])
+	for i, section := range sections {
+		require.Equal(t, section, *ctx.Sections[i])
+	}
+	raw := ReadStruct[Elf64_Sym](ctx.Data, int(sections[2].Offset)+elf.Sym64Size)
+	require.NotNil(t, raw)
+	require.Equal(t, symbols[1], *raw)
+	require.True(t, ctx.HasSymbol("target"))
+	require.True(t, ctx.HasSection(".symtab"))
+}
+
+func TestGetCStringUnsafeUnterminated(t *testing.T) {
+	require.Empty(t, GetCStringUnsafe([]byte("unterminated"), 0))
+}
+
+func requireNativeFixture(t *testing.T, data []byte) {
+	t.Helper()
+	encoding := byte(elf.ELFDATA2LSB)
+	if binary.NativeEndian.Uint16([]byte{1, 0}) != 1 {
+		encoding = byte(elf.ELFDATA2MSB)
+	}
+	if data[elf.EI_DATA] != encoding {
+		t.Skip("fixture uses a non-native byte order")
+	}
+}
 
 func writeTempFile(data []byte) (name string, cleanup func(), err error) {
 	tmpFile, err := os.CreateTemp("", "tempdata-*.bin")
@@ -43,6 +156,7 @@ func testFastElf(t *testing.T, ctx *ElfContext) {
 }
 
 func TestFastElf_Data(t *testing.T) {
+	requireNativeFixture(t, libbsd_so_0_12_2)
 	ctx, err := NewElfContextFromData(libbsd_so_0_12_2)
 	require.NoError(t, err)
 
@@ -50,6 +164,7 @@ func TestFastElf_Data(t *testing.T) {
 }
 
 func TestFastElf_File(t *testing.T) {
+	requireNativeFixture(t, libbsd_so_0_12_2)
 	filePath, cleanup, err := writeTempFile(libbsd_so_0_12_2)
 
 	require.NoError(t, err)
@@ -63,6 +178,7 @@ func TestFastElf_File(t *testing.T) {
 }
 
 func TestFastElf_FileNoSections(t *testing.T) {
+	requireNativeFixture(t, minimal_elf)
 	filePath, cleanup, err := writeTempFile(minimal_elf)
 
 	require.NoError(t, err)
