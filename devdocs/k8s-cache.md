@@ -203,15 +203,54 @@ the fan-out to OBI clients. If you need HA, run multiple replicas behind the
 same `Service` — each OBI instance connects to one of them and will reconnect
 to another on failure.
 
-The k8s-cache gRPC endpoint currently uses plaintext gRPC without built-in
+By default the k8s-cache gRPC endpoint uses plaintext gRPC without
 authentication or authorization. A subscriber receives the current Kubernetes
 metadata snapshot and future updates, including pod, service, and node metadata
 used by OBI for enrichment. Do not expose this `Service` to pods or namespaces
-that are not trusted to read that metadata.
+that are not trusted to read that metadata, or turn on
+[mutual TLS](#securing-the-connection-with-tls) so that only clients with a
+trusted certificate can subscribe.
 
 If your CNI does not enforce `NetworkPolicy` for the selected source pods, use
 an equivalent CNI-specific host policy, firewall rule, service-mesh mTLS
 policy, or another authenticated proxy in front of k8s-cache.
+
+### Securing the connection with TLS
+
+The k8s-cache can serve gRPC over TLS, and can require client certificates
+(mutual TLS). Plaintext stays the default. On the k8s-cache:
+
+```yaml
+env:
+  - name: OTEL_EBPF_K8S_CACHE_TLS_ENABLED
+    value: "true"
+  - name: OTEL_EBPF_K8S_CACHE_TLS_CERT_FILE
+    value: /etc/k8s-cache/tls/tls.crt
+  - name: OTEL_EBPF_K8S_CACHE_TLS_KEY_FILE
+    value: /etc/k8s-cache/tls/tls.key
+  # Only clients with a certificate signed by this CA can subscribe.
+  - name: OTEL_EBPF_K8S_CACHE_TLS_CLIENT_CA_FILE
+    value: /etc/k8s-cache/tls/ca.crt
+```
+
+On OBI, the TLS settings are only available in config v2. The cache
+certificate must be valid for the host in `address`:
+
+```yaml
+extensions:
+  obi:
+    enrich:
+      enrichers:
+        kubernetes:
+          metadata_cache:
+            address: k8s-cache.default.svc:50055
+            tls:
+              enabled: true
+              ca_file: /etc/obi/tls/ca.crt
+              # Only needed when the k8s-cache requires client certificates.
+              cert_file: /etc/obi/tls/client.crt
+              key_file: /etc/obi/tls/client.key
+```
 
 ### Running locally for development
 
@@ -245,6 +284,10 @@ Configuration is loaded in this order (later overrides earlier):
 | `informer_send_timeout`  | `OTEL_EBPF_K8S_CACHE_INFORMER_SEND_TIMEOUT`            | `10s`          | Per-message send deadline before a slow subscriber connection is closed.  |
 | `internal_metrics.port`  | `OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PORT` | `0` (disabled) | If non-zero, serves Prometheus metrics.                                   |
 | `internal_metrics.path`  | `OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PATH` | `/metrics`     | Metrics endpoint path.                                                    |
+| `tls.enabled`            | `OTEL_EBPF_K8S_CACHE_TLS_ENABLED`                      | `false`        | Serves gRPC over TLS. Requires `tls.cert_file` and `tls.key_file`.        |
+| `tls.cert_file`          | `OTEL_EBPF_K8S_CACHE_TLS_CERT_FILE`                    | (none)         | PEM certificate of the service.                                           |
+| `tls.key_file`           | `OTEL_EBPF_K8S_CACHE_TLS_KEY_FILE`                     | (none)         | PEM private key of the service.                                           |
+| `tls.client_ca_file`     | `OTEL_EBPF_K8S_CACHE_TLS_CLIENT_CA_FILE`               | (none)         | If set, requires client certificates signed by this CA (mutual TLS).      |
 
 Also worth knowing:
 
