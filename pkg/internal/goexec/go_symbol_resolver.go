@@ -4,6 +4,7 @@
 package goexec // import "go.opentelemetry.io/obi/pkg/internal/goexec"
 
 import (
+	"fmt"
 	"os"
 	"runtime"
 	"runtime/debug"
@@ -31,13 +32,34 @@ type GoSymbolResolver struct {
 
 // NewGoSymbolResolver maps file until Close, but does not take ownership of it.
 func NewGoSymbolResolver(file *os.File) (*GoSymbolResolver, error) {
-	elfFile, err := pfelf.NewFile(file, 0, false)
+	return newGoSymbolResolver(func() (*pfelf.File, error) {
+		return pfelf.NewFile(file, 0, false)
+	})
+}
+
+func newGoSymbolResolver(openELF func() (*pfelf.File, error)) (resolver *GoSymbolResolver, err error) {
+	previousPanicOnFault := debug.SetPanicOnFault(true)
+	defer debug.SetPanicOnFault(previousPanicOnFault)
+	defer func() {
+		if value := recover(); value != nil {
+			if _, ok := value.(goMappedMemoryFault); !ok {
+				panic(value)
+			}
+			resolver, err = nil, fmt.Errorf("Go symbol mapping fault: %v", value)
+		}
+	}()
+
+	elfFile, err := openELF()
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if resolver == nil {
+			_ = elfFile.Close()
+		}
+	}()
 	table, err := elfunwindinfo.NewGopclntab(elfFile)
 	if err != nil {
-		_ = elfFile.Close()
 		return nil, err
 	}
 	return &GoSymbolResolver{elf: elfFile, table: table}, nil

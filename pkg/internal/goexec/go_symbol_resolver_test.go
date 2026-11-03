@@ -8,9 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/ebpf-profiler/libpf/pfelf"
 )
 
 //go:noinline
@@ -90,4 +92,36 @@ func TestGoSymbolResolverTruncatedExecutable(t *testing.T) {
 
 	_, ok = resolver.PCToFrame(pc)
 	require.False(t, ok)
+}
+
+func TestGoSymbolResolverTruncatedDuringConstruction(t *testing.T) {
+	executable, err := os.Executable()
+	require.NoError(t, err)
+	source, err := os.Open(executable)
+	require.NoError(t, err)
+	defer source.Close()
+	path := filepath.Join(t.TempDir(), "constructor-truncated-elf")
+	destination, err := os.Create(path)
+	require.NoError(t, err)
+	defer destination.Close()
+	_, err = io.Copy(destination, source)
+	require.NoError(t, err)
+
+	previous := debug.SetPanicOnFault(false)
+	defer debug.SetPanicOnFault(previous)
+	resolver, err := newGoSymbolResolver(func() (*pfelf.File, error) {
+		mapped, err := pfelf.NewFile(destination, 0, false)
+		require.NoError(t, err)
+		require.NotNil(t, mapped.Section(".gopclntab"))
+		require.NoError(t, destination.Truncate(0))
+		return mapped, nil
+	})
+	require.Nil(t, resolver)
+	require.ErrorContains(t, err, "Go symbol mapping fault")
+	restored := debug.SetPanicOnFault(false)
+	require.False(t, restored)
+	// Closing the failed constructor's ELF must release its mapping.
+	maps, err := os.ReadFile("/proc/self/maps")
+	require.NoError(t, err)
+	require.NotContains(t, string(maps), path)
 }
