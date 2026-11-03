@@ -18,6 +18,7 @@ func TestStat_GoStatMetrics(t *testing.T) {
 	compose.Env = append(compose.Env, `TEST_SERVICE_PORTS=8381:8080`, `OTEL_EBPF_CONFIG_SUFFIX=-go-stat-metrics`, `PROM_CONFIG_SUFFIX=-promscrape-otel`)
 	require.NoError(t, compose.Up())
 	t.Run("Go Stat Metrics TCP RTT tests", testStatMetricsTCPRttGo)
+	t.Run("Go Stat Metrics TCP RTT role after shutdown tests", testStatMetricsTCPRttRoleAfterShutdownGo)
 	t.Run("Go Stat Metrics TCP Failed Connection tests", testStatMetricsTCPFailedConnectionsGo)
 	t.Run("Go Stat Metrics TCP Successful Connection tests", testStatMetricsTCPSuccessfulConnectionsGo)
 	t.Run("Go Stat Metrics TCP Retransmits tests", testStatMetricsTCPRetransmitsGo)
