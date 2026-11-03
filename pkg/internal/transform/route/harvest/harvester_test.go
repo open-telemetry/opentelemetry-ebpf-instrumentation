@@ -456,7 +456,7 @@ func TestFindScriptDirectory(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app", "nested", "deep"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "outside"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "src"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "src", "node_modules", ".bin"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "workdir"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "app", "server.js"), []byte(""), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "app", "nested", "deep", "file.js"), []byte(""), 0o644))
@@ -539,6 +539,55 @@ func TestFindScriptDirectory(t *testing.T) {
 			firstArg: "index.js",
 			cwd:      "/",
 			expected: tempDir + "/",
+		},
+		{
+			name:     "relative path outside cwd",
+			root:     tempDir,
+			firstArg: "../app/server.js",
+			cwd:      "/workdir",
+			expected: filepath.Join(tempDir, "app") + "/",
+		},
+		{
+			name:     "relative path outside cwd after cleaning",
+			root:     tempDir,
+			firstArg: "./nested/../../app/server.js",
+			cwd:      "/workdir",
+			expected: filepath.Join(tempDir, "app") + "/",
+		},
+		{
+			name:     "relative directory outside cwd",
+			root:     tempDir,
+			firstArg: "../app",
+			cwd:      "/workdir",
+			expected: filepath.Join(tempDir, "app") + "/",
+		},
+		{
+			name:     "relative path outside cwd stays inside process root",
+			root:     tempDir,
+			firstArg: "../../../outside/server.js",
+			cwd:      "/workdir",
+			expected: filepath.Join(tempDir, "outside") + "/",
+		},
+		{
+			name:     "missing relative path outside cwd falls back to cwd",
+			root:     tempDir,
+			firstArg: "../missing/server.js",
+			cwd:      "/workdir",
+			expected: filepath.Join(tempDir, "workdir") + "/",
+		},
+		{
+			name:     "relative path inside cwd scans cwd",
+			root:     tempDir,
+			firstArg: "nested/deep/file.js",
+			cwd:      "/app",
+			expected: filepath.Join(tempDir, "app") + "/",
+		},
+		{
+			name:     "relative path through node_modules scans cwd",
+			root:     tempDir,
+			firstArg: "../src/node_modules/.bin/tool.js",
+			cwd:      "/workdir",
+			expected: filepath.Join(tempDir, "workdir") + "/",
 		},
 	}
 

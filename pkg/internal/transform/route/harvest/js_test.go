@@ -1751,6 +1751,81 @@ func TestFindDenoAppDir(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, filepath.Join(tempDir, "app")+string(filepath.Separator), dir)
 	})
+
+	t.Run("relative entry point outside cwd", func(t *testing.T) {
+		cmdlineForPID = func(app.PID) (string, []string, error) {
+			return "deno", []string{"run", "-A", "../app/server.ts"}, nil
+		}
+
+		dir, err := FindDenoAppDir(12345)
+
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(tempDir, "app")+string(filepath.Separator), dir)
+	})
+}
+
+func TestExtractNodejsRoutes_RelativeEntryPoint(t *testing.T) {
+	origRootDir := rootDirForPID
+	origCmdline := cmdlineForPID
+	origCwd := cwdForPID
+	t.Cleanup(func() {
+		rootDirForPID = origRootDir
+		cmdlineForPID = origCmdline
+		cwdForPID = origCwd
+	})
+
+	tempDir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+
+	writeRoute := func(path, route string) {
+		t.Helper()
+		fullPath := filepath.Join(tempDir, path)
+		require.NoError(t, os.MkdirAll(filepath.Dir(fullPath), 0o755))
+		require.NoError(t, os.WriteFile(fullPath, []byte(`app.get("`+route+`", handler);`), 0o644))
+	}
+	writeRoute("a/app/server.js", "/users/:userId")
+	writeRoute("a/run/local.js", "/local")
+	writeRoute("site/src/index.js", "/index")
+	writeRoute("site/routes/users.js", "/sibling")
+
+	tests := []struct {
+		name     string
+		cwd      string
+		args     []string
+		expected []string
+	}{
+		{
+			name:     "entry point outside cwd",
+			cwd:      "/a/run",
+			args:     []string{"../app/server.js"},
+			expected: []string{"/users/:userId"},
+		},
+		{
+			name:     "same script through an absolute path",
+			cwd:      "/a/run",
+			args:     []string{"/a/app/server.js"},
+			expected: []string{"/users/:userId"},
+		},
+		{
+			name:     "entry point inside cwd keeps its sibling sources",
+			cwd:      "/site",
+			args:     []string{"src/index.js"},
+			expected: []string{"/index", "/sibling"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootDirForPID = func(app.PID) string { return tempDir }
+			cmdlineForPID = func(app.PID) (string, []string, error) { return "node", tt.args, nil }
+			cwdForPID = func(app.PID) (string, error) { return tt.cwd, nil }
+
+			result, err := ExtractNodejsRoutes(t.Context(), 12345)
+
+			require.NoError(t, err)
+			assert.ElementsMatch(t, tt.expected, result.Routes)
+		})
+	}
 }
 
 func TestExtractNodejsRoutes_EmptyDirectory(t *testing.T) {

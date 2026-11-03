@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -265,7 +266,19 @@ func isDir(path string) bool {
 // for testing purposes
 var isDirFunc = isDir
 
+func relativeScriptOutsideCwd(script string) bool {
+	if script == "" || filepath.IsAbs(script) || filepath.IsLocal(script) {
+		return false
+	}
+
+	return !slices.Contains(strings.Split(filepath.Clean(script), string(filepath.Separator)), "node_modules")
+}
+
 func FindScriptDirectory(root, firstArg, cwd string) string {
+	if relativeScriptOutsideCwd(firstArg) {
+		firstArg = langtools.AbsoluteProcessPath(cwd, firstArg)
+	}
+
 	if strings.HasPrefix(firstArg, "/") {
 		if dir := resolveProcessDirectory(root, firstArg); dir != "" {
 			return dir
