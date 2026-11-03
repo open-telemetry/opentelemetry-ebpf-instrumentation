@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
 	"go.opentelemetry.io/obi/pkg/internal/testutil"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 )
@@ -67,6 +69,33 @@ func TestClientForwardsLastTimestamp(t *testing.T) {
 	// THEN the client sends another subscription message, with the timestamp of the last received event
 	secondSubscribe := testutil.ReadChannel(t, fcs.clientMessages, timeout)
 	assert.Equal(t, itemTime, secondSubscribe.FromTimestampEpoch)
+}
+
+func TestClientConnectsOverMutualTLS(t *testing.T) {
+	ca := testutil.NewTestCA(t)
+	serverCert, serverKey := ca.Issue(t)
+	clientCert, clientKey := ca.Issue(t)
+	serverCreds, err := kubecache.TLSConfig{Enabled: true, CertFile: serverCert, KeyFile: serverKey, ClientCAFile: ca.File}.Credentials()
+	require.NoError(t, err)
+	fcs := startFakeCacheService(t, grpc.Creds(serverCreds))
+	fcs.serverResponses <- &informer.Event{Type: informer.EventType_SYNC_FINISHED}
+
+	svc := cacheSvcClient{
+		address:                  fmt.Sprintf("127.0.0.1:%d", fcs.port),
+		tls:                      kubecache.ClientTLSConfig{Enabled: true, CAFile: ca.File, CertFile: clientCert, KeyFile: clientKey},
+		BaseNotifier:             meta.NewBaseNotifier(klog()),
+		syncTimeout:              timeout,
+		reconnectInitialInterval: 10 * time.Millisecond,
+	}
+	svc.Start(t.Context())
+	svc.Subscribe(dummySubscriber{})
+
+	testutil.ReadChannel(t, fcs.clientMessages, timeout)
+	select {
+	case <-svc.waitForSynchronization:
+	case <-time.After(timeout):
+		t.Fatal("client never received the cache events over mutual TLS")
+	}
 }
 
 func TestNormalizeReconnectInitialInterval(t *testing.T) {
@@ -137,15 +166,17 @@ type fakeCacheService struct {
 	err      atomic.Pointer[error]
 	server   *grpc.Server
 	listener net.Listener
+	opts     []grpc.ServerOption
 
 	clientMessages  chan *informer.SubscribeMessage
 	serverResponses chan *informer.Event
 }
 
-func startFakeCacheService(t *testing.T) *fakeCacheService {
+func startFakeCacheService(t *testing.T, opts ...grpc.ServerOption) *fakeCacheService {
 	fcs := &fakeCacheService{
 		clientMessages:  make(chan *informer.SubscribeMessage, 10),
 		serverResponses: make(chan *informer.Event, 10),
+		opts:            opts,
 	}
 	t.Cleanup(func() { fcs.server.Stop() })
 	fcs.Start()
@@ -153,7 +184,7 @@ func startFakeCacheService(t *testing.T) *fakeCacheService {
 }
 
 func (fcs *fakeCacheService) Start() {
-	fcs.server = grpc.NewServer()
+	fcs.server = grpc.NewServer(fcs.opts...)
 	informer.RegisterEventStreamServiceServer(fcs.server, fcs)
 
 	var err error
