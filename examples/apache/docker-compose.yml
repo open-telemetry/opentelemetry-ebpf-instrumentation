@@ -46,7 +46,7 @@ services:
       - edge-apache
 
   obi:
-    image: ${OBI_IMAGE:-otel/ebpf-instrument:v0.14.0@sha256:0b063b9ec47e10dd4503ce1dc21f273acd3c85ffc9c135f0b753ee64de9c0819}
+    image: ${OBI_IMAGE:-otel/ebpf-instrument:v0.15.2@sha256:101b5c773ac84545cac007ce3dbaf38bfb0e7091f26e813c08d649f35dca253e}
     container_name: obi-apache-example
     command:
       - --config=/config/obi-config.yaml
