@@ -51,6 +51,14 @@ services:
     depends_on:
       - client
 
+  # Queries the client agent from the server's network namespace, so caller observations are scoped to the server.
+  server-grpcurl:
+    image: fullstorydev/grpcurl:v1.9.3@sha256:085e183ca334eb4e81ca81ee12cbb2b2737505d1d77f5e33dabc5d066593d998
+    profiles: [tools]
+    network_mode: service:server
+    volumes:
+      - ../../../proto:/proto:ro
+
   obi:
     build:
       context: ../../..
@@ -100,7 +108,7 @@ services:
       - "16686:16686"
 
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.163.1@sha256:1175b03003053962012f5a231f5567f66a3e8fdb960c7835c0e48f7aa1555806
+    image: otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b
     command: ["--config=/etc/otelcol-config/otelcol-config.yml"]
     volumes:
       - ./configs:/etc/otelcol-config:ro

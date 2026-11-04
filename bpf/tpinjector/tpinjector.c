@@ -20,6 +20,7 @@
 #include <common/protocol_http_helpers.h>
 #include <common/protocol_http2_helpers.h>
 #include <common/protocol_tcp_helpers.h>
+#include <common/sampling.h>
 #include <common/scratch_mem.h>
 #include <common/ssl_connection.h>
 #include <common/tc_common.h>
@@ -341,6 +342,7 @@ struct tp_option {
     u8 len;
     unsigned char trace_id[TRACE_ID_SIZE_BYTES];
     unsigned char span_id[SPAN_ID_SIZE_BYTES];
+    u8 flags;
 };
 
 static __always_inline const char *tp_string_from_opt(const struct tp_option *opt) {
@@ -520,11 +522,13 @@ static __always_inline bool create_trace_info(const tailcall_ctx *t_ctx, tp_info
 
         __builtin_memcpy(tp_p->tp.trace_id, t_ctx->parent_tp.trace_id, sizeof(tp_p->tp.trace_id));
         __builtin_memcpy(tp_p->tp.parent_id, t_ctx->parent_tp.span_id, sizeof(tp_p->tp.parent_id));
+        tp_p->tp.flags = t_ctx->parent_tp.flags;
     } else {
         bpf_dbg_printk("generating tp info");
 
         new_trace_id(&tp_p->tp);
         __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+        sample_new_trace(&tp_p->tp);
     }
 
     return true;
@@ -640,6 +644,7 @@ static __always_inline void bpf_sock_ops_write_hdr_cb(struct bpf_sock_ops *skops
 
     __builtin_memcpy(opt.trace_id, tp_pid->tp.trace_id, sizeof(opt.trace_id));
     __builtin_memcpy(opt.span_id, tp_pid->tp.span_id, sizeof(opt.span_id));
+    opt.flags = tp_pid->tp.flags;
 
     const long ret = bpf_store_hdr_opt(skops, &opt, sizeof(opt), 0);
 
@@ -688,6 +693,8 @@ static __always_inline void bpf_sock_ops_parse_hdr_cb(struct bpf_sock_ops *skops
 
     __builtin_memcpy(tp.tp.trace_id, opt.trace_id, sizeof(tp.tp.trace_id));
     __builtin_memcpy(tp.tp.span_id, opt.span_id, sizeof(tp.tp.span_id));
+    // older OBI versions send the option without the flags byte
+    tp.tp.flags = (ret < (long)sizeof(opt)) ? k_flag_sampled : opt.flags;
 
     connection_info_t conn = get_connection_info_ops(skops);
     sort_connection_info(&conn);
@@ -1517,7 +1524,6 @@ int obi_packet_extender_parse_existing_tp(struct sk_msg_md *msg) {
     assign_parent_tp(t_ctx, &tp_p->tp, span_id);
 
     tp_p->tp.ts = bpf_ktime_get_ns();
-    tp_p->tp.flags = 1;
     tp_p->valid = 1;
     tp_p->written = 1;
     tp_p->pid = t_ctx->p_conn.pid;
@@ -1747,7 +1753,7 @@ static __always_inline bool decode_tp_value(const unsigned char *val, tp_info_t 
     }
     decode_hex(tp->trace_id, &val[k_tp_val_trace_id_start], TRACE_ID_CHAR_LEN);
     decode_hex(tp->span_id, &val[k_tp_val_span_id_start], SPAN_ID_CHAR_LEN);
-    tp->flags = 1;
+    decode_hex((unsigned char *)&tp->flags, &val[k_tp_val_flags_start], FLAGS_CHAR_LEN);
     return true;
 }
 

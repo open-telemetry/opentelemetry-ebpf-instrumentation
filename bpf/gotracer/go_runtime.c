@@ -73,7 +73,7 @@ static __always_inline void go_runtime_collect_histogram(u64 histogram_addr,
                                                          u64 underflow_offset,
                                                          u64 overflow_offset,
                                                          go_runtime_histogram_kind_t kind,
-                                                         const pid_info *pid,
+                                                         const pid_info_t *pid,
                                                          u64 generation) {
     if (!histogram_addr || underflow_offset % sizeof(u64)) {
         return;
@@ -282,7 +282,7 @@ typedef struct go_runtime_heap_stats_totals {
 static __always_inline void
 go_runtime_collect_heap_stats_totals(const go_runtime_metric_target_t *target,
                                      off_table_t *ot,
-                                     const pid_info *pid,
+                                     const pid_info_t *pid,
                                      bool collect_memory_used,
                                      bool collect_memory_allocations,
                                      go_runtime_heap_stats_totals_t *totals) {
@@ -436,7 +436,7 @@ go_runtime_collect_heap_stats_totals(const go_runtime_metric_target_t *target,
 
 static __always_inline void go_runtime_collect_heap_stats(const go_runtime_metric_target_t *target,
                                                           off_table_t *ot,
-                                                          const pid_info *pid,
+                                                          const pid_info_t *pid,
                                                           go_runtime_metric_snapshot_t *snapshot) {
     const bool collect_memory_used = target->available_mask & go_runtime_metric_valid_memory_used;
     const bool collect_memory_allocations =
@@ -610,8 +610,8 @@ struct {
 // the process (a sidecar with shareProcessNamespace), it cannot see the root
 // namespace tgid that task_pid() puts in host_pid.
 static __always_inline go_runtime_metric_target_t *
-go_runtime_metric_target_lookup(const pid_info *pid) {
-    pid_info key = *pid;
+go_runtime_metric_target_lookup(const pid_info_t *pid) {
+    pid_info_t key = *pid;
     key.host_pid = 0;
 
     return bpf_map_lookup_elem(&go_runtime_metric_targets, &key);
@@ -621,7 +621,7 @@ SEC("uprobe/go_runtime_metrics")
 int GUARDED_PROG(obi_uprobe_go_runtime_metrics, struct pt_regs *, ctx) {
     (void)ctx;
 
-    pid_info key = {};
+    pid_info_t key = {};
     task_pid(&key);
 
     bpf_dbg_printk("collecting Go runtime metrics pid=%d ns=%d", key.user_pid, key.ns);
@@ -687,7 +687,7 @@ int GUARDED_PROG(obi_uprobe_go_runtime_metrics, struct pt_regs *, ctx) {
 
 SEC("uprobe/go_runtime_gc_goal")
 int GUARDED_PROG(obi_uprobe_go_runtime_gc_goal, struct pt_regs *, ctx) {
-    pid_info key = {};
+    pid_info_t key = {};
     task_pid(&key);
 
     go_runtime_metric_target_t *target = go_runtime_metric_target_lookup(&key);
@@ -845,7 +845,8 @@ static __always_inline bool current_obi_handoff(struct pt_regs *ctx, chan_handof
         __builtin_memcpy(handoff->tp.trace_id, obi_ctx->trace_id, sizeof(handoff->tp.trace_id));
         __builtin_memcpy(handoff->tp.span_id, obi_ctx->span_id, sizeof(handoff->tp.span_id));
         *((u64 *)handoff->tp.parent_id) = 0;
-        handoff->tp.flags = 0;
+        // obi_ctx_info_t carries no flags, so fall back to the default for traces OBI starts
+        handoff->tp.flags = k_flag_sampled;
         return true;
     }
 

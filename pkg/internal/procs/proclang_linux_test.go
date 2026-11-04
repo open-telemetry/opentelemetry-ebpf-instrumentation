@@ -64,10 +64,10 @@ func symbolTablesContext(tables ...[]string) *fastelf.ElfContext {
 		symtab := make([]byte, symSize*len(names))
 		for i, name := range names {
 			sym := symtab[i*symSize : (i+1)*symSize]
-			binary.LittleEndian.PutUint32(sym[0:4], uint32(len(strtab)))
+			binary.NativeEndian.PutUint32(sym[0:4], uint32(len(strtab)))
 			sym[4] = byte(elf.STT_FUNC)
-			binary.LittleEndian.PutUint64(sym[8:16], 0x1000)
-			binary.LittleEndian.PutUint64(sym[16:24], 16)
+			binary.NativeEndian.PutUint64(sym[8:16], 0x1000)
+			binary.NativeEndian.PutUint64(sym[16:24], 16)
 			strtab = append(strtab, name...)
 			strtab = append(strtab, 0)
 		}

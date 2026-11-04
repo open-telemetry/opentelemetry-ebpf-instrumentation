@@ -116,6 +116,7 @@ func TestMakeServiceAttrs(t *testing.T) {
 	assert.Equal(t, "ns1", attrs.UID.Namespace)
 	assert.EqualValues(t, 1234, attrs.ProcPID)
 	assert.Equal(t, services.ExportModeUnset, attrs.ExportModes)
+	assert.Nil(t, attrs.SamplerConfig)
 
 	// Test with sampler and routes
 	sampler := &services.SamplerConfig{}
@@ -132,6 +133,7 @@ func TestMakeServiceAttrs(t *testing.T) {
 	}
 	attrs2 := ty.makeServiceAttrs(proc2)
 	assert.NotNil(t, attrs2.Sampler)
+	assert.Same(t, sampler, attrs2.SamplerConfig)
 	assert.NotNil(t, attrs2.CustomInRouteMatcher)
 	assert.NotNil(t, attrs2.CustomOutRouteMatcher)
 }

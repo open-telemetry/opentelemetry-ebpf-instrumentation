@@ -702,6 +702,24 @@ func TestWatcherKubeEnricherPublishesPodBeforeLaterProcessTermination(t *testing
 	assert.Equal(t, EventDeleted, deleted[0].Type)
 }
 
+func TestWatcherKubeEnricherForwardsExecutableReplacement(t *testing.T) {
+	output := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(1))
+	t.Cleanup(output.Close)
+	events := output.Subscribe()
+	store := kube.NewStore(&fakeInformer{}, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
+	wk := newWatcherKubeEnricher(store, nil, output)
+	process := ProcessAttrs{pid: containerPID, startTime: 100, executable: cacheKey{Dev: 1, Ino: 2}}
+	wk.containerByPID[containerPID] = container.Info{ContainerID: containerID}
+	wk.processByContainer[containerID] = []ProcessAttrs{process}
+	replacement := []Event[ProcessAttrs]{{Type: EventExecutableReplaced, Obj: process}}
+
+	wk.enrichProcessEvent(replacement)
+
+	require.Equal(t, replacement, testutil.ReadChannel(t, events, timeout))
+	require.NotContains(t, wk.containerByPID, app.PID(containerPID))
+	require.NotContains(t, wk.processByContainer, containerID)
+}
+
 func TestWatcherKubeEnricherDrainsPodEventsInBatches(t *testing.T) {
 	store := kube.NewStore(&fakeInformer{}, kube.ResourceLabels{}, nil, imetrics.NoopReporter{})
 	input := msg.NewQueue[[]Event[ProcessAttrs]](msg.ChannelBufferLen(10))

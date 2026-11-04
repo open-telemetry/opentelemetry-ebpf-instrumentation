@@ -22,6 +22,7 @@
 #include <common/go_addr_key.h>
 #include <common/map_sizing.h>
 #include <common/pin_internal.h>
+#include <common/sampling.h>
 #include <common/strings.h>
 #include <common/trace_helpers.h>
 #include <common/trace_util.h>
@@ -236,14 +237,13 @@ static __always_inline void tp_clone(tp_info_t *dest, tp_info_t *src) {
 
 static __always_inline void
 server_trace_parent(void *goroutine_addr, tp_info_t *tp, tp_info_t *found_tp) {
-    // May get overridden when decoding existing traceparent, but otherwise we set sample ON
-    tp->flags = k_flag_sampled;
     tp->ts = bpf_ktime_get_ns();
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
     if (found_tp) {
         bpf_dbg_printk("Decoded from existing traceparent");
         __builtin_memcpy(tp, found_tp, sizeof(tp_info_t));
+        sample_remote_child(tp);
     } else {
         connection_info_t *info = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
         u8 found_info = 0;
@@ -279,6 +279,9 @@ server_trace_parent(void *goroutine_addr, tp_info_t *tp, tp_info_t *found_tp) {
             bpf_dbg_printk("No traceparent in headers, generating");
             urand_bytes(tp->trace_id, TRACE_ID_SIZE_BYTES);
             *((u64 *)tp->parent_id) = 0;
+            sample_new_trace(tp);
+        } else {
+            sample_remote_child(tp);
         }
     }
 
@@ -322,8 +325,6 @@ static __always_inline void update_tp_parent_go(go_addr_key_t *gp_key, tp_info_t
 static __always_inline u8 client_trace_parent(void *goroutine_addr, tp_info_t *tp_i) {
     u8 found_trace_id = 0;
 
-    // May get overridden when decoding existing traceparent or finding a server span, but otherwise we set sample ON
-    tp_i->flags = k_flag_sampled;
     // We set the time of the current client trace parent
     tp_i->ts = bpf_ktime_get_ns();
 
@@ -355,6 +356,7 @@ static __always_inline u8 client_trace_parent(void *goroutine_addr, tp_info_t *t
         if (!found_trace_id) {
             urand_bytes(tp_i->trace_id, TRACE_ID_SIZE_BYTES);
             bpf_memset(tp_i->parent_id, 0, sizeof(tp_i->parent_id));
+            sample_new_trace(tp_i);
         }
     }
 

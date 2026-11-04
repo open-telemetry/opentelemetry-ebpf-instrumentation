@@ -604,6 +604,7 @@ func TestSuite_Python(t *testing.T) {
 	t.Run("Python RED metrics", testREDMetricsPythonHTTP)
 	t.Run("Python RED metrics with timeouts", testREDMetricsTimeoutPythonHTTP)
 	t.Run("Python DNS RED metrics", testREDMetricsDNSPython)
+	t.Run("Python forked children", testForkedChildrenPython)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

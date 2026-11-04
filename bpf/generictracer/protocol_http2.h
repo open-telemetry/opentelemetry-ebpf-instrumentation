@@ -13,6 +13,7 @@
 #include <common/scratch_mem.h>
 #include <common/http_buf_size.h>
 #include <common/ringbuf.h>
+#include <common/sampling.h>
 #include <common/trace_lifecycle.h>
 #include <common/trace_parent.h>
 
@@ -99,6 +100,7 @@ static __always_inline u8 adopt_injected_trace(http2_conn_stream_t *s_key, tp_in
         bpf_memcpy(tp->trace_id, injected->tp.trace_id, TRACE_ID_SIZE_BYTES);
         bpf_memcpy(tp->span_id, injected->tp.span_id, SPAN_ID_SIZE_BYTES);
         bpf_memcpy(tp->parent_id, injected->tp.parent_id, SPAN_ID_SIZE_BYTES);
+        tp->flags = injected->tp.flags;
 
         return 1;
     }
@@ -205,6 +207,9 @@ static __always_inline void http2_grpc_start_finalize_server(http2_conn_stream_t
     if (!found_tp) {
         new_trace_id(&tp_p->tp);
         bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+        sample_new_trace(&tp_p->tp);
+    } else {
+        sample_remote_child(&tp_p->tp);
     }
 
     h2g_info->tp = tp_p->tp;
@@ -341,6 +346,7 @@ static __always_inline void http2_grpc_start(void *ctx,
     if (!found_tp) {
         new_trace_id(&tp_p->tp);
         bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+        sample_new_trace(&tp_p->tp);
     }
 
     h2g_info->tp = tp_p->tp;

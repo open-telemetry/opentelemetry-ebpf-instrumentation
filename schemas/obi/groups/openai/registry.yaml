@@ -13,6 +13,10 @@ attributes:
           brief: The OpenAI [Responses API](https://developers.openai.com/api/reference/responses/overview).
           stability: development
         # --- OBI extensions (not in upstream semconv v1.41) ---
+        - id: decisions
+          value: "decisions"
+          brief: The OpenAI [Decisions API](https://developers.openai.com/api/docs/guides/decisions).
+          stability: development
         - id: embeddings
           value: "embeddings"
           brief: The OpenAI [Embeddings API](https://developers.openai.com/api/reference/embeddings/overview).
@@ -23,11 +27,25 @@ attributes:
           stability: development
     brief: The type of OpenAI API being used.
 
+  - key: openai.request.questions
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no attribute for OpenAI Decisions request questions
+    type: string
+    brief: The questions submitted to the OpenAI Decisions API, JSON-encoded in request order.
+    note: >
+      This attribute contains sensitive request content and is only emitted for
+      Decisions API requests when selected via `attributes.select`.
+    stability: development
+    examples:
+      - '[{"type":"predicate","name":"damaged","instructions":"Does the customer report a damaged item?"}]'
+
 attribute_groups:
-  # Overrides `openai.api.type`: extends the upstream enum with `embeddings`
-  # and `text_completions`. pkg/ebpf/common/http/openai.go classifies OpenAI
-  # calls as chat_completions / responses / embeddings / text_completions from
-  # the URL path; upstream v1.41 declares only the first two.
+  # Overrides `openai.api.type`: extends the upstream enum with `decisions`,
+  # `embeddings` and `text_completions`. pkg/ebpf/common/http/openai.go
+  # classifies OpenAI calls as chat_completions / responses / decisions /
+  # embeddings / text_completions from the URL path; upstream v1.41 declares
+  # only the first two.
   #
   # See ../../README.md for how the definition above takes precedence over the
   # upstream one, and why it carries the full upstream member list.
@@ -35,8 +53,15 @@ attribute_groups:
     visibility: public
     brief: >
       OBI override of `openai.api.type` extending the upstream enum with the
-      embeddings and legacy text-completions APIs, which OBI detects but
-      upstream semconv has no members for.
+      Decisions, embeddings and legacy text-completions APIs, which OBI
+      detects but upstream semconv has no members for.
     stability: development
     attributes:
       - ref: openai.api.type
+
+  - id: registry.obi.openai
+    visibility: public
+    brief: OpenAI request content attributes defined by OBI.
+    stability: development
+    attributes:
+      - ref: openai.request.questions
