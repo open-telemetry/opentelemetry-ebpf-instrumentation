@@ -5,6 +5,7 @@ package peer
 
 import (
 	"context"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
 	"net"
@@ -72,8 +73,7 @@ func TestTLSCertificateVerification(t *testing.T) {
 			cfg := DefaultConfig()
 			cfg.Token = "shared-secret"
 			cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: leaf.CertFile, KeyFile: leaf.KeyFile, CAFile: test.caFile, ServerName: test.serverName}
-			serverTLS, clientTLS, err := tlsConfigs(cfg.TLS)
-			require.NoError(t, err)
+			serverTLS, clientTLS := testTLSConfigs(t, cfg.TLS)
 			store := newStore("remote-host", cfg)
 			service := Service{Name: "api", Namespace: "shop"}
 			store.setInventory([]Service{service}, nil)
@@ -125,11 +125,28 @@ func TestTLSInvalidFiles(t *testing.T) {
 	}
 }
 
-func TestTLSDisabledIgnoresCertificateFiles(t *testing.T) {
-	server, client, err := tlsConfigs(MetadataTLSConfig{CertFile: "missing", KeyFile: "missing", CAFile: "missing"})
+func testTLSConfigs(t *testing.T, cfg MetadataTLSConfig) (server, client *tls.Config) {
+	t.Helper()
+	server, err := serverTLSConfig(cfg)
 	require.NoError(t, err)
+	client, err = clientTLSConfig(cfg)
+	require.NoError(t, err)
+	return server, client
+}
+
+func TestTLSDisabledIgnoresCertificateFiles(t *testing.T) {
+	server, client := testTLSConfigs(t, MetadataTLSConfig{CertFile: "missing", KeyFile: "missing", CAFile: "missing"})
 	require.Nil(t, server)
 	require.Nil(t, client)
+}
+
+func TestClientTLSDoesNotRequireCertificate(t *testing.T) {
+	root := testutil.NewTestCA(t, nil)
+	client, err := clientTLSConfig(MetadataTLSConfig{Enabled: true, CAFile: root.CertFile, ServerName: "metadata"})
+	require.NoError(t, err)
+	require.Empty(t, client.Certificates)
+	require.NotNil(t, client.RootCAs)
+	require.Equal(t, "metadata", client.ServerName)
 }
 
 func TestTLSBearerToken(t *testing.T) {
@@ -154,8 +171,7 @@ func TestTLSBearerToken(t *testing.T) {
 			cfg := DefaultConfig()
 			cfg.Token = test.serverToken
 			cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: leaf.CertFile, KeyFile: leaf.KeyFile, CAFile: root.CertFile}
-			serverTLS, clientTLS, err := tlsConfigs(cfg.TLS)
-			require.NoError(t, err)
+			serverTLS, clientTLS := testTLSConfigs(t, cfg.TLS)
 			cfg.Port = startPeerServer(t, &cfg, newTestExchange(cfg, newStore("remote-host", cfg), testLoopbackNetwork), serverTLS)
 			cfg.Token = test.clientToken
 			snapshot, _, err := fetchFromLoopback(t, &cfg, clientTLS)

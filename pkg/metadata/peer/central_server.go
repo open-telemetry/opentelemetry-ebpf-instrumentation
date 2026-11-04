@@ -42,7 +42,7 @@ func NewCentralServer(cfg *CentralServerConfig) (*CentralServer, error) {
 		return nil, err
 	}
 
-	serverTLS, _, err := tlsConfigs(cfg.TLS)
+	serverTLS, err := serverTLSConfig(cfg.TLS)
 	if err != nil {
 		return nil, err
 	}
