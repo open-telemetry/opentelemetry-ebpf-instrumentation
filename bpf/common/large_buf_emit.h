@@ -25,12 +25,16 @@ static __always_inline u32 large_buf_emit_chunks(tcp_large_buffer_t *large_buf,
 
     bpf_clamp_umax(available_bytes, k_large_buf_per_emit_max);
 
-    const u32 niter = (available_bytes / k_large_buf_payload_max_size) +
-                      ((available_bytes % k_large_buf_payload_max_size) > 0);
-
     u32 consumed_bytes = 0;
 
-    for (u32 b = 0; b < niter; b++) {
+    // Older verifiers cannot derive a loop bound from the clamped byte count.
+#pragma unroll
+    for (u32 b = 0; b < (k_large_buf_per_emit_max + k_large_buf_payload_max_size - 1) /
+                            k_large_buf_payload_max_size;
+         b++) {
+        if (available_bytes == 0) {
+            break;
+        }
         const u32 offset = b * k_large_buf_payload_max_size;
 
         u32 read_size = min(available_bytes, k_large_buf_payload_max_size);

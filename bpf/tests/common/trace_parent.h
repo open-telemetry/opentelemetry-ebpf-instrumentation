@@ -23,3 +23,15 @@ static __always_inline u8 find_trace_for_client_request_with_t_key(
     const void *p_conn, u16 orig_dport, const void *t_key, u64 id, u8 lw_thread, void *tp) {
     return 0;
 }
+
+static __always_inline u8
+find_trace_for_client_request_with_t_key_and_user_reads(const void *p_conn,
+                                                        u16 orig_dport,
+                                                        const void *t_key,
+                                                        u64 id,
+                                                        u8 lw_thread,
+                                                        void *tp,
+                                                        bool allow_user_reads) {
+    (void)allow_user_reads;
+    return find_trace_for_client_request_with_t_key(p_conn, orig_dport, t_key, id, lw_thread, tp);
+}

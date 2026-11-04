@@ -304,11 +304,13 @@ static __always_inline tp_info_pid_t *find_go_parent_trace(const lw_thread_t lw_
     return NULL;
 }
 
-static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_info_t *p_conn,
-                                                        u64 pid_tgid,
-                                                        lw_thread_t lw_thread,
-                                                        trace_key_t *t_key,
-                                                        u16 orig_dport) {
+static __always_inline tp_info_pid_t *
+find_parent_trace_with_user_reads(const pid_connection_info_t *p_conn,
+                                  u64 pid_tgid,
+                                  lw_thread_t lw_thread,
+                                  trace_key_t *t_key,
+                                  u16 orig_dport,
+                                  bool allow_user_reads) {
     tp_info_pid_t *node_tp = find_nodejs_parent_trace(p_conn, orig_dport, pid_tgid);
 
     if (node_tp) {
@@ -329,11 +331,14 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
         }
     }
 
-    u8 allow_parent_fallback = 1;
-    tp_info_pid_t *python_parent =
-        find_python_parent_trace(t_key, pid_tgid, &allow_parent_fallback);
-    if (python_parent || !allow_parent_fallback) {
-        return python_parent;
+    // Socket filters cannot validate Python task ownership through user-memory helpers.
+    if (allow_user_reads) {
+        u8 allow_parent_fallback = 1;
+        tp_info_pid_t *python_parent =
+            find_python_parent_trace(t_key, pid_tgid, &allow_parent_fallback);
+        if (python_parent || !allow_parent_fallback) {
+            return python_parent;
+        }
     }
 
     tp_info_pid_t *nginx_parent = find_nginx_parent_trace(p_conn, orig_dport);
@@ -368,6 +373,14 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
     return 0;
 }
 
+static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_info_t *p_conn,
+                                                        u64 pid_tgid,
+                                                        lw_thread_t lw_thread,
+                                                        trace_key_t *t_key,
+                                                        u16 orig_dport) {
+    return find_parent_trace_with_user_reads(p_conn, pid_tgid, lw_thread, t_key, orig_dport, true);
+}
+
 static __always_inline u8 nodejs_manual_parent_span_id(u64 pid_tgid,
                                                        const unsigned char *trace_id,
                                                        unsigned char *span_id_out) {
@@ -388,13 +401,15 @@ static __always_inline u8 nodejs_manual_parent_span_id(u64 pid_tgid,
 }
 
 static __always_inline u8
-find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
-                                         u16 orig_dport,
-                                         trace_key_t *t_key,
-                                         u64 pid_tgid,
-                                         lw_thread_t lw_thread,
-                                         tp_info_t *tp) {
-    tp_info_pid_t *server_tp = find_parent_trace(p_conn, pid_tgid, lw_thread, t_key, orig_dport);
+find_trace_for_client_request_with_t_key_and_user_reads(const pid_connection_info_t *p_conn,
+                                                        u16 orig_dport,
+                                                        trace_key_t *t_key,
+                                                        u64 pid_tgid,
+                                                        lw_thread_t lw_thread,
+                                                        tp_info_t *tp,
+                                                        bool allow_user_reads) {
+    tp_info_pid_t *server_tp = find_parent_trace_with_user_reads(
+        p_conn, pid_tgid, lw_thread, t_key, orig_dport, allow_user_reads);
 
     if (server_tp && server_tp->valid && valid_trace(server_tp->tp.trace_id)) {
         bpf_dbg_printk("Found existing server tp for client call");
@@ -420,6 +435,17 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
     }
 
     return k_parent_status_none;
+}
+
+static __always_inline u8
+find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
+                                         u16 orig_dport,
+                                         trace_key_t *t_key,
+                                         u64 pid_tgid,
+                                         lw_thread_t lw_thread,
+                                         tp_info_t *tp) {
+    return find_trace_for_client_request_with_t_key_and_user_reads(
+        p_conn, orig_dport, t_key, pid_tgid, lw_thread, tp, true);
 }
 
 static __always_inline u8 find_trace_for_client_request(const pid_connection_info_t *p_conn,

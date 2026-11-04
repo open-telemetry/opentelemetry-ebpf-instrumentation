@@ -158,10 +158,6 @@ static __always_inline void tls_prefix_register_egress(void *bio, const void *bu
         return;
     }
 
-    // tls_record_key_len already caps this; the clamp is here so the verifier
-    // can see the bound on the read size below.
-    bpf_clamp_umax(key_len, k_tls_prefix_max);
-
     tls_prefix_scratch_t *scratch = tls_prefix_mem();
 
     if (!scratch) {
@@ -170,6 +166,8 @@ static __always_inline void tls_prefix_register_egress(void *bio, const void *bu
 
     bpf_memset(scratch->record, 0, sizeof(scratch->record));
 
+    // Keep the read bound visible after the scratch-map lookup on older verifiers.
+    bpf_clamp_umax(key_len, k_tls_prefix_max);
     if (bpf_probe_read_user(scratch->record, key_len, buf) != 0) {
         return;
     }

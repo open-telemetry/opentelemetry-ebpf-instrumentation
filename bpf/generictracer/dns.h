@@ -379,7 +379,8 @@ static __always_inline void populate_dns_record(dns_req_t *req,
                                                 const u32 size,
                                                 const u8 qr,
                                                 const u16 id,
-                                                const conn_pid_t *conn_pid) {
+                                                const conn_pid_t *conn_pid,
+                                                bool allow_user_reads) {
     __builtin_memcpy(&req->conn, &p_conn->conn, sizeof(connection_info_t));
 
     req->flags = k_event_type_dns_request;
@@ -392,8 +393,8 @@ static __always_inline void populate_dns_record(dns_req_t *req,
     trace_key_t t_key = {0};
     trace_key_from_pid_tid_with_p_key(&t_key, &conn_pid->p_key, conn_pid->id);
 
-    const u8 found = find_trace_for_client_request_with_t_key(
-        p_conn, orig_dport, &t_key, conn_pid->id, k_lw_thread_none, &req->tp);
+    const u8 found = find_trace_for_client_request_with_t_key_and_user_reads(
+        p_conn, orig_dport, &t_key, conn_pid->id, k_lw_thread_none, &req->tp, allow_user_reads);
     req->parent_status = found;
 
     bpf_dbg_printk("looking up client trace info, found: %d", found);
@@ -470,7 +471,7 @@ static __always_inline u8 handle_dns(struct __sk_buff *skb,
         if (req) {
             u32 len = skb->len - dns_off;
             bpf_clamp_umax(len, k_dns_max_len);
-            populate_dns_record(req, &p_conn, orig_dport, len, qr, hdr.id, conn_pid);
+            populate_dns_record(req, &p_conn, orig_dport, len, qr, hdr.id, conn_pid, false);
 
             read_skb_bytes(skb, dns_off, req->buf, len, k_dns_max_len);
             bpf_d_printk("sending dns trace [%s]", __FUNCTION__);
@@ -515,7 +516,7 @@ static __always_inline u8 handle_dns_buf(const unsigned char *buf,
 
         dns_req_t *req = events_ringbuf_reserve(sizeof(dns_req_t), 0);
         if (req) {
-            populate_dns_record(req, p_conn, orig_dport, size, qr, hdr.id, conn_pid);
+            populate_dns_record(req, p_conn, orig_dport, size, qr, hdr.id, conn_pid, true);
 
             bpf_probe_read_kernel(req->buf, sizeof(req->buf), buf);
             bpf_d_printk("sending dns trace [%s]", __FUNCTION__);

@@ -33,6 +33,7 @@
 #include <generictracer/maps/active_connect_args.h>
 #include <generictracer/maps/java_http1_requests.h>
 #include <generictracer/maps/listening_ports.h>
+#include <generictracer/maps/recv_prefixes.h>
 #include <generictracer/maps/sock_filter_buffers.h>
 #include <generictracer/maps/tcp_connection_map.h>
 #include <generictracer/protocol_common.h>
@@ -808,6 +809,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close_finish, struct sock *sk) {
     if (success) {
         sort_connection_info(&info.conn);
         info.pid = pid_from_pid_tgid(id);
+        bpf_map_delete_elem(&recv_prefixes, &info);
         unreadable = is_conn_unreadable(&info.conn);
     }
 
@@ -1092,6 +1094,32 @@ static __always_inline void mark_port_unreadable(u16 port) {
     }
 }
 
+SCRATCH_MEM_SIZED(recv_prefix_join, k_iovec_max_len + MIN_HTTP2_SIZE)
+
+static __always_inline int
+join_recv_prefix(const pid_connection_info_t *conn, unsigned char **buf, int size) {
+    recv_prefix_t *pending = bpf_map_lookup_elem(&recv_prefixes, conn);
+    if (!pending && size != 1) {
+        return size;
+    }
+    unsigned char *joined = recv_prefix_join_mem();
+    if (!joined) {
+        return 0;
+    }
+    recv_prefix_t empty = {};
+    recv_prefix_t *prefix = pending ? pending : &empty;
+    const u32 total = append_recv_prefix(prefix, *buf, size, joined, k_iovec_max_len);
+    if (!total) {
+        if (!pending) {
+            bpf_map_update_elem(&recv_prefixes, conn, prefix, BPF_ANY);
+        }
+        return 0;
+    }
+    bpf_map_delete_elem(&recv_prefixes, conn);
+    *buf = joined;
+    return total;
+}
+
 static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 id, int copied_len) {
     recv_args_t *args = bpf_map_lookup_elem(&active_recv_args, &id);
 
@@ -1124,13 +1152,6 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
         // Don't clean-up. This is called as backup path for the retprobe from
         // tcp_cleanup_rbuf which can come in with 0 bytes and we'll delete
         // the data for completing the request.
-        return 0;
-    }
-
-    // We want the full response (or most of it) to be able to parse HTTP headers/body.
-    // Avoid processing 0 or 1 byte packets (eg. AWS api's response to PUT requests) as
-    // they would end the request tracking prematurely.
-    if (copied_len <= 1) {
         return 0;
     }
 
@@ -1195,6 +1216,10 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
             bpf_dbg_printk("buf=[%llx], copied_len=%d", buf, copied_len);
 
             if (buf && copied_len) {
+                copied_len = join_recv_prefix(&info, &buf, copied_len);
+                if (!copied_len) {
+                    goto done;
+                }
                 bpf_map_delete_elem(&active_recv_args, &id);
                 // doesn't return must be logically last statement
                 handle_buf_with_connection(ctx,

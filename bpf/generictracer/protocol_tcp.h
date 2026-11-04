@@ -337,6 +337,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             req->task_tid = req_task.tid;
             req->protocol_type = protocol_type;
             task_pid(&req->pid);
+            bpf_clamp_umax(bytes_len, k_tcp_max_len);
             bpf_probe_read(req->buf, bytes_len, u_buf);
 
             req->tp.ts = bpf_ktime_get_ns();
@@ -379,6 +380,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
                                existing->resp_len);
 
                 __builtin_memcpy(trace, existing, sizeof(tcp_req_t));
+                bpf_clamp_umax(bytes_len, k_tcp_res_len);
                 bpf_probe_read(trace->rbuf, bytes_len, u_buf);
 
                 bpf_ringbuf_submit(trace, get_flags());

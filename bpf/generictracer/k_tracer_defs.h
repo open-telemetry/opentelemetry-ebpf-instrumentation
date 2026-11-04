@@ -16,6 +16,7 @@
 
 #include <generictracer/k_tracer_tailcall.h>
 #include <generictracer/protocol_common.h>
+#include <generictracer/skb_bytes.h>
 
 #include <generictracer/maps/protocol_cache.h>
 
@@ -119,40 +120,4 @@ static __always_inline void handle_light_weight_thread_buf(void *ctx,
     }
 
     preempt_guarded_tail_call(ctx, &jump_table, k_tail_handle_buf_with_args);
-}
-
-static __always_inline void
-read_skb_bytes(const void *skb, u32 offset, unsigned char *buf, const u32 len, const u32 max_len) {
-    enum : u32 { k_block_size = 16 };
-    const u32 niter = max_len / k_block_size;
-
-    // prevent register narrowing and the verifier from losing track of things
-    u64 remaining = len;
-    barrier_var(remaining);
-
-    if (remaining > max_len) {
-        remaining = max_len;
-    }
-
-    for (u32 i = 0; i < niter; ++i) {
-        if (remaining <= k_block_size) {
-            break;
-        }
-
-        bpf_skb_load_bytes(skb, offset, buf, k_block_size);
-
-        buf += k_block_size;
-        offset += k_block_size;
-        remaining -= k_block_size;
-    }
-
-    // makes 5.15 happy
-    u64 last = remaining - 1;
-    barrier_var(last);
-
-    if (last >= k_block_size) {
-        return;
-    }
-
-    bpf_skb_load_bytes(skb, offset, buf, last + 1);
 }

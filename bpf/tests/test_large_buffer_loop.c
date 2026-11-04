@@ -22,9 +22,12 @@ typedef struct {
     uint32_t total_bytes_sent;
     enum large_buf_action final_action;
     uint32_t loop_iterations;
+    uint32_t consumed_bytes;
+    uint32_t chunk_sizes[4];
 } loop_result_t;
 
 static loop_result_t g_result;
+static uint32_t fail_after_chunks = UINT32_MAX;
 static test_stats_t stats = {0, 0, 0};
 static const char *g_test_name = NULL;
 
@@ -48,6 +51,12 @@ ringbuf_count_hook(void *rb, void *data, unsigned long long sz, unsigned long lo
 
     const tcp_large_buffer_t *buf = (const tcp_large_buffer_t *)data;
 
+    if (g_result.num_chunks == fail_after_chunks) {
+        return -1;
+    }
+    if (g_result.num_chunks < 4) {
+        g_result.chunk_sizes[g_result.num_chunks] = buf->len;
+    }
     g_result.num_chunks++;
     g_result.loop_iterations++;
     g_result.total_bytes_sent += buf->len;
@@ -67,7 +76,8 @@ static loop_result_t run_emit_chunks(uint32_t available_bytes,
     g_result = (loop_result_t){.final_action = initial_action};
 
     bpf_ringbuf_output_hook = ringbuf_count_hook;
-    large_buf_emit_chunks(large_buf, dummy_src, available_bytes, k_large_buf_read_kernel);
+    g_result.consumed_bytes =
+        large_buf_emit_chunks(large_buf, dummy_src, available_bytes, k_large_buf_read_kernel);
     bpf_ringbuf_output_hook = NULL;
 
     return g_result;
@@ -331,6 +341,53 @@ static void test_per_emit_clamp_over_64kb() {
     test_assert(result.final_action == k_large_buf_action_append, "final action should be append");
 }
 
+static void test_direct_boundaries() {
+    const uint32_t sizes[] = {0,
+                              1,
+                              16383,
+                              16384,
+                              16385,
+                              32767,
+                              32768,
+                              32769,
+                              49151,
+                              49152,
+                              49153,
+                              65535,
+                              65536,
+                              65537,
+                              UINT32_MAX};
+    for (uint32_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++) {
+        const uint32_t expected =
+            sizes[i] < k_large_buf_per_emit_max ? sizes[i] : k_large_buf_per_emit_max;
+        const loop_result_t result = run_emit_chunks(sizes[i], k_large_buf_action_init);
+        test_assert(result.consumed_bytes == expected, "return value matches capped byte count");
+        test_assert(result.total_bytes_sent == expected, "outputs match capped byte count");
+        test_assert(result.num_chunks == (expected + k_large_buf_payload_max_size - 1) /
+                                             k_large_buf_payload_max_size,
+                    "chunk count matches input at every boundary");
+        uint32_t remaining = expected;
+        for (uint32_t j = 0; j < result.num_chunks && j < 4; j++) {
+            const uint32_t chunk =
+                remaining < k_large_buf_payload_max_size ? remaining : k_large_buf_payload_max_size;
+            test_assert(result.chunk_sizes[j] == chunk, "actual output chunk has correct size");
+            remaining -= chunk;
+        }
+    }
+}
+
+static void test_output_failure() {
+    for (uint32_t sent = 0; sent < 4; sent++) {
+        fail_after_chunks = sent;
+        const loop_result_t result =
+            run_emit_chunks(k_large_buf_per_emit_max, k_large_buf_action_init);
+        test_assert(result.num_chunks == sent, "stops on the first failed output");
+        test_assert(result.consumed_bytes == sent * k_large_buf_payload_max_size,
+                    "only successfully emitted bytes are reported consumed");
+    }
+    fail_after_chunks = UINT32_MAX;
+}
+
 static void print_summary() {
     printf("\n========================================\n");
     printf("Test Summary\n");
@@ -357,12 +414,14 @@ typedef struct {
 #define TEST(x) {#x, test_##x},
 
 static test_spec_t tests[] = {
-    TEST(empty_buffer) TEST(small_buffer) TEST(exact_chunk_size) TEST(one_byte_over_chunk)
-        TEST(slightly_over_chunk) TEST(exact_two_chunks) TEST(three_chunks) TEST(exact_per_emit_max)
-            TEST(over_max_captured) TEST(very_large_buffer) TEST(boundary_minus_one)
-                TEST(boundary_plus_one) TEST(with_append_action) TEST(chunk_distribution)
-                    TEST(caller_clamping) TEST(loop_termination_conditions) TEST(action_progression)
-                        TEST(max_uint32) TEST(per_emit_clamp_256kb) TEST(per_emit_clamp_over_64kb)};
+    TEST(direct_boundaries) TEST(output_failure) TEST(empty_buffer) TEST(small_buffer)
+        TEST(exact_chunk_size) TEST(one_byte_over_chunk) TEST(slightly_over_chunk)
+            TEST(exact_two_chunks) TEST(three_chunks) TEST(exact_per_emit_max)
+                TEST(over_max_captured) TEST(very_large_buffer) TEST(boundary_minus_one)
+                    TEST(boundary_plus_one) TEST(with_append_action) TEST(chunk_distribution)
+                        TEST(caller_clamping) TEST(loop_termination_conditions)
+                            TEST(action_progression) TEST(max_uint32) TEST(per_emit_clamp_256kb)
+                                TEST(per_emit_clamp_over_64kb)};
 
 int main() {
     printf("Large Buffer Loop Test Suite\n");
