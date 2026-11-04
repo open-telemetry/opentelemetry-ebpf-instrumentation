@@ -74,20 +74,27 @@ static __always_inline void set_tcp_trace_info(u32 type,
     server_or_client_trace(type, conn, lw_thread, tp_p, ssl, orig_dport, 0, BPF_ANY);
 }
 
+static __always_inline void tcp_get_client_trace_info(tcp_req_t *req,
+                                                      const pid_connection_info_t *pid_conn,
+                                                      lw_thread_t lw_thread,
+                                                      u16 orig_dport) {
+    const u8 found = find_trace_for_client_request(pid_conn, orig_dport, lw_thread, &req->tp);
+    bpf_dbg_printk("Looking up client trace info, found=%d", found);
+    req->parent_status = found;
+    if (found) {
+        urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
+    } else {
+        init_new_trace(&req->tp);
+    }
+}
+
 static __always_inline void tcp_get_or_set_trace_info(tcp_req_t *req,
                                                       pid_connection_info_t *pid_conn,
                                                       lw_thread_t lw_thread,
                                                       u8 ssl,
                                                       u16 orig_dport) {
     if (req->direction == TCP_SEND) { // Client
-        const u8 found = find_trace_for_client_request(pid_conn, orig_dport, lw_thread, &req->tp);
-        bpf_dbg_printk("Looking up client trace info, found=%d", found);
-        req->parent_status = found;
-        if (found) {
-            urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
-        } else {
-            init_new_trace(&req->tp);
-        }
+        tcp_get_client_trace_info(req, pid_conn, lw_thread, orig_dport);
 
         set_tcp_trace_info(TRACE_TYPE_CLIENT,
                            &pid_conn->conn,
@@ -237,7 +244,9 @@ static __always_inline void failed_to_connect_event(pid_connection_info_t *pid_c
 
         bpf_dbg_printk("TCP connect failed event");
 
-        tcp_get_or_set_trace_info(req, pid_conn, lw_thread, 0, orig_dport);
+        // A failed socket has no future sends. Publish only the span, not
+        // propagation state that another connection could inherit by port reuse.
+        tcp_get_client_trace_info(req, pid_conn, lw_thread, orig_dport);
         bpf_ringbuf_submit(req, get_flags());
     }
 }
