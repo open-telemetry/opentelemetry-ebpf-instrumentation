@@ -42,9 +42,18 @@ payload begins at byte 8. The payload is one OTLP JSON trace containing exactly
 one resource span, one scope span, and one completed span. It carries the span's
 name, trace/span/parent IDs, timestamps, status, and attributes. The payload is
 limited to 16 KiB. The eBPF side only copies bounded user memory into the
-ring buffer; OBI validates the OTLP shape and IDs before export. Runtime config
-does not yet create these packets, and Config v2 span declarations remain
-unsupported by the runtime converter.
+ring buffer; OBI validates the OTLP shape and IDs before export. Config v2 Java
+`function` span declarations create these packets for methods selected in Java
+processes; `process.language_glob: [java]` is an optional narrowing filter.
+Argument attributes, automatic attributes,
+`function_noret`, and USDT targets remain unsupported and are rejected.
+
+Dynamic Java method resolution follows the [selector contract](config/version-2.0/java-method-reference.md):
+globs can select multiple class names and methods, exact overloads require an
+explicit parameter list when needed, and matching class definitions across
+classloaders are instrumented independently. Resolution is refreshed as classes
+load or unload. An unmatched target reports a diagnostic without suppressing
+valid matches in other definitions or sibling declarations.
 
 ## Implementation and validation
 

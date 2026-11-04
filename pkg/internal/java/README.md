@@ -10,6 +10,7 @@ communicates with eBPF programs for distributed tracing and monitoring.
 - **Socket-level tracing** - Instruments `javax.net.ssl.SSLSocket` and `java.nio.channels.SocketChannel` operations
 - **SSL/TLS support** - Intercepts `javax.net.ssl.SSLEngine` for encrypted traffic
 - **Netty support** - Instruments Netty channels for reactive applications
+- **Dynamic method spans** - Emits spans for configured Java methods and class/method globs on selected Java processes
 
 ## 📋 Basic concepts
 
@@ -241,6 +242,11 @@ gradle :loader:build
 gradle spotlessApply
 
 ```
+
+To use the Java version pinned in `.java-version` with mise, run `mise install` and verify it
+with `mise exec -- java -version` from `pkg/internal/java`. To make `make java-build` use that
+JDK from the repository root, set `JAVA_AGENT_JAVA_HOME="$(mise -C pkg/internal/java where java)"`
+when invoking make.
 
 #### Option B: Docker-only (no local Gradle)
 

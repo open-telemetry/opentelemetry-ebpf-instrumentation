@@ -22,6 +22,7 @@ import java.io.File;
 import java.io.InputStream;
 import java.lang.instrument.Instrumentation;
 import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.*;
 import net.bytebuddy.agent.ByteBuddyAgent;
@@ -29,6 +30,7 @@ import net.bytebuddy.agent.builder.AgentBuilder;
 import net.bytebuddy.description.type.TypeDescription;
 import net.bytebuddy.dynamic.ClassFileLocator;
 import net.bytebuddy.dynamic.loading.ClassInjector;
+import net.bytebuddy.pool.TypePool;
 import net.bytebuddy.utility.JavaModule;
 
 public class Agent {
@@ -135,6 +137,7 @@ public class Agent {
     publishVersion();
 
     Map<String, String> opts = parseArgs(agentArgs);
+    List<DynamicSpanDefinition> dynamicSpans = Collections.emptyList();
 
     if (optEnabled(opts, "debug")) {
       Agent.debugOn = true;
@@ -143,6 +146,14 @@ public class Agent {
     try {
       initClassesThatNeedToBeBootstrapped();
       injectBootstrapClasses(inst);
+      dynamicSpans = parseDynamicSpans(opts.get("dynamicSpans"));
+      if (!dynamicSpans.isEmpty()) {
+        Class<?> bootstrapDynamicSpanRuntime =
+            Class.forName("io.opentelemetry.obi.java.DynamicSpanRuntime", true, null);
+        bootstrapDynamicSpanRuntime
+            .getMethod("configure", List.class, Instrumentation.class)
+            .invoke(null, dynamicSpans, inst);
+      }
       if (Agent.debugOn) {
         setupInstrumentationsDebugging();
       }
@@ -152,34 +163,42 @@ public class Agent {
       return;
     }
 
-    builder(opts, inst)
-        .type(ClassLoaderInst.type())
-        .transform(ClassLoaderInst.transformer())
-        .type(SSLSocketInst.type())
-        .transform(SSLSocketInst.transformer())
-        .type(SSLSocketStreamInst.inputStreamType())
-        .transform(SSLSocketStreamInst.inputStreamTransformer())
-        .type(SSLSocketStreamInst.outputStreamType())
-        .transform(SSLSocketStreamInst.outputStreamTransformer())
-        .type(SSLEngineInst.type())
-        .transform(SSLEngineInst.transformer())
-        .type(SocketChannelInst.type())
-        .transform(SocketChannelInst.transformer())
-        .type(NettySSLHandlerInst.type())
-        .transform(NettySSLHandlerInst.transformer())
-        .type(JavaExecutorInst.type())
-        .transform(JavaExecutorInst.transformer())
-        .type(JdkHttpClientInst.type())
-        .transform(JdkHttpClientInst.transformer(optEnabled(opts, "httpHeaders")))
-        .type(CallableInst.type())
-        .transform(CallableInst.transformer())
-        .type(RunnableInst.type())
-        .transform(RunnableInst.transformer())
-        .type(JavaForkJoinTaskInst.type())
-        .transform(JavaForkJoinTaskInst.transformer())
-        .type(VirtualThreadInst.type())
-        .transform(VirtualThreadInst.transformer())
-        .installOn(inst);
+    AgentBuilder agentBuilder =
+        builder(opts, inst)
+            .type(ClassLoaderInst.type())
+            .transform(ClassLoaderInst.transformer())
+            .type(SSLSocketInst.type())
+            .transform(SSLSocketInst.transformer())
+            .type(SSLSocketStreamInst.inputStreamType())
+            .transform(SSLSocketStreamInst.inputStreamTransformer())
+            .type(SSLSocketStreamInst.outputStreamType())
+            .transform(SSLSocketStreamInst.outputStreamTransformer())
+            .type(SSLEngineInst.type())
+            .transform(SSLEngineInst.transformer())
+            .type(SocketChannelInst.type())
+            .transform(SocketChannelInst.transformer())
+            .type(NettySSLHandlerInst.type())
+            .transform(NettySSLHandlerInst.transformer())
+            .type(JavaExecutorInst.type())
+            .transform(JavaExecutorInst.transformer())
+            .type(JdkHttpClientInst.type())
+            .transform(JdkHttpClientInst.transformer(optEnabled(opts, "httpHeaders")))
+            .type(CallableInst.type())
+            .transform(CallableInst.transformer())
+            .type(RunnableInst.type())
+            .transform(RunnableInst.transformer())
+            .type(JavaForkJoinTaskInst.type())
+            .transform(JavaForkJoinTaskInst.transformer())
+            .type(VirtualThreadInst.type())
+            .transform(VirtualThreadInst.transformer());
+
+    if (!dynamicSpans.isEmpty()) {
+      agentBuilder =
+          agentBuilder
+              .type(DynamicSpanInst.type(dynamicSpans))
+              .transform(DynamicSpanInst.transformer(dynamicSpans));
+    }
+    agentBuilder.installOn(inst);
 
     if (optEnabled(opts, "runtimeMetrics")) {
       try {
@@ -262,6 +281,7 @@ public class Agent {
     Class.forName(NativeMemory.class.getName());
     Class.forName(NativeLib.class.getName());
     Class.forName(CappedConcurrentHashMap.class.getName());
+    Class.forName(io.opentelemetry.obi.java.ebpf.CustomSpanPacket.class.getName());
 
     loadNativeLibraryFromJar();
   }
@@ -289,6 +309,18 @@ public class Agent {
         } catch (Throwable ignored) {
         }
       }
+    }
+
+    for (String name :
+        new String[] {
+          "io.opentelemetry.obi.java.DynamicSpanRuntime",
+          "io.opentelemetry.obi.java.DynamicSpanRuntime$SpanState",
+          "io.opentelemetry.obi.java.DynamicSpanDefinition",
+          "io.opentelemetry.obi.java.instrumentations.JavaMethodReference",
+          "io.opentelemetry.obi.java.instrumentations.JavaMethodReference$Style",
+        }) {
+      TypeDescription type = TypePool.Default.of(locator).describe(name).resolve();
+      typeMap.put(type, locator.locate(name).resolve());
     }
 
     ClassInjector injector =
@@ -321,6 +353,7 @@ public class Agent {
             io.opentelemetry.obi.java.ebpf.IOCTLPacket.class.getName(),
             io.opentelemetry.obi.java.ebpf.OperationType.class.getName(),
             io.opentelemetry.obi.java.ebpf.NativeMemory.class.getName(),
+            "io.opentelemetry.obi.java.DynamicSpanRuntime",
           }) {
         Class.forName(name, true, null);
       }
@@ -345,6 +378,35 @@ public class Agent {
       }
       throw e;
     }
+  }
+
+  static List<DynamicSpanDefinition> parseDynamicSpans(String encoded) {
+    if (encoded == null || encoded.isEmpty()) {
+      return Collections.emptyList();
+    }
+    List<DynamicSpanDefinition> result = new ArrayList<>();
+    for (String item : encoded.split("~", -1)) {
+      String name;
+      String functionReference;
+      try {
+        String[] fields = item.split("\\.", -1);
+        if (fields.length != 2) {
+          throw new IllegalArgumentException("invalid encoded dynamic Java span");
+        }
+        name = new String(Base64.getUrlDecoder().decode(fields[0]), StandardCharsets.UTF_8);
+        functionReference =
+            new String(Base64.getUrlDecoder().decode(fields[1]), StandardCharsets.UTF_8);
+      } catch (Exception error) {
+        System.err.println("Invalid dynamic Java span encoding: " + error.getMessage());
+        break;
+      }
+      try {
+        result.add(new DynamicSpanDefinition(name, functionReference));
+      } catch (Exception error) {
+        System.err.println("Skipping invalid dynamic Java span declaration: " + error.getMessage());
+      }
+    }
+    return Collections.unmodifiableList(result);
   }
 
   // Picks the correct native library based on the

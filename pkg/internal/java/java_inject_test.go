@@ -8,6 +8,7 @@ package javaagent
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"log/slog"
@@ -25,6 +26,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
@@ -549,6 +551,7 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 		debug          bool
 		debugBB        bool
 		runtimeMetrics bool
+		dynamicSpans   []services.DynamicSpan
 		expected       string
 	}{
 		{
@@ -581,6 +584,12 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 			runtimeMetrics: true,
 			expected:       "=debug=true,debugBB=true,runtimeMetrics=true,runtimeMetricsIntervalNanos=2000000000",
 		},
+		{
+			name:         "dynamic spans only",
+			dynamicSpans: []services.DynamicSpan{{Name: "checkout.place_order", FunctionReference: "com.example.Checkout#placeOrder()"}},
+			expected: "=dynamicSpans=" + base64.RawURLEncoding.EncodeToString([]byte("checkout.place_order")) + "." +
+				base64.RawURLEncoding.EncodeToString([]byte("com.example.Checkout#placeOrder()")),
+		},
 	}
 
 	for _, tt := range tests {
@@ -610,10 +619,18 @@ func TestJavaInjector_AttachOpts(t *testing.T) {
 			}
 
 			runtimeMetricsEnabled := ie.FileInfo.ServiceAttrs().Features.AppRuntime()
-			result := injector.attachOpts(runtimeMetricsEnabled)
+			result := injector.attachOpts(runtimeMetricsEnabled, tt.dynamicSpans)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestJavaInjector_AttachOptsKeepsDynamicSpansProcessScoped(t *testing.T) {
+	injector := &JavaInjector{cfg: &obi.Config{}, log: slog.Default()}
+	selected := injector.attachOpts(false, []services.DynamicSpan{{Name: "selected", FunctionReference: "com.example.Selected#run()"}})
+	unselected := injector.attachOpts(false, nil)
+	require.Contains(t, selected, "dynamicSpans=")
+	require.Empty(t, unselected)
 }
 
 func TestJavaInjector_HeaderPropagationAttachOpts(t *testing.T) {
@@ -637,7 +654,7 @@ func TestJavaInjector_HeaderPropagationAttachOpts(t *testing.T) {
 			cfg.EBPF.ContextPropagation = tc.mode
 			var logs bytes.Buffer
 			injector := &JavaInjector{cfg: cfg, log: slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))}
-			assert.Equal(t, tc.want, injector.attachOpts(false))
+			assert.Equal(t, tc.want, injector.attachOpts(false, nil))
 			if !tc.mode.HasHeaders() {
 				assert.Contains(t, logs.String(), "effective=disabled")
 			} else if !tc.supported {
@@ -1060,5 +1077,5 @@ func TestJavaInjector_HeaderPropagationRequiresAtomicOwnership(t *testing.T) {
 	ebpfcommon.SupportsJavaHTTP1ReservationCleanup = func() bool { return false }
 	injector := &JavaInjector{cfg: &obi.Config{}, log: slog.Default()}
 	injector.cfg.EBPF.ContextPropagation = config.ContextPropagationHeaders
-	require.Empty(t, injector.attachOpts(false), "Java must use the same atomic capability gate as eBPF")
+	require.Empty(t, injector.attachOpts(false, nil), "Java must use the same atomic capability gate as eBPF")
 }

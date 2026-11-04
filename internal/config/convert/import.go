@@ -243,8 +243,8 @@ func validateV2HTTPRoutePolicy(path string, policy *schema.HTTPRoutePolicy) erro
 
 func validateUnsupportedV2Fields(src *schema.Extension) error {
 	for ruleIndex, rule := range src.Capture.Rules {
-		if len(rule.Refine.Spans) > 0 {
-			return fmt.Errorf("capture.rules[%d].refine.spans is not supported by the runtime converter", ruleIndex)
+		if err := validateV2DynamicSpans(ruleIndex, rule); err != nil {
+			return err
 		}
 	}
 	runtimeFilters := []struct {
@@ -846,6 +846,7 @@ func selectorFromRule(
 			return nil, nil, false
 		}
 		selector := regexSelectorFromRule(rule)
+		selector.DynamicSpans = dynamicSpansFromRule(rule)
 		selector.Exceptions = rule.Refine.Exceptions
 		selector.ExportModes, selector.Routes = v2RuleRefinement(
 			rule.Refine,
@@ -856,6 +857,7 @@ func selectorFromRule(
 	}
 
 	selector := globSelectorFromRule(rule)
+	selector.DynamicSpans = dynamicSpansFromRule(rule)
 	selector.Exceptions = rule.Refine.Exceptions
 	selector.ExportModes, selector.Routes = v2RuleRefinement(
 		rule.Refine,
@@ -863,6 +865,21 @@ func selectorFromRule(
 		completeRoutes,
 	)
 	return &selector, nil, true
+}
+
+func dynamicSpansFromRule(rule schema.Rule) []services.DynamicSpan {
+	if len(rule.Refine.Spans) == 0 {
+		return nil
+	}
+
+	spans := make([]services.DynamicSpan, 0, len(rule.Refine.Spans))
+	for _, span := range rule.Refine.Spans {
+		spans = append(spans, services.DynamicSpan{
+			Name:              span.Name,
+			FunctionReference: span.On.Function,
+		})
+	}
+	return spans
 }
 
 func ruleMatchOnlyExportsOTLP(match schema.RuleMatch) bool {

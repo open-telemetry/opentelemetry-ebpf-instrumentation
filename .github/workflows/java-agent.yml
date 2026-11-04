@@ -4,9 +4,11 @@ on:
   push:
     branches: ["main", "release-*"]
   pull_request:
-    branches: ["main", "release-*"]
+    branches: ["main", "release-*", "dynamic-instrumentation"]
     paths:
       - "pkg/internal/java/**"
+      - "scripts/check_java_agent_jar.py"
+      - "scripts/check_java_agent_jar_test.py"
       - "dependencies.Dockerfile"
       - ".github/workflows/java-agent.yml"
   workflow_dispatch:
@@ -116,6 +118,15 @@ jobs:
               exit 1
             fi
           done
+
+      - name: Verify embedded agent classes
+        if: matrix.test-java == 17
+        working-directory: ${{ github.workspace }}
+        run: |
+          python3 -m unittest scripts/check_java_agent_jar_test.py
+          python3 scripts/check_java_agent_jar.py \
+            pkg/internal/java/build/obi-java-agent.jar \
+            pkg/internal/java/embedded/obi-java-agent.jar
 
       - name: Run tests on JDK ${{ matrix.test-java }}
         env:
