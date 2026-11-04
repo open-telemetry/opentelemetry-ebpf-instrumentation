@@ -259,6 +259,7 @@ const (
 	// Go connection interface types
 	GrpcSyscallConnTypeAddress
 	TLSConnTypeAddress
+	TCPConnTypeAddress
 )
 
 //go:embed offsets.json
