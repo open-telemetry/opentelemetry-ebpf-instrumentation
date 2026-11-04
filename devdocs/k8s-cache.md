@@ -250,6 +250,8 @@ extensions:
               # Only needed when the k8s-cache requires client certificates.
               cert_file: /etc/obi/tls/client.crt
               key_file: /etc/obi/tls/client.key
+              # Only needed when the host in address is not on the cache certificate.
+              server_name: k8s-cache
 ```
 
 ### Running locally for development

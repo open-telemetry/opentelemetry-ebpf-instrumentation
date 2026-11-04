@@ -59,6 +59,8 @@ type ClientTLSConfig struct {
 	// CertFile and KeyFile are the client certificate for a cache service that requires one
 	CertFile string
 	KeyFile  string
+	// ServerName overrides the host from the cache address when checking its certificate
+	ServerName string
 }
 
 func (c ClientTLSConfig) enabled() bool {
@@ -69,6 +71,9 @@ func (c ClientTLSConfig) Validate() error {
 	if (c.CertFile == "") != (c.KeyFile == "") {
 		return errors.New("kubernetes metadata_cache tls cert_file and key_file must be set together")
 	}
+	if c.ServerName != "" && !c.enabled() {
+		return errors.New("kubernetes metadata_cache tls server_name requires ca_file or a client certificate")
+	}
 	return nil
 }
 
@@ -77,7 +82,7 @@ func (c ClientTLSConfig) Credentials() (credentials.TransportCredentials, error)
 	if !c.enabled() {
 		return insecure.NewCredentials(), nil
 	}
-	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: c.ServerName}
 	if c.CAFile != "" {
 		pool, err := loadCertPool(c.CAFile)
 		if err != nil {

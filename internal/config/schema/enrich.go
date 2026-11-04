@@ -86,9 +86,10 @@ type KubernetesMetadataCache struct {
 // KubernetesMetadataCacheTLS describes the TLS settings of the Kubernetes
 // metadata cache connection.
 type KubernetesMetadataCacheTLS struct {
-	CAFile   string `yaml:"ca_file"`
-	CertFile string `yaml:"cert_file"`
-	KeyFile  string `yaml:"key_file"`
+	CAFile     string `yaml:"ca_file"`
+	CertFile   string `yaml:"cert_file"`
+	KeyFile    string `yaml:"key_file"`
+	ServerName string `yaml:"server_name"`
 }
 
 // KubernetesSourceLabels describes metadata labels used as service identity

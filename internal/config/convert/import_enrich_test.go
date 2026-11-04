@@ -47,7 +47,7 @@ func TestV2ToRuntimeEnrichAttributesAndKubernetesRoundTrip(t *testing.T) {
 	cfg.Attributes.Kubernetes.DisableInformers = []string{"node", "service"}
 	cfg.Attributes.Kubernetes.MetaCacheAddress = "kube-cache:8999"
 	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig{
-		CAFile: "/tls/ca.crt", CertFile: "/tls/client.crt", KeyFile: "/tls/client.key",
+		CAFile: "/tls/ca.crt", CertFile: "/tls/client.crt", KeyFile: "/tls/client.key", ServerName: "k8s-cache",
 	}
 	cfg.Attributes.Kubernetes.MetaRestrictLocalNode = true
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName = "app.kubernetes.io/name"

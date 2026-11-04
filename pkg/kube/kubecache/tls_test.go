@@ -4,8 +4,10 @@
 package kubecache
 
 import (
+	"crypto/x509"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -88,6 +90,39 @@ func TestTLSConfigValidate(t *testing.T) {
 	require.NoError(t, ClientTLSConfig{CertFile: "cert.pem", KeyFile: "key.pem"}.Validate())
 	require.Error(t, ClientTLSConfig{CertFile: "cert.pem"}.Validate())
 	require.Error(t, ClientTLSConfig{KeyFile: "key.pem"}.Validate())
+	require.NoError(t, ClientTLSConfig{CAFile: "ca.pem", ServerName: "k8s-cache"}.Validate())
+	require.Error(t, ClientTLSConfig{ServerName: "k8s-cache"}.Validate())
+}
+
+func TestTLSServerNameOverride(t *testing.T) {
+	ca := testutil.NewTestCA(t, nil)
+	serverCert := testutil.NewTestCertificate(t, &x509.Certificate{
+		DNSNames:    []string{"k8s-cache.example"},
+		NotBefore:   time.Now().Add(-time.Hour),
+		NotAfter:    time.Now().Add(time.Hour),
+		KeyUsage:    x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}, &ca)
+	serverCreds, err := TLSConfig{CertFile: serverCert.CertFile, KeyFile: serverCert.KeyFile}.Credentials()
+	require.NoError(t, err)
+	server := grpc.NewServer(grpc.Creds(serverCreds))
+	healthpb.RegisterHealthServer(server, health.NewServer())
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	go func() { _ = server.Serve(listener) }()
+	t.Cleanup(server.Stop)
+
+	check := func(client ClientTLSConfig) error {
+		creds, err := client.Credentials()
+		require.NoError(t, err)
+		conn, err := grpc.NewClient(listener.Addr().String(), grpc.WithTransportCredentials(creds))
+		require.NoError(t, err)
+		defer conn.Close()
+		_, err = healthpb.NewHealthClient(conn).Check(t.Context(), &healthpb.HealthCheckRequest{})
+		return err
+	}
+	require.Error(t, check(ClientTLSConfig{CAFile: ca.CertFile}), "127.0.0.1 is not on the certificate")
+	require.NoError(t, check(ClientTLSConfig{CAFile: ca.CertFile, ServerName: "k8s-cache.example"}))
 }
 
 func TestTLSCredentialsInvalidFiles(t *testing.T) {
