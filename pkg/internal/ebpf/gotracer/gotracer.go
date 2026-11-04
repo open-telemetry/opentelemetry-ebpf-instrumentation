@@ -2197,8 +2197,8 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}}
 	}
 
-	// Track thread context and retire exception request state when goroutines exit.
-	if p.traceCtxMapEnabled || p.exceptionsEnabled {
+	// Track thread context when goroutines change state.
+	if p.traceCtxMapEnabled {
 		m["runtime.casgstatus"] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeRuntimeCasgstatus,
 		}}

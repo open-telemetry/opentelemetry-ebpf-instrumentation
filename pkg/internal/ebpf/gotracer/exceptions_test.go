@@ -49,10 +49,46 @@ func TestGoExceptionProbesAreProcessScoped(t *testing.T) {
 	tracer := New(nil, exceptionsConfig(true), nil)
 	assert.Equal(t, true, tracer.constants()["g_exceptions_enabled"])
 	assert.Equal(t, []string{
-		goErrorfSymbol, goLegacyErrorfSymbol, goPanicSymbol,
+		goErrorfSymbol, goLegacyErrorfSymbol, goPanicSymbol, goCleanupSymbol,
 	}, exceptionGroupSymbols(t, tracer), "fmt.errorf registers before fmt.Errorf")
 	for _, symbol := range GoExceptionProbeSymbols() {
 		assert.NotContains(t, tracer.GoProbes(), symbol, "not attached to the whole executable")
+	}
+}
+
+func TestGoExceptionCleanupWithTraceContext(t *testing.T) {
+	cfg := exceptionsConfig(true)
+	cfg.EBPF.PopulateTraceContext = true
+	tracer := New(nil, cfg, nil)
+
+	assert.Contains(t, tracer.GoProbes(), goCleanupSymbol)
+	assert.NotContains(t, exceptionGroupSymbols(t, tracer), goCleanupSymbol)
+}
+
+func TestGoExceptionCleanupFollowsCaptureSources(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		flags uint8
+		want  int
+	}{
+		{"disabled", 0, 0},
+		{"neither source", goExceptionPIDEnabled, 0},
+		{"panics", goExceptionPIDEnabled | goExceptionPIDPanics, 1},
+		{"errors", goExceptionPIDEnabled | goExceptionPIDFormattedErrors, 1},
+		{"both", goExceptionPIDEnabled | goExceptionPIDPanics | goExceptionPIDFormattedErrors, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tracer := New(nil, exceptionsConfig(true), nil)
+			links := &exceptionLinks{attached: map[app.PID][]uint64{}, open: map[app.PID]int{}}
+			tracer.attachGoExceptionProbe = links.attach
+			executable := executableIdentity{Dev: 7, Ino: 11}
+			tracer.RegisterProcessScopedGoProbe(executable.Dev, executable.Ino, exceptionProbe(goCleanupSymbol, 40))
+			tracer.trackExceptionProcess(1, executable, tc.flags)
+			require.Equal(t, tc.want, links.open[1])
+
+			tracer.trackExceptionProcess(1, executable, goExceptionPIDEnabled)
+			require.Zero(t, links.open[1], "disabling both sources detaches cleanup")
+		})
 	}
 }
 
@@ -84,7 +120,7 @@ func (l *exceptionLinks) attach(pid app.PID, _ executableIdentity, probe *ebpfco
 
 func exceptionProbe(symbol string, offset uint64) ebpfcommon.GoProbe {
 	probe := &ebpfcommon.ProbeDesc{End: &ebpf.Program{}, ReturnOffsets: []uint64{offset}}
-	if symbol == goPanicSymbol {
+	if symbol == goPanicSymbol || symbol == goCleanupSymbol {
 		probe = &ebpfcommon.ProbeDesc{Start: &ebpf.Program{}, StartOffset: offset}
 	}
 	return ebpfcommon.GoProbe{Symbol: symbol, Probe: probe, ProcessScoped: true}

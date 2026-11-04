@@ -33,7 +33,8 @@ const (
 )
 
 const (
-	goPanicSymbol = "runtime.gopanic"
+	goPanicSymbol   = "runtime.gopanic"
+	goCleanupSymbol = "runtime.casgstatus"
 	// Go 1.26+ splits fmt.Errorf into an inlinable wrapper and this helper
 	goErrorfSymbol       = "fmt.errorf"
 	goLegacyErrorfSymbol = "fmt.Errorf"
@@ -41,7 +42,7 @@ const (
 
 // GoExceptionProbeSymbols returns every symbol the exception probes can attach to.
 func GoExceptionProbeSymbols() []string {
-	return []string{goPanicSymbol, goErrorfSymbol, goLegacyErrorfSymbol}
+	return []string{goPanicSymbol, goErrorfSymbol, goLegacyErrorfSymbol, goCleanupSymbol}
 }
 
 func isGoExceptionSymbol(symbol string) bool {
@@ -60,6 +61,13 @@ func (p *Tracer) goExceptionProbeGroups() []ebpfcommon.GoProbeGroup {
 		{Symbol: goErrorfSymbol, Probe: &ebpfcommon.ProbeDesc{End: p.bpfObjects.ObiUprobeFmtErrorfRet}},
 		{Symbol: goLegacyErrorfSymbol, Probe: &ebpfcommon.ProbeDesc{End: p.bpfObjects.ObiUprobeFmtErrorfRet}},
 		{Symbol: goPanicSymbol, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeRuntimeGopanic}},
+	}
+
+	if !p.traceCtxMapEnabled {
+		probes = append(probes, ebpfcommon.GoProbe{
+			Symbol: goCleanupSymbol,
+			Probe:  &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeRuntimeCasgstatus},
+		})
 	}
 
 	groups := make([]ebpfcommon.GoProbeGroup, 0, len(probes))
@@ -347,6 +355,8 @@ func openGoSymbolSource(fileInfo *exec.FileInfo) (ebpfcommon.GoSymbolSource, err
 
 func goExceptionProbeEnabled(flags uint8, symbol string) bool {
 	switch symbol {
+	case goCleanupSymbol:
+		return flags&(goExceptionPIDPanics|goExceptionPIDFormattedErrors) != 0
 	case goPanicSymbol:
 		return flags&goExceptionPIDPanics != 0
 	case goErrorfSymbol, goLegacyErrorfSymbol:

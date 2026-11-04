@@ -162,7 +162,7 @@ func TestCasgstatusProbeFollowsContextAndExceptionCapture(t *testing.T) {
 		expectedProbe   bool
 	}{
 		{name: "default", cfg: &obi.Config{}, expectedContext: false, expectedProbe: false},
-		{name: "exceptions only", cfg: exceptionsConfig(true), expectedContext: false, expectedProbe: true},
+		{name: "exceptions only", cfg: exceptionsConfig(true), expectedContext: false, expectedProbe: false},
 		{
 			name:            "explicit setting",
 			cfg:             &obi.Config{EBPF: config.EBPFTracer{PopulateTraceContext: true}},
