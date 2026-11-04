@@ -84,5 +84,5 @@ When you terminate OBI, you should see it print something like:
 Processed 30002 requests
 ```
 
-Since the load generator generates 15001 requests total, we should see 30,0002 request and perhaps an optional connection
+Since the load generator generates 15001 requests total, we should see 30,002 requests and perhaps an optional connection
 error for the termination.
