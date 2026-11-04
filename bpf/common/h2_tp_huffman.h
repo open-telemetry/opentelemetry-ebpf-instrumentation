@@ -62,7 +62,8 @@ typedef struct h2_tp_huff_scan {
     u8 idx;
     u8 done;    // scan ran; retries walk the list
     u16 resume; // candidates at or before this offset were already rejected
-    u8 _pad[2];
+    u8 more;
+    u8 _pad;
 } h2_tp_huff_scan_t;
 
 // True when a value length byte announces a huffman string that could hold a traceparent.
@@ -87,7 +88,7 @@ typedef struct h2_huff_ctx {
 // Decodes the i-th character: reads 6 bits at the cursor, looks up the character they
 // name, and advances the cursor by the code's real width (5 bits, or 6 when the entry
 // is flagged wide). Deliberately branch-free apart from the loop exit.
-static int h2_huff_step(u32 i, void *vctx) {
+static __always_inline int h2_huff_step_impl(u32 i, void *vctx) {
     h2_huff_ctx_t *c = vctx;
 
     if (i >= k_hpack_value_len_tp) {
@@ -111,14 +112,28 @@ static int h2_huff_step(u32 i, void *vctx) {
     return 0;
 }
 
-// w is a zeroed k_h2_tp_huff_window holding len octets. Needs bpf_loop.
-static __always_inline bool h2_huff_decode_tp(const unsigned char *w, u32 len, unsigned char *out) {
+static int h2_huff_step(u32 i, void *vctx) {
+    return h2_huff_step_impl(i, vctx);
+}
+
+// w is a zeroed k_h2_tp_huff_window holding len octets.
+static __always_inline bool h2_huff_decode_tp_with_loop(const unsigned char *w,
+                                                        u32 len,
+                                                        unsigned char *out,
+                                                        bool use_bpf_loop) {
     if (len < k_h2_tp_huff_min || len > k_h2_tp_huff_max) {
         return false;
     }
 
     h2_huff_ctx_t c = {.w = w, .out = out, .bit = 0, .invalid = 0};
-    bpf_loop(k_hpack_value_len_tp, h2_huff_step, &c, 0);
+    if (use_bpf_loop) {
+        bpf_loop(k_hpack_value_len_tp, h2_huff_step, &c, 0);
+    } else {
+#pragma clang loop unroll(disable)
+        for (u32 i = 0; i < k_hpack_value_len_tp; i++) {
+            h2_huff_step_impl(i, &c);
+        }
+    }
 
     if (c.invalid || (c.bit + 7) / 8 != len) {
         return false;
@@ -141,4 +156,8 @@ static __always_inline bool h2_huff_decode_tp(const unsigned char *w, u32 len, u
     // the alphabet cannot produce a bad character, but it can produce a bad layout
     return out[0] == '0' && out[1] == '0' && out[k_tp_val_dash1] == '-' &&
            out[k_tp_val_dash2] == '-' && out[k_tp_val_dash3] == '-';
+}
+
+static __always_inline bool h2_huff_decode_tp(const unsigned char *w, u32 len, unsigned char *out) {
+    return h2_huff_decode_tp_with_loop(w, len, out, true);
 }

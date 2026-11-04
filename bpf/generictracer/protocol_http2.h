@@ -540,7 +540,11 @@ static __always_inline void h2_resume_cut_frame(grpc_frames_ctx_t *g_ctx) {
 
         if (joined &&
             (!next || next + k_frame_header_len > len || h2_frame_header_plausible(buf + next))) {
+            // Re-establish the ranges after helper calls and stack spills on old verifiers.
+            bpf_clamp_umax(kept, k_kprobes_http2_buf_size);
             bpf_probe_read_kernel(joined, kept, cut->data);
+            bpf_clamp_umax(kept, k_kprobes_http2_buf_size);
+            bpf_clamp_umax(len, k_iovec_max_len);
             bpf_probe_read(joined + kept, len, buf);
             g_ctx->args.u_buf = (u64)joined;
             g_ctx->args.bytes_len = kept + len;
@@ -711,12 +715,14 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame, void *, ctx) {
 // the traceparent name may be a table index, so look for the compressed value alone;
 // a match here is trusted more than the connection's trace that finalize falls back to
 static __always_inline u8 h2_server_huffscan(grpc_frames_ctx_t *g_ctx,
-                                             http2_grpc_request_t *h2g_info) {
+                                             http2_grpc_request_t *h2g_info,
+                                             bool use_bpf_loop) {
     u32 hpack_off;
     const u32 hpack_len = h2_hpack_window(h2g_info, &hpack_off);
     g_ctx->huff_scan.done = 1;
 
-    if (!find_hpack_traceparent_huffman(h2g_info->data, hpack_off, hpack_len, &g_ctx->huff_scan)) {
+    if (!find_hpack_traceparent_huffman_with_loop(
+            h2g_info->data, hpack_off, hpack_len, &g_ctx->huff_scan, use_bpf_loop)) {
         return 0;
     }
 
@@ -752,8 +758,7 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server, void *, ctx)
         return 0;
     }
 
-    // without bpf_loop the decode program is a dummy, so skip the detour entirely
-    if (g_bpf_loop_enabled) {
+    {
         // name matched, value compressed: decoding needs its own program
         if (g_ctx->huff.len) {
             h2_tail_call(ctx, g_ctx, k_tail_protocol_http2_grpc_handle_start_frame_server_huffman);
@@ -770,8 +775,7 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server, void *, ctx)
 }
 
 // SERVER huffscan: kept as a program so huffman retries can jump back to it
-SEC("kprobe/http2")
-int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_huffscan, void *, ctx) {
+static __always_inline int h2_server_huffscan_program(void *ctx, bool use_bpf_loop) {
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
     if (!g_ctx) {
         return 0;
@@ -781,8 +785,13 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_huffscan, voi
         return 0;
     }
 
-    if (h2_server_huffscan(g_ctx, h2g_info)) {
+    if (h2_server_huffscan(g_ctx, h2g_info, use_bpf_loop)) {
         h2_tail_call(ctx, g_ctx, k_tail_protocol_http2_grpc_handle_start_frame_server_huffman);
+        return 0;
+    }
+
+    if (g_ctx->huff_scan.more) {
+        h2_tail_call(ctx, g_ctx, k_tail_protocol_http2_grpc_handle_start_frame_server_huffscan);
         return 0;
     }
 
@@ -790,17 +799,20 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_huffscan, voi
     return 0;
 }
 
-// SERVER huffman: decodes the value the scan located, in its own tail-call program
 SEC("kprobe/http2")
-int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_huffman, void *, ctx) {
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_huffscan, void *, ctx) {
+    return h2_server_huffscan_program(ctx, true);
+}
+
+SEC("kprobe/http2")
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_huffscan_legacy, void *, ctx) {
+    return h2_server_huffscan_program(ctx, false);
+}
+
+// SERVER huffman: decodes the value the scan located, in its own tail-call program
+static __always_inline int h2_server_huffman_program(void *ctx, bool use_bpf_loop) {
     grpc_frames_ctx_t *g_ctx = grpc_ctx();
     if (!g_ctx) {
-        return 0;
-    }
-
-    // decoding needs bpf_loop; without it, go straight to finalize
-    if (!g_bpf_loop_enabled) {
-        h2_tail_call(ctx, g_ctx, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
         return 0;
     }
 
@@ -821,8 +833,8 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_huffman, void
         return 0;
     }
 
-    if (try_parse_tp_huffman_value(
-            h2g_info->data + hpack_off, hpack_len, &g_ctx->huff, w, out, &tp_p->tp)) {
+    if (try_parse_tp_huffman_value_with_loop(
+            h2g_info->data + hpack_off, hpack_len, &g_ctx->huff, w, out, &tp_p->tp, use_bpf_loop)) {
         h2_tail_call(ctx, g_ctx, k_tail_protocol_http2_grpc_handle_start_frame_server_commit);
         return 0;
     }
@@ -846,13 +858,24 @@ int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_huffman, void
 
     // a full list may have starved later candidates: rescan past the last one;
     // falls through to finalize when the tail call budget runs out
-    if (g_ctx->huff_scan.count == k_h2_tp_huff_max_candidates) {
-        g_ctx->huff_scan.resume = g_ctx->huff_scan.at[k_h2_tp_huff_max_candidates - 1];
+    if (!use_bpf_loop || g_ctx->huff_scan.count == k_h2_tp_huff_max_candidates) {
+        const u8 last = use_bpf_loop ? k_h2_tp_huff_max_candidates - 1 : 0;
+        g_ctx->huff_scan.resume = g_ctx->huff_scan.at[last];
         h2_tail_call(ctx, g_ctx, k_tail_protocol_http2_grpc_handle_start_frame_server_huffscan);
     }
 
     h2_tail_call(ctx, g_ctx, k_tail_protocol_http2_grpc_handle_start_frame_server_finalize);
     return 0;
+}
+
+SEC("kprobe/http2")
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_huffman, void *, ctx) {
+    return h2_server_huffman_program(ctx, true);
+}
+
+SEC("kprobe/http2")
+int GUARDED_PROG(obi_protocol_http2_grpc_handle_start_frame_server_huffman_legacy, void *, ctx) {
+    return h2_server_huffman_program(ctx, false);
 }
 
 static __always_inline void h2_server_commit(void *ctx,

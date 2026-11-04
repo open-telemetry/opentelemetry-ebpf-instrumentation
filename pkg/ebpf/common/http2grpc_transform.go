@@ -5,6 +5,7 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -17,6 +18,7 @@ import (
 	lru "github.com/hashicorp/golang-lru/v2"
 	"golang.org/x/net/http2"
 
+	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
@@ -73,8 +75,9 @@ type h2ResponseMeta struct {
 }
 
 type pendingH2Event struct {
-	event    BPFHTTP2Info
-	response h2ResponseMeta
+	event        BPFHTTP2Info
+	response     h2ResponseMeta
+	remoteParent trace.SpanContext
 }
 
 type h2StreamMeta struct {
@@ -86,12 +89,13 @@ type h2StreamMeta struct {
 }
 
 type h2RequestMeta struct {
-	method   string
-	path     string
-	fullPath string
-	host     string
-	hostPort int
-	grpc     bool
+	method       string
+	path         string
+	fullPath     string
+	host         string
+	hostPort     int
+	grpc         bool
+	remoteParent trace.SpanContext
 }
 
 func byteFramer(data []uint8) *http2.Framer {
@@ -277,6 +281,10 @@ func hpackOpensResponse(frag []byte) bool {
 }
 
 func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Framer, hf *http2.HeadersFrame) (string, string, string, string, bool, bool) {
+	return readMetaFrameWithParent(parseContext, connID, fr, hf, nil)
+}
+
+func readMetaFrameWithParent(parseContext *EBPFParseContext, connID uint64, fr *http2.Framer, hf *http2.HeadersFrame, remoteParent *trace.SpanContext) (string, string, string, string, bool, bool) {
 	h2c := getOrInitH2Conn(parseContext.h2c, connID)
 
 	ok := false
@@ -285,6 +293,9 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 	path := ""
 	contentType := ""
 	authority := ""
+	var parentValue string
+	var parentCount int
+	blockComplete := false
 
 	if h2c == nil {
 		return method, path, contentType, authority, ok, isResponse
@@ -301,6 +312,9 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 		case ":authority":
 			authority = hf.Value
 			ok = true
+		case "traceparent":
+			parentCount++
+			parentValue = hf.Value
 		case ":status":
 			// only responses carry :status — this HEADERS was misread as a request start
 			isResponse = true
@@ -314,7 +328,13 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 	})
 	// Lose reference to MetaHeadersFrame:
 	defer h2c.hdec.SetEmitFunc(func(_ bhpack.HeaderField) {})
-	defer h2c.hdec.Close()
+	defer func() {
+		err := h2c.hdec.Close()
+		if remoteParent != nil && blockComplete && err == nil && parentCount == 1 {
+			extracted := propagation.TraceContext{}.Extract(context.Background(), propagation.MapCarrier{"traceparent": parentValue})
+			*remoteParent = trace.SpanContextFromContext(extracted)
+		}
+	}()
 
 	frag := hf.HeaderBlockFragment()
 
@@ -324,11 +344,13 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 		return method, path, contentType, authority, ok, true
 	}
 
+	ended := hf.HeadersEnded()
 	for {
 		if _, err := h2c.hdec.Write(frag); err != nil {
 			return method, path, contentType, authority, ok, isResponse
 		}
-		if hf.HeadersEnded() {
+		if ended {
+			blockComplete = true
 			break
 		}
 		hff, err := fr.ReadFrame()
@@ -336,10 +358,11 @@ func readMetaFrame(parseContext *EBPFParseContext, connID uint64, fr *http2.Fram
 			break
 		}
 		cf, ok := hff.(*http2.ContinuationFrame)
-		if !ok {
+		if !ok || cf.StreamID != hf.StreamID {
 			break
 		}
 		frag = cf.HeaderBlockFragment()
+		ended = cf.HeadersEnded()
 	}
 
 	return method, path, contentType, authority, ok, isResponse
@@ -612,7 +635,7 @@ func http2EventToSpan(parseContext *EBPFParseContext, pending *pendingH2Event) (
 		}
 
 		if ff, ok := f.(*http2.HeadersFrame); ok {
-			method, path, contentType, authority, ok, isResponse := readMetaFrame(parseContext, connID, framer, ff)
+			method, path, contentType, authority, ok, isResponse := readMetaFrameWithParent(parseContext, connID, framer, ff, &pending.remoteParent)
 			if isResponse {
 				return request.Span{}, true, nil // response HEADERS misread as a request start
 			}
@@ -646,7 +669,9 @@ func http2EventToSpan(parseContext *EBPFParseContext, pending *pendingH2Event) (
 				host, hostPort = splitAuthority(authority)
 			}
 
-			return http2InfoToSpan(event, method, path, fullPath, peer, host, hostPort, status, eventType), false, nil
+			span := http2InfoToSpan(event, method, path, fullPath, peer, host, hostPort, status, eventType)
+			applyH2RemoteParent(&span, pending.remoteParent)
+			return span, false, nil
 		}
 	}
 
@@ -719,18 +744,20 @@ func readHTTP2HeaderEvent(parseContext *EBPFParseContext, event *BPFHTTP2Info) e
 	switch event.Flags {
 	case EventTypeKHTTP2RequestHeaders:
 		stream.requestSeen = true
-		span, ignore, err := http2EventToSpan(parseContext, &pendingH2Event{event: *event})
+		pending := &pendingH2Event{event: *event}
+		span, ignore, err := http2EventToSpan(parseContext, pending)
 		if err != nil {
 			return err
 		}
 		if !ignore && !stream.requestOK {
 			stream.request = h2RequestMeta{
-				method:   span.Method,
-				path:     span.Path,
-				fullPath: span.FullPath,
-				host:     span.Host,
-				hostPort: span.HostPort,
-				grpc:     h2SpanIsGRPC(span),
+				method:       span.Method,
+				path:         span.Path,
+				fullPath:     span.FullPath,
+				host:         span.Host,
+				hostPort:     span.HostPort,
+				grpc:         h2SpanIsGRPC(span),
+				remoteParent: pending.remoteParent,
 			}
 			stream.requestOK = true
 		}
@@ -818,7 +845,18 @@ func http2FromBuffers(parseContext *EBPFParseContext, event *BPFHTTP2Info) (requ
 	span := http2InfoToSpan(
 		event, cached.method, cached.path, cached.fullPath, peer, host, hostPort, status, protocol,
 	)
+	applyH2RemoteParent(&span, cached.remoteParent)
 	return span, false, nil
+}
+
+func applyH2RemoteParent(span *request.Span, parent trace.SpanContext) {
+	if !parent.IsValid() || span.IsClientSpan() {
+		return
+	}
+	span.TraceID = parent.TraceID()
+	span.ParentSpanID = parent.SpanID()
+	span.TraceFlags = uint8(parent.TraceFlags())
+	span.ParentConditional = false
 }
 
 func ReadHTTP2HeaderEvent(parseContext *EBPFParseContext, record *ringbuf.Record, filter ServiceFilter) error {

@@ -20,6 +20,9 @@ static inline long bpf_loop(unsigned int nr_loops,
 
 #include <common/h2_tp_huffman.h>
 
+static bool use_bpf_loop;
+#define h2_huff_decode_tp(w, len, out) h2_huff_decode_tp_with_loop(w, len, out, use_bpf_loop)
+
 static void assertf(int cond, const char *msg) {
     if (!cond) {
         fprintf(stderr, "FAIL: %s\n", msg);
@@ -288,13 +291,17 @@ static void test_sdk_golden_vector(void) {
 }
 
 int main(void) {
-    test_length_bounds();
-    test_round_trip();
-    test_padding_rules();
-    test_rejects_invalid_codes();
-    test_rejects_wrong_shape();
-    test_sdk_golden_vector();
-    test_random_bytes_do_not_decode();
+    for (u32 mode = 0; mode < 2; mode++) {
+        use_bpf_loop = mode != 0;
+
+        test_length_bounds();
+        test_round_trip();
+        test_padding_rules();
+        test_rejects_invalid_codes();
+        test_rejects_wrong_shape();
+        test_sdk_golden_vector();
+        test_random_bytes_do_not_decode();
+    }
     printf("OK: %s\n", __FILE__);
     return 0;
 }

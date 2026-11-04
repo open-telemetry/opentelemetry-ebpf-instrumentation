@@ -37,8 +37,8 @@ typedef struct h2_huff_scan_loop_ctx {
     u32 max_pos; // last index a candidate length byte may sit at
 } h2_huff_scan_loop_ctx_t;
 
-// the candidate counter is loop-carried state only bpf_loop can afford
-static int h2_huff_scan_step(u32 i, void *vctx) {
+// Keep the callback separate from the bounded-loop implementation.
+static __always_inline int h2_huff_scan_step_impl(u32 i, void *vctx) {
     h2_huff_scan_loop_ctx_t *c = vctx;
 
     if (i >= k_hpack_tp_max_scan || i > c->max_pos) {
@@ -61,14 +61,17 @@ static int h2_huff_scan_step(u32 i, void *vctx) {
     return 0;
 }
 
+static int h2_huff_scan_step(u32 i, void *vctx) {
+    return h2_huff_scan_step_impl(i, vctx);
+}
+
 // Locates compressed values with no name to match. A plausible length byte can
 // be any indexed field, so several candidates are kept for the decode to walk
-static __always_inline u8 find_hpack_traceparent_huffman(const unsigned char *base,
-                                                         u32 off,
-                                                         u32 data_len,
-                                                         h2_tp_huff_scan_t *scan) {
+static __always_inline u8 find_hpack_traceparent_huffman_with_loop(
+    const unsigned char *base, u32 off, u32 data_len, h2_tp_huff_scan_t *scan, bool use_bpf_loop) {
     scan->count = 0;
     scan->idx = 0;
+    scan->more = 0;
 
     if (data_len < (u32)k_h2_tp_huff_min + 1) {
         return 0;
@@ -80,9 +83,39 @@ static __always_inline u8 find_hpack_traceparent_huffman(const unsigned char *ba
         .off = off,
         .max_pos = data_len - (u32)k_h2_tp_huff_min - 1,
     };
-    bpf_loop(k_hpack_tp_max_scan, h2_huff_scan_step, &c, 0);
+    if (use_bpf_loop) {
+        bpf_loop(k_hpack_tp_max_scan, h2_huff_scan_step, &c, 0);
+    } else {
+        // Bound each verifier path; the caller tail-calls the next scan window.
+        enum { scan_step = 16 };
+        u64 start = scan->resume;
+        bpf_clamp_umax(start, k_hpack_tp_max_scan);
+#pragma unroll
+        for (u32 i = 0; i < scan_step; i++) {
+            const u32 pos = start + i;
+            if (pos >= k_hpack_tp_max_scan || pos > c.max_pos) {
+                return 0;
+            }
+            const u8 b = base[(off + pos) & (k_kprobes_http2_buf_size - 1)];
+            if (h2_tp_huff_len_plausible(b)) {
+                scan->at[0] = pos + 1;
+                scan->len[0] = b & (u8)~k_hpack_huffman_flag;
+                scan->count = 1;
+                return 1;
+            }
+        }
+        scan->resume = start + scan_step;
+        scan->more = 1;
+    }
 
     return scan->count != 0;
+}
+
+static __always_inline u8 find_hpack_traceparent_huffman(const unsigned char *base,
+                                                         u32 off,
+                                                         u32 len,
+                                                         h2_tp_huff_scan_t *scan) {
+    return find_hpack_traceparent_huffman_with_loop(base, off, len, scan, true);
 }
 
 // Recovers a plain traceparent value when the HPACK name reference is a dyn-table index
@@ -125,12 +158,13 @@ static __always_inline u8 find_hpack_traceparent_value(const unsigned char *data
 }
 
 // w and out are the caller's map-value scratch buffers
-static __always_inline u8 try_parse_tp_huffman_value(const unsigned char *data,
-                                                     u32 data_len,
-                                                     const h2_tp_huff_candidate_t *huff,
-                                                     unsigned char *w,
-                                                     unsigned char *out,
-                                                     tp_info_t *tp) {
+static __always_inline u8 try_parse_tp_huffman_value_with_loop(const unsigned char *data,
+                                                               u32 data_len,
+                                                               const h2_tp_huff_candidate_t *huff,
+                                                               unsigned char *w,
+                                                               unsigned char *out,
+                                                               tp_info_t *tp,
+                                                               bool use_bpf_loop) {
     u32 val_at = huff->at;
     const u32 vlen = huff->len;
 
@@ -150,7 +184,7 @@ static __always_inline u8 try_parse_tp_huffman_value(const unsigned char *data,
         w[i] = at < data_len ? data[at] : 0;
     }
 
-    if (!h2_huff_decode_tp(w, vlen, out)) {
+    if (!h2_huff_decode_tp_with_loop(w, vlen, out, use_bpf_loop)) {
         return 0;
     }
 
@@ -228,4 +262,13 @@ static __always_inline u8 parse_hpack_traceparent(const unsigned char *data,
     }
 
     return 0;
+}
+
+static __always_inline u8 try_parse_tp_huffman_value(const unsigned char *data,
+                                                     u32 len,
+                                                     const h2_tp_huff_candidate_t *huff,
+                                                     unsigned char *w,
+                                                     unsigned char *out,
+                                                     tp_info_t *tp) {
+    return try_parse_tp_huffman_value_with_loop(data, len, huff, w, out, tp, true);
 }

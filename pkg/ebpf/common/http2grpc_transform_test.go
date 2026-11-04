@@ -17,6 +17,8 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/hpack"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/bhpack"
@@ -1361,4 +1363,89 @@ func mustLRU(t *testing.T, size int) *lru.Cache[uint64, *h2Connection] {
 	cache, err := lru.New[uint64, *h2Connection](size)
 	require.NoError(t, err)
 	return cache
+}
+
+func TestH2RemoteParentSurvivesDynamicTableReferences(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	enc := &h2ConnEncoder{}
+	enc.enc = hpack.NewEncoder(&enc.buf)
+	const parent = "00-1234567890abcdef1234567890abcdef-89abcdef01234567-00"
+	for i := range 3 {
+		frame := enc.frame(t, requestFields(pathA, parent))
+		if i > 0 {
+			require.NotContains(t, string(frame), "traceparent", "the repeated header is indexed")
+			require.Less(t, len(frame), 50)
+		}
+		event := h2Event(frame, nil, 2001, uint32(i*2+1))
+		observeH2Headers(t, parseContext, event, EventTypeKHTTP2RequestHeaders)
+		span := completeH2(t, parseContext, event)
+		require.Equal(t, "1234567890abcdef1234567890abcdef", span.TraceID.String())
+		require.Equal(t, "89abcdef01234567", span.ParentSpanID.String())
+		require.Zero(t, span.TraceFlags)
+	}
+}
+
+func TestH2RemoteParentRejectsInvalidAndDuplicateValues(t *testing.T) {
+	for _, values := range [][]string{
+		{"bad"},
+		{"00-00000000000000000000000000000000-89abcdef01234567-01"},
+		{"00-1234567890abcdef1234567890abcdef-0000000000000000-01"},
+		{"00-1234567890abcdef1234567890abcdef-89abcdef01234567-01", "00-1234567890abcdef1234567890abcdef-89abcdef01234567-01"},
+	} {
+		parseContext := NewEBPFParseContext(nil, nil, nil)
+		enc := &h2ConnEncoder{}
+		enc.enc = hpack.NewEncoder(&enc.buf)
+		fields := []hpack.HeaderField{{Name: ":method", Value: "GET"}, {Name: ":path", Value: "/"}}
+		for _, value := range values {
+			fields = append(fields, hpack.HeaderField{Name: "traceparent", Value: value})
+		}
+		event := h2Event(enc.frame(t, fields), nil, 2002, 1)
+		observeH2Headers(t, parseContext, event, EventTypeKHTTP2RequestHeaders)
+		span := completeH2(t, parseContext, event)
+		require.Equal(t, trace.TraceID(event.Tp.TraceId), span.TraceID)
+		require.Equal(t, trace.SpanID(event.Tp.ParentId), span.ParentSpanID)
+	}
+}
+
+func TestH2RemoteParentsStayWithTheirStreams(t *testing.T) {
+	parseContext := NewEBPFParseContext(nil, nil, nil)
+	enc := &h2ConnEncoder{}
+	enc.enc = hpack.NewEncoder(&enc.buf)
+	first := h2Event(enc.frame(t, requestFields(pathA, "00-11111111111111111111111111111111-1111111111111111-01")), nil, 2003, 1)
+	second := h2Event(enc.frame(t, requestFields(pathB, "00-22222222222222222222222222222222-2222222222222222-01")), nil, 2003, 3)
+	observeH2Headers(t, parseContext, first, EventTypeKHTTP2RequestHeaders)
+	observeH2Headers(t, parseContext, second, EventTypeKHTTP2RequestHeaders)
+	span := completeH2(t, parseContext, second)
+	require.Equal(t, "22222222222222222222222222222222", span.TraceID.String())
+	require.Equal(t, "2222222222222222", span.ParentSpanID.String())
+	span = completeH2(t, parseContext, first)
+	require.Equal(t, "11111111111111111111111111111111", span.TraceID.String())
+	require.Equal(t, "1111111111111111", span.ParentSpanID.String())
+}
+
+func TestH2RemoteParentRequiresCompletedHeaderBlock(t *testing.T) {
+	for _, complete := range []bool{false, true} {
+		var block, wire bytes.Buffer
+		encoder := hpack.NewEncoder(&block)
+		for _, field := range requestFields(pathA, "00-1234567890abcdef1234567890abcdef-89abcdef01234567-01") {
+			require.NoError(t, encoder.WriteField(field))
+		}
+		framer := http2.NewFramer(&wire, nil)
+		half := block.Len() / 2
+		require.NoError(t, framer.WriteHeaders(http2.HeadersFrameParam{StreamID: 1, BlockFragment: block.Bytes()[:half]}))
+		require.NoError(t, framer.WriteContinuation(1, complete, block.Bytes()[half:]))
+		reader := http2.NewFramer(nil, &wire)
+		first, err := reader.ReadFrame()
+		require.NoError(t, err)
+		var parent trace.SpanContext
+		readMetaFrameWithParent(NewEBPFParseContext(nil, nil, nil), 5001, reader, first.(*http2.HeadersFrame), &parent)
+		require.Equal(t, complete, parent.IsValid())
+	}
+}
+
+func TestH2WireParentDoesNotReplaceClientIdentity(t *testing.T) {
+	span := request.Span{Type: request.EventTypeHTTPClient, TraceID: trace.TraceID{1}, SpanID: trace.SpanID{2}, ParentSpanID: trace.SpanID{3}, TraceFlags: 1}
+	original := span
+	applyH2RemoteParent(&span, trace.NewSpanContext(trace.SpanContextConfig{TraceID: trace.TraceID{4}, SpanID: trace.SpanID{5}}))
+	require.Equal(t, original, span)
 }

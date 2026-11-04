@@ -825,15 +825,15 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 			spec.Programs["obi_uprobe_readMimeHeader"] = dummy
 		}
 
-		// The huffman decode's bpf_loop callback trips the same func_info validation;
-		// the BPF side skips the detour to it when g_bpf_loop_enabled=false
-		if _, ok := spec.Programs["obi_protocol_http2_grpc_handle_start_frame_server_huffman"]; ok {
-			spec.Programs["obi_protocol_http2_grpc_handle_start_frame_server_huffman"] = dummy
-		}
-
-		// the candidate sweep scans under bpf_loop as well
-		if _, ok := spec.Programs["obi_protocol_http2_grpc_handle_start_frame_server_huffscan"]; ok {
-			spec.Programs["obi_protocol_http2_grpc_handle_start_frame_server_huffscan"] = dummy
+		// Keep bpf_loop callbacks out of the programs loaded on older kernels.
+		for _, name := range []string{
+			"obi_protocol_http2_grpc_handle_start_frame_server_huffman",
+			"obi_protocol_http2_grpc_handle_start_frame_server_huffscan",
+		} {
+			if legacy, ok := spec.Programs[name+"_legacy"]; ok {
+				spec.Programs[name] = legacy
+				legacy.Name = name
+			}
 		}
 
 		// gotracer's HTTP/1 client traceparent injection scans the request
@@ -851,6 +851,15 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 	// bpf2go struct binding still resolves them.
 	spec.Programs["obi_protocol_http_legacy"] = dummy
 	spec.Programs["obi_continue_protocol_http_legacy"] = dummy
+	for _, name := range []string{
+		"obi_protocol_http2_grpc_handle_start_frame_server_huffman_legacy",
+		"obi_protocol_http2_grpc_handle_start_frame_server_huffscan_legacy",
+	} {
+		if _, ok := spec.Programs[name]; ok {
+			spec.Programs[name] = dummy
+		}
+	}
+
 	if _, ok := spec.Programs["obi_uprobe_writeSubset_returns_legacy"]; ok {
 		spec.Programs["obi_uprobe_writeSubset_returns_legacy"] = dummy
 	}
