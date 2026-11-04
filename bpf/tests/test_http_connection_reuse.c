@@ -142,6 +142,29 @@ static void test_displacement_leaves_finished_records_alone(void) {
                 "an answered request stays parsed");
 }
 
+static void test_socket_response_ends_duplicate_suppression(void) {
+    http_info_t info = in_flight_server_request();
+    info.response_bytes_at_request = 4096;
+
+    assert_true(http_response_pending(&info, 4096),
+                "another sighting before a response can be suppressed");
+    assert_true(!http_response_pending(&info, 4211),
+                "a spliced response allows the next keep-alive request even without a status");
+    assert_true(info.status == 0, "the response bytes do not fabricate a parsed status");
+
+    info.type = k_event_type_http_client;
+    assert_true(!http_response_pending(&info, 4211),
+                "an unread client response also allows the next request");
+
+    info.response_bytes_at_request = 0;
+    assert_true(http_response_pending(&info, 0),
+                "a path without socket counters keeps duplicate suppression");
+
+    note_unread_response(&info, 3000);
+    assert_true(!http_response_pending(&info, 0),
+                "an observed unparsed response allows reuse without socket counters");
+}
+
 int main(void) {
     test_response_direction_follows_the_record_type();
     test_unparsed_response_is_recognized_not_counted_as_request();
@@ -149,6 +172,7 @@ int main(void) {
     test_marked_record_is_emitted_where_an_unmarked_one_was_dropped();
     test_displaced_record_is_reported();
     test_displacement_leaves_finished_records_alone();
+    test_socket_response_ends_duplicate_suppression();
 
     if (failed_assertions != 0) {
         printf("%u failed assertions\n", failed_assertions);

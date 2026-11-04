@@ -61,12 +61,12 @@ func TestHandlePostgresTruncatedParse(t *testing.T) {
 
 		require.ErrorIs(t, err, errIgnore)
 		assert.Empty(t, span)
-		stmt, found := ctx.postgresPreparedStatements.Get(postgresPreparedStatementsKey{
+		prepared, found := ctx.postgresPreparedStatements.Get(postgresPreparedStatementsKey{
 			connInfo: event.ConnInfo,
 			stmtName: "",
 		})
 		require.True(t, found)
-		assert.Equal(t, capturedQuery, stmt)
+		assert.Equal(t, capturedQuery, prepared.query)
 	})
 
 	t.Run("reuses cached statement on later executions", func(t *testing.T) {
@@ -446,9 +446,9 @@ func TestParsePostgresStartup(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			db, ok := parsePostgresStartup(largebuf.NewLargeBufferFrom(tt.buf))
+			ns, ok := parsePostgresStartup(largebuf.NewLargeBufferFrom(tt.buf))
 			assert.Equal(t, tt.wantOK, ok)
-			assert.Equal(t, tt.wantDB, db)
+			assert.Equal(t, tt.wantDB, ns.db)
 		})
 	}
 }
@@ -481,7 +481,7 @@ func TestParsePostgresStartupTruncationSafety(t *testing.T) {
 				db, ok := parsePostgresStartup(largebuf.NewLargeBufferFrom(prefix))
 				if ok {
 					// only the explicitly captured name is acceptable, never a user fallback
-					assert.Equal(t, "mydb", db, "prefix of %d bytes", i)
+					assert.Equal(t, "mydb", db.db, "prefix of %d bytes", i)
 				}
 
 				// same prefix split into tiny chunks exercises every cross-chunk read path
@@ -492,7 +492,7 @@ func TestParsePostgresStartupTruncationSafety(t *testing.T) {
 
 			db, ok := parsePostgresStartup(largebuf.NewLargeBufferFrom(full))
 			assert.True(t, ok)
-			assert.Equal(t, "mydb", db)
+			assert.Equal(t, "mydb", db.db)
 		})
 	}
 }

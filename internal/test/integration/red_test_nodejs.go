@@ -39,7 +39,7 @@ func testREDMetricsForNodeHTTPLibrary(t *testing.T, url, urlPath, comm, namespac
 			`http_response_status_code="200",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
-			`url_path="` + urlPath + `"}`)
+			`http_route="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -117,7 +117,7 @@ func checkReportedNodeJSEvents(t *testing.T, urlPath, comm, namespace string, nu
 			`http_response_status_code="200",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
-			`url_path="` + urlPath + `"}`)
+			`http_route="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)

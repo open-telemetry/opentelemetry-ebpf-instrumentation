@@ -45,6 +45,16 @@ CUresult cuLaunchKernelEx(const CUlaunchConfig *config, CUfunction f,
                           void **kernelParams, void **extra);
 CUresult cuGraphLaunch(CUgraphExec graphExec, CUstream hStream);
 
+CUresult cuLaunchKernel_ptsz(CUfunction f, unsigned int gridDimX,
+                             unsigned int gridDimY, unsigned int gridDimZ,
+                             unsigned int blockDimX, unsigned int blockDimY,
+                             unsigned int blockDimZ,
+                             unsigned int sharedMemBytes, CUstream hStream,
+                             void **kernelParams, void **extra);
+CUresult cuLaunchKernelEx_ptsz(const CUlaunchConfig *config, CUfunction f,
+                               void **kernelParams, void **extra);
+CUresult cuGraphLaunch_ptsz(CUgraphExec graphExec, CUstream hStream);
+
 // Context management functions. OBI does not currently instrument these, so a
 // Driver API application that binds a context through them remains an unknown
 // device. The stubs let integration tests cover that case.

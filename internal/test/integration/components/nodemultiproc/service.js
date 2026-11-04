@@ -19,7 +19,8 @@ app.get(`/${route}`, async (req, res) => {
       res.status(500).send(`Error forwarding to upstream: ${err.message}`);
     }
   } else {
-    res.send(`Hello from Service ${route.toUpperCase()}`);
+    // reports the context it was called with, so tests can see what OBI propagated
+    res.send(`Hello from Service ${route.toUpperCase()}, traceparent: ${req.headers.traceparent}`);
   }
 });
 

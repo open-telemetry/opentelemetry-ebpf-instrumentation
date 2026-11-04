@@ -1,0 +1,67 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: inventory-api
+spec:
+  selector:
+    app: inventory-api
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inventory-api-v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: inventory-api
+  template:
+    metadata:
+      labels:
+        app: inventory-api
+        teardown: delete
+      annotations:
+        resource.opentelemetry.io/service.name: inventory
+    spec:
+      shareProcessNamespace: true
+      serviceAccountName: obi
+      volumes:
+        - name: configs
+          persistentVolumeClaim:
+            claimName: configs
+        - name: testoutput
+          persistentVolumeClaim:
+            claimName: testoutput
+      containers:
+        - name: testserver
+          image: testserver:dev
+          imagePullPolicy: Never
+        - name: obi
+          image: obi:dev
+          imagePullPolicy: Never
+          securityContext:
+            privileged: true
+          args: ["--config=/configs/obi-config.yml"]
+          volumeMounts:
+            - name: configs
+              mountPath: /configs
+            - name: testoutput
+              mountPath: /testoutput
+          env:
+            - name: GOCOVERDIR
+              value: /testoutput
+            - name: OTEL_EBPF_OPEN_PORT
+              value: "8080"
+            - name: OTEL_EBPF_DISCOVERY_POLL_INTERVAL
+              value: "500ms"
+            - name: OTEL_EBPF_METRICS_INTERVAL
+              value: "1s"
+            - name: OTEL_EBPF_KUBE_METADATA_ENABLE
+              value: "true"
+            - name: OTEL_EBPF_METRICS_FEATURES
+              value: "application,application_span,application_service_graph"
+            - name: OTEL_EBPF_NAME_RESOLVER_SOURCES
+              value: "k8s"

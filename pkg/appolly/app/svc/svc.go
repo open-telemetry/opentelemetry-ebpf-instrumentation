@@ -140,10 +140,15 @@ type Attrs struct {
 	DynamicSpans []services.DynamicSpan
 
 	Sampler trace.Sampler
+	// SamplerConfig is what Sampler was built from: eBPF applies it to the traces
+	// the process starts. Both are nil when the global sampler applies.
+	SamplerConfig *services.SamplerConfig
 
 	// Features that are defined in a per-service basis. For example, we might want to enable
 	// Service Graph Metrics for all the services but RED metrics only for a few
 	Features export.Features
+
+	Exceptions services.ExceptionsConfig
 
 	LogEnricherEnabled bool
 

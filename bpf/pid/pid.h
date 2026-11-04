@@ -103,10 +103,10 @@ static __always_inline u32 obi_parent_pid(void) {
 
 // A pid past the last word cannot occur while PID_MAX_LIMIT is 2^22; it is
 // rejected rather than accepted.
-static __always_inline bool pid_selected(u32 pid) {
+static __always_inline bool pid_selected(void *bitmap, u32 pid) {
     const u32 word = pid / 64;
 
-    const u64 *bits = bpf_map_lookup_elem(&valid_pids, &word);
+    const u64 *bits = bpf_map_lookup_elem(bitmap, &word);
     if (!bits) {
         return false;
     }
@@ -114,11 +114,11 @@ static __always_inline bool pid_selected(u32 pid) {
     return (*bits >> (pid & 63)) & 1;
 }
 
-// A task passes when its own bit or its parent's is set, so children forked
-// after discovery are covered until userspace allows them too. Returns the pid
-// OBI's /proc reports for a task that passes, 0 otherwise: callers match it
-// against pids userspace read from that /proc, such as the USDT ip map.
-static __always_inline u32 valid_pid(u64 id) {
+// A task passes when its own bit or its parent's is set in bitmap, so children
+// forked after discovery are covered until userspace allows them too. Returns
+// the pid OBI's /proc reports for a task that passes, 0 otherwise: callers match
+// it against pids userspace read from that /proc, such as the USDT ip map.
+static __always_inline u32 pid_in_filter(void *bitmap, u64 id) {
     const u32 host_pid = id >> 32;
     // accept all PIDs if debugging OTEL_EBPF_BPF_PID_FILTER_OFF option is set.
     // This returns the host pid: in pod mode it is not the pid OBI's /proc
@@ -132,9 +132,13 @@ static __always_inline u32 valid_pid(u64 id) {
         return 0;
     }
 
-    if (pid_selected(pid) || pid_selected(obi_parent_pid())) {
+    if (pid_selected(bitmap, pid) || pid_selected(bitmap, obi_parent_pid())) {
         return pid;
     }
 
     return 0;
+}
+
+static __always_inline u32 valid_pid(u64 id) {
+    return pid_in_filter(&valid_pids, id);
 }

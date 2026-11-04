@@ -63,7 +63,7 @@ func TestECSResolverRecoversFromInitialFailure(t *testing.T) {
 	}
 	ctxInfo := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Features: metadata.ClusterECS}}
 	cloudCfg := CloudMetadataConfig{ClusterName: "cluster", Region: "us-east-1", RefreshInterval: 10 * time.Millisecond}
-	refreshers := CloudMetadataRefreshers(ctx, &ctxInfo.NodeMeta, cfg.Sources, cloudCfg)
+	refreshers := CloudMetadataRefreshers(ctx, &ctxInfo.NodeMeta, cfg, cloudCfg)
 	require.Len(t, refreshers, 1)
 	ctxInfo.CloudMetaInventory = cloud.NewInventory(refreshers)
 	startCloudInventory(t, ctxInfo.CloudMetaInventory, cloudCfg.RefreshInterval)
@@ -111,7 +111,7 @@ func TestECSMetadataRefreshersConfiguration(t *testing.T) {
 	t.Setenv("ECS_CONTAINER_METADATA_URI", "")
 	ctxInfo := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Features: metadata.ClusterECS}}
 	for _, sources := range [][]Source{nil, {SourceDNS}} {
-		refreshers := CloudMetadataRefreshers(t.Context(), &ctxInfo.NodeMeta, sources, CloudMetadataConfig{})
+		refreshers := CloudMetadataRefreshers(t.Context(), &ctxInfo.NodeMeta, &NameResolverConfig{Sources: sources}, CloudMetadataConfig{})
 		assert.Empty(t, refreshers)
 	}
 	for _, tc := range []struct {
@@ -126,7 +126,7 @@ func TestECSMetadataRefreshersConfiguration(t *testing.T) {
 		t.Run(fmt.Sprintf("%s_%s_%v", tc.cloud.Region, tc.cloud.ClusterName, tc.interval), func(t *testing.T) {
 			tc.cloud.RefreshInterval = tc.interval
 			refreshers := CloudMetadataRefreshers(t.Context(), &ctxInfo.NodeMeta,
-				[]Source{SourceECS}, tc.cloud)
+				&NameResolverConfig{Sources: []Source{SourceECS}}, tc.cloud)
 			assert.Empty(t, refreshers)
 		})
 	}
@@ -177,7 +177,7 @@ func TestECSMetadataRefreshersMetadataDefaults(t *testing.T) {
 			cloudCfg := CloudMetadataConfig{ClusterName: tc.cluster, Region: tc.region, RefreshInterval: time.Second}
 			original := cloudCfg
 			info := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Features: metadata.ClusterECS, Cluster: detectedCluster, Region: "us-east-1"}}
-			refreshers := CloudMetadataRefreshers(t.Context(), &info.NodeMeta, cfg.Sources, cloudCfg)
+			refreshers := CloudMetadataRefreshers(t.Context(), &info.NodeMeta, cfg, cloudCfg)
 			require.Len(t, refreshers, 1)
 			inventory := cloud.NewInventory(refreshers)
 			startCloudInventory(t, inventory, 10*time.Millisecond)

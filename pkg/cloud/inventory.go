@@ -5,6 +5,7 @@ package cloud // import "go.opentelemetry.io/obi/pkg/cloud"
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"maps"
 	"net/netip"
@@ -14,6 +15,9 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
+
+// ErrMetadataUnavailable stops polling a source until the inventory is recreated.
+var ErrMetadataUnavailable = errors.New("cloud metadata unavailable")
 
 // scheduledRefresher controls polling independently of the shared cloud interval.
 type scheduledRefresher interface {
@@ -28,35 +32,40 @@ type MetadataRefresher interface {
 // MetadataSnapshot keeps track of two kinds of cloud resources:
 //   - those that are identifiable by IP address (e.g. an ECS task endpoint).
 //     Useful for service graphs and peer address resolution.
-//   - those that are identifiable by a local ID (e.g. ECS container).
+//   - those that are identifiable by a local ID (e.g. ECS container or cloud VM).
 //     Useful for RED metrics decoration of services in the same host as OBI
 type MetadataSnapshot struct {
 	ServiceByIP          map[string]string
 	ServiceByContainerID map[string]string
+	ServiceByInstanceID  map[string]string
 }
 
-// ContainerChanges describes container metadata added, renamed, or removed by a renewal.
+// ContainerChanges describes container changes and signals VM membership updates.
 type ContainerChanges struct {
 	Changed map[string]string
 	Removed map[string]string
+	// InstancesChanged signals that local VM membership needs to be checked again.
+	InstancesChanged bool
 }
 
 type Inventory struct {
-	changes    *msg.Queue[ContainerChanges]
-	log        *slog.Logger
-	refreshers []MetadataRefresher
-	mu         sync.RWMutex
-	snapshot   MetadataSnapshot
-	sources    []MetadataSnapshot
-	publishMu  sync.Mutex
+	changes     *msg.Queue[ContainerChanges]
+	log         *slog.Logger
+	refreshers  []MetadataRefresher
+	mu          sync.RWMutex
+	snapshot    MetadataSnapshot
+	sources     []MetadataSnapshot
+	unavailable []bool
+	publishMu   sync.Mutex
 }
 
 func NewInventory(refreshers []MetadataRefresher) *Inventory {
 	return &Inventory{
-		changes:    msg.NewQueue[ContainerChanges](),
-		log:        slog.With("component", "cloud.Inventory"),
-		refreshers: refreshers,
-		sources:    make([]MetadataSnapshot, len(refreshers)),
+		changes:     msg.NewQueue[ContainerChanges](),
+		log:         slog.With("component", "cloud.Inventory"),
+		refreshers:  refreshers,
+		sources:     make([]MetadataSnapshot, len(refreshers)),
+		unavailable: make([]bool, len(refreshers)),
 	}
 }
 
@@ -81,31 +90,48 @@ func (i *Inventory) ServiceNameForContainerID(id string) (string, bool) {
 	return name, ok
 }
 
+func (i *Inventory) ServiceNameForInstanceID(id string) (string, bool) {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	name, ok := i.snapshot.ServiceByInstanceID[id]
+	return name, ok
+}
+
 func (i *Inventory) refresh(ctx context.Context) {
 	for index := range i.refreshers {
 		i.refreshSource(ctx, index)
 	}
 }
 
-func (i *Inventory) refreshSource(ctx context.Context, index int) {
-	next := MetadataSnapshot{ServiceByIP: map[string]string{}, ServiceByContainerID: map[string]string{}}
+func (i *Inventory) refreshSource(ctx context.Context, index int) bool {
+	if i.unavailable[index] {
+		return false
+	}
+	next := MetadataSnapshot{ServiceByIP: map[string]string{}, ServiceByContainerID: map[string]string{}, ServiceByInstanceID: map[string]string{}}
 	r := i.refreshers[index]
 	if err := r.Refresh(ctx, &next); err != nil {
+		if errors.Is(err, ErrMetadataUnavailable) {
+			i.unavailable[index] = true
+			i.log.Warn("cloud metadata source unavailable; polling stopped", "source", r.Name(), "error", err)
+			return false
+		}
 		i.log.Warn("can't refresh cloud metadata", "source", r.Name(), "error", err)
-		return
+		return true
 	}
 	// Serialize publication so container changes are delivered in snapshot order.
 	i.publishMu.Lock()
 	defer i.publishMu.Unlock()
 	i.sources[index] = next
-	snapshot := MetadataSnapshot{ServiceByIP: map[string]string{}, ServiceByContainerID: map[string]string{}}
+	snapshot := MetadataSnapshot{ServiceByIP: map[string]string{}, ServiceByContainerID: map[string]string{}, ServiceByInstanceID: map[string]string{}}
 	for _, source := range i.sources {
 		maps.Copy(snapshot.ServiceByIP, source.ServiceByIP)
 		maps.Copy(snapshot.ServiceByContainerID, source.ServiceByContainerID)
+		maps.Copy(snapshot.ServiceByInstanceID, source.ServiceByInstanceID)
 	}
 	i.mu.Lock()
 	changes := ContainerChanges{
 		Changed: map[string]string{}, Removed: map[string]string{},
+		InstancesChanged: !maps.Equal(i.snapshot.ServiceByInstanceID, snapshot.ServiceByInstanceID),
 	}
 	for id, name := range snapshot.ServiceByContainerID {
 		if previous, ok := i.snapshot.ServiceByContainerID[id]; !ok || previous != name {
@@ -118,11 +144,12 @@ func (i *Inventory) refreshSource(ctx context.Context, index int) {
 		}
 	}
 	i.snapshot = snapshot
-	hasChanges := len(changes.Changed)+len(changes.Removed) > 0
+	hasChanges := len(changes.Changed)+len(changes.Removed) > 0 || changes.InstancesChanged
 	i.mu.Unlock()
 	if hasChanges {
 		i.changes.SendCtx(ctx, changes)
 	}
+	return true
 }
 
 func InventoryRefresherNode(i *Inventory, refreshInterval time.Duration) swarm.InstanceFunc {
@@ -138,6 +165,9 @@ func InventoryRefresherNode(i *Inventory, refreshInterval time.Duration) swarm.I
 		return func(ctx context.Context) {
 			var workers sync.WaitGroup
 			for index, r := range i.refreshers {
+				if i.unavailable[index] {
+					continue
+				}
 				workers.Go(func() {
 					delay := refreshInterval
 					scheduled, independent := r.(scheduledRefresher)
@@ -154,7 +184,9 @@ func InventoryRefresherNode(i *Inventory, refreshInterval time.Duration) swarm.I
 							if ctx.Err() != nil {
 								return
 							}
-							i.refreshSource(ctx, index)
+							if !i.refreshSource(ctx, index) {
+								return
+							}
 							delay = refreshInterval
 							if independent {
 								delay = scheduled.RefreshDelay(false)

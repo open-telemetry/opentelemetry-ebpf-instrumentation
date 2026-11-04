@@ -12,7 +12,7 @@ receivers:
             - "https://*"
 exporters:
   prometheus:
-    endpoint: "otelcol:9464"
+    endpoint: "0.0.0.0:9464"
     resource_to_telemetry_conversion:
       enabled: true
     enable_open_metrics: true

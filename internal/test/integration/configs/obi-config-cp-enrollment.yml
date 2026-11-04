@@ -1,0 +1,12 @@
+trace_printer: text
+log_level: debug
+routes:
+  unmatched: path
+otel_traces_export:
+  endpoint: http://jaeger:4318
+discovery:
+  poll_interval: 500ms
+  instrument:
+    # clients open their port once connected, so this selects them only after that connection exists
+    - open_ports: 18000-18099
+    - exe_path: "*/tpinjector-server"

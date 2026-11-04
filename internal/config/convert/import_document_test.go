@@ -228,7 +228,7 @@ func TestDocumentToRuntimeRejectsUnsupportedDocumentFields(t *testing.T) {
 		{
 			name: "logger provider",
 			yaml: "logger_provider: {}\n",
-			want: "logger_provider is not supported by the OBI runtime converter",
+			want: "logger_provider.processors must contain exactly one batch processor",
 		},
 		{
 			name: "propagator",

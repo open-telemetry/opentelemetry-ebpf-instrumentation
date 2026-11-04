@@ -1,7 +1,7 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package dynamicspan
+package dynamicspan // import "go.opentelemetry.io/obi/internal/config/dynamicspan"
 
 import "fmt"
 

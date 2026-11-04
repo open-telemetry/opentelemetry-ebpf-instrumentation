@@ -12,6 +12,43 @@ import (
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
+func TestExceptionSessionTotalsReconnect(t *testing.T) {
+	totals := cumulativeSessionTotals{exceptions: map[string]uint64{"Failure": 10, "Quiet": 4}}
+	base := totals
+	first := runtimemetrics.DotnetRuntimeMetricSnapshot{Exceptions: map[string]uint64{"Failure": 2}}
+	require.NoError(t, totals.merge(base, &first))
+	require.Equal(t, map[string]uint64{"Failure": 12, "Quiet": 4}, first.Exceptions)
+	second := runtimemetrics.DotnetRuntimeMetricSnapshot{Exceptions: map[string]uint64{"Failure": 3, "New": 1}}
+	require.NoError(t, totals.merge(base, &second))
+	require.Equal(t, map[string]uint64{"Failure": 13, "Quiet": 4, "New": 1}, second.Exceptions)
+	require.Equal(t, map[string]uint64{"Failure": 12, "Quiet": 4}, first.Exceptions)
+	require.Equal(t, map[string]uint64{"Failure": 10, "Quiet": 4}, base.exceptions)
+
+	missing := runtimemetrics.DotnetRuntimeMetricSnapshot{}
+	require.NoError(t, totals.merge(base, &missing))
+	require.Nil(t, missing.Exceptions)
+	require.Equal(t, second.Exceptions, totals.exceptions)
+
+	base = totals
+	quiet := runtimemetrics.DotnetRuntimeMetricSnapshot{Exceptions: map[string]uint64{}}
+	require.NoError(t, totals.merge(base, &quiet))
+	require.Equal(t, second.Exceptions, quiet.Exceptions)
+	resumed := runtimemetrics.DotnetRuntimeMetricSnapshot{Exceptions: map[string]uint64{"Failure": 1}}
+	require.NoError(t, totals.merge(base, &resumed))
+	require.Equal(t, map[string]uint64{"Failure": 14, "Quiet": 4, "New": 1}, resumed.Exceptions)
+	require.Equal(t, map[string]uint64{"Failure": 13, "Quiet": 4, "New": 1}, quiet.Exceptions)
+	require.Equal(t, quiet.Exceptions, base.exceptions)
+}
+
+func TestExceptionSessionTotalsOverflowPreservesState(t *testing.T) {
+	totals := cumulativeSessionTotals{exceptions: map[string]uint64{"Failure": math.MaxInt64}}
+	base := totals
+	snapshot := runtimemetrics.DotnetRuntimeMetricSnapshot{Exceptions: map[string]uint64{"Failure": 1}}
+	require.ErrorContains(t, totals.merge(base, &snapshot), "exceeds exporter integer range")
+	require.Equal(t, map[string]uint64{"Failure": math.MaxInt64}, totals.exceptions)
+	require.Equal(t, map[string]uint64{"Failure": 1}, snapshot.Exceptions)
+}
+
 func TestCumulativeSessionTotalsReconnect(t *testing.T) {
 	totals := cumulativeSessionTotals{allocated: 12, workItems: 24, contentions: 36, pause: 1.5, jitTime: 3}
 	base := totals

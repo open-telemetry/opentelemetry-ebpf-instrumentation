@@ -110,12 +110,13 @@ type HTTPRouteJavaDiscovery struct {
 // SQLInstrumentation describes SQL capture and database-specific buffering
 // settings.
 type SQLInstrumentation struct {
-	Enabled         ProtocolEnablement         `yaml:"enabled"`
-	Filters         SignalFilters              `yaml:"filters"`
-	HeuristicDetect bool                       `yaml:"heuristic_detect"`
-	MySQL           SQLDatabaseInstrumentation `yaml:"mysql"`
-	Postgres        SQLDatabaseInstrumentation `yaml:"postgres"`
-	MSSQL           SQLDatabaseInstrumentation `yaml:"mssql"`
+	Enabled           ProtocolEnablement         `yaml:"enabled"`
+	Filters           SignalFilters              `yaml:"filters"`
+	HeuristicDetect   bool                       `yaml:"heuristic_detect"`
+	SanitizeQueryText bool                       `yaml:"sanitize_query_text"`
+	MySQL             SQLDatabaseInstrumentation `yaml:"mysql"`
+	Postgres          SQLDatabaseInstrumentation `yaml:"postgres"`
+	MSSQL             SQLDatabaseInstrumentation `yaml:"mssql"`
 }
 
 // SQLDatabaseInstrumentation describes capture buffers and prepared statement
@@ -207,7 +208,8 @@ type PayloadExtraction struct {
 
 // SQLPPPayload describes SQL++ payload extraction settings.
 type SQLPPPayload struct {
-	EndpointPatterns []string `yaml:"endpoint_patterns"`
+	EndpointPatterns            []string `yaml:"endpoint_patterns"`
+	PreparedStatementsCacheSize int      `yaml:"prepared_statements_cache_size"`
 }
 
 // HTTPEnrichment describes HTTP payload enrichment policy and rules.

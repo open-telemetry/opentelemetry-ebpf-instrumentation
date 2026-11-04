@@ -40,7 +40,7 @@ func warnf(format string, args ...any) {
 	ginkgo.GinkgoWriter.Printf(format+"\n", args...)
 }
 
-func validateWeaver() {
+func validateWeaver(outputDir, name string) {
 	if os.Getenv(skipWeaverEnv) == "true" {
 		ginkgo.GinkgoWriter.Printf("%s=true — skipping weaver validation\n", skipWeaverEnv)
 		return
@@ -54,7 +54,7 @@ func validateWeaver() {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
-	report, err := weavercheck.FetchReport(ctx, weaverAdminURL)
+	raw, err := weavercheck.FetchRawReport(ctx, weaverAdminURL)
 	if err != nil {
 		if errors.Is(err, syscall.ECONNREFUSED) {
 			ginkgo.Fail(fmt.Sprintf(
@@ -67,6 +67,18 @@ func validateWeaver() {
 		}
 		ginkgo.Fail(fmt.Sprintf("weaver: %v", err))
 		return
+	}
+
+	report, err := weavercheck.Parse(raw)
+	if err != nil {
+		ginkgo.Fail(fmt.Sprintf("weaver: %v", err))
+		return
+	}
+
+	if reportPath, err := weavercheck.ArchiveReport(outputDir, name, raw); err != nil {
+		ginkgo.GinkgoWriter.Printf("warn: failed to archive weaver report: %v\n", err)
+	} else {
+		ginkgo.GinkgoWriter.Printf("weaver report saved to %s\n", reportPath)
 	}
 	weavercheck.Validate(ginkgo.GinkgoT(), report)
 	if drainErr != nil {

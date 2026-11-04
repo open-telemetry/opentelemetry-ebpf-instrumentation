@@ -5,6 +5,7 @@ package ebpf // import "go.opentelemetry.io/obi/pkg/ebpf"
 
 import (
 	"context"
+	"os"
 
 	"github.com/cilium/ebpf/link"
 
@@ -39,7 +40,7 @@ func (pt *ProcessTracer) Init(_ *ebpfcommon.EBPFEventContext, _ *obi.Config) err
 	defer pt.instrumentablesMu.Unlock()
 
 	pt.log.Debug("avoiding linter complaints for fields only used by the Linux tracer",
-		"v", pt.shutdownTimeout, "bpffsPath", pt.bpffsPath,
+		"v", pt.shutdownTimeout, "bpffsPath", pt.bpffsPath, "cgroupFSPath", pt.cgroupFSPath,
 		"executableGeneration", pt.nextExecutableGeneration,
 		"instrumentableGenerations", pt.instrumentableGenerations,
 		"stopped", pt.stopped)
@@ -53,7 +54,14 @@ func (pt *ProcessTracer) Close() error {
 	return pt.closeErr
 }
 
+// NewExecutable attaches probes to exe.
+//
+// Deprecated: Use [ProcessTracer.NewExecutableFile] to pin the attachment target.
 func (pt *ProcessTracer) NewExecutable(_ *link.Executable, _ *Instrumentable) error {
+	return nil
+}
+
+func (pt *ProcessTracer) NewExecutableFile(_ *os.File, _ *Instrumentable) error {
 	return nil
 }
 

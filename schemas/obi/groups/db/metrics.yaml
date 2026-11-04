@@ -1,9 +1,6 @@
 file_format: definition/2
 metrics:
   - name: db.client.operation.duration
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted db.client.operation.duration
     instrument: histogram
     unit: "s"
@@ -15,7 +12,9 @@ metrics:
           conditionally_required: if the operation targets a single collection
       - ref: db.namespace
         requirement_level:
-          conditionally_required: if the exchange named a database
+          conditionally_required: >-
+            if the exchange named a database or schema; PostgreSQL reports
+            `{database}|{schema}`, or the schema alone when only it is known
       - ref: db.operation.name
         requirement_level:
           conditionally_required: if the operation could be parsed from the exchange
@@ -39,6 +38,10 @@ metrics:
   # process IS the server), reported here so server-side measurements don't
   # pollute the client metric or double-count against it.
   - name: db.server.operation.duration
+    annotations:
+      obi:
+        upstream: none
+        upstream_reason: upstream defines database metrics for the client side only
     instrument: histogram
     unit: "s"
     stability: development

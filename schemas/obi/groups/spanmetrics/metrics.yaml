@@ -3,6 +3,10 @@ metrics:
   # Counter has no explicit OTLP unit set; mirror that here so live-check
   # doesn't complain "Unit should be '1', but found ''".
   - name: traces.span.metrics.calls
+    annotations: &span_metrics_format
+      obi:
+        upstream: none
+        upstream_reason: span metrics derived from traces, a format upstream does not define
     instrument: counter
     unit: ""
     stability: development
@@ -29,6 +33,7 @@ metrics:
         requirement_level: required
 
   - name: traces.span.metrics.duration
+    annotations: *span_metrics_format
     instrument: histogram
     unit: "s"
     stability: development
@@ -60,6 +65,7 @@ metrics:
   # metrics feature; the `traces.span.metrics.*` names above are the
   # replacement (`OTEL_EBPF_OTEL_METRICS_FEATURES=application_span_otel`).
   - name: traces_spanmetrics_calls_total
+    annotations: *span_metrics_format
     instrument: counter
     unit: ""
     stability: development
@@ -90,6 +96,7 @@ metrics:
         requirement_level: required
 
   - name: traces_spanmetrics_latency
+    annotations: *span_metrics_format
     instrument: histogram
     unit: ""
     stability: development
@@ -120,6 +127,7 @@ metrics:
         requirement_level: required
 
   - name: traces_spanmetrics_size_total
+    annotations: *span_metrics_format
     instrument: counter
     unit: ""
     stability: development
@@ -153,6 +161,7 @@ metrics:
         requirement_level: required
 
   - name: traces_spanmetrics_response_size_total
+    annotations: *span_metrics_format
     instrument: counter
     unit: ""
     stability: development

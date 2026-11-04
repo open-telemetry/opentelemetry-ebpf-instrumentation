@@ -140,84 +140,100 @@ attributes:
   # convention: unlike the upstream single-workload `k8s.*` semconv
   # attributes, a flow has two endpoints to describe.
   - key: k8s.src.owner.name
+    annotations: &k8s_flow_end
+      obi:
+        upstream_deviation: upstream describes a single Kubernetes resource and has no attributes for the two ends of a network flow
     type: string
     stability: development
     brief: Name of the top-level Kubernetes owner of the source workload.
     examples: ["frontend"]
 
   - key: k8s.src.owner.type
+    annotations: *k8s_flow_end
     type: string
     stability: development
     brief: Kind of the top-level Kubernetes owner of the source workload.
     examples: ["Deployment"]
 
   - key: k8s.src.namespace
+    annotations: *k8s_flow_end
     type: string
     stability: development
     brief: Kubernetes namespace of the source workload.
     examples: ["integration-test"]
 
   - key: k8s.src.name
+    annotations: *k8s_flow_end
     type: string
     stability: development
     brief: Name of the source Kubernetes object (e.g. Pod name).
     examples: ["frontend-7d9c-abcde"]
 
   - key: k8s.src.type
+    annotations: *k8s_flow_end
     type: string
     stability: development
     brief: Type of the source Kubernetes object.
     examples: ["Pod"]
 
   - key: k8s.src.node.ip
+    annotations: *k8s_flow_end
     type: string
     stability: development
     brief: IP address of the node hosting the source workload.
     examples: ["10.0.1.5"]
 
   - key: k8s.src.node.name
+    annotations: *k8s_flow_end
     type: string
     stability: development
     brief: Name of the node hosting the source workload.
     examples: ["node-1"]
 
   - key: k8s.dst.owner.name
+    annotations: *k8s_flow_end
     type: string
     stability: development
     brief: Name of the top-level Kubernetes owner of the destination workload.
     examples: ["users-api"]
 
   - key: k8s.dst.owner.type
+    annotations: *k8s_flow_end
     type: string
     stability: development
     brief: Kind of the top-level Kubernetes owner of the destination workload.
     examples: ["Deployment"]
 
   - key: k8s.dst.namespace
+    annotations: *k8s_flow_end
     type: string
     stability: development
     brief: Kubernetes namespace of the destination workload.
     examples: ["integration-test"]
 
   - key: k8s.dst.name
+    annotations: *k8s_flow_end
     type: string
     stability: development
     brief: Name of the destination Kubernetes object (e.g. Pod name).
     examples: ["users-api-65b8-fghij"]
 
   - key: k8s.dst.type
+    annotations: *k8s_flow_end
     type: string
     stability: development
     brief: Type of the destination Kubernetes object.
     examples: ["Pod"]
 
   - key: k8s.dst.node.ip
+    annotations: *k8s_flow_end
     type: string
     stability: development
     brief: IP address of the node hosting the destination workload.
     examples: ["10.0.1.6"]
 
   - key: k8s.dst.node.name
+    annotations: *k8s_flow_end
     type: string
     stability: development
     brief: Name of the node hosting the destination workload.
@@ -307,3 +323,33 @@ attribute_groups:
     stability: development
     attributes:
       - ref: network.type
+
+  # The transport attributes OBI observes on every connection it traces.
+  # Upstream defines them for any network operation but lists them on a subset
+  # of its signals, so any OBI span may carry them.
+  - id: attributes.obi.transport
+    visibility: internal
+    attributes:
+      - ref: network.peer.address
+        requirement_level: recommended
+        annotations: &transport
+          obi:
+            upstream_deviation: transport detail of the connection OBI observes, which semconv defines for any network operation
+      - ref: network.peer.port
+        requirement_level: recommended
+        annotations: *transport
+      - ref: network.protocol.version
+        requirement_level: recommended
+        annotations: *transport
+      - ref: service.peer.name
+        requirement_level: opt_in
+        annotations: *transport
+      - ref: client.address
+        requirement_level: recommended
+        annotations: *transport
+      - ref: server.address
+        requirement_level: recommended
+        annotations: *transport
+      - ref: server.port
+        requirement_level: recommended
+        annotations: *transport

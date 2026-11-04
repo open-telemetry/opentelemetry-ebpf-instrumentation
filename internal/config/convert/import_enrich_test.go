@@ -18,6 +18,20 @@ import (
 	"go.opentelemetry.io/obi/pkg/transform"
 )
 
+func TestV2GCEServiceNameRoundTrip(t *testing.T) {
+	cfg := defaultRuntimeConfig()
+	cfg.NameResolver.Sources = []transform.Source{transform.SourceGCE}
+	cfg.NameResolver.GCE = transform.GCENameResolverConfig{
+		ProjectID: "project", Zone: "us-central1-a",
+		Endpoint: "http://compute-mock/",
+	}
+	_, ext := RuntimeToV2(&cfg)
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.Equal(t, cfg.NameResolver.GCE, got.NameResolver.GCE)
+	require.Equal(t, cfg.NameResolver.Sources, got.NameResolver.Sources)
+}
+
 func TestV2ToRuntimeEnrichAttributesAndKubernetesRoundTrip(t *testing.T) {
 	t.Parallel()
 
@@ -257,4 +271,31 @@ func TestV2ToRuntimeRejectsUnsupportedEnrichment(t *testing.T) {
 			require.ErrorContains(t, err, tc.path)
 		})
 	}
+}
+
+func TestAzureServiceNameRoundTrip(t *testing.T) {
+	doc, _, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      service_name:
+        sources: [azure]
+        azure:
+          subscription_id: subscription
+          resource_group: applications
+`))
+	require.NoError(t, err)
+	cfg, err := DocumentToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, []transform.Source{transform.SourceAzure}, cfg.NameResolver.Sources)
+	require.Equal(t, transform.AzureNameResolverConfig{SubscriptionID: "subscription", ResourceGroup: "applications"}, cfg.NameResolver.Azure)
+	_, ext := RuntimeToV2(cfg)
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.Equal(t, cfg.NameResolver.Azure, got.NameResolver.Azure)
+	ext.Enrich.ServiceName.Azure.AdditionalProperties = map[string]any{"typo": true}
+	_, err = V2ToRuntime(ext)
+	require.ErrorContains(t, err, "enrich.service_name.azure.typo")
 }

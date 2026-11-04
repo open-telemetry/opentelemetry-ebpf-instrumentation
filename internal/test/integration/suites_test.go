@@ -604,6 +604,7 @@ func TestSuite_Python(t *testing.T) {
 	t.Run("Python RED metrics", testREDMetricsPythonHTTP)
 	t.Run("Python RED metrics with timeouts", testREDMetricsTimeoutPythonHTTP)
 	t.Run("Python DNS RED metrics", testREDMetricsDNSPython)
+	t.Run("Python forked children", testForkedChildrenPython)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -1002,6 +1003,22 @@ func TestSuite_PythonCouchbase(t *testing.T) {
 	t.Run("Python Couchbase SQL++ metrics", testREDMetricsPythonCouchbaseSQLPP)
 	t.Run("Python Couchbase SQL++ with context", testREDMetricsPythonCouchbaseSQLPPWithContext)
 	t.Run("Python Couchbase SQL++ error", testREDMetricsPythonCouchbaseSQLPPError)
+	t.Run("Python Couchbase SQL++ prepared", testREDMetricsCouchbaseSQLPPPrepared("main",
+		couchbasePreparedStatement{operation: "SELECT", text: couchbasePreparedSelect}))
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
+func TestSuite_GoCouchbase(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-go-couchbase.yml", path.Join(pathOutput, "test-suite-go-couchbase.log"))
+	require.NoError(t, err)
+
+	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
+	require.NoError(t, compose.Up())
+	t.Run("Go Couchbase SQL++ adhoc", testREDMetricsGoCouchbaseSQLPPAdhoc)
+	t.Run("Go Couchbase SQL++ prepared", testREDMetricsCouchbaseSQLPPPrepared("testserver",
+		couchbasePreparedStatement{operation: "SELECT", text: couchbasePreparedSelect},
+		couchbasePreparedStatement{operation: "DELETE", text: couchbasePreparedDelete}))
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

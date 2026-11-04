@@ -53,6 +53,15 @@ entry and return probes; the rest use a single entry probe.
 | `libcuda`   | entry + return  | cuDeviceGetUuid, cuDeviceGetUuid_v2, cuDeviceGetName |
 | `libcuda`   | entry           | cuLaunchKernel, cuLaunchKernelEx, cuGraphLaunch |
 
+Code built with the per-thread default stream (`nvcc --default-stream per-thread`
+or `CUDA_API_PER_THREAD_DEFAULT_STREAM`) calls renamed symbols instead:
+`cudaLaunchKernel_ptsz`, `cudaGraphLaunch_ptsz`, `cudaMemcpy_ptds`,
+`cudaMemcpyAsync_ptsz`, `cudaMemset_ptds`, `cudaEventRecord_ptsz`,
+`cudaEventRecordWithFlags_ptsz`, `cudaStreamSynchronize_ptsz`,
+`cuLaunchKernel_ptsz`, `cuLaunchKernelEx_ptsz` and `cuGraphLaunch_ptsz`. They
+take the same arguments as their base symbols, so each one is attached to the
+same program as its base symbol.
+
 Return probes exist where the outcome only becomes known after the call:
 `cudaMalloc` reports the allocated pointer and size, `cudaFree` confirms the
 release, `cudaSetDevice` confirms which device is now current, and the

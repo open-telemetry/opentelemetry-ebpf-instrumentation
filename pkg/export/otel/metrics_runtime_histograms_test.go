@@ -15,12 +15,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/otel/sdk/instrumentation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	metricdata "go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
@@ -48,6 +50,12 @@ func TestGoRuntimeHistogramProducerProducesCumulativeMetrics(t *testing.T) {
 
 	produced, err := producer.Produce(t.Context())
 	require.NoError(t, err)
+	require.Len(t, produced, 1)
+	assert.Equal(t, instrumentation.Scope{
+		Name:      reporterName,
+		Version:   attr.TelemetryDistroVersion(),
+		SchemaURL: attr.OBISchemaURL,
+	}, produced[0].Scope)
 	metrics := testGoRuntimeHistogramMetricsByName(t, produced)
 	require.Len(t, metrics, 2)
 

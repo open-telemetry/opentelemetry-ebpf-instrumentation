@@ -25,6 +25,7 @@ func TestOTEL_MetricsDecoration_HTTP(t *testing.T) {
 			"OTEL_SERVICE_NAME":      "otel-client",
 			"OTEL_SERVICE_NAMESPACE": "otel-namespace",
 		}),
+		k8s.FeatureGraphMetricsAnnotatedServer(),
 	)
 }
 

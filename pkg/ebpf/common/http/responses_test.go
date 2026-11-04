@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"compress/flate"
 	"compress/gzip"
+	"compress/zlib"
 	"errors"
 	"io"
 	"net/http"
@@ -78,13 +79,22 @@ func zstdEncode(t *testing.T, data []byte) []byte {
 	return buf.Bytes()
 }
 
-func deflateEncode(t *testing.T, data []byte) []byte {
+func rawDeflateEncode(t *testing.T, data []byte) []byte {
 	t.Helper()
 	var buf bytes.Buffer
 	w, err := flate.NewWriter(&buf, flate.DefaultCompression)
 	if err != nil {
 		t.Fatalf("flate.NewWriter: %v", err)
 	}
+	_, _ = w.Write(data)
+	_ = w.Close()
+	return buf.Bytes()
+}
+
+func deflateEncode(t *testing.T, data []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	w := zlib.NewWriter(&buf)
 	_, _ = w.Write(data)
 	_ = w.Close()
 	return buf.Bytes()
@@ -120,6 +130,7 @@ func TestDecompressBody(t *testing.T) {
 		{"gzip", "gzip", gzipEncode},
 		{"zstd", "zstd", zstdEncode},
 		{"deflate", "deflate", deflateEncode},
+		{"raw deflate", "deflate", rawDeflateEncode},
 		{"brotli", "br", brotliEncode},
 	}
 
@@ -153,6 +164,13 @@ func TestDecompressBody(t *testing.T) {
 		}
 	})
 
+	t.Run("deflate corrupted data returns error", func(t *testing.T) {
+		_, err := decompressBody("deflate", []byte("notdeflate"))
+		if err == nil {
+			t.Fatal("expected error for corrupted deflate data, got nil")
+		}
+	})
+
 	t.Run("zstd corrupted data returns error", func(t *testing.T) {
 		_, err := decompressBody("zstd", []byte("notzstd"))
 		if err == nil {
@@ -167,13 +185,15 @@ func TestDecompressBody(t *testing.T) {
 		}
 	})
 
-	t.Run("gzip decompression over limit returns error", func(t *testing.T) {
-		payload := bytes.Repeat([]byte("a"), maxDecompressedResponseBodyBytes+1)
-		_, err := decompressBody("gzip", gzipEncode(t, payload))
-		if !errors.Is(err, errResponseBodyTooLarge) {
-			t.Fatalf("expected errResponseBodyTooLarge, got %v", err)
-		}
-	})
+	for _, tc := range tests {
+		t.Run(tc.name+" decompression over limit returns error", func(t *testing.T) {
+			payload := bytes.Repeat([]byte("a"), maxDecompressedResponseBodyBytes+1)
+			_, err := decompressBody(tc.encoding, tc.encode(t, payload))
+			if !errors.Is(err, errResponseBodyTooLarge) {
+				t.Fatalf("expected errResponseBodyTooLarge, got %v", err)
+			}
+		})
+	}
 }
 
 func TestGetResponseBody(t *testing.T) {

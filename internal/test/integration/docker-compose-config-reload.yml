@@ -1,0 +1,51 @@
+services:
+  server-a:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/latchsrv/Dockerfile
+    image: latchsrv
+    ports:
+      - "28060:18060"
+    environment:
+      PORT: "18060"
+      OTEL_SERVICE_NAME: config-reload-a
+
+  server-b:
+    image: latchsrv
+    ports:
+      - "28061:18061"
+    environment:
+      PORT: "18061"
+      OTEL_SERVICE_NAME: config-reload-b
+    depends_on:
+      server-a:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17
+    ports:
+      - "16686:16686"
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/obi/Dockerfile
+    image: hatest-obi
+    command: ["--config=/configs/obi.yml"]
+    privileged: true
+    pid: host
+    volumes:
+      - ${CONFIG_RELOAD_DIR:?CONFIG_RELOAD_DIR must be set}:/configs:ro
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-config-reload:/var/run/obi
+    environment:
+      GOCOVERDIR: /coverage
+    depends_on:
+      server-a:
+        condition: service_started
+      server-b:
+        condition: service_started
+      jaeger:
+        condition: service_started

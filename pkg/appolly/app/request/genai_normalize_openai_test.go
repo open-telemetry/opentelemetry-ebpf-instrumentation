@@ -439,6 +439,32 @@ func TestGetInput_ResponsesAPI_StructuredContent(t *testing.T) {
 		`]}]`, result)
 }
 
+func TestGetInput_DecisionsInputJSON(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		content string
+		parts   string
+	}{
+		{
+			name:    "JSON evidence",
+			content: `[{"type":"input_json","data":{"order":{"charges":[49,49]}}}]`,
+			parts:   `[{"type":"input_json","data":{"order":{"charges":[49,49]}}}]`,
+		},
+		{
+			name:    "mixed text and JSON evidence",
+			content: `[{"type":"input_text","text":"Check the charges."},{"type":"input_json","data":{"order":{"charges":[49,49]}}},{"type":"input_text","text":"Are they duplicates?"}]`,
+			parts:   `[{"type":"text","content":"Check the charges."},{"type":"input_json","data":{"order":{"charges":[49,49]}}},{"type":"text","content":"Are they duplicates?"}]`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			air := OpenAIInput{
+				InputItems: json.RawMessage(`[{"role":"user","content":` + tc.content + `}]`),
+			}
+			assert.JSONEq(t, `[{"role":"user","parts":`+tc.parts+`}]`, air.GetInput())
+		})
+	}
+}
+
 func TestNormalizeOpenAIResponsesInput_ParseFailure(t *testing.T) {
 	raw := json.RawMessage(`bad data`)
 	assert.Equal(t, "bad data", normalizeOpenAIResponsesInput(raw))

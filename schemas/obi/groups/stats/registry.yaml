@@ -30,6 +30,9 @@ attributes:
   # `pkg/internal/statsolly/ebpf/stat.go`. Identifies which side of the
   # TCP handshake OBI observed the connection on.
   - key: network.tcp.handshake.role
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no TCP handshake attributes
     type:
       members:
         - id: client

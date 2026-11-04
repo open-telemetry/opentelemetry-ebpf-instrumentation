@@ -7,13 +7,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf16"
 
 	"github.com/stretchr/testify/require"
 
@@ -26,6 +29,13 @@ import (
 )
 
 func TestSessionManagerCumulativeReconnect(t *testing.T) {
+	for _, version := range []string{"8.0.30", "9.0.20", "10.0.12"} {
+		t.Run(version, func(t *testing.T) { testSessionManagerCumulativeReconnect(t, version) })
+	}
+}
+
+func testSessionManagerCumulativeReconnect(t *testing.T, version string) {
+	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	pid := app.PID(os.Getpid())
@@ -55,13 +65,42 @@ func TestSessionManagerCumulativeReconnect(t *testing.T) {
 	firstCounters = append(firstCounters, cycle(3, 20)...)
 	partial := cycle(99, 900)
 	firstCounters = append(firstCounters, partial[:len(partial)-3]...)
-	firstStream := runtimeCounterStream(t, int32(namespacePID), firstCounters)
-	// The interrupted cycle must not become the next session's baseline.
-	firstStream = firstStream[:len(firstStream)-1]
 	secondCounters := append([]runtimeCounter{{Name: "processor-count", Value: 4}}, cycle(1000, 30)...)
-	secondStream := runtimeCounterStream(t, int32(namespacePID), append(secondCounters, cycle(2, 40)...))
+	secondCounters = append(secondCounters, cycle(2, 40)...)
+	streams := [][]runtimeCounter{firstCounters, secondCounters}
+	streamFor := func(index int, sessionID string) []byte {
+		var records []netTraceRuntimeEvent
+		for _, counter := range streams[index] {
+			records = append(records, netTraceRuntimeEvent{counter: counter})
+			if counter.Name == "time-in-jit" {
+				if sessionID == "" {
+					for range 3 {
+						records = append(records, netTraceRuntimeEvent{exceptionType: "Example.Failure"})
+					}
+				} else {
+					records = append(records, netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: 3})
+				}
+			}
+		}
+		if index == 0 {
+			records = append(records, netTraceRuntimeEvent{exceptionType: "Failure", exceptionCount: 99})
+		}
+		stream := runtimeEventStreamWithMeter(t, int32(namespacePID), records, false, sessionID)
+		if index == 0 {
+			// The interrupted cycle must not become the next session's baseline.
+			stream = stream[:len(stream)-1]
+		}
+		return stream
+	}
 	info := processInfo2Fixture(t)
 	binary.LittleEndian.PutUint64(info, namespacePID)
+	oldVersion := utf16.Encode([]rune("8.0.30\x00"))
+	info = info[:len(info)-4-2*len(oldVersion)]
+	encodedVersion := utf16.Encode([]rune(version + "\x00"))
+	info = binary.LittleEndian.AppendUint32(info, uint32(len(encodedVersion)))
+	for _, unit := range encodedVersion {
+		info = binary.LittleEndian.AppendUint16(info, unit)
+	}
 	encode := func(command byte, payload []byte) []byte {
 		response, err := encodeIPCMessage(ipcCommandSetServer, command, payload)
 		require.NoError(t, err)
@@ -75,10 +114,10 @@ func TestSessionManagerCumulativeReconnect(t *testing.T) {
 		response []byte
 	}{
 		{ipcCommandSetProcess, ipcCommandProcessInfo2, infoResponse},
-		{ipcCommandSetEventPipe, ipcCommandCollectTracing2, append(append([]byte(nil), sessionResponse...), firstStream...)},
+		{ipcCommandSetEventPipe, ipcCommandCollectTracing2, sessionResponse},
 		{ipcCommandSetEventPipe, ipcCommandStopTracing, sessionResponse},
 		{ipcCommandSetProcess, ipcCommandProcessInfo2, infoResponse},
-		{ipcCommandSetEventPipe, ipcCommandCollectTracing2, append(append([]byte(nil), sessionResponse...), secondStream...)},
+		{ipcCommandSetEventPipe, ipcCommandCollectTracing2, sessionResponse},
 		{ipcCommandSetEventPipe, ipcCommandStopTracing, sessionResponse},
 		{ipcCommandSetProcess, ipcCommandProcessInfo2, encode(ipcResponseError, binary.LittleEndian.AppendUint32(nil, 0x80131385))},
 	}
@@ -91,12 +130,15 @@ func TestSessionManagerCumulativeReconnect(t *testing.T) {
 	require.NoError(t, listener.SetDeadline(time.Now().Add(4*time.Second)))
 	served := make(chan error, 1)
 	go func() {
+		var previousSessionID string
+		sessionIndex := 0
 		for _, expected := range requests {
 			conn, err := listener.Accept()
 			if err != nil {
 				served <- err
 				return
 			}
+			response := expected.response
 			err = conn.SetDeadline(time.Now().Add(time.Second))
 			if err == nil {
 				var request ipcMessage
@@ -104,9 +146,31 @@ func TestSessionManagerCumulativeReconnect(t *testing.T) {
 				if err == nil && (request.Header.CommandSet != expected.set || request.Header.CommandID != expected.command) {
 					err = fmt.Errorf("unexpected IPC command %d/%d", request.Header.CommandSet, request.Header.CommandID)
 				}
+				if err == nil && expected.set == ipcCommandSetEventPipe && expected.command == ipcCommandCollectTracing2 {
+					var sessionID string
+					sessionID, err = exceptionSessionIDFromRequest(request.Payload)
+					if err == nil && strings.HasPrefix(version, "8.") && sessionID != "" {
+						err = errors.New("CLR 8 must use native exception events")
+					}
+					if err == nil && !strings.HasPrefix(version, "8.") && (sessionID == "" || sessionID == previousSessionID) {
+						err = errors.New("Meter reconnect must use a fresh nonempty session ID")
+					}
+					if err == nil {
+						var want []byte
+						want, err = encodeEventPipeStart(10*time.Millisecond, strings.HasPrefix(version, "8."), sessionID)
+						if err == nil && !bytes.Equal(request.Payload, want[binary.Size(ipcHeader{}):]) {
+							err = fmt.Errorf("unexpected provider request for CLR %s", version)
+						}
+					}
+					if err == nil {
+						response = append(append([]byte(nil), response...), streamFor(sessionIndex, sessionID)...)
+						previousSessionID = sessionID
+						sessionIndex++
+					}
+				}
 			}
 			if err == nil {
-				_, err = io.Copy(conn, bytes.NewReader(expected.response))
+				_, err = io.Copy(conn, bytes.NewReader(response))
 			}
 			_ = conn.Close()
 			if err != nil {
@@ -137,6 +201,7 @@ func TestSessionManagerCumulativeReconnect(t *testing.T) {
 			require.False(t, batch[0].Removed)
 			snapshot := batch[0].Dotnet
 			require.NotNil(t, snapshot)
+			require.Equal(t, uint64(3*(index+1)), snapshot.Exceptions["Failure"])
 			require.NotNil(t, snapshot.ProcessCPUCount)
 			require.Equal(t, int64(2*(index/2+1)), *snapshot.ProcessCPUCount)
 			afterUser, afterSystem, err := readProcessCPUTimes(process)
@@ -171,4 +236,39 @@ func TestSessionManagerCumulativeReconnect(t *testing.T) {
 		t.Fatal("session manager did not stop after the final unsupported response")
 	}
 	require.NoError(t, <-served)
+}
+
+func exceptionSessionIDFromRequest(payload []byte) (string, error) {
+	reader := bytes.NewReader(payload)
+	// Buffer size, format and rundown flag precede the provider count.
+	if _, err := io.CopyN(io.Discard, reader, 9); err != nil {
+		return "", err
+	}
+	var providerCount uint32
+	if err := binary.Read(reader, binary.LittleEndian, &providerCount); err != nil {
+		return "", err
+	}
+	for range providerCount {
+		if _, err := io.CopyN(io.Discard, reader, 12); err != nil {
+			return "", err
+		}
+		provider, err := readIPCString(reader)
+		if err != nil {
+			return "", err
+		}
+		arguments, err := readIPCString(reader)
+		if err != nil {
+			return "", err
+		}
+		if provider != "System.Diagnostics.Metrics" {
+			continue
+		}
+		value, ok := strings.CutPrefix(arguments, "SessionId=")
+		if !ok {
+			return "", errors.New("Meter provider has no session ID")
+		}
+		sessionID, _, _ := strings.Cut(value, ";")
+		return sessionID, nil
+	}
+	return "", nil
 }

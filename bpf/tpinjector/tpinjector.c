@@ -20,6 +20,7 @@
 #include <common/protocol_http_helpers.h>
 #include <common/protocol_http2_helpers.h>
 #include <common/protocol_tcp_helpers.h>
+#include <common/sampling.h>
 #include <common/scratch_mem.h>
 #include <common/ssl_connection.h>
 #include <common/tc_common.h>
@@ -48,6 +49,7 @@
 #include <tpinjector/h2_parse.h>
 #include <tpinjector/inject_policy.h>
 #include <tpinjector/h2_write_transaction.h>
+#include <tpinjector/maps/instrumented_pids.h>
 #include <tpinjector/maps/sk_h2_flags.h>
 #include <tpinjector/maps/sk_h2_conn_flag.h>
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
@@ -127,6 +129,9 @@ enum {
 
 volatile const u32 inject_flags =
     k_inject_http_headers | k_inject_tcp_options; // default: both enabled
+
+// set when user space can backfill earlier connections; otherwise every client socket is enrolled
+volatile const bool enroll_instrumented_only = false;
 
 // Kind 25 is unassigned per IANA TCP Parameters registry (released 2000-12-18)
 // Better than experimental options (253-254) which must not be shipped as defaults
@@ -337,6 +342,7 @@ struct tp_option {
     u8 len;
     unsigned char trace_id[TRACE_ID_SIZE_BYTES];
     unsigned char span_id[SPAN_ID_SIZE_BYTES];
+    u8 flags;
 };
 
 static __always_inline const char *tp_string_from_opt(const struct tp_option *opt) {
@@ -516,11 +522,13 @@ static __always_inline bool create_trace_info(const tailcall_ctx *t_ctx, tp_info
 
         __builtin_memcpy(tp_p->tp.trace_id, t_ctx->parent_tp.trace_id, sizeof(tp_p->tp.trace_id));
         __builtin_memcpy(tp_p->tp.parent_id, t_ctx->parent_tp.span_id, sizeof(tp_p->tp.parent_id));
+        tp_p->tp.flags = t_ctx->parent_tp.flags;
     } else {
         bpf_dbg_printk("generating tp info");
 
         new_trace_id(&tp_p->tp);
         __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+        sample_new_trace(&tp_p->tp);
     }
 
     return true;
@@ -530,20 +538,48 @@ static __always_inline void bpf_sock_ops_set_flags(struct bpf_sock_ops *skops, u
     bpf_sock_ops_cb_flags_set(skops, skops->bpf_sock_ops_cb_flags | flags);
 }
 
+// sock_ops gets bpf_get_current_pid_tgid only from 6.10, and the filter reads just the tgid half
+static __always_inline bool owner_instrumented(void) {
+    const struct task_struct *task = (const struct task_struct *)bpf_get_current_task();
+    return pid_in_filter(&instrumented_pids, (u64)BPF_CORE_READ(task, tgid) << 32) != 0;
+}
+
+// connect() runs in the owner's context, unlike the established callback: this storage is the mark
+static __always_inline void bpf_sock_ops_connect_cb(struct bpf_sock_ops *skops) {
+    struct bpf_sock *sk = skops->sk;
+
+    if (!enroll_instrumented_only || !sk || !owner_instrumented()) {
+        return;
+    }
+
+    const u64 cookie = bpf_get_socket_cookie(skops);
+    bpf_sk_storage_get(&socket_cookie, sk, (void *)&cookie, BPF_SK_STORAGE_GET_F_CREATE);
+}
+
 // Helper that writes in the sock map for a sock_ops program
 static __always_inline void bpf_sock_ops_active_est_cb(struct bpf_sock_ops *skops) {
+    // armed on every client socket in tcp mode: a backfilled socket is past this callback
+    if (inject_flags & k_inject_tcp_options) {
+        bpf_sock_ops_set_flags(skops, BPF_SOCK_OPS_WRITE_HDR_OPT_CB_FLAG);
+    }
+
     const u64 cookie = bpf_get_socket_cookie(skops);
     struct bpf_sock *sk = skops->sk;
 
-    if (sk) {
+    if (!sk) {
+        return;
+    }
+
+    if (!enroll_instrumented_only) {
         bpf_sk_storage_get(&socket_cookie, sk, (void *)&cookie, BPF_SK_STORAGE_GET_F_CREATE);
+    } else if (!bpf_sk_storage_get(&socket_cookie, sk, NULL, 0)) {
+        return;
     }
 
     if (bpf_sock_hash_update(skops, &sock_dir, (void *)&cookie, BPF_ANY) == 0) {
         bpf_map_update_elem(&tracked_sock_cookies, &cookie, &(u8){1}, BPF_ANY);
         bpf_sock_ops_set_flags(skops, BPF_SOCK_OPS_STATE_CB_FLAG);
     }
-    bpf_sock_ops_set_flags(skops, BPF_SOCK_OPS_WRITE_HDR_OPT_CB_FLAG);
 }
 
 // every full-socket death path goes through tcp_set_state(TCP_CLOSE), which is
@@ -608,6 +644,7 @@ static __always_inline void bpf_sock_ops_write_hdr_cb(struct bpf_sock_ops *skops
 
     __builtin_memcpy(opt.trace_id, tp_pid->tp.trace_id, sizeof(opt.trace_id));
     __builtin_memcpy(opt.span_id, tp_pid->tp.span_id, sizeof(opt.span_id));
+    opt.flags = tp_pid->tp.flags;
 
     const long ret = bpf_store_hdr_opt(skops, &opt, sizeof(opt), 0);
 
@@ -656,6 +693,8 @@ static __always_inline void bpf_sock_ops_parse_hdr_cb(struct bpf_sock_ops *skops
 
     __builtin_memcpy(tp.tp.trace_id, opt.trace_id, sizeof(tp.tp.trace_id));
     __builtin_memcpy(tp.tp.span_id, opt.span_id, sizeof(tp.tp.span_id));
+    // older OBI versions send the option without the flags byte
+    tp.tp.flags = (ret < (long)sizeof(opt)) ? k_flag_sampled : opt.flags;
 
     connection_info_t conn = get_connection_info_ops(skops);
     sort_connection_info(&conn);
@@ -664,7 +703,7 @@ static __always_inline void bpf_sock_ops_parse_hdr_cb(struct bpf_sock_ops *skops
     bpf_map_update_elem(&incoming_trace_map, &conn, &tp, BPF_ANY);
 }
 
-// Tracks all outgoing sockets (BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB)
+// Tracks outgoing sockets (BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB) of instrumented processes
 // We don't track incoming, those would be BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB
 SEC("sockops")
 int obi_sockmap_tracker(struct bpf_sock_ops *skops) {
@@ -675,6 +714,9 @@ int obi_sockmap_tracker(struct bpf_sock_ops *skops) {
     }
 
     switch (skops->op) {
+    case BPF_SOCK_OPS_TCP_CONNECT_CB:
+        bpf_sock_ops_connect_cb(skops);
+        break;
     case BPF_SOCK_OPS_ACTIVE_ESTABLISHED_CB:
         bpf_sock_ops_active_est_cb(skops);
         break;
@@ -1482,7 +1524,6 @@ int obi_packet_extender_parse_existing_tp(struct sk_msg_md *msg) {
     assign_parent_tp(t_ctx, &tp_p->tp, span_id);
 
     tp_p->tp.ts = bpf_ktime_get_ns();
-    tp_p->tp.flags = 1;
     tp_p->valid = 1;
     tp_p->written = 1;
     tp_p->pid = t_ctx->p_conn.pid;
@@ -1712,7 +1753,7 @@ static __always_inline bool decode_tp_value(const unsigned char *val, tp_info_t 
     }
     decode_hex(tp->trace_id, &val[k_tp_val_trace_id_start], TRACE_ID_CHAR_LEN);
     decode_hex(tp->span_id, &val[k_tp_val_span_id_start], SPAN_ID_CHAR_LEN);
-    tp->flags = 1;
+    decode_hex((unsigned char *)&tp->flags, &val[k_tp_val_flags_start], FLAGS_CHAR_LEN);
     return true;
 }
 

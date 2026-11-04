@@ -26,6 +26,88 @@ import (
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
 
+func TestSessionManagerExceptionStreamFailure(t *testing.T) {
+	testSessionManagerExceptionStreamFailure(t, "")
+}
+
+func TestSessionManagerMeterExceptionStreamFailure(t *testing.T) {
+	testSessionManagerExceptionStreamFailure(t, "test-session")
+}
+
+func testSessionManagerExceptionStreamFailure(t *testing.T, metricsSessionID string) {
+	t.Helper()
+	typeName, delta := "Example.Failure", uint64(1)
+	if metricsSessionID != "" {
+		typeName, delta = "Failure", 3
+	}
+	for _, mode := range []string{"clean", "truncated", "lost event"} {
+		t.Run(mode, func(t *testing.T) {
+			path, stopped := serveDiagnosticIPC(t, func(conn net.Conn) error {
+				request, err := readIPCMessage(conn)
+				if err != nil {
+					return err
+				}
+				response, err := encodeIPCMessage(ipcCommandSetServer, ipcResponseOK, request.Payload)
+				if err != nil {
+					return err
+				}
+				_, err = conn.Write(response)
+				return err
+			})
+			var records []netTraceRuntimeEvent
+			for range 2 {
+				for _, name := range []string{"working-set", "gen-0-gc-count", "gen-1-gc-count", "gen-2-gc-count", "time-in-jit"} {
+					records = append(records, netTraceRuntimeEvent{counter: runtimeCounter{Name: name, Increment: name != "working-set"}})
+				}
+				records = append(records, netTraceRuntimeEvent{exceptionType: typeName, exceptionCount: delta})
+			}
+			wire := runtimeEventStreamWithMeter(t, 15, records, mode == "lost event", metricsSessionID)
+			if mode == "truncated" {
+				wire = wire[:len(wire)-1]
+			}
+			stream, runtime := net.Pipe()
+			t.Cleanup(func() { _ = stream.Close() })
+			t.Cleanup(func() { _ = runtime.Close() })
+			require.NoError(t, runtime.SetWriteDeadline(time.Now().Add(2*time.Second)))
+			written := make(chan error, 1)
+			go func() {
+				_, err := runtime.Write(wire)
+				written <- err
+				_ = runtime.Close()
+			}()
+			totals := cumulativeSessionTotals{exceptions: map[string]uint64{"Failure": 10}}
+			base := totals
+			var snapshots []*runtimemetrics.DotnetRuntimeMetricSnapshot
+			manager := NewSessionManager(t.Context(), time.Second, time.Second, nil)
+			err := manager.readSession(t.Context(), &eventPipeSession{id: 42, socketPath: path, stream: stream, metricsSessionID: metricsSessionID}, 15, &exceptionTypes{},
+				func(_ context.Context, snapshot *runtimemetrics.DotnetRuntimeMetricSnapshot) error {
+					if err := totals.merge(base, snapshot); err != nil {
+						return err
+					}
+					snapshots = append(snapshots, snapshot)
+					return nil
+				})
+			require.NoError(t, <-written)
+			require.NoError(t, <-stopped)
+			if mode == "clean" {
+				require.NoError(t, err)
+				require.Len(t, snapshots, 2)
+				require.Equal(t, 10+2*delta, totals.exceptions["Failure"])
+			} else {
+				if mode == "truncated" {
+					require.ErrorIs(t, err, io.EOF)
+				} else {
+					require.ErrorContains(t, err, "event loss")
+				}
+				require.Len(t, snapshots, 1)
+				require.Equal(t, 10+delta, totals.exceptions["Failure"], "the unfinished interval must not advance retained totals")
+			}
+			require.Equal(t, 10+delta, snapshots[0].Exceptions["Failure"])
+			require.Equal(t, uint64(10), base.exceptions["Failure"])
+		})
+	}
+}
+
 func TestSessionManagerReadSessionFinalCollection(t *testing.T) {
 	publicationErr := errors.New("publication failed")
 	for _, tc := range []struct {
@@ -100,7 +182,7 @@ func TestSessionManagerReadSessionFinalCollection(t *testing.T) {
 			var snapshots []*runtimemetrics.DotnetRuntimeMetricSnapshot
 			var deliveryErr error
 			started := time.Now()
-			err := manager.readSession(ctx, &eventPipeSession{id: 42, socketPath: path, stream: stream}, 15,
+			err := manager.readSession(ctx, &eventPipeSession{id: 42, socketPath: path, stream: stream}, 15, &exceptionTypes{},
 				func(publishCtx context.Context, snapshot *runtimemetrics.DotnetRuntimeMetricSnapshot) error {
 					snapshots = append(snapshots, snapshot)
 					queue.SendCtx(publishCtx, snapshot)
@@ -166,7 +248,7 @@ func TestSessionManagerReadSessionCancellation(t *testing.T) {
 	sessionManager := NewSessionManager(ctx, time.Hour, 100*time.Millisecond, nil)
 	done := make(chan error, 1)
 	go func() {
-		done <- sessionManager.readSession(ctx, &eventPipeSession{id: sessionID, socketPath: path, stream: stream}, 1,
+		done <- sessionManager.readSession(ctx, &eventPipeSession{id: sessionID, socketPath: path, stream: stream}, 1, &exceptionTypes{},
 			func(context.Context, *runtimemetrics.DotnetRuntimeMetricSnapshot) error {
 				return errors.New("silent stream unexpectedly produced a snapshot")
 			})

@@ -123,9 +123,15 @@ func dwarfStructField(t *testing.T, structType *dwarf.StructType, name string) *
 
 func TestGoOffsetsFromDwarf(t *testing.T) {
 	offsets, _ := structMemberOffsetsFromDwarf(debugData)
+	requestType := dwarfStruct(t, debugData, "net/http.Request")
+	responseType := dwarfStruct(t, debugData, "net/http.Response")
 	// this test might fail if a future Go version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
 		URLPtrPos:         uint64(16),
+		ReqProtoMajorPos:  uint64(dwarfStructField(t, requestType, "ProtoMajor").ByteOffset),
+		ReqProtoMinorPos:  uint64(dwarfStructField(t, requestType, "ProtoMinor").ByteOffset),
+		RespProtoMajorPos: uint64(dwarfStructField(t, responseType, "ProtoMajor").ByteOffset),
+		RespProtoMinorPos: uint64(dwarfStructField(t, responseType, "ProtoMinor").ByteOffset),
 		PathPtrPos:        uint64(56),
 		ConnFdPos:         uint64(0),
 		FdLaddrPos:        uint64(96),
@@ -177,9 +183,15 @@ func TestGrpcOffsetsFromDwarf(t *testing.T) {
 func TestGoOffsetsWithoutDwarf(t *testing.T) {
 	offsets, err := structMemberOffsets(smallELF)
 	require.NoError(t, err)
+	requestType := dwarfStruct(t, debugData, "net/http.Request")
+	responseType := dwarfStruct(t, debugData, "net/http.Response")
 	// this test might fail if a future Go version updates the internal structure of the used structs.
 	mustMatch(t, FieldOffsets{
 		URLPtrPos:                         uint64(16),
+		ReqProtoMajorPos:                  uint64(dwarfStructField(t, requestType, "ProtoMajor").ByteOffset),
+		ReqProtoMinorPos:                  uint64(dwarfStructField(t, requestType, "ProtoMinor").ByteOffset),
+		RespProtoMajorPos:                 uint64(dwarfStructField(t, responseType, "ProtoMajor").ByteOffset),
+		RespProtoMinorPos:                 uint64(dwarfStructField(t, responseType, "ProtoMinor").ByteOffset),
 		PathPtrPos:                        uint64(56),
 		ConnFdPos:                         uint64(0),
 		FdLaddrPos:                        uint64(96),
@@ -490,6 +502,42 @@ func TestOffsetsForLibVersions_PreVersionFlags(t *testing.T) {
 		HTTP2ZeroFortyFive: uint64(0),
 		PqOneElevenZero:    uint64(0),
 	}, offsets)
+}
+
+func TestOffsetsForLibVersions_MongoV2(t *testing.T) {
+	offsets := offsetsForLibVersions(FieldOffsets{}, map[string]string{
+		"go.mongodb.org/mongo-driver/v2": "v2.8.0",
+	}, slog.Default())
+
+	mustMatch(t, FieldOffsets{
+		MongoOneThirteenOne: uint64(1),
+	}, offsets)
+}
+
+func TestOffsetsForLibVersions_MongoV1AndV2(t *testing.T) {
+	// map iteration order is random, so repeat to catch an order-dependent flag
+	const runs = 50
+
+	for _, tc := range []struct {
+		v1   string
+		want uint64
+	}{
+		{v1: "v1.12.1", want: 0},
+		{v1: "v1.17.0", want: 1},
+	} {
+		t.Run(tc.v1, func(t *testing.T) {
+			for range runs {
+				offsets := offsetsForLibVersions(FieldOffsets{}, map[string]string{
+					"go.mongodb.org/mongo-driver":    tc.v1,
+					"go.mongodb.org/mongo-driver/v2": "v2.8.0",
+				}, slog.Default())
+
+				mustMatch(t, FieldOffsets{
+					MongoOneThirteenOne: tc.want,
+				}, offsets)
+			}
+		})
+	}
 }
 
 func goAutoSDKActivationTestModules() moduleVersions {

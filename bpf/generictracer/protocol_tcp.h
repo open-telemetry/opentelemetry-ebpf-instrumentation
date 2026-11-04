@@ -14,6 +14,7 @@
 #include <common/preempt_guard.h>
 #include <common/protocol_defs.h>
 #include <common/ringbuf.h>
+#include <common/sampling.h>
 #include <common/trace_helpers.h>
 #include <common/trace_lifecycle.h>
 #include <common/trace_parent.h>
@@ -56,12 +57,13 @@ static __always_inline void set_tcp_trace_info(u32 type,
         return;
     }
 
-    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-    make_tp_string(tp_buf, tp);
-    bpf_d_printk("tp_buf=[%s] [%s]", tp_buf, __FUNCTION__);
+    if (g_bpf_debug) {
+        unsigned char tp_buf[TP_MAX_VAL_LENGTH];
+        make_tp_string(tp_buf, tp);
+        bpf_d_printk("tp_buf=[%s] [%s]", tp_buf, __FUNCTION__);
+    }
 
     tp_p->tp = *tp;
-    tp_p->tp.flags = 1;
     tp_p->valid = 1;
     tp_p->pid = pid; // used for avoiding finding stale server requests with client port reuse
     tp_p->req_type = k_event_type_tcp_request;
@@ -100,6 +102,7 @@ static __always_inline void tcp_get_or_set_trace_info(tcp_req_t *req,
         bpf_dbg_printk("Looking up server trace info, found=%d", found);
         if (found) {
             urand_bytes(req->tp.span_id, SPAN_ID_SIZE_BYTES);
+            sample_remote_child(&req->tp);
         } else {
             init_new_trace(&req->tp);
         }
@@ -125,7 +128,7 @@ static __always_inline void finish_ongoing_tcp_req(pid_connection_info_t *pid_co
         existing_tcp->resp_len = 0;
 
         bpf_dbg_printk("Sending pending TCP trace on close: len=%d", existing_tcp->len);
-        events_ringbuf_output(existing_tcp, sizeof(*existing_tcp), get_flags());
+        events_ringbuf_output(existing_tcp, sizeof(*existing_tcp));
     }
 
     cleanup_trace_info(existing_tcp, pid_conn);
@@ -225,7 +228,7 @@ static __always_inline void failed_to_connect_event(pid_connection_info_t *pid_c
                                                     u64 connect_ts) {
     tcp_req_t *req = events_ringbuf_reserve(sizeof(tcp_req_t), 0);
     if (req) {
-        pid_info pid = {};
+        pid_info_t pid = {};
         task_pid(&pid);
         const u64 event_ts = bpf_ktime_get_ns();
         const u64 extra_id = extra_runtime_id();

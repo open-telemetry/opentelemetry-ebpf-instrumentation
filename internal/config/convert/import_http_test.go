@@ -325,6 +325,7 @@ func TestV2ToRuntimeHTTPPayloadExtractionRoundTrip(t *testing.T) {
 	http.AWS.Enabled = true
 	http.SQLPP.Enabled = true
 	http.SQLPP.EndpointPatterns = []string{"/query", "/analytics"}
+	http.SQLPP.PreparedStatementsCacheSize = 77
 	http.GenAI.OpenAI.Enabled = true
 	http.GenAI.Anthropic.Enabled = true
 	http.GenAI.Gemini.Enabled = true
@@ -335,6 +336,7 @@ func TestV2ToRuntimeHTTPPayloadExtractionRoundTrip(t *testing.T) {
 	http.GenAI.Rerank.Enabled = true
 	http.GenAI.Retrieval.Enabled = true
 	http.GenAI.Ollama.Enabled = true
+	http.GenAI.Cohere.Enabled = true
 	http.JSONRPC.Enabled = true
 	http.Enrichment.Enabled = true
 	http.Enrichment.Policy.DefaultAction.Headers = config.HTTPParsingActionInclude
@@ -365,6 +367,7 @@ func TestV2ToRuntimeHTTPPayloadExtractionRoundTrip(t *testing.T) {
 	require.True(t, gotHTTP.AWS.Enabled)
 	require.True(t, gotHTTP.SQLPP.Enabled)
 	require.Equal(t, []string{"/query", "/analytics"}, gotHTTP.SQLPP.EndpointPatterns)
+	require.Equal(t, 77, gotHTTP.SQLPP.PreparedStatementsCacheSize)
 	require.True(t, gotHTTP.GenAI.OpenAI.Enabled)
 	require.True(t, gotHTTP.GenAI.Anthropic.Enabled)
 	require.True(t, gotHTTP.GenAI.Gemini.Enabled)
@@ -375,6 +378,7 @@ func TestV2ToRuntimeHTTPPayloadExtractionRoundTrip(t *testing.T) {
 	require.True(t, gotHTTP.GenAI.Rerank.Enabled)
 	require.True(t, gotHTTP.GenAI.Retrieval.Enabled)
 	require.True(t, gotHTTP.GenAI.Ollama.Enabled)
+	require.True(t, gotHTTP.GenAI.Cohere.Enabled)
 	require.True(t, gotHTTP.JSONRPC.Enabled)
 	require.True(t, gotHTTP.Enrichment.Enabled)
 	require.Equal(t, http.Enrichment.Policy, gotHTTP.Enrichment.Policy)

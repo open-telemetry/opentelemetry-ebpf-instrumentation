@@ -73,8 +73,8 @@ func testSelectiveExports(t *testing.T) {
 
 	pq := promtest.Client{HostPort: "localhost:9090"}
 
-	getMetrics := func(path string) []promtest.Result {
-		query := fmt.Sprintf(`http_server_request_duration_seconds_count{url_path="%s"}`, path)
+	getMetrics := func(service string) []promtest.Result {
+		query := fmt.Sprintf(`http_server_request_duration_seconds_count{service_name="%s"}`, service)
 		results, err := pq.Query(query)
 
 		require.NoError(t, err)
@@ -83,12 +83,12 @@ func testSelectiveExports(t *testing.T) {
 	}
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		require.NotEmpty(ct, getMetrics("/a"))
+		require.NotEmpty(ct, getMetrics("service-a"))
 	}, 10*time.Second, 100*time.Millisecond)
 
-	bMetrics := getMetrics("/b")
-	cMetrics := getMetrics("/c")
-	dMetrics := getMetrics("/d")
+	bMetrics := getMetrics("service-b")
+	cMetrics := getMetrics("service-c")
+	dMetrics := getMetrics("service-d")
 
 	require.NotEmpty(t, bMetrics)
 	require.Empty(t, cMetrics)

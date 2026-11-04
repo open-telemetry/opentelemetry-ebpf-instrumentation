@@ -101,8 +101,62 @@ func checkSchemaArtifact(path string) error {
 	if err := checkLogFieldNameSchema(root); err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
+	if !hasMetricFeature(root, "application_service_graph_connection_info") {
+		return fmt.Errorf("%s: metrics.features enum is missing application_service_graph_connection_info", path)
+	}
 
 	return nil
+}
+
+func hasMetricFeature(root map[string]any, expected string) bool {
+	definitions, ok := mapValue(root, "$defs")
+	if !ok {
+		return false
+	}
+	capture, ok := mapValue(definitions, "Capture")
+	if !ok {
+		return false
+	}
+	properties, ok := mapValue(capture, "properties")
+	if !ok {
+		return false
+	}
+	metrics, ok := mapValue(properties, "metrics")
+	if !ok {
+		return false
+	}
+	properties, ok = mapValue(metrics, "properties")
+	if !ok {
+		return false
+	}
+	features, ok := mapValue(properties, "features")
+	if !ok {
+		return false
+	}
+	items, ok := mapValue(features, "items")
+	if !ok {
+		return false
+	}
+	branches, ok := items["oneOf"].([]any)
+	if !ok {
+		return false
+	}
+	for _, branch := range branches {
+		branchSchema, ok := branch.(map[string]any)
+		if !ok {
+			continue
+		}
+		values, ok := branchSchema["enum"].([]any)
+		if !ok {
+			continue
+		}
+		for _, value := range values {
+			if value == expected {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func checkLogFieldNameSchema(root map[string]any) error {

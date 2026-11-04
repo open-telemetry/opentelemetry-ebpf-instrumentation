@@ -14,6 +14,7 @@ import (
 	"unsafe"
 
 	"github.com/cilium/ebpf"
+	"github.com/cilium/ebpf/asm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -33,6 +34,22 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/runtimemetrics"
 )
+
+func TestSocketFiltersAvoidCurrentPIDHelper(t *testing.T) {
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+	for name, program := range spec.Programs {
+		if program.Type != ebpf.SocketFilter {
+			continue
+		}
+		for _, instruction := range program.Instructions {
+			if instruction.IsBuiltinCall() {
+				assert.NotEqual(t, asm.FnGetCurrentPidTgid, asm.BuiltinFunc(instruction.Constant),
+					"%s must load on the minimum supported kernel", name)
+			}
+		}
+	}
+}
 
 func TestParseJVMMemoryPoolRecordDecoratesServiceByPIDNamespace(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
@@ -459,6 +476,36 @@ func TestRubyUProbesAreVersionGated(t *testing.T) {
 
 	assert.ElementsMatch(t, []string{"libruby[< 4.0]", "libruby[>= 4.0]"}, rubyKeys)
 }
+
+// the Go tracer reads the shared ring buffer when it starts first, and only dispatches internal events
+func TestProcessEventsReachTheFilterWhicheverTracerReadsTheRingbuf(t *testing.T) {
+	filter := &forkTrackingFilter{}
+	tracer := &Tracer{cfg: &obi.Config{}, pidsFilter: filter}
+	eventContext := ebpfcommon.NewEBPFEventContext()
+	tracer.SetEventContext(eventContext)
+
+	for _, eventType := range []uint8{ebpfcommon.EventTypeProcessFork, ebpfcommon.EventTypeProcessExec} {
+		event := ebpfcommon.ProcessEvent{Type: eventType}
+		raw := unsafe.Slice((*byte)(unsafe.Pointer(&event)), int(unsafe.Sizeof(event)))
+		handled, err := eventContext.HandleInternalEvent(&ringbuf.Record{RawSample: raw})
+		require.NoError(t, err)
+		assert.True(t, handled)
+	}
+
+	assert.Equal(t, 1, filter.forks)
+	assert.Equal(t, 1, filter.execs)
+}
+
+type forkTrackingFilter struct {
+	fakeServiceFilter
+	forks, execs int
+}
+
+func (f *forkTrackingFilter) AllowForkedChild(request.PidInfo, request.PidInfo, time.Duration) {
+	f.forks++
+}
+
+func (f *forkTrackingFilter) EndForkedChild(request.PidInfo, time.Duration) { f.execs++ }
 
 type fakeServiceFilter struct {
 	current          map[uint32]map[app.PID]svc.Attrs

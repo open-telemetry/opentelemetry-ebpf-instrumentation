@@ -170,6 +170,18 @@ func TestSQLPPSpanNameUsesServerAddress(t *testing.T) {
 	assert.Equal(t, "couchbase:8093", span.TraceName())
 }
 
+func TestSQLPPSpanNameWithoutCouchbaseOmitsServer(t *testing.T) {
+	span := &request.Span{
+		Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeSQLPP,
+		Method: "query", Host: "10.1.2.3", HostPort: 8093,
+		DBSystem: "other_sql",
+	}
+	assert.Equal(t, "query", span.TraceName())
+
+	span.Method = ""
+	assert.Equal(t, "other_sql", span.TraceName())
+}
+
 func TestSQLPPSpanNameBracketsIPv6(t *testing.T) {
 	span := &request.Span{
 		Type: request.EventTypeHTTPClient, SubType: request.HTTPSubtypeSQLPP,

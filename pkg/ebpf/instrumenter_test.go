@@ -54,18 +54,13 @@ func makeProbeDescMap(cases map[string]testCase) probeDescMap {
 }
 
 func TestGatherOffsets(t *testing.T) {
-	reader := bytes.NewReader(testData())
-	assert.NotNil(t, reader)
-
 	testCases := expectedValues()
 	probes := makeProbeDescMap(testCases)
 
-	elfFile, err := elf.NewFile(reader)
+	elfFile := instrumenterFixtureELF(t)
+	errs, err := gatherOffsetsImpl(elfFile, []map[string][]*ebpfcommon.ProbeDesc{probes}, "libbsd.so", slog.Default())
 	require.NoError(t, err)
-	defer elfFile.Close()
-
-	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
-	require.NoError(t, err)
+	require.NoError(t, errs[0])
 
 	for probeName, probeArr := range probes {
 		assert.NotEmpty(t, probeArr)
@@ -130,22 +125,41 @@ func TestHandleSymbolDataReadFailureKeepsStartOnlyProbeResolved(t *testing.T) {
 	assert.Empty(t, probe.ReturnOffsets)
 }
 
-func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
-	reader := bytes.NewReader(testData())
-	assert.NotNil(t, reader)
+func TestGatherOffsetsIsolatesProbeMaps(t *testing.T) {
+	testCases := expectedValues()
+	resolvable := makeProbeDescMap(testCases)
+	failing := probeDescMap{
+		"missing_required_symbol": {{Required: true}},
+	}
 
+	elfFile := instrumenterFixtureELF(t)
+	errs, err := gatherOffsetsImpl(
+		elfFile,
+		[]map[string][]*ebpfcommon.ProbeDesc{failing, resolvable},
+		"libbsd.so",
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.Len(t, errs, 2)
+	require.Error(t, errs[0])
+	require.NoError(t, errs[1])
+
+	for probeName, probeArr := range resolvable {
+		assert.Equal(t, testCases[probeName].startOffset, probeArr[0].StartOffset, probeName)
+	}
+}
+
+func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
 	probes := probeDescMap{
 		"missing_optional_symbol": {{
 			Required: false,
 		}},
 	}
 
-	elfFile, err := elf.NewFile(reader)
+	elfFile := instrumenterFixtureELF(t)
+	errs, err := gatherOffsetsImpl(elfFile, []map[string][]*ebpfcommon.ProbeDesc{probes}, "libbsd.so", slog.Default())
 	require.NoError(t, err)
-	defer elfFile.Close()
-
-	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
-	require.NoError(t, err)
+	require.NoError(t, errs[0])
 
 	desc := probes["missing_optional_symbol"][0]
 	assert.True(t, desc.Skip)
@@ -154,22 +168,17 @@ func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
 }
 
 func TestGatherOffsetsFailsMissingRequiredSymbol(t *testing.T) {
-	reader := bytes.NewReader(testData())
-	assert.NotNil(t, reader)
-
 	probes := probeDescMap{
 		"missing_required_symbol": {{
 			Required: true,
 		}},
 	}
 
-	elfFile, err := elf.NewFile(reader)
+	elfFile := instrumenterFixtureELF(t)
+	errs, err := gatherOffsetsImpl(elfFile, []map[string][]*ebpfcommon.ProbeDesc{probes}, "libbsd.so", slog.Default())
 	require.NoError(t, err)
-	defer elfFile.Close()
-
-	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "required symbol missing_required_symbol not found")
+	require.Error(t, errs[0])
+	assert.Contains(t, errs[0].Error(), "required symbol missing_required_symbol not found")
 
 	desc := probes["missing_required_symbol"][0]
 	assert.True(t, desc.Skip)
@@ -312,7 +321,7 @@ func TestGoProbesWarnsWhenNoSymbolAttached(t *testing.T) {
 		"net/http.serverHandler.ServeHTTP": {{Start: &ebpf.Program{}}},
 	}}
 
-	require.NoError(t, i.goprobes(tracer))
+	require.NoError(t, i.goprobes(nil, "", tracer))
 
 	assert.Contains(t, logs.String(), "no Go probes attached to executable")
 	assert.Contains(t, logs.String(), "process=svc")
@@ -322,7 +331,7 @@ func TestGoProbesDoesNotWarnWithoutProbes(t *testing.T) {
 	logs := captureLogs(t)
 	i := &instrumenter{offsets: &goexec.Offsets{}}
 
-	require.NoError(t, i.goprobes(&stubTracer{}))
+	require.NoError(t, i.goprobes(nil, "", &stubTracer{}))
 
 	assert.NotContains(t, logs.String(), "no Go probes attached")
 }
@@ -1520,4 +1529,14 @@ func TestMakeOtelBPFFSPathRejectsInaccessibleExistingDirectory(t *testing.T) {
 	_, err := pt.makeOtelBPFFSPath()
 
 	require.ErrorContains(t, err, "accessing bpffs otel path")
+}
+
+func instrumenterFixtureELF(t *testing.T) *elf.File {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "libbsd.so")
+	require.NoError(t, os.WriteFile(path, testData(), 0o600))
+	f, err := elf.Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, f.Close()) })
+	return f
 }

@@ -78,7 +78,7 @@ func testAzureMetrics(t *testing.T, pq promtest.Client, serviceName, exporter st
 			`cloud_platform="azure.vm",` +
 			`cloud_provider="azure",` +
 			`cloud_region="westus",` +
-			`cloud_resource_id="/long/tail/of/stuff",` +
+			`cloud_resource_id="/subscriptions/test-subscription/resourceGroups/test-group/providers/Microsoft.Compute/virtualMachineScaleSets/storefront/virtualMachines/0",` +
 			`host_id="02aab8a4-74ef-476e-8182-f6d2ba4166a6",` +
 			`host_type="Standard_A3"` +
 			`}`
@@ -110,7 +110,7 @@ func testAzureTraces(t *testing.T) {
 			{Key: "cloud.platform", Type: "string", Value: "^azure.vm$"},
 			{Key: "cloud.provider", Type: "string", Value: "^azure$"},
 			{Key: "cloud.region", Type: "string", Value: "^westus$"},
-			{Key: "cloud.resource_id", Type: "string", Value: "^/long/tail/of/stuff$"},
+			{Key: "cloud.resource_id", Type: "string", Value: "^/subscriptions/test-subscription/resourceGroups/test-group/providers/Microsoft.Compute/virtualMachineScaleSets/storefront/virtualMachines/0$"},
 			{Key: "host.id", Type: "string", Value: "^02aab8a4-74ef-476e-8182-f6d2ba4166a6$"},
 			{Key: "host.type", Type: "string", Value: "^Standard_A3$"},
 		}, proc.Tags)

@@ -74,7 +74,7 @@ func TestCustomSpanTransportLive(t *testing.T) {
 
 	payload := []byte(`{"resourceSpans":[{"scopeSpans":[{"spans":[{"traceId":"00000000000000000000000000000001","spanId":"0000000000000002","parentSpanId":"0000000000000003","name":"custom.transport","kind":1,"startTimeUnixNano":"946684800000000000","endTimeUnixNano":"946684801000000000","attributes":[{"key":"transport.source","value":{"stringValue":"ioctl"}}]}]}]}]}`)
 	packet := make([]byte, 8+len(payload))
-	packet[0] = 8 // OperationType.CUSTOM_SPAN
+	packet[0] = 9 // OperationType.CUSTOM_SPAN
 	binary.NativeEndian.PutUint32(packet[4:8], uint32(len(payload)))
 	copy(packet[8:], payload)
 	_, _, _ = syscall.Syscall(syscall.SYS_IOCTL, 0, 0x0b10b1, uintptr(unsafe.Pointer(&packet[0])))
