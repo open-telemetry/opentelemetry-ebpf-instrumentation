@@ -18,6 +18,10 @@ import (
 )
 
 func TestDisableJavaHTTP1Atomics(t *testing.T) {
+	previousIterator := tcpIteratorSupport
+	t.Cleanup(func() { tcpIteratorSupport = previousIterator })
+	tcpIteratorSupport = func() error { return nil }
+
 	spec, err := LoadBpf()
 	require.NoError(t, err)
 	atomics := 0

@@ -70,6 +70,8 @@ type Tracer struct {
 	eventCtx       *ebpfcommon.EBPFEventContext
 	jvmUSDTManager ebpfcommon.USDTSpecManager
 	pythonRuntime  *pythonRuntimeController
+
+	listeningPortsFallback bool
 }
 
 func tlog() *slog.Logger {
@@ -214,6 +216,9 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	}
 
 	ebpfcommon.FixupSpec(spec, p.cfg.EBPF.OverrideBPFLoopEnabled)
+	if err := p.configureTCPIterator(spec, tcpIteratorSupport()); err != nil {
+		return nil, err
+	}
 	if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
 		ebpfcommon.DisableJavaHTTP1Atomics(spec)
 	}
@@ -653,6 +658,9 @@ func (p *Tracer) SockMsgs() []ebpfcommon.SockMsg { return nil }
 func (p *Tracer) SockOps() []ebpfcommon.SockOps { return nil }
 
 func (p *Tracer) Iters() []*ebpfcommon.Iter {
+	if p.listeningPortsFallback {
+		return nil
+	}
 	if len(p.iters) == 0 {
 		p.iters = []*ebpfcommon.Iter{
 			{
@@ -673,7 +681,7 @@ func (p *Tracer) runItersForPids() {
 }
 
 func (p *Tracer) runItersForPID(pid app.PID) {
-	if len(p.iters) == 0 {
+	if len(p.iters) == 0 && !p.listeningPortsFallback {
 		return
 	}
 
@@ -692,6 +700,15 @@ func (p *Tracer) runItersForPID(pid app.PID) {
 		p.seenNetns = expirable.NewLRU[uint64, struct{}](seenNetnsCacheLen, nil, seenNetnsTTL)
 	}
 	if p.seenNetns.Contains(inode) {
+		return
+	}
+
+	if p.listeningPortsFallback {
+		if err := p.seedListeningPorts(pid); err != nil {
+			p.log.Warn("discovering TCP listening ports", "pid", pid, "error", err)
+			return
+		}
+		p.seenNetns.Add(inode, struct{}{})
 		return
 	}
 
