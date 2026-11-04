@@ -15,7 +15,10 @@ public enum OperationType {
   VT_UNMOUNT((byte) 5),
   JVM_RUNTIME_SNAPSHOT((byte) 6),
   JVM_GC_DURATION((byte) 7),
-  CUSTOM_SPAN((byte) 8);
+  HTTP1_PARENT((byte) 8),
+  HTTP1_TRACEPARENT((byte) 11),
+  HTTP1_TRACEPARENT_RELEASE((byte) 12),
+  CUSTOM_SPAN((byte) 9);
 
   public final byte code;
 

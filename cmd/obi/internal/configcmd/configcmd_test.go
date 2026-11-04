@@ -1123,6 +1123,11 @@ prometheus_export:
 	}
 }
 
+func TestMigrateConfigRejectsConfigV2OnlyMetricFeature(t *testing.T) {
+	_, _, err := migrateConfig([]byte("metrics:\n  features: [application_service_graph_connection_info]\n"))
+	require.ErrorContains(t, err, "application_service_graph_connection_info")
+}
+
 func TestValidateV2MetricFeatures(t *testing.T) {
 	for _, test := range []struct {
 		features string
@@ -2273,14 +2278,13 @@ func TestRunValidateRoute53HostedZones(t *testing.T) {
 		zones     string
 		wantError bool
 	}{
-		{name: "enabled without zones", source: "route53", wantError: true},
-		{name: "empty list", source: "route53", zones: "[]", wantError: true},
+		{name: "enabled without zones", source: "route53"},
+		{name: "empty list", source: "route53", zones: "[]"},
 		{name: "blank ID", source: "route53", zones: `[""]`, wantError: true},
 		{name: "whitespace ID", source: "route53", zones: `["   "]`, wantError: true},
 		{name: "prefix without ID", source: "route53", zones: `["/hostedzone/"]`, wantError: true},
 		{name: "blank among valid IDs", source: "route53", zones: `[Z123, ""]`, wantError: true},
 		{name: "valid IDs", source: "route53", zones: `[Z123, /hostedzone/Z456]`},
-		{name: "disabled without zones", source: "dns"},
 		{name: "disabled with blank ID", source: "dns", zones: `[""]`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

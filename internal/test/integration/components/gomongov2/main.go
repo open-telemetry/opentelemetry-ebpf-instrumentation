@@ -79,6 +79,34 @@ func main() {
 			return
 		}
 
+		// Count documents
+		_, err = coll.CountDocuments(ctx, bson.M{"name": "foo"})
+		if err != nil {
+			http.Error(w, "Count error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Estimate the document count
+		_, err = coll.EstimatedDocumentCount(ctx)
+		if err != nil {
+			http.Error(w, "Estimated count error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Create an index and list the collections. These calls don't go through
+		// a probed Collection method.
+		_, err = coll.Indexes().CreateOne(ctx, mongo.IndexModel{Keys: bson.D{{Key: "name", Value: 1}}})
+		if err != nil {
+			http.Error(w, "Create index error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		_, err = db.ListCollectionNames(ctx, bson.D{})
+		if err != nil {
+			http.Error(w, "List collections error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		// Respond with the results
 		result := map[string]interface{}{
 			"inserted": item,

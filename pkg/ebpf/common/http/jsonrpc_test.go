@@ -167,6 +167,21 @@ func TestJSONRPCSpan_ErrorResponse(t *testing.T) {
 	assert.Equal(t, "Method not found", result.JSONRPC.ErrorMessage)
 }
 
+func TestJSONRPCSpan_DeflateErrorResponse(t *testing.T) {
+	reqBody := `{"jsonrpc":"2.0","method":"subtract","id":1}`
+	respBody := `{"jsonrpc":"2.0","error":{"code":-32601,"message":"Method not found"},"id":1}`
+
+	span := request.Span{Type: request.EventTypeHTTP, Status: http.StatusOK}
+	resp := makeResponse(t, deflateEncode(t, []byte(respBody)), "deflate")
+	result, ok := JSONRPCSpan(&span, newJSONRPCRequest(t, "application/json", reqBody), resp)
+
+	require.True(t, ok)
+	require.NotNil(t, result.JSONRPC)
+	assert.Equal(t, -32601, result.JSONRPC.ErrorCode)
+	assert.Equal(t, "Method not found", result.JSONRPC.ErrorMessage)
+	assert.Equal(t, request.StatusCodeError, request.SpanStatusCode(&result))
+}
+
 func TestJSONRPCSpan_ParseError(t *testing.T) {
 	reqBody := `{"jsonrpc":"2.0","method":"test","id":1}`
 	respBody := `{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"},"id":null}`

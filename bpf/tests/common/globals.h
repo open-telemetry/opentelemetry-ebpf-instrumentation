@@ -13,6 +13,7 @@ static bool g_bpf_debug = false;
 static bool g_bpf_traceparent_enabled = false;
 static bool g_bpf_header_propagation = false;
 static bool g_bpf_probe_write_user_enabled = false;
+static bool g_bpf_java_http1_enabled = false;
 static bool g_bpf_loop_enabled = false;
 static u8 g_go_h2_write_fail_step = 0;
 static bool g_traces_ctx_v1_enabled = false;

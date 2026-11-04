@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/otel/sdk/instrumentation"
 	metricdata "go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
@@ -85,6 +86,11 @@ func produceHistogramPoint(t *testing.T, producer *bpfProbeLatencyProducer) metr
 	scopeMetrics, err := producer.Produce(t.Context())
 	require.NoError(t, err)
 	require.Len(t, scopeMetrics, 1)
+	assert.Equal(t, instrumentation.Scope{
+		Name:      internalMetricsMeterName,
+		Version:   attr.TelemetryDistroVersion(),
+		SchemaURL: attr.OBISchemaURL,
+	}, scopeMetrics[0].Scope)
 	require.Len(t, scopeMetrics[0].Metrics, 1)
 
 	histogram, ok := scopeMetrics[0].Metrics[0].Data.(metricdata.Histogram[float64])

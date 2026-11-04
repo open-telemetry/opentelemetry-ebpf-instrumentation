@@ -12,6 +12,7 @@
 
 #include <logger/bpf_dbg.h>
 
+#include <statsolly/failed_conn_port.h>
 #include <statsolly/types.h>
 #include <statsolly/maps/stats_events.h>
 #include <statsolly/maps/sock_role.h>
@@ -140,7 +141,7 @@ int obi_stats_tp_inet_sock_set_state_tcp_failed_connection(
     const u8 reason = sk_err_to_reason(err);
 
     connection_info_t conn;
-    if (!parse_sock_info(sk, &conn)) {
+    if (!parse_failed_sock_info(sk, args->oldstate, &conn)) {
         return 0;
     }
 

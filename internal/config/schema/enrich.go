@@ -21,9 +21,10 @@ type Enrich struct {
 
 // Enrichers groups metadata enricher settings.
 type Enrichers struct {
-	Kubernetes           KubernetesEnricher `yaml:"kubernetes"`
-	Cloud                CloudEnricher      `yaml:"cloud"`
-	AdditionalProperties map[string]any     `yaml:",inline"`
+	Kubernetes           KubernetesEnricher   `yaml:"kubernetes"`
+	Cloud                CloudEnricher        `yaml:"cloud"`
+	PeerMetadata         PeerMetadataEnricher `yaml:"peer_metadata"`
+	AdditionalProperties map[string]any       `yaml:",inline"`
 }
 
 // KubernetesMode describes Kubernetes metadata enricher activation.
@@ -106,10 +107,19 @@ type Route53 struct {
 
 // ServiceName describes service name resolution settings.
 type ServiceName struct {
-	UnresolvedHosts      UnresolvedHosts    `yaml:"unresolved_hosts"`
-	Sources              []transform.Source `yaml:"sources"`
-	Cache                Cache              `yaml:"cache"`
-	AdditionalProperties map[string]any     `yaml:",inline"`
+	UnresolvedHosts      UnresolvedHosts                  `yaml:"unresolved_hosts"`
+	Sources              []transform.Source               `yaml:"sources"`
+	GCE                  *transform.GCENameResolverConfig `yaml:"gce,omitempty"`
+	Azure                AzureServiceName                 `yaml:"azure,omitempty"`
+	Cache                Cache                            `yaml:"cache"`
+	AdditionalProperties map[string]any                   `yaml:",inline"`
+}
+
+// AzureServiceName scopes Uniform scale set discovery to one resource group.
+type AzureServiceName struct {
+	SubscriptionID       string         `yaml:"subscription_id,omitempty"`
+	ResourceGroup        string         `yaml:"resource_group,omitempty"`
+	AdditionalProperties map[string]any `yaml:",inline"`
 }
 
 // UnresolvedHosts describes names assigned to unresolved hosts.

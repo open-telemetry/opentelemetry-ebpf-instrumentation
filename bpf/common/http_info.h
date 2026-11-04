@@ -64,7 +64,7 @@ typedef struct http_info {
     // socket (TLS uprobes, unix sockets).
     u64 response_bytes_at_request;
     tp_info_t tp;
-    pid_info pid;
+    pid_info_t pid;
     u32 len;
     u32 resp_len;
     u32 task_tid;
@@ -93,6 +93,12 @@ static __always_inline bool still_reading(const http_info_t *info) {
 // finished, and only the status is missing from it.
 static __always_inline bool response_unread(const http_info_t *info) {
     return info->status == 0 && info->response_observation == http_response_unread;
+}
+
+// Socket counters also reveal responses forwarded without a readable payload, as with splice.
+static __always_inline bool http_response_pending(const http_info_t *info, u64 response_bytes) {
+    return still_reading(info) &&
+           !http_response_bytes_advanced(info->response_bytes_at_request, response_bytes);
 }
 
 // Reports whether a buffer traveling in this direction carries the response to this

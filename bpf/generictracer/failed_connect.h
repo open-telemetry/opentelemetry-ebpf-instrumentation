@@ -16,7 +16,7 @@ static __always_inline void init_failed_connect_tcp_req(tcp_req_t *req,
                                                         u64 connect_ts,
                                                         u64 end_ts,
                                                         u64 extra_id,
-                                                        const pid_info *pid) {
+                                                        const pid_info_t *pid) {
     __builtin_memset(req, 0, sizeof(*req));
 
     req->flags = k_event_type_failed_connect;

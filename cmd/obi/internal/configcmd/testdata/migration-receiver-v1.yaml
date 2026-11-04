@@ -16,3 +16,11 @@ routes:
 metrics:
   features:
     - application
+attributes:
+  select:
+    traces:
+      include:
+        - service.peer.name
+    http.server.request.duration:
+      exclude:
+        - http.route

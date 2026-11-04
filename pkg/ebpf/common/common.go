@@ -33,13 +33,14 @@ import (
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/exceptions"
 	"go.opentelemetry.io/obi/pkg/export/otel/idgen"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target $BPF_TARGETS -type protocol_type -type event_type -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type go_auto_span_t -type mongo_go_client_req_t -type dns_req_t -type node_span_event_t -type pid_namespace_mode -type valid_pids_size -type ringbuf_write_stats_t -type ringbuf_id Bpf ../../../bpf/common/common.c -- -I../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target $BPF_TARGETS -type protocol_type -type event_type -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type go_auto_span_t -type mongo_go_client_req_t -type dns_req_t -type node_span_event_t -type process_event_t -type pid_namespace_mode -type valid_pids_size -type ringbuf_write_stats_t -type ringbuf_id -type sampler_t -type exception_event_header_t -type exception_runtime -type exception_owner -type pid_info_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
 
 // HTTPRequestTrace contains information from an HTTP request as directly received from the
 // eBPF layer. This contains low-level C structures for accurate binary read from ring buffer.
@@ -59,6 +60,7 @@ type (
 	GoMongoClientInfo    BpfMongoGoClientReqT
 	DNSInfo              BpfDnsReqT
 	NodeSpanEvent        BpfNodeSpanEventT
+	ProcessEvent         BpfProcessEventT
 )
 
 // Go mirror of tp_info.h -> enum tp_flags
@@ -103,6 +105,8 @@ const (
 	EventTypeJVMRuntimeMetrics     = uint8(BpfEventTypeK_eventTypeJvmRuntimeMetrics)      // JVM runtime metrics
 	EventTypeNodejsResource        = uint8(BpfEventTypeK_eventTypeNodejsResource)
 	EventTypeJVMGCDuration         = uint8(BpfEventTypeK_eventTypeJvmGcDuration) // JVM garbage-collection duration
+	EventTypeProcessFork           = uint8(BpfEventTypeK_eventTypeProcessFork)   // An instrumented process forked a process
+	EventTypeProcessExec           = uint8(BpfEventTypeK_eventTypeProcessExec)   // A forked process ran exec
 	EventTypeCustomSpan            = uint8(BpfEventTypeK_eventTypeCustomSpan)    // OBI custom-span transport
 )
 
@@ -308,14 +312,15 @@ type EBPFParseContext struct {
 	largeBuffers                *expirable.LRU[largeBufferKey, *largebuf.LargeBuffer]
 	mongoRequestCache           PendingMongoDBRequests
 	mysqlPreparedStatements     *simplelru.LRU[mysqlPreparedStatementsKey, string]
-	postgresPreparedStatements  *simplelru.LRU[postgresPreparedStatementsKey, string]
+	postgresPreparedStatements  *simplelru.LRU[postgresPreparedStatementsKey, postgresPreparedStatement]
 	postgresPortals             *simplelru.LRU[postgresPortalsKey, string]
-	postgresDBNames             *simplelru.LRU[BpfConnectionInfoT, string]
+	postgresNamespaces          *simplelru.LRU[BpfConnectionInfoT, postgresNamespace]
 	mssqlPreparedStatements     *simplelru.LRU[mssqlPreparedStatementsKey, string]
 	kafkaTopicUUIDToName        *simplelru.LRU[kafkaparser.UUID, string]
 	kafkaConsumerGroups         *KafkaConsumerGroups
 	payloadExtraction           config.PayloadExtraction
 	httpEnricher                *ebpfhttp.HTTPEnricher
+	sqlppPreparedStatements     *ebpfhttp.SQLPPPreparedStatements
 	dnsEvents                   *expirable.LRU[dnsparser.DNSId, *request.Span]
 	pendingSpanLinks            *pendingSpanLinks
 	pendingGoHTTPClientRequests *expirable.LRU[pendingGoHTTPClientKey, *pendingGoHTTPClientRequest]
@@ -334,6 +339,7 @@ type sharedForwarder interface {
 }
 
 type EBPFEventContext struct {
+	ExceptionInput   *msg.Queue[[]exceptions.Event]
 	CommonPIDsFilter ServiceFilter
 	SharedRingBuffer sharedForwarder
 	RuntimeMetrics   RuntimeMetricSender
@@ -402,7 +408,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		redisDBCache               *simplelru.LRU[BpfConnectionInfoT, int]
 		couchbaseBucketCache       *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]
 		mysqlPreparedStatements    *simplelru.LRU[mysqlPreparedStatementsKey, string]
-		postgresPreparedStatements *simplelru.LRU[postgresPreparedStatementsKey, string]
+		postgresPreparedStatements *simplelru.LRU[postgresPreparedStatementsKey, postgresPreparedStatement]
 		postgresPortals            *simplelru.LRU[postgresPortalsKey, string]
 		mssqlPreparedStatements    *simplelru.LRU[mssqlPreparedStatementsKey, string]
 		kafkaTopicUUIDToName       *simplelru.LRU[kafkaparser.UUID, string]
@@ -415,7 +421,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 
 	h2c, _ := lru.New[uint64, *h2Connection](1024 * 10)
 	largeBuffers := expirable.NewLRU[largeBufferKey, *largebuf.LargeBuffer](1024, nil, 5*time.Minute)
-	postgresDBNames, _ := simplelru.NewLRU[BpfConnectionInfoT, string](4096, nil)
+	postgresNamespaces, _ := simplelru.NewLRU[BpfConnectionInfoT, postgresNamespace](4096, nil)
 
 	emitCtx, stopEmitting := context.WithCancel(context.Background())
 	if spansChan != nil {
@@ -452,7 +458,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 			ptlog().Error("failed to create MySQL prepared statements cache", "error", err)
 		}
 
-		postgresPreparedStatements, err = simplelru.NewLRU[postgresPreparedStatementsKey, string](cfg.PostgresPreparedStatementsCacheSize, nil)
+		postgresPreparedStatements, err = simplelru.NewLRU[postgresPreparedStatementsKey, postgresPreparedStatement](cfg.PostgresPreparedStatementsCacheSize, nil)
 		if err != nil {
 			ptlog().Error("failed to create Postgres prepared statements cache", "error", err)
 		}
@@ -486,6 +492,14 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		httpEnricher = ebpfhttp.NewHTTPEnricher(payloadExtraction.HTTP.Enrichment)
 	}
 
+	var sqlppPreparedStatements *ebpfhttp.SQLPPPreparedStatements
+	if payloadExtraction.HTTP.SQLPP.Enabled {
+		sqlppPreparedStatements, err = ebpfhttp.NewSQLPPPreparedStatements(payloadExtraction.HTTP.SQLPP.PreparedStatementsCacheSize)
+		if err != nil {
+			ptlog().Error("failed to create SQL++ prepared statements cache", "error", err)
+		}
+	}
+
 	parseCtx := &EBPFParseContext{
 		protocolDebug:              protocolDebug,
 		h2c:                        h2c,
@@ -496,12 +510,13 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		mysqlPreparedStatements:    mysqlPreparedStatements,
 		postgresPreparedStatements: postgresPreparedStatements,
 		postgresPortals:            postgresPortals,
-		postgresDBNames:            postgresDBNames,
+		postgresNamespaces:         postgresNamespaces,
 		mssqlPreparedStatements:    mssqlPreparedStatements,
 		kafkaTopicUUIDToName:       kafkaTopicUUIDToName,
 		kafkaConsumerGroups:        kafkaConsumerGroups,
 		payloadExtraction:          payloadExtraction,
 		httpEnricher:               httpEnricher,
+		sqlppPreparedStatements:    sqlppPreparedStatements,
 		dnsEvents:                  dnsEvents,
 		emitSpans:                  emitSpans,
 		stopEmitting:               stopEmitting,

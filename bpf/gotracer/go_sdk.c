@@ -28,6 +28,7 @@
 #include <common/map_sizing.h>
 #include <common/preempt_guard.h>
 #include <common/ringbuf.h>
+#include <common/sampling.h>
 #include <common/scratch_mem.h>
 
 #include <gotracer/go_common.h>
@@ -201,7 +202,7 @@ static __always_inline void notify_go_auto_activation(u64 generation, u8 sdk) {
         .pid = pid_from_pid_tgid(bpf_get_current_pid_tgid()),
         .generation = generation,
     };
-    events_ringbuf_output(&event, sizeof(event), get_flags());
+    events_ringbuf_output(&event, sizeof(event));
 }
 
 static __always_inline u8 reserve_go_auto_activation_attempt(
@@ -280,11 +281,11 @@ static __always_inline void init_go_auto_span_context(go_auto_span_state_t *stat
         __builtin_memcpy(&state->prev_tp, parent, sizeof(state->prev_tp));
         tp_from_parent(child, parent);
     } else {
-        child->flags = k_flag_sampled;
         urand_bytes(child->trace_id, sizeof(child->trace_id));
         if (!valid_trace(child->trace_id)) {
             child->trace_id[0] = 1;
         }
+        sample_new_trace(child);
     }
 
     state->goroutine = (u64)goroutine_addr;
@@ -737,7 +738,7 @@ int GUARDED_PROG(obi_uprobe_nonRecordingSpan_End, struct pt_regs *, ctx) {
         update_tp_parent_go(&gp_key, &span->prev_tp);
     }
 
-    events_ringbuf_output(span, sizeof(otel_span_t), get_flags());
+    events_ringbuf_output(span, sizeof(otel_span_t));
     bpf_dbg_printk("submitted manual span trace");
 
     bpf_map_delete_elem(&active_spans, &s_key);
@@ -796,7 +797,7 @@ int GUARDED_PROG(obi_uprobe_auto_sdk_span_Ended, struct pt_regs *, ctx) {
 
     u64 total_size = offsetof(go_auto_span_t, buf) + len;
     bpf_clamp_umax(total_size, offsetof(go_auto_span_t, buf) + k_go_auto_span_json_max_len);
-    events_ringbuf_output(event, total_size, get_flags());
+    events_ringbuf_output(event, total_size);
 
     return 0;
 }

@@ -1,6 +1,9 @@
 file_format: definition/2
 attributes:
   - key: error.type
+    annotations:
+      obi:
+        upstream_deviation: OBI reports protocol error codes and status classes, an open value space no fixed enum can list
     type: string
     stability: stable
     brief: >

@@ -49,7 +49,7 @@ func testREDMetricsForJavaHTTPLibrary(t *testing.T, urls []string, comm string) 
 			`http_response_status_code="204",` +
 			namespaceMatch +
 			commMatch +
-			`url_path="` + path + `"}`)
+			`http_route="` + path + `"}`)
 		require.NoError(ct, err)
 		// check duration_count has 3 calls and all the arguments
 		enoughPromResults(ct, results)

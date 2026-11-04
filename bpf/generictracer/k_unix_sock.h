@@ -219,7 +219,7 @@ static __always_inline int return_unix_recvmsg(void *ctx, u64 id, int copied_len
 }
 
 SEC("kretprobe/unix_stream_recvmsg")
-int BPF_KRETPROBE_GUARDED(obi_kretprobe_unix_stream_recvmsg, size_t copied) {
+int BPF_KRETPROBE_GUARDED(obi_kretprobe_unix_stream_recvmsg, int copied) {
     const u64 id = bpf_get_current_pid_tgid();
 
     if (!valid_pid(id)) {

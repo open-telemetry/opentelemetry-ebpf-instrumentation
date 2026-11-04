@@ -12,6 +12,7 @@ import io.opentelemetry.obi.java.ebpf.*;
 import io.opentelemetry.obi.java.instrumentations.*;
 import io.opentelemetry.obi.java.instrumentations.data.BytesWithLen;
 import io.opentelemetry.obi.java.instrumentations.data.Connection;
+import io.opentelemetry.obi.java.instrumentations.data.JdkHttpClientPropagation;
 import io.opentelemetry.obi.java.instrumentations.data.JdkHttpClientTask;
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import io.opentelemetry.obi.java.instrumentations.util.ByteBufferExtractor;
@@ -39,6 +40,8 @@ public class Agent {
   public static class NativeLib {
     // Used to send data to the eBPF side, both TLS traffic and thread Parent Context
     public static native int ioctl(int fd, int cmd, long argp);
+
+    public static native int sendThreadContext(int cmd, byte operation, long parentId);
 
     // Used to find the OS thread id for thread correlation.
     public static native int gettid();
@@ -167,7 +170,7 @@ public class Agent {
         .type(JavaExecutorInst.type())
         .transform(JavaExecutorInst.transformer())
         .type(JdkHttpClientInst.type())
-        .transform(JdkHttpClientInst.transformer())
+        .transform(JdkHttpClientInst.transformer(optEnabled(opts, "httpHeaders")))
         .type(CallableInst.type())
         .transform(CallableInst.transformer())
         .type(RunnableInst.type())
@@ -252,6 +255,7 @@ public class Agent {
     Class.forName(BytesWithLen.class.getName());
     Class.forName(Connection.class.getName());
     Class.forName(JdkHttpClientTask.class.getName());
+    Class.forName(JdkHttpClientPropagation.class.getName());
     Class.forName(NettyChannelExtractor.class.getName());
     Class.forName(SSLStorage.class.getName());
     Class.forName(ByteBufferExtractor.class.getName());

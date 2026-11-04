@@ -18,3 +18,4 @@ expected:
     attributes:
       db.collection.name: testdb.items
       server.port: '27017'
+      server.address: mongo

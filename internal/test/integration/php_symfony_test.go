@@ -37,8 +37,7 @@ func testPHPSymfony(t *testing.T) {
 			`http_response_status_code="200",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + phpSymfonyServiceName + `",` +
-			`service_version="` + phpSymfonyServiceVersion + `",` +
-			`url_path="/api/echo/metadata"}`)
+			`service_version="` + phpSymfonyServiceVersion + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 	}, testTimeout, 100*time.Millisecond)

@@ -47,7 +47,7 @@ var (
 // sock_dir. The test adds its client sockets by hand, so no cgroup or sockops
 // attach is needed, and nothing but the test's own connections is touched.
 func loadSocketGuardHarness(t *testing.T) *BpfObjects {
-	objs := loadTPInjectorObjects(t)
+	objs := loadTPInjectorObjects(t, nil)
 
 	attach := link.RawAttachProgramOptions{
 		Target:  objs.SockDir.FD(),

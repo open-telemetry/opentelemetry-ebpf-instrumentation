@@ -15,6 +15,10 @@ discovery:
       namespace: integration-test
     - exe_path: "*gpu-cuda-driver-ctx-tester"
       namespace: integration-test
+    - exe_path: "*gpu-cuda-ptsz-tester"
+      namespace: integration-test
+    - exe_path: "*gpu-cuda-ptsz-driver-tester"
+      namespace: integration-test
 attributes:
   select:
     "*":

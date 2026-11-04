@@ -58,7 +58,7 @@ OBI-emitted db.client.operation.duration
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
 | `db.collection.name` | string | `conditionally_required`: if the operation targets a single collection | stable | The name of a collection (table, container) within the database. | public.users; customers |
-| `db.namespace` | string | `conditionally_required`: if the exchange named a database | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
+| `db.namespace` | string | `conditionally_required`: if the exchange named a database or schema; PostgreSQL reports `{database}\|{schema}`, or the schema alone when only it is known | stable | The name of the database, fully qualified within the server address and port. | customers; test.users |
 | `db.operation.name` | string | `conditionally_required`: if the operation could be parsed from the exchange | stable | The name of the operation or command being executed. | findAndModify; HMSET; SELECT |
 | `db.response.status_code` | string | `conditionally_required`: if the operation failed and the status code is available | stable | Database response status code. | 102; ORA-17002; 08P01; 404 |
 | `db.system.name` | enum | `required` | stable | The database management system (DBMS) product as identified by the client instrumentation. | other_sql; softwareag.adabas; actian.ingres; aws.dynamodb; aws.redshift; azure.cosmosdb; intersystems.cache; cassandra; … |
@@ -108,6 +108,18 @@ Number of loaded .NET assemblies.
 | updowncounter | {assembly} | stable |
 
 No attributes.
+
+## `dotnet.exceptions`
+
+Number of managed exceptions thrown since attachment on .NET 8+, including rethrows.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {exception} | stable |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `error.type` | string | `required` | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 
 ## `dotnet.gc.heap.total_allocated`
 
@@ -635,12 +647,11 @@ OBI-emitted http.client.request.body.size
 | --- | --- | --- | --- | --- | --- |
 | `error.type` | string | `conditionally_required`: if the request ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
-| `http.response.status_code` | int | `recommended`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
-| `http.route` | string | `recommended`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
+| `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
 | `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
-| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
 | `url.scheme` | string | `recommended` | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
+| `url.template` | string | `conditionally_required`: if route collection is enabled and the route was matched | development | The low-cardinality template of an [absolute path reference](https://www.rfc-editor.org/rfc/rfc3986#section-4.2). | /users/{id}; /users/:id; /users?id={id} |
 
 ## `http.client.request.duration`
 
@@ -654,12 +665,11 @@ OBI-emitted http.client.request.duration
 | --- | --- | --- | --- | --- | --- |
 | `error.type` | string | `conditionally_required`: if the request ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
-| `http.response.status_code` | int | `recommended`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
-| `http.route` | string | `recommended`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
+| `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
 | `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
-| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
 | `url.scheme` | string | `recommended` | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
+| `url.template` | string | `opt_in` | development | The low-cardinality template of an [absolute path reference](https://www.rfc-editor.org/rfc/rfc3986#section-4.2). | /users/{id}; /users/:id; /users?id={id} |
 
 ## `http.client.response.body.size`
 
@@ -673,12 +683,11 @@ OBI-emitted http.client.response.body.size
 | --- | --- | --- | --- | --- | --- |
 | `error.type` | string | `conditionally_required`: if the request ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
-| `http.response.status_code` | int | `recommended`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
-| `http.route` | string | `recommended`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
+| `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
 | `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
-| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
 | `url.scheme` | string | `recommended` | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
+| `url.template` | string | `conditionally_required`: if route collection is enabled and the route was matched | development | The low-cardinality template of an [absolute path reference](https://www.rfc-editor.org/rfc/rfc3986#section-4.2). | /users/{id}; /users/:id; /users?id={id} |
 
 ## `http.server.request.body.size`
 
@@ -690,14 +699,12 @@ OBI-emitted http.server.request.body.size
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| `client.address` | string | `opt_in` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
 | `error.type` | string | `conditionally_required`: if the request ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
-| `http.response.status_code` | int | `recommended`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
-| `http.route` | string | `recommended`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
+| `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
+| `http.route` | string | `conditionally_required`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
 | `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
-| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
 | `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 
 ## `http.server.request.duration`
@@ -710,14 +717,12 @@ OBI-emitted http.server.request.duration
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| `client.address` | string | `opt_in` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
 | `error.type` | string | `conditionally_required`: if the request ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
-| `http.response.status_code` | int | `recommended`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
-| `http.route` | string | `recommended`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
+| `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
+| `http.route` | string | `conditionally_required`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
 | `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
-| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
 | `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 
 ## `http.server.response.body.size`
@@ -730,14 +735,12 @@ OBI-emitted http.server.response.body.size
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| `client.address` | string | `opt_in` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
 | `error.type` | string | `conditionally_required`: if the request ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
-| `http.response.status_code` | int | `recommended`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
-| `http.route` | string | `recommended`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
+| `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
+| `http.route` | string | `conditionally_required`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
 | `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
-| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
 | `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 
 ## `jvm.class.count`
@@ -1583,7 +1586,6 @@ OBI-emitted rpc.server.call.duration
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| `client.address` | string | `opt_in` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `rpc.method` | string | `conditionally_required`: if the call was captured | release_candidate | The fully-qualified logical name of the method from the RPC interface perspective. | com.example.ExampleService/exampleMethod; EchoService/Echo; _OTHER |
 | `rpc.response.status_code` | string | `conditionally_required`: if the status is inside the gRPC enum, or an ONC RPC REPLY was captured | release_candidate | Status code of the RPC returned by the RPC server or generated by the client | OK; DEADLINE_EXCEEDED; -32602 |
@@ -1732,6 +1734,27 @@ OBI counterpart of `target.info` for the traces pipeline. Carries the resource a
 | `telemetry.sdk.language` | enum | `required` | stable | The language of the telemetry SDK. | cpp; dotnet; erlang; go; java; nodejs; php; python; … |
 | `telemetry.sdk.name` | string | `required` | stable | The name of the telemetry SDK as defined above. | opentelemetry |
 | `telemetry.sdk.version` | string | `required` | stable | The version string of the telemetry SDK. | 1.2.3 |
+
+## `traces_service_graph_connection_info`
+
+Indicates that a client-to-server connection was observed recently. The value remains 1 while the edge is observed and expires after the configured metric TTL.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| gauge | 1 | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `client_k8s_cluster_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes cluster name of the client (request-initiating) peer. | my-cluster |
+| `client_k8s_namespace_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the client (request-initiating) peer. | integration-test |
+| `client_service_namespace` | string | `conditionally_required`: if the workload has a namespace | development | The service namespace of the client side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
+| `client` | string | `required` | development | Name of the service initiating the request. | frontend |
+| `connection_type` | enum | `conditionally_required`: if the connection was not a direct HTTP or gRPC request | development | The connection type between the two services (mirroring the servicegraphconnector values). The attribute is omitted for a direct HTTP/gRPC request. | messaging_system; database; virtual_node |
+| `server_k8s_cluster_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes cluster name of the server (request-receiving) peer. | my-cluster |
+| `server_k8s_namespace_name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the server (request-receiving) peer. | integration-test |
+| `server_service_namespace` | string | `conditionally_required`: if the workload has a namespace | development | The service namespace of the server side. Equivalent to the `service.namespace`-prefixed dimension defined by `servicegraphconnector` when `service.namespace` is added to the connector's `dimensions` list. | integration-test |
+| `server` | string | `required` | development | Name of the service receiving the request. | users-api |
+| `source` | string | `required` | development | Identifier of the vendor / SDK that produced the metric. OBI sets this to `obi`. Used by the spanmetrics and service-graph emissions to disambiguate from collector-contrib connector output. | obi |
 
 ## `traces_service_graph_request_client`
 

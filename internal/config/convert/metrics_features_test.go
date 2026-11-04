@@ -44,6 +44,23 @@ func TestV2MetricFeatures(t *testing.T) {
 	}
 }
 
+func TestV2ConnectionInfoFeatureRoundTrip(t *testing.T) {
+	const name = "application_service_graph_connection_info"
+	ext, err := schema.ParseReceiverYAML([]byte("version: '2.0'\nmetrics:\n  features: [" + name + "]\n"))
+	require.NoError(t, err)
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.True(t, got.Metrics.Features.ConnectionInfo())
+
+	_, doc := RuntimeToV2(got)
+	require.Equal(t, []string{name}, doc.Capture.Metrics.Features)
+
+	roundTrip, err := V2ToRuntime(doc)
+	require.NoError(t, err)
+	require.True(t, roundTrip.Metrics.Features.ConnectionInfo())
+}
+
 func TestV2MetricFeaturesOverrideEnablement(t *testing.T) {
 	t.Parallel()
 

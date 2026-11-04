@@ -44,7 +44,7 @@ func testDotnetHeapMetrics(t *testing.T, client *http.Client, workload string, e
 		t.Helper()
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			for _, endpoint := range endpoints {
-				values, err := scrapeDotnetHeap(client, endpoint)
+				values, err := scrapeDotnetHeapMetric(client, endpoint, attributes.DotnetGCHeapSize.Prom)
 				require.NoError(ct, err)
 				require.Equal(ct, expected.HeapSizes, values, endpoint)
 			}
@@ -74,7 +74,7 @@ func testDotnetHeapMetrics(t *testing.T, client *http.Client, workload string, e
 	t.Logf("heap sizes match managed reference on both exporters: before %v, loaded %v, released %v", before.HeapSizes, loaded.HeapSizes, released.HeapSizes)
 }
 
-func scrapeDotnetHeap(client *http.Client, endpoint string) ([]float64, error) {
+func scrapeDotnetHeapMetric(client *http.Client, endpoint, metricName string) ([]float64, error) {
 	response, err := client.Get(endpoint)
 	if err != nil {
 		return nil, err
@@ -88,9 +88,9 @@ func scrapeDotnetHeap(client *http.Client, endpoint string) ([]float64, error) {
 	if err != nil {
 		return nil, err
 	}
-	family := families[attributes.DotnetGCHeapSize.Prom]
+	family := families[metricName]
 	if family == nil || family.GetType() != dto.MetricType_GAUGE {
-		return nil, fmt.Errorf("missing heap size gauge from %s", endpoint)
+		return nil, fmt.Errorf("missing %s gauge from %s", metricName, endpoint)
 	}
 	values := make([]float64, runtimemetrics.DotnetHeapGenerationCount)
 	seen := [runtimemetrics.DotnetHeapGenerationCount]bool{}

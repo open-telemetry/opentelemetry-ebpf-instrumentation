@@ -3,7 +3,9 @@ metrics:
   - name: messaging.client.operation.duration
     annotations:
       obi:
-        upstream_override: true
+        upstream_omits:
+          messaging.destination.template: only the application knows the template a destination name was built from
+          messaging.consumer.group.name: OBI knows a consumer group only for Kafka fetches, which it records as messaging.process.duration
     brief: OBI-emitted messaging.client.operation.duration
     instrument: histogram
     unit: "s"
@@ -39,7 +41,8 @@ metrics:
   - name: messaging.process.duration
     annotations:
       obi:
-        upstream_override: true
+        upstream_omits:
+          messaging.destination.template: only the application knows the template a destination name was built from
     brief: OBI-emitted messaging.process.duration
     instrument: histogram
     unit: "s"

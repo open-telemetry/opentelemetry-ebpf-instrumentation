@@ -125,6 +125,12 @@ public class SSLStorage {
     return bufToBuf.get(encrypted);
   }
 
+  // Claim once before the socket write; retries or concurrent writers must not
+  // create another HTTP request from the same captured TLS record.
+  public static BytesWithLen takeUnencryptedBuffer(String encrypted) {
+    return bufToBuf.remove(encrypted);
+  }
+
   public static void removeBufferMapping(String encrypted) {
     bufToBuf.remove(encrypted);
   }

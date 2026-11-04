@@ -9,6 +9,7 @@
 #include <common/connection_info.h>
 #include <common/protocol_defs.h>
 #include <common/sockaddr.h>
+#include <common/tls_record.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -22,8 +23,16 @@ static __always_inline void set_active_ssl_connection(ssl_pid_connection_info_t 
     bpf_dbg_printk("Correlating SSL %llx to connection", ssl);
     dbg_print_http_connection_info(&ssl_conn->p_conn.conn);
 
+    const pid_ptr_key_t ssl_key = pid_ptr_key(ssl_conn->p_conn.pid, ssl);
+
     bpf_map_update_elem(&active_ssl_connections, &ssl_conn->p_conn, &ssl, BPF_ANY);
-    bpf_map_update_elem(&ssl_to_conn, &ssl, ssl_conn, BPF_ANY);
+    bpf_map_update_elem(&ssl_to_conn, &ssl_key, ssl_conn, BPF_ANY);
+}
+
+static __always_inline ssl_pid_connection_info_t *lookup_ssl_conn(u32 pid, void *ssl) {
+    const pid_ptr_key_t ssl_key = pid_ptr_key(pid, ssl);
+
+    return bpf_map_lookup_elem(&ssl_to_conn, &ssl_key);
 }
 
 static __always_inline void *unconnected_ssl_from_args(u64 id, u8 direction) {

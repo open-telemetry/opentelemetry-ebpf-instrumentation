@@ -58,7 +58,8 @@ enum bpf_func_id___x {
                          ##args,                                                                   \
                          __FUNCTION__);                                                            \
         } else {                                                                                   \
-            __builtin_memcpy(__trace__->log, fmt, sizeof(__trace__->log));                         \
+            static const char __fmt__[] = fmt;                                                     \
+            bpf_probe_read_kernel_str(__trace__->log, sizeof(__trace__->log), __fmt__);            \
         }                                                                                          \
         struct task_struct *task = (struct task_struct *)bpf_get_current_task();                   \
         __trace__->pid = (u32)BPF_CORE_READ(task, pid);                                            \

@@ -7,6 +7,10 @@ metrics:
   # the OpenMetrics-convention `target_info` counterpart, which weaver does
   # not see (only the OTLP tap is validated).
   - name: target.info
+    annotations: &target_info_format
+      obi:
+        upstream: none
+        upstream_reason: the target info metric of Prometheus-style exporters, which upstream does not define as a metric
     instrument: updowncounter
     unit: ""
     stability: development
@@ -139,6 +143,7 @@ metrics:
   # Prometheus exporter emits the underscore `traces_target_info`
   # counterpart.
   - name: traces.target.info
+    annotations: *target_info_format
     instrument: updowncounter
     unit: ""
     stability: development

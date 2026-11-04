@@ -13,10 +13,10 @@
 v2 = true
 
 [live-check]
-# A v2 registry checks an attribute only against the definition its sample
-# matched. Searching every definition, including the upstream dependency, keeps
-# type, enum and stability checks on every attribute, and on resources, which
-# no definition describes.
+# A matched span is compared with its own span definition only, so an attribute
+# that is declared elsewhere in the registry, or upstream, would otherwise go
+# unchecked. Searching every definition keeps type, enum and stability checks
+# on those attributes, and on resources, which no matcher describes.
 search_all_attributes = true
 # Weaver's default advice preprocessor builds its attribute sets from this
 # registry alone for a definition/2 registry, so upstream keys would fail
@@ -25,13 +25,31 @@ search_all_attributes = true
 advice_policies = ".live_check_policies"
 advice_preprocessor = ".live_check_policies/advice.jq"
 
-# Promote advice weaver classifies as `information` to `violation` so live-check
-# fails on it. `extends_namespace` catches an attribute emitted under an existing
-# semconv namespace but declared in no registry; `undefined_enum_variant` catches
-# an enumerated attribute emitted with a value outside its declared members.
+# Promote findings to `violation` so live-check fails on them:
+#   - `undefined_enum_variant`: an enumerated attribute emitted with a value
+#     outside its declared members.
+#   - `kind_mismatch`: a span whose kind differs from its span definition.
+#   - `unexpected_attribute` on a span or a metric: an attribute its definition
+#     does not declare. On a resource, which no definition describes, the
+#     finding only notes that an attribute is defined upstream rather than
+#     here, so it is dropped below instead.
 [[live-check.finding_level_overrides]]
-ids = ["extends_namespace", "undefined_enum_variant"]
+ids = ["undefined_enum_variant", "kind_mismatch"]
 level = "violation"
+
+[[live-check.finding_level_overrides]]
+ids = ["unexpected_attribute"]
+signal_type = "span"
+level = "violation"
+
+[[live-check.finding_level_overrides]]
+ids = ["unexpected_attribute"]
+signal_type = "metric"
+level = "violation"
+
+[[live-check.finding_filters]]
+exclude = ["unexpected_attribute"]
+signal_type = "resource"
 
 # Accept the known namespace collisions OBI cannot avoid: the collector-contrib
 # servicegraph connector emits bare `server`/`client` labels, and netolly emits
@@ -49,11 +67,8 @@ sample_names = [
 ]
 
 # Accept passthrough attributes OBI forwards but does not itself set. These are
-# valid semconv keys under namespaces OBI uses, so they surface as
-# missing_attribute / extends_namespace violations rather than being tolerated
-# as the sub-violation advice that unknown-namespace user attributes get — but
-# they are not part of OBI's emitted contract, so they are tolerated here
-# instead of declared:
+# valid semconv keys under namespaces OBI uses, but they are not part of OBI's
+# emitted contract, so they are tolerated here instead of declared:
 #   - deployment.environment.name: set by the workload via
 #     OTEL_RESOURCE_ATTRIBUTES and forwarded on the resource. Unlike
 #     service.version, OBI never derives it from a Kubernetes label.
@@ -87,3 +102,310 @@ sample_names = [
 [[live-check.finding_filters]]
 exclude = ["missing_attribute"]
 sample_names = ["obitest.*"]
+
+# --- Span matchers ----------------------------------------------------------
+#
+# A span carries no identifier of its own, so each matcher names the span
+# definition a span is compared with, selected by the span kind and the
+# attributes that tell that definition apart in the exporter
+# (pkg/export/otel/tracesgen). The matchers are mutually exclusive, which
+# TestEmittedSpansMatchTheirDeclaredSpan in internal/schemacheck verifies.
+# Reading an attribute that a span does not carry is an error in CEL, so every
+# read is guarded by an `in` test on the same key.
+
+# The protocols OBI identifies inside an inbound HTTP request.
+[[live-check.matchers]]
+id = "match.span.graphql.server"
+sample_type = "span"
+when = 'kind == "server" && "graphql.operation.type" in attributes'
+signal = "obi.graphql.server"
+
+[[live-check.matchers]]
+id = "match.span.mcp.server"
+sample_type = "span"
+when = 'kind == "server" && "mcp.method.name" in attributes'
+signal = "obi.mcp.server"
+
+[[live-check.matchers]]
+id = "match.span.jsonrpc.server"
+sample_type = "span"
+when = 'kind == "server" && "rpc.system.name" in attributes && attributes["rpc.system.name"] == "jsonrpc"'
+signal = "obi.jsonrpc.server"
+
+[[live-check.matchers]]
+id = "match.span.http.server"
+sample_type = "span"
+when = '''
+kind == "server" && "http.request.method" in attributes
+  && !("graphql.operation.type" in attributes)
+  && !("mcp.method.name" in attributes)
+  && !("rpc.system.name" in attributes)
+'''
+signal = "obi.http.server"
+
+[[live-check.matchers]]
+id = "match.span.rpc.grpc.server"
+sample_type = "span"
+when = 'kind == "server" && "rpc.system.name" in attributes && attributes["rpc.system.name"] == "grpc"'
+signal = "obi.rpc.grpc.server"
+
+[[live-check.matchers]]
+id = "match.span.rpc.onc_rpc.server"
+sample_type = "span"
+when = 'kind == "server" && "rpc.system.name" in attributes && attributes["rpc.system.name"] == "onc_rpc"'
+signal = "obi.rpc.onc_rpc.server"
+
+[[live-check.matchers]]
+id = "match.span.db.server"
+sample_type = "span"
+when = 'kind == "server" && "db.system.name" in attributes'
+signal = "obi.db.server"
+
+# Elasticsearch is recognised from HTTP client traffic and keeps the HTTP
+# request attributes, which no other database span carries. The parser reports
+# one of these systems (elasticsearchSystemName).
+[[live-check.matchers]]
+id = "match.span.elasticsearch.client"
+sample_type = "span"
+when = '''
+kind == "client" && "http.request.method" in attributes && "db.system.name" in attributes
+  && attributes["db.system.name"] in ["elasticsearch", "opensearch"]
+'''
+signal = "obi.elasticsearch.client"
+
+# Every other HTTP client subtype sheds the HTTP request attributes
+# (httpClientTransportScope), so the method alone identifies a plain HTTP span.
+[[live-check.matchers]]
+id = "match.span.http.client"
+sample_type = "span"
+when = 'kind == "client" && "http.request.method" in attributes && !("db.system.name" in attributes)'
+signal = "obi.http.client"
+
+# The SQL client branch reports one of these systems (Span.DBSystemName); every
+# other native database client belongs to obi.db.client.
+[[live-check.matchers]]
+id = "match.span.db.sql.client"
+sample_type = "span"
+when = '''
+kind == "client" && "db.system.name" in attributes
+  && attributes["db.system.name"] in ["postgresql", "mysql", "microsoft.sql_server", "other_sql"]
+'''
+signal = "obi.db.sql.client"
+
+[[live-check.matchers]]
+id = "match.span.db.client"
+sample_type = "span"
+when = '''
+kind == "client" && "db.system.name" in attributes
+  && !(attributes["db.system.name"] in ["postgresql", "mysql", "microsoft.sql_server", "other_sql"])
+  && !("http.request.method" in attributes)
+'''
+signal = "obi.db.client"
+
+[[live-check.matchers]]
+id = "match.span.rpc.grpc.client"
+sample_type = "span"
+when = 'kind == "client" && "rpc.system.name" in attributes && attributes["rpc.system.name"] == "grpc"'
+signal = "obi.rpc.grpc.client"
+
+[[live-check.matchers]]
+id = "match.span.rpc.onc_rpc.client"
+sample_type = "span"
+when = 'kind == "client" && "rpc.system.name" in attributes && attributes["rpc.system.name"] == "onc_rpc"'
+signal = "obi.rpc.onc_rpc.client"
+
+[[live-check.matchers]]
+id = "match.span.jsonrpc.client"
+sample_type = "span"
+when = 'kind == "client" && "rpc.system.name" in attributes && attributes["rpc.system.name"] == "jsonrpc"'
+signal = "obi.jsonrpc.client"
+
+# S3 and SNS both report `aws-api` as their RPC system; SNS also reports its
+# messaging system.
+[[live-check.matchers]]
+id = "match.span.aws.s3.client"
+sample_type = "span"
+when = '''
+kind == "client" && "rpc.system.name" in attributes && attributes["rpc.system.name"] == "aws-api"
+  && !("messaging.system" in attributes)
+'''
+signal = "obi.aws.s3.client"
+
+[[live-check.matchers]]
+id = "match.span.aws.sns.client"
+sample_type = "span"
+when = 'kind == "client" && "messaging.system" in attributes && attributes["messaging.system"] == "aws.sns"'
+signal = "obi.aws.sns.client"
+
+[[live-check.matchers]]
+id = "match.span.aws.sqs.client"
+sample_type = "span"
+when = 'kind == "client" && "messaging.system" in attributes && attributes["messaging.system"] == "aws_sqs"'
+signal = "obi.aws.sqs.client"
+
+[[live-check.matchers]]
+id = "match.span.mcp.client"
+sample_type = "span"
+when = 'kind == "client" && "mcp.method.name" in attributes'
+signal = "obi.mcp.client"
+
+# The GenAI spans all report a provider. Rerank and retrieval report a fixed
+# operation; the dedicated embeddings subtype covers the embedding-only
+# providers (pkg/ebpf/common/http/embedding.go) and, unlike the inference path,
+# reports no response id. Every other GenAI span is an inference span.
+[[live-check.matchers]]
+id = "match.span.gen_ai.rerank.client"
+sample_type = "span"
+when = '''
+kind == "client" && "gen_ai.provider.name" in attributes
+  && "gen_ai.operation.name" in attributes && attributes["gen_ai.operation.name"] == "rerank"
+'''
+signal = "obi.gen_ai.rerank.client"
+
+[[live-check.matchers]]
+id = "match.span.gen_ai.retrieval.client"
+sample_type = "span"
+when = '''
+kind == "client" && "gen_ai.provider.name" in attributes
+  && "gen_ai.operation.name" in attributes && attributes["gen_ai.operation.name"] == "retrieval"
+'''
+signal = "obi.gen_ai.retrieval.client"
+
+[[live-check.matchers]]
+id = "match.span.gen_ai.embeddings.client"
+sample_type = "span"
+when = '''
+kind == "client" && "gen_ai.provider.name" in attributes
+  && attributes["gen_ai.provider.name"] in ["voyage", "cohere", "jina"]
+  && "gen_ai.operation.name" in attributes && attributes["gen_ai.operation.name"] == "embeddings"
+  && !("gen_ai.response.id" in attributes)
+'''
+signal = "obi.gen_ai.embeddings.client"
+
+[[live-check.matchers]]
+id = "match.span.gen_ai.inference.client"
+sample_type = "span"
+when = '''
+kind == "client" && "gen_ai.provider.name" in attributes
+  && !("gen_ai.operation.name" in attributes
+    && (attributes["gen_ai.operation.name"] in ["rerank", "retrieval"]
+      || (attributes["gen_ai.operation.name"] == "embeddings"
+        && attributes["gen_ai.provider.name"] in ["voyage", "cohere", "jina"]
+        && !("gen_ai.response.id" in attributes))))
+'''
+signal = "obi.gen_ai.inference.client"
+
+# A failed connection carries none of the protocol attributes every other OBI
+# client span has, and the exporter always names it `CONNECT`. An HTTP client
+# span for a CONNECT request can share the name, but carries the method.
+[[live-check.matchers]]
+id = "match.span.failed_connect"
+sample_type = "span"
+when = 'kind == "client" && name == "CONNECT" && !("http.request.method" in attributes)'
+signal = "obi.failed_connect"
+
+# `dns.question.name` is opt-in and `dns.answers` is absent when the lookup
+# returned no answer, so a DNS span with the default attribute selection and an
+# empty answer matches no definition and fails as unmatched. The weaver-validated
+# suites select every attribute, which keeps the question name on every DNS
+# span they emit.
+[[live-check.matchers]]
+id = "match.span.dns"
+sample_type = "span"
+when = 'kind == "internal" && ("dns.question.name" in attributes || "dns.answers" in attributes)'
+signal = "obi.dns"
+
+# A messaging span is selected by its broker and its operation type rather than
+# by its kind, so that `kind_mismatch` still reports a kind that does not follow
+# the operation: send is producer and process is consumer.
+[[live-check.matchers]]
+id = "match.span.messaging.kafka.producer"
+sample_type = "span"
+when = '''
+"messaging.system" in attributes && attributes["messaging.system"] == "kafka"
+  && "messaging.operation.type" in attributes && attributes["messaging.operation.type"] == "send"
+'''
+signal = "obi.messaging.kafka.producer"
+
+[[live-check.matchers]]
+id = "match.span.messaging.kafka.consumer"
+sample_type = "span"
+when = '''
+"messaging.system" in attributes && attributes["messaging.system"] == "kafka"
+  && "messaging.operation.type" in attributes && attributes["messaging.operation.type"] == "process"
+'''
+signal = "obi.messaging.kafka.consumer"
+
+[[live-check.matchers]]
+id = "match.span.messaging.mqtt.producer"
+sample_type = "span"
+when = '''
+"messaging.system" in attributes && attributes["messaging.system"] == "mqtt"
+  && "messaging.operation.type" in attributes && attributes["messaging.operation.type"] == "send"
+'''
+signal = "obi.messaging.mqtt.producer"
+
+[[live-check.matchers]]
+id = "match.span.messaging.mqtt.consumer"
+sample_type = "span"
+when = '''
+"messaging.system" in attributes && attributes["messaging.system"] == "mqtt"
+  && "messaging.operation.type" in attributes && attributes["messaging.operation.type"] == "process"
+'''
+signal = "obi.messaging.mqtt.consumer"
+
+[[live-check.matchers]]
+id = "match.span.messaging.nats.producer"
+sample_type = "span"
+when = '''
+"messaging.system" in attributes && attributes["messaging.system"] == "nats"
+  && "messaging.operation.type" in attributes && attributes["messaging.operation.type"] == "send"
+'''
+signal = "obi.messaging.nats.producer"
+
+[[live-check.matchers]]
+id = "match.span.messaging.nats.consumer"
+sample_type = "span"
+when = '''
+"messaging.system" in attributes && attributes["messaging.system"] == "nats"
+  && "messaging.operation.type" in attributes && attributes["messaging.operation.type"] == "process"
+'''
+signal = "obi.messaging.nats.consumer"
+
+[[live-check.matchers]]
+id = "match.span.messaging.amqp.producer"
+sample_type = "span"
+when = '''
+"messaging.system" in attributes && attributes["messaging.system"] == "amqp"
+  && "messaging.operation.type" in attributes && attributes["messaging.operation.type"] == "send"
+'''
+signal = "obi.messaging.amqp.producer"
+
+[[live-check.matchers]]
+id = "match.span.messaging.amqp.consumer"
+sample_type = "span"
+when = '''
+"messaging.system" in attributes && attributes["messaging.system"] == "amqp"
+  && "messaging.operation.type" in attributes && attributes["messaging.operation.type"] == "process"
+'''
+signal = "obi.messaging.amqp.consumer"
+
+[[live-check.matchers]]
+id = "match.span.request.phase"
+sample_type = "span"
+when = 'kind == "internal" && name in ["in queue", "processing"] && size(attributes) == 0'
+signal = "obi.request.phase"
+
+# Application-authored spans OBI relays verbatim, which no span definition
+# describes: the matcher accepts them without naming a signal, so their
+# attributes are checked against their base definitions only. Every span OBI
+# builds itself reports `server.port`, so a span without one is the
+# application's, apart from the attribute-less request-phase children matched
+# above.
+[[live-check.matchers]]
+id = "match.span.app_authored"
+sample_type = "span"
+when = '''
+!("server.port" in attributes)
+  && !(kind == "internal" && name in ["in queue", "processing"] && size(attributes) == 0)
+'''

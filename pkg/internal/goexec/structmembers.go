@@ -110,6 +110,10 @@ const (
 	ResponseLengthPtrPos
 	ContentLengthPtrPos
 	ReqHeaderPtrPos
+	ReqProtoMajorPos
+	ReqProtoMinorPos
+	RespProtoMajorPos
+	RespProtoMinorPos
 	IoWriterBufPtrPos
 	IoWriterNPos
 	IoWriterWrPos
@@ -190,6 +194,12 @@ const (
 	MongoOpNamePos
 	MongoOpDBPos
 	MongoOneThirteenOne
+	MongoTopologyConnectionPos
+	MongoConnectionAddrPos
+	MongoV1TopologyConnectionTypeAddress
+	// go mongodb v2
+	MongoMnetDescriberPos
+	MongoV2TopologyConnectionTypeAddress
 	// database/sql stdlib
 	DriverConnCiPos
 	// lib/pq driver
@@ -249,6 +259,7 @@ const (
 	// Go connection interface types
 	GrpcSyscallConnTypeAddress
 	TLSConnTypeAddress
+	TCPConnTypeAddress
 )
 
 //go:embed offsets.json
@@ -300,6 +311,8 @@ var structMembers = map[string]structInfo{
 			"Method":        MethodPtrPos,
 			"ContentLength": ContentLengthPtrPos,
 			"Header":        ReqHeaderPtrPos,
+			"ProtoMajor":    ReqProtoMajorPos,
+			"ProtoMinor":    ReqProtoMinorPos,
 		},
 	},
 	"net/url.URL": {
@@ -316,6 +329,8 @@ var structMembers = map[string]structInfo{
 		fields: map[string]GoOffset{
 			"StatusCode":    StatusCodePtrPos,
 			"ContentLength": ResponseLengthPtrPos,
+			"ProtoMajor":    RespProtoMajorPos,
+			"ProtoMinor":    RespProtoMinorPos,
 		},
 	},
 	"google.golang.org/grpc/internal/transport.Stream": {
@@ -644,17 +659,50 @@ var structMembers = map[string]structInfo{
 			"Database": MongoOpDBPos,
 		},
 	},
-	"go.mongodb.org/mongo-driver/v2/mongo.Collection": {
+	"go.mongodb.org/mongo-driver/x/mongo/driver/topology.Connection": {
 		lib: "go.mongodb.org/mongo-driver",
+		fields: map[string]GoOffset{
+			"connection": MongoTopologyConnectionPos,
+		},
+	},
+
+	"go.mongodb.org/mongo-driver/x/mongo/driver/topology.connection": {
+		lib: "go.mongodb.org/mongo-driver",
+		fields: map[string]GoOffset{
+			"addr": MongoConnectionAddrPos,
+		},
+	},
+	"go.mongodb.org/mongo-driver/v2/mongo.Collection": {
+		lib: "go.mongodb.org/mongo-driver/v2",
 		fields: map[string]GoOffset{
 			"name": MongoConnNamePos,
 		},
 	},
 	"go.mongodb.org/mongo-driver/v2/x/mongo/driver.Operation": {
-		lib: "go.mongodb.org/mongo-driver",
+		lib: "go.mongodb.org/mongo-driver/v2",
 		fields: map[string]GoOffset{
 			"Name":     MongoOpNamePos,
 			"Database": MongoOpDBPos,
+		},
+	},
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/mnet.Connection": {
+		lib: "go.mongodb.org/mongo-driver/v2",
+		fields: map[string]GoOffset{
+			"Describer": MongoMnetDescriberPos,
+		},
+	},
+
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology.Connection": {
+		lib: "go.mongodb.org/mongo-driver/v2",
+		fields: map[string]GoOffset{
+			"connection": MongoTopologyConnectionPos,
+		},
+	},
+
+	"go.mongodb.org/mongo-driver/v2/x/mongo/driver/topology.connection": {
+		lib: "go.mongodb.org/mongo-driver/v2",
+		fields: map[string]GoOffset{
+			"addr": MongoConnectionAddrPos,
 		},
 	},
 	"database/sql.driverConn": {
@@ -860,6 +908,13 @@ func offsetsForLibVersions(fieldOffsets FieldOffsets, libVersions map[string]str
 				} else {
 					fieldOffsets[MongoOneThirteenOne] = uint64(0)
 				}
+			}
+		case "go.mongodb.org/mongo-driver/v2":
+			// Every v2 release has Operation.Name. The flag and that offset are
+			// shared with v1, so when v1 is linked too, its version decides and a
+			// v1 older than 1.13.1 keeps its spans.
+			if _, v1Linked := libVersions["go.mongodb.org/mongo-driver"]; !v1Linked {
+				fieldOffsets[MongoOneThirteenOne] = uint64(1)
 			}
 		case "golang.org/x/net":
 			ver = cleanLibVersion(ver, true, lib, log)

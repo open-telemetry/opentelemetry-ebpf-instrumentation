@@ -1,0 +1,81 @@
+file_format: "1.0"
+log_level: debug
+resource:
+  attributes:
+    - name: host.id
+      value: custom-exported-host
+      type: string
+    - name: host.name
+      value: obi
+      type: string
+    - name: service.namespace
+      value: integration-test
+      type: string
+tracer_provider:
+  processors:
+    - batch:
+        schedule_delay: 1
+        exporter:
+          otlp_http:
+            endpoint: http://otelcol:4318
+meter_provider:
+  readers:
+    - periodic:
+        interval: 10
+        exporter:
+          otlp_http:
+            endpoint: http://otelcol:4318
+            default_histogram_aggregation: explicit_bucket_histogram
+    - pull:
+        exporter:
+          prometheus/development:
+            port: 8999
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: exclude
+        poll_interval: 500ms
+      rules:
+        # Only the frontend listens on 8080. The checkout has no OBI or SDK.
+        - action: include
+          match:
+            process:
+              open_ports: "8080"
+      metrics:
+        features: [application, application_span_otel, application_service_graph]
+      engine:
+        batching:
+          batch_timeout: 10ms
+      instrumentation:
+        http:
+          enabled:
+            traces: true
+            metrics: true
+          routes:
+            incoming:
+              patterns: [/basic/:rnd]
+              unmatched: path
+              ignored_patterns: [/metrics]
+              ignore_mode: traces
+    enrich:
+      enrichers:
+        kubernetes:
+          mode: disabled
+        cloud:
+          refresh_interval: 1s
+      service_name:
+        sources: [azure]
+        azure:
+          subscription_id: "${AZURE_TEST_SUBSCRIPTION_ID:-}"
+          resource_group: "${AZURE_TEST_RESOURCE_GROUP:-}"
+      attributes:
+        select:
+          "*":
+            include: ["*"]
+    daemon:
+      logging:
+        debug_trace_output: text
+      shutdown:
+        timeout: 2s

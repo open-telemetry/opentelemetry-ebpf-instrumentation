@@ -60,6 +60,7 @@ enum {
     k_tp_val_dash2 = k_tp_val_trace_id_start + TRACE_ID_SIZE_BYTES * 2,
     k_tp_val_span_id_start = k_tp_val_dash2 + 1,
     k_tp_val_dash3 = k_tp_val_span_id_start + SPAN_ID_SIZE_BYTES * 2,
+    k_tp_val_flags_start = k_tp_val_dash3 + 1,
 
     // --- HPACK encoding ---
     k_hpack_literal_no_index = 0,       // RFC 7541 6.2.2

@@ -38,14 +38,15 @@ finish_possible_delayed_tls_http_request(pid_connection_info_t *pid_conn) {
 // Everything here is keyed on the SSL, so releasing twice is harmless: the
 // second call finds nothing left and emits no event.
 static __always_inline void ssl_release_connection_state(u64 id, void *s) {
-    ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &s);
+    const pid_ptr_key_t ssl_key = pid_ptr_key(pid_from_pid_tgid(id), s);
+    ssl_pid_connection_info_t *s_conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl_key);
     if (s_conn) {
         finish_possible_delayed_tls_http_request(&s_conn->p_conn);
         bpf_map_delete_elem(&active_ssl_connections, &s_conn->p_conn);
     }
 
-    bpf_map_delete_elem(&ssl_to_conn, &s);
-    bpf_map_delete_elem(&ssl_to_pid_tid, &s);
+    bpf_map_delete_elem(&ssl_to_conn, &ssl_key);
+    bpf_map_delete_elem(&ssl_to_pid_tid, &ssl_key);
     ssl_bios_forget(pid_from_pid_tgid(id), s);
 }
 
@@ -61,9 +62,9 @@ static __always_inline void
 handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction) {
     if (args) {
         void *ssl = ((void *)args->ssl);
-        const u64 ssl_ptr = (u64)ssl;
+        const pid_ptr_key_t ssl_key = pid_ptr_key(pid_from_pid_tgid(id), ssl);
         bpf_dbg_printk("SSL_buf id=%d ssl=%llx", id, ssl);
-        ssl_pid_connection_info_t *conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
+        ssl_pid_connection_info_t *conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl_key);
 
         if (!conn) {
             conn = bpf_map_lookup_elem(&pid_tid_to_conn, &id);
@@ -74,16 +75,16 @@ handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction)
                 // First we look up a pid_tid by the ssl pointer, which might've been established
                 // by a prior SSL_read on another thread, then we look up in the same map.
                 // Clean-up here we are done trying if we don't succeed
-                u64 *pid_tid_ptr = bpf_map_lookup_elem(&ssl_to_pid_tid, &ssl_ptr);
+                u64 *pid_tid_ptr = bpf_map_lookup_elem(&ssl_to_pid_tid, &ssl_key);
 
                 if (pid_tid_ptr) {
                     const u64 pid_tid = *pid_tid_ptr;
 
                     conn = bpf_map_lookup_elem(&pid_tid_to_conn, &pid_tid);
                     bpf_dbg_printk(
-                        "Separate pool lookup ssl=%llx, pid=%d, conn=%llx", ssl_ptr, pid_tid, conn);
+                        "Separate pool lookup ssl=%llx, pid=%d, conn=%llx", ssl, pid_tid, conn);
                 } else {
-                    bpf_dbg_printk("Other thread lookup failed for ssl=%llx", ssl_ptr);
+                    bpf_dbg_printk("Other thread lookup failed for ssl=%llx", ssl);
                 }
             }
 
@@ -95,11 +96,11 @@ handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction)
                 bpf_map_delete_elem(&pid_tid_to_conn, &id);
                 ssl_pid_connection_info_t c;
                 bpf_probe_read(&c, sizeof(ssl_pid_connection_info_t), conn);
-                bpf_map_update_elem(&ssl_to_conn, &ssl, &c, BPF_ANY);
+                bpf_map_update_elem(&ssl_to_conn, &ssl_key, &c, BPF_ANY);
             }
         }
 
-        bpf_map_delete_elem(&ssl_to_pid_tid, &ssl_ptr);
+        bpf_map_delete_elem(&ssl_to_pid_tid, &ssl_key);
 
         if (bytes_len <= 0) {
             return;
@@ -115,8 +116,8 @@ handle_ssl_buf(void *ctx, u64 id, ssl_args_t *args, int bytes_len, u8 direction)
             p_c.p_conn.conn.d_port = p_c.p_conn.conn.s_port = p_c.orig_dport = 0;
             p_c.p_conn.pid = pid_from_pid_tgid(id);
 
-            bpf_map_update_elem(&ssl_to_conn, &ssl, &p_c, BPF_ANY);
-            conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl);
+            bpf_map_update_elem(&ssl_to_conn, &ssl_key, &p_c, BPF_ANY);
+            conn = bpf_map_lookup_elem(&ssl_to_conn, &ssl_key);
         }
 
         if (conn) {

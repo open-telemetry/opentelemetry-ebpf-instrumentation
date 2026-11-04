@@ -23,87 +23,100 @@ import (
 )
 
 func TestRoute53ResolverRecoversFromInitialFailure(t *testing.T) {
-	var available atomic.Bool
-	var failures atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		assert.Equal(t, "/2013-04-01/hostedzone/test-zone/rrset", r.URL.Path)
-		assert.Contains(t, r.Header.Get("Authorization"), "/route53/aws4_request")
-		w.Header().Set("Content-Type", "text/xml")
-		if !available.Load() {
-			failures.Add(1)
-			w.WriteHeader(http.StatusForbidden)
-			fmt.Fprint(w, `<ErrorResponse><Error><Code>AccessDenied</Code><Message>denied</Message></Error></ErrorResponse>`)
-			return
-		}
-		fmt.Fprint(w, `<ListResourceRecordSetsResponse xmlns="https://route53.amazonaws.com/doc/2013-04-01/"><ResourceRecordSets><ResourceRecordSet><Name>Payments.Internal.Example.com.</Name><Type>A</Type><TTL>60</TTL><ResourceRecords><ResourceRecord><Value>10.0.0.2</Value></ResourceRecord></ResourceRecords></ResourceRecordSet></ResourceRecordSets><IsTruncated>false</IsTruncated><MaxItems>300</MaxItems></ListResourceRecordSetsResponse>`)
-	}))
-	t.Cleanup(server.Close)
-	t.Setenv("AWS_ENDPOINT_URL_ROUTE_53", server.URL)
-	t.Setenv("AWS_ACCESS_KEY_ID", "test")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
-	t.Setenv("AWS_SESSION_TOKEN", "")
-	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
-	t.Setenv("AWS_MAX_ATTEMPTS", "1")
-	ctx, cancel := context.WithCancel(t.Context())
-	defer cancel()
-	cfg := &NameResolverConfig{
-		Sources: []Source{SourceRoute53}, CacheLen: 10, CacheTTL: time.Minute,
-	}
-	cloudCfg := CloudMetadataConfig{
-		RefreshInterval: 10 * time.Millisecond,
-		Route53:         Route53MetadataConfig{RefreshInterval: 10 * time.Millisecond, HostedZoneIDs: []string{"test-zone"}},
-	}
-	info := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Features: metadata.ClusterEC2}}
-	refreshers := CloudMetadataRefreshers(ctx, &info.NodeMeta, cfg.Sources, cloudCfg)
-	require.Len(t, refreshers, 1)
-	info.CloudMetaInventory = cloud.NewInventory(refreshers)
-	startCloudInventory(t, info.CloudMetaInventory, cloudCfg.RefreshInterval)
-	require.Eventually(t, func() bool { return failures.Load() > 0 }, 5*time.Second, 10*time.Millisecond)
-	input, output := msg.NewQueue[[]request.Span](), msg.NewQueue[[]request.Span]()
-	resolved := output.Subscribe(msg.SubscriberName("test"))
-	run, err := nameResolver(ctx, info, cfg, input, output)
-	require.NoError(t, err)
-	done := make(chan struct{})
-	go func() { defer close(done); run(ctx) }()
-	defer func() {
-		cancel()
-		for _, ch := range []chan struct{}{done} {
-			select {
-			case <-ch:
-			case <-time.After(5 * time.Second):
-				t.Error("pipeline did not stop")
+	for name, zones := range map[string][]string{"explicit zones": {"test-zone"}, "discovered zones": nil} {
+		t.Run(name, func(t *testing.T) {
+			var available atomic.Bool
+			var failures atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Contains(t, r.Header.Get("Authorization"), "/route53/aws4_request")
+				w.Header().Set("Content-Type", "text/xml")
+				if !available.Load() {
+					failures.Add(1)
+					w.WriteHeader(http.StatusServiceUnavailable)
+					fmt.Fprint(w, `<ErrorResponse><Error><Code>ServiceUnavailable</Code><Message>temporarily unavailable</Message></Error></ErrorResponse>`)
+					return
+				}
+				if r.URL.Path == "/2013-04-01/hostedzone" {
+					fmt.Fprint(w, `<ListHostedZonesResponse xmlns="https://route53.amazonaws.com/doc/2013-04-01/"><HostedZones><HostedZone><Id>/hostedzone/test-zone</Id><Name>example.com.</Name><CallerReference>test</CallerReference><Config><PrivateZone>true</PrivateZone></Config></HostedZone></HostedZones><IsTruncated>false</IsTruncated><MaxItems>100</MaxItems></ListHostedZonesResponse>`)
+					return
+				}
+				if r.URL.Path == "/2013-04-01/hostedzonesbyvpc" {
+					assert.Equal(t, "vpc-local", r.URL.Query().Get("vpcid"))
+					assert.Equal(t, "us-east-1", r.URL.Query().Get("vpcregion"))
+					fmt.Fprint(w, `<ListHostedZonesByVPCResponse xmlns="https://route53.amazonaws.com/doc/2013-04-01/"><HostedZoneSummaries><HostedZoneSummary><HostedZoneId>test-zone</HostedZoneId><Name>example.com.</Name></HostedZoneSummary></HostedZoneSummaries><MaxItems>100</MaxItems></ListHostedZonesByVPCResponse>`)
+					return
+				}
+				assert.Equal(t, "/2013-04-01/hostedzone/test-zone/rrset", r.URL.Path)
+				fmt.Fprint(w, `<ListResourceRecordSetsResponse xmlns="https://route53.amazonaws.com/doc/2013-04-01/"><ResourceRecordSets><ResourceRecordSet><Name>Payments.Internal.Example.com.</Name><Type>A</Type><TTL>60</TTL><ResourceRecords><ResourceRecord><Value>10.0.0.2</Value></ResourceRecord></ResourceRecords></ResourceRecordSet></ResourceRecordSets><IsTruncated>false</IsTruncated><MaxItems>300</MaxItems></ListResourceRecordSetsResponse>`)
+			}))
+			t.Cleanup(server.Close)
+			t.Setenv("AWS_ENDPOINT_URL_ROUTE_53", server.URL)
+			t.Setenv("AWS_ACCESS_KEY_ID", "test")
+			t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
+			t.Setenv("AWS_SESSION_TOKEN", "")
+			t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
+			t.Setenv("AWS_MAX_ATTEMPTS", "1")
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			cfg := &NameResolverConfig{
+				Sources: []Source{SourceRoute53}, CacheLen: 10, CacheTTL: time.Minute,
 			}
-		}
-	}()
-	resolve := func() string {
-		t.Helper()
-		input.SendCtx(ctx, []request.Span{{Type: request.EventTypeHTTPClient, Host: "10.0.0.2"}})
-		select {
-		case spans := <-resolved:
-			return spans[0].HostName
-		case <-time.After(5 * time.Second):
-			t.Fatal("resolver did not forward span")
-			return ""
-		}
+			cloudCfg := CloudMetadataConfig{
+				RefreshInterval: 10 * time.Millisecond,
+				Route53:         Route53MetadataConfig{RefreshInterval: 10 * time.Millisecond, HostedZoneIDs: zones},
+			}
+			info := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Features: metadata.ClusterEC2, EC2VPCID: "vpc-local", Region: "us-east-1"}}
+			refreshers := CloudMetadataRefreshers(ctx, &info.NodeMeta, cfg, cloudCfg)
+			require.Len(t, refreshers, 1)
+			info.CloudMetaInventory = cloud.NewInventory(refreshers)
+			startCloudInventory(t, info.CloudMetaInventory, cloudCfg.RefreshInterval)
+			require.Eventually(t, func() bool { return failures.Load() > 0 }, 5*time.Second, 10*time.Millisecond)
+			input, output := msg.NewQueue[[]request.Span](), msg.NewQueue[[]request.Span]()
+			resolved := output.Subscribe(msg.SubscriberName("test"))
+			run, err := nameResolver(ctx, info, cfg, input, output)
+			require.NoError(t, err)
+			done := make(chan struct{})
+			go func() { defer close(done); run(ctx) }()
+			defer func() {
+				cancel()
+				for _, ch := range []chan struct{}{done} {
+					select {
+					case <-ch:
+					case <-time.After(5 * time.Second):
+						t.Error("pipeline did not stop")
+					}
+				}
+			}()
+			resolve := func() string {
+				t.Helper()
+				input.SendCtx(ctx, []request.Span{{Type: request.EventTypeHTTPClient, Host: "10.0.0.2"}})
+				select {
+				case spans := <-resolved:
+					return spans[0].HostName
+				case <-time.After(5 * time.Second):
+					t.Fatal("resolver did not forward span")
+					return ""
+				}
+			}
+			assert.Equal(t, "10.0.0.2", resolve())
+			available.Store(true)
+			require.Eventually(t, func() bool { return resolve() == "payments.internal.example.com" }, 5*time.Second, 10*time.Millisecond)
+		})
 	}
-	assert.Equal(t, "10.0.0.2", resolve())
-	available.Store(true)
-	require.Eventually(t, func() bool { return resolve() == "payments.internal.example.com" }, 5*time.Second, 10*time.Millisecond)
 }
 
 func TestRoute53InventoryConfiguration(t *testing.T) {
 	nodeMeta := &metadata.NodeMeta{Features: metadata.ClusterEC2}
 	for _, sources := range [][]Source{nil, {SourceDNS}} {
-		refreshers := CloudMetadataRefreshers(t.Context(), nodeMeta, sources, CloudMetadataConfig{})
+		refreshers := CloudMetadataRefreshers(t.Context(), nodeMeta, &NameResolverConfig{Sources: sources}, CloudMetadataConfig{})
 		assert.Empty(t, refreshers)
 	}
 	for _, cfg := range []CloudMetadataConfig{
 		{},
-		{Route53: Route53MetadataConfig{RefreshInterval: time.Second}},
 		{Route53: Route53MetadataConfig{RefreshInterval: time.Second, HostedZoneIDs: []string{""}}},
 		{Route53: Route53MetadataConfig{RefreshInterval: -time.Second, HostedZoneIDs: []string{"zone"}}},
 	} {
-		refreshers := CloudMetadataRefreshers(t.Context(), nodeMeta, []Source{SourceRoute53}, cfg)
+		refreshers := CloudMetadataRefreshers(t.Context(), nodeMeta, &NameResolverConfig{Sources: []Source{SourceRoute53}}, cfg)
 		assert.Empty(t, refreshers)
 	}
 }

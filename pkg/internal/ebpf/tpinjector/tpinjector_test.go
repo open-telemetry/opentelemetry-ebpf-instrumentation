@@ -94,7 +94,7 @@ func TestTracer_Constants(t *testing.T) {
 			err := cfg.EBPF.ContextPropagation.UnmarshalText([]byte(tt.contextPropagation))
 			require.NoError(t, err)
 
-			tracer := New(cfg)
+			tracer := New(cfg, nil)
 			// the real probe would add the FIONREAD fixup bundle on affected kernels
 			tracer.fionreadProbe = func(*ebpf.Map) (bool, error) { return false, nil }
 
@@ -118,6 +118,10 @@ func TestTracer_Constants(t *testing.T) {
 
 			_, ok = c["g_bpf_debug"]
 			assert.True(t, ok, "g_bpf_debug should be present")
+
+			enrollInstrumentedOnly, ok := c["enroll_instrumented_only"]
+			assert.True(t, ok, "enroll_instrumented_only should be present")
+			assert.Equal(t, tracer.enrollInstrumentedOnly, enrollInstrumentedOnly)
 
 			// Spec 1 (sock_iter) carries only the debug flag.
 			iterC := bundles[1].Constants
@@ -157,7 +161,7 @@ func (c *recordingCloser) Close() error {
 }
 
 func newDetachTestTracer() *Tracer {
-	tr := New(&obi.Config{})
+	tr := New(&obi.Config{}, nil)
 	tr.sockhashOnce.Do(func() {})
 	return tr
 }
@@ -197,6 +201,7 @@ func TestDetachStopsSocketBackfill(t *testing.T) {
 	tr.detach()
 
 	assert.True(t, tr.backfillDisabled)
+	assert.True(t, tr.pidsStopped)
 }
 
 func TestAddCloserAfterDetachClosesImmediately(t *testing.T) {

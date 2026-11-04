@@ -128,6 +128,14 @@ Attributes carried on OBI's network-flow metrics. Emitted when the `network`, `n
 | `src.zone` | string | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 | `transport` | string | development | Transport protocol of the flow (e.g. TCP, UDP). | TCP |
 
+## `registry.obi.openai`
+
+OpenAI request content attributes defined by OBI.
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `openai.request.questions` | string | development | The questions submitted to the OpenAI Decisions API, JSON-encoded in request order. | [{"type":"predicate","name":"damaged","instructions":"Does the customer report a damaged item?"}] |
+
 ## `registry.obi.rpc`
 
 RPC attributes OBI emits that are not part of upstream semconv.
@@ -138,7 +146,7 @@ RPC attributes OBI emits that are not part of upstream semconv.
 
 ## `registry.obi.service_graph`
 
-Attributes used by OBI's service-graph emission. The metric names and label set match the output of the OTel collector-contrib `servicegraphconnector` so the same dashboards consume both OBI-emitted and connector-emitted data. Emitted when OBI's `application_service_graph` metrics feature is enabled. The OBI-specific `source` attribute is declared in `obi_internal/registry.yaml`. See: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/servicegraphconnector
+Attributes used by OBI's service-graph and connection-info emissions. The metric names and label set match the output of the OTel collector-contrib `servicegraphconnector` so the same dashboards consume both OBI-emitted and connector-emitted data. Emitted when OBI's `application_service_graph` or `application_service_graph_connection_info` metrics feature is enabled. The OBI-specific `source` attribute is declared in `obi_internal/registry.yaml`. See: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/connector/servicegraphconnector
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
@@ -171,14 +179,6 @@ Attributes carried on OBI's per-connection TCP statistics. Emitted when the `sta
 | --- | --- | --- | --- | --- |
 | `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
 | `reason` | enum | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
-
-## `registry.obi.traces_resource`
-
-Resource attributes OBI's trace exporter sets on the exported `ResourceSpans` in addition to the service and infrastructure attributes shared with the metrics pipeline.
-
-| Attribute | Type | Stability | Description | Examples |
-| --- | --- | --- | --- | --- |
-| `otel.scope.name` | string | stable | The name of the instrumentation scope - (`InstrumentationScope.Name` in OTLP). | io.opentelemetry.contrib.mongodb |
 
 ## `x.obi.db`
 
@@ -223,11 +223,11 @@ OBI override of `network.type` extending the upstream enum with `arp` for the AR
 
 ## `x.obi.openai`
 
-OBI override of `openai.api.type` extending the upstream enum with the embeddings and legacy text-completions APIs, which OBI detects but upstream semconv has no members for.
+OBI override of `openai.api.type` extending the upstream enum with the Decisions, embeddings and legacy text-completions APIs, which OBI detects but upstream semconv has no members for.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `openai.api.type` | enum | development | The type of OpenAI API being used. | chat_completions; responses; embeddings; text_completions |
+| `openai.api.type` | enum | development | The type of OpenAI API being used. | chat_completions; responses; decisions; embeddings; text_completions |
 
 ## `x.obi.rpc`
 

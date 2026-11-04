@@ -42,6 +42,11 @@ type carrierAttrRef struct {
 	Ref              string    `yaml:"ref"`
 	RefGroup         string    `yaml:"ref_group"`
 	RequirementLevel yaml.Node `yaml:"requirement_level"`
+	Annotations      struct {
+		OBI struct {
+			UpstreamDeviation string `yaml:"upstream_deviation"`
+		} `yaml:"obi"`
+	} `yaml:"annotations"`
 }
 
 type registryAttributeGroup struct {

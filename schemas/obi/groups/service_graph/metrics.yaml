@@ -1,8 +1,54 @@
 file_format: definition/2
 metrics:
+  - name: traces_service_graph_connection_info
+    annotations:
+      obi:
+        upstream: none
+        upstream_reason: OBI-specific metric for recently observed client-to-server connections
+    instrument: gauge
+    unit: ""
+    stability: development
+    requirement_level: opt_in
+    brief: >
+      Indicates that a client-to-server connection was observed recently.
+      The value remains 1 while the edge is observed and expires after the
+      configured metric TTL.
+    attributes:
+      - ref: client
+        requirement_level: required
+      - ref: server
+        requirement_level: required
+      - ref: connection_type
+        requirement_level:
+          conditionally_required: if the connection was not a direct HTTP or gRPC request
+      - ref: client_service_namespace
+        requirement_level:
+          conditionally_required: if the workload has a namespace
+      - ref: server_service_namespace
+        requirement_level:
+          conditionally_required: if the workload has a namespace
+      - ref: source
+        requirement_level: required
+      - ref: client_k8s_namespace_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: server_k8s_namespace_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: client_k8s_cluster_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+      - ref: server_k8s_cluster_name
+        requirement_level:
+          conditionally_required: if Kubernetes decoration is enabled
+
   # Counter has no explicit OTLP unit set; mirror that here so live-check
   # doesn't complain "Unit should be '1', but found ''".
   - name: traces_service_graph_request_total
+    annotations: &service_graph_format
+      obi:
+        upstream: none
+        upstream_reason: service graph metrics derived from traces, a format upstream does not define
     instrument: counter
     unit: ""
     stability: development
@@ -41,6 +87,7 @@ metrics:
   # Counter has no explicit OTLP unit set; mirror that here so live-check
   # doesn't complain "Unit should be '1', but found ''".
   - name: traces_service_graph_request_failed_total
+    annotations: *service_graph_format
     instrument: counter
     unit: ""
     stability: development
@@ -78,6 +125,7 @@ metrics:
           conditionally_required: if Kubernetes decoration is enabled
 
   - name: traces_service_graph_request_server
+    annotations: *service_graph_format
     instrument: histogram
     unit: "s"
     stability: development
@@ -114,6 +162,7 @@ metrics:
           conditionally_required: if Kubernetes decoration is enabled
 
   - name: traces_service_graph_request_client
+    annotations: *service_graph_format
     instrument: histogram
     unit: "s"
     stability: development

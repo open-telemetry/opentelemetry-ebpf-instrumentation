@@ -13,8 +13,10 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"go.opentelemetry.io/collector/confmap"
+	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
+
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -76,4 +78,5 @@ func defaultRuntimeConfig() *obi.Config {
 func setReceiverConsumers(cfg *obi.Config) {
 	cfg.Traces.TracesExport = func(context.Context, ptrace.Traces) error { return nil }
 	cfg.OTELMetrics.MetricsExport = func(context.Context, pmetric.Metrics) error { return nil }
+	cfg.Logs.LogsExport = func(context.Context, plog.Logs) error { return nil }
 }
