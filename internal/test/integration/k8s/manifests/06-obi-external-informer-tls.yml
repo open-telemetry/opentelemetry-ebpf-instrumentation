@@ -1,0 +1,276 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: k8s-cache-tls
+  namespace: default
+stringData:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIBgzCCASmgAwIBAgIUa3Cl58MGaeoBLAjWtMerzsr1jyswCgYIKoZIzj0EAwIw
+    FjEUMBIGA1UEAwwLb2JpLXRlc3QtY2EwIBcNMjYxMTA0MTMwNjAxWhgPMjEyNjEw
+    MTExMzA2MDFaMBYxFDASBgNVBAMMC29iaS10ZXN0LWNhMFkwEwYHKoZIzj0CAQYI
+    KoZIzj0DAQcDQgAEuqJwoc4Ww8Wfi//bKfDssLrsmLZrpnmu9O7zCGq4xZwxNDzz
+    fJ428yUKRMHHc7ppKzw1XYQdSUjWEmtz38/j8aNTMFEwHQYDVR0OBBYEFMBbhL15
+    bvUDhuyjgNrqX5XJkkw5MB8GA1UdIwQYMBaAFMBbhL15bvUDhuyjgNrqX5XJkkw5
+    MA8GA1UdEwEB/wQFMAMBAf8wCgYIKoZIzj0EAwIDSAAwRQIgdgYxKFw+PJHQyBdm
+    M6CUh1UZoSwCA4APQe//8oILKTsCIQDxFmqhb8ZKZEzmj8VLOrvYqokMwAfBWqVn
+    5ztohk6tmw==
+    -----END CERTIFICATE-----
+  server.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIB6zCCAZKgAwIBAgIUB9XXOyCv8ke+ezj9/BOu5jtxoHAwCgYIKoZIzj0EAwIw
+    FjEUMBIGA1UEAwwLb2JpLXRlc3QtY2EwIBcNMjYxMTA0MTMwNjAxWhgPMjEyNjEw
+    MTExMzA2MDFaMBQxEjAQBgNVBAMMCWs4cy1jYWNoZTBZMBMGByqGSM49AgEGCCqG
+    SM49AwEHA0IABBbsWofInh8vU/C0+5C2UoUZZigSgRtUXXyIVdLoc2wRVGim8fTS
+    hOpWhtVfIa/JRApIf3w826uZx390myf6Snqjgb0wgbowYwYDVR0RBFwwWoIJazhz
+    LWNhY2hlghFrOHMtY2FjaGUuZGVmYXVsdIIVazhzLWNhY2hlLmRlZmF1bHQuc3Zj
+    giNrOHMtY2FjaGUuZGVmYXVsdC5zdmMuY2x1c3Rlci5sb2NhbDATBgNVHSUEDDAK
+    BggrBgEFBQcDATAdBgNVHQ4EFgQUXhQUNJ6TV5W4yCDDORIXDzfGZV0wHwYDVR0j
+    BBgwFoAUwFuEvXlu9QOG7KOA2upflcmSTDkwCgYIKoZIzj0EAwIDRwAwRAIgQBe+
+    Z42t3+sz2YE6hvzEGLM4X1v+ADDSEDIHWewwEocCIGJ8sxMOeNm1ElNSzoytZe5f
+    EZbXlMjEcdyE6jpYBMH6
+    -----END CERTIFICATE-----
+  server.key: |
+    -----BEGIN EC PRIVATE KEY-----
+    MHcCAQEEIOqnIjnyrfHVEVCHLGSmJ3IS4pEKQipHAMA9qxZ8ArvHoAoGCCqGSM49
+    AwEHoUQDQgAEFuxah8ieHy9T8LT7kLZShRlmKBKBG1RdfIhV0uhzbBFUaKbx9NKE
+    6laG1V8hr8lECkh/fDzbq5nHf3SbJ/pKeg==
+    -----END EC PRIVATE KEY-----
+  client.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIBfjCCASWgAwIBAgIUB9XXOyCv8ke+ezj9/BOu5jtxoHEwCgYIKoZIzj0EAwIw
+    FjEUMBIGA1UEAwwLb2JpLXRlc3QtY2EwIBcNMjYxMTA0MTMwNjAxWhgPMjEyNjEw
+    MTExMzA2MDFaMA4xDDAKBgNVBAMMA29iaTBZMBMGByqGSM49AgEGCCqGSM49AwEH
+    A0IABAcxGxEhAJQolSa1KnGUumm/CPBzUM0XhhFnw9D+f/A8p3A350V3qiZIWF62
+    a8tVCetcxb2EwAJt1XeZvci5K2ujVzBVMBMGA1UdJQQMMAoGCCsGAQUFBwMCMB0G
+    A1UdDgQWBBSmZUqv0BGB9LsASeO8h13AwM3hjjAfBgNVHSMEGDAWgBTAW4S9eW71
+    A4bso4Da6l+VyZJMOTAKBggqhkjOPQQDAgNHADBEAiBgXxHXI0TFY4Fc6oppXqUu
+    i6IDQ/WnIvci/wkTtl5c7gIgRPUN6XTWCVnQY+7pTlnh2OreO+VlYdEkKRtvwcGd
+    FM0=
+    -----END CERTIFICATE-----
+  client.key: |
+    -----BEGIN EC PRIVATE KEY-----
+    MHcCAQEEIIAye7wA7igshifd+W7oMnUSJyDmWllu3YiATuWjoc2WoAoGCCqGSM49
+    AwEHoUQDQgAEBzEbESEAlCiVJrUqcZS6ab8I8HNQzReGEWfD0P5/8DyncDfnRXeq
+    JkhYXrZry1UJ61zFvYTAAm3Vd5m9yLkraw==
+    -----END EC PRIVATE KEY-----
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: obi-config
+data:
+  obi-config.yml: |
+    file_format: "1.0"
+    log_level: debug
+    meter_provider:
+      readers:
+        - pull:
+            exporter:
+              prometheus/development:
+                port: 8999
+    extensions:
+      obi:
+        version: "2.0"
+        capture:
+          policy:
+            default_action: exclude
+          rules:
+            - action: include
+              match:
+                kubernetes:
+                  metadata_glob:
+                    k8s_pod_name: ["*pinger*"]
+            - action: include
+              match:
+                kubernetes:
+                  metadata_glob:
+                    k8s_deployment_name: [otherinstance, testserver]
+          metrics:
+            features: [application, network, application_span, application_service_graph]
+          attributes:
+            select:
+              "*":
+                include: ["*"]
+              obi.network.flow:
+                include: ["*"]
+                exclude: [src_port]
+          network:
+            capture:
+              enabled: true
+              selection:
+                protocols:
+                  include: [TCP]
+                cidrs:
+                  - cidr: 10.244.0.0/16
+                  - cidr: fd00:10:244::/56
+                  - cidr: 10.96.0.0/16
+                  - cidr: fd00:10:96::/112
+        enrich:
+          service_name:
+            sources: [k8s, ecs]
+          enrichers:
+            kubernetes:
+              mode: enabled
+              cluster_name: my-kube
+              resource_labels:
+                deployment.environment.name: [deployment.environment.name]
+                service.name: [app.kubernetes.io/instance, app.kubernetes.io/name]
+                service.namespace: [app.kubernetes.io/part-of]
+              metadata_cache:
+                address: k8s-cache:50055
+                tls:
+                  ca_file: /etc/obi/tls/ca.crt
+                  cert_file: /etc/obi/tls/client.crt
+                  key_file: /etc/obi/tls/client.key
+        daemon:
+          logging:
+            debug_trace_output: text
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: obi
+spec:
+  selector:
+    matchLabels:
+      instrumentation: obi
+  template:
+    metadata:
+      labels:
+        instrumentation: obi
+        # this label will trigger a deletion of OBI pods before tearing down
+        # kind, to force OBI writing the coverage data
+        teardown: delete
+    spec:
+      hostPID: true
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      # we still need this for reading the HOST ID from the Kube Node
+      serviceAccountName: obi
+      volumes:
+        - name: obi-config
+          configMap:
+            name: obi-config
+        - name: testoutput
+          persistentVolumeClaim:
+            claimName: testoutput
+        - name: obi-tls
+          secret:
+            secretName: k8s-cache-tls
+      containers:
+        - name: obi
+          image: obi:dev
+          imagePullPolicy: Never # loaded into Kind from localhost
+          args: [ "--config=/config/obi-config.yml" ]
+          securityContext:
+            privileged: true
+            runAsUser: 0
+          volumeMounts:
+            - mountPath: /config
+              name: obi-config
+            - mountPath: /testoutput
+              name: testoutput
+            - mountPath: /etc/obi/tls
+              name: obi-tls
+              readOnly: true
+          env:
+            - name: GOCOVERDIR
+              value: "/testoutput"
+            - name: OTEL_EBPF_DISCOVERY_POLL_INTERVAL
+              value: "500ms"
+            - name: OTEL_EBPF_METRICS_INTERVAL
+              value: "1s"
+            - name: OTEL_EBPF_BPF_BATCH_TIMEOUT
+              value: "10ms"
+          ports:
+            - containerPort: 8999
+              name: prometheus
+              protocol: TCP
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: obi-promscrape
+spec:
+  selector:
+    instrumentation: obi
+  ports:
+    - port: 8999
+      name: prometheus
+      protocol: TCP
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: k8s-cache
+  namespace: default
+  labels:
+    app: k8s-cache
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: k8s-cache
+  template:
+    metadata:
+      name: k8s-cache
+      labels:
+        app: k8s-cache
+        # this label will trigger a deletion of OBI pods before tearing down
+        # kind, to force OBI writing the coverage data
+        teardown: delete
+    spec:
+      # required to let the service accessing the K8s API
+      serviceAccountName: obi
+      volumes:
+        - name: testoutput
+          persistentVolumeClaim:
+            claimName: testoutput
+        - name: cache-tls
+          secret:
+            secretName: k8s-cache-tls
+      containers:
+        - name: k8s-cache
+          image: obi-k8s-cache:dev
+          imagePullPolicy: Never # loaded into Kind from localhost
+          env:
+            - name: OTEL_EBPF_K8S_CACHE_PORT
+              value: "50055"
+            - name: OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PORT
+              value: "8999"
+            - name: GOCOVERDIR
+              value: "/testoutput"
+            - name: OTEL_EBPF_K8S_CACHE_TLS_CERT_FILE
+              value: "/etc/k8s-cache/tls/server.crt"
+            - name: OTEL_EBPF_K8S_CACHE_TLS_KEY_FILE
+              value: "/etc/k8s-cache/tls/server.key"
+            - name: OTEL_EBPF_K8S_CACHE_TLS_CLIENT_CA_FILE
+              value: "/etc/k8s-cache/tls/ca.crt"
+          volumeMounts:
+            - mountPath: /testoutput
+              name: testoutput
+            - mountPath: /etc/k8s-cache/tls
+              name: cache-tls
+              readOnly: true
+          ports:
+            - containerPort: 50055
+              name: grpc
+            - containerPort: 8999
+              name: internalprom
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: k8s-cache
+  namespace: default
+spec:
+  selector:
+    app: k8s-cache
+  ports:
+    - port: 50055
+      name: grpc
+      protocol: TCP
+    - name: internalprom
+      port: 8999
+      protocol: TCP
