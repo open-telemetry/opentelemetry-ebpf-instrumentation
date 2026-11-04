@@ -791,7 +791,13 @@ static __always_inline void roundTripStartHelper(struct pt_regs *ctx) {
             "goroutine_addr=%lx, req=%llx, headers_ptr=%llx", goroutine_addr, req, headers_ptr);
 
         if (headers_ptr) {
-            bpf_map_update_elem(&header_req_map, &headers_ptr, &goroutine_addr, BPF_ANY);
+            go_addr_key_t header_key = {};
+            go_addr_key_from_id(&header_key, headers_ptr);
+            const header_request_t owner = {
+                .goroutine = (u64)goroutine_addr,
+                .started_ns = invocation.start_monotime_ns,
+            };
+            bpf_map_update_elem(&header_req_map, &header_key, &owner, BPF_ANY);
         }
     }
 }
@@ -961,6 +967,7 @@ done:
 // otherwise we inject ours at the current write position.
 typedef struct write_subset_invocation {
     u64 io_writer_addr;
+    u64 header_addr;
     u64 req_goaddr; // request (parent) goroutine, key into ongoing_client_connections
     tp_info_t tp;
     s64 entry_n; // io.Writer write offset at entry (start of this header block)
@@ -973,78 +980,87 @@ struct {
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_write_subsets SEC(".maps");
 
-SEC("uprobe/header_writeSubset")
-int GUARDED_PROG(obi_uprobe_writeSubset, struct pt_regs *, ctx) {
-    void *goroutine_addr = GOROUTINE_PTR(ctx);
+static __always_inline http_func_invocation_t *request_for_headers(void *headers, u64 *request_go) {
+    go_addr_key_t key = {};
+    go_addr_key_from_id(&key, headers);
+    const header_request_t *owner = bpf_map_lookup_elem(&header_req_map, &key);
+    if (!owner) {
+        return NULL;
+    }
+    const header_request_t identity = *owner;
+    key.addr = identity.goroutine;
+    http_func_invocation_t *inv = bpf_map_lookup_elem(&go_ongoing_http_client_requests, &key);
+    if (!inv || inv->start_monotime_ns != identity.started_ns) {
+        return NULL;
+    }
+    *request_go = identity.goroutine;
+    return inv;
+}
 
+// Request.write serializes both Request.Header and transport-owned extra headers.
+// Only the former owns the request's trace context, even when a Go map address
+// has been recycled for extraHeaders.
+SEC("uprobe/httpRequestWrite")
+int GUARDED_PROG(obi_uprobe_httpRequestWrite, struct pt_regs *, ctx) {
+    if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
+        return 0;
+    }
     go_addr_key_t gw_key = {};
-    go_addr_key_from_id(&gw_key, goroutine_addr);
-
-    if (!g_bpf_header_propagation) {
-        return 0;
-    }
-
-    bpf_dbg_printk("=== uprobe/header_writeSubset ===");
-
-    void *header_addr = GO_PARAM1(ctx);
+    go_addr_key_from_id(&gw_key, GOROUTINE_PTR(ctx));
+    bpf_map_delete_elem(&ongoing_write_subsets, &gw_key);
+    void *req = GO_PARAM1(ctx);
     void *io_writer_addr = GO_PARAM3(ctx);
-
-    bpf_dbg_printk("goroutine_addr=%lx, header_addr=%llx", goroutine_addr, header_addr);
-
-    // we don't want to run this code when the header or the buffer is nil
-    if (!header_addr || !io_writer_addr) {
-        goto done;
-    }
-
-    off_table_t *ot = get_offsets_table();
-
-    u64 *request_goaddr = bpf_map_lookup_elem(&header_req_map, &header_addr);
-
-    if (!request_goaddr) {
-        bpf_dbg_printk("Can't find parent go routine for header, header_addr=%llx", header_addr);
+    const u64 header_pos = go_offset_of(get_offsets_table(), (go_offset){.v = _req_header_ptr_pos});
+    void *header_addr = NULL;
+    if (!req || !io_writer_addr || header_pos == (u64)-1 ||
+        bpf_probe_read_user(&header_addr, sizeof(header_addr), req + header_pos) != 0 ||
+        !header_addr) {
         return 0;
     }
-    u64 parent_goaddr = *request_goaddr;
-    go_addr_key_t g_key = {};
-    go_addr_key_from_id(&g_key, (void *)parent_goaddr);
-
-    http_func_invocation_t *func_inv =
-        bpf_map_lookup_elem(&go_ongoing_http_client_requests, &g_key);
-    if (!func_inv) {
-        bpf_dbg_printk("Can't find client request for goroutine, parent_goaddr=%llx",
-                       parent_goaddr);
-        goto done;
+    u64 request_go = 0;
+    const http_func_invocation_t *request = request_for_headers(header_addr, &request_go);
+    if (!request) {
+        return 0;
     }
-
-    const u64 io_writer_n_pos = go_offset_of(ot, (go_offset){.v = _io_writer_n_pos});
-    if (!io_writer_n_pos) {
-        goto done;
-    }
-
-    // Record the write offset at entry: the header block writeSubset is about
-    // to serialize (where the app's own traceparent would land) starts here.
-    // The io.Writer is a *bufio.Writer, whose backing array is allocated once
-    // and never grown (it flushes and resets n when full, never append/realloc),
-    // so this offset stays valid into a stable buffer at return. The only thing
-    // that invalidates it is a Flush() mid-writeSubset (huge header sets), which
-    // resets n to 0; the return probe handles that (return_n <= entry_n) and all
-    // its reads stay bounded within the buffer regardless.
-    s64 entry_n = 0;
-    if (bpf_probe_read_user(
-            &entry_n, sizeof(entry_n), (void *)(io_writer_addr + io_writer_n_pos)) != 0) {
-        goto done;
-    }
-
-    write_subset_invocation_t inv = {
+    const write_subset_invocation_t inv = {
         .io_writer_addr = (u64)io_writer_addr,
-        .req_goaddr = parent_goaddr,
-        .tp = func_inv->tp,
-        .entry_n = entry_n,
+        .header_addr = (u64)header_addr,
+        .req_goaddr = request_go,
+        .tp = request->tp,
+        .entry_n = -1,
     };
     bpf_map_update_elem(&ongoing_write_subsets, &gw_key, &inv, BPF_ANY);
+    return 0;
+}
 
-done:
-    bpf_map_delete_elem(&header_req_map, &header_addr);
+SEC("uprobe/httpRequestWriteReturns")
+int GUARDED_PROG(obi_uprobe_httpRequestWriteReturns, struct pt_regs *, ctx) {
+    go_addr_key_t gw_key = {};
+    go_addr_key_from_id(&gw_key, GOROUTINE_PTR(ctx));
+    bpf_map_delete_elem(&ongoing_write_subsets, &gw_key);
+    return 0;
+}
+
+SEC("uprobe/header_writeSubset")
+int GUARDED_PROG(obi_uprobe_writeSubset, struct pt_regs *, ctx) {
+    if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
+        return 0;
+    }
+    go_addr_key_t gw_key = {};
+    go_addr_key_from_id(&gw_key, GOROUTINE_PTR(ctx));
+    write_subset_invocation_t *inv = bpf_map_lookup_elem(&ongoing_write_subsets, &gw_key);
+    if (!inv || inv->header_addr != (u64)GO_PARAM1(ctx) ||
+        inv->io_writer_addr != (u64)GO_PARAM3(ctx)) {
+        return 0;
+    }
+    const u64 io_writer_n_pos =
+        go_offset_of(get_offsets_table(), (go_offset){.v = _io_writer_n_pos});
+    s64 entry_n = -1;
+    if (io_writer_n_pos && io_writer_n_pos != (u64)-1 &&
+        bpf_probe_read_user(
+            &entry_n, sizeof(entry_n), (void *)(inv->io_writer_addr + io_writer_n_pos)) == 0) {
+        inv->entry_n = entry_n;
+    }
     return 0;
 }
 
@@ -1107,7 +1123,7 @@ static __always_inline int on_writeSubset_returns(struct pt_regs *ctx,
     go_addr_key_from_id(&gw_key, goroutine_addr);
 
     write_subset_invocation_t *inv = bpf_map_lookup_elem(&ongoing_write_subsets, &gw_key);
-    if (!inv) {
+    if (!inv || inv->entry_n < 0) {
         return 0;
     }
 
@@ -1460,10 +1476,7 @@ int GUARDED_PROG(obi_uprobe_http2ClientStreamEncodeAndWriteHeaders, struct pt_re
     if (req && header_pos != (u64)-1 &&
         bpf_probe_read_user(&headers, sizeof(headers), (unsigned char *)req + header_pos) == 0 &&
         headers) {
-        const u64 *request_go = bpf_map_lookup_elem(&header_req_map, &headers);
-        if (request_go) {
-            observation.request_go = *request_go;
-        }
+        request_for_headers(headers, &observation.request_go);
     }
 
     bpf_map_update_elem(&http2_header_observations, &g_key, &observation, BPF_ANY);

@@ -348,10 +348,8 @@ static __always_inline int process_sql_return(void *goroutine_addr, u8 error, u8
         trace->tp = invocation->tp;
 
         u64 query_len = invocation->query_len;
-        if (query_len > sizeof(trace->sql)) {
-            query_len = sizeof(trace->sql);
-        }
-
+        // Preserve the unsigned bound through older verifier register tracking.
+        bpf_clamp_umax(query_len, sizeof(trace->sql));
         bpf_probe_read(trace->sql, query_len, (void *)invocation->sql_param);
 
         if (query_len < sizeof(trace->sql)) {

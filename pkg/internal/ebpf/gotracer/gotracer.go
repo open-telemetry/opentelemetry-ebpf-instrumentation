@@ -2203,6 +2203,10 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 	}
 
 	if p.headerPropagationEnabled() {
+		m["net/http.(*Request).write"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeHttpRequestWrite,
+			End:   p.bpfObjects.ObiUprobeHttpRequestWriteReturns,
+		}}
 		m["net/http.Header.writeSubset"] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeWriteSubset,        // http 1.x context propagation
 			End:   p.bpfObjects.ObiUprobeWriteSubsetReturns, // inject only if no traceparent present

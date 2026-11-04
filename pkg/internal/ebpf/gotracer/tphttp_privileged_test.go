@@ -466,7 +466,6 @@ func attachGoTracer(t *testing.T, pid app.PID, mode config.ContextPropagationMod
 
 	cfg := obi.DefaultConfig
 	cfg.LogLevel = obi.LogLevelDebug
-	cfg.EBPF.BpfDebug = true
 	cfg.EBPF.ContextPropagation = mode
 
 	pidsFilter := ebpfcommon.NewPIDsFilter(&cfg.Discovery, slog.With("component", "tphttp-pids"), imetrics.NoopReporter{})

@@ -50,10 +50,15 @@ struct {
     __uint(max_entries, 1);
 } temp_header_mem_store SEC(".maps");
 
+typedef struct header_request {
+    u64 goroutine;
+    u64 started_ns;
+} header_request_t;
+
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, void *); // key: pointer to the request header map
-    __type(value, u64);  // the goroutine of the transport request
+    __type(key, go_addr_key_t); // request header map, scoped to its process
+    __type(value, header_request_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } header_req_map SEC(".maps");
 

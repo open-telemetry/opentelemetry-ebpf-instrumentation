@@ -510,7 +510,13 @@ static __always_inline void read_attrs_from_opts(otel_span_t *span, void *opts_p
 
     int read_from = -1;
 
-    for (int i = 0; i < count; i++) {
+    // A fixed unrolled ceiling keeps old verifiers from losing the count's
+    // bound across the preceding offset and user-memory helper calls.
+#pragma unroll
+    for (u32 i = 0; i < 5; i++) {
+        if (i >= count) {
+            break;
+        }
         void *type = 0;
         bpf_probe_read_user(&type, sizeof(void *), opts_ptr + (i * k_go_ptr_arr_size));
         if (type) {

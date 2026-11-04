@@ -116,7 +116,8 @@ int GUARDED_PROG(obi_uprobe_writer_produce, struct pt_regs *, ctx) {
                 urand_bytes(topic.tp.span_id, SPAN_ID_SIZE_BYTES);
                 sample_new_trace(&topic.tp);
             }
-
+            // Re-establish the range after trace setup spills on older verifiers.
+            bpf_clamp_umax(topic_len, k_max_topic_name_len - 1);
             bpf_probe_read_user(&topic.name, topic_len, topic_ptr);
             bpf_map_update_elem(&ongoing_produce_topics, &g_key, &topic, BPF_ANY);
         }
