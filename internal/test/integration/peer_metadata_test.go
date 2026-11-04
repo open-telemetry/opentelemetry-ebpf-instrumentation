@@ -6,6 +6,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -18,17 +19,22 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
+	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/metadata/peer"
+	"go.opentelemetry.io/obi/pkg/metadata/peer/metadatapb"
 )
 
 const (
-	peerMetadataServerURL   = "http://localhost:18998" + peer.MetadataPath
-	peerMetadataClientURL   = "http://localhost:28998" + peer.MetadataPath
-	peerMetadataWorkloadURL = "http://localhost:8081"
+	peerMetadataServerAddress = "localhost:18998"
+	peerMetadataClientAddress = "localhost:28998"
+	peerMetadataWorkloadURL   = "http://localhost:8081"
 )
 
 var peerMetadataHTTPClient = &http.Client{Timeout: 5 * time.Second}
@@ -42,13 +48,6 @@ func TestSuite_PeerMetadata(t *testing.T) {
 	require.NoError(t, compose.Up())
 
 	t.Run("inventory includes idle services", testPeerMetadataInventory)
-	t.Run("caller observations reject other targets", func(t *testing.T) {
-		destination := peerMetadataDestination(t)
-		resp, err := peerMetadataHTTPClient.Get(peerMetadataClientURL + "?target=" + url.QueryEscape(destination.IP))
-		require.NoError(t, err)
-		defer resp.Body.Close()
-		require.Equal(t, http.StatusBadRequest, resp.StatusCode)
-	})
 	t.Run("service graph counts each request once", func(t *testing.T) {
 		testPeerMetadataServiceGraph(t, true)
 	})
@@ -78,10 +77,11 @@ func TestSuite_PeerMetadataHTTPMetricsDisabled(t *testing.T) {
 
 	t.Run("inventory includes instrumented services", testPeerMetadataInventory)
 	t.Run("metadata advertises protocol eligibility", func(t *testing.T) {
-		snapshot := peerMetadataSnapshot(t, peerMetadataServerURL)
+		snapshot := peerMetadataSnapshot(t, peerMetadataServerAddress)
 		require.NotNil(t, snapshot.MetricProtocols)
-		require.False(t, snapshot.MetricProtocols.HTTPEnabled())
-		require.True(t, snapshot.MetricProtocols.GRPCEnabled())
+		protocols := instrumentations.InstrumentationSelection(snapshot.GetMetricProtocols())
+		require.False(t, protocols.HTTPEnabled())
+		require.True(t, protocols.GRPCEnabled())
 	})
 	t.Run("client counts HTTP requests", func(t *testing.T) {
 		testPeerMetadataServiceGraph(t, false)
@@ -99,31 +99,58 @@ func testPeerMetadataInventory(t *testing.T) {
 	idle := peer.Service{Name: "idle-backend", Namespace: "backend-ns"}
 	frontend := peer.Service{Name: "frontend", Namespace: "frontend-ns", ServiceGraph: true}
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		server := peerMetadataSnapshot(ct, peerMetadataServerURL)
-		assert.Equal(ct, peer.ProtocolVersion, server.Version)
-		assert.Equal(ct, "peer-server-host", server.Hostname)
-		assert.ElementsMatch(ct, []peer.Service{backend, idle}, server.Services)
-		assert.Contains(ct, server.Listeners, peer.Listener{
+		server := peerMetadataSnapshot(ct, peerMetadataServerAddress)
+		assert.Equal(ct, "peer-server-host", server.GetHostname())
+		assert.ElementsMatch(ct, []peer.Service{backend, idle}, peerMetadataServices(server.GetServices()))
+		listeners := peerMetadataListeners(server.GetListeners())
+		assert.Contains(ct, listeners, peer.Listener{
 			Endpoint: peer.Endpoint{IP: "0.0.0.0", Port: 8082}, Service: idle,
 		})
-		byPort := peerMetadataSnapshot(ct, peerMetadataServerURL+"?port=8080")
-		assert.ElementsMatch(ct, []peer.Listener{{
+		assert.Contains(ct, listeners, peer.Listener{
 			Endpoint: peer.Endpoint{IP: "0.0.0.0", Port: 8080}, Service: backend,
-		}}, byPort.Listeners)
-		client := peerMetadataSnapshot(ct, peerMetadataClientURL)
-		assert.Equal(ct, "peer-client-host", client.Hostname)
-		assert.ElementsMatch(ct, []peer.Service{frontend}, client.Services)
+		})
+		client := peerMetadataSnapshot(ct, peerMetadataClientAddress)
+		assert.Equal(ct, "peer-client-host", client.GetHostname())
+		assert.ElementsMatch(ct, []peer.Service{frontend}, peerMetadataServices(client.GetServices()))
 	}, testTimeout, time.Second)
 }
 
-func peerMetadataSnapshot(t require.TestingT, endpoint string) peer.Snapshot {
-	resp, err := peerMetadataHTTPClient.Get(endpoint)
+func peerMetadataSnapshot(t require.TestingT, address string) *metadatapb.Snapshot {
+	conn, err := grpc.NewClient(address, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	var snapshot peer.Snapshot
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&snapshot))
+	defer conn.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	snapshot, err := metadatapb.NewPeerMetadataServiceClient(conn).GetSnapshot(ctx, &metadatapb.GetSnapshotRequest{})
+	require.NoError(t, err)
 	return snapshot
+}
+
+func peerMetadataService(service *metadatapb.Service) peer.Service {
+	return peer.Service{Name: service.GetName(), Namespace: service.GetNamespace(), ServiceGraph: service.GetServiceGraph()}
+}
+
+func peerMetadataServices(services []*metadatapb.Service) []peer.Service {
+	converted := make([]peer.Service, 0, len(services))
+	for _, service := range services {
+		converted = append(converted, peerMetadataService(service))
+	}
+	return converted
+}
+
+func peerMetadataEndpoint(endpoint *metadatapb.Endpoint) peer.Endpoint {
+	return peer.Endpoint{IP: endpoint.GetIp(), Port: int(endpoint.GetPort())}
+}
+
+func peerMetadataListeners(listeners []*metadatapb.Listener) []peer.Listener {
+	converted := make([]peer.Listener, 0, len(listeners))
+	for _, listener := range listeners {
+		converted = append(converted, peer.Listener{
+			Endpoint: peerMetadataEndpoint(listener.GetEndpoint()),
+			Service:  peerMetadataService(listener.GetService()),
+		})
+	}
+	return converted
 }
 
 func testPeerMetadataTraces(t *testing.T, phase, caller string) {
@@ -180,16 +207,16 @@ func testPeerMetadataCallers(t *testing.T, compose *docker.Compose, phase string
 	destination := peerMetadataDestination(t)
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		peerMetadataCall(ct, phase)
-		data := peerMetadataComposeCommand(ct, compose, "exec", "-T", "server", "python", "-c",
-			"import sys, urllib.request; print(urllib.request.urlopen(sys.argv[1], timeout=5).read().decode())",
-			"http://client:"+strconv.Itoa(peer.DefaultPort)+peer.MetadataPath)
-		var snapshot peer.Snapshot
-		require.NoError(ct, json.Unmarshal(data, &snapshot))
+		data := peerMetadataComposeOutput(ct, compose, "run", "--rm", "--no-deps", "server-grpcurl",
+			"-plaintext", "-import-path", "/proto", "-proto", "metadata.proto", "-d", "{}",
+			"client:"+strconv.Itoa(peer.DefaultPort), "metadata.PeerMetadataService/GetSnapshot")
+		var snapshot metadatapb.Snapshot
+		require.NoError(ct, protojson.Unmarshal(data, &snapshot))
 		var services []peer.Service
-		for _, caller := range snapshot.Callers {
-			if caller.Destination == destination {
-				for _, candidate := range caller.Services {
-					services = append(services, candidate.Service)
+		for _, caller := range snapshot.GetCallers() {
+			if peerMetadataEndpoint(caller.GetDestination()) == destination {
+				for _, candidate := range caller.GetServices() {
+					services = append(services, peerMetadataService(candidate.GetService()))
 				}
 			}
 		}
@@ -211,13 +238,26 @@ func peerMetadataDestination(t require.TestingT) peer.Endpoint {
 	return peer.Endpoint{IP: destination.Hostname(), Port: port}
 }
 
-func peerMetadataComposeCommand(t require.TestingT, compose *docker.Compose, args ...string) []byte {
+func peerMetadataComposeCommand(t require.TestingT, compose *docker.Compose, args ...string) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "docker", append([]string{"compose", "-f", compose.Path}, args...)...)
 	cmd.Env = compose.Env
 	output, err := cmd.CombinedOutput()
 	require.NoError(t, err, "%s", output)
+}
+
+// peerMetadataComposeOutput returns the standard output of a compose command, which must not include compose logs.
+func peerMetadataComposeOutput(t require.TestingT, compose *docker.Compose, args ...string) []byte {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", append([]string{"compose", "-f", compose.Path}, args...)...)
+	cmd.Env = compose.Env
+	output, err := cmd.Output()
+	if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
+		require.NoError(t, err, "%s", exitErr.Stderr)
+	}
+	require.NoError(t, err)
 	return output
 }
 

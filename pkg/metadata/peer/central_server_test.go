@@ -156,7 +156,6 @@ func TestCentralServerConfigValidation(t *testing.T) {
 func TestSnapshotProtoRoundTrip(t *testing.T) {
 	protocols := instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instrumentations.InstrumentationGRPC})
 	snapshot := Snapshot{
-		Version:   ProtocolVersion,
 		Hostname:  "host",
 		Services:  []Service{{Name: "api", Namespace: "shop", ServiceGraph: true}},
 		Listeners: []Listener{{Endpoint: Endpoint{IP: "0.0.0.0", Port: 8080}, Service: Service{Name: "api"}}},

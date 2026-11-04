@@ -290,7 +290,7 @@ func (x *Caller) GetServices() []*CallerService {
 	return nil
 }
 
-// Snapshot carries the same metadata as the peer-to-peer HTTP response.
+// Snapshot is the metadata an agent shares about its host.
 type Snapshot struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Hostname          string                 `protobuf:"bytes,1,opt,name=hostname,proto3" json:"hostname,omitempty"`
@@ -581,6 +581,42 @@ func (x *LookupResponse) GetSnapshot() *Snapshot {
 	return nil
 }
 
+type GetSnapshotRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetSnapshotRequest) Reset() {
+	*x = GetSnapshotRequest{}
+	mi := &file_proto_metadata_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetSnapshotRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetSnapshotRequest) ProtoMessage() {}
+
+func (x *GetSnapshotRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_metadata_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetSnapshotRequest.ProtoReflect.Descriptor instead.
+func (*GetSnapshotRequest) Descriptor() ([]byte, []int) {
+	return file_proto_metadata_proto_rawDescGZIP(), []int{10}
+}
+
 var File_proto_metadata_proto protoreflect.FileDescriptor
 
 const file_proto_metadata_proto_rawDesc = "" +
@@ -620,10 +656,13 @@ const file_proto_metadata_proto_rawDesc = "" +
 	"\aaddress\x18\x01 \x01(\tR\aaddress\x12/\n" +
 	"\x13requester_addresses\x18\x02 \x03(\tR\x12requesterAddresses\"@\n" +
 	"\x0eLookupResponse\x12.\n" +
-	"\bsnapshot\x18\x01 \x01(\v2\x12.metadata.SnapshotR\bsnapshot2\x8e\x01\n" +
+	"\bsnapshot\x18\x01 \x01(\v2\x12.metadata.SnapshotR\bsnapshot\"\x14\n" +
+	"\x12GetSnapshotRequest2\x8e\x01\n" +
 	"\x0fMetadataService\x12>\n" +
 	"\aPublish\x12\x18.metadata.PublishRequest\x1a\x19.metadata.PublishResponse\x12;\n" +
-	"\x06Lookup\x12\x17.metadata.LookupRequest\x1a\x18.metadata.LookupResponseB\x0eZ\f./metadatapbb\x06proto3"
+	"\x06Lookup\x12\x17.metadata.LookupRequest\x1a\x18.metadata.LookupResponse2V\n" +
+	"\x13PeerMetadataService\x12?\n" +
+	"\vGetSnapshot\x12\x1c.metadata.GetSnapshotRequest\x1a\x12.metadata.SnapshotB\x0eZ\f./metadatapbb\x06proto3"
 
 var (
 	file_proto_metadata_proto_rawDescOnce sync.Once
@@ -637,18 +676,19 @@ func file_proto_metadata_proto_rawDescGZIP() []byte {
 	return file_proto_metadata_proto_rawDescData
 }
 
-var file_proto_metadata_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_proto_metadata_proto_msgTypes = make([]protoimpl.MessageInfo, 11)
 var file_proto_metadata_proto_goTypes = []any{
-	(*Service)(nil),         // 0: metadata.Service
-	(*Endpoint)(nil),        // 1: metadata.Endpoint
-	(*Listener)(nil),        // 2: metadata.Listener
-	(*CallerService)(nil),   // 3: metadata.CallerService
-	(*Caller)(nil),          // 4: metadata.Caller
-	(*Snapshot)(nil),        // 5: metadata.Snapshot
-	(*PublishRequest)(nil),  // 6: metadata.PublishRequest
-	(*PublishResponse)(nil), // 7: metadata.PublishResponse
-	(*LookupRequest)(nil),   // 8: metadata.LookupRequest
-	(*LookupResponse)(nil),  // 9: metadata.LookupResponse
+	(*Service)(nil),            // 0: metadata.Service
+	(*Endpoint)(nil),           // 1: metadata.Endpoint
+	(*Listener)(nil),           // 2: metadata.Listener
+	(*CallerService)(nil),      // 3: metadata.CallerService
+	(*Caller)(nil),             // 4: metadata.Caller
+	(*Snapshot)(nil),           // 5: metadata.Snapshot
+	(*PublishRequest)(nil),     // 6: metadata.PublishRequest
+	(*PublishResponse)(nil),    // 7: metadata.PublishResponse
+	(*LookupRequest)(nil),      // 8: metadata.LookupRequest
+	(*LookupResponse)(nil),     // 9: metadata.LookupResponse
+	(*GetSnapshotRequest)(nil), // 10: metadata.GetSnapshotRequest
 }
 var file_proto_metadata_proto_depIdxs = []int32{
 	1,  // 0: metadata.Listener.endpoint:type_name -> metadata.Endpoint
@@ -664,10 +704,12 @@ var file_proto_metadata_proto_depIdxs = []int32{
 	5,  // 10: metadata.LookupResponse.snapshot:type_name -> metadata.Snapshot
 	6,  // 11: metadata.MetadataService.Publish:input_type -> metadata.PublishRequest
 	8,  // 12: metadata.MetadataService.Lookup:input_type -> metadata.LookupRequest
-	7,  // 13: metadata.MetadataService.Publish:output_type -> metadata.PublishResponse
-	9,  // 14: metadata.MetadataService.Lookup:output_type -> metadata.LookupResponse
-	13, // [13:15] is the sub-list for method output_type
-	11, // [11:13] is the sub-list for method input_type
+	10, // 13: metadata.PeerMetadataService.GetSnapshot:input_type -> metadata.GetSnapshotRequest
+	7,  // 14: metadata.MetadataService.Publish:output_type -> metadata.PublishResponse
+	9,  // 15: metadata.MetadataService.Lookup:output_type -> metadata.LookupResponse
+	5,  // 16: metadata.PeerMetadataService.GetSnapshot:output_type -> metadata.Snapshot
+	14, // [14:17] is the sub-list for method output_type
+	11, // [11:14] is the sub-list for method input_type
 	11, // [11:11] is the sub-list for extension type_name
 	11, // [11:11] is the sub-list for extension extendee
 	0,  // [0:11] is the sub-list for field type_name
@@ -685,9 +727,9 @@ func file_proto_metadata_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_metadata_proto_rawDesc), len(file_proto_metadata_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   11,
 			NumExtensions: 0,
-			NumServices:   1,
+			NumServices:   2,
 		},
 		GoTypes:           file_proto_metadata_proto_goTypes,
 		DependencyIndexes: file_proto_metadata_proto_depIdxs,
