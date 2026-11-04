@@ -66,9 +66,7 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 	t.Cleanup(agentExchange.clients.close)
 	ctx, cancel := context.WithCancel(t.Context())
 	var workers sync.WaitGroup
-	jobs := make(chan *cachedPeer, cfg.MaxConcurrent)
-	workers.Go(func() { agentExchange.fetchPeers(ctx, jobs) })
-	workers.Go(func() { agentExchange.schedulePeers(ctx, jobs) })
+	workers.Go(func() { agentExchange.createRefresher().run(ctx) })
 	t.Cleanup(func() { cancel(); workers.Wait() })
 	span := request.Span{
 		Type: request.EventTypeHTTPClient, Host: "10.1.0.2", HostPort: 8080, HostName: "dns-host",
@@ -88,7 +86,7 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 	require.EqualValues(t, 1, requests.Load())
 	require.Equal(t, "dns-host", span.HostName)
 	requester := netip.MustParseAddr("127.0.0.1")
-	known := agent.store.snapshot(map[string]struct{}{span.Host: {}}, time.Now())
+	known := agent.store.snapshot(callersTo(span.Host), time.Now())
 	remoteCache.lookup(requester, time.Now())
 	remoteCache.complete(remoteCache.due(time.Now(), 1)[0], indexSnapshot(&known), 1, time.Now(), time.Now())
 	close(release)
@@ -206,7 +204,7 @@ func TestIneligibleDestinationsDoNotCauseCallerOverflow(t *testing.T) {
 				agent.Decorate(&span, now)
 			}
 			target := Endpoint{IP: netip.MustParseAddr(host).Unmap().String(), Port: span.HostPort}
-			snapshot := agent.store.snapshot(map[string]struct{}{target.IP: {}}, now)
+			snapshot := agent.store.snapshot(callersTo(target.IP), now)
 			require.Equal(t, 1, agent.store.callerCount)
 			require.Zero(t, snapshot.CallerAmbiguityMillis)
 			require.Equal(t, frontend, agent.store.callerService(target, now))

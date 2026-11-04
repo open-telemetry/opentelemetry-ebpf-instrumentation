@@ -54,7 +54,7 @@ func TestCentralServerPublishAndLookup(t *testing.T) {
 	server.setInventory([]Service{backend}, []Listener{{Endpoint: Endpoint{IP: "0.0.0.0", Port: 8080}, Service: backend}})
 	clientIP, serverIP := "10.1.0.1", "10.1.0.2"
 	server.observe(Endpoint{IP: clientIP, Port: 9090}, backend, time.Now())
-	published := server.snapshot(map[string]struct{}{clientIP: {}}, time.Now())
+	published := server.snapshot(callersTo(clientIP), time.Now())
 
 	_, err := client.Publish(t.Context(), &metadatapb.PublishRequest{HostId: "server-host-id", Addresses: []string{serverIP}, Snapshot: snapshotToProto(&published)})
 	require.NoError(t, err)
@@ -117,7 +117,7 @@ func TestCentralServerBearerToken(t *testing.T) {
 	cfg := DefaultCentralServerConfig()
 	cfg.Token = "shared-secret"
 	cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: leaf.certFile, KeyFile: leaf.keyFile, CAFile: root.certFile}
-	_, clientTLS, err := tlsConfigs(cfg.TLS)
+	clientTLS, err := clientTLSConfig(cfg.TLS)
 	require.NoError(t, err)
 	client := startCentralServer(t, &cfg, grpc.WithTransportCredentials(credentials.NewTLS(clientTLS)))
 

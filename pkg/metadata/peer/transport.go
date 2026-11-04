@@ -33,33 +33,43 @@ import (
 	"go.opentelemetry.io/obi/pkg/metadata/peer/metadatapb"
 )
 
-func tlsConfigs(cfg MetadataTLSConfig) (*tls.Config, *tls.Config, error) {
+// serverTLSConfig serves the configured certificate. It returns nil when TLS is disabled.
+func serverTLSConfig(cfg MetadataTLSConfig) (*tls.Config, error) {
 	if !cfg.Enabled {
-		return nil, nil, nil
+		return nil, nil
 	}
 
 	certificate, err := tls.LoadX509KeyPair(cfg.CertFile, cfg.KeyFile)
 	if err != nil {
-		return nil, nil, fmt.Errorf("loading peer metadata certificate: %w", err)
+		return nil, fmt.Errorf("loading peer metadata certificate: %w", err)
 	}
 
-	server := &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}
+	return &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{certificate}}, nil
+}
+
+// clientTLSConfig verifies servers against the configured CA, or the system roots when there is none.
+// It returns nil when TLS is disabled.
+func clientTLSConfig(cfg MetadataTLSConfig) (*tls.Config, error) {
+	if !cfg.Enabled {
+		return nil, nil
+	}
+
 	client := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: cfg.ServerName}
 	if cfg.CAFile == "" {
-		return server, client, nil
+		return client, nil
 	}
 
 	data, err := os.ReadFile(cfg.CAFile)
 	if err != nil {
-		return nil, nil, fmt.Errorf("loading peer metadata CA: %w", err)
+		return nil, fmt.Errorf("loading peer metadata CA: %w", err)
 	}
 
 	client.RootCAs = x509.NewCertPool()
 	if !client.RootCAs.AppendCertsFromPEM(data) {
-		return nil, nil, errors.New("peer metadata ca_file contains no certificates")
+		return nil, errors.New("peer metadata ca_file contains no certificates")
 	}
 
-	return server, client, nil
+	return client, nil
 }
 
 // maxPeerRequestBytes bounds the headers and body of an incoming snapshot request, which carries no data.
