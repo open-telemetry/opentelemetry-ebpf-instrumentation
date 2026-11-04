@@ -26,12 +26,10 @@ enum {
 typedef struct go_exception_payload {
     // enum go_exception_kind
     u8 kind;
-    // the message was longer than message holds
-    u8 message_truncated;
-    u16 message_len;
+    u8 _pad;
     // number of valid entries in pcs, innermost frame first
     u16 frames;
-    u8 _pad2[2];
+    u8 _pad2[4];
     unsigned char message[k_go_exception_message_max_len];
     // runtime return addresses
     u64 pcs[k_go_exception_max_frames];

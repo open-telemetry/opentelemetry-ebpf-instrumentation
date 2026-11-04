@@ -9,6 +9,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"golang.org/x/sys/unix"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/exceptions"
@@ -37,7 +39,6 @@ const (
 	// known when it is captured, so panics are not reported as FATAL.
 	goExceptionSeverityError = 17
 	goFramesOmitted          = "... frames omitted"
-	goTruncatedSuffix        = "..."
 )
 
 // decodeGoErrorEvent decodes a go_exception_payload_t. A stack that cannot be
@@ -55,8 +56,7 @@ func decodeGoErrorEvent(hdr *ebpfcommon.BpfExceptionEventHeaderT, payload []byte
 	}
 	event.SeverityNumber = goExceptionSeverityError
 
-	messageLen := min(int(p.MessageLen), len(p.Message))
-	event.Message = goExceptionMessage(p.Message[:messageLen], p.MessageTruncated != 0)
+	event.Message = attributes.SanitizeUTF8(unix.ByteSliceToString(p.Message[:]))
 
 	pcs := p.Pcs[:min(int(p.Frames), len(p.Pcs))]
 	frames, err := goSymbols.Frames(app.PID(hdr.Pid.HostPid), pcs)
@@ -66,15 +66,6 @@ func decodeGoErrorEvent(hdr *ebpfcommon.BpfExceptionEventHeaderT, payload []byte
 	event.Stacktrace = goStacktrace(panicked, event.Message, frames, len(pcs) == len(p.Pcs))
 
 	return nil
-}
-
-// goExceptionMessage removes invalid UTF-8 and marks truncated messages.
-func goExceptionMessage(raw []byte, truncated bool) string {
-	message := attributes.SanitizeUTF8(string(raw))
-	if truncated {
-		message += goTruncatedSuffix
-	}
-	return message
 }
 
 // goStacktrace writes frames as runtime.Stack does, after Go's "panic: ..."

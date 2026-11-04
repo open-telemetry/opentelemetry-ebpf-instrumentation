@@ -43,8 +43,8 @@ func goExceptionRecord(t *testing.T, owner ebpfcommon.BpfExceptionOwner, payload
 }
 
 func goExceptionPayload(kind uint8, message string, pcs ...uint64) *BpfGoExceptionPayloadT {
-	payload := &BpfGoExceptionPayloadT{Kind: kind, MessageLen: uint16(len(message)), Frames: uint16(len(pcs))}
-	copy(payload.Message[:], message)
+	payload := &BpfGoExceptionPayloadT{Kind: kind, Frames: uint16(len(pcs))}
+	copy(payload.Message[:len(payload.Message)-1], message)
 	copy(payload.Pcs[:], pcs)
 	return payload
 }
@@ -135,7 +135,6 @@ func TestReadGoExceptionRecordPanicWithoutOwner(t *testing.T) {
 
 func TestReadGoExceptionRecordBounds(t *testing.T) {
 	payload := goExceptionPayload(0, "invalid \xff utf8")
-	payload.MessageLen = 1000
 	payload.Frames = 1000
 
 	event, ignore, err := ebpfcommon.ReadExceptionRecord(
@@ -145,7 +144,7 @@ func TestReadGoExceptionRecordBounds(t *testing.T) {
 
 	require.NoError(t, err)
 	require.False(t, ignore)
-	assert.Equal(t, "invalid  utf8", strings.TrimRight(event.Message, "\x00"))
+	assert.Equal(t, "invalid  utf8", event.Message)
 	assert.Empty(t, event.Stacktrace, "unregistered processes have no symbols")
 }
 
@@ -189,25 +188,25 @@ func TestGoShowFrame(t *testing.T) {
 	assert.False(t, goShowFrame("runtime.sigpanic"))
 }
 
-func TestGoExceptionMessageTruncation(t *testing.T) {
-	assert.Equal(t, "complete", goExceptionMessage([]byte("complete"), false))
-	assert.Equal(t, "cut...", goExceptionMessage([]byte("cut"), true))
-	// "é" is 0xc3 0xa9: a cut after its first byte drops the partial character
-	assert.Equal(t, "caf...", goExceptionMessage([]byte("caf\xc3"), true))
-	assert.Equal(t, "日本...", goExceptionMessage([]byte("日本\xe8\xaa"), true))
-	assert.Equal(t, "ab...", goExceptionMessage([]byte("a\xffb"), true), "invalid bytes inside are removed")
-}
-
-func TestReadGoExceptionRecordTruncatedMessage(t *testing.T) {
-	payload := goExceptionPayload(goExceptionKindPanic, strings.Repeat("x", 127)+"\xc3")
-	payload.MessageTruncated = 1
-
-	event, _, err := ebpfcommon.ReadExceptionRecord(
-		goExceptionRecord(t, ebpfcommon.BpfExceptionOwnerK_exceptionOwnerNone, payload),
-		&goExceptionServiceFilter{},
-	)
-
-	require.NoError(t, err)
-	assert.Equal(t, strings.Repeat("x", 127)+"...", event.Message)
-	assert.Equal(t, "panic: "+strings.Repeat("x", 127)+"...", event.Stacktrace)
+func TestReadGoExceptionRecordMessage(t *testing.T) {
+	for _, tc := range []struct {
+		name, message, want string
+	}{
+		{"empty", "", ""},
+		{"complete", "complete", "complete"},
+		{"embedded NUL", "failed\x00details", "failed"},
+		{"full", strings.Repeat("x", 127), strings.Repeat("x", 127)},
+		{"truncated", strings.Repeat("x", 140), strings.Repeat("x", 127)},
+		{"partial UTF-8", strings.Repeat("x", 126) + "é", strings.Repeat("x", 126)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			payload := goExceptionPayload(goExceptionKindPanic, tc.message)
+			event, _, err := ebpfcommon.ReadExceptionRecord(
+				goExceptionRecord(t, ebpfcommon.BpfExceptionOwnerK_exceptionOwnerNone, payload),
+				&goExceptionServiceFilter{},
+			)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, event.Message)
+		})
+	}
 }

@@ -77,7 +77,7 @@ methods. A string type with an `Error` or `String` method may render differently
 from its bytes, and a BPF program can't call the method. Runtime errors are such
 a type (`runtime.errorString`), so their message is empty.
 
-Messages are cut at 128 bytes and end in `...` when cut.
+Messages contain up to 127 bytes and end at the first NUL byte.
 
 ## Stack traces
 

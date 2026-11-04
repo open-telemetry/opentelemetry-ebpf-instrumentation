@@ -69,10 +69,9 @@ static __always_inline void go_exception_read_message(go_exception_payload_t *pa
     }
 
     u64 len = (u64)message->len;
-    bpf_clamp_umax(len, sizeof(payload->message));
+    bpf_clamp_umax(len, sizeof(payload->message) - 1);
     if (bpf_probe_read_user(payload->message, len, message->str) == 0) {
-        payload->message_len = len;
-        payload->message_truncated = (u64)message->len > sizeof(payload->message);
+        payload->message[len] = 0;
     }
 }
 
