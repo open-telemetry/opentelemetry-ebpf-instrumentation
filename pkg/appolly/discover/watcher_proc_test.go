@@ -252,7 +252,7 @@ func TestWatcherRescanDuringPoll(t *testing.T) {
 			cfg: cfg, interval: time.Second,
 			pids: map[app.PID]ProcessAttrs{}, pidPorts: map[pidPort]ProcessAttrs{},
 			bpfWatcherEnabled: true, fetchPorts: true,
-			criteriaUpdates: services.NewCriteriaUpdates(FindingCriteria(cfg), nil),
+			criteriaUpdates: services.NewCriteriaUpdatesWithSampler(FindingCriteria(cfg), nil, nil),
 			rescan:          ProcessWatcherRescan{TargetsChanged: targetsChanged},
 			listProcesses: func(fetchPorts bool) (map[app.PID]ProcessAttrs, error) {
 				select {
