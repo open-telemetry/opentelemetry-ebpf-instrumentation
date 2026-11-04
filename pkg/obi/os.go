@@ -107,7 +107,8 @@ func checkOSSupport() error {
 	general := major > minKernMaj || (major == minKernMaj && minor >= minKernMin)
 	// RHEL relaxation only applies at the 4.18 floor.
 	rhel418 := major == minRHELKernMaj && minor == minRHELKernMin && isRHELBased()
-	if !general && !rhel418 {
+	lab419 := major == 4 && minor == 19 && os.Getenv("OBI_LAB_ALLOW_KERNEL_419") == "1"
+	if !general && !rhel418 && !lab419 {
 		return fmt.Errorf("kernel version %d.%d not supported. Minimum required version is %d.%d",
 			major, minor, minKernMaj, minKernMin)
 	}
