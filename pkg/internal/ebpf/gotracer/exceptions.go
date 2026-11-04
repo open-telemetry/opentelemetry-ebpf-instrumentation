@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"slices"
-	"syscall"
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
@@ -21,7 +20,6 @@ import (
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/exceptions"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/uprobe"
-	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
 
@@ -257,9 +255,7 @@ func (p *Tracer) RegisterExecutable(fileInfo *exec.FileInfo) {
 		return
 	}
 
-	if err := goSymbols.AddExecutable(fileInfo.Dev(), fileInfo.Ino(), func() (ebpfcommon.GoSymbolSource, error) {
-		return openGoSymbolSource(fileInfo)
-	}); err != nil {
+	if err := goSymbols.AddExecutable(fileInfo); err != nil {
 		p.log.Debug("Go exception stacks will not be symbolized", "pid", fileInfo.Pid(), "error", err)
 	}
 }
@@ -319,38 +315,6 @@ func (p *Tracer) unregisterExceptionPID(pid app.PID) {
 		p.log.Debug("disabling Go exception capture", "pid", pid, "error", err)
 	}
 	goSymbols.RemovePID(pid)
-}
-
-// openGoSymbolSource keeps a descriptor to the executable, so its symbols stay
-// readable after the process exits or the file is replaced.
-func openGoSymbolSource(fileInfo *exec.FileInfo) (ebpfcommon.GoSymbolSource, error) {
-	file, err := os.Open(fileInfo.ProExeLinkPath())
-	if err != nil {
-		return ebpfcommon.GoSymbolSource{}, err
-	}
-
-	stat, err := file.Stat()
-	if err != nil {
-		_ = file.Close()
-		return ebpfcommon.GoSymbolSource{}, err
-	}
-
-	identity, ok := stat.Sys().(*syscall.Stat_t)
-	if !ok || normalizeDeviceID(identity.Dev) != fileInfo.Dev() || identity.Ino != fileInfo.Ino() {
-		_ = file.Close()
-		return ebpfcommon.GoSymbolSource{}, fmt.Errorf("go executable identity changed for PID %d", fileInfo.Pid())
-	}
-
-	return ebpfcommon.GoSymbolSource{
-		Open: func() (ebpfcommon.GoSymbolResolver, error) {
-			resolver, err := goexec.NewGoSymbolResolver(file)
-			if err != nil {
-				return nil, err
-			}
-			return resolver, nil
-		},
-		Close: file.Close,
-	}, nil
 }
 
 func goExceptionProbeEnabled(flags uint8, symbol string) bool {

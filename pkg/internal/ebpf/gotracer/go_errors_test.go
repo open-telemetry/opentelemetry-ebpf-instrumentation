@@ -15,6 +15,7 @@ import (
 
 	"go.opentelemetry.io/otel/trace"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
@@ -49,28 +50,15 @@ func goExceptionPayload(kind uint8, message string, pcs ...uint64) *BpfGoExcepti
 	return payload
 }
 
-type mapSymbolResolver map[uint64]goexec.GoFrame
-
-func (r mapSymbolResolver) PCToFrame(pc uint64) (goexec.GoFrame, bool) {
-	frame, ok := r[pc]
-	return frame, ok
-}
-func (mapSymbolResolver) SetDontNeed() {}
-func (mapSymbolResolver) Close() error { return nil }
-
-func registerGoExceptionSymbols(t *testing.T, frames mapSymbolResolver) {
+func mockGoExceptionFrames(t *testing.T, pcs []uint64, frames []goexec.GoFrame) {
 	t.Helper()
-	require.NoError(t, goSymbols.AddExecutable(7, 11, func() (ebpfcommon.GoSymbolSource, error) {
-		return ebpfcommon.GoSymbolSource{
-			Open:  func() (ebpfcommon.GoSymbolResolver, error) { return frames, nil },
-			Close: func() error { return nil },
-		}, nil
-	}))
-	goSymbols.BindPID(1, 7, 11, 0)
-	t.Cleanup(func() {
-		goSymbols.RemovePID(1)
-		goSymbols.RemoveExecutable(7, 11)
-	})
+	previous := goExceptionFrames
+	goExceptionFrames = func(pid app.PID, got []uint64) ([]goexec.GoFrame, error) {
+		assert.Equal(t, app.PID(1), pid)
+		assert.Equal(t, pcs, got)
+		return frames, nil
+	}
+	t.Cleanup(func() { goExceptionFrames = previous })
 }
 
 type goExceptionServiceFilter struct {
@@ -88,11 +76,10 @@ func (*goExceptionServiceFilter) Filter(spans []request.Span) []request.Span {
 }
 
 func TestReadGoExceptionRecord(t *testing.T) {
-	registerGoExceptionSymbols(t, mapSymbolResolver{
-		10: {Function: "fmt.Errorf", File: "fmt/errors.go", Line: 26},
-		20: {Function: "main.handler", File: "main.go", Line: 12},
-		30: {Function: "net/http.HandlerFunc.ServeHTTP", File: "net/http/server.go", Line: 2322},
-		40: {Function: "runtime.goexit", File: "runtime/asm_amd64.s", Line: 1700},
+	mockGoExceptionFrames(t, []uint64{11, 21, 31, 41}, []goexec.GoFrame{
+		{Function: "main.handler", File: "main.go", Line: 12},
+		{Function: "net/http.HandlerFunc.ServeHTTP", File: "net/http/server.go", Line: 2322},
+		{Function: "runtime.goexit", File: "runtime/asm_amd64.s", Line: 1700},
 	})
 
 	event, ignore, err := ebpfcommon.ReadExceptionRecord(
@@ -112,9 +99,9 @@ func TestReadGoExceptionRecord(t *testing.T) {
 }
 
 func TestReadGoExceptionRecordPanicWithoutOwner(t *testing.T) {
-	registerGoExceptionSymbols(t, mapSymbolResolver{
-		10: {Function: "runtime.panicmem", File: "runtime/panic.go", Line: 262},
-		20: {Function: "main.worker", File: "main.go", Line: 30},
+	mockGoExceptionFrames(t, []uint64{11, 21}, []goexec.GoFrame{
+		{Function: "runtime.panicmem", File: "runtime/panic.go", Line: 262},
+		{Function: "main.worker", File: "main.go", Line: 30},
 	})
 
 	event, ignore, err := ebpfcommon.ReadExceptionRecord(

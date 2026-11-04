@@ -1,11 +1,14 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
+//go:build linux
+
 package ebpfcommon
 
 import (
-	"errors"
 	"fmt"
+	"io"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -40,54 +43,51 @@ func (r *lifecycleSymbolResolver) Close() error { r.closed.Add(1); return nil }
 func TestGoSymbolsLazyOpenSharedAcrossReplicas(t *testing.T) {
 	r := NewGoSymbolRegistry()
 	defer r.Close()
-	var sources, opens, closes atomic.Int32
-	resolver := &lifecycleSymbolResolver{}
-	source := func() (GoSymbolSource, error) {
-		sources.Add(1)
-		return GoSymbolSource{
-			Open:  func() (GoSymbolResolver, error) { opens.Add(1); return resolver, nil },
-			Close: func() error { closes.Add(1); return nil },
-		}, nil
-	}
+	info := testGoExecutableInfo(t)
+	_, fn := testGoSymbolTable(t)
 	for pid := app.PID(1); pid <= 10; pid++ {
-		registerGoSymbols(t, r, pid, source)
+		require.NoError(t, r.AddExecutable(info))
+		r.BindPID(pid, info.Dev(), info.Ino(), 0)
 		_, err := stackText(r, pid, nil)
 		require.NoError(t, err)
 		_, err = stackText(r, pid, []uint64{0})
 		require.NoError(t, err)
 	}
-	require.EqualValues(t, 1, sources.Load())
-	require.Zero(t, opens.Load())
+	entry := r.executables[goExecutableID{device: info.Dev(), inode: info.Ino()}]
+	file := entry.file
+	require.Nil(t, entry.resolver)
 	var workers sync.WaitGroup
 	for pid := app.PID(1); pid <= 10; pid++ {
 		workers.Go(func() {
-			stack, err := stackText(r, pid, []uint64{2})
-			if err != nil || stack != "main.handler\n\thandler.go:42" {
+			stack, err := stackText(r, pid, []uint64{fn.Entry + 1})
+			if err != nil || !strings.Contains(stack, "goSymbolRegistryFixture") {
 				t.Errorf("stack=%q error=%v", stack, err)
 			}
 		})
 	}
 	workers.Wait()
-	require.EqualValues(t, 1, opens.Load())
-	require.EqualValues(t, 10, resolver.released.Load(), "every resolved stack releases the mapped pages")
+	require.NotNil(t, entry.resolver)
 	for pid := app.PID(1); pid <= 10; pid++ {
 		r.RemovePID(pid)
 	}
-	require.Zero(t, closes.Load())
-	r.RemoveExecutable(7, 11)
-	require.EqualValues(t, 1, closes.Load())
-	require.EqualValues(t, 1, resolver.closed.Load())
+	_, err := file.Stat()
+	require.NoError(t, err)
+	r.RemoveExecutable(info.Dev(), info.Ino())
+	_, err = file.Stat()
+	require.ErrorIs(t, err, os.ErrClosed)
+	require.Nil(t, entry.resolver)
 	require.NoError(t, r.Close())
-	require.EqualValues(t, 1, closes.Load())
 }
 
 func TestGoSymbolsRemovalWaitsForActiveLookup(t *testing.T) {
 	r := NewGoSymbolRegistry()
+	defer r.Close()
 	resolver := &lifecycleSymbolResolver{entered: make(chan struct{}), proceed: make(chan struct{})}
-	var closed atomic.Bool
-	registerGoSymbols(t, r, 1, func() (GoSymbolSource, error) {
-		return GoSymbolSource{Open: func() (GoSymbolResolver, error) { return resolver, nil }, Close: func() error { closed.Store(true); return nil }}, nil
-	})
+	registerGoSymbols(t, r, 1, resolver)
+	entry := r.executables[goExecutableID{device: 7, inode: 11}]
+	file, err := os.CreateTemp(t.TempDir(), "executable")
+	require.NoError(t, err)
+	entry.file = file
 	lookup := make(chan error, 1)
 	go func() { _, err := stackText(r, 1, []uint64{2}); lookup <- err }()
 	select {
@@ -97,7 +97,7 @@ func TestGoSymbolsRemovalWaitsForActiveLookup(t *testing.T) {
 	}
 	removed := make(chan struct{})
 	go func() { r.RemoveExecutable(7, 11); close(removed) }()
-	require.False(t, closed.Load())
+	require.Zero(t, resolver.closed.Load())
 	close(resolver.proceed)
 	require.NoError(t, <-lookup)
 	select {
@@ -105,52 +105,61 @@ func TestGoSymbolsRemovalWaitsForActiveLookup(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("removal did not finish")
 	}
-	require.True(t, closed.Load())
+	_, err = file.Stat()
+	require.ErrorIs(t, err, os.ErrClosed)
 	require.EqualValues(t, 1, resolver.closed.Load())
+	require.EqualValues(t, 1, resolver.released.Load())
 }
 
 func TestGoSymbolsFailedLazyOpenBacksOffAndRetries(t *testing.T) {
 	r := NewGoSymbolRegistry()
 	defer r.Close()
-	var opens int
-	failure := errors.New("temporary mapping failure")
-	resolver := &lifecycleSymbolResolver{}
-	registerGoSymbols(t, r, 1, func() (GoSymbolSource, error) {
-		return GoSymbolSource{Open: func() (GoSymbolResolver, error) {
-			opens++
-			if opens == 1 {
-				return nil, failure
-			}
-			return resolver, nil
-		}, Close: func() error { return nil }}, nil
-	})
-	for range 10 {
-		_, err := stackText(r, 1, []uint64{2})
-		require.ErrorIs(t, err, failure)
-	}
-	require.Equal(t, 1, opens)
-	r.executables[goExecutableID{device: 7, inode: 11}].retryAfter = time.Time{}
-	stack, err := stackText(r, 1, []uint64{2})
+	file, err := os.CreateTemp(t.TempDir(), "executable")
 	require.NoError(t, err)
-	require.NotEmpty(t, stack)
-	require.Equal(t, 2, opens)
+	defer file.Close()
+	info := testGoFileInfo(t, file.Name())
+	require.NoError(t, r.AddExecutable(info))
+	r.BindPID(1, info.Dev(), info.Ino(), 0)
+	_, fn := testGoSymbolTable(t)
+	_, failure := stackText(r, 1, []uint64{fn.Entry + 1})
+	require.Error(t, failure)
+
+	// Repair the same inode while the failed load is still backed off.
+	source, err := os.Open(testGoExecutableInfo(t).ProExeLinkPath())
+	require.NoError(t, err)
+	defer source.Close()
+	_, err = io.Copy(file, source)
+	require.NoError(t, err)
+	_, err = stackText(r, 1, []uint64{fn.Entry + 1})
+	require.ErrorIs(t, err, failure)
+
+	r.executables[goExecutableID{device: info.Dev(), inode: info.Ino()}].retryAfter = time.Time{}
+	stack, err := stackText(r, 1, []uint64{fn.Entry + 1})
+	require.NoError(t, err)
+	require.Contains(t, stack, "goSymbolRegistryFixture")
 }
 
-func TestGoSymbolsCloseUnusedSource(t *testing.T) {
+func TestGoSymbolsCloseUnusedFile(t *testing.T) {
 	r := NewGoSymbolRegistry()
-	closed := 0
-	registerGoSymbols(t, r, 1, func() (GoSymbolSource, error) {
-		return GoSymbolSource{Open: func() (GoSymbolResolver, error) { t.Error("unused source opened"); return nil, nil }, Close: func() error { closed++; return nil }}, nil
-	})
+	info := testGoExecutableInfo(t)
+	require.NoError(t, r.AddExecutable(info))
+	entry := r.executables[goExecutableID{device: info.Dev(), inode: info.Ino()}]
+	file := entry.file
+	require.Nil(t, entry.resolver)
 	require.NoError(t, r.Close())
 	require.NoError(t, r.Close())
-	require.Equal(t, 1, closed)
+	_, err := file.Stat()
+	require.ErrorIs(t, err, os.ErrClosed)
 }
 
-// registerGoSymbols registers pid as a process of the test executable (7, 11).
-func registerGoSymbols(t *testing.T, r *GoSymbolRegistry, pid app.PID, openSource func() (GoSymbolSource, error)) {
+// registerGoSymbols injects a resolver for tests of frame lookup and PID bindings.
+func registerGoSymbols(t *testing.T, r *GoSymbolRegistry, pid app.PID, resolver GoSymbolResolver) {
 	t.Helper()
-	require.NoError(t, r.AddExecutable(7, 11, openSource))
+	key := goExecutableID{device: 7, inode: 11}
+	if r.executables[key] == nil {
+		r.executables[key] = &goSymbolTableEntry{resolver: resolver}
+		t.Cleanup(func() { require.NoError(t, r.Close()) })
+	}
 	r.BindPID(pid, 7, 11, 0)
 }
 

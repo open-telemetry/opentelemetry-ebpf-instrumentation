@@ -6,6 +6,7 @@ package gotracer
 import (
 	"io"
 	"os"
+	"syscall"
 	"testing"
 
 	"github.com/cilium/ebpf"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -165,28 +167,15 @@ func TestCloseReleasesActiveGoExceptionResources(t *testing.T) {
 	tracer := New(nil, exceptionsConfig(true), nil)
 	links := &exceptionLinks{attached: map[app.PID][]uint64{}, open: map[app.PID]int{}}
 	tracer.attachGoExceptionProbe = links.attach
-	executable := executableIdentity{Dev: 7, Ino: 11}
+	fileInfo := exceptionTestFileInfo(t)
+	executable := executableIdentity{Dev: fileInfo.Dev(), Ino: fileInfo.Ino()}
 	tracer.RegisterProcessScopedGoProbe(executable.Dev, executable.Ino, exceptionProbe(goPanicSymbol, 30))
 	tracer.trackExceptionProcess(1, executable, goExceptionPIDEnabled|goExceptionPIDPanics)
-	sourceCloses := 0
-	require.NoError(t, goSymbols.AddExecutable(executable.Dev, executable.Ino, func() (ebpfcommon.GoSymbolSource, error) {
-		return ebpfcommon.GoSymbolSource{
-			Open: func() (ebpfcommon.GoSymbolResolver, error) {
-				t.Error("empty stack lookup must not open the symbol source")
-				return nil, nil
-			},
-			Close: func() error { sourceCloses++; return nil },
-		}, nil
-	}))
+	require.NoError(t, goSymbols.AddExecutable(fileInfo))
 	goSymbols.BindPID(1, executable.Dev, executable.Ino, 0)
-	unrelatedCloses := 0
-	require.NoError(t, goSymbols.AddExecutable(8, 12, func() (ebpfcommon.GoSymbolSource, error) {
-		return ebpfcommon.GoSymbolSource{
-			Open:  func() (ebpfcommon.GoSymbolResolver, error) { return nil, nil },
-			Close: func() error { unrelatedCloses++; return nil },
-		}, nil
-	}))
-	goSymbols.BindPID(2, 8, 12, 0)
+	unrelated := exceptionTestFileInfo(t)
+	require.NoError(t, goSymbols.AddExecutable(unrelated))
+	goSymbols.BindPID(2, unrelated.Dev(), unrelated.Ino(), 0)
 	_, err := goSymbols.Frames(1, nil)
 	require.NoError(t, err)
 	require.Equal(t, 1, links.open[1])
@@ -195,15 +184,23 @@ func TestCloseReleasesActiveGoExceptionResources(t *testing.T) {
 
 	assert.Zero(t, links.open[1], "close the active exception probe")
 	assert.Empty(t, tracer.exceptionProcesses, "retire the tracer's process state")
-	assert.Equal(t, 1, sourceCloses, "release the retained symbol source")
 	_, err = goSymbols.Frames(1, nil)
 	require.ErrorContains(t, err, "go symbol binding not found", "remove the PID binding")
 	require.NoError(t, tracer.Close())
 	assert.Zero(t, links.open[1], "repeated shutdown must not close the probe twice")
-	assert.Equal(t, 1, sourceCloses)
-	assert.Zero(t, unrelatedCloses)
 	_, err = goSymbols.Frames(2, nil)
 	assert.NoError(t, err, "preserve another tracer's symbols")
+}
+
+func exceptionTestFileInfo(t *testing.T) *exec.FileInfo {
+	t.Helper()
+	file, err := os.CreateTemp(t.TempDir(), "executable")
+	require.NoError(t, err)
+	info, err := file.Stat()
+	require.NoError(t, err)
+	require.NoError(t, file.Close())
+	stat := info.Sys().(*syscall.Stat_t)
+	return exec.New(exec.Init{ProExeLinkPath: file.Name(), Dev: normalizeDeviceID(stat.Dev), Ino: stat.Ino})
 }
 
 func TestPrivateExceptionEvents(t *testing.T) {

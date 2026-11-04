@@ -22,6 +22,8 @@ import (
 // registers every process that captures exceptions.
 var goSymbols = ebpfcommon.NewGoSymbolRegistry()
 
+var goExceptionFrames = goSymbols.Frames
+
 func init() {
 	ebpfcommon.RegisterExceptionPayloadDecoder(
 		ebpfcommon.BpfExceptionRuntimeK_exceptionRuntimeGo,
@@ -59,7 +61,7 @@ func decodeGoErrorEvent(hdr *ebpfcommon.BpfExceptionEventHeaderT, payload []byte
 	event.Message = attributes.SanitizeUTF8(unix.ByteSliceToString(p.Message[:]))
 
 	pcs := p.Pcs[:min(int(p.Frames), len(p.Pcs))]
-	frames, err := goSymbols.Frames(app.PID(hdr.Pid.HostPid), pcs)
+	frames, err := goExceptionFrames(app.PID(hdr.Pid.HostPid), pcs)
 	if err != nil {
 		frames = nil
 	}

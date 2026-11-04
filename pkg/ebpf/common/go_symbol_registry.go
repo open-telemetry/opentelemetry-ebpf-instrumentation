@@ -6,10 +6,12 @@ package ebpfcommon // import "go.opentelemetry.io/obi/pkg/ebpf/common"
 import (
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 )
 
@@ -20,7 +22,7 @@ type goExecutableID struct {
 
 type goSymbolTableEntry struct {
 	mu         sync.Mutex
-	source     GoSymbolSource
+	file       *os.File
 	resolver   GoSymbolResolver
 	loadError  error
 	retryAfter time.Time
@@ -34,13 +36,6 @@ type GoSymbolResolver interface {
 	// SetDontNeed releases memory the resolver can reload on its next lookup.
 	SetDontNeed()
 	Close() error
-}
-
-// GoSymbolSource retains access to an executable across process exit or unlink.
-// Open constructs the resolver on its first use; Close releases the source.
-type GoSymbolSource struct {
-	Open  func() (GoSymbolResolver, error)
-	Close func() error
 }
 
 type goPIDSymbolBinding struct {
@@ -63,33 +58,30 @@ func NewGoSymbolRegistry() *GoSymbolRegistry {
 	}
 }
 
-// AddExecutable shares one lazily opened symbol table among all processes of
-// an executable. openSource is only called when the executable is new.
-func (r *GoSymbolRegistry) AddExecutable(device, inode uint64, openSource func() (GoSymbolSource, error)) error {
+// AddExecutable retains the executable file and loads its symbol table on first use.
+func (r *GoSymbolRegistry) AddExecutable(info *exec.FileInfo) error {
 	if r == nil {
 		return errors.New("go symbol registry is nil")
+	}
+
+	if info == nil {
+		return errors.New("executable info is nil")
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.initMaps()
-	key := goExecutableID{device: device, inode: inode}
+	key := goExecutableID{device: info.Dev(), inode: info.Ino()}
 	if _, ok := r.executables[key]; ok {
 		return nil
 	}
 
-	source, err := openSource()
+	file, err := info.OpenExecutable()
 	if err != nil {
-		return fmt.Errorf("opening Go symbol source: %w", err)
+		return fmt.Errorf("opening Go executable: %w", err)
 	}
-	if source.Open == nil || source.Close == nil {
-		if source.Close != nil {
-			_ = source.Close()
-		}
-		return errors.New("go symbol source requires Open and Close")
-	}
-	r.executables[key] = &goSymbolTableEntry{source: source}
+	r.executables[key] = &goSymbolTableEntry{file: file}
 	return nil
 }
 
@@ -164,10 +156,7 @@ func (r *GoSymbolRegistry) Frames(pid app.PID, pcs []uint64) ([]goexec.GoFrame, 
 		if entry.loadError != nil && time.Now().Before(entry.retryAfter) {
 			return nil, entry.loadError
 		}
-		resolver, err := entry.source.Open()
-		if err == nil && resolver == nil {
-			err = errors.New("go symbol source returned a nil resolver")
-		}
+		resolver, err := goexec.NewGoSymbolResolver(entry.file)
 		if err != nil {
 			if resolver != nil {
 				_ = resolver.Close()
@@ -227,10 +216,13 @@ func (e *goSymbolTableEntry) close() {
 		_ = e.resolver.Close()
 		e.resolver = nil
 	}
-	_ = e.source.Close()
+	if e.file != nil {
+		_ = e.file.Close()
+		e.file = nil
+	}
 }
 
-// Close releases remaining executable sources when the event pipeline stops.
+// Close releases remaining executable files and resolvers when the event pipeline stops.
 func (r *GoSymbolRegistry) Close() error {
 	if r == nil {
 		return nil
