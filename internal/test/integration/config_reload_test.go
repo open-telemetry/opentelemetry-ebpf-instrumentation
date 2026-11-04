@@ -60,6 +60,7 @@ func TestConfigReload(t *testing.T) {
 	}, testTimeout, 250*time.Millisecond)
 	waitForReloadTrace(t, httpClient, "config-reload-a", configReloadServerA, "/initial-selection")
 	assertNoReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/initially-excluded")
+	waitForReloadSampler(t, compose, "server-a", configReloadAlwaysSampled)
 
 	cl, err := client.New(client.FromEnv)
 	require.NoError(t, err)
@@ -97,6 +98,20 @@ func TestConfigReload(t *testing.T) {
 	replaceReloadConfig(t, configPath, onlyB)
 	waitForReloadSampler(t, compose, "server-b", configReloadAlwaysSampled)
 	waitForReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/sampled-again")
+
+	t.Log("turn sampling off while adding a selection")
+	replaceReloadConfig(t, configPath, bytes.Replace(both, []byte("always_on:"), []byte("always_off:"), 1))
+	waitForReloadSelection(t, compose, serverPIDs, "server-a", "server-b")
+	waitForReloadSampler(t, compose, "server-a", configReloadNeverSampled)
+	waitForReloadSampler(t, compose, "server-b", configReloadNeverSampled)
+	assertNoReloadTrace(t, httpClient, "config-reload-a", configReloadServerA, "/added-sampled-out")
+	assertNoReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/retained-sampled-out")
+
+	t.Log("turn sampling on while removing a selection")
+	replaceReloadConfig(t, configPath, onlyB)
+	waitForReloadSelection(t, compose, serverPIDs, "server-b")
+	waitForReloadSampler(t, compose, "server-b", configReloadAlwaysSampled)
+	waitForReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/sampled-after-removal")
 
 	t.Log("reject selection and sampler changes together with a change that needs a restart")
 	incompatible := bytes.Replace(initial, []byte("always_on:"), []byte("always_off:"), 1)
