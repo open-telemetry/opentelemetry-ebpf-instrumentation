@@ -35,7 +35,10 @@ func (c TLSConfig) Validate() error {
 
 // Credentials returns the gRPC transport credentials for the cache service.
 func (c TLSConfig) Credentials() (credentials.TransportCredentials, error) {
-	if c.CertFile == "" && c.KeyFile == "" {
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+	if c.CertFile == "" {
 		return insecure.NewCredentials(), nil
 	}
 	certificate, err := tls.LoadX509KeyPair(c.CertFile, c.KeyFile)
@@ -79,6 +82,9 @@ func (c ClientTLSConfig) Validate() error {
 
 // Credentials returns the gRPC transport credentials for connecting to the cache service.
 func (c ClientTLSConfig) Credentials() (credentials.TransportCredentials, error) {
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
 	if !c.enabled() {
 		return insecure.NewCredentials(), nil
 	}

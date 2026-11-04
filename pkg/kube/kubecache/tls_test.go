@@ -140,4 +140,11 @@ func TestTLSCredentialsInvalidFiles(t *testing.T) {
 
 	_, err = TLSConfig{}.Credentials()
 	require.NoError(t, err, "no files means plaintext")
+
+	_, err = TLSConfig{ClientCAFile: certFile}.Credentials()
+	require.Error(t, err, "a client CA alone must not start a plaintext server")
+	_, err = ClientTLSConfig{ServerName: "k8s-cache"}.Credentials()
+	require.Error(t, err, "a server name alone must not fall back to plaintext")
+	_, err = ClientTLSConfig{KeyFile: keyFile}.Credentials()
+	require.Error(t, err, "a key without a certificate must be rejected")
 }
