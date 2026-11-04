@@ -217,13 +217,12 @@ policy, or another authenticated proxy in front of k8s-cache.
 
 ### Securing the connection with TLS
 
-The k8s-cache can serve gRPC over TLS, and can require client certificates
-(mutual TLS). Plaintext stays the default. On the k8s-cache:
+The k8s-cache serves gRPC over TLS when a certificate and key are set, and
+requires client certificates (mutual TLS) when a client CA is set too.
+Plaintext stays the default. On the k8s-cache:
 
 ```yaml
 env:
-  - name: OTEL_EBPF_K8S_CACHE_TLS_ENABLED
-    value: "true"
   - name: OTEL_EBPF_K8S_CACHE_TLS_CERT_FILE
     value: /etc/k8s-cache/tls/tls.crt
   - name: OTEL_EBPF_K8S_CACHE_TLS_KEY_FILE
@@ -233,8 +232,8 @@ env:
     value: /etc/k8s-cache/tls/ca.crt
 ```
 
-On OBI, the TLS settings are only available in config v2. The cache
-certificate must be valid for the host in `address`:
+On OBI, the TLS settings are only available in config v2. Setting `ca_file`
+turns TLS on, and the cache certificate must be valid for the host in `address`:
 
 ```yaml
 file_format: "1.0"
@@ -247,7 +246,6 @@ extensions:
           metadata_cache:
             address: k8s-cache.default.svc:50055
             tls:
-              enabled: true
               ca_file: /etc/obi/tls/ca.crt
               # Only needed when the k8s-cache requires client certificates.
               cert_file: /etc/obi/tls/client.crt
@@ -286,8 +284,7 @@ Configuration is loaded in this order (later overrides earlier):
 | `informer_send_timeout`  | `OTEL_EBPF_K8S_CACHE_INFORMER_SEND_TIMEOUT`            | `10s`          | Per-message send deadline before a slow subscriber connection is closed.  |
 | `internal_metrics.port`  | `OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PORT` | `0` (disabled) | If non-zero, serves Prometheus metrics.                                   |
 | `internal_metrics.path`  | `OTEL_EBPF_K8S_CACHE_INTERNAL_METRICS_PROMETHEUS_PATH` | `/metrics`     | Metrics endpoint path.                                                    |
-| `tls.enabled`            | `OTEL_EBPF_K8S_CACHE_TLS_ENABLED`                      | `false`        | Serves gRPC over TLS. Requires `tls.cert_file` and `tls.key_file`.        |
-| `tls.cert_file`          | `OTEL_EBPF_K8S_CACHE_TLS_CERT_FILE`                    | (none)         | PEM certificate of the service.                                           |
+| `tls.cert_file`          | `OTEL_EBPF_K8S_CACHE_TLS_CERT_FILE`                    | (none)         | PEM certificate. With `tls.key_file`, serves gRPC over TLS.               |
 | `tls.key_file`           | `OTEL_EBPF_K8S_CACHE_TLS_KEY_FILE`                     | (none)         | PEM private key of the service.                                           |
 | `tls.client_ca_file`     | `OTEL_EBPF_K8S_CACHE_TLS_CLIENT_CA_FILE`               | (none)         | If set, requires client certificates signed by this CA (mutual TLS).      |
 

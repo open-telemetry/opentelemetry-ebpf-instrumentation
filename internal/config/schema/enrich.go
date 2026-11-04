@@ -86,7 +86,6 @@ type KubernetesMetadataCache struct {
 // KubernetesMetadataCacheTLS describes the TLS settings of the Kubernetes
 // metadata cache connection.
 type KubernetesMetadataCacheTLS struct {
-	Enabled  bool   `yaml:"enabled"`
 	CAFile   string `yaml:"ca_file"`
 	CertFile string `yaml:"cert_file"`
 	KeyFile  string `yaml:"key_file"`

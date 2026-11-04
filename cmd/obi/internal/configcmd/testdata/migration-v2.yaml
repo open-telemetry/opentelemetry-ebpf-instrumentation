@@ -433,7 +433,6 @@ extensions:
                             service_name: ""
                             service_namespace: ""
                         tls:
-                            enabled: false
                             ca_file: ""
                             cert_file: ""
                             key_file: ""

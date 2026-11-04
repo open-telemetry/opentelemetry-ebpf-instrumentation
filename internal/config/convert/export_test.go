@@ -192,7 +192,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.Attributes.Kubernetes.DropExternal = true
 	cfg.Attributes.Kubernetes.DisableInformers = []string{"node", "service"}
 	cfg.Attributes.Kubernetes.MetaCacheAddress = "kube-cache:8999"
-	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig{Enabled: true, CAFile: "/tls/ca.crt"}
+	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig{CAFile: "/tls/ca.crt"}
 	cfg.Attributes.Kubernetes.MetaRestrictLocalNode = true
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName = "app.kubernetes.io/name"
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace = "app.kubernetes.io/part-of"
@@ -428,7 +428,6 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, schema.ResourceLabels(cfg.Attributes.Kubernetes.ResourceLabels), value(t, ext.Enrich, "enrichers", "kubernetes", "resource_labels"))
 	require.Equal(t, "kube-cache:8999", value(t, ext.Enrich, "enrichers", "kubernetes", "metadata_cache", "address"))
 	require.Equal(t, true, value(t, ext.Enrich, "enrichers", "kubernetes", "metadata_cache", "restrict_local_node"))
-	require.Equal(t, true, value(t, ext.Enrich, "enrichers", "kubernetes", "metadata_cache", "tls", "enabled"))
 	require.Equal(t, "/tls/ca.crt", value(t, ext.Enrich, "enrichers", "kubernetes", "metadata_cache", "tls", "ca_file"))
 	require.Equal(t, "app.kubernetes.io/name", value(t, ext.Enrich, "enrichers", "kubernetes", "metadata_cache", "source_labels", "service_name"))
 	require.Equal(t, "{{ .Meta.Name }}", value(t, ext.Enrich, "enrichers", "kubernetes", "service_name_template"))

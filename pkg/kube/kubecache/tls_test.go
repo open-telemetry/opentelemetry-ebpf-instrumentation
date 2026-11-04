@@ -22,8 +22,8 @@ func TestTLSHandshake(t *testing.T) {
 	other := testutil.NewTestCA(t, nil)
 	untrustedCert := testutil.NewLocalhostCertificate(t, &other)
 
-	serverTLS := TLSConfig{Enabled: true, CertFile: serverCert.CertFile, KeyFile: serverCert.KeyFile}
-	serverMTLS := TLSConfig{Enabled: true, CertFile: serverCert.CertFile, KeyFile: serverCert.KeyFile, ClientCAFile: ca.CertFile}
+	serverTLS := TLSConfig{CertFile: serverCert.CertFile, KeyFile: serverCert.KeyFile}
+	serverMTLS := TLSConfig{CertFile: serverCert.CertFile, KeyFile: serverCert.KeyFile, ClientCAFile: ca.CertFile}
 
 	tests := []struct {
 		name    string
@@ -32,19 +32,19 @@ func TestTLSHandshake(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "plaintext", server: TLSConfig{}, client: ClientTLSConfig{}},
-		{name: "tls", server: serverTLS, client: ClientTLSConfig{Enabled: true, CAFile: ca.CertFile}},
-		{name: "tls with untrusted server", server: serverTLS, client: ClientTLSConfig{Enabled: true, CAFile: other.CertFile}, wantErr: true},
+		{name: "tls", server: serverTLS, client: ClientTLSConfig{CAFile: ca.CertFile}},
+		{name: "tls with untrusted server", server: serverTLS, client: ClientTLSConfig{CAFile: other.CertFile}, wantErr: true},
 		{name: "plaintext client to tls server", server: serverTLS, client: ClientTLSConfig{}, wantErr: true},
 		{
 			name:   "mtls",
 			server: serverMTLS,
-			client: ClientTLSConfig{Enabled: true, CAFile: ca.CertFile, CertFile: clientCert.CertFile, KeyFile: clientCert.KeyFile},
+			client: ClientTLSConfig{CAFile: ca.CertFile, CertFile: clientCert.CertFile, KeyFile: clientCert.KeyFile},
 		},
-		{name: "mtls without client certificate", server: serverMTLS, client: ClientTLSConfig{Enabled: true, CAFile: ca.CertFile}, wantErr: true},
+		{name: "mtls without client certificate", server: serverMTLS, client: ClientTLSConfig{CAFile: ca.CertFile}, wantErr: true},
 		{
 			name:    "mtls with untrusted client certificate",
 			server:  serverMTLS,
-			client:  ClientTLSConfig{Enabled: true, CAFile: ca.CertFile, CertFile: untrustedCert.CertFile, KeyFile: untrustedCert.KeyFile},
+			client:  ClientTLSConfig{CAFile: ca.CertFile, CertFile: untrustedCert.CertFile, KeyFile: untrustedCert.KeyFile},
 			wantErr: true,
 		},
 	}
@@ -77,30 +77,32 @@ func TestTLSHandshake(t *testing.T) {
 
 func TestTLSConfigValidate(t *testing.T) {
 	require.NoError(t, TLSConfig{}.Validate())
-	require.NoError(t, TLSConfig{CertFile: "ignored"}.Validate())
-	require.NoError(t, TLSConfig{Enabled: true, CertFile: "cert.pem", KeyFile: "key.pem"}.Validate())
-	require.Error(t, TLSConfig{Enabled: true}.Validate())
-	require.Error(t, TLSConfig{Enabled: true, CertFile: "cert.pem"}.Validate())
+	require.NoError(t, TLSConfig{CertFile: "cert.pem", KeyFile: "key.pem"}.Validate())
+	require.NoError(t, TLSConfig{CertFile: "cert.pem", KeyFile: "key.pem", ClientCAFile: "ca.pem"}.Validate())
+	require.Error(t, TLSConfig{CertFile: "cert.pem"}.Validate())
+	require.Error(t, TLSConfig{KeyFile: "key.pem"}.Validate())
+	require.Error(t, TLSConfig{ClientCAFile: "ca.pem"}.Validate())
 
-	require.NoError(t, ClientTLSConfig{Enabled: true}.Validate())
-	require.NoError(t, ClientTLSConfig{Enabled: true, CertFile: "cert.pem", KeyFile: "key.pem"}.Validate())
-	require.Error(t, ClientTLSConfig{Enabled: true, CertFile: "cert.pem"}.Validate())
-	require.Error(t, ClientTLSConfig{Enabled: true, KeyFile: "key.pem"}.Validate())
+	require.NoError(t, ClientTLSConfig{}.Validate())
+	require.NoError(t, ClientTLSConfig{CAFile: "ca.pem"}.Validate())
+	require.NoError(t, ClientTLSConfig{CertFile: "cert.pem", KeyFile: "key.pem"}.Validate())
+	require.Error(t, ClientTLSConfig{CertFile: "cert.pem"}.Validate())
+	require.Error(t, ClientTLSConfig{KeyFile: "key.pem"}.Validate())
 }
 
 func TestTLSCredentialsInvalidFiles(t *testing.T) {
 	ca := testutil.NewTestCA(t, nil)
 	certFile, keyFile := ca.CertFile, ca.KeyFile
 
-	_, err := TLSConfig{Enabled: true, CertFile: "missing.pem", KeyFile: keyFile}.Credentials()
+	_, err := TLSConfig{CertFile: "missing.pem", KeyFile: keyFile}.Credentials()
 	require.Error(t, err)
-	_, err = TLSConfig{Enabled: true, CertFile: certFile, KeyFile: keyFile, ClientCAFile: keyFile}.Credentials()
+	_, err = TLSConfig{CertFile: certFile, KeyFile: keyFile, ClientCAFile: keyFile}.Credentials()
 	require.ErrorContains(t, err, "contains no certificates")
-	_, err = ClientTLSConfig{Enabled: true, CAFile: "missing.pem"}.Credentials()
+	_, err = ClientTLSConfig{CAFile: "missing.pem"}.Credentials()
 	require.Error(t, err)
-	_, err = ClientTLSConfig{Enabled: true, CertFile: certFile, KeyFile: "missing.pem"}.Credentials()
+	_, err = ClientTLSConfig{CertFile: certFile, KeyFile: "missing.pem"}.Credentials()
 	require.Error(t, err)
 
-	_, err = TLSConfig{CertFile: "missing.pem"}.Credentials()
-	require.NoError(t, err, "files are ignored while TLS is disabled")
+	_, err = TLSConfig{}.Credentials()
+	require.NoError(t, err, "no files means plaintext")
 }

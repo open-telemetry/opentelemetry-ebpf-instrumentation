@@ -47,7 +47,7 @@ func TestV2ToRuntimeEnrichAttributesAndKubernetesRoundTrip(t *testing.T) {
 	cfg.Attributes.Kubernetes.DisableInformers = []string{"node", "service"}
 	cfg.Attributes.Kubernetes.MetaCacheAddress = "kube-cache:8999"
 	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig{
-		Enabled: true, CAFile: "/tls/ca.crt", CertFile: "/tls/client.crt", KeyFile: "/tls/client.key",
+		CAFile: "/tls/ca.crt", CertFile: "/tls/client.crt", KeyFile: "/tls/client.key",
 	}
 	cfg.Attributes.Kubernetes.MetaRestrictLocalNode = true
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName = "app.kubernetes.io/name"
@@ -95,13 +95,13 @@ func TestV2ToRuntimeKubernetesMetadataCacheTLSOverride(t *testing.T) {
 		Enrich: &schema.Enrich{Enrichers: schema.Enrichers{Kubernetes: schema.KubernetesEnricher{
 			MetadataCache: schema.KubernetesMetadataCache{
 				Address: "k8s-cache:50055",
-				TLS:     schema.KubernetesMetadataCacheTLS{Enabled: true, CAFile: "/tls/ca.crt"},
+				TLS:     schema.KubernetesMetadataCacheTLS{CAFile: "/tls/ca.crt"},
 			},
 		}}},
 	})
 	require.NoError(t, err)
 	require.Equal(t, "k8s-cache:50055", got.Attributes.Kubernetes.MetaCacheAddress)
-	require.Equal(t, kubecache.ClientTLSConfig{Enabled: true, CAFile: "/tls/ca.crt"}, got.Attributes.Kubernetes.MetaCacheTLS)
+	require.Equal(t, kubecache.ClientTLSConfig{CAFile: "/tls/ca.crt"}, got.Attributes.Kubernetes.MetaCacheTLS)
 }
 
 func TestV2ToRuntimeCloudEnricherRoundTrip(t *testing.T) {

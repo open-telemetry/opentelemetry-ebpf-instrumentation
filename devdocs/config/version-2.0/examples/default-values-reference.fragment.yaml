@@ -603,9 +603,8 @@ extensions:
             source_labels:
               service_name: ""
               service_namespace: ""
-            # TLS to the k8s-cache service; cert_file and key_file are only needed for mutual TLS.
+            # Setting ca_file turns on TLS to the k8s-cache; cert_file and key_file are only for mutual TLS.
             tls:
-              enabled: false
               ca_file: ""
               cert_file: ""
               key_file: ""

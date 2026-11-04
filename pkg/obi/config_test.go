@@ -1116,7 +1116,7 @@ network:
   enable: true
 `))
 	require.NoError(t, err)
-	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig{Enabled: true, CAFile: "ca.pem"}
+	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig{CAFile: "ca.pem"}
 	require.NoError(t, cfg.Validate())
 
 	cfg.Attributes.Kubernetes.MetaCacheTLS.CertFile = "client.pem"

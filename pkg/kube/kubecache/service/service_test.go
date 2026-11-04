@@ -156,7 +156,7 @@ func TestRunServesMutualTLS(t *testing.T) {
 			Port:           port,
 			MaxConnections: 1,
 			SendTimeout:    10 * time.Millisecond,
-			TLS:            kubecache.TLSConfig{Enabled: true, CertFile: serverCert.CertFile, KeyFile: serverCert.KeyFile, ClientCAFile: ca.CertFile},
+			TLS:            kubecache.TLSConfig{CertFile: serverCert.CertFile, KeyFile: serverCert.KeyFile, ClientCAFile: ca.CertFile},
 		},
 		listener: listener,
 	}
@@ -189,15 +189,15 @@ func TestRunServesMutualTLS(t *testing.T) {
 	}
 
 	require.Eventually(t, func() bool {
-		return firstEvent(kubecache.ClientTLSConfig{Enabled: true, CAFile: ca.CertFile, CertFile: clientCert.CertFile, KeyFile: clientCert.KeyFile}) == nil
+		return firstEvent(kubecache.ClientTLSConfig{CAFile: ca.CertFile, CertFile: clientCert.CertFile, KeyFile: clientCert.KeyFile}) == nil
 	}, 3*time.Second, 25*time.Millisecond, "client with a trusted certificate was never served")
-	require.Error(t, firstEvent(kubecache.ClientTLSConfig{Enabled: true, CAFile: ca.CertFile}))
+	require.Error(t, firstEvent(kubecache.ClientTLSConfig{CAFile: ca.CertFile}))
 	require.Error(t, firstEvent(kubecache.ClientTLSConfig{}))
 }
 
 func TestRunFailsOnUnreadableCertificate(t *testing.T) {
 	ic := &InformersCache{Config: &kubecache.Config{
-		TLS: kubecache.TLSConfig{Enabled: true, CertFile: "missing.pem", KeyFile: "missing.pem"},
+		TLS: kubecache.TLSConfig{CertFile: "missing.pem", KeyFile: "missing.pem"},
 	}}
 	require.ErrorContains(t, ic.Run(t.Context()), "configuring TLS")
 }

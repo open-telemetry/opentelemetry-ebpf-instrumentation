@@ -14,26 +14,28 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// TLSConfig enables TLS, and optionally mutual TLS, on the cache service.
+// TLSConfig turns on TLS when CertFile and KeyFile are set, and mutual TLS when ClientCAFile is set too.
 type TLSConfig struct {
-	Enabled bool `yaml:"enabled" env:"ENABLED"`
 	// CertFile and KeyFile are the PEM-encoded certificate and private key of the service
 	CertFile string `yaml:"cert_file" env:"CERT_FILE"`
 	KeyFile  string `yaml:"key_file" env:"KEY_FILE"`
-	// ClientCAFile, when set, makes the service require client certificates signed by this CA
+	// ClientCAFile makes the service require client certificates signed by this CA
 	ClientCAFile string `yaml:"client_ca_file" env:"CLIENT_CA_FILE"`
 }
 
 func (c TLSConfig) Validate() error {
-	if c.Enabled && (c.CertFile == "" || c.KeyFile == "") {
-		return errors.New("tls.cert_file and tls.key_file are required when tls is enabled")
+	if (c.CertFile == "") != (c.KeyFile == "") {
+		return errors.New("tls.cert_file and tls.key_file must be set together")
+	}
+	if c.ClientCAFile != "" && c.CertFile == "" {
+		return errors.New("tls.client_ca_file requires tls.cert_file and tls.key_file")
 	}
 	return nil
 }
 
 // Credentials returns the gRPC transport credentials for the cache service.
 func (c TLSConfig) Credentials() (credentials.TransportCredentials, error) {
-	if !c.Enabled {
+	if c.CertFile == "" && c.KeyFile == "" {
 		return insecure.NewCredentials(), nil
 	}
 	certificate, err := tls.LoadX509KeyPair(c.CertFile, c.KeyFile)
@@ -50,18 +52,21 @@ func (c TLSConfig) Credentials() (credentials.TransportCredentials, error) {
 	return credentials.NewTLS(cfg), nil
 }
 
-// ClientTLSConfig configures how OBI connects to a cache service with TLS enabled.
+// ClientTLSConfig makes OBI use TLS for the cache service when CAFile or a client certificate is set.
 type ClientTLSConfig struct {
-	Enabled bool
-	// CAFile verifies the cache service certificate. The system CAs are used when empty.
+	// CAFile verifies the cache service certificate
 	CAFile string
 	// CertFile and KeyFile are the client certificate for a cache service that requires one
 	CertFile string
 	KeyFile  string
 }
 
+func (c ClientTLSConfig) enabled() bool {
+	return c.CAFile != "" || c.CertFile != "" || c.KeyFile != ""
+}
+
 func (c ClientTLSConfig) Validate() error {
-	if c.Enabled && (c.CertFile == "") != (c.KeyFile == "") {
+	if (c.CertFile == "") != (c.KeyFile == "") {
 		return errors.New("kubernetes metadata_cache tls cert_file and key_file must be set together")
 	}
 	return nil
@@ -69,7 +74,7 @@ func (c ClientTLSConfig) Validate() error {
 
 // Credentials returns the gRPC transport credentials for connecting to the cache service.
 func (c ClientTLSConfig) Credentials() (credentials.TransportCredentials, error) {
-	if !c.Enabled {
+	if !c.enabled() {
 		return insecure.NewCredentials(), nil
 	}
 	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
