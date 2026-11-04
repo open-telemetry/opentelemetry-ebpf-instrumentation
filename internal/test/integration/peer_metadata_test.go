@@ -94,6 +94,43 @@ func TestSuite_PeerMetadataHTTPMetricsDisabled(t *testing.T) {
 	})
 }
 
+func TestSuite_PeerMetadataCentral(t *testing.T) {
+	require.NoError(t, os.MkdirAll(pathOutput, 0o755))
+	compose, err := docker.ComposeSuite("docker-compose-peer-metadata.yml",
+		path.Join(pathOutput, "test-suite-peer-metadata-central.log"))
+	require.NoError(t, err)
+	compose.Env = append(compose.Env,
+		"COMPOSE_PROFILES=central",
+		"PEER_METADATA_SERVER_CONFIG=obi-config-peer-metadata-server-central-v2.yml",
+		"PEER_METADATA_CLIENT_CONFIG=obi-config-peer-metadata-client-central-v2.yml")
+	t.Cleanup(func() { require.NoError(t, compose.Close()) })
+	require.NoError(t, compose.Up())
+
+	t.Run("metadata service stores the published inventory", func(t *testing.T) {
+		testPeerMetadataCentralInventory(t, compose)
+	})
+	t.Run("traces resolve service identities", func(t *testing.T) {
+		testPeerMetadataTraces(t, "central", "frontend.frontend-ns")
+	})
+}
+
+// testPeerMetadataCentralInventory looks up the server host in the metadata service.
+func testPeerMetadataCentralInventory(t *testing.T, compose *docker.Compose) {
+	backend := peer.Service{Name: "backend", Namespace: "backend-ns", ServiceGraph: true}
+	idle := peer.Service{Name: "idle-backend", Namespace: "backend-ns"}
+	request, err := json.Marshal(map[string]string{"address": peerMetadataDestination(t).IP})
+	require.NoError(t, err)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		data := peerMetadataComposeOutput(ct, compose, "run", "--rm", "--no-deps", "server-grpcurl",
+			"-plaintext", "-import-path", "/proto", "-proto", "metadata.proto", "-d", string(request),
+			"metadata-service:8999", "metadata.MetadataService/Lookup")
+		var response metadatapb.LookupResponse
+		require.NoError(ct, protojson.Unmarshal(data, &response))
+		assert.Equal(ct, "peer-server-host", response.GetSnapshot().GetHostname())
+		assert.ElementsMatch(ct, []peer.Service{backend, idle}, peerMetadataServices(response.GetSnapshot().GetServices()))
+	}, testTimeout, time.Second)
+}
+
 func testPeerMetadataInventory(t *testing.T) {
 	backend := peer.Service{Name: "backend", Namespace: "backend-ns", ServiceGraph: true}
 	idle := peer.Service{Name: "idle-backend", Namespace: "backend-ns"}

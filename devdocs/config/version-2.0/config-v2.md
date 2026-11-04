@@ -1217,6 +1217,7 @@ standardized schema location is available.
 ## Peer metadata exchange
 
 The optional `extensions.obi.enrich.enrichers.peer_metadata` enricher exchanges
-service identities between agents on directly routable hosts outside Kubernetes.
-See [peer metadata](../../peer-metadata.md) for configuration, resolution behavior,
-and the HTTP protocol.
+service identities between agents on directly routable hosts outside Kubernetes,
+either directly or through a central metadata service. See
+[peer metadata](../../peer-metadata.md) for configuration, resolution behavior,
+and the gRPC protocol.
