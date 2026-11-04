@@ -434,6 +434,10 @@ func (p *Tracer) writePIDSampler(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	}
 }
 
+func (p *Tracer) UpdatePIDSampler(pid app.PID, ns uint32, fi *exec.FileInfo) {
+	p.writePIDSampler(pid, ns, fi)
+}
+
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.goAutoSDKTargetsMu.Lock()
 	p.disableGoAutoSDKTarget(pid)
