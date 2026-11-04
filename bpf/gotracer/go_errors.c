@@ -83,12 +83,7 @@ static __always_inline void go_exception_read_stack(struct pt_regs *ctx,
     const long bytes = bpf_get_stack(ctx, payload->pcs, sizeof(payload->pcs), BPF_F_USER_STACK);
     u16 frames = bytes > 0 ? bytes / sizeof(payload->pcs[0]) : 0;
 
-    u64 caller_pc = 0;
-#ifdef __TARGET_ARCH_x86
-    bpf_probe_read_user(&caller_pc, sizeof(caller_pc), (const void *)PT_REGS_SP(ctx));
-#elif defined(__TARGET_ARCH_arm64)
-    caller_pc = PT_REGS_RET(ctx);
-#endif
+    const u64 caller_pc = user_caller_pc(ctx);
     if (caller_pc) {
         // Recover the caller missed by the frame walk, even if it returned no frames.
         payload->pcs[0] = caller_pc;
