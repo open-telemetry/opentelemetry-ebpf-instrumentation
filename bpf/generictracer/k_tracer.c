@@ -818,6 +818,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close_finish, struct sock *sk) {
         info.pid = pid_from_pid_tgid(id);
         terminate_http_request_if_needed(&info, &current_key);
         finish_ongoing_tcp_req(&info);
+        bpf_map_delete_elem(&ongoing_http2_connections, &info);
         bpf_map_delete_elem(&connection_tracker, &info.conn);
     }
 
