@@ -249,3 +249,15 @@ func isLauncherForSharedRuntime(t *testing.T, path string) bool {
 
 	return false
 }
+
+func TestPopulateRangeIsBestEffort(t *testing.T) {
+	page := os.Getpagesize()
+	data := make([]byte, 4*page)
+
+	assert.NotPanics(t, func() {
+		populateRange(data, 0, 0)
+		populateRange(data, uint64(page)+7, uint64(page))
+		populateRange(data, uint64(len(data)), 1)
+		populateRange(data, 1, ^uint64(0))
+	})
+}

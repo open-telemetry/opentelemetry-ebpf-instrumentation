@@ -787,9 +787,16 @@ func (i *instrumenter) instrumentUprobeModule(
 ) ([]io.Closer, bool) {
 	var moduleClosers []io.Closer
 	instrumented := false
-	for _, probes := range module.probes {
-		if err := gatherOffsets(module.instrPath, probes, log); err != nil {
-			log.Debug("error gathering offsets", "error", err)
+
+	offsetErrs, err := gatherOffsets(module.instrPath, module.probes, log)
+	if err != nil {
+		log.Debug("error gathering offsets", "error", err)
+		return nil, false
+	}
+
+	for idx, probes := range module.probes {
+		if offsetErrs[idx] != nil {
+			log.Debug("error gathering offsets", "error", offsetErrs[idx])
 			continue
 		}
 
@@ -1234,25 +1241,55 @@ func processMaps(pid app.PID) ([]*procfs.ProcMap, error) {
 	return procs.FindLibMaps(pid)
 }
 
-func gatherOffsets(instrPath string, probes map[string][]*ebpfcommon.ProbeDesc, log *slog.Logger) error {
+// gatherOffsets resolves the offsets of every probe map with a single scan of
+// the executable's symbol tables. The returned slice holds the outcome of each
+// probe map, so a failure in one map does not affect the others. The error
+// return is set when the executable can't be read at all.
+func gatherOffsets(
+	instrPath string,
+	probeMaps []map[string][]*ebpfcommon.ProbeDesc,
+	log *slog.Logger,
+) ([]error, error) {
 	elfFile, err := elf.Open(instrPath)
 	if err != nil {
-		return fmt.Errorf("failed to open elf file %s: %w", instrPath, err)
+		return nil, fmt.Errorf("failed to open elf file %s: %w", instrPath, err)
 	}
 
 	defer elfFile.Close()
 
-	return gatherOffsetsImpl(elfFile, probes, instrPath, log)
+	return gatherOffsetsImpl(elfFile, probeMaps, instrPath, log)
 }
 
-func gatherOffsetsImpl(elfFile *elf.File, probes map[string][]*ebpfcommon.ProbeDesc,
-	instrPath string, log *slog.Logger,
-) error {
-	syms, err := procs.FindExeSymbols(elfFile, slices.Collect(maps.Keys(probes)))
-	if err != nil {
-		return fmt.Errorf("failed to lookup symbols for %s: %w", instrPath, err)
+func gatherOffsetsImpl(
+	elfFile *elf.File,
+	probeMaps []map[string][]*ebpfcommon.ProbeDesc,
+	instrPath string,
+	log *slog.Logger,
+) ([]error, error) {
+	var symbolNames []string
+	for _, probes := range probeMaps {
+		symbolNames = slices.AppendSeq(symbolNames, maps.Keys(probes))
 	}
 
+	syms, err := procs.FindExeSymbols(elfFile, symbolNames)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lookup symbols for %s: %w", instrPath, err)
+	}
+
+	errs := make([]error, len(probeMaps))
+	for i, probes := range probeMaps {
+		errs[i] = resolveProbeOffsets(probes, syms, instrPath, log)
+	}
+
+	return errs, nil
+}
+
+func resolveProbeOffsets(
+	probes map[string][]*ebpfcommon.ProbeDesc,
+	syms map[string]procs.Sym,
+	instrPath string,
+	log *slog.Logger,
+) error {
 	for symbolName, probeArray := range probes {
 		for _, probe := range probeArray {
 			sym, ok := syms[symbolName]
