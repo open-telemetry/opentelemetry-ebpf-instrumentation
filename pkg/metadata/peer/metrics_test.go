@@ -5,11 +5,8 @@ package peer_test
 
 import (
 	"context"
-	"encoding/json"
 	"net"
-	"net/http"
 	"os"
-	"strconv"
 	"testing"
 	"time"
 
@@ -22,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/internal/procs"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/metadata/peer"
 )
 
@@ -68,19 +66,16 @@ func TestInventoryTracksDynamicMetricsSelection(t *testing.T) {
 				DynamicSelectorPID: test.owner, Features: export.FeatureGraph,
 			}})
 			events <- exec.ProcessEvent{Type: exec.ProcessEventCreated, File: file}
-			client := &http.Client{Timeout: time.Second}
-			t.Cleanup(client.CloseIdleConnections)
-			endpoint := "http://127.0.0.1:" + strconv.Itoa(cfg.Port) + peer.MetadataPath
 			waitForParticipation := func(enabled bool) {
 				t.Helper()
-				expected := peer.Service{Name: "api", Namespace: "shop", ServiceGraph: enabled}
 				require.EventuallyWithT(t, func(ct *assert.CollectT) {
-					resp, err := client.Get(endpoint)
+					snapshot, err := testutil.PeerMetadataSnapshot(t.Context(), cfg.Port)
 					require.NoError(ct, err)
-					defer resp.Body.Close()
-					var snapshot peer.Snapshot
-					require.NoError(ct, json.NewDecoder(resp.Body).Decode(&snapshot))
-					assert.Equal(ct, []peer.Service{expected}, snapshot.Services)
+					require.Len(ct, snapshot.GetServices(), 1)
+					service := snapshot.GetServices()[0]
+					assert.Equal(ct, "api", service.GetName())
+					assert.Equal(ct, "shop", service.GetNamespace())
+					assert.Equal(ct, enabled, service.GetServiceGraph())
 				}, time.Second, 20*time.Millisecond)
 			}
 			waitForParticipation(false)

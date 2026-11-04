@@ -161,3 +161,111 @@ var MetadataService_ServiceDesc = grpc.ServiceDesc{
 	Streams:  []grpc.StreamDesc{},
 	Metadata: "proto/metadata.proto",
 }
+
+const (
+	PeerMetadataService_GetSnapshot_FullMethodName = "/metadata.PeerMetadataService/GetSnapshot"
+)
+
+// PeerMetadataServiceClient is the client API for PeerMetadataService service.
+//
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// PeerMetadataService serves an agent's own metadata to the other agents in peer mode.
+// Caller observations are limited to the requester's source address.
+type PeerMetadataServiceClient interface {
+	GetSnapshot(ctx context.Context, in *GetSnapshotRequest, opts ...grpc.CallOption) (*Snapshot, error)
+}
+
+type peerMetadataServiceClient struct {
+	cc grpc.ClientConnInterface
+}
+
+func NewPeerMetadataServiceClient(cc grpc.ClientConnInterface) PeerMetadataServiceClient {
+	return &peerMetadataServiceClient{cc}
+}
+
+func (c *peerMetadataServiceClient) GetSnapshot(ctx context.Context, in *GetSnapshotRequest, opts ...grpc.CallOption) (*Snapshot, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(Snapshot)
+	err := c.cc.Invoke(ctx, PeerMetadataService_GetSnapshot_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// PeerMetadataServiceServer is the server API for PeerMetadataService service.
+// All implementations must embed UnimplementedPeerMetadataServiceServer
+// for forward compatibility.
+//
+// PeerMetadataService serves an agent's own metadata to the other agents in peer mode.
+// Caller observations are limited to the requester's source address.
+type PeerMetadataServiceServer interface {
+	GetSnapshot(context.Context, *GetSnapshotRequest) (*Snapshot, error)
+	mustEmbedUnimplementedPeerMetadataServiceServer()
+}
+
+// UnimplementedPeerMetadataServiceServer must be embedded to have
+// forward compatible implementations.
+//
+// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// pointer dereference when methods are called.
+type UnimplementedPeerMetadataServiceServer struct{}
+
+func (UnimplementedPeerMetadataServiceServer) GetSnapshot(context.Context, *GetSnapshotRequest) (*Snapshot, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetSnapshot not implemented")
+}
+func (UnimplementedPeerMetadataServiceServer) mustEmbedUnimplementedPeerMetadataServiceServer() {}
+func (UnimplementedPeerMetadataServiceServer) testEmbeddedByValue()                             {}
+
+// UnsafePeerMetadataServiceServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to PeerMetadataServiceServer will
+// result in compilation errors.
+type UnsafePeerMetadataServiceServer interface {
+	mustEmbedUnimplementedPeerMetadataServiceServer()
+}
+
+func RegisterPeerMetadataServiceServer(s grpc.ServiceRegistrar, srv PeerMetadataServiceServer) {
+	// If the following call panics, it indicates UnimplementedPeerMetadataServiceServer was
+	// embedded by pointer and is nil.  This will cause panics if an
+	// unimplemented method is ever invoked, so we test this at initialization
+	// time to prevent it from happening at runtime later due to I/O.
+	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
+		t.testEmbeddedByValue()
+	}
+	s.RegisterService(&PeerMetadataService_ServiceDesc, srv)
+}
+
+func _PeerMetadataService_GetSnapshot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetSnapshotRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(PeerMetadataServiceServer).GetSnapshot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: PeerMetadataService_GetSnapshot_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(PeerMetadataServiceServer).GetSnapshot(ctx, req.(*GetSnapshotRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+// PeerMetadataService_ServiceDesc is the grpc.ServiceDesc for PeerMetadataService service.
+// It's only intended for direct use with grpc.RegisterService,
+// and not to be introspected or modified (even as a copy)
+var PeerMetadataService_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "metadata.PeerMetadataService",
+	HandlerType: (*PeerMetadataServiceServer)(nil),
+	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "GetSnapshot",
+			Handler:    _PeerMetadataService_GetSnapshot_Handler,
+		},
+	},
+	Streams:  []grpc.StreamDesc{},
+	Metadata: "proto/metadata.proto",
+}

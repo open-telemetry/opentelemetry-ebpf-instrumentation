@@ -38,7 +38,6 @@ func snapshotToProto(snapshot *Snapshot) *metadatapb.Snapshot {
 // snapshotFromProto converts a message into a Snapshot that still needs validateSnapshot.
 func snapshotFromProto(message *metadatapb.Snapshot) Snapshot {
 	snapshot := Snapshot{
-		Version:               ProtocolVersion,
 		Hostname:              message.GetHostname(),
 		Callers:               callersFromProto(message.GetCallers()),
 		KnownCallers:          callersFromProto(message.GetKnownCallers()),
