@@ -118,10 +118,11 @@ func TestSuite_PeerMetadataCentral(t *testing.T) {
 func testPeerMetadataCentralInventory(t *testing.T, compose *docker.Compose) {
 	backend := peer.Service{Name: "backend", Namespace: "backend-ns", ServiceGraph: true}
 	idle := peer.Service{Name: "idle-backend", Namespace: "backend-ns"}
-	request, err := json.Marshal(map[string]string{"address": peerMetadataDestination(t).IP})
-	require.NoError(t, err)
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		data := peerMetadataComposeOutput(ct, compose, "run", "--rm", "--no-deps", "server-grpcurl",
+		// The workload may not accept connections yet when the suite starts.
+		request, err := json.Marshal(map[string]string{"address": peerMetadataDestination(ct).IP})
+		require.NoError(ct, err)
+		data :=peerMetadataComposeOutput(ct, compose, "run", "--rm", "--no-deps", "server-grpcurl",
 			"-plaintext", "-import-path", "/proto", "-proto", "metadata.proto", "-d", string(request),
 			"metadata-service:8999", "metadata.MetadataService/Lookup")
 		var response metadatapb.LookupResponse
