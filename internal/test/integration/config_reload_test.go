@@ -29,6 +29,9 @@ const (
           match:
             process:
               open_ports: "18060"`
+	// pid_samplers thresholds (pkg/ebpf/common/pid_sampler.go)
+	configReloadNeverSampled  uint64 = 0
+	configReloadAlwaysSampled uint64 = 1 << 63
 )
 
 func TestConfigReload(t *testing.T) {
@@ -85,10 +88,22 @@ func TestConfigReload(t *testing.T) {
 	waitForReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/retained-after-removal")
 	assertNoReloadTrace(t, httpClient, "config-reload-a", configReloadServerA, "/removed-selection")
 
-	t.Log("reject a sampler change together with a selection change")
+	t.Log("apply a sampler change to the retained selection")
+	replaceReloadConfig(t, configPath, bytes.Replace(onlyB, []byte("always_on:"), []byte("always_off:"), 1))
+	waitForReloadSampler(t, compose, "server-b", configReloadNeverSampled)
+	assertNoReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/sampled-out")
+
+	t.Log("restore the sampler")
+	replaceReloadConfig(t, configPath, onlyB)
+	waitForReloadSampler(t, compose, "server-b", configReloadAlwaysSampled)
+	waitForReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/sampled-again")
+
+	t.Log("reject selection and sampler changes together with a change that needs a restart")
 	incompatible := bytes.Replace(initial, []byte("always_on:"), []byte("always_off:"), 1)
+	incompatible = bytes.Replace(incompatible, []byte("log_level: info"), []byte("log_level: debug"), 1)
 	replaceReloadConfig(t, configPath, incompatible)
 	waitForReloadRejection(t, compose)
+	waitForReloadSampler(t, compose, "server-b", configReloadAlwaysSampled)
 	waitForReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/after-rejection")
 	assertNoReloadTrace(t, httpClient, "config-reload-a", configReloadServerA, "/rejected-selection")
 
@@ -113,12 +128,17 @@ func replaceReloadConfig(t *testing.T, path string, data []byte) {
 	require.NoError(t, os.Rename(replacement, path))
 }
 
+func reloadServerNamespace(t *testing.T, compose *docker.Compose, service string) string {
+	t.Helper()
+	namespace, err := compose.ExecOutput(service, "python", "-c", "import os; print(os.stat('/proc/1/ns/pid').st_ino)")
+	require.NoError(t, err, namespace)
+	return namespace
+}
+
 func reloadServerPID(t *testing.T, compose *docker.Compose, service string) uint64 {
 	t.Helper()
 	// Each server runs as PID 1; OBI's filters use the host PID namespace.
-	namespace, err := compose.ExecOutput(service, "python", "-c", "import os; print(os.stat('/proc/1/ns/pid').st_ino)")
-	require.NoError(t, err, namespace)
-	pids := obiTestToolValues(t, compose, "host-pid", namespace, "1")
+	pids := obiTestToolValues(t, compose, "host-pid", reloadServerNamespace(t, compose, service), "1")
 	require.Len(t, pids, 1, service)
 	for pid := range pids {
 		return pid
@@ -135,6 +155,16 @@ func waitForReloadSelection(t *testing.T, compose *docker.Compose, serverPIDs ma
 		for service, pid := range serverPIDs {
 			assert.Equal(ct, slices.Contains(selected, service), pids[pid], "instrumentation state for %s (PID %d)", service, pid)
 		}
+	}, testTimeout, 250*time.Millisecond)
+}
+
+// Waits for the eBPF sampler of the server, which runs as PID 1 of its own namespace.
+func waitForReloadSampler(t *testing.T, compose *docker.Compose, service string, threshold uint64) {
+	t.Helper()
+	namespace := reloadServerNamespace(t, compose, service)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		thresholds := obiTestToolValues(ct, compose, "pid-sampler", namespace, "1")
+		assert.Equal(ct, map[uint64]bool{threshold: true}, thresholds, "eBPF sampler of %s", service)
 	}, testTimeout, 250*time.Millisecond)
 }
 
