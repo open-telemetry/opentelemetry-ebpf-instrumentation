@@ -43,6 +43,8 @@ import (
 //go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -tags privileged_tests -target $BPF_TARGETS BpfH2MutationProbe ../../../../bpf/tests/testdata/h2_mutation_peer.c -- -I../../../../bpf -I../../../../bpf
 
 type Tracer struct {
+	tcpOptionsUnavailable   bool
+	skMsgContextInProbe     bool
 	cfg                     *obi.Config
 	bpfObjects              BpfObjects
 	bpfIterObjects          BpfIterObjects
@@ -52,6 +54,7 @@ type Tracer struct {
 	iters                   []*ebpfcommon.Iter
 	fionreadOnce            sync.Once
 	fionreadProbe           func(cookies *ebpf.Map) (bool, error)
+	receiveProbe            func() error
 	fionreadBroken          bool
 	fionreadFixupEnabled    bool
 	sockhashOnce            sync.Once
@@ -93,6 +96,7 @@ func New(cfg *obi.Config, pidsFilter ebpfcommon.ServiceFilter) *Tracer {
 		log:           log,
 		cfg:           cfg,
 		fionreadProbe: sockhashFIONREADProbe,
+		receiveProbe:  sockhashReceiveProbe,
 		seenNetns:     expirable.NewLRU[uint64, struct{}](seenNetnsCacheLen, nil, seenNetnsTTL),
 		netnsAttempts: expirable.NewLRU[uint64, int](seenNetnsCacheLen, nil, seenNetnsTTL),
 		pidsFilter:    pidsFilter,
@@ -102,6 +106,10 @@ func New(cfg *obi.Config, pidsFilter ebpfcommon.ServiceFilter) *Tracer {
 
 // AllowPID enrolls the process's client connections: new ones at connect, earlier ones by backfill
 func (p *Tracer) AllowPID(pid app.PID, _ uint32, _ *exec.FileInfo) {
+	if p.skMsgContextInProbe && !p.enrollInstrumentedOnly {
+		// The sender probes admit Go-specific and generic targets from the same bitmap.
+		p.rebuildInstrumentedPids()
+	}
 	// every client socket is enrolled at establishment, so only the earlier ones are left
 	if !p.enrollInstrumentedOnly {
 		p.backfillNetns(pid)
@@ -114,6 +122,8 @@ func (p *Tracer) AllowPID(pid app.PID, _ uint32, _ *exec.FileInfo) {
 func (p *Tracer) BlockPID(app.PID, uint32) {
 	if p.enrollInstrumentedOnly {
 		p.syncInstrumentedPids()
+	} else if p.skMsgContextInProbe {
+		p.rebuildInstrumentedPids()
 	}
 }
 
@@ -204,6 +214,15 @@ func (p *Tracer) backfillNetns(pid app.PID) {
 }
 
 func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
+	if err := p.configureSKMsgContext(skMsgTracingSupport()); err != nil {
+		return nil, err
+	}
+	if p.cfg.EBPF.ContextPropagation.HasTCP() {
+		if err := p.configureTCPOptions(tcpOptionsSupport()); err != nil {
+			return nil, err
+		}
+	}
+
 	spec, err := LoadBpf()
 	if err != nil {
 		return nil, err
@@ -264,6 +283,61 @@ func verifyH2MutationSupport() error {
 	return nil
 }
 
+var skMsgTracingSupport = func() error {
+	for _, helper := range []asm.BuiltinFunc{asm.FnGetCurrentTask, asm.FnProbeReadKernel, asm.FnProbeReadUser} {
+		if err := features.HaveProgramHelper(ebpf.SkMsg, helper); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *Tracer) configureSKMsgContext(err error) error {
+	switch {
+	case err == nil:
+		p.skMsgContextInProbe = false
+	case errors.Is(err, ebpf.ErrNotSupported):
+		p.skMsgContextInProbe = true
+		p.log.Info("SK_MSG tracing helpers unavailable; capturing sender context at sock_sendmsg")
+	default:
+		return fmt.Errorf("probe SK_MSG tracing helpers: %w", err)
+	}
+	return nil
+}
+
+var tcpOptionsSupport = func() error {
+	for _, helper := range []asm.BuiltinFunc{asm.FnReserveHdrOpt, asm.FnStoreHdrOpt, asm.FnLoadHdrOpt} {
+		if err := features.HaveProgramHelper(ebpf.SockOps, helper); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (p *Tracer) configureTCPOptions(err error) error {
+	switch {
+	case err == nil:
+		p.tcpOptionsUnavailable = false
+	case errors.Is(err, ebpf.ErrNotSupported):
+		p.tcpOptionsUnavailable = true
+		p.log.Warn("TCP option injection unavailable; retaining configured HTTP header propagation and protocol collection", "error", err)
+	default:
+		return fmt.Errorf("probe TCP option helpers: %w", err)
+	}
+	return nil
+}
+
+func (p *Tracer) injectionFlags() uint32 {
+	var flags uint32
+	if p.cfg.EBPF.ContextPropagation.HasHeaders() {
+		flags |= 1
+	}
+	if p.cfg.EBPF.ContextPropagation.HasTCP() && !p.tcpOptionsUnavailable {
+		flags |= 2
+	}
+	return flags
+}
+
 func disableH2SocketMutation(spec *ebpf.CollectionSpec) {
 	fallback, ok := spec.Programs["obi_packet_extender_write_h2_tp_no_rollback"]
 	if !ok {
@@ -284,13 +358,7 @@ func disableH2SocketMutation(spec *ebpf.CollectionSpec) {
 }
 
 func (p *Tracer) constants() map[string]any {
-	flags := uint32(0)
-	if p.cfg.EBPF.ContextPropagation.HasHeaders() {
-		flags |= 1 // k_inject_http_headers
-	}
-	if p.cfg.EBPF.ContextPropagation.HasTCP() {
-		flags |= 2 // k_inject_tcp_options
-	}
+	flags := p.injectionFlags()
 
 	filterPids := int32(1)
 	if p.cfg.Discovery.BPFPidFilterOff {
@@ -299,6 +367,7 @@ func (p *Tracer) constants() map[string]any {
 
 	m := map[string]any{
 		"filter_pids":              filterPids,
+		"sk_msg_tracing_helpers":   !p.skMsgContextInProbe,
 		"max_transaction_time":     uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds()),
 		"inject_flags":             flags,
 		"enroll_instrumented_only": p.enrollInstrumentedOnly,
@@ -377,7 +446,18 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 }
 
 func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
-	return nil
+	if !p.skMsgContextInProbe || p.injectionFlags() == 0 || !p.sockhashSafe() {
+		return nil
+	}
+	return map[string]ebpfcommon.ProbeDesc{
+		"tcp_connect": {Required: true, Start: p.bpfObjects.ObiKprobeSkmsgMarkSocket},
+		"tcp_close":   {Required: true, Start: p.bpfObjects.ObiKprobeSkmsgForgetSocket},
+		"sock_sendmsg": {
+			Required: true,
+			Start:    p.bpfObjects.ObiKprobeSkmsgSender,
+			End:      p.bpfObjects.ObiKretprobeSkmsgSender,
+		},
+	}
 }
 
 // Tracepoints returns the FIONREAD fixup probes; not Required so a failed
@@ -405,7 +485,7 @@ func (p *Tracer) SocketFilters() []*ebpf.Program {
 }
 
 func (p *Tracer) SockMsgs() []ebpfcommon.SockMsg {
-	if !p.sockhashSafe() {
+	if p.injectionFlags() == 0 || !p.sockhashSafe() {
 		return nil
 	}
 
@@ -419,7 +499,7 @@ func (p *Tracer) SockMsgs() []ebpfcommon.SockMsg {
 }
 
 func (p *Tracer) SockOps() []ebpfcommon.SockOps {
-	if !p.sockhashSafe() {
+	if p.injectionFlags() == 0 || !p.sockhashSafe() {
 		return nil
 	}
 

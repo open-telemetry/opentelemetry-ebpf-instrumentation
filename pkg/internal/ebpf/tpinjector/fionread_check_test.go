@@ -13,6 +13,8 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 // one entry per expected p.fionreadProbe call: the detection probe runs first, the
@@ -84,6 +86,7 @@ func TestSockhashSafe(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			calls := 0
 			p := &Tracer{
+				receiveProbe:         func() error { return nil },
 				log:                  slog.Default(),
 				fionreadFixupEnabled: tt.fixupEnabled,
 				fionreadProbe: func(*ebpf.Map) (bool, error) {
@@ -105,7 +108,11 @@ func TestSockhashSafe(t *testing.T) {
 }
 
 func TestSockhashSafeGatesAttachments(t *testing.T) {
+	cfg := obi.DefaultConfig
+	require.NoError(t, cfg.EBPF.ContextPropagation.UnmarshalText([]byte("headers")))
 	p := &Tracer{
+		receiveProbe:  func() error { return nil },
+		cfg:           &cfg,
 		log:           slog.Default(),
 		fionreadProbe: func(*ebpf.Map) (bool, error) { return true, nil },
 	}
@@ -114,4 +121,20 @@ func TestSockhashSafeGatesAttachments(t *testing.T) {
 	assert.Nil(t, p.SockMsgs())
 	assert.Nil(t, p.SockOps())
 	assert.Nil(t, p.Iters())
+}
+
+func TestSockhashReceiveFailureGatesEnrollment(t *testing.T) {
+	cfg := obi.DefaultConfig
+	require.NoError(t, cfg.EBPF.ContextPropagation.UnmarshalText([]byte("headers")))
+	p := New(&cfg, nil)
+	p.skMsgContextInProbe = true
+	calls := 0
+	p.receiveProbe = func() error { calls++; return errors.New("premature EOF") }
+	p.fionreadProbe = func(*ebpf.Map) (bool, error) { t.Fatal("receive failure must stop enrollment"); return false, nil }
+	assert.False(t, p.sockhashSafe())
+	assert.Nil(t, p.KProbes())
+	assert.Nil(t, p.SockMsgs())
+	assert.Nil(t, p.SockOps())
+	assert.Nil(t, p.Iters())
+	assert.Equal(t, 1, calls)
 }

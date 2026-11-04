@@ -64,21 +64,25 @@ func canDuplicateProcessFDs() bool {
 
 // otherwise every client socket is enrolled, as the ones opened before discovery can't be backfilled
 func (p *Tracer) canBackfillSockets() bool {
+	enrollment := "context propagation enrolls the TCP client sockets of every process on the host"
+	if p.skMsgContextInProbe {
+		enrollment = "new client sockets are enrolled by the instrumented socket owner"
+	}
 	if !canDuplicateProcessFDs() {
 		p.log.Warn("cannot duplicate the sockets of other processes (missing CAP_SYS_PTRACE?): " +
-			"context propagation enrolls the TCP client sockets of every process on the host")
+			enrollment)
 		return false
 	}
 
 	if netCgroupsInUse(p.procFS) {
 		p.log.Info("cgroup v1 net_cls or net_prio is in use, and duplicating a socket would move it to OBI's: " +
-			"context propagation enrolls the TCP client sockets of every process on the host")
+			enrollment)
 		return false
 	}
 
 	if !procInOwnPIDNamespace(p.procFS) {
 		p.log.Debug("/proc numbers processes in a pid namespace other than OBI's, so pidfd_open can't find them: " +
-			"context propagation enrolls the TCP client sockets of every process on the host")
+			enrollment)
 		return false
 	}
 

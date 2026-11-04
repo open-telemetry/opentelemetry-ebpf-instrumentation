@@ -8,6 +8,7 @@ package ebpf
 import (
 	"testing"
 
+	"github.com/prometheus/procfs"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,4 +29,23 @@ func TestResolveCgroupV2UsesConfiguredMount(t *testing.T) {
 
 	require.NoError(t, r.err)
 	require.Equal(t, hostRoot, r.path)
+}
+
+func TestCgroupV2MountDiscoveryRejectsSubtrees(t *testing.T) {
+	self, err := procfs.Self()
+	require.NoError(t, err)
+	mounts, err := self.MountInfo()
+	require.NoError(t, err)
+	root := cgroupV2RootFromMounts(mounts)
+	if root == "" {
+		t.Skip("no cgroup2 root mounted")
+	}
+	cases := []*procfs.MountInfo{
+		{FSType: "cgroup2", Root: "/other-cgroup", MountPoint: root},
+		{FSType: "tmpfs", Root: "/", MountPoint: root},
+		{FSType: "cgroup2", Root: "/", MountPoint: t.TempDir()},
+	}
+	require.Empty(t, cgroupV2RootFromMounts(cases))
+	cases = append(cases, &procfs.MountInfo{FSType: "cgroup2", Root: "/", MountPoint: root})
+	require.Equal(t, root, cgroupV2RootFromMounts(cases))
 }

@@ -167,6 +167,10 @@ func (p *Tracer) reportPropagationDisabled(reason string, args ...any) {
 // propagation is preferable to breaking the instrumented applications
 func (p *Tracer) sockhashSafe() bool {
 	p.sockhashOnce.Do(func() {
+		if err := p.receiveProbe(); err != nil {
+			p.log.Error("socket context propagation disabled because sockhash receive semantics could not be verified", "error", err)
+			return
+		}
 		if !p.kernelBreaksFIONREAD() {
 			p.sockhashOK = true
 			return

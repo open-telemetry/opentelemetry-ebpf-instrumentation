@@ -14,6 +14,7 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	v2 "github.com/containers/common/pkg/cgroupv2"
+	"github.com/prometheus/procfs"
 	"golang.org/x/sys/unix"
 )
 
@@ -41,6 +42,15 @@ var cgroupV2Once = sync.OnceValue(func() cgroupV2Result {
 	if isCgroup2Mount(cgroupV2Hybrid) {
 		return cgroupV2Result{path: cgroupV2Hybrid, mfd: -1}
 	}
+	self, err := procfs.Self()
+	if err == nil {
+		if mounts, readErr := self.MountInfo(); readErr == nil {
+			if path := cgroupV2RootFromMounts(mounts); path != "" {
+				log.Info("using existing cgroup2 hierarchy", "path", path)
+				return cgroupV2Result{path: path, mfd: -1}
+			}
+		}
+	}
 	mfd, err := fsmountCgroupV2()
 	if err != nil {
 		log.Warn("could not self-mount cgroupv2", "error", err)
@@ -61,6 +71,15 @@ func resolveCgroupV2(cgroupPath string) cgroupV2Result {
 		return cgroupV2Result{mfd: -1, err: fmt.Errorf("%s is not a cgroupv2 mount", cgroupPath)}
 	}
 	return cgroupV2Result{path: cgroupPath, mfd: -1}
+}
+
+func cgroupV2RootFromMounts(mounts []*procfs.MountInfo) string {
+	for _, mount := range mounts {
+		if mount.FSType == "cgroup2" && mount.Root == "/" && isCgroup2Mount(mount.MountPoint) {
+			return mount.MountPoint
+		}
+	}
+	return ""
 }
 
 func isCgroup2Mount(path string) bool {
