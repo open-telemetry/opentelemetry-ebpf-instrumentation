@@ -2313,3 +2313,27 @@ func TestRunValidateRoute53HostedZones(t *testing.T) {
 		})
 	}
 }
+
+func TestMigrateConfigPreservesPerExporterSpanResourceAttributes(t *testing.T) {
+	output, _, err := migrateConfig([]byte(`
+open_port: '8080'
+metrics:
+  features: [application, application_span_otel]
+otel_metrics_export:
+  endpoint: http://collector:4317
+  extra_span_resource_attributes: [service.version]
+prometheus_export:
+  port: 9090
+  extra_span_resource_attributes: [k8s.cluster.name]
+`))
+	require.NoError(t, err)
+
+	doc, ext, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+	require.Equal(t, []string{"service.version"}, ext.Capture.Telemetry.Metrics.ExtraSpanResourceAttributes)
+
+	cfg, err := convert.DocumentToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, []string{"service.version"}, cfg.OTELMetrics.ExtraSpanResourceLabels)
+	require.Equal(t, []string{"k8s.cluster.name"}, cfg.Prometheus.ExtraSpanResourceLabels)
+}

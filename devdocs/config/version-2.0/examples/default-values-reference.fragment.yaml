@@ -574,6 +574,7 @@ extensions:
           ttl: 5m0s
           connection_info_ttl: 15m0s
           reporters_cache_len: 256
+          extra_span_resource_attributes: []
 
     # enrich defines metadata enrichment behavior for telemetry.
     # Standalone-mode only: not valid in Collector receiver deployments.
