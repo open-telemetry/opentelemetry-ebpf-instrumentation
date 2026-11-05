@@ -37,7 +37,7 @@ func TestSnapshotTargetsAndRelativeLifetimes(t *testing.T) {
 	target := Endpoint{IP: "10.1.0.2", Port: 8080}
 	store.observe(target, service, now)
 	store.observe(Endpoint{IP: "10.1.0.3", Port: 8080}, service, now)
-	snapshot := store.snapshot(map[string]struct{}{target.IP: {}}, now.Add(10*time.Second))
+	snapshot := store.snapshot(callersTo(target.IP), now.Add(10*time.Second))
 	require.Len(t, snapshot.Callers, 1)
 	require.Equal(t, target, snapshot.Callers[0].Destination)
 	require.EqualValues(t, 50000, snapshot.Callers[0].Services[0].RemainingMillis)
@@ -45,6 +45,7 @@ func TestSnapshotTargetsAndRelativeLifetimes(t *testing.T) {
 	require.Equal(t, service, indexed.callerService(target, 49*time.Second))
 	require.Equal(t, Service{Name: "client-host"}, indexed.callerService(target, 50*time.Second))
 	require.Empty(t, store.snapshot(nil, now).Callers)
+	require.Len(t, store.snapshot(allCallers, now).Callers, 2)
 }
 
 func TestCallerOverflowIsConservative(t *testing.T) {
@@ -56,7 +57,7 @@ func TestCallerOverflowIsConservative(t *testing.T) {
 	store.observe(target, Service{Name: "one"}, now)
 	store.observe(target, Service{Name: "two"}, now)
 	require.Equal(t, Service{Name: "client-host"}, store.callerService(target, now))
-	snapshot := store.snapshot(map[string]struct{}{target.IP: {}}, now)
+	snapshot := store.snapshot(callersTo(target.IP), now)
 	require.Equal(t, Service{Name: "client-host"}, indexSnapshot(&snapshot).callerService(target, 0))
 	require.Equal(t, 1, store.callerCount)
 }

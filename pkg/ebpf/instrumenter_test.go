@@ -54,18 +54,13 @@ func makeProbeDescMap(cases map[string]testCase) probeDescMap {
 }
 
 func TestGatherOffsets(t *testing.T) {
-	reader := bytes.NewReader(testData())
-	assert.NotNil(t, reader)
-
 	testCases := expectedValues()
 	probes := makeProbeDescMap(testCases)
 
-	elfFile, err := elf.NewFile(reader)
+	elfFile := instrumenterFixtureELF(t)
+	errs, err := gatherOffsetsImpl(elfFile, []map[string][]*ebpfcommon.ProbeDesc{probes}, "libbsd.so", slog.Default())
 	require.NoError(t, err)
-	defer elfFile.Close()
-
-	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
-	require.NoError(t, err)
+	require.NoError(t, errs[0])
 
 	for probeName, probeArr := range probes {
 		assert.NotEmpty(t, probeArr)
@@ -130,22 +125,41 @@ func TestHandleSymbolDataReadFailureKeepsStartOnlyProbeResolved(t *testing.T) {
 	assert.Empty(t, probe.ReturnOffsets)
 }
 
-func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
-	reader := bytes.NewReader(testData())
-	assert.NotNil(t, reader)
+func TestGatherOffsetsIsolatesProbeMaps(t *testing.T) {
+	testCases := expectedValues()
+	resolvable := makeProbeDescMap(testCases)
+	failing := probeDescMap{
+		"missing_required_symbol": {{Required: true}},
+	}
 
+	elfFile := instrumenterFixtureELF(t)
+	errs, err := gatherOffsetsImpl(
+		elfFile,
+		[]map[string][]*ebpfcommon.ProbeDesc{failing, resolvable},
+		"libbsd.so",
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.Len(t, errs, 2)
+	require.Error(t, errs[0])
+	require.NoError(t, errs[1])
+
+	for probeName, probeArr := range resolvable {
+		assert.Equal(t, testCases[probeName].startOffset, probeArr[0].StartOffset, probeName)
+	}
+}
+
+func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
 	probes := probeDescMap{
 		"missing_optional_symbol": {{
 			Required: false,
 		}},
 	}
 
-	elfFile, err := elf.NewFile(reader)
+	elfFile := instrumenterFixtureELF(t)
+	errs, err := gatherOffsetsImpl(elfFile, []map[string][]*ebpfcommon.ProbeDesc{probes}, "libbsd.so", slog.Default())
 	require.NoError(t, err)
-	defer elfFile.Close()
-
-	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
-	require.NoError(t, err)
+	require.NoError(t, errs[0])
 
 	desc := probes["missing_optional_symbol"][0]
 	assert.True(t, desc.Skip)
@@ -154,22 +168,17 @@ func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
 }
 
 func TestGatherOffsetsFailsMissingRequiredSymbol(t *testing.T) {
-	reader := bytes.NewReader(testData())
-	assert.NotNil(t, reader)
-
 	probes := probeDescMap{
 		"missing_required_symbol": {{
 			Required: true,
 		}},
 	}
 
-	elfFile, err := elf.NewFile(reader)
+	elfFile := instrumenterFixtureELF(t)
+	errs, err := gatherOffsetsImpl(elfFile, []map[string][]*ebpfcommon.ProbeDesc{probes}, "libbsd.so", slog.Default())
 	require.NoError(t, err)
-	defer elfFile.Close()
-
-	err = gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "required symbol missing_required_symbol not found")
+	require.Error(t, errs[0])
+	assert.Contains(t, errs[0].Error(), "required symbol missing_required_symbol not found")
 
 	desc := probes["missing_required_symbol"][0]
 	assert.True(t, desc.Skip)
@@ -312,7 +321,7 @@ func TestGoProbesWarnsWhenNoSymbolAttached(t *testing.T) {
 		"net/http.serverHandler.ServeHTTP": {{Start: &ebpf.Program{}}},
 	}}
 
-	require.NoError(t, i.goprobes(tracer))
+	require.NoError(t, i.goprobes(nil, "", tracer))
 
 	assert.Contains(t, logs.String(), "no Go probes attached to executable")
 	assert.Contains(t, logs.String(), "process=svc")
@@ -322,7 +331,7 @@ func TestGoProbesDoesNotWarnWithoutProbes(t *testing.T) {
 	logs := captureLogs(t)
 	i := &instrumenter{offsets: &goexec.Offsets{}}
 
-	require.NoError(t, i.goprobes(&stubTracer{}))
+	require.NoError(t, i.goprobes(nil, "", &stubTracer{}))
 
 	assert.NotContains(t, logs.String(), "no Go probes attached")
 }
@@ -559,6 +568,16 @@ func TestInstrumentOptionalGoProbeGroupLeavesProcessScopedProbeDetached(t *testi
 
 	assert.Equal(t, []string{"start", "ended"}, attached)
 	assert.Len(t, closers, 2)
+}
+
+func TestGoProbeGroupOnlyProcessScoped(t *testing.T) {
+	scoped := ebpfcommon.GoProbe{Symbol: "fmt.errorf", ProcessScoped: true}
+	unscoped := ebpfcommon.GoProbe{Symbol: "start"}
+
+	assert.True(t, goProbeGroupOnlyProcessScoped(ebpfcommon.GoProbeGroup{Probes: []ebpfcommon.GoProbe{scoped}}),
+		"registered although nothing is attached to the executable")
+	assert.False(t, goProbeGroupOnlyProcessScoped(ebpfcommon.GoProbeGroup{Probes: []ebpfcommon.GoProbe{unscoped, scoped}}))
+	assert.False(t, goProbeGroupOnlyProcessScoped(ebpfcommon.GoProbeGroup{}))
 }
 
 func TestInstrumentOptionalGoProbeGroupRollsBackOnFailure(t *testing.T) {
@@ -1222,6 +1241,40 @@ func TestStaleExecutableUnlinkPreservesReplacement(t *testing.T) {
 	assert.Equal(t, int32(1), newCloser.closes.Load())
 }
 
+type executableScopedRecorder struct {
+	stubTracer
+	events []string
+}
+
+func (r *executableScopedRecorder) RegisterExecutable(*exec.FileInfo) {
+	r.events = append(r.events, "register")
+}
+
+func (r *executableScopedRecorder) UnregisterExecutable(uint64, uint64) {
+	r.events = append(r.events, "unregister")
+}
+
+func TestExecutableScopedStateFollowsReplacement(t *testing.T) {
+	key := ExecutableKey{Dev: 5, Ino: 10}
+	fileInfo := exec.New(exec.Init{Dev: key.Dev, Ino: key.Ino})
+	recorder := &executableScopedRecorder{}
+	pt := &ProcessTracer{
+		log:             slog.Default(),
+		Programs:        []Tracer{recorder},
+		Instrumentables: map[ExecutableKey]*instrumenter{},
+	}
+	oldExecutable := &Instrumentable{FileInfo: fileInfo}
+	newExecutable := &Instrumentable{FileInfo: fileInfo}
+
+	pt.commitInstrumenter(&instrumenter{key: key, modules: map[uint64]struct{}{}}, oldExecutable)
+	pt.commitInstrumenter(&instrumenter{key: key, modules: map[uint64]struct{}{}}, newExecutable)
+	pt.UnlinkExecutable(fileInfo, oldExecutable.ExecutableGeneration)
+	assert.Equal(t, []string{"register", "unregister", "register"}, recorder.events)
+
+	pt.UnlinkExecutable(fileInfo, newExecutable.ExecutableGeneration)
+	assert.Equal(t, []string{"register", "unregister", "register", "unregister"}, recorder.events)
+}
+
 func TestUprobeTargetSharesInstrumenterUntilLastExecutableUnlinks(t *testing.T) {
 	firstKey := ExecutableKey{Dev: 5, Ino: 10}
 	secondKey := ExecutableKey{Dev: 6, Ino: 20}
@@ -1498,9 +1551,7 @@ func TestDedupModuleProbes(t *testing.T) {
 }
 
 func TestUprobeModulesPreservesDifferentSymbolMatchers(t *testing.T) {
-	elfFile, err := elf.NewFile(bytes.NewReader(testData()))
-	require.NoError(t, err)
-	defer elfFile.Close()
+	elfFile := instrumenterFixtureELF(t)
 
 	start, end := &ebpf.Program{}, &ebpf.Program{}
 	exact := &ebpfcommon.ProbeDesc{Start: start, End: end, SymbolMatcher: ebpfcommon.SymbolMatcherExact}
@@ -1521,8 +1572,11 @@ func TestUprobeModulesPreservesDifferentSymbolMatchers(t *testing.T) {
 	require.NotNil(t, module)
 	require.Len(t, module.probes, 2)
 
-	for _, probes := range module.probes {
-		require.NoError(t, gatherOffsetsImpl(elfFile, probes, module.instrPath, slog.Default()))
+	errs, err := gatherOffsetsImpl(elfFile, module.probes, module.instrPath, slog.Default())
+	require.NoError(t, err)
+	require.Len(t, errs, len(module.probes))
+	for _, probeErr := range errs {
+		require.NoError(t, probeErr)
 	}
 	assert.True(t, exact.Skip)
 	assert.False(t, substring.Skip)
@@ -1566,9 +1620,7 @@ func TestMakeOtelBPFFSPathRejectsInaccessibleExistingDirectory(t *testing.T) {
 }
 
 func TestGatherOffsetsWithExactAndSubstringMatchers(t *testing.T) {
-	elfFile, err := elf.NewFile(bytes.NewReader(testData()))
-	require.NoError(t, err)
-	defer elfFile.Close()
+	elfFile := instrumenterFixtureELF(t)
 
 	probes := probeDescMap{
 		"setprogname": {{SymbolMatcher: ebpfcommon.SymbolMatcherExact, Required: true}},
@@ -1578,7 +1630,9 @@ func TestGatherOffsetsWithExactAndSubstringMatchers(t *testing.T) {
 		},
 		"setprognam": {{SymbolMatcher: ebpfcommon.SymbolMatcherContains, Required: true}},
 	}
-	require.NoError(t, gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default()))
+	errs, err := gatherOffsetsImpl(elfFile, []map[string][]*ebpfcommon.ProbeDesc{probes}, "libbsd.so", slog.Default())
+	require.NoError(t, err)
+	require.Equal(t, []error{nil}, errs)
 	assert.True(t, probes["setprogna"][0].Skip)
 	expected := expectedValues()["setprogname"]
 	for _, probe := range []*ebpfcommon.ProbeDesc{probes["setprogname"][0], probes["setprogna"][1], probes["setprognam"][0]} {
@@ -1586,4 +1640,14 @@ func TestGatherOffsetsWithExactAndSubstringMatchers(t *testing.T) {
 		assert.Equal(t, expected.startOffset, probe.StartOffset)
 		assert.Equal(t, expected.returnOffsets, probe.ReturnOffsets)
 	}
+}
+
+func instrumenterFixtureELF(t *testing.T) *elf.File {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "libbsd.so")
+	require.NoError(t, os.WriteFile(path, testData(), 0o600))
+	f, err := elf.Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, f.Close()) })
+	return f
 }

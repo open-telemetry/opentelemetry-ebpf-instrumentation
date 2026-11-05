@@ -8,6 +8,7 @@
 
 #include <common/algorithm.h>
 #include <common/globals.h>
+#include <common/h2_defs.h>
 #include <common/http_buf_size.h>
 
 // 55+13
@@ -88,6 +89,14 @@ static __always_inline bool is_eoh(const unsigned char *p) {
     return p[0] == '\r' && p[1] == '\n' && p[2] == '\r' && p[3] == '\n';
 }
 
+// Only the structure, a full check is too expensive to repeat at every offset of
+// the legacy scan: enough to skip an application-owned value that isn't one
+static __always_inline bool valid_traceparent(const unsigned char *p) {
+    const unsigned char *val = p + sizeof("traceparent: ") - 1;
+
+    return val[k_tp_val_dash1] == '-' && val[k_tp_val_dash2] == '-' && val[k_tp_val_dash3] == '-';
+}
+
 static int tp_match(u32 index, void *data) {
     if (index >= (TRACE_BUF_SIZE - TRACE_PARENT_HEADER_LEN)) {
         return 1;
@@ -96,7 +105,7 @@ static int tp_match(u32 index, void *data) {
     struct callback_ctx *ctx = data;
     unsigned char *s = &(ctx->buf[index]);
 
-    if (is_traceparent(s)) {
+    if (is_traceparent(s) && valid_traceparent(s)) {
         ctx->pos = index;
         return 1;
     }
@@ -165,7 +174,7 @@ static __always_inline unsigned char *bpf_strstr_tp_loop__legacy(unsigned char *
                 }
             }
 
-            return buf;
+            return valid_traceparent(buf) ? buf : NULL;
         }
 
         ++buf;

@@ -411,6 +411,7 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
 
         __builtin_memcpy(tp->trace_id, server_tp->tp.trace_id, sizeof(tp->trace_id));
         __builtin_memcpy(tp->parent_id, server_tp->tp.span_id, sizeof(tp->parent_id));
+        tp->flags = server_tp->tp.flags;
 
         if (nodejs_manual_parent_span_id(pid_tgid, tp->trace_id, tp->parent_id)) {
             return k_parent_status_live;

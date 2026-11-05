@@ -159,6 +159,7 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 		DynamicSelectorPID: processMatch.DynamicSelectorPID,
 		ExportModes:        exportModes,
 		Sampler:            samplerFromConfig(samplerConfig),
+		SamplerConfig:      samplerConfig,
 		Features:           svcFeatures,
 		LogEnricherEnabled: processMatch.LogEnricherEnabled(),
 		Exceptions:         exceptions,
@@ -371,9 +372,15 @@ func (t *typer) inspectOffsets(execElf *exec.FileInfo) (*goexec.Offsets, bool, e
 	return offsets, true, nil
 }
 
-var supportOnlyGoProbeSymbols = map[string]struct{}{
-	"context.WithValue": {},
-}
+// Symbols probed only to support other instrumentation: present in almost any
+// Go executable, they don't make it a Go service
+var supportOnlyGoProbeSymbols = func() map[string]struct{} {
+	symbols := map[string]struct{}{"context.WithValue": {}}
+	for _, symbol := range gotracer.GoExceptionProbeSymbols() {
+		symbols[symbol] = struct{}{}
+	}
+	return symbols
+}()
 
 func isGoProxy(offsets *goexec.Offsets) bool {
 	for f := range offsets.Funcs {
@@ -413,6 +420,11 @@ func (t *typer) loadAllGoFunctionNames() {
 	}
 	for _, symbolName := range gotracer.GoH2OwnershipProbeSymbols() {
 		t.addGoFunctionName(uniqueFunctions, symbolName)
+	}
+	if t.cfg.ExceptionsEnabled() && t.cfg.Logs.Enabled() {
+		for _, symbolName := range gotracer.GoExceptionProbeSymbols() {
+			t.addGoFunctionName(uniqueFunctions, symbolName)
+		}
 	}
 }
 

@@ -774,6 +774,59 @@ static __always_inline bool is_conn_unreadable(const connection_info_t *conn) {
     return is_port_unreadable(conn->d_port) || is_port_unreadable(conn->s_port);
 }
 
+enum { k_tail_tcp_close_finish };
+
+int obi_kprobe_tcp_close_finish(struct pt_regs *ctx);
+
+struct {
+    __uint(type, BPF_MAP_TYPE_PROG_ARRAY);
+    __uint(max_entries, 1);
+    __uint(key_size, sizeof(u32));
+    __array(values, int(void *));
+} tcp_close_jump_table SEC(".maps") = {
+    .values =
+        {
+            [k_tail_tcp_close_finish] = (void *)&obi_kprobe_tcp_close_finish,
+        },
+};
+
+SEC("kprobe/tcp_close")
+int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close_finish, struct sock *sk) {
+    (void)ctx;
+
+    const u64 id = bpf_get_current_pid_tgid();
+
+    trace_key_t current_key = {};
+    trace_key_from_pid_tid(&current_key);
+
+    u64 sock_p = (u64)sk;
+
+    pid_connection_info_t info = {};
+    const bool success = parse_sock_info(sk, &info.conn);
+
+    bool unreadable = false;
+    if (success) {
+        sort_connection_info(&info.conn);
+        info.pid = pid_from_pid_tgid(id);
+        unreadable = is_conn_unreadable(&info.conn);
+    }
+
+    force_sent_event(id, &sock_p, &info, unreadable, &current_key, sk);
+
+    if (success) {
+        //dbg_print_http_connection_info(&info.conn);
+        info.pid = pid_from_pid_tgid(id);
+        terminate_http_request_if_needed(&info, &current_key);
+        finish_ongoing_tcp_req(&info);
+        bpf_map_delete_elem(&connection_tracker, &info.conn);
+    }
+
+    bpf_map_delete_elem(&active_send_args, &id);
+    bpf_map_delete_elem(&active_send_sock_args, &sock_p);
+
+    return 0;
+}
+
 SEC("kprobe/tcp_close")
 int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
     (void)ctx;
@@ -784,11 +837,6 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
     if (!valid_pid(id)) {
         return 0;
     }
-
-    trace_key_t current_key = {};
-    trace_key_from_pid_tid(&current_key);
-
-    u64 sock_p = (u64)sk;
 
     bpf_dbg_printk("=== kprobe/tcp_close id=%d, sock=%llx ===", id, sk);
 
@@ -823,24 +871,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
         }
     }
 
-    bool unreadable = false;
-    if (success) {
-        unreadable = is_conn_unreadable(&info.conn);
-    }
-
-    force_sent_event(id, &sock_p, &info, unreadable, &current_key, sk);
-
-    if (success) {
-        //dbg_print_http_connection_info(&info.conn);
-        info.pid = pid_from_pid_tgid(id);
-        terminate_http_request_if_needed(&info, &current_key);
-        finish_ongoing_tcp_req(&info);
-        bpf_map_delete_elem(&connection_tracker, &info.conn);
-    }
-
-    bpf_map_delete_elem(&active_send_args, &id);
-    bpf_map_delete_elem(&active_send_sock_args, &sock_p);
-
+    preempt_guarded_tail_call_static(ctx, &tcp_close_jump_table, k_tail_tcp_close_finish);
     return 0;
 }
 

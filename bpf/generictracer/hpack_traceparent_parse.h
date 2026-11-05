@@ -19,7 +19,7 @@ static __always_inline u8 try_parse_tp_value(const unsigned char *val, tp_info_t
     }
     decode_hex(tp->trace_id, &val[k_tp_val_trace_id_start], TRACE_ID_SIZE_BYTES * 2);
     decode_hex(tp->parent_id, &val[k_tp_val_span_id_start], SPAN_ID_SIZE_BYTES * 2);
-    tp->flags = 1;
+    decode_hex(&tp->flags, &val[k_tp_val_flags_start], sizeof(tp->flags) * 2);
     return 1;
 }
 

@@ -44,11 +44,19 @@ func TestConfigReload(t *testing.T) {
 	t.Cleanup(func() { assert.NoError(t, compose.Close()) })
 	require.NoError(t, compose.Up())
 
+	// latchsrv serves one connection at a time, so an idle pooled connection
+	// can prevent it from accepting the next request on a new connection.
+	httpClient := &http.Client{
+		Transport: &http.Transport{DisableKeepAlives: true},
+		Timeout:   3 * time.Minute,
+	}
+	t.Cleanup(httpClient.CloseIdleConnections)
+
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		ti.DoHTTPGet(ct, configReloadServerB+"/ready", http.StatusOK)
+		ti.DoHTTPGetWithClient(ct, httpClient, configReloadServerB+"/ready", http.StatusOK)
 	}, testTimeout, 250*time.Millisecond)
-	waitForReloadTrace(t, "config-reload-a", configReloadServerA, "/initial-selection")
-	assertNoReloadTrace(t, "config-reload-b", configReloadServerB, "/initially-excluded")
+	waitForReloadTrace(t, httpClient, "config-reload-a", configReloadServerA, "/initial-selection")
+	assertNoReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/initially-excluded")
 
 	cl, err := client.New(client.FromEnv)
 	require.NoError(t, err)
@@ -67,28 +75,28 @@ func TestConfigReload(t *testing.T) {
 	both := bytes.Replace(initial, []byte(configReloadFirstRule), append([]byte(configReloadFirstRule+"\n"), secondRule...), 1)
 	replaceReloadConfig(t, configPath, both)
 	waitForReloadSelection(t, compose, serverPIDs, "server-a", "server-b")
-	waitForReloadTrace(t, "config-reload-b", configReloadServerB, "/added-selection")
-	waitForReloadTrace(t, "config-reload-a", configReloadServerA, "/retained-selection")
+	waitForReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/added-selection")
+	waitForReloadTrace(t, httpClient, "config-reload-a", configReloadServerA, "/retained-selection")
 
 	t.Log("remove the first definition while retaining the second")
 	onlyB := bytes.Replace(initial, []byte(configReloadFirstRule), secondRule, 1)
 	replaceReloadConfig(t, configPath, onlyB)
 	waitForReloadSelection(t, compose, serverPIDs, "server-b")
-	waitForReloadTrace(t, "config-reload-b", configReloadServerB, "/retained-after-removal")
-	assertNoReloadTrace(t, "config-reload-a", configReloadServerA, "/removed-selection")
+	waitForReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/retained-after-removal")
+	assertNoReloadTrace(t, httpClient, "config-reload-a", configReloadServerA, "/removed-selection")
 
 	t.Log("reject a sampler change together with a selection change")
 	incompatible := bytes.Replace(initial, []byte("always_on:"), []byte("always_off:"), 1)
 	replaceReloadConfig(t, configPath, incompatible)
 	waitForReloadRejection(t, compose)
-	waitForReloadTrace(t, "config-reload-b", configReloadServerB, "/after-rejection")
-	assertNoReloadTrace(t, "config-reload-a", configReloadServerA, "/rejected-selection")
+	waitForReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/after-rejection")
+	assertNoReloadTrace(t, httpClient, "config-reload-a", configReloadServerA, "/rejected-selection")
 
 	t.Log("accept a compatible edit after the rejection")
 	replaceReloadConfig(t, configPath, initial)
 	waitForReloadSelection(t, compose, serverPIDs, "server-a")
-	waitForReloadTrace(t, "config-reload-a", configReloadServerA, "/recovered-selection")
-	assertNoReloadTrace(t, "config-reload-b", configReloadServerB, "/excluded-after-recovery")
+	waitForReloadTrace(t, httpClient, "config-reload-a", configReloadServerA, "/recovered-selection")
+	assertNoReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/excluded-after-recovery")
 
 	after, err := cl.ContainerInspect(t.Context(), obiID, client.ContainerInspectOptions{})
 	require.NoError(t, err)
@@ -130,10 +138,10 @@ func waitForReloadSelection(t *testing.T, compose *docker.Compose, serverPIDs ma
 	}, testTimeout, 250*time.Millisecond)
 }
 
-func waitForReloadTrace(t *testing.T, service, server, path string) {
+func waitForReloadTrace(t *testing.T, httpClient *http.Client, service, server, path string) {
 	t.Helper()
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		ti.DoHTTPGet(ct, server+path, http.StatusOK)
+		ti.DoHTTPGetWithClient(ct, httpClient, server+path, http.StatusOK)
 		trace, err := reloadTrace(service, path)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, trace.TraceID, "no trace from %s for %s", service, path)
@@ -149,10 +157,10 @@ func reloadTrace(service, path string) (jaeger.Trace, error) {
 	})
 }
 
-func assertNoReloadTrace(t *testing.T, service, server, path string) {
+func assertNoReloadTrace(t *testing.T, httpClient *http.Client, service, server, path string) {
 	t.Helper()
 	for range 5 {
-		ti.DoHTTPGet(t, server+path, http.StatusOK)
+		ti.DoHTTPGetWithClient(t, httpClient, server+path, http.StatusOK)
 	}
 	require.Never(t, func() bool {
 		trace, err := reloadTrace(service, path)

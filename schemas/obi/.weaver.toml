@@ -29,7 +29,7 @@ advice_preprocessor = ".live_check_policies/advice.jq"
 #   - `undefined_enum_variant`: an enumerated attribute emitted with a value
 #     outside its declared members.
 #   - `kind_mismatch`: a span whose kind differs from its span definition.
-#   - `unexpected_attribute` on a span or a metric: an attribute its definition
+#   - `unexpected_attribute` on a span, a metric or a log: an attribute its definition
 #     does not declare. On a resource, which no definition describes, the
 #     finding only notes that an attribute is defined upstream rather than
 #     here, so it is dropped below instead.
@@ -45,6 +45,11 @@ level = "violation"
 [[live-check.finding_level_overrides]]
 ids = ["unexpected_attribute"]
 signal_type = "metric"
+level = "violation"
+
+[[live-check.finding_level_overrides]]
+ids = ["unexpected_attribute"]
+signal_type = "log"
 level = "violation"
 
 [[live-check.finding_filters]]

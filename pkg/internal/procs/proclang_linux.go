@@ -12,6 +12,8 @@ import (
 	"slices"
 	"strings"
 
+	"golang.org/x/sys/unix"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/internal/fastelf"
@@ -103,38 +105,6 @@ func findLanguageFromElf(filePath string) (result svc.InstrumentableType) {
 	return matchExeSymbols(ctx)
 }
 
-type symbolCollector struct {
-	addresses   map[string]Sym
-	symbolNames []string
-	matches     func(string, string) bool
-}
-
-func collectSymbols(f *elf.File, syms []elf.Symbol, collectors []symbolCollector, types ...elf.SymType) {
-	if len(types) == 0 {
-		types = []elf.SymType{elf.STT_FUNC}
-	}
-	for _, s := range syms {
-		if !slices.Contains(types, elf.ST_TYPE(s.Info)) {
-			continue
-		}
-
-		var sym *Sym
-		for _, collector := range collectors {
-			for _, name := range collector.symbolNames {
-				if !collector.matches(s.Name, name) {
-					continue
-				}
-
-				if sym == nil {
-					resolvedSym := resolveSymbol(f, s)
-					sym = &resolvedSym
-				}
-				collector.addresses[name] = *sym
-			}
-		}
-	}
-}
-
 func FindExeSymbols(f *elf.File, symbolNames []string, types ...elf.SymType) (map[string]Sym, error) {
 	exactSyms, _, err := FindExeSymbolsByNameAndSubstring(f, symbolNames, nil, types...)
 	return exactSyms, err
@@ -143,34 +113,104 @@ func FindExeSymbols(f *elf.File, symbolNames []string, types ...elf.SymType) (ma
 func FindExeSymbolsByNameAndSubstring(f *elf.File, symbolNames, symbolSubstrings []string, types ...elf.SymType) (map[string]Sym, map[string]Sym, error) {
 	exactAddresses := map[string]Sym{}
 	substringAddresses := map[string]Sym{}
-	collectors := []symbolCollector{
-		{
-			addresses:   exactAddresses,
-			symbolNames: symbolNames,
-			matches:     exactSymbolMatch,
-		},
-		{
-			addresses:   substringAddresses,
-			symbolNames: symbolSubstrings,
-			matches:     strings.Contains,
-		},
+	if f.SectionByType(elf.SHT_SYMTAB) == nil && f.SectionByType(elf.SHT_DYNSYM) == nil {
+		return exactAddresses, substringAddresses, nil
 	}
 
-	syms, err := f.Symbols()
-	if err != nil && !errors.Is(err, elf.ErrNoSymbols) {
+	ctx, err := fastelf.NewElfContextFromELF(f)
+	if err != nil {
 		return nil, nil, err
 	}
+	defer ctx.Close()
 
-	collectSymbols(f, syms, collectors, types...)
-
-	dynsyms, err := f.DynamicSymbols()
-	if err != nil && !errors.Is(err, elf.ErrNoSymbols) {
-		return nil, nil, err
+	if len(types) == 0 {
+		types = []elf.SymType{elf.STT_FUNC}
 	}
 
-	collectSymbols(f, dynsyms, collectors, types...)
+	wanted := make(map[string]string, len(symbolNames))
+	for _, name := range symbolNames {
+		if name != "" {
+			wanted[name] = name
+		}
+	}
 
+	for _, sectionType := range []uint32{fastelf.SHT_SYMTAB, fastelf.SHT_DYNSYM} {
+		for _, section := range ctx.Sections {
+			if section == nil || section.Type != sectionType {
+				continue
+			}
+
+			if section.Size == 0 {
+				break
+			}
+
+			if section.Link == 0 || uint64(section.Link) >= uint64(len(ctx.Sections)) {
+				return nil, nil, errors.New("section has invalid string table link")
+			}
+
+			strtab, ok := ctx.SectionData(ctx.Sections[section.Link])
+			if !ok {
+				return nil, nil, errors.New("invalid string table bounds")
+			}
+
+			offset, entrySize, count, ok := ctx.SymbolTableBounds(section)
+			if !ok || section.Entsize != elf.Sym64Size || section.Size%section.Entsize != 0 {
+				return nil, nil, errors.New("invalid symbol table bounds or entry size")
+			}
+
+			populateRange(ctx.Data, ctx.Sections[section.Link].Offset, ctx.Sections[section.Link].Size)
+			populateRange(ctx.Data, uint64(offset), uint64(count*entrySize))
+
+			// Symbol tables begin with a reserved null entry.
+			for i := 1; i < count; i++ {
+				symbol := fastelf.ReadStruct[fastelf.Elf64_Sym](ctx.Data, offset+i*entrySize)
+				if !slices.Contains(types, elf.ST_TYPE(symbol.Info)) {
+					continue
+				}
+
+				name := fastelf.GetCStringUnsafe(strtab, symbol.Name)
+				var sym *Sym
+				if requested, ok := wanted[name]; ok {
+					resolved := resolveSymbol(f, elf.Symbol{
+						Name: requested, Value: symbol.Value, Size: symbol.Size,
+					})
+					sym = &resolved
+					exactAddresses[requested] = resolved
+				}
+
+				for _, fragment := range symbolSubstrings {
+					if !strings.Contains(name, fragment) {
+						continue
+					}
+					if sym == nil {
+						resolved := resolveSymbol(f, elf.Symbol{
+							Name: strings.Clone(name), Value: symbol.Value, Size: symbol.Size,
+						})
+						sym = &resolved
+					}
+					substringAddresses[fragment] = *sym
+				}
+			}
+			break
+		}
+	}
 	return exactAddresses, substringAddresses, nil
+}
+
+// populateRange asks the kernel to read the given range of a mapped file in a
+// single batch instead of faulting it in page by page during the scan, which
+// is several times faster when the symbol tables are not in the page cache.
+// It is best effort: MADV_POPULATE_READ needs Linux 5.14, and failing to
+// populate only means the pages are faulted in lazily as before.
+func populateRange(data []byte, offset, size uint64) {
+	end := offset + size
+	if size == 0 || end < offset || end > uint64(len(data)) {
+		return
+	}
+
+	pageMask := uint64(os.Getpagesize()) - 1
+
+	_ = unix.Madvise(data[offset&^pageMask:end], unix.MADV_POPULATE_READ)
 }
 
 func resolveSymbol(f *elf.File, s elf.Symbol) Sym {
@@ -192,10 +232,6 @@ func resolveSymbol(f *elf.File, s elf.Symbol) Sym {
 	}
 
 	return Sym{Name: s.Name, Off: address, Value: s.Value, Len: s.Size, Prog: p}
-}
-
-func exactSymbolMatch(symbolName, name string) bool {
-	return symbolName == name
 }
 
 func matchExeSymbols(ctx *fastelf.ElfContext) svc.InstrumentableType {
@@ -229,8 +265,7 @@ func matchExeSymbols(ctx *fastelf.ElfContext) svc.InstrumentableType {
 		for i := range symCount {
 			sym := fastelf.ReadStruct[fastelf.Elf64_Sym](ctx.Data, symOffset+i*symEntrySize)
 
-			if sym == nil ||
-				fastelf.SymType(sym.Info) != fastelf.STT_FUNC ||
+			if sym == nil || fastelf.SymType(sym.Info) != fastelf.STT_FUNC ||
 				sym.Size == 0 ||
 				sym.Value == 0 {
 				continue

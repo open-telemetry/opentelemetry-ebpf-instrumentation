@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package metadata;
+
+option go_package = "./metadatapb";
+
+message Service {
+  string name = 1;
+  string namespace = 2;
+  bool service_graph = 3;
+}
+
+message Endpoint {
+  string ip = 1;
+  uint32 port = 2;
+}
+
+message Listener {
+  Endpoint endpoint = 1;
+  Service service = 2;
+}
+
+message CallerService {
+  Service service = 1;
+  // Lifetime relative to when the message is sent, which avoids requiring synchronized clocks.
+  int64 remaining_ms = 2;
+}
+
+message Caller {
+  Endpoint destination = 1;
+  repeated CallerService services = 2;
+}
+
+// Snapshot is the metadata an agent shares about its host.
+message Snapshot {
+  string hostname = 1;
+  repeated Service services = 2;
+  repeated Listener listeners = 3;
+  repeated Caller callers = 4;
+  repeated Caller known_callers = 5;
+  optional uint64 metric_protocols = 6;
+  int64 caller_ambiguity_ms = 7;
+}
+
+message PublishRequest {
+  // Addresses other agents use to reach the publishing host.
+  repeated string addresses = 1;
+  Snapshot snapshot = 2;
+  // Unique host identifier (the agent's host.id). Each publish replaces the previous one with the same identifier.
+  // It is distinct from the snapshot hostname, which several hosts may share.
+  string host_id = 3;
+}
+
+message PublishResponse {}
+
+message LookupRequest {
+  // Host address whose metadata is requested.
+  string address = 1;
+  // Addresses of the requesting host. Caller observations are limited to these destinations.
+  repeated string requester_addresses = 2;
+}
+
+message LookupResponse {
+  // Unset when no host has published metadata for the address.
+  Snapshot snapshot = 1;
+}
+
+// MetadataService collects metadata published by each agent and serves it to the agents that request it.
+service MetadataService {
+  rpc Publish(PublishRequest) returns (PublishResponse);
+  rpc Lookup(LookupRequest) returns (LookupResponse);
+}
+
+message GetSnapshotRequest {}
+
+// PeerMetadataService serves an agent's own metadata to the other agents in peer mode.
+// Caller observations are limited to the requester's source address.
+service PeerMetadataService {
+  rpc GetSnapshot(GetSnapshotRequest) returns (Snapshot);
+}

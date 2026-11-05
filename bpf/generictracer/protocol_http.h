@@ -19,6 +19,7 @@
 #include <common/preempt_guard.h>
 #include <common/ringbuf.h>
 #include <common/runtime.h>
+#include <common/sampling.h>
 #include <common/scratch_mem.h>
 #include <common/trace_helpers.h>
 #include <common/trace_lifecycle.h>
@@ -522,6 +523,51 @@ int GUARDED_PROG(obi_continue2_protocol_http, struct pt_regs *, ctx) {
     return __obi_continue2_protocol_http(ctx, args, info, meta);
 }
 
+static __always_inline void
+commit_http_tp(call_protocol_args_t *args, http_connection_metadata_t *meta, tp_info_pid_t *tp_p) {
+    if (!meta) {
+        return;
+    }
+
+    const u32 type = trace_type_from_meta(meta);
+    set_trace_info_for_connection(&args->pid_conn.conn, type, tp_p);
+    // TODO: If the user code setup traceparent manually, don't interfere and add
+    // something else with TC L7. The main challenge is that with kprobes, the
+    // sock_msg program has already punched a hole in the HTTP headers and has made
+    // the HTTP header invalid. We need to add more smarts there or pull the
+    // sock msg information here and mark it so that we don't override the span_id.
+    server_or_client_trace(meta->type,
+                           &args->pid_conn.conn,
+                           args->lw_thread,
+                           tp_p,
+                           args->ssl,
+                           args->orig_dport,
+                           0,
+                           BPF_ANY);
+}
+
+// k_tail_continue_protocol_http_tp_commit
+SEC("kprobe/http")
+int GUARDED_PROG(obi_continue_protocol_http_tp_commit, struct pt_regs *, ctx) {
+    call_protocol_args_t *args = protocol_args();
+    if (!args) {
+        return 0;
+    }
+
+    tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
+    if (!tp_p) {
+        return 0;
+    }
+
+    http_connection_metadata_t *meta =
+        connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
+
+    commit_http_tp(args, meta, tp_p);
+
+    preempt_guarded_tail_call(ctx, &jump_table, k_tail_continue2_protocol_http);
+    return 0;
+}
+
 static __always_inline int
 __obi_continue_protocol_http_tp(struct pt_regs *ctx,
                                 call_protocol_args_t *args,
@@ -539,7 +585,6 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
         if (!capture_header_buffer) {
             if (meta) {
                 tp_p->tp.ts = bpf_ktime_get_ns();
-                tp_p->tp.flags = 1;
                 tp_p->valid = 1;
                 tp_p->pid = args->pid_conn.pid;
                 tp_p->req_type = meta->type;
@@ -586,6 +631,7 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
                 decode_hex((unsigned char *)&tp_p->tp.flags, f_id, FLAGS_CHAR_LEN);
                 if (meta && meta->type != k_event_type_http_client) {
                     decode_hex(tp_p->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
+                    sample_remote_child(&tp_p->tp);
                 } else if (previous_trace_id &&
                            bpf_memcmp(previous_trace_id, tp_p->tp.trace_id, TRACE_ID_SIZE_BYTES) !=
                                0) {
@@ -605,23 +651,14 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
         }
     }
 
-    if (meta) {
-        const u32 type = trace_type_from_meta(meta);
-        set_trace_info_for_connection(&args->pid_conn.conn, type, tp_p);
-        // TODO: If the user code setup traceparent manually, don't interfere and add
-        // something else with TC L7. The main challenge is that with kprobes, the
-        // sock_msg program has already punched a hole in the HTTP headers and has made
-        // the HTTP header invalid. We need to add more smarts there or pull the
-        // sock msg information here and mark it so that we don't override the span_id.
-        server_or_client_trace(meta->type,
-                               &args->pid_conn.conn,
-                               args->lw_thread,
-                               tp_p,
-                               args->ssl,
-                               args->orig_dport,
-                               0,
-                               BPF_ANY);
+    if (tp_loop_fn != bpf_strstr_tp_loop) {
+        // The legacy scan forks a verifier state per offset it can match at, the
+        // tail call keeps those states from also exploring the trace bookkeeping
+        preempt_guarded_tail_call(ctx, &jump_table, k_tail_continue_protocol_http_tp_commit);
+        return 0;
     }
+
+    commit_http_tp(args, meta, tp_p);
 
 done:
     if (tp_loop_fn == bpf_strstr_tp_loop) {
@@ -767,6 +804,9 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
             // For server requests, we first look for TCP info (setup by TC ingress) and then we fall back to black-box info.
             found_tp = find_trace_for_server_request(
                 &args->pid_conn.conn, &tp_p->tp, k_event_type_http_request);
+            if (found_tp) {
+                sample_remote_child(&tp_p->tp);
+            }
         }
     }
 
@@ -774,6 +814,7 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
         bpf_dbg_printk("Generating new traceparent id");
         new_trace_id(&tp_p->tp);
         __builtin_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+        sample_new_trace(&tp_p->tp);
     } else {
         bpf_dbg_printk("Using old traceparent id");
     }

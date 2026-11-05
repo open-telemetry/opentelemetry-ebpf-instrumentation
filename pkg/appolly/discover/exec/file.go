@@ -6,9 +6,12 @@ package exec // import "go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 
 import (
 	"debug/elf"
+	"fmt"
 	"maps"
+	"os"
 	"strings"
 	"sync"
+	"syscall"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	appruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
@@ -137,6 +140,32 @@ func (fi *FileInfo) Ns() uint32             { return fi.ns }
 func (fi *FileInfo) CmdExePath() string     { return fi.cmdExePath }
 func (fi *FileInfo) ProExeLinkPath() string { return fi.proExeLinkPath }
 func (fi *FileInfo) ELF() *elf.File         { return fi.elfFile }
+
+// OpenExecutable pins the inspected inode for attachment. The caller must keep
+// the descriptor open until every probe has been attached.
+func (fi *FileInfo) OpenExecutable() (*os.File, error) {
+	f, err := os.Open(fi.proExeLinkPath)
+	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || deviceID(stat.Dev) != fi.dev || stat.Ino != fi.ino {
+		_ = f.Close()
+		return nil, fmt.Errorf("executable identity changed for PID %d", fi.pid)
+	}
+	return f, nil
+}
+
+// deviceID widens syscall.Stat_t.Dev, which is int32 on Darwin and uint64 on Linux. The generic
+// conversion keeps the unconvert linter quiet on platforms where it would be redundant.
+func deviceID[T ~int32 | ~uint64](dev T) uint64 {
+	return uint64(dev)
+}
 
 func (fi *FileInfo) ExecutableName() string {
 	parts := strings.Split(fi.cmdExePath, "/")
