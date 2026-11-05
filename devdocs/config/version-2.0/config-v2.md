@@ -664,23 +664,6 @@ metric-specific pattern to affect only metrics. Selecting an attribute does
 not enable a payload extractor or metadata resolver. `service.peer.name`
 requires an eligible client span with a peer name available to OBI.
 
-The following optional HTTP duration dimensions are deprecated:
-
-| Metric | Deprecated dimensions | Migration |
-| --- | --- | --- |
-| `http.server.request.duration` | `url.path`, `client.address` | Use `http.route` for route aggregation and spans for raw paths or client addresses. |
-| `http.client.request.duration` | `url.path` | Select `url.template` for route aggregation and use spans for raw paths. |
-
-These high-cardinality dimensions are OBI extensions outside the HTTP metric
-semantic conventions. They remain disabled by default and supported throughout
-OBI v1 to preserve existing selections, including wildcard selections. Removal
-is planned for OBI v2. The same notice applies to the Prometheus labels
-`url_path` and `client_address` on these metrics. When migrating, update queries,
-dashboards, and alerts that use these dimensions; route templates group requests
-differently from raw paths. Route attributes require route collection to be enabled
-and a matching route to be available. This deprecation applies only to metric
-dimensions; span attributes and attribute filters remain available.
-
 Existing standalone configurations using `enrich.attributes.select` continue
 working unchanged after upgrade. Migration emits trace and metric selection
 only in `capture.attributes.select`.

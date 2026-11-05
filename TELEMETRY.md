@@ -57,7 +57,9 @@ and `client_address`.
 
 Use `http.route` on server duration metrics or opt into `url.template` on client
 duration metrics for route aggregation, and use spans for raw paths or client
-addresses. See the [attribute selection migration guidance](./devdocs/config/version-2.0/config-v2.md#captureattributesselect-section).
+addresses. Update queries, dashboards, and alerts that use these dimensions;
+route templates group requests differently from raw paths. Route attributes
+require route collection to be enabled and a matching route to be available.
 Span attributes and attribute filters are unaffected.
 
 ## Exporters

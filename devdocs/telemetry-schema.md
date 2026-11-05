@@ -133,7 +133,7 @@ section empty once drained.
   with removal planned for OBI v2. The notice also applies to the Prometheus labels
   `url_path` and `client_address`. Use `http.route` on server duration metrics or opt into
   `url.template` on client duration metrics for route aggregation, and spans for raw paths
-  or client addresses. See the [migration guidance](config/version-2.0/config-v2.md#captureattributesselect-section).
+  or client addresses. See the [migration guidance](../TELEMETRY.md#deprecated-http-metric-dimensions).
 - HTTP client spans no longer carry `url.query`; the scrubbed query string remains part of
   `url.full`. HTTP server spans keep `url.query`.
 - The span reference (`site/docs/spans.md`) documents every span's name. The emitted
