@@ -302,6 +302,15 @@ func TestTraceAttacherUpdatesSamplers(t *testing.T) {
 	worker := execpkg.New(execpkg.Init{Pid: 101, Ppid: 100, Ino: 1, Ns: 17})
 	master.SetRuntimeMetricServiceSource(master)
 	worker.SetRuntimeMetricServiceSource(master)
+	// Each of these masters leaves in the same batch that updates its worker.
+	masterA := execpkg.New(execpkg.Init{Pid: 200, Ino: 2, Ns: 17})
+	workerA := execpkg.New(execpkg.Init{Pid: 201, Ppid: 200, Ino: 2, Ns: 17})
+	masterA.SetRuntimeMetricServiceSource(masterA)
+	workerA.SetRuntimeMetricServiceSource(masterA)
+	masterB := execpkg.New(execpkg.Init{Pid: 400, Ino: 4, Ns: 17})
+	workerB := execpkg.New(execpkg.Init{Pid: 401, Ppid: 400, Ino: 4, Ns: 17})
+	masterB.SetRuntimeMetricServiceSource(masterB)
+	workerB.SetRuntimeMetricServiceSource(masterB)
 	golang := execpkg.New(execpkg.Init{Pid: 300, Ino: 3, Ns: 17})
 	// Deleting one of these after each step waits until the attacher has handled the step.
 	barriers := []*execpkg.FileInfo{
@@ -309,8 +318,12 @@ func TestTraceAttacherUpdatesSamplers(t *testing.T) {
 		execpkg.New(execpkg.Init{Pid: 901, Ino: 9}),
 		execpkg.New(execpkg.Init{Pid: 902, Ino: 9}),
 		execpkg.New(execpkg.Init{Pid: 903, Ino: 9}),
+		execpkg.New(execpkg.Init{Pid: 904, Ino: 9}),
+		execpkg.New(execpkg.Init{Pid: 905, Ino: 9}),
 	}
-	currentPids := map[app.PID]*execpkg.FileInfo{100: master, 101: worker, 300: golang}
+	currentPids := map[app.PID]*execpkg.FileInfo{
+		100: master, 101: worker, 200: masterA, 201: workerA, 400: masterB, 401: workerB, 300: golang,
+	}
 	for _, barrier := range barriers {
 		currentPids[barrier.Pid()] = barrier
 	}
@@ -330,7 +343,7 @@ func TestTraceAttacherUpdatesSamplers(t *testing.T) {
 	goProgram := &recordingTracer{}
 	ta.reusableTracer = &ebpf.ProcessTracer{Type: ebpf.Generic, Programs: []ebpf.Tracer{generic}}
 	ta.reusableGoTracer = &ebpf.ProcessTracer{Type: ebpf.Go, Programs: []ebpf.Tracer{goProgram}}
-	for _, fi := range append([]*execpkg.FileInfo{master, worker}, barriers...) {
+	for _, fi := range append([]*execpkg.FileInfo{master, worker, masterA, workerA, masterB, workerB}, barriers...) {
 		ta.processInstances.Put(executableKey(fi), fi.Pid(), fi)
 		ta.existingTracers[executableKey(fi)] = executableTracer{tracer: ta.reusableTracer}
 	}
@@ -352,8 +365,13 @@ func TestTraceAttacherUpdatesSamplers(t *testing.T) {
 		t.Helper()
 		barrier := barriers[0]
 		barriers = barriers[1:]
-		processMatches.Send(append(events, deleted(barrier.Pid())))
-		require.Same(t, barrier, testutil.ReadChannel(t, tracerEvents, testTimeout).Obj.FileInfo)
+		processMatches.Send(events)
+		// Updates are applied after the rest of their batch, so the barrier goes in a batch of its own.
+		processMatches.Send([]Event[ProcessMatch]{deleted(barrier.Pid())})
+		event := testutil.ReadChannel(t, tracerEvents, testTimeout)
+		for event.Obj.FileInfo != barrier {
+			event = testutil.ReadChannel(t, tracerEvents, testTimeout)
+		}
 	}
 	samplerOf := func(fi *execpkg.FileInfo) services.SamplerName {
 		if cfg := fi.ServiceAttrs().SamplerConfig; cfg != nil {
@@ -393,6 +411,15 @@ func TestTraceAttacherUpdatesSamplers(t *testing.T) {
 	assert.Equal(t, services.SamplerParentBasedAlwaysOff, samplerOf(master))
 	assert.Equal(t, []recordedSamplerUpdate{
 		{pid: 101, ns: 17, fileInfo: master, sampler: &services.SamplerConfig{Name: services.SamplerParentBasedAlwaysOff}},
+	}, generic.samplerUpdates)
+
+	t.Log("a worker follows its own update when its master leaves in the same batch, in either order")
+	generic.samplerUpdates = nil
+	apply(updated(201, services.SamplerAlwaysOn), deleted(200))
+	apply(deleted(400), updated(401, services.SamplerAlwaysOn))
+	assert.Equal(t, []recordedSamplerUpdate{
+		{pid: 201, ns: 17, fileInfo: masterA, sampler: &services.SamplerConfig{Name: services.SamplerAlwaysOn}},
+		{pid: 401, ns: 17, fileInfo: masterB, sampler: &services.SamplerConfig{Name: services.SamplerAlwaysOn}},
 	}, generic.samplerUpdates)
 }
 

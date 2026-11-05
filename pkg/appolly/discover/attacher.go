@@ -160,12 +160,15 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 		}
 
 		swarms.ForEachInput(ctx, in, ta.log.Debug, func(instrumentables []Event[ebpf.Instrumentable]) {
+			// Sampler updates wait for the rest of their batch, so a worker whose master
+			// leaves in the same refresh no longer defers to that master's update.
+			var updates []*ebpf.Instrumentable
 			for _, instr := range instrumentables {
 				ta.log.Debug("Instrumentable", "created", instr.Type, "type", instr.Obj.Type,
 					"exec", instr.Obj.FileInfo.CmdExePath(), "pid", instr.Obj.FileInfo.Pid())
 				switch instr.Type {
 				case EventUpdated:
-					ta.updateSampler(&instr.Obj)
+					updates = append(updates, &instr.Obj)
 				case EventCreated:
 					ta.resolveServiceMetadata(&instr.Obj)
 
@@ -228,6 +231,10 @@ func (ta *traceAttacher) attacherLoop(_ context.Context) (swarm.RunFunc, error) 
 					}
 					ta.notifyProcessDeletion(ctx, &instr.Obj)
 				}
+			}
+
+			for _, update := range updates {
+				ta.updateSampler(update)
 			}
 		})
 	}, nil
