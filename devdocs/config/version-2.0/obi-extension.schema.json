@@ -526,6 +526,9 @@
             "enabled": {
               "type": "boolean",
               "description": "Override global exception capture. Omission inherits the global setting."
+            },
+            "go": {
+              "$ref": "#/$defs/Exceptions/properties/go"
             }
           }
         }
@@ -2542,6 +2545,15 @@
       "additionalProperties": false,
       "description": "Runtime exception capture. Exception records use the logs pipeline.",
       "properties": {
+        "go": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "panics": { "type": "boolean" },
+            "formatted_errors": { "type": "boolean" }
+          },
+          "description": "Go capture selection. Panics default to enabled and formatted errors to disabled; workload overrides inherit omitted fields."
+        },
         "enabled": {
           "type": "boolean",
           "default": false

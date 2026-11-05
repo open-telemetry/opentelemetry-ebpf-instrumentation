@@ -94,3 +94,9 @@ followed by `payload_len` bytes whose layout the runtime defines.
 In user space, a runtime adds its payload decoder to `exceptionPayloadDecoders`
 (`pkg/ebpf/common/exception_record.go`). The shared reader resolves the service,
 applies the header's trace context and forwards the event to `ExceptionInput`.
+
+## Support matrix
+
+| Runtime | Versions / builds / architecture | Protocol association | Captures | Limitations |
+|---|---|---|---|---|
+| [Go](go.md) | Go 1.17-1.27; stripped and unstripped builds; Linux amd64, arm64 | HTTP (`net/http`) | Panics, including recovered panics; `fmt.Errorf` errors | Binaries built with `-buildmode=pie` require Go 1.26+ for capture. Panic messages require strings without methods. Messages: 128 bytes; stacks: 32 frames, without inline expansion. |

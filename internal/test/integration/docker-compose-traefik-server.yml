@@ -1,0 +1,55 @@
+services:
+  traefik-validation:
+    image: traefik:v3.7.13@sha256:24841fe2de7304c149343d877d2923b4c8800a38ba015dea9174c23b20e344a0
+    command:
+      - --entrypoints.web.address=:8080
+      - --entrypoints.websecure.address=:8443
+      - --entrypoints.websecure.http.tls=true
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --serversTransport.insecureSkipVerify=true
+      - --accesslog=true
+      - --accesslog.format=json
+    volumes:
+      - ./configs/traefik-wrapped-server.yml:/etc/traefik/dynamic.yml:ro
+    ports:
+      - "18080:8080"
+      - "18443:8443"
+    depends_on:
+      - traefik-backend
+
+  traefik-backend:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/wrappedconnserver/Dockerfile
+    image: ${TRAEFIK_BACKEND_IMAGE:-hatest-wrappedconnserver}
+    ports:
+      - "18383:8383"
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/obi/Dockerfile
+    image: ${TRAEFIK_OBI_IMAGE:-hatest-obi}
+    command: ["--config=/configs/obi-config-traefik-server.yml"]
+    volumes:
+      - ./configs:/configs:ro
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../../../testoutput:/coverage
+    privileged: true
+    pid: "host"
+    environment:
+      GOCOVERDIR: /coverage
+      OTEL_EBPF_TRACE_PRINTER: text
+      OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS: "false"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: 10ms
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: 1ms
+    depends_on:
+      - traefik-validation
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17
+    ports:
+      - "16686:16686"

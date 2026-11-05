@@ -36,7 +36,12 @@ type peerExchange struct {
 }
 
 func newPeerExchange(cfg MetadataConfig, store *localStore, network network) (*peerExchange, error) {
-	serverTLS, clientTLS, err := tlsConfigs(cfg.TLS)
+	serverTLS, err := serverTLSConfig(cfg.TLS)
+	if err != nil {
+		return nil, err
+	}
+
+	clientTLS, err := clientTLSConfig(cfg.TLS)
 	if err != nil {
 		return nil, err
 	}
@@ -80,7 +85,7 @@ func (p *peerExchange) GetSnapshot(ctx context.Context, _ *metadatapb.GetSnapsho
 	}
 
 	now := time.Now()
-	snapshot := p.store.snapshot(map[string]struct{}{requester.String(): {}}, now)
+	snapshot := p.store.snapshot(callersTo(requester.String()), now)
 	snapshot.KnownCallers = p.cache.knownCallers(requester, now)
 	return snapshotToProto(&snapshot), nil
 }
@@ -95,36 +100,18 @@ func (p *peerExchange) run(ctx context.Context) {
 		}
 	})
 
-	jobs := make(chan *cachedPeer, p.cfg.MaxConcurrent)
-	for range p.cfg.MaxConcurrent {
-		workers.Go(func() {
-			p.fetchPeers(ctx, jobs)
-		})
-	}
-
-	p.schedulePeers(ctx, jobs)
+	p.createRefresher().run(ctx)
 	workers.Wait()
 }
 
-// fetchPeers downloads queued peer snapshots and records each refresh result in the cache.
-func (p *peerExchange) fetchPeers(ctx context.Context, jobs <-chan *cachedPeer) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case peer := <-jobs:
-			started := time.Now()
-			snapshot, size, err := p.fetch(ctx, peer.address)
-
-			var indexed *cachedSnapshot
-			if err == nil {
-				indexed = indexSnapshot(snapshot)
-			} else if ctx.Err() == nil {
-				slog.Debug("peer metadata unavailable", "peer", peer.address, "error", err)
-			}
-
-			p.cache.complete(peer, indexed, size, started, time.Now())
-		}
+// createRefresher returns a refresher that fetches snapshots directly from each peer, and closes the connections
+// to evicted peers.
+func (p *peerExchange) createRefresher() *refresher {
+	return &refresher{
+		cfg:           &p.cfg,
+		cache:         p.cache,
+		fetch:         p.fetch,
+		afterSchedule: func() { p.clients.retain(p.cache.contains) },
 	}
 }
 
@@ -135,28 +122,4 @@ func (p *peerExchange) fetch(ctx context.Context, address netip.Addr) (*Snapshot
 	}
 
 	return fetchSnapshot(ctx, client, &p.cfg)
-}
-
-// schedulePeers queues peer refreshes as capacity allows, and closes the connections to evicted peers.
-func (p *peerExchange) schedulePeers(ctx context.Context, jobs chan<- *cachedPeer) {
-	ticker := time.NewTicker(pollInterval(&p.cfg))
-	defer ticker.Stop()
-
-	for {
-		for _, peer := range p.cache.due(time.Now(), cap(jobs)-len(jobs)) {
-			select {
-			case jobs <- peer:
-			case <-ctx.Done():
-				return
-			}
-		}
-		p.clients.retain(p.cache.contains)
-
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		case <-p.cache.wake:
-		}
-	}
 }
