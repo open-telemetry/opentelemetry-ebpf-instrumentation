@@ -34,7 +34,7 @@ func exportedExceptionLogs(t *testing.T, events []exceptions.Event) plog.Logs {
 	cfg := otelcfg.LogsConfig{
 		BatchMaxSize: len(events),
 		QueueSize:    2 * len(events),
-		BatchTimeout: time.Millisecond,
+		BatchTimeout: time.Hour,
 		LogsExport: func(_ context.Context, l plog.Logs) error {
 			received <- l
 			return nil
