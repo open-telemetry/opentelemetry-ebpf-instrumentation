@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
 )

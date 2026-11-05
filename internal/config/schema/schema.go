@@ -27,7 +27,7 @@ import (
 	"strings"
 
 	"github.com/mitchellh/copystructure"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 
 	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
 )

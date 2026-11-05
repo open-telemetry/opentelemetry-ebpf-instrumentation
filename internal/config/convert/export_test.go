@@ -13,7 +13,7 @@ import (
 
 	"github.com/gobwas/glob"
 	"github.com/stretchr/testify/require"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 
 	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
 

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"slices"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 func unmarshalEnum[T ~string](value *yaml.Node, name string, dst *T, allowed ...T) error {

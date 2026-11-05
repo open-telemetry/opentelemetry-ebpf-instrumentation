@@ -3,7 +3,7 @@
 
 package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
-import "go.yaml.in/yaml/v3"
+import "go.yaml.in/yaml/v4"
 
 // PeerMetadataMode selects how agents exchange peer metadata.
 type PeerMetadataMode string

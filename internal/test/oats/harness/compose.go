@@ -19,7 +19,7 @@ import (
 	"github.com/grafana/oats/testhelpers/remote"
 	oatsyaml "github.com/grafana/oats/yaml"
 	"github.com/onsi/ginkgo/v2"
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 const (
