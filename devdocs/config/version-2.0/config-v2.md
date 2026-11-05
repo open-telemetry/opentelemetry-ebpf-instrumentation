@@ -1140,12 +1140,18 @@ instrumenting processes no longer selected, and instruments newly selected
 processes. A discovery rescan picks up processes and ports that were not observed
 yet. Processes that remain selected keep their instrumentation.
 
-Existing service names, namespaces, samplers, route policies, export modes and
+The top-level trace sampler (`tracer_provider.sampler`) can also be refreshed
+without restarting OBI. Sampling changes apply to already selected processes and
+newly selected processes. Embedders can also refresh per-rule sampler overrides
+through the runtime configuration API, those overrides take precedence over the
+global sampler.
+
+Existing service names, namespaces, route policies, export modes and
 metric features cannot change during a refresh. The update also fails if new
-matching criteria would give an already selected process different service
-settings, or if another runtime setting changes, such as exporters or protocol
+matching criteria would change these settings for an already selected process,
+or if another runtime setting changes, such as exporters or protocol
 enablement. New definitions cannot require metric features that the pipeline did
-not initialize at startup. Replacing a removed definition with different service
+not initialize at startup. Replacing a removed definition with changes to these
 settings in the same edit conservatively requires a restart.
 
 An incompatible or invalid edit logs an `ERROR` stating that OBI cannot refresh
@@ -1156,7 +1162,8 @@ active. A later compatible edit can still be accepted. Successful refreshes log
 To try it, start OBI with the
 [standalone example](examples/default-configuration.yaml), then edit its
 `capture.rules[].match` to select another running application. Change the
-top-level trace sampler to verify rejection without stopping the current capture.
+top-level trace sampler to update sampling without restarting OBI. Change an
+exporter endpoint to verify rejection without stopping the current capture.
 
 Embedders of OBI can use the same API with an `obi.Config` translated from
 their own configuration format:
