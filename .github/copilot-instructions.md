@@ -1,6 +1,7 @@
 # Copilot Instructions
 
 - Read `AGENTS.md` and `CONTRIBUTING.md` before suggesting code, reviewing a PR, or answering repository-specific questions. Treat them as the source of truth.
+- Apply the [compatibility check in AGENTS.md](../AGENTS.md#compatibility-check) to every PR and consult the referenced contracts for affected surfaces.
 - Start with `devdocs/pipeline-map.md` when you need architecture or data-flow context.
 - Prefer repository code and local documentation over external references when they disagree.
 - This repository provides eBPF-based instrumentation for applications and integrates with OpenTelemetry.

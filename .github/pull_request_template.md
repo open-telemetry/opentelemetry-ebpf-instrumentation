@@ -10,6 +10,12 @@ Why is this change needed?
 
 How did you validate it?
 
+## Compatibility
+
+<!-- Follow the compatibility check in AGENTS.md. State affected surfaces,
+their documented stability, required release level, and relevant validation.
+If no user-facing contract changes, explain why in one sentence. -->
+
 ## Related issue or discussion
 
 Link any prior issue or design discussion, if applicable.
