@@ -208,6 +208,48 @@ static void test_unindex_removes_only_own_entry(bool h2) {
     assert(entries == 0 && !parent(42, &client));
 }
 
+// Indexes a request on another stream or connection while the live request keeps running.
+static void index_concurrent_request(bool h2, unsigned char span) {
+    if (h2) {
+        http2_conn_stream_t stream = h2_stream;
+        stream.stream_id += 2;
+        tp_info_t tp = h2_server.tp;
+        tp.span_id[0] = span;
+        index_http_server_context(&stream, &tp);
+    } else {
+        pid_connection_info_t pid_conn = h2_stream.pid_conn;
+        pid_conn.conn.s_port++;
+        http_info_t info = http_server;
+        info.tp.span_id[0] = span;
+        index_http_server_trace(&pid_conn, &info);
+    }
+}
+
+// Replaces the live request with a new one on its own stream or connection.
+static void start_next_request(bool h2, unsigned char span) {
+    if (h2) {
+        h2_stream.stream_id += 4;
+        h2_server.tp.span_id[0] = span;
+    } else {
+        h2_stream.pid_conn.conn.s_port += 2;
+        http_server.tp.span_id[0] = span;
+    }
+    index_server(h2);
+}
+
+// A overlaps B in one trace, A ends, then C starts. The index can't tell that B still
+// runs, so C must not become the trace's parent, whether or not A's end was observed.
+static void test_ambiguity_outlives_first_request(bool h2, bool a_unindexed) {
+    const tp_info_t b_client = setup(h2);
+    index_concurrent_request(h2, 4);
+    if (a_unindexed) {
+        unindex_server(h2, 2);
+    }
+    start_next_request(h2, 6);
+    assert(entries == 1 && refs[0].ambiguous);
+    assert(!parent(42, &b_client));
+}
+
 static void test_same_trace_streams_are_ambiguous(void) {
     tp_info_t client = setup(true);
     http2_conn_stream_t second = h2_stream;
@@ -243,6 +285,8 @@ int main(void) {
         test_ended_or_reused_request_is_rejected(h2);
         test_finished_request_entry_is_replaced(h2);
         test_unindex_removes_only_own_entry(h2);
+        test_ambiguity_outlives_first_request(h2, true);
+        test_ambiguity_outlives_first_request(h2, false);
     }
     test_same_trace_streams_are_ambiguous();
     test_distinct_traces_on_one_connection_are_isolated();

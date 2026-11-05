@@ -82,12 +82,14 @@ static __always_inline void index_http_server_context(const http2_conn_stream_t 
     }
 
     // An entry left by a finished request, such as an earlier call in the same trace
-    if (!indexed_server_tp(existing)) {
+    if (!existing->ambiguous && !indexed_server_tp(existing)) {
         bpf_map_update_elem(&http_server_trace_index, &key, &ref, BPF_ANY);
         return;
     }
 
     // Concurrent requests in one trace. Don't choose a stream just because it arrived last.
+    // The entry tracks only one of them, so it can't tell when the others end: it stays
+    // ambiguous until the LRU evicts it.
     existing->ambiguous = 1;
 }
 
@@ -95,7 +97,7 @@ static __always_inline void unindex_http_server_trace(u32 pid, const tp_info_t *
     const http_server_trace_key_t key = http_server_trace_key(pid, tp->trace_id);
 
     const http_server_trace_ref_t *ref = bpf_map_lookup_elem(&http_server_trace_index, &key);
-    if (ref && indexes_request(ref, tp->span_id)) {
+    if (ref && !ref->ambiguous && indexes_request(ref, tp->span_id)) {
         bpf_map_delete_elem(&http_server_trace_index, &key);
     }
 }
