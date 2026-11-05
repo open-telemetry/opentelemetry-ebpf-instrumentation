@@ -78,6 +78,11 @@ func TestCentralExchangeEnrichesBothDirections(t *testing.T) {
 	require.Equal(t, backend, service)
 
 	require.Equal(t, frontend, eventualLookup(t, server, clientIP).callerService(destination, 0))
+
+	require.Eventually(t, func() bool {
+		snapshot, fetchedAt := client.lookup(netip.MustParseAddr(serverIP), time.Now())
+		return snapshot.knowsCaller(destination, frontend, time.Since(fetchedAt))
+	}, 5*time.Second, 10*time.Millisecond, "the server acknowledges the callers it looked up")
 }
 
 func TestCentralExchangeBacksOffUnpublishedHosts(t *testing.T) {
