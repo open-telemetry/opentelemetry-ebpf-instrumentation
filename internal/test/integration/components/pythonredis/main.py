@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 import os
+import queue
 import threading
 import time
 import uvicorn
@@ -154,6 +155,52 @@ def background_pipeline_loop():
 # span and each has to end up in a trace of its own. Started at import because
 # the container runs uvicorn directly, so __main__ never executes.
 threading.Thread(target=background_pipeline_loop, daemon=True).start()
+
+
+def run_job(job):
+    cli = redis.Redis(host='redis', port=6379, decode_responses=True)
+    cli.set('obi-job:' + job, 'running')
+    cli.get('obi-job:' + job)
+    cli.close()
+
+
+def thread_per_job(job):
+    threading.Thread(target=run_job, args=(job,), daemon=True).start()
+
+
+pool_jobs = queue.Queue()
+pool_started = []
+
+
+def pool_worker():
+    while True:
+        job = pool_jobs.get()
+        # a busy pool picks the job up after the fetching thread went back to its queue
+        time.sleep(0.3)
+        run_job(job)
+
+
+# the pool's thread starts with the first job and runs the later ones too
+def pooled_job(job):
+    if not pool_started:
+        threading.Thread(target=pool_worker, daemon=True).start()
+        pool_started.append(True)
+    pool_jobs.put(job)
+
+
+def job_loop(kind, handle):
+    cli = redis.Redis(host='redis', port=6379, decode_responses=True)
+    while True:
+        item = cli.blpop('obi-jobs-' + kind, timeout=1)
+        if item:
+            handle(item[1])
+
+
+# Workers that take jobs off Redis lists, each job running on the fetching
+# thread, on a thread of its own or on a reused pool thread
+if os.environ.get('OBI_TEST_JOB_QUEUES'):
+    for kind, handle in (('inline', run_job), ('thread', thread_per_job), ('pool', pooled_job)):
+        threading.Thread(target=job_loop, args=(kind, handle), daemon=True).start()
 
 if __name__ == "__main__":
     print(f"Server running: port={8080} process_id={os.getpid()}")
