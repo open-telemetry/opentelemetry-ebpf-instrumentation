@@ -18,6 +18,7 @@ services:
     environment:
       - TARGET_ADDRESS=testserver:8080
       - FAIL_TARGET_ADDRESS=testserver:19999
+      - RESET_TARGET_ADDRESS=testserver:8082
 
   testclient-retransmit:
     build:

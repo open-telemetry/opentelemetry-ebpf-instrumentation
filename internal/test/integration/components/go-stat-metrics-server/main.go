@@ -11,11 +11,12 @@ import (
 )
 
 func main() {
-	go serve(":8081")
-	serve(":8080")
+	go serve(":8081", handleConnection)
+	go serve(":8082", resetConnection)
+	serve(":8080", handleConnection)
 }
 
-func serve(addr string) {
+func serve(addr string, handle func(net.Conn)) {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		fmt.Printf("Failed to start server on %s: %v\n", addr, err)
@@ -31,7 +32,7 @@ func serve(addr string) {
 			continue
 		}
 
-		go handleConnection(conn)
+		go handle(conn)
 	}
 }
 
@@ -42,4 +43,16 @@ func handleConnection(conn net.Conn) {
 	fmt.Printf("Received: %s", message)
 
 	conn.Write([]byte("ACK\n"))
+}
+
+// resetConnection aborts the connection with SO_LINGER{0}, so close() sends a
+// RST instead of a FIN.
+func resetConnection(conn net.Conn) {
+	message, _ := bufio.NewReader(conn).ReadString('\n')
+	fmt.Printf("Received (will reset): %s", message)
+
+	if tcpConn, ok := conn.(*net.TCPConn); ok {
+		_ = tcpConn.SetLinger(0)
+	}
+	conn.Close()
 }
