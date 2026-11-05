@@ -310,6 +310,20 @@ func TestElasticsearchSpan(t *testing.T) {
 			expectedOperation: "doc",
 			expectedDocID:     "1",
 		},
+		{
+			name:              "document id contains an encoded slash",
+			target:            "/test_index/_doc/tenant%2F123",
+			expectedIndex:     "test_index",
+			expectedOperation: "doc",
+			expectedDocID:     "tenant/123",
+		},
+		{
+			name:              "document id contains multiple encoded slashes",
+			target:            "/test_index/_doc/https%3A%2f%2fexample.com%2farticle",
+			expectedIndex:     "test_index",
+			expectedOperation: "doc",
+			expectedDocID:     "https://example.com/article",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
