@@ -664,7 +664,11 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 		return nil, err
 	}
 
+	root, _ := source.(map[string]any)
 	var changed []string
+	if hasAnyPath(root, "attributes.select") && before.Attributes.Select.RequiresV2Review() {
+		changed = append(changed, "attributes.select")
+	}
 	languageDetectionSkipsPath := yamlPath{"discovery", "excluded_linux_system_paths"}
 	languageDetectionSkipsName := formatPath(languageDetectionSkipsPath)
 	if _, configured := valueAtPath(source, languageDetectionSkipsPath); configured {
@@ -718,7 +722,6 @@ func changedInputFields(data []byte, before, after *obi.Config) ([]string, error
 			changed = append(changed, name)
 		}
 	}
-	root, _ := source.(map[string]any)
 	changed = append(changed, unsupportedLayeredRoutePaths(root, before.Routes)...)
 	changed = append(changed, unsupportedFeaturePaths(root)...)
 	if hasAnyPath(root, "otel_traces_export.sampler") {

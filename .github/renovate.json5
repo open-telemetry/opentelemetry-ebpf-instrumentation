@@ -109,6 +109,16 @@
       "schedule": ["before 6am on Monday"]
     },
     {
+      "description": "Keep MongoDB v1 offset and integration fixtures on driver v1; separate fixtures cover v2",
+      "matchManagers": ["gomod"],
+      "matchFileNames": [
+        "configs/offsets/mongo/go.mod",
+        "internal/test/integration/components/gomongo/go.mod"
+      ],
+      "matchPackageNames": ["go.mongodb.org/mongo-driver"],
+      "allowedVersions": "<2"
+    },
+    {
       "groupName": "OpenTelemetry Collector Go packages",
       "matchManagers": ["gomod"],
       "matchPackageNames": ["go.opentelemetry.io/collector{/,}**"],

@@ -570,6 +570,16 @@ func TestInstrumentOptionalGoProbeGroupLeavesProcessScopedProbeDetached(t *testi
 	assert.Len(t, closers, 2)
 }
 
+func TestGoProbeGroupOnlyProcessScoped(t *testing.T) {
+	scoped := ebpfcommon.GoProbe{Symbol: "fmt.errorf", ProcessScoped: true}
+	unscoped := ebpfcommon.GoProbe{Symbol: "start"}
+
+	assert.True(t, goProbeGroupOnlyProcessScoped(ebpfcommon.GoProbeGroup{Probes: []ebpfcommon.GoProbe{scoped}}),
+		"registered although nothing is attached to the executable")
+	assert.False(t, goProbeGroupOnlyProcessScoped(ebpfcommon.GoProbeGroup{Probes: []ebpfcommon.GoProbe{unscoped, scoped}}))
+	assert.False(t, goProbeGroupOnlyProcessScoped(ebpfcommon.GoProbeGroup{}))
+}
+
 func TestInstrumentOptionalGoProbeGroupRollsBackOnFailure(t *testing.T) {
 	startCloser := &countingCloser{}
 	endedCloser := &countingCloser{}
@@ -1229,6 +1239,40 @@ func TestStaleExecutableUnlinkPreservesReplacement(t *testing.T) {
 
 	assert.NotContains(t, pt.Instrumentables, key)
 	assert.Equal(t, int32(1), newCloser.closes.Load())
+}
+
+type executableScopedRecorder struct {
+	stubTracer
+	events []string
+}
+
+func (r *executableScopedRecorder) RegisterExecutable(*exec.FileInfo) {
+	r.events = append(r.events, "register")
+}
+
+func (r *executableScopedRecorder) UnregisterExecutable(uint64, uint64) {
+	r.events = append(r.events, "unregister")
+}
+
+func TestExecutableScopedStateFollowsReplacement(t *testing.T) {
+	key := ExecutableKey{Dev: 5, Ino: 10}
+	fileInfo := exec.New(exec.Init{Dev: key.Dev, Ino: key.Ino})
+	recorder := &executableScopedRecorder{}
+	pt := &ProcessTracer{
+		log:             slog.Default(),
+		Programs:        []Tracer{recorder},
+		Instrumentables: map[ExecutableKey]*instrumenter{},
+	}
+	oldExecutable := &Instrumentable{FileInfo: fileInfo}
+	newExecutable := &Instrumentable{FileInfo: fileInfo}
+
+	pt.commitInstrumenter(&instrumenter{key: key, modules: map[uint64]struct{}{}}, oldExecutable)
+	pt.commitInstrumenter(&instrumenter{key: key, modules: map[uint64]struct{}{}}, newExecutable)
+	pt.UnlinkExecutable(fileInfo, oldExecutable.ExecutableGeneration)
+	assert.Equal(t, []string{"register", "unregister", "register"}, recorder.events)
+
+	pt.UnlinkExecutable(fileInfo, newExecutable.ExecutableGeneration)
+	assert.Equal(t, []string{"register", "unregister", "register", "unregister"}, recorder.events)
 }
 
 func TestUprobeTargetSharesInstrumenterUntilLastExecutableUnlinks(t *testing.T) {

@@ -668,6 +668,7 @@ OBI-emitted http.client.request.duration
 | `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
 | `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
+| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
 | `url.scheme` | string | `recommended` | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 | `url.template` | string | `opt_in` | development | The low-cardinality template of an [absolute path reference](https://www.rfc-editor.org/rfc/rfc3986#section-4.2). | /users/{id}; /users/:id; /users?id={id} |
 
@@ -717,12 +718,14 @@ OBI-emitted http.server.request.duration
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
+| `client.address` | string | `opt_in` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
 | `error.type` | string | `conditionally_required`: if the request ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
 | `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
 | `http.route` | string | `conditionally_required`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
 | `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
+| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
 | `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 
 ## `http.server.response.body.size`
@@ -1430,6 +1433,47 @@ Count of bytes transferred at the socket layer per TCP connection, broken down b
 | `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
 | `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
 | `network.io.direction` | enum | `recommended` | development | The network IO operation direction. | transmit |
+| `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
+| `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
+| `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |
+| `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
+| `service.peer.namespace` | string | `opt_in` | development | Logical namespace of the service on the other side of the connection. SHOULD be equal to the actual [`service.namespace`](/docs/resource/README.md#service) resource attribute of the remote service if any. | Shop |
+| `src.address` | string | `recommended` | development | Source IP address of the flow. | 10.0.0.5 |
+| `src.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the source endpoint. | frontend |
+| `src.port` | int | `opt_in` | development | Source TCP/UDP port. |  |
+| `src.zone` | string | `opt_in` | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
+
+## `obi.stat.tcp.resets`
+
+Count of TCP RST segments sent or received after the connection handshake. Resets that make a connection attempt fail are counted only by `obi.stat.tcp.failed.connections`. Resets that abort an established connection with a socket error are counted by both metrics.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {segment} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `dst.address` | string | `recommended` | development | Destination IP address of the flow. | 10.0.0.6 |
+| `dst.name` | string | `opt_in` | development | Resolved name (DNS or workload) for the destination endpoint. | users-api |
+| `dst.port` | int | `opt_in` | development | Destination TCP/UDP port. |  |
+| `dst.zone` | string | `opt_in` | development | Zone label attached to the destination side. | us-east-1b |
+| `k8s.cluster.name` | string | `recommended`: if Kubernetes decoration is enabled | release_candidate | The name of the cluster. | opentelemetry-cluster |
+| `k8s.dst.name` | string | `opt_in` | development | Name of the destination Kubernetes object (e.g. Pod name). | users-api-65b8-fghij |
+| `k8s.dst.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the destination workload. | integration-test |
+| `k8s.dst.node.ip` | string | `opt_in` | development | IP address of the node hosting the destination workload. | 10.0.1.6 |
+| `k8s.dst.node.name` | string | `opt_in` | development | Name of the node hosting the destination workload. | node-2 |
+| `k8s.dst.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the destination workload. | users-api |
+| `k8s.dst.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the destination workload. | Deployment |
+| `k8s.dst.type` | string | `opt_in` | development | Type of the destination Kubernetes object. | Pod |
+| `k8s.src.name` | string | `opt_in` | development | Name of the source Kubernetes object (e.g. Pod name). | frontend-7d9c-abcde |
+| `k8s.src.namespace` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kubernetes namespace of the source workload. | integration-test |
+| `k8s.src.node.ip` | string | `opt_in` | development | IP address of the node hosting the source workload. | 10.0.1.5 |
+| `k8s.src.node.name` | string | `opt_in` | development | Name of the node hosting the source workload. | node-1 |
+| `k8s.src.owner.name` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Name of the top-level Kubernetes owner of the source workload. | frontend |
+| `k8s.src.owner.type` | string | `conditionally_required`: if Kubernetes decoration is enabled | development | Kind of the top-level Kubernetes owner of the source workload. | Deployment |
+| `k8s.src.type` | string | `opt_in` | development | Type of the source Kubernetes object. | Pod |
+| `network.io.direction` | enum | `recommended` | development | The network IO operation direction. | transmit |
+| `network.tcp.reset.cause` | enum | `opt_in` | development | Inferred cause of a TCP reset sent by the local endpoint, from the code path that sent it: `application` when the socket was closed before the reset (close() with unread data, SO_LINGER{0}), `timeout` when the reset was sent with the connection still open, by a keepalive, user-timeout or orphan timer, or by a forced socket destroy such as `ss -K`. Not set when the cause cannot be inferred: received resets, and sent resets that answer an incoming segment. | application; timeout |
 | `obi.ip` | string | `opt_in` | development | IP address of the host running OBI. | 10.0.0.5 |
 | `service.name` | string | `opt_in` | stable | Logical name of the service. | shoppingcart |
 | `service.namespace` | string | `opt_in` | stable | A namespace for `service.name`. | Shop |

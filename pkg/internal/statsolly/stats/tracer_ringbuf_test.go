@@ -29,6 +29,7 @@ const (
 	wireSizeTCPSuccessfulConnection = 40
 	wireSizeTCPRetransmit           = 40
 	wireSizeTCPIo                   = 80
+	wireSizeTCPReset                = 40
 
 	wireFlagsOffset          = 0
 	wireRttRoleOffset        = 1
@@ -44,6 +45,9 @@ const (
 	wireTCPIoCountOffset     = 2
 	wireTCPIoBytesOffset     = 4
 	wireTCPIoConnOffset      = 44
+	wireResetDirectionOffset = 1
+	wireResetCauseOffset     = 2
+	wireResetConnOffset      = 4
 	wireConnSrcAddrOffset    = 0
 	wireConnDstAddrOffset    = 16
 	wireConnSrcPortOffset    = 32
@@ -56,6 +60,7 @@ func TestStatsEventWireSizes(t *testing.T) {
 	assert.Equal(t, uintptr(wireSizeTCPSuccessfulConnection), unsafe.Sizeof(ebpf.StatsTCPSuccessfulConnection{}))
 	assert.Equal(t, uintptr(wireSizeTCPRetransmit), unsafe.Sizeof(ebpf.StatsTCPRetransmit{}))
 	assert.Equal(t, uintptr(wireSizeTCPIo), unsafe.Sizeof(ebpf.StatsTCPIo{}))
+	assert.Equal(t, uintptr(wireSizeTCPReset), unsafe.Sizeof(ebpf.StatsTCPReset{}))
 }
 
 func TestParseStatDecodesEveryEventType(t *testing.T) {
@@ -108,6 +113,10 @@ func TestParseStatDecodesEveryEventType(t *testing.T) {
 	tcpIoRaw[wireTCPIoDirectionOffset] = uint8(ebpf.CodeDirectionTransmit)
 	tcpIoRaw[wireTCPIoCountOffset], tcpIoRaw[3] = 3, 0xd1
 	putWireBytes(tcpIoRaw, [ebpf.TCPIoBatchSize]uint32{100, 200, 300, 400})
+	resetRaw := newWireStat(ebpf.StatTypeTCPReset, wireSizeTCPReset, wireResetConnOffset, ipv6Conn)
+	resetRaw[wireResetDirectionOffset] = uint8(ebpf.CodeDirectionTransmit)
+	resetRaw[wireResetCauseOffset] = uint8(ebpf.CodeResetCauseApplication)
+	resetRaw[3] = 0xf1
 
 	tests := []struct {
 		name string
@@ -168,6 +177,18 @@ func TestParseStatDecodesEveryEventType(t *testing.T) {
 					Bytes:     600,
 				},
 				CommonAttrs: commonAttrs(ipv4Conn),
+			},
+		},
+		{
+			name: "TCP reset with IPv6 addresses",
+			raw:  resetRaw,
+			want: &ebpf.Stat{
+				Type: ebpf.StatTypeTCPReset,
+				TCPReset: &ebpf.TCPReset{
+					Direction: uint8(ebpf.CodeDirectionTransmit),
+					Cause:     uint8(ebpf.CodeResetCauseApplication),
+				},
+				CommonAttrs: commonAttrs(ipv6Conn),
 			},
 		},
 	}
@@ -355,6 +376,7 @@ func minimalWireStats() []struct {
 		{"successful connection", newWireStat(ebpf.StatTypeTCPSuccessfulConnection, wireSizeTCPSuccessfulConnection, wireSuccessfulConnOffset, ebpf.Conn{})},
 		{"TCP retransmit", newWireStat(ebpf.StatTypeTCPRetransmit, wireSizeTCPRetransmit, wireRetransmitConnOffset, ebpf.Conn{})},
 		{"TCP I/O", newWireStat(ebpf.StatTypeTCPIo, wireSizeTCPIo, wireTCPIoConnOffset, ebpf.Conn{})},
+		{"TCP reset", newWireStat(ebpf.StatTypeTCPReset, wireSizeTCPReset, wireResetConnOffset, ebpf.Conn{})},
 	}
 }
 

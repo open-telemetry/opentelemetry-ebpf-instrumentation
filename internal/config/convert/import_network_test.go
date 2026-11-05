@@ -213,6 +213,39 @@ func TestV2ToRuntimeNetworkStatsRejectsDivergentSignalFilters(t *testing.T) {
 	)
 }
 
+func TestV2ToRuntimeNetworkStatsResetsAreOptIn(t *testing.T) {
+	t.Parallel()
+
+	toRuntime := func(t *testing.T, stats schema.NetworkStats) export.Features {
+		t.Helper()
+		got, err := V2ToRuntime(&schema.Extension{
+			Version: schema.SupportedVersion,
+			Capture: schema.Capture{
+				Network: schema.CaptureNetwork{Stats: stats},
+			},
+		})
+		require.NoError(t, err)
+		return got.Metrics.Features
+	}
+
+	t.Run("enabled without features keeps resets off", func(t *testing.T) {
+		t.Parallel()
+
+		features := toRuntime(t, schema.NetworkStats{Enabled: true})
+		require.True(t, features.StatsTCPRtt())
+		require.False(t, features.StatsTCPResets())
+	})
+
+	t.Run("tcp_resets feature enables only resets", func(t *testing.T) {
+		t.Parallel()
+
+		features := toRuntime(t, schema.NetworkStats{Enabled: true, Features: []string{"tcp_resets"}})
+		require.True(t, features.StatsTCPResets())
+		require.True(t, features.StatMetrics())
+		require.False(t, features.StatsTCPRtt())
+	})
+}
+
 func TestV2ToRuntimeRejectsUnsupportedNetworkProperties(t *testing.T) {
 	t.Parallel()
 

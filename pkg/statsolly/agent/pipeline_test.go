@@ -44,7 +44,7 @@ func TestFilter(t *testing.T) {
 				Path: "/metrics",
 				TTL:  time.Hour,
 			},
-			Metrics: perapp.GlobalMetricsConfig{Features: export.FeatureStatsTCPRtt | export.FeatureStatsTCPFailedConnections | export.FeatureStatsTCPRetransmits | export.FeatureStatsTCPIo | export.FeatureStatsTCPSuccessfulConnections},
+			Metrics: perapp.GlobalMetricsConfig{Features: export.FeatureStatsTCPRtt | export.FeatureStatsTCPFailedConnections | export.FeatureStatsTCPRetransmits | export.FeatureStatsTCPIo | export.FeatureStatsTCPSuccessfulConnections | export.FeatureStatsTCPResets},
 			Attributes: obi.Attributes{Select: attributes.Selection{
 				attributes.StatTCPRtt.Section: attributes.InclusionLists{
 					Include: []string{"obi_ip", "dst_port", "src_port"},
@@ -60,6 +60,9 @@ func TestFilter(t *testing.T) {
 				},
 				attributes.StatTCPIo.Section: attributes.InclusionLists{
 					Include: []string{"obi_ip", "dst_port", "src_port", "network_io_direction"},
+				},
+				attributes.StatTCPResets.Section: attributes.InclusionLists{
+					Include: []string{"obi_ip", "dst_port", "src_port", "network_io_direction", "network_tcp_reset_cause"},
 				},
 			}},
 		},
@@ -108,6 +111,11 @@ func TestFilter(t *testing.T) {
 		fakeIoRecord(100, 200, uint8(ebpf.CodeDirectionReceive), 2000),
 	}
 
+	ringBuf <- []*ebpf.Stat{
+		fakeResetRecord(8082, 40000, uint8(ebpf.CodeDirectionTransmit), uint8(ebpf.CodeResetCauseApplication)),
+		fakeResetRecord(40000, 8082, uint8(ebpf.CodeDirectionReceive), uint8(ebpf.CodeResetCauseUnknown)),
+	}
+
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		allMetrics, err := promtest.Scrape(promServer.URL)
 		require.NoError(ct, err)
@@ -121,6 +129,7 @@ func TestFilter(t *testing.T) {
 				"obi_stat_tcp_successful_connections_total",
 				"obi_stat_tcp_retransmits_total",
 				"obi_stat_tcp_io_bytes_total",
+				"obi_stat_tcp_resets_total",
 				"promhttp_metric_handler_errors_total":
 				// Reset values to 0 if you don't care about the specific count,
 				// or keep them if you want to verify the Value: 1 seen in your logs.
@@ -140,6 +149,8 @@ func TestFilter(t *testing.T) {
 			{Name: "obi_stat_tcp_retransmits_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "888", "src_port": "777"}},
 			{Name: "obi_stat_tcp_io_bytes_total", Value: 1500, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "200", "src_port": "100", "network_io_direction": "transmit"}},
 			{Name: "obi_stat_tcp_io_bytes_total", Value: 2000, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "200", "src_port": "100", "network_io_direction": "receive"}},
+			{Name: "obi_stat_tcp_resets_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "40000", "src_port": "8082", "network_io_direction": "transmit", "network_tcp_reset_cause": "application"}},
+			{Name: "obi_stat_tcp_resets_total", Value: 1, Labels: map[string]string{"obi_ip": "1.2.3.4", "dst_port": "8082", "src_port": "40000", "network_io_direction": "receive", "network_tcp_reset_cause": ""}},
 			{Name: "promhttp_metric_handler_errors_total", Value: 0, Labels: map[string]string{"cause": "encoding"}},
 			{Name: "promhttp_metric_handler_errors_total", Value: 0, Labels: map[string]string{"cause": "gathering"}},
 		}, filtered)
@@ -198,6 +209,20 @@ func fakeIoRecord(srcPort, dstPort uint16, direction uint8, bytes uint32) *ebpf.
 		TCPIo: &ebpf.TCPIo{
 			Direction: direction,
 			Bytes:     bytes,
+		},
+		CommonAttrs: pipe.CommonAttrs{
+			SrcPort: srcPort,
+			DstPort: dstPort,
+		},
+	}
+}
+
+func fakeResetRecord(srcPort, dstPort uint16, direction, cause uint8) *ebpf.Stat {
+	return &ebpf.Stat{
+		Type: ebpf.StatTypeTCPReset,
+		TCPReset: &ebpf.TCPReset{
+			Direction: direction,
+			Cause:     cause,
 		},
 		CommonAttrs: pipe.CommonAttrs{
 			SrcPort: srcPort,

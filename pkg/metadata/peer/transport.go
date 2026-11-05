@@ -146,26 +146,34 @@ type peerClients struct {
 }
 
 func newPeerClients(cfg *MetadataConfig, clientTLS *tls.Config, options ...grpc.DialOption) *peerClients {
+	dialOptions := clientDialOptions(cfg, clientTLS)
+	// Callers are scoped to the TCP source address, so peers must be dialed directly, never through a proxy.
+	dialOptions = append(dialOptions, grpc.WithNoProxy())
+	dialOptions = append(dialOptions, options...)
+
+	return &peerClients{
+		port:    strconv.Itoa(cfg.Port),
+		options: dialOptions,
+		conns:   map[netip.Addr]*grpc.ClientConn{},
+	}
+}
+
+// clientDialOptions configures the connections to other agents or to the central metadata service.
+func clientDialOptions(cfg *MetadataConfig, clientTLS *tls.Config) []grpc.DialOption {
 	transport := insecure.NewCredentials()
 	if clientTLS != nil {
 		transport = credentials.NewTLS(clientTLS)
 	}
 
-	// Cap reconnection backoff like peer refreshes, so a recovered agent is not probed later than its retry.
+	// Cap reconnection backoff like peer refreshes, so a recovered server is not probed later than its retry.
 	reconnect := grpcbackoff.DefaultConfig
 	reconnect.MaxDelay = backoff(cfg.RefreshInterval, maxFailures)
 
-	return &peerClients{
-		port: strconv.Itoa(cfg.Port),
-		options: append([]grpc.DialOption{
-			grpc.WithTransportCredentials(transport),
-			grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cfg.MaxResponseBytes)),
-			grpc.WithConnectParams(grpc.ConnectParams{Backoff: reconnect, MinConnectTimeout: cfg.RequestTimeout}),
-			grpc.WithIdleTimeout(3 * cfg.RefreshInterval),
-			// Callers are scoped to the TCP source address, so peers must be dialed directly, never through a proxy.
-			grpc.WithNoProxy(),
-		}, options...),
-		conns: map[netip.Addr]*grpc.ClientConn{},
+	return []grpc.DialOption{
+		grpc.WithTransportCredentials(transport),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(cfg.MaxResponseBytes)),
+		grpc.WithConnectParams(grpc.ConnectParams{Backoff: reconnect, MinConnectTimeout: cfg.RequestTimeout}),
+		grpc.WithIdleTimeout(3 * cfg.RefreshInterval),
 	}
 }
 
@@ -216,17 +224,27 @@ func fetchSnapshot(ctx context.Context, client metadatapb.PeerMetadataServiceCli
 	ctx, cancel := context.WithTimeout(ctx, cfg.RequestTimeout)
 	defer cancel()
 
-	if cfg.Token != "" {
-		ctx = metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+cfg.Token)
-	}
-
-	message, err := client.GetSnapshot(ctx, &metadatapb.GetSnapshotRequest{})
+	message, err := client.GetSnapshot(withBearerToken(ctx, cfg.Token), &metadatapb.GetSnapshotRequest{})
 	if err != nil {
 		return nil, 0, err
 	}
 
+	return decodeSnapshot(message, cfg.CallerTTL)
+}
+
+// withBearerToken authenticates outgoing requests with the token, unless it is empty.
+func withBearerToken(ctx context.Context, token string) context.Context {
+	if token == "" {
+		return ctx
+	}
+
+	return metadata.AppendToOutgoingContext(ctx, "authorization", "Bearer "+token)
+}
+
+// decodeSnapshot validates a received snapshot and returns it with its encoded size.
+func decodeSnapshot(message *metadatapb.Snapshot, callerTTL time.Duration) (*Snapshot, int, error) {
 	snapshot := snapshotFromProto(message)
-	if err := validateSnapshot(&snapshot, cfg.CallerTTL); err != nil {
+	if err := validateSnapshot(&snapshot, callerTTL); err != nil {
 		return nil, 0, err
 	}
 

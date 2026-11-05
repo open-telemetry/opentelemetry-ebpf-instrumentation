@@ -38,7 +38,7 @@ func TestConfigLimitValidationTags(t *testing.T) {
 		{field: "max_caller_entries", invalid: "0", valid: "1"},
 		{field: "max_response_bytes", invalid: "0", valid: "1"},
 		{field: "max_cache_bytes", invalid: "0", valid: "1"},
-		{field: "mode", invalid: "unknown", valid: "central"},
+		{field: "mode", invalid: "unknown", valid: "peer"},
 	} {
 		t.Run(test.field, func(t *testing.T) {
 			cfg := DefaultConfig()
@@ -73,4 +73,24 @@ func TestBearerTokenRequiresTLS(t *testing.T) {
 	cfg.Enabled = false
 	cfg.Token = "shared-secret"
 	require.NoError(t, cfg.Validate())
+}
+
+func TestCentralModeValidation(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Enabled = true
+	cfg.Mode = ModeCentral
+	require.ErrorContains(t, cfg.Validate(), "central.address: required in central mode")
+
+	for _, address := range []string{"metadata", ":8999", "metadata:0", "metadata:port"} {
+		cfg.Central.Address = address
+		require.ErrorContains(t, cfg.Validate(), "central.address", address)
+	}
+
+	cfg.Central.Address = "metadata:8999"
+	require.NoError(t, cfg.Validate())
+
+	cfg.TLS = MetadataTLSConfig{Enabled: true}
+	require.NoError(t, cfg.Validate(), "agents only connect as clients in central mode")
+	cfg.Mode = ModePeer
+	require.ErrorContains(t, cfg.Validate(), "requires cert_file and key_file")
 }

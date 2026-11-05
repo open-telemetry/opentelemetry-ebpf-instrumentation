@@ -2403,3 +2403,20 @@ open_port: '8080'
 metrics:
   features: [application]
 `
+
+func TestMigrateRequiresReviewForChangedAttributeMatching(t *testing.T) {
+	path := writeConfig(t, "selection.yaml", `discovery:
+  instrument:
+    - exe_path: /srv/*
+trace_printer: text
+attributes:
+  select:
+    gen_ai.client.operation.duration:
+      exclude: [gen_ai.request.model]
+`)
+	var stdout, stderr bytes.Buffer
+	exitCode := run([]string{"migrate", path}, &stdout, &stderr)
+	require.NotEqual(t, ExitSuccess, exitCode)
+	require.Empty(t, stdout.String())
+	require.Contains(t, stderr.String(), "attributes.select")
+}

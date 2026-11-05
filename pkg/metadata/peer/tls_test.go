@@ -164,7 +164,7 @@ func TestTLSInvalidFiles(t *testing.T) {
 			cfg := DefaultConfig()
 			cfg.Enabled = true
 			cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: test.certFile, KeyFile: test.keyFile, CAFile: test.caFile}
-			_, err := New(t.Context(), cfg, "host", false, nil, nil)
+			_, err := New(t.Context(), cfg, "host", "", false, nil, nil)
 			require.ErrorContains(t, err, test.wantError)
 		})
 	}

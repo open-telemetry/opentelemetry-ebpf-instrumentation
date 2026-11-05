@@ -22,6 +22,7 @@
 
 #include <common/algorithm.h>
 #include <common/connection_info.h>
+#include <common/exception_emit.h>
 #include <common/globals.h>
 #include <common/http_types.h>
 #include <common/preempt_guard.h>
@@ -628,7 +629,7 @@ int GUARDED_PROG(obi_uprobe_readContinuedLineSliceReturns, struct pt_regs *, ctx
     return 0;
 }
 
-static __always_inline int serve_http_returns(struct pt_regs *ctx) {
+static __always_inline int serve_http_returns(struct pt_regs *ctx, const bool panicked) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
@@ -653,7 +654,9 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
         }
     }
 
-    if (!invocation->status) {
+    if (panicked && invocation->status == (u64)-1) {
+        invocation->status = 0;
+    } else if (!invocation->status && !panicked) {
         invocation->status = -1;
         return 0;
     }
@@ -743,7 +746,7 @@ done:
 SEC("uprobe/ServeHTTP_ret")
 int GUARDED_PROG(obi_uprobe_ServeHTTPReturns, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/ServeHTTP_ret ===");
-    return serve_http_returns(ctx);
+    return serve_http_returns(ctx, false);
 }
 
 /* HTTP Client. We expect to see HTTP client in both HTTP server and gRPC server calls.*/
@@ -1309,7 +1312,7 @@ int GUARDED_PROG(obi_uprobe_http2ResponseWriterStateWriteHeader, struct pt_regs 
     // is called on defer after the ServeHTTP returns.
     if (invocation->status == -1) {
         invocation->status = status;
-        serve_http_returns(ctx);
+        serve_http_returns(ctx, false);
     } else {
         invocation->status = status;
     }
@@ -2190,6 +2193,22 @@ int GUARDED_PROG(obi_uprobe_jsonrpcReadRequestHeaderReturns, struct pt_regs *, c
     return 0;
 }
 
+static __always_inline void complete_abandoned_http_request(struct pt_regs *ctx,
+                                                            const go_addr_key_t *g_key) {
+    const server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, g_key);
+    if (!invocation) {
+        return;
+    }
+
+    if (invocation->panicked) {
+        serve_http_returns(ctx, true);
+        return;
+    }
+
+    bpf_map_delete_elem(&ongoing_http_server_requests, g_key);
+}
+
 SEC("uprobe/connServeRet")
 int GUARDED_PROG(obi_uprobe_connServeRet, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/connServeRet ===");
@@ -2197,6 +2216,10 @@ int GUARDED_PROG(obi_uprobe_connServeRet, struct pt_regs *, ctx) {
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
+
+    if (g_exceptions_enabled) {
+        complete_abandoned_http_request(ctx, &g_key);
+    }
 
     const http_server_connection_t *server =
         bpf_map_lookup_elem(&ongoing_server_connections, &g_key);

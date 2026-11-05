@@ -13,7 +13,7 @@ Establish the intended behavior from the PR and related issues, then verify thos
 
 Use the repository instructions for detailed checks. Pay particular attention to these relationships when relevant to the diff:
 
-- Compatibility: check changes to user-facing surfaces (exported Go API, CLI flags and environment variables, Config v2 schema, emitted telemetry, release artifacts, and support matrix) against `VERSIONING.md` and `TELEMETRY.md`; flag breaking changes to declared stable surfaces. Config v1 is frozen.
+- Compatibility: apply the [compatibility check in AGENTS.md](../../../AGENTS.md#compatibility-check) to every PR and verify its assessment against base and head behavior. Config v1 is frozen.
 - eBPF: follow C event and map changes through Go loaders and consumers; check ABI consistency, verifier constraints, supported kernels, and required generated artifacts.
 - Protocol parsers: compare buffer handling with nearby implementations; check partial and malformed input, bounds, allocations, and error paths.
 - Telemetry: follow emitted changes through exporters and the registry; consult `devdocs/telemetry-schema.md` for transformation, release-note, and generated-documentation requirements.

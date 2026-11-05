@@ -181,12 +181,14 @@ func (i *instrumenter) goprobes(exe *link.Executable, exePath string, p Tracer) 
 					continue
 				}
 				groupClosers := i.instrumentOptionalGoProbeGroup(exe, exePath, resolvedGroup.group)
-				if len(groupClosers) == 0 {
+				// a group of process-scoped probes only attaches nothing here
+				if len(groupClosers) == 0 && !goProbeGroupOnlyProcessScoped(resolvedGroup.group) {
 					continue
 				}
 				recordGoProbeGroupSymbols(resolvedGroup, attachedGroupSymbols)
-				closer := &reverseCloser{closers: groupClosers}
-				i.closables = append(i.closables, closer)
+				if len(groupClosers) > 0 {
+					i.closables = append(i.closables, &reverseCloser{closers: groupClosers})
+				}
 				if hasProcessScopedTracer {
 					for _, candidate := range resolvedGroup.group.Probes {
 						if candidate.ProcessScoped {
@@ -306,6 +308,15 @@ func goProbeGroupHasProcessScopedProbe(group ebpfcommon.GoProbeGroup) bool {
 		}
 	}
 	return false
+}
+
+func goProbeGroupOnlyProcessScoped(group ebpfcommon.GoProbeGroup) bool {
+	for _, candidate := range group.Probes {
+		if !candidate.ProcessScoped {
+			return false
+		}
+	}
+	return len(group.Probes) > 0
 }
 
 func goProbeGroupPrerequisitesAttached(
@@ -1111,7 +1122,7 @@ func (i *instrumenter) sockops(p Tracer, cgroupPath string) error {
 	for _, sockops := range p.SockOps() {
 		slog.Info("Attaching sock ops")
 
-		l, err := AttachCgroupSockOps(sockops.Program, sockops.AttachAs, cgroupPath)
+		l, err := AttachCgroupSockOpsAtPath(sockops.Program, sockops.AttachAs, cgroupPath)
 		if err != nil {
 			if i.metrics != nil {
 				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingCgroup)

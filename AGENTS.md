@@ -19,6 +19,7 @@ Prefer repository code and local documentation when there is any discrepancy wit
 
 ## Task-oriented starting points
 
+- **Plan, implement, or review any PR:** read [VERSIONING.md](VERSIONING.md) and apply its compatibility and release rules; follow the [compatibility check](#compatibility-check) below.
 - **Understand how data flows through OpenTelemetry eBPF Instrumentation (OBI):** start with [devdocs/pipeline-map.md](devdocs/pipeline-map.md), then follow the named components into `pkg/` and `pkg/internal/`.
 - **Change or investigate network, application, or stats metrics:** read [devdocs/metrics.md](devdocs/metrics.md); for eBPF map and probe metrics, also read [devdocs/bpf-metrics-collection.md](devdocs/bpf-metrics-collection.md).
 - **Work on a protocol or runtime:** check the relevant documentation under [devdocs/protocols/](devdocs/protocols/) or [devdocs/runtimes/](devdocs/runtimes/) and trace the implementation from there.
@@ -60,6 +61,35 @@ Do not assume boundaries can be changed without explicit instruction.
 - Refactors are allowed only when they are directly relevant to the task.
 
 If the task is unclear or underspecified, ask for clarification before making changes.
+
+## Compatibility check
+
+Every PR must comply with [VERSIONING.md](VERSIONING.md), the source of truth
+for stability and release rules, including the Collector receiver's separate
+version line.
+
+Before implementation and again before submitting or approving a PR:
+
+1. Identify observable effects on the user-facing surfaces listed in the policy,
+   including effects of internal refactors and dependency updates. For affected
+   contracts, consult [TELEMETRY.md](TELEMETRY.md),
+   [SUPPORT_MATRIX.md](SUPPORT_MATRIX.md), or the relevant configuration docs.
+   Cite the documented classification or exclusion before treating a surface as
+   unprotected.
+2. Compare base and head behavior against the intended release's rules. Preserve
+   compatibility or flag violations as blockers; do not silently expand the task
+   to a major release or weaken the stability contract to accommodate a change.
+3. Add the migration guidance, deprecation notices, release notes, and generated
+   documentation required by the affected contract. For emitted telemetry, follow
+   the [telemetry schema requirements](#telemetry-schema) below.
+4. Include a concise compatibility assessment in the PR description: affected
+   surfaces, stability evidence, required release level, and relevant validation.
+   If no user-facing contract changes, explain why in one sentence. Validate
+   changed behavior with relevant regression coverage; for documentation-only
+   changes, follow the Markdown validation requirement below.
+
+Do not declare a PR ready or approve it while a versioning violation or an
+unresolved stability question remains.
 
 ## GitHub Communication
 

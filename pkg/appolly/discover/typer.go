@@ -100,6 +100,15 @@ func samplerFromConfig(s *services.SamplerConfig) trace.Sampler {
 	return nil
 }
 
+func selectorExceptions(selector services.Selector) *services.ExceptionsOverride {
+	if provider, ok := selector.(interface {
+		GetExceptionsConfig() *services.ExceptionsOverride
+	}); ok {
+		return provider.GetExceptionsConfig()
+	}
+	return nil
+}
+
 func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 	name := t.cfg.ServiceName
 	namespace := t.cfg.ServiceNamespace
@@ -138,7 +147,7 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 			routesConfig = m
 		}
 
-		exceptions = s.GetExceptionsConfig().Resolve(t.cfg.Exceptions)
+		exceptions = selectorExceptions(s).Resolve(t.cfg.Exceptions)
 
 		// if the matching service > instrument entry does not define features,
 		// the globally defined features apply (and override any previous,
@@ -372,9 +381,15 @@ func (t *typer) inspectOffsets(execElf *exec.FileInfo) (*goexec.Offsets, bool, e
 	return offsets, true, nil
 }
 
-var supportOnlyGoProbeSymbols = map[string]struct{}{
-	"context.WithValue": {},
-}
+// Symbols probed only to support other instrumentation: present in almost any
+// Go executable, they don't make it a Go service
+var supportOnlyGoProbeSymbols = func() map[string]struct{} {
+	symbols := map[string]struct{}{"context.WithValue": {}}
+	for _, symbol := range gotracer.GoExceptionProbeSymbols() {
+		symbols[symbol] = struct{}{}
+	}
+	return symbols
+}()
 
 func isGoProxy(offsets *goexec.Offsets) bool {
 	for f := range offsets.Funcs {
@@ -414,6 +429,11 @@ func (t *typer) loadAllGoFunctionNames() {
 	}
 	for _, symbolName := range gotracer.GoH2OwnershipProbeSymbols() {
 		t.addGoFunctionName(uniqueFunctions, symbolName)
+	}
+	if t.cfg.ExceptionsEnabled() && t.cfg.Logs.Enabled() {
+		for _, symbolName := range gotracer.GoExceptionProbeSymbols() {
+			t.addGoFunctionName(uniqueFunctions, symbolName)
+		}
 	}
 }
 
