@@ -383,6 +383,84 @@ func TestGenerateTraces(t *testing.T) {
 	})
 }
 
+func TestRequestPhaseSpans(t *testing.T) {
+	tests := []struct {
+		name         string
+		eventType    request.EventType
+		httpDisabled bool
+		wantSpans    int
+	}{
+		{name: "HTTP enabled", eventType: request.EventTypeHTTP, wantSpans: 3},
+		{name: "HTTP disabled", eventType: request.EventTypeHTTP, httpDisabled: true, wantSpans: 1},
+		{name: "HTTP client unaffected", eventType: request.EventTypeHTTPClient, httpDisabled: true, wantSpans: 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			receiver := makeTracesTestReceiver([]instrumentations.Instrumentation{
+				instrumentations.InstrumentationHTTP,
+			})
+			receiver.cfg.DisableHTTPRequestPhaseSpans = tt.httpDisabled
+
+			start := time.Now()
+
+			inputLink := request.SpanLink{
+				TraceID:    idgen.RandomTraceID(),
+				SpanID:     idgen.RandomSpanID(),
+				TraceFlags: uint8(trace.FlagsSampled),
+			}
+
+			input := request.Span{
+				Type:         tt.eventType,
+				RequestStart: start.UnixNano(),
+				Start:        start.Add(time.Second).UnixNano(),
+				End:          start.Add(3 * time.Second).UnixNano(),
+				Method:       "GET",
+				Path:         "/test",
+				Route:        "/test",
+				TraceID:      idgen.RandomTraceID(),
+				SpanID:       idgen.RandomSpanID(),
+				ParentSpanID: idgen.RandomSpanID(),
+				Links:        []request.SpanLink{inputLink},
+			}
+
+			var exported []ptrace.Traces
+			exporter := TestExporter{
+				collector: func(td ptrace.Traces) {
+					exported = append(exported, td)
+				},
+			}
+
+			receiver.processSpans(
+				t.Context(), exporter, []request.Span{input},
+				nil, sdktrace.AlwaysSample(),
+			)
+
+			require.Len(t, exported, 1)
+			require.Equal(t, 1, exported[0].ResourceSpans().Len())
+			require.Equal(t, 1, exported[0].ResourceSpans().At(0).ScopeSpans().Len())
+
+			spans := exported[0].ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+			require.Equal(t, tt.wantSpans, spans.Len())
+
+			requestSpan := spans.At(spans.Len() - 1)
+			assert.Equal(t, input.TraceID.String(), requestSpan.TraceID().String())
+			assert.Equal(t, input.ParentSpanID.String(), requestSpan.ParentSpanID().String())
+
+			if tt.wantSpans == 1 {
+				assert.Equal(t, input.SpanID.String(), requestSpan.SpanID().String())
+				ensureTraceAttrNotExists(t, requestSpan.Attributes(), "obi.request.phase")
+
+				require.Equal(t, 1, requestSpan.Links().Len())
+				link := requestSpan.Links().At(0)
+				assert.Equal(t, inputLink.TraceID.String(), link.TraceID().String())
+				assert.Equal(t, inputLink.SpanID.String(), link.SpanID().String())
+				assert.Equal(t, uint32(inputLink.TraceFlags), link.Flags())
+			}
+		})
+	}
+}
+
 func TestGenerateTracesAttributes(t *testing.T) {
 	t.Run("test SQL trace generation, no statement", func(t *testing.T) {
 		span := makeSQLRequestSpan("SELECT password FROM credentials WHERE username=\"bill\"")

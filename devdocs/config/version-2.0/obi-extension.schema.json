@@ -65,6 +65,11 @@
           "type": "boolean",
           "default": true,
           "description": "Emit the HTTP request and response body size histograms.\nRequires `metrics`. Set it to false to keep the RED metrics without them.\nIf omitted, true is used.\n"
+        },
+        "request_phase_spans": {
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the `in queue` and `processing` spans for HTTP server requests.\nRequires `traces`.\nIf omitted, true is used.\n"
         }
       }
     },
@@ -1918,7 +1923,8 @@
         "http": {
           "enabled": {
             "traces": true,
-            "metrics": true
+            "metrics": true,
+            "request_phase_spans": true
           },
           "filters": {}
         },

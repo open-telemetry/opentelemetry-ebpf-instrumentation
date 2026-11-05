@@ -279,6 +279,53 @@ extensions:
 	require.False(t, got.Metrics.Features.AppSizes())
 }
 
+func TestDocumentToRuntimeRequestPhaseSpans(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		http             string
+		wantHTTPDisabled bool
+	}{
+		{
+			name: "omitted",
+			http: "{}",
+		},
+		{
+			name: "enabled explicitly",
+			http: "{request_phase_spans: true}",
+		},
+		{
+			name:             "HTTP disabled",
+			http:             "{request_phase_spans: false}",
+			wantHTTPDisabled: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc, _, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      instrumentation:
+        http:
+          enabled: ` + tt.http + `
+`))
+			require.NoError(t, err)
+
+			got, err := DocumentToRuntime(doc)
+			require.NoError(t, err)
+
+			require.Equal(t, tt.wantHTTPDisabled, got.Traces.DisableHTTPRequestPhaseSpans)
+		})
+	}
+}
+
 func TestV2ToRuntimeHTTPBodySizeMetrics(t *testing.T) {
 	t.Parallel()
 

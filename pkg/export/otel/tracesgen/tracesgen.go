@@ -111,8 +111,9 @@ var (
 )
 
 type TraceSpanAndAttributes struct {
-	Span       *request.Span
-	Attributes []attribute.KeyValue
+	Span                     *request.Span
+	Attributes               []attribute.KeyValue
+	DisableRequestPhaseSpans bool
 	// RecordOnly spans are exported without the sampled flag, as the sampler decided
 	RecordOnly bool
 }
@@ -147,8 +148,9 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 }
 
 type GroupSpansOptions struct {
-	RedactKeys           []string
-	SanitizeSQLQueryText bool
+	RedactKeys                   []string
+	SanitizeSQLQueryText         bool
+	DisableHTTPRequestPhaseSpans bool
 }
 
 func GroupSpansWithOptions(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection, opts GroupSpansOptions) map[svc.UID][]TraceSpanAndAttributes {
@@ -195,10 +197,14 @@ func GroupSpansWithOptions(ctx context.Context, spans []request.Span, traceAttrs
 		if responseErrorSelected {
 			exportAttrs = append(slices.Clone(samplerAttrs), genAIResponseErrorControlKey.Bool(true))
 		}
+
+		disableRequestPhaseSpans := span.Type == request.EventTypeHTTP && opts.DisableHTTPRequestPhaseSpans
+
 		group = append(group, TraceSpanAndAttributes{
-			Span:       span,
-			Attributes: exportAttrs,
-			RecordOnly: sr.Decision == trace.RecordOnly,
+			Span:                     span,
+			Attributes:               exportAttrs,
+			DisableRequestPhaseSpans: disableRequestPhaseSpans,
+			RecordOnly:               sr.Decision == trace.RecordOnly,
 		})
 		spanGroups[span.Service.UID] = group
 	}
@@ -292,7 +298,7 @@ func generateTracesWithAttributes(
 
 		t := span.Timings()
 		start := spanStartTime(t)
-		hasSubSpans := t.Start.After(start)
+		hasSubSpans := t.Start.After(start) && !spanWithAttributes.DisableRequestPhaseSpans
 
 		traceID := pcommon.TraceID(span.TraceID)
 		spanID := pcommon.SpanID(idgen.RandomSpanID())
