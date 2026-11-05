@@ -146,6 +146,7 @@ func testGoExceptions(t *testing.T, goVersion, goImage string, builds []goExcept
 	compose.Env = append(compose.Env, "GO_EXCEPTIONS_GO_IMAGE="+goImage, "GO_EXCEPTIONS_TAG="+goVersion)
 	require.NoError(t, compose.Up())
 	t.Cleanup(func() { require.NoError(t, compose.Close()) })
+	t.Cleanup(func() { runWeaverValidation(t) })
 
 	// Exceptions raised before OBI attaches to a process are not captured.
 	for _, service := range append([]goExceptionsService{goExceptionsDefault}, builds...) {
