@@ -51,6 +51,12 @@ metrics:
     requirement_level: recommended
     attributes:
       - ref: url.path
+        brief: >
+          The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3)
+          component. Deprecated on this metric: this high-cardinality
+          OBI extension is outside the HTTP metric semantic conventions. It remains
+          opt-in and supported throughout OBI v1, with removal planned for OBI v2.
+          Use `url.template` for route aggregation instead.
         requirement_level: opt_in
       - ref: error.type
         requirement_level:
@@ -151,8 +157,20 @@ metrics:
     requirement_level: recommended
     attributes:
       - ref: url.path
+        brief: >
+          The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3)
+          component. Deprecated on this metric: this high-cardinality
+          OBI extension is outside the HTTP metric semantic conventions. It remains
+          opt-in and supported throughout OBI v1, with removal planned for OBI v2.
+          Use `http.route` for route aggregation instead.
         requirement_level: opt_in
       - ref: client.address
+        brief: >
+          Client address - domain name if available without reverse DNS lookup;
+          otherwise, IP address or Unix domain socket name. Deprecated on this
+          metric: this high-cardinality OBI extension is outside the HTTP metric
+          semantic conventions. It remains opt-in and supported throughout OBI v1,
+          with removal planned for OBI v2. Use spans for per-client analysis.
         requirement_level: opt_in
       - ref: error.type
         requirement_level:

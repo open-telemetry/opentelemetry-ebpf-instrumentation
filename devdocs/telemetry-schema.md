@@ -127,6 +127,13 @@ section empty once drained.
   `client.address`. These attributes remain available on the stable HTTP duration metrics.
   They were opt-in, so only selections including them change. Attribute filters and spans
   retain these attributes.
+- The opt-in `url.path` dimension on both stable HTTP duration metrics and `client.address`
+  on `http.server.request.duration` are deprecated as high-cardinality OBI extensions
+  outside the HTTP metric semantic conventions. They remain supported throughout OBI v1,
+  with removal planned for OBI v2. The notice also applies to the Prometheus labels
+  `url_path` and `client_address`. Use `http.route` on server duration metrics or opt into
+  `url.template` on client duration metrics for route aggregation, and spans for raw paths
+  or client addresses. See the [migration guidance](config/version-2.0/config-v2.md#captureattributesselect-section).
 - HTTP client spans no longer carry `url.query`; the scrubbed query string remains part of
   `url.full`. HTTP server spans keep `url.query`.
 - The span reference (`site/docs/spans.md`) documents every span's name. The emitted
