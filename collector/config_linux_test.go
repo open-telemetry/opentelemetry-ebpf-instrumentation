@@ -63,6 +63,22 @@ func TestReceiverConfigUnmarshalV2(t *testing.T) {
 	require.NotNil(t, cfg.runtime.Logs.LogsExport)
 }
 
+func TestReceiverConfigV2StatsWakeupDataBytes(t *testing.T) {
+	for _, value := range []int{0, 8192} {
+		cfg := newTestReceiverConfig(t)
+		component := confmap.NewFromStringMap(map[string]any{
+			"version": "2.0",
+			"engine": map[string]any{
+				"batching": map[string]any{"stats_wakeup_data_bytes": value},
+			},
+		})
+
+		require.NoError(t, component.Unmarshal(cfg))
+		require.NoError(t, cfg.Validate())
+		require.Equal(t, value, cfg.runtime.EBPF.StatsWakeupDataBytes)
+	}
+}
+
 func TestReceiverConfigUnmarshalLegacy(t *testing.T) {
 	cfg := newTestReceiverConfig(t)
 	component := confmap.NewFromStringMap(map[string]any{

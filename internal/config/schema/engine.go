@@ -31,9 +31,10 @@ type PIDFilter struct {
 
 // Batching describes event batching behavior.
 type Batching struct {
-	WakeupLen    int      `yaml:"wakeup_len"`
-	BatchLength  int      `yaml:"batch_length"`
-	BatchTimeout Duration `yaml:"batch_timeout"`
+	WakeupLen            int      `yaml:"wakeup_len"`
+	StatsWakeupDataBytes int      `yaml:"stats_wakeup_data_bytes"`
+	BatchLength          int      `yaml:"batch_length"`
+	BatchTimeout         Duration `yaml:"batch_timeout"`
 }
 
 // Propagation describes context propagation engine settings.

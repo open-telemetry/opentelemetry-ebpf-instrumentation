@@ -422,9 +422,10 @@ func captureEngine(cfg *obi.Config) schema.CaptureEngine {
 			Disabled: cfg.Discovery.BPFPidFilterOff,
 		},
 		Batching: schema.Batching{
-			WakeupLen:    cfg.EBPF.WakeupLen,
-			BatchLength:  cfg.EBPF.BatchLength,
-			BatchTimeout: schema.Duration(cfg.EBPF.BatchTimeout),
+			WakeupLen:            cfg.EBPF.WakeupLen,
+			StatsWakeupDataBytes: cfg.EBPF.StatsWakeupDataBytes,
+			BatchLength:          cfg.EBPF.BatchLength,
+			BatchTimeout:         schema.Duration(cfg.EBPF.BatchTimeout),
 		},
 		Propagation: schema.Propagation{
 			ContextPropagation:     cfg.EBPF.ContextPropagation,

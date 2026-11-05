@@ -1146,6 +1146,7 @@ func applyFullV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	cfg.EBPF.ProtocolDebug = engine.Debug.ProtocolPrint
 	cfg.Discovery.BPFPidFilterOff = engine.PIDFilter.Disabled
 	cfg.EBPF.WakeupLen = engine.Batching.WakeupLen
+	cfg.EBPF.StatsWakeupDataBytes = engine.Batching.StatsWakeupDataBytes
 	cfg.EBPF.BatchLength = engine.Batching.BatchLength
 	cfg.EBPF.BatchTimeout = engine.Batching.BatchTimeout.TimeDuration()
 	cfg.EBPF.ContextPropagation = engine.Propagation.ContextPropagation
@@ -1173,6 +1174,9 @@ func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	}
 	if engine.Batching.WakeupLen != 0 {
 		cfg.EBPF.WakeupLen = engine.Batching.WakeupLen
+	}
+	if engine.Batching.StatsWakeupDataBytes != 0 {
+		cfg.EBPF.StatsWakeupDataBytes = engine.Batching.StatsWakeupDataBytes
 	}
 	if engine.Batching.BatchLength != 0 {
 		cfg.EBPF.BatchLength = engine.Batching.BatchLength
