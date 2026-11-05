@@ -100,6 +100,8 @@ static __always_inline enum redis_job_fetch redis_job_fetch_by_name(const char *
             return k_redis_job_fetch_autoclaim;
         }
         break;
+    default:
+        break;
     }
 
     return k_redis_job_fetch_none;
@@ -152,9 +154,9 @@ static __always_inline bool resp_reply_is_empty(const unsigned char *buf) {
     case '%':
     case '~':
         return buf[1] == '-' || (buf[1] == '0' && buf[2] == '\r');
+    default:
+        return false;
     }
-
-    return false;
 }
 
 // Whether the reply to a job fetch carries a job; len is how much of it was captured
