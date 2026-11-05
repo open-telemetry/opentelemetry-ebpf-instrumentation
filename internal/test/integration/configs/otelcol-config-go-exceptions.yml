@@ -1,0 +1,23 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 127.0.0.1:14518
+exporters:
+  file/logs:
+    path: /testoutput/logs.jsonl
+    flush_interval: 100ms
+  file/traces:
+    path: /testoutput/traces.jsonl
+    flush_interval: 100ms
+service:
+  telemetry:
+    metrics:
+      level: none
+  pipelines:
+    logs:
+      receivers: [otlp]
+      exporters: [file/logs]
+    traces:
+      receivers: [otlp]
+      exporters: [file/traces]

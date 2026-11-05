@@ -301,6 +301,10 @@ The `capture` grouping was introduced for two reasons:
 - `rules`: ordered workload selection rules (include/exclude by process identity, Kubernetes metadata, etc.).
 - `instrumentation`: protocol-specific capture controls (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU, Aerospike).
 - `exceptions`: runtime exception capture enablement; records use the logs pipeline.
+  For Go, `exceptions.go.panics` defaults to `true` and
+  `exceptions.go.formatted_errors` defaults to `false`. Formatted-error capture
+  records errors created by the supported `fmt.Errorf` probes, including errors
+  the application later handles. Panic capture includes recovered panics.
 - `runtimes`: language runtime injection controls (Go probes, Node.js SIGUSR1, Java agent attachment).
 - `network`: network flow capture configuration.
 - `limits`: cardinality and memory guardrails.
@@ -445,7 +449,8 @@ This was rejected because:
 Current overridable fields in `refine`:
 
 - `exports`: override which signals (`traces`, `metrics`, `logs`) are emitted for this workload.
-- `exceptions`: override global exception capture enablement. Omitted fields inherit global settings.
+- `exceptions`: override global exception capture enablement and Go event selection
+  (`go.panics`, `go.formatted_errors`). Omitted fields inherit global settings.
 - `http.routes`: refine the direction-scoped HTTP route policy for this workload.
 
 The schema reserves refinement `http.filters`, but the target runtime adapter
