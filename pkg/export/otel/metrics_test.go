@@ -972,6 +972,56 @@ func TestAppMetrics_HTTPErrorType(t *testing.T) {
 	}
 }
 
+func TestAppMetrics_HTTP2ServerAddress(t *testing.T) {
+	ctx := t.Context()
+	metricRecords := make(chan collector.MetricRecord, 20)
+	metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+	mcfg := &otelcfg.MetricsConfig{
+		Interval:          50 * time.Millisecond,
+		TTL:               30 * time.Minute,
+		ReportersCacheLen: 10,
+		Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		MetricsExport:     testMetricsConsumer(metricRecords),
+	}
+	reporter, err := newMetricsReporter(
+		ctx,
+		&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+		mcfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
+			attributes.HTTPServerDuration.Section: attributes.InclusionLists{Include: []string{string(attr.ServerAddr)}},
+		}},
+		request.UnresolvedNames{}, metrics, processEvents,
+	)
+	require.NoError(t, err)
+	go reporter.reportMetrics(ctx)
+
+	span := request.Span{
+		Type:             request.EventTypeHTTP,
+		Method:           "GET",
+		Path:             "/users",
+		Status:           200,
+		Host:             "10.0.0.1",
+		RequestAuthority: "api.example.com:8443",
+	}
+	span.HostName = "service-name"
+	span.Service = svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}
+	metrics.Send([]request.Span{span})
+	deadline := time.After(timeout)
+	for {
+		select {
+		case record := <-metricRecords:
+			if record.Name == attributes.HTTPServerDuration.OTEL {
+				assert.Equal(t, "api.example.com", record.Attributes[string(attr.ServerAddr)])
+				return
+			}
+		case <-deadline:
+			t.Fatal("timeout while waiting for HTTP/2 server metric")
+		}
+	}
+}
+
 func TestAppMetrics_HTTPRouteAttributes(t *testing.T) {
 	features := export.FeatureApplicationRED | export.FeatureApplicationSizes
 	ctx := t.Context()
