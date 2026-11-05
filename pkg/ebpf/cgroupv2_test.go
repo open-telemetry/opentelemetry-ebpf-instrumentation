@@ -8,6 +8,7 @@ package ebpf
 import (
 	"testing"
 
+	"github.com/cilium/ebpf"
 	"github.com/stretchr/testify/require"
 )
 
@@ -28,4 +29,14 @@ func TestResolveCgroupV2UsesConfiguredMount(t *testing.T) {
 
 	require.NoError(t, r.err)
 	require.Equal(t, hostRoot, r.path)
+}
+
+func TestAttachCgroupSockOpsUsesAutomaticHierarchy(t *testing.T) {
+	previous := cgroupV2Once
+	cgroupV2Once = func() cgroupV2Result { return cgroupV2Result{err: errNoCgroupV2} }
+	t.Cleanup(func() { cgroupV2Once = previous })
+
+	attached, err := AttachCgroupSockOps(nil, ebpf.AttachCGroupSockOps)
+	require.ErrorIs(t, err, errNoCgroupV2)
+	require.Nil(t, attached)
 }
