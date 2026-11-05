@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 )
 
 type inspectorTarget struct {
@@ -302,7 +304,7 @@ func (i *NodeInjector) injectFileWS(wsConn *websocket.Conn, payload []byte, clos
 	return nil
 }
 
-func (i *NodeInjector) injectViaConn(conn net.Conn, closeInspector bool) error {
+func (i *NodeInjector) injectViaConn(conn net.Conn, closeInspector bool, dynamicSpans []services.DynamicSpan) error {
 	wsURL, err := i.requestDebuggerURL(conn)
 	if err != nil {
 		conn.Close()
@@ -311,7 +313,7 @@ func (i *NodeInjector) injectViaConn(conn net.Conn, closeInspector bool) error {
 
 	i.log.Debug("found debugger url", "url", wsURL)
 
-	payload, err := evaluateRequest(i.agentCode(), 1)
+	payload, err := evaluateRequest(i.agentCodeForSpans(dynamicSpans), 1)
 	if err != nil {
 		conn.Close()
 		return err
