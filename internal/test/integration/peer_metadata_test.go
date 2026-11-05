@@ -122,7 +122,7 @@ func testPeerMetadataCentralInventory(t *testing.T, compose *docker.Compose) {
 		// The workload may not accept connections yet when the suite starts.
 		request, err := json.Marshal(map[string]string{"address": peerMetadataDestination(ct).IP})
 		require.NoError(ct, err)
-		data :=peerMetadataComposeOutput(ct, compose, "run", "--rm", "--no-deps", "server-grpcurl",
+		data := peerMetadataComposeOutput(ct, compose, "run", "--rm", "--no-deps", "server-grpcurl",
 			"-plaintext", "-import-path", "/proto", "-proto", "metadata.proto", "-d", string(request),
 			"metadata-service:8999", "metadata.MetadataService/Lookup")
 		var response metadatapb.LookupResponse
