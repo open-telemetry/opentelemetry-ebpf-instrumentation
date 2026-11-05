@@ -472,9 +472,10 @@ func captureTelemetry(cfg *obi.Config) schema.CaptureTelemetry {
 			ReportersCacheLen: cfg.Traces.ReportersCacheLen,
 		},
 		Metrics: schema.MetricsTelemetry{
-			ReportersCacheLen: cfg.OTELMetrics.ReportersCacheLen,
-			TTL:               schema.Duration(cfg.OTELMetrics.TTL),
-			ConnectionInfoTTL: schema.Duration(cfg.OTELMetrics.ConnectionInfoTTL),
+			ReportersCacheLen:           cfg.OTELMetrics.ReportersCacheLen,
+			TTL:                         schema.Duration(cfg.OTELMetrics.TTL),
+			ConnectionInfoTTL:           schema.Duration(cfg.OTELMetrics.ConnectionInfoTTL),
+			ExtraSpanResourceAttributes: cfg.OTELMetrics.ExtraSpanResourceLabels,
 		},
 	}
 }
@@ -766,7 +767,7 @@ func daemon(cfg *obi.Config) *schema.Daemon {
 					AllowServiceGraphSelfReferences: cfg.Prometheus.AllowServiceGraphSelfReferences,
 					SpanMetricsServiceCacheSize:     cfg.Prometheus.SpanMetricsServiceCacheSize,
 					ExtraResourceAttributes:         cfg.Prometheus.ExtraResourceLabels,
-					ExtraSpanResourceAttributes:     mergedStrings(cfg.Prometheus.ExtraSpanResourceLabels, cfg.OTELMetrics.ExtraSpanResourceLabels),
+					ExtraSpanResourceAttributes:     cfg.Prometheus.ExtraSpanResourceLabels,
 				},
 			},
 		},
@@ -806,19 +807,4 @@ func configFormat(format obi.LogConfigOption) schema.ConfigFormat {
 	default:
 		return schema.ConfigFormatUnset
 	}
-}
-
-func mergedStrings(values ...[]string) []string {
-	var out []string
-	seen := map[string]struct{}{}
-	for _, list := range values {
-		for _, value := range list {
-			if _, ok := seen[value]; ok {
-				continue
-			}
-			seen[value] = struct{}{}
-			out = append(out, value)
-		}
-	}
-	return out
 }

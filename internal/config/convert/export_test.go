@@ -465,7 +465,8 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, true, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "allow_service_graph_self_references"))
 	require.Equal(t, 918, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "span_metrics_service_cache_size"))
 	require.Equal(t, []string{"cloud.region"}, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "extra_resource_attributes"))
-	require.Equal(t, []string{"service.version", "k8s.cluster.name", "deployment.environment"}, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "extra_span_resource_attributes"))
+	require.Equal(t, []string{"service.version", "k8s.cluster.name"}, value(t, ext.Daemon, "telemetry", "metrics", "prometheus", "extra_span_resource_attributes"))
+	require.Equal(t, []string{"deployment.environment", "service.version"}, ext.Capture.Telemetry.Metrics.ExtraSpanResourceAttributes)
 }
 
 func TestRuntimeToV2NormalizesLogFormat(t *testing.T) {

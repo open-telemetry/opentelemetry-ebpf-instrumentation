@@ -190,6 +190,8 @@ type MetricsTelemetry struct {
 	TTL               Duration `yaml:"ttl"`
 	// ConnectionInfoTTL controls how long observed connection-info edges remain active.
 	ConnectionInfoTTL Duration `yaml:"connection_info_ttl"`
+	// ExtraSpanResourceAttributes adds workload metadata as attributes of OTLP span metrics.
+	ExtraSpanResourceAttributes []string `yaml:"extra_span_resource_attributes"`
 }
 
 // CaptureMetrics selects the metric families emitted by OBI.

@@ -1941,6 +1941,7 @@ func applyFullV2CaptureTelemetry(cfg *obi.Config, telemetry schema.CaptureTeleme
 		cfg.OTELMetrics.ConnectionInfoTTL = telemetry.Metrics.ConnectionInfoTTL.TimeDuration()
 		cfg.Prometheus.ConnectionInfoTTL = telemetry.Metrics.ConnectionInfoTTL.TimeDuration()
 	}
+	cfg.OTELMetrics.ExtraSpanResourceLabels = cloneStrings(telemetry.Metrics.ExtraSpanResourceAttributes)
 }
 
 func applyPartialV2CaptureTelemetry(cfg *obi.Config, telemetry schema.CaptureTelemetry) {
@@ -1956,6 +1957,9 @@ func applyPartialV2CaptureTelemetry(cfg *obi.Config, telemetry schema.CaptureTel
 	if !zeroValue(telemetry.Metrics.ConnectionInfoTTL) {
 		cfg.OTELMetrics.ConnectionInfoTTL = telemetry.Metrics.ConnectionInfoTTL.TimeDuration()
 		cfg.Prometheus.ConnectionInfoTTL = telemetry.Metrics.ConnectionInfoTTL.TimeDuration()
+	}
+	if telemetry.Metrics.ExtraSpanResourceAttributes != nil {
+		cfg.OTELMetrics.ExtraSpanResourceLabels = cloneStrings(telemetry.Metrics.ExtraSpanResourceAttributes)
 	}
 }
 

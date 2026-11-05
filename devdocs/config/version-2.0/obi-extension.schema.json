@@ -956,6 +956,14 @@
                   "minimum": 0,
                   "default": 256,
                   "description": "Metric reporter cache size used by OBI internals.\nIf omitted, `256` is used.\n"
+                },
+                "extra_span_resource_attributes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "default": [],
+                  "description": "Additional span resource attributes to include in OBI-generated OTLP span metrics.\nPrometheus span metrics use `daemon.telemetry.metrics.prometheus.extra_span_resource_attributes`.\nIf omitted, no extra attributes are added.\n"
                 }
               }
             }
