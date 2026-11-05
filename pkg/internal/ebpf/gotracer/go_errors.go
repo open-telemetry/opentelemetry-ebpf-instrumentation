@@ -22,7 +22,11 @@ import (
 // registers every process that captures exceptions.
 var goSymbols = ebpfcommon.NewGoSymbolRegistry()
 
-var goExceptionFrames = goSymbols.Frames
+var (
+	goExceptionFrames       = goSymbols.Frames
+	goExceptionValueType    = goSymbols.PanicValueType
+	goExceptionReadOnlyData = goSymbols.ReadOnlyData
+)
 
 func init() {
 	ebpfcommon.RegisterExceptionPayloadDecoder(
@@ -33,6 +37,14 @@ func init() {
 
 // Mirrors enum go_exception_kind in bpf/gotracer/types/errors.h
 const goExceptionKindPanic = 1
+
+// Mirrors the value-read flags in bpf/gotracer/go_errors.c.
+const (
+	goValueHeaderRead = 1 << 0
+	goValueTailRead   = 1 << 1
+	goValueScalarRead = 1 << 2
+	goValueStringType = 1 << 3
+)
 
 const (
 	goExceptionTypeError = "go.error"
@@ -58,7 +70,11 @@ func decodeGoErrorEvent(hdr *ebpfcommon.BpfExceptionEventHeaderT, payload []byte
 	}
 	event.SeverityNumber = goExceptionSeverityError
 
-	event.Message = attributes.SanitizeUTF8(unix.ByteSliceToString(p.Message[:]))
+	if panicked {
+		event.Message = goPanicMessage(app.PID(hdr.Pid.HostPid), p)
+	} else {
+		event.Message = attributes.SanitizeUTF8(unix.ByteSliceToString(p.Message[:]))
+	}
 
 	pcs := p.Pcs[:min(int(p.Frames), len(p.Pcs))]
 	frames, err := goExceptionFrames(app.PID(hdr.Pid.HostPid), pcs)

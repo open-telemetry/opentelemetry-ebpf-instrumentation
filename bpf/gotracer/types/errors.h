@@ -29,7 +29,14 @@ typedef struct go_exception_payload {
     u8 _pad;
     // number of valid entries in pcs, innermost frame first
     u16 frames;
-    u8 _pad2[4];
+    // bit 0: words 0-1 were read; bit 1: word 2; bit 2: scalar in word 0;
+    // bit 3: runtime metadata identifies a predeclared string
+    u8 value_read;
+    u8 _pad2[3];
+    // runtime type address used to classify the panic value
+    u64 value_type;
+    // string header, or boundsError's index, limit and signed/code fields
+    u64 value[3];
     unsigned char message[k_go_exception_message_max_len];
     // runtime return addresses
     u64 pcs[k_go_exception_max_frames];
