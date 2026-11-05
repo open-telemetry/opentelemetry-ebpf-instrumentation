@@ -79,6 +79,7 @@ type resolveOutput struct {
 		Attributes      []resolvedAttribute `json:"attributes"`
 		Spans           []resolvedSignal    `json:"spans"`
 		Metrics         []resolvedSignal    `json:"metrics"`
+		Events          []resolvedSignal    `json:"events"`
 		AttributeGroups []resolvedSignal    `json:"attribute_groups"`
 	} `json:"registry"`
 	Refinements struct {
