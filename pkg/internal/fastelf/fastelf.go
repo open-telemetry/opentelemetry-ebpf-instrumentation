@@ -6,6 +6,7 @@ package fastelf // import "go.opentelemetry.io/obi/pkg/internal/fastelf"
 import (
 	"bytes"
 	"debug/elf"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -310,6 +311,16 @@ func NewElfContextFromFileHandle(file *os.File, fileSize int64) (*ElfContext, er
 	return ctx, nil
 }
 
+// nativeELFData is the EI_DATA value matching the host byte order, which is the
+// only one ReadStruct can decode.
+func nativeELFData() elf.Data {
+	if binary.NativeEndian.Uint16([]byte{1, 0}) == 1 {
+		return elf.ELFDATA2LSB
+	}
+
+	return elf.ELFDATA2MSB
+}
+
 func NewElfContextFromData(data []byte) (*ElfContext, error) {
 	hdr := ReadStruct[Elf64_Ehdr](data, 0)
 
@@ -322,6 +333,14 @@ func NewElfContextFromData(data []byte) (*ElfContext, error) {
 	}
 	if hdr.Ident[elf.EI_CLASS] != byte(elf.ELFCLASS64) {
 		return nil, errors.New("only ELF64 files are supported")
+	}
+
+	switch elf.Data(hdr.Ident[elf.EI_DATA]) {
+	case nativeELFData():
+	case elf.ELFDATA2LSB, elf.ELFDATA2MSB:
+		return nil, errors.New("ELF byte order differs from the host byte order")
+	default:
+		return nil, errors.New("invalid ELF data encoding")
 	}
 
 	ctx := ElfContext{Hdr: hdr, Data: data}

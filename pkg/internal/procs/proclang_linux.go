@@ -11,6 +11,8 @@ import (
 	"os"
 	"slices"
 
+	"golang.org/x/sys/unix"
+
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/internal/fastelf"
@@ -149,6 +151,9 @@ func FindExeSymbols(f *elf.File, symbolNames []string, types ...elf.SymType) (ma
 				return nil, errors.New("invalid symbol table bounds or entry size")
 			}
 
+			populateRange(ctx.Data, ctx.Sections[section.Link].Offset, ctx.Sections[section.Link].Size)
+			populateRange(ctx.Data, uint64(offset), uint64(count*entrySize))
+
 			// Symbol tables begin with a reserved null entry.
 			for i := 1; i < count; i++ {
 				symbol := fastelf.ReadStruct[fastelf.Elf64_Sym](ctx.Data, offset+i*entrySize)
@@ -170,6 +175,22 @@ func FindExeSymbols(f *elf.File, symbolNames []string, types ...elf.SymType) (ma
 		}
 	}
 	return addresses, nil
+}
+
+// populateRange asks the kernel to read the given range of a mapped file in a
+// single batch instead of faulting it in page by page during the scan, which
+// is several times faster when the symbol tables are not in the page cache.
+// It is best effort: MADV_POPULATE_READ needs Linux 5.14, and failing to
+// populate only means the pages are faulted in lazily as before.
+func populateRange(data []byte, offset, size uint64) {
+	end := offset + size
+	if size == 0 || end < offset || end > uint64(len(data)) {
+		return
+	}
+
+	pageMask := uint64(os.Getpagesize()) - 1
+
+	_ = unix.Madvise(data[offset&^pageMask:end], unix.MADV_POPULATE_READ)
 }
 
 func resolveSymbol(f *elf.File, s elf.Symbol) Sym {
