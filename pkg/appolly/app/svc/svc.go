@@ -139,7 +139,9 @@ type Attrs struct {
 
 	Sampler trace.Sampler
 	// SamplerConfig is what Sampler was built from: eBPF applies it to the traces
-	// the process starts. Both are nil when the global sampler applies.
+	// the process starts. Both are nil when the global sampler applies, unless
+	// discovery criteria can be refreshed: then they hold the global sampler, which
+	// a refresh replaces.
 	SamplerConfig *services.SamplerConfig
 
 	// Features that are defined in a per-service basis. For example, we might want to enable

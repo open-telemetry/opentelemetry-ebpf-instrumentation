@@ -55,7 +55,7 @@ func TestCommonTracersPrunedAfterLoadFailure(t *testing.T) {
 		Metrics:            imetrics.NoopReporter{},
 		commonTracers:      []ebpf.Tracer{okTracer, failedTracer},
 		existingTracers:    map[ebpf.ExecutableKey]executableTracer{},
-		processInstances:   maps.Map2[ebpf.ExecutableKey, app.PID, struct{}]{},
+		processInstances:   maps.Map2[ebpf.ExecutableKey, app.PID, *execpkg.FileInfo]{},
 		OutputTracerEvents: tracerEvents,
 	}
 
@@ -77,7 +77,7 @@ func TestCommonTracersPrunedAfterLoadFailure(t *testing.T) {
 
 	key := executableKey(fileInfo)
 	ta.existingTracers[key] = executableTracer{tracer: tracer, generation: 1}
-	ta.processInstances.Put(key, fileInfo.Pid(), struct{}{})
+	ta.processInstances.Put(key, fileInfo.Pid(), fileInfo)
 
 	ta.notifyProcessDeletion(t.Context(), ie)
 	assert.NotEmpty(t, okTracer.blocked)
