@@ -66,9 +66,8 @@ static __always_inline u32 get_task_tid() {
 
 // TODO: merge pid_key_t and pid_info_t in a single struct returned by a single
 // function replacing both task_pid and task_tid to avoid duplicate work
-static __always_inline void task_tid(pid_key_t *tid) {
+static __always_inline void task_tid_of(const struct task_struct *task, pid_key_t *tid) {
     struct upid upid;
-    struct task_struct *task = (struct task_struct *)bpf_get_current_task();
 
     // https://github.com/torvalds/linux/blob/556e2d17cae620d549c5474b1ece053430cd50bc/kernel/pid.c#L324 (type is )
     // set user-side PID
@@ -82,6 +81,10 @@ static __always_inline void task_tid(pid_key_t *tid) {
 
     // set PIDs namespace
     tid->ns = (u32)BPF_CORE_READ(task, nsproxy, pid_ns_for_children, ns.inum);
+}
+
+static __always_inline void task_tid(pid_key_t *tid) {
+    task_tid_of((const struct task_struct *)bpf_get_current_task(), tid);
 }
 
 static __always_inline u32 pid_from_pid_tgid(u64 id) {

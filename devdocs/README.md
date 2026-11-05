@@ -31,6 +31,7 @@ follow the [Config v1 to v2 migration guide](config/version-2.0/migration.md).
 - [Dependency Integrity Policy](dependency-integrity-policy.md): required dependency pinning and verification rules for Dockerfiles.
 - [Python asyncio and uvloop Context Propagation](python-asyncio-context-propagation.md): architecture and implementation of Python async context propagation for `asyncio` workloads, including applications running on `uvloop`.
 - [Go Channel Span Links](go-channel-span-links.md): receiver-side span links for supported Go channel handoffs.
+- [Queue Job Traces](queue-job-traces.md): how a job taken off a Redis queue becomes one trace rooted at its fetch.
 - [Trace-Profile Correlation](trace-profile-correlation.md): standard communication channel for correlating profiles to OBI traces.
 - [Kubernetes Metadata Cache Service (`k8s-cache`)](k8s-cache.md): what the standalone metadata cache service is, why it exists, and how to deploy it alongside OBI.
 - [Metrics](./metrics.md): how the NetO11y, AppO11y, and StatsO11y pipelines turn eBPF events into exported metrics, and where to edit when adding a new one.
