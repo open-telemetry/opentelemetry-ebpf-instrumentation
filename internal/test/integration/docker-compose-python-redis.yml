@@ -6,6 +6,8 @@ services:
       context: ../../../internal/test/integration/components/redis/
       dockerfile: Dockerfile
     image: redis
+    ports:
+      - "16379:6379"
 
   testserver:
     build:
@@ -14,6 +16,8 @@ services:
     image: hatest-testserver-python-redis
     ports:
       - "${TEST_SERVICE_PORTS}"
+    environment:
+      OBI_TEST_JOB_QUEUES: "1"
     depends_on:
       otelcol:
         condition: service_started
