@@ -172,6 +172,15 @@ func (r mapSymbolResolver) PCToFrame(pc uint64) (goexec.GoFrame, bool) {
 	frame, ok := r[pc]
 	return frame, ok
 }
+
+func (mapSymbolResolver) ValueType(uint64) (goexec.GoValueType, bool) {
+	return goexec.GoValueType{}, false
+}
+
+func (mapSymbolResolver) ReadOnlyData(uint64, uint64) ([]byte, bool) {
+	return nil, false
+}
+
 func (mapSymbolResolver) SetDontNeed() {}
 func (mapSymbolResolver) Close() error { return nil }
 
@@ -218,6 +227,14 @@ func (r testGoSymbolResolver) PCToFrame(pc uint64) (goexec.GoFrame, bool) {
 		return goexec.GoFrame{}, false
 	}
 	return goexec.GoFrame{Function: function.Name, File: file, Line: line}, true
+}
+
+func (testGoSymbolResolver) ValueType(uint64) (goexec.GoValueType, bool) {
+	return goexec.GoValueType{}, false
+}
+
+func (testGoSymbolResolver) ReadOnlyData(uint64, uint64) ([]byte, bool) {
+	return nil, false
 }
 
 func (testGoSymbolResolver) SetDontNeed() {}

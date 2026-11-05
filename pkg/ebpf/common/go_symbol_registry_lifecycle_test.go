@@ -36,6 +36,14 @@ func (r *lifecycleSymbolResolver) PCToFrame(uint64) (goexec.GoFrame, bool) {
 	return goexec.GoFrame{File: "handler.go", Line: 42, Function: "main.handler"}, true
 }
 
+func (*lifecycleSymbolResolver) ValueType(uint64) (goexec.GoValueType, bool) {
+	return goexec.GoValueType{}, false
+}
+
+func (*lifecycleSymbolResolver) ReadOnlyData(uint64, uint64) ([]byte, bool) {
+	return nil, false
+}
+
 func (r *lifecycleSymbolResolver) SetDontNeed() { r.released.Add(1) }
 
 func (r *lifecycleSymbolResolver) Close() error { r.closed.Add(1); return nil }
@@ -77,6 +85,22 @@ func TestGoSymbolsLazyOpenSharedAcrossReplicas(t *testing.T) {
 	require.ErrorIs(t, err, os.ErrClosed)
 	require.Nil(t, entry.resolver)
 	require.NoError(t, r.Close())
+}
+
+func TestGoSymbolsReleasePagesAfterPanicFrames(t *testing.T) {
+	for _, pcs := range [][]uint64{nil, {2}} {
+		t.Run(fmt.Sprint(pcs), func(t *testing.T) {
+			r := NewGoSymbolRegistry()
+			defer r.Close()
+			resolver := &lifecycleSymbolResolver{}
+			registerGoSymbols(t, r, 1, resolver)
+			r.PanicValueType(1, 2)
+			require.Zero(t, resolver.released.Load(), "type lookup retains pages for frame lookup")
+			_, err := r.Frames(1, pcs)
+			require.NoError(t, err)
+			require.EqualValues(t, 1, resolver.released.Load())
+		})
+	}
 }
 
 func TestGoSymbolsRemovalWaitsForActiveLookup(t *testing.T) {
