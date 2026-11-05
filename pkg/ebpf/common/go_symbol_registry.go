@@ -29,10 +29,13 @@ type goSymbolTableEntry struct {
 	closed     bool
 }
 
-// GoSymbolResolver resolves executable-relative PCs. Close releases its backing
-// storage once the executable is no longer instrumented.
+// GoSymbolResolver reads frames, panic types and constant data using executable-
+// relative addresses. Close releases its backing storage once the executable
+// is no longer instrumented.
 type GoSymbolResolver interface {
 	PCToFrame(uint64) (goexec.GoFrame, bool)
+	ValueType(uint64) (goexec.GoValueType, bool)
+	ReadOnlyData(addr, size uint64) ([]byte, bool)
 	// SetDontNeed releases memory the resolver can reload on its next lookup.
 	SetDontNeed()
 	Close() error
@@ -129,44 +132,21 @@ func (r *GoSymbolRegistry) RemovePID(pid app.PID) {
 // Frames resolves runtime return PCs for an exact host PID, innermost first.
 // Resolution stops at the first zero or unknown PC and retains preceding frames.
 func (r *GoSymbolRegistry) Frames(pid app.PID, pcs []uint64) ([]goexec.GoFrame, error) {
-	if r == nil {
-		return nil, errors.New("go symbol registry is nil")
+	entry, loadBias, err := r.lockEntry(pid)
+	if err != nil {
+		return nil, err
 	}
-
-	r.mu.RLock()
-	binding, ok := r.pids[pid]
-	if !ok {
-		r.mu.RUnlock()
-		return nil, fmt.Errorf("go symbol binding not found for PID %d", pid)
-	}
-	entry, ok := r.executables[binding.executable]
-	if !ok || entry == nil {
-		r.mu.RUnlock()
-		return nil, fmt.Errorf("go symbol table not found for PID %d", pid)
-	}
-	loadBias := binding.loadBias
-	// Pin the entry while resolving so removal cannot close its file mapping.
-	entry.mu.Lock()
-	r.mu.RUnlock()
 	defer entry.mu.Unlock()
+	defer func() {
+		if entry.resolver != nil {
+			entry.resolver.SetDontNeed()
+		}
+	}()
 	if len(pcs) == 0 || pcs[0] == 0 || pcs[0] <= loadBias {
 		return nil, nil
 	}
-	if entry.resolver == nil {
-		if entry.loadError != nil && time.Now().Before(entry.retryAfter) {
-			return nil, entry.loadError
-		}
-		resolver, err := goexec.NewGoSymbolResolver(entry.file)
-		if err != nil {
-			if resolver != nil {
-				_ = resolver.Close()
-			}
-			entry.loadError = err
-			entry.retryAfter = time.Now().Add(time.Second)
-			return nil, err
-		}
-		entry.resolver = resolver
-		entry.loadError = nil
+	if err := entry.openResolver(); err != nil {
+		return nil, err
 	}
 
 	var stack []goexec.GoFrame
@@ -192,8 +172,84 @@ func (r *GoSymbolRegistry) Frames(pid app.PID, pcs []uint64) ([]goexec.GoFrame, 
 		}
 		stack = append(stack, frame)
 	}
-	entry.resolver.SetDontNeed()
 	return stack, nil
+}
+
+// PanicValueType translates a runtime type address using the PID's load bias
+// and reads its metadata from that process's executable.
+func (r *GoSymbolRegistry) PanicValueType(pid app.PID, typeAddr uint64) (goexec.GoValueType, bool) {
+	entry, loadBias, err := r.lockEntry(pid)
+	if err != nil {
+		return goexec.GoValueType{}, false
+	}
+	defer entry.mu.Unlock()
+	if typeAddr == 0 || typeAddr <= loadBias {
+		return goexec.GoValueType{}, false
+	}
+	if err := entry.openResolver(); err != nil {
+		return goexec.GoValueType{}, false
+	}
+	return entry.resolver.ValueType(typeAddr - loadBias)
+}
+
+// ReadOnlyData translates a runtime address using the PID's load bias and reads
+// constant bytes from that process's executable.
+func (r *GoSymbolRegistry) ReadOnlyData(pid app.PID, addr, size uint64) ([]byte, bool) {
+	entry, loadBias, err := r.lockEntry(pid)
+	if err != nil {
+		return nil, false
+	}
+	defer entry.mu.Unlock()
+	if addr == 0 || addr <= loadBias {
+		return nil, false
+	}
+	if err := entry.openResolver(); err != nil {
+		return nil, false
+	}
+	return entry.resolver.ReadOnlyData(addr-loadBias, size)
+}
+
+// lockEntry pins the PID's executable while a lookup uses its resolver.
+// The caller releases entry.mu when the lookup finishes.
+func (r *GoSymbolRegistry) lockEntry(pid app.PID) (*goSymbolTableEntry, uint64, error) {
+	if r == nil {
+		return nil, 0, errors.New("go symbol registry is nil")
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	binding, ok := r.pids[pid]
+	if !ok {
+		return nil, 0, fmt.Errorf("go symbol binding not found for PID %d", pid)
+	}
+	entry, ok := r.executables[binding.executable]
+	if !ok || entry == nil {
+		return nil, 0, fmt.Errorf("go symbol table not found for PID %d", pid)
+	}
+	entry.mu.Lock()
+	return entry, binding.loadBias, nil
+}
+
+// openResolver shares the lazy resolver and its retry delay across lookups.
+// The caller holds entry.mu for the duration of the lookup.
+func (entry *goSymbolTableEntry) openResolver() error {
+	if entry.resolver != nil {
+		return nil
+	}
+	if entry.loadError != nil && time.Now().Before(entry.retryAfter) {
+		return entry.loadError
+	}
+	resolver, err := goexec.NewGoSymbolResolver(entry.file)
+	if err != nil {
+		if resolver != nil {
+			_ = resolver.Close()
+		}
+		entry.loadError = err
+		entry.retryAfter = time.Now().Add(time.Second)
+		return err
+	}
+	entry.resolver = resolver
+	entry.loadError = nil
+	return nil
 }
 
 func (r *GoSymbolRegistry) initMaps() {
@@ -205,20 +261,20 @@ func (r *GoSymbolRegistry) initMaps() {
 	}
 }
 
-func (e *goSymbolTableEntry) close() {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	if e.closed {
+func (entry *goSymbolTableEntry) close() {
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if entry.closed {
 		return
 	}
-	e.closed = true
-	if e.resolver != nil {
-		_ = e.resolver.Close()
-		e.resolver = nil
+	entry.closed = true
+	if entry.resolver != nil {
+		_ = entry.resolver.Close()
+		entry.resolver = nil
 	}
-	if e.file != nil {
-		_ = e.file.Close()
-		e.file = nil
+	if entry.file != nil {
+		_ = entry.file.Close()
+		entry.file = nil
 	}
 }
 
