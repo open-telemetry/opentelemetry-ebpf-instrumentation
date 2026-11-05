@@ -13,17 +13,36 @@ inputs:
     description: 'Prefix for the Go build cache. Defaults to the umbrella PR prefix.'
     required: false
     default: go-build-pr-race
+  cache-downloads:
+    description: Whether to cache mise verified downloads.
+    required: false
+    default: 'true'
+  cache-go-build:
+    description: Whether to cache Go modules and build output.
+    required: false
+    default: 'true'
 
 runs:
   using: composite
   steps:
-    - name: Set up Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+    - name: Set up mise tools
+      uses: $/.github/actions/setup-mise
+      env:
+        MISE_ENABLE_TOOLS: go
       with:
-        go-version-file: "go.mod"
-        cache: true
+        cache-downloads: "${{ inputs.cache-downloads }}"
+
+    - name: Go module cache
+      if: ${{ inputs.cache-go-build == 'true' }}
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      with:
+        path: ~/go/pkg/mod
+        key: go-mod-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          go-mod-${{ runner.os }}-${{ runner.arch }}-
 
     - name: Go build cache
+      if: ${{ inputs.cache-go-build == 'true' }}
       uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
       with:
         path: ~/.cache/go-build

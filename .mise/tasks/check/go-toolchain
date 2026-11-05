@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+#MISE description="Check go.mod toolchain directives match the Mise Go version"
+set -euo pipefail
+expected="go$(mise current go)"
+status=0
+while IFS= read -r mod; do
+  toolchain=$(awk '$1 == "toolchain" { print $2 }' "$mod")
+  if [ -n "$toolchain" ] && [ "$toolchain" != "$expected" ]; then
+    echo "$mod: toolchain $toolchain does not match Mise $expected" >&2
+    status=1
+  fi
+done < <(git ls-files ':(glob)**/go.mod' ':(exclude,glob)NOTICES/**')
+exit "$status"
