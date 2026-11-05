@@ -38,7 +38,7 @@ contain own data properties, and its final value must be a function. Calls
 produce a span with the configured name; synchronous results, promise
 fulfillment, and thrown/rejected errors are observed. Errors are recorded and
 re-thrown to the application. Calling an exported function as a constructor
-does not produce a span.
+also produces a span.
 
 This slice does not support globs, ES modules, automatic attributes, explicit
 attributes, `function_noret`, or USDT targets. The shared converter validates
@@ -48,8 +48,9 @@ present, keeps the rule scoped to matching processes. A function reference
 copied from an export before injection cannot be replaced; use the exported
 property after injection for calls to be observed.
 
-If a function reference cannot be parsed, or a configured module is loaded but
-its export path is absent, is not a function, or cannot be inspected, that rule
-is skipped without blocking sibling rules. A per-rule warning with code
-`OBI_DYNAMIC_SPAN_TARGET` identifies the rule once. Set
-`OTEL_EBPF_NODEJS_DEBUG=1` in the target process to include resolution details.
+If a function reference cannot be parsed, the injector logs the error and skips
+that rule. If a configured module is loaded but its export path is absent, is
+not a function, or cannot be inspected, that rule is skipped without blocking
+sibling rules. A per-rule warning with code `OBI_DYNAMIC_SPAN_TARGET`
+identifies the rule once. Set `OTEL_EBPF_NODEJS_DEBUG=1` in the target process
+to include resolution details.

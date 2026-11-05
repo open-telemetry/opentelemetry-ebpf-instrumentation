@@ -117,7 +117,7 @@ func TestAgentCodeCarriesOnlySelectedDynamicSpans(t *testing.T) {
 }
 
 func TestAgentCodeSkipsInvalidDynamicSpanAndKeepsValidSibling(t *testing.T) {
-	injector := &NodeInjector{cfg: &obi.Config{TracePrinter: "text"}}
+	injector := NewNodeInjector(&obi.Config{TracePrinter: "text"})
 	spans := []services.DynamicSpan{
 		{Name: "invalid", FunctionReference: "./checkout.js"},
 		{Name: "valid", FunctionReference: "./checkout.js#placeOrder"},

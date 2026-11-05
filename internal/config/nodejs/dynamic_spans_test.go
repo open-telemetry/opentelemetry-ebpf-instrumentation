@@ -37,4 +37,3 @@ func TestParseFunctionReferenceRejectsUnsupportedSyntax(t *testing.T) {
 		})
 	}
 }
-
