@@ -127,8 +127,6 @@ section empty once drained.
   `client.address`. These attributes remain available on the stable HTTP duration metrics.
   They were opt-in, so only selections including them change. Attribute filters and spans
   retain these attributes.
-- HTTP client spans no longer carry `url.query`; the scrubbed query string remains part of
-  `url.full`. HTTP server spans keep `url.query`.
 - The span reference (`site/docs/spans.md`) documents every span's name. The emitted
   telemetry is unchanged.
 - The trace resource no longer carries `otel.scope.name`. Spans now carry the instrumentation
