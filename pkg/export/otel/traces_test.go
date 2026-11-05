@@ -235,6 +235,17 @@ func TestGenerateTraces(t *testing.T) {
 
 		assert.NotEqual(t, spans.At(0).SpanID().String(), spans.At(1).SpanID().String())
 		assert.NotEqual(t, spans.At(1).SpanID().String(), spans.At(2).SpanID().String())
+
+		queuePhase, ok := spans.At(0).Attributes().Get("obi.request.phase")
+		require.True(t, ok)
+		assert.Equal(t, "queue", queuePhase.Str())
+
+		processingPhase, ok := spans.At(1).Attributes().Get("obi.request.phase")
+		require.True(t, ok)
+		assert.Equal(t, "processing", processingPhase.Str())
+
+		_, ok = spans.At(2).Attributes().Get("obi.request.phase")
+		assert.False(t, ok)
 	})
 
 	t.Run("test with subtraces - ids set bpf layer", func(t *testing.T) {

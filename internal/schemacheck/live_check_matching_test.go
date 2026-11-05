@@ -464,6 +464,30 @@ func TestEmittedSpansMatchTheirDeclaredSpan(t *testing.T) {
 	}
 }
 
+func TestRequestPhaseMatchingIgnoresSpanName(t *testing.T) {
+	samples := exportedRequestPhases(t)
+	for i := range samples {
+		samples[i].Span.Name = "renamed " + samples[i].Span.Name
+	}
+
+	report := liveCheck(t, samples)
+	require.Len(t, report.Samples, len(samples))
+
+	for i := range samples {
+		t.Run(samples[i].Span.Name, func(t *testing.T) {
+			span := report.Samples[i].Span
+			require.NotNil(t, span)
+
+			match := span.LiveCheckResult.MatchInfo
+			require.NotNil(t, match)
+
+			assert.Equal(t, "obi.request.phase", match.Signal)
+			require.Len(t, match.Entries, 1)
+			assert.Equal(t, "match.span.request.phase", match.Entries[0].Matcher)
+		})
+	}
+}
+
 // compactReport runs live-check over the samples with the compact report
 // template the integration suites read, and parses it as weavercheck does.
 func compactReport(t *testing.T, samples []any) *weavercheck.Report {
