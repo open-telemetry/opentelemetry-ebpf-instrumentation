@@ -17,16 +17,20 @@ import (
 // creation func based on the passed InstrumentKind and user defined
 // environment variables.
 //
-// Note: This will only return non-nil values when the experimental exemplar
-// feature is enabled and the OTEL_METRICS_EXEMPLAR_FILTER environment variable
-// is not set to always_off.
-func reservoirFunc[N int64 | float64](agg sdkmetric.Aggregation) func() exemplar.FilteredReservoir[N] {
+// configuredFilter takes precedence over the OTEL_METRICS_EXEMPLAR_FILTER
+// environment variable, which is only read when configuredFilter is empty.
+func reservoirFunc[N int64 | float64](agg sdkmetric.Aggregation, configuredFilter string) func() exemplar.FilteredReservoir[N] {
 	// https://github.com/open-telemetry/opentelemetry-specification/blob/d4b241f451674e8f611bb589477680341006ad2b/specification/configuration/sdk-environment-variables.md#exemplar
 	const filterEnvKey = "OTEL_METRICS_EXEMPLAR_FILTER"
 
+	filterName := configuredFilter
+	if filterName == "" {
+		filterName = os.Getenv(filterEnvKey)
+	}
+
 	var filter exemplar.Filter
 
-	switch os.Getenv(filterEnvKey) {
+	switch filterName {
 	case "always_on":
 		filter = exemplar.AlwaysOnFilter
 	case "always_off":

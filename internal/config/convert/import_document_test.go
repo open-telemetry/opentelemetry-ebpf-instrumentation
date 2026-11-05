@@ -336,10 +336,10 @@ func TestDocumentToRuntimeRejectsUnsupportedMeterProviderShapes(t *testing.T) {
 		mutate func(*otelconfx.MeterProvider)
 	}{
 		{
-			name:  "exemplar filter",
+			name:  "unknown exemplar filter",
 			field: "meter_provider.exemplar_filter",
 			mutate: func(provider *otelconfx.MeterProvider) {
-				filter := otelconfx.ExemplarFilterAlwaysOn
+				filter := otelconfx.ExemplarFilter("sometimes")
 				provider.ExemplarFilter = &filter
 			},
 		},
@@ -614,4 +614,35 @@ func unsupportedTLSFields() []struct {
 			},
 		},
 	}
+}
+
+func TestDocumentToRuntimeAppliesExemplarFilterToBothExporters(t *testing.T) {
+	t.Parallel()
+
+	for _, filter := range []otelconfx.ExemplarFilter{
+		otelconfx.ExemplarFilterAlwaysOn,
+		otelconfx.ExemplarFilterAlwaysOff,
+		otelconfx.ExemplarFilterTraceBased,
+	} {
+		t.Run(string(filter), func(t *testing.T) {
+			t.Parallel()
+
+			doc := documentWithRuntimeTelemetry()
+			doc.MeterProvider.ExemplarFilter = &filter
+
+			cfg, err := DocumentToRuntime(doc)
+			require.NoError(t, err)
+			require.Equal(t, string(filter), cfg.OTELMetrics.ExemplarFilter)
+			require.Equal(t, string(filter), cfg.Prometheus.ExemplarFilter)
+		})
+	}
+}
+
+func TestDocumentToRuntimeOmittedExemplarFilterKeepsExporterDefaults(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := DocumentToRuntime(documentWithRuntimeTelemetry())
+	require.NoError(t, err)
+	require.Empty(t, cfg.OTELMetrics.ExemplarFilter)
+	require.Equal(t, obi.DefaultConfig.Prometheus.ExemplarFilter, cfg.Prometheus.ExemplarFilter)
 }

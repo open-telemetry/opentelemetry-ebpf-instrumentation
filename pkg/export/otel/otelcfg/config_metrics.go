@@ -98,6 +98,10 @@ type MetricsConfig struct {
 	// beforehand. For example, to add the OTEL deployment.environment resource attribute as a OTEL resource attribute,
 	// you should add `deployment.environment`.
 	ExtraSpanResourceLabels []string `yaml:"extra_span_resource_attributes" env:"OTEL_EBPF_EXTRA_SPAN_RESOURCE_ATTRIBUTES" envSeparator:","`
+
+	// ExemplarFilter is set from Config v2 meter_provider.exemplar_filter. When empty, the
+	// OTEL_METRICS_EXEMPLAR_FILTER environment variable applies.
+	ExemplarFilter string `yaml:"-" env:"-"`
 }
 
 func (m MetricsConfig) MarshalYAML() (any, error) {
