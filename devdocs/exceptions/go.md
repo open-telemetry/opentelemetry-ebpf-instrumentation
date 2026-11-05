@@ -66,18 +66,42 @@ captured.
 | `fmt.Sprintf`-based errors, such as gRPC `status.Errorf` | none | |
 | `panic("boom")`, `panic(fmt.Sprintf(...))` | `go.panic` | `boom` |
 | A named string type without methods | `go.panic` | the string |
-| A nil pointer dereference, division by zero and other runtime errors | `go.panic` | empty |
-| `panic(err)`, `panic(stringer)`, `panic(42)` | `go.panic` | empty |
+| A nil pointer dereference | `go.panic` | `runtime error: invalid memory address or nil pointer dereference` |
+| Integer division by zero | `go.panic` | `runtime error: integer divide by zero` |
+| Closing a nil channel | `go.panic` | `close of nil channel` |
+| Accessing a truncated memory-mapped file with `debug.SetPanicOnFault(true)` | `go.panic` | `runtime error: invalid memory address or nil pointer dereference` |
+| An index out of range | `go.panic` | `runtime error: index out of range [5] with length 3` |
+| Invalid slice bounds | `go.panic` | Go's slice-bounds message, including the failed bounds |
+| A slice-to-array conversion with too few elements | `go.panic` | Go's conversion message, using the application's Go version |
+| `panic(errors.New("boom"))` | `go.panic` | `boom` |
+| `panic(fmt.Errorf("failed: %w", err))` | `go.panic` | the stored formatted message |
+| `panic(5)`, `panic(true)` | `go.panic` | `5`, `true` |
+| Other error types, Stringers, named numeric types, floats, `panic(nil)` | `go.panic` | empty |
 
 A wrap chain records each `fmt.Errorf` call in it. For example,
 `fmt.Errorf("a: %w", fmt.Errorf("b"))` produces two records.
 
-A panic message is read only when the panic value is a string type without
-methods. A string type with an `Error` or `String` method may render differently
-from its bytes, and a BPF program can't call the method. Runtime errors are such
-a type (`runtime.errorString`), so their message is empty.
+OBI identifies panic types from the executable's Go metadata. Plain strings use
+their captured bytes. For `runtime.errorString` and `runtime.errorAddressString`,
+OBI adds the `runtime error:` prefix and a space, as Go's `Error` method does.
+`runtime.plainError` uses its stored text directly, as in `close of nil channel`.
+Bounds errors are formatted from the captured bounds and error code. Standard
+errors from `errors.New` and `fmt.Errorf` store their formatted message in a
+leading string field. Predeclared signed and unsigned integers, including
+`uintptr`, and booleans use their captured value.
 
-Messages contain up to 127 bytes and end at the first NUL byte.
+When BPF cannot read constant message bytes
+from a process, OBI reads them from a read-only segment of the executable.
+This fallback requires a captured string address and length. If the string
+header is unreadable, or the text is in unreadable heap memory, the message is
+empty. Type identification also works in binaries stripped with `-ldflags="-s -w"`.
+
+Other string types with methods produce an empty message. Their `Error` or
+`String` methods can render text differently from the stored bytes. When type
+lookup fails, OBI keeps captured text only if BPF identified a predeclared string.
+
+Captured string text contains up to 127 bytes and ends at the first NUL byte.
+Runtime-error prefixes and bounds messages are rendered in user space.
 
 ## Stack traces
 

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"go/version"
 	"io"
 	"net/http"
 	"os"
@@ -134,6 +135,10 @@ func TestGoExceptions(t *testing.T) {
 }
 
 func testGoExceptions(t *testing.T, goVersion, goImage string, builds []goExceptionsService) {
+	conversionTarget := "pointer to array"
+	if version.Compare("go"+goVersion, "go1.20") >= 0 {
+		conversionTarget = "array or pointer to array"
+	}
 	out := path.Join(pathOutput, "go-exceptions")
 	require.NoError(t, os.RemoveAll(out))
 	require.NoError(t, os.MkdirAll(out, 0o777))
@@ -196,18 +201,64 @@ func testGoExceptions(t *testing.T, goVersion, goImage string, builds []goExcept
 			{typ: "go.panic", messagePrefix: "panic:", owned: true},
 		}},
 		{name: "panic-nil-pointer", status: http.StatusInternalServerError, expected: []goExpectedException{
-			{typ: "go.panic", owned: true},
+			{typ: "go.panic", messagePrefix: "runtime error: invalid memory address or nil pointer dereference", owned: true},
 		}},
 		// the fault is the first instruction of the method
 		{name: "panic-nil-receiver", status: http.StatusInternalServerError, expected: []goExpectedException{
-			{typ: "go.panic", owned: true},
+			{typ: "go.panic", messagePrefix: "runtime error: invalid memory address or nil pointer dereference", owned: true},
+		}},
+		{name: "panic-divide", status: http.StatusInternalServerError, expected: []goExpectedException{
+			{typ: "go.panic", messagePrefix: "runtime error: integer divide by zero", owned: true},
+		}},
+		{name: "panic-nil-channel", status: http.StatusInternalServerError, expected: []goExpectedException{
+			{typ: "go.panic", messagePrefix: "close of nil channel", owned: true},
+		}},
+		{name: "panic-mapped-file", status: http.StatusInternalServerError, expected: []goExpectedException{
+			{typ: "go.panic", messagePrefix: "runtime error: invalid memory address or nil pointer dereference", owned: true},
+		}},
+		{name: "panic-index", status: http.StatusInternalServerError, expected: []goExpectedException{
+			{typ: "go.panic", messagePrefix: "runtime error: index out of range [5] with length 3", owned: true},
+		}},
+		{name: "panic-slice", status: http.StatusInternalServerError, expected: []goExpectedException{
+			{typ: "go.panic", messagePrefix: "runtime error: slice bounds out of range [:5] with capacity 3", owned: true},
+		}},
+		{name: "panic-slice-three-index", status: http.StatusInternalServerError, expected: []goExpectedException{
+			{typ: "go.panic", messagePrefix: "runtime error: slice bounds out of range [::5] with capacity 3", owned: true},
+		}},
+		{name: "panic-slice-conversion", status: http.StatusInternalServerError, expected: []goExpectedException{
+			{typ: "go.panic", messagePrefix: "runtime error: cannot convert slice with length 3 to " + conversionTarget + " with length 5", owned: true},
 		}},
 		{name: "panic-nethttp", status: 0, expected: []goExpectedException{
 			{typ: "go.panic", messagePrefix: "panic:", owned: true},
 		}},
+		{name: "panic-standard-error", status: http.StatusInternalServerError, expected: []goExpectedException{
+			{typ: "go.panic", messagePrefix: "boom", owned: true},
+		}},
+		{name: "panic-int", status: http.StatusInternalServerError, expected: []goExpectedException{
+			{typ: "go.panic", messagePrefix: "5", owned: true},
+		}},
+		{name: "panic-int8", status: http.StatusInternalServerError, expected: []goExpectedException{
+			{typ: "go.panic", messagePrefix: "-128", owned: true},
+		}},
+		{name: "panic-uint64", status: http.StatusInternalServerError, expected: []goExpectedException{
+			{typ: "go.panic", messagePrefix: "18446744073709551615", owned: true},
+		}},
+		{name: "panic-bool", status: http.StatusInternalServerError, expected: []goExpectedException{
+			{typ: "go.panic", messagePrefix: "true", owned: true},
+		}},
+		{name: "panic-wrapped-error", status: http.StatusInternalServerError, expected: []goExpectedException{
+			{typ: "go.error", messagePrefix: "failed: sentinel", owned: true},
+			{typ: "go.panic", messagePrefix: "failed: sentinel", owned: true},
+		}},
+	}
+	if version.Compare("go"+goVersion, "go1.20") >= 0 {
+		cases = append(cases, goExceptionCase{name: "panic-multiple-errors", status: http.StatusInternalServerError, expected: []goExpectedException{
+			{typ: "go.error", messagePrefix: "sentinel and second", owned: true},
+			{typ: "go.panic", messagePrefix: "sentinel and second", owned: true},
+		}})
 	}
 	// both probe kinds, an unowned record, and a runtime panic
-	buildCases := goCasesNamed(cases, "fmt", "child-fmt", "panic-string", "panic-nil-pointer", "panic-nil-receiver")
+	buildCases := goCasesNamed(cases, "fmt", "child-fmt", "panic-string", "panic-nil-pointer", "panic-nil-receiver", "panic-divide", "panic-nil-channel", "panic-mapped-file", "panic-index", "panic-slice", "panic-slice-three-index", "panic-slice-conversion", "panic-standard-error", "panic-wrapped-error", "panic-multiple-errors", "panic-int", "panic-int8", "panic-uint64", "panic-bool")
 	var requests []goRequest
 	for _, c := range cases {
 		requests = append(requests, goRequest{goExceptionsDefault, c.name, c.status})

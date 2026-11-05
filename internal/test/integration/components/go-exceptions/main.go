@@ -10,7 +10,9 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -22,6 +24,35 @@ type store struct{ name string }
 //
 //go:noinline
 func (s *store) Name() string { return s.name }
+
+func panicMappedFile() {
+	file, err := os.CreateTemp("", "go-exceptions-mapped-*")
+	if err != nil {
+		panic(err)
+	}
+	defer os.Remove(file.Name())
+	defer file.Close()
+	if err := file.Truncate(int64(os.Getpagesize())); err != nil {
+		panic(err)
+	}
+	data, err := syscall.Mmap(int(file.Fd()), 0, os.Getpagesize(), syscall.PROT_READ, syscall.MAP_SHARED)
+	if err != nil {
+		panic(err)
+	}
+	defer func() {
+		if err := syscall.Munmap(data); err != nil {
+			log.Printf("unmap panic fixture: %v", err)
+		}
+	}()
+	if err := file.Truncate(0); err != nil {
+		panic(err)
+	}
+
+	// Accessing the truncated mapping raises a recoverable errorAddressString.
+	previous := debug.SetPanicOnFault(true)
+	defer debug.SetPanicOnFault(previous)
+	panic(data[0])
+}
 
 func writeResponse(w http.ResponseWriter, status int, message string) {
 	w.WriteHeader(status)
@@ -84,6 +115,43 @@ func serveCase(w http.ResponseWriter, r *http.Request) {
 	case "panic-nil-receiver":
 		var s *store
 		_ = s.Name()
+	case "panic-divide":
+		zero := 0
+		panic(1 / zero)
+	case "panic-nil-channel":
+		var ch chan int
+		close(ch)
+	case "panic-mapped-file":
+		panicMappedFile()
+	case "panic-index":
+		items := []int{1, 2, 3}
+		index := 5
+		panic(items[index])
+	case "panic-slice":
+		items := []int{1, 2, 3}
+		end := 5
+		panic(items[:end])
+	case "panic-slice-three-index":
+		items := []int{1, 2, 3}
+		limit := 5
+		panic(items[0:1:limit])
+	case "panic-slice-conversion":
+		items := []int{1, 2, 3}
+		panic((*[5]int)(items))
+	case "panic-standard-error":
+		panic(errors.New("boom"))
+	case "panic-int":
+		panic(5)
+	case "panic-int8":
+		panic(int8(-128))
+	case "panic-uint64":
+		panic(^uint64(0))
+	case "panic-bool":
+		panic(true)
+	case "panic-wrapped-error":
+		panic(fmt.Errorf("failed: %w", errSentinel))
+	case "panic-multiple-errors":
+		panic(fmt.Errorf("%w and %w", errSentinel, errors.New("second")))
 	default:
 		http.NotFound(w, r)
 		return
