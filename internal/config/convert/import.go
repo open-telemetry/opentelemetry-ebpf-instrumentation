@@ -1235,6 +1235,7 @@ func applyV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrumentat
 	}
 
 	applyV2InstrumentationFilters(cfg, instrumentation)
+	applyV2HTTPQueryParameters(cfg, instrumentation.HTTP.QueryParameters)
 
 	complete = complete || completeInstrumentation(instrumentation)
 	if !complete {
@@ -1336,6 +1337,21 @@ func applyPartialV2Instrumentation(cfg *obi.Config, instrumentation schema.Instr
 	}
 	if !zeroValue(instrumentation.GPU.EnabledMode) {
 		cfg.EBPF.InstrumentCuda = instrumentation.GPU.EnabledMode
+	}
+}
+
+func applyV2HTTPQueryParameters(cfg *obi.Config, params schema.HTTPQueryParameters) {
+	if params.Redaction == nil {
+		return
+	}
+	cfg.Attributes.SensitiveQueryParams = attributes.SensitiveQueryParamsConfig{}
+	if slices.Equal([]string(*params.Redaction), attributes.DefaultSensitiveQueryParams) {
+		return
+	}
+	// Adapt a complete v2 selection to the existing runtime's default-relative list.
+	cfg.Attributes.SensitiveQueryParams = attributes.SensitiveQueryParamsConfig{
+		Remove: slices.Clone(attributes.DefaultSensitiveQueryParams),
+		Add:    slices.Clone([]string(*params.Redaction)),
 	}
 }
 

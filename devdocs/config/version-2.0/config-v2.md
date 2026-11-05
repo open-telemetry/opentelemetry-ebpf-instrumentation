@@ -560,6 +560,63 @@ HTTP `payload_extraction` uses the same list-based enablement model as other ins
 
 When `db.query.text` is selected, SQL and SQL++ spans carry the query as captured. Set `sql.sanitize_query_text: true` to replace its string, numeric, hexadecimal and boolean literals with `?`, following the semantic conventions. In statements with bind placeholders only string literals are replaced. Generic SQL from the Go tracer also treats double-quoted text as a string literal, and `db.query.text` is omitted when the literals cannot be located reliably. The setting has no v1 equivalent.
 
+#### HTTP query-parameter redaction
+
+HTTP query-parameter values are redacted while OBI constructs span URL
+attributes, before export or handoff to a Collector consumer. Configure the
+complete selection of parameter names under
+`capture.instrumentation.http.query_parameters.redaction`:
+
+```yaml
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      instrumentation:
+        http:
+          query_parameters:
+            redaction: [token, password, customer_secret]
+```
+
+This fragment deliberately selects exactly these three names, replacing the
+built-in list. To retain all default protections and add a custom name, include
+the complete built-in list from the
+[default-values reference](examples/default-values-reference.fragment.yaml)
+plus that name. The migration command computes that complete list automatically
+from v1 additions and removals.
+
+| Value | Behavior |
+| --- | --- |
+| Omitted `redaction`, `null`, or an empty `query_parameters` object | Preserve the existing built-in selection. |
+| Explicit list | Redact values for exactly the listed names. |
+| `[]` | Select no query parameters for redaction. |
+
+Names match case-sensitively after query-key decoding. When decoding fails, the
+raw name is matched. Values for matching keys, including repeated parameters,
+become `REDACTED`; key spelling and parameter order are preserved. Names are
+literal, with no wildcard or regular-expression matching.
+
+The policy applies to emitted `url.full` and `url.query` attributes on HTTP
+client and server spans. Attribute selection still controls which URL attributes
+are emitted. This setting does not sanitize headers, bodies, SQL text, or other
+attributes. The data component owns the policy; other data components may reuse
+the redaction list model when their redaction capabilities are implemented.
+
+In a Collector receiver, flatten the same capture configuration beside `version`:
+
+```yaml
+receivers:
+  obi:
+    version: "2.0"
+    instrumentation:
+      http:
+        query_parameters:
+          redaction: [token, password, customer_secret]
+```
+
+The setting is available only in Config v2. Config v1's configuration and
+redaction behavior remain unchanged.
+
 ### `capture.runtimes` Section
 
 The `capture.runtimes` section defines how language-specific runtime instrumentation injection mechanisms are controlled.

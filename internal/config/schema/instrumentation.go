@@ -4,6 +4,9 @@
 package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 
 import (
+	"errors"
+	"fmt"
+
 	"go.yaml.in/yaml/v3"
 
 	"go.opentelemetry.io/obi/pkg/appolly/services"
@@ -75,7 +78,34 @@ type HTTPInstrumentation struct {
 	GoHTTPClientBufferTimeout Duration               `yaml:"go_http_client_buffer_timeout"`
 	BufferSize                uint32                 `yaml:"buffer_size"`
 	Routes                    HTTPRoutes             `yaml:"routes"`
+	QueryParameters           HTTPQueryParameters    `yaml:"query_parameters"`
 	PayloadExtraction         PayloadExtraction      `yaml:"payload_extraction"`
+}
+
+// HTTPQueryParameters controls query-parameter values emitted in HTTP span URLs.
+type HTTPQueryParameters struct {
+	Redaction *Redaction `yaml:"redaction,omitempty"`
+}
+
+// Redaction selects the names whose values are redacted. An explicit empty list
+// disables redaction; omission retains the data component's default policy.
+type Redaction []string
+
+func (r *Redaction) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind != yaml.SequenceNode {
+		return errors.New("redaction must be a list of strings")
+	}
+	for i, entry := range value.Content {
+		if entry.Tag != "!!str" {
+			return fmt.Errorf("redaction[%d] must be a string", i)
+		}
+	}
+	var names []string
+	if err := value.Decode(&names); err != nil {
+		return err
+	}
+	*r = names
+	return nil
 }
 
 // HTTPRoutes describes directional global HTTP route normalization and discovery settings.

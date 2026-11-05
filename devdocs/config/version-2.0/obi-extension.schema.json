@@ -1195,6 +1195,24 @@
         }
       }
     },
+    "Redaction": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "string"
+      },
+      "description": "Complete selection of names whose values are redacted. An explicit list replaces the data component's default selection; [] selects no names. Omission or null retains the component's default policy."
+    },
+    "HttpQueryParameters": {
+      "type": ["object", "null"],
+      "description": "Redaction of query-parameter values in HTTP span URL attributes, before export or Collector-consumer handoff.",
+      "additionalProperties": false,
+      "properties": {
+        "redaction": {
+          "$ref": "#/$defs/Redaction",
+          "description": "Case-sensitive, decoded query-parameter names whose values become REDACTED. An explicit list replaces the built-in selection; [] disables query-parameter redaction. Omission or null preserves the existing built-in list."
+        }
+      }
+    },
     "HttpInstrumentation": {
       "type": "object",
       "description": "HTTP instrumentation controls.",
@@ -1212,6 +1230,9 @@
           "type": "boolean",
           "default": false,
           "description": "Capture configured inbound/outbound HTTP headers.\nIf omitted, false is used.\n"
+        },
+        "query_parameters": {
+          "$ref": "#/$defs/HttpQueryParameters"
         },
         "request_timeout": {
           "type": "string",

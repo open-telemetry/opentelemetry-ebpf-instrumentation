@@ -103,6 +103,46 @@ instrumentation:
                 disabled_languages: []
                 java:
                     delay: 5s
+        query_parameters:
+            redaction:
+                - X-Amz-Signature
+                - X-Amz-Credential
+                - X-Amz-Security-Token
+                - AWSAccessKeyId
+                - Signature
+                - SecurityToken
+                - X-Goog-Signature
+                - sig
+                - token
+                - access_token
+                - refresh_token
+                - id_token
+                - jwt
+                - session
+                - sid
+                - signature
+                - api_key
+                - apikey
+                - client_secret
+                - secret
+                - password
+                - pass
+                - pwd
+                - reset_token
+                - invite_token
+                - verify_token
+                - otp
+                - totp
+                - mfa_code
+                - verification_code
+                - SAMLResponse
+                - assertion
+                - card
+                - cc
+                - pan
+                - cvv
+                - ssn
+                - tax_id
         payload_extraction:
             enabled: []
             sqlpp:
