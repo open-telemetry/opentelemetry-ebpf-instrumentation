@@ -1,0 +1,42 @@
+services:
+  minio-validation:
+    image: alpine/minio:RELEASE.2025-10-15T17-29-55Z@sha256:cf23643a6cf9ce159c57643ceb88279e431262282428c9e0bf3a7ef1a97e84b4
+    command: ["server", "/tmp/data", "--address", ":9000", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+      MINIO_UPDATE: "off"
+    ports:
+      - "19000:9000"
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/obi/Dockerfile
+    image: ${MINIO_OBI_IMAGE:-hatest-obi}
+    command: ["--config=/configs/obi-config-minio-server.yml"]
+    volumes:
+      - ./configs:/configs:ro
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ../../../testoutput:/coverage
+    privileged: true
+    pid: "host"
+    ports:
+      - "19400:9400"
+    environment:
+      GOCOVERDIR: /coverage
+      OTEL_EBPF_TRACE_PRINTER: text
+      OTEL_EBPF_LOG_LEVEL: INFO
+      OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS: "false"
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: 10ms
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: 1ms
+    depends_on:
+      - minio-validation
+      - jaeger
+
+  jaeger:
+    image: jaegertracing/jaeger:2.22.0@sha256:836b967b5abcf1f7758066aa6b348619267a2f1459f72d472840570f9bd88a17
+    ports:
+      - "16686:16686"

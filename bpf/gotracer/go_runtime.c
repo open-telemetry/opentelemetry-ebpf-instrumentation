@@ -18,6 +18,7 @@
 #include <bpfcore/utils.h>
 
 #include <common/common.h>
+#include <common/exception_emit.h>
 #include <common/preempt_guard.h>
 #include <common/ringbuf.h>
 #include <common/trace_helpers.h>
@@ -1308,6 +1309,11 @@ int GUARDED_PROG(obi_uprobe_runtime_casgstatus, struct pt_regs *, ctx) {
         // Go reuses g objects: drop the stack before the next goroutine gets it
         bpf_map_delete_elem(&obi_ctx_stacks, &g_key);
         obi_ctx__del(g_pid_tgid);
+        // Goexit skips the request's normal return: retire it, so exceptions
+        // raised by the next goroutine reusing this g are not attributed to it
+        if (g_exceptions_enabled) {
+            bpf_map_delete_elem(&ongoing_http_server_requests, &g_key);
+        }
         break;
     default:
         obi_ctx__del(g_pid_tgid);

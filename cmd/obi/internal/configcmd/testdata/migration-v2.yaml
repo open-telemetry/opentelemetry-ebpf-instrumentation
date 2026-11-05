@@ -43,6 +43,8 @@ extensions:
                         exclude: []
             exceptions:
                 enabled: false
+                go:
+                    formatted_errors: false
             policy:
                 default_action: exclude
                 match_order: first_match_wins
@@ -441,6 +443,7 @@ extensions:
                         hosted_zone_ids: []
                 peer_metadata:
                     enabled: false
+                    mode: peer
                     listen_address: ""
                     port: 8998
                     peer_cidrs: []
@@ -460,6 +463,8 @@ extensions:
                         key_file: ""
                         ca_file: ""
                         server_name: ""
+                    central:
+                        address: ""
             service_name:
                 unresolved_hosts:
                     names:

@@ -500,6 +500,7 @@ type VendorOpenAI struct {
 	APIType           string          `json:"-"`
 	ToolCalls         []ToolCall      `json:"-"`
 	ProviderName      string          `json:"-"`
+	Dimensions        int             `json:"-"`
 }
 
 func (ai *VendorOpenAI) GetFinishReasons() []string {
@@ -545,6 +546,9 @@ func (ai *VendorOpenAI) GetEmbeddingDimensions() int {
 	}
 	if d := ai.Request.ParameterDimension(); d > 0 {
 		return d
+	}
+	if ai.Dimensions > 0 {
+		return ai.Dimensions
 	}
 	if n := embeddingLenFromData(ai.Data); n > 0 {
 		return n

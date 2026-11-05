@@ -187,16 +187,17 @@ func TestFor_HTTPRouteAttributesByDirection(t *testing.T) {
 	}
 }
 
-func TestFor_RemovedHTTPMetricAttributes(t *testing.T) {
+func TestFor_HTTPMetricCompatibilityAttributes(t *testing.T) {
 	p, err := NewAttrSelector(GroupHTTPRoutes, &SelectorConfig{
 		SelectionCfg: Selection{"*": InclusionLists{Include: []string{"*"}}},
 	})
 	require.NoError(t, err)
-	for _, metric := range []Name{
-		HTTPServerDuration, HTTPServerRequestSize, HTTPServerResponseSize,
-		HTTPClientDuration, HTTPClientRequestSize, HTTPClientResponseSize,
-		RPCServerDuration,
-	} {
+	for _, metric := range []Name{HTTPServerDuration, HTTPClientDuration} {
+		assert.Contains(t, p.For(metric), attr.HTTPUrlPath, metric.Section)
+	}
+	assert.Contains(t, p.For(HTTPServerDuration), attr.ClientAddr)
+	assert.NotContains(t, p.For(HTTPClientDuration), attr.ClientAddr)
+	for _, metric := range []Name{HTTPServerRequestSize, HTTPServerResponseSize, HTTPClientRequestSize, HTTPClientResponseSize, RPCServerDuration} {
 		assert.NotContains(t, p.For(metric), attr.HTTPUrlPath, metric.Section)
 		assert.NotContains(t, p.For(metric), attr.ClientAddr, metric.Section)
 	}

@@ -75,6 +75,9 @@ extensions:
     capture:
       exceptions:
         enabled: false
+        go:
+          panics: true
+          formatted_errors: false
       # policy controls global rule evaluation behavior.
       policy:
         # Include by default unless matched by an exclude rule.
@@ -615,6 +618,7 @@ extensions:
             hosted_zone_ids: []
         peer_metadata:
           enabled: false
+          mode: peer
           listen_address: ""
           port: 8998
           peer_cidrs: []
@@ -634,6 +638,8 @@ extensions:
             key_file: ""
             ca_file: ""
             server_name: ""
+          central:
+            address: ""
       # Service identity enrichment policy from configured enrichers.
       service_name:
         # Ordered backends used for peer and host name resolution.

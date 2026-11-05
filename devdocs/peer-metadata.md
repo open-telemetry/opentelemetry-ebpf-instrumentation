@@ -31,6 +31,21 @@ environment variables explicitly using `${env:VARIABLE}` in the corresponding
 setting. The bearer token is optional. Peer metadata settings are omitted when
 OBI logs its runtime configuration.
 
+To exchange metadata through the [central metadata service](#central-metadata-service)
+instead of directly between agents, set `mode: central` and the service address:
+
+```yaml
+peer_metadata:
+  enabled: true
+  mode: central
+  central:
+    address: metadata-service.example.com:8999
+  token: ${env:OBI_PEER_METADATA_TOKEN}
+  tls:
+    enabled: true
+    ca_file: /etc/obi/peer/ca.pem
+```
+
 ## Resolution
 
 Each agent inventories all selected, instrumented services, including services
@@ -81,8 +96,9 @@ An empty `peer_cidrs` list enables automatic eligibility. For each active local
 private address, the agent allows its entire private block: `10.0.0.0/8`,
 `172.16.0.0/12`, `192.168.0.0/16`, or `fc00::/7`. Explicit CIDRs replace automatic
 eligibility. The same CIDRs restrict incoming requests using the TCP source IP;
-requests outside them return HTTP 403. Only peers seen in spans are queried.
-Loopback and local addresses resolve from the local inventory without HTTP.
+requests outside them fail with `PERMISSION_DENIED`. Only peers seen in spans
+are queried. Loopback and local addresses resolve from the local inventory
+without a network request.
 Link-local, multicast, and unspecified remote addresses are excluded.
 
 Only active peers refresh. Requests are coalesced per peer, use jitter, and back
@@ -90,18 +106,20 @@ off on failure. Responsive peers take refresh priority. When both refreshes and
 probes are due, one discovery or failed-peer probe is scheduled after at most
 `max_concurrent` prioritized refreshes. Each group keeps fetch-deadline order, so
 silent peers cannot monopolize refreshes and new peers still make progress.
-Remote failures leave telemetry running. Local bind errors or invalid TLS files
-abort pipeline startup. Cancellation closes the listener and background workers.
+Each peer keeps one connection, which is reused across refreshes and closed when
+the peer leaves the cache. Remote failures leave telemetry running. Local bind
+errors or invalid TLS files abort pipeline startup. Cancellation closes the
+listener, connections, and background workers.
 
-A configured bearer `token` requires TLS; token-over-HTTP configurations fail
-validation. Peer certificates are verified before the token is sent. Configure a
-CA trusted to issue certificates to peer agents, with certificate IP SANs or a
-common `server_name`. Without a token, HTTP is allowed and permitted source IPs
-can read inventory without authentication. CIDRs restrict incoming requests and
-outgoing queries; they do not authenticate peers. Forwarded headers are ignored.
+A configured bearer `token` requires TLS; configurations with a token and without
+TLS fail validation. Peer certificates are verified before the token is sent.
+Configure a CA trusted to issue certificates to peer agents, with certificate IP
+SANs or a common `server_name`. Without a token, plaintext connections are
+allowed and permitted source IPs can read inventory without authentication. CIDRs
+restrict incoming requests and outgoing queries; they do not authenticate peers.
 This protocol assumes trusted peers and does not account for NAT, proxies, or load
-balancers. Local HTTP diagnostics require an explicit loopback CIDR when it is
-outside the permitted ranges.
+balancers. Local diagnostics, such as querying the agent with `grpcurl`, require
+an explicit loopback CIDR when it is outside the permitted ranges.
 
 ## Settings
 
@@ -110,23 +128,25 @@ All settings are under `extensions.obi.enrich.enrichers.peer_metadata`.
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | `false` | Enable serving and querying peer metadata. |
-| `listen_address` | `""` | Bind IP; empty binds all local interfaces. |
-| `port` | `8998` | Shared metadata port. |
+| `mode` | `peer` | `peer` exchanges metadata directly between agents; `central` uses the metadata service. |
+| `central.address` | `""` | Metadata service `host:port`; required in central mode. |
+| `listen_address` | `""` | Bind IP; empty binds all local interfaces. Peer mode only. |
+| `port` | `8998` | Shared metadata port. Peer mode only. |
 | `peer_cidrs` | `[]` | Allowed incoming and outgoing peer networks; empty selects private blocks. |
 | `refresh_interval` | `10s` | Peer and listener inventory refresh interval. |
 | `caller_ttl` | `60s` | Observation retention. |
 | `cache_ttl` | `60s` | Remote metadata expiry and peer inactivity retention. |
-| `request_timeout` | `2s` | HTTP request and server I/O timeout. |
+| `request_timeout` | `2s` | Request, connection, and TLS handshake timeout. |
 | `max_peers` | `1024` | Maximum cached hosts. |
-| `max_concurrent` | `8` | Maximum concurrent outgoing HTTP requests. |
+| `max_concurrent` | `8` | Maximum concurrent outgoing metadata requests. |
 | `max_caller_entries` | `16384` | Maximum service-to-destination observations. |
 | `max_response_bytes` | `1048576` | Encoded response limit in both directions. |
 | `max_cache_bytes` | `67108864` | Cached encoded response byte budget. |
 | `token` | `""` | Shared bearer token; requires TLS and supports declarative substitution. |
-| `tls.enabled` | `false` | Serve and query over HTTPS. |
-| `tls.cert_file` | `""` | Server certificate PEM file. |
-| `tls.key_file` | `""` | Server private key PEM file. |
-| `tls.ca_file` | `""` | Peer CA PEM file; empty uses system roots. |
+| `tls.enabled` | `false` | Serve and query over TLS. |
+| `tls.cert_file` | `""` | Server certificate PEM file; required with TLS in peer mode. |
+| `tls.key_file` | `""` | Server private key PEM file; required with TLS in peer mode. |
+| `tls.ca_file` | `""` | Peer or metadata service CA PEM file; empty uses system roots. |
 | `tls.server_name` | `""` | Override the certificate name verified for peers. |
 
 Durations must be at least 1ms and size limits must be positive.
@@ -137,10 +157,14 @@ limit fail instead of returning a partial inventory.
 
 ## Protocol
 
-`GET /v1/metadata` returns protocol `version`, `hostname`, `services`, TCP
-`listeners`, and recent `callers`. Services contain `name`, `namespace`, and an
-optional `service_graph` flag indicating per-service graph participation;
-listeners contain an `endpoint` with `ip` and `port`, plus `service`.
+Agents serve the `PeerMetadataService` gRPC API in
+[`proto/metadata.proto`](../proto/metadata.proto). `GetSnapshot` takes no
+parameters and returns the agent's `hostname`, all instrumented `services`
+(including services without listeners), TCP `listeners`, and recent `callers`.
+Services contain `name`, `namespace`, and a `service_graph` flag indicating
+per-service graph participation; listeners contain an `endpoint` with `ip` and
+`port`, plus `service`. Versions before the gRPC protocol served JSON over HTTP
+and cannot exchange metadata with newer agents.
 
 `metric_protocols` carries the agent-wide unsigned 64-bit
 [`InstrumentationSelection`](../pkg/export/instrumentations/instr_options.go)
@@ -150,13 +174,9 @@ Agents without a metrics exporter omit this eligibility, retaining client-side
 request counts even for hostname fallbacks. Missing eligibility on older peers
 also retains client-side request counts.
 
-Use optional `port` and `ip` query parameters to filter listener inventory.
-Without filters, the response contains all instrumented services, including
-services without listeners. Caller observations are limited to the TCP source IP
-of the requester. Optional `target` parameters must all match that address after
-IP normalization; other targets return HTTP 400. Agents omit `target` and use the
-source address observed by the peer. On multihomed hosts, observations for other
-local IPs are not returned by that connection.
+Caller observations are limited to the TCP source IP of the requester. On
+multihomed hosts, observations for other local IPs are not returned by that
+connection.
 
 Each caller record has a `destination` and a list of services with
 `remaining_ms`. Optional `known_callers` records acknowledge the requester's
@@ -169,3 +189,63 @@ Lifetimes are relative to the snapshot, avoiding a requirement
 for synchronized host clocks. Receivers subtract time since the request began
 and cap remote lifetimes to their own `caller_ttl`. `caller_ambiguity_ms` marks
 observation overflow conservatively.
+
+## Central metadata service
+
+The `metadata-service` binary (`cmd/metadata-service`) is an alternative to the
+direct agent-to-agent exchange. Agents in `central` mode do not serve metadata
+or open the metadata port: they only connect to the service as clients.
+
+Each agent publishes its snapshot at startup and then every `refresh_interval`,
+together with its local addresses within `peer_cidrs`, excluding loopback.
+The service expires hosts after its `host_ttl`, so keep `refresh_interval` well
+below it. An agent without such addresses logs a warning and does not publish,
+so other agents cannot resolve it, but it still looks up other hosts.
+
+Agents look up hosts as they appear in spans, with the same caching, refresh and
+backoff as direct exchange. Hosts that have not published are retried with the
+failure backoff. Publishing requires the `host.id` of the agent, which OBI
+detects or takes from the `host.id` resource attribute; startup fails in central
+mode without it. `max_response_bytes` limits both published and looked up
+snapshots, so it must not exceed the service's `max_message_bytes`. TLS only
+needs `ca_file` and `server_name`, since agents do not serve metadata.
+
+The service implements the `MetadataService` gRPC API in
+[`proto/metadata.proto`](../proto/metadata.proto). Regenerate its Go code with
+`make protoc-gen`.
+
+- `Publish` stores the snapshot of the publishing host, together with the
+  addresses other agents use to reach it. Each publish replaces the previous
+  snapshot with the same `host_id`, the agent's unique host identifier (the
+  `host.id` it reports in its telemetry). Hosts are not keyed by hostname, since
+  distinct hosts may share one. When two hosts publish the same address, the
+  latest one to publish owns it. Hosts that stop publishing expire after
+  `host_ttl`.
+- `Lookup` returns the snapshot published for an address, or no snapshot when the
+  address is unknown. Caller observations are limited to destinations in the
+  requester's addresses, and lifetimes are aged from the publish time. Agents only
+  look up hosts seen in their spans.
+
+The service does not return `known_callers` yet, so client agents keep their
+request counts for edges resolved through it.
+
+Published addresses must fall within `peer_cidrs`, or within the private blocks
+when it is empty. A bearer `token` requires TLS. Like the peer-to-peer protocol,
+the service assumes trusted agents: it does not verify that a host owns the
+addresses it publishes.
+
+Configure the service with a YAML file passed through `-config` or
+`OTEL_EBPF_METADATA_SERVICE_CONFIG_PATH`. Environment variables override the file.
+
+| Setting | Environment variable | Default |
+| --- | --- | --- |
+| `log_level` | `OTEL_EBPF_METADATA_SERVICE_LOG_LEVEL` | `info` |
+| `listen_address` | `OTEL_EBPF_METADATA_SERVICE_LISTEN_ADDRESS` | `""` (all interfaces) |
+| `port` | `OTEL_EBPF_METADATA_SERVICE_PORT` | `8999` |
+| `peer_cidrs` | `OTEL_EBPF_METADATA_SERVICE_PEER_CIDRS` | `[]` |
+| `host_ttl` | `OTEL_EBPF_METADATA_SERVICE_HOST_TTL` | `60s` |
+| `caller_ttl` | `OTEL_EBPF_METADATA_SERVICE_CALLER_TTL` | `60s` |
+| `max_hosts` | `OTEL_EBPF_METADATA_SERVICE_MAX_HOSTS` | `4096` |
+| `max_message_bytes` | `OTEL_EBPF_METADATA_SERVICE_MAX_MESSAGE_BYTES` | `1048576` |
+| `token` | `OTEL_EBPF_METADATA_SERVICE_TOKEN` | `""` |
+| `tls` | — | Same fields as the agent `tls` settings; only the server certificate is used. |

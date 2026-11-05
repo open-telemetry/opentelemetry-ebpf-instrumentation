@@ -424,6 +424,10 @@ func getDefinitions(
 		},
 		HTTPServerDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpRoutes, &serverInfo},
+			Attributes: map[attr.Name]Default{
+				attr.HTTPUrlPath: false,
+				attr.ClientAddr:  false,
+			},
 		},
 		HTTPServerRequestSize.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpRoutes, &serverInfo},
@@ -433,6 +437,9 @@ func getDefinitions(
 		},
 		HTTPClientDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientDurationRoutes, &httpClientInfo},
+			Attributes: map[attr.Name]Default{
+				attr.HTTPUrlPath: false,
+			},
 		},
 		HTTPClientRequestSize.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientRoutes, &httpClientInfo},
@@ -995,8 +1002,8 @@ func copyDisabled(src AttrReportGroup) AttrReportGroup {
 	return dst
 }
 
-// filterOnlyAttributes are span attributes that no metric reports, but that
-// attribute filters still match on.
+// filterOnlyAttributes keeps span attributes available to filters
+// independently of metric reporting.
 var filterOnlyAttributes = []attr.Name{attr.HTTPUrlPath}
 
 // AllAttributeNames returns a set with all the names in the attributes database

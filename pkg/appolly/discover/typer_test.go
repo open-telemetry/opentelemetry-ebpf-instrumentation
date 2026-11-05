@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
@@ -88,6 +89,29 @@ func TestLoadAllGoFunctionNamesIncludesConditionalGoTracerSymbols(t *testing.T) 
 	for _, symbol := range gotracer.GoH2OwnershipProbeSymbols() {
 		assert.Contains(t, ty.allGoFunctions, symbol)
 	}
+}
+
+func TestLoadAllGoFunctionNamesIncludesExceptionSymbolsOnlyWhenCapturing(t *testing.T) {
+	ty := typer{cfg: &obi.Config{Routes: &transform.RoutesConfig{}}}
+	ty.loadAllGoFunctionNames()
+	for _, symbol := range gotracer.GoExceptionProbeSymbols() {
+		assert.NotContains(t, ty.allGoFunctions, symbol)
+	}
+
+	ty.cfg.Exceptions.Enabled = true
+	ty.cfg.Logs.Protocol = otelcfg.ProtocolDebug
+	ty.loadAllGoFunctionNames()
+	for _, symbol := range gotracer.GoExceptionProbeSymbols() {
+		assert.Contains(t, ty.allGoFunctions, symbol)
+	}
+}
+
+func TestExceptionSymbolsDoNotQualifyGoProxy(t *testing.T) {
+	funcs := map[string][]goexec.FuncOffsets{"runtime.chansend1": {}}
+	for _, symbol := range gotracer.GoExceptionProbeSymbols() {
+		funcs[symbol] = []goexec.FuncOffsets{}
+	}
+	assert.True(t, isGoProxy(&goexec.Offsets{Funcs: funcs}))
 }
 
 func TestContextWithValueDoesNotQualifyGoProxy(t *testing.T) {
@@ -544,8 +568,6 @@ func TestAsInstrumentable_UncachedPythonWorkerPreservesLogEnricherEnabled(t *tes
 	assert.True(t, instrumentable.LogEnricherEnabled)
 }
 
-func (d dummyCriterion) GetExceptionsConfig() *services.ExceptionsOverride { return nil }
-
 func TestMakeServiceAttrsExceptionSelection(t *testing.T) {
 	enabled, disabled := true, false
 	cfg := obi.DefaultConfig
@@ -575,4 +597,10 @@ func TestMakeServiceAttrsExceptionSelection(t *testing.T) {
 	cfg.Logs.Endpoint = ""
 	got := ty.makeServiceAttrs(&ProcessMatch{Process: &services.ProcessInfo{Pid: 1234}, Criteria: []services.Selector{allow}})
 	require.False(t, got.Exceptions.Enabled)
+}
+
+func TestSelectorExceptionsCompatibility(t *testing.T) {
+	assert.Nil(t, selectorExceptions(dummyCriterion{}))
+	override := &services.ExceptionsOverride{}
+	assert.Same(t, override, selectorExceptions(&services.GlobAttributes{Exceptions: override}))
 }
