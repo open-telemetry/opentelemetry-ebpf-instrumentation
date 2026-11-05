@@ -136,6 +136,17 @@ def redis_pipeline():
 
     return 'done', 200
 
+# A fetch that takes a job while a request is served is one of the request's calls
+@app.get("/redis-job-in-request")
+def redis_job_in_request():
+    cli = redis.Redis(host='redis', port=6379, decode_responses=True)
+    cli.lpush('obi-jobs-request', 'request-job')
+    job = cli.lpop('obi-jobs-request')
+    cli.set('obi-job:' + job, 'running')
+    cli.close()
+    return 'done'
+
+
 def background_pipeline_loop():
     while True:
         # A fresh connection each round so the commands are never parsed off a
@@ -188,6 +199,15 @@ def pooled_job(job):
     pool_jobs.put(job)
 
 
+# a process per job, as RQ and Resque run them
+def process_per_job(job):
+    pid = os.fork()
+    if pid == 0:
+        run_job(job)
+        os._exit(0)
+    os.waitpid(pid, 0)
+
+
 def job_loop(kind, handle):
     cli = redis.Redis(host='redis', port=6379, decode_responses=True)
     while True:
@@ -196,11 +216,59 @@ def job_loop(kind, handle):
             handle(item[1])
 
 
-# Workers that take jobs off Redis lists, each job running on the fetching
-# thread, on a thread of its own or on a reused pool thread
+def poll_loop():
+    cli = redis.Redis(host='redis', port=6379, decode_responses=True)
+    while True:
+        job = cli.lpop('obi-jobs-poll')
+        if job:
+            run_job(job)
+        else:
+            time.sleep(0.2)
+
+
+def stream_loop():
+    cli = redis.Redis(host='redis', port=6379, decode_responses=True)
+    try:
+        cli.xgroup_create('obi-jobs-stream', 'workers', id='0', mkstream=True)
+    except redis.ResponseError:
+        pass
+    while True:
+        streams = cli.xreadgroup('workers', 'worker', {'obi-jobs-stream': '>'}, count=1, block=1000)
+        for _, entries in streams or []:
+            for entry_id, fields in entries:
+                run_job(fields['job'])
+                cli.xack('obi-jobs-stream', 'workers', entry_id)
+
+
+# its fetches find nothing, so the call after each one has no job to belong to
+def idle_loop():
+    cli = redis.Redis(host='redis', port=6379, decode_responses=True)
+    while True:
+        cli.blpop('obi-jobs-idle', timeout=1)
+        cli.incr('obi-idle')
+
+
+# serves another connection while its fetch is pending, as an event loop does
+def busy_loop():
+    cli = redis.Redis(host='redis', port=6379, decode_responses=True)
+    other = redis.Redis(host='redis', port=6379, decode_responses=True)
+    conn = cli.connection_pool.get_connection()
+    while True:
+        conn.send_command('BLPOP', 'obi-jobs-busy', 1)
+        other.ping()
+        item = cli.parse_response(conn, 'BLPOP')
+        if item:
+            run_job(item[1])
+
+
+# Workers that take jobs off Redis, each job running on the fetching thread, on
+# a thread or process of its own or on a reused pool thread
 if os.environ.get('OBI_TEST_JOB_QUEUES'):
-    for kind, handle in (('inline', run_job), ('thread', thread_per_job), ('pool', pooled_job)):
+    for kind, handle in (('inline', run_job), ('thread', thread_per_job), ('pool', pooled_job),
+                         ('process', process_per_job)):
         threading.Thread(target=job_loop, args=(kind, handle), daemon=True).start()
+    for loop in (poll_loop, stream_loop, idle_loop, busy_loop):
+        threading.Thread(target=loop, daemon=True).start()
 
 if __name__ == "__main__":
     print(f"Server running: port={8080} process_id={os.getpid()}")
