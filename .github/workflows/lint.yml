@@ -65,7 +65,7 @@ jobs:
     needs: generate-bpf
     runs-on: ${{ matrix.platform.runner }}
     env:
-      MISE_ENABLE_TOOLS: go
+      MISE_ENABLE_TOOLS: go,golangci-lint
     strategy:
       fail-fast: false
       matrix:
@@ -92,6 +92,10 @@ jobs:
         if: ${{ matrix.platform.arch == 'amd64' }}
         run: mise run test:setup-mise
 
+      - name: Test Go lint task wiring
+        if: ${{ matrix.platform.arch == 'amd64' }}
+        run: mise run test:lint-task-wiring
+
       - name: Go module cache
         if: ${{ inputs.ref == '' || inputs.ref == null }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
@@ -116,7 +120,7 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Lint
-        run: make lint
+        run: mise run lint
 
       # Schema lint is arch-neutral (weaver YAML/JSON). Keep it on amd64 only.
       - name: Lint OBI semantic-convention registry
@@ -148,7 +152,7 @@ jobs:
       - name: Set up mise tools
         uses: $/.github/actions/setup-mise
         env:
-          MISE_ENABLE_TOOLS: go
+          MISE_ENABLE_TOOLS: go,golangci-lint
         with:
           cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
 
@@ -176,4 +180,4 @@ jobs:
           name: bpf-generated-${{ github.run_id }}
 
       - name: Lint
-        run: make lint
+        run: mise run lint
