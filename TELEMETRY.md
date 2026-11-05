@@ -45,6 +45,23 @@ and aggregation meaning; span naming rules and kinds; and attribute keys,
 types, and meaning. Compatible additions described in `VERSIONING.md`, such as
 new signals or optional attributes, may be made in minor releases.
 
+### Deprecated HTTP metric dimensions
+
+The opt-in `url.path` dimension on `http.server.request.duration` and
+`http.client.request.duration`, and `client.address` on
+`http.server.request.duration`, are deprecated. These high-cardinality OBI
+extensions are outside the HTTP metric semantic conventions. They remain
+disabled by default and protected by the v1 compatibility contract, with
+removal planned for OBI v2. This also covers their Prometheus labels, `url_path`
+and `client_address`.
+
+Use `http.route` on server duration metrics or opt into `url.template` on client
+duration metrics for route aggregation, and use spans for raw paths or client
+addresses. Update queries, dashboards, and alerts that use these dimensions;
+route templates group requests differently from raw paths. Route attributes
+require route collection to be enabled and a matching route to be available.
+Span attributes and attribute filters are unaffected.
+
 ## Exporters
 
 The contract covers both OTLP telemetry and metrics produced by OBI's built-in
