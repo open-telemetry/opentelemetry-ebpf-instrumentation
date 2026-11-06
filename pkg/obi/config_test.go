@@ -38,6 +38,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
@@ -1101,6 +1102,25 @@ network:
 	cfg, err := LoadConfig(userConfig)
 	require.NoError(t, err)
 	require.NoError(t, cfg.Validate())
+}
+
+func TestConfigValidate_KubeMetaCacheTLS(t *testing.T) {
+	cfg, err := LoadConfig(bytes.NewBufferString(`
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+attributes:
+  kubernetes:
+    enable: true
+    meta_cache_address: k8s-cache:50055
+network:
+  enable: true
+`))
+	require.NoError(t, err)
+	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig{CAFile: "ca.pem"}
+	require.NoError(t, cfg.Validate())
+
+	cfg.Attributes.Kubernetes.MetaCacheTLS.CertFile = "client.pem"
+	require.ErrorContains(t, cfg.Validate(), "cert_file and key_file must be set together")
 }
 
 func TestConfigValidate_KubeReconnectInitialIntervalZero(t *testing.T) {

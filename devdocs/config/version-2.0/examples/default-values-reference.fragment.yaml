@@ -606,6 +606,13 @@ extensions:
             source_labels:
               service_name: ""
               service_namespace: ""
+            # Setting ca_file turns on TLS to the k8s-cache; cert_file and key_file are only for mutual TLS.
+            tls:
+              ca_file: ""
+              cert_file: ""
+              key_file: ""
+              # Overrides the host from address when checking the k8s-cache certificate.
+              server_name: ""
         cloud:
           # Overrides automatic cloud cluster and region detection.
           cluster_name: ""

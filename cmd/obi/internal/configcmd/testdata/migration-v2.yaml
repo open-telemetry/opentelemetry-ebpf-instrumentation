@@ -434,6 +434,11 @@ extensions:
                         source_labels:
                             service_name: ""
                             service_namespace: ""
+                        tls:
+                            ca_file: ""
+                            cert_file: ""
+                            key_file: ""
+                            server_name: ""
                 cloud:
                     cluster_name: ""
                     region: ""

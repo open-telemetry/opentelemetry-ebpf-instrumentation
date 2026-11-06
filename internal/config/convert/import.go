@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -2034,6 +2035,7 @@ func applyFullV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.Kubernetes
 	cfg.Attributes.Kubernetes.DropExternal = kubernetes.DropExternal
 	cfg.Attributes.Kubernetes.DisableInformers = cloneStrings(kubernetes.Informers.Disabled)
 	cfg.Attributes.Kubernetes.MetaCacheAddress = kubernetes.MetadataCache.Address
+	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig(kubernetes.MetadataCache.TLS)
 	cfg.Attributes.Kubernetes.MetaRestrictLocalNode = kubernetes.MetadataCache.RestrictLocalNode
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName = kubernetes.MetadataCache.SourceLabels.ServiceName
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace = kubernetes.MetadataCache.SourceLabels.ServiceNamespace
@@ -2074,6 +2076,9 @@ func applyPartialV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.Kuberne
 	}
 	if kubernetes.MetadataCache.Address != "" {
 		cfg.Attributes.Kubernetes.MetaCacheAddress = kubernetes.MetadataCache.Address
+	}
+	if !zeroValue(kubernetes.MetadataCache.TLS) {
+		cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig(kubernetes.MetadataCache.TLS)
 	}
 	if kubernetes.MetadataCache.RestrictLocalNode {
 		cfg.Attributes.Kubernetes.MetaRestrictLocalNode = kubernetes.MetadataCache.RestrictLocalNode
