@@ -57,15 +57,20 @@ const (
 )
 
 type javaHTTP1TestObjects struct {
-	Ioctl    *ebpf.Program `ebpf:"obi_kprobe_sys_ioctl"`
-	Requests *ebpf.Map     `ebpf:"java_http1_connections"`
-	Slots    *ebpf.Map     `ebpf:"java_http1_requests"`
-	Sequence *ebpf.Map     `ebpf:"java_http1_sequence"`
-	Jumps    *ebpf.Map     `ebpf:"jump_table"`
-	HTTP     *ebpf.Map     `ebpf:"ongoing_http"`
-	Traces   *ebpf.Map     `ebpf:"trace_map"`
-	Outgoing *ebpf.Map     `ebpf:"outgoing_trace_map"`
-	SSL      *ebpf.Map     `ebpf:"active_ssl_connections"`
+	SysConnect   *ebpf.Program `ebpf:"obi_kprobe_sys_connect"`
+	Connect      *ebpf.Program `ebpf:"obi_kprobe_tcp_connect"`
+	ConnectError *ebpf.Program `ebpf:"obi_kprobe_sock_def_error_report"`
+	Events       *ebpf.Map     `ebpf:"events"`
+	HTTP2        *ebpf.Map     `ebpf:"ongoing_http2_grpc"`
+	Ioctl        *ebpf.Program `ebpf:"obi_kprobe_sys_ioctl"`
+	Requests     *ebpf.Map     `ebpf:"java_http1_connections"`
+	Slots        *ebpf.Map     `ebpf:"java_http1_requests"`
+	Sequence     *ebpf.Map     `ebpf:"java_http1_sequence"`
+	Jumps        *ebpf.Map     `ebpf:"jump_table"`
+	HTTP         *ebpf.Map     `ebpf:"ongoing_http"`
+	Traces       *ebpf.Map     `ebpf:"trace_map"`
+	Outgoing     *ebpf.Map     `ebpf:"outgoing_trace_map"`
+	SSL          *ebpf.Map     `ebpf:"active_ssl_connections"`
 }
 
 func loadJavaHTTP1Reservations(t *testing.T, enabled bool) *javaHTTP1TestObjects {
@@ -99,6 +104,11 @@ func loadJavaHTTP1Reservations(t *testing.T, enabled bool) *javaHTTP1TestObjects
 	var objs javaHTTP1TestObjects
 	require.NoError(t, spec.LoadAndAssign(&objs, nil))
 	t.Cleanup(func() {
+		objs.SysConnect.Close()
+		objs.Connect.Close()
+		objs.ConnectError.Close()
+		objs.Events.Close()
+		objs.HTTP2.Close()
 		objs.Ioctl.Close()
 		objs.Requests.Close()
 		objs.Slots.Close()
