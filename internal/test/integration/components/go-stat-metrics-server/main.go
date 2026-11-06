@@ -6,6 +6,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"os"
 )
@@ -13,6 +14,7 @@ import (
 func main() {
 	go serve(":8081", handleConnection)
 	go serve(":8082", resetConnection)
+	go serve(":8083", handleShutdownConnection)
 	serve(":8080", handleConnection)
 }
 
@@ -34,6 +36,22 @@ func serve(addr string, handle func(net.Conn)) {
 
 		go handle(conn)
 	}
+}
+
+// handleShutdownConnection closes only after both sides shut the connection down,
+// so the socket is already in TCP_CLOSE when the application closes it.
+func handleShutdownConnection(conn net.Conn) {
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+	message, _ := reader.ReadString('\n')
+	fmt.Printf("Received: %s", message)
+
+	conn.Write([]byte("ACK\n"))
+	conn.(*net.TCPConn).CloseWrite()
+
+	// returns on the client's FIN
+	io.Copy(io.Discard, reader)
 }
 
 func handleConnection(conn net.Conn) {
