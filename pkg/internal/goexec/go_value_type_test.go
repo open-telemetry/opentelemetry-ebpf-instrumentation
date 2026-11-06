@@ -11,10 +11,12 @@ import (
 	"reflect"
 	"runtime"
 	"runtime/debug"
+	"sync"
 	"syscall"
 	"testing"
 	"unsafe"
 
+	"github.com/hashicorp/golang-lru/v2/simplelru"
 	"github.com/stretchr/testify/require"
 )
 
@@ -199,4 +201,55 @@ func TestValueTypeErrorLayouts(t *testing.T) {
 			require.Equal(t, tc.errorFunc, typ.ErrorFunc)
 		})
 	}
+}
+
+func TestValueTypeCache(t *testing.T) {
+	path, err := os.Executable()
+	require.NoError(t, err)
+	file, err := os.Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = file.Close() })
+	resolver, err := NewGoSymbolResolver(file)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = resolver.Close() })
+	// A small capacity exercises eviction with real executable-backed types.
+	resolver.valueTypes, err = simplelru.NewLRU[uint64, GoValueType](2, nil)
+	require.NoError(t, err)
+	values := []any{5, true, errors.New("boom")}
+	addresses := make([]uint64, len(values))
+	for i := range values {
+		addresses[i] = uint64((*[2]uintptr)(unsafe.Pointer(&values[i]))[0])
+		_, ok := resolver.ValueType(addresses[i])
+		require.True(t, ok)
+	}
+	require.Equal(t, 2, resolver.valueTypes.Len())
+	require.False(t, resolver.valueTypes.Contains(addresses[0]))
+	want, ok := resolver.ValueType(addresses[2])
+	require.True(t, ok)
+	_, ok = resolver.ValueType(0)
+	require.False(t, ok)
+	require.Equal(t, 2, resolver.valueTypes.Len())
+
+	// Cached metadata remains usable without further executable reads.
+	require.NoError(t, file.Close())
+	var workers sync.WaitGroup
+	for range 8 {
+		workers.Go(func() {
+			for range 100 {
+				got, found := resolver.ValueType(addresses[2])
+				if !found || got != want {
+					t.Error("cached metadata differs")
+				}
+			}
+		})
+	}
+	workers.Wait()
+	// An evicted type needs a fresh read, which fails on the closed descriptor.
+	_, ok = resolver.ValueType(addresses[0])
+	require.False(t, ok)
+	require.NoError(t, resolver.Close())
+	require.Nil(t, resolver.valueTypes)
+	_, ok = resolver.ValueType(addresses[2])
+	require.False(t, ok)
+	runtime.KeepAlive(values)
 }
