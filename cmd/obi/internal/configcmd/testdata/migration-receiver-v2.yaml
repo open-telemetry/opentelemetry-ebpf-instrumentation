@@ -342,6 +342,7 @@ engine:
         disabled: false
     batching:
         wakeup_len: 500
+        stats_wakeup_data_bytes: 4096
         batch_length: 100
         batch_timeout: 1s
     propagation:

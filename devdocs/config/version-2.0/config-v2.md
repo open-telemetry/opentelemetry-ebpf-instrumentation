@@ -690,6 +690,9 @@ filtering and general attribute transformations with Collector processors.
 
 The `capture.engine` section controls eBPF engine internals: event batching, PID-based filtering, BPF filesystem path, context propagation mode, traffic control backend, transaction duration limits, and debug toggles.
 
+`capture.engine.batching.wakeup_len` counts events in the application capture ring buffer.
+`capture.engine.batching.stats_wakeup_data_bytes` is a separate byte threshold for the network stats ring buffer; `0` wakes userspace on every event.
+
 `capture.engine.cgroup_filesystem.path` sets the host cgroup v2 mount that context propagation attaches its sockops programs to.
 An unprivileged container has its own cgroup namespace, so its `/sys/fs/cgroup` covers only OBI's own cgroup.
 Mount the host hierarchy at another path, for example `/host/sys/fs/cgroup`, and set it here to propagate context for connections from every process on the node without hiding the container's own cgroup.
@@ -917,6 +920,7 @@ Important mapping notes:
 | `ebpf.traffic_control_backend` | `extensions.obi.capture.engine.traffic.control_backend` | Move + rename |
 | `ebpf.override_bpfloop_enabled` | `extensions.obi.capture.engine.propagation.override_bpfloop_enabled` | Move |
 | `ebpf.wakeup_len` | `extensions.obi.capture.engine.batching.wakeup_len` | Move |
+| `ebpf.stats_wakeup_data_bytes` | `extensions.obi.capture.engine.batching.stats_wakeup_data_bytes` | Move |
 | `enforce_sys_caps` | `extensions.obi.capture.safety.enforce_system_capabilities` | Move + rename |
 | `executable_path` | `extensions.obi.capture.rules[].match.process.exe_path_regex` (include rule) | Legacy fallback selector |
 | `open_port` | `extensions.obi.capture.rules[].match.process.open_ports` (include rule) | Fallback selector |

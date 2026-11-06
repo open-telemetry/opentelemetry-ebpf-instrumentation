@@ -750,6 +750,12 @@
                   "default": 500,
                   "description": "Ringbuffer wakeup threshold for capture batching.\nIf omitted, `500` is used.\n"
                 },
+                "stats_wakeup_data_bytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "default": 4096,
+                  "description": "Minimum bytes pending in the network stats ring buffer before userspace is woken up. `0` wakes userspace on every event.\nIf omitted, `4096` is used.\n"
+                },
                 "batch_length": {
                   "type": "integer",
                   "minimum": 1,
