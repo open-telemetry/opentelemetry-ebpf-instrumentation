@@ -67,10 +67,34 @@ typedef struct call_protocol_args {
     u8 _pad3[4];
 } call_protocol_args_t;
 
-static __always_inline void read_request_buf(http_info_t *info, const call_protocol_args_t *args) {
+static __always_inline void
+read_request_buf(http_info_t *info, const call_protocol_args_t *args, unsigned char *scratch) {
+    if (!scratch || args->bytes_len <= 0) {
+        return;
+    }
+
     u32 info_buf_len = (u32)args->bytes_len;
     bpf_clamp_umax(info_buf_len, FULL_BUF_SIZE);
-    bpf_probe_read(info->buf, info_buf_len, (void *)args->u_buf);
+    if (bpf_probe_read(scratch, info_buf_len, (void *)args->u_buf) != 0) {
+        __builtin_memset(scratch, 0, FULL_BUF_SIZE);
+        return;
+    }
+
+    u32 header_len = info_buf_len;
+#pragma clang loop unroll(disable)
+    for (u32 i = 0; i < FULL_BUF_SIZE - 3; i++) {
+        if (i + 3 >= info_buf_len) {
+            break;
+        }
+        if (scratch[i] == '\r' && scratch[i + 1] == '\n' && scratch[i + 2] == '\r' &&
+            scratch[i + 3] == '\n') {
+            header_len = i + 4;
+            break;
+        }
+    }
+    bpf_clamp_umax(header_len, FULL_BUF_SIZE);
+    bpf_probe_read(info->buf, header_len, scratch);
+    __builtin_memset(scratch, 0, FULL_BUF_SIZE);
 }
 
 // Here we keep information on the packets passing through the socket filter
