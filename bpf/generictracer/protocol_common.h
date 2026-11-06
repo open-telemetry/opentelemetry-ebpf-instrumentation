@@ -26,6 +26,10 @@
 
 volatile const s32 capture_header_buffer = 0;
 
+static __always_inline bool http_server_index_enabled(void) {
+    return capture_header_buffer != 0;
+}
+
 static __always_inline bool is_listening(const u16 port, const u32 netns) {
     const struct sock_port_ns pn = {
         .port = port,
