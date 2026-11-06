@@ -292,6 +292,21 @@ func TestFindExeSymbolsNamesSurviveUnmap(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestFindExeSymbolsMatchingNamesSurviveUnmap(t *testing.T) {
+	f, _ := largeSymbolELFFixture(t, 100)
+
+	symbols, err := FindExeSymbolsMatching(f, func(name string) bool {
+		return strings.HasPrefix(name, "SSL_")
+	})
+	require.NoError(t, err)
+	require.Len(t, symbols, 1)
+	for name, symbol := range symbols {
+		assert.Equal(t, "SSL_read", name)
+		assert.Equal(t, "SSL_read", symbol.Name)
+		assert.Equal(t, uint64(100), symbol.Value)
+	}
+}
+
 func TestFindExeSymbolsNativeByteOrder(t *testing.T) {
 	f, _ := symbolELFFixture(t,
 		symbolTableFixture{
