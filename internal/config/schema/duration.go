@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"go.yaml.in/yaml/v4"
+	"go.yaml.in/yaml/v3"
 )
 
 // Duration is a time.Duration that marshals to the v2 duration string format.

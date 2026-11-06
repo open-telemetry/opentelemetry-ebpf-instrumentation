@@ -6,7 +6,7 @@ package schema // import "go.opentelemetry.io/obi/internal/config/schema"
 import (
 	"fmt"
 
-	"go.yaml.in/yaml/v4"
+	"go.yaml.in/yaml/v3"
 
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"

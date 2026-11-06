@@ -88,7 +88,7 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0
 	go.opentelemetry.io/proto/otlp v1.11.1
 	go.opentelemetry.io/proto/otlp/processcontext/v1development v0.4.0
-	go.yaml.in/yaml/v4 v4.0.0
+	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/arch v0.31.0
 	golang.org/x/mod v0.41.0
 	golang.org/x/net v0.61.0
@@ -216,7 +216,6 @@ require (
 	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.47.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.4 // indirect
-	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20260908205506-85c1c2202aba // indirect
 	golang.org/x/oauth2 v0.37.0 // indirect

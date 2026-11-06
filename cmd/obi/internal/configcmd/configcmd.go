@@ -19,7 +19,7 @@ import (
 	"strings"
 	"sync"
 
-	"go.yaml.in/yaml/v4"
+	"go.yaml.in/yaml/v3"
 	legacyyaml "gopkg.in/yaml.v3"
 
 	"go.opentelemetry.io/collector/pdata/pmetric"
