@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"strings"
 
 	"golang.org/x/sys/unix"
 
@@ -105,14 +106,20 @@ func findLanguageFromElf(filePath string) (result svc.InstrumentableType) {
 }
 
 func FindExeSymbols(f *elf.File, symbolNames []string, types ...elf.SymType) (map[string]Sym, error) {
-	addresses := map[string]Sym{}
+	exactSyms, _, err := FindExeSymbolsByNameAndSubstring(f, symbolNames, nil, types...)
+	return exactSyms, err
+}
+
+func FindExeSymbolsByNameAndSubstring(f *elf.File, symbolNames, symbolSubstrings []string, types ...elf.SymType) (map[string]Sym, map[string]Sym, error) {
+	exactAddresses := map[string]Sym{}
+	substringAddresses := map[string]Sym{}
 	if f.SectionByType(elf.SHT_SYMTAB) == nil && f.SectionByType(elf.SHT_DYNSYM) == nil {
-		return addresses, nil
+		return exactAddresses, substringAddresses, nil
 	}
 
 	ctx, err := fastelf.NewElfContextFromELF(f)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer ctx.Close()
 
@@ -138,17 +145,17 @@ func FindExeSymbols(f *elf.File, symbolNames []string, types ...elf.SymType) (ma
 			}
 
 			if section.Link == 0 || uint64(section.Link) >= uint64(len(ctx.Sections)) {
-				return nil, errors.New("section has invalid string table link")
+				return nil, nil, errors.New("section has invalid string table link")
 			}
 
 			strtab, ok := ctx.SectionData(ctx.Sections[section.Link])
 			if !ok {
-				return nil, errors.New("invalid string table bounds")
+				return nil, nil, errors.New("invalid string table bounds")
 			}
 
 			offset, entrySize, count, ok := ctx.SymbolTableBounds(section)
 			if !ok || section.Entsize != elf.Sym64Size || section.Size%section.Entsize != 0 {
-				return nil, errors.New("invalid symbol table bounds or entry size")
+				return nil, nil, errors.New("invalid symbol table bounds or entry size")
 			}
 
 			populateRange(ctx.Data, ctx.Sections[section.Link].Offset, ctx.Sections[section.Link].Size)
@@ -162,19 +169,32 @@ func FindExeSymbols(f *elf.File, symbolNames []string, types ...elf.SymType) (ma
 				}
 
 				name := fastelf.GetCStringUnsafe(strtab, symbol.Name)
-				requested, ok := wanted[name]
-				if !ok {
-					continue
+				var sym *Sym
+				if requested, ok := wanted[name]; ok {
+					resolved := resolveSymbol(f, elf.Symbol{
+						Name: requested, Value: symbol.Value, Size: symbol.Size,
+					})
+					sym = &resolved
+					exactAddresses[requested] = resolved
 				}
 
-				addresses[requested] = resolveSymbol(f, elf.Symbol{
-					Name: requested, Value: symbol.Value, Size: symbol.Size,
-				})
+				for _, fragment := range symbolSubstrings {
+					if !strings.Contains(name, fragment) {
+						continue
+					}
+					if sym == nil {
+						resolved := resolveSymbol(f, elf.Symbol{
+							Name: strings.Clone(name), Value: symbol.Value, Size: symbol.Size,
+						})
+						sym = &resolved
+					}
+					substringAddresses[fragment] = *sym
+				}
 			}
 			break
 		}
 	}
-	return addresses, nil
+	return exactAddresses, substringAddresses, nil
 }
 
 // populateRange asks the kernel to read the given range of a mapped file in a
