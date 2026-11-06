@@ -1196,11 +1196,20 @@
       }
     },
     "Redaction": {
-      "type": ["array", "null"],
-      "items": {
-        "type": "string"
-      },
-      "description": "Complete selection of names whose values are redacted. An explicit list replaces the data component's default selection; [] selects no names. Omission or null retains the component's default policy."
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Redaction policy owned by the data component. Omitted fields retain the component's defaults.",
+      "properties": {
+        "names": {
+          "type": ["array", "null"],
+          "items": {"type": "string"},
+          "description": "Complete selection of literal names. An explicit list replaces the component's default selection; [] selects no names. Omission or null retains the default selection."
+        },
+        "replacement": {
+          "type": ["string", "null"],
+          "description": "Replacement text for selected values. Omission or null retains the component's default. HTTP query parameters use REDACTED by default and URL-encode explicit replacement text. An empty string removes the value's contents."
+        }
+      }
     },
     "HttpQueryParameters": {
       "type": ["object", "null"],
@@ -1209,7 +1218,7 @@
       "properties": {
         "redaction": {
           "$ref": "#/$defs/Redaction",
-          "description": "Case-sensitive, decoded query-parameter names whose values become REDACTED. An explicit list replaces the built-in selection; [] disables query-parameter redaction. Omission or null preserves the existing built-in list."
+          "description": "Policy for case-sensitive, decoded query-parameter names. Omission, null, or an empty object preserves the built-in selection and REDACTED replacement."
         }
       }
     },

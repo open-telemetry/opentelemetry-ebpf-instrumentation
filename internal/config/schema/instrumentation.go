@@ -87,24 +87,47 @@ type HTTPQueryParameters struct {
 	Redaction *Redaction `yaml:"redaction,omitempty"`
 }
 
-// Redaction selects the names whose values are redacted. An explicit empty list
-// disables redaction; omission retains the data component's default policy.
-type Redaction []string
+// Redaction selects names and replacement text. Omitted fields retain the data
+// component's defaults; an explicit empty names list disables redaction.
+type Redaction struct {
+	Names       *[]string `yaml:"names,omitempty"`
+	Replacement *string   `yaml:"replacement,omitempty"`
+}
 
 func (r *Redaction) UnmarshalYAML(value *yaml.Node) error {
-	if value.Kind != yaml.SequenceNode {
-		return errors.New("redaction must be a list of strings")
+	if value.Kind != yaml.MappingNode {
+		return errors.New("redaction must be an object")
 	}
-	for i, entry := range value.Content {
-		if entry.Tag != "!!str" {
-			return fmt.Errorf("redaction[%d] must be a string", i)
-		}
+	var fields struct {
+		Names       yaml.Node `yaml:"names"`
+		Replacement yaml.Node `yaml:"replacement"`
 	}
-	var names []string
-	if err := value.Decode(&names); err != nil {
+	if err := decodeKnownFields(value, &fields); err != nil {
 		return err
 	}
-	*r = names
+	var policy Redaction
+	if fields.Names.Kind != 0 && fields.Names.Tag != "!!null" {
+		if fields.Names.Kind != yaml.SequenceNode {
+			return errors.New("redaction.names must be a list of strings")
+		}
+		for i, entry := range fields.Names.Content {
+			if entry.Tag != "!!str" {
+				return fmt.Errorf("redaction.names[%d] must be a string", i)
+			}
+		}
+		var names []string
+		if err := fields.Names.Decode(&names); err != nil {
+			return err
+		}
+		policy.Names = &names
+	}
+	if fields.Replacement.Kind != 0 && fields.Replacement.Tag != "!!null" {
+		if fields.Replacement.Tag != "!!str" {
+			return errors.New("redaction.replacement must be a string")
+		}
+		policy.Replacement = new(fields.Replacement.Value)
+	}
+	*r = policy
 	return nil
 }
 

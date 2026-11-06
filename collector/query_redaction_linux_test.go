@@ -35,8 +35,14 @@ func TestReceiverHTTPQueryParameterRedaction(t *testing.T) {
 	}{
 		{name: "defaults", http: "{}", want: strings.Replace(query, "default-secret", "REDACTED", 1)},
 		{name: "null", http: "{query_parameters: {redaction: null}}", want: strings.Replace(query, "default-secret", "REDACTED", 1)},
-		{name: "replacement", http: "{query_parameters: {redaction: [customer_secret]}}", want: "token=default-secret&customer_secret=REDACTED&customer_secr%65t=REDACTED&customer_secret=REDACTED&Customer_secret=case&page=2"},
-		{name: "empty", http: "{query_parameters: {redaction: []}}", want: query},
+		{name: "replacement", http: "{query_parameters: {redaction: {names: [customer_secret]}}}", want: "token=default-secret&customer_secret=REDACTED&customer_secr%65t=REDACTED&customer_secret=REDACTED&Customer_secret=case&page=2"},
+		{name: "empty", http: "{query_parameters: {redaction: {names: []}}}", want: query},
+		{name: "empty policy", http: "{query_parameters: {redaction: {}}}", want: strings.Replace(query, "default-secret", "REDACTED", 1)},
+		{name: "replacement only", http: "{query_parameters: {redaction: {replacement: hidden}}}", want: strings.Replace(query, "default-secret", "hidden", 1)},
+		{name: "custom replacement", http: "{query_parameters: {redaction: {names: [customer_secret], replacement: '[hidden] &='}}}", want: "token=default-secret&customer_secret=%5Bhidden%5D+%26%3D&customer_secr%65t=%5Bhidden%5D+%26%3D&customer_secret=%5Bhidden%5D+%26%3D&Customer_secret=case&page=2"},
+		{name: "empty replacement", http: "{query_parameters: {redaction: {names: [customer_secret], replacement: ''}}}", want: "token=default-secret&customer_secret=&customer_secr%65t=&customer_secret=&Customer_secret=case&page=2"},
+		{name: "null replacement", http: "{query_parameters: {redaction: {names: [token], replacement: null}}}", want: strings.Replace(query, "default-secret", "REDACTED", 1)},
+		{name: "disabled custom policy", http: "{query_parameters: {redaction: {names: [], replacement: hidden}}}", want: query},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			input := "version: '2.0'\ninstrumentation: {http: " + test.http + "}\n"
@@ -54,8 +60,9 @@ func TestReceiverHTTPQueryParameterRedaction(t *testing.T) {
 				&global.ContextInfo{Metrics: imetrics.NoopReporter{}},
 				cfg.runtime.Traces, false,
 				&attributes.SelectorConfig{
-					SelectionCfg:            cfg.runtime.Attributes.Select,
-					SensitiveQueryParamsCfg: cfg.runtime.Attributes.SensitiveQueryParams,
+					SelectionCfg:                    cfg.runtime.Attributes.Select,
+					SensitiveQueryParamsCfg:         cfg.runtime.Attributes.SensitiveQueryParams,
+					SensitiveQueryParamsReplacement: cfg.runtime.Attributes.SensitiveQueryParamsReplacement,
 				}, queue,
 			)(ctx)
 			require.NoError(t, err)

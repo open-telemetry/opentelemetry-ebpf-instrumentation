@@ -241,46 +241,48 @@ extensions:
           buffer_size: 0
           query_parameters:
             # Complete selection; an explicit list replaces these defaults.
-            # Omit redaction or use null to retain defaults; [] selects no keys.
+            # Omit names or use null to retain defaults; names: [] selects no keys.
             redaction:
-              - X-Amz-Signature
-              - X-Amz-Credential
-              - X-Amz-Security-Token
-              - AWSAccessKeyId
-              - Signature
-              - SecurityToken
-              - X-Goog-Signature
-              - sig
-              - token
-              - access_token
-              - refresh_token
-              - id_token
-              - jwt
-              - session
-              - sid
-              - signature
-              - api_key
-              - apikey
-              - client_secret
-              - secret
-              - password
-              - pass
-              - pwd
-              - reset_token
-              - invite_token
-              - verify_token
-              - otp
-              - totp
-              - mfa_code
-              - verification_code
-              - SAMLResponse
-              - assertion
-              - card
-              - cc
-              - pan
-              - cvv
-              - ssn
-              - tax_id
+              replacement: REDACTED
+              names:
+                - X-Amz-Signature
+                - X-Amz-Credential
+                - X-Amz-Security-Token
+                - AWSAccessKeyId
+                - Signature
+                - SecurityToken
+                - X-Goog-Signature
+                - sig
+                - token
+                - access_token
+                - refresh_token
+                - id_token
+                - jwt
+                - session
+                - sid
+                - signature
+                - api_key
+                - apikey
+                - client_secret
+                - secret
+                - password
+                - pass
+                - pwd
+                - reset_token
+                - invite_token
+                - verify_token
+                - otp
+                - totp
+                - mfa_code
+                - verification_code
+                - SAMLResponse
+                - assertion
+                - card
+                - cc
+                - pan
+                - cvv
+                - ssn
+                - tax_id
           # HTTP route normalization and low-cardinality route naming controls.
           routes:
             # Policy for requests handled by an instrumented workload.

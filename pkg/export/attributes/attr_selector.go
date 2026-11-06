@@ -129,11 +129,12 @@ func (c SensitiveQueryParamsConfig) Effective() []string {
 
 // SelectorConfig defines settings for filtering attributes and adding additional attributes
 type SelectorConfig struct {
-	SelectionCfg            Selection
-	ExtraGroupAttributesCfg map[string][]attr.Name
-	SensitiveQueryParamsCfg SensitiveQueryParamsConfig
-	SanitizeSQLQueryText    bool
-	UseV2Selection          bool
+	SelectionCfg                    Selection
+	ExtraGroupAttributesCfg         map[string][]attr.Name
+	SensitiveQueryParamsCfg         SensitiveQueryParamsConfig
+	SensitiveQueryParamsReplacement *string
+	SanitizeSQLQueryText            bool
+	UseV2Selection                  bool
 }
 
 // AttrSelector returns, for each metric, the attributes that have to be reported

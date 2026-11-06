@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"math"
 	"net"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -147,13 +148,18 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 }
 
 type GroupSpansOptions struct {
-	RedactKeys           []string
-	SanitizeSQLQueryText bool
+	RedactKeys            []string
+	QueryParamReplacement *string
+	SanitizeSQLQueryText  bool
 }
 
 func GroupSpansWithOptions(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection, opts GroupSpansOptions) map[svc.UID][]TraceSpanAndAttributes {
 	spanGroups := map[svc.UID][]TraceSpanAndAttributes{}
 	redactSet := buildRedactSet(opts.RedactKeys)
+	replacement := defaultQueryParamReplacement
+	if opts.QueryParamReplacement != nil {
+		replacement = url.QueryEscape(*opts.QueryParamReplacement)
+	}
 
 	for i := range spans {
 		span := &spans[i]
@@ -164,7 +170,7 @@ func GroupSpansWithOptions(ctx context.Context, spans []request.Span, traceAttrs
 			continue
 		}
 
-		selectedAttrs := traceAttributesSelectorInternal(span, traceAttrs, redactSet, opts.SanitizeSQLQueryText)
+		selectedAttrs := traceAttributesSelectorInternal(span, traceAttrs, redactSet, opts.SanitizeSQLQueryText, replacement)
 		samplerAttrs, responseErrorSelected := removeGenAIResponseErrorControl(selectedAttrs)
 
 		spanSampler := func() trace.Sampler {
@@ -833,7 +839,7 @@ func appendPeerService(attrs []attribute.KeyValue, span *request.Span, optionalA
 }
 
 //nolint:cyclop
-func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactSet map[string]struct{}, sanitizeSQLQueryText bool) []attribute.KeyValue {
+func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactSet map[string]struct{}, sanitizeSQLQueryText bool, replacement string) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
 
 	switch span.Type {
@@ -859,7 +865,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			attrs = appendIfSet(attrs, semconv.HTTPRoute, span.Route)
 			if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok {
 				if idx := strings.IndexByte(span.FullPath, '?'); idx >= 0 {
-					attrs = appendIfSet(attrs, request.HTTPUrlQuery, scrubQuery(span.FullPath[idx+1:], redactSet))
+					attrs = appendIfSet(attrs, request.HTTPUrlQuery, scrubQuery(span.FullPath[idx+1:], redactSet, replacement))
 				}
 			}
 			attrs = append(attrs, httpHeaderAttributes(span)...)
@@ -918,7 +924,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 		// Scrub sensitive query parameters from url.full.
 		var scrubbedQS string
 		if idx := strings.IndexByte(urlPath, '?'); idx >= 0 {
-			if qs := scrubQuery(urlPath[idx+1:], redactSet); qs != "" {
+			if qs := scrubQuery(urlPath[idx+1:], redactSet, replacement); qs != "" {
 				urlPath = urlPath[:idx+1] + qs
 				scrubbedQS = qs
 			} else {
@@ -1969,7 +1975,7 @@ func networkPeerAttributes(span *request.Span, optionalAttrs map[attr.Name]struc
 
 // TraceAttributesSelector returns the []attribute.KeyValue for a single span.
 func TraceAttributesSelector(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactKeys ...string) []attribute.KeyValue {
-	return traceAttributesSelectorInternal(span, optionalAttrs, buildRedactSet(redactKeys), false)
+	return traceAttributesSelectorInternal(span, optionalAttrs, buildRedactSet(redactKeys), false, defaultQueryParamReplacement)
 }
 
 func removeGenAIResponseErrorControl(attrs []attribute.KeyValue) ([]attribute.KeyValue, bool) {

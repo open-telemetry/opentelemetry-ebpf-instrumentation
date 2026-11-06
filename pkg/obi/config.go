@@ -729,6 +729,8 @@ type Attributes struct {
 
 	// SensitiveQueryParams controls which query-parameter keys are redacted in url.full and url.query.
 	SensitiveQueryParams attributes.SensitiveQueryParamsConfig `yaml:"sensitive_query_params"`
+	// SensitiveQueryParamsReplacement is set only by Config v2. Nil preserves REDACTED.
+	SensitiveQueryParamsReplacement *string `yaml:"-" env:"-" json:"-"`
 
 	SanitizeSQLQueryText bool `yaml:"-" env:"-" json:"-"`
 	UseV2Selection       bool `yaml:"-" env:"-" json:"-"`

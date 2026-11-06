@@ -564,8 +564,7 @@ When `db.query.text` is selected, SQL and SQL++ spans carry the query as capture
 
 HTTP query-parameter values are redacted while OBI constructs span URL
 attributes, before export or handoff to a Collector consumer. Configure the
-complete selection of parameter names under
-`capture.instrumentation.http.query_parameters.redaction`:
+policy under `capture.instrumentation.http.query_parameters.redaction`:
 
 ```yaml
 extensions:
@@ -575,32 +574,42 @@ extensions:
       instrumentation:
         http:
           query_parameters:
-            redaction: [token, password, customer_secret]
+            redaction:
+              names: [token, password, customer_secret]
+              replacement: "[hidden]"
 ```
 
-This fragment deliberately selects exactly these three names, replacing the
-built-in list. To retain all default protections and add a custom name, include
-the complete built-in list from the
+This fragment selects exactly these three names, replacing the built-in list.
+To retain all default protections and add a custom name, include the complete
+built-in list from the
 [default-values reference](examples/default-values-reference.fragment.yaml)
 plus that name. The migration command computes that complete list automatically
 from v1 additions and removals.
 
 | Value | Behavior |
 | --- | --- |
-| Omitted `redaction`, `null`, or an empty `query_parameters` object | Preserve the existing built-in selection. |
-| Explicit list | Redact values for exactly the listed names. |
-| `[]` | Select no query parameters for redaction. |
+| Omitted `redaction`, `null`, or `{}` | Preserve the built-in selection and `REDACTED` replacement. |
+| Omitted or null `names` | Preserve the built-in selection, including when only `replacement` is configured. |
+| Explicit `names` list | Redact values for exactly the listed names. |
+| `names: []` | Select no query parameters for redaction. |
+| Omitted or null `replacement` | Use `REDACTED`. |
+| Explicit `replacement` string | Replace selected values with this text, URL-encoded as a query value. |
+| `replacement: ""` | Keep the parameter name and `=`, with no value contents. |
 
 Names match case-sensitively after query-key decoding. When decoding fails, the
-raw name is matched. Values for matching keys, including repeated parameters,
-become `REDACTED`; key spelling and parameter order are preserved. Names are
-literal, with no wildcard or regular-expression matching.
+raw name is matched. Matching keys include repeated parameters; key spelling,
+unselected values, and parameter order are preserved. Names are literal, with
+no wildcard or regular-expression matching. For example, a replacement of
+`[hidden]` emits `token=%5Bhidden%5D`; a replacement cannot introduce another
+query parameter through `&` or `=`.
 
 The policy applies to emitted `url.full` and `url.query` attributes on HTTP
 client and server spans. Attribute selection still controls which URL attributes
 are emitted. This setting does not sanitize headers, bodies, SQL text, or other
-attributes. The data component owns the policy; other data components may reuse
-the redaction list model when their redaction capabilities are implemented.
+attributes. Payload enrichment retains its separate `obfuscation_string` setting.
+The data component owns the policy; other data components may reuse the policy
+object when their redaction capabilities are implemented. Their name matching
+and output encoding remain the responsibility of each component.
 
 In a Collector receiver, flatten the same capture configuration beside `version`:
 
@@ -611,11 +620,14 @@ receivers:
     instrumentation:
       http:
         query_parameters:
-          redaction: [token, password, customer_secret]
+          redaction:
+            names: [token, password, customer_secret]
+            replacement: "[hidden]"
 ```
 
 The setting is available only in Config v2. Config v1's configuration and
-redaction behavior remain unchanged.
+redaction behavior remain unchanged. Migration emits `redaction.names` and
+retains the `REDACTED` replacement by omitting `replacement`.
 
 ### `capture.runtimes` Section
 

@@ -18,15 +18,21 @@ func TestHTTPQueryParameterRedactionConversion(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
-		name, http string
-		want       []string
+		name, http  string
+		want        []string
+		replacement *string
 	}{
 		{name: "omitted", http: "{}"},
 		{name: "empty parent", http: "{query_parameters: {}}"},
 		{name: "null parent", http: "{query_parameters: null}"},
-		{name: "null list", http: "{query_parameters: {redaction: null}}"},
-		{name: "empty list", http: "{query_parameters: {redaction: []}}", want: []string{}},
-		{name: "explicit list", http: "{query_parameters: {redaction: [customer_secret, token]}}", want: []string{"customer_secret", "token"}},
+		{name: "null policy", http: "{query_parameters: {redaction: null}}"},
+		{name: "empty policy", http: "{query_parameters: {redaction: {}}}"},
+		{name: "null fields", http: "{query_parameters: {redaction: {names: null, replacement: null}}}"},
+		{name: "replacement only", http: "{query_parameters: {redaction: {replacement: hidden}}}", replacement: new("hidden")},
+		{name: "custom policy", http: "{query_parameters: {redaction: {names: [token], replacement: '[hidden]'}}}", want: []string{"token"}, replacement: new("[hidden]")},
+		{name: "empty replacement", http: "{query_parameters: {redaction: {names: [token], replacement: ''}}}", want: []string{"token"}, replacement: new("")},
+		{name: "empty list", http: "{query_parameters: {redaction: {names: []}}}", want: []string{}},
+		{name: "explicit list", http: "{query_parameters: {redaction: {names: [customer_secret, token]}}}", want: []string{"customer_secret", "token"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			want := test.want
@@ -44,6 +50,7 @@ func TestHTTPQueryParameterRedactionConversion(t *testing.T) {
 				cfg, err := V2ToRuntime(ext)
 				require.NoError(t, err)
 				require.Equal(t, want, cfg.Attributes.SensitiveQueryParams.Effective())
+				require.Equal(t, test.replacement, cfg.Attributes.SensitiveQueryParamsReplacement)
 				_, exported := RuntimeToV2(cfg)
 				data, err := yaml.Marshal(exported)
 				require.NoError(t, err)
@@ -52,6 +59,7 @@ func TestHTTPQueryParameterRedactionConversion(t *testing.T) {
 				got, err := V2ToRuntime(&roundTrip)
 				require.NoError(t, err)
 				require.Equal(t, want, got.Attributes.SensitiveQueryParams.Effective())
+				require.Equal(t, test.replacement, got.Attributes.SensitiveQueryParamsReplacement)
 			}
 		})
 	}
@@ -67,10 +75,11 @@ func TestHTTPQueryParameterRedactionLegacyRoundTrip(t *testing.T) {
 	}
 	want := slices.Clone(cfg.Attributes.SensitiveQueryParams.Effective())
 	_, ext := RuntimeToV2(&cfg)
-	require.Equal(t, want, []string(*ext.Capture.Instrumentation.HTTP.QueryParameters.Redaction))
+	require.Equal(t, want, *ext.Capture.Instrumentation.HTTP.QueryParameters.Redaction.Names)
 	got, err := V2ToRuntime(ext)
 	require.NoError(t, err)
 	require.Equal(t, want, got.Attributes.SensitiveQueryParams.Effective())
+	require.Nil(t, got.Attributes.SensitiveQueryParamsReplacement)
 	require.Contains(t, got.Attributes.SensitiveQueryParams.Effective(), "token")
 	require.NotContains(t, got.Attributes.SensitiveQueryParams.Effective(), "session")
 }
