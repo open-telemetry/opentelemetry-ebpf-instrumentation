@@ -2,9 +2,10 @@
 
 This document defines the environments and artifact platforms that OBI documents as supported.
 
-While OBI remains in Development, this matrix is informational and does not yet create a stable `v1`
-compatibility contract. After OBI declares `v1`, the entries documented here become part of the
-support matrix described in [VERSIONING.md](./VERSIONING.md).
+The supported environments and artifact platforms documented here are part of
+the `v1` compatibility contract in [VERSIONING.md](./VERSIONING.md), subject to
+their stated limitations and explicit development or experimental classifications.
+Telemetry stability is defined separately in [TELEMETRY.md](./TELEMETRY.md).
 
 ## Release Artifacts
 
@@ -103,7 +104,7 @@ through language-specific library instrumentation documented later in this file.
 | AWS SQS | All | All | Yes | No | Requires HTTP payload capture and `ebpf.payload_extraction.http.aws.enabled` |
 | AWS SNS | All | [Supported operations](devdocs/protocols/aws.md#supported-sns-operations) | Yes | No | Requires HTTP payload capture and `ebpf.payload_extraction.http.aws.enabled` |
 | SQL++ | All | All | Yes | No | Requires HTTP payload capture and `ebpf.payload_extraction.http.sqlpp.enabled` |
-| GenAI | All | All | Yes | No | Supported vendors are OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat and /api/generate), Cohere (native /v2/chat), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), vector retrieval providers (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate), and MCP. Requires HTTP payload capture and the corresponding `ebpf.payload_extraction.http.genai.*.enabled` option. |
+| GenAI | All | All | Yes | No | Supported vendors are OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat, /api/generate, /api/embed and /api/embeddings), Cohere (native /v2/chat), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), vector retrieval providers (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate), and MCP. Requires HTTP payload capture and the corresponding `ebpf.payload_extraction.http.genai.*.enabled` option. |
 
 ## Runtime, Server, And Library Instrumentation
 
@@ -225,6 +226,7 @@ OBI currently documents the following statistical instrumentation support:
 | TCP Successful Connections | Node-wide statistical metric collection | Counts completed TCP handshakes between two endpoints | Reports separate client and server observations identified by `network.tcp.handshake.role` |
 | TCP Retransmits | Node-wide statistical metric collection | Counts data-segment and client-SYN retransmits | Server-side SYN-ACK retransmits are a separate event and not counted |
 | TCP IO | Node-wide statistical metric collection | Count bytes transferred at the socket layer. When enabled, the eBPF probes fire on every `tcp_sendmsg` and `tcp_cleanup_rbuf` call, so consider enabling it standalone with `stats_tcp_io` if overhead is a concern. | On kernels older than ~6.5, traffic sent via `sendfile()` is not captured because it went through `tcp_sendpage` rather than `tcp_sendmsg`; on kernels 6.5+ the splice path was unified and `sendfile()` traffic is captured. The internal accumulation map size can be increased via the `ebpf.*` configuration knobs on nodes with many concurrent connections. |
+| TCP Resets | Node-wide statistical metric collection | Counts RST segments sent or received after the handshake; selectable only from Config v2 (`tcp_resets`) | Resets a listener sends in reply to an unexpected ACK and resets for ports with no listener are not counted; the inferred cause follows the kernel code path, so `tcp_abort()` (`ss -K`) is reported as `timeout`; see [devdocs/metrics.md](devdocs/metrics.md) |
 
 ## Runtime Metrics
 

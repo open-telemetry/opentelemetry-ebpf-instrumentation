@@ -22,7 +22,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/metadata/peer/metadatapb"
 )
 
-func startCentralServer(t *testing.T, cfg *CentralServerConfig, options ...grpc.DialOption) metadatapb.MetadataServiceClient {
+// serveCentralServer serves the metadata service on a loopback port and returns its address.
+func serveCentralServer(t *testing.T, cfg *CentralServerConfig) string {
 	t.Helper()
 	server, err := NewCentralServer(cfg)
 	require.NoError(t, err)
@@ -32,11 +33,17 @@ func startCentralServer(t *testing.T, cfg *CentralServerConfig, options ...grpc.
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(ctx, listener) }()
 	t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
+	return listener.Addr().String()
+}
+
+func startCentralServer(t *testing.T, cfg *CentralServerConfig, options ...grpc.DialOption) metadatapb.MetadataServiceClient {
+	t.Helper()
+	address := serveCentralServer(t, cfg)
 
 	if len(options) == 0 {
 		options = []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 	}
-	conn, err := grpc.NewClient(listener.Addr().String(), options...)
+	conn, err := grpc.NewClient(address, options...)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 	return metadatapb.NewMetadataServiceClient(conn)
@@ -54,7 +61,7 @@ func TestCentralServerPublishAndLookup(t *testing.T) {
 	server.setInventory([]Service{backend}, []Listener{{Endpoint: Endpoint{IP: "0.0.0.0", Port: 8080}, Service: backend}})
 	clientIP, serverIP := "10.1.0.1", "10.1.0.2"
 	server.observe(Endpoint{IP: clientIP, Port: 9090}, backend, time.Now())
-	published := server.snapshot(map[string]struct{}{clientIP: {}}, time.Now())
+	published := server.snapshot(callersTo(clientIP), time.Now())
 
 	_, err := client.Publish(t.Context(), &metadatapb.PublishRequest{HostId: "server-host-id", Addresses: []string{serverIP}, Snapshot: snapshotToProto(&published)})
 	require.NoError(t, err)
@@ -117,7 +124,7 @@ func TestCentralServerBearerToken(t *testing.T) {
 	cfg := DefaultCentralServerConfig()
 	cfg.Token = "shared-secret"
 	cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: leaf.certFile, KeyFile: leaf.keyFile, CAFile: root.certFile}
-	_, clientTLS, err := tlsConfigs(cfg.TLS)
+	clientTLS, err := clientTLSConfig(cfg.TLS)
 	require.NoError(t, err)
 	client := startCentralServer(t, &cfg, grpc.WithTransportCredentials(credentials.NewTLS(clientTLS)))
 
@@ -156,7 +163,6 @@ func TestCentralServerConfigValidation(t *testing.T) {
 func TestSnapshotProtoRoundTrip(t *testing.T) {
 	protocols := instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instrumentations.InstrumentationGRPC})
 	snapshot := Snapshot{
-		Version:   ProtocolVersion,
 		Hostname:  "host",
 		Services:  []Service{{Name: "api", Namespace: "shop", ServiceGraph: true}},
 		Listeners: []Listener{{Endpoint: Endpoint{IP: "0.0.0.0", Port: 8080}, Service: Service{Name: "api"}}},

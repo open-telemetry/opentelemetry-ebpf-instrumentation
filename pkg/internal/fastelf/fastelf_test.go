@@ -48,11 +48,42 @@ func TestFastElfExtendedSectionCountOutOfBounds(t *testing.T) {
 			}
 			copy(header.Ident[:], elf.ELFMAG)
 			header.Ident[elf.EI_CLASS] = byte(elf.ELFCLASS64)
+			header.Ident[elf.EI_DATA] = byte(nativeELFData())
 			var data bytes.Buffer
 			require.NoError(t, binary.Write(&data, binary.NativeEndian, header))
 			require.NoError(t, binary.Write(&data, binary.NativeEndian, Elf64_Shdr{Size: count}))
 			_, err := NewElfContextFromData(data.Bytes())
 			require.ErrorContains(t, err, "section table exceeds file bounds")
+		})
+	}
+}
+
+func TestElfContextByteOrder(t *testing.T) {
+	opposite := elf.ELFDATA2MSB
+	if nativeELFData() == elf.ELFDATA2MSB {
+		opposite = elf.ELFDATA2LSB
+	}
+
+	for _, tc := range []struct {
+		name    string
+		data    elf.Data
+		wantErr string
+	}{
+		{"native", nativeELFData(), ""},
+		{"opposite", opposite, "byte order differs"},
+		{"none", elf.ELFDATANONE, "invalid ELF data encoding"},
+		{"unknown", elf.Data(3), "invalid ELF data encoding"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			data := bytes.Clone(minimal_elf)
+			data[elf.EI_DATA] = byte(tc.data)
+
+			_, err := NewElfContextFromData(data)
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tc.wantErr)
 		})
 	}
 }

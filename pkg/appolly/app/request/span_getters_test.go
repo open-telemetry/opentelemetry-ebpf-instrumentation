@@ -1765,3 +1765,42 @@ func TestSpanOTELGetters_MessagingConsumerGroup(t *testing.T) {
 	}
 	assert.Equal(t, "my-group", spanPromGetters(attr.MessagingConsumerGroup)(consumer))
 }
+
+func TestHTTPServerAddressGetters(t *testing.T) {
+	tests := []struct {
+		name      string
+		eventType EventType
+		statement string
+		authority string
+		want      string
+	}{
+		{"server host", EventTypeHTTP, "http;api.example.com:8080", "", "api.example.com"},
+		{"server host without port", EventTypeHTTP, "http;api.example.com", "", "api.example.com"},
+		{"server IPv6", EventTypeHTTP, "http;[2001:db8::1]:8080", "", "2001:db8::1"},
+		{"server without captured host", EventTypeHTTP, "http;", "", ""},
+		{"server without statement", EventTypeHTTP, "", "", ""},
+		{"client unchanged", EventTypeHTTPClient, "http;api.example.com:8080", "", "api.example.com"},
+		{"HTTP/2 authority", EventTypeHTTP, "", "api.example.com:8443", "api.example.com"},
+		{"authority overrides statement", EventTypeHTTP, "http;other.example.com", "api.example.com:8443", "api.example.com"},
+		{"HTTP/2 IPv6 authority", EventTypeHTTP, "", "[2001:db8::1]:8443", "2001:db8::1"},
+		{"gRPC unchanged", EventTypeGRPC, "", "", "service-name"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			span := &Span{Type: tt.eventType, Statement: tt.statement, RequestAuthority: tt.authority, HostName: "service-name", Host: "10.0.0.1"}
+			getters := SpanOTELGetters(UnresolvedNames{})
+			got := getVal(t, getters, span, attr.ServerAddr)
+			assert.Equal(t, tt.want != "", got.Valid())
+			assert.Equal(t, tt.want, got.Value.AsString())
+			assert.Equal(t, tt.want, getVal(t, SpanPromGetters(UnresolvedNames{}), span, attr.ServerAddr))
+			assert.Equal(t, "service-name", getVal(t, getters, span, attr.Server).Value.AsString())
+			assert.Equal(t, "service-name", span.HostName)
+		})
+	}
+	t.Run("missing host remains omitted with unresolved renaming", func(t *testing.T) {
+		span := &Span{Type: EventTypeHTTP, Statement: "http;", HostName: "service-name", Host: "10.0.0.1"}
+		cfg := UnresolvedNames{Generic: "unknown"}
+		assert.False(t, getVal(t, SpanOTELGetters(cfg), span, attr.ServerAddr).Valid())
+		assert.Empty(t, getVal(t, SpanPromGetters(cfg), span, attr.ServerAddr))
+	})
+}

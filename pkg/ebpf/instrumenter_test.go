@@ -58,8 +58,9 @@ func TestGatherOffsets(t *testing.T) {
 	probes := makeProbeDescMap(testCases)
 
 	elfFile := instrumenterFixtureELF(t)
-	err := gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
+	errs, err := gatherOffsetsImpl(elfFile, []map[string][]*ebpfcommon.ProbeDesc{probes}, "libbsd.so", slog.Default())
 	require.NoError(t, err)
+	require.NoError(t, errs[0])
 
 	for probeName, probeArr := range probes {
 		assert.NotEmpty(t, probeArr)
@@ -124,6 +125,30 @@ func TestHandleSymbolDataReadFailureKeepsStartOnlyProbeResolved(t *testing.T) {
 	assert.Empty(t, probe.ReturnOffsets)
 }
 
+func TestGatherOffsetsIsolatesProbeMaps(t *testing.T) {
+	testCases := expectedValues()
+	resolvable := makeProbeDescMap(testCases)
+	failing := probeDescMap{
+		"missing_required_symbol": {{Required: true}},
+	}
+
+	elfFile := instrumenterFixtureELF(t)
+	errs, err := gatherOffsetsImpl(
+		elfFile,
+		[]map[string][]*ebpfcommon.ProbeDesc{failing, resolvable},
+		"libbsd.so",
+		slog.Default(),
+	)
+	require.NoError(t, err)
+	require.Len(t, errs, 2)
+	require.Error(t, errs[0])
+	require.NoError(t, errs[1])
+
+	for probeName, probeArr := range resolvable {
+		assert.Equal(t, testCases[probeName].startOffset, probeArr[0].StartOffset, probeName)
+	}
+}
+
 func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
 	probes := probeDescMap{
 		"missing_optional_symbol": {{
@@ -132,8 +157,9 @@ func TestGatherOffsetsSkipsMissingOptionalSymbol(t *testing.T) {
 	}
 
 	elfFile := instrumenterFixtureELF(t)
-	err := gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
+	errs, err := gatherOffsetsImpl(elfFile, []map[string][]*ebpfcommon.ProbeDesc{probes}, "libbsd.so", slog.Default())
 	require.NoError(t, err)
+	require.NoError(t, errs[0])
 
 	desc := probes["missing_optional_symbol"][0]
 	assert.True(t, desc.Skip)
@@ -149,9 +175,10 @@ func TestGatherOffsetsFailsMissingRequiredSymbol(t *testing.T) {
 	}
 
 	elfFile := instrumenterFixtureELF(t)
-	err := gatherOffsetsImpl(elfFile, probes, "libbsd.so", slog.Default())
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "required symbol missing_required_symbol not found")
+	errs, err := gatherOffsetsImpl(elfFile, []map[string][]*ebpfcommon.ProbeDesc{probes}, "libbsd.so", slog.Default())
+	require.NoError(t, err)
+	require.Error(t, errs[0])
+	assert.Contains(t, errs[0].Error(), "required symbol missing_required_symbol not found")
 
 	desc := probes["missing_required_symbol"][0]
 	assert.True(t, desc.Skip)
@@ -541,6 +568,16 @@ func TestInstrumentOptionalGoProbeGroupLeavesProcessScopedProbeDetached(t *testi
 
 	assert.Equal(t, []string{"start", "ended"}, attached)
 	assert.Len(t, closers, 2)
+}
+
+func TestGoProbeGroupOnlyProcessScoped(t *testing.T) {
+	scoped := ebpfcommon.GoProbe{Symbol: "fmt.errorf", ProcessScoped: true}
+	unscoped := ebpfcommon.GoProbe{Symbol: "start"}
+
+	assert.True(t, goProbeGroupOnlyProcessScoped(ebpfcommon.GoProbeGroup{Probes: []ebpfcommon.GoProbe{scoped}}),
+		"registered although nothing is attached to the executable")
+	assert.False(t, goProbeGroupOnlyProcessScoped(ebpfcommon.GoProbeGroup{Probes: []ebpfcommon.GoProbe{unscoped, scoped}}))
+	assert.False(t, goProbeGroupOnlyProcessScoped(ebpfcommon.GoProbeGroup{}))
 }
 
 func TestInstrumentOptionalGoProbeGroupRollsBackOnFailure(t *testing.T) {
@@ -1202,6 +1239,40 @@ func TestStaleExecutableUnlinkPreservesReplacement(t *testing.T) {
 
 	assert.NotContains(t, pt.Instrumentables, key)
 	assert.Equal(t, int32(1), newCloser.closes.Load())
+}
+
+type executableScopedRecorder struct {
+	stubTracer
+	events []string
+}
+
+func (r *executableScopedRecorder) RegisterExecutable(*exec.FileInfo) {
+	r.events = append(r.events, "register")
+}
+
+func (r *executableScopedRecorder) UnregisterExecutable(uint64, uint64) {
+	r.events = append(r.events, "unregister")
+}
+
+func TestExecutableScopedStateFollowsReplacement(t *testing.T) {
+	key := ExecutableKey{Dev: 5, Ino: 10}
+	fileInfo := exec.New(exec.Init{Dev: key.Dev, Ino: key.Ino})
+	recorder := &executableScopedRecorder{}
+	pt := &ProcessTracer{
+		log:             slog.Default(),
+		Programs:        []Tracer{recorder},
+		Instrumentables: map[ExecutableKey]*instrumenter{},
+	}
+	oldExecutable := &Instrumentable{FileInfo: fileInfo}
+	newExecutable := &Instrumentable{FileInfo: fileInfo}
+
+	pt.commitInstrumenter(&instrumenter{key: key, modules: map[uint64]struct{}{}}, oldExecutable)
+	pt.commitInstrumenter(&instrumenter{key: key, modules: map[uint64]struct{}{}}, newExecutable)
+	pt.UnlinkExecutable(fileInfo, oldExecutable.ExecutableGeneration)
+	assert.Equal(t, []string{"register", "unregister", "register"}, recorder.events)
+
+	pt.UnlinkExecutable(fileInfo, newExecutable.ExecutableGeneration)
+	assert.Equal(t, []string{"register", "unregister", "register", "unregister"}, recorder.events)
 }
 
 func TestUprobeTargetSharesInstrumenterUntilLastExecutableUnlinks(t *testing.T) {

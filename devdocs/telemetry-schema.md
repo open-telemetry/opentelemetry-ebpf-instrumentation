@@ -122,13 +122,11 @@ section empty once drained.
   As in semconv, `url.template` is on by default on the two body-size metrics but opt-in on
   `http.client.request.duration`, so client duration series no longer split by route unless
   `url.template` is selected.
-- The HTTP metrics no longer offer `url.path`, and the HTTP server metrics and
-  `rpc.server.call.duration` no longer offer `client.address`, following the semantic
-  conventions, which exclude these high-cardinality attributes from metrics. Both were opt-in,
-  so only an `attributes.select` that included them changes. `url.path` can still be used in
-  attribute filters, and the spans keep both attributes.
-- HTTP client spans no longer carry `url.query`; the scrubbed query string remains part of
-  `url.full`. HTTP server spans keep `url.query`.
+- The development HTTP body-size metrics no longer offer `url.path`, and the HTTP server
+  body-size metrics and release-candidate `rpc.server.call.duration` no longer offer
+  `client.address`. These attributes remain available on the stable HTTP duration metrics.
+  They were opt-in, so only selections including them change. Attribute filters and spans
+  retain these attributes.
 - The span reference (`site/docs/spans.md`) documents every span's name. The emitted
   telemetry is unchanged.
 - The trace resource no longer carries `otel.scope.name`. Spans now carry the instrumentation
@@ -147,6 +145,9 @@ section empty once drained.
   `count`. This changes the span names and `db.operation.name` on `db.client.operation.duration`,
   and `span.name` on the span metrics. Commands that don't go through a probed `Collection`
   method, such as `BulkWrite`, are now reported as well, which adds spans and metric series.
+- HTTP server spans and metrics now derive `server.address` from the captured HTTP request
+  host, without its port, instead of the resolved service name. When the request host is
+  unavailable, the OTLP attribute is omitted and the Prometheus label is empty.
 
 ## Hosting notes
 

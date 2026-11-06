@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	appruntime "go.opentelemetry.io/obi/pkg/appolly/app/runtime"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/transform/route"
@@ -225,6 +226,17 @@ func (fi *FileInfo) SetSDKLanguage(t svc.InstrumentableType) {
 	fi.mu.Lock()
 	defer fi.mu.Unlock()
 	fi.service.SDKLanguage = t
+}
+
+func (fi *FileInfo) SetSampler(cfg *services.SamplerConfig) {
+	fi.mu.Lock()
+	defer fi.mu.Unlock()
+
+	fi.service.SamplerConfig = cfg
+	fi.service.Sampler = nil
+	if cfg != nil {
+		fi.service.Sampler = cfg.Implementation()
+	}
 }
 
 func (fi *FileInfo) SetHarvestedRoutes(m route.Matcher) {

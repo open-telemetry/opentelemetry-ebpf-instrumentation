@@ -1,0 +1,31 @@
+file_format: "1.0"
+log_level: debug
+meter_provider:
+  readers:
+    - periodic:
+        interval: 1000
+        exporter:
+          otlp_grpc:
+            endpoint: http://otelcol:4317
+            tls:
+              insecure: true
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      network:
+        stats:
+          enabled: true
+          # tcp_resets is only selectable from Config v2
+          features: [tcp_failed_connections, tcp_resets]
+      engine:
+        batching:
+          batch_timeout: 10ms
+    enrich:
+      enrichers:
+        kubernetes:
+          mode: disabled
+      attributes:
+        select:
+          "*":
+            include: ["*"]

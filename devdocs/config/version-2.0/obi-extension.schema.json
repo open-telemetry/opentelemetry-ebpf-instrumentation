@@ -526,6 +526,9 @@
             "enabled": {
               "type": "boolean",
               "description": "Override global exception capture. Omission inherits the global setting."
+            },
+            "go": {
+              "$ref": "#/$defs/Exceptions/properties/go"
             }
           }
         }
@@ -985,6 +988,7 @@
                       "stats",
                       "stats_tcp_failed_connections",
                       "stats_tcp_io",
+                      "stats_tcp_resets",
                       "stats_tcp_retransmits",
                       "stats_tcp_rtt",
                       "stats_tcp_successful_connections"
@@ -2198,7 +2202,8 @@
                   "tcp_failed_connections",
                   "tcp_successful_connections",
                   "tcp_retransmits",
-                  "tcp_io"
+                  "tcp_io",
+                  "tcp_resets"
                 ]
               },
               "default": [],
@@ -2426,6 +2431,15 @@
           "default": false,
           "description": "Enable metadata exchange on directly routable non-Kubernetes hosts."
         },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "peer",
+            "central"
+          ],
+          "default": "peer",
+          "description": "How agents exchange metadata: directly between agents (peer), or through the central metadata service (central)."
+        },
         "listen_address": {
           "type": "string",
           "default": "",
@@ -2503,6 +2517,9 @@
         },
         "tls": {
           "$ref": "#/$defs/PeerMetadataTLS"
+        },
+        "central": {
+          "$ref": "#/$defs/PeerMetadataCentral"
         }
       }
     },
@@ -2513,17 +2530,17 @@
         "enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Use HTTPS for both serving and querying metadata."
+          "description": "Use TLS for serving and querying metadata. In central mode, only for querying the metadata service."
         },
         "cert_file": {
           "type": "string",
           "default": "",
-          "description": "Server certificate PEM file, required when TLS is enabled."
+          "description": "Server certificate PEM file, required when TLS is enabled in peer mode."
         },
         "key_file": {
           "type": "string",
           "default": "",
-          "description": "Server private key PEM file, required when TLS is enabled."
+          "description": "Server private key PEM file, required when TLS is enabled in peer mode."
         },
         "ca_file": {
           "type": "string",
@@ -2537,11 +2554,32 @@
         }
       }
     },
+    "PeerMetadataCentral": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Central metadata service connection, used in central mode.",
+      "properties": {
+        "address": {
+          "type": "string",
+          "default": "",
+          "description": "host:port address of the metadata service, required in central mode."
+        }
+      }
+    },
     "Exceptions": {
       "type": "object",
       "additionalProperties": false,
       "description": "Runtime exception capture. Exception records use the logs pipeline.",
       "properties": {
+        "go": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "panics": { "type": "boolean" },
+            "formatted_errors": { "type": "boolean" }
+          },
+          "description": "Go capture selection. Panics default to enabled and formatted errors to disabled; workload overrides inherit omitted fields."
+        },
         "enabled": {
           "type": "boolean",
           "default": false

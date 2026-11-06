@@ -30,14 +30,14 @@ func TestMultiProcess(t *testing.T) {
 	require.NoError(t, compose.Up())
 
 	t.Run("Go RED metrics: usual service", func(t *testing.T) {
-		waitForTestComponents(t, instrumentedServiceStdURL)
+		waitForTestComponentsService(t, instrumentedServiceStdURL, "testserver")
 		testREDMetricsForHTTPLibrary(t, instrumentedServiceStdURL, "testserver", "initial-set")
 		// checks that, instrumenting the process from this container,
 		// it doesn't instrument too the process from the other container
 		checkReportedOnlyOnce(t, instrumentedServiceStdURL, "testserver")
 	})
 	t.Run("Go RED metrics: service 1", func(t *testing.T) {
-		waitForTestComponents(t, "http://localhost:8900")
+		waitForTestComponentsService(t, "http://localhost:8900", "rename1")
 		testREDMetricsForHTTPLibrary(t, "http://localhost:8900", "rename1", "initial-set")
 		// checks that, instrumenting the process from this container,
 		// it doesn't instrument too the process from the other container

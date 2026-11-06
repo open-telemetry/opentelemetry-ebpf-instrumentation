@@ -301,6 +301,10 @@ The `capture` grouping was introduced for two reasons:
 - `rules`: ordered workload selection rules (include/exclude by process identity, Kubernetes metadata, etc.).
 - `instrumentation`: protocol-specific capture controls (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU, Aerospike).
 - `exceptions`: runtime exception capture enablement; records use the logs pipeline.
+  For Go, `exceptions.go.panics` defaults to `true` and
+  `exceptions.go.formatted_errors` defaults to `false`. Formatted-error capture
+  records errors created by the supported `fmt.Errorf` probes, including errors
+  the application later handles. Panic capture includes recovered panics.
 - `runtimes`: language runtime injection controls (Go probes, Node.js SIGUSR1, Java agent attachment).
 - `network`: network flow capture configuration.
 - `limits`: cardinality and memory guardrails.
@@ -445,7 +449,8 @@ This was rejected because:
 Current overridable fields in `refine`:
 
 - `exports`: override which signals (`traces`, `metrics`, `logs`) are emitted for this workload.
-- `exceptions`: override global exception capture enablement. Omitted fields inherit global settings.
+- `exceptions`: override global exception capture enablement and Go event selection
+  (`go.panics`, `go.formatted_errors`). Omitted fields inherit global settings.
 - `http.routes`: refine the direction-scoped HTTP route policy for this workload.
 
 The schema reserves refinement `http.filters`, but the target runtime adapter
@@ -574,7 +579,7 @@ This section is the primary user control for defining how OBI captures and proce
 The current shape separates packet/flow capture from TCP stats capture:
 
 - `capture.network.capture` controls network flow capture and flow-derived telemetry.
-- `capture.network.stats` controls TCP stats telemetry. `enabled` is the stats master switch, and `features` lists enabled stats families: `tcp_rtt`, `tcp_failed_connections`, `tcp_successful_connections`, `tcp_retransmits`, and `tcp_io`.
+- `capture.network.stats` controls TCP stats telemetry. `enabled` is the stats master switch, and `features` lists enabled stats families: `tcp_rtt`, `tcp_failed_connections`, `tcp_successful_connections`, `tcp_retransmits`, `tcp_io`, and `tcp_resets`. `tcp_resets` is opt-in: `enabled: true` without `features` does not include it.
 
 `tcp_io` can produce substantially more events than the other stats families, so users should opt into it deliberately when they need per-send/per-receive I/O stats.
 
@@ -605,6 +610,10 @@ The list accepts every V1 feature name, including `application_red`,
 `all`, and `*`. The legacy names `application_span` and `application_span_sizes`
 remain accepted with the same deprecation warnings as V1. Use
 `application_span_otel` for the OpenTelemetry span metric names.
+
+The Config v2-only `stats_tcp_resets` name selects the TCP resets stats metric,
+like `tcp_resets` in `capture.network.stats.features`. `stats`, `all` and `*`
+do not include it.
 
 An explicit list replaces the feature selection inferred from protocol metrics
 switches, HTTP `body_size_metrics`, and network capture/stats settings. `[]`
@@ -1140,12 +1149,18 @@ instrumenting processes no longer selected, and instruments newly selected
 processes. A discovery rescan picks up processes and ports that were not observed
 yet. Processes that remain selected keep their instrumentation.
 
-Existing service names, namespaces, samplers, route policies, export modes and
+The top-level trace sampler (`tracer_provider.sampler`) can also be refreshed
+without restarting OBI. Sampling changes apply to already selected processes and
+newly selected processes. Embedders can also refresh per-rule sampler overrides
+through the runtime configuration API, those overrides take precedence over the
+global sampler.
+
+Existing service names, namespaces, route policies, export modes and
 metric features cannot change during a refresh. The update also fails if new
-matching criteria would give an already selected process different service
-settings, or if another runtime setting changes, such as exporters or protocol
+matching criteria would change these settings for an already selected process,
+or if another runtime setting changes, such as exporters or protocol
 enablement. New definitions cannot require metric features that the pipeline did
-not initialize at startup. Replacing a removed definition with different service
+not initialize at startup. Replacing a removed definition with changes to these
 settings in the same edit conservatively requires a restart.
 
 An incompatible or invalid edit logs an `ERROR` stating that OBI cannot refresh
@@ -1156,7 +1171,8 @@ active. A later compatible edit can still be accepted. Successful refreshes log
 To try it, start OBI with the
 [standalone example](examples/default-configuration.yaml), then edit its
 `capture.rules[].match` to select another running application. Change the
-top-level trace sampler to verify rejection without stopping the current capture.
+top-level trace sampler to update sampling without restarting OBI. Change an
+exporter endpoint to verify rejection without stopping the current capture.
 
 Embedders of OBI can use the same API with an `obi.Config` translated from
 their own configuration format:
@@ -1217,6 +1233,7 @@ standardized schema location is available.
 ## Peer metadata exchange
 
 The optional `extensions.obi.enrich.enrichers.peer_metadata` enricher exchanges
-service identities between agents on directly routable hosts outside Kubernetes.
-See [peer metadata](../../peer-metadata.md) for configuration, resolution behavior,
-and the HTTP protocol.
+service identities between agents on directly routable hosts outside Kubernetes,
+either directly or through a central metadata service. See
+[peer metadata](../../peer-metadata.md) for configuration, resolution behavior,
+and the gRPC protocol.

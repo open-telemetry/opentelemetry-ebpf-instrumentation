@@ -26,6 +26,7 @@
 
 #include <gotracer/go_common.h>
 #include <gotracer/maps/mongo.h>
+#include <gotracer/maps/nethttp.h>
 
 #include <generictracer/k_tracer_defs.h>
 
@@ -111,10 +112,14 @@ static __always_inline connection_info_t *already_handled_goroutine(go_addr_key_
     }
 
     // lookup active HTTP connection
-    connection_info_t *conn = bpf_map_lookup_elem(&ongoing_server_connections, g_key);
-    bpf_dbg_printk("conn=%llx", conn);
-    if (conn) {
-        if (conn->d_port == 0 && conn->s_port == 0) {
+    http_server_connection_t *server = bpf_map_lookup_elem(&ongoing_server_connections, g_key);
+    bpf_dbg_printk("conn=%llx", server);
+    if (server) {
+        connection_info_t *conn = &server->conn;
+        // Only the connection reader can discover its socket. A handler can read
+        // an unrelated socket, including when its own connection is still unknown.
+        if (server->net_conn && conn->d_port == 0 && conn->s_port == 0 &&
+            !bpf_map_lookup_elem(&ongoing_http_server_requests, g_key)) {
             bpf_dbg_printk("Found existing server connection, parsing FD information for socket "
                            "tuples, goroutine_addr=%llx",
                            g_key->addr);

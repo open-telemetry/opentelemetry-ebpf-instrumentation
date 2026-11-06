@@ -41,7 +41,9 @@ typedef struct server_http_func_invocation {
     bool is_jsonrpc;
     u8 proto_major;
     u8 proto_minor;
-    u8 _pad[5];
+    // set when an exception capture saw this request's goroutine panic
+    bool panicked;
+    u8 _pad[4];
 } server_http_func_invocation_t;
 
 typedef struct http2_owned_stream_ref {

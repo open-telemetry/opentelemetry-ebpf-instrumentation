@@ -90,27 +90,6 @@ obi_uprobe_mongo_coll_op(struct pt_regs *ctx, const char *op, const u32 op_len) 
     return 0;
 }
 
-static __always_inline bool mongo_connection_type_matches(const void *itab, u64 expected_itab) {
-    if (!itab || !expected_itab) {
-        return 0;
-    }
-
-    void *actual_type = NULL;
-    void *expected_type = NULL;
-    if (bpf_probe_read_user(
-            &actual_type, sizeof(actual_type), (const void *)((u64)itab + sizeof(void *))) != 0) {
-        return 0;
-    }
-
-    if (bpf_probe_read_user(&expected_type,
-                            sizeof(expected_type),
-                            (const void *)(expected_itab + sizeof(void *))) != 0) {
-        return 0;
-    }
-
-    return actual_type && actual_type == expected_type;
-}
-
 static __always_inline bool
 read_mongo_hostname_from_connection(void *conn_ptr, char *hostname, u64 max_len) {
     if (!conn_ptr) {
@@ -175,7 +154,7 @@ static __always_inline void *read_mongo_topology_connection_from_mnet(void *mnet
     const u64 expected_itab =
         go_offset_of(ot, (go_offset){.v = _mongo_v2_topology_connection_type_addr});
 
-    if (!mongo_connection_type_matches(itab, expected_itab)) {
+    if (!go_interface_type_matches(itab, expected_itab)) {
         bpf_dbg_printk("mongo Describer is not topology.Connection");
         return 0;
     }
@@ -379,7 +358,7 @@ int GUARDED_PROG(obi_uretprobe_mongo_v1_get_server_and_connection, struct pt_reg
     const u64 expected_type =
         go_offset_of(ot, (go_offset){.v = _mongo_v1_topology_connection_type_addr});
 
-    if (!mongo_connection_type_matches(conn_type, expected_type)) {
+    if (!go_interface_type_matches(conn_type, expected_type)) {
         return 0;
     }
 

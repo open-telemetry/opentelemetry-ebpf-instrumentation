@@ -441,6 +441,7 @@ extensions:
                         hosted_zone_ids: []
                 peer_metadata:
                     enabled: false
+                    mode: peer
                     listen_address: ""
                     port: 8998
                     peer_cidrs: []
@@ -460,6 +461,8 @@ extensions:
                         key_file: ""
                         ca_file: ""
                         server_name: ""
+                    central:
+                        address: ""
             service_name:
                 unresolved_hosts:
                     names:

@@ -1,0 +1,34 @@
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:14518
+exporters:
+  file/logs:
+    path: /testoutput/logs.jsonl
+    flush_interval: 100ms
+  file/traces:
+    path: /testoutput/traces.jsonl
+    flush_interval: 100ms
+  otlp/weaver:
+    endpoint: weaver:4317
+    tls:
+      insecure: true
+    compression: none
+    sending_queue:
+      enabled: true
+      queue_size: 500
+      block_on_overflow: false
+    retry_on_failure:
+      enabled: false
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      exporters: [file/logs]
+    traces:
+      receivers: [otlp]
+      exporters: [file/traces]
+    logs/weaver:
+      receivers: [otlp]
+      exporters: [otlp/weaver]
