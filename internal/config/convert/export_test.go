@@ -684,7 +684,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	require.Equal(t, schema.AttributeFilter{GreaterThan: &srtt}, value(t, ext.Capture.Network, "stats", "filters", "metrics", "srtt"))
 
 	require.ElementsMatch(t, []string{
-		"graphql", "elasticsearch", "aws", "sqlpp", "openai", "anthropic", "gemini",
+		"graphql", "elasticsearch", "aws_s3", "aws_sqs", "aws_sns", "sqlpp", "openai", "anthropic", "gemini",
 		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "ollama", "cohere", "jsonrpc", "enrichment",
 	}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enabled"))
 	require.Equal(t, []string{"/query", "/analytics"}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "sqlpp", "endpoint_patterns"))

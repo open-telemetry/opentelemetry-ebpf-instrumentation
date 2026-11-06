@@ -754,6 +754,53 @@ unknown_field: true
 	require.Contains(t, stderr.String(), "decode v1 YAML fields")
 }
 
+func TestMigrateConfigAcceptsAWSPayloadExtraction(t *testing.T) {
+	aws := `
+ebpf:
+  payload_extraction:
+    http:
+      aws:
+        enabled: true
+`
+	tests := []struct {
+		mode  validationMode
+		input string
+	}{
+		{
+			mode: validationModeStandalone,
+			input: `
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+otel_traces_export:
+  endpoint: http://collector:4317
+` + aws,
+		},
+		{
+			mode: validationModeReceiver,
+			input: `
+open_port: "8080"
+metrics:
+  features:
+    - application
+` + aws,
+		},
+	}
+
+	for _, test := range tests {
+		mode := test.mode
+		t.Run(string(mode), func(t *testing.T) {
+			output, _, err := migrateConfigForMode([]byte(test.input), mode)
+			require.NoError(t, err)
+
+			for _, service := range []string{"aws_s3", "aws_sqs", "aws_sns"} {
+				require.Contains(t, string(output), service)
+			}
+			require.NoError(t, validateConfig(output, mode))
+		})
+	}
+}
+
 func TestMigrateConfigReceiverRejectsWrongInputShape(t *testing.T) {
 	_, _, err := migrateConfigForMode(
 		[]byte("version: \"2.0\"\npolicy: {}\n"),
