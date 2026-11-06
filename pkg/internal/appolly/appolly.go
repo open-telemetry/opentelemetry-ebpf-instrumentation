@@ -105,7 +105,7 @@ func NewWithProtocolMetricSelection(ctx context.Context, ctxInfo *global.Context
 	), swarm.WithID("DockerProcessEventDecorator"))
 
 	processEventCloudDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, ctxInfo.Metrics, "processEventsECSDecorated")
-	swi.Add(transform.CloudProcessEventDecoratorProvider(
+	swi.Add(transform.CloudProcessEventDecoratorProviderWithConfig(
 		ctxInfo, config.NameResolver, processEventsDockerDecorated, processEventCloudDecorated,
 	), swarm.WithID("CloudProcessEventDecorator"))
 
