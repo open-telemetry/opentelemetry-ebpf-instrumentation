@@ -92,6 +92,11 @@ CI formats and lints the C code with the `clang-format` and `clang-tidy` from th
 
 #### Formatting the Go code
 
+Local Go formatting and linting uses the `golangci-lint` version pinned in this
+repository's Mise configuration. Install [Mise](https://mise.jdx.dev/installing-mise.html),
+[activate it in your shell](https://mise.jdx.dev/shell-setup.html), then run
+`mise install` from the repository root. The Make targets below remain unchanged.
+
 ```
 make fmt
 ```

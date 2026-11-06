@@ -130,19 +130,10 @@ prereqs: install-hooks fetch-upstream-semconv
 fetch-upstream-semconv:
 	@./scripts/fetch-upstream-semconv.sh
 
-# Go lint and formatting tasks are managed by Mise.
-MISE ?= mise
-.PHONY: mise-required
-mise-required:
-	@command -v "$(MISE)" >/dev/null 2>&1 || { \
-		echo 'Error: mise is required to run this task.' >&2; \
-		echo 'Install mise: https://mise.jdx.dev/installing-mise.html' >&2; \
-		exit 127; \
-	}
-
 .PHONY: fmt
-fmt: mise-required
-	@$(MISE) run fmt
+fmt:
+	@echo "### Formatting code and fixing imports"
+	golangci-lint fmt
 
 .PHONY: clang-tidy
 clang-tidy:
@@ -163,22 +154,25 @@ docker-clang-tidy:
 # .golangci.yml configuration do not match the relative paths from the worktree and linting will fail
 # unless you clean the cache.
 .PHONY: lint-clean-cache
-lint-clean-cache: mise-required
-	@$(MISE) run lint:clean-cache
+lint-clean-cache:
+	golangci-lint cache clean
 
 .PHONY: lint
-lint: mise-required
-	@$(MISE) run lint
+lint: LINT_EXTRA_ARGS =
+lint: lint-run
 
 .PHONY: lint-fix
-lint-fix: mise-required
-	@$(MISE) run lint:fix
+lint-fix: lint-fix-run
 
 .PHONY: lint-run lint-fix-run
-lint-run: mise-required
-	@$(MISE) run lint
-lint-fix-run: mise-required
-	@$(MISE) run lint:fix
+lint-run: vanity-import-check lint-dependency-policy lint-collectt lint-preempt-guard
+lint-fix-run: LINT_EXTRA_ARGS = --fix
+lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt-fix lint-preempt-guard
+.NOTPARALLEL: lint-fix-run
+lint-run lint-fix-run:
+	@echo "### Linting code"
+	golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
+	cd collector && golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
 
 WEAVERIMAGE = $(shell awk '$$4=="weaver" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 .PHONY: lint-schema
@@ -238,20 +232,31 @@ check-schema-docs: generate-schema-docs
 	fi
 
 .PHONY: lint-dependency-policy
-lint-dependency-policy: mise-required
-	@$(MISE) run lint:dependency-policy
+lint-dependency-policy:
+	@echo "### Linting dependency integrity policy"
+	@if [ -n "$$CI" ]; then \
+		echo "### CI detected: enabling verbose dependency-policy lint logging"; \
+		./scripts/lint-dependency-policy.sh --verbose; \
+	else \
+		./scripts/lint-dependency-policy.sh; \
+	fi
 
 .PHONY: lint-preempt-guard
-lint-preempt-guard: mise-required
-	@$(MISE) run lint:preempt-guard
+lint-preempt-guard:
+	@echo "### Checking uprobe-context BPF programs are preempt-guarded"
+	@./scripts/lint-preempt-guard.sh
 
 .PHONY: lint-collectt
-lint-collectt: mise-required
-	@$(MISE) run lint:collectt
+lint-collectt:
+	@echo "### Checking EventuallyWithT callbacks use CollectT"
+	go run ./internal/test/analyzer/collectt/cmd/collecttlint ./...
 
 .PHONY: lint-collectt-fix
-lint-collectt-fix: mise-required
-	@$(MISE) run lint:collectt:fix
+lint-collectt-fix:
+	@echo "### Fixing EventuallyWithT callbacks to use CollectT"
+	go run ./internal/test/analyzer/collectt/cmd/collecttlint -fix ./...
+	@echo "### Checking EventuallyWithT callbacks use CollectT"
+	go run ./internal/test/analyzer/collectt/cmd/collecttlint ./...
 
 MARKDOWNIMAGE = $(shell awk '$$4=="markdown" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 .PHONY: lint-markdown
@@ -1028,14 +1033,13 @@ check-ebpf-ver-synced:
 	fi
 
 .PHONY: vanity-import-check vanity-import-fix-check
-vanity-import-check: mise-required
-	@$(MISE) run vanity-import:check
-vanity-import-fix-check: mise-required
-	@$(MISE) run vanity-import:fix-check
+vanity-import-fix-check: vanity-import-fix
+vanity-import-check vanity-import-fix-check:
+	go tool $(TOOLS_MODFILE) porto --include-internal --skip-dirs "^NOTICES$$" -l . || ( echo "(run: make vanity-import-fix)"; exit 1 )
 
 .PHONY: vanity-import-fix
-vanity-import-fix: mise-required
-	@$(MISE) run vanity-import:fix
+vanity-import-fix: $(PORTO)
+	go tool $(TOOLS_MODFILE) porto --include-internal --skip-dirs "^NOTICES$$" -w .
 
 .PHONY: regenerate-port-lookup
 regenerate-port-lookup:

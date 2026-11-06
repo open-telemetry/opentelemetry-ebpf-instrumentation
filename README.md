@@ -35,6 +35,7 @@ Requirements:
 
 * Docker
 * GNU Make
+* [Mise](https://mise.jdx.dev/) for local Go formatting and linting (see [setup instructions](./CONTRIBUTING.md#formatting-the-go-code))
 
 1. First, generate all the eBPF Go bindings via `make docker-generate`. You need to re-run this make task
    each time you add or modify a C file under the [`bpf/`](./bpf) folder.
