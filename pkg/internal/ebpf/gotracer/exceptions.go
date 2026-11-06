@@ -235,10 +235,11 @@ func (p *Tracer) readExceptionEvents(ctx context.Context, eventContext *ebpfcomm
 		return
 	}
 
-	go ebpfcommon.ForwardRingbuf(
+	go ebpfcommon.ForwardRingbufWithDrainContext(
 		p.cfg,
+		p.shutdownTimeout,
 		p.bpfObjects.ExceptionEvents,
-		func(record *ringbuf.Record) (exceptions.Event, bool, error) {
+		func(_ context.Context, record *ringbuf.Record) (exceptions.Event, bool, error) {
 			return ebpfcommon.ReadExceptionRecord(record, p.pidsFilter)
 		},
 		nil,
