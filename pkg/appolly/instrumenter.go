@@ -93,12 +93,11 @@ func newGraphBuilderWithProtocolMetricSelection(
 	}
 
 	selectorCfg := &attributes.SelectorConfig{
-		SelectionCfg:                    config.Attributes.Select,
-		UseV2Selection:                  config.Attributes.UseV2Selection,
-		ExtraGroupAttributesCfg:         config.Attributes.ExtraGroupAttributes,
-		SensitiveQueryParamsCfg:         config.Attributes.SensitiveQueryParams,
-		SensitiveQueryParamsReplacement: config.Attributes.SensitiveQueryParamsReplacement,
-		SanitizeSQLQueryText:            config.Attributes.SanitizeSQLQueryText,
+		SelectionCfg:            config.Attributes.Select,
+		UseV2Selection:          config.Attributes.UseV2Selection,
+		ExtraGroupAttributesCfg: config.Attributes.ExtraGroupAttributes,
+		SensitiveQueryParamsCfg: config.Attributes.SensitiveQueryParams,
+		SanitizeSQLQueryText:    config.Attributes.SanitizeSQLQueryText,
 	}
 
 	// Second, we register instancers for each pipe node, as well as communication queues between them

@@ -60,9 +60,8 @@ func TestReceiverHTTPQueryParameterRedaction(t *testing.T) {
 				&global.ContextInfo{Metrics: imetrics.NoopReporter{}},
 				cfg.runtime.Traces, false,
 				&attributes.SelectorConfig{
-					SelectionCfg:                    cfg.runtime.Attributes.Select,
-					SensitiveQueryParamsCfg:         cfg.runtime.Attributes.SensitiveQueryParams,
-					SensitiveQueryParamsReplacement: cfg.runtime.Attributes.SensitiveQueryParamsReplacement,
+					SelectionCfg:            cfg.runtime.Attributes.Select,
+					SensitiveQueryParamsCfg: cfg.runtime.Attributes.SensitiveQueryParams,
 				}, queue,
 			)(ctx)
 			require.NoError(t, err)

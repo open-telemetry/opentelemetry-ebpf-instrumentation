@@ -596,12 +596,13 @@ func TestConfigV1KeepsQueryRedactionReplacement(t *testing.T) {
   sensitive_query_params_replacement: hidden
   sensitive_query_params:
     add: [customer_secret]
+    replacement: hidden
 `))
 	require.NoError(t, err)
-	require.Nil(t, cfg.Attributes.SensitiveQueryParamsReplacement)
+	require.Nil(t, cfg.Attributes.SensitiveQueryParams.Replacement)
 	require.Contains(t, cfg.Attributes.SensitiveQueryParams.Effective(), "customer_secret")
 
-	cfg.Attributes.SensitiveQueryParamsReplacement = new("hidden")
+	cfg.Attributes.SensitiveQueryParams.Replacement = new("hidden")
 	data, err := yaml.Marshal(cfg.Attributes)
 	require.NoError(t, err)
 	require.NotContains(t, string(data), "replacement")

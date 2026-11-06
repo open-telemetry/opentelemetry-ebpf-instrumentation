@@ -148,17 +148,17 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 }
 
 type GroupSpansOptions struct {
-	RedactKeys            []string
-	QueryParamReplacement *string
-	SanitizeSQLQueryText  bool
+	RedactKeys           []string
+	RedactionReplacement *string
+	SanitizeSQLQueryText bool
 }
 
 func GroupSpansWithOptions(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection, opts GroupSpansOptions) map[svc.UID][]TraceSpanAndAttributes {
 	spanGroups := map[svc.UID][]TraceSpanAndAttributes{}
 	redactSet := buildRedactSet(opts.RedactKeys)
 	replacement := defaultQueryParamReplacement
-	if opts.QueryParamReplacement != nil {
-		replacement = url.QueryEscape(*opts.QueryParamReplacement)
+	if opts.RedactionReplacement != nil {
+		replacement = url.QueryEscape(*opts.RedactionReplacement)
 	}
 
 	for i := range spans {

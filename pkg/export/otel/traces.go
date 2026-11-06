@@ -91,9 +91,9 @@ func (tr *tracesOTELReceiver) getConstantAttributes() (map[attr.Name]struct{}, e
 
 func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp tracesExporter, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler) {
 	spanGroups := tracesgen.GroupSpansWithOptions(ctx, spans, traceAttrs, sampler, tr.is, tracesgen.GroupSpansOptions{
-		RedactKeys:            tr.selectorCfg.SensitiveQueryParamsCfg.Effective(),
-		QueryParamReplacement: tr.selectorCfg.SensitiveQueryParamsReplacement,
-		SanitizeSQLQueryText:  tr.selectorCfg.SanitizeSQLQueryText,
+		RedactKeys:           tr.selectorCfg.SensitiveQueryParamsCfg.Effective(),
+		RedactionReplacement: tr.selectorCfg.SensitiveQueryParamsCfg.Replacement,
+		SanitizeSQLQueryText: tr.selectorCfg.SanitizeSQLQueryText,
 	})
 
 	for _, spanGroup := range spanGroups {

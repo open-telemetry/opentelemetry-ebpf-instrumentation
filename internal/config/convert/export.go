@@ -100,7 +100,7 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 	http := protocols[protocolHTTP]
 	redaction := schema.Redaction{
 		Names:       new(cloneStrings(cfg.Attributes.SensitiveQueryParams.Effective())),
-		Replacement: cfg.Attributes.SensitiveQueryParamsReplacement,
+		Replacement: cfg.Attributes.SensitiveQueryParams.Replacement,
 	}
 	httpInstrumentation := schema.HTTPInstrumentation{
 		Enabled: schema.HTTPProtocolEnablement{

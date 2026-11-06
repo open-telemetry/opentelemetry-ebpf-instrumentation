@@ -1344,19 +1344,19 @@ func applyV2HTTPQueryParameters(cfg *obi.Config, params schema.HTTPQueryParamete
 	if params.Redaction == nil {
 		return
 	}
-	cfg.Attributes.SensitiveQueryParamsReplacement = params.Redaction.Replacement
+	redaction := &cfg.Attributes.SensitiveQueryParams
+	redaction.Replacement = params.Redaction.Replacement
 	if params.Redaction.Names == nil {
 		return
 	}
-	cfg.Attributes.SensitiveQueryParams = attributes.SensitiveQueryParamsConfig{}
+	redaction.Add = nil
+	redaction.Remove = nil
 	if slices.Equal(*params.Redaction.Names, attributes.DefaultSensitiveQueryParams) {
 		return
 	}
 	// Adapt a complete v2 selection to the existing runtime's default-relative list.
-	cfg.Attributes.SensitiveQueryParams = attributes.SensitiveQueryParamsConfig{
-		Remove: slices.Clone(attributes.DefaultSensitiveQueryParams),
-		Add:    slices.Clone(*params.Redaction.Names),
-	}
+	redaction.Remove = slices.Clone(attributes.DefaultSensitiveQueryParams)
+	redaction.Add = slices.Clone(*params.Redaction.Names)
 }
 
 func applyFullV2HTTPInstrumentation(cfg *obi.Config, http schema.HTTPInstrumentation) {
