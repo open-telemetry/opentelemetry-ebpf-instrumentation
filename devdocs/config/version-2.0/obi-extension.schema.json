@@ -1207,7 +1207,7 @@
         },
         "replacement": {
           "type": ["string", "null"],
-          "description": "Replacement text for selected values. Omission or null retains the component's default. HTTP query parameters use REDACTED by default and URL-encode explicit replacement text. An empty string removes the value's contents."
+          "description": "Replacement text for selected values. Omission or null retains the component's default. An empty string removes the value's contents."
         }
       }
     },
@@ -1218,7 +1218,50 @@
       "properties": {
         "redaction": {
           "$ref": "#/$defs/Redaction",
-          "description": "Policy for case-sensitive, decoded query-parameter names. Omission, null, or an empty object preserves the built-in selection and REDACTED replacement."
+          "default": {
+            "names": [
+              "X-Amz-Signature",
+              "X-Amz-Credential",
+              "X-Amz-Security-Token",
+              "AWSAccessKeyId",
+              "Signature",
+              "SecurityToken",
+              "X-Goog-Signature",
+              "sig",
+              "token",
+              "access_token",
+              "refresh_token",
+              "id_token",
+              "jwt",
+              "session",
+              "sid",
+              "signature",
+              "api_key",
+              "apikey",
+              "client_secret",
+              "secret",
+              "password",
+              "pass",
+              "pwd",
+              "reset_token",
+              "invite_token",
+              "verify_token",
+              "otp",
+              "totp",
+              "mfa_code",
+              "verification_code",
+              "SAMLResponse",
+              "assertion",
+              "card",
+              "cc",
+              "pan",
+              "cvv",
+              "ssn",
+              "tax_id"
+            ],
+            "replacement": "REDACTED"
+          },
+          "description": "Policy for case-sensitive, decoded query-parameter names. Omission, null, or an empty object preserves the built-in selection and REDACTED replacement. Explicit replacement text is URL-encoded as a query value."
         }
       }
     },
