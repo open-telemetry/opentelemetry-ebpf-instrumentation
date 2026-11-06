@@ -158,6 +158,13 @@ The metric counts RST segments that the TCP stack sends (`tcp_send_reset`) or ac
 - When data arrives on a closing socket whose application already shut down reading, the kernel calls `tcp_reset()` on itself and then sends a reset. A `kprobe` on `tcp_rcv_state_process()` records whether the segment carried an RST, so this abort is counted only as `transmit`. The kernel skips that kprobe while another kprobe, a `kprobe`, `uprobe`, `tracepoint` or `perf_event` eBPF program, or a `bpf()` map call runs on the same CPU. If it skips the segment of a real RST, and an earlier segment of that socket, or of a closed socket at the same address, left a record without RST, that reset is not counted as `receive`.
 - `network.tcp.reset.cause` is inferred only for sent resets, from the code path that sends them, not from what triggered it. An active reset on a socket already moved to `TCP_CLOSE` is `application`: `close()` with unread data, `SO_LINGER{0}`, `TCP_LINGER2 < 0`, or an orphan or memory limit hit inside `close()`. An active reset with the state unchanged is `timeout`: keepalive and user timeout, orphan timers, the same orphan or memory limit hit by the retransmit timer, and `tcp_abort()` (`ss -K`, `bpf_sock_destroy`), which no timer triggers. Resets answering an incoming segment, and all received resets, carry no cause: the attribute is omitted on OTLP and the Prometheus label is empty.
 
+##### Abort on data: alternatives considered
+
+The `tcp_rcv_state_process()` kprobe fixes every supported kernel without state in user space, at about three probe hits per connection on each side. Two alternatives were considered:
+
+- A `kprobe` on `tcp_reset()`. It fires only on resets and reads the RST bit from its `skb` argument, but `tcp_reset()` takes the `skb` only since kernel 5.11, so 5.8 to 5.10 would keep the false `receive`. Falling back to the `tcp_rcv_state_process()` kprobe on older kernels means two mechanisms to maintain and test.
+- Pairing the two tracepoints in user space. The abort is the only case where `tcp_send_reset` answers a segment on the same socket right after `tcp_receive_reset`, so a pipeline node could hold received resets of closing sockets and drop the ones followed by that reset. It adds no kernel hook and works from 5.8, but it delays those received resets by a hold window and adds a stateful node with a timer to the stats pipeline.
+
 ### Performance considerations
 
 Some stat metrics attach to kernel functions that are called very frequently (e.g. `tcp_sendmsg`, `tcp_cleanup_rbuf` for TCP IO). These probes add a small overhead on every call, so the aggregate cost is proportional to the rate of TCP sends/receives on the node. Consider:
