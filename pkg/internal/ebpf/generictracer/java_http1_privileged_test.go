@@ -57,27 +57,36 @@ const (
 )
 
 type javaHTTP1TestObjects struct {
-	SysConnect   *ebpf.Program `ebpf:"obi_kprobe_sys_connect"`
-	Connect      *ebpf.Program `ebpf:"obi_kprobe_tcp_connect"`
-	ConnectError *ebpf.Program `ebpf:"obi_kprobe_sock_def_error_report"`
-	Events       *ebpf.Map     `ebpf:"events"`
-	HTTP2        *ebpf.Map     `ebpf:"ongoing_http2_grpc"`
-	Ioctl        *ebpf.Program `ebpf:"obi_kprobe_sys_ioctl"`
-	Requests     *ebpf.Map     `ebpf:"java_http1_connections"`
-	Slots        *ebpf.Map     `ebpf:"java_http1_requests"`
-	Sequence     *ebpf.Map     `ebpf:"java_http1_sequence"`
-	Jumps        *ebpf.Map     `ebpf:"jump_table"`
-	HTTP         *ebpf.Map     `ebpf:"ongoing_http"`
-	Traces       *ebpf.Map     `ebpf:"trace_map"`
-	Outgoing     *ebpf.Map     `ebpf:"outgoing_trace_map"`
-	SSL          *ebpf.Map     `ebpf:"active_ssl_connections"`
+	SysConnect     *ebpf.Program `ebpf:"obi_kprobe_sys_connect"`
+	Connect        *ebpf.Program `ebpf:"obi_kprobe_tcp_connect"`
+	ConnectError   *ebpf.Program `ebpf:"obi_kprobe_sock_def_error_report"`
+	Events         *ebpf.Map     `ebpf:"events"`
+	HTTP2          *ebpf.Map     `ebpf:"ongoing_http2_grpc"`
+	Ioctl          *ebpf.Program `ebpf:"obi_kprobe_sys_ioctl"`
+	Requests       *ebpf.Map     `ebpf:"java_http1_connections"`
+	Slots          *ebpf.Map     `ebpf:"java_http1_requests"`
+	Sequence       *ebpf.Map     `ebpf:"java_http1_sequence"`
+	Jumps          *ebpf.Map     `ebpf:"jump_table"`
+	HTTP           *ebpf.Map     `ebpf:"ongoing_http"`
+	HeaderScans    *ebpf.Map     `ebpf:"http1_header_scans"`
+	ThreadContexts *ebpf.Map     `ebpf:"traces_ctx_v1"`
+	ServerAux      *ebpf.Map     `ebpf:"server_traces_aux"`
+	Traces         *ebpf.Map     `ebpf:"trace_map"`
+	Outgoing       *ebpf.Map     `ebpf:"outgoing_trace_map"`
+	SSL            *ebpf.Map     `ebpf:"active_ssl_connections"`
 }
 
 func loadJavaHTTP1Reservations(t *testing.T, enabled bool) *javaHTTP1TestObjects {
 	t.Helper()
+	return loadJavaHTTP1ReservationsWithLoops(t, enabled, false)
+}
+
+func loadJavaHTTP1ReservationsWithLoops(t *testing.T, enabled, useBPFLoop bool) *javaHTTP1TestObjects {
+	t.Helper()
 	require.NoError(t, rlimit.RemoveMemlock())
 	spec, err := LoadBpf()
 	require.NoError(t, err)
+	ebpfcommon.FixupSpec(spec, false)
 	for _, m := range spec.Maps {
 		m.Pinning = ebpf.PinNone
 		if m.MaxEntries == 0 && m.Type == ebpf.RingBuf {
@@ -98,6 +107,8 @@ func loadJavaHTTP1Reservations(t *testing.T, enabled bool) *javaHTTP1TestObjects
 		"g_bpf_header_propagation":       true,
 		"g_bpf_probe_write_user_enabled": true,
 		"g_bpf_traceparent_enabled":      true,
+		"g_bpf_loop_enabled":             useBPFLoop,
+		"g_traces_ctx_v1_enabled":        useBPFLoop,
 		"capture_header_buffer":          int32(1),
 		"max_transaction_time":           uint64(time.Minute),
 	}))
@@ -115,6 +126,9 @@ func loadJavaHTTP1Reservations(t *testing.T, enabled bool) *javaHTTP1TestObjects
 		objs.Sequence.Close()
 		objs.Jumps.Close()
 		objs.HTTP.Close()
+		objs.HeaderScans.Close()
+		objs.ThreadContexts.Close()
+		objs.ServerAux.Close()
 		objs.Traces.Close()
 		objs.Outgoing.Close()
 		objs.SSL.Close()

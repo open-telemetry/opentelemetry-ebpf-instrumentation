@@ -71,7 +71,7 @@ func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpe
 
 		// On kernels < 5.17, replace obi_protocol_http (which uses bpf_loop)
 		// with obi_protocol_http_legacy, matching what the production loader does.
-		if spec.Programs["obi_protocol_http"] != nil {
+		if spec.Programs["obi_protocol_http"] != nil || spec.Programs["obi_packet_extender_find_existing_tp"] != nil {
 			ebpfcommon.FixupSpec(spec, false)
 		}
 		if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
@@ -292,6 +292,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// tpinjector
 	// inject_flags is a bitmask: bit 0 = HTTP headers, bit 1 = TCP options.
 	forEachCombination(t, "tpinjector/Bpf", tpinjectorbpf.LoadBpf, []constOption{
+		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
 		{"g_bpf_debug", []any{true, false}},
 		{"filter_pids", []any{int32(0), int32(1)}},
 		{"inject_flags", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},

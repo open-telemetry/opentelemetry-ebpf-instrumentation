@@ -51,6 +51,22 @@ func TestSocketFiltersAvoidCurrentPIDHelper(t *testing.T) {
 	}
 }
 
+func TestHTTP1LegacyProgramsAvoidBPFLoop(t *testing.T) {
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+	for _, name := range []string{
+		"obi_protocol_http_legacy", "obi_continue_protocol_http_legacy", "obi_handle_buf_with_args_legacy",
+	} {
+		program := spec.Programs[name]
+		require.NotNil(t, program)
+		for _, instruction := range program.Instructions {
+			if instruction.IsBuiltinCall() {
+				assert.NotEqual(t, asm.FnLoop, asm.BuiltinFunc(instruction.Constant), name)
+			}
+		}
+	}
+}
+
 func TestParseJVMMemoryPoolRecordDecoratesServiceByPIDNamespace(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
 	currentPIDsCalls := 0
