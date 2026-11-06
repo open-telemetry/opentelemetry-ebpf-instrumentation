@@ -1584,3 +1584,115 @@ func instrumenterFixtureELF(t *testing.T) *elf.File {
 	t.Cleanup(func() { require.NoError(t, f.Close()) })
 	return f
 }
+
+func TestInstrumentUSDTProbeDistinguishesAbsenceFromErrors(t *testing.T) {
+	probe := &ebpfcommon.USDTProbeDesc{
+		Provider:    "hotspot",
+		Name:        "mem__pool__gc__begin",
+		Program:     &ebpf.Program{},
+		SpecsMap:    &ebpf.Map{},
+		IPMap:       &ebpf.Map{},
+		SpecManager: &ebpfcommon.USDTSpecManager{},
+	}
+	malformedELF := &elf.File{Sections: []*elf.Section{{
+		SectionHeader: elf.SectionHeader{Name: ".note.stapsdt", Type: elf.SHT_PROGBITS},
+	}}}
+
+	for _, tc := range []struct {
+		name   string
+		file   *elf.File
+		probe  *ebpfcommon.USDTProbeDesc
+		absent bool
+	}{
+		{"absent", instrumenterFixtureELF(t), probe, true},
+		{"malformed notes", malformedELF, probe, false},
+		{"missing setup", nil, &ebpfcommon.USDTProbeDesc{}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			i := &instrumenter{}
+			closers, err := i.instrumentUSDTProbe(nil, "", tc.file, 0, 0, nil, "", tc.probe)
+			require.Error(t, err)
+			assert.Empty(t, closers)
+			assert.Equal(t, tc.absent, errors.Is(err, errUSDTProbeNotFound))
+		})
+	}
+}
+
+func TestUSDTFallbackAddressesResolvesEveryPresentSymbol(t *testing.T) {
+	values := expectedValues()
+	fallback := &ebpfcommon.USDTFallback{Probes: []ebpfcommon.USDTFallbackProbe{
+		{Symbols: []string{"setprogname", "missing_symbol", "fparseln"}},
+		{Symbols: []string{"missing_symbol", "strunvis"}},
+	}}
+
+	addresses, err := usdtFallbackAddresses(instrumenterFixtureELF(t), fallback)
+	require.NoError(t, err)
+
+	assert.Equal(t, [][]uint64{
+		{values["fparseln"].startOffset, values["setprogname"].startOffset},
+		{values["strunvis"].startOffset},
+	}, addresses)
+}
+
+func TestUSDTFallbackAddressesMatchesSymbolSuffix(t *testing.T) {
+	values := expectedValues()
+	fallback := &ebpfcommon.USDTFallback{Probes: []ebpfcommon.USDTFallbackProbe{
+		{Symbols: []string{"fparseln"}, SymbolSuffix: "proctitle_init"},
+		{Symbols: []string{"setprogname"}, SymbolSuffix: "setprogname"},
+	}}
+
+	addresses, err := usdtFallbackAddresses(instrumenterFixtureELF(t), fallback)
+	require.NoError(t, err)
+
+	assert.Equal(t, [][]uint64{
+		{values["fparseln"].startOffset, values["setproctitle_init"].startOffset},
+		{values["setprogname"].startOffset},
+	}, addresses)
+}
+
+func TestUSDTFallbackAddressesMatchesSymbolPrefix(t *testing.T) {
+	values := expectedValues()
+	fallback := &ebpfcommon.USDTFallback{Probes: []ebpfcommon.USDTFallbackProbe{
+		{SymbolPrefix: "setprog"},
+		{Symbols: []string{"fparseln"}, SymbolPrefix: "setproctitle_init"},
+	}}
+
+	addresses, err := usdtFallbackAddresses(instrumenterFixtureELF(t), fallback)
+	require.NoError(t, err)
+	assert.Equal(t, [][]uint64{
+		{values["setprogname"].startOffset},
+		{values["fparseln"].startOffset, values["setproctitle_init"].startOffset},
+	}, addresses)
+}
+
+func TestUSDTFallbackProbeMatchesGCSignatures(t *testing.T) {
+	for _, tc := range []struct {
+		prefix string
+		name   string
+		want   bool
+	}{
+		{"_ZN15GCMemoryManager8gc_beginE", "_ZN15GCMemoryManager8gc_beginEbbb", true},
+		{"_ZN15GCMemoryManager8gc_beginE", "_ZN15GCMemoryManager8gc_beginEbbbb", true},
+		{"_ZN15GCMemoryManager6gc_endE", "_ZN15GCMemoryManager6gc_endEbbbbN7GCCause5CauseEb", true},
+		{"_ZN15GCMemoryManager6gc_endE", "_ZN15GCMemoryManager6gc_endEbbbbN7GCCause5CauseEbPKc", true},
+		{"_ZN15GCMemoryManager6gc_endE", "_ZN15GCMemoryManager6gc_endEv", true},
+		{"_ZN15GCMemoryManager8gc_beginE", "_ZN15GCMemoryManager14gc_begin_extraEv", false},
+		{"_ZN15GCMemoryManager6gc_endE", "_ZN15GCMemoryManager12gc_end_extraEv", false},
+		{"_ZN15GCMemoryManager6gc_endE", "_ZN15GCMemoryManager8gc_beginEbbb", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			probe := ebpfcommon.USDTFallbackProbe{SymbolPrefix: tc.prefix}
+			assert.Equal(t, tc.want, usdtFallbackProbeMatches(probe, tc.name))
+		})
+	}
+}
+
+func TestUSDTFallbackAddressesFailsWhenAProbeResolvesNoSymbol(t *testing.T) {
+	fallback := &ebpfcommon.USDTFallback{Probes: []ebpfcommon.USDTFallbackProbe{
+		{Symbols: []string{"setprogname"}},
+		{Symbols: []string{"missing_symbol"}},
+	}}
+
+	_, err := usdtFallbackAddresses(instrumenterFixtureELF(t), fallback)
+	require.ErrorContains(t, err, "missing_symbol")
+}

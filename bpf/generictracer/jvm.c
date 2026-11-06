@@ -10,6 +10,7 @@
 #include <bpfcore/utils.h>
 
 #include <generictracer/jvm.h>
+#include <generictracer/maps/jvm_gc_calls.h>
 #include <common/event_defs.h>
 #include <common/preempt_guard.h>
 #include <common/ringbuf.h>
@@ -74,6 +75,35 @@ jvm_read_usdt_string(unsigned char *dst, const unsigned char *src, long src_len)
     return 0;
 }
 
+static __always_inline int jvm_submit_mem_pool_gc(struct jvm_mem_pool_key *key,
+                                                  u64 pid_tgid,
+                                                  const struct hotspot_memory_usage *usage) {
+    const u64 ts = bpf_ktime_get_ns();
+    if (!jvm_should_sample_mem_pool(key, ts)) {
+        return 0;
+    }
+
+    struct jvm_mem_pool_gc_event *e = events_ringbuf_reserve(sizeof(*e), 0);
+    if (!e) {
+        return 0;
+    }
+
+    bpf_memset(e, 0, sizeof(*e));
+    e->type = k_event_type_jvm_mem_pool_gc;
+    e->timestamp = ts;
+    jvm_fill_mem_pool_pid_fields(pid_tgid, e);
+    e->gc_when_type = key->gc_when_type;
+    e->init_size = usage->init_size;
+    e->used = usage->used;
+    e->committed = usage->committed;
+    e->max_size = usage->max_size;
+    bpf_memcpy(e->manager, key->manager, sizeof(e->manager));
+    bpf_memcpy(e->pool, key->pool, sizeof(e->pool));
+
+    bpf_ringbuf_submit(e, get_flags());
+    return 0;
+}
+
 static __always_inline int jvm_hotspot_mem_pool_gc(enum jvm_gc_when_type when,
                                                    u64 pid_tgid,
                                                    u32 pid,
@@ -81,10 +111,7 @@ static __always_inline int jvm_hotspot_mem_pool_gc(enum jvm_gc_when_type when,
                                                    long manager_len,
                                                    const unsigned char *pool,
                                                    long pool_len,
-                                                   u64 init_size,
-                                                   u64 used,
-                                                   u64 committed,
-                                                   u64 max_size) {
+                                                   const struct hotspot_memory_usage *usage) {
     if (when != k_jvm_before_gc && when != k_jvm_after_gc) {
         return 0;
     }
@@ -102,30 +129,7 @@ static __always_inline int jvm_hotspot_mem_pool_gc(enum jvm_gc_when_type when,
         return 0;
     }
 
-    const u64 ts = bpf_ktime_get_ns();
-    if (!jvm_should_sample_mem_pool(&key, ts)) {
-        return 0;
-    }
-
-    struct jvm_mem_pool_gc_event *e = events_ringbuf_reserve(sizeof(*e), 0);
-    if (!e) {
-        return 0;
-    }
-
-    bpf_memset(e, 0, sizeof(*e));
-    e->type = k_event_type_jvm_mem_pool_gc;
-    e->timestamp = ts;
-    jvm_fill_mem_pool_pid_fields(pid_tgid, e);
-    e->gc_when_type = when;
-    e->init_size = init_size;
-    e->used = used;
-    e->committed = committed;
-    e->max_size = max_size;
-    bpf_memcpy(e->manager, key.manager, sizeof(e->manager));
-    bpf_memcpy(e->pool, key.pool, sizeof(e->pool));
-
-    bpf_ringbuf_submit(e, get_flags());
-    return 0;
+    return jvm_submit_mem_pool_gc(&key, pid_tgid, usage);
 }
 
 static __always_inline int
@@ -176,6 +180,13 @@ int GUARDED_PROG(obi_usdt_hotspot_mem_pool_gc_begin, struct pt_regs *, ctx) {
         return 0;
     }
 
+    const struct hotspot_memory_usage usage = {
+        .init_size = (u64)init_size,
+        .used = (u64)used,
+        .committed = (u64)committed,
+        .max_size = (u64)max_size,
+    };
+
     return jvm_hotspot_mem_pool_gc(k_jvm_before_gc,
                                    pid_tgid,
                                    pid,
@@ -183,10 +194,7 @@ int GUARDED_PROG(obi_usdt_hotspot_mem_pool_gc_begin, struct pt_regs *, ctx) {
                                    manager_len,
                                    (const unsigned char *)pool,
                                    pool_len,
-                                   (u64)init_size,
-                                   (u64)used,
-                                   (u64)committed,
-                                   (u64)max_size);
+                                   &usage);
 }
 
 // https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/services/memoryManager.cpp#L263
@@ -222,6 +230,13 @@ int GUARDED_PROG(obi_usdt_hotspot_mem_pool_gc_end, struct pt_regs *, ctx) {
         return 0;
     }
 
+    const struct hotspot_memory_usage usage = {
+        .init_size = (u64)init_size,
+        .used = (u64)used,
+        .committed = (u64)committed,
+        .max_size = (u64)max_size,
+    };
+
     return jvm_hotspot_mem_pool_gc(k_jvm_after_gc,
                                    pid_tgid,
                                    pid,
@@ -229,8 +244,122 @@ int GUARDED_PROG(obi_usdt_hotspot_mem_pool_gc_end, struct pt_regs *, ctx) {
                                    manager_len,
                                    (const unsigned char *)pool,
                                    pool_len,
-                                   (u64)init_size,
-                                   (u64)used,
-                                   (u64)committed,
-                                   (u64)max_size);
+                                   &usage);
+}
+
+// The uprobes below stand in for the memory pool USDT probes on HotSpot builds
+// that ship without them. They read the same MemoryPool::get_memory_usage()
+// results the probes report, while GCMemoryManager::gc_begin or gc_end runs.
+static __always_inline int jvm_gc_phase_enter(enum jvm_gc_when_type when, u64 manager_id) {
+    if (!jvm_runtime_metrics_are_enabled()) {
+        return 0;
+    }
+
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    const u32 pid = valid_pid(pid_tgid);
+    if (!pid) {
+        return 0;
+    }
+
+    const struct jvm_gc_call call = {
+        .manager_id = manager_id,
+        .gc_when_type = when,
+        .pid = pid,
+    };
+    bpf_map_update_elem(&jvm_gc_calls, &pid_tgid, &call, BPF_ANY);
+    return 0;
+}
+
+static __always_inline int jvm_gc_phase_exit(void) {
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    bpf_map_delete_elem(&jvm_gc_calls, &pid_tgid);
+    return 0;
+}
+
+// https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/services/memoryManager.cpp#L212
+SEC("uprobe/hotspot_gc_begin")
+int GUARDED_PROG(obi_uprobe_hotspot_gc_begin, struct pt_regs *, ctx) {
+    return jvm_gc_phase_enter(k_jvm_before_gc, (u64)PT_REGS_PARM1(ctx));
+}
+
+SEC("uretprobe/hotspot_gc_begin")
+int GUARDED_PROG(obi_uretprobe_hotspot_gc_begin, struct pt_regs *, ctx) {
+    (void)ctx;
+    return jvm_gc_phase_exit();
+}
+
+// https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/services/memoryManager.cpp#L242
+SEC("uprobe/hotspot_gc_end")
+int GUARDED_PROG(obi_uprobe_hotspot_gc_end, struct pt_regs *, ctx) {
+    return jvm_gc_phase_enter(k_jvm_after_gc, (u64)PT_REGS_PARM1(ctx));
+}
+
+SEC("uretprobe/hotspot_gc_end")
+int GUARDED_PROG(obi_uretprobe_hotspot_gc_end, struct pt_regs *, ctx) {
+    (void)ctx;
+    return jvm_gc_phase_exit();
+}
+
+// MemoryPool::get_memory_usage() returns its MemoryUsage through a hidden
+// result pointer: x86-64 passes it in RDI ahead of `this`, arm64 passes it in X8.
+static __always_inline void
+jvm_memory_pool_usage_args(const struct pt_regs *ctx, u64 *pool, u64 *usage) {
+#ifdef __TARGET_ARCH_x86
+    *usage = (u64)PT_REGS_PARM1(ctx);
+    *pool = (u64)PT_REGS_PARM2(ctx);
+#elif defined(__TARGET_ARCH_arm64)
+    *pool = (u64)PT_REGS_PARM1(ctx);
+    *usage = ((PT_REGS_ARM64 *)ctx)->regs[8];
+#endif
+}
+
+// https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/services/memoryPool.hpp#L135
+SEC("uprobe/hotspot_memory_pool_usage")
+int GUARDED_PROG(obi_uprobe_hotspot_memory_pool_usage, struct pt_regs *, ctx) {
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    struct jvm_gc_call *call = bpf_map_lookup_elem(&jvm_gc_calls, &pid_tgid);
+    if (!call) {
+        return 0;
+    }
+
+    jvm_memory_pool_usage_args(ctx, &call->pool, &call->usage);
+    return 0;
+}
+
+SEC("uretprobe/hotspot_memory_pool_usage")
+int GUARDED_PROG(obi_uretprobe_hotspot_memory_pool_usage, struct pt_regs *, ctx) {
+    (void)ctx;
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    struct jvm_gc_call *call = bpf_map_lookup_elem(&jvm_gc_calls, &pid_tgid);
+    if (!call || !call->pool || !call->usage) {
+        return 0;
+    }
+
+    const struct hotspot_memory_pool *pool = (const struct hotspot_memory_pool *)call->pool;
+    const struct hotspot_memory_usage *usage_ptr = (const struct hotspot_memory_usage *)call->usage;
+    call->pool = 0;
+    call->usage = 0;
+
+    struct hotspot_memory_usage usage = {};
+    if (bpf_probe_read_user(&usage, sizeof(usage), usage_ptr) != 0) {
+        bpf_dbg_printk("jvm: failed to read HotSpot MemoryUsage at %llx", (u64)usage_ptr);
+        return 0;
+    }
+
+    u64 name = 0;
+    if (bpf_probe_read_user(&name, sizeof(name), &pool->name) != 0 || !name) {
+        return 0;
+    }
+
+    struct jvm_mem_pool_key key = {
+        .manager_id = call->manager_id,
+        .pid = call->pid,
+        .gc_when_type = call->gc_when_type,
+    };
+    if (bpf_probe_read_user_str(key.pool, sizeof(key.pool), (const void *)name) <= 0) {
+        bpf_dbg_printk("jvm: failed to read HotSpot MemoryPool name at %llx", name);
+        return 0;
+    }
+
+    return jvm_submit_mem_pool_gc(&key, pid_tgid, &usage);
 }

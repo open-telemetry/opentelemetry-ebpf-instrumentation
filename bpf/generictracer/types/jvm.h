@@ -81,7 +81,34 @@ _Static_assert(sizeof(struct jvm_gc_duration_event) -
                    k_jvm_gc_duration_payload_len,
                "JVM GC duration payload layout changed");
 
+// https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/services/memoryUsage.hpp#L49-L52
+struct hotspot_memory_usage {
+    u64 init_size;
+    u64 used;
+    u64 committed;
+    u64 max_size;
+};
+
+// Leading fields of MemoryPool, unchanged since JDK 8
+// https://github.com/openjdk/jdk/blob/jdk-21%2B35/src/hotspot/share/services/memoryPool.hpp#L60
+struct hotspot_memory_pool {
+    u64 vtable;
+    u64 name;
+};
+
+// Thread-local GC phase state while GCMemoryManager::gc_begin or gc_end runs.
+// pool and usage track the current MemoryPool::get_memory_usage() call.
+struct jvm_gc_call {
+    u64 manager_id;
+    u64 pool;
+    u64 usage;
+    u32 gc_when_type;
+    u32 pid;
+};
+
 struct jvm_mem_pool_key {
+    // Fallback uses the GCMemoryManager pointer; USDT uses the manager name below.
+    u64 manager_id;
     u32 pid;
     u32 gc_when_type;
     unsigned char manager[k_jvm_raw_string_len];
