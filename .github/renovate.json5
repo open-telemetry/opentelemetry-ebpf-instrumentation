@@ -222,6 +222,13 @@
       "enabled": false
     },
     {
+      "description": "Keep go.yaml.in/yaml on v3 until otelconf migrates UnmarshalYAML(*go.yaml.in/yaml/v3.Node) (otelconf v0.27.0)",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["go.yaml.in/yaml/v3"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
       "description": "Block golang Docker image minor and major upgrades (these require coordinated manual changes)",
       "matchDatasources": ["docker"],
       "matchPackageNames": [
