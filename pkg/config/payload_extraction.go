@@ -109,6 +109,8 @@ type GenAIConfig struct {
 	Cohere CohereConfig `yaml:"-" json:"-"`
 	// OpenAI-compatible gateway payload extraction and parsing
 	OpenAICompatible OpenAICompatibleConfig `yaml:"openai_compatible"`
+	// Jev (TypeSafe System One) payload extraction and parsing
+	Jev JevConfig `yaml:"jev"`
 }
 
 func (g *GenAIConfig) Enabled() bool {
@@ -116,7 +118,7 @@ func (g *GenAIConfig) Enabled() bool {
 		g.Gemini.Enabled || g.Qwen.Enabled || g.Bedrock.Enabled ||
 		g.MCP.Enabled || g.Ollama.Enabled || g.Cohere.Enabled ||
 		g.Embedding.Enabled || g.Rerank.Enabled || g.Retrieval.Enabled ||
-		g.OpenAICompatible.Enabled
+		g.OpenAICompatible.Enabled || g.Jev.Enabled
 }
 
 type OpenAIConfig struct {
@@ -189,6 +191,11 @@ type OpenAICompatibleGateway struct {
 	// Provider name reported in the gen_ai.provider.name span attribute. A name
 	// the attribute's enum has no member for is reported as `custom`.
 	Provider string `yaml:"provider"`
+}
+
+type JevConfig struct {
+	// Enable Jev (TypeSafe System One) payload extraction and parsing
+	Enabled bool `yaml:"enabled" env:"OTEL_EBPF_HTTP_JEV_ENABLED" validate:"boolean"`
 }
 
 type JSONRPCConfig struct {

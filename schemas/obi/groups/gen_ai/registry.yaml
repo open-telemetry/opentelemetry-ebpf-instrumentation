@@ -134,6 +134,10 @@ attributes:
           stability: development
           value: "openrouter"
           brief: '[OpenRouter](https://openrouter.ai/) OpenAI-compatible gateway'
+        - id: typesafe
+          stability: development
+          value: "typesafe"
+          brief: '[TypeSafe](https://typesafe.ai/) Jev decision evaluation API'
         - id: custom
           stability: development
           value: "custom"
