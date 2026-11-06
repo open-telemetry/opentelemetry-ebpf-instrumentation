@@ -27,6 +27,7 @@ func TestFixupSpec(t *testing.T) {
 	const origSendResetName = "real_send_reset"
 	const origReceiveResetName = "real_receive_reset"
 	const origRcvStateProcessName = "real_rcv_state_process"
+	const origDestroySockSegRstName = "real_destroy_sock_seg_rst"
 
 	makeSpec := func() *ebpf.CollectionSpec {
 		return &ebpf.CollectionSpec{
@@ -44,6 +45,7 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsRawTpTCPSendReset:                         {Name: origSendResetName, Type: ebpf.RawTracepoint},
 				progObiStatsRawTpTCPReceiveReset:                      {Name: origReceiveResetName, Type: ebpf.RawTracepoint},
 				progObiStatsKprobeTCPRcvStateProcess:                  {Name: origRcvStateProcessName, Type: ebpf.Kprobe},
+				progObiStatsRawTpTCPDestroySockSegRst:                 {Name: origDestroySockSegRstName, Type: ebpf.RawTracepoint},
 			},
 		}
 	}
@@ -70,6 +72,7 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsRawTpTCPSendReset:                         origSendResetName,
 				progObiStatsRawTpTCPReceiveReset:                      origReceiveResetName,
 				progObiStatsKprobeTCPRcvStateProcess:                  origRcvStateProcessName,
+				progObiStatsRawTpTCPDestroySockSegRst:                 origDestroySockSegRstName,
 			},
 		},
 		{
@@ -118,12 +121,13 @@ func TestFixupSpec(t *testing.T) {
 		},
 		{
 			name:      "disable resets only",
-			toDisable: []string{progObiStatsRawTpTCPSendReset, progObiStatsRawTpTCPReceiveReset, progObiStatsKprobeTCPRcvStateProcess},
+			toDisable: []string{progObiStatsRawTpTCPSendReset, progObiStatsRawTpTCPReceiveReset, progObiStatsKprobeTCPRcvStateProcess, progObiStatsRawTpTCPDestroySockSegRst},
 			want: map[string]string{
-				progObiStatsRawTpTCPSendReset:        "stats_dummy",
-				progObiStatsRawTpTCPReceiveReset:     "stats_dummy",
-				progObiStatsKprobeTCPRcvStateProcess: "stats_dummy",
-				progObiStatsRawTpTCPRetransmitSkb:    origRetransmitName,
+				progObiStatsRawTpTCPSendReset:         "stats_dummy",
+				progObiStatsRawTpTCPReceiveReset:      "stats_dummy",
+				progObiStatsKprobeTCPRcvStateProcess:  "stats_dummy",
+				progObiStatsRawTpTCPDestroySockSegRst: "stats_dummy",
+				progObiStatsRawTpTCPRetransmitSkb:     origRetransmitName,
 			},
 		},
 		{
@@ -162,6 +166,7 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsRawTpTCPSendReset,
 				progObiStatsRawTpTCPReceiveReset,
 				progObiStatsKprobeTCPRcvStateProcess,
+				progObiStatsRawTpTCPDestroySockSegRst,
 			},
 			want: map[string]string{
 				progObiStatsKprobeTCPCloseSrtt:                        "stats_dummy",
@@ -177,6 +182,7 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsRawTpTCPSendReset:                         "stats_dummy",
 				progObiStatsRawTpTCPReceiveReset:                      "stats_dummy",
 				progObiStatsKprobeTCPRcvStateProcess:                  "stats_dummy",
+				progObiStatsRawTpTCPDestroySockSegRst:                 "stats_dummy",
 			},
 		},
 	}
