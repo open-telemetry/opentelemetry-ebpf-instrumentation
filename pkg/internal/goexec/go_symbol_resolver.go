@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/hashicorp/golang-lru/v2/simplelru"
+
 	"go.opentelemetry.io/ebpf-profiler/libpf/pfelf"
 	"go.opentelemetry.io/ebpf-profiler/nativeunwind/elfunwindinfo"
 )
@@ -34,6 +36,7 @@ type GoSymbolResolver struct {
 	textOnce   sync.Once
 	textBase   uint64
 	textErr    error
+	valueTypes *simplelru.LRU[uint64, GoValueType]
 }
 
 // runtimeTextBase resolves the base used by Go method code offsets once per
@@ -172,6 +175,7 @@ func (r *GoSymbolResolver) Close() error {
 		err = closeErr
 	}
 	r.table = nil
+	r.valueTypes = nil
 	r.elf = nil
 	return err
 }
