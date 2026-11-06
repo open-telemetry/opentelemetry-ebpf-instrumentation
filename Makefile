@@ -133,7 +133,7 @@ fetch-upstream-semconv:
 .PHONY: fmt
 fmt:
 	@echo "### Formatting code and fixing imports"
-	go tool $(TOOLS_MODFILE) golangci-lint fmt
+	golangci-lint fmt
 
 .PHONY: clang-tidy
 clang-tidy:
@@ -155,7 +155,7 @@ docker-clang-tidy:
 # unless you clean the cache.
 .PHONY: lint-clean-cache
 lint-clean-cache:
-	go tool $(TOOLS_MODFILE) golangci-lint cache clean
+	golangci-lint cache clean
 
 .PHONY: lint
 lint: LINT_EXTRA_ARGS =
@@ -171,8 +171,8 @@ lint-fix-run: vanity-import-fix-check lint-dependency-policy lint-collectt-fix l
 .NOTPARALLEL: lint-fix-run
 lint-run lint-fix-run:
 	@echo "### Linting code"
-	go tool $(TOOLS_MODFILE) golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
-	cd collector && go tool -modfile=../internal/tools/go.mod golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
+	golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
+	cd collector && golangci-lint run ./... --timeout=6m $(LINT_EXTRA_ARGS)
 
 WEAVERIMAGE = $(shell awk '$$4=="weaver" {print $$2}' $(DEPENDENCIES_DOCKERFILE))
 .PHONY: lint-schema

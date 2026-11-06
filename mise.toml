@@ -6,3 +6,4 @@ config_roots = ["."]
 
 [tools]
 go = "1.27.3"
+golangci-lint = "2.14.0"
