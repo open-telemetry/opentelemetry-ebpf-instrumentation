@@ -395,8 +395,10 @@ static __always_inline void print_tp(const char *msg, const tp_info_t *tp) {
 // be injecting the Traceparent in. Another place which sets up this map is
 // the kprobe on tcp_sendmsg, however that happens after the sock_msg runs,
 // so we have a different detection for that - protocol_detector.
-static __always_inline tp_info_pid_t *get_tp_info_pid(const egress_key_t *e_key) {
-    return bpf_map_lookup_elem(&outgoing_trace_map, e_key);
+static __always_inline tp_info_pid_t *get_tp_info_pid(const egress_key_t *e_key, u32 pid) {
+    // Port pairs are shared across processes and network namespaces.
+    tp_info_pid_t *tp = bpf_map_lookup_elem(&outgoing_trace_map, e_key);
+    return tp && tp->pid == pid ? tp : NULL;
 }
 
 static __always_inline void set_tp_info_pid(const egress_key_t *e_key, const tp_info_pid_t *tp_p) {
@@ -1306,7 +1308,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     t_ctx->go_grpc_conn = false;
 
     // skip H2 here — it uses HPACK for per-stream traceparents
-    tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key);
+    tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key, t_ctx->p_conn.pid);
     if (tp_pid && !is_h2_socket(msg) &&
         handle_existing_tp_pid(msg, id, &t_ctx->p_conn, &e_key, tp_pid)) {
         return SK_PASS;
@@ -1721,7 +1723,7 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
             t_ctx->h2_tp_retries = 0;
             t_ctx->opener = facts.opener;
 
-            tp_info_pid_t *go_tp = get_tp_info_pid(&t_ctx->e_key);
+            tp_info_pid_t *go_tp = get_tp_info_pid(&t_ctx->e_key, t_ctx->p_conn.pid);
             if (go_tp && go_tp->valid && go_tp->written) {
                 h2_resume_after(msg, t_ctx, pos + k_h2_frame_header_len + f.payload_len);
                 return SK_PASS;
@@ -1987,7 +1989,7 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
     }
     bpf_memset(tp_p, 0, sizeof(*tp_p));
 
-    tp_info_pid_t *existing = get_tp_info_pid(&t_ctx->e_key);
+    tp_info_pid_t *existing = get_tp_info_pid(&t_ctx->e_key, t_ctx->p_conn.pid);
     const bool have_existing = existing && existing->valid && valid_trace(existing->tp.trace_id);
 
     h2_inject_facts_t facts = {0};
@@ -2014,7 +2016,7 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
             return SK_PASS;
         }
         if (bpf_map_update_elem(&outgoing_trace_map, &t_ctx->e_key, tp_p, BPF_NOEXIST) != 0) {
-            existing = get_tp_info_pid(&t_ctx->e_key);
+            existing = get_tp_info_pid(&t_ctx->e_key, t_ctx->p_conn.pid);
             if (existing) {
                 bpf_memcpy(tp_p, existing, sizeof(*tp_p));
             }

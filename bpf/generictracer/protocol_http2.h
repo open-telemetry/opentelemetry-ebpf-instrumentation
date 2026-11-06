@@ -96,7 +96,8 @@ static __always_inline u8 adopt_injected_trace(http2_conn_stream_t *s_key, tp_in
     sort_egress_key(&sorted_e);
     tp_info_pid_t *injected = bpf_map_lookup_elem(&outgoing_trace_map, &sorted_e);
     // written=1 means a uprobe wrote the entry (not a kprobe's random one).
-    if (injected && injected->valid && injected->written && valid_trace(injected->tp.trace_id)) {
+    if (injected && injected->pid == s_key->pid_conn.pid && injected->valid && injected->written &&
+        valid_trace(injected->tp.trace_id)) {
         bpf_memcpy(tp->trace_id, injected->tp.trace_id, TRACE_ID_SIZE_BYTES);
         bpf_memcpy(tp->span_id, injected->tp.span_id, SPAN_ID_SIZE_BYTES);
         bpf_memcpy(tp->parent_id, injected->tp.parent_id, SPAN_ID_SIZE_BYTES);

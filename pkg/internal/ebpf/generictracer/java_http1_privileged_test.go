@@ -57,19 +57,23 @@ const (
 )
 
 type javaHTTP1TestObjects struct {
-	ServerIndex *ebpf.Map     `ebpf:"http_server_trace_index"`
-	Servers     *ebpf.Map     `ebpf:"server_traces"`
-	HTTP2       *ebpf.Map     `ebpf:"ongoing_http2_grpc"`
-	HTTP2Conns  *ebpf.Map     `ebpf:"ongoing_http2_connections"`
-	Ioctl       *ebpf.Program `ebpf:"obi_kprobe_sys_ioctl"`
-	Requests    *ebpf.Map     `ebpf:"java_http1_connections"`
-	Slots       *ebpf.Map     `ebpf:"java_http1_requests"`
-	Sequence    *ebpf.Map     `ebpf:"java_http1_sequence"`
-	Jumps       *ebpf.Map     `ebpf:"jump_table"`
-	HTTP        *ebpf.Map     `ebpf:"ongoing_http"`
-	Traces      *ebpf.Map     `ebpf:"trace_map"`
-	Outgoing    *ebpf.Map     `ebpf:"outgoing_trace_map"`
-	SSL         *ebpf.Map     `ebpf:"active_ssl_connections"`
+	ServerIndex  *ebpf.Map     `ebpf:"http_server_trace_index"`
+	Servers      *ebpf.Map     `ebpf:"server_traces"`
+	HTTP2        *ebpf.Map     `ebpf:"ongoing_http2_grpc"`
+	HTTP2Conns   *ebpf.Map     `ebpf:"ongoing_http2_connections"`
+	Ioctl        *ebpf.Program `ebpf:"obi_kprobe_sys_ioctl"`
+	Requests     *ebpf.Map     `ebpf:"java_http1_connections"`
+	Slots        *ebpf.Map     `ebpf:"java_http1_requests"`
+	Sequence     *ebpf.Map     `ebpf:"java_http1_sequence"`
+	Jumps        *ebpf.Map     `ebpf:"jump_table"`
+	HTTP         *ebpf.Map     `ebpf:"ongoing_http"`
+	Traces       *ebpf.Map     `ebpf:"trace_map"`
+	Outgoing     *ebpf.Map     `ebpf:"outgoing_trace_map"`
+	SSL          *ebpf.Map     `ebpf:"active_ssl_connections"`
+	SysConnect   *ebpf.Program `ebpf:"obi_kprobe_sys_connect"`
+	Connect      *ebpf.Program `ebpf:"obi_kprobe_tcp_connect"`
+	ConnectError *ebpf.Program `ebpf:"obi_kprobe_sock_def_error_report"`
+	Events       *ebpf.Map     `ebpf:"events"`
 }
 
 func loadJavaHTTP1Reservations(t *testing.T, enabled bool) *javaHTTP1TestObjects {
@@ -107,6 +111,10 @@ func loadJavaHTTP1Reservations(t *testing.T, enabled bool) *javaHTTP1TestObjects
 		objs.Servers.Close()
 		objs.HTTP2.Close()
 		objs.HTTP2Conns.Close()
+		objs.SysConnect.Close()
+		objs.Connect.Close()
+		objs.ConnectError.Close()
+		objs.Events.Close()
 		objs.Ioctl.Close()
 		objs.Requests.Close()
 		objs.Slots.Close()
