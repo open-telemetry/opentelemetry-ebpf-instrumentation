@@ -1213,7 +1213,7 @@
     },
     "HttpQueryParameters": {
       "type": ["object", "null"],
-      "description": "Redaction of query-parameter values in HTTP span URL attributes, before export or Collector-consumer handoff.",
+      "description": "Controls how OBI handles HTTP query parameters in telemetry.",
       "additionalProperties": false,
       "properties": {
         "redaction": {
