@@ -43,6 +43,8 @@ func TestQueryParameterRedactionMigration(t *testing.T) {
 					require.NotContains(t, string(output), "enrich:")
 				}
 				require.NoError(t, err)
+				require.NotNil(t, ext.Capture.Instrumentation.HTTP.QueryParameters.Redaction.Names)
+				require.Nil(t, ext.Capture.Instrumentation.HTTP.QueryParameters.Redaction.Replacement)
 				after, err := convert.V2ToRuntime(ext)
 				require.NoError(t, err)
 				require.Equal(t, before.Attributes.SensitiveQueryParams.Effective(), after.Attributes.SensitiveQueryParams.Effective())

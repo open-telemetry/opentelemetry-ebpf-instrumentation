@@ -40,9 +40,15 @@ func TestStandaloneHTTPQueryParameterRedactionExport(t *testing.T) {
 	}{
 		{name: "defaults", http: "{}", want: strings.Replace(query, "default-secret", "REDACTED", 1)},
 		{name: "null", http: "{query_parameters: {redaction: null}}", want: strings.Replace(query, "default-secret", "REDACTED", 1)},
-		{name: "replacement", http: "{query_parameters: {redaction: [customer_secret]}}", want: customQuery},
-		{name: "empty", http: "{query_parameters: {redaction: []}}", want: query},
-		{name: "excluded query", http: "{query_parameters: {redaction: [customer_secret]}}", want: customQuery, excludeQuery: true},
+		{name: "replacement", http: "{query_parameters: {redaction: {names: [customer_secret]}}}", want: customQuery},
+		{name: "empty", http: "{query_parameters: {redaction: {names: []}}}", want: query},
+		{name: "empty policy", http: "{query_parameters: {redaction: {}}}", want: strings.Replace(query, "default-secret", "REDACTED", 1)},
+		{name: "replacement only", http: "{query_parameters: {redaction: {replacement: hidden}}}", want: strings.Replace(query, "default-secret", "hidden", 1)},
+		{name: "custom replacement", http: "{query_parameters: {redaction: {names: [customer_secret], replacement: '[hidden] &='}}}", want: "token=default-secret&customer_secret=%5Bhidden%5D+%26%3D&customer_secr%65t=%5Bhidden%5D+%26%3D&customer_secret=%5Bhidden%5D+%26%3D&Customer_secret=case&page=2"},
+		{name: "empty replacement", http: "{query_parameters: {redaction: {names: [customer_secret], replacement: ''}}}", want: "token=default-secret&customer_secret=&customer_secr%65t=&customer_secret=&Customer_secret=case&page=2"},
+		{name: "null replacement", http: "{query_parameters: {redaction: {names: [token], replacement: null}}}", want: strings.Replace(query, "default-secret", "REDACTED", 1)},
+		{name: "disabled custom policy", http: "{query_parameters: {redaction: {names: [], replacement: hidden}}}", want: query},
+		{name: "excluded query", http: "{query_parameters: {redaction: {names: [customer_secret]}}}", want: customQuery, excludeQuery: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			exported := make(chan ptrace.Traces, 1)
@@ -91,8 +97,9 @@ func TestStandaloneHTTPQueryParameterRedactionExport(t *testing.T) {
 				&global.ContextInfo{Metrics: imetrics.NoopReporter{}},
 				cfg.Traces, false,
 				&attributes.SelectorConfig{
-					SelectionCfg:            cfg.Attributes.Select,
-					SensitiveQueryParamsCfg: cfg.Attributes.SensitiveQueryParams,
+					SelectionCfg:                    cfg.Attributes.Select,
+					SensitiveQueryParamsCfg:         cfg.Attributes.SensitiveQueryParams,
+					SensitiveQueryParamsReplacement: cfg.Attributes.SensitiveQueryParamsReplacement,
 				}, queue,
 			)(ctx)
 			require.NoError(t, err)
