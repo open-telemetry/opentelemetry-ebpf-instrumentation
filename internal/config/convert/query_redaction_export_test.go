@@ -97,9 +97,8 @@ func TestStandaloneHTTPQueryParameterRedactionExport(t *testing.T) {
 				&global.ContextInfo{Metrics: imetrics.NoopReporter{}},
 				cfg.Traces, false,
 				&attributes.SelectorConfig{
-					SelectionCfg:                    cfg.Attributes.Select,
-					SensitiveQueryParamsCfg:         cfg.Attributes.SensitiveQueryParams,
-					SensitiveQueryParamsReplacement: cfg.Attributes.SensitiveQueryParamsReplacement,
+					SelectionCfg:            cfg.Attributes.Select,
+					SensitiveQueryParamsCfg: cfg.Attributes.SensitiveQueryParams,
 				}, queue,
 			)(ctx)
 			require.NoError(t, err)

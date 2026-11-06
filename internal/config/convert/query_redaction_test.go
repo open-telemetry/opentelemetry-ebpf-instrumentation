@@ -50,7 +50,7 @@ func TestHTTPQueryParameterRedactionConversion(t *testing.T) {
 				cfg, err := V2ToRuntime(ext)
 				require.NoError(t, err)
 				require.Equal(t, want, cfg.Attributes.SensitiveQueryParams.Effective())
-				require.Equal(t, test.replacement, cfg.Attributes.SensitiveQueryParamsReplacement)
+				require.Equal(t, test.replacement, cfg.Attributes.SensitiveQueryParams.Replacement)
 				_, exported := RuntimeToV2(cfg)
 				data, err := yaml.Marshal(exported)
 				require.NoError(t, err)
@@ -59,7 +59,7 @@ func TestHTTPQueryParameterRedactionConversion(t *testing.T) {
 				got, err := V2ToRuntime(&roundTrip)
 				require.NoError(t, err)
 				require.Equal(t, want, got.Attributes.SensitiveQueryParams.Effective())
-				require.Equal(t, test.replacement, got.Attributes.SensitiveQueryParamsReplacement)
+				require.Equal(t, test.replacement, got.Attributes.SensitiveQueryParams.Replacement)
 			}
 		})
 	}
@@ -79,7 +79,7 @@ func TestHTTPQueryParameterRedactionLegacyRoundTrip(t *testing.T) {
 	got, err := V2ToRuntime(ext)
 	require.NoError(t, err)
 	require.Equal(t, want, got.Attributes.SensitiveQueryParams.Effective())
-	require.Nil(t, got.Attributes.SensitiveQueryParamsReplacement)
+	require.Nil(t, got.Attributes.SensitiveQueryParams.Replacement)
 	require.Contains(t, got.Attributes.SensitiveQueryParams.Effective(), "token")
 	require.NotContains(t, got.Attributes.SensitiveQueryParams.Effective(), "session")
 }
