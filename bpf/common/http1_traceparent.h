@@ -52,7 +52,7 @@ SCRATCH_MEM_SIZED(http1_header_buf, k_http1_read_chunk_bytes);
 
 const char TP_LOWER[] = "traceparent: ";
 const char TP_HEADER[] = "traceparent";
-const u32 TP_SIZE = sizeof(TP_LOWER) - 1;
+const u32 TP_LOWER_SIZE = sizeof(TP_LOWER) - 1;
 
 /**
 The functions below implement a byte scanning state machine, to handle
@@ -68,7 +68,7 @@ static __always_inline void http1_scan_value(http1_header_scan_t *scan, unsigned
         return;
     }
 
-    scan->header[TP_SIZE - 1 + pos] = c;
+    scan->header[TP_LOWER_SIZE - 1 + pos] = c;
 
     if (pos == k_tp_val_dash1 || pos == k_tp_val_dash2 || pos == k_tp_val_dash3) {
         scan->valid &= c == '-';
@@ -86,7 +86,7 @@ static __always_inline void http1_scan_value(http1_header_scan_t *scan, unsigned
 
     scan->value_length++;
     if (scan->value_length == k_hpack_value_len_tp) {
-        const unsigned char *value = scan->header + TP_SIZE;
+        const unsigned char *value = scan->header + TP_LOWER_SIZE;
         scan->valid &= !((value[0] | k_ascii_lowercase_bit) == 'f' &&
                          (value[1] | k_ascii_lowercase_bit) == 'f');
         scan->valid &= scan->trace_nonzero && scan->span_nonzero;
@@ -120,7 +120,7 @@ static __always_inline void http1_scan_header_byte(http1_header_scan_t *scan, un
     scan->line_length++;
     if (scan->phase == k_http1_header_name) {
         const u32 pos = scan->name_length;
-        if (pos < TP_SIZE) {
+        if (pos < TP_LOWER_SIZE) {
             if ((c | k_ascii_lowercase_bit) != (unsigned char)TP_HEADER[pos]) {
                 scan->phase = k_http1_skip_header;
                 return;
@@ -131,7 +131,7 @@ static __always_inline void http1_scan_header_byte(http1_header_scan_t *scan, un
             scan->present = true;
             scan->valid = true;
             scan->phase = k_http1_header_space;
-            __builtin_memcpy(scan->header, TP_LOWER, TP_SIZE);
+            __builtin_memcpy(scan->header, TP_LOWER, TP_LOWER_SIZE);
         } else {
             scan->phase = k_http1_skip_header;
         }
