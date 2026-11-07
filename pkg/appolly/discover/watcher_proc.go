@@ -55,6 +55,7 @@ const (
 	EventInstanceDeleted
 	// EventExecutableReplaced retires instrumentation while retaining the process's selection.
 	EventExecutableReplaced
+	EventUpdated
 )
 
 type Event[T any] struct {

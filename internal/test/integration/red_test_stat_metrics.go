@@ -45,6 +45,21 @@ func testStatMetricsTCPRttGo(t *testing.T) {
 	}
 }
 
+// Both sides shut the connection down before close(), so the sockets reach TCP_CLOSE
+// while the application still holds them. RTT must still carry the handshake role.
+func testStatMetricsTCPRttRoleAfterShutdownGo(t *testing.T) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		clientResults, err := pq.Query(`obi_stat_tcp_rtt_seconds_count{dst_port="8083",network_tcp_handshake_role="client"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, clientResults)
+
+		serverResults, err := pq.Query(`obi_stat_tcp_rtt_seconds_count{src_port="8083",network_tcp_handshake_role="server"}`)
+		require.NoError(ct, err)
+		enoughPromResults(ct, serverResults)
+	}, testTimeout, 100*time.Millisecond)
+}
+
 func testStatMetricsTCPFailedConnectionsGo(t *testing.T) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {

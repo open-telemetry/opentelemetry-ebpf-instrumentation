@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"testing"
 
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
@@ -107,5 +108,24 @@ func TestFileInfoKeepsProcessStartTime(t *testing.T) {
 	info := New(Init{StartTime: 42})
 	if info.StartTime() != 42 {
 		t.Fatalf("StartTime() = %d, want 42", info.StartTime())
+	}
+}
+
+func TestSetSampler(t *testing.T) {
+	info := New(Init{})
+	info.SetSampler(&services.SamplerConfig{Name: services.SamplerAlwaysOff})
+	snap := info.ServiceAttrs()
+	if snap.SamplerConfig == nil || snap.SamplerConfig.Name != services.SamplerAlwaysOff {
+		t.Fatalf("SamplerConfig = %v, want always_off", snap.SamplerConfig)
+	}
+	if snap.Sampler == nil || snap.Sampler.Description() != "AlwaysOffSampler" {
+		t.Fatalf("Sampler = %v, want AlwaysOffSampler", snap.Sampler)
+	}
+
+	// Without a sampler of its own, the service follows the global one.
+	info.SetSampler(nil)
+	snap = info.ServiceAttrs()
+	if snap.SamplerConfig != nil || snap.Sampler != nil {
+		t.Fatalf("SetSampler(nil) kept SamplerConfig = %v, Sampler = %v", snap.SamplerConfig, snap.Sampler)
 	}
 }

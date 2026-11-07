@@ -15,6 +15,7 @@
 #include <common/h2_defs.h>
 #include <common/http_buf_size.h>
 #include <common/http_types.h>
+#include <common/http_trace_parent.h>
 #include <common/lw_thread.h>
 #include <common/msg_buffer.h>
 #include <common/protocol_http_helpers.h>
@@ -394,8 +395,10 @@ static __always_inline void print_tp(const char *msg, const tp_info_t *tp) {
 // be injecting the Traceparent in. Another place which sets up this map is
 // the kprobe on tcp_sendmsg, however that happens after the sock_msg runs,
 // so we have a different detection for that - protocol_detector.
-static __always_inline tp_info_pid_t *get_tp_info_pid(const egress_key_t *e_key) {
-    return bpf_map_lookup_elem(&outgoing_trace_map, e_key);
+static __always_inline tp_info_pid_t *get_tp_info_pid(const egress_key_t *e_key, u32 pid) {
+    // Port pairs are shared across processes and network namespaces.
+    tp_info_pid_t *tp = bpf_map_lookup_elem(&outgoing_trace_map, e_key);
+    return tp && tp->pid == pid ? tp : NULL;
 }
 
 static __always_inline void set_tp_info_pid(const egress_key_t *e_key, const tp_info_pid_t *tp_p) {
@@ -495,22 +498,18 @@ static __always_inline connection_info_t sk_msg_extract_key_ip6(struct sk_msg_md
     return conn;
 }
 
-static __always_inline void init_tp_ctx_parent_tp(tailcall_ctx *t_ctx) {
+static __always_inline void init_tp_ctx_parent_tp(tailcall_ctx *t_ctx, const tp_info_t *wire) {
     t_ctx->parent_tp.ts = bpf_ktime_get_ns();
     t_ctx->parent_tp.flags = 1;
 
     t_ctx->has_parent_tp = find_parent_trace_for_client_request(
-        &t_ctx->p_conn, t_ctx->p_conn.conn.d_port, k_lw_thread_none, &t_ctx->parent_tp);
+        &t_ctx->p_conn, t_ctx->p_conn.conn.d_port, k_lw_thread_none, &t_ctx->parent_tp, wire);
 }
 
 static __always_inline bool create_trace_info(const tailcall_ctx *t_ctx, tp_info_pid_t *tp_p) {
-    // t_ctx->parent_tp was initialised earlier in init_tp_ctx_parent_tp - if
-    // t_ctx->has_parent_tp is true, then it actually contains a valid tp_info
-    // with the corrent trace_id and parent_id - all we need to do is generate
-    // a new span_id
-    // this logic is cumbersome, but it is done so to avoid calling
-    // find_trace_for_client_request multiple times (i.e. once here, and once
-    // earlier in  k_tail_find_existing_tp - sorry!
+    // callers run init_tp_ctx_parent_tp first - if t_ctx->has_parent_tp is
+    // true, then t_ctx->parent_tp contains a valid tp_info with the correct
+    // trace_id and parent_id - all we need to do is generate a new span_id
     urand_bytes(tp_p->tp.span_id, sizeof(tp_p->tp.span_id));
     tp_p->tp.flags = 1;
     tp_p->valid = 1;
@@ -1309,7 +1308,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     t_ctx->go_grpc_conn = false;
 
     // skip H2 here — it uses HPACK for per-stream traceparents
-    tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key);
+    tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key, t_ctx->p_conn.pid);
     if (tp_pid && !is_h2_socket(msg) &&
         handle_existing_tp_pid(msg, id, &t_ctx->p_conn, &e_key, tp_pid)) {
         return SK_PASS;
@@ -1349,7 +1348,6 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     const bool is_http = protocol_detector(msg, id, &conn);
     if (is_http) {
         bpf_dbg_printk("len=%d, s_port=%d", msg->size, msg->local_port);
-        init_tp_ctx_parent_tp(t_ctx);
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
         return SK_PASS;
     }
@@ -1520,10 +1518,11 @@ int obi_packet_extender_parse_existing_tp(struct sk_msg_md *msg) {
     // if we got to this point, we managed to parse a valid
     // 'Traceparent: ...' header that we can utilise
 
+    tp_p->tp.ts = bpf_ktime_get_ns();
+    init_tp_ctx_parent_tp(t_ctx, &tp_p->tp);
     bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
     assign_parent_tp(t_ctx, &tp_p->tp, span_id);
 
-    tp_p->tp.ts = bpf_ktime_get_ns();
     tp_p->valid = 1;
     tp_p->written = 1;
     tp_p->pid = t_ctx->p_conn.pid;
@@ -1555,6 +1554,7 @@ int obi_packet_extender_create_tp(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
+    init_tp_ctx_parent_tp(t_ctx, NULL);
     if (!create_trace_info(t_ctx, tp_p)) {
         return SK_PASS;
     }
@@ -1723,7 +1723,7 @@ int obi_packet_extender_detect_h2(struct sk_msg_md *msg) {
             t_ctx->h2_tp_retries = 0;
             t_ctx->opener = facts.opener;
 
-            tp_info_pid_t *go_tp = get_tp_info_pid(&t_ctx->e_key);
+            tp_info_pid_t *go_tp = get_tp_info_pid(&t_ctx->e_key, t_ctx->p_conn.pid);
             if (go_tp && go_tp->valid && go_tp->written) {
                 h2_resume_after(msg, t_ctx, pos + k_h2_frame_header_len + f.payload_len);
                 return SK_PASS;
@@ -1934,7 +1934,7 @@ int obi_packet_extender_validate_h2_tp(struct sk_msg_md *msg) {
     }
 
     if (off) {
-        init_tp_ctx_parent_tp(t_ctx);
+        init_tp_ctx_parent_tp(t_ctx, NULL);
         bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
         const u32 span_id_offset = hpack_start + target + off;
         if (apply_parent_tp(t_ctx, &tp_p->tp)) {
@@ -1989,7 +1989,7 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
     }
     bpf_memset(tp_p, 0, sizeof(*tp_p));
 
-    tp_info_pid_t *existing = get_tp_info_pid(&t_ctx->e_key);
+    tp_info_pid_t *existing = get_tp_info_pid(&t_ctx->e_key, t_ctx->p_conn.pid);
     const bool have_existing = existing && existing->valid && valid_trace(existing->tp.trace_id);
 
     h2_inject_facts_t facts = {0};
@@ -2011,12 +2011,12 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
     if (have_existing) {
         bpf_memcpy(tp_p, existing, sizeof(*tp_p));
     } else {
-        init_tp_ctx_parent_tp(t_ctx);
+        init_tp_ctx_parent_tp(t_ctx, NULL);
         if (!create_trace_info(t_ctx, tp_p)) {
             return SK_PASS;
         }
         if (bpf_map_update_elem(&outgoing_trace_map, &t_ctx->e_key, tp_p, BPF_NOEXIST) != 0) {
-            existing = get_tp_info_pid(&t_ctx->e_key);
+            existing = get_tp_info_pid(&t_ctx->e_key, t_ctx->p_conn.pid);
             if (existing) {
                 bpf_memcpy(tp_p, existing, sizeof(*tp_p));
             }

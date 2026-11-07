@@ -13,6 +13,7 @@
 #include <logger/bpf_dbg.h>
 
 #include <statsolly/failed_conn_port.h>
+#include <statsolly/handshake_role.h>
 #include <statsolly/types.h>
 #include <statsolly/maps/stats_events.h>
 #include <statsolly/maps/sock_role.h>
@@ -87,16 +88,8 @@ const tcp_retransmit_t *unused_tcp_retransmit_t __attribute__((unused));
 const tcp_successful_connection_t *unused_tcp_successful_connection __attribute__((unused));
 const tcp_reset_t *unused_tcp_reset __attribute__((unused));
 
-// obi_stats_tp_inet_sock_set_state_conn_role is the sole owner of the sock_role map.
-// It writes the role (client/server) when a connection is established and
-// it also handles all cleanup: any transition to TCP_CLOSE removes the entry,
-// covering both normal graceful closes and abnormal ones.
-//
-// Attachment order invariant: this program must be attached AFTER
-// obi_stats_tp_inet_sock_set_state_tcp_failed_connection (or any future tp probes that need the role)
-// on the same tracepoint. BPF programs on a tracepoint run FIFO, so the probe(s) read sock_role first,
-// then this program deletes it. Reversing the order would cause tcp_failed_conn or any other probes
-// to see a stale NULL on the same TCP_CLOSE event.
+// obi_stats_tp_inet_sock_set_state_conn_role writes the role (client/server) when a connection
+// is established. obi_stats_tp_tcp_destroy_sock removes it.
 SEC("tracepoint/sock/inet_sock_set_state")
 int obi_stats_tp_inet_sock_set_state_conn_role(struct trace_event_raw_inet_sock_set_state *args) {
     if (args->protocol != IPPROTO_TCP) {
@@ -112,11 +105,14 @@ int obi_stats_tp_inet_sock_set_state_conn_role(struct trace_event_raw_inet_sock_
         }
     }
 
-    if (args->newstate == TCP_CLOSE) {
-        bpf_map_delete_elem(&sock_role, &sk);
-        return 0;
-    }
+    return 0;
+}
 
+// close() can come before or after TCP_CLOSE, or never (accept-queue children)
+SEC("tracepoint/tcp/tcp_destroy_sock")
+int obi_stats_tp_tcp_destroy_sock(struct trace_event_raw_tcp_event_sk *args) {
+    struct sock *const sk = (struct sock *)args->skaddr;
+    bpf_map_delete_elem(&sock_role, &sk);
     return 0;
 }
 
@@ -166,15 +162,7 @@ int obi_stats_tp_inet_sock_set_state_tcp_failed_connection(
     se->conn = conn;
 
     const u8 *role_ptr = bpf_map_lookup_elem(&sock_role, &sk);
-    if (role_ptr) {
-        se->role = *role_ptr;
-    } else if (args->oldstate == TCP_SYN_SENT) {
-        se->role = role_client;
-    } else if (args->oldstate == TCP_SYN_RECV) {
-        se->role = role_server;
-    } else {
-        se->role = role_unknown;
-    }
+    se->role = failed_connection_role(args->oldstate, role_ptr ? *role_ptr : role_unknown);
 
     bpf_ringbuf_submit(se, stats_events_flags());
 

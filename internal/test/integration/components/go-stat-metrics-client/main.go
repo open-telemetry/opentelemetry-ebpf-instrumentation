@@ -6,6 +6,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"time"
@@ -70,6 +71,29 @@ func main() {
 				} else {
 					conn.Close()
 				}
+				time.Sleep(1 * time.Second)
+			}
+		}()
+	}
+
+	// Shut connections down from both sides before closing them, so the sockets reach TCP_CLOSE
+	// while the application still holds them
+	shutdownAddress := os.Getenv("SHUTDOWN_TARGET_ADDRESS")
+	if shutdownAddress != "" {
+		go func() {
+			for {
+				conn, err := net.DialTimeout("tcp", shutdownAddress, 2*time.Second)
+				if err != nil {
+					time.Sleep(1 * time.Second)
+					continue
+				}
+				fmt.Fprintf(conn, "shutdown probe\n")
+				// the reply, then the server's FIN
+				io.Copy(io.Discard, conn)
+				conn.(*net.TCPConn).CloseWrite()
+				// lets the server's ACK of our FIN arrive before close()
+				time.Sleep(1 * time.Second)
+				conn.Close()
 				time.Sleep(1 * time.Second)
 			}
 		}()
