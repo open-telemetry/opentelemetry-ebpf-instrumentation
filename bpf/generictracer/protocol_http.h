@@ -707,11 +707,20 @@ update_http1_request_context(call_protocol_args_t *args, http_info_t *info, unsi
     http_rekey_request_large_buffer(info, args->direction, previous_trace_id);
 }
 
+// A kprobe copies at most k_iovec_max_len bytes of a read or write into u_buf:
+// past that, the headers are read from the user buffer itself.
+static __always_inline void read_http1_request_headers(http1_header_scan_t *scan,
+                                                       const call_protocol_args_t *args) {
+    const bool truncated = args->user_buf != 0;
+    const unsigned char *src = (const unsigned char *)(truncated ? args->user_buf : args->u_buf);
+    const u32 len = truncated ? args->user_len : (u32)args->bytes_len;
+    http1_read_headers(scan, src, len, k_http1_memory_any);
+}
+
 static __always_inline void continue_http1_header_scan(call_protocol_args_t *args,
                                                        http_info_t *info,
                                                        http1_header_scan_t *scan) {
-    http1_read_headers(
-        scan, (const unsigned char *)args->u_buf, args->bytes_len, k_http1_memory_any);
+    read_http1_request_headers(scan, args);
     if (scan->phase != k_http1_headers_done) {
         return;
     }
@@ -732,8 +741,7 @@ static __always_inline unsigned char *start_http1_header_scan(const call_protoco
     }
 
     __builtin_memset(scan, 0, sizeof(*scan));
-    http1_read_headers(
-        scan, (const unsigned char *)args->u_buf, args->bytes_len, k_http1_memory_any);
+    read_http1_request_headers(scan, args);
 
     if (scan->phase != k_http1_headers_done) {
         bpf_map_update_elem(&http1_header_scans, &args->pid_conn, scan, BPF_ANY);

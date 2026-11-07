@@ -58,6 +58,28 @@ static __always_inline void get_iovec_ctx(iovec_iter_ctx *ctx, struct iov_iter__
     ctx->nr_segs = BPF_CORE_READ(iov_iter, nr_segs);
 }
 
+// The user buffer behind an iovec of a single segment, which read_iovec_ctx
+// copies only up to k_iovec_max_len bytes of. NULL for any other iovec.
+static __always_inline const void *iovec_user_buf(const iovec_iter_ctx *ctx) {
+    if (bpf_core_enum_value_exists(enum iter_type___dummy, ITER_UBUF)) {
+        const int iter_ubuf = bpf_core_enum_value(enum iter_type___dummy, ITER_UBUF);
+        if (ctx->ubuf != NULL && ctx->iter_type == iter_ubuf) {
+            return ctx->ubuf;
+        }
+    }
+
+    const int iter_iovec = bpf_core_enum_value(enum iter_type, ITER_IOVEC);
+    if (ctx->iter_type != iter_iovec || ctx->nr_segs != 1 || !ctx->iov) {
+        return NULL;
+    }
+
+    struct iovec vec;
+    if (bpf_probe_read_kernel(&vec, sizeof(vec), ctx->iov) != 0) {
+        return NULL;
+    }
+    return vec.iov_base;
+}
+
 static __always_inline int read_iovec_ctx(iovec_iter_ctx *ctx, unsigned char *buf, size_t max_len) {
     if (max_len == 0) {
         return 0;
