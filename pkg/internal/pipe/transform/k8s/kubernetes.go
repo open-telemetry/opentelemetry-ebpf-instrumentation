@@ -204,7 +204,7 @@ func newDecorator(ctx context.Context, cfg *transform.KubernetesDecorator, provi
 	}
 	nt := decorator{
 		log:         log(),
-		clusterName: transform.KubeClusterName(ctx, cfg, provider),
+		clusterName: transform.KubeClusterNameWithMetadataProvider(ctx, cfg, provider),
 		store:       store,
 	}
 	if nt.log.Enabled(ctx, slog.LevelDebug) {

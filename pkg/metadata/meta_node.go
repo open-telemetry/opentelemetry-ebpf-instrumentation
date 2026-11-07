@@ -18,6 +18,7 @@ import (
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
+	"go.opentelemetry.io/obi/pkg/kube"
 )
 
 func nslog() *slog.Logger {
@@ -111,6 +112,19 @@ type Entry struct {
 }
 
 func NewNodeMeta(
+	ctx context.Context,
+	overrideHost string,
+	kubeInformer *kube.MetadataProvider,
+	retryCfg RetryConfig,
+) NodeMeta {
+	return NewNodeMetaWithMetadataProvider(ctx, overrideHost, &MetadataProvider{
+		K8sInformer:   kubeInformer,
+		CloudMetadata: CloudMetadataConfig{DetectionEnabled: true},
+	}, retryCfg)
+}
+
+// NewNodeMetaWithMetadataProvider applies the provider's cloud detection settings.
+func NewNodeMetaWithMetadataProvider(
 	ctx context.Context,
 	overrideHost string,
 	provider *MetadataProvider,

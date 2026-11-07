@@ -90,7 +90,7 @@ func NewWithProtocolMetricSelection(ctx context.Context, ctxInfo *global.Context
 	), swarm.WithID("HostProcessEventDecoratorProvider"))
 
 	processEventsKubeDecorated := msg2.QueueFromConfig[exec.ProcessEvent](config, ctxInfo.Metrics, "processEventsKubeDecorated")
-	swi.Add(transform.KubeProcessEventDecoratorProvider(
+	swi.Add(transform.KubeProcessEventDecoratorProviderWithMetadataProvider(
 		&metadata.MetadataProvider{
 			K8sInformer:   ctxInfo.K8sInformer,
 			CloudMetadata: config.CloudMetadata,

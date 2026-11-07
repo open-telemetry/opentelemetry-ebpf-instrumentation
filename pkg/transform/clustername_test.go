@@ -188,9 +188,41 @@ func TestKubeClusterNameConfiguredWithCloudDetectionDisabled(t *testing.T) {
 		ClusterName: "configured-cluster",
 	}
 
-	name := KubeClusterName(t.Context(), cfg, &metadata.MetadataProvider{
+	name := KubeClusterNameWithMetadataProvider(t.Context(), cfg, &metadata.MetadataProvider{
 		CloudMetadata: CloudMetadataConfig{DetectionEnabled: false},
 	})
 
 	assert.Equal(t, "configured-cluster", name)
+}
+
+func TestKubeClusterNameCloudDetectionEnabledByDefault(t *testing.T) {
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
+
+	kubeServer := httptest.NewServer(http.NotFoundHandler())
+	defer kubeServer.Close()
+
+	cloudServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, gcpMetadataURL, r.URL.String())
+		assert.Equal(t, "Google", r.Header.Get("Metadata-Flavor"))
+		_, _ = w.Write([]byte("cloud-cluster"))
+	}))
+	defer cloudServer.Close()
+
+	proxyURL, err := url.Parse(cloudServer.URL)
+	require.NoError(t, err)
+	transport := &http.Transport{Proxy: http.ProxyURL(proxyURL)}
+	originalTransport := metadataClient.Transport
+	metadataClient.Transport = transport
+	t.Cleanup(func() {
+		metadataClient.Transport = originalTransport
+		transport.CloseIdleConnections()
+	})
+
+	mp := kube.NewMetadataProvider(kube.MetadataConfig{
+		KubeConfigPath: newTestKubeConfig(t, kubeServer.URL),
+	}, imetrics.NoopReporter{})
+
+	name := KubeClusterName(t.Context(), &KubernetesDecorator{}, mp)
+
+	assert.Equal(t, "cloud-cluster", name)
 }

@@ -119,15 +119,35 @@ func TestNewNodeMetaECS(t *testing.T) {
 	defer server.Close()
 	t.Setenv("ECS_CONTAINER_METADATA_URI_V4", server.URL)
 	t.Setenv("ECS_CONTAINER_METADATA_URI", "")
-	got := NewNodeMeta(t.Context(), "host-override", &MetadataProvider{
-		CloudMetadata: CloudMetadataConfig{DetectionEnabled: true},
-	}, DefaultRetryConfig)
-	assert.Equal(t, "host-override", got.HostID)
-	assert.Equal(t, "arn:aws:ecs:us-east-1:123456789012:cluster/test", got.Cluster)
-	assert.Equal(t, "us-east-1", got.Region)
-	assert.Contains(t, got.Metadata, Entry{Key: "aws.ecs.cluster.arn", Value: got.Cluster})
-	assert.Contains(t, got.Metadata, Entry{Key: "cloud.region", Value: got.Region})
-	assert.Contains(t, got.Metadata, Entry{Key: "cloud.platform", Value: "aws_ecs"})
+	for _, tc := range []struct {
+		name string
+		get  func(context.Context) NodeMeta
+	}{
+		{
+			name: "legacy API",
+			get: func(ctx context.Context) NodeMeta {
+				return NewNodeMeta(ctx, "host-override", nil, DefaultRetryConfig)
+			},
+		},
+		{
+			name: "metadata provider",
+			get: func(ctx context.Context) NodeMeta {
+				return NewNodeMetaWithMetadataProvider(ctx, "host-override", &MetadataProvider{
+					CloudMetadata: CloudMetadataConfig{DetectionEnabled: true},
+				}, DefaultRetryConfig)
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := tc.get(t.Context())
+			assert.Equal(t, "host-override", got.HostID)
+			assert.Equal(t, "arn:aws:ecs:us-east-1:123456789012:cluster/test", got.Cluster)
+			assert.Equal(t, "us-east-1", got.Region)
+			assert.Contains(t, got.Metadata, Entry{Key: "aws.ecs.cluster.arn", Value: got.Cluster})
+			assert.Contains(t, got.Metadata, Entry{Key: "cloud.region", Value: got.Region})
+			assert.Contains(t, got.Metadata, Entry{Key: "cloud.platform", Value: "aws_ecs"})
+		})
+	}
 }
 
 func TestNewNodeMetaECSDetectionDisabled(t *testing.T) {
@@ -142,7 +162,7 @@ func TestNewNodeMetaECSDetectionDisabled(t *testing.T) {
 	t.Setenv("ECS_CONTAINER_METADATA_URI_V4", server.URL)
 	t.Setenv("ECS_CONTAINER_METADATA_URI", "")
 
-	got := NewNodeMeta(t.Context(), "host-override", &MetadataProvider{
+	got := NewNodeMetaWithMetadataProvider(t.Context(), "host-override", &MetadataProvider{
 		CloudMetadata: CloudMetadataConfig{DetectionEnabled: false},
 	}, DefaultRetryConfig)
 
