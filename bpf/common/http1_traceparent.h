@@ -154,39 +154,13 @@ static __always_inline void http1_scan_header_byte(http1_header_scan_t *scan, un
     }
 }
 
-struct http1_scan_ctx {
+struct http1_read_ctx {
     http1_header_scan_t *scan;
-    const unsigned char *buf;
+    unsigned char *buf; // the chunk of src the scan is in
+    const unsigned char *src;
+    u32 len;
+    u8 _pad[4];
 };
-
-// http1_scan_byte is a wrapper for http1_scan_header_byte called by bpf_loop
-static int http1_scan_byte(u32 index, void *data) {
-    if (index >= k_http1_read_chunk_bytes) {
-        return 1;
-    }
-    struct http1_scan_ctx *ctx = data;
-    http1_scan_header_byte(ctx->scan, ctx->buf[index]);
-    return ctx->scan->phase == k_http1_headers_done;
-}
-
-// Scans at most one read chunk of buf.
-static __always_inline void
-http1_scan_headers(http1_header_scan_t *scan, const unsigned char *buf, u32 len) {
-    if (scan->phase == k_http1_headers_done || scan->bytes >= k_http1_max_header_bytes) {
-        return;
-    }
-
-    len = min(len, k_http1_max_header_bytes - scan->bytes);
-    len = min(len, k_http1_read_chunk_bytes);
-    struct http1_scan_ctx ctx = {.scan = scan, .buf = buf};
-    bpf_loop(len, http1_scan_byte, &ctx, 0);
-    if (scan->bytes >= k_http1_max_header_bytes) {
-        scan->phase = k_http1_headers_done;
-        if (scan->value_length != k_hpack_value_len_tp) {
-            scan->valid = false;
-        }
-    }
-}
 
 static __always_inline long
 http1_probe_read(void *dst, u32 len, const void *src, enum http1_memory memory) {
@@ -199,31 +173,75 @@ http1_probe_read(void *dst, u32 len, const void *src, enum http1_memory memory) 
     return bpf_probe_read(dst, len, src);
 }
 
+// Reads the next chunk of src only when the scan reaches it, so a short header
+// block costs one small read. Keeping the whole scan in one bpf_loop keeps the
+// verifier from walking the code after it once per chunk.
+static __always_inline int
+http1_read_header_byte(u32 index, struct http1_read_ctx *ctx, enum http1_memory memory) {
+    if (index >= k_http1_max_header_bytes) {
+        return 1;
+    }
+
+    const u32 offset = index % k_http1_read_chunk_bytes;
+    if (offset == 0) {
+        u32 chunk = ctx->len - index;
+        bpf_clamp_umax(chunk, k_http1_read_chunk_bytes);
+        if (http1_probe_read(ctx->buf, chunk, ctx->src + index, memory) != 0) {
+            ctx->scan->valid = false;
+            ctx->scan->phase = k_http1_headers_done;
+            return 1;
+        }
+    }
+
+    http1_scan_header_byte(ctx->scan, ctx->buf[offset]);
+    return ctx->scan->phase == k_http1_headers_done;
+}
+
+// One callback per memory kind: sk_msg programs may not call bpf_probe_read at all.
+static int http1_read_any_byte(u32 index, void *data) {
+    return http1_read_header_byte(index, data, k_http1_memory_any);
+}
+
+static int http1_read_user_byte(u32 index, void *data) {
+    return http1_read_header_byte(index, data, k_http1_memory_user);
+}
+
+static int http1_read_kernel_byte(u32 index, void *data) {
+    return http1_read_header_byte(index, data, k_http1_memory_kernel);
+}
+
 static __always_inline void http1_read_headers(http1_header_scan_t *scan,
                                                const unsigned char *src,
                                                u32 len,
                                                enum http1_memory memory) {
+    if (scan->phase == k_http1_headers_done || scan->bytes >= k_http1_max_header_bytes) {
+        return;
+    }
+
     unsigned char *buf = http1_header_buf_mem();
     if (!buf) {
         return;
     }
 
-    for (u32 i = 0; i < k_http1_max_header_bytes / k_http1_read_chunk_bytes; i++) {
-        if (scan->phase == k_http1_headers_done || scan->bytes >= k_http1_max_header_bytes ||
-            len == 0) {
-            return;
-        }
+    struct http1_read_ctx ctx = {
+        .scan = scan,
+        .buf = buf,
+        .src = src,
+        .len = min(len, k_http1_max_header_bytes - scan->bytes),
+    };
 
-        u32 chunk = min(len, k_http1_read_chunk_bytes);
-        bpf_clamp_umax(chunk, k_http1_read_chunk_bytes);
-        if (http1_probe_read(buf, chunk, src, memory) != 0) {
+    if (memory == k_http1_memory_user) {
+        bpf_loop(ctx.len, http1_read_user_byte, &ctx, 0);
+    } else if (memory == k_http1_memory_kernel) {
+        bpf_loop(ctx.len, http1_read_kernel_byte, &ctx, 0);
+    } else {
+        bpf_loop(ctx.len, http1_read_any_byte, &ctx, 0);
+    }
+
+    if (scan->bytes >= k_http1_max_header_bytes) {
+        scan->phase = k_http1_headers_done;
+        if (scan->value_length != k_hpack_value_len_tp) {
             scan->valid = false;
-            scan->phase = k_http1_headers_done;
-            return;
         }
-
-        http1_scan_headers(scan, buf, chunk);
-        src += chunk;
-        len -= chunk;
     }
 }
