@@ -275,10 +275,13 @@ func BuildCommonContextInfo(
 		ServiceNameTemplate:      templ,
 	}, imetrics.NoopReporter{})
 
-	ctxInfo.NodeMeta = metadata.NewNodeMeta(
+	ctxInfo.NodeMeta = metadata.NewNodeMetaWithMetadataProvider(
 		ctx,
 		config.Attributes.HostID.Override,
-		ctxInfo.K8sInformer,
+		&metadata.MetadataProvider{
+			K8sInformer:   ctxInfo.K8sInformer,
+			CloudMetadata: config.CloudMetadata,
+		},
 		config.Attributes.MetadataRetry,
 	)
 
