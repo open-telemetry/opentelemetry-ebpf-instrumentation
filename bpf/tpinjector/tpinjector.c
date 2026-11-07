@@ -1322,6 +1322,14 @@ static __always_inline bool corked_http1_request(const struct sk_msg_md *msg,
     return head == headers->request_head;
 }
 
+// On SK_PASS the kernel keeps reusing the corked message for later sends,
+// cork length included, so it must be reset or those sends stay held back.
+static __always_inline void release_http1_headers(struct sk_msg_md *msg,
+                                                  http1_pending_headers_t *headers) {
+    headers->pending = false;
+    bpf_msg_cork_bytes(msg, 0);
+}
+
 // Sock_msg program which detects packets where it should add space for
 // the 'Traceparent' string. It extends the HTTP header and writes the
 // Traceparent string.
@@ -1366,12 +1374,12 @@ int obi_packet_extender(struct sk_msg_md *msg) {
                 // for the next program to resume. Only a failed one gets here.
                 bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
 
-                headers->pending = false;
+                release_http1_headers(msg, headers);
                 return SK_PASS;
             }
 
             // The kernel sent the corked bytes anyway: this message starts fresh.
-            headers->pending = false;
+            release_http1_headers(msg, headers);
         }
     }
 
@@ -1549,8 +1557,9 @@ static __always_inline bool http1_versioned_request_line(const struct sk_msg_md 
         return false;
     }
 
+    // skip the minor version digit that follows the prefix
     return __builtin_memcmp(suffix, HTTP1_PREFIX, HTTP1_PRE_SIZE) == 0 &&
-           suffix[HTTP1_PRE_SIZE] == '\r';
+           suffix[HTTP1_PRE_SIZE + 1] == '\r';
 }
 
 static __always_inline bool http1_should_cork(const struct sk_msg_md *msg,
@@ -1567,7 +1576,7 @@ static __always_inline int finish_http1_outgoing_scan(struct sk_msg_md *msg,
                                                       http1_pending_headers_t *headers,
                                                       tailcall_ctx *t_ctx,
                                                       tp_info_pid_t *tp) {
-    headers->pending = false;
+    release_http1_headers(msg, headers);
     t_ctx->parent_tp = headers->parent_tp;
     t_ctx->has_parent_tp = headers->has_parent_tp;
     t_ctx->http1_has_tp = headers->has_client_tp;
@@ -1607,7 +1616,7 @@ static __always_inline int scan_http1_outgoing_headers(struct sk_msg_md *msg, ta
     }
 
     if (!read_http1_outgoing_headers(msg, &headers->scan)) {
-        headers->pending = false;
+        release_http1_headers(msg, headers);
         return SK_PASS;
     }
 
