@@ -40,13 +40,15 @@ func TestHTTP1ExistingTraceparentScan(t *testing.T) {
 		fragment  int
 		absent    bool
 		// the application's traceparent arrives after the cork limit, so OBI adds its own
-		capped  bool
+		capped bool
+		// sent as is: a request line with no header block must not be held back
 		request string
 	}{
 		{name: "first_chunk"},
 		{name: "later_chunk", padding: 1100},
 		{name: "malformed_value", invalid: true},
 		{name: "unsampled", unsampled: true},
+		{name: "large_single_write", modern: true, padding: 12 * 1024},
 		{name: "large_fragmented", modern: true, padding: 12 * 1024, fragment: 2048},
 		{name: "exact_limit", modern: true, padding: 16*1024 - len(header) - len(requestPrefix), fragment: 2048},
 		{name: "malformed_fragmented", modern: true, padding: 8 * 1024, fragment: 2048, invalid: true},
@@ -125,7 +127,7 @@ func TestHTTP1ExistingTraceparentScan(t *testing.T) {
 			if tc.request != "" {
 				payload = []byte(tc.request)
 			}
-			injected := tc.absent || tc.capped || tc.request != ""
+			injected := tc.absent || tc.capped
 			wantTraceparents := 1
 			if tc.capped {
 				wantTraceparents = 2
@@ -153,6 +155,9 @@ func TestHTTP1ExistingTraceparentScan(t *testing.T) {
 				return
 			}
 			require.Equal(t, payload, received)
+			if tc.request != "" {
+				return
+			}
 
 			var got BpfTpInfoPidT
 			source := uint16(client.LocalAddr().(*net.TCPAddr).Port)
