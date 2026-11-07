@@ -293,7 +293,7 @@ func (mr *SvcGraphMetricsReporter) newSvcGraphMetricsInstance(service *svc.Attrs
 		metric.WithResource(resources),
 		metric.WithReader(metric.NewPeriodicReader(sharedExporter{mr.exporter},
 			metric.WithInterval(mr.cfg.Interval))),
-		metric.WithExemplarFilter(mr.cfg.ExemplarFilter),
+		metric.WithExemplarFilter(mr.cfg.GetExemplarFilter()),
 	}
 
 	if mr.serviceGraphEnabled {

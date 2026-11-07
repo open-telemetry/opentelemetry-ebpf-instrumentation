@@ -21,6 +21,7 @@ import (
 
 	internal "go.opentelemetry.io/obi/pkg/export/otel/metric/components"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric/components/aggregate"
+	"go.opentelemetry.io/obi/pkg/export/otel/metric/components/exemplar"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric/components/x"
 	"go.opentelemetry.io/obi/pkg/export/otel/metric/global"
 )
@@ -40,7 +41,7 @@ type instrumentSync struct {
 	compAgg     aggregate.ComputeAggregation
 }
 
-func newPipeline(res *resource.Resource, reader Reader, views []View, exemplarFilter string) *pipeline {
+func newPipeline(res *resource.Resource, reader Reader, views []View, exemplarFilter exemplar.Filter) *pipeline {
 	if res == nil {
 		res = resource.Empty()
 	}
@@ -64,7 +65,7 @@ type pipeline struct {
 
 	reader         Reader
 	views          []View
-	exemplarFilter string
+	exemplarFilter exemplar.Filter
 
 	sync.Mutex
 	aggregations   map[instrumentation.Scope][]instrumentSync
@@ -553,7 +554,7 @@ func isAggregatorCompatible(kind InstrumentKind, agg sdkmetric.Aggregation) erro
 // measurement.
 type pipelines []*pipeline
 
-func newPipelines(res *resource.Resource, readers []Reader, views []View, exemplarFilter string) pipelines {
+func newPipelines(res *resource.Resource, readers []Reader, views []View, exemplarFilter exemplar.Filter) pipelines {
 	pipes := make([]*pipeline, 0, len(readers))
 	for _, r := range readers {
 		p := newPipeline(res, r, views, exemplarFilter)

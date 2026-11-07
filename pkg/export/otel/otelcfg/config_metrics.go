@@ -14,6 +14,7 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/export/otel/metric/components/exemplar"
 )
 
 // HistogramAggregation defines the histogram aggregation type for metrics export.
@@ -102,6 +103,20 @@ type MetricsConfig struct {
 	// ExemplarFilter is set from Config v2 meter_provider.exemplar_filter. When empty, the
 	// OTEL_METRICS_EXEMPLAR_FILTER environment variable applies.
 	ExemplarFilter string `yaml:"-" env:"-"`
+}
+
+// GetExemplarFilter returns the configured exemplar filter, or nil when none is configured.
+func (m *MetricsConfig) GetExemplarFilter() exemplar.Filter {
+	switch m.ExemplarFilter {
+	case "always_on":
+		return exemplar.AlwaysOnFilter
+	case "always_off":
+		return exemplar.AlwaysOffFilter
+	case "trace_based":
+		return exemplar.SampledFilter
+	default:
+		return nil
+	}
 }
 
 func (m MetricsConfig) MarshalYAML() (any, error) {

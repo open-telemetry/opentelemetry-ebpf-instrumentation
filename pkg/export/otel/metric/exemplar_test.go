@@ -11,23 +11,25 @@ import (
 
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	"go.opentelemetry.io/otel/trace"
+
+	"go.opentelemetry.io/obi/pkg/export/otel/metric/components/exemplar"
 )
 
 func TestExemplarFilterOptionTakesPrecedenceOverEnvironment(t *testing.T) {
 	tests := []struct {
 		name          string
-		configured    string
+		configured    exemplar.Filter
 		env           string
 		sampled       bool
 		wantExemplars bool
 	}{
-		{name: "configured always_off overrides env always_on", configured: "always_off", env: "always_on", sampled: true},
-		{name: "configured always_on overrides env always_off", configured: "always_on", env: "always_off", wantExemplars: true},
-		{name: "configured trace_based skips unsampled", configured: "trace_based", env: "always_on"},
-		{name: "configured trace_based keeps sampled", configured: "trace_based", env: "always_off", sampled: true, wantExemplars: true},
-		{name: "empty configuration uses env always_off", env: "always_off", sampled: true},
-		{name: "empty configuration uses env always_on", env: "always_on", wantExemplars: true},
-		{name: "empty configuration and env default to trace_based", sampled: true, wantExemplars: true},
+		{name: "configured always_off overrides env always_on", configured: exemplar.AlwaysOffFilter, env: "always_on", sampled: true},
+		{name: "configured always_on overrides env always_off", configured: exemplar.AlwaysOnFilter, env: "always_off", wantExemplars: true},
+		{name: "configured trace_based skips unsampled", configured: exemplar.SampledFilter, env: "always_on"},
+		{name: "configured trace_based keeps sampled", configured: exemplar.SampledFilter, env: "always_off", sampled: true, wantExemplars: true},
+		{name: "nil filter uses env always_off", env: "always_off", sampled: true},
+		{name: "nil filter uses env always_on", env: "always_on", wantExemplars: true},
+		{name: "nil filter and unset env default to trace_based", sampled: true, wantExemplars: true},
 	}
 
 	for _, test := range tests {

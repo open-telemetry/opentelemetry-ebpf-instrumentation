@@ -9,6 +9,8 @@ import (
 	"sync"
 
 	"go.opentelemetry.io/otel/sdk/resource"
+
+	"go.opentelemetry.io/obi/pkg/export/otel/metric/components/exemplar"
 )
 
 // config contains configuration options for a MeterProvider.
@@ -16,7 +18,7 @@ type config struct {
 	res            *resource.Resource
 	readers        []Reader
 	views          []View
-	exemplarFilter string
+	exemplarFilter exemplar.Filter
 }
 
 // readerSignals returns a force-flush and shutdown function for a
@@ -123,10 +125,9 @@ func WithReader(r Reader) Option {
 	})
 }
 
-// WithExemplarFilter selects which measurements are eligible to become
-// exemplars: "always_on", "always_off" or "trace_based". An empty value keeps
-// the OTEL_METRICS_EXEMPLAR_FILTER environment variable behavior.
-func WithExemplarFilter(filter string) Option {
+// WithExemplarFilter configures the exemplar filter. A nil filter keeps the
+// OTEL_METRICS_EXEMPLAR_FILTER environment variable behavior.
+func WithExemplarFilter(filter exemplar.Filter) Option {
 	return optionFunc(func(cfg config) config {
 		cfg.exemplarFilter = filter
 		return cfg

@@ -17,28 +17,24 @@ import (
 // creation func based on the passed InstrumentKind and user defined
 // environment variables.
 //
-// configuredFilter takes precedence over the OTEL_METRICS_EXEMPLAR_FILTER
-// environment variable, which is only read when configuredFilter is empty.
-func reservoirFunc[N int64 | float64](agg sdkmetric.Aggregation, configuredFilter string) func() exemplar.FilteredReservoir[N] {
+// A non-nil configuredFilter takes precedence over the
+// OTEL_METRICS_EXEMPLAR_FILTER environment variable.
+func reservoirFunc[N int64 | float64](agg sdkmetric.Aggregation, configuredFilter exemplar.Filter) func() exemplar.FilteredReservoir[N] {
 	// https://github.com/open-telemetry/opentelemetry-specification/blob/d4b241f451674e8f611bb589477680341006ad2b/specification/configuration/sdk-environment-variables.md#exemplar
 	const filterEnvKey = "OTEL_METRICS_EXEMPLAR_FILTER"
 
-	filterName := configuredFilter
-	if filterName == "" {
-		filterName = os.Getenv(filterEnvKey)
-	}
-
-	var filter exemplar.Filter
-
-	switch filterName {
-	case "always_on":
-		filter = exemplar.AlwaysOnFilter
-	case "always_off":
-		return exemplar.Drop
-	case "trace_based":
-		fallthrough
-	default:
-		filter = exemplar.SampledFilter
+	filter := configuredFilter
+	if filter == nil {
+		switch os.Getenv(filterEnvKey) {
+		case "always_on":
+			filter = exemplar.AlwaysOnFilter
+		case "always_off":
+			return exemplar.Drop
+		case "trace_based":
+			fallthrough
+		default:
+			filter = exemplar.SampledFilter
+		}
 	}
 
 	// https://github.com/open-telemetry/opentelemetry-specification/blob/d4b241f451674e8f611bb589477680341006ad2b/specification/metrics/sdk.md#exemplar-defaults

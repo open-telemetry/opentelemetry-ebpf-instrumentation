@@ -71,7 +71,7 @@ func newMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, cfg 
 	return metric.NewMeterProvider(
 		metric.WithResource(res),
 		metric.WithReader(metric.NewPeriodicReader(*exporter, metric.WithInterval(cfg.Interval))),
-		metric.WithExemplarFilter(cfg.ExemplarFilter),
+		metric.WithExemplarFilter(cfg.GetExemplarFilter()),
 	)
 }
 
