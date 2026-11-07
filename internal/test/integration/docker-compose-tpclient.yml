@@ -18,21 +18,39 @@ services:
       jaeger:
         condition: service_started
 
+  # Go hop of the /large-* chain: tpclient a -> tpclient-go -> tpclient c
+  tpclient-go:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/tpclient-go/Dockerfile
+    image: hatest-tpclient-go
+    ports:
+      - "6003:6003"
+    environment:
+      UPSTREAM: "http://tpclient:6002"
+    depends_on:
+      otelcol:
+        condition: service_started
+      jaeger:
+        condition: service_started
+
   obi:
     build:
       context: ../../..
       dockerfile: ./internal/test/integration/components/obi/Dockerfile
     command:
       - --config=/configs/obi-config-tpclient.yml
+    # No lockdown mock: the Go hop must inject through its own uprobes.
     volumes:
       - ./configs/:/configs
-      - ./system/sys/kernel/security:/sys/kernel/security
       - /sys/kernel/tracing:/sys/kernel/tracing:ro
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-tpclient:/var/run/obi
     image: hatest-obi
     privileged: true
     pid: "host"
+    # sockops attaches at OBI's cgroup root, which must be the host's to see the other containers
+    cgroup: host
     environment:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel"
@@ -45,7 +63,7 @@ services:
       OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT: 8999
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME: 1
-      OTEL_EBPF_OPEN_PORT: "6000,6001,6002"
+      OTEL_EBPF_OPEN_PORT: "6000,6001,6002,6003"
       OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "headers"
       OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
     ports:

@@ -28,6 +28,7 @@
 #include <common/tracked_connection.h>
 
 #include <generictracer/maps/http_info_mem.h>
+#include <generictracer/maps/http1_header_scans.h>
 #include <generictracer/maps/java_http1_requests.h>
 
 #include <generictracer/k_tracer_tailcall.h>
@@ -151,6 +152,7 @@ static __always_inline void mark_http_server_thread_trace_response_sent(http_inf
 
 static __always_inline void
 finish_http(http_info_t *info, pid_connection_info_t *pid_conn, const trace_key_t *current_key) {
+    bpf_map_delete_elem(&http1_header_scans, pid_conn);
     if (!http_info_emittable(info)) {
         return;
     }
@@ -244,6 +246,7 @@ static __always_inline http_info_t *get_or_set_http_info(http_info_t *info,
             finish_http(old_info, pid_conn, NULL);
         }
 
+        bpf_map_delete_elem(&http1_header_scans, pid_conn);
         bpf_map_update_elem(&ongoing_http, pid_conn, info, BPF_ANY);
     }
 
@@ -589,12 +592,299 @@ int GUARDED_PROG(obi_continue_protocol_http_tp_commit, struct pt_regs *, ctx) {
     return 0;
 }
 
+// Returns true for a client's own traceparent: the library chose the client
+// span, and its parent still needs find_trace_for_wire_client_request.
+static __always_inline bool
+inherit_http1_traceparent(tp_info_t *tp, unsigned char *header, u8 type) {
+    decode_hex(tp->trace_id, extract_trace_id(header), TRACE_ID_CHAR_LEN);
+    decode_hex(&tp->flags, extract_flags(header), FLAGS_CHAR_LEN);
+
+    if (type == k_event_type_http_client) {
+        decode_hex(tp->span_id, extract_span_id(header), SPAN_ID_CHAR_LEN);
+        return true;
+    }
+
+    if (type) {
+        decode_hex(tp->parent_id, extract_span_id(header), SPAN_ID_CHAR_LEN);
+        sample_remote_child(tp);
+    }
+
+    return false;
+}
+
+static __always_inline bool
+same_http1_span(const unsigned char *trace_id, const unsigned char *span_id, const tp_info_t *tp) {
+    return bpf_memcmp(trace_id, tp->trace_id, TRACE_ID_SIZE_BYTES) == 0 &&
+           bpf_memcmp(span_id, tp->span_id, SPAN_ID_SIZE_BYTES) == 0;
+}
+
+static __always_inline tp_info_pid_t *http1_server_aux_trace(const call_protocol_args_t *args,
+                                                             const http_info_t *info) {
+    connection_info_part_t part = {};
+    populate_ephemeral_info(
+        &part, &args->pid_conn.conn, args->orig_dport, args->pid_conn.pid, FD_SERVER);
+
+    tp_info_pid_t *aux = bpf_map_lookup_elem(&server_traces_aux, &part);
+    if (aux && same_http1_span(aux->tp.trace_id, aux->tp.span_id, &info->tp)) {
+        return aux;
+    }
+
+    return NULL;
+}
+
+static __always_inline tp_info_t *http1_server_goroutine_trace(const call_protocol_args_t *args,
+                                                               const http_info_t *info) {
+    if (args->lw_thread == k_lw_thread_none) {
+        return NULL;
+    }
+
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id_and_pid(
+        &g_key, (void *)args->lw_thread, pid_from_pid_tgid(bpf_get_current_pid_tgid()));
+
+    tp_info_t *goroutine_tp = bpf_map_lookup_elem(&go_trace_map, &g_key);
+    if (goroutine_tp && same_http1_span(goroutine_tp->trace_id, goroutine_tp->span_id, &info->tp)) {
+        return goroutine_tp;
+    }
+
+    return NULL;
+}
+
+// Request buffers already sent to userspace are keyed by the trace and span they
+// went out with: move them to the inherited ones, otherwise the request gets split.
+// This will happen if we got partial HTTP buffer, decided to start a request and got
+// our own trace id, but then by scanning further packets we found an incoming trace.
+static __always_inline void http_rekey_request_large_buffer(const http_info_t *info,
+                                                            u8 direction,
+                                                            const unsigned char *previous_trace_id,
+                                                            const unsigned char *previous_span_id) {
+    if (!info->lb_req_bytes || same_http1_span(previous_trace_id, previous_span_id, &info->tp)) {
+        return;
+    }
+
+    bpf_d_printk("rekeying large request buffers, lb_req_bytes=%d", info->lb_req_bytes);
+
+    tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)tcp_large_buffers_mem();
+    if (!large_buf) {
+        return;
+    }
+
+    large_buf->type = k_event_type_tcp_large_buffer;
+    large_buf->packet_type = PACKET_TYPE_REQUEST;
+    large_buf->direction = direction;
+    large_buf->conn_info = info->conn_info;
+    large_buf->action = k_large_buf_action_rekey;
+    large_buf->kind = k_large_buf_layer_app;
+    large_buf->tp = info->tp;
+    large_buf->source = k_large_buffer_source_kprobes;
+    large_buf->len = TRACE_ID_SIZE_BYTES + SPAN_ID_SIZE_BYTES;
+    __builtin_memcpy(large_buf->buf, previous_trace_id, TRACE_ID_SIZE_BYTES);
+    __builtin_memcpy(large_buf->buf + TRACE_ID_SIZE_BYTES, previous_span_id, SPAN_ID_SIZE_BYTES);
+
+    events_ringbuf_output(large_buf, sizeof(*large_buf) + TRACE_ID_SIZE_BYTES + SPAN_ID_SIZE_BYTES);
+}
+
+static __always_inline void set_http1_connection_trace(const call_protocol_args_t *args,
+                                                       const http_info_t *info,
+                                                       u8 trace_type) {
+    const tp_info_pid_t trace = {
+        .tp = info->tp,
+        .pid = args->pid_conn.pid,
+        .valid = 1,
+        .req_type = info->type,
+    };
+
+    set_trace_info_for_connection(&args->pid_conn.conn, trace_type, &trace);
+}
+
+// The server's thread, aux and goroutine traces, and its index entry, still
+// carry the trace the request started with.
+static __always_inline void inherit_http1_server_traceparent(const call_protocol_args_t *args,
+                                                             http_info_t *info,
+                                                             unsigned char *header) {
+    trace_key_t owner_key = {};
+    tp_info_pid_t *owner = http_server_thread_trace(info, &owner_key);
+    tp_info_pid_t *aux = http1_server_aux_trace(args, info);
+    tp_info_t *goroutine_tp = http1_server_goroutine_trace(args, info);
+    unsigned char previous_trace_id[TRACE_ID_SIZE_BYTES];
+    __builtin_memcpy(previous_trace_id, info->tp.trace_id, sizeof(previous_trace_id));
+
+    inherit_http1_traceparent(&info->tp, header, info->type);
+    bpf_d_printk("server inherits late traceparent, owner=%d, aux=%d, goroutine=%d",
+                 owner != NULL,
+                 aux != NULL,
+                 goroutine_tp != NULL);
+
+    if (owner) {
+        owner->tp = info->tp;
+    }
+
+    if (aux) {
+        aux->tp = info->tp;
+    }
+
+    if (goroutine_tp) {
+        *goroutine_tp = info->tp;
+    }
+
+    if (http_server_index_enabled()) {
+        unindex_http_server_trace_id(args->pid_conn.pid, previous_trace_id, info->tp.span_id);
+        index_http_server_trace(&args->pid_conn, info);
+    }
+
+    set_http1_connection_trace(args, info, TRACE_TYPE_SERVER);
+}
+
+// A client's own traceparent names its span, its parent is still to be found.
+static __always_inline void resolve_http1_client_parent(const call_protocol_args_t *args,
+                                                        http_info_t *info) {
+    info->parent_status = find_trace_for_wire_client_request(
+        &args->pid_conn, args->orig_dport, args->lw_thread, &info->tp);
+    bpf_d_printk("client inherits late traceparent, parent_status=%d", info->parent_status);
+
+    set_http1_connection_trace(args, info, TRACE_TYPE_CLIENT);
+}
+
+// update_http1_request_context handles the replacement of the trace context of a late
+// discovery of a traceparent in the header buffers.
+static __always_inline void
+update_http1_request_context(call_protocol_args_t *args, http_info_t *info, unsigned char *header) {
+    const bool is_client = info->type == k_event_type_http_client;
+    const u64 id = bpf_get_current_pid_tgid();
+    const obi_ctx_info_t *context = obi_ctx__get(id);
+    const bool owns_context =
+        context && same_http1_span(context->trace_id, context->span_id, &info->tp);
+    unsigned char previous_trace_id[TRACE_ID_SIZE_BYTES];
+    unsigned char previous_span_id[SPAN_ID_SIZE_BYTES];
+    __builtin_memcpy(previous_trace_id, info->tp.trace_id, sizeof(previous_trace_id));
+    __builtin_memcpy(previous_span_id, info->tp.span_id, sizeof(previous_span_id));
+
+    if (is_client) {
+        inherit_http1_traceparent(&info->tp, header, info->type);
+    } else {
+        inherit_http1_server_traceparent(args, info, header);
+    }
+
+    if (owns_context) {
+        obi_ctx__set(id, &info->tp);
+    }
+
+    http_rekey_request_large_buffer(info, args->direction, previous_trace_id, previous_span_id);
+
+    // Last, because the verifier explores everything after the parent search
+    // once per state the search can end in.
+    if (is_client) {
+        resolve_http1_client_parent(args, info);
+    }
+}
+
+// A kprobe copies at most k_iovec_max_len bytes of a read or write into u_buf:
+// past that, the headers are read from the user buffer itself.
+static __always_inline void read_http1_request_headers(http1_header_scan_t *scan,
+                                                       const call_protocol_args_t *args) {
+    const bool truncated = args->user_buf != 0;
+    const unsigned char *src = (const unsigned char *)(truncated ? args->user_buf : args->u_buf);
+    const u32 len = truncated ? args->user_len : (u32)args->bytes_len;
+    if (truncated) {
+        bpf_d_printk("reading headers past the copy, copied=%d, len=%d", args->bytes_len, len);
+    }
+
+    http1_read_headers(scan, src, len, k_http1_memory_any);
+    bpf_d_printk("read headers len=%d, valid=%d, found=%d", len, scan->valid, scan->present);
+}
+
+// A server adopts only a valid traceparent. A client's own one counts once it is
+// complete, even if invalid: it still keeps the parent from being inferred.
+static __always_inline bool http1_traceparent_usable(const http1_header_scan_t *scan, u8 type) {
+    if (scan->phase != k_http1_headers_done || !scan->present) {
+        return false;
+    }
+
+    if (type == k_event_type_http_client) {
+        return scan->value_length == k_hpack_value_len_tp;
+    }
+
+    return scan->valid;
+}
+
+// Returns true when the headers end with a traceparent to adopt. The scan then
+// stays stored for obi_protocol_http_inherit_tp, which adopts it.
+static __always_inline bool continue_http1_header_scan(const call_protocol_args_t *args,
+                                                       const http_info_t *info,
+                                                       http1_header_scan_t *scan) {
+    read_http1_request_headers(scan, args);
+    if (scan->phase != k_http1_headers_done) {
+        return false;
+    }
+
+    if (http1_traceparent_usable(scan, info->type)) {
+        bpf_d_printk("late traceparent found, type=%d, bytes=%d", info->type, scan->bytes);
+        return true;
+    }
+
+    bpf_map_delete_elem(&http1_header_scans, &args->pid_conn);
+    return false;
+}
+
 static __always_inline int
-__obi_continue_protocol_http_tp(struct pt_regs *ctx,
-                                call_protocol_args_t *args,
-                                http_info_t *info,
-                                http_connection_metadata_t *meta,
-                                unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
+append_http1_request_buffer(void *ctx, const call_protocol_args_t *args, http_info_t *info) {
+    info->len += args->bytes_len;
+    return http_send_large_buffer(ctx,
+                                  info,
+                                  &args->pid_conn,
+                                  (void *)args->u_buf,
+                                  args->bytes_len,
+                                  PACKET_TYPE_REQUEST,
+                                  args->direction,
+                                  k_large_buf_action_append);
+}
+
+// k_tail_protocol_http_inherit_tp
+SEC("kprobe/http")
+int GUARDED_PROG(obi_protocol_http_inherit_tp, void *, ctx) {
+    call_protocol_args_t *args = protocol_args();
+    if (!args) {
+        return 0;
+    }
+
+    http_info_t *info = bpf_map_lookup_elem(&ongoing_http, &args->pid_conn);
+    http1_header_scan_t *scan = bpf_map_lookup_elem(&http1_header_scans, &args->pid_conn);
+    if (info && scan) {
+        update_http1_request_context(args, info, scan->header);
+    }
+
+    bpf_map_delete_elem(&http1_header_scans, &args->pid_conn);
+
+    return info ? append_http1_request_buffer(ctx, args, info) : 0;
+}
+
+// Only a scan that the following buffers of the request must finish is
+// stored, so headers that end in the first buffer cost no map update.
+static __always_inline unsigned char *start_http1_header_scan(const call_protocol_args_t *args,
+                                                              u8 type) {
+    http1_header_scan_t *scan = http1_header_scan_mem();
+    if (!scan) {
+        return NULL;
+    }
+
+    __builtin_memset(scan, 0, sizeof(*scan));
+    read_http1_request_headers(scan, args);
+
+    if (scan->phase != k_http1_headers_done) {
+        bpf_d_printk(
+            "headers continue in the next buffer, phase=%d, bytes=%d", scan->phase, scan->bytes);
+        bpf_map_update_elem(&http1_header_scans, &args->pid_conn, scan, BPF_ANY);
+        return NULL;
+    }
+
+    return http1_traceparent_usable(scan, type) ? scan->header : NULL;
+}
+
+static __always_inline int __obi_continue_protocol_http_tp(struct pt_regs *ctx,
+                                                           call_protocol_args_t *args,
+                                                           http_info_t *info,
+                                                           http_connection_metadata_t *meta,
+                                                           bool use_bpf_loop) {
     tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
     if (!tp_p) {
         goto done;
@@ -623,8 +913,14 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
             goto done;
         }
 
-        unsigned char *buf = (unsigned char *)tp_char_buf_mem();
-        if (buf) {
+        unsigned char *res = NULL;
+        if (use_bpf_loop) {
+            res = start_http1_header_scan(args, meta ? meta->type : 0);
+        } else {
+            unsigned char *buf = tp_char_buf_mem();
+            if (!buf) {
+                goto done;
+            }
             u16 buf_len = args->bytes_len;
             bpf_clamp_umax(buf_len, TRACE_BUF_SIZE - 1);
 
@@ -632,39 +928,18 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
             // null terminate to make proper string
             buf[buf_len] = '\0';
 
-            unsigned char *res = tp_loop_fn(buf, buf_len);
-            if (res) {
-                bpf_dbg_printk("Found traceparent in headers [%s] overriding what was before", res);
-                unsigned char *t_id = extract_trace_id(res);
-                unsigned char *s_id = extract_span_id(res);
-                unsigned char *f_id = extract_flags(res);
-                decode_hex(tp_p->tp.trace_id, t_id, TRACE_ID_CHAR_LEN);
-                decode_hex((unsigned char *)&tp_p->tp.flags, f_id, FLAGS_CHAR_LEN);
-                if (meta && meta->type == k_event_type_http_client) {
-                    decode_hex(tp_p->tp.span_id, s_id, SPAN_ID_CHAR_LEN);
-                    args->wire_tp_found = 1;
-                } else if (meta) {
-                    decode_hex(tp_p->tp.parent_id, s_id, SPAN_ID_CHAR_LEN);
-                    sample_remote_child(&tp_p->tp);
-                }
+            res = bpf_strstr_tp_loop__legacy(buf, buf_len);
+        }
 
-                if (g_bpf_debug) {
-                    unsigned char tp_buf[TP_MAX_VAL_LENGTH];
-                    make_tp_string(tp_buf, &tp_p->tp);
-                    bpf_dbg_printk("new tp: %s", tp_buf);
-                }
-            } else {
-                bpf_dbg_printk("No additional traceparent in headers, using what was made before");
-            }
-        } else {
-            goto done;
+        if (res) {
+            args->wire_tp_found = inherit_http1_traceparent(&tp_p->tp, res, meta ? meta->type : 0);
         }
     }
 
     // The legacy scan forks a verifier state per offset it can match at, the tail
     // call keeps those states from also exploring the trace bookkeeping. A client
     // traceparent needs a second parent search, which stays out of this program too.
-    if (tp_loop_fn != bpf_strstr_tp_loop || args->wire_tp_found) {
+    if (!use_bpf_loop || args->wire_tp_found) {
         preempt_guarded_tail_call(ctx, &jump_table, k_tail_continue_protocol_http_tp_commit);
         return 0;
     }
@@ -672,7 +947,7 @@ __obi_continue_protocol_http_tp(struct pt_regs *ctx,
     commit_http_tp(args, meta, tp_p);
 
 done:
-    if (tp_loop_fn == bpf_strstr_tp_loop) {
+    if (use_bpf_loop) {
         return __obi_continue2_protocol_http(ctx, args, info, meta);
     } else {
         preempt_guarded_tail_call(ctx, &jump_table, k_tail_continue2_protocol_http);
@@ -696,7 +971,7 @@ int GUARDED_PROG(obi_continue_protocol_http_tp, struct pt_regs *, ctx) {
     http_connection_metadata_t *meta =
         connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
 
-    return __obi_continue_protocol_http_tp(ctx, args, info, meta, bpf_strstr_tp_loop__legacy);
+    return __obi_continue_protocol_http_tp(ctx, args, info, meta, false);
 }
 
 static __always_inline bool adopt_java_http1_reservation(call_protocol_args_t *args,
@@ -751,11 +1026,10 @@ static __always_inline bool adopt_java_http1_reservation(call_protocol_args_t *a
     return true;
 }
 
-static __always_inline int
-__obi_continue_protocol_http(struct pt_regs *ctx,
-                             call_protocol_args_t *args,
-                             http_info_t *info,
-                             unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
+static __always_inline int __obi_continue_protocol_http(struct pt_regs *ctx,
+                                                        call_protocol_args_t *args,
+                                                        http_info_t *info,
+                                                        bool use_bpf_loop) {
     http_connection_metadata_t *meta =
         connection_meta_by_direction(args->direction, PACKET_TYPE_REQUEST);
 
@@ -851,15 +1125,15 @@ __obi_continue_protocol_http(struct pt_regs *ctx,
         }
     }
 
-    if (tp_loop_fn == bpf_strstr_tp_loop) {
-        return __obi_continue_protocol_http_tp(ctx, args, info, meta, tp_loop_fn);
+    if (use_bpf_loop) {
+        return __obi_continue_protocol_http_tp(ctx, args, info, meta, true);
     } else {
         preempt_guarded_tail_call(ctx, &jump_table, k_tail_continue_protocol_http_tp);
         return 0;
     }
 
 skip_tp:
-    if (tp_loop_fn == bpf_strstr_tp_loop) {
+    if (use_bpf_loop) {
         return __obi_continue2_protocol_http(ctx, args, info, meta);
     } else {
         preempt_guarded_tail_call(ctx, &jump_table, k_tail_continue2_protocol_http);
@@ -880,7 +1154,7 @@ int GUARDED_PROG(obi_continue_protocol_http_legacy, struct pt_regs *, ctx) {
         return 0;
     }
 
-    return __obi_continue_protocol_http(ctx, args, info, bpf_strstr_tp_loop__legacy);
+    return __obi_continue_protocol_http(ctx, args, info, false);
 }
 
 // k_tail_continue_protocol_http (new kernels)
@@ -897,14 +1171,13 @@ int GUARDED_PROG(obi_continue_protocol_http, struct pt_regs *, ctx) {
     }
 
     if (args->use_bpf_loop) {
-        return __obi_continue_protocol_http(ctx, args, info, bpf_strstr_tp_loop);
+        return __obi_continue_protocol_http(ctx, args, info, true);
     }
 
-    return __obi_continue_protocol_http(ctx, args, info, bpf_strstr_tp_loop__legacy);
+    return __obi_continue_protocol_http(ctx, args, info, false);
 }
 
-static __always_inline int
-__obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
+static __always_inline int __obi_protocol_http(struct pt_regs *ctx, bool use_bpf_loop) {
     call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;
@@ -950,7 +1223,7 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
     if (args->packet_type == PACKET_TYPE_REQUEST && (info->status == 0) &&
         (info->start_monotime_ns == 0)) {
 
-        args->use_bpf_loop = tp_loop_fn == bpf_strstr_tp_loop;
+        args->use_bpf_loop = use_bpf_loop;
         preempt_guarded_tail_call(ctx, &jump_table, k_tail_continue_protocol_http);
 
         return 0;
@@ -995,13 +1268,13 @@ __obi_protocol_http(struct pt_regs *ctx, unsigned char *(*tp_loop_fn)(unsigned c
 // k_tail_protocol_http
 SEC("kprobe/http")
 int GUARDED_PROG(obi_protocol_http, struct pt_regs *, ctx) {
-    return __obi_protocol_http(ctx, bpf_strstr_tp_loop);
+    return __obi_protocol_http(ctx, true);
 }
 
 // k_tail_protocol_http
 SEC("kprobe/http")
 int GUARDED_PROG(obi_protocol_http_legacy, struct pt_regs *, ctx) {
-    return __obi_protocol_http(ctx, bpf_strstr_tp_loop__legacy);
+    return __obi_protocol_http(ctx, false);
 }
 
 // k_tail_large_buf_emit_continue

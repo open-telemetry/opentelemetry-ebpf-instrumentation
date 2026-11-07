@@ -55,6 +55,7 @@ typedef enum {
     _text_reader_r_pos,
     _buf_reader_buf_pos,
     _buf_reader_w_pos,
+    _buf_reader_r_pos,
     // grpc
     _grpc_stream_st_ptr_pos,
     _grpc_stream_method_ptr_pos,

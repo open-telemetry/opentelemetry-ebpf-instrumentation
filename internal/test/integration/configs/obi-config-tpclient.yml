@@ -16,3 +16,5 @@ discovery:
       open_ports: 6001
     - name: tpclient-c
       open_ports: 6002
+    - name: tpclient-go
+      open_ports: 6003

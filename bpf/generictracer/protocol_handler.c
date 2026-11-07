@@ -23,12 +23,27 @@
 
 #include <logger/bpf_dbg.h>
 
-// k_tail_handle_buf_with_args
-SEC("kprobe")
-int GUARDED_PROG(obi_handle_buf_with_args, void *, ctx) {
+static __always_inline int handle_buf_with_args(void *ctx, bool use_bpf_loop) {
     call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;
+    }
+
+    if (use_bpf_loop && g_bpf_loop_enabled && g_bpf_traceparent_enabled && capture_header_buffer &&
+        args->protocols.http) {
+        http1_header_scan_t *scan = bpf_map_lookup_elem(&http1_header_scans, &args->pid_conn);
+        http_info_t *info = scan ? bpf_map_lookup_elem(&ongoing_http, &args->pid_conn) : NULL;
+        if (info && !info->submitted && still_reading(info) &&
+            !http_response_direction(info, args->direction) && info->ssl == args->ssl) {
+            if (continue_http1_header_scan(args, info, scan)) {
+                // Adopting it can search for the client's parent span, which is more
+                // than the verifier can explore together with the header scan.
+                preempt_guarded_tail_call_static(ctx, &jump_table, k_tail_protocol_http_inherit_tp);
+                bpf_d_printk("tailcall failed [%s]", __FUNCTION__);
+                bpf_map_delete_elem(&http1_header_scans, &args->pid_conn);
+            }
+            return append_http1_request_buffer(ctx, args, info);
+        }
     }
 
     bpf_dbg_printk("=== kprobe buf=[%s], pid=%d, len=%d ===",
@@ -133,7 +148,7 @@ int GUARDED_PROG(obi_handle_buf_with_args, void *, ctx) {
                 // scan for the incoming 'Traceparent' header. If they are not reassembled
                 // we'll see something like this:
                 // [before the injected header],[70 bytes for 'Traceparent...'],[the rest].
-                if (reading && is_traceparent(args->small_buf)) {
+                if (reading && !use_bpf_loop && is_traceparent(args->small_buf)) {
                     unsigned char *buf = (unsigned char *)tp_char_buf_mem();
                     if (buf) {
                         bpf_probe_read(buf, TP_SIZE, (unsigned char *)args->u_buf);
@@ -203,4 +218,16 @@ int GUARDED_PROG(obi_handle_buf_with_args, void *, ctx) {
     }
 
     return 0;
+}
+
+// k_tail_handle_buf_with_args
+SEC("kprobe")
+int GUARDED_PROG(obi_handle_buf_with_args, void *, ctx) {
+    return handle_buf_with_args(ctx, true);
+}
+
+// k_tail_handle_buf_with_args but for kernels < 5.17
+SEC("kprobe")
+int GUARDED_PROG(obi_handle_buf_with_args_legacy, void *, ctx) {
+    return handle_buf_with_args(ctx, false);
 }

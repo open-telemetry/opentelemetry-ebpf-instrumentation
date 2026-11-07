@@ -24,10 +24,6 @@ static inline u32 bpf_get_prandom_u32(void) {
     return 0x5a5a5a5a;
 }
 
-static inline long bpf_loop(u32 nr_loops, void *cb, void *ctx, u64 flags) {
-    return 0;
-}
-
 // Go uprobes read arguments out of pt_regs, and get_offsets_table walks the
 // running task to its executable inode. The tests need only enough of each for
 // the gotracer headers to compile.

@@ -71,7 +71,7 @@ func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpe
 
 		// On kernels < 5.17, replace obi_protocol_http (which uses bpf_loop)
 		// with obi_protocol_http_legacy, matching what the production loader does.
-		if spec.Programs["obi_protocol_http"] != nil {
+		if spec.Programs["obi_protocol_http"] != nil || spec.Programs["obi_packet_extender_find_existing_tp"] != nil {
 			ebpfcommon.FixupSpec(spec, false)
 		}
 		if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
@@ -246,6 +246,21 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"g_traces_ctx_v1_enabled", []any{false}},
 	})
 
+	// Header capture with the loader's defaults for the other constants: large
+	// buffers and the obi_ctx writers compiled away change what the verifier can prune.
+	forEachCombination(t, "generictracer/BpfHeaderCapture", generictracerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_traceparent_enabled", []any{true}},
+		{"g_bpf_header_propagation", []any{true}},
+		{"g_bpf_java_http1_enabled", []any{true}},
+		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
+		{"capture_header_buffer", []any{int32(1)}},
+		{"filter_pids", []any{int32(1)}},
+		{"max_transaction_time", []any{uint64(300_000_000_000)}},
+		{"http_max_captured_bytes", []any{uint32(0)}},
+		{"g_traces_ctx_v1_enabled", []any{false}},
+	})
+
 	// Each pid_ns_mode compiles a different valid_pid() path into every
 	// kprobe; a dedicated matrix keeps them verified without doubling the
 	// full generictracer cross-product.
@@ -284,6 +299,18 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"tcp_max_captured_bytes", []any{uint32(65536)}},
 		{"g_traces_ctx_v1_enabled", []any{false}},
 	})
+	// see generictracer/BpfHeaderCapture
+	forEachCombination(t, "gotracer/BpfHeaderCapture", gotracerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_traceparent_enabled", []any{true}},
+		{"g_bpf_header_propagation", []any{true}},
+		{"g_bpf_probe_write_user_enabled", []any{true}},
+		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
+		{"capture_header_buffer", []any{int32(1)}},
+		{"max_transaction_time", []any{uint64(300_000_000_000)}},
+		{"http_max_captured_bytes", []any{uint32(0)}},
+		{"g_traces_ctx_v1_enabled", []any{false}},
+	})
 	loadAndVerify(t, "gotracer/Bpf/no-write-user", gotracerbpf.LoadBpf, map[string]any{
 		"g_bpf_header_propagation":       true,
 		"g_bpf_probe_write_user_enabled": false,
@@ -292,6 +319,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// tpinjector
 	// inject_flags is a bitmask: bit 0 = HTTP headers, bit 1 = TCP options.
 	forEachCombination(t, "tpinjector/Bpf", tpinjectorbpf.LoadBpf, []constOption{
+		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
 		{"g_bpf_debug", []any{true, false}},
 		{"filter_pids", []any{int32(0), int32(1)}},
 		{"inject_flags", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},

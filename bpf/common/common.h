@@ -53,6 +53,7 @@ enum : u32 {
 enum large_buf_action : u8 {
     k_large_buf_action_init = 0,
     k_large_buf_action_append = 1,
+    k_large_buf_action_rekey = 2, // payload: the previous trace id of the buffer
 };
 
 enum large_buf_kind : u8 {

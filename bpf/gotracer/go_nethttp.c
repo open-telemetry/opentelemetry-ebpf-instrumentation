@@ -34,6 +34,7 @@
 #include <common/trace_helpers.h>
 
 #include <gotracer/go_common.h>
+#include <gotracer/go_http1_headers.h>
 #include <gotracer/go_h2_continuation.h>
 #include <gotracer/go_h2_write.h>
 #include <gotracer/go_large_buffer.h>
@@ -45,6 +46,8 @@
 
 #include <gotracer/types/nethttp.h>
 #include <gotracer/types/stream_key.h>
+
+#include <generictracer/protocol_common.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -499,6 +502,16 @@ static __always_inline void handle_traceparent_header(server_http_func_invocatio
     }
 }
 
+static __always_inline void inherit_go_http1_traceparent(go_addr_key_t *g_key,
+                                                         http1_header_scan_t *scan) {
+    if (scan->phase != k_http1_headers_done || !scan->valid) {
+        return;
+    }
+
+    server_http_func_invocation_t *inv = bpf_map_lookup_elem(&ongoing_http_server_requests, g_key);
+    handle_traceparent_header(inv, g_key, scan->header + sizeof("traceparent: ") - 1);
+}
+
 // Matches the header in the buffer and returns a pointer to the value part of the header.
 static __always_inline unsigned char *match_header(
     const unsigned char *buf, u32 safe_len, const char *header, u32 header_len, u32 value_len) {
@@ -543,53 +556,106 @@ int GUARDED_PROG(obi_uprobe_readMimeHeader, struct pt_regs *, ctx) {
     // Cache the bufio.Reader so serve_http_returns can ship the request bytes.
     bpf_map_update_elem(&ongoing_server_bufr, &g_key, &r, BPF_ANY);
 
+    if (!g_bpf_traceparent_enabled) {
+        return 0;
+    }
+
     bpf_dbg_printk("R=%llx, off=%d", r, go_offset_of(ot, (go_offset){.v = _buf_reader_buf_pos}));
 
-    u64 len = 0;
-    bpf_probe_read_user(
-        &len, sizeof(u64), r + go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos}));
-
-    bpf_dbg_printk(
-        "buf len=%d, off=%d", len, go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos}));
-
-    if (len == 0) {
+    s64 pos = 0;
+    if (bpf_probe_read_user(
+            &pos, sizeof(pos), r + go_offset_of(ot, (go_offset){.v = _buf_reader_r_pos})) != 0 ||
+        pos < 0) {
         return 0;
     }
 
-    void *arr = 0;
-    bpf_probe_read_user(
-        &arr, sizeof(void *), r + go_offset_of(ot, (go_offset){.v = _buf_reader_buf_pos}));
-
-    if (!arr) {
+    go_http1_header_scan_t *headers = go_http1_header_scan_mem();
+    if (!headers) {
         return 0;
     }
 
-    server_http_func_invocation_t *inv = bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+    bpf_memset(headers, 0, sizeof(*headers));
+    headers->reader = (u64)r;
+    headers->refill_start = k_go_http1_no_refill;
+    headers->scan.phase = k_http1_header_name;
+    scan_go_http1_buffer(headers, pos);
 
-    unsigned char *buf = (unsigned char *)tp_char_buf_mem();
-    if (!buf) {
+    // The readMIMEHeader return and bufio refill probes that finish a scan
+    // are attached only when request headers are captured.
+    if (headers->scan.phase == k_http1_headers_done) {
+        inherit_go_http1_traceparent(&g_key, &headers->scan);
+        if (capture_header_buffer) {
+            // the return probe must not finish this request with a stale scan
+            bpf_map_delete_elem(&go_http1_header_scans, &g_key);
+        }
         return 0;
     }
 
-    bpf_clamp_umax(len, TRACE_BUF_SIZE);
+    if (capture_header_buffer) {
+        bpf_map_update_elem(&go_http1_header_scans, &g_key, headers, BPF_ANY);
+    }
 
-    if (bpf_probe_read_user(buf, len, arr) != 0) {
-        bpf_dbg_printk("failed to read MIME header buffer");
+    return 0;
+}
+
+SEC("uprobe/readMimeHeader_returns")
+int GUARDED_PROG(obi_uprobe_readMimeHeader_returns, struct pt_regs *, ctx) {
+    if (!g_bpf_loop_enabled) {
         return 0;
     }
 
-    bpf_dbg_printk("buf=%s", buf);
+    go_addr_key_t key = {};
+    go_addr_key_from_id(&key, GOROUTINE_PTR(ctx));
+    go_http1_header_scan_t *headers = bpf_map_lookup_elem(&go_http1_header_scans, &key);
 
-    unsigned char *tp_ptr = bpf_strstr_tp_loop(buf, len);
-
-    bpf_dbg_printk("tp=%llx", tp_ptr);
-
-    if (!tp_ptr) {
+    if (!headers) {
         return 0;
     }
 
-    tp_ptr += TP_MAX_KEY_LENGTH + 2;
-    handle_traceparent_header(inv, &g_key, tp_ptr);
+    scan_go_http1_refill(headers);
+    inherit_go_http1_traceparent(&key, &headers->scan);
+    bpf_map_delete_elem(&go_http1_header_scans, &key);
+
+    return 0;
+}
+
+// http1ReaderFill attaches to bufio.(*Reader).fill so we can scan each refil, which is
+// 4K at a time.
+SEC("uprobe/http1ReaderFill")
+int GUARDED_PROG(obi_uprobe_http1ReaderFill, struct pt_regs *, ctx) {
+    if (!g_bpf_loop_enabled) {
+        return 0;
+    }
+    go_addr_key_t key = {};
+    go_addr_key_from_id(&key, GOROUTINE_PTR(ctx));
+    go_http1_header_scan_t *headers = bpf_map_lookup_elem(&go_http1_header_scans, &key);
+    if (!headers || headers->reader != (u64)GO_PARAM1(ctx)) {
+        return 0;
+    }
+
+    scan_go_http1_refill(headers);
+    if (headers->scan.phase == k_http1_headers_done) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const unsigned char *reader = (const unsigned char *)headers->reader;
+    s64 pos = 0;
+    s64 end = 0;
+    long err = bpf_probe_read_user(
+        &pos, sizeof(pos), reader + go_offset_of(ot, (go_offset){.v = _buf_reader_r_pos}));
+    err |= bpf_probe_read_user(
+        &end, sizeof(end), reader + go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos}));
+
+    if (err || pos < 0 || end < pos) {
+        headers->scan.valid = false;
+        headers->scan.phase = k_http1_headers_done;
+        return 0;
+    }
+
+    // fill moves the unread bytes to the front and reads after them
+    headers->refill_start = end - pos;
+
     return 0;
 }
 
@@ -1008,20 +1074,17 @@ done:
     return 0;
 }
 
-// Context propagation through HTTP headers.
-//
-// The uprobe pair below implements the HTTP/1 client traceparent injection. The
-// application's own traceparent (e.g. written by the OTel SDK via
-// req.Header.Set) is serialized by writeSubset itself, so it is only present in
-// the io.Writer buffer once writeSubset returns. We therefore stash the writer
-// on entry and, on return, scan the header block writeSubset just wrote for an
-// existing traceparent: if one is present we must not add a second one
-// otherwise we inject ours at the current write position.
+// Observe serialization before bufio can flush application headers. Inject only
+// after writeSubset has finished writing those headers.
 typedef struct write_subset_invocation {
     u64 io_writer_addr;
     u64 req_goaddr; // request (parent) goroutine, key into ongoing_client_connections
     tp_info_t tp;
-    s64 entry_n; // io.Writer write offset at entry (start of this header block)
+    s64 entry_n;       // first unobserved byte in the writer buffer
+    s64 original_size; // writer buffer length to restore after a forced flush, 0 if untouched
+    http1_header_scan_t headers;
+    bool inject_after_flush;
+    u8 _pad[3];
 } write_subset_invocation_t;
 
 struct {
@@ -1030,6 +1093,30 @@ struct {
     __type(value, write_subset_invocation_t);
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
 } ongoing_write_subsets SEC(".maps");
+
+// Helper function to undo the temporary change we make to the bufio.Writer.
+static __always_inline bool restore_writer_size(write_subset_invocation_t *inv) {
+    if (!inv->original_size) {
+        return true;
+    }
+
+    // constant guard: keeps the helper out of programs loaded in lockdown
+    if (!g_bpf_probe_write_user_enabled) {
+        return false;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const u64 offset = go_offset_of(ot, (go_offset){.v = _io_writer_buf_ptr_pos});
+    void *size_ptr = (void *)inv->io_writer_addr + offset + k_go_slice_len_offset;
+    const s64 size = inv->original_size;
+
+    if (bpf_probe_write_user(size_ptr, &size, sizeof(size)) != 0) {
+        return false;
+    }
+
+    inv->original_size = 0;
+    return true;
+}
 
 SEC("uprobe/header_writeSubset")
 int GUARDED_PROG(obi_uprobe_writeSubset, struct pt_regs *, ctx) {
@@ -1079,18 +1166,18 @@ int GUARDED_PROG(obi_uprobe_writeSubset, struct pt_regs *, ctx) {
         goto done;
     }
 
-    // Record the write offset at entry: the header block writeSubset is about
-    // to serialize (where the app's own traceparent would land) starts here.
-    // The io.Writer is a *bufio.Writer, whose backing array is allocated once
-    // and never grown (it flushes and resets n when full, never append/realloc),
-    // so this offset stays valid into a stable buffer at return. The only thing
-    // that invalidates it is a Flush() mid-writeSubset (huge header sets), which
-    // resets n to 0; the return probe handles that (return_n <= entry_n) and all
-    // its reads stay bounded within the buffer regardless.
+    // The legacy return probe scans from this offset; modern probes track writes across flushes.
     s64 entry_n = 0;
     if (bpf_probe_read_user(
             &entry_n, sizeof(entry_n), (void *)(io_writer_addr + io_writer_n_pos)) != 0) {
         goto done;
+    }
+
+    // A previous request on this writer whose flush probes never ran must not
+    // leave the buffer shortened.
+    write_subset_invocation_t *previous = bpf_map_lookup_elem(&ongoing_write_subsets, &gw_key);
+    if (previous && previous->io_writer_addr == (u64)io_writer_addr) {
+        restore_writer_size(previous);
     }
 
     write_subset_invocation_t inv = {
@@ -1098,7 +1185,9 @@ int GUARDED_PROG(obi_uprobe_writeSubset, struct pt_regs *, ctx) {
         .req_goaddr = parent_goaddr,
         .tp = func_inv->tp,
         .entry_n = entry_n,
+        .headers.phase = k_http1_header_name,
     };
+
     bpf_map_update_elem(&ongoing_write_subsets, &gw_key, &inv, BPF_ANY);
 
 done:
@@ -1106,18 +1195,75 @@ done:
     return 0;
 }
 
-// client_request_has_traceparent scans the header block that writeSubset just
-// serialized ([entry_n, return_n)) for an existing traceparent header, reusing
-// the same primitive as the server-side extraction. All offsets are validated
-// and the scan is clamped to both the scratch buffer and the bytes actually
-// present in the writer buffer, so the read can never run past the buffer.
-// tp_loop_fn selects the scan implementation (bpf_loop vs legacy) at load time.
+static __always_inline void
+scan_http1_client_buffer(write_subset_invocation_t *inv, const void *buf, s64 len, s64 size) {
+    if (inv->entry_n < 0 || inv->entry_n > len || len > size) {
+        inv->headers.valid = false;
+        inv->headers.phase = k_http1_headers_done;
+        return;
+    }
+
+    u64 available = len - inv->entry_n;
+    bpf_clamp_umax(available, k_http1_max_header_bytes);
+
+    if (available) {
+        http1_read_headers(&inv->headers,
+                           (const unsigned char *)buf + inv->entry_n,
+                           available,
+                           k_http1_memory_user);
+        bpf_d_printk("read headers len=%d, valid=%d, found=%d",
+                     len,
+                     inv->headers.valid,
+                     inv->headers.present);
+    }
+
+    inv->entry_n = len;
+}
+
+SEC("uprobe/http1WriterFlush")
+int GUARDED_PROG(obi_uprobe_http1WriterFlush, struct pt_regs *, ctx) {
+    if (!g_bpf_loop_enabled || !g_bpf_header_propagation) {
+        return 0;
+    }
+
+    go_addr_key_t key = {};
+    go_addr_key_from_id(&key, GOROUTINE_PTR(ctx));
+    write_subset_invocation_t *inv = bpf_map_lookup_elem(&ongoing_write_subsets, &key);
+
+    if (!inv || inv->io_writer_addr != (u64)GO_PARAM1(ctx)) {
+        return 0;
+    }
+
+    if (inv->inject_after_flush) {
+        // Flush only writes buf[0:n], so the full length can come back before it
+        // runs. The buffer then stays intact even if the return probe never fires.
+        restore_writer_size(inv);
+        inv->entry_n = 0;
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const unsigned char *writer = (const unsigned char *)inv->io_writer_addr;
+    go_slice_t buffer = {};
+    s64 len = 0;
+    long err =
+        bpf_probe_read_user(&buffer,
+                            sizeof(buffer),
+                            writer + go_offset_of(ot, (go_offset){.v = _io_writer_buf_ptr_pos}));
+    err |= bpf_probe_read_user(
+        &len, sizeof(len), writer + go_offset_of(ot, (go_offset){.v = _io_writer_n_pos}));
+
+    if (!err && buffer.array) {
+        scan_http1_client_buffer(inv, buffer.array, len, buffer.len);
+    }
+
+    inv->entry_n = 0;
+    return 0;
+}
+
+// Legacy kernels inspect only the bytes still buffered when writeSubset returns.
 static __always_inline bool
-client_request_has_traceparent(void *buf_ptr,
-                               s64 entry_n,
-                               s64 return_n,
-                               s64 size,
-                               unsigned char *(*tp_loop_fn)(unsigned char *, const u16)) {
+client_request_has_traceparent(void *buf_ptr, s64 entry_n, s64 return_n, s64 size) {
     if (entry_n < 0 || return_n <= entry_n || return_n > size) {
         return false;
     }
@@ -1142,20 +1288,10 @@ client_request_has_traceparent(void *buf_ptr,
     }
     scan[uregion] = '\0';
 
-    // Direct (not indirect) calls so the untaken branch is const-folded away per
-    // program instantiation, keeping the bpf_loop subprog out of the legacy one.
-    unsigned char *found = NULL;
-    if (tp_loop_fn == bpf_strstr_tp_loop) {
-        found = bpf_strstr_tp_loop(scan, (u16)uregion);
-    } else {
-        found = bpf_strstr_tp_loop__legacy(scan, (u16)uregion);
-    }
-    return found != NULL;
+    return bpf_strstr_tp_loop__legacy(scan, (u16)uregion) != NULL;
 }
 
-static __always_inline int on_writeSubset_returns(struct pt_regs *ctx,
-                                                  unsigned char *(*tp_loop_fn)(unsigned char *,
-                                                                               const u16)) {
+static __always_inline int on_writeSubset_returns(struct pt_regs *ctx, bool use_bpf_loop) {
     if (!g_bpf_header_propagation || !g_bpf_probe_write_user_enabled) {
         return 0;
     }
@@ -1167,6 +1303,10 @@ static __always_inline int on_writeSubset_returns(struct pt_regs *ctx,
     write_subset_invocation_t *inv = bpf_map_lookup_elem(&ongoing_write_subsets, &gw_key);
     if (!inv) {
         return 0;
+    }
+
+    if (use_bpf_loop && GO_PARAM1(ctx)) {
+        goto done;
     }
 
     bpf_dbg_printk("=== uprobe/header_writeSubset_returns ===");
@@ -1212,7 +1352,15 @@ static __always_inline int on_writeSubset_returns(struct pt_regs *ctx,
     bpf_dbg_printk("buf_ptr=%llx, entry_n=%d, len=%d", (void *)buf_ptr, inv->entry_n, len);
 
     // If the application already wrote its own traceparent, don't add a second.
-    if (client_request_has_traceparent(buf_ptr, inv->entry_n, len, size, tp_loop_fn)) {
+    bool present;
+    if (use_bpf_loop) {
+        scan_http1_client_buffer(inv, buf_ptr, len, size);
+        present = inv->headers.present;
+    } else {
+        present = client_request_has_traceparent(buf_ptr, inv->entry_n, len, size);
+    }
+
+    if (present) {
         bpf_dbg_printk("client request already carries a traceparent, skipping injection");
         goto done;
     }
@@ -1257,11 +1405,43 @@ static __always_inline int on_writeSubset_returns(struct pt_regs *ctx,
                 e_key.d_port);
             store_go_handled_connection_info(info);
         }
+    } else if (use_bpf_loop && size >= header_len && len > 0) {
+        // Force a flush before the terminating blank line. The flush probes
+        // restore the buffer length and append the header to the empty buffer.
+        void *size_ptr = io_writer_addr + io_writer_buf_ptr_pos + k_go_slice_len_offset;
+        if (bpf_probe_write_user(size_ptr, &len, sizeof(len)) == 0) {
+            inv->original_size = size;
+            inv->inject_after_flush = true;
+            return 0;
+        }
     }
 
 done:
     bpf_map_delete_elem(&ongoing_write_subsets, &gw_key);
     return 0;
+}
+
+SEC("uprobe/http1WriterFlush_returns")
+int GUARDED_PROG(obi_uprobe_http1WriterFlush_returns, struct pt_regs *, ctx) {
+    if (!g_bpf_loop_enabled || !g_bpf_header_propagation) {
+        return 0;
+    }
+
+    go_addr_key_t key = {};
+    go_addr_key_from_id(&key, GOROUTINE_PTR(ctx));
+    write_subset_invocation_t *inv = bpf_map_lookup_elem(&ongoing_write_subsets, &key);
+    if (!inv || !inv->inject_after_flush) {
+        return 0;
+    }
+
+    inv->inject_after_flush = false;
+    // Keep the invocation when the length can't be restored: the next
+    // writeSubset on this writer retries before replacing it.
+    if (!restore_writer_size(inv)) {
+        return 0;
+    }
+
+    return on_writeSubset_returns(ctx, true);
 }
 
 // Two variants of the return probe: the default uses bpf_loop; the _legacy one
@@ -1272,12 +1452,12 @@ done:
 // with "number of funcs in func_info doesn't match number of subprogs".
 SEC("uprobe/header_writeSubset_returns")
 int GUARDED_PROG(obi_uprobe_writeSubset_returns, struct pt_regs *, ctx) {
-    return on_writeSubset_returns(ctx, bpf_strstr_tp_loop);
+    return on_writeSubset_returns(ctx, true);
 }
 
 SEC("uprobe/header_writeSubset_returns_legacy")
 int GUARDED_PROG(obi_uprobe_writeSubset_returns_legacy, struct pt_regs *, ctx) {
-    return on_writeSubset_returns(ctx, bpf_strstr_tp_loop__legacy);
+    return on_writeSubset_returns(ctx, false);
 }
 
 // HTTP 2.0 server support

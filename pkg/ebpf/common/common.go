@@ -808,21 +808,31 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 	if !SupportsEBPFLoops(ptlog(), overrideKernelVersion) {
 		// Swap the bpf_loop-based programs with their legacy counterparts so
 		// bpf2go-generated struct fields still bind on kernels without bpf_loop.
-		spec.Programs["obi_protocol_http"] = spec.Programs["obi_protocol_http_legacy"]
-		spec.Programs["obi_protocol_http"].Name = "obi_protocol_http"
-		spec.Programs["obi_continue_protocol_http"] = spec.Programs["obi_continue_protocol_http_legacy"]
-		spec.Programs["obi_continue_protocol_http"].Name = "obi_continue_protocol_http"
+		for _, name := range []string{
+			"obi_protocol_http", "obi_continue_protocol_http", "obi_handle_buf_with_args",
+			"obi_uprobe_writeSubset_returns", "obi_packet_extender_find_existing_tp",
+		} {
+			if legacy, ok := spec.Programs[name+"_legacy"]; ok {
+				spec.Programs[name] = legacy
+				legacy.Name = name
+			}
+		}
 
-		// gotracer's obi_uprobe_readMimeHeader inlines a bpf_loop call. The
-		// runtime probe map (see gotracer.Tracer.UProbes) only attaches it on
-		// kernels >= 5.17, but the program still loads as part of the spec.
+		// gotracer's HTTP/1 header scan probes inline a bpf_loop call. The
+		// runtime probe map (see gotracer.Tracer.UProbes) only attaches them on
+		// kernels >= 5.17, but the programs still load as part of the spec.
 		// Const-DCE removes the bpf_loop call when g_bpf_loop_enabled=false,
-		// orphaning the tp_match subprog. Pre-5.13 kernels then reject the
+		// orphaning the header scan subprog. Pre-5.13 kernels then reject the
 		// load with "number of funcs in func_info doesn't match number of
 		// subprogs" because their func_info validator runs before DCE-aware
-		// subprog reconciliation. Replace with a dummy so it loads safely.
-		if _, ok := spec.Programs["obi_uprobe_readMimeHeader"]; ok {
-			spec.Programs["obi_uprobe_readMimeHeader"] = dummy
+		// subprog reconciliation. Replace them with a dummy so they load safely.
+		for _, name := range []string{
+			"obi_uprobe_readMimeHeader", "obi_uprobe_readMimeHeader_returns", "obi_uprobe_http1ReaderFill",
+			"obi_uprobe_http1WriterFlush", "obi_uprobe_http1WriterFlush_returns",
+		} {
+			if _, ok := spec.Programs[name]; ok {
+				spec.Programs[name] = dummy
+			}
 		}
 
 		// The huffman decode's bpf_loop callback trips the same func_info validation;
@@ -836,23 +846,22 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 			spec.Programs["obi_protocol_http2_grpc_handle_start_frame_server_huffscan"] = dummy
 		}
 
-		// gotracer's HTTP/1 client traceparent injection scans the request
-		// headers with a bpf_loop in obi_uprobe_writeSubset_returns. Swap it for
-		// the bounded-scan legacy variant so the bpf_loop subprog isn't part of
-		// the program loaded on kernels without bpf_loop (same func_info issue as
-		// obi_uprobe_readMimeHeader above).
-		if _, ok := spec.Programs["obi_uprobe_writeSubset_returns_legacy"]; ok {
-			spec.Programs["obi_uprobe_writeSubset_returns"] = spec.Programs["obi_uprobe_writeSubset_returns_legacy"]
-			spec.Programs["obi_uprobe_writeSubset_returns"].Name = "obi_uprobe_writeSubset_returns"
+		// only the bpf_loop HTTP/1 header scan tail calls it
+		if _, ok := spec.Programs["obi_protocol_http_inherit_tp"]; ok {
+			spec.Programs["obi_protocol_http_inherit_tp"] = dummy
 		}
+
 	}
 
 	// Slot dummies in place of the legacy programs we already moved, so the
 	// bpf2go struct binding still resolves them.
-	spec.Programs["obi_protocol_http_legacy"] = dummy
-	spec.Programs["obi_continue_protocol_http_legacy"] = dummy
-	if _, ok := spec.Programs["obi_uprobe_writeSubset_returns_legacy"]; ok {
-		spec.Programs["obi_uprobe_writeSubset_returns_legacy"] = dummy
+	for _, name := range []string{
+		"obi_protocol_http_legacy", "obi_continue_protocol_http_legacy", "obi_handle_buf_with_args_legacy",
+		"obi_uprobe_writeSubset_returns_legacy", "obi_packet_extender_find_existing_tp_legacy",
+	} {
+		if _, ok := spec.Programs[name]; ok {
+			spec.Programs[name] = dummy
+		}
 	}
 }
 
