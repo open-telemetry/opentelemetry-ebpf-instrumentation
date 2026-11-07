@@ -48,6 +48,11 @@ func isSupportedGoBinary(elfF *elf.File) error {
 // instrumentationPoints loads the provided executable and looks for the addresses
 // where the start and return probes must be inserted.
 func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string][]FuncOffsets, error) {
+	return newInspection(elfF).instrumentationPoints(funcNames)
+}
+
+func (in *inspection) instrumentationPoints(funcNames []string) (map[string][]FuncOffsets, error) {
+	elfF := in.elf
 	ilog := slog.With("component", "goexec.instructions")
 	ilog.Debug("searching for instrumentation points", "functions", funcNames)
 	functions := map[string]struct{}{}
@@ -55,7 +60,7 @@ func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string][]Fun
 		functions[fn] = struct{}{}
 	}
 
-	symTab, err := findGoSymbolTable(elfF)
+	symTab, err := in.goSymbolTable()
 	if err != nil {
 		return nil, err
 	}
@@ -293,16 +298,24 @@ func analyzeFunctionOffsets(baseOffset uint64, data []byte) (FuncOffsets, error)
 }
 
 func findGoSymbolTable(elfF *elf.File) (*gosym.Table, error) {
+	return newInspection(elfF).goSymbolTable()
+}
+
+func (in *inspection) goSymbolTable() (*gosym.Table, error) {
+	// Locate moduledata before reading .gopclntab, so that the DWARF parsed for
+	// the runtime ABI is released before the line table is built.
+	moduledata, modErr := in.moduledata()
+
 	var err error
 	var pclndat []byte
-	gopclntab := elfF.Section(".gopclntab")
+	gopclntab := in.elf.Section(".gopclntab")
 	if gopclntab != nil {
 		if pclndat, err = gopclntab.Data(); err != nil {
 			return nil, fmt.Errorf("acquiring .gopclntab data: %w", err)
 		}
 	}
 
-	runtimeText, err := findRuntimeText(elfF, gopclntab, pclndat)
+	runtimeText, err := findRuntimeText(moduledata.text, modErr, pclndat)
 	if err != nil {
 		return nil, fmt.Errorf("finding runtime text base: %w", err)
 	}
@@ -345,14 +358,12 @@ func findGoSymbolTable(elfF *elf.File) (*gosym.Table, error) {
 //
 // Therefore we try to extract it from the moduledata struct, falling back to
 // the legacy pcHeader path only when the scan fails.
-func findRuntimeText(elfF *elf.File, gopclntab *elf.Section, pclndat []byte) (uint64, error) {
+func findRuntimeText(moduledataText uint64, modErr error, pclndat []byte) (uint64, error) {
 	ilog := slog.With("component", "goexec.instructions")
 
-	rt, modErr := findRuntimeTextFromModuledata(elfF, gopclntab)
-
 	if modErr == nil {
-		ilog.Debug("runtimeText resolved from moduledata", "addr", fmt.Sprintf("0x%x", rt))
-		return rt, nil
+		ilog.Debug("runtimeText resolved from moduledata", "addr", fmt.Sprintf("0x%x", moduledataText))
+		return moduledataText, nil
 	}
 
 	rt, pclnErr := findRuntimeTextFromPclntab(pclndat)
@@ -365,7 +376,7 @@ func findRuntimeText(elfF *elf.File, gopclntab *elf.Section, pclndat []byte) (ui
 	return 0, fmt.Errorf("unable to determine runtime text base: moduledata: %w; pclntab: %w", modErr, pclnErr)
 }
 
-// findRuntimeTextFromModuledata tries to heuristically locate runtime.moduledata (since there's no symbol
+// findModuledata tries to heuristically locate runtime.moduledata (since there's no symbol
 // or fixed address) by looking for something that looks like a valid moduledata struct:
 //
 //	type moduledata struct {
@@ -383,20 +394,26 @@ func findRuntimeText(elfF *elf.File, gopclntab *elf.Section, pclndat []byte) (ui
 //
 // Note: pcHeader points to the exact start of .gopclntab. pclntable.data points into .gopclntab
 // at the function-table offset (not necessarily the start), so we validate it as a range check.
-func findRuntimeTextFromModuledata(elfF *elf.File, gopclntab *elf.Section) (uint64, error) {
-	if elfF.Class != elf.ELFCLASS64 {
-		return 0, errors.New("moduledata scan only implemented for 64-bit ELF")
+func (in *inspection) findModuledata() (runtimeModuledata, error) {
+	if in.elf.Class != elf.ELFCLASS64 {
+		return runtimeModuledata{}, errors.New("moduledata scan only implemented for 64-bit ELF")
 	}
 
+	gopclntab := in.elf.Section(".gopclntab")
 	if gopclntab == nil {
-		return 0, errors.New("no .gopclntab section")
+		return runtimeModuledata{}, errors.New("no .gopclntab section")
 	}
 
-	mdoffs, err := loadModuledataOffsets(elfF)
+	abi, err := in.moduledataABI()
 	if err != nil {
-		return 0, err
+		return runtimeModuledata{}, err
 	}
 
+	return locateModuledata(in.elf, gopclntab, abi.Moduledata)
+}
+
+// locateModuledata finds runtime.moduledata with the field offsets in mdoffs.
+func locateModuledata(elfF *elf.File, gopclntab *elf.Section, mdoffs goabi.Moduledata) (runtimeModuledata, error) {
 	relocs := buildRelocationInfo(elfF)
 
 	candidates := moduledataCandidates(elfF, gopclntab.Addr, mdoffs, relocs)
@@ -410,38 +427,39 @@ func findRuntimeTextFromModuledata(elfF *elf.File, gopclntab *elf.Section) (uint
 
 		if text, ok := validateModuledata(elfF, candidate, gopclntab.Addr, gopclntab.Size, mdoffs, relocs); ok {
 			ilog.Debug("moduledata found", "candidate", fmt.Sprintf("0x%x", candidate), "text", fmt.Sprintf("0x%x", text))
-			return text, nil
+			return runtimeModuledata{addr: candidate, text: text}, nil
 		}
 	}
 
 	ilog.Debug("moduledata not found", "candidates", len(candidates))
 
-	return 0, errors.New("runtime.moduledata not found")
+	return runtimeModuledata{}, errors.New("runtime.moduledata not found")
 }
 
 func loadModuledataOffsets(elfF *elf.File) (goabi.Moduledata, error) {
-	versionString, _, err := getGoDetails(elfF)
-	if err != nil {
-		return goabi.Moduledata{}, fmt.Errorf("getting Go version: %w", err)
-	}
-	targetVersion, err := goversion.Parse(versionString)
-	if err != nil || targetVersion.Compare(minGoVersion) < 0 {
-		return goabi.Moduledata{}, fmt.Errorf("unsupported Go version: %v. Minimum supported version is %v", versionString, minGoVersion.Release())
-	}
-
-	if targetVersion.Compare(minGoRuntimeTypeMetadataVersion) < 0 {
-		abi, err := loadGeneratedGoRuntimeABI(targetVersion)
-		if err != nil {
-			return goabi.Moduledata{}, err
-		}
-		return abi.Moduledata, nil
-	}
-
-	abi, err := loadGoRuntimeABI(elfF, targetVersion)
+	abi, err := newInspection(elfF).moduledataABI()
 	if err != nil {
 		return goabi.Moduledata{}, err
 	}
 	return abi.Moduledata, nil
+}
+
+// moduledataABI returns the ABI that describes the executable's runtime.moduledata.
+func (in *inspection) moduledataABI() (goabi.ABI, error) {
+	versionString, _, err := getGoDetails(in.elf)
+	if err != nil {
+		return goabi.ABI{}, fmt.Errorf("getting Go version: %w", err)
+	}
+	targetVersion, err := goversion.Parse(versionString)
+	if err != nil || targetVersion.Compare(minGoVersion) < 0 {
+		return goabi.ABI{}, fmt.Errorf("unsupported Go version: %v. Minimum supported version is %v", versionString, minGoVersion.Release())
+	}
+
+	if targetVersion.Compare(minGoRuntimeTypeMetadataVersion) < 0 {
+		return loadGeneratedGoRuntimeABI(targetVersion)
+	}
+
+	return in.runtimeABI()
 }
 
 // findRuntimeTextFromPclntab reads the textStart field from the pcHeader embedded in pclntab.

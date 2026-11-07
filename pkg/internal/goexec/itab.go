@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"maps"
 	"strings"
+	"sync"
 
 	"go.opentelemetry.io/obi/internal/goabi"
 	"go.opentelemetry.io/obi/internal/goversion"
@@ -39,6 +40,11 @@ func iTabType(sym string) string {
 }
 
 func findInterfaceImpls(ef *elf.File) (map[string]uint64, error) {
+	return newInspection(ef).findInterfaceImpls()
+}
+
+func (in *inspection) findInterfaceImpls() (map[string]uint64, error) {
+	ef := in.elf
 	implementations := map[string]uint64{}
 	symbols, err := ef.Symbols()
 	if err != nil {
@@ -67,7 +73,7 @@ func findInterfaceImpls(ef *elf.File) (map[string]uint64, error) {
 	}
 	if targetVersion.Compare(minGoRuntimeTypeMetadataVersion) < 0 {
 		if implementations["*net.TCPConn"] == 0 {
-			address, err := findTCPConnITab(ef)
+			address, err := in.findTCPConnITab()
 			if err != nil {
 				return nil, err
 			}
@@ -78,7 +84,7 @@ func findInterfaceImpls(ef *elf.File) (map[string]uint64, error) {
 		return implementations, nil
 	}
 
-	moduleImplementations, err := findInterfaceImplsFromModuledata(ef, targetVersion)
+	moduleImplementations, err := in.moduledataInterfaceImpls()
 	if err != nil {
 		return nil, err
 	}
@@ -88,12 +94,13 @@ func findInterfaceImpls(ef *elf.File) (map[string]uint64, error) {
 
 // Legacy (< 1.27) stripped binaries retain .itablink and method names in .gopclntab,
 // we try harder here.
-func findTCPConnITab(ef *elf.File) (uint64, error) {
+func (in *inspection) findTCPConnITab() (uint64, error) {
+	ef := in.elf
 	links := ef.Section(".itablink")
 	if links == nil || ef.Class != elf.ELFCLASS64 {
 		return 0, nil
 	}
-	table, err := findGoSymbolTable(ef)
+	table, err := in.goSymbolTable()
 	if err != nil {
 		return 0, err
 	}
@@ -127,17 +134,28 @@ func findTCPConnITab(ef *elf.File) (uint64, error) {
 	return found, nil
 }
 
+// findInterfaceImplsFromModuledata reads the interface implementations with
+// the runtime ABI of targetVersion instead of the executable's own version.
 func findInterfaceImplsFromModuledata(ef *elf.File, targetVersion goversion.Version) (map[string]uint64, error) {
-	if ef.Class != elf.ELFCLASS64 {
+	in := newInspection(ef)
+	in.runtimeABI = sync.OnceValues(func() (goabi.ABI, error) {
+		return loadGoRuntimeABI(ef, targetVersion)
+	})
+	return in.moduledataInterfaceImpls()
+}
+
+// moduledataInterfaceImpls reads the interface implementations from the itabs
+// that runtime.moduledata lists.
+func (in *inspection) moduledataInterfaceImpls() (map[string]uint64, error) {
+	if in.elf.Class != elf.ELFCLASS64 {
 		return nil, errors.New("go runtime metadata discovery only supports 64-bit ELF")
 	}
 
-	gopclntab := ef.Section(".gopclntab")
-	if gopclntab == nil {
+	if in.elf.Section(".gopclntab") == nil {
 		return nil, errors.New("no .gopclntab section")
 	}
 
-	runtimeABI, err := loadGoRuntimeABI(ef, targetVersion)
+	runtimeABI, err := in.runtimeABI()
 	if err != nil {
 		return nil, err
 	}
@@ -146,19 +164,12 @@ func findInterfaceImplsFromModuledata(ef *elf.File, targetVersion goversion.Vers
 	if metadata == nil {
 		return nil, errors.New("go runtime type metadata ABI is unavailable")
 	}
-	relocs := buildRelocationInfo(ef)
-	for _, candidate := range moduledataCandidates(ef, gopclntab.Addr, mdoffs, relocs) {
-		if !inWritableSection(ef, candidate) {
-			continue
-		}
-		if _, ok := validateModuledata(ef, candidate, gopclntab.Addr, gopclntab.Size, mdoffs, relocs); !ok {
-			continue
-		}
-
-		return readGoInterfaceImpls(ef, candidate, mdoffs, metadata, relocs)
+	moduledata, err := in.moduledata()
+	if err != nil {
+		return nil, err
 	}
 
-	return nil, errors.New("runtime.moduledata not found")
+	return readGoInterfaceImpls(in.elf, moduledata.addr, mdoffs, metadata, buildRelocationInfo(in.elf))
 }
 
 func readGoInterfaceImpls(

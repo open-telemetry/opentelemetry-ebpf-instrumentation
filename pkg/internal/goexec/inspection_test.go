@@ -4,8 +4,10 @@
 package goexec
 
 import (
+	"bytes"
 	"debug/dwarf"
 	"debug/elf"
+	"encoding/binary"
 	"os"
 	"os/exec"
 	"runtime"
@@ -17,7 +19,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/tools"
+	obiexec "go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 )
+
+var inspectionFunctions = []string{
+	"net/http.serverHandler.ServeHTTP",
+	"net/http.(*conn).serve",
+	"net/http.(*Transport).roundTrip",
+	"runtime.newproc1",
+	"runtime.goexit1",
+}
 
 type pingServerBuild struct {
 	name string
@@ -26,6 +37,7 @@ type pingServerBuild struct {
 }
 
 var (
+	defaultBuild  = pingServerBuild{name: "default", env: []string{"CGO_ENABLED=0"}}
 	strippedBuild = pingServerBuild{name: "stripped"}
 	nodwarf5Build = pingServerBuild{name: "nodwarf5", env: []string{"CGO_ENABLED=0", "GOEXPERIMENT=nodwarf5"}}
 	// External linking adds the C compile units of runtime/cgo to the DWARF.
@@ -132,4 +144,116 @@ func TestStructMemberOffsetsFallBackToFullWalk(t *testing.T) {
 	assert.NotEmpty(t, offsets)
 	assert.Equal(t, fullOffsets, offsets)
 	assert.Equal(t, fullMissing, missing)
+}
+
+func TestInspectOffsetsLoadsDWARFOnce(t *testing.T) {
+	for _, build := range []pingServerBuild{defaultBuild, strippedBuild, nodwarf5Build} {
+		t.Run(build.name, func(t *testing.T) {
+			file := pingServerELF(t, build)
+			in, loads := countingInspection(file)
+
+			_, err := inspectOffsets(obiexec.New(obiexec.Init{ELF: file}), in, inspectionFunctions)
+			require.NoError(t, err)
+			assert.Equal(t, 1, *loads)
+		})
+	}
+
+	for name, file := range map[string]*elf.File{
+		"no .gopclntab":      emptyELF(t),
+		"no Go build info":   buildTestELF(t, testGopclntabVMA),
+		"unknown Go version": buildTestELF(t, testGopclntabVMA, "unknown"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			in, loads := countingInspection(file)
+
+			_, err := inspectOffsets(obiexec.New(obiexec.Init{ELF: file}), in, inspectionFunctions)
+			require.Error(t, err)
+			assert.Zero(t, *loads)
+		})
+	}
+}
+
+func countingInspection(file *elf.File) (*inspection, *int) {
+	loads := 0
+	in := newInspection(file)
+	in.loadDWARF = func() (*dwarf.Data, error) {
+		loads++
+		return file.DWARF()
+	}
+	return in, &loads
+}
+
+// emptyELF returns a 64-bit ELF with no sections, like a non-Go executable
+// stripped of its section headers.
+func emptyELF(t *testing.T) *elf.File {
+	t.Helper()
+	header := make([]byte, elfHeaderSize)
+	copy(header, elf.ELFMAG)
+	header[elf.EI_CLASS] = byte(elf.ELFCLASS64)
+	header[elf.EI_DATA] = byte(elf.ELFDATA2LSB)
+	header[elf.EI_VERSION] = byte(elf.EV_CURRENT)
+	binary.LittleEndian.PutUint16(header[16:], uint16(elf.ET_EXEC))
+	binary.LittleEndian.PutUint16(header[18:], uint16(elf.EM_X86_64))
+	binary.LittleEndian.PutUint32(header[20:], uint32(elf.EV_CURRENT))
+	binary.LittleEndian.PutUint16(header[52:], elfHeaderSize)
+
+	file, err := elf.NewFile(bytes.NewReader(header))
+	require.NoError(t, err)
+	return file
+}
+
+// TestInspectOffsetsMatchesSeparateLookups checks that sharing one inspection
+// between the InspectOffsets steps gives the same results as running each
+// step on its own.
+func TestInspectOffsetsMatchesSeparateLookups(t *testing.T) {
+	for _, build := range []pingServerBuild{defaultBuild, strippedBuild, nodwarf5Build} {
+		t.Run(build.name, func(t *testing.T) {
+			file := pingServerELF(t, build)
+
+			offsets, err := InspectOffsets(obiexec.New(obiexec.Init{ELF: file}), inspectionFunctions)
+			require.NoError(t, err)
+
+			funcs, err := instrumentationPoints(file, inspectionFunctions)
+			require.NoError(t, err)
+			fields, err := structMemberOffsets(file)
+			require.NoError(t, err)
+			itypes, err := findInterfaceImpls(file)
+			require.NoError(t, err)
+
+			assert.Equal(t, funcs, offsets.Funcs)
+			assert.Equal(t, itypes, offsets.ITypes)
+			assert.Equal(t, deterministicFieldOffsets(fields), deterministicFieldOffsets(offsets.Field))
+		})
+	}
+}
+
+// deterministicFieldOffsets drops the constants that more than one struct in
+// structMembers resolves: the generated offsets table fills them in map
+// iteration order, so they can differ between two lookups on the same file.
+func deterministicFieldOffsets(offsets FieldOffsets) FieldOffsets {
+	owners := map[GoOffset]int{}
+	for _, info := range structMembers {
+		for _, constant := range info.fields {
+			owners[constant]++
+		}
+	}
+
+	result := FieldOffsets{}
+	for constant, value := range offsets {
+		if owners[constant] <= 1 {
+			result[constant] = value
+		}
+	}
+	return result
+}
+
+func BenchmarkInspectOffsets(b *testing.B) {
+	file := pingServerELF(b, defaultBuild)
+	info := obiexec.New(obiexec.Init{ELF: file})
+
+	b.ReportAllocs()
+	for b.Loop() {
+		_, err := InspectOffsets(info, inspectionFunctions)
+		require.NoError(b, err)
+	}
 }

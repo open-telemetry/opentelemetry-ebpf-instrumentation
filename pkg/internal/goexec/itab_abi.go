@@ -31,6 +31,20 @@ func loadGoRuntimeABI(ef *elf.File, targetVersion goversion.Version) (goabi.ABI,
 	)
 }
 
+// runtimeABIVersion returns the executable's Go version if its runtime ABI
+// includes the type metadata that is discovered from DWARF.
+func runtimeABIVersion(ef *elf.File) (goversion.Version, bool) {
+	versionString, _, err := getGoDetails(ef)
+	if err != nil {
+		return goversion.Version{}, false
+	}
+	targetVersion, err := goversion.Parse(versionString)
+	if err != nil || targetVersion.Compare(minGoRuntimeTypeMetadataVersion) < 0 {
+		return goversion.Version{}, false
+	}
+	return targetVersion, true
+}
+
 func resolveGoRuntimeABI(
 	dynamic func() (goabi.ABI, error),
 	generated func() (goabi.ABI, error),
