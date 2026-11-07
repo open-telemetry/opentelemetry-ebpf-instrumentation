@@ -12,8 +12,9 @@ import (
 	"go.opentelemetry.io/obi/internal/goversion"
 )
 
-// runtimeUnit is the compile unit to which the Go linker attaches every Go type.
-const runtimeUnit = "runtime"
+// RuntimeUnit is the DWARF compile unit to which the Go linker attaches every
+// Go type.
+const RuntimeUnit = "runtime"
 
 type dwarfQuery interface {
 	name() string
@@ -88,7 +89,7 @@ func (q fieldQuery) name() string {
 }
 
 func (q fieldQuery) unit() string {
-	return runtimeUnit
+	return RuntimeUnit
 }
 
 func (q fieldQuery) extract(data *dwarf.Data, entry *dwarf.Entry) (uint64, bool, error) {
@@ -117,7 +118,7 @@ func (q sizeQuery) name() string {
 }
 
 func (q sizeQuery) unit() string {
-	return runtimeUnit
+	return RuntimeUnit
 }
 
 func (q sizeQuery) extract(_ *dwarf.Data, entry *dwarf.Entry) (uint64, bool, error) {

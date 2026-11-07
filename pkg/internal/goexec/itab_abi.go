@@ -16,21 +16,6 @@ import (
 	"go.opentelemetry.io/obi/internal/goversion"
 )
 
-func loadGoRuntimeABI(ef *elf.File, targetVersion goversion.Version) (goabi.ABI, error) {
-	return resolveGoRuntimeABI(
-		func() (goabi.ABI, error) {
-			data, err := ef.DWARF()
-			if err != nil {
-				return goabi.ABI{}, err
-			}
-			return goabi.Extract(data, targetVersion)
-		},
-		func() (goabi.ABI, error) {
-			return loadGeneratedGoRuntimeABI(targetVersion)
-		},
-	)
-}
-
 // runtimeABIVersion returns the executable's Go version if its runtime ABI
 // includes the type metadata that is discovered from DWARF.
 func runtimeABIVersion(ef *elf.File) (goversion.Version, bool) {

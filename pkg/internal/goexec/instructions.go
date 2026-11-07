@@ -47,10 +47,6 @@ func isSupportedGoBinary(elfF *elf.File) error {
 
 // instrumentationPoints loads the provided executable and looks for the addresses
 // where the start and return probes must be inserted.
-func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string][]FuncOffsets, error) {
-	return newInspection(elfF).instrumentationPoints(funcNames)
-}
-
 func (in *inspection) instrumentationPoints(funcNames []string) (map[string][]FuncOffsets, error) {
 	elfF := in.elf
 	ilog := slog.With("component", "goexec.instructions")
@@ -434,14 +430,6 @@ func locateModuledata(elfF *elf.File, gopclntab *elf.Section, mdoffs goabi.Modul
 	ilog.Debug("moduledata not found", "candidates", len(candidates))
 
 	return runtimeModuledata{}, errors.New("runtime.moduledata not found")
-}
-
-func loadModuledataOffsets(elfF *elf.File) (goabi.Moduledata, error) {
-	abi, err := newInspection(elfF).moduledataABI()
-	if err != nil {
-		return goabi.Moduledata{}, err
-	}
-	return abi.Moduledata, nil
 }
 
 // moduledataABI returns the ABI that describes the executable's runtime.moduledata.

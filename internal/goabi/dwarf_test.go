@@ -137,7 +137,7 @@ func TestReadDWARFFromDefiningUnitsMatchesFullWalk(t *testing.T) {
 			require.NoError(t, err)
 
 			units := definingUnits(requested)
-			assert.Contains(t, units, runtimeUnit)
+			assert.Contains(t, units, RuntimeUnit)
 			if targetVersion.Compare(go127) >= 0 {
 				assert.Contains(t, units, "internal/abi")
 			}

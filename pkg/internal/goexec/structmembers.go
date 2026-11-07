@@ -14,6 +14,8 @@ import (
 
 	"github.com/grafana/go-offsets-tracker/pkg/offsets"
 	"github.com/hashicorp/go-version"
+
+	"go.opentelemetry.io/obi/internal/goabi"
 )
 
 func log() *slog.Logger {
@@ -845,10 +847,6 @@ var structMembers = map[string]structInfo{
 	},
 }
 
-func structMemberOffsets(elfFile *elf.File) (FieldOffsets, error) {
-	return newInspection(elfFile).structMemberOffsets()
-}
-
 func (in *inspection) structMemberOffsets() (FieldOffsets, error) {
 	elfFile := in.elf
 	// first, try to read offsets from DWARF debug info
@@ -1131,16 +1129,12 @@ func alignRuntimeOffset(offset, alignment uint64) uint64 {
 	return offset + alignment - offset%alignment
 }
 
-// runtimeCompileUnit is the DWARF compile unit to which the Go linker attaches
-// every Go type.
-const runtimeCompileUnit = "runtime"
-
 // structMemberOffsetsFromDwarf reads the executable dwarf information to get
 // the offsets specified in the structMembers map
 func structMemberOffsetsFromDwarf(data *dwarf.Data) (FieldOffsets, map[GoOffset]struct{}) {
 	// The Go linker attaches every Go type to the runtime compile unit, so
 	// decode only that unit.
-	return structMemberOffsetsFromUnitOrAll(data, runtimeCompileUnit)
+	return structMemberOffsetsFromUnitOrAll(data, goabi.RuntimeUnit)
 }
 
 // structMemberOffsetsFromUnitOrAll reads the offsets from the compile unit
@@ -1203,7 +1197,7 @@ func structMemberOffsetsFromUnit(data *dwarf.Data, unit string) (FieldOffsets, m
 			reader.SkipChildren()
 			continue
 		}
-		if !strings.HasPrefix(typeName, runtimeCompileUnit+".") {
+		if !strings.HasPrefix(typeName, goabi.RuntimeUnit+".") {
 			found = true
 		}
 		log.Debug("inspecting fields for struct type", "type", typeName)

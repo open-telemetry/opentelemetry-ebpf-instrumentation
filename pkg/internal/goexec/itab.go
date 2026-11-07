@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"maps"
 	"strings"
-	"sync"
 
 	"go.opentelemetry.io/obi/internal/goabi"
 	"go.opentelemetry.io/obi/internal/goversion"
@@ -37,10 +36,6 @@ func iTabType(sym string) string {
 	}
 
 	return parts[0]
-}
-
-func findInterfaceImpls(ef *elf.File) (map[string]uint64, error) {
-	return newInspection(ef).findInterfaceImpls()
 }
 
 func (in *inspection) findInterfaceImpls() (map[string]uint64, error) {
@@ -132,16 +127,6 @@ func (in *inspection) findTCPConnITab() (uint64, error) {
 		found, concreteType = itab, typeAddress
 	}
 	return found, nil
-}
-
-// findInterfaceImplsFromModuledata reads the interface implementations with
-// the runtime ABI of targetVersion instead of the executable's own version.
-func findInterfaceImplsFromModuledata(ef *elf.File, targetVersion goversion.Version) (map[string]uint64, error) {
-	in := newInspection(ef)
-	in.runtimeABI = sync.OnceValues(func() (goabi.ABI, error) {
-		return loadGoRuntimeABI(ef, targetVersion)
-	})
-	return in.moduledataInterfaceImpls()
 }
 
 // moduledataInterfaceImpls reads the interface implementations from the itabs

@@ -18,9 +18,54 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/obi/internal/goabi"
+	"go.opentelemetry.io/obi/internal/goversion"
 	"go.opentelemetry.io/obi/internal/test/tools"
 	obiexec "go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 )
+
+// The functions below run one step of InspectOffsets on its own inspection.
+
+func instrumentationPoints(elfF *elf.File, funcNames []string) (map[string][]FuncOffsets, error) {
+	return newInspection(elfF).instrumentationPoints(funcNames)
+}
+
+func structMemberOffsets(elfFile *elf.File) (FieldOffsets, error) {
+	return newInspection(elfFile).structMemberOffsets()
+}
+
+func findInterfaceImpls(ef *elf.File) (map[string]uint64, error) {
+	return newInspection(ef).findInterfaceImpls()
+}
+
+func loadModuledataOffsets(elfF *elf.File) (goabi.Moduledata, error) {
+	abi, err := newInspection(elfF).moduledataABI()
+	if err != nil {
+		return goabi.Moduledata{}, err
+	}
+	return abi.Moduledata, nil
+}
+
+// findInterfaceImplsFromModuledata reads the interface implementations with
+// the runtime ABI of targetVersion instead of the executable's own version.
+func findInterfaceImplsFromModuledata(ef *elf.File, targetVersion goversion.Version) (map[string]uint64, error) {
+	in := newInspection(ef)
+	in.runtimeABI = sync.OnceValues(func() (goabi.ABI, error) {
+		return resolveGoRuntimeABI(
+			func() (goabi.ABI, error) {
+				data, err := ef.DWARF()
+				if err != nil {
+					return goabi.ABI{}, err
+				}
+				return goabi.Extract(data, targetVersion)
+			},
+			func() (goabi.ABI, error) {
+				return loadGeneratedGoRuntimeABI(targetVersion)
+			},
+		)
+	})
+	return in.moduledataInterfaceImpls()
+}
 
 var inspectionFunctions = []string{
 	"net/http.serverHandler.ServeHTTP",
@@ -82,7 +127,7 @@ func pingServerELF(tb testing.TB, build pingServerBuild) *elf.File {
 func TestStructMemberOffsetsFromRuntimeUnitMatchFullWalk(t *testing.T) {
 	check := func(t *testing.T, data *dwarf.Data) {
 		t.Helper()
-		offsets, missing, found := structMemberOffsetsFromUnit(data, runtimeCompileUnit)
+		offsets, missing, found := structMemberOffsetsFromUnit(data, goabi.RuntimeUnit)
 		require.True(t, found, "the runtime compile unit holds no library struct of structMembers")
 		fullOffsets, fullMissing, _ := structMemberOffsetsFromUnit(data, "")
 		assert.NotEmpty(t, offsets)
@@ -171,6 +216,14 @@ func TestInspectOffsetsLoadsDWARFOnce(t *testing.T) {
 			assert.Zero(t, *loads)
 		})
 	}
+}
+
+func TestRuntimeABIRejectsGoVersionWithoutTypeMetadata(t *testing.T) {
+	in := newInspection(buildTestELF(t, testGopclntabVMA, "go1.26.4"))
+	in.loadDWARF = func() (*dwarf.Data, error) { return debugData, nil }
+
+	_, err := in.runtimeABI()
+	require.ErrorContains(t, err, "no runtime type metadata ABI")
 }
 
 func countingInspection(file *elf.File) (*inspection, *int) {

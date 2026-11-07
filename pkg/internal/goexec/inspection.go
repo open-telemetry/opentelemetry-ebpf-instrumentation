@@ -6,6 +6,7 @@ package goexec // import "go.opentelemetry.io/obi/pkg/internal/goexec"
 import (
 	"debug/dwarf"
 	"debug/elf"
+	"errors"
 	"sync"
 
 	"go.opentelemetry.io/obi/internal/goabi"
@@ -64,10 +65,13 @@ func (in *inspection) readDWARFFacts() dwarfFacts {
 	return facts
 }
 
-// loadRuntimeABI is loadGoRuntimeABI for the executable's own Go version,
-// using the shared DWARF parse. Callers check runtimeABIVersion first.
+// loadRuntimeABI reads the runtime ABI of the executable's Go version from the
+// shared DWARF parse, or from the generated offsets if DWARF does not have it.
 func (in *inspection) loadRuntimeABI() (goabi.ABI, error) {
-	targetVersion, _ := runtimeABIVersion(in.elf)
+	targetVersion, ok := runtimeABIVersion(in.elf)
+	if !ok {
+		return goabi.ABI{}, errors.New("the Go version of the executable has no runtime type metadata ABI")
+	}
 	return resolveGoRuntimeABI(
 		func() (goabi.ABI, error) {
 			facts := in.dwarf()
