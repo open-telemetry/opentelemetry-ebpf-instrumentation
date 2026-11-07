@@ -56,6 +56,8 @@ static __always_inline void scan_go_http1_buffer(go_http1_header_scan_t *headers
     bpf_clamp_umax(len, k_http1_max_header_bytes);
     http1_read_headers(
         &headers->scan, (const unsigned char *)buffer.array + start, len, k_http1_memory_user);
+    bpf_d_printk(
+        "read headers len=%d, valid=%d, found=%d", len, headers->scan.valid, headers->scan.present);
 }
 
 // The reader buffer keeps the bytes of the last fill until the next fill

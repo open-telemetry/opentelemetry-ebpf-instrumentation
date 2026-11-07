@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"os"
 	"runtime"
 	"testing"
@@ -33,7 +34,18 @@ const wireParentH2ConnID = 77
 
 // Exercise the real plaintext HTTP parser and central resolver through the
 // existing ioctl test entry, with the network's native client identity intact.
+// A fragmented request finds its traceparent only in its second buffer.
 func TestWireParentResolution(t *testing.T) {
+	for _, fragmented := range []bool{false, true} {
+		if fragmented && !ebpfcommon.SupportsEBPFLoops(slog.Default(), false) {
+			t.Log("fragmented HTTP headers require bpf_loop")
+			continue
+		}
+		testWireParentResolution(t, fragmented)
+	}
+}
+
+func testWireParentResolution(t *testing.T, fragmented bool) {
 	for _, h2 := range []bool{false, true} {
 		for _, test := range []struct {
 			name                                         string
@@ -52,10 +64,10 @@ func TestWireParentResolution(t *testing.T) {
 			{name: "no_wire_keeps_thread_lookup", indexed: true, parent: wireParentThread},
 			{name: "invalid_wire_clears_inferred_parent", indexed: true, sameTrace: true, hasWire: true, invalidTrace: true, parent: wireParentNone},
 		} {
-			t.Run(fmt.Sprintf("h2=%t/%s", h2, test.name), func(t *testing.T) {
+			t.Run(fmt.Sprintf("fragmented=%t/h2=%t/%s", fragmented, h2, test.name), func(t *testing.T) {
 				runtime.LockOSThread()
 				defer runtime.UnlockOSThread()
-				objects := loadJavaHTTP1Reservations(t, true)
+				objects := loadJavaHTTP1ReservationsWithLoops(t, true, fragmented)
 				var now unix.Timespec
 				require.NoError(t, unix.ClockGettime(unix.CLOCK_MONOTONIC, &now))
 				nsLink, err := os.Readlink("/proc/self/ns/pid")
@@ -110,15 +122,22 @@ func TestWireParentResolution(t *testing.T) {
 				}
 				key := BpfTraceKeyT{P_key: BpfPidKeyT{Pid: pid, Tid: uint32(unix.Gettid()), Ns: ns}}
 				require.NoError(t, objects.Servers.Update(key, thread, ebpf.UpdateAny))
-				headers := "GET / HTTP/1.1\r\nHost: localhost\r\n"
+				firstHeaders := "GET / HTTP/1.1\r\nHost: localhost\r\n"
 				wireTrace := tp.TraceId
 				if test.invalidTrace {
 					wireTrace = [16]byte{}
 				}
+				lastHeaders := "\r\n"
 				if test.hasWire {
-					headers += "traceparent: 00-" + hex.EncodeToString(wireTrace[:]) + "-" + hex.EncodeToString(wireSpan[:]) + "-01\r\n"
+					lastHeaders = "traceparent: 00-" + hex.EncodeToString(wireTrace[:]) + "-" + hex.EncodeToString(wireSpan[:]) + "-01\r\n" + lastHeaders
 				}
-				javaHTTP1Data(javaHTTP1Packet(40000), javaHTTP1SendOp, []byte(headers+"\r\n"))
+				connection := javaHTTP1Packet(40000)
+				if fragmented {
+					javaHTTP1Data(connection, javaHTTP1SendOp, []byte(firstHeaders))
+					javaHTTP1Data(connection, javaHTTP1SendOp, []byte(lastHeaders))
+				} else {
+					javaHTTP1Data(connection, javaHTTP1SendOp, []byte(firstHeaders+lastHeaders))
+				}
 				var requestKey BpfPidConnectionInfoT
 				var span BpfHttpInfoT
 				var client BpfHttpInfoT

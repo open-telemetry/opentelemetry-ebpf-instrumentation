@@ -1211,6 +1211,10 @@ scan_http1_client_buffer(write_subset_invocation_t *inv, const void *buf, s64 le
                            (const unsigned char *)buf + inv->entry_n,
                            available,
                            k_http1_memory_user);
+        bpf_d_printk("read headers len=%d, valid=%d, found=%d",
+                     len,
+                     inv->headers.valid,
+                     inv->headers.present);
     }
 
     inv->entry_n = len;

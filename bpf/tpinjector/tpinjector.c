@@ -1525,6 +1525,7 @@ static __always_inline bool read_http1_outgoing_headers(struct sk_msg_md *msg,
     }
 
     http1_read_headers(scan, data + pos, len - pos, k_http1_memory_kernel);
+    bpf_d_printk("read headers len=%d, valid=%d, found=%d", len, scan->valid, scan->present);
 
     return true;
 }

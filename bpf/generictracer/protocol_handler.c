@@ -35,16 +35,13 @@ static __always_inline int handle_buf_with_args(void *ctx, bool use_bpf_loop) {
         http_info_t *info = scan ? bpf_map_lookup_elem(&ongoing_http, &args->pid_conn) : NULL;
         if (info && !info->submitted && still_reading(info) &&
             !http_response_direction(info, args->direction) && info->ssl == args->ssl) {
-            continue_http1_header_scan(args, info, scan);
-            info->len += args->bytes_len;
-            return http_send_large_buffer(ctx,
-                                          info,
-                                          &args->pid_conn,
-                                          (void *)args->u_buf,
-                                          args->bytes_len,
-                                          PACKET_TYPE_REQUEST,
-                                          args->direction,
-                                          k_large_buf_action_append);
+            if (continue_http1_header_scan(args, info, scan)) {
+                // Adopting it can search for the client's parent span, which is more
+                // than the verifier can explore together with the header scan.
+                preempt_guarded_tail_call_static(ctx, &jump_table, k_tail_protocol_http_inherit_tp);
+                bpf_map_delete_elem(&http1_header_scans, &args->pid_conn);
+            }
+            return append_http1_request_buffer(ctx, args, info);
         }
     }
 

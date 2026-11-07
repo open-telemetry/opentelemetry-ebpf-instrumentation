@@ -846,6 +846,11 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 			spec.Programs["obi_protocol_http2_grpc_handle_start_frame_server_huffscan"] = dummy
 		}
 
+		// only the bpf_loop HTTP/1 header scan tail calls it
+		if _, ok := spec.Programs["obi_protocol_http_inherit_tp"]; ok {
+			spec.Programs["obi_protocol_http_inherit_tp"] = dummy
+		}
+
 	}
 
 	// Slot dummies in place of the legacy programs we already moved, so the
