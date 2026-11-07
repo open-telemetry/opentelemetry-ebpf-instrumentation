@@ -1,0 +1,29 @@
+name: java routes custom
+fixture:
+  compose:
+    files:
+    - docker-compose-java-routes-custom.yml
+    - ../weaver/docker-compose-weaver.yml
+    env:
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
+    app_service: testserver
+    app_port: 8085
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+input:
+- path: /greeting123/obitest
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+expected:
+  traces:
+  - traceql: '{ .http.route = "/greeting123/{bla}" }'
+    match_spans:
+    - name: GET /greeting123/{bla}
+      attributes:
+      - key: server.port
+        value: '8085'
+      - key: url.path
+        value: /greeting123/obitest

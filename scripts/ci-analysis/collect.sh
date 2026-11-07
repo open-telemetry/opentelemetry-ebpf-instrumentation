@@ -46,7 +46,7 @@ GOTESTSUM_WORKFLOWS=(
 )
 
 # Workflows tracked at job level only (no gotestsum JSON artifacts).
-# OATS uses Ginkgo, so test-level parsing is not supported yet.
+# OATS CLI output is not exported in gotestsum's JSON format.
 JOB_ONLY_WORKFLOWS=(
   "Integration tests VM"
   "OATS tests"

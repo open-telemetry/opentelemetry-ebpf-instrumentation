@@ -1,0 +1,38 @@
+name: python outgoing unknown
+fixture:
+  compose:
+    files:
+    - docker-compose-python-unknown.yml
+    - ../weaver/docker-compose-weaver.yml
+    env:
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
+    app_service: testserver
+    app_port: 8080
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+input:
+- path: /unknown
+  # The handler waits up to 10s per outbound request; 45s allows multiple completions for the >1 counters.
+  retry:
+    timeout: 45s
+    interval: 500ms
+    continue_after_success: true
+expected:
+  traces:
+  - traceql: '{ name="CONNECT" && status = error }'
+    match_spans:
+    - name: CONNECT
+      attributes:
+      - key: server.port
+        value: '80'
+      - key: client.address
+        value: testserver
+      - key: server.address
+        value: 8.8.8.9
+  metrics:
+  - promql: traces_spanmetrics_latency_count{service_name="testserver", span_name="CONNECT",
+      status_code="STATUS_CODE_ERROR", span_kind="SPAN_KIND_CLIENT" }
+    value: '> 1'
+  - promql: traces_service_graph_request_failed_total{client="testserver", server="outgoing"}
+    value: '> 1'

@@ -1,0 +1,73 @@
+name: qwen
+fixture:
+  compose:
+    files:
+    - docker-compose-qwen.yml
+    - ../weaver/docker-compose-weaver.yml
+    env:
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
+    app_service: testserver
+    app_port: 8080
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+input:
+- path: /chat
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+- path: /generation
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+- path: /error
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+expected:
+  traces:
+  # Compatible mode chat completion
+  - traceql: '{ .gen_ai.provider.name = "qwen" && .gen_ai.request.model = "qwen-plus" && .gen_ai.response.id = "chatcmpl-a1ad370d-b4b0-90bb-9a87-a131fd0687d6"}'
+    match_spans:
+    - name: chat qwen-plus
+      attributes:
+      - key: gen_ai.operation.name
+        value: chat
+      - key: gen_ai.response.model
+        value: qwen-plus
+      - key: gen_ai.usage.input_tokens
+        value: 22
+      - key: gen_ai.usage.output_tokens
+        value: 66
+  # DashScope generation endpoint
+  - traceql: '{ .gen_ai.provider.name = "qwen" && .gen_ai.request.model = "qwen-turbo" && .gen_ai.response.id = "req_abcdef0123456789"}'
+    match_spans:
+    - name: generation qwen-turbo
+      attributes:
+      - key: gen_ai.operation.name
+        value: generation
+      - key: gen_ai.response.model
+        value: qwen-turbo
+      - key: gen_ai.usage.input_tokens
+        value: 12
+      - key: gen_ai.usage.output_tokens
+        value: 10
+  # Error case
+  - traceql: '{ .error.type = "insufficient_quota" && .gen_ai.provider.name = "qwen" && .gen_ai.request.model = "qwen-plus" && .gen_ai.response.id = "chatcmpl-err-429-insufficient-quota"}'
+    match_spans:
+    - name: chat qwen-plus
+      attributes:
+      - key: gen_ai.operation.name
+        value: chat
+      - key: gen_ai.provider.name
+        value: qwen
+  metrics:
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="chat",gen_ai_provider_name="qwen",gen_ai_token_type="input",gen_ai_request_model="qwen-plus",gen_ai_response_model="qwen-plus"}
+    value: '> 0'
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="chat",gen_ai_provider_name="qwen",gen_ai_token_type="output",gen_ai_request_model="qwen-plus",gen_ai_response_model="qwen-plus"}
+    value: '> 0'
+  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="chat",gen_ai_provider_name="qwen",gen_ai_request_model="qwen-plus",gen_ai_response_model="qwen-plus"}
+    value: '> 0'

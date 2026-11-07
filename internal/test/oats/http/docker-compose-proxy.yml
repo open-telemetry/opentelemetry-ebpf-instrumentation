@@ -9,9 +9,7 @@ services:
       - "8080:8080"
   # eBPF auto instrumenter
   autoinstrumenter:
-    build:
-      context: ../../../..
-      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    image: hatest-obi
     command:
       - --config=/configs/instrumenter-config-proxy.yml
     volumes:
