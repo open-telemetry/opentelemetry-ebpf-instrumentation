@@ -29,7 +29,7 @@
 #include <generictracer/maps/h2_cut_frames.h>
 #include <generictracer/maps/http2_info_mem.h>
 
-#include <generictracer/maps/ongoing_http2_grpc.h>
+#include <maps/ongoing_http2_grpc.h>
 
 #include <maps/active_ssl_connections.h>
 #include <maps/ongoing_http2_connections.h>
@@ -231,7 +231,10 @@ static __always_inline void http2_grpc_start_finalize_server(http2_conn_stream_t
     t_key.extra_id = extra_runtime_id();
     bpf_map_update_elem(&server_traces, &t_key, tp_p, BPF_ANY);
 
-    bpf_map_update_elem(&ongoing_http2_grpc, s_key, h2g_info, BPF_ANY);
+    if (bpf_map_update_elem(&ongoing_http2_grpc, s_key, h2g_info, BPF_ANY) == 0 &&
+        http_server_index_enabled()) {
+        index_http_server_context(s_key, &h2g_info->tp);
+    }
 }
 
 static __always_inline void http2_grpc_start(void *ctx,
@@ -391,6 +394,8 @@ http2_grpc_end(http2_conn_stream_t *stream, http2_grpc_request_t *prev_info, voi
         }
         if (prev_info->type == k_event_type_http_client) {
             obi_ctx__restore_server(&prev_info->tp);
+        } else if (prev_info->type == k_event_type_http_request && http_server_index_enabled()) {
+            unindex_http_server_trace(stream->pid_conn.pid, &prev_info->tp);
         }
     }
 

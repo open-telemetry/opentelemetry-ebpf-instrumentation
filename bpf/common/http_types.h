@@ -52,7 +52,7 @@ typedef struct call_protocol_args {
     protocol_selector_t protocols;
     u8 skip_tp_parsing;
     u8 use_bpf_loop;
-    u8 pad[1];
+    u8 wire_tp_found;
     int bytes_len;
     u16 orig_dport;
     u16 _pad2;

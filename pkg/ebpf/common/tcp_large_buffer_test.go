@@ -134,7 +134,11 @@ func TestTCPLargeBuffers(t *testing.T) {
 func TestTCPLargeBufferRekey(t *testing.T) {
 	pctx := NewEBPFParseContext(nil, nil, nil)
 	previousTraceID := [16]uint8{'o', 'l', 'd'}
+	previousSpanID := [8]uint8{'s'}
 	adoptedTraceID := [16]uint8{'n', 'e', 'w'}
+	// a client adopts its own traceparent's span as well
+	adoptedSpanID := [8]uint8{'c'}
+	previousIDs := string(previousTraceID[:]) + string(previousSpanID[:])
 
 	event := TCPLargeBufferHeader{
 		Type:       12,
@@ -143,7 +147,7 @@ func TestTCPLargeBufferRekey(t *testing.T) {
 		Kind:       uint8(KindLayerApp),
 	}
 	event.Tp.TraceId = previousTraceID
-	event.Tp.SpanId = [8]uint8{'s'}
+	event.Tp.SpanId = previousSpanID
 	event.ConnInfo = BpfConnectionInfoT{D_port: 8080}
 	send := func(event TCPLargeBufferHeader, payload string) {
 		t.Helper()
@@ -158,25 +162,27 @@ func TestTCPLargeBufferRekey(t *testing.T) {
 	rekey := event
 	rekey.Action = largeBufferActionRekey
 	rekey.Tp.TraceId = adoptedTraceID
-	send(rekey, string(previousTraceID[:]))
+	rekey.Tp.SpanId = adoptedSpanID
+	send(rekey, previousIDs)
 
 	appendEvent := rekey
 	appendEvent.Action = largeBufferActionAppend
 	send(appendEvent, "Traceparent: x\r\n\r\n")
 
-	_, ok := extractTCPLargeBuffer(pctx, previousTraceID, event.Tp.SpanId, event.PacketType, event.Direction, event.ConnInfo, ProtocolTypeHTTP)
-	require.False(t, ok, "the buffer must move to the adopted trace ID")
-	buf, ok := extractTCPLargeBuffer(pctx, adoptedTraceID, event.Tp.SpanId, event.PacketType, event.Direction, event.ConnInfo, ProtocolTypeHTTP)
+	_, ok := extractTCPLargeBuffer(pctx, previousTraceID, previousSpanID, event.PacketType, event.Direction, event.ConnInfo, ProtocolTypeHTTP)
+	require.False(t, ok, "the buffer must move to the adopted trace and span")
+	buf, ok := extractTCPLargeBuffer(pctx, adoptedTraceID, adoptedSpanID, event.PacketType, event.Direction, event.ConnInfo, ProtocolTypeHTTP)
 	require.True(t, ok)
 	require.Equal(t, "GET / HTTP/1.1\r\nTraceparent: x\r\n\r\n", unix.ByteSliceToString(buf.UnsafeView()))
 
-	// Nothing was sent under the previous trace ID: the rekey is a no-op.
-	send(rekey, string(previousTraceID[:]))
-	_, ok = extractTCPLargeBuffer(pctx, adoptedTraceID, event.Tp.SpanId, event.PacketType, event.Direction, event.ConnInfo, ProtocolTypeHTTP)
+	// Nothing was sent under the previous IDs: the rekey is a no-op.
+	send(rekey, previousIDs)
+	_, ok = extractTCPLargeBuffer(pctx, adoptedTraceID, adoptedSpanID, event.PacketType, event.Direction, event.ConnInfo, ProtocolTypeHTTP)
 	require.False(t, ok)
 
-	rekey.Len = 1
-	_, _, err := appendTCPLargeBuffer(pctx, toRingbufRecord(t, rekey, "x"))
+	// the trace ID alone is not a valid payload
+	rekey.Len = uint32(len(previousTraceID))
+	_, _, err := appendTCPLargeBuffer(pctx, toRingbufRecord(t, rekey, string(previousTraceID[:])))
 	require.Error(t, err)
 }
 

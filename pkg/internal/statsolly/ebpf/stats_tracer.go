@@ -37,6 +37,7 @@ type probe struct {
 const (
 	progObiStatsKprobeTCPCloseSrtt                        = "obi_stats_kprobe_tcp_close_srtt"
 	progObiStatsKprobeTCPCloseIoFlush                     = "obi_stats_kprobe_tcp_close_io_flush"
+	progObiStatsTpTCPDestroySock                          = "obi_stats_tp_tcp_destroy_sock"
 	progObiStatsTpInetSockSetStateConnRole                = "obi_stats_tp_inet_sock_set_state_conn_role"
 	progObiStatsTpInetSockSetStateTCPFailedConnection     = "obi_stats_tp_inet_sock_set_state_tcp_failed_connection"
 	progObiStatsTpInetSockSetStateTCPSuccessfulConnection = "obi_stats_tp_inet_sock_set_state_tcp_successful_connection"
@@ -57,6 +58,7 @@ const (
 
 	// Tracepoints: group/name, are validated by TestTracepointConstantFormat
 	TracepointInetSockSetState = "sock/inet_sock_set_state"
+	TracepointTCPDestroySock   = "tcp/tcp_destroy_sock"
 
 	// Raw tracepoints: name only (no group prefix).
 	RawTracepointTCPRetransmitSkb = "tcp_retransmit_skb"
@@ -112,7 +114,7 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 		toDisable = append(toDisable, progObiStatsTpInetSockSetStateTCPSuccessfulConnection)
 	}
 	if !connRoleUsed {
-		toDisable = append(toDisable, progObiStatsTpInetSockSetStateConnRole)
+		toDisable = append(toDisable, progObiStatsTpInetSockSetStateConnRole, progObiStatsTpTCPDestroySock)
 	}
 	if !features.StatsTCPRtt() {
 		toDisable = append(toDisable, progObiStatsKprobeTCPCloseSrtt)
@@ -199,12 +201,6 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	}
 
 	// tracepoints
-	// ObiStatsTpInetSockSetStateTcpFailedConnection (or any other probes that use role)
-	// must be attached before ObiStatsTpInetSockSetStateConnRole.
-	// Both attach to the same tracepoint and BPF programs run FIFO:
-	// the probes read sock_role first, conn_role deletes it after.
-	// Swapping the order would cause tcp_failed_conn or any other probes
-	// to see NULL on the same TCP_CLOSE event that conn_role is cleaning up.
 	for _, t := range []probe{
 		{
 			name:    TracepointInetSockSetState,
@@ -215,6 +211,12 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 			name:    TracepointInetSockSetState,
 			program: objects.ObiStatsTpInetSockSetStateTcpFailedConnection,
 			enabled: features.StatsTCPFailedConnections(),
+		},
+		// attached before conn_role, so no sock_role entry is written without its delete
+		{
+			name:    TracepointTCPDestroySock,
+			program: objects.ObiStatsTpTcpDestroySock,
+			enabled: connRoleUsed,
 		},
 		{
 			name:    TracepointInetSockSetState,

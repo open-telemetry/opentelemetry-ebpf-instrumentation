@@ -10,13 +10,11 @@
 typedef struct http1_pending_headers {
     http1_header_scan_t scan;
     u32 request_head; // first bytes of the request, to recognise its corked message
-    tp_info_t parent_tp;
     tp_info_pid_t client_tp;
-    bool has_parent_tp;
     bool has_client_tp;
     bool pending;
     u8 cork_rounds;
-    u8 _pad[4];
+    u8 _pad[5];
 } http1_pending_headers_t;
 
 struct {

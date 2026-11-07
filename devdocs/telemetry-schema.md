@@ -148,6 +148,11 @@ section empty once drained.
 - HTTP server spans and metrics now derive `server.address` from the captured HTTP request
   host, without its port, instead of the resolved service name. When the request host is
   unavailable, the OTLP attribute is omitted and the Prometheus label is empty.
+- The Prometheus `bpf_probe_latency_seconds` histogram (`ebpf` metrics feature) exposes
+  cumulative `le` bucket counts for every bound, including empty buckets, instead of
+  per-bucket counts for the bounds that received executions only. Bucket values grow and new
+  `le` series appear, and `histogram_quantile` over this metric now returns correct values.
+  The OTLP `obi.bpf.probe.latency` histogram is unchanged.
 
 ## Hosting notes
 
