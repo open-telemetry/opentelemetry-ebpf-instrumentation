@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
+	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
 )
 
 func TestSuite_ConfigV2Standalone(t *testing.T) {
@@ -52,6 +53,50 @@ func TestSuite_ConfigV2Standalone(t *testing.T) {
 		require.Contains(ct, string(body), "http_server_request_duration_seconds_count")
 		require.Contains(ct, string(body), `http_route="/smoke"`)
 	}, 2*testTimeout, time.Second)
+
+	const requestPath = "/request-phases"
+	traceID := createTraceID()
+	doHTTPGetWithTraceparent(t, instrumentedServiceStdURL+requestPath+"?delay=10ms", http.StatusOK,
+		createTraceparent(traceID, createParentID()))
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		trace, err := latestTraceMatching("testserver", func(trace jaeger.Trace) bool {
+			return trace.TraceID == traceID
+		})
+		require.NoError(ct, err)
+		require.Len(ct, trace.Spans, 3)
+		assert.Len(ct, trace.FindByOperationName("GET "+requestPath, "server"), 1)
+		assert.Len(ct, trace.FindByOperationName("in queue", "internal"), 1)
+		assert.Len(ct, trace.FindByOperationName("processing", "internal"), 1)
+	}, testTimeout, 100*time.Millisecond)
+}
+
+func TestSuite_ConfigV2RequestPhaseSpansDisabled(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose.yml", path.Join(pathOutput, "test-suite-config-v2-request-phase-spans-disabled.log"))
+	require.NoError(t, err)
+	compose.Env = append(compose.Env, "INSTRUMENTER_CONFIG_SUFFIX=-v2-disable-request-phase-spans")
+	require.NoError(t, compose.Up())
+	t.Cleanup(func() {
+		require.NoError(t, compose.Close())
+	})
+
+	waitForHTTPServerTrace(t, instrumentedServiceStdURL, "testserver")
+
+	requireOBIConfigV2(t, compose, `"cmd":"/testserver"`)
+
+	const requestPath = "/request-phases-disabled"
+	traceID := createTraceID()
+	doHTTPGetWithTraceparent(t, instrumentedServiceStdURL+requestPath+"?delay=10ms", http.StatusOK,
+		createTraceparent(traceID, createParentID()))
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		trace, err := latestTraceMatching("testserver", func(trace jaeger.Trace) bool {
+			return trace.TraceID == traceID
+		})
+		require.NoError(ct, err)
+		require.Len(ct, trace.Spans, 1, "only the HTTP server span should be exported when request phase spans are disabled")
+		assert.Len(ct, trace.FindByOperationName("GET "+requestPath, "server"), 1)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func requireOBIConfigV2(t *testing.T, compose *docker.Compose, target string) {

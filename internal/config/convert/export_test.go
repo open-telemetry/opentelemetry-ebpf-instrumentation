@@ -997,6 +997,42 @@ func TestRuntimeToV2HTTPBodySizeMetrics(t *testing.T) {
 	})
 }
 
+func TestRuntimeToV2RequestPhaseSpansRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		httpDisabled bool
+	}{
+		{name: "enabled"},
+		{name: "HTTP disabled", httpDisabled: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := defaultRuntimeConfig()
+			cfg.Traces.DisableHTTPRequestPhaseSpans = tt.httpDisabled
+
+			doc, _ := RuntimeToV2(&cfg)
+
+			data, err := yaml.Marshal(doc)
+			require.NoError(t, err)
+
+			parsedDoc, parsedExt, err := schema.ParseStandaloneYAML(data)
+			require.NoError(t, err)
+
+			require.Equal(t, !tt.httpDisabled, value(t, parsedExt.Capture.Instrumentation, "http", "enabled", "request_phase_spans"))
+
+			got, err := DocumentToRuntime(parsedDoc)
+			require.NoError(t, err)
+
+			require.Equal(t, tt.httpDisabled, got.Traces.DisableHTTPRequestPhaseSpans)
+		})
+	}
+}
+
 func TestRuntimeToV2MetricInstrumentationsUseEnabledExporters(t *testing.T) {
 	t.Parallel()
 
