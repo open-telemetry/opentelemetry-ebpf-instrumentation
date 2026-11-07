@@ -662,6 +662,8 @@ static __always_inline void http_rekey_request_large_buffer(const http_info_t *i
         return;
     }
 
+    bpf_d_printk("rekeying large request buffers, lb_req_bytes=%d", info->lb_req_bytes);
+
     tcp_large_buffer_t *large_buf = (tcp_large_buffer_t *)tcp_large_buffers_mem();
     if (!large_buf) {
         return;
@@ -708,6 +710,10 @@ static __always_inline void inherit_http1_server_traceparent(const call_protocol
     __builtin_memcpy(previous_trace_id, info->tp.trace_id, sizeof(previous_trace_id));
 
     inherit_http1_traceparent(&info->tp, header, info->type);
+    bpf_d_printk("server inherits late traceparent, owner=%d, aux=%d, goroutine=%d",
+                 owner != NULL,
+                 aux != NULL,
+                 goroutine_tp != NULL);
 
     if (owner) {
         owner->tp = info->tp;
@@ -734,6 +740,7 @@ static __always_inline void resolve_http1_client_parent(const call_protocol_args
                                                         http_info_t *info) {
     info->parent_status = find_trace_for_wire_client_request(
         &args->pid_conn, args->orig_dport, args->lw_thread, &info->tp);
+    bpf_d_printk("client inherits late traceparent, parent_status=%d", info->parent_status);
 
     set_http1_connection_trace(args, info, TRACE_TYPE_CLIENT);
 }
@@ -778,6 +785,10 @@ static __always_inline void read_http1_request_headers(http1_header_scan_t *scan
     const bool truncated = args->user_buf != 0;
     const unsigned char *src = (const unsigned char *)(truncated ? args->user_buf : args->u_buf);
     const u32 len = truncated ? args->user_len : (u32)args->bytes_len;
+    if (truncated) {
+        bpf_d_printk("reading headers past the copy, copied=%d, len=%d", args->bytes_len, len);
+    }
+
     http1_read_headers(scan, src, len, k_http1_memory_any);
     bpf_d_printk("read headers len=%d, valid=%d, found=%d", len, scan->valid, scan->present);
 }
@@ -807,6 +818,7 @@ static __always_inline bool continue_http1_header_scan(const call_protocol_args_
     }
 
     if (http1_traceparent_usable(scan, info->type)) {
+        bpf_d_printk("late traceparent found, type=%d, bytes=%d", info->type, scan->bytes);
         return true;
     }
 
@@ -859,6 +871,8 @@ static __always_inline unsigned char *start_http1_header_scan(const call_protoco
     read_http1_request_headers(scan, args);
 
     if (scan->phase != k_http1_headers_done) {
+        bpf_d_printk(
+            "headers continue in the next buffer, phase=%d, bytes=%d", scan->phase, scan->bytes);
         bpf_map_update_elem(&http1_header_scans, &args->pid_conn, scan, BPF_ANY);
         return NULL;
     }

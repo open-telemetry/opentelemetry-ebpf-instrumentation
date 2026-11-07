@@ -1361,18 +1361,25 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     if (g_bpf_loop_enabled && msg->sk) {
         http1_pending_headers_t *headers = bpf_sk_storage_get(&sk_http1_headers, msg->sk, NULL, 0);
         if (headers && headers->pending) {
+            bpf_d_printk("pending http1 headers, size=%d, scanned=%d, cork_rounds=%d",
+                         msg->size,
+                         headers->scan.bytes,
+                         headers->cork_rounds);
+
             if (corked_http1_request(msg, headers)) {
                 t_ctx->http1_has_tp = headers->has_client_tp;
 
                 // A successful tail call does not return and leaves the scan pending
                 // for the next program to resume. Only a failed one gets here.
                 bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
+                bpf_d_printk("tailcall failed [%s]", __FUNCTION__);
 
                 release_http1_headers(msg, headers);
                 return SK_PASS;
             }
 
             // The kernel sent the corked bytes anyway: this message starts fresh.
+            bpf_d_printk("corked http1 headers were sent uncorked, size=%d", msg->size);
             release_http1_headers(msg, headers);
         }
     }
@@ -1557,17 +1564,32 @@ static __always_inline bool http1_versioned_request_line(const struct sk_msg_md 
 static __always_inline bool http1_should_cork(const struct sk_msg_md *msg,
                                               const http1_pending_headers_t *headers) {
     if (headers->cork_rounds >= k_http1_max_cork_rounds) {
+        bpf_d_printk("http1 cork limit reached, cork_rounds=%d", headers->cork_rounds);
         return false;
     }
 
-    return headers->scan.phase == k_http1_request_line ||
-           http1_versioned_request_line(msg, &headers->scan);
+    if (headers->scan.phase == k_http1_request_line) {
+        return true;
+    }
+
+    const bool versioned = http1_versioned_request_line(msg, &headers->scan);
+    if (!versioned) {
+        bpf_d_printk("not an HTTP/1.x request line, request_line_end=%d",
+                     headers->scan.request_line_end);
+    }
+
+    return versioned;
 }
 
 static __always_inline int finish_http1_outgoing_scan(struct sk_msg_md *msg,
                                                       http1_pending_headers_t *headers,
                                                       tailcall_ctx *t_ctx,
                                                       tp_info_pid_t *tp) {
+    bpf_d_printk("finished http1 scan, phase=%d, bytes=%d, cork_rounds=%d",
+                 headers->scan.phase,
+                 headers->scan.bytes,
+                 headers->cork_rounds);
+
     release_http1_headers(msg, headers);
     t_ctx->http1_has_tp = headers->has_client_tp;
 
@@ -1606,12 +1628,21 @@ static __always_inline int scan_http1_outgoing_headers(struct sk_msg_md *msg, ta
     }
 
     if (!read_http1_outgoing_headers(msg, &headers->scan)) {
+        bpf_d_printk("can't read http1 headers, size=%d", msg->size);
         release_http1_headers(msg, headers);
         return SK_PASS;
     }
 
+    bpf_d_printk("http1 scan phase=%d, bytes=%d, request_line_end=%d",
+                 headers->scan.phase,
+                 headers->scan.bytes,
+                 headers->scan.request_line_end);
+
     if (headers->scan.phase != k_http1_headers_done && http1_should_cork(msg, headers)) {
         headers->cork_rounds++;
+        bpf_d_printk("corking http1 headers, cork_rounds=%d, cork_bytes=%d",
+                     headers->cork_rounds,
+                     headers->scan.bytes + 1);
         bpf_msg_cork_bytes(msg, headers->scan.bytes + 1);
         return SK_PASS;
     }
