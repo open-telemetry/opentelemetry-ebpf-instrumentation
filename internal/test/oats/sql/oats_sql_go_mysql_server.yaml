@@ -1,0 +1,34 @@
+name: "sql go mysql server"
+fixture:
+  compose:
+    template: lgtm
+    files:
+      - "docker-compose-obi-mysqlserver.yml"
+      - ../weaver/docker-compose-weaver.yml
+    env:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
+    app_service: testserver
+    app_port: 8080
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+input:
+- path: /mysqltest
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+interval: 500ms
+expected:
+  traces:
+  - traceql: '{ kind=server && name="SELECT students" && .db.operation.name = "SELECT" && .db.system.name = "mysql" }'
+    match_spans:
+      - match_type: strict
+        name: "SELECT students"
+        attributes:
+          - key: db.operation.name
+            value: "SELECT"
+          - key: db.collection.name
+            value: "students"
+          - key: db.system.name
+            value: "mysql"

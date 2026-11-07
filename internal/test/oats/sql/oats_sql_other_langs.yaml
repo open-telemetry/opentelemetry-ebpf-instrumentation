@@ -1,0 +1,47 @@
+name: "sql other langs"
+fixture:
+  compose:
+    template: lgtm
+    files:
+      - "docker-compose-obi-sql.yml"
+      - ../weaver/docker-compose-weaver.yml
+    env:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
+    app_service: testserver
+    app_port: 8080
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+input:
+- path: /query
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+interval: 500ms
+expected:
+  traces:
+  - traceql: '{ .db.operation.name = "SELECT" && .db.system.name = "postgresql"}'
+    match_spans:
+      - match_type: strict
+        name: "SELECT accounting.contacts"
+        attributes:
+          - key: db.operation.name
+            value: "SELECT"
+          - key: db.collection.name
+            value: "accounting.contacts"
+          - key: db.system.name
+            value: "postgresql"
+          - key: db.query.text
+            value: "SELECT * FROM accounting.contacts WHERE id = 1"
+          - key: service.peer.name
+            value: "sqlserver"
+  metrics:
+  - promql: db_client_operation_duration_seconds_sum{db_system_name="postgresql"}
+    value: '> 0'
+  - promql: db_client_operation_duration_seconds_bucket{le="0", db_system_name="postgresql"}
+    value: == 0
+  - promql: db_client_operation_duration_seconds_bucket{le="10", db_system_name="postgresql"}
+    value: '> 0'
+  - promql: db_client_operation_duration_seconds_count{db_system_name="postgresql", server_address="sqlserver"}
+    value: '> 0'

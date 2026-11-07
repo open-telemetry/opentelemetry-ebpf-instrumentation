@@ -1,0 +1,102 @@
+name: python memcached
+fixture:
+  compose:
+    files:
+    - docker-compose-obi-python-memcached.yml
+    - ../weaver/docker-compose-weaver.yml
+    env:
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
+    app_service: testserver
+    app_port: 8080
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+input:
+  - path: /memcached
+    retry:
+      timeout: 10s
+      interval: 500ms
+      continue_after_success: true
+  - path: /memcached-error
+    retry:
+      timeout: 10s
+      interval: 500ms
+      continue_after_success: true
+  - path: /memcached-noreply
+    retry:
+      timeout: 10s
+      interval: 500ms
+      continue_after_success: true
+expected:
+  traces:
+    - traceql: '{ .db.operation.name = "SET" && .db.system.name = "memcached" }'
+      match_spans:
+        - name: SET
+          attributes:
+            - key: db.operation.name
+              value: SET
+            - key: db.query.text
+              value: session-key
+            - key: db.system.name
+              value: memcached
+            - key: server.port
+              value: "11211"
+    - traceql: '{ .db.operation.name = "GET" && .db.system.name = "memcached" }'
+      match_spans:
+        - name: GET
+          attributes:
+            - key: db.operation.name
+              value: GET
+            - key: db.query.text
+              value: session-key
+            - key: db.system.name
+              value: memcached
+            - key: server.port
+              value: "11211"
+    - traceql: '{ .db.operation.name = "DELETE" && .db.system.name = "memcached" }'
+      match_spans:
+        - name: DELETE
+          attributes:
+            - key: db.operation.name
+              value: DELETE
+            - key: db.query.text
+              value: session-key
+            - key: db.system.name
+              value: memcached
+            - key: server.port
+              value: "11211"
+    - traceql: '{ .db.system.name = "memcached" && status = error }'
+      match_spans:
+        - name: INCR
+          attributes:
+            - key: db.operation.name
+              value: INCR
+            - key: db.query.text
+              value: error-key
+            - key: db.response.status_code
+              value: CLIENT_ERROR
+            - key: db.system.name
+              value: memcached
+    - traceql: '{ .db.operation.name = "TOUCH" && .db.system.name = "memcached" }'
+      match_spans:
+        - name: TOUCH
+          attributes:
+            - key: db.operation.name
+              value: TOUCH
+            - key: db.query.text
+              value: touch-key
+            - key: db.system.name
+              value: memcached
+            - key: server.port
+              value: "11211"
+  metrics:
+    - promql: db_client_operation_duration_seconds_count{db_operation_name="SET", db_system_name="memcached"}
+      value: '> 0'
+    - promql: db_client_operation_duration_seconds_count{db_operation_name="GET", db_system_name="memcached"}
+      value: '> 0'
+    - promql: db_client_operation_duration_seconds_count{db_operation_name="DELETE", db_system_name="memcached"}
+      value: '> 0'
+    - promql: db_client_operation_duration_seconds_count{db_operation_name="INCR", error_type="CLIENT_ERROR", db_system_name="memcached"}
+      value: '> 0'
+    - promql: db_client_operation_duration_seconds_count{db_operation_name="TOUCH", db_system_name="memcached"}
+      value: '> 0'
