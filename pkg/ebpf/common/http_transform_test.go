@@ -241,7 +241,7 @@ func TestToRequestTrace(t *testing.T) {
 		End:          789012,
 		HostPort:     1,
 		Service:      svc.Attrs{},
-		Statement:    "http;",
+		Statement:    "http;example.com",
 	}
 	assert.Equal(t, expected, result)
 }
@@ -372,6 +372,17 @@ func TestHTTPInfoEventToSpan_HostHeaderCase(t *testing.T) {
 			assert.Equal(t, "http;example.com", span.Statement)
 		})
 	}
+}
+
+func TestHTTPRequestToSpanCapturesServerHost(t *testing.T) {
+	event := makeBPFInfoWithBuf([]byte("GET /users/7 HTTP/1.1\r\nHost: example.com\r\n\r\n"))
+	event.Type = uint8(request.EventTypeHTTP)
+	event.ConnInfo.S_port = 49152
+	event.ConnInfo.D_port = 8080
+
+	span := httpRequestToSpan(&event, largebuf.NewLargeBufferFrom(event.Buf[:]))
+
+	assert.Equal(t, "example.com", request.HostFromSchemeHost(&span))
 }
 
 func TestHTTPInfoParsing(t *testing.T) {

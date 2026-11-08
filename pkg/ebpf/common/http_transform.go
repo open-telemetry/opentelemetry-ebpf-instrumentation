@@ -651,7 +651,7 @@ func httpRequestToSpan(event *BPFHTTPInfo, requestBuffer *largebuf.LargeBuffer) 
 	result.Method = httpMethodFromBuf(raw)
 	result.ProtoVersion = request.HTTPProtoVersionFromRequestLine(raw)
 
-	if request.EventType(result.Type) == request.EventTypeHTTPClient && !parsedHost {
+	if !parsedHost {
 		bufHost, _ = httpHostFromBuf(raw)
 	}
 
