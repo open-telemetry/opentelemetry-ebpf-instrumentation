@@ -14,7 +14,8 @@ fixture:
 input:
 - path: /api/test-s3
   retry:
-    timeout: 10s
+    # The container starts before WildFly finishes booting and serving the app.
+    timeout: 60s
     interval: 2s
     continue_after_success: true
   headers:

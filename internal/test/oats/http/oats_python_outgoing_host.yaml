@@ -14,7 +14,8 @@ fixture:
 input:
 - path: /with_name
   retry:
-    timeout: 10s
+    # Each request can block for 10s in the handler; allow enough requests for the counter assertion.
+    timeout: 90s
     interval: 500ms
     continue_after_success: true
 expected:

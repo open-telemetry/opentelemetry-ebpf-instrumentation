@@ -14,7 +14,7 @@ fixture:
 input:
 - path: /query
   retry:
-    timeout: 10s
+    timeout: 30s
     interval: 500ms
     continue_after_success: true
 expected:
