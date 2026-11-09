@@ -28,6 +28,33 @@ func TestFeatureYAML(t *testing.T) {
 	assert.False(t, doc.Features.has(FeatureAll))
 }
 
+func TestHTTPServerActiveRequestsFeatureIsOptIn(t *testing.T) {
+	const name = "application_http_server_active_requests"
+
+	features, err := LoadV2Features([]string{name})
+	require.NoError(t, err)
+
+	assert.True(t, features.HTTPServerActiveRequests())
+	assert.True(t, features.AnyAppO11yMetric())
+	assert.True(t, features.AppOrSpan())
+	assert.False(t, features.AppRED())
+	assert.Equal(t, []string{name}, features.Names())
+
+	for _, existing := range []string{"application", "all", "*"} {
+		features, err := LoadV2Features([]string{existing})
+		require.NoError(t, err)
+		assert.False(t, features.HTTPServerActiveRequests(), existing)
+	}
+
+	features, err = LoadV2Features([]string{"all", name})
+	require.NoError(t, err)
+	assert.True(t, features.HTTPServerActiveRequests())
+	assert.Contains(t, features.Names(), name)
+
+	_, err = LoadFeatures([]string{name})
+	require.ErrorContains(t, err, `unknown metrics feature "`+name+`"`)
+}
+
 func TestConnectionInfoFeatureIsOptIn(t *testing.T) {
 	features, err := LoadV2Features([]string{"application_service_graph_connection_info"})
 	require.NoError(t, err)

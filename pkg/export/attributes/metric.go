@@ -124,6 +124,12 @@ var (
 		Unit:    "s",
 		Type:    InstrumentHistogram,
 	})
+	HTTPServerActiveRequests = metric(Name{
+		Section: "http.server.active_requests",
+		OTEL:    "http.server.active_requests",
+		Unit:    "{request}",
+		Type:    InstrumentUpDownCounter,
+	})
 	HTTPClientDuration = metric(Name{
 		Section: "http.client.request.duration",
 		OTEL:    "http.client.request.duration",
