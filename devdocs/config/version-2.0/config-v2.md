@@ -701,6 +701,12 @@ The Config v2-only `stats_tcp_resets` name selects the TCP resets stats metric,
 like `tcp_resets` in `capture.network.stats.features`. `stats`, `all` and `*`
 do not include it.
 
+Add `application_http_server_active_requests` explicitly to collect
+`http.server.active_requests` for Go HTTP/1.1 and HTTP/2 servers. Each
+Prometheus scrape or OTLP collection counts requests being handled at that
+moment. The default attributes are `http.request.method` and `url.scheme`.
+Use attribute selection to include `server.address` and `server.port`.
+
 An explicit list replaces the feature selection inferred from protocol metrics
 switches, HTTP `body_size_metrics`, and network capture/stats settings. `[]`
 disables all metric features. Omitting the list preserves the existing V2

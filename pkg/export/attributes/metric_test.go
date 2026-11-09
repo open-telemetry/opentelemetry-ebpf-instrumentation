@@ -25,6 +25,7 @@ func TestPrometheusNames(t *testing.T) {
 		{HTTPServerResponseSize, "http_server_response_body_size_bytes"},
 		{HTTPClientRequestSize, "http_client_request_body_size_bytes"},
 		{HTTPClientResponseSize, "http_client_response_body_size_bytes"},
+		{HTTPServerActiveRequests, "http_server_active_requests"},
 		{HTTPServerDuration, "http_server_request_duration_seconds"},
 		{HTTPClientDuration, "http_client_request_duration_seconds"},
 		{RPCServerDuration, "rpc_server_call_duration_seconds"},
