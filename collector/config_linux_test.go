@@ -69,7 +69,9 @@ func TestReceiverConfigV2StatsWakeupDataBytes(t *testing.T) {
 		component := confmap.NewFromStringMap(map[string]any{
 			"version": "2.0",
 			"engine": map[string]any{
-				"batching": map[string]any{"stats_wakeup_data_bytes": value},
+				"batching": map[string]any{
+					"stats": map[string]any{"wakeup_bytes": value},
+				},
 			},
 		})
 

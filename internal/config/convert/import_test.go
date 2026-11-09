@@ -208,8 +208,8 @@ func TestV2ToRuntimeStatsWakeupDataBytes(t *testing.T) {
 		want     int
 	}{
 		{"omitted", "wakeup_len: 500", obi.DefaultConfig.EBPF.StatsWakeupDataBytes},
-		{"explicit zero", "stats_wakeup_data_bytes: 0", 0},
-		{"non-default", "stats_wakeup_data_bytes: 8192", 8192},
+		{"explicit zero", "stats: {wakeup_bytes: 0}", 0},
+		{"non-default", "stats: {wakeup_bytes: 8192}", 8192},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -266,7 +266,8 @@ extensions:
     capture:
       engine:
         batching:
-          stats_wakeup_data_bytes: -1
+          stats:
+            wakeup_bytes: -1
 `))
 	require.NoError(t, err)
 	got, err := V2ToRuntime(ext)
