@@ -23,14 +23,21 @@
 
 #include <logger/bpf_dbg.h>
 
+// The bpf_loop scan follows a request's headers across its buffers. Where it
+// runs, it replaces looking for a traceparent at the start of each buffer.
+static __always_inline bool http1_header_scan_enabled(const call_protocol_args_t *args,
+                                                      bool use_bpf_loop) {
+    return use_bpf_loop && g_bpf_loop_enabled && g_bpf_traceparent_enabled &&
+           capture_header_buffer && args->protocols.http;
+}
+
 static __always_inline int handle_buf_with_args(void *ctx, bool use_bpf_loop) {
     call_protocol_args_t *args = protocol_args();
     if (!args) {
         return 0;
     }
 
-    if (use_bpf_loop && g_bpf_loop_enabled && g_bpf_traceparent_enabled && capture_header_buffer &&
-        args->protocols.http) {
+    if (http1_header_scan_enabled(args, use_bpf_loop)) {
         http1_header_scan_t *scan = bpf_map_lookup_elem(&http1_header_scans, &args->pid_conn);
         http_info_t *info = scan ? bpf_map_lookup_elem(&ongoing_http, &args->pid_conn) : NULL;
         if (info && !info->submitted && still_reading(info) &&
@@ -148,7 +155,8 @@ static __always_inline int handle_buf_with_args(void *ctx, bool use_bpf_loop) {
                 // scan for the incoming 'Traceparent' header. If they are not reassembled
                 // we'll see something like this:
                 // [before the injected header],[70 bytes for 'Traceparent...'],[the rest].
-                if (reading && !use_bpf_loop && is_traceparent(args->small_buf)) {
+                if (reading && !http1_header_scan_enabled(args, use_bpf_loop) &&
+                    is_traceparent(args->small_buf)) {
                     unsigned char *buf = (unsigned char *)tp_char_buf_mem();
                     if (buf) {
                         bpf_probe_read(buf, TP_SIZE, (unsigned char *)args->u_buf);
