@@ -992,6 +992,7 @@
                       "*",
                       "all",
                       "application",
+                      "application_http_server_active_requests",
                       "application_red",
                       "application_runtime",
                       "application_service_graph",

@@ -430,6 +430,15 @@ func getDefinitions(
 				attr.ClientAddr:  false,
 			},
 		},
+		HTTPServerActiveRequests.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.HTTPRequestMethod: true,
+				attr.HTTPURLScheme:     true,
+				attr.ServerAddr:        false,
+				attr.ServerPort:        false,
+			},
+		},
 		HTTPServerRequestSize.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpRoutes, &serverInfo},
 			Attributes: map[attr.Name]Default{
