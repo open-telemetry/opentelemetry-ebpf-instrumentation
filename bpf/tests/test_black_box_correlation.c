@@ -14,6 +14,10 @@ static inline u32 bpf_get_prandom_u32(void) {
     return 0;
 }
 
+static inline long bpf_loop(u32 nr_loops, void *cb, void *ctx, u64 flags) {
+    return 0;
+}
+
 #include <common/tracing.h>
 
 static const u64 k_boundary_ns = 444205ULL * NANOSECONDS_PER_EPOCH;

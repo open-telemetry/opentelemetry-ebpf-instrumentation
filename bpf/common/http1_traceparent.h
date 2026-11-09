@@ -28,14 +28,11 @@ enum http1_header_phase : u8 {
 enum http1_memory : u8 {
     k_http1_memory_any,
     k_http1_memory_user,
-    k_http1_memory_kernel,
 };
 
 typedef struct http1_header_scan {
     u32 bytes;
-    u32 value_offset;
     u16 line_length;
-    u16 request_line_end; // offset just past the request line, 0 until it is complete
     enum http1_header_phase phase;
     u8 name_length;
     u8 value_length;
@@ -45,7 +42,7 @@ typedef struct http1_header_scan {
     bool trace_nonzero;
     bool span_nonzero;
     unsigned char header[TRACE_PARENT_HEADER_LEN + 1];
-    u8 _pad[3];
+    u8 _pad[1];
 } http1_header_scan_t;
 
 SCRATCH_MEM_SIZED(http1_header_buf, k_http1_read_chunk_bytes);
@@ -106,10 +103,6 @@ static __always_inline void http1_scan_header_byte(http1_header_scan_t *scan, un
             return;
         }
 
-        if (scan->phase == k_http1_request_line) {
-            scan->request_line_end = scan->bytes;
-        }
-
         scan->line_length = 0;
         scan->name_length = 0;
         scan->phase = k_http1_header_name;
@@ -146,7 +139,6 @@ static __always_inline void http1_scan_header_byte(http1_header_scan_t *scan, un
         }
 
         scan->phase = k_http1_header_value;
-        scan->value_offset = scan->bytes - 1;
     }
 
     if (scan->phase == k_http1_header_value) {
@@ -166,9 +158,6 @@ static __always_inline long
 http1_probe_read(void *dst, u32 len, const void *src, enum http1_memory memory) {
     if (memory == k_http1_memory_user) {
         return bpf_probe_read_user(dst, len, src);
-    }
-    if (memory == k_http1_memory_kernel) {
-        return bpf_probe_read_kernel(dst, len, src);
     }
     return bpf_probe_read(dst, len, src);
 }
@@ -197,17 +186,13 @@ http1_read_header_byte(u32 index, struct http1_read_ctx *ctx, enum http1_memory 
     return ctx->scan->phase == k_http1_headers_done;
 }
 
-// One callback per memory kind: sk_msg programs may not call bpf_probe_read at all.
+// One callback per memory kind, so each program loads only the read helper it uses.
 static int http1_read_any_byte(u32 index, void *data) {
     return http1_read_header_byte(index, data, k_http1_memory_any);
 }
 
 static int http1_read_user_byte(u32 index, void *data) {
     return http1_read_header_byte(index, data, k_http1_memory_user);
-}
-
-static int http1_read_kernel_byte(u32 index, void *data) {
-    return http1_read_header_byte(index, data, k_http1_memory_kernel);
 }
 
 static __always_inline void http1_read_headers(http1_header_scan_t *scan,
@@ -232,8 +217,6 @@ static __always_inline void http1_read_headers(http1_header_scan_t *scan,
 
     if (memory == k_http1_memory_user) {
         bpf_loop(ctx.len, http1_read_user_byte, &ctx, 0);
-    } else if (memory == k_http1_memory_kernel) {
-        bpf_loop(ctx.len, http1_read_kernel_byte, &ctx, 0);
     } else {
         bpf_loop(ctx.len, http1_read_any_byte, &ctx, 0);
     }

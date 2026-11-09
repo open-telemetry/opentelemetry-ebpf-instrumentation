@@ -68,67 +68,19 @@ func main() {
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
-		mode := scanner.Text()
-		switch mode {
+		switch scanner.Text() {
 		case "WITH_TP":
 			report(doRequest(url, true))
 		case "NO_TP":
 			report(doRequest(url, false))
 		case "EXIT":
 			return
-		default:
-			baseURL := downstream
-			client := http.DefaultClient
-			if strings.Contains(mode, "TLS") {
-				baseURL = tlsServer.URL
-				client = tlsServer.Client()
-			}
-			if strings.Contains(mode, "FRAGMENTED") {
-				report(doFragmentedRequest(baseURL, client))
-			} else {
-				report(doLargeRequest(baseURL, client, mode))
-			}
+		case "FRAGMENTED":
+			report(doFragmentedRequest(downstream, http.DefaultClient))
+		case "TLS_FRAGMENTED":
+			report(doFragmentedRequest(tlsServer.URL, tlsServer.Client()))
 		}
 	}
-}
-
-func doLargeRequest(baseURL string, client *http.Client, mode string) (string, error) {
-	if strings.Contains(mode, "TIGHT") {
-		base, ok := client.Transport.(*http.Transport)
-		if !ok {
-			base = http.DefaultTransport.(*http.Transport)
-		}
-		transport := base.Clone()
-		transport.WriteBufferSize = 128
-		defer transport.CloseIdleConnections()
-		client = &http.Client{Transport: transport}
-	}
-	req, err := http.NewRequest(http.MethodGet, baseURL+"/details", http.NoBody)
-	if err != nil {
-		return "", err
-	}
-	padding := 12 * 1024
-	if strings.Contains(mode, "BEYOND_LIMIT") {
-		padding = 18 * 1024
-	}
-	key := "A-Padding"
-	if strings.Contains(mode, "EARLY") {
-		key = "Z-Padding"
-	}
-	req.Header.Set(key, strings.Repeat("a", padding))
-	if strings.Contains(mode, "WITH_TP") {
-		req.Header.Set("Traceparent", staticTraceparent)
-	}
-	if strings.Contains(mode, "MALFORMED") {
-		req.Header.Set("Traceparent", "application-owned-invalid")
-	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	return string(body), err
 }
 
 func doFragmentedRequest(baseURL string, client *http.Client) (string, error) {

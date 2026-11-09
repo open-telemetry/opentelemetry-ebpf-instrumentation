@@ -54,7 +54,6 @@
 #include <tpinjector/maps/sk_h2_flags.h>
 #include <tpinjector/maps/sk_h2_conn_flag.h>
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
-#include <tpinjector/maps/sk_http1_headers.h>
 
 char __license[] SEC("license") = "Dual MIT/GPL";
 
@@ -206,8 +205,7 @@ typedef struct tailcall_ctx {
     bool tp_present;              // frame already carries a traceparent we cannot adopt
     bool scan_exhausted;          // retry budget ran out before the block was walked
     u8 opener;                    // first HPACK field byte of the frame being considered
-    bool http1_has_tp;
-    u8 _pad[3];
+    u8 _pad[4];
 } tailcall_ctx;
 
 SCRATCH_MEM(tailcall_ctx);
@@ -1267,18 +1265,7 @@ static __always_inline bool handle_existing_tp_pid(struct sk_msg_md *msg,
     const bool is_http = protocol_detector(msg, id, &p_conn->conn);
     if (is_http) {
         if (inject_flags & k_inject_http_headers) {
-            if (g_bpf_loop_enabled) {
-                tailcall_ctx *t_ctx = tailcall_ctx_mem();
-                tp_info_pid_t *tp = tp_info_mem();
-
-                if (t_ctx && tp) {
-                    *tp = *tp_pid;
-                    t_ctx->http1_has_tp = true;
-                    bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
-                }
-            } else {
-                write_http_traceparent(msg, tp_pid);
-            }
+            write_http_traceparent(msg, tp_pid);
         } else {
             clear_tp_info_pid(e_key);
         }
@@ -1287,43 +1274,6 @@ static __always_inline bool handle_existing_tp_pid(struct sk_msg_md *msg,
 
     clear_tp_info_pid(e_key);
     return false;
-}
-
-static __always_inline bool read_msg_head(const struct sk_msg_md *msg, u32 *head) {
-    const unsigned char *data = msg->data;
-    if (!data || (void *)(data + sizeof(*head)) > msg->data_end) {
-        return false;
-    }
-
-    __builtin_memcpy(head, data, sizeof(*head));
-
-    return true;
-}
-
-// A corked message is run again whole: it still starts with the request and
-// is longer than what was scanned. Otherwise the kernel sent it uncorked (its
-// scatterlist filled up) and the scan offsets no longer apply.
-static __always_inline bool corked_http1_request(const struct sk_msg_md *msg,
-                                                 const http1_pending_headers_t *headers) {
-    const u32 scanned_bytes = headers->scan.bytes;
-    if (msg->size <= scanned_bytes) {
-        return false;
-    }
-
-    u32 head = 0;
-    if (!read_msg_head(msg, &head)) {
-        return false;
-    }
-
-    return head == headers->request_head;
-}
-
-// On SK_PASS the kernel keeps reusing the corked message for later sends,
-// cork length included, so it must be reset or those sends stay held back.
-static __always_inline void release_http1_headers(struct sk_msg_md *msg,
-                                                  http1_pending_headers_t *headers) {
-    headers->pending = false;
-    bpf_msg_cork_bytes(msg, 0);
 }
 
 // Sock_msg program which detects packets where it should add space for
@@ -1356,33 +1306,6 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     t_ctx->h2_tp_retries = 0;
     bpf_memset(&t_ctx->h2_framing, 0, sizeof(t_ctx->h2_framing));
     t_ctx->go_grpc_conn = false;
-    t_ctx->http1_has_tp = false;
-
-    if (g_bpf_loop_enabled && msg->sk) {
-        http1_pending_headers_t *headers = bpf_sk_storage_get(&sk_http1_headers, msg->sk, NULL, 0);
-        if (headers && headers->pending) {
-            bpf_d_printk("pending http1 headers, size=%d, scanned=%d, cork_rounds=%d",
-                         msg->size,
-                         headers->scan.bytes,
-                         headers->cork_rounds);
-
-            if (corked_http1_request(msg, headers)) {
-                t_ctx->http1_has_tp = headers->has_client_tp;
-
-                // A successful tail call does not return and leaves the scan pending
-                // for the next program to resume. Only a failed one gets here.
-                bpf_tail_call_static(msg, &extender_jump_table, k_tail_find_existing_tp);
-                bpf_d_printk("tailcall failed [%s]", __FUNCTION__);
-
-                release_http1_headers(msg, headers);
-                return SK_PASS;
-            }
-
-            // The kernel sent the corked bytes anyway: this message starts fresh.
-            bpf_d_printk("corked http1 headers were sent uncorked, size=%d", msg->size);
-            release_http1_headers(msg, headers);
-        }
-    }
 
     // skip H2 here — it uses HPACK for per-stream traceparents
     tp_info_pid_t *tp_pid = get_tp_info_pid(&e_key, t_ctx->p_conn.pid);
@@ -1486,179 +1409,13 @@ enum {
     k_http1_scan_chunk_size = 1024,
 };
 
-enum {
-    // Sends of at least the size below deliver the whole header window before the
-    // cork limit. Headers still incomplete at the limit are assumed to have no traceparent.
-    k_http1_min_cork_send_bytes = 2 * 1024,
-    k_http1_max_cork_rounds = k_http1_max_header_bytes / k_http1_min_cork_send_bytes,
-};
-
-static __always_inline bool init_http1_outgoing_scan(struct sk_msg_md *msg,
-                                                     http1_pending_headers_t *headers,
-                                                     const tailcall_ctx *t_ctx,
-                                                     const tp_info_pid_t *tp) {
-    if (!read_msg_head(msg, &headers->request_head)) {
-        return false;
-    }
-
-    __builtin_memset(&headers->scan, 0, sizeof(headers->scan));
-    headers->has_client_tp = t_ctx->http1_has_tp;
-
-    if (t_ctx->http1_has_tp) {
-        headers->client_tp = *tp;
-    }
-
-    headers->cork_rounds = 0;
-    headers->pending = true;
-
-    return true;
-}
-
-static __always_inline bool read_http1_outgoing_headers(struct sk_msg_md *msg,
-                                                        http1_header_scan_t *scan) {
-    u32 len = msg->size;
-    bpf_clamp_umax(len, k_http1_max_header_bytes);
-    if (bpf_msg_pull_data(msg, 0, len, 0) != 0) {
-        return false;
-    }
-
-    u32 pos = scan->bytes;
-    bpf_clamp_umax(pos, k_http1_max_header_bytes);
-    const unsigned char *data = msg->data;
-    const unsigned char *end = msg->data_end;
-
-    if (!data || pos > len || data + len > end) {
-        return false;
-    }
-
-    http1_read_headers(scan, data + pos, len - pos, k_http1_memory_kernel);
-    bpf_d_printk("read headers len=%d, valid=%d, found=%d", len, scan->valid, scan->present);
-
-    return true;
-}
-
-const char HTTP1_PREFIX[] = "HTTP/1.";
-const u32 HTTP1_PRE_SIZE = sizeof(HTTP1_PREFIX) - 1;
-
-// Data that can't become an HTTP/1.x header block may never be followed by another send, so it must not be held back.
-static __always_inline bool http1_versioned_request_line(const struct sk_msg_md *msg,
-                                                         const http1_header_scan_t *scan) {
-    const u32 suffix_len = sizeof("HTTP/1.1\r\n") - 1;
-    if (scan->request_line_end < suffix_len) {
-        return false;
-    }
-
-    u32 start = scan->request_line_end - suffix_len;
-    bpf_clamp_umax(start, k_http1_max_header_bytes);
-    const unsigned char *suffix = (const unsigned char *)msg->data + start;
-
-    if ((void *)(suffix + suffix_len) > msg->data_end) {
-        return false;
-    }
-
-    // skip the minor version digit that follows the prefix
-    return __builtin_memcmp(suffix, HTTP1_PREFIX, HTTP1_PRE_SIZE) == 0 &&
-           suffix[HTTP1_PRE_SIZE + 1] == '\r';
-}
-
-static __always_inline bool http1_should_cork(const struct sk_msg_md *msg,
-                                              const http1_pending_headers_t *headers) {
-    if (headers->cork_rounds >= k_http1_max_cork_rounds) {
-        bpf_d_printk("http1 cork limit reached, cork_rounds=%d", headers->cork_rounds);
-        return false;
-    }
-
-    if (headers->scan.phase == k_http1_request_line) {
-        return true;
-    }
-
-    const bool versioned = http1_versioned_request_line(msg, &headers->scan);
-    if (!versioned) {
-        bpf_d_printk("not an HTTP/1.x request line, request_line_end=%d",
-                     headers->scan.request_line_end);
-    }
-
-    return versioned;
-}
-
-static __always_inline int finish_http1_outgoing_scan(struct sk_msg_md *msg,
-                                                      http1_pending_headers_t *headers,
-                                                      tailcall_ctx *t_ctx,
-                                                      tp_info_pid_t *tp) {
-    bpf_d_printk("finished http1 scan, phase=%d, bytes=%d, cork_rounds=%d",
-                 headers->scan.phase,
-                 headers->scan.bytes,
-                 headers->cork_rounds);
-
-    release_http1_headers(msg, headers);
-    t_ctx->http1_has_tp = headers->has_client_tp;
-
-    if (headers->has_client_tp) {
-        *tp = headers->client_tp;
-    }
-
-    fill_msg_buffers(msg, &t_ctx->p_conn, &t_ctx->e_key);
-
-    // A scan cut short by the cork limit injects unless it already saw the
-    // start of the application's own traceparent.
-    if (!headers->scan.present) {
-        bpf_tail_call_static(msg, &extender_jump_table, k_tail_create_tp);
-    } else if (headers->scan.phase == k_http1_headers_done && headers->scan.valid) {
-        bpf_tail_call_static(msg, &extender_jump_table, k_tail_parse_existing_tp);
-    }
-
-    return SK_PASS;
-}
-
-static __always_inline int scan_http1_outgoing_headers(struct sk_msg_md *msg, tailcall_ctx *t_ctx) {
-    if (!msg->sk) {
-        return SK_PASS;
-    }
-
-    http1_pending_headers_t *headers =
-        bpf_sk_storage_get(&sk_http1_headers, msg->sk, NULL, BPF_SK_STORAGE_GET_F_CREATE);
-    tp_info_pid_t *tp = tp_info_mem();
-
-    if (!headers || !tp) {
-        return SK_PASS;
-    }
-
-    if (!headers->pending && !init_http1_outgoing_scan(msg, headers, t_ctx, tp)) {
-        return SK_PASS;
-    }
-
-    if (!read_http1_outgoing_headers(msg, &headers->scan)) {
-        bpf_d_printk("can't read http1 headers, size=%d", msg->size);
-        release_http1_headers(msg, headers);
-        return SK_PASS;
-    }
-
-    bpf_d_printk("http1 scan phase=%d, bytes=%d, request_line_end=%d",
-                 headers->scan.phase,
-                 headers->scan.bytes,
-                 headers->scan.request_line_end);
-
-    if (headers->scan.phase != k_http1_headers_done && http1_should_cork(msg, headers)) {
-        headers->cork_rounds++;
-        bpf_d_printk("corking http1 headers, cork_rounds=%d, cork_bytes=%d",
-                     headers->cork_rounds,
-                     headers->scan.bytes + 1);
-        bpf_msg_cork_bytes(msg, headers->scan.bytes + 1);
-        return SK_PASS;
-    }
-
-    return finish_http1_outgoing_scan(msg, headers, t_ctx, tp);
-}
-
-static __always_inline int find_existing_http1_tp(struct sk_msg_md *msg, bool use_bpf_loop) {
+//k_tail_find_existing_tp
+SEC("sk_msg")
+int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
     tailcall_ctx *t_ctx = tailcall_ctx_mem();
 
     if (!t_ctx) {
         return SK_PASS;
-    }
-
-    if (use_bpf_loop) {
-        return scan_http1_outgoing_headers(msg, t_ctx);
     }
 
     const u32 niter = t_ctx->niter;
@@ -1709,45 +1466,6 @@ static __always_inline int find_existing_http1_tp(struct sk_msg_md *msg, bool us
     return SK_PASS;
 }
 
-// k_tail_find_existing_tp
-SEC("sk_msg")
-int obi_packet_extender_find_existing_tp(struct sk_msg_md *msg) {
-    return find_existing_http1_tp(msg, g_bpf_loop_enabled);
-}
-
-SEC("sk_msg")
-int obi_packet_extender_find_existing_tp_legacy(struct sk_msg_md *msg) {
-    return find_existing_http1_tp(msg, false);
-}
-
-static __always_inline bool
-parse_http1_header_scan(struct sk_msg_md *msg, tailcall_ctx *t_ctx, tp_info_pid_t *tp) {
-    http1_pending_headers_t *headers = bpf_sk_storage_get(&sk_http1_headers, msg->sk, NULL, 0);
-    if (!headers || !headers->scan.valid) {
-        return false;
-    }
-
-    unsigned char *header = headers->scan.header;
-    decode_hex(tp->tp.trace_id, extract_trace_id(header), TRACE_ID_CHAR_LEN);
-    decode_hex(tp->tp.span_id, extract_span_id(header), SPAN_ID_CHAR_LEN);
-    decode_hex(&tp->tp.flags, extract_flags(header), FLAGS_CHAR_LEN);
-    tp->tp.ts = bpf_ktime_get_ns();
-    init_tp_ctx_parent_tp(t_ctx, &tp->tp);
-
-    u32 span_offset = headers->scan.value_offset + k_tp_val_span_id_start;
-    bpf_clamp_umax(span_offset, k_http1_max_header_bytes - SPAN_ID_CHAR_LEN);
-
-    unsigned char *span_id = msg->data + span_offset;
-    if ((void *)span_id + SPAN_ID_CHAR_LEN > msg->data_end) {
-        return false;
-    }
-
-    __builtin_memset(tp->tp.parent_id, 0, sizeof(tp->tp.parent_id));
-    assign_parent_tp(t_ctx, &tp->tp, span_id);
-
-    return true;
-}
-
 // Decoding outside the scan loop keeps verifier exploration within its instruction budget.
 SEC("sk_msg")
 int obi_packet_extender_parse_existing_tp(struct sk_msg_md *msg) {
@@ -1759,14 +1477,6 @@ int obi_packet_extender_parse_existing_tp(struct sk_msg_md *msg) {
     tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
     if (!tp_p) {
         return SK_PASS;
-    }
-
-    if (g_bpf_loop_enabled) {
-        if (!parse_http1_header_scan(msg, t_ctx, tp_p)) {
-            return SK_PASS;
-        }
-
-        goto publish;
     }
 
     u32 offset = t_ctx->http1_tp_offset;
@@ -1813,7 +1523,6 @@ int obi_packet_extender_parse_existing_tp(struct sk_msg_md *msg) {
     bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
     assign_parent_tp(t_ctx, &tp_p->tp, span_id);
 
-publish:
     tp_p->valid = 1;
     tp_p->written = 1;
     tp_p->pid = t_ctx->p_conn.pid;
@@ -1845,12 +1554,9 @@ int obi_packet_extender_create_tp(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
-    // A request that already has its connection's tp_info keeps it.
-    if (!g_bpf_loop_enabled || !t_ctx->http1_has_tp) {
-        init_tp_ctx_parent_tp(t_ctx, NULL);
-        if (!create_trace_info(t_ctx, tp_p)) {
-            return SK_PASS;
-        }
+    init_tp_ctx_parent_tp(t_ctx, NULL);
+    if (!create_trace_info(t_ctx, tp_p)) {
+        return SK_PASS;
     }
 
     tp_p->written = 1;

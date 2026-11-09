@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/cilium/ebpf"
-	"github.com/cilium/ebpf/asm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -22,18 +21,6 @@ import (
 
 // tpinjector has two BPF specs: the main tpinjector (spec 0) and the sock iterator (spec 1).
 const expectedSpecCount = 2
-
-func TestHTTP1LegacyProgramAvoidsBPFLoop(t *testing.T) {
-	spec, err := LoadBpf()
-	require.NoError(t, err)
-	program := spec.Programs[BpfProgObiPacketExtenderFindExistingTpLegacy]
-	require.NotNil(t, program)
-	for _, instruction := range program.Instructions {
-		if instruction.IsBuiltinCall() {
-			assert.NotEqual(t, asm.FnLoop, asm.BuiltinFunc(instruction.Constant))
-		}
-	}
-}
 
 func TestTracer_Constants(t *testing.T) {
 	tests := []struct {

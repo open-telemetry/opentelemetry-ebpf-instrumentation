@@ -18,7 +18,7 @@ services:
       jaeger:
         condition: service_started
 
-  # Go hop of the /large-* chain: tpclient a -> tpclient-go -> tpclient c
+  # Go hop of the /large chain: tpclient a -> tpclient-go
   tpclient-go:
     build:
       context: ../../..
@@ -26,8 +26,6 @@ services:
     image: hatest-tpclient-go
     ports:
       - "6003:6003"
-    environment:
-      UPSTREAM: "http://tpclient:6002"
     depends_on:
       otelcol:
         condition: service_started
@@ -40,9 +38,9 @@ services:
       dockerfile: ./internal/test/integration/components/obi/Dockerfile
     command:
       - --config=/configs/obi-config-tpclient.yml
-    # No lockdown mock: the Go hop must inject through its own uprobes.
     volumes:
       - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
       - /sys/kernel/tracing:/sys/kernel/tracing:ro
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-tpclient:/var/run/obi

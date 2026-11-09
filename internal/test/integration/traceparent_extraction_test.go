@@ -60,6 +60,7 @@ func TestTraceparentExtraction(t *testing.T) {
 	t.Run("with_traceparent", testWithTraceparent)
 	t.Run("with_forwarded_traceparent", testWithForwardedTraceparent)
 	t.Run("large_headers_with_traceparent", testLargeHeadersWithTraceparent)
+	t.Run("large_headers_go_server", testLargeHeadersGoServer)
 	t.Run("large_headers_without_traceparent", testLargeHeadersWithoutTraceparent)
 
 	runWeaverValidation(t)

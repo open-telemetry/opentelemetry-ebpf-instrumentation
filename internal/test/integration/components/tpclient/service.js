@@ -12,7 +12,7 @@ const app = express();
  * Creates a chain: /no-tp or /with-tp -> forwards -> forwards -> end
  */
 
-// largeUpstream: next hop of the /large-* chain, which goes through the Go service
+// largeUpstream: next hop of the /large chain, which goes through the Go service
 const [route = 'a', port = 6000, upstream, largeUpstream] = process.argv.slice(2);
 
 // Predefined traceparent for extraction testing (easy to spot)
@@ -23,7 +23,7 @@ const STATIC_TRACEPARENT = '00-12345678901234567890123456789012-0000000000000001
 // This traceparent is forwarded unchanged through the chain to trigger eBPF proxy detection
 const FORWARDED_TRACEPARENT = '00-12345678901234567890123456789012-1111111111111111-01';
 
-// Pushes the traceparent of the /large-* requests well past the first 4 KiB of headers
+// Pushes a traceparent written after it well past the first 4 KiB of headers
 const LARGE_COOKIE = 'session=' + 'a'.repeat(12 * 1024);
 
 // Keeps the trace and increments the span ID by 0x10 for the downstream call
@@ -56,31 +56,24 @@ function receivedTraceparents(req) {
   return { traceparents, traceparentOffset };
 }
 
-// Endpoints: requests with a large cookie, WITH or WITHOUT a traceparent after it
-async function largeHeaders(req, res, withTraceparent) {
+// Endpoint: request with a large cookie, forwarded with the cookie and no
+// traceparent of our own, which OBI must inject
+app.get('/large', async (req, res) => {
   const received = { service: route, ...receivedTraceparents(req) };
   if (!largeUpstream) {
     res.json(received);
     return;
   }
   try {
-    // The cookie is set first so that it precedes the traceparent on the wire
-    const headers = { Cookie: LARGE_COOKIE };
-    if (withTraceparent) {
-      headers.traceparent = nextTraceparent(req.headers.traceparent || STATIC_TRACEPARENT);
-    }
-    const downstreamURL = `${largeUpstream}${req.path}`;
-    console.log(`[${route}${req.path}] Making client call to ${downstreamURL} with a large cookie`);
-    const response = await axios.get(downstreamURL, { headers });
+    const downstreamURL = `${largeUpstream}/large`;
+    console.log(`[${route}/large] Making client call to ${downstreamURL} with a large cookie`);
+    const response = await axios.get(downstreamURL, { headers: { Cookie: LARGE_COOKIE } });
     res.json({ ...received, downstream: response.data });
   } catch (err) {
-    console.error(`[${route}${req.path}] Error:`, err.message);
+    console.error(`[${route}/large] Error:`, err.message);
     res.status(500).send(`Error: ${err.message}`);
   }
-}
-
-app.get('/large-tp', (req, res) => largeHeaders(req, res, true));
-app.get('/large-no-tp', (req, res) => largeHeaders(req, res, false));
+});
 
 // Endpoint: Request WITHOUT traceparent (eBPF should generate)
 app.get('/no-tp', async (req, res) => {

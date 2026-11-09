@@ -4,7 +4,7 @@ const { spawn } = require('child_process');
 const services = [
   { route: 'c', port: 6002 }, // End of chain
   { route: 'b', port: 6001, upstream: 'http://localhost:6002' }, // Middle - base URL only
-  // Start - base URL only. The /large-* chain goes a -> Go service -> c instead.
+  // Start - base URL only. The /large chain goes a -> Go service instead.
   { route: 'a', port: 6000, upstream: 'http://localhost:6001', largeUpstream: 'http://tpclient-go:6003' },
 ];
 

@@ -518,13 +518,10 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *m
         if (size > 0) {
             if (!ssl) {
                 unsigned char *buf = iovec_memory();
-                const size_t avail = size;
-                const void *user_buf = NULL;
                 if (buf) {
+                    const size_t avail = size;
+
                     size = read_msghdr_buf(msg, buf, size);
-                    if (size && size < avail) {
-                        user_buf = msghdr_user_buf(msg);
-                    }
 
                     // A memory BIO stack reaches the socket from the event
                     // loop, after the SSL_write uprobe has returned. Bind it
@@ -616,16 +613,8 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *m
 
                         bpf_map_delete_elem(&msg_buffers, &e_key);
                         // Logically last for !ssl.
-                        handle_user_buf_with_connection(ctx,
-                                                        &s_args.p_conn,
-                                                        buf,
-                                                        size,
-                                                        user_buf,
-                                                        avail,
-                                                        NO_SSL,
-                                                        TCP_SEND,
-                                                        orig_dport,
-                                                        sk);
+                        handle_buf_with_connection(
+                            ctx, &s_args.p_conn, buf, size, NO_SSL, TCP_SEND, orig_dport, sk);
                     }
                 }
                 bpf_map_delete_elem(&msg_buffers, &e_key);

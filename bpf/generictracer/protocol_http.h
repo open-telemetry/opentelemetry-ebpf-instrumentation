@@ -735,21 +735,10 @@ static __always_inline void inherit_http1_server_traceparent(const call_protocol
     set_http1_connection_trace(args, info, TRACE_TYPE_SERVER);
 }
 
-// A client's own traceparent names its span, its parent is still to be found.
-static __always_inline void resolve_http1_client_parent(const call_protocol_args_t *args,
-                                                        http_info_t *info) {
-    info->parent_status = find_trace_for_wire_client_request(
-        &args->pid_conn, args->orig_dport, args->lw_thread, &info->tp);
-    bpf_d_printk("client inherits late traceparent, parent_status=%d", info->parent_status);
-
-    set_http1_connection_trace(args, info, TRACE_TYPE_CLIENT);
-}
-
 // update_http1_request_context handles the replacement of the trace context of a late
-// discovery of a traceparent in the header buffers.
+// discovery of a traceparent in the header buffers of an incoming request.
 static __always_inline void
 update_http1_request_context(call_protocol_args_t *args, http_info_t *info, unsigned char *header) {
-    const bool is_client = info->type == k_event_type_http_client;
     const u64 id = bpf_get_current_pid_tgid();
     const obi_ctx_info_t *context = obi_ctx__get(id);
     const bool owns_context =
@@ -759,23 +748,13 @@ update_http1_request_context(call_protocol_args_t *args, http_info_t *info, unsi
     __builtin_memcpy(previous_trace_id, info->tp.trace_id, sizeof(previous_trace_id));
     __builtin_memcpy(previous_span_id, info->tp.span_id, sizeof(previous_span_id));
 
-    if (is_client) {
-        inherit_http1_traceparent(&info->tp, header, info->type);
-    } else {
-        inherit_http1_server_traceparent(args, info, header);
-    }
+    inherit_http1_server_traceparent(args, info, header);
 
     if (owns_context) {
         obi_ctx__set(id, &info->tp);
     }
 
     http_rekey_request_large_buffer(info, args->direction, previous_trace_id, previous_span_id);
-
-    // Last, because the verifier explores everything after the parent search
-    // once per state the search can end in.
-    if (is_client) {
-        resolve_http1_client_parent(args, info);
-    }
 }
 
 // A kprobe copies at most k_iovec_max_len bytes of a read or write into u_buf:
@@ -793,32 +772,21 @@ static __always_inline void read_http1_request_headers(http1_header_scan_t *scan
     bpf_d_printk("read headers len=%d, valid=%d, found=%d", len, scan->valid, scan->present);
 }
 
-// A server adopts only a valid traceparent. A client's own one counts once it is
-// complete, even if invalid: it still keeps the parent from being inferred.
-static __always_inline bool http1_traceparent_usable(const http1_header_scan_t *scan, u8 type) {
-    if (scan->phase != k_http1_headers_done || !scan->present) {
-        return false;
-    }
-
-    if (type == k_event_type_http_client) {
-        return scan->value_length == k_hpack_value_len_tp;
-    }
-
-    return scan->valid;
+static __always_inline bool http1_traceparent_usable(const http1_header_scan_t *scan) {
+    return scan->phase == k_http1_headers_done && scan->present && scan->valid;
 }
 
 // Returns true when the headers end with a traceparent to adopt. The scan then
 // stays stored for obi_protocol_http_inherit_tp, which adopts it.
 static __always_inline bool continue_http1_header_scan(const call_protocol_args_t *args,
-                                                       const http_info_t *info,
                                                        http1_header_scan_t *scan) {
     read_http1_request_headers(scan, args);
     if (scan->phase != k_http1_headers_done) {
         return false;
     }
 
-    if (http1_traceparent_usable(scan, info->type)) {
-        bpf_d_printk("late traceparent found, type=%d, bytes=%d", info->type, scan->bytes);
+    if (http1_traceparent_usable(scan)) {
+        bpf_d_printk("late traceparent found, bytes=%d", scan->bytes);
         return true;
     }
 
@@ -860,8 +828,7 @@ int GUARDED_PROG(obi_protocol_http_inherit_tp, void *, ctx) {
 
 // Only a scan that the following buffers of the request must finish is
 // stored, so headers that end in the first buffer cost no map update.
-static __always_inline unsigned char *start_http1_header_scan(const call_protocol_args_t *args,
-                                                              u8 type) {
+static __always_inline unsigned char *start_http1_header_scan(const call_protocol_args_t *args) {
     http1_header_scan_t *scan = http1_header_scan_mem();
     if (!scan) {
         return NULL;
@@ -877,7 +844,7 @@ static __always_inline unsigned char *start_http1_header_scan(const call_protoco
         return NULL;
     }
 
-    return http1_traceparent_usable(scan, type) ? scan->header : NULL;
+    return http1_traceparent_usable(scan) ? scan->header : NULL;
 }
 
 static __always_inline int __obi_continue_protocol_http_tp(struct pt_regs *ctx,
@@ -913,9 +880,12 @@ static __always_inline int __obi_continue_protocol_http_tp(struct pt_regs *ctx,
             goto done;
         }
 
+        // Outgoing requests are scanned only in their first TRACE_BUF_SIZE bytes,
+        // see "HTTP/1 header scan window" in devdocs/context-propagation.md.
+        const bool incoming = meta && meta->type == k_event_type_http_request;
         unsigned char *res = NULL;
-        if (use_bpf_loop) {
-            res = start_http1_header_scan(args, meta ? meta->type : 0);
+        if (use_bpf_loop && incoming) {
+            res = start_http1_header_scan(args);
         } else {
             unsigned char *buf = tp_char_buf_mem();
             if (!buf) {
@@ -928,7 +898,11 @@ static __always_inline int __obi_continue_protocol_http_tp(struct pt_regs *ctx,
             // null terminate to make proper string
             buf[buf_len] = '\0';
 
-            res = bpf_strstr_tp_loop__legacy(buf, buf_len);
+            if (use_bpf_loop) {
+                res = bpf_strstr_tp_loop(buf, buf_len);
+            } else {
+                res = bpf_strstr_tp_loop__legacy(buf, buf_len);
+            }
         }
 
         if (res) {

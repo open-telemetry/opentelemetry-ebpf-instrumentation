@@ -35,9 +35,9 @@ static __always_inline int handle_buf_with_args(void *ctx, bool use_bpf_loop) {
         http_info_t *info = scan ? bpf_map_lookup_elem(&ongoing_http, &args->pid_conn) : NULL;
         if (info && !info->submitted && still_reading(info) &&
             !http_response_direction(info, args->direction) && info->ssl == args->ssl) {
-            if (continue_http1_header_scan(args, info, scan)) {
-                // Adopting it can search for the client's parent span, which is more
-                // than the verifier can explore together with the header scan.
+            if (continue_http1_header_scan(args, scan)) {
+                // Adopting it runs in its own program, so the verifier explores it
+                // apart from the header scan.
                 preempt_guarded_tail_call_static(ctx, &jump_table, k_tail_protocol_http_inherit_tp);
                 bpf_d_printk("tailcall failed [%s]", __FUNCTION__);
                 bpf_map_delete_elem(&http1_header_scans, &args->pid_conn);

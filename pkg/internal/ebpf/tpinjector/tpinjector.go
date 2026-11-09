@@ -208,7 +208,6 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 	if err != nil {
 		return nil, err
 	}
-	ebpfcommon.FixupSpec(spec, p.cfg.EBPF.OverrideBPFLoopEnabled)
 	if err := verifyH2MutationSupport(); err != nil {
 		p.log.Warn("HTTP/2 socket mutation disabled because the rollback helper is unavailable",
 			"error", err)
@@ -304,7 +303,6 @@ func (p *Tracer) constants() map[string]any {
 		"inject_flags":             flags,
 		"enroll_instrumented_only": p.enrollInstrumentedOnly,
 		"g_bpf_debug":              p.cfg.EBPF.BpfDebug,
-		"g_bpf_loop_enabled":       ebpfcommon.SupportsEBPFLoops(p.log, p.cfg.EBPF.OverrideBPFLoopEnabled),
 	}
 	maps.Copy(m, ebpfcommon.PIDFilterConstants())
 

@@ -11,6 +11,9 @@
 static inline u32 bpf_get_prandom_u32(void) {
     return 0;
 }
+static inline long bpf_loop(u32 n, void *cb, void *ctx, u64 flags) {
+    return 0;
+}
 
 static long update_index(void *map, const void *key, const void *val, u64 flags);
 static long delete_index(void *map, const void *key);

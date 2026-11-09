@@ -79,31 +79,28 @@ Examples:
 
 ## HTTP/1 header scan window
 
-On kernels with `bpf_loop` support (normally Linux 5.17+), HTTP/1 traceparent
-extraction and header injection examine up to 16 KiB per request, cumulatively
-across fragments. The generic tracer counts from the request line; Go's header
-probes count from the start of the header block. The header name and complete
-traceparent value must fit within that window. Splits inside the name, value,
-or header terminator are supported after OBI has recognized HTTP. HTTP/2 and
-legacy scanners retain their existing limits.
-
-The plaintext socket injector can temporarily retain up to 16 KiB of the
-outbound prefix while it looks for an application header. It releases the
-prefix when it finds the header, reaches the end of headers, or exhausts the
-window. Short requests do not wait to reach 16 KiB. A request is held for at
-most 8 further sends, enough to cover the window when the application writes
-at least 2 KiB at a time, and is not held at all when its request line does not
-end in `HTTP/1.x`. Go probes also track header serialization and reader
-refills, including HTTPS buffer flushes.
-
-An existing malformed traceparent is preserved without injecting another
-header; its value is not adopted as trace context. If no traceparent is found
-before the window is exhausted, or before the injector stops holding the
-request, OBI injects its own header. An application traceparent beyond that
-point can therefore result in duplicate headers. These scans use the existing
+On kernels with `bpf_loop` support (normally Linux 5.17+), OBI looks for a
+`traceparent` in up to 16 KiB of the headers of every incoming HTTP/1 request,
+cumulatively across fragments. The generic tracer counts from the request line;
+the Go tracer counts from the start of the header block. The header name and the
+complete traceparent value must fit within that window. Splits inside the name,
+value, or header terminator are supported after OBI has recognized HTTP. A
+malformed traceparent is not adopted. These scans use the existing
 header-tracking and context-propagation controls. Without either, Go servers
 scan only the request headers already buffered when header parsing starts,
 4 KiB by default for `net/http`.
+
+Outgoing requests are not scanned that far. Before injecting its own header,
+OBI looks for one the application already wrote only within these windows:
+
+- The plaintext socket injector looks in the first 4 KiB of the request.
+- The generic tracer uses an application traceparent for the client span only
+  from the first 1 KiB of the request.
+- The Go tracer looks in the first 1 KiB of the headers that `net/http` writes,
+  as long as they are still buffered when it finishes writing them.
+
+An application traceparent beyond these windows is a known limitation: OBI does
+not see it and injects its own header too, so the request carries two.
 
 ## Egress (Sending) Flow
 

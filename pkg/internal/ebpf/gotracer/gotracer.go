@@ -2257,12 +2257,6 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 	}
 
 	if p.headerPropagationEnabled() {
-		if p.supportsBPFLoop {
-			m["bufio.(*Writer).Flush"] = []*ebpfcommon.ProbeDesc{{
-				Start: p.bpfObjects.ObiUprobeHttp1WriterFlush,
-				End:   p.bpfObjects.ObiUprobeHttp1WriterFlushReturns,
-			}}
-		}
 		m["net/http.Header.writeSubset"] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeWriteSubset,        // http 1.x context propagation
 			End:   p.bpfObjects.ObiUprobeWriteSubsetReturns, // inject only if no traceparent present

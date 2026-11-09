@@ -112,14 +112,6 @@ static __always_inline int read_msghdr_buf(struct msghdr *msg, unsigned char *bu
     return read_iovec_ctx(&ctx, buf, max_len);
 }
 
-static __always_inline const void *msghdr_user_buf(struct msghdr *msg) {
-    iovec_iter_ctx ctx;
-
-    get_iovec_ctx(&ctx, (struct iov_iter___dummy *)&msg->msg_iter);
-
-    return iovec_user_buf(&ctx);
-}
-
 static __always_inline enum event_source_type event_source(lw_thread_t lw_thread) {
     if (lw_thread != k_lw_thread_none) {
         return k_event_source_lw_thread;

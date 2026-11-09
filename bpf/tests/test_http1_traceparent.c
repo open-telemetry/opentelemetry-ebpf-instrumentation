@@ -30,7 +30,7 @@ static unsigned int reads;
 static unsigned int largest_read;
 static bool fail_reads;
 
-static long test_probe_read_kernel(void *dst, unsigned int size, const void *src) {
+static long test_probe_read(void *dst, unsigned int size, const void *src) {
     reads++;
     largest_read = size > largest_read ? size : largest_read;
     if (fail_reads) {
@@ -41,7 +41,7 @@ static long test_probe_read_kernel(void *dst, unsigned int size, const void *src
 }
 
 // The shared stubs no-op every read and map lookup: the scan needs real ones.
-#define bpf_probe_read_kernel test_probe_read_kernel
+#define bpf_probe_read test_probe_read
 #undef SCRATCH_MEM_SIZED
 #define SCRATCH_MEM_SIZED(NAME, SIZE)                                                              \
     static unsigned char NAME##_storage[SIZE];                                                     \
@@ -49,7 +49,7 @@ static long test_probe_read_kernel(void *dst, unsigned int size, const void *src
         return NAME##_storage;                                                                     \
     }
 #include <common/http1_traceparent.h>
-#undef bpf_probe_read_kernel
+#undef bpf_probe_read
 
 static const unsigned char header[] =
     "Traceparent: 00-0123456789abcdef0123456789abcdef-0123456789abcdef-01\r\n";
@@ -68,7 +68,7 @@ static u32 request_with_traceparent(u32 offset) {
 }
 
 static void scan(http1_header_scan_t *state, const unsigned char *buf, u32 len) {
-    http1_read_headers(state, buf, len, k_http1_memory_kernel);
+    http1_read_headers(state, buf, len, k_http1_memory_any);
 }
 
 static void test_every_split(void) {
@@ -179,17 +179,6 @@ static void test_header_name_and_spacing(void) {
     assert(state.header[TRACE_PARENT_HEADER_LEN - 1] == '0');
 }
 
-static void test_request_line_end(void) {
-    const unsigned char input[] = "GET / HTTP/1.1\r\nHost: x\r\n\r\n";
-    const u32 split = sizeof("GET /") - 1;
-    http1_header_scan_t state = {};
-    scan(&state, input, split);
-    assert(state.request_line_end == 0 && state.phase == k_http1_request_line);
-    scan(&state, input + split, sizeof(input) - 1 - split);
-    assert(state.request_line_end == sizeof("GET / HTTP/1.1\r\n") - 1);
-    assert(state.phase == k_http1_headers_done && !state.present);
-}
-
 int main(void) {
     test_every_split();
     test_large_fragmented_headers();
@@ -199,7 +188,6 @@ int main(void) {
     test_headers_only();
     test_malformed_header_is_preserved();
     test_header_name_and_spacing();
-    test_request_line_end();
     puts("HTTP/1 traceparent scan tests passed");
     return 0;
 }

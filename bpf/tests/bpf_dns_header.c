@@ -23,6 +23,10 @@ static inline u32 bpf_get_prandom_u32(void) {
     return 0;
 }
 
+static inline long bpf_loop(u32 nr_loops, void *cb, void *ctx, u64 flags) {
+    return 0;
+}
+
 static inline long bpf_skb_load_bytes(const void *skb, u32 offset, void *to, u32 len) {
     return 0;
 }

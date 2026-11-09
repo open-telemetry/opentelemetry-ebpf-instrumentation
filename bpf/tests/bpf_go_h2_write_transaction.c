@@ -17,6 +17,16 @@ static u32 bpf_get_prandom_u32(void) {
     return 0;
 }
 
+static long bpf_loop(u32 iterations, int (*callback)(u32, void *), void *context, u64 flags) {
+    (void)flags;
+    for (u32 index = 0; index < iterations; index++) {
+        if (callback(index, context)) {
+            break;
+        }
+    }
+    return 0;
+}
+
 static long test_probe_read_user(void *dst, unsigned int size, const void *src) {
     memcpy(dst, src, size);
     return 0;
