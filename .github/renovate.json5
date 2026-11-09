@@ -95,6 +95,16 @@
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "regex:^(?:(?<compatibility>.+?)-)?v?(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+    },
+    {
+      // Track the OATS and GCX release pins and the checksum for each Linux
+      // architecture together. The release-attachments datasource maps each
+      // checksum to the corresponding versioned archive.
+      "customType": "regex",
+      "managerFilePatterns": ["/^scripts\\/install-oats-tools\\.sh$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+) packageName=(?<packageName>[^\\s]+) versioning=(?<versioning>[^\\s]+)\\s+\\w+_VERSION=(?<currentValue>v\\d+\\.\\d+\\.\\d+)\\s+\\w+_SHA256=(?<currentDigest>[a-f0-9]{64})"
+      ]
     }
   ],
   "packageRules": [
@@ -543,6 +553,22 @@
       "groupName": "OBI example images",
       "enabled": true,
       "schedule": ["before 6am on Tuesday"]
+    },
+    {
+      "description": "Keep both OATS Linux architecture archives and checksums on one release",
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["scripts/install-oats-tools.sh"],
+      "matchPackageNames": ["grafana/oats"],
+      "groupName": "OATS CLI",
+      "enabled": true
+    },
+    {
+      "description": "Keep both GCX Linux architecture archives and checksums on one release",
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["scripts/install-oats-tools.sh"],
+      "matchPackageNames": ["grafana/gcx"],
+      "groupName": "GCX CLI",
+      "enabled": true
     },
     {
       // Pin every otel/weaver reference to one version in a single PR. The refs
