@@ -34,6 +34,19 @@ var geminiHostPatterns = []geminiHostPattern{
 	{"aiplatform.googleapis.com", "/publishers/google/models/"},
 }
 
+func isGeminiHTTP1Path(path string) bool {
+	model, ok := strings.CutPrefix(path, "/v1beta/models/")
+	if !ok || strings.Contains(model, "/") {
+		return false
+	}
+
+	model, ok = strings.CutSuffix(model, ":generateContent")
+	if !ok {
+		model, ok = strings.CutSuffix(model, ":streamGenerateContent")
+	}
+	return ok && model != ""
+}
+
 func isGemini(req *http.Request, respHeader http.Header) bool {
 	if respHeader.Get("X-Gemini-Service-Tier") != "" {
 		return true

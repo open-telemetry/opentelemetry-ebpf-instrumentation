@@ -81,6 +81,10 @@ func isAnthropic(hdr http.Header) bool {
 	return isAnthropic
 }
 
+func isAnthropicHTTP1Path(path string) bool {
+	return path == anthropicMessagesPath
+}
+
 func looksLikeAnthropicBody(reqB, respB []byte) bool {
 	if extractJSONRawField(reqB, "anthropic_version") != nil {
 		return false

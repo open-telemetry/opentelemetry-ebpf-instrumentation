@@ -465,3 +465,34 @@ func TestGeminiSpan_StreamResponse(t *testing.T) {
 	assert.Equal(t, "Hello from stream.", parts[0].Text)
 	assert.NotEmpty(t, ai.GetOutput())
 }
+
+func TestIsGeminiHTTP1Path(t *testing.T) {
+	for _, tt := range []struct {
+		path string
+		want bool
+	}{
+		{"/v1beta/models/gemini-2.0-flash:generateContent", true},
+		{"/v1beta/models/gemini-2.0-flash:streamGenerateContent", true},
+		{"", false},
+		{"/v1beta/models/:generateContent", false},
+		{"/v1beta/models/:streamGenerateContent", false},
+		{"/v1beta/models/group/model:generateContent", false},
+		{"/v1beta/models/group/model:streamGenerateContent", false},
+		{"/v1beta/models/gemini:embedContent", false},
+		{"/v1beta/models/gemini:countTokens", false},
+		{"/v1beta/models/gemini:batchEmbedContents", false},
+		{"/v1/models/gemini:generateContent", false},
+		{"/v1/models/gemini:streamGenerateContent", false},
+		{"/v1beta/models/gemini:generateContent/", false},
+		{"/v1beta/models/gemini:generateContent/extra", false},
+		{"/v1beta/models/gemini:generateContentExtra", false},
+		{"/v1beta/models/gemini:streamGenerateContentExtra", false},
+		{"/prefix/v1beta/models/gemini:generateContent", false},
+		{"/v1beta/models/gemini", false},
+		{"/v1beta/models/gemini:GenerateContent", false},
+	} {
+		t.Run(tt.path, func(t *testing.T) {
+			assert.Equal(t, tt.want, isGeminiHTTP1Path(tt.path))
+		})
+	}
+}

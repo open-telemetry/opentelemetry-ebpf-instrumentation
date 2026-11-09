@@ -12,6 +12,17 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 )
 
+func isBedrockHTTP1Path(path string) bool {
+	modelAndOperation, ok := strings.CutPrefix(path, "/model/")
+	if !ok {
+		return false
+	}
+
+	model, operation, ok := strings.Cut(modelAndOperation, "/")
+	return ok && model != "" &&
+		(operation == "invoke" || operation == "invoke-with-response-stream")
+}
+
 func isBedrock(respHeader http.Header, req *http.Request) bool {
 	// X-Amzn-Bedrock-Input-Token-Count is always present in successful Bedrock InvokeModel responses.
 	if respHeader.Get("X-Amzn-Bedrock-Input-Token-Count") != "" {

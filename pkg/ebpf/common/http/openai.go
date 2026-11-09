@@ -63,6 +63,15 @@ func parseOpenAICompatibleResponse(respB []byte) (*request.VendorOpenAI, []reque
 	return parseOpenAIStream(reader)
 }
 
+func isOpenAIHTTP1Path(path string) bool {
+	switch path {
+	case "/v1/chat/completions", "/v1/completions", "/v1/embeddings", "/v1/responses", "/v1/decisions":
+		return true
+	default:
+		return false
+	}
+}
+
 func looksLikeOpenAIBody(reqB, respB []byte, path string) bool {
 	model := strings.ToLower(genaiModel(reqB, respB))
 
