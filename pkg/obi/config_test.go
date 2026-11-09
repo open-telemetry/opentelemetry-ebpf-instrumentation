@@ -590,6 +590,24 @@ func TestUnmarshalMapIgnoresGCESettings(t *testing.T) {
 	assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
 }
 
+func TestConfigV1KeepsQueryRedactionReplacement(t *testing.T) {
+	t.Setenv("OTEL_EBPF_SENSITIVE_QUERY_PARAMS_REPLACEMENT", "hidden")
+	cfg, err := LoadConfig(bytes.NewBufferString(`attributes:
+  sensitive_query_params_replacement: hidden
+  sensitive_query_params:
+    add: [customer_secret]
+    replacement: hidden
+`))
+	require.NoError(t, err)
+	require.Nil(t, cfg.Attributes.SensitiveQueryParams.Replacement)
+	require.Contains(t, cfg.Attributes.SensitiveQueryParams.Effective(), "customer_secret")
+
+	cfg.Attributes.SensitiveQueryParams.Replacement = new("hidden")
+	data, err := yaml.Marshal(cfg.Attributes)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "replacement")
+}
+
 func TestConfig_ShutdownTimeout(t *testing.T) {
 	t.Setenv("OTEL_EBPF_SHUTDOWN_TIMEOUT", "1m")
 	cfg, err := LoadConfig(bytes.NewReader(nil))

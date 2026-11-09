@@ -560,6 +560,75 @@ HTTP `payload_extraction` uses the same list-based enablement model as other ins
 
 When `db.query.text` is selected, SQL and SQL++ spans carry the query as captured. Set `sql.sanitize_query_text: true` to replace its string, numeric, hexadecimal and boolean literals with `?`, following the semantic conventions. In statements with bind placeholders only string literals are replaced. Generic SQL from the Go tracer also treats double-quoted text as a string literal, and `db.query.text` is omitted when the literals cannot be located reliably. The setting has no v1 equivalent.
 
+#### HTTP query-parameter redaction
+
+HTTP query-parameter values are redacted while OBI constructs span URL
+attributes, before export or handoff to a Collector consumer. Configure the
+policy under `capture.instrumentation.http.query_parameters.redaction`:
+
+```yaml
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      instrumentation:
+        http:
+          query_parameters:
+            redaction:
+              names: [token, password, customer_secret]
+              replacement: "[hidden]"
+```
+
+This fragment selects exactly these three names, replacing the built-in list.
+To retain all default protections and add a custom name, include the complete
+built-in list from the
+[default-values reference](examples/default-values-reference.fragment.yaml)
+plus that name. The migration command computes that complete list automatically
+from v1 additions and removals.
+
+| Value | Behavior |
+| --- | --- |
+| Omitted `redaction`, `null`, or `{}` | Preserve the built-in selection and `REDACTED` replacement. |
+| Omitted or null `names` | Preserve the built-in selection, including when only `replacement` is configured. |
+| Explicit `names` list | Redact values for exactly the listed names. |
+| `names: []` | Select no query parameters for redaction. |
+| Omitted or null `replacement` | Use `REDACTED`. |
+| Explicit `replacement` string | Replace selected values with this text, URL-encoded as a query value. |
+| `replacement: ""` | Keep the parameter name and `=`, with no value contents. |
+
+Names match case-sensitively after query-key decoding. When decoding fails, the
+raw name is matched. Matching keys include repeated parameters; key spelling,
+unselected values, and parameter order are preserved. Names are literal, with
+no wildcard or regular-expression matching. For example, a replacement of
+`[hidden]` emits `token=%5Bhidden%5D`; a replacement cannot introduce another
+query parameter through `&` or `=`.
+
+The policy applies to emitted `url.full` and `url.query` attributes on HTTP
+client and server spans. Attribute selection still controls which URL attributes
+are emitted. This setting does not sanitize headers, bodies, SQL text, or other
+attributes. Payload enrichment retains its separate `obfuscation_string` setting.
+The data component owns the policy; other data components may reuse the policy
+object when their redaction capabilities are implemented. Their name matching
+and output encoding remain the responsibility of each component.
+
+In a Collector receiver, flatten the same capture configuration beside `version`:
+
+```yaml
+receivers:
+  obi:
+    version: "2.0"
+    instrumentation:
+      http:
+        query_parameters:
+          redaction:
+            names: [token, password, customer_secret]
+            replacement: "[hidden]"
+```
+
+The setting is available only in Config v2. Config v1's configuration and
+redaction behavior remain unchanged. Migration emits `redaction.names` and
+retains the `REDACTED` replacement by omitting `replacement`.
+
 ### `capture.runtimes` Section
 
 The `capture.runtimes` section defines how language-specific runtime instrumentation injection mechanisms are controlled.
