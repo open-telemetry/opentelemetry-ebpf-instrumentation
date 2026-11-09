@@ -383,15 +383,43 @@ metrics:
   # Pre-aggregated: emitted through the SDK Producer interface rather than a
   # Float64Histogram, because the kernel exposes only cumulative run_time_ns /
   # run_cnt and bucket counts are derived from those rather than observed
-  # individually. Supersedes the former obi.bpf.probe.executions and
-  # obi.bpf.probe.latency_seconds_total, whose values are this histogram's
-  # count and sum.
+  # individually. Where no Producer can be attached, as with the Collector
+  # service telemetry, obi.bpf.probe.executions and obi.bpf.probe.time carry
+  # this histogram's count and sum.
   - name: obi.bpf.probe.latency
     instrument: histogram
     unit: "s"
     stability: development
     requirement_level: recommended
     brief: Latency distribution of the eBPF probe in seconds.
+    attributes:
+      - ref: bpf.probe.id
+        requirement_level: required
+      - ref: bpf.probe.type
+        requirement_level: required
+      - ref: bpf.probe.name
+        requirement_level: required
+
+  - name: obi.bpf.probe.executions
+    instrument: counter
+    unit: "{call}"
+    stability: development
+    requirement_level: recommended
+    brief: Total number of eBPF probe executions.
+    attributes:
+      - ref: bpf.probe.id
+        requirement_level: required
+      - ref: bpf.probe.type
+        requirement_level: required
+      - ref: bpf.probe.name
+        requirement_level: required
+
+  - name: obi.bpf.probe.time
+    instrument: counter
+    unit: "s"
+    stability: development
+    requirement_level: recommended
+    brief: Total execution time of the eBPF probe.
     attributes:
       - ref: bpf.probe.id
         requirement_level: required

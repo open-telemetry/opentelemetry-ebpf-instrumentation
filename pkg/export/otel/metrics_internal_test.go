@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/otel/sdk/instrumentation"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	metricdata "go.opentelemetry.io/otel/sdk/metric/metricdata"
 
 	"go.opentelemetry.io/obi/internal/test/collector"
@@ -56,6 +57,53 @@ func TestInternalMetricsReporterBpfProbeStats(t *testing.T) {
 	assert.Equal(t, "tcp_connect", record.Attributes["bpf.probe.name"])
 	assert.Equal(t, 3, record.Count)
 	assert.InDelta(t, 0.0003, record.FloatVal, 0.00001)
+}
+
+// The Collector receiver passes its service telemetry provider, which cannot take the Producer
+// behind the pre-aggregated probe latency histogram, so its count and sum become counters.
+func TestInternalMetricsReporterWithProvider(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+
+	reporter, err := NewInternalMetricsReporterWithProvider(
+		t.Context(),
+		provider,
+		&imetrics.InternalMetricsConfig{BpfMetricScrapeInterval: time.Millisecond},
+	)
+	require.NoError(t, err)
+
+	reporter.QueueBufferUtilization("traces", 0.42)
+	reporter.BpfProbeStats("7", "kprobe", "tcp_connect", 3, 0.0003, map[float64]uint64{0.0001: 3})
+	reporter.BpfProbeStats("7", "kprobe", "tcp_connect", 2, 0.0002, map[float64]uint64{0.0001: 5})
+
+	var rm metricdata.ResourceMetrics
+	require.NoError(t, reader.Collect(t.Context(), &rm))
+	require.Len(t, rm.ScopeMetrics, 1)
+
+	scope := rm.ScopeMetrics[0]
+	assert.Equal(t, internalMetricsMeterName, scope.Scope.Name)
+	metrics := map[string]metricdata.Metrics{}
+	for _, m := range scope.Metrics {
+		metrics[m.Name] = m
+	}
+	assert.Len(t, metrics, 3)
+	assert.Contains(t, metrics, attr.VendorPrefix+".queue.capacity.ratio")
+
+	executions, ok := metrics[attr.VendorPrefix+".bpf.probe.executions"].Data.(metricdata.Sum[int64])
+	require.True(t, ok)
+	require.Len(t, executions.DataPoints, 1)
+	assert.Equal(t, int64(5), executions.DataPoints[0].Value)
+	name, _ := executions.DataPoints[0].Attributes.Value("bpf.probe.name")
+	assert.Equal(t, "tcp_connect", name.AsString())
+
+	probeTime, ok := metrics[attr.VendorPrefix+".bpf.probe.time"].Data.(metricdata.Sum[float64])
+	require.True(t, ok)
+	require.Len(t, probeTime.DataPoints, 1)
+	assert.InDelta(t, 0.0005, probeTime.DataPoints[0].Value, 0.00001)
+
+	// The provider belongs to the caller, so the reporter must not shut it down.
+	require.NoError(t, reporter.Shutdown(t.Context()))
+	require.NoError(t, reader.Collect(t.Context(), &rm))
 }
 
 func TestBpfProbeLatencyProducerDeltaTemporality(t *testing.T) {

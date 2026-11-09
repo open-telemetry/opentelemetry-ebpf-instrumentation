@@ -49,6 +49,9 @@ func BuildTracesReceiver() receiver.CreateTracesFunc {
 		if receiverCfg, ok := baseCfg.(*receiverConfig); ok {
 			v2 = receiverCfg.v2
 		}
+		if v2 {
+			cfg.InternalMetrics.MeterProvider = rs.MeterProvider
+		}
 		return internal.NewController(rs.ID, cfg, v2, pipeline.SignalTraces)
 	}
 }
@@ -71,6 +74,9 @@ func BuildMetricsReceiver() receiver.CreateMetricsFunc {
 		if receiverCfg, ok := baseCfg.(*receiverConfig); ok {
 			v2 = receiverCfg.v2
 		}
+		if v2 {
+			cfg.InternalMetrics.MeterProvider = rs.MeterProvider
+		}
 		return internal.NewController(rs.ID, cfg, v2, pipeline.SignalMetrics)
 	}
 }
@@ -92,6 +98,9 @@ func BuildLogsReceiver() receiver.CreateLogsFunc {
 		v2 := false
 		if receiverCfg, ok := baseCfg.(*receiverConfig); ok {
 			v2 = receiverCfg.v2
+		}
+		if v2 {
+			cfg.InternalMetrics.MeterProvider = rs.MeterProvider
 		}
 		return internal.NewController(rs.ID, cfg, v2, pipeline.SignalLogs)
 	}
