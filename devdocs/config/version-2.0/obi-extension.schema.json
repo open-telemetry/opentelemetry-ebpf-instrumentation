@@ -1271,6 +1271,7 @@
                   "mcp",
                   "ollama",
                   "cohere",
+                  "jev",
                   "openai_compatible",
                   "embedding",
                   "rerank",
