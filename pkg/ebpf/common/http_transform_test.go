@@ -241,7 +241,7 @@ func TestToRequestTrace(t *testing.T) {
 		End:          789012,
 		HostPort:     1,
 		Service:      svc.Attrs{},
-		Statement:    "http;",
+		Statement:    "http;example.com",
 	}
 	assert.Equal(t, expected, result)
 }
