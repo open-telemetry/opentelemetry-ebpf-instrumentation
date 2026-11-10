@@ -693,14 +693,29 @@ func httpMethodFromBuf(req []byte) string {
 	return string(method)
 }
 
+// headerIndex returns the offset of the value for an exact header match,
+// searching only at line boundaries to avoid matching headers that share a suffix
+// (e.g. X-Forwarded-Host when looking for Host).
+func headerIndex(req []byte, header string) int {
+	if bytes.HasPrefix(req, []byte(header)) {
+		return 0
+	}
+	needle := "\r\n" + header
+	idx := bytes.Index(req, []byte(needle))
+	if idx < 0 {
+		return -1
+	}
+	return idx + 2 // skip the \r\n
+}
+
 func httpHostFromBuf(req []byte) (string, int) {
 	if end := bytes.IndexByte(req, 0); end >= 0 {
 		req = req[:end]
 	}
 
-	idx := bytes.Index(req, []byte("Host: "))
+	idx := headerIndex(req, "Host: ")
 	if idx < 0 {
-		idx = bytes.Index(req, []byte("host: "))
+		idx = headerIndex(req, "host: ")
 	}
 	if idx < 0 {
 		return "", -1

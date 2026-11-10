@@ -359,6 +359,21 @@ func TestToRequestTrace_BadHost(t *testing.T) {
 	assert.Equal(t, -1, p)
 }
 
+func TestHTTPInfoEventToSpan_XForwardedHostNotMatched(t *testing.T) {
+	// X-Forwarded-Host must not be mistaken for Host when it appears first.
+	event := BPFHTTPInfo{Type: uint8(request.EventTypeHTTP)}
+	event.ConnInfo.S_port = 54321
+	event.ConnInfo.D_port = 8080
+	event.ConnInfo.S_addr = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 0, 1}
+	event.ConnInfo.D_addr = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 10, 0, 0, 1}
+	copy(event.Buf[:], "GET /path HTTP/1.1\r\nX-Forwarded-Host: proxy.example.com\r\nHost: backend.example.com\r\n\r\n")
+
+	span, ignored, err := HTTPInfoEventToSpan(nil, &event)
+	require.NoError(t, err)
+	assert.False(t, ignored)
+	assert.Equal(t, "http;backend.example.com", span.Statement)
+}
+
 func TestHTTPInfoEventToSpan_HostHeaderCase(t *testing.T) {
 	for _, header := range []string{"Host", "host"} {
 		t.Run(header, func(t *testing.T) {
