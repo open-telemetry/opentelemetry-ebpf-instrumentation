@@ -25,7 +25,9 @@ else
     -artifact-dir "$artifact_dir" -name "$suite_dir" >"$artifact_dir/weaver-validation.log" 2>&1 || helper_status=$?
 fi
 
-if ! docker compose logs --no-color >"$artifact_dir/compose.log" 2>&1; then
+compose_status=0
+docker compose logs --no-color >"$artifact_dir/compose.log" 2>&1 || compose_status=$?
+if ((compose_status != 0)); then
   echo "failed to collect OATS Compose logs for $project_name; see $artifact_dir/compose.log" >&2
 fi
 
@@ -34,3 +36,5 @@ if ((helper_status != 0)); then
   tail -n 40 "$artifact_dir/weaver-validation.log" >&2 || true
   exit "$helper_status"
 fi
+
+exit "$compose_status"
