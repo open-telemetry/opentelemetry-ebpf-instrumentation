@@ -70,6 +70,7 @@ type Tracer struct {
 	pidsFilter              ebpfcommon.ServiceFilter
 	pidsMu                  sync.Mutex
 	instrumentedPids        ebpfcommon.PIDBitmap
+	otelTracesPids          ebpfcommon.PIDBitmap
 	pidsStopped             bool
 	closerMu                sync.Mutex
 	detached                bool
@@ -345,6 +346,10 @@ func (p *Tracer) closeAllReverse(closers []io.Closer) {
 }
 
 func (p *Tracer) detach() {
+	if filter, ok := p.pidsFilter.(*ebpfcommon.PIDsFilter); ok {
+		filter.RemoveOTelTracesPIDFilter()
+	}
+
 	// a running socket backfill stops at its next socket
 	p.socketsStopped.Store(true)
 
@@ -481,6 +486,11 @@ func (p *Tracer) AlreadyInstrumentedLib(uint64) bool {
 
 func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg.Queue[[]request.Span]) {
 	p.log.Debug("tpinjector started")
+	if p.cfg.Discovery.ExcludeOTelInstrumentedServices && p.cfg.EBPF.ContextPropagation.HasHeaders() {
+		if filter, ok := p.pidsFilter.(*ebpfcommon.PIDsFilter); ok {
+			filter.SetOTelTracesPIDFilter(p.updateOTelTracesPID)
+		}
+	}
 
 	// with enrollment scoped to instrumented processes, AllowPID backfills each of them instead
 	if !p.enrollInstrumentedOnly {
@@ -496,6 +506,10 @@ func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg
 	p.detach()
 
 	p.log.Debug("tpinjector terminated")
+}
+
+func (p *Tracer) updateOTelTracesPID(pid app.PID, selected bool) error {
+	return p.otelTracesPids.Set(p.bpfObjects.OtelTracesPids, pid, selected)
 }
 
 func (p *Tracer) SetEventContext(_ *ebpfcommon.EBPFEventContext) {}

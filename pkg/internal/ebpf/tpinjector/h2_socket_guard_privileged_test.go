@@ -10,6 +10,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"log/slog"
 	"net"
 	"os"
 	"testing"
@@ -17,6 +18,13 @@ import (
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app"
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
+	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 // sk_h2_conn_flag values (k_h2_sock_* in bpf/tpinjector/tpinjector.c)
@@ -47,7 +55,7 @@ var (
 // sock_dir. The test adds its client sockets by hand, so no cgroup or sockops
 // attach is needed, and nothing but the test's own connections is touched.
 func loadSocketGuardHarness(t *testing.T) *BpfObjects {
-	objs := loadTPInjectorObjects(t, nil)
+	objs := loadTPInjectorObjects(t, ebpfcommon.PIDFilterConstants())
 
 	attach := link.RawAttachProgramOptions{
 		Target:  objs.SockDir.FD(),
@@ -154,6 +162,67 @@ func requireInjected(t *testing.T, c *guardConn, fields int) {
 	got := c.received()
 	require.Len(t, got, len(c.sent)+fields*h2ProbeHPACKLen)
 	require.Equal(t, fields, bytes.Count(got, []byte("traceparent")))
+}
+
+func TestOTelTraceExportStopsHeaderInjectionOnExistingSocket(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		setup  []byte
+		before []byte
+		after  []byte
+	}{
+		{
+			name:   "HTTP1 keeps TCP options",
+			before: []byte("GET /before HTTP/1.1\r\nHost: localhost\r\n\r\n"),
+			after:  []byte("GET /after HTTP/1.1\r\nHost: localhost\r\n\r\n"),
+		},
+		{
+			name: "HTTP2", setup: bytes.Join([][]byte{h2Preface, h2EmptySettings}, nil),
+			before: h2ProbeFrame(1), after: h2ProbeFrame(3),
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			objs := loadSocketGuardHarness(t)
+			cfg := &obi.Config{Discovery: services.DiscoveryConfig{ExcludeOTelInstrumentedServices: true}}
+			filter := ebpfcommon.NewPIDsFilter(&cfg.Discovery, slog.Default(), nil)
+			tracer := New(cfg, filter)
+			tracer.bpfObjects = *objs
+			filter.SetOTelTracesPIDFilter(tracer.updateOTelTracesPID)
+			t.Cleanup(func() { filter.RemoveOTelTracesPIDFilter() })
+			pid, ns := app.PID(os.Getpid()), selfPidNamespace(t)
+			filter.AllowPID(pid, ns, exec.New(exec.Init{Pid: pid, Ns: ns}), ebpfcommon.PIDTypeKProbes)
+
+			conn := newGuardConn(t, objs)
+			if len(tc.setup) != 0 {
+				conn.send(tc.setup)
+			}
+			conn.send(tc.before)
+			if len(tc.setup) == 0 {
+				require.NoError(t, objs.SkTpInfoPidMap.Delete(uint32(conn.fd)))
+			}
+			filter.Filter([]request.Span{{
+				Type: request.EventTypeHTTPClient, Path: "/v1/traces", Status: 200,
+				Pid: request.PidInfo{UserPID: pid, HostPID: pid, Namespace: ns},
+			}})
+			conn.send(tc.after)
+			got := conn.received()
+			require.Equal(t, 1, bytes.Count(bytes.ToLower(got), []byte("traceparent")))
+			require.True(t, bytes.HasSuffix(got, tc.after), "the request after detection must be unchanged")
+
+			if len(tc.setup) == 0 {
+				var tp BpfTpInfoPidT
+				require.NoError(t, objs.SkTpInfoPidMap.Lookup(uint32(conn.fd), &tp))
+				require.Equal(t, uint8(1), tp.Valid, "TCP option scheduling must continue")
+			}
+
+			fresh := newGuardConn(t, objs)
+			if len(tc.setup) != 0 {
+				fresh.send(tc.setup)
+			}
+			fresh.send(tc.after)
+			requirePristine(t, fresh)
+		})
+	}
 }
 
 func TestH2SocketGuard(t *testing.T) {

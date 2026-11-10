@@ -102,6 +102,11 @@ Once a service has its `ExportsOTelMetrics` / `ExportsOTelTraces` /
 - OTLP traces — [`pkg/export/otel/tracesgen/tracesgen.go`](../pkg/export/otel/tracesgen/tracesgen.go).
 - Prometheus — RED-metrics and span-metrics filters in [`pkg/export/prom/prom.go`](../pkg/export/prom/prom.go).
 
+With `exclude_otel_instrumented_services` enabled, detecting trace exports also
+immediately marks the process in tpinjector's PID filter. Subsequent HTTP/1 and
+HTTP/2 header writes skip injection, including on existing connections. TCP option propagation is still performed.
+
+
 Each detection event increments the `obi.avoided.services` internal metric
 (Prometheus name: `obi_avoided_services`). Normal series are labeled with the
 logical service name, service namespace, and the telemetry type that was

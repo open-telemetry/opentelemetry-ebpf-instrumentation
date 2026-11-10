@@ -51,6 +51,7 @@
 #include <tpinjector/inject_policy.h>
 #include <tpinjector/h2_write_transaction.h>
 #include <tpinjector/maps/instrumented_pids.h>
+#include <tpinjector/maps/otel_traces_pids.h>
 #include <tpinjector/maps/sk_h2_flags.h>
 #include <tpinjector/maps/sk_h2_conn_flag.h>
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
@@ -130,6 +131,11 @@ enum {
 
 volatile const u32 inject_flags =
     k_inject_http_headers | k_inject_tcp_options; // default: both enabled
+
+static __always_inline bool inject_http_headers(void) {
+    return (inject_flags & k_inject_http_headers) &&
+           !pid_selected(&otel_traces_pids, obi_pid(bpf_get_current_pid_tgid()));
+}
 
 // set when user space can backfill earlier connections; otherwise every client socket is enrolled
 volatile const bool enroll_instrumented_only = false;
@@ -1359,6 +1365,10 @@ int obi_packet_extender(struct sk_msg_md *msg) {
 //k_tail_write_msg_traceparent
 SEC("sk_msg")
 int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg) {
+    if (!inject_http_headers()) {
+        return SK_PASS;
+    }
+
     bpf_dbg_printk("=== sk_msg ===");
 
     tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
@@ -2034,6 +2044,10 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
 // offsets so the verifier is happy
 SEC("sk_msg")
 int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg) {
+    if (!inject_http_headers()) {
+        return SK_PASS;
+    }
+
     bpf_dbg_printk("=== sk_msg h2 tp ===");
 
     tailcall_ctx *t_ctx = tailcall_ctx_mem();
