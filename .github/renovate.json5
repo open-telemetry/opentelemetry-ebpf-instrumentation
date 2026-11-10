@@ -457,6 +457,14 @@
       "enabled": false
     },
     {
+      "description": "Keep the Java Kafka OATS broker on Confluent 7.9 (Kafka 3.9) with patch and digest updates",
+      "matchFileNames": ["internal/test/oats/kafka/docker-compose-obi-java-kafka.yml"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["confluentinc/cp-kafka"],
+      "allowedVersions": "/^7\\.9\\./",
+      "enabled": true
+    },
+    {
       "description": "Block kafka-clients major upgrades for javakafka test component",
       "matchFileNames": ["internal/test/integration/components/javakafka/pom.xml"],
       "matchManagers": ["maven"],
