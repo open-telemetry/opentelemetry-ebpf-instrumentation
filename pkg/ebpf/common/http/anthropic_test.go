@@ -632,3 +632,67 @@ func TestIsAnthropicHTTP1Path(t *testing.T) {
 		})
 	}
 }
+
+// Non-Anthropic /v1/messages exchanges that the HTTP/1.1 fallback must not claim.
+var anthropicHTTP1FalsePositives = []struct{ name, request, response string }{
+	{"generic message response", `{"to":"+15550100","text":"hi"}`, `{"type":"message","id":"m1","status":"queued"}`},
+	{"message_start substring", `{"to":"+15550100","text":"hi"}`, `{"id":"m1","message_start_time":"2026-11-10T00:00:00Z"}`},
+	{"user role message", `{"conversation":7,"text":"hi"}`, `{"type":"message","role":"user","id":"m1"}`},
+	{"generic messages array", `{"messages":[{"to":"a","text":"hi"}]}`, `{"type":"message","id":"m1"}`},
+}
+
+// anthropicCompatibleRequestBody names no Claude model, so only the response
+// can supply Anthropic evidence.
+const anthropicCompatibleRequestBody = `{"model":"deepseek-chat","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`
+
+func TestLooksLikeAnthropicHTTP1Body(t *testing.T) {
+	const bedrockRequest = `{"anthropic_version":"bedrock-2023-05-31","max_tokens":64,"messages":[]}`
+
+	for _, fp := range anthropicHTTP1FalsePositives {
+		t.Run(fp.name, func(t *testing.T) {
+			assert.False(t, looksLikeAnthropicHTTP1Body([]byte(fp.request), []byte(fp.response)))
+		})
+	}
+
+	for _, tt := range []struct {
+		name, request, response string
+		want                    bool
+	}{
+		{name: "JSON response", request: anthropicCompatibleRequestBody, response: anthropicResponseBody, want: true},
+		{name: "SSE response", request: anthropicCompatibleRequestBody, response: anthropicStreamingResponseBody, want: true},
+		{name: "Claude request with error response", request: anthropicRequestBody, response: anthropicErrorResponseBody, want: true},
+		{name: "Claude request with truncated response", request: anthropicRequestBody, response: anthropicResponseBody[:60], want: true},
+		{name: "compatible model with error response", request: anthropicCompatibleRequestBody, response: anthropicErrorResponseBody},
+		{name: "Bedrock request", request: bedrockRequest, response: anthropicResponseBody},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, looksLikeAnthropicHTTP1Body([]byte(tt.request), []byte(tt.response)))
+		})
+	}
+}
+
+func TestStartsWithAnthropicMessageStart(t *testing.T) {
+	const eventLine = "event: message_start"
+	comment := func(size int) string {
+		return ":" + strings.Repeat("x", size-len(":\n")) + "\n"
+	}
+	lastFit := responseHeaderSearchWindow - len(eventLine)
+
+	for _, tt := range []struct {
+		name, response string
+		want           bool
+	}{
+		{"first event", eventLine + "\ndata: {}\n\n", true},
+		{"preamble with CRLF", ": keep-alive\r\nid: 1\r\nretry: 3000\r\n\r\n" + eventLine + "\r\ndata: {}\r\n\r\n", true},
+		{"event without space", "event:message_start\ndata: {}\n\n", true},
+		{"other first event", "event: ping\ndata: {\"type\":\"ping\"}\n\n" + eventLine + "\n", false},
+		{"data without event", "data: {\"type\":\"message_start\"}\n\n", false},
+		{"event ends at window edge", comment(lastFit) + eventLine + "\n", true},
+		{"event crosses window edge", comment(lastFit+1) + eventLine + "\n", false},
+		{"event name with suffix", "event: message_start_time\n", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, startsWithAnthropicMessageStart([]byte(tt.response)))
+		})
+	}
+}

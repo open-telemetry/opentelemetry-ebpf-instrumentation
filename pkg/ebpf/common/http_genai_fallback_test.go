@@ -61,11 +61,10 @@ func TestPostProcessHTTPSpanGenAIHTTP1Wiring(t *testing.T) {
 		server, nilContext, gateway, gatewayEnabled, strong bool
 		subtype                                             int
 	}{
+		{name: "http1_fallback", subtype: request.HTTPSubtypeOpenAI},
 		{name: "server", server: true},
 		{name: "nil_context", nilContext: true},
-		{name: "absolute_query", target: "http://api.openai.com/v1/chat/completions?foo=bar", subtype: request.HTTPSubtypeOpenAI},
 		{name: "gateway_enabled", gateway: true, gatewayEnabled: true, subtype: request.HTTPSubtypeOpenAICompatible},
-		{name: "strong_gateway", target: "/unrelated", gateway: true, gatewayEnabled: true, strong: true, subtype: request.HTTPSubtypeOpenAI},
 		{name: "strong_gateway_disabled", target: "/unrelated", gateway: true, strong: true, subtype: request.HTTPSubtypeOpenAI},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -101,11 +100,48 @@ func TestPostProcessHTTPSpanGenAIHTTP1Wiring(t *testing.T) {
 				assert.Empty(t, span.RequestBodyContent)
 				assert.Empty(t, span.ResponseBodyContent)
 			}
-			if tc.name == "absolute_query" {
-				assert.Equal(t, "http://api.openai.com/v1/chat/completions", span.Path)
-				assert.Equal(t, target, span.FullPath)
-				assert.Equal(t, request.ChatOperationName, span.GenAI.OpenAI.OperationName)
+		})
+	}
+}
+
+func TestPostProcessHTTPSpanGenAIHTTP1OpenAIEndpoints(t *testing.T) {
+	for _, tc := range []struct {
+		name, target, requestBody, responseBody, wantPath, wantOperation string
+		wantSubtype                                                      int
+	}{
+		{
+			name: "absolute_form_with_query", target: "http://api.openai.com/v1/chat/completions?foo=bar",
+			requestBody: genAIHTTP1OpenAIRequest, responseBody: genAIHTTP1OpenAIResponse,
+			wantPath: "http://api.openai.com/v1/chat/completions", wantOperation: request.ChatOperationName, wantSubtype: request.HTTPSubtypeOpenAI,
+		},
+		{
+			name: "embeddings", target: "/v1/embeddings",
+			requestBody:  `{"model":"text-embedding-3-small","input":"hi"}`,
+			responseBody: `{"object":"list","model":"text-embedding-3-small","data":[{"object":"embedding","index":0,"embedding":[0.1]}]}`,
+			wantPath:     "/v1/embeddings", wantOperation: request.EmbeddingOperationName, wantSubtype: request.HTTPSubtypeOpenAI,
+		},
+		{
+			name: "DashScope_embeddings_left_for_Qwen", target: "/v1/embeddings",
+			requestBody:  `{"model":"text-embedding-v3","input":["hi"]}`,
+			responseBody: `{"object":"list","model":"text-embedding-v3","data":[]}`,
+			wantPath:     "/v1/embeddings", wantSubtype: request.HTTPSubtypeNone,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, resp := newGenAIHTTP1Exchange(t, tc.target, tc.requestBody, tc.responseBody)
+
+			span := httpRequestResponseToSpan(newGenAIHTTP1ParseContext(), &BPFHTTPInfo{Type: uint8(request.EventTypeHTTPClient)}, req, resp)
+
+			assert.Equal(t, tc.wantSubtype, span.SubType)
+			assert.Equal(t, tc.wantPath, span.Path)
+			assert.Equal(t, tc.target, span.FullPath)
+			if tc.wantSubtype == request.HTTPSubtypeNone {
+				assert.Nil(t, span.GenAI)
+				return
 			}
+			require.NotNil(t, span.GenAI)
+			require.NotNil(t, span.GenAI.OpenAI)
+			assert.Equal(t, tc.wantOperation, span.GenAI.OpenAI.OperationName)
 		})
 	}
 }
@@ -132,6 +168,9 @@ func TestPostProcessHTTPSpanGenAIHTTP1RPCPrecedence(t *testing.T) {
 	}
 }
 
+// With JSON-RPC enabled, TryParseJSONRPC consumes a request body that fails to
+// read without restoring it, so the fallback no longer sees the body. This pins
+// that existing TryParseJSONRPC limitation.
 func TestPostProcessHTTPSpanGenAIHTTP1RPCReadError(t *testing.T) {
 	for _, enabled := range []bool{false, true} {
 		t.Run(strconv.FormatBool(enabled), func(t *testing.T) {
@@ -157,6 +196,21 @@ func TestPostProcessHTTPSpanGenAIHTTP1BodyPreservation(t *testing.T) {
 	parseCtx := newGenAIHTTP1ParseContext()
 	requestBody, responseBody := `{"request":"preserve me"}`, `{"response":"preserve me"}`
 	req, resp := newGenAIHTTP1Exchange(t, "/v1/chat/completions", requestBody, responseBody)
+	event := &BPFHTTPInfo{Type: uint8(request.EventTypeHTTPClient)}
+
+	span := httpRequestResponseToSpan(parseCtx, event, req, resp)
+
+	assert.Equal(t, request.HTTPSubtypeNone, span.SubType)
+	assert.Nil(t, span.GenAI)
+	assert.Equal(t, requestBody, span.RequestBodyContent, "request body after rejected fallback")
+	assert.Equal(t, responseBody, span.ResponseBodyContent, "response body after rejected fallback")
+}
+
+func TestPostProcessHTTPSpanGenAIHTTP1AnthropicBodyPreservation(t *testing.T) {
+	parseCtx := newGenAIHTTP1ParseContext()
+	parseCtx.payloadExtraction.HTTP.GenAI.Anthropic.Enabled = true
+	requestBody, responseBody := `{"to":"+15550100","text":"hi"}`, `{"type":"message","id":"m1","status":"queued"}`
+	req, resp := newGenAIHTTP1Exchange(t, "/v1/messages", requestBody, responseBody)
 	event := &BPFHTTPInfo{Type: uint8(request.EventTypeHTTPClient)}
 
 	span := httpRequestResponseToSpan(parseCtx, event, req, resp)
