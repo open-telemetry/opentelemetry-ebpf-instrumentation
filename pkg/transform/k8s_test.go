@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -26,10 +27,130 @@ import (
 	"go.opentelemetry.io/obi/pkg/kube"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
+	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
+	"go.opentelemetry.io/obi/pkg/metadata"
+	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
+	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 )
 
 const timeout = 5 * time.Second
+
+func TestKubeDecoratorProviderCompatibility(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider func(*kube.MetadataProvider, *msg.Queue[[]request.Span], *msg.Queue[[]request.Span]) swarm.InstanceFunc
+	}{
+		{
+			name: "legacy",
+			provider: func(informer *kube.MetadataProvider, input, output *msg.Queue[[]request.Span]) swarm.InstanceFunc {
+				return KubeDecoratorProvider(&global.ContextInfo{K8sInformer: informer}, &KubernetesDecorator{}, input, output)
+			},
+		},
+		{
+			name: "metadata provider",
+			provider: func(informer *kube.MetadataProvider, input, output *msg.Queue[[]request.Span]) swarm.InstanceFunc {
+				return KubeDecoratorProviderWithMetadataProvider(&metadata.MetadataProvider{K8sInformer: informer}, &KubernetesDecorator{}, input, output)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Run("disabled", func(t *testing.T) {
+				input := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(1))
+				output := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(1))
+				defer input.Close()
+				defer output.Close()
+				out := output.Subscribe()
+				run, err := tt.provider(nil, input, output)(t.Context())
+				require.NoError(t, err)
+				require.NotNil(t, run)
+
+				input.Send([]request.Span{{Path: "/test"}})
+				assert.Equal(t, []request.Span{{Path: "/test"}}, testutil.ReadChannel(t, out, timeout))
+			})
+
+			t.Run("informer error", func(t *testing.T) {
+				t.Setenv("KUBERNETES_SERVICE_HOST", "")
+				informer := kube.NewMetadataProvider(kube.MetadataConfig{
+					Enable:         kubeflags.EnabledTrue,
+					KubeConfigPath: filepath.Join(t.TempDir(), "missing-kubeconfig"),
+				}, imetrics.NoopReporter{})
+				input := msg.NewQueue[[]request.Span]()
+				output := msg.NewQueue[[]request.Span]()
+				defer input.Close()
+				defer output.Close()
+
+				run, err := tt.provider(informer, input, output)(t.Context())
+				require.ErrorContains(t, err, "initializing KubeDecoratorProvider: can't get informer:")
+				assert.Nil(t, run)
+			})
+		})
+	}
+}
+
+func TestKubeProcessEventDecoratorProviderCompatibility(t *testing.T) {
+	tests := []struct {
+		name     string
+		provider func(*kube.MetadataProvider, *msg.Queue[exec.ProcessEvent], *msg.Queue[exec.ProcessEvent]) swarm.InstanceFunc
+	}{
+		{
+			name: "legacy",
+			provider: func(informer *kube.MetadataProvider, input, output *msg.Queue[exec.ProcessEvent]) swarm.InstanceFunc {
+				return KubeProcessEventDecoratorProvider(&global.ContextInfo{K8sInformer: informer}, &KubernetesDecorator{}, input, output)
+			},
+		},
+		{
+			name: "metadata provider",
+			provider: func(informer *kube.MetadataProvider, input, output *msg.Queue[exec.ProcessEvent]) swarm.InstanceFunc {
+				return KubeProcessEventDecoratorProviderWithMetadataProvider(&metadata.MetadataProvider{K8sInformer: informer}, &KubernetesDecorator{}, input, output)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Run("disabled", func(t *testing.T) {
+				input := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1))
+				output := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1))
+				defer input.Close()
+				defer output.Close()
+				out := output.Subscribe()
+				run, err := tt.provider(nil, input, output)(t.Context())
+				require.NoError(t, err)
+				require.NotNil(t, run)
+
+				service := svc.Attrs{UID: svc.UID{Name: "test-service"}}
+				event := exec.ProcessEvent{
+					File: exec.New(exec.Init{Pid: 123, Service: service}),
+					Type: exec.ProcessEventCreated,
+				}
+				input.Send(event)
+				got := testutil.ReadChannel(t, out, timeout)
+				assert.Equal(t, event.Type, got.Type)
+				require.Same(t, event.File, got.File)
+				assert.Equal(t, service, got.File.ServiceAttrs())
+			})
+
+			t.Run("informer error", func(t *testing.T) {
+				t.Setenv("KUBERNETES_SERVICE_HOST", "")
+				informer := kube.NewMetadataProvider(kube.MetadataConfig{
+					Enable:         kubeflags.EnabledTrue,
+					KubeConfigPath: filepath.Join(t.TempDir(), "missing-kubeconfig"),
+				}, imetrics.NoopReporter{})
+				input := msg.NewQueue[exec.ProcessEvent]()
+				output := msg.NewQueue[exec.ProcessEvent]()
+				defer input.Close()
+				defer output.Close()
+
+				run, err := tt.provider(informer, input, output)(t.Context())
+				require.ErrorContains(t, err, "initializing KubeDecoratorProvider: can't get informer:")
+				assert.Nil(t, run)
+			})
+		})
+	}
+}
 
 func TestDecoration(t *testing.T) {
 	originalInfoForPID := kube.InfoForPID
