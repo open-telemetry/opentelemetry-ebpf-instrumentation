@@ -63,7 +63,7 @@ func TestRoute53ResolverRecoversFromInitialFailure(t *testing.T) {
 			}
 			cloudCfg := CloudMetadataConfig{
 				RefreshInterval: 10 * time.Millisecond,
-				Route53:         Route53MetadataConfig{RefreshInterval: 10 * time.Millisecond, HostedZoneIDs: zones},
+				Route53:         Route53MetadataConfig{RefreshInterval: 10 * time.Millisecond, HostedZoneIDs: zones, DiscoverHostedZones: true},
 			}
 			info := &global.ContextInfo{NodeMeta: metadata.NodeMeta{Features: metadata.ClusterEC2, EC2VPCID: "vpc-local", Region: "us-east-1"}}
 			refreshers := CloudMetadataRefreshers(ctx, &info.NodeMeta, cfg, cloudCfg)

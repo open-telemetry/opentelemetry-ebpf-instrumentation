@@ -28,6 +28,8 @@ extensions:
         batching:
           batch_timeout: 10ms
     enrich:
+      service_name:
+        sources: [k8s, ecs, route53]
       enrichers:
         cloud:
           route53:

@@ -1,14 +1,16 @@
 # Route53 name resolution
 
 The `route53` name resolver maps endpoint IPs to fully qualified DNS names from
-AWS Route53 hosted zones on detected EC2 hosts. It is enabled by default in
-Config v2. Config v1 retains `[k8s, ecs]` as its default sources; migrating a v1
-configuration preserves those sources.
-Each refresh discovers public zones in the current AWS account and private zones
+AWS Route53 hosted zones on detected EC2 hosts. Enable it explicitly in
+`enrich.service_name.sources` in Config v2. Both configuration versions retain
+`[k8s, ecs]` as their default sources.
+
+Explicit `hosted_zone_ids` are read directly, preserving the v1 behavior and
+permissions. When IDs are omitted in Config v2, each refresh discovers public
+zones in the current AWS account and private zones
 associated with the host's VPC, identified through its primary network interface
 in EC2 instance metadata. If the VPC or region is unknown, only public zones are
-eligible. Optional `hosted_zone_ids` narrow this selection without bypassing the
-VPC or address filters.
+eligible. The discovery path applies the VPC and address filters below.
 
 Configure Route53 in Config v2:
 
@@ -31,7 +33,8 @@ extensions:
 Use the AWS SDK's standard credentials configuration. Grant
 `route53:ListResourceRecordSets` on the hosted zones. Zone discovery also
 requires `route53:ListHostedZones` and, when the VPC and region are known,
-`route53:ListHostedZonesByVPC` on `*`, including when explicit zone IDs are configured.
+`route53:ListHostedZonesByVPC` on `*`. Explicit zone IDs only require
+`route53:ListResourceRecordSets`.
 Zone IDs can include the `/hostedzone/` prefix. Use explicit IDs to select zones
 appropriate to the monitored network, since different private networks can reuse
 IP addresses.
@@ -40,7 +43,7 @@ Literal A and AAAA records contribute IP mappings. Names are lowercase, retain
 all domain labels, and omit the trailing dot. Aliases, CNAMEs, and wildcard records
 are excluded.
 
-Public zones can contain IPs reused across networks, so their records need
+Discovered public zones can contain IPs reused across networks, so their records need
 additional filtering:
 
 | Address type | Treatment in public zones |
@@ -61,20 +64,23 @@ This can omit a valid mapping such as `database.example.com -> 100.64.0.2` in a
 public zone: the IP alone cannot identify which network the record describes.
 If no eligible private zone or other resolver supplies a name, the endpoint
 remains unresolved. Publishing the record in a private zone associated with the
-monitored VPC makes it eligible. Explicit zone IDs cannot override these rules.
+monitored VPC makes it eligible. Explicit zone IDs use direct record reads and
+retain all valid A/AAAA mappings.
 
-Eligible private zones retain all valid A/AAAA addresses. OBI checks the zone's
+During automatic discovery, eligible private zones retain all valid A/AAAA
+addresses. OBI checks the zone's
 VPC association, not whether each IP belongs to a VPC subnet; a zone may name
 endpoints in connected networks. Private-zone names override public-zone names
 for the same IP. Within either scope, the alphabetically smallest name wins,
 regardless of API response order. The IP-only map cannot determine which of
-several names an application used.
+several names an application used. With explicit zone IDs, the alphabetically
+smallest name wins across all configured zones.
 
 Zones associated only through Route 53 Profiles are excluded because
-`ListHostedZonesByVPC` does not discover them, even with explicit zone IDs.
+`ListHostedZonesByVPC` does not discover them. They can be read using explicit zone IDs.
 Associated zones owned by another account or AWS service are eligible if readable.
-If any record page returns `AccessDenied`, OBI discards that zone's records and
-continues with readable zones. Skipped zones are checked on later refreshes;
+During automatic discovery, if any record page returns `AccessDenied`, OBI
+discards that zone's records and continues with readable zones. Skipped zones are checked on later refreshes;
 each successful refresh contains only records from currently readable zones.
 
 Kubernetes and ECS names take precedence over Route53 names. Route53 takes
@@ -86,11 +92,12 @@ Initial discovery is delayed randomly between zero and one interval to spread
 startup traffic. Later polls wait between 80% and 120% of the interval after the
 previous fetch completes. Names remain unresolved until initial discovery succeeds.
 
-Before the first successful refresh, `AccessDenied` during discovery or from
-every selected zone disables Route53 polling. OBI logs one warning with the
+On the discovery path, before the first successful refresh, `AccessDenied`
+during discovery or from every selected zone disables Route53 polling. OBI logs one warning with the
 required permissions. Grant them and restart OBI to enable the source.
 Transient failures still retry. After a successful refresh, discovery failures
 or denial by every selected zone preserve the last snapshot and keep retrying.
+With explicit zone IDs, access failures continue to retry.
 
 Each source retains its last successful snapshot. Successful refreshes remove
 deleted records; a failed Route53 fetch preserves its mappings and does not block
@@ -130,7 +137,8 @@ Config v1 also accepts these environment variables, which override YAML values:
 - `OTEL_EBPF_NAME_RESOLVER_ROUTE53_HOSTED_ZONE_IDS`: comma-separated hosted zone IDs.
 - `OTEL_EBPF_NAME_RESOLVER_ROUTE53_REFRESH_INTERVAL`: polling interval (default `5m`).
 
-Hosted zone IDs are optional. To disable Route53, set service name sources
+Hosted zone IDs are required in Config v1 and optional in Config v2.
+To disable Route53, set service name sources
 explicitly, for example `[k8s, ecs]`.
 `obi config migrate` preserves Route53 settings present in the Config v1 YAML;
 legacy environment overrides must be materialized or explicitly rewired for Config v2.
