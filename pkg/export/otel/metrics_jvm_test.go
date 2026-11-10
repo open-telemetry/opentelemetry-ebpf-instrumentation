@@ -75,7 +75,7 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryPoolUsed(t *testing.T) {
 		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
-	defer reporter.close()
+	defer closeDiscardingExports(reporter.close, records)
 
 	service := svc.Attrs{
 		UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
@@ -129,7 +129,7 @@ func TestRuntimeMetricsReporterRecordsJVMMemoryAsUpDownCounter(t *testing.T) {
 		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
-	defer reporter.close()
+	defer closeDiscardingExports(reporter.close, records)
 
 	service := svc.Attrs{
 		UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
@@ -182,7 +182,7 @@ func TestRuntimeMetricsReporterRecordsJVMGCDuration(t *testing.T) {
 		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
-	defer reporter.close()
+	defer closeDiscardingExports(reporter.close, records)
 
 	service := svc.Attrs{
 		UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
@@ -241,7 +241,7 @@ func testJVMClassMetrics(t *testing.T, unloaded uint64) {
 		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
-	defer reporter.close()
+	defer closeDiscardingExports(reporter.close, records)
 
 	service := svc.Attrs{
 		UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},
@@ -376,7 +376,7 @@ func TestRuntimeMetricsReporterRetainsJVMCounterBaselineBeyondTTL(t *testing.T) 
 		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
-	defer reporter.close()
+	defer closeDiscardingExports(reporter.close, records)
 
 	service := svc.Attrs{
 		UID:      svc.UID{Name: "orders", Namespace: "prod", Instance: "orders-1"},

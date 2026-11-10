@@ -127,7 +127,7 @@ func statsAgent(
 	statsFetcher ebpFetcher,
 	agentIP net.IP,
 ) (*Stats, error) {
-	rbTracer := stats.NewRingBufTracer(statsFetcher.StatsEventsMap(), &cfg.EBPF)
+	rbTracer := stats.NewRingBufTracer(statsFetcher.StatsEventsMap(), &cfg.EBPF, cfg.ShutdownTimeout)
 
 	return &Stats{
 		ctxInfo:  ctxInfo,
@@ -153,14 +153,17 @@ func (s *Stats) Run(ctx context.Context) error {
 			slog.With("component", "statsolly.BPFDebug"))
 	}
 
-	graph, err := s.buildPipeline(ctx)
+	pipelineCtx, cancelPipeline := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelPipeline()
+
+	graph, err := s.buildPipeline(pipelineCtx, ctx)
 	if err != nil {
 		return fmt.Errorf("starting processing graph: %w", err)
 	}
 
 	s.graph = graph
 
-	s.graph.Start(ctx, swarm.WithCancelTimeout(tracefs.EffectiveShutdownTimeout(s.cfg.ShutdownTimeout)))
+	s.graph.Start(pipelineCtx, swarm.WithCancelTimeout(tracefs.EffectiveShutdownTimeout(s.cfg.ShutdownTimeout)))
 	s.status = StatusStarted
 
 	alog.Info("Stats agent successfully started")
