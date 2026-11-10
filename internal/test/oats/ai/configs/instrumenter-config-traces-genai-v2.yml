@@ -1,5 +1,5 @@
 # Config v2 counterpart of instrumenter-config-traces-genai.yml for the GenAI
-# payload extractors that exist only in Config v2 (cohere).
+# payload extractors that exist only in Config v2 (cohere, jev).
 file_format: "1.0"
 log_level: debug
 resource:
@@ -50,7 +50,7 @@ extensions:
             outgoing:
               unmatched: path
           payload_extraction:
-            enabled: [cohere]
+            enabled: [cohere, jev]
     enrich:
       attributes:
         select:
