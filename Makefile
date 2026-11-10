@@ -615,11 +615,12 @@ run-integration-test-vm:
 		echo "Pre-compiled tests not found, compiling in VM"; \
 		go tool $(TOOLS_MODFILE) gotestsum \
 			--rerun-fails=2 --rerun-fails-max-failures=2 \
+			--packages=./internal/test/integration \
 			-ftestname --jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log -- \
 			-p $$TEST_PARALLEL \
 			-timeout $$TEST_TIMEOUT \
 			-v \
-			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration; \
+			-run="^($(TEST_PATTERN))\$$"; \
 	fi
 
 .PHONY: unit-test-matrix-json

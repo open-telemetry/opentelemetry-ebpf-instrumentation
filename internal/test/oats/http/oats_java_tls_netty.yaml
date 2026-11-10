@@ -14,7 +14,8 @@ fixture:
 input:
 - path: /api/request?url=https://httpbin.org/get
   retry:
-    timeout: 10s
+    # Continue traffic beyond the Java-agent attach deadline to cover late attachment.
+    timeout: 120s
     interval: 500ms
     continue_after_success: true
 expected:
