@@ -620,6 +620,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.TextReaderRPos,
 		goexec.BufReaderBufPos,
 		goexec.BufReaderWPos,
+		goexec.BufReaderRPos,
 		// grpc
 		goexec.GrpcStreamStPtrPos,
 		goexec.GrpcStreamMethodPtrPos,
@@ -2212,15 +2213,26 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 	}
 
 	// HTTP Header extraction
-	// with bpf_loop we scan the buffer with a single uprobe - this is less overhead
-	// otherwise we have a probe per header net/textproto.(*Reader).readContinuedLineSlice
+	// With bpf_loop, readMIMEHeader scans the buffered request headers on entry.
+	// Following them across buffer refills needs a probe on every bufio fill in
+	// the process, so it is only done when request headers are captured.
+	// Otherwise we have a probe per header net/textproto.(*Reader).readContinuedLineSlice
 	if p.supportsBPFLoop {
+		var headerReturns *ebpf.Program
+		if p.cfg != nil && (p.cfg.TrackRequestHeaders || p.cfg.ContextPropagation.IsEnabled()) {
+			headerReturns = p.bpfObjects.ObiUprobeReadMimeHeaderReturns
+			m["bufio.(*Reader).fill"] = []*ebpfcommon.ProbeDesc{{
+				Start: p.bpfObjects.ObiUprobeHttp1ReaderFill,
+			}}
+		}
 		m["net/textproto.readMIMEHeader"] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeReadMimeHeader,
+			End:   headerReturns,
 		}}
 		// old go versions
 		m["net/textproto.(*Reader).ReadMIMEHeader"] = []*ebpfcommon.ProbeDesc{{
 			Start: p.bpfObjects.ObiUprobeReadMimeHeader,
+			End:   headerReturns,
 		}}
 	} else {
 		m["net/textproto.(*Reader).readContinuedLineSlice"] = []*ebpfcommon.ProbeDesc{{

@@ -34,6 +34,7 @@
 #include <common/trace_helpers.h>
 
 #include <gotracer/go_common.h>
+#include <gotracer/go_http1_headers.h>
 #include <gotracer/go_h2_continuation.h>
 #include <gotracer/go_h2_write.h>
 #include <gotracer/go_large_buffer.h>
@@ -45,6 +46,8 @@
 
 #include <gotracer/types/nethttp.h>
 #include <gotracer/types/stream_key.h>
+
+#include <generictracer/protocol_common.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -499,6 +502,16 @@ static __always_inline void handle_traceparent_header(server_http_func_invocatio
     }
 }
 
+static __always_inline void inherit_go_http1_traceparent(go_addr_key_t *g_key,
+                                                         http1_header_scan_t *scan) {
+    if (scan->phase != k_http1_headers_done || !scan->valid) {
+        return;
+    }
+
+    server_http_func_invocation_t *inv = bpf_map_lookup_elem(&ongoing_http_server_requests, g_key);
+    handle_traceparent_header(inv, g_key, scan->header + sizeof("traceparent: ") - 1);
+}
+
 // Matches the header in the buffer and returns a pointer to the value part of the header.
 static __always_inline unsigned char *match_header(
     const unsigned char *buf, u32 safe_len, const char *header, u32 header_len, u32 value_len) {
@@ -543,53 +556,106 @@ int GUARDED_PROG(obi_uprobe_readMimeHeader, struct pt_regs *, ctx) {
     // Cache the bufio.Reader so serve_http_returns can ship the request bytes.
     bpf_map_update_elem(&ongoing_server_bufr, &g_key, &r, BPF_ANY);
 
+    if (!g_bpf_traceparent_enabled) {
+        return 0;
+    }
+
     bpf_dbg_printk("R=%llx, off=%d", r, go_offset_of(ot, (go_offset){.v = _buf_reader_buf_pos}));
 
-    u64 len = 0;
-    bpf_probe_read_user(
-        &len, sizeof(u64), r + go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos}));
-
-    bpf_dbg_printk(
-        "buf len=%d, off=%d", len, go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos}));
-
-    if (len == 0) {
+    s64 pos = 0;
+    if (bpf_probe_read_user(
+            &pos, sizeof(pos), r + go_offset_of(ot, (go_offset){.v = _buf_reader_r_pos})) != 0 ||
+        pos < 0) {
         return 0;
     }
 
-    void *arr = 0;
-    bpf_probe_read_user(
-        &arr, sizeof(void *), r + go_offset_of(ot, (go_offset){.v = _buf_reader_buf_pos}));
-
-    if (!arr) {
+    go_http1_header_scan_t *headers = go_http1_header_scan_mem();
+    if (!headers) {
         return 0;
     }
 
-    server_http_func_invocation_t *inv = bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+    bpf_memset(headers, 0, sizeof(*headers));
+    headers->reader = (u64)r;
+    headers->refill_start = k_go_http1_no_refill;
+    headers->scan.phase = k_http1_header_name;
+    scan_go_http1_buffer(headers, pos);
 
-    unsigned char *buf = (unsigned char *)tp_char_buf_mem();
-    if (!buf) {
+    // The readMIMEHeader return and bufio refill probes that finish a scan
+    // are attached only when request headers are captured.
+    if (headers->scan.phase == k_http1_headers_done) {
+        inherit_go_http1_traceparent(&g_key, &headers->scan);
+        if (capture_header_buffer) {
+            // the return probe must not finish this request with a stale scan
+            bpf_map_delete_elem(&go_http1_header_scans, &g_key);
+        }
         return 0;
     }
 
-    bpf_clamp_umax(len, TRACE_BUF_SIZE);
+    if (capture_header_buffer) {
+        bpf_map_update_elem(&go_http1_header_scans, &g_key, headers, BPF_ANY);
+    }
 
-    if (bpf_probe_read_user(buf, len, arr) != 0) {
-        bpf_dbg_printk("failed to read MIME header buffer");
+    return 0;
+}
+
+SEC("uprobe/readMimeHeader_returns")
+int GUARDED_PROG(obi_uprobe_readMimeHeader_returns, struct pt_regs *, ctx) {
+    if (!g_bpf_loop_enabled) {
         return 0;
     }
 
-    bpf_dbg_printk("buf=%s", buf);
+    go_addr_key_t key = {};
+    go_addr_key_from_id(&key, GOROUTINE_PTR(ctx));
+    go_http1_header_scan_t *headers = bpf_map_lookup_elem(&go_http1_header_scans, &key);
 
-    unsigned char *tp_ptr = bpf_strstr_tp_loop(buf, len);
-
-    bpf_dbg_printk("tp=%llx", tp_ptr);
-
-    if (!tp_ptr) {
+    if (!headers) {
         return 0;
     }
 
-    tp_ptr += TP_MAX_KEY_LENGTH + 2;
-    handle_traceparent_header(inv, &g_key, tp_ptr);
+    scan_go_http1_refill(headers);
+    inherit_go_http1_traceparent(&key, &headers->scan);
+    bpf_map_delete_elem(&go_http1_header_scans, &key);
+
+    return 0;
+}
+
+// http1ReaderFill attaches to bufio.(*Reader).fill so we can scan each refil, which is
+// 4K at a time.
+SEC("uprobe/http1ReaderFill")
+int GUARDED_PROG(obi_uprobe_http1ReaderFill, struct pt_regs *, ctx) {
+    if (!g_bpf_loop_enabled) {
+        return 0;
+    }
+    go_addr_key_t key = {};
+    go_addr_key_from_id(&key, GOROUTINE_PTR(ctx));
+    go_http1_header_scan_t *headers = bpf_map_lookup_elem(&go_http1_header_scans, &key);
+    if (!headers || headers->reader != (u64)GO_PARAM1(ctx)) {
+        return 0;
+    }
+
+    scan_go_http1_refill(headers);
+    if (headers->scan.phase == k_http1_headers_done) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const unsigned char *reader = (const unsigned char *)headers->reader;
+    s64 pos = 0;
+    s64 end = 0;
+    long err = bpf_probe_read_user(
+        &pos, sizeof(pos), reader + go_offset_of(ot, (go_offset){.v = _buf_reader_r_pos}));
+    err |= bpf_probe_read_user(
+        &end, sizeof(end), reader + go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos}));
+
+    if (err || pos < 0 || end < pos) {
+        headers->scan.valid = false;
+        headers->scan.phase = k_http1_headers_done;
+        return 0;
+    }
+
+    // fill moves the unread bytes to the front and reads after them
+    headers->refill_start = end - pos;
+
     return 0;
 }
 

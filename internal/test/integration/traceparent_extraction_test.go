@@ -52,11 +52,16 @@ func TestTraceparentExtraction(t *testing.T) {
 			return
 		}
 	}, 2*time.Minute, 1*time.Second)
+	// the Go hop of the large headers chain, instrumented by the Go tracer
+	waitForTestComponentsService(t, "http://localhost:6003", "tpclient-go")
 	t.Log("instrumentation ready")
 
 	t.Run("without_traceparent", testWithoutTraceparent)
 	t.Run("with_traceparent", testWithTraceparent)
 	t.Run("with_forwarded_traceparent", testWithForwardedTraceparent)
+	t.Run("large_headers_with_traceparent", testLargeHeadersWithTraceparent)
+	t.Run("large_headers_go_server", testLargeHeadersGoServer)
+	t.Run("large_headers_without_traceparent", testLargeHeadersWithoutTraceparent)
 
 	runWeaverValidation(t)
 

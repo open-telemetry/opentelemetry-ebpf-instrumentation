@@ -27,6 +27,18 @@
           }
         ]
       },
+      "r": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.27.3"
+        },
+        "offsets": [
+          {
+            "offset": 40,
+            "since": "1.17.0"
+          }
+        ]
+      },
       "w": {
         "versions": {
           "oldest": "1.17.0",

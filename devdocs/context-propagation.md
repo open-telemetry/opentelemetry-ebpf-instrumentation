@@ -6,6 +6,7 @@ This document explains how OpenTelemetry context propagation works in the eBPF i
 
 - [Overview](#overview)
 - [Configuration](#configuration)
+- [HTTP/1 header scan window](#http1-header-scan-window)
 - [Egress (Sending) Flow](#egress-sending-flow)
   - [Execution Order](#execution-order)
     - [Scenario A: Go HTTP or SSL/TLS (uprobes involved)](#scenario-a-go-http-or-ssltls-uprobes-involved)
@@ -75,6 +76,31 @@ Examples:
 > (chiefly non-Go SSL/TLS clients) is lost. TCP options are safe only when OBI
 > is on both ends and the path preserves them (typically a direct L2/L3 network
 > with no option-stripping middlebox).
+
+## HTTP/1 header scan window
+
+On kernels with `bpf_loop` support (normally Linux 5.17+), OBI looks for a
+`traceparent` in up to 16 KiB of the headers of every incoming HTTP/1 request,
+cumulatively across fragments. The generic tracer counts from the request line;
+the Go tracer counts from the start of the header block. The header name and the
+complete traceparent value must fit within that window. Splits inside the name,
+value, or header terminator are supported after OBI has recognized HTTP. A
+malformed traceparent is not adopted. These scans use the existing
+header-tracking and context-propagation controls. Without either, Go servers
+scan only the request headers already buffered when header parsing starts,
+4 KiB by default for `net/http`.
+
+Outgoing requests are not scanned that far. Before injecting its own header,
+OBI looks for one the application already wrote only within these windows:
+
+- The plaintext socket injector looks in the first 4 KiB of the request.
+- The generic tracer uses an application traceparent for the client span only
+  from the first 1 KiB of the request.
+- The Go tracer looks in the first 1 KiB of the headers that `net/http` writes,
+  as long as they are still buffered when it finishes writing them.
+
+An application traceparent beyond these windows is a known limitation: OBI does
+not see it and injects its own header too, so the request carries two.
 
 ## Egress (Sending) Flow
 

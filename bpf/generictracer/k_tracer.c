@@ -1136,6 +1136,8 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
     }
 
     unsigned char *buf = 0;
+    const void *user_buf = NULL;
+    const u32 received_len = copied_len;
     if (args) {
         iovec_iter_ctx *iov_ctx = (iovec_iter_ctx *)&args->iovec_ctx;
 
@@ -1150,6 +1152,8 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
             copied_len = read_iovec_ctx(iov_ctx, buf, copied_len);
             if (!copied_len) {
                 bpf_dbg_printk("Not copied anything");
+            } else if ((u32)copied_len < received_len) {
+                user_buf = iovec_user_buf(iov_ctx);
             }
         }
     }
@@ -1198,14 +1202,16 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
             if (buf && copied_len) {
                 bpf_map_delete_elem(&active_recv_args, &id);
                 // doesn't return must be logically last statement
-                handle_buf_with_connection(ctx,
-                                           &info,
-                                           buf,
-                                           copied_len,
-                                           NO_SSL,
-                                           TCP_RECV,
-                                           orig_dport,
-                                           (struct sock *)sock_ptr);
+                handle_user_buf_with_connection(ctx,
+                                                &info,
+                                                buf,
+                                                copied_len,
+                                                user_buf,
+                                                received_len,
+                                                NO_SSL,
+                                                TCP_RECV,
+                                                orig_dport,
+                                                (struct sock *)sock_ptr);
             }
         } else {
             bpf_dbg_printk("identified SSL connection, ignoring: [%llx]...", *ssl);

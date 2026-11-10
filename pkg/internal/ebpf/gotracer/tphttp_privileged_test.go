@@ -71,6 +71,17 @@ func TestHTTP1ClientTraceparentNotDuplicated(t *testing.T) {
 	// traceparent must not get a second one appended.
 	assert.Equal(t, "1", send(t, "WITH_TP"),
 		"OBI must not append a second traceparent when the client already wrote one")
+
+	if !ebpfcommon.SupportsEBPFLoops(slog.Default(), false) {
+		return
+	}
+	// The server finds the traceparent of a request whose headers arrive in many
+	// fragments, past the first buffer, and its client call carries the trace on.
+	for _, mode := range []string{"FRAGMENTED", "TLS_FRAGMENTED"} {
+		t.Run(mode, func(t *testing.T) {
+			assert.Regexp(t, `^1:00-0af7651916cd43dd8448eb211c80319c-[0-9a-f]{16}-01$`, send(t, mode))
+		})
+	}
 }
 
 func TestHTTP2ClientTraceparentBeforeImmediateFlush(t *testing.T) {
