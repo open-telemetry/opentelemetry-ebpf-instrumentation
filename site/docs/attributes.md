@@ -181,6 +181,14 @@ Attributes carried on OBI's per-connection TCP statistics. Emitted when the `sta
 | `network.tcp.reset.cause` | enum | development | Inferred cause of a TCP reset sent by the local endpoint, from the code path that sent it: `application` when the socket was closed before the reset (close() with unread data, SO_LINGER{0}), `timeout` when the reset was sent with the connection still open, by a keepalive, user-timeout or orphan timer, or by a forced socket destroy such as `ss -K`. Not set when the cause cannot be inferred: received resets, and sent resets that answer an incoming segment. | application; timeout |
 | `reason` | enum | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
 
+## `registry.obi.traces`
+
+Attributes carried on OBI request phase spans.
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `obi.request.phase` | enum | development | Phase of a request represented by an OBI child span. | queue; processing |
+
 ## `x.obi.db`
 
 OBI override of `db.system.name` extending the upstream enum with the database systems OBI detects that upstream semconv has no member for.

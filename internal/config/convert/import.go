@@ -1595,6 +1595,10 @@ func applyProtocolEnablement(cfg *obi.Config, instrumentation schema.Instrumenta
 	cfg.Traces.Instrumentations = applySignalEnablement(cfg.Traces.Instrumentations, instrumentation, "traces", complete)
 	cfg.OTELMetrics.Instrumentations = applySignalEnablement(cfg.OTELMetrics.Instrumentations, instrumentation, "metrics", complete)
 	cfg.Prometheus.Instrumentations = applySignalEnablement(cfg.Prometheus.Instrumentations, instrumentation, "metrics", complete)
+
+	if enabled := instrumentation.HTTP.Enabled.RequestPhaseSpans; enabled != nil {
+		cfg.Traces.DisableHTTPRequestPhaseSpans = !*enabled
+	}
 }
 
 func applySignalEnablement(

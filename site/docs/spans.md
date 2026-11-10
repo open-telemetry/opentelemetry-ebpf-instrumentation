@@ -821,7 +821,9 @@ OBI child span splitting a request that waited before it was processed into its 
 
 Name: `in queue` for the time between the request arriving and its handler starting, and `processing` for the time the handler ran. Neither is derived from an attribute.
 
-No attributes.
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `obi.request.phase` | enum | `required` | development | Phase of a request represented by an OBI child span. | queue; processing |
 
 ## `obi.rpc.grpc.client`
 

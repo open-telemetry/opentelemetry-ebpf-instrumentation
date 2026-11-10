@@ -100,6 +100,7 @@ extensions:
                         traces: true
                         metrics: true
                         body_size_metrics: true
+                        request_phase_spans: true
                     filters:
                         traces:
                             http.request.method:
