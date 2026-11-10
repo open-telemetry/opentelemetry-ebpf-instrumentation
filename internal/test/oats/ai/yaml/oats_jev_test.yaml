@@ -1,0 +1,35 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
+oats-schema-version: 2
+docker-compose:
+  files:
+  - ../docker-compose-jev.yml
+  - ../../weaver/docker-compose-weaver.yml
+input:
+- path: /decision
+- path: /choice
+interval: 500ms
+expected:
+  traces:
+  # Basic decision call with noul question
+  - traceql: '{ .gen_ai.provider.name = "typesafe" && .gen_ai.request.model = "jev-1.13" && .gen_ai.usage.output_tokens = 70 }'
+    equals: decision jev-1.13
+    attributes:
+      gen_ai.operation.name: decision
+      gen_ai.response.model: jev-1.13
+      gen_ai.usage.input_tokens: 503
+  # Decision call with choice question
+  - traceql: '{ .gen_ai.provider.name = "typesafe" && .gen_ai.request.model = "jev-1.13" && .gen_ai.usage.output_tokens = 85 }'
+    equals: decision jev-1.13
+    attributes:
+      gen_ai.operation.name: decision
+      gen_ai.response.model: jev-1.13
+      gen_ai.usage.input_tokens: 620
+  metrics:
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="decision",gen_ai_provider_name="typesafe",gen_ai_token_type="input",gen_ai_request_model="jev-1.13",gen_ai_response_model="jev-1.13"}
+    value: '> 0'
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="decision",gen_ai_provider_name="typesafe",gen_ai_token_type="output",gen_ai_request_model="jev-1.13",gen_ai_response_model="jev-1.13"}
+    value: '> 0'
+  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="decision",gen_ai_provider_name="typesafe",gen_ai_request_model="jev-1.13",gen_ai_response_model="jev-1.13"}
+    value: '> 0'
