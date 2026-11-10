@@ -403,6 +403,22 @@ func TestAnthropicSpan_NotAnthropic(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestAnthropicSpan_VendorHeadersSkipBodyEvidence(t *testing.T) {
+	const (
+		requestBody  = `{"model":"claude-2.1","prompt":"Hi","max_tokens_to_sample":16}`
+		responseBody = `{"type":"completion","completion":"Hello","stop_reason":"stop_sequence"}`
+	)
+	req := makeRequest(t, http.MethodPost, anthropicMessagesPath, requestBody)
+	resp := makeGzipResponse(t, http.StatusOK, anthropicHeaders(), responseBody)
+
+	span, ok := AnthropicSpan(&request.Span{}, req, resp)
+
+	require.True(t, ok)
+	assert.Equal(t, request.HTTPSubtypeAnthropic, span.SubType)
+	require.NotNil(t, span.GenAI)
+	assert.NotNil(t, span.GenAI.Anthropic)
+}
+
 func TestAnthropicToolCalls(t *testing.T) {
 	t.Run("single tool_use", func(t *testing.T) {
 		content := json.RawMessage(`[{"type":"tool_use","id":"toolu_01","name":"get_weather","input":{}}]`)
