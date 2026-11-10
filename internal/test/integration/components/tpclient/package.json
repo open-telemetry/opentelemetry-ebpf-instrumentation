@@ -4,6 +4,12 @@
   "description": "Traceparent extraction test client",
   "main": "service.js",
   "dependencies": {
+    "@opentelemetry/api": "1.9.1",
+    "@opentelemetry/exporter-trace-otlp-http": "0.223.0",
+    "@opentelemetry/instrumentation": "0.223.0",
+    "@opentelemetry/instrumentation-http": "0.223.0",
+    "@opentelemetry/resources": "2.12.0",
+    "@opentelemetry/sdk-trace-node": "2.12.0",
     "axios": "^1.6.0",
     "express": "^5.0.0"
   }
