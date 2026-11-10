@@ -346,10 +346,6 @@ func (p *Tracer) closeAllReverse(closers []io.Closer) {
 }
 
 func (p *Tracer) detach() {
-	if filter, ok := p.pidsFilter.(*ebpfcommon.PIDsFilter); ok {
-		filter.RemoveOTelTracesPIDFilter()
-	}
-
 	// a running socket backfill stops at its next socket
 	p.socketsStopped.Store(true)
 
@@ -369,6 +365,11 @@ func (p *Tracer) detach() {
 	p.closers = nil
 	p.detached = true
 	p.closerMu.Unlock()
+
+	// once detached is set, Run cannot register the writer again before the maps close
+	if filter, ok := p.pidsFilter.(*ebpfcommon.PIDsFilter); ok {
+		filter.RemoveOTelTracesPIDFilter()
+	}
 
 	p.closeAllReverse(closers)
 
@@ -486,11 +487,7 @@ func (p *Tracer) AlreadyInstrumentedLib(uint64) bool {
 
 func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg.Queue[[]request.Span]) {
 	p.log.Debug("tpinjector started")
-	if p.cfg.Discovery.ExcludeOTelInstrumentedServices && p.cfg.EBPF.ContextPropagation.HasHeaders() {
-		if filter, ok := p.pidsFilter.(*ebpfcommon.PIDsFilter); ok {
-			filter.SetOTelTracesPIDFilter(p.updateOTelTracesPID)
-		}
-	}
+	p.registerOTelTracesPIDFilter()
 
 	// with enrollment scoped to instrumented processes, AllowPID backfills each of them instead
 	if !p.enrollInstrumentedOnly {
@@ -506,6 +503,27 @@ func (p *Tracer) Run(ctx context.Context, _ *ebpfcommon.EBPFEventContext, _ *msg
 	p.detach()
 
 	p.log.Debug("tpinjector terminated")
+}
+
+// under closerMu, so detach cannot close the maps between the check and the registration
+func (p *Tracer) registerOTelTracesPIDFilter() {
+	if !p.cfg.Discovery.ExcludeOTelInstrumentedServices || !p.cfg.EBPF.ContextPropagation.HasHeaders() {
+		return
+	}
+
+	filter, ok := p.pidsFilter.(*ebpfcommon.PIDsFilter)
+	if !ok {
+		return
+	}
+
+	p.closerMu.Lock()
+	defer p.closerMu.Unlock()
+
+	if p.detached {
+		return
+	}
+
+	filter.SetOTelTracesPIDFilter(p.updateOTelTracesPID)
 }
 
 func (p *Tracer) updateOTelTracesPID(pid app.PID, selected bool) error {

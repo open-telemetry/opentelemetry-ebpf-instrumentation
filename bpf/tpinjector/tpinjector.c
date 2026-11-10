@@ -2044,14 +2044,17 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
 // offsets so the verifier is happy
 SEC("sk_msg")
 int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg) {
-    if (!inject_http_headers()) {
-        return SK_PASS;
-    }
-
     bpf_dbg_printk("=== sk_msg h2 tp ===");
 
     tailcall_ctx *t_ctx = tailcall_ctx_mem();
     if (!t_ctx) {
+        return SK_PASS;
+    }
+
+    // the later HEADERS frames of this send still need their per-stream bookkeeping
+    if (!inject_http_headers()) {
+        h2_resume_after(
+            msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + t_ctx->h2_payload_len);
         return SK_PASS;
     }
 
