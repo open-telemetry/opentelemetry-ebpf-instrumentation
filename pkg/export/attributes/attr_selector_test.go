@@ -4,6 +4,7 @@
 package attributes
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -187,16 +188,17 @@ func TestFor_HTTPRouteAttributesByDirection(t *testing.T) {
 	}
 }
 
-func TestFor_RemovedHTTPMetricAttributes(t *testing.T) {
+func TestFor_HTTPMetricCompatibilityAttributes(t *testing.T) {
 	p, err := NewAttrSelector(GroupHTTPRoutes, &SelectorConfig{
 		SelectionCfg: Selection{"*": InclusionLists{Include: []string{"*"}}},
 	})
 	require.NoError(t, err)
-	for _, metric := range []Name{
-		HTTPServerDuration, HTTPServerRequestSize, HTTPServerResponseSize,
-		HTTPClientDuration, HTTPClientRequestSize, HTTPClientResponseSize,
-		RPCServerDuration,
-	} {
+	for _, metric := range []Name{HTTPServerDuration, HTTPClientDuration} {
+		assert.Contains(t, p.For(metric), attr.HTTPUrlPath, metric.Section)
+	}
+	assert.Contains(t, p.For(HTTPServerDuration), attr.ClientAddr)
+	assert.NotContains(t, p.For(HTTPClientDuration), attr.ClientAddr)
+	for _, metric := range []Name{HTTPServerRequestSize, HTTPServerResponseSize, HTTPClientRequestSize, HTTPClientResponseSize, RPCServerDuration} {
 		assert.NotContains(t, p.For(metric), attr.HTTPUrlPath, metric.Section)
 		assert.NotContains(t, p.For(metric), attr.ClientAddr, metric.Section)
 	}
@@ -229,7 +231,7 @@ func TestFor_NotNormalizedSection(t *testing.T) {
 			key: InclusionLists{Include: []string{"k8s.namespace.name"}},
 		}
 		selection.Normalize()
-		p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection})
+		p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection, UseV2Selection: true})
 		require.NoError(t, err)
 		assert.Equal(t, []attr.Name{"k8s.namespace.name"}, p.For(DotnetProcessMemoryWorkingSet), "key %q", key)
 	}
@@ -241,7 +243,7 @@ func TestFor_NotNormalizedSection_ExactOverridesGlob(t *testing.T) {
 		"jvm.thread.count": InclusionLists{Include: []string{"jvm.thread.daemon"}},
 	}
 	selection.Normalize()
-	p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection})
+	p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection, UseV2Selection: true})
 	require.NoError(t, err)
 	assert.Equal(t, []attr.Name{"jvm.thread.daemon"}, p.For(JVMThreadCount))
 
@@ -250,7 +252,7 @@ func TestFor_NotNormalizedSection_ExactOverridesGlob(t *testing.T) {
 		"jvm.thread.count": InclusionLists{Exclude: []string{"jvm.thread.daemon"}},
 	}
 	selection.Normalize()
-	p, err = NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection})
+	p, err = NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection, UseV2Selection: true})
 	require.NoError(t, err)
 	assert.NotContains(t, p.For(JVMThreadCount), attr.Name("jvm.thread.daemon"))
 }
@@ -513,4 +515,28 @@ func TestTracesGenAIToolCallAttributes(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, p.For(Traces), attr.GenAIToolCallArguments)
 	assert.NotContains(t, p.For(Traces), attr.GenAIToolCallResult)
+}
+
+func TestTracesOpenAIRequestQuestionsIsOptIn(t *testing.T) {
+	p, err := NewAttrSelector(GroupTraces, &SelectorConfig{})
+	require.NoError(t, err)
+	assert.NotContains(t, p.For(Traces), attr.OpenAIRequestQuestions)
+
+	p, err = NewAttrSelector(GroupTraces, &SelectorConfig{
+		SelectionCfg: Selection{
+			"traces": InclusionLists{Include: []string{"openai.request.questions"}},
+		},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, p.For(Traces), attr.OpenAIRequestQuestions)
+}
+
+func TestFor_LegacySelectionIsFrozen(t *testing.T) {
+	selection := Selection{"gen_ai.client.operation.duration": {Exclude: []string{"gen_ai.request.model"}}}
+	selection.Normalize()
+	for _, v2 := range []bool{false, true} {
+		selector, err := NewAttrSelector(0, &SelectorConfig{SelectionCfg: selection, UseV2Selection: v2})
+		require.NoError(t, err)
+		assert.Equal(t, !v2, slices.Contains(selector.For(GenAIClientOperationDuration), attr.GenAIRequestModel))
+	}
 }

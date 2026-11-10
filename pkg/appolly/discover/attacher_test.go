@@ -38,11 +38,19 @@ type recordedPIDLifecycle struct {
 	lifecycle *execpkg.FileInfo
 }
 
+type recordedSamplerUpdate struct {
+	pid      app.PID
+	ns       uint32
+	fileInfo *execpkg.FileInfo
+	sampler  *services.SamplerConfig
+}
+
 type recordingTracer struct {
 	allowed           []blockedPID
 	blocked           []blockedPID
 	allowedFileInfos  []*execpkg.FileInfo
 	blockedLifecycles []recordedPIDLifecycle
+	samplerUpdates    []recordedSamplerUpdate
 }
 
 func (r *recordingTracer) AllowPID(pid app.PID, ns uint32, fileInfo *execpkg.FileInfo) {
@@ -62,6 +70,12 @@ func (r *recordingTracer) BlockPIDLifecycle(
 	r.BlockPID(pid, ns)
 	r.blockedLifecycles = append(r.blockedLifecycles, recordedPIDLifecycle{
 		pid: pid, ns: ns, lifecycle: lifecycle,
+	})
+}
+
+func (r *recordingTracer) UpdatePIDSampler(pid app.PID, ns uint32, fileInfo *execpkg.FileInfo) {
+	r.samplerUpdates = append(r.samplerUpdates, recordedSamplerUpdate{
+		pid: pid, ns: ns, fileInfo: fileInfo, sampler: fileInfo.ServiceAttrs().SamplerConfig,
 	})
 }
 
@@ -163,7 +177,7 @@ func TestSyntheticDeletePath_TraceAttacherDeletesTracer(t *testing.T) {
 	tracer := &ebpf.ProcessTracer{Type: ebpf.Generic, Programs: []ebpf.Tracer{prog}}
 	key := executableKey(fileInfo)
 	ta.existingTracers[key] = executableTracer{tracer: tracer, generation: 1}
-	ta.processInstances.Put(key, 42, struct{}{})
+	ta.processInstances.Put(key, 42, fileInfo)
 
 	go run(ctx)
 
@@ -224,8 +238,8 @@ func TestSyntheticDeletePath_TraceAttacherDeletesInstance(t *testing.T) {
 	tracer := &ebpf.ProcessTracer{Type: ebpf.Generic, Programs: []ebpf.Tracer{prog}}
 	key := executableKey(fileInfo)
 	ta.existingTracers[key] = executableTracer{tracer: tracer, generation: 1}
-	ta.processInstances.Put(key, 42, struct{}{})
-	ta.processInstances.Put(key, 43, struct{}{})
+	ta.processInstances.Put(key, 42, fileInfo)
+	ta.processInstances.Put(key, 43, fileInfo)
 
 	go run(ctx)
 
@@ -268,6 +282,145 @@ func startDeletedTyperPipeline(
 			}
 		}
 	}()
+}
+
+func TestTraceAttacherUpdatesSamplers(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	origRemoveMemlock := removeMemlock
+	removeMemlock = func() error { return nil }
+	defer func() { removeMemlock = origRemoveMemlock }()
+
+	processMatches := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	instrumentables := msg.NewQueue[[]Event[ebpf.Instrumentable]](msg.ChannelBufferLen(10))
+	tracerEventsQu := msg.NewQueue[Event[*ebpf.Instrumentable]](msg.ChannelBufferLen(10))
+	tracerEvents := tracerEventsQu.Subscribe()
+
+	// A Python master and its worker share the generic tracer, which samples both
+	// with the master's sampler. A Go process has a tracer of its own.
+	master := execpkg.New(execpkg.Init{Pid: 100, Ino: 1, Ns: 17})
+	worker := execpkg.New(execpkg.Init{Pid: 101, Ppid: 100, Ino: 1, Ns: 17})
+	master.SetRuntimeMetricServiceSource(master)
+	worker.SetRuntimeMetricServiceSource(master)
+	// Each of these masters leaves in the same batch that updates its worker.
+	masterA := execpkg.New(execpkg.Init{Pid: 200, Ino: 2, Ns: 17})
+	workerA := execpkg.New(execpkg.Init{Pid: 201, Ppid: 200, Ino: 2, Ns: 17})
+	masterA.SetRuntimeMetricServiceSource(masterA)
+	workerA.SetRuntimeMetricServiceSource(masterA)
+	masterB := execpkg.New(execpkg.Init{Pid: 400, Ino: 4, Ns: 17})
+	workerB := execpkg.New(execpkg.Init{Pid: 401, Ppid: 400, Ino: 4, Ns: 17})
+	masterB.SetRuntimeMetricServiceSource(masterB)
+	workerB.SetRuntimeMetricServiceSource(masterB)
+	golang := execpkg.New(execpkg.Init{Pid: 300, Ino: 3, Ns: 17})
+	// Deleting one of these after each step waits until the attacher has handled the step.
+	barriers := []*execpkg.FileInfo{
+		execpkg.New(execpkg.Init{Pid: 900, Ino: 9}),
+		execpkg.New(execpkg.Init{Pid: 901, Ino: 9}),
+		execpkg.New(execpkg.Init{Pid: 902, Ino: 9}),
+		execpkg.New(execpkg.Init{Pid: 903, Ino: 9}),
+		execpkg.New(execpkg.Init{Pid: 904, Ino: 9}),
+		execpkg.New(execpkg.Init{Pid: 905, Ino: 9}),
+	}
+	currentPids := map[app.PID]*execpkg.FileInfo{
+		100: master, 101: worker, 200: masterA, 201: workerA, 400: masterB, 401: workerB, 300: golang,
+	}
+	for _, barrier := range barriers {
+		currentPids[barrier.Pid()] = barrier
+	}
+	startDeletedTyperPipeline(ctx, &typer{currentPids: currentPids}, processMatches, instrumentables)
+
+	ta := &traceAttacher{
+		Cfg:                  &obi.Config{},
+		Metrics:              imetrics.NoopReporter{},
+		InputInstrumentables: instrumentables,
+		OutputTracerEvents:   tracerEventsQu,
+		EbpfEventContext:     &ebpfcommon.EBPFEventContext{},
+	}
+	run, err := ta.attacherLoop(ctx)
+	require.NoError(t, err)
+
+	generic := &recordingTracer{}
+	goProgram := &recordingTracer{}
+	ta.reusableTracer = &ebpf.ProcessTracer{Type: ebpf.Generic, Programs: []ebpf.Tracer{generic}}
+	ta.reusableGoTracer = &ebpf.ProcessTracer{Type: ebpf.Go, Programs: []ebpf.Tracer{goProgram}}
+	for _, fi := range append([]*execpkg.FileInfo{master, worker, masterA, workerA, masterB, workerB}, barriers...) {
+		ta.processInstances.Put(executableKey(fi), fi.Pid(), fi)
+		ta.existingTracers[executableKey(fi)] = executableTracer{tracer: ta.reusableTracer}
+	}
+	ta.processInstances.Put(executableKey(golang), golang.Pid(), golang)
+	ta.existingTracers[executableKey(golang)] = executableTracer{tracer: ta.reusableGoTracer}
+
+	go run(ctx)
+
+	updated := func(pid app.PID, sampler services.SamplerName) Event[ProcessMatch] {
+		return Event[ProcessMatch]{Type: EventUpdated, Obj: ProcessMatch{
+			Process:       &services.ProcessInfo{Pid: pid},
+			SamplerConfig: &services.SamplerConfig{Name: sampler},
+		}}
+	}
+	deleted := func(pid app.PID) Event[ProcessMatch] {
+		return Event[ProcessMatch]{Type: EventDeleted, Obj: ProcessMatch{Process: &services.ProcessInfo{Pid: pid}}}
+	}
+	apply := func(events ...Event[ProcessMatch]) {
+		t.Helper()
+		barrier := barriers[0]
+		barriers = barriers[1:]
+		processMatches.Send(events)
+		// Updates are applied after the rest of their batch, so the barrier goes in a batch of its own.
+		processMatches.Send([]Event[ProcessMatch]{deleted(barrier.Pid())})
+		event := testutil.ReadChannel(t, tracerEvents, testTimeout)
+		for event.Obj.FileInfo != barrier {
+			event = testutil.ReadChannel(t, tracerEvents, testTimeout)
+		}
+	}
+	samplerOf := func(fi *execpkg.FileInfo) services.SamplerName {
+		if cfg := fi.ServiceAttrs().SamplerConfig; cfg != nil {
+			return cfg.Name
+		}
+		return ""
+	}
+
+	t.Log("a worker's own update does not change the sampler its master applies to both")
+	apply(updated(101, services.SamplerAlwaysOff))
+	assert.Equal(t, services.SamplerAlwaysOff, samplerOf(worker))
+	assert.Empty(t, samplerOf(master))
+	assert.Empty(t, generic.samplerUpdates)
+	assert.Empty(t, goProgram.samplerUpdates)
+
+	t.Log("the master's update rewrites the samplers of both, once, through their tracer only")
+	apply(updated(101, services.SamplerAlwaysOn), updated(100, services.SamplerAlwaysOn))
+	assert.Equal(t, services.SamplerAlwaysOn, samplerOf(worker))
+	assert.Equal(t, services.SamplerAlwaysOn, samplerOf(master))
+	assert.ElementsMatch(t, []recordedSamplerUpdate{
+		{pid: 100, ns: 17, fileInfo: master, sampler: &services.SamplerConfig{Name: services.SamplerAlwaysOn}},
+		{pid: 101, ns: 17, fileInfo: master, sampler: &services.SamplerConfig{Name: services.SamplerAlwaysOn}},
+	}, generic.samplerUpdates)
+	assert.Empty(t, goProgram.samplerUpdates)
+
+	generic.samplerUpdates = nil
+	apply(updated(300, services.SamplerAlwaysOff))
+	assert.Equal(t, []recordedSamplerUpdate{
+		{pid: 300, ns: 17, fileInfo: golang, sampler: &services.SamplerConfig{Name: services.SamplerAlwaysOff}},
+	}, goProgram.samplerUpdates)
+	assert.Empty(t, generic.samplerUpdates)
+
+	t.Log("once the master exits, its remaining worker follows its own update")
+	processMatches.Send([]Event[ProcessMatch]{deleted(100)})
+	require.Equal(t, EventInstanceDeleted, testutil.ReadChannel(t, tracerEvents, testTimeout).Type)
+	apply(updated(101, services.SamplerParentBasedAlwaysOff))
+	assert.Equal(t, services.SamplerParentBasedAlwaysOff, samplerOf(master))
+	assert.Equal(t, []recordedSamplerUpdate{
+		{pid: 101, ns: 17, fileInfo: master, sampler: &services.SamplerConfig{Name: services.SamplerParentBasedAlwaysOff}},
+	}, generic.samplerUpdates)
+
+	t.Log("a worker follows its own update when its master leaves in the same batch, in either order")
+	generic.samplerUpdates = nil
+	apply(updated(201, services.SamplerAlwaysOn), deleted(200))
+	apply(deleted(400), updated(401, services.SamplerAlwaysOn))
+	assert.Equal(t, []recordedSamplerUpdate{
+		{pid: 201, ns: 17, fileInfo: masterA, sampler: &services.SamplerConfig{Name: services.SamplerAlwaysOn}},
+		{pid: 401, ns: 17, fileInfo: masterB, sampler: &services.SamplerConfig{Name: services.SamplerAlwaysOn}},
+	}, generic.samplerUpdates)
 }
 
 func TestSyncServiceMetadata_Precedence(t *testing.T) {

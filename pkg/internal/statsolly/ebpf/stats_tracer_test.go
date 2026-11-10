@@ -22,7 +22,10 @@ func TestFixupSpec(t *testing.T) {
 	const origRetprobeSendmsgName = "real_retprobe_sendmsg"
 	const origCleanupRbufName = "real_cleanup_rbuf"
 	const origCloseIoFlushName = "real_close_io_flush"
+	const origDestroySockName = "real_destroy_sock"
 	const origRetransmitName = "real_retransmit"
+	const origSendResetName = "real_send_reset"
+	const origReceiveResetName = "real_receive_reset"
 
 	makeSpec := func() *ebpf.CollectionSpec {
 		return &ebpf.CollectionSpec{
@@ -35,7 +38,10 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsKretprobeTCPSendmsg:                       {Name: origRetprobeSendmsgName, Type: ebpf.Kprobe},
 				progObiStatsKprobeTCPCleanupRbuf:                      {Name: origCleanupRbufName, Type: ebpf.Kprobe},
 				progObiStatsKprobeTCPCloseIoFlush:                     {Name: origCloseIoFlushName, Type: ebpf.Kprobe},
+				progObiStatsTpTCPDestroySock:                          {Name: origDestroySockName, Type: ebpf.TracePoint},
 				progObiStatsRawTpTCPRetransmitSkb:                     {Name: origRetransmitName, Type: ebpf.RawTracepoint},
+				progObiStatsRawTpTCPSendReset:                         {Name: origSendResetName, Type: ebpf.RawTracepoint},
+				progObiStatsRawTpTCPReceiveReset:                      {Name: origReceiveResetName, Type: ebpf.RawTracepoint},
 			},
 		}
 	}
@@ -57,7 +63,10 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsKretprobeTCPSendmsg:                       origRetprobeSendmsgName,
 				progObiStatsKprobeTCPCleanupRbuf:                      origCleanupRbufName,
 				progObiStatsKprobeTCPCloseIoFlush:                     origCloseIoFlushName,
+				progObiStatsTpTCPDestroySock:                          origDestroySockName,
 				progObiStatsRawTpTCPRetransmitSkb:                     origRetransmitName,
+				progObiStatsRawTpTCPSendReset:                         origSendResetName,
+				progObiStatsRawTpTCPReceiveReset:                      origReceiveResetName,
 			},
 		},
 		{
@@ -105,6 +114,15 @@ func TestFixupSpec(t *testing.T) {
 			},
 		},
 		{
+			name:      "disable resets only",
+			toDisable: []string{progObiStatsRawTpTCPSendReset, progObiStatsRawTpTCPReceiveReset},
+			want: map[string]string{
+				progObiStatsRawTpTCPSendReset:     "stats_dummy",
+				progObiStatsRawTpTCPReceiveReset:  "stats_dummy",
+				progObiStatsRawTpTCPRetransmitSkb: origRetransmitName,
+			},
+		},
+		{
 			name:      "disable conn role only",
 			toDisable: []string{progObiStatsTpInetSockSetStateConnRole},
 			want: map[string]string{
@@ -135,7 +153,10 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsKretprobeTCPSendmsg,
 				progObiStatsKprobeTCPCleanupRbuf,
 				progObiStatsKprobeTCPCloseIoFlush,
+				progObiStatsTpTCPDestroySock,
 				progObiStatsRawTpTCPRetransmitSkb,
+				progObiStatsRawTpTCPSendReset,
+				progObiStatsRawTpTCPReceiveReset,
 			},
 			want: map[string]string{
 				progObiStatsKprobeTCPCloseSrtt:                        "stats_dummy",
@@ -146,7 +167,10 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsKretprobeTCPSendmsg:                       "stats_dummy",
 				progObiStatsKprobeTCPCleanupRbuf:                      "stats_dummy",
 				progObiStatsKprobeTCPCloseIoFlush:                     "stats_dummy",
+				progObiStatsTpTCPDestroySock:                          "stats_dummy",
 				progObiStatsRawTpTCPRetransmitSkb:                     "stats_dummy",
+				progObiStatsRawTpTCPSendReset:                         "stats_dummy",
+				progObiStatsRawTpTCPReceiveReset:                      "stats_dummy",
 			},
 		},
 	}
@@ -182,6 +206,7 @@ func TestFixupSpecUnknownProgram(t *testing.T) {
 func TestTracepointConstantFormat(t *testing.T) {
 	hooks := []string{
 		TracepointInetSockSetState,
+		TracepointTCPDestroySock,
 	}
 	for _, hook := range hooks {
 		if _, _, ok := strings.Cut(hook, "/"); !ok {

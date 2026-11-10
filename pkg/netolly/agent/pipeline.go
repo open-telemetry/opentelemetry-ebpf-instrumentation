@@ -48,6 +48,7 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 
 	selectorCfg := &attributes.SelectorConfig{
 		SelectionCfg:            f.cfg.Attributes.Select,
+		UseV2Selection:          f.cfg.Attributes.UseV2Selection,
 		ExtraGroupAttributesCfg: f.cfg.Attributes.ExtraGroupAttributes,
 	}
 
@@ -83,7 +84,7 @@ func (f *Flows) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 		dedupedEBPFFlows, kubeDecoratedFlows), swarm.WithID("K8sMetadataDecorator"))
 
 	dnsDecoratedFlows := msgh.QueueFromConfig[[]*ebpf.Record](f.cfg, f.ctxInfo.Metrics, "dnsDecoratedFlows")
-	swi.Add(rdns.ReverseDNSProvider(&f.cfg.NetworkFlows.ReverseDNS, recordAttrs, &f.cfg.EBPF,
+	swi.Add(rdns.ReverseDNSProvider(&f.cfg.NetworkFlows.ReverseDNS, recordAttrs, f.ctxInfo.EBPFReverseDNS,
 		kubeDecoratedFlows, dnsDecoratedFlows),
 		swarm.WithID("ReverseDNS"))
 

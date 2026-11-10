@@ -70,7 +70,11 @@ types are cached without retaining their handles.
 
 The collector reports execution-count and runtime changes between collections
 and derives probe latency by dividing the runtime change by the execution-count
-change. Runtime statistics are disabled when the collector shuts down.
+change. The kernel exposes only these two totals, so all executions between two
+collections are counted in the latency bucket of their average. The Prometheus
+histogram exposes these counts as cumulative `le` buckets over every bound in
+`imetrics.BpfLatenciesBuckets`. Runtime statistics are disabled when the
+collector shuts down.
 
 ## Map discovery and entry counting
 

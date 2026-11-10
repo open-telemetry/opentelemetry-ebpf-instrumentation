@@ -6,6 +6,7 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"time"
@@ -39,6 +40,26 @@ func main() {
 		}()
 	}
 
+	// Generate TCP resets: the server aborts every connection on this address
+	resetAddress := os.Getenv("RESET_TARGET_ADDRESS")
+	if resetAddress != "" {
+		go func() {
+			for {
+				conn, err := net.DialTimeout("tcp", resetAddress, 2*time.Second)
+				if err != nil {
+					time.Sleep(1 * time.Second)
+					continue
+				}
+				fmt.Fprintf(conn, "reset probe\n")
+				conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+				_, err = bufio.NewReader(conn).ReadString('\n')
+				fmt.Printf("Expected reset from %s: %v\n", resetAddress, err)
+				conn.Close()
+				time.Sleep(1 * time.Second)
+			}
+		}()
+	}
+
 	// Generate failed TCP connections by dialing a port where nothing listens
 	failAddress := os.Getenv("FAIL_TARGET_ADDRESS")
 	if failAddress != "" {
@@ -50,6 +71,29 @@ func main() {
 				} else {
 					conn.Close()
 				}
+				time.Sleep(1 * time.Second)
+			}
+		}()
+	}
+
+	// Shut connections down from both sides before closing them, so the sockets reach TCP_CLOSE
+	// while the application still holds them
+	shutdownAddress := os.Getenv("SHUTDOWN_TARGET_ADDRESS")
+	if shutdownAddress != "" {
+		go func() {
+			for {
+				conn, err := net.DialTimeout("tcp", shutdownAddress, 2*time.Second)
+				if err != nil {
+					time.Sleep(1 * time.Second)
+					continue
+				}
+				fmt.Fprintf(conn, "shutdown probe\n")
+				// the reply, then the server's FIN
+				io.Copy(io.Discard, conn)
+				conn.(*net.TCPConn).CloseWrite()
+				// lets the server's ACK of our FIN arrive before close()
+				time.Sleep(1 * time.Second)
+				conn.Close()
 				time.Sleep(1 * time.Second)
 			}
 		}()

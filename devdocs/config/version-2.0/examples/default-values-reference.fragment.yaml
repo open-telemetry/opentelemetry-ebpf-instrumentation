@@ -73,6 +73,11 @@ extensions:
     # A receiver component flattens every child of this block beside version;
     # it does not retain the capture wrapper.
     capture:
+      exceptions:
+        enabled: false
+        go:
+          panics: true
+          formatted_errors: false
       # policy controls global rule evaluation behavior.
       policy:
         # Include by default unless matched by an exclude rule.
@@ -210,6 +215,7 @@ extensions:
             metrics: true
             # Set to false to keep the RED metrics without the size histograms.
             body_size_metrics: true
+            request_phase_spans: true
           # The target adapter imports one shared application filter. Every
           # application protocol's trace and metric maps must equal this trace
           # map.
@@ -305,6 +311,7 @@ extensions:
             traces: {}
             metrics: {}
           heuristic_detect: false
+          sanitize_query_text: false
           mysql:
             buffer_size: 0
             prepared_statements_cache_size: 1024
@@ -486,7 +493,7 @@ extensions:
         stats:
           # Master switch for TCP stats observability.
           enabled: false
-          # Supported values: tcp_rtt, tcp_failed_connections, tcp_successful_connections, tcp_retransmits, tcp_io.
+          # Supported values: tcp_rtt, tcp_failed_connections, tcp_successful_connections, tcp_retransmits, tcp_io, tcp_resets.
           features: []
           endpoint_identity:
             agent_ip: ""
@@ -613,6 +620,30 @@ extensions:
           route53:
             refresh_interval: 5m0s
             hosted_zone_ids: []
+        peer_metadata:
+          enabled: false
+          mode: peer
+          listen_address: ""
+          port: 8998
+          peer_cidrs: []
+          refresh_interval: 10s
+          caller_ttl: 1m0s
+          cache_ttl: 1m0s
+          request_timeout: 2s
+          max_peers: 1024
+          max_concurrent: 8
+          max_caller_entries: 16384
+          max_response_bytes: 1048576
+          max_cache_bytes: 67108864
+          token: ""
+          tls:
+            enabled: false
+            cert_file: ""
+            key_file: ""
+            ca_file: ""
+            server_name: ""
+          central:
+            address: ""
       # Service identity enrichment policy from configured enrichers.
       service_name:
         # Ordered backends used for peer and host name resolution.

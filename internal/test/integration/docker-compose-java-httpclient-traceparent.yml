@@ -27,6 +27,11 @@ services:
     command: [downstream]
     environment:
       OTEL_SERVICE_NAME: java-downstream
+      JAVA_TOOL_OPTIONS: "${JAVA_HTTPCLIENT_DOWNSTREAM_OPTIONS:-}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_METRICS_EXPORTER: none
+      OTEL_LOGS_EXPORTER: none
+      OTEL_BSP_SCHEDULE_DELAY: 100
     ports:
       - "18086:8086"
     depends_on:
@@ -44,6 +49,7 @@ services:
     command: ["--config=/configs/obi-config-java-httpclient-traceparent.yml"]
     environment:
       JAVA_HTTPCLIENT_PROPAGATION: "${JAVA_HTTPCLIENT_PROPAGATION:-headers}"
+      JAVA_HTTPCLIENT_PORTS: "${JAVA_HTTPCLIENT_PORTS:-8080,8086}"
     volumes:
       - ./configs:/configs:ro
       - ./system/sys/kernel/security_none:/sys/kernel/security:ro

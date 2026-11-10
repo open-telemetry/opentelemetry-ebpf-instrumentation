@@ -11,7 +11,6 @@ import (
 	"path"
 	"slices"
 	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -79,7 +78,7 @@ const (
 // the fallback OBI must take for this mode on this host, and the line it logs for it
 func cpFallbackFor(t *testing.T, compose *docker.Compose, mode cpMode) (cpFallback, string) {
 	switch {
-	case mode.seccomp == "all" || !cpTool(t, compose, "can-copy-sockets")[1]:
+	case mode.seccomp == "all" || !obiTestToolValues(t, compose, "can-copy-sockets")[1]:
 		return cpGlobalFallback, "cannot duplicate the sockets of other processes"
 	case cpNetCgroupsV1(t):
 		return cpGlobalFallback, "cgroup v1 net_cls or net_prio is in use"
@@ -210,33 +209,17 @@ func cpPortClient(ct require.TestingT, port int) cpClient {
 	return client
 }
 
-// runs the OBI image's test tool, which prints one number per line
-func cpTool(ct require.TestingT, compose *docker.Compose, args ...string) map[uint64]bool {
-	out, err := compose.ExecOutput("obi", append([]string{"/obitesttool"}, args...)...)
-	require.NoError(ct, err, out)
-	values := map[uint64]bool{}
-	for line := range strings.SplitSeq(out, "\n") {
-		if line == "" {
-			continue
-		}
-		value, err := strconv.ParseUint(line, 10, 64)
-		require.NoError(ct, err, line)
-		values[value] = true
-	}
-	return values
-}
-
 func cpBPFKeys(ct require.TestingT, compose *docker.Compose, mapName string) map[uint64]bool {
-	return cpTool(ct, compose, "map-keys", mapName)
+	return obiTestToolValues(ct, compose, "map-keys", mapName)
 }
 
 func cpInstrumentedPIDs(ct require.TestingT, compose *docker.Compose) map[uint64]bool {
-	return cpTool(ct, compose, "bitmap-pids", "instrumented_pids")
+	return obiTestToolValues(ct, compose, "bitmap-pids", "instrumented_pids")
 }
 
 // the pid OBI's /proc numbers the client with, the one its filters hold
 func cpHostPID(ct require.TestingT, compose *docker.Compose, client cpClient) uint64 {
-	pids := cpTool(ct, compose, "host-pid", strconv.FormatUint(client.NSInode, 10), strconv.Itoa(client.PID))
+	pids := obiTestToolValues(ct, compose, "host-pid", strconv.FormatUint(client.NSInode, 10), strconv.Itoa(client.PID))
 	require.Len(ct, pids, 1, client.Name)
 	for pid := range pids {
 		return pid
@@ -326,7 +309,7 @@ func runCPEnrollment(t *testing.T, mode cpMode) {
 	// nothing else waits for OBI in global mode
 	if !s.exp.scoped {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			assert.True(ct, cpTool(ct, compose, "new-conn-enrolled")[1], "OBI enrolls no new connection yet")
+			assert.True(ct, obiTestToolValues(ct, compose, "new-conn-enrolled")[1], "OBI enrolls no new connection yet")
 		}, testTimeout, cpPollInterval)
 	}
 	siteClient := func(site cpSite, name string) cpGetter {

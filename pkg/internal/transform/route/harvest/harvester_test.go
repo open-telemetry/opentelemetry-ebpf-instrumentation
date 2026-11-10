@@ -72,16 +72,16 @@ func javaExtract(fn func(context.Context, app.PID) (*RouteHarvesterResult, error
 	}
 }
 
-func successfulNodeExtractRoutes(pid app.PID) (*RouteHarvesterResult, error) {
-	return successfulExtractRoutes(context.Background(), pid)
+func successfulNodeExtractRoutes(ctx context.Context, pid app.PID) (*RouteHarvesterResult, error) {
+	return successfulExtractRoutes(ctx, pid)
 }
 
-func errorNodeExtractRoutes(pid app.PID) (*RouteHarvesterResult, error) {
-	return errorExtractRoutes(context.Background(), pid)
+func errorNodeExtractRoutes(ctx context.Context, pid app.PID) (*RouteHarvesterResult, error) {
+	return errorExtractRoutes(ctx, pid)
 }
 
-func successfulPythonExtractRoutes(fi *exec.FileInfo) (*RouteHarvesterResult, error) {
-	return successfulExtractRoutes(context.Background(), fi.Pid())
+func successfulPythonExtractRoutes(ctx context.Context, fi *exec.FileInfo) (*RouteHarvesterResult, error) {
+	return successfulExtractRoutes(ctx, fi.Pid())
 }
 
 func successfulPHPExtractRoutes(ctx context.Context, fi *exec.FileInfo) (*RouteHarvesterResult, error) {
@@ -270,9 +270,39 @@ func TestHarvestNodejsRoutes_Successful(t *testing.T) {
 	assert.Equal(t, CompleteRoutes, result.Kind)
 }
 
+func TestHarvestRoutes_TimeoutStopsSourceExtractor(t *testing.T) {
+	for _, runtime := range []svc.InstrumentableType{svc.InstrumentableNodejs, svc.InstrumentableDeno, svc.InstrumentablePython} {
+		t.Run(runtime.String(), func(t *testing.T) {
+			harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, nil, 10*time.Millisecond)
+			exited := make(chan error, 1)
+			harvester.nodeExtractRoutes = func(ctx context.Context, _ app.PID) (*RouteHarvesterResult, error) {
+				<-ctx.Done()
+				exited <- ctx.Err()
+				return nil, ctx.Err()
+			}
+			harvester.denoExtractRoutes = harvester.nodeExtractRoutes
+			harvester.pythonExtractRoutes = func(ctx context.Context, fi *exec.FileInfo) (*RouteHarvesterResult, error) {
+				return harvester.nodeExtractRoutes(ctx, fi.Pid())
+			}
+
+			for range 3 {
+				result, err := harvester.HarvestRoutes(createTestFileInfo(runtime))
+				require.ErrorContains(t, err, "route harvesting timed out")
+				assert.Nil(t, result)
+				select {
+				case err := <-exited:
+					require.ErrorIs(t, err, context.DeadlineExceeded)
+				case <-time.After(time.Second):
+					t.Fatal("extractor is still running after harvest timeout")
+				}
+			}
+		})
+	}
+}
+
 func TestHarvestDenoRoutes_UsesDenoExtractor(t *testing.T) {
 	harvester := NewRouteHarvester(&services.RouteHarvestingConfig{}, []services.RouteHarvesterLanguage{}, time.Second)
-	harvester.nodeExtractRoutes = func(app.PID) (*RouteHarvesterResult, error) {
+	harvester.nodeExtractRoutes = func(context.Context, app.PID) (*RouteHarvesterResult, error) {
 		t.Fatal("Deno route harvesting should not use the Node.js launch parser")
 		return nil, nil
 	}
@@ -294,7 +324,7 @@ func TestHarvestDenoRoutes_DisabledWithNodejs(t *testing.T) {
 		[]services.RouteHarvesterLanguage{services.RouteHarvesterLanguageNodejs},
 		time.Second,
 	)
-	harvester.denoExtractRoutes = func(app.PID) (*RouteHarvesterResult, error) {
+	harvester.denoExtractRoutes = func(context.Context, app.PID) (*RouteHarvesterResult, error) {
 		t.Fatal("Deno route harvesting should be disabled with Node.js route harvesting")
 		return nil, nil
 	}
@@ -322,7 +352,7 @@ func TestHarvestPythonRoutesDisabled(t *testing.T) {
 		[]services.RouteHarvesterLanguage{services.RouteHarvesterLanguagePython},
 		time.Second,
 	)
-	harvester.pythonExtractRoutes = func(*exec.FileInfo) (*RouteHarvesterResult, error) {
+	harvester.pythonExtractRoutes = func(context.Context, *exec.FileInfo) (*RouteHarvesterResult, error) {
 		t.Fatal("disabled Python harvester was called")
 		return nil, nil
 	}
@@ -426,7 +456,7 @@ func TestFindScriptDirectory(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "app", "nested", "deep"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "outside"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "src"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "src", "node_modules", ".bin"), 0o755))
 	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "workdir"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "app", "server.js"), []byte(""), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "app", "nested", "deep", "file.js"), []byte(""), 0o644))
@@ -509,6 +539,62 @@ func TestFindScriptDirectory(t *testing.T) {
 			firstArg: "index.js",
 			cwd:      "/",
 			expected: tempDir + "/",
+		},
+		{
+			name:     "relative path outside cwd",
+			root:     tempDir,
+			firstArg: "../app/server.js",
+			cwd:      "/workdir",
+			expected: filepath.Join(tempDir, "app") + "/",
+		},
+		{
+			name:     "relative path outside cwd after cleaning",
+			root:     tempDir,
+			firstArg: "./nested/../../app/server.js",
+			cwd:      "/workdir",
+			expected: filepath.Join(tempDir, "app") + "/",
+		},
+		{
+			name:     "relative directory outside cwd",
+			root:     tempDir,
+			firstArg: "../app",
+			cwd:      "/workdir",
+			expected: filepath.Join(tempDir, "app") + "/",
+		},
+		{
+			name:     "relative path outside cwd stays inside process root",
+			root:     tempDir,
+			firstArg: "../../../outside/server.js",
+			cwd:      "/workdir",
+			expected: filepath.Join(tempDir, "outside") + "/",
+		},
+		{
+			name:     "missing relative path outside cwd falls back to cwd",
+			root:     tempDir,
+			firstArg: "../missing/server.js",
+			cwd:      "/workdir",
+			expected: filepath.Join(tempDir, "workdir") + "/",
+		},
+		{
+			name:     "relative path inside cwd scans cwd",
+			root:     tempDir,
+			firstArg: "nested/deep/file.js",
+			cwd:      "/app",
+			expected: filepath.Join(tempDir, "app") + "/",
+		},
+		{
+			name:     "relative path that leaves and re-enters cwd scans cwd",
+			root:     tempDir,
+			firstArg: "../app/nested/deep/file.js",
+			cwd:      "/app",
+			expected: filepath.Join(tempDir, "app") + "/",
+		},
+		{
+			name:     "relative path through node_modules scans cwd",
+			root:     tempDir,
+			firstArg: "../src/node_modules/.bin/tool.js",
+			cwd:      "/workdir",
+			expected: filepath.Join(tempDir, "workdir") + "/",
 		},
 	}
 

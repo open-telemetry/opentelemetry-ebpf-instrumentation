@@ -26,13 +26,15 @@ func TestHTTP1ExistingTraceparentScan(t *testing.T) {
 	const spanID = "fedcba9876543210"
 	const header = "Traceparent: 00-" + traceID + "-" + spanID + "-01\r\n"
 	for _, tc := range []struct {
-		name    string
-		padding int
-		invalid bool
+		name      string
+		padding   int
+		invalid   bool
+		unsampled bool
 	}{
 		{name: "first_chunk"},
 		{name: "later_chunk", padding: 1100},
 		{name: "malformed_value", invalid: true},
+		{name: "unsampled", unsampled: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			spec, err := LoadBpf()
@@ -77,6 +79,11 @@ func TestHTTP1ExistingTraceparentScan(t *testing.T) {
 			if tc.invalid {
 				value = strings.Replace(header, traceID+"-", traceID+"x", 1)
 			}
+			wantFlags := uint8(1)
+			if tc.unsampled {
+				value = strings.Replace(header, "-01\r\n", "-00\r\n", 1)
+				wantFlags = 0
+			}
 			payload := []byte("GET / HTTP/1.1\r\nX-Padding: " + strings.Repeat("a", tc.padding) + "\r\n" + value + "\r\n")
 			require.NoError(t, h2ProbeWrite(fd, payload))
 			received := make([]byte, len(payload))
@@ -93,6 +100,7 @@ func TestHTTP1ExistingTraceparentScan(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, traceID, hex.EncodeToString(got.Tp.TraceId[:]))
 			require.Equal(t, spanID, hex.EncodeToString(got.Tp.SpanId[:]))
+			require.Equal(t, wantFlags, got.Tp.Flags)
 			require.Equal(t, uint8(1), got.Valid)
 			require.Equal(t, uint8(1), got.Written)
 		})

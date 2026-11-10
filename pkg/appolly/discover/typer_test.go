@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/gotracer"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
@@ -90,6 +91,29 @@ func TestLoadAllGoFunctionNamesIncludesConditionalGoTracerSymbols(t *testing.T) 
 	}
 }
 
+func TestLoadAllGoFunctionNamesIncludesExceptionSymbolsOnlyWhenCapturing(t *testing.T) {
+	ty := typer{cfg: &obi.Config{Routes: &transform.RoutesConfig{}}}
+	ty.loadAllGoFunctionNames()
+	for _, symbol := range gotracer.GoExceptionProbeSymbols() {
+		assert.NotContains(t, ty.allGoFunctions, symbol)
+	}
+
+	ty.cfg.Exceptions.Enabled = true
+	ty.cfg.Logs.Protocol = otelcfg.ProtocolDebug
+	ty.loadAllGoFunctionNames()
+	for _, symbol := range gotracer.GoExceptionProbeSymbols() {
+		assert.Contains(t, ty.allGoFunctions, symbol)
+	}
+}
+
+func TestExceptionSymbolsDoNotQualifyGoProxy(t *testing.T) {
+	funcs := map[string][]goexec.FuncOffsets{"runtime.chansend1": {}}
+	for _, symbol := range gotracer.GoExceptionProbeSymbols() {
+		funcs[symbol] = []goexec.FuncOffsets{}
+	}
+	assert.True(t, isGoProxy(&goexec.Offsets{Funcs: funcs}))
+}
+
 func TestContextWithValueDoesNotQualifyGoProxy(t *testing.T) {
 	assert.True(t, isGoProxy(&goexec.Offsets{Funcs: map[string][]goexec.FuncOffsets{
 		"runtime.chansend1": {},
@@ -116,6 +140,7 @@ func TestMakeServiceAttrs(t *testing.T) {
 	assert.Equal(t, "ns1", attrs.UID.Namespace)
 	assert.EqualValues(t, 1234, attrs.ProcPID)
 	assert.Equal(t, services.ExportModeUnset, attrs.ExportModes)
+	assert.Nil(t, attrs.SamplerConfig)
 
 	// Test with sampler and routes
 	sampler := &services.SamplerConfig{}
@@ -132,6 +157,7 @@ func TestMakeServiceAttrs(t *testing.T) {
 	}
 	attrs2 := ty.makeServiceAttrs(proc2)
 	assert.NotNil(t, attrs2.Sampler)
+	assert.Same(t, sampler, attrs2.SamplerConfig)
 	assert.NotNil(t, attrs2.CustomInRouteMatcher)
 	assert.NotNil(t, attrs2.CustomOutRouteMatcher)
 }
@@ -540,4 +566,41 @@ func TestAsInstrumentable_UncachedPythonWorkerPreservesLogEnricherEnabled(t *tes
 	assert.Same(t, worker, instrumentable.FileInfo)
 	assert.Same(t, master, worker.RuntimeMetricServiceSource())
 	assert.True(t, instrumentable.LogEnricherEnabled)
+}
+
+func TestMakeServiceAttrsExceptionSelection(t *testing.T) {
+	enabled, disabled := true, false
+	cfg := obi.DefaultConfig
+	cfg.Logs.Endpoint = "http://localhost:4318/v1/logs"
+	cfg.Exceptions.Enabled = true
+	ty := typer{cfg: &cfg}
+	allow := &services.GlobAttributes{Exceptions: &services.ExceptionsOverride{Enabled: &enabled}}
+	deny := &services.GlobAttributes{Exceptions: &services.ExceptionsOverride{Enabled: &disabled}}
+	inherit := &services.GlobAttributes{}
+	blocked := &services.GlobAttributes{ExportModes: services.NewExportModes(), Exceptions: &services.ExceptionsOverride{Enabled: &enabled}}
+	for _, tc := range []struct {
+		name     string
+		criteria []services.Selector
+		want     bool
+	}{
+		{"global", nil, true},
+		{"explicit false", []services.Selector{deny}, false},
+		{"later explicit true", []services.Selector{deny, allow}, true},
+		{"omission restores global", []services.Selector{deny, inherit}, true},
+		{"export blocks acquisition", []services.Selector{blocked}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ty.makeServiceAttrs(&ProcessMatch{Process: &services.ProcessInfo{Pid: 1234}, Criteria: tc.criteria})
+			require.Equal(t, tc.want, got.Exceptions.Enabled)
+		})
+	}
+	cfg.Logs.Endpoint = ""
+	got := ty.makeServiceAttrs(&ProcessMatch{Process: &services.ProcessInfo{Pid: 1234}, Criteria: []services.Selector{allow}})
+	require.False(t, got.Exceptions.Enabled)
+}
+
+func TestSelectorExceptionsCompatibility(t *testing.T) {
+	assert.Nil(t, selectorExceptions(dummyCriterion{}))
+	override := &services.ExceptionsOverride{}
+	assert.Same(t, override, selectorExceptions(&services.GlobAttributes{Exceptions: override}))
 }

@@ -37,9 +37,9 @@ var dotnetRuntimeImages = []struct {
 	version string
 	image   string
 }{
-	{"8.0", "mcr.microsoft.com/dotnet/runtime:8.0-bookworm-slim@sha256:47c36b770db8f712ceb03e9220d799b068c769b8bc89c61d62cd41600633d9c2"},
-	{"9.0", "mcr.microsoft.com/dotnet/runtime:9.0-bookworm-slim@sha256:39908ee925eb8179ebab37c72e73599b377aa76c27f130458780a73434eb9a0f"},
-	{"10.0", "mcr.microsoft.com/dotnet/runtime:10.0-noble@sha256:b89586dc17781f25531909993658aa8161205ae38b8cec8847df4a8221a403d5"},
+	{"8.0", "mcr.microsoft.com/dotnet/runtime:8.0-bookworm-slim@sha256:67e16b7d568208713e05db7f7bcc81827679a636222160bf57bb148acd23622e"},
+	{"9.0", "mcr.microsoft.com/dotnet/runtime:9.0-bookworm-slim@sha256:aa92aa3080341fa17bcf58c1651afd1ede4b07c4c461ee12495cdd439704bd16"},
+	{"10.0", "mcr.microsoft.com/dotnet/runtime:10.0-noble@sha256:a3f9f81954b9c810af2ed18849716c8dc74a4707bd0907fdbd69be81554c0f30"},
 }
 
 func TestDotnetRuntimeMetrics(t *testing.T) {

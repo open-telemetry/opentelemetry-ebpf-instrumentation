@@ -30,7 +30,8 @@ var v2NetworkMetricsFeatureMask = export.FeatureNetwork |
 	export.FeatureNetworkInterZone |
 	export.FeatureNetworkFlowPackets
 
-var v2StatsMetricsFeatureMask = export.FeatureStats
+var v2StatsMetricsFeatureMask = export.FeatureStats |
+	export.FeatureStatsTCPResets
 
 var defaultV2ServiceNameSourcesWithCloud = []transform.Source{
 	transform.SourceK8s,
@@ -104,8 +105,15 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	src = &normalized
 
 	cfg := runtimeConfigDefaults()
+	cfg.Attributes.UseV2Selection = true
 	applyV2Capture(&cfg, src, policy, complete)
 	applyV2Standalone(&cfg, src, complete)
+	if err := applyV2PeerMetadata(&cfg, src.Enrich, complete); err != nil {
+		return nil, err
+	}
+	if err := applyV2CaptureAttributes(&cfg, src); err != nil {
+		return nil, err
+	}
 	if err := applyV2MetricsEnablement(&cfg, src, complete); err != nil {
 		return nil, err
 	}
@@ -330,6 +338,7 @@ func runtimeConfigDefaults() obi.Config {
 }
 
 func applyV2Capture(cfg *obi.Config, src *schema.Extension, policy schema.CapturePolicy, complete bool) {
+	cfg.Exceptions = src.Capture.Exceptions
 	applyV2Policy(cfg, policy, complete || completePolicy(policy))
 	hasRuleRoutePolicies := applyV2Rules(cfg, src.Capture.Rules, policy)
 	applyV2Limits(cfg, src.Capture.Limits, complete || completeLimits(src.Capture.Limits))
@@ -395,13 +404,13 @@ func applyV2Rules(cfg *obi.Config, rules []schema.Rule, policy schema.CapturePol
 
 func addDefaultIncludeSelector(rules *runtimeDiscoveryRules) {
 	if len(rules.includeRegex) > 0 || len(rules.excludeRegex) > 0 {
-		rules.includeRegex = append(rules.includeRegex, services.RegexSelector{
+		rules.includeRegex = slices.Insert(rules.includeRegex, 0, services.RegexSelector{
 			Path: services.NewRegexp(".*"),
 		})
 		return
 	}
 
-	rules.includeGlobs = append(rules.includeGlobs, services.GlobAttributes{
+	rules.includeGlobs = slices.Insert(rules.includeGlobs, 0, services.GlobAttributes{
 		Path: services.NewGlob("*"),
 	})
 }
@@ -861,6 +870,7 @@ func selectorFromRule(
 			return nil, nil, false
 		}
 		selector := regexSelectorFromRule(rule)
+		selector.Exceptions = rule.Refine.Exceptions
 		selector.ExportModes, selector.Routes = v2RuleRefinement(
 			rule.Refine,
 			completeExports,
@@ -870,6 +880,7 @@ func selectorFromRule(
 	}
 
 	selector := globSelectorFromRule(rule)
+	selector.Exceptions = rule.Refine.Exceptions
 	selector.ExportModes, selector.Routes = v2RuleRefinement(
 		rule.Refine,
 		completeExports,
@@ -993,6 +1004,9 @@ func v2RoutePolicyOverride(policy *schema.HTTPRoutePolicy) *services.RoutePolicy
 
 func exportModesFromRefinement(refine schema.ExportModeRefinement) services.ExportModes {
 	modes := services.NewExportModes()
+	if refine.Logs {
+		modes.AllowLogs()
+	}
 	if refine.Traces {
 		modes.AllowTraces()
 	}
@@ -1173,6 +1187,7 @@ func applyFullV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	cfg.EBPF.MaxTransactionTime = engine.Transactions.MaxDuration.TimeDuration()
 	cfg.EBPF.MapsConfig.GlobalScaleFactor = engine.Maps.GlobalScaleFactor
 	cfg.EBPF.BPFFSPath = engine.BPFFileSystem.Path
+	cfg.EBPF.CgroupFSPath = engine.CgroupFileSystem.Path
 }
 
 func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
@@ -1224,6 +1239,9 @@ func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	if engine.BPFFileSystem.Path != "" {
 		cfg.EBPF.BPFFSPath = engine.BPFFileSystem.Path
 	}
+	if engine.CgroupFileSystem.Path != "" {
+		cfg.EBPF.CgroupFSPath = engine.CgroupFileSystem.Path
+	}
 }
 
 func instrumentationWithDefaults(instrumentation schema.Instrumentation) schema.Instrumentation {
@@ -1260,6 +1278,7 @@ func applyFullV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrume
 	applyFullV2HTTPInstrumentation(cfg, instrumentation.HTTP)
 
 	cfg.EBPF.HeuristicSQLDetect = instrumentation.SQL.HeuristicDetect
+	cfg.Attributes.SanitizeSQLQueryText = instrumentation.SQL.SanitizeQueryText
 	cfg.EBPF.BufferSizes.MySQL = instrumentation.SQL.MySQL.BufferSize
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = instrumentation.SQL.MySQL.PreparedStatementsCacheSize
 	cfg.EBPF.BufferSizes.Postgres = instrumentation.SQL.Postgres.BufferSize
@@ -1291,6 +1310,9 @@ func applyPartialV2Instrumentation(cfg *obi.Config, instrumentation schema.Instr
 	if !zeroValue(instrumentation.SQL) {
 		if instrumentation.SQL.HeuristicDetect {
 			cfg.EBPF.HeuristicSQLDetect = true
+		}
+		if instrumentation.SQL.SanitizeQueryText {
+			cfg.Attributes.SanitizeSQLQueryText = true
 		}
 		if instrumentation.SQL.MySQL.BufferSize != 0 {
 			cfg.EBPF.BufferSizes.MySQL = instrumentation.SQL.MySQL.BufferSize
@@ -1600,6 +1622,10 @@ func applyProtocolEnablement(cfg *obi.Config, instrumentation schema.Instrumenta
 	cfg.Traces.Instrumentations = applySignalEnablement(cfg.Traces.Instrumentations, instrumentation, "traces", complete)
 	cfg.OTELMetrics.Instrumentations = applySignalEnablement(cfg.OTELMetrics.Instrumentations, instrumentation, "metrics", complete)
 	cfg.Prometheus.Instrumentations = applySignalEnablement(cfg.Prometheus.Instrumentations, instrumentation, "metrics", complete)
+
+	if enabled := instrumentation.HTTP.Enabled.RequestPhaseSpans; enabled != nil {
+		cfg.Traces.DisableHTTPRequestPhaseSpans = !*enabled
+	}
 }
 
 func applySignalEnablement(
@@ -2633,6 +2659,8 @@ func statsFeatureMask(features []string) export.Features {
 			out |= export.FeatureStatsTCPRetransmits
 		case statsFeatureTCPIo:
 			out |= export.FeatureStatsTCPIo
+		case statsFeatureTCPResets:
+			out |= export.FeatureStatsTCPResets
 		}
 	}
 	return out

@@ -131,23 +131,32 @@ To add a new metric, follow these guidelines:
 
 ### Known limitations
 
-#### `src.port` may be reported as `0`
+#### `src.port` of sockets that are already closed
 
-The `src.port` attribute (disabled by default) can be `0` in metrics whose probes fire near socket teardown: specifically `obi_stat_tcp_rtt_seconds` and `obi_stat_tcp_failed_connections_total`. Metrics measured while the socket is still active (retransmits) are not affected. The root cause is a kernel-side race between the application's `close()` path and RST processing.
-
-When a socket **receives** a RST and is orphaned (`SOCK_DEAD` set), the kernel calls:
+Moving a TCP socket to `TCP_CLOSE` releases its local port: `tcp_set_state()` calls `inet_put_port()`, which zeroes `skc_num`. This happens for every socket that was not explicitly bound to a port, accepted server sockets included, whether the application closed it or a reset did.
 
 ```
-tcp_done()
-  └── inet_csk_destroy_sock()
-        └── inet_put_port()  <-- zeroes skc_num (the source port)
+tcp_set_state(sk, TCP_CLOSE)
+  └── inet_put_port()             <-- zeroes skc_num (the source port)
+  └── inet_sk_state_store()
+        └── trace_inet_sock_set_state()
 ```
 
-This happens outside the application's `close()` call. By the time `parse_sock_info` in [bpf/common/sockaddr.h](../bpf/common/sockaddr.h) reads `skc_num`, it is already `0`.
+Probes that can run at or after this transition read the port with `parse_full_sock_info` in [bpf/common/sockaddr.h](../bpf/common/sockaddr.h), which falls back to `inet_sport` when `skc_num` is `0`. `inet_sport` is not cleared on close and holds the port the connection used on the wire. These probes are the `inet_sock_set_state` tracepoint (`obi_stat_tcp_failed_connections_total`), the `tcp_close` kprobes (`obi_stat_tcp_rtt_seconds` and the last `obi_stat_tcp_io_bytes_total` batch), which see a closed socket when a reset arrived before the application called `close()`, and the `tcp_send_reset` tracepoint (`obi_stat_tcp_resets_total`), which sees a closed socket when the application aborts the connection.
 
-The RST **sender** is not affected because it goes through the normal application `close()` path where the port is still valid at probe time.
+`src.port` is still `0` for a connection attempt that fails before sending its SYN, for example when no ephemeral port is free. The failed-connections probe does not fall back to `inet_sport` for these attempts, because on a socket reused with `connect(AF_UNSPEC)` it still holds the port of the previous connection. `tcp_disconnect()` resets `segs_out` and the SYN increments it, so `segs_out == 0` identifies them.
 
-StatsO11y probes fire at different points relative to `inet_put_port()`, so the behaviour is not uniform across metrics. For example, `obi_kprobe_tcp_close_srtt` (kprobe on `tcp_close`) may still observe a valid port in some RST-receiver scenarios, while `obi_tracepoint_inet_sock_set_state` (tracepoint on `inet_sock_set_state`) consistently sees `0`. Metrics with `src_port="0"` still carry useful signal — `dst_port`, `src_address`, `dst_address`, `reason`, and `network_tcp_handshake_role` remain valid.
+#### `obi_stat_tcp_resets_total` scope and cause
+
+The metric counts RST segments that the TCP stack sends (`tcp_send_reset`) or accepts (`tcp_receive_reset`) on connections past the handshake. It is enabled only from Config v2 (`capture.network.stats.features: [tcp_resets]`) and is not part of the default stats families.
+
+- Resets seen while the socket is in `SYN_SENT`, `SYN_RECV` or `NEW_SYN_RECV` are skipped, because they make the connection attempt fail and are counted by `obi_stat_tcp_failed_connections_total`.
+- Resets a `LISTEN` socket sends in reply to an unexpected ACK are skipped too, and no other metric counts them. This happens, for example, when a failover moves established clients to a host that only has the listener.
+- Resets that abort an established connection with a socket error are counted by both metrics: a received reset, keepalive expiry and `tcp_abort()` also move the socket to `TCP_CLOSE` with an error, which `obi_stat_tcp_failed_connections_total` counts. Application aborts (`close()` with unread data, `SO_LINGER{0}`) leave no error and are counted only here. Do not add the two metrics together.
+- Only resets the stack accepts are counted as received: resets that fail sequence validation, and resets that reach a `TIME_WAIT` socket, are dropped before `tcp_reset()`.
+- Resets sent for ports with no listener are not counted on any kernel, because there is no socket to attribute them to: kernel 6.10 and newer fire `tcp_send_reset` without a socket, and older kernels do not fire it. Older kernels also do not trace resets sent from `TIME_WAIT`, which 6.10 and newer count.
+- When data arrives on a `FIN_WAIT1`/`FIN_WAIT2` socket whose application already shut down reading, the kernel calls `tcp_reset()` on itself and then sends a reset. This single abort is counted once as `receive` and once as `transmit`.
+- `network.tcp.reset.cause` is inferred only for sent resets, from the code path that sends them, not from what triggered it. An active reset on a socket already moved to `TCP_CLOSE` is `application`: `close()` with unread data, `SO_LINGER{0}`, `TCP_LINGER2 < 0`, or an orphan or memory limit hit inside `close()`. An active reset with the state unchanged is `timeout`: keepalive and user timeout, orphan timers, the same orphan or memory limit hit by the retransmit timer, and `tcp_abort()` (`ss -K`, `bpf_sock_destroy`), which no timer triggers. Resets answering an incoming segment, and all received resets, carry no cause: the attribute is omitted on OTLP and the Prometheus label is empty.
 
 ### Performance considerations
 

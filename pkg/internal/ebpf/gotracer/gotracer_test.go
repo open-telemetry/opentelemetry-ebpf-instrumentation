@@ -99,10 +99,31 @@ func TestGRPCCorrelationMapsUseProcessScopedKeys(t *testing.T) {
 
 func TestRingbufMetricsConstant(t *testing.T) {
 	tracer := New(nil, &obi.Config{}, imetrics.NoopReporter{})
-	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
+	assert.Equal(t, false, tracer.constants(0)["ringbuf_metrics_enabled"])
 
 	tracer = New(nil, &obi.Config{}, struct{ imetrics.NoopReporter }{})
-	assert.Equal(t, true, tracer.constants()["ringbuf_metrics_enabled"])
+	assert.Equal(t, true, tracer.constants(0)["ringbuf_metrics_enabled"])
+}
+
+func TestWakeupDataBytesUsesScaledRingBufSize(t *testing.T) {
+	setContextPropagationSupportForTest(t, false)
+
+	cfg := &obi.Config{}
+	cfg.EBPF.WakeupLen = 500
+	cfg.EBPF.MapsConfig.GlobalScaleFactor = -3
+	tracer := New(nil, cfg, imetrics.NoopReporter{})
+
+	bundles, err := tracer.LoadSpecs()
+	require.NoError(t, err)
+	require.Len(t, bundles, 1)
+
+	ebpfconvenience.SetupMapSizes(bundles[0].Spec, cfg.EBPF.MapsConfig.GlobalScaleFactor)
+	loadedRingBufSize := bundles[0].Spec.Maps[BpfMapEvents].MaxEntries
+	require.Equal(t, uint32(128<<10), loadedRingBufSize)
+
+	wakeup, ok := bundles[0].Constants["wakeup_data_bytes"].(uint32)
+	require.True(t, ok)
+	assert.Equal(t, loadedRingBufSize/2, wakeup)
 }
 
 func TestSetFramerPaddingOffsetUsesExactLayout(t *testing.T) {
@@ -151,43 +172,43 @@ func TestGoChannelLinkProbesRequireChannelOffsets(t *testing.T) {
 	}
 }
 
-// runtime.casgstatus fires on every goroutine status transition and exists only
-// to keep traces_ctx_v1 current, so it must not be attached when nothing reads
-// that map. Built through New so the config predicate is covered too.
-func TestCasgstatusProbeFollowsTraceContextPopulation(t *testing.T) {
+// Built through New so both configuration predicates are covered.
+func TestCasgstatusProbeFollowsContextAndExceptionCapture(t *testing.T) {
 	disableContextPropagationForTest(t)
 
 	for _, tc := range []struct {
-		name     string
-		cfg      *obi.Config
-		expected bool
+		name            string
+		cfg             *obi.Config
+		expectedContext bool
+		expectedProbe   bool
 	}{
-		{name: "default", cfg: &obi.Config{}, expected: false},
+		{name: "default", cfg: &obi.Config{}, expectedContext: false, expectedProbe: false},
+		{name: "exceptions only", cfg: exceptionsConfig(true), expectedContext: false, expectedProbe: false},
 		{
-			name:     "explicit setting",
-			cfg:      &obi.Config{EBPF: config.EBPFTracer{PopulateTraceContext: true}},
-			expected: true,
+			name:            "explicit setting",
+			cfg:             &obi.Config{EBPF: config.EBPFTracer{PopulateTraceContext: true}},
+			expectedContext: true, expectedProbe: true,
 		},
 		{
 			name: "log enricher",
 			cfg: &obi.Config{EBPF: config.EBPFTracer{LogEnricher: config.LogEnricherConfig{
 				Services: []config.LogEnricherServiceConfig{{}},
 			}}},
-			expected: true,
+			expectedContext: true, expectedProbe: true,
 		},
 		{
-			name:     "node.js manual spans",
-			cfg:      &obi.Config{NodeJS: obi.NodeJSConfig{Enabled: true, ManualSpans: true}},
-			expected: false,
+			name:            "node.js manual spans",
+			cfg:             &obi.Config{NodeJS: obi.NodeJSConfig{Enabled: true, ManualSpans: true}},
+			expectedContext: false, expectedProbe: false,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tracer := New(nil, tc.cfg, nil)
 
-			require.Equal(t, tc.expected, tracer.constants()["g_traces_ctx_v1_enabled"])
+			require.Equal(t, tc.expectedContext, tracer.constants(0)["g_traces_ctx_v1_enabled"])
 
 			_, attached := tracer.GoProbes()["runtime.casgstatus"]
-			require.Equal(t, tc.expected, attached)
+			require.Equal(t, tc.expectedProbe, attached)
 		})
 	}
 }
@@ -814,7 +835,7 @@ func TestHeaderPropagationRespectsModeAndWriteUserSupport(t *testing.T) {
 			}
 			tracer.bpfObjects.ObiUprobeTransportHttp2ClientNewStream = &ebpf.Program{}
 			tracer.bpfObjects.ObiUprobeTransportHttp2ClientNewStreamReturns = &ebpf.Program{}
-			constants := tracer.constants()
+			constants := tracer.constants(0)
 			assert.Equal(t, tt.wireEnabled, constants["g_bpf_header_propagation"])
 			assert.Equal(t, tt.writeUser, constants["g_bpf_probe_write_user_enabled"])
 
@@ -2050,4 +2071,17 @@ func TestRegisterGoSDKActivationProbeRetriesAttachment(t *testing.T) {
 	tracer.RegisterProcessScopedGoProbe(5, 10, probe)
 	assert.Equal(t, 2, attempts)
 	assert.Len(t, tracer.goAutoSDKActivationLinks, 1)
+}
+
+func TestRuntimeMetricPIDInfoLeavesHostPIDZero(t *testing.T) {
+	// go_runtime_metric_target_lookup in BPF clears host_pid before the lookup,
+	// so the key written here must not carry one.
+	const ns = uint32(4026531836)
+
+	pidInfo, err := runtimeMetricPIDInfo(app.PID(os.Getpid()), ns)
+	require.NoError(t, err)
+
+	assert.Zero(t, pidInfo.HostPid)
+	assert.Equal(t, ns, pidInfo.Ns)
+	assert.NotZero(t, pidInfo.UserPid)
 }

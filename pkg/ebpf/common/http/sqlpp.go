@@ -94,7 +94,12 @@ type sqlppError struct {
 }
 
 // SQLPPSpan detects and enriches SQL++ spans (Couchbase and other SQL++ databases)
-func SQLPPSpan(baseSpan *request.Span, req *http.Request, resp *http.Response, endpointPatterns []string, prepared *SQLPPPreparedStatements) (request.Span, bool) {
+func SQLPPSpan(baseSpan *request.Span, req *http.Request, resp *http.Response, endpointPatterns []string) (request.Span, bool) {
+	return SQLPPSpanWithPreparedStatements(baseSpan, req, resp, endpointPatterns, nil)
+}
+
+// SQLPPSpanWithPreparedStatements also resolves executions of cached prepared queries.
+func SQLPPSpanWithPreparedStatements(baseSpan *request.Span, req *http.Request, resp *http.Response, endpointPatterns []string, prepared *SQLPPPreparedStatements) (request.Span, bool) {
 	// Must match endpoint pattern first
 	if !matchesEndpointPattern(req, endpointPatterns) {
 		return *baseSpan, false
@@ -251,8 +256,8 @@ func parseSQLPPRequest(req *http.Request) (*sqlppRequest, error) {
 	contentType := req.Header.Get("Content-Type")
 	if strings.Contains(contentType, "application/x-www-form-urlencoded") {
 		// Handle form-encoded requests
-		sqlppReq.Statement = extractFormValue(string(reqB), "statement")
-		sqlppReq.QueryCtx = extractFormValue(string(reqB), "query_context")
+		sqlppReq.Statement = unescapeSQLPPFormValue(extractFormValue(string(reqB), "statement"))
+		sqlppReq.QueryCtx = unescapeSQLPPFormValue(extractFormValue(string(reqB), "query_context"))
 		sqlppReq.Prepared = unquoteSQLPPIdentifier(unescapeSQLPPFormValue(extractFormValue(string(reqB), "prepared")))
 		sqlppReq.AutoExecute = isSQLPPTrue(unescapeSQLPPFormValue(extractFormValue(string(reqB), "auto_execute")))
 	} else {

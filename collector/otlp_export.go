@@ -9,6 +9,7 @@ import (
 	"context"
 
 	"go.opentelemetry.io/collector/consumer"
+	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 
@@ -24,5 +25,11 @@ func tracesExport(consumer consumer.Traces) otelcfg.TracesExportFunc {
 func metricsExport(consumer consumer.Metrics) otelcfg.MetricsExportFunc {
 	return func(ctx context.Context, metrics pmetric.Metrics) error {
 		return consumer.ConsumeMetrics(ctx, metrics)
+	}
+}
+
+func logsExport(consumer consumer.Logs) otelcfg.LogsExportFunc {
+	return func(ctx context.Context, logs plog.Logs) error {
+		return consumer.ConsumeLogs(ctx, logs)
 	}
 }

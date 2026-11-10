@@ -8,6 +8,7 @@
 #include <bpfcore/utils.h>
 
 #include <common/event_defs.h>
+#include <common/http_trace_parent.h>
 #include <common/lw_thread.h>
 #include <common/python_task.h>
 #include <common/runtime.h>
@@ -44,6 +45,35 @@ static __always_inline enum parent_status parent_kind(const tp_info_pid_t *serve
     }
 
     return k_parent_status_live;
+}
+
+// Wire information is an explicit constraint of what should be the trace parent
+static __always_inline bool parent_trace_matches(const tp_info_pid_t *parent_tp,
+                                                 const tp_info_t *wire_tp) {
+    if (!parent_tp) {
+        return false;
+    }
+
+    if (!wire_tp) {
+        // Callers validate parents selected without propagated context.
+        return true;
+    }
+
+    if (!parent_tp->valid) {
+        return false;
+    }
+
+    if (bpf_memcmp(parent_tp->tp.trace_id, wire_tp->trace_id, TRACE_ID_SIZE_BYTES) != 0) {
+        return false;
+    }
+
+    return should_be_in_same_transaction(&parent_tp->tp, wire_tp);
+}
+
+static __always_inline tp_info_pid_t *find_wire_server_parent(u32 pid, const tp_info_t *wire_tp) {
+    tp_info_pid_t *parent = find_http_server_trace(pid, wire_tp);
+
+    return parent_trace_matches(parent, wire_tp) ? parent : NULL;
 }
 
 static __always_inline void trace_key_from_pid_tid(trace_key_t *t_key) {
@@ -127,14 +157,15 @@ find_nodejs_parent_trace(const pid_connection_info_t *p_conn, u16 orig_dport, u6
     return trace_info_for_connection(conn, TRACE_TYPE_SERVER);
 }
 
-static __always_inline tp_info_pid_t *find_parent_process_trace(trace_key_t *t_key) {
+static __always_inline tp_info_pid_t *find_parent_process_trace(trace_key_t *t_key,
+                                                                const tp_info_t *wire_tp) {
     // Up to 5 levels of thread nesting allowed
     enum { k_max_depth = 5 };
 
     for (u8 i = 0; i < k_max_depth; ++i) {
         tp_info_pid_t *server_tp = bpf_map_lookup_elem(&server_traces, t_key);
 
-        if (server_tp) {
+        if (parent_trace_matches(server_tp, wire_tp)) {
             bpf_dbg_printk("Found parent trace for pid=%d, ns=%lx, extra_id=%llx",
                            t_key->p_key.pid,
                            t_key->p_key.ns,
@@ -228,14 +259,15 @@ find_python_parent_trace(const trace_key_t *t_key, u64 pid_tgid, u8 *allow_paren
     return server_tp;
 }
 
-static __always_inline tp_info_pid_t *find_parent_java_trace(trace_key_t *t_key) {
+static __always_inline tp_info_pid_t *find_parent_java_trace(trace_key_t *t_key,
+                                                             const tp_info_t *wire_tp) {
     // Up to 3 levels of thread nesting allowed
     enum { k_max_depth = 3 };
 
     for (u8 i = 0; i < k_max_depth; ++i) {
         tp_info_pid_t *server_tp = bpf_map_lookup_elem(&server_traces, t_key);
 
-        if (server_tp) {
+        if (parent_trace_matches(server_tp, wire_tp)) {
             bpf_dbg_printk("Found parent trace for pid=%d, ns=%lx, extra_id=%llx",
                            t_key->p_key.pid,
                            t_key->p_key.ns,
@@ -308,10 +340,11 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
                                                         u64 pid_tgid,
                                                         lw_thread_t lw_thread,
                                                         trace_key_t *t_key,
-                                                        u16 orig_dport) {
+                                                        u16 orig_dport,
+                                                        const tp_info_t *wire_tp) {
     tp_info_pid_t *node_tp = find_nodejs_parent_trace(p_conn, orig_dport, pid_tgid);
 
-    if (node_tp) {
+    if (parent_trace_matches(node_tp, wire_tp)) {
         return node_tp;
     }
 
@@ -324,7 +357,7 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
         const u32 host_pid = pid_from_pid_tgid(pid_tgid);
         bpf_dbg_printk("Looking up parent trace for pid=%d, lw_thread=%llx", host_pid, lw_thread);
         tp_info_pid_t *go_parent = find_go_parent_trace(lw_thread, host_pid);
-        if (go_parent) {
+        if (parent_trace_matches(go_parent, wire_tp)) {
             return go_parent;
         }
     }
@@ -332,27 +365,51 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
     u8 allow_parent_fallback = 1;
     tp_info_pid_t *python_parent =
         find_python_parent_trace(t_key, pid_tgid, &allow_parent_fallback);
-    if (python_parent || !allow_parent_fallback) {
+
+    if (!allow_parent_fallback) {
+        return parent_trace_matches(python_parent, wire_tp) ? python_parent : NULL;
+    }
+
+    if (parent_trace_matches(python_parent, wire_tp)) {
         return python_parent;
     }
 
     tp_info_pid_t *nginx_parent = find_nginx_parent_trace(p_conn, orig_dport);
 
-    if (nginx_parent) {
+    if (parent_trace_matches(nginx_parent, wire_tp)) {
         return nginx_parent;
     }
 
     tp_info_pid_t *puma_parent = find_puma_parent_trace(pid_tgid);
-    if (puma_parent) {
+    if (parent_trace_matches(puma_parent, wire_tp)) {
         return puma_parent;
     }
 
-    tp_info_pid_t *java_parent = find_parent_java_trace(t_key);
+    // Virtual threads and submitted Java tasks identify their logical request, so
+    // only other threads prefer the server request indexed under the wire trace.
+    const bool index_first = wire_tp && !(t_key->p_key.tid & JAVA_VT_TID_FLAG) &&
+                             !bpf_map_lookup_elem(&java_tasks, &t_key->p_key);
+
+    if (index_first) {
+        tp_info_pid_t *http_parent = find_wire_server_parent(p_conn->pid, wire_tp);
+        if (http_parent) {
+            return http_parent;
+        }
+    }
+
+    tp_info_pid_t *java_parent = find_parent_java_trace(t_key, wire_tp);
     if (java_parent) {
         return java_parent;
     }
 
-    tp_info_pid_t *proc_parent = find_parent_process_trace(t_key);
+    if (wire_tp && !index_first) {
+        tp_info_pid_t *http_parent = find_wire_server_parent(p_conn->pid, wire_tp);
+        if (http_parent) {
+            return http_parent;
+        }
+    }
+
+    tp_info_pid_t *proc_parent = find_parent_process_trace(t_key, wire_tp);
 
     if (proc_parent) {
         return proc_parent;
@@ -362,7 +419,10 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
 
     if (conn_t_key) {
         bpf_dbg_printk("Found parent trace for connection through connection lookup");
-        return bpf_map_lookup_elem(&server_traces, &conn_t_key->t_key);
+        tp_info_pid_t *parent = bpf_map_lookup_elem(&server_traces, &conn_t_key->t_key);
+        if (parent_trace_matches(parent, wire_tp)) {
+            return parent;
+        }
     }
 
     return 0;
@@ -394,7 +454,8 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
                                          u64 pid_tgid,
                                          lw_thread_t lw_thread,
                                          tp_info_t *tp) {
-    tp_info_pid_t *server_tp = find_parent_trace(p_conn, pid_tgid, lw_thread, t_key, orig_dport);
+    tp_info_pid_t *server_tp =
+        find_parent_trace(p_conn, pid_tgid, lw_thread, t_key, orig_dport, NULL);
 
     if (server_tp && server_tp->valid && valid_trace(server_tp->tp.trace_id)) {
         bpf_dbg_printk("Found existing server tp for client call");
@@ -411,6 +472,7 @@ find_trace_for_client_request_with_t_key(const pid_connection_info_t *p_conn,
 
         __builtin_memcpy(tp->trace_id, server_tp->tp.trace_id, sizeof(tp->trace_id));
         __builtin_memcpy(tp->parent_id, server_tp->tp.span_id, sizeof(tp->parent_id));
+        tp->flags = server_tp->tp.flags;
 
         if (nodejs_manual_parent_span_id(pid_tgid, tp->trace_id, tp->parent_id)) {
             return k_parent_status_live;
@@ -440,8 +502,10 @@ find_parent_trace_for_client_request_with_t_key(const pid_connection_info_t *p_c
                                                 trace_key_t *t_key,
                                                 u64 pid_tgid,
                                                 lw_thread_t lw_thread,
-                                                tp_info_t *tp) {
-    tp_info_pid_t *server_tp = find_parent_trace(p_conn, pid_tgid, lw_thread, t_key, orig_dport);
+                                                tp_info_t *tp,
+                                                const tp_info_t *wire_tp) {
+    tp_info_pid_t *server_tp =
+        find_parent_trace(p_conn, pid_tgid, lw_thread, t_key, orig_dport, wire_tp);
 
     if (server_tp && server_tp->valid && valid_trace(server_tp->tp.trace_id)) {
         bpf_dbg_printk("Found existing server tp for client call");
@@ -470,12 +534,52 @@ find_parent_trace_for_client_request_with_t_key(const pid_connection_info_t *p_c
 static __always_inline u8 find_parent_trace_for_client_request(const pid_connection_info_t *p_conn,
                                                                u16 orig_dport,
                                                                lw_thread_t lw_thread,
-                                                               tp_info_t *tp) {
+                                                               tp_info_t *tp,
+                                                               const tp_info_t *wire_tp) {
 
     trace_key_t t_key = {0};
     trace_key_from_pid_tid(&t_key);
     const u64 pid_tgid = bpf_get_current_pid_tgid();
 
     return find_parent_trace_for_client_request_with_t_key(
-        p_conn, orig_dport, &t_key, pid_tgid, lw_thread, tp);
+        p_conn, orig_dport, &t_key, pid_tgid, lw_thread, tp, wire_tp);
+}
+
+// Adopt only the parent: the library already chose the client's identity and flags,
+// unless it forwarded the inbound header unchanged.
+static __always_inline u8 find_trace_for_wire_client_request(const pid_connection_info_t *p_conn,
+                                                             u16 orig_dport,
+                                                             lw_thread_t lw_thread,
+                                                             tp_info_t *wire_tp) {
+    if (!wire_tp) {
+        return k_parent_status_none;
+    }
+
+    __builtin_memset(wire_tp->parent_id, 0, sizeof(wire_tp->parent_id));
+    if (!valid_trace(wire_tp->trace_id) || !valid_span(wire_tp->span_id)) {
+        return k_parent_status_none;
+    }
+
+    trace_key_t key = {};
+    trace_key_from_pid_tid(&key);
+    const u64 id = bpf_get_current_pid_tgid();
+    tp_info_pid_t *parent = find_parent_trace(p_conn, id, lw_thread, &key, orig_dport, wire_tp);
+
+    if (!parent) {
+        return k_parent_status_none;
+    }
+
+    // The header can't be rewritten from a kprobe, so only the client span gets a
+    // new ID. Reusing the caller's would duplicate it and loop back to the parent.
+    // This essentially handles forwarding proxies.
+    if (bpf_memcmp(wire_tp->span_id, parent->tp.parent_id, SPAN_ID_SIZE_BYTES) == 0) {
+        urand_bytes(wire_tp->span_id, SPAN_ID_SIZE_BYTES);
+    }
+
+    __builtin_memcpy(wire_tp->parent_id, parent->tp.span_id, sizeof(wire_tp->parent_id));
+    if (nodejs_manual_parent_span_id(id, wire_tp->trace_id, wire_tp->parent_id)) {
+        return k_parent_status_live;
+    }
+
+    return parent_kind(parent);
 }

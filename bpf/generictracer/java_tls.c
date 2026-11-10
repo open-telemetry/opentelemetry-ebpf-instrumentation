@@ -69,7 +69,7 @@ static __always_inline void java_http1_parent(unsigned char *uarg) {
     }
     trace_key_t key = {};
     trace_key_from_pid_tid(&key);
-    const tp_info_pid_t *server = find_parent_java_trace(&key);
+    const tp_info_pid_t *server = find_parent_java_trace(&key, NULL);
     const tp_info_t now = {.ts = bpf_ktime_get_ns()};
     java_http1_parent_t parent = {};
     if (server) {
@@ -81,7 +81,7 @@ static __always_inline void java_http1_parent(unsigned char *uarg) {
         }
         bpf_memcpy(parent.trace_id, server->tp.trace_id, sizeof(parent.trace_id));
         bpf_memcpy(parent.span_id, server->tp.span_id, sizeof(parent.span_id));
-        parent.flags = k_flag_sampled;
+        parent.flags = server->tp.flags;
         parent.parent_status = parent_kind(server);
     }
     const u8 complete = 0;
@@ -310,7 +310,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_ioctl) {
         // Walk the java_tasks chain to find the parent's server trace and
         // refresh traces_ctx_v1 for this child thread.
         trace_key_t t_key = {.p_key = parent, .extra_id = extra_runtime_id_with_task_id(parent_id)};
-        tp_info_pid_t *server_tp = find_parent_java_trace(&t_key);
+        tp_info_pid_t *server_tp = find_parent_java_trace(&t_key, NULL);
 
         if (server_tp && server_tp->valid) {
             obi_ctx__set(id, &server_tp->tp);

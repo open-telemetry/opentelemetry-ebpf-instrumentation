@@ -18,6 +18,8 @@ services:
     environment:
       - TARGET_ADDRESS=testserver:8080
       - FAIL_TARGET_ADDRESS=testserver:19999
+      - RESET_TARGET_ADDRESS=testserver:8082
+      - SHUTDOWN_TARGET_ADDRESS=testserver:8083
 
   testclient-retransmit:
     build:
@@ -69,7 +71,7 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.163.1@sha256:1175b03003053962012f5a231f5567f66a3e8fdb960c7835c0e48f7aa1555806
+    image: otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b
     container_name: otel-col
     deploy:
       resources:
@@ -99,7 +101,7 @@ services:
 
  # Prometheus
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+    image: quay.io/prometheus/prometheus:v3.16.0@sha256:9332054523223e2ddc18d8101799d54a4a8d823b030c53216f063a6c117773cd
     container_name: prometheus
     command:
       - --config.file=/etc/prometheus/prometheus-config${PROM_CONFIG_SUFFIX}.yml
@@ -112,26 +114,26 @@ services:
 
   # pumba adds a 100ms delay to the testclient so the RTT test can assert avg RTT >= 100ms
   pumba:
-    image: ghcr.io/alexei-led/pumba@sha256:b1226a1db9a82fdb74eb39ae36ef25ac576910edb569ae94dad3b640340656e8
+    image: ghcr.io/alexei-led/pumba:1.6.0@sha256:11ed15538c7ec688628e2f53917d949e8c16418c146742731c3030ef276b6057
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     pid: "host"
     container_name: pumba
-    command: netem --duration 30m delay --time 100 integration-testclient-1
+    command: netem --duration 30m --tc-image ghcr.io/alexei-led/pumba-alpine-nettools:latest@sha256:bdcfacdd0c42f64cd280319d6dd5d3911f33425ce4a5168bb1b7de9570b72cd1 delay --time 100 integration-testclient-1
     depends_on:
       testclient:
         condition: service_started
 
   # pumba-loss injects 20% packet loss on testclient-retransmit to trigger tcp_retransmit_skb events
   pumba-loss:
-    image: ghcr.io/alexei-led/pumba@sha256:b1226a1db9a82fdb74eb39ae36ef25ac576910edb569ae94dad3b640340656e8
+    image: ghcr.io/alexei-led/pumba:1.6.0@sha256:11ed15538c7ec688628e2f53917d949e8c16418c146742731c3030ef276b6057
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     privileged: true
     pid: "host"
     container_name: pumba-loss
-    command: netem --duration 30m loss --percent 20 integration-testclient-retransmit-1
+    command: netem --duration 30m --tc-image ghcr.io/alexei-led/pumba-alpine-nettools:latest@sha256:bdcfacdd0c42f64cd280319d6dd5d3911f33425ce4a5168bb1b7de9570b72cd1 loss --percent 20 integration-testclient-retransmit-1
     depends_on:
       testclient-retransmit:
         condition: service_started

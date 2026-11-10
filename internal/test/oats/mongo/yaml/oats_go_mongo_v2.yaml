@@ -19,3 +19,31 @@ expected:
       db.collection.name: testdb.items
       server.port: '27017'
       server.address: mongo
+  - traceql: '{ .db.operation.name = "update" && .db.system.name = "mongodb" }'
+    equals: update testdb.items
+    attributes:
+      db.collection.name: testdb.items
+      server.port: '27017'
+      server.address: mongo
+  - traceql: '{ .db.operation.name = "aggregate" && .db.system.name = "mongodb" }'
+    equals: aggregate testdb.items
+    attributes:
+      db.collection.name: testdb.items
+      server.port: '27017'
+      server.address: mongo
+  - traceql: '{ .db.operation.name = "count" && .db.system.name = "mongodb" }'
+    equals: count testdb.items
+    attributes:
+      db.collection.name: testdb.items
+      server.port: '27017'
+      server.address: mongo
+  - traceql: '{ .db.operation.name = "createIndexes" && .db.system.name = "mongodb" }'
+    equals: createIndexes testdb
+    attributes:
+      server.port: '27017'
+      server.address: mongo
+  - traceql: '{ .db.operation.name = "listCollections" && .db.system.name = "mongodb" }'
+    equals: listCollections testdb
+    attributes:
+      server.port: '27017'
+      server.address: mongo

@@ -29,7 +29,7 @@ advice_preprocessor = ".live_check_policies/advice.jq"
 #   - `undefined_enum_variant`: an enumerated attribute emitted with a value
 #     outside its declared members.
 #   - `kind_mismatch`: a span whose kind differs from its span definition.
-#   - `unexpected_attribute` on a span or a metric: an attribute its definition
+#   - `unexpected_attribute` on a span, a metric or a log: an attribute its definition
 #     does not declare. On a resource, which no definition describes, the
 #     finding only notes that an attribute is defined upstream rather than
 #     here, so it is dropped below instead.
@@ -45,6 +45,11 @@ level = "violation"
 [[live-check.finding_level_overrides]]
 ids = ["unexpected_attribute"]
 signal_type = "metric"
+level = "violation"
+
+[[live-check.finding_level_overrides]]
+ids = ["unexpected_attribute"]
+signal_type = "log"
 level = "violation"
 
 [[live-check.finding_filters]]
@@ -393,19 +398,21 @@ signal = "obi.messaging.amqp.consumer"
 [[live-check.matchers]]
 id = "match.span.request.phase"
 sample_type = "span"
-when = 'kind == "internal" && name in ["in queue", "processing"] && size(attributes) == 0'
+when = '''
+kind == "internal" && "obi.request.phase" in attributes
+'''
 signal = "obi.request.phase"
 
 # Application-authored spans OBI relays verbatim, which no span definition
 # describes: the matcher accepts them without naming a signal, so their
 # attributes are checked against their base definitions only. Every span OBI
 # builds itself reports `server.port`, so a span without one is the
-# application's, apart from the attribute-less request-phase children matched
+# application's, apart from the request-phase children matched
 # above.
 [[live-check.matchers]]
 id = "match.span.app_authored"
 sample_type = "span"
 when = '''
 !("server.port" in attributes)
-  && !(kind == "internal" && name in ["in queue", "processing"] && size(attributes) == 0)
+  && !(kind == "internal" && "obi.request.phase" in attributes)
 '''

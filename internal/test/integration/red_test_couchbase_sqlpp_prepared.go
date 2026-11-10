@@ -52,6 +52,8 @@ func testREDMetricsCouchbaseSQLPPPrepared(comm string, statements ...couchbasePr
 			Comm:      comm,
 			Namespace: "integration-test",
 		}
+		// The SDK must not prepare statements before OBI can observe them.
+		waitForTestComponentsRoute(t, testCase.Route, "/health")
 		waitForCouchbasePreparedStatements(t, testCase, statements)
 		assertCouchbasePreparedExecutionsResolved(t, testCase, statements)
 		assertCouchbasePreparedOperationMetrics(t, testCase, statements)

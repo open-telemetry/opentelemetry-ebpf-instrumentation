@@ -350,7 +350,7 @@ func TestSuite_Java(t *testing.T) {
 
 	compose.Env = append(compose.Env, `TESTSERVER_IMAGE=`+obiTestImgJavaNative)
 	require.NoError(t, compose.Up())
-	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting") })
+	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting", "integration-test") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -362,23 +362,37 @@ func TestSuite_Java_PID(t *testing.T) {
 
 	compose.Env = append(compose.Env, `JAVA_OPEN_PORT=8085`, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
 	require.NoError(t, compose.Up())
-	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting-service") })
+	t.Run("Java RED metrics", func(t *testing.T) {
+		testREDMetricsJavaHTTP(t, "greeting-service", "integration-test")
+	})
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
 
 // Same as Java Test suite, but searching the executable by port instead of executable name. We also run the jar version of Java instead of native image
 func TestSuite_Java_OpenPort(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-java.yml", path.Join(pathOutput, "test-suite-java-openport.log"))
+	compose, err := docker.ComposeSuiteWithConfigMigration(
+		"docker-compose-java.yml",
+		path.Join(pathOutput, "test-suite-java-openport.log"),
+		docker.ConfigMigration{
+			Source: "obi-config-java.yml",
+			Output: "obi-config-java-v2.yml",
+			Image:  "hatest-javaobi",
+		},
+	)
 	require.NoError(t, err)
 
 	compose.Env = append(compose.Env, `JAVA_EXECUTABLE_PATH=`, `TESTSERVER_IMAGE=`+obiTestImgJavaJar)
 	require.NoError(t, compose.Up())
-	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting-service") })
+	t.Cleanup(func() {
+		require.NoError(t, compose.Close())
+	})
+	t.Cleanup(func() {
+		runWeaverValidation(t)
+	})
 
-	runWeaverValidation(t)
-
-	require.NoError(t, compose.Close())
+	requireOBIConfigV2(t, compose, "java")
+	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting-service", "") })
 }
 
 // Test that we can also instrument when running with host network mode
@@ -388,7 +402,7 @@ func TestSuite_Java_Host_Network(t *testing.T) {
 
 	compose.Env = append(compose.Env, `TESTSERVER_IMAGE=`+obiTestImgJavaNative)
 	require.NoError(t, compose.Up())
-	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting") })
+	t.Run("Java RED metrics", func(t *testing.T) { testREDMetricsJavaHTTP(t, "greeting", "integration-test") })
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -604,6 +618,7 @@ func TestSuite_Python(t *testing.T) {
 	t.Run("Python RED metrics", testREDMetricsPythonHTTP)
 	t.Run("Python RED metrics with timeouts", testREDMetricsTimeoutPythonHTTP)
 	t.Run("Python DNS RED metrics", testREDMetricsDNSPython)
+	t.Run("Python forked children", testForkedChildrenPython)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

@@ -165,6 +165,12 @@ usual local test loop; see the [VM integration workflow](.github/workflows/workf
 
 Questions, bug reports, and feature requests can all be submitted as [issues](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/new) to this repository.
 
+For nontrivial changes, especially architectural or core instrumentation
+changes, we recommend discussing the approach with maintainers in an issue or
+on [Slack](https://cloud-native.slack.com/archives/C08P9L4FPKJ) before
+implementing it. This is a recommendation, not an approval process. Trivial
+fixes do not need an issue.
+
 ## Finding Your First Contribution
 
 For people that are trying to find a good first issue to work on, here is a good starting point:
@@ -189,7 +195,7 @@ Refactors are allowed but must be directly relevant to the change. Do not includ
 
 All relevant build, lint, and test steps must pass locally before opening a PR.
 
-PRs must be ready for review when submitted, not ready for validation. The contributor is responsible for verifying correctness before asking for a reviewer's time.
+PRs must be ready for review when submitted, not ready for validation. The contributor is responsible for verifying correctness before asking for a reviewer's time. If the implementation approach is still being discussed, open the PR as a [draft](https://github.blog/2019-02-14-introducing-draft-pull-requests/) instead.
 
 GitHub communication must be written for human readers. Keep issue and PR
 descriptions, reviews, and comments concise, specific, and easy to scan. Lead
@@ -248,8 +254,11 @@ Open a pull request against the main `opentelemetry-ebpf-instrumentation` repo.
 
 ### How to Receive Comments
 
-* If the PR is not ready for review, please put `[WIP]` in the title or mark it as
-  [`draft`](https://github.blog/2019-02-14-introducing-draft-pull-requests/).
+* If the PR is not ready for review, or its approach is still being discussed,
+  please mark it as a
+  [`draft`](https://github.blog/2019-02-14-introducing-draft-pull-requests/)
+  (or put `[WIP]` in the title). Maintainers may also convert an existing PR to
+  a draft.
 * Make sure CLA is signed and CI is clear.
 
 ### How to Get PRs Merged

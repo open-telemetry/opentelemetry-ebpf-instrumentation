@@ -54,6 +54,9 @@ func DocumentToRuntime(src *schema.Document) (*obi.Config, error) {
 	if err := applyV2MeterProvider(cfg, src.MeterProvider); err != nil {
 		return nil, err
 	}
+	if err := applyV2LoggerProvider(cfg, src.LoggerProvider); err != nil {
+		return nil, err
+	}
 	if err := applyV2LogLevel(cfg, src); err != nil {
 		return nil, err
 	}
@@ -78,8 +81,6 @@ func validateV2Document(src *schema.Document) error {
 		return unsupportedV2Field("distribution")
 	case src.InstrumentationDevelopment != nil:
 		return unsupportedV2Field("instrumentation/development")
-	case src.LoggerProvider != nil:
-		return unsupportedV2Field("logger_provider")
 	case !zeroValue(src.AdditionalProperties):
 		return unsupportedV2Field("additional declarative properties")
 	}

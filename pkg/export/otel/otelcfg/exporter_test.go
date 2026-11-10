@@ -5,6 +5,7 @@ package otelcfg
 
 import (
 	"bytes"
+	"context"
 	"log/slog"
 	"testing"
 	"time"
@@ -17,7 +18,7 @@ import (
 
 const testTimeout = 5 * time.Second
 
-// Tests that the Instantiate method of Exporter always returns the same instance
+// Tests that the Instantiate method of Exporter always returns handles to the same instance
 // even if invoked concurrently
 func TestSingleton(t *testing.T) {
 	defer RestoreEnvAfterExecution()()
@@ -40,13 +41,13 @@ func TestSingleton(t *testing.T) {
 			}
 		}()
 	}
-	// all the Instantiate invocations should return the same instance
+	// all the Instantiate invocations should share the same instance
 	get := func() sdkmetric.Exporter {
 		select {
 		case <-time.After(testTimeout):
 			t.Fatal("timeout waiting for exporter")
 		case exp := <-exporters:
-			return exp
+			return exp.(*sharedMetricsExporter).Exporter
 		case err := <-errs:
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -94,4 +95,31 @@ func TestHTTPJSONMetricsProtocolWarns(t *testing.T) {
 			assert.Equal(t, tc.wantWarn, warned)
 		})
 	}
+}
+
+type shutdownCountingExporter struct {
+	sdkmetric.Exporter
+	shutdowns int
+}
+
+func (e *shutdownCountingExporter) Shutdown(_ context.Context) error {
+	e.shutdowns++
+	return nil
+}
+
+func TestSharedExporterShutsDownAfterTheLastUser(t *testing.T) {
+	underlying := &shutdownCountingExporter{Exporter: NewOTLPConsumerExporter(nil)}
+	instancer := MetricsExporterInstancer{instance: underlying}
+
+	first, err := instancer.Instantiate(t.Context())
+	require.NoError(t, err)
+	second, err := instancer.Instantiate(t.Context())
+	require.NoError(t, err)
+
+	require.NoError(t, first.Shutdown(t.Context()))
+	require.NoError(t, first.Shutdown(t.Context()))
+	assert.Zero(t, underlying.shutdowns, "the exporter is still used by the second handle")
+
+	require.NoError(t, second.Shutdown(t.Context()))
+	assert.Equal(t, 1, underlying.shutdowns)
 }

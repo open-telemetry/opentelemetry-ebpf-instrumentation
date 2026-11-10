@@ -279,6 +279,53 @@ extensions:
 	require.False(t, got.Metrics.Features.AppSizes())
 }
 
+func TestDocumentToRuntimeRequestPhaseSpans(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		http             string
+		wantHTTPDisabled bool
+	}{
+		{
+			name: "omitted",
+			http: "{}",
+		},
+		{
+			name: "enabled explicitly",
+			http: "{request_phase_spans: true}",
+		},
+		{
+			name:             "HTTP disabled",
+			http:             "{request_phase_spans: false}",
+			wantHTTPDisabled: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc, _, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      instrumentation:
+        http:
+          enabled: ` + tt.http + `
+`))
+			require.NoError(t, err)
+
+			got, err := DocumentToRuntime(doc)
+			require.NoError(t, err)
+
+			require.Equal(t, tt.wantHTTPDisabled, got.Traces.DisableHTTPRequestPhaseSpans)
+		})
+	}
+}
+
 func TestV2ToRuntimeHTTPBodySizeMetrics(t *testing.T) {
 	t.Parallel()
 
@@ -464,6 +511,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.EBPF.ForceBPFMapReader = config.MapReaderLegacy
 	cfg.EBPF.MapsConfig.GlobalScaleFactor = 2
 	cfg.EBPF.BPFFSPath = "/tmp/bpf"
+	cfg.EBPF.CgroupFSPath = "/host/sys/fs/cgroup"
 	cfg.EBPF.MaxTransactionTime = 11 * time.Second
 	cfg.EBPF.TrackRequestHeaders = true
 	cfg.EBPF.HTTPRequestTimeout = 12 * time.Second
@@ -475,6 +523,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.EBPF.BufferSizes.TCP = 105
 	cfg.EBPF.BufferSizes.Aerospike = 106
 	cfg.EBPF.HeuristicSQLDetect = true
+	cfg.Attributes.SanitizeSQLQueryText = true
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = 200
 	cfg.EBPF.PostgresPreparedStatementsCacheSize = 201
 	cfg.EBPF.MSSQLPreparedStatementsCacheSize = 202
@@ -609,6 +658,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.Equal(t, 2, got.EBPF.MapsConfig.GlobalScaleFactor)
 	require.Equal(t, uint32(100), got.EBPF.BufferSizes.HTTP)
 	require.Equal(t, uint32(103), got.EBPF.BufferSizes.MSSQL)
+	require.True(t, got.Attributes.SanitizeSQLQueryText)
 	require.Equal(t, 202, got.EBPF.MSSQLPreparedStatementsCacheSize)
 	require.Equal(t, config.CudaModeOn, got.EBPF.InstrumentCuda)
 
@@ -1366,6 +1416,24 @@ func TestV2ToRuntimePartialInstrumentationPreservesDefaults(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.EBPF.MySQLPreparedStatementsCacheSize, got.EBPF.MySQLPreparedStatementsCacheSize)
 }
 
+func TestV2ToRuntimePartialSQLSanitizeQueryText(t *testing.T) {
+	t.Parallel()
+
+	got, err := V2ToRuntime(&schema.Extension{
+		Version: schema.SupportedVersion,
+		Capture: schema.Capture{
+			Instrumentation: schema.Instrumentation{
+				SQL: schema.SQLInstrumentation{SanitizeQueryText: true},
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	require.True(t, got.Attributes.SanitizeSQLQueryText)
+	require.False(t, obi.DefaultConfig.Attributes.SanitizeSQLQueryText)
+	require.Equal(t, obi.DefaultConfig.EBPF.MySQLPreparedStatementsCacheSize, got.EBPF.MySQLPreparedStatementsCacheSize)
+}
+
 func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 	t.Parallel()
 
@@ -1387,6 +1455,9 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 			Engine: schema.CaptureEngine{
 				Debug: schema.EngineDebug{
 					BPF: true,
+				},
+				CgroupFileSystem: schema.CgroupFileSystem{
+					Path: "/host/sys/fs/cgroup",
 				},
 			},
 			Network: schema.CaptureNetwork{
@@ -1429,6 +1500,8 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.ChannelSendTimeoutPanic, got.ChannelSendTimeoutPanic)
 
 	require.True(t, got.EBPF.BpfDebug)
+	require.Equal(t, "/host/sys/fs/cgroup", got.EBPF.CgroupFSPath)
+	require.Equal(t, obi.DefaultConfig.EBPF.BPFFSPath, got.EBPF.BPFFSPath)
 	require.Equal(t, obi.DefaultConfig.EBPF.WakeupLen, got.EBPF.WakeupLen)
 	require.Equal(t, obi.DefaultConfig.EBPF.BatchLength, got.EBPF.BatchLength)
 	require.Equal(t, obi.DefaultConfig.EBPF.TCBackend, got.EBPF.TCBackend)

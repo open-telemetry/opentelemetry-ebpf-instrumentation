@@ -65,6 +65,11 @@
           "type": "boolean",
           "default": true,
           "description": "Emit the HTTP request and response body size histograms.\nRequires `metrics`. Set it to false to keep the RED metrics without them.\nIf omitted, true is used.\n"
+        },
+        "request_phase_spans": {
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the `in queue` and `processing` spans for HTTP server requests.\nRequires `traces`.\nIf omitted, true is used.\n"
         }
       }
     },
@@ -486,6 +491,10 @@
             "metrics": {
               "type": "boolean",
               "description": "Enable or disable metric emission for this workload.\nIf omitted, the global protocol metric enablement applies.\n"
+            },
+            "logs": {
+              "type": "boolean",
+              "description": "Enable logs for this workload. Omitted logs in an explicit exports refinement are disabled."
             }
           }
         },
@@ -512,6 +521,19 @@
             "filters": {
               "$ref": "#/$defs/SignalFilters",
               "description": "Per-workload HTTP trace and metric filters.\nThese replace (not merge with) the global HTTP filters for matched workloads.\nIf omitted, global filters apply.\n"
+            }
+          }
+        },
+        "exceptions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Override global exception capture. Omission inherits the global setting."
+            },
+            "go": {
+              "$ref": "#/$defs/Exceptions/properties/go"
             }
           }
         }
@@ -855,6 +877,17 @@
                   "description": "Filesystem path used for pinned BPF objects/maps.\nIf omitted, `/sys/fs/bpf/` is used.\n"
                 }
               }
+            },
+            "cgroup_filesystem": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "default": "",
+                  "description": "Host cgroup v2 mount used to attach sockops programs for context propagation.\nSet it when the host hierarchy is mounted outside `/sys/fs/cgroup`, for example\nin a container with its own cgroup namespace.\nIf omitted, the hierarchy is detected automatically.\n"
+                }
+              }
             }
           }
         },
@@ -960,6 +993,7 @@
                       "stats",
                       "stats_tcp_failed_connections",
                       "stats_tcp_io",
+                      "stats_tcp_resets",
                       "stats_tcp_retransmits",
                       "stats_tcp_rtt",
                       "stats_tcp_successful_connections"
@@ -980,6 +1014,13 @@
               "description": "Metric features using the same names as Config v1. An explicit list replaces the selection inferred from protocol and network switches; [] disables all metric features. When omitted, protocol and network enablement determines the features."
             }
           }
+        },
+        "attributes": {
+          "$ref": "#/$defs/CaptureAttributes",
+          "description": "Optional span attributes and metric dimensions selected during telemetry generation. Omission preserves defaults."
+        },
+        "exceptions": {
+          "$ref": "#/$defs/Exceptions"
         }
       }
     },
@@ -1401,12 +1442,19 @@
             },
             "placement": {
               "type": "string",
-              "enum": ["prefix", "suffix"],
+              "enum": [
+                "prefix",
+                "suffix"
+              ],
               "default": "suffix"
             },
             "multiline": {
               "type": "string",
-              "enum": ["first_line", "last_line", "each_line"],
+              "enum": [
+                "first_line",
+                "last_line",
+                "each_line"
+              ],
               "default": "first_line"
             }
           }
@@ -1499,6 +1547,11 @@
           "type": "boolean",
           "default": false,
           "description": "Enable heuristic SQL protocol detection.\nIf omitted, false is used.\n"
+        },
+        "sanitize_query_text": {
+          "type": "boolean",
+          "default": false,
+          "description": "Replace string, numeric, hexadecimal and boolean literals in `db.query.text` of SQL and SQL++ spans with `?`. By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
         },
         "mysql": {
           "type": "object",
@@ -1870,7 +1923,8 @@
         "http": {
           "enabled": {
             "traces": true,
-            "metrics": true
+            "metrics": true,
+            "request_phase_spans": true
           },
           "filters": {}
         },
@@ -2154,7 +2208,8 @@
                   "tcp_failed_connections",
                   "tcp_successful_connections",
                   "tcp_retransmits",
-                  "tcp_io"
+                  "tcp_io",
+                  "tcp_resets"
                 ]
               },
               "default": [],
@@ -2292,6 +2347,9 @@
                   }
                 }
               }
+            },
+            "peer_metadata": {
+              "$ref": "#/$defs/PeerMetadata"
             }
           }
         },
@@ -2340,12 +2398,253 @@
         },
         "attributes": {
           "type": "object",
-          "description": "Attribute enrichment rules and defaults.\nIf omitted, implementation defaults are used.\n"
+          "description": "Attribute enrichment rules and defaults. Use capture.attributes.select for trace and metric selection; existing select entries remain supported. Resource selection remains standalone-only."
+        }
+      }
+    },
+    "CaptureAttributes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "select": {
+          "type": "object",
+          "propertyNames": {
+            "not": {
+              "const": "resource"
+            }
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/GenerationInclusionLists"
+          },
+          "description": "Map traces or metric names and patterns to attribute include/exclude lists. Resource selection is not allowed here."
+        }
+      }
+    },
+    "GenerationInclusionLists": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "include": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "PeerMetadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Peer metadata exchange, disabled by default and bypassed when Kubernetes is enabled.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable metadata exchange on directly routable non-Kubernetes hosts."
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "peer",
+            "central"
+          ],
+          "default": "peer",
+          "description": "How agents exchange metadata: directly between agents (peer), or through the central metadata service (central)."
+        },
+        "listen_address": {
+          "type": "string",
+          "default": "",
+          "description": "IP address to bind. Empty binds all local interfaces."
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 8998,
+          "description": "Shared metadata port used by all peers."
+        },
+        "peer_cidrs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Eligible peer networks. Empty automatically enables the entire private blocks represented by active local addresses. Explicit ranges replace detection; only observed peers are queried."
+        },
+        "refresh_interval": {
+          "type": "string",
+          "default": "10s",
+          "description": "Refresh active peers and instrumented listener inventory. Peer requests include jitter and failure backoff. Must be at least 1ms."
+        },
+        "caller_ttl": {
+          "type": "string",
+          "default": "1m0s",
+          "description": "Retain observed service-to-destination relationships. Must be at least 1ms."
+        },
+        "cache_ttl": {
+          "type": "string",
+          "default": "1m0s",
+          "description": "Expire remote metadata after its last successful refresh, and remove inactive peers. Must be at least 1ms."
+        },
+        "request_timeout": {
+          "type": "string",
+          "default": "2s",
+          "description": "Timeout for metadata requests and server reads/writes. Must be at least 1ms."
+        },
+        "max_peers": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1024,
+          "description": "Maximum cached peer hosts."
+        },
+        "max_concurrent": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 8,
+          "description": "Maximum concurrent outbound metadata requests."
+        },
+        "max_caller_entries": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 16384,
+          "description": "Maximum local service-to-destination relationships. Overflow forces hostname fallback until observations expire."
+        },
+        "max_response_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1048576,
+          "description": "Maximum encoded response size, both served and received."
+        },
+        "max_cache_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 67108864,
+          "description": "Total cached response byte budget. Must be at least max_response_bytes."
+        },
+        "token": {
+          "type": "string",
+          "default": "",
+          "description": "Optional shared bearer token for both server and client. Use declarative environment substitution for secrets."
+        },
+        "tls": {
+          "$ref": "#/$defs/PeerMetadataTLS"
+        },
+        "central": {
+          "$ref": "#/$defs/PeerMetadataCentral"
+        }
+      }
+    },
+    "PeerMetadataTLS": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Use TLS for serving and querying metadata. In central mode, only for querying the metadata service."
+        },
+        "cert_file": {
+          "type": "string",
+          "default": "",
+          "description": "Server certificate PEM file, required when TLS is enabled in peer mode."
+        },
+        "key_file": {
+          "type": "string",
+          "default": "",
+          "description": "Server private key PEM file, required when TLS is enabled in peer mode."
+        },
+        "ca_file": {
+          "type": "string",
+          "default": "",
+          "description": "Optional peer CA PEM file. Empty uses system roots."
+        },
+        "server_name": {
+          "type": "string",
+          "default": "",
+          "description": "Optional common TLS server name. Empty verifies each peer IP against its certificate."
+        }
+      }
+    },
+    "PeerMetadataCentral": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Central metadata service connection, used in central mode.",
+      "properties": {
+        "address": {
+          "type": "string",
+          "default": "",
+          "description": "host:port address of the metadata service, required in central mode."
+        }
+      }
+    },
+    "Exceptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Runtime exception capture. Exception records use the logs pipeline.",
+      "properties": {
+        "go": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "panics": { "type": "boolean" },
+            "formatted_errors": { "type": "boolean" }
+          },
+          "description": "Go capture selection. Panics default to enabled and formatted errors to disabled; workload overrides inherit omitted fields."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": false
         }
       }
     }
   },
   "required": [
     "version"
+  ],
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "capture"
+        ],
+        "properties": {
+          "capture": {
+            "required": [
+              "attributes"
+            ],
+            "properties": {
+              "attributes": {
+                "required": [
+                  "select"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "enrich": {
+            "properties": {
+              "attributes": {
+                "properties": {
+                  "select": {
+                    "propertyNames": {
+                      "const": "resource"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   ]
 }

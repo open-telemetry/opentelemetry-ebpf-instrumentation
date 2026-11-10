@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -634,8 +635,15 @@ func TestJavaInjector_HeaderPropagationAttachOpts(t *testing.T) {
 			supportsHeaderPropagation = func(*slog.Logger) bool { return tc.supported }
 			cfg := &obi.Config{}
 			cfg.EBPF.ContextPropagation = tc.mode
-			injector := &JavaInjector{cfg: cfg}
+			var logs bytes.Buffer
+			injector := &JavaInjector{cfg: cfg, log: slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))}
 			assert.Equal(t, tc.want, injector.attachOpts(false))
+			if !tc.mode.HasHeaders() {
+				assert.Contains(t, logs.String(), "effective=disabled")
+			} else if !tc.supported {
+				assert.Contains(t, logs.String(), "effective=unavailable")
+				assert.Contains(t, logs.String(), "kernel write-user or atomic reservation support")
+			}
 		})
 	}
 }
@@ -946,6 +954,8 @@ func TestEnsureEmbeddedAgent_PlaceholderBytesError(t *testing.T) {
 
 type propertiesAttacher struct {
 	response string
+	reader   io.ReadCloser
+	err      error
 	calls    int
 	cleanups int
 }
@@ -961,7 +971,44 @@ func (a *propertiesAttacher) Attach(_ context.Context, _ *procs.ProcessHandle, a
 		return nil, fmt.Errorf("unexpected attach command: %v", args)
 	}
 	a.calls++
+	if a.err != nil {
+		return nil, a.err
+	}
+	if a.reader != nil {
+		return a.reader, nil
+	}
 	return io.NopCloser(strings.NewReader(a.response)), nil
+}
+
+func TestJavaInjector_VerifyLoadedAgentHandlesPropertiesFailure(t *testing.T) {
+	for _, version := range []string{"3", ""} {
+		for _, failure := range []string{"attach", "read"} {
+			t.Run(version+"/"+failure, func(t *testing.T) {
+				var logs bytes.Buffer
+				injector := &JavaInjector{
+					log:          slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})),
+					agentVersion: version,
+				}
+				attacher := &propertiesAttacher{}
+				if failure == "attach" {
+					attacher.err = io.ErrUnexpectedEOF
+				} else {
+					attacher.reader = io.NopCloser(iotest.ErrReader(io.ErrUnexpectedEOF))
+				}
+				err := injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true)
+				if version != "" {
+					require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+				} else {
+					require.NoError(t, err)
+					assert.Contains(t, logs.String(), "HttpClient.sendAsync header propagation unavailable")
+					assert.Contains(t, logs.String(), "effective=unavailable")
+				}
+				assert.NotContains(t, logs.String(), "injection path available")
+				require.Equal(t, 1, attacher.calls)
+				require.Equal(t, 1, attacher.cleanups)
+			})
+		}
+	}
 }
 
 func TestJavaInjector_VerifyLoadedAgentUsesOnePropertiesRequest(t *testing.T) {
@@ -973,7 +1020,7 @@ func TestJavaInjector_VerifyLoadedAgentUsesOnePropertiesRequest(t *testing.T) {
 				agentVersion: "3",
 			}
 			attacher := &propertiesAttacher{
-				response: httpClientPropagationProperty + "=" + capability + "\n" + agentVersionProperty + "=3\n",
+				response: httpClientPropagationProperty + "=" + capability + "\n" + httpClientAsyncPropagationProperty + "=" + capability + "\n" + agentVersionProperty + "=3\n",
 			}
 			require.NoError(t, injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true))
 			require.Equal(t, 1, attacher.calls)
@@ -988,6 +1035,21 @@ func TestJavaInjector_VerifyLoadedAgentRejectsVersionMismatch(t *testing.T) {
 	attacher := &propertiesAttacher{response: agentVersionProperty + "=2\n" + httpClientPropagationProperty + "=true\n"}
 	err := injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true)
 	require.ErrorContains(t, err, "version 2, expected 3")
+	require.Equal(t, 1, attacher.calls)
+	require.Equal(t, 1, attacher.cleanups)
+}
+
+func TestJavaInjector_ReportsMissingAsyncCapabilityOnOlderAgent(t *testing.T) {
+	var logs bytes.Buffer
+	injector := &JavaInjector{
+		log:          slog.New(slog.NewTextHandler(&logs, nil)),
+		agentVersion: "3",
+	}
+	attacher := &propertiesAttacher{response: agentVersionProperty + "=3\n" + httpClientPropagationProperty + "=true\n"}
+	require.NoError(t, injector.verifyLoadedAgent(context.Background(), attacher, nil, 42, true))
+	assert.Contains(t, logs.String(), "HttpClient.sendAsync header propagation unavailable")
+	assert.Contains(t, logs.String(), "effective=unavailable")
+	assert.Contains(t, logs.String(), "restart the JVM")
 	require.Equal(t, 1, attacher.calls)
 	require.Equal(t, 1, attacher.cleanups)
 }

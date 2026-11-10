@@ -35,20 +35,22 @@ var newRingBufTracer = func(s *Stats, out *msg.Queue[[]*ebpf.Stat]) swarm.RunFun
 
 // buildPipeline defines the different nodes in the OBI's StatsO11y module,
 // as well as how they are interconnected (in its Connect() method)
-func (s *Stats) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
+func (s *Stats) buildPipeline(ctx, readerCtx context.Context) (*swarm.Runner, error) {
 	alog := alog()
 
 	alog.Debug("creating stats processing graph")
 
 	selectorCfg := &attributes.SelectorConfig{
 		SelectionCfg:            s.cfg.Attributes.Select,
+		UseV2Selection:          s.cfg.Attributes.UseV2Selection,
 		ExtraGroupAttributesCfg: s.cfg.Attributes.ExtraGroupAttributes,
 	}
 
 	swi := &swarm.Instancer{}
 	// Start nodes: those generating stats (reading them from eBPF)
 	ebpfStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, s.ctxInfo.Metrics, "ebpfStats")
-	swi.Add(swarm.DirectInstance(newRingBufTracer(s, ebpfStats)), swarm.WithID("RingBufTracer"))
+	readRingBuf := newRingBufTracer(s, ebpfStats)
+	swi.Add(swarm.DirectInstance(func(_ context.Context) { readRingBuf(readerCtx) }), swarm.WithID("RingBufTracer"))
 
 	// Middle nodes: transforming stats and passing them to the next stage in the pipeline.
 	// Many of the nodes here are not mandatory. It's decision of each InstanceFunc to decide
@@ -62,7 +64,7 @@ func (s *Stats) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 		statAttrs, ebpfStats, kubeDecoratedStats), swarm.WithID("K8sMetadataDecorator"))
 
 	dnsDecoratedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, s.ctxInfo.Metrics, "dnsDecoratedStats")
-	swi.Add(rdns.ReverseDNSProvider(&s.cfg.Stats.ReverseDNS, statAttrs, &s.cfg.EBPF, kubeDecoratedStats, dnsDecoratedStats),
+	swi.Add(rdns.ReverseDNSProvider(&s.cfg.Stats.ReverseDNS, statAttrs, s.ctxInfo.EBPFReverseDNS, kubeDecoratedStats, dnsDecoratedStats),
 		swarm.WithID("ReverseDNS"))
 
 	geoIPDecoratedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, s.ctxInfo.Metrics, "geoIPDecoratedStats")

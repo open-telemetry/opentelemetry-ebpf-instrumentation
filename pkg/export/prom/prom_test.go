@@ -312,6 +312,45 @@ func TestAppMetrics_HTTPErrorType(t *testing.T) {
 	}, timeout, 100*time.Millisecond)
 }
 
+func TestAppMetrics_HTTP2ServerAddress(t *testing.T) {
+	ctx := t.Context()
+	registry, promURL := newPrometheusTestServer(t)
+	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+	processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+	exporter, err := PrometheusEndpoint(
+		&global.ContextInfo{Prometheus: registry.Manager},
+		&PrometheusConfig{
+			Port:                        registry.Port,
+			Path:                        "/metrics",
+			TTL:                         3 * time.Minute,
+			SpanMetricsServiceCacheSize: 10,
+			Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureApplicationRED},
+		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
+			attributes.HTTPServerDuration.Section: attributes.InclusionLists{Include: []string{string(attr.ServerAddr)}},
+		}},
+		request.UnresolvedNames{}, promInput, processEvents, nil,
+	)(ctx)
+	require.NoError(t, err)
+	go exporter(ctx)
+
+	span := request.Span{
+		Type:             request.EventTypeHTTP,
+		Method:           "GET",
+		Path:             "/users",
+		Status:           200,
+		Host:             "10.0.0.1",
+		RequestAuthority: "api.example.com:8443",
+	}
+	span.HostName = "service-name"
+	span.Service = svc.Attrs{Features: export.FeatureApplicationRED, UID: svc.UID{Instance: "foo"}}
+	promInput.Send([]request.Span{span})
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		assert.Regexp(ct, `http_server_request_duration_seconds_count\{[^}]*server_address="api.example.com"[^}]*\} 1`, getMetrics(ct, promURL))
+	}, timeout, 100*time.Millisecond)
+}
+
 func TestAppMetrics_HTTPRouteLabels(t *testing.T) {
 	features := export.FeatureApplicationRED | export.FeatureApplicationSizes
 	ctx := t.Context()
@@ -493,7 +532,6 @@ func TestAppMetricsExpiration(t *testing.T) {
 
 	var g attributes.AttrGroups
 	g.Add(attributes.GroupKubernetes)
-	g.Add(attributes.GroupHTTPRoutes)
 
 	// GIVEN a Prometheus Metrics Exporter with a metrics expire time of 3 minutes
 	promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
@@ -521,7 +559,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 		&attributes.SelectorConfig{
 			SelectionCfg: attributes.Selection{
 				attributes.HTTPServerDuration.Section: attributes.InclusionLists{
-					Include: []string{"http_route", "k8s.app.version"},
+					Include: []string{"url_path", "k8s.app.version"},
 				},
 				attributes.Resource.Section: attributes.InclusionLists{
 					Exclude: []string{"cloud.account.id", "k8s.pod.name"},
@@ -564,11 +602,11 @@ func TestAppMetricsExpiration(t *testing.T) {
 	promInput.Send([]request.Span{
 		{
 			Type:    request.EventTypeHTTP,
-			Route:   "/foo",
+			Path:    "/foo",
 			End:     123 * time.Second.Nanoseconds(),
 			Service: svcAttrs001,
 		},
-		{Service: svcAttrs, Type: request.EventTypeHTTP, Route: "/baz", End: 456 * time.Second.Nanoseconds()},
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
 
 	containsTargetInfo := regexp.MustCompile(`\ntarget_info\{.*host_id="my-host"`)
@@ -582,8 +620,8 @@ func TestAppMetricsExpiration(t *testing.T) {
 	// THEN the metrics are exported
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		exported := getMetrics(ct, promURL)
-		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{http_route="/foo",k8s_app_version="v0.0.1"} 123`)
-		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{http_route="/baz",k8s_app_version=""} 456`)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 123`)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
 		assert.Regexp(ct, containsTargetInfo, exported)
 		assert.Regexp(ct, containsTargetInfoCloudRegion, exported)
 		assert.NotRegexp(ct, containsTargetInfoCloudAccount, exported)
@@ -602,7 +640,7 @@ func TestAppMetricsExpiration(t *testing.T) {
 	promInput.Send([]request.Span{
 		{
 			Type:    request.EventTypeHTTP,
-			Route:   "/foo",
+			Path:    "/foo",
 			End:     123 * time.Second.Nanoseconds(),
 			Service: svcAttrs001,
 		},
@@ -612,8 +650,8 @@ func TestAppMetricsExpiration(t *testing.T) {
 	// within its TTL
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		exported := getMetrics(ct, promURL)
-		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{http_route="/foo",k8s_app_version="v0.0.1"} 246`)
-		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{http_route="/baz",k8s_app_version=""} 456`)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 246`)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
 		assert.Regexp(ct, containsTargetInfo, exported)
 	}, timeout, 100*time.Millisecond)
 
@@ -624,22 +662,22 @@ func TestAppMetricsExpiration(t *testing.T) {
 	// THEN /foo is still visible but /baz has expired
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		exported := getMetrics(ct, promURL)
-		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{http_route="/foo",k8s_app_version="v0.0.1"} 246`)
-		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{http_route="/baz",k8s_app_version=""}`)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"} 246`)
+		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"}`)
 		assert.Regexp(ct, containsTargetInfo, exported)
 	}, timeout, 100*time.Millisecond)
 
 	// AND WHEN the metrics labels that disappeared are received again
 	now.Advance(4 * time.Minute)
 	promInput.Send([]request.Span{
-		{Service: svcAttrs, Type: request.EventTypeHTTP, Route: "/baz", End: 456 * time.Second.Nanoseconds()},
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Path: "/baz", End: 456 * time.Second.Nanoseconds()},
 	})
 
 	// THEN they are reported again, starting from zero in the case of counters
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		exported := getMetrics(ct, promURL)
-		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{http_route="/baz",k8s_app_version=""} 456`)
-		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{http_route="/foo",k8s_app_version="v0.0.1"}`)
+		assert.Contains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="",url_path="/baz"} 456`)
+		assert.NotContains(ct, exported, `http_server_request_duration_seconds_sum{k8s_app_version="v0.0.1",url_path="/foo"}`)
 		assert.Regexp(ct, containsTargetInfo, exported)
 	}, timeout, 100*time.Millisecond)
 

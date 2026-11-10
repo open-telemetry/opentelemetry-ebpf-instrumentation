@@ -29,6 +29,6 @@ struct python_runtime_metric_snapshot {
 struct python_runtime_metric_event {
     u8 type;
     u8 _pad[3];
-    pid_info pid;
+    pid_info_t pid;
     struct python_runtime_metric_snapshot snapshot;
 };

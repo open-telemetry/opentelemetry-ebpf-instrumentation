@@ -4,7 +4,7 @@
     "3.11": 18,
     "3.12": 16,
     "3.13": 18,
-    "3.14": 9,
+    "3.14": 10,
     "3.9": 25
   },
   "data": {
@@ -68,7 +68,7 @@
       "gc": {
         "versions": {
           "oldest": "3.13.0",
-          "newest": "3.14.9"
+          "newest": "3.14.10"
         },
         "offsets": [
           {
@@ -84,7 +84,7 @@
       "interpreter_state.gc": {
         "versions": {
           "oldest": "3.13.0",
-          "newest": "3.14.9"
+          "newest": "3.14.10"
         },
         "offsets": [
           {
@@ -114,7 +114,7 @@
       "generation_stats": {
         "versions": {
           "oldest": "3.9.0",
-          "newest": "3.14.9"
+          "newest": "3.14.10"
         },
         "offsets": [
           {

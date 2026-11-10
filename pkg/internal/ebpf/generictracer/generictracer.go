@@ -32,6 +32,7 @@ import (
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
 	"go.opentelemetry.io/obi/pkg/ebpf/timing"
+	"go.opentelemetry.io/obi/pkg/exceptions"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
@@ -59,8 +60,12 @@ type Tracer struct {
 	jvmGenerations     sync.Map
 	iters              []*ebpfcommon.Iter
 	iterMu             sync.Mutex
+	// serializes the valid_pids and iterator updates with closing the BPF objects
+	pidsMu     sync.Mutex
+	pidsClosed bool
 	// the valid_pids words as last written to the BPF map
 	validPids      ebpfcommon.PIDBitmap
+	pidSamplers    ebpfcommon.PIDSamplers
 	seenNetns      *expirable.LRU[uint64, struct{}]
 	eventCtx       *ebpfcommon.EBPFEventContext
 	jvmUSDTManager ebpfcommon.USDTSpecManager
@@ -133,12 +138,37 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 		p.pythonRuntime.allow(pid, ns, fi, serviceSource)
 	}
 
+	p.pidsMu.Lock()
+	defer p.pidsMu.Unlock()
+	if p.pidsClosed {
+		return
+	}
+	p.writePIDSampler(pid, ns, serviceSource)
 	if err := p.rebuildValidPids(); err != nil {
 		p.log.Error("rebuilding the BPF PID filter", "error", err)
 		return
 	}
 
 	p.runItersForPID(pid)
+}
+
+func (p *Tracer) writePIDSampler(pid app.PID, ns uint32, fi *exec.FileInfo) {
+	if p.bpfObjects.PidSamplers == nil {
+		return
+	}
+
+	err := p.pidSamplers.Write(p.bpfObjects.PidSamplers, pid, ns, fi.ServiceAttrs().SamplerConfig, &p.cfg.Traces.SamplerConfig)
+	if err != nil {
+		p.log.Error("setting the process sampler in eBPF", "pid", pid, "error", err)
+	}
+}
+
+func (p *Tracer) UpdatePIDSampler(pid app.PID, ns uint32, fi *exec.FileInfo) {
+	p.pidsMu.Lock()
+	defer p.pidsMu.Unlock()
+	if !p.pidsClosed {
+		p.writePIDSampler(pid, ns, fi)
+	}
 }
 
 func ensureJVMRuntimeMetricGeneration(fi *exec.FileInfo) uint64 {
@@ -154,6 +184,18 @@ func ensureJVMRuntimeMetricGeneration(fi *exec.FileInfo) uint64 {
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.jvmGenerations.Delete(pid)
 	p.pidsFilter.BlockPID(pid, ns)
+
+	p.pidsMu.Lock()
+	defer p.pidsMu.Unlock()
+	if p.pidsClosed {
+		return
+	}
+
+	if p.bpfObjects.PidSamplers != nil {
+		if err := p.pidSamplers.Delete(p.bpfObjects.PidSamplers, pid); err != nil {
+			p.log.Error("removing the process sampler from eBPF", "pid", pid, "error", err)
+		}
+	}
 
 	if err := p.rebuildValidPids(); err != nil {
 		p.log.Error("rebuilding the BPF PID filter", "error", err)
@@ -184,13 +226,13 @@ func (p *Tracer) LoadSpecs() ([]*ebpfcommon.SpecBundle, error) {
 		ebpfcommon.DisableJavaHTTP1Atomics(spec)
 	}
 
-	return []*ebpfcommon.SpecBundle{{Spec: spec, Objects: &p.bpfObjects, Constants: p.constants()}}, nil
+	return []*ebpfcommon.SpecBundle{{Spec: spec, Objects: &p.bpfObjects, Constants: p.constants(ebpfconvenience.ScaledMaxEntries(spec.Maps[BpfMapEvents], p.cfg.EBPF.MapsConfig.GlobalScaleFactor))}}, nil
 }
 
-func (p *Tracer) constants() map[string]any {
+func (p *Tracer) constants(eventsRingBufSize uint32) map[string]any {
 	m := make(map[string]any, 2)
 
-	m["wakeup_data_bytes"] = uint32(p.cfg.EBPF.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{}))
+	m["wakeup_data_bytes"] = ebpfcommon.WakeupDataBytes(p.cfg.EBPF.WakeupLen, unsafe.Sizeof(ebpfcommon.BPFHTTPInfo{}), eventsRingBufSize)
 	m["ringbuf_metrics_enabled"] = p.metrics != nil && !imetrics.IsBuiltinNoopReporter(p.metrics)
 
 	// The eBPF side does some basic filtering of events that do not belong to
@@ -247,6 +289,7 @@ func (p *Tracer) constants() map[string]any {
 	if p.cfg.AppRuntimeMetricsEnabled() {
 		m["jvm_sampling_interval_ns"] = uint64(p.cfg.JVMRuntimeMetrics.SamplingInterval.Nanoseconds())
 	}
+	m["g_exceptions_enabled"] = p.cfg.ExceptionsEnabled() && p.cfg.Logs.Enabled()
 	m["nodejs_runtime_metrics_enabled"] = uint64(0)
 	if p.cfg.AppRuntimeMetricsEnabled() {
 		m["nodejs_runtime_metrics_enabled"] = uint64(1)
@@ -265,7 +308,12 @@ func (p *Tracer) AddCloser(c ...io.Closer) {
 	p.closers = append(p.closers, c...)
 }
 
+// Close waits for an in-flight PID update and rejects the later ones before closing what they write
 func (p *Tracer) Close() error {
+	p.pidsMu.Lock()
+	p.pidsClosed = true
+	p.pidsMu.Unlock()
+
 	return ebpfcommon.CloseResources(append(p.closers, &p.bpfObjects)...)
 }
 
@@ -350,6 +398,12 @@ func (p *Tracer) KProbes() map[string]ebpfcommon.ProbeDesc {
 		"sys_exit": {
 			Required: true,
 			Start:    p.bpfObjects.ObiKprobeSysExit,
+		},
+		"wake_up_new_task": {
+			Start: p.bpfObjects.ObiKprobeWakeUpNewTask,
+		},
+		"setup_new_exec": {
+			Start: p.bpfObjects.ObiKprobeSetupNewExec,
 		},
 		"unix_stream_recvmsg": {
 			Required: true,
@@ -761,17 +815,32 @@ func (p *Tracer) Run(
 		}
 	}
 
-	ebpfcommon.SharedRingbuf(
+	if ebpfEventContext.ExceptionInput != nil {
+		go ebpfcommon.ForwardRingbufWithDrainContext(
+			cfg,
+			p.cfg.ShutdownTimeout,
+			p.bpfObjects.ExceptionEvents,
+			func(_ context.Context, record *ringbuf.Record) (exceptions.Event, bool, error) {
+				return ebpfcommon.ReadExceptionRecord(record, p.pidsFilter)
+			},
+			nil,
+			p.log.With("ringbuf", "exception_events"),
+			p.metrics,
+		)(ctx, ebpfEventContext.ExceptionInput)
+	}
+
+	ebpfcommon.SharedRingbufWithDrainContext(
 		ebpfEventContext,
 		cfg,
+		p.cfg.ShutdownTimeout,
 		p.bpfObjects.Events,
-		func(record *ringbuf.Record) (request.Span, bool, error) {
-			return p.processSharedRingbufRecord(ctx, parseContext, cfg, record)
+		func(drainCtx context.Context, record *ringbuf.Record) (request.Span, bool, error) {
+			return p.processSharedRingbufRecord(drainCtx, parseContext, cfg, record)
 		},
 		p.pidsFilter.Filter,
 		p.log,
 		p.metrics,
-	)(ctx, append(p.closers, &p.bpfObjects), eventsChan)
+	)(ctx, []io.Closer{p}, eventsChan)
 }
 
 func (p *Tracer) processSharedRingbufRecord(
@@ -1031,7 +1100,11 @@ func bpfConnInfoT(src ebpfcommon.BpfConnectionInfoT) (dst BpfConnectionInfoT) {
 	return
 }
 
-func (p *Tracer) SetEventContext(ctx *ebpfcommon.EBPFEventContext) { p.eventCtx = ctx }
+func (p *Tracer) SetEventContext(ctx *ebpfcommon.EBPFEventContext) {
+	p.eventCtx = ctx
+	// the Go tracer may be the one reading the shared ring buffer
+	ebpfcommon.RegisterProcessEventHandlers(ctx, p.pidsFilter)
+}
 
 func (p *Tracer) Capabilities() ebpfcommon.TracerCapability { return 0 }
 

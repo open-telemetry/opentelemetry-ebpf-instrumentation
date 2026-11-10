@@ -504,6 +504,42 @@ func TestOffsetsForLibVersions_PreVersionFlags(t *testing.T) {
 	}, offsets)
 }
 
+func TestOffsetsForLibVersions_MongoV2(t *testing.T) {
+	offsets := offsetsForLibVersions(FieldOffsets{}, map[string]string{
+		"go.mongodb.org/mongo-driver/v2": "v2.8.0",
+	}, slog.Default())
+
+	mustMatch(t, FieldOffsets{
+		MongoOneThirteenOne: uint64(1),
+	}, offsets)
+}
+
+func TestOffsetsForLibVersions_MongoV1AndV2(t *testing.T) {
+	// map iteration order is random, so repeat to catch an order-dependent flag
+	const runs = 50
+
+	for _, tc := range []struct {
+		v1   string
+		want uint64
+	}{
+		{v1: "v1.12.1", want: 0},
+		{v1: "v1.17.0", want: 1},
+	} {
+		t.Run(tc.v1, func(t *testing.T) {
+			for range runs {
+				offsets := offsetsForLibVersions(FieldOffsets{}, map[string]string{
+					"go.mongodb.org/mongo-driver":    tc.v1,
+					"go.mongodb.org/mongo-driver/v2": "v2.8.0",
+				}, slog.Default())
+
+				mustMatch(t, FieldOffsets{
+					MongoOneThirteenOne: tc.want,
+				}, offsets)
+			}
+		})
+	}
+}
+
 func goAutoSDKActivationTestModules() moduleVersions {
 	return moduleVersions{
 		versions: map[string]string{

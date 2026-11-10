@@ -5,7 +5,6 @@
 
 package io.opentelemetry.obi.java.instrumentations;
 
-import io.opentelemetry.obi.java.Agent;
 import io.opentelemetry.obi.java.ebpf.ThreadInfo;
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import java.util.concurrent.ForkJoinTask;
@@ -54,7 +53,7 @@ public class JavaForkJoinTaskInst {
       if (ThreadInfo.loomTaskOrVirtualThread(task)) {
         return;
       }
-      long threadId = Agent.NativeLib.gettid();
+      long threadId = ThreadInfo.currentTid();
       SSLStorage.trackTask(threadId, task);
       if (SSLStorage.bootDebugOn().equals(true)) {
         System.err.println("[ForkAdvice] " + threadId + "fork task = " + task.hashCode());
@@ -81,7 +80,7 @@ public class JavaForkJoinTaskInst {
       }
       long previousContext = SSLStorage.enterJdkHttpClientTask(task);
       Long parentId = SSLStorage.parentThreadId(task);
-      long threadId = Agent.NativeLib.gettid();
+      long threadId = ThreadInfo.currentTid();
       if (SSLStorage.bootDebugOn().equals(true)) {
         System.err.println(
             "[ForkJoinTaskAdvice] ("

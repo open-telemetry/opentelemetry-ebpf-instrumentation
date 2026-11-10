@@ -52,7 +52,7 @@ typedef struct call_protocol_args {
     protocol_selector_t protocols;
     u8 skip_tp_parsing;
     u8 use_bpf_loop;
-    u8 pad[1];
+    u8 wire_tp_found;
     int bytes_len;
     u16 orig_dport;
     u16 _pad2;
@@ -83,7 +83,7 @@ typedef struct protocol_info {
 
 // Here we keep information on the ongoing filtered connections, PID/TID and connection type
 typedef struct http_connection_metadata {
-    pid_info pid;
+    pid_info_t pid;
     u8 type;
     u8 _pad[3];
 } http_connection_metadata_t;
@@ -109,7 +109,7 @@ typedef struct http2_grpc_request {
     u8 _pad1[3];
     // we need this to filter traces from unsolicited processes that share the executable
     // with other instrumented processes
-    pid_info pid;
+    pid_info_t pid;
     u64 new_conn_id;
     tp_info_t tp;
 } http2_grpc_request_t;

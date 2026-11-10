@@ -1,0 +1,36 @@
+file_format: "1.0"
+log_level: info
+tracer_provider:
+  sampler:
+    always_on:
+  processors:
+    - batch:
+        schedule_delay: 1
+        exporter:
+          otlp_grpc:
+            endpoint: http://jaeger:4317
+            tls:
+              insecure: true
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: exclude
+        poll_interval: 200ms
+        min_process_age: 0s
+      rules:
+        - action: include
+          match:
+            process:
+              open_ports: "18060"
+      engine:
+        batching:
+          batch_timeout: 10ms
+    enrich:
+      enrichers:
+        kubernetes:
+          mode: disabled
+    daemon:
+      shutdown:
+        timeout: 2s

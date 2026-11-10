@@ -12,6 +12,8 @@
 
 #include <logger/bpf_dbg.h>
 
+#include <statsolly/failed_conn_port.h>
+#include <statsolly/handshake_role.h>
 #include <statsolly/types.h>
 #include <statsolly/maps/stats_events.h>
 #include <statsolly/maps/sock_role.h>
@@ -72,21 +74,22 @@ typedef struct tcp_successful_connection {
     connection_info_t conn;
 } tcp_successful_connection_t;
 
+typedef struct tcp_reset {
+    u8 flags; // Must be first, we use it to tell what kind of event we have on the ring buffer
+    enum network_io_direction direction;
+    enum tcp_reset_cause cause;
+    u8 _pad[1];
+    connection_info_t conn;
+} tcp_reset_t;
+
 // Force structs into the ELF for automatic creation of Golang struct
 const tcp_failed_connection_t *unused_tcp_failed_connection __attribute__((unused));
 const tcp_retransmit_t *unused_tcp_retransmit_t __attribute__((unused));
 const tcp_successful_connection_t *unused_tcp_successful_connection __attribute__((unused));
+const tcp_reset_t *unused_tcp_reset __attribute__((unused));
 
-// obi_stats_tp_inet_sock_set_state_conn_role is the sole owner of the sock_role map.
-// It writes the role (client/server) when a connection is established and
-// it also handles all cleanup: any transition to TCP_CLOSE removes the entry,
-// covering both normal graceful closes and abnormal ones.
-//
-// Attachment order invariant: this program must be attached AFTER
-// obi_stats_tp_inet_sock_set_state_tcp_failed_connection (or any future tp probes that need the role)
-// on the same tracepoint. BPF programs on a tracepoint run FIFO, so the probe(s) read sock_role first,
-// then this program deletes it. Reversing the order would cause tcp_failed_conn or any other probes
-// to see a stale NULL on the same TCP_CLOSE event.
+// obi_stats_tp_inet_sock_set_state_conn_role writes the role (client/server) when a connection
+// is established. obi_stats_tp_tcp_destroy_sock removes it.
 SEC("tracepoint/sock/inet_sock_set_state")
 int obi_stats_tp_inet_sock_set_state_conn_role(struct trace_event_raw_inet_sock_set_state *args) {
     if (args->protocol != IPPROTO_TCP) {
@@ -102,11 +105,14 @@ int obi_stats_tp_inet_sock_set_state_conn_role(struct trace_event_raw_inet_sock_
         }
     }
 
-    if (args->newstate == TCP_CLOSE) {
-        bpf_map_delete_elem(&sock_role, &sk);
-        return 0;
-    }
+    return 0;
+}
 
+// close() can come before or after TCP_CLOSE, or never (accept-queue children)
+SEC("tracepoint/tcp/tcp_destroy_sock")
+int obi_stats_tp_tcp_destroy_sock(struct trace_event_raw_tcp_event_sk *args) {
+    struct sock *const sk = (struct sock *)args->skaddr;
+    bpf_map_delete_elem(&sock_role, &sk);
     return 0;
 }
 
@@ -140,7 +146,7 @@ int obi_stats_tp_inet_sock_set_state_tcp_failed_connection(
     const u8 reason = sk_err_to_reason(err);
 
     connection_info_t conn;
-    if (!parse_sock_info(sk, &conn)) {
+    if (!parse_failed_sock_info(sk, args->oldstate, &conn)) {
         return 0;
     }
 
@@ -156,15 +162,7 @@ int obi_stats_tp_inet_sock_set_state_tcp_failed_connection(
     se->conn = conn;
 
     const u8 *role_ptr = bpf_map_lookup_elem(&sock_role, &sk);
-    if (role_ptr) {
-        se->role = *role_ptr;
-    } else if (args->oldstate == TCP_SYN_SENT) {
-        se->role = role_client;
-    } else if (args->oldstate == TCP_SYN_RECV) {
-        se->role = role_server;
-    } else {
-        se->role = role_unknown;
-    }
+    se->role = failed_connection_role(args->oldstate, role_ptr ? *role_ptr : role_unknown);
 
     bpf_ringbuf_submit(se, stats_events_flags());
 
@@ -229,6 +227,92 @@ int obi_stats_raw_tp_tcp_retransmit_skb(struct bpf_raw_tracepoint_args *ctx) {
     se->conn = conn;
 
     bpf_ringbuf_submit(se, stats_events_flags());
+
+    return 0;
+}
+
+static __always_inline bool tcp_reset_during_handshake(const u8 state) {
+    switch (state) {
+    case TCP_LISTEN:
+    case TCP_SYN_SENT:
+    case TCP_SYN_RECV:
+    case TCP_NEW_SYN_RECV:
+        return true; // counted as failed connections
+    default:
+        return false;
+    }
+}
+
+static __always_inline enum tcp_reset_cause sent_reset_cause(const u8 state,
+                                                             const bool answers_segment) {
+    if (answers_segment) {
+        return reset_cause_unknown;
+    }
+    // close() with unread data, SO_LINGER{0} or TCP_LINGER2 < 0 move to TCP_CLOSE first
+    if (state == TCP_CLOSE) {
+        return reset_cause_application;
+    }
+    // keepalive, user timeout, orphan timers and tcp_abort() leave the state unchanged
+    return reset_cause_timeout;
+}
+
+static __always_inline void submit_tcp_reset(struct sock *sk,
+                                             const u8 state,
+                                             const enum network_io_direction direction,
+                                             const enum tcp_reset_cause cause) {
+    connection_info_t conn;
+    // only full sockets reach TCP_CLOSE, request and timewait socks have no inet_sport
+    const bool parsed =
+        state == TCP_CLOSE ? parse_full_sock_info(sk, &conn) : parse_sock_info(sk, &conn);
+    if (!parsed) {
+        return;
+    }
+
+    bpf_d_printk(
+        "tcp reset: s_port=%d, d_port=%d, direction=%d", conn.s_port, conn.d_port, direction);
+
+    tcp_reset_t *const se = bpf_ringbuf_reserve(&stats_events, sizeof(*se), 0);
+    if (!se) {
+        return;
+    }
+
+    se->flags = k_stat_type_tcp_reset;
+    se->direction = direction;
+    se->cause = cause;
+    se->conn = conn;
+
+    bpf_ringbuf_submit(se, stats_events_flags());
+}
+
+SEC("raw_tracepoint/tcp_send_reset")
+int obi_stats_raw_tp_tcp_send_reset(struct bpf_raw_tracepoint_args *ctx) {
+    struct sock *const sk = (struct sock *)ctx->args[0];
+    if (!sk) { // 6.10+ fires without a socket when nothing listens on the port
+        return 0;
+    }
+
+    const u8 state = BPF_CORE_READ(sk, __sk_common.skc_state);
+    if (tcp_reset_during_handshake(state)) {
+        return 0;
+    }
+
+    const bool answers_segment = ctx->args[1] != 0; // skb being answered, NULL for active resets
+    submit_tcp_reset(sk, state, direction_transmit, sent_reset_cause(state, answers_segment));
+
+    return 0;
+}
+
+SEC("raw_tracepoint/tcp_receive_reset")
+int obi_stats_raw_tp_tcp_receive_reset(struct bpf_raw_tracepoint_args *ctx) {
+    struct sock *const sk = (struct sock *)ctx->args[0];
+
+    // fires before tcp_reset() changes the state
+    const u8 state = BPF_CORE_READ(sk, __sk_common.skc_state);
+    if (tcp_reset_during_handshake(state)) {
+        return 0;
+    }
+
+    submit_tcp_reset(sk, state, direction_receive, reset_cause_unknown);
 
     return 0;
 }

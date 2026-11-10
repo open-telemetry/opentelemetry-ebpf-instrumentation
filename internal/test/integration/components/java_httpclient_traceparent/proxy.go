@@ -22,10 +22,12 @@ import (
 )
 
 type observation struct {
-	Headers    []string `json:"headers"`
-	Protocol   int      `json:"protocol"`
-	Connection string   `json:"connection"`
-	Body       string   `json:"body"`
+	Headers     []string `json:"headers"`
+	Protocol    int      `json:"protocol"`
+	Connection  string   `json:"connection"`
+	Body        string   `json:"body"`
+	Application string   `json:"application"`
+	Tracestate  string   `json:"tracestate"`
 }
 
 func main() {
@@ -49,7 +51,7 @@ func main() {
 		headers := r.Header.Values("Traceparent")
 		if strings.HasSuffix(r.URL.Path, "-expect-reject") {
 			mu.Lock()
-			records[r.URL.Path] = append(records[r.URL.Path], observation{headers, r.ProtoMajor, r.RemoteAddr, ""})
+			records[r.URL.Path] = append(records[r.URL.Path], observation{Headers: headers, Protocol: r.ProtoMajor, Connection: r.RemoteAddr})
 			mu.Unlock()
 			w.WriteHeader(http.StatusExpectationFailed)
 			_, _ = w.Write([]byte("expectation rejected"))
@@ -61,7 +63,14 @@ func main() {
 			return
 		}
 		mu.Lock()
-		records[r.URL.Path] = append(records[r.URL.Path], observation{headers, r.ProtoMajor, r.RemoteAddr, string(body)})
+		records[r.URL.Path] = append(records[r.URL.Path], observation{
+			Headers:     headers,
+			Protocol:    r.ProtoMajor,
+			Connection:  r.RemoteAddr,
+			Body:        string(body),
+			Application: r.Header.Get("X-Application"),
+			Tracestate:  r.Header.Get("Tracestate"),
+		})
 		attempt := len(records[r.URL.Path])
 		mu.Unlock()
 		log.Printf("TRACEPARENT %s protocol=%s values=%q", r.URL.Path, r.Proto, headers)
@@ -96,6 +105,9 @@ func main() {
 		}
 		for _, header := range headers {
 			req.Header.Add("Traceparent", header)
+		}
+		for _, state := range r.Header.Values("Tracestate") {
+			req.Header.Add("Tracestate", state)
 		}
 		response, err := downstream.Do(req)
 		if err != nil {
