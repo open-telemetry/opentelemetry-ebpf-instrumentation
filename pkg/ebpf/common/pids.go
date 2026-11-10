@@ -170,7 +170,7 @@ func (pf *PIDsFilter) updateOTelTracesPID(pid app.PID, fi *exec.FileInfo) {
 	}
 	exportsTraces := pf.ignoreOtel && fi != nil && fi.ExportsOTelTraces()
 	if err := pf.tpFilter.update(pid, exportsTraces); err != nil {
-		pf.log.Error("updating the trace-exporting PID filter", "pid", pid, "error", err)
+		pf.log.Debug("updating the trace-exporting PID filter", "pid", pid, "error", err)
 	} else {
 		pf.tpFilter.marked[pid] = struct{}{}
 	}
@@ -180,7 +180,9 @@ func (pf *PIDsFilter) removeOTelTracesPID(pid app.PID) {
 	if pf.tpFilter == nil {
 		return
 	}
-	pf.tpFilter.update(pid, false)
+	if err := pf.tpFilter.update(pid, false); err != nil {
+		pf.log.Debug("failed to delete trace-exporting PID filter", "pid", pid, "error", err)
+	}
 	delete(pf.tpFilter.marked, pid)
 }
 
