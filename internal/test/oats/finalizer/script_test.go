@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -74,7 +75,7 @@ func TestFinalizeWeaverExitStatus(t *testing.T) {
 			cmd.Env = append(os.Environ(), "PATH="+binDir+":"+os.Getenv("PATH"), "COMPOSE_PROJECT_NAME=test-project", "OATS_ARTIFACT_DIR=", "OATS_HELPER_MARKER="+markerPath)
 			output, runErr := cmd.CombinedOutput()
 			status := 0
-			if exitErr, ok := runErr.(*exec.ExitError); ok {
+			if exitErr, ok := errors.AsType[*exec.ExitError](runErr); ok {
 				status = exitErr.ExitCode()
 			} else if runErr != nil {
 				t.Fatalf("run finalizer: %v", runErr)
