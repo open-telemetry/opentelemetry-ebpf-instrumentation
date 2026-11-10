@@ -114,7 +114,7 @@ services:
 
   # pumba adds a 100ms delay to the testclient so the RTT test can assert avg RTT >= 100ms
   pumba:
-    image: ghcr.io/alexei-led/pumba:1.2.1@sha256:780505fe261932765921c94a23e24bda107c72927654c26a5893a238d7708bf0
+    image: ghcr.io/alexei-led/pumba:1.6.0@sha256:11ed15538c7ec688628e2f53917d949e8c16418c146742731c3030ef276b6057
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
@@ -127,7 +127,7 @@ services:
 
   # pumba-loss injects 20% packet loss on testclient-retransmit to trigger tcp_retransmit_skb events
   pumba-loss:
-    image: ghcr.io/alexei-led/pumba:1.2.1@sha256:780505fe261932765921c94a23e24bda107c72927654c26a5893a238d7708bf0
+    image: ghcr.io/alexei-led/pumba:1.6.0@sha256:11ed15538c7ec688628e2f53917d949e8c16418c146742731c3030ef276b6057
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     privileged: true
