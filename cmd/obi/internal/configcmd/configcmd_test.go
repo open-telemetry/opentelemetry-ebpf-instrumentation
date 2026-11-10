@@ -1239,6 +1239,37 @@ prometheus_export:
 	}
 }
 
+func TestMigrateConfigPreservesStatsWakeupDataBytes(t *testing.T) {
+	for _, value := range []int{0, 8192} {
+		setting := fmt.Sprintf("stats_wakeup_data_bytes: %d\n", value)
+		migrated := fmt.Sprintf("wakeup_bytes: %d\n", value)
+
+		t.Run(fmt.Sprint("standalone ", value), func(t *testing.T) {
+			output, _, err := migrateConfig([]byte("open_port: '8080'\nprometheus_export:\n  port: 9090\nebpf:\n  " + setting))
+			require.NoError(t, err)
+			require.Contains(t, string(output), migrated)
+
+			doc, _, err := schema.ParseStandaloneYAML(output)
+			require.NoError(t, err)
+			cfg, err := convert.DocumentToRuntime(doc)
+			require.NoError(t, err)
+			require.Equal(t, value, cfg.EBPF.StatsWakeupDataBytes)
+		})
+
+		t.Run(fmt.Sprint("receiver ", value), func(t *testing.T) {
+			output, _, err := migrateConfigForMode([]byte("open_port: '8080'\nebpf:\n  "+setting), validationModeReceiver)
+			require.NoError(t, err)
+			require.Contains(t, string(output), migrated)
+
+			ext, err := schema.ParseReceiverYAML(output)
+			require.NoError(t, err)
+			cfg, err := convert.V2ToRuntime(ext)
+			require.NoError(t, err)
+			require.Equal(t, value, cfg.EBPF.StatsWakeupDataBytes)
+		})
+	}
+}
+
 func TestMigrateConfigPreservesPerServiceRoutes(t *testing.T) {
 	output, report, err := migrateConfig([]byte(`
 discovery:

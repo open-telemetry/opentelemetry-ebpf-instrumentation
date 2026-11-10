@@ -432,6 +432,9 @@ func captureEngine(cfg *obi.Config) schema.CaptureEngine {
 			WakeupLen:    cfg.EBPF.WakeupLen,
 			BatchLength:  cfg.EBPF.BatchLength,
 			BatchTimeout: schema.Duration(cfg.EBPF.BatchTimeout),
+			Stats: schema.StatsBatching{
+				WakeupBytes: cfg.EBPF.StatsWakeupDataBytes,
+			},
 		},
 		Propagation: schema.Propagation{
 			ContextPropagation:     cfg.EBPF.ContextPropagation,
