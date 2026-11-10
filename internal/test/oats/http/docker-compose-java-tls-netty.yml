@@ -28,6 +28,7 @@ services:
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "true"
       OTEL_EBPF_JAVA_ROUTE_HARVEST_DELAY: "10s"
+      OTEL_EBPF_JAVAAGENT_ATTACH_TIMEOUT: "90s"
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4318"
     depends_on:
       testserver:

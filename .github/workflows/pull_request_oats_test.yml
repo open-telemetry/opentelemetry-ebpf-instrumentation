@@ -68,8 +68,8 @@ jobs:
           echo -n "matrix=" >> "$GITHUB_OUTPUT"
           make oats-integration-test-matrix-json >> "$GITHUB_OUTPUT"
 
-  harness-unit-tests:
-    name: "OATS harness unit tests"
+  finalizer-unit-tests:
+    name: "OATS Weaver finalizer unit tests"
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
@@ -84,8 +84,8 @@ jobs:
           go-version-file: "go.mod"
           cache: false
 
-      - name: Run harness unit tests
-        working-directory: internal/test/oats/harness
+      - name: Run finalizer unit tests
+        working-directory: internal/test/oats/finalizer
         run: go test -race ./...
 
   build-obi-image:

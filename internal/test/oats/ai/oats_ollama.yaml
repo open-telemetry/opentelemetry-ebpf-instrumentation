@@ -1,0 +1,70 @@
+name: ollama
+fixture:
+  compose:
+    files:
+    - docker-compose-ollama.yml
+    - ../weaver/docker-compose-weaver.yml
+    env:
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
+    app_service: testserver
+    app_port: 8080
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+input:
+- path: /ollama/embed
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+- path: /ollama/embeddings
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+- path: /ollama/embed/error
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+expected:
+  traces:
+  - traceql: '{ .gen_ai.provider.name = "ollama" && .gen_ai.request.model = "all-minilm:l6-v2" && span.gen_ai.output.messages = nil && span.gen_ai.request.stream = nil && span.gen_ai.usage.output_tokens = nil }'
+    match_spans:
+    - name: embeddings all-minilm:l6-v2
+      attributes:
+      - key: gen_ai.operation.name
+        value: embeddings
+      - key: gen_ai.response.model
+        value: all-minilm:l6-v2
+      - key: gen_ai.usage.input_tokens
+        value: 8
+      - key: gen_ai.embeddings.dimension.count
+        value: 4
+      - key: gen_ai.input.messages
+        value: '[{"role":"user","parts":[{"type":"text","content":"why is the sky blue?"}]}]'
+  - traceql: '{ .gen_ai.provider.name = "ollama" && .gen_ai.request.model = "nomic-embed-text" && span.gen_ai.output.messages = nil && span.gen_ai.usage.input_tokens = nil }'
+    match_spans:
+    - name: embeddings nomic-embed-text
+      attributes:
+      - key: gen_ai.operation.name
+        value: embeddings
+      - key: gen_ai.response.model
+        value: nomic-embed-text
+      - key: gen_ai.embeddings.dimension.count
+        value: 3
+      - key: gen_ai.input.messages
+        value: '[{"role":"user","parts":[{"type":"text","content":"why is the sky blue?"}]}]'
+  - traceql: '{ .error.type = "404" && .gen_ai.provider.name = "ollama" && .gen_ai.request.model = "nope" }'
+    match_spans:
+    - name: embeddings nope
+      attributes:
+      - key: gen_ai.operation.name
+        value: embeddings
+  metrics:
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="embeddings",gen_ai_provider_name="ollama",gen_ai_token_type="input",gen_ai_request_model="all-minilm:l6-v2"}
+    value: '> 0'
+  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="embeddings",gen_ai_provider_name="ollama",gen_ai_request_model="all-minilm:l6-v2"}
+    value: '> 0'
+  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="embeddings",gen_ai_provider_name="ollama",gen_ai_request_model="nomic-embed-text"}
+    value: '> 0'

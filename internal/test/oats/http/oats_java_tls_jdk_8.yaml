@@ -1,0 +1,29 @@
+name: java tls jdk 8
+fixture:
+  compose:
+    files:
+    - docker-compose-java-tls-jdk8.yml
+    - ../weaver/docker-compose-weaver.yml
+    env:
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
+    app_service: wrapper
+    app_port: 8080
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+input:
+- path: /request
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+expected:
+  traces:
+  - traceql: '{ .http.route = "/greeting" }'
+    match_spans:
+    - name: GET /greeting
+      attributes:
+      - key: server.port
+        value: '8443'
+      - key: url.path
+        value: /greeting

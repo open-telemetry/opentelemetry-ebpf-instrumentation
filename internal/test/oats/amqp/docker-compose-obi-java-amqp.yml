@@ -1,8 +1,4 @@
 services:
-  lgtm:
-    network_mode: host
-    ports: []
-
   artemis:
     image: apache/activemq-artemis:2.44.0@sha256:0305c26f19eda00c0506d0953cfe265600a72ac1b17f7934412120c01a595cff
     network_mode: host
@@ -33,9 +29,7 @@ services:
         condition: service_healthy
 
   autoinstrumenter:
-    build:
-      context: ../../../..
-      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    image: hatest-obi
     command:
       - --config=/configs/instrumenter-config-traces.yml
     volumes:

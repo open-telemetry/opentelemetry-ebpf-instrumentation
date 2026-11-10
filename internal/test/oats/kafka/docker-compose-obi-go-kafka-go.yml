@@ -28,6 +28,18 @@ services:
       - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=CLIENT
     depends_on:
       - zookeeper
+  # Create the topic before the test server starts producing to it.
+  topic-init:
+    image: docker.io/bitnamilegacy/kafka:3.9@sha256:55df55bfc7ed5980447387620afa3498eab3985a4d8c731013d82b3fa8b43bff
+    entrypoint: ["/usr/bin/timeout", "3m", "/bin/bash", "-ec"]
+    command:
+      - |
+        set -o pipefail
+        until /opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists --topic logging --partitions 1 --replication-factor 1; do sleep 1; done
+        until /opt/bitnami/kafka/bin/kafka-topics.sh --bootstrap-server kafka:9092 --describe --topic logging | grep -q 'Leader: [0-9]'; do sleep 1; done
+    depends_on:
+      kafka:
+        condition: service_started
   # Go HTTP server based on the Sarama Kafka examples
   testserver:
     build:
@@ -37,13 +49,11 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      kafka:
-        condition: service_started
+      topic-init:
+        condition: service_completed_successfully
   # eBPF auto instrumenter
   autoinstrumenter:
-    build:
-      context: ../../../..
-      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    image: hatest-obi
     command:
       - --config=/configs/instrumenter-config-traces.yml
     volumes:

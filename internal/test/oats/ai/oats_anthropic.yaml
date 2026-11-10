@@ -1,0 +1,70 @@
+name: anthropic
+fixture:
+  compose:
+    files:
+    - docker-compose-anthropic.yml
+    - ../weaver/docker-compose-weaver.yml
+    env:
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
+    app_service: testserver
+    app_port: 8081
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+input:
+- path: /system
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+- path: /error
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+- path: /stream
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+expected:
+  traces:
+  # Messages API call with system instructions
+  - traceql: '{ .gen_ai.provider.name = "anthropic" && .gen_ai.request.model = "claude-sonnet-4-6" && .gen_ai.response.id = "msg_01QCj5VkxPS3NQUtrt5Npjcr"}'
+    match_spans:
+    - name: chat claude-sonnet-4-6
+      attributes:
+      - key: gen_ai.operation.name
+        value: chat
+      - key: gen_ai.system_instructions
+        value: '[{"type":"text","content":"You are a helpful assistant that always responds in haiku format."}]'
+      - key: gen_ai.response.model
+        value: claude-sonnet-4-6
+  # Error returned by Anthropic. The operation comes from the request path, so a
+  # failed call reports the same operation as a successful one on that endpoint.
+  - traceql: '{ .error.type = "authentication_error" && .gen_ai.request.model = "claude-sonnet-4-6"}'
+    match_spans:
+    - name: chat claude-sonnet-4-6
+      attributes:
+      - key: gen_ai.provider.name
+        value: anthropic
+      - key: gen_ai.operation.name
+        value: chat
+  # Stream
+  - traceql: '{ .gen_ai.provider.name = "anthropic" && .gen_ai.request.model = "claude-sonnet-4-6" && .gen_ai.response.id = "msg_017VX1VDFNbm2uGebyvLmHwv"}'
+    match_spans:
+    - name: chat claude-sonnet-4-6
+      attributes:
+      - key: gen_ai.operation.name
+        value: chat
+      - key: gen_ai.response.model
+        value: claude-sonnet-4-6
+      - key: gen_ai.usage.output_tokens
+        value: 37
+  metrics:
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="chat", gen_ai_provider_name="anthropic", gen_ai_token_type="input", gen_ai_request_model="claude-sonnet-4-6",gen_ai_response_model="claude-sonnet-4-6"}
+    value: '> 0'
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="chat", gen_ai_provider_name="anthropic", gen_ai_token_type="output", gen_ai_request_model="claude-sonnet-4-6",gen_ai_response_model="claude-sonnet-4-6"}
+    value: '> 0'
+  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="chat", gen_ai_provider_name="anthropic", gen_ai_request_model="claude-sonnet-4-6",gen_ai_response_model="claude-sonnet-4-6"}
+    value: '> 0'

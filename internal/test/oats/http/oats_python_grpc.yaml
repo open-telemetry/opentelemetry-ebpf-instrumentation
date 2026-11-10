@@ -1,0 +1,23 @@
+name: python grpc
+fixture:
+  compose:
+    files:
+    - docker-compose-python-grpc.yml
+    - ../weaver/docker-compose-weaver.yml
+    env:
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
+    app_service: testserver
+    app_port: 8080
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+input:
+- path: /query
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+expected:
+  metrics:
+  - promql: rpc_server_call_duration_seconds_count{rpc_method="routeguide.RouteGuide/GetFeature"}
+    value: '> 5'
