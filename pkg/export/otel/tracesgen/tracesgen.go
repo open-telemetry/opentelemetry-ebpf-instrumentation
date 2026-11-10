@@ -1450,6 +1450,24 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			}
 		}
 
+		if span.SubType == request.HTTPSubtypeJev && span.GenAI != nil && span.GenAI.Jev != nil {
+			ai := span.GenAI.Jev
+			attrs = append(attrs, semconv.GenAIProviderNameKey.String(ai.Provider))
+			attrs = append(attrs, semconv.GenAIOperationNameKey.String(genAIOperationName(ai.OperationName)))
+			if ai.ID != "" {
+				attrs = append(attrs, semconv.GenAIResponseID(ai.ID))
+			}
+			attrs = appendIfSet(attrs, semconv.GenAIRequestModel, ai.Request.Model)
+			attrs = appendIfSet(attrs, semconv.GenAIResponseModel, ai.Model)
+			attrs = append(attrs, genAIUsageAttributes(span)...)
+			if _, ok := optionalAttrs[attr.GenAIInput]; ok {
+				attrs = appendIfSet(attrs, semconv.GenAIInputMessagesKey.String, ai.GetInput())
+			}
+			if _, ok := optionalAttrs[attr.GenAIOutput]; ok {
+				attrs = appendIfSet(attrs, semconv.GenAIOutputMessagesKey.String, ai.GetOutput())
+			}
+		}
+
 		if span.SubType == request.HTTPSubtypeAWSBedrock && span.GenAI != nil && span.GenAI.Bedrock != nil {
 			ai := span.GenAI.Bedrock
 			attrs = append(attrs, semconv.GenAIProviderNameAWSBedrock)
@@ -1967,6 +1985,10 @@ func genAIResponseErrorMessage(span *request.Span) string {
 	case request.HTTPSubtypeRerank:
 		if span.GenAI.Rerank != nil && span.GenAI.Rerank.Output.Error != nil {
 			return span.GenAI.Rerank.Output.Error.Message
+		}
+	case request.HTTPSubtypeJev:
+		if span.GenAI.Jev != nil {
+			return span.GenAI.Jev.Error
 		}
 	}
 
