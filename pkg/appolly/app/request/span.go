@@ -129,6 +129,7 @@ const (
 	HTTPSubtypeOllama           = 17 // http + Ollama native API
 	HTTPSubtypeAWSSNS           = 18 // http + aws sns
 	HTTPSubtypeCohere           = 19 // http + Cohere native chat API
+	HTTPSubtypeJev              = 20 // http + Jev (TypeSafe System One API)
 )
 
 // IsGenAISubtype reports whether a subtype is recorded on the GenAI client
@@ -147,7 +148,8 @@ func IsGenAISubtype(subtype int) bool {
 		subtype == HTTPSubtypeRetrieval ||
 		subtype == HTTPSubtypeOpenAICompatible ||
 		subtype == HTTPSubtypeOllama ||
-		subtype == HTTPSubtypeCohere
+		subtype == HTTPSubtypeCohere ||
+		subtype == HTTPSubtypeJev
 }
 
 //nolint:cyclop
@@ -439,6 +441,7 @@ type GenAI struct {
 	Ollama           *VendorOpenAI
 	Cohere           *VendorOpenAI
 	OpenAICompatible *VendorOpenAI
+	Jev              *VendorJev
 }
 
 type OpenAIInputTokensDetails struct {
@@ -499,6 +502,80 @@ type VendorOpenAI struct {
 	APIType           string          `json:"-"`
 	ToolCalls         []ToolCall      `json:"-"`
 	ProviderName      string          `json:"-"`
+}
+
+// VendorJev represents a Jev (TypeSafe System One) request/response.
+// Jev is a decision evaluation API that answers structured questions about provided state.
+type VendorJev struct {
+	ID            string          `json:"id"`
+	Model         string          `json:"model"`
+	Provider      string          `json:"provider"`
+	Answers       json.RawMessage `json:"answers"`
+	Error         string          `json:"error,omitempty"`
+	Usage         JevUsage        `json:"usage"`
+	LatencyMs     int             `json:"latency_ms,omitempty"`
+	Request       JevRequest
+	OperationName string `json:"-"`
+}
+
+type JevRequest struct {
+	Model     string          `json:"model"`
+	State     json.RawMessage `json:"state"`
+	Questions json.RawMessage `json:"questions"`
+}
+
+type JevUsage struct {
+	InputTokens    TokenCount `json:"input_tokens"`
+	OutputTokens   TokenCount `json:"output_tokens"`
+	ChargedTokens  TokenCount `json:"charged_tokens,omitempty"`
+	ChargedCredits TokenCount `json:"charged_credits,omitempty"`
+}
+
+func (j *VendorJev) GetInput() string {
+	// Preserve original JSON representation to avoid numeric precision loss
+	// If there are questions, we must include both state and questions
+	if len(j.Request.Questions) > 0 {
+		var inputParts []string
+		if len(j.Request.State) > 0 {
+			inputParts = append(inputParts, fmt.Sprintf(`"state":%s`, string(j.Request.State)))
+		}
+		inputParts = append(inputParts, fmt.Sprintf(`"questions":%s`, string(j.Request.Questions)))
+		inputJSON := fmt.Sprintf("{%s}", strings.Join(inputParts, ","))
+		return wrapTextAsInputMessage(inputJSON)
+	}
+
+	// No questions, just state - preserve numeric precision and handle simple strings
+	if len(j.Request.State) == 0 {
+		return ""
+	}
+
+	// Try to parse state to see if it's a simple string
+	var parsed any
+	if err := json.Unmarshal(j.Request.State, &parsed); err == nil {
+		if s, ok := parsed.(string); ok {
+			return wrapTextAsInputMessage(s)
+		}
+	}
+
+	// Complex state (object/array) - preserve original JSON
+	return wrapTextAsInputMessage(string(j.Request.State))
+}
+
+func (j *VendorJev) GetOutput() string {
+	if len(j.Answers) == 0 {
+		return ""
+	}
+	// Normalize answers as an assistant output message for semconv compatibility
+	// Preserve the complete answers structure as JSON text content
+	return wrapTextAsOutputMessage("assistant", string(j.Answers), "")
+}
+
+func (j *VendorJev) InputTokenCount() (int, bool) {
+	return j.Usage.InputTokens.Get()
+}
+
+func (j *VendorJev) OutputTokenCount() (int, bool) {
+	return j.Usage.OutputTokens.Get()
 }
 
 func (ai *VendorOpenAI) GetFinishReasons() []string {
@@ -2569,6 +2646,10 @@ func (s *Span) GenAIInputTokenCount() (int, bool) {
 		return s.GenAI.Retrieval.InputTokenCount()
 	}
 
+	if s.GenAI.Jev != nil {
+		return s.GenAI.Jev.InputTokenCount()
+	}
+
 	return 0, false
 }
 
@@ -2608,6 +2689,10 @@ func (s *Span) GenAIOutputTokenCount() (int, bool) {
 
 	if s.GenAI.Bedrock != nil {
 		return s.GenAI.Bedrock.Output.OutputTokenCount()
+	}
+
+	if s.GenAI.Jev != nil {
+		return s.GenAI.Jev.OutputTokenCount()
 	}
 
 	return 0, false
@@ -2667,6 +2752,9 @@ func (s *Span) GenAIOperationName() string {
 	if s.GenAI.Retrieval != nil {
 		return s.GenAI.Retrieval.OperationName()
 	}
+	if s.GenAI.Jev != nil {
+		return s.GenAI.Jev.OperationName
+	}
 	return ""
 }
 
@@ -2680,7 +2768,7 @@ var genAIProviderNames = map[string]struct{}{
 	"deepseek": {}, "groq": {}, "mistral_ai": {}, "qwen": {}, "voyage": {},
 	"jina": {}, "pinecone": {}, "qdrant": {}, "milvus": {}, "zilliz": {},
 	"chroma": {}, "weaviate": {}, "generic": {}, "ollama": {}, "litellm": {},
-	"vllm": {}, "localai": {}, "openrouter": {}, "custom": {},
+	"vllm": {}, "localai": {}, "openrouter": {}, "custom": {}, "typesafe": {},
 }
 
 // openAICompatibleProviderName maps a configured gateway provider onto the
@@ -2731,6 +2819,9 @@ func (s *Span) GenAIProviderName() string {
 	if s.GenAI.Retrieval != nil {
 		return s.GenAI.Retrieval.Provider
 	}
+	if s.GenAI.Jev != nil {
+		return s.GenAI.Jev.Provider
+	}
 	return ""
 }
 
@@ -2764,6 +2855,11 @@ func (s *Span) GenAIErrorType() string {
 	if ai := s.GenAI.Rerank; ai != nil && ai.Output.Error != nil {
 		return ai.Output.Error.Type
 	}
+	if ai := s.GenAI.Jev; ai != nil && ai.Error != "" {
+		// Jev uses a free-form error message that should not be exposed in error.type
+		// Return the bounded ErrorTypeOther constant instead
+		return ErrorTypeOther
+	}
 
 	return ""
 }
@@ -2795,6 +2891,9 @@ func (s *Span) GenAIRequestModel() string {
 	}
 	if s.GenAI.Bedrock != nil {
 		return s.GenAI.Bedrock.Model
+	}
+	if s.GenAI.Jev != nil {
+		return s.GenAI.Jev.Request.Model
 	}
 	if s.GenAI.Embedding != nil {
 		if s.GenAI.Embedding.Input.Model != "" {
@@ -2850,6 +2949,9 @@ func (s *Span) GenAIResponseModel() string {
 	}
 	if s.GenAI.Bedrock != nil {
 		return s.GenAI.Bedrock.Model
+	}
+	if s.GenAI.Jev != nil {
+		return s.GenAI.Jev.Model
 	}
 	if s.GenAI.Embedding != nil {
 		if s.GenAI.Embedding.Output.Model != "" {
