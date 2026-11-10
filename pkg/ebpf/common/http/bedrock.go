@@ -55,12 +55,16 @@ func BedrockSpan(baseSpan *request.Span, req *http.Request, resp *http.Response)
 		maybeBedrock = true
 	}
 
+	return bedrockSpan(baseSpan, req, resp, maybeBedrock)
+}
+
+func bedrockSpan(baseSpan *request.Span, req *http.Request, resp *http.Response, requireEvidence bool) (request.Span, bool) {
 	reqB, ok := readHTTPRequestBody("BedrockSpan", req, baseSpan)
 	if !ok {
 		return *baseSpan, false
 	}
 
-	if maybeBedrock {
+	if requireEvidence {
 		if !looksLikeBedrockBody(reqB) {
 			return *baseSpan, false
 		}

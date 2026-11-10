@@ -136,6 +136,10 @@ func GeminiSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		maybeGemini = true
 	}
 
+	return geminiSpan(baseSpan, req, resp, baseSpan.Path, maybeGemini)
+}
+
+func geminiSpan(baseSpan *request.Span, req *http.Request, resp *http.Response, path string, requireEvidence bool) (request.Span, bool) {
 	reqB, ok := readHTTPRequestBody("GeminiSpan", req, baseSpan)
 	if !ok {
 		return *baseSpan, false
@@ -146,8 +150,8 @@ func GeminiSpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		return *baseSpan, false
 	}
 
-	if maybeGemini {
-		if !looksLikeGeminiBody(reqB, respB, baseSpan.Path) {
+	if requireEvidence {
+		if !looksLikeGeminiBody(reqB, respB, path) {
 			return *baseSpan, false
 		}
 	}

@@ -352,6 +352,13 @@ func postProcessHTTPSpan(parseCtx *EBPFParseContext, httpSpan *request.Span, req
 		}
 	}
 
+	if httpSpan.IsClientSpan() && parseCtx != nil {
+		span, ok := ebpfhttp.GenAIHTTP1Fallback(httpSpan, req, resp, parseCtx.payloadExtraction.HTTP.GenAI)
+		if ok {
+			return span
+		}
+	}
+
 	if parseCtx != nil && parseCtx.httpEnricher != nil {
 		parseCtx.httpEnricher.Enrich(httpSpan, req, resp)
 	}

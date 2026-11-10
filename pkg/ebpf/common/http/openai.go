@@ -108,6 +108,10 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		maybeOpenAI = true
 	}
 
+	return openAISpan(baseSpan, req, resp, maybeOpenAI)
+}
+
+func openAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response, requireEvidence bool) (request.Span, bool) {
 	reqB, ok := readHTTPRequestBody("OpenAISpan", req, baseSpan, "headers", resp.Header)
 	if !ok {
 		return *baseSpan, false
@@ -118,7 +122,7 @@ func OpenAISpan(baseSpan *request.Span, req *http.Request, resp *http.Response) 
 		return *baseSpan, false
 	}
 
-	if maybeOpenAI {
+	if requireEvidence {
 		if !looksLikeOpenAIBody(reqB, respB, baseSpan.Path) {
 			return *baseSpan, false
 		}
