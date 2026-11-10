@@ -252,6 +252,73 @@ func TestAppMetrics_BodySizeFeature(t *testing.T) {
 	}
 }
 
+func TestAppMetrics_HTTPProtocolVersion(t *testing.T) {
+	for _, excluded := range []bool{false, true} {
+		t.Run(fmt.Sprintf("excluded=%v", excluded), func(t *testing.T) {
+			features := export.FeatureApplicationRED | export.FeatureApplicationSizes
+			ctx := t.Context()
+			registry, promURL := newPrometheusTestServer(t)
+			promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+			selection := attributes.Selection{}
+			if excluded {
+				selection["http.*"] = attributes.InclusionLists{Exclude: []string{string(attr.NetworkProtocolVersion)}}
+				selection.Normalize()
+			}
+			exporter, err := PrometheusEndpoint(
+				&global.ContextInfo{Prometheus: registry.Manager},
+				&PrometheusConfig{
+					Port:                        registry.Port,
+					Path:                        "/metrics",
+					TTL:                         3 * time.Minute,
+					SpanMetricsServiceCacheSize: 10,
+					Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+				},
+				&perapp.GlobalMetricsConfig{Features: features},
+				&attributes.SelectorConfig{SelectionCfg: selection, UseV2Selection: true},
+				request.UnresolvedNames{}, promInput, processEvents, nil,
+			)(ctx)
+			require.NoError(t, err)
+			go exporter(ctx)
+
+			versions := []request.ProtoVersion{
+				request.ProtoVersionHTTP10, request.ProtoVersionHTTP11, request.ProtoVersionHTTP2, request.ProtoVersionUnknown,
+			}
+			var spans []request.Span
+			for _, version := range versions {
+				for _, event := range []request.EventType{request.EventTypeHTTP, request.EventTypeHTTPClient} {
+					spans = append(spans, request.Span{
+						Service: svc.Attrs{Features: features, UID: svc.UID{Instance: "foo"}},
+						Type:    event, ProtoVersion: version, Method: "GET", Status: 200,
+						RequestStart: 100, End: 200, ContentLength: 512,
+					})
+				}
+			}
+			promInput.Send(spans)
+
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				exported := getMetrics(ct, promURL)
+				if excluded {
+					assert.NotContains(ct, exported, "network_protocol_version=")
+				}
+				for _, name := range []attributes.Name{
+					attributes.HTTPServerDuration, attributes.HTTPServerRequestSize, attributes.HTTPServerResponseSize,
+					attributes.HTTPClientDuration, attributes.HTTPClientRequestSize, attributes.HTTPClientResponseSize,
+				} {
+					count := regexp.QuoteMeta(name.Prom) + `_count\{[^}]*`
+					if excluded {
+						assert.Regexp(ct, count+`\} 4(\n|$)`, exported)
+						continue
+					}
+					for _, version := range versions {
+						assert.Regexp(ct, count+`network_protocol_version="`+regexp.QuoteMeta(version.String())+`"[^}]*\} 1(\n|$)`, exported)
+					}
+				}
+			}, timeout, 10*time.Millisecond)
+		})
+	}
+}
+
 func TestAppMetrics_HTTPErrorType(t *testing.T) {
 	features := export.FeatureApplicationRED | export.FeatureApplicationSizes
 	ctx := t.Context()

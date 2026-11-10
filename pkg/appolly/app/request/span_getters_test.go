@@ -17,6 +17,38 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 )
 
+func TestSpanGetters_HTTPProtocolVersion(t *testing.T) {
+	otelGetter, ok := SpanOTELGetters(UnresolvedNames{})(attr.NetworkProtocolVersion)
+	require.True(t, ok)
+	promGetter, ok := SpanPromGetters(UnresolvedNames{})(attr.NetworkProtocolVersion)
+	require.True(t, ok)
+
+	for _, tc := range []struct {
+		name    string
+		version ProtoVersion
+		want    string
+	}{
+		{name: "HTTP/1.0", version: ProtoVersionHTTP10, want: "1.0"},
+		{name: "HTTP/1.1", version: ProtoVersionHTTP11, want: "1.1"},
+		{name: "HTTP/2", version: ProtoVersionHTTP2, want: "2"},
+		{name: "unknown", version: ProtoVersionUnknown},
+		{name: "invalid", version: ProtoVersion(200)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, event := range []EventType{EventTypeHTTP, EventTypeHTTPClient} {
+				span := &Span{Type: event, ProtoVersion: tc.version}
+				got := otelGetter(span)
+				if tc.want == "" {
+					assert.False(t, got.Valid())
+				} else {
+					assert.Equal(t, semconv.NetworkProtocolVersion(tc.want), got)
+				}
+				assert.Equal(t, tc.want, promGetter(span))
+			}
+		})
+	}
+}
+
 func TestSpanOTELGetters_K8SClientNamespace(t *testing.T) {
 	tests := []struct {
 		name              string

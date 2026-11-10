@@ -393,6 +393,7 @@ func getDefinitions(
 			attr.HTTPURLScheme:          true,
 			attr.HTTPResponseStatusCode: true,
 			attr.ErrorType:              true,
+			attr.NetworkProtocolVersion: true,
 		},
 		extraGroupAttributes[GroupHTTPCommon],
 	)
