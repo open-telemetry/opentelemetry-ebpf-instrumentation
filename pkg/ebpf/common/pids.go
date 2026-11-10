@@ -85,6 +85,11 @@ type ForkedProcessTracker interface {
 	EndForkedChild(child request.PidInfo, at time.Duration)
 }
 
+type TPFilter struct {
+	update func(app.PID, bool) error
+	marked map[app.PID]struct{}
+}
+
 // PIDsFilter keeps a thread-safe copy of the PIDs whose traces are allowed to
 // be forwarded. Its Filter method filters the request.Span instances whose
 // PIDs are not in the allowed list.
@@ -100,8 +105,8 @@ type PIDsFilter struct {
 	defaultOtlpGRPCPort int
 	metrics             imetrics.Reporter
 	// readers only Peek it under the read lock: Get would reorder it
-	forked              *simplelru.LRU[forkedChildKey, forkedChild]
-	otelTracesPIDFilter func(app.PID, bool) error
+	forked   *simplelru.LRU[forkedChildKey, forkedChild]
+	tpFilter *TPFilter
 }
 
 func NewPIDsFilter(c *services.DiscoveryConfig, log *slog.Logger, metrics imetrics.Reporter) *PIDsFilter {
@@ -133,10 +138,16 @@ func (pf *PIDsFilter) BlockPID(pid app.PID, ns uint32) {
 }
 
 // SetOTelTracesPIDFilter installs a writer for the BPF filter of trace-exporting
-// processes.
+// processes. The writer runs under the filter lock and must not call back into it.
+// Passing nil detaches the writer and waits for any pending updates.
 func (pf *PIDsFilter) SetOTelTracesPIDFilter(update func(app.PID, bool) error) {
 	pf.mux.Lock()
 	defer pf.mux.Unlock()
+
+	pf.tpFilter = &TPFilter{
+		update: update,
+		marked: map[app.PID]struct{}{},
+	}
 
 	for _, pids := range pf.current {
 		for pid, info := range pids {
@@ -149,29 +160,47 @@ func (pf *PIDsFilter) SetOTelTracesPIDFilter(update func(app.PID, bool) error) {
 
 func (pf *PIDsFilter) RemoveOTelTracesPIDFilter() {
 	pf.mux.Lock()
-	pf.otelTracesPIDFilter = nil
+	pf.tpFilter = nil
 	pf.mux.Unlock()
 }
 
 func (pf *PIDsFilter) updateOTelTracesPID(pid app.PID, fi *exec.FileInfo) {
-	if pf.otelTracesPIDFilter == nil {
+	if pf.tpFilter == nil {
 		return
 	}
 	exportsTraces := pf.ignoreOtel && fi != nil && fi.ExportsOTelTraces()
-	if err := pf.otelTracesPIDFilter(pid, exportsTraces); err != nil {
+	if err := pf.tpFilter.update(pid, exportsTraces); err != nil {
 		pf.log.Error("updating the trace-exporting PID filter", "pid", pid, "error", err)
+	} else {
+		pf.tpFilter.marked[pid] = struct{}{}
 	}
 }
 
-func (pf *PIDsFilter) syncOTelTracesPID(span *request.Span, fi *exec.FileInfo) {
-	if pf.otelTracesPIDFilter == nil {
+func (pf *PIDsFilter) removeOTelTracesPID(pid app.PID) {
+	if pf.tpFilter == nil {
 		return
 	}
+	pf.tpFilter.update(pid, false)
+	delete(pf.tpFilter.marked, pid)
+}
+
+func (pf *PIDsFilter) syncOTelTracesPID(span *request.Span, fi *exec.FileInfo) {
+	if pf.tpFilter == nil {
+		return
+	}
+
 	info := pf.current[span.Pid.Namespace][span.Pid.UserPID]
 	if info.removedAt != 0 || info.fileInfo != fi || len(info.otherKnownPids) == 0 {
 		return
 	}
-	pf.updateOTelTracesPID(info.otherKnownPids[0], fi)
+
+	// otherknown pids first element should be the highest visible PID
+	pid := info.otherKnownPids[0]
+	if _, ok := pf.tpFilter.marked[pid]; ok {
+		return
+	}
+
+	pf.updateOTelTracesPID(pid, fi)
 }
 
 func (pf *PIDsFilter) ValidPID(userPID app.PID, ns uint32, pidType PIDType) bool {
@@ -376,6 +405,7 @@ func (pf *PIDsFilter) removePID(pid app.PID, nsid uint32) {
 	markAsRemoved(pid)
 
 	pf.pruneExpired()
+	pf.removeOTelTracesPID(pid)
 }
 
 // AllowForkedChild files a forked child's spans under its parent until discovery registers it
