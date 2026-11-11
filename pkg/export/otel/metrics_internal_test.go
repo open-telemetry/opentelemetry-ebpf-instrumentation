@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"go.opentelemetry.io/otel/metric/noop"
 	"go.opentelemetry.io/otel/sdk/instrumentation"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	metricdata "go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -71,6 +72,7 @@ func TestInternalMetricsReporterWithProvider(t *testing.T) {
 		&imetrics.InternalMetricsConfig{BpfMetricScrapeInterval: time.Millisecond},
 	)
 	require.NoError(t, err)
+	assert.Equal(t, time.Millisecond, reporter.BpfInternalMetricsScrapeInterval())
 
 	reporter.QueueBufferUtilization("traces", 0.42)
 	reporter.BpfProbeStats("7", "kprobe", "tcp_connect", 3, 0.0003, map[float64]uint64{0.0001: 3})
@@ -104,6 +106,17 @@ func TestInternalMetricsReporterWithProvider(t *testing.T) {
 	// The provider belongs to the caller, so the reporter must not shut it down.
 	require.NoError(t, reporter.Shutdown(t.Context()))
 	require.NoError(t, reader.Collect(t.Context(), &rm))
+}
+
+func TestInternalMetricsReporterWithNoopProvider(t *testing.T) {
+	reporter, err := NewInternalMetricsReporterWithProvider(
+		t.Context(),
+		noop.NewMeterProvider(),
+		&imetrics.InternalMetricsConfig{BpfMetricScrapeInterval: time.Millisecond},
+	)
+	require.NoError(t, err)
+
+	assert.Zero(t, reporter.BpfInternalMetricsScrapeInterval())
 }
 
 func TestBpfProbeLatencyProducerDeltaTemporality(t *testing.T) {

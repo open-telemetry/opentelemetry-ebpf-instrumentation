@@ -8,6 +8,7 @@ import (
 	"context"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 )
 
@@ -63,6 +64,8 @@ type InternalMetricsConfig struct {
 	// MeterProvider, when set, receives the internal metrics instead of an exporter.
 	// The Collector receiver sets it to the Collector service telemetry.
 	MeterProvider metric.MeterProvider `yaml:"-" env:"-"`
+	// MeterAttributes identify this reporter among the users of MeterProvider.
+	MeterAttributes []attribute.KeyValue `yaml:"-" env:"-"`
 }
 
 // Reporter of internal metrics

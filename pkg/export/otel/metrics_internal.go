@@ -103,7 +103,7 @@ func NewInternalMetricsReporterWithProvider(ctx context.Context, provider instru
 	// A Producer can only be attached to an SDK reader, so a caller-owned provider gets the
 	// count and sum of the probe latency histogram as counters instead.
 	internalNames := attributes.NewInternalMetrics(attr.VendorPrefix)
-	meter := internalMeter(provider)
+	meter := internalMeter(provider, internalMetrics.MeterAttributes)
 	reporter.bpfProbeExecutions, err = meter.Int64Counter(
 		internalNames.BpfProbeExecutions.OTEL,
 		instrument.WithDescription("Total number of eBPF probe executions"),
@@ -122,7 +122,22 @@ func NewInternalMetricsReporterWithProvider(ctx context.Context, provider instru
 		return nil, err
 	}
 
+	// With a no-op provider, such as the Collector's for metrics level none, nothing the BPF
+	// collector reports would be recorded, so keep it from enabling the kernel BPF stats.
+	if !reporter.bpfMetricsEnabled(ctx) {
+		reporter.bpfInternalMetricsScrapeInterval = 0
+	}
+
 	return reporter, nil
+}
+
+func (p *InternalMetricsReporter) bpfMetricsEnabled(ctx context.Context) bool {
+	return p.bpfProbeExecutions.Enabled(ctx) ||
+		p.bpfProbeTime.Enabled(ctx) ||
+		p.bpfMapEntries.Enabled(ctx) ||
+		p.bpfMapMaxEntries.Enabled(ctx) ||
+		p.bpfRingbufWrites.Enabled(ctx) ||
+		p.bpfRingbufFailures.Enabled(ctx)
 }
 
 func newInternalMetricsReporter(
@@ -134,7 +149,7 @@ func newInternalMetricsReporter(
 	internalNames := attributes.NewInternalMetrics(attr.VendorPrefix)
 	internalAttrs := attr.NewInternalAttributes(attr.VendorPrefix)
 
-	meter := internalMeter(provider)
+	meter := internalMeter(provider, internalMetrics.MeterAttributes)
 	tracerFlushes, err := meter.Float64Histogram(
 		internalNames.TracerFlushes.OTEL,
 		instrument.WithDescription("Length of the groups of traces flushed from the eBPF tracer to the next pipeline stage"),
@@ -309,10 +324,11 @@ func newInternalMetricsReporter(
 	}, nil
 }
 
-func internalMeter(provider instrument.MeterProvider) instrument.Meter {
+func internalMeter(provider instrument.MeterProvider, attrs []attribute.KeyValue) instrument.Meter {
 	return provider.Meter(internalMetricsMeterName,
 		instrument.WithInstrumentationVersion(attr.TelemetryDistroVersion()),
 		instrument.WithSchemaURL(attr.OBISchemaURL),
+		instrument.WithInstrumentationAttributes(attrs...),
 	)
 }
 

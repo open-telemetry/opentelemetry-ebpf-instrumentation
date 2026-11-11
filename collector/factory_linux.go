@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/collector/consumer"
 	"go.opentelemetry.io/collector/pipeline"
 	"go.opentelemetry.io/collector/receiver"
+	"go.opentelemetry.io/otel/attribute"
 
 	"go.opentelemetry.io/obi/collector/internal"
 	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
@@ -29,6 +30,19 @@ func initLogger(rs receiver.Settings) {
 		slog.SetDefault(slog.New(zapslog.NewHandler(rs.Logger.Core())))
 		klogbridge.Install()
 	})
+}
+
+// componentIDKey is the scope attribute that the Collector's telemetry.newPipelineTelemetry
+// feature gate adds to identify a component. Setting it here keeps the internal metrics of
+// several OBI receivers apart while the gate is disabled, and matches what the gate adds.
+const componentIDKey = "otelcol.component.id"
+
+// useServiceTelemetry reports the OBI internal metrics through the Collector service telemetry.
+func useServiceTelemetry(cfg *obi.Config, rs receiver.Settings) {
+	cfg.InternalMetrics.MeterProvider = rs.MeterProvider
+	cfg.InternalMetrics.MeterAttributes = []attribute.KeyValue{
+		attribute.String(componentIDKey, rs.ID.String()),
+	}
 }
 
 func BuildTracesReceiver() receiver.CreateTracesFunc {
@@ -50,7 +64,7 @@ func BuildTracesReceiver() receiver.CreateTracesFunc {
 			v2 = receiverCfg.v2
 		}
 		if v2 {
-			cfg.InternalMetrics.MeterProvider = rs.MeterProvider
+			useServiceTelemetry(cfg, rs)
 		}
 		return internal.NewController(rs.ID, cfg, v2, pipeline.SignalTraces)
 	}
@@ -75,7 +89,7 @@ func BuildMetricsReceiver() receiver.CreateMetricsFunc {
 			v2 = receiverCfg.v2
 		}
 		if v2 {
-			cfg.InternalMetrics.MeterProvider = rs.MeterProvider
+			useServiceTelemetry(cfg, rs)
 		}
 		return internal.NewController(rs.ID, cfg, v2, pipeline.SignalMetrics)
 	}
@@ -100,7 +114,7 @@ func BuildLogsReceiver() receiver.CreateLogsFunc {
 			v2 = receiverCfg.v2
 		}
 		if v2 {
-			cfg.InternalMetrics.MeterProvider = rs.MeterProvider
+			useServiceTelemetry(cfg, rs)
 		}
 		return internal.NewController(rs.ID, cfg, v2, pipeline.SignalLogs)
 	}
