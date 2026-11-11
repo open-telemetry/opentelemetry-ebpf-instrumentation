@@ -318,6 +318,15 @@
       "allowedVersions": "/^3\\.14(\\.|-|$)/"
     },
     {
+      "description": "Keep ZooKeeper-based Kafka test fixtures on the 3.9 release line",
+      "matchManagers": ["docker-compose"],
+      "matchFileNames": ["internal/test/**"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["bitnamilegacy/kafka", "docker.io/bitnamilegacy/kafka"],
+      "matchCurrentValue": "/^3\\.9(\\.|$)/",
+      "allowedVersions": "/^3\\.9(\\.|$)/"
+    },
+    {
       "description": "Keep MongoDB fixtures on 7.x until MongoDB 8+ supports the CI kernels (SERVER-121912)",
       "matchFileNames": [
         "internal/test/integration/components/mongo/Dockerfile",
