@@ -699,6 +699,10 @@ An unprivileged container has its own cgroup namespace, so its `/sys/fs/cgroup` 
 Mount the host hierarchy at another path, for example `/host/sys/fs/cgroup`, and set it here to propagate context for connections from every process on the node without hiding the container's own cgroup.
 If omitted, the hierarchy is detected automatically. This field is available through Config v2 only.
 
+`capture.engine.propagation.disable_go_channel_links` stops OBI from attaching the Go channel probes (`runtime.chansend1`, `runtime.chanrecv1` and `runtime.chanrecv2`) that link spans across goroutines.
+These probes run on every channel send and receive, which can add notable kernel CPU to busy Go services. Setups that only export metrics do not need these links.
+If omitted, false is used. This field is available through Config v2 only.
+
 **Why `engine`, not `capture.capture`**
 
 Earlier drafts named this sub-section `capture` (i.e., `operations.capture`), which would have produced the awkward path `capture.capture.*` after the restructure.
@@ -866,7 +870,6 @@ Important mapping notes:
 | `ebpf.context_propagation` | `extensions.obi.capture.engine.propagation.context_propagation` | Move |
 | `ebpf.couchbase_db_cache_size` | `extensions.obi.capture.instrumentation.couchbase.db_cache_size` | Move |
 | `ebpf.disable_black_box_cp` | `extensions.obi.capture.engine.propagation.disable_black_box_cp` | Move |
-| `ebpf.disable_go_channel_links` | `extensions.obi.capture.engine.propagation.disable_go_channel_links` | Move |
 | `ebpf.populate_trace_context` | `extensions.obi.capture.engine.propagation.populate_trace_context` | Move |
 | `ebpf.dns_request_timeout` | `extensions.obi.capture.instrumentation.dns.request_timeout` | Move |
 | `ebpf.force_bpf_map_reader` | `extensions.obi.capture.engine.traffic.force_map_reader` | Move + rename |
