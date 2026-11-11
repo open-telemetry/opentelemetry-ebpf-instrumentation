@@ -904,6 +904,109 @@ func TestAppMetrics_DBClientAttributes(t *testing.T) {
 	assert.Equal(t, "5432", records[0].Attributes[string(attr.ServerPort)])
 }
 
+func TestAppMetrics_HTTPProtocolVersion(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		selection       attributes.Selection
+		durationVersion bool
+		bodySizeVersion bool
+	}{
+		{name: "default", bodySizeVersion: true},
+		{
+			name: "included",
+			selection: attributes.Selection{
+				"http.*": {Include: []string{string(attr.NetworkProtocolVersion)}},
+			},
+			durationVersion: true,
+			bodySizeVersion: true,
+		},
+		{
+			name: "excluded",
+			selection: attributes.Selection{
+				"http.*": {Exclude: []string{string(attr.NetworkProtocolVersion)}},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			features := export.FeatureApplicationRED | export.FeatureApplicationSizes
+			ctx := t.Context()
+			metricRecords := make(chan collector.MetricRecord, 256)
+			metrics := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(10))
+			mcfg := &otelcfg.MetricsConfig{
+				Interval:          50 * time.Millisecond,
+				TTL:               30 * time.Minute,
+				ReportersCacheLen: 10,
+				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+				MetricsExport:     testMetricsConsumer(metricRecords),
+			}
+			tc.selection.Normalize()
+			reporter, err := newMetricsReporter(
+				ctx,
+				&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
+				mcfg,
+				&perapp.GlobalMetricsConfig{Features: features},
+				&attributes.SelectorConfig{SelectionCfg: tc.selection, UseV2Selection: true},
+				request.UnresolvedNames{}, metrics, processEvents,
+			)
+			require.NoError(t, err)
+			go reporter.reportMetrics(ctx)
+
+			versions := []request.ProtoVersion{
+				request.ProtoVersionHTTP10, request.ProtoVersionHTTP11, request.ProtoVersionHTTP2, request.ProtoVersionUnknown,
+			}
+			var spans []request.Span
+			for _, version := range versions {
+				for _, event := range []request.EventType{request.EventTypeHTTP, request.EventTypeHTTPClient} {
+					spans = append(spans, request.Span{
+						Service: svc.Attrs{Features: features, UID: svc.UID{Instance: "foo"}},
+						Type:    event, ProtoVersion: version, Method: "GET", Status: 200,
+						RequestStart: 100, End: 200, ContentLength: 512,
+					})
+				}
+			}
+			metrics.Send(spans)
+
+			pending := map[string]int{}
+			for _, name := range []attributes.Name{
+				attributes.HTTPServerDuration, attributes.HTTPServerRequestSize, attributes.HTTPServerResponseSize,
+				attributes.HTTPClientDuration, attributes.HTTPClientRequestSize, attributes.HTTPClientResponseSize,
+			} {
+				versionEnabled := tc.bodySizeVersion
+				if name == attributes.HTTPServerDuration || name == attributes.HTTPClientDuration {
+					versionEnabled = tc.durationVersion
+				}
+				if !versionEnabled {
+					pending[name.OTEL+"/"] = len(versions)
+					continue
+				}
+				for _, version := range versions {
+					pending[name.OTEL+"/"+version.String()] = 1
+				}
+			}
+			deadline := time.After(timeout)
+			for len(pending) > 0 {
+				select {
+				case record := <-metricRecords:
+					version := record.Attributes[string(attr.NetworkProtocolVersion)]
+					key := record.Name + "/" + version
+					want, ok := pending[key]
+					if !ok || record.Count < want {
+						continue
+					}
+					assert.Equal(t, want, record.Count, key)
+					if version == "" {
+						assert.NotContains(t, record.Attributes, string(attr.NetworkProtocolVersion), key)
+					}
+					delete(pending, key)
+				case <-deadline:
+					require.Failf(t, "timeout while waiting for metric records", "missing: %v", pending)
+				}
+			}
+		})
+	}
+}
+
 func TestAppMetrics_HTTPErrorType(t *testing.T) {
 	features := export.FeatureApplicationRED | export.FeatureApplicationSizes
 	ctx := t.Context()

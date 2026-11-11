@@ -648,6 +648,7 @@ OBI-emitted http.client.request.body.size
 | `error.type` | string | `conditionally_required`: if the request ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
 | `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
+| `network.protocol.version` | string | `recommended` | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
 | `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 | `url.scheme` | string | `recommended` | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
@@ -666,6 +667,7 @@ OBI-emitted http.client.request.duration
 | `error.type` | string | `conditionally_required`: if the request ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
 | `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
+| `network.protocol.version` | string | `opt_in` | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
 | `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 | `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
@@ -685,6 +687,7 @@ OBI-emitted http.client.response.body.size
 | `error.type` | string | `conditionally_required`: if the request ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
 | `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
+| `network.protocol.version` | string | `recommended` | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
 | `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
 | `url.scheme` | string | `recommended` | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
@@ -704,6 +707,7 @@ OBI-emitted http.server.request.body.size
 | `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
 | `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
 | `http.route` | string | `conditionally_required`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
+| `network.protocol.version` | string | `recommended` | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
 | `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
 | `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
@@ -723,6 +727,7 @@ OBI-emitted http.server.request.duration
 | `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
 | `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
 | `http.route` | string | `conditionally_required`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
+| `network.protocol.version` | string | `opt_in` | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
 | `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
 | `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
@@ -742,6 +747,7 @@ OBI-emitted http.server.response.body.size
 | `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
 | `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
 | `http.route` | string | `conditionally_required`: if route collection is enabled and the route was matched | stable | The matched route template for the request. This MUST be low-cardinality and include all static path segments, with dynamic path segments represented with placeholders. | /users/:userID?; my-controller/my-action/{id?} |
+| `network.protocol.version` | string | `recommended` | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
 | `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
 | `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
