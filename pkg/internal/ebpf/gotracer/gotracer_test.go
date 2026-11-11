@@ -24,10 +24,13 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -103,6 +106,54 @@ func TestRingbufMetricsConstant(t *testing.T) {
 
 	tracer = New(nil, &obi.Config{}, struct{ imetrics.NoopReporter }{})
 	assert.Equal(t, true, tracer.constants()["ringbuf_metrics_enabled"])
+}
+
+func TestHTTPServerActiveRequestsConstant(t *testing.T) {
+	disableContextPropagationForTest(t)
+
+	tests := []struct {
+		name            string
+		globalFeatures  export.Features
+		serviceFeatures export.Features
+		want            bool
+	}{
+		{
+			name: "disabled by default",
+			want: false,
+		},
+		{
+			name:           "enabled globally",
+			globalFeatures: export.FeatureHTTPServerActiveRequests,
+			want:           true,
+		},
+		{
+			name:            "enabled per service",
+			serviceFeatures: export.FeatureHTTPServerActiveRequests,
+			want:            true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := obi.DefaultConfig
+			cfg.Metrics.Features |= tt.globalFeatures
+
+			if tt.serviceFeatures != 0 {
+				cfg.Discovery.Instrument = services.GlobDefinitionCriteria{
+					{
+						Metrics: perapp.SvcMetricsConfig{
+							Features: tt.serviceFeatures,
+						},
+					},
+				}
+			}
+
+			tracer := New(nil, &cfg, nil)
+
+			assert.Equal(t, tt.want,
+				tracer.constants()["g_http_server_active_requests_enabled"])
+		})
+	}
 }
 
 func TestSetFramerPaddingOffsetUsesExactLayout(t *testing.T) {

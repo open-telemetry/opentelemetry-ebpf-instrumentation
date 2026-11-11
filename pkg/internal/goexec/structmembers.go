@@ -260,6 +260,7 @@ const (
 	GrpcSyscallConnTypeAddress
 	TLSConnTypeAddress
 	TCPConnTypeAddress
+	ReqTLSPos
 )
 
 //go:embed offsets.json
@@ -313,6 +314,7 @@ var structMembers = map[string]structInfo{
 			"Header":        ReqHeaderPtrPos,
 			"ProtoMajor":    ReqProtoMajorPos,
 			"ProtoMinor":    ReqProtoMinorPos,
+			"TLS":           ReqTLSPos,
 		},
 	},
 	"net/url.URL": {

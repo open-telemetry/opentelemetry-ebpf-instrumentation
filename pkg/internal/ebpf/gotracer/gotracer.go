@@ -321,6 +321,7 @@ type Tracer struct {
 	supportsBPFLoop                   bool
 	traceCtxMapEnabled                bool
 	runtimeMetricsEnabled             bool
+	httpServerActiveRequestsEnabled   bool
 	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfoT
 	pidSamplers                       ebpfcommon.PIDSamplers
 	goChannelOffsetsByExecutable      map[executableIdentity]bool
@@ -364,6 +365,7 @@ func New(
 		supportsBPFLoop:                   ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
 		traceCtxMapEnabled:                cfg.PopulateTraceContext(),
 		runtimeMetricsEnabled:             cfg.AppRuntimeMetricsEnabled(),
+		httpServerActiveRequestsEnabled:   cfg.JoinMetricsConfig().Features.HTTPServerActiveRequests(),
 		runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfoT{},
 		goChannelOffsetsByExecutable:      map[executableIdentity]bool{},
 		goRuntimeMetricMaskByExecutable:   map[executableIdentity]uint64{},
@@ -511,26 +513,27 @@ func (p *Tracer) constants() map[string]any {
 	}
 
 	m := map[string]any{
-		"g_bpf_debug":                    p.cfg.BpfDebug,
-		"g_bpf_header_propagation":       p.cfg.ContextPropagation.HasHeaders(),
-		"g_bpf_probe_write_user_enabled": p.supportsContextPropagation(),
-		"g_go_h2_write_fail_step":        goH2WriteFailStepForTest,
-		"wakeup_data_bytes":              uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
-		"ringbuf_metrics_enabled":        p.metrics != nil && !imetrics.IsBuiltinNoopReporter(p.metrics),
-		"disable_black_box_cp":           blackBoxCP,
-		"attr_type_invalid":              uint64(attribute.INVALID),
-		"attr_type_bool":                 uint64(attribute.BOOL),
-		"attr_type_int64":                uint64(attribute.INT64),
-		"attr_type_float64":              uint64(attribute.FLOAT64),
-		"attr_type_string":               uint64(attribute.STRING),
-		"attr_type_boolslice":            uint64(attribute.BOOLSLICE),
-		"attr_type_int64slice":           uint64(attribute.INT64SLICE),
-		"attr_type_float64slice":         uint64(attribute.FLOAT64SLICE),
-		"attr_type_stringslice":          uint64(attribute.STRINGSLICE),
-		"g_bpf_traceparent_enabled":      true,
-		"g_bpf_loop_enabled":             p.supportsBPFLoop,
-		"g_traces_ctx_v1_enabled":        p.traceCtxMapEnabled,
-		"g_exceptions_enabled":           p.exceptionsEnabled,
+		"g_bpf_debug":                           p.cfg.BpfDebug,
+		"g_bpf_header_propagation":              p.cfg.ContextPropagation.HasHeaders(),
+		"g_bpf_probe_write_user_enabled":        p.supportsContextPropagation(),
+		"g_go_h2_write_fail_step":               goH2WriteFailStepForTest,
+		"wakeup_data_bytes":                     uint32(p.cfg.WakeupLen) * uint32(unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{})),
+		"ringbuf_metrics_enabled":               p.metrics != nil && !imetrics.IsBuiltinNoopReporter(p.metrics),
+		"disable_black_box_cp":                  blackBoxCP,
+		"attr_type_invalid":                     uint64(attribute.INVALID),
+		"attr_type_bool":                        uint64(attribute.BOOL),
+		"attr_type_int64":                       uint64(attribute.INT64),
+		"attr_type_float64":                     uint64(attribute.FLOAT64),
+		"attr_type_string":                      uint64(attribute.STRING),
+		"attr_type_boolslice":                   uint64(attribute.BOOLSLICE),
+		"attr_type_int64slice":                  uint64(attribute.INT64SLICE),
+		"attr_type_float64slice":                uint64(attribute.FLOAT64SLICE),
+		"attr_type_stringslice":                 uint64(attribute.STRINGSLICE),
+		"g_bpf_traceparent_enabled":             true,
+		"g_bpf_loop_enabled":                    p.supportsBPFLoop,
+		"g_traces_ctx_v1_enabled":               p.traceCtxMapEnabled,
+		"g_exceptions_enabled":                  p.exceptionsEnabled,
+		"g_http_server_active_requests_enabled": p.httpServerActiveRequestsEnabled,
 	}
 
 	if p.cfg.TrackRequestHeaders ||
@@ -571,6 +574,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.ReqProtoMinorPos,
 		goexec.RespProtoMajorPos,
 		goexec.RespProtoMinorPos,
+		goexec.ReqTLSPos,
 	})
 	offTable.Table[goexec.FramerPadLengthStackPos] = missingGoOffset
 	offTable.Table[goexec.FramerPadLengthStackVendoredPos] = missingGoOffset
@@ -594,6 +598,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.ReqHeaderPtrPos,
 		goexec.ReqProtoMajorPos,
 		goexec.ReqProtoMinorPos,
+		goexec.ReqTLSPos,
 		goexec.RespProtoMajorPos,
 		goexec.RespProtoMinorPos,
 		goexec.IoWriterBufPtrPos,
