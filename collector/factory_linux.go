@@ -40,9 +40,7 @@ const componentIDKey = "otelcol.component.id"
 // useServiceTelemetry reports the OBI internal metrics through the Collector service telemetry.
 func useServiceTelemetry(cfg *obi.Config, rs receiver.Settings) {
 	cfg.InternalMetrics.MeterProvider = rs.MeterProvider
-	cfg.InternalMetrics.MeterAttributes = []attribute.KeyValue{
-		attribute.String(componentIDKey, rs.ID.String()),
-	}
+	cfg.InternalMetrics.MeterAttributes = attribute.NewSet(attribute.String(componentIDKey, rs.ID.String()))
 }
 
 func BuildTracesReceiver() receiver.CreateTracesFunc {

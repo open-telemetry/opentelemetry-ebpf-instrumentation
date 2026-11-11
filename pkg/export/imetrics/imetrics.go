@@ -65,7 +65,7 @@ type InternalMetricsConfig struct {
 	// The Collector receiver sets it to the Collector service telemetry.
 	MeterProvider metric.MeterProvider `yaml:"-" env:"-"`
 	// MeterAttributes identify this reporter among the users of MeterProvider.
-	MeterAttributes []attribute.KeyValue `yaml:"-" env:"-"`
+	MeterAttributes attribute.Set `yaml:"-" env:"-"`
 }
 
 // Reporter of internal metrics

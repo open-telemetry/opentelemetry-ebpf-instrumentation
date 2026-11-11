@@ -324,11 +324,11 @@ func newInternalMetricsReporter(
 	}, nil
 }
 
-func internalMeter(provider instrument.MeterProvider, attrs []attribute.KeyValue) instrument.Meter {
+func internalMeter(provider instrument.MeterProvider, attrs attribute.Set) instrument.Meter {
 	return provider.Meter(internalMetricsMeterName,
 		instrument.WithInstrumentationVersion(attr.TelemetryDistroVersion()),
 		instrument.WithSchemaURL(attr.OBISchemaURL),
-		instrument.WithInstrumentationAttributes(attrs...),
+		instrument.WithInstrumentationAttributeSet(attrs),
 	)
 }
 
