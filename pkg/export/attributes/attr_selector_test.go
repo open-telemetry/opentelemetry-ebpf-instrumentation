@@ -358,15 +358,19 @@ func TestDefault_HTTPServerMetrics(t *testing.T) {
 	p, err := NewAttrSelector(0, &SelectorConfig{})
 	require.NoError(t, err)
 	for _, def := range []Name{HTTPServerDuration, HTTPServerRequestSize, HTTPServerResponseSize} {
-		assert.Equal(t, []attr.Name{
+		expected := []attr.Name{
 			attr.ErrorType,
 			attr.HTTPRequestMethod,
 			attr.HTTPResponseStatusCode,
-			attr.NetworkProtocolVersion,
 			attr.ServerAddr,
 			attr.ServerPort,
 			attr.HTTPURLScheme,
-		}, p.For(def), def.Section)
+		}
+		if def != HTTPServerDuration {
+			expected = append(expected, attr.NetworkProtocolVersion)
+			slices.Sort(expected)
+		}
+		assert.Equal(t, expected, p.For(def), def.Section)
 	}
 }
 
@@ -374,15 +378,19 @@ func TestDefault_HTTPClientMetrics(t *testing.T) {
 	p, err := NewAttrSelector(0, &SelectorConfig{})
 	require.NoError(t, err)
 	for _, def := range []Name{HTTPClientDuration, HTTPClientRequestSize, HTTPClientResponseSize} {
-		assert.Equal(t, []attr.Name{
+		expected := []attr.Name{
 			attr.ErrorType,
 			attr.HTTPRequestMethod,
 			attr.HTTPResponseStatusCode,
-			attr.NetworkProtocolVersion,
 			attr.ServerAddr,
 			attr.ServerPort,
 			attr.HTTPURLScheme,
-		}, p.For(def), def.Section)
+		}
+		if def != HTTPClientDuration {
+			expected = append(expected, attr.NetworkProtocolVersion)
+			slices.Sort(expected)
+		}
+		assert.Equal(t, expected, p.For(def), def.Section)
 	}
 }
 

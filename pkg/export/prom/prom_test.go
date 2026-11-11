@@ -253,18 +253,35 @@ func TestAppMetrics_BodySizeFeature(t *testing.T) {
 }
 
 func TestAppMetrics_HTTPProtocolVersion(t *testing.T) {
-	for _, excluded := range []bool{false, true} {
-		t.Run(fmt.Sprintf("excluded=%v", excluded), func(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		selection       attributes.Selection
+		durationVersion bool
+		bodySizeVersion bool
+	}{
+		{name: "default", bodySizeVersion: true},
+		{
+			name: "included",
+			selection: attributes.Selection{
+				"http.*": {Include: []string{string(attr.NetworkProtocolVersion)}},
+			},
+			durationVersion: true,
+			bodySizeVersion: true,
+		},
+		{
+			name: "excluded",
+			selection: attributes.Selection{
+				"http.*": {Exclude: []string{string(attr.NetworkProtocolVersion)}},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			features := export.FeatureApplicationRED | export.FeatureApplicationSizes
 			ctx := t.Context()
 			registry, promURL := newPrometheusTestServer(t)
 			promInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
 			processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
-			selection := attributes.Selection{}
-			if excluded {
-				selection["http.*"] = attributes.InclusionLists{Exclude: []string{string(attr.NetworkProtocolVersion)}}
-				selection.Normalize()
-			}
+			tc.selection.Normalize()
 			exporter, err := PrometheusEndpoint(
 				&global.ContextInfo{Prometheus: registry.Manager},
 				&PrometheusConfig{
@@ -275,7 +292,7 @@ func TestAppMetrics_HTTPProtocolVersion(t *testing.T) {
 					Instrumentations:            []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 				},
 				&perapp.GlobalMetricsConfig{Features: features},
-				&attributes.SelectorConfig{SelectionCfg: selection, UseV2Selection: true},
+				&attributes.SelectorConfig{SelectionCfg: tc.selection, UseV2Selection: true},
 				request.UnresolvedNames{}, promInput, processEvents, nil,
 			)(ctx)
 			require.NoError(t, err)
@@ -298,15 +315,17 @@ func TestAppMetrics_HTTPProtocolVersion(t *testing.T) {
 
 			require.EventuallyWithT(t, func(ct *assert.CollectT) {
 				exported := getMetrics(ct, promURL)
-				if excluded {
-					assert.NotContains(ct, exported, "network_protocol_version=")
-				}
 				for _, name := range []attributes.Name{
 					attributes.HTTPServerDuration, attributes.HTTPServerRequestSize, attributes.HTTPServerResponseSize,
 					attributes.HTTPClientDuration, attributes.HTTPClientRequestSize, attributes.HTTPClientResponseSize,
 				} {
+					versionEnabled := tc.bodySizeVersion
+					if name == attributes.HTTPServerDuration || name == attributes.HTTPClientDuration {
+						versionEnabled = tc.durationVersion
+					}
 					count := regexp.QuoteMeta(name.Prom) + `_count\{[^}]*`
-					if excluded {
+					if !versionEnabled {
+						assert.NotRegexp(ct, count+`network_protocol_version=`, exported)
 						assert.Regexp(ct, count+`\} 4(\n|$)`, exported)
 						continue
 					}

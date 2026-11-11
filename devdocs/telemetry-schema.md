@@ -110,11 +110,11 @@ published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
-- HTTP duration and body-size metrics include `network.protocol.version` by default when
-  the protocol version is known. The Prometheus exporter adds `network_protocol_version`
-  as a label, separating series by HTTP version; unknown versions have an empty label.
-  To retain the previous dimensions, exclude `network.protocol.version` through
-  `attributes.select` for `http.*`.
+- HTTP metrics support `network.protocol.version` (`network_protocol_version` in
+  Prometheus). It is opt-in on the stable duration metrics to preserve existing series,
+  and enabled by default on the development body-size metrics. Select it through
+  `attributes.select` to split duration series by HTTP version. When selected, unknown
+  versions are omitted from OTLP attributes and use an empty Prometheus label.
 
 - A SQL++ span from a server other than Couchbase (`db.system.name` `other_sql`) that names no
   collection or bucket is named `{db.operation.name}`, like other SQL spans, instead of

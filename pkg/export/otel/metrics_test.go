@@ -905,8 +905,29 @@ func TestAppMetrics_DBClientAttributes(t *testing.T) {
 }
 
 func TestAppMetrics_HTTPProtocolVersion(t *testing.T) {
-	for _, excluded := range []bool{false, true} {
-		t.Run(fmt.Sprintf("excluded=%v", excluded), func(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		selection       attributes.Selection
+		durationVersion bool
+		bodySizeVersion bool
+	}{
+		{name: "default", bodySizeVersion: true},
+		{
+			name: "included",
+			selection: attributes.Selection{
+				"http.*": {Include: []string{string(attr.NetworkProtocolVersion)}},
+			},
+			durationVersion: true,
+			bodySizeVersion: true,
+		},
+		{
+			name: "excluded",
+			selection: attributes.Selection{
+				"http.*": {Exclude: []string{string(attr.NetworkProtocolVersion)}},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			features := export.FeatureApplicationRED | export.FeatureApplicationSizes
 			ctx := t.Context()
 			metricRecords := make(chan collector.MetricRecord, 256)
@@ -919,17 +940,13 @@ func TestAppMetrics_HTTPProtocolVersion(t *testing.T) {
 				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
 				MetricsExport:     testMetricsConsumer(metricRecords),
 			}
-			selection := attributes.Selection{}
-			if excluded {
-				selection["http.*"] = attributes.InclusionLists{Exclude: []string{string(attr.NetworkProtocolVersion)}}
-				selection.Normalize()
-			}
+			tc.selection.Normalize()
 			reporter, err := newMetricsReporter(
 				ctx,
 				&global.ContextInfo{OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: mcfg}},
 				mcfg,
 				&perapp.GlobalMetricsConfig{Features: features},
-				&attributes.SelectorConfig{SelectionCfg: selection, UseV2Selection: true},
+				&attributes.SelectorConfig{SelectionCfg: tc.selection, UseV2Selection: true},
 				request.UnresolvedNames{}, metrics, processEvents,
 			)
 			require.NoError(t, err)
@@ -955,7 +972,11 @@ func TestAppMetrics_HTTPProtocolVersion(t *testing.T) {
 				attributes.HTTPServerDuration, attributes.HTTPServerRequestSize, attributes.HTTPServerResponseSize,
 				attributes.HTTPClientDuration, attributes.HTTPClientRequestSize, attributes.HTTPClientResponseSize,
 			} {
-				if excluded {
+				versionEnabled := tc.bodySizeVersion
+				if name == attributes.HTTPServerDuration || name == attributes.HTTPClientDuration {
+					versionEnabled = tc.durationVersion
+				}
+				if !versionEnabled {
 					pending[name.OTEL+"/"] = len(versions)
 					continue
 				}
