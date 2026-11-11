@@ -124,7 +124,9 @@ func looksLikeAnthropicHTTP1Body(reqB, respB []byte) bool {
 }
 
 // startsWithAnthropicMessageStart reports whether the first SSE event of respB
-// is message_start. Comment, id and retry lines may precede the event name.
+// is message_start. Only the first responseHeaderSearchWindow bytes are
+// examined: comment, id and retry lines may precede the event, but an event
+// line that ends outside that window does not match.
 func startsWithAnthropicMessageStart(respB []byte) bool {
 	if len(respB) > responseHeaderSearchWindow {
 		respB = respB[:responseHeaderSearchWindow]
