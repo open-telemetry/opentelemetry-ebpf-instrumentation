@@ -766,6 +766,12 @@
           "default": false,
           "x-env-var": "OTEL_EBPF_BPF_DISABLE_BLACK_BOX_CP"
         },
+        "disable_go_channel_links": {
+          "type": "boolean",
+          "description": "Disables the Go channel probes (runtime.chansend1, runtime.chanrecv1, runtime.chanrecv2) that link spans across goroutines. They run on every channel send and receive, which can add notable kernel CPU to busy Go services. Setups that only export metrics do not need these links.",
+          "default": false,
+          "x-env-var": "OTEL_EBPF_BPF_DISABLE_GO_CHANNEL_LINKS"
+        },
         "dns_request_timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
