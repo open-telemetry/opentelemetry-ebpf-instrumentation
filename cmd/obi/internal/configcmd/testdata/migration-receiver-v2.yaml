@@ -351,6 +351,7 @@ engine:
         context_propagation: disabled
         override_bpfloop_enabled: false
         disable_black_box_cp: false
+        disable_go_channel_links: false
         populate_trace_context: false
     traffic:
         control_backend: auto

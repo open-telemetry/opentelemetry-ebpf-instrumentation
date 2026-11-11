@@ -1181,6 +1181,7 @@ func applyFullV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	cfg.EBPF.ContextPropagation = engine.Propagation.ContextPropagation
 	cfg.EBPF.OverrideBPFLoopEnabled = engine.Propagation.OverrideBPFLoopEnabled
 	cfg.EBPF.DisableBlackBoxCP = engine.Propagation.DisableBlackBoxCP
+	cfg.EBPF.DisableGoChannelLinks = engine.Propagation.DisableGoChannelLinks
 	cfg.EBPF.PopulateTraceContext = engine.Propagation.PopulateTraceContext
 	cfg.EBPF.TCBackend = engine.Traffic.ControlBackend
 	cfg.EBPF.HighRequestVolume = engine.Traffic.HighRequestVolume
@@ -1221,6 +1222,9 @@ func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	}
 	if engine.Propagation.DisableBlackBoxCP {
 		cfg.EBPF.DisableBlackBoxCP = true
+	}
+	if engine.Propagation.DisableGoChannelLinks {
+		cfg.EBPF.DisableGoChannelLinks = true
 	}
 	if engine.Propagation.PopulateTraceContext {
 		cfg.EBPF.PopulateTraceContext = true
