@@ -99,7 +99,8 @@ type EBPFTracer struct {
 	// Disables the Go channel probes (runtime.chansend1, runtime.chanrecv1, runtime.chanrecv2) that
 	// link spans across goroutines. They run on every channel send and receive, which can add notable
 	// kernel CPU to busy Go services. Setups that only export metrics do not need these links.
-	DisableGoChannelLinks bool `yaml:"disable_go_channel_links" env:"OTEL_EBPF_BPF_DISABLE_GO_CHANNEL_LINKS" validate:"boolean"`
+	// Loaded from Config v2 only.
+	DisableGoChannelLinks bool `yaml:"-" env:"-"`
 
 	// Optimizes for getting requests information immediately when request response is seen
 	HighRequestVolume bool `yaml:"high_request_volume" env:"OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME" validate:"boolean"`
