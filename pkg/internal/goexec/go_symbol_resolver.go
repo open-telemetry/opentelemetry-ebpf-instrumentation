@@ -44,7 +44,7 @@ type GoSymbolResolver struct {
 func (r *GoSymbolResolver) runtimeTextBase() (uint64, error) {
 	r.textOnce.Do(func() {
 		section := r.executable.Section(".gopclntab")
-		moduledata, modErr := newInspection(r.executable).moduledata()
+		moduledata, modErr := standaloneModuledata(r.executable)
 		r.textBase, r.textErr = findRuntimeText(moduledata.text, modErr, nil)
 		if r.textErr != nil && section != nil {
 			data, err := section.Data()

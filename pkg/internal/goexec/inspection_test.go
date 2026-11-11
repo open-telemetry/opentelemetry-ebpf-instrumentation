@@ -8,6 +8,7 @@ import (
 	"debug/dwarf"
 	"debug/elf"
 	"encoding/binary"
+	"log/slog"
 	"os"
 	"os/exec"
 	"runtime"
@@ -224,6 +225,39 @@ func TestRuntimeABIRejectsGoVersionWithoutTypeMetadata(t *testing.T) {
 
 	_, err := in.runtimeABI()
 	require.ErrorContains(t, err, "no runtime type metadata ABI")
+}
+
+// TestRuntimeTextBaseSkipsStructMemberOffsets checks that GoSymbolResolver
+// finds the same moduledata as a full inspection without walking DWARF for
+// the struct member offsets, which it does not use.
+func TestRuntimeTextBaseSkipsStructMemberOffsets(t *testing.T) {
+	// structMemberOffsetsFromUnit logs with this attribute when it starts a walk.
+	const walk = "function=structMemberOffsetsFromDwarf"
+	var logs bytes.Buffer
+	oldLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(oldLogger) })
+
+	for _, build := range []pingServerBuild{defaultBuild, strippedBuild, nodwarf5Build} {
+		t.Run(build.name, func(t *testing.T) {
+			file := pingServerELF(t, build)
+
+			logs.Reset()
+			full := newInspection(file)
+			want, wantErr := full.moduledata()
+			if full.dwarf().err == nil {
+				require.Contains(t, logs.String(), walk, "a full inspection no longer logs the walk")
+			}
+
+			logs.Reset()
+			got, err := standaloneModuledata(file)
+			assert.Equal(t, wantErr, err)
+			assert.Equal(t, want, got)
+			resolver := &GoSymbolResolver{executable: file}
+			_, _ = resolver.runtimeTextBase()
+			assert.NotContains(t, logs.String(), walk)
+		})
+	}
 }
 
 func countingInspection(file *elf.File) (*inspection, *int) {

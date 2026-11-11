@@ -19,6 +19,8 @@ type inspection struct {
 	elf *elf.File
 	// loadDWARF is elf.File.DWARF; tests replace it to count the parses.
 	loadDWARF func() (*dwarf.Data, error)
+	// runtimeABIOnly makes the DWARF parse leave out the struct member offsets.
+	runtimeABIOnly bool
 
 	dwarf      func() dwarfFacts
 	runtimeABI func() (goabi.ABI, error)
@@ -51,6 +53,15 @@ func newInspection(ef *elf.File) *inspection {
 	return in
 }
 
+// standaloneModuledata locates moduledata for a caller outside InspectOffsets.
+// That lookup reads nothing but the runtime ABI from DWARF, so the parse skips
+// the struct member offsets.
+func standaloneModuledata(ef *elf.File) (runtimeModuledata, error) {
+	in := newInspection(ef)
+	in.runtimeABIOnly = true
+	return in.moduledata()
+}
+
 func (in *inspection) readDWARFFacts() dwarfFacts {
 	data, err := in.loadDWARF()
 	if err != nil {
@@ -58,7 +69,9 @@ func (in *inspection) readDWARFFacts() dwarfFacts {
 	}
 
 	var facts dwarfFacts
-	facts.fieldOffsets, facts.missingFields = structMemberOffsetsFromDwarf(data)
+	if !in.runtimeABIOnly {
+		facts.fieldOffsets, facts.missingFields = structMemberOffsetsFromDwarf(data)
+	}
 	if targetVersion, ok := runtimeABIVersion(in.elf); ok {
 		facts.runtimeABI, facts.runtimeABIErr = goabi.Extract(data, targetVersion)
 	}
