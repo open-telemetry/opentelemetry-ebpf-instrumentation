@@ -23,6 +23,10 @@ func TestMain(m *testing.M) {
 		return
 	}
 
+	if os.Getenv("PYTHON_EXCEPTION_CONTAINER") == "true" {
+		os.Exit(m.Run())
+	}
+
 	ctx := context.Background()
 
 	var err error
