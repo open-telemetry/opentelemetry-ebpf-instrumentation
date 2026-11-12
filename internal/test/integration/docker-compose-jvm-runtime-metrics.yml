@@ -3,7 +3,9 @@ services:
     build:
       context: ../../..
       dockerfile: ./internal/test/integration/components/javatestserver/Dockerfile_jar
-    image: hatest-testserver-jvm-runtime-metrics
+      args:
+        - JRE_IMAGE
+    image: "${JVM_RUNTIME_TESTSERVER_IMAGE:-hatest-testserver-jvm-runtime-metrics}"
     ports:
       - "${TEST_SERVICE_PORTS}"
     environment:

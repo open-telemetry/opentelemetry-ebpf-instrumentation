@@ -310,6 +310,32 @@ func TestJVMRuntimeMetricsExposeHotSpotUSDTProbes(t *testing.T) {
 	assert.Equal(t, "mem__pool__gc__begin", probes["libjvm.so"][0].Name)
 	assert.Equal(t, "hotspot", probes["libjvm.so"][1].Provider)
 	assert.Equal(t, "mem__pool__gc__end", probes["libjvm.so"][1].Name)
+
+	fallback := probes["libjvm.so"][0].Fallback
+	require.NotNil(t, fallback)
+	assert.Same(t, fallback, probes["libjvm.so"][1].Fallback, "both USDT probes must share one fallback so it attaches once")
+
+	var prefixes, suffixes []string
+	for _, probe := range fallback.Probes {
+		require.True(t, len(probe.Symbols) > 0 || probe.SymbolPrefix != "" || probe.SymbolSuffix != "")
+		if probe.SymbolPrefix != "" {
+			prefixes = append(prefixes, probe.SymbolPrefix)
+		}
+		if probe.SymbolSuffix != "" {
+			suffixes = append(suffixes, probe.SymbolSuffix)
+		}
+	}
+	require.Len(t, suffixes, 1)
+	poolSuffix := suffixes[0]
+	for _, poolSymbol := range []string{
+		"_ZN10G1EdenPool16get_memory_usageEv",
+		"_ZN32ShenandoahGenerationalMemoryPool16get_memory_usageEv",
+	} {
+		assert.True(t, strings.HasSuffix(poolSymbol, poolSuffix), poolSymbol)
+	}
+	monitoringSymbol := "_ZN19G1MonitoringSupport23eden_space_memory_usageEmm"
+	assert.False(t, strings.HasSuffix(monitoringSymbol, poolSuffix))
+	assert.Equal(t, []string{"_ZN15GCMemoryManager8gc_beginE", "_ZN15GCMemoryManager6gc_endE"}, prefixes)
 }
 
 func TestJVMRuntimeMetricsConstantOverridesUseApplicationRuntimeAsFeatureGate(t *testing.T) {
