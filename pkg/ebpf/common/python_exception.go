@@ -102,7 +102,7 @@ func decodePythonException(hdr *BpfExceptionEventHeaderT, payload []byte, event 
 	if err != nil {
 		return err
 	}
-	return describePythonException(remotememory.NewProcessVirtualMemory(libpf.PID(hdr.Pid.HostPid)), record, event)
+	return describePythonException(remotememory.NewProcessVirtualMemory(libpf.PID(record.ObiPid)), record, event)
 }
 
 func describePythonException(memory remotememory.RemoteMemory, record *BpfPythonExceptionPayloadT, event *exceptions.Event) error {
@@ -110,11 +110,10 @@ func describePythonException(memory remotememory.RemoteMemory, record *BpfPython
 	event.Type = pythonQualifiedName(module, qualname, "builtins")
 	if record.MessageKind != 0 {
 		message, err := decodePythonMessage(record.Message[:record.MessageLen], record.MessageKind)
-		if err != nil {
-			return err
+		if err == nil {
+			event.Message = pythonExceptionMessage(module, qualname, message,
+				record.Flags&BpfPythonExceptionFlagsK_pythonExceptionMessageTruncated != 0)
 		}
-		event.Message = pythonExceptionMessage(module, qualname, message,
-			record.Flags&BpfPythonExceptionFlagsK_pythonExceptionMessageTruncated != 0)
 	}
 	if event.Type == "" && event.Message == "" {
 		return fmt.Errorf("%w: unreadable type", errPythonExceptionPayload)

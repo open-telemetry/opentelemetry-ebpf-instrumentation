@@ -321,6 +321,26 @@ func TestDescribePythonTruncatedException(t *testing.T) {
 	assert.Equal(t, "Traceback (most recent call last):\n  ... frames omitted\nRuntimeError: startup failed\n", event.Stacktrace)
 }
 
+func TestDescribePythonExceptionWithSurrogateMessage(t *testing.T) {
+	process := newFakePythonProcess()
+	handler := process.code("/app/server.py", "get", 10, []byte{128, 0})
+	record := fakePythonRecord(process.exceptionType("ValueError"), "", handler)
+	record.MessageKind = 2
+	record.MessageLen = 2
+	record.Message[0], record.Message[1] = 0, 0xd8
+
+	event := exceptions.Event{}
+	require.NoError(t, describePythonException(process.remote(), record, &event))
+	assert.Equal(t, "ValueError", event.Type)
+	assert.Empty(t, event.Message)
+	assert.Equal(t, "Traceback (most recent call last):\n"+
+		"  File \"/app/server.py\", line 10, in get\nValueError\n", event.Stacktrace)
+
+	record.Type = 0x42
+	event = exceptions.Event{}
+	require.Error(t, describePythonException(process.remote(), record, &event))
+}
+
 func TestDescribePythonExceptionNeedsTypeOrMessage(t *testing.T) {
 	process := newFakePythonProcess()
 	event := exceptions.Event{}

@@ -106,6 +106,8 @@ typedef struct python_exception_key {
 // One raise inside a server request.
 typedef struct python_exception_candidate {
     u64 capture_ns;
+    u64 pid_tgid;
+    u64 tstate;
     // the raised instance; 0 when C code raised a str or tuple
     u64 exception;
     u8 owner;
@@ -124,7 +126,7 @@ typedef struct python_exception_pending {
 
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
-    __type(key, u32); // host PID
+    __type(key, u32); // OBI-visible PID
     __type(value, python_exception_proc_t);
     __uint(max_entries, k_max_concurrent_pids);
     __uint(pinning, OBI_PIN_INTERNAL);
@@ -183,7 +185,10 @@ static __always_inline enum exception_owner python_exception_owner(const u64 id,
         resolution = resolve_python_task_from_context(id, thread->current_context, &task);
     }
 
-    if (resolution != PYTHON_TASK_RESOLVED) {
+    if (resolution == PYTHON_TASK_STALE) {
+        return k_exception_owner_none;
+    }
+    if (resolution == PYTHON_TASK_NOT_FOUND) {
         return python_exception_thread_owner(pid_from_pid_tgid(id), tp);
     }
 
@@ -508,6 +513,8 @@ static __always_inline void python_exception_capture(const python_exception_proc
                                                      python_exception_candidate_t *candidate) {
     const bool instance = python_exception_instance(proc, value_type);
     candidate->capture_ns = bpf_ktime_get_ns();
+    candidate->pid_tgid = bpf_get_current_pid_tgid();
+    candidate->tstate = tstate;
     candidate->exception = instance ? value : 0;
     candidate->propagated = 0;
 
@@ -557,13 +564,25 @@ static __always_inline u32 python_exception_payload_len(const python_exception_p
 // Selects the latest propagated exception, falling back to the saved candidate.
 static __always_inline const python_exception_candidate_t *
 python_exception_choose(const python_exception_proc_t *proc,
-                        const python_exception_pending_t *pending) {
+                        const python_exception_pending_t *pending,
+                        const tp_info_t *tp) {
     const python_exception_candidate_t *latest = &pending->latest;
     const python_exception_candidate_t *kept = &pending->kept;
     if (latest->exception &&
         (latest->propagated ||
          python_exception_propagated(proc, latest->exception, latest->payload.type))) {
         return latest;
+    }
+    // Native raises are normalized after probe entry; find the instance while
+    // the raising thread is still handling this request's exception.
+    if (!latest->exception && latest->capture_ns &&
+        latest->pid_tgid == bpf_get_current_pid_tgid()) {
+        tp_info_t current = {};
+        if (python_exception_owner(latest->pid_tgid, &current) != k_exception_owner_none &&
+            __builtin_memcmp(current.span_id, tp->span_id, sizeof(current.span_id)) == 0 &&
+            python_exception_handled(proc, latest->tstate, latest, kept->exception)) {
+            return latest;
+        }
     }
     return kept->capture_ns ? kept : NULL;
 }
@@ -581,9 +600,11 @@ python_exception_emit(const u32 host_pid, const tp_info_t *tp, const u64 request
         return;
     }
 
-    const python_exception_proc_t *proc = bpf_map_lookup_elem(&python_exception_procs, &host_pid);
+    const u32 process_pid = pending->latest.payload.obi_pid;
+    const python_exception_proc_t *proc =
+        bpf_map_lookup_elem(&python_exception_procs, &process_pid);
     const python_exception_candidate_t *candidate =
-        proc ? python_exception_choose(proc, pending) : NULL;
+        proc ? python_exception_choose(proc, pending, tp) : NULL;
     if (!candidate || candidate->capture_ns < request_start_ns) {
         bpf_map_delete_elem(&python_exception_pending, &key);
         return;

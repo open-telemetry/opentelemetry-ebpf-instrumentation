@@ -77,6 +77,14 @@ func TestPythonExceptions(t *testing.T) {
 				}
 			}
 
+			if framework == "http" {
+				t.Run("direct/native", func(t *testing.T) {
+					const token = "http-direct-native"
+					traceID := fixture.get("/raise/direct/native/"+token, http.StatusInternalServerError)
+					assertPythonException(t, harness.wait(t, traceID), fixture.truth(token), "native")
+				})
+			}
+
 			// A handler that catches the exception and answers 500 itself reports
 			// nothing.
 			t.Run("handled-500", func(t *testing.T) {
@@ -195,8 +203,8 @@ func assertPythonException(t *testing.T, event exceptions.Event, truth pythonExc
 		// The kept frames are all `recursive`, so their fold counts fewer repeats.
 		expected, captured = expected[len(expected)-1:], captured[len(captured)-1:]
 	}
-	n := min(len(captured), len(expected))
-	assert.Equal(t, expected[len(expected)-n:], captured[len(captured)-n:], event.Stacktrace)
+	require.GreaterOrEqual(t, len(captured), len(expected), event.Stacktrace)
+	assert.Equal(t, expected, captured[len(captured)-len(expected):], event.Stacktrace)
 	for _, line := range captured {
 		assert.Regexp(t, pythonExceptionFrameLine, line)
 	}

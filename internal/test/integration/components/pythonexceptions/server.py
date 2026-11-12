@@ -243,13 +243,15 @@ def http_app(port):
                 if parts[1] == "raise":
                     escape(parts[3], parts[4])
             except Exception:
-                logger.exception("request failed")
+                if parts[2] != "direct":
+                    logger.exception("request failed")
                 self.respond(500, "error")
                 return
             self.respond(200, "ok")
 
         def log_message(self, format, *args):
-            logger.info(format, *args)
+            if not self.path.startswith("/raise/direct/"):
+                logger.info(format, *args)
 
     http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
 

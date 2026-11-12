@@ -10,6 +10,7 @@
 #include <common/preempt_guard.h>
 
 #include <generictracer/python_exception.h>
+#include <pid/pid.h>
 
 // Entry of _PyErr_SetObject(tstate, type, value), which every new raise passes
 // through. User space attaches it only to processes that capture exceptions.
@@ -21,7 +22,9 @@ int GUARDED_PROG(obi_uprobe_python_err_set_object, struct pt_regs *, ctx) {
 
     const u64 id = bpf_get_current_pid_tgid();
     const u32 host_pid = pid_from_pid_tgid(id);
-    const python_exception_proc_t *proc = bpf_map_lookup_elem(&python_exception_procs, &host_pid);
+    const u32 process_pid = obi_pid(id);
+    const python_exception_proc_t *proc =
+        bpf_map_lookup_elem(&python_exception_procs, &process_pid);
     if (!proc) {
         return 0;
     }
@@ -55,6 +58,7 @@ int GUARDED_PROG(obi_uprobe_python_err_set_object, struct pt_regs *, ctx) {
     const u64 value_type = python_object_type(value);
     if (!python_exception_reraised(proc, &pending->latest, value, value_type)) {
         python_exception_capture(proc, tstate, type, value, value_type, &pending->latest);
+        pending->latest.payload.obi_pid = process_pid;
         pending->latest.owner = owner;
     }
 

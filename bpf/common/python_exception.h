@@ -39,12 +39,13 @@ typedef struct python_exception_layout {
 // The exception_events payload of k_exception_runtime_python records. Only
 // the first frame_count frames are sent, innermost first.
 typedef struct python_exception_payload {
-    u64 type; // PyTypeObject*
+    u64 type;    // PyTypeObject*
+    u32 obi_pid; // raising process in OBI's PID namespace
     u16 message_len;
     u8 message_kind; // PEP 393 kind, 0 without a message
     u8 frame_count;
     enum python_exception_flags flags;
-    u8 _pad[3];
+    u8 _pad[7];
     python_exception_layout_t layout;
     unsigned char message[k_python_exception_message_max];
     python_exception_frame_t frames[k_python_exception_max_frames];
