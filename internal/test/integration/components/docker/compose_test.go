@@ -39,8 +39,14 @@ services:
 func fixtureCompose(t *testing.T) *Compose {
 	t.Helper()
 
+	return composeFromYAML(t, composeFixture)
+}
+
+func composeFromYAML(t *testing.T, content string) *Compose {
+	t.Helper()
+
 	path := filepath.Join(t.TempDir(), "compose.yml")
-	require.NoError(t, os.WriteFile(path, []byte(composeFixture), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 
 	return &Compose{Path: path}
 }
@@ -60,6 +66,46 @@ func TestServicesToBuildSkipsPrebuiltImages(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, []string{"stringbuild", "testserver"}, services,
 		"services without a build section or with a prebuilt image must be skipped")
+}
+
+func TestServicesToBuildResolvesImageVariables(t *testing.T) {
+	t.Setenv("PREBUILT_IMAGES", "hatest-obi")
+	c := composeFromYAML(t, `
+services:
+  defaulted:
+    build: ../../..
+    image: ${DEFAULTED_OBI_IMAGE:-hatest-obi}
+  overridden:
+    build: ../../..
+    image: ${OVERRIDDEN_OBI_IMAGE:-hatest-obi}
+`)
+	c.Env = []string{"OVERRIDDEN_OBI_IMAGE=hatest-other"}
+
+	services, ok := c.servicesToBuild()
+	require.True(t, ok)
+	assert.Equal(t, []string{"overridden"}, services,
+		"an image variable must be compared after compose resolves it")
+}
+
+func TestServicesToBuildSkipsInactiveProfiles(t *testing.T) {
+	t.Setenv("PREBUILT_IMAGES", "hatest-obi")
+	c := composeFromYAML(t, `
+services:
+  always:
+    build: ../../..
+  central:
+    build: ../../..
+    profiles: [central]
+`)
+
+	services, ok := c.servicesToBuild()
+	require.True(t, ok)
+	assert.Equal(t, []string{"always"}, services, "services of inactive profiles are never started")
+
+	c.Env = []string{"COMPOSE_PROFILES=tools,central"}
+	services, ok = c.servicesToBuild()
+	require.True(t, ok)
+	assert.Equal(t, []string{"always", "central"}, services)
 }
 
 func TestServicesToBuildFallsBackOnUnreadableFile(t *testing.T) {

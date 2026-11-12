@@ -119,8 +119,6 @@ jobs:
           persist-credentials: false
 
       - uses: $/.github/actions/generate-bpf
-        with:
-          cache-key-prefix: go-build-integration-race
 
   test-matrix:
     name: "Build matrix"
@@ -235,9 +233,38 @@ jobs:
           path: /tmp/hatest-obi.tar
           retention-days: 1
 
+  # the Java agent suites only run in the amd64 shards
+  build-javaagent-image:
+    name: "Build OBI javaagent test image (amd64)"
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    needs: [generate-bpf]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Download generated BPF files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bpf-generated-${{ github.run_id }}
+
+      - name: Build and save OBI javaagent test image
+        run: |
+          docker build -t hatest-obi-javaagent -f internal/test/integration/components/obi/Dockerfile-with-javaagent .
+          docker save hatest-obi-javaagent -o /tmp/hatest-obi-javaagent.tar
+
+      - name: Upload OBI javaagent test image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: obi-javaagent-image-${{ github.run_id }}
+          path: /tmp/hatest-obi-javaagent.tar
+          retention-days: 1
+
   test:
     name: ${{ matrix.description }} (${{ matrix.arch }})
-    needs: [test-matrix, generate-bpf, prep-images, build-obi-image]
+    needs: [test-matrix, generate-bpf, prep-images, build-obi-image, build-javaagent-image]
     # prep-images and build-obi-image are matrixed; don't skip all shards if one arch fails
     if: ${{ !cancelled() && needs.generate-bpf.result == 'success' && needs.test-matrix.result == 'success' }}
     permissions:
@@ -338,24 +365,51 @@ jobs:
           name: obi-image-${{ matrix.arch }}-${{ github.run_id }}
           path: /tmp/obi-image
 
-      # hatest-obi-b and hatest-javaobi are the same plain build under other tags
+      # hatest-obi-b, hatest-javaobi and the peer metadata tags are the same plain build under other tags
       - name: Load prebuilt OBI image
         run: |
           docker load -i /tmp/obi-image/hatest-obi.tar
           docker tag hatest-obi hatest-obi-b
           docker tag hatest-obi hatest-javaobi
+          docker tag hatest-obi hatest-obi-peer-metadata-server
+          docker tag hatest-obi hatest-obi-peer-metadata-client
+
+      # compose builds the image itself when it is missing
+      - name: Download prebuilt OBI javaagent image
+        if: matrix.arch == 'amd64'
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: obi-javaagent-image-${{ github.run_id }}
+          path: /tmp/obi-javaagent-image
+
+      - name: Load prebuilt OBI javaagent image
+        if: matrix.arch == 'amd64'
+        run: |
+          if [ -f /tmp/obi-javaagent-image/hatest-obi-javaagent.tar ]; then
+            docker load -i /tmp/obi-javaagent-image/hatest-obi-javaagent.tar
+          else
+            echo "::warning::prebuilt javaagent image missing; suites will build it"
+          fi
 
       - name: Check disk usage before tests
         run: df -h
 
+      # release binary instead of apt: apt-get update sometimes stalls for minutes
       - name: Install bpftool (PoC eBPF metrics)
         if: matrix.arch == 'amd64'
+        timeout-minutes: 2
+        continue-on-error: true
+        env:
+          BPFTOOL_VERSION: v7.8.1
+          BPFTOOL_SHA256: 112026bbdf48d0d00ccfc4926e59878d47943f97c197f959f110abe29c898ddc
         run: |
-          sudo apt-get update
-          sudo apt-get install -y bpftool jq
-          BPFTOOL_BIN=$(command -v bpftool)
-          echo "Using bpftool: $BPFTOOL_BIN"
-          sudo "$BPFTOOL_BIN" version
+          curl -fsSL --retry 3 -o /tmp/bpftool.tar.gz \
+            "https://github.com/libbpf/bpftool/releases/download/${BPFTOOL_VERSION}/bpftool-${BPFTOOL_VERSION}-amd64.tar.gz"
+          echo "${BPFTOOL_SHA256}  /tmp/bpftool.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/bpftool.tar.gz -C /tmp bpftool
+          sudo install -m 0755 /tmp/bpftool /usr/local/bin/bpftool
+          sudo bpftool version
 
       - name: Start bpftool sampler (PoC eBPF metrics)
         if: matrix.arch == 'amd64'
@@ -392,7 +446,7 @@ jobs:
           TEST_REPORT: /home/runner/reports/test-run-${{ github.run_number }}-${{ matrix.id }}-${{ github.run_attempt }}.log
           # the OBI image is prebuilt and loaded above; component images keep
           # rebuilding per suite (their tags are not unique per Dockerfile)
-          PREBUILT_IMAGES: "hatest-obi,hatest-obi-b,hatest-javaobi"
+          PREBUILT_IMAGES: "hatest-obi,hatest-obi-b,hatest-javaobi,hatest-obi-peer-metadata-server,hatest-obi-peer-metadata-client,hatest-obi-javaagent"
         run: |
           echo Partition
           echo "${MATRIX_JSON}"
