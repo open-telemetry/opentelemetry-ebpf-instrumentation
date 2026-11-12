@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"gopkg.in/yaml.v3"
 
@@ -135,14 +136,16 @@ func (c *Compose) servicesToBuild() ([]string, bool) {
 
 	type composeDocument struct {
 		Services map[string]struct {
-			Image string    `yaml:"image"`
-			Build yaml.Node `yaml:"build"`
+			Image    string    `yaml:"image"`
+			Build    yaml.Node `yaml:"build"`
+			Profiles []string  `yaml:"profiles"`
 		} `yaml:"services"`
 	}
 
 	services := map[string]struct {
-		Image string
-		Build yaml.Node
+		Image    string
+		Build    yaml.Node
+		Profiles []string
 	}{}
 	for _, composePath := range c.composePaths() {
 		data, err := os.ReadFile(composePath)
@@ -162,16 +165,19 @@ func (c *Compose) servicesToBuild() ([]string, bool) {
 			if !overlay.Build.IsZero() {
 				service.Build = overlay.Build
 			}
+			if len(overlay.Profiles) > 0 {
+				service.Profiles = overlay.Profiles
+			}
 			services[name] = service
 		}
 	}
 
 	var servicesToBuild []string
 	for name, svc := range services {
-		if svc.Build.IsZero() {
+		if svc.Build.IsZero() || !c.profileActive(svc.Profiles) {
 			continue
 		}
-		if svc.Image != "" && slices.Contains(prebuilt, svc.Image) {
+		if image := c.interpolate(svc.Image); image != "" && slices.Contains(prebuilt, image) {
 			continue
 		}
 		servicesToBuild = append(servicesToBuild, name)
@@ -179,6 +185,52 @@ func (c *Compose) servicesToBuild() ([]string, bool) {
 	slices.Sort(servicesToBuild)
 
 	return servicesToBuild, true
+}
+
+// profileActive mirrors compose: services without profiles always run, others need one in COMPOSE_PROFILES
+func (c *Compose) profileActive(profiles []string) bool {
+	if len(profiles) == 0 {
+		return true
+	}
+
+	value, _ := c.lookupEnv("COMPOSE_PROFILES")
+	active := strings.Split(value, ",")
+	return slices.ContainsFunc(profiles, func(p string) bool {
+		return slices.Contains(active, p)
+	})
+}
+
+// interpolate resolves the ${VAR}, ${VAR:-default} and ${VAR-default} forms the same way compose does
+func (c *Compose) interpolate(s string) string {
+	return os.Expand(s, func(expr string) string {
+		nameEnd := strings.IndexFunc(expr, func(r rune) bool {
+			return r != '_' && !unicode.IsLetter(r) && !unicode.IsDigit(r)
+		})
+		if nameEnd < 0 {
+			value, _ := c.lookupEnv(expr)
+			return value
+		}
+
+		name, modifier := expr[:nameEnd], expr[nameEnd:]
+		value, set := c.lookupEnv(name)
+		if fallback, ok := strings.CutPrefix(modifier, ":-"); ok && value == "" {
+			return fallback
+		}
+		if fallback, ok := strings.CutPrefix(modifier, "-"); ok && !set {
+			return fallback
+		}
+		return value
+	})
+}
+
+// lookupEnv reads the compose environment, where later entries override earlier ones
+func (c *Compose) lookupEnv(name string) (string, bool) {
+	for _, entry := range slices.Backward(c.Env) {
+		if value, ok := strings.CutPrefix(entry, name+"="); ok {
+			return value, true
+		}
+	}
+	return "", false
 }
 
 func (c *Compose) Run(service string) error {
