@@ -227,10 +227,12 @@ func TestRuntimeABIRejectsGoVersionWithoutTypeMetadata(t *testing.T) {
 	require.ErrorContains(t, err, "no runtime type metadata ABI")
 }
 
-// TestRuntimeTextBaseSkipsStructMemberOffsets checks that GoSymbolResolver
-// finds the same moduledata as a full inspection without walking DWARF for
-// the struct member offsets, which it does not use.
-func TestRuntimeTextBaseSkipsStructMemberOffsets(t *testing.T) {
+// TestStandaloneLookupsSkipStructMemberOffsets checks the lookups made outside
+// InspectOffsets: the runtime text base of GoSymbolResolver and the Go symbol
+// table of the stripped runtime metrics path. They must give the same results
+// as a full inspection without walking DWARF for the struct member offsets,
+// which they do not use.
+func TestStandaloneLookupsSkipStructMemberOffsets(t *testing.T) {
 	// structMemberOffsetsFromUnit logs with this attribute when it starts a walk.
 	const walk = "function=structMemberOffsetsFromDwarf"
 	var logs bytes.Buffer
@@ -245,6 +247,10 @@ func TestRuntimeTextBaseSkipsStructMemberOffsets(t *testing.T) {
 			logs.Reset()
 			full := newInspection(file)
 			want, wantErr := full.moduledata()
+			wantTable, err := full.goSymbolTable()
+			require.NoError(t, err)
+			wantFunc := wantTable.LookupFunc("runtime.procresize")
+			require.NotNil(t, wantFunc)
 			if full.dwarf().err == nil {
 				require.Contains(t, logs.String(), walk, "a full inspection no longer logs the walk")
 			}
@@ -255,7 +261,16 @@ func TestRuntimeTextBaseSkipsStructMemberOffsets(t *testing.T) {
 			assert.Equal(t, want, got)
 			resolver := &GoSymbolResolver{executable: file}
 			_, _ = resolver.runtimeTextBase()
-			assert.NotContains(t, logs.String(), walk)
+			assert.NotContains(t, logs.String(), walk, "the runtime text base walked the struct member offsets")
+
+			logs.Reset()
+			table, err := findGoSymbolTable(file)
+			require.NoError(t, err)
+			gotFunc := table.LookupFunc("runtime.procresize")
+			require.NotNil(t, gotFunc)
+			assert.Equal(t, wantFunc.Entry, gotFunc.Entry)
+			assert.Equal(t, wantFunc.End, gotFunc.End)
+			assert.NotContains(t, logs.String(), walk, "the Go symbol table walked the struct member offsets")
 		})
 	}
 }

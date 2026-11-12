@@ -293,8 +293,13 @@ func analyzeFunctionOffsets(baseOffset uint64, data []byte) (FuncOffsets, error)
 	}, nil
 }
 
+// findGoSymbolTable builds the Go symbol table for a caller outside
+// InspectOffsets. Locating moduledata reads nothing but the runtime ABI from
+// DWARF, so the parse skips the struct member offsets.
 func findGoSymbolTable(elfF *elf.File) (*gosym.Table, error) {
-	return newInspection(elfF).goSymbolTable()
+	in := newInspection(elfF)
+	in.runtimeABIOnly = true
+	return in.goSymbolTable()
 }
 
 func (in *inspection) goSymbolTable() (*gosym.Table, error) {
