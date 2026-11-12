@@ -248,6 +248,18 @@ func TestHTTP2ClientConnTLSStateOffsets(t *testing.T) {
 	}
 }
 
+func TestHTTPRequestTLSOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+	for _, version := range []string{"1.17.0", "1.20.0", "1.26.10", "1.27.3"} {
+		t.Run(version, func(t *testing.T) {
+			offset, found := track.Find("net/http.Request", "TLS", version)
+			require.True(t, found)
+			assert.Equal(t, uint64(208), offset)
+		})
+	}
+}
+
 func TestHTTP2ClientConnFramerOffsets(t *testing.T) {
 	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
 	require.NoError(t, err)

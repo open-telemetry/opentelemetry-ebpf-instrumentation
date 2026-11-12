@@ -91,6 +91,22 @@ func TestLoadAllGoFunctionNamesIncludesConditionalGoTracerSymbols(t *testing.T) 
 	}
 }
 
+func TestLoadAllGoFunctionNamesIncludesHTTPServerRequestSymbols(t *testing.T) {
+	for _, features := range []export.Features{0, export.FeatureHTTPServerActiveRequests} {
+		cfg := obi.DefaultConfig
+		cfg.Metrics.Features = features
+		ty := typer{cfg: &cfg}
+		ty.loadAllGoFunctionNames()
+
+		for _, symbol := range []string{
+			"golang.org/x/net/http2.(*serverConn).runHandler",
+			"golang.org/x/net/http2.(*serverConn).upgradeRequest",
+		} {
+			assert.Contains(t, ty.allGoFunctions, symbol)
+		}
+	}
+}
+
 func TestLoadAllGoFunctionNamesIncludesExceptionSymbolsOnlyWhenCapturing(t *testing.T) {
 	ty := typer{cfg: &obi.Config{Routes: &transform.RoutesConfig{}}}
 	ty.loadAllGoFunctionNames()

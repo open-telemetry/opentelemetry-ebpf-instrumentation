@@ -433,6 +433,9 @@ func (t *typer) loadAllGoFunctionNames() {
 	for _, symbolName := range gotracer.GoH2OwnershipProbeSymbols() {
 		t.addGoFunctionName(uniqueFunctions, symbolName)
 	}
+	for _, symbolName := range gotracer.GoHTTPServerRequestProbeSymbols() {
+		t.addGoFunctionName(uniqueFunctions, symbolName)
+	}
 	if t.cfg.ExceptionsEnabled() && t.cfg.Logs.Enabled() {
 		for _, symbolName := range gotracer.GoExceptionProbeSymbols() {
 			t.addGoFunctionName(uniqueFunctions, symbolName)
