@@ -2719,6 +2719,28 @@ func (p *Tracer) SetEventContext(eventContext *ebpfcommon.EBPFEventContext) {
 			return err
 		},
 	)
+
+	handleHTTPServerRequest := func(record *ringbuf.Record) error {
+		event, err := ebpfcommon.ReinterpretCast[ebpfcommon.HTTPServerRequestEvent](record.RawSample)
+		if err != nil {
+			return err
+		}
+
+		if eventContext.HTTPServerRequests != nil {
+			eventContext.HTTPServerRequests(*event)
+		}
+
+		return nil
+	}
+
+	eventContext.RegisterInternalEventHandler(
+		ebpfcommon.EventTypeHTTPServerRequestStart,
+		handleHTTPServerRequest,
+	)
+	eventContext.RegisterInternalEventHandler(
+		ebpfcommon.EventTypeHTTPServerRequestEnd,
+		handleHTTPServerRequest,
+	)
 }
 
 func (p *Tracer) Capabilities() ebpfcommon.TracerCapability { return 0 }

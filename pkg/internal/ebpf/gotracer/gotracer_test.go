@@ -1539,6 +1539,172 @@ func TestSetEventContextRegistersActivationHandlerBeforeRun(t *testing.T) {
 	assert.Equal(t, int32(1), activationLink.closes.Load())
 }
 
+func TestSetEventContextForwardsHTTPServerRequestEvents(t *testing.T) {
+	tests := []struct {
+		name      string
+		eventType uint8
+		isTLS     bool
+	}{
+		{
+			name:      "HTTP start",
+			eventType: ebpfcommon.EventTypeHTTPServerRequestStart,
+		},
+		{
+			name:      "HTTPS start",
+			eventType: ebpfcommon.EventTypeHTTPServerRequestStart,
+			isTLS:     true,
+		},
+		{
+			name:      "request end",
+			eventType: ebpfcommon.EventTypeHTTPServerRequestEnd,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want := ebpfcommon.HTTPServerRequestEvent{
+				Type:            tt.eventType,
+				IsTls:           tt.isTLS,
+				GoroutineAddr:   0x1234,
+				StartMonotimeNs: 1000,
+				Pid: ebpfcommon.BpfPidInfoT{
+					HostPid: 123,
+					UserPid: 45,
+					Ns:      67,
+				},
+			}
+			if tt.eventType == ebpfcommon.EventTypeHTTPServerRequestStart {
+				copy(want.Method[:], "GET")
+				want.Conn = ebpfcommon.BpfConnectionInfoT{
+					S_addr: [16]uint8{15: 1},
+					D_addr: [16]uint8{15: 2},
+					S_port: 50000,
+					D_port: 8080,
+				}
+			}
+
+			var received []ebpfcommon.HTTPServerRequestEvent
+			eventContext := ebpfcommon.NewEBPFEventContext()
+			eventContext.HTTPServerRequests = func(event ebpfcommon.HTTPServerRequestEvent) {
+				received = append(received, event)
+			}
+
+			tracer := &Tracer{}
+			tracer.SetEventContext(eventContext)
+
+			var raw bytes.Buffer
+			require.NoError(t, binary.Write(&raw, binary.LittleEndian, want))
+			record := &ringbuf.Record{RawSample: raw.Bytes()}
+
+			handled, err := eventContext.HandleInternalEvent(record)
+
+			require.NoError(t, err)
+			assert.True(t, handled)
+			require.Len(t, received, 1)
+			assert.Equal(t, want, received[0])
+
+			clear(record.RawSample)
+			assert.Equal(t, want, received[0])
+		})
+	}
+}
+
+func TestSetEventContextRejectsShortHTTPServerRequestEvents(t *testing.T) {
+	tests := []struct {
+		name      string
+		eventType uint8
+	}{
+		{"start", ebpfcommon.EventTypeHTTPServerRequestStart},
+		{"end", ebpfcommon.EventTypeHTTPServerRequestEnd},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called := false
+			eventContext := ebpfcommon.NewEBPFEventContext()
+			eventContext.HTTPServerRequests = func(ebpfcommon.HTTPServerRequestEvent) {
+				called = true
+			}
+
+			tracer := &Tracer{}
+			tracer.SetEventContext(eventContext)
+
+			size := int(unsafe.Sizeof(ebpfcommon.HTTPServerRequestEvent{}))
+			raw := make([]byte, size-1)
+			raw[0] = tt.eventType
+
+			handled, err := eventContext.HandleInternalEvent(
+				&ringbuf.Record{RawSample: raw},
+			)
+
+			require.EqualError(t, err, "byte slice too short")
+			assert.True(t, handled)
+			assert.False(t, called)
+		})
+	}
+}
+
+func TestSetEventContextHandlesHTTPServerRequestEventsWithoutReceiver(t *testing.T) {
+	tests := []struct {
+		name      string
+		eventType uint8
+	}{
+		{"start", ebpfcommon.EventTypeHTTPServerRequestStart},
+		{"end", ebpfcommon.EventTypeHTTPServerRequestEnd},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventContext := ebpfcommon.NewEBPFEventContext()
+
+			tracer := &Tracer{}
+			tracer.SetEventContext(eventContext)
+
+			var raw bytes.Buffer
+			require.NoError(t, binary.Write(
+				&raw,
+				binary.LittleEndian,
+				ebpfcommon.HTTPServerRequestEvent{Type: tt.eventType},
+			))
+
+			handled, err := eventContext.HandleInternalEvent(
+				&ringbuf.Record{RawSample: raw.Bytes()},
+			)
+
+			require.NoError(t, err)
+			assert.True(t, handled)
+		})
+	}
+}
+
+func TestSetEventContextDoesNotConsumeHTTPTraces(t *testing.T) {
+	called := false
+	eventContext := ebpfcommon.NewEBPFEventContext()
+	eventContext.HTTPServerRequests = func(ebpfcommon.HTTPServerRequestEvent) {
+		called = true
+	}
+
+	tracer := &Tracer{}
+	tracer.SetEventContext(eventContext)
+
+	var raw bytes.Buffer
+	require.NoError(t, binary.Write(
+		&raw,
+		binary.LittleEndian,
+		ebpfcommon.HTTPRequestTrace{
+			Type: ebpfcommon.EventTypeHTTPRequest,
+		},
+	))
+
+	handled, err := eventContext.HandleInternalEvent(
+		&ringbuf.Record{RawSample: raw.Bytes()},
+	)
+
+	require.NoError(t, err)
+	assert.False(t, handled)
+	assert.False(t, called)
+}
+
 type blockingSharedForwarder struct{}
 
 func (blockingSharedForwarder) AlreadyForwarded(ctx context.Context) {
