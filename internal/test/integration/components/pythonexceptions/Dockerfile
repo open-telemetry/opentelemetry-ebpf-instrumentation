@@ -1,4 +1,4 @@
-ARG PYTHON_IMAGE=python:3.12.13-slim-bookworm
+ARG PYTHON_IMAGE=python:3.12.13-slim-bookworm@sha256:4766d8b510c428e595d74b9cc5bbb2fae8e26316fffb4adc89908d79aacd58a2
 FROM golang:1.27.0@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1 AS go
 
 FROM ${PYTHON_IMAGE}
