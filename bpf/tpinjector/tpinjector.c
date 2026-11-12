@@ -132,9 +132,13 @@ enum {
 volatile const u32 inject_flags =
     k_inject_http_headers | k_inject_tcp_options; // default: both enabled
 
+// user space marks the processes it saw exporting OTLP traces: OBI's spans of them are dropped
+static __always_inline bool exports_otel_traces() {
+    return pid_selected(&otel_traces_pids, obi_pid(bpf_get_current_pid_tgid()));
+}
+
 static __always_inline bool inject_http_headers() {
-    return (inject_flags & k_inject_http_headers) &&
-           !pid_selected(&otel_traces_pids, obi_pid(bpf_get_current_pid_tgid()));
+    return (inject_flags & k_inject_http_headers) && !exports_otel_traces();
 }
 
 // set when user space can backfill earlier connections; otherwise every client socket is enrolled
@@ -1395,7 +1399,9 @@ static __always_inline bool apply_parent_tp(const tailcall_ctx *t_ctx, tp_info_t
         return false;
     }
     bpf_memcpy(tp->parent_id, t_ctx->parent_tp.span_id, SPAN_ID_SIZE_BYTES);
-    if (bpf_memcmp(tp->span_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES) != 0) {
+    // a new span ID would name a span that is never exported: forward the header unchanged
+    if (bpf_memcmp(tp->span_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES) != 0 ||
+        exports_otel_traces()) {
         return false;
     }
     urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);

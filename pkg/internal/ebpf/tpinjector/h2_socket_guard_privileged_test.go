@@ -55,7 +55,11 @@ var (
 // sock_dir. The test adds its client sockets by hand, so no cgroup or sockops
 // attach is needed, and nothing but the test's own connections is touched.
 func loadSocketGuardHarness(t *testing.T) *BpfObjects {
-	objs := loadTPInjectorObjects(t, ebpfcommon.PIDFilterConstants())
+	return loadSocketGuardHarnessWith(t, ebpfcommon.PIDFilterConstants())
+}
+
+func loadSocketGuardHarnessWith(t *testing.T, constants map[string]any) *BpfObjects {
+	objs := loadTPInjectorObjects(t, constants)
 
 	attach := link.RawAttachProgramOptions{
 		Target:  objs.SockDir.FD(),
@@ -98,6 +102,15 @@ func (c *guardConn) send(chunks ...[]byte) {
 	data := bytes.Join(chunks, nil)
 	require.NoError(c.t, h2ProbeWrite(c.fd, data))
 	c.sent = append(c.sent, data...)
+}
+
+// The outgoing_trace_map key sk_msg builds for a stream of the connection, 0 for HTTP/1
+func (c *guardConn) egressKey(streamID uint32) BpfEgressKeyT {
+	local := c.client.LocalAddr().(*net.TCPAddr)
+	remote := c.client.RemoteAddr().(*net.TCPAddr)
+	info := BpfConnectionInfoT{S_port: uint16(local.Port), D_port: uint16(remote.Port)}
+	sortConnectionInfo(&info)
+	return BpfEgressKeyT{S_port: info.S_port, D_port: info.D_port, StreamId: streamID}
 }
 
 // sk_msg runs inside sendmsg, so the state is final once send returns
@@ -193,11 +206,7 @@ func TestOTelTraceExportStopsHeaderInjectionOnExistingSocket(t *testing.T) {
 			filter.AllowPID(pid, ns, exec.New(exec.Init{Pid: pid, Ns: ns}), ebpfcommon.PIDTypeKProbes)
 
 			conn := newGuardConn(t, objs)
-			local := conn.client.LocalAddr().(*net.TCPAddr)
-			remote := conn.client.RemoteAddr().(*net.TCPAddr)
-			info := BpfConnectionInfoT{S_port: uint16(local.Port), D_port: uint16(remote.Port)}
-			sortConnectionInfo(&info)
-			key := BpfEgressKeyT{S_port: info.S_port, D_port: info.D_port}
+			key := conn.egressKey(0)
 
 			if len(tc.setup) != 0 {
 				conn.send(tc.setup)
