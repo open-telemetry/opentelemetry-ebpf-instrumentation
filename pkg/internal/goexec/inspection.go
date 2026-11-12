@@ -12,9 +12,9 @@ import (
 	"go.opentelemetry.io/obi/internal/goabi"
 )
 
-// inspection shares what one InspectOffsets call derives from an executable
-// between its steps, so that DWARF is parsed, and the runtime ABI and
-// moduledata are resolved, at most once. It must not outlive that call.
+// inspection shares what one lookup on an executable derives between its
+// steps, so that DWARF is parsed, and the runtime ABI and moduledata are
+// resolved, at most once. It must not outlive that lookup.
 type inspection struct {
 	elf *elf.File
 	// loadDWARF is elf.File.DWARF; tests replace it to count the parses.
