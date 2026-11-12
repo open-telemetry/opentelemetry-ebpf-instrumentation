@@ -2217,6 +2217,14 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}}
 	}
 
+	if p.httpServerActiveRequestsEnabled {
+		m["runtime.goexit1"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeRuntimeGoexit1,
+		}}
+
+		delete(m, "golang.org/x/net/http2.(*serverConn).runHandler")
+	}
+
 	// HTTP Header extraction
 	// With bpf_loop, readMIMEHeader scans the buffered request headers on entry.
 	// Following them across buffer refills needs a probe on every bufio fill in
@@ -2450,6 +2458,47 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 				},
 			},
 		})
+	}
+
+	if p.httpServerActiveRequestsEnabled {
+		const runHandlerSymbol = "golang.org/x/net/http2.(*serverConn).runHandler"
+
+		groups = append(groups,
+			ebpfcommon.GoProbeGroup{
+				Name: "go_http_server_active_requests_xnet",
+				RequiresAll: []string{
+					"golang.org/x/net/http2.(*responseWriter).handlerDone",
+					"runtime.goexit1",
+				},
+				Probes: []ebpfcommon.GoProbe{
+					{
+						Symbol: "golang.org/x/net/http2.(*serverConn).upgradeRequest",
+						Probe: &ebpfcommon.ProbeDesc{
+							Start: p.bpfObjects.ObiUprobeHttp2serverConnUpgradeRequest,
+							End:   p.bpfObjects.ObiUprobeHttp2serverConnUpgradeRequestReturns,
+						},
+					},
+					{
+						Symbol: runHandlerSymbol,
+						Probe: &ebpfcommon.ProbeDesc{
+							Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandlerXnet,
+						},
+					},
+				},
+			},
+			ebpfcommon.GoProbeGroup{
+				Name:         "go_http2_xnet_server_fallback",
+				ConflictsAny: []string{runHandlerSymbol},
+				Probes: []ebpfcommon.GoProbe{
+					{
+						Symbol: runHandlerSymbol,
+						Probe: &ebpfcommon.ProbeDesc{
+							Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandler,
+						},
+					},
+				},
+			},
+		)
 	}
 
 	return groups

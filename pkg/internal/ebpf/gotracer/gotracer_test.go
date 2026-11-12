@@ -177,6 +177,102 @@ func TestHTTPServerActiveRequestsConstant(t *testing.T) {
 	}
 }
 
+func TestHTTPServerActiveRequestsProbes(t *testing.T) {
+	disableContextPropagationForTest(t)
+
+	const runHandlerSymbol = "golang.org/x/net/http2.(*serverConn).runHandler"
+
+	tracer := &Tracer{
+		cfg: &config.EBPFTracer{},
+	}
+	tracer.bpfObjects.ObiUprobeHttp2serverConnRunHandler = &ebpf.Program{}
+	tracer.bpfObjects.ObiUprobeRuntimeGoexit1 = &ebpf.Program{}
+
+	t.Run("disabled", func(t *testing.T) {
+		probes := tracer.GoProbes()
+
+		require.Len(t, probes[runHandlerSymbol], 1)
+		assert.Same(t,
+			tracer.bpfObjects.ObiUprobeHttp2serverConnRunHandler,
+			probes[runHandlerSymbol][0].Start,
+		)
+		assert.NotContains(t, probes, "runtime.goexit1")
+	})
+
+	t.Run("enabled", func(t *testing.T) {
+		tracer.httpServerActiveRequestsEnabled = true
+
+		probes := tracer.GoProbes()
+
+		assert.NotContains(t, probes, runHandlerSymbol)
+		require.Len(t, probes["runtime.goexit1"], 1)
+		assert.Same(t,
+			tracer.bpfObjects.ObiUprobeRuntimeGoexit1,
+			probes["runtime.goexit1"][0].Start,
+		)
+	})
+}
+
+func TestHTTPServerActiveRequestsProbeGroups(t *testing.T) {
+	disableContextPropagationForTest(t)
+
+	const runHandlerSymbol = "golang.org/x/net/http2.(*serverConn).runHandler"
+
+	tracer := &Tracer{
+		cfg: &config.EBPFTracer{},
+	}
+	tracer.bpfObjects.ObiUprobeHttp2serverConnUpgradeRequest = &ebpf.Program{}
+	tracer.bpfObjects.ObiUprobeHttp2serverConnUpgradeRequestReturns = &ebpf.Program{}
+	tracer.bpfObjects.ObiUprobeHttp2serverConnRunHandlerXnet = &ebpf.Program{}
+	tracer.bpfObjects.ObiUprobeHttp2serverConnRunHandler = &ebpf.Program{}
+
+	assert.Empty(t, tracer.GoProbeGroups())
+
+	tracer.httpServerActiveRequestsEnabled = true
+
+	groups := tracer.GoProbeGroups()
+	require.Len(t, groups, 2)
+
+	active := groups[0]
+	assert.Equal(t, "go_http_server_active_requests_xnet", active.Name)
+	assert.ElementsMatch(t, []string{
+		"golang.org/x/net/http2.(*responseWriter).handlerDone",
+		"runtime.goexit1",
+	}, active.RequiresAll)
+
+	require.Len(t, active.Probes, 2)
+	assert.Equal(t,
+		"golang.org/x/net/http2.(*serverConn).upgradeRequest",
+		active.Probes[0].Symbol,
+	)
+	assert.Same(t,
+		tracer.bpfObjects.ObiUprobeHttp2serverConnUpgradeRequest,
+		active.Probes[0].Probe.Start,
+	)
+	assert.Same(t,
+		tracer.bpfObjects.ObiUprobeHttp2serverConnUpgradeRequestReturns,
+		active.Probes[0].Probe.End,
+	)
+
+	assert.Equal(t, runHandlerSymbol, active.Probes[1].Symbol)
+	assert.Same(t,
+		tracer.bpfObjects.ObiUprobeHttp2serverConnRunHandlerXnet,
+		active.Probes[1].Probe.Start,
+	)
+
+	fallback := groups[1]
+	assert.Equal(t, "go_http2_xnet_server_fallback", fallback.Name)
+	assert.Empty(t, fallback.RequiresAll)
+	assert.Equal(t, []string{runHandlerSymbol}, fallback.ConflictsAny)
+
+	require.Len(t, fallback.Probes, 1)
+	assert.Equal(t, runHandlerSymbol, fallback.Probes[0].Symbol)
+	assert.Same(t,
+		tracer.bpfObjects.ObiUprobeHttp2serverConnRunHandler,
+		fallback.Probes[0].Probe.Start,
+	)
+}
+
 func TestSetFramerPaddingOffsetUsesExactLayout(t *testing.T) {
 	const symbol = "golang.org/x/net/http2.(*Framer).WriteHeaders"
 	offTable := BpfOffTableT{}
