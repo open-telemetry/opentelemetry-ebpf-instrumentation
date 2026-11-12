@@ -132,7 +132,7 @@ enum {
 volatile const u32 inject_flags =
     k_inject_http_headers | k_inject_tcp_options; // default: both enabled
 
-static __always_inline bool inject_http_headers(void) {
+static __always_inline bool inject_http_headers() {
     return (inject_flags & k_inject_http_headers) &&
            !pid_selected(&otel_traces_pids, obi_pid(bpf_get_current_pid_tgid()));
 }
@@ -1270,7 +1270,7 @@ static __always_inline bool handle_existing_tp_pid(struct sk_msg_md *msg,
 
     const bool is_http = protocol_detector(msg, id, &p_conn->conn);
     if (is_http) {
-        if (inject_flags & k_inject_http_headers) {
+        if (inject_http_headers()) {
             write_http_traceparent(msg, tp_pid);
         } else {
             clear_tp_info_pid(e_key);
@@ -1365,10 +1365,6 @@ int obi_packet_extender(struct sk_msg_md *msg) {
 //k_tail_write_msg_traceparent
 SEC("sk_msg")
 int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg) {
-    if (!inject_http_headers()) {
-        return SK_PASS;
-    }
-
     bpf_dbg_printk("=== sk_msg ===");
 
     tp_info_pid_t *tp_p = (tp_info_pid_t *)tp_info_mem();
@@ -1578,7 +1574,7 @@ int obi_packet_extender_create_tp(struct sk_msg_md *msg) {
         schedule_write_tcp_option(msg, tp_p);
     }
 
-    if (inject_flags & k_inject_http_headers) {
+    if (inject_http_headers()) {
         // write the HTTP headers
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_write_msg_traceparent);
         bpf_d_printk("tailcall failed [%s]", __FUNCTION__);
@@ -2033,7 +2029,7 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
         }
     }
 
-    if (inject_flags & k_inject_http_headers) {
+    if (inject_http_headers()) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_write_h2_traceparent);
     }
     return SK_PASS;
@@ -2048,13 +2044,6 @@ int obi_packet_extender_write_h2_tp(struct sk_msg_md *msg) {
 
     tailcall_ctx *t_ctx = tailcall_ctx_mem();
     if (!t_ctx) {
-        return SK_PASS;
-    }
-
-    // the later HEADERS frames of this send still need their per-stream bookkeeping
-    if (!inject_http_headers()) {
-        h2_resume_after(
-            msg, t_ctx, t_ctx->h2_frame_offset + k_h2_frame_header_len + t_ctx->h2_payload_len);
         return SK_PASS;
     }
 

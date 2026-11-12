@@ -193,11 +193,19 @@ func TestOTelTraceExportStopsHeaderInjectionOnExistingSocket(t *testing.T) {
 			filter.AllowPID(pid, ns, exec.New(exec.Init{Pid: pid, Ns: ns}), ebpfcommon.PIDTypeKProbes)
 
 			conn := newGuardConn(t, objs)
+			local := conn.client.LocalAddr().(*net.TCPAddr)
+			remote := conn.client.RemoteAddr().(*net.TCPAddr)
+			info := BpfConnectionInfoT{S_port: uint16(local.Port), D_port: uint16(remote.Port)}
+			sortConnectionInfo(&info)
+			key := BpfEgressKeyT{S_port: info.S_port, D_port: info.D_port}
+
 			if len(tc.setup) != 0 {
 				conn.send(tc.setup)
 			}
 			conn.send(tc.before)
 			if len(tc.setup) == 0 {
+				var stored BpfTpInfoPidT
+				require.NoError(t, objs.OutgoingTraceMap.Lookup(key, &stored), "the injected request leaves its context")
 				require.NoError(t, objs.SkTpInfoPidMap.Delete(uint32(conn.fd)))
 			}
 			filter.Filter([]request.Span{{
@@ -213,6 +221,8 @@ func TestOTelTraceExportStopsHeaderInjectionOnExistingSocket(t *testing.T) {
 				var tp BpfTpInfoPidT
 				require.NoError(t, objs.SkTpInfoPidMap.Lookup(uint32(conn.fd), &tp))
 				require.Equal(t, uint8(1), tp.Valid, "TCP option scheduling must continue")
+				require.ErrorIs(t, objs.OutgoingTraceMap.Lookup(key, &tp), ebpf.ErrKeyNotExist,
+					"as with header propagation disabled, a skipped header must not be left as written")
 			}
 
 			fresh := newGuardConn(t, objs)
