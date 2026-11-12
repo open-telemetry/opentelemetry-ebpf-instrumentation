@@ -1183,6 +1183,7 @@ func attachSocketFilter(filter *ebpf.Program) (int, error) {
 	if err == nil {
 		ssoErr := syscall.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ATTACH_BPF, filter.FD())
 		if ssoErr != nil {
+			unix.Close(fd)
 			return -1, ssoErr
 		}
 		return fd, nil

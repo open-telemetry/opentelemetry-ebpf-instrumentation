@@ -11,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 )
@@ -141,4 +142,16 @@ func TestKernelHasSymbol(t *testing.T) {
 	found, err = KernelHasSymbol(KSymTestDummy)
 	require.NoError(t, err)
 	assert.False(t, found, "expected test_dummy to be absent in kernel symbols")
+}
+
+func TestFilterCloseClosesSocket(t *testing.T) {
+	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM, 0)
+	require.NoError(t, err)
+	defer unix.Close(fds[1])
+
+	require.NoError(t, (&Filter{Fd: fds[0]}).Close())
+
+	n, err := unix.Read(fds[1], make([]byte, 1))
+	require.NoError(t, err)
+	assert.Zero(t, n)
 }

@@ -24,8 +24,10 @@
 package ifaces
 
 import (
+	"context"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -101,5 +103,31 @@ func upAndRunning(name string, index int) netlink.LinkUpdate {
 func down(name string, index int) netlink.LinkUpdate {
 	return netlink.LinkUpdate{
 		Link: &netlink.GenericLink{LinkAttrs: netlink.LinkAttrs{Name: name, Index: index}},
+	}
+}
+
+func TestWatcher_ClosesOutputOnCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+
+	watcher := NewWatcher(10)
+	watcher.interfaces = func() ([]Interface, error) { return nil, nil }
+	watcher.linkSubscriber = func(ch chan<- netlink.LinkUpdate, done <-chan struct{}) error {
+		go func() {
+			<-done
+			close(ch)
+		}()
+		return nil
+	}
+
+	outputEvents, err := watcher.Subscribe(ctx)
+	require.NoError(t, err)
+
+	cancel()
+
+	select {
+	case _, ok := <-outputEvents:
+		assert.False(t, ok, "expected the output channel to be closed")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "timeout waiting for the output channel to be closed")
 	}
 }
