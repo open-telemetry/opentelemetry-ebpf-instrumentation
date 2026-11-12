@@ -126,6 +126,9 @@ type GlobAttributes struct {
 	// sets it, from a rule's refine.exceptions.
 	Exceptions *ExceptionsOverride `yaml:"-" env:"-"`
 
+	// Only config v2 sets it, from a rule's refine.job_traces
+	JobTraces *JobTracesConfig `yaml:"-" env:"-"`
+
 	// Metrics configuration that is custom for this service match
 	Metrics perapp.SvcMetricsConfig `yaml:"metrics" env:"-"`
 }
@@ -264,3 +267,5 @@ func (n nilMatcher) IsSet() bool               { return false }
 func (n nilMatcher) MatchString(_ string) bool { return false }
 
 func (ga *GlobAttributes) GetExceptionsConfig() *ExceptionsOverride { return ga.Exceptions }
+
+func (ga *GlobAttributes) GetJobTracesConfig() *JobTracesConfig { return ga.JobTraces }

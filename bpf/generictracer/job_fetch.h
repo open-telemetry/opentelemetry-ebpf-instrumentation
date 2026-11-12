@@ -8,9 +8,11 @@
 
 #include <common/connection_info.h>
 #include <common/lw_thread.h>
+#include <common/python_task.h>
 #include <common/tp_info.h>
 
 #include <generictracer/maps/job_fetch_waits.h>
+#include <generictracer/maps/job_trace_pids.h>
 #include <generictracer/redis_job_fetch.h>
 
 #include <maps/java_vt_threads.h>
@@ -48,7 +50,8 @@ static __always_inline enum redis_job_fetch job_fetch_request(const unsigned cha
                                                               const bool is_server,
                                                               const lw_thread_t lw_thread) {
     // goroutines move between threads, so only real threads can run a job
-    if (direction != TCP_SEND || is_server || lw_thread != k_lw_thread_none) {
+    if (!g_job_traces_enabled || direction != TCP_SEND || is_server ||
+        lw_thread != k_lw_thread_none) {
         return k_redis_job_fetch_none;
     }
 
@@ -78,6 +81,13 @@ static __always_inline void job_fetch_wait(const pid_connection_info_t *conn,
         return;
     }
 
+    pid_info_t pid = {0};
+    task_pid(&pid);
+    const pid_info_t opted_in = {.user_pid = pid.user_pid, .ns = pid.ns};
+    if (!bpf_map_lookup_elem(&job_trace_pids, &opted_in)) {
+        return;
+    }
+
     const u64 id = bpf_get_current_pid_tgid();
     const job_fetch_wait_t wait = {.conn = *conn, .fetch = fetch};
     bpf_map_update_elem(&job_fetch_waits, &id, &wait, BPF_ANY);
@@ -86,7 +96,7 @@ static __always_inline void job_fetch_wait(const pid_connection_info_t *conn,
 // a thread serving other connections while the fetch is pending runs many jobs at once
 static __always_inline void job_fetch_see_buffer(const pid_connection_info_t *conn,
                                                  const lw_thread_t lw_thread) {
-    if (lw_thread != k_lw_thread_none) {
+    if (!g_job_traces_enabled || lw_thread != k_lw_thread_none) {
         return;
     }
 
@@ -99,14 +109,28 @@ static __always_inline void job_fetch_see_buffer(const pid_connection_info_t *co
 
 static __always_inline bool python_asyncio_thread(const u64 id) {
     const python_thread_state_t *state = bpf_map_lookup_elem(&python_thread_state, &id);
+    if (!state) {
+        return false;
+    }
 
-    return state && (state->current_task || state->current_context);
+    if (state->current_task) {
+        return true;
+    }
+
+    // Python 3.14 runs every thread in a context of its own, which no task owns
+    python_task_ref_t task = {0};
+    return resolve_python_task_from_context(id, state->current_context, &task) !=
+           PYTHON_TASK_NOT_FOUND;
 }
 
 static __always_inline void job_fetch_reply(const pid_connection_info_t *conn,
                                             const tp_info_t *fetch_tp,
                                             const unsigned char *reply,
                                             const u32 len) {
+    if (!g_job_traces_enabled) {
+        return;
+    }
+
     const u64 id = bpf_get_current_pid_tgid();
     const job_fetch_wait_t *wait = bpf_map_lookup_elem(&job_fetch_waits, &id);
     if (!wait || !job_fetch_same_conn(&wait->conn, conn)) {
@@ -138,6 +162,10 @@ static __always_inline void job_fetch_reply(const pid_connection_info_t *conn,
 
 // A thread or process the job's own thread starts runs the job, unless that thread reuses them
 static __always_inline void job_inherit(const struct task_struct *child) {
+    if (!g_job_traces_enabled) {
+        return;
+    }
+
     pid_key_t parent = {0};
     job_thread_key(&parent);
 
@@ -157,12 +185,20 @@ static __always_inline void job_inherit(const struct task_struct *child) {
 }
 
 static __always_inline void job_thread_end(const pid_key_t *thread, const u64 id) {
+    if (!g_job_traces_enabled) {
+        return;
+    }
+
     bpf_map_delete_elem(&job_contexts, thread);
     bpf_map_delete_elem(&job_fetch_waits, &id);
 }
 
 // A child that runs another program doesn't show the job has threads or processes of its own
 static __always_inline void job_exec(const pid_key_t *thread, const u64 id) {
+    if (!g_job_traces_enabled) {
+        return;
+    }
+
     const job_context_t *job = bpf_map_lookup_elem(&job_contexts, thread);
     if (job && job->inherited) {
         job_context_t *owner = bpf_map_lookup_elem(&job_contexts, &job->owner);

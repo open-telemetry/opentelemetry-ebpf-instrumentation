@@ -91,6 +91,7 @@ type RuleRefinement struct {
 	Exceptions *services.ExceptionsOverride `yaml:"exceptions,omitempty"`
 	Exports    *ExportModeRefinement        `yaml:"exports,omitempty"`
 	HTTP       *HTTPRefinement              `yaml:"http,omitempty"`
+	JobTraces  *services.JobTracesConfig    `yaml:"job_traces,omitempty"`
 }
 
 // ExportModeRefinement overrides trace and metric exports for a matched rule.

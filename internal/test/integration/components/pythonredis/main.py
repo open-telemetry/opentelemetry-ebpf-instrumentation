@@ -208,10 +208,10 @@ def process_per_job(job):
     os.waitpid(pid, 0)
 
 
-def job_loop(kind, handle):
+def job_loop(kind, handle, timeout=1):
     cli = redis.Redis(host='redis', port=6379, decode_responses=True)
     while True:
-        item = cli.blpop('obi-jobs-' + kind, timeout=1)
+        item = cli.blpop('obi-jobs-' + kind, timeout=timeout)
         if item:
             handle(item[1])
 
@@ -259,6 +259,35 @@ def busy_loop():
         item = cli.parse_response(conn, 'BLPOP')
         if item:
             run_job(item[1])
+
+
+precedence_worker = []
+
+
+# its fetch waits for the job, so it goes out before the event loop thread serves
+# the request the job runs during
+def precedence_loop():
+    # a fetch sent while the request that started this thread is served belongs to it
+    time.sleep(0.5)
+    job_loop('precedence', run_job, timeout=0)
+
+
+# started from the event loop thread once OBI instruments the process, so OBI
+# knows the worker as a thread that thread started
+@app.get("/start-precedence-worker")
+async def start_precedence_worker():
+    if not precedence_worker:
+        worker = threading.Thread(target=precedence_loop, daemon=True)
+        worker.start()
+        precedence_worker.append(worker)
+    return 'started'
+
+
+# keeps the thread that started the worker inside a request while the worker runs a job
+@app.get("/slow")
+async def slow():
+    time.sleep(2)
+    return 'done'
 
 
 # Workers that take jobs off Redis, each job running on the fetching thread, on
