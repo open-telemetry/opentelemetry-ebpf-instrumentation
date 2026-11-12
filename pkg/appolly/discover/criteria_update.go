@@ -123,6 +123,7 @@ type selectorSettings struct {
 	routes     *services.CustomRoutesConfig
 	metrics    perapp.SvcMetricsConfig
 	exceptions *services.ExceptionsOverride
+	jobTraces  bool
 }
 
 func settingsFor(s services.Selector) selectorSettings {
@@ -134,6 +135,7 @@ func settingsFor(s services.Selector) selectorSettings {
 		routes:     s.GetRoutesConfig(),
 		metrics:    s.MetricsConfig(),
 		exceptions: selectorExceptions(s),
+		jobTraces:  selectorJobTraces(s),
 	}
 }
 
@@ -201,6 +203,7 @@ func matchingSettings(criteria []services.Selector) selectorSettings {
 
 		settings.metrics = next.metrics
 		settings.exceptions = next.exceptions
+		settings.jobTraces = next.jobTraces
 	}
 	return settings
 }

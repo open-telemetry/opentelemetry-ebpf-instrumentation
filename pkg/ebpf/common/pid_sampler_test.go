@@ -24,7 +24,7 @@ func TestPIDSamplerKeyUsesInnermostNamespace(t *testing.T) {
 	t.Cleanup(func() { readNamespacePIDs = original })
 	for _, pids := range [][]app.PID{{1234}, {1234, 70}, {1234, 70, 1}, {70, 1}} {
 		readNamespacePIDs = func(app.PID) ([]app.PID, error) { return pids, nil }
-		key, err := pidSamplerKey(pids[0], 42)
+		key, err := pidMapKey(pids[0], 42)
 		require.NoError(t, err)
 		assert.Equal(t, BpfPidInfoT{UserPid: uint32(pids[len(pids)-1]), Ns: 42}, key)
 	}

@@ -709,3 +709,8 @@ func classifyUntilExit(t *testing.T, ty *typer, cmd *osexec.Cmd) ebpf.Instrument
 	require.Same(t, result.FileInfo, deleted[0].Obj.FileInfo)
 	return result
 }
+
+func TestSelectorJobTracesCompatibility(t *testing.T) {
+	assert.False(t, selectorJobTraces(dummyCriterion{}))
+	assert.True(t, selectorJobTraces(&services.GlobAttributes{JobTraces: &services.JobTracesConfig{Enabled: true}}))
+}
