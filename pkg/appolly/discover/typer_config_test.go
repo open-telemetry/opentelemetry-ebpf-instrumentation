@@ -84,3 +84,57 @@ func TestMakeServiceAttrsExceptionDefaultInclude(t *testing.T) {
 		}
 	}
 }
+
+func TestMakeServiceAttrsJobTraces(t *testing.T) {
+	for _, order := range []schema.MatchOrder{schema.MatchOrderFirstMatchWins, schema.MatchOrderLastMatchWins} {
+		for _, tc := range []struct {
+			name    string
+			enabled []*services.JobTracesConfig
+		}{
+			{name: "opted in", enabled: []*services.JobTracesConfig{{Enabled: true}}},
+			{name: "not opted in", enabled: []*services.JobTracesConfig{nil}},
+			{name: "overlapping rules", enabled: []*services.JobTracesConfig{{Enabled: true}, {Enabled: false}}},
+		} {
+			t.Run(string(order)+"/"+tc.name, func(t *testing.T) {
+				rules := make([]schema.Rule, 0, len(tc.enabled))
+				for _, jobTraces := range tc.enabled {
+					rule := schema.Rule{
+						Action: schema.CaptureActionInclude,
+						Match:  schema.RuleMatch{Process: schema.RuleProcessMatch{ExePathGlob: []string{"/srv/app"}}},
+					}
+					rule.Refine.JobTraces = jobTraces
+					rules = append(rules, rule)
+				}
+				cfg, err := convert.V2ToRuntime(&schema.Extension{
+					Version: schema.SupportedVersion,
+					Capture: schema.Capture{
+						Policy: schema.CapturePolicy{
+							DefaultAction: schema.CaptureActionInclude,
+							MatchOrder:    order,
+						},
+						Rules: rules,
+					},
+				})
+				require.NoError(t, err)
+
+				winner := tc.enabled[0]
+				if order == schema.MatchOrderLastMatchWins {
+					winner = tc.enabled[len(tc.enabled)-1]
+				}
+				anyEnabled := false
+				for _, jobTraces := range tc.enabled {
+					anyEnabled = anyEnabled || jobTraces.IsEnabled()
+				}
+				require.Equal(t, anyEnabled, cfg.JobTracesEnabled(), "the eBPF job code is loaded when any rule opts in")
+
+				app := discover.SelectedServiceAttrsForTest(cfg, &services.ProcessInfo{Pid: 1234, ExePath: "/srv/app"})
+				require.NotNil(t, app)
+				require.Equal(t, winner.IsEnabled(), app.JobTraces, "the winning rule decides")
+
+				other := discover.SelectedServiceAttrsForTest(cfg, &services.ProcessInfo{Pid: 1234, ExePath: "/srv/other"})
+				require.NotNil(t, other)
+				require.False(t, other.JobTraces, "workloads no rule opts in keep job traces off")
+			})
+		}
+	}
+}

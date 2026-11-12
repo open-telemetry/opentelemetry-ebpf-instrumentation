@@ -193,6 +193,29 @@ func testTracesRedisEmptyFetch(t *testing.T) {
 	}
 }
 
+// A job belongs to the thread that runs it, even while the thread that started
+// that thread serves a request
+func testTracesRedisJobOverAncestorRequest(t *testing.T) {
+	ti.DoHTTPGet(t, "http://localhost:8381/start-precedence-worker", 200)
+	// the worker sends its fetch while the thread that started it is idle, and it
+	// waits for the job
+	time.Sleep(time.Second)
+
+	slow := make(chan error, 1)
+	go func() {
+		resp, err := http.Get("http://localhost:8381/slow")
+		if err == nil {
+			resp.Body.Close()
+		}
+		slow <- err
+	}()
+	time.Sleep(500 * time.Millisecond)
+	pushRedisJob(t, "precedence", "precedence-1")
+	require.NoError(t, <-slow)
+
+	requireJobUnderFetch(t, "precedence-1", "BLPOP")
+}
+
 // A thread that serves another connection while its fetch is pending can't
 // tell which job its later calls belong to
 func testTracesRedisJobsBusyThread(t *testing.T) {

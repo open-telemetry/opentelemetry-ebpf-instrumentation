@@ -536,6 +536,17 @@
               "$ref": "#/$defs/Exceptions/properties/go"
             }
           }
+        },
+        "job_traces": {
+          "type": "object",
+          "description": "Trace each job matched workloads take off a Redis queue as one trace, rooted at the fetch that took it.\nSee devdocs/queue-job-traces.md.\n",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable job traces for this workload. Disabled when omitted."
+            }
+          }
         }
       }
     },

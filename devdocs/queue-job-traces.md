@@ -19,6 +19,27 @@ trace of job 7
   └── SET job:7 done
 ```
 
+## Enabling it
+
+Job traces are off unless a Config v2 include rule opts its workloads in:
+
+```yaml
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      rules:
+        - action: include
+          match:
+            kubernetes:
+              namespace_glob: [jobs]
+          refine:
+            job_traces:
+              enabled: true
+```
+
+When no rule opts in, the job code is compiled out of the eBPF programs.
+
 ## Fetches
 
 A client request that is one of these commands is a fetch:

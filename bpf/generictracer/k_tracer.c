@@ -1598,9 +1598,11 @@ int BPF_KPROBE_GUARDED(obi_kprobe_setup_new_exec) {
     }
 
     // the new program isn't running the old one's job
-    pid_key_t thread = {0};
-    job_thread_key(&thread);
-    job_exec(&thread, id);
+    if (g_job_traces_enabled) {
+        pid_key_t thread = {0};
+        job_thread_key(&thread);
+        job_exec(&thread, id);
+    }
 
     process_event_t event = {.type = k_event_type_process_exec, .ts = bpf_ktime_get_ns()};
     task_pid(&event.pid);

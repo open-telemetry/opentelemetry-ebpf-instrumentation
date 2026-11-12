@@ -66,6 +66,7 @@ type Tracer struct {
 	// the valid_pids words as last written to the BPF map
 	validPids      ebpfcommon.PIDBitmap
 	pidSamplers    ebpfcommon.PIDSamplers
+	jobTracePIDs   ebpfcommon.JobTracePIDs
 	seenNetns      *expirable.LRU[uint64, struct{}]
 	eventCtx       *ebpfcommon.EBPFEventContext
 	jvmUSDTManager ebpfcommon.USDTSpecManager
@@ -144,6 +145,7 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 		return
 	}
 	p.writePIDSampler(pid, ns, serviceSource)
+	p.writeJobTracePID(pid, ns, serviceSource)
 	if err := p.rebuildValidPids(); err != nil {
 		p.log.Error("rebuilding the BPF PID filter", "error", err)
 		return
@@ -171,6 +173,16 @@ func (p *Tracer) UpdatePIDSampler(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	}
 }
 
+func (p *Tracer) writeJobTracePID(pid app.PID, ns uint32, fi *exec.FileInfo) {
+	if p.bpfObjects.JobTracePids == nil {
+		return
+	}
+
+	if err := p.jobTracePIDs.Write(p.bpfObjects.JobTracePids, pid, ns, fi.ServiceAttrs().JobTraces); err != nil {
+		p.log.Error("opting the process into job traces in eBPF", "pid", pid, "error", err)
+	}
+}
+
 func ensureJVMRuntimeMetricGeneration(fi *exec.FileInfo) uint64 {
 	if fi.ServiceAttrs().SDKLanguage != svc.InstrumentableJava {
 		return 0
@@ -194,6 +206,12 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	if p.bpfObjects.PidSamplers != nil {
 		if err := p.pidSamplers.Delete(p.bpfObjects.PidSamplers, pid); err != nil {
 			p.log.Error("removing the process sampler from eBPF", "pid", pid, "error", err)
+		}
+	}
+
+	if p.bpfObjects.JobTracePids != nil {
+		if err := p.jobTracePIDs.Delete(p.bpfObjects.JobTracePids, pid); err != nil {
+			p.log.Error("removing the process from job traces in eBPF", "pid", pid, "error", err)
 		}
 	}
 
@@ -290,6 +308,7 @@ func (p *Tracer) constants(eventsRingBufSize uint32) map[string]any {
 		m["jvm_sampling_interval_ns"] = uint64(p.cfg.JVMRuntimeMetrics.SamplingInterval.Nanoseconds())
 	}
 	m["g_exceptions_enabled"] = p.cfg.ExceptionsEnabled() && p.cfg.Logs.Enabled()
+	m["g_job_traces_enabled"] = p.cfg.JobTracesEnabled()
 	m["nodejs_runtime_metrics_enabled"] = uint64(0)
 	if p.cfg.AppRuntimeMetricsEnabled() {
 		m["nodejs_runtime_metrics_enabled"] = uint64(1)

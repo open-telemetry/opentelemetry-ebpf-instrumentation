@@ -920,6 +920,7 @@ func TestSuite_PythonRedis(t *testing.T) {
 	t.Run("Redis jobs taken off a stream", testTracesRedisJobsStream)
 	t.Run("Redis fetch that takes no job", testTracesRedisEmptyFetch)
 	t.Run("Redis jobs on a thread serving other connections", testTracesRedisJobsBusyThread)
+	t.Run("Redis jobs over a request an ancestor thread serves", testTracesRedisJobOverAncestorRequest)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

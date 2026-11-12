@@ -339,6 +339,10 @@ static __always_inline tp_info_pid_t *find_go_parent_trace(const lw_thread_t lw_
 
 // the fetch that took the job the thread is running
 static __always_inline tp_info_pid_t *find_job_parent_trace(const pid_key_t *thread) {
+    if (!g_job_traces_enabled) {
+        return NULL;
+    }
+
     job_context_t *job = bpf_map_lookup_elem(&job_contexts, thread);
     if (!job) {
         return NULL;

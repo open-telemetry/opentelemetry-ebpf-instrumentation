@@ -1377,6 +1377,18 @@ func TestCriteriaUpdaterRejectsExceptionChanges(t *testing.T) {
 	}
 }
 
+func TestCriteriaUpdaterRejectsJobTracesChanges(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			initial := criteriaConfig(t, "    - exe_path: /srv/app\n")
+			initial.Discovery.Instrument[0].JobTraces = &services.JobTracesConfig{Enabled: enabled}
+			next := criteriaConfig(t, "    - exe_path: /srv/app\n")
+			next.Discovery.Instrument[0].JobTraces = &services.JobTracesConfig{Enabled: !enabled}
+			require.ErrorContains(t, NewCriteriaUpdater(initial).Update(t.Context(), next), "restart OBI")
+		})
+	}
+}
+
 func TestCriteriaRefreshRejectsRetainedExceptionChanges(t *testing.T) {
 	original := processInfo
 	t.Cleanup(func() { processInfo = original })

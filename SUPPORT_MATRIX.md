@@ -85,7 +85,7 @@ through language-specific library instrumentation documented later in this file.
 | MySQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text |
 | PostgreSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text; connections opened before OBI started miss `db.namespace` |
 | MSSQL | All | All | Yes | No | Prepared statements created before OBI started may miss query text. Node.js/TDS requests that yield no parseable operation or table may produce no database span even when TLS probes attach and OBI recognizes MSSQL |
-| Redis | All | All | Yes | No | Existing connections may miss database number and `db.namespace`; tracing can materially increase Redis CPU usage at high request rates, so benchmark before production rollout |
+| Redis | All | All | Yes | No | Existing connections may miss database number and `db.namespace`; tracing can materially increase Redis CPU usage at high request rates, so benchmark before production rollout. Workers opted into job traces get one trace per job taken off a queue, rooted at the fetch; see [Queue Job Traces](devdocs/queue-job-traces.md) |
 | MongoDB | `5.0+` | `insert`, `update`, `find`, `delete`, `findAndModify`, `aggregate`, `count`, `distinct`, `mapReduce` | Yes | No | No support for compressed payloads |
 | Couchbase | All | All | Yes | No | Bucket or collection may be unknown if negotiation happened before OBI started |
 | Memcached | All | ASCII text subset excluding `quit` and meta commands | Yes | No | Only the first key is recorded for multi-key retrieval; payload bytes are not captured |
