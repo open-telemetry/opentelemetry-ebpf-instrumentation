@@ -1691,6 +1691,18 @@
           }
         ]
       },
+      "TLS": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.27.3"
+        },
+        "offsets": [
+          {
+            "offset": 208,
+            "since": "1.17.0"
+          }
+        ]
+      },
       "URL": {
         "versions": {
           "oldest": "1.17.0",

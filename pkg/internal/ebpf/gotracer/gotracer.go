@@ -1772,6 +1772,16 @@ var goH2OwnershipProbeSymbols = []string{
 	"google.golang.org/grpc/internal/transport.(*loopyWriter).originateStream",
 }
 
+var goHTTPServerRequestProbeSymbols = []string{
+	"golang.org/x/net/http2.(*serverConn).runHandler",
+	"golang.org/x/net/http2.(*serverConn).upgradeRequest",
+}
+
+// GoHTTPServerRequestProbeSymbols returns the symbols used by request lifecycle probe groups.
+func GoHTTPServerRequestProbeSymbols() []string {
+	return append([]string(nil), goHTTPServerRequestProbeSymbols...)
+}
+
 // GoChannelLinkProbeSymbols returns the Go runtime symbols used to correlate direct channel handoffs.
 func GoChannelLinkProbeSymbols() []string {
 	return append([]string(nil), goChannelLinkProbeSymbols...)
