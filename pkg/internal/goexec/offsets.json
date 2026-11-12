@@ -298,7 +298,7 @@
       "config": {
         "versions": {
           "oldest": "5.0.0",
-          "newest": "5.12.0"
+          "newest": "5.13.0"
         },
         "offsets": [
           {
@@ -312,7 +312,7 @@
       "Host": {
         "versions": {
           "oldest": "5.0.0",
-          "newest": "5.12.0"
+          "newest": "5.13.0"
         },
         "offsets": [
           {
