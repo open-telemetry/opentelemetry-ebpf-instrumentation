@@ -341,15 +341,16 @@ type sharedForwarder interface {
 }
 
 type EBPFEventContext struct {
-	ExceptionInput   *msg.Queue[[]exceptions.Event]
-	CommonPIDsFilter ServiceFilter
-	SharedRingBuffer sharedForwarder
-	RuntimeMetrics   RuntimeMetricSender
-	EBPFMaps         map[string]*ebpf.Map
-	RingBufLock      sync.Mutex
-	MapsLock         sync.Mutex
-	LoadLock         sync.Mutex
-	Capabilities     TracerCapability
+	ExceptionInput     *msg.Queue[[]exceptions.Event]
+	CommonPIDsFilter   ServiceFilter
+	SharedRingBuffer   sharedForwarder
+	RuntimeMetrics     RuntimeMetricSender
+	HTTPServerRequests func(HTTPServerRequestEvent)
+	EBPFMaps           map[string]*ebpf.Map
+	RingBufLock        sync.Mutex
+	MapsLock           sync.Mutex
+	LoadLock           sync.Mutex
+	Capabilities       TracerCapability
 
 	internalEventHandlersMu sync.RWMutex
 	internalEventHandlers   map[uint8]func(*ringbuf.Record) error
