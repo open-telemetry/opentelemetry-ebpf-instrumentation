@@ -101,6 +101,9 @@ func TestLoadAllGoFunctionNamesIncludesHTTPServerRequestSymbols(t *testing.T) {
 		for _, symbol := range []string{
 			"golang.org/x/net/http2.(*serverConn).runHandler",
 			"golang.org/x/net/http2.(*serverConn).upgradeRequest",
+			"net/http/internal/http2.(*serverConn).runHandler",
+			"net/http/internal/http2.(*serverConn).upgradeRequest",
+			"net/http/internal/http2.(*serverConn).newResponseWriter",
 		} {
 			assert.Contains(t, ty.allGoFunctions, symbol)
 		}
