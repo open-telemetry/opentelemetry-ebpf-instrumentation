@@ -1144,11 +1144,11 @@ scope. The source and its settings are available only in Config v2.
 
 Standalone OBI accepts several configuration files, in increasing order of
 priority. Repeat `--config` to pass them, and list more files in
-`OTEL_EBPF_CONFIG_PATH`, separated by commas. Files in `OTEL_EBPF_CONFIG_PATH`
-have higher priority than the `--config` files:
+`OTEL_EBPF_CONFIG_PATH`, separated by colons as in `PATH`. Files in
+`OTEL_EBPF_CONFIG_PATH` have higher priority than the `--config` files:
 
 ```sh
-OTEL_EBPF_CONFIG_PATH=team.yml,local.yml obi --config base.yml --config site.yml
+OTEL_EBPF_CONFIG_PATH=team.yml:local.yml obi --config base.yml --config site.yml
 ```
 
 OBI loads `base.yml`, then `site.yml`, `team.yml` and `local.yml`. Each file can

@@ -12,6 +12,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -34,8 +35,8 @@ const (
 	configVersionV2 = configload.VersionV2
 )
 
-// configPathEnv holds a comma-separated list of configuration files with higher priority than
-// the -config flags.
+// configPathEnv holds a list of configuration files, separated like PATH, with higher priority
+// than the -config flags.
 const configPathEnv = "OTEL_EBPF_CONFIG_PATH"
 
 // configPaths collects the paths of the repeatable -config flag.
@@ -53,8 +54,8 @@ func (p *configPaths) Set(path string) error {
 // configFilePaths returns the configuration files in increasing order of priority.
 func configFilePaths(flagPaths []string, envPaths string) []string {
 	paths := slices.Clone(flagPaths)
-	for path := range strings.SplitSeq(envPaths, ",") {
-		if path = strings.TrimSpace(path); path != "" {
+	for _, path := range filepath.SplitList(envPaths) {
+		if path != "" {
 			paths = append(paths, path)
 		}
 	}

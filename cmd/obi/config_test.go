@@ -554,11 +554,12 @@ func TestConfigFilePaths(t *testing.T) {
 	}{
 		{name: "none"},
 		{name: "flags only", flagPaths: []string{"low.yml", "high.yml"}, want: []string{"low.yml", "high.yml"}},
-		{name: "env only", envPaths: "low.yml,high.yml", want: []string{"low.yml", "high.yml"}},
+		{name: "env only", envPaths: "low.yml:high.yml", want: []string{"low.yml", "high.yml"}},
+		{name: "env keeps commas and spaces", envPaths: "/etc/obi/a,b.yml: c.yml", want: []string{"/etc/obi/a,b.yml", " c.yml"}},
 		{
 			name:      "env has higher priority than flags",
 			flagPaths: []string{"flag1.yml", "flag2.yml"},
-			envPaths:  " env1.yml, ,env2.yml ",
+			envPaths:  "env1.yml::env2.yml:",
 			want:      []string{"flag1.yml", "flag2.yml", "env1.yml", "env2.yml"},
 		},
 	} {
