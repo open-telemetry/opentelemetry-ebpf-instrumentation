@@ -10,6 +10,10 @@ receivers:
           allowed_origins:
             - "http://*"
             - "https://*"
+processors:
+  # one point per series per second for weaver: it needs the shapes, and 10ms exports keep its queue full
+  interval:
+    interval: 1s
 exporters:
   prometheus:
     endpoint: "otelcol:9464"
@@ -45,6 +49,7 @@ service:
       exporters: [otlphttp/jaeger, debug/traces]
     metrics/weaver:
       receivers: [otlp]
+      processors: [interval]
       exporters: [otlp/weaver]
     traces/weaver:
       receivers: [otlp]

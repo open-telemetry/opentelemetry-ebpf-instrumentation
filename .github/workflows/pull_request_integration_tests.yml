@@ -126,13 +126,18 @@ jobs:
     timeout-minutes: 45
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
+      prebuild-compose-files: ${{ steps.prebuild-compose-files.outputs.files }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      # amd64 runs the full suite (10 shards). arm64 keeps the current
+      - name: List compose files with prebuilt fixtures
+        id: prebuild-compose-files
+        run: echo "files=$(bash scripts/discover-integration-images.sh --prebuild-compose-files | jq -Rnc '[inputs]')" >> "$GITHUB_OUTPUT"
+
+      # amd64 runs the full suite (12 shards). arm64 keeps the current
       # multiprocess subset (2 shards) until coverage is expanded.
       - name: Build test matrix
         id: build-matrix
@@ -140,7 +145,7 @@ jobs:
           {
             echo -n "matrix="
             jq -nc \
-              --argjson amd64 "$(PARTITIONS=10 make integration-test-matrix-json)" \
+              --argjson amd64 "$(PARTITIONS=12 make integration-test-matrix-json)" \
               --argjson arm64 "$(PARTITIONS=2 make multiprocess-integration-test-matrix-json)" \
               '{
                 include: (
@@ -262,9 +267,97 @@ jobs:
           path: /tmp/hatest-obi-javaagent.tar
           retention-days: 1
 
+  # built once instead of in every amd64 shard that runs their suites
+  build-fixture-images:
+    name: "Build fixture images (${{ matrix.compose-file }})"
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    needs: [test-matrix, prep-images]
+    strategy:
+      fail-fast: false
+      matrix:
+        compose-file: ${{ fromJson(needs.test-matrix.outputs.prebuild-compose-files) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - name: Check for Docker Hub token
+        id: check-docker-token
+        run: |
+          if [ -n "${DOCKER_TOKEN}" ]; then
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
+
+      - name: Log in to Docker Hub
+        if: steps.check-docker-token.outputs.has_token == 'true'
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          username: ${{ vars.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN_EBPF_INSTRUMENTATION }}
+
+      - name: Compute base-image cache key
+        id: cache-key
+        env:
+          ARCH: ${{ runner.arch }}
+          INPUT_REF: ${{ inputs.ref || '' }}
+        run: |
+          if [ -n "${INPUT_REF}" ]; then
+            REF_SCOPE="input-ref-$(printf '%s' "${INPUT_REF}" | sha256sum | cut -d' ' -f1)"
+          else
+            REF_SCOPE="event-ref"
+          fi
+
+          IMAGE_SCOPE="$(bash scripts/discover-integration-images.sh --base-images | sha256sum | cut -d' ' -f1)"
+          echo "key=base-images-${ARCH}-${REF_SCOPE}-${IMAGE_SCOPE}" >> "$GITHUB_OUTPUT"
+
+      - name: Restore base images
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] key derives from the digest-pinned base-image list; images are content-addressable
+        with:
+          path: /tmp/base-images.tar
+          key: ${{ steps.cache-key.outputs.key }}
+
+      - name: Load base images
+        run: |
+          if [ -f /tmp/base-images.tar ]; then
+            docker load -i /tmp/base-images.tar
+          else
+            echo "::warning::base image cache miss; builds may pull from the upstream registry and risk HTTP 429"
+          fi
+
+      # OBI services come from the OBI image jobs, which need the generated BPF files
+      - name: Build and save fixture images
+        env:
+          COMPOSE_FILE: internal/test/integration/${{ matrix.compose-file }}
+          # compose validates every service before building; nothing is published here
+          TEST_SERVICE_PORTS: "8080:8080"
+        run: |
+          config="$(docker compose config --format json)"
+          fixtures='.services | to_entries[] | select(.value.build != null and ((.key | split("-") | index("obi")) == null))'
+          mapfile -t services < <(jq -r "${fixtures} | .key" <<< "${config}")
+          mapfile -t images < <(jq -r "${fixtures} | .value.image" <<< "${config}")
+
+          docker compose build "${services[@]}"
+          docker save "${images[@]}" -o /tmp/fixture-images.tar
+          printf '%s\n' "${images[@]}" > /tmp/fixture-images.txt
+
+      - name: Upload fixture images
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: fixture-images-${{ matrix.compose-file }}-${{ github.run_id }}
+          path: |
+            /tmp/fixture-images.tar
+            /tmp/fixture-images.txt
+          retention-days: 1
+
   test:
     name: ${{ matrix.description }} (${{ matrix.arch }})
-    needs: [test-matrix, generate-bpf, prep-images, build-obi-image, build-javaagent-image]
+    needs: [test-matrix, generate-bpf, prep-images, build-obi-image, build-javaagent-image, build-fixture-images]
     # prep-images and build-obi-image are matrixed; don't skip all shards if one arch fails
     if: ${{ !cancelled() && needs.generate-bpf.result == 'success' && needs.test-matrix.result == 'success' }}
     permissions:
@@ -273,6 +366,9 @@ jobs:
       pull-requests: write
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
+    env:
+      # below the job timeout, so a slow shard fails and uploads its results instead of being cancelled
+      TEST_STEP_TIMEOUT_MINUTES: 40
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.test-matrix.outputs.matrix) }}
@@ -392,6 +488,26 @@ jobs:
             echo "::warning::prebuilt javaagent image missing; suites will build it"
           fi
 
+      # compose builds the fixtures of any missing artifact itself
+      - name: Download prebuilt fixture images
+        if: matrix.arch == 'amd64'
+        continue-on-error: true
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: fixture-images-*-${{ github.run_id }}
+          path: /tmp/fixture-images
+
+      - name: Load prebuilt fixture images
+        if: matrix.arch == 'amd64'
+        run: |
+          shopt -s nullglob
+          images=()
+          for artifact in /tmp/fixture-images/*/; do
+            docker load -i "${artifact}fixture-images.tar"
+            mapfile -t -O "${#images[@]}" images < "${artifact}fixture-images.txt"
+          done
+          echo "PREBUILT_FIXTURE_IMAGES=$(IFS=,; echo "${images[*]}")" >> "$GITHUB_ENV"
+
       - name: Check disk usage before tests
         run: df -h
 
@@ -434,6 +550,7 @@ jobs:
 
       - name: Run integration tests
         id: integration-tests
+        timeout-minutes: ${{ fromJSON(env.TEST_STEP_TIMEOUT_MINUTES) }}
         env:
           MATRIX_ID: ${{ matrix.id }}
           MATRIX_ARCH: ${{ matrix.arch }}
@@ -444,12 +561,17 @@ jobs:
           RETRY_STATE_DIR: testoutput/integration-retry
           TEST_COVERAGE_DIR: testoutput
           TEST_REPORT: /home/runner/reports/test-run-${{ github.run_number }}-${{ matrix.id }}-${{ github.run_attempt }}.log
-          # the OBI image is prebuilt and loaded above; component images keep
+          # the OBI images and the fixtures loaded above; other component images keep
           # rebuilding per suite (their tags are not unique per Dockerfile)
           PREBUILT_IMAGES: "hatest-obi,hatest-obi-b,hatest-javaobi,hatest-obi-peer-metadata-server,hatest-obi-peer-metadata-client,hatest-obi-javaagent"
         run: |
           echo Partition
           echo "${MATRIX_JSON}"
+
+          if [ -n "${PREBUILT_FIXTURE_IMAGES:-}" ]; then
+            PREBUILT_IMAGES="${PREBUILT_IMAGES},${PREBUILT_FIXTURE_IMAGES}"
+          fi
+          export PREBUILT_IMAGES
 
           if [ "$PREVIOUS_RESULTS_OUTCOME" != "success" ]; then
             PREVIOUS_RESULTS_DIR="$RUNNER_TEMP/no-previous-integration-results"
@@ -458,7 +580,9 @@ jobs:
 
           TEST_COMMIT="$(git rev-parse HEAD)"
           export TEST_COMMIT
-          go run ./scripts/run-integration-shard
+          # exec, so a cancelled step signals the runner and it saves the tests that already passed
+          go build -o "${RUNNER_TEMP}/run-integration-shard" ./scripts/run-integration-shard
+          exec "${RUNNER_TEMP}/run-integration-shard"
 
       - name: Stage shard coverage data
         if: always() && steps.integration-tests.outcome != 'skipped'

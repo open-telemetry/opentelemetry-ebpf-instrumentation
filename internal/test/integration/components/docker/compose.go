@@ -29,11 +29,13 @@ import (
 // hung.
 const stopTimeout = "15"
 
-// waitTimeout bounds how long Close() will wait for the obi container to
-// exit. A stuck container would otherwise burn the shard's job timeout.
-const waitTimeout = 30 * time.Second
-
 const configMigrationOverride = "docker-compose-config-migration.yml"
+
+type composeService struct {
+	Image    string    `yaml:"image"`
+	Build    yaml.Node `yaml:"build"`
+	Profiles []string  `yaml:"profiles"`
+}
 
 type ConfigMigration struct {
 	Source string
@@ -46,7 +48,6 @@ type Compose struct {
 	OverridePaths []string
 	Logger        io.WriteCloser
 	Env           []string
-	skipWait      bool
 }
 
 func defaultEnv() []string {
@@ -112,7 +113,7 @@ func (c *Compose) Up() error {
 
 	if services, ok := c.servicesToBuild(); ok {
 		if len(services) > 0 {
-			if err := c.command(append([]string{"build"}, services...)...); err != nil {
+			if err := c.build(services); err != nil {
 				return err
 			}
 		}
@@ -134,26 +135,66 @@ func (c *Compose) servicesToBuild() ([]string, bool) {
 		return nil, false
 	}
 
-	type composeDocument struct {
-		Services map[string]struct {
-			Image    string    `yaml:"image"`
-			Build    yaml.Node `yaml:"build"`
-			Profiles []string  `yaml:"profiles"`
-		} `yaml:"services"`
+	services, ok := c.services()
+	if !ok {
+		return nil, false
 	}
 
-	services := map[string]struct {
-		Image    string
-		Build    yaml.Node
-		Profiles []string
-	}{}
+	var servicesToBuild []string
+	for name, svc := range services {
+		if svc.Build.IsZero() || !c.profileActive(svc.Profiles) {
+			continue
+		}
+		if image := c.interpolate(svc.Image); image != "" && slices.Contains(prebuilt, image) {
+			continue
+		}
+		servicesToBuild = append(servicesToBuild, name)
+	}
+	slices.Sort(servicesToBuild)
+
+	return servicesToBuild, true
+}
+
+// build logs its duration and images in the test output, where the test weights script finds
+// builds of images that several suites share
+func (c *Compose) build(services []string) error {
+	started := time.Now()
+	if err := c.command(append([]string{"build"}, services...)...); err != nil {
+		return err
+	}
+
+	slog.Info("built compose services",
+		"seconds", int(time.Since(started).Round(time.Second).Seconds()),
+		"images", strings.Join(c.images(services), ","))
+	return nil
+}
+
+// images names what each service builds; services without an image get one unique to this compose file
+func (c *Compose) images(services []string) []string {
+	definitions, _ := c.services()
+	images := make([]string, 0, len(services))
+	for _, name := range services {
+		image := c.interpolate(definitions[name].Image)
+		if image == "" {
+			image = filepath.Base(c.Path) + "/" + name
+		}
+		images = append(images, image)
+	}
+	return images
+}
+
+// services merges the service definitions of the compose file and its overrides
+func (c *Compose) services() (map[string]composeService, bool) {
+	services := map[string]composeService{}
 	for _, composePath := range c.composePaths() {
 		data, err := os.ReadFile(composePath)
 		if err != nil {
 			return nil, false
 		}
 
-		var doc composeDocument
+		var doc struct {
+			Services map[string]composeService `yaml:"services"`
+		}
 		if err := yaml.Unmarshal(data, &doc); err != nil {
 			return nil, false
 		}
@@ -171,20 +212,25 @@ func (c *Compose) servicesToBuild() ([]string, bool) {
 			services[name] = service
 		}
 	}
+	return services, true
+}
 
-	var servicesToBuild []string
-	for name, svc := range services {
-		if svc.Build.IsZero() || !c.profileActive(svc.Profiles) {
-			continue
-		}
-		if image := c.interpolate(svc.Image); image != "" && slices.Contains(prebuilt, image) {
-			continue
-		}
-		servicesToBuild = append(servicesToBuild, name)
+// obiServices lists the services running OBI, such as obi or client-obi
+func (c *Compose) obiServices() ([]string, bool) {
+	services, ok := c.services()
+	if !ok {
+		return nil, false
 	}
-	slices.Sort(servicesToBuild)
 
-	return servicesToBuild, true
+	var obiServices []string
+	for name := range services {
+		if slices.Contains(strings.Split(name, "-"), "obi") {
+			obiServices = append(obiServices, name)
+		}
+	}
+	slices.Sort(obiServices)
+
+	return obiServices, true
 }
 
 // profileActive mirrors compose: services without profiles always run, others need one in COMPOSE_PROFILES
@@ -234,12 +280,11 @@ func (c *Compose) lookupEnv(name string) (string, bool) {
 }
 
 func (c *Compose) Run(service string) error {
-	c.skipWait = true
 	args := []string{"up"}
 	if os.Getenv("SKIP_DOCKER_BUILD") == "" {
 		if services, ok := c.servicesToBuild(); ok {
 			if len(services) > 0 {
-				if err := c.command(append([]string{"build"}, services...)...); err != nil {
+				if err := c.build(services); err != nil {
 					return err
 				}
 			}
@@ -298,8 +343,20 @@ func (c *Compose) ServiceRunning(service string) (bool, error) {
 	return strings.TrimSpace(string(output)) == service, nil
 }
 
+// Stop lets OBI exit cleanly, so it writes coverage and exports to a collector that is still up, then kills
+// the rest: fixtures that ignore SIGTERM would otherwise hold every teardown for the whole stop timeout
 func (c *Compose) Stop() error {
-	return c.command("stop", "--timeout", stopTimeout)
+	obiServices, ok := c.obiServices()
+	if !ok {
+		return c.command("stop", "--timeout", stopTimeout)
+	}
+
+	if len(obiServices) > 0 {
+		if err := c.command(append([]string{"stop", "--timeout", stopTimeout}, obiServices...)...); err != nil {
+			return err
+		}
+	}
+	return c.command("kill")
 }
 
 func (c *Compose) Remove() error {
@@ -391,14 +448,6 @@ func (c *Compose) Close() error {
 
 	if err := <-logsErr; err != nil {
 		errs = append(errs, fmt.Errorf("flushing logs: %w", err))
-	}
-
-	if !c.skipWait {
-		waitCtx, cancel := context.WithTimeout(context.Background(), waitTimeout)
-		if err := c.commandContext(waitCtx, "wait", "obi"); err != nil {
-			slog.Warn("waiting for obi to stop. Will force remove", "error", err)
-		}
-		cancel()
 	}
 
 	if err := c.Remove(); err != nil {

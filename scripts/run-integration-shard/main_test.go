@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestShardRerunsOnlyUnresolvedTests(t *testing.T) {
@@ -374,6 +375,122 @@ func TestShardWithOnlyExcludedTests(t *testing.T) {
 	}
 }
 
+func TestShardRerunsFailedTestsWithinTheAttempt(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.reruns = maxReruns
+	commandLog := fakeGo(t, reportEvents("TestAlpha", "pass", "TestBeta", "fail", "TestGamma", "skip"), "1")
+	t.Setenv("FAKE_RERUN_REPORT", reportEvents("TestBeta", "pass"))
+	t.Setenv("FAKE_RERUN_EXIT", "0")
+	if err := runShard(cfg); err != nil {
+		t.Fatal(err)
+	}
+	args, err := os.ReadFile(commandLog + ".1")
+	if err != nil || !strings.Contains(string(args), "-run=^(TestBeta)$\n") {
+		t.Fatalf("did not rerun only the failed test: %s, %v", args, err)
+	}
+	if _, err := os.Stat(cfg.reportPath(1)); err != nil {
+		t.Fatalf("rerun report missing: %v", err)
+	}
+	state := readCheckpoint(t, cfg.stateDir)
+	want := map[string]string{"TestAlpha": "pass", "TestBeta": "pass", "TestGamma": "skip"}
+	if !state.Reusable || !reflect.DeepEqual(state.Results, want) {
+		t.Fatalf("did not merge the rerun results: %+v", state)
+	}
+}
+
+func TestShardLeavesFailuresToTheNextAttempt(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		report string
+		setup  func(*config)
+	}{
+		{
+			name:   "rerun cannot finish in time",
+			report: reportEvents("TestAlpha", "pass", "TestBeta", "fail", "TestGamma", "skip"),
+			setup: func(cfg *config) {
+				cfg.deadline = time.Now().Add(time.Minute)
+				cfg.weights = map[string]float64{"TestBeta": time.Hour.Seconds()}
+			},
+		},
+		{
+			name:   "too many failures",
+			report: reportEvents("TestAlpha", "fail", "TestBeta", "fail", "TestGamma", "fail"),
+			setup:  func(*config) {},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := testConfig(t)
+			cfg.reruns = maxReruns
+			tc.setup(&cfg)
+			commandLog := fakeGo(t, tc.report, "1")
+			if err := runShard(cfg); err == nil {
+				t.Fatal("expected the failure to stand")
+			}
+			if _, err := os.Stat(commandLog + ".1"); !os.IsNotExist(err) {
+				t.Fatal("reran the failed tests")
+			}
+			if !readCheckpoint(t, cfg.stateDir).Reusable {
+				t.Fatal("did not keep the completed tests for the next attempt")
+			}
+		})
+	}
+}
+
+func TestShardBoundsGoTestByTheDeadline(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.deadline = time.Now().Add(10 * time.Minute)
+	commandLog := fakeGo(t, reportEvents("TestAlpha", "pass", "TestBeta", "pass", "TestGamma", "skip"), "0")
+	if err := runShard(cfg); err != nil {
+		t.Fatal(err)
+	}
+	args, err := os.ReadFile(commandLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var timeout time.Duration
+	for arg := range strings.SplitSeq(string(args), "\n") {
+		if value, ok := strings.CutPrefix(arg, "-timeout="); ok {
+			timeout, err = time.ParseDuration(value)
+		}
+	}
+	if err != nil || timeout <= 9*time.Minute || timeout > 10*time.Minute {
+		t.Fatalf("go test timeout does not follow the deadline: %s, %v", timeout, err)
+	}
+
+	cfg = testConfig(t)
+	cfg.deadline = time.Now().Add(-time.Second)
+	commandLog = fakeGo(t, "", "0")
+	if err := runShard(cfg); err == nil {
+		t.Fatal("started tests after the deadline")
+	}
+	if _, err := os.Stat(commandLog); !os.IsNotExist(err) {
+		t.Fatal("ran tests after the deadline")
+	}
+}
+
+func TestReadInterruptedResultsKeepsCompletedTests(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "report.log")
+	report := eventJSON("run", "TestAlpha", "") + eventJSON("pass", "TestAlpha", "") + eventJSON("run", "TestBeta", "")
+	if err := os.WriteFile(path, []byte(report), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	results, err := readInterruptedResults(path, []string{"TestAlpha", "TestBeta", "TestGamma"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := map[string]string{"TestAlpha": "pass", "TestBeta": "", "TestGamma": ""}; !reflect.DeepEqual(results, want) {
+		t.Fatalf("unexpected interrupted results: %v", results)
+	}
+
+	report += eventJSON("output", "TestBeta", "WARNING: DATA RACE\n")
+	if err := os.WriteFile(path, []byte(report), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readInterruptedResults(path, []string{"TestAlpha", "TestBeta"}); err == nil {
+		t.Fatal("reused an interrupted report with a data race")
+	}
+}
+
 func testConfig(t *testing.T) config {
 	t.Helper()
 	dir := t.TempDir()
@@ -408,13 +525,22 @@ if [ "$1" = "list" ]; then
   printf '%s' "$FAKE_PACKAGE"
   exit 0
 fi
+count=$(cat "$FAKE_COMMAND_LOG.count" 2>/dev/null || echo 0)
+echo $((count + 1)) > "$FAKE_COMMAND_LOG.count"
+report="$FAKE_REPORT"
+status="$FAKE_EXIT"
+if [ "$count" -gt 0 ] && [ -n "$FAKE_RERUN_REPORT" ]; then
+  report="$FAKE_RERUN_REPORT"
+  status="$FAKE_RERUN_EXIT"
+fi
 printf '%s\n' "$@" > "$FAKE_COMMAND_LOG"
+printf '%s\n' "$@" > "$FAKE_COMMAND_LOG.$count"
 for arg do
   case "$arg" in
-    --jsonfile=*) printf '%s' "$FAKE_REPORT" > "${arg#--jsonfile=}" ;;
+    --jsonfile=*) printf '%s' "$report" > "${arg#--jsonfile=}" ;;
   esac
 done
-exit "$FAKE_EXIT"
+exit "$status"
 `
 	if err := os.WriteFile(filepath.Join(dir, "go"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)

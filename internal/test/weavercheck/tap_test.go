@@ -24,6 +24,14 @@ otelcol_exporter_sent_spans{exporter="otlp/weaver"} 100
 otelcol_exporter_queue_size{data_type="metrics",exporter="otlp/weaver"} 5
 otelcol_exporter_queue_size{data_type="traces",exporter="otlp/weaver"} 1
 otelcol_exporter_queue_size{data_type="traces",exporter="otlp/jaeger"} 8
+# TYPE otelcol_exporter_sent_metric_points counter
+otelcol_exporter_sent_metric_points{exporter="otlp/weaver",server_address="weaver",server_port="4317"} 20
+otelcol_exporter_sent_metric_points{exporter="otlp/jaeger"} 50
+# TYPE otelcol_receiver_accepted_metric_points counter
+otelcol_receiver_accepted_metric_points{receiver="otlp",transport="grpc"} 30
+otelcol_receiver_accepted_metric_points{receiver="otlp/apps",transport="http"} 40
+# TYPE otelcol_receiver_accepted_spans counter
+otelcol_receiver_accepted_spans{receiver="otlp",transport="http"} 6
 `
 
 func TestParseTapStatsAllExporters(t *testing.T) {
@@ -38,6 +46,13 @@ func TestParseTapStatsOneExporter(t *testing.T) {
 	require.NoError(t, err)
 	require.InDelta(t, 9, stats.Failed, 0)
 	require.InDelta(t, 6, stats.Queued, 0)
+}
+
+func TestParseTapStatsCountsDeliveredAndReceivedItems(t *testing.T) {
+	stats, err := ParseTapStats(strings.NewReader(tapTelemetry), "otlp/weaver")
+	require.NoError(t, err)
+	require.InDelta(t, 120, stats.Sent, 0)
+	require.InDelta(t, 36, stats.Received, 0, "only what OBI sends to the tap receiver counts")
 }
 
 func TestParseTapStatsReportsWhetherTheExporterIsPresent(t *testing.T) {

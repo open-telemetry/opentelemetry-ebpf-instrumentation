@@ -116,6 +116,46 @@ func TestServicesToBuildFallsBackOnUnreadableFile(t *testing.T) {
 	assert.False(t, ok, "unparseable compose file must fall back to building everything")
 }
 
+func TestObiServices(t *testing.T) {
+	c := composeFromYAML(t, `
+services:
+  obi:
+    image: hatest-obi
+  client-obi:
+    image: hatest-obi
+  obi-config-migrate:
+    image: hatest-obi
+  testserver:
+    image: hatest-testserver
+  mobile-app:
+    image: hatest-mobile
+`)
+
+	services, ok := c.obiServices()
+	require.True(t, ok)
+	assert.Equal(t, []string{"client-obi", "obi", "obi-config-migrate"}, services)
+}
+
+func TestObiServicesFallsBackOnUnreadableFile(t *testing.T) {
+	c := &Compose{Path: filepath.Join(t.TempDir(), "missing.yml")}
+
+	_, ok := c.obiServices()
+	assert.False(t, ok, "an unparseable compose file must fall back to stopping everything gracefully")
+}
+
+func TestImagesNameWhatServicesBuild(t *testing.T) {
+	c := composeFromYAML(t, `
+services:
+  tagged:
+    build: ../../..
+    image: ${TAGGED_IMAGE:-hatest-tagged}
+  untagged:
+    build: ../../..
+`)
+
+	assert.Equal(t, []string{"hatest-tagged", "compose.yml/untagged"}, c.images([]string{"tagged", "untagged"}))
+}
+
 func TestComposeArgsIncludeOverrides(t *testing.T) {
 	c := &Compose{
 		Path:          "compose.yml",
