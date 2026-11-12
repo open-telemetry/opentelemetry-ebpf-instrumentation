@@ -2044,6 +2044,72 @@
         ]
       }
     },
+    "net/http/internal/http2.ServerRequest": {
+      "Method": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.3"
+        },
+        "offsets": [
+          {
+            "offset": 48,
+            "since": "1.27.0"
+          }
+        ]
+      },
+      "TLS": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.3"
+        },
+        "offsets": [
+          {
+            "offset": 160,
+            "since": "1.27.0"
+          }
+        ]
+      },
+      "URL": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.3"
+        },
+        "offsets": [
+          {
+            "offset": 64,
+            "since": "1.27.0"
+          }
+        ]
+      }
+    },
+    "net/http/internal/http2.responseWriter": {
+      "rws": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.3"
+        },
+        "offsets": [
+          {
+            "offset": 0,
+            "since": "1.27.0"
+          }
+        ]
+      }
+    },
+    "net/http/internal/http2.responseWriterState": {
+      "req": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.3"
+        },
+        "offsets": [
+          {
+            "offset": 8,
+            "since": "1.27.0"
+          }
+        ]
+      }
+    },
     "net/http/internal/http2.serverConn": {
       "conn": {
         "versions": {

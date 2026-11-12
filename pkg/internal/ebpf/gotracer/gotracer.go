@@ -575,6 +575,11 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.RespProtoMajorPos,
 		goexec.RespProtoMinorPos,
 		goexec.ReqTLSPos,
+		goexec.HTTP2ServerReqMethodPos,
+		goexec.HTTP2ServerReqURLPos,
+		goexec.HTTP2ServerReqTLSPos,
+		goexec.HTTP2ResponseWriterStatePos,
+		goexec.HTTP2ResponseWriterReqPos,
 	})
 	offTable.Table[goexec.FramerPadLengthStackPos] = missingGoOffset
 	offTable.Table[goexec.FramerPadLengthStackVendoredPos] = missingGoOffset
@@ -599,6 +604,11 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.ReqProtoMajorPos,
 		goexec.ReqProtoMinorPos,
 		goexec.ReqTLSPos,
+		goexec.HTTP2ServerReqMethodPos,
+		goexec.HTTP2ServerReqURLPos,
+		goexec.HTTP2ServerReqTLSPos,
+		goexec.HTTP2ResponseWriterStatePos,
+		goexec.HTTP2ResponseWriterReqPos,
 		goexec.RespProtoMajorPos,
 		goexec.RespProtoMinorPos,
 		goexec.IoWriterBufPtrPos,
@@ -1771,6 +1781,9 @@ var goH2OwnershipProbeSymbols = []string{
 var goHTTPServerRequestProbeSymbols = []string{
 	"golang.org/x/net/http2.(*serverConn).runHandler",
 	"golang.org/x/net/http2.(*serverConn).upgradeRequest",
+	"net/http/internal/http2.(*serverConn).runHandler",
+	"net/http/internal/http2.(*serverConn).upgradeRequest",
+	"net/http/internal/http2.(*serverConn).newResponseWriter",
 }
 
 // GoHTTPServerRequestProbeSymbols returns the symbols used by request lifecycle probe groups.
@@ -2229,6 +2242,7 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}}
 
 		delete(m, "golang.org/x/net/http2.(*serverConn).runHandler")
+		delete(m, "net/http/internal/http2.(*serverConn).runHandler")
 	}
 
 	// HTTP Header extraction
@@ -2456,18 +2470,24 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 	}
 
 	if p.httpServerActiveRequestsEnabled {
-		const runHandlerSymbol = "golang.org/x/net/http2.(*serverConn).runHandler"
-
-		groups = append(groups,
-			ebpfcommon.GoProbeGroup{
-				Name: "go_http_server_active_requests_xnet",
+		for _, implementation := range []struct {
+			name    string
+			pkgPath string
+			start   *ebpf.Program
+		}{
+			{"xnet", "golang.org/x/net/http2", p.bpfObjects.ObiUprobeHttp2serverConnRunHandlerXnet},
+			{"stdlib", "net/http/internal/http2", p.bpfObjects.ObiUprobeHttp2serverConnRunHandlerInternal},
+		} {
+			runHandlerSymbol := implementation.pkgPath + ".(*serverConn).runHandler"
+			active := ebpfcommon.GoProbeGroup{
+				Name: "go_http_server_active_requests_" + implementation.name,
 				RequiresAll: []string{
-					"golang.org/x/net/http2.(*responseWriter).handlerDone",
+					implementation.pkgPath + ".(*responseWriter).handlerDone",
 					"runtime.goexit1",
 				},
 				Probes: []ebpfcommon.GoProbe{
 					{
-						Symbol: "golang.org/x/net/http2.(*serverConn).upgradeRequest",
+						Symbol: implementation.pkgPath + ".(*serverConn).upgradeRequest",
 						Probe: &ebpfcommon.ProbeDesc{
 							Start: p.bpfObjects.ObiUprobeHttp2serverConnUpgradeRequest,
 							End:   p.bpfObjects.ObiUprobeHttp2serverConnUpgradeRequestReturns,
@@ -2475,25 +2495,25 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 					},
 					{
 						Symbol: runHandlerSymbol,
-						Probe: &ebpfcommon.ProbeDesc{
-							Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandlerXnet,
-						},
+						Probe:  &ebpfcommon.ProbeDesc{Start: implementation.start},
 					},
 				},
-			},
-			ebpfcommon.GoProbeGroup{
-				Name:         "go_http2_xnet_server_fallback",
+			}
+			if implementation.name == "stdlib" {
+				active.Probes = append(active.Probes, ebpfcommon.GoProbe{
+					Symbol: implementation.pkgPath + ".(*serverConn).newResponseWriter",
+					Probe:  &ebpfcommon.ProbeDesc{End: p.bpfObjects.ObiUprobeHttp2serverConnNewResponseWriterReturns},
+				})
+			}
+			groups = append(groups, active, ebpfcommon.GoProbeGroup{
+				Name:         "go_http2_" + implementation.name + "_server_fallback",
 				ConflictsAny: []string{runHandlerSymbol},
-				Probes: []ebpfcommon.GoProbe{
-					{
-						Symbol: runHandlerSymbol,
-						Probe: &ebpfcommon.ProbeDesc{
-							Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandler,
-						},
-					},
-				},
-			},
-		)
+				Probes: []ebpfcommon.GoProbe{{
+					Symbol: runHandlerSymbol,
+					Probe:  &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandler},
+				}},
+			})
+		}
 	}
 
 	return groups

@@ -68,7 +68,8 @@ SCRATCH_MEM_TYPED(round_trip_client_data, http_client_data_t)
 
 /* HTTP Server */
 static __always_inline void complete_http_server_request(const go_addr_key_t *request_key) {
-    const http_server_request_state_t *started = bpf_map_lookup_elem(&active_http_server_requests, request_key);
+    const http_server_request_state_t *started =
+        bpf_map_lookup_elem(&active_http_server_requests, request_key);
     if (!started) {
         return;
     }
@@ -95,7 +96,8 @@ static __always_inline void complete_http_server_request(const go_addr_key_t *re
 static __always_inline void emit_http_server_request_start(const go_addr_key_t *g_key,
                                                            void *req,
                                                            off_table_t *ot,
-                                                           const connection_info_t *conn) {
+                                                           const connection_info_t *conn,
+                                                           bool internal_http2) {
     if (!g_http_server_active_requests_enabled || !req) {
         return;
     }
@@ -110,7 +112,8 @@ static __always_inline void emit_http_server_request_start(const go_addr_key_t *
     };
 
     if (bpf_map_lookup_elem(&active_http_server_requests, &request_key)) {
-        if (bpf_map_update_elem(&http_server_requests_by_goroutine, g_key, &request_key, BPF_NOEXIST)) {
+        if (bpf_map_update_elem(
+                &http_server_requests_by_goroutine, g_key, &request_key, BPF_NOEXIST)) {
             bpf_dbg_printk("can't track HTTP server request goroutine");
             complete_http_server_request(&request_key);
         }
@@ -118,9 +121,11 @@ static __always_inline void emit_http_server_request_start(const go_addr_key_t *
     }
 
     unsigned char method[k_method_max_len] = {};
+    const go_offset_const method_pos =
+        internal_http2 ? _http2_server_req_method_pos : _method_ptr_pos;
     if (!read_go_str("method",
                      req,
-                     go_offset_of(ot, (go_offset){.v = _method_ptr_pos}),
+                     go_offset_of(ot, (go_offset){.v = method_pos}),
                      method,
                      sizeof(method))) {
         return;
@@ -130,11 +135,12 @@ static __always_inline void emit_http_server_request_start(const go_addr_key_t *
     if (__builtin_memcmp(method, "PRI", sizeof("PRI")) == 0) {
         void *url_ptr = 0;
         unsigned char path[sizeof("*")] = {};
+        const go_offset_const url_pos = internal_http2 ? _http2_server_req_url_pos : _url_ptr_pos;
 
         if (bpf_probe_read_user(&url_ptr,
                                 sizeof(url_ptr),
                                 (const unsigned char *)req +
-                                    go_offset_of(ot, (go_offset){.v = _url_ptr_pos})) != 0 ||
+                                    go_offset_of(ot, (go_offset){.v = url_pos})) != 0 ||
             !url_ptr ||
             !read_go_str("path",
                          url_ptr,
@@ -149,13 +155,13 @@ static __always_inline void emit_http_server_request_start(const go_addr_key_t *
         }
     }
 
-    const u64 tls_pos = go_offset_of(ot, (go_offset){.v = _req_tls_pos});
+    const u64 tls_pos = go_offset_of(
+        ot, (go_offset){.v = internal_http2 ? _http2_server_req_tls_pos : _req_tls_pos});
     void *tls_state = 0;
 
     if (tls_pos == (u64)-1 ||
-        bpf_probe_read_user(&tls_state,
-                            sizeof(tls_state),
-                            (const unsigned char *)req + tls_pos) != 0) {
+        bpf_probe_read_user(&tls_state, sizeof(tls_state), (const unsigned char *)req + tls_pos) !=
+            0) {
         return;
     }
 
@@ -179,7 +185,8 @@ static __always_inline void emit_http_server_request_start(const go_addr_key_t *
     bpf_memcpy(event->method, method, sizeof(event->method));
 
     if (!conn) {
-        const http_server_connection_t *server = bpf_map_lookup_elem(&ongoing_server_connections, g_key);
+        const http_server_connection_t *server =
+            bpf_map_lookup_elem(&ongoing_server_connections, g_key);
         if (server) {
             conn = &server->conn;
         }
@@ -328,7 +335,7 @@ int GUARDED_PROG(obi_uprobe_ServeHTTP, struct pt_regs *, ctx) {
     if (bpf_map_update_elem(&ongoing_http_server_requests, &g_key, invocation, BPF_ANY)) {
         bpf_dbg_printk("can't update map element");
     } else {
-        emit_http_server_request_start(&g_key, req, ot, NULL);
+        emit_http_server_request_start(&g_key, req, ot, NULL, false);
     }
 
     go_obi_ctx__begin(&g_key, k_obi_ctx_http_server, &invocation->tp, go_obi_ctx__stack_off(ctx));
@@ -1480,7 +1487,8 @@ int GUARDED_PROG(obi_uprobe_http2ResponseWriterStateWriteHeader, struct pt_regs 
 }
 
 // HTTP 2.0 server support
-static __always_inline int on_http2serverConn_runHandler(struct pt_regs *ctx, void *req) {
+static __always_inline int
+on_http2serverConn_runHandler(struct pt_regs *ctx, void *req, bool internal_http2) {
     bpf_dbg_printk("=== uprobe/http2serverConn_runHandler ===");
 
     void *goroutine_addr = GOROUTINE_PTR(ctx);
@@ -1499,7 +1507,7 @@ static __always_inline int on_http2serverConn_runHandler(struct pt_regs *ctx, vo
         bpf_map_update_elem(&ongoing_server_connections, &g_key, &server, BPF_ANY);
 
         if (req) {
-            emit_http_server_request_start(&g_key, req, ot, &server.conn);
+            emit_http_server_request_start(&g_key, req, ot, &server.conn, internal_http2);
         }
 
         go_addr_key_t rw_key = {};
@@ -1527,13 +1535,61 @@ static __always_inline int on_http2serverConn_runHandler(struct pt_regs *ctx, vo
 
 SEC("uprobe/http2serverConn_runHandler")
 int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
-    return on_http2serverConn_runHandler(ctx, NULL);
+    return on_http2serverConn_runHandler(ctx, NULL, false);
 }
 
 // Only attach to x/net/http2: its third argument is *http.Request.
 SEC("uprobe/http2serverConn_runHandler_xnet")
 int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler_xnet, struct pt_regs *, ctx) {
-    return on_http2serverConn_runHandler(ctx, GO_PARAM3(ctx));
+    return on_http2serverConn_runHandler(ctx, GO_PARAM3(ctx), false);
+}
+
+// Go 1.27 passes *net/http/internal/http2.ServerRequest instead of *http.Request.
+SEC("uprobe/http2serverConn_runHandler_internal")
+int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler_internal, struct pt_regs *, ctx) {
+    return on_http2serverConn_runHandler(ctx, GO_PARAM3(ctx), true);
+}
+
+static __always_inline void move_http_server_request(const go_addr_key_t *g_key, const void *req) {
+    if (!req) {
+        return;
+    }
+
+    const go_addr_key_t *request = bpf_map_lookup_elem(&http_server_requests_by_goroutine, g_key);
+    if (!request) {
+        return;
+    }
+
+    const go_addr_key_t old_key = *request;
+    const go_addr_key_t new_key = {
+        .pid = g_key->pid,
+        .addr = (u64)req,
+    };
+    if (old_key.addr == new_key.addr) {
+        return;
+    }
+
+    const http_server_request_state_t *started =
+        bpf_map_lookup_elem(&active_http_server_requests, &old_key);
+    if (!started) {
+        return;
+    }
+
+    const http_server_request_state_t state = *started;
+    if (bpf_map_update_elem(&active_http_server_requests, &new_key, &state, BPF_NOEXIST)) {
+        bpf_map_delete_elem(&http_server_requests_by_goroutine, g_key);
+        complete_http_server_request(&old_key);
+        return;
+    }
+
+    if (bpf_map_update_elem(&http_server_requests_by_goroutine, g_key, &new_key, BPF_EXIST)) {
+        bpf_map_delete_elem(&active_http_server_requests, &new_key);
+        bpf_map_delete_elem(&http_server_requests_by_goroutine, g_key);
+        complete_http_server_request(&old_key);
+        return;
+    }
+
+    bpf_map_delete_elem(&active_http_server_requests, &old_key);
 }
 
 SEC("uprobe/http2serverConn_upgradeRequest")
@@ -1542,48 +1598,38 @@ int GUARDED_PROG(obi_uprobe_http2serverConn_upgradeRequest, struct pt_regs *, ct
         return 0;
     }
 
-    void *req = GO_PARAM2(ctx);
-    if (!req) {
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    move_http_server_request(&g_key, GO_PARAM2(ctx));
+    return 0;
+}
+
+// Go 1.27 copies an upgrade request into responseWriterState.req before starting its handler.
+SEC("uprobe/http2serverConn_newResponseWriter_returns")
+int GUARDED_PROG(obi_uprobe_http2serverConn_newResponseWriter_returns, struct pt_regs *, ctx) {
+    if (!g_http_server_active_requests_enabled) {
         return 0;
     }
 
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
-
-    const go_addr_key_t *request = bpf_map_lookup_elem(&http_server_requests_by_goroutine, &g_key);
-    if (!request) {
+    if (!bpf_map_lookup_elem(&http_server_requests_by_goroutine, &g_key)) {
         return 0;
     }
 
-    const go_addr_key_t old_key = *request;
-    const go_addr_key_t new_key = {
-        .pid = g_key.pid,
-        .addr = (u64)req,
-    };
-    if (old_key.addr == new_key.addr) {
+    off_table_t *ot = get_offsets_table();
+    const u64 state_pos = go_offset_of(ot, (go_offset){.v = _http2_response_writer_state_pos});
+    const u64 req_pos = go_offset_of(ot, (go_offset){.v = _http2_response_writer_req_pos});
+    void *state = NULL;
+    if (state_pos == (u64)-1 || req_pos == (u64)-1 ||
+        bpf_probe_read_user(
+            &state, sizeof(state), (const unsigned char *)GO_PARAM1(ctx) + state_pos) ||
+        !state) {
+        emit_http_server_request_end(&g_key);
         return 0;
     }
 
-    const http_server_request_state_t *started = bpf_map_lookup_elem(&active_http_server_requests, &old_key);
-    if (!started) {
-        return 0;
-    }
-
-    const http_server_request_state_t state = *started;
-    if (bpf_map_update_elem(&active_http_server_requests, &new_key, &state, BPF_NOEXIST)) {
-        bpf_map_delete_elem(&http_server_requests_by_goroutine, &g_key);
-        complete_http_server_request(&old_key);
-        return 0;
-    }
-
-    if (bpf_map_update_elem(&http_server_requests_by_goroutine, &g_key, &new_key, BPF_EXIST)) {
-        bpf_map_delete_elem(&active_http_server_requests, &new_key);
-        bpf_map_delete_elem(&http_server_requests_by_goroutine, &g_key);
-        complete_http_server_request(&old_key);
-        return 0;
-    }
-
-    bpf_map_delete_elem(&active_http_server_requests, &old_key);
+    move_http_server_request(&g_key, (unsigned char *)state + req_pos);
     return 0;
 }
 
@@ -2484,7 +2530,8 @@ int GUARDED_PROG(obi_uprobe_runtime_goexit1, struct pt_regs *, ctx) {
 
     emit_http_server_request_end(&g_key);
 
-    const server_http_func_invocation_t *invocation = bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+    const server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
     if (!invocation) {
         return 0;
     }

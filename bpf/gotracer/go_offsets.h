@@ -181,6 +181,11 @@ typedef enum {
     _tls_conn_type_addr,
     _tcp_conn_type_addr,
     _req_tls_pos,
+    _http2_server_req_method_pos,
+    _http2_server_req_url_pos,
+    _http2_server_req_tls_pos,
+    _http2_response_writer_state_pos,
+    _http2_response_writer_req_pos,
     _last_go_offset,
 } go_offset_const;
 
