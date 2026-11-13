@@ -1,6 +1,6 @@
 services:
   lgtm:
-    image: ${LGTM_IMAGE:-docker.io/grafana/otel-lgtm:latest}
+    image: ${LGTM_IMAGE:-docker.io/grafana/otel-lgtm:latest@sha256:2e3290657f2f2a256c7a9175f097424a3ac5b54840741ace433e108e109348b6}
     ports:
       - "127.0.0.1:3000:3000"
       - "127.0.0.1:4317:4317"
