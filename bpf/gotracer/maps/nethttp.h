@@ -51,6 +51,15 @@ struct {
     __uint(pinning, OBI_PIN_INTERNAL);
 } active_http_server_requests SEC(".maps");
 
+// Stable lifecycle IDs survive request copies and goroutine handoffs.
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, http_server_request_key_t);
+    __type(value, pid_info_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} http_server_request_ids SEC(".maps");
+
 struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, go_addr_key_t);   // key: pointer to the request goroutine

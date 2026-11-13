@@ -24,6 +24,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/config"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/attributes"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
@@ -1102,4 +1103,57 @@ func matchInfoEvent(t *testing.T, name string, event collector.TraceRecord) {
 		},
 		Kind: ptrace.SpanKindServer,
 	}, event)
+}
+
+func TestHTTPServerRequestsPipelineSelection(t *testing.T) {
+	for _, tt := range []struct {
+		name                                                string
+		feature, http, eventContext, exporter, legacy, want bool
+	}{
+		{"enabled", true, true, true, true, false, true},
+		{"feature disabled", false, true, true, true, false, false},
+		{"HTTP disabled", true, false, true, true, false, false},
+		{"no event context", true, true, false, true, false, false},
+		{"no exporter", true, true, true, false, false, false},
+		{"no protocol selection", true, false, true, true, true, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := obi.DefaultConfig
+			cfg.NameResolver = nil
+			cfg.Metrics.Features = export.FeatureApplicationRED
+			if tt.feature {
+				cfg.Metrics.Features = export.FeatureHTTPServerActiveRequests
+			}
+			if tt.exporter {
+				cfg.OTELMetrics.MetricsExport = func(context.Context, pmetric.Metrics) error { return nil }
+			}
+			info := gctx(0, &cfg.OTELMetrics)
+			if tt.eventContext {
+				info.AppO11y.EBPFEventContext = ebpfcommon.NewEBPFEventContext()
+			}
+			var selected instrumentations.InstrumentationSelection
+			if tt.http {
+				selected = instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instrumentations.InstrumentationHTTP})
+			}
+			selection := &selected
+			if tt.legacy {
+				selection = nil
+			}
+			input := msg.NewQueue[[]request.Span]()
+			t.Cleanup(input.Close)
+			processes := msg.NewQueue[exec.ProcessEvent]()
+			t.Cleanup(processes.Close)
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			pipeline, err := BuildWithProtocolMetricSelection(ctx, &cfg, info, input, processes, nil, selection)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, info.AppO11y.HTTPServerRequests != nil)
+			if tt.eventContext {
+				assert.Equal(t, tt.want, info.AppO11y.EBPFEventContext.HTTPServerRequests != nil)
+			}
+			done := pipeline.Start(ctx)
+			cancel()
+			testutil.ReadChannel(t, done, 5*time.Second)
+		})
+	}
 }
