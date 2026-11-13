@@ -306,6 +306,8 @@ The `capture` grouping was introduced for two reasons:
   `exceptions.go.formatted_errors` defaults to `false`. Formatted-error capture
   records errors created by the supported `fmt.Errorf` probes, including errors
   the application later handles. Panic capture includes recovered panics.
+  [Python capture](../../exceptions/python.md) uses `exceptions.enabled` for
+  request exceptions selected on server errors.
 - `runtimes`: language runtime injection controls (Go probes, Node.js SIGUSR1, Java agent attachment).
 - `network`: network flow capture configuration.
 - `limits`: cardinality and memory guardrails.

@@ -17,6 +17,7 @@
 #include <common/common.h>
 #include <common/event_defs.h>
 #include <common/exception_event.h>
+#include <common/python_exception.h>
 #include <common/ringbuf_types.h>
 #include <common/sampler.h>
 
@@ -50,3 +51,4 @@ const enum exception_owner *unused_24 __attribute__((unused));
 const process_event_t *unused_25 __attribute__((unused));
 const sampler_t *unused_26 __attribute__((unused));
 const pid_info_t *unused_27 __attribute__((unused));
+const python_exception_payload_t *unused_28 __attribute__((unused));

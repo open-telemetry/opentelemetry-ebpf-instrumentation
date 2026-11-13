@@ -160,11 +160,3 @@ HTTP/1 is covered by the integration test.
 - When `net/http` recovers a handler panic, the request's span ends when the
   connection's `serve` returns. No response was written, so the span's
   `http.response.status_code` is 0.
-
-## Tests
-
-`TestGoExceptions` (`internal/test/integration/go_exceptions_test.go`) builds the
-fixture in `internal/test/integration/components/go-exceptions` with each Go
-version and build mode of the [support matrix](README.md#support-matrix). It also
-covers the per-rule `panics` and `formatted_errors` settings and a service with
-exception capture disabled.

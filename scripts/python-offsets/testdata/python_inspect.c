@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "Python.h"
+#include "frameobject.h"
+#if PY_VERSION_HEX >= 0x030b0000
+#include "internal/pycore_frame.h"
+#endif
 #include "internal/pycore_gc.h"
 #include "internal/pycore_interp.h"
 #include "internal/pycore_runtime.h"
@@ -60,12 +64,50 @@ int main(void) {
   printf("{\"version\":\"%s\",\"finalizing\":%zu,\"main\":%zu,"
          "\"interpreter_gc\":%zu,\"generation_stats\":%zu,"
          "\"collecting\":%zu,\"debug_gc\":%zu,"
-         "\"debug_interpreter_gc\":%zu}\n",
+         "\"debug_interpreter_gc\":%zu",
          PY_VERSION, offsetof(_PyRuntimeState, _finalizing),
          offsetof(_PyRuntimeState, interpreters.main),
          offsetof(PyInterpreterState, gc),
          offsetof(struct _gc_runtime_state, generation_stats),
          offsetof(struct _gc_runtime_state, collecting), DEBUG_GC,
          DEBUG_INTERPRETER_GC);
+  printf(",\"exception_offsets\":{");
+#if PY_VERSION_HEX < 0x030d0000
+#define PRINT_OFFSET(type, field)                                              \
+  printf("\"" #type "." #field "\":%zu,", offsetof(type, field))
+  PRINT_OFFSET(PyThreadState, interp);
+  PRINT_OFFSET(PyThreadState, exc_info);
+  PRINT_OFFSET(PyTupleObject, ob_item);
+  PRINT_OFFSET(PyBaseExceptionObject, traceback);
+  PRINT_OFFSET(_PyErr_StackItem, exc_value);
+  PRINT_OFFSET(_PyErr_StackItem, previous_item);
+  PRINT_OFFSET(PyCodeObject, co_filename);
+  PRINT_OFFSET(PyCodeObject, co_name);
+  PRINT_OFFSET(PyCodeObject, co_firstlineno);
+#if PY_VERSION_HEX < 0x030a0000
+  PRINT_OFFSET(PyCodeObject, co_lnotab);
+#else
+  PRINT_OFFSET(PyCodeObject, co_linetable);
+#endif
+#if PY_VERSION_HEX < 0x030b0000
+  PRINT_OFFSET(PyThreadState, frame);
+  PRINT_OFFSET(PyFrameObject, f_code);
+  PRINT_OFFSET(PyFrameObject, f_back);
+  PRINT_OFFSET(PyFrameObject, f_lasti);
+#else
+  PRINT_OFFSET(PyThreadState, cframe);
+  PRINT_OFFSET(_PyCFrame, current_frame);
+  PRINT_OFFSET(_PyInterpreterFrame, f_code);
+  PRINT_OFFSET(_PyInterpreterFrame, previous);
+  PRINT_OFFSET(_PyInterpreterFrame, prev_instr);
+  PRINT_OFFSET(_PyInterpreterFrame, owner);
+  PRINT_OFFSET(PyFrameObject, f_frame);
+  PRINT_OFFSET(PyCodeObject, co_code_adaptive);
+#endif
+  printf("\"PyASCIIObject.sizeof\":%zu,\"PyCompactUnicodeObject.sizeof\":%zu",
+         sizeof(PyASCIIObject), sizeof(PyCompactUnicodeObject));
+#undef PRINT_OFFSET
+#endif
+  printf("}}\n");
   return 0;
 }

@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/internal/ebpf/generictracer"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -219,6 +220,36 @@ func TestPrivateExceptionEvents(t *testing.T) {
 	New(nil, exceptionsConfig(false), nil).privateExceptionEvents(disabled)
 	require.Equal(t, ebpf.PinNone, disabled.Maps[BpfMapExceptionEvents].Pinning)
 	require.Equal(t, uint32(os.Getpagesize()), disabled.Maps[BpfMapExceptionEvents].MaxEntries)
+}
+
+func TestPythonExceptionMapCompatibility(t *testing.T) {
+	disableContextPropagationForTest(t)
+	for _, enabled := range []bool{false, true} {
+		name := "disabled"
+		if enabled {
+			name = "enabled"
+		}
+		t.Run(name, func(t *testing.T) {
+			cfg := exceptionsConfig(enabled)
+			goBundles, err := New(nil, cfg, nil).LoadSpecs()
+			require.NoError(t, err)
+			genericBundles, err := generictracer.New(nil, cfg, nil).LoadSpecs()
+			require.NoError(t, err)
+			for _, name := range []string{BpfMapPythonExceptionProcs, BpfMapPythonExceptionPending} {
+				goMap := goBundles[0].Spec.Maps[name]
+				genericMap := genericBundles[0].Spec.Maps[name]
+				require.NotNil(t, goMap, name)
+				require.NotNil(t, genericMap, name)
+				assert.Equal(t, genericMap.MaxEntries, goMap.MaxEntries, name)
+				assert.Equal(t, genericMap.Pinning, goMap.Pinning, name)
+				if enabled {
+					assert.Greater(t, goMap.MaxEntries, uint32(1), name)
+				} else {
+					assert.Equal(t, uint32(1), goMap.MaxEntries, name)
+				}
+			}
+		})
+	}
 }
 
 func TestGoExceptionProbeSelection(t *testing.T) {

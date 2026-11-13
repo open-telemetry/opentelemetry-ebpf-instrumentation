@@ -127,6 +127,398 @@
           }
         ]
       }
+    },
+    "PyThreadState": {
+      "interp": {
+        "versions": {
+          "oldest": "3.9.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 16,
+            "since": "3.9.0"
+          }
+        ]
+      },
+      "exc_info": {
+        "versions": {
+          "oldest": "3.9.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 144,
+            "since": "3.9.0"
+          },
+          {
+            "offset": 120,
+            "since": "3.11.0"
+          },
+          {
+            "offset": 104,
+            "since": "3.12.0"
+          }
+        ]
+      },
+      "frame": {
+        "versions": {
+          "oldest": "3.9.0",
+          "newest": "3.10.22"
+        },
+        "offsets": [
+          {
+            "offset": 24,
+            "since": "3.9.0"
+          }
+        ]
+      },
+      "cframe": {
+        "versions": {
+          "oldest": "3.11.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 56,
+            "since": "3.11.0"
+          }
+        ]
+      }
+    },
+    "PyTupleObject": {
+      "ob_item": {
+        "versions": {
+          "oldest": "3.9.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 24,
+            "since": "3.9.0"
+          }
+        ]
+      }
+    },
+    "PyASCIIObject": {
+      "sizeof": {
+        "versions": {
+          "oldest": "3.9.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 48,
+            "since": "3.9.0"
+          },
+          {
+            "offset": 40,
+            "since": "3.12.0"
+          }
+        ]
+      }
+    },
+    "PyCompactUnicodeObject": {
+      "sizeof": {
+        "versions": {
+          "oldest": "3.9.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 72,
+            "since": "3.9.0"
+          },
+          {
+            "offset": 56,
+            "since": "3.12.0"
+          }
+        ]
+      }
+    },
+    "PyBaseExceptionObject": {
+      "traceback": {
+        "versions": {
+          "oldest": "3.9.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 32,
+            "since": "3.9.0"
+          },
+          {
+            "offset": 40,
+            "since": "3.11.0"
+          }
+        ]
+      }
+    },
+    "_PyErr_StackItem": {
+      "exc_value": {
+        "versions": {
+          "oldest": "3.9.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 8,
+            "since": "3.9.0"
+          },
+          {
+            "offset": 0,
+            "since": "3.11.0"
+          }
+        ]
+      },
+      "previous_item": {
+        "versions": {
+          "oldest": "3.9.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 24,
+            "since": "3.9.0"
+          },
+          {
+            "offset": 8,
+            "since": "3.11.0"
+          }
+        ]
+      }
+    },
+    "PyCodeObject": {
+      "co_filename": {
+        "versions": {
+          "oldest": "3.9.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 104,
+            "since": "3.9.0"
+          },
+          {
+            "offset": 112,
+            "since": "3.11.0"
+          }
+        ]
+      },
+      "co_name": {
+        "versions": {
+          "oldest": "3.9.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 112,
+            "since": "3.9.0"
+          },
+          {
+            "offset": 120,
+            "since": "3.11.0"
+          }
+        ]
+      },
+      "co_firstlineno": {
+        "versions": {
+          "oldest": "3.9.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 40,
+            "since": "3.9.0"
+          },
+          {
+            "offset": 72,
+            "since": "3.11.0"
+          },
+          {
+            "offset": 68,
+            "since": "3.12.0"
+          }
+        ]
+      },
+      "co_lnotab": {
+        "versions": {
+          "oldest": "3.9.0",
+          "newest": "3.9.25"
+        },
+        "offsets": [
+          {
+            "offset": 120,
+            "since": "3.9.0"
+          }
+        ]
+      },
+      "co_linetable": {
+        "versions": {
+          "oldest": "3.10.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 120,
+            "since": "3.10.0"
+          },
+          {
+            "offset": 136,
+            "since": "3.11.0"
+          }
+        ]
+      },
+      "co_code_adaptive": {
+        "versions": {
+          "oldest": "3.11.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 184,
+            "since": "3.11.0"
+          },
+          {
+            "offset": 192,
+            "since": "3.12.0"
+          }
+        ]
+      }
+    },
+    "PyFrameObject": {
+      "f_code": {
+        "versions": {
+          "oldest": "3.9.0",
+          "newest": "3.10.22"
+        },
+        "offsets": [
+          {
+            "offset": 32,
+            "since": "3.9.0"
+          }
+        ]
+      },
+      "f_back": {
+        "versions": {
+          "oldest": "3.9.0",
+          "newest": "3.10.22"
+        },
+        "offsets": [
+          {
+            "offset": 24,
+            "since": "3.9.0"
+          }
+        ]
+      },
+      "f_lasti": {
+        "versions": {
+          "oldest": "3.9.0",
+          "newest": "3.10.22"
+        },
+        "offsets": [
+          {
+            "offset": 104,
+            "since": "3.9.0"
+          },
+          {
+            "offset": 96,
+            "since": "3.10.0"
+          }
+        ]
+      },
+      "f_frame": {
+        "versions": {
+          "oldest": "3.11.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 24,
+            "since": "3.11.0"
+          }
+        ]
+      }
+    },
+    "_PyCFrame": {
+      "current_frame": {
+        "versions": {
+          "oldest": "3.11.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 8,
+            "since": "3.11.0"
+          },
+          {
+            "offset": 0,
+            "since": "3.12.0"
+          }
+        ]
+      }
+    },
+    "_PyInterpreterFrame": {
+      "f_code": {
+        "versions": {
+          "oldest": "3.11.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 32,
+            "since": "3.11.0"
+          },
+          {
+            "offset": 0,
+            "since": "3.12.0"
+          }
+        ]
+      },
+      "previous": {
+        "versions": {
+          "oldest": "3.11.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 48,
+            "since": "3.11.0"
+          },
+          {
+            "offset": 8,
+            "since": "3.12.0"
+          }
+        ]
+      },
+      "prev_instr": {
+        "versions": {
+          "oldest": "3.11.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 56,
+            "since": "3.11.0"
+          }
+        ]
+      },
+      "owner": {
+        "versions": {
+          "oldest": "3.11.0",
+          "newest": "3.12.16"
+        },
+        "offsets": [
+          {
+            "offset": 69,
+            "since": "3.11.0"
+          },
+          {
+            "offset": 70,
+            "since": "3.12.0"
+          }
+        ]
+      }
     }
   }
 }

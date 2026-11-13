@@ -30,9 +30,9 @@ Each record has the `exception` event name and the `exception.type`,
 a message. An exception raised inside a request has severity ERROR (17), and one
 that ends the process has FATAL (21), with the matching severity text. The record
 timestamp is the capture time; the observed timestamp is when OBI read the event.
-Every observation becomes its own record, exported as soon as it arrives,
-independent of request completion, trace sampling, route filters and HTTP status
-filtering.
+The shared exporter forwards records as they arrive, independent of trace
+sampling and route filters. Producers determine when to submit records; Python
+request capture waits for a server response with status 500 or higher.
 
 `exception.stacktrace` uses the runtime's own text format, as the language's
 OpenTelemetry SDK writes it, so parsers built for that format read it unchanged.
@@ -100,3 +100,4 @@ applies the header's trace context and forwards the event to `ExceptionInput`.
 | Runtime | Versions / builds / architecture | Protocol association | Captures | Limitations |
 |---|---|---|---|---|
 | [Go](go.md) | Go 1.17-1.27; stripped and unstripped builds; Linux amd64, arm64 | HTTP (`net/http`) | Panics, including recovered panics; `fmt.Errorf` errors | Binaries built with `-buildmode=pie` require Go 1.26+ for capture. Panic messages require strings without methods. Messages: 128 bytes; stacks: 32 frames, without inline expansion. |
+| [Python](python.md) | CPython 3.9-3.14; live validation on Linux amd64 | HTTP; asyncio coverage depends on build | Request exceptions selected on server errors | Experimental; slim/LTO async capture deferred; free-threaded builds rejected; target memory required during decoding. |
