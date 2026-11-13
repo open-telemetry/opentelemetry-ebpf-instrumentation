@@ -34,7 +34,7 @@ services:
     build:
       context: ../../..
       dockerfile: ./internal/test/integration/components/javakafka-tls/Dockerfile
-    image: hatest-testserver-java-kafka
+    image: hatest-testserver-java-kafka-400-tls
     ports:
       - "${TEST_SERVICE_PORTS}"
     depends_on:

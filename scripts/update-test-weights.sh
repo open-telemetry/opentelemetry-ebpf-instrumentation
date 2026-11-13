@@ -9,9 +9,17 @@
 #   ./scripts/update-test-weights.sh [reports-directory]
 #
 # With a directory, every *.log under it whose path contains "-$ARCH-" is read.
-# Without one, the integration-reports artifacts of the last $RUNS successful
+# Without one, the integration-reports artifacts of the last $RUNS completed
 # push runs on main created within the last $RETENTION_DAYS days are downloaded
-# with the gh CLI.
+# with the gh CLI. Failed and timed-out runs count too: skipping them would
+# leave out exactly the slow runs.
+#
+# Docker caches an image within a shard, so a build shared by several suites
+# costs only the first suite that runs it. That depends on the order, not the
+# suite, so each suite instead gets an even share of its shared images' cold
+# build time, read from the "built compose services" lines of the reports.
+# Those name each build by tag and a digest of its resolved definition, so a tag
+# reused for another Dockerfile or build argument counts as a different build.
 #
 # Environment:
 #   ARCH  - architecture whose reports are used (default: amd64)
@@ -66,11 +74,11 @@ else
     fi
     run_ids="$(gh run list "${repo_args[@]}" \
         --workflow pull_request_integration_tests.yml \
-        --branch main --event push --status success \
-        --limit 100 --json databaseId,createdAt \
-        --jq "[.[] | select(.createdAt >= \"$cutoff\")][:$RUNS][].databaseId")"
+        --branch main --event push --status completed \
+        --limit 100 --json databaseId,createdAt,conclusion \
+        --jq "[.[] | select(.createdAt >= \"$cutoff\" and (.conclusion == \"success\" or .conclusion == \"failure\" or .conclusion == \"cancelled\"))][:$RUNS][].databaseId")"
     if [ -z "$run_ids" ]; then
-        echo "Error: no successful main runs since $cutoff (reports expire after $RETENTION_DAYS days)" >&2
+        echo "Error: no completed main runs since $cutoff (reports expire after $RETENTION_DAYS days)" >&2
         exit 1
     fi
     RUNS_USED=0
@@ -91,23 +99,48 @@ if [ "${#report_files[@]}" -eq 0 ]; then
     exit 1
 fi
 
+# One sample per passing suite and report, with the compose builds the suite ran.
+SAMPLES="$(
+    for report in "${report_files[@]}"; do
+        jq -R -s -c '
+            [split("\n")[] | fromjson? | select(
+                ((.Package // "") | endswith("internal/test/integration")) and ((.Test // "") != "")
+            )] as $events
+            | ([$events[] | select(.Action == "output")
+                | {suite: (.Test | split("/")[0]),
+                   build: (.Output | capture("built compose services seconds=(?<seconds>[0-9]+) images=(?<images>[^ \n]*)"))}
+                | {suite, seconds: (.build.seconds | tonumber), images: (.build.images | split(",") | map(select(. != "")))}
+              ] | group_by(.suite) | map({key: .[0].suite, value: map({seconds, images})}) | from_entries) as $builds
+            | $events[] | select(.Action == "pass" and (.Test | test("^Test[^/]*$")))
+            | {name: .Test, elapsed: .Elapsed, builds: ($builds[.Test] // [])}
+        ' "$report"
+    done
+)"
+
 WEIGHTS="$(
-    cat "${report_files[@]}" \
-    | jq -R -c 'fromjson? | select(
-          .Action == "pass"
-          and ((.Package // "") | endswith("internal/test/integration"))
-          and ((.Test // "") | test("^Test[^/]*$"))
-        ) | {name: .Test, elapsed: .Elapsed}' \
-    | jq -s --argjson default "$DEFAULT_WEIGHT" '
+    jq -s --argjson default "$DEFAULT_WEIGHT" '
+        def median: sort | if length % 2 == 1 then .[(length - 1) / 2]
+                           else (.[length / 2 - 1] + .[length / 2]) / 2 end;
+
+        # every build splits its time evenly over the images it built
+        [.[] | .name as $suite | .builds[] | (.seconds / ([.images | length, 1] | max)) as $share
+             | .images[] | {image: ., suite: $suite, share: $share}] as $shares
+        | ($shares | group_by(.image) | map({key: .[0].image, value: (map(.suite) | unique | length)})
+                   | from_entries) as $suites
+        | ($shares | group_by(.image) | map({key: .[0].image, value: (map(.share) | max)}) | from_entries) as $cold
+        | def shared: $suites[.] > 1;
+
         group_by(.name)
         | map({
             key: .[0].name,
-            value: (map(.elapsed) | sort
-                    | if length % 2 == 1 then .[(length - 1) / 2]
-                      else (.[length / 2 - 1] + .[length / 2]) / 2 end
-                    | round)
+            value: (
+                (map(.elapsed - ([.builds[] | (.seconds / ([.images | length, 1] | max)) as $share
+                                  | .images[] | select(shared) | $share] | add // 0)) | median)
+                + ([.[].builds[].images[] | select(shared)] | unique
+                   | map($cold[.] / $suites[.]) | add // 0)
+                | if . < 0 then 0 else . end | round)
           })
-        | {_default: $default} + from_entries'
+        | {_default: $default} + from_entries' <<< "$SAMPLES"
 )"
 
 TOTAL="$(jq 'length - 1' <<< "$WEIGHTS")"

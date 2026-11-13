@@ -51,3 +51,5 @@ services:
       timeout: 2s
       retries: 60
       start_period: 90s
+      # otelcol waits for weaver to be healthy, so poll fast while it starts
+      start_interval: 1s

@@ -17,6 +17,10 @@ receivers:
     protocols:
       http:
         endpoint: 0.0.0.0:4319
+processors:
+  # one point per series per second for weaver: it needs the shapes, and 10ms exports keep its queue full
+  interval:
+    interval: 1s
 exporters:
   prometheus:
     endpoint: "otelcol:9464"
@@ -48,6 +52,7 @@ service:
     # weaver-only and naturally has nothing to back-pressure.
     metrics/weaver:
       receivers: [otlp]
+      processors: [interval]
       exporters: [otlp/weaver]
     traces:
       receivers: [otlp]

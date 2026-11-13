@@ -6,6 +6,8 @@
 #   --build-targets  (default) "<image>=<dockerfile>[;<ARG>=<value>...]" build entries for the VM test
 #                    subset: services of BUILD_COMPOSE_FILES plus the Go Auto SDK fixtures of go_auto_sdk_test.go.
 #   --base-images    base images from registries in PREPULL_REGISTRY_RE, to pre-pull (see pull-base-images.sh).
+#   --prebuild-compose-files  compose files whose fixture images the integration workflow builds once per run
+#                    instead of in every shard; their tags must not be built from anything else.
 
 set -euo pipefail
 
@@ -18,6 +20,14 @@ BUILD_COMPOSE_FILES=(
     docker-compose-log-enricher.yml
     docker-compose-large-http-req.yml
     docker-compose-cp-enrollment.yml
+)
+
+PREBUILD_COMPOSE_FILES=(
+    docker-compose-log-enricher.yml
+    docker-compose-java-kafka-400.yml
+    docker-compose-java-kafka-400-tls.yml
+    docker-compose-java-kafka-400-lb.yml
+    docker-compose-java-kafka-multitopic.yml
 )
 
 # Registries that rate-limit anonymous pulls with no auth escape hatch. Docker Hub
@@ -79,8 +89,11 @@ case "${MODE}" in
         | awk '{print $2}' \
         | sort -u
     ;;
+--prebuild-compose-files)
+    printf '%s\n' "${PREBUILD_COMPOSE_FILES[@]}"
+    ;;
 *)
-    echo "usage: $0 [--build-targets|--base-images]" >&2
+    echo "usage: $0 [--build-targets|--base-images|--prebuild-compose-files]" >&2
     exit 1
     ;;
 esac

@@ -69,12 +69,6 @@ func DrainDockerTap(ctx context.Context, warnf func(format string, args ...any))
 		return nil
 	}
 
-	select {
-	case <-time.After(dockerDrainWindow):
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
 	for _, collector := range collectors {
 		if err := drainCollector(ctx, collector, warnf); err != nil {
 			return err
@@ -173,6 +167,10 @@ func drainCollector(parent context.Context, collector tapCollector, warnf func(f
 	ctx, cancel := context.WithTimeout(parent, dockerCollectorDrainTimeout)
 	defer cancel()
 
+	if err := waitForForwardedExport(ctx, collector); err != nil {
+		return fmt.Errorf("reading the weaver tap's exporter telemetry: %w", err)
+	}
+
 	stats, err := waitForSettledTap(ctx, collector)
 	switch {
 	case errors.Is(err, errTapNotSettled):
@@ -185,6 +183,46 @@ func drainCollector(parent context.Context, collector tapCollector, warnf func(f
 			"so weaver may have missed a telemetry shape", stats.Failed)
 	}
 	return nil
+}
+
+// waitForForwardedExport waits for the collector to receive an export started after the drain, then for the tap
+// to deliver data newer than it, so nothing is left in OBI or in the tap's interval processor. Idle producers
+// end the wait at dockerDrainWindow
+func waitForForwardedExport(parent context.Context, collector tapCollector) error {
+	ctx, cancel := context.WithTimeout(parent, dockerDrainWindow)
+	defer cancel()
+
+	begin, err := scrapeCollectorTelemetry(ctx, collector)
+	var fresh TapStats
+	if err == nil {
+		fresh, err = pollTap(ctx, collector, func(stats TapStats) bool { return stats.Received > begin.Received })
+	}
+	if err == nil {
+		_, err = pollTap(ctx, collector, func(stats TapStats) bool { return stats.Sent > fresh.Sent })
+	}
+
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) && parent.Err() == nil {
+		return nil
+	}
+	return err
+}
+
+func pollTap(ctx context.Context, collector tapCollector, done func(TapStats) bool) (TapStats, error) {
+	ticker := time.NewTicker(dockerTapPoll)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return TapStats{}, ctx.Err()
+		case <-ticker.C:
+		}
+
+		stats, err := scrapeCollectorTelemetry(ctx, collector)
+		if err != nil || done(stats) {
+			return stats, err
+		}
+	}
 }
 
 func waitForSettledTap(ctx context.Context, collector tapCollector) (TapStats, error) {

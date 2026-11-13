@@ -32,7 +32,7 @@ services:
       - ../../../testoutput:/coverage
       - ../../../testoutput/run-jvm-runtime-metrics:/var/run/obi
       - /sys/kernel/tracing:/sys/kernel/tracing:rw
-    image: hatest-obi
+    image: hatest-obi-javaagent
     privileged: true
     pid: "host"
     environment:
