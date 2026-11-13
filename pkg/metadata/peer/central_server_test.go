@@ -19,6 +19,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/metadata/peer/metadatapb"
 )
 
@@ -113,8 +114,8 @@ func TestCentralServerRejectsInvalidRequests(t *testing.T) {
 }
 
 func TestCentralServerBearerToken(t *testing.T) {
-	root := newTestCA(t, nil)
-	leaf := newTestCertificate(t, &x509.Certificate{
+	root := testutil.NewTestCA(t, nil)
+	leaf := testutil.NewTestCertificate(t, &x509.Certificate{
 		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
 		NotBefore:   time.Now().Add(-time.Hour),
 		NotAfter:    time.Now().Add(time.Hour),
@@ -123,7 +124,7 @@ func TestCentralServerBearerToken(t *testing.T) {
 	}, &root)
 	cfg := DefaultCentralServerConfig()
 	cfg.Token = "shared-secret"
-	cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: leaf.certFile, KeyFile: leaf.keyFile, CAFile: root.certFile}
+	cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: leaf.CertFile, KeyFile: leaf.KeyFile, CAFile: root.CertFile}
 	clientTLS, err := clientTLSConfig(cfg.TLS)
 	require.NoError(t, err)
 	client := startCentralServer(t, &cfg, grpc.WithTransportCredentials(credentials.NewTLS(clientTLS)))

@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 
 	queuesync "go.opentelemetry.io/obi/pkg/internal/helpers/sync"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/instrument"
@@ -142,6 +143,63 @@ func TestRunStopsServerOnContextCancellationWithActiveStream(t *testing.T) {
 	lis, err := net.Listen("tcp", address)
 	require.NoError(t, err, "port still bound after Run returned")
 	_ = lis.Close()
+}
+
+func TestRunServesMutualTLS(t *testing.T) {
+	ca := testutil.NewTestCA(t, nil)
+	serverCert := testutil.NewLocalhostCertificate(t, &ca)
+	clientCert := testutil.NewLocalhostCertificate(t, &ca)
+	listener, port := newTestListener(t)
+
+	ic := &InformersCache{
+		Config: &kubecache.Config{
+			Port:           port,
+			MaxConnections: 1,
+			SendTimeout:    10 * time.Millisecond,
+			TLS:            kubecache.TLSConfig{CertFile: serverCert.CertFile, KeyFile: serverCert.KeyFile, ClientCAFile: ca.CertFile},
+		},
+		listener: listener,
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		done <- ic.Run(ctx, meta.WithKubeClient(fake.NewSimpleClientset()), meta.WithoutNodes(), meta.WithoutServices())
+	}()
+	t.Cleanup(func() {
+		cancel()
+		require.NoError(t, <-done)
+	})
+
+	firstEvent := func(client kubecache.ClientTLSConfig) error {
+		creds, err := client.Credentials()
+		if err != nil {
+			return err
+		}
+		conn, err := grpc.NewClient(net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), grpc.WithTransportCredentials(creds))
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
+		stream, err := informer.NewEventStreamServiceClient(conn).Subscribe(t.Context(), &informer.SubscribeMessage{})
+		if err != nil {
+			return err
+		}
+		_, err = stream.Recv()
+		return err
+	}
+
+	require.Eventually(t, func() bool {
+		return firstEvent(kubecache.ClientTLSConfig{CAFile: ca.CertFile, CertFile: clientCert.CertFile, KeyFile: clientCert.KeyFile}) == nil
+	}, 3*time.Second, 25*time.Millisecond, "client with a trusted certificate was never served")
+	require.Error(t, firstEvent(kubecache.ClientTLSConfig{CAFile: ca.CertFile}))
+	require.Error(t, firstEvent(kubecache.ClientTLSConfig{}))
+}
+
+func TestRunFailsOnUnreadableCertificate(t *testing.T) {
+	ic := &InformersCache{Config: &kubecache.Config{
+		TLS: kubecache.TLSConfig{CertFile: "missing.pem", KeyFile: "missing.pem"},
+	}}
+	require.ErrorContains(t, ic.Run(t.Context()), "configuring TLS")
 }
 
 func newTestListener(t *testing.T) (net.Listener, int) {

@@ -959,6 +959,10 @@ func (c *Config) validate(context validationContext) error {
 		return ConfigError(err.Error())
 	}
 
+	if err := c.Attributes.Kubernetes.MetaCacheTLS.Validate(); err != nil {
+		return ConfigError(err.Error())
+	}
+
 	return nil
 }
 
