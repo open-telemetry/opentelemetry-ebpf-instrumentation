@@ -235,6 +235,9 @@ func (pf *PIDsFilter) Filter(inputSpans []request.Span) []request.Span {
 		if fileInfo == nil {
 			continue
 		}
+		if pf.ignoreOtel || pf.ignoreOtelSpan {
+			setOTLPExportCheckEnv(fileInfo, span)
+		}
 		if pf.ignoreOtel {
 			pf.checkIfExportsOTel(fileInfo, span, pf.defaultOtlpGRPCPort)
 		}
@@ -444,6 +447,15 @@ func (pf *IdentityPidsFilter) ProcPIDs(_ PIDType) []app.PID {
 
 func (pf *IdentityPidsFilter) Filter(inputSpans []request.Span) []request.Span {
 	return inputSpans
+}
+
+// The OTLP export port fallback (gRPC only) reads the process env from span.Service,
+// which Filter assigns only after the export checks.
+func setOTLPExportCheckEnv(fi *exec.FileInfo, span *request.Span) {
+	if span.Type != request.EventTypeGRPCClient {
+		return
+	}
+	span.Service.EnvVars = fi.UnsafeServiceAttrs().EnvVars
 }
 
 func (pf *PIDsFilter) checkIfExportsOTel(fi *exec.FileInfo, span *request.Span, defaultOtlpGRPCPort int) {
