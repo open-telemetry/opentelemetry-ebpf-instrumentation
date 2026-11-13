@@ -171,9 +171,15 @@ services:
 services:
   other:
     build:
-      context: ../../..
-      dockerfile: testserver/Dockerfile
+      context: ../../../
+      dockerfile: ./testserver/Dockerfile
     image: hatest-tagged
+  envarg:
+    build:
+      context: ../../..
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-debian}
+    image: hatest-envarg
 `)
 	different := composeAt("different.yml", `
 services:
@@ -188,11 +194,13 @@ services:
 	require.Len(t, builds, 3)
 	assert.True(t, strings.HasPrefix(builds[0], "hatest-tagged@"))
 	assert.True(t, strings.HasPrefix(builds[1], "first.yml/untagged@"))
-	assert.Equal(t, builds[0], same.builds([]string{"other"})[0], "the same definition is the same build")
+	assert.Equal(t, builds[0], same.builds([]string{"other"})[0], "equivalent paths are the same build")
 	assert.NotEqual(t, builds[0], different.builds([]string{"other"})[0], "a tag reused for another Dockerfile is another build")
 
 	first.Env = []string{"BASE_IMAGE=debian"}
 	assert.NotEqual(t, builds[2], first.builds([]string{"envarg"})[0], "args taken from the environment are part of the build")
+	assert.Equal(t, first.builds([]string{"envarg"})[0], same.builds([]string{"envarg"})[0],
+		"an arg resolves to the same value whether it is listed or mapped")
 }
 
 func TestComposeArgsIncludeOverrides(t *testing.T) {

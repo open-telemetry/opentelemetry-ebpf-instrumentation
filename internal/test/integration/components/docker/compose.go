@@ -8,10 +8,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -186,45 +188,63 @@ func (c *Compose) builds(services []string) []string {
 			image = filepath.Base(c.Path) + "/" + name
 		}
 
-		definition, _ := yaml.Marshal(&service.Build)
-		digest := sha256.New()
-		fmt.Fprintf(digest, "%s\n%s", filepath.Dir(c.Path), c.interpolate(string(definition)))
-		for _, arg := range environmentBuildArgs(service.Build) {
-			value, _ := c.lookupEnv(arg)
-			fmt.Fprintf(digest, "\n%s=%s", arg, value)
-		}
-		builds = append(builds, image+"@"+hex.EncodeToString(digest.Sum(nil))[:buildDigestLength])
+		digest := sha256.Sum256([]byte(c.buildDefinition(service.Build)))
+		builds = append(builds, image+"@"+hex.EncodeToString(digest[:])[:buildDigestLength])
 	}
 	return builds
 }
 
-// environmentBuildArgs lists the build args given only by name, whose values compose reads from the environment
-func environmentBuildArgs(build yaml.Node) []string {
-	if build.Kind != yaml.MappingNode {
-		return nil
+// buildDefinition renders a build section canonically: the context resolved, the Dockerfile path cleaned and every
+// arg with the value compose passes, so equivalent spellings in different compose files compare equal
+func (c *Compose) buildDefinition(build yaml.Node) string {
+	var decoded any
+	_ = build.Decode(&decoded)
+	definition, ok := decoded.(map[string]any)
+	if !ok {
+		definition = map[string]any{"context": decoded}
 	}
-	var names []string
-	for i := 0; i+1 < len(build.Content); i += 2 {
-		if build.Content[i].Value != "args" {
-			continue
-		}
-		args := build.Content[i+1]
-		switch args.Kind {
-		case yaml.SequenceNode:
-			for _, arg := range args.Content {
-				if !strings.Contains(arg.Value, "=") {
-					names = append(names, arg.Value)
-				}
+
+	canonical := maps.Clone(definition)
+	context, _ := definition["context"].(string)
+	context = c.interpolate(context)
+	if !filepath.IsAbs(context) {
+		context = filepath.Join(filepath.Dir(c.Path), context)
+	}
+	canonical["context"] = filepath.Clean(context)
+	dockerfile, _ := definition["dockerfile"].(string)
+	if dockerfile == "" {
+		dockerfile = "Dockerfile"
+	}
+	canonical["dockerfile"] = filepath.Clean(c.interpolate(dockerfile))
+	canonical["args"] = c.buildArgs(definition["args"])
+
+	data, _ := json.Marshal(canonical)
+	return string(data)
+}
+
+// buildArgs resolves both arg spellings; args given only by name take their value from the environment
+func (c *Compose) buildArgs(args any) map[string]string {
+	resolved := map[string]string{}
+	switch args := args.(type) {
+	case map[string]any:
+		for name, value := range args {
+			if value == nil {
+				resolved[name], _ = c.lookupEnv(name)
+			} else {
+				resolved[name] = c.interpolate(fmt.Sprint(value))
 			}
-		case yaml.MappingNode:
-			for j := 0; j+1 < len(args.Content); j += 2 {
-				if args.Content[j+1].Tag == "!!null" {
-					names = append(names, args.Content[j].Value)
-				}
+		}
+	case []any:
+		for _, arg := range args {
+			name, value, found := strings.Cut(fmt.Sprint(arg), "=")
+			if found {
+				resolved[name] = c.interpolate(value)
+			} else {
+				resolved[name], _ = c.lookupEnv(name)
 			}
 		}
 	}
-	return names
+	return resolved
 }
 
 // services merges the service definitions of the compose file and its overrides
