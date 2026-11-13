@@ -10,7 +10,7 @@ WORKDIR /src
 COPY internal/test/integration/components/gohttp2/client_stdlib_legacy/go.mod ./go.mod
 COPY internal/test/integration/components/gohttp2/client/*.go ./
 
-RUN go build -tags legacy_stdlib -o /http2client .
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod go build -tags legacy_stdlib -o /http2client .
 
 FROM debian:bookworm-slim@sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421
 

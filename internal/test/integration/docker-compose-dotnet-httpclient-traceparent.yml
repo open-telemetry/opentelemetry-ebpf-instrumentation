@@ -31,6 +31,7 @@ services:
     command: ["--config=/configs/obi-config-dotnet-httpclient-traceparent.yml"]
     environment:
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       DOTNET_HTTPCLIENT_PROPAGATION: "${DOTNET_HTTPCLIENT_PROPAGATION:-headers}"
     volumes:
       - ./configs:/configs:ro

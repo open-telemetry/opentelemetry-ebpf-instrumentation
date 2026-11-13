@@ -5,7 +5,7 @@ services:
     build:
       context: ../../..
       dockerfile: internal/test/integration/components/go_grpc_server_mux/Dockerfile_pinger${TEST_SUFFIX}
-    image: hatest-testclient
+    image: hatest-grpcmux-pinger${TEST_SUFFIX}
     environment:
       TARGET_URL: ${TARGET_URL}
     depends_on:
@@ -16,7 +16,7 @@ services:
     build:
       context: components/go_grpc_server_mux/
       dockerfile: Dockerfile${TEST_SUFFIX}
-    image: hatest-server
+    image: hatest-grpcmux-server${TEST_SUFFIX}
     ports:
       - ${TARGET_PORTS}
     depends_on:
@@ -39,6 +39,7 @@ services:
     pid: "host"
     environment:
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_METRICS_INTERVAL: "1s"
       OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"

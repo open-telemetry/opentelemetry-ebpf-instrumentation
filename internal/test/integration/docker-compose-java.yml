@@ -28,6 +28,7 @@ services:
     pid: "host"
     environment:
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_EXECUTABLE_PATH: "${JAVA_EXECUTABLE_PATH}"
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"

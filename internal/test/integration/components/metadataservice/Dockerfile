@@ -7,12 +7,12 @@ ENV GOARCH=$TARGETARCH
 WORKDIR /src
 
 COPY go.mod go.sum ./
-RUN go mod download
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod go mod download
 
 COPY cmd/ cmd/
 COPY pkg/ pkg/
 
-RUN CGO_ENABLED=0 go build -o /metadata-service ./cmd/metadata-service
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=0 go build -o /metadata-service ./cmd/metadata-service
 
 FROM scratch
 

@@ -144,6 +144,44 @@ func TestObiServicesFallsBackOnUnreadableFile(t *testing.T) {
 	assert.False(t, ok, "an unparseable compose file must fall back to stopping everything gracefully")
 }
 
+func TestServicesToBuildSkipsImagesBuiltEarlier(t *testing.T) {
+	t.Setenv("PREBUILT_IMAGES", "hatest-obi")
+	c := composeFromYAML(t, `
+services:
+  fixture:
+    build:
+      context: ../../..
+      args:
+        BASE: ${MEMO_BASE:-debian}
+    image: hatest-memo-fixture
+  envarg:
+    build:
+      context: ../../..
+      args:
+        - FROM_ENV
+    image: hatest-memo-envarg
+  fresh:
+    build: ../../..
+    image: hatest-memo-fresh
+`)
+	services, ok := c.services()
+	require.True(t, ok)
+	for _, name := range []string{"fixture", "envarg"} {
+		image := services[name].Image
+		builtImages.Store(image, c.buildDefinition(services[name].Build))
+		t.Cleanup(func() { builtImages.Delete(image) })
+	}
+
+	toBuild, ok := c.servicesToBuild()
+	require.True(t, ok)
+	assert.Equal(t, []string{"fresh"}, toBuild, "an image built from the same definition is not built again")
+
+	c.Env = []string{"MEMO_BASE=alpine", "FROM_ENV=other"}
+	toBuild, ok = c.servicesToBuild()
+	require.True(t, ok)
+	assert.Equal(t, []string{"envarg", "fixture", "fresh"}, toBuild, "a different build arg rebuilds the image")
+}
+
 func TestBuildsNameWhatServicesBuild(t *testing.T) {
 	dir := t.TempDir()
 	composeAt := func(file, content string) *Compose {

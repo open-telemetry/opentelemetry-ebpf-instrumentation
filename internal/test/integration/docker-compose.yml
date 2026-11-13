@@ -3,7 +3,7 @@ services:
     build:
       context: ../../..
       dockerfile: internal/test/integration/components/testserver/Dockerfile${TESTSERVER_DOCKERFILE_SUFFIX}
-    image: hatest-testserver
+    image: hatest-testserver${TESTSERVER_DOCKERFILE_SUFFIX}
     ports:
       - "8080:8080"
       - "8081:8081"
@@ -22,7 +22,7 @@ services:
     build:
       context: ../../..
       dockerfile: internal/test/integration/components/pingclient/Dockerfile${PINGSERVER_DOCKERFILE_SUFFIX}
-    image: hatest-pingclient
+    image: hatest-pingclient${PINGSERVER_DOCKERFILE_SUFFIX}
     environment:
       LOG_LEVEL: DEBUG
 
@@ -43,6 +43,7 @@ services:
     pid: "host"
     environment:
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_TRACE_PRINTER: "json"
       OTEL_EBPF_OPEN_PORT: "${OTEL_EBPF_OPEN_PORT}"
       OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel,application_service_graph,ebpf"

@@ -34,15 +34,13 @@ func testNestedTraces(t *testing.T) {
 		ti.DoHTTPGet(ct, "http://localhost:5000/a", 200)
 
 		resp, err := getJaeger(jaegerQueryURL + "?service=service-a&limit=1")
-		if err != nil || resp == nil || resp.StatusCode != http.StatusOK {
-			return
-		}
+		require.NoError(ct, err)
+		require.NotNil(ct, resp)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
 
 		var tq jaeger.TracesQuery
 		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
-		if len(tq.Data) == 0 {
-			return
-		}
+		require.NotEmpty(ct, tq.Data)
 	}, 2*time.Minute, 1*time.Second)
 	t.Log("instrumentation ready")
 

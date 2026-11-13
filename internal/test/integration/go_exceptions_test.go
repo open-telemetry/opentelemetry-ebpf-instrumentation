@@ -117,7 +117,7 @@ var goExceptionsBuilders = []struct {
 	{"1.21", 21, "golang:1.21.13@sha256:4746d26432a9117a5f58e95cb9f954ddf0de128e9d5816886514199316e4a2fb"},
 	{"1.25", 25, runtimeMetricsGo125BuilderImage},
 	{"1.26", 26, "golang:1.26.5@sha256:3aff6657219a4d9c14e27fb1d8976c49c29fddb70ba835014f477e1c70636647"},
-	{"1.27", 27, "golang:1.27.0@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"},
+	{"1.27", 27, "golang:1.27.3@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b"},
 }
 
 func TestGoExceptions(t *testing.T) {
@@ -153,31 +153,30 @@ func testGoExceptions(t *testing.T, goVersion, goImage string, builds []goExcept
 	t.Cleanup(func() { require.NoError(t, compose.Close()) })
 	t.Cleanup(func() { runWeaverValidation(t) })
 
-	// Exceptions raised before OBI attaches to a process are not captured.
-	for _, service := range append([]goExceptionsService{goExceptionsDefault}, builds...) {
-		attempt := 0
-		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			attempt++
-			goExceptionsGet(ct, service, "fmt", fmt.Sprintf("warmup-%d", attempt), http.StatusInternalServerError)
-			logs, _ := readGoExceptionTelemetry(ct, out)
-			assert.NotEmpty(ct, goLogsOfService(logs, service), "no exception log from %s yet", service.name)
-		}, 3*testTimeout, time.Second)
-	}
+	// Exceptions raised before OBI attaches to a process are not captured. OBI attaches to all
+	// services at once, so they are warmed up together.
+	exceptionServices := append([]goExceptionsService{goExceptionsDefault}, builds...)
 	attempt := 0
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		attempt++
-		goExceptionsGet(ct, goExceptionsDisabled, "healthy", fmt.Sprintf("warmup-%d", attempt), http.StatusOK)
-		_, spans := readGoExceptionTelemetry(ct, out)
-		assert.True(ct, goHasSpanOfService(spans, goExceptionsDisabled), "no span from %s yet", goExceptionsDisabled.name)
-	}, 3*testTimeout, time.Second)
-
-	for _, selection := range goExceptionSelections {
-		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		warmupID := fmt.Sprintf("warmup-%d", attempt)
+		for _, service := range exceptionServices {
+			goExceptionsGet(ct, service, "fmt", warmupID, http.StatusInternalServerError)
+		}
+		goExceptionsGet(ct, goExceptionsDisabled, "healthy", warmupID, http.StatusOK)
+		for _, selection := range goExceptionSelections {
 			goExceptionsGet(ct, selection.service, "healthy", "selection-warmup", http.StatusOK)
-			_, spans := readGoExceptionTelemetry(ct, out)
-			assert.True(ct, goHasSpanOfService(spans, selection.service))
-		}, 3*testTimeout, time.Second)
-	}
+		}
+
+		logs, spans := readGoExceptionTelemetry(ct, out)
+		for _, service := range exceptionServices {
+			assert.NotEmpty(ct, goLogsOfService(logs, service), "no exception log from %s yet", service.name)
+		}
+		assert.True(ct, goHasSpanOfService(spans, goExceptionsDisabled), "no span from %s yet", goExceptionsDisabled.name)
+		for _, selection := range goExceptionSelections {
+			assert.True(ct, goHasSpanOfService(spans, selection.service), "no span from %s yet", selection.service.name)
+		}
+	}, 3*testTimeout, time.Second)
 	cases := []goExceptionCase{
 		{name: "healthy", status: http.StatusOK},
 		{name: "fmt", status: http.StatusInternalServerError, expected: []goExpectedException{
