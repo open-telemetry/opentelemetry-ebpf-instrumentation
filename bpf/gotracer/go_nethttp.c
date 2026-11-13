@@ -82,6 +82,13 @@ static __always_inline void complete_http_server_request(const go_addr_key_t *re
         return;
     }
 
+    const http_server_request_key_t id = {
+        .pid = request_key->pid,
+        .goroutine_addr = state.goroutine_addr,
+        .start_monotime_ns = state.start_monotime_ns,
+    };
+    bpf_map_delete_elem(&http_server_request_ids, &id);
+
     http_server_request_event_t *event = events_ringbuf_reserve(sizeof(*event), 0);
     if (!event) {
         return;
@@ -206,6 +213,18 @@ static __always_inline void emit_http_server_request_start(const go_addr_key_t *
     }
 
     if (bpf_map_update_elem(&http_server_requests_by_goroutine, g_key, &request_key, BPF_NOEXIST)) {
+        bpf_map_delete_elem(&active_http_server_requests, &request_key);
+        bpf_ringbuf_discard(event, 0);
+        return;
+    }
+
+    const http_server_request_key_t id = {
+        .pid = g_key->pid,
+        .goroutine_addr = state.goroutine_addr,
+        .start_monotime_ns = state.start_monotime_ns,
+    };
+    if (bpf_map_update_elem(&http_server_request_ids, &id, &event->pid, BPF_NOEXIST)) {
+        bpf_map_delete_elem(&http_server_requests_by_goroutine, g_key);
         bpf_map_delete_elem(&active_http_server_requests, &request_key);
         bpf_ringbuf_discard(event, 0);
         return;

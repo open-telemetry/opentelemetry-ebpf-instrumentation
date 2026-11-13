@@ -99,6 +99,12 @@ typedef struct http_request_trace {
     pid_info_t pid;
 } http_request_trace_t;
 
+typedef struct http_server_request_key {
+    u64 pid;
+    u64 goroutine_addr;
+    u64 start_monotime_ns;
+} http_server_request_key_t;
+
 typedef struct http_server_request_event {
     u8 type; // Must be first
     bool is_tls;

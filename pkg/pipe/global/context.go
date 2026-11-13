@@ -95,6 +95,8 @@ type AppO11y struct {
 	ReportRoutes bool
 	// EBPFEventContext provides shared eBPF maps to application observability nodes.
 	EBPFEventContext *ebpfcommon.EBPFEventContext
+	// HTTPServerRequests carries active-request deltas to metric exporters.
+	HTTPServerRequests *msg.Queue[[]request.HTTPServerRequestDelta]
 }
 
 func NewEBPFReverseDNS(ctx context.Context, ebpfCfg *config.EBPFTracer, cfgs ...*rdns.ReverseDNS) *rdns.EBPFLookup {

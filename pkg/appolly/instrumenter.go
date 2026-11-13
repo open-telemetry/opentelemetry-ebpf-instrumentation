@@ -199,7 +199,10 @@ func newGraphBuilderWithProtocolMetricSelection(
 	exportingMetrics := jointMetricsConfig.Features.AnyAppO11yMetric() &&
 		(config.OTELMetrics.EndpointEnabled() || config.Prometheus.EndpointEnabled())
 	if exportingMetrics {
-		setupMetricsSubPipeline(config, ctxInfo, swi, exportableSpans, selectorCfg, processEventsCh, jointMetricsConfig, runtimeMetrics)
+		setupMetricsSubPipeline(
+			config, ctxInfo, swi, exportableSpans, selectorCfg,
+			processEventsCh, jointMetricsConfig, runtimeMetrics, selection,
+		)
 	}
 
 	swi.Add(prom.BPFMetrics(ctxInfo, &config.Prometheus, jointMetricsConfig),
@@ -221,10 +224,30 @@ func setupMetricsSubPipeline(
 	processEventsCh *msg.Queue[exec.ProcessEvent],
 	jointMetricsConfig *perapp.GlobalMetricsConfig,
 	runtimeMetrics *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
+	selection *instrumentations.InstrumentationSelection,
 ) {
 	metricsProcessEvents := msg2.QueueFromConfig[exec.ProcessEvent](config, ctxInfo.Metrics, "metricsProcessEvents")
 	swi.Add(DynamicSignalProcessEventGate(ctxInfo.DynamicSelector, processEventsCh, metricsProcessEvents),
 		swarm.WithID("DynamicSignalProcessEventGate"))
+
+	if jointMetricsConfig.Features.HTTPServerActiveRequests() &&
+		(selection == nil || selection.HTTPEnabled()) &&
+		ctxInfo.AppO11y.EBPFEventContext != nil {
+		httpServerRequests := msg2.QueueFromConfig[[]request.HTTPServerRequestDelta](
+			config,
+			ctxInfo.Metrics,
+			"httpServerRequests",
+		)
+		ctxInfo.AppO11y.HTTPServerRequests = httpServerRequests
+
+		swi.Add(httpServerRequestsNode(
+			ctxInfo.DynamicSelector,
+			ctxInfo.AppO11y.EBPFEventContext,
+			config.ChannelBufferLen,
+			metricsProcessEvents,
+			httpServerRequests,
+		), swarm.WithID("HTTPServerRequests"))
+	}
 
 	unresolvedCfg := request.UnresolvedNames{
 		Generic:  config.Attributes.RenameUnresolvedHosts,

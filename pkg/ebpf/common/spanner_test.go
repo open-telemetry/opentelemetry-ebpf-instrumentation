@@ -4,6 +4,7 @@
 package ebpfcommon
 
 import (
+	"net"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -425,4 +426,68 @@ func TestStripPattern(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestHTTPServerRequestEventToSpan(t *testing.T) {
+	tests := []struct {
+		name   string
+		isTLS  bool
+		scheme string
+	}{
+		{name: "HTTP", isTLS: false, scheme: "http"},
+		{name: "HTTPS", isTLS: true, scheme: "https"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := HTTPServerRequestEvent{
+				Type:  EventTypeHTTPServerRequestStart,
+				IsTls: tt.isTLS,
+				Pid: BpfPidInfoT{
+					HostPid: 123,
+					UserPid: 45,
+					Ns:      67,
+				},
+				Conn: BpfConnectionInfoT{
+					S_port: 50000,
+					D_port: 8080,
+				},
+			}
+			copy(event.Method[:], tocstr("GET"))
+			copy(event.Conn.S_addr[:], net.ParseIP("10.0.0.1").To16())
+			copy(event.Conn.D_addr[:], net.ParseIP("10.0.0.2").To16())
+
+			span := HTTPServerRequestEventToSpan(&event)
+
+			assert.Equal(t, request.EventTypeHTTP, span.Type)
+			assert.Equal(t, "GET", span.Method)
+			assert.Equal(t, tt.scheme, request.HTTPScheme(&span))
+			assert.Equal(t, request.PidInfo{
+				HostPID:   123,
+				UserPID:   45,
+				Namespace: 67,
+			}, span.Pid)
+			assert.Equal(t, "10.0.0.1", span.Peer)
+			assert.Equal(t, 50000, span.PeerPort)
+			assert.Equal(t, "10.0.0.2", span.Host)
+			assert.Equal(t, 8080, span.HostPort)
+			assert.Empty(t, request.HostFromSchemeHost(&span))
+		})
+	}
+}
+
+func TestHTTPServerRequestEventToSpanWithoutConnection(t *testing.T) {
+	event := HTTPServerRequestEvent{
+		Type: EventTypeHTTPServerRequestStart,
+	}
+	copy(event.Method[:], tocstr("GET"))
+
+	span := HTTPServerRequestEventToSpan(&event)
+
+	assert.Equal(t, "GET", span.Method)
+	assert.Equal(t, "http", request.HTTPScheme(&span))
+	assert.Empty(t, span.Peer)
+	assert.Empty(t, span.Host)
+	assert.Zero(t, span.PeerPort)
+	assert.Zero(t, span.HostPort)
 }

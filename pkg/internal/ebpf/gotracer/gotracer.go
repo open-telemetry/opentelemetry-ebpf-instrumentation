@@ -324,6 +324,7 @@ type Tracer struct {
 	traceCtxMapEnabled                bool
 	runtimeMetricsEnabled             bool
 	httpServerActiveRequestsEnabled   bool
+	httpServerRequestPIDs             map[app.PID]BpfPidInfoT
 	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfoT
 	pidSamplers                       ebpfcommon.PIDSamplers
 	goChannelOffsetsByExecutable      map[executableIdentity]bool
@@ -434,6 +435,17 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	p.goAutoSDKTargetsMu.Unlock()
 
 	p.registerRuntimeMetricTarget(pid, ns, fi)
+	if p.httpServerActiveRequestsEnabled {
+		pidInfo, err := runtimeMetricPIDInfo(pid, ns)
+		if err != nil {
+			p.log.Debug("HTTP request PID key lookup failed", "pid", pid, "error", err)
+		} else {
+			if p.httpServerRequestPIDs == nil {
+				p.httpServerRequestPIDs = make(map[app.PID]BpfPidInfoT)
+			}
+			p.httpServerRequestPIDs[pid] = pidInfo
+		}
+	}
 	p.writePIDSampler(pid, ns, fi)
 	p.registerExceptionPID(pid, fi)
 }
@@ -463,11 +475,63 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.goAutoSDKTargetsMu.Unlock()
 
 	p.deleteRuntimeMetricTarget(pid, ns)
+	p.deleteHTTPServerRequests(pid)
 	p.unregisterExceptionPID(pid)
 
 	if p.bpfObjects.PidSamplers != nil {
 		if err := p.pidSamplers.Delete(p.bpfObjects.PidSamplers, pid); err != nil {
 			p.log.Error("removing the process sampler from eBPF", "pid", pid, "error", err)
+		}
+	}
+}
+
+func (p *Tracer) deleteHTTPServerRequests(pid app.PID) {
+	pidInfo, ok := p.httpServerRequestPIDs[pid]
+	if !ok {
+		return
+	}
+	delete(p.httpServerRequestPIDs, pid)
+	ids := p.bpfObjects.HttpServerRequestIds
+	if ids == nil {
+		return
+	}
+
+	hostPIDs := map[uint64]struct{}{}
+	var keys []BpfHttpServerRequestKeyT
+	var key BpfHttpServerRequestKeyT
+	var value BpfPidInfoT
+	iterator := ids.Iterate()
+	for iterator.Next(&key, &value) {
+		if value.UserPid == pidInfo.UserPid && value.Ns == pidInfo.Ns {
+			keys = append(keys, key)
+			hostPIDs[key.Pid] = struct{}{}
+		}
+	}
+	if err := iterator.Err(); err != nil {
+		p.log.Debug("reading HTTP request IDs failed", "pid", pid, "error", err)
+	}
+	for _, key := range keys {
+		_ = ids.Delete(key)
+	}
+
+	for _, requests := range []*ebpf.Map{p.bpfObjects.ActiveHttpServerRequests, p.bpfObjects.HttpServerRequestsByGoroutine} {
+		if requests == nil || len(hostPIDs) == 0 {
+			continue
+		}
+		var keys []BpfGoAddrKeyT
+		var key BpfGoAddrKeyT
+		value := make([]byte, requests.ValueSize())
+		iterator := requests.Iterate()
+		for iterator.Next(&key, value) {
+			if _, ok := hostPIDs[key.Pid]; ok {
+				keys = append(keys, key)
+			}
+		}
+		if err := iterator.Err(); err != nil {
+			p.log.Debug("reading HTTP requests failed", "pid", pid, "error", err)
+		}
+		for _, key := range keys {
+			_ = requests.Delete(key)
 		}
 	}
 }
