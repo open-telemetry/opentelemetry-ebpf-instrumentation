@@ -44,6 +44,8 @@ type InternalMetricsReporter struct {
 	avoidedServicesLimiter           *avoidedsvc.Limiter
 	buildInfo                        instrument.Int64Gauge
 	bpfProbeLatency                  *bpfProbeLatencyProducer
+	bpfProbeExecutions               instrument.Int64Counter
+	bpfProbeTime                     instrument.Float64Counter
 	bpfMapEntries                    instrument.Int64Gauge
 	bpfMapMaxEntries                 instrument.Int64Gauge
 	bpfInternalMetricsScrapeInterval time.Duration
@@ -75,19 +77,79 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 	defer releaseExporterOnError(ctx, exporter, &retErr)
 
-	internalNames := attributes.NewInternalMetrics(attr.VendorPrefix)
-	internalAttrs := attr.NewInternalAttributes(attr.VendorPrefix)
-
 	res := newResourceInternal(&ctxInfo.NodeMeta)
 	bpfProbeLatency := newBpfProbeLatencyProducer(
-		internalNames.BpfProbeLatency,
+		attributes.NewInternalMetrics(attr.VendorPrefix).BpfProbeLatency,
 		exporter.Temporality(metric.InstrumentKindHistogram),
 	)
 	provider := newInternalMeterProvider(res, &exporter, metrics.Interval, bpfProbeLatency)
-	meter := provider.Meter(internalMetricsMeterName,
-		instrument.WithInstrumentationVersion(attr.TelemetryDistroVersion()),
-		instrument.WithSchemaURL(attr.OBISchemaURL),
+	reporter, err := newInternalMetricsReporter(ctx, provider, bpfProbeLatency, internalMetrics)
+	if err != nil {
+		return nil, err
+	}
+
+	reporter.provider = provider
+	return reporter, nil
+}
+
+// NewInternalMetricsReporterWithProvider reports the internal metrics through a MeterProvider
+// owned by the caller, such as the Collector service telemetry.
+func NewInternalMetricsReporterWithProvider(ctx context.Context, provider instrument.MeterProvider, internalMetrics *imetrics.InternalMetricsConfig) (*InternalMetricsReporter, error) {
+	reporter, err := newInternalMetricsReporter(ctx, provider, nil, internalMetrics)
+	if err != nil {
+		return nil, err
+	}
+
+	// A Producer can only be attached to an SDK reader, so a caller-owned provider gets the
+	// count and sum of the probe latency histogram as counters instead.
+	internalNames := attributes.NewInternalMetrics(attr.VendorPrefix)
+	meter := internalMeter(provider, internalMetrics.MeterAttributes)
+	reporter.bpfProbeExecutions, err = meter.Int64Counter(
+		internalNames.BpfProbeExecutions.OTEL,
+		instrument.WithDescription("Total number of eBPF probe executions"),
+		instrument.WithUnit(internalNames.BpfProbeExecutions.Unit),
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	reporter.bpfProbeTime, err = meter.Float64Counter(
+		internalNames.BpfProbeTime.OTEL,
+		instrument.WithDescription("Total execution time of the eBPF probe"),
+		instrument.WithUnit(internalNames.BpfProbeTime.Unit),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	// With a no-op provider, such as the Collector's for metrics level none, nothing the BPF
+	// collector reports would be recorded, so keep it from enabling the kernel BPF stats.
+	if !reporter.bpfMetricsEnabled(ctx) {
+		reporter.bpfInternalMetricsScrapeInterval = 0
+	}
+
+	return reporter, nil
+}
+
+func (p *InternalMetricsReporter) bpfMetricsEnabled(ctx context.Context) bool {
+	return p.bpfProbeExecutions.Enabled(ctx) ||
+		p.bpfProbeTime.Enabled(ctx) ||
+		p.bpfMapEntries.Enabled(ctx) ||
+		p.bpfMapMaxEntries.Enabled(ctx) ||
+		p.bpfRingbufWrites.Enabled(ctx) ||
+		p.bpfRingbufFailures.Enabled(ctx)
+}
+
+func newInternalMetricsReporter(
+	ctx context.Context,
+	provider instrument.MeterProvider,
+	bpfProbeLatency *bpfProbeLatencyProducer,
+	internalMetrics *imetrics.InternalMetricsConfig,
+) (*InternalMetricsReporter, error) {
+	internalNames := attributes.NewInternalMetrics(attr.VendorPrefix)
+	internalAttrs := attr.NewInternalAttributes(attr.VendorPrefix)
+
+	meter := internalMeter(provider, internalMetrics.MeterAttributes)
 	tracerFlushes, err := meter.Float64Histogram(
 		internalNames.TracerFlushes.OTEL,
 		instrument.WithDescription("Length of the groups of traces flushed from the eBPF tracer to the next pipeline stage"),
@@ -238,7 +300,6 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 	}
 	return &InternalMetricsReporter{
 		ctx:                              ctx,
-		provider:                         provider,
 		tracerFlushes:                    tracerFlushes,
 		otelMetricExports:                otelMetricExports,
 		otelMetricExportErrs:             otelMetricExportErrs,
@@ -261,6 +322,14 @@ func NewInternalMetricsReporter(ctx context.Context, ctxInfo *global.ContextInfo
 		queueCapacityRatio:               queueCapacityRatio,
 		internalAttrs:                    internalAttrs,
 	}, nil
+}
+
+func internalMeter(provider instrument.MeterProvider, attrs attribute.Set) instrument.Meter {
+	return provider.Meter(internalMetricsMeterName,
+		instrument.WithInstrumentationVersion(attr.TelemetryDistroVersion()),
+		instrument.WithSchemaURL(attr.OBISchemaURL),
+		instrument.WithInstrumentationAttributeSet(attrs),
+	)
 }
 
 func newInternalMeterProvider(
@@ -300,7 +369,12 @@ func (p *InternalMetricsReporter) Start(ctx context.Context) {
 	))
 }
 
+// Shutdown releases the provider that OBI created. A provider passed by the caller, such as the
+// Collector service telemetry, is left for the caller to shut down.
 func (p *InternalMetricsReporter) Shutdown(ctx context.Context) error {
+	if p.provider == nil {
+		return nil
+	}
 	return p.provider.Shutdown(ctx)
 }
 
@@ -392,7 +466,18 @@ func (p *InternalMetricsReporter) AvoidInstrumentationTraces(serviceName, servic
 }
 
 func (p *InternalMetricsReporter) BpfProbeStats(probeID, probeType, probeName string, count uint64, latencySumSeconds float64, latencyBuckets map[float64]uint64) {
-	p.bpfProbeLatency.Update(probeID, probeType, probeName, count, latencySumSeconds, latencyBuckets)
+	if p.bpfProbeLatency != nil {
+		p.bpfProbeLatency.Update(probeID, probeType, probeName, count, latencySumSeconds, latencyBuckets)
+		return
+	}
+
+	attrs := sanitizedAttributes(
+		attribute.String(string(attr.BpfProbeID), probeID),
+		attribute.String(string(attr.BpfProbeType), probeType),
+		attribute.String(string(attr.BpfProbeName), probeName),
+	)
+	p.bpfProbeExecutions.Add(p.ctx, int64(count), attrs)
+	p.bpfProbeTime.Add(p.ctx, latencySumSeconds, attrs)
 }
 
 func (p *InternalMetricsReporter) BpfMapEntries(mapID, mapName, mapType string, entriesTotal int) {

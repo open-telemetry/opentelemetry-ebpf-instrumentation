@@ -25,6 +25,8 @@ type InternalMetrics struct {
 	AvoidedServices          Name
 	BuildInfo                Name
 	BpfProbeLatency          Name
+	BpfProbeExecutions       Name
+	BpfProbeTime             Name
 	BpfMapEntries            Name
 	BpfMapMaxEntries         Name
 	KubeCacheForwardLag      Name
@@ -78,6 +80,18 @@ func NewInternalMetrics(prefix string) InternalMetrics {
 			OTEL: prefix + ".bpf.probe.latency",
 			Unit: "s",
 			Type: InstrumentHistogram,
+		}),
+		// The count and sum of BpfProbeLatency, for the Collector receiver, which cannot attach
+		// the Producer behind its pre-aggregated buckets.
+		BpfProbeExecutions: metric(Name{
+			OTEL: prefix + ".bpf.probe.executions",
+			Unit: "{call}",
+			Type: InstrumentCounter,
+		}),
+		BpfProbeTime: metric(Name{
+			OTEL: prefix + ".bpf.probe.time",
+			Unit: "s",
+			Type: InstrumentCounter,
 		}),
 		BpfMapEntries: metric(Name{
 			OTEL: prefix + ".bpf.map.entries",

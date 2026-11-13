@@ -1054,6 +1054,20 @@ How many network packets have been internally accounted.
 
 No attributes.
 
+## `obi.bpf.probe.executions`
+
+Total number of eBPF probe executions.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | {call} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `bpf.probe.id` | string | `required` | development | Identifier of the eBPF program (probe) the stats belong to. | 42 |
+| `bpf.probe.name` | string | `required` | development | Name of the eBPF probe. | kprobe_tcp_sendmsg |
+| `bpf.probe.type` | string | `required` | development | eBPF program type of the probe. | kprobe; tracepoint |
+
 ## `obi.bpf.probe.latency`
 
 Latency distribution of the eBPF probe in seconds.
@@ -1061,6 +1075,20 @@ Latency distribution of the eBPF probe in seconds.
 | Instrument | Unit | Stability |
 | --- | --- | --- |
 | histogram | s | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `bpf.probe.id` | string | `required` | development | Identifier of the eBPF program (probe) the stats belong to. | 42 |
+| `bpf.probe.name` | string | `required` | development | Name of the eBPF probe. | kprobe_tcp_sendmsg |
+| `bpf.probe.type` | string | `required` | development | eBPF program type of the probe. | kprobe; tracepoint |
+
+## `obi.bpf.probe.time`
+
+Total execution time of the eBPF probe.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| counter | s | development |
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |

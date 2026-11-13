@@ -168,7 +168,7 @@ Environment-variable substitution depends on the loader. The upstream `otelconf/
 The `extensions.obi` block is divided by deployment scope:
 
 - `capture`: valid in **all** deployment modes. Contains everything OBI needs to select workloads and capture telemetry. A receiver component places the children of this block beside its own `version`; it does not retain the `capture` wrapper.
-- `enrich`, `correlation`, `daemon`: **standalone-mode only**. These sections are not valid in Collector receiver deployments. The Collector pipeline handles enrichment (via processors) and process lifecycle (logging, profiling, shutdown) in receiver mode.
+- `enrich`, `correlation`, `daemon`: **standalone-mode only**. These sections are not valid in Collector receiver deployments. The Collector pipeline handles enrichment (via processors) and process lifecycle (logging, profiling, shutdown) in receiver mode. OBI internal metrics are reported through the Collector service telemetry, with the receiver ID as the `otelcol.component.id` scope attribute and the `obi.bpf.probe.latency` histogram reported as its count and sum.
 
 The following is a non-runnable structural sketch. It omits exporter settings
 and many values deliberately. Use the tested
