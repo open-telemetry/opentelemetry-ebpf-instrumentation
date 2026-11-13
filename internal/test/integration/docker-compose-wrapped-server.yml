@@ -23,6 +23,7 @@ services:
     pid: "host"
     environment:
       GOCOVERDIR: /coverage
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_TRACE_PRINTER: text
       OTEL_EBPF_BPF_BATCH_TIMEOUT: 10ms
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: 1ms

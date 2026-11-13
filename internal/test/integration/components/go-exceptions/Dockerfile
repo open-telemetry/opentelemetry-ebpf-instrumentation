@@ -10,7 +10,7 @@ ENV GOARCH=$TARGETARCH CGO_ENABLED=0
 WORKDIR /build
 COPY internal/test/integration/components/go-exceptions/main.go .
 
-RUN go build -o out/go-exceptions main.go && \
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod go build -o out/go-exceptions main.go && \
     go build -ldflags="-s -w" -o out/go-exceptions-stripped main.go && \
     go build -buildmode=pie -o out/go-exceptions-pie main.go && \
     go build -buildmode=pie -ldflags="-s -w" -o out/go-exceptions-stripped-pie main.go && \

@@ -13,8 +13,8 @@ COPY go.mod go.mod
 COPY gomysql_otelsql.go gomysql_otelsql.go
 
 # Build - download dependencies and build
-RUN go mod tidy
-RUN go build -o gomysql_otelsql gomysql_otelsql.go
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod go mod tidy
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod go build -o gomysql_otelsql gomysql_otelsql.go
 
 # Create final image from minimal + built binary
 FROM debian:bookworm-slim@sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421

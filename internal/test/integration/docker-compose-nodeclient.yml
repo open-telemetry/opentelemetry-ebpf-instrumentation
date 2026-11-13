@@ -32,6 +32,7 @@ services:
     pid: "service:nodeclient"
     environment:
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_AUTO_TARGET_LANGUAGE: "nodejs"
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"

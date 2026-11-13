@@ -22,6 +22,7 @@ services:
     environment:
       OTEL_EBPF_CONFIG_PATH: /configs/obi-config.yml
       GOCOVERDIR: /coverage
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_OPEN_PORT: "8380"
       OTEL_EBPF_EXECUTABLE_PATH: ""
       OTEL_EBPF_SERVICE_NAME: django-testserver

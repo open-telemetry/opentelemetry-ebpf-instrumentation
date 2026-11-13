@@ -70,6 +70,7 @@ services:
     environment:
       OTEL_EBPF_CONFIG_PATH: /configs/obi-config-gpu.yml
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       # Force CUDA instrumentation on so the gpuevent tracer loads without a GPU
       # (nvidia-smi auto-detect is bypassed).
       OTEL_EBPF_INSTRUMENT_CUDA: "on"

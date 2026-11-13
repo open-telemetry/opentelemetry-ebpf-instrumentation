@@ -70,6 +70,7 @@ services:
     pid: service:server
     environment:
       GOCOVERDIR: /coverage
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
     volumes:
       - ./configs:/configs:ro
       - ./system/sys/kernel/security:/sys/kernel/security
@@ -92,6 +93,7 @@ services:
     pid: service:client
     environment:
       GOCOVERDIR: /coverage
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
     volumes:
       - ./configs:/configs:ro
       - ./system/sys/kernel/security:/sys/kernel/security

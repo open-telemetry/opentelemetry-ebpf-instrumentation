@@ -1,7 +1,7 @@
-FROM golang:1.27.2@sha256:007a316059246276cb214df93950be77837545dc78007a73e0291a4963d5d3bf AS downstream-build
+FROM golang:1.27.0@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1 AS downstream-build
 WORKDIR /downstream
 COPY internal/test/integration/components/dotnet_httpclient_traceparent/downstream.go .
-RUN CGO_ENABLED=0 go build -o downstream downstream.go
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=0 go build -o downstream downstream.go
 
 # Its own target, so compose builds the downstream instead of pulling an image tag
 FROM scratch AS downstream

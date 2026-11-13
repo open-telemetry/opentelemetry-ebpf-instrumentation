@@ -14,7 +14,7 @@ COPY go.mod go.mod
 COPY go.sum go.sum
 
 # Build
-RUN go build -o http2client \
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod go build -o http2client \
     ./internal/test/integration/components/gohttp2/client/main.go \
     ./internal/test/integration/components/gohttp2/client/transport_current.go
 

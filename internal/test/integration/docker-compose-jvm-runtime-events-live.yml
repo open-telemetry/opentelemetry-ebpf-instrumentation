@@ -19,7 +19,7 @@ services:
       - -tags=jvm_live
       - ./pkg/internal/ebpf/generictracer
       - -run
-      - ^TestJVMRuntimeEventsLiveFromHotSpotProbes$
+      - ^TestJVMGCEventsLiveFromHotSpotProbes$
       - -count=1
       - -v
       - -timeout=2m

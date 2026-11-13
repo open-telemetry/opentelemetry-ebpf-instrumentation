@@ -14,10 +14,10 @@ WORKDIR /src
 COPY internal/test/integration/components/go-runtime-metrics-server/ .
 
 # Build
-RUN go mod download && go build -ldflags="${RUNTIME_METRICS_TESTSERVER_LDFLAGS}" -o testserver main.go
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod go mod download && go build -ldflags="${RUNTIME_METRICS_TESTSERVER_LDFLAGS}" -o testserver main.go
 
 # Create final image from minimal + built binary
-FROM debian:bookworm-slim@sha256:98f4b71de414932439ac6ac690d7060df1f27161073c5036a7553723881bffbe
+FROM debian:bookworm-slim@sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421
 
 WORKDIR /
 COPY --from=builder /src/testserver .

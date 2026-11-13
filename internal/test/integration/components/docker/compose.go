@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -37,6 +38,10 @@ const configMigrationOverride = "docker-compose-config-migration.yml"
 
 // hex digits of the build definition digest logged with each build; enough to tell definitions apart
 const buildDigestLength = 12
+
+// builtImages maps the image tags this test process built to their build definition, so starting a stack
+// again skips builds that would only hit the shard's cache
+var builtImages sync.Map
 
 type composeService struct {
 	Image    string    `yaml:"image"`
@@ -152,7 +157,11 @@ func (c *Compose) servicesToBuild() ([]string, bool) {
 		if svc.Build.IsZero() || !c.profileActive(svc.Profiles) {
 			continue
 		}
-		if image := c.interpolate(svc.Image); image != "" && slices.Contains(prebuilt, image) {
+		image := c.interpolate(svc.Image)
+		if image != "" && slices.Contains(prebuilt, image) {
+			continue
+		}
+		if built, ok := builtImages.Load(image); ok && built == c.buildDefinition(svc.Build) {
 			continue
 		}
 		servicesToBuild = append(servicesToBuild, name)
@@ -173,6 +182,13 @@ func (c *Compose) build(services []string) error {
 	slog.Info("built compose services",
 		"seconds", int(time.Since(started).Round(time.Second).Seconds()),
 		"images", strings.Join(c.builds(services), ","))
+
+	definitions, _ := c.services()
+	for _, name := range services {
+		if image := c.interpolate(definitions[name].Image); image != "" {
+			builtImages.Store(image, c.buildDefinition(definitions[name].Build))
+		}
+	}
 	return nil
 }
 

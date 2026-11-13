@@ -17,7 +17,7 @@ COPY go.mod go.mod
 COPY go.sum go.sum
 
 # Build
-RUN go build -o pingclient ./internal/test/integration/components/pingclient/pingclient.go
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod go build -o pingclient ./internal/test/integration/components/pingclient/pingclient.go
 
 # Create final image from minimal + built binary
 FROM debian:bookworm-slim@sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421

@@ -2,7 +2,7 @@ services:
   testserver:
     build:
       context: ../../..
-      dockerfile: internal/test/integration/components/testserver/Dockerfile${TESTSERVER_DOCKERFILE_SUFFIX}
+      dockerfile: internal/test/integration/components/testserver/Dockerfile
     image: hatest-testserver
     ports:
       - "8080:8080"
@@ -39,6 +39,7 @@ services:
     pid: "host"
     environment:
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_DEBUG_DISABLE_UPROBE_MULTI: "TRUE"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_OPEN_PORT: "${OTEL_EBPF_OPEN_PORT}"

@@ -37,6 +37,7 @@ services:
     environment:
       OTEL_EBPF_CONFIG_PATH: /configs/obi-config-dotnet-runtime-metrics.yml
       GOCOVERDIR: /coverage
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_EXECUTABLE_PATH: dotnet
       OTEL_SERVICE_NAME: dotnet-runtime
       OTEL_EBPF_SERVICE_NAMESPACE: integration-test

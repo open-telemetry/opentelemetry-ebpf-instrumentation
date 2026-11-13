@@ -60,6 +60,7 @@ services:
     network_mode: host
     environment:
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_EXECUTABLE_PATH: testserver
       OTEL_EBPF_METRICS_FEATURES: application
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms

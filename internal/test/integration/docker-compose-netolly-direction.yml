@@ -4,7 +4,7 @@ services:
   testserver:
     build:
       context: ../../..
-      dockerfile: internal/test/integration/components/testserver/Dockerfile${TESTSERVER_DOCKERFILE_SUFFIX}
+      dockerfile: internal/test/integration/components/testserver/Dockerfile
     image: hatest-testserver
     ports:
       - "8080:8080"
@@ -40,6 +40,7 @@ services:
     environment:
       OTEL_EBPF_CONFIG_PATH: /configs/obi-config-netolly${OTEL_EBPF_CONFIG_SUFFIX}.yml
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_NETWORK_SOURCE: ${OTEL_EBPF_NETWORK_SOURCE}
       OTEL_EBPF_METRICS_FEATURES: "network,network_flow_packets,network_inter_zone" # implicitly enabling network metrics without a global enable
       OTEL_EBPF_NETWORK_PRINT_FLOWS: "true"
