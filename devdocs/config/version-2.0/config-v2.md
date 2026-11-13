@@ -699,6 +699,10 @@ An unprivileged container has its own cgroup namespace, so its `/sys/fs/cgroup` 
 Mount the host hierarchy at another path, for example `/host/sys/fs/cgroup`, and set it here to propagate context for connections from every process on the node without hiding the container's own cgroup.
 If omitted, the hierarchy is detected automatically. This field is available through Config v2 only.
 
+`capture.engine.propagation.disable_go_channel_links` stops OBI from attaching the Go channel probes (`runtime.chansend1`, `runtime.chanrecv1` and `runtime.chanrecv2`) that link spans across goroutines.
+These probes run on every channel send and receive, which can add notable kernel CPU to busy Go services. Setups that only export metrics do not need these links.
+If omitted, false is used. This field is available through Config v2 only.
+
 **Why `engine`, not `capture.capture`**
 
 Earlier drafts named this sub-section `capture` (i.e., `operations.capture`), which would have produced the awkward path `capture.capture.*` after the restructure.

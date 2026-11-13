@@ -2607,6 +2607,9 @@ func (p *Tracer) goChannelLinkProbesEnabled() bool {
 	if p == nil || p.currentBinary.Ino == 0 {
 		return false
 	}
+	if p.cfg != nil && p.cfg.DisableGoChannelLinks {
+		return false
+	}
 
 	return p.goChannelOffsetsByExecutable[p.currentBinary]
 }

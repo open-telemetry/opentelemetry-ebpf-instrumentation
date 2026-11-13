@@ -583,6 +583,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.EBPF.ContextPropagation = config.ContextPropagationAll
 	cfg.EBPF.OverrideBPFLoopEnabled = true
 	cfg.EBPF.DisableBlackBoxCP = true
+	cfg.EBPF.DisableGoChannelLinks = true
 	cfg.EBPF.PopulateTraceContext = true
 	cfg.EBPF.TCBackend = config.TCBackendTCX
 	cfg.EBPF.HighRequestVolume = true
@@ -1538,6 +1539,9 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 				CgroupFileSystem: schema.CgroupFileSystem{
 					Path: "/host/sys/fs/cgroup",
 				},
+				Propagation: schema.Propagation{
+					DisableGoChannelLinks: true,
+				},
 			},
 			Network: schema.CaptureNetwork{
 				Capture: schema.NetworkCapture{
@@ -1580,6 +1584,7 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 
 	require.True(t, got.EBPF.BpfDebug)
 	require.Equal(t, "/host/sys/fs/cgroup", got.EBPF.CgroupFSPath)
+	require.True(t, got.EBPF.DisableGoChannelLinks)
 	require.Equal(t, obi.DefaultConfig.EBPF.BPFFSPath, got.EBPF.BPFFSPath)
 	require.Equal(t, obi.DefaultConfig.EBPF.WakeupLen, got.EBPF.WakeupLen)
 	require.Equal(t, obi.DefaultConfig.EBPF.BatchLength, got.EBPF.BatchLength)
