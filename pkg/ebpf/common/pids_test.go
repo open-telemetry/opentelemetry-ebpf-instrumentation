@@ -194,6 +194,55 @@ func TestFilter_ExportsOTelDetectionUndecodedPath(t *testing.T) {
 	assert.False(t, fi.ExportsOTelMetricsSpan())
 }
 
+func TestFilter_ExportsOTelDetectionUndecodedPathUsesProcessEnv(t *testing.T) {
+	const defaultOtlpPort = 4317
+	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) {
+		return []app.PID{pid}, nil
+	}
+
+	// The process env sends the other signal elsewhere, so an undecoded export on
+	// the default gRPC port can only be the remaining signal.
+	tests := []struct {
+		name        string
+		envVar      string
+		wantTraces  bool
+		wantMetrics bool
+	}{
+		{name: "metrics elsewhere", envVar: "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT", wantTraces: true},
+		{name: "traces elsewhere", envVar: "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", wantMetrics: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pf := NewPIDsFilter(&services.DiscoveryConfig{
+				ExcludeOTelInstrumentedServices:            true,
+				ExcludeOTelInstrumentedServicesSpanMetrics: true,
+				DefaultOtlpGRPCPort:                        defaultOtlpPort,
+			}, slog.With("env", "testing"), &imetrics.NoopReporter{})
+
+			fi := exec.New(exec.Init{Service: svc.Attrs{EnvVars: map[string]string{
+				tt.envVar: "http://collector:4318",
+			}}})
+			pf.AllowPID(123, 33, fi, PIDTypeKProbes)
+
+			span := request.Span{
+				Type: request.EventTypeGRPCClient, HostPort: defaultOtlpPort,
+				Method: "GET", Path: "*", RequestStart: 100, End: 200, Status: 0,
+				Pid: request.PidInfo{UserPID: 123, HostPID: 333, Namespace: 33},
+			}
+
+			filtered := pf.Filter([]request.Span{span})
+
+			require.Len(t, filtered, 1)
+			assert.Equal(t, tt.wantTraces, fi.ExportsOTelTraces())
+			assert.Equal(t, tt.wantMetrics, fi.ExportsOTelMetrics())
+			assert.Equal(t, tt.wantTraces, fi.ExportsOTelMetricsSpan())
+			assert.Equal(t, tt.wantTraces, filtered[0].Service.ExportsOTelTraces())
+			assert.Equal(t, tt.wantMetrics, filtered[0].Service.ExportsOTelMetrics())
+		})
+	}
+}
+
 func TestFilter_ExportsOTelSpanDetection(t *testing.T) {
 	const defaultOtlpPort = 4317
 	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.With("env", "testing"), &imetrics.NoopReporter{})
