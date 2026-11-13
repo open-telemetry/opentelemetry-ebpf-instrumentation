@@ -276,10 +276,11 @@ extensions:
           # HTTP payload-level extraction features.
           payload_extraction:
             # List-based enablement, consistent with other instrumentation selectors.
-            # Supported values today: graphql, elasticsearch, aws, sqlpp,
+            # Supported values today: graphql, elasticsearch, aws_s3, aws_sqs, aws_sns, sqlpp,
             # openai, anthropic, gemini, qwen, bedrock, mcp, embedding,
             # rerank, retrieval, ollama, cohere, openai_compatible, jsonrpc,
             # enrichment.
+            # Group aliases: genai, database, aws, all, "*" (all and "*" exclude enrichment).
             enabled: []
             sqlpp:
               endpoint_patterns:
