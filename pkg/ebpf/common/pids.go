@@ -85,6 +85,14 @@ type ForkedProcessTracker interface {
 	EndForkedChild(child request.PidInfo, at time.Duration)
 }
 
+// OTelTracesPIDFilter is the BPF filter of the processes exporting OTLP traces, by
+// the pid OBI's /proc numbers them with. PIDsFilter calls it under its own lock.
+type OTelTracesPIDFilter interface {
+	// Marked reports whether the pid was last written as exporting
+	Marked(pid app.PID) bool
+	Mark(pid app.PID, exportsTraces bool) error
+}
+
 // PIDsFilter keeps a thread-safe copy of the PIDs whose traces are allowed to
 // be forwarded. Its Filter method filters the request.Span instances whose
 // PIDs are not in the allowed list.
@@ -101,7 +109,7 @@ type PIDsFilter struct {
 	metrics             imetrics.Reporter
 	// readers only Peek it under the read lock: Get would reorder it
 	forked              *simplelru.LRU[forkedChildKey, forkedChild]
-	otelTracesPIDFilter func(app.PID, bool) error
+	otelTracesPIDFilter OTelTracesPIDFilter
 }
 
 func NewPIDsFilter(c *services.DiscoveryConfig, log *slog.Logger, metrics imetrics.Reporter) *PIDsFilter {
@@ -132,21 +140,14 @@ func (pf *PIDsFilter) BlockPID(pid app.PID, ns uint32) {
 	pf.removePID(pid, ns)
 }
 
-// SetOTelTracesPIDFilter installs a writer for the BPF filter of trace-exporting
-// processes. The writer runs under the filter lock and must not call back into it.
-func (pf *PIDsFilter) SetOTelTracesPIDFilter(update func(app.PID, bool) error) {
+// SetOTelTracesPIDFilter installs the BPF filter of trace-exporting processes and
+// writes every live process to it. The filter must not call back into PIDsFilter.
+func (pf *PIDsFilter) SetOTelTracesPIDFilter(filter OTelTracesPIDFilter) {
 	pf.mux.Lock()
 	defer pf.mux.Unlock()
 
-	pf.otelTracesPIDFilter = update
-
-	for _, pids := range pf.current {
-		for pid, info := range pids {
-			if info.removedAt == 0 && len(info.otherKnownPids) != 0 && pid == info.otherKnownPids[0] {
-				pf.updateOTelTracesPID(pid, info.fileInfo)
-			}
-		}
-	}
+	pf.otelTracesPIDFilter = filter
+	pf.forEachLiveProcess(pf.updateOTelTracesPID)
 }
 
 func (pf *PIDsFilter) RemoveOTelTracesPIDFilter() {
@@ -160,25 +161,48 @@ func (pf *PIDsFilter) updateOTelTracesPID(pid app.PID, fi *exec.FileInfo) {
 		return
 	}
 	exportsTraces := pf.ignoreOtel && fi != nil && fi.ExportsOTelTraces()
-	if err := pf.otelTracesPIDFilter(pid, exportsTraces); err != nil {
+	if err := pf.otelTracesPIDFilter.Mark(pid, exportsTraces); err != nil {
 		pf.log.Debug("updating the trace-exporting PID filter", "pid", pid, "error", err)
 	}
 }
 
-// Filter calls it under the read lock, so it keeps no state of its own: the
-// writer skips unchanged bits and leaves failed ones for the next export to retry
-func (pf *PIDsFilter) syncOTelTracesPID(span *request.Span, fi *exec.FileInfo) {
+// Marks every live process of the exporter's classification.
+// It scans once, when the classification is first detected as
+// exporting, and again only to retry an exporter whose mark failed.
+func (pf *PIDsFilter) syncOTelTracesPIDs(span *request.Span, fi *exec.FileInfo, detected bool) {
 	if pf.otelTracesPIDFilter == nil {
 		return
 	}
 
-	info := pf.current[span.Pid.Namespace][span.Pid.UserPID]
-	if info.removedAt != 0 || info.fileInfo != fi || len(info.otherKnownPids) == 0 {
-		return
+	if detected || pf.unmarkedExporter(span, fi) {
+		pf.forEachLiveProcess(func(pid app.PID, shared *exec.FileInfo) {
+			if shared == fi {
+				pf.updateOTelTracesPID(pid, fi)
+			}
+		})
+	}
+}
+
+// Whether the span comes from a registered, live process of the classification whose
+// mark is missing.
+func (pf *PIDsFilter) unmarkedExporter(span *request.Span, fi *exec.FileInfo) bool {
+	info, ok := pf.current[span.Pid.Namespace][span.Pid.UserPID]
+	if !ok || info.removedAt != 0 || info.fileInfo != fi || len(info.otherKnownPids) == 0 {
+		return false
 	}
 
-	// otherknown pids first element should be the highest visible PID
-	pf.updateOTelTracesPID(info.otherKnownPids[0], fi)
+	// other known pids first element should be the highest visible PID
+	return !pf.otelTracesPIDFilter.Marked(info.otherKnownPids[0])
+}
+
+func (pf *PIDsFilter) forEachLiveProcess(fn func(app.PID, *exec.FileInfo)) {
+	for _, pids := range pf.current {
+		for pid, info := range pids {
+			if info.removedAt == 0 && len(info.otherKnownPids) != 0 && pid == info.otherKnownPids[0] {
+				fn(pid, info.fileInfo)
+			}
+		}
+	}
 }
 
 func (pf *PIDsFilter) ValidPID(userPID app.PID, ns uint32, pidType PIDType) bool {
@@ -502,10 +526,11 @@ func (pf *PIDsFilter) checkIfExportsOTel(fi *exec.FileInfo, span *request.Span, 
 	if span.IsExportMetricsSpan(defaultOtlpGRPCPort) && fi.EnsureExportsOTelMetrics() {
 		pf.reportAvoidedService(fi, "metrics")
 	} else if span.IsExportTracesSpan(defaultOtlpGRPCPort) {
-		if fi.EnsureExportsOTelTraces() {
+		detected := fi.EnsureExportsOTelTraces()
+		if detected {
 			pf.reportAvoidedService(fi, "traces")
 		}
-		pf.syncOTelTracesPID(span, fi)
+		pf.syncOTelTracesPIDs(span, fi, detected)
 	}
 }
 

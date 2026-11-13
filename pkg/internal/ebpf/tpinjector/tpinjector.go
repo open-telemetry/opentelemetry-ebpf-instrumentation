@@ -523,11 +523,20 @@ func (p *Tracer) registerOTelTracesPIDFilter() {
 		return
 	}
 
-	filter.SetOTelTracesPIDFilter(p.updateOTelTracesPID)
+	filter.SetOTelTracesPIDFilter(otelTracesPIDFilter{tracer: p})
 }
 
-func (p *Tracer) updateOTelTracesPID(pid app.PID, selected bool) error {
-	return p.otelTracesPids.Set(p.bpfObjects.OtelTracesPids, pid, selected)
+// otel_traces_pids, as PIDsFilter marks the processes exporting OTLP traces in it
+type otelTracesPIDFilter struct {
+	tracer *Tracer
+}
+
+func (f otelTracesPIDFilter) Marked(pid app.PID) bool {
+	return f.tracer.otelTracesPids.Contains(pid)
+}
+
+func (f otelTracesPIDFilter) Mark(pid app.PID, exportsTraces bool) error {
+	return f.tracer.otelTracesPids.Set(f.tracer.bpfObjects.OtelTracesPids, pid, exportsTraces)
 }
 
 func (p *Tracer) SetEventContext(_ *ebpfcommon.EBPFEventContext) {}

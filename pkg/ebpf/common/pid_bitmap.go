@@ -53,6 +53,14 @@ func (b *PIDBitmap) Set(m *ebpf.Map, pid app.PID, selected bool) error {
 	return nil
 }
 
+// Contains reports whether the pid's bit was last written as set
+func (b *PIDBitmap) Contains(pid app.PID) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	return b.contains(pid)
+}
+
 // Rebuild sets exactly the bits of the filter's pids of the given types and returns the added ones
 func (b *PIDBitmap) Rebuild(m *ebpf.Map, filter ServiceFilter, types PIDType, log *slog.Logger) ([]app.PID, error) {
 	b.mu.Lock()

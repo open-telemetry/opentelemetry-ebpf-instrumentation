@@ -200,7 +200,7 @@ func TestOTelTraceExportStopsHeaderInjectionOnExistingSocket(t *testing.T) {
 			filter := ebpfcommon.NewPIDsFilter(&cfg.Discovery, slog.Default(), nil)
 			tracer := New(cfg, filter)
 			tracer.bpfObjects = *objs
-			filter.SetOTelTracesPIDFilter(tracer.updateOTelTracesPID)
+			filter.SetOTelTracesPIDFilter(otelTracesPIDFilter{tracer: tracer})
 			t.Cleanup(func() { filter.RemoveOTelTracesPIDFilter() })
 			pid, ns := app.PID(os.Getpid()), selfPidNamespace(t)
 			filter.AllowPID(pid, ns, exec.New(exec.Init{Pid: pid, Ns: ns}), ebpfcommon.PIDTypeKProbes)
