@@ -109,6 +109,15 @@ func selectorExceptions(selector services.Selector) *services.ExceptionsOverride
 	return nil
 }
 
+func selectorJobTraces(selector services.Selector) bool {
+	if provider, ok := selector.(interface {
+		GetJobTracesConfig() *services.JobTracesConfig
+	}); ok {
+		return provider.GetJobTracesConfig().IsEnabled()
+	}
+	return false
+}
+
 func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 	name := t.cfg.ServiceName
 	namespace := t.cfg.ServiceNamespace
@@ -117,6 +126,7 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 	var routesConfig *services.CustomRoutesConfig
 	svcFeatures := t.cfg.Metrics.Features
 	exceptions := t.cfg.Exceptions
+	jobTraces := false
 	var metadata map[attr.Name]string
 
 	for _, s := range processMatch.Criteria {
@@ -144,6 +154,7 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 		}
 
 		exceptions = selectorExceptions(s).Resolve(t.cfg.Exceptions)
+		jobTraces = selectorJobTraces(s)
 
 		// if the matching service > instrument entry does not define features,
 		// the globally defined features apply (and override any previous,
@@ -168,6 +179,7 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 		Features:           svcFeatures,
 		LogEnricherEnabled: processMatch.LogEnricherEnabled(),
 		Exceptions:         exceptions,
+		JobTraces:          jobTraces,
 		SDKLanguage:        svc.InstrumentableGeneric,
 	}
 

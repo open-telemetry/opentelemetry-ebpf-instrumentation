@@ -912,6 +912,15 @@ func TestSuite_PythonRedis(t *testing.T) {
 	compose.Env = append(compose.Env, `OTEL_EBPF_OPEN_PORT=8080`, `OTEL_EBPF_EXECUTABLE_PATH=`, `TEST_SERVICE_PORTS=8381:8080`)
 	require.NoError(t, compose.Up())
 	t.Run("Python Redis metrics", testREDMetricsPythonRedisOnly)
+	t.Run("Redis jobs run on the fetching thread", testTracesRedisJobsInline)
+	t.Run("Redis jobs run on a thread of their own", testTracesRedisJobsThreadPerJob)
+	t.Run("Redis jobs run on a process of their own", testTracesRedisJobsProcessPerJob)
+	t.Run("Redis jobs run on a reused pool thread", testTracesRedisJobsPool)
+	t.Run("Redis jobs taken by polling", testTracesRedisJobsPolled)
+	t.Run("Redis jobs taken off a stream", testTracesRedisJobsStream)
+	t.Run("Redis fetch that takes no job", testTracesRedisEmptyFetch)
+	t.Run("Redis jobs on a thread serving other connections", testTracesRedisJobsBusyThread)
+	t.Run("Redis jobs over a request an ancestor thread serves", testTracesRedisJobOverAncestorRequest)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
@@ -924,6 +933,7 @@ func TestSuite_PythonRedisPipeline(t *testing.T) {
 	require.NoError(t, compose.Up())
 	t.Run("Redis pipeline traces", testTracesRedisPipeline)
 	t.Run("Redis pipeline traces without a parent", testTracesRedisPipelineNoParent)
+	t.Run("Redis fetch in a request", testTracesRedisFetchInRequest)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }

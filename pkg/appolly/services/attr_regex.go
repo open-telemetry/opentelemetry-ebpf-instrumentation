@@ -130,6 +130,9 @@ type RegexSelector struct {
 	// sets it, from a rule's refine.exceptions.
 	Exceptions *ExceptionsOverride `yaml:"-" env:"-"`
 
+	// Only config v2 sets it, from a rule's refine.job_traces
+	JobTraces *JobTracesConfig `yaml:"-" env:"-"`
+
 	// Metrics configuration that is custom for this service match
 	Metrics perapp.SvcMetricsConfig `yaml:"metrics"`
 }
@@ -258,3 +261,5 @@ func (a *RegexSelector) pids() ([]app.PID, bool) {
 }
 
 func (a *RegexSelector) GetExceptionsConfig() *ExceptionsOverride { return a.Exceptions }
+
+func (a *RegexSelector) GetJobTracesConfig() *JobTracesConfig { return a.JobTraces }

@@ -871,6 +871,7 @@ func selectorFromRule(
 		}
 		selector := regexSelectorFromRule(rule)
 		selector.Exceptions = rule.Refine.Exceptions
+		selector.JobTraces = rule.Refine.JobTraces
 		selector.ExportModes, selector.Routes = v2RuleRefinement(
 			rule.Refine,
 			completeExports,
@@ -881,6 +882,7 @@ func selectorFromRule(
 
 	selector := globSelectorFromRule(rule)
 	selector.Exceptions = rule.Refine.Exceptions
+	selector.JobTraces = rule.Refine.JobTraces
 	selector.ExportModes, selector.Routes = v2RuleRefinement(
 		rule.Refine,
 		completeExports,

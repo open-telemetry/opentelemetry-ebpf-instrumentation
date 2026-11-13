@@ -1,0 +1,113 @@
+# Config v2 twin of obi-config-redis.yml and the settings its composes pass as
+# environment variables, with the test server opted into job traces. HTTP signals
+# stay off unless OBI_TEST_HTTP_SIGNALS turns them on.
+file_format: "1.0"
+log_level: debug
+resource:
+  attributes:
+    - name: host.name
+      value: obi
+      type: string
+    - name: service.namespace
+      value: integration-test
+      type: string
+tracer_provider:
+  processors:
+    - batch:
+        schedule_delay: 1
+        exporter:
+          otlp_http:
+            endpoint: http://otelcol:4318
+meter_provider:
+  readers:
+    - periodic:
+        interval: 1000
+        exporter:
+          otlp_http:
+            endpoint: http://otelcol:4318
+            default_histogram_aggregation: explicit_bucket_histogram
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      attributes:
+        select:
+          "*":
+            include: ["*"]
+      policy:
+        default_action: exclude
+        poll_interval: 500ms
+      rules:
+        # v1 default discovery.exclude_otel_instrumented_services
+        - action: exclude
+          match:
+            process:
+              exports_otlp:
+                port: 4317
+                protocol: protobuf
+        - action: include
+          match:
+            process:
+              open_ports: "8080"
+          refine:
+            job_traces:
+              enabled: true
+      metrics:
+        features: [application]
+      engine:
+        debug:
+          bpf: true
+        batching:
+          batch_timeout: 10ms
+      instrumentation:
+        http:
+          enabled:
+            traces: ${OBI_TEST_HTTP_SIGNALS:-false}
+            metrics: ${OBI_TEST_HTTP_SIGNALS:-false}
+          request_timeout: 5s
+          routes:
+            incoming:
+              patterns: [/basic/:rnd]
+              unmatched: path
+              ignored_patterns: [/metrics]
+              ignore_mode: traces
+            outgoing:
+              patterns: [/basic/:rnd]
+              unmatched: path
+              ignored_patterns: [/metrics]
+              ignore_mode: traces
+        redis:
+          enabled:
+            traces: true
+            metrics: true
+          db_cache:
+            enabled: true
+        grpc:
+          enabled:
+            traces: false
+            metrics: false
+        sql:
+          enabled:
+            traces: false
+            metrics: false
+        kafka:
+          enabled:
+            traces: false
+            metrics: false
+        mongo:
+          enabled:
+            traces: false
+            metrics: false
+        couchbase:
+          enabled:
+            traces: false
+            metrics: false
+    enrich:
+      enrichers:
+        kubernetes:
+          cluster_name: obi-k8s-test-cluster
+          resource_labels:
+            deployment.environment: ["deployment.environment"]
+    daemon:
+      logging:
+        debug_trace_output: text

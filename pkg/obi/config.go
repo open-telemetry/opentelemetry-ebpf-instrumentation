@@ -1203,6 +1203,21 @@ func (c *Config) normalize() {
 	}
 }
 
+// JobTracesEnabled reports whether any selected workload opted into job traces.
+func (c *Config) JobTracesEnabled() bool {
+	for _, s := range c.Discovery.Instrument {
+		if s.JobTraces.IsEnabled() {
+			return true
+		}
+	}
+	for _, s := range c.Discovery.Services {
+		if s.JobTraces.IsEnabled() {
+			return true
+		}
+	}
+	return false
+}
+
 // ExceptionsEnabled reports whether any selected workload can request capture.
 func (c *Config) ExceptionsEnabled() bool {
 	if c.Exceptions.Enabled {

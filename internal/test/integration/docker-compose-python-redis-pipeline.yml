@@ -33,24 +33,9 @@ services:
     network_mode: "service:testserver"
     pid: "service:testserver"
     environment:
-      OTEL_EBPF_CONFIG_PATH: "/configs/obi-config-redis.yml"
+      OTEL_EBPF_CONFIG_PATH: "/configs/obi-config-redis-jobs-v2.yml"
       GOCOVERDIR: "/coverage"
-      OTEL_EBPF_TRACE_PRINTER: "text"
-      OTEL_EBPF_OPEN_PORT: "${OTEL_EBPF_OPEN_PORT}"
-      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
-      OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
-      OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
-      OTEL_EBPF_METRICS_INTERVAL: "1s"
-      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
-      OTEL_EBPF_LOG_LEVEL: "DEBUG"
-      OTEL_EBPF_BPF_DEBUG: "TRUE"
-      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
-      OTEL_EBPF_HOSTNAME: "obi"
-      OTEL_EBPF_BPF_HTTP_REQUEST_TIMEOUT: "5s"
-      OTEL_EBPF_PROCESSES_INTERVAL: "100ms"
-      OTEL_EBPF_TRACES_INSTRUMENTATIONS: "http,redis"
-      OTEL_EBPF_METRICS_INSTRUMENTATIONS: "http,redis"
-      OTEL_EBPF_METRICS_FEATURES: "application"
+      OBI_TEST_HTTP_SIGNALS: "true"
     depends_on:
       testserver:
         condition: service_started
