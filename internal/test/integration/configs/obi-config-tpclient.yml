@@ -18,3 +18,5 @@ discovery:
       open_ports: 6002
     - name: tpclient-go
       open_ports: 6003
+    - name: tpclient-sdk
+      open_ports: 6004

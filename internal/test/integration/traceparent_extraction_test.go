@@ -62,6 +62,8 @@ func TestTraceparentExtraction(t *testing.T) {
 	t.Run("large_headers_with_traceparent", testLargeHeadersWithTraceparent)
 	t.Run("large_headers_go_server", testLargeHeadersGoServer)
 	t.Run("large_headers_without_traceparent", testLargeHeadersWithoutTraceparent)
+	// last: OBI keeps the SDK process excluded once it detects its exports
+	t.Run("large_headers_otel_sdk", testLargeHeadersOTelSDK)
 
 	runWeaverValidation(t)
 

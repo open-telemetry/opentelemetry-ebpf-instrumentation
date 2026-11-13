@@ -51,6 +51,7 @@
 #include <tpinjector/inject_policy.h>
 #include <tpinjector/h2_write_transaction.h>
 #include <tpinjector/maps/instrumented_pids.h>
+#include <tpinjector/maps/otel_traces_pids.h>
 #include <tpinjector/maps/sk_h2_flags.h>
 #include <tpinjector/maps/sk_h2_conn_flag.h>
 #include <tpinjector/maps/sk_tp_info_pid_map.h>
@@ -130,6 +131,15 @@ enum {
 
 volatile const u32 inject_flags =
     k_inject_http_headers | k_inject_tcp_options; // default: both enabled
+
+// user space marks the processes it saw exporting OTLP traces: OBI's spans of them are dropped
+static __always_inline bool exports_otel_traces() {
+    return pid_selected(&otel_traces_pids, obi_pid(bpf_get_current_pid_tgid()));
+}
+
+static __always_inline bool inject_http_headers() {
+    return (inject_flags & k_inject_http_headers) && !exports_otel_traces();
+}
 
 // set when user space can backfill earlier connections; otherwise every client socket is enrolled
 volatile const bool enroll_instrumented_only = false;
@@ -1264,7 +1274,7 @@ static __always_inline bool handle_existing_tp_pid(struct sk_msg_md *msg,
 
     const bool is_http = protocol_detector(msg, id, &p_conn->conn);
     if (is_http) {
-        if (inject_flags & k_inject_http_headers) {
+        if (inject_http_headers()) {
             write_http_traceparent(msg, tp_pid);
         } else {
             clear_tp_info_pid(e_key);
@@ -1389,7 +1399,9 @@ static __always_inline bool apply_parent_tp(const tailcall_ctx *t_ctx, tp_info_t
         return false;
     }
     bpf_memcpy(tp->parent_id, t_ctx->parent_tp.span_id, SPAN_ID_SIZE_BYTES);
-    if (bpf_memcmp(tp->span_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES) != 0) {
+    // a new span ID would name a span that is never exported: forward the header unchanged
+    if (bpf_memcmp(tp->span_id, t_ctx->parent_tp.parent_id, SPAN_ID_SIZE_BYTES) != 0 ||
+        exports_otel_traces()) {
         return false;
     }
     urand_bytes(tp->span_id, SPAN_ID_SIZE_BYTES);
@@ -1568,7 +1580,7 @@ int obi_packet_extender_create_tp(struct sk_msg_md *msg) {
         schedule_write_tcp_option(msg, tp_p);
     }
 
-    if (inject_flags & k_inject_http_headers) {
+    if (inject_http_headers()) {
         // write the HTTP headers
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_write_msg_traceparent);
         bpf_d_printk("tailcall failed [%s]", __FUNCTION__);
@@ -2023,7 +2035,7 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
         }
     }
 
-    if (inject_flags & k_inject_http_headers) {
+    if (inject_http_headers()) {
         bpf_tail_call_static(msg, &extender_jump_table, k_tail_write_h2_traceparent);
     }
     return SK_PASS;

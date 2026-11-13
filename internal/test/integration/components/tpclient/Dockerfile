@@ -7,7 +7,8 @@ RUN npm ci
 
 COPY internal/test/integration/components/tpclient/service.js ./
 COPY internal/test/integration/components/tpclient/start-all.js ./
+COPY internal/test/integration/components/tpclient/otel.js ./
 
-EXPOSE 6000 6001 6002
+EXPOSE 6000 6001 6002 6004
 
 CMD ["node", "start-all.js"]

@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/jaeger"
+	"go.opentelemetry.io/obi/internal/test/integration/components/promtest"
+	ti "go.opentelemetry.io/obi/pkg/test/integration"
 )
 
 // The /large chain is tpclient-a (Node.js) -> tpclient-go (Go). The test sends
@@ -21,6 +23,10 @@ import (
 // is past the first 4 KiB of headers that the HTTP/1 scans used to cover. Only
 // incoming requests are scanned that far, so tpclient-a forwards the cookie with
 // no traceparent of its own and OBI injects one.
+//
+// The /large chain tpclient-sdk -> tpclient-b (both Node.js) runs the OTel SDK
+// on tpclient-sdk, which writes its traceparent after the cookie, past what the
+// outgoing scans cover.
 const (
 	largeHeadersTraceID       = "abcdef0123456789abcdef0123456789"
 	largeHeadersTraceparent   = "00-" + largeHeadersTraceID + "-0000000000000100-01"
@@ -75,6 +81,67 @@ func testLargeHeadersWithoutTraceparent(t *testing.T) {
 	require.Len(t, goHop.Traceparents, 1, "the tpinjector must inject exactly one traceparent")
 
 	requireLargeHeadersChainTrace(t, traceIDOf(t, goHop.Traceparents[0]))
+}
+
+// testLargeHeadersOTelSDK: OBI can't see the SDK's traceparent past the scans, so
+// once it detects the SDK's trace exports it must stop injecting. Otherwise
+// tpclient-b receives OBI's traceparent ahead of the SDK's and is parented to an
+// OBI client span that the exclusion never exports.
+func testLargeHeadersOTelSDK(t *testing.T) {
+	requireOTelTracesExportDetected(t, "http://localhost:6004", "tpclient-sdk")
+
+	sdk := doLargeHeadersRequest(t, "http://localhost:6004", "")
+	require.Equal(t, "sdk", sdk.Service)
+	require.NotNil(t, sdk.Downstream)
+	b := *sdk.Downstream
+	require.Equal(t, "b", b.Service)
+	require.Greater(t, b.TraceparentOffset, largeHeadersMinOffset,
+		"the SDK must write its traceparent past the scanned headers")
+	require.Len(t, b.Traceparents, 1, "OBI must not inject a traceparent next to the SDK's")
+
+	requireParentedByClientOf(t, traceIDOf(t, b.Traceparents[0]), "tpclient-b", "tpclient-sdk")
+
+	// detection is per process: the other tpclient processes keep OBI's traceparent
+	testLargeHeadersWithoutTraceparent(t)
+}
+
+// requireOTelTracesExportDetected waits until OBI classifies the service as
+// exporting OTLP traces, which also stops its header injection. Each request
+// makes the SDK export a span.
+func requireOTelTracesExportDetected(t *testing.T, baseURL, service string) {
+	t.Helper()
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ti.DoHTTPGet(ct, baseURL+"/smoke", http.StatusOK)
+
+		results, err := pq.Query(`obi_avoided_services{service_name="` + service + `",telemetry_type="traces"}`)
+		require.NoError(ct, err)
+		require.NotEmpty(ct, results)
+	}, testTimeout, time.Second)
+}
+
+// requireParentedByClientOf checks that the service's GET /large server span is
+// the child of a client span of parentService
+func requireParentedByClientOf(t *testing.T, traceID, service, parentService string) {
+	t.Helper()
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		resp, err := getJaeger(jaegerQueryURL + "?service=" + service + "&traceID=" + traceID)
+		require.NoError(ct, err)
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		require.Len(ct, tq.Data, 1)
+		trace := tq.Data[0]
+
+		servers := trace.FindByOperationNameServiceAndKind("GET /large", service, "server")
+		require.Len(ct, servers, 1)
+		parent, ok := trace.ParentOf(&servers[0])
+		require.True(ct, ok, "%s server span must have its parent in trace %s", service, traceID)
+		require.Equal(ct, parentService, trace.Processes[parent.ProcessID].ServiceName)
+		kind, _ := jaeger.FindIn(parent.Tags, "span.kind")
+		require.Equal(ct, "client", kind.Value)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func doLargeHeadersRequest(t *testing.T, baseURL, traceparent string) largeHeadersHop {

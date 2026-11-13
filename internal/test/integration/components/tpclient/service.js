@@ -57,7 +57,7 @@ function receivedTraceparents(req) {
 }
 
 // Endpoint: request with a large cookie, forwarded with the cookie and no
-// traceparent of our own, which OBI must inject
+// traceparent of our own, which OBI must inject unless the OTel SDK writes one
 app.get('/large', async (req, res) => {
   const received = { service: route, ...receivedTraceparents(req) };
   if (!largeUpstream) {
