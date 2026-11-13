@@ -6,6 +6,8 @@ package docker // import "go.opentelemetry.io/obi/internal/test/integration/comp
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -30,6 +32,9 @@ import (
 const stopTimeout = "15"
 
 const configMigrationOverride = "docker-compose-config-migration.yml"
+
+// hex digits of the build definition digest logged with each build; enough to tell definitions apart
+const buildDigestLength = 12
 
 type composeService struct {
 	Image    string    `yaml:"image"`
@@ -165,22 +170,61 @@ func (c *Compose) build(services []string) error {
 
 	slog.Info("built compose services",
 		"seconds", int(time.Since(started).Round(time.Second).Seconds()),
-		"images", strings.Join(c.images(services), ","))
+		"images", strings.Join(c.builds(services), ","))
 	return nil
 }
 
-// images names what each service builds; services without an image get one unique to this compose file
-func (c *Compose) images(services []string) []string {
+// builds names what each service builds: its image plus a digest of the resolved build definition, because
+// the same tag is built from different Dockerfiles or arguments across compose files
+func (c *Compose) builds(services []string) []string {
 	definitions, _ := c.services()
-	images := make([]string, 0, len(services))
+	builds := make([]string, 0, len(services))
 	for _, name := range services {
-		image := c.interpolate(definitions[name].Image)
+		service := definitions[name]
+		image := c.interpolate(service.Image)
 		if image == "" {
 			image = filepath.Base(c.Path) + "/" + name
 		}
-		images = append(images, image)
+
+		definition, _ := yaml.Marshal(&service.Build)
+		digest := sha256.New()
+		fmt.Fprintf(digest, "%s\n%s", filepath.Dir(c.Path), c.interpolate(string(definition)))
+		for _, arg := range environmentBuildArgs(service.Build) {
+			value, _ := c.lookupEnv(arg)
+			fmt.Fprintf(digest, "\n%s=%s", arg, value)
+		}
+		builds = append(builds, image+"@"+hex.EncodeToString(digest.Sum(nil))[:buildDigestLength])
 	}
-	return images
+	return builds
+}
+
+// environmentBuildArgs lists the build args given only by name, whose values compose reads from the environment
+func environmentBuildArgs(build yaml.Node) []string {
+	if build.Kind != yaml.MappingNode {
+		return nil
+	}
+	var names []string
+	for i := 0; i+1 < len(build.Content); i += 2 {
+		if build.Content[i].Value != "args" {
+			continue
+		}
+		args := build.Content[i+1]
+		switch args.Kind {
+		case yaml.SequenceNode:
+			for _, arg := range args.Content {
+				if !strings.Contains(arg.Value, "=") {
+					names = append(names, arg.Value)
+				}
+			}
+		case yaml.MappingNode:
+			for j := 0; j+1 < len(args.Content); j += 2 {
+				if args.Content[j+1].Tag == "!!null" {
+					names = append(names, args.Content[j].Value)
+				}
+			}
+		}
+	}
+	return names
 }
 
 // services merges the service definitions of the compose file and its overrides

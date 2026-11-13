@@ -18,6 +18,8 @@
 # costs only the first suite that runs it. That depends on the order, not the
 # suite, so each suite instead gets an even share of its shared images' cold
 # build time, read from the "built compose services" lines of the reports.
+# Those name each build by tag and a digest of its resolved definition, so a tag
+# reused for another Dockerfile or build argument counts as a different build.
 #
 # Environment:
 #   ARCH  - architecture whose reports are used (default: amd64)

@@ -6,6 +6,7 @@ package docker
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -143,17 +144,55 @@ func TestObiServicesFallsBackOnUnreadableFile(t *testing.T) {
 	assert.False(t, ok, "an unparseable compose file must fall back to stopping everything gracefully")
 }
 
-func TestImagesNameWhatServicesBuild(t *testing.T) {
-	c := composeFromYAML(t, `
+func TestBuildsNameWhatServicesBuild(t *testing.T) {
+	dir := t.TempDir()
+	composeAt := func(file, content string) *Compose {
+		path := filepath.Join(dir, file)
+		require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+		return &Compose{Path: path}
+	}
+	first := composeAt("first.yml", `
 services:
   tagged:
-    build: ../../..
+    build:
+      context: ../../..
+      dockerfile: testserver/Dockerfile
     image: ${TAGGED_IMAGE:-hatest-tagged}
   untagged:
     build: ../../..
+  envarg:
+    build:
+      context: ../../..
+      args:
+        - BASE_IMAGE
+    image: hatest-envarg
+`)
+	same := composeAt("same.yml", `
+services:
+  other:
+    build:
+      context: ../../..
+      dockerfile: testserver/Dockerfile
+    image: hatest-tagged
+`)
+	different := composeAt("different.yml", `
+services:
+  other:
+    build:
+      context: ../../..
+      dockerfile: dotnetserver/Dockerfile
+    image: hatest-tagged
 `)
 
-	assert.Equal(t, []string{"hatest-tagged", "compose.yml/untagged"}, c.images([]string{"tagged", "untagged"}))
+	builds := first.builds([]string{"tagged", "untagged", "envarg"})
+	require.Len(t, builds, 3)
+	assert.True(t, strings.HasPrefix(builds[0], "hatest-tagged@"))
+	assert.True(t, strings.HasPrefix(builds[1], "first.yml/untagged@"))
+	assert.Equal(t, builds[0], same.builds([]string{"other"})[0], "the same definition is the same build")
+	assert.NotEqual(t, builds[0], different.builds([]string{"other"})[0], "a tag reused for another Dockerfile is another build")
+
+	first.Env = []string{"BASE_IMAGE=debian"}
+	assert.NotEqual(t, builds[2], first.builds([]string{"envarg"})[0], "args taken from the environment are part of the build")
 }
 
 func TestComposeArgsIncludeOverrides(t *testing.T) {

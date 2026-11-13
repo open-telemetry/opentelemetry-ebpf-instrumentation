@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -468,6 +469,50 @@ func TestShardBoundsGoTestByTheDeadline(t *testing.T) {
 	}
 }
 
+func TestShardSavesCompletedTestsWhenInterrupted(t *testing.T) {
+	for _, sig := range []syscall.Signal{syscall.SIGINT, syscall.SIGTERM} {
+		t.Run(sig.String(), func(t *testing.T) {
+			cfg := testConfig(t)
+			report := eventJSON("run", "TestAlpha", "") + eventJSON("pass", "TestAlpha", "") + eventJSON("run", "TestBeta", "")
+			commandLog := fakeGo(t, report, "0")
+			t.Setenv("FAKE_BLOCK", "1")
+			go func() {
+				deadline := time.Now().Add(10 * time.Second)
+				for time.Now().Before(deadline) {
+					if _, err := os.Stat(commandLog + ".ready"); err == nil {
+						break
+					}
+					time.Sleep(10 * time.Millisecond)
+				}
+				_ = syscall.Kill(os.Getpid(), sig)
+			}()
+
+			if err := runShard(cfg); err == nil {
+				t.Fatal("expected the interrupted shard to fail")
+			}
+			if _, err := os.Stat(commandLog + ".interrupted"); err != nil {
+				t.Fatalf("the test run was not interrupted: %v", err)
+			}
+			state := readCheckpoint(t, cfg.stateDir)
+			want := map[string]string{"TestAlpha": "pass", "TestBeta": "", "TestGamma": ""}
+			if !state.Reusable || !reflect.DeepEqual(state.Results, want) {
+				t.Fatalf("did not save the completed tests: %+v", state)
+			}
+
+			advanceAttempt(t, &cfg)
+			t.Setenv("FAKE_BLOCK", "")
+			t.Setenv("FAKE_REPORT", reportEvents("TestBeta", "pass", "TestGamma", "skip"))
+			if err := runShard(cfg); err != nil {
+				t.Fatal(err)
+			}
+			args, err := os.ReadFile(commandLog)
+			if err != nil || !strings.Contains(string(args), "-run=^(TestBeta|TestGamma)$\n") {
+				t.Fatalf("the next attempt did not run only the unfinished tests: %s, %v", args, err)
+			}
+		})
+	}
+}
+
 func TestReadInterruptedResultsKeepsCompletedTests(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "report.log")
 	report := eventJSON("run", "TestAlpha", "") + eventJSON("pass", "TestAlpha", "") + eventJSON("run", "TestBeta", "")
@@ -540,6 +585,11 @@ for arg do
     --jsonfile=*) printf '%s' "$report" > "${arg#--jsonfile=}" ;;
   esac
 done
+if [ -n "$FAKE_BLOCK" ]; then
+  trap 'touch "$FAKE_COMMAND_LOG.interrupted"; exit 130' INT
+  touch "$FAKE_COMMAND_LOG.ready"
+  while :; do sleep 0.05; done
+fi
 exit "$status"
 `
 	if err := os.WriteFile(filepath.Join(dir, "go"), []byte(script), 0o755); err != nil {

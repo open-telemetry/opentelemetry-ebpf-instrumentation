@@ -24,7 +24,6 @@ BUILD_COMPOSE_FILES=(
 
 PREBUILD_COMPOSE_FILES=(
     docker-compose-log-enricher.yml
-    docker-compose-java-kafka.yml
     docker-compose-java-kafka-400.yml
     docker-compose-java-kafka-400-tls.yml
     docker-compose-java-kafka-400-lb.yml
