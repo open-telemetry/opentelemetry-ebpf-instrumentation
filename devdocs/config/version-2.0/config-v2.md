@@ -1140,14 +1140,35 @@ share an address across networks in the selected resource group, that ambiguous
 address is omitted. Public IPs and Azure Container Apps are outside this source's
 scope. The source and its settings are available only in Config v2.
 
+## Layer multiple configuration files
+
+Standalone OBI accepts several configuration files, in increasing order of
+priority. Repeat `--config` to pass them, and list more files in
+`OTEL_EBPF_CONFIG_PATH`, separated by colons as in `PATH`. Files in
+`OTEL_EBPF_CONFIG_PATH` have higher priority than the `--config` files:
+
+```sh
+OTEL_EBPF_CONFIG_PATH=team.yml:local.yml obi --config base.yml --config site.yml
+```
+
+OBI loads `base.yml`, then `site.yml`, `team.yml` and `local.yml`. Each file can
+be Config v1 or Config v2. The first file sets the configuration version and its
+defaults. Each later file overrides only the settings whose value differs from the
+defaults of its own version:
+
+- A later file cannot reset a setting to its default value.
+- Lists and maps replace the previous value as a whole; their entries are not
+  merged.
+
 ## Refresh discovery criteria at runtime
 
-Standalone OBI watches its Config v2 file when started with `--config` or
-`OTEL_EBPF_CONFIG_PATH`. It reads the path every second, including after atomic
-file replacement or ConfigMap symlink updates. A change applies once two
-consecutive reads return the same contents, so a read that lands in the middle of
-an in-place write is not applied. In containers, mount the containing
-directory so replacement files remain visible. The legacy v1 loader is unchanged.
+Standalone OBI watches its configuration files when the first file is Config v2.
+It reads all the paths every second, including after atomic file replacement or
+ConfigMap symlink updates. A change applies once two consecutive reads return the
+same contents, so a read that lands in the middle of an in-place write is not
+applied. A change in any file reloads all of them, in the same order of priority
+as at startup. In containers, mount the containing directory so replacement files
+remain visible. The legacy v1 loader is unchanged.
 
 Process and Kubernetes matching predicates can be refreshed, and definitions can
 be added or removed. OBI re-evaluates already observed processes, stops

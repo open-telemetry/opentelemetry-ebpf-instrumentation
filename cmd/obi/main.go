@@ -4,17 +4,16 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	_ "net/http/pprof"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -23,7 +22,6 @@ import (
 	"go.opentelemetry.io/obi/cmd/obi/internal/configcmd"
 	"go.opentelemetry.io/obi/cmd/obi/internal/configload"
 	"go.opentelemetry.io/obi/cmd/obi/internal/configwatch"
-	"go.opentelemetry.io/obi/internal/config/schema"
 	"go.opentelemetry.io/obi/pkg/appolly/discover"
 	"go.opentelemetry.io/obi/pkg/buildinfo"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
@@ -33,64 +31,54 @@ import (
 )
 
 const (
-	configVersionV1 = "v1"
-	configVersionV2 = "v2"
+	configVersionV1 = configload.VersionV1
+	configVersionV2 = configload.VersionV2
 )
 
-func loadConfig(configPath *string) (*obi.Config, string, []byte) {
-	var configReader io.ReadCloser
-	if configPath != nil && *configPath != "" {
-		var err error
-		if configReader, err = os.Open(*configPath); err != nil {
-			slog.Error("can't open "+*configPath, "error", err)
-			os.Exit(-1)
-		}
-		defer configReader.Close()
-	}
+// configPathEnv holds a list of configuration files, separated like PATH, with higher priority
+// than the -config flags.
+const configPathEnv = "OTEL_EBPF_CONFIG_PATH"
 
-	var configData bytes.Buffer
-	var reader io.Reader
-	if configReader != nil {
-		reader = io.TeeReader(configReader, &configData)
-	}
-	config, version, err := loadConfigReader(reader)
-	if err != nil {
-		slog.Error("wrong configuration", "error", err)
-		//nolint:gocritic
-		os.Exit(-1)
-	}
-	return config, version, configData.Bytes()
+// configPaths collects the paths of the repeatable -config flag.
+type configPaths []string
+
+func (p *configPaths) String() string {
+	return strings.Join(*p, ",")
 }
 
-func loadConfigReader(file io.Reader) (*obi.Config, string, error) {
-	var data []byte
-	fileProvided := file != nil
-	if fileProvided {
-		var err error
-		data, err = io.ReadAll(file)
-		if err != nil {
-			return nil, "", fmt.Errorf("reading configuration: %w", err)
+func (p *configPaths) Set(path string) error {
+	*p = append(*p, path)
+	return nil
+}
+
+// configFilePaths returns the configuration files in increasing order of priority.
+func configFilePaths(flagPaths []string, envPaths string) []string {
+	paths := slices.Clone(flagPaths)
+	for _, path := range filepath.SplitList(envPaths) {
+		if path != "" {
+			paths = append(paths, path)
 		}
 	}
+	return paths
+}
 
-	config, err := configload.LoadV2(data)
-	if err == nil {
-		return config, configVersionV2, nil
+func loadConfig(paths []string) (*obi.Config, string, []configload.Source) {
+	sources := make([]configload.Source, 0, len(paths))
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			slog.Error("can't open "+path, "error", err)
+			os.Exit(-1)
+		}
+		sources = append(sources, configload.Source{Path: path, Data: data})
 	}
 
-	if _, ok := errors.AsType[*schema.NotV2Error](err); !ok {
-		return nil, "", err
-	}
-
-	var legacyReader io.Reader
-	if fileProvided {
-		legacyReader = bytes.NewReader(data)
-	}
-	config, err = obi.LoadConfig(legacyReader)
+	config, version, err := configload.LoadSources(sources)
 	if err != nil {
-		return nil, "", fmt.Errorf("loading config v1: %w", err)
+		slog.Error("wrong configuration", "error", err)
+		os.Exit(-1)
 	}
-	return config, configVersionV1, nil
+	return config, version, sources
 }
 
 func main() {
@@ -104,13 +92,11 @@ func main() {
 	lvl := slog.LevelVar{}
 	lvl.Set(slog.LevelInfo)
 
-	configPath := flag.String("config", "", "path to the configuration file")
+	var flagPaths configPaths
+	flag.Var(&flagPaths, "config", "path to a configuration file; repeat it to override the previous files")
 	flag.Parse()
 
-	if cfg := os.Getenv("OTEL_EBPF_CONFIG_PATH"); cfg != "" {
-		configPath = &cfg
-	}
-	config, configVersion, configData := loadConfig(configPath)
+	config, configVersion, configSources := loadConfig(configFilePaths(flagPaths, os.Getenv(configPathEnv)))
 	if err := lvl.UnmarshalText([]byte(config.LogLevel)); err != nil {
 		slog.Error("unknown log level specified, choices are [DEBUG, INFO, WARN, ERROR]", "error", err)
 		os.Exit(-1)
@@ -170,10 +156,10 @@ func main() {
 	// child process isn't found.
 	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	var opts []instrumenter.Option
-	if configVersion == configVersionV2 && configPath != nil && *configPath != "" && config.Enabled(obi.FeatureAppO11y) {
+	if configVersion == configVersionV2 && len(configSources) > 0 && config.Enabled(obi.FeatureAppO11y) {
 		updater := discover.NewCriteriaUpdater(config)
 		opts = append(opts, instrumenter.WithCriteriaUpdater(updater))
-		go configwatch.Watch(ctx, *configPath, configData, updater.Update)
+		go configwatch.Watch(ctx, configSources, updater.Update)
 	}
 	var runErr error
 	if configVersion == configVersionV2 {
