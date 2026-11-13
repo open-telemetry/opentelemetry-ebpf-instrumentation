@@ -1,5 +1,5 @@
 ARG JAVA_HTTPCLIENT_RUNTIME_IMAGE=gradle:9.8.2-jdk21-noble@sha256:1278203f5f52e4781e6d7096250375a4d54ab599f26e5ba44e672b4bdbd793f7
-FROM golang:1.27.0@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1 AS proxy
+FROM golang:1.27.3@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b AS proxy
 WORKDIR /proxy
 COPY internal/test/integration/components/java_httpclient_traceparent/proxy.go .
 RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod CGO_ENABLED=0 go build -o proxy proxy.go && ./proxy certificate

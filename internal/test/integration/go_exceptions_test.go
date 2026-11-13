@@ -117,7 +117,7 @@ var goExceptionsBuilders = []struct {
 	{"1.21", 21, "golang:1.21.13@sha256:4746d26432a9117a5f58e95cb9f954ddf0de128e9d5816886514199316e4a2fb"},
 	{"1.25", 25, runtimeMetricsGo125BuilderImage},
 	{"1.26", 26, "golang:1.26.5@sha256:3aff6657219a4d9c14e27fb1d8976c49c29fddb70ba835014f477e1c70636647"},
-	{"1.27", 27, "golang:1.27.0@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1"},
+	{"1.27", 27, "golang:1.27.3@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b"},
 }
 
 func TestGoExceptions(t *testing.T) {
