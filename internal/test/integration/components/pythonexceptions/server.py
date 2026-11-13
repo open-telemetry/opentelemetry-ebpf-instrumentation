@@ -208,6 +208,12 @@ def http_app(port):
 
     class ParsingFormatter(logging.Formatter):
         def format(self, record):
+            if record.__dict__.get("native_error", False):
+                try:
+                    int("helper")
+                except ValueError:
+                    pass
+                return record.getMessage()
             try:
                 ast.parse("(")
             except SyntaxError:
@@ -243,14 +249,16 @@ def http_app(port):
                 if parts[1] == "raise":
                     escape(parts[3], parts[4])
             except Exception:
-                if parts[2] != "direct":
+                if parts[2] == "native-helper":
+                    logger.exception("request failed", extra={"native_error": True})
+                elif parts[2] != "direct":
                     logger.exception("request failed")
                 self.respond(500, "error")
                 return
             self.respond(200, "ok")
 
         def log_message(self, format, *args):
-            if not self.path.startswith("/raise/direct/"):
+            if not self.path.startswith(("/raise/direct/", "/raise/native-helper/")):
                 logger.info(format, *args)
 
     http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()

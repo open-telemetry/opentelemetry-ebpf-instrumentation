@@ -20,6 +20,7 @@ services:
     environment:
       PYTHON_EXCEPTION_ASYNC_SKIP_REASON: ${PYTHON_EXCEPTION_ASYNC_SKIP_REASON:-}
       PYTHON_EXCEPTION_CONTAINER: "true"
+      GOFLAGS: -buildvcs=false
       GOCACHE: /tmp/go-build-cache
       GOMODCACHE: /tmp/go-mod-cache
       PYTHON_EXCEPTION_FIXTURE: /src/internal/test/integration/components/pythonexceptions/server.py

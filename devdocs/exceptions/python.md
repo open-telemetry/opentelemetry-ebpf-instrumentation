@@ -33,6 +33,10 @@ OBI keeps bounded candidate state and uses traceback propagation to select an
 exception when the server response arrives. Selection uses a heuristic for
 exceptions that escape handlers.
 
+An exception retained while another exception is raised can still be reported
+if the request later returns 500, even when both exceptions were caught.
+Traceback propagation does not establish that an exception caused the response.
+
 ## What is captured
 
 | Python code / behavior | Record | `exception.message` |

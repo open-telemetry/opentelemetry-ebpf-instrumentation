@@ -238,11 +238,11 @@ python_exception_propagated(const python_exception_proc_t *proc, const u64 value
     return traceback && python_read_ptr(traceback + k_python_traceback_next);
 }
 
-// Checks whether a propagated candidate is being handled on this thread.
-static __always_inline bool python_exception_handled(const python_exception_proc_t *proc,
-                                                     const u64 tstate,
-                                                     const python_exception_candidate_t *candidate,
-                                                     const u64 kept) {
+// Finds the propagated exception instance being handled on this thread.
+static __always_inline u64 python_exception_handled(const python_exception_proc_t *proc,
+                                                    const u64 tstate,
+                                                    const python_exception_candidate_t *candidate,
+                                                    const u64 kept) {
     u64 item = python_read_ptr(tstate + proc->tstate_exc_info);
     for (u32 i = 0; i < k_python_exc_info_max_walk && item; i++) {
         const u64 handled = python_read_ptr(item + proc->err_item_value);
@@ -256,11 +256,12 @@ static __always_inline bool python_exception_handled(const python_exception_proc
                                                : handled != kept && python_object_type(handled) ==
                                                                         candidate->payload.type;
         if (same) {
-            return python_exception_propagated(proc, handled, candidate->payload.type);
+            return python_exception_propagated(proc, handled, candidate->payload.type) ? handled
+                                                                                       : 0;
         }
     }
 
-    return false;
+    return 0;
 }
 
 static __always_inline void python_exception_copy(python_exception_candidate_t *dst,
@@ -278,10 +279,13 @@ static __always_inline void python_exception_keep(const python_exception_proc_t 
     }
 
     if (!latest->propagated) {
+        const u64 handled = python_exception_handled(proc, tstate, latest, pending->kept.exception);
+        if (handled) {
+            latest->exception = handled;
+        }
         latest->propagated =
-            python_exception_handled(proc, tstate, latest, pending->kept.exception) ||
-            (latest->exception &&
-             python_exception_propagated(proc, latest->exception, latest->payload.type));
+            handled || (latest->exception &&
+                        python_exception_propagated(proc, latest->exception, latest->payload.type));
     }
 
     if (latest->propagated) {

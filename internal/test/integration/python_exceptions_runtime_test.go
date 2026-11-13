@@ -83,6 +83,11 @@ func TestPythonExceptions(t *testing.T) {
 					traceID := fixture.get("/raise/direct/native/"+token, http.StatusInternalServerError)
 					assertPythonException(t, harness.wait(t, traceID), fixture.truth(token), "native")
 				})
+				t.Run("native-helper/native", func(t *testing.T) {
+					const token = "http-native-helper"
+					traceID := fixture.get("/raise/native-helper/native/"+token, http.StatusInternalServerError)
+					assertPythonException(t, harness.wait(t, traceID), fixture.truth(token), "native")
+				})
 			}
 
 			// A handler that catches the exception and answers 500 itself reports
