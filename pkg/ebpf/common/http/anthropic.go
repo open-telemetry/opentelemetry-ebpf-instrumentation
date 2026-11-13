@@ -81,6 +81,10 @@ func isAnthropic(hdr http.Header) bool {
 	return isAnthropic
 }
 
+func isAnthropicHTTP1Path(path string) bool {
+	return path == anthropicMessagesPath
+}
+
 func looksLikeAnthropicBody(reqB, respB []byte) bool {
 	if extractJSONRawField(reqB, "anthropic_version") != nil {
 		return false
@@ -110,6 +114,10 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 		maybeAnthropic = true
 	}
 
+	return anthropicSpan(baseSpan, req, resp, maybeAnthropic)
+}
+
+func anthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Response, requireEvidence bool) (request.Span, bool) {
 	reqB, ok := readHTTPRequestBody("AnthropicSpan", req, baseSpan)
 	if !ok {
 		return *baseSpan, false
@@ -120,7 +128,7 @@ func AnthropicSpan(baseSpan *request.Span, req *http.Request, resp *http.Respons
 		return *baseSpan, false
 	}
 
-	if maybeAnthropic {
+	if requireEvidence {
 		if !looksLikeAnthropicBody(reqB, respB) {
 			return *baseSpan, false
 		}

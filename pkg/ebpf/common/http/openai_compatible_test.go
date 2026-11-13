@@ -68,6 +68,115 @@ func makeCompatibleResponse(body string) *http.Response {
 	}
 }
 
+func TestMatchOpenAICompatibleGateway(t *testing.T) {
+	tests := []struct {
+		name      string
+		urlHost   string
+		host      string
+		nilURL    bool
+		gateways  []config.OpenAICompatibleGateway
+		wantIndex int
+	}{
+		{
+			name:      "URL host takes precedence",
+			urlHost:   "litellm.local",
+			host:      "other.local",
+			gateways:  []config.OpenAICompatibleGateway{{Host: "other.local"}, {Host: "litellm.local"}},
+			wantIndex: 1,
+		},
+		{
+			name:      "empty URL host falls back to request host",
+			host:      "litellm.local",
+			gateways:  []config.OpenAICompatibleGateway{{Host: "litellm.local"}},
+			wantIndex: 0,
+		},
+		{
+			name:      "nil URL falls back to request host",
+			host:      "litellm.local",
+			nilURL:    true,
+			gateways:  []config.OpenAICompatibleGateway{{Host: "litellm.local"}},
+			wantIndex: 0,
+		},
+		{
+			name:      "case insensitive host",
+			urlHost:   "LITELLM.local",
+			gateways:  []config.OpenAICompatibleGateway{{Host: "litellm.LOCAL"}},
+			wantIndex: 0,
+		},
+		{
+			name:      "matching explicit port",
+			urlHost:   "litellm.local:8080",
+			gateways:  []config.OpenAICompatibleGateway{{Host: "litellm.local", Port: 8080}},
+			wantIndex: 0,
+		},
+		{
+			name:      "explicit port mismatch",
+			urlHost:   "litellm.local:9090",
+			gateways:  []config.OpenAICompatibleGateway{{Host: "litellm.local", Port: 8080}},
+			wantIndex: -1,
+		},
+		{
+			name:      "zero gateway port matches any request port",
+			urlHost:   "litellm.local:8080",
+			gateways:  []config.OpenAICompatibleGateway{{Host: "litellm.local"}},
+			wantIndex: 0,
+		},
+		{
+			name:      "unknown request port matches configured port",
+			urlHost:   "litellm.local",
+			gateways:  []config.OpenAICompatibleGateway{{Host: "litellm.local", Port: 443}},
+			wantIndex: 0,
+		},
+		{
+			name:      "unparseable request port matches configured port",
+			urlHost:   "litellm.local:invalid",
+			gateways:  []config.OpenAICompatibleGateway{{Host: "litellm.local", Port: 443}},
+			wantIndex: 0,
+		},
+		{
+			name:      "host mismatch",
+			urlHost:   "other.local",
+			gateways:  []config.OpenAICompatibleGateway{{Host: "litellm.local"}},
+			wantIndex: -1,
+		},
+		{
+			name:      "first matching gateway wins",
+			urlHost:   "litellm.local",
+			gateways:  []config.OpenAICompatibleGateway{{Host: "litellm.local"}, {Host: "litellm.local"}},
+			wantIndex: 0,
+		},
+		{
+			name:      "nil gateways",
+			urlHost:   "litellm.local",
+			wantIndex: -1,
+		},
+		{
+			name:      "empty gateways",
+			urlHost:   "litellm.local",
+			gateways:  []config.OpenAICompatibleGateway{},
+			wantIndex: -1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := makeRequest(t, http.MethodPost, "/v1/chat/completions", "")
+			req.URL.Host = tt.urlHost
+			req.Host = tt.host
+			if tt.nilURL {
+				req.URL = nil
+			}
+
+			matchedGateway := matchOpenAICompatibleGateway(req, tt.gateways)
+			if tt.wantIndex < 0 {
+				assert.Nil(t, matchedGateway)
+				return
+			}
+			assert.Same(t, &tt.gateways[tt.wantIndex], matchedGateway)
+		})
+	}
+}
+
 func TestOpenAICompatibleSpan_HostMatchWithoutPort(t *testing.T) {
 	gateways := []config.OpenAICompatibleGateway{
 		{Host: "litellm.local", Provider: "litellm"},
