@@ -8,6 +8,7 @@ request, which the live test compares with the captured exception.
 """
 
 import asyncio
+import contextvars
 import sys
 import traceback
 
@@ -109,6 +110,11 @@ def escape(case, token):
     except BaseException as error:
         truths[token] = ground_truth(error)
         raise
+
+
+def context_escape(case, token):
+    contextvars.ContextVar("request").set(token)
+    escape(case, token)
 
 
 def handled(case, token):
@@ -247,7 +253,10 @@ def http_app(port):
                 return
             try:
                 if parts[1] == "raise":
-                    escape(parts[3], parts[4])
+                    if parts[2] == "context":
+                        contextvars.Context().run(context_escape, parts[3], parts[4])
+                    else:
+                        escape(parts[3], parts[4])
             except Exception:
                 if parts[2] == "native-helper":
                     logger.exception("request failed", extra={"native_error": True})

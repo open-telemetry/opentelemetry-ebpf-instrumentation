@@ -182,7 +182,13 @@ static __always_inline enum exception_owner python_exception_owner(const u64 id,
         }
         resolution = PYTHON_TASK_RESOLVED;
     } else if (thread && thread->current_context) {
-        resolution = resolve_python_task_from_context(id, thread->current_context, &task);
+        const python_addr_key_t key = python_addr_key(id, thread->current_context);
+        const python_context_task_t *context = bpf_map_lookup_elem(&python_context_task, &key);
+        // Synchronous thread contexts can change their variables without owning a task.
+        // Validate stale bindings only when the context has a recorded task owner.
+        if (context && (context->task.addr || context->task.generation)) {
+            resolution = resolve_python_task_from_context(id, thread->current_context, &task);
+        }
     }
 
     if (resolution == PYTHON_TASK_STALE) {

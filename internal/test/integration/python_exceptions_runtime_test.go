@@ -78,6 +78,11 @@ func TestPythonExceptions(t *testing.T) {
 			}
 
 			if framework == "http" {
+				t.Run("context/ascii", func(t *testing.T) {
+					const token = "http-context"
+					traceID := fixture.get("/raise/context/ascii/"+token, http.StatusInternalServerError)
+					assertPythonException(t, harness.wait(t, traceID), fixture.truth(token), "ascii")
+				})
 				t.Run("direct/native", func(t *testing.T) {
 					const token = "http-direct-native"
 					traceID := fixture.get("/raise/direct/native/"+token, http.StatusInternalServerError)
