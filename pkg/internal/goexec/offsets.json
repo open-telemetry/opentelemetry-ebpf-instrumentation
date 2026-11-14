@@ -1655,6 +1655,18 @@
           }
         ]
       },
+      "Host": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.27.4"
+        },
+        "offsets": [
+          {
+            "offset": 128,
+            "since": "1.17.0"
+          }
+        ]
+      },
       "Method": {
         "versions": {
           "oldest": "1.17.0",
@@ -2057,6 +2069,18 @@
       }
     },
     "net/http/internal/http2.ServerRequest": {
+      "Host": {
+        "versions": {
+          "oldest": "1.27.0",
+          "newest": "1.27.4"
+        },
+        "offsets": [
+          {
+            "offset": 104,
+            "since": "1.27.0"
+          }
+        ]
+      },
       "Method": {
         "versions": {
           "oldest": "1.27.0",

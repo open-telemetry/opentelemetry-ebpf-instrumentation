@@ -1659,6 +1659,7 @@ func TestSetEventContextForwardsHTTPServerRequestEvents(t *testing.T) {
 			}
 			if tt.eventType == ebpfcommon.EventTypeHTTPServerRequestStart {
 				copy(want.Method[:], "GET")
+				copy(want.Host[:], "api.example.com:8080")
 				want.Conn = ebpfcommon.BpfConnectionInfoT{
 					S_addr: [16]uint8{15: 1},
 					D_addr: [16]uint8{15: 2},

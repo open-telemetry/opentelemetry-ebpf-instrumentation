@@ -39,6 +39,7 @@ func TestHTTPServerRequestTrackerLifecycle(t *testing.T) {
 		StartMonotimeNs: 1000,
 	}
 	copy(start.Method[:], "GET")
+	copy(start.Host[:], "api.example.com:8080")
 	start.Conn.D_port = 8080
 
 	got, delta := tracker.observe(start, svc.Attrs{})

@@ -39,9 +39,11 @@ func TestHTTPServerRequestOffsetsRegistered(t *testing.T) {
 	fileInfo := exec.New(exec.Init{Dev: 1, Ino: 1})
 	fields := []goexec.GoOffset{
 		goexec.ReqTLSPos,
+		goexec.ReqHostPos,
 		goexec.HTTP2ServerReqMethodPos,
 		goexec.HTTP2ServerReqURLPos,
 		goexec.HTTP2ServerReqTLSPos,
+		goexec.HTTP2ServerReqHostPos,
 		goexec.HTTP2ResponseWriterStatePos,
 		goexec.HTTP2ResponseWriterReqPos,
 	}

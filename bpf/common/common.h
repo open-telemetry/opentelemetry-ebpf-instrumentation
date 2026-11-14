@@ -114,7 +114,8 @@ typedef struct http_server_request_event {
     u64 start_monotime_ns;
     connection_info_t conn;
     unsigned char method[k_method_max_len];
-    u8 _pad1[5];
+    unsigned char host[k_host_max_len];
+    u8 _pad1[1];
 } http_server_request_event_t;
 
 typedef struct sql_request_trace {

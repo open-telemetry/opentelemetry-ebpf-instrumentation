@@ -194,6 +194,12 @@ static __always_inline void emit_http_server_request_start(const go_addr_key_t *
     event->start_monotime_ns = state.start_monotime_ns;
     bpf_memcpy(event->method, method, sizeof(event->method));
 
+    const u64 host_pos = go_offset_of(
+        ot, (go_offset){.v = internal_http2 ? _http2_server_req_host_pos : _req_host_pos});
+    if (host_pos != (u64)-1) {
+        read_go_str("host", (unsigned char *)req + host_pos, 0, event->host, sizeof(event->host));
+    }
+
     if (!conn) {
         const http_server_connection_t *server =
             bpf_map_lookup_elem(&ongoing_server_connections, g_key);

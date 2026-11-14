@@ -267,6 +267,8 @@ const (
 	HTTP2ServerReqTLSPos
 	HTTP2ResponseWriterStatePos
 	HTTP2ResponseWriterReqPos
+	ReqHostPos
+	HTTP2ServerReqHostPos
 )
 
 //go:embed offsets.json
@@ -329,6 +331,7 @@ var structMembers = map[string]structInfo{
 			"Method": HTTP2ServerReqMethodPos,
 			"URL":    HTTP2ServerReqURLPos,
 			"TLS":    HTTP2ServerReqTLSPos,
+			"Host":   HTTP2ServerReqHostPos,
 		},
 	},
 	"net/http.Request": {
@@ -341,6 +344,7 @@ var structMembers = map[string]structInfo{
 			"ProtoMajor":    ReqProtoMajorPos,
 			"ProtoMinor":    ReqProtoMinorPos,
 			"TLS":           ReqTLSPos,
+			"Host":          ReqHostPos,
 		},
 	},
 	"net/url.URL": {

@@ -10,7 +10,8 @@
         "Header",
         "ProtoMajor",
         "ProtoMinor",
-        "TLS"
+        "TLS",
+        "Host"
       ],
       "net/url.URL": ["Path", "RawQuery", "Host", "Scheme"],
       "net/http.Response": ["StatusCode", "ContentLength", "ProtoMajor", "ProtoMinor"],
@@ -44,7 +45,8 @@
       "net/http/internal/http2.ServerRequest": [
         "[1.27.0]Method",
         "[1.27.0]URL",
-        "[1.27.0]TLS"
+        "[1.27.0]TLS",
+        "[1.27.0]Host"
       ],
       "net/http/internal/http2.Framer": ["[1.27.0]w"],
       "net/http/internal/http2.MetaHeadersFrame": ["[1.27.0]Fields"],

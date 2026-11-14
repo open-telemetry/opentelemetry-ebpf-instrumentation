@@ -56,6 +56,7 @@ func TestGo127HTTP2BinaryMetadata(t *testing.T) {
 		HTTP2ServerReqMethodPos,
 		HTTP2ServerReqURLPos,
 		HTTP2ServerReqTLSPos,
+		HTTP2ServerReqHostPos,
 		HTTP2ResponseWriterStatePos,
 		HTTP2ResponseWriterReqPos,
 	} {
@@ -90,6 +91,7 @@ func TestGo127HTTP2ServerRequestOffsets(t *testing.T) {
 		{"net/http/internal/http2.ServerRequest", "Method", HTTP2ServerReqMethodPos},
 		{"net/http/internal/http2.ServerRequest", "URL", HTTP2ServerReqURLPos},
 		{"net/http/internal/http2.ServerRequest", "TLS", HTTP2ServerReqTLSPos},
+		{"net/http/internal/http2.ServerRequest", "Host", HTTP2ServerReqHostPos},
 		{"net/http/internal/http2.responseWriter", "rws", HTTP2ResponseWriterStatePos},
 		{"net/http/internal/http2.responseWriterState", "req", HTTP2ResponseWriterReqPos},
 	} {

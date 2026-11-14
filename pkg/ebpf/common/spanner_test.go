@@ -433,9 +433,11 @@ func TestHTTPServerRequestEventToSpan(t *testing.T) {
 		name   string
 		isTLS  bool
 		scheme string
+		host   string
 	}{
 		{name: "HTTP", isTLS: false, scheme: "http"},
-		{name: "HTTPS", isTLS: true, scheme: "https"},
+		{name: "HTTPS", isTLS: true, scheme: "https", host: "api.example.com:8443"},
+		{name: "IPv6", isTLS: false, scheme: "http", host: "[2001:db8::1]:8080"},
 	}
 
 	for _, tt := range tests {
@@ -454,6 +456,7 @@ func TestHTTPServerRequestEventToSpan(t *testing.T) {
 				},
 			}
 			copy(event.Method[:], tocstr("GET"))
+			copy(event.Host[:], tocstr(tt.host))
 			copy(event.Conn.S_addr[:], net.ParseIP("10.0.0.1").To16())
 			copy(event.Conn.D_addr[:], net.ParseIP("10.0.0.2").To16())
 
@@ -462,6 +465,7 @@ func TestHTTPServerRequestEventToSpan(t *testing.T) {
 			assert.Equal(t, request.EventTypeHTTP, span.Type)
 			assert.Equal(t, "GET", span.Method)
 			assert.Equal(t, tt.scheme, request.HTTPScheme(&span))
+			assert.Equal(t, tt.host, span.RequestAuthority)
 			assert.Equal(t, request.PidInfo{
 				HostPID:   123,
 				UserPID:   45,
@@ -481,11 +485,13 @@ func TestHTTPServerRequestEventToSpanWithoutConnection(t *testing.T) {
 		Type: EventTypeHTTPServerRequestStart,
 	}
 	copy(event.Method[:], tocstr("GET"))
+	copy(event.Host[:], tocstr("api.example.com"))
 
 	span := HTTPServerRequestEventToSpan(&event)
 
 	assert.Equal(t, "GET", span.Method)
 	assert.Equal(t, "http", request.HTTPScheme(&span))
+	assert.Equal(t, "api.example.com", span.RequestAuthority)
 	assert.Empty(t, span.Peer)
 	assert.Empty(t, span.Host)
 	assert.Zero(t, span.PeerPort)

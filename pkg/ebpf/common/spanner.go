@@ -113,9 +113,10 @@ func HTTPServerRequestEventToSpan(event *HTTPServerRequestEvent) request.Span {
 	}
 
 	span := request.Span{
-		Type:      request.EventTypeHTTP,
-		Method:    cstr(event.Method[:]),
-		Statement: scheme + request.SchemeHostSeparator,
+		Type:             request.EventTypeHTTP,
+		Method:           cstr(event.Method[:]),
+		Statement:        scheme + request.SchemeHostSeparator,
+		RequestAuthority: cstr(event.Host[:]),
 		Pid: request.PidInfo{
 			HostPID:   app.PID(event.Pid.HostPid),
 			UserPID:   app.PID(event.Pid.UserPid),

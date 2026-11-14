@@ -187,6 +187,8 @@ typedef enum {
     _http2_server_req_tls_pos,
     _http2_response_writer_state_pos,
     _http2_response_writer_req_pos,
+    _req_host_pos,
+    _http2_server_req_host_pos,
     _last_go_offset,
 } go_offset_const;
 
