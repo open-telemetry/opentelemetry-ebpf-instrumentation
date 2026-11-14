@@ -29,7 +29,17 @@ public class ProxyOutputStream extends OutputStream {
 
   @Override
   public void write(int b) throws IOException {
-    delegate.write(b);
+    boolean capture = SSLStorage.enterSSLSocketWrite();
+    try {
+      if (capture) {
+        forwardWrite(new byte[] {(byte) b}, 0, 1);
+      }
+      delegate.write(b);
+    } finally {
+      if (capture) {
+        SSLStorage.exitSSLSocketWrite();
+      }
+    }
   }
 
   void forwardWrite(byte[] b, int off, int len) {

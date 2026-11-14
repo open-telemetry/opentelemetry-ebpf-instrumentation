@@ -29,7 +29,18 @@ public class ProxyInputStream extends InputStream {
 
   @Override
   public int read() throws IOException {
-    return delegate.read();
+    boolean capture = SSLStorage.enterSSLSocketRead();
+    try {
+      int b = delegate.read();
+      if (capture && b >= 0) {
+        forwardRead(new byte[] {(byte) b}, 0, 1);
+      }
+      return b;
+    } finally {
+      if (capture) {
+        SSLStorage.exitSSLSocketRead();
+      }
+    }
   }
 
   @Override

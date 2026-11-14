@@ -53,6 +53,19 @@ class ProxyOutputStreamTest {
     assertArrayEquals(new byte[] {2, 3}, delegate.toByteArray());
   }
 
+  @Test
+  void writeSingleByteForwardsByte() throws Exception {
+    ByteArrayOutputStream delegate = new ByteArrayOutputStream();
+    CapturingProxyOutputStream stream = new CapturingProxyOutputStream(delegate);
+
+    stream.write(9);
+
+    assertEquals(0, stream.forwardedOffset);
+    assertEquals(1, stream.forwardedLength);
+    assertArrayEquals(new byte[] {9}, stream.forwardedBytes);
+    assertArrayEquals(new byte[] {9}, delegate.toByteArray());
+  }
+
   private static class CapturingProxyOutputStream extends ProxyOutputStream {
     private int forwardedOffset = -1;
     private int forwardedLength = -1;

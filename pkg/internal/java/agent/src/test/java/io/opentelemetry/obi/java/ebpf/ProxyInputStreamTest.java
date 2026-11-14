@@ -70,6 +70,18 @@ class ProxyInputStreamTest {
     assertArrayEquals(new byte[] {3, 4}, stream.forwardedBytes);
   }
 
+  @Test
+  void readSingleByteForwardsByte() throws Exception {
+    CapturingProxyInputStream stream =
+        new CapturingProxyInputStream(new ByteArrayInputStream(new byte[] {7}));
+
+    assertEquals(7, stream.read());
+    assertEquals(0, stream.forwardedOffset);
+    assertEquals(1, stream.forwardedLength);
+    assertArrayEquals(new byte[] {7}, stream.forwardedBytes);
+    assertEquals(-1, stream.read());
+  }
+
   private static class CapturingProxyInputStream extends ProxyInputStream {
     private int forwardedOffset = -1;
     private int forwardedLength = -1;
