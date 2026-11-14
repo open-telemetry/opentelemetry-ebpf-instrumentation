@@ -82,6 +82,7 @@ type MetricsReporter struct {
 
 	// user-selected fields for each of the reported metrics
 	attrHTTPDuration              []attributes.Field[*request.Span, attribute.KeyValue]
+	attrHTTPActiveRequests        []attributes.Field[*request.Span, attribute.KeyValue]
 	attrHTTPClientDuration        []attributes.Field[*request.Span, attribute.KeyValue]
 	attrGRPCServer                []attributes.Field[*request.Span, attribute.KeyValue]
 	attrGRPCClient                []attributes.Field[*request.Span, attribute.KeyValue]
@@ -119,6 +120,8 @@ type MetricsReporter struct {
 
 	userAttribSelection attributes.Selection
 	input               <-chan []request.Span
+	httpServerRequests  <-chan []request.HTTPServerRequestDelta
+	httpActiveMetrics   map[svc.UID]*Metrics
 	processEvents       <-chan exec.ProcessEvent
 
 	log *slog.Logger
@@ -135,6 +138,10 @@ type Metrics struct {
 	cancel   context.CancelFunc
 	service  *svc.Attrs
 	provider *metric.MeterProvider
+
+	httpActiveRequests instrument.Int64UpDownCounter
+	httpActiveCount    int64
+	httpActiveUpdated  time.Time
 
 	// IMPORTANT! Don't forget to clean each Expirer in cleanupAllMetricsInstances method
 	httpDuration           *Expirer[*request.Span, instrument.Float64Histogram, float64]
@@ -267,9 +274,18 @@ func newMetricsReporter(
 	mr.createEventMetrics = mr.createTargetMetricData
 	mr.deleteEventMetrics = mr.deleteTargetMetricData
 
+	if jointMetricsCfg.Features.HTTPServerActiveRequests() && is.HTTPEnabled() {
+		mr.httpActiveMetrics = map[svc.UID]*Metrics{}
+		if ctxInfo.AppO11y.HTTPServerRequests != nil {
+			mr.httpServerRequests = ctxInfo.AppO11y.HTTPServerRequests.Subscribe(msg.SubscriberName("otelMetrics.HTTPServerRequests"))
+		}
+	}
+
 	// initialize attribute getters
 	if is.HTTPEnabled() {
 		httpGetters := request.SpanOTELGettersForHTTP(unresolved)
+		mr.attrHTTPActiveRequests = attributes.OpenTelemetryGetters(
+			httpGetters, mr.attributes.For(attributes.HTTPServerActiveRequests))
 		mr.attrHTTPDuration = attributes.OpenTelemetryGetters(
 			httpGetters, mr.attributes.For(attributes.HTTPServerDuration))
 		mr.attrHTTPClientDuration = attributes.OpenTelemetryGetters(
@@ -983,6 +999,13 @@ func (mr *MetricsReporter) close() {
 	// pending observations are flushed even when the process stops before TTL eviction.
 	shutdownCtx, cancel := shutdownContext(mr.ctx)
 	defer cancel()
+	for uid, m := range mr.httpActiveMetrics {
+		m.cancel()
+		if err := m.provider.Shutdown(shutdownCtx); err != nil {
+			mr.log.Warn("closing HTTP active request metrics", "error", err)
+		}
+		delete(mr.httpActiveMetrics, uid)
+	}
 	mr.reporters.ForEach(func(id svc.UID, m *Metrics) {
 		llog := mlog().With("service", id)
 		llog.Debug("shutting down metrics reporter")
@@ -1519,8 +1542,22 @@ func (mr *MetricsReporter) disassociatePIDFromService(pid app.PID) (bool, svc.UI
 
 func (mr *MetricsReporter) reportMetrics(ctx context.Context) {
 	defer mr.close()
+	var expireActiveRequests <-chan time.Time
+	if mr.httpActiveMetrics != nil && mr.cfg.TTL > 0 {
+		ticker := time.NewTicker(mr.cfg.TTL)
+		defer ticker.Stop()
+		expireActiveRequests = ticker.C
+	}
 	for {
 		select {
+		case <-expireActiveRequests:
+			mr.expireHTTPActiveRequests(ctx)
+		case deltas, ok := <-mr.httpServerRequests:
+			if !ok {
+				mr.httpServerRequests = nil
+				continue
+			}
+			mr.onHTTPServerRequests(deltas)
 		case <-ctx.Done():
 			mr.log.Debug("context done, stopping metrics reporting")
 			return

@@ -693,6 +693,21 @@ OBI-emitted http.client.response.body.size
 | `url.scheme` | string | `recommended` | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 | `url.template` | string | `conditionally_required`: if route collection is enabled and the route was matched | development | The low-cardinality template of an [absolute path reference](https://www.rfc-editor.org/rfc/rfc3986#section-4.2). | /users/{id}; /users/:id; /users?id={id} |
 
+## `http.server.active_requests`
+
+Number of active HTTP server requests.
+
+| Instrument | Unit | Stability |
+| --- | --- | --- |
+| updowncounter | {request} | development |
+
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
+| `server.address` | string | `opt_in` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
+| `server.port` | int | `opt_in` | stable | Server port number. | 80; 8080; 443 |
+| `url.scheme` | string | `required` | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
+
 ## `http.server.request.body.size`
 
 OBI-emitted http.server.request.body.size
