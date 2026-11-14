@@ -24,10 +24,13 @@ import (
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/export"
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
+	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
 	ebpfconvenience "go.opentelemetry.io/obi/pkg/internal/ebpf/convenience"
 	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/obi"
@@ -124,6 +127,138 @@ func TestWakeupDataBytesUsesScaledRingBufSize(t *testing.T) {
 	wakeup, ok := bundles[0].Constants["wakeup_data_bytes"].(uint32)
 	require.True(t, ok)
 	assert.Equal(t, loadedRingBufSize/2, wakeup)
+}
+
+func TestHTTPServerActiveRequestsConstant(t *testing.T) {
+	disableContextPropagationForTest(t)
+
+	tests := []struct {
+		name            string
+		globalFeatures  export.Features
+		serviceFeatures export.Features
+		want            bool
+	}{
+		{
+			name: "disabled by default",
+			want: false,
+		},
+		{
+			name:           "enabled globally",
+			globalFeatures: export.FeatureHTTPServerActiveRequests,
+			want:           true,
+		},
+		{
+			name:            "enabled per service",
+			serviceFeatures: export.FeatureHTTPServerActiveRequests,
+			want:            true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := obi.DefaultConfig
+			cfg.Metrics.Features |= tt.globalFeatures
+
+			if tt.serviceFeatures != 0 {
+				cfg.Discovery.Instrument = services.GlobDefinitionCriteria{
+					{
+						Metrics: perapp.SvcMetricsConfig{
+							Features: tt.serviceFeatures,
+						},
+					},
+				}
+			}
+
+			tracer := New(nil, &cfg, nil)
+
+			assert.Equal(t, tt.want,
+				tracer.constants(0)["g_http_server_active_requests_enabled"])
+		})
+	}
+}
+
+func TestHTTPServerActiveRequestsProbes(t *testing.T) {
+	disableContextPropagationForTest(t)
+
+	tracer := &Tracer{cfg: &config.EBPFTracer{}}
+	tracer.bpfObjects.ObiUprobeHttp2serverConnRunHandler = &ebpf.Program{}
+	tracer.bpfObjects.ObiUprobeRuntimeGoexit1 = &ebpf.Program{}
+
+	for _, enabled := range []bool{false, true} {
+		tracer.httpServerActiveRequestsEnabled = enabled
+		probes := tracer.GoProbes()
+		for _, symbol := range []string{
+			"golang.org/x/net/http2.(*serverConn).runHandler",
+			"net/http/internal/http2.(*serverConn).runHandler",
+		} {
+			if enabled {
+				assert.NotContains(t, probes, symbol)
+			} else {
+				require.Len(t, probes[symbol], 1)
+				assert.Same(t, tracer.bpfObjects.ObiUprobeHttp2serverConnRunHandler, probes[symbol][0].Start)
+			}
+		}
+		if enabled {
+			require.Len(t, probes["runtime.goexit1"], 1)
+			assert.Same(t, tracer.bpfObjects.ObiUprobeRuntimeGoexit1, probes["runtime.goexit1"][0].Start)
+		} else {
+			assert.NotContains(t, probes, "runtime.goexit1")
+		}
+	}
+}
+
+func TestHTTPServerActiveRequestsProbeGroups(t *testing.T) {
+	disableContextPropagationForTest(t)
+
+	tracer := &Tracer{cfg: &config.EBPFTracer{}}
+	tracer.bpfObjects.ObiUprobeHttp2serverConnUpgradeRequest = &ebpf.Program{}
+	tracer.bpfObjects.ObiUprobeHttp2serverConnUpgradeRequestReturns = &ebpf.Program{}
+	tracer.bpfObjects.ObiUprobeHttp2serverConnRunHandlerXnet = &ebpf.Program{}
+	tracer.bpfObjects.ObiUprobeHttp2serverConnRunHandlerInternal = &ebpf.Program{}
+	tracer.bpfObjects.ObiUprobeHttp2serverConnNewResponseWriterReturns = &ebpf.Program{}
+	tracer.bpfObjects.ObiUprobeHttp2serverConnRunHandler = &ebpf.Program{}
+
+	assert.Empty(t, tracer.GoProbeGroups())
+	tracer.httpServerActiveRequestsEnabled = true
+	groups := tracer.GoProbeGroups()
+	require.Len(t, groups, 4)
+
+	for i, tt := range []struct {
+		name    string
+		pkgPath string
+		start   *ebpf.Program
+	}{
+		{"xnet", "golang.org/x/net/http2", tracer.bpfObjects.ObiUprobeHttp2serverConnRunHandlerXnet},
+		{"stdlib", "net/http/internal/http2", tracer.bpfObjects.ObiUprobeHttp2serverConnRunHandlerInternal},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			runHandlerSymbol := tt.pkgPath + ".(*serverConn).runHandler"
+			active, fallback := groups[2*i], groups[2*i+1]
+			assert.Equal(t, "go_http_server_active_requests_"+tt.name, active.Name)
+			assert.ElementsMatch(t, []string{
+				tt.pkgPath + ".(*responseWriter).handlerDone", "runtime.goexit1",
+			}, active.RequiresAll)
+			if tt.name == "stdlib" {
+				require.Len(t, active.Probes, 3)
+				assert.Equal(t, "net/http/internal/http2.(*serverConn).newResponseWriter", active.Probes[2].Symbol)
+				assert.Same(t, tracer.bpfObjects.ObiUprobeHttp2serverConnNewResponseWriterReturns, active.Probes[2].Probe.End)
+			} else {
+				require.Len(t, active.Probes, 2)
+			}
+			assert.Equal(t, tt.pkgPath+".(*serverConn).upgradeRequest", active.Probes[0].Symbol)
+			assert.Same(t, tracer.bpfObjects.ObiUprobeHttp2serverConnUpgradeRequest, active.Probes[0].Probe.Start)
+			assert.Same(t, tracer.bpfObjects.ObiUprobeHttp2serverConnUpgradeRequestReturns, active.Probes[0].Probe.End)
+			assert.Equal(t, runHandlerSymbol, active.Probes[1].Symbol)
+			assert.Same(t, tt.start, active.Probes[1].Probe.Start)
+
+			assert.Equal(t, "go_http2_"+tt.name+"_server_fallback", fallback.Name)
+			assert.Empty(t, fallback.RequiresAll)
+			assert.Equal(t, []string{runHandlerSymbol}, fallback.ConflictsAny)
+			require.Len(t, fallback.Probes, 1)
+			assert.Equal(t, runHandlerSymbol, fallback.Probes[0].Symbol)
+			assert.Same(t, tracer.bpfObjects.ObiUprobeHttp2serverConnRunHandler, fallback.Probes[0].Probe.Start)
+		})
+	}
 }
 
 func TestSetFramerPaddingOffsetUsesExactLayout(t *testing.T) {
@@ -1486,6 +1621,173 @@ func TestSetEventContextRegistersActivationHandlerBeforeRun(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, handled)
 	assert.Equal(t, int32(1), activationLink.closes.Load())
+}
+
+func TestSetEventContextForwardsHTTPServerRequestEvents(t *testing.T) {
+	tests := []struct {
+		name      string
+		eventType uint8
+		isTLS     bool
+	}{
+		{
+			name:      "HTTP start",
+			eventType: ebpfcommon.EventTypeHTTPServerRequestStart,
+		},
+		{
+			name:      "HTTPS start",
+			eventType: ebpfcommon.EventTypeHTTPServerRequestStart,
+			isTLS:     true,
+		},
+		{
+			name:      "request end",
+			eventType: ebpfcommon.EventTypeHTTPServerRequestEnd,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want := ebpfcommon.HTTPServerRequestEvent{
+				Type:            tt.eventType,
+				IsTls:           tt.isTLS,
+				GoroutineAddr:   0x1234,
+				StartMonotimeNs: 1000,
+				Pid: ebpfcommon.BpfPidInfoT{
+					HostPid: 123,
+					UserPid: 45,
+					Ns:      67,
+				},
+			}
+			if tt.eventType == ebpfcommon.EventTypeHTTPServerRequestStart {
+				copy(want.Method[:], "GET")
+				copy(want.Host[:], "api.example.com:8080")
+				want.Conn = ebpfcommon.BpfConnectionInfoT{
+					S_addr: [16]uint8{15: 1},
+					D_addr: [16]uint8{15: 2},
+					S_port: 50000,
+					D_port: 8080,
+				}
+			}
+
+			var received []ebpfcommon.HTTPServerRequestEvent
+			eventContext := ebpfcommon.NewEBPFEventContext()
+			eventContext.HTTPServerRequests = func(event ebpfcommon.HTTPServerRequestEvent) {
+				received = append(received, event)
+			}
+
+			tracer := &Tracer{}
+			tracer.SetEventContext(eventContext)
+
+			var raw bytes.Buffer
+			require.NoError(t, binary.Write(&raw, binary.LittleEndian, want))
+			record := &ringbuf.Record{RawSample: raw.Bytes()}
+
+			handled, err := eventContext.HandleInternalEvent(record)
+
+			require.NoError(t, err)
+			assert.True(t, handled)
+			require.Len(t, received, 1)
+			assert.Equal(t, want, received[0])
+
+			clear(record.RawSample)
+			assert.Equal(t, want, received[0])
+		})
+	}
+}
+
+func TestSetEventContextRejectsShortHTTPServerRequestEvents(t *testing.T) {
+	tests := []struct {
+		name      string
+		eventType uint8
+	}{
+		{"start", ebpfcommon.EventTypeHTTPServerRequestStart},
+		{"end", ebpfcommon.EventTypeHTTPServerRequestEnd},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called := false
+			eventContext := ebpfcommon.NewEBPFEventContext()
+			eventContext.HTTPServerRequests = func(ebpfcommon.HTTPServerRequestEvent) {
+				called = true
+			}
+
+			tracer := &Tracer{}
+			tracer.SetEventContext(eventContext)
+
+			size := int(unsafe.Sizeof(ebpfcommon.HTTPServerRequestEvent{}))
+			raw := make([]byte, size-1)
+			raw[0] = tt.eventType
+
+			handled, err := eventContext.HandleInternalEvent(
+				&ringbuf.Record{RawSample: raw},
+			)
+
+			require.EqualError(t, err, "byte slice too short")
+			assert.True(t, handled)
+			assert.False(t, called)
+		})
+	}
+}
+
+func TestSetEventContextHandlesHTTPServerRequestEventsWithoutReceiver(t *testing.T) {
+	tests := []struct {
+		name      string
+		eventType uint8
+	}{
+		{"start", ebpfcommon.EventTypeHTTPServerRequestStart},
+		{"end", ebpfcommon.EventTypeHTTPServerRequestEnd},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			eventContext := ebpfcommon.NewEBPFEventContext()
+
+			tracer := &Tracer{}
+			tracer.SetEventContext(eventContext)
+
+			var raw bytes.Buffer
+			require.NoError(t, binary.Write(
+				&raw,
+				binary.LittleEndian,
+				ebpfcommon.HTTPServerRequestEvent{Type: tt.eventType},
+			))
+
+			handled, err := eventContext.HandleInternalEvent(
+				&ringbuf.Record{RawSample: raw.Bytes()},
+			)
+
+			require.NoError(t, err)
+			assert.True(t, handled)
+		})
+	}
+}
+
+func TestSetEventContextDoesNotConsumeHTTPTraces(t *testing.T) {
+	called := false
+	eventContext := ebpfcommon.NewEBPFEventContext()
+	eventContext.HTTPServerRequests = func(ebpfcommon.HTTPServerRequestEvent) {
+		called = true
+	}
+
+	tracer := &Tracer{}
+	tracer.SetEventContext(eventContext)
+
+	var raw bytes.Buffer
+	require.NoError(t, binary.Write(
+		&raw,
+		binary.LittleEndian,
+		ebpfcommon.HTTPRequestTrace{
+			Type: ebpfcommon.EventTypeHTTPRequest,
+		},
+	))
+
+	handled, err := eventContext.HandleInternalEvent(
+		&ringbuf.Record{RawSample: raw.Bytes()},
+	)
+
+	require.NoError(t, err)
+	assert.False(t, handled)
+	assert.False(t, called)
 }
 
 type blockingSharedForwarder struct{}

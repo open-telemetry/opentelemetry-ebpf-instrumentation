@@ -9,7 +9,9 @@
         "ContentLength",
         "Header",
         "ProtoMajor",
-        "ProtoMinor"
+        "ProtoMinor",
+        "TLS",
+        "Host"
       ],
       "net/url.URL": ["Path", "RawQuery", "Host", "Scheme"],
       "net/http.Response": ["StatusCode", "ContentLength", "ProtoMajor", "ProtoMinor"],
@@ -38,6 +40,14 @@
         "[1.27.0]fr"
       ],
       "net/http/internal/http2.serverConn": ["[1.27.0]conn"],
+      "net/http/internal/http2.responseWriter": ["[1.27.0]rws"],
+      "net/http/internal/http2.responseWriterState": ["[1.27.0]req"],
+      "net/http/internal/http2.ServerRequest": [
+        "[1.27.0]Method",
+        "[1.27.0]URL",
+        "[1.27.0]TLS",
+        "[1.27.0]Host"
+      ],
       "net/http/internal/http2.Framer": ["[1.27.0]w"],
       "net/http/internal/http2.MetaHeadersFrame": ["[1.27.0]Fields"],
       "net/rpc.Request": ["ServiceMethod"],

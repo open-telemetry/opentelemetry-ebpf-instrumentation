@@ -44,6 +44,31 @@ struct {
 } ongoing_http_server_requests SEC(".maps");
 
 struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, go_addr_key_t); // key: pointer to the HTTP request
+    __type(value, http_server_request_state_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} active_http_server_requests SEC(".maps");
+
+// Stable lifecycle IDs survive request copies and goroutine handoffs.
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, http_server_request_key_t);
+    __type(value, pid_info_t);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} http_server_request_ids SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, go_addr_key_t);   // key: pointer to the request goroutine
+    __type(value, go_addr_key_t); // value: pointer to the HTTP request
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} http_server_requests_by_goroutine SEC(".maps");
+
+struct {
     __uint(type, BPF_MAP_TYPE_PERCPU_ARRAY);
     __type(key, u32);
     __type(value, unsigned char[k_http_header_max_len]);

@@ -323,6 +323,8 @@ type Tracer struct {
 	supportsBPFLoop                   bool
 	traceCtxMapEnabled                bool
 	runtimeMetricsEnabled             bool
+	httpServerActiveRequestsEnabled   bool
+	httpServerRequestPIDs             map[app.PID]BpfPidInfoT
 	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfoT
 	pidSamplers                       ebpfcommon.PIDSamplers
 	goChannelOffsetsByExecutable      map[executableIdentity]bool
@@ -367,6 +369,7 @@ func New(
 		supportsBPFLoop:                   ebpfcommon.SupportsEBPFLoops(log, cfg.EBPF.OverrideBPFLoopEnabled),
 		traceCtxMapEnabled:                cfg.PopulateTraceContext(),
 		runtimeMetricsEnabled:             cfg.AppRuntimeMetricsEnabled(),
+		httpServerActiveRequestsEnabled:   cfg.JoinMetricsConfig().Features.HTTPServerActiveRequests(),
 		runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfoT{},
 		goChannelOffsetsByExecutable:      map[executableIdentity]bool{},
 		goRuntimeMetricMaskByExecutable:   map[executableIdentity]uint64{},
@@ -432,6 +435,17 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	p.goAutoSDKTargetsMu.Unlock()
 
 	p.registerRuntimeMetricTarget(pid, ns, fi)
+	if p.httpServerActiveRequestsEnabled {
+		pidInfo, err := runtimeMetricPIDInfo(pid, ns)
+		if err != nil {
+			p.log.Debug("HTTP request PID key lookup failed", "pid", pid, "error", err)
+		} else {
+			if p.httpServerRequestPIDs == nil {
+				p.httpServerRequestPIDs = make(map[app.PID]BpfPidInfoT)
+			}
+			p.httpServerRequestPIDs[pid] = pidInfo
+		}
+	}
 	p.writePIDSampler(pid, ns, fi)
 	p.registerExceptionPID(pid, fi)
 }
@@ -461,11 +475,63 @@ func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
 	p.goAutoSDKTargetsMu.Unlock()
 
 	p.deleteRuntimeMetricTarget(pid, ns)
+	p.deleteHTTPServerRequests(pid)
 	p.unregisterExceptionPID(pid)
 
 	if p.bpfObjects.PidSamplers != nil {
 		if err := p.pidSamplers.Delete(p.bpfObjects.PidSamplers, pid); err != nil {
 			p.log.Error("removing the process sampler from eBPF", "pid", pid, "error", err)
+		}
+	}
+}
+
+func (p *Tracer) deleteHTTPServerRequests(pid app.PID) {
+	pidInfo, ok := p.httpServerRequestPIDs[pid]
+	if !ok {
+		return
+	}
+	delete(p.httpServerRequestPIDs, pid)
+	ids := p.bpfObjects.HttpServerRequestIds
+	if ids == nil {
+		return
+	}
+
+	hostPIDs := map[uint64]struct{}{}
+	var keys []BpfHttpServerRequestKeyT
+	var key BpfHttpServerRequestKeyT
+	var value BpfPidInfoT
+	iterator := ids.Iterate()
+	for iterator.Next(&key, &value) {
+		if value.UserPid == pidInfo.UserPid && value.Ns == pidInfo.Ns {
+			keys = append(keys, key)
+			hostPIDs[key.Pid] = struct{}{}
+		}
+	}
+	if err := iterator.Err(); err != nil {
+		p.log.Debug("reading HTTP request IDs failed", "pid", pid, "error", err)
+	}
+	for _, key := range keys {
+		_ = ids.Delete(key)
+	}
+
+	for _, requests := range []*ebpf.Map{p.bpfObjects.ActiveHttpServerRequests, p.bpfObjects.HttpServerRequestsByGoroutine} {
+		if requests == nil || len(hostPIDs) == 0 {
+			continue
+		}
+		var keys []BpfGoAddrKeyT
+		var key BpfGoAddrKeyT
+		value := make([]byte, requests.ValueSize())
+		iterator := requests.Iterate()
+		for iterator.Next(&key, value) {
+			if _, ok := hostPIDs[key.Pid]; ok {
+				keys = append(keys, key)
+			}
+		}
+		if err := iterator.Err(); err != nil {
+			p.log.Debug("reading HTTP requests failed", "pid", pid, "error", err)
+		}
+		for _, key := range keys {
+			_ = requests.Delete(key)
 		}
 	}
 }
@@ -514,26 +580,27 @@ func (p *Tracer) constants(eventsRingBufSize uint32) map[string]any {
 	}
 
 	m := map[string]any{
-		"g_bpf_debug":                    p.cfg.BpfDebug,
-		"g_bpf_header_propagation":       p.cfg.ContextPropagation.HasHeaders(),
-		"g_bpf_probe_write_user_enabled": p.supportsContextPropagation(),
-		"g_go_h2_write_fail_step":        goH2WriteFailStepForTest,
-		"wakeup_data_bytes":              ebpfcommon.WakeupDataBytes(p.cfg.WakeupLen, unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{}), eventsRingBufSize),
-		"ringbuf_metrics_enabled":        p.metrics != nil && !imetrics.IsBuiltinNoopReporter(p.metrics),
-		"disable_black_box_cp":           blackBoxCP,
-		"attr_type_invalid":              uint64(attribute.INVALID),
-		"attr_type_bool":                 uint64(attribute.BOOL),
-		"attr_type_int64":                uint64(attribute.INT64),
-		"attr_type_float64":              uint64(attribute.FLOAT64),
-		"attr_type_string":               uint64(attribute.STRING),
-		"attr_type_boolslice":            uint64(attribute.BOOLSLICE),
-		"attr_type_int64slice":           uint64(attribute.INT64SLICE),
-		"attr_type_float64slice":         uint64(attribute.FLOAT64SLICE),
-		"attr_type_stringslice":          uint64(attribute.STRINGSLICE),
-		"g_bpf_traceparent_enabled":      true,
-		"g_bpf_loop_enabled":             p.supportsBPFLoop,
-		"g_traces_ctx_v1_enabled":        p.traceCtxMapEnabled,
-		"g_exceptions_enabled":           p.exceptionsEnabled,
+		"g_bpf_debug":                           p.cfg.BpfDebug,
+		"g_bpf_header_propagation":              p.cfg.ContextPropagation.HasHeaders(),
+		"g_bpf_probe_write_user_enabled":        p.supportsContextPropagation(),
+		"g_go_h2_write_fail_step":               goH2WriteFailStepForTest,
+		"wakeup_data_bytes":                     ebpfcommon.WakeupDataBytes(p.cfg.WakeupLen, unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{}), eventsRingBufSize),
+		"ringbuf_metrics_enabled":               p.metrics != nil && !imetrics.IsBuiltinNoopReporter(p.metrics),
+		"disable_black_box_cp":                  blackBoxCP,
+		"attr_type_invalid":                     uint64(attribute.INVALID),
+		"attr_type_bool":                        uint64(attribute.BOOL),
+		"attr_type_int64":                       uint64(attribute.INT64),
+		"attr_type_float64":                     uint64(attribute.FLOAT64),
+		"attr_type_string":                      uint64(attribute.STRING),
+		"attr_type_boolslice":                   uint64(attribute.BOOLSLICE),
+		"attr_type_int64slice":                  uint64(attribute.INT64SLICE),
+		"attr_type_float64slice":                uint64(attribute.FLOAT64SLICE),
+		"attr_type_stringslice":                 uint64(attribute.STRINGSLICE),
+		"g_bpf_traceparent_enabled":             true,
+		"g_bpf_loop_enabled":                    p.supportsBPFLoop,
+		"g_traces_ctx_v1_enabled":               p.traceCtxMapEnabled,
+		"g_exceptions_enabled":                  p.exceptionsEnabled,
+		"g_http_server_active_requests_enabled": p.httpServerActiveRequestsEnabled,
 	}
 
 	if p.cfg.TrackRequestHeaders ||
@@ -574,6 +641,14 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.ReqProtoMinorPos,
 		goexec.RespProtoMajorPos,
 		goexec.RespProtoMinorPos,
+		goexec.ReqTLSPos,
+		goexec.ReqHostPos,
+		goexec.HTTP2ServerReqMethodPos,
+		goexec.HTTP2ServerReqURLPos,
+		goexec.HTTP2ServerReqTLSPos,
+		goexec.HTTP2ServerReqHostPos,
+		goexec.HTTP2ResponseWriterStatePos,
+		goexec.HTTP2ResponseWriterReqPos,
 	})
 	offTable.Table[goexec.FramerPadLengthStackPos] = missingGoOffset
 	offTable.Table[goexec.FramerPadLengthStackVendoredPos] = missingGoOffset
@@ -597,6 +672,14 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.ReqHeaderPtrPos,
 		goexec.ReqProtoMajorPos,
 		goexec.ReqProtoMinorPos,
+		goexec.ReqTLSPos,
+		goexec.ReqHostPos,
+		goexec.HTTP2ServerReqMethodPos,
+		goexec.HTTP2ServerReqURLPos,
+		goexec.HTTP2ServerReqTLSPos,
+		goexec.HTTP2ServerReqHostPos,
+		goexec.HTTP2ResponseWriterStatePos,
+		goexec.HTTP2ResponseWriterReqPos,
 		goexec.RespProtoMajorPos,
 		goexec.RespProtoMinorPos,
 		goexec.IoWriterBufPtrPos,
@@ -1767,6 +1850,19 @@ var goH2OwnershipProbeSymbols = []string{
 	"google.golang.org/grpc/internal/transport.(*loopyWriter).originateStream",
 }
 
+var goHTTPServerRequestProbeSymbols = []string{
+	"golang.org/x/net/http2.(*serverConn).runHandler",
+	"golang.org/x/net/http2.(*serverConn).upgradeRequest",
+	"net/http/internal/http2.(*serverConn).runHandler",
+	"net/http/internal/http2.(*serverConn).upgradeRequest",
+	"net/http/internal/http2.(*serverConn).newResponseWriter",
+}
+
+// GoHTTPServerRequestProbeSymbols returns the symbols used by request lifecycle probe groups.
+func GoHTTPServerRequestProbeSymbols() []string {
+	return append([]string(nil), goHTTPServerRequestProbeSymbols...)
+}
+
 // GoChannelLinkProbeSymbols returns the Go runtime symbols used to correlate direct channel handoffs.
 func GoChannelLinkProbeSymbols() []string {
 	return append([]string(nil), goChannelLinkProbeSymbols...)
@@ -2212,6 +2308,15 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		}}
 	}
 
+	if p.httpServerActiveRequestsEnabled {
+		m["runtime.goexit1"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeRuntimeGoexit1,
+		}}
+
+		delete(m, "golang.org/x/net/http2.(*serverConn).runHandler")
+		delete(m, "net/http/internal/http2.(*serverConn).runHandler")
+	}
+
 	// HTTP Header extraction
 	// With bpf_loop, readMIMEHeader scans the buffered request headers on entry.
 	// Following them across buffer refills needs a probe on every bufio fill in
@@ -2445,6 +2550,53 @@ func (p *Tracer) GoProbeGroups() []ebpfcommon.GoProbeGroup {
 				},
 			},
 		})
+	}
+
+	if p.httpServerActiveRequestsEnabled {
+		for _, implementation := range []struct {
+			name    string
+			pkgPath string
+			start   *ebpf.Program
+		}{
+			{"xnet", "golang.org/x/net/http2", p.bpfObjects.ObiUprobeHttp2serverConnRunHandlerXnet},
+			{"stdlib", "net/http/internal/http2", p.bpfObjects.ObiUprobeHttp2serverConnRunHandlerInternal},
+		} {
+			runHandlerSymbol := implementation.pkgPath + ".(*serverConn).runHandler"
+			active := ebpfcommon.GoProbeGroup{
+				Name: "go_http_server_active_requests_" + implementation.name,
+				RequiresAll: []string{
+					implementation.pkgPath + ".(*responseWriter).handlerDone",
+					"runtime.goexit1",
+				},
+				Probes: []ebpfcommon.GoProbe{
+					{
+						Symbol: implementation.pkgPath + ".(*serverConn).upgradeRequest",
+						Probe: &ebpfcommon.ProbeDesc{
+							Start: p.bpfObjects.ObiUprobeHttp2serverConnUpgradeRequest,
+							End:   p.bpfObjects.ObiUprobeHttp2serverConnUpgradeRequestReturns,
+						},
+					},
+					{
+						Symbol: runHandlerSymbol,
+						Probe:  &ebpfcommon.ProbeDesc{Start: implementation.start},
+					},
+				},
+			}
+			if implementation.name == "stdlib" {
+				active.Probes = append(active.Probes, ebpfcommon.GoProbe{
+					Symbol: implementation.pkgPath + ".(*serverConn).newResponseWriter",
+					Probe:  &ebpfcommon.ProbeDesc{End: p.bpfObjects.ObiUprobeHttp2serverConnNewResponseWriterReturns},
+				})
+			}
+			groups = append(groups, active, ebpfcommon.GoProbeGroup{
+				Name:         "go_http2_" + implementation.name + "_server_fallback",
+				ConflictsAny: []string{runHandlerSymbol},
+				Probes: []ebpfcommon.GoProbe{{
+					Symbol: runHandlerSymbol,
+					Probe:  &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeHttp2serverConnRunHandler},
+				}},
+			})
+		}
 	}
 
 	return groups
@@ -2713,6 +2865,28 @@ func (p *Tracer) SetEventContext(eventContext *ebpfcommon.EBPFEventContext) {
 			_, err := p.handleGoAutoSDKActivationEvent(record)
 			return err
 		},
+	)
+
+	handleHTTPServerRequest := func(record *ringbuf.Record) error {
+		event, err := ebpfcommon.ReinterpretCast[ebpfcommon.HTTPServerRequestEvent](record.RawSample)
+		if err != nil {
+			return err
+		}
+
+		if eventContext.HTTPServerRequests != nil {
+			eventContext.HTTPServerRequests(*event)
+		}
+
+		return nil
+	}
+
+	eventContext.RegisterInternalEventHandler(
+		ebpfcommon.EventTypeHTTPServerRequestStart,
+		handleHTTPServerRequest,
+	)
+	eventContext.RegisterInternalEventHandler(
+		ebpfcommon.EventTypeHTTPServerRequestEnd,
+		handleHTTPServerRequest,
 	)
 }
 

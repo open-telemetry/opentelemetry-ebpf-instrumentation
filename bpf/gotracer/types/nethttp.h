@@ -46,6 +46,11 @@ typedef struct server_http_func_invocation {
     u8 _pad[4];
 } server_http_func_invocation_t;
 
+typedef struct http_server_request_state {
+    u64 start_monotime_ns;
+    u64 goroutine_addr;
+} http_server_request_state_t;
+
 typedef struct http2_owned_stream_ref {
     go_h2_owned_stream_key_t stream;
 } http2_owned_stream_ref_t;

@@ -261,6 +261,14 @@ const (
 	GrpcSyscallConnTypeAddress
 	TLSConnTypeAddress
 	TCPConnTypeAddress
+	ReqTLSPos
+	HTTP2ServerReqMethodPos
+	HTTP2ServerReqURLPos
+	HTTP2ServerReqTLSPos
+	HTTP2ResponseWriterStatePos
+	HTTP2ResponseWriterReqPos
+	ReqHostPos
+	HTTP2ServerReqHostPos
 )
 
 //go:embed offsets.json
@@ -305,6 +313,27 @@ var nestedRuntimeFields = []nestedStructField{
 // level-2 key = name of the field
 // level-3 value = C constant name to override (e.g. path_ptr_pos)
 var structMembers = map[string]structInfo{
+	"net/http/internal/http2.responseWriter": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"rws": HTTP2ResponseWriterStatePos,
+		},
+	},
+	"net/http/internal/http2.responseWriterState": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"req": HTTP2ResponseWriterReqPos,
+		},
+	},
+	"net/http/internal/http2.ServerRequest": {
+		lib: "go",
+		fields: map[string]GoOffset{
+			"Method": HTTP2ServerReqMethodPos,
+			"URL":    HTTP2ServerReqURLPos,
+			"TLS":    HTTP2ServerReqTLSPos,
+			"Host":   HTTP2ServerReqHostPos,
+		},
+	},
 	"net/http.Request": {
 		lib: "go",
 		fields: map[string]GoOffset{
@@ -314,6 +343,8 @@ var structMembers = map[string]structInfo{
 			"Header":        ReqHeaderPtrPos,
 			"ProtoMajor":    ReqProtoMajorPos,
 			"ProtoMinor":    ReqProtoMinorPos,
+			"TLS":           ReqTLSPos,
+			"Host":          ReqHostPos,
 		},
 	},
 	"net/url.URL": {

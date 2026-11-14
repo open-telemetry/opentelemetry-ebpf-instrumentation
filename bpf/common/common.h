@@ -99,6 +99,25 @@ typedef struct http_request_trace {
     pid_info_t pid;
 } http_request_trace_t;
 
+typedef struct http_server_request_key {
+    u64 pid;
+    u64 goroutine_addr;
+    u64 start_monotime_ns;
+} http_server_request_key_t;
+
+typedef struct http_server_request_event {
+    u8 type; // Must be first
+    bool is_tls;
+    u8 _pad[2];
+    pid_info_t pid;
+    u64 goroutine_addr;
+    u64 start_monotime_ns;
+    connection_info_t conn;
+    unsigned char method[k_method_max_len];
+    unsigned char host[k_host_max_len];
+    u8 _pad1[1];
+} http_server_request_event_t;
+
 typedef struct sql_request_trace {
     u8 type; // Must be first
     u8 sub_type;

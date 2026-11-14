@@ -105,6 +105,34 @@ func HTTPRequestTraceToSpan(parseCtx *EBPFParseContext, trace *HTTPRequestTrace)
 	return span
 }
 
+// HTTPServerRequestEventToSpan converts a start event into request attributes for metrics.
+func HTTPServerRequestEventToSpan(event *HTTPServerRequestEvent) request.Span {
+	scheme := "http"
+	if event.IsTls {
+		scheme = "https"
+	}
+
+	span := request.Span{
+		Type:             request.EventTypeHTTP,
+		Method:           cstr(event.Method[:]),
+		Statement:        scheme + request.SchemeHostSeparator,
+		RequestAuthority: cstr(event.Host[:]),
+		Pid: request.PidInfo{
+			HostPID:   app.PID(event.Pid.HostPid),
+			UserPID:   app.PID(event.Pid.UserPid),
+			Namespace: event.Pid.Ns,
+		},
+	}
+
+	if event.Conn.S_port != 0 || event.Conn.D_port != 0 {
+		span.Peer, span.Host = (*BPFConnInfo)(&event.Conn).reqHostInfo()
+		span.PeerPort = int(event.Conn.S_port)
+		span.HostPort = int(event.Conn.D_port)
+	}
+
+	return span
+}
+
 func enrichedGoHTTPSpan(parseCtx *EBPFParseContext, conn BpfConnectionInfoT, span *request.Span) request.Span {
 	if req, requestBuffer, ok := parseGoRequestLargeBuffer(parseCtx, conn, span); ok {
 		resp := &http.Response{Header: http.Header{}}

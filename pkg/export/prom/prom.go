@@ -161,9 +161,11 @@ type metricsReporter struct {
 	extraMetadataLabels     []attr.Name
 	extraSpanMetadataLabels []attr.Name
 
-	input         <-chan []request.Span
-	processEvents <-chan exec.ProcessEvent
-	runtimeInput  <-chan []runtimemetrics.RuntimeMetricSnapshot
+	input              <-chan []request.Span
+	processEvents      <-chan exec.ProcessEvent
+	runtimeInput       <-chan []runtimemetrics.RuntimeMetricSnapshot
+	httpServerRequests <-chan []request.HTTPServerRequestDelta
+	httpActiveRequests *httpActiveRequestsMetric
 
 	obiInfo                *Expirer[prometheus.Gauge]
 	httpDuration           *Expirer[prometheus.Histogram]
@@ -982,6 +984,16 @@ func newReporter(
 
 	registeredMetrics := []prometheus.Collector{mr.targetInfo}
 
+	if jointMetricsConfig.Features.HTTPServerActiveRequests() && is.HTTPEnabled() {
+		getters := attributes.PrometheusGetters(request.SpanPromGettersForHTTP(unresolved),
+			attrsProvider.For(attributes.HTTPServerActiveRequests))
+		mr.httpActiveRequests = newHTTPActiveRequestsMetric(getters, timeNow, cfg.TTL)
+		registeredMetrics = append(registeredMetrics, mr.httpActiveRequests)
+		if ctxInfo.AppO11y.HTTPServerRequests != nil {
+			mr.httpServerRequests = ctxInfo.AppO11y.HTTPServerRequests.Subscribe(msg.SubscriberName("prom.HTTPServerRequests"))
+		}
+	}
+
 	if !mr.cfg.DisableBuildInfo {
 		registeredMetrics = append(registeredMetrics, mr.obiInfo)
 	}
@@ -1177,6 +1189,9 @@ func (r *metricsReporter) collectMetrics(ctx context.Context) {
 	go r.watchForProcessEvents(ctx)
 	if r.runtimeInput != nil {
 		go r.watchForRuntimeMetrics(ctx)
+	}
+	if r.httpServerRequests != nil {
+		go swarms.ForEachInput(ctx, r.httpServerRequests, nil, r.observeHTTPServerRequests)
 	}
 	swarms.ForEachInput(ctx, r.input, nil, func(spans []request.Span) {
 		for i := range spans {

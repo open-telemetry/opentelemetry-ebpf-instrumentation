@@ -61,6 +61,30 @@ func TestV2ConnectionInfoFeatureRoundTrip(t *testing.T) {
 	require.True(t, roundTrip.Metrics.Features.ConnectionInfo())
 }
 
+func TestV2HTTPServerActiveRequestsFeatureRoundTrip(t *testing.T) {
+	const name = "application_http_server_active_requests"
+
+	ext, err := schema.ParseReceiverYAML([]byte(
+		"version: '2.0'\nmetrics:\n  features: [application, " + name + "]\n",
+	))
+	require.NoError(t, err)
+
+	want := export.FeatureApplicationRED |
+		export.FeatureApplicationSizes |
+		export.FeatureHTTPServerActiveRequests
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.Equal(t, want, got.Metrics.Features)
+
+	_, doc := RuntimeToV2(got)
+	require.Equal(t, []string{"application", name}, doc.Capture.Metrics.Features)
+
+	roundTrip, err := V2ToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, want, roundTrip.Metrics.Features)
+}
+
 func TestV2StatsTCPResetsFeatureRoundTrip(t *testing.T) {
 	const name = "stats_tcp_resets"
 	ext, err := schema.ParseReceiverYAML([]byte("version: '2.0'\nmetrics:\n  features: [" + name + "]\n"))

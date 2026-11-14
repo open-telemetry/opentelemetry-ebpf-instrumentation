@@ -132,6 +132,8 @@ func TestGoOffsetsFromDwarf(t *testing.T) {
 		URLPtrPos:         uint64(16),
 		ReqProtoMajorPos:  uint64(dwarfStructField(t, requestType, "ProtoMajor").ByteOffset),
 		ReqProtoMinorPos:  uint64(dwarfStructField(t, requestType, "ProtoMinor").ByteOffset),
+		ReqTLSPos:         uint64(dwarfStructField(t, requestType, "TLS").ByteOffset),
+		ReqHostPos:        uint64(dwarfStructField(t, requestType, "Host").ByteOffset),
 		RespProtoMajorPos: uint64(dwarfStructField(t, responseType, "ProtoMajor").ByteOffset),
 		RespProtoMinorPos: uint64(dwarfStructField(t, responseType, "ProtoMinor").ByteOffset),
 		PathPtrPos:        uint64(56),
@@ -196,6 +198,8 @@ func TestGoOffsetsWithoutDwarf(t *testing.T) {
 		ReqProtoMinorPos:                  uint64(dwarfStructField(t, requestType, "ProtoMinor").ByteOffset),
 		RespProtoMajorPos:                 uint64(dwarfStructField(t, responseType, "ProtoMajor").ByteOffset),
 		RespProtoMinorPos:                 uint64(dwarfStructField(t, responseType, "ProtoMinor").ByteOffset),
+		ReqTLSPos:                         uint64(dwarfStructField(t, requestType, "TLS").ByteOffset),
+		ReqHostPos:                        uint64(dwarfStructField(t, requestType, "Host").ByteOffset),
 		PathPtrPos:                        uint64(56),
 		ConnFdPos:                         uint64(0),
 		FdLaddrPos:                        uint64(96),
@@ -246,6 +250,18 @@ func TestHTTP2ClientConnTLSStateOffsets(t *testing.T) {
 			got, ok := offs.Find(tc.structName, "tlsState", tc.version)
 			require.True(t, ok)
 			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestHTTPRequestTLSOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+	for _, version := range []string{"1.17.0", "1.20.0", "1.26.10", "1.27.3"} {
+		t.Run(version, func(t *testing.T) {
+			offset, found := track.Find("net/http.Request", "TLS", version)
+			require.True(t, found)
+			assert.Equal(t, uint64(208), offset)
 		})
 	}
 }

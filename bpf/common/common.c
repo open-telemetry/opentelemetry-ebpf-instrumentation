@@ -26,6 +26,8 @@
 // Force emitting these types into the ELF so bpf2go generates their Go
 // counterparts (structs, and constants for enums)
 const http_request_trace_t *unused_4 __attribute__((unused));
+const http_server_request_event_t *unused_28 __attribute__((unused));
+const http_server_request_key_t *unused_29 __attribute__((unused));
 const sql_request_trace_t *unused_3 __attribute__((unused));
 const tcp_req_t *unused_5 __attribute__((unused));
 const kafka_client_req_t *unused_6 __attribute__((unused));
