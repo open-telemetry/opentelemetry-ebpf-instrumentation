@@ -5,6 +5,7 @@ package discover
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"os"
 	"runtime"
@@ -324,4 +325,62 @@ func TestJavaInjectionQueue_EnqueueAfterShutdownIsDropped(t *testing.T) {
 
 	assert.Equal(t, int32(0), injections.Load())
 	assert.Error(t, process.Alive(), "a target dropped after shutdown must be closed")
+}
+
+func TestJavaInjectionQueue_RetriesTransientFailureAndSucceeds(t *testing.T) {
+	origBackoff := javaAttachRetryBackoff
+	javaAttachRetryBackoff = time.Millisecond
+	t.Cleanup(func() { javaAttachRetryBackoff = origBackoff })
+
+	var attempts atomic.Int32
+	done := make(chan struct{})
+
+	queue := newJavaInjectionQueue(slog.Default(), nil, func(context.Context, javaagent.InjectionTarget) error {
+		if attempts.Add(1) < 3 {
+			return errors.New("java attach timed out")
+		}
+		close(done)
+		return nil
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	queue.start(ctx)
+	queue.enqueue(javaTarget(42))
+
+	select {
+	case <-done:
+	case <-time.After(testTimeout):
+		t.Fatal("timed out waiting for java attach retry to succeed")
+	}
+
+	assert.Equal(t, int32(3), attempts.Load())
+	cancel()
+	queue.wait()
+}
+
+func TestJavaInjectionQueue_StopsRetryingOnCancel(t *testing.T) {
+	origBackoff := javaAttachRetryBackoff
+	javaAttachRetryBackoff = time.Second
+	t.Cleanup(func() { javaAttachRetryBackoff = origBackoff })
+
+	var attempts atomic.Int32
+	firstAttempt := make(chan struct{})
+
+	queue := newJavaInjectionQueue(slog.Default(), nil, func(context.Context, javaagent.InjectionTarget) error {
+		if attempts.Add(1) == 1 {
+			close(firstAttempt)
+		}
+		return errors.New("java attach timed out")
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	queue.start(ctx)
+	queue.enqueue(javaTarget(43))
+
+	<-firstAttempt
+	cancel()
+	queue.wait()
+
+	assert.Equal(t, int32(1), attempts.Load())
 }

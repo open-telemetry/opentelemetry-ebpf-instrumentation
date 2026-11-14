@@ -1666,7 +1666,7 @@
         "attach_timeout": {
           "type": "string",
           "pattern": "^[0-9]+(ms|s|m)$",
-          "default": "10s",
+          "default": "1m",
           "examples": [
             "30s",
             "5m",

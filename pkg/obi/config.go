@@ -368,7 +368,7 @@ var DefaultConfig = Config{
 	},
 	Java: JavaConfig{
 		Enabled: true,
-		Timeout: 10 * time.Second,
+		Timeout: 60 * time.Second,
 	},
 	JVMRuntimeMetrics: JVMRuntimeMetricsConfig{
 		SamplingInterval: time.Second,
