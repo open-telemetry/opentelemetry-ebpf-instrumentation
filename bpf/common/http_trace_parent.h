@@ -93,13 +93,18 @@ static __always_inline void index_http_server_context(const http2_conn_stream_t 
     existing->ambiguous = 1;
 }
 
-static __always_inline void unindex_http_server_trace(u32 pid, const tp_info_t *tp) {
-    const http_server_trace_key_t key = http_server_trace_key(pid, tp->trace_id);
+static __always_inline void
+unindex_http_server_trace_id(u32 pid, const unsigned char *trace_id, const unsigned char *span_id) {
+    const http_server_trace_key_t key = http_server_trace_key(pid, trace_id);
 
     const http_server_trace_ref_t *ref = bpf_map_lookup_elem(&http_server_trace_index, &key);
-    if (ref && !ref->ambiguous && indexes_request(ref, tp->span_id)) {
+    if (ref && !ref->ambiguous && indexes_request(ref, span_id)) {
         bpf_map_delete_elem(&http_server_trace_index, &key);
     }
+}
+
+static __always_inline void unindex_http_server_trace(u32 pid, const tp_info_t *tp) {
+    unindex_http_server_trace_id(pid, tp->trace_id, tp->span_id);
 }
 
 static __always_inline void index_http_server_trace(const pid_connection_info_t *pid_conn,

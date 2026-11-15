@@ -86,6 +86,8 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 	metricsInstrs := metricsInstrumentations(cfg)
 	appMetricsEnabled := cfg.Metrics.Features.AnyAppO11yMetric()
 
+	httpRequestPhaseSpans := !cfg.Traces.DisableHTTPRequestPhaseSpans
+
 	protocols := make(map[protocolName]schema.ProtocolInstrumentation, len(protocolMappings))
 	for _, mapping := range protocolMappings {
 		protocols[mapping.name] = protocolInstrumentation(
@@ -102,6 +104,7 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 		Enabled: schema.HTTPProtocolEnablement{
 			ProtocolEnablement: http.Enabled,
 			BodySizeMetrics:    cfg.Metrics.Features.AppSizes(),
+			RequestPhaseSpans:  &httpRequestPhaseSpans,
 		},
 		Filters:                   http.Filters,
 		TrackRequestHeaders:       cfg.EBPF.TrackRequestHeaders,
@@ -429,6 +432,9 @@ func captureEngine(cfg *obi.Config) schema.CaptureEngine {
 			WakeupLen:    cfg.EBPF.WakeupLen,
 			BatchLength:  cfg.EBPF.BatchLength,
 			BatchTimeout: schema.Duration(cfg.EBPF.BatchTimeout),
+			Stats: schema.StatsBatching{
+				WakeupBytes: cfg.EBPF.StatsWakeupDataBytes,
+			},
 		},
 		Propagation: schema.Propagation{
 			ContextPropagation:     cfg.EBPF.ContextPropagation,
@@ -575,12 +581,30 @@ func traceIDRatioSampler(raw string) *otelconfx.Sampler {
 	}
 }
 
+func v2ExemplarFilter(cfg *obi.Config) *otelconfx.ExemplarFilter {
+	name := cfg.OTELMetrics.ExemplarFilter
+	if name == "" && cfg.Prometheus.EndpointEnabled() {
+		name = cfg.Prometheus.ExemplarFilter
+		if cfg.OTELMetrics.EndpointEnabled() && name != string(otelconfx.ExemplarFilterTraceBased) {
+			return nil
+		}
+	}
+	filter := otelconfx.ExemplarFilter(name)
+	switch filter {
+	case otelconfx.ExemplarFilterAlwaysOn, otelconfx.ExemplarFilterAlwaysOff, otelconfx.ExemplarFilterTraceBased:
+		return &filter
+	default:
+		return nil
+	}
+}
+
 func meterProvider(cfg *obi.Config) *otelconfx.MeterProvider {
 	endpoint, _ := cfg.OTELMetrics.OTLPMetricsEndpoint()
 	insecure := insecureOTLPTransport(endpoint)
 	interval := int(cfg.OTELMetrics.GetInterval().Milliseconds())
 	prometheusPort := cfg.Prometheus.Port
 	return &otelconfx.MeterProvider{
+		ExemplarFilter: v2ExemplarFilter(cfg),
 		Readers: []otelconfx.MetricReader{
 			{
 				Periodic: &otelconfx.PeriodicMetricReader{
@@ -644,6 +668,7 @@ func enrich(cfg *obi.Config) *schema.Enrich {
 				MetadataCache: schema.KubernetesMetadataCache{
 					Address:           cfg.Attributes.Kubernetes.MetaCacheAddress,
 					RestrictLocalNode: cfg.Attributes.Kubernetes.MetaRestrictLocalNode,
+					TLS:               schema.KubernetesMetadataCacheTLS(cfg.Attributes.Kubernetes.MetaCacheTLS),
 					SourceLabels: schema.KubernetesSourceLabels{
 						ServiceName:      cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName,
 						ServiceNamespace: cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace,
@@ -651,6 +676,9 @@ func enrich(cfg *obi.Config) *schema.Enrich {
 				},
 			},
 			Cloud: schema.CloudEnricher{
+				Detection: schema.CloudDetection{
+					Enabled: &cfg.CloudMetadata.DetectionEnabled,
+				},
 				ClusterName:     cfg.CloudMetadata.ClusterName,
 				Region:          cfg.CloudMetadata.Region,
 				RefreshInterval: schema.Duration(cfg.CloudMetadata.RefreshInterval),

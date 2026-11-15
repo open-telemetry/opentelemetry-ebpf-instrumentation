@@ -156,6 +156,7 @@ OBI adopts the standard declarative fields incrementally. For the first stable v
 | `tracer_provider.sampler` | Partial: `always_on`, `always_off`, `trace_id_ratio_based`, and simple `parent_based` roots that use those samplers. |
 | `tracer_provider.processors` | Partial: one batch processor with one OTLP exporter. Automatic migration emits gRPC; the gated standalone importer in [#2682](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pull/2682) also accepts HTTP/protobuf, HTTP/JSON, and declarative exporter headers. |
 | `meter_provider.readers` | Partial: at most one periodic OTLP reader and one Prometheus development pull reader. Automatic migration emits OTLP/gRPC; the gated standalone importer in [#2682](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pull/2682) also accepts OTLP/HTTP and declarative exporter headers. |
+| `meter_provider.exemplar_filter` | Supported: `always_on`, `always_off`, and `trace_based` apply to the Prometheus pull reader and to the application, service graph, network, and stats metrics of the OTLP reader, and take precedence over `OTEL_METRICS_EXEMPLAR_FILTER` there. Runtime and internal metrics keep following `OTEL_METRICS_EXEMPLAR_FILTER`. When omitted, OTLP metrics follow `OTEL_METRICS_EXEMPLAR_FILTER` (default `trace_based`) and Prometheus metrics attach no exemplars. |
 | `log_level` | Supported for OBI daemon logging. OTel `trace*` and `debug*` severities map to `DEBUG`; `info*` to `INFO`; `warn*` to `WARN`; `error*` and `fatal*` to `ERROR`. `extensions.obi.daemon.logging.level` is not part of v2; use the top-level field. |
 | `attribute_limits` | Rejected whenever present by the target adapter in #2682. |
 | `disabled`, `distribution`, `propagator` | `disabled: true`, non-empty `distribution`, and non-empty propagator configuration are rejected. Empty/default placeholders do not enable runtime behavior. |
@@ -690,6 +691,9 @@ filtering and general attribute transformations with Collector processors.
 
 The `capture.engine` section controls eBPF engine internals: event batching, PID-based filtering, BPF filesystem path, context propagation mode, traffic control backend, transaction duration limits, and debug toggles.
 
+`capture.engine.batching.wakeup_len` counts events in the application capture ring buffer.
+`capture.engine.batching.stats.wakeup_bytes` is a separate byte threshold for the network stats ring buffer; `0` wakes userspace on every event.
+
 `capture.engine.cgroup_filesystem.path` sets the host cgroup v2 mount that context propagation attaches its sockops programs to.
 An unprivileged container has its own cgroup namespace, so its `/sys/fs/cgroup` covers only OBI's own cgroup.
 Mount the host hierarchy at another path, for example `/host/sys/fs/cgroup`, and set it here to propagate context for connections from every process on the node without hiding the container's own cgroup.
@@ -917,6 +921,7 @@ Important mapping notes:
 | `ebpf.traffic_control_backend` | `extensions.obi.capture.engine.traffic.control_backend` | Move + rename |
 | `ebpf.override_bpfloop_enabled` | `extensions.obi.capture.engine.propagation.override_bpfloop_enabled` | Move |
 | `ebpf.wakeup_len` | `extensions.obi.capture.engine.batching.wakeup_len` | Move |
+| `ebpf.stats_wakeup_data_bytes` | `extensions.obi.capture.engine.batching.stats.wakeup_bytes` | Move + rename |
 | `enforce_sys_caps` | `extensions.obi.capture.safety.enforce_system_capabilities` | Move + rename |
 | `executable_path` | `extensions.obi.capture.rules[].match.process.exe_path_regex` (include rule) | Legacy fallback selector |
 | `open_port` | `extensions.obi.capture.rules[].match.process.open_ports` (include rule) | Fallback selector |
@@ -990,6 +995,7 @@ Important mapping notes:
 | `prometheus_export.allow_service_graph_self_references` | `extensions.obi.daemon.telemetry.metrics.prometheus.allow_service_graph_self_references` | Move to daemon telemetry tuning |
 | `prometheus_export.extra_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_resource_attributes` | Move to daemon telemetry tuning |
 | `prometheus_export.extra_span_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_span_resource_attributes` | Move to daemon telemetry tuning |
+| `prometheus_export.exemplar_filter` | `meter_provider.exemplar_filter` | Provider-wide; migration rejects a value that would change the active OTLP exporter's effective `trace_based` filter |
 | `prometheus_export.port` | `meter_provider.readers[1].pull.exporter.prometheus/development.port` | OTel ownership move + declarative reader/exporter shape |
 | `prometheus_export.path` | *No canonical OTel core path in current declarative schema* | Distribution-specific/unsupported in current target shape |
 | `prometheus_export.features` | Use the effective `metrics.features` mapping | Deprecated; used only when the OTLP metric exporter does not provide features |

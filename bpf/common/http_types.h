@@ -60,6 +60,11 @@ typedef struct call_protocol_args {
     u64 self_ref_parent_id;
     u64 sock_ptr;
     lw_thread_t lw_thread;
+    // The user buffer u_buf holds a truncated copy of, or 0. Only the HTTP/1
+    // header scan reads it, to cover its whole window.
+    u64 user_buf;
+    u32 user_len;
+    u8 _pad3[4];
 } call_protocol_args_t;
 
 static __always_inline void read_request_buf(http_info_t *info, const call_protocol_args_t *args) {

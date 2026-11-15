@@ -135,6 +135,7 @@ const (
 	TextReaderRPos
 	BufReaderBufPos
 	BufReaderWPos
+	BufReaderRPos
 	// grpc
 	GrpcStreamStPtrPos
 	GrpcStreamMethodPtrPos
@@ -538,6 +539,7 @@ var structMembers = map[string]structInfo{
 		fields: map[string]GoOffset{
 			"buf": BufReaderBufPos,
 			"w":   BufReaderWPos,
+			"r":   BufReaderRPos,
 		},
 	},
 	"google.golang.org/grpc/internal/transport.bufWriter": {

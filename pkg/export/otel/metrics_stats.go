@@ -77,6 +77,7 @@ func newStatMeterProvider(res *resource.Resource, exporter *sdkmetric.Exporter, 
 	return metric.NewMeterProvider(
 		metric.WithResource(res),
 		metric.WithReader(metric.NewPeriodicReader(*exporter, metric.WithInterval(interval))),
+		metric.WithExemplarFilter(cfg.GetExemplarFilter()),
 		metric.WithView(statHistogramView(attributes.StatTCPRtt.OTEL, cfg.Buckets.StatTCPRttHistogram, isExponential, cfg.ExponentialHistogram)),
 	)
 }
@@ -86,6 +87,7 @@ func statHistogramView(metricName string, buckets []float64, isExponential bool,
 }
 
 type statMetricsExporter struct {
+	provider                 *metric.MeterProvider
 	tcpRtt                   *Expirer[*ebpf.Stat, metric2.Float64Histogram, float64]
 	tcpFailedConnections     *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
 	tcpRetransmits           *Expirer[*ebpf.Stat, metric2.Int64Counter, int64]
@@ -122,7 +124,7 @@ func newStatMetricsExporter(
 	ctxInfo *global.ContextInfo,
 	cfg *StatMetricsConfig,
 	input *msg.Queue[[]*ebpf.Stat],
-) (*statMetricsExporter, error) {
+) (_ *statMetricsExporter, retErr error) {
 	log := smlog()
 	log.Debug("instantiating stat metrics exporter provider")
 	exporter, err := ctxInfo.OTELMetricsExporter.Instantiate(ctx)
@@ -130,6 +132,7 @@ func newStatMetricsExporter(
 		log.Error("can't instantiate metrics exporter", "error", err)
 		return nil, err
 	}
+	defer releaseExporterOnError(ctx, exporter, &retErr)
 	exporter = instrumentMetricsExporter(ctxInfo.Metrics, exporter)
 
 	resource := createFilteredStatsResource(ctxInfo.NodeMeta.HostID, cfg.SelectorCfg.SelectionCfg)
@@ -143,6 +146,7 @@ func newStatMetricsExporter(
 	ebpfEvents := provider.Meter(statScopeName, obiMeterOptions()...)
 
 	nme := &statMetricsExporter{
+		provider:  provider,
 		expireTTL: cfg.Metrics.TTL,
 	}
 
@@ -251,6 +255,7 @@ func newStatMetricsExporter(
 }
 
 func (me *statMetricsExporter) Do(ctx context.Context) {
+	defer me.shutdown(ctx)
 	for i := range me.in {
 		for _, v := range i {
 			if me.tcpRtt != nil && v.TCPRtt != nil {
@@ -278,5 +283,13 @@ func (me *statMetricsExporter) Do(ctx context.Context) {
 				tcpResets.Add(ctx, 1, metric2.WithAttributeSet(attrs))
 			}
 		}
+	}
+}
+
+func (me *statMetricsExporter) shutdown(ctx context.Context) {
+	shutdownCtx, cancel := shutdownContext(ctx)
+	defer cancel()
+	if err := me.provider.Shutdown(shutdownCtx); err != nil {
+		smlog().Warn("error shutting down stat metrics provider", "error", err)
 	}
 }

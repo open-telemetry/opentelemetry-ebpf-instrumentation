@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/pipe/transform/k8s"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/ebpf"
 	"go.opentelemetry.io/obi/pkg/internal/statsolly/export"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
 	"go.opentelemetry.io/obi/pkg/selection"
@@ -34,7 +35,7 @@ var newRingBufTracer = func(s *Stats, out *msg.Queue[[]*ebpf.Stat]) swarm.RunFun
 
 // buildPipeline defines the different nodes in the OBI's StatsO11y module,
 // as well as how they are interconnected (in its Connect() method)
-func (s *Stats) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
+func (s *Stats) buildPipeline(ctx, readerCtx context.Context) (*swarm.Runner, error) {
 	alog := alog()
 
 	alog.Debug("creating stats processing graph")
@@ -48,13 +49,18 @@ func (s *Stats) buildPipeline(ctx context.Context) (*swarm.Runner, error) {
 	swi := &swarm.Instancer{}
 	// Start nodes: those generating stats (reading them from eBPF)
 	ebpfStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, s.ctxInfo.Metrics, "ebpfStats")
-	swi.Add(swarm.DirectInstance(newRingBufTracer(s, ebpfStats)), swarm.WithID("RingBufTracer"))
+	readRingBuf := newRingBufTracer(s, ebpfStats)
+	swi.Add(swarm.DirectInstance(func(_ context.Context) { readRingBuf(readerCtx) }), swarm.WithID("RingBufTracer"))
 
 	// Middle nodes: transforming stats and passing them to the next stage in the pipeline.
 	// Many of the nodes here are not mandatory. It's decision of each InstanceFunc to decide
 	// whether the node needs to be instantiated or just bypass their input/output channels.
 	kubeDecoratedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, s.ctxInfo.Metrics, "kubeDecoratedStats")
-	swi.Add(k8s.MetadataDecoratorProvider(ctx, &s.cfg.Attributes.Kubernetes, s.ctxInfo.K8sInformer,
+	swi.Add(k8s.MetadataDecoratorProvider(ctx, &s.cfg.Attributes.Kubernetes,
+		&metadata.MetadataProvider{
+			K8sInformer:   s.ctxInfo.K8sInformer,
+			CloudMetadata: s.cfg.CloudMetadata,
+		},
 		statAttrs, ebpfStats, kubeDecoratedStats), swarm.WithID("K8sMetadataDecorator"))
 
 	dnsDecoratedStats := msgh.QueueFromConfig[[]*ebpf.Stat](s.cfg, s.ctxInfo.Metrics, "dnsDecoratedStats")

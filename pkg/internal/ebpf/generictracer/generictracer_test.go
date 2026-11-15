@@ -51,6 +51,22 @@ func TestSocketFiltersAvoidCurrentPIDHelper(t *testing.T) {
 	}
 }
 
+func TestHTTP1LegacyProgramsAvoidBPFLoop(t *testing.T) {
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+	for _, name := range []string{
+		"obi_protocol_http_legacy", "obi_continue_protocol_http_legacy", "obi_handle_buf_with_args_legacy",
+	} {
+		program := spec.Programs[name]
+		require.NotNil(t, program)
+		for _, instruction := range program.Instructions {
+			if instruction.IsBuiltinCall() {
+				assert.NotEqual(t, asm.FnLoop, asm.BuiltinFunc(instruction.Constant), name)
+			}
+		}
+	}
+}
+
 func TestParseJVMMemoryPoolRecordDecoratesServiceByPIDNamespace(t *testing.T) {
 	service := svc.Attrs{UID: svc.UID{Name: "orders", Namespace: "prod"}}
 	currentPIDsCalls := 0
@@ -239,10 +255,29 @@ func TestJVMBPFMapsAreInternallyPinnedAndUseSharedEventsRingBuffer(t *testing.T)
 
 func TestRingbufMetricsConstant(t *testing.T) {
 	tracer := New(nil, &obi.Config{}, imetrics.NoopReporter{})
-	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
+	assert.Equal(t, false, tracer.constants(0)["ringbuf_metrics_enabled"])
 
 	tracer = New(nil, &obi.Config{}, struct{ imetrics.NoopReporter }{})
-	assert.Equal(t, true, tracer.constants()["ringbuf_metrics_enabled"])
+	assert.Equal(t, true, tracer.constants(0)["ringbuf_metrics_enabled"])
+}
+
+func TestWakeupDataBytesUsesScaledRingBufSize(t *testing.T) {
+	cfg := &obi.Config{}
+	cfg.EBPF.WakeupLen = 500
+	cfg.EBPF.MapsConfig.GlobalScaleFactor = -3
+	tracer := New(nil, cfg, imetrics.NoopReporter{})
+
+	bundles, err := tracer.LoadSpecs()
+	require.NoError(t, err)
+	require.Len(t, bundles, 1)
+
+	ebpfconvenience.SetupMapSizes(bundles[0].Spec, cfg.EBPF.MapsConfig.GlobalScaleFactor)
+	loadedRingBufSize := bundles[0].Spec.Maps[BpfMapEvents].MaxEntries
+	require.Equal(t, uint32(128<<10), loadedRingBufSize)
+
+	wakeup, ok := bundles[0].Constants["wakeup_data_bytes"].(uint32)
+	require.True(t, ok)
+	assert.Equal(t, loadedRingBufSize/2, wakeup)
 }
 
 func TestPythonAsyncMapsScopePointersByProcess(t *testing.T) {
@@ -275,6 +310,32 @@ func TestJVMRuntimeMetricsExposeHotSpotUSDTProbes(t *testing.T) {
 	assert.Equal(t, "mem__pool__gc__begin", probes["libjvm.so"][0].Name)
 	assert.Equal(t, "hotspot", probes["libjvm.so"][1].Provider)
 	assert.Equal(t, "mem__pool__gc__end", probes["libjvm.so"][1].Name)
+
+	fallback := probes["libjvm.so"][0].Fallback
+	require.NotNil(t, fallback)
+	assert.Same(t, fallback, probes["libjvm.so"][1].Fallback, "both USDT probes must share one fallback so it attaches once")
+
+	var prefixes, suffixes []string
+	for _, probe := range fallback.Probes {
+		require.True(t, len(probe.Symbols) > 0 || probe.SymbolPrefix != "" || probe.SymbolSuffix != "")
+		if probe.SymbolPrefix != "" {
+			prefixes = append(prefixes, probe.SymbolPrefix)
+		}
+		if probe.SymbolSuffix != "" {
+			suffixes = append(suffixes, probe.SymbolSuffix)
+		}
+	}
+	require.Len(t, suffixes, 1)
+	poolSuffix := suffixes[0]
+	for _, poolSymbol := range []string{
+		"_ZN10G1EdenPool16get_memory_usageEv",
+		"_ZN32ShenandoahGenerationalMemoryPool16get_memory_usageEv",
+	} {
+		assert.True(t, strings.HasSuffix(poolSymbol, poolSuffix), poolSymbol)
+	}
+	monitoringSymbol := "_ZN19G1MonitoringSupport23eden_space_memory_usageEmm"
+	assert.False(t, strings.HasSuffix(monitoringSymbol, poolSuffix))
+	assert.Equal(t, []string{"_ZN15GCMemoryManager8gc_beginE", "_ZN15GCMemoryManager6gc_endE"}, prefixes)
 }
 
 func TestJVMRuntimeMetricsConstantOverridesUseApplicationRuntimeAsFeatureGate(t *testing.T) {
@@ -321,7 +382,7 @@ func TestJVMRuntimeMetricsConstantOverridesUseApplicationRuntimeAsFeatureGate(t 
 			}
 			tracer.cfg.JVMRuntimeMetrics.SamplingInterval = tt.samplingInterval
 
-			overrides := tracer.constants()
+			overrides := tracer.constants(0)
 
 			assert.Equal(t, tt.expectedInterval, overrides["jvm_sampling_interval_ns"])
 		})

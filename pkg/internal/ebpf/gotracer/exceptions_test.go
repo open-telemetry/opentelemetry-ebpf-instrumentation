@@ -46,10 +46,10 @@ func TestGoExceptionProbesAreProcessScoped(t *testing.T) {
 
 	disabled := New(nil, exceptionsConfig(false), nil)
 	assert.Empty(t, exceptionGroupSymbols(t, disabled), "global capture is off")
-	assert.Equal(t, false, disabled.constants()["g_exceptions_enabled"])
+	assert.Equal(t, false, disabled.constants(0)["g_exceptions_enabled"])
 
 	tracer := New(nil, exceptionsConfig(true), nil)
-	assert.Equal(t, true, tracer.constants()["g_exceptions_enabled"])
+	assert.Equal(t, true, tracer.constants(0)["g_exceptions_enabled"])
 	assert.Equal(t, []string{
 		goErrorfSymbol, goLegacyErrorfSymbol, goPanicSymbol, goCleanupSymbol,
 	}, exceptionGroupSymbols(t, tracer), "fmt.errorf registers before fmt.Errorf")

@@ -185,9 +185,9 @@ func TestTracerPipeline(t *testing.T) {
 	done := pipe.Start(ctx)
 
 	event := testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
-	matchInnerTraceEvent(t, "in queue", event)
+	matchInnerTraceEvent(t, "in queue", "queue", event)
 	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
-	matchInnerTraceEvent(t, "processing", event)
+	matchInnerTraceEvent(t, "processing", "processing", event)
 	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
 	matchTraceEvent(t, "GET", event)
 
@@ -644,9 +644,9 @@ func TestTraceGRPCPipeline(t *testing.T) {
 	done := pipe.Start(ctx)
 
 	event := testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
-	matchInnerGRPCTraceEvent(t, "in queue", event)
+	matchInnerGRPCTraceEvent(t, "in queue", "queue", event)
 	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
-	matchInnerGRPCTraceEvent(t, "processing", event)
+	matchInnerGRPCTraceEvent(t, "processing", "processing", event)
 	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
 	matchGRPCTraceEvent(t, "foo.Bar/Baz", event)
 
@@ -957,7 +957,7 @@ func matchTraceEvent(t require.TestingT, name string, event collector.TraceRecor
 	}, event)
 }
 
-func matchInnerTraceEvent(t require.TestingT, name string, event collector.TraceRecord) {
+func matchInnerTraceEvent(t require.TestingT, name, phase string, event collector.TraceRecord) {
 	assert.NotEmpty(t, event.ResourceAttributes, string(semconv.TelemetrySDKVersionKey))
 	delete(event.ResourceAttributes, string(semconv.TelemetrySDKVersionKey))
 	assert.NotEmpty(t, event.ResourceAttributes, string(semconv.TelemetryDistroVersionKey))
@@ -967,8 +967,9 @@ func matchInnerTraceEvent(t require.TestingT, name string, event collector.Trace
 	assert.Equal(t, collector.TraceRecord{
 		Name: name,
 		Attributes: map[string]string{
-			"span_id":        event.Attributes["span_id"],
-			"parent_span_id": event.Attributes["parent_span_id"],
+			"span_id":                    event.Attributes["span_id"],
+			"parent_span_id":             event.Attributes["parent_span_id"],
+			string(attr.OBIRequestPhase): phase,
 		},
 		ResourceAttributes: map[string]string{
 			string(semconv.HostIDKey):               "host-id",
@@ -1017,7 +1018,7 @@ func matchGRPCTraceEvent(t *testing.T, name string, event collector.TraceRecord)
 	}, event)
 }
 
-func matchInnerGRPCTraceEvent(t *testing.T, name string, event collector.TraceRecord) {
+func matchInnerGRPCTraceEvent(t *testing.T, name, phase string, event collector.TraceRecord) {
 	assert.NotEmpty(t, event.ResourceAttributes, string(semconv.TelemetrySDKVersionKey))
 	delete(event.ResourceAttributes, string(semconv.TelemetrySDKVersionKey))
 	assert.NotEmpty(t, event.ResourceAttributes, string(semconv.TelemetryDistroVersionKey))
@@ -1026,8 +1027,9 @@ func matchInnerGRPCTraceEvent(t *testing.T, name string, event collector.TraceRe
 	assert.Equal(t, collector.TraceRecord{
 		Name: name,
 		Attributes: map[string]string{
-			"span_id":        event.Attributes["span_id"],
-			"parent_span_id": event.Attributes["parent_span_id"],
+			"span_id":                    event.Attributes["span_id"],
+			"parent_span_id":             event.Attributes["parent_span_id"],
+			string(attr.OBIRequestPhase): phase,
 		},
 		ResourceAttributes: map[string]string{
 			string(semconv.HostIDKey):               "host-id",

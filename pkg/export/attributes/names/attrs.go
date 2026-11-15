@@ -154,6 +154,8 @@ var OBIIP = Name("obi.ip")
 // otherwise.
 var OBIHTTPResponseObserved = Name("obi.http.response.observed")
 
+var OBIRequestPhase = Name("obi.request.phase")
+
 const (
 	Transport       = Name("transport")
 	NetworkType     = Name(semconv.NetworkTypeKey)

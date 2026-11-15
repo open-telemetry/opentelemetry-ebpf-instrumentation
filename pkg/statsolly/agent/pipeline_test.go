@@ -78,7 +78,7 @@ func TestFilter(t *testing.T) {
 		}
 	}
 
-	runner, err := stats.buildPipeline(ctx)
+	runner, err := stats.buildPipeline(ctx, ctx)
 	require.NoError(t, err)
 
 	go runner.Start(ctx)

@@ -3,6 +3,10 @@ receivers:
     protocols:
       http:
         endpoint: 0.0.0.0:4318
+processors:
+  # one point per series per second for weaver: it needs the shapes, and 10ms exports keep its queue full
+  interval:
+    interval: 1s
 exporters:
   prometheus:
     endpoint: 0.0.0.0:9464
@@ -20,4 +24,5 @@ service:
       exporters: [prometheus]
     metrics/weaver:
       receivers: [otlp]
+      processors: [interval]
       exporters: [otlp/weaver]

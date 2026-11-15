@@ -10,8 +10,23 @@ services:
       - "6000:6000"
       - "6001:6001"
       - "6002:6002"
+      - "6004:6004"
     environment:
       LOG_LEVEL: DEBUG
+    depends_on:
+      otelcol:
+        condition: service_started
+      jaeger:
+        condition: service_started
+
+  # Go hop of the /large chain: tpclient a -> tpclient-go
+  tpclient-go:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/tpclient-go/Dockerfile
+    image: hatest-tpclient-go
+    ports:
+      - "6003:6003"
     depends_on:
       otelcol:
         condition: service_started
@@ -33,6 +48,8 @@ services:
     image: hatest-obi
     privileged: true
     pid: "host"
+    # sockops attaches at OBI's cgroup root, which must be the host's to see the other containers
+    cgroup: host
     environment:
       GOCOVERDIR: "/coverage"
       OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel"
@@ -42,10 +59,14 @@ services:
       OTEL_EBPF_LOG_LEVEL: "DEBUG"
       OTEL_EBPF_BPF_DEBUG: "TRUE"
       OTEL_EBPF_HOSTNAME: "obi"
+      # obi_avoided_services tells the tests when OBI has detected the OTel SDK's
+      # trace exports; /metrics is the path the obi-collector scrape job reads
+      OTEL_EBPF_INTERNAL_METRICS_EXPORTER: "prometheus"
       OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT: 8999
+      OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PATH: "/metrics"
       OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
       OTEL_EBPF_BPF_HIGH_REQUEST_VOLUME: 1
-      OTEL_EBPF_OPEN_PORT: "6000,6001,6002"
+      OTEL_EBPF_OPEN_PORT: "6000,6001,6002,6003,6004"
       OTEL_EBPF_BPF_CONTEXT_PROPAGATION: "headers"
       OTEL_EBPF_EXECUTABLE_PATH: "${OTEL_EBPF_EXECUTABLE_PATH}"
     ports:
@@ -53,7 +74,7 @@ services:
 
   # OpenTelemetry Collector
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b
+    image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
     container_name: otel-col
     deploy:
       resources:

@@ -34,6 +34,7 @@ func TestV2ToRuntimeDefaultExportFoundation(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.ChannelSendTimeout, got.ChannelSendTimeout)
 	require.Equal(t, obi.DefaultConfig.EnforceSysCaps, got.EnforceSysCaps)
 	require.Equal(t, obi.DefaultConfig.EBPF.WakeupLen, got.EBPF.WakeupLen)
+	require.Equal(t, obi.DefaultConfig.EBPF.StatsWakeupDataBytes, got.EBPF.StatsWakeupDataBytes)
 	require.Equal(t, obi.DefaultConfig.EBPF.BatchLength, got.EBPF.BatchLength)
 	require.Equal(t, obi.DefaultConfig.EBPF.BatchTimeout, got.EBPF.BatchTimeout)
 	require.Equal(t, obi.DefaultConfig.EBPF.ContextPropagation, got.EBPF.ContextPropagation)
@@ -198,6 +199,82 @@ network:
 	)
 }
 
+func TestV2ToRuntimeStatsWakeupDataBytes(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name     string
+		batching string
+		want     int
+	}{
+		{"omitted", "wakeup_len: 500", obi.DefaultConfig.EBPF.StatsWakeupDataBytes},
+		{"explicit zero", "stats: {wakeup_bytes: 0}", 0},
+		{"non-default", "stats: {wakeup_bytes: 8192}", 8192},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, standalone, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      engine:
+        batching:
+          ` + test.batching + `
+`))
+			require.NoError(t, err)
+			got, err := V2ToRuntime(standalone)
+			require.NoError(t, err)
+			require.Equal(t, test.want, got.EBPF.StatsWakeupDataBytes)
+
+			receiver, err := schema.ParseReceiverYAML([]byte(`
+version: "2.0"
+engine:
+  batching:
+    ` + test.batching + `
+`))
+			require.NoError(t, err)
+			got, err = V2ToRuntime(receiver)
+			require.NoError(t, err)
+			require.Equal(t, test.want, got.EBPF.StatsWakeupDataBytes)
+		})
+	}
+}
+
+func TestV2ToRuntimeStatsWakeupDataBytesExplicitZeroRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	cfg := defaultRuntimeConfig()
+	cfg.EBPF.StatsWakeupDataBytes = 0
+	_, ext := RuntimeToV2(&cfg)
+
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.Zero(t, got.EBPF.StatsWakeupDataBytes)
+}
+
+func TestV2ToRuntimeRejectsNegativeStatsWakeupDataBytes(t *testing.T) {
+	t.Parallel()
+
+	_, ext, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      engine:
+        batching:
+          stats:
+            wakeup_bytes: -1
+`))
+	require.NoError(t, err)
+	got, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.ErrorContains(t, got.ValidateStatic(), "StatsWakeupDataBytes")
+}
+
 func TestV2ToRuntimeRejectsNegativeChannelBufferLength(t *testing.T) {
 	t.Parallel()
 
@@ -277,6 +354,53 @@ extensions:
 	require.NoError(t, err)
 	require.True(t, got.Metrics.Features.AppRED())
 	require.False(t, got.Metrics.Features.AppSizes())
+}
+
+func TestDocumentToRuntimeRequestPhaseSpans(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name             string
+		http             string
+		wantHTTPDisabled bool
+	}{
+		{
+			name: "omitted",
+			http: "{}",
+		},
+		{
+			name: "enabled explicitly",
+			http: "{request_phase_spans: true}",
+		},
+		{
+			name:             "HTTP disabled",
+			http:             "{request_phase_spans: false}",
+			wantHTTPDisabled: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc, _, err := schema.ParseStandaloneYAML([]byte(`
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      instrumentation:
+        http:
+          enabled: ` + tt.http + `
+`))
+			require.NoError(t, err)
+
+			got, err := DocumentToRuntime(doc)
+			require.NoError(t, err)
+
+			require.Equal(t, tt.wantHTTPDisabled, got.Traces.DisableHTTPRequestPhaseSpans)
+		})
+	}
 }
 
 func TestV2ToRuntimeHTTPBodySizeMetrics(t *testing.T) {
@@ -453,6 +577,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.EBPF.BpfDebug = true
 	cfg.EBPF.ProtocolDebug = true
 	cfg.EBPF.WakeupLen = 8
+	cfg.EBPF.StatsWakeupDataBytes = 8192
 	cfg.EBPF.BatchLength = 9
 	cfg.EBPF.BatchTimeout = 10 * time.Second
 	cfg.EBPF.ContextPropagation = config.ContextPropagationAll
@@ -605,6 +730,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.True(t, got.Java.DebugInstrumentation)
 	require.Equal(t, 7*time.Second, got.Java.Timeout)
 
+	require.Equal(t, 8192, got.EBPF.StatsWakeupDataBytes)
 	require.Equal(t, config.ContextPropagationAll, got.EBPF.ContextPropagation)
 	require.Equal(t, config.TCBackendTCX, got.EBPF.TCBackend)
 	require.Equal(t, config.MapReaderLegacy, got.EBPF.ForceBPFMapReader)

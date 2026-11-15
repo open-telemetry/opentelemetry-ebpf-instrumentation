@@ -68,6 +68,7 @@ instrumentation:
             traces: true
             metrics: true
             body_size_metrics: true
+            request_phase_spans: true
         filters:
             traces:
                 http.request.method:
@@ -344,6 +345,8 @@ engine:
         wakeup_len: 500
         batch_length: 100
         batch_timeout: 1s
+        stats:
+            wakeup_bytes: 4096
     propagation:
         context_propagation: disabled
         override_bpfloop_enabled: false
