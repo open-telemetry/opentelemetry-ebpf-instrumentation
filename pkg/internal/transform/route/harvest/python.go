@@ -171,8 +171,12 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 	djangoLists := map[string]*djangoList{}
 	djangoAliases := map[string]string{}
 	hasDjangoPath := false
+	hasFalcon := false
 	scanStmt := func(text string) {
-		scanPythonStmt(text, e.routes)
+		if falconImportPattern.MatchString(text) {
+			hasFalcon = true
+		}
+		scanPythonStmt(text, e.routes, hasFalcon)
 		if match := djangoFromImportAliasPattern.FindStringSubmatch(text); match != nil {
 			djangoAliases[match[3]] = match[1] + "." + match[2]
 		} else if match := djangoImportAliasPattern.FindStringSubmatch(text); match != nil {
@@ -207,7 +211,7 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 
 		if stmt.Len() == 0 {
 			depth = parenDelta(line)
-			startsStmt := startsFastAPI(line) || startsFlask(line) ||
+			startsStmt := startsFastAPI(line) || startsFlask(line) || hasFalcon && startsFalcon(line) ||
 				djangoImportStart.MatchString(line) ||
 				hasDjangoPath && (djangoPathStart.MatchString(line) || djangoI18nStart.MatchString(line) ||
 					djangoListAssignmentPattern.MatchString(line))
@@ -244,9 +248,12 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 	return ctx.Err()
 }
 
-func scanPythonStmt(stmt string, routes map[string]struct{}) {
+func scanPythonStmt(stmt string, routes map[string]struct{}, hasFalcon bool) {
 	scanFastAPI(stmt, routes)
 	scanFlask(stmt, routes)
+	if hasFalcon {
+		scanFalcon(stmt, routes)
+	}
 }
 
 // parenDelta returns opening minus closing parentheses and square brackets on a

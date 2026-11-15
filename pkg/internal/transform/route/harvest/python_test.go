@@ -75,6 +75,48 @@ func TestExtractPythonRoutes(t *testing.T) {
 	assert.Equal(t, []string{"/api", "/items/{item_id}", "/users/<int:user_id>"}, result.Routes)
 }
 
+func TestExtractPythonFalconRoutes(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "falcon_app.py"), []byte(`
+import falcon
+
+class User:
+    def on_get(self, req, resp, user_id):
+        resp.text = "ok"
+
+app = falcon.App()
+app.add_route(
+    "/users/{user_id}",
+    User(),
+)
+app.add_route('/items/{item_id:int}', Item(), suffix='item')
+`), 0o644))
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "asgi_app.py"), []byte(`
+import falcon.asgi
+
+app = falcon.asgi.App()
+app.add_route(
+    '/dates/{ts:dt("%Y-%m-%d")}',
+    DateResource(),
+)
+`), 0o644))
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "unrelated.py"), []byte(`
+app.add_route("/not-a-falcon-route", Resource())
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"/dates/{ts}",
+		"/items/{item_id}",
+		"/users/{user_id}",
+	}, result.Routes)
+}
+
 func TestExtractPythonDjangoRoutes(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(dir, "checkout"), 0o755))
