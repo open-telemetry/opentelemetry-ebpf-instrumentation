@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -34,6 +35,7 @@ var pySkipDirs = map[string]struct{}{
 	".tox":          {},
 	".venv":         {},
 	"__pycache__":   {},
+	"dist-packages": {},
 	"env":           {},
 	"site-packages": {},
 	"venv":          {},
@@ -47,38 +49,52 @@ func ExtractPythonRoutes(ctx context.Context, fi *exec.FileInfo) (*RouteHarveste
 		return nil, errors.New("python route harvesting requires process file info")
 	}
 
-	dir, err := pythontools.AppDirForPID(fi.Pid(), fi.ServiceAttrs().EnvVars)
+	dirs, err := pythontools.AppDirsForPID(fi.Pid(), fi.ServiceAttrs().EnvVars)
 	if err != nil {
 		return nil, err
 	}
-	return extractPythonRoutes(ctx, dir)
+	return extractPythonRoutes(ctx, dirs...)
 }
 
-func extractPythonRoutes(ctx context.Context, dir string) (*RouteHarvesterResult, error) {
+// extractPythonRoutes scans the application directory, dirs[0], and then any
+// further import roots. The file limit is shared across all of them.
+func extractPythonRoutes(ctx context.Context, dirs ...string) (*RouteHarvesterResult, error) {
 	log := slog.With("component", "route.harvester.python")
 	e := pythonExtractor{
 		routes:       map[string]struct{}{},
 		djangoRoutes: map[string][]djangoRoute{},
 	}
 	kind := PartialRoutes
-	err := walkPythonFiles(ctx, dir, func(path string) error {
-		if err := e.scanFile(ctx, path); err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
+	remaining := maxPythonFiles
+	for _, root := range pythonScanRoots(dirs) {
+		scanned := 0
+		err := walkPythonFilesN(ctx, root.dir, remaining, func(path string) error {
+			scanned++
+			if err := e.scanFile(ctx, path); err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				log.Debug("error processing file", "file", path, "error", err)
+				return nil
 			}
-			log.Debug("error processing file", "file", path, "error", err)
+			if len(e.djangoRoutes[path]) > 0 && langtools.PathWithinBoundary(dirs[0], path) {
+				kind = CompleteRoutes
+			}
 			return nil
+		})
+		if err != nil {
+			if root.app || ctx.Err() != nil {
+				return nil, fmt.Errorf("scan Python directory: %w", err)
+			}
+			log.Debug("error scanning Python import root", "dir", root.dir, "error", err)
 		}
-		if len(e.djangoRoutes[path]) > 0 {
-			kind = CompleteRoutes
+		remaining -= scanned
+		if remaining <= 0 {
+			break
 		}
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("scan Python directory: %w", err)
 	}
 
-	if err := resolveDjangoRoutes(ctx, dir, e.djangoRoutes, e.routes); err != nil {
+	if err := resolveDjangoRoutes(ctx, dirs, e.djangoRoutes, e.routes); err != nil {
 		return nil, err
 	}
 
@@ -91,6 +107,60 @@ func extractPythonRoutes(ctx context.Context, dir string) (*RouteHarvesterResult
 	}
 	sort.Strings(result)
 	return &RouteHarvesterResult{Routes: result, Kind: kind}, nil
+}
+
+type pythonScanRoot struct {
+	dir string
+	app bool
+}
+
+// pythonScanRoots returns the directories to walk for the application
+// directory, dirs[0], and its import roots. Each directory is replaced by the
+// outermost one covering it, so no file is scanned twice; the root covering
+// the application directory is marked app, and failing to scan it fails the
+// harvest. Import roots holding installed packages are left out: their routes
+// are not the application's.
+func pythonScanRoots(dirs []string) []pythonScanRoot {
+	candidates := make([]string, 0, len(dirs))
+	for i, dir := range dirs {
+		if i == 0 || !pythonDependencyDir(dir) {
+			candidates = append(candidates, dir)
+		}
+	}
+	roots := make([]pythonScanRoot, 0, len(candidates))
+	for i, dir := range candidates {
+		cover := dir
+		for _, other := range candidates {
+			if len(other) < len(cover) && langtools.PathWithinBoundary(other, dir) {
+				cover = other
+			}
+		}
+		if j := slices.IndexFunc(roots, func(root pythonScanRoot) bool { return root.dir == cover }); j >= 0 {
+			roots[j].app = roots[j].app || i == 0
+			continue
+		}
+		roots = append(roots, pythonScanRoot{dir: cover, app: i == 0})
+	}
+	return roots
+}
+
+// pythonDependencyDir reports whether an import root holds installed packages:
+// an installation directory such as site-packages, or a pip --target
+// directory, which has the distributions' .dist-info metadata at its top level.
+func pythonDependencyDir(dir string) bool {
+	if name := filepath.Base(dir); name == "site-packages" || name == "dist-packages" {
+		return true
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasSuffix(entry.Name(), ".dist-info") {
+			return true
+		}
+	}
+	return false
 }
 
 func walkPythonFiles(ctx context.Context, root string, fn func(string) error) error {
