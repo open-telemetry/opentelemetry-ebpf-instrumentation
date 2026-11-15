@@ -17,6 +17,10 @@ func TestScanFalcon(t *testing.T) {
 		`app.add_route('/orders/{order_id}', OrderResource(), suffix='order')`,
 		`app.add_route('/files/{name}.{ext}', FileResource())`,
 		`app.add_route('/dates/{ts:dt("%Y-%m-%d")}', DateResource())`,
+		`app.add_route("/dates/{ts:dt(\"%Y-%m-%d\")}", DateResource())`,
+		`app.add_route(uri_template="/users/{user_id}", resource=UserResource())`,
+		`app.add_route(uri_template='/items/{item_id:int}', resource=ItemResource())`,
+		`app.add_route('/files/{file_path:path}', FileResource())`,
 	}
 	for _, line := range lines {
 		scanFalcon(line, routes)
@@ -27,6 +31,7 @@ func TestScanFalcon(t *testing.T) {
 		"/items/{item_id}",
 		"/orders/{order_id}",
 		"/dates/{ts}",
+		"/files/{file_path:path}",
 	}, routeKeys(routes))
 }
 
@@ -37,11 +42,27 @@ func TestScanFalconSkipsUnsupportedForms(t *testing.T) {
 		`app.add_route(f"/users/{user_id}", Resource())`,
 		`app.add_route(`,
 		`"/users/{user_id}")`,
+		`app.add_route('/files/{name}.{ext}', Resource())`,
 	} {
 		scanFalcon(line, routes)
 	}
 
 	assert.Empty(t, routes)
+}
+
+func TestFalconImportPattern(t *testing.T) {
+	for _, line := range []string{
+		`import falcon`,
+		`import falcon.asgi`,
+		`import falcon as f`,
+		`from falcon import App`,
+		`from falcon import asgi`,
+		`from falcon.asgi import App`,
+	} {
+		assert.True(t, falconImportPattern.MatchString(line), line)
+	}
+
+	assert.False(t, falconImportPattern.MatchString(`import flask`))
 }
 
 func TestStartsFalcon(t *testing.T) {

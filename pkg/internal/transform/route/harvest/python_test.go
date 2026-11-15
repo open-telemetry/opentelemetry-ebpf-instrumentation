@@ -315,3 +315,29 @@ func routeKeys(routes map[string]struct{}) []string {
 	}
 	return keys
 }
+
+func TestExtractPythonFalconFromImports(t *testing.T) {
+	dir := t.TempDir()
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "falcon_app.py"), []byte(`
+from falcon import App
+
+app = App()
+app.add_route(uri_template="/users/{user_id}", resource=User())
+`), 0o644))
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "falcon_asgi_app.py"), []byte(`
+from falcon.asgi import App
+
+app = App()
+app.add_route('/files/{file_path:path}', FileResource())
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"/files/{file_path:path}",
+		"/users/{user_id}",
+	}, result.Routes)
+}
