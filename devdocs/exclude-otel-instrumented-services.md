@@ -15,7 +15,7 @@ Two related options live under `discovery:` in the OBI config:
 
 | Option | Env var | Default | Effect |
 |---|---|---|---|
-| `exclude_otel_instrumented_services` | `OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES` | `true` | Suppress OBI-generated **traces** for a service once it is detected as exporting OTLP traces, and suppress OBI-generated **RED metrics** for a service once it is detected as exporting OTLP metrics. The two are tracked independently — exporting traces does not suppress metrics, and vice versa. |
+| `exclude_otel_instrumented_services` | `OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES` | `true` | Suppress OBI-generated **traces** for a service once it is detected as exporting OTLP traces, and suppress OBI-generated **RED metrics** for a service once it is detected as exporting OTLP metrics. The two are tracked independently — exporting traces does not suppress metrics, and vice versa. Exporting traces also stops OBI from injecting HTTP context propagation headers for that process. TCP options are unaffected. |
 | `exclude_otel_instrumented_services_span_metrics` | `OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES_SPAN_METRICS` | `false` | Also suppress OBI-generated **span metrics** for a service detected as exporting OTLP traces. |
 | `default_otlp_grpc_port` | `OTEL_EBPF_DEFAULT_OTLP_GRPC_PORT` | `4317` | Fallback peer port used by the gRPC endpoint heuristic (see below) when the process has no `OTEL_EXPORTER_OTLP_*_ENDPOINT` env var set. |
 
@@ -101,6 +101,13 @@ Once a service has its `ExportsOTelMetrics` / `ExportsOTelTraces` /
 - OTLP metrics — `otelMetricsAccepted` (RED metrics) and `otelSpanMetricsAccepted` (span metrics) in [`pkg/export/otel/metrics.go`](../pkg/export/otel/metrics.go).
 - OTLP traces — [`pkg/export/otel/tracesgen/tracesgen.go`](../pkg/export/otel/tracesgen/tracesgen.go).
 - Prometheus — RED-metrics and span-metrics filters in [`pkg/export/prom/prom.go`](../pkg/export/prom/prom.go).
+
+With `exclude_otel_instrumented_services` enabled, detecting trace exports also
+immediately marks the process in tpinjector's PID filter. Subsequent HTTP/1 and
+HTTP/2 header writes skip injection, including on existing connections. TCP
+option propagation is still performed. The mark is cleared when discovery
+reports that the process exited or ran `exec()`, so it can outlive an `exec()`
+by up to one `discovery.poll_interval` (this is an acceptable limitation for less code complexity).
 
 Each detection event increments the `obi.avoided.services` internal metric
 (Prometheus name: `obi_avoided_services`). Normal series are labeled with the

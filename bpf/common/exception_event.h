@@ -14,6 +14,7 @@ enum exception_runtime : u8 {
     k_exception_runtime_nodejs = 2,
     k_exception_runtime_python = 3,
     k_exception_runtime_ruby = 4,
+    k_exception_runtime_go = 5,
 };
 
 // How an exception was associated with a server request.

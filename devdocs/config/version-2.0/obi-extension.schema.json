@@ -65,6 +65,11 @@
           "type": "boolean",
           "default": true,
           "description": "Emit the HTTP request and response body size histograms.\nRequires `metrics`. Set it to false to keep the RED metrics without them.\nIf omitted, true is used.\n"
+        },
+        "request_phase_spans": {
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the `in queue` and `processing` spans for HTTP server requests.\nRequires `traces`.\nIf omitted, true is used.\n"
         }
       }
     },
@@ -526,6 +531,9 @@
             "enabled": {
               "type": "boolean",
               "description": "Override global exception capture. Omission inherits the global setting."
+            },
+            "go": {
+              "$ref": "#/$defs/Exceptions/properties/go"
             }
           }
         }
@@ -757,6 +765,18 @@
                   "type": "string",
                   "default": "1s",
                   "description": "Maximum time to wait before flushing a partial batch.\nIf omitted, `1s` is used.\n"
+                },
+                "stats": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "wakeup_bytes": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "default": 4096,
+                      "description": "Minimum bytes pending in the network stats ring buffer before userspace is woken up. `0` wakes userspace on every event.\nIf omitted, `4096` is used.\n"
+                    }
+                  }
                 }
               }
             },
@@ -993,6 +1013,7 @@
                       "stats",
                       "stats_tcp_failed_connections",
                       "stats_tcp_io",
+                      "stats_tcp_resets",
                       "stats_tcp_retransmits",
                       "stats_tcp_rtt",
                       "stats_tcp_successful_connections"
@@ -1922,7 +1943,8 @@
         "http": {
           "enabled": {
             "traces": true,
-            "metrics": true
+            "metrics": true,
+            "request_phase_spans": true
           },
           "filters": {}
         },
@@ -2206,7 +2228,8 @@
                   "tcp_failed_connections",
                   "tcp_successful_connections",
                   "tcp_retransmits",
-                  "tcp_io"
+                  "tcp_io",
+                  "tcp_resets"
                 ]
               },
               "default": [],
@@ -2300,6 +2323,17 @@
               "description": "Cloud metadata enricher configuration.\nIf omitted, implementation defaults are used.\n",
               "additionalProperties": true,
               "properties": {
+                "detection": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "default": true,
+                      "description": "Enable cloud metadata detection at startup.\nIf false, Azure VM, GCP, EC2, and ECS detection is skipped.\nIf omitted, true is used.\n"
+                    }
+                  }
+                },
                 "cluster_name": {
                   "type": "string",
                   "description": "Overrides automatic cloud cluster detection.\n"
@@ -2434,6 +2468,15 @@
           "default": false,
           "description": "Enable metadata exchange on directly routable non-Kubernetes hosts."
         },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "peer",
+            "central"
+          ],
+          "default": "peer",
+          "description": "How agents exchange metadata: directly between agents (peer), or through the central metadata service (central)."
+        },
         "listen_address": {
           "type": "string",
           "default": "",
@@ -2511,6 +2554,9 @@
         },
         "tls": {
           "$ref": "#/$defs/PeerMetadataTLS"
+        },
+        "central": {
+          "$ref": "#/$defs/PeerMetadataCentral"
         }
       }
     },
@@ -2521,17 +2567,17 @@
         "enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Use HTTPS for both serving and querying metadata."
+          "description": "Use TLS for serving and querying metadata. In central mode, only for querying the metadata service."
         },
         "cert_file": {
           "type": "string",
           "default": "",
-          "description": "Server certificate PEM file, required when TLS is enabled."
+          "description": "Server certificate PEM file, required when TLS is enabled in peer mode."
         },
         "key_file": {
           "type": "string",
           "default": "",
-          "description": "Server private key PEM file, required when TLS is enabled."
+          "description": "Server private key PEM file, required when TLS is enabled in peer mode."
         },
         "ca_file": {
           "type": "string",
@@ -2545,11 +2591,32 @@
         }
       }
     },
+    "PeerMetadataCentral": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Central metadata service connection, used in central mode.",
+      "properties": {
+        "address": {
+          "type": "string",
+          "default": "",
+          "description": "host:port address of the metadata service, required in central mode."
+        }
+      }
+    },
     "Exceptions": {
       "type": "object",
       "additionalProperties": false,
       "description": "Runtime exception capture. Exception records use the logs pipeline.",
       "properties": {
+        "go": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "panics": { "type": "boolean" },
+            "formatted_errors": { "type": "boolean" }
+          },
+          "description": "Go capture selection. Panics default to enabled and formatted errors to disabled; workload overrides inherit omitted fields."
+        },
         "enabled": {
           "type": "boolean",
           "default": false

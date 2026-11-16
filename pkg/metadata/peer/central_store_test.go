@@ -90,3 +90,48 @@ func TestCentralStoreKeepsHostsSharingHostname(t *testing.T) {
 	require.True(t, found)
 	require.Len(t, store.hosts, 2)
 }
+
+func TestCentralStoreAcknowledgesKnownCallers(t *testing.T) {
+	store := newCentralStore(time.Minute, 10)
+	now := time.Now()
+	client, server, other := netip.MustParseAddr("10.1.0.1"), netip.MustParseAddr("10.1.0.2"), netip.MustParseAddr("10.1.0.3")
+	frontend := Service{Name: "frontend", Namespace: "shop"}
+	destination := Endpoint{IP: server.String(), Port: 8080}
+	clientSnapshot := Snapshot{Hostname: "client", Callers: []Caller{{
+		Destination: destination, Services: []CallerService{{Service: frontend, RemainingMillis: 30000}},
+	}}}
+	require.NoError(t, store.publish("client-id", []netip.Addr{client}, clientSnapshot, now))
+	require.NoError(t, store.publish("server-id", []netip.Addr{server}, Snapshot{Hostname: "server"}, now))
+	require.NoError(t, store.publish("other-id", []netip.Addr{other}, Snapshot{Hostname: "other"}, now))
+
+	snapshot, _ := store.lookup(server, []netip.Addr{client}, now)
+	require.Empty(t, snapshot.KnownCallers, "the server has not looked up the client yet")
+
+	snapshot, _ = store.lookup(client, []netip.Addr{server}, now)
+	require.Len(t, snapshot.Callers, 1)
+
+	require.NoError(t, store.publish("server-id", []netip.Addr{server}, Snapshot{Hostname: "server"}, now.Add(time.Second)))
+	snapshot, _ = store.lookup(server, []netip.Addr{client}, now.Add(10*time.Second))
+	require.Equal(t, []Caller{{
+		Destination: destination, Services: []CallerService{{Service: frontend, RemainingMillis: 20000}},
+	}}, snapshot.KnownCallers, "known callers are aged and survive republishing")
+
+	snapshot, _ = store.lookup(server, []netip.Addr{other}, now)
+	require.Empty(t, snapshot.KnownCallers, "known callers are limited to the requester")
+
+	store.expire(now.Add(30 * time.Second))
+	require.Empty(t, store.hosts["server-id"].known, "expired known callers are removed")
+
+	clientSnapshot.CallerAmbiguityMillis = 5000
+	require.NoError(t, store.publish("client-id", []netip.Addr{client}, clientSnapshot, now))
+	store.lookup(client, []netip.Addr{server}, now)
+	snapshot, _ = store.lookup(server, []netip.Addr{client}, now.Add(time.Second))
+	require.Empty(t, snapshot.KnownCallers, "ambiguous callers are not acknowledged")
+	snapshot, _ = store.lookup(server, []netip.Addr{client}, now.Add(6*time.Second))
+	require.Len(t, snapshot.KnownCallers, 1)
+
+	require.NoError(t, store.publish("client-id", []netip.Addr{client}, Snapshot{Hostname: "client"}, now))
+	store.lookup(client, []netip.Addr{server}, now)
+	snapshot, _ = store.lookup(server, []netip.Addr{client}, now)
+	require.Empty(t, snapshot.KnownCallers, "a lookup without callers clears the acknowledgement")
+}

@@ -1,8 +1,4 @@
 services:
-  lgtm:
-    network_mode: host
-    ports: []
-
   artemis:
     image: apache/activemq-artemis:2.44.0@sha256:0305c26f19eda00c0506d0953cfe265600a72ac1b17f7934412120c01a595cff
     network_mode: host
@@ -31,9 +27,7 @@ services:
         condition: service_healthy
 
   autoinstrumenter:
-    build:
-      context: ../../../..
-      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    image: hatest-obi
     command:
       - --config=/configs/instrumenter-config-traces.yml
     volumes:
@@ -64,7 +58,7 @@ services:
   # Collector in front of lgtm (host networking): receives OBI's OTLP on 4319
   # and fans out to lgtm (127.0.0.1:4317) and weaver (127.0.0.1:4327).
   collector:
-    image: otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b
+    image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
     network_mode: host
     volumes:
       - ./configs:/configs

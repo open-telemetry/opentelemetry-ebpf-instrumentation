@@ -1,0 +1,70 @@
+name: oats python kafka
+interval: 500ms
+fixture:
+  compose:
+    template: lgtm
+    files:
+      - docker-compose-obi-python-kafka.yml
+      - ../weaver/docker-compose-weaver.yml
+    app_service: testserver
+    app_port: 8080
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+seed:
+  type: app
+input:
+  - path: /message
+    retry:
+      timeout: 30s
+      interval: 500ms
+      continue_after_success: true
+expected:
+  traces:
+    - traceql: '{ .messaging.operation.type = "process" && .messaging.consumer.group.name = "1" }'
+      match_spans:
+        - name: process my-topic
+          match_type: strict
+          attributes:
+            - key: messaging.consumer.group.name
+              value: "1"
+            - key: messaging.destination.name
+              value: my-topic
+            - key: messaging.operation.name
+              value: process
+            - key: messaging.operation.type
+              value: process
+            - key: messaging.system
+              value: kafka
+            - key: server.port
+              value: "9092"
+    - traceql: '{ .messaging.operation.type = "send" }'
+      match_spans:
+        - name: send my-topic
+          match_type: strict
+          attributes:
+            - key: messaging.destination.name
+              value: my-topic
+            - key: messaging.operation.name
+              value: send
+            - key: messaging.operation.type
+              value: send
+            - key: messaging.system
+              value: kafka
+            - key: server.port
+              value: "9092"
+  metrics:
+    - promql: messaging_client_operation_duration_seconds_count{messaging_system="kafka", messaging_destination_name="my-topic"}
+      value: '> 0'
+    - promql: messaging_client_operation_duration_seconds_bucket{le="0"}
+      value: == 0
+    - promql: messaging_client_operation_duration_seconds_bucket{le="10"}
+      value: '> 0'
+    - promql: messaging_process_duration_seconds_count{messaging_system="kafka", messaging_destination_name="my-topic"}
+      value: '> 0'
+    - promql: messaging_process_duration_seconds_count{messaging_system="kafka", messaging_consumer_group_name="1"}
+      value: '> 0'
+    - promql: messaging_process_duration_seconds_bucket{le="0"}
+      value: == 0
+    - promql: messaging_process_duration_seconds_bucket{le="10"}
+      value: '> 0'

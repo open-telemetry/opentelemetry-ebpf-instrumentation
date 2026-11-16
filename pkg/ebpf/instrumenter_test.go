@@ -570,6 +570,16 @@ func TestInstrumentOptionalGoProbeGroupLeavesProcessScopedProbeDetached(t *testi
 	assert.Len(t, closers, 2)
 }
 
+func TestGoProbeGroupOnlyProcessScoped(t *testing.T) {
+	scoped := ebpfcommon.GoProbe{Symbol: "fmt.errorf", ProcessScoped: true}
+	unscoped := ebpfcommon.GoProbe{Symbol: "start"}
+
+	assert.True(t, goProbeGroupOnlyProcessScoped(ebpfcommon.GoProbeGroup{Probes: []ebpfcommon.GoProbe{scoped}}),
+		"registered although nothing is attached to the executable")
+	assert.False(t, goProbeGroupOnlyProcessScoped(ebpfcommon.GoProbeGroup{Probes: []ebpfcommon.GoProbe{unscoped, scoped}}))
+	assert.False(t, goProbeGroupOnlyProcessScoped(ebpfcommon.GoProbeGroup{}))
+}
+
 func TestInstrumentOptionalGoProbeGroupRollsBackOnFailure(t *testing.T) {
 	startCloser := &countingCloser{}
 	endedCloser := &countingCloser{}
@@ -1231,6 +1241,40 @@ func TestStaleExecutableUnlinkPreservesReplacement(t *testing.T) {
 	assert.Equal(t, int32(1), newCloser.closes.Load())
 }
 
+type executableScopedRecorder struct {
+	stubTracer
+	events []string
+}
+
+func (r *executableScopedRecorder) RegisterExecutable(*exec.FileInfo) {
+	r.events = append(r.events, "register")
+}
+
+func (r *executableScopedRecorder) UnregisterExecutable(uint64, uint64) {
+	r.events = append(r.events, "unregister")
+}
+
+func TestExecutableScopedStateFollowsReplacement(t *testing.T) {
+	key := ExecutableKey{Dev: 5, Ino: 10}
+	fileInfo := exec.New(exec.Init{Dev: key.Dev, Ino: key.Ino})
+	recorder := &executableScopedRecorder{}
+	pt := &ProcessTracer{
+		log:             slog.Default(),
+		Programs:        []Tracer{recorder},
+		Instrumentables: map[ExecutableKey]*instrumenter{},
+	}
+	oldExecutable := &Instrumentable{FileInfo: fileInfo}
+	newExecutable := &Instrumentable{FileInfo: fileInfo}
+
+	pt.commitInstrumenter(&instrumenter{key: key, modules: map[uint64]struct{}{}}, oldExecutable)
+	pt.commitInstrumenter(&instrumenter{key: key, modules: map[uint64]struct{}{}}, newExecutable)
+	pt.UnlinkExecutable(fileInfo, oldExecutable.ExecutableGeneration)
+	assert.Equal(t, []string{"register", "unregister", "register"}, recorder.events)
+
+	pt.UnlinkExecutable(fileInfo, newExecutable.ExecutableGeneration)
+	assert.Equal(t, []string{"register", "unregister", "register", "unregister"}, recorder.events)
+}
+
 func TestUprobeTargetSharesInstrumenterUntilLastExecutableUnlinks(t *testing.T) {
 	firstKey := ExecutableKey{Dev: 5, Ino: 10}
 	secondKey := ExecutableKey{Dev: 6, Ino: 20}
@@ -1539,4 +1583,116 @@ func instrumenterFixtureELF(t *testing.T) *elf.File {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, f.Close()) })
 	return f
+}
+
+func TestInstrumentUSDTProbeDistinguishesAbsenceFromErrors(t *testing.T) {
+	probe := &ebpfcommon.USDTProbeDesc{
+		Provider:    "hotspot",
+		Name:        "mem__pool__gc__begin",
+		Program:     &ebpf.Program{},
+		SpecsMap:    &ebpf.Map{},
+		IPMap:       &ebpf.Map{},
+		SpecManager: &ebpfcommon.USDTSpecManager{},
+	}
+	malformedELF := &elf.File{Sections: []*elf.Section{{
+		SectionHeader: elf.SectionHeader{Name: ".note.stapsdt", Type: elf.SHT_PROGBITS},
+	}}}
+
+	for _, tc := range []struct {
+		name   string
+		file   *elf.File
+		probe  *ebpfcommon.USDTProbeDesc
+		absent bool
+	}{
+		{"absent", instrumenterFixtureELF(t), probe, true},
+		{"malformed notes", malformedELF, probe, false},
+		{"missing setup", nil, &ebpfcommon.USDTProbeDesc{}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			i := &instrumenter{}
+			closers, err := i.instrumentUSDTProbe(nil, "", tc.file, 0, 0, nil, "", tc.probe)
+			require.Error(t, err)
+			assert.Empty(t, closers)
+			assert.Equal(t, tc.absent, errors.Is(err, errUSDTProbeNotFound))
+		})
+	}
+}
+
+func TestUSDTFallbackAddressesResolvesEveryPresentSymbol(t *testing.T) {
+	values := expectedValues()
+	fallback := &ebpfcommon.USDTFallback{Probes: []ebpfcommon.USDTFallbackProbe{
+		{Symbols: []string{"setprogname", "missing_symbol", "fparseln"}},
+		{Symbols: []string{"missing_symbol", "strunvis"}},
+	}}
+
+	addresses, err := usdtFallbackAddresses(instrumenterFixtureELF(t), fallback)
+	require.NoError(t, err)
+
+	assert.Equal(t, [][]uint64{
+		{values["fparseln"].startOffset, values["setprogname"].startOffset},
+		{values["strunvis"].startOffset},
+	}, addresses)
+}
+
+func TestUSDTFallbackAddressesMatchesSymbolSuffix(t *testing.T) {
+	values := expectedValues()
+	fallback := &ebpfcommon.USDTFallback{Probes: []ebpfcommon.USDTFallbackProbe{
+		{Symbols: []string{"fparseln"}, SymbolSuffix: "proctitle_init"},
+		{Symbols: []string{"setprogname"}, SymbolSuffix: "setprogname"},
+	}}
+
+	addresses, err := usdtFallbackAddresses(instrumenterFixtureELF(t), fallback)
+	require.NoError(t, err)
+
+	assert.Equal(t, [][]uint64{
+		{values["fparseln"].startOffset, values["setproctitle_init"].startOffset},
+		{values["setprogname"].startOffset},
+	}, addresses)
+}
+
+func TestUSDTFallbackAddressesMatchesSymbolPrefix(t *testing.T) {
+	values := expectedValues()
+	fallback := &ebpfcommon.USDTFallback{Probes: []ebpfcommon.USDTFallbackProbe{
+		{SymbolPrefix: "setprog"},
+		{Symbols: []string{"fparseln"}, SymbolPrefix: "setproctitle_init"},
+	}}
+
+	addresses, err := usdtFallbackAddresses(instrumenterFixtureELF(t), fallback)
+	require.NoError(t, err)
+	assert.Equal(t, [][]uint64{
+		{values["setprogname"].startOffset},
+		{values["fparseln"].startOffset, values["setproctitle_init"].startOffset},
+	}, addresses)
+}
+
+func TestUSDTFallbackProbeMatchesGCSignatures(t *testing.T) {
+	for _, tc := range []struct {
+		prefix string
+		name   string
+		want   bool
+	}{
+		{"_ZN15GCMemoryManager8gc_beginE", "_ZN15GCMemoryManager8gc_beginEbbb", true},
+		{"_ZN15GCMemoryManager8gc_beginE", "_ZN15GCMemoryManager8gc_beginEbbbb", true},
+		{"_ZN15GCMemoryManager6gc_endE", "_ZN15GCMemoryManager6gc_endEbbbbN7GCCause5CauseEb", true},
+		{"_ZN15GCMemoryManager6gc_endE", "_ZN15GCMemoryManager6gc_endEbbbbN7GCCause5CauseEbPKc", true},
+		{"_ZN15GCMemoryManager6gc_endE", "_ZN15GCMemoryManager6gc_endEv", true},
+		{"_ZN15GCMemoryManager8gc_beginE", "_ZN15GCMemoryManager14gc_begin_extraEv", false},
+		{"_ZN15GCMemoryManager6gc_endE", "_ZN15GCMemoryManager12gc_end_extraEv", false},
+		{"_ZN15GCMemoryManager6gc_endE", "_ZN15GCMemoryManager8gc_beginEbbb", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			probe := ebpfcommon.USDTFallbackProbe{SymbolPrefix: tc.prefix}
+			assert.Equal(t, tc.want, usdtFallbackProbeMatches(probe, tc.name))
+		})
+	}
+}
+
+func TestUSDTFallbackAddressesFailsWhenAProbeResolvesNoSymbol(t *testing.T) {
+	fallback := &ebpfcommon.USDTFallback{Probes: []ebpfcommon.USDTFallbackProbe{
+		{Symbols: []string{"setprogname"}},
+		{Symbols: []string{"missing_symbol"}},
+	}}
+
+	_, err := usdtFallbackAddresses(instrumenterFixtureELF(t), fallback)
+	require.ErrorContains(t, err, "missing_symbol")
 }

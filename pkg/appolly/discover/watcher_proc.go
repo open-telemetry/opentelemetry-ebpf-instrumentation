@@ -55,6 +55,7 @@ const (
 	EventInstanceDeleted
 	// EventExecutableReplaced retires instrumentation while retaining the process's selection.
 	EventExecutableReplaced
+	EventUpdated
 )
 
 type Event[T any] struct {
@@ -98,6 +99,17 @@ func (r ProcessWatcherRescan) enabled() bool {
 // as well as PIDs from processes that setup a new connection.
 // When rescan is enabled, the watcher re-emits processes for matching after selector or criteria changes.
 func ProcessWatcherFunc(
+	cfg *obi.Config,
+	ebpfContext *ebpfcommon.EBPFEventContext,
+	output *msg.Queue[[]Event[ProcessAttrs]],
+	findingCriteria []services.Selector,
+	rescan ProcessWatcherRescan,
+) swarm.RunFunc {
+	return ProcessWatcherWithCriteriaUpdates(cfg, ebpfContext, output, findingCriteria, rescan, nil)
+}
+
+// ProcessWatcherWithCriteriaUpdates also responds to static criteria refreshes.
+func ProcessWatcherWithCriteriaUpdates(
 	cfg *obi.Config,
 	ebpfContext *ebpfcommon.EBPFEventContext,
 	output *msg.Queue[[]Event[ProcessAttrs]],

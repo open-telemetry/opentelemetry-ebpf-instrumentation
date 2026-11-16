@@ -31,6 +31,21 @@ environment variables explicitly using `${env:VARIABLE}` in the corresponding
 setting. The bearer token is optional. Peer metadata settings are omitted when
 OBI logs its runtime configuration.
 
+To exchange metadata through the [central metadata service](#central-metadata-service)
+instead of directly between agents, set `mode: central` and the service address:
+
+```yaml
+peer_metadata:
+  enabled: true
+  mode: central
+  central:
+    address: metadata-service.example.com:8999
+  token: ${env:OBI_PEER_METADATA_TOKEN}
+  tls:
+    enabled: true
+    ca_file: /etc/obi/peer/ca.pem
+```
+
 ## Resolution
 
 Each agent inventories all selected, instrumented services, including services
@@ -113,8 +128,10 @@ All settings are under `extensions.obi.enrich.enrichers.peer_metadata`.
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `enabled` | `false` | Enable serving and querying peer metadata. |
-| `listen_address` | `""` | Bind IP; empty binds all local interfaces. |
-| `port` | `8998` | Shared metadata port. |
+| `mode` | `peer` | `peer` exchanges metadata directly between agents; `central` uses the metadata service. |
+| `central.address` | `""` | Metadata service `host:port`; required in central mode. |
+| `listen_address` | `""` | Bind IP; empty binds all local interfaces. Peer mode only. |
+| `port` | `8998` | Shared metadata port. Peer mode only. |
 | `peer_cidrs` | `[]` | Allowed incoming and outgoing peer networks; empty selects private blocks. |
 | `refresh_interval` | `10s` | Peer and listener inventory refresh interval. |
 | `caller_ttl` | `60s` | Observation retention. |
@@ -127,9 +144,9 @@ All settings are under `extensions.obi.enrich.enrichers.peer_metadata`.
 | `max_cache_bytes` | `67108864` | Cached encoded response byte budget. |
 | `token` | `""` | Shared bearer token; requires TLS and supports declarative substitution. |
 | `tls.enabled` | `false` | Serve and query over TLS. |
-| `tls.cert_file` | `""` | Server certificate PEM file. |
-| `tls.key_file` | `""` | Server private key PEM file. |
-| `tls.ca_file` | `""` | Peer CA PEM file; empty uses system roots. |
+| `tls.cert_file` | `""` | Server certificate PEM file; required with TLS in peer mode. |
+| `tls.key_file` | `""` | Server private key PEM file; required with TLS in peer mode. |
+| `tls.ca_file` | `""` | Peer or metadata service CA PEM file; empty uses system roots. |
 | `tls.server_name` | `""` | Override the certificate name verified for peers. |
 
 Durations must be at least 1ms and size limits must be positive.
@@ -176,8 +193,22 @@ observation overflow conservatively.
 ## Central metadata service
 
 The `metadata-service` binary (`cmd/metadata-service`) is an alternative to the
-direct agent-to-agent exchange. Agents do not use it yet: the `central` exchange
-mode still fails at startup.
+direct agent-to-agent exchange. Agents in `central` mode do not serve metadata
+or open the metadata port: they only connect to the service as clients.
+
+Each agent publishes its snapshot at startup and then every `refresh_interval`,
+together with its local addresses within `peer_cidrs`, excluding loopback.
+The service expires hosts after its `host_ttl`, so keep `refresh_interval` well
+below it. An agent without such addresses logs a warning and does not publish,
+so other agents cannot resolve it, but it still looks up other hosts.
+
+Agents look up hosts as they appear in spans, with the same caching, refresh and
+backoff as direct exchange. Hosts that have not published are retried with the
+failure backoff. Publishing requires the `host.id` of the agent, which OBI
+detects or takes from the `host.id` resource attribute; startup fails in central
+mode without it. `max_response_bytes` limits both published and looked up
+snapshots, so it must not exceed the service's `max_message_bytes`. TLS only
+needs `ca_file` and `server_name`, since agents do not serve metadata.
 
 The service implements the `MetadataService` gRPC API in
 [`proto/metadata.proto`](../proto/metadata.proto). Regenerate its Go code with
@@ -194,9 +225,12 @@ The service implements the `MetadataService` gRPC API in
   address is unknown. Caller observations are limited to destinations in the
   requester's addresses, and lifetimes are aged from the publish time. Agents only
   look up hosts seen in their spans.
-
-The service does not return `known_callers` yet, so client agents keep their
-request counts for edges resolved through it.
+- `known_callers` acknowledge the requester's observations that the looked up
+  host received in its own lookups of the requester, aged from those lookups. The
+  service derives them from lookups, so it cannot see when the looked up host
+  evicts the requester from its cache. Keep the agents' `caller_ttl` at or below
+  their `cache_ttl`, as the defaults do, so acknowledgements expire no later than
+  the cached observations.
 
 Published addresses must fall within `peer_cidrs`, or within the private blocks
 when it is empty. A bearer `token` requires TLS. Like the peer-to-peer protocol,

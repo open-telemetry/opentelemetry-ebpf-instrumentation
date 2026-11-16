@@ -1,0 +1,165 @@
+name: go-exceptions
+
+services:
+  default:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/go-exceptions/Dockerfile
+      args:
+        - GO_EXCEPTIONS_GO_IMAGE
+    image: hatest-go-exceptions:${GO_EXCEPTIONS_TAG:-1.27}
+    network_mode: "host"
+    environment:
+      OTEL_SERVICE_NAME: go-exceptions-default
+      LISTEN_ADDR: 127.0.0.1:18590
+
+  stripped-pie:
+    image: hatest-go-exceptions:${GO_EXCEPTIONS_TAG:-1.27}
+    network_mode: "host"
+    environment:
+      OTEL_SERVICE_NAME: go-exceptions-stripped-pie
+      LISTEN_ADDR: 127.0.0.1:18591
+    command: [ "/go-exceptions-stripped-pie" ]
+    depends_on:
+      default:
+        condition: service_started
+
+  stripped:
+    image: hatest-go-exceptions:${GO_EXCEPTIONS_TAG:-1.27}
+    network_mode: "host"
+    environment:
+      OTEL_SERVICE_NAME: go-exceptions-stripped
+      LISTEN_ADDR: 127.0.0.1:18594
+    command: [ "/go-exceptions-stripped" ]
+    depends_on:
+      default:
+        condition: service_started
+
+  pie:
+    image: hatest-go-exceptions:${GO_EXCEPTIONS_TAG:-1.27}
+    network_mode: "host"
+    environment:
+      OTEL_SERVICE_NAME: go-exceptions-pie
+      LISTEN_ADDR: 127.0.0.1:18595
+    command: [ "/go-exceptions-pie" ]
+    depends_on:
+      default:
+        condition: service_started
+
+  cgo:
+    image: hatest-go-exceptions:${GO_EXCEPTIONS_TAG:-1.27}
+    network_mode: "host"
+    environment:
+      OTEL_SERVICE_NAME: go-exceptions-cgo
+      LISTEN_ADDR: 127.0.0.1:18596
+    command: [ "/go-exceptions-cgo" ]
+    depends_on:
+      default:
+        condition: service_started
+
+  static-cgo:
+    image: hatest-go-exceptions:${GO_EXCEPTIONS_TAG:-1.27}
+    network_mode: "host"
+    environment:
+      OTEL_SERVICE_NAME: go-exceptions-static-cgo
+      LISTEN_ADDR: 127.0.0.1:18597
+    command: [ "/go-exceptions-static-cgo" ]
+    depends_on:
+      default:
+        condition: service_started
+
+  trimpath:
+    image: hatest-go-exceptions:${GO_EXCEPTIONS_TAG:-1.27}
+    network_mode: "host"
+    environment:
+      OTEL_SERVICE_NAME: go-exceptions-trimpath
+      LISTEN_ADDR: 127.0.0.1:18598
+    command: [ "/go-exceptions-trimpath" ]
+    depends_on:
+      default:
+        condition: service_started
+
+  panic-only:
+    image: hatest-go-exceptions:${GO_EXCEPTIONS_TAG:-1.27}
+    network_mode: "host"
+    environment:
+      OTEL_SERVICE_NAME: go-exceptions-panic-only
+      LISTEN_ADDR: 127.0.0.1:18592
+    depends_on:
+      default:
+        condition: service_started
+
+  errors-only:
+    image: hatest-go-exceptions:${GO_EXCEPTIONS_TAG:-1.27}
+    network_mode: "host"
+    environment:
+      OTEL_SERVICE_NAME: go-exceptions-errors-only
+      LISTEN_ADDR: 127.0.0.1:18599
+    depends_on:
+      default:
+        condition: service_started
+
+  neither:
+    image: hatest-go-exceptions:${GO_EXCEPTIONS_TAG:-1.27}
+    network_mode: "host"
+    environment:
+      OTEL_SERVICE_NAME: go-exceptions-neither
+      LISTEN_ADDR: 127.0.0.1:18600
+    depends_on:
+      default:
+        condition: service_started
+
+  disabled:
+    image: hatest-go-exceptions:${GO_EXCEPTIONS_TAG:-1.27}
+    network_mode: "host"
+    environment:
+      OTEL_SERVICE_NAME: go-exceptions-disabled
+      LISTEN_ADDR: 127.0.0.1:18593
+    depends_on:
+      default:
+        condition: service_started
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    volumes:
+      - ./configs/:/configs
+      - ./system/sys/kernel/security:/sys/kernel/security
+      - ../../../testoutput:/coverage
+      - ../../../testoutput/run-go-exceptions:/var/run/obi
+    image: hatest-obi
+    privileged: true
+    network_mode: "host"
+    pid: "host"
+    environment:
+      OTEL_EBPF_CONFIG_PATH: /configs/obi-config-go-exceptions.yml
+      GOCOVERDIR: "/coverage"
+      OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
+      OTEL_EBPF_BPF_BATCH_TIMEOUT: "10ms"
+      OTEL_EBPF_OTLP_TRACES_BATCH_TIMEOUT: "1ms"
+      OTEL_EBPF_OTLP_LOGS_BATCH_TIMEOUT: "100ms"
+      OTEL_EBPF_LOG_LEVEL: "DEBUG"
+    depends_on:
+      otelcol:
+        condition: service_started
+
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
+    user: "0"
+    command: [ "--config=/etc/otelcol-config/otelcol-config-go-exceptions.yml" ]
+    ports:
+      - "127.0.0.1:14518:14518"
+    volumes:
+      - ./configs/:/etc/otelcol-config
+      - ../../../testoutput/go-exceptions:/testoutput
+    depends_on:
+      weaver:
+        condition: service_healthy
+
+  weaver:
+    extends:
+      file: components/weaver/service.yml
+      service: weaver
+    volumes:
+      - ../../../schemas/obi:/obi-registry:ro

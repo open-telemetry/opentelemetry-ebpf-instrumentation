@@ -98,6 +98,7 @@ extensions:
                         traces: true
                         metrics: true
                         body_size_metrics: true
+                        request_phase_spans: true
                     filters:
                         traces:
                             http.request.method:
@@ -374,6 +375,8 @@ extensions:
                     wakeup_len: 500
                     batch_length: 100
                     batch_timeout: 1s
+                    stats:
+                        wakeup_bytes: 4096
                 propagation:
                     context_propagation: disabled
                     override_bpfloop_enabled: false
@@ -433,7 +436,14 @@ extensions:
                         source_labels:
                             service_name: ""
                             service_namespace: ""
+                        tls:
+                            ca_file: ""
+                            cert_file: ""
+                            key_file: ""
+                            server_name: ""
                 cloud:
+                    detection:
+                        enabled: true
                     cluster_name: ""
                     region: ""
                     refresh_interval: 30s
@@ -442,6 +452,7 @@ extensions:
                         hosted_zone_ids: []
                 peer_metadata:
                     enabled: false
+                    mode: peer
                     listen_address: ""
                     port: 8998
                     peer_cidrs: []
@@ -461,6 +472,8 @@ extensions:
                         key_file: ""
                         ca_file: ""
                         server_name: ""
+                    central:
+                        address: ""
             service_name:
                 unresolved_hosts:
                     names:

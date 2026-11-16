@@ -19,10 +19,12 @@ import (
 	"google.golang.org/grpc/status"
 
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 	"go.opentelemetry.io/obi/pkg/metadata/peer/metadatapb"
 )
 
-func startCentralServer(t *testing.T, cfg *CentralServerConfig, options ...grpc.DialOption) metadatapb.MetadataServiceClient {
+// serveCentralServer serves the metadata service on a loopback port and returns its address.
+func serveCentralServer(t *testing.T, cfg *CentralServerConfig) string {
 	t.Helper()
 	server, err := NewCentralServer(cfg)
 	require.NoError(t, err)
@@ -32,11 +34,17 @@ func startCentralServer(t *testing.T, cfg *CentralServerConfig, options ...grpc.
 	done := make(chan error, 1)
 	go func() { done <- server.Serve(ctx, listener) }()
 	t.Cleanup(func() { cancel(); require.NoError(t, <-done) })
+	return listener.Addr().String()
+}
+
+func startCentralServer(t *testing.T, cfg *CentralServerConfig, options ...grpc.DialOption) metadatapb.MetadataServiceClient {
+	t.Helper()
+	address := serveCentralServer(t, cfg)
 
 	if len(options) == 0 {
 		options = []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 	}
-	conn, err := grpc.NewClient(listener.Addr().String(), options...)
+	conn, err := grpc.NewClient(address, options...)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 	return metadatapb.NewMetadataServiceClient(conn)
@@ -106,8 +114,8 @@ func TestCentralServerRejectsInvalidRequests(t *testing.T) {
 }
 
 func TestCentralServerBearerToken(t *testing.T) {
-	root := newTestCA(t, nil)
-	leaf := newTestCertificate(t, &x509.Certificate{
+	root := testutil.NewTestCA(t, nil)
+	leaf := testutil.NewTestCertificate(t, &x509.Certificate{
 		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
 		NotBefore:   time.Now().Add(-time.Hour),
 		NotAfter:    time.Now().Add(time.Hour),
@@ -116,7 +124,7 @@ func TestCentralServerBearerToken(t *testing.T) {
 	}, &root)
 	cfg := DefaultCentralServerConfig()
 	cfg.Token = "shared-secret"
-	cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: leaf.certFile, KeyFile: leaf.keyFile, CAFile: root.certFile}
+	cfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: leaf.CertFile, KeyFile: leaf.KeyFile, CAFile: root.CertFile}
 	clientTLS, err := clientTLSConfig(cfg.TLS)
 	require.NoError(t, err)
 	client := startCentralServer(t, &cfg, grpc.WithTransportCredentials(credentials.NewTLS(clientTLS)))

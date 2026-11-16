@@ -33,7 +33,12 @@ const resolvedFixture = `{"registry":{
 			{"key":"server.port","requirement_level":{"recommended":"if known"}}]}
 	],
 	"entities":[],
-	"events":[]
+	"events":[
+		{"name":"exception","attributes":[
+			{"key":"exception.type","requirement_level":{"conditionally_required":"if exception.message is not set"},"deprecated":null},
+			{"key":"exception.stacktrace","requirement_level":"recommended"},
+			{"key":"exception.escaped","requirement_level":"recommended","deprecated":{"reason":"obsoleted"}}]}
+	]
 }}`
 
 func fixtureSignals(t *testing.T) []Signal {
@@ -54,6 +59,10 @@ func sortedKeys(set map[string]struct{}) []string {
 
 func TestParseSignals(t *testing.T) {
 	assert.Equal(t, []Signal{
+		{Name: "exception", Kind: kindEvent, Attributes: []DeclaredAttribute{
+			{Key: "exception.stacktrace", RequirementLevel: levelRecommended},
+			{Key: "exception.type", RequirementLevel: levelConditionallyRequired},
+		}},
 		{Name: "go.goroutine.count", Kind: kindMetric, Attributes: []DeclaredAttribute{}},
 		{Name: "http.server.request.duration", Kind: kindMetric, Attributes: []DeclaredAttribute{
 			{Key: "client.address", RequirementLevel: levelOptIn},
@@ -69,7 +78,13 @@ func TestParseSignals(t *testing.T) {
 			{Key: "host.id", RequirementLevel: levelRecommended},
 			{Key: "service.name", RequirementLevel: levelRequired},
 		}},
-	}, fixtureSignals(t))
+	}, fixtureSignals(t), "a deprecated attribute is not part of the denominator")
+}
+
+func TestParseSignalsAcceptsAnEventOnlyRegistry(t *testing.T) {
+	signals, err := parseSignals([]byte(`{"registry":{"events":[{"name":"exception","attributes":[]}]}}`))
+	require.NoError(t, err)
+	assert.Equal(t, []Signal{{Name: "exception", Kind: kindEvent, Attributes: []DeclaredAttribute{}}}, signals)
 }
 
 func TestParseSignalsRejectsAnEmptyRegistry(t *testing.T) {
@@ -109,6 +124,7 @@ func TestAggregateSplitsCoveredAndGaps(t *testing.T) {
 	assert.Equal(t, 1, res.Reports)
 	assert.Equal(t, SurfaceResult{Covered: []string{"http.server.request.duration"}, Gaps: []string{"go.goroutine.count", "target.info"}}, res.Metrics)
 	assert.Equal(t, SurfaceResult{Covered: []string{"obi.http.server"}, Gaps: []string{}}, res.Spans)
+	assert.Equal(t, SurfaceResult{Covered: []string{}, Gaps: []string{"exception"}}, res.Events)
 
 	assert.Equal(t, []SignalAttributesResult{
 		{
@@ -129,7 +145,21 @@ func TestAggregateSplitsCoveredAndGaps(t *testing.T) {
 		},
 	}, res.SignalAttributes, "only observed signals are measured, a template is observed through its keys, and undeclared keys are ignored")
 
-	assert.Equal(t, 2, res.FailingGaps(), "two signal gaps; attribute gaps never fail")
+	assert.Equal(t, 3, res.FailingGaps(), "three signal gaps; attribute gaps never fail")
+}
+
+func TestAggregateMeasuresAnObservedEvent(t *testing.T) {
+	res := Aggregate(fixtureSignals(t), []Report{{
+		MatchedSignals:   map[string]int{"exception": 2},
+		SignalAttributes: map[string][]string{"exception": {"exception.type", "exception.message"}},
+	}})
+
+	assert.Equal(t, SurfaceResult{Covered: []string{"exception"}, Gaps: []string{}}, res.Events)
+	assert.Equal(t, []SignalAttributesResult{{
+		Signal: "exception", Kind: kindEvent,
+		Covered: []DeclaredAttribute{{Key: "exception.type", RequirementLevel: levelConditionallyRequired}},
+		Gaps:    []DeclaredAttribute{{Key: "exception.stacktrace", RequirementLevel: levelRecommended}},
+	}}, res.SignalAttributes)
 }
 
 func TestAggregateFullCoverageHasNoFailingGaps(t *testing.T) {
@@ -160,6 +190,9 @@ func TestMarkdownReportsTableAndGaps(t *testing.T) {
 	assert.Contains(t, md, "## Weaver telemetry coverage")
 	assert.Contains(t, md, "| metrics | 1 | 3 | 33.3% |")
 	assert.Contains(t, md, "| spans | 1 | 1 | 100.0% |")
+	assert.Contains(t, md, "| events | 0 | 1 | 0.0% |")
+	assert.Contains(t, md, "**Uncovered events: 1 never observed**")
+	assert.Contains(t, md, "- `exception`")
 	assert.Contains(t, md, "| signal attributes, required | 2 | 2 | 100.0% |")
 	assert.Contains(t, md, "| signal attributes, conditionally_required | 0 | 1 | 0.0% |")
 	assert.Contains(t, md, "| signal attributes, opt_in | 0 | 2 | 0.0% |")

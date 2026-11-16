@@ -312,11 +312,17 @@ func readVirtualMemory(ef *elf.File, addr, size uint64) ([]byte, error) {
 // readVirtualMemoryWithFlags reads file-backed bytes from a load segment that
 // includes all required permissions.
 func readVirtualMemoryWithFlags(ef *elf.File, addr, size uint64, flags elf.ProgFlag) ([]byte, error) {
+	return readVirtualMemoryWithPermissions(ef, addr, size, flags, 0)
+}
+
+// readVirtualMemoryWithPermissions selects a file-backed load segment with all
+// required permissions and none of the forbidden permissions.
+func readVirtualMemoryWithPermissions(ef *elf.File, addr, size uint64, required, forbidden elf.ProgFlag) ([]byte, error) {
 	if size > uint64(^uint(0)>>1) || addr > ^uint64(0)-size {
 		return nil, errors.New("invalid virtual memory range")
 	}
 	for _, prog := range ef.Progs {
-		if prog.Type != elf.PT_LOAD || prog.Flags&flags != flags || addr < prog.Vaddr {
+		if prog.Type != elf.PT_LOAD || prog.Flags&required != required || prog.Flags&forbidden != 0 || addr < prog.Vaddr {
 			continue
 		}
 		// Check the remaining file bytes without adding potentially overflowing

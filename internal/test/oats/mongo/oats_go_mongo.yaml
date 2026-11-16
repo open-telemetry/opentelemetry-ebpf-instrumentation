@@ -1,0 +1,39 @@
+name: go mongo
+fixture:
+  compose:
+    files:
+    - docker-compose-go-mongo.yml
+    - ../weaver/docker-compose-weaver.yml
+    env:
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
+    app_service: testserver
+    app_port: 8080
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+input:
+  - path: /mongo
+    retry:
+      timeout: 10s
+      interval: 500ms
+      continue_after_success: true
+expected:
+  traces:
+    - traceql: '{ .http.route = "/mongo" }'
+      match_spans:
+        - name: GET /mongo
+          attributes:
+            - key: server.port
+              value: "8080"
+            - key: url.path
+              value: /mongo
+    - traceql: '{ .db.operation.name = "insert" && .db.system.name = "mongodb" }'
+      match_spans:
+        - name: insert testdb.items
+          attributes:
+            - key: db.collection.name
+              value: testdb.items
+            - key: server.address
+              value: mongo
+            - key: server.port
+              value: "27017"

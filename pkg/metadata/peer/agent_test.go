@@ -129,11 +129,11 @@ func TestAgentStartupFailureAndCancellation(t *testing.T) {
 	cfg.Enabled = true
 	cfg.ListenAddress = "127.0.0.1"
 	cfg.Port = occupied.Addr().(*net.TCPAddr).Port
-	_, err = New(t.Context(), cfg, "host", false, nil, nil)
+	_, err = New(t.Context(), cfg, "host", "", false, nil, nil)
 	require.ErrorContains(t, err, "listening for peer metadata")
 	require.NoError(t, occupied.Close())
 	ctx, cancel := context.WithCancel(t.Context())
-	agent, err := New(ctx, cfg, "host", false, nil, nil)
+	agent, err := New(ctx, cfg, "host", "", false, nil, nil)
 	require.NoError(t, err)
 	cancel()
 	// Cancellation must release a listener even if the pipeline never runs.
@@ -148,17 +148,21 @@ func TestAgentStartupFailureAndCancellation(t *testing.T) {
 	agent.Close()
 	cfg.TLS.Enabled = true
 	cfg.TLS.CertFile, cfg.TLS.KeyFile = "missing-cert", "missing-key"
-	_, err = New(t.Context(), cfg, "host", false, nil, nil)
+	_, err = New(t.Context(), cfg, "host", "", false, nil, nil)
 	require.ErrorContains(t, err, "certificate")
 }
 
-// TODO: remove in next PR
-func TestCentralModeNotImplemented(t *testing.T) {
+func TestCentralModeRequiresHostID(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Enabled = true
 	cfg.Mode = ModeCentral
-	_, err := New(t.Context(), cfg, "host", false, nil, nil)
-	require.ErrorContains(t, err, "not implemented")
+	cfg.Central.Address = "127.0.0.1:8999"
+	_, err := New(t.Context(), cfg, "host", "", false, nil, nil)
+	require.ErrorContains(t, err, "requires a host ID")
+
+	agent, err := New(t.Context(), cfg, "host", "host-id", false, nil, nil)
+	require.NoError(t, err)
+	agent.Close()
 }
 
 func TestLocalEnrichmentAndCIDRExclusion(t *testing.T) {

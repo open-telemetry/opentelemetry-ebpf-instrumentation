@@ -35,12 +35,16 @@ if ! PARSED_RUN=$(jq -Rser --argjson max_portable_int "$MAX_PORTABLE_SIGNED_INT"
         and (.jobs | type) == "array"
         and all(.jobs[];
           (.name | type) == "string"
-          and (.conclusion | type) == "string"))
+          and (.conclusion | type) == "string"
+          and (.conclusion != "cancelled"
+            or ((.databaseId | type) == "number"
+              and .databaseId >= 1
+              and (.databaseId | floor) == .databaseId))))
       then
         (.attempt | floor | tostring),
         (.jobs[]
-          | select(.conclusion == "failure" or .conclusion == "timed_out")
-          | [.name, .conclusion]
+          | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "cancelled")
+          | [.name, .conclusion, (.databaseId // 0 | tostring)]
           | @tsv)
       else
         error("invalid run response")
@@ -49,6 +53,12 @@ if ! PARSED_RUN=$(jq -Rser --argjson max_portable_int "$MAX_PORTABLE_SIGNED_INT"
   echo "Invalid GitHub run response." >&2
   exit 1
 fi
+
+# A job stopped by its timeout-minutes concludes as cancelled, like one cancelled by a user or a newer run
+job_timed_out() {
+  gh api "repos/${REPO}/check-runs/$1/annotations" --jq '.[].message' \
+    | grep -q "exceeded the maximum execution time"
+}
 
 RUN_DETAILS=()
 while IFS= read -r line; do
@@ -69,7 +79,10 @@ fi
 FOUND_FAILURE=0
 
 for ((index = 1; index < ${#RUN_DETAILS[@]}; index++)); do
-  IFS=$'\t' read -r job_name _ <<<"${RUN_DETAILS[$index]}"
+  IFS=$'\t' read -r job_name conclusion job_id <<<"${RUN_DETAILS[$index]}"
+  if [ "$conclusion" = "cancelled" ] && ! job_timed_out "$job_id"; then
+    continue
+  fi
   FOUND_FAILURE=1
   # Unrecoverable: lint/clang-format/clang-tidy failures are deterministic
   # and won't be fixed by re-running. The Lint workflow is dedicated to

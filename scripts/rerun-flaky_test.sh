@@ -36,6 +36,11 @@ case "${1:-} ${2:-}" in
     expected=(run rerun "$RUN_ID" --repo "$REPO" --failed)
     action=rerun
     ;;
+  "api repos/${REPO}/check-runs/"*)
+    expected=(api "$2" --jq '.[].message')
+    [[ "$2" =~ ^repos/${REPO}/check-runs/[1-9][0-9]*/annotations$ ]] || expected=()
+    action=annotations
+    ;;
   *)
     printf 'Unexpected gh arguments: %s\n' "$*" >&2
     exit 90
@@ -64,6 +69,9 @@ case "$action" in
   rerun)
     exit "$GH_RERUN_STATUS"
     ;;
+  annotations)
+    printf '%s\n' "$GH_ANNOTATION"
+    ;;
 esac
 EOF
 chmod +x "${FAKE_BIN}/gh"
@@ -82,6 +90,7 @@ run_case() {
   local expected_output="$6"
   local view_status="${7:-0}"
   local rerun_status="${8:-0}"
+  local annotation="${9:-}"
   local output=""
   local status=0
   local calls=""
@@ -96,6 +105,7 @@ run_case() {
     GH_FIXTURE="$GH_FIXTURE" \
     GH_VIEW_STATUS="$view_status" \
     GH_RERUN_STATUS="$rerun_status" \
+    GH_ANNOTATION="$annotation" \
     GH_TOKEN=test-token \
     RUN_ID=12345 \
     WORKFLOW_NAME="$workflow" \
@@ -145,6 +155,8 @@ assert_rejected_call_is_logged() {
 
 view_call='gh run view 12345 --repo open-telemetry/obi --json attempt\,jobs\,name'
 rerun_call="${view_call}"$'\n''gh run rerun 12345 --repo open-telemetry/obi --failed'
+annotations_call="${view_call}"$'\n''gh api repos/open-telemetry/obi/check-runs/777/annotations --jq .\[\].message'
+timeout_annotation='The job has exceeded the maximum execution time of 45m0s'
 
 run_case "clean success" "Unit tests" \
   '{"attempt":1,"name":"Unit tests","jobs":[{"name":"unit","conclusion":"success"}]}' \
@@ -156,8 +168,14 @@ run_case "timeout" "Integration tests" \
   '{"attempt":1,"name":"Integration tests","jobs":[{"name":"integration","conclusion":"timed_out"}]}' \
   0 "$rerun_call" "Re-running failed jobs"
 run_case "mixed outcomes" "Integration tests" \
-  '{"attempt":1,"name":"Integration tests","jobs":[{"name":"setup","conclusion":"success"},{"name":"test","conclusion":"failure"},{"name":"cleanup","conclusion":"cancelled"}]}' \
-  0 "$rerun_call" "Re-running failed jobs"
+  '{"attempt":1,"name":"Integration tests","jobs":[{"name":"setup","conclusion":"success"},{"name":"test","conclusion":"failure"},{"name":"cleanup","conclusion":"cancelled","databaseId":777}]}' \
+  0 "$annotations_call"$'\n''gh run rerun 12345 --repo open-telemetry/obi --failed' "Re-running failed jobs"
+run_case "job hit its timeout" "Integration tests" \
+  '{"attempt":1,"name":"Integration tests","jobs":[{"name":"shard-1","conclusion":"cancelled","databaseId":777},{"name":"shard-2","conclusion":"success"}]}' \
+  0 "$annotations_call"$'\n''gh run rerun 12345 --repo open-telemetry/obi --failed' "Re-running failed jobs" 0 0 "$timeout_annotation"
+run_case "cancelled job without id" "Integration tests" \
+  '{"attempt":1,"name":"Integration tests","jobs":[{"name":"shard-1","conclusion":"cancelled"}]}' \
+  1 "$view_call" "Invalid GitHub run response"
 run_case "lint workflow failure" "Lint" \
   '{"attempt":1,"name":"Lint","jobs":[{"name":"licenses","conclusion":"failure"}]}' \
   0 "$view_call" "Skipping re-run"
@@ -174,8 +192,8 @@ run_case "retry cap" "Unit tests" \
   '{"attempt":2,"name":"Unit tests","jobs":[{"name":"unit","conclusion":"failure"}]}' \
   0 "$view_call" "Maximum re-run attempts reached"
 run_case "irrelevant conclusions" "Unit tests" \
-  '{"attempt":1,"name":"Unit tests","jobs":[{"name":"unit","conclusion":"cancelled"},{"name":"queued","conclusion":"skipped"}]}' \
-  0 "$view_call" "No failed or timed-out jobs found"
+  '{"attempt":1,"name":"Unit tests","jobs":[{"name":"unit","conclusion":"cancelled","databaseId":777},{"name":"queued","conclusion":"skipped"}]}' \
+  0 "$annotations_call" "No failed or timed-out jobs found" 0 0 "Canceling since a higher priority waiting request exists"
 run_case "multiple run documents" "Unit tests" \
   $'{"attempt":1,"name":"Unit tests","jobs":[]}\n{"attempt":1,"name":"Unit tests","jobs":[]}' \
   1 "$view_call" "Invalid GitHub run response"

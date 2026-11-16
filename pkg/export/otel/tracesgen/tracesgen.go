@@ -111,8 +111,9 @@ var (
 )
 
 type TraceSpanAndAttributes struct {
-	Span       *request.Span
-	Attributes []attribute.KeyValue
+	Span                     *request.Span
+	Attributes               []attribute.KeyValue
+	DisableRequestPhaseSpans bool
 	// RecordOnly spans are exported without the sampled flag, as the sampler decided
 	RecordOnly bool
 }
@@ -147,8 +148,9 @@ func GroupSpans(ctx context.Context, spans []request.Span, traceAttrs map[attr.N
 }
 
 type GroupSpansOptions struct {
-	RedactKeys           []string
-	SanitizeSQLQueryText bool
+	RedactKeys                   []string
+	SanitizeSQLQueryText         bool
+	DisableHTTPRequestPhaseSpans bool
 }
 
 func GroupSpansWithOptions(ctx context.Context, spans []request.Span, traceAttrs map[attr.Name]struct{}, sampler trace.Sampler, is instrumentations.InstrumentationSelection, opts GroupSpansOptions) map[svc.UID][]TraceSpanAndAttributes {
@@ -195,10 +197,14 @@ func GroupSpansWithOptions(ctx context.Context, spans []request.Span, traceAttrs
 		if responseErrorSelected {
 			exportAttrs = append(slices.Clone(samplerAttrs), genAIResponseErrorControlKey.Bool(true))
 		}
+
+		disableRequestPhaseSpans := span.Type == request.EventTypeHTTP && opts.DisableHTTPRequestPhaseSpans
+
 		group = append(group, TraceSpanAndAttributes{
-			Span:       span,
-			Attributes: exportAttrs,
-			RecordOnly: sr.Decision == trace.RecordOnly,
+			Span:                     span,
+			Attributes:               exportAttrs,
+			DisableRequestPhaseSpans: disableRequestPhaseSpans,
+			RecordOnly:               sr.Decision == trace.RecordOnly,
 		})
 		spanGroups[span.Service.UID] = group
 	}
@@ -292,7 +298,7 @@ func generateTracesWithAttributes(
 
 		t := span.Timings()
 		start := spanStartTime(t)
-		hasSubSpans := t.Start.After(start)
+		hasSubSpans := t.Start.After(start) && !spanWithAttributes.DisableRequestPhaseSpans
 
 		traceID := pcommon.TraceID(span.TraceID)
 		spanID := pcommon.SpanID(idgen.RandomSpanID())
@@ -421,6 +427,7 @@ func createSubSpans(span *request.Span, parentSpanID pcommon.SpanID, traceID pco
 	// Create a child span showing the queue time
 	spQ := ss.Spans().AppendEmpty()
 	spQ.SetName("in queue")
+	spQ.Attributes().PutStr(string(attr.OBIRequestPhase.OTEL()), "queue")
 	spQ.SetStartTimestamp(pcommon.NewTimestampFromTime(t.RequestStart))
 	spQ.SetKind(ptrace.SpanKindInternal)
 	spQ.SetEndTimestamp(pcommon.NewTimestampFromTime(t.Start))
@@ -432,6 +439,7 @@ func createSubSpans(span *request.Span, parentSpanID pcommon.SpanID, traceID pco
 	// Create a child span showing the processing time
 	spP := ss.Spans().AppendEmpty()
 	spP.SetName("processing")
+	spP.Attributes().PutStr(string(attr.OBIRequestPhase.OTEL()), "processing")
 	spP.SetStartTimestamp(pcommon.NewTimestampFromTime(t.Start))
 	spP.SetKind(ptrace.SpanKindInternal)
 	spP.SetEndTimestamp(pcommon.NewTimestampFromTime(t.End))
@@ -842,7 +850,12 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			request.ServerPort(span.HostPort),
 		}
 		attrs = appendIfSet(attrs, request.ClientAddr, request.PeerAsClient(span))
-		attrs = appendIfSet(attrs, request.ServerAddr, request.SpanHost(span))
+		host := request.HostWithoutPort(request.HostFromSchemeHost(span))
+
+		if span.RequestAuthority != "" {
+			host = request.HostWithoutPort(span.RequestAuthority)
+		}
+		attrs = appendIfSet(attrs, request.ServerAddr, host)
 
 		if httpServerTransportScope(span.SubType) == httpTransportAll {
 			attrs = appendHTTPRequestBodySize(attrs, span, optionalAttrs)
@@ -911,9 +924,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			urlPath = span.FullPath
 		}
 		// Scrub sensitive query parameters from url.full.
+		var scrubbedQS string
 		if idx := strings.IndexByte(urlPath, '?'); idx >= 0 {
 			if qs := scrubQuery(urlPath[idx+1:], redactSet); qs != "" {
 				urlPath = urlPath[:idx+1] + qs
+				scrubbedQS = qs
 			} else {
 				urlPath = urlPath[:idx]
 			}
@@ -942,6 +957,11 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 			attrs = appendURLTemplate(attrs, span, optionalAttrs)
 			attrs = appendHTTPRequestBodySize(attrs, span, optionalAttrs)
 			attrs = appendHTTPResponseBodySize(attrs, span, optionalAttrs)
+			if scrubbedQS != "" {
+				if _, ok := optionalAttrs[attr.HTTPUrlQuery]; ok {
+					attrs = append(attrs, request.HTTPUrlQuery(scrubbedQS))
+				}
+			}
 		}
 
 		if span.SubType == request.HTTPSubtypeElasticsearch && span.Elasticsearch != nil {
@@ -1329,6 +1349,9 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 				attrs = append(attrs, semconv.GenAIResponseModel(ai.Request.Model))
 			}
 			attrs = append(attrs, genAIUsageAttributes(span)...)
+			if ai.Usage.InputDetails != nil {
+				attrs = appendGenAITokenCount(attrs, genAIUsageCacheReadInputTokens, ai.Usage.InputDetails.CachedTokens)
+			}
 			if reasons := ai.GetFinishReasons(); len(reasons) > 0 {
 				attrs = append(attrs, semconv.GenAIResponseFinishReasons(reasons...))
 			}

@@ -14,17 +14,27 @@ import (
 	"maps"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 )
 
 const (
-	checkpointVersion = 1
-	testPackage       = "go.opentelemetry.io/obi/internal/test/integration"
-	checkpointName    = "checkpoint.json"
+	checkpointVersion  = 1
+	testPackage        = "go.opentelemetry.io/obi/internal/test/integration"
+	checkpointName     = "checkpoint.json"
+	weightsFile        = "scripts/integration-test-weights.generated.json"
+	defaultWeightKey   = "_default"
+	maxReruns          = 2
+	maxRerunFailures   = 2
+	defaultTestTimeout = 40 * time.Minute
+	// time left after go test's own timeout to compile, write the report and save the checkpoint
+	timeoutMargin = 3 * time.Minute
 )
 
 type scope struct {
@@ -50,6 +60,11 @@ type config struct {
 	stateDir    string
 	coverageDir string
 	report      string
+	reruns      int
+	// zero when the shard has no time limit
+	deadline time.Time
+	// typical seconds per test, used to skip reruns that cannot finish before the deadline
+	weights map[string]float64
 }
 
 func main() {
@@ -81,12 +96,34 @@ func environmentConfig() (config, error) {
 		stateDir:    os.Getenv("RETRY_STATE_DIR"),
 		coverageDir: os.Getenv("TEST_COVERAGE_DIR"),
 		report:      os.Getenv("TEST_REPORT"),
+		reruns:      maxReruns,
+		weights:     loadWeights(weightsFile),
 	}
 	if cfg.RunID == "" || cfg.Commit == "" || cfg.Shard == "" || cfg.Arch == "" ||
 		cfg.previousDir == "" || cfg.stateDir == "" || cfg.coverageDir == "" || cfg.report == "" {
 		return config{}, errors.New("missing integration shard configuration")
 	}
+	if minutes := os.Getenv("TEST_STEP_TIMEOUT_MINUTES"); minutes != "" {
+		value, err := strconv.Atoi(minutes)
+		if err != nil || value < 1 {
+			return config{}, errors.New("invalid TEST_STEP_TIMEOUT_MINUTES")
+		}
+		cfg.deadline = time.Now().Add(time.Duration(value)*time.Minute - timeoutMargin)
+	}
 	return cfg, nil
+}
+
+// loadWeights returns nil when the weights are unavailable, which only disables the rerun time estimate
+func loadWeights(path string) map[string]float64 {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var weights map[string]float64
+	if err := json.Unmarshal(data, &weights); err != nil {
+		return nil
+	}
+	return weights
 }
 
 func runShard(cfg config) error {
@@ -136,24 +173,131 @@ func runShard(cfg config) error {
 		return err
 	}
 	fmt.Printf("Running %d of %d shard tests (attempt %d)\n", len(pending), len(tests), cfg.attempt)
-	cmd := testCommand(strings.Join(pending, "|"), cfg.report)
+	for pass := 0; ; pass++ {
+		timeout := cfg.testTimeout()
+		if timeout <= 0 {
+			return fmt.Errorf("no time left to run %s", strings.Join(pending, ", "))
+		}
+
+		report := cfg.reportPath(pass)
+		interrupted, runErr := runTests(testCommand(strings.Join(pending, "|"), report, timeout))
+		var results map[string]string
+		var reportErr error
+		if interrupted {
+			results, reportErr = readInterruptedResults(report, pending)
+		} else {
+			results, reportErr = readResults(report, pending, runErr == nil)
+		}
+		if reportErr == nil {
+			maps.Copy(state.Results, results)
+			state.Reusable = true
+		} else {
+			fmt.Fprintf(os.Stderr, "Test results cannot be reused: %v\n", reportErr)
+		}
+		if err := saveCheckpoint(cfg.stateDir, state); err != nil {
+			return err
+		}
+		if runErr == nil {
+			return reportErr
+		}
+		if reportErr != nil || interrupted {
+			return fmt.Errorf("integration tests failed: %w", runErr)
+		}
+
+		failed, ok := cfg.rerunnable(pass, results)
+		if !ok {
+			return fmt.Errorf("integration tests failed: %w", runErr)
+		}
+		fmt.Printf("Rerunning failed tests: %s\n", strings.Join(failed, ", "))
+		pending = failed
+	}
+}
+
+// rerunnable returns the failed tests when they are few, every other test completed and their
+// typical duration fits before the deadline; otherwise the failure is left to a rerun of the job
+func (cfg config) rerunnable(pass int, results map[string]string) ([]string, bool) {
+	if pass >= cfg.reruns {
+		return nil, false
+	}
+
+	var failed []string
+	for test, result := range results {
+		switch result {
+		case "":
+			return nil, false
+		case "fail":
+			failed = append(failed, test)
+		}
+	}
+	if len(failed) == 0 || len(failed) > maxRerunFailures {
+		return nil, false
+	}
+	slices.Sort(failed)
+
+	if needed := cfg.expectedDuration(failed); !cfg.deadline.IsZero() && time.Until(cfg.deadline) < needed {
+		fmt.Printf("Not rerunning %s: needs about %s, %s left\n",
+			strings.Join(failed, ", "), needed, time.Until(cfg.deadline).Round(time.Second))
+		return nil, false
+	}
+	return failed, true
+}
+
+func (cfg config) expectedDuration(tests []string) time.Duration {
+	var seconds float64
+	for _, test := range tests {
+		weight, ok := cfg.weights[test]
+		if !ok {
+			weight = cfg.weights[defaultWeightKey]
+		}
+		seconds += weight
+	}
+	return time.Duration(seconds * float64(time.Second))
+}
+
+func (cfg config) testTimeout() time.Duration {
+	if cfg.deadline.IsZero() {
+		return defaultTestTimeout
+	}
+	return time.Until(cfg.deadline).Round(time.Second)
+}
+
+// reportPath keeps every rerun's report next to the first one
+func (cfg config) reportPath(pass int) string {
+	if pass == 0 {
+		return cfg.report
+	}
+	return strings.TrimSuffix(cfg.report, ".log") + "-rerun" + strconv.Itoa(pass) + ".log"
+}
+
+// runTests forwards one interrupt to gotestsum, which runs in its own process group so a
+// signal sent to the whole step reaches it only once; gotestsum relays it to go test
+func runTests(cmd *exec.Cmd) (bool, error) {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	runErr := cmd.Run()
-	results, reportErr := readResults(cfg.report, pending, runErr == nil)
-	if reportErr == nil {
-		maps.Copy(state.Results, results)
-		state.Reusable = true
-	} else {
-		fmt.Fprintf(os.Stderr, "Test results cannot be reused: %v\n", reportErr)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+
+	if err := cmd.Start(); err != nil {
+		return false, err
 	}
-	if err := saveCheckpoint(cfg.stateDir, state); err != nil {
-		return err
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+
+	interrupted := false
+	for {
+		select {
+		case err := <-done:
+			return interrupted, err
+		case <-signals:
+			if !interrupted {
+				interrupted = true
+				_ = cmd.Process.Signal(os.Interrupt)
+			}
+		}
 	}
-	if runErr != nil {
-		return fmt.Errorf("integration tests failed: %w", runErr)
-	}
-	return reportErr
 }
 
 func shardTests(pattern string) ([]string, error) {
@@ -168,11 +312,10 @@ func shardTests(pattern string) ([]string, error) {
 	return slices.Compact(tests), nil
 }
 
-func testCommand(pattern, report string) *exec.Cmd {
+func testCommand(pattern, report string, timeout time.Duration) *exec.Cmd {
 	return exec.Command("go", "tool", "-modfile=./internal/tools/go.mod", "gotestsum",
-		"--rerun-fails=2", "--rerun-fails-max-failures=2", "--rerun-fails-abort-on-data-race",
-		"--rerun-fails-run-root-test", "--packages=./internal/test/integration", "-ftestname",
-		"--jsonfile="+report, "--", "-race", "-count=1", "-timeout=40m", "-run=^("+pattern+")$")
+		"--packages=./internal/test/integration", "-ftestname", "--jsonfile="+report,
+		"--", "-race", "-count=1", "-timeout="+timeout.String(), "-run=^("+pattern+")$")
 }
 
 func runnableTests(candidates []string) ([]string, error) {
@@ -296,10 +439,48 @@ func saveCheckpoint(dir string, state checkpoint) error {
 	return os.WriteFile(filepath.Join(dir, checkpointName), data, 0o600)
 }
 
+type testReport struct {
+	results       map[string]string
+	packageResult string
+	panicked      bool
+}
+
 func readResults(path string, tests []string, success bool) (map[string]string, error) {
-	file, err := os.Open(path)
+	report, err := parseReport(path, tests)
 	if err != nil {
 		return nil, err
+	}
+	results := report.results
+	if report.panicked {
+		if success || report.packageResult != "fail" {
+			return nil, errors.New("test report does not explain the runner exit status")
+		}
+		return results, nil
+	}
+	failed := false
+	for test, result := range results {
+		if result == "" {
+			return nil, fmt.Errorf("test %s did not complete", test)
+		}
+		failed = failed || result == "fail"
+	}
+	packageResult := report.packageResult
+	if packageResult == "" || success == failed || (success && packageResult != "pass") || (!success && packageResult != "fail") {
+		return nil, errors.New("test report does not explain the runner exit status")
+	}
+	return results, nil
+}
+
+// readInterruptedResults keeps the outcomes of the tests that completed before an interrupt
+func readInterruptedResults(path string, tests []string) (map[string]string, error) {
+	report, err := parseReport(path, tests)
+	return report.results, err
+}
+
+func parseReport(path string, tests []string) (testReport, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return testReport{}, err
 	}
 	defer file.Close()
 	results := make(map[string]string, len(tests))
@@ -319,10 +500,10 @@ func readResults(path string, tests []string, success bool) (map[string]string, 
 		if err := decoder.Decode(&event); errors.Is(err, io.EOF) {
 			break
 		} else if err != nil {
-			return nil, err
+			return testReport{}, err
 		}
 		if strings.Contains(event.Output, "WARNING: DATA RACE") {
-			return nil, errors.New("data race in test output")
+			return testReport{}, errors.New("data race in test output")
 		}
 		if strings.HasPrefix(event.Output, "panic:") || strings.Contains(event.Output, "\npanic:") {
 			panicked = true
@@ -337,7 +518,7 @@ func readResults(path string, tests []string, success bool) (map[string]string, 
 			continue
 		}
 		if _, ok := results[event.Test]; !ok {
-			return nil, fmt.Errorf("unexpected test %q in report", event.Test)
+			return testReport{}, fmt.Errorf("unexpected test %q in report", event.Test)
 		}
 		switch event.Action {
 		case "run":
@@ -346,21 +527,5 @@ func readResults(path string, tests []string, success bool) (map[string]string, 
 			results[event.Test] = event.Action
 		}
 	}
-	if panicked {
-		if success || packageResult != "fail" {
-			return nil, errors.New("test report does not explain the runner exit status")
-		}
-		return results, nil
-	}
-	failed := false
-	for test, result := range results {
-		if result == "" {
-			return nil, fmt.Errorf("test %s did not complete", test)
-		}
-		failed = failed || result == "fail"
-	}
-	if packageResult == "" || success == failed || (success && packageResult != "pass") || (!success && packageResult != "fail") {
-		return nil, errors.New("test report does not explain the runner exit status")
-	}
-	return results, nil
+	return testReport{results: results, packageResult: packageResult, panicked: panicked}, nil
 }

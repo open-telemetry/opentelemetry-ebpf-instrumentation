@@ -39,6 +39,40 @@ type closeTrackingTracer struct {
 	closes int
 }
 
+type shutdownScopedTracer struct {
+	stubTracer
+	processScopedGoProbeRecorder
+	executables []ExecutableKey
+}
+
+func (*shutdownScopedTracer) RegisterExecutable(*exec.FileInfo) {}
+
+func (t *shutdownScopedTracer) UnregisterExecutable(dev, ino uint64) {
+	t.executables = append(t.executables, ExecutableKey{Dev: dev, Ino: ino})
+}
+
+func TestCloseInstrumentersUnregistersScopedResources(t *testing.T) {
+	tracer := &shutdownScopedTracer{}
+	closer := &countingCloser{}
+	shared := &instrumenter{closables: []io.Closer{closer}}
+	keys := []ExecutableKey{{Dev: 7, Ino: 11}, {Dev: 7, Ino: 12}}
+	pt := &ProcessTracer{
+		log:      slog.Default(),
+		Programs: []Tracer{tracer},
+		Instrumentables: map[ExecutableKey]*instrumenter{
+			keys[0]: shared,
+			keys[1]: shared,
+		},
+	}
+
+	pt.closeInstrumenters()
+	pt.closeInstrumenters()
+
+	assert.ElementsMatch(t, keys, tracer.unregistered, "detach process-scoped probes once per executable")
+	assert.ElementsMatch(t, keys, tracer.executables, "release symbols once per executable")
+	assert.Equal(t, int32(1), closer.closes.Load(), "close the shared instrumenter once")
+}
+
 func (t *closeTrackingTracer) Close() error {
 	t.closes++
 	return nil

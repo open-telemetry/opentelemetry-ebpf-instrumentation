@@ -112,7 +112,7 @@ services:
       - shared
 
   multisegwritev_otelcol:
-    image: otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b
+    image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
     user: "0:0"
     volumes:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
@@ -126,7 +126,7 @@ services:
         condition: service_started
 
   multisegwritev_fluentbit:
-    image: fluent/fluent-bit:5.1.0@sha256:bf09d620b6b45c080b4da86ac5d98fd3739c1213a148f93dec884fdcc64084cb
+    image: fluent/fluent-bit:5.2.0@sha256:a48190bf67679495a332fd61025421a46e7e4d168380185a8e16da2e9acc3126
     user: "0:0"
     volumes:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro

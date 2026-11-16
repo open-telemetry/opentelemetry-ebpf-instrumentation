@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -30,7 +31,18 @@ var v2NetworkMetricsFeatureMask = export.FeatureNetwork |
 	export.FeatureNetworkInterZone |
 	export.FeatureNetworkFlowPackets
 
-var v2StatsMetricsFeatureMask = export.FeatureStats
+var v2StatsMetricsFeatureMask = export.FeatureStats |
+	export.FeatureStatsTCPResets
+
+var defaultV2ServiceNameSourcesWithCloud = []transform.Source{
+	transform.SourceK8s,
+	transform.SourceECS,
+	transform.SourceRoute53,
+}
+
+var defaultV2ServiceNameSourcesWithoutCloud = []transform.Source{
+	transform.SourceK8s,
+}
 
 // V2ToRuntime converts a config v2 extension shape into an OBI runtime
 // configuration.
@@ -40,9 +52,11 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	}
 	_, defaults := RuntimeToV2(nil)
 	// Enable Route53 for new v2 configurations without changing v1 migration defaults.
-	defaults.Enrich.ServiceName.Sources = []transform.Source{transform.SourceK8s, transform.SourceECS, transform.SourceRoute53}
+	defaults.Enrich.ServiceName.Sources = cloneSources(defaultV2ServiceNameSourcesWithCloud)
 	// Omitted features retain the protocol and network enablement mapping.
 	defaults.Capture.Metrics.Features = nil
+	// Check before applying defaults to distinguish omitted sources from explicit ones.
+	serviceNameSourcesOmitted := src.Enrich == nil || src.Enrich.ServiceName.Sources == nil
 	var complete bool
 	var err error
 	src, complete, err = src.WithDefaults(defaults)
@@ -92,6 +106,7 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	src = &normalized
 
 	cfg := runtimeConfigDefaults()
+	cfg.Attributes.UseV2Selection = true
 	applyV2Capture(&cfg, src, policy, complete)
 	applyV2Standalone(&cfg, src, complete)
 	if err := applyV2PeerMetadata(&cfg, src.Enrich, complete); err != nil {
@@ -106,6 +121,21 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	cfg.Attributes.Select.Normalize()
 	if err := cfg.EBPF.LogEnricher.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid log trace annotation: %w", err)
+	}
+	if !cfg.CloudMetadata.DetectionEnabled {
+		if serviceNameSourcesOmitted {
+			cfg.NameResolver.Sources = cloneSources(defaultV2ServiceNameSourcesWithoutCloud)
+		}
+
+		for _, source := range cfg.NameResolver.Sources {
+			switch transform.Source(strings.ToLower(string(source))) {
+			case transform.SourceECS, transform.SourceRoute53, transform.SourceGCE, transform.SourceAzure:
+				return nil, fmt.Errorf(
+					"enrich.service_name.sources: %q requires enrich.enrichers.cloud.detection.enabled to be true",
+					source,
+				)
+			}
+		}
 	}
 
 	return &cfg, nil
@@ -1146,6 +1176,7 @@ func applyFullV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	cfg.EBPF.ProtocolDebug = engine.Debug.ProtocolPrint
 	cfg.Discovery.BPFPidFilterOff = engine.PIDFilter.Disabled
 	cfg.EBPF.WakeupLen = engine.Batching.WakeupLen
+	cfg.EBPF.StatsWakeupDataBytes = engine.Batching.Stats.WakeupBytes
 	cfg.EBPF.BatchLength = engine.Batching.BatchLength
 	cfg.EBPF.BatchTimeout = engine.Batching.BatchTimeout.TimeDuration()
 	cfg.EBPF.ContextPropagation = engine.Propagation.ContextPropagation
@@ -1173,6 +1204,9 @@ func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	}
 	if engine.Batching.WakeupLen != 0 {
 		cfg.EBPF.WakeupLen = engine.Batching.WakeupLen
+	}
+	if engine.Batching.Stats.WakeupBytes != 0 {
+		cfg.EBPF.StatsWakeupDataBytes = engine.Batching.Stats.WakeupBytes
 	}
 	if engine.Batching.BatchLength != 0 {
 		cfg.EBPF.BatchLength = engine.Batching.BatchLength
@@ -1593,6 +1627,10 @@ func applyProtocolEnablement(cfg *obi.Config, instrumentation schema.Instrumenta
 	cfg.Traces.Instrumentations = applySignalEnablement(cfg.Traces.Instrumentations, instrumentation, "traces", complete)
 	cfg.OTELMetrics.Instrumentations = applySignalEnablement(cfg.OTELMetrics.Instrumentations, instrumentation, "metrics", complete)
 	cfg.Prometheus.Instrumentations = applySignalEnablement(cfg.Prometheus.Instrumentations, instrumentation, "metrics", complete)
+
+	if enabled := instrumentation.HTTP.Enabled.RequestPhaseSpans; enabled != nil {
+		cfg.Traces.DisableHTTPRequestPhaseSpans = !*enabled
+	}
 }
 
 func applySignalEnablement(
@@ -2036,6 +2074,7 @@ func applyFullV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.Kubernetes
 	cfg.Attributes.Kubernetes.DropExternal = kubernetes.DropExternal
 	cfg.Attributes.Kubernetes.DisableInformers = cloneStrings(kubernetes.Informers.Disabled)
 	cfg.Attributes.Kubernetes.MetaCacheAddress = kubernetes.MetadataCache.Address
+	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig(kubernetes.MetadataCache.TLS)
 	cfg.Attributes.Kubernetes.MetaRestrictLocalNode = kubernetes.MetadataCache.RestrictLocalNode
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName = kubernetes.MetadataCache.SourceLabels.ServiceName
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace = kubernetes.MetadataCache.SourceLabels.ServiceNamespace
@@ -2077,6 +2116,9 @@ func applyPartialV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.Kuberne
 	if kubernetes.MetadataCache.Address != "" {
 		cfg.Attributes.Kubernetes.MetaCacheAddress = kubernetes.MetadataCache.Address
 	}
+	if !zeroValue(kubernetes.MetadataCache.TLS) {
+		cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig(kubernetes.MetadataCache.TLS)
+	}
 	if kubernetes.MetadataCache.RestrictLocalNode {
 		cfg.Attributes.Kubernetes.MetaRestrictLocalNode = kubernetes.MetadataCache.RestrictLocalNode
 	}
@@ -2094,6 +2136,10 @@ func applyV2CloudEnricher(cfg *obi.Config, enrich *schema.Enrich, complete bool)
 	}
 
 	cloud := enrich.Enrichers.Cloud
+	if cloud.Detection.Enabled != nil {
+		cfg.CloudMetadata.DetectionEnabled = *cloud.Detection.Enabled
+	}
+
 	if complete || completeCloudEnricher(cloud) {
 		applyFullV2CloudEnricher(cfg, cloud)
 		return
@@ -2626,6 +2672,8 @@ func statsFeatureMask(features []string) export.Features {
 			out |= export.FeatureStatsTCPRetransmits
 		case statsFeatureTCPIo:
 			out |= export.FeatureStatsTCPIo
+		case statsFeatureTCPResets:
+			out |= export.FeatureStatsTCPResets
 		}
 	}
 	return out
