@@ -26,7 +26,7 @@ func (c PythonExceptionsConfig) IsEnabled() bool {
 type ExceptionsConfig struct {
 	Enabled bool                   `yaml:"enabled"`
 	Go      GoExceptionsConfig     `yaml:"go"`
-	Python  PythonExceptionsConfig `yaml:"python"`
+	Python  PythonExceptionsConfig `yaml:"python,omitempty"`
 }
 
 // GoExceptionsOverride inherits each omitted option from the global settings.

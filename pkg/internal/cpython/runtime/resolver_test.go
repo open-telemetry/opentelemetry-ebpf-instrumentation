@@ -11,11 +11,11 @@ import (
 	"debug/elf"
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"io"
 	"math"
 	"os"
 	"os/exec"
+	"strconv"
 	"testing"
 	"time"
 
@@ -232,7 +232,7 @@ func TestResolveRuntimeObjectCandidatesReturnsOnlyPlan(t *testing.T) {
 
 func TestResolveRuntimeObjectCandidatesClosesExceptionTargets(t *testing.T) {
 	for _, operationalError := range []bool{false, true} {
-		t.Run(fmt.Sprint(operationalError), func(t *testing.T) {
+		t.Run(strconv.FormatBool(operationalError), func(t *testing.T) {
 			objects := []*procfs.ProcMap{{Pathname: "/usr/bin/python"}, {Pathname: "/usr/lib/libpython3.12.so"}}
 			var attachments []*os.File
 			target, err := resolveRuntimeObjectCandidates(123, objects, func(*procfs.ProcMap) (*ExceptionTarget, error) {
