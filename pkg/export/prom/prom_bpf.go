@@ -500,22 +500,11 @@ func (bc *BPFCollector) cacheProgram(id ebpf.ProgramID, program *ebpf.Program) *
 	return cached
 }
 
+// reportsProgramType reports every program type on the node. OBI's own programs skip
+// Tracing: OBI loads it only as iterators, which run when OBI reads them and not on
+// the path of the instrumented workloads.
 func (bc *BPFCollector) reportsProgramType(programType ebpf.ProgramType) bool {
-	if bc.obiOnly {
-		// OBI loads Tracing programs only as iterators, which run when OBI reads them
-		// and not on the path of the instrumented workloads.
-		return programType != ebpf.Tracing
-	}
-	return supportedProgramType(programType)
-}
-
-func supportedProgramType(programType ebpf.ProgramType) bool {
-	switch programType {
-	case ebpf.Kprobe, ebpf.SocketFilter, ebpf.SchedCLS, ebpf.SkMsg, ebpf.SockOps:
-		return true
-	default:
-		return false
-	}
+	return !bc.obiOnly || programType != ebpf.Tracing
 }
 
 func (bc *BPFCollector) evictMissingPrograms(seen map[ebpf.ProgramID]struct{}) {
