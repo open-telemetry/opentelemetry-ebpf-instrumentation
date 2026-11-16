@@ -633,8 +633,9 @@ func TestReportsProgramType(t *testing.T) {
 
 	node := &BPFCollector{}
 	assert.True(t, node.reportsProgramType(ebpf.Kprobe))
-	assert.False(t, node.reportsProgramType(ebpf.XDP))
-	assert.False(t, node.reportsProgramType(ebpf.Tracing))
+	assert.True(t, node.reportsProgramType(ebpf.XDP))
+	assert.True(t, node.reportsProgramType(ebpf.CGroupSKB))
+	assert.True(t, node.reportsProgramType(ebpf.Tracing))
 }
 
 func TestInternalProgramIDsComeFromFDInfo(t *testing.T) {

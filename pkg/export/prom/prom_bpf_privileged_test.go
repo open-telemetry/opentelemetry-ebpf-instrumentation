@@ -74,16 +74,17 @@ func TestGetProbeMetricsCachesProgramMetadataAndDiscoversNewIDs(t *testing.T) {
 	requireProbeMetric(t, metrics, secondID, ebpf.SocketFilter, "metric_0")
 }
 
-func TestGetProbeMetricsNegativelyCachesUnsupportedPrograms(t *testing.T) {
+func TestGetProbeMetricsReportsAllProgramTypes(t *testing.T) {
 	collector := newPrivilegedTestCollector(t)
-	program := loadTestPrograms(t, 1, ebpf.XDP)[0]
-	id := programID(t, program)
+	xdpID := programID(t, loadTestPrograms(t, 1, ebpf.XDP)[0])
+	cgroupID := programID(t, loadTestPrograms(t, 1, ebpf.CGroupSKB)[0])
+	iterID := programID(t, loadIterProgram(t))
 
-	collector.getProbeMetrics()
+	metrics := collector.getProbeMetrics()
 
-	cached, ok := collector.programCache[id]
-	require.True(t, ok)
-	require.False(t, cached.supported)
+	requireProbeMetric(t, metrics, xdpID, ebpf.XDP, "metric_0")
+	requireProbeMetric(t, metrics, cgroupID, ebpf.CGroupSKB, "metric_0")
+	requireProbeMetric(t, metrics, iterID, ebpf.Tracing, "metric_iter")
 }
 
 func TestInternalCollectorReportsOnlyOwnedPrograms(t *testing.T) {
