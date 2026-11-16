@@ -33,6 +33,8 @@ type BPFCollector struct {
 	promConnect     *connector.PrometheusManager
 	ctxInfo         *global.ContextInfo
 	log             *slog.Logger
+	obiOnly         bool
+	fdinfoDir       string
 
 	probeLatencyDesc *prometheus.Desc
 	mapSizeDesc      *prometheus.Desc
@@ -157,8 +159,11 @@ func newBPFCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *
 	return newCollector(ctxInfo, cfg, mpCfg, true)
 }
 
+// newInternalBPFCollector reports how OBI is doing, so it covers only OBI's own programs.
 func newInternalBPFCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.GlobalMetricsConfig) *BPFCollector {
-	return newCollector(ctxInfo, cfg, mpCfg, false)
+	c := newCollector(ctxInfo, cfg, mpCfg, false)
+	c.obiOnly = true
+	return c
 }
 
 func newCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *perapp.GlobalMetricsConfig, registerProm bool) *BPFCollector {
@@ -169,6 +174,7 @@ func newCollector(ctxInfo *global.ContextInfo, cfg *PrometheusConfig, mpCfg *per
 		log:             slog.With("component", "prom.BPFCollector"),
 		ctxInfo:         ctxInfo,
 		promConnect:     ctxInfo.Prometheus,
+		fdinfoDir:       procSelfFDInfo,
 		progs:           make(map[ebpf.ProgramID]*BPFProgram),
 		programCache:    make(map[ebpf.ProgramID]*cachedProgram),
 		mapCache:        make(map[ebpf.MapID]*cachedMap),
@@ -378,17 +384,11 @@ func (bc *BPFCollector) collectMetrics() ([]ProbeMetrics, []BpfMapMetrics) {
 }
 
 func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
-	probeMetrics := make([]ProbeMetrics, 0, len(bc.programCache))
-	seen := make(map[ebpf.ProgramID]struct{}, len(bc.programCache))
-	completeWalk := false
+	ids, completeWalk := bc.programIDs()
+	probeMetrics := make([]ProbeMetrics, 0, len(ids))
+	seen := make(map[ebpf.ProgramID]struct{}, len(ids))
 
-	for id := ebpf.ProgramID(0); ; {
-		nextID, err := ebpf.ProgramGetNextID(id)
-		if err != nil {
-			completeWalk = errors.Is(err, os.ErrNotExist)
-			break
-		}
-		id = nextID
+	for _, id := range ids {
 		seen[id] = struct{}{}
 
 		cached, ok := bc.programCache[id]
@@ -450,6 +450,33 @@ func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
 	return probeMetrics
 }
 
+// programIDs returns the programs to report and whether the list is complete, so that
+// programs missing from it can be evicted from the cache.
+func (bc *BPFCollector) programIDs() ([]ebpf.ProgramID, bool) {
+	if !bc.obiOnly {
+		return nodeProgramIDs()
+	}
+
+	ids, err := ownedProgramIDs(bc.fdinfoDir)
+	if err != nil {
+		bc.log.Debug("failed to list OBI programs", "error", err)
+		return nil, false
+	}
+	return ids, true
+}
+
+func nodeProgramIDs() ([]ebpf.ProgramID, bool) {
+	var ids []ebpf.ProgramID
+	for id := ebpf.ProgramID(0); ; {
+		nextID, err := ebpf.ProgramGetNextID(id)
+		if err != nil {
+			return ids, errors.Is(err, os.ErrNotExist)
+		}
+		id = nextID
+		ids = append(ids, id)
+	}
+}
+
 func (bc *BPFCollector) cacheProgram(id ebpf.ProgramID, program *ebpf.Program) *cachedProgram {
 	info, err := program.Info()
 	if err != nil {
@@ -457,7 +484,7 @@ func (bc *BPFCollector) cacheProgram(id ebpf.ProgramID, program *ebpf.Program) *
 		return nil
 	}
 
-	if !supportedProgramType(info.Type) {
+	if !bc.reportsProgramType(info.Type) {
 		cached := &cachedProgram{}
 		bc.programCache[id] = cached
 		return cached
@@ -471,6 +498,15 @@ func (bc *BPFCollector) cacheProgram(id ebpf.ProgramID, program *ebpf.Program) *
 	}
 	bc.programCache[id] = cached
 	return cached
+}
+
+func (bc *BPFCollector) reportsProgramType(programType ebpf.ProgramType) bool {
+	if bc.obiOnly {
+		// OBI loads Tracing programs only as iterators, which run when OBI reads them
+		// and not on the path of the instrumented workloads.
+		return programType != ebpf.Tracing
+	}
+	return supportedProgramType(programType)
 }
 
 func supportedProgramType(programType ebpf.ProgramType) bool {
