@@ -3,22 +3,27 @@
 The BPF metrics collector reports execution statistics for eBPF programs and
 entry counts for eBPF LRU hash maps loaded on the host.
 
-The collector is host-wide. Every collection walks the kernel's complete
-program ID namespace from the beginning, so it captures all existing probes of
-the supported program types, including probes that were not loaded by OBI. A
-later collection also discovers probes loaded after the collector started.
+Which programs the collector covers depends on the
+[collection path](#collection-paths):
+
+- The Prometheus collector describes the node. Every collection walks the
+  kernel's complete program ID namespace from the beginning, so it captures all
+  existing programs, including programs that were not loaded by OBI. A later
+  collection also discovers programs loaded after the collector started.
+- The internal collector describes OBI. It reports only the programs OBI holds
+  a file descriptor for, directly or through a link, as listed in
+  `/proc/self/fdinfo`.
+
+Map metrics are host-wide on both paths.
 
 ## Supported kernel objects
 
-The collector reports programs with these eBPF program types:
+The Prometheus collector reports programs of every eBPF program type. The
+internal collector reports OBI programs of every type except `Tracing`: OBI
+loads `Tracing` programs only as TCP iterators, which run when OBI reads them
+and not on the path of the instrumented workloads.
 
-- `Kprobe`
-- `SocketFilter`
-- `SchedCLS`
-- `SkMsg`
-- `SockOps`
-
-It reports entry counts only for `LRUHash` maps. Other program and map types are
+The collector reports entry counts only for `LRUHash` maps. Other map types are
 still encountered during the host-wide walks, but they are not emitted as
 metrics.
 
@@ -62,11 +67,16 @@ cannot drift apart.
 ## Program discovery and statistics
 
 The collector enables kernel BPF runtime statistics for its lifetime so that
-accounting continues between collections. Each collection walks every program
-ID and reads `Stats()` from every supported program. Metadata is cached when a
-program is first observed. Each supported program is opened temporarily to read
-its statistics and closed before collection continues. Unsupported program
-types are cached without retaining their handles.
+accounting continues between collections. Each collection lists the program
+IDs of its path and reads `Stats()` from every reported program. Metadata is
+cached when a program is first observed. Each reported program is opened
+temporarily to read its statistics and closed before collection continues.
+Programs of types that are not reported are cached without retaining their
+handles.
+
+The kernel accounts executions and runtime only to the program it enters. A
+program reached through a tail call keeps zero executions, and its runtime is
+included in the program that made the tail call.
 
 The collector reports execution-count and runtime changes between collections
 and derives probe latency by dividing the runtime change by the execution-count
