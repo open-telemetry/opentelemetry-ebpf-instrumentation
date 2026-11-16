@@ -125,13 +125,19 @@ const http2_grpc_request_t *unused_http2 __attribute__((unused));
 
 // Checks whether the request target after the method+space is valid.
 // Accepts origin-form (/...), absolute-form (http:// or https://).
-// Asterisk-form (OPTIONS *) and authority-form (CONNECT host:port) are
-// handled by the caller.
+// Asterisk-form (OPTIONS *) is handled by the caller.
 // The usage of '|' is intended to minimise the size of jitted code affecting
 // older kernel versions - it replaces branching with bitwise operations whose
 // result are equivalent in this particular context.
 static __always_inline u8 is_http_request_target(unsigned char c) {
     return (c == '/') | (((c | 0x20) == 'h'));
+}
+
+// Checks whether the CONNECT target starts like an authority-form (host:port),
+// i.e. a hostname, an IPv4 address or a bracketed IPv6 address.
+static __always_inline u8 is_http_connect_predicate(unsigned char c) {
+    return ((c >= 'A') & (c <= 'Z')) | ((c >= 'a') & (c <= 'z')) | ((c >= '0') & (c <= '9')) |
+           (c == '[');
 }
 
 static __always_inline u8 is_http_request_buf(const unsigned char *p) {
@@ -159,11 +165,8 @@ static __always_inline u8 is_http_request_buf(const unsigned char *p) {
     } else if (__builtin_memcmp(p, "QUERY ", 6) == 0) {
         target = p[6];
     } else if (__builtin_memcmp(p, "CONNECT ", 8) == 0) {
-        // CONNECT always takes an authority-form. Parsing it thoroughly would create
-        // a very large ebpf program. As the first letter can be a wide range of characters
-        // checking it is unlikely to filter out a lot of wrong requests so we keep it simple
-        // on purpose.
-        return 1;
+        target = p[8];
+        return is_http_connect_predicate(target);
     } else {
         return 0;
     }

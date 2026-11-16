@@ -63,6 +63,11 @@ static void test_connect_authority_form_detected(void) {
     check("CONNECT [::1]:443 HTTP/1.1", 1);
 }
 
+static void test_nats_connect_rejected(void) {
+    check("CONNECT {\"verbose\":false,\"pedantic\":false}\r\n", 0);
+    check("CONNECT {}\r\n", 0);
+}
+
 static void test_invalid_requests_rejected(void) {
     check("TRACEX / HTTP/1.1", 0);
     check("QUERY users HTTP/1.1", 0);
@@ -78,6 +83,7 @@ int main(void) {
     test_absolute_form_detected();
     test_asterisk_form_only_for_options();
     test_connect_authority_form_detected();
+    test_nats_connect_rejected();
     test_invalid_requests_rejected();
 
     if (failures > 0) {
