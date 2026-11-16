@@ -302,6 +302,9 @@ extensions:
           filters:
             traces: {}
             metrics: {}
+        # Settings shared by all database protocols.
+        db:
+          sanitize_query_text: false
         # SQL protocol instrumentation and driver-specific tuning.
         sql:
           enabled:
@@ -311,7 +314,6 @@ extensions:
             traces: {}
             metrics: {}
           heuristic_detect: false
-          sanitize_query_text: false
           mysql:
             buffer_size: 0
             prepared_statements_cache_size: 1024
