@@ -340,4 +340,9 @@ app.add_route('/files/{file_path:path}', FileResource())
 		"/files/{file_path:path}",
 		"/users/{user_id}",
 	}, result.Routes)
+
+	assert.Equal(t, CompleteRoutes, result.Kind)
+
+	matcher := RouteMatcherFromResult(*result)
+	assert.Equal(t, "/files/{file_path:path}", matcher.Find("/files/a/b.txt"))
 }

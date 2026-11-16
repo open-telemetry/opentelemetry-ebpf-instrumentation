@@ -77,6 +77,9 @@ func extractPythonRoutes(ctx context.Context, dir string) (*RouteHarvesterResult
 	if err != nil {
 		return nil, fmt.Errorf("scan Python directory: %w", err)
 	}
+	if kind != CompleteRoutes && e.hasFalconRoutes && !e.hasPartialRoutes {
+		kind = CompleteRoutes
+	}
 
 	if err := resolveDjangoRoutes(ctx, dir, e.djangoRoutes, e.routes); err != nil {
 		return nil, err
@@ -153,8 +156,10 @@ func skipPythonDir(name string) bool {
 }
 
 type pythonExtractor struct {
-	routes       map[string]struct{}
-	djangoRoutes map[string][]djangoRoute
+	routes           map[string]struct{}
+	djangoRoutes     map[string][]djangoRoute
+	hasFalconRoutes  bool
+	hasPartialRoutes bool
 }
 
 func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
@@ -176,7 +181,12 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 		if falconImportPattern.MatchString(text) {
 			hasFalcon = true
 		}
-		scanPythonStmt(text, e.routes, hasFalcon)
+		if startsFastAPI(text) || startsFlask(text) {
+			e.hasPartialRoutes = true
+		}
+		if scanPythonStmt(text, e.routes, hasFalcon) {
+			e.hasFalconRoutes = true
+		}
 		if match := djangoFromImportAliasPattern.FindStringSubmatch(text); match != nil {
 			djangoAliases[match[3]] = match[1] + "." + match[2]
 		} else if match := djangoImportAliasPattern.FindStringSubmatch(text); match != nil {
@@ -248,12 +258,13 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 	return ctx.Err()
 }
 
-func scanPythonStmt(stmt string, routes map[string]struct{}, hasFalcon bool) {
+func scanPythonStmt(stmt string, routes map[string]struct{}, hasFalcon bool) bool {
 	scanFastAPI(stmt, routes)
 	scanFlask(stmt, routes)
 	if hasFalcon {
-		scanFalcon(stmt, routes)
+		return scanFalcon(stmt, routes)
 	}
+	return false
 }
 
 // parenDelta returns opening minus closing parentheses and square brackets on a

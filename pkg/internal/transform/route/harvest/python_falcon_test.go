@@ -69,3 +69,16 @@ func TestStartsFalcon(t *testing.T) {
 	assert.True(t, startsFalcon(`app.add_route("/users", Resource())`))
 	assert.False(t, startsFalcon(`app.add_static_route("/static", "/tmp")`))
 }
+
+func TestScanFalconIgnoresNestedURIKeyword(t *testing.T) {
+	routes := map[string]struct{}{}
+
+	scanFalcon(
+		`app.add_route(resource=Resource(uri_template="/wrong"), uri_template="/correct/{id}")`,
+		routes,
+	)
+
+	assert.Equal(t, map[string]struct{}{
+		"/correct/{id}": {},
+	}, routes)
+}
