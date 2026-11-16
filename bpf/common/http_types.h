@@ -125,6 +125,8 @@ const http2_grpc_request_t *unused_http2 __attribute__((unused));
 
 // Checks whether the request target after the method+space is valid.
 // Accepts origin-form (/...), absolute-form (http:// or https://).
+// Asterisk-form (OPTIONS *) and authority-form (CONNECT host:port) are
+// handled by the caller.
 // The usage of '|' is intended to minimise the size of jitted code affecting
 // older kernel versions - it replaces branching with bitwise operations whose
 // result are equivalent in this particular context.
@@ -149,6 +151,19 @@ static __always_inline u8 is_http_request_buf(const unsigned char *p) {
         target = p[5];
     } else if (__builtin_memcmp(p, "OPTIONS ", 8) == 0) {
         target = p[8];
+        if (target == '*') {
+            return 1;
+        }
+    } else if (__builtin_memcmp(p, "TRACE ", 6) == 0) {
+        target = p[6];
+    } else if (__builtin_memcmp(p, "QUERY ", 6) == 0) {
+        target = p[6];
+    } else if (__builtin_memcmp(p, "CONNECT ", 8) == 0) {
+        // CONNECT always takes an authority-form. Parsing it thoroughly would create
+        // a very large ebpf program. As the first letter can be a wide range of characters
+        // checking it is unlikely to filter out a lot of wrong requests so we keep it simple
+        // on purpose.
+        return 1;
     } else {
         return 0;
     }
