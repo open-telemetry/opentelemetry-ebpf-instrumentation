@@ -214,7 +214,7 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		line := strings.TrimSpace(scan.Text())
+		line := strings.TrimSpace(stripPythonComment(scan.Text()))
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -265,6 +265,32 @@ func scanPythonStmt(stmt string, routes map[string]struct{}, hasFalcon bool) boo
 		return scanFalcon(stmt, routes)
 	}
 	return false
+}
+
+// stripPythonComment removes a Python comment without changing quoted strings.
+func stripPythonComment(line string) string {
+	var quote byte
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+		if quote != 0 {
+			if ch == '\\' {
+				i++
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+
+		switch ch {
+		case '\'', '"':
+			quote = ch
+		case '#':
+			return line[:i]
+		}
+	}
+	return line
 }
 
 // parenDelta returns opening minus closing parentheses and square brackets on a

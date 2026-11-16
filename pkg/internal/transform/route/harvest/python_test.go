@@ -324,6 +324,10 @@ from falcon import App
 
 app = App()
 app.add_route(uri_template="/users/{user_id}", resource=User())
+app.add_route(  # user routes
+    "/comments/{user_id}",
+    User(),
+)
 `), 0o644))
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "falcon_asgi_app.py"), []byte(`
@@ -337,6 +341,7 @@ app.add_route('/files/{file_path:path}', FileResource())
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{
+		"/comments/{user_id}",
 		"/files/{file_path:path}",
 		"/users/{user_id}",
 	}, result.Routes)

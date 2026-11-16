@@ -82,3 +82,18 @@ func TestScanFalconIgnoresNestedURIKeyword(t *testing.T) {
 		"/correct/{id}": {},
 	}, routes)
 }
+
+func TestScanFalconRejectsConcatenatedAndAdjacentStrings(t *testing.T) {
+	tests := []string{
+		`app.add_route("/users/{user_id}" + "/details", User())`,
+		`app.add_route("/users/" "/{user_id}", User())`,
+	}
+
+	for _, stmt := range tests {
+		t.Run(stmt, func(t *testing.T) {
+			routes := map[string]struct{}{}
+			scanFalcon(stmt, routes)
+			assert.Empty(t, routes)
+		})
+	}
+}

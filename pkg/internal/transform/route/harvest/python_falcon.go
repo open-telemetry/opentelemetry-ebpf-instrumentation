@@ -167,6 +167,9 @@ func parseFalconString(input string) (string, bool) {
 		ch := input[i]
 
 		if ch == quote {
+			if strings.TrimSpace(input[i+1:]) != "" {
+				return "", false
+			}
 			return value.String(), true
 		}
 
