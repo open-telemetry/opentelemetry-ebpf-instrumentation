@@ -990,9 +990,10 @@ func testREDMetricsHTTPAutoRoutes(t *testing.T) {
 		{instrumentedServiceGorillaURL, "/rolldice/{id}"},
 		{instrumentedServiceGinURL, "/rolldice/:id"},
 		{instrumentedServiceGorillaMidURL, "/rolldice/{id}"},
+		{instrumentedServiceRestfulURL + "/api", "/api/rolldice/{id}"},
 	} {
 		t.Run(testParts[0], func(t *testing.T) {
-			waitForTestComponents(t, testParts[0])
+			waitForTestComponentsSub(t, testParts[0], "/rolldice/4")
 			testREDMetricsRouteHarvesting(t, testParts[0], "testserver", "integration-test", testParts[1])
 		})
 	}

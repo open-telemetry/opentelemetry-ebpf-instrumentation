@@ -27,11 +27,13 @@ var (
 	grpcElf             *dwarf.Data
 	spanContextData     *dwarf.Data
 	autoSDKSpanData     *dwarf.Data
+	restfulData         *dwarf.Data
 	smallELF            *elf.File
 	smallGRPCElf        *elf.File
 	smallSpanContextELF *elf.File
 	autoSDKSpanELF      *elf.File
 	smallAutoSDKSpanELF *elf.File
+	smallRestfulELF     *elf.File
 )
 
 func compileELF(source string, extraArgs ...string) *elf.File {
@@ -80,6 +82,11 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	smallAutoSDKSpanELF = compileELF(baseDir+"/configs/offsets/autosdk/inspect.go", "-ldflags", "-s -w")
+	restfulData, err = compileELF(baseDir + "/configs/offsets/go-restful/inspect.go").DWARF()
+	if err != nil {
+		panic(err)
+	}
+	smallRestfulELF = compileELF(baseDir+"/configs/offsets/go-restful/inspect.go", "-ldflags", "-s -w")
 	m.Run()
 }
 
@@ -345,6 +352,42 @@ func TestSpanContextOffsetsWithoutDwarf(t *testing.T) {
 		SpanContextSpanIDPos:     uint64(16),
 		SpanContextTraceFlagsPos: uint64(24),
 	}, offsets)
+}
+
+func TestRestfulOffsetsFromDwarf(t *testing.T) {
+	offsets, _ := structMemberOffsetsFromDwarf(restfulData)
+	routeType := dwarfStruct(t, restfulData, "github.com/emicklei/go-restful/v3.Route")
+	pathOffset := uint64(dwarfStructField(t, routeType, "Path").ByteOffset)
+
+	assert.Equal(t, pathOffset, offsets[RestfulRoutePathPos])
+}
+
+func TestRestfulOffsetsWithoutDwarf(t *testing.T) {
+	offsets, err := structMemberOffsets(smallRestfulELF)
+	require.NoError(t, err)
+
+	routeType := dwarfStruct(t, restfulData, "github.com/emicklei/go-restful/v3.Route")
+	pathOffset := uint64(dwarfStructField(t, routeType, "Path").ByteOffset)
+
+	assert.Equal(t, pathOffset, offsets[RestfulRoutePathPos])
+}
+
+func TestPrefetchedRestfulRoutePathOffsets(t *testing.T) {
+	track, err := offsets.Read(bytes.NewBufferString(prefetchedOffsets))
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		version string
+		offset  uint64
+	}{
+		{"3.0.0", 64},
+		{"3.5.2", 64},
+		{"3.6.0", 72},
+		{"3.13.0", 72},
+		{"3.14.0", 72},
+	} {
+		assertPrefetchedOffset(t, track, "github.com/emicklei/go-restful/v3.Route", "Path", tc.version, tc.offset)
+	}
 }
 
 func TestCurrentAutoSDKDependencyABI(t *testing.T) {

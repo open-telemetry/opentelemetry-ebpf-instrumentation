@@ -215,6 +215,46 @@ func testHTTPTracesURLQuery(t *testing.T) {
 	}, testTimeout, 100*time.Millisecond)
 }
 
+func testHTTPTracesRestfulRoutes(t *testing.T) {
+	waitForHTTPServerTrace(t, instrumentedServiceStdURL)
+
+	const route = "/api/rolldice/{id}"
+
+	for _, requestPath := range []string{"/api/rolldice/4", "/api/rolldice/42"} {
+		t.Run(requestPath, func(t *testing.T) {
+			traceID := createTraceID()
+			doHTTPGetWithTraceparent(t,
+				instrumentedServiceRestfulURL+requestPath,
+				http.StatusOK,
+				createTraceparent(traceID, createParentID()),
+			)
+
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				resp, err := getJaeger(jaegerQueryURL + "/" + traceID)
+				require.NoError(ct, err)
+				defer resp.Body.Close()
+
+				require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+				var tq jaeger.TracesQuery
+				require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+				require.Len(ct, tq.Data, 1)
+
+				spans := tq.Data[0].FindByOperationNameServiceAndKind(
+					"GET "+route, "testserver", "server",
+				)
+				require.Len(ct, spans, 1)
+
+				diff := spans[0].Diff(
+					jaeger.Tag{Key: "http.route", Type: "string", Value: route},
+					jaeger.Tag{Key: "url.path", Type: "string", Value: requestPath},
+				)
+				assert.Empty(ct, diff, diff.String())
+			}, testTimeout, 100*time.Millisecond)
+		})
+	}
+}
+
 func testGRPCTraces(t *testing.T) {
 	testGRPCTracesForServiceName(t, "testserver")
 }
@@ -797,11 +837,11 @@ func testGoJSONRPCTraces(t *testing.T) {
 	}, testTimeout, time.Second)
 }
 
-func waitForHTTPServerTrace(t *testing.T, baseURL, service string) {
+func waitForHTTPServerTrace(t *testing.T, baseURL string) {
 	t.Helper()
 
 	path := "/smoke-" + createTraceID()
-	params := url.Values{"service": {service}, "operation": {"GET " + path}}
+	params := url.Values{"service": {"testserver"}, "operation": {"GET " + path}}
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := testHTTPClient.Get(baseURL + path)
@@ -828,13 +868,13 @@ func waitForHTTPServerTrace(t *testing.T, baseURL, service string) {
 func testNestedHTTPTracesKProbes(t *testing.T) {
 	var traceID string
 
-	waitForTestComponents(t, "http://localhost:3031")                      // nodejs
-	waitForHTTPServerTrace(t, instrumentedServiceStdURL, "testserver")     // go
-	waitForTestComponents(t, "http://localhost:7773")                      // python
-	waitForRubyTestComponents(t, "http://localhost:3041")                  // ruby
-	waitForTestComponentsSub(t, "http://localhost:8086", "/greeting")      // java
-	waitForTestComponents(t, "http://localhost:8091")                      // rust
-	waitForHTTPServerTrace(t, instrumentedServiceJSONRPCURL, "testserver") // go jsonrpc
+	waitForTestComponents(t, "http://localhost:3031")                 // nodejs
+	waitForHTTPServerTrace(t, instrumentedServiceStdURL)              // go
+	waitForTestComponents(t, "http://localhost:7773")                 // python
+	waitForRubyTestComponents(t, "http://localhost:3041")             // ruby
+	waitForTestComponentsSub(t, "http://localhost:8086", "/greeting") // java
+	waitForTestComponents(t, "http://localhost:8091")                 // rust
+	waitForHTTPServerTrace(t, instrumentedServiceJSONRPCURL)          // go jsonrpc
 
 	// Add and check for specific trace ID
 	// Run couple of requests to make sure we flush out any transactions that might be
