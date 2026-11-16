@@ -35,24 +35,28 @@ var (
 )
 
 func compileELF(source string, extraArgs ...string) *elf.File {
+	execELF, err := compileELFWithEnv(source, nil, extraArgs...)
+	if err != nil {
+		panic(err)
+	}
+	return execELF
+}
+
+// compileELFWithEnv is compileELF with extra environment variables for go build.
+func compileELFWithEnv(source string, env []string, extraArgs ...string) (*elf.File, error) {
 	tempDir := os.TempDir()
 	tmpFilePath := path.Join(tempDir, "server.testexec")
 	cmdParts := []string{"build"}
 	cmdParts = append(cmdParts, extraArgs...)
 	cmdParts = append(cmdParts, "-o", tmpFilePath, source)
 	cmd := exec.Command("go", cmdParts...)
-	cmd.Env = []string{"GOOS=linux", "HOME=" + tempDir, "TMPDIR=" + tempDir}
+	cmd.Env = append([]string{"GOOS=linux", "HOME=" + tempDir, "TMPDIR=" + tempDir}, env...)
 	out := &bytes.Buffer{}
 	cmd.Stdout, cmd.Stderr = out, out
 	if err := cmd.Run(); err != nil {
-		fmt.Println("command output:\n" + out.String())
-		panic(err)
+		return nil, fmt.Errorf("%w, command output:\n%s", err, out.String())
 	}
-	execELF, err := elf.Open(tmpFilePath)
-	if err != nil {
-		panic(err)
-	}
-	return execELF
+	return elf.Open(tmpFilePath)
 }
 
 func TestMain(m *testing.M) {
