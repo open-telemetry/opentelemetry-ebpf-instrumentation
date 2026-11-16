@@ -20,6 +20,7 @@ services:
       - FAIL_TARGET_ADDRESS=testserver:19999
       - RESET_TARGET_ADDRESS=testserver:8082
       - SHUTDOWN_TARGET_ADDRESS=testserver:8083
+      - READ_SHUTDOWN_TARGET_ADDRESS=testserver:8084
 
   testclient-retransmit:
     build:

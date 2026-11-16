@@ -35,6 +35,7 @@ func TestStat_GoStatMetricsV2(t *testing.T) {
 	compose.Env = append(compose.Env, `TEST_SERVICE_PORTS=8381:8080`, `OTEL_EBPF_CONFIG_SUFFIX=-go-stat-metrics-v2`, `PROM_CONFIG_SUFFIX=-promscrape-otel`)
 	require.NoError(t, compose.Up())
 	t.Run("Go Stat Metrics TCP Resets tests", testStatMetricsTCPResetsGo)
+	t.Run("Go Stat Metrics TCP Resets after shutdown tests", testStatMetricsTCPResetsAfterShutdownGo)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
 }
