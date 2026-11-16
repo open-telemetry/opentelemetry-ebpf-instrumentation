@@ -29,6 +29,11 @@ func TestScanSinatraRoutes(t *testing.T) {
 		{"root route", "get '/' do\nend", []string{"/"}},
 		{"multiple routes", "get '/users' do\nend\nget '/users/:id' do\nend\npost '/users' do\nend", []string{"/users", "/users/:id"}},
 		{"comments", "# get '/ignored'\n=begin\nget '/ignored'\n=end\nget '/health' do # comment\nend", []string{"/health"}},
+		{"optional trailing slash", "get '/posts/?' do\nend", []string{"/posts"}},
+		{"optional parameter", "get '/posts/:id?' do\nend", []string{"/posts/:id"}},
+		{"optional slash and parameter", "get '/posts/?:id?' do\nend", []string{"/posts/:id"}},
+		{"optional root slash", "get '/?' do\nend", []string{"/"}},
+		{"optional literal character", "get '/colou?r' do\nend", nil},
 		{"unsupported patterns", "get '/users(/:id)' do\nend\nget '/files/*path' do\nend", nil},
 		{"not a route declaration", "get_logger.info('/users')\nputs '/users'", nil},
 		{"dynamic path", "get \"/users/#{id}\" do\nend", nil},
@@ -92,4 +97,27 @@ func TestWalkRubyFilesSkipsIrrelevantDirs(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{filepath.Join(root, "app.rb")}, visited)
+}
+
+// Directories named like Linux system directories (lib, bin, opt...) or like
+// Node.js build output are regular application directories in a Ruby app.
+func TestWalkRubyFilesKeepsApplicationDirs(t *testing.T) {
+	root := t.TempDir()
+	var want []string
+	for _, dir := range []string{"bin", "build", "lib", "opt", "srv"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, dir), 0o755))
+		path := filepath.Join(root, dir, "routes.rb")
+		require.NoError(t, os.WriteFile(path, []byte(`get '/kept' do`), 0o644))
+		want = append(want, path)
+	}
+	require.NoError(t, os.MkdirAll(filepath.Join(root, ".git"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".git", "ignored.rb"), []byte(`get '/ignored' do`), 0o644))
+
+	var visited []string
+	err := walkRubyFiles(t.Context(), root, func(path string) error {
+		visited = append(visited, path)
+		return nil
+	})
+	require.NoError(t, err)
+	assert.ElementsMatch(t, want, visited)
 }

@@ -23,17 +23,24 @@ const (
 
 var sinatraDeclaration = regexp.MustCompile(`^(get|post|put|patch|delete|head|options)\b\s*\(?\s*(.*)$`)
 
-// sinatraSkipDirs lists directories that are unlikely to hold application
-// route declarations, on top of the directories already excluded for every
-// language by skipDirs.
+// sinatraOptionalParam matches a named parameter marked optional with "?",
+// e.g. ":id?".
+var sinatraOptionalParam = regexp.MustCompile(`(:\w+)\?`)
+
+// sinatraSkipDirs lists the Ruby specific directories that are unlikely to
+// hold application route declarations, on top of commonSkipDirs. The system
+// directories of skipDirs are left out on purpose: the scan never starts at
+// the file system root, and names such as lib commonly hold Sinatra
+// application code.
 var sinatraSkipDirs = map[string]struct{}{
-	".bundle":  {},
-	"coverage": {},
-	"log":      {},
-	"spec":     {},
-	"test":     {},
-	"tmp":      {},
-	"vendor":   {},
+	".bundle":      {},
+	"coverage":     {},
+	"log":          {},
+	"node_modules": {},
+	"spec":         {},
+	"test":         {},
+	"tmp":          {},
+	"vendor":       {},
 }
 
 // extractSinatraRoutes scans every Ruby file under dir for Sinatra route
@@ -104,7 +111,7 @@ func walkRubyFiles(ctx context.Context, root string, fn func(string) error) erro
 }
 
 func skipSinatraDir(name string) bool {
-	if _, ok := skipDirs[name]; ok {
+	if _, ok := commonSkipDirs[name]; ok {
 		return true
 	}
 	_, ok := sinatraSkipDirs[name]
@@ -160,8 +167,12 @@ func scanSinatraRoutes(ctx context.Context, reader io.Reader) ([]string, error) 
 		if !ok || path == "" {
 			continue
 		}
+		path, ok = resolveSinatraOptionals(path)
+		if !ok {
+			continue
+		}
 		path = ensureLeadingSlash(strings.Trim(path, "/"))
-		// Optional segments, splats, and regex routes need matcher semantics
+		// Optional groups, splats, and regex routes need matcher semantics
 		// beyond literal fragments.
 		if strings.ContainsAny(path, "()*") {
 			continue
@@ -175,4 +186,21 @@ func scanSinatraRoutes(ctx context.Context, reader io.Reader) ([]string, error) 
 	routes = slices.Compact(routes)
 	sortRouteFragments(routes)
 	return routes, nil
+}
+
+// resolveSinatraOptionals resolves the Sinatra "?" modifier, which makes the
+// preceding slash or named parameter optional:
+//
+//	/posts/?    -> /posts
+//	/posts/:id? -> /posts/:id
+//
+// It returns false for any other use of "?" (such as an optional literal
+// character), which needs matcher semantics beyond literal fragments.
+func resolveSinatraOptionals(path string) (string, bool) {
+	if !strings.Contains(path, "?") {
+		return path, true
+	}
+	path = sinatraOptionalParam.ReplaceAllString(path, "$1")
+	path = strings.ReplaceAll(path, "/?", "/")
+	return path, !strings.Contains(path, "?")
 }
