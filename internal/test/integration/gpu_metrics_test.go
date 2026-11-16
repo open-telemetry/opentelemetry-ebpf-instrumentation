@@ -60,6 +60,11 @@ const gpuDriverCtxService = "gpu-cuda-driver-ctx-tester"
 // identity labels.
 const gpuSetDeviceService = "gpu-cuda-setdevice-tester"
 
+const (
+	gpuPtszService       = "gpu-cuda-ptsz-tester"
+	gpuPtszDriverService = "gpu-cuda-ptsz-driver-tester"
+)
+
 // TestGPUCudaMetrics brings up two targets: one that dynamically links a stub
 // libcudart.so and calls the CUDA Runtime API in a loop, and one that links a
 // stub libcuda.so.1 and calls the CUDA Driver API. OBI (with CUDA
@@ -157,6 +162,43 @@ func TestGPUCudaMetrics(t *testing.T) {
 					continue
 				}
 				assert.NotEmptyf(ct, results, "driver API histogram family %s should be present", prefix)
+			}
+		}, testTimeout, 500*time.Millisecond)
+	})
+
+	t.Run("gpu.cuda.* metrics from per-thread default stream symbols", func(t *testing.T) {
+		pq := promtest.Client{HostPort: prometheusHostPort}
+
+		expected := map[string][]string{
+			gpuPtszService: {
+				"gpu_cuda_kernel_launch_calls_total",
+				"gpu_cuda_graph_launch_calls_total",
+				"gpu_cuda_memset_bytes_total",
+				"gpu_cuda_event_record_calls_total",
+				"gpu_cuda_stream_synchronize_calls_total",
+			},
+			gpuPtszDriverService: {
+				"gpu_cuda_kernel_launch_calls_total",
+				"gpu_cuda_graph_launch_calls_total",
+			},
+		}
+
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			for service, names := range expected {
+				for _, name := range names {
+					q := name + `{service_name="` + service + `"}`
+					results, err := pq.Query(q)
+					if !assert.NoError(ct, err, "querying %s", q) {
+						continue
+					}
+					assert.NotEmptyf(ct, results, "metric %s should be present for %s", name, service)
+				}
+			}
+
+			q := `{__name__=~"gpu_cuda_memory_copies.*_count",service_name="` + gpuPtszService + `"}`
+			results, err := pq.Query(q)
+			if assert.NoError(ct, err, "querying %s", q) {
+				assert.NotEmptyf(ct, results, "memory copies should be present for %s", gpuPtszService)
 			}
 		}, testTimeout, 500*time.Millisecond)
 	})

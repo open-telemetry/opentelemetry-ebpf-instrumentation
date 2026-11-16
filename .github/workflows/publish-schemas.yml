@@ -20,7 +20,7 @@ concurrency:
 jobs:
   publish:
     name: Deploy schema files to GitHub Pages
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

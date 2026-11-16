@@ -1,0 +1,52 @@
+services:
+  testserver:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/dotnet_httpclient_traceparent/Dockerfile
+    image: hatest-dotnet-httpclient-traceparent
+    environment:
+      OTEL_SERVICE_NAME: dotnet-httpclient
+      DOWNSTREAM_URL: http://downstream:8086
+    ports:
+      - "18380:8080"
+    depends_on:
+      downstream:
+        condition: service_started
+
+  downstream:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/dotnet_httpclient_traceparent/Dockerfile
+      target: downstream
+    image: hatest-dotnet-httpclient-downstream
+
+  obi:
+    build:
+      context: ../../..
+      dockerfile: internal/test/integration/components/obi/Dockerfile
+    image: hatest-obi
+    privileged: true
+    pid: host
+    network_mode: host
+    command: ["--config=/configs/obi-config-dotnet-httpclient-traceparent.yml"]
+    environment:
+      GOCOVERDIR: "/coverage"
+      DOTNET_HTTPCLIENT_PROPAGATION: "${DOTNET_HTTPCLIENT_PROPAGATION:-headers}"
+    volumes:
+      - ./configs:/configs:ro
+      - ./system/sys/kernel/security_none:/sys/kernel/security:ro
+      - /sys/kernel/tracing:/sys/kernel/tracing:ro
+      - /sys/fs/cgroup:/sys/fs/cgroup
+      - ../../../testoutput:/coverage
+    depends_on:
+      testserver:
+        condition: service_started
+      jaeger:
+        condition: service_started
+
+  jaeger:
+    image: jaegertracing/jaeger:2.23.0@sha256:3823829974ccfc2485d2e48b165579091f32295022ae80ca49704e2f4834116e
+    ports:
+      - "16686:16686" # Query frontend
+      - "4317:4317" # OTEL GRPC traces collector
+      - "4318:4318" # OTEL HTTP traces collector

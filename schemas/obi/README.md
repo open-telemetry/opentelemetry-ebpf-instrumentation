@@ -21,7 +21,8 @@ here in the same change:
   the `metrics:` list of `groups/<domain>/metrics.yaml`, listing every attribute
   the metric's `attr_defs.go` section can carry, each with a requirement level.
 - **A span**: add its attributes to the `obi.*` span type of the emitter branch
-  that produces it, or add a span type for a new branch, and a case to
+  that produces it, or add a span type for a new branch together with its
+  live-check matcher in `.weaver.toml` (see below), and a case to
   `internal/schemacheck/emitted_contract_test.go`.
 - **An attribute upstream does not define**: declare it under `attributes:` in
   the domain's `registry.yaml`.
@@ -36,9 +37,12 @@ Checked on every change, without running OBI:
 - `make lint-schema`: the registry resolves and is well-formed.
 - `internal/schemacheck`: every signal attribute declares a requirement level;
   the span attributes the exporter emits for each case in
-  `emitted_contract_test.go` match their span type exactly; OBI's copies of
-  upstream metrics keep upstream's unit, instrument and stability, and win
-  resolution over the upstream definition.
+  `emitted_contract_test.go` match their span type exactly; the live-check
+  matchers select each of those spans as its own type and no other; OBI's
+  copies of upstream metrics keep upstream's unit, instrument and stability,
+  and win resolution over the upstream definition; every signal and attribute
+  definition conforms to upstream as described under "Conformance with
+  upstream".
 
 Checked only when an integration suite that runs weaver exercises it:
 
@@ -46,16 +50,16 @@ Checked only when an integration suite that runs weaver exercises it:
   metric (`missing_metric`), an undeclared attribute (`missing_attribute`), an
   enum value the registry does not list, or a `required` metric attribute that
   is missing.
+- Each span is matched to its span type by the matchers in `.weaver.toml` and
+  checked against that type; a span no matcher selects fails the suite. Span
+  names are compared with the type's name templates, and a mismatch fails the
+  suite.
 
 Not enforced today:
 
 - There is no deterministic check that every metric in
   `pkg/export/attributes/metric.go` is declared; an undeclared metric fails
   only once a weaver-validated suite emits it.
-- Spans are not matched to a span type by live-check, which checks each span
-  attribute against the registry as a whole. Span type membership, span kind
-  and required span attributes are checked only for the cases in
-  `emitted_contract_test.go`, and span names are not checked.
 - `conditionally_required` conditions are prose and are not evaluated.
 - Output specific to the Prometheus exporter is not described by the registry.
 
@@ -77,12 +81,69 @@ Every override in `groups/` follows these rules:
    upstream member list plus OBI's extensions; when bumping the semconv
    dependency, re-sync the upstream members verbatim from
    `.deps/upstream-<version>/model/<ns>/registry.yaml`. A missing member
-   resurfaces as an `undefined_enum_variant` failure in the weaver-validated
-   suites, so drift is caught, not silent.
+   fails `TestAttributeDefinitionsConformToUpstream`, so drift is caught, not
+   silent.
 2. **Documented in an `x.obi.<namespace>` attribute group**: the file that
    defines an override also declares a public `x.obi.<namespace>` attribute
    group referencing it, with a brief that says what the override changes. The
    generated reference lists overrides under those groups.
+
+## Conformance with upstream
+
+Live-check cannot match a signal to an upstream span or refinement, so OBI
+redeclares the signals it emits. Each copy names what it implements, and
+`internal/schemacheck/upstream_conformance_test.go` compares it with upstream.
+
+A metric declared under an upstream metric's name implements that metric, with
+no annotation. Every span, and every other metric outside the `obi.`
+namespace, sets `annotations.obi.upstream`:
+
+- one upstream span type, refinement id or metric name, e.g.
+  `upstream: http.client`. A span may also name an upstream attribute group,
+  for conventions upstream defines only as attribute groups, such as messaging
+  in semconv v1.41.0 (`upstream: messaging.kafka`);
+- a list, when the signal also follows further conventions, e.g.
+  `upstream: [messaging.aws.sqs, messaging.attributes]`. The first
+  entry is the signal OBI implements. A per-system span also names the generic
+  span upstream states it in prose, so the system name the generic span
+  requires is checked: `upstream: [rpc.grpc.call.client, rpc.call.client]`;
+- `none` with an `upstream_reason`, when upstream defines no such signal.
+
+The test fails when:
+
+- a signal names no upstream signal, sets `none` without an
+  `upstream_reason`, or carries an `upstream_reason`, `upstream_omits`,
+  `upstream_relaxes` or `upstream_extras` that its link makes meaningless;
+- a named upstream signal does not exist in the pinned semconv release;
+- a named signal requires or conditionally requires an attribute that OBI
+  does not declare, or declares at a lower level: `recommended` or `opt_in`,
+  or `conditionally_required` where upstream makes it `required`. Where several
+  named signals list the same attribute, the one named first sets its level,
+  so Elasticsearch keeps `db.namespace` recommended although the generic
+  database span conditionally requires it. When the condition can never
+  hold for OBI's signal, `annotations.obi.upstream_omits` on the signal names
+  the attribute with the reason, e.g. a consumer group on a producer span.
+  When OBI declares it at a lower level because it cannot always observe it,
+  or deliberately keeps it optional, `annotations.obi.upstream_relaxes` names
+  it with the reason, e.g. `server.address` read from a connection a BPF event
+  may not carry, or `dns.question.name` kept opt-in for its cardinality;
+- OBI declares an upstream attribute that none of the named signals lists,
+  such as `http.route` on a client metric, unless
+  `annotations.obi.upstream_extras` on the signal names it with the reason it
+  belongs there. The attributes of the internal `attributes.obi.transport`
+  group (peer, client and server address and port, protocol version, peer
+  service) carry a single shared reason and may appear on any span without an
+  entry, but not on a metric, where they multiply series;
+- an attribute definition of an upstream key changes its type, brief or
+  stability or drops an enum member, or retypes an enum as a primitive without an
+  `annotations.obi.upstream_deviation` reason on the definition;
+- OBI defines an attribute in a namespace upstream owns, outside `obi.`,
+  without an `upstream_deviation` reason on the definition.
+
+The test also fails on an `upstream_omits`, `upstream_relaxes` or `upstream_extras` entry that no
+longer waives or justifies anything, so an entry is removed once OBI or
+upstream changes. OBI's own `obi.*` attributes, and requirement levels of
+attributes upstream makes `recommended` or `opt_in`, are not compared.
 
 ## Ids
 
@@ -103,6 +164,59 @@ attribute group named `attributes.obi.<shared part>` — the messaging spans
 share `attributes.obi.messaging.common` and the HTTP server spans
 `attributes.obi.http.server.common` — so it stays out of the attribute pages, which
 document what OBI defines.
+
+## Span names
+
+Every span declares how OBI names it. `name.templates` lists the templates in
+the order OBI tries them: the first whose attributes are all present, non-empty
+and not `_OTHER` gives the name. A span whose name uses a value OBI does not
+emit as an attribute describes it in `name.note` instead. Live-check compares
+the name of each span with its templates through the `span_name_mismatch`
+policy in `.live_check_policies/`.
+
+## Live-check matchers
+
+A span carries no identifier of its own, so `.weaver.toml` declares one
+`[[live-check.matchers]]` entry per span type, selecting a span by its kind
+and the attributes that tell its type apart. Matchers are evaluated in order
+and are mutually exclusive; `TestEmittedSpansMatchTheirDeclaredSpan` in
+`internal/schemacheck` feeds representative spans through live-check and fails
+when a span matches any type other than its own. A new span type needs a
+matcher, or the weaver-validated suites fail on its unmatched spans.
+
+## Telemetry coverage
+
+Every weaver-validated suite archives its `compact` live-check report as
+`weaver-report-<name>.json`, and `cmd/obi-weaver-coverage` measures their union
+against this registry, resolved with `weaver registry resolve --v2`:
+
+- **Signals**: every metric and span definition. A signal is covered when
+  live-check matched a sample to it in some report.
+- **Signal attributes**: for each covered signal, its declared attributes
+  against the keys seen on its matched samples (span attributes, metric
+  data-point attributes), which the template lists under `signal_attributes`.
+  Gaps are grouped by requirement level and reported, without failing.
+
+Coverage is measured against the registry only. A metric or span that a suite
+emits but the registry does not declare already fails that suite in live-check.
+A suite whose
+report was not archived, such as one that failed before weaver reported, is
+missing from the numbers, and a report that does not parse is skipped. To run
+it on a directory of downloaded reports:
+
+```sh
+make weaver-coverage WEAVER_REPORTS_DIR=<dir> WEAVER_COVERAGE_OUT=<out-dir>
+```
+
+It prints the report as Markdown and writes `coverage.json` to the output
+directory. Add
+`WEAVER_COVERAGE_ARGS=--fail-on-gap` to exit non-zero when a signal definition
+was never observed; attribute gaps are reported but never fail. In CI,
+`weaver_coverage_combined.yml` aggregates the reports of every suite for a
+commit, prints the report in the job log and uploads `coverage.json` as the
+`weaver-coverage-combined-<sha>` artifact. It runs with `--fail-on-gap` when
+all three suites ran for the commit and passed, as on every push to `main`; a
+pull request whose path filters skip a suite gets the report only.
 
 ## Two override styles
 

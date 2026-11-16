@@ -42,7 +42,7 @@ func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string,
 			`http_response_status_code="200",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
-			`url_path="` + urlPath + `"}`)
+			`http_route="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -113,7 +113,6 @@ func testREDMetricsForRustHTTPLibrary(t *testing.T, url, comm, namespace string,
 	require.Truef(t, ok, "service.instance.id not found in tags: %v", process.Tags)
 	assert.Regexp(t, `^obi:\d+$$`, serviceInstance.Value)
 	sd = jaeger.Diff([]jaeger.Tag{
-		{Key: "otel.scope.name", Type: "string", Value: "go.opentelemetry.io/obi"},
 		{Key: "telemetry.sdk.language", Type: "string", Value: "rust"},
 		{Key: "telemetry.sdk.name", Type: "string", Value: "opentelemetry"},
 		{Key: "telemetry.distro.name", Type: "string", Value: "opentelemetry-ebpf-instrumentation"},
@@ -133,7 +132,7 @@ func validateLargeDownloadURLSeen(t *testing.T, comm, namespace, urlPath string)
 			`http_response_status_code="200",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
-			`url_path="` + urlPath + `"}`)
+			`http_route="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -208,7 +207,7 @@ func checkReportedRustEvents(t *testing.T, comm, namespace string, numEvents int
 			`http_response_status_code="200",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
-			`url_path="` + urlPath + `"}`)
+			`http_route="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -245,7 +244,7 @@ func testREDMetricsForRustHTTP2Library(t *testing.T, url, comm, namespace string
 			`http_response_status_code="200",` +
 			`service_namespace="` + namespace + `",` +
 			`service_name="` + comm + `",` +
-			`url_path="` + urlPath + `"}`)
+			`http_route="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)

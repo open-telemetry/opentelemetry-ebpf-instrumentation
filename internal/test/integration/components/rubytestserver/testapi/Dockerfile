@@ -8,15 +8,12 @@ ENV BUNDLE_PATH=/usr/local/bundle
 # Copy the source code into the image for building
 COPY internal/test/integration/components/rubytestserver/testapi .
 
-RUN gem update --system
 RUN gem install bundler -v 4.0.7
 RUN bundle install
 RUN bundle binstubs railties
 RUN bundle exec rake db:migrate
 
 FROM ruby:4.0.1-slim@sha256:f3207b8383a8ed08a043e960984b756a957f05217f1724f9001712696bfaea88
-
-RUN gem update --system
 
 WORKDIR /build
 

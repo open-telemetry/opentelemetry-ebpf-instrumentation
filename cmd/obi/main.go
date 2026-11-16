@@ -21,10 +21,11 @@ import (
 	otelsdk "go.opentelemetry.io/otel/sdk"
 
 	"go.opentelemetry.io/obi/cmd/obi/internal/configcmd"
-	"go.opentelemetry.io/obi/internal/config/convert"
+	"go.opentelemetry.io/obi/cmd/obi/internal/configload"
+	"go.opentelemetry.io/obi/cmd/obi/internal/configwatch"
 	"go.opentelemetry.io/obi/internal/config/schema"
+	"go.opentelemetry.io/obi/pkg/appolly/discover"
 	"go.opentelemetry.io/obi/pkg/buildinfo"
-	obicfg "go.opentelemetry.io/obi/pkg/config"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/instrumenter"
 	"go.opentelemetry.io/obi/pkg/kube/klogbridge"
@@ -36,7 +37,7 @@ const (
 	configVersionV2 = "v2"
 )
 
-func loadConfig(configPath *string) (*obi.Config, string) {
+func loadConfig(configPath *string) (*obi.Config, string, []byte) {
 	var configReader io.ReadCloser
 	if configPath != nil && *configPath != "" {
 		var err error
@@ -47,13 +48,18 @@ func loadConfig(configPath *string) (*obi.Config, string) {
 		defer configReader.Close()
 	}
 
-	config, version, err := loadConfigReader(configReader)
+	var configData bytes.Buffer
+	var reader io.Reader
+	if configReader != nil {
+		reader = io.TeeReader(configReader, &configData)
+	}
+	config, version, err := loadConfigReader(reader)
 	if err != nil {
 		slog.Error("wrong configuration", "error", err)
 		//nolint:gocritic
 		os.Exit(-1)
 	}
-	return config, version
+	return config, version, configData.Bytes()
 }
 
 func loadConfigReader(file io.Reader) (*obi.Config, string, error) {
@@ -67,24 +73,20 @@ func loadConfigReader(file io.Reader) (*obi.Config, string, error) {
 		}
 	}
 
-	doc, _, err := schema.ParseStandaloneYAML(obicfg.ReplaceEnv(data))
+	config, err := configload.LoadV2(data)
 	if err == nil {
-		config, err := convert.DocumentToRuntime(doc)
-		if err != nil {
-			return nil, "", fmt.Errorf("loading config v2: %w", err)
-		}
 		return config, configVersionV2, nil
 	}
 
 	if _, ok := errors.AsType[*schema.NotV2Error](err); !ok {
-		return nil, "", fmt.Errorf("loading config v2: %w", err)
+		return nil, "", err
 	}
 
 	var legacyReader io.Reader
 	if fileProvided {
 		legacyReader = bytes.NewReader(data)
 	}
-	config, err := obi.LoadConfig(legacyReader)
+	config, err = obi.LoadConfig(legacyReader)
 	if err != nil {
 		return nil, "", fmt.Errorf("loading config v1: %w", err)
 	}
@@ -108,7 +110,7 @@ func main() {
 	if cfg := os.Getenv("OTEL_EBPF_CONFIG_PATH"); cfg != "" {
 		configPath = &cfg
 	}
-	config, configVersion := loadConfig(configPath)
+	config, configVersion, configData := loadConfig(configPath)
 	if err := lvl.UnmarshalText([]byte(config.LogLevel)); err != nil {
 		slog.Error("unknown log level specified, choices are [DEBUG, INFO, WARN, ERROR]", "error", err)
 		os.Exit(-1)
@@ -167,10 +169,16 @@ func main() {
 	// We must register the hook before we launch the pipe build, otherwise we won't clean up if the
 	// child process isn't found.
 	ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	var opts []instrumenter.Option
+	if configVersion == configVersionV2 && configPath != nil && *configPath != "" && config.Enabled(obi.FeatureAppO11y) {
+		updater := discover.NewCriteriaUpdater(config)
+		opts = append(opts, instrumenter.WithCriteriaUpdater(updater))
+		go configwatch.Watch(ctx, *configPath, configData, updater.Update)
+	}
 	var runErr error
 	if configVersion == configVersionV2 {
 		selection := instrumentations.NewInstrumentationSelection(config.OTELMetrics.Instrumentations)
-		runErr = instrumenter.RunWithProtocolMetricSelection(ctx, config, nil, &selection)
+		runErr = instrumenter.RunWithProtocolMetricSelection(ctx, config, nil, &selection, opts...)
 	} else {
 		runErr = instrumenter.Run(ctx, config)
 	}

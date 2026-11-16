@@ -90,6 +90,15 @@ A removal goes under "Pending release notes" below instead: the format has
 `rename_attributes` and `rename_metrics` and no operation for dropping something.
 
 ```yaml
+metrics:
+  changes:
+    - rename_attributes:
+        attribute_map:
+          http.route: url.template
+        apply_to_metrics:
+          - http.client.request.duration
+          - http.client.request.body.size
+          - http.client.response.body.size
 ```
 
 ### Pending release notes
@@ -101,9 +110,55 @@ published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
+- HTTP metrics support `network.protocol.version` (`network_protocol_version` in
+  Prometheus). It is opt-in on the stable duration metrics to preserve existing series,
+  and enabled by default on the development body-size metrics. Select it through
+  `attributes.select` to split duration series by HTTP version. When selected, unknown
+  versions are omitted from OTLP attributes and use an empty Prometheus label.
+
 - A SQL++ span from a server other than Couchbase (`db.system.name` `other_sql`) that names no
   collection or bucket is named `{db.operation.name}`, like other SQL spans, instead of
   `{db.operation.name} {server.address}:{server.port}`. Couchbase SQL++ spans are unchanged.
+- The HTTP client metrics (`http.client.request.duration`, `http.client.request.body.size`,
+  `http.client.response.body.size`) carry the route as `url.template` instead of `http.route`,
+  with the same value; the transformation above records it for OTLP. The Prometheus exporter
+  label changes from `http_route` to `url_template` on `http_client_request_duration_seconds`,
+  `http_client_request_body_size_bytes` and `http_client_response_body_size_bytes`, and an
+  `attributes.select` entry naming `http.route` for these metrics must name `url.template`.
+  As in semconv, `url.template` is on by default on the two body-size metrics but opt-in on
+  `http.client.request.duration`, so client duration series no longer split by route unless
+  `url.template` is selected.
+- The development HTTP body-size metrics no longer offer `url.path`, and the HTTP server
+  body-size metrics and release-candidate `rpc.server.call.duration` no longer offer
+  `client.address`. These attributes remain available on the stable HTTP duration metrics.
+  They were opt-in, so only selections including them change. Attribute filters and spans
+  retain these attributes.
+- The span reference (`site/docs/spans.md`) documents every span's name. The emitted
+  telemetry is unchanged.
+- The trace resource no longer carries `otel.scope.name`. Spans now carry the instrumentation
+  scope itself (`go.opentelemetry.io/obi`, the OBI version and the schema URL), so resource
+  filters on `otel.scope.name` must use the instrumentation scope name instead. Exporters to
+  formats without a scope (Jaeger, Zipkin) still report `otel.scope.name` on each span. All
+  OBI metric scopes now carry the OBI version and the schema URL.
+- PostgreSQL `db.namespace` is `{database}|{schema}` when the connection's schema is known
+  (the first `search_path` entry from the startup message, then `SET search_path`/`SET SCHEMA`),
+  and the database alone otherwise. Spans and `db.client.operation.duration` series change
+  value accordingly, splitting metric series per schema, and span names that fall back to the
+  namespace change with it.
+- Go MongoDB spans from mongo-driver v2 use the driver's command name for a few `Collection`
+  methods, as with mongo-driver v1 1.13.1 and later: `db.operation.name` `updateOrReplace`
+  becomes `update`, `countDocuments` becomes `aggregate` and `estimatedDocumentCount` becomes
+  `count`. This changes the span names and `db.operation.name` on `db.client.operation.duration`,
+  and `span.name` on the span metrics. Commands that don't go through a probed `Collection`
+  method, such as `BulkWrite`, are now reported as well, which adds spans and metric series.
+- HTTP server spans and metrics now derive `server.address` from the captured HTTP request
+  host, without its port, instead of the resolved service name. When the request host is
+  unavailable, the OTLP attribute is omitted and the Prometheus label is empty.
+- The Prometheus `bpf_probe_latency_seconds` histogram (`ebpf` metrics feature) exposes
+  cumulative `le` bucket counts for every bound, including empty buckets, instead of
+  per-bucket counts for the bounds that received executions only. Bucket values grow and new
+  `le` series appear, and `histogram_quantile` over this metric now returns correct values.
+  The OTLP `obi.bpf.probe.latency` histogram is unchanged.
 
 ## Hosting notes
 

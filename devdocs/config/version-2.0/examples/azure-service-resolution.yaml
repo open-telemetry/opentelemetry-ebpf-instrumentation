@@ -1,0 +1,29 @@
+# Replace the executable path and exporter endpoint for your Azure VM.
+file_format: "1.0"
+meter_provider:
+  readers:
+    - periodic:
+        exporter:
+          otlp_http:
+            endpoint: http://localhost:4318
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: exclude
+      rules:
+        - action: include
+          match:
+            process:
+              exe_path_glob: ["/usr/local/bin/my-service"]
+    enrich:
+      enrichers:
+        cloud:
+          refresh_interval: 30s
+      service_name:
+        sources: [azure]
+        # Omit azure to use the detected subscription and resource group.
+        azure:
+          subscription_id: "${AZURE_SUBSCRIPTION_ID}"
+          resource_group: "${AZURE_RESOURCE_GROUP}"

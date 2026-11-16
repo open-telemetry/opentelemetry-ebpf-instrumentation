@@ -9,6 +9,17 @@ import io.opentelemetry.obi.java.Agent;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 
 public class ThreadInfo {
+  private static final ThreadLocal<Integer> nativeTid =
+      ThreadLocal.withInitial(Agent.NativeLib::gettid);
+
+  public static int currentTid() {
+    // A virtual thread can resume on a different carrier OS thread.
+    if (onVirtualThread()) {
+      return Agent.NativeLib.gettid();
+    }
+    return nativeTid.get();
+  }
+
   public static int writeThreadContext(NativeMemory mem, int off, long parentId) {
     mem.setLong(off, parentId);
     off += Long.BYTES;
@@ -16,9 +27,7 @@ public class ThreadInfo {
   }
 
   public static void sendParentThreadContext(long parentId) {
-    NativeMemory p = new NativeMemory(IOCTLPacket.packetPrefixSize);
-    IOCTLPacket.writePacket(p, 0, OperationType.THREAD, parentId);
-    Agent.NativeLib.ioctl(0, Agent.IOCTL_CMD, p.getAddress());
+    Agent.NativeLib.sendThreadContext(Agent.IOCTL_CMD, OperationType.THREAD.code, parentId);
   }
 
   // Emit variant for the thread-pool task advices. On a virtual thread the

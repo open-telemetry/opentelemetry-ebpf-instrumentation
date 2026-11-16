@@ -635,6 +635,15 @@ func TestStripNamePrefix(t *testing.T) {
 	}
 }
 
+func TestConfigV1ExcludesPeerMetadata(t *testing.T) {
+	g := NewSchemaGenerator()
+	schema := g.newReflector().Reflect(&obi.Config{})
+	_, exposed := schema.Properties.Get("peer_metadata")
+	require.False(t, exposed)
+	require.NotContains(t, schema.Definitions, "PeerMetadataConfig")
+	require.NotContains(t, schema.Definitions, "PeerMetadataTLSConfig")
+}
+
 func TestLogEnricherFieldNameSchema(t *testing.T) {
 	reflector := &jsonschema.Reflector{FieldNameTag: "yaml"}
 	schema := reflector.Reflect(&config.LogEnricherFieldNames{})

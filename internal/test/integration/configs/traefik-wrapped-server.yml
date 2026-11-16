@@ -1,0 +1,16 @@
+http:
+  routers:
+    plain:
+      rule: PathPrefix(`/`)
+      entryPoints: [web]
+      service: backend
+    tls:
+      rule: PathPrefix(`/`)
+      entryPoints: [websecure]
+      service: backend
+      tls: {}
+  services:
+    backend:
+      loadBalancer:
+        servers:
+          - url: https://traefik-backend:8383

@@ -59,13 +59,13 @@ static long test_probe_read(void *dst, unsigned int size, const void *src);
 #define map_put(m, k, v) test_map_update((m), (k), (v), 0)
 
 struct bpf_test_map ssl_to_conn = {.name = "ssl_to_conn",
-                                   .key_size = sizeof(void *),
+                                   .key_size = sizeof(pid_ptr_key_t),
                                    .val_size = sizeof(ssl_pid_connection_info_t)};
 struct bpf_test_map pid_tid_to_conn = {.name = "pid_tid_to_conn",
                                        .key_size = sizeof(u64),
                                        .val_size = sizeof(ssl_pid_connection_info_t)};
 struct bpf_test_map ssl_to_pid_tid = {
-    .name = "ssl_to_pid_tid", .key_size = sizeof(u64), .val_size = sizeof(u64)};
+    .name = "ssl_to_pid_tid", .key_size = sizeof(pid_ptr_key_t), .val_size = sizeof(u64)};
 struct bpf_test_map ongoing_http = {
     .name = "ongoing_http", .key_size = sizeof(pid_connection_info_t), .val_size = sizeof(u64)};
 struct bpf_test_map active_ssl_connections = {.name = "active_ssl_connections",
@@ -209,6 +209,10 @@ static void *const k_rbio = (void *)0x6600;
 static void *const k_wbio = (void *)0x7700;
 static void *const k_internal_bio = (void *)0x8800;
 
+static ssl_pid_connection_info_t *bound_conn(u32 pid, void *ssl) {
+    return map_get(&ssl_to_conn, &(pid_ptr_key_t){.ptr = (u64)ssl, .pid = pid});
+}
+
 static unsigned char client_hello[1605];
 static unsigned int client_hello_len;
 
@@ -272,7 +276,7 @@ static void test_client_hello_binds_ssl_to_its_real_peer(void) {
     reset();
     run_handshake_egress();
 
-    ssl_pid_connection_info_t *bound = map_get(&ssl_to_conn, &k_ssl);
+    ssl_pid_connection_info_t *bound = bound_conn(k_pid, k_ssl);
 
     check(bound != NULL, "the SSL is bound after the ClientHello reaches the socket");
     if (bound) {
@@ -369,8 +373,8 @@ static void test_recycled_bio_after_eviction_binds_its_own_ssl(void) {
     check(tls_prefix_try_bind(
               k_id, client_hello, k_tls_prefix_max, client_hello_len, &conn, 8443) == 1,
           "the recycled BIO correlates for the connection that now owns it");
-    check(map_get(&ssl_to_conn, &k_ssl) == NULL, "the evicted SSL is not bound to the new socket");
-    check(map_get(&ssl_to_conn, &new_ssl) != NULL, "the owning SSL is the one bound");
+    check(bound_conn(k_pid, k_ssl) == NULL, "the evicted SSL is not bound to the new socket");
+    check(bound_conn(k_pid, new_ssl) != NULL, "the owning SSL is the one bound");
 }
 
 // bio_to_ssl and ssl_to_bios are pinned and shared by every instrumented
@@ -420,7 +424,7 @@ static void test_stale_prefix_is_not_matched(void) {
     check(tls_prefix_try_bind(
               k_id, client_hello, k_tls_prefix_max, client_hello_len, &conn, 8443) == 0,
           "a prefix older than the matching window is not used");
-    check(map_get(&ssl_to_conn, &k_ssl) == NULL, "no binding is made from a stale key");
+    check(bound_conn(k_pid, k_ssl) == NULL, "no binding is made from a stale key");
 }
 
 static void test_other_process_does_not_match(void) {
@@ -515,6 +519,35 @@ static void test_shutdown_clears_the_threads_fallback_binding(void) {
           "shutting an SSL down drops the thread's fallback binding");
 }
 
+// Forked workers share their parent's heap layout, so two processes routinely
+// hold an SSL at the same address. Each keeps its own peer, and one process
+// freeing its SSL leaves the other's binding alone.
+static void test_ssl_binding_is_scoped_to_the_process(void) {
+    reset();
+    build_client_hello();
+    run_handshake_egress();
+
+    ssl_pid_connection_info_t other = {0};
+    other.p_conn = upstream_conn();
+    other.p_conn.pid = k_other_pid;
+    other.p_conn.conn.d_port = 9443;
+    other.p_conn.conn.s_port = 51001;
+    other.orig_dport = 9443;
+    set_active_ssl_connection(&other, k_ssl);
+
+    ssl_args_t args = ssl_args();
+    handle_ssl_buf(NULL, k_id, &args, 16, TCP_SEND);
+    check_u16(8443, test_last_orig_dport, "this process's SSL keeps its own peer");
+
+    handle_ssl_buf(NULL, k_other_id, &args, 16, TCP_SEND);
+    check_u16(9443, test_last_orig_dport, "the same address in another process keeps its peer");
+
+    ssl_free_probe(k_other_id, k_ssl);
+    seed_inbound_guess();
+    handle_ssl_buf(NULL, k_id, &args, 16, TCP_SEND);
+    check_u16(8443, test_last_orig_dport, "another process freeing its SSL does not unbind ours");
+}
+
 // A second connection whose SSL pointer is the address a previous one used.
 // Runs the same handshake against a different peer and reports which peer the
 // SSL ends up bound to.
@@ -536,7 +569,7 @@ static u16 recycled_pointer_binds_to(int tear_down_first) {
     tls_prefix_register_egress(k_wbio, client_hello, (int)client_hello_len);
     tls_prefix_try_bind(k_id, client_hello, k_tls_prefix_max, client_hello_len, &other, 9443);
 
-    ssl_pid_connection_info_t *bound = map_get(&ssl_to_conn, &k_ssl);
+    ssl_pid_connection_info_t *bound = bound_conn(k_pid, k_ssl);
     return bound ? bound->orig_dport : 0;
 }
 
@@ -586,7 +619,7 @@ static void test_application_data_record_also_correlates(void) {
     check(tls_prefix_try_bind(k_id, app_data, record_len, record_len, &conn, 8443) == 1,
           "an application data record binds the SSL");
 
-    ssl_pid_connection_info_t *bound = map_get(&ssl_to_conn, &k_ssl);
+    ssl_pid_connection_info_t *bound = bound_conn(k_pid, k_ssl);
     check(bound != NULL, "the SSL is bound from application data alone");
     if (bound) {
         check_u16(8443, bound->orig_dport, "bound to the upstream peer");
@@ -622,9 +655,9 @@ static void test_concurrent_unbound_connections_do_not_cross_bind(void) {
 
     check(tls_prefix_try_bind(k_id, change_cipher_spec, len, len, &conn, 8443) == 0,
           "a ChangeCipherSpec send correlates nothing");
-    check(map_get(&ssl_to_conn, &k_ssl_b) == NULL,
+    check(bound_conn(k_pid, k_ssl_b) == NULL,
           "the other connection's SSL is not bound to this connection's peer");
-    check(map_get(&ssl_to_conn, &k_ssl) == NULL, "no SSL is bound from a ChangeCipherSpec");
+    check(bound_conn(k_pid, k_ssl) == NULL, "no SSL is bound from a ChangeCipherSpec");
 
     // Each connection still binds on its own application data, which carries
     // ciphertext unique to it.
@@ -654,13 +687,13 @@ static void test_concurrent_unbound_connections_do_not_cross_bind(void) {
     check(tls_prefix_try_bind(k_id, app_b, record_len, record_len, &conn, 9443) == 1,
           "the second connection's record binds a connection");
 
-    ssl_pid_connection_info_t *bound_b = map_get(&ssl_to_conn, &k_ssl_b);
+    ssl_pid_connection_info_t *bound_b = bound_conn(k_pid, k_ssl_b);
 
     check(bound_b != NULL, "the second connection's SSL is bound by its own ciphertext");
     if (bound_b) {
         check_u16(9443, bound_b->orig_dport, "and to the peer that carried it");
     }
-    check(map_get(&ssl_to_conn, &k_ssl) == NULL, "the first connection's SSL is untouched");
+    check(bound_conn(k_pid, k_ssl) == NULL, "the first connection's SSL is untouched");
 }
 
 // ...but only while bio_to_ssl knows the BIO. A connection whose SSL_set_bio
@@ -692,6 +725,7 @@ int main(void) {
     test_bound_ssl_survives_the_event_loop_write();
     test_free_keeps_the_threads_fallback_binding();
     test_shutdown_clears_the_threads_fallback_binding();
+    test_ssl_binding_is_scoped_to_the_process();
     test_recycled_pointer_without_teardown_inherits_the_old_peer();
     test_freed_ssl_lets_a_recycled_pointer_recorrelate();
     test_application_data_record_also_correlates();

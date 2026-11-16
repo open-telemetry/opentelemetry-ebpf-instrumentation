@@ -15,6 +15,8 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/discover"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
+	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -66,8 +68,11 @@ func TestRun_WithDynamicSelector(t *testing.T) {
 	require.True(t, cfg.Enabled(obi.FeatureAppO11y), "test config must enable App O11y")
 
 	opts := []Option{WithDynamicSelector(sel)}
-	done := make(chan error, 1)
-	go func() { done <- Run(ctx, cfg, opts...) }()
+	done := make(chan struct{})
+	go func() {
+		_ = Run(ctx, cfg, opts...)
+		close(done)
+	}()
 
 	time.Sleep(2 * time.Second)
 	sel.AddPIDs(42, 100)
@@ -79,4 +84,14 @@ func TestRun_WithDynamicSelector(t *testing.T) {
 	assert.Equal(t, []app.PID{100, 200}, pids)
 	cancel()
 	<-done
+}
+
+func TestBuildCommonContextInfo_EBPFReverseDNS(t *testing.T) {
+	cfg := obi.DefaultConfig
+	cfg.Attributes.MetadataRetry = metadata.RetryConfig{Timeout: time.Millisecond}
+	cfg.Attributes.Kubernetes.Enable = kubeflags.EnabledFalse
+
+	ctxInfo, err := BuildCommonContextInfo(t.Context(), &cfg)
+	require.NoError(t, err)
+	assert.NotNil(t, ctxInfo.EBPFReverseDNS)
 }

@@ -21,6 +21,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/filter"
 	msg2 "go.opentelemetry.io/obi/pkg/internal/helpers/msg"
 	"go.opentelemetry.io/obi/pkg/internal/traces"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
@@ -94,8 +95,10 @@ func newGraphBuilderWithProtocolMetricSelection(
 
 	selectorCfg := &attributes.SelectorConfig{
 		SelectionCfg:            config.Attributes.Select,
+		UseV2Selection:          config.Attributes.UseV2Selection,
 		ExtraGroupAttributesCfg: config.Attributes.ExtraGroupAttributes,
 		SensitiveQueryParamsCfg: config.Attributes.SensitiveQueryParams,
+		SanitizeSQLQueryText:    config.Attributes.SanitizeSQLQueryText,
 	}
 
 	// Second, we register instancers for each pipe node, as well as communication queues between them
@@ -123,8 +126,12 @@ func newGraphBuilderWithProtocolMetricSelection(
 	// We connect the Kube and Docker metadata decorators in series, but only
 	// one of them will be active at the same time and bypass the other's queues
 	kubeToContainerDecorator := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "kubeToContainerDecorator")
-	swi.Add(transform.KubeDecoratorProvider(
-		ctxInfo, &config.Attributes.Kubernetes,
+	swi.Add(transform.KubeDecoratorProviderWithMetadataProvider(
+		&metadata.MetadataProvider{
+			K8sInformer:   ctxInfo.K8sInformer,
+			CloudMetadata: config.CloudMetadata,
+		},
+		&config.Attributes.Kubernetes,
 		routerToKubeDecorator, kubeToContainerDecorator,
 	), swarm.WithID("KubeDecorator"))
 
@@ -134,10 +141,17 @@ func newGraphBuilderWithProtocolMetricSelection(
 		kubeToContainerDecorator, containerDecoratorToNameResolver,
 	), swarm.WithID("DockerDecorator"))
 
+	nameResolverToPeerMetadata := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "nameResolverToPeerMetadata")
 	nameResolverToParentSettler := msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "nameResolverToParentSettler")
 	swi.Add(transform.NameResolutionProvider(ctxInfo, config.NameResolver,
-		containerDecoratorToNameResolver, nameResolverToParentSettler),
+		containerDecoratorToNameResolver, nameResolverToPeerMetadata),
 		swarm.WithID("NameResolution"))
+	jointMetricsConfig := JoinMetricsConfig(config)
+	swi.Add(transform.PeerMetadataProvider(ctxInfo, config.PeerMetadata, config.Attributes.InstanceID,
+		jointMetricsConfig.Features.ServiceGraph() &&
+			(config.OTELMetrics.EndpointEnabled() || config.Prometheus.EndpointEnabled()), selection,
+		processEventsCh, nameResolverToPeerMetadata, nameResolverToParentSettler),
+		swarm.WithID("PeerMetadata"))
 
 	// In vendored mode, the invoker might want to override the export queue for connecting their
 	// own exporters, otherwise we create a new queue
@@ -171,6 +185,8 @@ func newGraphBuilderWithProtocolMetricSelection(
 	swi.Add(DynamicSignalSpanGate(ctxInfo.DynamicSelector, protocolFilteredSpans, exportableSpans),
 		swarm.WithID("DynamicSignalSpanGate"))
 
+	swi.Add(otel.ExceptionLogsReceiver(ctxInfo, config.Logs, config.Attributes.Select, ctxInfo.ExceptionInput), swarm.WithID("ExceptionLogsReceiver"))
+
 	swi.Add(otel.TracesReceiver(
 		ctxInfo, config.Traces, config.SpanMetricsEnabledForTraces(), selectorCfg, exportableSpans,
 	), swarm.WithID("OTELTracesReceiver"))
@@ -180,7 +196,6 @@ func newGraphBuilderWithProtocolMetricSelection(
 	// some nodes (ipNodesFilter, span name limiter...) are only passed to the metrics export nodes.
 	// The exportableSpans queue already carries any dynamic per-signal trace/metrics gating.
 	// If no metrics exporter is configured, we will not start the metrics subpipeline to save resources.
-	jointMetricsConfig := JoinMetricsConfig(config)
 	exportingMetrics := jointMetricsConfig.Features.AnyAppO11yMetric() &&
 		(config.OTELMetrics.EndpointEnabled() || config.Prometheus.EndpointEnabled())
 	if exportingMetrics {
@@ -218,7 +233,7 @@ func setupMetricsSubPipeline(
 	}
 
 	var spanNameAggregatedMetrics *msg.Queue[[]request.Span]
-	if jointMetricsConfig.Features.AppOrSpan() || jointMetricsConfig.Features.ServiceGraph() {
+	if jointMetricsConfig.Features.AppOrSpan() || jointMetricsConfig.Features.ServiceTopology() {
 		spanNameAggregatedMetrics = msg2.QueueFromConfig[[]request.Span](config, ctxInfo.Metrics, "spanNameAggregatedMetrics")
 
 		swi.Add(transform.SpanNameLimiter(transform.SpanNameLimiterConfig{
@@ -260,7 +275,7 @@ func setupMetricsSubPipeline(
 	}
 
 	if jointMetricsConfig.Features.AppOrSpan() ||
-		jointMetricsConfig.Features.ServiceGraph() ||
+		jointMetricsConfig.Features.ServiceTopology() ||
 		runtimeMetricsEnabled.Any() {
 		swi.Add(prom.PrometheusEndpoint(
 			ctxInfo,

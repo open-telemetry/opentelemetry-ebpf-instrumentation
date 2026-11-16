@@ -1,0 +1,20 @@
+network:
+  enable: true
+  source: socket_filter
+routes:
+  unmatched: path
+otel_traces_export:
+  endpoint: http://jaeger:4318
+prometheus_export:
+  port: 9400
+metrics:
+  features: [network, application]
+attributes:
+  select:
+    "*":
+      include: ["*"]
+discovery:
+  instrument:
+    - name: minio-validation
+      exe_path: "*/minio"
+      container_name: "*minio-validation*"

@@ -110,6 +110,12 @@ async def handle_connection(reader: asyncio.StreamReader, writer: asyncio.Stream
         while True:
             try:
                 raw = await reader.readuntil(b"\r\n\r\n")
+                headers = raw.decode("latin-1").lower()
+                for header in headers.split("\r\n")[1:]:
+                    name, _, value = header.partition(":")
+                    if name == "content-length":
+                        await reader.readexactly(int(value))
+                        break
             except (asyncio.IncompleteReadError, ConnectionResetError):
                 break
             request_line = raw.split(b"\r\n", 1)[0].decode("latin-1")
@@ -117,7 +123,6 @@ async def handle_connection(reader: asyncio.StreamReader, writer: asyncio.Stream
             if len(fields) != 3:
                 break
             _, path, _ = fields
-            headers = raw.decode("latin-1").lower()
             keep_alive = "connection: close" not in headers
 
             try:

@@ -95,6 +95,16 @@
       ],
       "datasourceTemplate": "docker",
       "versioningTemplate": "regex:^(?:(?<compatibility>.+?)-)?v?(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$"
+    },
+    {
+      // Track the OATS and GCX release pins and the checksum for each Linux
+      // architecture together. The release-attachments datasource maps each
+      // checksum to the corresponding versioned archive.
+      "customType": "regex",
+      "managerFilePatterns": ["/^scripts\\/install-oats-tools\\.sh$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[^\\s]+) depName=(?<depName>[^\\s]+) packageName=(?<packageName>[^\\s]+) versioning=(?<versioning>[^\\s]+)\\s+\\w+_VERSION=(?<currentValue>v\\d+\\.\\d+\\.\\d+)\\s+\\w+_SHA256=(?<currentDigest>[a-f0-9]{64})"
+      ]
     }
   ],
   "packageRules": [
@@ -107,6 +117,16 @@
       "matchManagers": ["gomod"],
       "matchUpdateTypes": ["patch", "digest", "minor"],
       "schedule": ["before 6am on Monday"]
+    },
+    {
+      "description": "Keep MongoDB v1 offset and integration fixtures on driver v1; separate fixtures cover v2",
+      "matchManagers": ["gomod"],
+      "matchFileNames": [
+        "configs/offsets/mongo/go.mod",
+        "internal/test/integration/components/gomongo/go.mod"
+      ],
+      "matchPackageNames": ["go.mongodb.org/mongo-driver"],
+      "allowedVersions": "<2"
     },
     {
       "groupName": "OpenTelemetry Collector Go packages",
@@ -212,6 +232,13 @@
       "enabled": false
     },
     {
+      "description": "Keep go.yaml.in/yaml on v3 until otelconf migrates UnmarshalYAML(*go.yaml.in/yaml/v3.Node) (otelconf v0.27.0)",
+      "matchManagers": ["gomod"],
+      "matchPackageNames": ["go.yaml.in/yaml/v3"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
       "description": "Block golang Docker image minor and major upgrades (these require coordinated manual changes)",
       "matchDatasources": ["docker"],
       "matchPackageNames": [
@@ -279,15 +306,35 @@
       "enabled": false
     },
     {
-      "description": "Keep the grpc_relay Python image on 3.14: its requirements.txt is pip-compiled for 3.14 and grpcio has no wheels for newer Python releases yet",
-      "matchFileNames": ["internal/test/integration/components/grpc_relay/python/Dockerfile"],
+      "description": "Keep Python 3.14 integration fixtures on their supported minor version: dependency locks, runtime layouts, and test expectations require 3.14",
+      "matchFileNames": ["internal/test/integration/components/**"],
       "matchDatasources": ["docker"],
+      "matchCurrentValue": "/^3\\.14(\\.|-|$)/",
       "matchPackageNames": [
         "python",
         "docker.io/library/python",
         "library/python"
       ],
       "allowedVersions": "/^3\\.14(\\.|-|$)/"
+    },
+    {
+      "description": "Keep ZooKeeper-based Kafka test fixtures on the 3.9 release line",
+      "matchManagers": ["docker-compose"],
+      "matchFileNames": ["internal/test/**"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["bitnamilegacy/kafka", "docker.io/bitnamilegacy/kafka"],
+      "matchCurrentValue": "/^3\\.9(\\.|$)/",
+      "allowedVersions": "/^3\\.9(\\.|$)/"
+    },
+    {
+      "description": "Keep MongoDB fixtures on 7.x until MongoDB 8+ supports the CI kernels (SERVER-121912)",
+      "matchFileNames": [
+        "internal/test/integration/components/mongo/Dockerfile",
+        "internal/test/oats/mongo/docker-compose-go-mongo*.yml"
+      ],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["mongo", "docker.io/library/mongo", "library/mongo"],
+      "allowedVersions": "/^7\\./"
     },
     {
       "groupName": "Github Actions",
@@ -334,6 +381,15 @@
       "matchFileNames": ["internal/test/**"],
       "matchUpdateTypes": ["patch", "digest"],
       "enabled": false
+    },
+    {
+      "description": "Keep the Java HttpClient fixture's pinned Gradle images current",
+      "matchManagers": ["dockerfile"],
+      "matchFileNames": ["internal/test/integration/components/java_httpclient_traceparent/Dockerfile"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["gradle", "docker.io/library/gradle", "library/gradle"],
+      "matchUpdateTypes": ["patch", "digest"],
+      "enabled": true
     },
     {
       "description": "Keep the Go Auto SDK latest fixture on rolling OpenTelemetry releases",
@@ -418,6 +474,14 @@
       "matchPackageNames": ["org.springframework.boot:spring-boot-starter-parent", "org.springframework.boot:spring-boot-dependencies", "org.springframework.boot:spring-boot-maven-plugin"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "description": "Keep the Java Kafka OATS broker on Confluent 7.9 (Kafka 3.9) with patch and digest updates",
+      "matchFileNames": ["internal/test/oats/kafka/docker-compose-obi-java-kafka.yml"],
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["confluentinc/cp-kafka"],
+      "allowedVersions": "/^7\\.9\\./",
+      "enabled": true
     },
     {
       "description": "Block kafka-clients major upgrades for javakafka test component",
@@ -513,6 +577,22 @@
       "groupName": "OBI example images",
       "enabled": true,
       "schedule": ["before 6am on Tuesday"]
+    },
+    {
+      "description": "Keep both OATS Linux architecture archives and checksums on one release",
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["scripts/install-oats-tools.sh"],
+      "matchPackageNames": ["grafana/oats"],
+      "groupName": "OATS CLI",
+      "enabled": true
+    },
+    {
+      "description": "Keep both GCX Linux architecture archives and checksums on one release",
+      "matchManagers": ["custom.regex"],
+      "matchFileNames": ["scripts/install-oats-tools.sh"],
+      "matchPackageNames": ["grafana/gcx"],
+      "groupName": "GCX CLI",
+      "enabled": true
     },
     {
       // Pin every otel/weaver reference to one version in a single PR. The refs

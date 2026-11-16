@@ -28,7 +28,7 @@ IMG ?= $(IMG_REGISTRY)/$(IMG_ORG)/$(IMG_NAME):$(VERSION)
 
 # The generator is a container image that provides a reproducible environment for
 # building eBPF binaries
-GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.17
+GEN_IMG ?= ghcr.io/open-telemetry/obi-generator:0.2.18
 
 OCI_BIN ?= docker
 
@@ -180,7 +180,7 @@ lint-schema: fetch-upstream-semconv
 	@echo "### Linting OBI semantic-convention registry"
 	@./scripts/lint-schema.sh $(OCI_BIN) $(WEAVERIMAGE) "$(CURDIR)/schemas/obi"
 
-# The schemacheck provenance tests resolve the registry through the pinned
+# The schemacheck provenance and live-check matching tests run the pinned
 # weaver image, so they cannot run under the `-short` unit-test targets. They
 # run here instead, alongside lint-schema, which already provides both the
 # container runtime and the pre-fetched upstream semconv registry.
@@ -188,6 +188,24 @@ lint-schema: fetch-upstream-semconv
 test-schema: fetch-upstream-semconv
 	@echo "### Testing OBI semantic-convention registry provenance"
 	go test -race -count=1 ./internal/schemacheck/...
+
+# Aggregate the per-suite weaver reports into a telemetry-coverage report,
+# measuring the observed telemetry against the schema-resolved denominator.
+# All logic lives in cmd/obi-weaver-coverage; the denominator is resolved from
+# schemas/obi here so CI needs nothing but `make weaver-coverage`.
+WEAVER_REPORTS_DIR ?= ./all-weaver-reports
+WEAVER_COVERAGE_OUT ?= /tmp/weaver-coverage
+.PHONY: weaver-coverage
+weaver-coverage: fetch-upstream-semconv
+	@echo "### Aggregating weaver telemetry coverage"
+	@mkdir -p "$(WEAVER_COVERAGE_OUT)"
+	@go run ./cmd/obi-weaver-coverage \
+		--schema "$(CURDIR)/schemas/obi" \
+		--oci-bin $(OCI_BIN) \
+		--weaver-image $(WEAVERIMAGE) \
+		--in "$(WEAVER_REPORTS_DIR)" \
+		--out-json "$(WEAVER_COVERAGE_OUT)/coverage.json" \
+		$(WEAVER_COVERAGE_ARGS)
 
 .PHONY: check-schema-files
 check-schema-files:
@@ -597,11 +615,12 @@ run-integration-test-vm:
 		echo "Pre-compiled tests not found, compiling in VM"; \
 		go tool $(TOOLS_MODFILE) gotestsum \
 			--rerun-fails=2 --rerun-fails-max-failures=2 \
+			--packages=./internal/test/integration \
 			-ftestname --jsonfile=testoutput/vm-test-run-$(RUN_NUMBER).log -- \
 			-p $$TEST_PARALLEL \
 			-timeout $$TEST_TIMEOUT \
 			-v \
-			-run="^($(TEST_PATTERN))\$$" ./internal/test/integration; \
+			-run="^($(TEST_PATTERN))\$$"; \
 	fi
 
 .PHONY: unit-test-matrix-json
@@ -624,10 +643,11 @@ integration-test-matrix-json:
 
 # Shared matrix for workflows that run the VM-side test suite. Pattern
 # covers multiprocess context propagation, gRPC relay, the HTTP
-# logenricher pipeline, large HTTP request bodies, and Go Auto SDK activation.
+# logenricher pipeline, large HTTP request bodies, Go Auto SDK activation, and
+# context propagation enrollment.
 .PHONY: multiprocess-integration-test-matrix-json
 multiprocess-integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest|TestGo.*SDKActivation)"
+	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest|TestGo.*SDKActivation|TestCPEnrollment)"
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:
@@ -635,7 +655,7 @@ k8s-integration-test-matrix-json:
 
 .PHONY: oats-integration-test-matrix-json
 oats-integration-test-matrix-json:
-	@./scripts/generate-dir-matrix.sh internal/test/oats /harness/
+	@./scripts/generate-dir-matrix.sh internal/test/oats '' oats-config.yaml
 
 .PHONY: integration-test
 integration-test: prereqs prepare-integration-test
@@ -660,54 +680,40 @@ itest-coverage-data:
 	# exclude generated files from coverage data
 	grep -vE $(EXCLUDE_COVERAGE_FILES) $(TEST_OUTPUT)/itest-covdata.all.txt > $(TEST_OUTPUT)/itest-covdata.txt || true
 
-.PHONY: oats-prereq
-oats-prereq: docker-generate fetch-upstream-semconv
-	mkdir -p $(TEST_OUTPUT)/run
+.PHONY: oats-install-tools
+OATS_TOOLS_DIR := $(PROJECT_DIR)/.tools/oats
+OATS_FINALIZER := $(OATS_TOOLS_DIR)/weaver-finalizer
+OATS_BIN := $(OATS_TOOLS_DIR)/oats
+OATS_RUNNER := $(PROJECT_DIR)/scripts/run-oats-with-log.sh
+GCX_BIN := $(OATS_TOOLS_DIR)/gcx
 
-.PHONY: oats-test-sql
-oats-test-sql: oats-prereq
-	mkdir -p internal/test/oats/sql/$(TEST_OUTPUT)/run
-	cd internal/test/oats/sql && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+$(OATS_TOOLS_DIR)/.installed: scripts/install-oats-tools.sh
+	@./scripts/install-oats-tools.sh $(OATS_TOOLS_DIR)
+	@touch $@
 
-.PHONY: oats-test-redis
-oats-test-redis: oats-prereq
-	mkdir -p internal/test/oats/redis/$(TEST_OUTPUT)/run
-	cd internal/test/oats/redis && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+oats-install-tools: $(OATS_TOOLS_DIR)/.installed
 
-.PHONY: oats-test-kafka
-oats-test-kafka: oats-prereq
-	mkdir -p internal/test/oats/kafka/$(TEST_OUTPUT)/run
-	cd internal/test/oats/kafka && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+$(OATS_FINALIZER): go.mod go.sum internal/test/oats/finalizer/*.go $(wildcard internal/test/weavercheck/*.go)
+	@mkdir -p $(dir $@)
+	go build -o $@ ./internal/test/oats/finalizer
 
-.PHONY: oats-test-http
-oats-test-http: oats-prereq
-	mkdir -p internal/test/oats/http/$(TEST_OUTPUT)/run
-	cd internal/test/oats/http && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+.PHONY: oats-prereq oats-prepare-obi
+oats-prepare-obi:
+	@if printf ',%s,' '$(PREBUILT_IMAGES)' | grep -q ',hatest-obi,'; then \
+		$(OCI_BIN) image inspect hatest-obi >/dev/null 2>&1 || { echo 'PREBUILT_IMAGES includes hatest-obi, but that image is not loaded' >&2; exit 1; }; \
+		echo 'Using prebuilt hatest-obi image'; \
+	else \
+		$(MAKE) docker-generate && \
+		$(OCI_BIN) build -t hatest-obi -f internal/test/integration/components/obi/Dockerfile .; \
+	fi
 
-.PHONY: oats-test-mongo
-oats-test-mongo: oats-prereq
-	mkdir -p internal/test/oats/mongo/$(TEST_OUTPUT)/run
-	cd internal/test/oats/mongo && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+oats-prereq: oats-prepare-obi fetch-upstream-semconv oats-install-tools $(OATS_FINALIZER)
+	@mkdir -p $(TEST_OUTPUT)/run
 
-.PHONY: oats-test-memcached
-oats-test-memcached: oats-prereq
-	mkdir -p internal/test/oats/memcached/$(TEST_OUTPUT)/run
-	cd internal/test/oats/memcached && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
-
-.PHONY: oats-test-ai
-oats-test-ai: oats-prereq
-	mkdir -p internal/test/oats/ai/$(TEST_OUTPUT)/run
-	cd internal/test/oats/ai && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
-
-.PHONY: oats-test-nats
-oats-test-nats: oats-prereq
-	mkdir -p internal/test/oats/nats/$(TEST_OUTPUT)/run
-	cd internal/test/oats/nats && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
-
-.PHONY: oats-test-amqp
-oats-test-amqp: oats-prereq
-	mkdir -p internal/test/oats/amqp/$(TEST_OUTPUT)/run
-	cd internal/test/oats/amqp && TESTCASE_TIMEOUT=5m TESTCASE_BASE_PATH=./yaml go tool $(TOOLS_MODFILE) ginkgo -v -r
+.PHONY: oats-test-ai oats-test-amqp oats-test-http oats-test-kafka oats-test-memcached oats-test-mongo oats-test-nats oats-test-redis oats-test-sql
+oats-test-ai oats-test-amqp oats-test-http oats-test-kafka oats-test-memcached oats-test-mongo oats-test-nats oats-test-redis oats-test-sql: oats-test-%: oats-prereq
+	@test -f internal/test/oats/$*/oats-config.yaml || (echo "No OATS v3 config for suite $*" >&2; exit 1)
+	cd internal/test/oats/$* && OATS_ARTIFACT_DIR="$(PROJECT_DIR)/internal/test/oats/$*/build" $(OATS_RUNNER) build/oats.log $(OATS_BIN) run --config oats-config.yaml --container-runtime docker --gcx $(GCX_BIN) --timeout "$${TESTCASE_TIMEOUT:-5m}" --absent-timeout 10s --no-cache -vvv
 
 .PHONY: oats-test
 oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http oats-test-memcached oats-test-ai oats-test-nats oats-test-amqp
@@ -715,7 +721,7 @@ oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-te
 
 .PHONY: oats-test-debug
 oats-test-debug: oats-prereq
-	cd internal/test/oats/kafka && TESTCASE_BASE_PATH=./yaml TESTCASE_MANUAL_DEBUG=true TESTCASE_TIMEOUT=1h go tool $(TOOLS_MODFILE) ginkgo -v -r
+	cd internal/test/oats/kafka && OATS_ARTIFACT_DIR="$(PROJECT_DIR)/internal/test/oats/kafka/build" $(OATS_RUNNER) build/oats.log $(OATS_BIN) run --config oats-config.yaml --container-runtime docker --gcx $(GCX_BIN) --timeout "$${TESTCASE_TIMEOUT:-1h}" --absent-timeout 10s --no-cache --pause-on-failure -vvv
 
 .PHONY: license-header-check
 license-header-check:
@@ -819,6 +825,7 @@ clean-testoutput: testoutput
 .PHONY: protoc-gen
 protoc-gen:
 	docker run --rm -v $(PWD):/src -w /src --entrypoint protoc $(GEN_IMG) --go_out=pkg/kube/kubecache --go-grpc_out=pkg/kube/kubecache proto/informer.proto
+	docker run --rm -v $(PWD):/src -w /src --entrypoint protoc $(GEN_IMG) --go_out=pkg/metadata/peer --go-grpc_out=pkg/metadata/peer proto/metadata.proto
 
 CLANG_FORMAT_FILES ?= $(wildcard $(shell git ls-files --cached --others --exclude-standard -- '*.c' '*.h' '*.cpp' ':!NOTICES/' ':!bpf/bpfcore/'))
 

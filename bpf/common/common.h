@@ -41,6 +41,7 @@ enum : u32 {
     k_kafka_max_len = 256,
     k_redis_max_len = 256,
     k_mongo_max_len = 256,
+    k_mongo_hostname_max_len = 262,
     k_max_topic_name_len = 64,
     k_host_max_len = 100,
     k_scheme_max_len = 10,
@@ -52,6 +53,7 @@ enum : u32 {
 enum large_buf_action : u8 {
     k_large_buf_action_init = 0,
     k_large_buf_action_append = 1,
+    k_large_buf_action_rekey = 2, // payload: the previous trace id of the buffer
 };
 
 enum large_buf_kind : u8 {
@@ -79,7 +81,9 @@ typedef struct http_request_trace {
     u16 status;
     unsigned char method[k_method_max_len];
     unsigned char scheme[k_scheme_max_len];
-    u8 _pad[11];
+    u8 proto_major;
+    u8 proto_minor;
+    u8 _pad[9];
     u64 go_start_monotime_ns;
     u64 start_monotime_ns;
     u64 end_monotime_ns;
@@ -92,14 +96,14 @@ typedef struct http_request_trace {
     u8 _pad1[4];
     tp_info_t tp;
     connection_info_t conn;
-    pid_info pid;
+    pid_info_t pid;
 } http_request_trace_t;
 
 typedef struct sql_request_trace {
     u8 type; // Must be first
     u8 sub_type;
     u16 status;
-    pid_info pid;
+    pid_info_t pid;
     u64 start_monotime_ns;
     u64 end_monotime_ns;
     tp_info_t tp;
@@ -115,14 +119,14 @@ typedef struct kafka_client_req {
     u64 end_monotime_ns;
     unsigned char buf[k_kafka_max_len];
     connection_info_t conn;
-    pid_info pid;
+    pid_info_t pid;
 } kafka_client_req_t;
 
 typedef struct kafka_go_req {
     u8 type; // Must be first
     u8 op;
     u8 _pad0[2];
-    pid_info pid;
+    pid_info_t pid;
     connection_info_t conn;
     u8 _pad1[4];
     tp_info_t tp;
@@ -138,7 +142,7 @@ typedef struct redis_client_req {
     u8 _pad[4];
     u64 start_monotime_ns;
     u64 end_monotime_ns;
-    pid_info pid;
+    pid_info_t pid;
     unsigned char buf[k_redis_max_len];
     connection_info_t conn;
     tp_info_t tp;
@@ -171,7 +175,7 @@ typedef struct tcp_req {
     unsigned char rbuf[k_tcp_res_len];
     // we need this to filter traces from unsolicited processes that share the executable
     // with other instrumented processes
-    pid_info pid;
+    pid_info_t pid;
     tp_info_t tp;
 } tcp_req_t;
 
@@ -256,7 +260,7 @@ typedef struct otel_span {
     u32 status;
     span_name_t span_name;
     span_description_t span_description;
-    pid_info pid;
+    pid_info_t pid;
     otel_attributes_t span_attrs;
     u8 _epad[6];
 } otel_span_t;
@@ -271,15 +275,24 @@ typedef struct otel_span {
 typedef struct node_span_event {
     u8 type; // Must be first, k_event_type_node_span
     u8 has_parent_ctx;
-    u8 _pad[2];
+    u8 parent_flags; // the parent's trace flags, sampled when unknown
+    u8 _pad[1];
     u32 payload_len; // bytes of payload actually written (excluding NUL)
     u64 end_ktime;   // bpf_ktime_get_ns() when the sentinel fired (~span end)
     unsigned char parent_trace_id[TRACE_ID_SIZE_BYTES];
     unsigned char parent_span_id[SPAN_ID_SIZE_BYTES];
-    pid_info pid;
+    pid_info_t pid;
     unsigned char payload[NODE_SPAN_PAYLOAD_MAX_LEN]; // JSON, see spanbridge.js
     u8 _epad[4];
 } node_span_event_t;
+
+typedef struct process_event {
+    u8 type; // Must be first
+    u8 _pad[7];
+    u64 ts;
+    pid_info_t pid;
+    pid_info_t parent; // zero for exec
+} process_event_t;
 
 typedef struct channel_link_trace {
     u8 type; // Must be first
@@ -292,7 +305,7 @@ typedef struct go_auto_span {
     u8 type; // Must be first
     u8 _pad[3];
     u32 size;
-    pid_info pid;
+    pid_info_t pid;
     unsigned char buf[];
 } go_auto_span_t;
 
@@ -302,10 +315,12 @@ typedef struct mongo_go_client_req {
     u8 _pad[6];
     u64 start_monotime_ns;
     u64 end_monotime_ns;
-    pid_info pid;
+    pid_info_t pid;
     unsigned char op[32];
     unsigned char db[32];
     unsigned char coll[32];
+    unsigned char hostname[k_mongo_hostname_max_len];
+    u8 _pad1[2];
     connection_info_t conn;
     tp_info_t tp;
 } mongo_go_client_req_t;
@@ -322,7 +337,7 @@ typedef struct dns_req {
     tp_info_t tp;
     // we need this to filter traces from unsolicited processes that share the executable
     // with other instrumented processes
-    pid_info pid;
+    pid_info_t pid;
     unsigned char buf[k_dns_max_len];
     u8 _pad3[4];
 } dns_req_t;

@@ -1,14 +1,11 @@
 # OBI's narrowed copies of the upstream CPython runtime metrics
 # (semconv model/cpython). service/container metadata is on the meter
 # resource, so these groups list only the GC generation data-point
-# attribute. Each carries the obi.upstream_override annotation so the
-# schemacheck drift test pins its unit/instrument/stability to upstream.
+# attribute. Each keeps its upstream name, so the schemacheck drift test
+# pins its unit/instrument/stability to upstream.
 file_format: definition/2
 metrics:
   - name: cpython.gc.collections
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted cpython.gc.collections
     instrument: counter
     unit: "{collection}"
@@ -18,9 +15,6 @@ metrics:
       - ref: cpython.gc.generation
         requirement_level: required
   - name: cpython.gc.collected_objects
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted cpython.gc.collected_objects
     instrument: counter
     unit: "{object}"
@@ -30,9 +24,6 @@ metrics:
       - ref: cpython.gc.generation
         requirement_level: required
   - name: cpython.gc.uncollectable_objects
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted cpython.gc.uncollectable_objects
     instrument: counter
     unit: "{object}"

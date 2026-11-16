@@ -335,11 +335,30 @@ func getDefinitions(
 		extraGroupAttributes[GroupHTTPRoutes],
 	)
 
+	httpClientRoutes := NewAttrReportGroup(
+		!groups.Has(GroupHTTPRoutes),
+		nil,
+		map[attr.Name]Default{
+			attr.HTTPUrlTemplate: true,
+		},
+		nil,
+	)
+
+	// Semconv makes url.template opt-in on the stable client duration metric,
+	// and conditionally required only on the development body-size metrics.
+	httpClientDurationRoutes := NewAttrReportGroup(
+		!groups.Has(GroupHTTPRoutes),
+		nil,
+		map[attr.Name]Default{
+			attr.HTTPUrlTemplate: false,
+		},
+		nil,
+	)
+
 	serverInfo := NewAttrReportGroup(
 		false,
 		nil,
 		map[attr.Name]Default{
-			attr.ClientAddr: false,
 			attr.ServerAddr: true,
 			attr.ServerPort: true,
 		},
@@ -368,13 +387,13 @@ func getDefinitions(
 
 	httpCommon := NewAttrReportGroup(
 		false,
-		[]*AttrReportGroup{&httpRoutes},
+		nil,
 		map[attr.Name]Default{
 			attr.HTTPRequestMethod:      true,
 			attr.HTTPURLScheme:          true,
 			attr.HTTPResponseStatusCode: true,
-			attr.HTTPUrlPath:            false,
 			attr.ErrorType:              true,
+			attr.NetworkProtocolVersion: false,
 		},
 		extraGroupAttributes[GroupHTTPCommon],
 	)
@@ -405,22 +424,41 @@ func getDefinitions(
 			SubGroups: []*AttrReportGroup{&networkInterZone, &networkInterZoneCIDR, &networkGeoIP, &networkInterZoneKube},
 		},
 		HTTPServerDuration.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &serverInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpRoutes, &serverInfo},
+			Attributes: map[attr.Name]Default{
+				attr.HTTPUrlPath: false,
+				attr.ClientAddr:  false,
+			},
 		},
 		HTTPServerRequestSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &serverInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpRoutes, &serverInfo},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkProtocolVersion: true,
+			},
 		},
 		HTTPServerResponseSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &serverInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpRoutes, &serverInfo},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkProtocolVersion: true,
+			},
 		},
 		HTTPClientDuration.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientDurationRoutes, &httpClientInfo},
+			Attributes: map[attr.Name]Default{
+				attr.HTTPUrlPath: false,
+			},
 		},
 		HTTPClientRequestSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientRoutes, &httpClientInfo},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkProtocolVersion: true,
+			},
 		},
 		HTTPClientResponseSize.Section: {
-			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientInfo},
+			SubGroups: []*AttrReportGroup{&appAttributes, &httpCommon, &httpClientRoutes, &httpClientInfo},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkProtocolVersion: true,
+			},
 		},
 		RPCClientDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &grpcClientInfo},
@@ -456,6 +494,7 @@ func getDefinitions(
 		DBServerDuration.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes, &serverInfo},
 			Attributes: map[attr.Name]Default{
+				attr.ClientAddr:           false,
 				attr.DBOperation:          true,
 				attr.DBSystemName:         true,
 				attr.ErrorType:            true,
@@ -489,6 +528,7 @@ func getDefinitions(
 				attr.GenAIToolCallArguments: false,
 				attr.GenAIToolCallResult:    false,
 				attr.GenAIResponseError:     false,
+				attr.OpenAIRequestQuestions: false,
 				attr.DBResponseError:        false,
 				// Conditionally Required or Recommended by OTel semconv, so emitted
 				// by default. Opt out via attributes.select.traces.exclude.
@@ -749,6 +789,12 @@ func getDefinitions(
 				attr.DotnetGCHeapGeneration: true,
 			},
 		},
+		DotnetGCHeapFragmentation.Section: {
+			SubGroups: []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.DotnetGCHeapGeneration: true,
+			},
+		},
 		DotnetGCCollections.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{
@@ -806,6 +852,10 @@ func getDefinitions(
 		DotnetMonitorLockContentions.Section: {
 			SubGroups:  []*AttrReportGroup{&appAttributes},
 			Attributes: map[attr.Name]Default{},
+		},
+		DotnetExceptions.Section: {
+			SubGroups:  []*AttrReportGroup{&appAttributes},
+			Attributes: map[attr.Name]Default{attr.ErrorType: true},
 		},
 		CPythonGCCollections.Section: {
 			SubGroups: []*AttrReportGroup{&appAttributes},
@@ -930,6 +980,13 @@ func getDefinitions(
 				attr.NetworkTCPHandshakeRole: false,
 			},
 		},
+		StatTCPResets.Section: {
+			SubGroups: []*AttrReportGroup{&statsAttributes, &statsKubeAttributes},
+			Attributes: map[attr.Name]Default{
+				attr.NetworkIoDirection:   true,
+				attr.NetworkTCPResetCause: false,
+			},
+		},
 
 		// span and service graph metrics don't yet implement attribute selection,
 		// but their values can still be filtered, so we list them here just to
@@ -965,6 +1022,10 @@ func copyDisabled(src AttrReportGroup) AttrReportGroup {
 	return dst
 }
 
+// filterOnlyAttributes keeps span attributes available to filters
+// independently of metric reporting.
+var filterOnlyAttributes = []attr.Name{attr.HTTPUrlPath}
+
 // AllAttributeNames returns a set with all the names in the attributes database
 // as returned by the getDefinitions function
 func AllAttributeNames(
@@ -981,6 +1042,9 @@ func AllAttributeNames(
 		for _, section := range extraDefinitionsProvider(-1, extraGroupAttributes) {
 			maps.Copy(names, section.All())
 		}
+	}
+	for _, name := range filterOnlyAttributes {
+		names[name] = struct{}{}
 	}
 	return names
 }

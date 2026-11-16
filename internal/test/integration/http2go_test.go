@@ -78,8 +78,7 @@ func testREDMetricsForHTTP2Library(t *testing.T, route, svcNs string) {
 			`http_response_status_code="200",` +
 			`service_namespace="` + svcNs + `",` +
 			`service_name="server",` +
-			`http_route="` + route + `",` +
-			`url_path="` + route + `"`
+			`http_route="` + route + `"`
 		clientLabels = `http_request_method="GET",` +
 			`http_response_status_code="200",` +
 			`service_namespace="` + svcNs + `",` +
@@ -143,6 +142,11 @@ func testNestedHTTP2Traces(t *testing.T, url string) {
 	traceID = parent.TraceID
 	require.NotEmpty(t, parent.SpanID)
 
+	sd := parent.Diff(
+		jaeger.Tag{Key: "network.protocol.version", Type: "string", Value: "2"},
+	)
+	assert.Empty(t, sd, sd.String())
+
 	// Find the same traceID on a server span
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := getJaeger(jaegerQueryURL + "?service=server&operation=GET%20%2F" + url + "&traceID=" + traceID)
@@ -157,6 +161,14 @@ func testNestedHTTP2Traces(t *testing.T, url string) {
 		require.GreaterOrEqual(ct, len(traces), 1)
 		trace = traces[0]
 	}, 1*time.Minute, 100*time.Millisecond)
+
+	res = trace.FindByOperationName("GET /"+url, "server")
+	require.Len(t, res, 1)
+
+	sd = res[0].Diff(
+		jaeger.Tag{Key: "network.protocol.version", Type: "string", Value: "2"},
+	)
+	assert.Empty(t, sd, sd.String())
 }
 
 func TestHTTP2Go(t *testing.T) {
@@ -203,6 +215,61 @@ func testHTTP2GO(t *testing.T, compose *docker.Compose, useHTTPProtocols bool) {
 	}
 
 	require.NoError(t, compose.Close())
+}
+
+func TestHTTP2ServerAddressFromAuthority(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-http2.yml", path.Join(pathOutput, "test-suite-http2-authority.log"))
+	require.NoError(t, err)
+	compose.Env = append(compose.Env,
+		"OTEL_EBPF_EXECUTABLE_PATH=",
+		"OTEL_EBPF_OPEN_PORT=",
+		"OTEL_EBPF_SKIP_GO_SPECIFIC_TRACERS=true",
+		"PROMETHEUS_CONFIG=prometheus-config-perapp.yml",
+	)
+	if !KernelLockdownMode() {
+		compose.Env = append(compose.Env, "SECURITY_CONFIG_SUFFIX=_none")
+	}
+	require.NoError(t, compose.Up())
+	t.Cleanup(func() { require.NoError(t, compose.Close()) })
+	t.Cleanup(func() { runWeaverValidation(t) })
+
+	transport := newHTTP2Transport()
+	transport.DisableKeepAlives = true
+	transport.Protocols.SetUnencryptedHTTP2(true)
+	defer transport.CloseIdleConnections()
+	client := &http.Client{Transport: transport, Timeout: 5 * time.Second}
+	pq := promtest.Client{HostPort: prometheusHostPort}
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		req, err := http.NewRequest(http.MethodGet, "http://localhost:7374/server-address", nil)
+		require.NoError(ct, err)
+		req.Host = "api.example.com:8443"
+		req.Header.Set("Content-Type", "text/plain")
+		resp, err := client.Do(req)
+		require.NoError(ct, err)
+		require.NoError(ct, resp.Body.Close())
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		require.Equal(ct, 2, resp.ProtoMajor)
+
+		resp, err = getJaeger(jaegerQueryURL + "?service=server&operation=GET%20%2Fserver-address")
+		require.NoError(ct, err)
+		defer resp.Body.Close()
+		require.Equal(ct, http.StatusOK, resp.StatusCode)
+		var traces jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&traces))
+		assert.NotEmpty(ct, traces.FindBySpan(
+			jaeger.Tag{Key: "server.address", Type: "string", Value: "api.example.com"},
+			jaeger.Tag{Key: "network.protocol.version", Type: "string", Value: "2"},
+		))
+
+		for _, exporter := range []string{"otel", "prometheus"} {
+			query := fmt.Sprintf(`http_server_request_duration_seconds_count{service_name="server",http_route="/server-address",server_address="api.example.com",exported=%q}`, exporter)
+			results, err := pq.Query(query)
+			require.NoError(ct, err)
+			enoughPromResults(ct, results)
+			assert.GreaterOrEqual(ct, totalPromCount(ct, results), 1)
+		}
+	}, testTimeout, time.Second)
 }
 
 func testHTTP2TraceparentOwnership(t *testing.T, compose *docker.Compose) {

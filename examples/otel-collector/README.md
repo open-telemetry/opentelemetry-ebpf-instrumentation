@@ -73,7 +73,7 @@ Once the collector is running, you can generate some test traces:
 
    ```
    2026-01-05T23:18:08.379+0200    info    ResourceSpans #0
-   Resource SchemaURL: 
+   Resource SchemaURL: https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/0.15.2
    Resource attributes:
         -> service.name: Str(python3.12)
         -> telemetry.sdk.language: Str(python)
@@ -83,10 +83,9 @@ Once the collector is running, you can generate some test traces:
         -> host.id: Str(a998876e9a2642d8a1a9b8a0030c786e)
         -> os.type: Str(linux)
         -> service.instance.id: Str(lima-coralogix-vm-24:295419)
-        -> otel.scope.name: Str(go.opentelemetry.io/obi)
    ScopeSpans #0
-   ScopeSpans SchemaURL: 
-   InstrumentationScope  
+   ScopeSpans SchemaURL: https://open-telemetry.github.io/opentelemetry-ebpf-instrumentation/schemas/obi/0.15.2
+   InstrumentationScope go.opentelemetry.io/obi v0.15.2
    Span #0
        Trace ID       : 8c28f3b6817dfc2e629612dc39952fef
        Parent ID      : 9adcce7d3501ea15

@@ -87,6 +87,30 @@ static __always_inline void format_sock_addrs(struct sock_common *skc,
     }
 }
 
+// Prints the netns's client socket inodes: an accepted socket keeps its listener's backlog
+SEC("iter/tcp")
+int obi_sk_iter_tcp_clients(struct bpf_iter__tcp *ctx) {
+    const struct sock *sk = (const struct sock *)ctx->sk_common;
+
+    if (!sk) {
+        return 0;
+    }
+
+    // only full sockets are in these states
+    const u8 state = BPF_CORE_READ(sk, __sk_common.skc_state);
+    if (state != TCP_ESTABLISHED && state != TCP_SYN_SENT) {
+        return 0;
+    }
+
+    if (BPF_CORE_READ(sk, sk_max_ack_backlog) != 0) {
+        return 0;
+    }
+
+    BPF_SEQ_PRINTF(ctx->meta->seq, "%llu\n", BPF_CORE_READ(sk, sk_socket, file, f_inode, i_ino));
+
+    return 0;
+}
+
 // First pass, we record every local listening port into iter_listening_ports.
 SEC("iter/tcp")
 int obi_sk_iter_tcp_listen(struct bpf_iter__tcp *ctx) {
@@ -120,9 +144,9 @@ int obi_sk_iter_tcp(struct bpf_iter__tcp *ctx) {
         return 0;
     }
 
-    // don't look at sockets that aren't established
-    u8 skc_state = BPF_CORE_READ(skc, skc_state);
-    if (skc_state != TCP_ESTABLISHED) {
+    // a handshake in flight is only marked: the established callback enrolls it
+    const u8 skc_state = BPF_CORE_READ(skc, skc_state);
+    if (skc_state != TCP_ESTABLISHED && skc_state != TCP_SYN_SENT) {
         return 0;
     }
 
@@ -136,6 +160,10 @@ int obi_sk_iter_tcp(struct bpf_iter__tcp *ctx) {
     const u64 cookie = bpf_get_socket_cookie(skc);
     bpf_sk_storage_get(
         &socket_cookie, (struct bpf_sock *)skc, (void *)&cookie, BPF_SK_STORAGE_GET_F_CREATE);
+
+    if (skc_state == TCP_SYN_SENT) {
+        return 0;
+    }
 
     char src_buf[k_addr_buf_len] = {};
     char dst_buf[k_addr_buf_len] = {};

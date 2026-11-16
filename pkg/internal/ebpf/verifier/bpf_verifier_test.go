@@ -74,6 +74,9 @@ func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpe
 		if spec.Programs["obi_protocol_http"] != nil {
 			ebpfcommon.FixupSpec(spec, false)
 		}
+		if !ebpfcommon.SupportsJavaHTTP1ReservationCleanup() {
+			ebpfcommon.DisableJavaHTTP1Atomics(spec)
+		}
 		uprobe.PrepareSpecs(spec)
 
 		if len(consts) > 0 && consts[0] != nil {
@@ -160,6 +163,25 @@ func forEachCombination(t *testing.T, prefix string, loadFn func() (*ebpf.Collec
 // the valid_pid() paths the loader can pick (ebpfcommon.PIDFilterConstants)
 var pidNamespaceModes = []any{uint32(ebpfcommon.PIDNamespaceInit), uint32(ebpfcommon.PIDNamespacePod)}
 
+func TestBPFVerifierHTTPSampling(t *testing.T) {
+	if err := rlimit.RemoveMemlock(); err != nil {
+		t.Skipf("cannot remove memlock limit (insufficient privileges?): %v", err)
+	}
+
+	forEachCombination(t, "generictracer", generictracerbpf.LoadBpf, []constOption{
+		{"pid_ns_mode", pidNamespaceModes},
+		{"g_bpf_debug", []any{true}},
+		{"g_bpf_traceparent_enabled", []any{true}},
+		{"g_bpf_header_propagation", []any{true}},
+		{"g_bpf_java_http1_enabled", []any{true}},
+		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
+		{"filter_pids", []any{int32(1)}},
+		{"capture_header_buffer", []any{int32(1)}},
+		{"max_transaction_time", []any{uint64(60_000_000_000)}},
+		{"http_max_captured_bytes", []any{uint32(262144)}},
+	})
+}
+
 // TestBPFVerifierWithConstants verifies that BPF programs pass the kernel verifier
 // across all combinations of constant values (also default ones).
 // Different constant values cause the verifier to evaluate different code paths
@@ -224,6 +246,21 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"g_traces_ctx_v1_enabled", []any{false}},
 	})
 
+	// Header capture with the loader's defaults for the other constants: large
+	// buffers and the obi_ctx writers compiled away change what the verifier can prune.
+	forEachCombination(t, "generictracer/BpfHeaderCapture", generictracerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_traceparent_enabled", []any{true}},
+		{"g_bpf_header_propagation", []any{true}},
+		{"g_bpf_java_http1_enabled", []any{true}},
+		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
+		{"capture_header_buffer", []any{int32(1)}},
+		{"filter_pids", []any{int32(1)}},
+		{"max_transaction_time", []any{uint64(300_000_000_000)}},
+		{"http_max_captured_bytes", []any{uint32(0)}},
+		{"g_traces_ctx_v1_enabled", []any{false}},
+	})
+
 	// Each pid_ns_mode compiles a different valid_pid() path into every
 	// kprobe; a dedicated matrix keeps them verified without doubling the
 	// full generictracer cross-product.
@@ -262,6 +299,18 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"tcp_max_captured_bytes", []any{uint32(65536)}},
 		{"g_traces_ctx_v1_enabled", []any{false}},
 	})
+	// see generictracer/BpfHeaderCapture
+	forEachCombination(t, "gotracer/BpfHeaderCapture", gotracerbpf.LoadBpf, []constOption{
+		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_traceparent_enabled", []any{true}},
+		{"g_bpf_header_propagation", []any{true}},
+		{"g_bpf_probe_write_user_enabled", []any{true}},
+		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
+		{"capture_header_buffer", []any{int32(1)}},
+		{"max_transaction_time", []any{uint64(300_000_000_000)}},
+		{"http_max_captured_bytes", []any{uint32(0)}},
+		{"g_traces_ctx_v1_enabled", []any{false}},
+	})
 	loadAndVerify(t, "gotracer/Bpf/no-write-user", gotracerbpf.LoadBpf, map[string]any{
 		"g_bpf_header_propagation":       true,
 		"g_bpf_probe_write_user_enabled": false,
@@ -274,11 +323,13 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"filter_pids", []any{int32(0), int32(1)}},
 		{"inject_flags", []any{uint32(0), uint32(1), uint32(2), uint32(3)}},
 		{"max_transaction_time", []any{uint64(0), uint64(60_000_000_000)}},
+		{"enroll_instrumented_only", []any{true, false}},
 	})
 	forEachCombination(t, "tpinjector/BpfPidNamespace", tpinjectorbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{true, false}},
 		{"filter_pids", []any{int32(1)}},
 		{"pid_ns_mode", pidNamespaceModes},
+		{"enroll_instrumented_only", []any{true, false}},
 	})
 	// tpinjector/BpfIter needs bpf_iter_tcp_get_func_proto (kernel >= 5.11)
 	// for the verifier to recognize the sock_iter ctx type. Runtime loader

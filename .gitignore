@@ -138,3 +138,4 @@ internal/test/integration/components/ai/openai/go/testserver
 
 # rendered site output (make render-site)
 build/
+/obi-weaver-coverage

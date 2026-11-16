@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -39,6 +40,7 @@ func rmlog() *slog.Logger {
 
 type RuntimeMetricsReporter struct {
 	ctx            context.Context
+	evictions      sync.WaitGroup
 	cfg            *otelcfg.MetricsConfig
 	nodeMeta       metadata.NodeMeta
 	exporter       sdkmetric.Exporter
@@ -75,8 +77,10 @@ type dotnetRuntimeMetrics struct {
 	jitCompilationTime      instrument.Float64Counter
 	threadPoolWorkItemCount instrument.Int64Counter
 	monitorLockContentions  instrument.Int64Counter
+	exceptions              instrument.Int64Counter
 	processMemoryWorkingSet instrument.Int64UpDownCounter
 	gcHeapSize              instrument.Int64UpDownCounter
+	gcHeapFragmentation     instrument.Int64UpDownCounter
 	gcCommittedMemory       instrument.Int64UpDownCounter
 	threadPoolThreadCount   instrument.Int64UpDownCounter
 	threadPoolQueueLength   instrument.Int64UpDownCounter
@@ -93,6 +97,7 @@ type dotnetRuntimeMetricCounts struct {
 	processCPUCount         int
 	processMemoryWorkingSet int
 	gcHeapSize              [runtimemetrics.DotnetHeapGenerationCount]int
+	gcHeapFragmentation     [runtimemetrics.DotnetHeapGenerationCount]int
 	gcCommittedMemory       int
 	threadPoolThreadCount   int
 	threadPoolQueueLength   int
@@ -114,8 +119,10 @@ type dotnetRuntimeMetricValues struct {
 	jitCompilationTime      *float64
 	threadPoolWorkItemCount runtimeCounterValue
 	monitorLockContentions  runtimeCounterValue
+	exceptions              map[string]runtimeCounterValue
 	processMemoryWorkingSet *int64
 	gcHeapSize              [runtimemetrics.DotnetHeapGenerationCount]*int64
+	gcHeapFragmentation     [runtimemetrics.DotnetHeapGenerationCount]*int64
 	gcCommittedMemory       *int64
 	threadPoolThreadCount   *int64
 	threadPoolQueueLength   *int64
@@ -203,13 +210,14 @@ func newRuntimeMetricsReporter(
 	selectorCfg *attributes.SelectorConfig,
 	input *msg.Queue[[]runtimemetrics.RuntimeMetricSnapshot],
 	processEvents *msg.Queue[exec.ProcessEvent],
-) (*RuntimeMetricsReporter, error) {
+) (_ *RuntimeMetricsReporter, retErr error) {
 	log := rmlog()
 
 	exporter, err := ctxInfo.OTELMetricsExporter.Instantiate(ctx)
 	if err != nil {
 		return nil, err
 	}
+	defer releaseExporterOnError(ctx, exporter, &retErr)
 
 	reporter := &RuntimeMetricsReporter{
 		ctx:            ctx,
@@ -229,11 +237,13 @@ func newRuntimeMetricsReporter(
 			llog := log.With("service", v.service.UID)
 			llog.Debug("evicting runtime metrics reporter from cache")
 
-			go func() {
-				if err := v.provider.Shutdown(ctx); err != nil {
+			reporter.evictions.Go(func() {
+				shutdownCtx, cancel := shutdownContext(ctx)
+				defer cancel()
+				if err := v.provider.Shutdown(shutdownCtx); err != nil {
 					llog.Warn("error shutting down evicted runtime metrics provider", "error", err)
 				}
-			}()
+			})
 		}, reporter.newMetricSet)
 	if err != nil {
 		return nil, fmt.Errorf("creating runtime metrics reporters pool: %w", err)
@@ -272,7 +282,7 @@ func (r *RuntimeMetricsReporter) newMetricsInstance(service *svc.Attrs) RuntimeM
 
 func (r *RuntimeMetricsReporter) newMetricSet(service *svc.Attrs) (*RuntimeMetrics, error) {
 	metrics := r.newMetricsInstance(service)
-	meter := metrics.provider.Meter(reporterName)
+	meter := metrics.provider.Meter(reporterName, obiMeterOptions()...)
 	if err := setupRuntimeMeters(&metrics, meter, r.cfg.TTL, r.runtimeEnabled, r.cfg.Buckets); err != nil {
 		return nil, err
 	}
@@ -328,6 +338,7 @@ func setupDotnetRuntimeMeters(metrics *dotnetRuntimeMetrics, meter instrument.Me
 		{attributes.DotnetJITCompiledMethods, &metrics.jitCompiledMethods},
 		{attributes.DotnetThreadPoolWorkItemCount, &metrics.threadPoolWorkItemCount},
 		{attributes.DotnetMonitorLockContentions, &metrics.monitorLockContentions},
+		{attributes.DotnetExceptions, &metrics.exceptions},
 	} {
 		*counter.metric, err = meter.Int64Counter(counter.name.OTEL, instrument.WithUnit(counter.name.Unit))
 		if err != nil {
@@ -355,6 +366,7 @@ func setupDotnetRuntimeMeters(metrics *dotnetRuntimeMetrics, meter instrument.Me
 		{attributes.DotnetProcessCPUCount, &metrics.processCPUCount},
 		{attributes.DotnetGCCommittedMemory, &metrics.gcCommittedMemory},
 		{attributes.DotnetGCHeapSize, &metrics.gcHeapSize},
+		{attributes.DotnetGCHeapFragmentation, &metrics.gcHeapFragmentation},
 		{attributes.DotnetThreadPoolThreadCount, &metrics.threadPoolThreadCount},
 		{attributes.DotnetThreadPoolQueueLength, &metrics.threadPoolQueueLength},
 		{attributes.DotnetTimerCount, &metrics.timerCount},
@@ -636,6 +648,15 @@ func recordDotnetRuntimeMetrics(ctx context.Context, metrics *dotnetRuntimeMetri
 	}
 	previous.lastSeen = metrics.clock()
 	recordDotnetCurrentMetrics(ctx, metrics, previous, snapshot.Dotnet)
+	if len(snapshot.Dotnet.Exceptions) > 0 && previous.exceptions == nil {
+		previous.exceptions = make(map[string]runtimeCounterValue)
+	}
+	for label, count := range snapshot.Dotnet.Exceptions {
+		baseline := previous.exceptions[label]
+		recordRuntimeCounterWithAttributes(ctx, metrics.exceptions, &baseline, count,
+			attribute.String(string(attr.ErrorType), label))
+		previous.exceptions[label] = baseline
+	}
 	for generation, count := range snapshot.Dotnet.GCCollections {
 		if count == nil {
 			continue
@@ -727,6 +748,8 @@ func recordDotnetCurrentMetrics(ctx context.Context, metrics *dotnetRuntimeMetri
 	for generation, name := range runtimemetrics.DotnetHeapGenerations() {
 		recordDotnetCurrentMetric(ctx, metrics.gcHeapSize, &previous.gcHeapSize[generation], values.GCHeapSize[generation],
 			&metrics.activeCurrent.gcHeapSize[generation], attribute.String(string(attr.DotnetGCHeapGeneration), name))
+		recordDotnetCurrentMetric(ctx, metrics.gcHeapFragmentation, &previous.gcHeapFragmentation[generation], values.GCHeapFragmentation[generation],
+			&metrics.activeCurrent.gcHeapFragmentation[generation], attribute.String(string(attr.DotnetGCHeapGeneration), name))
 	}
 }
 
@@ -971,8 +994,19 @@ func removeFloatRuntimeCounterWithAttributes(
 }
 
 func (r *RuntimeMetricsReporter) close() {
+	shutdownCtx, cancel := shutdownContext(r.ctx)
+	defer cancel()
+	r.reporters.ForEach(func(id svc.UID, m *RuntimeMetrics) {
+		if err := m.provider.Shutdown(shutdownCtx); err != nil {
+			r.log.Warn("error shutting down runtime metrics provider", "service", id, "error", err)
+		}
+	})
+	waitWithin(shutdownCtx, &r.evictions)
+
 	go func() {
-		if err := r.exporter.Shutdown(r.ctx); err != nil {
+		exportCtx, cancel := shutdownContext(r.ctx)
+		defer cancel()
+		if err := r.exporter.Shutdown(exportCtx); err != nil {
 			rmlog().Warn("closing runtime metrics provider", "error", err)
 			return
 		}

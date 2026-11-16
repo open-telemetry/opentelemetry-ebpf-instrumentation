@@ -36,7 +36,7 @@ func testREDMetricsForNetHTTPLibrary(t *testing.T, url string, comm string) {
 			`service_namespace="integration-test",` +
 			`service_name="` + comm + `",` +
 			`service_version="2.3.4-beta.1",` +
-			`url_path="` + urlPath + `"}`)
+			`http_route="` + urlPath + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -116,7 +116,7 @@ func testREDMetricsForNetHTTPSLibrary(t *testing.T, url string, comm string) {
 			`service_namespace="integration-test",` +
 			`service_name="` + comm + `",` +
 			`service_version="2.3.4-beta.1",` +
-			`url_path="` + path + `"}`)
+			`http_route="` + path + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)

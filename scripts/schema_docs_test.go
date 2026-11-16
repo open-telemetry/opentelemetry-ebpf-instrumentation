@@ -97,6 +97,13 @@ const resolvedRegistry = `{
       {
         "type": "obi.example.client",
         "kind": "client",
+        "name": {
+          "templates": [
+            {"pattern": "{obi.scalar.examples} {error.type}", "attributes": ["obi.scalar.examples", "error.type"], "parts": []},
+            {"pattern": "EXAMPLE", "attributes": [], "parts": []}
+          ],
+          "note": "A note on the name."
+        },
         "brief": "An OBI span.",
         "stability": "development",
         "provenance": {"path": "/obi-registry/groups/example/spans.yaml"},
@@ -219,6 +226,17 @@ func TestSchemaDocsMarksDeprecatedMetrics(t *testing.T) {
 	// A metric with no deprecation gets no callout.
 	if strings.Contains(page, "## `traces.span.metrics.calls`\n\n> **") {
 		t.Errorf("a non-deprecated metric got a deprecation callout\n%s", page)
+	}
+}
+
+// A span documents how OBI names it: its templates in the order they are tried,
+// and the note that describes whatever the templates cannot express.
+func TestSchemaDocsRendersSpanNames(t *testing.T) {
+	page := renderSchemaDocs(t, "spans")
+
+	want := "Name, from the first template that applies: `{obi.scalar.examples} {error.type}`, `EXAMPLE`. Name: A note on the name."
+	if !strings.Contains(page, want) {
+		t.Errorf("spans page did not document the span name\n%s", page)
 	}
 }
 

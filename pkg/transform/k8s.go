@@ -19,11 +19,14 @@ import (
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/internal/helpers/container"
 	maps2 "go.opentelemetry.io/obi/pkg/internal/helpers/maps"
+	isync "go.opentelemetry.io/obi/pkg/internal/helpers/sync"
 	ikube "go.opentelemetry.io/obi/pkg/internal/kube"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/informer"
 	"go.opentelemetry.io/obi/pkg/kube/kubecache/meta"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -34,7 +37,9 @@ var containerInfoForPID = container.InfoForPID
 
 var errProcEventDecoratorStopped = errors.New("process event metadata decorator stopped")
 
-const procEventDecoratorMaxPendingProcessEvents = 1024
+// podEventsBatchSize limits how many pod events are handled before the decorator loop
+// gets back to its other sources.
+const podEventsBatchSize = 64
 
 func klog() *slog.Logger {
 	return slog.With("component", "transform.KubernetesDecorator")
@@ -74,6 +79,9 @@ type KubernetesDecorator struct {
 	// MetaCacheAddress specifies the host:port address of the obi-k8s-cache service instance
 	MetaCacheAddress string `yaml:"meta_cache_address" env:"OTEL_EBPF_KUBE_META_CACHE_ADDRESS"`
 
+	// MetaCacheTLS is only settable through config v2, since v1 receives no new features
+	MetaCacheTLS kubecache.ClientTLSConfig `yaml:"-" env:"-" jsonschema:"-" validate:"-"`
+
 	// MetaRestrictLocalNode will download only the metadata from the Pods that are located in the same
 	// node as the OBI instance. It will also restrict the Node information to the local node.
 	MetaRestrictLocalNode bool `yaml:"meta_restrict_local_node" env:"OTEL_EBPF_KUBE_META_RESTRICT_LOCAL_NODE" validate:"boolean"`
@@ -101,18 +109,31 @@ func KubeDecoratorProvider(
 	cfg *KubernetesDecorator,
 	input, output *msg.Queue[[]request.Span],
 ) swarm.InstanceFunc {
+	return KubeDecoratorProviderWithMetadataProvider(&metadata.MetadataProvider{
+		K8sInformer:   ctxInfo.K8sInformer,
+		CloudMetadata: metadata.CloudMetadataConfig{DetectionEnabled: true},
+	}, cfg, input, output)
+}
+
+// KubeDecoratorProviderWithMetadataProvider applies the provider's cloud detection settings
+// when looking up the cluster name.
+func KubeDecoratorProviderWithMetadataProvider(
+	provider *metadata.MetadataProvider,
+	cfg *KubernetesDecorator,
+	input, output *msg.Queue[[]request.Span],
+) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
-		if !ctxInfo.K8sInformer.IsKubeEnabled() {
+		if !provider.K8sInformer.IsKubeEnabled() {
 			// if kubernetes decoration is disabled, we just bypass the node
 			return swarm.Bypass(input, output)
 		}
-		store, err := ctxInfo.K8sInformer.Get(ctx)
+		store, err := provider.K8sInformer.Get(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("initializing KubeDecoratorProvider: %w", err)
 		}
 		decorator := &metadataDecorator{
 			store:       store,
-			clusterName: KubeClusterName(ctx, cfg, ctxInfo.K8sInformer),
+			clusterName: KubeClusterNameWithMetadataProvider(ctx, cfg, provider),
 			input:       input.Subscribe(msg.SubscriberName("transform.KubeDecorator")),
 			output:      output,
 		}
@@ -125,11 +146,24 @@ func KubeProcessEventDecoratorProvider(
 	cfg *KubernetesDecorator,
 	input, output *msg.Queue[exec.ProcessEvent],
 ) swarm.InstanceFunc {
+	return KubeProcessEventDecoratorProviderWithMetadataProvider(&metadata.MetadataProvider{
+		K8sInformer:   ctxInfo.K8sInformer,
+		CloudMetadata: metadata.CloudMetadataConfig{DetectionEnabled: true},
+	}, cfg, input, output)
+}
+
+// KubeProcessEventDecoratorProviderWithMetadataProvider applies the provider's cloud detection
+// settings when looking up the cluster name.
+func KubeProcessEventDecoratorProviderWithMetadataProvider(
+	provider *metadata.MetadataProvider,
+	cfg *KubernetesDecorator,
+	input, output *msg.Queue[exec.ProcessEvent],
+) swarm.InstanceFunc {
 	return func(ctx context.Context) (swarm.RunFunc, error) {
-		if !ctxInfo.K8sInformer.IsKubeEnabled() {
+		if !provider.K8sInformer.IsKubeEnabled() {
 			return swarm.Bypass(input, output)
 		}
-		store, err := ctxInfo.K8sInformer.Get(ctx)
+		store, err := provider.K8sInformer.Get(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("initializing KubeDecoratorProvider: %w", err)
 		}
@@ -137,13 +171,13 @@ func KubeProcessEventDecoratorProvider(
 		decorator := &procEventMetadataDecorator{
 			log:                 slog.With("component", "transform.KubeProcessEventDecoratorProvider"),
 			store:               store,
-			clusterName:         KubeClusterName(ctx, cfg, ctxInfo.K8sInformer),
+			clusterName:         KubeClusterNameWithMetadataProvider(ctx, cfg, provider),
 			input:               input.Subscribe(msg.SubscriberName("transform.KubeProcessEventDecorator")),
 			output:              output,
-			podsInfoCh:          make(chan Event[*informer.ObjectMeta]),
+			podEvents:           isync.NewQueue[Event[*informer.ObjectMeta]](),
+			podEventsReady:      make(chan struct{}, 1),
 			observerDone:        make(chan struct{}),
 			subscribeObserver:   store.Subscribe,
-			waitForSubscription: waitForSubscription,
 			unsubscribeObserver: store.Unsubscribe,
 			tracker:             newPidContainerTracker(),
 		}
@@ -211,18 +245,12 @@ type procEventMetadataDecorator struct {
 	clusterName         string
 	input               <-chan exec.ProcessEvent
 	output              *msg.Queue[exec.ProcessEvent]
-	podsInfoCh          chan Event[*informer.ObjectMeta]
+	podEvents           *isync.Queue[Event[*informer.ObjectMeta]]
+	podEventsReady      chan struct{}
 	observerDone        chan struct{}
-	deliveryReady       chan<- struct{}
 	subscribeObserver   func(meta.Observer)
-	waitForSubscription func(<-chan struct{})
 	unsubscribeObserver func(meta.Observer)
 	tracker             *pidContainerTracker
-}
-
-type procEventDecoratorInput struct {
-	processEvent *exec.ProcessEvent
-	podEvent     *Event[*informer.ObjectMeta]
 }
 
 type pidContainerTracker struct {
@@ -304,95 +332,62 @@ func (md *procEventMetadataDecorator) On(event *informer.Event) error {
 		return nil
 	}
 
-	if md.deliveryReady != nil {
-		select {
-		case md.deliveryReady <- struct{}{}:
-		default:
-		}
-	}
-	select {
-	case md.podsInfoCh <- podEvent:
-		return nil
-	case <-md.observerDone:
-		return errProcEventDecoratorStopped
-	}
+	md.podEvents.Enqueue(podEvent)
+	md.signalPodEvents()
+	return nil
 }
 
 func (md *procEventMetadataDecorator) k8sLoop(ctx context.Context) {
 	md.log.Debug("starting kubernetes process event decoration loop")
-	subscriptionDone := make(chan struct{})
-	go func() {
-		defer close(subscriptionDone)
-		md.subscribeObserver(md)
-	}()
+	defer md.log.Debug("stopping kubernetes process event decoration loop")
+	md.subscribeObserver(md)
 	defer func() {
 		close(md.observerDone)
-		md.waitForSubscription(subscriptionDone)
 		md.unsubscribeObserver(md)
 	}()
 	// output channel must be closed so later stages in the pipeline can finish in cascade
 	defer md.output.Close()
-	subscribing := (<-chan struct{})(subscriptionDone)
-	var pending []procEventDecoratorInput
-	pendingProcessEvents := 0
 
-mainLoop:
 	for {
-		if subscribing == nil && len(pending) > 0 {
-			select {
-			case <-ctx.Done():
-				break mainLoop
-			default:
-			}
-			event := pending[0]
-			pending[0] = procEventDecoratorInput{}
-			pending = pending[1:]
-			if len(pending) == 0 {
-				pending = nil
-			}
-			if event.processEvent != nil {
-				pendingProcessEvents--
-				md.handleProcessEvent(*event.processEvent)
-			} else {
-				md.handlePodEvent(*event.podEvent)
-			}
-			continue
-		}
-
-		input := md.input
-		if subscribing != nil && pendingProcessEvents >= procEventDecoratorMaxPendingProcessEvents {
-			input = nil
-		}
-
 		select {
 		case <-ctx.Done():
-			break mainLoop
-		case <-subscribing:
-			subscribing = nil
-		case pe, ok := <-input:
+			return
+		case pe, ok := <-md.input:
 			if !ok {
-				break mainLoop
+				return
 			}
-			if subscribing != nil {
-				pending = append(pending, procEventDecoratorInput{processEvent: &pe})
-				pendingProcessEvents++
-			} else {
-				md.handleProcessEvent(pe)
-			}
-		case podEvent := <-md.podsInfoCh:
-			if subscribing != nil {
-				pending = append(pending, procEventDecoratorInput{podEvent: &podEvent})
-			} else {
-				md.handlePodEvent(podEvent)
+			md.handleProcessEvent(pe)
+		case <-md.podEventsReady:
+			if !md.drainPodEvents(ctx) {
+				return
 			}
 		}
 	}
-
-	md.log.Debug("stopping kubernetes process event decoration loop")
 }
 
-func waitForSubscription(done <-chan struct{}) {
-	<-done
+// drainPodEvents handles up to podEventsBatchSize queued pod events. If there might be more,
+// it signals podEventsReady so the loop serves its other sources before coming back.
+// It returns false if the context is done before the batch is drained.
+func (md *procEventMetadataDecorator) drainPodEvents(ctx context.Context) bool {
+	for range podEventsBatchSize {
+		if ctx.Err() != nil {
+			return false
+		}
+		podEvent, ok := md.podEvents.TryDequeue()
+		if !ok {
+			return true
+		}
+		md.handlePodEvent(podEvent)
+	}
+	md.signalPodEvents()
+	return true
+}
+
+func (md *procEventMetadataDecorator) signalPodEvents() {
+	select {
+	case md.podEventsReady <- struct{}{}:
+	default:
+	}
 }
 
 func (md *procEventMetadataDecorator) handleProcessEvent(pe exec.ProcessEvent) {
@@ -558,6 +553,15 @@ func OwnerLabelName(kind string) attr.Name {
 }
 
 func KubeClusterName(ctx context.Context, cfg *KubernetesDecorator, k8sInformer *kube.MetadataProvider) string {
+	return KubeClusterNameWithMetadataProvider(ctx, cfg, &metadata.MetadataProvider{
+		K8sInformer:   k8sInformer,
+		CloudMetadata: metadata.CloudMetadataConfig{DetectionEnabled: true},
+	})
+}
+
+// KubeClusterNameWithMetadataProvider applies the provider's cloud detection settings
+// when looking up the cluster name.
+func KubeClusterNameWithMetadataProvider(ctx context.Context, cfg *KubernetesDecorator, provider *metadata.MetadataProvider) string {
 	log := klog().With("func", "KubeClusterName")
 	if cfg.ClusterName != "" {
 		log.Debug("using cluster name from configuration", "cluster_name", cfg.ClusterName)
@@ -565,7 +569,7 @@ func KubeClusterName(ctx context.Context, cfg *KubernetesDecorator, k8sInformer 
 	}
 	retries := 0
 	for retries < clusterMetadataRetries {
-		if clusterName := fetchClusterName(ctx, k8sInformer); clusterName != "" {
+		if clusterName := fetchClusterName(ctx, provider); clusterName != "" {
 			return clusterName
 		}
 		retries++

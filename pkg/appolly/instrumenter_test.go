@@ -185,9 +185,9 @@ func TestTracerPipeline(t *testing.T) {
 	done := pipe.Start(ctx)
 
 	event := testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
-	matchInnerTraceEvent(t, "in queue", event)
+	matchInnerTraceEvent(t, "in queue", "queue", event)
 	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
-	matchInnerTraceEvent(t, "processing", event)
+	matchInnerTraceEvent(t, "processing", "processing", event)
 	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
 	matchTraceEvent(t, "GET", event)
 
@@ -241,7 +241,7 @@ func TestInstrumentationFilterPreservesUnfilteredSQLChild(t *testing.T) {
 		{
 			Type: request.EventTypeSQLClient, Method: "SELECT", Path: "orders", HostPort: 5432,
 			RequestStart: 2, Start: 2, End: 3, Service: service,
-			TraceID: traceID, SpanID: trace.SpanID{2}, ParentSpanID: httpSpanID,
+			TraceID: traceID, SpanID: trace.SpanID{2}, ParentSpanID: httpSpanID, TraceFlags: 1,
 		},
 		{
 			Type: request.EventTypeHTTP, Method: http.MethodDelete, Path: "/admin", HostPort: 9999,
@@ -271,6 +271,55 @@ func TestInstrumentationFilterPreservesUnfilteredSQLChild(t *testing.T) {
 
 	cancel()
 	require.NoError(t, <-done)
+}
+
+func TestTracerPipelineSanitizeSQLQueryText(t *testing.T) {
+	const statement = "SELECT * FROM users WHERE ssn = '123-45-6789'"
+	cases := map[bool]string{
+		false: statement,
+		true:  "SELECT * FROM users WHERE ssn = ?",
+	}
+
+	for sanitize, expected := range cases {
+		ctx, cancel := context.WithCancel(t.Context())
+
+		tc, err := collector.Start(ctx)
+		require.NoError(t, err)
+
+		tracesInput := msg.NewQueue[[]request.Span](msg.ChannelBufferLen(10))
+		processEvents := msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(20))
+		gb := newGraphBuilder(&obi.Config{
+			Traces: otelcfg.TracesConfig{
+				BatchTimeout:      10 * time.Millisecond,
+				TracesEndpoint:    tc.ServerEndpoint,
+				ReportersCacheLen: 16,
+				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+			},
+			Attributes: obi.Attributes{
+				InstanceID: config.InstanceIDConfig{OverrideHostname: "the-host"},
+				Select: attributes.Selection{
+					"traces": attributes.InclusionLists{Include: []string{"db.query.text"}},
+				},
+				SanitizeSQLQueryText: sanitize,
+			},
+		}, gctx(0, nil), tracesInput, processEvents, nil)
+
+		tracesInput.Send([]request.Span{{
+			Type: request.EventTypeSQLClient, SubType: int(request.DBPostgres), Method: "SELECT", Path: "users",
+			Statement: statement, HostPort: 5432, RequestStart: 1, Start: 1, End: 2,
+			Service: svc.Attrs{HostName: "the-host", UID: svc.UID{Namespace: "ns", Name: "app"}},
+		}})
+
+		pipe, err := gb.buildGraph(ctx)
+		require.NoError(t, err)
+		done := pipe.Start(ctx)
+
+		event := testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
+		assert.Equal(t, expected, event.Attributes[string(attr.DBQueryText)])
+
+		cancel()
+		require.NoError(t, <-done)
+	}
 }
 
 func TestMergedMetricsTracePipeline(t *testing.T) {
@@ -550,7 +599,6 @@ func TestGRPCPipeline(t *testing.T) {
 			string(semconv.RPCSystemNameKey):         "grpc",
 			string(semconv.RPCResponseStatusCodeKey): "INVALID_ARGUMENT",
 			string(semconv.RPCMethodKey):             "foo/bar",
-			string(attr.ClientAddr):                  "1.1.1.1",
 			string(attr.ServerPort):                  "8080",
 			string(attr.ServerAddr):                  event.Attributes["server.address"],
 		},
@@ -596,9 +644,9 @@ func TestTraceGRPCPipeline(t *testing.T) {
 	done := pipe.Start(ctx)
 
 	event := testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
-	matchInnerGRPCTraceEvent(t, "in queue", event)
+	matchInnerGRPCTraceEvent(t, "in queue", "queue", event)
 	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
-	matchInnerGRPCTraceEvent(t, "processing", event)
+	matchInnerGRPCTraceEvent(t, "processing", "processing", event)
 	event = testutil.ReadChannel(t, tc.TraceRecords(), testTimeout)
 	matchGRPCTraceEvent(t, "foo.Bar/Baz", event)
 
@@ -888,7 +936,7 @@ func matchTraceEvent(t require.TestingT, name string, event collector.TraceRecor
 			string(attr.HTTPUrlPath):              "/foo/bar",
 			string(attr.ClientAddr):               "1.1.1.1",
 			string(semconv.NetworkPeerAddressKey): "1.1.1.1",
-			string(attr.ServerAddr):               getHostname(),
+			string(attr.ServerAddr):               "1.1.1.1",
 			string(attr.ServerPort):               "8080",
 			string(attr.HTTPURLScheme):            "http",
 			"span_id":                             event.Attributes["span_id"],
@@ -903,14 +951,13 @@ func matchTraceEvent(t require.TestingT, name string, event collector.TraceRecor
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry",
 			string(semconv.TelemetryDistroNameKey):  "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 			"overridden":                            "attr",
 		},
 		Kind: ptrace.SpanKindServer,
 	}, event)
 }
 
-func matchInnerTraceEvent(t require.TestingT, name string, event collector.TraceRecord) {
+func matchInnerTraceEvent(t require.TestingT, name, phase string, event collector.TraceRecord) {
 	assert.NotEmpty(t, event.ResourceAttributes, string(semconv.TelemetrySDKVersionKey))
 	delete(event.ResourceAttributes, string(semconv.TelemetrySDKVersionKey))
 	assert.NotEmpty(t, event.ResourceAttributes, string(semconv.TelemetryDistroVersionKey))
@@ -920,8 +967,9 @@ func matchInnerTraceEvent(t require.TestingT, name string, event collector.Trace
 	assert.Equal(t, collector.TraceRecord{
 		Name: name,
 		Attributes: map[string]string{
-			"span_id":        event.Attributes["span_id"],
-			"parent_span_id": event.Attributes["parent_span_id"],
+			"span_id":                    event.Attributes["span_id"],
+			"parent_span_id":             event.Attributes["parent_span_id"],
+			string(attr.OBIRequestPhase): phase,
 		},
 		ResourceAttributes: map[string]string{
 			string(semconv.HostIDKey):               "host-id",
@@ -932,7 +980,6 @@ func matchInnerTraceEvent(t require.TestingT, name string, event collector.Trace
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry",
 			string(semconv.TelemetryDistroNameKey):  "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 			"overridden":                            "attr",
 		},
 		Kind: ptrace.SpanKindInternal,
@@ -966,13 +1013,12 @@ func matchGRPCTraceEvent(t *testing.T, name string, event collector.TraceRecord)
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry",
 			string(semconv.TelemetryDistroNameKey):  "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 		},
 		Kind: ptrace.SpanKindServer,
 	}, event)
 }
 
-func matchInnerGRPCTraceEvent(t *testing.T, name string, event collector.TraceRecord) {
+func matchInnerGRPCTraceEvent(t *testing.T, name, phase string, event collector.TraceRecord) {
 	assert.NotEmpty(t, event.ResourceAttributes, string(semconv.TelemetrySDKVersionKey))
 	delete(event.ResourceAttributes, string(semconv.TelemetrySDKVersionKey))
 	assert.NotEmpty(t, event.ResourceAttributes, string(semconv.TelemetryDistroVersionKey))
@@ -981,8 +1027,9 @@ func matchInnerGRPCTraceEvent(t *testing.T, name string, event collector.TraceRe
 	assert.Equal(t, collector.TraceRecord{
 		Name: name,
 		Attributes: map[string]string{
-			"span_id":        event.Attributes["span_id"],
-			"parent_span_id": event.Attributes["parent_span_id"],
+			"span_id":                    event.Attributes["span_id"],
+			"parent_span_id":             event.Attributes["parent_span_id"],
+			string(attr.OBIRequestPhase): phase,
 		},
 		ResourceAttributes: map[string]string{
 			string(semconv.HostIDKey):               "host-id",
@@ -992,7 +1039,6 @@ func matchInnerGRPCTraceEvent(t *testing.T, name string, event collector.TraceRe
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry",
 			string(semconv.TelemetryDistroNameKey):  "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 		},
 		Kind: ptrace.SpanKindInternal,
 	}, event)
@@ -1041,7 +1087,7 @@ func matchInfoEvent(t *testing.T, name string, event collector.TraceRecord) {
 			string(attr.HTTPUrlPath):              "/aaa/bbb",
 			string(attr.ClientAddr):               "1.1.1.1",
 			string(semconv.NetworkPeerAddressKey): "1.1.1.1",
-			string(attr.ServerAddr):               getHostname(),
+			string(attr.ServerAddr):               "1.1.1.1",
 			string(attr.ServerPort):               "8080",
 			string(attr.HTTPURLScheme):            "http",
 			"span_id":                             event.Attributes["span_id"],
@@ -1055,7 +1101,6 @@ func matchInfoEvent(t *testing.T, name string, event collector.TraceRecord) {
 			string(semconv.TelemetrySDKNameKey):     "opentelemetry",
 			string(semconv.TelemetryDistroNameKey):  "opentelemetry-ebpf-instrumentation",
 			string(semconv.OSTypeKey):               "linux",
-			string(semconv.OTelScopeNameKey):        "go.opentelemetry.io/obi",
 		},
 		Kind: ptrace.SpanKindServer,
 	}, event)

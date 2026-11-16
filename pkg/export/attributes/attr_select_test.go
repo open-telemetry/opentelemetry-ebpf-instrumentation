@@ -31,3 +31,31 @@ func TestSelectorMatch(t *testing.T) {
 		selection.Matching(Name{Section: "pim.pam"}))
 	assert.Empty(t, selection.Matching(Name{Section: "pam.pum"}))
 }
+
+func TestSelectorMatch_NotNormalizedSections(t *testing.T) {
+	ga := InclusionLists{Include: []string{"gen_ai"}}
+	jt := InclusionLists{Include: []string{"jvm_thread"}}
+	selection := Selection{
+		"gen_ai.*":     ga,
+		"jvm.thread.*": jt,
+	}
+	selection.Normalize()
+	assert.Equal(t,
+		[]InclusionLists{ga},
+		selection.MatchingV2(GenAIClientOperationDuration))
+	assert.Equal(t,
+		[]InclusionLists{jt},
+		selection.MatchingV2(JVMThreadCount))
+}
+
+// every metric must be selectable by its name, in dot or underscore notation
+func TestSelectorMatch_AllMetrics(t *testing.T) {
+	il := InclusionLists{Include: []string{"foo"}}
+	for section := range getDefinitions(0, NewGroupAttributes(nil)) {
+		for _, key := range []Section{section, Section(asProm(string(section)))} {
+			selection := Selection{key: il}
+			selection.Normalize()
+			assert.Equal(t, []InclusionLists{il}, selection.MatchingV2(Name{Section: section}), "key %q", key)
+		}
+	}
+}

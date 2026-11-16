@@ -91,6 +91,15 @@ type NodeMeta struct {
 	// so it's stored separately from the rest of metadata entries
 	HostID string
 
+	// GCEInstanceID retains the detected VM identity independently of host.id overrides.
+	GCEInstanceID string
+
+	// EC2VPCID identifies the primary network interface's VPC for private DNS discovery.
+	EC2VPCID string
+
+	// AzureInstanceID retains the detected VM UUID independently of host.id overrides.
+	AzureInstanceID string
+
 	// Cluster and Region provide resolver defaults and are also retained in Metadata.
 	Cluster  string
 	Region   string
@@ -108,23 +117,43 @@ func NewNodeMeta(
 	kubeInformer *kube.MetadataProvider,
 	retryCfg RetryConfig,
 ) NodeMeta {
-	return fetchEntries(ctx,
-		retryCfg,
-		// some fetchers will only retrieve the host name while others
-		// will retrieve also host attributes that will be merged
-		// in order of the priority below (the later the highest)
+	return NewNodeMetaWithMetadataProvider(ctx, overrideHost, &MetadataProvider{
+		K8sInformer:   kubeInformer,
+		CloudMetadata: CloudMetadataConfig{DetectionEnabled: true},
+	}, retryCfg)
+}
+
+// NewNodeMetaWithMetadataProvider applies the provider's cloud detection settings.
+func NewNodeMetaWithMetadataProvider(
+	ctx context.Context,
+	overrideHost string,
+	provider *MetadataProvider,
+	retryCfg RetryConfig,
+) NodeMeta {
+	// some fetchers will only retrieve the host name while others
+	// will retrieve also host attributes that will be merged
+	// in order of the priority below (the later the highest)
+	fetchers := []fetcher{
 		linuxLocalFetcher,
-		kubeNodeFetcher(kubeInformer),
-		otelNodeFetcher(ClusterAzureVM, azurevm.NewResourceDetector(
-			azurevm.WithAttributeFilter(azureVMAttributeFilter),
-		)),
-		otelNodeFetcher(ClusterGCP, gcp.NewDetector()),
-		otelNodeFetcher(ClusterEC2, newEC2Detector()),
-		ecsNodeFetcher,
-		func(_ context.Context) (NodeMeta, error) {
-			return NodeMeta{HostID: overrideHost}, nil
-		},
-	)
+		kubeNodeFetcher(provider.K8sInformer),
+	}
+
+	if provider.CloudMetadata.DetectionEnabled {
+		fetchers = append(fetchers,
+			otelNodeFetcher(ClusterAzureVM, azurevm.NewResourceDetector(
+				azurevm.WithAttributeFilter(azureVMAttributeFilter),
+			)),
+			otelNodeFetcher(ClusterGCP, gcp.NewDetector()),
+			ec2NodeFetcher,
+			ecsNodeFetcher,
+		)
+	}
+
+	fetchers = append(fetchers, func(_ context.Context) (NodeMeta, error) {
+		return NodeMeta{HostID: overrideHost}, nil
+	})
+
+	return fetchEntries(ctx, retryCfg, fetchers...)
 }
 
 func fetchEntries(
@@ -166,6 +195,12 @@ func fetchEntries(
 func backoffFetch(ctx context.Context, retryCfg RetryConfig, fetch fetcher, log *slog.Logger) NodeMeta {
 	backoff := retryCfg.StartInterval
 	start := time.Now()
+	if retryCfg.Timeout > 0 {
+		// bounds the attempts too: a hanging request would otherwise wait for the fetcher's own timeout
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, retryCfg.Timeout)
+		defer cancel()
+	}
 	for {
 		entries, err := fetch(ctx)
 		if err == nil {
@@ -194,6 +229,16 @@ func (ns *NodeMeta) merge(src NodeMeta) {
 	hostID := strings.TrimSpace(src.HostID)
 	if hostID != "" {
 		ns.HostID = hostID
+	}
+	if instanceID := strings.TrimSpace(src.GCEInstanceID); instanceID != "" {
+		ns.GCEInstanceID = instanceID
+	}
+
+	if vpcID := strings.TrimSpace(src.EC2VPCID); vpcID != "" {
+		ns.EC2VPCID = vpcID
+	}
+	if instanceID := strings.TrimSpace(src.AzureInstanceID); instanceID != "" {
+		ns.AzureInstanceID = instanceID
 	}
 	if cluster := strings.TrimSpace(src.Cluster); cluster != "" {
 		ns.Cluster = cluster

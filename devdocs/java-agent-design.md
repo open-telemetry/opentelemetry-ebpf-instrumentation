@@ -37,7 +37,9 @@ and protocol details.
 
 - Keep instrumentation focused: Byte Buddy advice captures application
   behavior, while agent-side helpers build packets and JNI forwards them to
-  OBI. The agent injects copies of selected classes into the bootstrap loader;
+  OBI. Fixed-size task-parent packets are built on the JNI stack and consumed
+  synchronously during `ioctl`, avoiding a direct-buffer allocation per send.
+  The agent injects copies of selected classes into the bootstrap loader;
   those classes have distinct identity from agent-loader copies. Advice on JDK
   classes must resolve the bootstrap copy of shared state, and injected
   helpers must not depend on classes visible only to the agent loader.

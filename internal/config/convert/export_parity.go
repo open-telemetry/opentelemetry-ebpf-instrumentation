@@ -85,6 +85,7 @@ const (
 	payloadExtractorRerank           = "rerank"
 	payloadExtractorRetrieval        = "retrieval"
 	payloadExtractorOllama           = "ollama"
+	payloadExtractorCohere           = "cohere"
 	payloadExtractorOpenAICompatible = "openai_compatible"
 	payloadExtractorJSONRPC          = "jsonrpc"
 	payloadExtractorEnrichment       = "enrichment"
@@ -134,6 +135,9 @@ func payloadExtraction(cfg *obi.Config) schema.PayloadExtraction {
 	}
 	if http.GenAI.Ollama.Enabled {
 		enabled = append(enabled, payloadExtractorOllama)
+	}
+	if http.GenAI.Cohere.Enabled {
+		enabled = append(enabled, payloadExtractorCohere)
 	}
 	if http.GenAI.OpenAICompatible.Enabled {
 		enabled = append(enabled, payloadExtractorOpenAICompatible)
@@ -493,6 +497,7 @@ func exportModeRefinement(modes services.ExportModes) *schema.ExportModeRefineme
 		return nil
 	}
 	return &schema.ExportModeRefinement{
+		Logs:    modes.CanExportLogs(),
 		Traces:  modes.CanExportTraces(),
 		Metrics: modes.CanExportMetrics(),
 	}

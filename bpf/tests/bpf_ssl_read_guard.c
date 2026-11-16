@@ -80,7 +80,7 @@ static void assert_u16_eq(u16 expected, u16 actual, const char *message) {
 
 static void *test_map_lookup(void *map, const void *key) {
     if (map == &ssl_to_conn) {
-        const u64 ssl = (u64) * (void *const *)key;
+        const u64 ssl = ((const pid_ptr_key_t *)key)->ptr;
         if (test_ssl_conn_available && ssl == test_ssl_ptr) {
             return &test_ssl_conn;
         }
@@ -96,7 +96,7 @@ static void *test_map_lookup(void *map, const void *key) {
     }
 
     if (map == &ssl_to_pid_tid) {
-        const u64 ssl = *(const u64 *)key;
+        const u64 ssl = ((const pid_ptr_key_t *)key)->ptr;
         if (test_mapped_pid_tid_available && ssl == test_ssl_ptr) {
             return &test_mapped_pid_tid;
         }

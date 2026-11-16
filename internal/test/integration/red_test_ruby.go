@@ -52,7 +52,7 @@ func testREDMetricsForRubyHTTPLibrary(t *testing.T, url string, comm string) {
 			`http_response_status_code="201",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + comm + `",` +
-			`url_path="` + path + `"}`)
+			`http_route="` + path + `"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -91,8 +91,7 @@ func testREDMetricsForRubyHTTPLibrary(t *testing.T, url string, comm string) {
 			`http_response_status_code="200",` +
 			`service_namespace="integration-test",` +
 			`service_name="` + comm + `",` +
-			`http_route="/users/:id",` +
-			`url_path="` + path + `/1"}`)
+			`http_route="/users/:id"}`)
 		require.NoError(ct, err)
 		enoughPromResults(ct, results)
 		val := totalPromCount(ct, results)
@@ -296,7 +295,7 @@ func testRailsHarvestedRoutes(t *testing.T, serviceName string) {
 				}
 			}
 			require.EventuallyWithT(t, func(ct *assert.CollectT) {
-				results, err := pq.Query(`http_server_request_duration_seconds_count{service_name="` + serviceName + `",http_request_method="` + method + `",http_route="` + tc.route + `",url_path="` + tc.path + `"}`)
+				results, err := pq.Query(`http_server_request_duration_seconds_count{service_name="` + serviceName + `",http_request_method="` + method + `",http_route="` + tc.route + `"}`)
 				require.NoError(ct, err)
 				enoughPromResults(ct, results)
 			}, testTimeout, 100*time.Millisecond)

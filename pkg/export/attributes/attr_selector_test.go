@@ -4,6 +4,7 @@
 package attributes
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -144,14 +145,64 @@ func TestFor_GlobEntries_Order_Default(t *testing.T) {
 				Exclude: []string{"*"},
 			},
 			"http.server.request.duration": InclusionLists{
-				Include: []string{"url.path"},
+				Include: []string{"server.port"},
 			},
 		},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []attr.Name{
-		"url.path",
+		"server.port",
 	}, p.For(HTTPServerDuration))
+}
+
+func TestFor_HTTPRouteAttributesByDirection(t *testing.T) {
+	serverMetrics := []Name{HTTPServerDuration, HTTPServerRequestSize, HTTPServerResponseSize}
+	clientMetrics := []Name{HTTPClientDuration, HTTPClientRequestSize, HTTPClientResponseSize}
+
+	p, err := NewAttrSelector(GroupHTTPRoutes, &SelectorConfig{})
+	require.NoError(t, err)
+	for _, metric := range serverMetrics {
+		assert.Contains(t, p.For(metric), attr.HTTPRoute, metric.Section)
+		assert.NotContains(t, p.For(metric), attr.HTTPUrlTemplate, metric.Section)
+	}
+	for _, metric := range clientMetrics {
+		assert.NotContains(t, p.For(metric), attr.HTTPRoute, metric.Section)
+	}
+	// semconv makes url.template opt-in on the stable duration metric and
+	// conditionally required on the development body-size metrics
+	assert.NotContains(t, p.For(HTTPClientDuration), attr.HTTPUrlTemplate)
+	assert.Contains(t, p.For(HTTPClientRequestSize), attr.HTTPUrlTemplate)
+	assert.Contains(t, p.For(HTTPClientResponseSize), attr.HTTPUrlTemplate)
+
+	p, err = NewAttrSelector(GroupHTTPRoutes, &SelectorConfig{SelectionCfg: Selection{
+		HTTPClientDuration.Section: InclusionLists{Include: []string{"url.template"}},
+	}})
+	require.NoError(t, err)
+	assert.Contains(t, p.For(HTTPClientDuration), attr.HTTPUrlTemplate, "url.template can be opted into on the client duration")
+
+	p, err = NewAttrSelector(0, &SelectorConfig{})
+	require.NoError(t, err)
+	for _, metric := range append(serverMetrics, clientMetrics...) {
+		assert.NotContains(t, p.For(metric), attr.HTTPRoute, metric.Section)
+		assert.NotContains(t, p.For(metric), attr.HTTPUrlTemplate, metric.Section)
+	}
+}
+
+func TestFor_HTTPMetricCompatibilityAttributes(t *testing.T) {
+	p, err := NewAttrSelector(GroupHTTPRoutes, &SelectorConfig{
+		SelectionCfg: Selection{"*": InclusionLists{Include: []string{"*"}}},
+	})
+	require.NoError(t, err)
+	for _, metric := range []Name{HTTPServerDuration, HTTPClientDuration} {
+		assert.Contains(t, p.For(metric), attr.HTTPUrlPath, metric.Section)
+	}
+	assert.Contains(t, p.For(HTTPServerDuration), attr.ClientAddr)
+	assert.NotContains(t, p.For(HTTPClientDuration), attr.ClientAddr)
+	for _, metric := range []Name{HTTPServerRequestSize, HTTPServerResponseSize, HTTPClientRequestSize, HTTPClientResponseSize, RPCServerDuration} {
+		assert.NotContains(t, p.For(metric), attr.HTTPUrlPath, metric.Section)
+		assert.NotContains(t, p.For(metric), attr.ClientAddr, metric.Section)
+	}
+	assert.Contains(t, p.For(DBServerDuration), attr.ClientAddr)
 }
 
 func TestFor_KubeDisabled(t *testing.T) {
@@ -169,6 +220,41 @@ func TestFor_KubeDisabled(t *testing.T) {
 		"src.address",
 		"src.name",
 	}, p.For(NetworkFlow))
+}
+
+func TestFor_NotNormalizedSection(t *testing.T) {
+	for _, key := range []Section{
+		DotnetProcessMemoryWorkingSet.Section,
+		Section(DotnetProcessMemoryWorkingSet.Prom),
+	} {
+		selection := Selection{
+			key: InclusionLists{Include: []string{"k8s.namespace.name"}},
+		}
+		selection.Normalize()
+		p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection, UseV2Selection: true})
+		require.NoError(t, err)
+		assert.Equal(t, []attr.Name{"k8s.namespace.name"}, p.For(DotnetProcessMemoryWorkingSet), "key %q", key)
+	}
+}
+
+func TestFor_NotNormalizedSection_ExactOverridesGlob(t *testing.T) {
+	selection := Selection{
+		"jvm.thread.*":     InclusionLists{Exclude: []string{"*"}},
+		"jvm.thread.count": InclusionLists{Include: []string{"jvm.thread.daemon"}},
+	}
+	selection.Normalize()
+	p, err := NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection, UseV2Selection: true})
+	require.NoError(t, err)
+	assert.Equal(t, []attr.Name{"jvm.thread.daemon"}, p.For(JVMThreadCount))
+
+	selection = Selection{
+		"jvm.thread.*":     InclusionLists{Include: []string{"*"}},
+		"jvm.thread.count": InclusionLists{Exclude: []string{"jvm.thread.daemon"}},
+	}
+	selection.Normalize()
+	p, err = NewAttrSelector(GroupKubernetes, &SelectorConfig{SelectionCfg: selection, UseV2Selection: true})
+	require.NoError(t, err)
+	assert.NotContains(t, p.For(JVMThreadCount), attr.Name("jvm.thread.daemon"))
 }
 
 func TestNilDoesNotCrash(t *testing.T) {
@@ -272,14 +358,19 @@ func TestDefault_HTTPServerMetrics(t *testing.T) {
 	p, err := NewAttrSelector(0, &SelectorConfig{})
 	require.NoError(t, err)
 	for _, def := range []Name{HTTPServerDuration, HTTPServerRequestSize, HTTPServerResponseSize} {
-		assert.Equal(t, []attr.Name{
+		expected := []attr.Name{
 			attr.ErrorType,
 			attr.HTTPRequestMethod,
 			attr.HTTPResponseStatusCode,
 			attr.ServerAddr,
 			attr.ServerPort,
 			attr.HTTPURLScheme,
-		}, p.For(def), def.Section)
+		}
+		if def != HTTPServerDuration {
+			expected = append(expected, attr.NetworkProtocolVersion)
+			slices.Sort(expected)
+		}
+		assert.Equal(t, expected, p.For(def), def.Section)
 	}
 }
 
@@ -287,14 +378,19 @@ func TestDefault_HTTPClientMetrics(t *testing.T) {
 	p, err := NewAttrSelector(0, &SelectorConfig{})
 	require.NoError(t, err)
 	for _, def := range []Name{HTTPClientDuration, HTTPClientRequestSize, HTTPClientResponseSize} {
-		assert.Equal(t, []attr.Name{
+		expected := []attr.Name{
 			attr.ErrorType,
 			attr.HTTPRequestMethod,
 			attr.HTTPResponseStatusCode,
 			attr.ServerAddr,
 			attr.ServerPort,
 			attr.HTTPURLScheme,
-		}, p.For(def), def.Section)
+		}
+		if def != HTTPClientDuration {
+			expected = append(expected, attr.NetworkProtocolVersion)
+			slices.Sort(expected)
+		}
+		assert.Equal(t, expected, p.For(def), def.Section)
 	}
 }
 
@@ -369,6 +465,7 @@ func TestExtraGroupAttributes(t *testing.T) {
 		"k8s.pod.uid",
 		"k8s.replicaset.name",
 		"k8s.statefulset.name",
+		"network.protocol.version",
 		"server.address",
 		"server.port",
 		"url.scheme",
@@ -429,4 +526,28 @@ func TestTracesGenAIToolCallAttributes(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, p.For(Traces), attr.GenAIToolCallArguments)
 	assert.NotContains(t, p.For(Traces), attr.GenAIToolCallResult)
+}
+
+func TestTracesOpenAIRequestQuestionsIsOptIn(t *testing.T) {
+	p, err := NewAttrSelector(GroupTraces, &SelectorConfig{})
+	require.NoError(t, err)
+	assert.NotContains(t, p.For(Traces), attr.OpenAIRequestQuestions)
+
+	p, err = NewAttrSelector(GroupTraces, &SelectorConfig{
+		SelectionCfg: Selection{
+			"traces": InclusionLists{Include: []string{"openai.request.questions"}},
+		},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, p.For(Traces), attr.OpenAIRequestQuestions)
+}
+
+func TestFor_LegacySelectionIsFrozen(t *testing.T) {
+	selection := Selection{"gen_ai.client.operation.duration": {Exclude: []string{"gen_ai.request.model"}}}
+	selection.Normalize()
+	for _, v2 := range []bool{false, true} {
+		selector, err := NewAttrSelector(0, &SelectorConfig{SelectionCfg: selection, UseV2Selection: v2})
+		require.NoError(t, err)
+		assert.Equal(t, !v2, slices.Contains(selector.For(GenAIClientOperationDuration), attr.GenAIRequestModel))
+	}
 }

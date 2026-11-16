@@ -4,6 +4,7 @@
 package request // import "go.opentelemetry.io/obi/pkg/appolly/app/request"
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/base64"
 	"encoding/json"
@@ -128,6 +129,7 @@ const (
 	HTTPSubtypeOpenAICompatible = 16 // http + OpenAI-compatible API (custom provider)
 	HTTPSubtypeOllama           = 17 // http + Ollama native API
 	HTTPSubtypeAWSSNS           = 18 // http + aws sns
+	HTTPSubtypeCohere           = 19 // http + Cohere native chat API
 )
 
 // IsGenAISubtype reports whether a subtype is recorded on the GenAI client
@@ -145,7 +147,8 @@ func IsGenAISubtype(subtype int) bool {
 		subtype == HTTPSubtypeRerank ||
 		subtype == HTTPSubtypeRetrieval ||
 		subtype == HTTPSubtypeOpenAICompatible ||
-		subtype == HTTPSubtypeOllama
+		subtype == HTTPSubtypeOllama ||
+		subtype == HTTPSubtypeCohere
 }
 
 //nolint:cyclop
@@ -435,6 +438,7 @@ type GenAI struct {
 	Rerank           *VendorRerank
 	Retrieval        *VendorRetrieval
 	Ollama           *VendorOpenAI
+	Cohere           *VendorOpenAI
 	OpenAICompatible *VendorOpenAI
 }
 
@@ -496,6 +500,7 @@ type VendorOpenAI struct {
 	APIType           string          `json:"-"`
 	ToolCalls         []ToolCall      `json:"-"`
 	ProviderName      string          `json:"-"`
+	Dimensions        int             `json:"-"`
 }
 
 func (ai *VendorOpenAI) GetFinishReasons() []string {
@@ -541,6 +546,9 @@ func (ai *VendorOpenAI) GetEmbeddingDimensions() int {
 	}
 	if d := ai.Request.ParameterDimension(); d > 0 {
 		return d
+	}
+	if ai.Dimensions > 0 {
+		return ai.Dimensions
 	}
 	if n := embeddingLenFromData(ai.Data); n > 0 {
 		return n
@@ -638,6 +646,7 @@ type OpenAIInput struct {
 	Messages         json.RawMessage `json:"messages"`
 	Items            json.RawMessage `json:"items"`
 	Temperature      float64         `json:"temperature"`
+	TopK             int             `json:"top_k,omitempty"`
 	Dimensions       int             `json:"dimensions,omitempty"`
 	MaxTokens        int             `json:"max_tokens,omitempty"`
 	N                int             `json:"n,omitempty"`
@@ -648,11 +657,13 @@ type OpenAIInput struct {
 	EncodingFormat   string          `json:"encoding_format,omitempty"`
 	Seed             *int            `json:"seed,omitempty"`
 	Tools            json.RawMessage `json:"tools,omitempty"`
-	ServiceTier      string          `json:"service_tier,omitempty"`
-	Parameters       json.RawMessage `json:"parameters,omitempty"`
-	// InputItems retains the Responses API `input` array (function_call /
-	// function_call_output items), which cannot be held by the string Input
-	// field. Populated only for /v1/responses traffic.
+	// Questions retains the Decisions API `questions` array for opt-in export.
+	Questions   json.RawMessage `json:"-"`
+	ServiceTier string          `json:"service_tier,omitempty"`
+	Parameters  json.RawMessage `json:"parameters,omitempty"`
+	// InputItems retains the Responses and Decisions API `input` array,
+	// which cannot be held by the string Input field. Populated only for
+	// /v1/responses and /v1/decisions traffic.
 	InputItems json.RawMessage `json:"-"`
 }
 
@@ -684,6 +695,14 @@ func (air *OpenAIInput) GetStopSequences() []string {
 		return []string{s}
 	}
 	return nil
+}
+
+func (air *OpenAIInput) GetQuestions() string {
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, air.Questions); err != nil {
+		return string(air.Questions)
+	}
+	return compact.String()
 }
 
 func (air *OpenAIInput) GetInput() string {
@@ -1119,6 +1138,7 @@ const (
 	InvokeModelOperationName    = "invoke_model"
 	EmbeddingOperationName      = "embeddings"
 	ResponseOperationName       = "response"
+	DecisionOperationName       = "decision"
 	ConversationOperationName   = "conversation"
 	ExecuteToolOperationName    = "execute_tool"
 	ChatKitSessionOperationName = "chatkit.session"
@@ -1520,30 +1540,31 @@ const (
 // and SpanPromGetters in pkg/appolly/app/request/span_getters_providers.go and
 // getDefinitions in pkg/export/attributes/attr_defs.go
 type Span struct {
-	Type           EventType      `json:"type"`
-	SpanKind       trace.SpanKind `json:"-"`
-	Flags          uint8          `json:"-"`
-	ProtoVersion   ProtoVersion   `json:"-"`
-	UserAgent      string         `json:"-"`
-	Method         string         `json:"-"`
-	Path           string         `json:"-"`
-	FullPath       string         `json:"-"`
-	Route          string         `json:"-"`
-	Peer           string         `json:"peer"`
-	PeerPort       int            `json:"peerPort,string"`
-	Host           string         `json:"host"`
-	HostPort       int            `json:"hostPort,string"`
-	Status         int            `json:"-"`
-	ResponseLength int64          `json:"-"`
-	ContentLength  int64          `json:"-"`
-	DBBatchSize    int            `json:"-"`
-	RequestStart   int64          `json:"-"`
-	Start          int64          `json:"-"`
-	End            int64          `json:"-"`
-	Service        svc.Attrs      `json:"-"`
-	TraceID        trace.TraceID  `json:"traceID"`
-	SpanID         trace.SpanID   `json:"spanID"`
-	ParentSpanID   trace.SpanID   `json:"parentSpanID"`
+	Type             EventType      `json:"type"`
+	SpanKind         trace.SpanKind `json:"-"`
+	Flags            uint8          `json:"-"`
+	ProtoVersion     ProtoVersion   `json:"-"`
+	UserAgent        string         `json:"-"`
+	Method           string         `json:"-"`
+	Path             string         `json:"-"`
+	FullPath         string         `json:"-"`
+	Route            string         `json:"-"`
+	Peer             string         `json:"peer"`
+	PeerPort         int            `json:"peerPort,string"`
+	Host             string         `json:"host"`
+	HostPort         int            `json:"hostPort,string"`
+	RequestAuthority string         `json:"-"`
+	Status           int            `json:"-"`
+	ResponseLength   int64          `json:"-"`
+	ContentLength    int64          `json:"-"`
+	DBBatchSize      int            `json:"-"`
+	RequestStart     int64          `json:"-"`
+	Start            int64          `json:"-"`
+	End              int64          `json:"-"`
+	Service          svc.Attrs      `json:"-"`
+	TraceID          trace.TraceID  `json:"traceID"`
+	SpanID           trace.SpanID   `json:"spanID"`
+	ParentSpanID     trace.SpanID   `json:"parentSpanID"`
 	// ParentConditional marks a parent that may already have finished when this
 	// span started: BPF cannot tell at that moment, so the pipeline settles the
 	// link against the parent span's real end timestamp before export.
@@ -2541,6 +2562,10 @@ func (s *Span) GenAIInputTokenCount() (int, bool) {
 		return s.GenAI.Ollama.Usage.InputTokenCount()
 	}
 
+	if s.GenAI.Cohere != nil {
+		return s.GenAI.Cohere.Usage.InputTokenCount()
+	}
+
 	if s.GenAI.OpenAICompatible != nil {
 		return s.GenAI.OpenAICompatible.InputTokenCount()
 	}
@@ -2590,6 +2615,10 @@ func (s *Span) GenAIOutputTokenCount() (int, bool) {
 		return s.GenAI.Ollama.Usage.OutputTokenCount()
 	}
 
+	if s.GenAI.Cohere != nil {
+		return s.GenAI.Cohere.Usage.OutputTokenCount()
+	}
+
 	if s.GenAI.OpenAICompatible != nil {
 		return s.GenAI.OpenAICompatible.Usage.OutputTokenCount()
 	}
@@ -2636,6 +2665,9 @@ func (s *Span) GenAIOperationName() string {
 	}
 	if s.GenAI.Ollama != nil {
 		return s.GenAI.Ollama.OperationName
+	}
+	if s.GenAI.Cohere != nil {
+		return s.GenAI.Cohere.OperationName
 	}
 	if s.GenAI.OpenAICompatible != nil {
 		return s.GenAI.OpenAICompatible.OperationName
@@ -2697,6 +2729,9 @@ func (s *Span) GenAIProviderName() string {
 	}
 	if s.GenAI.Ollama != nil {
 		return "ollama"
+	}
+	if s.GenAI.Cohere != nil {
+		return semconv.GenAIProviderNameCohere.Value.AsString()
 	}
 	if s.GenAI.OpenAICompatible != nil {
 		return openAICompatibleProviderName(s.GenAI.OpenAICompatible.ProviderName)
@@ -2769,6 +2804,9 @@ func (s *Span) GenAIRequestModel() string {
 	if s.GenAI.Ollama != nil {
 		return s.GenAI.Ollama.Request.Model
 	}
+	if s.GenAI.Cohere != nil {
+		return s.GenAI.Cohere.Request.Model
+	}
 	if s.GenAI.OpenAICompatible != nil {
 		return s.GenAI.OpenAICompatible.Request.Model
 	}
@@ -2817,6 +2855,9 @@ func (s *Span) GenAIResponseModel() string {
 			return s.GenAI.Ollama.ResponseModel
 		}
 		return s.GenAI.Ollama.Request.Model
+	}
+	if s.GenAI.Cohere != nil {
+		return s.GenAI.Cohere.Request.Model
 	}
 	if s.GenAI.OpenAICompatible != nil {
 		if s.GenAI.OpenAICompatible.ResponseModel != "" {

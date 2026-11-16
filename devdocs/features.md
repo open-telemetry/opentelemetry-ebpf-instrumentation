@@ -5,7 +5,7 @@ through language-specific library instrumentation documented later in this file.
 
 | Protocol      | Languages |    Versions | Methods                                                                                  | Secure | Propagates Context |                                                                                                                     Limitations
 |:--------------|:---------:|------------:|------------------------------------------------------------------------------------------|:------:|-------------------:|--------------------------------------------------------------------------------------------------------------------------------:
-| HTTP          |    All    |     1.0/1.1 | All                                                                                      |  Yes   |                Yes | Generic TLS inject uses TCP option kind 25 only (OBI-to-OBI; L7 proxies drop it). Header inject works for plaintext.
+| HTTP          |    All    |     1.0/1.1 | All                                                                                      |  Yes   |                Yes | Without a runtime-specific injector, generic TLS inject uses TCP option kind 25 only between OBI instances. L7 proxies may drop it. Header inject works for plaintext. Java 11+ `HttpClient.send()` and `sendAsync()` support HTTPS HTTP/1.1 header injection through the OBI Java agent on compatible JDKs. See [Java HttpClient propagation](java-httpclient-propagation.md).
 | HTTP          |    All    |         2.0 | All                                                                                      |  Yes   |                Yes | Network-level HPACK inject/extract on plaintext HTTP/2. Generic TLS cannot inject (`sk_msg` sees ciphertext); extract still works if a peer injected. Huffman-encoded `traceparent` extract requires kernel 5.17+. Go library instrumentation covers TLS inject via uprobes. On the generic path, about six streams that share one read or write are captured; extra streams are dropped instead of being reported with wrong values. See [grpc-context-propagation.md](grpc-context-propagation.md).
 | gRPC          |    All    |        1.0+ | All                                                                                      |  Yes   |                Yes | Same HPACK path as HTTP/2. Can't get method for long living connections before OBI started, will mark method with `*`. Generic TLS cannot inject. Huffman extract requires kernel 5.17+. Message body capture is not supported (needs a `.proto` OBI does not have).
 | MySQL         |    All    |         All | All                                                                                      |  Yes   |                 No |             In the case of prepared statements, if the statement was prepared before OBI started then the query might be missed
@@ -30,7 +30,7 @@ through language-specific library instrumentation documented later in this file.
 | AWS SQS       |    All    |         All | All                                                                                      |  Yes   |                 No | Requires HTTP payload capture (`OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`)
 | AWS SNS       |    All    |         All | [Supported operations](protocols/aws.md#supported-sns-operations)                          |  Yes   |                 No | Requires HTTP payload capture (`OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`)
 | SQL++         |    All    |         All | All                                                                                      |  Yes   |                 No | Requires HTTP payload capture (`OTEL_EBPF_BPF_BUFFER_SIZE_HTTP`)
-| GenAI         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                   Supported vendors: OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat and /api/generate), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), vector retrieval (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate), MCP. Requires HTTP payload capture.
+| GenAI         |    All    |         All | All                                                                                      |  Yes   |                 No |                                                   Supported vendors: OpenAI, Anthropic, Google AI Studio (Gemini), AWS Bedrock, Qwen (DashScope), generic embedding providers (Voyage AI, Cohere, Jina AI), Cohere (Rerank), Jina AI (Rerank), Voyage AI (Rerank), Qwen (DashScope) (Rerank), Ollama (native /api/chat, /api/generate, /api/embed and /api/embeddings), Cohere (native /v2/chat), OpenAI-compatible gateways (LiteLLM, vLLM, LocalAI, OpenRouter, Ollama /v1/), vector retrieval (Pinecone, Qdrant, Milvus, Zilliz, Chroma, Weaviate), MCP. Requires HTTP payload capture.
 
 ## GenAI token usage availability
 
@@ -47,7 +47,7 @@ chunk.
 | Anthropic | `input_tokens` plus reported cache read and cache creation tokens | `output_tokens` | Supports buffered responses and usage fields in SSE message events. |
 | Google AI Studio (Gemini) | `promptTokenCount` plus `toolUsePromptTokenCount` | `candidatesTokenCount` plus `thoughtsTokenCount` | Read from `usageMetadata` in buffered responses or stream chunks. |
 | AWS Bedrock | Response header, body usage, or model-specific input count, plus cache read and write counts | Response header, body usage, or model-specific output count | Response headers take precedence when present; buffered Converse and model-family response bodies provide fallbacks. |
-| Ollama native API | `prompt_eval_count` | `eval_count` | For NDJSON streams, counts are normally present only on the final `done` object. |
+| Ollama native API | `prompt_eval_count` | `eval_count` | For NDJSON streams, counts are normally present only on the final `done` object. `prompt_eval_cached_count` (Ollama v0.33.3 and later) is exported as `gen_ai.usage.cache_read.input_tokens`. `/api/embed` returns no `eval_count` and sends `prompt_eval_count` after the vectors, so the HTTP buffer must fit the whole response. `/api/embeddings` returns no counts. |
 | Embeddings | `prompt_tokens`, `total_tokens`, or Cohere `meta.billed_units.input_tokens` | Not reported | Only input token usage is exported. |
 | Rerank | `usage.total_tokens`, `usage.prompt_tokens`, or `meta.tokens.input_tokens` | Not reported | Only input token usage is exported. |
 | Vector retrieval | `usage.prompt_tokens` or `usage.total_tokens` | Not reported | Most vector stores do not return token usage; it is exported when present. |
@@ -80,6 +80,13 @@ account or request identifiers, prompts or completions, tenant metadata,
 request details, customer usage data, account or billing details, and other
 sensitive data. Review backend access, retention, and downstream processing
 before enabling it.
+
+## Attribute selection
+
+Config v2 supports optional span attributes and metric dimensions in both
+standalone and Collector receiver deployments. See the
+[attribute selection configuration](config/version-2.0/config-v2.md#captureattributesselect-section)
+for examples and compatibility with existing standalone settings.
 
 ## Go Instrumentation
 
@@ -181,8 +188,8 @@ executing.
 
 | Library   | Primitives | Versions | Limitations
 |:----------|:-----------|---------:|------------:
-| libcudart | cudaLaunchKernel, cudaGraphLaunch, cudaMalloc, cudaFree, cudaMemset, cudaMemcpy, cudaMemcpyAsync, cudaStreamCreate, cudaStreamCreateWithFlags, cudaStreamCreateWithPriority, cudaStreamDestroy, cudaEventRecord, cudaEventRecordWithFlags, cudaEventSynchronize, cudaStreamSynchronize, cudaDeviceSynchronize, cudaHostRegister, cudaSetDevice, cudaGetDevice, cudaGetDeviceProperties, cudaGetDeviceProperties_v2 | >= 7.0 | N/A
-| libcuda   | cuLaunchKernel, cuLaunchKernelEx, cuGraphLaunch, cuDeviceGetUuid, cuDeviceGetUuid_v2, cuDeviceGetName | >= 7.0 | N/A
+| libcudart | cudaLaunchKernel, cudaGraphLaunch, cudaMalloc, cudaFree, cudaMemset, cudaMemcpy, cudaMemcpyAsync, cudaStreamCreate, cudaStreamCreateWithFlags, cudaStreamCreateWithPriority, cudaStreamDestroy, cudaEventRecord, cudaEventRecordWithFlags, cudaEventSynchronize, cudaStreamSynchronize, cudaDeviceSynchronize, cudaHostRegister, cudaSetDevice, cudaGetDevice, cudaGetDeviceProperties, cudaGetDeviceProperties_v2, cudaLaunchKernel_ptsz, cudaGraphLaunch_ptsz, cudaMemcpy_ptds, cudaMemcpyAsync_ptsz, cudaMemset_ptds, cudaEventRecord_ptsz, cudaEventRecordWithFlags_ptsz, cudaStreamSynchronize_ptsz | >= 7.0 | N/A
+| libcuda   | cuLaunchKernel, cuLaunchKernelEx, cuGraphLaunch, cuLaunchKernel_ptsz, cuLaunchKernelEx_ptsz, cuGraphLaunch_ptsz, cuDeviceGetUuid, cuDeviceGetUuid_v2, cuDeviceGetName | >= 7.0 | N/A
 
 Enablement is controlled by `ebpf.instrument_cuda` (`OTEL_EBPF_INSTRUMENT_CUDA`); the default `auto` enables the
 instrumentation when `nvidia-smi` is on the `PATH` of the OBI process. Spans and metrics are labelled with the device

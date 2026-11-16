@@ -33,13 +33,14 @@ import (
 	"go.opentelemetry.io/obi/pkg/ebpf/common/dnsparser"
 	ebpfhttp "go.opentelemetry.io/obi/pkg/ebpf/common/http"
 	"go.opentelemetry.io/obi/pkg/ebpf/ringbuf"
+	"go.opentelemetry.io/obi/pkg/exceptions"
 	"go.opentelemetry.io/obi/pkg/export/otel/idgen"
 	"go.opentelemetry.io/obi/pkg/internal/ebpf/kafkaparser"
 	"go.opentelemetry.io/obi/pkg/internal/largebuf"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 )
 
-//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target $BPF_TARGETS -type protocol_type -type event_type -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type go_auto_span_t -type mongo_go_client_req_t -type dns_req_t -type node_span_event_t -type pid_namespace_mode -type valid_pids_size -type ringbuf_write_stats_t -type ringbuf_id Bpf ../../../bpf/common/common.c -- -I../../../bpf
+//go:generate $BPF2GO -cc $BPF_CLANG -cflags $BPF_CFLAGS -target $BPF_TARGETS -type protocol_type -type event_type -type http_request_trace_t -type sql_request_trace_t -type http_info_t -type connection_info_t -type http2_grpc_request_t -type tcp_req_t -type kafka_client_req_t -type kafka_go_req_t -type redis_client_req_t -type tcp_large_buffer_t -type otel_span_t -type channel_link_trace_t -type go_auto_span_t -type mongo_go_client_req_t -type dns_req_t -type node_span_event_t -type process_event_t -type pid_namespace_mode -type valid_pids_size -type ringbuf_write_stats_t -type ringbuf_id -type sampler_t -type exception_event_header_t -type exception_runtime -type exception_owner -type pid_info_t Bpf ../../../bpf/common/common.c -- -I../../../bpf
 
 // HTTPRequestTrace contains information from an HTTP request as directly received from the
 // eBPF layer. This contains low-level C structures for accurate binary read from ring buffer.
@@ -59,6 +60,7 @@ type (
 	GoMongoClientInfo    BpfMongoGoClientReqT
 	DNSInfo              BpfDnsReqT
 	NodeSpanEvent        BpfNodeSpanEventT
+	ProcessEvent         BpfProcessEventT
 )
 
 // Go mirror of tp_info.h -> enum tp_flags
@@ -103,6 +105,8 @@ const (
 	EventTypeJVMRuntimeMetrics     = uint8(BpfEventTypeK_eventTypeJvmRuntimeMetrics)      // JVM runtime metrics
 	EventTypeNodejsResource        = uint8(BpfEventTypeK_eventTypeNodejsResource)
 	EventTypeJVMGCDuration         = uint8(BpfEventTypeK_eventTypeJvmGcDuration) // JVM garbage-collection duration
+	EventTypeProcessFork           = uint8(BpfEventTypeK_eventTypeProcessFork)   // An instrumented process forked a process
+	EventTypeProcessExec           = uint8(BpfEventTypeK_eventTypeProcessExec)   // A forked process ran exec
 )
 
 // Kernel-side classification. These alias the bpf2go-generated constants
@@ -216,6 +220,26 @@ type USDTProbeDesc struct {
 	SpecsMap    *ebpf.Map
 	IPMap       *ebpf.Map
 	SpecManager *USDTSpecManager
+
+	// Fallback is attached instead when no USDT probe sharing it is found in the library
+	Fallback *USDTFallback
+}
+
+// USDTFallback replaces USDT probes in libraries built without them. Every
+// probe must resolve at least one of its symbols, or none is attached.
+type USDTFallback struct {
+	Probes []USDTFallbackProbe
+}
+
+// USDTFallbackProbe attaches Start as a uprobe and Return as a uretprobe to
+// every function in the library named in Symbols, starting with SymbolPrefix,
+// or ending in SymbolSuffix.
+type USDTFallbackProbe struct {
+	Symbols      []string
+	SymbolPrefix string
+	SymbolSuffix string
+	Start        *ebpf.Program
+	Return       *ebpf.Program
 }
 
 type Filter struct {
@@ -307,9 +331,9 @@ type EBPFParseContext struct {
 	largeBuffers                *expirable.LRU[largeBufferKey, *largebuf.LargeBuffer]
 	mongoRequestCache           PendingMongoDBRequests
 	mysqlPreparedStatements     *simplelru.LRU[mysqlPreparedStatementsKey, string]
-	postgresPreparedStatements  *simplelru.LRU[postgresPreparedStatementsKey, string]
+	postgresPreparedStatements  *simplelru.LRU[postgresPreparedStatementsKey, postgresPreparedStatement]
 	postgresPortals             *simplelru.LRU[postgresPortalsKey, string]
-	postgresDBNames             *simplelru.LRU[BpfConnectionInfoT, string]
+	postgresNamespaces          *simplelru.LRU[BpfConnectionInfoT, postgresNamespace]
 	mssqlPreparedStatements     *simplelru.LRU[mssqlPreparedStatementsKey, string]
 	kafkaTopicUUIDToName        *simplelru.LRU[kafkaparser.UUID, string]
 	kafkaConsumerGroups         *KafkaConsumerGroups
@@ -334,6 +358,7 @@ type sharedForwarder interface {
 }
 
 type EBPFEventContext struct {
+	ExceptionInput   *msg.Queue[[]exceptions.Event]
 	CommonPIDsFilter ServiceFilter
 	SharedRingBuffer sharedForwarder
 	RuntimeMetrics   RuntimeMetricSender
@@ -402,7 +427,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		redisDBCache               *simplelru.LRU[BpfConnectionInfoT, int]
 		couchbaseBucketCache       *simplelru.LRU[BpfConnectionInfoT, CouchbaseBucketInfo]
 		mysqlPreparedStatements    *simplelru.LRU[mysqlPreparedStatementsKey, string]
-		postgresPreparedStatements *simplelru.LRU[postgresPreparedStatementsKey, string]
+		postgresPreparedStatements *simplelru.LRU[postgresPreparedStatementsKey, postgresPreparedStatement]
 		postgresPortals            *simplelru.LRU[postgresPortalsKey, string]
 		mssqlPreparedStatements    *simplelru.LRU[mssqlPreparedStatementsKey, string]
 		kafkaTopicUUIDToName       *simplelru.LRU[kafkaparser.UUID, string]
@@ -415,7 +440,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 
 	h2c, _ := lru.New[uint64, *h2Connection](1024 * 10)
 	largeBuffers := expirable.NewLRU[largeBufferKey, *largebuf.LargeBuffer](1024, nil, 5*time.Minute)
-	postgresDBNames, _ := simplelru.NewLRU[BpfConnectionInfoT, string](4096, nil)
+	postgresNamespaces, _ := simplelru.NewLRU[BpfConnectionInfoT, postgresNamespace](4096, nil)
 
 	emitCtx, stopEmitting := context.WithCancel(context.Background())
 	if spansChan != nil {
@@ -452,7 +477,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 			ptlog().Error("failed to create MySQL prepared statements cache", "error", err)
 		}
 
-		postgresPreparedStatements, err = simplelru.NewLRU[postgresPreparedStatementsKey, string](cfg.PostgresPreparedStatementsCacheSize, nil)
+		postgresPreparedStatements, err = simplelru.NewLRU[postgresPreparedStatementsKey, postgresPreparedStatement](cfg.PostgresPreparedStatementsCacheSize, nil)
 		if err != nil {
 			ptlog().Error("failed to create Postgres prepared statements cache", "error", err)
 		}
@@ -504,7 +529,7 @@ func NewEBPFParseContext(cfg *config.EBPFTracer, spansChan *msg.Queue[[]request.
 		mysqlPreparedStatements:    mysqlPreparedStatements,
 		postgresPreparedStatements: postgresPreparedStatements,
 		postgresPortals:            postgresPortals,
-		postgresDBNames:            postgresDBNames,
+		postgresNamespaces:         postgresNamespaces,
 		mssqlPreparedStatements:    mssqlPreparedStatements,
 		kafkaTopicUUIDToName:       kafkaTopicUUIDToName,
 		kafkaConsumerGroups:        kafkaConsumerGroups,
@@ -803,21 +828,30 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 	if !SupportsEBPFLoops(ptlog(), overrideKernelVersion) {
 		// Swap the bpf_loop-based programs with their legacy counterparts so
 		// bpf2go-generated struct fields still bind on kernels without bpf_loop.
-		spec.Programs["obi_protocol_http"] = spec.Programs["obi_protocol_http_legacy"]
-		spec.Programs["obi_protocol_http"].Name = "obi_protocol_http"
-		spec.Programs["obi_continue_protocol_http"] = spec.Programs["obi_continue_protocol_http_legacy"]
-		spec.Programs["obi_continue_protocol_http"].Name = "obi_continue_protocol_http"
+		for _, name := range []string{
+			"obi_protocol_http", "obi_continue_protocol_http", "obi_handle_buf_with_args",
+			"obi_uprobe_writeSubset_returns",
+		} {
+			if legacy, ok := spec.Programs[name+"_legacy"]; ok {
+				spec.Programs[name] = legacy
+				legacy.Name = name
+			}
+		}
 
-		// gotracer's obi_uprobe_readMimeHeader inlines a bpf_loop call. The
-		// runtime probe map (see gotracer.Tracer.UProbes) only attaches it on
-		// kernels >= 5.17, but the program still loads as part of the spec.
+		// gotracer's HTTP/1 header scan probes inline a bpf_loop call. The
+		// runtime probe map (see gotracer.Tracer.UProbes) only attaches them on
+		// kernels >= 5.17, but the programs still load as part of the spec.
 		// Const-DCE removes the bpf_loop call when g_bpf_loop_enabled=false,
-		// orphaning the tp_match subprog. Pre-5.13 kernels then reject the
+		// orphaning the header scan subprog. Pre-5.13 kernels then reject the
 		// load with "number of funcs in func_info doesn't match number of
 		// subprogs" because their func_info validator runs before DCE-aware
-		// subprog reconciliation. Replace with a dummy so it loads safely.
-		if _, ok := spec.Programs["obi_uprobe_readMimeHeader"]; ok {
-			spec.Programs["obi_uprobe_readMimeHeader"] = dummy
+		// subprog reconciliation. Replace them with a dummy so they load safely.
+		for _, name := range []string{
+			"obi_uprobe_readMimeHeader", "obi_uprobe_readMimeHeader_returns", "obi_uprobe_http1ReaderFill",
+		} {
+			if _, ok := spec.Programs[name]; ok {
+				spec.Programs[name] = dummy
+			}
 		}
 
 		// The huffman decode's bpf_loop callback trips the same func_info validation;
@@ -831,23 +865,21 @@ func FixupSpec(spec *ebpf.CollectionSpec, overrideKernelVersion bool) {
 			spec.Programs["obi_protocol_http2_grpc_handle_start_frame_server_huffscan"] = dummy
 		}
 
-		// gotracer's HTTP/1 client traceparent injection scans the request
-		// headers with a bpf_loop in obi_uprobe_writeSubset_returns. Swap it for
-		// the bounded-scan legacy variant so the bpf_loop subprog isn't part of
-		// the program loaded on kernels without bpf_loop (same func_info issue as
-		// obi_uprobe_readMimeHeader above).
-		if _, ok := spec.Programs["obi_uprobe_writeSubset_returns_legacy"]; ok {
-			spec.Programs["obi_uprobe_writeSubset_returns"] = spec.Programs["obi_uprobe_writeSubset_returns_legacy"]
-			spec.Programs["obi_uprobe_writeSubset_returns"].Name = "obi_uprobe_writeSubset_returns"
+		// only the bpf_loop HTTP/1 header scan tail calls it
+		if _, ok := spec.Programs["obi_protocol_http_inherit_tp"]; ok {
+			spec.Programs["obi_protocol_http_inherit_tp"] = dummy
 		}
 	}
 
 	// Slot dummies in place of the legacy programs we already moved, so the
 	// bpf2go struct binding still resolves them.
-	spec.Programs["obi_protocol_http_legacy"] = dummy
-	spec.Programs["obi_continue_protocol_http_legacy"] = dummy
-	if _, ok := spec.Programs["obi_uprobe_writeSubset_returns_legacy"]; ok {
-		spec.Programs["obi_uprobe_writeSubset_returns_legacy"] = dummy
+	for _, name := range []string{
+		"obi_protocol_http_legacy", "obi_continue_protocol_http_legacy", "obi_handle_buf_with_args_legacy",
+		"obi_uprobe_writeSubset_returns_legacy",
+	} {
+		if _, ok := spec.Programs[name]; ok {
+			spec.Programs[name] = dummy
+		}
 	}
 }
 

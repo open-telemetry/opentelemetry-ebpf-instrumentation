@@ -121,6 +121,51 @@ func TestOpenProcessHandleFailsClosedWithoutStableSignaling(t *testing.T) {
 	assert.ErrorIs(t, err, unix.ENOSYS)
 }
 
+func TestOpenProcessHandleTreatsPermissionDeniedAsAlive(t *testing.T) {
+	const (
+		pid       = app.PID(1000)
+		startTime = uint64(4242)
+	)
+	root := t.TempDir()
+	procDir := filepath.Join(root, "1000")
+	require.NoError(t, os.Mkdir(procDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(procDir, "stat"), fakeProcStat(startTime), 0o644))
+
+	stubProcessHandleEnvironment(t, root, func(int, unix.Signal, *unix.Siginfo, int) error {
+		return unix.EPERM
+	})
+
+	handle, err := OpenProcessHandle(pid, startTime)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, handle.Close()) })
+
+	require.NoError(t, handle.Alive())
+	require.ErrorIs(t, handle.SendSignal(unix.SIGQUIT), unix.EPERM)
+}
+
+func TestProcessHandlePermissionDeniedFailsAfterProcessExit(t *testing.T) {
+	const (
+		pid       = app.PID(1000)
+		startTime = uint64(4242)
+	)
+	root := t.TempDir()
+	procDir := filepath.Join(root, "1000")
+	statPath := filepath.Join(procDir, "stat")
+	require.NoError(t, os.Mkdir(procDir, 0o755))
+	require.NoError(t, os.WriteFile(statPath, fakeProcStat(startTime), 0o644))
+
+	stubProcessHandleEnvironment(t, root, func(int, unix.Signal, *unix.Siginfo, int) error {
+		return unix.EPERM
+	})
+
+	handle, err := OpenProcessHandle(pid, startTime)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, handle.Close()) })
+
+	require.NoError(t, os.Remove(statPath))
+	require.ErrorIs(t, handle.Alive(), unix.ENOENT)
+}
+
 func TestProcessHandleKeepsResourcesAndSignalsOnOriginalProcess(t *testing.T) {
 	const (
 		pid       = app.PID(1000)

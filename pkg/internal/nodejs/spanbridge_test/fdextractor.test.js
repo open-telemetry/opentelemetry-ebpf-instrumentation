@@ -105,3 +105,11 @@ test('non-http server: promise continuations skip, macrotask continuations re-si
     prev = h;
   }
 });
+
+for (const protocol of ['http', 'https']) {
+  test(`non-keepalive ${protocol} sockets are removed from the fd cache on close`, () => {
+    const r = runScenario('fd-cache-close', { CTX_HOOK: '0', FD_CACHE_PROTOCOL: protocol });
+    assert.deepStrictEqual(r.cachedBeforeClose, [true, true, true]);
+    assert.deepStrictEqual(r.cacheSizesAfterClose, [0, 0, 0]);
+  });
+}

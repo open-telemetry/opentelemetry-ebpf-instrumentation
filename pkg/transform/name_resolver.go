@@ -20,6 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/helpers/maps"
 	memorystore "go.opentelemetry.io/obi/pkg/internal/rdns/store"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/pipe/global"
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/pipe/swarm"
@@ -40,6 +41,8 @@ const (
 	SourceRDNS       Source = "rdns"
 	SourceECS        Source = "ecs"
 	SourceRoute53    Source = "route53"
+	SourceGCE        Source = "gce"
+	SourceAzure      Source = "azure"
 )
 
 const (
@@ -48,6 +51,8 @@ const (
 	ResolverRDNS
 	ResolverECS
 	ResolverRoute53
+	ResolverGCE
+	ResolverAzure
 )
 
 func resolverSources(src []Source) maps.Bits {
@@ -59,6 +64,8 @@ func resolverSources(src []Source) maps.Bits {
 		SourceRDNS:       ResolverRDNS,
 		SourceECS:        ResolverECS,
 		SourceRoute53:    ResolverRoute53,
+		SourceGCE:        ResolverGCE,
+		SourceAzure:      ResolverAzure,
 	}, maps.WithTransform(func(s Source) Source {
 		return Source(strings.ToLower(string(s)))
 	}))
@@ -67,8 +74,11 @@ func resolverSources(src []Source) maps.Bits {
 type NameResolverConfig struct {
 	// Sources specifies the backends used for name resolving. Accepted values: dns, ecs, k8s, rdns, route53.
 	// The "ecs" source requires ecs:ListTasks and ecs:DescribeTasks permissions.
-	// The "route53" source requires route53:ListResourceRecordSets on the configured hosted zones.
+	// The "route53" source requires route53:ListResourceRecordSets on selected zones and route53:ListHostedZones.
+	// When the VPC and region are known, it also requires route53:ListHostedZonesByVPC. Explicit zone IDs require the same permissions.
 	Sources []Source `yaml:"sources" env:"OTEL_EBPF_NAME_RESOLVER_SOURCES" envSeparator:","`
+	// GCE holds service name enrichment settings loaded from Config v2.
+	GCE GCENameResolverConfig `yaml:"-" env:"-"`
 	// CacheLen specifies the max size of the LRU cache that is checked before
 	// performing the name lookup. Default: 256
 	CacheLen int `yaml:"cache_len" env:"OTEL_EBPF_NAME_RESOLVER_CACHE_LEN" validate:"gt=0"`
@@ -76,19 +86,27 @@ type NameResolverConfig struct {
 	// cached entry becomes older than this time, the IP->hostname entry will be looked
 	// up again.
 	CacheTTL time.Duration `yaml:"cache_expiry" env:"OTEL_EBPF_NAME_RESOLVER_CACHE_TTL" validate:"gt=0"`
+	// Azure holds service name enrichment settings loaded from Config v2.
+	Azure AzureNameResolverConfig `yaml:"-" env:"-"`
 }
 
-// CloudMetadataConfig configures overrides for detected cloud metadata.
-type CloudMetadataConfig struct {
-	// ClusterName overrides automatic cluster detection.
-	ClusterName string `yaml:"cluster_name" env:"OTEL_EBPF_CLUSTER_NAME"`
-	// Region overrides automatic region detection.
-	Region string `yaml:"region" env:"OTEL_EBPF_CLOUD_REGION"`
-	// RefreshInterval controls how often the cloud metadata inventory is refreshed.
-	RefreshInterval time.Duration `yaml:"refresh_interval" env:"OTEL_EBPF_CLOUD_META_REFRESH_INTERVAL" validate:"gt=0"`
+// AzureNameResolverConfig configures the discovery scope for Uniform and Flexible scale sets.
+type AzureNameResolverConfig struct {
+	SubscriptionID string
+	ResourceGroup  string
+}
 
-	// Route53 provides configuration for Route53 metadata extraction
-	Route53 Route53MetadataConfig `yaml:"route53"`
+type CloudMetadataConfig = metadata.CloudMetadataConfig
+
+// GCENameResolverConfig configures service resolution for zonal managed instance groups.
+type GCENameResolverConfig struct {
+	// ProjectID defaults to the project detected from cloud metadata.
+	ProjectID string `yaml:"project_id"`
+	// Zone defaults to the availability zone detected from cloud metadata.
+	Zone string `yaml:"zone"`
+	// Endpoint overrides the Compute API base URL for an emulator or API proxy.
+	// Empty uses the Google Compute API endpoint.
+	Endpoint string `yaml:"endpoint"`
 }
 
 type NameResolver struct {
@@ -97,6 +115,7 @@ type NameResolver struct {
 	store          *kube.Store
 	dnsCache       *memorystore.InMemory
 	cloudInventory *cloud.Inventory
+	instanceID     string
 	logger         *slog.Logger
 
 	sources maps.Bits
@@ -142,6 +161,7 @@ func nameResolver(ctx context.Context, ctxInfo *global.ContextInfo, cfg *NameRes
 		store:          store,
 		dnsCache:       dnsCache,
 		cloudInventory: ctxInfo.CloudMetaInventory,
+		instanceID:     localCloudInstanceID(&ctxInfo.NodeMeta, cfg),
 		cache:          expirable.NewLRU[string, string](cfg.CacheLen, nil, cfg.CacheTTL),
 		sources:        sources,
 		logger:         logger,
@@ -255,6 +275,12 @@ func (nr *NameResolver) resolveLocalCloudInventory(span *request.Span) {
 	}
 	if name, ok := nr.cloudInventory.ServiceNameForContainerID(span.Service.RuntimeContainerID); ok {
 		span.Service.UID.Name = name
+		return
+	}
+	if nr.instanceID != "" {
+		if name, ok := nr.cloudInventory.ServiceNameForInstanceID(nr.instanceID); ok {
+			span.Service.UID.Name = name
+		}
 	}
 }
 

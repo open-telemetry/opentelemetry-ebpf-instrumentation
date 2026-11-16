@@ -52,6 +52,23 @@ func TestRuntimeMetricsOTel(t *testing.T) {
 	require.NoError(t, compose.Close())
 }
 
+// OBI runs in the pid namespace of the test server, like a sidecar in a pod
+// with shareProcessNamespace.
+func TestRuntimeMetricsPromSharedPIDNamespace(t *testing.T) {
+	compose, err := docker.ComposeSuite("docker-compose-go-runtime-metrics.yml", path.Join(pathOutput, "test-suite-runtime-metrics-prom-shared-pid.log"))
+	require.NoError(t, err)
+	compose.Env = append(compose.Env,
+		`TEST_SERVICE_PORTS=`+runtimeMetricsHostPort+`:8080`,
+		`INSTRUMENTER_CONFIG_SUFFIX=-prom`,
+		`PROM_CONFIG_SUFFIX=`,
+		`OBI_PID_MODE=service:testserver`,
+	)
+	require.NoError(t, compose.Up())
+	t.Run("Go runtime metrics with OBI in the app pid namespace", testRuntimeMetricsGo)
+	runWeaverValidation(t)
+	require.NoError(t, compose.Close())
+}
+
 func TestRuntimeMetricsPromGo117(t *testing.T) {
 	runRuntimeMetricsPromCompatibility(t, runtimeMetricsPromCompatibilityConfig{
 		goVersion:  "1.17",

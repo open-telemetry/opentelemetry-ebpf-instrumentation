@@ -1,0 +1,67 @@
+# Config v2 counterpart of instrumenter-config-traces-genai.yml for the GenAI
+# payload extractors that exist only in Config v2 (cohere).
+file_format: "1.0"
+log_level: debug
+resource:
+  attributes:
+    - name: service.namespace
+      value: integration-test
+      type: string
+tracer_provider:
+  processors:
+    - batch:
+        schedule_delay: 1
+        exporter:
+          otlp_http:
+            endpoint: http://collector:4318
+meter_provider:
+  readers:
+    - periodic:
+        interval: 1000
+        exporter:
+          otlp_http:
+            endpoint: http://collector:4318
+            default_histogram_aggregation: explicit_bucket_histogram
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      policy:
+        default_action: exclude
+      rules:
+        - action: include
+          match:
+            process:
+              open_ports: "8080"
+      metrics:
+        features: [application]
+      engine:
+        debug:
+          bpf: true
+          protocol_print: true
+        batching:
+          batch_timeout: 10ms
+      instrumentation:
+        http:
+          buffer_size: 65536
+          routes:
+            incoming:
+              unmatched: path
+            outgoing:
+              unmatched: path
+          payload_extraction:
+            enabled: [cohere]
+    enrich:
+      attributes:
+        select:
+          traces:
+            include:
+              - gen_ai.input.messages
+              - gen_ai.system_instructions
+              - gen_ai.output.messages
+              - gen_ai.metadata
+              - gen_ai.tool.definitions
+              - error.type
+    daemon:
+      logging:
+        debug_trace_output: text

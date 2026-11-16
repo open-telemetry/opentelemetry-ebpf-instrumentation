@@ -21,3 +21,11 @@ otel_traces_export:
 otel_metrics_export:
   endpoint: "http://${OTLP_HOST:-collector}:4317"
 log_level: DEBUG
+attributes:
+  select:
+    traces:
+      include:
+        - service.peer.name
+    http.server.request.duration:
+      exclude:
+        - http.route

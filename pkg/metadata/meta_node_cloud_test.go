@@ -17,6 +17,20 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 )
 
+func TestGCEInstanceIDSurvivesHostOverride(t *testing.T) {
+	detector := resource.StringDetector(semconv.SchemaURL, semconv.HostIDKey,
+		func() (string, error) { return "123", nil })
+	detected, err := otelNodeFetcher(ClusterGCP, detector)(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "123", detected.GCEInstanceID)
+
+	var node NodeMeta
+	node.merge(detected)
+	node.merge(NodeMeta{HostID: "custom-exported-host"})
+	assert.Equal(t, "custom-exported-host", node.HostID)
+	assert.Equal(t, "123", node.GCEInstanceID)
+}
+
 func TestOtelNodeFetcher(t *testing.T) {
 	detected := resource.NewWithAttributes(semconv.SchemaURL,
 		semconv.HostIDKey.String("host-123"),
@@ -79,6 +93,40 @@ func TestOtelNodeFetcher(t *testing.T) {
 			assert.Equal(t, connectionTimeout, time.Since(start))
 		})
 	})
+}
+
+func TestDetectedAzureInstanceIDSurvivesHostOverride(t *testing.T) {
+	const vmID = "02aab8a4-74ef-476e-8182-f6d2ba4166a6"
+	for _, tc := range []struct {
+		name       string
+		features   NodeFeatures
+		hostID     string
+		instanceID string
+	}{
+		{name: "Azure VM", features: ClusterAzureVM, hostID: vmID, instanceID: vmID},
+		{name: "Azure VM without ID", features: ClusterAzureVM},
+		{name: "GCP VM", features: ClusterGCP, hostID: "12345"},
+		{name: "EC2 VM", features: ClusterEC2, hostID: "i-0123456789"},
+		{name: "ECS task", features: ClusterECS, hostID: "task-host"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			detector := mockNodeDetector(func(context.Context) (*resource.Resource, error) {
+				return resource.NewWithAttributes(semconv.SchemaURL,
+					semconv.HostIDKey.String(tc.hostID),
+				), nil
+			})
+			node := fetchEntries(t.Context(), DefaultRetryConfig,
+				otelNodeFetcher(tc.features, detector),
+				func(context.Context) (NodeMeta, error) {
+					return NodeMeta{HostID: "custom-host-id"}, nil
+				},
+			)
+			assert.Equal(t, "custom-host-id", node.HostID)
+			assert.Equal(t, tc.instanceID, node.AzureInstanceID)
+			assert.Equal(t, tc.features, node.Features)
+			assert.Empty(t, node.Metadata)
+		})
+	}
 }
 
 type mockNodeDetector func(context.Context) (*resource.Resource, error)

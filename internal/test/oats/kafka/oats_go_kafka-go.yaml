@@ -1,0 +1,66 @@
+name: oats go kafka go
+interval: 500ms
+fixture:
+  compose:
+    template: lgtm
+    files:
+      - docker-compose-obi-go-kafka-go.yml
+      - ../weaver/docker-compose-weaver.yml
+    app_service: testserver
+    app_port: 8080
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+seed:
+  type: app
+input:
+  - path: /ping
+    retry:
+      timeout: 30s
+      interval: 500ms
+      continue_after_success: true
+expected:
+  traces:
+    - traceql: '{ .messaging.operation.type = "send" && .messaging.destination.name="logging" && kind = producer }'
+      match_spans:
+        - name: send logging
+          match_type: strict
+          attributes:
+            - key: messaging.destination.name
+              value: logging
+            - key: messaging.operation.name
+              value: send
+            - key: messaging.operation.type
+              value: send
+            - key: messaging.system
+              value: kafka
+            - key: server.port
+              value: "9092"
+    - traceql: '{ .messaging.operation.type = "process" && .messaging.destination.name="logging" && kind = consumer }'
+      match_spans:
+        - name: process logging
+          match_type: strict
+          attributes:
+            - key: messaging.destination.name
+              value: logging
+            - key: messaging.operation.name
+              value: process
+            - key: messaging.operation.type
+              value: process
+            - key: messaging.system
+              value: kafka
+            - key: server.port
+              value: "9092"
+  metrics:
+    - promql: messaging_client_operation_duration_seconds_count{messaging_system="kafka", messaging_destination_name="logging"}
+      value: '> 0'
+    - promql: messaging_client_operation_duration_seconds_bucket{le="0"}
+      value: == 0
+    - promql: messaging_client_operation_duration_seconds_bucket{le="10"}
+      value: '> 0'
+    - promql: messaging_process_duration_seconds_count{messaging_system="kafka", messaging_destination_name="logging"}
+      value: '> 0'
+    - promql: messaging_process_duration_seconds_bucket{le="0"}
+      value: == 0
+    - promql: messaging_process_duration_seconds_bucket{le="10"}
+      value: '> 0'

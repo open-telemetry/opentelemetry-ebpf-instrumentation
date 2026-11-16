@@ -1,9 +1,6 @@
 file_format: definition/2
 metrics:
   - name: gen_ai.client.operation.duration
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted gen_ai.client.operation.duration
     instrument: histogram
     unit: "s"
@@ -31,9 +28,6 @@ metrics:
           conditionally_required: if `server.address` is set
 
   - name: gen_ai.client.token.usage
-    annotations:
-      obi:
-        upstream_override: true
     brief: OBI-emitted gen_ai.client.token.usage
     instrument: histogram
     unit: "{token}"

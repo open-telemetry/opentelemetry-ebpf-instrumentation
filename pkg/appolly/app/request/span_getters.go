@@ -61,16 +61,38 @@ func spanOTELGetters(name attr.Name) (attributes.Getter[*Span, attribute.KeyValu
 		getter = func(s *Span) attribute.KeyValue { return HTTPResponseStatusCode(s.Status) }
 	case attr.HTTPRoute:
 		getter = func(s *Span) attribute.KeyValue { return semconv.HTTPRoute(s.Route) }
+	case attr.HTTPUrlTemplate:
+		getter = func(s *Span) attribute.KeyValue { return semconv.URLTemplate(s.Route) }
 	case attr.HTTPUrlPath:
 		getter = func(s *Span) attribute.KeyValue { return HTTPUrlPath(s.Path) }
 	case attr.HTTPURLScheme:
 		getter = func(s *Span) attribute.KeyValue { return HTTPUrlScheme(HTTPScheme(s)) }
+	case attr.NetworkProtocolVersion:
+		getter = func(s *Span) attribute.KeyValue {
+			if version := s.ProtoVersion.String(); version != "" {
+				return semconv.NetworkProtocolVersion(version)
+			}
+			return attribute.KeyValue{}
+		}
 	case attr.ClientAddr:
 		getter = func(s *Span) attribute.KeyValue { return ClientAddr(PeerAsClient(s)) }
 	case attr.ServerAddr:
 		getter = func(s *Span) attribute.KeyValue {
 			if s.Type == EventTypeHTTPClient {
 				return ServerAddr(HTTPClientServerAddr(s))
+			}
+			if s.Type == EventTypeHTTP {
+				host := HostWithoutPort(HostFromSchemeHost(s))
+
+				if s.RequestAuthority != "" {
+					host = HostWithoutPort(s.RequestAuthority)
+				}
+
+				if host != "" {
+					return ServerAddr(host)
+				}
+
+				return attribute.KeyValue{}
 			}
 			return ServerAddr(HostAsServer(s))
 		}

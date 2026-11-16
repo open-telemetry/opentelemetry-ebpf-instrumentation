@@ -5,7 +5,6 @@
 
 package io.opentelemetry.obi.java.instrumentations;
 
-import io.opentelemetry.obi.java.Agent;
 import io.opentelemetry.obi.java.ebpf.ThreadInfo;
 import io.opentelemetry.obi.java.instrumentations.data.SSLStorage;
 import java.util.concurrent.Callable;
@@ -52,7 +51,7 @@ public class CallableInst {
       long previousContext = SSLStorage.enterJdkHttpClientTask(task);
       Long parentId = SSLStorage.parentThreadId(task);
       if (parentId != null) {
-        long threadId = Agent.NativeLib.gettid();
+        long threadId = ThreadInfo.currentTid();
         if (SSLStorage.bootDebugOn().equals(true)) {
           System.err.println(
               "[CallableAdvice] task = "

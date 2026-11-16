@@ -108,11 +108,46 @@ make lint
 make test
 ```
 
+This runs the Go unit tests in short mode with the race detector, then tests the
+collector. To run one package or test while iterating, use `go test -short` with
+the package path and (optionally) a test-name pattern:
+
+```sh
+go test -short -count=1 ./pkg/obi
+go test -short -count=1 -run '^TestConfig_Overrides$' ./pkg/obi
+```
+
+`-count=1` disables Go's test-result cache. The unit-test target also prepares
+Kubernetes test assets and writes coverage data under `testoutput/`. If a narrow
+`-run` pattern reports no tests to run, check the test name; short mode also
+skips tests that explicitly opt out of it.
+
 #### Running integration tests
 
 ```
 make integration-test
 ```
+
+Integration tests run OBI against test services in containers. They need a
+Linux host with eBPF support and a reachable Docker daemon; test containers may
+need elevated privileges. Generate the eBPF bindings first if they are absent
+or stale (`make docker-generate`). The target runs the full suite and removes
+its test resources before and after the run. Its preparation step also deletes
+existing files under `testoutput/`, so save logs there elsewhere before running
+it. On a fresh checkout, run `make prereqs` first; it creates the test output
+directory and fetches the local Weaver schema registry required by these tests.
+Then run one test directly while iterating, for example:
+
+```sh
+go test -v -count=1 -run '^TestMultiProcess$' -timeout 60m ./internal/test/integration
+go test -v -count=1 -run '^TestSuite_ConfigV2Standalone$' -timeout 60m ./internal/test/integration
+```
+
+The integration package builds its OBI test image and requires Docker access.
+Test output and service logs are written under `testoutput/`. If an interrupted
+run leaves test resources behind, `make cleanup-integration-test` removes the
+test Kind cluster and containers/images with the integration-test naming
+prefixes; use it only when no other integration run is using them.
 
 #### Running k8s integration tests
 
@@ -120,9 +155,28 @@ make integration-test
 make integration-test-k8s
 ```
 
+This separate suite creates a local Kind cluster and also requires Docker.
+Protocol-specific OATS suites use the pinned OATS v0.11.0 CLI and are available
+through `make oats-test-<suite>` targets; see the
+[OATS test directories](internal/test/oats/) for the available suites. On a
+local Linux host, the target generates BPF bindings and builds the `hatest-obi`
+image from the current checkout. It installs OATS and gcx into the
+ignored `.tools/oats/` directory and stores OATS output, Compose logs, and
+Weaver reports under the suite's `build/` directory. CI supplies the
+prebuilt `hatest-obi` image to each shard to avoid rebuilding it; the Java TLS
+fixtures retain their dedicated Java-agent image builds.
+Kernel/VM integration runs use dedicated CI VM setup and are not part of the
+usual local test loop; see the [VM integration workflow](.github/workflows/workflow_integration_tests_vm.yml).
+
 ### Issues
 
 Questions, bug reports, and feature requests can all be submitted as [issues](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/new) to this repository.
+
+For nontrivial changes, especially architectural or core instrumentation
+changes, we recommend discussing the approach with maintainers in an issue or
+on [Slack](https://cloud-native.slack.com/archives/C08P9L4FPKJ) before
+implementing it. This is a recommendation, not an approval process. Trivial
+fixes do not need an issue.
 
 ## Finding Your First Contribution
 
@@ -148,7 +202,7 @@ Refactors are allowed but must be directly relevant to the change. Do not includ
 
 All relevant build, lint, and test steps must pass locally before opening a PR.
 
-PRs must be ready for review when submitted, not ready for validation. The contributor is responsible for verifying correctness before asking for a reviewer's time.
+PRs must be ready for review when submitted, not ready for validation. The contributor is responsible for verifying correctness before asking for a reviewer's time. If the implementation approach is still being discussed, open the PR as a [draft](https://github.blog/2019-02-14-introducing-draft-pull-requests/) instead.
 
 GitHub communication must be written for human readers. Keep issue and PR
 descriptions, reviews, and comments concise, specific, and easy to scan. Lead
@@ -207,8 +261,11 @@ Open a pull request against the main `opentelemetry-ebpf-instrumentation` repo.
 
 ### How to Receive Comments
 
-* If the PR is not ready for review, please put `[WIP]` in the title or mark it as
-  [`draft`](https://github.blog/2019-02-14-introducing-draft-pull-requests/).
+* If the PR is not ready for review, or its approach is still being discussed,
+  please mark it as a
+  [`draft`](https://github.blog/2019-02-14-introducing-draft-pull-requests/)
+  (or put `[WIP]` in the title). Maintainers may also convert an existing PR to
+  a draft.
 * Make sure CLA is signed and CI is clear.
 
 ### How to Get PRs Merged

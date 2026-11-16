@@ -12,6 +12,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestReadNetTraceMetadataFieldsOpcode(t *testing.T) {
+	// One Int32 field named x, followed by a one-byte opcode tag.
+	wire, err := hex.DecodeString("010000000900000078000000010000000101")
+	require.NoError(t, err)
+	reader := bytes.NewReader(wire)
+	fields, err := readNetTraceMetadataFields(reader)
+	require.NoError(t, err)
+	require.Equal(t, []netTraceField{{Name: "x", Type: netTraceTypeInt32}}, fields)
+	require.Zero(t, reader.Len())
+	for length := 13; length < len(wire); length++ {
+		_, err := readNetTraceMetadataFields(bytes.NewReader(wire[:length]))
+		require.Error(t, err, "truncated at byte %d", length)
+	}
+	for _, offset := range []int{12, 16} {
+		bad := bytes.Clone(wire)
+		bad[offset] = 2 // Invalid opcode size, or unsupported parameter-layout tag.
+		_, err := readNetTraceMetadataFields(bytes.NewReader(bad))
+		require.ErrorContains(t, err, "unsupported NetTrace metadata extension")
+	}
+}
+
 func TestReadNetTraceFields(t *testing.T) {
 	// One object named Payload containing a double named Mean.
 	wire, err := hex.DecodeString("0100000001000000010000000e0000004d00650061006e0000005000610079006c006f00610064000000")

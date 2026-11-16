@@ -156,10 +156,12 @@ OBI adopts the standard declarative fields incrementally. For the first stable v
 | `tracer_provider.sampler` | Partial: `always_on`, `always_off`, `trace_id_ratio_based`, and simple `parent_based` roots that use those samplers. |
 | `tracer_provider.processors` | Partial: one batch processor with one OTLP exporter. Automatic migration emits gRPC; the gated standalone importer in [#2682](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pull/2682) also accepts HTTP/protobuf, HTTP/JSON, and declarative exporter headers. |
 | `meter_provider.readers` | Partial: at most one periodic OTLP reader and one Prometheus development pull reader. Automatic migration emits OTLP/gRPC; the gated standalone importer in [#2682](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/pull/2682) also accepts OTLP/HTTP and declarative exporter headers. |
+| `meter_provider.exemplar_filter` | Supported: `always_on`, `always_off`, and `trace_based` apply to the Prometheus pull reader and to the application, service graph, network, and stats metrics of the OTLP reader, and take precedence over `OTEL_METRICS_EXEMPLAR_FILTER` there. Runtime and internal metrics keep following `OTEL_METRICS_EXEMPLAR_FILTER`. When omitted, OTLP metrics follow `OTEL_METRICS_EXEMPLAR_FILTER` (default `trace_based`) and Prometheus metrics attach no exemplars. |
 | `log_level` | Supported for OBI daemon logging. OTel `trace*` and `debug*` severities map to `DEBUG`; `info*` to `INFO`; `warn*` to `WARN`; `error*` and `fatal*` to `ERROR`. `extensions.obi.daemon.logging.level` is not part of v2; use the top-level field. |
 | `attribute_limits` | Rejected whenever present by the target adapter in #2682. |
 | `disabled`, `distribution`, `propagator` | `disabled: true`, non-empty `distribution`, and non-empty propagator configuration are rejected. Empty/default placeholders do not enable runtime behavior. |
-| `instrumentation/development`, `logger_provider` | Rejected when present by the target adapter in #2682. |
+| `instrumentation/development` | Rejected when present by the target adapter. |
+| `logger_provider` | One batch processor with one OTLP HTTP/protobuf, gRPC or console exporter for exception logs. HTTP/JSON is unsupported for logs. Logger limits, logger configurators, export timeouts and unsupported TLS options are rejected. |
 
 Environment-variable substitution depends on the loader. The upstream `otelconf/x.ParseYAML` path expands `${VAR}`, `${env:VAR}`, `${VAR:-fallback}`, and `${env:VAR:-fallback}` before decoding. OBI's internal `schema.ParseStandaloneYAML` parser decodes the supplied bytes directly, so callers using that parser must perform any desired substitution before calling it.
 
@@ -248,6 +250,7 @@ extensions:
       enrichers:
         kubernetes: {}
         cloud: {}
+        peer_metadata: {}
       service_name: {}
       attributes: {}
 
@@ -298,6 +301,11 @@ The `capture` grouping was introduced for two reasons:
 - `policy`: global rule evaluation behavior (default action, match order, timing).
 - `rules`: ordered workload selection rules (include/exclude by process identity, Kubernetes metadata, etc.).
 - `instrumentation`: protocol-specific capture controls (HTTP, gRPC, SQL, Redis, Kafka, MongoDB, Couchbase, DNS, GPU, Aerospike).
+- `exceptions`: runtime exception capture enablement; records use the logs pipeline.
+  For Go, `exceptions.go.panics` defaults to `true` and
+  `exceptions.go.formatted_errors` defaults to `false`. Formatted-error capture
+  records errors created by the supported `fmt.Errorf` probes, including errors
+  the application later handles. Panic capture includes recovered panics.
 - `runtimes`: language runtime injection controls (Go probes, Node.js SIGUSR1, Java agent attachment).
 - `network`: network flow capture configuration.
 - `limits`: cardinality and memory guardrails.
@@ -305,6 +313,11 @@ The `capture` grouping was introduced for two reasons:
 - `safety`: system capability enforcement checks.
 - `channels`: internal backpressure controls.
 - `telemetry`: reporter cache sizes and metric TTL tuning for OBI capture internals.
+
+Within `capture.telemetry.metrics`, `ttl` controls the general metric-series
+retention (5 minutes by default). `connection_info_ttl` controls connection-info
+edge retention independently (15 minutes by default) for both OTLP and
+Prometheus exporters.
 
 #### Workload selection: `capture.policy` and `capture.rules`
 
@@ -436,7 +449,9 @@ This was rejected because:
 
 Current overridable fields in `refine`:
 
-- `exports`: override which signals (`traces`, `metrics`) are emitted for this workload.
+- `exports`: override which signals (`traces`, `metrics`, `logs`) are emitted for this workload.
+- `exceptions`: override global exception capture enablement and Go event selection
+  (`go.panics`, `go.formatted_errors`). Omitted fields inherit global settings.
 - `http.routes`: refine the direction-scoped HTTP route policy for this workload.
 
 The schema reserves refinement `http.filters`, but the target runtime adapter
@@ -540,9 +555,11 @@ Global route discovery remains under `http.routes.discovery` because harvesting 
 HTTP `payload_extraction` uses the same list-based enablement model as other instrumentation selectors:
 
 - `payload_extraction.enabled` is the only enablement surface.
-- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, `retrieval`, `ollama`, `openai_compatible`, `jsonrpc`, and `enrichment`.
+- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, `retrieval`, `ollama`, `cohere`, `openai_compatible`, `jsonrpc`, and `enrichment`.
 - Nested extractor blocks are for tuning, not duplicate enablement. For example, `payload_extraction.sqlpp.endpoint_patterns` refines SQL++ matching after `sqlpp` is enabled in the list.
 - If future aliases or families are needed, they should be added as values in the same `enabled` list rather than introducing parallel knobs.
+
+When `db.query.text` is selected, SQL and SQL++ spans carry the query as captured. Set `sql.sanitize_query_text: true` to replace its string, numeric, hexadecimal and boolean literals with `?`, following the semantic conventions. In statements with bind placeholders only string literals are replaced. Generic SQL from the Go tracer also treats double-quoted text as a string literal, and `db.query.text` is omitted when the literals cannot be located reliably. The setting has no v1 equivalent.
 
 ### `capture.runtimes` Section
 
@@ -563,7 +580,7 @@ This section is the primary user control for defining how OBI captures and proce
 The current shape separates packet/flow capture from TCP stats capture:
 
 - `capture.network.capture` controls network flow capture and flow-derived telemetry.
-- `capture.network.stats` controls TCP stats telemetry. `enabled` is the stats master switch, and `features` lists enabled stats families: `tcp_rtt`, `tcp_failed_connections`, `tcp_successful_connections`, `tcp_retransmits`, and `tcp_io`.
+- `capture.network.stats` controls TCP stats telemetry. `enabled` is the stats master switch, and `features` lists enabled stats families: `tcp_rtt`, `tcp_failed_connections`, `tcp_successful_connections`, `tcp_retransmits`, `tcp_io`, and `tcp_resets`. `tcp_resets` is opt-in: `enabled: true` without `features` does not include it.
 
 `tcp_io` can produce substantially more events than the other stats families, so users should opt into it deliberately when they need per-send/per-receive I/O stats.
 
@@ -595,6 +612,10 @@ The list accepts every V1 feature name, including `application_red`,
 remain accepted with the same deprecation warnings as V1. Use
 `application_span_otel` for the OpenTelemetry span metric names.
 
+The Config v2-only `stats_tcp_resets` name selects the TCP resets stats metric,
+like `tcp_resets` in `capture.network.stats.features`. `stats`, `all` and `*`
+do not include it.
+
 An explicit list replaces the feature selection inferred from protocol metrics
 switches, HTTP `body_size_metrics`, and network capture/stats settings. `[]`
 disables all metric features. Omitting the list preserves the existing V2
@@ -606,9 +627,77 @@ independently of the feature list. The existing V1 feature validation applies,
 including the requirement that `application_sizes` accompany application RED
 metrics and the conflict between the two span metric formats.
 
+### `capture.attributes.select` Section
+
+Select optional span attributes and metric dimensions before aggregation.
+The `traces` key selects optional span attributes; other keys name metrics or
+metric patterns.
+
+Standalone fragment:
+
+```yaml
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      attributes:
+        select:
+          traces:
+            include: [service.peer.name]
+          http.server.request.duration:
+            exclude: [http.route]
+```
+
+Receiver fragment (the children of `capture` are flattened):
+
+```yaml
+receivers:
+  obi:
+    version: "2.0"
+    attributes:
+      select:
+        traces:
+          include: [service.peer.name]
+        http.server.request.duration:
+          exclude: [http.route]
+```
+
+Omission preserves the default attribute selection. Include/exclude rules,
+metric-name normalization, and exact-name opt-ins use the existing selection
+semantics. A `"*"` selection matches both metrics and `traces`; use a
+metric-specific pattern to affect only metrics. Selecting an attribute does
+not enable a payload extractor or metadata resolver. `service.peer.name`
+requires an eligible client span with a peer name available to OBI.
+
+Existing standalone configurations using `enrich.attributes.select` continue
+working unchanged after upgrade. Migration emits trace and metric selection
+only in `capture.attributes.select`.
+
+Use one location for all trace and metric selection. If adopting
+`capture.attributes.select`, move all trace and metric entries there and remove
+them from `enrich.attributes.select`. The two locations are not merged, and
+neither takes precedence. Configuring the new selection block while keeping
+trace or metric entries in the old location is an error, even when the entries
+are identical, address different signals, or the new block is `select: {}`.
+When combining configuration fragments, check the resulting configuration for
+this conflict.
+
+Resource selection stays under `enrich.attributes.select.resource` in
+standalone mode and may accompany capture attribute selection. The `resource`
+key is rejected under capture selection. In receiver mode, configure resource
+filtering and general attribute transformations with Collector processors.
+
 ### `capture.engine` Section
 
 The `capture.engine` section controls eBPF engine internals: event batching, PID-based filtering, BPF filesystem path, context propagation mode, traffic control backend, transaction duration limits, and debug toggles. Set `capture.engine.debug.bpf_mode` to `trace_pipe`, `userspace`, `all`, or `disabled` to select where BPF debug logs are emitted. The legacy `capture.engine.debug.bpf` boolean remains supported; do not set both fields. For Config v1 or environment-only configurations, `OTEL_EBPF_BPF_DEBUG_MODE` accepts the same mode values while `OTEL_EBPF_BPF_DEBUG` remains a boolean compatibility setting.
+
+`capture.engine.batching.wakeup_len` counts events in the application capture ring buffer.
+`capture.engine.batching.stats.wakeup_bytes` is a separate byte threshold for the network stats ring buffer; `0` wakes userspace on every event.
+
+`capture.engine.cgroup_filesystem.path` sets the host cgroup v2 mount that context propagation attaches its sockops programs to.
+An unprivileged container has its own cgroup namespace, so its `/sys/fs/cgroup` covers only OBI's own cgroup.
+Mount the host hierarchy at another path, for example `/host/sys/fs/cgroup`, and set it here to propagate context for connections from every process on the node without hiding the container's own cgroup.
+If omitted, the hierarchy is detected automatically. This field is available through Config v2 only.
 
 **Why `engine`, not `capture.capture`**
 
@@ -733,7 +822,8 @@ Important mapping notes:
 | `attributes.rename_unresolved_hosts` | `extensions.obi.enrich.service_name.unresolved_hosts.names.default` | Move |
 | `attributes.rename_unresolved_hosts_incoming` | `extensions.obi.enrich.service_name.unresolved_hosts.names.incoming` | Move |
 | `attributes.rename_unresolved_hosts_outgoing` | `extensions.obi.enrich.service_name.unresolved_hosts.names.outgoing` | Move |
-| `attributes.select` | `extensions.obi.enrich.attributes.select` | Move |
+| `attributes.select` | `extensions.obi.capture.attributes.select` | Trace and metric selection; the existing standalone `enrich.attributes.select` location remains accepted |
+| `attributes.select.resource` | `extensions.obi.enrich.attributes.select.resource` | Standalone only; use Collector processors in receiver mode |
 | `channel_buffer_len` | `extensions.obi.capture.channels.buffer_len` | Move |
 | `channel_send_timeout` | `extensions.obi.capture.channels.send_timeout` | Move |
 | `channel_send_timeout_panic` | `extensions.obi.capture.channels.panic_on_send_timeout` | Move + rename |
@@ -831,6 +921,7 @@ Important mapping notes:
 | `ebpf.traffic_control_backend` | `extensions.obi.capture.engine.traffic.control_backend` | Move + rename |
 | `ebpf.override_bpfloop_enabled` | `extensions.obi.capture.engine.propagation.override_bpfloop_enabled` | Move |
 | `ebpf.wakeup_len` | `extensions.obi.capture.engine.batching.wakeup_len` | Move |
+| `ebpf.stats_wakeup_data_bytes` | `extensions.obi.capture.engine.batching.stats.wakeup_bytes` | Move + rename |
 | `enforce_sys_caps` | `extensions.obi.capture.safety.enforce_system_capabilities` | Move + rename |
 | `executable_path` | `extensions.obi.capture.rules[].match.process.exe_path_regex` (include rule) | Legacy fallback selector |
 | `open_port` | `extensions.obi.capture.rules[].match.process.open_ports` (include rule) | Fallback selector |
@@ -890,6 +981,7 @@ Important mapping notes:
 | `otel_metrics_export.protocol` | Selects `meter_provider.readers[0].periodic.exporter.otlp_grpc` or, with gated HTTP support, `.otlp_http` plus its `encoding` | The exporter shape encodes the protocol; automatic migration currently supports gRPC |
 | `otel_metrics_export.reporters_cache_len` | `extensions.obi.capture.telemetry.metrics.reporters_cache_len` | Move to capture telemetry tuning |
 | `otel_metrics_export.ttl` | `extensions.obi.capture.telemetry.metrics.ttl` | Move to capture telemetry tuning |
+| N/A | `extensions.obi.capture.telemetry.metrics.connection_info_ttl` | Config v2-only connection-info edge retention, defaults to 15 minutes |
 | `otel_traces_export.endpoint` | `tracer_provider.processors[0].batch.exporter.otlp_grpc.endpoint` or, with gated HTTP support, `.otlp_http.endpoint` | OTel ownership move; automatic migration emits gRPC, while HTTP requires the documented manual mapping |
 | `otel_traces_export.instrumentations` | `extensions.obi.capture.instrumentation.<protocol>.enabled.traces` | Only protocols modeled by v2 |
 | `otel_traces_export.protocol` | Selects `tracer_provider.processors[0].batch.exporter.otlp_grpc` or, with gated HTTP support, `.otlp_http` plus its `encoding` | The exporter shape encodes the protocol; automatic migration currently supports gRPC |
@@ -903,6 +995,7 @@ Important mapping notes:
 | `prometheus_export.allow_service_graph_self_references` | `extensions.obi.daemon.telemetry.metrics.prometheus.allow_service_graph_self_references` | Move to daemon telemetry tuning |
 | `prometheus_export.extra_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_resource_attributes` | Move to daemon telemetry tuning |
 | `prometheus_export.extra_span_resource_attributes` | `extensions.obi.daemon.telemetry.metrics.prometheus.extra_span_resource_attributes` | Move to daemon telemetry tuning |
+| `prometheus_export.exemplar_filter` | `meter_provider.exemplar_filter` | Provider-wide; migration rejects a value that would change the active OTLP exporter's effective `trace_based` filter |
 | `prometheus_export.port` | `meter_provider.readers[1].pull.exporter.prometheus/development.port` | OTel ownership move + declarative reader/exporter shape |
 | `prometheus_export.path` | *No canonical OTel core path in current declarative schema* | Distribution-specific/unsupported in current target shape |
 | `prometheus_export.features` | Use the effective `metrics.features` mapping | Deprecated; used only when the OTLP metric exporter does not provide features |
@@ -938,6 +1031,173 @@ Migration writes them identically. If an authored document sets both
 `capture.network.capture.flow_lifecycle.max_tracked_flows`, they must be equal;
 each explicitly authored value must also be greater than zero. Validation
 rejects zero or divergent values instead of silently choosing one.
+
+## GCE service name resolution
+
+Standalone Config v2 enables service name resolution from zonal Google Compute
+Engine managed instance groups through `extensions.obi.enrich.service_name`:
+
+```yaml
+file_format: "1.0"
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      enrichers:
+        cloud:
+          refresh_interval: 30s
+      service_name:
+        sources: [gce]
+        gce:
+          project_id: my-project
+          zone: us-central1-a
+```
+
+The resolver runs on GCE hosts and enumerates managed instance groups in the
+selected project and zone. Group names identify local VMs by instance ID and
+remote services by private IP address. Explicit application service names take
+precedence.
+
+| Setting under `service_name.gce` | Default | Meaning |
+| --- | --- | --- |
+| `project_id` | Detected project | Project to query |
+| `zone` | Detected availability zone | Zone to query |
+| `endpoint` | Google Compute API endpoint | HTTP(S) base URL for an emulator or API proxy |
+
+Credentials need the read-only Compute scope and
+`compute.instanceGroupManagers.list`, `compute.instanceGroupManagers.get`, and
+`compute.instances.get` permissions. Each refresh has a 30-second deadline.
+A failed refresh retains the previous inventory.
+
+The shared `enrich.enrichers.cloud.refresh_interval` controls polling, with a
+default of 30 seconds. Span-metric and service-graph features use
+`capture.metrics.features`, for example
+`[application, application_span_otel, application_service_graph]`.
+
+Config v2 supports environment substitution in YAML, such as
+`project_id: ${GCE_PROJECT_ID}`. The GCE source and its settings are available
+through Config v2 only. See the
+[standalone example](examples/gce-service-resolution.yaml).
+
+## Azure service name resolution
+
+The `azure` service name source uses Uniform and Flexible Virtual Machine Scale Set names
+for automatic local service names and remote private-IP names. Enable it in
+Config v2:
+
+```yaml
+extensions:
+  obi:
+    version: "2.0"
+    enrich:
+      enrichers:
+        cloud:
+          refresh_interval: 30s
+      service_name:
+        sources: [azure]
+        azure:
+          subscription_id: "${AZURE_SUBSCRIPTION_ID}"
+          resource_group: "${AZURE_RESOURCE_GROUP}"
+```
+
+Both scope settings are optional when the Azure VM metadata service supplies
+the host's ARM resource ID. Each omitted setting uses the detected value. Discovery
+runs only on detected Azure VM hosts outside Kubernetes and covers one subscription
+and resource group. See the [standalone example](examples/azure-service-resolution.yaml).
+
+OBI uses Azure `DefaultAzureCredential`. On Azure, assign a managed identity to
+the VM scale set and grant it Reader access to the selected resource group.
+The resolver reads scale sets, their virtual machines, and their network
+interfaces. The corresponding read actions are:
+
+- `Microsoft.Compute/virtualMachineScaleSets/read`
+- `Microsoft.Compute/virtualMachineScaleSets/virtualMachines/read`
+- `Microsoft.Compute/virtualMachineScaleSets/networkInterfaces/read`
+- `Microsoft.Compute/virtualMachines/read` for Flexible members
+- `Microsoft.Network/networkInterfaces/read` for Flexible members' interfaces
+
+Flexible members can reference network interfaces in another resource group
+within the selected subscription. Grant read access to those interfaces too.
+
+Automatic resource-provider registration is disabled. This implementation targets
+Azure public cloud and supports Uniform and Flexible scale sets.
+
+Only running VMs contribute names. A local automatic name becomes the scale-set
+name when the detected VM UUID belongs to the selected scope. An exported
+`host.id` override does not change this match. Explicit service names and
+container inventory names take precedence; Kubernetes hosts keep their local
+service identity. A scope override can discover remote peers, but only a scope
+matching the detected host can rename local processes.
+
+Discovery refreshes at `enrich.enrichers.cloud.refresh_interval` and has a
+30-second deadline per refresh. Failed refreshes retain the last complete
+inventory. Successful refreshes remove stale mappings and update tracked
+processes, including `target_info`, without waiting for application traffic.
+After membership removal, a process returns to its original automatic name.
+
+Private IPv4 and IPv6 addresses resolve to scale-set names. If multiple VMs
+share an address across networks in the selected resource group, that ambiguous
+address is omitted. Public IPs and Azure Container Apps are outside this source's
+scope. The source and its settings are available only in Config v2.
+
+## Refresh discovery criteria at runtime
+
+Standalone OBI watches its Config v2 file when started with `--config` or
+`OTEL_EBPF_CONFIG_PATH`. It reads the path every second, including after atomic
+file replacement or ConfigMap symlink updates. A change applies once two
+consecutive reads return the same contents, so a read that lands in the middle of
+an in-place write is not applied. In containers, mount the containing
+directory so replacement files remain visible. The legacy v1 loader is unchanged.
+
+Process and Kubernetes matching predicates can be refreshed, and definitions can
+be added or removed. OBI re-evaluates already observed processes, stops
+instrumenting processes no longer selected, and instruments newly selected
+processes. A discovery rescan picks up processes and ports that were not observed
+yet. Processes that remain selected keep their instrumentation.
+
+The top-level trace sampler (`tracer_provider.sampler`) can also be refreshed
+without restarting OBI. Sampling changes apply to already selected processes and
+newly selected processes. Embedders can also refresh per-rule sampler overrides
+through the runtime configuration API, those overrides take precedence over the
+global sampler.
+
+Existing service names, namespaces, route policies, export modes and
+metric features cannot change during a refresh. The update also fails if new
+matching criteria would change these settings for an already selected process,
+or if another runtime setting changes, such as exporters or protocol
+enablement. New definitions cannot require metric features that the pipeline did
+not initialize at startup. Replacing a removed definition with changes to these
+settings in the same edit conservatively requires a restart.
+
+An incompatible or invalid edit logs an `ERROR` stating that OBI cannot refresh
+that config and the user should restart OBI. The running configuration stays
+active. A later compatible edit can still be accepted. Successful refreshes log
+`discovery criteria refreshed`.
+
+To try it, start OBI with the
+[standalone example](examples/default-configuration.yaml), then edit its
+`capture.rules[].match` to select another running application. Change the
+top-level trace sampler to update sampling without restarting OBI. Change an
+exporter endpoint to verify rejection without stopping the current capture.
+
+Embedders of OBI can use the same API with an `obi.Config` translated from
+their own configuration format:
+
+```go
+updater := discover.NewCriteriaUpdater(cfg)
+// Run this in the application's normal instrumentation goroutine.
+err := instrumenter.Run(ctx, cfg, instrumenter.WithCriteriaUpdater(updater))
+```
+
+An embedder that owns its discovery pipeline can instead pass
+`discover.WithCriteriaUpdater(updater)` directly to `ProcessFinder.Start`.
+
+From the embedding application's configuration watcher, submit a freshly loaded
+runtime config with `updater.Update(ctx, nextConfig)`. The call waits for the
+matcher to accept or reject the update. Treat submitted configs as immutable and
+keep the original pipeline context alive. This option cannot be combined with
+`WithDynamicSelector`, that API continues to own its PID and workload selections
+independently. Config v1 files are not watched by standalone OBI.
 
 ## Related docs
 
@@ -975,3 +1235,11 @@ Decision for OBI v2:
 This is an intentional middle-ground while upstream schema guidance evolves.
 OBI will support `extensions.obi` with its own parser and validation rules until a better
 standardized schema location is available.
+
+## Peer metadata exchange
+
+The optional `extensions.obi.enrich.enrichers.peer_metadata` enricher exchanges
+service identities between agents on directly routable hosts outside Kubernetes,
+either directly or through a central metadata service. See
+[peer metadata](../../peer-metadata.md) for configuration, resolution behavior,
+and the gRPC protocol.

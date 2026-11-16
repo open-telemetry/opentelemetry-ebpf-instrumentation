@@ -7,6 +7,7 @@
 #include <bpfcore/bpf_helpers.h>
 
 #include <common/connection_info.h>
+#include <common/tls_record.h>
 
 #include <maps/active_ssl_connections.h>
 #include <maps/ssl_to_conn.h>
@@ -17,5 +18,7 @@
 // the socket parsing helpers into a host build.
 static __always_inline void set_active_ssl_connection(ssl_pid_connection_info_t *ssl_conn,
                                                       void *ssl) {
-    bpf_map_update_elem(&ssl_to_conn, &ssl, ssl_conn, 0);
+    const pid_ptr_key_t ssl_key = pid_ptr_key(ssl_conn->p_conn.pid, ssl);
+
+    bpf_map_update_elem(&ssl_to_conn, &ssl_key, ssl_conn, 0);
 }

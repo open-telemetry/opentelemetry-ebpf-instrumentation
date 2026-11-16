@@ -193,6 +193,31 @@ func TestTraceAttributesSelector_MCPToolCallPayloadSelection(t *testing.T) {
 	assert.JSONEq(t, `[{"type":"text","text":"api_key=SECRET123"}]`, result.Str())
 }
 
+func TestHTTPClientSpanURLQueryCompatibility(t *testing.T) {
+	span := &request.Span{
+		Type: request.EventTypeHTTPClient, Method: "GET", Path: "/search",
+		FullPath: "/search?q=otel&token=secret", Statement: "https;example.com", Host: "example.com", HostPort: 443,
+	}
+	for _, excluded := range []bool{false, true} {
+		cfg := &attributes.SelectorConfig{}
+		if excluded {
+			cfg.SelectionCfg = attributes.Selection{"traces": {Exclude: []string{"url.query"}}}
+		}
+		attrs, err := UserSelectedAttributes(cfg)
+		require.NoError(t, err)
+		selected := AttrsToMap(TraceAttributesSelector(span, attrs, attributes.DefaultSensitiveQueryParams...))
+		query, exists := selected.Get("url.query")
+		require.Equal(t, !excluded, exists)
+		if exists {
+			assert.Contains(t, query.Str(), "q=otel")
+			assert.NotContains(t, query.Str(), "secret")
+		}
+		full, exists := selected.Get("url.full")
+		require.True(t, exists)
+		assert.NotContains(t, full.Str(), "secret")
+	}
+}
+
 func TestHTTPServerSpanURLQuery(t *testing.T) {
 	optInCfg := &attributes.SelectorConfig{
 		SelectionCfg: attributes.Selection{
@@ -861,6 +886,110 @@ func TestGenAIResponseErrorAttributeCollision(t *testing.T) {
 	}
 }
 
+func TestGroupSpansSamplingFollowsParentDecision(t *testing.T) {
+	traceID := trace2.TraceID{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+	parentSpanID := trace2.SpanID{1, 2, 3, 4, 5, 6, 7, 8}
+
+	tests := []struct {
+		name              string
+		sampler           sdktrace.Sampler
+		parentSpanID      trace2.SpanID
+		parentConditional bool
+		traceFlags        uint8
+		sampled           bool
+	}{
+		{
+			name:         "parent based drops a span whose parent is not sampled",
+			sampler:      sdktrace.ParentBased(sdktrace.AlwaysSample()),
+			parentSpanID: parentSpanID,
+			traceFlags:   0,
+			sampled:      false,
+		},
+		{
+			name:         "parent based keeps a span whose parent is sampled",
+			sampler:      sdktrace.ParentBased(sdktrace.AlwaysSample()),
+			parentSpanID: parentSpanID,
+			traceFlags:   1,
+			sampled:      true,
+		},
+		{
+			name:         "parent based keeps a root span regardless of its flags",
+			sampler:      sdktrace.ParentBased(sdktrace.AlwaysSample()),
+			parentSpanID: trace2.SpanID{},
+			traceFlags:   0,
+			sampled:      true,
+		},
+		{
+			name:         "parent based keeps a span whose parent is sampled over its root sampler",
+			sampler:      sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0)),
+			parentSpanID: parentSpanID,
+			traceFlags:   1,
+			sampled:      true,
+		},
+		{
+			name:         "parent based applies its root sampler to a root span",
+			sampler:      sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0)),
+			parentSpanID: trace2.SpanID{},
+			traceFlags:   1,
+			sampled:      false,
+		},
+		{
+			name:         "a sampler that is not parent based ignores the parent",
+			sampler:      sdktrace.AlwaysSample(),
+			parentSpanID: parentSpanID,
+			traceFlags:   0,
+			sampled:      true,
+		},
+		{
+			name:              "parent based drops a span whose detached conditional parent is not sampled",
+			sampler:           sdktrace.ParentBased(sdktrace.AlwaysSample()),
+			parentSpanID:      trace2.SpanID{},
+			parentConditional: true,
+			traceFlags:        0,
+			sampled:           false,
+		},
+		{
+			name:              "parent based keeps a span whose detached conditional parent is sampled over its root sampler",
+			sampler:           sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0)),
+			parentSpanID:      trace2.SpanID{},
+			parentConditional: true,
+			traceFlags:        1,
+			sampled:           true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			span := request.Span{
+				Type:              request.EventTypeHTTP,
+				Method:            "GET",
+				Path:              "/",
+				TraceID:           traceID,
+				SpanID:            trace2.SpanID{8, 7, 6, 5, 4, 3, 2, 1},
+				ParentSpanID:      tt.parentSpanID,
+				ParentConditional: tt.parentConditional,
+				TraceFlags:        tt.traceFlags,
+			}
+
+			groups := GroupSpans(
+				t.Context(),
+				[]request.Span{span},
+				map[attr.Name]struct{}{},
+				tt.sampler,
+				instrumentations.NewInstrumentationSelection(
+					[]instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+				),
+			)
+
+			if tt.sampled {
+				assert.Len(t, groups[span.Service.UID], 1)
+			} else {
+				assert.Empty(t, groups[span.Service.UID])
+			}
+		})
+	}
+}
+
 type recordingSampler struct {
 	attributes []attribute.KeyValue
 }
@@ -1487,6 +1616,16 @@ func TestTraceAttributesSelector_GenAITokenDetailAvailability(t *testing.T) {
 			},
 			keys: []string{cacheReadKey, cacheCreationKey},
 		},
+		{
+			name:    "Ollama",
+			subType: request.HTTPSubtypeOllama,
+			genAI: func(count request.TokenCount) *request.GenAI {
+				return &request.GenAI{Ollama: &request.VendorOpenAI{Usage: request.OpenAIUsage{
+					InputDetails: &request.OpenAIInputTokensDetails{CachedTokens: count},
+				}}}
+			},
+			keys: []string{cacheReadKey},
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			span := &request.Span{
@@ -1568,6 +1707,155 @@ func TestEmptyMessagingClientID(t *testing.T) {
 	}
 }
 
+func TestOllamaEmbeddingAttributes(t *testing.T) {
+	const vector = `[{"embedding":[0.1,0.2,0.3,0.4]}]`
+	span := &request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeOllama,
+		Method:  "POST",
+		Path:    "/api/embed",
+		Status:  200,
+		GenAI: &request.GenAI{Ollama: &request.VendorOpenAI{
+			OperationName: request.EmbeddingOperationName,
+			ResponseModel: "all-minilm:l6-v2",
+			Usage:         request.OpenAIUsage{InputTokens: request.NewTokenCount(8)},
+			Dimensions:    4,
+			Data:          json.RawMessage(vector),
+			Request:       request.OpenAIInput{Model: "all-minilm:l6-v2", Input: "why is the sky blue?"},
+		}},
+	}
+
+	attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{
+		attr.GenAIInput:  {},
+		attr.GenAIOutput: {},
+	}))
+
+	for key, expected := range map[attribute.Key]any{
+		semconv.GenAIProviderNameKey:             "ollama",
+		semconv.GenAIOperationNameKey:            "embeddings",
+		semconv.GenAIRequestModelKey:             "all-minilm:l6-v2",
+		semconv.GenAIResponseModelKey:            "all-minilm:l6-v2",
+		semconv.GenAIUsageInputTokensKey:         int64(8),
+		semconv.GenAIEmbeddingsDimensionCountKey: int64(4),
+	} {
+		v, ok := attrs.Get(string(key))
+		require.True(t, ok, "missing %s", key)
+		assert.Equal(t, expected, v.AsRaw(), "attribute %s", key)
+	}
+
+	input, ok := attrs.Get(string(semconv.GenAIInputMessagesKey))
+	require.True(t, ok)
+	assert.Contains(t, input.Str(), "why is the sky blue?")
+
+	for _, key := range []attribute.Key{
+		semconv.GenAIOutputMessagesKey,
+		semconv.GenAIUsageOutputTokensKey,
+		semconv.GenAIResponseFinishReasonsKey,
+		genAIRequestStreamKey,
+	} {
+		_, ok := attrs.Get(string(key))
+		assert.False(t, ok, "unexpected %s", key)
+	}
+}
+
+func TestOllamaChatKeepsOutputWithoutDimensions(t *testing.T) {
+	span := &request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeOllama,
+		GenAI: &request.GenAI{Ollama: &request.VendorOpenAI{
+			OperationName: request.ChatOperationName,
+			Choices:       json.RawMessage(`[{"message":{"role":"assistant","content":"Hi"},"finish_reason":"stop"}]`),
+			Request:       request.OpenAIInput{Model: "llama3.2", Dimensions: 128},
+		}},
+	}
+
+	attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{attr.GenAIOutput: {}}))
+
+	_, ok := attrs.Get(string(semconv.GenAIOutputMessagesKey))
+	assert.True(t, ok)
+	_, ok = attrs.Get(string(semconv.GenAIEmbeddingsDimensionCountKey))
+	assert.False(t, ok)
+}
+
+func TestCohereChatAttributes(t *testing.T) {
+	seed := 42
+	span := &request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeCohere,
+		Method:  "POST",
+		Path:    "/v2/chat",
+		Host:    "api.cohere.com",
+		Status:  200,
+		GenAI: &request.GenAI{Cohere: &request.VendorOpenAI{
+			OperationName: request.ChatOperationName,
+			ID:            "c14c80c3",
+			TopP:          0.75,
+			Choices:       json.RawMessage(`[{"message":{"role":"assistant","content":[{"type":"text","text":"Hi"}]},"finish_reason":"COMPLETE"}]`),
+			Request: request.OpenAIInput{
+				Model:            "command-a-03-2025",
+				MaxTokens:        256,
+				Temperature:      0.3,
+				TopK:             40,
+				FrequencyPenalty: 0.1,
+				PresencePenalty:  0.2,
+				Seed:             &seed,
+				Stop:             json.RawMessage(`["END"]`),
+				Stream:           true,
+			},
+		}},
+	}
+
+	attrs := AttrsToMap(TraceAttributesSelector(span, map[attr.Name]struct{}{}))
+
+	for key, expected := range map[attribute.Key]any{
+		semconv.GenAIProviderNameKey:            "cohere",
+		semconv.GenAIOperationNameKey:           "chat",
+		semconv.GenAIResponseIDKey:              "c14c80c3",
+		semconv.GenAIRequestModelKey:            "command-a-03-2025",
+		semconv.GenAIResponseModelKey:           "command-a-03-2025",
+		semconv.GenAIRequestMaxTokensKey:        int64(256),
+		semconv.GenAIRequestTemperatureKey:      0.3,
+		semconv.GenAIRequestTopPKey:             0.75,
+		semconv.GenAIRequestTopKKey:             40.0,
+		semconv.GenAIRequestFrequencyPenaltyKey: 0.1,
+		semconv.GenAIRequestPresencePenaltyKey:  0.2,
+		semconv.GenAIRequestSeedKey:             int64(42),
+		genAIRequestStreamKey:                   true,
+	} {
+		v, ok := attrs.Get(string(key))
+		require.True(t, ok, "missing %s", key)
+		assert.Equal(t, expected, v.AsRaw(), "attribute %s", key)
+	}
+
+	reasons, ok := attrs.Get(string(semconv.GenAIResponseFinishReasonsKey))
+	require.True(t, ok)
+	assert.Equal(t, []any{"COMPLETE"}, reasons.Slice().AsRaw())
+
+	stops, ok := attrs.Get(string(semconv.GenAIRequestStopSequencesKey))
+	require.True(t, ok)
+	assert.Equal(t, []any{"END"}, stops.Slice().AsRaw())
+}
+
+func TestCohereChatErrorStatusMessage(t *testing.T) {
+	const message = "invalid request: model 'unknown' not found"
+	span := &request.Span{
+		Type:    request.EventTypeHTTPClient,
+		SubType: request.HTTPSubtypeCohere,
+		Method:  "POST",
+		Status:  404,
+		GenAI: &request.GenAI{Cohere: &request.VendorOpenAI{
+			OperationName: request.ChatOperationName,
+			Error:         request.OpenAIError{Message: message},
+		}},
+	}
+
+	selectedSpan := generateSingleTraceSpan(t, span, map[attr.Name]struct{}{
+		attr.GenAIResponseError: {},
+	})
+	assert.Equal(t, ptrace.StatusCodeError, selectedSpan.Status().Code())
+	assert.Equal(t, message, selectedSpan.Status().Message())
+}
+
 // The response model falls back to the request model, which is itself reported
 // only when the parser recovered one, so neither is emitted when both are empty.
 func TestGenAIResponseModelFallbackIsGuarded(t *testing.T) {
@@ -1628,7 +1916,7 @@ func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
 	}
 
 	transportKeys := []string{
-		"url.full", "url.scheme", "url.query", "http.request.method",
+		"url.full", "url.scheme", "http.request.method",
 		"http.response.status_code", "http.request.body.size", "http.response.body.size",
 	}
 
@@ -1705,6 +1993,9 @@ func TestHTTPClientTransportAttributesBySubtype(t *testing.T) {
 				assert.Equal(t, expected[key], ok, key)
 			}
 
+			_, ok := selected.Get("url.query")
+			assert.Equal(t, tt.subType == request.HTTPSubtypeNone, ok, "plain HTTP client spans preserve url.query")
+
 			for _, key := range []string{"server.address", "server.port", "service.peer.name"} {
 				_, ok := selected.Get(key)
 				assert.True(t, ok, "%s must survive on every http client subtype when the span carries a value for it", key)
@@ -1733,6 +2024,26 @@ func TestOptInSpanAttributesOffByDefault(t *testing.T) {
 			_, ok := selected.Get(key)
 			assert.False(t, ok, "%s: %s is opt-in", span.Type, key)
 		}
+	}
+}
+
+func TestAerospikePeerServiceOnlyOnClientSpans(t *testing.T) {
+	selected := map[attr.Name]struct{}{attr.ServicePeerName: {}}
+
+	for _, tc := range []struct {
+		event request.EventType
+		want  bool
+	}{
+		{event: request.EventTypeAerospikeClient, want: true},
+		{event: request.EventTypeAerospikeServer, want: false},
+	} {
+		span := &request.Span{
+			Type: tc.event, Method: "GET", Path: "test.demo",
+			Host: "10.0.0.1", HostPort: 3000, HostName: "aerospike-1", Peer: "10.0.0.2",
+		}
+
+		_, ok := AttrsToMap(TraceAttributesSelector(span, selected)).Get("service.peer.name")
+		assert.Equal(t, tc.want, ok, "%s", tc.event)
 	}
 }
 
@@ -2118,7 +2429,7 @@ func TestTraceAttributesSelector_DBResponseStatusCode(t *testing.T) {
 	})
 }
 
-func TestGenerateTracesSetsOBISchemaURL(t *testing.T) {
+func TestGenerateTracesSetsOBISchemaURLAndScope(t *testing.T) {
 	cache := expirable2.NewLRU[svc.UID, []attribute.KeyValue](10, nil, 0)
 	span := request.Span{Type: request.EventTypeHTTP, Method: "GET", Path: "/", Status: 200}
 
@@ -2132,7 +2443,16 @@ func TestGenerateTracesSetsOBISchemaURL(t *testing.T) {
 	)
 
 	require.Equal(t, 1, traces.ResourceSpans().Len())
-	assert.Equal(t, attr.OBISchemaURL, traces.ResourceSpans().At(0).SchemaUrl())
+	rs := traces.ResourceSpans().At(0)
+	assert.Equal(t, attr.OBISchemaURL, rs.SchemaUrl())
+	_, ok := rs.Resource().Attributes().Get("otel.scope.name")
+	assert.False(t, ok)
+
+	require.Equal(t, 1, rs.ScopeSpans().Len())
+	ss := rs.ScopeSpans().At(0)
+	assert.Equal(t, attr.OBISchemaURL, ss.SchemaUrl())
+	assert.Equal(t, "obi", ss.Scope().Name())
+	assert.Equal(t, attr.TelemetryDistroVersion(), ss.Scope().Version())
 }
 
 func TestGenAISpanNameMatchesEmittedAttributes(t *testing.T) {
@@ -2203,6 +2523,13 @@ func TestGenAISpanNameMatchesEmittedAttributes(t *testing.T) {
 			expected: "chat llama3.2",
 		},
 		{
+			name:     "Cohere",
+			subType:  request.HTTPSubtypeCohere,
+			genAI:    &request.GenAI{Cohere: &request.VendorOpenAI{OperationName: request.ChatOperationName, Request: request.OpenAIInput{Model: "command-a-03-2025"}}},
+			target:   semconv.GenAIRequestModelKey,
+			expected: "chat command-a-03-2025",
+		},
+		{
 			name:     "Bedrock",
 			subType:  request.HTTPSubtypeAWSBedrock,
 			genAI:    &request.GenAI{Bedrock: &request.VendorBedrock{Model: "amazon.titan-text-premier-v1:0"}},
@@ -2252,6 +2579,122 @@ func TestGenAISpanNameMatchesEmittedAttributes(t *testing.T) {
 
 			assert.Equal(t, tc.expected, span.TraceName())
 			assert.Equal(t, fromAttributes, span.TraceName())
+		})
+	}
+}
+
+func TestExportedSpansCarrySampledFlag(t *testing.T) {
+	span := request.Span{
+		Type:         request.EventTypeHTTP,
+		Method:       "GET",
+		Path:         "/",
+		TraceID:      trace2.TraceID{1},
+		SpanID:       trace2.SpanID{1},
+		ParentSpanID: trace2.SpanID{2},
+	}
+
+	exported := generateTraceSpan(t, TraceSpanAndAttributes{Span: &span})
+
+	assert.Equal(t, uint32(trace2.FlagsSampled), exported.Flags())
+}
+
+type decisionSampler struct {
+	decision sdktrace.SamplingDecision
+}
+
+func (s decisionSampler) ShouldSample(sdktrace.SamplingParameters) sdktrace.SamplingResult {
+	return sdktrace.SamplingResult{Decision: s.decision}
+}
+
+func (decisionSampler) Description() string {
+	return "decision sampler"
+}
+
+func TestExportedSpansCarryTheSamplerDecision(t *testing.T) {
+	tests := []struct {
+		name     string
+		decision sdktrace.SamplingDecision
+		flags    uint32
+	}{
+		{name: "record and sample", decision: sdktrace.RecordAndSample, flags: uint32(trace2.FlagsSampled)},
+		{name: "record only", decision: sdktrace.RecordOnly, flags: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			span := request.Span{
+				Type:         request.EventTypeHTTP,
+				Method:       "GET",
+				Path:         "/",
+				RequestStart: 1,
+				Start:        2,
+				End:          3,
+				TraceID:      trace2.TraceID{1},
+				SpanID:       trace2.SpanID{1},
+				TraceFlags:   uint8(trace2.FlagsSampled),
+			}
+
+			groups := GroupSpans(
+				t.Context(),
+				[]request.Span{span},
+				map[attr.Name]struct{}{},
+				decisionSampler{decision: tt.decision},
+				instrumentations.NewInstrumentationSelection(
+					[]instrumentations.Instrumentation{instrumentations.InstrumentationALL},
+				),
+			)
+			group := groups[span.Service.UID]
+			require.Len(t, group, 1)
+
+			cache := expirable2.NewLRU[svc.UID, []attribute.KeyValue](10, nil, 0)
+			traces := GenerateTracesWithAttributes(cache, &span.Service, nil, &metadata.NodeMeta{}, group, "obi")
+
+			// the request span and its queue and processing subspans
+			spans := traces.ResourceSpans().At(0).ScopeSpans().At(0).Spans()
+			require.Equal(t, 3, spans.Len())
+			for i := range spans.Len() {
+				assert.Equal(t, tt.flags, spans.At(i).Flags(), spans.At(i).Name())
+			}
+		})
+	}
+}
+
+func TestHTTPServerAddressFromRequestHost(t *testing.T) {
+	defaultAttrs, err := UserSelectedAttributes(&attributes.SelectorConfig{})
+	require.NoError(t, err)
+	tests := []struct {
+		statement string
+		authority string
+		want      string
+	}{
+		{"http;api.example.com:8080", "", "api.example.com"},
+		{"https;api.example.com", "", "api.example.com"},
+		{"http;127.0.0.1", "", "127.0.0.1"},
+		{"http;[2001:db8::1]:8080", "", "2001:db8::1"},
+		{"", "api.example.com:8443", "api.example.com"},
+		{"http;other.example.com", "api.example.com:8443", "api.example.com"},
+		{"", "[2001:db8::1]:8443", "2001:db8::1"},
+		{"http;", "", ""},
+		{"", "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.statement, func(t *testing.T) {
+			span := &request.Span{
+				Type:             request.EventTypeHTTP,
+				Method:           "GET",
+				Path:             "/",
+				Status:           200,
+				Statement:        tt.statement,
+				RequestAuthority: tt.authority,
+				HostName:         "service-name",
+				Host:             "10.0.0.1",
+			}
+			selected := AttrsToMap(TraceAttributesSelector(span, defaultAttrs))
+			got, ok := selected.Get("server.address")
+			assert.Equal(t, tt.want != "", ok)
+			if ok {
+				assert.Equal(t, tt.want, got.Str())
+			}
 		})
 	}
 }

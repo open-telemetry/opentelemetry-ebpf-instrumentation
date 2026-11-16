@@ -1,6 +1,10 @@
 file_format: definition/2
 metrics:
   - name: gpu.cuda.kernel.launch.calls
+    annotations: &no_cuda_metric
+      obi:
+        upstream: none
+        upstream_reason: upstream defines no CUDA metrics
     instrument: counter
     unit: ""
     stability: development
@@ -16,6 +20,7 @@ metrics:
         requirement_level: recommended
 
   - name: gpu.cuda.graph.launch.calls
+    annotations: *no_cuda_metric
     instrument: counter
     unit: ""
     stability: development
@@ -31,6 +36,7 @@ metrics:
         requirement_level: recommended
 
   - name: gpu.cuda.memory.allocations
+    annotations: *no_cuda_metric
     instrument: counter
     unit: "By"
     stability: development
@@ -46,6 +52,7 @@ metrics:
         requirement_level: recommended
 
   - name: gpu.cuda.kernel.grid.size
+    annotations: *no_cuda_metric
     instrument: histogram
     unit: "1"
     stability: development
@@ -61,6 +68,7 @@ metrics:
         requirement_level: recommended
 
   - name: gpu.cuda.kernel.block.size
+    annotations: *no_cuda_metric
     instrument: histogram
     unit: "1"
     stability: development
@@ -77,6 +85,7 @@ metrics:
         requirement_level: recommended
 
   - name: gpu.cuda.memory.copies
+    annotations: *no_cuda_metric
     instrument: histogram
     unit: "By"
     stability: development
@@ -95,6 +104,7 @@ metrics:
         requirement_level: recommended
 
   - name: gpu.cuda.memory.free.bytes
+    annotations: *no_cuda_metric
     instrument: counter
     unit: "By"
     stability: development
@@ -110,6 +120,7 @@ metrics:
         requirement_level: recommended
 
   - name: gpu.cuda.memset.bytes
+    annotations: *no_cuda_metric
     instrument: counter
     unit: "By"
     stability: development
@@ -125,6 +136,7 @@ metrics:
         requirement_level: recommended
 
   - name: gpu.cuda.stream.create.calls
+    annotations: *no_cuda_metric
     instrument: counter
     unit: ""
     stability: development
@@ -140,6 +152,7 @@ metrics:
         requirement_level: recommended
 
   - name: gpu.cuda.stream.destroy.calls
+    annotations: *no_cuda_metric
     instrument: counter
     unit: ""
     stability: development
@@ -155,6 +168,7 @@ metrics:
         requirement_level: recommended
 
   - name: gpu.cuda.event.record.calls
+    annotations: *no_cuda_metric
     instrument: counter
     unit: ""
     stability: development
@@ -170,6 +184,7 @@ metrics:
         requirement_level: recommended
 
   - name: gpu.cuda.event.synchronize.calls
+    annotations: *no_cuda_metric
     instrument: counter
     unit: ""
     stability: development
@@ -185,6 +200,7 @@ metrics:
         requirement_level: recommended
 
   - name: gpu.cuda.stream.synchronize.calls
+    annotations: *no_cuda_metric
     instrument: counter
     unit: ""
     stability: development
@@ -200,6 +216,7 @@ metrics:
         requirement_level: recommended
 
   - name: gpu.cuda.device.synchronize.calls
+    annotations: *no_cuda_metric
     instrument: counter
     unit: ""
     stability: development
@@ -215,6 +232,7 @@ metrics:
         requirement_level: recommended
 
   - name: gpu.cuda.host.register.bytes
+    annotations: *no_cuda_metric
     instrument: counter
     unit: "By"
     stability: development

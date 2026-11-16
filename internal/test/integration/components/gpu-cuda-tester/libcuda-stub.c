@@ -55,6 +55,43 @@ CUresult cuGraphLaunch(CUgraphExec graphExec, CUstream hStream) {
   return 0;
 }
 
+CUresult cuLaunchKernel_ptsz(CUfunction f, unsigned int gridDimX,
+                             unsigned int gridDimY, unsigned int gridDimZ,
+                             unsigned int blockDimX, unsigned int blockDimY,
+                             unsigned int blockDimZ,
+                             unsigned int sharedMemBytes, CUstream hStream,
+                             void **kernelParams, void **extra) {
+  (void)f;
+  (void)sharedMemBytes;
+  (void)hStream;
+  (void)kernelParams;
+  (void)extra;
+  g_sink += (unsigned long)gridDimX * gridDimY * gridDimZ;
+  g_sink += (unsigned long)blockDimX * blockDimY * blockDimZ;
+  return 0;
+}
+
+CUresult cuLaunchKernelEx_ptsz(const CUlaunchConfig *config, CUfunction f,
+                               void **kernelParams, void **extra) {
+  (void)f;
+  (void)kernelParams;
+  (void)extra;
+  if (config != NULL) {
+    g_sink +=
+        (unsigned long)config->gridDimX * config->gridDimY * config->gridDimZ;
+    g_sink += (unsigned long)config->blockDimX * config->blockDimY *
+              config->blockDimZ;
+  }
+  return 0;
+}
+
+CUresult cuGraphLaunch_ptsz(CUgraphExec graphExec, CUstream hStream) {
+  (void)graphExec;
+  (void)hStream;
+  g_sink += 1;
+  return 0;
+}
+
 // Minimal no-op context stubs. They never touch a real GPU; the nonzero device
 // argument is recorded only so tests can prove OBI does not infer a device
 // from these uninstrumented calls.

@@ -10,3 +10,4 @@ imports:
   metrics:
     - dotnet.gc.collections
     - dotnet.gc.last_collection.heap.size
+    - dotnet.gc.last_collection.heap.fragmentation.size

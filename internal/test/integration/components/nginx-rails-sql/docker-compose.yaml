@@ -43,7 +43,7 @@ services:
       - app_network
 
   db:
-    image: mysql:9.7.0@sha256:c9e48b0c008f1936d4139d1c0dcd5950a9dbe57d4d40f383013cde432fa6d6aa
+    image: mysql:26.10.0@sha256:3819b2b23835c4a73c8b022fafc33c8095c0f81c929a8b7a84613d2fba6c52f5
     command:
       - --ssl-ca=/etc/mysql/certs/ca.pem
       - --ssl-cert=/etc/mysql/certs/server-cert.pem

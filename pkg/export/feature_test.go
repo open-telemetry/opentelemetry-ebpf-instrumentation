@@ -28,6 +28,49 @@ func TestFeatureYAML(t *testing.T) {
 	assert.False(t, doc.Features.has(FeatureAll))
 }
 
+func TestConnectionInfoFeatureIsOptIn(t *testing.T) {
+	features, err := LoadV2Features([]string{"application_service_graph_connection_info"})
+	require.NoError(t, err)
+	assert.True(t, features.ConnectionInfo())
+	assert.True(t, features.ServiceTopology())
+	assert.True(t, features.AnyAppO11yMetric())
+	assert.False(t, features.ServiceGraph())
+	assert.False(t, features.AppRED())
+	assert.Equal(t, []string{"application_service_graph_connection_info"}, features.Names())
+}
+
+func TestConnectionInfoFeatureIsConfigV2Only(t *testing.T) {
+	_, err := LoadFeatures([]string{"application_service_graph_connection_info"})
+	require.ErrorContains(t, err, `unknown metrics feature "application_service_graph_connection_info"`)
+
+	var features Features
+	require.ErrorContains(t,
+		features.UnmarshalText([]byte("application_service_graph_connection_info")),
+		`unknown metrics feature "application_service_graph_connection_info"`,
+	)
+	require.ErrorContains(t,
+		yaml.Unmarshal([]byte("features: [application_service_graph_connection_info]"), &struct {
+			Features Features
+		}{}),
+		`unknown metrics feature "application_service_graph_connection_info"`,
+	)
+
+	assert.False(t, FeatureAll.ConnectionInfo())
+	assert.False(t, mustLoadFeatures(t, "all").ConnectionInfo())
+	assert.False(t, mustLoadFeatures(t, "*").ConnectionInfo())
+
+	allWithConnectionInfo, err := LoadV2Features([]string{"all", "application_service_graph_connection_info"})
+	require.NoError(t, err)
+	assert.True(t, allWithConnectionInfo.ConnectionInfo())
+	assert.Contains(t, allWithConnectionInfo.Names(), "application_service_graph_connection_info")
+}
+
+func TestServiceTopology(t *testing.T) {
+	assert.False(t, Features(0).ServiceTopology())
+	assert.True(t, FeatureGraph.ServiceTopology())
+	assert.True(t, FeatureConnectionInfo.ServiceTopology())
+}
+
 func TestFeatureEnv(t *testing.T) {
 	doc := struct {
 		Features Features `env:"FOO"`
@@ -39,6 +82,23 @@ func TestFeatureEnv(t *testing.T) {
 	assert.False(t, doc.Features.has(FeatureSpanOTel))
 	assert.False(t, doc.Features.has(FeatureSpanLegacy))
 	assert.False(t, doc.Features.has(FeatureAll))
+}
+
+func TestFeatureEnvRejectsConfigV2OnlyFeature(t *testing.T) {
+	doc := struct {
+		Metrics    Features `env:"OTEL_EBPF_METRICS_FEATURES"`
+		Prometheus Features `env:"OTEL_EBPF_PROMETHEUS_FEATURES"`
+	}{}
+	t.Setenv("OTEL_EBPF_METRICS_FEATURES", "application_service_graph_connection_info")
+	require.ErrorContains(t, env.Parse(&doc), `unknown metrics feature "application_service_graph_connection_info"`)
+
+	doc = struct {
+		Metrics    Features `env:"OTEL_EBPF_METRICS_FEATURES"`
+		Prometheus Features `env:"OTEL_EBPF_PROMETHEUS_FEATURES"`
+	}{}
+	t.Setenv("OTEL_EBPF_METRICS_FEATURES", "")
+	t.Setenv("OTEL_EBPF_PROMETHEUS_FEATURES", "application_service_graph_connection_info")
+	require.ErrorContains(t, env.Parse(&doc), `unknown metrics feature "application_service_graph_connection_info"`)
 }
 
 func TestFeatureEnv_NetworkFlowPackets(t *testing.T) {
@@ -146,6 +206,32 @@ func TestLoadFeaturesRejectsUnknownNames(t *testing.T) {
 	// the error names the valid features so a typo is self-diagnosing
 	_, err = LoadFeatures([]string{"no_such_feature"})
 	require.ErrorContains(t, err, "application_runtime")
+}
+
+// The TCP resets feature is selectable from Config v2 only: the frozen v1 feature
+// names neither list it nor enable it through the "stats" aggregate.
+func TestFeatureStatsTCPResetsIsV2Only(t *testing.T) {
+	_, err := LoadFeatures([]string{"stats_tcp_resets"})
+	require.ErrorContains(t, err, `unknown metrics feature "stats_tcp_resets"`)
+
+	stats, err := LoadFeatures([]string{"stats"})
+	require.NoError(t, err)
+	assert.False(t, stats.StatsTCPResets())
+
+	assert.False(t, FeatureAll.StatsTCPResets())
+	assert.False(t, mustLoadFeatures(t, "all").StatsTCPResets())
+	assert.False(t, mustLoadFeatures(t, "*").StatsTCPResets())
+
+	resets, err := LoadV2Features([]string{"stats_tcp_resets"})
+	require.NoError(t, err)
+	assert.True(t, resets.StatMetrics())
+	assert.True(t, resets.StatsTCPResets())
+	assert.False(t, resets.StatsTCPRtt())
+	assert.Equal(t, []string{"stats_tcp_resets"}, resets.Names())
+
+	statsWithResets, err := LoadV2Features([]string{"stats", "stats_tcp_resets"})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"stats", "stats_tcp_resets"}, statsWithResets.Names())
 }
 
 // An unset OTEL_EBPF_METRICS_FEATURES resolves to an empty envDefault string

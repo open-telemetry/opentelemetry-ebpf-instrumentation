@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/export/debug"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/filter"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/obi"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
@@ -30,7 +31,18 @@ var v2NetworkMetricsFeatureMask = export.FeatureNetwork |
 	export.FeatureNetworkInterZone |
 	export.FeatureNetworkFlowPackets
 
-var v2StatsMetricsFeatureMask = export.FeatureStats
+var v2StatsMetricsFeatureMask = export.FeatureStats |
+	export.FeatureStatsTCPResets
+
+var defaultV2ServiceNameSourcesWithCloud = []transform.Source{
+	transform.SourceK8s,
+	transform.SourceECS,
+	transform.SourceRoute53,
+}
+
+var defaultV2ServiceNameSourcesWithoutCloud = []transform.Source{
+	transform.SourceK8s,
+}
 
 // V2ToRuntime converts a config v2 extension shape into an OBI runtime
 // configuration.
@@ -39,13 +51,20 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 		return nil, err
 	}
 	_, defaults := RuntimeToV2(nil)
+	// Enable Route53 for new v2 configurations without changing v1 migration defaults.
+	defaults.Enrich.ServiceName.Sources = cloneSources(defaultV2ServiceNameSourcesWithCloud)
 	// Omitted features retain the protocol and network enablement mapping.
 	defaults.Capture.Metrics.Features = nil
+	// Check before applying defaults to distinguish omitted sources from explicit ones.
+	serviceNameSourcesOmitted := src.Enrich == nil || src.Enrich.ServiceName.Sources == nil
 	var complete bool
 	var err error
 	src, complete, err = src.WithDefaults(defaults)
 	if err != nil {
 		return nil, fmt.Errorf("applying config v2 defaults: %w", err)
+	}
+	if src.Capture.Telemetry.Metrics.ConnectionInfoTTL.TimeDuration() < 0 {
+		return nil, errors.New("capture.telemetry.metrics.connection_info_ttl must not be negative")
 	}
 	if err := validateV2Channels(src.Capture.Channels); err != nil {
 		return nil, err
@@ -87,14 +106,36 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 	src = &normalized
 
 	cfg := runtimeConfigDefaults()
+	cfg.Attributes.UseV2Selection = true
 	applyV2Capture(&cfg, src, policy, complete)
 	applyV2Standalone(&cfg, src, complete)
+	if err := applyV2PeerMetadata(&cfg, src.Enrich, complete); err != nil {
+		return nil, err
+	}
+	if err := applyV2CaptureAttributes(&cfg, src); err != nil {
+		return nil, err
+	}
 	if err := applyV2MetricsEnablement(&cfg, src, complete); err != nil {
 		return nil, err
 	}
 	cfg.Attributes.Select.Normalize()
 	if err := cfg.EBPF.LogEnricher.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid log trace annotation: %w", err)
+	}
+	if !cfg.CloudMetadata.DetectionEnabled {
+		if serviceNameSourcesOmitted {
+			cfg.NameResolver.Sources = cloneSources(defaultV2ServiceNameSourcesWithoutCloud)
+		}
+
+		for _, source := range cfg.NameResolver.Sources {
+			switch transform.Source(strings.ToLower(string(source))) {
+			case transform.SourceECS, transform.SourceRoute53, transform.SourceGCE, transform.SourceAzure:
+				return nil, fmt.Errorf(
+					"enrich.service_name.sources: %q requires enrich.enrichers.cloud.detection.enabled to be true",
+					source,
+				)
+			}
+		}
 	}
 
 	return &cfg, nil
@@ -298,6 +339,7 @@ func runtimeConfigDefaults() obi.Config {
 }
 
 func applyV2Capture(cfg *obi.Config, src *schema.Extension, policy schema.CapturePolicy, complete bool) {
+	cfg.Exceptions = src.Capture.Exceptions
 	applyV2Policy(cfg, policy, complete || completePolicy(policy))
 	hasRuleRoutePolicies := applyV2Rules(cfg, src.Capture.Rules, policy)
 	applyV2Limits(cfg, src.Capture.Limits, complete || completeLimits(src.Capture.Limits))
@@ -363,13 +405,13 @@ func applyV2Rules(cfg *obi.Config, rules []schema.Rule, policy schema.CapturePol
 
 func addDefaultIncludeSelector(rules *runtimeDiscoveryRules) {
 	if len(rules.includeRegex) > 0 || len(rules.excludeRegex) > 0 {
-		rules.includeRegex = append(rules.includeRegex, services.RegexSelector{
+		rules.includeRegex = slices.Insert(rules.includeRegex, 0, services.RegexSelector{
 			Path: services.NewRegexp(".*"),
 		})
 		return
 	}
 
-	rules.includeGlobs = append(rules.includeGlobs, services.GlobAttributes{
+	rules.includeGlobs = slices.Insert(rules.includeGlobs, 0, services.GlobAttributes{
 		Path: services.NewGlob("*"),
 	})
 }
@@ -715,6 +757,7 @@ func validV2HTTPPayloadExtractor(extractor string) bool {
 		payloadExtractorBedrock,
 		payloadExtractorMCP,
 		payloadExtractorOllama,
+		payloadExtractorCohere,
 		payloadExtractorOpenAICompatible,
 		payloadExtractorEmbedding,
 		payloadExtractorRerank,
@@ -828,6 +871,7 @@ func selectorFromRule(
 			return nil, nil, false
 		}
 		selector := regexSelectorFromRule(rule)
+		selector.Exceptions = rule.Refine.Exceptions
 		selector.ExportModes, selector.Routes = v2RuleRefinement(
 			rule.Refine,
 			completeExports,
@@ -837,6 +881,7 @@ func selectorFromRule(
 	}
 
 	selector := globSelectorFromRule(rule)
+	selector.Exceptions = rule.Refine.Exceptions
 	selector.ExportModes, selector.Routes = v2RuleRefinement(
 		rule.Refine,
 		completeExports,
@@ -960,6 +1005,9 @@ func v2RoutePolicyOverride(policy *schema.HTTPRoutePolicy) *services.RoutePolicy
 
 func exportModesFromRefinement(refine schema.ExportModeRefinement) services.ExportModes {
 	modes := services.NewExportModes()
+	if refine.Logs {
+		modes.AllowLogs()
+	}
 	if refine.Traces {
 		modes.AllowTraces()
 	}
@@ -1129,6 +1177,7 @@ func applyFullV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	cfg.EBPF.ProtocolDebug = engine.Debug.ProtocolPrint
 	cfg.Discovery.BPFPidFilterOff = engine.PIDFilter.Disabled
 	cfg.EBPF.WakeupLen = engine.Batching.WakeupLen
+	cfg.EBPF.StatsWakeupDataBytes = engine.Batching.Stats.WakeupBytes
 	cfg.EBPF.BatchLength = engine.Batching.BatchLength
 	cfg.EBPF.BatchTimeout = engine.Batching.BatchTimeout.TimeDuration()
 	cfg.EBPF.ContextPropagation = engine.Propagation.ContextPropagation
@@ -1141,6 +1190,7 @@ func applyFullV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	cfg.EBPF.MaxTransactionTime = engine.Transactions.MaxDuration.TimeDuration()
 	cfg.EBPF.MapsConfig.GlobalScaleFactor = engine.Maps.GlobalScaleFactor
 	cfg.EBPF.BPFFSPath = engine.BPFFileSystem.Path
+	cfg.EBPF.CgroupFSPath = engine.CgroupFileSystem.Path
 }
 
 func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
@@ -1158,6 +1208,9 @@ func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	}
 	if engine.Batching.WakeupLen != 0 {
 		cfg.EBPF.WakeupLen = engine.Batching.WakeupLen
+	}
+	if engine.Batching.Stats.WakeupBytes != 0 {
+		cfg.EBPF.StatsWakeupDataBytes = engine.Batching.Stats.WakeupBytes
 	}
 	if engine.Batching.BatchLength != 0 {
 		cfg.EBPF.BatchLength = engine.Batching.BatchLength
@@ -1195,6 +1248,9 @@ func applyPartialV2Engine(cfg *obi.Config, engine schema.CaptureEngine) {
 	if engine.BPFFileSystem.Path != "" {
 		cfg.EBPF.BPFFSPath = engine.BPFFileSystem.Path
 	}
+	if engine.CgroupFileSystem.Path != "" {
+		cfg.EBPF.CgroupFSPath = engine.CgroupFileSystem.Path
+	}
 }
 
 func instrumentationWithDefaults(instrumentation schema.Instrumentation) schema.Instrumentation {
@@ -1231,6 +1287,7 @@ func applyFullV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrume
 	applyFullV2HTTPInstrumentation(cfg, instrumentation.HTTP)
 
 	cfg.EBPF.HeuristicSQLDetect = instrumentation.SQL.HeuristicDetect
+	cfg.Attributes.SanitizeSQLQueryText = instrumentation.SQL.SanitizeQueryText
 	cfg.EBPF.BufferSizes.MySQL = instrumentation.SQL.MySQL.BufferSize
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = instrumentation.SQL.MySQL.PreparedStatementsCacheSize
 	cfg.EBPF.BufferSizes.Postgres = instrumentation.SQL.Postgres.BufferSize
@@ -1262,6 +1319,9 @@ func applyPartialV2Instrumentation(cfg *obi.Config, instrumentation schema.Instr
 	if !zeroValue(instrumentation.SQL) {
 		if instrumentation.SQL.HeuristicDetect {
 			cfg.EBPF.HeuristicSQLDetect = true
+		}
+		if instrumentation.SQL.SanitizeQueryText {
+			cfg.Attributes.SanitizeSQLQueryText = true
 		}
 		if instrumentation.SQL.MySQL.BufferSize != 0 {
 			cfg.EBPF.BufferSizes.MySQL = instrumentation.SQL.MySQL.BufferSize
@@ -1498,6 +1558,7 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 	http.GenAI.Rerank.Enabled = false
 	http.GenAI.Retrieval.Enabled = false
 	http.GenAI.Ollama.Enabled = false
+	http.GenAI.Cohere.Enabled = false
 	http.GenAI.OpenAICompatible.Enabled = false
 	http.JSONRPC.Enabled = false
 	http.Enrichment.Enabled = false
@@ -1532,6 +1593,8 @@ func applyV2HTTPPayloadExtractorMembership(http *obiconfig.HTTPConfig, enabled [
 			http.GenAI.Retrieval.Enabled = true
 		case payloadExtractorOllama:
 			http.GenAI.Ollama.Enabled = true
+		case payloadExtractorCohere:
+			http.GenAI.Cohere.Enabled = true
 		case payloadExtractorOpenAICompatible:
 			http.GenAI.OpenAICompatible.Enabled = true
 		case payloadExtractorJSONRPC:
@@ -1568,6 +1631,10 @@ func applyProtocolEnablement(cfg *obi.Config, instrumentation schema.Instrumenta
 	cfg.Traces.Instrumentations = applySignalEnablement(cfg.Traces.Instrumentations, instrumentation, "traces", complete)
 	cfg.OTELMetrics.Instrumentations = applySignalEnablement(cfg.OTELMetrics.Instrumentations, instrumentation, "metrics", complete)
 	cfg.Prometheus.Instrumentations = applySignalEnablement(cfg.Prometheus.Instrumentations, instrumentation, "metrics", complete)
+
+	if enabled := instrumentation.HTTP.Enabled.RequestPhaseSpans; enabled != nil {
+		cfg.Traces.DisableHTTPRequestPhaseSpans = !*enabled
+	}
 }
 
 func applySignalEnablement(
@@ -1912,6 +1979,10 @@ func applyFullV2CaptureTelemetry(cfg *obi.Config, telemetry schema.CaptureTeleme
 	cfg.Traces.ReportersCacheLen = telemetry.Traces.ReportersCacheLen
 	cfg.OTELMetrics.ReportersCacheLen = telemetry.Metrics.ReportersCacheLen
 	cfg.OTELMetrics.TTL = telemetry.Metrics.TTL.TimeDuration()
+	if telemetry.Metrics.ConnectionInfoTTL.TimeDuration() > 0 {
+		cfg.OTELMetrics.ConnectionInfoTTL = telemetry.Metrics.ConnectionInfoTTL.TimeDuration()
+		cfg.Prometheus.ConnectionInfoTTL = telemetry.Metrics.ConnectionInfoTTL.TimeDuration()
+	}
 }
 
 func applyPartialV2CaptureTelemetry(cfg *obi.Config, telemetry schema.CaptureTelemetry) {
@@ -1923,6 +1994,10 @@ func applyPartialV2CaptureTelemetry(cfg *obi.Config, telemetry schema.CaptureTel
 	}
 	if !zeroValue(telemetry.Metrics.TTL) {
 		cfg.OTELMetrics.TTL = telemetry.Metrics.TTL.TimeDuration()
+	}
+	if !zeroValue(telemetry.Metrics.ConnectionInfoTTL) {
+		cfg.OTELMetrics.ConnectionInfoTTL = telemetry.Metrics.ConnectionInfoTTL.TimeDuration()
+		cfg.Prometheus.ConnectionInfoTTL = telemetry.Metrics.ConnectionInfoTTL.TimeDuration()
 	}
 }
 
@@ -1999,6 +2074,7 @@ func applyFullV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.Kubernetes
 	cfg.Attributes.Kubernetes.DropExternal = kubernetes.DropExternal
 	cfg.Attributes.Kubernetes.DisableInformers = cloneStrings(kubernetes.Informers.Disabled)
 	cfg.Attributes.Kubernetes.MetaCacheAddress = kubernetes.MetadataCache.Address
+	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig(kubernetes.MetadataCache.TLS)
 	cfg.Attributes.Kubernetes.MetaRestrictLocalNode = kubernetes.MetadataCache.RestrictLocalNode
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceName = kubernetes.MetadataCache.SourceLabels.ServiceName
 	cfg.Attributes.Kubernetes.MetaSourceLabels.ServiceNamespace = kubernetes.MetadataCache.SourceLabels.ServiceNamespace
@@ -2040,6 +2116,9 @@ func applyPartialV2KubernetesEnricher(cfg *obi.Config, kubernetes schema.Kuberne
 	if kubernetes.MetadataCache.Address != "" {
 		cfg.Attributes.Kubernetes.MetaCacheAddress = kubernetes.MetadataCache.Address
 	}
+	if !zeroValue(kubernetes.MetadataCache.TLS) {
+		cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig(kubernetes.MetadataCache.TLS)
+	}
 	if kubernetes.MetadataCache.RestrictLocalNode {
 		cfg.Attributes.Kubernetes.MetaRestrictLocalNode = kubernetes.MetadataCache.RestrictLocalNode
 	}
@@ -2057,6 +2136,10 @@ func applyV2CloudEnricher(cfg *obi.Config, enrich *schema.Enrich, complete bool)
 	}
 
 	cloud := enrich.Enrichers.Cloud
+	if cloud.Detection.Enabled != nil {
+		cfg.CloudMetadata.DetectionEnabled = *cloud.Detection.Enabled
+	}
+
 	if complete || completeCloudEnricher(cloud) {
 		applyFullV2CloudEnricher(cfg, cloud)
 		return
@@ -2102,6 +2185,13 @@ func applyV2EnrichServiceName(cfg *obi.Config, enrich *schema.Enrich) {
 	}
 
 	cfg.NameResolver.Sources = cloneSources(serviceName.Sources)
+	if serviceName.GCE != nil {
+		cfg.NameResolver.GCE = *serviceName.GCE
+	}
+	cfg.NameResolver.Azure = transform.AzureNameResolverConfig{
+		SubscriptionID: serviceName.Azure.SubscriptionID,
+		ResourceGroup:  serviceName.Azure.ResourceGroup,
+	}
 	cfg.NameResolver.CacheLen = serviceName.Cache.Size
 	cfg.NameResolver.CacheTTL = serviceName.Cache.TTL.TimeDuration()
 	cfg.Attributes.RenameUnresolvedHosts = serviceName.UnresolvedHosts.Names.Default
@@ -2311,7 +2401,7 @@ func completeDaemonTelemetry(telemetry schema.DaemonTelemetry) bool {
 
 func applyV2MetricsEnablement(cfg *obi.Config, src *schema.Extension, complete bool) error {
 	if features := src.Capture.Metrics.Features; features != nil {
-		mask, err := export.LoadFeatures(features)
+		mask, err := export.LoadV2Features(features)
 		if err != nil {
 			return fmt.Errorf("capture.metrics.features: %w", err)
 		}
@@ -2582,6 +2672,8 @@ func statsFeatureMask(features []string) export.Features {
 			out |= export.FeatureStatsTCPRetransmits
 		case statsFeatureTCPIo:
 			out |= export.FeatureStatsTCPIo
+		case statsFeatureTCPResets:
+			out |= export.FeatureStatsTCPResets
 		}
 	}
 	return out

@@ -21,9 +21,7 @@ import (
 // @opentelemetry/api with no SDK registered, so they only exist because OBI
 // injected the span bridge. It asserts the spans are captured, carry their
 // attributes/status, nest correctly among themselves, and are re-anchored
-// onto the same trace as OBI's own automatic HTTP server span (parented
-// under OBI's "processing" sub-span, which carries the in-flight request
-// context that the bridge spans inherit).
+// onto the same trace as OBI's own automatic HTTP server span.
 func testHTTPTracesNodeManualSpans(t *testing.T) {
 	for range 6 {
 		ti.DoHTTPGet(t, "http://localhost:3031/manual", 200)
@@ -59,25 +57,27 @@ func testHTTPTracesNodeManualSpans(t *testing.T) {
 	require.NotEmpty(t, server.TraceID)
 	traceID := server.TraceID
 
-	// OBI's automatic "processing" sub-span: a child of the server span whose
-	// span id is the in-flight request context. Manual spans re-anchor here.
+	// Without queue time, OBI uses the server span as the request context.
+	parent := server
 	res = trace.FindByOperationName("processing", "internal")
-	require.Len(t, res, 1)
-	processing := res[0]
-	require.Equal(t, traceID, processing.TraceID)
+	if len(res) > 0 {
+		require.Len(t, res, 1)
+		parent = res[0]
+		require.Equal(t, traceID, parent.TraceID)
+		p, ok := trace.ParentOf(&parent)
+		require.True(t, ok, "processing must have a parent")
+		assert.Equal(t, server.SpanID, p.SpanID, "processing must be a child of the server span")
+	}
 
-	// "checkout" is the root manual span. It must share the automatic trace
-	// and be re-anchored as a child of the "processing" sub-span — this is
-	// the eBPF correlation via the request fd the span sentinel carries, the
-	// whole point of the feature.
+	// The root manual span inherits the request context through fd correlation.
 	res = trace.FindByOperationName("checkout", "internal")
 	require.Len(t, res, 1)
 	checkout := res[0]
 	assert.Equal(t, traceID, checkout.TraceID, "manual span must join the automatic trace")
 	p, ok := trace.ParentOf(&checkout)
 	require.True(t, ok, "checkout must have a parent")
-	assert.Equal(t, processing.SpanID, p.SpanID,
-		"checkout must be re-anchored under OBI's automatic processing sub-span")
+	assert.Equal(t, parent.SpanID, p.SpanID,
+		"checkout must be re-anchored under OBI's automatic request span")
 	sd := checkout.Diff(
 		jaeger.Tag{Key: "obitest.cart.items", Type: "int64", Value: float64(3)},
 		jaeger.Tag{Key: "span.kind", Type: "string", Value: "internal"},
