@@ -733,6 +733,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 
 	require.Equal(t, 8192, got.EBPF.StatsWakeupDataBytes)
 	require.Equal(t, config.ContextPropagationAll, got.EBPF.ContextPropagation)
+	require.True(t, got.EBPF.DisableGoChannelLinks)
 	require.Equal(t, config.TCBackendTCX, got.EBPF.TCBackend)
 	require.Equal(t, config.MapReaderLegacy, got.EBPF.ForceBPFMapReader)
 	require.Equal(t, 2, got.EBPF.MapsConfig.GlobalScaleFactor)
