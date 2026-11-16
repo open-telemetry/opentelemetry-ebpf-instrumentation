@@ -6,6 +6,7 @@
 package generictracer
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/cilium/ebpf"
@@ -86,6 +87,40 @@ func TestPythonExceptionProc(t *testing.T) {
 	})
 }
 
+func TestPythonExceptionProcCopiesEveryField(t *testing.T) {
+	var layout cpythonruntime.ExceptionLayout
+	v := reflect.ValueOf(&layout).Elem()
+	for i := range v.NumField() {
+		field := v.Field(i)
+		if !field.CanSet() {
+			continue
+		}
+		if field.Kind() == reflect.Bool {
+			field.SetBool(true)
+		} else {
+			field.SetUint(uint64(i + 1))
+		}
+	}
+
+	assertFieldsSet(t, reflect.ValueOf(pythonExceptionProc(&layout)), "proc")
+}
+
+func assertFieldsSet(t *testing.T, v reflect.Value, path string) {
+	t.Helper()
+	for i := range v.NumField() {
+		name := v.Type().Field(i).Name
+		if name == "_" || name == "Pad" {
+			continue
+		}
+		field := v.Field(i)
+		if field.Kind() == reflect.Struct {
+			assertFieldsSet(t, field, path+"."+name)
+		} else {
+			assert.False(t, field.IsZero(), "%s.%s is never copied", path, name)
+		}
+	}
+}
+
 func TestPythonExceptionControllerClosed(t *testing.T) {
 	// A late discovery notification must not access maps after tracer shutdown.
 	controller := &pythonExceptionController{}
@@ -94,6 +129,21 @@ func TestPythonExceptionControllerClosed(t *testing.T) {
 		SDKLanguage: svc.InstrumentablePython,
 		Exceptions:  services.ExceptionsConfig{Enabled: true},
 	}})
+	require.NotPanics(t, func() { controller.allow(1, service) })
+	assert.Empty(t, controller.processes)
+}
+
+func TestPythonExceptionControllerPythonDisabled(t *testing.T) {
+	disabled := false
+	controller := &pythonExceptionController{}
+	service := discexec.New(discexec.Init{Service: svc.Attrs{
+		SDKLanguage: svc.InstrumentablePython,
+		Exceptions: services.ExceptionsConfig{
+			Enabled: true,
+			Python:  services.PythonExceptionsConfig{Enabled: &disabled},
+		},
+	}})
+	// An allowed process would reach attachment and require a tracer.
 	require.NotPanics(t, func() { controller.allow(1, service) })
 	assert.Empty(t, controller.processes)
 }

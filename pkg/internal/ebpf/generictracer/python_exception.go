@@ -51,7 +51,8 @@ func (p *Tracer) exceptionsEnabled() bool {
 }
 
 func (c *pythonExceptionController) allow(pid app.PID, service *exec.FileInfo) {
-	if c == nil || service.SDKLanguage() != svc.InstrumentablePython || !service.ServiceAttrs().Exceptions.Enabled {
+	if c == nil || service.SDKLanguage() != svc.InstrumentablePython ||
+		!service.ServiceAttrs().Exceptions.Enabled || !service.ServiceAttrs().Exceptions.Python.IsEnabled() {
 		return
 	}
 
@@ -151,6 +152,7 @@ func pythonExceptionProc(layout *cpythonruntime.ExceptionLayout) BpfPythonExcept
 		StopAsyncIteration: layout.StopAsyncIteration,
 		GeneratorExit:      layout.GeneratorExit,
 		CodeAdaptive:       layout.CodeAdaptive,
+		TypeFlags:          layout.TypeFlags,
 		TstateInterp:       layout.TstateInterp,
 		TstateFrame:        layout.TstateFrame,
 		CframeCurrentFrame: layout.CFrameCurrentFrame,

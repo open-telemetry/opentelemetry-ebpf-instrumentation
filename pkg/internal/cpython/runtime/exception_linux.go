@@ -8,7 +8,6 @@ package runtime // import "go.opentelemetry.io/obi/pkg/internal/cpython/runtime"
 import (
 	"debug/elf"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -44,7 +43,8 @@ const (
 // ExceptionLayout holds the CPython offsets and object addresses of one process
 // that the exception probe and the symbolizer read. It mirrors python_exception_proc_t.
 type ExceptionLayout struct {
-	Minor uint8
+	Minor     uint8
+	TypeFlags uint8
 
 	MainInterpreter    uint64
 	CodeType           uint64
@@ -116,21 +116,6 @@ type debugExceptionFields struct {
 	frameOwnerCStack, tstateExcInfo                        uint8
 }
 
-var debugExceptionPositions = map[uint8]debugExceptionFields{
-	13: {
-		size: 584, interpretersHead: 40, tstateInterp: 176, tstateFrame: 184,
-		framePrevious: 232, frameCode: 240, frameInstr: 248, frameOwner: 264,
-		codeFilename: 280, codeName: 288, codeLinetable: 304, codeFirstlineno: 312,
-		codeAdaptive: 344, tupleItems: 408, unicodeASCIISize: 560, frameOwnerCStack: 3, tstateExcInfo: 120,
-	},
-	14: {
-		size: 760, interpretersHead: 40, tstateInterp: 200, tstateFrame: 208,
-		framePrevious: 256, frameCode: 264, frameInstr: 272, frameOwner: 288,
-		codeFilename: 320, codeName: 328, codeLinetable: 344, codeFirstlineno: 352,
-		codeAdaptive: 384, tupleItems: 456, unicodeASCIISize: 640, frameOwnerCStack: 4, tstateExcInfo: 120,
-	},
-}
-
 var exceptionSymbols = []string{
 	"_PyRuntime", "Py_Version", "PyCode_Type", "PyUnicode_Type", "PyTuple_Type",
 	"PyExc_StopIteration", "PyExc_StopAsyncIteration", "PyExc_GeneratorExit",
@@ -140,6 +125,10 @@ var exceptionSymbols = []string{
 // ResolveExceptionTarget finds the CPython runtime mapped by one process and
 // the layout the exception probe needs.
 func ResolveExceptionTarget(pid app.PID) (*ExceptionTarget, error) {
+	startTime, err := ProcessStartTime(pid)
+	if err != nil {
+		return nil, err
+	}
 	proc, err := procfs.NewProc(int(pid))
 	if err != nil {
 		return nil, err
@@ -153,17 +142,22 @@ func ResolveExceptionTarget(pid app.PID) (*ExceptionTarget, error) {
 		return nil, err
 	}
 
-	resolveErr := fmt.Errorf("%w for PID %d", errRuntimeNotFound, pid)
-	for _, object := range objects {
-		target, err := resolveExceptionObject(pid, maps, object)
-		if err == nil {
-			return target, nil
-		}
-		if !errors.Is(err, errRuntimeNotFound) {
-			resolveErr = err
-		}
+	target, err := resolveRuntimeObjectCandidates(pid, objects, func(object *procfs.ProcMap) (*ExceptionTarget, error) {
+		return resolveExceptionObject(pid, maps, object)
+	})
+	if err != nil {
+		return nil, err
 	}
-	return nil, resolveErr
+	currentStartTime, err := ProcessStartTime(pid)
+	if err != nil {
+		_ = target.Close()
+		return nil, err
+	}
+	if currentStartTime != startTime {
+		_ = target.Close()
+		return nil, errProcessReplaced
+	}
+	return target, nil
 }
 
 func resolveExceptionObject(pid app.PID, maps []*procfs.ProcMap, object *procfs.ProcMap) (*ExceptionTarget, error) {
@@ -227,19 +221,27 @@ func exceptionLayout(file *elf.File, anchor uint64, version uint32) (ExceptionLa
 	if !known || parsed.releaseLevel != cpythonReleaseLevelFinal || parsed.micro > newest {
 		return ExceptionLayout{}, fmt.Errorf("%w: CPython %s exception layout", errUnsupportedLayout, parsed)
 	}
+	typeFlags, ok := layoutOffsets.Find("PyTypeObject", "tp_flags", parsed.String())
+	if !ok || typeFlags > math.MaxUint8 {
+		return ExceptionLayout{}, fmt.Errorf("%w: CPython %s type flags offset", errUnsupportedLayout, parsed)
+	}
 	minor := parsed.minor
 	if minor >= 9 && minor <= 12 {
-		return legacyExceptionLayout(parsed)
+		layout, err := legacyExceptionLayout(parsed)
+		layout.TypeFlags = uint8(typeFlags)
+		return layout, err
 	}
-	positions, ok := debugExceptionPositions[minor]
-	if !ok {
-		return ExceptionLayout{}, fmt.Errorf("%w: CPython 3.%d exception layout", errUnsupportedLayout, minor)
+	positions, err := loadDebugExceptionPositions(parsed)
+	if err != nil {
+		return ExceptionLayout{}, err
 	}
 	debug, err := readVirtualBytes(file, anchor, uint64(positions.size))
 	if err != nil {
 		return ExceptionLayout{}, err
 	}
-	return debugExceptionLayout(debug, minor, positions)
+	layout, err := debugExceptionLayout(debug, minor, positions)
+	layout.TypeFlags = uint8(typeFlags)
+	return layout, err
 }
 
 // debugExceptionLayout reads the offsets CPython 3.13+ publishes at the start of _PyRuntime.

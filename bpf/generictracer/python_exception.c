@@ -37,6 +37,7 @@ int GUARDED_PROG(obi_uprobe_python_err_set_object, struct pt_regs *, ctx) {
     tp_info_t tp = {};
     const enum exception_owner owner = python_exception_owner(id, &tp);
     if (owner == k_exception_owner_none) {
+        bpf_dbg_printk("python exception: no request owner pid=%d", host_pid);
         return 0;
     }
 
@@ -60,6 +61,7 @@ int GUARDED_PROG(obi_uprobe_python_err_set_object, struct pt_regs *, ctx) {
         python_exception_capture(proc, tstate, type, value, value_type, &pending->latest);
         pending->latest.payload.obi_pid = process_pid;
         pending->latest.owner = owner;
+        bpf_dbg_printk("python exception: captured pid=%d owner=%d", host_pid, owner);
     }
 
     return 0;

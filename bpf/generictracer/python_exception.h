@@ -71,6 +71,7 @@ typedef struct python_exception_proc {
     u64 generator_exit;
     python_exception_layout_t layout;
     u16 code_adaptive;
+    u8 type_flags;
     u8 tstate_interp;
     // _PyCFrame* on 3.11 and 3.12, the current frame on 3.13+
     u8 tstate_frame;
@@ -95,7 +96,7 @@ typedef struct python_exception_proc {
     u8 tstate_exc_info;
     u8 err_item_value;
     u8 err_item_previous;
-    u8 _pad[4];
+    u8 _pad[3];
 } python_exception_proc_t;
 
 typedef struct python_exception_key {
@@ -177,10 +178,9 @@ static __always_inline enum exception_owner python_exception_owner(const u64 id,
     python_task_ref_t task = {};
     python_task_resolution_t resolution = PYTHON_TASK_NOT_FOUND;
     if (thread && thread->current_task) {
-        if (!resolve_python_task_ref(id, thread->current_task, &task)) {
-            return k_exception_owner_none;
-        }
-        resolution = PYTHON_TASK_RESOLVED;
+        trace_key_t key = {};
+        trace_key_from_pid_tid(&key);
+        resolution = resolve_python_current_task(&key, id, &task);
     } else if (thread && thread->current_context) {
         const python_addr_key_t key = python_addr_key(id, thread->current_context);
         const python_context_task_t *context = bpf_map_lookup_elem(&python_context_task, &key);
@@ -215,7 +215,13 @@ static __always_inline bool python_exception_control_flow(const python_exception
 
 static __always_inline bool python_exception_instance(const python_exception_proc_t *proc,
                                                       const u64 value_type) {
-    return value_type && value_type != proc->unicode_type && value_type != proc->tuple_type;
+    if (!value_type) {
+        return false;
+    }
+    // Py_TPFLAGS_BASE_EXC_SUBCLASS includes custom exception subclasses.
+    const u64 flags = python_read_ptr(value_type + proc->type_flags);
+    enum { k_python_type_base_exception_subclass = 1U << 30 };
+    return (flags & k_python_type_base_exception_subclass) != 0;
 }
 
 // `raise err` of an instance that already propagated keeps the first capture.
@@ -607,6 +613,7 @@ python_exception_emit(const u32 host_pid, const tp_info_t *tp, const u64 request
     const python_exception_pending_t *pending =
         bpf_map_lookup_elem(&python_exception_pending, &key);
     if (!pending) {
+        bpf_dbg_printk("python exception: no pending capture pid=%d", host_pid);
         return;
     }
 
@@ -616,6 +623,7 @@ python_exception_emit(const u32 host_pid, const tp_info_t *tp, const u64 request
     const python_exception_candidate_t *candidate =
         proc ? python_exception_choose(proc, pending, tp) : NULL;
     if (!candidate || candidate->capture_ns < request_start_ns) {
+        bpf_dbg_printk("python exception: no eligible candidate pid=%d", host_pid);
         bpf_map_delete_elem(&python_exception_pending, &key);
         return;
     }
@@ -634,6 +642,7 @@ python_exception_emit(const u32 host_pid, const tp_info_t *tp, const u64 request
     record->hdr.payload_len = python_exception_payload_len(&candidate->payload);
     __builtin_memcpy(record->payload, &candidate->payload, sizeof(candidate->payload));
 
+    bpf_dbg_printk("python exception: submitting pid=%d owner=%d", host_pid, candidate->owner);
     exception_record_submit(record);
     bpf_map_delete_elem(&python_exception_pending, &key);
 }

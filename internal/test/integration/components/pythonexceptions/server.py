@@ -9,10 +9,15 @@ request, which the live test compares with the captured exception.
 
 import asyncio
 import contextvars
+import ctypes
 import sys
 import traceback
 
 truths = {}
+
+set_object = ctypes.pythonapi.PyErr_SetObject
+set_object.argtypes = [ctypes.py_object, ctypes.py_object]
+set_object.restype = None
 
 
 class CustomError(Exception):
@@ -38,6 +43,8 @@ def leaf(case, token):
         raise ExceptionGroup(token, [ValueError("child")])
     if case == "native":
         int(token)
+    if case == "native-int":
+        set_object(ValueError, 42)
     if case == "stop":
         next(iter(()))
     raise ValueError(token)

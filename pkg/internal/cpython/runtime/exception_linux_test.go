@@ -29,7 +29,8 @@ func debugOffsetsBlob(positions debugExceptionFields, values map[*int]uint64) []
 
 func TestDebugExceptionLayout(t *testing.T) {
 	// Values published by CPython 3.14.6.
-	positions := debugExceptionPositions[14]
+	positions, err := loadDebugExceptionPositions(versionFromHex(0x030e06f0))
+	require.NoError(t, err)
 	blob := debugOffsetsBlob(positions, map[*int]uint64{
 		&positions.interpretersHead: 808, &positions.tstateInterp: 16, &positions.tstateFrame: 72,
 		&positions.framePrevious: 8, &positions.frameCode: 0, &positions.frameInstr: 56, &positions.frameOwner: 74,
@@ -108,6 +109,7 @@ func TestLegacyExceptionLayoutCompatibility(t *testing.T) {
 	}
 	for minor, want := range expected {
 		want.Minor = minor
+		want.TypeFlags = 168
 		for _, patch := range []uint8{0, supportedVersions[fmt.Sprintf("3.%d", minor)]} {
 			version := uint32(3)<<24 | uint32(minor)<<16 | uint32(patch)<<8 | 0xf0
 			got, err := exceptionLayout(nil, 0, version)
@@ -155,4 +157,61 @@ func TestErrSetObjectPrefersSplitBody(t *testing.T) {
 	offset, err = errSetObjectOffset(nil, symbols)
 	require.NoError(t, err)
 	assert.Equal(t, uint64(0x100), offset)
+}
+
+func TestDebugExceptionPositionsCompatibility(t *testing.T) {
+	for minor, want := range map[uint8]debugExceptionFields{
+		13: {
+			size: 584, interpretersHead: 40, tstateInterp: 176, tstateFrame: 184,
+			framePrevious: 232, frameCode: 240, frameInstr: 248, frameOwner: 264,
+			codeFilename: 280, codeName: 288, codeLinetable: 304, codeFirstlineno: 312,
+			codeAdaptive: 344, tupleItems: 408, unicodeASCIISize: 560, frameOwnerCStack: 3, tstateExcInfo: 120,
+		},
+		14: {
+			size: 760, interpretersHead: 40, tstateInterp: 200, tstateFrame: 208,
+			framePrevious: 256, frameCode: 264, frameInstr: 272, frameOwner: 288,
+			codeFilename: 320, codeName: 328, codeLinetable: 344, codeFirstlineno: 352,
+			codeAdaptive: 384, tupleItems: 456, unicodeASCIISize: 640, frameOwnerCStack: 4, tstateExcInfo: 120,
+		},
+	} {
+		for _, patch := range []uint8{0, supportedVersions[fmt.Sprintf("3.%d", minor)]} {
+			version := versionFromHex(3<<24 | uint32(minor)<<16 | uint32(patch)<<8 | 0xf0)
+			t.Run(version.String(), func(t *testing.T) {
+				got, err := loadDebugExceptionPositions(version)
+				require.NoError(t, err)
+				assert.Equal(t, want, got)
+			})
+		}
+	}
+}
+
+func TestDebugExceptionPositionsRejectInvalidOffset(t *testing.T) {
+	fields := layoutOffsets.Data["_Py_DebugOffsets"]
+	original := fields["thread_state.interp"]
+	t.Cleanup(func() { fields["thread_state.interp"] = original })
+	delete(fields, "thread_state.interp")
+	_, err := loadDebugExceptionPositions(versionFromHex(0x030e00f0))
+	require.ErrorIs(t, err, errUnsupportedLayout)
+
+	invalid := original
+	invalid.Offsets = append([]offsets.Versioned(nil), original.Offsets...)
+	invalid.Offsets[len(invalid.Offsets)-1].Offset = 760
+	fields["thread_state.interp"] = invalid
+	_, err = loadDebugExceptionPositions(versionFromHex(0x030e00f0))
+	require.ErrorIs(t, err, errUnsupportedLayout)
+}
+
+func TestExceptionLayoutTypeFlags(t *testing.T) {
+	for _, minor := range []uint8{9, 10, 11, 12} {
+		layout, err := exceptionLayout(nil, 0, 3<<24|uint32(minor)<<16|0xf0)
+		require.NoError(t, err)
+		assert.Equal(t, uint8(168), layout.TypeFlags)
+	}
+	original := layoutOffsets.Data["PyTypeObject"]["tp_flags"]
+	t.Cleanup(func() { layoutOffsets.Data["PyTypeObject"]["tp_flags"] = original })
+	delete(layoutOffsets.Data["PyTypeObject"], "tp_flags")
+	for _, minor := range []uint8{9, 10, 11, 12, 13, 14} {
+		_, err := exceptionLayout(nil, 0, 3<<24|uint32(minor)<<16|0xf0)
+		require.ErrorIs(t, err, errUnsupportedLayout)
+	}
 }

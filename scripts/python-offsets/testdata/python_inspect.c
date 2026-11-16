@@ -72,9 +72,29 @@ int main(void) {
          offsetof(struct _gc_runtime_state, collecting), DEBUG_GC,
          DEBUG_INTERPRETER_GC);
   printf(",\"exception_offsets\":{");
-#if PY_VERSION_HEX < 0x030d0000
 #define PRINT_OFFSET(type, field)                                              \
   printf("\"" #type "." #field "\":%zu,", offsetof(type, field))
+  PRINT_OFFSET(PyTypeObject, tp_flags);
+#if PY_VERSION_HEX >= 0x030d0000
+  PRINT_OFFSET(_Py_DebugOffsets, runtime_state.interpreters_head);
+  PRINT_OFFSET(_Py_DebugOffsets, thread_state.interp);
+  PRINT_OFFSET(_Py_DebugOffsets, thread_state.current_frame);
+  PRINT_OFFSET(_Py_DebugOffsets, interpreter_frame.previous);
+  PRINT_OFFSET(_Py_DebugOffsets, interpreter_frame.executable);
+  PRINT_OFFSET(_Py_DebugOffsets, interpreter_frame.instr_ptr);
+  PRINT_OFFSET(_Py_DebugOffsets, interpreter_frame.owner);
+  PRINT_OFFSET(_Py_DebugOffsets, code_object.filename);
+  PRINT_OFFSET(_Py_DebugOffsets, code_object.name);
+  PRINT_OFFSET(_Py_DebugOffsets, code_object.linetable);
+  PRINT_OFFSET(_Py_DebugOffsets, code_object.firstlineno);
+  PRINT_OFFSET(_Py_DebugOffsets, code_object.co_code_adaptive);
+  PRINT_OFFSET(_Py_DebugOffsets, tuple_object.ob_item);
+  PRINT_OFFSET(_Py_DebugOffsets, unicode_object.asciiobject_size);
+  PRINT_OFFSET(PyThreadState, exc_info);
+  printf("\"_PyInterpreterFrame.FRAME_OWNED_BY_CSTACK\":%d,",
+         FRAME_OWNED_BY_CSTACK);
+  printf("\"_Py_DebugOffsets.sizeof\":%zu", sizeof(_Py_DebugOffsets));
+#else
   PRINT_OFFSET(PyThreadState, interp);
   PRINT_OFFSET(PyThreadState, exc_info);
   PRINT_OFFSET(PyTupleObject, ob_item);
@@ -106,8 +126,8 @@ int main(void) {
 #endif
   printf("\"PyASCIIObject.sizeof\":%zu,\"PyCompactUnicodeObject.sizeof\":%zu",
          sizeof(PyASCIIObject), sizeof(PyCompactUnicodeObject));
-#undef PRINT_OFFSET
 #endif
+#undef PRINT_OFFSET
   printf("}}\n");
   return 0;
 }

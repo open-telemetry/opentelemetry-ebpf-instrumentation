@@ -5,6 +5,7 @@ package integration
 
 import (
 	"path"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -15,6 +16,9 @@ import (
 
 // The slim images are stripped; the full images keep a symbol table.
 func TestSuite_PythonExceptions(t *testing.T) {
+	if runtime.GOARCH != "amd64" {
+		t.Skip("Python exception integration coverage is currently amd64-only")
+	}
 	for _, image := range []string{
 		"python:3.9.25-slim-bookworm",
 		"python:3.10.20-slim-bookworm",
@@ -39,6 +43,9 @@ func TestSuite_PythonExceptions(t *testing.T) {
 // Source-built runtimes: a static interpreter, an LTO build, and a
 // free-threaded build that capture must refuse.
 func TestSuite_PythonExceptions_Builds(t *testing.T) {
+	if runtime.GOARCH != "amd64" {
+		t.Skip("Python exception integration coverage is currently amd64-only")
+	}
 	for _, build := range []string{"static", "lto", "free-threaded"} {
 		t.Run(build, func(t *testing.T) {
 			asyncSkipReason := ""

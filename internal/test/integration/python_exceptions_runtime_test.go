@@ -15,6 +15,7 @@ import (
 	osexec "os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -37,6 +38,9 @@ var pythonExceptionFrameLine = regexp.MustCompile(`^  (File "(.*)", line (\d+), 
 // Exceptions that escape a Flask, FastAPI or http.server handler are compared
 // with what CPython recorded in the fixture, request by request.
 func TestPythonExceptions(t *testing.T) {
+	if runtime.GOARCH != "amd64" {
+		t.Skip("Python exception integration coverage is currently amd64-only")
+	}
 	require.Equal(t, 0, os.Geteuid(), "Python exception integration tests require root")
 	require.NoError(t, rlimit.RemoveMemlock())
 	unsupported := os.Getenv("PYTHON_EXCEPTION_BUILD") == "free-threaded"
@@ -44,7 +48,7 @@ func TestPythonExceptions(t *testing.T) {
 	modes := map[string][]string{"flask": {"sync"}, "fastapi": {"await", "task", "thread", "sync"}, "http": {"sync"}}
 	cases := []string{
 		"ascii", "empty", "unicode", "long", "key", "os", "custom", "multiarg",
-		"native", "deep", "reraise", "raise_error", "latest", "chained",
+		"native", "native-int", "deep", "reraise", "raise_error", "latest", "chained",
 	}
 	if pythonMinor(t) >= 11 {
 		cases = append(cases, "group")

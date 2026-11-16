@@ -306,8 +306,10 @@ The `capture` grouping was introduced for two reasons:
   `exceptions.go.formatted_errors` defaults to `false`. Formatted-error capture
   records errors created by the supported `fmt.Errorf` probes, including errors
   the application later handles. Panic capture includes recovered panics.
-  [Python capture](../../exceptions/python.md) uses `exceptions.enabled` for
-  request exceptions selected on server errors.
+  [Python capture](../../exceptions/python.md) uses `exceptions.python.enabled`,
+  which defaults to `true`, together with `exceptions.enabled` for request
+  exceptions selected on server errors. Set `exceptions.python.enabled: false`
+  to disable Python capture while keeping Go capture enabled.
 - `runtimes`: language runtime injection controls (Go probes, Node.js SIGUSR1, Java agent attachment).
 - `network`: network flow capture configuration.
 - `limits`: cardinality and memory guardrails.
@@ -452,8 +454,9 @@ This was rejected because:
 Current overridable fields in `refine`:
 
 - `exports`: override which signals (`traces`, `metrics`, `logs`) are emitted for this workload.
-- `exceptions`: override global exception capture enablement and Go event selection
-  (`go.panics`, `go.formatted_errors`). Omitted fields inherit global settings.
+- `exceptions`: override global exception capture enablement, Go event selection
+  (`go.panics`, `go.formatted_errors`), and Python capture (`python.enabled`).
+  Omitted fields inherit global settings.
 - `http.routes`: refine the direction-scoped HTTP route policy for this workload.
 
 The schema reserves refinement `http.filters`, but the target runtime adapter

@@ -233,20 +233,20 @@ func validate(track *offsets.Track, item release, result probeResult) (bool, err
 		checks[[2]string{"PyInterpreterState", "gc"}] = result.InterpreterGC
 		checks[[2]string{"_gc_runtime_state", "collecting"}] = result.Collecting
 		checks[[2]string{"_gc_runtime_state", "generation_stats"}] = result.GenerationStats
-		if len(result.ExceptionOffsets) == 0 {
-			return false, fmt.Errorf("CPython %s did not report exception offsets", item.tag)
-		}
-		for name, value := range result.ExceptionOffsets {
-			structure, field, ok := strings.Cut(name, ".")
-			if !ok {
-				return false, fmt.Errorf("invalid exception field %q", name)
-			}
-			checks[[2]string{structure, field}] = value
-		}
 	case "3.13", "3.14":
 		checks[[2]string{"_gc_runtime_state", "generation_stats"}] = result.GenerationStats
 		checks[[2]string{"_Py_DebugOffsets", "gc"}] = result.DebugGC
 		checks[[2]string{"_Py_DebugOffsets", "interpreter_state.gc"}] = result.DebugInterpreterGC
+	}
+	if len(result.ExceptionOffsets) == 0 {
+		return false, fmt.Errorf("CPython %s did not report exception offsets", item.tag)
+	}
+	for name, value := range result.ExceptionOffsets {
+		structure, field, ok := strings.Cut(name, ".")
+		if !ok {
+			return false, fmt.Errorf("invalid exception field %q", name)
+		}
+		checks[[2]string{structure, field}] = value
 	}
 	// These ABI tripwires require decoder review rather than automatic table advancement.
 	wantCollecting := map[string]uint64{"3.13": 200, "3.14": 192}

@@ -15,10 +15,16 @@ extensions:
     capture:
       exceptions:
         enabled: true
+        python:
+          enabled: true
 ```
 
-A workload rule can override `refine.exceptions.enabled`. Python currently uses
-this shared switch for request capture and has no language-specific options.
+`exceptions.python.enabled` defaults to `true`. Set it to `false` to disable all
+Python exception capture while keeping capture for other runtimes enabled.
+The shared `exceptions.enabled` switch must also be enabled for Python capture.
+
+A workload rule can override `refine.exceptions.enabled` and
+`refine.exceptions.python.enabled`. Omitted fields inherit the global settings.
 
 ## Probes
 

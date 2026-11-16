@@ -2609,6 +2609,14 @@
           },
           "description": "Go capture selection. Panics default to enabled and formatted errors to disabled; workload overrides inherit omitted fields."
         },
+        "python": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" }
+          },
+          "description": "Python exception capture. Enabled by default when exception capture is enabled; workload overrides inherit omitted fields."
+        },
         "enabled": {
           "type": "boolean",
           "default": false

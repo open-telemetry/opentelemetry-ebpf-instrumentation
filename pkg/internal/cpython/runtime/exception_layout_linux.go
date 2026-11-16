@@ -86,3 +86,53 @@ func legacyExceptionLayout(version pythonVersion) (ExceptionLayout, error) {
 	layout.interpretersMain = main
 	return layout, nil
 }
+
+// loadDebugExceptionPositions reads the inspector-verified positions of published offsets.
+func loadDebugExceptionPositions(version pythonVersion) (debugExceptionFields, error) {
+	var positions debugExceptionFields
+	size, ok := layoutOffsets.Find("_Py_DebugOffsets", "sizeof", version.String())
+	if !ok || size < 8 || size > math.MaxUint16 {
+		return positions, fmt.Errorf("%w: CPython %s debug offsets size", errUnsupportedLayout, version)
+	}
+	positions.size = int(size)
+	fields := []struct {
+		name   string
+		target *int
+	}{
+		{"runtime_state.interpreters_head", &positions.interpretersHead},
+		{"thread_state.interp", &positions.tstateInterp},
+		{"thread_state.current_frame", &positions.tstateFrame},
+		{"interpreter_frame.previous", &positions.framePrevious},
+		{"interpreter_frame.executable", &positions.frameCode},
+		{"interpreter_frame.instr_ptr", &positions.frameInstr},
+		{"interpreter_frame.owner", &positions.frameOwner},
+		{"code_object.filename", &positions.codeFilename},
+		{"code_object.name", &positions.codeName},
+		{"code_object.linetable", &positions.codeLinetable},
+		{"code_object.firstlineno", &positions.codeFirstlineno},
+		{"code_object.co_code_adaptive", &positions.codeAdaptive},
+		{"tuple_object.ob_item", &positions.tupleItems},
+		{"unicode_object.asciiobject_size", &positions.unicodeASCIISize},
+	}
+	for _, field := range fields {
+		value, ok := layoutOffsets.Find("_Py_DebugOffsets", field.name, version.String())
+		if !ok || value > size-8 {
+			return debugExceptionFields{}, fmt.Errorf("%w: CPython %s debug offset %s", errUnsupportedLayout, version, field.name)
+		}
+		*field.target = int(value)
+	}
+	for _, field := range []struct {
+		structure, name string
+		target          *uint8
+	}{
+		{"PyThreadState", "exc_info", &positions.tstateExcInfo},
+		{"_PyInterpreterFrame", "FRAME_OWNED_BY_CSTACK", &positions.frameOwnerCStack},
+	} {
+		value, ok := layoutOffsets.Find(field.structure, field.name, version.String())
+		if !ok || value > math.MaxUint8 {
+			return debugExceptionFields{}, fmt.Errorf("%w: CPython %s %s.%s", errUnsupportedLayout, version, field.structure, field.name)
+		}
+		*field.target = uint8(value)
+	}
+	return positions, nil
+}
