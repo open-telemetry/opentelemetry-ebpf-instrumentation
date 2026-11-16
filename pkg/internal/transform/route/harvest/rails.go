@@ -70,6 +70,7 @@ func extractRailsRoutes(ctx context.Context, root, cwd string) (*RouteHarvesterR
 		return result, nil
 	}
 	// A server may start below the app root; use the nearest config/routes.rb.
+	found := false
 	err := langtools.WalkParentDirectories(dir, root, func(dir string) (bool, error) {
 		if err := ctx.Err(); err != nil {
 			return true, err
@@ -82,9 +83,22 @@ func extractRailsRoutes(ctx context.Context, root, cwd string) (*RouteHarvesterR
 		if !ok {
 			return false, nil
 		}
+		found = true
 		result.Routes, err = scanRailsRouteFiles(ctx, root, path)
 		return true, err
 	})
+	if err != nil || found {
+		return result, err
+	}
+	// No config/routes.rb anywhere up to the app root: this isn't a Rails app.
+	// Fall back to scanning the working directory for Sinatra-style routes,
+	// unless cwd resolved to the filesystem root itself: that means the
+	// working directory could not be narrowed down to an application
+	// directory, and scanning the entire root would be unbounded and unsafe.
+	if dir == root {
+		return result, nil
+	}
+	result.Routes, err = extractSinatraRoutes(ctx, dir)
 	return result, err
 }
 
