@@ -6,6 +6,7 @@ package prom
 import (
 	"context"
 	"log/slog"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -621,4 +622,35 @@ func TestBPFCollectorExposesCumulativeProbeLatencyBuckets(t *testing.T) {
 	assert.Equal(t, uint64(10), buckets[0.000002])
 	assert.Equal(t, uint64(30), buckets[0.000005])
 	assert.Equal(t, uint64(30), buckets[0.005])
+}
+
+func TestReportsProgramType(t *testing.T) {
+	internal := &BPFCollector{obiOnly: true}
+	assert.True(t, internal.reportsProgramType(ebpf.Kprobe))
+	assert.True(t, internal.reportsProgramType(ebpf.TracePoint))
+	assert.True(t, internal.reportsProgramType(ebpf.XDP))
+	assert.False(t, internal.reportsProgramType(ebpf.Tracing))
+
+	node := &BPFCollector{}
+	assert.True(t, node.reportsProgramType(ebpf.Kprobe))
+	assert.False(t, node.reportsProgramType(ebpf.XDP))
+	assert.False(t, node.reportsProgramType(ebpf.Tracing))
+}
+
+func TestInternalProgramIDsComeFromFDInfo(t *testing.T) {
+	fdinfoDir := t.TempDir()
+	writeFDInfo(t, fdinfoDir, map[string]string{
+		"3": "pos:\t0\nflags:\t02000002\nprog_id:\t12\n",
+		"4": "pos:\t0\nflags:\t02000002\nmap_id:\t30\n",
+	})
+	collector := &BPFCollector{obiOnly: true, fdinfoDir: fdinfoDir, log: slog.Default()}
+
+	ids, complete := collector.programIDs()
+	assert.Equal(t, []ebpf.ProgramID{12}, ids)
+	assert.True(t, complete)
+
+	collector.fdinfoDir = filepath.Join(fdinfoDir, "missing")
+	ids, complete = collector.programIDs()
+	assert.Empty(t, ids)
+	assert.False(t, complete, "a failed listing must not evict cached programs")
 }

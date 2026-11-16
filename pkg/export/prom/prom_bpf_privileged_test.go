@@ -86,6 +86,45 @@ func TestGetProbeMetricsNegativelyCachesUnsupportedPrograms(t *testing.T) {
 	require.False(t, cached.supported)
 }
 
+func TestInternalCollectorReportsOnlyOwnedPrograms(t *testing.T) {
+	collector := newPrivilegedInternalCollector(t)
+	programs := loadTestPrograms(t, 2, ebpf.SocketFilter)
+	ownedID := programID(t, programs[0])
+	otherID := programID(t, programs[1])
+
+	fdinfoDir := t.TempDir()
+	writeFDInfo(t, fdinfoDir, map[string]string{
+		"3": fmt.Sprintf("pos:\t0\nflags:\t02000002\nprog_id:\t%d\n", ownedID),
+	})
+	collector.fdinfoDir = fdinfoDir
+
+	metrics := collector.getProbeMetrics()
+
+	requireProbeMetric(t, metrics, ownedID, ebpf.SocketFilter, "metric_0")
+	requireNoProbeMetric(t, metrics, otherID)
+}
+
+func TestInternalCollectorFindsOwnedProgramsInProcFS(t *testing.T) {
+	collector := newPrivilegedInternalCollector(t)
+	program := loadTestPrograms(t, 1, ebpf.SocketFilter)[0]
+	id := programID(t, program)
+
+	requireProbeMetric(t, collector.getProbeMetrics(), id, ebpf.SocketFilter, "metric_0")
+}
+
+func TestInternalCollectorSkipsIterators(t *testing.T) {
+	collector := newPrivilegedInternalCollector(t)
+	program := loadIterProgram(t)
+	id := programID(t, program)
+
+	metrics := collector.getProbeMetrics()
+
+	requireNoProbeMetric(t, metrics, id)
+	cached, ok := collector.programCache[id]
+	require.True(t, ok)
+	require.False(t, cached.supported)
+}
+
 func TestCollectorShutdownClearsState(t *testing.T) {
 	internalMetrics := imetrics.NewPrometheusReporter(
 		&imetrics.InternalMetricsConfig{BpfMetricScrapeInterval: time.Hour},
@@ -203,6 +242,18 @@ func newPrivilegedTestCollector(tb testing.TB) *BPFCollector {
 	return collector
 }
 
+func newPrivilegedInternalCollector(tb testing.TB) *BPFCollector {
+	tb.Helper()
+
+	collector := newInternalBPFCollector(
+		&global.ContextInfo{},
+		&PrometheusConfig{},
+		&perapp.GlobalMetricsConfig{},
+	)
+	tb.Cleanup(collector.close)
+	return collector
+}
+
 func loadTestPrograms(tb testing.TB, count int, programType ebpf.ProgramType) []*ebpf.Program {
 	tb.Helper()
 
@@ -224,6 +275,25 @@ func loadTestPrograms(tb testing.TB, count int, programType ebpf.ProgramType) []
 	})
 
 	return programs
+}
+
+func loadIterProgram(tb testing.TB) *ebpf.Program {
+	tb.Helper()
+
+	program, err := ebpf.NewProgram(&ebpf.ProgramSpec{
+		Name:         "metric_iter",
+		Type:         ebpf.Tracing,
+		AttachType:   ebpf.AttachTraceIter,
+		AttachTo:     "bpf_map",
+		License:      "Dual MIT/GPL",
+		Instructions: asm.Instructions{asm.Mov.Imm(asm.R0, 0), asm.Return()},
+	})
+	require.NoError(tb, err)
+	tb.Cleanup(func() {
+		_ = program.Close()
+	})
+
+	return program
 }
 
 func loadTestMaps(tb testing.TB, count int, mapType ebpf.MapType, entries int) []*ebpf.Map {
