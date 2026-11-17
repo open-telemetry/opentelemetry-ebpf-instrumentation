@@ -311,8 +311,12 @@ func launchJVM(t *testing.T, env []string, args ...string) *procs.ProcessHandle 
 	// opens.
 	require.Eventually(t, func() bool {
 		commandLine, err := readProcFile(handle, "cmdline")
-		return err == nil && len(commandLine) > 0
-	}, 30*time.Second, 10*time.Millisecond, "JVM never exposed its command line")
+		if err != nil || len(commandLine) == 0 {
+			return false
+		}
+		environ, err := readProcFile(handle, "environ")
+		return err == nil && len(environ) > 0
+	}, 30*time.Second, 10*time.Millisecond, "JVM never exposed its command line and environment")
 
 	return handle
 }
