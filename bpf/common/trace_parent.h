@@ -12,6 +12,7 @@
 #include <common/lw_thread.h>
 #include <common/python_task.h>
 #include <common/runtime.h>
+#include <common/rust_task.h>
 #include <common/trace_helpers.h>
 
 #include <pid/pid_helpers.h>
@@ -343,6 +344,24 @@ static __always_inline tp_info_pid_t *find_parent_trace(const pid_connection_inf
                                                         u16 orig_dport,
                                                         const tp_info_t *wire_tp) {
     tp_info_pid_t *node_tp = find_nodejs_parent_trace(p_conn, orig_dport, pid_tgid);
+
+    // A Tokio worker may poll many unrelated tasks. Never fall back to its
+    // last thread or connection parent, even without task tracking hooks;
+    // only task-owned or wire-matched parents identify the request.
+    if (rust_tokio_runtime(pid_tgid)) {
+        tp_info_pid_t *wire_parent = rust_wire_parent(pid_tgid, wire_tp);
+        if (parent_trace_matches(wire_parent, wire_tp)) {
+            return wire_parent;
+        }
+
+        tp_info_pid_t *rust_parent =
+            rust_client_context_enabled(pid_tgid) ? rust_current_context(pid_tgid) : NULL;
+        if (parent_trace_matches(rust_parent, wire_tp)) {
+            return rust_parent;
+        }
+
+        return wire_tp ? find_wire_server_parent(p_conn->pid, wire_tp) : NULL;
+    }
 
     if (parent_trace_matches(node_tp, wire_tp)) {
         return node_tp;

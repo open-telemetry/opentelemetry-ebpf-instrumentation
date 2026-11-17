@@ -1029,6 +1029,7 @@ static __always_inline int __obi_continue_protocol_http(struct pt_regs *ctx,
         set_trace_info_for_connection(&args->pid_conn.conn, TRACE_TYPE_CLIENT, tp_p);
         // clean up so that TC does not pick it up
         bpf_map_delete_elem(&outgoing_trace_map, &e_key);
+        rust_observe_request(bpf_get_current_pid_tgid());
         goto skip_tp;
     }
 
@@ -1057,6 +1058,7 @@ static __always_inline int __obi_continue_protocol_http(struct pt_regs *ctx,
             found_tp = find_trace_for_client_request(
                 &p_conn, args->orig_dport, args->lw_thread, &tp_p->tp);
             info->parent_status = found_tp;
+            rust_observe_request(bpf_get_current_pid_tgid());
         } else {
             //bpf_dbg_printk("Looking up existing trace for connection");
             //dbg_print_http_connection_info(conn);

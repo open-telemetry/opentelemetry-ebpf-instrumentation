@@ -8,6 +8,7 @@
 
 #include <common/event_defs.h>
 #include <common/runtime.h>
+#include <common/rust_task.h>
 #include <common/trace_key.h>
 #include <common/tracing.h>
 
@@ -43,6 +44,15 @@ static __always_inline void obi_ctx__restore_server(const tp_info_t *client_tp) 
     // only when the thread still points at this client span
     const obi_ctx_info_t *current = obi_ctx__get(bpf_get_current_pid_tgid());
     if (!current || *(const u64 *)current->span_id != *(const u64 *)client_tp->span_id) {
+        return;
+    }
+    if (rust_process_instrumented(bpf_get_current_pid_tgid()) &&
+        rust_task_context_enabled(bpf_get_current_pid_tgid())) {
+        const tp_info_pid_t *parent = rust_current_context(bpf_get_current_pid_tgid());
+        if (parent && parent->valid &&
+            *(const u64 *)parent->tp.span_id == *(const u64 *)client_tp->parent_id) {
+            obi_ctx__set(bpf_get_current_pid_tgid(), &parent->tp);
+        }
         return;
     }
     trace_key_t t_key = {0};
@@ -162,6 +172,7 @@ static __always_inline void server_or_client_trace(const u8 type,
                        conn_part.port);
 
         bpf_map_update_elem(&server_traces_aux, &conn_part, tp_p, BPF_ANY);
+        rust_set_context(id, tp_p);
 
         tp_info_pid_t *existing = bpf_map_lookup_elem(&server_traces, &t_key);
         if (existing && existing->req_type == tp_p->req_type &&

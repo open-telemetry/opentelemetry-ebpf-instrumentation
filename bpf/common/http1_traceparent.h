@@ -49,8 +49,10 @@ SCRATCH_MEM_SIZED(http1_header_buf, k_http1_read_chunk_bytes);
 
 const char TP_LOWER[] = "traceparent: ";
 const char TP_HEADER[] = "traceparent";
-const u32 TP_LOWER_SIZE = sizeof(TP_LOWER) - 1;
-const u32 TP_HEADER_SIZE = sizeof(TP_HEADER) - 1;
+enum {
+    TP_LOWER_SIZE = sizeof(TP_LOWER) - 1,
+    TP_HEADER_SIZE = sizeof(TP_HEADER) - 1,
+};
 
 /**
 The functions below implement a byte scanning state machine, to handle
