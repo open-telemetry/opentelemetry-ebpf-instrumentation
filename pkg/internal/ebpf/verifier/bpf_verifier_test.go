@@ -170,7 +170,7 @@ func TestBPFVerifierHTTPSampling(t *testing.T) {
 
 	forEachCombination(t, "generictracer", generictracerbpf.LoadBpf, []constOption{
 		{"pid_ns_mode", pidNamespaceModes},
-		{"g_bpf_debug", []any{true}},
+		{"g_bpf_debug", []any{uint32(3)}},
 		{"g_bpf_traceparent_enabled", []any{true}},
 		{"g_bpf_header_propagation", []any{true}},
 		{"g_bpf_java_http1_enabled", []any{true}},
@@ -249,7 +249,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// Header capture with the loader's defaults for the other constants: large
 	// buffers and the obi_ctx writers compiled away change what the verifier can prune.
 	forEachCombination(t, "generictracer/BpfHeaderCapture", generictracerbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(3), uint32(0)}},
 		{"g_bpf_traceparent_enabled", []any{true}},
 		{"g_bpf_header_propagation", []any{true}},
 		{"g_bpf_java_http1_enabled", []any{true}},
@@ -265,7 +265,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	// kprobe; a dedicated matrix keeps them verified without doubling the
 	// full generictracer cross-product.
 	forEachCombination(t, "generictracer/BpfPidNamespace", generictracerbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(3), uint32(0)}},
 		{"filter_pids", []any{int32(1)}},
 		{"pid_ns_mode", pidNamespaceModes},
 	})
@@ -301,7 +301,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	})
 	// see generictracer/BpfHeaderCapture
 	forEachCombination(t, "gotracer/BpfHeaderCapture", gotracerbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(3), uint32(0)}},
 		{"g_bpf_traceparent_enabled", []any{true}},
 		{"g_bpf_header_propagation", []any{true}},
 		{"g_bpf_probe_write_user_enabled", []any{true}},
@@ -326,7 +326,7 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 		{"enroll_instrumented_only", []any{true, false}},
 	})
 	forEachCombination(t, "tpinjector/BpfPidNamespace", tpinjectorbpf.LoadBpf, []constOption{
-		{"g_bpf_debug", []any{true, false}},
+		{"g_bpf_debug", []any{uint32(3), uint32(0)}},
 		{"filter_pids", []any{int32(1)}},
 		{"pid_ns_mode", pidNamespaceModes},
 		{"enroll_instrumented_only", []any{true, false}},
