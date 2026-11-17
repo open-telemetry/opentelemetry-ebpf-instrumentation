@@ -337,48 +337,54 @@ func TestUnclassifiedPrivateStructIdentity(t *testing.T) {
 
 func TestDependencyUpdateClassification(t *testing.T) {
 	for _, dependency := range []string{"example.com/dependency", coreModule + "/collector"} {
-		for _, breaking := range []bool{false, true} {
-			t.Run(dependency+"/"+map[bool]string{false: "compatible addition", true: "exposed field break"}[breaking], func(t *testing.T) {
-				var roots []string
-				var apis []*apiSnapshot
-				for _, candidate := range []bool{false, true} {
-					root := publicAPIFixture(t, `package public;import "`+dependency+`";var Value dependency.Value`, "")
-					writeFile(t, filepath.Join(root, "go.mod"), "module "+coreModule+"\n\ngo 1.26.0\nrequire "+dependency+" v0.1.0\nreplace "+dependency+" => ./dependency\n")
-					writeFile(t, filepath.Join(root, "dependency/go.mod"), "module "+dependency+"\n\ngo 1.26.0\n")
-					body := "package dependency;type Value struct{Existing int}"
-					if candidate {
-						body = "package dependency;type Value struct{Existing int;Added int}"
-						if breaking {
-							body = "package dependency;type Value struct{Existing string}"
+		for _, declaration := range []struct{ name, source string }{
+			{"direct", "var Value dependency.Value"},
+			{"defined type", "type Derived dependency.Value;var Value Derived"},
+			{"embedded type", "type Wrapper struct{dependency.Value};var Value Wrapper"},
+		} {
+			for _, breaking := range []bool{false, true} {
+				t.Run(dependency+"/"+declaration.name+"/"+map[bool]string{false: "compatible addition", true: "exposed field break"}[breaking], func(t *testing.T) {
+					var roots []string
+					var apis []*apiSnapshot
+					for _, candidate := range []bool{false, true} {
+						root := publicAPIFixture(t, `package public;import "`+dependency+`";`+declaration.source, "")
+						writeFile(t, filepath.Join(root, "go.mod"), "module "+coreModule+"\n\ngo 1.26.0\nrequire "+dependency+" v0.1.0\nreplace "+dependency+" => ./dependency\n")
+						writeFile(t, filepath.Join(root, "dependency/go.mod"), "module "+dependency+"\n\ngo 1.26.0\n")
+						body := "package dependency;type Value struct{Existing int}"
+						if candidate {
+							body = "package dependency;type Value struct{Existing int;Added int};func(Value) AddedMethod(){}"
+							if breaking {
+								body = "package dependency;type Value struct{Existing string}"
+							}
 						}
+						writeFile(t, filepath.Join(root, "dependency/value.go"), body)
+						api, err := loadAPI(t.Context(), root, "amd64")
+						if err != nil {
+							t.Fatal(err)
+						}
+						roots = append(roots, root)
+						apis = append(apis, api)
 					}
-					writeFile(t, filepath.Join(root, "dependency/value.go"), body)
-					api, err := loadAPI(t.Context(), root, "amd64")
+					changes, err := compareAPI(apis[0], apis[1], "v1.0.0", "linux/amd64")
 					if err != nil {
 						t.Fatal(err)
 					}
-					roots = append(roots, root)
-					apis = append(apis, api)
-				}
-				changes, err := compareAPI(apis[0], apis[1], "v1.0.0", "linux/amd64")
-				if err != nil {
-					t.Fatal(err)
-				}
-				want := "patch"
-				if breaking {
-					want = "major"
-				}
-				if got := minimumRelease(changes, "v1.0.0"); got != want {
-					t.Fatalf("release=%s, want %s: %+v", got, want, changes)
-				}
-				findings, unknown := actionableChanges(changes)
-				if len(unknown) != 0 || (len(findings) > 0) != breaking {
-					t.Fatalf("unexpected classification: %+v %+v", findings, unknown)
-				}
-				for i, root := range roots {
-					compileConsumer(t, root, "var value int=public.Value.Existing;_=value", i == 0 || !breaking, "require "+dependency+" v0.1.0\nreplace "+dependency+" => "+filepath.Join(root, "dependency"))
-				}
-			})
+					want := "patch"
+					if breaking {
+						want = "major"
+					}
+					if got := minimumRelease(changes, "v1.0.0"); got != want {
+						t.Fatalf("release=%s, want %s: %+v", got, want, changes)
+					}
+					findings, unknown := actionableChanges(changes)
+					if len(unknown) != 0 || (len(findings) > 0) != breaking {
+						t.Fatalf("unexpected classification: %+v %+v", findings, unknown)
+					}
+					for i, root := range roots {
+						compileConsumer(t, root, "var value int=public.Value.Existing;_=value", i == 0 || !breaking, "require "+dependency+" v0.1.0\nreplace "+dependency+" => "+filepath.Join(root, "dependency"))
+					}
+				})
+			}
 		}
 	}
 }

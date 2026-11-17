@@ -157,13 +157,18 @@ func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) (ch
 		message := afterSurface.describe(beforeSurface.describe(change.Message))
 		readable, detail, _ := strings.Cut(message, ":")
 		readable = strings.TrimPrefix(readable, path+".")
+		beforeMember := apiMember(beforeObj, identifier)
+		afterMember := apiMember(afterObj, identifier)
+		module := ""
+		if afterMember != nil && afterMember.Pkg() != nil {
+			module = candidateAPI.Modules[afterMember.Pkg().Path()]
+		}
 		reason := ""
 		var typeContext *apiSnapshot
 		if uncertainTypeIdentity(beforeObj, afterObj, readable) {
 			reason = "Naming an anonymous struct with private fields requires source compatibility review."
-			member := apiMember(afterObj, identifier)
 			pkg := types.NewPackage(coreModule+"/compatcontext", "compatcontext")
-			pkg.Scope().Insert(types.NewVar(token.NoPos, pkg, "Value", member.Type()))
+			pkg.Scope().Insert(types.NewVar(token.NoPos, pkg, "Value", afterMember.Type()))
 			typeContext = &apiSnapshot{Packages: map[string]*types.Package{pkg.Path(): pkg}}
 		}
 		if strings.Contains(change.Message, ": value changed from ") {
@@ -175,15 +180,18 @@ func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) (ch
 			}
 		}
 		changes = append(changes, apiChange{
-			Baseline: version, Platform: platform, Package: path, Identifier: readable,
-			Before: describeAPIObject(apiMember(beforeObj, identifier)), After: describeAPIObject(apiMember(afterObj, identifier)),
+			Module: module, Baseline: version, Platform: platform, Package: path, Identifier: readable,
+			Before: describeAPIObject(beforeMember), After: describeAPIObject(afterMember),
 			Message: readable + ":" + detail, Compatible: change.Compatible, Rule: goAPIRule,
 			Unsupported: reason != "", Reason: reason, TypeContext: typeContext,
 		})
 	}
 	changes = append(changes, compareConstraints(beforeSurface, afterSurface, version, platform)...)
 	for i, c := range changes {
-		module := candidateAPI.Modules[c.Package]
+		module := c.Module
+		if module == "" {
+			module = candidateAPI.Modules[c.Package]
+		}
 		if module == "" {
 			module = oldAPI.Modules[c.Package]
 		}

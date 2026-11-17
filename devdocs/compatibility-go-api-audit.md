@@ -19,7 +19,7 @@ Release-class expectations assume the affected API can be classified.
 | Policy case | Expected result | Regression coverage |
 | --- | --- | --- |
 | Add OBI functions, concrete methods, types, fields, constants, variables, or packages | No finding; minor when newly added since the latest release | `TestPRAndReleaseResults`, `TestPackageAdditionAndRemoval` |
-| Compatible dependency update | No finding; patch permitted | `TestDependencyUpdateClassification`, including a separate module under the OBI path prefix |
+| Compatible dependency update | No finding; patch permitted | `TestDependencyUpdateClassification`, including defined/embedded types and a separate module under the OBI path prefix |
 | Exposed dependency API becomes incompatible | Major; affected API reported | `TestDependencyUpdateClassification` |
 | Implementation/private-layout refactor | No finding; patch permitted | `TestPublicAPIConsumers`, `TestPRAndReleaseResults` |
 | Move a type while preserving its exported alias | No incompatible finding | `TestAliasMoveConsumers` |
@@ -67,7 +67,7 @@ Linux amd64 and arm64.
 The declaration audit resolves every addition against the old and new Go type
 graphs and verifies that all 26 added methods have concrete receivers. Two added
 fields belong to an AWS dependency; compatible dependency updates may remain
-patches. Module ownership comes from Go's module metadata, rather than import
+patches. Declaring-package ownership comes from Go's module metadata, rather than import
 path prefixes, so independently versioned modules retain their own identity.
 
 The 11 incompatible API declarations fall into four groups. Consumer compilation
