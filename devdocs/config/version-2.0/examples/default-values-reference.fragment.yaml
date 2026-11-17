@@ -320,10 +320,11 @@ extensions:
           # HTTP payload-level extraction features.
           payload_extraction:
             # List-based enablement, consistent with other instrumentation selectors.
-            # Supported values today: graphql, elasticsearch, aws, sqlpp,
+            # Supported values today: graphql, elasticsearch, aws_s3, aws_sqs, aws_sns, sqlpp,
             # openai, anthropic, gemini, qwen, bedrock, mcp, embedding,
             # rerank, retrieval, ollama, cohere, openai_compatible, jsonrpc,
             # enrichment.
+            # Group aliases: genai, database, aws, all, "*" (all and "*" exclude enrichment).
             enabled: []
             sqlpp:
               endpoint_patterns:
@@ -346,6 +347,9 @@ extensions:
           filters:
             traces: {}
             metrics: {}
+        # Settings shared by all database protocols.
+        db:
+          sanitize_query_text: false
         # SQL protocol instrumentation and driver-specific tuning.
         sql:
           enabled:
@@ -355,7 +359,6 @@ extensions:
             traces: {}
             metrics: {}
           heuristic_detect: false
-          sanitize_query_text: false
           mysql:
             buffer_size: 0
             prepared_statements_cache_size: 1024
@@ -591,6 +594,7 @@ extensions:
           context_propagation: disabled
           override_bpfloop_enabled: false
           disable_black_box_cp: false
+          disable_go_channel_links: false
           populate_trace_context: false
         traffic:
           control_backend: auto

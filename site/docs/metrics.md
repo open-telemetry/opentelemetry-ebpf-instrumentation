@@ -670,7 +670,7 @@ OBI-emitted http.client.request.duration
 | `network.protocol.version` | string | `opt_in` | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
 | `server.address` | string | `conditionally_required`: if the peer address was resolved from the connection | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `conditionally_required`: if the port was observed on the connection | stable | Server port number. | 80; 8080; 443 |
-| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
+| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component. Deprecated on this metric: this high-cardinality OBI extension is outside the HTTP metric semantic conventions. It remains opt-in and supported throughout OBI v1, with removal planned for OBI v2. Use `url.template` for route aggregation instead. | /search |
 | `url.scheme` | string | `recommended` | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 | `url.template` | string | `opt_in` | development | The low-cardinality template of an [absolute path reference](https://www.rfc-editor.org/rfc/rfc3986#section-4.2). | /users/{id}; /users/:id; /users?id={id} |
 
@@ -722,7 +722,7 @@ OBI-emitted http.server.request.duration
 
 | Attribute | Type | Requirement level | Stability | Description | Examples |
 | --- | --- | --- | --- | --- | --- |
-| `client.address` | string | `opt_in` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | client.example.com; 10.1.2.80; /tmp/my.sock |
+| `client.address` | string | `opt_in` | stable | Client address - domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. Deprecated on this metric: this high-cardinality OBI extension is outside the HTTP metric semantic conventions. It remains opt-in and supported throughout OBI v1, with removal planned for OBI v2. Use spans for per-client analysis. | client.example.com; 10.1.2.80; /tmp/my.sock |
 | `error.type` | string | `conditionally_required`: if the request ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `http.request.method` | enum | `required` | stable | HTTP request method. | GET; POST; HEAD |
 | `http.response.status_code` | int | `conditionally_required`: if a response was observed | stable | [HTTP response status code](https://tools.ietf.org/html/rfc7231#section-6). | 200 |
@@ -730,7 +730,7 @@ OBI-emitted http.server.request.duration
 | `network.protocol.version` | string | `opt_in` | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
 | `server.address` | string | `recommended` | stable | Server domain name if available without reverse DNS lookup; otherwise, IP address or Unix domain socket name. | example.com; 10.1.2.80; /tmp/my.sock |
 | `server.port` | int | `recommended` | stable | Server port number. | 80; 8080; 443 |
-| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component | /search |
+| `url.path` | string | `opt_in` | stable | The [URI path](https://www.rfc-editor.org/rfc/rfc3986#section-3.3) component. Deprecated on this metric: this high-cardinality OBI extension is outside the HTTP metric semantic conventions. It remains opt-in and supported throughout OBI v1, with removal planned for OBI v2. Use `http.route` for route aggregation instead. | /search |
 | `url.scheme` | string | `conditionally_required`: if the front end reported a scheme, and the params frame carrying it was captured whole | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 
 ## `http.server.response.body.size`

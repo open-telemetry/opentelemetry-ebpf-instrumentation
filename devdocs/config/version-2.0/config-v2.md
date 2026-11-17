@@ -202,6 +202,8 @@ extensions:
         grpc:
           enabled: { traces: true, metrics: true }
           filters: { traces: {}, metrics: {} }
+        db:
+          sanitize_query_text: false
         sql:
           enabled: { traces: true, metrics: true }
           filters: { traces: {}, metrics: {} }
@@ -555,11 +557,13 @@ Global route discovery remains under `http.routes.discovery` because harvesting 
 HTTP `payload_extraction` uses the same list-based enablement model as other instrumentation selectors:
 
 - `payload_extraction.enabled` is the only enablement surface.
-- Concrete values currently supported are `graphql`, `elasticsearch`, `aws`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, `retrieval`, `ollama`, `cohere`, `openai_compatible`, `jsonrpc`, and `enrichment`.
+- Concrete values currently supported are `graphql`, `elasticsearch`, `aws_s3`, `aws_sqs`, `aws_sns`, `sqlpp`, `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `embedding`, `rerank`, `retrieval`, `ollama`, `cohere`, `openai_compatible`, `jsonrpc`, and `enrichment`.
+- Group aliases expand to several extractors: `genai` enables `openai`, `anthropic`, `gemini`, `qwen`, `bedrock`, `mcp`, `ollama`, `cohere`, `openai_compatible`, `embedding`, `rerank`, and `retrieval`; `database` enables `elasticsearch` and `sqlpp`; `aws` enables `aws_s3`, `aws_sqs`, and `aws_sns`; `all` and `*` enable every extractor except `enrichment`. Aliases can be combined with concrete values, for example `["genai", "graphql"]`.
+- `enrichment` captures HTTP headers and bodies rather than parsing a protocol, so it is only enabled when listed explicitly.
 - Nested extractor blocks are for tuning, not duplicate enablement. For example, `payload_extraction.sqlpp.endpoint_patterns` refines SQL++ matching after `sqlpp` is enabled in the list.
 - If future aliases or families are needed, they should be added as values in the same `enabled` list rather than introducing parallel knobs.
 
-When `db.query.text` is selected, SQL and SQL++ spans carry the query as captured. Set `sql.sanitize_query_text: true` to replace its string, numeric, hexadecimal and boolean literals with `?`, following the semantic conventions. In statements with bind placeholders only string literals are replaced. Generic SQL from the Go tracer also treats double-quoted text as a string literal, and `db.query.text` is omitted when the literals cannot be located reliably. The setting has no v1 equivalent.
+`db` holds settings shared by all database protocols rather than a protocol of its own. When `db.query.text` is selected, database spans carry the query as captured. Set `db.sanitize_query_text: true` to replace literal values with `?`, following the semantic conventions. For SQL and SQL++ spans it replaces string, numeric, hexadecimal and boolean literals. In statements with bind placeholders only string literals are replaced. Generic SQL from the Go tracer also treats double-quoted text as a string literal, and `db.query.text` is omitted when the literals cannot be located reliably. For Redis spans it keeps the command and its keys, and replaces each argument value with `?`, for example `SET user:1 ?` and `HSET user:1 name ?`. Commands whose arguments are all keys, such as `GET` or `DEL`, are unchanged, and every argument of a command OBI does not recognize is replaced. As in the OpenTelemetry Java instrumentation, a few commands keep all their arguments even though some are values: `ECHO`, `CLIENT`, `SCRIPT`, the `GEO*` commands, and the script body of `EVAL`. Elasticsearch query bodies and Couchbase key-value spans are not sanitized. The setting has no v1 equivalent.
 
 #### HTTP query-parameter redaction
 
@@ -768,6 +772,10 @@ An unprivileged container has its own cgroup namespace, so its `/sys/fs/cgroup` 
 Mount the host hierarchy at another path, for example `/host/sys/fs/cgroup`, and set it here to propagate context for connections from every process on the node without hiding the container's own cgroup.
 If omitted, the hierarchy is detected automatically. This field is available through Config v2 only.
 
+`capture.engine.propagation.disable_go_channel_links` stops OBI from attaching the Go channel probes (`runtime.chansend1`, `runtime.chanrecv1` and `runtime.chanrecv2`) that link spans across goroutines.
+These probes run on every channel send and receive, which can add notable kernel CPU to busy Go services. Setups that only export metrics do not need these links.
+If omitted, false is used. This field is available through Config v2 only.
+
 **Why `engine`, not `capture.capture`**
 
 Earlier drafts named this sub-section `capture` (i.e., `operations.capture`), which would have produced the awkward path `capture.capture.*` after the restructure.
@@ -961,7 +969,7 @@ Important mapping notes:
 | `ebpf.mysql_prepared_statements_cache_size` | `extensions.obi.capture.instrumentation.sql.mysql.prepared_statements_cache_size` | Move |
 | `ebpf.payload_extraction.http.graphql.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `graphql` | Move + normalize |
 | `ebpf.payload_extraction.http.elasticsearch.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `elasticsearch` | Move + normalize |
-| `ebpf.payload_extraction.http.aws.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `aws` | Move + normalize |
+| `ebpf.payload_extraction.http.aws.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `aws_s3`, `aws_sqs`, and `aws_sns` | Move + normalize |
 | `ebpf.payload_extraction.http.sqlpp.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `sqlpp` | Move + normalize |
 | `ebpf.payload_extraction.http.sqlpp.endpoint_patterns` | `extensions.obi.capture.instrumentation.http.payload_extraction.sqlpp.endpoint_patterns` | Move |
 | `ebpf.payload_extraction.http.genai.openai.enabled` | `extensions.obi.capture.instrumentation.http.payload_extraction.enabled[]` contains `openai` | Move + normalize |

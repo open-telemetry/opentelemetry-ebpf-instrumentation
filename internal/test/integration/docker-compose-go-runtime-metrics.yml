@@ -31,6 +31,7 @@ services:
     environment:
       OTEL_EBPF_CONFIG_PATH: /configs/obi-config-go-runtime-metrics${INSTRUMENTER_CONFIG_SUFFIX}.yml
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"
       OTEL_EBPF_METRICS_INTERVAL: "1s"

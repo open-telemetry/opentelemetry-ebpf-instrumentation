@@ -93,7 +93,7 @@ func (tr *tracesOTELReceiver) processSpans(ctx context.Context, exp tracesExport
 	spanGroups := tracesgen.GroupSpansWithOptions(ctx, spans, traceAttrs, sampler, tr.is, tracesgen.GroupSpansOptions{
 		RedactKeys:                   tr.selectorCfg.SensitiveQueryParamsCfg.Effective(),
 		RedactionReplacement:         tr.selectorCfg.SensitiveQueryParamsCfg.Replacement,
-		SanitizeSQLQueryText:         tr.selectorCfg.SanitizeSQLQueryText,
+		SanitizeDBQueryText:          tr.selectorCfg.SanitizeDBQueryText,
 		DisableHTTPRequestPhaseSpans: tr.cfg.DisableHTTPRequestPhaseSpans,
 	})
 

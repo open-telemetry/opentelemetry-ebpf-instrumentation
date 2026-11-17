@@ -42,6 +42,7 @@ services:
       - ../../../testoutput/run-config-reload:/var/run/obi
     environment:
       GOCOVERDIR: /coverage
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
     depends_on:
       server-a:
         condition: service_started

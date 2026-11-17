@@ -134,7 +134,7 @@ type SelectorConfig struct {
 	SelectionCfg            Selection
 	ExtraGroupAttributesCfg map[string][]attr.Name
 	SensitiveQueryParamsCfg SensitiveQueryParamsConfig
-	SanitizeSQLQueryText    bool
+	SanitizeDBQueryText     bool
 	UseV2Selection          bool
 }
 

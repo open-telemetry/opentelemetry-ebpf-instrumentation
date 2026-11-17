@@ -122,10 +122,9 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 
 	sql := protocols[protocolSQL]
 	sqlInstrumentation := schema.SQLInstrumentation{
-		Enabled:           sql.Enabled,
-		Filters:           sql.Filters,
-		HeuristicDetect:   cfg.EBPF.HeuristicSQLDetect,
-		SanitizeQueryText: cfg.Attributes.SanitizeSQLQueryText,
+		Enabled:         sql.Enabled,
+		Filters:         sql.Filters,
+		HeuristicDetect: cfg.EBPF.HeuristicSQLDetect,
 		MySQL: schema.SQLDatabaseInstrumentation{
 			BufferSize:                  cfg.EBPF.BufferSizes.MySQL,
 			PreparedStatementsCacheSize: cfg.EBPF.MySQLPreparedStatementsCacheSize,
@@ -196,6 +195,7 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 	return schema.Instrumentation{
 		HTTP:      httpInstrumentation,
 		GRPC:      protocols[protocolGRPC],
+		DB:        schema.DBInstrumentation{SanitizeQueryText: cfg.Attributes.SanitizeDBQueryText},
 		SQL:       sqlInstrumentation,
 		Redis:     redisInstrumentation,
 		Kafka:     kafkaInstrumentation,
@@ -445,6 +445,7 @@ func captureEngine(cfg *obi.Config) schema.CaptureEngine {
 			ContextPropagation:     cfg.EBPF.ContextPropagation,
 			OverrideBPFLoopEnabled: cfg.EBPF.OverrideBPFLoopEnabled,
 			DisableBlackBoxCP:      cfg.EBPF.DisableBlackBoxCP,
+			DisableGoChannelLinks:  cfg.EBPF.DisableGoChannelLinks,
 			PopulateTraceContext:   cfg.EBPF.PopulateTraceContext,
 		},
 		Traffic: schema.Traffic{

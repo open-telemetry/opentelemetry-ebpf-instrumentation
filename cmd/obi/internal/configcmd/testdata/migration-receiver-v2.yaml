@@ -171,6 +171,8 @@ instrumentation:
             metrics:
                 http.request.method:
                     not_match: OPTIONS
+    db:
+        sanitize_query_text: false
     sql:
         enabled:
             traces: true
@@ -183,7 +185,6 @@ instrumentation:
                 http.request.method:
                     not_match: OPTIONS
         heuristic_detect: false
-        sanitize_query_text: false
         mysql:
             buffer_size: 0
             prepared_statements_cache_size: 1024
@@ -392,6 +393,7 @@ engine:
         context_propagation: disabled
         override_bpfloop_enabled: false
         disable_black_box_cp: false
+        disable_go_channel_links: false
         populate_trace_context: false
     traffic:
         control_backend: auto

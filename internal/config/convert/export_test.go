@@ -95,6 +95,7 @@ func TestRuntimeToV2DefaultConfig(t *testing.T) {
 	require.ElementsMatch(t, []string{
 		string(protocolHTTP),
 		string(protocolGRPC),
+		"db",
 		string(protocolSQL),
 		string(protocolRedis),
 		string(protocolKafka),
@@ -239,6 +240,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.ContextPropagation = config.ContextPropagationAll
 	cfg.EBPF.OverrideBPFLoopEnabled = true
 	cfg.EBPF.DisableBlackBoxCP = true
+	cfg.EBPF.DisableGoChannelLinks = true
 	cfg.EBPF.PopulateTraceContext = true
 	cfg.EBPF.TCBackend = config.TCBackendTCX
 	cfg.EBPF.HighRequestVolume = true
@@ -255,7 +257,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	cfg.EBPF.BufferSizes.TCP = 105
 	cfg.EBPF.BufferSizes.Aerospike = 106
 	cfg.EBPF.HeuristicSQLDetect = true
-	cfg.Attributes.SanitizeSQLQueryText = true
+	cfg.Attributes.SanitizeDBQueryText = true
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = 200
 	cfg.EBPF.PostgresPreparedStatementsCacheSize = 201
 	cfg.EBPF.MSSQLPreparedStatementsCacheSize = 202
@@ -391,7 +393,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, uint32(101), value(t, ext.Capture.Instrumentation, "sql", "mysql", "buffer_size"))
 	require.Equal(t, uint32(103), value(t, ext.Capture.Instrumentation, "sql", "mssql", "buffer_size"))
 	require.Equal(t, 202, value(t, ext.Capture.Instrumentation, "sql", "mssql", "prepared_statements_cache_size"))
-	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "sql", "sanitize_query_text"))
+	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "db", "sanitize_query_text"))
 	require.Equal(t, true, value(t, ext.Capture.Instrumentation, "redis", "db_cache", "enabled"))
 	require.Equal(t, 204, value(t, ext.Capture.Instrumentation, "kafka", "topic_uuid_cache_size"))
 	require.Equal(t, uint32(106), value(t, ext.Capture.Instrumentation, "aerospike", "buffer_size"))
@@ -690,7 +692,7 @@ func TestRuntimeToV2AdvancedCaptureParity(t *testing.T) {
 	require.Equal(t, schema.AttributeFilter{GreaterThan: &srtt}, value(t, ext.Capture.Network, "stats", "filters", "metrics", "srtt"))
 
 	require.ElementsMatch(t, []string{
-		"graphql", "elasticsearch", "aws", "sqlpp", "openai", "anthropic", "gemini",
+		"graphql", "elasticsearch", "aws_s3", "aws_sqs", "aws_sns", "sqlpp", "openai", "anthropic", "gemini",
 		"qwen", "bedrock", "mcp", "embedding", "rerank", "retrieval", "ollama", "cohere", "jsonrpc", "enrichment",
 	}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "enabled"))
 	require.Equal(t, []string{"/query", "/analytics"}, value(t, ext.Capture.Instrumentation, "http", "payload_extraction", "sqlpp", "endpoint_patterns"))
