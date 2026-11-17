@@ -24,32 +24,30 @@ func GenAIHTTP1Fallback(baseSpan *request.Span, req *http.Request, resp *http.Re
 	if req == nil || req.ProtoMajor != 1 || req.ProtoMinor != 1 {
 		return *baseSpan, false
 	}
+	if !cfg.OpenAI.Enabled && !cfg.Anthropic.Enabled && !cfg.Gemini.Enabled && !cfg.Bedrock.Enabled {
+		return *baseSpan, false
+	}
+
+	// The provider paths are disjoint, so at most one provider can match.
+	const requireEvidence = true
+	path := requestPath(req)
+	var classify func() (request.Span, bool)
+	switch {
+	case cfg.OpenAI.Enabled && isOpenAIHTTP1Path(path):
+		classify = func() (request.Span, bool) { return openAISpan(baseSpan, req, resp, requireEvidence) }
+	case cfg.Anthropic.Enabled && isAnthropicHTTP1Path(path):
+		classify = func() (request.Span, bool) { return anthropicSpan(baseSpan, req, resp, looksLikeAnthropicHTTP1Body) }
+	case cfg.Gemini.Enabled && isGeminiHTTP1Path(path):
+		classify = func() (request.Span, bool) { return geminiSpan(baseSpan, req, resp, path, requireEvidence) }
+	case cfg.Bedrock.Enabled && isBedrockHTTP1Path(path):
+		classify = func() (request.Span, bool) { return bedrockSpan(baseSpan, req, resp, requireEvidence) }
+	default:
+		return *baseSpan, false
+	}
+
 	if matchOpenAICompatibleGateway(req, cfg.OpenAICompatible.Gateways) != nil {
 		return *baseSpan, false
 	}
 
-	const requireEvidence = true
-	path := requestPath(req)
-	if cfg.OpenAI.Enabled && isOpenAIHTTP1Path(path) {
-		if span, ok := openAISpan(baseSpan, req, resp, requireEvidence); ok {
-			return span, true
-		}
-	}
-	if cfg.Anthropic.Enabled && isAnthropicHTTP1Path(path) {
-		if span, ok := anthropicSpan(baseSpan, req, resp, looksLikeAnthropicHTTP1Body); ok {
-			return span, true
-		}
-	}
-	if cfg.Gemini.Enabled && isGeminiHTTP1Path(path) {
-		if span, ok := geminiSpan(baseSpan, req, resp, path, requireEvidence); ok {
-			return span, true
-		}
-	}
-	if cfg.Bedrock.Enabled && isBedrockHTTP1Path(path) {
-		if span, ok := bedrockSpan(baseSpan, req, resp, requireEvidence); ok {
-			return span, true
-		}
-	}
-
-	return *baseSpan, false
+	return classify()
 }

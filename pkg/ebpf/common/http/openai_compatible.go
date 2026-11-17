@@ -14,6 +14,10 @@ import (
 )
 
 func matchOpenAICompatibleGateway(req *http.Request, gateways []config.OpenAICompatibleGateway) *config.OpenAICompatibleGateway {
+	if len(gateways) == 0 {
+		return nil
+	}
+
 	var reqHost string
 	if req.URL != nil {
 		reqHost = req.URL.Host
