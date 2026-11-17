@@ -191,7 +191,7 @@ func parseFalconString(input string) (string, bool) {
 }
 
 func falconRouteSupported(route string) bool {
-	for _, segment := range strings.SplitSeq(route, "/") {
+	for segment := range strings.SplitSeq(route, "/") {
 		if strings.ContainsAny(segment, "{}") &&
 			!falconParameterSegmentPattern.MatchString(segment) {
 			return false
