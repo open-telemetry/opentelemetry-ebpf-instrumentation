@@ -49,6 +49,7 @@ var (
 	errMongoNoResponseBody                       = errors.New("no MongoDB body found in the response section")
 	errMongoNoOkField                            = errors.New("no 'ok' field found in MongoDB response")
 	errMongoHeartbeatIgnored                     = errors.New("MongoDB heartbeat operation is ignored")
+	errMongoSecuritySensitiveIgnored             = errors.New("MongoDB security-sensitive command is ignored")
 	errMongoNonStringCollectionType              = errors.New("MongoDB command has non-string collection type")
 )
 
@@ -115,6 +116,16 @@ const (
 	commCount         = "count"
 	commDistinct      = "distinct"
 	commMapReduce     = "mapReduce"
+
+	commAuthenticate    = "authenticate"
+	commSaslStart       = "saslStart"
+	commSaslContinue    = "saslContinue"
+	commGetNonce        = "getnonce"
+	commCreateUser      = "createUser"
+	commUpdateUser      = "updateUser"
+	commCopyDBGetNonce  = "copydbgetnonce"
+	commCopyDBSaslStart = "copydbsaslstart"
+	commCopyDB          = "copydb"
 )
 
 type MongoRequestKey struct {
@@ -558,6 +569,13 @@ func isHeartbeat(comm string) bool {
 	return comm == commHello || comm == commIsMaster || comm == commPing || comm == commIsWritablePrimary || comm == commAtlasVersion
 }
 
+// The MongoDB driver command monitoring specification forbids publishing these commands.
+func isSecuritySensitive(comm string) bool {
+	return comm == commAuthenticate || comm == commSaslStart || comm == commSaslContinue || comm == commGetNonce ||
+		comm == commCreateUser || comm == commUpdateUser || comm == commCopyDBGetNonce || comm == commCopyDBSaslStart ||
+		comm == commCopyDB
+}
+
 func isCollectionCommand(comm string) bool {
 	return comm == commInsert || comm == commUpdate || comm == commFind || comm == commDelete ||
 		comm == commFindAndModify || comm == commAggregate || comm == commCount || comm == commDistinct ||
@@ -568,6 +586,9 @@ func parseFirstField(field bson.E) (string, string, error) {
 	comm := field.Key
 	if isHeartbeat(comm) {
 		return "", "", errMongoHeartbeatIgnored
+	}
+	if isSecuritySensitive(comm) {
+		return "", "", errMongoSecuritySensitiveIgnored
 	}
 	if isCollectionCommand(comm) {
 		collection, ok := field.Value.(string)

@@ -545,12 +545,33 @@ func TestGetMongoInfoFailWhenHealthCommand(t *testing.T) {
 	assert.Error(t, err, "Expected error when processing health command")
 }
 
+func TestGetMongoInfoIgnoresSecuritySensitiveCommands(t *testing.T) {
+	commands := []string{
+		commAuthenticate, commSaslStart, commSaslContinue, commGetNonce, commCreateUser, commUpdateUser,
+		commCopyDBGetNonce, commCopyDBSaslStart, commCopyDB,
+	}
+	for _, comm := range commands {
+		t.Run(comm, func(t *testing.T) {
+			mongoRequest := MongoRequestValue{
+				RequestSections: []mongoSection{
+					{Type: sectionTypeBody, Body: bson.D{{Key: comm, Value: int32(1)}, {Key: "$db", Value: "admin"}}},
+				},
+				ResponseSections: []mongoSection{
+					{Type: sectionTypeBody, Body: bson.D{{Key: "ok", Value: float64(1)}}},
+				},
+			}
+			_, err := getMongoInfo(&mongoRequest)
+			require.ErrorIs(t, err, errMongoSecuritySensitiveIgnored)
+		})
+	}
+}
+
 func TestGetMongoInfoWithUnknownCommand(t *testing.T) {
 	mongoRequest := MongoRequestValue{
 		RequestSections: []mongoSection{
 			{
 				Type: sectionTypeBody,
-				Body: bson.D{bson.E{Key: "createUser", Value: "my_collection"}},
+				Body: bson.D{bson.E{Key: "createIndexes", Value: "my_collection"}},
 			},
 		},
 		ResponseSections: []mongoSection{},
@@ -559,7 +580,7 @@ func TestGetMongoInfoWithUnknownCommand(t *testing.T) {
 	require.NoError(t, err, "Expected no error when mongodb failed")
 	assert.Empty(t, res.DB, "Expected DB to be empty for unknown command")
 	assert.Empty(t, res.Collection, "Expected Collection to be empty for unknown command")
-	assert.Equal(t, "createUser", res.OpName, "Expected Operation to be 'find'")
+	assert.Equal(t, "createIndexes", res.OpName, "Expected Operation to be 'createIndexes'")
 	assert.True(t, res.Success, "Expected Response to be 'ok'")
 	assert.Empty(t, res.Error, "Expected Error to be empty in successful request")
 	assert.Empty(t, res.ErrorCode, "Expected ErrorCode to be empty in successful request")
