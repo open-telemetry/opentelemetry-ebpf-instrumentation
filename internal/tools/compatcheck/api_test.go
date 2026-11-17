@@ -33,54 +33,55 @@ func typedPackage(t *testing.T, source string) *types.Package {
 
 func TestCompareAPI(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		before     string
-		after      string
-		compatible bool
-		message    string
+		name         string
+		before       string
+		after        string
+		compatible   bool
+		unclassified bool
+		message      string
 	}{
 		{name: "unchanged", before: "func F() {}", after: "func F() {}"},
 		{name: "implementation", before: "func F() int { return 1 }", after: "func F() int { return 2 }"},
 		{name: "removed function", before: "func F() {}", message: "F: removed"},
 		{name: "signature", before: "func F(int) {}", after: "func F(string) {}", message: "changed"},
 		{name: "interface method", before: "type I interface { A() }", after: "type I interface { A(); B() }", message: "B: added"},
-		{name: "constant", before: "const C = 1", after: "const C = 2", message: "value changed"},
+		{name: "constant meaning needs review", before: "const C = 1", after: "const C = 2", message: "value changed", unclassified: true},
 		{name: "addition", after: "func F() {}", compatible: true, message: "F: added"},
 		{name: "optional field", before: "type S struct { A int }", after: "type S struct { A, B int }", compatible: true, message: "B: added"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			before := typedPackage(t, "package example; "+tc.before)
 			after := typedPackage(t, "package example; "+tc.after)
-			findings, compareErr := compareAPI(map[string]*types.Package{before.Path(): before}, map[string]*types.Package{after.Path(): after}, "v1.0.0", "linux/amd64")
+			changes, compareErr := compareAPI(apiTestSnapshot(before), apiTestSnapshot(after), "v1.0.0", "linux/amd64")
 			if compareErr != nil {
 				t.Fatal(compareErr)
 			}
 			wantRelease := "major"
-			if tc.message == "" {
+			if tc.message == "" || tc.unclassified {
 				wantRelease = "patch"
 			} else if tc.compatible {
 				wantRelease = "minor"
 			}
-			if got := minimumRelease(findings, "v1.0.0"); got != wantRelease {
+			if got := minimumRelease(changes, "v1.0.0"); got != wantRelease {
 				t.Fatalf("required release=%s, want %s", got, wantRelease)
 			}
 			if tc.message == "" {
-				if len(findings) != 0 {
-					t.Fatalf("unexpected findings: %+v", findings)
+				if len(changes) != 0 {
+					t.Fatalf("unexpected changes: %+v", changes)
 				}
 				return
 			}
 			found := false
-			for _, f := range findings {
-				if strings.Contains(f.Message, tc.message) && f.Compatible == tc.compatible {
+			for _, f := range changes {
+				if strings.Contains(f.Message, tc.message) && f.Compatible == tc.compatible && f.Unsupported == tc.unclassified {
 					found = true
 					if f.Baseline != "v1.0.0" || f.Platform != "linux/amd64" || f.Rule != goAPIRule {
-						t.Fatalf("missing finding context: %+v", f)
+						t.Fatalf("missing change context: %+v", f)
 					}
 				}
 			}
 			if !found {
-				t.Fatalf("expected %q (compatible=%t), got %+v", tc.message, tc.compatible, findings)
+				t.Fatalf("expected %q (compatible=%t), got %+v", tc.message, tc.compatible, changes)
 			}
 		})
 	}
@@ -89,8 +90,8 @@ func TestCompareAPI(t *testing.T) {
 func TestPackageAdditionAndRemoval(t *testing.T) {
 	pkg := typedPackage(t, "package example; func F() {}")
 	for _, removed := range []bool{false, true} {
-		before := map[string]*types.Package{}
-		after := map[string]*types.Package{pkg.Path(): pkg}
+		before := apiTestSnapshot()
+		after := apiTestSnapshot(pkg)
 		if removed {
 			before, after = after, before
 		}
@@ -109,6 +110,8 @@ func TestLoadAPI(t *testing.T) {
 	for path, body := range map[string]string{
 		"go.mod":                          "module " + coreModule + "\n\ngo 1.26.0\n",
 		"pkg/public/public.go":            "package public; type Interface interface { Do() }; const Value = 1\n",
+		"pkg/public/only_test.go":         "package public;var TestOnly MissingType\n",
+		"pkg/test/integration/api.go":     "package integration;func DownstreamHelper(){}\n",
 		"pkg/public/native_amd64.go":      "package public; const Native = 64\n",
 		"pkg/public/native_arm64.go":      "package public; const Native = 32\n",
 		"pkg/internal/private/private.go": "package private; func Hidden() {}\n",
@@ -123,14 +126,17 @@ func TestLoadAPI(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(loaded) != 1 || loaded[coreModule+"/pkg/public"] == nil {
+		if len(loaded.Packages) != 2 || loaded.Packages[coreModule+"/pkg/public"] == nil || loaded.Packages[coreModule+"/pkg/test/integration"] == nil {
 			t.Fatalf("unexpected public surface: %v", loaded)
+		}
+		if loaded.Packages[coreModule+"/pkg/public"].Scope().Lookup("TestOnly") != nil {
+			t.Fatal("test file entered the public API capture")
 		}
 		want := "64"
 		if arch == "arm64" {
 			want = "32"
 		}
-		native := loaded[coreModule+"/pkg/public"].Scope().Lookup("Native").(*types.Const)
+		native := loaded.Packages[coreModule+"/pkg/public"].Scope().Lookup("Native").(*types.Const)
 		if native.Val().ExactString() != want {
 			t.Fatalf("%s captured the wrong platform: %s", arch, native.Val())
 		}
@@ -165,7 +171,7 @@ func TestInvalidInputProducesIncompleteReport(t *testing.T) {
 	if err := json.Unmarshal(data, &r); err != nil {
 		t.Fatal(err)
 	}
-	if r.Error == "" || !strings.Contains(output.String(), "INCOMPLETE") {
+	if r.Error == "" || r.RequiredRelease != "incomplete" || !strings.Contains(output.String(), "INCOMPLETE") {
 		t.Fatalf("execution failure was hidden: %s", data)
 	}
 }
@@ -219,14 +225,22 @@ func writeFile(t *testing.T, path, data string) {
 }
 
 func TestFieldFindingShowsChangedMember(t *testing.T) {
-	path := coreModule + "/pkg/example"
 	old := typedPackage(t, "package example; type Config struct { Value int; Unrelated string }")
 	current := typedPackage(t, "package example; type Config struct { Value string; Unrelated string }")
-	findings, err := compareAPI(map[string]*types.Package{path: old}, map[string]*types.Package{path: current}, "v1.0.0", "linux/amd64")
+	changes, err := compareAPI(apiTestSnapshot(old), apiTestSnapshot(current), "v1.0.0", "linux/amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(findings) != 1 || findings[0].Before != "field Value int" || findings[0].After != "field Value string" {
-		t.Fatalf("expected changed field signatures, got %+v", findings)
+	if len(changes) != 1 || changes[0].Before != "field Value int" || changes[0].After != "field Value string" {
+		t.Fatalf("expected changed field signatures, got %+v", changes)
 	}
+}
+
+func apiTestSnapshot(pkgs ...*types.Package) *apiSnapshot {
+	s := &apiSnapshot{Packages: map[string]*types.Package{}, Modules: map[string]string{}}
+	for _, p := range pkgs {
+		s.Packages[p.Path()] = p
+		s.Modules[p.Path()] = coreModule
+	}
+	return s
 }

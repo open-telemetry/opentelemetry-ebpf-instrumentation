@@ -6,6 +6,7 @@ package main
 import (
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -23,6 +24,91 @@ type Config struct { Options options.Options }
 		consumer     string
 		want         string
 	}{
+		{
+			name:         "private type rename",
+			publicBefore: `package public;import "go.opentelemetry.io/obi/pkg/internal/options";var Options=options.New()`,
+			before:       "type hidden struct{Value int};func New()*hidden{return nil}",
+			after:        "type renamed struct{Value int};func New()*renamed{return nil}",
+			consumer:     "_=public.Options.Value",
+			want:         "patch",
+		},
+		{
+			name:         "recursive constraint parameter rename",
+			publicBefore: "package public;type Self struct{};func(Self) M(Self){};func F[T interface{M(T)}](v T){}",
+			publicAfter:  "package public;type Self struct{};func(Self) M(Self){};func F[U interface{M(U)}](v U){}",
+			consumer:     "public.F(public.Self{})",
+			want:         "patch",
+		},
+		{
+			name:         "concrete method addition",
+			publicBefore: "package public;type T struct{};func(T) Existing(){}",
+			publicAfter:  "package public;type T struct{};func(T) Existing(){};func(T) Added(){}",
+			consumer:     "public.T{}.Existing()",
+			want:         "minor",
+		},
+		{
+			name:         "removed exported function",
+			publicBefore: "package public;func F(){}",
+			publicAfter:  "package public",
+			consumer:     "public.F()",
+			want:         "major",
+		},
+		{
+			name:         "removed exported type",
+			publicBefore: "package public;type T struct{}",
+			publicAfter:  "package public",
+			consumer:     "var value public.T;_=value",
+			want:         "major",
+		},
+		{
+			name:         "removed exported constant",
+			publicBefore: "package public;const C=1",
+			publicAfter:  "package public",
+			consumer:     "_=public.C",
+			want:         "major",
+		},
+		{
+			name:         "removed concrete method",
+			publicBefore: "package public;type T struct{};func(T) M(){}",
+			publicAfter:  "package public;type T struct{}",
+			consumer:     "public.T{}.M()",
+			want:         "major",
+		},
+		{
+			name:         "function parameter type",
+			publicBefore: "package public;func F(int){}",
+			publicAfter:  "package public;func F(string){}",
+			consumer:     "public.F(1)",
+			want:         "major",
+		},
+		{
+			name:         "function result type",
+			publicBefore: "package public;func F()int{return 0}",
+			publicAfter:  `package public;func F()string{return ""}`,
+			consumer:     "var value int=public.F();_=value",
+			want:         "major",
+		},
+		{
+			name:         "variadic signature",
+			publicBefore: "package public;func F(int){}",
+			publicAfter:  "package public;func F(...int){}",
+			consumer:     "var f func(int)=public.F;_=f",
+			want:         "major",
+		},
+		{
+			name:         "exported interface method addition",
+			publicBefore: "package public;type I interface{A()}",
+			publicAfter:  "package public;type I interface{A();B()}",
+			consumer:     "var target public.I;var old interface{A()};target=old;_=target",
+			want:         "major",
+		},
+		{
+			name:         "ABI-only private layout",
+			publicBefore: "package public;type T struct{Value int;hidden [1]byte}",
+			publicAfter:  "package public;type T struct{hidden [64]byte;Value int}",
+			consumer:     "_=public.T{Value:1}.Value",
+			want:         "patch",
+		},
 		{
 			name: "package rename", publicBefore: "package public; func F() {}", publicAfter: "package renamed; func F() {}",
 			consumer: "public.F()", want: "major",
@@ -116,11 +202,6 @@ type Config struct { Options options.Options }
 			consumer:    "_ = public.Snapshot{} == public.Snapshot{}", want: "major",
 		},
 		{
-			name: "constant value", publicBefore: "package public; const C = 3",
-			publicAfter: "package public; const C = 4",
-			consumer:    "var a [public.C-3]struct{}; var b [3-public.C]struct{}; _,_ = a,b", want: "major",
-		},
-		{
 			name: "unrelated internal declaration", publicBefore: publicConfig,
 			before: "type Options struct { Value int }; func Unrelated() {}", after: "type Options struct { Value int }",
 			consumer: "_ = public.Config{}.Options.Value", want: "patch",
@@ -151,12 +232,12 @@ type Config struct { Options options.Options }
 			if err != nil {
 				t.Fatal(err)
 			}
-			findings, compareErr := compareAPI(before, after, "v1.0.0", "linux/amd64")
+			changes, compareErr := compareAPI(before, after, "v1.0.0", "linux/amd64")
 			if compareErr != nil {
 				t.Fatal(compareErr)
 			}
-			if got := minimumRelease(findings, "v1.0.0"); got != tc.want {
-				t.Fatalf("minimum release=%s, want %s; findings=%+v", got, tc.want, findings)
+			if got := minimumRelease(changes, "v1.0.0"); got != tc.want {
+				t.Fatalf("minimum release=%s, want %s; changes=%+v", got, tc.want, changes)
 			}
 			compileConsumer(t, beforeRoot, tc.consumer, true)
 			compileConsumer(t, afterRoot, tc.consumer, tc.want != "major")
@@ -175,10 +256,10 @@ func publicAPIFixture(t *testing.T, public, internal string) string {
 	return root
 }
 
-func compileConsumer(t *testing.T, root, statement string, wantSuccess bool) {
+func compileConsumer(t *testing.T, root, statement string, wantSuccess bool, replacements ...string) {
 	t.Helper()
 	consumer := t.TempDir()
-	writeFile(t, filepath.Join(consumer, "go.mod"), "module example.com/consumer\n\ngo 1.26.0\n\nrequire "+coreModule+" v1.0.0\nreplace "+coreModule+" => "+root+"\n")
+	writeFile(t, filepath.Join(consumer, "go.mod"), "module example.com/consumer\n\ngo 1.26.0\n\nrequire "+coreModule+" v1.0.0\nreplace "+coreModule+" => "+root+"\n"+strings.Join(replacements, "\n"))
 	writeFile(t, filepath.Join(consumer, "main.go"), `package main; import "go.opentelemetry.io/obi/pkg/public"; func main() { `+statement+" }\n")
 	cmd := exec.CommandContext(t.Context(), "go", "build", ".")
 	cmd.Dir = consumer
@@ -208,7 +289,7 @@ func TestAliasMoveConsumers(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			findings, err := compareAPI(oldAPI, newAPI, "v1.0.0", "linux/amd64")
+			changes, err := compareAPI(oldAPI, newAPI, "v1.0.0", "linux/amd64")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -216,8 +297,8 @@ func TestAliasMoveConsumers(t *testing.T) {
 			if broken {
 				want = "major"
 			}
-			if got := minimumRelease(findings, "v1.0.0"); got != want {
-				t.Fatalf("release=%s, want %s: %+v", got, want, findings)
+			if got := minimumRelease(changes, "v1.0.0"); got != want {
+				t.Fatalf("release=%s, want %s: %+v", got, want, changes)
 			}
 			consumer := `var c public.Config; c.Value = 1; public.F(c)`
 			compileConsumer(t, before, consumer, true)
@@ -237,19 +318,90 @@ func TestUnclassifiedPrivateStructIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	findings, err := compareAPI(oldAPI, newAPI, "v1.0.0", "linux/amd64")
+	changes, err := compareAPI(oldAPI, newAPI, "v1.0.0", "linux/amd64")
 	if err != nil {
 		t.Fatal(err)
 	}
 	found := false
-	for _, f := range findings {
+	for _, f := range changes {
 		if f.Identifier == "Event.Pid" {
 			found = f.Unsupported
 		}
 	}
 	if !found {
-		t.Fatalf("ambiguous nominal type change classified as proven break: %+v", findings)
+		t.Fatalf("ambiguous nominal type change classified as proven break: %+v", changes)
 	}
 	compileConsumer(t, before, "var event public.Event; event.Pid.ID = 1", true)
 	compileConsumer(t, after, "var event public.Event; event.Pid.ID = 1", true)
+}
+
+func TestDependencyUpdateClassification(t *testing.T) {
+	for _, dependency := range []string{"example.com/dependency", coreModule + "/collector"} {
+		for _, breaking := range []bool{false, true} {
+			t.Run(dependency+"/"+map[bool]string{false: "compatible addition", true: "exposed field break"}[breaking], func(t *testing.T) {
+				var roots []string
+				var apis []*apiSnapshot
+				for _, candidate := range []bool{false, true} {
+					root := publicAPIFixture(t, `package public;import "`+dependency+`";var Value dependency.Value`, "")
+					writeFile(t, filepath.Join(root, "go.mod"), "module "+coreModule+"\n\ngo 1.26.0\nrequire "+dependency+" v0.1.0\nreplace "+dependency+" => ./dependency\n")
+					writeFile(t, filepath.Join(root, "dependency/go.mod"), "module "+dependency+"\n\ngo 1.26.0\n")
+					body := "package dependency;type Value struct{Existing int}"
+					if candidate {
+						body = "package dependency;type Value struct{Existing int;Added int}"
+						if breaking {
+							body = "package dependency;type Value struct{Existing string}"
+						}
+					}
+					writeFile(t, filepath.Join(root, "dependency/value.go"), body)
+					api, err := loadAPI(t.Context(), root, "amd64")
+					if err != nil {
+						t.Fatal(err)
+					}
+					roots = append(roots, root)
+					apis = append(apis, api)
+				}
+				changes, err := compareAPI(apis[0], apis[1], "v1.0.0", "linux/amd64")
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := "patch"
+				if breaking {
+					want = "major"
+				}
+				if got := minimumRelease(changes, "v1.0.0"); got != want {
+					t.Fatalf("release=%s, want %s: %+v", got, want, changes)
+				}
+				findings, unknown := actionableChanges(changes)
+				if len(unknown) != 0 || (len(findings) > 0) != breaking {
+					t.Fatalf("unexpected classification: %+v %+v", findings, unknown)
+				}
+				for i, root := range roots {
+					compileConsumer(t, root, "var value int=public.Value.Existing;_=value", i == 0 || !breaking, "require "+dependency+" v0.1.0\nreplace "+dependency+" => "+filepath.Join(root, "dependency"))
+				}
+			})
+		}
+	}
+}
+
+func TestAliasReplacedByDefinedType(t *testing.T) {
+	before := publicAPIFixture(t, `package public;import "go.opentelemetry.io/obi/pkg/metadata";type Config = metadata.Config;func Consume(metadata.Config){}`, "")
+	after := publicAPIFixture(t, `package public;import "go.opentelemetry.io/obi/pkg/metadata";type Config metadata.Config;func Consume(metadata.Config){}`, "")
+	var snapshots []*apiSnapshot
+	for _, root := range []string{before, after} {
+		writeFile(t, filepath.Join(root, "pkg/metadata/api.go"), "package metadata;type Config struct{Value int}")
+		api, err := loadAPI(t.Context(), root, "amd64")
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshots = append(snapshots, api)
+	}
+	changes, err := compareAPI(snapshots[0], snapshots[1], "v1.0.0", "linux/amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if minimumRelease(changes, "v1.0.0") != "major" {
+		t.Fatalf("alias identity break missed: %+v", changes)
+	}
+	compileConsumer(t, before, "public.Consume(public.Config{})", true)
+	compileConsumer(t, after, "public.Consume(public.Config{})", false)
 }

@@ -154,7 +154,7 @@ func (s *apiSurface) typ(t types.Type) types.Type {
 		// Bind parameters before traversing recursive generic types.
 		var params []*types.TypeParam
 		for param := range t.TypeParams().TypeParams() {
-			p := types.NewTypeParam(types.NewTypeName(token.NoPos, s.pkg, param.Obj().Name(), nil), nil)
+			p := types.NewTypeParam(types.NewTypeName(token.NoPos, s.pkg, fmt.Sprintf("T%d", param.Index()), nil), nil)
 			s.types[param] = p
 			params = append(params, p)
 		}
@@ -171,7 +171,7 @@ func (s *apiSurface) typ(t types.Type) types.Type {
 		}
 		return named
 	case *types.TypeParam:
-		param := types.NewTypeParam(types.NewTypeName(token.NoPos, s.pkg, t.Obj().Name(), nil), nil)
+		param := types.NewTypeParam(types.NewTypeName(token.NoPos, s.pkg, fmt.Sprintf("T%d", t.Index()), nil), nil)
 		s.types[t] = param
 		param.SetConstraint(s.typ(t.Constraint()))
 		return param

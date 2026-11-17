@@ -19,6 +19,10 @@ import (
 )
 
 func TestPRAndReleaseResults(t *testing.T) {
+	const recursiveBase = "package public;type Self struct{};func(Self) M(Self){};"
+	const recursiveRelease = recursiveBase + "func F[T any](v T){}"
+	const recursiveTarget = recursiveBase + "func F[T interface{M(T)}](v T){}"
+	const recursiveRename = recursiveBase + "func F[U interface{M(U)}](v U){}"
 	const original = "package public; func F(int) {}"
 	const broken = "package public; func F(string) {}"
 	const addition = original + "; func Added() {}"
@@ -29,17 +33,25 @@ func TestPRAndReleaseResults(t *testing.T) {
 		code                                                int
 		prClass, releaseClass                               string
 		introduced, existing                                int
+		unclassified, existingUnclassified                  int
 	}{
 		{name: "unchanged", releaseAPI: original, targetAPI: original, candidateAPI: original, prClass: "patch", releaseClass: "patch"},
 		{name: "inherited break", releaseAPI: original, targetAPI: broken, candidateAPI: broken, prClass: "patch", releaseClass: "major", existing: 1},
 		{name: "new break", releaseAPI: original, targetAPI: original, candidateAPI: broken, code: exitBreak, prClass: "major", releaseClass: "major", introduced: 1},
 		{name: "worsened generic constraint", releaseAPI: "package public; func F[T any](v T) {}", targetAPI: "package public; func F[T ~int | ~string](v T) {}", candidateAPI: "package public; func F[T ~int](v T) {}", code: exitBreak, prClass: "major", releaseClass: "major", introduced: 1},
-		{name: "new API", releaseAPI: original, targetAPI: original, candidateAPI: addition, prClass: "minor", releaseClass: "minor", introduced: 1},
+		{name: "rename inherited recursive constraint", releaseAPI: recursiveRelease, targetAPI: recursiveTarget, candidateAPI: recursiveRename, prClass: "patch", releaseClass: "major", existing: 1},
+		{name: "new API", releaseAPI: original, targetAPI: original, candidateAPI: addition, prClass: "minor", releaseClass: "minor"},
+		{name: "concrete method addition", releaseAPI: "package public; type T struct{}", targetAPI: "package public; type T struct{}", candidateAPI: "package public; type T struct{};func(T) Added(){}", prClass: "minor", releaseClass: "minor"},
+		{name: "new exported declarations", releaseAPI: original, targetAPI: original, candidateAPI: addition + ";type S struct{};const C=1;var V int", prClass: "minor", releaseClass: "minor"},
+		{name: "field addition", releaseAPI: "package public;type S struct{A int}", targetAPI: "package public;type S struct{A int}", candidateAPI: "package public;type S struct{A,B int}", prClass: "minor", releaseClass: "minor"},
+		{name: "ABI layout refactor", releaseAPI: "package public;type S struct{A int; hidden [1]byte}", targetAPI: "package public;type S struct{A int; hidden [1]byte}", candidateAPI: "package public;type S struct{hidden [64]byte; A int}", prClass: "patch", releaseClass: "patch"},
+		{name: "constant value needs contract review", releaseAPI: "package public;const Count=3", targetAPI: "package public;const Count=3", candidateAPI: "package public;const Count=4", code: exitError, prClass: "incomplete", releaseClass: "incomplete", unclassified: 1},
+
 		{name: "release rejects inherited break", releaseAPI: original, targetAPI: broken, candidateAPI: broken, proposed: "v1.1.0", code: exitBreak, prClass: "patch", releaseClass: "major", existing: 1},
-		{name: "patch rejects new API", releaseAPI: original, targetAPI: original, candidateAPI: addition, proposed: "v1.0.1", code: exitBreak, prClass: "minor", releaseClass: "minor", introduced: 1},
-		{name: "new unclassified change", releaseAPI: anonymous, targetAPI: anonymous, candidateAPI: named, code: exitError, prClass: "minor", releaseClass: "incomplete", introduced: 2},
-		{name: "inherited unclassified change", releaseAPI: anonymous, targetAPI: named, candidateAPI: named, prClass: "patch", releaseClass: "incomplete", existing: 2},
-		{name: "release rejects unclassified change", releaseAPI: anonymous, targetAPI: named, candidateAPI: named, proposed: "v1.1.0", code: exitError, prClass: "patch", releaseClass: "incomplete", existing: 2},
+		{name: "patch rejects new API", releaseAPI: original, targetAPI: original, candidateAPI: addition, proposed: "v1.0.1", code: exitBreak, prClass: "minor", releaseClass: "minor"},
+		{name: "new unclassified change", releaseAPI: anonymous, targetAPI: anonymous, candidateAPI: named, code: exitError, prClass: "incomplete", releaseClass: "incomplete", unclassified: 1},
+		{name: "inherited unclassified change", releaseAPI: anonymous, targetAPI: named, candidateAPI: named, prClass: "patch", releaseClass: "incomplete", existingUnclassified: 1},
+		{name: "release rejects unclassified change", releaseAPI: anonymous, targetAPI: named, candidateAPI: named, proposed: "v1.1.0", code: exitError, prClass: "patch", releaseClass: "incomplete", existingUnclassified: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mockRelease(t, tc.releaseAPI)
@@ -70,8 +82,14 @@ func TestPRAndReleaseResults(t *testing.T) {
 			if err := json.Unmarshal(data, &r); err != nil {
 				t.Fatal(err)
 			}
-			if code != tc.code || r.RequiredRelease != tc.prClass || r.ReleaseRequired != tc.releaseClass || len(r.Findings) != tc.introduced || len(r.ExistingFindings) != tc.existing {
+			if code != tc.code || r.RequiredRelease != tc.prClass || r.ReleaseRequired != tc.releaseClass || len(r.Findings) != tc.introduced || len(r.ExistingFindings) != tc.existing || len(r.Unclassified) != tc.unclassified || len(r.ExistingUnclassified) != tc.existingUnclassified {
 				t.Fatalf("exit=%d, want %d; report=%s\n%s", code, tc.code, data, &output)
+			}
+			if len(r.Findings) == 0 && tc.code != exitError && !strings.Contains(output.String(), "No incompatible public Go API changes introduced by this PR.") {
+				t.Fatalf("allowed API change reported as a finding: %s", &output)
+			}
+			if strings.Contains(output.String(), "Existing findings") || strings.Contains(output.String(), "PR changes:") {
+				t.Fatalf("raw diff inventory leaked into PR output: %s", &output)
 			}
 			if (r.Error != "") != (tc.code == exitError) {
 				t.Fatalf("incomplete status mismatch: %s", data)

@@ -43,7 +43,8 @@ type options struct {
 	cacheDir       string
 }
 
-type finding struct {
+type apiChange struct {
+	Module      string `json:"-"`
 	Baseline    string `json:"baseline"`
 	Platform    string `json:"platform"`
 	Package     string `json:"package"`
@@ -51,9 +52,10 @@ type finding struct {
 	Before      string `json:"before,omitempty"`
 	After       string `json:"after,omitempty"`
 	Message     string `json:"message"`
-	Compatible  bool   `json:"compatible"`
-	Unsupported bool   `json:"unsupported,omitempty"`
+	Compatible  bool   `json:"-"`
+	Unsupported bool   `json:"-"`
 	Rule        string `json:"rule"`
+	Reason      string `json:"reason,omitempty"`
 }
 
 type baseline struct {
@@ -65,20 +67,22 @@ type baseline struct {
 }
 
 type report struct {
-	FormatVersion    int        `json:"format_version"`
-	Surface          string     `json:"surface"`
-	BaseCommit       string     `json:"base_commit"`
-	HeadCommit       string     `json:"head_commit"`
-	WorkingTree      bool       `json:"working_tree_modified"`
-	Platforms        []string   `json:"platforms"`
-	Baselines        []baseline `json:"baselines"`
-	Findings         []finding  `json:"findings"`
-	ExistingFindings []finding  `json:"existing_findings"`
-	ReleaseRequired  string     `json:"release_required"`
-	RequiredRelease  string     `json:"required_release"`
-	ReleaseBase      string     `json:"release_base,omitempty"`
-	ProposedRelease  string     `json:"proposed_release,omitempty"`
-	Error            string     `json:"error,omitempty"`
+	FormatVersion        int         `json:"format_version"`
+	Surface              string      `json:"surface"`
+	BaseCommit           string      `json:"base_commit"`
+	HeadCommit           string      `json:"head_commit"`
+	WorkingTree          bool        `json:"working_tree_modified"`
+	Platforms            []string    `json:"platforms"`
+	Baselines            []baseline  `json:"baselines"`
+	Findings             []apiChange `json:"findings"`
+	ExistingFindings     []apiChange `json:"existing_findings"`
+	Unclassified         []apiChange `json:"unclassified_changes"`
+	ExistingUnclassified []apiChange `json:"existing_unclassified_changes"`
+	ReleaseRequired      string      `json:"release_required"`
+	RequiredRelease      string      `json:"required_release"`
+	ReleaseBase          string      `json:"release_base,omitempty"`
+	ProposedRelease      string      `json:"proposed_release,omitempty"`
+	Error                string      `json:"error,omitempty"`
 }
 
 func main() {
@@ -114,8 +118,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 
 	r := report{
-		FormatVersion: 2, Surface: "go-api", RequiredRelease: "patch", ProposedRelease: opts.releaseVersion,
-		Baselines: []baseline{}, Findings: []finding{}, ExistingFindings: []finding{},
+		FormatVersion: 2, Surface: "go-api", RequiredRelease: "incomplete", ReleaseRequired: "incomplete", ProposedRelease: opts.releaseVersion,
+		Baselines: []baseline{}, Findings: []apiChange{}, ExistingFindings: []apiChange{}, Unclassified: []apiChange{}, ExistingUnclassified: []apiChange{},
 	}
 	err := check(ctx, opts, &r, stderr)
 	if err != nil {
@@ -222,6 +226,7 @@ func check(ctx context.Context, opts options, r *report, progress io.Writer) err
 	}
 	defer os.RemoveAll(temp)
 
+	var introducedChanges, existingChanges []apiChange
 	for _, arch := range archs {
 		platform := "linux/" + arch
 		r.Platforms = append(r.Platforms, platform)
@@ -245,26 +250,29 @@ func check(ctx context.Context, opts options, r *report, progress io.Writer) err
 			if err != nil {
 				return fmt.Errorf("baseline %s %s: %w", release.Tag, platform, err)
 			}
-			info.Packages = len(old)
+			info.Packages = len(old.Packages)
 			info.Platform = platform
 			r.Baselines = append(r.Baselines, info)
-			headFindings, err := compareAPI(old, candidate, release.Tag, platform)
+			headChanges, err := compareAPI(old, candidate, release.Tag, platform)
 			if err != nil {
 				return err
 			}
-			baseFindings, err := compareAPI(old, target, release.Tag, platform)
+			baseChanges, err := compareAPI(old, target, release.Tag, platform)
 			if err != nil {
 				return err
 			}
-			introduced, existing := attributeFindings(headFindings, baseFindings)
-			r.Findings = append(r.Findings, introduced...)
-			r.ExistingFindings = append(r.ExistingFindings, existing...)
+			introduced, existing := attributeChanges(headChanges, baseChanges)
+			introducedChanges = append(introducedChanges, introduced...)
+			existingChanges = append(existingChanges, existing...)
 		}
 	}
-	sortFindings(r.Findings)
-	sortFindings(r.ExistingFindings)
-	r.RequiredRelease = minimumRelease(r.Findings, r.ReleaseBase)
-	all := append(slices.Clone(r.Findings), r.ExistingFindings...)
+	r.RequiredRelease = minimumRelease(introducedChanges, r.ReleaseBase)
+	all := append(slices.Clone(introducedChanges), existingChanges...)
+	r.Findings, r.Unclassified = actionableChanges(introducedChanges)
+	r.ExistingFindings, r.ExistingUnclassified = actionableChanges(existingChanges)
+	for _, changes := range [][]apiChange{r.Findings, r.ExistingFindings, r.Unclassified, r.ExistingUnclassified} {
+		sortAPIChanges(changes)
+	}
 	r.ReleaseRequired = minimumRelease(all, r.ReleaseBase)
 	for _, f := range all {
 		if f.Unsupported {
@@ -272,13 +280,12 @@ func check(ctx context.Context, opts options, r *report, progress io.Writer) err
 			break
 		}
 	}
-	for _, f := range r.Findings {
-		if f.Unsupported {
-			return errors.New("PR contains an unclassified type identity change; see JSON findings")
-		}
+	if len(r.Unclassified) > 0 {
+		r.RequiredRelease = "incomplete"
+		return errors.New("source compatibility could not be determined for a PR change; see unclassified_changes in JSON")
 	}
 	if opts.releaseVersion != "" && r.ReleaseRequired == "incomplete" {
-		return errors.New("release contains unclassified type identity changes; see JSON findings")
+		return errors.New("release assessment is incomplete; see unclassified_changes and existing_unclassified_changes in JSON")
 	}
 
 	if opts.releaseVersion != "" {
@@ -321,16 +328,16 @@ func validateProposed(proposed, target string) error {
 	return nil
 }
 
-func minimumRelease(findings []finding, latest string) string {
+func minimumRelease(changes []apiChange, latest string) string {
 	minimum := "patch"
-	for _, f := range findings {
+	for _, f := range changes {
 		if f.Unsupported {
 			continue
 		}
 		if !f.Compatible {
 			return "major"
 		}
-		if f.Baseline == latest {
+		if f.Baseline == latest && f.Module == coreModule {
 			minimum = "minor"
 		}
 	}
@@ -387,28 +394,49 @@ func printReport(w io.Writer, r *report) {
 	fmt.Fprintf(w, "Candidate: %s; target: %s\n", r.HeadCommit, r.BaseCommit)
 	if r.Error != "" {
 		fmt.Fprintln(w, "INCOMPLETE:", r.Error)
-		return
+	} else {
+		fmt.Fprintf(w, "Minimum Go API release class: %s\n", r.RequiredRelease)
 	}
-	fmt.Fprintf(w, "PR changes: %d; minimum release: %s\n", len(r.Findings), r.RequiredRelease)
+	if r.Error == "" && len(r.Findings) == 0 {
+		fmt.Fprintln(w, "No incompatible public Go API changes introduced by this PR.")
+	}
 	for _, f := range r.Findings {
-		kind := "addition"
-		if !f.Compatible {
-			kind = "incompatible"
-		}
-		fmt.Fprintf(w, "%s [%s %s] %s: %s\n", kind, f.Baseline, f.Platform, f.Package, f.Message)
+		fmt.Fprintf(w, "incompatible [%s %s] %s: %s\n", f.Baseline, f.Platform, f.Package, f.Message)
 	}
-	fmt.Fprintf(w, "Existing findings on target: %d (see JSON report)\n", len(r.ExistingFindings))
-	fmt.Fprintf(w, "Full candidate release requirement: %s\n", r.ReleaseRequired)
+	for _, c := range r.Unclassified {
+		fmt.Fprintf(w, "unclassified [%s %s] %s.%s: %s\n", c.Baseline, c.Platform, c.Package, c.Identifier, c.Reason)
+	}
+	if r.ProposedRelease != "" {
+		fmt.Fprintf(w, "Full candidate release assessment: %s\n", r.ReleaseRequired)
+		for _, f := range r.ExistingFindings {
+			fmt.Fprintf(w, "incompatible [%s %s] %s: %s\n", f.Baseline, f.Platform, f.Package, f.Message)
+		}
+		for _, c := range r.ExistingUnclassified {
+			fmt.Fprintf(w, "unclassified [%s %s] %s.%s: %s\n", c.Baseline, c.Platform, c.Package, c.Identifier, c.Reason)
+		}
+	}
 }
 
-func attributeFindings(head, base []finding) ([]finding, []finding) {
+func actionableChanges(changes []apiChange) ([]apiChange, []apiChange) {
+	incompatible, unclassified := []apiChange{}, []apiChange{}
+	for _, c := range changes {
+		if c.Unsupported {
+			unclassified = append(unclassified, c)
+		} else if !c.Compatible {
+			incompatible = append(incompatible, c)
+		}
+	}
+	return incompatible, unclassified
+}
+
+func attributeChanges(head, base []apiChange) ([]apiChange, []apiChange) {
 	keys := map[string]bool{}
 	for _, f := range base {
-		keys[findingKey(f)] = true
+		keys[changeKey(f)] = true
 	}
-	var introduced, existing []finding
+	var introduced, existing []apiChange
 	for _, f := range head {
-		if keys[findingKey(f)] {
+		if keys[changeKey(f)] {
 			existing = append(existing, f)
 		} else {
 			introduced = append(introduced, f)
@@ -417,10 +445,10 @@ func attributeFindings(head, base []finding) ([]finding, []finding) {
 	return introduced, existing
 }
 
-func findingKey(f finding) string {
+func changeKey(f apiChange) string {
 	return fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%t\x00%t\x00%s", f.Baseline, f.Platform, f.Package, f.Identifier, f.Compatible, f.Unsupported, f.Message)
 }
 
-func sortFindings(findings []finding) {
-	slices.SortFunc(findings, func(a, b finding) int { return strings.Compare(findingKey(a), findingKey(b)) })
+func sortAPIChanges(changes []apiChange) {
+	slices.SortFunc(changes, func(a, b apiChange) int { return strings.Compare(changeKey(a), changeKey(b)) })
 }

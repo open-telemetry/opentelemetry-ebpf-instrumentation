@@ -16,7 +16,12 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func loadAPI(ctx context.Context, root, arch string) (map[string]*types.Package, error) {
+type apiSnapshot struct {
+	Packages map[string]*types.Package
+	Modules  map[string]string
+}
+
+func loadAPI(ctx context.Context, root, arch string) (*apiSnapshot, error) {
 	path, err := modulePath(root)
 	if err != nil {
 		return nil, err
@@ -53,7 +58,11 @@ func loadAPI(ctx context.Context, root, arch string) (map[string]*types.Package,
 		return nil, err
 	}
 	var errs []error
+	modules := map[string]string{}
 	packages.Visit(loaded, func(p *packages.Package) bool {
+		if p.Module != nil {
+			modules[p.PkgPath] = p.Module.Path
+		}
 		for _, e := range p.Errors {
 			errs = append(errs, e)
 		}
@@ -72,7 +81,7 @@ func loadAPI(ctx context.Context, root, arch string) (map[string]*types.Package,
 	if len(result) != len(paths) {
 		return nil, fmt.Errorf("loaded %d public packages, expected %d", len(result), len(paths))
 	}
-	return result, nil
+	return &apiSnapshot{Packages: result, Modules: modules}, nil
 }
 
 func internalPackage(path string) bool {
@@ -97,24 +106,25 @@ func goEnvironment(arch string) []string {
 	return env
 }
 
-func compareAPI(old, candidate map[string]*types.Package, version, platform string) (findings []finding, err error) {
+func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) (changes []apiChange, err error) {
+	old, candidate := oldAPI.Packages, candidateAPI.Packages
 	defer func() {
 		if failure := recover(); failure != nil {
-			findings = nil
+			changes = nil
 			err = fmt.Errorf("go API comparison incomplete: %v", failure)
 		}
 	}()
 	for path, before := range old {
 		after, exists := candidate[path]
 		if !exists {
-			findings = append(findings, finding{
+			changes = append(changes, apiChange{
 				Baseline: version, Platform: platform, Package: path, Identifier: path,
 				Before: "package " + path, Message: "package removed", Rule: goAPIRule,
 			})
 			continue
 		}
 		if before.Name() != after.Name() {
-			findings = append(findings, finding{
+			changes = append(changes, apiChange{
 				Baseline: version, Platform: platform, Package: path, Identifier: path,
 				Before: before.Name(), After: after.Name(), Message: "package name changed", Rule: goAPIRule,
 			})
@@ -122,7 +132,7 @@ func compareAPI(old, candidate map[string]*types.Package, version, platform stri
 	}
 	for path := range candidate {
 		if _, exists := old[path]; !exists {
-			findings = append(findings, finding{
+			changes = append(changes, apiChange{
 				Baseline: version, Platform: platform, Package: path, Identifier: path,
 				After: "package " + path, Message: "package added", Compatible: true, Rule: goAPIRule,
 			})
@@ -137,7 +147,7 @@ func compareAPI(old, candidate map[string]*types.Package, version, platform stri
 			obj = afterObj
 		}
 		if obj == nil {
-			panic("API finding has no source declaration: " + change.Message)
+			panic("API change has no source declaration: " + change.Message)
 		}
 		path := obj.Pkg().Path()
 		if (old[path] != nil && candidate[path] == nil) || (old[path] == nil && candidate[path] != nil) {
@@ -146,15 +156,34 @@ func compareAPI(old, candidate map[string]*types.Package, version, platform stri
 		message := afterSurface.describe(beforeSurface.describe(change.Message))
 		readable, detail, _ := strings.Cut(message, ":")
 		readable = strings.TrimPrefix(readable, path+".")
-		findings = append(findings, finding{
+		reason := ""
+		if uncertainTypeIdentity(beforeObj, afterObj, readable) {
+			reason = "Naming an anonymous struct with private fields requires source compatibility review."
+		}
+		if strings.Contains(change.Message, ": value changed from ") {
+			reason = "A constant value changed; the checker cannot determine whether its documented contract changed incompatibly."
+		}
+		if !change.Compatible && strings.HasSuffix(change.Message, ": added") && beforeObj != nil {
+			if _, ok := beforeObj.Type().Underlying().(*types.Interface); ok {
+				detail = " added method to an existing interface"
+			}
+		}
+		changes = append(changes, apiChange{
 			Baseline: version, Platform: platform, Package: path, Identifier: readable,
 			Before: describeAPIObject(apiMember(beforeObj, identifier)), After: describeAPIObject(apiMember(afterObj, identifier)),
 			Message: readable + ":" + detail, Compatible: change.Compatible, Rule: goAPIRule,
-			Unsupported: uncertainTypeIdentity(beforeObj, afterObj, readable),
+			Unsupported: reason != "", Reason: reason,
 		})
 	}
-	findings = append(findings, compareConstraints(beforeSurface, afterSurface, version, platform)...)
-	return findings, nil
+	changes = append(changes, compareConstraints(beforeSurface, afterSurface, version, platform)...)
+	for i, c := range changes {
+		module := candidateAPI.Modules[c.Package]
+		if module == "" {
+			module = oldAPI.Modules[c.Package]
+		}
+		changes[i].Module = module
+	}
+	return changes, nil
 }
 
 func apiMember(obj types.Object, identifier string) types.Object {
@@ -238,21 +267,26 @@ func objectParams(obj types.Object) *types.TypeParamList {
 	return nil
 }
 
-func compareConstraints(before, after *apiSurface, version, platform string) []finding {
-	var findings []finding
+func compareConstraints(before, after *apiSurface, version, platform string) []apiChange {
+	var changes []apiChange
 	for id, old := range before.originals {
 		current := after.originals[id]
 		if current == nil || before.pkg.Scope().Lookup(id) == nil {
 			continue
 		}
 		oldParams, newParams := objectParams(old), objectParams(current)
+		if oldParams.Len() == newParams.Len() {
+			for i := range oldParams.Len() {
+				after.types[oldParams.At(i)] = after.typ(newParams.At(i))
+			}
+		}
 		if oldType, ok := old.(*types.TypeName); ok {
 			oldIface, oldIsIface := oldType.Type().Underlying().(*types.Interface)
 			newIface, newIsIface := current.Type().Underlying().(*types.Interface)
 			if oldIsIface && newIsIface && (!oldIface.IsMethodSet() || !newIface.IsMethodSet()) {
 				compatible, changed := constraintRelation(after.constraint(oldIface), after.constraint(newIface))
 				if changed {
-					findings = append(findings, constraintFinding(old, current, after, version, platform, compatible))
+					changes = append(changes, constraintFinding(old, current, after, version, platform, compatible))
 				}
 			}
 		}
@@ -269,14 +303,14 @@ func compareConstraints(before, after *apiSurface, version, platform string) []f
 			}
 		}
 		if changed {
-			findings = append(findings, constraintFinding(old, current, after, version, platform, compatible))
+			changes = append(changes, constraintFinding(old, current, after, version, platform, compatible))
 		}
 	}
-	return findings
+	return changes
 }
 
-func constraintFinding(old, current types.Object, surface *apiSurface, version, platform string, compatible bool) finding {
-	return finding{Baseline: version, Platform: platform, Package: old.Pkg().Path(), Identifier: old.Name(), Before: describeAPIObject(old), After: describeAPIObject(current), Message: fmt.Sprintf("%s: constraints changed from %s to %s", old.Name(), describeConstraints(old, surface), describeConstraints(current, surface)), Compatible: compatible, Rule: goAPIRule}
+func constraintFinding(old, current types.Object, surface *apiSurface, version, platform string, compatible bool) apiChange {
+	return apiChange{Baseline: version, Platform: platform, Package: old.Pkg().Path(), Identifier: old.Name(), Before: describeAPIObject(old), After: describeAPIObject(current), Message: fmt.Sprintf("%s: constraints changed from %s to %s", old.Name(), describeConstraints(old, surface), describeConstraints(current, surface)), Compatible: compatible, Rule: goAPIRule}
 }
 
 func describeConstraints(obj types.Object, surface *apiSurface) string {

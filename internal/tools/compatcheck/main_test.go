@@ -4,7 +4,6 @@
 package main
 
 import (
-	"go/types"
 	"io"
 	"path/filepath"
 	"strings"
@@ -13,34 +12,36 @@ import (
 
 func TestMinimumReleaseAcrossBaselines(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		findings []finding
-		want     string
+		name    string
+		changes []apiChange
+		want    string
 	}{
 		{name: "unchanged", want: "patch"},
+		{name: "compatible dependency API addition", changes: []apiChange{{Baseline: "v1.1.1", Package: "example.com/dependency", Compatible: true}}, want: "patch"},
+		{name: "exposed dependency API break", changes: []apiChange{{Baseline: "v1.1.1", Package: "example.com/dependency"}}, want: "major"},
 		{
-			name:     "addition already released in minor",
-			findings: []finding{{Baseline: "v1.0.0", Compatible: true}},
-			want:     "patch",
+			name:    "addition already released in minor",
+			changes: []apiChange{{Module: coreModule, Package: coreModule, Baseline: "v1.0.0", Compatible: true}},
+			want:    "patch",
 		},
 		{
-			name:     "addition already released in patch",
-			findings: []finding{{Baseline: "v1.1.0", Compatible: true}},
-			want:     "patch",
+			name:    "addition already released in patch",
+			changes: []apiChange{{Module: coreModule, Package: coreModule, Baseline: "v1.1.0", Compatible: true}},
+			want:    "patch",
 		},
 		{
-			name:     "new addition",
-			findings: []finding{{Baseline: "v1.0.0", Compatible: true}, {Baseline: "v1.1.1", Compatible: true}},
-			want:     "minor",
+			name:    "new addition",
+			changes: []apiChange{{Module: coreModule, Package: coreModule, Baseline: "v1.0.0", Compatible: true}, {Module: coreModule, Package: coreModule, Baseline: "v1.1.1", Compatible: true}},
+			want:    "minor",
 		},
 		{
-			name:     "older contract breaks",
-			findings: []finding{{Baseline: "v1.0.0", Compatible: false}, {Baseline: "v1.1.1", Compatible: true}},
-			want:     "major",
+			name:    "older contract breaks",
+			changes: []apiChange{{Module: coreModule, Package: coreModule, Baseline: "v1.0.0", Compatible: false}, {Module: coreModule, Package: coreModule, Baseline: "v1.1.1", Compatible: true}},
+			want:    "major",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := minimumRelease(tc.findings, "v1.1.1"); got != tc.want {
+			if got := minimumRelease(tc.changes, "v1.1.1"); got != tc.want {
 				t.Fatalf("minimum release=%s, want %s", got, tc.want)
 			}
 		})
@@ -48,7 +49,7 @@ func TestMinimumReleaseAcrossBaselines(t *testing.T) {
 }
 
 func TestFindingAttribution(t *testing.T) {
-	inherited := finding{Baseline: "v1.0.0", Platform: "linux/amd64", Package: coreModule + "/pkg/public", Identifier: "Old", Message: "Old: removed"}
+	inherited := apiChange{Baseline: "v1.0.0", Platform: "linux/amd64", Package: coreModule + "/pkg/public", Identifier: "Old", Message: "Old: removed"}
 	introduced := inherited
 	introduced.Identifier = "New"
 	introduced.Message = "New: removed"
@@ -56,16 +57,16 @@ func TestFindingAttribution(t *testing.T) {
 	worsened.Message = "Old: changed from int to string"
 	for _, tc := range []struct {
 		name                    string
-		head                    []finding
+		head                    []apiChange
 		newCount, existingCount int
 	}{
-		{"tooling-only PR", []finding{inherited}, 0, 1},
-		{"new violation", []finding{inherited, introduced}, 1, 1},
-		{"changed violation", []finding{worsened}, 1, 0},
+		{"tooling-only PR", []apiChange{inherited}, 0, 1},
+		{"new violation", []apiChange{inherited, introduced}, 1, 1},
+		{"changed violation", []apiChange{worsened}, 1, 0},
 		{"fixed violation", nil, 0, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			newFindings, existing := attributeFindings(tc.head, []finding{inherited})
+			newFindings, existing := attributeChanges(tc.head, []apiChange{inherited})
 			if len(newFindings) != tc.newCount || len(existing) != tc.existingCount {
 				t.Fatalf("new=%+v existing=%+v", newFindings, existing)
 			}
@@ -112,7 +113,7 @@ func TestTargetCheckoutValidation(t *testing.T) {
 
 func TestAttributionOfExposedConstraint(t *testing.T) {
 	const public = `package public; import "go.opentelemetry.io/obi/pkg/internal/options"; func F[T options.Number](v T) {}`
-	var snapshots []map[string]*types.Package
+	var snapshots []*apiSnapshot
 	for _, constraint := range []string{"~int | ~string | ~float64", "~int | ~string", "~int"} {
 		root := publicAPIFixture(t, public, "type Number interface { "+constraint+" }")
 		api, err := loadAPI(t.Context(), root, "amd64")
@@ -129,7 +130,7 @@ func TestAttributionOfExposedConstraint(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	introduced, _ := attributeFindings(head, base)
+	introduced, _ := attributeChanges(head, base)
 	if minimumRelease(introduced, "v1.0.0") != "major" {
 		t.Fatalf("further narrowing hidden as inherited: head=%+v base=%+v", head, base)
 	}
