@@ -53,7 +53,9 @@ are cached under `testoutput/compatibility-cache`. Override these with
 `COMPAT_REPORT` and `COMPAT_CACHE_DIR`.
 
 The checker uses pinned `golang.org/x/exp/apidiff` tooling and Go package/type
-information. It excludes internal packages, commands, tests, and nested modules.
+information. It excludes commands, tests, and nested modules. Internal types
+receive checks only when public declarations expose them; unrelated internal
+declarations remain outside the comparison.
 It detects package/symbol removal, incompatible signatures and types,
 interface-method additions, and changed constants. Implementation behavior and
 subjective meaning changes are outside this check.

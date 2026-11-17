@@ -108,6 +108,12 @@ func compareAPI(old, candidate map[string]*types.Package, version, platform stri
 			})
 			continue
 		}
+		if before.Name() != after.Name() {
+			findings = append(findings, finding{
+				Baseline: version, Platform: platform, Package: path, Identifier: path,
+				Before: before.Name(), After: after.Name(), Message: "package name changed", Rule: goAPIRule,
+			})
+		}
 		for _, change := range apidiff.Changes(before, after).Changes {
 			identifier, _, _ := strings.Cut(change.Message, ":")
 			findings = append(findings, finding{
@@ -125,7 +131,7 @@ func compareAPI(old, candidate map[string]*types.Package, version, platform stri
 			})
 		}
 	}
-	return findings
+	return append(findings, compareInternalAPI(old, candidate, version, platform)...)
 }
 
 func describeObject(pkg *types.Package, identifier string) string {
