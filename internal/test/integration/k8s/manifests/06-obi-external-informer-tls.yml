@@ -215,6 +215,9 @@ spec:
   template:
     metadata:
       name: k8s-cache
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8999"
       labels:
         app: k8s-cache
         # this label will trigger a deletion of OBI pods before tearing down

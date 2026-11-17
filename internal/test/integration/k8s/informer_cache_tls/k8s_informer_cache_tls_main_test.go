@@ -78,10 +78,10 @@ func TestInformersCacheTLS_MetricsDecoration_HTTP(t *testing.T) {
 		}))
 }
 
-// Prometheus scrapes the cache through its Service, so a scrape can land on the replica OBI isn't connected to.
+// Cache replicas have independent connected-client gauges.
 func TestInformersCacheTLS_ConnectedClientsOverTLS(t *testing.T) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		require.NotZero(ct, metricVal(ct, `max_over_time(obi_kube_cache_connected_clients[1m])`))
+		require.NotZero(ct, metricVal(ct, `sum(max_over_time(obi_kube_cache_connected_clients{job="obi-network-flows-scrape"}[1m]))`))
 	}, 2*time.Minute, 2*time.Second)
 }
 
