@@ -104,7 +104,10 @@ func testDotnetRuntimeMetrics(t *testing.T, runtimeVersion, runtimeImage, mode s
 		compose.Env = append(compose.Env, "DOTNET_RUNTIME_PROCESSOR_COUNT=", "DOTNET_RUNTIME_CPUS=2", fmt.Sprintf("DOTNET_RUNTIME_CPUSET=%d", cpu))
 	}
 	t.Cleanup(func() { require.NoError(t, compose.Close()) })
-	t.Cleanup(func() { runWeaverValidation(t) })
+	// quota and affinity only change the CPU count value, so the override cycle covers their telemetry shapes
+	if mode != "quota" && mode != "affinity" {
+		t.Cleanup(func() { runWeaverValidation(t) })
+	}
 	require.NoError(t, compose.Up())
 
 	client := &http.Client{Timeout: 2 * time.Second}

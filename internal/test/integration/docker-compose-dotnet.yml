@@ -5,7 +5,7 @@ services:
     build:
       context: ../../..
       dockerfile: internal/test/integration/components/dotnetserver/Dockerfile
-    image: hatest-testserver
+    image: hatest-testserver-dotnet
     ports:
       - 5267:5266
       - 7034:7033
@@ -32,6 +32,7 @@ services:
     pid: "service:testserver"
     environment:
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_OPEN_PORT: "${OTEL_EBPF_OPEN_PORT}"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms

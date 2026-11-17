@@ -334,13 +334,15 @@ jobs:
       - name: Build and save fixture images
         env:
           COMPOSE_FILE: internal/test/integration/${{ matrix.compose-file }}
+          # services of every profile, as each suite enables its own
+          COMPOSE_PROFILES: "*"
           # compose validates every service before building; nothing is published here
           TEST_SERVICE_PORTS: "8080:8080"
         run: |
           config="$(docker compose config --format json)"
           fixtures='.services | to_entries[] | select(.value.build != null and ((.key | split("-") | index("obi")) == null))'
           mapfile -t services < <(jq -r "${fixtures} | .key" <<< "${config}")
-          mapfile -t images < <(jq -r "${fixtures} | .value.image" <<< "${config}")
+          mapfile -t images < <(jq -r "${fixtures} | .value.image" <<< "${config}" | sort -u)
 
           docker compose build "${services[@]}"
           docker save "${images[@]}" -o /tmp/fixture-images.tar

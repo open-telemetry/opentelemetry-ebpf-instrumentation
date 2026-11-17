@@ -23,6 +23,10 @@ BUILD_COMPOSE_FILES=(
 )
 
 PREBUILD_COMPOSE_FILES=(
+    docker-compose-instrumentation-errors.yml
+    docker-compose-client.yml
+    docker-compose-http2.yml
+    docker-compose-peer-metadata.yml
     docker-compose-log-enricher.yml
     docker-compose-java-kafka-400.yml
     docker-compose-java-kafka-400-tls.yml
