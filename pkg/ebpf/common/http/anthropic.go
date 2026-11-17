@@ -111,17 +111,27 @@ func looksLikeAnthropicHTTP1Body(reqB, respB []byte) bool {
 		return false
 	}
 
-	if extractJSONStringField(respB, "type", responseHeaderSearchWindow) == "message" &&
-		extractJSONStringField(respB, "role", responseHeaderSearchWindow) == "assistant" {
-		return true
-	}
-	if startsWithAnthropicMessageStart(respB) {
+	if looksLikeJSON(respB) {
+		if extractJSONStringField(respB, "type", responseHeaderSearchWindow) == "message" &&
+			extractJSONStringField(respB, "role", responseHeaderSearchWindow) == "assistant" {
+			return true
+		}
+	} else if startsWithAnthropicMessageStart(respB) {
 		return true
 	}
 
 	return strings.HasPrefix(strings.ToLower(extractModelField(reqB)), "claude") &&
 		extractJSONRawField(reqB, "messages") != nil
 }
+
+var (
+	sseLineSeparator           = []byte{'\n'}
+	sseCommentPrefix           = []byte(":")
+	sseIDPrefix                = []byte("id:")
+	sseRetryPrefix             = []byte("retry:")
+	sseEventPrefix             = []byte("event:")
+	anthropicMessageStartEvent = []byte("message_start")
+)
 
 // startsWithAnthropicMessageStart reports whether the first SSE event of respB
 // is message_start. Only the first responseHeaderSearchWindow bytes are
@@ -132,16 +142,19 @@ func startsWithAnthropicMessageStart(respB []byte) bool {
 		respB = respB[:responseHeaderSearchWindow]
 	}
 
-	scanner := bufio.NewScanner(bytes.NewReader(respB))
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" || strings.HasPrefix(line, ":") ||
-			strings.HasPrefix(line, "id:") || strings.HasPrefix(line, "retry:") {
+	for len(respB) > 0 {
+		var line []byte
+		line, respB, _ = bytes.Cut(respB, sseLineSeparator)
+		if n := len(line); n > 0 && line[n-1] == '\r' {
+			line = line[:n-1]
+		}
+		if len(line) == 0 || bytes.HasPrefix(line, sseCommentPrefix) ||
+			bytes.HasPrefix(line, sseIDPrefix) || bytes.HasPrefix(line, sseRetryPrefix) {
 			continue
 		}
 
-		event, ok := strings.CutPrefix(line, "event:")
-		return ok && strings.TrimSpace(event) == "message_start"
+		event, ok := bytes.CutPrefix(line, sseEventPrefix)
+		return ok && bytes.Equal(bytes.TrimSpace(event), anthropicMessageStartEvent)
 	}
 
 	return false

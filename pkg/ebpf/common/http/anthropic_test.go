@@ -712,3 +712,19 @@ func TestStartsWithAnthropicMessageStart(t *testing.T) {
 		})
 	}
 }
+
+func TestStartsWithAnthropicMessageStartAllocs(t *testing.T) {
+	for _, tt := range []struct{ name, response string }{
+		{"SSE", anthropicStreamingResponseBody},
+		{"JSON", anthropicResponseBody},
+		{"empty", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			response := []byte(tt.response)
+			allocs := testing.AllocsPerRun(100, func() {
+				startsWithAnthropicMessageStart(response)
+			})
+			assert.Zero(t, allocs)
+		})
+	}
+}
