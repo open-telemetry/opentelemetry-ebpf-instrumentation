@@ -19,8 +19,8 @@ java {
 
 configure<com.diffplug.gradle.spotless.SpotlessExtension> {
     java {
-        // Use Google Java Format
-        googleJavaFormat()
+        // Keep formatting consistent between JDK 17 CI and JDK 21 Docker builds.
+        googleJavaFormat("1.28.0")
         // Or use Eclipse formatter
         // eclipse()
 
