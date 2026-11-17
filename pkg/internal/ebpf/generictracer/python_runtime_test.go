@@ -32,7 +32,7 @@ import (
 )
 
 func TestPythonRuntimeBPFABI(t *testing.T) {
-	assert.Equal(t, uintptr(12), unsafe.Sizeof(BpfPidInfo{}))
+	assert.Equal(t, uintptr(12), unsafe.Sizeof(BpfPidInfoT{}))
 	assert.Equal(t, uintptr(48), unsafe.Sizeof(BpfPythonRuntimeMetricTarget{}))
 }
 
@@ -175,7 +175,7 @@ func TestPythonRuntimeBlockRemovesExactLifecycle(t *testing.T) {
 	lifecycle := pythonRuntimeTestFile(123, 100)
 	generation := uint64(77)
 	lifecycle.SetRuntimeMetricGeneration(123, generation)
-	key := BpfPidInfo{HostPid: 123, UserPid: 123, Ns: 42}
+	key := BpfPidInfoT{HostPid: 123, UserPid: 123, Ns: 42}
 	closed := &testCloser{}
 	cancelCtx, cancel := context.WithCancel(context.Background())
 	_ = cancelCtx
@@ -204,7 +204,7 @@ func TestPythonRuntimeBlockRejectsStaleLifecycle(t *testing.T) {
 	current := pythonRuntimeTestFile(123, 200)
 	stale := pythonRuntimeTestFile(123, 100)
 	current.SetRuntimeMetricGeneration(123, 8)
-	key := BpfPidInfo{HostPid: 123, UserPid: 123, Ns: 42}
+	key := BpfPidInfoT{HostPid: 123, UserPid: 123, Ns: 42}
 	_, cancel := context.WithCancel(context.Background())
 	controller.targets[123] = &pythonRuntimeLifecycle{
 		pid: 123, ns: 42, startTime: 200, generation: 8,
@@ -226,8 +226,8 @@ func TestPythonRuntimeChildCleanupDoesNotRemoveParent(t *testing.T) {
 	child := pythonRuntimeTestFile(124, 101)
 	parent.SetRuntimeMetricGeneration(123, 8)
 	child.SetRuntimeMetricGeneration(124, 9)
-	parentKey := BpfPidInfo{HostPid: 123, UserPid: 123, Ns: 42}
-	childKey := BpfPidInfo{HostPid: 124, UserPid: 124, Ns: 42}
+	parentKey := BpfPidInfoT{HostPid: 123, UserPid: 123, Ns: 42}
+	childKey := BpfPidInfoT{HostPid: 124, UserPid: 124, Ns: 42}
 	_, parentCancel := context.WithCancel(context.Background())
 	_, childCancel := context.WithCancel(context.Background())
 	controller.targets[123] = &pythonRuntimeLifecycle{
@@ -313,24 +313,24 @@ func (r *testPythonResolver) Resolve(context.Context, app.PID, uint64) (*cpython
 
 type testPythonMap struct {
 	mu      sync.Mutex
-	entries map[BpfPidInfo]any
+	entries map[BpfPidInfoT]any
 }
 
 func newTestPythonMap() *testPythonMap {
-	return &testPythonMap{entries: map[BpfPidInfo]any{}}
+	return &testPythonMap{entries: map[BpfPidInfoT]any{}}
 }
 
 func (m *testPythonMap) Put(key, value any) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.entries[key.(BpfPidInfo)] = value
+	m.entries[key.(BpfPidInfoT)] = value
 	return nil
 }
 
 func (m *testPythonMap) Lookup(key, valueOut any) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	value, ok := m.entries[key.(BpfPidInfo)]
+	value, ok := m.entries[key.(BpfPidInfoT)]
 	if !ok {
 		return ebpf.ErrKeyNotExist
 	}
@@ -348,7 +348,7 @@ func (m *testPythonMap) Lookup(key, valueOut any) error {
 func (m *testPythonMap) Delete(key any) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	delete(m.entries, key.(BpfPidInfo))
+	delete(m.entries, key.(BpfPidInfoT))
 	return nil
 }
 
@@ -358,7 +358,7 @@ func (m *testPythonMap) hasEntries() bool {
 	return len(m.entries) != 0
 }
 
-func (m *testPythonMap) hasKey(key BpfPidInfo) bool {
+func (m *testPythonMap) hasKey(key BpfPidInfoT) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	_, ok := m.entries[key]

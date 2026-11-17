@@ -96,16 +96,12 @@ func TestCriteriaUpdaterRejectsIncompatibleConfig(t *testing.T) {
 	tests := map[string]func(*obi.Config){
 		"service name": func(c *obi.Config) { c.Discovery.Instrument[0].Name = "renamed" },
 		"namespace":    func(c *obi.Config) { c.Discovery.Instrument[0].Namespace = "other" },
-		"sampler": func(c *obi.Config) {
-			c.Discovery.Instrument[0].SamplerConfig = &services.SamplerConfig{Name: services.SamplerAlwaysOff}
-		},
-		"exports": func(c *obi.Config) { c.Discovery.Instrument[0].ExportModes = services.NewExportModes() },
+		"exports":      func(c *obi.Config) { c.Discovery.Instrument[0].ExportModes = services.NewExportModes() },
 		"routes": func(c *obi.Config) {
 			c.Discovery.Instrument[0].Routes = &services.CustomRoutesConfig{Incoming: []string{"/items/:id"}}
 		},
-		"exporter":       func(c *obi.Config) { c.Prometheus.Port = 9000 },
-		"global sampler": func(c *obi.Config) { c.Traces.SamplerConfig.Name = services.SamplerAlwaysOff },
-		"protocol":       func(c *obi.Config) { c.OTELMetrics.Instrumentations = nil },
+		"exporter": func(c *obi.Config) { c.Prometheus.Port = 9000 },
+		"protocol": func(c *obi.Config) { c.OTELMetrics.Instrumentations = nil },
 	}
 	for name, change := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -116,6 +112,77 @@ func TestCriteriaUpdaterRejectsIncompatibleConfig(t *testing.T) {
 			require.ErrorContains(t, err, "restart OBI")
 		})
 	}
+}
+
+func TestCriteriaRefreshUpdatesSamplers(t *testing.T) {
+	original := processInfo
+	t.Cleanup(func() { processInfo = original })
+	processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+		exe := "/srv/global"
+		if p.pid == 20 {
+			exe = "/srv/refined"
+		}
+		return &services.ProcessInfo{Pid: p.pid, ExePath: exe}, nil
+	}
+	withSamplers := func(global, refined services.SamplerName) *obi.Config {
+		cfg := criteriaConfig(t, "    - exe_path: /srv/global\n    - exe_path: /srv/refined\n")
+		cfg.Traces.SamplerConfig = services.SamplerConfig{Name: global}
+		cfg.Discovery.Instrument[1].SamplerConfig = &services.SamplerConfig{Name: refined}
+		return cfg
+	}
+	samplers := func(t *testing.T, events []Event[ProcessMatch], eventType WatchEventType) map[app.PID]services.SamplerName {
+		t.Helper()
+		byPID := map[app.PID]services.SamplerName{}
+		for _, ev := range events {
+			require.Equal(t, eventType, ev.Type)
+			byPID[ev.Obj.Process.Pid] = samplingConfig(ev.Obj).Name
+		}
+		return byPID
+	}
+
+	initial := withSamplers(services.SamplerAlwaysOn, services.SamplerAlwaysOn)
+	updater := NewCriteriaUpdater(initial)
+	input := make(chan []Event[ProcessAttrs])
+	output := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	events := output.Subscribe()
+	matcher := &Matcher{
+		Log: slog.Default(), Criteria: FindingCriteria(initial),
+		ProcessHistory: map[app.PID]ProcessMatch{}, Input: input, Output: output,
+		CriteriaUpdates: updater.Updates(),
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go matcher.Run(ctx)
+
+	input <- []Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 10}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 20}},
+	}
+	assert.Equal(t, map[app.PID]services.SamplerName{10: services.SamplerAlwaysOn, 20: services.SamplerAlwaysOn},
+		samplers(t, testutil.ReadChannel(t, events, time.Second), EventCreated))
+
+	// The refined rule's sampler takes precedence over the global one.
+	require.NoError(t, updater.Update(ctx, withSamplers(services.SamplerAlwaysOff, services.SamplerAlwaysOn)))
+	assert.Equal(t, map[app.PID]services.SamplerName{10: services.SamplerAlwaysOff},
+		samplers(t, testutil.ReadChannel(t, events, time.Second), EventUpdated))
+
+	require.NoError(t, updater.Update(ctx, withSamplers(services.SamplerAlwaysOff, services.SamplerParentBasedAlwaysOff)))
+	assert.Equal(t, map[app.PID]services.SamplerName{20: services.SamplerParentBasedAlwaysOff},
+		samplers(t, testutil.ReadChannel(t, events, time.Second), EventUpdated))
+
+	require.NoError(t, updater.Update(ctx, withSamplers(services.SamplerAlwaysOff, services.SamplerParentBasedAlwaysOff)))
+	testutil.ChannelEmpty(t, events, 100*time.Millisecond)
+
+	input <- []Event[ProcessAttrs]{{Type: EventCreated, Obj: ProcessAttrs{pid: 11}}}
+	assert.Equal(t, map[app.PID]services.SamplerName{11: services.SamplerAlwaysOff},
+		samplers(t, testutil.ReadChannel(t, events, time.Second), EventCreated))
+
+	// A rejected configuration leaves the sampler as it was.
+	rejected := withSamplers(services.SamplerAlwaysOn, services.SamplerAlwaysOn)
+	rejected.Discovery.Instrument[0].Name = "renamed"
+	require.ErrorContains(t, updater.Update(ctx, rejected), "restart OBI")
+	testutil.ChannelEmpty(t, events, 100*time.Millisecond)
+	assert.Equal(t, services.SamplerAlwaysOff, updater.Updates().Sampler().Name)
 }
 
 func TestCriteriaUpdaterPreservesExportCallbacks(t *testing.T) {

@@ -22,6 +22,7 @@
 
 #include <common/algorithm.h>
 #include <common/connection_info.h>
+#include <common/exception_emit.h>
 #include <common/globals.h>
 #include <common/http_types.h>
 #include <common/preempt_guard.h>
@@ -33,6 +34,7 @@
 #include <common/trace_helpers.h>
 
 #include <gotracer/go_common.h>
+#include <gotracer/go_http1_headers.h>
 #include <gotracer/go_h2_continuation.h>
 #include <gotracer/go_h2_write.h>
 #include <gotracer/go_large_buffer.h>
@@ -44,6 +46,8 @@
 
 #include <gotracer/types/nethttp.h>
 #include <gotracer/types/stream_key.h>
+
+#include <generictracer/protocol_common.h>
 
 #include <logger/bpf_dbg.h>
 
@@ -286,6 +290,67 @@ int GUARDED_PROG(obi_uprobe_ginGetValueRet, struct pt_regs *, ctx) {
     return 0;
 }
 
+static __always_inline void track_server_connection(go_addr_key_t *g_key, void *c_ptr) {
+    off_table_t *ot = get_offsets_table();
+    http_server_connection_t server = {0};
+    bpf_probe_read_user(&server.net_conn,
+                        sizeof(server.net_conn),
+                        c_ptr + go_offset_of(ot, (go_offset){.v = _c_rwc_pos}) +
+                            k_go_iface_data_offset);
+    bpf_map_update_elem(&ongoing_server_connections, g_key, &server, BPF_ANY);
+    if (server.net_conn) {
+        go_addr_key_t conn_key = {};
+        go_addr_key_from_id(&conn_key, (void *)server.net_conn);
+        bpf_map_update_elem(&server_conn_goroutines, &conn_key, g_key, BPF_ANY);
+    }
+}
+
+// Prefer the reader's captured tuple; otherwise follow leading connection interfaces
+// through wrappers (including TLS), reading socket fields only from a verified TCPConn.
+static __always_inline void read_server_conn_info(void *iface, connection_info_t *conn) {
+    enum { k_max_conn_depth = 6 };
+    off_table_t *ot = get_offsets_table();
+    const u64 tcp_type = go_offset_of(ot, (go_offset){.v = _tcp_conn_type_addr});
+
+    for (u8 depth = 0; depth < k_max_conn_depth; depth++) {
+        void *itab = NULL;
+        void *ptr = NULL;
+        if (bpf_probe_read_user(&itab, sizeof(itab), iface) != 0) {
+            return;
+        }
+        if (!itab) {
+            return;
+        }
+
+        if (bpf_probe_read_user(&ptr, sizeof(ptr), iface + k_go_iface_data_offset) != 0) {
+            return;
+        }
+        if (!ptr) {
+            return;
+        }
+
+        go_addr_key_t conn_key = {};
+        go_addr_key_from_id(&conn_key, ptr);
+        const go_addr_key_t *owner = bpf_map_lookup_elem(&server_conn_goroutines, &conn_key);
+        if (owner) {
+            const http_server_connection_t *server =
+                bpf_map_lookup_elem(&ongoing_server_connections, owner);
+            if (server && server->net_conn == (u64)ptr && server->conn.s_port &&
+                server->conn.d_port) {
+                *conn = server->conn;
+                return;
+            }
+        }
+
+        if (go_interface_type_matches(itab, tcp_type)) {
+            get_conn_info(ptr, conn);
+            return;
+        }
+
+        iface = ptr;
+    }
+}
+
 SEC("uprobe/readRequest")
 int GUARDED_PROG(obi_uprobe_readRequestStart, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/readRequest ===");
@@ -297,20 +362,21 @@ int GUARDED_PROG(obi_uprobe_readRequestStart, struct pt_regs *, ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    connection_info_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
+    http_server_connection_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
 
     // Populate connection info if: no entry exists yet, OR the entry was created by connServe
     // with zeroed ports
-    if (!existing || (existing->d_port == 0 && existing->s_port == 0)) {
+    if (!existing || (existing->conn.d_port == 0 && existing->conn.s_port == 0)) {
         void *c_ptr = GO_PARAM1(ctx);
         if (c_ptr) {
-            void *conn_conn_ptr = c_ptr + k_go_iface_data_offset +
-                                  go_offset_of(ot, (go_offset){.v = _c_rwc_pos}); // embedded struct
+            if (!existing) {
+                track_server_connection(&g_key, c_ptr);
+                existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
+            }
             void *tls_state = 0;
             bpf_probe_read(&tls_state,
                            sizeof(tls_state),
                            (void *)(c_ptr + go_offset_of(ot, (go_offset){.v = _c_tls_pos})));
-            conn_conn_ptr = unwrap_tls_conn_info(conn_conn_ptr, tls_state);
 
             // Store TLS state in the server invocation so serve_http_returns
             // can populate the scheme field on the trace event.
@@ -320,21 +386,9 @@ int GUARDED_PROG(obi_uprobe_readRequestStart, struct pt_regs *, ctx) {
                 inv->is_tls = tls_state ? 1 : 0;
             }
 
-            if (conn_conn_ptr) {
-                void *conn_ptr = 0;
-                bpf_probe_read(
-                    &conn_ptr,
-                    sizeof(conn_ptr),
-                    (void *)(conn_conn_ptr +
-                             go_offset_of(ot, (go_offset){.v = _net_conn_pos}))); // find conn
-                bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
-                if (conn_ptr) {
-                    connection_info_t conn = {0};
-                    get_conn_info(
-                        conn_ptr,
-                        &conn); // initialized to 0, no need to check the result if we succeeded
-                    bpf_map_update_elem(&ongoing_server_connections, &g_key, &conn, BPF_ANY);
-                }
+            if (existing) {
+                read_server_conn_info(c_ptr + go_offset_of(ot, (go_offset){.v = _c_rwc_pos}),
+                                      &existing->conn);
             }
         }
     }
@@ -448,6 +502,16 @@ static __always_inline void handle_traceparent_header(server_http_func_invocatio
     }
 }
 
+static __always_inline void inherit_go_http1_traceparent(go_addr_key_t *g_key,
+                                                         http1_header_scan_t *scan) {
+    if (scan->phase != k_http1_headers_done || !scan->valid) {
+        return;
+    }
+
+    server_http_func_invocation_t *inv = bpf_map_lookup_elem(&ongoing_http_server_requests, g_key);
+    handle_traceparent_header(inv, g_key, scan->header + sizeof("traceparent: ") - 1);
+}
+
 // Matches the header in the buffer and returns a pointer to the value part of the header.
 static __always_inline unsigned char *match_header(
     const unsigned char *buf, u32 safe_len, const char *header, u32 header_len, u32 value_len) {
@@ -469,7 +533,8 @@ int GUARDED_PROG(obi_uprobe_readMimeHeader, struct pt_regs *, ctx) {
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-    const connection_info_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
+    const http_server_connection_t *existing =
+        bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
     if (!existing) {
         return 0;
     }
@@ -491,53 +556,106 @@ int GUARDED_PROG(obi_uprobe_readMimeHeader, struct pt_regs *, ctx) {
     // Cache the bufio.Reader so serve_http_returns can ship the request bytes.
     bpf_map_update_elem(&ongoing_server_bufr, &g_key, &r, BPF_ANY);
 
+    if (!g_bpf_traceparent_enabled) {
+        return 0;
+    }
+
     bpf_dbg_printk("R=%llx, off=%d", r, go_offset_of(ot, (go_offset){.v = _buf_reader_buf_pos}));
 
-    u64 len = 0;
-    bpf_probe_read_user(
-        &len, sizeof(u64), r + go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos}));
-
-    bpf_dbg_printk(
-        "buf len=%d, off=%d", len, go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos}));
-
-    if (len == 0) {
+    s64 pos = 0;
+    if (bpf_probe_read_user(
+            &pos, sizeof(pos), r + go_offset_of(ot, (go_offset){.v = _buf_reader_r_pos})) != 0 ||
+        pos < 0) {
         return 0;
     }
 
-    void *arr = 0;
-    bpf_probe_read_user(
-        &arr, sizeof(void *), r + go_offset_of(ot, (go_offset){.v = _buf_reader_buf_pos}));
-
-    if (!arr) {
+    go_http1_header_scan_t *headers = go_http1_header_scan_mem();
+    if (!headers) {
         return 0;
     }
 
-    server_http_func_invocation_t *inv = bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+    bpf_memset(headers, 0, sizeof(*headers));
+    headers->reader = (u64)r;
+    headers->refill_start = k_go_http1_no_refill;
+    headers->scan.phase = k_http1_header_name;
+    scan_go_http1_buffer(headers, pos);
 
-    unsigned char *buf = (unsigned char *)tp_char_buf_mem();
-    if (!buf) {
+    // The readMIMEHeader return and bufio refill probes that finish a scan
+    // are attached only when request headers are captured.
+    if (headers->scan.phase == k_http1_headers_done) {
+        inherit_go_http1_traceparent(&g_key, &headers->scan);
+        if (capture_header_buffer) {
+            // the return probe must not finish this request with a stale scan
+            bpf_map_delete_elem(&go_http1_header_scans, &g_key);
+        }
         return 0;
     }
 
-    bpf_clamp_umax(len, TRACE_BUF_SIZE);
+    if (capture_header_buffer) {
+        bpf_map_update_elem(&go_http1_header_scans, &g_key, headers, BPF_ANY);
+    }
 
-    if (bpf_probe_read_user(buf, len, arr) != 0) {
-        bpf_dbg_printk("failed to read MIME header buffer");
+    return 0;
+}
+
+SEC("uprobe/readMimeHeader_returns")
+int GUARDED_PROG(obi_uprobe_readMimeHeader_returns, struct pt_regs *, ctx) {
+    if (!g_bpf_loop_enabled) {
         return 0;
     }
 
-    bpf_dbg_printk("buf=%s", buf);
+    go_addr_key_t key = {};
+    go_addr_key_from_id(&key, GOROUTINE_PTR(ctx));
+    go_http1_header_scan_t *headers = bpf_map_lookup_elem(&go_http1_header_scans, &key);
 
-    unsigned char *tp_ptr = bpf_strstr_tp_loop(buf, len);
-
-    bpf_dbg_printk("tp=%llx", tp_ptr);
-
-    if (!tp_ptr) {
+    if (!headers) {
         return 0;
     }
 
-    tp_ptr += TP_MAX_KEY_LENGTH + 2;
-    handle_traceparent_header(inv, &g_key, tp_ptr);
+    scan_go_http1_refill(headers);
+    inherit_go_http1_traceparent(&key, &headers->scan);
+    bpf_map_delete_elem(&go_http1_header_scans, &key);
+
+    return 0;
+}
+
+// http1ReaderFill attaches to bufio.(*Reader).fill so we can scan each refil, which is
+// 4K at a time.
+SEC("uprobe/http1ReaderFill")
+int GUARDED_PROG(obi_uprobe_http1ReaderFill, struct pt_regs *, ctx) {
+    if (!g_bpf_loop_enabled) {
+        return 0;
+    }
+    go_addr_key_t key = {};
+    go_addr_key_from_id(&key, GOROUTINE_PTR(ctx));
+    go_http1_header_scan_t *headers = bpf_map_lookup_elem(&go_http1_header_scans, &key);
+    if (!headers || headers->reader != (u64)GO_PARAM1(ctx)) {
+        return 0;
+    }
+
+    scan_go_http1_refill(headers);
+    if (headers->scan.phase == k_http1_headers_done) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const unsigned char *reader = (const unsigned char *)headers->reader;
+    s64 pos = 0;
+    s64 end = 0;
+    long err = bpf_probe_read_user(
+        &pos, sizeof(pos), reader + go_offset_of(ot, (go_offset){.v = _buf_reader_r_pos}));
+    err |= bpf_probe_read_user(
+        &end, sizeof(end), reader + go_offset_of(ot, (go_offset){.v = _buf_reader_w_pos}));
+
+    if (err || pos < 0 || end < pos) {
+        headers->scan.valid = false;
+        headers->scan.phase = k_http1_headers_done;
+        return 0;
+    }
+
+    // fill moves the unread bytes to the front and reads after them
+    headers->refill_start = end - pos;
+
     return 0;
 }
 
@@ -549,7 +667,7 @@ int GUARDED_PROG(obi_uprobe_readContinuedLineSliceReturns, struct pt_regs *, ctx
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
-    connection_info_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
+    http_server_connection_t *existing = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
     if (!existing) {
         return 0;
     }
@@ -577,7 +695,7 @@ int GUARDED_PROG(obi_uprobe_readContinuedLineSliceReturns, struct pt_regs *, ctx
     return 0;
 }
 
-static __always_inline int serve_http_returns(struct pt_regs *ctx) {
+static __always_inline int serve_http_returns(struct pt_regs *ctx, const bool panicked) {
     void *goroutine_addr = GOROUTINE_PTR(ctx);
     bpf_dbg_printk("goroutine_addr=%lx", goroutine_addr);
     go_addr_key_t g_key = {};
@@ -602,7 +720,9 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
         }
     }
 
-    if (!invocation->status) {
+    if (panicked && invocation->status == (u64)-1) {
+        invocation->status = 0;
+    } else if (!invocation->status && !panicked) {
         invocation->status = -1;
         return 0;
     }
@@ -614,9 +734,9 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     }
 
     connection_info_t conn = {0};
-    const connection_info_t *info = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
+    const http_server_connection_t *info = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
     if (info) {
-        __builtin_memcpy(&conn, info, sizeof(connection_info_t));
+        conn = info->conn;
     } else {
         // We can't find the connection info, this typically means there are too many requests
         // per second and the connection map is too small for the workload.
@@ -678,6 +798,10 @@ static __always_inline int serve_http_returns(struct pt_regs *ctx) {
     bpf_ringbuf_submit(trace, get_flags());
 
 done:
+    info = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
+    if (info && !info->net_conn) {
+        bpf_map_delete_elem(&ongoing_server_connections, &g_key);
+    }
     go_obi_ctx__end(&g_key, k_obi_ctx_http_server, invocation ? &invocation->tp : NULL);
     bpf_map_delete_elem(&ongoing_server_bufr, &g_key);
     bpf_map_delete_elem(&ongoing_http_server_requests, &g_key);
@@ -688,7 +812,7 @@ done:
 SEC("uprobe/ServeHTTP_ret")
 int GUARDED_PROG(obi_uprobe_ServeHTTPReturns, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/ServeHTTP_ret ===");
-    return serve_http_returns(ctx);
+    return serve_http_returns(ctx, false);
 }
 
 /* HTTP Client. We expect to see HTTP client in both HTTP server and gRPC server calls.*/
@@ -1254,7 +1378,7 @@ int GUARDED_PROG(obi_uprobe_http2ResponseWriterStateWriteHeader, struct pt_regs 
     // is called on defer after the ServeHTTP returns.
     if (invocation->status == -1) {
         invocation->status = status;
-        serve_http_returns(ctx);
+        serve_http_returns(ctx, false);
     } else {
         invocation->status = status;
     }
@@ -1278,22 +1402,9 @@ int GUARDED_PROG(obi_uprobe_http2serverConn_runHandler, struct pt_regs *, ctx) {
     go_addr_key_from_id(&g_key, goroutine_addr);
 
     if (sc) {
-        void *conn_ptr = 0;
-        bpf_probe_read(&conn_ptr,
-                       sizeof(void *),
-                       sc + go_offset_of(ot, (go_offset){.v = _sc_conn_pos}) +
-                           k_go_iface_data_offset);
-        bpf_dbg_printk("conn_ptr=%llx", conn_ptr);
-        if (conn_ptr) {
-            void *conn_conn_ptr = 0;
-            bpf_probe_read(&conn_conn_ptr, sizeof(void *), conn_ptr + k_go_iface_data_offset);
-            bpf_dbg_printk("conn_conn_ptr=%llx", conn_conn_ptr);
-            if (conn_conn_ptr) {
-                connection_info_t conn = {0};
-                get_conn_info(conn_conn_ptr, &conn);
-                bpf_map_update_elem(&ongoing_server_connections, &g_key, &conn, BPF_ANY);
-            }
-        }
+        http_server_connection_t server = {0};
+        read_server_conn_info(sc + go_offset_of(ot, (go_offset){.v = _sc_conn_pos}), &server.conn);
+        bpf_map_update_elem(&ongoing_server_connections, &g_key, &server, BPF_ANY);
 
         go_addr_key_t rw_key = {};
         go_addr_key_from_id(&rw_key, rw);
@@ -2077,8 +2188,7 @@ int GUARDED_PROG(obi_uprobe_connServe, struct pt_regs *, ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
-    connection_info_t conn = {0};
-    bpf_map_update_elem(&ongoing_server_connections, &g_key, &conn, BPF_ANY);
+    track_server_connection(&g_key, GO_PARAM1(ctx));
 
     return 0;
 }
@@ -2149,6 +2259,22 @@ int GUARDED_PROG(obi_uprobe_jsonrpcReadRequestHeaderReturns, struct pt_regs *, c
     return 0;
 }
 
+static __always_inline void complete_abandoned_http_request(struct pt_regs *ctx,
+                                                            const go_addr_key_t *g_key) {
+    const server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, g_key);
+    if (!invocation) {
+        return;
+    }
+
+    if (invocation->panicked) {
+        serve_http_returns(ctx, true);
+        return;
+    }
+
+    bpf_map_delete_elem(&ongoing_http_server_requests, g_key);
+}
+
 SEC("uprobe/connServeRet")
 int GUARDED_PROG(obi_uprobe_connServeRet, struct pt_regs *, ctx) {
     bpf_dbg_printk("=== uprobe/connServeRet ===");
@@ -2157,6 +2283,17 @@ int GUARDED_PROG(obi_uprobe_connServeRet, struct pt_regs *, ctx) {
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
 
+    if (g_exceptions_enabled) {
+        complete_abandoned_http_request(ctx, &g_key);
+    }
+
+    const http_server_connection_t *server =
+        bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
+    if (server && server->net_conn) {
+        go_addr_key_t conn_key = {};
+        go_addr_key_from_id(&conn_key, (void *)server->net_conn);
+        bpf_map_delete_elem(&server_conn_goroutines, &conn_key);
+    }
     bpf_map_delete_elem(&ongoing_server_connections, &g_key);
 
     return 0;

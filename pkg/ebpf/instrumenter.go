@@ -42,6 +42,8 @@ func ilog() *slog.Logger {
 }
 
 var (
+	errUSDTProbeNotFound = errors.New("USDT probe not found")
+
 	findNamespacedPids = procs.FindNamespacedPids
 	attachKprobe       = func(symbol string, program *ebpf.Program) (io.Closer, error) {
 		return kprobe.Attach(symbol, program, false)
@@ -151,12 +153,12 @@ func (c *usdtLinkCloser) Close() error {
 	return c.err
 }
 
-func (i *instrumenter) goprobes(p Tracer) error {
+func (i *instrumenter) goprobes(exe *link.Executable, exePath string, p Tracer) error {
 	goProbes := p.GoProbes()
 
 	i.gatherGoOffsets(goProbes)
 
-	closers, attachedSymbols, err := i.instrumentProbesWithResults(i.exe, i.exePath, goProbes)
+	closers, attachedSymbols, err := i.instrumentProbesWithResults(exe, exePath, goProbes)
 	if err != nil {
 		return err
 	}
@@ -180,13 +182,15 @@ func (i *instrumenter) goprobes(p Tracer) error {
 				if goProbeGroupConflictsWithAttached(resolvedGroup, attachedGroupSymbols) {
 					continue
 				}
-				groupClosers := i.instrumentOptionalGoProbeGroup(i.exe, i.exePath, resolvedGroup.group)
-				if len(groupClosers) == 0 {
+				groupClosers := i.instrumentOptionalGoProbeGroup(exe, exePath, resolvedGroup.group)
+				// a group of process-scoped probes only attaches nothing here
+				if len(groupClosers) == 0 && !goProbeGroupOnlyProcessScoped(resolvedGroup.group) {
 					continue
 				}
 				recordGoProbeGroupSymbols(resolvedGroup, attachedGroupSymbols)
-				closer := &reverseCloser{closers: groupClosers}
-				i.closables = append(i.closables, closer)
+				if len(groupClosers) > 0 {
+					i.closables = append(i.closables, &reverseCloser{closers: groupClosers})
+				}
 				if hasProcessScopedTracer {
 					for _, candidate := range resolvedGroup.group.Probes {
 						if candidate.ProcessScoped {
@@ -306,6 +310,15 @@ func goProbeGroupHasProcessScopedProbe(group ebpfcommon.GoProbeGroup) bool {
 		}
 	}
 	return false
+}
+
+func goProbeGroupOnlyProcessScoped(group ebpfcommon.GoProbeGroup) bool {
+	for _, candidate := range group.Probes {
+		if !candidate.ProcessScoped {
+			return false
+		}
+	}
+	return len(group.Probes) > 0
 }
 
 func goProbeGroupPrerequisitesAttached(
@@ -728,6 +741,23 @@ func (i *instrumenter) uprobes(pid app.PID, p Tracer, maps []*procfs.ProcMap) er
 	modules := i.uprobeModules(p, pid, maps, exePath, exeIno, log)
 
 	for instrumentedIno, m := range modules {
+		target, err := os.Open(m.instrPath)
+		if err != nil {
+			log.Debug("can't open uprobe target", "error", err)
+			continue
+		}
+		defer target.Close()
+		info, err := target.Stat()
+		if err != nil {
+			continue
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || stat.Ino != instrumentedIno {
+			continue
+		}
+		// Symbol inspection and all attachment backends must resolve the same inode.
+		m.instrPath = fmt.Sprintf("/proc/self/fd/%d", target.Fd())
+
 		// We've already instrumented this module for the executable we have in hand, likely another earlier PID
 		if i.hasModule(instrumentedIno) {
 			log.Debug("already instrumented module for executable, ignoring...", "path", m.instrPath, "ino", instrumentedIno)
@@ -770,9 +800,16 @@ func (i *instrumenter) instrumentUprobeModule(
 ) ([]io.Closer, bool) {
 	var moduleClosers []io.Closer
 	instrumented := false
-	for _, probes := range module.probes {
-		if err := gatherOffsets(module.instrPath, probes, log); err != nil {
-			log.Debug("error gathering offsets", "error", err)
+
+	offsetErrs, err := gatherOffsets(module.instrPath, module.probes, log)
+	if err != nil {
+		log.Debug("error gathering offsets", "error", err)
+		return nil, false
+	}
+
+	for idx, probes := range module.probes {
+		if offsetErrs[idx] != nil {
+			log.Debug("error gathering offsets", "error", offsetErrs[idx])
 			continue
 		}
 
@@ -823,6 +860,14 @@ func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer, maps []*proc
 			continue
 		}
 
+		target, err := os.Open(instrPath)
+		if err != nil {
+			ilog().Debug("can't open USDT target", "pid", pid, "path", instrPath, "error", err)
+			continue
+		}
+		defer target.Close()
+		instrPath = fmt.Sprintf("/proc/self/fd/%d", target.Fd())
+
 		exe, err := link.OpenExecutable(instrPath)
 		if err != nil {
 			ilog().Debug("can't open executable for USDT instrumentation", "pid", pid, "path", instrPath, "error", err)
@@ -835,8 +880,12 @@ func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer, maps []*proc
 			continue
 		}
 
+		fallbackBlocked := map[*ebpfcommon.USDTFallback]bool{}
 		for _, probe := range probes {
 			closers, err := i.instrumentUSDTProbe(exe, instrPath, elfFile, pid, ns, maps, mappedPath, probe)
+			if probe.Fallback != nil {
+				fallbackBlocked[probe.Fallback] = fallbackBlocked[probe.Fallback] || !errors.Is(err, errUSDTProbeNotFound)
+			}
 			if err != nil {
 				if probe.Required {
 					elfFile.Close()
@@ -852,6 +901,19 @@ func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer, maps []*proc
 				)
 				continue
 			}
+			usdtClosers = append(usdtClosers, closers...)
+		}
+
+		for fallback, blocked := range fallbackBlocked {
+			if blocked {
+				continue
+			}
+			closers, err := i.instrumentUSDTFallback(exe, instrPath, elfFile, pid, fallback)
+			if err != nil {
+				ilog().Debug("can't instrument USDT fallback uprobes", "pid", pid, "lib", baseLib, "error", err)
+				continue
+			}
+			ilog().Debug("USDT probes not found, instrumenting fallback uprobes", "pid", pid, "lib", baseLib)
 			usdtClosers = append(usdtClosers, closers...)
 		}
 
@@ -881,7 +943,7 @@ func (i *instrumenter) instrumentUSDTProbe(
 		return nil, err
 	}
 	if len(targets) == 0 {
-		return nil, fmt.Errorf("USDT probe %s:%s not found", probe.Provider, probe.Name)
+		return nil, fmt.Errorf("%w: %s:%s", errUSDTProbeNotFound, probe.Provider, probe.Name)
 	}
 
 	closers := make([]io.Closer, 0, len(targets))
@@ -939,6 +1001,81 @@ func (i *instrumenter) instrumentUSDTProbe(
 	}
 
 	return closers, nil
+}
+
+func (i *instrumenter) instrumentUSDTFallback(
+	exe *link.Executable,
+	exePath string,
+	elfFile *elf.File,
+	pid app.PID,
+	fallback *ebpfcommon.USDTFallback,
+) ([]io.Closer, error) {
+	addresses, err := usdtFallbackAddresses(elfFile, fallback)
+	if err != nil {
+		return nil, err
+	}
+
+	var closers []io.Closer
+	for idx, probe := range fallback.Probes {
+		// the return probe goes first, so no entry hit is left without its exit
+		for _, attach := range []struct {
+			program *ebpf.Program
+			ret     bool
+		}{{probe.Return, true}, {probe.Start, false}} {
+			if attach.program == nil {
+				continue
+			}
+			closer, err := uprobe.Attach(exe, exePath, attach.program, uprobe.Options{
+				Addresses: addresses[idx],
+				PID:       uint32(pid),
+				Return:    attach.ret,
+			})
+			if err != nil {
+				closeAll(closers)
+				return nil, fmt.Errorf("attaching USDT fallback uprobe to %v: %w", probe.Symbols, err)
+			}
+			closers = append(closers, closer)
+		}
+	}
+
+	return closers, nil
+}
+
+func usdtFallbackAddresses(elfFile *elf.File, fallback *ebpfcommon.USDTFallback) ([][]uint64, error) {
+	syms, err := procs.FindExeSymbolsMatching(elfFile, func(name string) bool {
+		return slices.ContainsFunc(fallback.Probes, func(probe ebpfcommon.USDTFallbackProbe) bool {
+			return usdtFallbackProbeMatches(probe, name)
+		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("looking up USDT fallback symbols: %w", err)
+	}
+
+	addresses := make([][]uint64, len(fallback.Probes))
+	for idx, probe := range fallback.Probes {
+		for name, sym := range syms {
+			if usdtFallbackProbeMatches(probe, name) {
+				addresses[idx] = append(addresses[idx], sym.Off)
+			}
+		}
+		if len(addresses[idx]) == 0 {
+			return nil, fmt.Errorf("no USDT fallback symbol named %v, starting with %q, or ending in %q found", probe.Symbols, probe.SymbolPrefix, probe.SymbolSuffix)
+		}
+		slices.Sort(addresses[idx])
+		addresses[idx] = slices.Compact(addresses[idx])
+	}
+
+	return addresses, nil
+}
+
+func usdtFallbackProbeMatches(probe ebpfcommon.USDTFallbackProbe, name string) bool {
+	if probe.SymbolPrefix != "" && strings.HasPrefix(name, probe.SymbolPrefix) {
+		return true
+	}
+	if probe.SymbolSuffix != "" && strings.HasSuffix(name, probe.SymbolSuffix) {
+		return true
+	}
+	return slices.Contains(probe.Symbols, name)
 }
 
 func usdtIPMapPIDs(pid app.PID) []app.PID {
@@ -1046,6 +1183,7 @@ func attachSocketFilter(filter *ebpf.Program) (int, error) {
 	if err == nil {
 		ssoErr := syscall.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ATTACH_BPF, filter.FD())
 		if ssoErr != nil {
+			unix.Close(fd)
 			return -1, ssoErr
 		}
 		return fd, nil
@@ -1079,7 +1217,7 @@ func (i *instrumenter) sockops(p Tracer, cgroupPath string) error {
 	for _, sockops := range p.SockOps() {
 		slog.Info("Attaching sock ops")
 
-		l, err := AttachCgroupSockOps(sockops.Program, sockops.AttachAs, cgroupPath)
+		l, err := AttachCgroupSockOpsAtPath(sockops.Program, sockops.AttachAs, cgroupPath)
 		if err != nil {
 			if i.metrics != nil {
 				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingCgroup)
@@ -1209,25 +1347,55 @@ func processMaps(pid app.PID) ([]*procfs.ProcMap, error) {
 	return procs.FindLibMaps(pid)
 }
 
-func gatherOffsets(instrPath string, probes map[string][]*ebpfcommon.ProbeDesc, log *slog.Logger) error {
+// gatherOffsets resolves the offsets of every probe map with a single scan of
+// the executable's symbol tables. The returned slice holds the outcome of each
+// probe map, so a failure in one map does not affect the others. The error
+// return is set when the executable can't be read at all.
+func gatherOffsets(
+	instrPath string,
+	probeMaps []map[string][]*ebpfcommon.ProbeDesc,
+	log *slog.Logger,
+) ([]error, error) {
 	elfFile, err := elf.Open(instrPath)
 	if err != nil {
-		return fmt.Errorf("failed to open elf file %s: %w", instrPath, err)
+		return nil, fmt.Errorf("failed to open elf file %s: %w", instrPath, err)
 	}
 
 	defer elfFile.Close()
 
-	return gatherOffsetsImpl(elfFile, probes, instrPath, log)
+	return gatherOffsetsImpl(elfFile, probeMaps, instrPath, log)
 }
 
-func gatherOffsetsImpl(elfFile *elf.File, probes map[string][]*ebpfcommon.ProbeDesc,
-	instrPath string, log *slog.Logger,
-) error {
-	syms, err := procs.FindExeSymbols(elfFile, slices.Collect(maps.Keys(probes)))
-	if err != nil {
-		return fmt.Errorf("failed to lookup symbols for %s: %w", instrPath, err)
+func gatherOffsetsImpl(
+	elfFile *elf.File,
+	probeMaps []map[string][]*ebpfcommon.ProbeDesc,
+	instrPath string,
+	log *slog.Logger,
+) ([]error, error) {
+	var symbolNames []string
+	for _, probes := range probeMaps {
+		symbolNames = slices.AppendSeq(symbolNames, maps.Keys(probes))
 	}
 
+	syms, err := procs.FindExeSymbols(elfFile, symbolNames)
+	if err != nil {
+		return nil, fmt.Errorf("failed to lookup symbols for %s: %w", instrPath, err)
+	}
+
+	errs := make([]error, len(probeMaps))
+	for i, probes := range probeMaps {
+		errs[i] = resolveProbeOffsets(probes, syms, instrPath, log)
+	}
+
+	return errs, nil
+}
+
+func resolveProbeOffsets(
+	probes map[string][]*ebpfcommon.ProbeDesc,
+	syms map[string]procs.Sym,
+	instrPath string,
+	log *slog.Logger,
+) error {
 	for symbolName, probeArray := range probes {
 		for _, probe := range probeArray {
 			sym, ok := syms[symbolName]

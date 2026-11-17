@@ -34,9 +34,9 @@ static __always_inline void make_tp_string(unsigned char *buf, const tp_info_t *
     buf += SPAN_ID_CHAR_LEN;
     *buf++ = '-';
 
-    // Flags
+    // Flags: the sampled bit alone, as tpinjector writes them
     *buf++ = '0';
-    *buf = (tp->flags == 0) ? '0' : '1';
+    *buf = '0' + (tp->flags & k_flag_sampled);
 }
 
 static __always_inline void

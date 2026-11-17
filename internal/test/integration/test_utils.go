@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -207,6 +208,37 @@ func waitForTestComponentsSubWithTime(t *testing.T, url, subpath string, minutes
 		require.NoError(ct, err)
 		require.NotEmpty(ct, results)
 	}, time.Duration(minutes)*time.Minute, time.Second)
+}
+
+func waitForTestComponentsService(t *testing.T, url, serviceName string) {
+	pq := promtest.Client{HostPort: prometheusHostPort}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ready, err := testComponentsReadyForService(url, serviceName, &pq)
+		require.NoError(ct, err)
+		require.True(ct, ready, "waiting for HTTP metrics for service %q", serviceName)
+	}, 2*time.Minute, time.Second)
+}
+
+// testComponentsReadyForService avoids treating metrics from unrelated services as readiness.
+func testComponentsReadyForService(url, serviceName string, pq *promtest.Client) (bool, error) {
+	req, err := http.NewRequest(http.MethodGet, url+"/smoke", nil)
+	if err != nil {
+		return false, err
+	}
+	r, err := testHTTPClient.Do(req)
+	if err != nil {
+		return false, err
+	}
+	defer r.Body.Close()
+	if r.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("unexpected status code: got %d, want %d", r.StatusCode, http.StatusOK)
+	}
+
+	results, err := pq.Query(fmt.Sprintf(`http_server_request_duration_seconds_count{service_name=%q}`, serviceName))
+	if err != nil {
+		return false, err
+	}
+	return len(results) > 0, nil
 }
 
 func waitForTestComponentsSubWithTimeAndCode(t *testing.T, url, subpath string, status, minutes int) {

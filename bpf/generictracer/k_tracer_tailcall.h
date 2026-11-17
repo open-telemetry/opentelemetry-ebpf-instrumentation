@@ -22,6 +22,10 @@
     entry(k_tail_continue_protocol_http, obi_continue_protocol_http, struct pt_regs *)             \
     entry(k_tail_continue2_protocol_http, obi_continue2_protocol_http, struct pt_regs *)           \
     entry(k_tail_continue_protocol_http_tp, obi_continue_protocol_http_tp, struct pt_regs *)       \
+    entry(k_tail_continue_protocol_http_tp_commit,                                                 \
+          obi_continue_protocol_http_tp_commit,                                                    \
+          struct pt_regs *)                                                                        \
+    entry(k_tail_protocol_http_inherit_tp, obi_protocol_http_inherit_tp, void *)                   \
     /* TCP */                                                                                      \
     entry(k_tail_protocol_tcp, obi_protocol_tcp, void *)                                           \
     /* Generic */                                                                                  \

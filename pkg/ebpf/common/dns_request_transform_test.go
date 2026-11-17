@@ -68,6 +68,18 @@ func dnsRecord(t *testing.T, id uint16, msg dnsmessage.Message) *ringbuf.Record 
 	return &ringbuf.Record{RawSample: append([]byte(nil), raw...)}
 }
 
+func TestReadDNSEventIntoSpan_TraceFlags(t *testing.T) {
+	record := dnsQueryRecord(t, 1, "example.com.")
+	event, err := ReinterpretCast[DNSInfo](record.RawSample)
+	require.NoError(t, err)
+	event.Tp.Flags = TPFlagSampled
+
+	span, _, err := readDNSEventIntoSpan(newDNSParseContext(), record)
+
+	require.NoError(t, err)
+	assert.Equal(t, uint8(TPFlagSampled), span.TraceFlags)
+}
+
 // Ensure a stale (HostPID, 0) occupant with a different question name does not
 // suppress this answer
 func TestReadDNSEventIntoSpan_ZeroIDCollisionDoesNotSuppressAnswer(t *testing.T) {

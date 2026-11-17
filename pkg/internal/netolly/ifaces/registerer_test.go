@@ -24,7 +24,9 @@
 package ifaces
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -84,4 +86,26 @@ func TestRegisterer(t *testing.T) {
 	assert.Equal(t, "fiu", registry.ifaces[1])
 	assert.Equal(t, "baz", registry.ifaces[3])
 	assert.Equal(t, "bae", registry.ifaces[4])
+}
+
+type chanInformer chan Event
+
+func (c chanInformer) Subscribe(context.Context) (<-chan Event, error) { return c, nil }
+
+func TestRegisterer_DoesNotBlockAfterCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	in := make(chan Event)
+	_, err := NewRegisterer(chanInformer(in), 0).Subscribe(ctx)
+	require.NoError(t, err)
+
+	cancel()
+
+	for i := range 3 {
+		select {
+		case in <- Event{Type: EventAdded, Interface: Interface{Name: "foo", Index: i}}:
+		case <-time.After(5 * time.Second):
+			require.Fail(t, "registerer stopped draining its input after cancel")
+		}
+	}
+	close(in)
 }

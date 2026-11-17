@@ -21,10 +21,27 @@ const jvmRuntimeMetricsHostPort = "8386"
 
 const jvmRuntimeServiceLabels = `service_name="jvm-runtime",service_namespace="integration-test"`
 
+// Corretto builds HotSpot without the memory pool USDT probes, so OBI reads them through uprobes
+const jvmRuntimeWithoutUSDTImage = "amazoncorretto:21-al2023-headless@sha256:607722709b505b0c4ab60dc89def4e52ab6b398f713b8dae031512ddf32e9d82"
+
 func TestJVMRuntimeMetrics(t *testing.T) {
-	compose, err := docker.ComposeSuite("docker-compose-jvm-runtime-metrics.yml", path.Join(pathOutput, "test-suite-jvm-runtime-metrics.log"))
+	testJVMRuntimeMetrics(t, "jvm-runtime-metrics")
+}
+
+func TestJVMRuntimeMetricsWithoutHotSpotUSDT(t *testing.T) {
+	compose := testJVMRuntimeMetrics(t, "jvm-runtime-metrics-without-usdt",
+		"JRE_IMAGE="+jvmRuntimeWithoutUSDTImage,
+		"JVM_RUNTIME_TESTSERVER_IMAGE=hatest-testserver-jvm-runtime-metrics-without-usdt")
+	logs, err := compose.LogsOutput("obi")
+	require.NoError(t, err)
+	require.Contains(t, logs, "USDT probes not found, instrumenting fallback uprobes")
+}
+
+func testJVMRuntimeMetrics(t *testing.T, suite string, env ...string) *docker.Compose {
+	compose, err := docker.ComposeSuite("docker-compose-jvm-runtime-metrics.yml", path.Join(pathOutput, "test-suite-"+suite+".log"))
 	require.NoError(t, err)
 	compose.Env = append(compose.Env, `TEST_SERVICE_PORTS=`+jvmRuntimeMetricsHostPort+`:8085`)
+	compose.Env = append(compose.Env, env...)
 	require.NoError(t, compose.Up())
 	t.Cleanup(func() {
 		require.NoError(t, compose.Close())
@@ -45,6 +62,7 @@ func TestJVMRuntimeMetrics(t *testing.T) {
 		testJVMGCDurationMetric(t, pq)
 	})
 	runWeaverValidation(t)
+	return compose
 }
 
 func testJVMGCDurationMetric(t *testing.T, pq promtest.Client) {

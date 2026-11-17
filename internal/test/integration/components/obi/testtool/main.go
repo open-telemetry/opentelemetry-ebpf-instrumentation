@@ -6,8 +6,11 @@
 // obitesttool runs inside the OBI integration image:
 //
 //	obitesttool map-keys NAME          prints the u64 keys of every BPF map named NAME
+//	obitesttool go-map-keys NAME PID   prints goroutine addresses for a host PID
 //	obitesttool bitmap-pids NAME       prints the pids set in the pid-indexed bitmap named NAME
 //	obitesttool host-pid NSINODE NSPID prints the pid OBI's /proc has for a pid in that namespace
+//	obitesttool pid-sampler NSINODE NSPID
+//	                                   prints the threshold of the eBPF sampler of a pid in that namespace, if it has one
 //	obitesttool can-copy-sockets       prints 1 if this container can duplicate other processes' descriptors, 0 otherwise
 //	obitesttool new-conn-enrolled      prints 1 if a connection opened now enters sock_dir
 //	obitesttool seccomp-exec MODE CMD  execs CMD with pidfd_getfd failing EPERM:
@@ -44,7 +47,7 @@ const (
 
 func main() {
 	if len(os.Args) < 2 {
-		fail("usage: obitesttool map-keys|bitmap-pids NAME | host-pid NSINODE NSPID | can-copy-sockets | new-conn-enrolled | seccomp-exec none|all|probe-only CMD [ARGS...]")
+		fail("usage: obitesttool map-keys|bitmap-pids NAME | host-pid|pid-sampler NSINODE NSPID | can-copy-sockets | new-conn-enrolled | seccomp-exec none|all|probe-only CMD [ARGS...]")
 	}
 
 	var err error
@@ -54,6 +57,11 @@ func main() {
 			fail("map-keys needs a map name")
 		}
 		err = printMapKeys(os.Args[2])
+	case "go-map-keys":
+		if len(os.Args) < 4 {
+			fail("go-map-keys needs a map name and host PID")
+		}
+		err = printGoMapKeys(os.Args[2], os.Args[3])
 	case "bitmap-pids":
 		if len(os.Args) < 3 {
 			fail("bitmap-pids needs a map name")
@@ -64,6 +72,11 @@ func main() {
 			fail("host-pid needs a namespace inode and a pid")
 		}
 		err = printHostPID(os.Args[2], os.Args[3])
+	case "pid-sampler":
+		if len(os.Args) < 4 {
+			fail("pid-sampler needs a namespace inode and a pid")
+		}
+		err = printPIDSampler(os.Args[2], os.Args[3])
 	case "can-copy-sockets":
 		printCanCopySockets()
 	case "new-conn-enrolled":
@@ -142,6 +155,29 @@ func walkKeys(m *ebpf.Map, fn func(key uint64)) error {
 func printMapKeys(name string) error {
 	return forEachMap(name, func(m *ebpf.Map) error {
 		return walkKeys(m, func(key uint64) { fmt.Println(key) })
+	})
+}
+
+func printGoMapKeys(name, pidText string) error {
+	pid, err := strconv.ParseUint(pidText, 10, 64)
+	if err != nil {
+		return err
+	}
+	return forEachMap(name, func(m *ebpf.Map) error {
+		// Matches go_addr_key_t in bpf/common/go_addr_key.h.
+		var key struct{ PID, Addr uint64 }
+		err := m.NextKey(nil, &key)
+		for err == nil {
+			if key.PID == pid {
+				fmt.Println(key.Addr)
+			}
+			previous := key
+			err = m.NextKey(&previous, &key)
+		}
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			return nil
+		}
+		return err
 	})
 }
 
@@ -232,6 +268,36 @@ func printHostPID(nsInode, nsPID string) error {
 		}
 	}
 	return fmt.Errorf("no process %s in pid namespace %s", nsPID, nsInode)
+}
+
+// pid_samplers is keyed by a pid_info_t (bpf/pid/types/pid_info.h) without host pid
+// and holds a sampler_t (bpf/common/sampler.h)
+func printPIDSampler(nsInode, nsPID string) error {
+	ns, err := strconv.ParseUint(nsInode, 10, 32)
+	if err != nil {
+		return err
+	}
+	pid, err := strconv.ParseUint(nsPID, 10, 32)
+	if err != nil {
+		return err
+	}
+	key := struct{ HostPID, UserPID, Ns uint32 }{UserPID: uint32(pid), Ns: uint32(ns)}
+
+	return forEachMap("pid_samplers", func(m *ebpf.Map) error {
+		var sampler struct {
+			Threshold   uint64
+			ParentBased uint8
+			Pad         [7]uint8
+		}
+		err := m.Lookup(&key, &sampler)
+		if errors.Is(err, ebpf.ErrKeyNotExist) {
+			return nil
+		}
+		if err == nil {
+			fmt.Println(sampler.Threshold)
+		}
+		return err
+	})
 }
 
 // asks for the same descriptor as OBI's startup probe, but without the filter seccomp-exec puts on OBI

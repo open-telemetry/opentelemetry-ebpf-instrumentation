@@ -75,6 +75,9 @@ extensions:
     capture:
       exceptions:
         enabled: false
+        go:
+          panics: true
+          formatted_errors: false
       # policy controls global rule evaluation behavior.
       policy:
         # Include by default unless matched by an exclude rule.
@@ -212,6 +215,7 @@ extensions:
             metrics: true
             # Set to false to keep the RED metrics without the size histograms.
             body_size_metrics: true
+            request_phase_spans: true
           # The target adapter imports one shared application filter. Every
           # application protocol's trace and metric maps must equal this trace
           # map.
@@ -298,6 +302,9 @@ extensions:
           filters:
             traces: {}
             metrics: {}
+        # Settings shared by all database protocols.
+        db:
+          sanitize_query_text: false
         # SQL protocol instrumentation and driver-specific tuning.
         sql:
           enabled:
@@ -307,7 +314,6 @@ extensions:
             traces: {}
             metrics: {}
           heuristic_detect: false
-          sanitize_query_text: false
           mysql:
             buffer_size: 0
             prepared_statements_cache_size: 1024
@@ -489,7 +495,7 @@ extensions:
         stats:
           # Master switch for TCP stats observability.
           enabled: false
-          # Supported values: tcp_rtt, tcp_failed_connections, tcp_successful_connections, tcp_retransmits, tcp_io.
+          # Supported values: tcp_rtt, tcp_failed_connections, tcp_successful_connections, tcp_retransmits, tcp_io, tcp_resets.
           features: []
           endpoint_identity:
             agent_ip: ""
@@ -537,10 +543,13 @@ extensions:
           wakeup_len: 500
           batch_length: 100
           batch_timeout: 1s
+          stats:
+            wakeup_bytes: 4096
         propagation:
           context_propagation: disabled
           override_bpfloop_enabled: false
           disable_black_box_cp: false
+          disable_go_channel_links: false
           populate_trace_context: false
         traffic:
           control_backend: auto
@@ -603,7 +612,17 @@ extensions:
             source_labels:
               service_name: ""
               service_namespace: ""
+            # Setting ca_file turns on TLS to the k8s-cache; cert_file and key_file are only for mutual TLS.
+            tls:
+              ca_file: ""
+              cert_file: ""
+              key_file: ""
+              # Overrides the host from address when checking the k8s-cache certificate.
+              server_name: ""
         cloud:
+          # Set to false to skip cloud metadata detection at startup.
+          detection:
+            enabled: true
           # Overrides automatic cloud cluster and region detection.
           cluster_name: ""
           region: ""
@@ -615,6 +634,7 @@ extensions:
             hosted_zone_ids: []
         peer_metadata:
           enabled: false
+          mode: peer
           listen_address: ""
           port: 8998
           peer_cidrs: []
@@ -634,6 +654,8 @@ extensions:
             key_file: ""
             ca_file: ""
             server_name: ""
+          central:
+            address: ""
       # Service identity enrichment policy from configured enrichers.
       service_name:
         # Ordered backends used for peer and host name resolution.

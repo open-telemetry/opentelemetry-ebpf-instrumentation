@@ -23,9 +23,7 @@ services:
         condition: service_started
   # eBPF auto instrumenter
   autoinstrumenter:
-    build:
-      context: ../../../..
-      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    image: hatest-obi
     command:
       # Cohere chat is a Config v2 only payload extractor; v2 reads its
       # settings from the file, not from OTEL_EBPF_* environment variables.

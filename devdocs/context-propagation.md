@@ -6,6 +6,7 @@ This document explains how OpenTelemetry context propagation works in the eBPF i
 
 - [Overview](#overview)
 - [Configuration](#configuration)
+- [HTTP/1 header scan window](#http1-header-scan-window)
 - [Egress (Sending) Flow](#egress-sending-flow)
   - [Execution Order](#execution-order)
     - [Scenario A: Go HTTP or SSL/TLS (uprobes involved)](#scenario-a-go-http-or-ssltls-uprobes-involved)
@@ -31,6 +32,7 @@ This document explains how OpenTelemetry context propagation works in the eBPF i
   - [Fallbacks](#fallbacks)
   - [TCP options](#tcp-options)
   - [Containers](#containers)
+- [Sampling](#sampling)
 - [Summary](#summary)
 
 For trace-log correlation (log enricher / `traces_ctx_v1` map), see [trace-log-correlation.md](trace-log-correlation.md).
@@ -58,6 +60,13 @@ Examples:
 - `tcp` - TCP options only
 - `headers` - HTTP headers only
 
+When `OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES` is enabled (the default),
+tpinjector stops adding HTTP/1 and HTTP/2 headers for a process as soon as OBI
+detects that it exports OTLP traces. Existing connections are included. TCP
+option injection and runtime-specific header injectors are unchanged. See
+[excluding instrumented services](exclude-otel-instrumented-services.md) for
+detection and PID filter behavior.
+
 > **⚠️ TCP options and middleboxes.** TCP-option propagation writes an unknown
 > TCP option (kind 25) onto the connection's segments. On SSL/TLS connections
 > this is the *only* channel, since the payload is ciphertext (see Case 1). An
@@ -74,6 +83,31 @@ Examples:
 > (chiefly non-Go SSL/TLS clients) is lost. TCP options are safe only when OBI
 > is on both ends and the path preserves them (typically a direct L2/L3 network
 > with no option-stripping middlebox).
+
+## HTTP/1 header scan window
+
+On kernels with `bpf_loop` support (normally Linux 5.17+), OBI looks for a
+`traceparent` in up to 16 KiB of the headers of every incoming HTTP/1 request,
+cumulatively across fragments. The generic tracer counts from the request line;
+the Go tracer counts from the start of the header block. The header name and the
+complete traceparent value must fit within that window. Splits inside the name,
+value, or header terminator are supported after OBI has recognized HTTP. A
+malformed traceparent is not adopted. These scans use the existing
+header-tracking and context-propagation controls. Without either, Go servers
+scan only the request headers already buffered when header parsing starts,
+4 KiB by default for `net/http`.
+
+Outgoing requests are not scanned that far. Before injecting its own header,
+OBI looks for one the application already wrote only within these windows:
+
+- The plaintext socket injector looks in the first 4 KiB of the request.
+- The generic tracer uses an application traceparent for the client span only
+  from the first 1 KiB of the request.
+- The Go tracer looks in the first 1 KiB of the headers that `net/http` writes,
+  as long as they are still buffered when it finishes writing them.
+
+An application traceparent beyond these windows is a known limitation: OBI does
+not see it and injects its own header too, so the request carries two.
 
 ## Egress (Sending) Flow
 
@@ -352,6 +386,25 @@ The load-time constant `enroll_instrumented_only` turns all of the above on.
 `BPF_SOCK_OPS` only sees connections from the cgroups below the one OBI attaches to: by default, the root of its own cgroup namespace. Run in a container, OBI needs the host's cgroup namespace (Docker `--cgroupns=host`), or it never sees new connections of other containers.
 
 Where the container can't share the host's cgroup namespace, such as an unprivileged Kubernetes pod, mount the host cgroup v2 hierarchy at a separate path and point `capture.engine.cgroup_filesystem.path` to it. Mounting it over `/sys/fs/cgroup` instead also hides the container's own cgroup from other code in the same container, such as the Collector's `cgroup_runtime` extension.
+
+## Sampling
+
+The `sampled` flag OBI writes to `traceparent` and to the TCP option is its own sampling decision, made in eBPF by the sampler the exporter applies (`bpf/common/sampling.h`):
+
+- A trace that OBI starts takes its sampler's decision (`sample_new_trace`), the OpenTelemetry Go SDK `TraceIDRatioBased` test on the trace id.
+- A span continuing a trace from another process, through a header, the TCP option or black-box correlation, keeps the parent's decision under a `parentbased_*` sampler, and decides by the trace id otherwise (`sample_remote_child`).
+- A span whose parent runs in the same process inherits the parent's flags.
+
+The sampler comes from the `pid_samplers` map, keyed by the pid OBI's `/proc` numbers a process with. The generic and Go tracers write a process's entry in `AllowPID`, from its service's `sampler` or the global `otel_traces_export.sampler`, and remove it in `BlockPID`. Processes sampled as `parentbased_always_on`, the default, have no entry and keep every trace.
+
+The exporter applies the same sampler, with the span's flags standing for its parent's decision (`samplingParentContext` in `pkg/export/otel/tracesgen`). `TestPIDSamplerMatchesSDKSampler` checks that eBPF and the OpenTelemetry Go SDK samplers agree.
+
+Limitations:
+
+- A sampler that a collector embedding OBI passes to `tracesgen.GroupSpans` has no eBPF form. eBPF applies the configured sampler, so the propagated decision can differ from the exported one.
+- OBI propagates `traceparent` only: samplers cannot read or write `tracestate`.
+- `obi_ctx_info_t` (`bpf/shared/obi_ctx.h`) carries no flags, so the contexts read from it default to sampled: Node.js manual spans outside a request the bridge names by fd, and Go channel handoff links.
+- The generic tracer reads an incoming `traceparent` header only when context propagation or `track_request_headers` is enabled. Otherwise only OBI-to-OBI propagation carries an upstream decision.
 
 ## Summary
 

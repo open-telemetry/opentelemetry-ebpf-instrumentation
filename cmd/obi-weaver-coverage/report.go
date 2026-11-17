@@ -64,6 +64,7 @@ type Result struct {
 	Reports          int                      `json:"reports"`
 	Metrics          SurfaceResult            `json:"metrics"`
 	Spans            SurfaceResult            `json:"spans"`
+	Events           SurfaceResult            `json:"events"`
 	SignalAttributes []SignalAttributesResult `json:"signal_attributes"`
 }
 
@@ -77,13 +78,17 @@ func Aggregate(signals []Signal, reports []Report) Result {
 		Reports:          len(reports),
 		Metrics:          SurfaceResult{Covered: []string{}, Gaps: []string{}},
 		Spans:            SurfaceResult{Covered: []string{}, Gaps: []string{}},
+		Events:           SurfaceResult{Covered: []string{}, Gaps: []string{}},
 		SignalAttributes: []SignalAttributesResult{},
 	}
 
 	for _, s := range signals {
 		surface := &res.Metrics
-		if s.Kind == kindSpan {
+		switch s.Kind {
+		case kindSpan:
 			surface = &res.Spans
+		case kindEvent:
+			surface = &res.Events
 		}
 		if _, ok := o.Signals[s.Name]; !ok {
 			surface.Gaps = append(surface.Gaps, s.Name)
@@ -117,7 +122,7 @@ func isMandatory(level string) bool {
 // observed. Attribute gaps are reported but never fail: some conditions, such
 // as error paths, are not reached by every suite.
 func (r Result) FailingGaps() int {
-	return len(r.Metrics.Gaps) + len(r.Spans.Gaps)
+	return len(r.Metrics.Gaps) + len(r.Spans.Gaps) + len(r.Events.Gaps)
 }
 
 func pct(covered, total int) string {
@@ -184,6 +189,7 @@ func (r Result) Markdown() string {
 	}
 	row("metrics", len(r.Metrics.Covered), len(r.Metrics.Covered)+len(r.Metrics.Gaps))
 	row("spans", len(r.Spans.Covered), len(r.Spans.Covered)+len(r.Spans.Gaps))
+	row("events", len(r.Events.Covered), len(r.Events.Covered)+len(r.Events.Gaps))
 	covered, total := r.attributeCountsByLevel()
 	for _, level := range requirementLevels {
 		row("signal attributes, "+level, covered[level], total[level])
@@ -192,6 +198,7 @@ func (r Result) Markdown() string {
 
 	writeGapList(&b, "Uncovered metrics", r.Metrics.Gaps)
 	writeGapList(&b, "Uncovered spans", r.Spans.Gaps)
+	writeGapList(&b, "Uncovered events", r.Events.Gaps)
 
 	var attrs strings.Builder
 	if n := r.writeAttributeGaps(&attrs, isMandatory); n == 0 {
