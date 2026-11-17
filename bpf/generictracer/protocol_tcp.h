@@ -396,7 +396,7 @@ static __always_inline void handle_unknown_tcp_connection(void *ctx,
                 if (!response_start_captured) {
                     bpf_probe_read(trace->rbuf, bytes_len, u_buf);
                 }
-                job_fetch_reply(pid_conn, &existing->tp, trace->rbuf, bytes_len);
+                job_fetch_reply(pid_conn, existing, trace->rbuf, bytes_len);
 
                 bpf_ringbuf_submit(trace, get_flags());
             } else {
@@ -478,11 +478,9 @@ int GUARDED_PROG(obi_continue_protocol_tcp, void *, ctx) {
         return 0;
     }
 
-    const enum redis_job_fetch fetch =
-        job_fetch_request(req->buf, req->len, args->direction, req->is_server, args->lw_thread);
+    job_fetch_request(&args->pid_conn, req);
 
     tcp_get_or_set_trace_info(req, &args->pid_conn, args->lw_thread, args->ssl, args->orig_dport);
-    job_fetch_wait(&args->pid_conn, fetch, req->parent_status);
 
     tcp_send_large_buffer(req,
                           &args->pid_conn,
