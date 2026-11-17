@@ -571,6 +571,12 @@ These include Go probes, Node.js SIGUSR1 signal injection, and Java agent attach
 Unlike protocol instrumentation, runtimes are not about capturing specific telemetry signals — they are about *how* to instrument a service once it's selected.
 Each runtime has a simple structure: `enabled` (boolean) controls whether to attempt injection.
 Java also includes additional runtime-specific configuration such as debug controls and attachment timeout.
+
+`capture.runtimes.go.channel_links` controls the Go channel probes (`runtime.chansend1`, `runtime.chanrecv1` and `runtime.chanrecv2`) that link spans across goroutines.
+The default is `true`. Set it to `false` to skip these probes when channel span links are unnecessary, for example when exporting only metrics.
+These probes run on every channel send and receive, which can add notable kernel CPU to busy Go services.
+This field is available through Config v2 only and has no effect when Go runtime instrumentation is disabled.
+
 Runtime `filter` fields are reserved by the schema but non-empty values are not
 supported by the current adapter; use capture rules for workload selection.
 
@@ -700,10 +706,6 @@ The `capture.engine` section controls eBPF engine internals: event batching, PID
 An unprivileged container has its own cgroup namespace, so its `/sys/fs/cgroup` covers only OBI's own cgroup.
 Mount the host hierarchy at another path, for example `/host/sys/fs/cgroup`, and set it here to propagate context for connections from every process on the node without hiding the container's own cgroup.
 If omitted, the hierarchy is detected automatically. This field is available through Config v2 only.
-
-`capture.engine.propagation.disable_go_channel_links` stops OBI from attaching the Go channel probes (`runtime.chansend1`, `runtime.chanrecv1` and `runtime.chanrecv2`) that link spans across goroutines.
-These probes run on every channel send and receive, which can add notable kernel CPU to busy Go services. Setups that only export metrics do not need these links.
-If omitted, false is used. This field is available through Config v2 only.
 
 **Why `engine`, not `capture.capture`**
 

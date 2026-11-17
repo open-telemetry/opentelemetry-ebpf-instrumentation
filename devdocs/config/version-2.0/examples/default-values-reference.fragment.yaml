@@ -393,6 +393,8 @@ extensions:
         # to generic network-only instrumentation.
         go:
           enabled: true
+          # Link spans across goroutines through Go channels.
+          channel_links: true
           # Reserved; keep empty.
           filter: {}
         # Node.js runtime instrumentation allows Node.js services to be instrumented via
@@ -549,7 +551,6 @@ extensions:
           context_propagation: disabled
           override_bpfloop_enabled: false
           disable_black_box_cp: false
-          disable_go_channel_links: false
           populate_trace_context: false
         traffic:
           control_backend: auto
