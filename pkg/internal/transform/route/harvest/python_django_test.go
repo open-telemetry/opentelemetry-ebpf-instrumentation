@@ -552,7 +552,7 @@ func TestDjangoRootFiles(t *testing.T) {
 	}
 	modules := indexDjangoModules([]string{dir}, files)
 
-	assert.Equal(t, []string{rootFile}, djangoRootFiles(files, modules))
+	assert.Equal(t, []string{rootFile}, djangoRootFiles([]string{dir}, files, modules))
 }
 
 func TestResolveDjangoRoutes(t *testing.T) {
@@ -572,7 +572,7 @@ func TestResolveDjangoRoutes(t *testing.T) {
 	}
 	routes := map[string]struct{}{}
 
-	require.NoError(t, resolveDjangoRoutes(t.Context(), []string{dir}, files, routes))
+	require.NoError(t, resolveDjangoRoutes(t.Context(), []string{dir}, []string{dir}, files, routes))
 
 	assert.Equal(t, map[string]struct{}{
 		"/shop/orders/<int:order_id>/":      {},
@@ -595,6 +595,6 @@ func TestResolveDjangoRoutesStopsAtDeadline(t *testing.T) {
 	routes := map[string]struct{}{}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
 	defer cancel()
-	require.ErrorIs(t, resolveDjangoRoutes(ctx, []string{dir}, files, routes), context.DeadlineExceeded)
+	require.ErrorIs(t, resolveDjangoRoutes(ctx, []string{dir}, []string{dir}, files, routes), context.DeadlineExceeded)
 	assert.Less(t, len(routes), 1<<(levels-1))
 }

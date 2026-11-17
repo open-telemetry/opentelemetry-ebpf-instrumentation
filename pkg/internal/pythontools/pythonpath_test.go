@@ -59,3 +59,51 @@ func TestPythonPathDirs(t *testing.T) {
 		})
 	}
 }
+
+func TestAppOnImportPath(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		env  map[string]string
+		want bool
+	}{
+		{name: "script", args: []string{"app.py"}, want: true},
+		{name: "-P script", args: []string{"-P", "app.py"}, want: false},
+		{name: "-I script", args: []string{"-I", "app.py"}, want: false},
+		{name: "PYTHONSAFEPATH", args: []string{"app.py"}, env: map[string]string{"PYTHONSAFEPATH": "1"}, want: false},
+		{name: "-E ignores PYTHONSAFEPATH", args: []string{"-E", "app.py"}, env: map[string]string{"PYTHONSAFEPATH": "1"}, want: true},
+		{name: "-P launcher adds its own path", args: []string{"-P", "-m", "uvicorn", "app.main:app"}, want: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, appOnImportPath(parsePythonLaunch("python3", tc.args, tc.env), tc.env))
+		})
+	}
+}
+
+func TestPythonPathDirsFollowParsedLaunchFlags(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "lib"), 0o755))
+	host, err := filepath.EvalSymlinks(root)
+	require.NoError(t, err)
+	lib := filepath.Join(host, "lib")
+
+	for _, tc := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{name: "script", args: []string{"app.py"}, want: []string{lib}},
+		{name: "command string", args: []string{"-c", "import app"}, want: []string{lib}},
+		{name: "command string with -E", args: []string{"-E", "-c", "import app"}},
+		{name: "command string with -I", args: []string{"-I", "-c", "import app"}},
+		{name: "combined -Ec", args: []string{"-Ec", "import app"}},
+		{name: "stdin with -E", args: []string{"-E", "-"}},
+		{name: "interactive with -I", args: []string{"-I"}},
+		{name: "script with -E", args: []string{"-E", "app.py"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			launch := parsePythonLaunch("python3", tc.args, nil)
+			assert.Equal(t, tc.want, pythonPathDirs(root, "/", launch.PathConfig, "/lib"))
+		})
+	}
+}

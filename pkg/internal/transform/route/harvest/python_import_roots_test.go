@@ -4,13 +4,21 @@
 package harvest
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func writeDistInfo(t *testing.T, dir, name, content string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644))
+}
 
 func writePythonFile(t *testing.T, path, content string) {
 	t.Helper()
@@ -63,40 +71,72 @@ func TestExtractPythonRoutesStillFailsForMissingAppDir(t *testing.T) {
 
 func TestPythonScanRoots(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		dirs []string
-		want []pythonScanRoot
+		name       string
+		dirs       []string
+		roots      []string
+		boundaries []string
 	}{
 		{
-			name: "import roots nested in an earlier one",
-			dirs: []string{"/srv/app", "/srv/app/vendor", "/opt/lib", "/srv/app", "/opt/lib/sub"},
-			want: []pythonScanRoot{{dir: "/srv/app", app: true}, {dir: "/opt/lib"}},
+			name:       "application directory first, duplicates dropped",
+			dirs:       []string{"/srv/app", "/opt/lib", "/srv/app", "/opt/lib"},
+			roots:      []string{"/srv/app", "/opt/lib"},
+			boundaries: []string{"/srv/app", "/opt/lib"},
 		},
 		{
-			name: "application directory nested in an import root",
-			dirs: []string{"/srv/app/entry", "/opt/lib", "/srv/app"},
-			want: []pythonScanRoot{{dir: "/srv/app", app: true}, {dir: "/opt/lib"}},
+			name:       "nested roots are kept and bound each other",
+			dirs:       []string{"/srv/zapp", "/srv", "/srv/lib"},
+			roots:      []string{"/srv/zapp", "/srv", "/srv/lib"},
+			boundaries: []string{"/srv/zapp", "/srv", "/srv/lib"},
 		},
 		{
-			name: "import root nested in a later one",
-			dirs: []string{"/srv/app", "/opt/lib/sub", "/opt/lib"},
-			want: []pythonScanRoot{{dir: "/srv/app", app: true}, {dir: "/opt/lib"}},
-		},
-		{
-			name: "sibling with a common prefix",
-			dirs: []string{"/srv/app", "/srv/application"},
-			want: []pythonScanRoot{{dir: "/srv/app", app: true}, {dir: "/srv/application"}},
-		},
-		{
-			name: "environment directories",
-			dirs: []string{"/srv/app", "/usr/lib/python3/dist-packages", "/opt/venv/lib/python3.12/site-packages"},
-			want: []pythonScanRoot{{dir: "/srv/app", app: true}},
+			name:       "installation directories are boundaries, not roots",
+			dirs:       []string{"/srv/app", "/usr/lib/python3/dist-packages", "/opt/venv/lib/python3.12/site-packages"},
+			roots:      []string{"/srv/app"},
+			boundaries: []string{"/srv/app", "/usr/lib/python3/dist-packages", "/opt/venv/lib/python3.12/site-packages"},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, pythonScanRoots(tc.dirs))
+			roots, boundaries := pythonScanRoots(tc.dirs)
+			assert.Equal(t, tc.roots, roots)
+			assert.ElementsMatch(t, tc.boundaries, slices.Collect(maps.Keys(boundaries)))
 		})
 	}
+}
+
+func TestExtractPythonRoutesSkipsInstalledPackagesNestedInAnImportRoot(t *testing.T) {
+	app := t.TempDir()
+	lib := t.TempDir()
+	vendor := filepath.Join(lib, "vendor")
+	writeDistInfo(t, filepath.Join(vendor, "dep-1.0.dist-info"), "RECORD",
+		"dep/__init__.py,sha256=x,0\ndep/routes.py,sha256=x,10\ndep-1.0.dist-info/RECORD,,\n../../bin/dep,sha256=x,5\n")
+	writePythonFile(t, filepath.Join(lib, "webapp.py"), `
+@app.get("/users/{user_id}")
+`)
+	writePythonFile(t, filepath.Join(vendor, "dep", "routes.py"), `
+@app.get("/dependency/{id}")
+`)
+
+	result, err := extractPythonRoutes(t.Context(), app, lib, vendor)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/users/{user_id}"}, result.Routes)
+}
+
+func TestExtractPythonRoutesScansExplicitRootsSkippedByName(t *testing.T) {
+	srv := t.TempDir()
+	app := filepath.Join(srv, "lib")
+	writePythonFile(t, filepath.Join(app, "main.py"), `
+@app.get("/items/{item_id}")
+`)
+	shared := filepath.Join(srv, "shared", "lib")
+	writePythonFile(t, filepath.Join(shared, "users.py"), `
+@app.get("/users/{user_id}")
+`)
+
+	result, err := extractPythonRoutes(t.Context(), app, srv, shared)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/items/{item_id}", "/users/{user_id}"}, result.Routes)
 }
 
 func TestExtractPythonRoutesFailsWhenTheRootCoveringTheAppDirFails(t *testing.T) {
@@ -121,7 +161,7 @@ urlpatterns = [
     path("login/", views.LoginView.as_view()),
 ]
 `)
-	require.NoError(t, os.MkdirAll(filepath.Join(deps, "Django-5.2.dist-info"), 0o755))
+	writeDistInfo(t, filepath.Join(deps, "Django-5.2.dist-info"), "top_level.txt", "django\n")
 
 	result, err := extractPythonRoutes(t.Context(), app, deps)
 
@@ -212,4 +252,116 @@ func TestIndexDjangoModulesEarlierRootShadowsLater(t *testing.T) {
 
 	assert.Equal(t, appURLs, indexDjangoModules([]string{app, lib}, files)["checkout.urls"])
 	assert.Equal(t, libURLs, indexDjangoModules([]string{lib, app}, files)["checkout.urls"])
+}
+
+func TestIndexDjangoModulesRegularPackageBeatsEarlierNamespacePortion(t *testing.T) {
+	app := t.TempDir()
+	lib := t.TempDir()
+	appURLs := filepath.Join(app, "checkout", "urls.py")
+	libURLs := filepath.Join(lib, "checkout", "urls.py")
+	files := map[string][]djangoRoute{
+		appURLs: {{path: "app/"}},
+		filepath.Join(lib, "checkout", "__init__.py"): nil,
+		libURLs: {{path: "lib/"}},
+	}
+
+	assert.Equal(t, libURLs, indexDjangoModules([]string{app, lib}, files)["checkout.urls"])
+}
+
+func TestExtractPythonDjangoShadowedModuleIsNotARoot(t *testing.T) {
+	app := t.TempDir()
+	lib := t.TempDir()
+	writePythonFile(t, filepath.Join(app, "project", "urls.py"), `
+from django.urls import include, path
+
+urlpatterns = [
+    path("shop/", include("checkout.urls")),
+]
+`)
+	writePythonFile(t, filepath.Join(app, "checkout", "__init__.py"), "")
+	writePythonFile(t, filepath.Join(app, "checkout", "urls.py"), `
+from django.urls import path
+
+urlpatterns = [
+    path("app/", app_view),
+]
+`)
+	writePythonFile(t, filepath.Join(lib, "checkout", "__init__.py"), "")
+	writePythonFile(t, filepath.Join(lib, "checkout", "urls.py"), `
+from django.urls import path
+
+urlpatterns = [
+    path("lib/", lib_view),
+]
+`)
+
+	result, err := extractPythonRoutes(t.Context(), app, lib)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/shop/app/"}, result.Routes)
+}
+
+func TestExtractPythonRoutesScansCodeNextToInstalledPackages(t *testing.T) {
+	srv := t.TempDir()
+	app := filepath.Join(srv, "app")
+	writePythonFile(t, filepath.Join(app, "webapp.py"), `
+@app.get("/users/{user_id}")
+`)
+	writeDistInfo(t, filepath.Join(app, "flask-3.1.dist-info"), "top_level.txt", "flask\n")
+	writePythonFile(t, filepath.Join(app, "flask", "app.py"), `
+@app.get("/dependency/{id}")
+`)
+
+	result, err := extractPythonRoutes(t.Context(), srv, app)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/users/{user_id}"}, result.Routes)
+}
+
+func TestExtractPythonRoutesSharesTheFileLimitAcrossRoots(t *testing.T) {
+	app := t.TempDir()
+	first := t.TempDir()
+	second := t.TempDir()
+	writePythonFile(t, filepath.Join(app, "main.py"), `
+@app.get("/app")
+`)
+	for _, name := range []string{"a", "b"} {
+		writePythonFile(t, filepath.Join(first, name+".py"), "@app.get(\"/first/"+name+"\")\n")
+	}
+	writePythonFile(t, filepath.Join(second, "c.py"), `
+@app.get("/second")
+`)
+	dirs := []string{app, first, second}
+
+	result, err := extractPythonRoutesFrom(t.Context(), dirs, dirs, 2)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/app", "/first/a"}, result.Routes)
+}
+
+func TestExtractPythonDjangoIncludeWithoutTheAppDirOnTheImportPath(t *testing.T) {
+	app := t.TempDir()
+	lib := t.TempDir()
+	writePythonFile(t, filepath.Join(app, "project", "urls.py"), `
+from django.urls import include, path
+
+urlpatterns = [
+    path("shop/", include("checkout.urls")),
+]
+`)
+	for dir, route := range map[string]string{app: "app/", lib: "lib/"} {
+		writePythonFile(t, filepath.Join(dir, "checkout", "__init__.py"), "")
+		writePythonFile(t, filepath.Join(dir, "checkout", "urls.py"), `
+from django.urls import path
+
+urlpatterns = [
+    path("`+route+`", view),
+]
+`)
+	}
+
+	result, err := extractPythonRoutesFrom(t.Context(), []string{app, lib}, []string{lib}, maxPythonFiles)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/shop/lib/"}, result.Routes)
 }

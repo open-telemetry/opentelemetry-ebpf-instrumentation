@@ -13,25 +13,42 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/pythontools/frameworks"
 )
 
+type AppDirs struct {
+	App             string
+	PythonPath      []string
+	AppOnImportPath bool
+}
+
 // AppDirsForPID returns the local application directory for a Python process,
-// followed by the existing directories on its PYTHONPATH.
-func AppDirsForPID(pid app.PID, env map[string]string) ([]string, error) {
+// the existing directories on its PYTHONPATH, and whether the application
+// directory is on the import path.
+func AppDirsForPID(pid app.PID, env map[string]string) (AppDirs, error) {
 	exe, args, err := cmdlineForPID(pid)
 	if err != nil {
-		return nil, fmt.Errorf("read Python command line: %w", err)
+		return AppDirs{}, fmt.Errorf("read Python command line: %w", err)
 	}
 	cwd, err := cwdForPID(pid)
 	if err != nil {
-		return nil, fmt.Errorf("read Python working directory: %w", err)
+		return AppDirs{}, fmt.Errorf("read Python working directory: %w", err)
 	}
 
 	launch := parsePythonLaunch(exe, args, env)
 	root := rootDirForPID(pid)
 	dir, err := appDir(root, cwd, launch)
 	if err != nil {
-		return nil, err
+		return AppDirs{}, err
 	}
-	return append([]string{dir}, pythonPathDirs(root, cwd, launch.PathConfig, env["PYTHONPATH"])...), nil
+	return AppDirs{
+		App:             dir,
+		PythonPath:      pythonPathDirs(root, cwd, launch.PathConfig, env["PYTHONPATH"]),
+		AppOnImportPath: appOnImportPath(launch, env),
+	}, nil
+}
+
+func appOnImportPath(launch frameworks.PythonLaunch, env map[string]string) bool {
+	safePath := launch.PathConfig.SafePath ||
+		!launch.PathConfig.IgnorePythonEnvironment && env["PYTHONSAFEPATH"] != ""
+	return !safePath || len(launch.SearchPaths) > 0
 }
 
 // pythonPathDirs resolves the PYTHONPATH entries that are directories, with an

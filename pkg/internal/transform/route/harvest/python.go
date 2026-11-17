@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -53,23 +54,31 @@ func ExtractPythonRoutes(ctx context.Context, fi *exec.FileInfo) (*RouteHarveste
 	if err != nil {
 		return nil, err
 	}
-	return extractPythonRoutes(ctx, dirs...)
+	importRoots := dirs.PythonPath
+	if dirs.AppOnImportPath {
+		importRoots = append([]string{dirs.App}, dirs.PythonPath...)
+	}
+	return extractPythonRoutesFrom(ctx, append([]string{dirs.App}, dirs.PythonPath...), importRoots, maxPythonFiles)
 }
 
-// extractPythonRoutes scans the application directory, dirs[0], and then any
-// further import roots. The file limit is shared across all of them.
 func extractPythonRoutes(ctx context.Context, dirs ...string) (*RouteHarvesterResult, error) {
+	return extractPythonRoutesFrom(ctx, dirs, dirs, maxPythonFiles)
+}
+
+// extractPythonRoutesFrom scans the application directory, dirs[0], and then
+// any further import roots, sharing maxFiles across all of them. Django
+// includes resolve against importRoots, in the order Python searches them.
+func extractPythonRoutesFrom(ctx context.Context, dirs, importRoots []string, maxFiles int) (*RouteHarvesterResult, error) {
 	log := slog.With("component", "route.harvester.python")
 	e := pythonExtractor{
 		routes:       map[string]struct{}{},
 		djangoRoutes: map[string][]djangoRoute{},
 	}
 	kind := PartialRoutes
-	remaining := maxPythonFiles
-	for _, root := range pythonScanRoots(dirs) {
-		scanned := 0
-		err := walkPythonFilesN(ctx, root.dir, remaining, func(path string) error {
-			scanned++
+	roots, boundaries := pythonScanRoots(dirs)
+	remaining := maxFiles
+	for i, root := range roots {
+		scanned, err := walkPythonFiles(ctx, root, remaining, boundaries, func(path string) error {
 			if err := e.scanFile(ctx, path); err != nil {
 				if ctx.Err() != nil {
 					return ctx.Err()
@@ -83,10 +92,10 @@ func extractPythonRoutes(ctx context.Context, dirs ...string) (*RouteHarvesterRe
 			return nil
 		})
 		if err != nil {
-			if root.app || ctx.Err() != nil {
+			if i == 0 || ctx.Err() != nil {
 				return nil, fmt.Errorf("scan Python directory: %w", err)
 			}
-			log.Debug("error scanning Python import root", "dir", root.dir, "error", err)
+			log.Debug("error scanning Python import root", "dir", root, "error", err)
 		}
 		remaining -= scanned
 		if remaining <= 0 {
@@ -94,7 +103,7 @@ func extractPythonRoutes(ctx context.Context, dirs ...string) (*RouteHarvesterRe
 		}
 	}
 
-	if err := resolveDjangoRoutes(ctx, dirs, e.djangoRoutes, e.routes); err != nil {
+	if err := resolveDjangoRoutes(ctx, dirs, importRoots, e.djangoRoutes, e.routes); err != nil {
 		return nil, err
 	}
 
@@ -109,71 +118,99 @@ func extractPythonRoutes(ctx context.Context, dirs ...string) (*RouteHarvesterRe
 	return &RouteHarvesterResult{Routes: result, Kind: kind}, nil
 }
 
-type pythonScanRoot struct {
-	dir string
-	app bool
-}
-
-// pythonScanRoots returns the directories to walk for the application
-// directory, dirs[0], and its import roots. Each directory is replaced by the
-// outermost one covering it, so no file is scanned twice; the root covering
-// the application directory is marked app, and failing to scan it fails the
-// harvest. Import roots holding installed packages are left out: their routes
-// are not the application's.
-func pythonScanRoots(dirs []string) []pythonScanRoot {
-	candidates := make([]string, 0, len(dirs))
+// pythonScanRoots returns the directories to walk, the application
+// directory, dirs[0], first, followed by its import roots without duplicates.
+// Installation directories such as site-packages are left out, and the
+// packages that the .dist-info metadata of a walked directory declares are
+// skipped: their routes are not the application's. Every other root, every
+// left-out directory and every installed package is a boundary that no walk
+// enters, so no file is scanned twice and an explicit root is scanned even
+// when an enclosing walk would skip it by name.
+func pythonScanRoots(dirs []string) ([]string, map[string]struct{}) {
+	roots := make([]string, 0, len(dirs))
+	boundaries := map[string]struct{}{}
 	for i, dir := range dirs {
-		if i == 0 || !pythonDependencyDir(dir) {
-			candidates = append(candidates, dir)
-		}
-	}
-	roots := make([]pythonScanRoot, 0, len(candidates))
-	for i, dir := range candidates {
-		cover := dir
-		for _, other := range candidates {
-			if len(other) < len(cover) && langtools.PathWithinBoundary(other, dir) {
-				cover = other
-			}
-		}
-		if j := slices.IndexFunc(roots, func(root pythonScanRoot) bool { return root.dir == cover }); j >= 0 {
-			roots[j].app = roots[j].app || i == 0
+		if slices.Contains(roots, dir) {
 			continue
 		}
-		roots = append(roots, pythonScanRoot{dir: cover, app: i == 0})
-	}
-	return roots
-}
-
-// pythonDependencyDir reports whether an import root holds installed packages:
-// an installation directory such as site-packages, or a pip --target
-// directory, which has the distributions' .dist-info metadata at its top level.
-func pythonDependencyDir(dir string) bool {
-	if name := filepath.Base(dir); name == "site-packages" || name == "dist-packages" {
-		return true
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	for _, entry := range entries {
-		if entry.IsDir() && strings.HasSuffix(entry.Name(), ".dist-info") {
-			return true
+		boundaries[dir] = struct{}{}
+		if i > 0 && pythonInstallationDir(dir) {
+			continue
+		}
+		roots = append(roots, dir)
+		for _, installed := range installedPythonPackages(dir) {
+			boundaries[installed] = struct{}{}
 		}
 	}
-	return false
+	return roots, boundaries
 }
 
-func walkPythonFiles(ctx context.Context, root string, fn func(string) error) error {
-	return walkPythonFilesN(ctx, root, maxPythonFiles, fn)
+func pythonInstallationDir(dir string) bool {
+	name := filepath.Base(dir)
+	return name == "site-packages" || name == "dist-packages"
 }
 
-func walkPythonFilesN(ctx context.Context, root string, maxFiles int, fn func(string) error) error {
+func installedPythonPackages(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var installed []string
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasSuffix(entry.Name(), ".dist-info") {
+			continue
+		}
+		for _, name := range distributionTopLevelNames(filepath.Join(dir, entry.Name())) {
+			installed = append(installed, filepath.Join(dir, name), filepath.Join(dir, name+".py"))
+		}
+	}
+	return installed
+}
+
+func distributionTopLevelNames(distInfo string) []string {
+	if names := readDistributionNames(filepath.Join(distInfo, "top_level.txt"), topLevelName); len(names) > 0 {
+		return names
+	}
+	return readDistributionNames(filepath.Join(distInfo, "RECORD"), recordTopLevelName)
+}
+
+func readDistributionNames(path string, name func(string) string) []string {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+
+	var names []string
+	scan := bufio.NewScanner(io.LimitReader(file, maxPythonFileBytes))
+	for scan.Scan() {
+		if n := name(scan.Text()); n != "" && !slices.Contains(names, n) {
+			names = append(names, n)
+		}
+	}
+	return names
+}
+
+func topLevelName(line string) string {
+	return strings.TrimSpace(line)
+}
+
+func recordTopLevelName(line string) string {
+	path, _, _ := strings.Cut(line, ",")
+	first, _, _ := strings.Cut(path, "/")
+	if first == "" || first == ".." || first == "__pycache__" || strings.HasSuffix(first, ".dist-info") {
+		return ""
+	}
+	return strings.TrimSuffix(first, ".py")
+}
+
+func walkPythonFiles(ctx context.Context, root string, maxFiles int, boundaries map[string]struct{}, fn func(string) error) (int, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return 0, err
 	}
 	files, err := os.ReadDir(root)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	scanned := 0
 	limit := false
@@ -186,13 +223,14 @@ func walkPythonFilesN(ctx context.Context, root string, maxFiles int, fn func(st
 			if err != nil {
 				return err
 			}
+			_, boundary := boundaries[path]
 			if info.IsDir() {
-				if skipPythonDir(info.Name()) {
+				if boundary || skipPythonDir(info.Name()) {
 					return filepath.SkipDir
 				}
 				return nil
 			}
-			if !info.Mode().IsRegular() || info.Size() > maxPythonFileBytes || filepath.Ext(path) != ".py" {
+			if boundary || !info.Mode().IsRegular() || info.Size() > maxPythonFileBytes || filepath.Ext(path) != ".py" {
 				return nil
 			}
 			scanned++
@@ -205,13 +243,13 @@ func walkPythonFilesN(ctx context.Context, root string, maxFiles int, fn func(st
 			}
 			return nil
 		}); err != nil {
-			return err
+			return scanned, err
 		}
 		if limit {
 			break
 		}
 	}
-	return ctx.Err()
+	return scanned, ctx.Err()
 }
 
 func skipPythonDir(name string) bool {

@@ -247,6 +247,17 @@ func resolvePythonModule(root string, roots []string, module string) (resolvedPy
 }
 
 func resolvePythonModuleParts(root string, roots, parts []string) (resolvedPythonModule, bool) {
+	file := func(path string) (string, bool) { return regularProcessFile(root, "/", path) }
+	dir := func(path string) bool { return processDirectory(root, path) }
+	return resolveModuleParts(roots, parts, file, dir)
+}
+
+func ResolveModuleFile(roots []string, module string, file func(string) (string, bool), dir func(string) bool) (string, bool) {
+	resolved, ok := resolveModuleParts(roots, strings.Split(module, "."), file, dir)
+	return resolved.path, ok && resolved.path != ""
+}
+
+func resolveModuleParts(roots, parts []string, file func(string) (string, bool), dir func(string) bool) (resolvedPythonModule, bool) {
 	searchPaths := roots
 	for index, part := range parts {
 		last := index == len(parts)-1
@@ -255,7 +266,7 @@ func resolvePythonModuleParts(root string, roots, parts []string) (resolvedPytho
 
 		for _, base := range searchPaths {
 			candidatePackage := filepath.Join(base, part)
-			if path, ok := regularProcessFile(root, "/", filepath.Join(candidatePackage, "__init__.py")); ok {
+			if path, ok := file(filepath.Join(candidatePackage, "__init__.py")); ok {
 				if last {
 					return resolvedPythonModule{
 						path:        path,
@@ -267,14 +278,14 @@ func resolvePythonModuleParts(root string, roots, parts []string) (resolvedPytho
 				break
 			}
 
-			if path, ok := regularProcessFile(root, "/", filepath.Join(base, part+".py")); ok {
+			if path, ok := file(filepath.Join(base, part+".py")); ok {
 				if !last {
 					return resolvedPythonModule{}, false
 				}
 				return resolvedPythonModule{path: path}, true
 			}
 
-			if processDirectory(root, candidatePackage) && !slices.Contains(namespacePaths, candidatePackage) {
+			if dir(candidatePackage) && !slices.Contains(namespacePaths, candidatePackage) {
 				namespacePaths = append(namespacePaths, candidatePackage)
 			}
 		}
