@@ -48,6 +48,29 @@ attributes:
     brief: >
       Role of the local endpoint in the TCP three-way handshake
       (`client` initiated the SYN, `server` was awaiting it).
+  # Mirrors `TCPResetCauseType` in `pkg/internal/statsolly/ebpf/stat.go`.
+  - key: network.tcp.reset.cause
+    annotations:
+      obi:
+        upstream_deviation: upstream defines no TCP reset attributes
+    type:
+      members:
+        - id: application
+          value: application
+          stability: development
+        - id: timeout
+          value: timeout
+          stability: development
+    stability: development
+    brief: >
+      Inferred cause of a TCP reset sent by the local endpoint, from the
+      code path that sent it: `application` when the socket was closed
+      before the reset (close() with unread data, SO_LINGER{0}), `timeout`
+      when the reset was sent with the connection still open, by a
+      keepalive, user-timeout or orphan timer, or by a forced socket
+      destroy such as `ss -K`.
+      Not set when the cause cannot be inferred: received resets, and sent
+      resets that answer an incoming segment.
 
 attribute_groups:
   # `obi.ip` / `src.*` / `dst.*` are reused from `registry.obi.network` so we
@@ -66,3 +89,4 @@ attribute_groups:
     attributes:
       - ref: reason
       - ref: network.tcp.handshake.role
+      - ref: network.tcp.reset.cause

@@ -8,6 +8,7 @@
 
 #include <common/connection_info.h>
 #include <common/map_sizing.h>
+#include <common/pin_internal.h>
 
 #include <generictracer/types/http2_conn_info_data.h>
 
@@ -16,4 +17,5 @@ struct {
     __type(key, pid_connection_info_t);
     __type(value, http2_conn_info_data_t); // flags and id
     __uint(max_entries, MAX_CONCURRENT_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
 } ongoing_http2_connections SEC(".maps");

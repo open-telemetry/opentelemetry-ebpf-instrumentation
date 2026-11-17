@@ -29,7 +29,7 @@
 #include <generictracer/maps/h2_cut_frames.h>
 #include <generictracer/maps/http2_info_mem.h>
 
-#include <generictracer/maps/ongoing_http2_grpc.h>
+#include <maps/ongoing_http2_grpc.h>
 
 #include <maps/active_ssl_connections.h>
 #include <maps/ongoing_http2_connections.h>
@@ -96,7 +96,8 @@ static __always_inline u8 adopt_injected_trace(http2_conn_stream_t *s_key, tp_in
     sort_egress_key(&sorted_e);
     tp_info_pid_t *injected = bpf_map_lookup_elem(&outgoing_trace_map, &sorted_e);
     // written=1 means a uprobe wrote the entry (not a kprobe's random one).
-    if (injected && injected->valid && injected->written && valid_trace(injected->tp.trace_id)) {
+    if (injected && injected->pid == s_key->pid_conn.pid && injected->valid && injected->written &&
+        valid_trace(injected->tp.trace_id)) {
         bpf_memcpy(tp->trace_id, injected->tp.trace_id, TRACE_ID_SIZE_BYTES);
         bpf_memcpy(tp->span_id, injected->tp.span_id, SPAN_ID_SIZE_BYTES);
         bpf_memcpy(tp->parent_id, injected->tp.parent_id, SPAN_ID_SIZE_BYTES);
@@ -230,7 +231,10 @@ static __always_inline void http2_grpc_start_finalize_server(http2_conn_stream_t
     t_key.extra_id = extra_runtime_id();
     bpf_map_update_elem(&server_traces, &t_key, tp_p, BPF_ANY);
 
-    bpf_map_update_elem(&ongoing_http2_grpc, s_key, h2g_info, BPF_ANY);
+    if (bpf_map_update_elem(&ongoing_http2_grpc, s_key, h2g_info, BPF_ANY) == 0 &&
+        http_server_index_enabled()) {
+        index_http_server_context(s_key, &h2g_info->tp);
+    }
 }
 
 static __always_inline void http2_grpc_start(void *ctx,
@@ -390,6 +394,8 @@ http2_grpc_end(http2_conn_stream_t *stream, http2_grpc_request_t *prev_info, voi
         }
         if (prev_info->type == k_event_type_http_client) {
             obi_ctx__restore_server(&prev_info->tp);
+        } else if (prev_info->type == k_event_type_http_request && http_server_index_enabled()) {
+            unindex_http_server_trace(stream->pid_conn.pid, &prev_info->tp);
         }
     }
 

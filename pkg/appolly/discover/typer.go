@@ -100,11 +100,20 @@ func samplerFromConfig(s *services.SamplerConfig) trace.Sampler {
 	return nil
 }
 
+func selectorExceptions(selector services.Selector) *services.ExceptionsOverride {
+	if provider, ok := selector.(interface {
+		GetExceptionsConfig() *services.ExceptionsOverride
+	}); ok {
+		return provider.GetExceptionsConfig()
+	}
+	return nil
+}
+
 func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 	name := t.cfg.ServiceName
 	namespace := t.cfg.ServiceNamespace
 	exportModes := services.ExportModeUnset
-	var samplerConfig *services.SamplerConfig
+	samplerConfig := samplingConfig(*processMatch)
 	var routesConfig *services.CustomRoutesConfig
 	svcFeatures := t.cfg.Metrics.Features
 	exceptions := t.cfg.Exceptions
@@ -130,15 +139,11 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 			exportModes = m
 		}
 
-		if m := s.GetSamplerConfig(); m != nil {
-			samplerConfig = m
-		}
-
 		if m := s.GetRoutesConfig(); m != nil {
 			routesConfig = m
 		}
 
-		exceptions = s.GetExceptionsConfig().Resolve(t.cfg.Exceptions)
+		exceptions = selectorExceptions(s).Resolve(t.cfg.Exceptions)
 
 		// if the matching service > instrument entry does not define features,
 		// the globally defined features apply (and override any previous,
@@ -230,6 +235,13 @@ func (t *typer) FilterClassify(evs []Event[ProcessMatch]) []Event[ebpf.Instrumen
 	for i := range evs {
 		ev := &evs[i]
 		switch evs[i].Type {
+		case EventUpdated:
+			if fInfo, ok := t.currentPids[ev.Obj.Process.Pid]; ok {
+				out = append(out, Event[ebpf.Instrumentable]{
+					Type: EventUpdated,
+					Obj:  ebpf.Instrumentable{FileInfo: fInfo, SamplerConfig: samplingConfig(ev.Obj)},
+				})
+			}
 		case EventCreated:
 			svcID := t.makeServiceAttrs(&ev.Obj)
 

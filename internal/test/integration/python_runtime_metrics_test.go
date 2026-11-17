@@ -233,7 +233,10 @@ func runPythonRuntimeMetricsIntegration(t *testing.T, exporter string, image pyt
 	finalStats := readPythonGCStats(t, compose, "/exit")
 	expectedExport := addPythonRuntimeMetricDelta(t, exportedBeforeExit, expectedStats, finalStats)
 	assertPythonRuntimeMetricsEventuallyMatch(t, pq, expectedExport)
-	runWeaverValidation(t)
+	// every version emits the same metrics, so the representative ones cover their semantic conventions
+	if image.otelRepresentative {
+		runWeaverValidation(t)
+	}
 }
 
 func waitForPythonRuntimeMetricsAttachment(t *testing.T, compose *docker.Compose) {

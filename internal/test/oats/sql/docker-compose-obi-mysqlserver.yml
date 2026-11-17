@@ -23,9 +23,7 @@ services:
     ports:
       - "8080:8080"
   autoinstrumenter:
-    build:
-      context: ../../../..
-      dockerfile: ./internal/test/integration/components/obi/Dockerfile
+    image: hatest-obi
     command:
       - --config=/configs/instrumenter-config-traces.yml
     volumes:

@@ -225,9 +225,12 @@ The service implements the `MetadataService` gRPC API in
   address is unknown. Caller observations are limited to destinations in the
   requester's addresses, and lifetimes are aged from the publish time. Agents only
   look up hosts seen in their spans.
-
-The service does not return `known_callers` yet, so client agents keep their
-request counts for edges resolved through it.
+- `known_callers` acknowledge the requester's observations that the looked up
+  host received in its own lookups of the requester, aged from those lookups. The
+  service derives them from lookups, so it cannot see when the looked up host
+  evicts the requester from its cache. Keep the agents' `caller_ttl` at or below
+  their `cache_ttl`, as the defaults do, so acknowledgements expire no later than
+  the cached observations.
 
 Published addresses must fall within `peer_cidrs`, or within the private blocks
 when it is empty. A bearer `token` requires TLS. Like the peer-to-peer protocol,

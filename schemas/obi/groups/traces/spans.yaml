@@ -49,3 +49,6 @@ spans:
     brief: >
       OBI child span splitting a request that waited before it was processed
       into its queued and processing phases.
+    attributes:
+      - ref: obi.request.phase
+        requirement_level: required

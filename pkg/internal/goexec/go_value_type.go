@@ -9,12 +9,17 @@ import (
 	"errors"
 	"reflect"
 	"strings"
+
+	"github.com/hashicorp/golang-lru/v2/simplelru"
 )
 
 // Go stores the underlying kind in the low five bits of abi.Type.Kind.
 const goKindMask = 31
 
 const goTFlagUncommon = 1
+
+// Bound retained metadata when applications panic with many distinct types.
+const goValueTypeCacheSize = 128
 
 // GoValueType describes a panic value's type using executable metadata.
 type GoValueType struct {
@@ -30,12 +35,30 @@ type GoValueType struct {
 // The type header supplies the kind; optional uncommon metadata supplies the
 // method count. Unreadable metadata or an unsupported layout returns false.
 func (r *GoSymbolResolver) ValueType(typeAddr uint64) (GoValueType, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.table == nil {
 		return GoValueType{}, false
 	}
 
+	if r.valueTypes != nil {
+		if typ, ok := r.valueTypes.Get(typeAddr); ok {
+			return typ, true
+		}
+	}
+	typ, ok := r.readValueType(typeAddr)
+	if ok {
+		if r.valueTypes == nil {
+			// The fixed positive capacity makes construction infallible.
+			r.valueTypes, _ = simplelru.NewLRU[uint64, GoValueType](goValueTypeCacheSize, nil)
+		}
+		r.valueTypes.Add(typeAddr, typ)
+	}
+	return typ, ok
+}
+
+// readValueType requires r.mu; failed reads remain retryable on later panics.
+func (r *GoSymbolResolver) readValueType(typeAddr uint64) (GoValueType, bool) {
 	var typ goABIType
 	data, err := readVirtualMemory(r.executable, typeAddr, uint64(binary.Size(typ)))
 	if err != nil {

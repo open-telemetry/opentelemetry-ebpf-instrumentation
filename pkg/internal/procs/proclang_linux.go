@@ -106,32 +106,35 @@ func findLanguageFromElf(filePath string) (result svc.InstrumentableType) {
 }
 
 func FindExeSymbols(f *elf.File, symbolNames []string, types ...elf.SymType) (map[string]Sym, error) {
-	exactSyms, _, err := FindExeSymbolsByNameAndSubstring(f, symbolNames, nil, types...)
-	return exactSyms, err
-}
-
-func FindExeSymbolsByNameAndSubstring(f *elf.File, symbolNames, symbolSubstrings []string, types ...elf.SymType) (map[string]Sym, map[string]Sym, error) {
-	exactAddresses := map[string]Sym{}
-	substringAddresses := map[string]Sym{}
-	if f.SectionByType(elf.SHT_SYMTAB) == nil && f.SectionByType(elf.SHT_DYNSYM) == nil {
-		return exactAddresses, substringAddresses, nil
-	}
-
-	ctx, err := fastelf.NewElfContextFromELF(f)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer ctx.Close()
-
-	if len(types) == 0 {
-		types = []elf.SymType{elf.STT_FUNC}
-	}
-
 	wanted := make(map[string]string, len(symbolNames))
 	for _, name := range symbolNames {
 		if name != "" {
 			wanted[name] = name
 		}
+	}
+
+	return findExeSymbols(f, wanted, nil, types...)
+}
+
+// FindExeSymbolsMatching returns the symbols whose name satisfies match, keyed by name.
+func FindExeSymbolsMatching(f *elf.File, match func(name string) bool, types ...elf.SymType) (map[string]Sym, error) {
+	return findExeSymbols(f, nil, match, types...)
+}
+
+func findExeSymbols(f *elf.File, wanted map[string]string, match func(string) bool, types ...elf.SymType) (map[string]Sym, error) {
+	addresses := map[string]Sym{}
+	if f.SectionByType(elf.SHT_SYMTAB) == nil && f.SectionByType(elf.SHT_DYNSYM) == nil {
+		return addresses, nil
+	}
+
+	ctx, err := fastelf.NewElfContextFromELF(f)
+	if err != nil {
+		return nil, err
+	}
+	defer ctx.Close()
+
+	if len(types) == 0 {
+		types = []elf.SymType{elf.STT_FUNC}
 	}
 
 	for _, sectionType := range []uint32{fastelf.SHT_SYMTAB, fastelf.SHT_DYNSYM} {
@@ -145,17 +148,17 @@ func FindExeSymbolsByNameAndSubstring(f *elf.File, symbolNames, symbolSubstrings
 			}
 
 			if section.Link == 0 || uint64(section.Link) >= uint64(len(ctx.Sections)) {
-				return nil, nil, errors.New("section has invalid string table link")
+				return nil, errors.New("section has invalid string table link")
 			}
 
 			strtab, ok := ctx.SectionData(ctx.Sections[section.Link])
 			if !ok {
-				return nil, nil, errors.New("invalid string table bounds")
+				return nil, errors.New("invalid string table bounds")
 			}
 
 			offset, entrySize, count, ok := ctx.SymbolTableBounds(section)
 			if !ok || section.Entsize != elf.Sym64Size || section.Size%section.Entsize != 0 {
-				return nil, nil, errors.New("invalid symbol table bounds or entry size")
+				return nil, errors.New("invalid symbol table bounds or entry size")
 			}
 
 			populateRange(ctx.Data, ctx.Sections[section.Link].Offset, ctx.Sections[section.Link].Size)
@@ -169,32 +172,25 @@ func FindExeSymbolsByNameAndSubstring(f *elf.File, symbolNames, symbolSubstrings
 				}
 
 				name := fastelf.GetCStringUnsafe(strtab, symbol.Name)
-				var sym *Sym
-				if requested, ok := wanted[name]; ok {
-					resolved := resolveSymbol(f, elf.Symbol{
-						Name: requested, Value: symbol.Value, Size: symbol.Size,
-					})
-					sym = &resolved
-					exactAddresses[requested] = resolved
+				var requested string
+				var ok bool
+				if match == nil {
+					requested, ok = wanted[name]
+				} else if match(name) {
+					requested, ok = strings.Clone(name), true
+				}
+				if !ok {
+					continue
 				}
 
-				for _, fragment := range symbolSubstrings {
-					if !strings.Contains(name, fragment) {
-						continue
-					}
-					if sym == nil {
-						resolved := resolveSymbol(f, elf.Symbol{
-							Name: strings.Clone(name), Value: symbol.Value, Size: symbol.Size,
-						})
-						sym = &resolved
-					}
-					substringAddresses[fragment] = *sym
-				}
+				addresses[requested] = resolveSymbol(f, elf.Symbol{
+					Name: requested, Value: symbol.Value, Size: symbol.Size,
+				})
 			}
 			break
 		}
 	}
-	return exactAddresses, substringAddresses, nil
+	return addresses, nil
 }
 
 // populateRange asks the kernel to read the given range of a mapped file in a

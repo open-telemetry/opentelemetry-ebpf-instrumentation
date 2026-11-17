@@ -41,6 +41,8 @@ func ilog() *slog.Logger {
 }
 
 var (
+	errUSDTProbeNotFound = errors.New("USDT probe not found")
+
 	findNamespacedPids = procs.FindNamespacedPids
 	attachKprobe       = func(symbol string, program *ebpf.Program) (io.Closer, error) {
 		return kprobe.Attach(symbol, program, false)
@@ -878,8 +880,12 @@ func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer, maps []*proc
 			continue
 		}
 
+		fallbackBlocked := map[*ebpfcommon.USDTFallback]bool{}
 		for _, probe := range probes {
 			closers, err := i.instrumentUSDTProbe(exe, instrPath, elfFile, pid, ns, maps, mappedPath, probe)
+			if probe.Fallback != nil {
+				fallbackBlocked[probe.Fallback] = fallbackBlocked[probe.Fallback] || !errors.Is(err, errUSDTProbeNotFound)
+			}
 			if err != nil {
 				if probe.Required {
 					elfFile.Close()
@@ -895,6 +901,19 @@ func (i *instrumenter) usdtProbes(pid app.PID, ns uint32, p Tracer, maps []*proc
 				)
 				continue
 			}
+			usdtClosers = append(usdtClosers, closers...)
+		}
+
+		for fallback, blocked := range fallbackBlocked {
+			if blocked {
+				continue
+			}
+			closers, err := i.instrumentUSDTFallback(exe, instrPath, elfFile, pid, fallback)
+			if err != nil {
+				ilog().Debug("can't instrument USDT fallback uprobes", "pid", pid, "lib", baseLib, "error", err)
+				continue
+			}
+			ilog().Debug("USDT probes not found, instrumenting fallback uprobes", "pid", pid, "lib", baseLib)
 			usdtClosers = append(usdtClosers, closers...)
 		}
 
@@ -924,7 +943,7 @@ func (i *instrumenter) instrumentUSDTProbe(
 		return nil, err
 	}
 	if len(targets) == 0 {
-		return nil, fmt.Errorf("USDT probe %s:%s not found", probe.Provider, probe.Name)
+		return nil, fmt.Errorf("%w: %s:%s", errUSDTProbeNotFound, probe.Provider, probe.Name)
 	}
 
 	closers := make([]io.Closer, 0, len(targets))
@@ -982,6 +1001,81 @@ func (i *instrumenter) instrumentUSDTProbe(
 	}
 
 	return closers, nil
+}
+
+func (i *instrumenter) instrumentUSDTFallback(
+	exe *link.Executable,
+	exePath string,
+	elfFile *elf.File,
+	pid app.PID,
+	fallback *ebpfcommon.USDTFallback,
+) ([]io.Closer, error) {
+	addresses, err := usdtFallbackAddresses(elfFile, fallback)
+	if err != nil {
+		return nil, err
+	}
+
+	var closers []io.Closer
+	for idx, probe := range fallback.Probes {
+		// the return probe goes first, so no entry hit is left without its exit
+		for _, attach := range []struct {
+			program *ebpf.Program
+			ret     bool
+		}{{probe.Return, true}, {probe.Start, false}} {
+			if attach.program == nil {
+				continue
+			}
+			closer, err := uprobe.Attach(exe, exePath, attach.program, uprobe.Options{
+				Addresses: addresses[idx],
+				PID:       uint32(pid),
+				Return:    attach.ret,
+			})
+			if err != nil {
+				closeAll(closers)
+				return nil, fmt.Errorf("attaching USDT fallback uprobe to %v: %w", probe.Symbols, err)
+			}
+			closers = append(closers, closer)
+		}
+	}
+
+	return closers, nil
+}
+
+func usdtFallbackAddresses(elfFile *elf.File, fallback *ebpfcommon.USDTFallback) ([][]uint64, error) {
+	syms, err := procs.FindExeSymbolsMatching(elfFile, func(name string) bool {
+		return slices.ContainsFunc(fallback.Probes, func(probe ebpfcommon.USDTFallbackProbe) bool {
+			return usdtFallbackProbeMatches(probe, name)
+		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("looking up USDT fallback symbols: %w", err)
+	}
+
+	addresses := make([][]uint64, len(fallback.Probes))
+	for idx, probe := range fallback.Probes {
+		for name, sym := range syms {
+			if usdtFallbackProbeMatches(probe, name) {
+				addresses[idx] = append(addresses[idx], sym.Off)
+			}
+		}
+		if len(addresses[idx]) == 0 {
+			return nil, fmt.Errorf("no USDT fallback symbol named %v, starting with %q, or ending in %q found", probe.Symbols, probe.SymbolPrefix, probe.SymbolSuffix)
+		}
+		slices.Sort(addresses[idx])
+		addresses[idx] = slices.Compact(addresses[idx])
+	}
+
+	return addresses, nil
+}
+
+func usdtFallbackProbeMatches(probe ebpfcommon.USDTFallbackProbe, name string) bool {
+	if probe.SymbolPrefix != "" && strings.HasPrefix(name, probe.SymbolPrefix) {
+		return true
+	}
+	if probe.SymbolSuffix != "" && strings.HasSuffix(name, probe.SymbolSuffix) {
+		return true
+	}
+	return slices.Contains(probe.Symbols, name)
 }
 
 func usdtIPMapPIDs(pid app.PID) []app.PID {
@@ -1089,6 +1183,7 @@ func attachSocketFilter(filter *ebpf.Program) (int, error) {
 	if err == nil {
 		ssoErr := syscall.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_ATTACH_BPF, filter.FD())
 		if ssoErr != nil {
+			unix.Close(fd)
 			return -1, ssoErr
 		}
 		return fd, nil
@@ -1122,7 +1217,7 @@ func (i *instrumenter) sockops(p Tracer, cgroupPath string) error {
 	for _, sockops := range p.SockOps() {
 		slog.Info("Attaching sock ops")
 
-		l, err := AttachCgroupSockOps(sockops.Program, sockops.AttachAs, cgroupPath)
+		l, err := AttachCgroupSockOpsAtPath(sockops.Program, sockops.AttachAs, cgroupPath)
 		if err != nil {
 			if i.metrics != nil {
 				i.metrics.InstrumentationError(i.processName, imetrics.InstrumentationErrorAttachingCgroup)
@@ -1290,38 +1385,63 @@ func gatherOffsetsImpl(
 	instrPath string,
 	log *slog.Logger,
 ) ([]error, error) {
-	var exactNames, substringNames []string
+	exactNames := map[string]struct{}{}
+	var substringNames []string
 	for _, probes := range probeMaps {
-		exactNames = append(exactNames, symbolNames(probes, ebpfcommon.SymbolMatcherExact)...)
+		for _, name := range symbolNames(probes, ebpfcommon.SymbolMatcherExact) {
+			if name != "" {
+				exactNames[name] = struct{}{}
+			}
+		}
 		substringNames = append(substringNames, symbolNames(probes, ebpfcommon.SymbolMatcherContains)...)
 	}
 
-	exactSyms, substringSyms, err := procs.FindExeSymbolsByNameAndSubstring(elfFile, exactNames, substringNames)
+	syms, err := procs.FindExeSymbolsMatching(elfFile, func(name string) bool {
+		if _, ok := exactNames[name]; ok {
+			return true
+		}
+		for _, substring := range substringNames {
+			if strings.Contains(name, substring) {
+				return true
+			}
+		}
+		return false
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to lookup symbols for %s: %w", instrPath, err)
 	}
 
 	errs := make([]error, len(probeMaps))
 	for i, probes := range probeMaps {
-		errs[i] = resolveProbeOffsets(probes, exactSyms, substringSyms, instrPath, log)
+		errs[i] = resolveProbeOffsets(probes, syms, instrPath, log)
 	}
 
 	return errs, nil
 }
 
+func findProbeSymbol(syms map[string]procs.Sym, name string, matcher ebpfcommon.SymbolMatcher) (procs.Sym, bool) {
+	if matcher != ebpfcommon.SymbolMatcherContains {
+		sym, ok := syms[name]
+		return sym, ok
+	}
+
+	for symbolName, sym := range syms {
+		if strings.Contains(symbolName, name) {
+			return sym, true
+		}
+	}
+	return procs.Sym{}, false
+}
+
 func resolveProbeOffsets(
 	probes map[string][]*ebpfcommon.ProbeDesc,
-	exactSyms, substringSyms map[string]procs.Sym,
+	syms map[string]procs.Sym,
 	instrPath string,
 	log *slog.Logger,
 ) error {
 	for symbolName, probeArray := range probes {
 		for _, probe := range probeArray {
-			syms := exactSyms
-			if probe.SymbolMatcher == ebpfcommon.SymbolMatcherContains {
-				syms = substringSyms
-			}
-			sym, ok := syms[symbolName]
+			sym, ok := findProbeSymbol(syms, symbolName, probe.SymbolMatcher)
 
 			if !ok {
 				probe.Skip = true

@@ -65,6 +65,11 @@
           "type": "boolean",
           "default": true,
           "description": "Emit the HTTP request and response body size histograms.\nRequires `metrics`. Set it to false to keep the RED metrics without them.\nIf omitted, true is used.\n"
+        },
+        "request_phase_spans": {
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the `in queue` and `processing` spans for HTTP server requests.\nRequires `traces`.\nIf omitted, true is used.\n"
         }
       }
     },
@@ -760,6 +765,18 @@
                   "type": "string",
                   "default": "1s",
                   "description": "Maximum time to wait before flushing a partial batch.\nIf omitted, `1s` is used.\n"
+                },
+                "stats": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "wakeup_bytes": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "default": 4096,
+                      "description": "Minimum bytes pending in the network stats ring buffer before userspace is woken up. `0` wakes userspace on every event.\nIf omitted, `4096` is used.\n"
+                    }
+                  }
                 }
               }
             },
@@ -799,6 +816,11 @@
                   "type": "boolean",
                   "default": false,
                   "description": "Disable black-box context propagation.\nIf omitted, false is used.\n"
+                },
+                "disable_go_channel_links": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Disable the Go channel probes that link spans across goroutines.\nIf omitted, false is used.\n"
                 },
                 "populate_trace_context": {
                   "type": "boolean",
@@ -988,6 +1010,7 @@
                       "stats",
                       "stats_tcp_failed_connections",
                       "stats_tcp_io",
+                      "stats_tcp_resets",
                       "stats_tcp_retransmits",
                       "stats_tcp_rtt",
                       "stats_tcp_successful_connections"
@@ -1524,6 +1547,18 @@
         }
       }
     },
+    "DbInstrumentation": {
+      "type": "object",
+      "description": "Settings shared by all database protocols.",
+      "additionalProperties": false,
+      "properties": {
+        "sanitize_query_text": {
+          "type": "boolean",
+          "default": false,
+          "description": "Replace literal values in `db.query.text` with `?`: string, numeric, hexadecimal and boolean literals of SQL and SQL++ spans, and Redis argument values (keys are kept). Elasticsearch query bodies and Couchbase key-value spans are not sanitized. By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
+        }
+      }
+    },
     "SqlInstrumentation": {
       "type": "object",
       "description": "SQL instrumentation controls.",
@@ -1541,11 +1576,6 @@
           "type": "boolean",
           "default": false,
           "description": "Enable heuristic SQL protocol detection.\nIf omitted, false is used.\n"
-        },
-        "sanitize_query_text": {
-          "type": "boolean",
-          "default": false,
-          "description": "Replace string, numeric, hexadecimal and boolean literals in `db.query.text` of SQL and SQL++ spans with `?`. By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
         },
         "mysql": {
           "type": "object",
@@ -1873,6 +1903,10 @@
             "filters": {}
           }
         },
+        "db": {
+          "$ref": "#/$defs/DbInstrumentation",
+          "description": "Settings shared by all database protocols.\nIf omitted, database defaults are used.\n"
+        },
         "sql": {
           "$ref": "#/$defs/SqlInstrumentation",
           "description": "SQL instrumentation controls.\nIf omitted, SQL defaults are used.\n"
@@ -1917,7 +1951,8 @@
         "http": {
           "enabled": {
             "traces": true,
-            "metrics": true
+            "metrics": true,
+            "request_phase_spans": true
           },
           "filters": {}
         },
@@ -2201,7 +2236,8 @@
                   "tcp_failed_connections",
                   "tcp_successful_connections",
                   "tcp_retransmits",
-                  "tcp_io"
+                  "tcp_io",
+                  "tcp_resets"
                 ]
               },
               "default": [],
@@ -2295,6 +2331,17 @@
               "description": "Cloud metadata enricher configuration.\nIf omitted, implementation defaults are used.\n",
               "additionalProperties": true,
               "properties": {
+                "detection": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "default": true,
+                      "description": "Enable cloud metadata detection at startup.\nIf false, Azure VM, GCP, EC2, and ECS detection is skipped.\nIf omitted, true is used.\n"
+                    }
+                  }
+                },
                 "cluster_name": {
                   "type": "string",
                   "description": "Overrides automatic cloud cluster detection.\n"
