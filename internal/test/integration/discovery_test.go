@@ -52,14 +52,12 @@ func testSelectiveExports(t *testing.T) {
 		require.NotNil(ct, bTraces)
 	}, 3*time.Minute, 100*time.Millisecond)
 
-	// Run couple of requests to make sure we flush out any transactions that might be
-	// stuck because of our tracking of full request times
-	for range 10 {
-		ti.DoHTTPGet(t, "http://localhost:5000/a", 200)
-		ti.DoHTTPGet(t, "http://localhost:5001/b", 200)
-	}
-
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		for range 10 {
+			ti.DoHTTPGet(ct, "http://localhost:5000/a", 200)
+			ti.DoHTTPGet(ct, "http://localhost:5001/b", 200)
+		}
+
 		aTraces := getTraces("service-a", "/a")
 		bTraces := getTraces("service-b", "/b")
 		cTraces := getTraces("service-c", "/c")
