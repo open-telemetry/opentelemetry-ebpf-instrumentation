@@ -28,6 +28,11 @@ protection; unreleased API additions are not protected merely by merging.
 Reports cover the entire candidate against published contracts and can include
 incompatibilities already present on the target branch.
 
+The newest applicable release determines whether an API addition is new. The
+JSON `release_base` field identifies that release. Additions already present in
+that release do not force another minor release; incompatible changes against
+any protected release still require a major release.
+
 Release source-generated archives contain the historical generated BPF files
 and embedded Java agent. The checker verifies the archive and checksum-file
 Cosign signatures against the tagged release workflow, then verifies the

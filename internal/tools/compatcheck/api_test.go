@@ -58,7 +58,7 @@ func TestCompareAPI(t *testing.T) {
 			} else if tc.compatible {
 				wantRelease = "minor"
 			}
-			if got := minimumRelease(findings); got != wantRelease {
+			if got := minimumRelease(findings, "v1.0.0"); got != wantRelease {
 				t.Fatalf("required release=%s, want %s", got, wantRelease)
 			}
 			if tc.message == "" {

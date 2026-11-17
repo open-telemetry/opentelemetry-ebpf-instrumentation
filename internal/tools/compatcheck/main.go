@@ -72,6 +72,7 @@ type report struct {
 	Baselines       []baseline `json:"baselines"`
 	Findings        []finding  `json:"findings"`
 	RequiredRelease string     `json:"required_release"`
+	ReleaseBase     string     `json:"release_base,omitempty"`
 	ProposedRelease string     `json:"proposed_release,omitempty"`
 	Error           string     `json:"error,omitempty"`
 }
@@ -187,6 +188,7 @@ func check(ctx context.Context, opts options, r *report, progress io.Writer) err
 	if len(releases) == 0 {
 		return fmt.Errorf("no published core baselines found for %s", version)
 	}
+	r.ReleaseBase = releases[len(releases)-1].Tag
 	temp, err := os.MkdirTemp("", "obi-compatcheck-*")
 	if err != nil {
 		return err
@@ -221,7 +223,7 @@ func check(ctx context.Context, opts options, r *report, progress io.Writer) err
 		return strings.Compare(a.Baseline+"\x00"+a.Platform+"\x00"+a.Package+"\x00"+a.Message,
 			b.Baseline+"\x00"+b.Platform+"\x00"+b.Package+"\x00"+b.Message)
 	})
-	r.RequiredRelease = minimumRelease(r.Findings)
+	r.RequiredRelease = minimumRelease(r.Findings, r.ReleaseBase)
 	if opts.releaseVersion != "" {
 		for _, b := range r.Baselines {
 			if semver.Compare(opts.releaseVersion, b.Version) <= 0 {
@@ -262,13 +264,15 @@ func validateProposed(proposed, target string) error {
 	return nil
 }
 
-func minimumRelease(findings []finding) string {
+func minimumRelease(findings []finding, latest string) string {
 	minimum := "patch"
 	for _, f := range findings {
 		if !f.Compatible {
 			return "major"
 		}
-		minimum = "minor"
+		if f.Baseline == latest {
+			minimum = "minor"
+		}
 	}
 	return minimum
 }
