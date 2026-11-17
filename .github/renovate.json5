@@ -355,6 +355,27 @@
       "schedule": ["before 6am on Thursday"]
     },
     {
+      "description": "Keep the OpenTelemetry API compatible with the fixtures' SDK 2.x peer dependency",
+      "matchManagers": ["npm"],
+      "matchFileNames": [
+        "internal/test/integration/components/tpclient/package.json",
+        "pkg/internal/nodejs/spanbridge_test/package.json"
+      ],
+      "matchPackageNames": ["@opentelemetry/api"],
+      "allowedVersions": "<1.10.0"
+    },
+    {
+      "description": "Keep tpclient on the SDK 2.x experimental packages while it runs on Node 20; 0.300+ requires Node 22",
+      "matchManagers": ["npm"],
+      "matchFileNames": ["internal/test/integration/components/tpclient/package.json"],
+      "matchPackageNames": [
+        "@opentelemetry/exporter-trace-otlp-http",
+        "@opentelemetry/instrumentation",
+        "@opentelemetry/instrumentation-http"
+      ],
+      "allowedVersions": "<0.300.0"
+    },
+    {
       "groupName": "Rust",
       "matchManagers": ["cargo"],
       "matchUpdateTypes": ["patch", "digest", "minor", "major"],
