@@ -4,7 +4,10 @@
 package ebpfcommon
 
 import (
+	"bufio"
+	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -209,6 +212,41 @@ func TestGenAIBedrockTitanDeclined(t *testing.T) {
 			assert.False(t, ok)
 			assert.Equal(t, original, span)
 			assert.Equal(t, original, base)
+		})
+	}
+}
+
+// TestGenAIHTTP1FallbackTruncatedBodies checks that an exchange captured short
+// of its Content-Length, and rejected on evidence, leaves the partial bodies
+// for later readers.
+func TestGenAIHTTP1FallbackTruncatedBodies(t *testing.T) {
+	for _, tc := range []struct{ name, requestBody, responseBody string }{
+		{"JSON", `{"model":"internal-chat","messages":[{"role":"user","content":"h`, `{"id":"msg_1","type":"mess`},
+		{"SSE", `{"model":"cla`, "event: message_st"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.ReadRequest(bufio.NewReader(strings.NewReader(
+				"POST /v1/messages HTTP/1.1\r\nHost: api.example.com\r\nContent-Length: 500\r\n\r\n" + tc.requestBody)))
+			require.NoError(t, err)
+			resp, err := http.ReadResponse(bufio.NewReader(strings.NewReader(
+				"HTTP/1.1 200 OK\r\nContent-Length: 500\r\n\r\n"+tc.responseBody)), req)
+			require.NoError(t, err)
+			cfg := config.GenAIConfig{Anthropic: config.AnthropicConfig{Enabled: true}}
+			original := request.Span{Type: request.EventTypeHTTPClient, Path: anthropicMessagesPath}
+			base := original
+
+			span, ok := GenAIHTTP1Fallback(&base, req, resp, cfg)
+
+			assert.False(t, ok)
+			assert.Equal(t, original, span)
+			assert.Equal(t, original, base)
+			// An unread body would still fail with io.ErrUnexpectedEOF; a restored one reads cleanly.
+			gotRequest, err := io.ReadAll(req.Body)
+			require.NoError(t, err)
+			assert.Equal(t, []byte(tc.requestBody), gotRequest)
+			gotResponse, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			assert.Equal(t, []byte(tc.responseBody), gotResponse)
 		})
 	}
 }
