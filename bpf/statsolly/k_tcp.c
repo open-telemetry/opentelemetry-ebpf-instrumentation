@@ -215,7 +215,7 @@ int BPF_KPROBE(obi_stats_kprobe_tcp_rcv_state_process, struct sock *sk, struct s
         return 0;
     }
 
-    const u8 rst = (tcp_flags & k_tcphdr_rst) != 0;
+    const u8 rst = (tcp_flags & TCPHDR_RST) != 0;
 
     bpf_map_update_elem(&closing_seg_rst, &sk, &rst, BPF_ANY);
     return 0;

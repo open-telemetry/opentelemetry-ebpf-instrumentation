@@ -62,8 +62,6 @@ static void test_missing_entry_is_received(void) {
 }
 
 enum {
-    k_tcp_flags_ack = 0x10, // TCPHDR_ACK
-    k_tcp_flags_fin_ack = 0x11,
     k_seq = 1000,
     k_seq_after_fin = k_seq + 1,
     k_seq_after_data = k_seq + 100,
@@ -71,10 +69,10 @@ enum {
 
 // end_seq counts SYN, FIN and payload, so only a pure ACK has end_seq == seq
 static void test_only_rst_fin_or_data_can_reset(void) {
-    assert_true(!segment_can_reset(k_tcp_flags_ack, k_seq, k_seq), "a pure ACK cannot reset");
-    assert_true(segment_can_reset(k_tcphdr_rst, k_seq, k_seq), "an RST can reset");
-    assert_true(segment_can_reset(k_tcp_flags_ack, k_seq, k_seq_after_data), "data can abort");
-    assert_true(segment_can_reset(k_tcp_flags_fin_ack, k_seq, k_seq_after_fin),
+    assert_true(!segment_can_reset(TCPHDR_ACK, k_seq, k_seq), "a pure ACK cannot reset");
+    assert_true(segment_can_reset(TCPHDR_RST, k_seq, k_seq), "an RST can reset");
+    assert_true(segment_can_reset(TCPHDR_ACK, k_seq, k_seq_after_data), "data can abort");
+    assert_true(segment_can_reset(TCPHDR_FIN | TCPHDR_ACK, k_seq, k_seq_after_fin),
                 "an out-of-order FIN can abort");
 }
 
