@@ -680,17 +680,6 @@ instrument. Use the
 only to inspect authored defaults; it is intentionally not a configuration
 document and must not be passed to `obi config validate`.
 
-## Go channel span links in builds from main
-
-If your configuration uses the unreleased
-`extensions.obi.capture.engine.propagation.disable_go_channel_links` field
-from #4220, move it to `extensions.obi.capture.runtimes.go.channel_links` and
-invert the value: `disable_go_channel_links: true` becomes
-`channel_links: false`. Omission keeps channel span links enabled.
-
-In a Collector receiver, use `runtimes.go.channel_links` directly under the
-receiver component, without the `extensions.obi.capture` prefix.
-
 ## Migrate a Collector receiver
 
 Migrate the legacy receiver component body directly:
