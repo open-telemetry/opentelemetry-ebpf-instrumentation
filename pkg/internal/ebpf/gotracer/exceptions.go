@@ -31,8 +31,8 @@ const (
 )
 
 const (
-	goPanicSymbol   = "runtime.gopanic"
-	goCleanupSymbol = "runtime.casgstatus"
+	goPanicSymbol = "runtime.gopanic"
+	goExitSymbol  = "runtime.goexit1"
 	// Go 1.26+ splits fmt.Errorf into an inlinable wrapper and this helper
 	goErrorfSymbol       = "fmt.errorf"
 	goLegacyErrorfSymbol = "fmt.Errorf"
@@ -40,7 +40,7 @@ const (
 
 // GoExceptionProbeSymbols returns every symbol the exception probes can attach to.
 func GoExceptionProbeSymbols() []string {
-	return []string{goPanicSymbol, goErrorfSymbol, goLegacyErrorfSymbol, goCleanupSymbol}
+	return []string{goPanicSymbol, goErrorfSymbol, goLegacyErrorfSymbol, goExitSymbol}
 }
 
 func isGoExceptionSymbol(symbol string) bool {
@@ -63,8 +63,8 @@ func (p *Tracer) goExceptionProbeGroups() []ebpfcommon.GoProbeGroup {
 
 	if !p.traceCtxMapEnabled {
 		probes = append(probes, ebpfcommon.GoProbe{
-			Symbol: goCleanupSymbol,
-			Probe:  &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeRuntimeCasgstatus},
+			Symbol: goExitSymbol,
+			Probe:  &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeRuntimeGoexit1},
 		})
 	}
 
@@ -320,7 +320,7 @@ func (p *Tracer) unregisterExceptionPID(pid app.PID) {
 
 func goExceptionProbeEnabled(flags uint8, symbol string) bool {
 	switch symbol {
-	case goCleanupSymbol:
+	case goExitSymbol:
 		return flags&(goExceptionPIDPanics|goExceptionPIDFormattedErrors) != 0
 	case goPanicSymbol:
 		return flags&goExceptionPIDPanics != 0

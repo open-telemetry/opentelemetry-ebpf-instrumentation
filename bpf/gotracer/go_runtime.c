@@ -1277,6 +1277,14 @@ enum offsets : u8 {
     k_g_m_off = 0x30,
 };
 
+SEC("uprobe/runtime.goexit1")
+int GUARDED_PROG(obi_uprobe_runtime_goexit1, struct pt_regs *, ctx) {
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, GOROUTINE_PTR(ctx));
+    bpf_map_delete_elem(&ongoing_http_server_requests, &g_key);
+    return 0;
+}
+
 // gp *g, oldval, newval uint32
 SEC("uprobe/runtime.casgstatus")
 int GUARDED_PROG(obi_uprobe_runtime_casgstatus, struct pt_regs *, ctx) {
