@@ -109,6 +109,9 @@ func TestSuite_PeerMetadataCentral(t *testing.T) {
 	t.Run("metadata service stores the published inventory", func(t *testing.T) {
 		testPeerMetadataCentralInventory(t, compose)
 	})
+	t.Run("service graph counts each request once", func(t *testing.T) {
+		testPeerMetadataServiceGraph(t, true)
+	})
 	t.Run("traces resolve service identities", func(t *testing.T) {
 		testPeerMetadataTraces(t, "central", "frontend.frontend-ns")
 	})

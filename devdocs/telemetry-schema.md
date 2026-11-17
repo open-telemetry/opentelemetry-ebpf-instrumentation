@@ -110,6 +110,12 @@ published, immutable schema.
 The release owner drains this list into the release notes at release prep, and leaves the
 section empty once drained.
 
+- HTTP metrics support `network.protocol.version` (`network_protocol_version` in
+  Prometheus). It is opt-in on the stable duration metrics to preserve existing series,
+  and enabled by default on the development body-size metrics. Select it through
+  `attributes.select` to split duration series by HTTP version. When selected, unknown
+  versions are omitted from OTLP attributes and use an empty Prometheus label.
+
 - A SQL++ span from a server other than Couchbase (`db.system.name` `other_sql`) that names no
   collection or bucket is named `{db.operation.name}`, like other SQL spans, instead of
   `{db.operation.name} {server.address}:{server.port}`. Couchbase SQL++ spans are unchanged.
@@ -134,8 +140,6 @@ section empty once drained.
   `url_path` and `client_address`. Use `http.route` on server duration metrics or opt into
   `url.template` on client duration metrics for route aggregation, and spans for raw paths
   or client addresses. See the [migration guidance](../TELEMETRY.md#deprecated-http-metric-dimensions).
-- HTTP client spans no longer carry `url.query`; the scrubbed query string remains part of
-  `url.full`. HTTP server spans keep `url.query`.
 - The span reference (`site/docs/spans.md`) documents every span's name. The emitted
   telemetry is unchanged.
 - The trace resource no longer carries `otel.scope.name`. Spans now carry the instrumentation
@@ -154,6 +158,14 @@ section empty once drained.
   `count`. This changes the span names and `db.operation.name` on `db.client.operation.duration`,
   and `span.name` on the span metrics. Commands that don't go through a probed `Collection`
   method, such as `BulkWrite`, are now reported as well, which adds spans and metric series.
+- HTTP server spans and metrics now derive `server.address` from the captured HTTP request
+  host, without its port, instead of the resolved service name. When the request host is
+  unavailable, the OTLP attribute is omitted and the Prometheus label is empty.
+- The Prometheus `bpf_probe_latency_seconds` histogram (`ebpf` metrics feature) exposes
+  cumulative `le` bucket counts for every bound, including empty buckets, instead of
+  per-bucket counts for the bounds that received executions only. Bucket values grow and new
+  `le` series appear, and `histogram_quantile` over this metric now returns correct values.
+  The OTLP `obi.bpf.probe.latency` histogram is unchanged.
 
 ## Hosting notes
 

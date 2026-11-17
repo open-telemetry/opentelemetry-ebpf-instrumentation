@@ -39,3 +39,4 @@ follow the [Config v1 to v2 migration guide](config/version-2.0/migration.md).
 - [Exceptions](exceptions/README.md): exception capture and export as OpenTelemetry LogRecords, with per-runtime pages.
 - [Java Agent Design](java-agent-design.md): runtime boundaries, dependency discipline, compatibility, and development conventions for OBI's Java agent.
 - [GPU Monitoring](gpu-monitoring.md): how OBI instruments CUDA through uprobes on `libcudart` and `libcuda`, and where to extend it.
+- [Upgrading Go Version](go-version-upgrade.md): how to upgrade the repository’s Go version, including updating the toolchain references in project and CI files and checking the changes.

@@ -1540,30 +1540,31 @@ const (
 // and SpanPromGetters in pkg/appolly/app/request/span_getters_providers.go and
 // getDefinitions in pkg/export/attributes/attr_defs.go
 type Span struct {
-	Type           EventType      `json:"type"`
-	SpanKind       trace.SpanKind `json:"-"`
-	Flags          uint8          `json:"-"`
-	ProtoVersion   ProtoVersion   `json:"-"`
-	UserAgent      string         `json:"-"`
-	Method         string         `json:"-"`
-	Path           string         `json:"-"`
-	FullPath       string         `json:"-"`
-	Route          string         `json:"-"`
-	Peer           string         `json:"peer"`
-	PeerPort       int            `json:"peerPort,string"`
-	Host           string         `json:"host"`
-	HostPort       int            `json:"hostPort,string"`
-	Status         int            `json:"-"`
-	ResponseLength int64          `json:"-"`
-	ContentLength  int64          `json:"-"`
-	DBBatchSize    int            `json:"-"`
-	RequestStart   int64          `json:"-"`
-	Start          int64          `json:"-"`
-	End            int64          `json:"-"`
-	Service        svc.Attrs      `json:"-"`
-	TraceID        trace.TraceID  `json:"traceID"`
-	SpanID         trace.SpanID   `json:"spanID"`
-	ParentSpanID   trace.SpanID   `json:"parentSpanID"`
+	Type             EventType      `json:"type"`
+	SpanKind         trace.SpanKind `json:"-"`
+	Flags            uint8          `json:"-"`
+	ProtoVersion     ProtoVersion   `json:"-"`
+	UserAgent        string         `json:"-"`
+	Method           string         `json:"-"`
+	Path             string         `json:"-"`
+	FullPath         string         `json:"-"`
+	Route            string         `json:"-"`
+	Peer             string         `json:"peer"`
+	PeerPort         int            `json:"peerPort,string"`
+	Host             string         `json:"host"`
+	HostPort         int            `json:"hostPort,string"`
+	RequestAuthority string         `json:"-"`
+	Status           int            `json:"-"`
+	ResponseLength   int64          `json:"-"`
+	ContentLength    int64          `json:"-"`
+	DBBatchSize      int            `json:"-"`
+	RequestStart     int64          `json:"-"`
+	Start            int64          `json:"-"`
+	End              int64          `json:"-"`
+	Service          svc.Attrs      `json:"-"`
+	TraceID          trace.TraceID  `json:"traceID"`
+	SpanID           trace.SpanID   `json:"spanID"`
+	ParentSpanID     trace.SpanID   `json:"parentSpanID"`
 	// ParentConditional marks a parent that may already have finished when this
 	// span started: BPF cannot tell at that moment, so the pipeline settles the
 	// link against the parent span's real end timestamp before export.
@@ -1589,6 +1590,10 @@ type Span struct {
 	AWS               *AWS           `json:"-"`
 	GenAI             *GenAI         `json:"-"`
 	JSONRPC           *JSONRPC       `json:"-"`
+
+	// DBQueryTextSanitized is db.query.text with literal values replaced, for
+	// protocols whose rendered query text loses the argument boundaries.
+	DBQueryTextSanitized string `json:"-"`
 
 	// Anything but ResponseParsed means Status holds no observation. Whether the
 	// duration is a measurement is recorded separately, by ignoreDurations.

@@ -9,27 +9,16 @@ inputs:
     description: 'Artifact name to upload BPF files under. Default keys on github.run_id.'
     required: false
     default: bpf-generated-${{ github.run_id }}
-  cache-key-prefix:
-    description: 'Prefix for the Go build cache. Defaults to the umbrella PR prefix.'
-    required: false
-    default: go-build-pr-race
 
 runs:
   using: composite
   steps:
+    # no cache: generation runs in a container and would save empty caches under the test jobs' keys
     - name: Set up Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
       with:
         go-version-file: "go.mod"
-        cache: true
-
-    - name: Go build cache
-      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 # zizmor: ignore[cache-poisoning] go build cache is content-addressable and self-verifying
-      with:
-        path: ~/.cache/go-build
-        key: ${{ inputs.cache-key-prefix }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/*.go', 'go.sum') }}
-        restore-keys: |
-          ${{ inputs.cache-key-prefix }}-${{ runner.os }}-${{ runner.arch }}-
+        cache: false
 
     - name: Pre-pull generator image
       shell: bash

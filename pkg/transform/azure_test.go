@@ -33,18 +33,18 @@ func TestAzureMetadataRefreshersConfiguration(t *testing.T) {
 	node := azureTestNode()
 	cfg := &NameResolverConfig{Sources: []Source{SourceAzure}}
 	cloudCfg := CloudMetadataConfig{RefreshInterval: time.Minute}
-	require.Len(t, CloudMetadataRefreshers(t.Context(), &node, cfg, cloudCfg), 1)
-	require.Empty(t, CloudMetadataRefreshers(t.Context(), &node, nil, cloudCfg))
-	require.Empty(t, CloudMetadataRefreshers(t.Context(), &node, &NameResolverConfig{}, cloudCfg))
-	require.Empty(t, CloudMetadataRefreshers(t.Context(), &node, cfg, CloudMetadataConfig{}))
+	require.Len(t, CloudMetadataRefreshersWithConfig(t.Context(), &node, cfg, cloudCfg), 1)
+	require.Empty(t, CloudMetadataRefreshersWithConfig(t.Context(), &node, nil, cloudCfg))
+	require.Empty(t, CloudMetadataRefreshersWithConfig(t.Context(), &node, &NameResolverConfig{}, cloudCfg))
+	require.Empty(t, CloudMetadataRefreshersWithConfig(t.Context(), &node, cfg, CloudMetadataConfig{}))
 	node.Metadata = nil
-	require.Empty(t, CloudMetadataRefreshers(t.Context(), &node, cfg, cloudCfg))
+	require.Empty(t, CloudMetadataRefreshersWithConfig(t.Context(), &node, cfg, cloudCfg))
 	cfg.Azure = AzureNameResolverConfig{"explicit-sub", "explicit-group"}
-	require.Len(t, CloudMetadataRefreshers(t.Context(), &node, cfg, cloudCfg), 1)
+	require.Len(t, CloudMetadataRefreshersWithConfig(t.Context(), &node, cfg, cloudCfg), 1)
 	node.Features |= metadata.ClusterK8s
-	require.Empty(t, CloudMetadataRefreshers(t.Context(), &node, cfg, cloudCfg))
+	require.Empty(t, CloudMetadataRefreshersWithConfig(t.Context(), &node, cfg, cloudCfg))
 	node.Features = metadata.ClusterEC2
-	require.Empty(t, CloudMetadataRefreshers(t.Context(), &node, cfg, cloudCfg))
+	require.Empty(t, CloudMetadataRefreshersWithConfig(t.Context(), &node, cfg, cloudCfg))
 }
 
 func TestLocalAzureInstanceID(t *testing.T) {

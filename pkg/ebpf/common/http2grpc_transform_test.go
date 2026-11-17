@@ -26,9 +26,10 @@ import (
 func TestHTTP2InfoToSpanSetsFullPath(t *testing.T) {
 	var info BPFHTTP2Info
 	info.Type = uint8(request.EventTypeHTTP)
-	span := http2InfoToSpan(&info, "GET", "/users", "/users?x=1", "peer", "host", 8080, 200, HTTP2)
+	span := http2InfoToSpan(&info, "GET", "/users", "/users?x=1", "peer", "host", 8080, 200, HTTP2, "api.example.com:8080")
 	assert.Equal(t, "/users", span.Path)
 	assert.Equal(t, "/users?x=1", span.FullPath)
+	assert.Equal(t, "api.example.com:8080", span.RequestAuthority)
 }
 
 var isHTTP2TestCases = []struct {
@@ -1062,6 +1063,43 @@ func TestUnresolvedConnFallsBackToAuthority(t *testing.T) {
 	span := completeH2(t, parseContext, event)
 	require.Equal(t, "ipservice.ipservice.svc.cluster.local", span.Host)
 	require.Equal(t, 9090, span.HostPort)
+}
+
+func TestHTTP2RequestAuthority(t *testing.T) {
+	for _, cached := range []bool{false, true} {
+		t.Run(strconv.FormatBool(cached), func(t *testing.T) {
+			parseContext := NewEBPFParseContext(nil, nil, nil)
+			enc := &h2ConnEncoder{}
+			enc.enc = hpack.NewEncoder(&enc.buf)
+			frame := enc.frame(t, []hpack.HeaderField{
+				{Name: ":method", Value: "GET"},
+				{Name: ":scheme", Value: "https"},
+				{Name: ":path", Value: "/users"},
+				{Name: ":authority", Value: "api.example.com:8443"},
+			})
+			event := h2Event(frame, makeHeadersFrame(t, []byte{0x88}), 810, 0)
+			event.Type = uint8(request.EventTypeHTTP)
+			event.Ssl = 1
+			event.ConnInfo.S_port = 0
+			event.ConnInfo.D_port = 0
+			if cached {
+				event.StreamId = 1
+				observeH2Headers(t, parseContext, event, EventTypeKHTTP2RequestHeaders)
+				observeH2Headers(t, parseContext, event, EventTypeKHTTP2ResponseHeaders)
+				clear(event.Data[:])
+				clear(event.RetData[:])
+				event.Len = 0
+			}
+
+			span := completeH2(t, parseContext, event)
+			require.Equal(t, request.EventTypeHTTP, span.Type)
+			assert.Equal(t, "api.example.com:8443", span.RequestAuthority)
+			assert.Equal(t, "api.example.com", span.Host)
+			assert.Equal(t, 8443, span.HostPort)
+			assert.Equal(t, 200, span.Status)
+			assert.Empty(t, span.Statement)
+		})
+	}
 }
 
 func TestCoalescedDataDoesNotPoisonHeaderState(t *testing.T) {

@@ -561,6 +561,9 @@ func (o obi) instrument(t *testing.T, net dockertest.Network, configFile string)
 				"OTEL_EBPF_SERVICE_NAMESPACE=integration-test",
 				"OTEL_EBPF_METRICS_INTERVAL=10ms",
 				"OTEL_EBPF_BPF_BATCH_TIMEOUT=10ms",
+				// read every event as it arrives instead of on the ring buffer's 3 s flush; compose suites
+				// do the same except the propagation ones, and v2 configs keep the batched default
+				"OTEL_EBPF_BPF_WAKEUP_LEN=1",
 				"OTEL_EBPF_LOG_LEVEL=DEBUG",
 				"OTEL_EBPF_BPF_DEBUG=TRUE",
 				"OTEL_EBPF_INTERNAL_METRICS_PROMETHEUS_PORT=8999",

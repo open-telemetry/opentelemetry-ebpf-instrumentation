@@ -43,7 +43,7 @@
       "net/rpc.Request": ["ServiceMethod"],
       "database/sql.driverConn": ["ci"],
       "net/textproto.Reader": ["R"],
-      "bufio.Reader": ["buf", "w"],
+      "bufio.Reader": ["buf", "w", "r"],
       "runtime.mstats": [
         "numgc",
         "[1.17.0]heapStats",

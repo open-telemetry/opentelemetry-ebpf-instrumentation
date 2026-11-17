@@ -131,6 +131,61 @@ func TestTCPLargeBuffers(t *testing.T) {
 	verifyLargeBuffer(firstEvent.Tp.TraceId, firstEvent.Tp.SpanId, firstEvent.PacketType, firstEvent.Direction, firstEvent.ConnInfo, firstBuf+"foobar")
 }
 
+func TestTCPLargeBufferRekey(t *testing.T) {
+	pctx := NewEBPFParseContext(nil, nil, nil)
+	previousTraceID := [16]uint8{'o', 'l', 'd'}
+	previousSpanID := [8]uint8{'s'}
+	adoptedTraceID := [16]uint8{'n', 'e', 'w'}
+	// a client adopts its own traceparent's span as well
+	adoptedSpanID := [8]uint8{'c'}
+	previousIDs := string(previousTraceID[:]) + string(previousSpanID[:])
+
+	event := TCPLargeBufferHeader{
+		Type:       12,
+		PacketType: packetTypeRequest,
+		Action:     largeBufferActionInit,
+		Kind:       uint8(KindLayerApp),
+	}
+	event.Tp.TraceId = previousTraceID
+	event.Tp.SpanId = previousSpanID
+	event.ConnInfo = BpfConnectionInfoT{D_port: 8080}
+	send := func(event TCPLargeBufferHeader, payload string) {
+		t.Helper()
+		event.Len = uint32(len(payload))
+		_, drop, err := appendTCPLargeBuffer(pctx, toRingbufRecord(t, event, payload))
+		require.NoError(t, err)
+		require.True(t, drop)
+	}
+
+	send(event, "GET / HTTP/1.1\r\n")
+
+	rekey := event
+	rekey.Action = largeBufferActionRekey
+	rekey.Tp.TraceId = adoptedTraceID
+	rekey.Tp.SpanId = adoptedSpanID
+	send(rekey, previousIDs)
+
+	appendEvent := rekey
+	appendEvent.Action = largeBufferActionAppend
+	send(appendEvent, "Traceparent: x\r\n\r\n")
+
+	_, ok := extractTCPLargeBuffer(pctx, previousTraceID, previousSpanID, event.PacketType, event.Direction, event.ConnInfo, ProtocolTypeHTTP)
+	require.False(t, ok, "the buffer must move to the adopted trace and span")
+	buf, ok := extractTCPLargeBuffer(pctx, adoptedTraceID, adoptedSpanID, event.PacketType, event.Direction, event.ConnInfo, ProtocolTypeHTTP)
+	require.True(t, ok)
+	require.Equal(t, "GET / HTTP/1.1\r\nTraceparent: x\r\n\r\n", unix.ByteSliceToString(buf.UnsafeView()))
+
+	// Nothing was sent under the previous IDs: the rekey is a no-op.
+	send(rekey, previousIDs)
+	_, ok = extractTCPLargeBuffer(pctx, adoptedTraceID, adoptedSpanID, event.PacketType, event.Direction, event.ConnInfo, ProtocolTypeHTTP)
+	require.False(t, ok)
+
+	// the trace ID alone is not a valid payload
+	rekey.Len = uint32(len(previousTraceID))
+	_, _, err := appendTCPLargeBuffer(pctx, toRingbufRecord(t, rekey, string(previousTraceID[:])))
+	require.Error(t, err)
+}
+
 func toRingbufRecord(t *testing.T, event TCPLargeBufferHeader, buf string) *ringbuf.Record {
 	var fixedPart bytes.Buffer
 	if err := binary.Write(&fixedPart, binary.LittleEndian, event); err != nil {

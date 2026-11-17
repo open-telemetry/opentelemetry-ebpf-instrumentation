@@ -3,7 +3,7 @@
 # Make sure that the Go version here is a minor number less than in the Dockerfile_latest file
 # in this same folder.
 # This way we make sure that we support any internal compiler changes in newer Go versions
-FROM golang:1.27.0@sha256:0ecdc2a9f6156af6451080bfe3d8382a662fcc4e209608c6f919e643453514c1 AS builder
+FROM golang:1.27.3@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b AS builder
 
 ARG TARGETARCH
 
@@ -17,7 +17,7 @@ COPY go.mod go.mod
 COPY go.sum go.sum
 
 # Build
-RUN go build -o pingclient ./internal/test/integration/components/pingclient/pingclient.go
+RUN --mount=type=cache,target=/root/.cache/go-build --mount=type=cache,target=/go/pkg/mod go build -o pingclient ./internal/test/integration/components/pingclient/pingclient.go
 
 # Create final image from minimal + built binary
 FROM debian:bookworm-slim@sha256:74d56e3931e0d5a1dd51f8c8a2466d21de84a271cd3b5a733b803aa91abf4421

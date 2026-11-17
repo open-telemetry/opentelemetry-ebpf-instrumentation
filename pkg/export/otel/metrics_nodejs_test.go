@@ -131,7 +131,7 @@ func TestRuntimeMetricsReporterRecordsNodejsEventLoop(t *testing.T) {
 		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
-	defer reporter.close()
+	defer closeDiscardingExports(reporter.close, records)
 
 	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
 		Service: svc.Attrs{
@@ -189,7 +189,7 @@ func TestNodejsDelayGaugesSkipEmptyWindows(t *testing.T) {
 		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
-	defer reporter.close()
+	defer closeDiscardingExports(reporter.close, records)
 
 	service := svc.Attrs{
 		UID:      svc.UID{Name: "orders-node", Namespace: "prod", Instance: "orders-node-1"},
@@ -255,7 +255,7 @@ func TestRuntimeMetricsReporterRecordsV8GCDuration(t *testing.T) {
 		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
-	defer reporter.close()
+	defer closeDiscardingExports(reporter.close, records)
 
 	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
 		Service: svc.Attrs{
@@ -299,7 +299,7 @@ func TestRuntimeMetricsReporterRecordsV8HeapSpaces(t *testing.T) {
 		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
-	defer reporter.close()
+	defer closeDiscardingExports(reporter.close, records)
 
 	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
 		Service: svc.Attrs{
@@ -354,7 +354,7 @@ func TestRuntimeMetricsReporterRecordsV8ResourceActive(t *testing.T) {
 		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
-	defer reporter.close()
+	defer closeDiscardingExports(reporter.close, records)
 
 	service := svc.Attrs{
 		UID:      svc.UID{Name: "orders-node", Namespace: "prod", Instance: "orders-node-1"},
@@ -416,7 +416,7 @@ func TestRuntimeMetricsReporterDropsV8ServiceWithoutRuntimeFeature(t *testing.T)
 		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
-	defer reporter.close()
+	defer closeDiscardingExports(reporter.close, records)
 
 	service := svc.Attrs{
 		UID:      svc.UID{Name: "orders-node", Namespace: "prod", Instance: "orders-node-1"},
@@ -462,7 +462,7 @@ func TestRuntimeMetricsReporterDropsNodejsServiceWithoutRuntimeFeature(t *testin
 		msg.NewQueue[exec.ProcessEvent](msg.ChannelBufferLen(1)),
 	)
 	require.NoError(t, err)
-	defer reporter.close()
+	defer closeDiscardingExports(reporter.close, records)
 
 	reporter.reportRuntimeMetrics([]runtimemetrics.RuntimeMetricSnapshot{{
 		Service: svc.Attrs{

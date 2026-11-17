@@ -14,6 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+
+	"go.opentelemetry.io/obi/pkg/internal/testutil"
 )
 
 func centralAgentConfig(address string) MetadataConfig {
@@ -78,6 +80,11 @@ func TestCentralExchangeEnrichesBothDirections(t *testing.T) {
 	require.Equal(t, backend, service)
 
 	require.Equal(t, frontend, eventualLookup(t, server, clientIP).callerService(destination, 0))
+
+	require.Eventually(t, func() bool {
+		snapshot, fetchedAt := client.lookup(netip.MustParseAddr(serverIP), time.Now())
+		return snapshot.knowsCaller(destination, frontend, time.Since(fetchedAt))
+	}, 5*time.Second, 10*time.Millisecond, "the server acknowledges the callers it looked up")
 }
 
 func TestCentralExchangeBacksOffUnpublishedHosts(t *testing.T) {
@@ -102,8 +109,8 @@ func TestCentralExchangeBacksOffUnpublishedHosts(t *testing.T) {
 }
 
 func TestCentralExchangeTLSWithoutClientCertificate(t *testing.T) {
-	root := newTestCA(t, nil)
-	leaf := newTestCertificate(t, &x509.Certificate{
+	root := testutil.NewTestCA(t, nil)
+	leaf := testutil.NewTestCertificate(t, &x509.Certificate{
 		IPAddresses: []net.IP{net.ParseIP("127.0.0.1")},
 		NotBefore:   time.Now().Add(-time.Hour),
 		NotAfter:    time.Now().Add(time.Hour),
@@ -113,7 +120,7 @@ func TestCentralExchangeTLSWithoutClientCertificate(t *testing.T) {
 	serverCfg := DefaultCentralServerConfig()
 	serverCfg.PeerCIDRs = []string{"10.1.0.0/16"}
 	serverCfg.Token = "shared-secret"
-	serverCfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: leaf.certFile, KeyFile: leaf.keyFile}
+	serverCfg.TLS = MetadataTLSConfig{Enabled: true, CertFile: leaf.CertFile, KeyFile: leaf.KeyFile}
 	address := serveCentralServer(t, &serverCfg)
 
 	for _, test := range []struct {
@@ -127,7 +134,7 @@ func TestCentralExchangeTLSWithoutClientCertificate(t *testing.T) {
 			cfg := centralAgentConfig(address)
 			cfg.Enabled = true
 			cfg.Token = test.token
-			cfg.TLS = MetadataTLSConfig{Enabled: true, CAFile: root.certFile}
+			cfg.TLS = MetadataTLSConfig{Enabled: true, CAFile: root.CertFile}
 			require.NoError(t, cfg.Validate(), "central mode does not require a client certificate")
 			exchange := newTestCentralExchange(t, cfg, "client-id", newStore("client-host", cfg), "10.1.0.1")
 			require.Equal(t, test.code, status.Code(exchange.publish(t.Context())))
