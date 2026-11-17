@@ -168,6 +168,7 @@ type ProbeDesc struct {
 	UsePadStart bool
 
 	// SymbolMatcher controls how the probe name is matched against executable symbols.
+	// The zero value preserves exact symbol matching.
 	SymbolMatcher SymbolMatcher
 
 	// Skip is set when an optional uprobe symbol was not resolved.
