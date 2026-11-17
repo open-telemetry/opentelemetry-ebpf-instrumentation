@@ -1,91 +1,87 @@
 # Compatibility checks
 
 [Issue #4269](https://github.com/open-telemetry/opentelemetry-ebpf-instrumentation/issues/4269)
-tracks the incremental implementation and activation of the
-[versioning policy](../VERSIONING.md) checks.
-
-The first slice checks the public Go API of the root module on Linux amd64 and
-arm64. CI runs it in **advisory mode**. Configuration, CLI/environment inputs,
-telemetry, packaging, and declared support are not yet checked by this workflow.
-The Collector module retains its independent version line.
+tracks the staged implementation of CI for [VERSIONING.md](../VERSIONING.md).
+The first stage checks the root module's public Go API on Linux amd64 and arm64.
+It runs in **advisory mode**. Configuration, CLI, telemetry, artifacts, support
+policy, and activation of required checks remain separate stages. The Collector
+module has its own version line.
 
 ## Run locally
 
-Install Go, Git, Docker, and Cosign. Generate candidate BPF artifacts before
-loading the Go packages:
+Install Go, Git, Docker, and Cosign. Prepare the candidate and a clean target
+checkout, generating each checkout's own BPF files:
 
 ```sh
+git worktree add --detach /tmp/obi-compat-base upstream/main
+make -C /tmp/obi-compat-base docker-generate
 make docker-generate
-make check-compat COMPAT_BASE_REF=upstream/main
+make check-compat COMPAT_BASE_REF=upstream/main COMPAT_BASE_DIR=/tmp/obi-compat-base
 ```
 
-The checker compares the checked-out candidate, including local edits, with
-official immutable stable core releases from v1.0.0 through the target
-revision's minor line. `COMPAT_BASE_REF` identifies the trusted target revision;
-its committed `versions.yaml` selects the release line. Candidate edits to that
-file do not select a different baseline. Published contracts determine
-protection; unreleased API additions are not protected merely by merging.
-Reports cover the entire candidate against published contracts and can include
-incompatibilities already present on the target branch.
+`COMPAT_BASE_DIR` must be clean and at `COMPAT_BASE_REF`. The checked-out
+candidate may include local edits. A clean candidate compared with its own HEAD
+can omit the base directory. The target's committed `versions.yaml` selects the
+release line; editing the candidate's version does not change that selection.
 
-The newest applicable release determines whether an API addition is new. The
-JSON `release_base` field identifies that release. Additions already present in
-that release do not force another minor release; incompatible changes against
-any protected release still require a major release.
-
-Release source-generated archives contain the historical generated BPF files
-and embedded Java agent. The checker verifies the archive and checksum-file
-Cosign signatures against the tagged release workflow, then verifies the
-archive checksum. Cached assets are reverified on every run. Both lightweight
-and annotated release tags are resolved to commit identities for the report.
-Set `GH_TOKEN` when GitHub API rate limits require authentication.
-
-Useful options:
+The checker compares both checkouts against every official immutable stable
+core release from v1.0.0 through the target minor line. It verifies release
+source-generated archives and checksum files with Cosign against the tagged
+release workflow, then verifies archive checksums. Cached assets are reverified.
+Set `GH_TOKEN` if GitHub API rate limits require authentication.
 
 ```sh
-make check-compat COMPAT_BASE_REF=upstream/main COMPAT_ARCH=arm64
-make check-compat COMPAT_BASE_REF=upstream/main COMPAT_RELEASE_VERSION=v1.1.0
+make check-compat COMPAT_BASE_REF=upstream/main COMPAT_BASE_DIR=/tmp/obi-compat-base COMPAT_ARCH=arm64
+make check-compat COMPAT_BASE_REF=upstream/main COMPAT_BASE_DIR=/tmp/obi-compat-base COMPAT_RELEASE_VERSION=v1.1.0
 make test-compat
 ```
 
-The default JSON report is `testoutput/compatibility.json`; downloaded assets
-are cached under `testoutput/compatibility-cache`. Override these with
+JSON is written to `testoutput/compatibility.json`, and verified release assets
+are cached under `testoutput/compatibility-cache`. Override these paths with
 `COMPAT_REPORT` and `COMPAT_CACHE_DIR`.
 
-The checker uses pinned `golang.org/x/exp/apidiff` tooling and Go package/type
-information. It excludes commands, tests, and nested modules. Internal types
-receive checks only when public declarations expose them; unrelated internal
-declarations remain outside the comparison.
-It detects package/symbol removal, incompatible signatures and types,
-interface-method additions, and changed constants. Implementation behavior and
-subjective meaning changes are outside this check.
+## Interpret the report
 
-## Interpret the result
+The summary separates findings introduced by the PR from findings already on
+its target branch. JSON `findings` contains the former; `existing_findings`
+contains the latter. A tooling-only PR should not be blamed for an existing
+release incompatibility.
 
-- **patch:** no public Go API change was observed.
-- **minor:** compatible API additions were observed.
-- **major:** an incompatible public Go API change was observed.
-- **INCOMPLETE:** acquisition or extraction failed; this is not a compatibility
-  pass. The JSON `error` field records the failure.
+`required_release` classifies the PR's changes: **patch** for no observed API
+change, **minor** for compatible additions, and **major** for incompatibilities.
+`release_required` classifies the entire candidate. Additions require a minor
+release only when absent from the newest applicable release (`release_base`).
+Incompatibilities against any protected release require a major release.
 
-A proposed patch release fails when additions require a minor release. A version
-change alone does not authorize an incompatible API change in the existing
-module. Without `COMPAT_RELEASE_VERSION`, ordinary PRs need no version bump.
+**INCOMPLETE** means acquisition, extraction, or comparison failed. The JSON
+`error` records the failure. Findings with `unsupported: true` are unclassified:
+for example, naming an anonymous struct with private fields may preserve source
+compatibility, but the diff tool cannot prove it. Such changes make the affected
+PR comparison or full-candidate release assessment incomplete. They are never
+silently waived or counted as proven incompatibilities.
 
-The executable `.tools/compatcheck` returns 0 for a compatible comparison, 1 for
-an incompatibility or insufficient proposed release version, and 2 for invalid
-inputs or incomplete execution. Make reports failed recipes with its own exit
-status; use the JSON report to distinguish failures in automation.
+The checker uses pinned `golang.org/x/exp/apidiff` and Go type information. A
+module-wide comparison follows aliases and types exposed by public declarations,
+including internal types. Commands, tests, nested modules, and unrelated internal
+declarations are excluded. Checks cover exported declarations, signatures,
+fields, methods, constants, comparability, and generic constraints. Runtime
+behavior, ABI layout, and dependency import/version conflicts are not validated.
+This report is evidence for review, not proof of every policy requirement.
+
+The executable returns 0 for a compatible PR comparison, 1 for incompatibilities,
+and 2 for incomplete execution or invalid inputs. With `COMPAT_RELEASE_VERSION`,
+all candidate findings are checked, including inherited problems; a patch
+release also fails if new API requires a minor release. A version edit does not
+authorize breaking the existing module line. Make uses its own failure status;
+automation should inspect the JSON report.
 
 ## Rollout
 
-The advisory workflow always publishes a summary and attempts to upload the
-JSON report. Incompatibilities and incomplete comparisons remain visible even
-though enforcement is not enabled. Tests and prerequisite failures remain CI
-failures. Fork PRs use a read-only token; shared release-asset caches are saved
-only by main-branch pushes whose baseline acquisition and API extraction
-completed successfully, including comparisons that found incompatibilities.
+The workflow publishes a summary and attempts to upload JSON even on failure.
+Comparison failures are advisory; tests and prerequisite failures remain CI
+failures. Fork PRs use a read-only token. Shared release assets are saved only
+from main-branch pushes with completed baseline acquisition and extraction.
 
-Enabling a required status or adding release gates is a separate activation PR.
-Record baseline self-comparisons, deliberate-break fixtures, representative PR
-replays, and resolved false positives in the tracking issue before activation.
+Enforcement and release integration require a separate activation PR. Record
+baseline self-comparisons, consumer compilation fixtures, representative PR
+replays, and resolution of unclassified findings in the tracking issue first.

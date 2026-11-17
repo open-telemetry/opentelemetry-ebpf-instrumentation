@@ -73,6 +73,53 @@ type Config struct { Options options.Options }
 			before: "type Options struct { Next *Options; Value int }", after: "type Options struct { Next *Options }",
 			consumer: "_ = public.Config{}.Options.Next.Value", want: "major",
 		},
+
+		{
+			name:         "generic parameter rename with field removal",
+			publicBefore: `package public; import "go.opentelemetry.io/obi/pkg/internal/options"; type Config struct { Options options.Options[int] }`,
+			before:       "type Options[T any] struct { Value T }", after: "type Options[U any] struct {}",
+			consumer: "_ = public.Config{}.Options.Value", want: "major",
+		},
+		{
+			name: "narrowed generic constraint", publicBefore: "package public; func F[T ~int | ~string](v T) {}",
+			publicAfter: "package public; func F[T ~int](v T) {}",
+			consumer:    `public.F("value")`, want: "major",
+		},
+		{
+			name: "narrowed named constraint", publicBefore: "package public; type Number interface { ~int | ~string }; func F[T Number](v T) {}",
+			publicAfter: "package public; type Number interface { ~int }; func F[T Number](v T) {}",
+			consumer:    `public.F("value")`, want: "major",
+		},
+		{
+			name: "nested named constraint", publicBefore: "package public; type Inner interface { ~int | ~string }; type Number interface { Inner }; func F[T Number](v T) {}",
+			publicAfter: "package public; type Inner interface { ~int }; type Number interface { Inner }; func F[T Number](v T) {}",
+			consumer:    `public.F("value")`, want: "major",
+		},
+		{
+			name: "relaxed generic constraint", publicBefore: "package public; func F[T ~int](v T) {}",
+			publicAfter: "package public; func F[U ~int | ~string](v U) {}",
+			consumer:    "public.F(1)", want: "minor",
+		},
+		{
+			name: "generic parameter rename", publicBefore: "package public; func F[T any](v T) {}",
+			publicAfter: "package public; func F[U any](v U) {}",
+			consumer:    "public.F(1)", want: "patch",
+		},
+		{
+			name: "array field length", publicBefore: "package public; type Event struct { Pad [11]byte }",
+			publicAfter: "package public; type Event struct { Pad [9]byte }",
+			consumer:    "var p [11]byte = public.Event{}.Pad; _ = p", want: "major",
+		},
+		{
+			name: "comparability", publicBefore: "package public; type Snapshot struct { Value int }",
+			publicAfter: "package public; type Snapshot struct { Value []int }",
+			consumer:    "_ = public.Snapshot{} == public.Snapshot{}", want: "major",
+		},
+		{
+			name: "constant value", publicBefore: "package public; const C = 3",
+			publicAfter: "package public; const C = 4",
+			consumer:    "var a [public.C-3]struct{}; var b [3-public.C]struct{}; _,_ = a,b", want: "major",
+		},
 		{
 			name: "unrelated internal declaration", publicBefore: publicConfig,
 			before: "type Options struct { Value int }; func Unrelated() {}", after: "type Options struct { Value int }",
@@ -104,7 +151,10 @@ type Config struct { Options options.Options }
 			if err != nil {
 				t.Fatal(err)
 			}
-			findings := compareAPI(before, after, "v1.0.0", "linux/amd64")
+			findings, compareErr := compareAPI(before, after, "v1.0.0", "linux/amd64")
+			if compareErr != nil {
+				t.Fatal(compareErr)
+			}
 			if got := minimumRelease(findings, "v1.0.0"); got != tc.want {
 				t.Fatalf("minimum release=%s, want %s; findings=%+v", got, tc.want, findings)
 			}
@@ -137,4 +187,69 @@ func compileConsumer(t *testing.T, root, statement string, wantSuccess bool) {
 	if (err == nil) != wantSuccess {
 		t.Fatalf("consumer success=%t, want %t: %s", err == nil, wantSuccess, out)
 	}
+}
+
+func TestAliasMoveConsumers(t *testing.T) {
+	for _, broken := range []bool{false, true} {
+		t.Run(map[bool]string{false: "preserved", true: "field removed"}[broken], func(t *testing.T) {
+			before := publicAPIFixture(t, `package public; type Config struct { Value int }; func F(Config) {}`, "")
+			after := publicAPIFixture(t, `package public; import "go.opentelemetry.io/obi/pkg/metadata"; type Config = metadata.Config; func F(Config) {}`, "")
+			writeFile(t, filepath.Join(before, "pkg/metadata/api.go"), "package metadata; const Existing = 1")
+			body := "package metadata; const Existing = 1; type Config struct { Value int }"
+			if broken {
+				body = "package metadata; const Existing = 1; type Config struct {}"
+			}
+			writeFile(t, filepath.Join(after, "pkg/metadata/api.go"), body)
+			oldAPI, err := loadAPI(t.Context(), before, "amd64")
+			if err != nil {
+				t.Fatal(err)
+			}
+			newAPI, err := loadAPI(t.Context(), after, "amd64")
+			if err != nil {
+				t.Fatal(err)
+			}
+			findings, err := compareAPI(oldAPI, newAPI, "v1.0.0", "linux/amd64")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "minor"
+			if broken {
+				want = "major"
+			}
+			if got := minimumRelease(findings, "v1.0.0"); got != want {
+				t.Fatalf("release=%s, want %s: %+v", got, want, findings)
+			}
+			consumer := `var c public.Config; c.Value = 1; public.F(c)`
+			compileConsumer(t, before, consumer, true)
+			compileConsumer(t, after, consumer, !broken)
+		})
+	}
+}
+
+func TestUnclassifiedPrivateStructIdentity(t *testing.T) {
+	before := publicAPIFixture(t, `package public; type Event struct { Pid struct { _ int; ID int } }`, "")
+	after := publicAPIFixture(t, `package public; type PID struct { _ int; ID int }; type Event struct { Pid PID }`, "")
+	oldAPI, err := loadAPI(t.Context(), before, "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	newAPI, err := loadAPI(t.Context(), after, "amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	findings, err := compareAPI(oldAPI, newAPI, "v1.0.0", "linux/amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, f := range findings {
+		if f.Identifier == "Event.Pid" {
+			found = f.Unsupported
+		}
+	}
+	if !found {
+		t.Fatalf("ambiguous nominal type change classified as proven break: %+v", findings)
+	}
+	compileConsumer(t, before, "var event public.Event; event.Pid.ID = 1", true)
+	compileConsumer(t, after, "var event public.Event; event.Pid.ID = 1", true)
 }

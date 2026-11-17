@@ -51,7 +51,10 @@ func TestCompareAPI(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			before := typedPackage(t, coreModule+"/pkg/example", "package example; "+tc.before)
 			after := typedPackage(t, coreModule+"/pkg/example", "package example; "+tc.after)
-			findings := compareAPI(map[string]*types.Package{before.Path(): before}, map[string]*types.Package{after.Path(): after}, "v1.0.0", "linux/amd64")
+			findings, compareErr := compareAPI(map[string]*types.Package{before.Path(): before}, map[string]*types.Package{after.Path(): after}, "v1.0.0", "linux/amd64")
+			if compareErr != nil {
+				t.Fatal(compareErr)
+			}
 			wantRelease := "major"
 			if tc.message == "" {
 				wantRelease = "patch"
@@ -91,7 +94,10 @@ func TestPackageAdditionAndRemoval(t *testing.T) {
 		if removed {
 			before, after = after, before
 		}
-		got := compareAPI(before, after, "v1.0.0", "linux/arm64")
+		got, compareErr := compareAPI(before, after, "v1.0.0", "linux/arm64")
+		if compareErr != nil {
+			t.Fatal(compareErr)
+		}
 		if len(got) != 1 || got[0].Compatible == removed {
 			t.Fatalf("removed=%t: %+v", removed, got)
 		}

@@ -109,6 +109,7 @@ ENVTEST_K8S_VERSION ?= 1.30.0
 
 COMPAT_CHECKER := $(CURDIR)/.tools/compatcheck
 COMPAT_BASE_REF ?= HEAD
+COMPAT_BASE_DIR ?=
 COMPAT_HEAD_REF ?= HEAD
 COMPAT_ARCH ?= amd64,arm64
 COMPAT_REPORT ?= testoutput/compatibility.json
@@ -117,6 +118,7 @@ COMPAT_RELEASE_VERSION ?=
 
 # Keep command-line refs literal instead of evaluating them as Make expressions.
 override export COMPAT_BASE_REF := $(value COMPAT_BASE_REF)
+override export COMPAT_BASE_DIR := $(value COMPAT_BASE_DIR)
 override export COMPAT_HEAD_REF := $(value COMPAT_HEAD_REF)
 override export COMPAT_ARCH := $(value COMPAT_ARCH)
 override export COMPAT_REPORT := $(value COMPAT_REPORT)
@@ -130,7 +132,7 @@ $(COMPAT_CHECKER): $(wildcard internal/tools/compatcheck/*.go) internal/tools/go
 .PHONY: check-compat test-compat
 check-compat: $(COMPAT_CHECKER)
 	"$(COMPAT_CHECKER)" --repo-root "$(CURDIR)" --base-ref "$${COMPAT_BASE_REF}" \
-		--head-ref "$${COMPAT_HEAD_REF}" --arch "$${COMPAT_ARCH}" \
+		--base-dir "$${COMPAT_BASE_DIR}" --head-ref "$${COMPAT_HEAD_REF}" --arch "$${COMPAT_ARCH}" \
 		--report "$${COMPAT_REPORT}" --cache-dir "$${COMPAT_CACHE_DIR}" \
 		--release-version "$${COMPAT_RELEASE_VERSION}"
 

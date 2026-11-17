@@ -35,6 +35,7 @@ const (
 type options struct {
 	repoRoot       string
 	baseRef        string
+	baseDir        string
 	headRef        string
 	architectures  string
 	releaseVersion string
@@ -43,15 +44,16 @@ type options struct {
 }
 
 type finding struct {
-	Baseline   string `json:"baseline"`
-	Platform   string `json:"platform"`
-	Package    string `json:"package"`
-	Identifier string `json:"identifier"`
-	Before     string `json:"before,omitempty"`
-	After      string `json:"after,omitempty"`
-	Message    string `json:"message"`
-	Compatible bool   `json:"compatible"`
-	Rule       string `json:"rule"`
+	Baseline    string `json:"baseline"`
+	Platform    string `json:"platform"`
+	Package     string `json:"package"`
+	Identifier  string `json:"identifier"`
+	Before      string `json:"before,omitempty"`
+	After       string `json:"after,omitempty"`
+	Message     string `json:"message"`
+	Compatible  bool   `json:"compatible"`
+	Unsupported bool   `json:"unsupported,omitempty"`
+	Rule        string `json:"rule"`
 }
 
 type baseline struct {
@@ -63,18 +65,20 @@ type baseline struct {
 }
 
 type report struct {
-	FormatVersion   int        `json:"format_version"`
-	Surface         string     `json:"surface"`
-	BaseCommit      string     `json:"base_commit"`
-	HeadCommit      string     `json:"head_commit"`
-	WorkingTree     bool       `json:"working_tree_modified"`
-	Platforms       []string   `json:"platforms"`
-	Baselines       []baseline `json:"baselines"`
-	Findings        []finding  `json:"findings"`
-	RequiredRelease string     `json:"required_release"`
-	ReleaseBase     string     `json:"release_base,omitempty"`
-	ProposedRelease string     `json:"proposed_release,omitempty"`
-	Error           string     `json:"error,omitempty"`
+	FormatVersion    int        `json:"format_version"`
+	Surface          string     `json:"surface"`
+	BaseCommit       string     `json:"base_commit"`
+	HeadCommit       string     `json:"head_commit"`
+	WorkingTree      bool       `json:"working_tree_modified"`
+	Platforms        []string   `json:"platforms"`
+	Baselines        []baseline `json:"baselines"`
+	Findings         []finding  `json:"findings"`
+	ExistingFindings []finding  `json:"existing_findings"`
+	ReleaseRequired  string     `json:"release_required"`
+	RequiredRelease  string     `json:"required_release"`
+	ReleaseBase      string     `json:"release_base,omitempty"`
+	ProposedRelease  string     `json:"proposed_release,omitempty"`
+	Error            string     `json:"error,omitempty"`
 }
 
 func main() {
@@ -91,6 +95,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("compatcheck", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&opts.repoRoot, "repo-root", ".", "checked-out candidate repository")
+	flags.StringVar(&opts.baseDir, "base-dir", "", "clean target checkout with generated artifacts")
 	flags.StringVar(&opts.baseRef, "base-ref", "HEAD", "trusted target revision selecting the release line")
 	flags.StringVar(&opts.headRef, "head-ref", "HEAD", "candidate revision (must be checked out)")
 	flags.StringVar(&opts.architectures, "arch", "amd64,arm64", "Linux architectures to compare")
@@ -109,8 +114,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 
 	r := report{
-		FormatVersion: 1, Surface: "go-api", RequiredRelease: "patch", ProposedRelease: opts.releaseVersion,
-		Baselines: []baseline{}, Findings: []finding{},
+		FormatVersion: 2, Surface: "go-api", RequiredRelease: "patch", ProposedRelease: opts.releaseVersion,
+		Baselines: []baseline{}, Findings: []finding{}, ExistingFindings: []finding{},
 	}
 	err := check(ctx, opts, &r, stderr)
 	if err != nil {
@@ -126,10 +131,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return exitError
 	}
-	if r.RequiredRelease == "major" {
+	if r.RequiredRelease == "major" || (opts.releaseVersion != "" && r.ReleaseRequired == "major") {
 		return exitBreak
 	}
-	if opts.releaseVersion != "" && r.RequiredRelease == "minor" {
+	if opts.releaseVersion != "" && r.ReleaseRequired == "minor" {
 		for _, b := range r.Baselines {
 			if semver.MajorMinor(b.Version) == semver.MajorMinor(opts.releaseVersion) {
 				fmt.Fprintln(stdout, "Proposed patch release contains additions requiring a minor release.")
@@ -166,6 +171,28 @@ func check(ctx context.Context, opts options, r *report, progress io.Writer) err
 		return err
 	}
 	r.WorkingTree = status != ""
+	baseRoot := opts.baseDir
+	if baseRoot == "" {
+		if r.BaseCommit != r.HeadCommit || r.WorkingTree {
+			return errors.New("--base-dir must identify a clean target checkout with generated artifacts")
+		}
+		baseRoot = root
+	}
+	baseHead, err := git(ctx, baseRoot, "rev-parse", "HEAD")
+	if err != nil {
+		return fmt.Errorf("target checkout: %w", err)
+	}
+	if baseHead != baseCommit {
+		return errors.New("base-dir does not match base-ref")
+	}
+	baseStatus, err := git(ctx, baseRoot, "status", "--porcelain")
+	if err != nil {
+		return err
+	}
+	if baseStatus != "" {
+		return errors.New("base-dir must have a clean working tree")
+	}
+
 	version, err := targetVersion(ctx, root, baseCommit)
 	if err != nil {
 		return err
@@ -203,6 +230,11 @@ func check(ctx context.Context, opts options, r *report, progress io.Writer) err
 		if err != nil {
 			return fmt.Errorf("candidate %s: %w", platform, err)
 		}
+		fmt.Fprintln(progress, "Loading target Go API for", platform)
+		target, err := loadAPI(ctx, baseRoot, arch)
+		if err != nil {
+			return fmt.Errorf("target %s: %w", platform, err)
+		}
 		for _, release := range releases {
 			fmt.Fprintln(progress, "Comparing", release.Tag, "against candidate for", platform)
 			source, info, err := client.source(ctx, release, opts.cacheDir, temp)
@@ -216,14 +248,39 @@ func check(ctx context.Context, opts options, r *report, progress io.Writer) err
 			info.Packages = len(old)
 			info.Platform = platform
 			r.Baselines = append(r.Baselines, info)
-			r.Findings = append(r.Findings, compareAPI(old, candidate, release.Tag, platform)...)
+			headFindings, err := compareAPI(old, candidate, release.Tag, platform)
+			if err != nil {
+				return err
+			}
+			baseFindings, err := compareAPI(old, target, release.Tag, platform)
+			if err != nil {
+				return err
+			}
+			introduced, existing := attributeFindings(headFindings, baseFindings)
+			r.Findings = append(r.Findings, introduced...)
+			r.ExistingFindings = append(r.ExistingFindings, existing...)
 		}
 	}
-	slices.SortFunc(r.Findings, func(a, b finding) int {
-		return strings.Compare(a.Baseline+"\x00"+a.Platform+"\x00"+a.Package+"\x00"+a.Message,
-			b.Baseline+"\x00"+b.Platform+"\x00"+b.Package+"\x00"+b.Message)
-	})
+	sortFindings(r.Findings)
+	sortFindings(r.ExistingFindings)
 	r.RequiredRelease = minimumRelease(r.Findings, r.ReleaseBase)
+	all := append(slices.Clone(r.Findings), r.ExistingFindings...)
+	r.ReleaseRequired = minimumRelease(all, r.ReleaseBase)
+	for _, f := range all {
+		if f.Unsupported {
+			r.ReleaseRequired = "incomplete"
+			break
+		}
+	}
+	for _, f := range r.Findings {
+		if f.Unsupported {
+			return errors.New("PR contains an unclassified type identity change; see JSON findings")
+		}
+	}
+	if opts.releaseVersion != "" && r.ReleaseRequired == "incomplete" {
+		return errors.New("release contains unclassified type identity changes; see JSON findings")
+	}
+
 	if opts.releaseVersion != "" {
 		for _, b := range r.Baselines {
 			if semver.Compare(opts.releaseVersion, b.Version) <= 0 {
@@ -267,6 +324,9 @@ func validateProposed(proposed, target string) error {
 func minimumRelease(findings []finding, latest string) string {
 	minimum := "patch"
 	for _, f := range findings {
+		if f.Unsupported {
+			continue
+		}
 		if !f.Compatible {
 			return "major"
 		}
@@ -323,21 +383,44 @@ func writeReport(path string, r *report) error {
 }
 
 func printReport(w io.Writer, r *report) {
-	fmt.Fprintln(w, "Go API compatibility (only; other policy surfaces are not checked)")
-	fmt.Fprintf(w, "Candidate: %s; target: %s; modified working tree: %t\n", r.HeadCommit, r.BaseCommit, r.WorkingTree)
-	for _, b := range r.Baselines {
-		fmt.Fprintf(w, "Baseline: %s (%s), %s, %d public packages, archive sha256:%s\n", b.Version, b.Commit, b.Platform, b.Packages, b.ArchiveSHA256)
+	fmt.Fprintln(w, "Go API compatibility")
+	fmt.Fprintf(w, "Candidate: %s; target: %s\n", r.HeadCommit, r.BaseCommit)
+	if r.Error != "" {
+		fmt.Fprintln(w, "INCOMPLETE:", r.Error)
+		return
 	}
+	fmt.Fprintf(w, "PR changes: %d; minimum release: %s\n", len(r.Findings), r.RequiredRelease)
 	for _, f := range r.Findings {
 		kind := "addition"
 		if !f.Compatible {
 			kind = "incompatible"
 		}
-		fmt.Fprintf(w, "%s [%s %s] %s: %s (%s)\n", kind, f.Baseline, f.Platform, f.Package, f.Message, f.Rule)
+		fmt.Fprintf(w, "%s [%s %s] %s: %s\n", kind, f.Baseline, f.Platform, f.Package, f.Message)
 	}
-	if r.Error != "" {
-		fmt.Fprintln(w, "INCOMPLETE:", r.Error)
-		return
+	fmt.Fprintf(w, "Existing findings on target: %d (see JSON report)\n", len(r.ExistingFindings))
+	fmt.Fprintf(w, "Full candidate release requirement: %s\n", r.ReleaseRequired)
+}
+
+func attributeFindings(head, base []finding) ([]finding, []finding) {
+	keys := map[string]bool{}
+	for _, f := range base {
+		keys[findingKey(f)] = true
 	}
-	fmt.Fprintln(w, "Minimum release class:", r.RequiredRelease)
+	var introduced, existing []finding
+	for _, f := range head {
+		if keys[findingKey(f)] {
+			existing = append(existing, f)
+		} else {
+			introduced = append(introduced, f)
+		}
+	}
+	return introduced, existing
+}
+
+func findingKey(f finding) string {
+	return fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%t\x00%t\x00%s", f.Baseline, f.Platform, f.Package, f.Identifier, f.Compatible, f.Unsupported, f.Message)
+}
+
+func sortFindings(findings []finding) {
+	slices.SortFunc(findings, func(a, b finding) int { return strings.Compare(findingKey(a), findingKey(b)) })
 }
