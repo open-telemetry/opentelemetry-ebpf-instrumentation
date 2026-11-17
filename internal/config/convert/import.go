@@ -51,6 +51,8 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 		return nil, err
 	}
 	_, defaults := RuntimeToV2(nil)
+	// Enable Route53 for new v2 configurations without changing v1 migration defaults.
+	defaults.Enrich.ServiceName.Sources = cloneSources(defaultV2ServiceNameSourcesWithCloud)
 	// Omitted features retain the protocol and network enablement mapping.
 	defaults.Capture.Metrics.Features = nil
 	// Check before applying defaults to distinguish omitted sources from explicit ones.
@@ -117,11 +119,6 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 		return nil, err
 	}
 	cfg.Attributes.Select.Normalize()
-	if cfg.NameResolver != nil && len(cfg.CloudMetadata.Route53.HostedZoneIDs) == 0 {
-		cfg.CloudMetadata.Route53.DiscoverHostedZones = slices.ContainsFunc(cfg.NameResolver.Sources, func(source transform.Source) bool {
-			return strings.EqualFold(string(source), string(transform.SourceRoute53))
-		})
-	}
 	if err := cfg.EBPF.LogEnricher.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid log trace annotation: %w", err)
 	}
@@ -139,6 +136,12 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 				)
 			}
 		}
+	}
+
+	if cfg.NameResolver != nil && len(cfg.CloudMetadata.Route53.HostedZoneIDs) == 0 {
+		cfg.CloudMetadata.Route53.DiscoverHostedZones = slices.ContainsFunc(cfg.NameResolver.Sources, func(source transform.Source) bool {
+			return strings.EqualFold(string(source), string(transform.SourceRoute53))
+		})
 	}
 
 	return &cfg, nil

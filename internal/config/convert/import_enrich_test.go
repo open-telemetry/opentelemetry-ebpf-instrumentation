@@ -177,6 +177,7 @@ extensions:
 	require.NoError(t, err)
 
 	require.False(t, got.CloudMetadata.DetectionEnabled)
+	require.False(t, got.CloudMetadata.Route53.DiscoverHostedZones)
 	require.Equal(t, []transform.Source{transform.SourceK8s}, got.NameResolver.Sources)
 }
 
@@ -442,12 +443,26 @@ extensions:
 	require.ErrorContains(t, err, "enrich.service_name.azure.typo")
 }
 
-func TestRoute53DiscoveryIsV2OnlyAndOptIn(t *testing.T) {
+func TestRoute53DiscoveryIsV2Only(t *testing.T) {
 	for _, test := range []struct {
 		name, enrich string
 		discovery    bool
 	}{
-		{name: "omitted resolver sources"},
+		{name: "omitted resolver sources", discovery: true},
+		{name: "explicit non-Route53 sources", enrich: `enrich:
+  service_name:
+    sources: [k8s, ecs]`},
+		{name: "empty sources", enrich: `enrich:
+  service_name:
+    sources: []`},
+		{name: "default sources with explicit zones", enrich: `enrich:
+  enrichers:
+    cloud:
+      route53:
+        hosted_zone_ids: [Z123]`},
+		{name: "case insensitive source", discovery: true, enrich: `enrich:
+  service_name:
+    sources: [RoUtE53]`},
 		{name: "explicit zones", enrich: `enrich:
   service_name:
     sources: [route53]
@@ -470,7 +485,7 @@ func TestRoute53DiscoveryIsV2OnlyAndOptIn(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, test.discovery, cfg.CloudMetadata.Route53.DiscoverHostedZones)
 			if test.enrich == "" {
-				require.Equal(t, obi.DefaultConfig.NameResolver.Sources, cfg.NameResolver.Sources)
+				require.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceECS, transform.SourceRoute53}, cfg.NameResolver.Sources)
 			}
 		})
 	}
@@ -478,4 +493,14 @@ func TestRoute53DiscoveryIsV2OnlyAndOptIn(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, cfg.CloudMetadata.Route53.DiscoverHostedZones)
 	require.ErrorContains(t, cfg.ValidateStatic(), "hosted_zone_ids is required")
+}
+
+func TestRoute53DiscoveryPreservesMigratedV1Defaults(t *testing.T) {
+	cfg, err := obi.LoadConfig(strings.NewReader("{}"))
+	require.NoError(t, err)
+	doc, _ := RuntimeToV2(cfg)
+	got, err := DocumentToRuntime(doc)
+	require.NoError(t, err)
+	require.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceECS}, got.NameResolver.Sources)
+	require.False(t, got.CloudMetadata.Route53.DiscoverHostedZones)
 }

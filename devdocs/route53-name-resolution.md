@@ -1,9 +1,9 @@
 # Route53 name resolution
 
 The `route53` name resolver maps endpoint IPs to fully qualified DNS names from
-AWS Route53 hosted zones on detected EC2 hosts. Enable it explicitly in
-`enrich.service_name.sources` in Config v2. Both configuration versions retain
-`[k8s, ecs]` as their default sources.
+AWS Route53 hosted zones on detected EC2 hosts. It is enabled by default in
+Config v2 when cloud detection is enabled. Config v1 retains `[k8s, ecs]` as its
+default sources; migrating a v1 configuration preserves those sources.
 
 Explicit `hosted_zone_ids` are read directly, preserving the v1 behavior and
 permissions. When IDs are omitted in Config v2, each refresh discovers public
