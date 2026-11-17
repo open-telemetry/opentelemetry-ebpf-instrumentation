@@ -817,6 +817,11 @@
                   "default": false,
                   "description": "Disable black-box context propagation.\nIf omitted, false is used.\n"
                 },
+                "disable_go_channel_links": {
+                  "type": "boolean",
+                  "default": false,
+                  "description": "Disable the Go channel probes that link spans across goroutines.\nIf omitted, false is used.\n"
+                },
                 "populate_trace_context": {
                   "type": "boolean",
                   "default": false,
