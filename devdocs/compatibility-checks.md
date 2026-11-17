@@ -21,7 +21,9 @@ make check-compat COMPAT_BASE_REF=upstream/main COMPAT_BASE_DIR=/tmp/obi-compat-
 
 `COMPAT_BASE_DIR` must be clean and at `COMPAT_BASE_REF`. The checked-out
 candidate may include local edits. A clean candidate compared with its own HEAD
-can omit the base directory. The target's committed `versions.yaml` selects the
+can omit the base directory. CI resolves the actual merge commit's target parent for PRs, so upstream changes
+merged after the event payload was created are attributed to the target.
+The target's committed `versions.yaml` selects the
 release line; editing the candidate's version does not change that selection.
 
 The checker compares both checkouts against every official immutable stable

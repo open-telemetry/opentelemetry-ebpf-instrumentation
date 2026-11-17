@@ -148,13 +148,32 @@ func compareAPI(old, candidate map[string]*types.Package, version, platform stri
 		readable = strings.TrimPrefix(readable, path+".")
 		findings = append(findings, finding{
 			Baseline: version, Platform: platform, Package: path, Identifier: readable,
-			Before: describeAPIObject(beforeObj), After: describeAPIObject(afterObj),
+			Before: describeAPIObject(apiMember(beforeObj, identifier)), After: describeAPIObject(apiMember(afterObj, identifier)),
 			Message: readable + ":" + detail, Compatible: change.Compatible, Rule: goAPIRule,
 			Unsupported: uncertainTypeIdentity(beforeObj, afterObj, readable),
 		})
 	}
 	findings = append(findings, compareConstraints(beforeSurface, afterSurface, version, platform)...)
 	return findings, nil
+}
+
+func apiMember(obj types.Object, identifier string) types.Object {
+	if obj == nil {
+		return nil
+	}
+	root, members, hasMembers := strings.Cut(identifier, ".")
+	root, _, _ = strings.Cut(strings.TrimLeft(root, "(*"), "[")
+	root = strings.TrimRight(root, ")")
+	if !hasMembers || surfaceName.FindString(root) != root {
+		return obj
+	}
+	for member := range strings.SplitSeq(members, ".") {
+		obj, _, _ = types.LookupFieldOrMethod(obj.Type(), true, obj.Pkg(), member)
+		if obj == nil {
+			return nil
+		}
+	}
+	return obj
 }
 
 func describeAPIObject(obj types.Object) string {
@@ -233,7 +252,7 @@ func compareConstraints(before, after *apiSurface, version, platform string) []f
 			if oldIsIface && newIsIface && (!oldIface.IsMethodSet() || !newIface.IsMethodSet()) {
 				compatible, changed := constraintRelation(after.constraint(oldIface), after.constraint(newIface))
 				if changed {
-					findings = append(findings, constraintFinding(old, current, version, platform, compatible))
+					findings = append(findings, constraintFinding(old, current, after, version, platform, compatible))
 				}
 			}
 		}
@@ -250,23 +269,23 @@ func compareConstraints(before, after *apiSurface, version, platform string) []f
 			}
 		}
 		if changed {
-			findings = append(findings, constraintFinding(old, current, version, platform, compatible))
+			findings = append(findings, constraintFinding(old, current, after, version, platform, compatible))
 		}
 	}
 	return findings
 }
 
-func constraintFinding(old, current types.Object, version, platform string, compatible bool) finding {
-	return finding{Baseline: version, Platform: platform, Package: old.Pkg().Path(), Identifier: old.Name(), Before: describeAPIObject(old), After: describeAPIObject(current), Message: fmt.Sprintf("%s: constraints changed from %s to %s", old.Name(), describeConstraints(old), describeConstraints(current)), Compatible: compatible, Rule: goAPIRule}
+func constraintFinding(old, current types.Object, surface *apiSurface, version, platform string, compatible bool) finding {
+	return finding{Baseline: version, Platform: platform, Package: old.Pkg().Path(), Identifier: old.Name(), Before: describeAPIObject(old), After: describeAPIObject(current), Message: fmt.Sprintf("%s: constraints changed from %s to %s", old.Name(), describeConstraints(old, surface), describeConstraints(current, surface)), Compatible: compatible, Rule: goAPIRule}
 }
 
-func describeConstraints(obj types.Object) string {
+func describeConstraints(obj types.Object, surface *apiSurface) string {
 	if iface, ok := obj.Type().Underlying().(*types.Interface); ok {
-		return types.TypeString(iface, types.RelativeTo(obj.Pkg()))
+		return surface.describe(types.TypeString(surface.constraint(iface), types.RelativeTo(surface.pkg)))
 	}
 	var constraints []string
 	for param := range objectParams(obj).TypeParams() {
-		constraints = append(constraints, types.TypeString(param.Constraint(), types.RelativeTo(obj.Pkg())))
+		constraints = append(constraints, surface.describe(types.TypeString(surface.constraint(param.Constraint()), types.RelativeTo(surface.pkg))))
 	}
 	return "[" + strings.Join(constraints, ", ") + "]"
 }

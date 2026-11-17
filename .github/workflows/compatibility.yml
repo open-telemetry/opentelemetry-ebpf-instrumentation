@@ -28,18 +28,31 @@ jobs:
     name: Generate candidate and target BPF
     runs-on: ubuntu-26.04
     timeout-minutes: 30
+    outputs:
+      base_sha: ${{ steps.target.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
           persist-credentials: false
+
+      # Merge refs can include a newer target than the event payload's base SHA.
+      - name: Resolve target revision
+        id: target
+        env:
+          BASE_REF: ${{ inputs.base_ref || (github.event_name == 'pull_request' && format('{0}^1', github.sha)) || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || github.sha }}
+        run: |
+          set -Eeuo pipefail
+          sha=$(git rev-parse --verify --end-of-options "${BASE_REF}^{commit}")
+          printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
 
       - uses: $/.github/actions/generate-bpf
 
       - name: Check out target
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.base_ref || github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || github.sha }}
+          ref: ${{ steps.target.outputs.sha }}
           persist-credentials: false
 
       - uses: $/.github/actions/generate-bpf
@@ -66,7 +79,7 @@ jobs:
       - name: Check out target
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ inputs.base_ref || github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || github.sha }}
+          ref: ${{ needs.generate-bpf.outputs.base_sha }}
           path: testoutput/compatibility-base
           persist-credentials: false
 
@@ -103,7 +116,7 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
-          COMPAT_BASE_REF: ${{ inputs.base_ref || github.event.pull_request.base.sha || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || github.sha }}
+          COMPAT_BASE_REF: ${{ needs.generate-bpf.outputs.base_sha }}
           COMPAT_BASE_DIR: ${{ github.workspace }}/testoutput/compatibility-base
           COMPAT_HEAD_REF: ${{ inputs.ref || github.sha }}
           COMPAT_ARCH: ${{ matrix.arch }}

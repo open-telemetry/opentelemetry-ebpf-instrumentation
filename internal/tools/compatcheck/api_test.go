@@ -16,7 +16,7 @@ import (
 	"testing"
 )
 
-func typedPackage(t *testing.T, path, source string) *types.Package {
+func typedPackage(t *testing.T, source string) *types.Package {
 	t.Helper()
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, "api.go", source, 0)
@@ -24,7 +24,7 @@ func typedPackage(t *testing.T, path, source string) *types.Package {
 		t.Fatal(err)
 	}
 	cfg := types.Config{}
-	pkg, err := cfg.Check(path, fset, []*ast.File{file}, nil)
+	pkg, err := cfg.Check(coreModule+"/pkg/example", fset, []*ast.File{file}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,8 +49,8 @@ func TestCompareAPI(t *testing.T) {
 		{name: "optional field", before: "type S struct { A int }", after: "type S struct { A, B int }", compatible: true, message: "B: added"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			before := typedPackage(t, coreModule+"/pkg/example", "package example; "+tc.before)
-			after := typedPackage(t, coreModule+"/pkg/example", "package example; "+tc.after)
+			before := typedPackage(t, "package example; "+tc.before)
+			after := typedPackage(t, "package example; "+tc.after)
 			findings, compareErr := compareAPI(map[string]*types.Package{before.Path(): before}, map[string]*types.Package{after.Path(): after}, "v1.0.0", "linux/amd64")
 			if compareErr != nil {
 				t.Fatal(compareErr)
@@ -87,7 +87,7 @@ func TestCompareAPI(t *testing.T) {
 }
 
 func TestPackageAdditionAndRemoval(t *testing.T) {
-	pkg := typedPackage(t, coreModule+"/pkg/example", "package example; func F() {}")
+	pkg := typedPackage(t, "package example; func F() {}")
 	for _, removed := range []bool{false, true} {
 		before := map[string]*types.Package{}
 		after := map[string]*types.Package{pkg.Path(): pkg}
@@ -215,5 +215,18 @@ func writeFile(t *testing.T, path, data string) {
 	}
 	if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFieldFindingShowsChangedMember(t *testing.T) {
+	path := coreModule + "/pkg/example"
+	old := typedPackage(t, "package example; type Config struct { Value int; Unrelated string }")
+	current := typedPackage(t, "package example; type Config struct { Value string; Unrelated string }")
+	findings, err := compareAPI(map[string]*types.Package{path: old}, map[string]*types.Package{path: current}, "v1.0.0", "linux/amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(findings) != 1 || findings[0].Before != "field Value int" || findings[0].After != "field Value string" {
+		t.Fatalf("expected changed field signatures, got %+v", findings)
 	}
 }

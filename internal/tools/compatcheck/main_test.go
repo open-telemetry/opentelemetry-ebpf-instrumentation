@@ -4,6 +4,7 @@
 package main
 
 import (
+	"go/types"
 	"io"
 	"path/filepath"
 	"strings"
@@ -106,5 +107,30 @@ func TestTargetCheckoutValidation(t *testing.T) {
 	err = check(t.Context(), options{repoRoot: root, baseRef: first, headRef: "HEAD", baseDir: root}, &r, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "base-dir does not match base-ref") {
 		t.Fatalf("error=%v", err)
+	}
+}
+
+func TestAttributionOfExposedConstraint(t *testing.T) {
+	const public = `package public; import "go.opentelemetry.io/obi/pkg/internal/options"; func F[T options.Number](v T) {}`
+	var snapshots []map[string]*types.Package
+	for _, constraint := range []string{"~int | ~string | ~float64", "~int | ~string", "~int"} {
+		root := publicAPIFixture(t, public, "type Number interface { "+constraint+" }")
+		api, err := loadAPI(t.Context(), root, "amd64")
+		if err != nil {
+			t.Fatal(err)
+		}
+		snapshots = append(snapshots, api)
+	}
+	base, err := compareAPI(snapshots[0], snapshots[1], "v1.0.0", "linux/amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, err := compareAPI(snapshots[0], snapshots[2], "v1.0.0", "linux/amd64")
+	if err != nil {
+		t.Fatal(err)
+	}
+	introduced, _ := attributeFindings(head, base)
+	if minimumRelease(introduced, "v1.0.0") != "major" {
+		t.Fatalf("further narrowing hidden as inherited: head=%+v base=%+v", head, base)
 	}
 }
