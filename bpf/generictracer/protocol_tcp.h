@@ -349,8 +349,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             task_pid(&req->pid);
             bpf_probe_read(req->buf, bytes_len, u_buf);
 
-            const enum redis_job_fetch fetch =
-                job_fetch_request(req->buf, bytes_len, direction, is_server, lw_thread);
+            job_fetch_request(pid_conn, req);
 
             req->tp.ts = bpf_ktime_get_ns();
 
@@ -360,7 +359,6 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
                            protocol_type);
 
             tcp_get_or_set_trace_info(req, pid_conn, lw_thread, ssl, orig_dport);
-            job_fetch_wait(pid_conn, fetch, req->parent_status);
 
             tcp_send_large_buffer(req,
                                   pid_conn,
@@ -394,7 +392,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
                 __builtin_memcpy(trace, existing, sizeof(tcp_req_t));
                 bpf_probe_read(trace->rbuf, bytes_len, u_buf);
-                job_fetch_reply(pid_conn, &existing->tp, trace->rbuf, bytes_len);
+                job_fetch_reply(pid_conn, existing, trace->rbuf, bytes_len);
 
                 bpf_ringbuf_submit(trace, get_flags());
             } else {

@@ -6,6 +6,7 @@
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_helpers.h>
 
+#include <common/common.h>
 #include <common/connection_info.h>
 #include <common/lw_thread.h>
 #include <common/python_task.h>
@@ -43,21 +44,33 @@ static __always_inline bool job_fetch_same_conn(const pid_connection_info_t *a,
     return true;
 }
 
-// The job fetch a client request starts; the thread's previous job ends with it
-static __always_inline enum redis_job_fetch job_fetch_request(const unsigned char *buf,
-                                                              const u32 len,
-                                                              const u8 direction,
-                                                              const bool is_server,
-                                                              const lw_thread_t lw_thread) {
-    // goroutines move between threads, so only real threads can run a job
-    if (!g_job_traces_enabled || direction != TCP_SEND || is_server ||
-        lw_thread != k_lw_thread_none) {
-        return k_redis_job_fetch_none;
+// the reply on this connection tells whether the fetch took a job
+static __always_inline void job_fetch_wait(const pid_connection_info_t *conn,
+                                           const enum redis_job_fetch fetch) {
+    pid_info_t pid = {0};
+    task_pid(&pid);
+    const pid_info_t opted_in = {.user_pid = pid.user_pid, .ns = pid.ns};
+    if (!bpf_map_lookup_elem(&job_trace_pids, &opted_in)) {
+        return;
     }
 
-    const enum redis_job_fetch fetch = redis_job_fetch_request(buf, len);
+    const u64 id = bpf_get_current_pid_tgid();
+    const job_fetch_wait_t wait = {.conn = *conn, .fetch = fetch};
+    bpf_map_update_elem(&job_fetch_waits, &id, &wait, BPF_ANY);
+}
+
+// The job fetch a client request starts; the thread's previous job ends with it
+static __always_inline void job_fetch_request(const pid_connection_info_t *conn,
+                                              const tcp_req_t *req) {
+    // goroutines move between threads, so only real threads can run a job
+    if (!g_job_traces_enabled || req->direction != TCP_SEND || req->is_server ||
+        req->event_source != k_event_source_kprobes) {
+        return;
+    }
+
+    const enum redis_job_fetch fetch = redis_job_fetch_request(req->buf, req->len);
     if (fetch == k_redis_job_fetch_none) {
-        return fetch;
+        return;
     }
 
     pid_key_t thread = {0};
@@ -70,27 +83,7 @@ static __always_inline enum redis_job_fetch job_fetch_request(const unsigned cha
     }
     bpf_map_delete_elem(&job_contexts, &thread);
 
-    return fetch;
-}
-
-// A fetch made while serving a request is one of its calls, not the start of a job
-static __always_inline void job_fetch_wait(const pid_connection_info_t *conn,
-                                           const enum redis_job_fetch fetch,
-                                           const u8 parent_status) {
-    if (fetch == k_redis_job_fetch_none || parent_status != k_parent_status_none) {
-        return;
-    }
-
-    pid_info_t pid = {0};
-    task_pid(&pid);
-    const pid_info_t opted_in = {.user_pid = pid.user_pid, .ns = pid.ns};
-    if (!bpf_map_lookup_elem(&job_trace_pids, &opted_in)) {
-        return;
-    }
-
-    const u64 id = bpf_get_current_pid_tgid();
-    const job_fetch_wait_t wait = {.conn = *conn, .fetch = fetch};
-    bpf_map_update_elem(&job_fetch_waits, &id, &wait, BPF_ANY);
+    job_fetch_wait(conn, fetch);
 }
 
 // a thread serving other connections while the fetch is pending runs many jobs at once
@@ -124,7 +117,7 @@ static __always_inline bool python_asyncio_thread(const u64 id) {
 }
 
 static __always_inline void job_fetch_reply(const pid_connection_info_t *conn,
-                                            const tp_info_t *fetch_tp,
+                                            const tcp_req_t *fetch_req,
                                             const unsigned char *reply,
                                             const u32 len) {
     if (!g_job_traces_enabled) {
@@ -140,6 +133,12 @@ static __always_inline void job_fetch_reply(const pid_connection_info_t *conn,
     const enum redis_job_fetch fetch = wait->fetch;
     bpf_map_delete_elem(&job_fetch_waits, &id);
 
+    // a fetch made while serving a request is one of its calls, not a job (too costly to verify
+    // at the send, where it would follow the trace lookup)
+    if (fetch_req->parent_status != k_parent_status_none) {
+        return;
+    }
+
     // asyncio tasks share the thread, so a job can't be told apart from the tasks around it
     if (!redis_job_fetch_reply_has_job(fetch, reply, len) || python_asyncio_thread(id)) {
         return;
@@ -148,7 +147,7 @@ static __always_inline void job_fetch_reply(const pid_connection_info_t *conn,
     job_context_t job = {
         .tp =
             {
-                .tp = *fetch_tp,
+                .tp = fetch_req->tp,
                 .pid = pid_from_pid_tgid(id),
                 .valid = 1,
             },
