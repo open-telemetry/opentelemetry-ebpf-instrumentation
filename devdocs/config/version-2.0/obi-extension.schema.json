@@ -1542,6 +1542,18 @@
         }
       }
     },
+    "DbInstrumentation": {
+      "type": "object",
+      "description": "Settings shared by all database protocols.",
+      "additionalProperties": false,
+      "properties": {
+        "sanitize_query_text": {
+          "type": "boolean",
+          "default": false,
+          "description": "Replace literal values in `db.query.text` with `?`: string, numeric, hexadecimal and boolean literals of SQL and SQL++ spans, and Redis argument values (keys are kept). Elasticsearch query bodies and Couchbase key-value spans are not sanitized. By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
+        }
+      }
+    },
     "SqlInstrumentation": {
       "type": "object",
       "description": "SQL instrumentation controls.",
@@ -1559,11 +1571,6 @@
           "type": "boolean",
           "default": false,
           "description": "Enable heuristic SQL protocol detection.\nIf omitted, false is used.\n"
-        },
-        "sanitize_query_text": {
-          "type": "boolean",
-          "default": false,
-          "description": "Replace string, numeric, hexadecimal and boolean literals in `db.query.text` of SQL and SQL++ spans with `?`. By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
         },
         "mysql": {
           "type": "object",
@@ -1890,6 +1897,10 @@
             },
             "filters": {}
           }
+        },
+        "db": {
+          "$ref": "#/$defs/DbInstrumentation",
+          "description": "Settings shared by all database protocols.\nIf omitted, database defaults are used.\n"
         },
         "sql": {
           "$ref": "#/$defs/SqlInstrumentation",

@@ -1282,8 +1282,9 @@ func applyV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrumentat
 func applyFullV2Instrumentation(cfg *obi.Config, instrumentation schema.Instrumentation) {
 	applyFullV2HTTPInstrumentation(cfg, instrumentation.HTTP)
 
+	cfg.Attributes.SanitizeDBQueryText = instrumentation.DB.SanitizeQueryText
+
 	cfg.EBPF.HeuristicSQLDetect = instrumentation.SQL.HeuristicDetect
-	cfg.Attributes.SanitizeSQLQueryText = instrumentation.SQL.SanitizeQueryText
 	cfg.EBPF.BufferSizes.MySQL = instrumentation.SQL.MySQL.BufferSize
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = instrumentation.SQL.MySQL.PreparedStatementsCacheSize
 	cfg.EBPF.BufferSizes.Postgres = instrumentation.SQL.Postgres.BufferSize
@@ -1312,12 +1313,13 @@ func applyPartialV2Instrumentation(cfg *obi.Config, instrumentation schema.Instr
 		applyPartialV2HTTPInstrumentation(cfg, instrumentation.HTTP)
 	}
 
+	if instrumentation.DB.SanitizeQueryText {
+		cfg.Attributes.SanitizeDBQueryText = true
+	}
+
 	if !zeroValue(instrumentation.SQL) {
 		if instrumentation.SQL.HeuristicDetect {
 			cfg.EBPF.HeuristicSQLDetect = true
-		}
-		if instrumentation.SQL.SanitizeQueryText {
-			cfg.Attributes.SanitizeSQLQueryText = true
 		}
 		if instrumentation.SQL.MySQL.BufferSize != 0 {
 			cfg.EBPF.BufferSizes.MySQL = instrumentation.SQL.MySQL.BufferSize

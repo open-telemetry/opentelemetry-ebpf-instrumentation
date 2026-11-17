@@ -202,6 +202,8 @@ extensions:
         grpc:
           enabled: { traces: true, metrics: true }
           filters: { traces: {}, metrics: {} }
+        db:
+          sanitize_query_text: false
         sql:
           enabled: { traces: true, metrics: true }
           filters: { traces: {}, metrics: {} }
@@ -559,7 +561,7 @@ HTTP `payload_extraction` uses the same list-based enablement model as other ins
 - Nested extractor blocks are for tuning, not duplicate enablement. For example, `payload_extraction.sqlpp.endpoint_patterns` refines SQL++ matching after `sqlpp` is enabled in the list.
 - If future aliases or families are needed, they should be added as values in the same `enabled` list rather than introducing parallel knobs.
 
-When `db.query.text` is selected, SQL and SQL++ spans carry the query as captured. Set `sql.sanitize_query_text: true` to replace its string, numeric, hexadecimal and boolean literals with `?`, following the semantic conventions. In statements with bind placeholders only string literals are replaced. Generic SQL from the Go tracer also treats double-quoted text as a string literal, and `db.query.text` is omitted when the literals cannot be located reliably. The setting has no v1 equivalent.
+`db` holds settings shared by all database protocols rather than a protocol of its own. When `db.query.text` is selected, database spans carry the query as captured. Set `db.sanitize_query_text: true` to replace literal values with `?`, following the semantic conventions. For SQL and SQL++ spans it replaces string, numeric, hexadecimal and boolean literals. In statements with bind placeholders only string literals are replaced. Generic SQL from the Go tracer also treats double-quoted text as a string literal, and `db.query.text` is omitted when the literals cannot be located reliably. For Redis spans it keeps the command and its keys, and replaces each argument value with `?`, for example `SET user:1 ?` and `HSET user:1 name ?`. Commands whose arguments are all keys, such as `GET` or `DEL`, are unchanged, and every argument of a command OBI does not recognize is replaced. As in the OpenTelemetry Java instrumentation, a few commands keep all their arguments even though some are values: `ECHO`, `CLIENT`, `SCRIPT`, the `GEO*` commands, and the script body of `EVAL`. Elasticsearch query bodies and Couchbase key-value spans are not sanitized. The setting has no v1 equivalent.
 
 ### `capture.runtimes` Section
 

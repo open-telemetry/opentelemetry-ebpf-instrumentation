@@ -130,6 +130,8 @@ instrumentation:
             metrics:
                 http.request.method:
                     not_match: OPTIONS
+    db:
+        sanitize_query_text: false
     sql:
         enabled:
             traces: true
@@ -142,7 +144,6 @@ instrumentation:
                 http.request.method:
                     not_match: OPTIONS
         heuristic_detect: false
-        sanitize_query_text: false
         mysql:
             buffer_size: 0
             prepared_statements_cache_size: 1024
