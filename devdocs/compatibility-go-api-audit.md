@@ -14,6 +14,7 @@ over the tagged policy's introductory pre-v1 Development wording.
 All tests below live under [`internal/tools/compatcheck`](../internal/tools/compatcheck).
 `make test-compat` runs them with the race detector. Consumer fixtures compile
 against both snapshots; prohibited examples must fail against the changed API.
+Release-class expectations assume the affected API can be classified.
 
 | Policy case | Expected result | Regression coverage |
 | --- | --- | --- |
@@ -28,6 +29,7 @@ against both snapshots; prohibited examples must fail against the changed API.
 | Change an exported array field's type or lose comparability | Major | `TestPublicAPIConsumers/array_field_length`, `comparability` |
 | Narrow generic constraints | Major | `TestPublicAPIConsumers`, `TestAttributionOfExposedConstraint` |
 | Relax generic constraints or rename their parameters | No incompatible finding | `TestPublicAPIConsumers`, including recursive constraints |
+| Change the exposed API beneath an inherited unclassified type | New unclassified comparison; incomplete assessment | `TestPRAndReleaseResults`, including field changes/removals, private layout, and unrelated additions |
 | Constant value changes without proof of incompatible meaning | Separate unclassified comparison; incomplete assessment | `TestPRAndReleaseResults/constant_value_needs_contract_review` |
 | Name an anonymous struct containing private fields | Separate unclassified comparison; incomplete assessment | `TestUnclassifiedPrivateStructIdentity`, `TestPRAndReleaseResults` |
 | Failed acquisition, verification, extraction, or type capture | Incomplete; never a compatibility pass | `TestInvalidInputProducesIncompleteReport`, `TestEmptyPublicSurfaceFails`, release-client tests |
@@ -39,7 +41,10 @@ intended for downstream testing remain public APIs, as documented by
 
 `TestPRAndReleaseResults` also checks attribution, JSON/text output, and exit
 statuses: permitted additions produce no findings; existing problems do not
-become PR problems; proposed releases still assess the entire candidate.
+become PR problems; proposed releases still assess the entire candidate. A change
+inside an already unclassified type requires a fresh assessment, including
+additive changes; its baseline correspondence has not been established. This
+produces an unclassified comparison, not an incompatibility finding.
 
 ## Accounting for the reported 285 entries
 

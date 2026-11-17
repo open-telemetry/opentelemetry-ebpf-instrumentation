@@ -44,18 +44,19 @@ type options struct {
 }
 
 type apiChange struct {
-	Module      string `json:"-"`
-	Baseline    string `json:"baseline"`
-	Platform    string `json:"platform"`
-	Package     string `json:"package"`
-	Identifier  string `json:"identifier"`
-	Before      string `json:"before,omitempty"`
-	After       string `json:"after,omitempty"`
-	Message     string `json:"message"`
-	Compatible  bool   `json:"-"`
-	Unsupported bool   `json:"-"`
-	Rule        string `json:"rule"`
-	Reason      string `json:"reason,omitempty"`
+	TypeContext *apiSnapshot `json:"-"`
+	Module      string       `json:"-"`
+	Baseline    string       `json:"baseline"`
+	Platform    string       `json:"platform"`
+	Package     string       `json:"package"`
+	Identifier  string       `json:"identifier"`
+	Before      string       `json:"before,omitempty"`
+	After       string       `json:"after,omitempty"`
+	Message     string       `json:"message"`
+	Compatible  bool         `json:"-"`
+	Unsupported bool         `json:"-"`
+	Rule        string       `json:"rule"`
+	Reason      string       `json:"reason,omitempty"`
 }
 
 type baseline struct {
@@ -430,13 +431,21 @@ func actionableChanges(changes []apiChange) ([]apiChange, []apiChange) {
 }
 
 func attributeChanges(head, base []apiChange) ([]apiChange, []apiChange) {
-	keys := map[string]bool{}
+	keys := map[string]apiChange{}
 	for _, f := range base {
-		keys[changeKey(f)] = true
+		keys[changeKey(f)] = f
 	}
 	var introduced, existing []apiChange
 	for _, f := range head {
-		if keys[changeKey(f)] {
+		previous, inherited := keys[changeKey(f)]
+		if inherited && f.TypeContext != nil {
+			if detail := changedTypeContext(previous.TypeContext, f.TypeContext); detail != "" {
+				inherited = false
+				f.Reason += " Type context relative to the target: " + detail
+			}
+		}
+		f.TypeContext = nil
+		if inherited {
 			existing = append(existing, f)
 		} else {
 			introduced = append(introduced, f)

@@ -65,7 +65,10 @@ Acquisition/extraction failures and unresolved PR comparisons set the JSON
 `incomplete`. Constant-value changes require contract review: their numeric or
 string difference alone does not establish incompatible meaning. Naming an
 anonymous struct with private fields also requires classification. Neither is
-reported as a proven policy violation or silently treated as compatible.
+reported as a proven policy violation or silently treated as compatible. A changed
+public API beneath an inherited unclassified type requires a new incomplete
+assessment; matching the outer type diagnostic alone cannot establish that the
+PR preserved its contents. Private layout changes remain excluded.
 
 The [policy audit](compatibility-go-api-audit.md) accounts for the real release
 diff and maps classification rules to executable tests.

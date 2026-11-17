@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"go/token"
 	"go/types"
 	"os"
 	"slices"
@@ -157,8 +158,13 @@ func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) (ch
 		readable, detail, _ := strings.Cut(message, ":")
 		readable = strings.TrimPrefix(readable, path+".")
 		reason := ""
+		var typeContext *apiSnapshot
 		if uncertainTypeIdentity(beforeObj, afterObj, readable) {
 			reason = "Naming an anonymous struct with private fields requires source compatibility review."
+			member := apiMember(afterObj, identifier)
+			pkg := types.NewPackage(coreModule+"/compatcontext", "compatcontext")
+			pkg.Scope().Insert(types.NewVar(token.NoPos, pkg, "Value", member.Type()))
+			typeContext = &apiSnapshot{Packages: map[string]*types.Package{pkg.Path(): pkg}}
 		}
 		if strings.Contains(change.Message, ": value changed from ") {
 			reason = "A constant value changed; the checker cannot determine whether its documented contract changed incompatibly."
@@ -172,7 +178,7 @@ func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) (ch
 			Baseline: version, Platform: platform, Package: path, Identifier: readable,
 			Before: describeAPIObject(apiMember(beforeObj, identifier)), After: describeAPIObject(apiMember(afterObj, identifier)),
 			Message: readable + ":" + detail, Compatible: change.Compatible, Rule: goAPIRule,
-			Unsupported: reason != "", Reason: reason,
+			Unsupported: reason != "", Reason: reason, TypeContext: typeContext,
 		})
 	}
 	changes = append(changes, compareConstraints(beforeSurface, afterSurface, version, platform)...)
@@ -349,4 +355,21 @@ func (s *apiSurface) constraint(t types.Type) *types.Interface {
 		}
 	}
 	return types.NewInterfaceType(methods, embedded).Complete()
+}
+
+// A nominal-type diagnostic omits changes inside the named type. Compare its
+// exposed API before attributing an unclassified change to the target.
+func changedTypeContext(before, after *apiSnapshot) string {
+	if before == nil {
+		return "the prior type context is unavailable"
+	}
+	changes, err := compareAPI(before, after, "", "")
+	if err != nil {
+		return err.Error()
+	}
+	sortAPIChanges(changes)
+	if len(changes) > 0 {
+		return changes[0].Message
+	}
+	return ""
 }

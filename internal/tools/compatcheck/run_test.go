@@ -34,7 +34,59 @@ func TestPRAndReleaseResults(t *testing.T) {
 		prClass, releaseClass                               string
 		introduced, existing                                int
 		unclassified, existingUnclassified                  int
+		contextChange                                       string
 	}{
+		{
+			name:          "worsened unclassified field type",
+			contextChange: "PID.ID: changed from int to string",
+			releaseAPI:    anonymous,
+			targetAPI:     named,
+			candidateAPI:  "package public; type PID struct { _ int; ID string }; type Event struct { Pid PID }",
+			code:          exitError,
+			prClass:       "incomplete",
+			releaseClass:  "incomplete",
+			unclassified:  1,
+		},
+		{
+			name:          "removed unclassified field",
+			contextChange: "PID.ID: removed",
+			releaseAPI:    anonymous,
+			targetAPI:     named,
+			candidateAPI:  "package public; type PID struct { _ int }; type Event struct { Pid PID }",
+			code:          exitError,
+			prClass:       "incomplete",
+			releaseClass:  "incomplete",
+			unclassified:  1,
+		},
+		{
+			name:                 "inherited unclassified private layout refactor",
+			releaseAPI:           anonymous,
+			targetAPI:            named,
+			candidateAPI:         "package public; type PID struct { _ [64]byte; ID int }; type Event struct { Pid PID }",
+			prClass:              "patch",
+			releaseClass:         "incomplete",
+			existingUnclassified: 1,
+		},
+		{
+			name:          "changed unclassified field addition",
+			contextChange: "PID.Added: added",
+			releaseAPI:    anonymous,
+			targetAPI:     named,
+			candidateAPI:  "package public; type PID struct { _ int; ID int; Added int }; type Event struct { Pid PID }",
+			code:          exitError,
+			prClass:       "incomplete",
+			releaseClass:  "incomplete",
+			unclassified:  1,
+		},
+		{
+			name:                 "unrelated method addition beside inherited uncertainty",
+			releaseAPI:           anonymous + ";type S struct{}",
+			targetAPI:            named + ";type S struct{}",
+			candidateAPI:         named + ";type S struct{};func(S)Added(){}",
+			prClass:              "minor",
+			releaseClass:         "incomplete",
+			existingUnclassified: 1,
+		},
 		{name: "unchanged", releaseAPI: original, targetAPI: original, candidateAPI: original, prClass: "patch", releaseClass: "patch"},
 		{name: "inherited break", releaseAPI: original, targetAPI: broken, candidateAPI: broken, prClass: "patch", releaseClass: "major", existing: 1},
 		{name: "new break", releaseAPI: original, targetAPI: original, candidateAPI: broken, code: exitBreak, prClass: "major", releaseClass: "major", introduced: 1},
@@ -84,6 +136,9 @@ func TestPRAndReleaseResults(t *testing.T) {
 			}
 			if code != tc.code || r.RequiredRelease != tc.prClass || r.ReleaseRequired != tc.releaseClass || len(r.Findings) != tc.introduced || len(r.ExistingFindings) != tc.existing || len(r.Unclassified) != tc.unclassified || len(r.ExistingUnclassified) != tc.existingUnclassified {
 				t.Fatalf("exit=%d, want %d; report=%s\n%s", code, tc.code, data, &output)
+			}
+			if tc.contextChange != "" && !strings.Contains(r.Unclassified[0].Reason, tc.contextChange) {
+				t.Fatalf("changed type context was not identified: %+v", r.Unclassified)
 			}
 			if len(r.Findings) == 0 && tc.code != exitError && !strings.Contains(output.String(), "No incompatible public Go API changes introduced by this PR.") {
 				t.Fatalf("allowed API change reported as a finding: %s", &output)
