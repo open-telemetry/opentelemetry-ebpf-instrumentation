@@ -1,0 +1,131 @@
+name: Compatibility policy (advisory)
+
+on:
+  pull_request:
+    branches: [main, release-*]
+  push:
+    branches: [main, release-*]
+  workflow_call:
+    inputs:
+      ref:
+        description: Candidate revision to check out
+        required: false
+        type: string
+      base_ref:
+        description: Trusted target revision selecting the release line
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compatibility-${{ github.head_ref || inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate-bpf:
+    name: Generate BPF
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+
+      - uses: $/.github/actions/generate-bpf
+
+  go-api:
+    name: Go API (${{ matrix.arch }}, advisory)
+    needs: generate-bpf
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: |
+            go.sum
+            internal/tools/go.sum
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: bpf-generated-${{ github.run_id }}
+
+      - name: Restore release assets
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: testoutput/compatibility-cache
+          key: compatibility-assets-v1-${{ matrix.arch }}-${{ github.run_id }}
+          restore-keys: compatibility-assets-v1-${{ matrix.arch }}-
+
+      - name: Test checker
+        run: make test-compat
+
+      - name: Compare public Go API
+        id: compare
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMPAT_BASE_REF: ${{ inputs.base_ref || github.event.pull_request.base.sha || github.event.before || github.sha }}
+          COMPAT_HEAD_REF: ${{ inputs.ref || github.sha }}
+          COMPAT_ARCH: ${{ matrix.arch }}
+        run: make check-compat
+
+      - name: Summarize advisory result
+        id: summary
+        if: always()
+        env:
+          COMPARE_OUTCOME: ${{ steps.compare.outcome }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -Eeuo pipefail
+          report=testoutput/compatibility.json
+          {
+            printf '## Go API compatibility: linux/%s (advisory)\n\n' "$ARCH"
+            printf 'Only the public root-module Go API is checked. Enforcement is not enabled.\n\n'
+            if [[ ! -s "$report" ]]; then
+              printf '**INCOMPLETE:** no report was produced; check prerequisite jobs and logs.\n'
+            elif jq -e '.error != null' "$report" >/dev/null; then
+              printf '**INCOMPLETE:** the comparison could not be completed.\n\n'
+              jq -r '.error' "$report"
+            else
+              jq -r '"Minimum release class: **\(.required_release)**\n\nFindings: \(.findings | length)\n\n", (.baselines[] | "- \(.version), \(.platform), \(.packages) public packages, commit `\(.commit)`")' "$report"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$COMPARE_OUTCOME" != success ]]; then
+            printf '::warning::Go API compatibility is advisory; the comparison failed or found an incompatibility. See the report and logs.\n'
+          fi
+          if [[ -s "$report" ]] && jq -e '.error == null and (.baselines | length > 0)' "$report" >/dev/null; then
+            printf 'verified=true\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload comparison report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: compatibility-go-api-${{ matrix.arch }}-${{ github.run_id }}
+          path: testoutput/compatibility.json
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Save release assets on main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.summary.outputs.verified == 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: testoutput/compatibility-cache
+          key: compatibility-assets-v1-${{ matrix.arch }}-${{ github.run_id }}

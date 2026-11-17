@@ -107,6 +107,36 @@ ENVTEST_K8S_VERSION ?= 1.30.0
 
 ### Development Tools (end) #################################################
 
+COMPAT_CHECKER := $(CURDIR)/.tools/compatcheck
+COMPAT_BASE_REF ?= HEAD
+COMPAT_HEAD_REF ?= HEAD
+COMPAT_ARCH ?= amd64,arm64
+COMPAT_REPORT ?= testoutput/compatibility.json
+COMPAT_CACHE_DIR ?= testoutput/compatibility-cache
+COMPAT_RELEASE_VERSION ?=
+
+# Keep command-line refs literal instead of evaluating them as Make expressions.
+override export COMPAT_BASE_REF := $(value COMPAT_BASE_REF)
+override export COMPAT_HEAD_REF := $(value COMPAT_HEAD_REF)
+override export COMPAT_ARCH := $(value COMPAT_ARCH)
+override export COMPAT_REPORT := $(value COMPAT_REPORT)
+override export COMPAT_CACHE_DIR := $(value COMPAT_CACHE_DIR)
+override export COMPAT_RELEASE_VERSION := $(value COMPAT_RELEASE_VERSION)
+
+$(COMPAT_CHECKER): $(wildcard internal/tools/compatcheck/*.go) internal/tools/go.mod internal/tools/go.sum
+	@mkdir -p $(dir $@)
+	cd internal/tools && go build -o "$@" ./compatcheck
+
+.PHONY: check-compat test-compat
+check-compat: $(COMPAT_CHECKER)
+	"$(COMPAT_CHECKER)" --repo-root "$(CURDIR)" --base-ref "$${COMPAT_BASE_REF}" \
+		--head-ref "$${COMPAT_HEAD_REF}" --arch "$${COMPAT_ARCH}" \
+		--report "$${COMPAT_REPORT}" --cache-dir "$${COMPAT_CACHE_DIR}" \
+		--release-version "$${COMPAT_RELEASE_VERSION}"
+
+test-compat:
+	cd internal/tools && go test -race ./compatcheck
+
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
