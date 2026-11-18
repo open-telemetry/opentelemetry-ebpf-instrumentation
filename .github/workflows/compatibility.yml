@@ -29,70 +29,19 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
-      # Keep authenticated code here so PR scripts never receive GH_TOKEN.
+      # Pin authenticated code independently of the PR checkout.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ce935251c5dd940b56a89c65973a4a0faa4990d8
+          path: compatibility-tools
+          sparse-checkout: scripts/compatibility-release-metadata.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
       - name: Fetch GitHub API responses
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          python3 - <<'PYTHON'
-          import json
-          import os
-          import re
-          import urllib.request
-
-          repository = "open-telemetry/opentelemetry-ebpf-instrumentation"
-          responses = {}
-
-          def fetch(path):
-              request = urllib.request.Request(
-                  "https://api.github.com" + path,
-                  headers={
-                      "Authorization": "Bearer " + os.environ["GH_TOKEN"],
-                      "Accept": "application/vnd.github+json",
-                      "X-GitHub-Api-Version": "2022-11-28",
-                  },
-              )
-              with urllib.request.urlopen(request, timeout=60) as response:
-                  data = json.load(response)
-              responses[path] = data
-              return data
-
-          page = 1
-          while True:
-              releases = fetch(f"/repos/{repository}/releases?per_page=100&page={page}")
-              # Preserve page lengths without publishing private draft metadata.
-              responses[f"/repos/{repository}/releases?per_page=100&page={page}"] = [
-                  {"draft": True} if release["draft"] else {
-                      **{key: release[key] for key in ("tag_name", "draft", "prerelease", "immutable")},
-                      "assets": [{"name": asset["name"]} for asset in release["assets"]],
-                  }
-                  for release in releases
-              ]
-              for release in releases:
-                  tag = release["tag_name"]
-                  if release["draft"] or release["prerelease"]:
-                      continue
-                  if not re.fullmatch(r"v[1-9][0-9]*\.[0-9]+\.[0-9]+", tag):
-                      continue
-                  path = f"/repos/{repository}/git/ref/tags/{tag}"
-                  for _ in range(8):
-                      obj = fetch(path)["object"]
-                      if not re.fullmatch(r"[0-9a-f]{40}", obj["sha"]):
-                          raise ValueError(f"Invalid object ID for {tag}")
-                      if obj["type"] == "commit":
-                          break
-                      if obj["type"] != "tag":
-                          raise ValueError(f"Unexpected object type for {tag}")
-                      path = f"/repos/{repository}/git/tags/{obj['sha']}"
-                  else:
-                      raise ValueError(f"Cannot resolve {tag} to a commit")
-              if len(releases) < 100:
-                  break
-              page += 1
-
-          with open("release-metadata.json", "w") as output:
-              json.dump(responses, output)
-          PYTHON
+        run: python3 -I compatibility-tools/scripts/compatibility-release-metadata.py
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
