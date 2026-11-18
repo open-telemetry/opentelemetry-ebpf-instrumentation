@@ -114,7 +114,7 @@ require (
 	github.com/leodido/go-urn v1.5.0 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
-	github.com/microsoft/go-winmd v0.0.0-20261026085843-5b48fee0edb4 // indirect
+	github.com/microsoft/go-winmd v0.0.0-20261109085045-a22c885c141f // indirect
 	github.com/minio/sha256-simd v1.0.1 // indirect
 	github.com/mitchellh/copystructure v1.2.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect

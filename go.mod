@@ -39,7 +39,7 @@ require (
 	github.com/json-iterator/go v1.1.12
 	github.com/klauspost/compress v1.20.3
 	github.com/lib/pq v1.12.3
-	github.com/microsoft/go-winmd v0.0.0-20261026085843-5b48fee0edb4
+	github.com/microsoft/go-winmd v0.0.0-20261109085045-a22c885c141f
 	github.com/mitchellh/copystructure v1.2.0
 	github.com/moby/moby/api v1.56.1
 	github.com/moby/moby/client v0.6.2
