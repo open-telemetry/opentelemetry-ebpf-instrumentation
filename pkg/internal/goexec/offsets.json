@@ -226,6 +226,24 @@
         ]
       }
     },
+    "github.com/emicklei/go-restful/v3.Route": {
+      "Path": {
+        "versions": {
+          "oldest": "3.0.0",
+          "newest": "3.14.0"
+        },
+        "offsets": [
+          {
+            "offset": 64,
+            "since": "3.0.0"
+          },
+          {
+            "offset": 72,
+            "since": "3.6.0"
+          }
+        ]
+      }
+    },
     "github.com/gin-gonic/gin.nodeValue": {
       "fullPath": {
         "versions": {
