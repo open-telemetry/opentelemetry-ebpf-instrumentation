@@ -35,6 +35,7 @@ jobs:
     name: Aggregate weaver telemetry coverage (all suites)
     runs-on: ubuntu-26.04
     timeout-minutes: 15
+    if: github.repository == 'open-telemetry/opentelemetry-ebpf-instrumentation'
     steps:
       # Check out the trusted default branch, NOT the workflow_run head SHA: only
       # weaver reports — pure data — are pulled from the PR's runs, as artifacts
@@ -100,14 +101,25 @@ jobs:
           mkdir -p all-weaver-reports
           echo "contributing runs: ${RUN_IDS}"
           for id in $RUN_IDS; do
-            # A run without weaver reports is expected; any other failure would
-            # leave the aggregate partial, so it fails the job.
-            if ! out=$(gh run download "$id" --repo "$REPO" --dir all-weaver-reports --pattern 'weaver-reports-*' 2>&1); then
-              if ! grep -q 'no valid artifacts found' <<<"$out"; then
+            dest="all-weaver-reports/${id}"
+            for attempt in 1 2 3 4; do
+              rm -rf "$dest"
+              if out=$(gh run download "$id" --repo "$REPO" --dir "$dest" --pattern 'weaver-reports-*' 2>&1); then
+                break
+              fi
+              # A run without weaver reports is expected; any other failure would
+              # leave the aggregate partial, so it fails the job.
+              if grep -q 'no valid artifacts found' <<<"$out"; then
+                break
+              fi
+              if [ "$attempt" -eq 4 ]; then
                 echo "::error title=Weaver coverage::could not download the reports of run ${id}: ${out}"
                 exit 1
               fi
-            fi
+              # artifact storage throttles bursts of downloads with transient 503s
+              echo "::warning title=Weaver coverage::retrying the reports of run ${id}: ${out}"
+              sleep $((attempt * 30))
+            done
           done
           count=$(find all-weaver-reports -name 'weaver-report-*.json' | wc -l | tr -d ' ')
           echo "collected ${count} weaver report file(s)"
