@@ -175,9 +175,8 @@ section empty once drained.
   `sockops` programs, so tracepoint, raw tracepoint, XDP, cgroup and `Tracing` programs add
   series. The internal BPF probe metrics (`obi.bpf.probe.latency`,
   `obi_bpf_probe_executions_total`, `obi_bpf_probe_latency_seconds_total`) cover only the
-  programs OBI loaded, of every type except `Tracing` (OBI's TCP iterators): series of other
-  eBPF tools on the node disappear, and series of OBI's tracepoint, raw tracepoint and XDP
-  programs appear.
+  programs OBI loaded, of every type: series of other eBPF tools on the node disappear, and
+  series of OBI's tracepoint, raw tracepoint, XDP and `Tracing` programs appear.
 
 ## Hosting notes
 

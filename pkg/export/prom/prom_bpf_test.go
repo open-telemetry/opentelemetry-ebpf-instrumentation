@@ -624,20 +624,6 @@ func TestBPFCollectorExposesCumulativeProbeLatencyBuckets(t *testing.T) {
 	assert.Equal(t, uint64(30), buckets[0.005])
 }
 
-func TestReportsProgramType(t *testing.T) {
-	internal := &BPFCollector{obiOnly: true}
-	assert.True(t, internal.reportsProgramType(ebpf.Kprobe))
-	assert.True(t, internal.reportsProgramType(ebpf.TracePoint))
-	assert.True(t, internal.reportsProgramType(ebpf.XDP))
-	assert.False(t, internal.reportsProgramType(ebpf.Tracing))
-
-	node := &BPFCollector{}
-	assert.True(t, node.reportsProgramType(ebpf.Kprobe))
-	assert.True(t, node.reportsProgramType(ebpf.XDP))
-	assert.True(t, node.reportsProgramType(ebpf.CGroupSKB))
-	assert.True(t, node.reportsProgramType(ebpf.Tracing))
-}
-
 func TestInternalProgramIDsComeFromFDInfo(t *testing.T) {
 	fdinfoDir := t.TempDir()
 	writeFDInfo(t, fdinfoDir, map[string]string{

@@ -51,7 +51,6 @@ type BPFCollector struct {
 }
 
 type cachedProgram struct {
-	supported bool
 	probeType string
 	probeName string
 	probeID   string
@@ -392,10 +391,6 @@ func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
 		seen[id] = struct{}{}
 
 		cached, ok := bc.programCache[id]
-		if ok && !cached.supported {
-			continue
-		}
-
 		program, err := ebpf.NewProgramFromID(id)
 		if err != nil {
 			bc.log.Debug("failed to load program", "ID", id, "error", err)
@@ -405,7 +400,7 @@ func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
 		if !ok {
 			cached = bc.cacheProgram(id, program)
 		}
-		if cached == nil || !cached.supported {
+		if cached == nil {
 			bc.closeProgram(id, program)
 			continue
 		}
@@ -484,27 +479,13 @@ func (bc *BPFCollector) cacheProgram(id ebpf.ProgramID, program *ebpf.Program) *
 		return nil
 	}
 
-	if !bc.reportsProgramType(info.Type) {
-		cached := &cachedProgram{}
-		bc.programCache[id] = cached
-		return cached
-	}
-
 	cached := &cachedProgram{
-		supported: true,
 		probeType: info.Type.String(),
 		probeName: getFuncName(info, id, bc.log),
 		probeID:   strconv.FormatUint(uint64(id), 10),
 	}
 	bc.programCache[id] = cached
 	return cached
-}
-
-// reportsProgramType reports every program type on the node. OBI's own programs skip
-// Tracing: OBI loads it only as iterators, which run when OBI reads them and not on
-// the path of the instrumented workloads.
-func (bc *BPFCollector) reportsProgramType(programType ebpf.ProgramType) bool {
-	return !bc.obiOnly || programType != ebpf.Tracing
 }
 
 func (bc *BPFCollector) evictMissingPrograms(seen map[ebpf.ProgramID]struct{}) {
