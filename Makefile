@@ -645,9 +645,16 @@ integration-test-matrix-json:
 # covers multiprocess context propagation, gRPC relay, the HTTP
 # logenricher pipeline, large HTTP request bodies, Go Auto SDK activation, and
 # context propagation enrollment.
+MULTIPROCESS_TEST_PATTERN := TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest|TestGo.*SDKActivation|TestCPEnrollment
+
 .PHONY: multiprocess-integration-test-matrix-json
 multiprocess-integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest|TestGo.*SDKActivation|TestCPEnrollment)"
+	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "($(MULTIPROCESS_TEST_PATTERN))"
+
+# ARM64 also exercises the JVM memory metrics fallback without USDT probes.
+.PHONY: arm64-integration-test-matrix-json
+arm64-integration-test-matrix-json:
+	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-2}" "($(MULTIPROCESS_TEST_PATTERN)|TestJVMRuntimeMetricsWithoutHotSpotUSDT)"
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:
