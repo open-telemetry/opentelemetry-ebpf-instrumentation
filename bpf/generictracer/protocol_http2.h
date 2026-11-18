@@ -335,8 +335,11 @@ static __always_inline void http2_grpc_start(void *ctx,
     if (!is_client) {
         const rust_protocol_config_t *rust = rust_protocol_config(bpf_get_current_pid_tgid());
         if (rust && rust->h2_server && rust_process_instrumented(bpf_get_current_pid_tgid())) {
-            // Rust's decoded request hook supplies the remote parent before dispatch.
-            http2_grpc_start_finalize_server(s_key, h2g_info, tp_p, 0, ssl, orig_dport);
+            // Rust's decoded request hook replaces this with a header parent before
+            // dispatch. Headerless requests keep the parent known for the connection.
+            const u8 found_tp = find_trace_for_server_request(
+                &s_key->pid_conn.conn, &tp_p->tp, k_event_type_http_request);
+            http2_grpc_start_finalize_server(s_key, h2g_info, tp_p, found_tp, ssl, orig_dport);
             return;
         }
         // Server finalize tail-called to stay under verifier insn limit on 5.15
