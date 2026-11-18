@@ -77,6 +77,14 @@ class RustOffsetWorkflowTests(unittest.TestCase):
                 env = matrix[name+"-socket-"+protocol]
                 self.assertEqual("1", env["NO_USER_WRITE"])
                 self.assertEqual("1", env["INJECT"])
+        for name in ("latest-http1", "latest-http2", "rustls-client-http1", "rustls-client-http2"):
+            env = matrix[name+"-otel-exporter"]
+            self.assertEqual("1", env["OTEL_EXPORTER"])
+            self.assertEqual("1", env["INJECT"])
+        for protocol in ("http1", "http2"):
+            env = matrix["latest-"+protocol+"-otel-exporter-app-header"]
+            self.assertEqual("1", env["APP_HEADER"])
+            self.assertEqual("1", env["FORWARDED_APP_HEADER"])
 
 
 if __name__ == "__main__":

@@ -133,11 +133,6 @@ enum {
 volatile const u32 inject_flags =
     k_inject_http_headers | k_inject_tcp_options; // default: both enabled
 
-// user space marks the processes it saw exporting OTLP traces: OBI's spans of them are dropped
-static __always_inline bool exports_otel_traces() {
-    return pid_selected(&otel_traces_pids, obi_pid(bpf_get_current_pid_tgid()));
-}
-
 static __always_inline bool inject_http_headers() {
     return (inject_flags & k_inject_http_headers) && !exports_otel_traces();
 }

@@ -19,6 +19,7 @@
 
 #include <maps/ongoing_http2_grpc.h>
 #include <shared/obi_ctx.h>
+#include <tpinjector/maps/otel_traces_pids.h>
 
 enum { k_rust_max_headers = 64 };
 
@@ -120,6 +121,11 @@ int GUARDED_PROG(obi_rust_http1_headers_ret, struct pt_regs *, ctx) {
 
     rust_save_request(id, &args.request);
     rust_publish_wire_parent(id, &args.request);
+    if (exports_otel_traces()) {
+        bpf_dbg_printk("rust http exporter header insertion skipped");
+        return 0;
+    }
+
     if (!args.request.inject || !g_bpf_probe_write_user_enabled) {
         bpf_dbg_printk("rust h1 header insertion skipped");
         return 0;
@@ -277,6 +283,14 @@ static __noinline bool rust_existing_header(u64 headers,
     if (bpf_memcmp(wire.trace_id, request->parent.tp.trace_id, TRACE_ID_SIZE_BYTES) != 0) {
         __builtin_memset(&request->parent, 0, sizeof(request->parent));
         __builtin_memset(wire.parent_id, 0, sizeof(wire.parent_id));
+    }
+
+    // A header forwarded unchanged names the server's own caller. Keep the new client
+    // span: adopting the caller's ID would make the server and client each other's parent.
+    if (request->parent.valid &&
+        bpf_memcmp(wire.span_id, request->parent.tp.parent_id, SPAN_ID_SIZE_BYTES) == 0) {
+        bpf_dbg_printk("rust forwarded traceparent, keeping a distinct client span");
+        return true;
     }
 
     request->wire = wire;
@@ -449,6 +463,11 @@ int GUARDED_PROG(obi_rust_h2_encode_ret, struct pt_regs *, ctx) {
     rust_http_args_t args = *saved;
     bpf_map_delete_elem(&rust_http_args, &id);
     rust_publish_wire_parent(id, &args.request);
+    if (exports_otel_traces()) {
+        bpf_dbg_printk("rust h2 exporter header insertion skipped");
+        return 0;
+    }
+
     if (!config->inject || !g_bpf_probe_write_user_enabled) {
         return 0;
     }
@@ -492,6 +511,11 @@ int GUARDED_PROG(obi_rust_h2_hpack_ret, struct pt_regs *, ctx) {
     const u64 id = bpf_get_current_pid_tgid();
     rust_http_args_t *args = bpf_map_lookup_elem(&rust_http_args, &id);
     const rust_protocol_config_t *config = rust_protocol_config(id);
+
+    if (exports_otel_traces()) {
+        bpf_dbg_printk("rust hpack exporter header insertion skipped");
+        return 0;
+    }
 
     if (args && rust_process_instrumented(id) && config && config->inject &&
         g_bpf_probe_write_user_enabled && args->request.inject && rust_hpack_append(args, config)) {

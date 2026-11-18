@@ -161,6 +161,9 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 	cfg := obi.DefaultConfig
 	cfg.EBPF.BpfDebug = os.Getenv("OBI_RUST_TEST_DEBUG") != ""
 	cfg.EBPF.TrackRequestHeaders = true
+	if os.Getenv("OBI_RUST_TEST_OTEL_EXPORTER") != "" {
+		cfg.Discovery.ExcludeOTelInstrumentedServices = true
+	}
 	if os.Getenv("OBI_RUST_TEST_INJECT") != "" {
 		cfg.EBPF.ContextPropagation = config.ContextPropagationHeaders
 	}
@@ -238,6 +241,29 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 	}
 	// The second sequential request reuses Hyper's existing connection task.
 	require.NoError(t, send(0))
+	if os.Getenv("OBI_RUST_TEST_OTEL_EXPORTER") != "" {
+		before, ok := received.Load("/request/0")
+		require.True(t, ok)
+		require.Len(t, before, 1, "header injection must work before exporter detection")
+
+		pids.Filter([]request.Span{{
+			Type: request.EventTypeHTTPClient, Path: "/v1/traces", Status: http.StatusOK,
+			Pid: request.PidInfo{UserPID: pid, HostPID: pid, Namespace: fi.Ns()},
+		}})
+		require.True(t, fi.ExportsOTelTraces(), "the live PID must be classified as a trace exporter")
+
+		require.NoError(t, send(1))
+		after, ok := received.Load("/request/1")
+		require.True(t, ok)
+		if os.Getenv("OBI_RUST_TEST_APP_HEADER") != "" {
+			require.Equal(t, []string{"00-00000000000000000000000000000002-1111111111111111-01"}, after,
+				"the excluded exporter's application header must pass unchanged")
+		} else {
+			require.Empty(t, after, "an excluded trace exporter must not receive an OBI-generated traceparent")
+		}
+		require.EqualValues(t, 1, connections.Load(), "exporter exclusion must apply to an existing connection")
+		return
+	}
 	require.NoError(t, send(1))
 	require.EqualValues(t, 1, connections.Load(), "the warmup requests must reuse Hyper's connection")
 	requests := 10
@@ -381,7 +407,14 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 				continue
 			}
 			injected++
-			require.Equal(t, []string{fmt.Sprintf("00-%s-%s-01", clients[path].TraceID, clients[path].SpanID)}, header, path)
+			if os.Getenv("OBI_RUST_TEST_FORWARDED_APP_HEADER") != "" {
+				forwarded := servers[path].ParentSpanID
+				require.Equal(t, "1111111111111111", forwarded.String(), path)
+				require.NotEqual(t, forwarded, clients[path].SpanID,
+					"a forwarded header must not make the client its server's parent: %s", path)
+			} else {
+				require.Equal(t, []string{fmt.Sprintf("00-%s-%s-01", clients[path].TraceID, clients[path].SpanID)}, header, path)
+			}
 			if os.Getenv("OBI_RUST_TEST_APP_HEADER") != "" {
 				require.Equal(t, []string{fmt.Sprintf("00-%s-1111111111111111-01", expected)}, header,
 					"the application owns its header: %s", path)

@@ -122,6 +122,16 @@ def scenarios(cases):
         yield "latest-owned-http1", "latest", {"INJECT": "1"}
         yield "latest-forwarded-http1", "latest", {"INJECT": "1", "APP_HEADER": "1", "FORWARDED_APP_HEADER": "1"}
         yield "latest-forwarded-http2", "latest", {"H2C": "1", "INJECT": "1", "APP_HEADER": "1", "FORWARDED_APP_HEADER": "1"}
+        yield "latest-http1-otel-exporter", "latest", {"INJECT": "1", "OTEL_EXPORTER": "1"}
+        yield "latest-http2-otel-exporter", "latest", {"H2C": "1", "INJECT": "1", "OTEL_EXPORTER": "1"}
+        yield "latest-http1-otel-exporter-app-header", "latest", {"INJECT": "1", "OTEL_EXPORTER": "1", "APP_HEADER": "1", "FORWARDED_APP_HEADER": "1"}
+        yield "latest-http2-otel-exporter-app-header", "latest", {"H2C": "1", "INJECT": "1", "OTEL_EXPORTER": "1", "APP_HEADER": "1", "FORWARDED_APP_HEADER": "1"}
+    for name in ("rustls-client-http1", "rustls-client-http2"):
+        if name in names:
+            env = {"TLS": "1", "INJECT": "1", "OTEL_EXPORTER": "1"}
+            if name.endswith("http2"):
+                env["H2"] = "1"
+            yield name+"-otel-exporter", name, env
     for name, env in (("latest", {"H2C": "1", "INJECT": "1", "APP_HEADER": "1"}),
                       ("rustls-client-http1", {"TLS": "1", "INJECT": "1", "APP_HEADER": "1"})):
         if name in names:
