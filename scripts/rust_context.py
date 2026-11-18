@@ -120,6 +120,7 @@ def scenarios(cases):
             yield name + "-socket-http2", name, {"H2C": "1", "INJECT": "1", "NO_USER_WRITE": "1"}
     if "latest" in names:
         yield "latest-owned-http1", "latest", {"INJECT": "1"}
+        yield "latest-grouped-worker", "latest", {"INJECT": "1", "SHARED_EXECUTABLE": "1"}
         yield "latest-split-http1", "latest", {"INJECT": "1", "SPLIT_HEADER": "1"}
         yield "latest-forwarded-http1", "latest", {"INJECT": "1", "APP_HEADER": "1", "FORWARDED_APP_HEADER": "1"}
         yield "latest-forwarded-http2", "latest", {"H2C": "1", "INJECT": "1", "APP_HEADER": "1", "FORWARDED_APP_HEADER": "1"}

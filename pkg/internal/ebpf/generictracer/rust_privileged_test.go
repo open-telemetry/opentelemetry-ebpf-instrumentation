@@ -188,6 +188,23 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 	processTracer := ebpftracer.NewProcessTracer(ebpftracer.Generic, programs, &cfg, rustTestReporter{})
 	require.NoError(t, processTracer.Init(eventContext, &cfg))
 	fi := rustProcessFileInfo(t, pid)
+	if os.Getenv("OBI_RUST_TEST_SHARED_EXECUTABLE") != "" {
+		// Discovery can share one executable's FileInfo across several PIDs.
+		// A second live instance supplies shared metadata with a different start time.
+		shared := osexec.CommandContext(ctx, binary, downstreamURL)
+		shared.Env = append(cmd.Environ(), "OBI_RUST_LISTEN=127.0.0.1:0")
+		shared.Stderr = os.Stderr
+		output, err := shared.StdoutPipe()
+		require.NoError(t, err)
+		require.NoError(t, shared.Start())
+		t.Cleanup(func() { _ = shared.Process.Kill(); _ = shared.Wait() })
+		require.True(t, bufio.NewScanner(output).Scan())
+		sharedInfo := rustProcessFileInfo(t, app.PID(shared.Process.Pid))
+		require.Equal(t, fi.Dev(), sharedInfo.Dev())
+		require.Equal(t, fi.Ino(), sharedInfo.Ino())
+		require.NotEqual(t, fi.StartTime(), sharedInfo.StartTime())
+		fi = sharedInfo
+	}
 	processTracer.AllowPID(pid, fi.Ns(), fi)
 	var capabilities BpfRustCapabilitiesT
 	require.NoError(t, tracer.bpfObjects.RustCapabilities.Lookup(uint32(pid), &capabilities))

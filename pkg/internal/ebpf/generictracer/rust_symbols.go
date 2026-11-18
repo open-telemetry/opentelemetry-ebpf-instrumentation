@@ -149,7 +149,8 @@ func resolveRustProbes(f *elf.File) (rustProbeSymbols, error) {
 	}
 
 	if len(syms) == 0 {
-		return rustProbeSymbols{}, errors.New("no supported Rust runtime or protocol symbols found")
+		// The runtime marker outlives the probes: Tokio workers still poll unrelated tasks.
+		return rustProbeSymbols{hasTokio: hasTokio}, errors.New("no supported Rust runtime or protocol symbols found")
 	}
 
 	slices.Sort(probes.channels)

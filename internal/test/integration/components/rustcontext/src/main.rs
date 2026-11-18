@@ -169,7 +169,8 @@ async fn rustls_fetch(url: String) {
 }
 
 async fn serve() {
-    let listener = TcpListener::bind("127.0.0.1:18090").await.unwrap();
+    let listen = std::env::var("OBI_RUST_LISTEN").unwrap_or_else(|_| "127.0.0.1:18090".to_owned());
+    let listener = TcpListener::bind(listen).await.unwrap();
     let downstream = Arc::new(std::env::args().nth(1).expect("downstream URL"));
     let builder = reqwest::Client::builder();
     #[cfg(feature = "tls")]

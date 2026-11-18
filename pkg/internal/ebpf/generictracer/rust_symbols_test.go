@@ -201,6 +201,9 @@ func TestPrepareRustAlternativeFixture(t *testing.T) {
 	for kind := rustH2SendHeaders; kind <= rustH2HPACK; kind++ {
 		groups["h2"] = append(groups["h2"], kind)
 	}
+	for kind := range rustProbeCount {
+		groups["hooks-missing"] = append(groups["hooks-missing"], kind)
+	}
 	groups["channels-missing-h2"] = groups["channels-missing"]
 	kinds, ok := groups[group]
 	require.True(t, ok, group)
@@ -250,4 +253,13 @@ func TestPrepareRustAlternativeFixture(t *testing.T) {
 	arguments = append(arguments, output)
 	result, err := osexec.Command("objcopy", arguments...).CombinedOutput()
 	require.NoError(t, err, "%s", result)
+
+	if group == "hooks-missing" {
+		stripped, err := elf.Open(output)
+		require.NoError(t, err)
+		defer stripped.Close()
+		remaining, err := resolveRustProbes(stripped)
+		require.Error(t, err, "no supported hook may survive")
+		require.True(t, remaining.hasTokio, "the Tokio runtime must still be recognized")
+	}
 }
