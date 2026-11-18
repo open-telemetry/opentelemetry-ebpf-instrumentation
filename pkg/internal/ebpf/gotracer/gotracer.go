@@ -688,6 +688,7 @@ func (p *Tracer) RegisterOffsets(fileInfo *exec.FileInfo, offsets *goexec.Offset
 		goexec.PgxConfigHostPos,
 		goexec.MuxTemplatePos,
 		goexec.GinFullpathPos,
+		goexec.RestfulRoutePathPos,
 	} {
 		if val, ok := offsets.Field[field].(uint64); ok {
 			offTable.Table[field] = val
@@ -2256,6 +2257,10 @@ func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
 		// Gin router
 		m["github.com/gin-gonic/gin.(*node).getValue"] = []*ebpfcommon.ProbeDesc{{
 			End: p.bpfObjects.ObiUprobeGinGetValueRet,
+		}}
+		// go-restful router
+		m["github.com/emicklei/go-restful/v3.(*Route).wrapRequestResponse"] = []*ebpfcommon.ProbeDesc{{
+			Start: p.bpfObjects.ObiUprobeRestfulRouteWrapRequestResponse,
 		}}
 	}
 

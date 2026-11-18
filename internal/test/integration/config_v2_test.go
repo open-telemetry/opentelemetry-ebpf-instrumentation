@@ -80,7 +80,7 @@ func TestSuite_ConfigV2RequestPhaseSpansDisabled(t *testing.T) {
 		require.NoError(t, compose.Close())
 	})
 
-	waitForHTTPServerTrace(t, instrumentedServiceStdURL, "testserver")
+	waitForHTTPServerTrace(t, instrumentedServiceStdURL)
 
 	requireOBIConfigV2(t, compose, `"cmd":"/testserver"`)
 
