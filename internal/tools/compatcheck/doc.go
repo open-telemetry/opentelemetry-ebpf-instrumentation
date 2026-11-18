@@ -1,10 +1,13 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Command compatcheck checks the root module's public Go source API on Linux
-// against VERSIONING.md. It follows aliases and exposed internal and dependency
-// types; commands, test files, and independently versioned modules are excluded
-// as roots. bpf2go declarations and generated layouts are excluded, including
+// Command compatcheck compares the root module's public Go source API on Linux.
+// It implements a subset of VERSIONING.md's Go API rules in code; policy changes
+// require corresponding code and test updates. VERSIONING.md is not read at runtime.
+//
+// It follows aliases and exposed internal and dependency types. Commands, test
+// files, and independently versioned modules are excluded as roots. bpf2go
+// declarations and generated layouts are excluded, including
 // through handwritten aliases and wrappers.
 //
 // Run from the repository root with Go, Git, and Cosign installed:
@@ -34,9 +37,10 @@
 // required_release classifies the PR; release_required includes inherited changes.
 // Unresolved comparisons make the corresponding assessment incomplete.
 //
-// COMPAT_RELEASE_VERSION=vX.Y.Z additionally validates the entire candidate for
-// that release, including inherited changes. The executable exits 0 when the PR
-// (or requested release) assessment passes, 1 for incompatibilities or additions
+// COMPAT_RELEASE_VERSION=vX.Y.Z additionally checks the candidate's Go API
+// release classification against that version, including inherited changes.
+// The executable exits 0 when the PR (or requested release) assessment passes,
+// 1 for incompatibilities or additions
 // in a proposed patch, and 2 for invalid inputs or an incomplete assessment.
 // Make wraps exit statuses.
 //
