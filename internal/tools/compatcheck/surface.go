@@ -19,6 +19,7 @@ import (
 // Private members retain their original package identities.
 type apiSurface struct {
 	pkg       *types.Package
+	source    *apiSnapshot
 	roots     map[string]*types.Package
 	types     map[types.Type]types.Type
 	named     map[string]*types.Named
@@ -32,7 +33,7 @@ type apiSurface struct {
 func newAPISurface(api *apiSnapshot) *apiSurface {
 	roots := api.Packages
 	s := &apiSurface{
-		pkg: types.NewPackage(coreModule, "obi"), roots: roots,
+		pkg: types.NewPackage(coreModule, "obi"), roots: roots, source: api,
 		named: map[string]*types.Named{}, types: map[types.Type]types.Type{},
 		originals: map[string]types.Object{}, context: types.NewContext(),
 		anonymous: map[*types.Interface]types.Object{},

@@ -27,7 +27,6 @@ import (
 const (
 	coreModule = "go.opentelemetry.io/obi"
 	repository = "open-telemetry/opentelemetry-ebpf-instrumentation"
-	goAPIRule  = "VERSIONING.md#go-module-api"
 	exitBreak  = 1
 	exitError  = 2
 )
@@ -55,7 +54,7 @@ type apiChange struct {
 	Message     string       `json:"message"`
 	Compatible  bool         `json:"-"`
 	Unsupported bool         `json:"-"`
-	Rule        string       `json:"rule"`
+	Location    string       `json:"location,omitempty"`
 	Reason      string       `json:"reason,omitempty"`
 }
 
@@ -70,6 +69,7 @@ type baseline struct {
 type report struct {
 	FormatVersion        int         `json:"format_version"`
 	Surface              string      `json:"surface"`
+	Policy               string      `json:"policy"`
 	BaseCommit           string      `json:"base_commit"`
 	HeadCommit           string      `json:"head_commit"`
 	WorkingTree          bool        `json:"working_tree_modified"`
@@ -119,7 +119,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 
 	r := report{
-		FormatVersion: 2, Surface: "go-api", RequiredRelease: "incomplete", ReleaseRequired: "incomplete", ProposedRelease: opts.releaseVersion,
+		FormatVersion: 2, Surface: "go-api", Policy: "VERSIONING.md#go-module-api", RequiredRelease: "incomplete", ReleaseRequired: "incomplete", ProposedRelease: opts.releaseVersion,
 		Baselines: []baseline{}, Findings: []apiChange{}, ExistingFindings: []apiChange{}, Unclassified: []apiChange{}, ExistingUnclassified: []apiChange{},
 	}
 	err := check(ctx, opts, &r, stderr)
@@ -283,10 +283,10 @@ func check(ctx context.Context, opts options, r *report, progress io.Writer) err
 	}
 	if len(r.Unclassified) > 0 {
 		r.RequiredRelease = "incomplete"
-		return errors.New("source compatibility could not be determined for a PR change; see unclassified_changes in JSON")
+		return errors.New("source compatibility could not be determined for a PR change")
 	}
 	if opts.releaseVersion != "" && r.ReleaseRequired == "incomplete" {
-		return errors.New("release assessment is incomplete; see unclassified_changes and existing_unclassified_changes in JSON")
+		return errors.New("release assessment includes unresolved source compatibility changes")
 	}
 
 	if opts.releaseVersion != "" {
@@ -405,19 +405,71 @@ func printReport(w io.Writer, r *report) {
 		fmt.Fprintln(w, "No incompatible public Go API changes introduced by this PR.")
 	}
 	for _, f := range r.Findings {
-		fmt.Fprintf(w, "incompatible [%s %s] %s: %s\n", f.Baseline, f.Platform, f.Package, f.Message)
+		printDiagnostic(w, f)
 	}
 	for _, c := range r.Unclassified {
-		fmt.Fprintf(w, "unclassified [%s %s] %s.%s: %s\n", c.Baseline, c.Platform, c.Package, c.Identifier, c.Reason)
+		printDiagnostic(w, c)
 	}
 	if r.ProposedRelease != "" {
-		fmt.Fprintf(w, "Full candidate release assessment: %s\n", r.ReleaseRequired)
+		fmt.Fprintf(w, "\nFull candidate release assessment: %s\n", r.ReleaseRequired)
 		for _, f := range r.ExistingFindings {
-			fmt.Fprintf(w, "incompatible [%s %s] %s: %s\n", f.Baseline, f.Platform, f.Package, f.Message)
+			printDiagnostic(w, f)
 		}
 		for _, c := range r.ExistingUnclassified {
-			fmt.Fprintf(w, "unclassified [%s %s] %s.%s: %s\n", c.Baseline, c.Platform, c.Package, c.Identifier, c.Reason)
+			printDiagnostic(w, c)
 		}
+	}
+	diagnostics := len(r.Findings) + len(r.Unclassified)
+	if r.ProposedRelease != "" {
+		diagnostics += len(r.ExistingFindings) + len(r.ExistingUnclassified)
+	}
+	if diagnostics > 0 {
+		fmt.Fprintf(w, "\nPolicy: %s\n", r.Policy)
+	}
+}
+
+func printDiagnostic(w io.Writer, c apiChange) {
+	if c.Unsupported {
+		fmt.Fprintf(w, "\nerror: source compatibility is unresolved for %s\n", c.Identifier)
+	} else {
+		fmt.Fprintf(w, "\nerror: %s\n", c.Message)
+	}
+	if c.Location != "" {
+		fmt.Fprintf(w, "  --> %s\n", c.Location)
+	}
+	api := c.Package
+	if c.Identifier != "" && c.Identifier != c.Package {
+		api += "." + c.Identifier
+	}
+	fmt.Fprintf(w, "   = API: %s\n   = baseline: %s (%s)\n", api, c.Baseline, c.Platform)
+	if c.Before != "" {
+		fmt.Fprintf(w, "   = released:  %s\n", c.Before)
+	}
+	if c.After != "" {
+		fmt.Fprintf(w, "   = candidate: %s\n", c.After)
+	}
+	if c.Reason != "" {
+		fmt.Fprintf(w, "   = note: %s\n", c.Reason)
+	}
+	fmt.Fprintf(w, "   = help: %s\n", diagnosticHelp(c))
+}
+
+func diagnosticHelp(c apiChange) string {
+	switch {
+	case c.Unsupported && strings.Contains(c.Reason, "constant value"):
+		return "Verify that existing uses retain their documented meaning; a value change alone is inconclusive."
+	case c.Unsupported:
+		return "Keep the released type until source compatibility can be established for this replacement."
+	case strings.Contains(c.Message, "added method to an existing interface"):
+		return "Keep this interface unchanged so existing implementations still satisfy it; add a new interface."
+	case strings.Contains(c.Message, ": removed"), c.Message == "package removed", c.Message == "package name changed":
+		return "Restore this API under its released name so existing consumers continue to compile."
+	case strings.Contains(c.Message, "old is comparable, new is not"):
+		return "Existing equality checks and map keys no longer compile. Keep this type comparable."
+	case strings.Contains(c.Message, "constraints changed"):
+		return "Keep accepting the released type arguments so existing generic consumers continue to compile."
+	default:
+		return "Keep the released declaration so existing callers compile; add a new API for the new behavior."
 	}
 }
 

@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"io"
 	"path/filepath"
 	"strings"
@@ -53,6 +54,8 @@ func TestFindingAttribution(t *testing.T) {
 	introduced := inherited
 	introduced.Identifier = "New"
 	introduced.Message = "New: removed"
+	relocated := inherited
+	relocated.Location = "pkg/public/api.go:20:6"
 	worsened := inherited
 	worsened.Message = "Old: changed from int to string"
 	for _, tc := range []struct {
@@ -61,6 +64,7 @@ func TestFindingAttribution(t *testing.T) {
 		newCount, existingCount int
 	}{
 		{"tooling-only PR", []apiChange{inherited}, 0, 1},
+		{"source line moved", []apiChange{relocated}, 0, 1},
 		{"new violation", []apiChange{inherited, introduced}, 1, 1},
 		{"changed violation", []apiChange{worsened}, 1, 0},
 		{"fixed violation", nil, 0, 0},
@@ -133,5 +137,27 @@ func TestAttributionOfExposedConstraint(t *testing.T) {
 	introduced, _ := attributeChanges(head, base)
 	if minimumRelease(introduced, "v1.0.0") != "major" {
 		t.Fatalf("further narrowing hidden as inherited: head=%+v base=%+v", head, base)
+	}
+}
+
+func TestDiagnosticOutput(t *testing.T) {
+	var output bytes.Buffer
+	printDiagnostic(&output, apiChange{
+		Package: coreModule + "/pkg/public", Identifier: "F",
+		Baseline: "v1.0.0", Platform: "linux/amd64", Location: "pkg/public/api.go:4:6",
+		Message: "F: changed from func(int) to func(string)",
+		Before:  "func F(int)", After: "func F(string)",
+	})
+	want := `
+error: F: changed from func(int) to func(string)
+  --> pkg/public/api.go:4:6
+   = API: go.opentelemetry.io/obi/pkg/public.F
+   = baseline: v1.0.0 (linux/amd64)
+   = released:  func F(int)
+   = candidate: func F(string)
+   = help: Keep the released declaration so existing callers compile; add a new API for the new behavior.
+`
+	if output.String() != want {
+		t.Fatalf("diagnostic:\n%s\nwant:\n%s", &output, want)
 	}
 }

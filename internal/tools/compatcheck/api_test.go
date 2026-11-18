@@ -76,7 +76,7 @@ func TestCompareAPI(t *testing.T) {
 			for _, f := range changes {
 				if strings.Contains(f.Message, tc.message) && f.Compatible == tc.compatible && f.Unsupported == tc.unclassified {
 					found = true
-					if f.Baseline != "v1.0.0" || f.Platform != "linux/amd64" || f.Rule != goAPIRule {
+					if f.Baseline != "v1.0.0" || f.Platform != "linux/amd64" {
 						t.Fatalf("missing change context: %+v", f)
 					}
 				}

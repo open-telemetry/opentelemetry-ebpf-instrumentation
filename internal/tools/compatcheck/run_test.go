@@ -137,6 +137,22 @@ func TestPRAndReleaseResults(t *testing.T) {
 			if code != tc.code || r.RequiredRelease != tc.prClass || r.ReleaseRequired != tc.releaseClass || len(r.Findings) != tc.introduced || len(r.ExistingFindings) != tc.existing || len(r.Unclassified) != tc.unclassified || len(r.ExistingUnclassified) != tc.existingUnclassified {
 				t.Fatalf("exit=%d, want %d; report=%s\n%s", code, tc.code, data, &output)
 			}
+			if r.Policy != "VERSIONING.md#go-module-api" || bytes.Contains(data, []byte(`"rule":`)) {
+				t.Fatalf("policy must be reported once, rather than on each change: %s", data)
+			}
+			if tc.name == "new break" {
+				for _, detail := range []string{"error: F:", "--> pkg/public/api.go:1:", "released:  func F(int)", "candidate: func F(string)", "help:", "Policy:"} {
+					if !strings.Contains(output.String(), detail) {
+						t.Fatalf("missing diagnostic detail %q:\n%s", detail, &output)
+					}
+				}
+				if strings.Count(output.String(), "VERSIONING.md#go-module-api") != 1 {
+					t.Fatalf("repeated policy citation:\n%s", &output)
+				}
+			}
+			if tc.name == "constant value needs contract review" && !strings.Contains(output.String(), "error: source compatibility is unresolved") {
+				t.Fatalf("unresolved comparison presented as a proven incompatibility:\n%s", &output)
+			}
 			if tc.contextChange != "" && !strings.Contains(r.Unclassified[0].Reason, tc.contextChange) {
 				t.Fatalf("changed type context was not identified: %+v", r.Unclassified)
 			}

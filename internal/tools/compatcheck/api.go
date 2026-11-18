@@ -11,6 +11,7 @@ import (
 	"go/token"
 	"go/types"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -22,6 +23,8 @@ type apiSnapshot struct {
 	Packages     map[string]*types.Package
 	Modules      map[string]string
 	BPFGenerated map[types.Object]bool
+	FileSet      *token.FileSet
+	Root         string
 }
 
 func loadAPI(ctx context.Context, root, arch string) (*apiSnapshot, error) {
@@ -94,7 +97,22 @@ func loadAPI(ctx context.Context, root, arch string) (*apiSnapshot, error) {
 	if len(result) != len(paths) {
 		return nil, fmt.Errorf("loaded %d public packages, expected %d", len(result), len(paths))
 	}
-	return &apiSnapshot{Packages: result, Modules: modules, BPFGenerated: generated}, nil
+	return &apiSnapshot{Packages: result, Modules: modules, BPFGenerated: generated, FileSet: loaded[0].Fset, Root: root}, nil
+}
+
+func (a *apiSnapshot) location(obj types.Object) string {
+	if obj == nil || a.FileSet == nil {
+		return ""
+	}
+	pos := a.FileSet.PositionFor(obj.Pos(), false)
+	if !pos.IsValid() {
+		return ""
+	}
+	path, err := filepath.Rel(a.Root, pos.Filename)
+	if err != nil || path == ".." || strings.HasPrefix(path, ".."+string(filepath.Separator)) {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d:%d", filepath.ToSlash(path), pos.Line, pos.Column)
 }
 
 func generatedBPFDeclarations(pkg *packages.Package) ([]types.Object, error) {
@@ -159,14 +177,14 @@ func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) (ch
 		if !exists {
 			changes = append(changes, apiChange{
 				Baseline: version, Platform: platform, Package: path, Identifier: path,
-				Before: "package " + path, Message: "package removed", Rule: goAPIRule,
+				Before: "package " + path, Message: "package removed",
 			})
 			continue
 		}
 		if before.Name() != after.Name() {
 			changes = append(changes, apiChange{
 				Baseline: version, Platform: platform, Package: path, Identifier: path,
-				Before: before.Name(), After: after.Name(), Message: "package name changed", Rule: goAPIRule,
+				Before: before.Name(), After: after.Name(), Message: "package name changed",
 			})
 		}
 	}
@@ -174,7 +192,7 @@ func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) (ch
 		if _, exists := old[path]; !exists {
 			changes = append(changes, apiChange{
 				Baseline: version, Platform: platform, Package: path, Identifier: path,
-				After: "package " + path, Message: "package added", Compatible: true, Rule: goAPIRule,
+				After: "package " + path, Message: "package added", Compatible: true,
 			})
 		}
 	}
@@ -198,6 +216,10 @@ func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) (ch
 		readable = strings.TrimPrefix(readable, path+".")
 		beforeMember := apiMember(beforeObj, identifier)
 		afterMember := apiMember(afterObj, identifier)
+		location := candidateAPI.location(afterMember)
+		if location == "" {
+			location = candidateAPI.location(afterObj)
+		}
 		module := ""
 		if afterMember != nil && afterMember.Pkg() != nil {
 			module = candidateAPI.Modules[afterMember.Pkg().Path()]
@@ -221,8 +243,8 @@ func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) (ch
 		changes = append(changes, apiChange{
 			Module: module, Baseline: version, Platform: platform, Package: path, Identifier: readable,
 			Before: describeAPIObject(beforeMember), After: describeAPIObject(afterMember),
-			Message: readable + ":" + detail, Compatible: change.Compatible, Rule: goAPIRule,
-			Unsupported: reason != "", Reason: reason, TypeContext: typeContext,
+			Message: readable + ":" + detail, Compatible: change.Compatible,
+			Unsupported: reason != "", Reason: reason, TypeContext: typeContext, Location: location,
 		})
 	}
 	changes = append(changes, compareConstraints(beforeSurface, afterSurface, version, platform)...)
@@ -363,7 +385,7 @@ func compareConstraints(before, after *apiSurface, version, platform string) []a
 }
 
 func constraintFinding(old, current types.Object, surface *apiSurface, version, platform string, compatible bool) apiChange {
-	return apiChange{Baseline: version, Platform: platform, Package: old.Pkg().Path(), Identifier: old.Name(), Before: describeAPIObject(old), After: describeAPIObject(current), Message: fmt.Sprintf("%s: constraints changed from %s to %s", old.Name(), describeConstraints(old, surface), describeConstraints(current, surface)), Compatible: compatible, Rule: goAPIRule}
+	return apiChange{Baseline: version, Platform: platform, Package: old.Pkg().Path(), Identifier: old.Name(), Before: describeAPIObject(old), After: describeAPIObject(current), Message: fmt.Sprintf("%s: constraints changed from %s to %s", old.Name(), describeConstraints(old, surface), describeConstraints(current, surface)), Compatible: compatible, Location: surface.source.location(current)}
 }
 
 func describeConstraints(obj types.Object, surface *apiSurface) string {
