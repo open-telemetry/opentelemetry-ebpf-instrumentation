@@ -2,9 +2,9 @@ name: Compatibility policy (advisory)
 
 on:
   pull_request:
-    branches: [main, release-*]
+    branches: [main]
   push:
-    branches: [main, release-*]
+    branches: [main]
   workflow_call:
     inputs:
       ref:
