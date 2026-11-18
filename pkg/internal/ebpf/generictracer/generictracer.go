@@ -70,6 +70,7 @@ type Tracer struct {
 	eventCtx       *ebpfcommon.EBPFEventContext
 	jvmUSDTManager ebpfcommon.USDTSpecManager
 	pythonRuntime  *pythonRuntimeController
+	rustRuntime    *rustController
 }
 
 func tlog() *slog.Logger {
@@ -99,6 +100,7 @@ func New(pidFilter ebpfcommon.ServiceFilter, cfg *obi.Config, metrics imetrics.R
 		seenNetns:          expirable.NewLRU[uint64, struct{}](seenNetnsCacheLen, nil, seenNetnsTTL),
 	}
 	tracer.pythonRuntime = newPythonRuntimeController(tracer)
+	tracer.rustRuntime = newRustController(tracer)
 	return tracer
 }
 
@@ -134,6 +136,9 @@ func (p *Tracer) AllowPID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 		serviceSource = source
 	}
 	p.pidsFilter.AllowPID(pid, ns, serviceSource, ebpfcommon.PIDTypeKProbes)
+	if p.rustRuntime != nil {
+		p.rustRuntime.allow(pid, fi)
+	}
 	if p.pythonRuntime != nil {
 		p.pythonRuntime.allow(pid, ns, fi, serviceSource)
 	}
@@ -182,6 +187,9 @@ func ensureJVMRuntimeMetricGeneration(fi *exec.FileInfo) uint64 {
 }
 
 func (p *Tracer) BlockPID(pid app.PID, ns uint32) {
+	if p.rustRuntime != nil {
+		p.rustRuntime.block(pid, nil)
+	}
 	p.jvmGenerations.Delete(pid)
 	p.pidsFilter.BlockPID(pid, ns)
 
@@ -310,6 +318,9 @@ func (p *Tracer) AddCloser(c ...io.Closer) {
 
 // Close waits for an in-flight PID update and rejects the later ones before closing what they write
 func (p *Tracer) Close() error {
+	if p.rustRuntime != nil {
+		_ = p.rustRuntime.Close()
+	}
 	p.pidsMu.Lock()
 	p.pidsClosed = true
 	p.pidsMu.Unlock()
