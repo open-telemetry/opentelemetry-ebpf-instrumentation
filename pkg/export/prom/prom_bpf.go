@@ -138,6 +138,11 @@ var (
 	newInternalBPFCollectorFn = newInternalBPFCollector
 )
 
+// programWalkMu serializes the program walks of all collectors in the process. The node
+// walk briefly holds descriptors of programs OBI did not load, and the internal walk
+// must not read them from /proc/self/fdinfo as OBI's own.
+var programWalkMu sync.Mutex
+
 func internalMetricsEnabled(internalMetrics imetrics.Reporter) bool {
 	if internalMetrics == nil || imetrics.IsBuiltinNoopReporter(internalMetrics) {
 		return false
@@ -383,6 +388,9 @@ func (bc *BPFCollector) collectMetrics() ([]ProbeMetrics, []BpfMapMetrics) {
 }
 
 func (bc *BPFCollector) getProbeMetrics() []ProbeMetrics {
+	programWalkMu.Lock()
+	defer programWalkMu.Unlock()
+
 	ids, completeWalk := bc.programIDs()
 	probeMetrics := make([]ProbeMetrics, 0, len(ids))
 	seen := make(map[ebpf.ProgramID]struct{}, len(ids))

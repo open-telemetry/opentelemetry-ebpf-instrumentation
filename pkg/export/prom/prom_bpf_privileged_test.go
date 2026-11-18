@@ -18,6 +18,7 @@ import (
 	"github.com/cilium/ebpf/asm"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/perapp"
@@ -111,6 +112,32 @@ func TestInternalCollectorFindsOwnedProgramsInProcFS(t *testing.T) {
 	id := programID(t, program)
 
 	requireProbeMetric(t, collector.getProbeMetrics(), id, ebpf.SocketFilter, "metric_0")
+}
+
+func TestInternalCollectorIgnoresProgramsOpenedByNodeWalk(t *testing.T) {
+	node := newPrivilegedTestCollector(t)
+	internal := newPrivilegedInternalCollector(t)
+	unownedID := loadUnownedProgram(t)
+	requireProbeMetric(t, node.getProbeMetrics(), unownedID, ebpf.SocketFilter, "metric_unowned")
+
+	ctx, cancel := context.WithCancel(t.Context())
+	walking := make(chan struct{})
+	go func() {
+		defer close(walking)
+		for ctx.Err() == nil {
+			node.getProbeMetrics()
+		}
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-walking
+	})
+
+	// This process holds no program descriptor of its own, so any program reported here
+	// was opened by the node walk.
+	for range 500 {
+		require.Empty(t, internal.getProbeMetrics())
+	}
 }
 
 func TestInternalCollectorReportsIterators(t *testing.T) {
@@ -270,6 +297,31 @@ func loadTestPrograms(tb testing.TB, count int, programType ebpf.ProgramType) []
 	})
 
 	return programs
+}
+
+// loadUnownedProgram returns the ID of a program this process holds no descriptor for: a
+// socket keeps it loaded after its program descriptor is closed.
+func loadUnownedProgram(tb testing.TB) ebpf.ProgramID {
+	tb.Helper()
+
+	program, err := ebpf.NewProgram(&ebpf.ProgramSpec{
+		Name:         "metric_unowned",
+		Type:         ebpf.SocketFilter,
+		License:      "Dual MIT/GPL",
+		Instructions: asm.Instructions{asm.Mov.Imm(asm.R0, 0), asm.Return()},
+	})
+	require.NoError(tb, err)
+	id := programID(tb, program)
+
+	socket, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+	require.NoError(tb, err)
+	tb.Cleanup(func() {
+		_ = unix.Close(socket)
+	})
+	require.NoError(tb, unix.SetsockoptInt(socket, unix.SOL_SOCKET, unix.SO_ATTACH_BPF, program.FD()))
+	require.NoError(tb, program.Close())
+
+	return id
 }
 
 func loadIterProgram(tb testing.TB) *ebpf.Program {

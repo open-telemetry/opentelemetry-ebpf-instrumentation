@@ -35,7 +35,10 @@ BPF metrics can be collected through either of these paths:
   configured internal reporter exports the collected values through
   Prometheus or OpenTelemetry.
 
-If both paths are active, each path owns a separate collector.
+If both paths are active, each path owns a separate collector. Their program
+walks never overlap: the Prometheus walk briefly holds descriptors of programs
+OBI did not load, and the internal collector must not read them from
+`/proc/self/fdinfo` as OBI's own.
 
 ### Prometheus collector metrics
 
