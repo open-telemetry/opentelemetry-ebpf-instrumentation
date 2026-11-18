@@ -18,7 +18,11 @@ Map metrics are host-wide on both paths.
 
 ## Supported kernel objects
 
-Both collectors report programs of every eBPF program type.
+Both collectors report programs of every eBPF program type. On the Prometheus
+path this includes per-container programs, such as the cgroup device program
+that container runtimes load for every container on cgroup v2. The number of
+series then follows the number of containers on the node, and a restarted
+container appears under a new program ID.
 
 The collector reports entry counts only for `LRUHash` maps. Other map types are
 still encountered during the host-wide walks, but they are not emitted as
@@ -70,7 +74,8 @@ The collector enables kernel BPF runtime statistics for its lifetime so that
 accounting continues between collections. Each collection lists the program
 IDs of its path and reads `Stats()` from every reported program. Metadata is
 cached when a program is first observed. Each reported program is opened
-temporarily to read its statistics and closed before collection continues.
+temporarily to read its statistics and closed before collection continues, so
+each Prometheus collection opens every program on the node once.
 
 The kernel accounts executions and runtime only to the program it enters. A
 program reached through a tail call keeps zero executions, and its runtime is
