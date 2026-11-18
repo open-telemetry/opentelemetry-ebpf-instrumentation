@@ -164,14 +164,9 @@ func goEnvironment(arch string) []string {
 
 // compareAPI retains compatible additions for release classification. Reporting
 // filters them out later; an apidiff change is not necessarily a policy finding.
-func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) (changes []apiChange, err error) {
+func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) ([]apiChange, error) {
+	var changes []apiChange
 	old, candidate := oldAPI.Packages, candidateAPI.Packages
-	defer func() {
-		if failure := recover(); failure != nil {
-			changes = nil
-			err = fmt.Errorf("go API comparison incomplete: %v", failure)
-		}
-	}()
 	for path, before := range old {
 		after, exists := candidate[path]
 		if !exists {
@@ -196,7 +191,14 @@ func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) (ch
 			})
 		}
 	}
-	beforeSurface, afterSurface := newAPISurface(oldAPI), newAPISurface(candidateAPI)
+	beforeSurface, err := newAPISurface(oldAPI)
+	if err != nil {
+		return nil, fmt.Errorf("released API: %w", err)
+	}
+	afterSurface, err := newAPISurface(candidateAPI)
+	if err != nil {
+		return nil, fmt.Errorf("candidate API: %w", err)
+	}
 	for _, change := range apidiff.Changes(beforeSurface.pkg, afterSurface.pkg).Changes {
 		identifier, _, _ := strings.Cut(change.Message, ":")
 		beforeObj, afterObj := beforeSurface.object(identifier), afterSurface.object(identifier)
@@ -205,7 +207,7 @@ func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) (ch
 			obj = afterObj
 		}
 		if obj == nil {
-			panic("API change has no source declaration: " + change.Message)
+			return nil, fmt.Errorf("API change has no source declaration: %s", change.Message)
 		}
 		path := obj.Pkg().Path()
 		if (old[path] != nil && candidate[path] == nil) || (old[path] == nil && candidate[path] != nil) {
@@ -247,7 +249,11 @@ func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) (ch
 			Unsupported: reason != "", Reason: reason, TypeContext: typeContext, Location: location,
 		})
 	}
-	changes = append(changes, compareConstraints(beforeSurface, afterSurface, version, platform)...)
+	constraints, err := compareConstraints(beforeSurface, afterSurface, version, platform)
+	if err != nil {
+		return nil, fmt.Errorf("API constraints: %w", err)
+	}
+	changes = append(changes, constraints...)
 	for i, c := range changes {
 		module := c.Module
 		if module == "" {
@@ -342,7 +348,7 @@ func objectParams(obj types.Object) *types.TypeParamList {
 	return nil
 }
 
-func compareConstraints(before, after *apiSurface, version, platform string) []apiChange {
+func compareConstraints(before, after *apiSurface, version, platform string) ([]apiChange, error) {
 	var changes []apiChange
 	for id, old := range before.originals {
 		current := after.originals[id]
@@ -352,16 +358,32 @@ func compareConstraints(before, after *apiSurface, version, platform string) []a
 		oldParams, newParams := objectParams(old), objectParams(current)
 		if oldParams.Len() == newParams.Len() {
 			for i := range oldParams.Len() {
-				after.types[oldParams.At(i)] = after.typ(newParams.At(i))
+				projected, err := after.typ(newParams.At(i))
+				if err != nil {
+					return nil, err
+				}
+				after.types[oldParams.At(i)] = projected
 			}
 		}
 		if oldType, ok := old.(*types.TypeName); ok {
 			oldIface, oldIsIface := oldType.Type().Underlying().(*types.Interface)
 			newIface, newIsIface := current.Type().Underlying().(*types.Interface)
 			if oldIsIface && newIsIface && (!oldIface.IsMethodSet() || !newIface.IsMethodSet()) {
-				compatible, changed := constraintRelation(after.constraint(oldIface), after.constraint(newIface))
+				oldConstraint, err := after.constraint(oldIface)
+				if err != nil {
+					return nil, err
+				}
+				newConstraint, err := after.constraint(newIface)
+				if err != nil {
+					return nil, err
+				}
+				compatible, changed := constraintRelation(oldConstraint, newConstraint)
 				if changed {
-					changes = append(changes, constraintFinding(old, current, after, version, platform, compatible))
+					finding, err := constraintFinding(old, current, after, version, platform, compatible)
+					if err != nil {
+						return nil, err
+					}
+					changes = append(changes, finding)
 				}
 			}
 		}
@@ -370,33 +392,59 @@ func compareConstraints(before, after *apiSurface, version, platform string) []a
 			compatible, changed = false, true
 		} else {
 			for i := range oldParams.Len() {
-				oldConstraint := after.constraint(oldParams.At(i).Constraint())
-				newConstraint := after.constraint(newParams.At(i).Constraint())
+				oldConstraint, err := after.constraint(oldParams.At(i).Constraint())
+				if err != nil {
+					return nil, err
+				}
+				newConstraint, err := after.constraint(newParams.At(i).Constraint())
+				if err != nil {
+					return nil, err
+				}
 				allowed, differs := constraintRelation(oldConstraint, newConstraint)
 				compatible = compatible && allowed
 				changed = changed || differs
 			}
 		}
 		if changed {
-			changes = append(changes, constraintFinding(old, current, after, version, platform, compatible))
+			finding, err := constraintFinding(old, current, after, version, platform, compatible)
+			if err != nil {
+				return nil, err
+			}
+			changes = append(changes, finding)
 		}
 	}
-	return changes
+	return changes, nil
 }
 
-func constraintFinding(old, current types.Object, surface *apiSurface, version, platform string, compatible bool) apiChange {
-	return apiChange{Baseline: version, Platform: platform, Package: old.Pkg().Path(), Identifier: old.Name(), Before: describeAPIObject(old), After: describeAPIObject(current), Message: fmt.Sprintf("%s: constraints changed from %s to %s", old.Name(), describeConstraints(old, surface), describeConstraints(current, surface)), Compatible: compatible, Location: surface.source.location(current)}
+func constraintFinding(old, current types.Object, surface *apiSurface, version, platform string, compatible bool) (apiChange, error) {
+	before, err := describeConstraints(old, surface)
+	if err != nil {
+		return apiChange{}, err
+	}
+	after, err := describeConstraints(current, surface)
+	if err != nil {
+		return apiChange{}, err
+	}
+	return apiChange{Baseline: version, Platform: platform, Package: old.Pkg().Path(), Identifier: old.Name(), Before: describeAPIObject(old), After: describeAPIObject(current), Message: fmt.Sprintf("%s: constraints changed from %s to %s", old.Name(), before, after), Compatible: compatible, Location: surface.source.location(current)}, nil
 }
 
-func describeConstraints(obj types.Object, surface *apiSurface) string {
+func describeConstraints(obj types.Object, surface *apiSurface) (string, error) {
 	if iface, ok := obj.Type().Underlying().(*types.Interface); ok {
-		return surface.describe(types.TypeString(surface.constraint(iface), types.RelativeTo(surface.pkg)))
+		projected, err := surface.constraint(iface)
+		if err != nil {
+			return "", err
+		}
+		return surface.describe(types.TypeString(projected, types.RelativeTo(surface.pkg))), nil
 	}
 	var constraints []string
 	for param := range objectParams(obj).TypeParams() {
-		constraints = append(constraints, surface.describe(types.TypeString(surface.constraint(param.Constraint()), types.RelativeTo(surface.pkg))))
+		projected, err := surface.constraint(param.Constraint())
+		if err != nil {
+			return "", err
+		}
+		constraints = append(constraints, surface.describe(types.TypeString(projected, types.RelativeTo(surface.pkg))))
 	}
-	return "[" + strings.Join(constraints, ", ") + "]"
+	return "[" + strings.Join(constraints, ", ") + "]", nil
 }
 
 func constraintRelation(old, current *types.Interface) (compatible, changed bool) {
@@ -409,21 +457,35 @@ func constraintRelation(old, current *types.Interface) (compatible, changed bool
 // Expand named constraint interfaces before mapping concrete named types into
 // the candidate graph; otherwise a changed named constraint would compare equal
 // to itself and conceal a narrowed type set.
-func (s *apiSurface) constraint(t types.Type) *types.Interface {
+func (s *apiSurface) constraint(t types.Type) (*types.Interface, error) {
 	iface := t.Underlying().(*types.Interface)
 	var methods []*types.Func
 	for method := range iface.ExplicitMethods() {
-		methods = append(methods, s.method(method))
+		projected, err := s.method(method)
+		if err != nil {
+			return nil, err
+		}
+		methods = append(methods, projected)
 	}
 	var embedded []types.Type
 	for e := range iface.EmbeddedTypes() {
+		var projected types.Type
 		if _, ok := e.Underlying().(*types.Interface); ok {
-			embedded = append(embedded, s.constraint(e))
+			constraint, err := s.constraint(e)
+			if err != nil {
+				return nil, err
+			}
+			projected = constraint
 		} else {
-			embedded = append(embedded, s.typ(e))
+			var err error
+			projected, err = s.typ(e)
+			if err != nil {
+				return nil, err
+			}
 		}
+		embedded = append(embedded, projected)
 	}
-	return types.NewInterfaceType(methods, embedded).Complete()
+	return types.NewInterfaceType(methods, embedded).Complete(), nil
 }
 
 // A nominal-type diagnostic omits changes inside the named type. Compare its

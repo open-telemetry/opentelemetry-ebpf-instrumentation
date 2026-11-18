@@ -316,3 +316,44 @@ func apiTestSnapshot(pkgs ...*types.Package) *apiSnapshot {
 	}
 	return s
 }
+
+type unsupportedAPIType struct{}
+
+func (unsupportedAPIType) Underlying() types.Type { return unsupportedAPIType{} }
+func (unsupportedAPIType) String() string         { return "unsupported" }
+
+func TestCompareAPIProjectionErrors(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		typ  types.Type
+	}{
+		{name: "direct", typ: unsupportedAPIType{}},
+		{name: "pointer", typ: types.NewPointer(unsupportedAPIType{})},
+		{name: "map value", typ: types.NewMap(types.Typ[types.String], unsupportedAPIType{})},
+		{name: "function parameter", typ: types.NewSignatureType(nil, nil, nil,
+			types.NewTuple(types.NewVar(token.NoPos, nil, "", unsupportedAPIType{})), nil, false)},
+	} {
+		for _, side := range []string{"released", "candidate"} {
+			t.Run(tc.name+"/"+side, func(t *testing.T) {
+				snapshot := func(typ types.Type) *apiSnapshot {
+					pkg := types.NewPackage(coreModule+"/pkg/public", "public")
+					pkg.Scope().Insert(types.NewVar(token.NoPos, pkg, "Value", typ))
+					return &apiSnapshot{Packages: map[string]*types.Package{pkg.Path(): pkg}}
+				}
+				before, after := snapshot(types.Typ[types.Int]), snapshot(tc.typ)
+				if side == "released" {
+					before, after = after, before
+				}
+				extra := types.NewPackage(coreModule+"/pkg/extra", "extra")
+				after.Packages[extra.Path()] = extra
+				changes, err := compareAPI(before, after, "v1.0.0", "linux/amd64")
+				if err == nil || !strings.Contains(err.Error(), side+" API: "+coreModule+"/pkg/public.Value: unsupported API type") {
+					t.Fatalf("expected contextual projection error, got %v", err)
+				}
+				if changes != nil {
+					t.Fatalf("failed comparison returned partial results: %+v", changes)
+				}
+			})
+		}
+	}
+}

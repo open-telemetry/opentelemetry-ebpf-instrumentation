@@ -30,7 +30,7 @@ type apiSurface struct {
 	anonymous map[*types.Interface]types.Object
 }
 
-func newAPISurface(api *apiSnapshot) *apiSurface {
+func newAPISurface(api *apiSnapshot) (*apiSurface, error) {
 	roots := api.Packages
 	s := &apiSurface{
 		pkg: types.NewPackage(coreModule, "obi"), roots: roots, source: api,
@@ -59,19 +59,26 @@ func newAPISurface(api *apiSnapshot) *apiSurface {
 			if !obj.Exported() || api.BPFGenerated[obj] {
 				continue
 			}
-			var projected types.Object
 			id := s.name(obj)
 			s.owner = obj
+			t, err := s.typ(obj.Type())
+			if err != nil {
+				return nil, fmt.Errorf("%s.%s: %w", path, obj.Name(), err)
+			}
+			var projected types.Object
 			switch obj := obj.(type) {
 			case *types.TypeName:
-				t := s.typ(obj.Type())
 				if named, ok := t.(*types.Named); ok && named.Obj().Name() == id {
 					projected = named.Obj()
 				} else {
 					alias := types.NewTypeName(token.NoPos, s.pkg, id, nil)
 					a := types.NewAlias(alias, t)
 					if original, ok := obj.Type().(*types.Alias); ok {
-						a.SetTypeParams(s.params(original.TypeParams()))
+						params, err := s.params(original.TypeParams())
+						if err != nil {
+							return nil, fmt.Errorf("%s.%s: %w", path, obj.Name(), err)
+						}
+						a.SetTypeParams(params)
 					}
 					projected = alias
 					if named, ok := types.Unalias(t).(*types.Named); ok {
@@ -79,11 +86,11 @@ func newAPISurface(api *apiSnapshot) *apiSurface {
 					}
 				}
 			case *types.Const:
-				projected = types.NewConst(token.NoPos, s.pkg, id, s.typ(obj.Type()), obj.Val())
+				projected = types.NewConst(token.NoPos, s.pkg, id, t, obj.Val())
 			case *types.Var:
-				projected = types.NewVar(token.NoPos, s.pkg, id, s.typ(obj.Type()))
+				projected = types.NewVar(token.NoPos, s.pkg, id, t)
 			case *types.Func:
-				projected = types.NewFunc(token.NoPos, s.pkg, id, s.typ(obj.Type()).(*types.Signature))
+				projected = types.NewFunc(token.NoPos, s.pkg, id, t.(*types.Signature))
 			}
 			s.pkg.Scope().Insert(projected)
 		}
@@ -91,7 +98,7 @@ func newAPISurface(api *apiSnapshot) *apiSurface {
 	for _, iface := range s.ifaces {
 		iface.Complete()
 	}
-	return s
+	return s, nil
 }
 
 func (s *apiSurface) name(obj types.Object) string {
@@ -107,53 +114,73 @@ func (s *apiSurface) name(obj types.Object) string {
 	return name
 }
 
-func (s *apiSurface) params(list *types.TypeParamList) []*types.TypeParam {
+func (s *apiSurface) params(list *types.TypeParamList) ([]*types.TypeParam, error) {
 	var result []*types.TypeParam
 	for param := range list.TypeParams() {
-		result = append(result, s.typ(param).(*types.TypeParam))
+		t, err := s.typ(param)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, t.(*types.TypeParam))
 	}
-	return result
+	return result, nil
 }
 
-func (s *apiSurface) variable(v *types.Var) *types.Var {
+func (s *apiSurface) variable(v *types.Var) (*types.Var, error) {
 	if v == nil {
-		return nil
+		return nil, nil
 	}
-	return types.NewVar(token.NoPos, v.Pkg(), v.Name(), s.typ(v.Type()))
+	t, err := s.typ(v.Type())
+	if err != nil {
+		return nil, err
+	}
+	return types.NewVar(token.NoPos, v.Pkg(), v.Name(), t), nil
 }
 
-func (s *apiSurface) method(f *types.Func) *types.Func {
+func (s *apiSurface) method(f *types.Func) (*types.Func, error) {
 	name := f.Name()
 	if !f.Exported() {
 		name = s.name(f)
 	}
-	return types.NewFunc(token.NoPos, s.pkg, name, s.typ(f.Type()).(*types.Signature))
+	t, err := s.typ(f.Type())
+	if err != nil {
+		return nil, err
+	}
+	return types.NewFunc(token.NoPos, s.pkg, name, t.(*types.Signature)), nil
 }
 
-func (s *apiSurface) typ(t types.Type) types.Type {
+func (s *apiSurface) typ(t types.Type) (types.Type, error) {
 	if t == nil {
-		return nil
+		return nil, nil
 	}
 	t = types.Unalias(t)
 	if previous, ok := s.types[t]; ok {
-		return previous
+		return previous, nil
 	}
 	var result types.Type
 	switch t := t.(type) {
 	case *types.Basic:
-		return t
+		return t, nil
 	case *types.Named:
 		if t.Obj().Pkg() == nil {
-			return t
+			return t, nil
 		}
 		if t != t.Origin() {
 			var args []types.Type
 			for arg := range t.TypeArgs().Types() {
-				args = append(args, s.typ(arg))
+				projected, err := s.typ(arg)
+				if err != nil {
+					return nil, err
+				}
+				args = append(args, projected)
 			}
-			instance, err := types.Instantiate(s.context, s.typ(t.Origin()), args, false)
+			origin, err := s.typ(t.Origin())
 			if err != nil {
-				panic(err)
+				return nil, err
+			}
+			instance, err := types.Instantiate(s.context, origin, args, false)
+			if err != nil {
+				return nil, fmt.Errorf("instantiate %s: %w", t.Obj().Name(), err)
 			}
 			result = instance
 			break
@@ -161,7 +188,7 @@ func (s *apiSurface) typ(t types.Type) types.Type {
 		id := s.name(t.Obj())
 		if named := s.named[id]; named != nil {
 			s.types[t] = named
-			return named
+			return named, nil
 		}
 		obj := types.NewTypeName(token.NoPos, s.pkg, id, nil)
 		named := types.NewNamed(obj, nil, nil)
@@ -179,46 +206,113 @@ func (s *apiSurface) typ(t types.Type) types.Type {
 		s.owner = t.Obj()
 		defer func() { s.owner = previousOwner }()
 		for i, param := range params {
-			param.SetConstraint(s.typ(t.TypeParams().At(i).Constraint()))
+			constraint, err := s.typ(t.TypeParams().At(i).Constraint())
+			if err != nil {
+				return nil, err
+			}
+			param.SetConstraint(constraint)
 		}
-		named.SetUnderlying(s.typ(t.Underlying()))
+		underlying, err := s.typ(t.Underlying())
+		if err != nil {
+			return nil, err
+		}
+		named.SetUnderlying(underlying)
 		for method := range t.Methods() {
-			named.AddMethod(s.method(method))
+			projected, err := s.method(method)
+			if err != nil {
+				return nil, err
+			}
+			named.AddMethod(projected)
 		}
-		return named
+		return named, nil
 	case *types.TypeParam:
 		param := types.NewTypeParam(types.NewTypeName(token.NoPos, s.pkg, fmt.Sprintf("T%d", t.Index()), nil), nil)
 		s.types[t] = param
-		param.SetConstraint(s.typ(t.Constraint()))
-		return param
+		constraint, err := s.typ(t.Constraint())
+		if err != nil {
+			return nil, err
+		}
+		param.SetConstraint(constraint)
+		return param, nil
 	case *types.Pointer:
-		result = types.NewPointer(s.typ(t.Elem()))
+		elem, err := s.typ(t.Elem())
+		if err != nil {
+			return nil, err
+		}
+		result = types.NewPointer(elem)
 	case *types.Slice:
-		result = types.NewSlice(s.typ(t.Elem()))
+		elem, err := s.typ(t.Elem())
+		if err != nil {
+			return nil, err
+		}
+		result = types.NewSlice(elem)
 	case *types.Array:
-		result = types.NewArray(s.typ(t.Elem()), t.Len())
+		elem, err := s.typ(t.Elem())
+		if err != nil {
+			return nil, err
+		}
+		result = types.NewArray(elem, t.Len())
 	case *types.Map:
-		result = types.NewMap(s.typ(t.Key()), s.typ(t.Elem()))
+		key, err := s.typ(t.Key())
+		if err != nil {
+			return nil, err
+		}
+		elem, err := s.typ(t.Elem())
+		if err != nil {
+			return nil, err
+		}
+		result = types.NewMap(key, elem)
 	case *types.Chan:
-		result = types.NewChan(t.Dir(), s.typ(t.Elem()))
+		elem, err := s.typ(t.Elem())
+		if err != nil {
+			return nil, err
+		}
+		result = types.NewChan(t.Dir(), elem)
 	case *types.Struct:
 		var fields []*types.Var
 		var tags []string
 		for i := range t.NumFields() {
 			field := t.Field(i)
-			fields = append(fields, types.NewField(token.NoPos, field.Pkg(), field.Name(), s.typ(field.Type()), field.Embedded()))
+			fieldType, err := s.typ(field.Type())
+			if err != nil {
+				return nil, err
+			}
+			fields = append(fields, types.NewField(token.NoPos, field.Pkg(), field.Name(), fieldType, field.Embedded()))
 			tags = append(tags, t.Tag(i))
 		}
 		result = types.NewStruct(fields, tags)
 	case *types.Tuple:
 		var vars []*types.Var
 		for v := range t.Variables() {
-			vars = append(vars, s.variable(v))
+			projected, err := s.variable(v)
+			if err != nil {
+				return nil, err
+			}
+			vars = append(vars, projected)
 		}
 		result = types.NewTuple(vars...)
 	case *types.Signature:
-		params, recvParams := s.params(t.TypeParams()), s.params(t.RecvTypeParams())
-		result = types.NewSignatureType(s.variable(t.Recv()), recvParams, params, s.typ(t.Params()).(*types.Tuple), s.typ(t.Results()).(*types.Tuple), t.Variadic())
+		params, err := s.params(t.TypeParams())
+		if err != nil {
+			return nil, err
+		}
+		recvParams, err := s.params(t.RecvTypeParams())
+		if err != nil {
+			return nil, err
+		}
+		recv, err := s.variable(t.Recv())
+		if err != nil {
+			return nil, err
+		}
+		in, err := s.typ(t.Params())
+		if err != nil {
+			return nil, err
+		}
+		out, err := s.typ(t.Results())
+		if err != nil {
+			return nil, err
+		}
+		result = types.NewSignatureType(recv, recvParams, params, in.(*types.Tuple), out.(*types.Tuple), t.Variadic())
 	case *types.Interface:
 		var methods []*types.Func
 		for method := range t.ExplicitMethods() {
@@ -229,13 +323,29 @@ func (s *apiSurface) typ(t types.Type) types.Type {
 			}
 			var recv *types.Var
 			if sig.Recv() != nil && sig.Recv().Type() != t {
-				recv = s.variable(sig.Recv())
+				var err error
+				recv, err = s.variable(sig.Recv())
+				if err != nil {
+					return nil, err
+				}
 			}
-			methods = append(methods, types.NewFunc(token.NoPos, s.pkg, name, types.NewSignatureType(recv, nil, nil, s.typ(sig.Params()).(*types.Tuple), s.typ(sig.Results()).(*types.Tuple), sig.Variadic())))
+			in, err := s.typ(sig.Params())
+			if err != nil {
+				return nil, err
+			}
+			out, err := s.typ(sig.Results())
+			if err != nil {
+				return nil, err
+			}
+			methods = append(methods, types.NewFunc(token.NoPos, s.pkg, name, types.NewSignatureType(recv, nil, nil, in.(*types.Tuple), out.(*types.Tuple), sig.Variadic())))
 		}
 		var embedded []types.Type
 		for e := range t.EmbeddedTypes() {
-			embedded = append(embedded, s.typ(e))
+			projected, err := s.typ(e)
+			if err != nil {
+				return nil, err
+			}
+			embedded = append(embedded, projected)
 		}
 		iface := types.NewInterfaceType(methods, embedded)
 		if t.IsImplicit() {
@@ -247,14 +357,18 @@ func (s *apiSurface) typ(t types.Type) types.Type {
 	case *types.Union:
 		var terms []*types.Term
 		for term := range t.Terms() {
-			terms = append(terms, types.NewTerm(term.Tilde(), s.typ(term.Type())))
+			projected, err := s.typ(term.Type())
+			if err != nil {
+				return nil, err
+			}
+			terms = append(terms, types.NewTerm(term.Tilde(), projected))
 		}
 		result = types.NewUnion(terms)
 	default:
-		panic(fmt.Sprintf("unsupported API type %T", t))
+		return nil, fmt.Errorf("unsupported API type %T", t)
 	}
 	s.types[t] = result
-	return result
+	return result, nil
 }
 
 var surfaceName = regexp.MustCompile(`[Pp][0-9a-f]{16}_[\pL_][\pL\pN_]*`)
