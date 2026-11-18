@@ -89,20 +89,20 @@ func TestMakeServiceAttrsJobTraces(t *testing.T) {
 	for _, order := range []schema.MatchOrder{schema.MatchOrderFirstMatchWins, schema.MatchOrderLastMatchWins} {
 		for _, tc := range []struct {
 			name    string
-			enabled []*services.JobTracesConfig
+			enabled []*bool
 		}{
-			{name: "opted in", enabled: []*services.JobTracesConfig{{Enabled: true}}},
-			{name: "not opted in", enabled: []*services.JobTracesConfig{nil}},
-			{name: "overlapping rules", enabled: []*services.JobTracesConfig{{Enabled: true}, {Enabled: false}}},
+			{name: "opted in", enabled: []*bool{new(true)}},
+			{name: "not opted in", enabled: []*bool{nil}},
+			{name: "overlapping rules", enabled: []*bool{new(true), new(false)}},
 		} {
 			t.Run(string(order)+"/"+tc.name, func(t *testing.T) {
 				rules := make([]schema.Rule, 0, len(tc.enabled))
-				for _, jobTraces := range tc.enabled {
+				for _, groupJobSpans := range tc.enabled {
 					rule := schema.Rule{
 						Action: schema.CaptureActionInclude,
 						Match:  schema.RuleMatch{Process: schema.RuleProcessMatch{ExePathGlob: []string{"/srv/app"}}},
 					}
-					rule.Refine.JobTraces = jobTraces
+					rule.Refine.GroupJobSpans = groupJobSpans
 					rules = append(rules, rule)
 				}
 				cfg, err := convert.V2ToRuntime(&schema.Extension{
@@ -122,14 +122,14 @@ func TestMakeServiceAttrsJobTraces(t *testing.T) {
 					winner = tc.enabled[len(tc.enabled)-1]
 				}
 				anyEnabled := false
-				for _, jobTraces := range tc.enabled {
-					anyEnabled = anyEnabled || jobTraces.IsEnabled()
+				for _, groupJobSpans := range tc.enabled {
+					anyEnabled = anyEnabled || (groupJobSpans != nil && *groupJobSpans)
 				}
 				require.Equal(t, anyEnabled, cfg.JobTracesEnabled(), "the eBPF job code is loaded when any rule opts in")
 
 				app := discover.SelectedServiceAttrsForTest(cfg, &services.ProcessInfo{Pid: 1234, ExePath: "/srv/app"})
 				require.NotNil(t, app)
-				require.Equal(t, winner.IsEnabled(), app.JobTraces, "the winning rule decides")
+				require.Equal(t, winner != nil && *winner, app.JobTraces, "the winning rule decides")
 
 				other := discover.SelectedServiceAttrsForTest(cfg, &services.ProcessInfo{Pid: 1234, ExePath: "/srv/other"})
 				require.NotNil(t, other)

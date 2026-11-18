@@ -916,6 +916,7 @@ func TestSuite_PythonRedis(t *testing.T) {
 	t.Run("Redis jobs run on a thread of their own", testTracesRedisJobsThreadPerJob)
 	t.Run("Redis jobs run on a process of their own", testTracesRedisJobsProcessPerJob)
 	t.Run("Redis jobs run on a reused pool thread", testTracesRedisJobsPool)
+	t.Run("Redis jobs waited for on a reused pool thread", testTracesRedisJobsPoolWaited)
 	t.Run("Redis jobs taken by polling", testTracesRedisJobsPolled)
 	t.Run("Redis jobs taken off a stream", testTracesRedisJobsStream)
 	t.Run("Redis fetch that takes no job", testTracesRedisEmptyFetch)

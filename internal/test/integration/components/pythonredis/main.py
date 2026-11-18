@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import FastAPI
 import os
 import queue
@@ -199,6 +200,16 @@ def pooled_job(job):
     pool_jobs.put(job)
 
 
+waited_pool = []
+
+
+# the pool's thread starts with the first job, and each job is waited for before the next fetch
+def waited_pool_job(job):
+    if not waited_pool:
+        waited_pool.append(ThreadPoolExecutor(max_workers=1))
+    waited_pool[0].submit(run_job, job).result()
+
+
 # a process per job, as RQ and Resque run them
 def process_per_job(job):
     pid = os.fork()
@@ -294,7 +305,7 @@ async def slow():
 # a thread or process of its own or on a reused pool thread
 if os.environ.get('OBI_TEST_JOB_QUEUES'):
     for kind, handle in (('inline', run_job), ('thread', thread_per_job), ('pool', pooled_job),
-                         ('process', process_per_job)):
+                         ('pool-wait', waited_pool_job), ('process', process_per_job)):
         threading.Thread(target=job_loop, args=(kind, handle), daemon=True).start()
     for loop in (poll_loop, stream_loop, idle_loop, busy_loop):
         threading.Thread(target=loop, daemon=True).start()

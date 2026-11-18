@@ -32,6 +32,7 @@ type CriteriaUpdater struct {
 	metricHeaders map[string]string
 	logHeaders    map[string]string
 	features      export.Features
+	jobTraces     bool
 	updates       *services.CriteriaUpdates
 }
 
@@ -42,6 +43,7 @@ func NewCriteriaUpdater(cfg *obi.Config) *CriteriaUpdater {
 		metricHeaders: injectedHeaders(cfg.OTELMetrics.InjectHeaders),
 		logHeaders:    injectedHeaders(cfg.Logs.InjectHeaders),
 		features:      cfg.JoinMetricsConfig().Features,
+		jobTraces:     cfg.JobTracesEnabled(),
 		updates: services.NewCriteriaUpdatesWithSampler(
 			refreshableCriteria(cfg),
 			ExcludingCriteria(cfg),
@@ -66,6 +68,11 @@ func (u *CriteriaUpdater) Update(ctx context.Context, cfg *obi.Config) error {
 
 	if cfg.JoinMetricsConfig().Features&^(u.features|export.FeatureEmpty) != 0 {
 		return errors.New("new metric features require pipeline initialization; restart OBI to apply this configuration")
+	}
+
+	// the eBPF job code is compiled out unless a rule enabled job traces at startup
+	if cfg.JobTracesEnabled() && !u.jobTraces {
+		return errors.New("job traces were not enabled at startup; restart OBI to apply this configuration")
 	}
 
 	if err := cfg.Discovery.Validate(); err != nil {

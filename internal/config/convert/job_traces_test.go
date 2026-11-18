@@ -21,8 +21,7 @@ extensions:
             process:
               exe_path_glob: ["*/worker"]
           refine:
-            job_traces:
-              enabled: true
+            group_job_spans: true
         - action: include
           match:
             process:
@@ -37,7 +36,7 @@ extensions:
 			require.True(t, s.JobTraces.IsEnabled(), "the refined rule opts in")
 		case s.Path.MatchString("/srv/server") && !s.Path.MatchString("/srv/worker"):
 			server++
-			require.False(t, s.JobTraces.IsEnabled(), "a rule without refine.job_traces doesn't")
+			require.False(t, s.JobTraces.IsEnabled(), "a rule without refine.group_job_spans doesn't")
 		}
 	}
 	require.Equal(t, 1, worker)

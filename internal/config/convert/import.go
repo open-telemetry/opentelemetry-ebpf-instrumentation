@@ -877,7 +877,7 @@ func selectorFromRule(
 		}
 		selector := regexSelectorFromRule(rule)
 		selector.Exceptions = rule.Refine.Exceptions
-		selector.JobTraces = rule.Refine.JobTraces
+		selector.JobTraces = jobTracesFromRule(rule.Refine)
 		selector.ExportModes, selector.Routes = v2RuleRefinement(
 			rule.Refine,
 			completeExports,
@@ -888,13 +888,20 @@ func selectorFromRule(
 
 	selector := globSelectorFromRule(rule)
 	selector.Exceptions = rule.Refine.Exceptions
-	selector.JobTraces = rule.Refine.JobTraces
+	selector.JobTraces = jobTracesFromRule(rule.Refine)
 	selector.ExportModes, selector.Routes = v2RuleRefinement(
 		rule.Refine,
 		completeExports,
 		completeRoutes,
 	)
 	return &selector, nil, true
+}
+
+func jobTracesFromRule(refine schema.RuleRefinement) *services.JobTracesConfig {
+	if refine.GroupJobSpans == nil {
+		return nil
+	}
+	return &services.JobTracesConfig{Enabled: *refine.GroupJobSpans}
 }
 
 func ruleMatchOnlyExportsOTLP(match schema.RuleMatch) bool {

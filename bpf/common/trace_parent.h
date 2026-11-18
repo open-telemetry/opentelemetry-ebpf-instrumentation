@@ -348,8 +348,18 @@ static __always_inline tp_info_pid_t *find_job_parent_trace(const pid_key_t *thr
         return NULL;
     }
 
+    if (!job->inherited) {
+        return &job->tp;
+    }
+
     // a reused thread started during an earlier job may be running another one now
-    if (job->inherited && bpf_map_lookup_elem(&job_pooled_owners, &job->owner)) {
+    if (bpf_map_lookup_elem(&job_pooled_owners, &job->owner)) {
+        return NULL;
+    }
+
+    // the owner's later job has started no thread yet, so it may have been handed to this one
+    const job_context_t *owner = bpf_map_lookup_elem(&job_contexts, &job->owner);
+    if (owner && !owner->inherited && !owner->children) {
         return NULL;
     }
 

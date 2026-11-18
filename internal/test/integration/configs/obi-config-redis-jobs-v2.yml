@@ -50,8 +50,7 @@ extensions:
             process:
               open_ports: "8080"
           refine:
-            job_traces:
-              enabled: true
+            group_job_spans: true
       metrics:
         features: [application]
       engine:
