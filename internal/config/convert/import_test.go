@@ -1518,6 +1518,7 @@ func TestV2ToRuntimePartialDBSanitizeQueryText(t *testing.T) {
 func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 	t.Parallel()
 
+	goChannelLinks := false
 	got, err := V2ToRuntime(&schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
@@ -1540,9 +1541,6 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 				CgroupFileSystem: schema.CgroupFileSystem{
 					Path: "/host/sys/fs/cgroup",
 				},
-				Propagation: schema.Propagation{
-					DisableGoChannelLinks: true,
-				},
 			},
 			Network: schema.CaptureNetwork{
 				Capture: schema.NetworkCapture{
@@ -1558,6 +1556,9 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 				},
 			},
 			Runtimes: schema.CaptureRuntimes{
+				Go: schema.GoRuntime{
+					ChannelLinks: &goChannelLinks,
+				},
 				Java: schema.JavaRuntime{
 					Debug: schema.JavaDebug{
 						Enabled: true,

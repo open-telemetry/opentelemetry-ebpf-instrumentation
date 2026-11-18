@@ -400,6 +400,7 @@ func TestRuntimeToV2CustomConfig(t *testing.T) {
 	require.Equal(t, config.CudaModeOn, value(t, ext.Capture.Instrumentation, "gpu", "enabled_mode"))
 
 	require.Equal(t, false, value(t, ext.Capture.Runtimes, "go", "enabled"))
+	require.Equal(t, false, value(t, ext.Capture.Runtimes, "go", "channel_links"))
 	require.Equal(t, false, value(t, ext.Capture.Runtimes, "nodejs", "enabled"))
 	require.Equal(t, false, value(t, ext.Capture.Runtimes, "java", "enabled"))
 	require.Equal(t, true, value(t, ext.Capture.Runtimes, "java", "debug", "bytecode_instrumentation"))

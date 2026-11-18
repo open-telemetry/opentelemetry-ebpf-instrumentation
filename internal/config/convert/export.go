@@ -277,9 +277,12 @@ func protocolSelected(list []instrumentations.Instrumentation, mapping protocolM
 }
 
 func captureRuntimes(cfg *obi.Config) schema.CaptureRuntimes {
+	goChannelLinks := !cfg.EBPF.DisableGoChannelLinks
+
 	return schema.CaptureRuntimes{
-		Go: schema.Runtime{
-			Enabled: !cfg.Discovery.SkipGoSpecificTracers,
+		Go: schema.GoRuntime{
+			Enabled:      !cfg.Discovery.SkipGoSpecificTracers,
+			ChannelLinks: &goChannelLinks,
 		},
 		NodeJS: schema.Runtime{
 			Enabled: cfg.NodeJS.Enabled,
@@ -440,7 +443,6 @@ func captureEngine(cfg *obi.Config) schema.CaptureEngine {
 			ContextPropagation:     cfg.EBPF.ContextPropagation,
 			OverrideBPFLoopEnabled: cfg.EBPF.OverrideBPFLoopEnabled,
 			DisableBlackBoxCP:      cfg.EBPF.DisableBlackBoxCP,
-			DisableGoChannelLinks:  cfg.EBPF.DisableGoChannelLinks,
 			PopulateTraceContext:   cfg.EBPF.PopulateTraceContext,
 		},
 		Traffic: schema.Traffic{
