@@ -173,6 +173,8 @@ func Stable(uint8) {}`
 		want                        string
 	}{
 		{name: "public declarations and wrappers", filename: "bpf_bpfel.go", header: header, want: "patch"},
+		{name: "custom output suffix", filename: "bpf_x86_bpfel_generated.go", header: header, want: "patch"},
+		{name: "renamed generated file", filename: "bindings.go", header: header, want: "patch"},
 		{name: "exposed internal declarations", filename: "bpf_bpfel.go", header: header, internal: true, want: "patch"},
 		{name: "renamed generated type", filename: "bpf_bpfel.go", header: header, rename: true, want: "patch"},
 		{name: "handwritten signature still protected", filename: "bpf_bpfel.go", header: header, changeAPI: true, want: "major"},

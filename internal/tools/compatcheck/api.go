@@ -124,9 +124,6 @@ func generatedBPFDeclarations(pkg *packages.Package) ([]types.Object, error) {
 	}
 	files := map[string]bool{}
 	for _, file := range pkg.CompiledGoFiles {
-		if !strings.HasSuffix(file, "_bpfel.go") && !strings.HasSuffix(file, "_bpfeb.go") {
-			continue
-		}
 		data, err := os.ReadFile(file)
 		if err != nil {
 			return nil, err
