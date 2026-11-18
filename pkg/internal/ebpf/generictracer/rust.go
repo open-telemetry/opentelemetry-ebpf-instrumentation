@@ -71,6 +71,16 @@ func (c *rustController) allow(pid app.PID, fi *exec.FileInfo) {
 }
 
 func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) ([]io.Closer, error) {
+	expectedStartTime := fi.StartTime()
+	if pid != fi.Pid() {
+		// Grouped workers share their parent's executable and service FileInfo.
+		childStartTime, err := procs.StartTime(pid)
+		if err != nil {
+			return nil, err
+		}
+		expectedStartTime = childStartTime
+	}
+
 	target, err := fi.OpenExecutable()
 	if err != nil {
 		return nil, err
@@ -85,7 +95,7 @@ func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) ([]io.Closer, er
 
 	probes, err := resolveRustProbes(f)
 	if err != nil {
-		return nil, err
+		return nil, c.keepTokioRuntime(pid, expectedStartTime, probes, err)
 	}
 
 	protocol, layoutErr := resolveRustProtocolLayouts(f, probes.layoutChannels()...)
@@ -224,7 +234,7 @@ func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) ([]io.Closer, er
 	}
 
 	if len(links) == 0 {
-		return nil, errors.New("no Rust probe group could be attached")
+		return nil, c.keepTokioRuntime(pid, expectedStartTime, probes, errors.New("no Rust probe group could be attached"))
 	}
 
 	capabilities := BpfRustCapabilitiesT{}
@@ -276,15 +286,9 @@ func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) ([]io.Closer, er
 		return nil, err
 	}
 
-	startTime, err := procs.StartTime(pid)
-	if err != nil {
+	if err := checkRustLifecycle(pid, expectedStartTime); err != nil {
 		rollback()
 		return nil, err
-	}
-
-	if startTime != fi.StartTime() {
-		rollback()
-		return nil, errors.New("rust process lifecycle changed during attachment")
 	}
 
 	if err := objects.RustCapabilities.Put(uint32(pid), capabilities); err != nil {
@@ -298,6 +302,42 @@ func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) ([]io.Closer, er
 		"http2_server_context", protocol.H2Server != 0, "rustls", protocol.Rustls != 0)
 
 	return links, nil
+}
+
+// keepTokioRuntime publishes only the runtime marker when no Rust hook is usable.
+// Tokio workers still poll unrelated tasks, so their threads must not supply parents.
+func (c *rustController) keepTokioRuntime(pid app.PID, expectedStartTime uint64, probes rustProbeSymbols, cause error) error {
+	if !probes.hasTokio {
+		return cause
+	}
+
+	if err := checkRustLifecycle(pid, expectedStartTime); err != nil {
+		return errors.Join(cause, err)
+	}
+
+	marker := BpfRustCapabilitiesT{TokioRuntime: 1}
+	if err := c.tracer.bpfObjects.RustCapabilities.Put(uint32(pid), marker); err != nil {
+		return errors.Join(cause, err)
+	}
+
+	c.tracer.log.Info("Tokio runtime without usable Rust hooks; worker-thread parents disabled",
+		"pid", pid, "reason", cause)
+
+	return cause
+}
+
+// checkRustLifecycle rejects a PID that no longer runs the process discovery saw.
+func checkRustLifecycle(pid app.PID, expectedStartTime uint64) error {
+	startTime, err := procs.StartTime(pid)
+	if err != nil {
+		return err
+	}
+
+	if startTime != expectedStartTime {
+		return errors.New("rust process lifecycle changed during attachment")
+	}
+
+	return nil
 }
 
 func (c *rustController) block(pid app.PID, fi *exec.FileInfo) {
