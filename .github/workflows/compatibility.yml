@@ -29,6 +29,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
+      # Keep authenticated code here so PR scripts never receive GH_TOKEN.
       - name: Fetch GitHub API responses
         env:
           GH_TOKEN: ${{ github.token }}
@@ -118,10 +119,7 @@ jobs:
         id: target
         env:
           BASE_REF: ${{ inputs.base_ref || (github.event_name == 'pull_request' && format('{0}^1', github.sha)) || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || github.sha }}
-        run: |
-          set -Eeuo pipefail
-          sha=$(git rev-parse --verify --end-of-options "${BASE_REF}^{commit}")
-          printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+        run: bash scripts/compatibility-target.sh
 
       - uses: $/.github/actions/generate-bpf
 
@@ -206,37 +204,7 @@ jobs:
         env:
           COMPARE_OUTCOME: ${{ steps.compare.outcome }}
           ARCH: ${{ matrix.arch }}
-        run: |
-          set -Eeuo pipefail
-          report=testoutput/compatibility.json
-          report_valid=false
-          {
-            printf '## Go API compatibility: linux/%s (advisory)\n\n' "$ARCH"
-            printf 'Only the public root-module Go API is checked. Enforcement is not enabled.\n\n'
-            if [[ ! -s "$report" ]]; then
-              printf '**INCOMPLETE:** no report was produced; check prerequisite jobs and logs.\n'
-            elif ! jq -e '.format_version == 2 and (.findings | type == "array") and (.existing_findings | type == "array") and (.unclassified_changes | type == "array") and (.existing_unclassified_changes | type == "array") and (.baselines | type == "array") and (.required_release | IN("patch", "minor", "major", "incomplete"))' "$report" >/dev/null; then
-              printf '**INCOMPLETE:** the report is malformed; check the comparison logs.\n'
-            elif jq -e '.error != null' "$report" >/dev/null; then
-              printf '**INCOMPLETE:** the comparison could not be completed.\n\n'
-              jq -r '.error' "$report"
-            else
-              report_valid=true
-              jq -r '
-                "Minimum Go API release class: **\(.required_release)**\n",
-                (if (.findings | length) == 0
-                 then "No incompatible public Go API changes introduced by this PR."
-                 else "**Incompatible API changes introduced: \(.findings | length)**. See the report for affected declarations."
-                 end)
-              ' "$report"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
-          if [[ "$COMPARE_OUTCOME" != success ]]; then
-            printf '::warning::Go API compatibility is advisory; the comparison is incomplete or this PR introduces an incompatibility. See the report and logs.\n'
-          fi
-          if [[ "$report_valid" == true ]] && jq -e '.error == null and (.baselines | length > 0)' "$report" >/dev/null; then
-            printf 'verified=true\n' >> "$GITHUB_OUTPUT"
-          fi
+        run: bash scripts/compatibility-summary.sh
 
       - name: Upload comparison report
         if: always()
