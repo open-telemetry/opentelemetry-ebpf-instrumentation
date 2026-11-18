@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"golang.org/x/mod/modfile"
+	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
 	"gopkg.in/yaml.v3"
 )
@@ -208,6 +209,15 @@ func check(ctx context.Context, opts options, r *report, progress io.Writer) (er
 		_, cleanupErr := git(cleanupCtx, root, "worktree", "remove", "--force", targetRoot)
 		err = errors.Join(err, cleanupErr)
 	}()
+	for _, tree := range []struct{ name, root string }{{"target", targetRoot}, {"candidate", root}} {
+		path, err := modulePath(tree.root)
+		if err != nil {
+			return fmt.Errorf("%s module: %w", tree.name, err)
+		}
+		if expected := coreModulePath(version); path != expected {
+			return fmt.Errorf("%s module must be %s for target version %s; got %s", tree.name, expected, version, path)
+		}
+	}
 	if err := prepareTargetBPF(ctx, targetRoot, opts.targetBPF, strings.Join(archs, ","), progress); err != nil {
 		return err
 	}
@@ -217,9 +227,6 @@ func check(ctx context.Context, opts options, r *report, progress io.Writer) (er
 	releases, err := client.releases(ctx, version)
 	if err != nil {
 		return err
-	}
-	if len(releases) == 0 {
-		return fmt.Errorf("no published core baselines found for %s", version)
 	}
 	r.ReleaseBase = releases[len(releases)-1].Tag
 
@@ -337,11 +344,18 @@ func minimumRelease(changes []apiChange, latest string) releaseClass {
 		if !f.Compatible {
 			return releaseMajor
 		}
-		if f.Baseline == latest && f.Module == coreModule {
+		if f.Baseline == latest && f.Module == coreModulePath(latest) {
 			minimum = releaseMinor
 		}
 	}
 	return minimum
+}
+
+func coreModulePath(version string) string {
+	if major := semver.Major(version); major != "v1" {
+		return coreModule + "/" + major
+	}
+	return coreModule
 }
 
 func modulePath(root string) (string, error) {
@@ -350,8 +364,8 @@ func modulePath(root string) (string, error) {
 		return "", err
 	}
 	path := modfile.ModulePath(data)
-	if path != coreModule {
-		return "", fmt.Errorf("expected core module %s, got %q", coreModule, path)
+	if prefix, _, ok := module.SplitPathVersion(path); !ok || prefix != coreModule {
+		return "", fmt.Errorf("expected core module %s with an optional /vN suffix for v2+, got %q", coreModule, path)
 	}
 	return path, nil
 }

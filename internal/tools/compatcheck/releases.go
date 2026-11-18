@@ -87,8 +87,9 @@ func (c *releaseClient) releases(ctx context.Context, target string) ([]release,
 		}
 	}
 	slices.SortFunc(result, func(a, b release) int { return semver.Compare(a.Tag, b.Tag) })
-	if semver.Major(target) == "v1" && !slices.ContainsFunc(result, func(r release) bool { return r.Tag == "v1.0.0" }) {
-		return nil, errors.New("published v1.0.0 bootstrap baseline is missing")
+	bootstrap := semver.Major(target) + ".0.0"
+	if !slices.ContainsFunc(result, func(r release) bool { return r.Tag == bootstrap }) {
+		return nil, fmt.Errorf("published %s bootstrap baseline is missing", bootstrap)
 	}
 	return result, nil
 }
@@ -186,8 +187,12 @@ func (c *releaseClient) source(ctx context.Context, r release, cache, temp strin
 	if err := extractSource(filepath.Join(dir, archive), root, "obi-"+r.Tag+"-source-generated"); err != nil {
 		return "", baseline{}, err
 	}
-	if _, err := modulePath(root); err != nil {
+	path, err := modulePath(root)
+	if err != nil {
 		return "", baseline{}, err
+	}
+	if expected := coreModulePath(r.Tag); path != expected {
+		return "", baseline{}, fmt.Errorf("release %s module must be %s; got %s", r.Tag, expected, path)
 	}
 	info := baseline{Version: r.Tag, Commit: commit, ArchiveSHA256: digest}
 	c.sources[r.Tag] = releaseSource{root: root, info: info}

@@ -33,6 +33,12 @@ func TestApplicableRelease(t *testing.T) {
 		{"v1.0.0-rc.2", "v1.0.0", false},
 		{"v0.15.2", "v1.0.0", false},
 		{"v2.0.0", "v1.0.0", false},
+		{"v1.9.0", "v2.1.0", false},
+		{"v2.0.0", "v2.1.0", true},
+		{"v2.1.3", "v2.1.0", true},
+		{"v2.2.0", "v2.1.0", false},
+		{"v3.0.0", "v2.1.0", false},
+		{"v10.0.0", "v10.0.1", true},
 		{"collector/v1.0.0", "v1.0.0", false},
 		{"v1.0", "v1.0.0", false},
 		{"not-a-version", "v1.0.0", false},
@@ -86,8 +92,10 @@ func TestReleasePaginationAndBootstrap(t *testing.T) {
 	}))
 	defer missing.Close()
 	c.apiURL = missing.URL
-	if _, err := c.releases(t.Context(), "v1.0.0"); err == nil {
-		t.Fatal("missing bootstrap must fail")
+	for _, target := range []string{"v1.0.0", "v2.1.0", "v10.0.1"} {
+		if _, err := c.releases(t.Context(), target); err == nil {
+			t.Fatalf("missing bootstrap for %s must fail", target)
+		}
 	}
 }
 

@@ -22,9 +22,10 @@
 // a directory of pre-generated target bindings and bytecode instead.
 //
 // Candidate and target are each compared with signed, immutable release source
-// archives from v1.0.0 through the target's minor line. The target's committed
-// versions.yaml selects that line. Changes shared with the target are inherited
-// and do not count as PR findings.
+// archives within the target's major version, from vN.0.0 through its minor line.
+// The target's committed versions.yaml selects that line; v2+ modules must use
+// the corresponding /vN import path suffix. Changes shared with the target are
+// inherited and do not count as PR findings.
 //
 // The optional -report JSON output separates incompatibilities (findings) from
 // unresolved comparisons (unclassified_changes); existing_ fields hold inherited

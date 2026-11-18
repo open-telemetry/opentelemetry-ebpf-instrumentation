@@ -29,12 +29,13 @@ func TestPRAndReleaseResults(t *testing.T) {
 	const anonymous = "package public; type Event struct { Pid struct { _ int; ID int } }"
 	const named = "package public; type PID struct { _ int; ID int }; type Event struct { Pid PID }"
 	for _, tc := range []struct {
-		name, releaseAPI, targetAPI, candidateAPI, proposed string
-		code                                                int
-		prClass, releaseClass                               releaseClass
-		introduced, existing                                int
-		unclassified, existingUnclassified                  int
-		contextChange                                       string
+		name, releaseAPI, targetAPI, candidateAPI, proposed                string
+		version, modulePath, candidateModule, releaseModule, errorContains string
+		code                                                               int
+		prClass, releaseClass                                              releaseClass
+		introduced, existing                                               int
+		unclassified, existingUnclassified                                 int
+		contextChange                                                      string
 	}{
 		{
 			name:          "worsened unclassified field type",
@@ -87,6 +88,14 @@ func TestPRAndReleaseResults(t *testing.T) {
 			releaseClass:         releaseIncomplete,
 			existingUnclassified: 1,
 		},
+		{name: "v2 unchanged", version: "v2.0.0", modulePath: coreModule + "/v2", releaseAPI: original, targetAPI: original, candidateAPI: original, prClass: releasePatch, releaseClass: releasePatch},
+		{name: "v2 addition", version: "v2.0.0", modulePath: coreModule + "/v2", releaseAPI: original, targetAPI: original, candidateAPI: addition, prClass: releaseMinor, releaseClass: releaseMinor},
+		{name: "v2 break", version: "v2.0.0", modulePath: coreModule + "/v2", releaseAPI: original, targetAPI: original, candidateAPI: broken, code: exitBreak, prClass: releaseMajor, releaseClass: releaseMajor, introduced: 1},
+		{name: "v2 patch rejects addition", version: "v2.0.0", modulePath: coreModule + "/v2", proposed: "v2.0.1", releaseAPI: original, targetAPI: original, candidateAPI: addition, code: exitBreak, prClass: releaseMinor, releaseClass: releaseMinor},
+		{name: "v10 addition", version: "v10.0.0", modulePath: coreModule + "/v10", releaseAPI: original, targetAPI: original, candidateAPI: addition, prClass: releaseMinor, releaseClass: releaseMinor},
+		{name: "v2 candidate uses wrong major", version: "v2.0.0", modulePath: coreModule + "/v2", candidateModule: coreModule + "/v3", releaseAPI: original, targetAPI: original, candidateAPI: original, code: exitError, prClass: releaseIncomplete, releaseClass: releaseIncomplete, errorContains: "candidate module must be"},
+		{name: "v2 target omits major suffix", version: "v2.0.0", modulePath: coreModule, releaseAPI: original, targetAPI: original, candidateAPI: original, code: exitError, prClass: releaseIncomplete, releaseClass: releaseIncomplete, errorContains: "target module must be"},
+		{name: "v2 archive uses wrong major", version: "v2.0.0", modulePath: coreModule + "/v2", releaseModule: coreModule, releaseAPI: original, targetAPI: original, candidateAPI: original, code: exitError, prClass: releaseIncomplete, releaseClass: releaseIncomplete, errorContains: "release v2.0.0 module must be"},
 		{name: "unchanged", releaseAPI: original, targetAPI: original, candidateAPI: original, prClass: releasePatch, releaseClass: releasePatch},
 		{name: "inherited break", releaseAPI: original, targetAPI: broken, candidateAPI: broken, prClass: releasePatch, releaseClass: releaseMajor, existing: 1},
 		{name: "new break", releaseAPI: original, targetAPI: original, candidateAPI: broken, code: exitBreak, prClass: releaseMajor, releaseClass: releaseMajor, introduced: 1},
@@ -106,9 +115,19 @@ func TestPRAndReleaseResults(t *testing.T) {
 		{name: "release rejects unclassified change", releaseAPI: anonymous, targetAPI: named, candidateAPI: named, proposed: "v1.1.0", code: exitError, prClass: releasePatch, releaseClass: releaseIncomplete, existingUnclassified: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			mockRelease(t, tc.releaseAPI)
+			if tc.version == "" {
+				tc.version = "v1.0.0"
+			}
+			if tc.modulePath == "" {
+				tc.modulePath = coreModule
+			}
+			if tc.releaseModule == "" {
+				tc.releaseModule = tc.modulePath
+			}
+			mockRelease(t, tc.version, tc.releaseModule, tc.releaseAPI)
 			target := publicAPIFixture(t, tc.targetAPI, "")
-			writeFile(t, filepath.Join(target, "versions.yaml"), "module-sets:\n  obi:\n    version: v1.0.0\n")
+			writeFile(t, filepath.Join(target, "versions.yaml"), "module-sets:\n  obi:\n    version: "+tc.version+"\n")
+			writeFile(t, filepath.Join(target, "go.mod"), "module "+tc.modulePath+"\n\ngo 1.26.0\n")
 			writeFile(t, filepath.Join(target, "Makefile"), "docker-generate:\n\t@true\n")
 			for _, args := range [][]string{
 				{"init", "--quiet"},
@@ -120,6 +139,9 @@ func TestPRAndReleaseResults(t *testing.T) {
 				}
 			}
 			candidate := target
+			if tc.candidateModule != "" {
+				writeFile(t, filepath.Join(candidate, "go.mod"), "module "+tc.candidateModule+"\n\ngo 1.26.0\n")
+			}
 			writeFile(t, filepath.Join(candidate, "pkg/public/api.go"), tc.candidateAPI)
 			path := filepath.Join(t.TempDir(), "report.json")
 			var output bytes.Buffer
@@ -134,6 +156,12 @@ func TestPRAndReleaseResults(t *testing.T) {
 			}
 			if code != tc.code || r.RequiredRelease != tc.prClass || r.ReleaseRequired != tc.releaseClass || len(r.Findings) != tc.introduced || len(r.ExistingFindings) != tc.existing || len(r.Unclassified) != tc.unclassified || len(r.ExistingUnclassified) != tc.existingUnclassified {
 				t.Fatalf("exit=%d, want %d; report=%s\n%s", code, tc.code, data, &output)
+			}
+			if !strings.Contains(r.Error, tc.errorContains) {
+				t.Fatalf("error=%q, want substring %q", r.Error, tc.errorContains)
+			}
+			if tc.errorContains == "" && (len(r.Baselines) != 1 || r.Baselines[0].Version != tc.version) {
+				t.Fatalf("incorrect release baseline: %+v", r.Baselines)
 			}
 			if r.Policy != "VERSIONING.md#go-module-api" || bytes.Contains(data, []byte(`"rule":`)) {
 				t.Fatalf("policy must be reported once, rather than on each change: %s", data)
@@ -176,7 +204,7 @@ func (f fixtureTransport) RoundTrip(r *http.Request) (*http.Response, error) { r
 
 // Signature execution is stubbed here; release selection, checksum verification,
 // extraction, type loading, comparison, attribution and exit handling are real.
-func mockRelease(t *testing.T, source string) {
+func mockRelease(t *testing.T, version, module, source string) {
 	t.Helper()
 	bin := t.TempDir()
 	writeFile(t, filepath.Join(bin, "cosign"), "#!/bin/sh\nexit 0\n")
@@ -187,8 +215,8 @@ func mockRelease(t *testing.T, source string) {
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
-	for name, body := range map[string]string{"go.mod": "module " + coreModule + "\n\ngo 1.26.0\n", "pkg/public/api.go": source} {
-		if err := tw.WriteHeader(&tar.Header{Name: "obi-v1.0.0-source-generated/" + name, Mode: 0o644, Size: int64(len(body))}); err != nil {
+	for name, body := range map[string]string{"go.mod": "module " + module + "\n\ngo 1.26.0\n", "pkg/public/api.go": source} {
+		if err := tw.WriteHeader(&tar.Header{Name: "obi-" + version + "-source-generated/" + name, Mode: 0o644, Size: int64(len(body))}); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := io.WriteString(tw, body); err != nil {
@@ -201,10 +229,10 @@ func mockRelease(t *testing.T, source string) {
 	if err := gz.Close(); err != nil {
 		t.Fatal(err)
 	}
-	archive := "obi-v1.0.0-source-generated.tar.gz"
+	archive := "obi-" + version + "-source-generated.tar.gz"
 	digest := sha256.Sum256(buf.Bytes())
 	assets := map[string][]byte{archive: buf.Bytes(), archive + ".bundle.json": []byte("{}"), "SHA256SUMS": fmt.Appendf(nil, "%x  %s\n", digest, archive), "SHA256SUMS.bundle.json": []byte("{}")}
-	release := release{Tag: "v1.0.0", Immutable: true}
+	release := release{Tag: version, Immutable: true}
 	for name := range assets {
 		release.Assets = append(release.Assets, releaseAsset{Name: name})
 	}
@@ -216,7 +244,7 @@ func mockRelease(t *testing.T, source string) {
 			data, _ = json.Marshal([]any{release})
 		case strings.Contains(req.URL.Path, "/git/ref/tags/"):
 			data = []byte(`{"object":{"type":"commit","sha":"` + strings.Repeat("a", 40) + `"}}`)
-		case strings.Contains(req.URL.Path, "/releases/download/v1.0.0/"):
+		case strings.Contains(req.URL.Path, "/releases/download/"+version+"/"):
 			data = assets[filepath.Base(req.URL.Path)]
 		default:
 			return nil, fmt.Errorf("unexpected fixture request: %s", req.URL)

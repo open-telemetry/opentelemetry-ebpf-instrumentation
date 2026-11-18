@@ -85,7 +85,7 @@ func TestFindingAttribution(t *testing.T) {
 
 func TestTargetWorktreeLifecycle(t *testing.T) {
 	const original = "package public; func F(int) {}"
-	mockRelease(t, original)
+	mockRelease(t, "v1.0.0", coreModule, original)
 	root := publicAPIFixture(t, original, "")
 	writeFile(t, filepath.Join(root, "versions.yaml"), "module-sets:\n  obi:\n    version: v1.0.0\n")
 	writeFile(t, filepath.Join(root, "generation-input"), "target")
@@ -192,5 +192,31 @@ error: F: changed from func(int) to func(string)
 `
 	if output.String() != want {
 		t.Fatalf("diagnostic:\n%s\nwant:\n%s", &output, want)
+	}
+}
+
+func TestCoreModulePaths(t *testing.T) {
+	for _, tc := range []struct {
+		path  string
+		valid bool
+	}{
+		{coreModule, true},
+		{coreModule + "/v2", true},
+		{coreModule + "/v10", true},
+		{coreModule + "/v0", false},
+		{coreModule + "/v1", false},
+		{coreModule + "/v02", false},
+		{coreModule + "/collector", false},
+		{coreModule + "/collector/v2", false},
+		{"example.com/other/v2", false},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			root := t.TempDir()
+			writeFile(t, filepath.Join(root, "go.mod"), "module "+tc.path+"\n")
+			got, err := modulePath(root)
+			if (err == nil) != tc.valid || (tc.valid && got != tc.path) {
+				t.Fatalf("modulePath = %q, %v; valid=%t", got, err, tc.valid)
+			}
+		})
 	}
 }
