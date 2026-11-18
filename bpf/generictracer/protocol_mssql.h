@@ -111,12 +111,24 @@ static __always_inline u8 is_mssql(connection_info_t *conn_info,
     return 1;
 }
 
+// Keeps the start of the response in rbuf. Clients often read the TDS header
+// on its own and then the payload, so the payload is placed right after a
+// header-only first read.
+static __always_inline void
+mssql_capture_response_start(tcp_req_t *req, const void *u_buf, u32 bytes_len) {
+    if (req->resp_len == 0) {
+        bpf_clamp_umax(bytes_len, k_tcp_res_len);
+        bpf_probe_read(req->rbuf, bytes_len, u_buf);
+    } else if (req->resp_len == k_mssql_hdr_size) {
+        bpf_clamp_umax(bytes_len, k_tcp_res_len - k_mssql_hdr_size);
+        bpf_probe_read(req->rbuf + k_mssql_hdr_size, bytes_len, u_buf);
+    }
+}
+
 // Tracks accumulated response length and detects the TDS End-Of-Message bit.
 // Returns -1 to wait for more data, 0 when the response is complete.
 static __always_inline int mssql_response_eom(tcp_req_t *req, const void *u_buf, u32 bytes_len) {
-    if (req->resp_len == 0 && bytes_len >= k_mssql_hdr_size) {
-        bpf_probe_read(req->rbuf, k_mssql_hdr_size, u_buf);
-    }
+    mssql_capture_response_start(req, u_buf, bytes_len);
 
     req->resp_len += bytes_len;
 

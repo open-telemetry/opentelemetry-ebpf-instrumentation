@@ -378,9 +378,15 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
         }
 
         if (existing->end_monotime_ns == 0) {
+            // mssql_response_eom already captured the start of the response across reads
+            const bool response_start_captured =
+                protocol_type == k_protocol_type_mssql &&
+                infer_packet_type(direction, existing->is_server) == PACKET_TYPE_RESPONSE;
+
             bpf_clamp_umax(bytes_len, k_tcp_res_len);
             existing->end_monotime_ns = bpf_ktime_get_ns();
-            existing->resp_len = bytes_len;
+            existing->resp_len =
+                response_start_captured ? min(existing->resp_len, (u32)k_tcp_res_len) : bytes_len;
             tcp_req_t *trace = events_ringbuf_reserve(sizeof(tcp_req_t), 0);
             if (trace) {
                 bpf_dbg_printk("Sending TCP trace: existing=%lx, resp_length=%d",
@@ -388,7 +394,9 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
                                existing->resp_len);
 
                 __builtin_memcpy(trace, existing, sizeof(tcp_req_t));
-                bpf_probe_read(trace->rbuf, bytes_len, u_buf);
+                if (!response_start_captured) {
+                    bpf_probe_read(trace->rbuf, bytes_len, u_buf);
+                }
 
                 bpf_ringbuf_submit(trace, get_flags());
             } else {
