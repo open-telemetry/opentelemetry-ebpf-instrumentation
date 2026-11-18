@@ -16,6 +16,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/cilium/ebpf"
@@ -102,8 +103,16 @@ func TestRingbufMetricsConstant(t *testing.T) {
 	assert.Equal(t, false, tracer.constants(0)["ringbuf_metrics_enabled"])
 
 	tracer = New(nil, &obi.Config{}, struct{ imetrics.NoopReporter }{})
+	assert.Equal(t, false, tracer.constants(0)["ringbuf_metrics_enabled"])
+
+	tracer = New(nil, &obi.Config{}, bpfMetricsReporter{})
 	assert.Equal(t, true, tracer.constants(0)["ringbuf_metrics_enabled"])
 }
+
+// bpfMetricsReporter collects the BPF internal metrics, so it turns the ring buffer accounting on.
+type bpfMetricsReporter struct{ imetrics.NoopReporter }
+
+func (bpfMetricsReporter) BpfInternalMetricsScrapeInterval() time.Duration { return time.Second }
 
 func TestWakeupDataBytesUsesScaledRingBufSize(t *testing.T) {
 	setContextPropagationSupportForTest(t, false)

@@ -74,8 +74,16 @@ func TestRingbufMetricsConstant(t *testing.T) {
 	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
 
 	tracer.metrics = struct{ imetrics.NoopReporter }{}
+	assert.Equal(t, false, tracer.constants()["ringbuf_metrics_enabled"])
+
+	tracer.metrics = bpfMetricsReporter{}
 	assert.Equal(t, true, tracer.constants()["ringbuf_metrics_enabled"])
 }
+
+// bpfMetricsReporter collects the BPF internal metrics, so it turns the ring buffer accounting on.
+type bpfMetricsReporter struct{ imetrics.NoopReporter }
+
+func (bpfMetricsReporter) BpfInternalMetricsScrapeInterval() time.Duration { return time.Second }
 
 func TestAllowPIDFollowsLogEnricherSelection(t *testing.T) {
 	tr := newTestTracer(t, false)
