@@ -37,7 +37,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # Merge refs can include a newer target than the event payload's base SHA.
+      # Compare against the base revision used in the tested merge commit.
       - name: Resolve target revision
         id: target
         env:
