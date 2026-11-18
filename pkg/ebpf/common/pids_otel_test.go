@@ -43,6 +43,12 @@ func (f *fakeOTelTracesPIDFilter) Mark(pid app.PID, exportsTraces bool) error {
 	return nil
 }
 
+func (f *fakeOTelTracesPIDFilter) Forget(pid app.PID) error {
+	f.calls++
+	delete(f.marks, pid)
+	return nil
+}
+
 func traceExport(pid app.PID, end time.Duration) request.Span {
 	return request.Span{
 		Type: request.EventTypeHTTPClient, Path: "/v1/traces", Status: 200, End: int64(end),
@@ -109,9 +115,9 @@ func TestOTelTracesPIDFilterRetriesAndFollowsPIDLifecycle(t *testing.T) {
 	assert.True(t, filter.marks[1000], "an already detected service must retry failed map updates")
 
 	pf.BlockPID(1000, 42)
-	assert.False(t, filter.marks[1000])
+	assert.NotContains(t, filter.marks, app.PID(1000), "removal must restore the undiscovered state")
 	pf.Filter([]request.Span{span})
-	assert.False(t, filter.marks[1000], "late spans must not mark removed PIDs")
+	assert.NotContains(t, filter.marks, app.PID(1000), "late spans must not mark removed PIDs")
 
 	pf.AllowPID(1000, 42, exec.New(exec.Init{}), PIDTypeGo)
 	pf.Filter([]request.Span{span})
@@ -181,4 +187,15 @@ func TestOTelTracesPIDFilterForkedChildMarksItsParent(t *testing.T) {
 	calls := filter.calls
 	pf.Filter([]request.Span{export})
 	assert.Equal(t, calls, filter.calls, "later exports of the unregistered child skip the scan")
+}
+
+func TestOTelTracesPIDFilterWithoutForget(t *testing.T) {
+	pf := NewPIDsFilter(&services.DiscoveryConfig{}, slog.Default(), nil)
+	filter := newFakeOTelTracesPIDFilter()
+	// Hide the optional lifecycle method to exercise existing implementations.
+	pf.SetOTelTracesPIDFilter(struct{ OTelTracesPIDFilter }{filter})
+	require.NoError(t, filter.Mark(1000, true))
+	pf.BlockPID(1000, 42)
+	require.Contains(t, filter.marks, app.PID(1000))
+	require.False(t, filter.marks[1000])
 }

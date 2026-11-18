@@ -87,6 +87,8 @@ type ForkedProcessTracker interface {
 
 // OTelTracesPIDFilter is the BPF filter of the processes exporting OTLP traces, by
 // the pid OBI's /proc numbers them with. PIDsFilter calls it under its own lock.
+// Implementations may provide Forget(app.PID) error to distinguish removal from
+// a live non-exporter. Otherwise removal calls Mark(pid, false).
 type OTelTracesPIDFilter interface {
 	// Marked reports whether the pid was last written as exporting
 	Marked(pid app.PID) bool
@@ -386,7 +388,14 @@ func (pf *PIDsFilter) addPID(pid app.PID, nsid uint32, fi *exec.FileInfo, t PIDT
 
 func (pf *PIDsFilter) removePID(pid app.PID, nsid uint32) {
 	delete(pf.procs, pid)
-	pf.updateOTelTracesPID(pid, nil)
+	// Filters that distinguish undiscovered PIDs must forget the classification.
+	if filter, ok := pf.otelTracesPIDFilter.(interface{ Forget(app.PID) error }); ok {
+		if err := filter.Forget(pid); err != nil {
+			pf.log.Debug("removing the trace-exporting PID classification", "pid", pid, "error", err)
+		}
+	} else {
+		pf.updateOTelTracesPID(pid, nil)
+	}
 
 	ns, nsExists := pf.current[nsid]
 	if !nsExists {
