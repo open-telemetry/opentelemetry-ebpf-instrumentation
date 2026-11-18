@@ -116,7 +116,6 @@ static __always_inline bool rust_http2_append(rust_http_args_t *args,
     const long write_result = bpf_probe_write_user((void *)(ptr + len), header, sizeof(header));
     if (write_result != 0) {
         bpf_dbg_printk("rust h2 payload write failed stream=%u err=%ld", stream, write_result);
-        args->request.payload_write_error = write_result;
         return false;
     }
 

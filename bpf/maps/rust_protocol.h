@@ -90,14 +90,8 @@ typedef struct rust_http_request {
     u8 inject;
     u8 injection_result;
     u8 observed;
-    u8 _pad;
-    s32 payload_write_error;
+    u8 _pad[5];
 } rust_http_request_t;
-
-typedef struct rust_http1_failure {
-    unsigned char parent_span_id[SPAN_ID_SIZE_BYTES];
-    s32 payload_write_error;
-} rust_http1_failure_t;
 
 typedef struct rust_tls_flush {
     u64 common;
@@ -108,17 +102,9 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64);
     __type(value, rust_tls_flush_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rust_tls_flushes SEC(".maps");
-
-struct {
-    __uint(type, BPF_MAP_TYPE_LRU_HASH);
-    __type(key, rust_wire_key_t);
-    __type(value, rust_http1_failure_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
-    __uint(pinning, OBI_PIN_INTERNAL);
-} rust_http1_failures SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -132,7 +118,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, rust_h2_key_t);
     __type(value, rust_http_request_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rust_h2_requests SEC(".maps");
 
@@ -148,7 +134,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, u32);
     __type(value, rust_protocol_config_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, k_max_rust_processes);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rust_protocol_configs SEC(".maps");
 
@@ -156,7 +142,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, rust_wire_key_t);
     __type(value, tp_info_pid_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rust_wire_parents SEC(".maps");
 
@@ -172,7 +158,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64);
     __type(value, u64);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rust_h2_senders SEC(".maps");
 
@@ -180,6 +166,6 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, rust_task_key_t);
     __type(value, ssl_pid_connection_info_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_TLS_CONNECTIONS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rust_tls_reads SEC(".maps");

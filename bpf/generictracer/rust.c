@@ -246,7 +246,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64);
     __type(value, rust_task_key_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rust_hyper_receive_args SEC(".maps");
 
@@ -477,7 +477,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64);
     __type(value, rust_list_args_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rust_list_args SEC(".maps");
 

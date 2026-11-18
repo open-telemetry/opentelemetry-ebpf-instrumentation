@@ -63,7 +63,6 @@ static void test_append(unsigned int fail) {
     assert(result == (fail == 0));
     if (fail) {
         assert(buffer.len == 10 && limit.remaining == 200 && data[2] == 1);
-        assert(args.request.payload_write_error == (fail == 1 ? -EFAULT : 0));
     } else {
         assert(buffer.len == 10 + k_h2_tp_hpack_size);
         assert(limit.remaining == 200 - k_h2_tp_hpack_size);

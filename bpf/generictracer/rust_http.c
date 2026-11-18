@@ -31,7 +31,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64);
     __type(value, rust_http_args_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rust_http_args SEC(".maps");
 
@@ -180,17 +180,6 @@ int GUARDED_PROG(obi_rust_http1_headers_ret, struct pt_regs *, ctx) {
         }
     } else {
         bpf_dbg_printk("rust payload write failed buffer=%llx err=%ld", args.buffer, result);
-        rust_wire_key_t *key = rust_wire_key_mem();
-        if (key) {
-            key->pid = obi_pid(id);
-            __builtin_memcpy(key->trace_id, args.request.wire.trace_id, sizeof(key->trace_id));
-            __builtin_memcpy(key->span_id, args.request.wire.span_id, sizeof(key->span_id));
-            rust_http1_failure_t failure = {.payload_write_error = result};
-            __builtin_memcpy(failure.parent_span_id,
-                             args.request.parent.tp.span_id,
-                             sizeof(failure.parent_span_id));
-            bpf_map_update_elem(&rust_http1_failures, key, &failure, BPF_ANY);
-        }
     }
     return 0;
 }
@@ -482,10 +471,8 @@ int GUARDED_PROG(obi_rust_h2_encode_ret, struct pt_regs *, ctx) {
                                             : k_rust_injection_skipped;
     }
 
-    bpf_dbg_printk("rust h2 injection stream=%u result=%u err=%d",
-                   args.stream_id,
-                   args.request.injection_result,
-                   args.request.payload_write_error);
+    bpf_dbg_printk(
+        "rust h2 injection stream=%u result=%u", args.stream_id, args.request.injection_result);
     const rust_h2_key_t key = {
         .pid = obi_pid(id), .sender = args.sender, .stream_id = args.stream_id};
     bpf_map_update_elem(&rust_h2_requests, &key, &args.request, BPF_ANY);
@@ -541,7 +528,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64);
     __type(value, rust_h2_server_args_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rust_h2_server_args SEC(".maps");
 

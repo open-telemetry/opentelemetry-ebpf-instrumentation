@@ -12,6 +12,10 @@
 
 enum { k_rust_poll_depth = 8 };
 
+// Per-process maps hold one entry per instrumented Rust process on the node. They are
+// not LRU: when one is full, a new process is left without Rust instrumentation.
+enum { k_max_rust_processes = 1 << 10 };
+
 typedef struct rust_task_key {
     u64 addr;
     u32 pid;
@@ -34,7 +38,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_HASH);
     __type(key, u32);
     __type(value, rust_capabilities_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, k_max_rust_processes);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rust_capabilities SEC(".maps");
 
@@ -42,7 +46,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64);
     __type(value, rust_thread_state_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rust_threads SEC(".maps");
 
@@ -58,6 +62,6 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, rust_task_key_t);
     __type(value, tp_info_pid_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rust_channel_context SEC(".maps");

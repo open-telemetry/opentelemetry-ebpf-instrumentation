@@ -40,15 +40,16 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64);
     __type(value, rustls_process_args_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rustls_process_args SEC(".maps");
 
+// Keyed by both the encrypter and decrypter address, like a connection's two BIOs.
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, rust_task_key_t);
     __type(value, ssl_pid_connection_info_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_TLS_BIOS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rustls_connections SEC(".maps");
 
@@ -56,7 +57,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64);
     __type(value, rustls_reader_args_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rustls_reader_args SEC(".maps");
 
@@ -64,7 +65,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, rust_task_key_t);
     __type(value, rustls_buffer_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_TLS_CONNECTIONS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rustls_read_buffers SEC(".maps");
 
@@ -72,7 +73,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64);
     __type(value, rustls_buffer_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rustls_plain_args SEC(".maps");
 
@@ -80,7 +81,7 @@ struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, u64);
     __type(value, rustls_buffer_t);
-    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(max_entries, MAX_CONCURRENT_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } rustls_read_args SEC(".maps");
 
