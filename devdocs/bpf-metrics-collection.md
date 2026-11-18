@@ -18,10 +18,7 @@ Map metrics are host-wide on both paths.
 
 ## Supported kernel objects
 
-The Prometheus collector reports programs of every eBPF program type. The
-internal collector reports OBI programs of every type except `Tracing`: OBI
-loads `Tracing` programs only as TCP iterators, which run when OBI reads them
-and not on the path of the instrumented workloads.
+Both collectors report programs of every eBPF program type.
 
 The collector reports entry counts only for `LRUHash` maps. Other map types are
 still encountered during the host-wide walks, but they are not emitted as
@@ -71,12 +68,16 @@ accounting continues between collections. Each collection lists the program
 IDs of its path and reads `Stats()` from every reported program. Metadata is
 cached when a program is first observed. Each reported program is opened
 temporarily to read its statistics and closed before collection continues.
-Programs of types that are not reported are cached without retaining their
-handles.
 
 The kernel accounts executions and runtime only to the program it enters. A
 program reached through a tail call keeps zero executions, and its runtime is
 included in the program that made the tail call.
+
+The runtime is spent in the context that runs the program. A kprobe or
+tracepoint adds it to every process that calls the probed kernel function,
+because process filtering happens inside the program. A uprobe adds it to the
+processes that run the probed binary. An iterator adds it only to the process
+that reads it, which for OBI's TCP iterators is OBI itself.
 
 The collector reports execution-count and runtime changes between collections
 and derives probe latency by dividing the runtime change by the execution-count

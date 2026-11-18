@@ -70,7 +70,7 @@ func TestGetProbeMetricsCachesProgramMetadataAndDiscoversNewIDs(t *testing.T) {
 
 	metrics = collector.getProbeMetrics()
 
-	require.True(t, collector.programCache[secondID].supported)
+	require.Contains(t, collector.programCache, secondID)
 	requireProbeMetric(t, metrics, secondID, ebpf.SocketFilter, "metric_0")
 }
 
@@ -113,17 +113,11 @@ func TestInternalCollectorFindsOwnedProgramsInProcFS(t *testing.T) {
 	requireProbeMetric(t, collector.getProbeMetrics(), id, ebpf.SocketFilter, "metric_0")
 }
 
-func TestInternalCollectorSkipsIterators(t *testing.T) {
+func TestInternalCollectorReportsIterators(t *testing.T) {
 	collector := newPrivilegedInternalCollector(t)
-	program := loadIterProgram(t)
-	id := programID(t, program)
+	id := programID(t, loadIterProgram(t))
 
-	metrics := collector.getProbeMetrics()
-
-	requireNoProbeMetric(t, metrics, id)
-	cached, ok := collector.programCache[id]
-	require.True(t, ok)
-	require.False(t, cached.supported)
+	requireProbeMetric(t, collector.getProbeMetrics(), id, ebpf.Tracing, "metric_iter")
 }
 
 func TestCollectorShutdownClearsState(t *testing.T) {
@@ -143,7 +137,7 @@ func TestCollectorShutdownClearsState(t *testing.T) {
 
 	collector.getProbeMetrics()
 	collector.getMapMetrics()
-	require.True(t, collector.programCache[id].supported)
+	require.Contains(t, collector.programCache, id)
 	require.NotEmpty(t, collector.progs)
 	require.NotEmpty(t, collector.mapCache)
 
