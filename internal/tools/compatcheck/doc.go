@@ -1,9 +1,8 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Command compatcheck compares the root module's public Go source API on Linux.
-// It implements a subset of VERSIONING.md's Go API rules in code; policy changes
-// require corresponding code and test updates. VERSIONING.md is not read at runtime.
+// Command compatcheck compares the root module's public Go source API on Linux
+// and classifies changes using a subset of the Go API rules in VERSIONING.md.
 //
 // It follows aliases and exposed internal and dependency types. Commands, test
 // files, and independently versioned modules are excluded as roots. bpf2go
