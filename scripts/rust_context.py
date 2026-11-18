@@ -120,6 +120,7 @@ def scenarios(cases):
             yield name + "-socket-http2", name, {"H2C": "1", "INJECT": "1", "NO_USER_WRITE": "1"}
     if "latest" in names:
         yield "latest-owned-http1", "latest", {"INJECT": "1"}
+        yield "latest-split-http1", "latest", {"INJECT": "1", "SPLIT_HEADER": "1"}
         yield "latest-forwarded-http1", "latest", {"INJECT": "1", "APP_HEADER": "1", "FORWARDED_APP_HEADER": "1"}
         yield "latest-forwarded-http2", "latest", {"H2C": "1", "INJECT": "1", "APP_HEADER": "1", "FORWARDED_APP_HEADER": "1"}
         yield "latest-http1-otel-exporter", "latest", {"INJECT": "1", "OTEL_EXPORTER": "1"}
@@ -139,6 +140,14 @@ def scenarios(cases):
 
     if "rustls-server-0.23" in names:
         yield "rustls-server-http1", "rustls-server-0.23", {"SERVER":"1", "SERVER_HTTP1":"1", "INJECT":"1"}
+        for sampler, parent_flags, sampled in (("always_off", "01", "0"),
+                                                ("always_on", "00", "1"),
+                                                ("parentbased_always_off", "01", "1"),
+                                                ("parentbased_always_on", "00", "0")):
+            yield "rustls-server-"+sampler, "rustls-server-0.23", {
+                "SERVER": "1", "TLS": "1", "H2": "1", "INJECT": "1",
+                "SAMPLER": sampler, "PARENT_FLAGS": parent_flags, "EXPECTED_SAMPLED": sampled,
+            }
     for name in sorted(names):
         if name.startswith("rustls-direct-client-"):
             yield name+"-http2", name, {"TLS":"1", "H2":"1", "RUSTLS_CLIENT":"1", "INJECT":"1"}

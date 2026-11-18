@@ -43,6 +43,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	discexec "go.opentelemetry.io/obi/pkg/appolly/discover/exec"
+	"go.opentelemetry.io/obi/pkg/appolly/services"
 	"go.opentelemetry.io/obi/pkg/config"
 	ebpftracer "go.opentelemetry.io/obi/pkg/ebpf"
 	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
@@ -161,6 +162,9 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 	cfg := obi.DefaultConfig
 	cfg.EBPF.BpfDebug = os.Getenv("OBI_RUST_TEST_DEBUG") != ""
 	cfg.EBPF.TrackRequestHeaders = true
+	if sampler := os.Getenv("OBI_RUST_TEST_SAMPLER"); sampler != "" {
+		cfg.Traces.SamplerConfig.Name = services.SamplerName(sampler)
+	}
 	if os.Getenv("OBI_RUST_TEST_OTEL_EXPORTER") != "" {
 		cfg.Discovery.ExcludeOTelInstrumentedServices = true
 	}
@@ -222,15 +226,24 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 		defer client.CloseIdleConnections()
 	}
 	send := func(i int) error {
-		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s://%s/request/%d", scheme, address, i), nil)
-		if err != nil {
-			return err
-		}
 		parentID := "0000000000000001"
 		if os.Getenv("OBI_RUST_TEST_FORWARDED_APP_HEADER") != "" {
 			parentID = "1111111111111111"
 		}
-		req.Header.Set("traceparent", fmt.Sprintf("00-%032x-%s-01", i+1, parentID))
+		parentFlags := os.Getenv("OBI_RUST_TEST_PARENT_FLAGS")
+		if parentFlags == "" {
+			parentFlags = "01"
+		}
+		traceparent := fmt.Sprintf("00-%032x-%s-%s", i+1, parentID, parentFlags)
+		if os.Getenv("OBI_RUST_TEST_SPLIT_HEADER") != "" {
+			require.False(t, serverTLS, "split headers are written as cleartext HTTP/1")
+			return sendRustSplitHeader(address, i, traceparent)
+		}
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s://%s/request/%d", scheme, address, i), nil)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("traceparent", traceparent)
 		resp, err := client.Do(req)
 		if err != nil {
 			return err
@@ -356,6 +369,16 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 			t.Fatalf("missing Rust spans: servers=%d clients=%d", len(servers), len(clients))
 		}
 	}
+	// Completed HTTP/2 server streams leave the index under their exported trace.
+	// An entry left behind was indexed under a trace the stream no longer has.
+	var indexKey BpfHttpServerTraceKeyT
+	var indexRef BpfHttpServerTraceRefT
+	indexIterator := tracer.bpfObjects.HttpServerTraceIndex.Iterate()
+	for indexIterator.Next(&indexKey, &indexRef) {
+		require.Zero(t, indexRef.Stream.StreamId,
+			"completed HTTP/2 server stream left an index entry under trace %x", indexKey.TraceId)
+	}
+	require.NoError(t, indexIterator.Err())
 	injected := 0
 	pageFaults := 0
 	for i := range requests {
@@ -363,6 +386,9 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 		expected, err := trace.TraceIDFromHex(fmt.Sprintf("%032x", i+1))
 		require.NoError(t, err)
 		require.Equal(t, expected, servers[path].TraceID, path)
+		expectedSampled := os.Getenv("OBI_RUST_TEST_EXPECTED_SAMPLED") != "0"
+		require.Equal(t, expectedSampled, trace.TraceFlags(servers[path].TraceFlags).IsSampled(), "server sampling: %s", path)
+		require.Equal(t, expectedSampled, trace.TraceFlags(clients[path].TraceFlags).IsSampled(), "client sampling: %s", path)
 		if os.Getenv("OBI_RUST_TEST_PARTIAL_CLIENT") == "" {
 			require.Equal(t, expected, clients[path].TraceID, path)
 			require.Equal(t, servers[path].SpanID, clients[path].ParentSpanID, path)
@@ -413,7 +439,7 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 				require.NotEqual(t, forwarded, clients[path].SpanID,
 					"a forwarded header must not make the client its server's parent: %s", path)
 			} else {
-				require.Equal(t, []string{fmt.Sprintf("00-%s-%s-01", clients[path].TraceID, clients[path].SpanID)}, header, path)
+				require.Equal(t, []string{fmt.Sprintf("00-%s-%s-%02x", clients[path].TraceID, clients[path].SpanID, clients[path].TraceFlags)}, header, path)
 			}
 			if os.Getenv("OBI_RUST_TEST_APP_HEADER") != "" {
 				require.Equal(t, []string{fmt.Sprintf("00-%s-1111111111111111-01", expected)}, header,
@@ -427,6 +453,41 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 			t.Logf("wire injection skipped %d/%d requests after verified user-page faults", pageFaults, requests)
 		}
 	}
+}
+
+// sendRustSplitHeader delivers the request line and the traceparent in separate
+// reads, so the server span starts before its remote parent is known.
+func sendRustSplitHeader(address string, i int, traceparent string) error {
+	const timeout = 10 * time.Second
+	// Long enough for the server to read the first segment on its own.
+	const segmentGap = 100 * time.Millisecond
+
+	conn, err := net.DialTimeout("tcp", address, timeout)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	if err := conn.SetDeadline(time.Now().Add(timeout)); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(conn, "GET /request/%d HTTP/1.1\r\nHost: %s\r\n", i, address); err != nil {
+		return err
+	}
+
+	time.Sleep(segmentGap)
+	if _, err := fmt.Fprintf(conn, "traceparent: %s\r\n\r\n", traceparent); err != nil {
+		return err
+	}
+
+	response, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	_, err = io.Copy(io.Discard, response.Body)
+	return err
 }
 
 func rustTestCertificate(t *testing.T) tls.Certificate {

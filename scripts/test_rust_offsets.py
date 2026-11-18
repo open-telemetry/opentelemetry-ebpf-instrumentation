@@ -68,6 +68,14 @@ class RustOffsetWorkflowTests(unittest.TestCase):
         cases = load_versions()["cases"]
         matrix = {name:env for name,_,env in scenarios(cases)}
         self.assertEqual("1",matrix["rustls-server-http1"]["SERVER_HTTP1"])
+        for sampler, parent_flags, sampled in (("always_off", "01", "0"),
+                                                ("always_on", "00", "1"),
+                                                ("parentbased_always_off", "01", "1"),
+                                                ("parentbased_always_on", "00", "0")):
+            env = matrix["rustls-server-"+sampler]
+            self.assertEqual(sampler, env["SAMPLER"])
+            self.assertEqual(parent_flags, env["PARENT_FLAGS"])
+            self.assertEqual(sampled, env["EXPECTED_SAMPLED"])
         for version in ("0.20","0.21","0.22","0.23"):
             self.assertEqual("1",matrix["rustls-direct-client-"+version+"-http2"]["H2"])
             self.assertEqual("1",matrix["rustls-server-"+version]["SERVER"])
