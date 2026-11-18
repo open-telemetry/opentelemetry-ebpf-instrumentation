@@ -214,20 +214,25 @@ func httpRequestResponseToSpan(parseCtx *EBPFParseContext, event *BPFHTTPInfo, r
 }
 
 func postProcessHTTPSpan(parseCtx *EBPFParseContext, httpSpan *request.Span, req *http.Request, resp *http.Response) request.Span {
-	if httpSpan.IsClientSpan() && parseCtx != nil && parseCtx.payloadExtraction.HTTP.AWS.Enabled {
-		span, ok := ebpfhttp.AWSSNSSpan(httpSpan, req, resp)
-		if ok {
-			return span
+	if httpSpan.IsClientSpan() && parseCtx != nil {
+		aws := parseCtx.payloadExtraction.HTTP.AWS
+
+		if aws.SNSEnabled() {
+			if span, ok := ebpfhttp.AWSSNSSpan(httpSpan, req, resp); ok {
+				return span
+			}
 		}
 
-		span, ok = ebpfhttp.AWSS3Span(httpSpan, req, resp)
-		if ok {
-			return span
+		if aws.S3Enabled() {
+			if span, ok := ebpfhttp.AWSS3Span(httpSpan, req, resp); ok {
+				return span
+			}
 		}
 
-		span, ok = ebpfhttp.AWSSQSSpan(httpSpan, req, resp)
-		if ok {
-			return span
+		if aws.SQSEnabled() {
+			if span, ok := ebpfhttp.AWSSQSSpan(httpSpan, req, resp); ok {
+				return span
+			}
 		}
 	}
 

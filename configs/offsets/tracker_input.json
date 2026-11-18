@@ -254,6 +254,13 @@
       "github.com/gin-gonic/gin.nodeValue": ["fullPath"]
     }
   },
+  "github.com/emicklei/go-restful/v3": {
+    "inspect": "./configs/offsets/go-restful/inspect.go",
+    "versions": ">= v3.0.0",
+    "fields": {
+      "github.com/emicklei/go-restful/v3.Route": ["Path"]
+    }
+  },
   "github.com/go-sql-driver/mysql": {
     "inspect": "./configs/offsets/mysql/inspect.go",
     "versions": ">= v1.5.0",

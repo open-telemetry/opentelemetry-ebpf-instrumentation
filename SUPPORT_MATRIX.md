@@ -145,6 +145,7 @@ OBI currently documents the following Go library compatibility baselines:
 | `golang.org/x/net/http2` | `>= 0.12.0` |
 | `github.com/gorilla/mux` | `>= v1.5.0` |
 | `github.com/gin-gonic/gin` | `>= v1.6.0`, `!= v1.7.5` |
+| `github.com/emicklei/go-restful/v3` | `>= v3.0.0` |
 | `google.golang.org/grpc` | `>= 1.40` |
 | `net/rpc/jsonrpc` | `>= 1.17` |
 | `database/sql` | `>= 1.17` |

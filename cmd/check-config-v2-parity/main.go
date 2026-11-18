@@ -688,8 +688,16 @@ func verifyDefaults(cur map[string]any, ex map[string]any) ([]error, int) {
 	}
 	derivedChecks++
 
-	for _, extractor := range []string{"graphql", "elasticsearch", "aws", "sqlpp", "jsonrpc", "enrichment"} {
+	for _, extractor := range []string{"graphql", "elasticsearch", "sqlpp", "jsonrpc", "enrichment"} {
 		if err := mustMapPayloadExtractionMembership(cur, ex, extractor); err != nil {
+			failures = append(failures, err)
+		}
+		derivedChecks++
+	}
+
+	for _, extractor := range []string{"aws_s3", "aws_sqs", "aws_sns"} {
+		if err := mustMapPayloadExtractionMembershipAt(cur, ex,
+			[]string{"ebpf", "payload_extraction", "http", "aws", "enabled"}, extractor); err != nil {
 			failures = append(failures, err)
 		}
 		derivedChecks++

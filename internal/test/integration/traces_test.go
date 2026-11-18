@@ -215,6 +215,46 @@ func testHTTPTracesURLQuery(t *testing.T) {
 	}, testTimeout, 100*time.Millisecond)
 }
 
+func testHTTPTracesRestfulRoutes(t *testing.T) {
+	waitForHTTPServerTrace(t, instrumentedServiceStdURL)
+
+	const route = "/api/rolldice/{id}"
+
+	for _, requestPath := range []string{"/api/rolldice/4", "/api/rolldice/42"} {
+		t.Run(requestPath, func(t *testing.T) {
+			traceID := createTraceID()
+			doHTTPGetWithTraceparent(t,
+				instrumentedServiceRestfulURL+requestPath,
+				http.StatusOK,
+				createTraceparent(traceID, createParentID()),
+			)
+
+			require.EventuallyWithT(t, func(ct *assert.CollectT) {
+				resp, err := getJaeger(jaegerQueryURL + "/" + traceID)
+				require.NoError(ct, err)
+				defer resp.Body.Close()
+
+				require.Equal(ct, http.StatusOK, resp.StatusCode)
+
+				var tq jaeger.TracesQuery
+				require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+				require.Len(ct, tq.Data, 1)
+
+				spans := tq.Data[0].FindByOperationNameServiceAndKind(
+					"GET "+route, "testserver", "server",
+				)
+				require.Len(ct, spans, 1)
+
+				diff := spans[0].Diff(
+					jaeger.Tag{Key: "http.route", Type: "string", Value: route},
+					jaeger.Tag{Key: "url.path", Type: "string", Value: requestPath},
+				)
+				assert.Empty(ct, diff, diff.String())
+			}, testTimeout, 100*time.Millisecond)
+		})
+	}
+}
+
 func testGRPCTraces(t *testing.T) {
 	testGRPCTracesForServiceName(t, "testserver")
 }
@@ -797,11 +837,11 @@ func testGoJSONRPCTraces(t *testing.T) {
 	}, testTimeout, time.Second)
 }
 
-func waitForHTTPServerTrace(t *testing.T, baseURL, service string) {
+func waitForHTTPServerTrace(t *testing.T, baseURL string) {
 	t.Helper()
 
 	path := "/smoke-" + createTraceID()
-	params := url.Values{"service": {service}, "operation": {"GET " + path}}
+	params := url.Values{"service": {"testserver"}, "operation": {"GET " + path}}
 
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		resp, err := testHTTPClient.Get(baseURL + path)
@@ -828,13 +868,13 @@ func waitForHTTPServerTrace(t *testing.T, baseURL, service string) {
 func testNestedHTTPTracesKProbes(t *testing.T) {
 	var traceID string
 
-	waitForTestComponents(t, "http://localhost:3031")                      // nodejs
-	waitForHTTPServerTrace(t, instrumentedServiceStdURL, "testserver")     // go
-	waitForTestComponents(t, "http://localhost:7773")                      // python
-	waitForRubyTestComponents(t, "http://localhost:3041")                  // ruby
-	waitForTestComponentsSub(t, "http://localhost:8086", "/greeting")      // java
-	waitForTestComponents(t, "http://localhost:8091")                      // rust
-	waitForHTTPServerTrace(t, instrumentedServiceJSONRPCURL, "testserver") // go jsonrpc
+	waitForTestComponents(t, "http://localhost:3031")                 // nodejs
+	waitForHTTPServerTrace(t, instrumentedServiceStdURL)              // go
+	waitForTestComponents(t, "http://localhost:7773")                 // python
+	waitForRubyTestComponents(t, "http://localhost:3041")             // ruby
+	waitForTestComponentsSub(t, "http://localhost:8086", "/greeting") // java
+	waitForTestComponents(t, "http://localhost:8091")                 // rust
+	waitForHTTPServerTrace(t, instrumentedServiceJSONRPCURL)          // go jsonrpc
 
 	// Add and check for specific trace ID
 	// Run couple of requests to make sure we flush out any transactions that might be
@@ -2095,16 +2135,16 @@ func testGoGenericHTTPTraces(t *testing.T) {
 	// 2. HTTP client call nested within Go Generic Server (Fiber)
 	// 3. HTTP non-Go library call nested within Go HTTP Server
 
-	for range 20 {
+	const requests = 20
+	for range requests {
 		ti.DoHTTPGet(t, "http://localhost:8080/produce", 200)
 		ti.DoHTTPGet(t, "http://localhost:8080/ping", 200)
 		ti.DoHTTPGet(t, "http://localhost:8081/ping1", 200)
 	}
 
 	t.Run("Traces Go Generic Server, Go Generic client", func(t *testing.T) {
-		var trace jaeger.Trace
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fproduce")
+			resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fproduce&limit=" + strconv.Itoa(requests))
 			require.NoError(ct, err)
 			if resp == nil {
 				return
@@ -2113,25 +2153,29 @@ func testGoGenericHTTPTraces(t *testing.T) {
 			var tq jaeger.TracesQuery
 			require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 			traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/produce"})
-			require.GreaterOrEqual(ct, len(traces), 1)
-			trace = traces[len(traces)-1]
+			require.Len(ct, traces, requests)
 
-			res := trace.FindByOperationName("GET /produce", "server")
-			require.Len(ct, res, 1)
-			server := res[0]
-			require.NotEmpty(ct, server.TraceID)
+			for _, trace := range traces {
+				res := trace.FindByOperationName("GET /produce", "server")
+				require.Len(ct, res, 1)
+				server := res[0]
+				require.NotEmpty(ct, server.TraceID)
 
-			res = trace.FindByOperationName("send my-topic", "producer")
-			require.Len(ct, res, 1)
-			client := res[0]
-			// Check parenthood
-			assert.Equal(ct, server.TraceID, client.TraceID)
-			sd := client.Diff(
-				jaeger.Tag{Key: "messaging.operation.type", Type: "string", Value: "send"},
-				jaeger.Tag{Key: "messaging.system", Type: "string", Value: "kafka"},
-				jaeger.Tag{Key: "span.kind", Type: "string", Value: "producer"},
-			)
-			assert.Empty(ct, sd, sd.String())
+				res = trace.FindByOperationName("send my-topic", "producer")
+				require.Len(ct, res, 1)
+				client := res[0]
+				// Check parenthood
+				assert.Equal(ct, server.TraceID, client.TraceID)
+				parent, ok := trace.ParentOf(&client)
+				require.True(ct, ok)
+				assert.Equal(ct, server.SpanID, parent.SpanID)
+				sd := client.Diff(
+					jaeger.Tag{Key: "messaging.operation.type", Type: "string", Value: "send"},
+					jaeger.Tag{Key: "messaging.system", Type: "string", Value: "kafka"},
+					jaeger.Tag{Key: "span.kind", Type: "string", Value: "producer"},
+				)
+				assert.Empty(ct, sd, sd.String())
+			}
 		}, testTimeout, 100*time.Millisecond)
 	})
 
@@ -2214,15 +2258,15 @@ func testGoGenericHTTPSTraces(t *testing.T) {
 	// 1. Go Generic client TLS (Kafka) call nested within Go Generic Server TLS (Fiber)
 	// 2. HTTPS non-Go library call nested within Go Generic Server TLS (Fiber)
 
-	for range 20 {
+	const requests = 20
+	for range requests {
 		ti.DoHTTPGet(t, "https://localhost:8443/produce/tls", 200)
 		ti.DoHTTPGet(t, "https://localhost:8443/api/pingssl", 200)
 	}
 
 	t.Run("Traces Go Generic HTTPS Server, Go Generic TCP TLS client", func(t *testing.T) {
-		var trace jaeger.Trace
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fproduce%2Ftls")
+			resp, err := getJaeger(jaegerQueryURL + "?service=testserver&operation=GET%20%2Fproduce%2Ftls&limit=" + strconv.Itoa(requests))
 			require.NoError(ct, err)
 			if resp == nil {
 				return
@@ -2231,25 +2275,29 @@ func testGoGenericHTTPSTraces(t *testing.T) {
 			var tq jaeger.TracesQuery
 			require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
 			traces := tq.FindBySpan(jaeger.Tag{Key: "url.path", Type: "string", Value: "/produce/tls"})
-			require.GreaterOrEqual(ct, len(traces), 1)
-			trace = traces[len(traces)-1]
+			require.Len(ct, traces, requests)
 
-			res := trace.FindByOperationName("GET /produce/tls", "server")
-			require.Len(ct, res, 1)
-			server := res[0]
-			require.NotEmpty(ct, server.TraceID)
+			for _, trace := range traces {
+				res := trace.FindByOperationName("GET /produce/tls", "server")
+				require.Len(ct, res, 1)
+				server := res[0]
+				require.NotEmpty(ct, server.TraceID)
 
-			res = trace.FindByOperationName("send my-topic", "producer")
-			require.Len(ct, res, 1)
-			client := res[0]
-			// Check parenthood
-			assert.Equal(ct, server.TraceID, client.TraceID)
-			sd := client.Diff(
-				jaeger.Tag{Key: "messaging.operation.type", Type: "string", Value: "send"},
-				jaeger.Tag{Key: "messaging.system", Type: "string", Value: "kafka"},
-				jaeger.Tag{Key: "span.kind", Type: "string", Value: "producer"},
-			)
-			assert.Empty(ct, sd, sd.String())
+				res = trace.FindByOperationName("send my-topic", "producer")
+				require.Len(ct, res, 1)
+				client := res[0]
+				// Check parenthood
+				assert.Equal(ct, server.TraceID, client.TraceID)
+				parent, ok := trace.ParentOf(&client)
+				require.True(ct, ok)
+				assert.Equal(ct, server.SpanID, parent.SpanID)
+				sd := client.Diff(
+					jaeger.Tag{Key: "messaging.operation.type", Type: "string", Value: "send"},
+					jaeger.Tag{Key: "messaging.system", Type: "string", Value: "kafka"},
+					jaeger.Tag{Key: "span.kind", Type: "string", Value: "producer"},
+				)
+				assert.Empty(ct, sd, sd.String())
+			}
 		}, testTimeout, 100*time.Millisecond)
 	})
 
