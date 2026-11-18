@@ -24,6 +24,11 @@ that container runtimes load for every container on cgroup v2. The number of
 series then follows the number of containers on the node, and a restarted
 container appears under a new program ID.
 
+The internal collector does not list programs that only an OBI program array
+keeps alive, such as the `uprobe_multi` copies of tail-call targets: the loader
+places them in the array and keeps no descriptor for them. As tail-call targets
+they never count executions, so the internal metrics lose no data.
+
 The collector reports entry counts only for `LRUHash` maps. Other map types are
 still encountered during the host-wide walks, but they are not emitted as
 metrics.
