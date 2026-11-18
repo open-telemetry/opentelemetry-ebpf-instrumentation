@@ -290,6 +290,34 @@ int GUARDED_PROG(obi_uprobe_ginGetValueRet, struct pt_regs *, ctx) {
     return 0;
 }
 
+SEC("uprobe/restfulRouteWrapRequestResponse")
+int GUARDED_PROG(obi_uprobe_restfulRouteWrapRequestResponse, struct pt_regs *, ctx) {
+    bpf_dbg_printk("=== uprobe/restfulRouteWrapRequestResponse ===");
+
+    void *goroutine_addr = GOROUTINE_PTR(ctx);
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, goroutine_addr);
+
+    server_http_func_invocation_t *invocation =
+        bpf_map_lookup_elem(&ongoing_http_server_requests, &g_key);
+    if (!invocation) {
+        return 0;
+    }
+
+    off_table_t *ot = get_offsets_table();
+    const u64 path_off = go_offset_of(ot, (go_offset){.v = _restful_route_path_pos});
+
+    void *route = GO_PARAM1(ctx);
+    if (!route || path_off == 0 || path_off == (u64)-1) {
+        return 0;
+    }
+
+    // The selected route is more specific than the outer ServeMux pattern.
+    read_go_str("pattern", route, path_off, invocation->pattern, k_pattern_max_len);
+
+    return 0;
+}
+
 static __always_inline void track_server_connection(go_addr_key_t *g_key, void *c_ptr) {
     off_table_t *ot = get_offsets_table();
     http_server_connection_t server = {0};

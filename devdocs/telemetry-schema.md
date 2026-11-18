@@ -116,6 +116,10 @@ section empty once drained.
   `attributes.select` to split duration series by HTTP version. When selected, unknown
   versions are omitted from OTLP attributes and use an empty Prometheus label.
 
+- HTTP metric data points for requests without a known route (for example with
+  `routes.incoming.unmatched: unset` or `routes.outgoing.unmatched: unset`) omit `http.route` (server) and `url.template` (client) in OTLP
+  instead of carrying an empty string, matching the spans. Prometheus labels are unchanged.
+
 - A SQL++ span from a server other than Couchbase (`db.system.name` `other_sql`) that names no
   collection or bucket is named `{db.operation.name}`, like other SQL spans, instead of
   `{db.operation.name} {server.address}:{server.port}`. Couchbase SQL++ spans are unchanged.

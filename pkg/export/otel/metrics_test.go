@@ -1126,6 +1126,21 @@ func TestAppMetrics_HTTP2ServerAddress(t *testing.T) {
 }
 
 func TestAppMetrics_HTTPRouteAttributes(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		serverRoute string
+		clientRoute string
+	}{
+		{name: "known route", serverRoute: "/server/{id}", clientRoute: "/client/{id}"},
+		{name: "unknown route"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			testHTTPRouteAttributes(t, tc.serverRoute, tc.clientRoute)
+		})
+	}
+}
+
+func testHTTPRouteAttributes(t *testing.T, serverRoute, clientRoute string) {
 	features := export.FeatureApplicationRED | export.FeatureApplicationSizes
 	ctx := t.Context()
 	metricRecords := make(chan collector.MetricRecord, 20)
@@ -1157,8 +1172,8 @@ func TestAppMetrics_HTTPRouteAttributes(t *testing.T) {
 
 	svcAttrs := svc.Attrs{Features: features, UID: svc.UID{Instance: "foo"}}
 	metrics.Send([]request.Span{
-		{Service: svcAttrs, Type: request.EventTypeHTTP, Method: "GET", Route: "/server/{id}", Path: "/server/1", Status: 200, RequestStart: 100, End: 200},
-		{Service: svcAttrs, Type: request.EventTypeHTTPClient, Method: "GET", Route: "/client/{id}", Path: "/client/1", Status: 200, RequestStart: 100, End: 200},
+		{Service: svcAttrs, Type: request.EventTypeHTTP, Method: "GET", Route: serverRoute, Path: "/server/1", Status: 200, RequestStart: 100, End: 200},
+		{Service: svcAttrs, Type: request.EventTypeHTTPClient, Method: "GET", Route: clientRoute, Path: "/client/1", Status: 200, RequestStart: 100, End: 200},
 	})
 
 	pending := map[string]bool{}
@@ -1167,6 +1182,14 @@ func TestAppMetrics_HTTPRouteAttributes(t *testing.T) {
 		attributes.HTTPClientDuration.OTEL, attributes.HTTPClientRequestSize.OTEL, attributes.HTTPClientResponseSize.OTEL,
 	} {
 		pending[name] = true
+	}
+
+	assertRoute := func(record collector.MetricRecord, key attr.Name, want string) {
+		if want == "" {
+			assert.NotContains(t, record.Attributes, string(key), record.Name)
+			return
+		}
+		assert.Equal(t, want, record.Attributes[string(key)], record.Name)
 	}
 
 	deadline := time.After(timeout)
@@ -1183,10 +1206,10 @@ func TestAppMetrics_HTTPRouteAttributes(t *testing.T) {
 				assert.NotContains(t, record.Attributes, string(attr.HTTPUrlTemplate), record.Name)
 				assert.NotContains(t, record.Attributes, string(attr.HTTPRoute), record.Name)
 			case strings.HasPrefix(record.Name, "http.client."):
-				assert.Equal(t, "/client/{id}", record.Attributes[string(attr.HTTPUrlTemplate)], record.Name)
+				assertRoute(record, attr.HTTPUrlTemplate, clientRoute)
 				assert.NotContains(t, record.Attributes, string(attr.HTTPRoute), record.Name)
 			default:
-				assert.Equal(t, "/server/{id}", record.Attributes[string(attr.HTTPRoute)], record.Name)
+				assertRoute(record, attr.HTTPRoute, serverRoute)
 				assert.NotContains(t, record.Attributes, string(attr.HTTPUrlTemplate), record.Name)
 			}
 			delete(pending, record.Name)

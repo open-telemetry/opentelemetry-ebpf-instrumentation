@@ -49,6 +49,32 @@ func TestSpanGetters_HTTPProtocolVersion(t *testing.T) {
 	}
 }
 
+func TestSpanGetters_HTTPRoute(t *testing.T) {
+	for _, tc := range []struct {
+		name  attr.Name
+		event EventType
+		want  func(string) attribute.KeyValue
+	}{
+		{name: attr.HTTPRoute, event: EventTypeHTTP, want: semconv.HTTPRoute},
+		{name: attr.HTTPUrlTemplate, event: EventTypeHTTPClient, want: semconv.URLTemplate},
+	} {
+		t.Run(string(tc.name), func(t *testing.T) {
+			otelGetter, ok := SpanOTELGetters(UnresolvedNames{})(tc.name)
+			require.True(t, ok)
+			promGetter, ok := SpanPromGetters(UnresolvedNames{})(tc.name)
+			require.True(t, ok)
+
+			known := &Span{Type: tc.event, Route: "/users/{id}"}
+			assert.Equal(t, tc.want("/users/{id}"), otelGetter(known))
+			assert.Equal(t, "/users/{id}", promGetter(known))
+
+			unknown := &Span{Type: tc.event}
+			assert.False(t, otelGetter(unknown).Valid())
+			assert.Empty(t, promGetter(unknown))
+		})
+	}
+}
+
 func TestSpanOTELGetters_K8SClientNamespace(t *testing.T) {
 	tests := []struct {
 		name              string

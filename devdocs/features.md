@@ -111,6 +111,7 @@ To turn this off and fallback to the normal network based instrumentation for Go
 | golang.org/x/net/http2         |    HTTP    |             >= 0.12.0 | All     |  Yes   |                Yes |         N/A
 | github.com/gorilla/mux         |    HTTP    |             >= v1.5.0 | All     |  Yes   |                Yes |         N/A
 | github.com/gin-gonic/gin       |    HTTP    |   >= v1.6.0,!= v1.7.5 | All     |  Yes   |                Yes |         N/A
+| github.com/emicklei/go-restful/v3 |    HTTP    |             >= v3.0.0 | All     |  Yes   |                Yes |         N/A
 | google.golang.org/grpc         |    gRPC    |               >= 1.40 | All     |  Yes   |                Yes |         N/A
 | net/rpc/jsonrpc                |  JsonRPC   |               >= 1.17 | All     |  Yes   |                 No |         N/A
 | database/sql                   |    SQL     |               >= 1.17 | All     |  Yes   |                 No |         N/A
