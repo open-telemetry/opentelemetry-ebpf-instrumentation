@@ -1,4 +1,4 @@
-name: Compatibility policy (advisory)
+name: Compatibility
 
 on:
   pull_request:
