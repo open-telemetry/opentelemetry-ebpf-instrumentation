@@ -45,6 +45,9 @@ internal/test/cmd/greeting-service/target
 internal/test/integration/components/javatestserver/target/
 internal/test/integration/components/rusttestserver/target/
 internal/test/integration/components/rustssltestserver/target/
+internal/test/integration/components/rustcontext/target/
+internal/test/integration/components/rustcontext/Cargo.lock
+configs/offsets/rust/*.lock
 internal/test/integration/components/grpc_relay/rust/target/
 internal/test/integration/components/nodejsserver/node_modules/
 # Ruby on Rails test

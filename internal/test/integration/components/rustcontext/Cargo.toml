@@ -1,0 +1,25 @@
+[package]
+name = "rustcontext"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+reqwest_010 = []
+tls = ["reqwest/rustls", "reqwest/http2"]
+server = ["dep:tokio-rustls", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "hyper/server", "hyper/http2"]
+server_legacy = ["server"]
+rustls_client = ["dep:tokio-rustls", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "hyper/http2"]
+rustls_client_legacy = ["rustls_client"]
+
+[dependencies]
+tokio = { version = "=1.54.1", features = ["full"] }
+reqwest = { version = "=0.13.5", default-features = false, features = ["http2"] }
+hyper = { version = "=1.12.0", features = ["client", "http1"] }
+tokio-rustls = { version = "=0.26.6", optional = true }
+hyper-util = { version = "=0.1.21", features = ["tokio"], optional = true }
+http-body-util = { version = "=0.1.5", optional = true }
+bytes = { version = "1", optional = true }
+
+[profile.dev]
+strip = false

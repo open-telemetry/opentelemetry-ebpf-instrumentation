@@ -35,6 +35,7 @@ require (
 	github.com/grafana/go-offsets-tracker v0.1.7
 	github.com/hashicorp/go-version v1.9.0
 	github.com/hashicorp/golang-lru/v2 v2.0.7
+	github.com/ianlancetaylor/demangle v0.0.0-20260505044615-1ff4bf46051f
 	github.com/invopop/jsonschema v0.13.0
 	github.com/json-iterator/go v1.1.12
 	github.com/klauspost/compress v1.20.3
