@@ -292,6 +292,7 @@ func TestTracerPipelineSanitizeDBQueryText(t *testing.T) {
 			Traces: otelcfg.TracesConfig{
 				BatchTimeout:      10 * time.Millisecond,
 				TracesEndpoint:    tc.ServerEndpoint,
+				TracesProtocol:    otelcfg.ProtocolHTTPProtobuf,
 				ReportersCacheLen: 16,
 				Instrumentations:  []instrumentations.Instrumentation{instrumentations.InstrumentationALL},
 			},
