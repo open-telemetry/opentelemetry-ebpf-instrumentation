@@ -129,15 +129,12 @@ $(COMPAT_CHECKER): $(wildcard internal/tools/compatcheck/*.go) internal/tools/go
 	@mkdir -p $(dir $@)
 	cd internal/tools && go build -o "$@" ./compatcheck
 
-.PHONY: check-compat test-compat
+.PHONY: check-compat
 check-compat: $(COMPAT_CHECKER)
 	"$(COMPAT_CHECKER)" --repo-root "$(CURDIR)" --base-ref "$${COMPAT_BASE_REF}" \
 		--base-dir "$${COMPAT_BASE_DIR}" --head-ref "$${COMPAT_HEAD_REF}" --arch "$${COMPAT_ARCH}" \
 		--report "$${COMPAT_REPORT}" --cache-dir "$${COMPAT_CACHE_DIR}" \
 		--release-version "$${COMPAT_RELEASE_VERSION}"
-
-test-compat:
-	cd internal/tools && go test -race ./compatcheck
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.

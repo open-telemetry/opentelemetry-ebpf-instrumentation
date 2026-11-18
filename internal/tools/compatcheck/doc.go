@@ -13,7 +13,9 @@
 //
 // The target checkout must be clean and match COMPAT_BASE_REF. Both checkouts
 // need their own generated BPF artifacts (make docker-generate). The candidate
-// may contain local edits. make test-compat runs the checker tests.
+// may contain local edits. Run the checker tests with:
+//
+//	go -C internal/tools test -race ./...
 //
 // Candidate and target are each compared with signed, immutable release source
 // archives from v1.0.0 through the target's minor line. The target's committed

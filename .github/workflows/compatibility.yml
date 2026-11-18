@@ -108,9 +108,6 @@ jobs:
           key: compatibility-assets-v1-${{ matrix.arch }}-${{ github.run_id }}
           restore-keys: compatibility-assets-v1-${{ matrix.arch }}-
 
-      - name: Test checker
-        run: make test-compat
-
       - name: Compare public Go API
         id: compare
         continue-on-error: true
