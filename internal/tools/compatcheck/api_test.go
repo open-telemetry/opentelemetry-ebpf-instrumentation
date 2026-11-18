@@ -231,7 +231,7 @@ func TestEmptyPublicSurfaceFails(t *testing.T) {
 func TestInvalidInputProducesIncompleteReport(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "report.json")
 	var output bytes.Buffer
-	code := run(t.Context(), []string{"--repo-root", t.TempDir(), "--report", path}, &output, &output)
+	code := run(t.Context(), []string{"--repo", t.TempDir(), "--report", path}, &output, &output)
 	if code != exitError {
 		t.Fatalf("exit=%d, output=%s", code, &output)
 	}

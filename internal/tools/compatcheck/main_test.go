@@ -5,7 +5,7 @@ package main
 
 import (
 	"bytes"
-	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -83,35 +83,68 @@ func TestFindingAttribution(t *testing.T) {
 	}
 }
 
-func TestTargetCheckoutValidation(t *testing.T) {
-	root := publicAPIFixture(t, "package public; func F() {}", "")
+func TestTargetWorktreeLifecycle(t *testing.T) {
+	const original = "package public; func F(int) {}"
+	mockRelease(t, original)
+	root := publicAPIFixture(t, original, "")
 	writeFile(t, filepath.Join(root, "versions.yaml"), "module-sets:\n  obi:\n    version: v1.0.0\n")
+	writeFile(t, filepath.Join(root, "generation-input"), "target")
+	writeFile(t, filepath.Join(root, "Makefile"), "docker-generate:\n\t@test \"$$(cat generation-input)\" = target\n\t@test \"$(BPF_TARGETS)\" = amd64\n")
 	for _, args := range [][]string{{"init", "--quiet"}, {"add", "."}, {"-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Establish target"}} {
 		if _, err := git(t.Context(), root, args...); err != nil {
 			t.Fatal(err)
 		}
 	}
-	first, err := git(t.Context(), root, "rev-parse", "HEAD")
+	head, err := git(t.Context(), root, "rev-parse", "HEAD")
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeFile(t, filepath.Join(root, "pkg/public/api.go"), "package public; func Changed() {}")
-	for _, tc := range []struct{ baseDir, want string }{{"", "--base-dir must identify"}, {root, "base-dir must have a clean working tree"}} {
-		var r report
-		err := check(t.Context(), options{repoRoot: root, baseRef: "HEAD", headRef: "HEAD", baseDir: tc.baseDir}, &r, io.Discard)
-		if err == nil || !strings.Contains(err.Error(), tc.want) {
-			t.Fatalf("error=%v, want %s", err, tc.want)
-		}
+	writeFile(t, filepath.Join(root, "pkg/public/api.go"), "package public; func F(string) {}")
+	writeFile(t, filepath.Join(root, "generation-input"), "candidate")
+	status, err := git(t.Context(), root, "status", "--porcelain")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, args := range [][]string{{"add", "."}, {"-c", "user.name=Test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "Change candidate"}} {
-		if _, err := git(t.Context(), root, args...); err != nil {
-			t.Fatal(err)
-		}
+	worktrees, err := git(t.Context(), root, "worktree", "list", "--porcelain")
+	if err != nil {
+		t.Fatal(err)
 	}
-	var r report
-	err = check(t.Context(), options{repoRoot: root, baseRef: first, headRef: "HEAD", baseDir: root}, &r, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "base-dir does not match base-ref") {
-		t.Fatalf("error=%v", err)
+	var output bytes.Buffer
+	code := run(t.Context(), []string{"-repo", filepath.Join(root, "pkg/public"), "-target", head, "-arch", "amd64", "-cache-dir", t.TempDir()}, &output, &output)
+	if code != exitBreak || !strings.Contains(output.String(), "F: changed") {
+		t.Fatalf("exit=%d, want %d: %s", code, exitBreak, &output)
+	}
+	artifacts := t.TempDir()
+	writeFile(t, filepath.Join(artifacts, "pkg/public/api.go"), "package public")
+	output.Reset()
+	code = run(t.Context(), []string{"-repo", root, "-target", head, "-arch", "amd64", "-target-bpf", artifacts}, &output, &output)
+	if code != exitError || !strings.Contains(output.String(), "no bpf2go generator header") {
+		t.Fatalf("exit=%d, want %d: %s", code, exitError, &output)
+	}
+	bin := t.TempDir()
+	makePath := filepath.Join(bin, "make")
+	writeFile(t, makePath, "#!/bin/sh\nexit 1\n")
+	if err := os.Chmod(makePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	output.Reset()
+	code = run(t.Context(), []string{"-repo", root, "-target", head, "-arch", "amd64"}, &output, &output)
+	if code != exitError || !strings.Contains(output.String(), "generate target BPF artifacts") {
+		t.Fatalf("exit=%d, want %d: %s", code, exitError, &output)
+	}
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"rev-parse", "HEAD"}, head},
+		{[]string{"status", "--porcelain"}, status},
+		{[]string{"worktree", "list", "--porcelain"}, worktrees},
+	} {
+		got, err := git(t.Context(), root, tc.args...)
+		if err != nil || got != tc.want {
+			t.Fatalf("git %v = %q, %v; want %q", tc.args, got, err, tc.want)
+		}
 	}
 }
 

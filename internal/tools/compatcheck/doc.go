@@ -11,13 +11,15 @@
 //
 // Usage:
 //
-//	compatcheck -repo-root /path/to/candidate -base-ref upstream/main \
-//	    -base-dir /path/to/target -report compatibility.json
+//	compatcheck -target upstream/main -report compatibility.json
 //
-// Requires Go, Git, and Cosign. The target checkout must be clean and match
-// -base-ref. Both checkouts need their own generated BPF artifacts.
-// The candidate may contain local edits, and its checked-out commit must match
-// -head-ref (default: HEAD).
+// The candidate is the current working tree, including local edits. Use -repo to
+// select another working tree. The target is a Git revision (default: HEAD).
+//
+// Requires Go, Git, and Cosign. The candidate needs generated BPF artifacts.
+// The tool prepares the target in a temporary Git worktree and cleans it up
+// afterward. Target BPF generation requires Make and Docker; -target-bpf accepts
+// a directory of pre-generated target bindings and bytecode instead.
 //
 // Candidate and target are each compared with signed, immutable release source
 // archives from v1.0.0 through the target's minor line. The target's committed

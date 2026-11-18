@@ -33,9 +33,8 @@ const (
 
 type options struct {
 	repoRoot        string
-	baseRef         string
-	baseDir         string
-	headRef         string
+	targetRef       string
+	targetBPF       string
 	architectures   string
 	releaseVersion  string
 	releaseMetadata string
@@ -100,10 +99,9 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	var opts options
 	flags := flag.NewFlagSet("compatcheck", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	flags.StringVar(&opts.repoRoot, "repo-root", ".", "checked-out candidate repository")
-	flags.StringVar(&opts.baseDir, "base-dir", "", "clean target checkout with generated artifacts")
-	flags.StringVar(&opts.baseRef, "base-ref", "HEAD", "trusted target revision selecting the release line")
-	flags.StringVar(&opts.headRef, "head-ref", "HEAD", "candidate revision (must be checked out)")
+	flags.StringVar(&opts.repoRoot, "repo", ".", "repository working tree to check")
+	flags.StringVar(&opts.targetBPF, "target-bpf", "", "directory of generated target BPF bindings and bytecode (default: generate automatically)")
+	flags.StringVar(&opts.targetRef, "target", "HEAD", "Git revision to compare the working tree against")
 	flags.StringVar(&opts.architectures, "arch", "amd64,arm64", "Linux architectures to compare")
 	flags.StringVar(&opts.releaseVersion, "release-version", "", "optional proposed core release version")
 	flags.StringVar(&opts.reportPath, "report", "", "JSON report destination")
@@ -152,55 +150,27 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func check(ctx context.Context, opts options, r *report, progress io.Writer) error {
-	root, err := filepath.Abs(opts.repoRoot)
+func check(ctx context.Context, opts options, r *report, progress io.Writer) (err error) {
+	root, err := git(ctx, opts.repoRoot, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return err
 	}
-	baseCommit, err := git(ctx, root, "rev-parse", "--verify", "--end-of-options", opts.baseRef+"^{commit}")
+	targetCommit, err := git(ctx, root, "rev-parse", "--verify", "--end-of-options", opts.targetRef+"^{commit}")
 	if err != nil {
 		return err
 	}
-	r.BaseCommit = baseCommit
-	r.HeadCommit, err = git(ctx, root, "rev-parse", "--verify", "--end-of-options", opts.headRef+"^{commit}")
+	r.BaseCommit = targetCommit
+	r.HeadCommit, err = git(ctx, root, "rev-parse", "--verify", "--end-of-options", "HEAD")
 	if err != nil {
 		return err
-	}
-	checkedOut, err := git(ctx, root, "rev-parse", "HEAD")
-	if err != nil {
-		return err
-	}
-	if checkedOut != r.HeadCommit {
-		return errors.New("head-ref must identify the checked-out candidate")
 	}
 	status, err := git(ctx, root, "status", "--porcelain")
 	if err != nil {
 		return err
 	}
 	r.WorkingTree = status != ""
-	baseRoot := opts.baseDir
-	if baseRoot == "" {
-		if r.BaseCommit != r.HeadCommit || r.WorkingTree {
-			return errors.New("--base-dir must identify a clean target checkout with generated artifacts")
-		}
-		baseRoot = root
-	}
-	baseHead, err := git(ctx, baseRoot, "rev-parse", "HEAD")
-	if err != nil {
-		return fmt.Errorf("target checkout: %w", err)
-	}
-	if baseHead != baseCommit {
-		return errors.New("base-dir does not match base-ref")
-	}
-	baseStatus, err := git(ctx, baseRoot, "status", "--porcelain")
-	if err != nil {
-		return err
-	}
-	if baseStatus != "" {
-		return errors.New("base-dir must have a clean working tree")
-	}
 
-	version, err := targetVersion(ctx, root, baseCommit)
+	version, err := targetVersion(ctx, root, targetCommit)
 	if err != nil {
 		return err
 	}
@@ -214,6 +184,25 @@ func check(ctx context.Context, opts options, r *report, progress io.Writer) err
 	if opts.cacheDir == "" {
 		opts.cacheDir = filepath.Join(root, "testoutput", "compatibility-cache")
 	}
+	temp, err := os.MkdirTemp("", "obi-compatcheck-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(temp)
+	targetRoot := filepath.Join(temp, "target")
+	if _, err := git(ctx, root, "worktree", "add", "--detach", "--quiet", targetRoot, targetCommit); err != nil {
+		return err
+	}
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_, cleanupErr := git(cleanupCtx, root, "worktree", "remove", "--force", targetRoot)
+		err = errors.Join(err, cleanupErr)
+	}()
+	if err := prepareTargetBPF(ctx, targetRoot, opts.targetBPF, strings.Join(archs, ","), progress); err != nil {
+		return err
+	}
+
 	client := newReleaseClient()
 	client.metadataPath = opts.releaseMetadata
 	releases, err := client.releases(ctx, version)
@@ -224,11 +213,6 @@ func check(ctx context.Context, opts options, r *report, progress io.Writer) err
 		return fmt.Errorf("no published core baselines found for %s", version)
 	}
 	r.ReleaseBase = releases[len(releases)-1].Tag
-	temp, err := os.MkdirTemp("", "obi-compatcheck-*")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(temp)
 
 	var introducedChanges, existingChanges []apiChange
 	for _, arch := range archs {
@@ -240,7 +224,7 @@ func check(ctx context.Context, opts options, r *report, progress io.Writer) err
 			return fmt.Errorf("candidate %s: %w", platform, err)
 		}
 		fmt.Fprintln(progress, "Loading target Go API for", platform)
-		target, err := loadAPI(ctx, baseRoot, arch)
+		target, err := loadAPI(ctx, targetRoot, arch)
 		if err != nil {
 			return fmt.Errorf("target %s: %w", platform, err)
 		}

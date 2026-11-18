@@ -11,7 +11,7 @@ on:
         description: Candidate revision to check out
         required: false
         type: string
-      base_ref:
+      target_ref:
         description: Trusted target revision selecting the release line
         required: true
         type: string
@@ -55,7 +55,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 30
     outputs:
-      base_sha: ${{ steps.target.outputs.sha }}
+      target_sha: ${{ steps.target.outputs.sha }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,7 +67,7 @@ jobs:
       - name: Resolve target revision
         id: target
         env:
-          BASE_REF: ${{ inputs.base_ref || (github.event_name == 'pull_request' && format('{0}^1', github.sha)) || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || github.sha }}
+          TARGET_REF: ${{ inputs.target_ref || (github.event_name == 'pull_request' && format('{0}^1', github.sha)) || (github.event.before != '0000000000000000000000000000000000000000' && github.event.before) || github.sha }}
         run: bash scripts/compatibility-target.sh
 
       - uses: $/.github/actions/generate-bpf
@@ -99,13 +99,6 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Check out target
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.generate-bpf.outputs.base_sha }}
-          path: testoutput/compatibility-base
-          persist-credentials: false
-
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
         with:
           go-version-file: go.mod
@@ -122,7 +115,7 @@ jobs:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: bpf-base-${{ github.run_id }}
-          path: testoutput/compatibility-base
+          path: testoutput/compatibility-target-bpf
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -141,9 +134,8 @@ jobs:
         continue-on-error: true
         env:
           COMPAT_RELEASE_METADATA: ${{ github.workspace }}/testoutput/compatibility-metadata/release-metadata.json
-          COMPAT_BASE_REF: ${{ needs.generate-bpf.outputs.base_sha }}
-          COMPAT_BASE_DIR: ${{ github.workspace }}/testoutput/compatibility-base
-          COMPAT_HEAD_REF: ${{ inputs.ref || github.sha }}
+          COMPAT_TARGET: ${{ needs.generate-bpf.outputs.target_sha }}
+          COMPAT_TARGET_BPF: ${{ github.workspace }}/testoutput/compatibility-target-bpf
           COMPAT_ARCH: ${{ matrix.arch }}
         run: make check-compat
 

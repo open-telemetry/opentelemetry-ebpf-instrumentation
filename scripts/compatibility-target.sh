@@ -4,8 +4,8 @@
 
 set -Eeuo pipefail
 
-: "${BASE_REF:?BASE_REF is required}"
+: "${TARGET_REF:?TARGET_REF is required}"
 : "${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"
 
-sha=$(git rev-parse --verify --end-of-options "${BASE_REF}^{commit}")
+sha=$(git rev-parse --verify --end-of-options "${TARGET_REF}^{commit}")
 printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"

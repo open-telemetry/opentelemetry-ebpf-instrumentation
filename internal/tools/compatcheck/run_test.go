@@ -109,6 +109,7 @@ func TestPRAndReleaseResults(t *testing.T) {
 			mockRelease(t, tc.releaseAPI)
 			target := publicAPIFixture(t, tc.targetAPI, "")
 			writeFile(t, filepath.Join(target, "versions.yaml"), "module-sets:\n  obi:\n    version: v1.0.0\n")
+			writeFile(t, filepath.Join(target, "Makefile"), "docker-generate:\n\t@true\n")
 			for _, args := range [][]string{
 				{"init", "--quiet"},
 				{"add", "."},
@@ -118,14 +119,11 @@ func TestPRAndReleaseResults(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			candidate := filepath.Join(t.TempDir(), "candidate")
-			if _, err := git(t.Context(), target, "clone", "--quiet", target, candidate); err != nil {
-				t.Fatal(err)
-			}
+			candidate := target
 			writeFile(t, filepath.Join(candidate, "pkg/public/api.go"), tc.candidateAPI)
 			path := filepath.Join(t.TempDir(), "report.json")
 			var output bytes.Buffer
-			code := run(t.Context(), []string{"--repo-root", candidate, "--base-dir", target, "--arch", "amd64", "--release-version", tc.proposed, "--report", path}, &output, &output)
+			code := run(t.Context(), []string{"--repo", candidate, "--arch", "amd64", "--release-version", tc.proposed, "--report", path}, &output, &output)
 			data, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)
