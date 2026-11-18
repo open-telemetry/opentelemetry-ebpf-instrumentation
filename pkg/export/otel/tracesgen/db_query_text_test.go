@@ -81,7 +81,7 @@ func TestDBQueryTextOmittedWhenSanitizingIsUnsafe(t *testing.T) {
 	span := request.Span{Type: request.EventTypeSQLClient, SubType: int(request.DBGeneric), Method: "SELECT", Statement: `SELECT q'[it's secret]' FROM dual`}
 	selected := map[attr.Name]struct{}{attr.DBQueryText: {}}
 
-	_, ok := attrValue(traceAttributesSelectorInternal(&span, selected, nil, true), string(attr.DBQueryText))
+	_, ok := attrValue(traceAttributesSelectorInternal(&span, selected, nil, true, defaultQueryParamReplacement), string(attr.DBQueryText))
 	assert.False(t, ok)
 }
 
@@ -89,6 +89,6 @@ func TestRedisQueryTextOmittedWithoutSanitizedText(t *testing.T) {
 	span := request.Span{Type: request.EventTypeRedisClient, Method: "SET", Path: "SET key 1"}
 	selected := map[attr.Name]struct{}{attr.DBQueryText: {}}
 
-	_, ok := attrValue(traceAttributesSelectorInternal(&span, selected, nil, true), string(attr.DBQueryText))
+	_, ok := attrValue(traceAttributesSelectorInternal(&span, selected, nil, true, defaultQueryParamReplacement), string(attr.DBQueryText))
 	assert.False(t, ok)
 }

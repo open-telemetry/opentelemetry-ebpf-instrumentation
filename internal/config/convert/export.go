@@ -100,6 +100,10 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 	}
 
 	http := protocols[protocolHTTP]
+	redaction := schema.Redaction{
+		Names:       new(cloneStrings(cfg.Attributes.SensitiveQueryParams.Effective())),
+		Replacement: cfg.Attributes.SensitiveQueryParams.Replacement,
+	}
 	httpInstrumentation := schema.HTTPInstrumentation{
 		Enabled: schema.HTTPProtocolEnablement{
 			ProtocolEnablement: http.Enabled,
@@ -112,6 +116,7 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 		GoHTTPClientBufferTimeout: schema.Duration(cfg.EBPF.GoHTTPClientBufferTimeout),
 		BufferSize:                cfg.EBPF.BufferSizes.HTTP,
 		Routes:                    httpRoutes(cfg),
+		QueryParameters:           schema.HTTPQueryParameters{Redaction: &redaction},
 		PayloadExtraction:         payloadExtraction(cfg),
 	}
 
