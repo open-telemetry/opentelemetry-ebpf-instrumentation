@@ -595,6 +595,13 @@
       "enabled": true
     },
     {
+      // Must come after the per-ecosystem groups above, since packageRules are last-match-wins.
+      "description": "Group all examples/ dependency updates into one weekly PR",
+      "matchFileNames": ["examples/**"],
+      "groupName": "Examples",
+      "schedule": ["before 6am on Monday"]
+    },
+    {
       // Pin every otel/weaver reference to one version in a single PR. The refs
       // live across four managers: dependencies.Dockerfile (dockerfile — the
       // image `make lint-schema` reads), the OATS/integration compose fragments
