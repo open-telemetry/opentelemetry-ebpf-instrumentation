@@ -9,6 +9,7 @@
 #include <common/algorithm.h>
 #include <common/h2_defs.h>
 #include <common/http1_traceparent.h>
+#include <common/http_trace_parent.h>
 #include <common/preempt_guard.h>
 #include <common/rust_abi.h>
 #include <common/rust_http_buffer.h>
@@ -17,6 +18,8 @@
 #include <common/tc_common.h>
 #include <common/trace_helpers.h>
 #include <common/tracing.h>
+
+#include <generictracer/protocol_common.h>
 
 #include <maps/ongoing_http2_grpc.h>
 #include <shared/obi_ctx.h>
@@ -618,11 +621,21 @@ int GUARDED_PROG(obi_rust_h2_take_request_ret, struct pt_regs *, ctx) {
     __builtin_memset(header, 0, sizeof(*header));
     rust_existing_header(args.output + config->request_headers, config, header);
     if (valid_trace(header->wire.trace_id)) {
+        unsigned char provisional_trace_id[TRACE_ID_SIZE_BYTES];
+        __builtin_memcpy(provisional_trace_id, info->tp.trace_id, sizeof(provisional_trace_id));
+
         __builtin_memcpy(info->tp.trace_id, header->wire.trace_id, sizeof(info->tp.trace_id));
         __builtin_memcpy(info->tp.parent_id, header->wire.span_id, sizeof(info->tp.parent_id));
         info->tp.flags = header->wire.flags;
         sample_remote_child(&info->tp);
         bpf_dbg_printk("rust h2 server remote parent stream=%u", args.stream.stream_id);
+
+        // The stream was indexed under its provisional trace when the frame was read.
+        if (http_server_index_enabled()) {
+            unindex_http_server_trace_id(
+                args.stream.pid_conn.pid, provisional_trace_id, info->tp.span_id);
+            index_http_server_context(&args.stream, &info->tp);
+        }
     } else {
         bpf_dbg_printk("rust h2 server remote parent absent stream=%u", args.stream.stream_id);
     }
