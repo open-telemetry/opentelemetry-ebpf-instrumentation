@@ -38,9 +38,11 @@ func initLogger(rs receiver.Settings) {
 const componentIDKey = "otelcol.component.id"
 
 // useServiceTelemetry reports the OBI internal metrics through the Collector service telemetry.
+// The BPF metrics stay off because collecting them enables the kernel BPF stats host-wide.
 func useServiceTelemetry(cfg *obi.Config, rs receiver.Settings) {
 	cfg.InternalMetrics.MeterProvider = rs.MeterProvider
 	cfg.InternalMetrics.MeterAttributes = attribute.NewSet(attribute.String(componentIDKey, rs.ID.String()))
+	cfg.InternalMetrics.BpfMetricScrapeInterval = 0
 }
 
 func BuildTracesReceiver() receiver.CreateTracesFunc {

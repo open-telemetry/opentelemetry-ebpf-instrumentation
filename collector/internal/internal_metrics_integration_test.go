@@ -30,7 +30,7 @@ import (
 )
 
 // A v2 receiver config cannot configure internal metrics, so they go to the Collector service
-// telemetry. A v1 receiver config keeps reporting them only when configured.
+// telemetry without the BPF metrics. A v1 receiver config keeps reporting them only when configured.
 func TestCollectorReceiverInternalMetrics(t *testing.T) {
 	for _, tc := range []struct {
 		name     string
@@ -62,6 +62,7 @@ func TestCollectorReceiverInternalMetrics(t *testing.T) {
 			t.Cleanup(func() { require.NoError(t, receiver.Shutdown(context.Background())) })
 
 			reporter := <-reporters
+			assert.Zero(t, reporter.BpfInternalMetricsScrapeInterval())
 			reporter.QueueBufferUtilization("traces", 0.5)
 
 			_, err = telemetry.GetMetric(attr.VendorPrefix + ".queue.capacity.ratio")
