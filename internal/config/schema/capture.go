@@ -88,10 +88,10 @@ type Rule struct {
 
 // RuleRefinement holds per-rule overrides that apply after a rule matches.
 type RuleRefinement struct {
-	Exceptions *services.ExceptionsOverride `yaml:"exceptions,omitempty"`
-	Exports    *ExportModeRefinement        `yaml:"exports,omitempty"`
-	HTTP       *HTTPRefinement              `yaml:"http,omitempty"`
-	JobTraces  *services.JobTracesConfig    `yaml:"job_traces,omitempty"`
+	Exceptions    *services.ExceptionsOverride `yaml:"exceptions,omitempty"`
+	Exports       *ExportModeRefinement        `yaml:"exports,omitempty"`
+	HTTP          *HTTPRefinement              `yaml:"http,omitempty"`
+	GroupJobSpans *bool                        `yaml:"group_job_spans,omitempty"`
 }
 
 // ExportModeRefinement overrides trace and metric exports for a matched rule.

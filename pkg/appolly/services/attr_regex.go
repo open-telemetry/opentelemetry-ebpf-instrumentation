@@ -130,7 +130,7 @@ type RegexSelector struct {
 	// sets it, from a rule's refine.exceptions.
 	Exceptions *ExceptionsOverride `yaml:"-" env:"-"`
 
-	// Only config v2 sets it, from a rule's refine.job_traces
+	// Only config v2 sets it, from a rule's refine.group_job_spans
 	JobTraces *JobTracesConfig `yaml:"-" env:"-"`
 
 	// Metrics configuration that is custom for this service match

@@ -150,6 +150,16 @@ func testTracesRedisJobsPool(t *testing.T) {
 	requireJobWithoutFetch(t, "pool-2")
 }
 
+// The fetching thread waits for each job it hands over, so it is still on the
+// second job, which started no thread, while the pool's thread runs it
+func testTracesRedisJobsPoolWaited(t *testing.T) {
+	pushRedisJob(t, "pool-wait", "pool-wait-1")
+	requireJobUnderFetch(t, "pool-wait-1", "BLPOP")
+
+	pushRedisJob(t, "pool-wait", "pool-wait-2")
+	requireJobWithoutFetch(t, "pool-wait-2")
+}
+
 func testTracesRedisJobsPolled(t *testing.T) {
 	for _, job := range []string{"poll-1", "poll-2"} {
 		pushRedisJob(t, "poll", job)

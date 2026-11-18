@@ -34,8 +34,7 @@ extensions:
             kubernetes:
               namespace_glob: [jobs]
           refine:
-            job_traces:
-              enabled: true
+            group_job_spans: true
 ```
 
 When no rule opts in, the job code is compiled out of the eBPF programs.
@@ -99,7 +98,9 @@ A fetching thread that runs a job without starting a thread or process for it,
 either running the job itself or handing it to a pool, starts threads that
 outlive jobs. From then on the jobs inherited from it are ignored: a pool thread
 started during one job would otherwise put the next jobs it runs in that job's
-trace.
+trace. They are also ignored while the fetching thread runs a later job that
+hasn't started a thread or process yet, because a pool thread may be running
+that job.
 
 ```text
 fetching thread   BLPOP ─► job 1 ─► start P, hand job 1 ─► BLPOP ─► job 2 ─► hand job 2 ─► BLPOP
