@@ -65,7 +65,7 @@ func TestGoExceptionCleanupWithTraceContext(t *testing.T) {
 	cfg.EBPF.PopulateTraceContext = true
 	tracer := New(nil, cfg, nil)
 
-	assert.NotContains(t, exceptionGroupSymbols(t, tracer), goExitSymbol)
+	assert.Contains(t, exceptionGroupSymbols(t, tracer), goExitSymbol)
 	assert.Contains(t, tracer.GoProbes(), "runtime.casgstatus")
 	assert.NotContains(t, exceptionGroupSymbols(t, tracer), "runtime.casgstatus")
 }

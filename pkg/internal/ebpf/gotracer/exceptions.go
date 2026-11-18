@@ -59,13 +59,7 @@ func (p *Tracer) goExceptionProbeGroups() []ebpfcommon.GoProbeGroup {
 		{Symbol: goErrorfSymbol, Probe: &ebpfcommon.ProbeDesc{End: p.bpfObjects.ObiUprobeFmtErrorfRet}},
 		{Symbol: goLegacyErrorfSymbol, Probe: &ebpfcommon.ProbeDesc{End: p.bpfObjects.ObiUprobeFmtErrorfRet}},
 		{Symbol: goPanicSymbol, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeRuntimeGopanic}},
-	}
-
-	if !p.traceCtxMapEnabled {
-		probes = append(probes, ebpfcommon.GoProbe{
-			Symbol: goExitSymbol,
-			Probe:  &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeRuntimeGoexit1},
-		})
+		{Symbol: goExitSymbol, Probe: &ebpfcommon.ProbeDesc{Start: p.bpfObjects.ObiUprobeRuntimeGoexit1}},
 	}
 
 	groups := make([]ebpfcommon.GoProbeGroup, 0, len(probes))
