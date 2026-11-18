@@ -4,7 +4,8 @@
 // Command compatcheck checks the root module's public Go source API on Linux
 // against VERSIONING.md. It follows aliases and exposed internal and dependency
 // types; commands, test files, and independently versioned modules are excluded
-// as roots.
+// as roots. bpf2go declarations and generated layouts are excluded, including
+// through handwritten aliases and wrappers.
 //
 // Run from the repository root with Go, Git, and Cosign installed:
 //

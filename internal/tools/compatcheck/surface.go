@@ -29,18 +29,33 @@ type apiSurface struct {
 	anonymous map[*types.Interface]types.Object
 }
 
-func newAPISurface(roots map[string]*types.Package) *apiSurface {
+func newAPISurface(api *apiSnapshot) *apiSurface {
+	roots := api.Packages
 	s := &apiSurface{
 		pkg: types.NewPackage(coreModule, "obi"), roots: roots,
 		named: map[string]*types.Named{}, types: map[types.Type]types.Type{},
 		originals: map[string]types.Object{}, context: types.NewContext(),
 		anonymous: map[*types.Interface]types.Object{},
 	}
+	// Generated C layouts are outside this comparison, including through aliases
+	// and handwritten types defined from those layouts. Erase them before apidiff
+	// so padding and comparability changes cannot leak through public wrappers.
+	for obj := range api.BPFGenerated {
+		if name, ok := obj.(*types.TypeName); ok {
+			t := types.Unalias(name.Type())
+			opaque := types.NewStruct(nil, nil)
+			s.types[t] = opaque
+			switch underlying := t.Underlying().(type) {
+			case *types.Struct, *types.Array:
+				s.types[underlying] = opaque
+			}
+		}
+	}
 	for _, path := range slices.Sorted(maps.Keys(roots)) {
 		pkg := roots[path]
 		for _, name := range pkg.Scope().Names() {
 			obj := pkg.Scope().Lookup(name)
-			if !obj.Exported() {
+			if !obj.Exported() || api.BPFGenerated[obj] {
 				continue
 			}
 			var projected types.Object
