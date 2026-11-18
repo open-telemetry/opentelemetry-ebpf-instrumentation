@@ -394,3 +394,50 @@ func TestSQLParseStatementID(t *testing.T) {
 		})
 	}
 }
+
+func TestSQLParseUseDatabase(t *testing.T) {
+	tests := []struct {
+		query    string
+		expected string
+		notUse   bool
+	}{
+		{query: "USE orders", expected: "orders"},
+		{query: "use orders;", expected: "orders"},
+		{query: "  USE orders ;  \n", expected: "orders"},
+		{query: "/* app */ USE `my orders`;", expected: "my orders"},
+		{query: "USE status", expected: "status"},
+		{query: "use json;", expected: "json"},
+		{query: "USE date", expected: "date"},
+		{query: "USE values", expected: "values"},
+		{query: "USE `select`", expected: "select"},
+		{query: "USE Orders", expected: "Orders"},
+		{query: "USE données", expected: "données"},
+		{query: "USE données;", expected: "données"},
+		{query: "USE 日本", expected: "日本"},
+		{query: "USE /* c */ orders", expected: "orders"},
+		{query: "USE 1abc", expected: "1abc"},
+		{query: "USE a$b", expected: "a$b"},
+		{query: "USE `a``b`", expected: "a`b"},
+		{query: "USE a😀"},
+		{query: "USE a\xff"},
+		{query: "USE 'orders'"},
+		{query: "USE 123"},
+		{query: "USE ;"},
+		{query: "USE orders extra"},
+		{query: "USE a; USE b"},
+		{query: "USE a; SELECT * FROM t"},
+		{query: "USE orders;;"},
+		{query: "USE"},
+		{query: "SELECT * FROM orders", notUse: true},
+		{query: "/* USE orders */ SELECT 1", notUse: true},
+		{query: "", notUse: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.query, func(t *testing.T) {
+			db, isUse := SQLParseUseDatabase(tt.query)
+			assert.Equal(t, tt.expected, db)
+			assert.Equal(t, !tt.notUse, isUse)
+		})
+	}
+}

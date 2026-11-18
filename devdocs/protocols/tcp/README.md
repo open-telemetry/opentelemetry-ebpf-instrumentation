@@ -13,4 +13,5 @@ This directory contains documentation for the supported protocol parsers that OB
 - [AMQP](amqp.md): AMQP 1.0 protocol parser.
 - [SunRPC](sunrpc.md): ONC RPC (Sun RPC) protocol parser.
 - [PostgreSQL](postgres.md): PostgreSQL protocol parser.
+- [MySQL](mysql.md): MySQL connection state (`db.namespace`).
 - [New Tracer](new-tcp-tracer.md): how to add a new TCP protocol based BPF tracer to OBI.

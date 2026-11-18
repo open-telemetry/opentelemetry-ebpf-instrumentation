@@ -105,10 +105,15 @@ func assertSQLOperation(t *testing.T, comm, op, table, db string) {
 
 		// "sqltest" is the dbname in the test server's StartupMessage
 		tag, found = jaeger.FindIn(span.Tags, "db.namespace")
-		if db == "postgresql" {
+		switch db {
+		case "postgresql":
 			assert.True(ct, found)
 			assert.Equal(ct, "sqltest", tag.Value)
-		} else {
+		case "mysql":
+			if found {
+				assert.Equal(ct, "sakila", tag.Value)
+			}
+		default:
 			assert.False(ct, found)
 		}
 	}, testTimeout, 100*time.Millisecond)
@@ -185,10 +190,15 @@ func assertSQLOperationErrored(t *testing.T, comm, op, table, db string) {
 		assert.Equal(ct, expectedData[db]["otel.status_description"], tag.Value)
 
 		tag, found = jaeger.FindIn(span.Tags, "db.namespace")
-		if db == "postgresql" {
+		switch db {
+		case "postgresql":
 			assert.True(ct, found)
 			assert.Equal(ct, "sqltest", tag.Value)
-		} else {
+		case "mysql":
+			if found {
+				assert.Equal(ct, "sakila", tag.Value)
+			}
+		default:
 			assert.False(ct, found)
 		}
 	}, testTimeout, 100*time.Millisecond)
@@ -402,6 +412,45 @@ func testPythonMySQL(t *testing.T) {
 	testPythonSQLPreparedStatements(t, comm, testCaseURL, table, db)
 	testPythonSQLBigQuery(t, comm, testCaseURL, table, db)
 	testPythonSQLError(t, comm, testCaseURL, db)
+	// caching_sha2_password accepts a plaintext login only after a TLS login has cached the password.
+	testPythonMySQLNewConnection(t, comm, testCaseURL+"/newconnquery_tls", "language")
+	testPythonMySQLNewConnection(t, comm, testCaseURL+"/newconnquery", "category")
+}
+
+func testPythonMySQLNewConnection(t *testing.T, comm, url, table string) {
+	t.Helper()
+
+	dbOperation := "SELECT " + table
+
+	params := neturl.Values{}
+	params.Add("service", comm)
+	params.Add("operation", dbOperation)
+	fullURL := fmt.Sprintf("%s?%s", jaegerQueryURL, params.Encode())
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		ti.DoHTTPGet(ct, url, 200)
+
+		resp, err := getJaeger(fullURL)
+		require.NoError(ct, err)
+		require.NotNil(ct, resp)
+		assert.Equal(ct, http.StatusOK, resp.StatusCode)
+
+		var tq jaeger.TracesQuery
+		require.NoError(ct, json.NewDecoder(resp.Body).Decode(&tq))
+		traces := tq.FindBySpan(jaeger.Tag{Key: "db.collection.name", Type: "string", Value: table})
+		require.NotEmpty(ct, traces)
+		span := traces[len(traces)-1].Spans[0]
+
+		assert.Equal(ct, dbOperation, span.OperationName)
+
+		tag, found := jaeger.FindIn(span.Tags, "db.system.name")
+		assert.True(ct, found)
+		assert.Equal(ct, "mysql", tag.Value)
+
+		tag, found = jaeger.FindIn(span.Tags, "db.namespace")
+		assert.True(ct, found)
+		assert.Equal(ct, "sakila", tag.Value)
+	}, testTimeout, 100*time.Millisecond)
 }
 
 func testREDMetricsForPythonSQLSSL(t *testing.T, url, comm, namespace string) {
