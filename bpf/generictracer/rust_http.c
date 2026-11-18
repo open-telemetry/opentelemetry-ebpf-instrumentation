@@ -13,6 +13,7 @@
 #include <common/rust_abi.h>
 #include <common/rust_http_buffer.h>
 #include <common/rust_task.h>
+#include <common/sampling.h>
 #include <common/tc_common.h>
 #include <common/trace_helpers.h>
 #include <common/tracing.h>
@@ -620,6 +621,7 @@ int GUARDED_PROG(obi_rust_h2_take_request_ret, struct pt_regs *, ctx) {
         __builtin_memcpy(info->tp.trace_id, header->wire.trace_id, sizeof(info->tp.trace_id));
         __builtin_memcpy(info->tp.parent_id, header->wire.span_id, sizeof(info->tp.parent_id));
         info->tp.flags = header->wire.flags;
+        sample_remote_child(&info->tp);
         bpf_dbg_printk("rust h2 server remote parent stream=%u", args.stream.stream_id);
     } else {
         bpf_dbg_printk("rust h2 server remote parent absent stream=%u", args.stream.stream_id);
