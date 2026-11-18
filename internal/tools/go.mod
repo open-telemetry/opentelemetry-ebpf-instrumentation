@@ -256,7 +256,7 @@ require (
 	k8s.io/klog/v2 v2.90.1 // indirect
 	mvdan.cc/gofumpt v0.11.0 // indirect
 	mvdan.cc/unparam v0.0.0-20260823230713-2fa3d841b0c8 // indirect
-	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.2 // indirect
+	sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.3 // indirect
 	sigs.k8s.io/kind v0.33.0 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
