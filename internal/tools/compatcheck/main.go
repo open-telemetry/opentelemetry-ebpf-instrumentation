@@ -31,6 +31,15 @@ const (
 	exitError  = 2
 )
 
+type releaseClass string
+
+const (
+	releasePatch      releaseClass = "patch"
+	releaseMinor      releaseClass = "minor"
+	releaseMajor      releaseClass = "major"
+	releaseIncomplete releaseClass = "incomplete"
+)
+
 type options struct {
 	repoRoot        string
 	targetRef       string
@@ -67,23 +76,23 @@ type baseline struct {
 }
 
 type report struct {
-	FormatVersion        int         `json:"format_version"`
-	Surface              string      `json:"surface"`
-	Policy               string      `json:"policy"`
-	BaseCommit           string      `json:"base_commit"`
-	HeadCommit           string      `json:"head_commit"`
-	WorkingTree          bool        `json:"working_tree_modified"`
-	Platforms            []string    `json:"platforms"`
-	Baselines            []baseline  `json:"baselines"`
-	Findings             []apiChange `json:"findings"`
-	ExistingFindings     []apiChange `json:"existing_findings"`
-	Unclassified         []apiChange `json:"unclassified_changes"`
-	ExistingUnclassified []apiChange `json:"existing_unclassified_changes"`
-	ReleaseRequired      string      `json:"release_required"`
-	RequiredRelease      string      `json:"required_release"`
-	ReleaseBase          string      `json:"release_base,omitempty"`
-	ProposedRelease      string      `json:"proposed_release,omitempty"`
-	Error                string      `json:"error,omitempty"`
+	FormatVersion        int          `json:"format_version"`
+	Surface              string       `json:"surface"`
+	Policy               string       `json:"policy"`
+	BaseCommit           string       `json:"base_commit"`
+	HeadCommit           string       `json:"head_commit"`
+	WorkingTree          bool         `json:"working_tree_modified"`
+	Platforms            []string     `json:"platforms"`
+	Baselines            []baseline   `json:"baselines"`
+	Findings             []apiChange  `json:"findings"`
+	ExistingFindings     []apiChange  `json:"existing_findings"`
+	Unclassified         []apiChange  `json:"unclassified_changes"`
+	ExistingUnclassified []apiChange  `json:"existing_unclassified_changes"`
+	ReleaseRequired      releaseClass `json:"release_required"`
+	RequiredRelease      releaseClass `json:"required_release"`
+	ReleaseBase          string       `json:"release_base,omitempty"`
+	ProposedRelease      string       `json:"proposed_release,omitempty"`
+	Error                string       `json:"error,omitempty"`
 }
 
 func main() {
@@ -119,7 +128,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	}
 
 	r := report{
-		FormatVersion: 2, Surface: "go-api", Policy: "VERSIONING.md#go-module-api", RequiredRelease: "incomplete", ReleaseRequired: "incomplete", ProposedRelease: opts.releaseVersion,
+		FormatVersion: 2, Surface: "go-api", Policy: "VERSIONING.md#go-module-api", RequiredRelease: releaseIncomplete, ReleaseRequired: releaseIncomplete, ProposedRelease: opts.releaseVersion,
 		Baselines: []baseline{}, Findings: []apiChange{}, ExistingFindings: []apiChange{}, Unclassified: []apiChange{}, ExistingUnclassified: []apiChange{},
 	}
 	err := check(ctx, opts, &r, stderr)
@@ -136,10 +145,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return exitError
 	}
-	if r.RequiredRelease == "major" || (opts.releaseVersion != "" && r.ReleaseRequired == "major") {
+	if r.RequiredRelease == releaseMajor || (opts.releaseVersion != "" && r.ReleaseRequired == releaseMajor) {
 		return exitBreak
 	}
-	if opts.releaseVersion != "" && r.ReleaseRequired == "minor" {
+	if opts.releaseVersion != "" && r.ReleaseRequired == releaseMinor {
 		for _, b := range r.Baselines {
 			if semver.MajorMinor(b.Version) == semver.MajorMinor(opts.releaseVersion) {
 				fmt.Fprintln(stdout, "Proposed patch release contains additions requiring a minor release.")
@@ -264,15 +273,15 @@ func check(ctx context.Context, opts options, r *report, progress io.Writer) (er
 	r.ReleaseRequired = minimumRelease(all, r.ReleaseBase)
 	for _, f := range all {
 		if f.Unsupported {
-			r.ReleaseRequired = "incomplete"
+			r.ReleaseRequired = releaseIncomplete
 			break
 		}
 	}
 	if len(r.Unclassified) > 0 {
-		r.RequiredRelease = "incomplete"
+		r.RequiredRelease = releaseIncomplete
 		return errors.New("source compatibility could not be determined for a PR change")
 	}
-	if opts.releaseVersion != "" && r.ReleaseRequired == "incomplete" {
+	if opts.releaseVersion != "" && r.ReleaseRequired == releaseIncomplete {
 		return errors.New("release assessment includes unresolved source compatibility changes")
 	}
 
@@ -319,17 +328,17 @@ func validateProposed(proposed, target string) error {
 // minimumRelease applies the Go API release rules to classified changes.
 // Only additions owned by the root module and absent from the latest release
 // require a minor; compatible dependency updates remain patch-eligible.
-func minimumRelease(changes []apiChange, latest string) string {
-	minimum := "patch"
+func minimumRelease(changes []apiChange, latest string) releaseClass {
+	minimum := releasePatch
 	for _, f := range changes {
 		if f.Unsupported {
 			continue
 		}
 		if !f.Compatible {
-			return "major"
+			return releaseMajor
 		}
 		if f.Baseline == latest && f.Module == coreModule {
-			minimum = "minor"
+			minimum = releaseMinor
 		}
 	}
 	return minimum

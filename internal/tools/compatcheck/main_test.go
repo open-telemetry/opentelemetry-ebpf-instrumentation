@@ -15,30 +15,30 @@ func TestMinimumReleaseAcrossBaselines(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		changes []apiChange
-		want    string
+		want    releaseClass
 	}{
-		{name: "unchanged", want: "patch"},
-		{name: "compatible dependency API addition", changes: []apiChange{{Baseline: "v1.1.1", Package: "example.com/dependency", Compatible: true}}, want: "patch"},
-		{name: "exposed dependency API break", changes: []apiChange{{Baseline: "v1.1.1", Package: "example.com/dependency"}}, want: "major"},
+		{name: "unchanged", want: releasePatch},
+		{name: "compatible dependency API addition", changes: []apiChange{{Baseline: "v1.1.1", Package: "example.com/dependency", Compatible: true}}, want: releasePatch},
+		{name: "exposed dependency API break", changes: []apiChange{{Baseline: "v1.1.1", Package: "example.com/dependency"}}, want: releaseMajor},
 		{
 			name:    "addition already released in minor",
 			changes: []apiChange{{Module: coreModule, Package: coreModule, Baseline: "v1.0.0", Compatible: true}},
-			want:    "patch",
+			want:    releasePatch,
 		},
 		{
 			name:    "addition already released in patch",
 			changes: []apiChange{{Module: coreModule, Package: coreModule, Baseline: "v1.1.0", Compatible: true}},
-			want:    "patch",
+			want:    releasePatch,
 		},
 		{
 			name:    "new addition",
 			changes: []apiChange{{Module: coreModule, Package: coreModule, Baseline: "v1.0.0", Compatible: true}, {Module: coreModule, Package: coreModule, Baseline: "v1.1.1", Compatible: true}},
-			want:    "minor",
+			want:    releaseMinor,
 		},
 		{
 			name:    "older contract breaks",
 			changes: []apiChange{{Module: coreModule, Package: coreModule, Baseline: "v1.0.0", Compatible: false}, {Module: coreModule, Package: coreModule, Baseline: "v1.1.1", Compatible: true}},
-			want:    "major",
+			want:    releaseMajor,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -75,7 +75,7 @@ func TestFindingAttribution(t *testing.T) {
 				t.Fatalf("new=%+v existing=%+v", newFindings, existing)
 			}
 			if tc.name == "tooling-only PR" {
-				if minimumRelease(newFindings, "v1.0.0") != "patch" || minimumRelease(existing, "v1.0.0") != "major" {
+				if minimumRelease(newFindings, "v1.0.0") != releasePatch || minimumRelease(existing, "v1.0.0") != releaseMajor {
 					t.Fatal("inherited break must affect release, not PR")
 				}
 			}
@@ -168,7 +168,7 @@ func TestAttributionOfExposedConstraint(t *testing.T) {
 		t.Fatal(err)
 	}
 	introduced, _ := attributeChanges(head, base)
-	if minimumRelease(introduced, "v1.0.0") != "major" {
+	if minimumRelease(introduced, "v1.0.0") != releaseMajor {
 		t.Fatalf("further narrowing hidden as inherited: head=%+v base=%+v", head, base)
 	}
 }

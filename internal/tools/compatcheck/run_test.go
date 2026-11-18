@@ -31,7 +31,7 @@ func TestPRAndReleaseResults(t *testing.T) {
 	for _, tc := range []struct {
 		name, releaseAPI, targetAPI, candidateAPI, proposed string
 		code                                                int
-		prClass, releaseClass                               string
+		prClass, releaseClass                               releaseClass
 		introduced, existing                                int
 		unclassified, existingUnclassified                  int
 		contextChange                                       string
@@ -43,8 +43,8 @@ func TestPRAndReleaseResults(t *testing.T) {
 			targetAPI:     named,
 			candidateAPI:  "package public; type PID struct { _ int; ID string }; type Event struct { Pid PID }",
 			code:          exitError,
-			prClass:       "incomplete",
-			releaseClass:  "incomplete",
+			prClass:       releaseIncomplete,
+			releaseClass:  releaseIncomplete,
 			unclassified:  1,
 		},
 		{
@@ -54,8 +54,8 @@ func TestPRAndReleaseResults(t *testing.T) {
 			targetAPI:     named,
 			candidateAPI:  "package public; type PID struct { _ int }; type Event struct { Pid PID }",
 			code:          exitError,
-			prClass:       "incomplete",
-			releaseClass:  "incomplete",
+			prClass:       releaseIncomplete,
+			releaseClass:  releaseIncomplete,
 			unclassified:  1,
 		},
 		{
@@ -63,8 +63,8 @@ func TestPRAndReleaseResults(t *testing.T) {
 			releaseAPI:           anonymous,
 			targetAPI:            named,
 			candidateAPI:         "package public; type PID struct { _ [64]byte; ID int }; type Event struct { Pid PID }",
-			prClass:              "patch",
-			releaseClass:         "incomplete",
+			prClass:              releasePatch,
+			releaseClass:         releaseIncomplete,
 			existingUnclassified: 1,
 		},
 		{
@@ -74,8 +74,8 @@ func TestPRAndReleaseResults(t *testing.T) {
 			targetAPI:     named,
 			candidateAPI:  "package public; type PID struct { _ int; ID int; Added int }; type Event struct { Pid PID }",
 			code:          exitError,
-			prClass:       "incomplete",
-			releaseClass:  "incomplete",
+			prClass:       releaseIncomplete,
+			releaseClass:  releaseIncomplete,
 			unclassified:  1,
 		},
 		{
@@ -83,27 +83,27 @@ func TestPRAndReleaseResults(t *testing.T) {
 			releaseAPI:           anonymous + ";type S struct{}",
 			targetAPI:            named + ";type S struct{}",
 			candidateAPI:         named + ";type S struct{};func(S)Added(){}",
-			prClass:              "minor",
-			releaseClass:         "incomplete",
+			prClass:              releaseMinor,
+			releaseClass:         releaseIncomplete,
 			existingUnclassified: 1,
 		},
-		{name: "unchanged", releaseAPI: original, targetAPI: original, candidateAPI: original, prClass: "patch", releaseClass: "patch"},
-		{name: "inherited break", releaseAPI: original, targetAPI: broken, candidateAPI: broken, prClass: "patch", releaseClass: "major", existing: 1},
-		{name: "new break", releaseAPI: original, targetAPI: original, candidateAPI: broken, code: exitBreak, prClass: "major", releaseClass: "major", introduced: 1},
-		{name: "worsened generic constraint", releaseAPI: "package public; func F[T any](v T) {}", targetAPI: "package public; func F[T ~int | ~string](v T) {}", candidateAPI: "package public; func F[T ~int](v T) {}", code: exitBreak, prClass: "major", releaseClass: "major", introduced: 1},
-		{name: "rename inherited recursive constraint", releaseAPI: recursiveRelease, targetAPI: recursiveTarget, candidateAPI: recursiveRename, prClass: "patch", releaseClass: "major", existing: 1},
-		{name: "new API", releaseAPI: original, targetAPI: original, candidateAPI: addition, prClass: "minor", releaseClass: "minor"},
-		{name: "concrete method addition", releaseAPI: "package public; type T struct{}", targetAPI: "package public; type T struct{}", candidateAPI: "package public; type T struct{};func(T) Added(){}", prClass: "minor", releaseClass: "minor"},
-		{name: "new exported declarations", releaseAPI: original, targetAPI: original, candidateAPI: addition + ";type S struct{};const C=1;var V int", prClass: "minor", releaseClass: "minor"},
-		{name: "field addition", releaseAPI: "package public;type S struct{A int}", targetAPI: "package public;type S struct{A int}", candidateAPI: "package public;type S struct{A,B int}", prClass: "minor", releaseClass: "minor"},
-		{name: "ABI layout refactor", releaseAPI: "package public;type S struct{A int; hidden [1]byte}", targetAPI: "package public;type S struct{A int; hidden [1]byte}", candidateAPI: "package public;type S struct{hidden [64]byte; A int}", prClass: "patch", releaseClass: "patch"},
-		{name: "constant value needs contract review", releaseAPI: "package public;const Count=3", targetAPI: "package public;const Count=3", candidateAPI: "package public;const Count=4", code: exitError, prClass: "incomplete", releaseClass: "incomplete", unclassified: 1},
+		{name: "unchanged", releaseAPI: original, targetAPI: original, candidateAPI: original, prClass: releasePatch, releaseClass: releasePatch},
+		{name: "inherited break", releaseAPI: original, targetAPI: broken, candidateAPI: broken, prClass: releasePatch, releaseClass: releaseMajor, existing: 1},
+		{name: "new break", releaseAPI: original, targetAPI: original, candidateAPI: broken, code: exitBreak, prClass: releaseMajor, releaseClass: releaseMajor, introduced: 1},
+		{name: "worsened generic constraint", releaseAPI: "package public; func F[T any](v T) {}", targetAPI: "package public; func F[T ~int | ~string](v T) {}", candidateAPI: "package public; func F[T ~int](v T) {}", code: exitBreak, prClass: releaseMajor, releaseClass: releaseMajor, introduced: 1},
+		{name: "rename inherited recursive constraint", releaseAPI: recursiveRelease, targetAPI: recursiveTarget, candidateAPI: recursiveRename, prClass: releasePatch, releaseClass: releaseMajor, existing: 1},
+		{name: "new API", releaseAPI: original, targetAPI: original, candidateAPI: addition, prClass: releaseMinor, releaseClass: releaseMinor},
+		{name: "concrete method addition", releaseAPI: "package public; type T struct{}", targetAPI: "package public; type T struct{}", candidateAPI: "package public; type T struct{};func(T) Added(){}", prClass: releaseMinor, releaseClass: releaseMinor},
+		{name: "new exported declarations", releaseAPI: original, targetAPI: original, candidateAPI: addition + ";type S struct{};const C=1;var V int", prClass: releaseMinor, releaseClass: releaseMinor},
+		{name: "field addition", releaseAPI: "package public;type S struct{A int}", targetAPI: "package public;type S struct{A int}", candidateAPI: "package public;type S struct{A,B int}", prClass: releaseMinor, releaseClass: releaseMinor},
+		{name: "ABI layout refactor", releaseAPI: "package public;type S struct{A int; hidden [1]byte}", targetAPI: "package public;type S struct{A int; hidden [1]byte}", candidateAPI: "package public;type S struct{hidden [64]byte; A int}", prClass: releasePatch, releaseClass: releasePatch},
+		{name: "constant value needs contract review", releaseAPI: "package public;const Count=3", targetAPI: "package public;const Count=3", candidateAPI: "package public;const Count=4", code: exitError, prClass: releaseIncomplete, releaseClass: releaseIncomplete, unclassified: 1},
 
-		{name: "release rejects inherited break", releaseAPI: original, targetAPI: broken, candidateAPI: broken, proposed: "v1.1.0", code: exitBreak, prClass: "patch", releaseClass: "major", existing: 1},
-		{name: "patch rejects new API", releaseAPI: original, targetAPI: original, candidateAPI: addition, proposed: "v1.0.1", code: exitBreak, prClass: "minor", releaseClass: "minor"},
-		{name: "new unclassified change", releaseAPI: anonymous, targetAPI: anonymous, candidateAPI: named, code: exitError, prClass: "incomplete", releaseClass: "incomplete", unclassified: 1},
-		{name: "inherited unclassified change", releaseAPI: anonymous, targetAPI: named, candidateAPI: named, prClass: "patch", releaseClass: "incomplete", existingUnclassified: 1},
-		{name: "release rejects unclassified change", releaseAPI: anonymous, targetAPI: named, candidateAPI: named, proposed: "v1.1.0", code: exitError, prClass: "patch", releaseClass: "incomplete", existingUnclassified: 1},
+		{name: "release rejects inherited break", releaseAPI: original, targetAPI: broken, candidateAPI: broken, proposed: "v1.1.0", code: exitBreak, prClass: releasePatch, releaseClass: releaseMajor, existing: 1},
+		{name: "patch rejects new API", releaseAPI: original, targetAPI: original, candidateAPI: addition, proposed: "v1.0.1", code: exitBreak, prClass: releaseMinor, releaseClass: releaseMinor},
+		{name: "new unclassified change", releaseAPI: anonymous, targetAPI: anonymous, candidateAPI: named, code: exitError, prClass: releaseIncomplete, releaseClass: releaseIncomplete, unclassified: 1},
+		{name: "inherited unclassified change", releaseAPI: anonymous, targetAPI: named, candidateAPI: named, prClass: releasePatch, releaseClass: releaseIncomplete, existingUnclassified: 1},
+		{name: "release rejects unclassified change", releaseAPI: anonymous, targetAPI: named, candidateAPI: named, proposed: "v1.1.0", code: exitError, prClass: releasePatch, releaseClass: releaseIncomplete, existingUnclassified: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mockRelease(t, tc.releaseAPI)

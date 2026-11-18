@@ -22,7 +22,7 @@ type Config struct { Options options.Options }
 		before       string
 		after        string
 		consumer     string
-		want         string
+		want         releaseClass
 	}{
 		{
 			name:         "private type rename",
@@ -30,192 +30,192 @@ type Config struct { Options options.Options }
 			before:       "type hidden struct{Value int};func New()*hidden{return nil}",
 			after:        "type renamed struct{Value int};func New()*renamed{return nil}",
 			consumer:     "_=public.Options.Value",
-			want:         "patch",
+			want:         releasePatch,
 		},
 		{
 			name:         "recursive constraint parameter rename",
 			publicBefore: "package public;type Self struct{};func(Self) M(Self){};func F[T interface{M(T)}](v T){}",
 			publicAfter:  "package public;type Self struct{};func(Self) M(Self){};func F[U interface{M(U)}](v U){}",
 			consumer:     "public.F(public.Self{})",
-			want:         "patch",
+			want:         releasePatch,
 		},
 		{
 			name:         "concrete method addition",
 			publicBefore: "package public;type T struct{};func(T) Existing(){}",
 			publicAfter:  "package public;type T struct{};func(T) Existing(){};func(T) Added(){}",
 			consumer:     "public.T{}.Existing()",
-			want:         "minor",
+			want:         releaseMinor,
 		},
 		{
 			name:         "removed exported function",
 			publicBefore: "package public;func F(){}",
 			publicAfter:  "package public",
 			consumer:     "public.F()",
-			want:         "major",
+			want:         releaseMajor,
 		},
 		{
 			name:         "removed exported type",
 			publicBefore: "package public;type T struct{}",
 			publicAfter:  "package public",
 			consumer:     "var value public.T;_=value",
-			want:         "major",
+			want:         releaseMajor,
 		},
 		{
 			name:         "removed exported constant",
 			publicBefore: "package public;const C=1",
 			publicAfter:  "package public",
 			consumer:     "_=public.C",
-			want:         "major",
+			want:         releaseMajor,
 		},
 		{
 			name:         "removed concrete method",
 			publicBefore: "package public;type T struct{};func(T) M(){}",
 			publicAfter:  "package public;type T struct{}",
 			consumer:     "public.T{}.M()",
-			want:         "major",
+			want:         releaseMajor,
 		},
 		{
 			name:         "function parameter type",
 			publicBefore: "package public;func F(int){}",
 			publicAfter:  "package public;func F(string){}",
 			consumer:     "public.F(1)",
-			want:         "major",
+			want:         releaseMajor,
 		},
 		{
 			name:         "function result type",
 			publicBefore: "package public;func F()int{return 0}",
 			publicAfter:  `package public;func F()string{return ""}`,
 			consumer:     "var value int=public.F();_=value",
-			want:         "major",
+			want:         releaseMajor,
 		},
 		{
 			name:         "variadic signature",
 			publicBefore: "package public;func F(int){}",
 			publicAfter:  "package public;func F(...int){}",
 			consumer:     "var f func(int)=public.F;_=f",
-			want:         "major",
+			want:         releaseMajor,
 		},
 		{
 			name:         "exported interface method addition",
 			publicBefore: "package public;type I interface{A()}",
 			publicAfter:  "package public;type I interface{A();B()}",
 			consumer:     "var target public.I;var old interface{A()};target=old;_=target",
-			want:         "major",
+			want:         releaseMajor,
 		},
 		{
 			name:         "ABI-only private layout",
 			publicBefore: "package public;type T struct{Value int;hidden [1]byte}",
 			publicAfter:  "package public;type T struct{hidden [64]byte;Value int}",
 			consumer:     "_=public.T{Value:1}.Value",
-			want:         "patch",
+			want:         releasePatch,
 		},
 		{
 			name: "package rename", publicBefore: "package public; func F() {}", publicAfter: "package renamed; func F() {}",
-			consumer: "public.F()", want: "major",
+			consumer: "public.F()", want: releaseMajor,
 		},
 		{
 			name: "internal field removed", publicBefore: publicConfig,
 			before: "type Options struct { Value int }", after: "type Options struct {}",
-			consumer: "_ = public.Config{}.Options.Value", want: "major",
+			consumer: "_ = public.Config{}.Options.Value", want: releaseMajor,
 		},
 		{
 			name: "internal field type", publicBefore: publicConfig,
 			before: "type Options struct { Value int }", after: "type Options struct { Value string }",
-			consumer: "var value int = public.Config{}.Options.Value; _ = value", want: "major",
+			consumer: "var value int = public.Config{}.Options.Value; _ = value", want: releaseMajor,
 		},
 		{
 			name:         "unexported internal type method",
 			publicBefore: `package public; import "go.opentelemetry.io/obi/pkg/internal/options"; var Options = options.New()`,
 			before:       "type hidden struct{}; func New() *hidden { return nil }; func (*hidden) Value() int { return 0 }",
 			after:        "type hidden struct{}; func New() *hidden { return nil }",
-			consumer:     "_ = public.Options.Value()", want: "major",
+			consumer:     "_ = public.Options.Value()", want: releaseMajor,
 		},
 		{
 			name:         "internal generic instance",
 			publicBefore: `package public; import "go.opentelemetry.io/obi/pkg/internal/options"; type Config struct { Options options.Options[int] }`,
 			before:       "type Options[T any] struct { Value T }", after: "type Options[T any] struct { Value string }",
-			consumer: "var value int = public.Config{}.Options.Value; _ = value", want: "major",
+			consumer: "var value int = public.Config{}.Options.Value; _ = value", want: releaseMajor,
 		},
 		{
 			name: "internal interface method", publicBefore: publicConfig,
 			before: "type Options interface { A() }", after: "type Options interface { A(); B() }",
-			consumer: "var c public.Config; var v interface { A() }; c.Options = v; _ = c", want: "major",
+			consumer: "var c public.Config; var v interface { A() }; c.Options = v; _ = c", want: releaseMajor,
 		},
 		{
 			name:         "internal generic method",
 			publicBefore: `package public; import "go.opentelemetry.io/obi/pkg/internal/options"; type Config struct { Options options.Options[int] }`,
 			before:       "type Options[T any] struct{}; func (*Options[T]) Value() T { var zero T; return zero }",
 			after:        "type Options[T any] struct{}; func (*Options[T]) Value() string { return \"\" }",
-			consumer:     "var c public.Config; var value int = c.Options.Value(); _ = value", want: "major",
+			consumer:     "var c public.Config; var value int = c.Options.Value(); _ = value", want: releaseMajor,
 		},
 		{
 			name:         "internal alias",
 			publicBefore: `package public; import "go.opentelemetry.io/obi/pkg/internal/options"; type Config = options.Options`,
 			before:       "type Options struct { Value int }", after: "type Options struct {}",
-			consumer: "_ = public.Config{}.Value", want: "major",
+			consumer: "_ = public.Config{}.Value", want: releaseMajor,
 		},
 		{
 			name: "recursive internal type", publicBefore: publicConfig,
 			before: "type Options struct { Next *Options; Value int }", after: "type Options struct { Next *Options }",
-			consumer: "_ = public.Config{}.Options.Next.Value", want: "major",
+			consumer: "_ = public.Config{}.Options.Next.Value", want: releaseMajor,
 		},
 
 		{
 			name:         "generic parameter rename with field removal",
 			publicBefore: `package public; import "go.opentelemetry.io/obi/pkg/internal/options"; type Config struct { Options options.Options[int] }`,
 			before:       "type Options[T any] struct { Value T }", after: "type Options[U any] struct {}",
-			consumer: "_ = public.Config{}.Options.Value", want: "major",
+			consumer: "_ = public.Config{}.Options.Value", want: releaseMajor,
 		},
 		{
 			name: "narrowed generic constraint", publicBefore: "package public; func F[T ~int | ~string](v T) {}",
 			publicAfter: "package public; func F[T ~int](v T) {}",
-			consumer:    `public.F("value")`, want: "major",
+			consumer:    `public.F("value")`, want: releaseMajor,
 		},
 		{
 			name: "narrowed named constraint", publicBefore: "package public; type Number interface { ~int | ~string }; func F[T Number](v T) {}",
 			publicAfter: "package public; type Number interface { ~int }; func F[T Number](v T) {}",
-			consumer:    `public.F("value")`, want: "major",
+			consumer:    `public.F("value")`, want: releaseMajor,
 		},
 		{
 			name: "nested named constraint", publicBefore: "package public; type Inner interface { ~int | ~string }; type Number interface { Inner }; func F[T Number](v T) {}",
 			publicAfter: "package public; type Inner interface { ~int }; type Number interface { Inner }; func F[T Number](v T) {}",
-			consumer:    `public.F("value")`, want: "major",
+			consumer:    `public.F("value")`, want: releaseMajor,
 		},
 		{
 			name: "relaxed generic constraint", publicBefore: "package public; func F[T ~int](v T) {}",
 			publicAfter: "package public; func F[U ~int | ~string](v U) {}",
-			consumer:    "public.F(1)", want: "minor",
+			consumer:    "public.F(1)", want: releaseMinor,
 		},
 		{
 			name: "generic parameter rename", publicBefore: "package public; func F[T any](v T) {}",
 			publicAfter: "package public; func F[U any](v U) {}",
-			consumer:    "public.F(1)", want: "patch",
+			consumer:    "public.F(1)", want: releasePatch,
 		},
 		{
 			name: "array field length", publicBefore: "package public; type Event struct { Pad [11]byte }",
 			publicAfter: "package public; type Event struct { Pad [9]byte }",
-			consumer:    "var p [11]byte = public.Event{}.Pad; _ = p", want: "major",
+			consumer:    "var p [11]byte = public.Event{}.Pad; _ = p", want: releaseMajor,
 		},
 		{
 			name: "comparability", publicBefore: "package public; type Snapshot struct { Value int }",
 			publicAfter: "package public; type Snapshot struct { Value []int }",
-			consumer:    "_ = public.Snapshot{} == public.Snapshot{}", want: "major",
+			consumer:    "_ = public.Snapshot{} == public.Snapshot{}", want: releaseMajor,
 		},
 		{
 			name: "unrelated internal declaration", publicBefore: publicConfig,
 			before: "type Options struct { Value int }; func Unrelated() {}", after: "type Options struct { Value int }",
-			consumer: "_ = public.Config{}.Options.Value", want: "patch",
+			consumer: "_ = public.Config{}.Options.Value", want: releasePatch,
 		},
 		{
 			name: "unreachable internal field", publicBefore: publicConfig,
 			before:   "type Options struct { hidden Unrelated }; type Unrelated struct { Value int }",
 			after:    "type Options struct { hidden Unrelated }; type Unrelated struct{}",
-			consumer: "_ = public.Config{}", want: "patch",
+			consumer: "_ = public.Config{}", want: releasePatch,
 		},
 		{
 			name: "internal field addition", publicBefore: publicConfig,
 			before: "type Options struct { Value int }", after: "type Options struct { Value, Added int }",
-			consumer: "_ = public.Config{}.Options.Value", want: "minor",
+			consumer: "_ = public.Config{}.Options.Value", want: releaseMinor,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -240,7 +240,7 @@ type Config struct { Options options.Options }
 				t.Fatalf("minimum release=%s, want %s; changes=%+v", got, tc.want, changes)
 			}
 			compileConsumer(t, beforeRoot, tc.consumer, true)
-			compileConsumer(t, afterRoot, tc.consumer, tc.want != "major")
+			compileConsumer(t, afterRoot, tc.consumer, tc.want != releaseMajor)
 		})
 	}
 }
@@ -293,9 +293,9 @@ func TestAliasMoveConsumers(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := "minor"
+			want := releaseMinor
 			if broken {
-				want = "major"
+				want = releaseMajor
 			}
 			if got := minimumRelease(changes, "v1.0.0"); got != want {
 				t.Fatalf("release=%s, want %s: %+v", got, want, changes)
@@ -369,9 +369,9 @@ func TestDependencyUpdateClassification(t *testing.T) {
 					if err != nil {
 						t.Fatal(err)
 					}
-					want := "patch"
+					want := releasePatch
 					if breaking {
-						want = "major"
+						want = releaseMajor
 					}
 					if got := minimumRelease(changes, "v1.0.0"); got != want {
 						t.Fatalf("release=%s, want %s: %+v", got, want, changes)
@@ -405,7 +405,7 @@ func TestAliasReplacedByDefinedType(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if minimumRelease(changes, "v1.0.0") != "major" {
+	if minimumRelease(changes, "v1.0.0") != releaseMajor {
 		t.Fatalf("alias identity break missed: %+v", changes)
 	}
 	compileConsumer(t, before, "public.Consume(public.Config{})", true)
