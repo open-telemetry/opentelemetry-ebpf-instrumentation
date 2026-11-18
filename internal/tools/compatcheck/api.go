@@ -44,14 +44,17 @@ func loadAPI(ctx context.Context, root, arch string) (*apiSnapshot, error) {
 	}
 	var paths []string
 	for _, pkg := range listed {
-		if pkg.Name != "main" && !internalPackage(pkg.PkgPath) && len(pkg.Errors) > 0 {
+		if pkg.Name == "main" || internalPackage(pkg.PkgPath) {
+			continue
+		}
+		if len(pkg.Errors) > 0 {
 			var errs []error
 			for _, e := range pkg.Errors {
 				errs = append(errs, e)
 			}
 			return nil, errors.Join(errs...)
 		}
-		if pkg.Module != nil && pkg.Module.Path == path && pkg.Name != "main" && !internalPackage(pkg.PkgPath) {
+		if pkg.Module != nil && pkg.Module.Path == path {
 			paths = append(paths, pkg.PkgPath)
 		}
 	}
