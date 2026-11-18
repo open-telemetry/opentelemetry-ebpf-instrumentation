@@ -373,7 +373,7 @@ func TestProcessMongoEventSuccessWhenCannotParseBsonInRequest(t *testing.T) {
 	assert.Len(t, mongoRequestValue.RequestSections, 1, "Expected one request section")
 	firstRequestSection := mongoRequestValue.RequestSections[0]
 	assert.Equal(t, sectionTypeBody, firstRequestSection.Type, "Expected first section type to be sectionTypeBody")
-	assert.Equal(t, bson.D{}, firstRequestSection.Body, "Expected first section body be empty due to parsing error")
+	assert.Equal(t, defaultRequestData[:1], firstRequestSection.Body, "Expected first section body to keep the complete leading elements")
 	assert.Len(t, mongoRequestValue.ResponseSections, 1, "Expected one response section")
 	firstResponseSection := mongoRequestValue.ResponseSections[0]
 	assert.Equal(t, sectionTypeBody, firstResponseSection.Type, "Expected first section type to be sectionTypeBody")
@@ -545,7 +545,14 @@ func TestGetMongoInfoFailWhenHealthCommand(t *testing.T) {
 	assert.Error(t, err, "Expected error when processing health command")
 }
 
-func TestGetMongoInfoIgnoresSecuritySensitiveCommands(t *testing.T) {
+var mongoUserNotFoundReply = bson.D{
+	{Key: "ok", Value: float64(0)},
+	{Key: "errmsg", Value: "Could not find user \"app\" for db \"admin\""},
+	{Key: "code", Value: int32(11)},
+	{Key: "codeName", Value: "UserNotFound"},
+}
+
+func TestGetMongoInfoRedactsSecuritySensitiveCommands(t *testing.T) {
 	commands := []string{
 		commAuthenticate, commSaslStart, commSaslContinue, commGetNonce, commCreateUser, commUpdateUser,
 		commCopyDBGetNonce, commCopyDBSaslStart, commCopyDB,
@@ -557,13 +564,75 @@ func TestGetMongoInfoIgnoresSecuritySensitiveCommands(t *testing.T) {
 					{Type: sectionTypeBody, Body: bson.D{{Key: comm, Value: int32(1)}, {Key: "$db", Value: "admin"}}},
 				},
 				ResponseSections: []mongoSection{
-					{Type: sectionTypeBody, Body: bson.D{{Key: "ok", Value: float64(1)}}},
+					{Type: sectionTypeBody, Body: mongoUserNotFoundReply},
 				},
 			}
-			_, err := getMongoInfo(&mongoRequest)
-			require.ErrorIs(t, err, errMongoSecuritySensitiveIgnored)
+			res, err := getMongoInfo(&mongoRequest)
+			require.NoError(t, err)
+			assert.Equal(t, comm, res.OpName)
+			assert.Equal(t, "admin", res.DB)
+			assert.False(t, res.Success)
+			assert.Empty(t, res.Error, "the server error message must be redacted")
+			assert.Equal(t, 11, res.ErrorCode)
+			assert.Equal(t, "UserNotFound", res.ErrorCodeName)
+
+			span := TCPToMongoToSpan(&TCPRequestInfo{}, res)
+			assert.Equal(t, "11", span.DBError.ErrorCode)
+			assert.Equal(t, "UserNotFound", span.DBError.Description)
 		})
 	}
+}
+
+func TestGetMongoInfoKeepsErrorMessageOfOtherCommands(t *testing.T) {
+	mongoRequest := MongoRequestValue{
+		RequestSections: []mongoSection{
+			{Type: sectionTypeBody, Body: bson.D{{Key: commFind, Value: "items"}, {Key: "$db", Value: "conformance"}}},
+		},
+		ResponseSections: []mongoSection{
+			{Type: sectionTypeBody, Body: mongoUserNotFoundReply},
+		},
+	}
+	res, err := getMongoInfo(&mongoRequest)
+	require.NoError(t, err)
+
+	span := TCPToMongoToSpan(&TCPRequestInfo{}, res)
+	assert.Equal(t, `UserNotFound: Could not find user "app" for db "admin"`, span.DBError.Description)
+}
+
+// A createUser request longer than the inline TCP capture must still be
+// recognized, so its failure is redacted.
+func TestProcessMongoEventRedactsTruncatedSecuritySensitiveRequest(t *testing.T) {
+	defer requests.Purge()
+	connInfo := getConnInfo()
+	createUser := bson.D{
+		{Key: commCreateUser, Value: "app"},
+		{Key: "pwd", Value: strings.Repeat("x", 200)},
+		{Key: "roles", Value: bson.A{bson.D{{Key: "role", Value: "readWrite"}, {Key: "db", Value: "conformance"}}}},
+		{Key: "$db", Value: "admin"},
+	}
+	requestPayload := getRequestPayload(nil, 0, sectionTypeBody, &createUser)
+	inlineCapture := len(TCPRequestInfo{}.Buf)
+	require.Greater(t, len(requestPayload), inlineCapture)
+
+	_, moreToCome, err := ProcessMongoEvent(requestPayload[:inlineCapture], StartTime, EndTime, connInfo, requests)
+	require.NoError(t, err)
+	assert.True(t, moreToCome)
+
+	reply := bson.D{
+		{Key: "ok", Value: float64(0)},
+		{Key: "errmsg", Value: "User \"app@admin\" already exists"},
+		{Key: "code", Value: int32(51003)},
+		{Key: "codeName", Value: "Location51003"},
+	}
+	mongoRequest, _, err := ProcessMongoEvent(getResponsePayload(nil, 0, sectionTypeBody, &reply), StartTime, EndTime, connInfo, requests)
+	require.NoError(t, err)
+
+	res, err := getMongoInfo(mongoRequest)
+	require.NoError(t, err)
+	assert.Equal(t, commCreateUser, res.OpName)
+	assert.False(t, res.Success)
+	assert.Empty(t, res.Error)
+	assert.Equal(t, 51003, res.ErrorCode)
 }
 
 func TestGetMongoInfoWithUnknownCommand(t *testing.T) {
@@ -725,4 +794,13 @@ func TestReadGoMongoRequestIntoSpanHostname(t *testing.T) {
 			assert.Equal(t, 27017, span.HostPort)
 		})
 	}
+}
+
+func TestParseLeadingElementsStopsAtCut(t *testing.T) {
+	doc, err := bson.Marshal(mongoUserNotFoundReply)
+	require.NoError(t, err)
+
+	assert.Empty(t, parseLeadingElements(doc[int32Size:int32Size+3]))
+	assert.Equal(t, mongoUserNotFoundReply[:1], parseLeadingElements(doc[int32Size:int32Size+12]))
+	assert.Equal(t, mongoUserNotFoundReply, parseLeadingElements(doc[int32Size:]))
 }

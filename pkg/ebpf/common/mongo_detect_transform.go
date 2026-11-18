@@ -12,6 +12,7 @@ import (
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"go.mongodb.org/mongo-driver/v2/bson"
+	"go.mongodb.org/mongo-driver/v2/x/bsonx/bsoncore"
 
 	trace2 "go.opentelemetry.io/otel/trace"
 
@@ -49,7 +50,6 @@ var (
 	errMongoNoResponseBody                       = errors.New("no MongoDB body found in the response section")
 	errMongoNoOkField                            = errors.New("no 'ok' field found in MongoDB response")
 	errMongoHeartbeatIgnored                     = errors.New("MongoDB heartbeat operation is ignored")
-	errMongoSecuritySensitiveIgnored             = errors.New("MongoDB security-sensitive command is ignored")
 	errMongoNonStringCollectionType              = errors.New("MongoDB command has non-string collection type")
 )
 
@@ -373,17 +373,34 @@ func parseBodySection(buf []byte, partialCapture bool) (bson.D, int, error) {
 		if !partialCapture {
 			return nil, 0, errMongoInvalidBSONLength
 		}
-		return bson.D{}, len(buf), nil
+		return parseLeadingElements(buf[int32Size:]), len(buf), nil
 	}
 
 	bodyData := buf[:bodyLength]
-	// TODO (mongo) we need to parse partial bson parsing, we won't always get the full tcp payload, so we want to extract as many fields as we can
 	var doc bson.D
 	err := bson.Unmarshal(bodyData, &doc)
 	if err != nil {
 		return bson.D{}, bodyLength, nil
 	}
 	return doc, bodyLength, nil
+}
+
+// parseLeadingElements decodes the complete elements at the start of a
+// truncated BSON document.
+func parseLeadingElements(elements []byte) bson.D {
+	var doc bson.D
+	for {
+		element, rest, ok := bsoncore.ReadElement(elements)
+		if !ok {
+			return doc
+		}
+		var single bson.D
+		if err := bson.Unmarshal(bsoncore.BuildDocument(nil, element), &single); err != nil {
+			return doc
+		}
+		doc = append(doc, single...)
+		elements = rest
+	}
 }
 
 func parseMongoHeader(pkt []byte) (*msgHeader, error) {
@@ -493,7 +510,7 @@ func getMongoInfo(request *MongoRequestValue) (*mongoSpanInfo, error) {
 			return spanInfo, nil
 		}
 		errorMsg, ok := findStringInBson(responseSection.Body, "errmsg")
-		if ok {
+		if ok && !isSecuritySensitive(spanInfo.OpName) {
 			spanInfo.Error = errorMsg
 		}
 		errorCode, ok := findIntInBson(responseSection.Body, "code")
@@ -527,7 +544,7 @@ func TCPToMongoToSpan(trace *TCPRequestInfo, info *mongoSpanInfo) request.Span {
 	if !info.Success {
 		dbError = request.DBError{
 			ErrorCode:   strconv.Itoa(info.ErrorCode),
-			Description: info.ErrorCodeName + ": " + info.Error,
+			Description: mongoErrorDescription(info),
 		}
 	}
 
@@ -565,11 +582,22 @@ func TCPToMongoToSpan(trace *TCPRequestInfo, info *mongoSpanInfo) request.Span {
 	}
 }
 
+func mongoErrorDescription(info *mongoSpanInfo) string {
+	if info.ErrorCodeName == "" {
+		return info.Error
+	}
+	if info.Error == "" {
+		return info.ErrorCodeName
+	}
+	return info.ErrorCodeName + ": " + info.Error
+}
+
 func isHeartbeat(comm string) bool {
 	return comm == commHello || comm == commIsMaster || comm == commPing || comm == commIsWritablePrimary || comm == commAtlasVersion
 }
 
-// The MongoDB driver command monitoring specification forbids publishing these commands.
+// The MongoDB command monitoring specification requires redacting everything
+// but the error code and code name from failures of these commands.
 func isSecuritySensitive(comm string) bool {
 	return comm == commAuthenticate || comm == commSaslStart || comm == commSaslContinue || comm == commGetNonce ||
 		comm == commCreateUser || comm == commUpdateUser || comm == commCopyDBGetNonce || comm == commCopyDBSaslStart ||
@@ -586,9 +614,6 @@ func parseFirstField(field bson.E) (string, string, error) {
 	comm := field.Key
 	if isHeartbeat(comm) {
 		return "", "", errMongoHeartbeatIgnored
-	}
-	if isSecuritySensitive(comm) {
-		return "", "", errMongoSecuritySensitiveIgnored
 	}
 	if isCollectionCommand(comm) {
 		collection, ok := field.Value.(string)
