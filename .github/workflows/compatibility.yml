@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
-      # Pin authenticated code independently of the PR checkout.
+      # Pin authenticated code independently of the PR checkout; update when changing the fetcher.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ce935251c5dd940b56a89c65973a4a0faa4990d8

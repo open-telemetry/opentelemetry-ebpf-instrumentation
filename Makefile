@@ -131,6 +131,9 @@ $(COMPAT_CHECKER): $(wildcard internal/tools/compatcheck/*.go) internal/tools/go
 	@mkdir -p $(dir $@)
 	cd internal/tools && go build -o "$@" ./compatcheck
 
+# Run from the repository root with BPF artifacts generated in both checkouts:
+#   make check-compat COMPAT_BASE_REF=upstream/main COMPAT_BASE_DIR=/path/to/target
+# Set COMPAT_RELEASE_VERSION=vX.Y.Z to assess a proposed release.
 .PHONY: check-compat
 check-compat: $(COMPAT_CHECKER)
 	"$(COMPAT_CHECKER)" --repo-root "$(CURDIR)" --base-ref "$${COMPAT_BASE_REF}" \
