@@ -107,6 +107,8 @@ func goEnvironment(arch string) []string {
 	return env
 }
 
+// compareAPI retains compatible additions for release classification. Reporting
+// filters them out later; an apidiff change is not necessarily a policy finding.
 func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) (changes []apiChange, err error) {
 	old, candidate := oldAPI.Packages, candidateAPI.Packages
 	defer func() {

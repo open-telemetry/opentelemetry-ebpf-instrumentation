@@ -329,6 +329,9 @@ func validateProposed(proposed, target string) error {
 	return nil
 }
 
+// minimumRelease applies the Go API release rules to classified changes.
+// Only additions owned by the root module and absent from the latest release
+// require a minor; compatible dependency updates remain patch-eligible.
 func minimumRelease(changes []apiChange, latest string) string {
 	minimum := "patch"
 	for _, f := range changes {
@@ -430,6 +433,9 @@ func actionableChanges(changes []apiChange) ([]apiChange, []apiChange) {
 	return incompatible, unclassified
 }
 
+// attributeChanges compares candidate and target deltas from the same releases.
+// An inherited unclassified type must also preserve its exposed contents: an
+// unchanged outer diagnostic can otherwise hide a new API change.
 func attributeChanges(head, base []apiChange) ([]apiChange, []apiChange) {
 	keys := map[string]apiChange{}
 	for _, f := range base {

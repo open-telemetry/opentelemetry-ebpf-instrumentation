@@ -27,7 +27,6 @@ follow the [Config v1 to v2 migration guide](config/version-2.0/migration.md).
 - [Protocols](protocols/README.md): documentation about supported protocols.
 - [Java TLS IOCTL Security Notes](java-tls-ioctl-security.md): rationale for the localized Java TLS `ioctl` hardening and why OBI keeps this fix in `java_tls.c`.
 - [AI Tooling](ai-tooling.md): recommendations for configuring agent tooling for this repository.
-- [Compatibility checks](compatibility-checks.md): advisory Go API checks and the staged rollout of versioning-policy enforcement.
 - [BPF print format](bpf-print-format.md): it explains a uniform standard for all BPF print debug statements across the project.
 - [Dependency Integrity Policy](dependency-integrity-policy.md): required dependency pinning and verification rules for Dockerfiles.
 - [Python asyncio and uvloop Context Propagation](python-asyncio-context-propagation.md): architecture and implementation of Python async context propagation for `asyncio` workloads, including applications running on `uvloop`.
