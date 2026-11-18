@@ -199,6 +199,15 @@ func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) ([]
 	if err != nil {
 		return nil, fmt.Errorf("candidate API: %w", err)
 	}
+
+	// apidiff.Change has no source object. The pinned version formats Message as
+	// "<selector>: <detail>", for example:
+	//   P0123456789abcdef_T.Field: removed
+	//   (*P0123456789abcdef_T[T0]).Method: added
+	// P/p<16 hex digits>_<name> are our synthetic declaration names. Anonymous
+	// interface methods instead use an interface literal as the receiver; object
+	// maps those selectors to the owner recorded during projection. Review these
+	// format assumptions when updating apidiff.
 	for _, change := range apidiff.Changes(beforeSurface.pkg, afterSurface.pkg).Changes {
 		identifier, _, _ := strings.Cut(change.Message, ":")
 		beforeObj, afterObj := beforeSurface.object(identifier), afterSurface.object(identifier)
@@ -213,6 +222,9 @@ func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) ([]
 		if (old[path] != nil && candidate[path] == nil) || (old[path] == nil && candidate[path] != nil) {
 			continue
 		}
+		// Resolve selectors before expanding synthetic names to package paths:
+		// dots in those paths would otherwise be mistaken for member separators.
+		// Expand both sides because added and removed names may exist on only one.
 		message := afterSurface.describe(beforeSurface.describe(change.Message))
 		readable, detail, _ := strings.Cut(message, ":")
 		readable = strings.TrimPrefix(readable, path+".")
@@ -234,9 +246,13 @@ func compareAPI(oldAPI, candidateAPI *apiSnapshot, version, platform string) ([]
 			pkg.Scope().Insert(types.NewVar(token.NoPos, pkg, "Value", afterMember.Type()))
 			typeContext = &apiSnapshot{Packages: map[string]*types.Package{pkg.Path(): pkg}, BPFGenerated: candidateAPI.BPFGenerated}
 		}
+		// "<constant>: value changed from <old> to <new>" identifies a value
+		// change, but cannot tell us whether its documented meaning is preserved.
 		if strings.Contains(change.Message, ": value changed from ") {
 			reason = "A constant value changed; the checker cannot determine whether its documented contract changed incompatibly."
 		}
+		// "<interface>.<method>: added" with Compatible=false identifies an
+		// additional method requirement for implementers of an existing interface.
 		if !change.Compatible && strings.HasSuffix(change.Message, ": added") && beforeObj != nil {
 			if _, ok := beforeObj.Type().Underlying().(*types.Interface); ok {
 				detail = " added method to an existing interface"
