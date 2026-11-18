@@ -115,6 +115,7 @@ COMPAT_ARCH ?= amd64,arm64
 COMPAT_REPORT ?= testoutput/compatibility.json
 COMPAT_CACHE_DIR ?= testoutput/compatibility-cache
 COMPAT_RELEASE_VERSION ?=
+COMPAT_RELEASE_METADATA ?=
 
 # Keep command-line refs literal instead of evaluating them as Make expressions.
 override export COMPAT_BASE_REF := $(value COMPAT_BASE_REF)
@@ -124,6 +125,7 @@ override export COMPAT_ARCH := $(value COMPAT_ARCH)
 override export COMPAT_REPORT := $(value COMPAT_REPORT)
 override export COMPAT_CACHE_DIR := $(value COMPAT_CACHE_DIR)
 override export COMPAT_RELEASE_VERSION := $(value COMPAT_RELEASE_VERSION)
+override export COMPAT_RELEASE_METADATA := $(value COMPAT_RELEASE_METADATA)
 
 $(COMPAT_CHECKER): $(wildcard internal/tools/compatcheck/*.go) internal/tools/go.mod internal/tools/go.sum
 	@mkdir -p $(dir $@)
@@ -134,7 +136,7 @@ check-compat: $(COMPAT_CHECKER)
 	"$(COMPAT_CHECKER)" --repo-root "$(CURDIR)" --base-ref "$${COMPAT_BASE_REF}" \
 		--base-dir "$${COMPAT_BASE_DIR}" --head-ref "$${COMPAT_HEAD_REF}" --arch "$${COMPAT_ARCH}" \
 		--report "$${COMPAT_REPORT}" --cache-dir "$${COMPAT_CACHE_DIR}" \
-		--release-version "$${COMPAT_RELEASE_VERSION}"
+		--release-version "$${COMPAT_RELEASE_VERSION}" --release-metadata "$${COMPAT_RELEASE_METADATA}"
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.

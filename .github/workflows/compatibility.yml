@@ -24,6 +24,82 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  release-metadata:
+    name: Fetch release metadata
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - name: Fetch GitHub API responses
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import re
+          import urllib.request
+
+          repository = "open-telemetry/opentelemetry-ebpf-instrumentation"
+          responses = {}
+
+          def fetch(path):
+              request = urllib.request.Request(
+                  "https://api.github.com" + path,
+                  headers={
+                      "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  data = json.load(response)
+              responses[path] = data
+              return data
+
+          page = 1
+          while True:
+              releases = fetch(f"/repos/{repository}/releases?per_page=100&page={page}")
+              # Preserve page lengths without publishing private draft metadata.
+              responses[f"/repos/{repository}/releases?per_page=100&page={page}"] = [
+                  {"draft": True} if release["draft"] else {
+                      **{key: release[key] for key in ("tag_name", "draft", "prerelease", "immutable")},
+                      "assets": [{"name": asset["name"]} for asset in release["assets"]],
+                  }
+                  for release in releases
+              ]
+              for release in releases:
+                  tag = release["tag_name"]
+                  if release["draft"] or release["prerelease"]:
+                      continue
+                  if not re.fullmatch(r"v[1-9][0-9]*\.[0-9]+\.[0-9]+", tag):
+                      continue
+                  path = f"/repos/{repository}/git/ref/tags/{tag}"
+                  for _ in range(8):
+                      obj = fetch(path)["object"]
+                      if not re.fullmatch(r"[0-9a-f]{40}", obj["sha"]):
+                          raise ValueError(f"Invalid object ID for {tag}")
+                      if obj["type"] == "commit":
+                          break
+                      if obj["type"] != "tag":
+                          raise ValueError(f"Unexpected object type for {tag}")
+                      path = f"/repos/{repository}/git/tags/{obj['sha']}"
+                  else:
+                      raise ValueError(f"Cannot resolve {tag} to a commit")
+              if len(releases) < 100:
+                  break
+              page += 1
+
+          with open("release-metadata.json", "w") as output:
+              json.dump(responses, output)
+          PYTHON
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: compatibility-release-metadata-${{ github.run_id }}
+          path: release-metadata.json
+          if-no-files-found: error
+          retention-days: 1
+
   generate-bpf:
     name: Generate candidate and target BPF
     runs-on: ubuntu-26.04
@@ -61,7 +137,7 @@ jobs:
 
   go-api:
     name: Go API (${{ matrix.arch }}, advisory)
-    needs: generate-bpf
+    needs: [generate-bpf, release-metadata]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-26.04
     timeout-minutes: 45
@@ -101,6 +177,11 @@ jobs:
           name: bpf-base-${{ github.run_id }}
           path: testoutput/compatibility-base
 
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: compatibility-release-metadata-${{ github.run_id }}
+          path: testoutput/compatibility-metadata
+
       - name: Restore release assets
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -112,7 +193,7 @@ jobs:
         id: compare
         continue-on-error: true
         env:
-          GH_TOKEN: ${{ github.token }}
+          COMPAT_RELEASE_METADATA: ${{ github.workspace }}/testoutput/compatibility-metadata/release-metadata.json
           COMPAT_BASE_REF: ${{ needs.generate-bpf.outputs.base_sha }}
           COMPAT_BASE_DIR: ${{ github.workspace }}/testoutput/compatibility-base
           COMPAT_HEAD_REF: ${{ inputs.ref || github.sha }}

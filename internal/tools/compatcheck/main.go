@@ -32,14 +32,15 @@ const (
 )
 
 type options struct {
-	repoRoot       string
-	baseRef        string
-	baseDir        string
-	headRef        string
-	architectures  string
-	releaseVersion string
-	reportPath     string
-	cacheDir       string
+	repoRoot        string
+	baseRef         string
+	baseDir         string
+	headRef         string
+	architectures   string
+	releaseVersion  string
+	releaseMetadata string
+	reportPath      string
+	cacheDir        string
 }
 
 type apiChange struct {
@@ -106,6 +107,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags.StringVar(&opts.architectures, "arch", "amd64,arm64", "Linux architectures to compare")
 	flags.StringVar(&opts.releaseVersion, "release-version", "", "optional proposed core release version")
 	flags.StringVar(&opts.reportPath, "report", "", "JSON report destination")
+	flags.StringVar(&opts.releaseMetadata, "release-metadata", "", "prefetched GitHub API responses; disables live metadata requests")
 	flags.StringVar(&opts.cacheDir, "cache-dir", "", "verified release asset cache (default: testoutput/compatibility-cache)")
 	if err := flags.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -213,6 +215,7 @@ func check(ctx context.Context, opts options, r *report, progress io.Writer) err
 		opts.cacheDir = filepath.Join(root, "testoutput", "compatibility-cache")
 	}
 	client := newReleaseClient()
+	client.metadataPath = opts.releaseMetadata
 	releases, err := client.releases(ctx, version)
 	if err != nil {
 		return err

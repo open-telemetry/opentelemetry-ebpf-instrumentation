@@ -194,3 +194,45 @@ func TestMissingSignatureVerifierFails(t *testing.T) {
 		t.Fatal("missing cosign must fail")
 	}
 }
+
+func TestPrefetchedReleaseMetadata(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("prefetched metadata must not make API requests: %s", r.URL)
+		http.Error(w, "unexpected request", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	sha := strings.Repeat("a", 40)
+	metadata := filepath.Join(t.TempDir(), "release-metadata.json")
+	responses := map[string]any{
+		"/repos/" + repository + "/releases?per_page=100&page=1": []release{{Tag: "v1.0.0", Immutable: true}},
+		"/repos/" + repository + "/git/ref/tags/v1.0.0":          map[string]any{"object": map[string]string{"type": "tag", "sha": sha}},
+		"/repos/" + repository + "/git/tags/" + sha:              map[string]any{"object": map[string]string{"type": "commit", "sha": sha}},
+	}
+	data, err := json.Marshal(responses)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, metadata, string(data))
+	c := newReleaseClient()
+	c.apiURL, c.client, c.token, c.metadataPath = server.URL, server.Client(), "must-not-be-sent", metadata
+	releases, err := c.releases(t.Context(), "v1.0.0")
+	if err != nil || len(releases) != 1 || releases[0].Tag != "v1.0.0" {
+		t.Fatalf("releases=%+v, err=%v", releases, err)
+	}
+	if commit, err := c.tagCommit(t.Context(), "v1.0.0"); err != nil || commit != sha {
+		t.Fatalf("commit=%q, err=%v", commit, err)
+	}
+	if _, err := c.tagCommit(t.Context(), "v1.0.1"); err == nil {
+		t.Fatal("missing prefetched response must fail without a live API fallback")
+	}
+	writeFile(t, metadata, "invalid JSON")
+	if _, err := c.releases(t.Context(), "v1.0.0"); err == nil {
+		t.Fatal("malformed metadata must fail without a live API fallback")
+	}
+	if err := os.Remove(metadata); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.releases(t.Context(), "v1.0.0"); err == nil {
+		t.Fatal("missing metadata file must fail without a live API fallback")
+	}
+}

@@ -51,10 +51,11 @@ type releaseSource struct {
 }
 
 type releaseClient struct {
-	client  *http.Client
-	apiURL  string
-	token   string
-	sources map[string]releaseSource
+	client       *http.Client
+	apiURL       string
+	token        string
+	metadataPath string
+	sources      map[string]releaseSource
 }
 
 func newReleaseClient() *releaseClient {
@@ -100,6 +101,21 @@ func applicableRelease(r release, target string) bool {
 }
 
 func (c *releaseClient) getJSON(ctx context.Context, path string, value any) error {
+	if c.metadataPath != "" {
+		data, err := os.ReadFile(c.metadataPath)
+		if err != nil {
+			return fmt.Errorf("release metadata: %w", err)
+		}
+		var responses map[string]json.RawMessage
+		if err := json.Unmarshal(data, &responses); err != nil {
+			return fmt.Errorf("release metadata: %w", err)
+		}
+		response, ok := responses[path]
+		if !ok {
+			return fmt.Errorf("release metadata is missing %s", path)
+		}
+		return json.Unmarshal(response, value)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiURL+path, http.NoBody)
 	if err != nil {
 		return err

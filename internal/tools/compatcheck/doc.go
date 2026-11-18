@@ -22,6 +22,11 @@
 // versions.yaml selects that line. Changes shared with the target are inherited
 // and do not count as PR findings.
 //
+// CI fetches GitHub API metadata in a separate job without checking out repository
+// code. COMPAT_RELEASE_METADATA supplies that file to the comparison, disabling
+// live metadata requests. CI passes no GitHub token to the comparison; archive
+// downloads remain anonymous and signature-verified.
+//
 // testoutput/compatibility.json separates incompatibilities (findings) from
 // unresolved comparisons (unclassified_changes); existing_ fields hold inherited
 // results. Compatible additions, including concrete methods, produce no findings.
