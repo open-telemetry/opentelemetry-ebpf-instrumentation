@@ -482,10 +482,9 @@ func captureTelemetry(cfg *obi.Config) schema.CaptureTelemetry {
 			ReportersCacheLen: cfg.Traces.ReportersCacheLen,
 		},
 		Metrics: schema.MetricsTelemetry{
-			ReportersCacheLen:           cfg.OTELMetrics.ReportersCacheLen,
-			TTL:                         schema.Duration(cfg.OTELMetrics.TTL),
-			ConnectionInfoTTL:           schema.Duration(cfg.OTELMetrics.ConnectionInfoTTL),
-			ExtraSpanResourceAttributes: cfg.OTELMetrics.ExtraSpanResourceLabels,
+			ReportersCacheLen: cfg.OTELMetrics.ReportersCacheLen,
+			TTL:               schema.Duration(cfg.OTELMetrics.TTL),
+			ConnectionInfoTTL: schema.Duration(cfg.OTELMetrics.ConnectionInfoTTL),
 		},
 	}
 }
@@ -799,7 +798,6 @@ func daemon(cfg *obi.Config) *schema.Daemon {
 					AllowServiceGraphSelfReferences: cfg.Prometheus.AllowServiceGraphSelfReferences,
 					SpanMetricsServiceCacheSize:     cfg.Prometheus.SpanMetricsServiceCacheSize,
 					ExtraResourceAttributes:         cfg.Prometheus.ExtraResourceLabels,
-					ExtraSpanResourceAttributes:     cfg.Prometheus.ExtraSpanResourceLabels,
 				},
 			},
 		},

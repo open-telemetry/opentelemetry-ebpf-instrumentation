@@ -622,7 +622,6 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.OTELMetrics.MetricsEndpoint = "http://localhost:4318"
 	cfg.OTELMetrics.TTL = 303 * time.Second
 	cfg.OTELMetrics.ConnectionInfoTTL = 304 * time.Second
-	cfg.OTELMetrics.ExtraSpanResourceLabels = []string{"k8s.cluster.name"}
 	cfg.OTELMetrics.Instrumentations = []instrumentations.Instrumentation{
 		instrumentations.InstrumentationHTTP,
 	}
@@ -711,7 +710,6 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.Prometheus.AllowServiceGraphSelfReferences = true
 	cfg.Prometheus.SpanMetricsServiceCacheSize = 701
 	cfg.Prometheus.ExtraResourceLabels = []string{"cloud.region"}
-	cfg.Prometheus.ExtraSpanResourceLabels = []string{"service.version"}
 
 	_, ext := RuntimeToV2(&cfg)
 
@@ -774,7 +772,6 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.Equal(t, 303*time.Second, got.OTELMetrics.TTL)
 	require.Equal(t, 304*time.Second, got.OTELMetrics.ConnectionInfoTTL)
 	require.Equal(t, 304*time.Second, got.Prometheus.ConnectionInfoTTL)
-	require.Equal(t, []string{"k8s.cluster.name"}, got.OTELMetrics.ExtraSpanResourceLabels)
 
 	require.Equal(t, "198.51.100.1", got.Stats.AgentIP)
 	require.Equal(t, obi.AgentTypeIface(obi.NetworkAgentIPIfaceLocal), got.Stats.AgentIPIface)
@@ -819,7 +816,6 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	require.True(t, got.Prometheus.AllowServiceGraphSelfReferences)
 	require.Equal(t, 701, got.Prometheus.SpanMetricsServiceCacheSize)
 	require.Equal(t, []string{"cloud.region"}, got.Prometheus.ExtraResourceLabels)
-	require.Equal(t, []string{"service.version"}, got.Prometheus.ExtraSpanResourceLabels)
 }
 
 func TestV2ToRuntimeImportsRules(t *testing.T) {
@@ -1948,37 +1944,4 @@ func incomingRoutePatterns(routes *services.CustomRoutesConfig) []string {
 		return nil
 	}
 	return *routes.PolicyOverrides.Incoming.Patterns
-}
-
-func TestV2ToRuntimePartialCaptureTelemetryImportsOTLPSpanResourceAttributes(t *testing.T) {
-	t.Parallel()
-
-	got, err := V2ToRuntime(&schema.Extension{
-		Version: schema.SupportedVersion,
-		Capture: schema.Capture{
-			Telemetry: schema.CaptureTelemetry{
-				Metrics: schema.MetricsTelemetry{
-					ExtraSpanResourceAttributes: []string{"service.version"},
-				},
-			},
-		},
-	})
-	require.NoError(t, err)
-
-	require.Equal(t, []string{"service.version"}, got.OTELMetrics.ExtraSpanResourceLabels)
-	require.Equal(t, obi.DefaultConfig.Prometheus.ExtraSpanResourceLabels, got.Prometheus.ExtraSpanResourceLabels)
-	require.Equal(t, obi.DefaultConfig.OTELMetrics.TTL, got.OTELMetrics.TTL)
-}
-
-func TestApplyPartialV2CaptureTelemetryOmittedSpanResourceAttributesKeepExistingList(t *testing.T) {
-	t.Parallel()
-
-	cfg := defaultRuntimeConfig()
-	cfg.OTELMetrics.ExtraSpanResourceLabels = []string{"k8s.cluster.name"}
-
-	applyPartialV2CaptureTelemetry(&cfg, schema.CaptureTelemetry{
-		Metrics: schema.MetricsTelemetry{ReportersCacheLen: 7},
-	})
-
-	require.Equal(t, []string{"k8s.cluster.name"}, cfg.OTELMetrics.ExtraSpanResourceLabels)
 }

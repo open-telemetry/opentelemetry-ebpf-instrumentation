@@ -10,6 +10,7 @@ import (
 
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
+	"go.opentelemetry.io/obi/pkg/export/attributes"
 )
 
 func TestReceiverCaptureAttributesMigration(t *testing.T) {
@@ -31,6 +32,12 @@ func TestReceiverCaptureAttributesMigration(t *testing.T) {
 			require.NoError(t, err)
 			after, err := convert.V2ToRuntime(ext)
 			require.NoError(t, err)
+			spanPaths, err := changedSpanMetricAttributes(before, after)
+			require.NoError(t, err)
+			require.Empty(t, spanPaths)
+			for _, metric := range attributes.SpanMetrics {
+				delete(after.Attributes.Select, metric.Section)
+			}
 			require.Equal(t, before.Attributes.Select, after.Attributes.Select)
 		})
 	}

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"strings"
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	maps2 "go.opentelemetry.io/obi/pkg/internal/helpers/maps"
@@ -213,6 +214,53 @@ func (p *AttrSelector) For(metricName Name) []attr.Name {
 	sas := maps2.SetToSlice(matchingAttrs)
 	slices.Sort(sas)
 	return sas
+}
+
+var spanMetricFixedAttrs = []attr.Name{
+	attr.ServiceName,
+	attr.ServiceNamespace,
+	attr.ServiceInstanceID,
+	attr.SpanName,
+	attr.SpanKind,
+	attr.StatusCode,
+	attr.Source,
+	attr.TelemetrySDKLanguage,
+	attr.Instance,
+	attr.Job,
+}
+
+// ForSpanMetrics returns the workload metadata keys added to span metrics that are
+// reported together, so they share one label set. Span metrics define no selectable
+// attributes: only exact include entries add a metadata key, and patterns only exclude.
+func (p *AttrSelector) ForSpanMetrics(legacy []attr.Name, metricNames ...Name) []attr.Name {
+	if !p.useV2Selection {
+		return legacy
+	}
+
+	selected := map[string]attr.Name{}
+	for _, metricName := range metricNames {
+		for _, il := range p.matching(metricName) {
+			for _, incl := range il.Include {
+				if IsGlob(incl) {
+					continue
+				}
+				name := attr.Name(strings.ReplaceAll(incl, "_", "."))
+				selected[name.Prom()] = name
+			}
+			maps.DeleteFunc(selected, func(_ string, name attr.Name) bool {
+				return il.excludes(name)
+			})
+		}
+	}
+
+	maps.DeleteFunc(selected, func(_ string, name attr.Name) bool {
+		return slices.ContainsFunc(spanMetricFixedAttrs, func(fixed attr.Name) bool {
+			return fixed.Prom() == name.Prom()
+		})
+	})
+	names := slices.Collect(maps.Values(selected))
+	slices.Sort(names)
+	return names
 }
 
 func (p *AttrSelector) ExplicitlyIncluded(metricName Name, attrName attr.Name) bool {

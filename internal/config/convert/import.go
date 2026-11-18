@@ -1979,7 +1979,6 @@ func applyFullV2CaptureTelemetry(cfg *obi.Config, telemetry schema.CaptureTeleme
 		cfg.OTELMetrics.ConnectionInfoTTL = telemetry.Metrics.ConnectionInfoTTL.TimeDuration()
 		cfg.Prometheus.ConnectionInfoTTL = telemetry.Metrics.ConnectionInfoTTL.TimeDuration()
 	}
-	cfg.OTELMetrics.ExtraSpanResourceLabels = cloneStrings(telemetry.Metrics.ExtraSpanResourceAttributes)
 }
 
 func applyPartialV2CaptureTelemetry(cfg *obi.Config, telemetry schema.CaptureTelemetry) {
@@ -1995,9 +1994,6 @@ func applyPartialV2CaptureTelemetry(cfg *obi.Config, telemetry schema.CaptureTel
 	if !zeroValue(telemetry.Metrics.ConnectionInfoTTL) {
 		cfg.OTELMetrics.ConnectionInfoTTL = telemetry.Metrics.ConnectionInfoTTL.TimeDuration()
 		cfg.Prometheus.ConnectionInfoTTL = telemetry.Metrics.ConnectionInfoTTL.TimeDuration()
-	}
-	if telemetry.Metrics.ExtraSpanResourceAttributes != nil {
-		cfg.OTELMetrics.ExtraSpanResourceLabels = cloneStrings(telemetry.Metrics.ExtraSpanResourceAttributes)
 	}
 }
 
@@ -2326,7 +2322,6 @@ func applyFullV2Daemon(cfg *obi.Config, daemon schema.Daemon) {
 	cfg.Prometheus.AllowServiceGraphSelfReferences = prometheus.AllowServiceGraphSelfReferences
 	cfg.Prometheus.SpanMetricsServiceCacheSize = prometheus.SpanMetricsServiceCacheSize
 	cfg.Prometheus.ExtraResourceLabels = cloneStrings(prometheus.ExtraResourceAttributes)
-	cfg.Prometheus.ExtraSpanResourceLabels = cloneStrings(prometheus.ExtraSpanResourceAttributes)
 }
 
 func applyPartialV2Daemon(cfg *obi.Config, daemon schema.Daemon) {
@@ -2371,9 +2366,6 @@ func applyPartialV2Daemon(cfg *obi.Config, daemon schema.Daemon) {
 	}
 	if prometheus.ExtraResourceAttributes != nil {
 		cfg.Prometheus.ExtraResourceLabels = cloneStrings(prometheus.ExtraResourceAttributes)
-	}
-	if prometheus.ExtraSpanResourceAttributes != nil {
-		cfg.Prometheus.ExtraSpanResourceLabels = cloneStrings(prometheus.ExtraSpanResourceAttributes)
 	}
 }
 

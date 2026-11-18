@@ -108,6 +108,11 @@ func (incl Selection) Matching(metricName Name) []InclusionLists {
 	return lists
 }
 
+// IsGlob reports whether a metric or attribute selection entry is a pattern rather than an exact name.
+func IsGlob(entry string) bool {
+	return strings.ContainsAny(entry, "*?[")
+}
+
 // MatchingV2 also matches normalized names and applies exact selections after globs.
 func (incl Selection) MatchingV2(metricName Name) []InclusionLists {
 	if incl == nil {
@@ -124,7 +129,7 @@ func (incl Selection) MatchingV2(metricName Name) []InclusionLists {
 		if !ok && !okNormalized {
 			continue
 		}
-		if strings.ContainsAny(string(glob), "*?[") {
+		if IsGlob(string(glob)) {
 			matchingMetricGlobs = append(matchingMetricGlobs, glob)
 		} else {
 			matchingMetricNames = append(matchingMetricNames, glob)
