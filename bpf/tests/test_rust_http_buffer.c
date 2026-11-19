@@ -48,6 +48,37 @@ static const rust_protocol_config_t config = {
     .limit_remaining = offsetof(limit_t, remaining),
 };
 
+static void test_forwarded_http1(void) {
+    const char original[] =
+        "X-Test: keep\r\nTraceparent: 00-00000000000000000000000000000001-1111111111111111-01\r\n";
+    const char expected[] =
+        "X-Test: keep\r\nTraceparent: 00-00000000000000000000000000000001-0200000000000000-00\r\n";
+    const tp_info_t wire = {
+        .trace_id = {[TRACE_ID_SIZE_BYTES - 1] = 1}, .span_id = {2}, .flags = 0};
+    unsigned char scratch[TRACE_BUF_SIZE];
+    g_bpf_traceparent_enabled = true;
+    for (unsigned int fail = 0; fail <= 1; fail++) {
+        unsigned char data[sizeof(original)];
+        memcpy(data, original, sizeof(data));
+        writes = 0;
+        fail_at = fail;
+        assert(rust_http1_rewrite_traceparent((u64)data, sizeof(data) - 1, &wire, scratch) ==
+               !fail);
+        assert(writes == 1);
+        assert(memcmp(data, fail ? original : expected, sizeof(data)) == 0);
+    }
+    unsigned char missing[] = "X-Test: keep\r\n";
+    writes = 0;
+    fail_at = 0;
+    assert(!rust_http1_rewrite_traceparent((u64)missing, sizeof(missing) - 1, &wire, scratch));
+    assert(writes == 0);
+    unsigned char embedded[] =
+        "X-Test: traceparent: 00-00000000000000000000000000000001-1111111111111111-01\r\n";
+    assert(!rust_http1_rewrite_traceparent((u64)embedded, sizeof(embedded) - 1, &wire, scratch));
+    assert(writes == 0);
+    g_bpf_traceparent_enabled = false;
+}
+
 static void test_append(unsigned int fail) {
     unsigned char data[256] = {
         0, 0, 1, k_h2_frame_headers, k_h2_flag_end_headers, 0, 0, 0, 3, 0x82};
@@ -115,6 +146,7 @@ static void test_frame_fallback(void) {
 }
 
 int main(void) {
+    test_forwarded_http1();
     test_frame_fallback();
     for (unsigned int fail = 0; fail <= 4; fail++) {
         test_append(fail);

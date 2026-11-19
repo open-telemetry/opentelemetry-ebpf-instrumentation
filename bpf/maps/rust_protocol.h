@@ -90,7 +90,8 @@ typedef struct rust_http_request {
     u8 inject;
     u8 injection_result;
     u8 observed;
-    u8 _pad[5];
+    u8 forwarded;
+    u8 _pad[4];
 } rust_http_request_t;
 
 typedef struct rust_tls_flush {

@@ -64,7 +64,9 @@ type Tracer struct {
 	pidsMu     sync.Mutex
 	pidsClosed bool
 	// the valid_pids words as last written to the BPF map
-	validPids      ebpfcommon.PIDBitmap
+	validPids ebpfcommon.PIDBitmap
+	// the otel_traces_pids words, while this tracer writes the trace-exporter marks
+	otelTracesPids ebpfcommon.PIDBitmap
 	pidSamplers    ebpfcommon.PIDSamplers
 	seenNetns      *expirable.LRU[uint64, struct{}]
 	eventCtx       *ebpfcommon.EBPFEventContext
@@ -323,9 +325,40 @@ func (p *Tracer) Close() error {
 	}
 	p.pidsMu.Lock()
 	p.pidsClosed = true
+	// stop the trace-exporter marks before their map closes
+	if filter, ok := p.pidsFilter.(*ebpfcommon.PIDsFilter); ok {
+		filter.RemoveOTelTracesPIDFilter(p.otelTracesPIDFilter())
+	}
 	p.pidsMu.Unlock()
 
 	return ebpfcommon.CloseResources(append(p.closers, &p.bpfObjects)...)
+}
+
+// registerOTelTracesPIDFilter keeps the trace-exporter marks that the Rust header
+// writer checks up to date. The socket injector maintains them too, but it is
+// optional: without it this tracer would otherwise inject into exporters.
+func (p *Tracer) registerOTelTracesPIDFilter() {
+	if !p.cfg.Discovery.ExcludeOTelInstrumentedServices || !p.cfg.EBPF.ContextPropagation.HasHeaders() {
+		return
+	}
+
+	filter, ok := p.pidsFilter.(*ebpfcommon.PIDsFilter)
+	if !ok || p.bpfObjects.OtelTracesPids == nil {
+		return
+	}
+
+	p.pidsMu.Lock()
+	defer p.pidsMu.Unlock()
+
+	if p.pidsClosed {
+		return
+	}
+
+	filter.SetOTelTracesPIDFilter(p.otelTracesPIDFilter())
+}
+
+func (p *Tracer) otelTracesPIDFilter() ebpfcommon.OTelTracesPIDMap {
+	return ebpfcommon.NewOTelTracesPIDMap(&p.otelTracesPids, p.bpfObjects.OtelTracesPids)
 }
 
 func (p *Tracer) GoProbes() map[string][]*ebpfcommon.ProbeDesc {
@@ -829,6 +862,8 @@ func (p *Tracer) Run(
 	} else {
 		p.log.Error("BPF Pids map is not created yet, this is a bug.")
 	}
+
+	p.registerOTelTracesPIDFilter()
 
 	if !p.traceCtxMapEnabled {
 		ebpfconvenience.DrainTraceContextMap[BpfObiCtxInfoT](p.log, p.bpfObjects.TracesCtxV1)

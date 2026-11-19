@@ -71,6 +71,9 @@ class RustOffsetWorkflowTests(unittest.TestCase):
         self.assertEqual("1",matrix["rustls-server-http1-trailers"]["TRAILERS"])
         self.assertEqual("1",matrix["rustls-server-http1-trailers-socket"]["NO_USER_WRITE"])
         self.assertEqual("1",matrix["latest-grouped-worker"]["SHARED_EXECUTABLE"])
+        self.assertEqual("1",matrix["latest-forwarded-http1-socket"]["NO_USER_WRITE"])
+        self.assertEqual("0",matrix["latest-forwarded-http1-socket-unsampled"]["EXPECTED_SAMPLED"])
+        self.assertEqual("1",matrix["rustls-client-http1-forwarded"]["FORWARDED_APP_HEADER"])
         for sampler, parent_flags, sampled in (("always_off", "01", "0"),
                                                 ("always_on", "00", "1"),
                                                 ("parentbased_always_off", "01", "1"),

@@ -22,6 +22,7 @@
 #include <generictracer/protocol_common.h>
 
 #include <maps/ongoing_http2_grpc.h>
+#include <maps/tp_char_buf_mem.h>
 #include <shared/obi_ctx.h>
 #include <tpinjector/maps/otel_traces_pids.h>
 
@@ -84,6 +85,9 @@ static __always_inline void rust_http1_entry(u64 id, u64 vector, u64 headers) {
 
     __builtin_memset(args, 0, sizeof(*args));
     args->buffer = vector;
+    if (!rust_read_u64(vector, config->vec_len, &args->start_len)) {
+        return;
+    }
     bpf_dbg_printk("rust h1 headers buffer=%llx", vector);
     rust_new_client_request(id, &args->request);
 
@@ -161,6 +165,21 @@ int GUARDED_PROG(obi_rust_http1_headers_ret, struct pt_regs *, ctx) {
     rust_publish_wire_parent(id, &args.request);
     if (exports_otel_traces()) {
         bpf_dbg_printk("rust http exporter header insertion skipped");
+        return 0;
+    }
+
+    if (args.request.forwarded) {
+        if (g_bpf_probe_write_user_enabled && args.start_len <= len &&
+            rust_http1_rewrite_traceparent(ptr + args.start_len,
+                                           len - args.start_len,
+                                           &args.request.wire,
+                                           tp_char_buf_mem())) {
+            args.request.injection_result = k_rust_injection_succeeded;
+            rust_save_request(id, &args.request);
+            bpf_dbg_printk("rust forwarded h1 traceparent rewritten");
+        } else {
+            bpf_dbg_printk("rust forwarded h1 user rewrite unavailable");
+        }
         return 0;
     }
 
@@ -300,6 +319,7 @@ static __noinline bool rust_existing_header(u64 headers,
     // span: adopting the caller's ID would make the server and client each other's parent.
     if (request->parent.valid &&
         bpf_memcmp(wire.span_id, request->parent.tp.parent_id, SPAN_ID_SIZE_BYTES) == 0) {
+        request->forwarded = 1;
         bpf_dbg_printk("rust forwarded traceparent, keeping a distinct client span");
         return true;
     }

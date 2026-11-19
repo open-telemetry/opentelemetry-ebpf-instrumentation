@@ -462,15 +462,19 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 				continue
 			}
 			injected++
+			forwardedHTTP1 := os.Getenv("OBI_RUST_TEST_FORWARDED_APP_HEADER") != "" &&
+				os.Getenv("OBI_RUST_TEST_H2") == "" && os.Getenv("OBI_RUST_TEST_H2C") == ""
 			if os.Getenv("OBI_RUST_TEST_FORWARDED_APP_HEADER") != "" {
 				forwarded := servers[path].ParentSpanID
 				require.Equal(t, "1111111111111111", forwarded.String(), path)
 				require.NotEqual(t, forwarded, clients[path].SpanID,
 					"a forwarded header must not make the client its server's parent: %s", path)
-			} else {
-				require.Equal(t, []string{fmt.Sprintf("00-%s-%s-%02x", clients[path].TraceID, clients[path].SpanID, clients[path].TraceFlags)}, header, path)
 			}
-			if os.Getenv("OBI_RUST_TEST_APP_HEADER") != "" {
+			if os.Getenv("OBI_RUST_TEST_FORWARDED_APP_HEADER") == "" || forwardedHTTP1 {
+				require.Equal(t, []string{fmt.Sprintf("00-%s-%s-%02x", clients[path].TraceID, clients[path].SpanID, clients[path].TraceFlags)}, header,
+					"the downstream parent must be the exported Rust client span: %s", path)
+			}
+			if os.Getenv("OBI_RUST_TEST_APP_HEADER") != "" && !forwardedHTTP1 {
 				require.Equal(t, []string{fmt.Sprintf("00-%s-1111111111111111-01", expected)}, header,
 					"the application owns its header: %s", path)
 			}

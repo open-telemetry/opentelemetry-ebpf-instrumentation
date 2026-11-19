@@ -120,10 +120,45 @@ func TestOTelTracesPIDFilterRetriesAndFollowsPIDLifecycle(t *testing.T) {
 	pf.Filter([]request.Span{span})
 	assert.True(t, filter.marks[1000])
 
-	pf.RemoveOTelTracesPIDFilter()
+	pf.RemoveOTelTracesPIDFilter(filter)
 	beforeDetach := filter.calls
 	pf.BlockPID(1000, 42)
 	require.Equal(t, beforeDetach, filter.calls, "detaching must stop updates before the BPF map closes")
+}
+
+// The socket injector and the generic tracer both register a filter of the same map.
+func TestOTelTracesPIDFilterHandsOverBetweenTracers(t *testing.T) {
+	original := readNamespacePIDs
+	readNamespacePIDs = func(pid app.PID) ([]app.PID, error) { return []app.PID{pid}, nil }
+	t.Cleanup(func() { readNamespacePIDs = original })
+
+	pf := NewPIDsFilter(&services.DiscoveryConfig{
+		ExcludeOTelInstrumentedServices: true,
+	}, slog.Default(), nil)
+	pf.AllowPID(1000, 42, exec.New(exec.Init{}), PIDTypeKProbes)
+	pf.Filter([]request.Span{traceExport(1000, 0)})
+
+	injector := newFakeOTelTracesPIDFilter()
+	generic := newFakeOTelTracesPIDFilter()
+	pf.SetOTelTracesPIDFilter(injector)
+	pf.SetOTelTracesPIDFilter(generic)
+	assert.True(t, injector.marks[1000], "the first filter writes the live exporters")
+	assert.Zero(t, generic.calls, "only one filter writes the shared map")
+
+	pf.RemoveOTelTracesPIDFilter(generic)
+	pf.AllowPID(2000, 42, exec.New(exec.Init{}), PIDTypeKProbes)
+	assert.Contains(t, injector.marks, app.PID(2000), "removing another filter keeps the writer")
+	assert.Zero(t, generic.calls)
+
+	pf.SetOTelTracesPIDFilter(generic)
+	pf.RemoveOTelTracesPIDFilter(injector)
+	assert.Equal(t, map[app.PID]bool{1000: true, 2000: false}, generic.marks,
+		"the next filter takes over with every live process written")
+
+	writes := injector.calls
+	pf.AllowPID(3000, 42, exec.New(exec.Init{}), PIDTypeKProbes)
+	assert.Equal(t, writes, injector.calls, "a removed filter is never written again")
+	assert.Contains(t, generic.marks, app.PID(3000))
 }
 
 func TestOTelTracesPIDFilterMarksSharedClassification(t *testing.T) {

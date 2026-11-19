@@ -220,8 +220,9 @@ typedef struct tailcall_ctx {
     bool tp_present;              // frame already carries a traceparent we cannot adopt
     bool scan_exhausted;          // retry budget ran out before the block was walked
     bool rust_stream;             // Rust proved header ownership or absence before publication
+    bool rust_forwarded;          // HTTP/1 header still names the Rust server's upstream parent
     u8 opener;                    // first HPACK field byte of the frame being considered
-    u8 _pad[3];
+    u8 _pad[2];
 } tailcall_ctx;
 
 SCRATCH_MEM(tailcall_ctx);
@@ -1293,6 +1294,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     t_ctx->niter = 0;
     t_ctx->h2_scan_pos = 0;
     t_ctx->h2_hops_used = 0;
+    t_ctx->rust_forwarded = false;
     t_ctx->h2_tp_retries = 0;
     bpf_memset(&t_ctx->h2_framing, 0, sizeof(t_ctx->h2_framing));
     t_ctx->go_grpc_conn = false;
@@ -1339,9 +1341,10 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     const bool is_http = protocol_detector(msg, id, &conn);
     if (is_http) {
         const rust_http_request_t *rust = rust_current_request(id);
+        t_ctx->rust_forwarded = rust && rust->forwarded;
         if (rust && inject_http_headers() &&
             (rust->injection_result == k_rust_injection_succeeded ||
-             rust->injection_result == k_rust_injection_application_owned)) {
+             (rust->injection_result == k_rust_injection_application_owned && !rust->forwarded))) {
             bpf_dbg_printk("rust h1 socket preserving owned header result=%u",
                            rust->injection_result);
             tp_info_pid_t *trace = tp_info_mem();
@@ -1535,6 +1538,7 @@ int obi_packet_extender_parse_existing_tp(struct sk_msg_md *msg) {
         return SK_PASS;
     }
 
+    unsigned char *flags = ptr;
     decode_hex((unsigned char *)&tp_p->tp.flags, ptr, FLAGS_CHAR_LEN);
 
     ptr += FLAGS_CHAR_LEN;
@@ -1547,9 +1551,19 @@ int obi_packet_extender_parse_existing_tp(struct sk_msg_md *msg) {
     // 'Traceparent: ...' header that we can utilise
 
     tp_p->tp.ts = bpf_ktime_get_ns();
-    init_tp_ctx_parent_tp(t_ctx, &tp_p->tp);
-    bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
-    assign_parent_tp(t_ctx, &tp_p->tp, span_id);
+    if (t_ctx->rust_forwarded) {
+        const rust_http_request_t *rust = rust_current_request(bpf_get_current_pid_tgid());
+        if (!rust || !rust->forwarded || exports_otel_traces()) {
+            return SK_PASS;
+        }
+        rust_socket_trace(rust, t_ctx->p_conn.pid, tp_p);
+        encode_hex(span_id, tp_p->tp.span_id, sizeof(tp_p->tp.span_id));
+        encode_hex(flags, (const unsigned char *)&tp_p->tp.flags, sizeof(tp_p->tp.flags));
+    } else {
+        init_tp_ctx_parent_tp(t_ctx, &tp_p->tp);
+        bpf_memset(tp_p->tp.parent_id, 0, sizeof(tp_p->tp.parent_id));
+        assign_parent_tp(t_ctx, &tp_p->tp, span_id);
+    }
 
     tp_p->valid = 1;
     tp_p->written = 1;
