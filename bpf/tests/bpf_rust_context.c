@@ -93,10 +93,15 @@ static void run_task(u32 thread, u64 task) {
     threads[thread] = (rust_thread_state_t){.tasks = {task}, .depth = 1};
 }
 
+// trace 0 expects no context: either no entry or a cleared one.
 static void expect_context(u32 thread, u8 trace) {
     const tp_info_pid_t *context = rust_current_context(ids[thread]);
-    assert(context);
-    assert(context->valid == (trace != 0));
+    if (!trace) {
+        assert(!context || !context->valid);
+        return;
+    }
+
+    assert(context && context->valid);
     assert(context->tp.trace_id[0] == trace);
 }
 
@@ -135,6 +140,7 @@ int main(void) {
     // A reused slot and an evicted message must clear the driver's old parent.
     run_task(0, 300);
     rust_copy_context(ids[0], &rust_channel_context, &slot2);
+    assert(!lookup(&rust_channel_context, &slot2) && "no parent stores no placeholder");
     rust_adopt_channel_context(ids[1], &slot2);
     expect_context(1, 0);
     rust_set_context(ids[1], &parent);
@@ -142,7 +148,9 @@ int main(void) {
     expect_context(1, 0);
 
     // Replacing a task snapshot clears its old parent; invalid poll depth is rejected.
+    rust_set_context(ids[1], &parent);
     rust_inherit_task_context(ids[0], &child);
+    assert(!lookup(&rust_task_context, &child) && "a recycled task drops its old parent");
     expect_context(1, 0);
     threads[1].depth = k_rust_poll_depth + 1;
     assert(!rust_current_context(ids[1]));

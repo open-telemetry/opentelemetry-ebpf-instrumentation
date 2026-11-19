@@ -129,16 +129,19 @@ static __always_inline void rust_set_context(u64 id, const tp_info_pid_t *contex
 }
 
 // Snapshots the current task's context into a task or message map under key.
-// Stores an empty context when no parent exists so recycled keys cannot retain an old parent.
+// Without a parent the key is deleted instead: a missing entry already means no
+// context, so a recycled key cannot retain an old parent, and context-less tasks
+// do not fill the LRU slots that live request contexts need.
 // The destination must store rust_task_key_t -> tp_info_pid_t.
 static __always_inline void rust_copy_context(u64 id, void *map, const rust_task_key_t *key) {
-    tp_info_pid_t context = {};
     const tp_info_pid_t *parent = rust_current_context(id);
-    if (parent) {
-        context = *parent;
+    if (!parent || !parent->valid) {
+        bpf_map_delete_elem(map, key);
+        bpf_dbg_printk("rust inherit none key=%llx pid=%u", key->addr, key->pid);
+        return;
     }
 
-    // An ownerless write must replace any context at a recycled address too.
+    const tp_info_pid_t context = *parent;
     const long result = bpf_map_update_elem(map, key, &context, BPF_ANY);
     if (result) {
         bpf_dbg_printk("rust inherit failed key=%llx err=%ld", key->addr, result);
