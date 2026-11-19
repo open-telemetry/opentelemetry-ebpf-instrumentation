@@ -3,11 +3,12 @@
 
 package services // import "go.opentelemetry.io/obi/pkg/appolly/services"
 
-// JobTracesConfig roots a job's calls at the queue fetch that took it, see devdocs/queue-job-traces.md
+// JobTracesConfig roots a job's calls at the queue fetch that took it, see devdocs/queue-job-traces.md.
+// A nil config keeps the default, which is on.
 type JobTracesConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
 func (c *JobTracesConfig) IsEnabled() bool {
-	return c != nil && c.Enabled
+	return c == nil || c.Enabled
 }

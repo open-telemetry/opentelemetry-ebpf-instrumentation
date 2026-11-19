@@ -119,7 +119,7 @@ func selectorJobTraces(selector services.Selector) bool {
 	}); ok {
 		return provider.GetJobTracesConfig().IsEnabled()
 	}
-	return false
+	return true
 }
 
 func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
@@ -130,7 +130,7 @@ func (t *typer) makeServiceAttrs(processMatch *ProcessMatch) svc.Attrs {
 	var routesConfig *services.CustomRoutesConfig
 	svcFeatures := t.cfg.Metrics.Features
 	exceptions := t.cfg.Exceptions
-	jobTraces := false
+	jobTraces := true
 	var metadata map[attr.Name]string
 
 	for _, s := range processMatch.Criteria {

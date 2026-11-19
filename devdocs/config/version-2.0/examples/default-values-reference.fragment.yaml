@@ -211,13 +211,13 @@ extensions:
         #
         # - action: include
         #   name: job-workers
-        #   description: Trace each job the workers take off Redis as one trace.
+        #   description: Keep each call of a job the workers take off Redis in a trace of its own.
         #   match:
         #     kubernetes:
         #       namespace_glob:
         #         - jobs
         #   refine:
-        #     group_job_spans: true
+        #     group_job_spans: false
 
       instrumentation:
         # HTTP protocol instrumentation and HTTP-specific enrichment/parsing.

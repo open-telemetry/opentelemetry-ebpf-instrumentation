@@ -711,6 +711,7 @@ func classifyUntilExit(t *testing.T, ty *typer, cmd *osexec.Cmd) ebpf.Instrument
 }
 
 func TestSelectorJobTracesCompatibility(t *testing.T) {
-	assert.False(t, selectorJobTraces(dummyCriterion{}))
-	assert.True(t, selectorJobTraces(&services.GlobAttributes{JobTraces: &services.JobTracesConfig{Enabled: true}}))
+	assert.True(t, selectorJobTraces(dummyCriterion{}))
+	assert.True(t, selectorJobTraces(&services.GlobAttributes{}))
+	assert.False(t, selectorJobTraces(&services.GlobAttributes{JobTraces: &services.JobTracesConfig{Enabled: false}}))
 }

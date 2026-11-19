@@ -19,9 +19,10 @@ trace of job 7
   └── SET job:7 done
 ```
 
-## Enabling it
+## Turning it off
 
-Job traces are off unless a Config v2 include rule opts its workloads in:
+Job traces are on for every workload. A Config v2 include rule turns them off
+for its workloads, which keeps each call of a job in a trace of its own:
 
 ```yaml
 extensions:
@@ -34,10 +35,11 @@ extensions:
             kubernetes:
               namespace_glob: [jobs]
           refine:
-            group_job_spans: true
+            group_job_spans: false
 ```
 
-When no rule opts in, the job code is compiled out of the eBPF programs.
+When every workload turns them off, the job code is compiled out of the eBPF
+programs. Config v1 has no switch for it.
 
 ## Fetches
 

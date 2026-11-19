@@ -91,8 +91,8 @@ func TestMakeServiceAttrsJobTraces(t *testing.T) {
 			name    string
 			enabled []*bool
 		}{
-			{name: "opted in", enabled: []*bool{new(true)}},
-			{name: "not opted in", enabled: []*bool{nil}},
+			{name: "default", enabled: []*bool{nil}},
+			{name: "turned off", enabled: []*bool{new(false)}},
 			{name: "overlapping rules", enabled: []*bool{new(true), new(false)}},
 		} {
 			t.Run(string(order)+"/"+tc.name, func(t *testing.T) {
@@ -121,19 +121,15 @@ func TestMakeServiceAttrsJobTraces(t *testing.T) {
 				if order == schema.MatchOrderLastMatchWins {
 					winner = tc.enabled[len(tc.enabled)-1]
 				}
-				anyEnabled := false
-				for _, groupJobSpans := range tc.enabled {
-					anyEnabled = anyEnabled || (groupJobSpans != nil && *groupJobSpans)
-				}
-				require.Equal(t, anyEnabled, cfg.JobTracesEnabled(), "the eBPF job code is loaded when any rule opts in")
+				require.True(t, cfg.JobTracesEnabled(), "the eBPF job code is loaded for the workloads the default include selects")
 
 				app := discover.SelectedServiceAttrsForTest(cfg, &services.ProcessInfo{Pid: 1234, ExePath: "/srv/app"})
 				require.NotNil(t, app)
-				require.Equal(t, winner != nil && *winner, app.JobTraces, "the winning rule decides")
+				require.Equal(t, winner == nil || *winner, app.JobTraces, "the winning rule decides")
 
 				other := discover.SelectedServiceAttrsForTest(cfg, &services.ProcessInfo{Pid: 1234, ExePath: "/srv/other"})
 				require.NotNil(t, other)
-				require.False(t, other.JobTraces, "workloads no rule opts in keep job traces off")
+				require.True(t, other.JobTraces, "workloads no rule refines keep job traces on")
 			})
 		}
 	}

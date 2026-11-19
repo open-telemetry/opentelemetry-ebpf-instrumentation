@@ -70,9 +70,9 @@ func (u *CriteriaUpdater) Update(ctx context.Context, cfg *obi.Config) error {
 		return errors.New("new metric features require pipeline initialization; restart OBI to apply this configuration")
 	}
 
-	// the eBPF job code is compiled out unless a rule enabled job traces at startup
+	// the eBPF job code is compiled out when every workload turned job traces off at startup
 	if cfg.JobTracesEnabled() && !u.jobTraces {
-		return errors.New("job traces were not enabled at startup; restart OBI to apply this configuration")
+		return errors.New("job traces were off for every workload at startup; restart OBI to apply this configuration")
 	}
 
 	if err := cfg.Discovery.Validate(); err != nil {

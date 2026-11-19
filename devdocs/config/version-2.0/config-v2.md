@@ -459,7 +459,7 @@ Current overridable fields in `refine`:
 - `exceptions`: override global exception capture enablement, Go event selection
   (`go.panics`, `go.formatted_errors`), and Python capture (`python.enabled`).
   Omitted fields inherit global settings.
-- `group_job_spans`: group the client spans of each job the workload takes off a queue into one trace, rooted at the fetch that took the job. Redis fetches are recognized. Disabled when omitted; see [Queue Job Traces](../../queue-job-traces.md).
+- `group_job_spans`: group the client spans of each job the workload takes off a queue into one trace, rooted at the fetch that took the job. Redis fetches are recognized. On when omitted; `false` keeps each call of a job in a trace of its own. See [Queue Job Traces](../../queue-job-traces.md).
 - `http.routes`: refine the direction-scoped HTTP route policy for this workload.
 
 The schema reserves refinement `http.filters`, but the target runtime adapter

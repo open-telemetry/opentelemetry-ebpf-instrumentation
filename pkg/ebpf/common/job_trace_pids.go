@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 )
 
-// JobTracePIDs marks the processes whose services opted into job traces in eBPF.
+// JobTracePIDs marks the processes whose services group their job spans in eBPF.
 type JobTracePIDs struct {
 	pidEntries
 }

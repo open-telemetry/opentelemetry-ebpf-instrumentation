@@ -49,8 +49,6 @@ extensions:
           match:
             process:
               open_ports: "8080"
-          refine:
-            group_job_spans: true
       metrics:
         features: [application]
       engine:

@@ -187,7 +187,7 @@ func (p *Tracer) writeJobTracePID(pid app.PID, ns uint32, fi *exec.FileInfo) {
 	}
 
 	if err := p.jobTracePIDs.Write(p.bpfObjects.JobTracePids, pid, ns, fi.ServiceAttrs().JobTraces); err != nil {
-		p.log.Error("opting the process into job traces in eBPF", "pid", pid, "error", err)
+		p.log.Error("marking the process for job traces in eBPF", "pid", pid, "error", err)
 	}
 }
 
