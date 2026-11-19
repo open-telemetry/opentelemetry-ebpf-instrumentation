@@ -141,6 +141,8 @@ def scenarios(cases):
 
     if "rustls-server-0.23" in names:
         yield "rustls-server-http1", "rustls-server-0.23", {"SERVER":"1", "SERVER_HTTP1":"1", "INJECT":"1"}
+        yield "rustls-server-http1-trailers", "rustls-server-0.23", {"SERVER":"1", "SERVER_HTTP1":"1", "INJECT":"1", "TRAILERS":"1"}
+        yield "rustls-server-http1-trailers-socket", "rustls-server-0.23", {"SERVER":"1", "SERVER_HTTP1":"1", "INJECT":"1", "TRAILERS":"1", "NO_USER_WRITE":"1"}
         for sampler, parent_flags, sampled in (("always_off", "01", "0"),
                                                 ("always_on", "00", "1"),
                                                 ("parentbased_always_off", "01", "1"),

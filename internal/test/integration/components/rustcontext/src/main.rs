@@ -236,9 +236,31 @@ async fn serve() {
                             sleep(Duration::from_millis(5)).await;
                             let path = request.uri().path();
                             fetch(client, format!("{downstream}{path}")).await;
-                            Ok::<_, std::convert::Infallible>(hyper::Response::new(
-                                http_body_util::Full::new(bytes::Bytes::from_static(b"ok")),
-                            ))
+                            use http_body_util::BodyExt;
+                            let trailers = std::env::var_os("OBI_RUST_TRAILERS").is_some();
+                            let body = http_body_util::Full::new(bytes::Bytes::from_static(b"ok"));
+                            let body = if trailers {
+                                body.with_trailers(async {
+                                    let mut headers = hyper::HeaderMap::new();
+                                    headers.insert("x-obi-trailer", "done".parse().unwrap());
+                                    Some(Ok(headers))
+                                })
+                                .boxed()
+                            } else {
+                                body.boxed()
+                            };
+                            let mut response = hyper::Response::new(body);
+                            if trailers {
+                                response.headers_mut().insert(
+                                    hyper::header::TRANSFER_ENCODING,
+                                    "chunked".parse().unwrap(),
+                                );
+                                response.headers_mut().insert(
+                                    hyper::header::TRAILER,
+                                    "x-obi-trailer".parse().unwrap(),
+                                );
+                            }
+                            Ok::<_, std::convert::Infallible>(response)
                         });
                         async move { child.await.unwrap() }
                     },

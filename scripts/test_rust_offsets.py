@@ -68,6 +68,8 @@ class RustOffsetWorkflowTests(unittest.TestCase):
         cases = load_versions()["cases"]
         matrix = {name:env for name,_,env in scenarios(cases)}
         self.assertEqual("1",matrix["rustls-server-http1"]["SERVER_HTTP1"])
+        self.assertEqual("1",matrix["rustls-server-http1-trailers"]["TRAILERS"])
+        self.assertEqual("1",matrix["rustls-server-http1-trailers-socket"]["NO_USER_WRITE"])
         self.assertEqual("1",matrix["latest-grouped-worker"]["SHARED_EXECUTABLE"])
         for sampler, parent_flags, sampled in (("always_off", "01", "0"),
                                                 ("always_on", "00", "1"),

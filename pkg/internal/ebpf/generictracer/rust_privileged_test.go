@@ -114,6 +114,9 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 	}
 	cmd := osexec.CommandContext(ctx, binary, downstreamURL)
 	cmd.Env = os.Environ()
+	if os.Getenv("OBI_RUST_TEST_TRAILERS") != "" {
+		cmd.Env = append(cmd.Env, "OBI_RUST_TRAILERS=1")
+	}
 	if os.Getenv("OBI_RUST_TEST_APP_HEADER") != "" {
 		cmd.Env = append(cmd.Env, "OBI_RUST_APP_HEADER=1")
 	}
@@ -261,12 +264,18 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 			return err
 		}
 		req.Header.Set("traceparent", traceparent)
+		if os.Getenv("OBI_RUST_TEST_TRAILERS") != "" {
+			req.Header.Set("TE", "trailers")
+		}
 		resp, err := client.Do(req)
 		if err != nil {
 			return err
 		}
 		defer resp.Body.Close()
 		_, err = io.Copy(io.Discard, resp.Body)
+		if err == nil && os.Getenv("OBI_RUST_TEST_TRAILERS") != "" && resp.Trailer.Get("x-obi-trailer") != "done" {
+			return fmt.Errorf("missing Rust response trailer: %v", resp.Trailer)
+		}
 		return err
 	}
 	// The second sequential request reuses Hyper's existing connection task.
@@ -312,6 +321,30 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 	close(errors)
 	for err := range errors {
 		require.NoError(t, err)
+	}
+	if os.Getenv("OBI_RUST_TEST_TRAILERS") != "" {
+		var task BpfRustTaskKeyT
+		var pending BpfRustHttpRequestT
+		iterator := tracer.bpfObjects.RustHttp1Requests.Iterate()
+		for iterator.Next(&task, &pending) {
+			if task.Pid == uint32(pid) {
+				require.NotZero(t, pending.Observed, "response trailers must not publish pending client requests")
+			}
+		}
+		require.NoError(t, iterator.Err())
+
+		wireParents := 0
+		var wire BpfRustWireKeyT
+		var parent BpfTpInfoPidT
+		parents := tracer.bpfObjects.RustWireParents.Iterate()
+		for parents.Next(&wire, &parent) {
+			if wire.Pid == uint32(pid) {
+				wireParents++
+			}
+		}
+		require.NoError(t, parents.Err())
+		require.Equal(t, requests, wireParents, "only outgoing requests should publish wire parents")
+		return
 	}
 	var otherSpans []request.Span
 	servers := map[string]request.Span{}
