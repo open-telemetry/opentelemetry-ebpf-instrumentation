@@ -7,6 +7,10 @@
 #include <bpfcore/bpf_helpers.h>
 #include <bpfcore/bpf_tracing.h>
 
+// No mapping lives in the first page, so a user pointer at or below this is a
+// sentinel, such as the dangling pointer of a Box or Vec that never allocated.
+enum { k_rust_low_address_limit = 4096 };
+
 static __always_inline u64 rust_return_word2(const struct pt_regs *ctx) {
 #ifdef __TARGET_ARCH_x86
     return ctx->dx;

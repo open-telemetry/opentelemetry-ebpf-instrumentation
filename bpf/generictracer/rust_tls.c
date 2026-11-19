@@ -13,10 +13,6 @@
 #include <common/rust_task.h>
 #include <generictracer/ssl_defs.h>
 
-// Low-address heuristic: zero-sized Rustls invalid-cipher boxes can use shared
-// dangling pointers, which cannot identify a connection. The fixed 4096 cutoff
-// rejects common small pointer values.
-enum { k_rustls_low_address_limit = 4096 };
 enum { k_rustls_max_buffer_len = 1 << 20 };
 
 typedef struct rustls_process_args {
@@ -118,7 +114,7 @@ static __always_inline bool rustls_anchor(u64 id, u64 common, u32 offset, rust_t
         return false;
     }
 
-    return key->addr > k_rustls_low_address_limit;
+    return key->addr > k_rust_low_address_limit;
 }
 
 static __always_inline const ssl_pid_connection_info_t *rustls_connection(u64 id, u64 common) {
@@ -391,7 +387,7 @@ static __always_inline void rustls_save_peeked_buffer(u64 id,
         return;
     }
 
-    if (buffer.data <= k_rustls_low_address_limit) {
+    if (buffer.data <= k_rust_low_address_limit) {
         bpf_dbg_printk("rustls peek invalid data=%llx", buffer.data);
         return;
     }

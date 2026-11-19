@@ -12,7 +12,41 @@
 #include <pid/pid.h>
 #include <shared/obi_ctx.h>
 
-enum { k_rust_low_address_limit = 4096 };
+// Hyper's request envelope carries one of its two callback variants.
+enum { k_rust_envelope_variants = 2 };
+
+// Returns the worker's poll state, creating it the first time the worker runs a task.
+static __always_inline rust_thread_state_t *rust_thread_state(u64 id) {
+    rust_thread_state_t *thread = bpf_map_lookup_elem(&rust_threads, &id);
+    if (thread) {
+        return thread;
+    }
+
+    const rust_thread_state_t initial = {};
+    bpf_map_update_elem(&rust_threads, &id, &initial, BPF_ANY);
+    thread = bpf_map_lookup_elem(&rust_threads, &id);
+    if (!thread) {
+        bpf_dbg_printk("rust thread state unavailable");
+    }
+
+    return thread;
+}
+
+// Accepts an envelope whose callback tag can be read and names a valid variant.
+static __always_inline bool rust_envelope_tag_valid(u64 address, u32 tag_offset) {
+    u64 tag = 0;
+    if (bpf_probe_read_user(&tag, sizeof(tag), (void *)(address + tag_offset)) != 0) {
+        bpf_dbg_printk("rust envelope tag unavailable value=%llx", address);
+        return false;
+    }
+
+    if (tag >= k_rust_envelope_variants) {
+        bpf_dbg_printk("rust envelope tag invalid value=%llx tag=%llu", address, tag);
+        return false;
+    }
+
+    return true;
+}
 
 static __always_inline void rust_publish_thread_context(u64 id, const tp_info_pid_t *context) {
     if (context && context->valid) {
@@ -35,16 +69,9 @@ int GUARDED_PROG(obi_rust_task_poll, struct pt_regs *, ctx) {
         return 0;
     }
 
-    rust_thread_state_t *thread = bpf_map_lookup_elem(&rust_threads, &id);
+    rust_thread_state_t *thread = rust_thread_state(id);
     if (!thread) {
-        const rust_thread_state_t initial = {};
-        bpf_map_update_elem(&rust_threads, &id, &initial, BPF_ANY);
-        thread = bpf_map_lookup_elem(&rust_threads, &id);
-
-        if (!thread) {
-            bpf_dbg_printk("rust poll state unavailable");
-            return 0;
-        }
+        return 0;
     }
 
     u32 depth = thread->depth;
@@ -130,13 +157,7 @@ int GUARDED_PROG(obi_rust_task_spawn, struct pt_regs *, ctx) {
         return 0;
     }
 
-    rust_thread_state_t *thread = bpf_map_lookup_elem(&rust_threads, &id);
-    if (!thread) {
-        const rust_thread_state_t initial = {};
-        bpf_map_update_elem(&rust_threads, &id, &initial, BPF_ANY);
-        thread = bpf_map_lookup_elem(&rust_threads, &id);
-    }
-
+    rust_thread_state_t *thread = rust_thread_state(id);
     if (thread) {
         thread->spawn_depth++;
         bpf_dbg_printk("rust spawn enter depth=%u", thread->spawn_depth);
@@ -160,20 +181,30 @@ int GUARDED_PROG(obi_rust_task_spawn_ret, struct pt_regs *, ctx) {
     return 0;
 }
 
-// Inherits the parent at scheduling when allocation and binding were inlined.
-// The spawn scope distinguishes a new task's publication from later wakes.
-SEC("uprobe/rust:tokio_schedule")
-int GUARDED_PROG(obi_rust_task_schedule, struct pt_regs *, ctx) {
-    const u64 id = bpf_get_current_pid_tgid();
+static __always_inline void rust_schedule_task(u64 id, u64 task) {
     const rust_thread_state_t *thread = bpf_map_lookup_elem(&rust_threads, &id);
 
     // Publish the parent before scheduling when allocation/binding was inlined.
     // Wakes outside a spawn scope must preserve the task's existing parent.
     if (thread && rust_task_context_enabled(id) && thread->spawn_depth) {
-        bpf_dbg_printk("rust spawn publish task=%llx", PT_REGS_PARM2(ctx));
-        rust_new_task(id, PT_REGS_PARM2(ctx));
+        bpf_dbg_printk("rust spawn publish task=%llx", task);
+        rust_new_task(id, task);
     }
+}
 
+// Inherits the parent at scheduling when allocation and binding were inlined.
+// The spawn scope distinguishes a new task's publication from later wakes.
+SEC("uprobe/rust:tokio_schedule")
+int GUARDED_PROG(obi_rust_task_schedule, struct pt_regs *, ctx) {
+    rust_schedule_task(bpf_get_current_pid_tgid(), PT_REGS_PARM2(ctx));
+    return 0;
+}
+
+// Initial multi-thread submissions bypass Schedule::schedule. Here the core is
+// the second argument and the allocated Notified task is the third, before enqueue.
+SEC("uprobe/rust:tokio_schedule_local")
+int GUARDED_PROG(obi_rust_task_schedule_local, struct pt_regs *, ctx) {
+    rust_schedule_task(bpf_get_current_pid_tgid(), PT_REGS_PARM3(ctx));
     return 0;
 }
 
@@ -264,16 +295,7 @@ static __always_inline u64 rust_message_pointer(u64 address,
         return 0;
     }
 
-    u64 tag = 0;
-    const long tag_read_result =
-        bpf_probe_read_user(&tag, sizeof(tag), (void *)(address + tag_offset));
-    if (tag_read_result != 0) {
-        bpf_dbg_printk("rust envelope tag unavailable value=%llx recv=%u", address, receive);
-        return 0;
-    }
-
-    if (tag > 1) {
-        bpf_dbg_printk("rust envelope tag invalid value=%llx tag=%llu", address, tag);
+    if (!rust_envelope_tag_valid(address, tag_offset)) {
         return 0;
     }
 
@@ -409,16 +431,7 @@ int GUARDED_PROG(obi_rust_hyper_receive, struct pt_regs *, ctx) {
 
 static __always_inline void
 rust_receive_request_context(u64 id, u64 address, const rust_protocol_config_t *config) {
-    u64 tag = 0;
-    const long read_result =
-        bpf_probe_read_user(&tag, sizeof(tag), (void *)(address + config->message_rx_tag));
-    if (read_result != 0) {
-        bpf_dbg_printk("rust receive request tag unavailable value=%llx", address);
-        return;
-    }
-
-    if (tag > 1) {
-        bpf_dbg_printk("rust receive request tag invalid value=%llx tag=%llu", address, tag);
+    if (!rust_envelope_tag_valid(address, config->message_rx_tag)) {
         return;
     }
 
