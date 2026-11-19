@@ -25,7 +25,11 @@
 #include <shared/obi_ctx.h>
 #include <tpinjector/maps/otel_traces_pids.h>
 
-enum { k_rust_max_headers = 64 };
+enum {
+    k_rust_max_headers = 64,
+    k_rust_invalid_hex_digit = 0xff,
+    k_rust_h2_method_none = 0xff,
+};
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -270,12 +274,12 @@ static __noinline bool rust_existing_header(u64 headers,
             if (tp[pos] != '-') {
                 return true;
             }
-        } else if (reverse_hex[tp[pos]] == 0xff) {
+        } else if (reverse_hex[tp[pos]] == k_rust_invalid_hex_digit) {
             return true;
         }
     }
 
-    if ((tp[0] | 0x20) == 'f' && (tp[1] | 0x20) == 'f') {
+    if ((tp[0] | k_ascii_lowercase_bit) == 'f' && (tp[1] | k_ascii_lowercase_bit) == 'f') {
         return true;
     }
 
@@ -316,9 +320,9 @@ int GUARDED_PROG(obi_rust_h2_send_headers, struct pt_regs *, ctx) {
 
     rust_h2_key_t key = {.pid = obi_pid(id), .sender = PT_REGS_PARM1(ctx)};
     const u64 headers = PT_REGS_PARM2(ctx);
-    u8 method = 0xff;
+    u8 method = k_rust_h2_method_none;
     if (bpf_probe_read_user(&method, sizeof(method), (void *)(headers + config->h2_method)) != 0 ||
-        method == 0xff) {
+        method == k_rust_h2_method_none) {
         return 0;
     }
 

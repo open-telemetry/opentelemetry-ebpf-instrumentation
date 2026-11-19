@@ -76,7 +76,11 @@ static __always_inline bool rust_http2_append(rust_http_args_t *args,
         return false;
     }
 
-    enum { k_frame_type_offset = 3, k_frame_flags_offset = 4 };
+    enum {
+        k_frame_length_size = 3,
+        k_frame_type_offset = k_frame_length_size,
+        k_frame_flags_offset = k_frame_type_offset + sizeof(u8),
+    };
     unsigned char head[k_h2_frame_header_len];
     const void *frame_start = (const void *)(ptr + args->start_len);
     const long read_result = bpf_probe_read_user(head, sizeof(head), frame_start);
@@ -98,8 +102,9 @@ static __always_inline bool rust_http2_append(rust_http_args_t *args,
     }
 
     const u32 payload = ((u32)head[0] << 16) | ((u32)head[1] << 8) | head[2];
-    const u32 stream = ((u32)(head[5] & ~k_h2_reserved_bit_mask) << 24) | ((u32)head[6] << 16) |
-                       ((u32)head[7] << 8) | head[8];
+    const unsigned char *stream_id = head + k_h2_frame_stream_id_offset;
+    const u32 stream = ((u32)(stream_id[0] & ~k_h2_reserved_bit_mask) << 24) |
+                       ((u32)stream_id[1] << 16) | ((u32)stream_id[2] << 8) | stream_id[3];
 
     if (stream != args->stream_id || (payload + k_h2_frame_header_len != len - args->start_len) ||
         (payload > k_h2_default_max_frame_size - k_h2_tp_hpack_size)) {
@@ -119,7 +124,7 @@ static __always_inline bool rust_http2_append(rust_http_args_t *args,
         return false;
     }
 
-    const unsigned char old_head[3] = {head[0], head[1], head[2]};
+    const unsigned char old_head[k_frame_length_size] = {head[0], head[1], head[2]};
     const u32 new_payload = payload + sizeof(header);
     head[0] = new_payload >> 16;
     head[1] = new_payload >> 8;
@@ -127,7 +132,7 @@ static __always_inline bool rust_http2_append(rust_http_args_t *args,
 
     const u64 new_len = len + sizeof(header);
     const u64 new_remaining = remaining - sizeof(header);
-    if (bpf_probe_write_user((void *)(ptr + args->start_len), head, 3) != 0) {
+    if (bpf_probe_write_user((void *)(ptr + args->start_len), head, sizeof(old_head)) != 0) {
         bpf_dbg_printk("rust h2 frame length write failed stream=%u", stream);
         return false;
     }

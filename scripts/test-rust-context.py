@@ -117,6 +117,7 @@ def main():
             subprocess.run([str(tests), "-test.run=^TestRejectUnsupportedRustBinary$", "-test.v"], env=dict(os.environ, OBI_RUST_UNSUPPORTED_BINARY=str(stripped)), check=True)
         if (args.fallbacks or args.fallbacks_only) and args.live:
             variants = [("poll", "latest", {}), ("allocation", "latest", {}), ("channel", "latest", {}),
+                        ("public-spawn", "latest", {}),
                         ("http1", "latest", {"INJECT":"1", "NO_USER_WRITE":"1"}),
                         ("h2-hpack", "rustls-client-http2", {"TLS":"1","H2":"1","INJECT":"1"}),
                         ("h2", "rustls-client-http1", {"TLS":"1","INJECT":"1"}),
@@ -132,15 +133,16 @@ def main():
                 group, name, env = row
                 if name not in binaries:
                     return
-                binary = binaries[name].with_name("rustcontext-without-"+group)
+                label = "public-spawn-fallback" if group == "public-spawn" else "without-"+group
+                binary = binaries[name].with_name("rustcontext-"+label)
                 binary.unlink(missing_ok=True)
-                print(f"Checking {compiler}/{name} without {group} hooks", flush=True)
+                print(f"Checking {compiler}/{name}: {label}", flush=True)
                 subprocess.run([str(tests), "-test.run=^TestPrepareRustAlternativeFixture$", "-test.v"], cwd=REPO,
                                env=dict(os.environ, OBI_RUST_TEST_BINARY=str(binaries[name]), OBI_RUST_STRIP_OUTPUT=str(binary), OBI_RUST_STRIP_GROUP=group), check=True)
                 if not binary.exists():
                     print(f"SKIP {compiler}/{group}: no retained alternative in this build", flush=True)
                     return
-                run(binary, env, "TestRustContextPropagation", live=True, label="without-"+group)
+                run(binary, env, "TestRustContextPropagation", live=True, label=label)
             with ThreadPoolExecutor(max_workers=args.jobs) as pool:
                 selected = [row for row in variants if not args.fallback_group or row[0] in args.fallback_group]
                 if args.fallback_group and set(args.fallback_group) - {row[0] for row in selected}:
