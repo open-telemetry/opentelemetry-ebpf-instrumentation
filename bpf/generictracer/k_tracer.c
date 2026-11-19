@@ -1139,7 +1139,6 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
     }
 
     unsigned char *buf = 0;
-    const void *source_buf = NULL;
     const u32 received_len = copied_len;
     if (args) {
         iovec_iter_ctx *iov_ctx = (iovec_iter_ctx *)&args->iovec_ctx;
@@ -1155,9 +1154,6 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
             copied_len = read_iovec_ctx(iov_ctx, buf, copied_len);
             if (!copied_len) {
                 bpf_dbg_printk("Not copied anything");
-            } else {
-                // Rustls needs the original read address even when the capture is complete.
-                source_buf = iovec_user_buf(iov_ctx);
             }
         }
     }
@@ -1204,6 +1200,15 @@ static __always_inline int return_recvmsg(void *ctx, struct sock *in_sock, u64 i
             bpf_dbg_printk("buf=[%llx], copied_len=%d", buf, copied_len);
 
             if (buf && copied_len) {
+                const void *source_buf = NULL;
+                if (args) {
+                    const bool truncated = received_len > (u32)copied_len;
+                    if (truncated || rust_process_instrumented(id)) {
+                        const iovec_iter_ctx *iov_ctx = (const iovec_iter_ctx *)&args->iovec_ctx;
+                        source_buf = iovec_user_buf(iov_ctx);
+                    }
+                }
+
                 bpf_map_delete_elem(&active_recv_args, &id);
                 // doesn't return must be logically last statement
                 handle_user_buf_with_connection(ctx,

@@ -161,6 +161,8 @@ int main(void) {
     assert(!rust_current_context(ids[2]));
     run_task(1, 100);
     expect_context(1, 24);
+    // The poll probes resolve the same context from the worker state they already hold.
+    assert(rust_thread_context(ids[1], &threads[1]) == rust_current_context(ids[1]));
 
     const rust_http_request_t pending = {.wire = {.span_id = {7}}, .inject = 1};
     rust_save_request(ids[1], &pending);

@@ -14,14 +14,16 @@
 
 enum { k_rust_low_address_limit = 4096 };
 
-static __always_inline void rust_refresh_thread_context(u64 id) {
-    const tp_info_pid_t *context = rust_current_context(id);
-
+static __always_inline void rust_publish_thread_context(u64 id, const tp_info_pid_t *context) {
     if (context && context->valid) {
         obi_ctx__set(id, &context->tp);
     } else {
         obi_ctx__del(id);
     }
+}
+
+static __always_inline void rust_refresh_thread_context(u64 id) {
+    rust_publish_thread_context(id, rust_current_context(id));
 }
 
 // Enter a task while Tokio polls it, through either raw::poll or Harness::poll.
@@ -56,7 +58,8 @@ int GUARDED_PROG(obi_rust_task_poll, struct pt_regs *, ctx) {
     thread->depth++;
     bpf_dbg_printk(
         "rust poll task=%llx depth=%u ip=%llx", PT_REGS_PARM1(ctx), thread->depth, PT_REGS_IP(ctx));
-    rust_refresh_thread_context(id);
+    // Task tracking was checked and the worker state fetched above: reuse both per poll.
+    rust_publish_thread_context(id, rust_thread_context(id, thread));
 
     return 0;
 }
@@ -84,7 +87,7 @@ int GUARDED_PROG(obi_rust_task_poll_ret, struct pt_regs *, ctx) {
         bpf_map_delete_elem(&rust_h2_senders, &id);
     }
 
-    rust_refresh_thread_context(id);
+    rust_publish_thread_context(id, rust_thread_context(id, thread));
     return 0;
 }
 

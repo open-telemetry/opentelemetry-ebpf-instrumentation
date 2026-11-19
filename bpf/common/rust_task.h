@@ -63,15 +63,11 @@ static __always_inline bool rust_tokio_runtime(u64 id) {
     return capabilities && capabilities->tokio_runtime;
 }
 
-// Resolves the innermost task on the current worker into a PID-scoped key.
-// Returns false when task tracking is unavailable or the worker state is invalid.
-static __always_inline bool rust_current_task(u64 id, rust_task_key_t *key) {
-    if (!rust_task_context_enabled(id)) {
-        return false;
-    }
-
-    const rust_thread_state_t *thread = bpf_map_lookup_elem(&rust_threads, &id);
-    if (!thread || !thread->depth || thread->depth > k_rust_poll_depth) {
+// Resolves the innermost task of a worker's poll stack into a PID-scoped key.
+// Returns false when the worker is outside a task or its stack overflowed.
+static __always_inline bool
+rust_innermost_task(u64 id, const rust_thread_state_t *thread, rust_task_key_t *key) {
+    if (!thread->depth || thread->depth > k_rust_poll_depth) {
         return false;
     }
 
@@ -84,6 +80,28 @@ static __always_inline bool rust_current_task(u64 id, rust_task_key_t *key) {
     *key = (rust_task_key_t){.pid = obi_pid(id), .addr = thread->tasks[index]};
 
     return key->addr != 0;
+}
+
+// Resolves the innermost task on the current worker into a PID-scoped key.
+// Returns false when task tracking is unavailable or the worker state is invalid.
+static __always_inline bool rust_current_task(u64 id, rust_task_key_t *key) {
+    if (!rust_task_context_enabled(id)) {
+        return false;
+    }
+
+    const rust_thread_state_t *thread = bpf_map_lookup_elem(&rust_threads, &id);
+
+    return thread && rust_innermost_task(id, thread, key);
+}
+
+// Looks up the request context of a worker's innermost task, from state the caller
+// already fetched after checking that task tracking is enabled.
+static __always_inline tp_info_pid_t *rust_thread_context(u64 id,
+                                                          const rust_thread_state_t *thread) {
+    rust_task_key_t key = {};
+
+    return rust_innermost_task(id, thread, &key) ? bpf_map_lookup_elem(&rust_task_context, &key)
+                                                 : NULL;
 }
 
 // Looks up the request context associated with the current Rust task.

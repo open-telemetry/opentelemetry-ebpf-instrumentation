@@ -34,10 +34,14 @@ static __always_inline bool http1_header_scan_enabled(const call_protocol_args_t
 
 static __always_inline void rust_track_io(const call_protocol_args_t *args) {
     const u64 id = bpf_get_current_pid_tgid();
+    if (!rust_process_instrumented(id)) {
+        return;
+    }
+
     rust_save_io_connection(id, &args->pid_conn, args->orig_dport);
     if (!args->ssl && args->direction == TCP_SEND) {
         rust_tls_flush_t *flush = bpf_map_lookup_elem(&rust_tls_flushes, &id);
-        if (flush && rust_process_instrumented(id)) {
+        if (flush) {
             flush->connection.p_conn = args->pid_conn;
             flush->connection.orig_dport = args->orig_dport;
         }
