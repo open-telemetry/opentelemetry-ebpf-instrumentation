@@ -692,7 +692,14 @@ func TestStartsWithAnthropicMessageStart(t *testing.T) {
 	comment := func(size int) string {
 		return ":" + strings.Repeat("x", size-len(":\n")) + "\n"
 	}
-	lastFit := responseHeaderSearchWindow - len(eventLine)
+	// The terminating newline has to fit in the search window too.
+	lastFit := responseHeaderSearchWindow - len(eventLine+"\n")
+
+	// "event: message_start_time" cut by the window right after "message_start".
+	cutAtWindow := comment(responseHeaderSearchWindow-len(eventLine)) + "event: message_start_time\n"
+	require.Greater(t, len(cutAtWindow), responseHeaderSearchWindow)
+	require.True(t, strings.HasSuffix(cutAtWindow[:responseHeaderSearchWindow], "\n"+eventLine),
+		"the window must cut the event line right after %q", eventLine)
 
 	for _, tt := range []struct {
 		name, response string
@@ -706,6 +713,10 @@ func TestStartsWithAnthropicMessageStart(t *testing.T) {
 		{"event ends at window edge", comment(lastFit) + eventLine + "\n", true},
 		{"event crosses window edge", comment(lastFit+1) + eventLine + "\n", false},
 		{"event name with suffix", "event: message_start_time\n", false},
+		{"event with LF", eventLine + "\n", true},
+		{"event with CRLF", eventLine + "\r\n", true},
+		{"unterminated event", eventLine, false},
+		{"event name with suffix cut at window edge", cutAtWindow, false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, startsWithAnthropicMessageStart([]byte(tt.response)))

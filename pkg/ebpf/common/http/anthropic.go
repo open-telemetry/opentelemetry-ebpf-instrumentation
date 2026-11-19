@@ -144,7 +144,13 @@ func startsWithAnthropicMessageStart(respB []byte) bool {
 
 	for len(respB) > 0 {
 		var line []byte
-		line, respB, _ = bytes.Cut(respB, sseLineSeparator)
+		var found bool
+		line, respB, found = bytes.Cut(respB, sseLineSeparator)
+		// Only a newline-terminated line is complete; one cut off by the
+		// search window or the capture limit must not match.
+		if !found {
+			return false
+		}
 		if n := len(line); n > 0 && line[n-1] == '\r' {
 			line = line[:n-1]
 		}
