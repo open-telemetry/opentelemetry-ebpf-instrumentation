@@ -14,14 +14,14 @@ import (
 )
 
 type AppDirs struct {
-	App             string
-	PythonPath      []string
-	AppOnImportPath bool
+	App         string
+	ImportRoots []string
+	Target      string
 }
 
 // AppDirsForPID returns the local application directory for a Python process,
-// the existing directories on its PYTHONPATH, and whether the application
-// directory is on the import path.
+// the existing directories on its import path in the order Python searches
+// them, and the file of its launch target when it can be resolved.
 func AppDirsForPID(pid app.PID, env map[string]string) (AppDirs, error) {
 	exe, args, err := cmdlineForPID(pid)
 	if err != nil {
@@ -38,35 +38,20 @@ func AppDirsForPID(pid app.PID, env map[string]string) (AppDirs, error) {
 	if err != nil {
 		return AppDirs{}, err
 	}
+	target, _, _ := resolveTargetPath(root, cwd, launch, env)
 	return AppDirs{
-		App:             dir,
-		PythonPath:      pythonPathDirs(root, cwd, launch.PathConfig, env["PYTHONPATH"]),
-		AppOnImportPath: appOnImportPath(root, cwd, dir, launch, env),
+		App:         dir,
+		ImportRoots: importRootDirs(root, cwd, importSearchPaths(cwd, launch, env)),
+		Target:      target,
 	}, nil
 }
 
-func appOnImportPath(root, cwd, appDir string, launch frameworks.PythonLaunch, env map[string]string) bool {
-	safePath := launch.PathConfig.SafePath ||
-		!launch.PathConfig.IgnorePythonEnvironment && env["PYTHONSAFEPATH"] != ""
-	if !safePath {
-		return true
-	}
-	return slices.ContainsFunc(launch.SearchPaths, func(searchPath string) bool {
-		path, info, ok := langtools.StatProcessPath(root, cwd, searchPath)
-		return ok && info.IsDir() && path == appDir
-	})
-}
-
-// pythonPathDirs resolves the PYTHONPATH entries that are directories, with an
-// empty entry standing for the working directory as it does for Python. The
+// importRootDirs resolves the import path entries that are directories. The
 // filesystem root is skipped: it holds far more than the application, and the
 // scan would spend its file limit on the system.
-func pythonPathDirs(root, cwd string, pathConfig frameworks.PythonPathConfig, pythonPath string) []string {
-	if pathConfig.IgnorePythonEnvironment {
-		return nil
-	}
+func importRootDirs(root, cwd string, paths []string) []string {
 	var dirs []string
-	for _, entry := range targetSearchRoots(cwd, nil, pythonPath, false) {
+	for _, entry := range paths {
 		if entry == string(filepath.Separator) {
 			continue
 		}

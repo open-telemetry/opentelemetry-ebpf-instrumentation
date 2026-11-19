@@ -434,26 +434,36 @@ func djangoModuleNames(roots []string, file string) []string {
 	return names
 }
 
-func shadowedDjangoFile(scanDirs []string, file string, modules map[string]string) bool {
-	shadowed := false
-	for _, name := range djangoModuleNames(scanDirs, file) {
-		resolved, ok := modules[name]
-		if !ok {
-			continue
-		}
-		if resolved == file {
+func shadowedDjangoFile(scanDirs, importRoots []string, file string, modules map[string]string) bool {
+	importNames := djangoModuleNames(importRoots, file)
+	for _, name := range importNames {
+		if modules[name] == file {
 			return false
 		}
-		shadowed = true
 	}
-	return shadowed
+	if len(importNames) > 0 {
+		return true
+	}
+	for _, name := range djangoModuleNames(scanDirs, file) {
+		if resolved, ok := modules[name]; ok && resolved != file {
+			return true
+		}
+	}
+	return false
 }
 
 // djangoRootFiles selects starting points for route expansion. Included files
 // contribute routes through their parent prefixes.
-func djangoRootFiles(scanDirs []string, files map[string][]djangoRoute, modules map[string]string) []string {
+func djangoRootFiles(scanDirs, importRoots []string, files map[string][]djangoRoute, modules map[string]string) []string {
+	live := make(map[string][]djangoRoute, len(files))
+	for file, declarations := range files {
+		if len(declarations) > 0 && !shadowedDjangoFile(scanDirs, importRoots, file, modules) {
+			live[file] = declarations
+		}
+	}
+
 	included := map[string]struct{}{}
-	for _, declarations := range files {
+	for _, declarations := range live {
 		for _, declaration := range declarations {
 			if file, ok := modules[declaration.includeModule]; ok {
 				included[file] = struct{}{}
@@ -462,8 +472,8 @@ func djangoRootFiles(scanDirs []string, files map[string][]djangoRoute, modules 
 	}
 
 	var roots []string
-	for file, declarations := range files {
-		if _, ok := included[file]; !ok && len(declarations) > 0 && !shadowedDjangoFile(scanDirs, file, modules) {
+	for file := range live {
+		if _, ok := included[file]; !ok {
 			roots = append(roots, file)
 		}
 	}
@@ -535,7 +545,7 @@ func resolveDjangoRoutes(ctx context.Context, scanDirs, importRoots []string, fi
 			routes["/"+prefix+declaration.path] = struct{}{}
 		}
 	}
-	for _, file := range djangoRootFiles(scanDirs, files, modules) {
+	for _, file := range djangoRootFiles(scanDirs, importRoots, files, modules) {
 		// Included files are reached through their mounts rather than as roots.
 		visit(file, "urlpatterns", "")
 	}

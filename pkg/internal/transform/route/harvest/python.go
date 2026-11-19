@@ -53,28 +53,25 @@ func ExtractPythonRoutes(ctx context.Context, fi *exec.FileInfo) (*RouteHarveste
 	if err != nil {
 		return nil, err
 	}
-	importRoots := dirs.PythonPath
-	if dirs.AppOnImportPath {
-		importRoots = append([]string{dirs.App}, dirs.PythonPath...)
-	}
-	return extractPythonRoutesFrom(ctx, append([]string{dirs.App}, dirs.PythonPath...), importRoots, maxPythonFiles)
+	return extractPythonRoutesFrom(ctx, append([]string{dirs.App}, dirs.ImportRoots...), dirs.ImportRoots, dirs.Target, maxPythonFiles)
 }
 
 func extractPythonRoutes(ctx context.Context, dirs ...string) (*RouteHarvesterResult, error) {
-	return extractPythonRoutesFrom(ctx, dirs, dirs, maxPythonFiles)
+	return extractPythonRoutesFrom(ctx, dirs, dirs, "", maxPythonFiles)
 }
 
 // extractPythonRoutesFrom scans the application directory, dirs[0], and then
 // any further import roots, sharing maxFiles across all of them. Django
 // includes resolve against importRoots, in the order Python searches them.
-func extractPythonRoutesFrom(ctx context.Context, dirs, importRoots []string, maxFiles int) (*RouteHarvesterResult, error) {
+// The installed package holding target, the launched module, is scanned.
+func extractPythonRoutesFrom(ctx context.Context, dirs, importRoots []string, target string, maxFiles int) (*RouteHarvesterResult, error) {
 	log := slog.With("component", "route.harvester.python")
 	e := pythonExtractor{
 		routes:       map[string]struct{}{},
 		djangoRoutes: map[string][]djangoRoute{},
 	}
 	kind := PartialRoutes
-	roots, boundaries := pythonScanRoots(dirs)
+	roots, boundaries := pythonScanRoots(dirs, target)
 	remaining := maxFiles
 	for i, root := range roots {
 		scanned, err := walkPythonFiles(ctx, root, remaining, boundaries, func(path string) error {
@@ -117,31 +114,38 @@ func extractPythonRoutesFrom(ctx context.Context, dirs, importRoots []string, ma
 	return &RouteHarvesterResult{Routes: result, Kind: kind}, nil
 }
 
-// pythonScanRoots returns the directories to walk, the application
-// directory, dirs[0], first, followed by its import roots without duplicates.
-// Installation directories such as site-packages are left out, and the
-// packages that the .dist-info metadata of a walked directory declares are
-// skipped: their routes are not the application's. Every other root, every
-// left-out directory and every installed package is a boundary that no walk
-// enters, so no file is scanned twice and an explicit root is scanned even
-// when an enclosing walk would skip it by name.
-func pythonScanRoots(dirs []string) ([]string, map[string]struct{}) {
-	roots := make([]string, 0, len(dirs))
+// pythonScanRoots returns the directories to walk: the application
+// directory, dirs[0], first, then the import roots inside it, then the others,
+// without duplicates. Installation directories such as site-packages are left
+// out, and the packages that the .dist-info metadata of a walked directory
+// declares are skipped, except the one holding target: their routes are not
+// the application's. Every other root, every left-out directory and every
+// skipped package is a boundary that no walk enters, so no file is scanned
+// twice and an explicit root is scanned even when an enclosing walk would
+// skip it by name.
+func pythonScanRoots(dirs []string, target string) ([]string, map[string]struct{}) {
+	var inside, outside []string
 	boundaries := map[string]struct{}{}
 	for i, dir := range dirs {
-		if slices.Contains(roots, dir) {
+		if _, seen := boundaries[dir]; seen {
 			continue
 		}
 		boundaries[dir] = struct{}{}
 		if i > 0 && pythonInstallationDir(dir) {
 			continue
 		}
-		roots = append(roots, dir)
+		if langtools.PathWithinBoundary(dirs[0], dir) {
+			inside = append(inside, dir)
+		} else {
+			outside = append(outside, dir)
+		}
 		for _, installed := range installedPythonPackages(dir) {
-			boundaries[installed] = struct{}{}
+			if target == "" || !langtools.PathWithinBoundary(installed, target) {
+				boundaries[installed] = struct{}{}
+			}
 		}
 	}
-	return roots, boundaries
+	return append(inside, outside...), boundaries
 }
 
 func pythonInstallationDir(dir string) bool {

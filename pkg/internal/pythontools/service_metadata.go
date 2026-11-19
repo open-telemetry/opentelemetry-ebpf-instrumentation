@@ -156,24 +156,7 @@ func resolveTargetPath(root, cwd string, launch frameworks.PythonLaunch, env map
 		return "", "", false
 	}
 
-	pathConfig := launch.PathConfig
-
-	if !pathConfig.IgnorePythonEnvironment && env["PYTHONSAFEPATH"] != "" {
-		pathConfig.SafePath = true
-	}
-	pythonPath := env["PYTHONPATH"]
-	if pathConfig.IgnorePythonEnvironment {
-		pythonPath = ""
-	}
-	includeCWD := !pathConfig.SafePath || launch.TargetKind == frameworks.TargetFile
-	launcherPaths := launch.SearchPaths
-	if launch.ScriptDir != "" {
-		includeCWD = false
-		if !pathConfig.SafePath {
-			launcherPaths = append(slices.Clone(launcherPaths), launch.ScriptDir)
-		}
-	}
-	roots := targetSearchRoots(cwd, launcherPaths, pythonPath, includeCWD)
+	roots := importSearchPaths(cwd, launch, env)
 	switch launch.TargetKind {
 	case frameworks.TargetFile:
 		candidates := []targetCandidate{{path: target, target: target}}
@@ -313,6 +296,31 @@ func regularProcessFile(root, base, path string) (string, bool) {
 func processDirectory(root, path string) bool {
 	_, info, ok := langtools.StatProcessPath(root, "/", path)
 	return ok && info.IsDir()
+}
+
+func importSearchPaths(cwd string, launch frameworks.PythonLaunch, env map[string]string) []string {
+	pathConfig := launch.PathConfig
+
+	if !pathConfig.IgnorePythonEnvironment && env["PYTHONSAFEPATH"] != "" {
+		pathConfig.SafePath = true
+	}
+	pythonPath := env["PYTHONPATH"]
+	if pathConfig.IgnorePythonEnvironment {
+		pythonPath = ""
+	}
+	includeCWD := !pathConfig.SafePath || launch.TargetKind == frameworks.TargetFile
+	launcherPaths := launch.SearchPaths
+	scriptDir := launch.ScriptDir
+	if launch.TargetKind == frameworks.TargetScriptPath {
+		scriptDir = filepath.Dir(launch.Target)
+	}
+	if scriptDir != "" {
+		includeCWD = false
+		if !pathConfig.SafePath {
+			launcherPaths = append(slices.Clone(launcherPaths), scriptDir)
+		}
+	}
+	return targetSearchRoots(cwd, launcherPaths, pythonPath, includeCWD)
 }
 
 func targetSearchRoots(cwd string, launcherPaths []string, pythonPath string, includeCWD bool) []string {

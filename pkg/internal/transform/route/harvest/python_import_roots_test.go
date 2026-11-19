@@ -96,7 +96,7 @@ func TestPythonScanRoots(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			roots, boundaries := pythonScanRoots(tc.dirs)
+			roots, boundaries := pythonScanRoots(tc.dirs, "")
 			assert.Equal(t, tc.roots, roots)
 			assert.ElementsMatch(t, tc.boundaries, slices.Collect(maps.Keys(boundaries)))
 		})
@@ -335,7 +335,7 @@ func TestExtractPythonRoutesSharesTheFileLimitAcrossRoots(t *testing.T) {
 `)
 	dirs := []string{app, first, second}
 
-	result, err := extractPythonRoutesFrom(t.Context(), dirs, dirs, 2)
+	result, err := extractPythonRoutesFrom(t.Context(), dirs, dirs, "", 2)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/app", "/first/a"}, result.Routes)
@@ -362,7 +362,7 @@ urlpatterns = [
 `)
 	}
 
-	result, err := extractPythonRoutesFrom(t.Context(), []string{app, lib}, []string{lib}, maxPythonFiles)
+	result, err := extractPythonRoutesFrom(t.Context(), []string{app, lib}, []string{lib}, "", maxPythonFiles)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/shop/lib/"}, result.Routes)
@@ -418,4 +418,96 @@ urlpatterns = [
 
 	require.NoError(t, err)
 	assert.Empty(t, result.Routes)
+}
+
+func writeDjangoURLs(t *testing.T, path, patterns string) {
+	t.Helper()
+	writePythonFile(t, path, `
+from django.urls import include, path
+
+urlpatterns = [
+    `+patterns+`
+]
+`)
+}
+
+func TestExtractPythonDjangoIncludeFollowsLauncherSearchOrder(t *testing.T) {
+	app := t.TempDir()
+	lib := t.TempDir()
+	writeDjangoURLs(t, filepath.Join(app, "project", "urls.py"), `path("shop/", include("checkout.urls")),`)
+	for dir, route := range map[string]string{app: "app/", lib: "lib/"} {
+		writePythonFile(t, filepath.Join(dir, "checkout", "__init__.py"), "")
+		writeDjangoURLs(t, filepath.Join(dir, "checkout", "urls.py"), `path("`+route+`", view),`)
+	}
+
+	result, err := extractPythonRoutesFrom(t.Context(), []string{app, lib}, []string{lib, app}, "", maxPythonFiles)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/shop/lib/"}, result.Routes)
+}
+
+func TestExtractPythonRoutesScansNestedRootsBeforeExternalOnes(t *testing.T) {
+	app := t.TempDir()
+	shared := t.TempDir()
+	src := filepath.Join(app, "src")
+	writePythonFile(t, filepath.Join(app, "main.py"), `
+@app.get("/app")
+`)
+	writePythonFile(t, filepath.Join(src, "users.py"), `
+@app.get("/src")
+`)
+	for _, name := range []string{"a", "b"} {
+		writePythonFile(t, filepath.Join(shared, name+".py"), "@app.get(\"/shared/"+name+"\")\n")
+	}
+	dirs := []string{app, shared, src}
+
+	result, err := extractPythonRoutesFrom(t.Context(), dirs, dirs, "", 2)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/app", "/src"}, result.Routes)
+}
+
+func TestExtractPythonRoutesScansThePackagedApplication(t *testing.T) {
+	app := t.TempDir()
+	target := filepath.Join(app, "myapp", "__main__.py")
+	writePythonFile(t, filepath.Join(app, "myapp", "__init__.py"), "")
+	writePythonFile(t, target, "")
+	writePythonFile(t, filepath.Join(app, "myapp", "routes.py"), `
+@app.get("/users/{user_id}")
+`)
+	writeRecord(t, filepath.Join(app, "myapp-1.0.dist-info"),
+		"myapp/__init__.py,sha256=x,0\nmyapp/__main__.py,sha256=x,0\nmyapp/routes.py,sha256=x,10\n")
+
+	result, err := extractPythonRoutesFrom(t.Context(), []string{app}, []string{app}, target, maxPythonFiles)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/users/{user_id}"}, result.Routes)
+}
+
+func TestExtractPythonDjangoBlockedModuleIsNotARoot(t *testing.T) {
+	app := t.TempDir()
+	lib := t.TempDir()
+	writePythonFile(t, filepath.Join(app, "checkout.py"), "")
+	writePythonFile(t, filepath.Join(lib, "checkout", "__init__.py"), "")
+	writeDjangoURLs(t, filepath.Join(lib, "checkout", "urls.py"), `path("lib/", view),`)
+
+	result, err := extractPythonRoutes(t.Context(), app, lib)
+
+	require.NoError(t, err)
+	assert.Empty(t, result.Routes)
+}
+
+func TestExtractPythonDjangoShadowedIncludeDoesNotHideARoot(t *testing.T) {
+	app := t.TempDir()
+	lib := t.TempDir()
+	writeDjangoURLs(t, filepath.Join(app, "project", "urls.py"), `path("shop/", include("checkout.urls")),`)
+	writePythonFile(t, filepath.Join(app, "checkout", "__init__.py"), "")
+	writeDjangoURLs(t, filepath.Join(app, "checkout", "urls.py"), `path("app/", view),`)
+	writePythonFile(t, filepath.Join(lib, "checkout", "__init__.py"), "")
+	writeDjangoURLs(t, filepath.Join(lib, "checkout", "urls.py"), `path("loop/", include("project.urls")),`)
+
+	result, err := extractPythonRoutes(t.Context(), app, lib)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/shop/app/"}, result.Routes)
 }

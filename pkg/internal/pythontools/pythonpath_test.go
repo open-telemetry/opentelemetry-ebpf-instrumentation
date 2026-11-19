@@ -10,11 +10,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"go.opentelemetry.io/obi/pkg/internal/pythontools/frameworks"
 )
 
-func TestPythonPathDirs(t *testing.T) {
+func TestImportRootDirsFromPythonPath(t *testing.T) {
 	root := t.TempDir()
 	for _, dir := range []string{"app", "lib", "srv/shared"} {
 		require.NoError(t, os.MkdirAll(filepath.Join(root, dir), 0o755))
@@ -30,7 +28,6 @@ func TestPythonPathDirs(t *testing.T) {
 		name       string
 		pythonPath string
 		cwd        string
-		pathConfig frameworks.PythonPathConfig
 		want       []string
 	}{
 		{name: "unset"},
@@ -44,23 +41,18 @@ func TestPythonPathDirs(t *testing.T) {
 		{name: "file entry", pythonPath: "/module.py"},
 		{name: "filesystem root", pythonPath: "/:/lib", want: []string{lib}},
 		{name: "relative path up to the filesystem root", pythonPath: "../../.."},
-		{
-			name:       "ignored with -E or -I",
-			pythonPath: "/lib",
-			pathConfig: frameworks.PythonPathConfig{IgnorePythonEnvironment: true},
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cwd := tc.cwd
 			if cwd == "" {
 				cwd = "/app"
 			}
-			assert.Equal(t, tc.want, pythonPathDirs(root, cwd, tc.pathConfig, tc.pythonPath))
+			assert.Equal(t, tc.want, importRootDirs(root, cwd, targetSearchRoots(cwd, nil, tc.pythonPath, false)))
 		})
 	}
 }
 
-func TestAppOnImportPath(t *testing.T) {
+func TestImportRootDirsFollowTheLaunch(t *testing.T) {
 	root := t.TempDir()
 	for _, dir := range []string{"app", "lib"} {
 		require.NoError(t, os.MkdirAll(filepath.Join(root, dir), 0o755))
@@ -68,52 +60,38 @@ func TestAppOnImportPath(t *testing.T) {
 	host, err := filepath.EvalSymlinks(root)
 	require.NoError(t, err)
 	app := filepath.Join(host, "app")
+	lib := filepath.Join(host, "lib")
+	pythonPath := map[string]string{"PYTHONPATH": "/lib"}
+	safePythonPath := map[string]string{"PYTHONPATH": "/lib", "PYTHONSAFEPATH": "1"}
 
 	for _, tc := range []struct {
 		name string
+		exe  string
 		args []string
 		env  map[string]string
-		want bool
-	}{
-		{name: "script", args: []string{"server.py"}, want: true},
-		{name: "-P script", args: []string{"-P", "server.py"}, want: false},
-		{name: "-I script", args: []string{"-I", "server.py"}, want: false},
-		{name: "PYTHONSAFEPATH", args: []string{"server.py"}, env: map[string]string{"PYTHONSAFEPATH": "1"}, want: false},
-		{name: "-E ignores PYTHONSAFEPATH", args: []string{"-E", "server.py"}, env: map[string]string{"PYTHONSAFEPATH": "1"}, want: true},
-		{name: "-P launcher adding the application directory", args: []string{"-P", "-m", "uvicorn", "server:app"}, want: true},
-		{name: "-P launcher adding another directory", args: []string{"-P", "/app/manage.py", "runserver", "--pythonpath=/lib"}, want: false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			launch := parsePythonLaunch("python3", tc.args, tc.env)
-			assert.Equal(t, tc.want, appOnImportPath(root, "/app", app, launch, tc.env))
-		})
-	}
-}
-
-func TestPythonPathDirsFollowParsedLaunchFlags(t *testing.T) {
-	root := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "lib"), 0o755))
-	host, err := filepath.EvalSymlinks(root)
-	require.NoError(t, err)
-	lib := filepath.Join(host, "lib")
-
-	for _, tc := range []struct {
-		name string
-		args []string
 		want []string
 	}{
-		{name: "script", args: []string{"app.py"}, want: []string{lib}},
-		{name: "command string", args: []string{"-c", "import app"}, want: []string{lib}},
-		{name: "command string with -E", args: []string{"-E", "-c", "import app"}},
-		{name: "command string with -I", args: []string{"-I", "-c", "import app"}},
-		{name: "combined -Ec", args: []string{"-Ec", "import app"}},
-		{name: "stdin with -E", args: []string{"-E", "-"}},
-		{name: "interactive with -I", args: []string{"-I"}},
-		{name: "script with -E", args: []string{"-E", "app.py"}},
+		{name: "script", args: []string{"server.py"}, env: pythonPath, want: []string{app, lib}},
+		{name: "-P script", args: []string{"-P", "server.py"}, env: pythonPath, want: []string{lib}},
+		{name: "-I script", args: []string{"-I", "server.py"}, env: pythonPath},
+		{name: "-E script", args: []string{"-E", "server.py"}, env: pythonPath, want: []string{app}},
+		{name: "PYTHONSAFEPATH", args: []string{"server.py"}, env: safePythonPath, want: []string{lib}},
+		{name: "-E ignores PYTHONSAFEPATH", args: []string{"-E", "server.py"}, env: safePythonPath, want: []string{app}},
+		{name: "command string", args: []string{"-c", "import server"}, env: pythonPath, want: []string{app, lib}},
+		{name: "command string with -E", args: []string{"-E", "-c", "import server"}, env: pythonPath, want: []string{app}},
+		{name: "command string with -I", args: []string{"-Ic", "import server"}, env: pythonPath},
+		{name: "stdin with -E", args: []string{"-E", "-"}, env: pythonPath, want: []string{app}},
+		{name: "-P launcher adding the application directory", args: []string{"-P", "-m", "uvicorn", "server:app"}, env: pythonPath, want: []string{app, lib}},
+		{name: "-P launcher adding another directory", args: []string{"-P", "/app/manage.py", "runserver", "--pythonpath=/lib"}, env: pythonPath, want: []string{lib}},
+		{name: "gunicorn search path before the application", exe: "gunicorn", args: []string{"--pythonpath=/lib", "project.wsgi:application"}, env: pythonPath, want: []string{lib, app}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			launch := parsePythonLaunch("python3", tc.args, nil)
-			assert.Equal(t, tc.want, pythonPathDirs(root, "/", launch.PathConfig, "/lib"))
+			exe := tc.exe
+			if exe == "" {
+				exe = "python3"
+			}
+			launch := parsePythonLaunch(exe, tc.args, tc.env)
+			assert.Equal(t, tc.want, importRootDirs(root, "/app", importSearchPaths("/app", launch, tc.env)))
 		})
 	}
 }

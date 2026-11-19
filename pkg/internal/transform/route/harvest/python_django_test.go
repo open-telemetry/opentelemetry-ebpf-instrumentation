@@ -552,7 +552,7 @@ func TestDjangoRootFiles(t *testing.T) {
 	}
 	modules := indexDjangoModules([]string{dir}, files)
 
-	assert.Equal(t, []string{rootFile}, djangoRootFiles([]string{dir}, files, modules))
+	assert.Equal(t, []string{rootFile}, djangoRootFiles([]string{dir}, []string{dir}, files, modules))
 }
 
 func TestResolveDjangoRoutes(t *testing.T) {
