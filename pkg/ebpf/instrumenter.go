@@ -1396,52 +1396,49 @@ func gatherOffsetsImpl(
 		substringNames = append(substringNames, symbolNames(probes, ebpfcommon.SymbolMatcherContains)...)
 	}
 
+	substringMatches := map[string]string{}
 	syms, err := procs.FindExeSymbolsMatching(elfFile, func(name string) bool {
-		if _, ok := exactNames[name]; ok {
-			return true
-		}
+		_, matched := exactNames[name]
 		for _, substring := range substringNames {
 			if strings.Contains(name, substring) {
-				return true
+				// Keep the last ELF match, as the v1 substring lookup did.
+				// The callback's name refers to memory unmapped after the scan.
+				substringMatches[substring] = strings.Clone(name)
+				matched = true
 			}
 		}
-		return false
+		return matched
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to lookup symbols for %s: %w", instrPath, err)
 	}
 
+	substringSyms := make(map[string]procs.Sym, len(substringMatches))
+	for substring, name := range substringMatches {
+		substringSyms[substring] = syms[name]
+	}
+
 	errs := make([]error, len(probeMaps))
 	for i, probes := range probeMaps {
-		errs[i] = resolveProbeOffsets(probes, syms, instrPath, log)
+		errs[i] = resolveProbeOffsets(probes, syms, substringSyms, instrPath, log)
 	}
 
 	return errs, nil
 }
 
-func findProbeSymbol(syms map[string]procs.Sym, name string, matcher ebpfcommon.SymbolMatcher) (procs.Sym, bool) {
-	if matcher != ebpfcommon.SymbolMatcherContains {
-		sym, ok := syms[name]
-		return sym, ok
-	}
-
-	for symbolName, sym := range syms {
-		if strings.Contains(symbolName, name) {
-			return sym, true
-		}
-	}
-	return procs.Sym{}, false
-}
-
 func resolveProbeOffsets(
 	probes map[string][]*ebpfcommon.ProbeDesc,
-	syms map[string]procs.Sym,
+	exactSyms, substringSyms map[string]procs.Sym,
 	instrPath string,
 	log *slog.Logger,
 ) error {
 	for symbolName, probeArray := range probes {
 		for _, probe := range probeArray {
-			sym, ok := findProbeSymbol(syms, symbolName, probe.SymbolMatcher)
+			syms := exactSyms
+			if probe.SymbolMatcher == ebpfcommon.SymbolMatcherContains {
+				syms = substringSyms
+			}
+			sym, ok := syms[symbolName]
 
 			if !ok {
 				probe.Skip = true

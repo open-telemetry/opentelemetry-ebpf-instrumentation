@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1641,6 +1642,53 @@ func TestGatherOffsetsWithExactAndSubstringMatchers(t *testing.T) {
 		assert.False(t, probe.Skip)
 		assert.Equal(t, expected.startOffset, probe.StartOffset)
 		assert.Equal(t, expected.returnOffsets, probe.ReturnOffsets)
+	}
+}
+
+func TestGatherOffsetsReusesSubstringMatch(t *testing.T) {
+	elfFile := instrumenterFixtureELF(t)
+	const substring = "setpro"
+
+	var matchedName string
+	matchedNames := map[string]struct{}{}
+	for _, symbols := range []func() ([]elf.Symbol, error){elfFile.Symbols, elfFile.DynamicSymbols} {
+		syms, err := symbols()
+		if errors.Is(err, elf.ErrNoSymbols) {
+			continue
+		}
+		require.NoError(t, err)
+		for _, sym := range syms {
+			if elf.ST_TYPE(sym.Info) == elf.STT_FUNC && strings.Contains(sym.Name, substring) {
+				matchedName = sym.Name
+				matchedNames[sym.Name] = struct{}{}
+			}
+		}
+	}
+	require.GreaterOrEqual(t, len(matchedNames), 2)
+
+	exact := &ebpfcommon.ProbeDesc{Required: true}
+	entry := &ebpfcommon.ProbeDesc{
+		Start: &ebpf.Program{}, SymbolMatcher: ebpfcommon.SymbolMatcherContains, Required: true,
+	}
+	exit := &ebpfcommon.ProbeDesc{
+		End: &ebpf.Program{}, SymbolMatcher: ebpfcommon.SymbolMatcherContains, Required: true,
+	}
+	another := &ebpfcommon.ProbeDesc{SymbolMatcher: ebpfcommon.SymbolMatcherContains, Required: true}
+	missingExact := &ebpfcommon.ProbeDesc{}
+	probeMaps := []map[string][]*ebpfcommon.ProbeDesc{
+		{matchedName: {exact}, substring: {missingExact, entry, exit}},
+		{substring: {another}},
+	}
+	for range 20 {
+		errs, err := gatherOffsetsImpl(elfFile, probeMaps, "libbsd.so", slog.Default())
+		require.NoError(t, err)
+		require.Equal(t, []error{nil, nil}, errs)
+		require.True(t, missingExact.Skip)
+		for _, probe := range []*ebpfcommon.ProbeDesc{entry, exit, another} {
+			require.False(t, probe.Skip)
+			require.Equal(t, exact.StartOffset, probe.StartOffset)
+			require.Equal(t, exact.ReturnOffsets, probe.ReturnOffsets)
+		}
 	}
 }
 
