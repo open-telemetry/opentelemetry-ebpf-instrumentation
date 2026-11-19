@@ -2074,10 +2074,7 @@ int obi_packet_extender_create_h2_tp(struct sk_msg_md *msg) {
         const rust_http_request_t *rust =
             rust_current_h2_request(bpf_get_current_pid_tgid(), t_ctx->e_key.stream_id);
         if (rust) {
-            tp_p->tp = rust->wire;
-            tp_p->pid = t_ctx->p_conn.pid;
-            tp_p->valid = 1;
-            tp_p->req_type = k_event_type_http_client;
+            rust_socket_trace(rust, t_ctx->p_conn.pid, tp_p);
         } else {
             init_tp_ctx_parent_tp(t_ctx, NULL);
             if (!create_trace_info(t_ctx, tp_p)) {
