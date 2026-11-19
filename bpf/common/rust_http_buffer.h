@@ -149,5 +149,6 @@ static __always_inline bool rust_http2_append(rust_http_args_t *args,
         return false;
     }
 
+    args->request.inject = 0;
     return true;
 }

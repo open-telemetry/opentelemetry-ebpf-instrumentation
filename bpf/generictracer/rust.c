@@ -98,7 +98,7 @@ static __always_inline void rust_new_task(u64 id, u64 address) {
     }
 
     bpf_dbg_printk("rust task create task=%llx", key.addr);
-    rust_copy_context(id, &rust_task_context, &key);
+    rust_inherit_task_context(id, &key);
     bpf_map_delete_elem(&rust_io_connections, &key);
     bpf_map_delete_elem(&rust_h2_tasks, &key);
     bpf_map_delete_elem(&rust_http1_requests, &key);

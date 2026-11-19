@@ -110,9 +110,12 @@ int main(void) {
     rust_set_context(ids[0], &parent);
 
     const rust_task_key_t child = {.pid = pid, .addr = 200};
-    rust_copy_context(ids[0], &rust_task_context, &child);
+    rust_inherit_task_context(ids[0], &child);
     run_task(1, child.addr);
     expect_context(1, 42);
+    // The spawned copy may outlive its request; the spawner's own context is unchanged.
+    assert(rust_current_context(ids[1])->response_sent == 1);
+    assert(rust_current_context(ids[0])->response_sent == 0);
 
     // Two messages remain independent even when dequeued in reverse order.
     const rust_task_key_t slot1 = {.pid = pid, .addr = 1000};
@@ -125,6 +128,8 @@ int main(void) {
     expect_context(1, 24);
     rust_adopt_channel_context(ids[1], &slot1);
     expect_context(1, 42);
+    // A per-request message handoff is not marked as possibly ended.
+    assert(rust_current_context(ids[1])->response_sent == 0);
     assert(!lookup(&rust_channel_context, &slot1));
 
     // A reused slot and an evicted message must clear the driver's old parent.
@@ -137,7 +142,7 @@ int main(void) {
     expect_context(1, 0);
 
     // Replacing a task snapshot clears its old parent; invalid poll depth is rejected.
-    rust_copy_context(ids[0], &rust_task_context, &child);
+    rust_inherit_task_context(ids[0], &child);
     expect_context(1, 0);
     threads[1].depth = k_rust_poll_depth + 1;
     assert(!rust_current_context(ids[1]));

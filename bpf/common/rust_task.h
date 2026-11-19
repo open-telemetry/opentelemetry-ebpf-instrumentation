@@ -147,6 +147,21 @@ static __always_inline void rust_copy_context(u64 id, void *map, const rust_task
     }
 }
 
+// A spawned task can outlive the request that spawned it, such as a database
+// connection driver started by its first caller and reused by later requests.
+// Its inherited parent is therefore marked as possibly ended: parent_kind() then
+// makes the link conditional, and userspace keeps it only for client calls that
+// start before that request ends.
+static __always_inline void rust_inherit_task_context(u64 id, const rust_task_key_t *key) {
+    rust_copy_context(id, &rust_task_context, key);
+
+    // The task is not published to any worker yet, so nothing reads this copy concurrently.
+    tp_info_pid_t *inherited = bpf_map_lookup_elem(&rust_task_context, key);
+    if (inherited && inherited->valid) {
+        inherited->response_sent = 1;
+    }
+}
+
 // Restores a queued channel context onto the receiving task and consumes the queue entry.
 // A missing entry clears the receiver's previous context.
 static __always_inline void rust_adopt_channel_context(u64 id, const rust_task_key_t *key) {

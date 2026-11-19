@@ -381,8 +381,9 @@ static __always_inline void http2_grpc_start(void *ctx,
         if (!injected ||
             (bpf_memcmp(tp_p->tp.trace_id, rust_request->wire.trace_id, TRACE_ID_SIZE_BYTES) == 0 &&
              bpf_memcmp(tp_p->tp.span_id, rust_request->wire.span_id, SPAN_ID_SIZE_BYTES) == 0)) {
-            h2g_info->parent_status =
-                rust_request->parent.valid ? k_parent_status_live : k_parent_status_none;
+            h2g_info->parent_status = rust_request->parent.valid
+                                          ? parent_kind(&rust_request->parent)
+                                          : k_parent_status_none;
         }
         rust_request->observed = 1;
     }

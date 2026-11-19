@@ -1378,12 +1378,19 @@ int obi_packet_extender_write_msg_tp(struct sk_msg_md *msg) {
 
     bpf_msg_pull_data(msg, 0, msg->size, 0);
 
+    tailcall_ctx *t_ctx = tailcall_ctx_mem();
+
     if (!write_msg_traceparent(msg, &tp_p->tp)) {
         bpf_d_printk("failed to write traceparent [%s]", __FUNCTION__);
+        // Nothing adopts an unwritten entry, so it would outlive this request and
+        // put its trace on the next request sent over this connection. An entry
+        // a TCP option already carries is written and stays.
+        if (t_ctx && !tp_p->written) {
+            clear_tp_info_pid(&t_ctx->e_key);
+        }
         return SK_PASS;
     }
 
-    tailcall_ctx *t_ctx = tailcall_ctx_mem();
     if (t_ctx) {
         tp_p->written = 1;
         set_tp_info_pid(&t_ctx->e_key, tp_p);

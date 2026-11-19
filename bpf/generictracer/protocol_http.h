@@ -1045,6 +1045,11 @@ static __always_inline int __obi_continue_protocol_http(struct pt_regs *ctx,
         set_trace_info_for_connection(&args->pid_conn.conn, TRACE_TYPE_CLIENT, tp_p);
         // clean up so that TC does not pick it up
         bpf_map_delete_elem(&outgoing_trace_map, &e_key);
+        // A Rust request's parent can be a spawned task's inherited context.
+        const rust_http_request_t *rust = rust_current_request(bpf_get_current_pid_tgid());
+        if (rust && rust->parent.valid) {
+            info->parent_status = parent_kind(&rust->parent);
+        }
         rust_observe_request(bpf_get_current_pid_tgid());
         goto skip_tp;
     }

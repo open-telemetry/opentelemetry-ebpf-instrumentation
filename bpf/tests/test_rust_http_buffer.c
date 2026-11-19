@@ -56,11 +56,13 @@ static void test_append(unsigned int fail) {
     rust_http_args_t args = {.buffer = (u64)&buffer,
                              .limit = (u64)&limit,
                              .stream_id = 3,
+                             .request.inject = 1,
                              .request.wire = {.trace_id = {1}, .span_id = {2}, .flags = 1}};
     writes = 0;
     fail_at = fail;
     bool result = rust_http2_append(&args, &config);
     assert(result == (fail == 0));
+    assert(args.request.inject == (fail != 0));
     if (fail) {
         assert(buffer.len == 10 && limit.remaining == 200 && data[2] == 1);
     } else {
@@ -91,7 +93,29 @@ static void test_append(unsigned int fail) {
     assert(!rust_http2_append(&args, &config) && writes == 0);
 }
 
+static void test_frame_fallback(void) {
+    unsigned char hpack_data[] = {0x82};
+    buffer_t hpack = {.ptr = hpack_data, .len = sizeof(hpack_data), .cap = sizeof(hpack_data)};
+    unsigned char data[256] = {
+        0, 0, 1, k_h2_frame_headers, k_h2_flag_end_headers, 0, 0, 0, 3, 0x82};
+    buffer_t buffer = {.ptr = data, .len = 10, .cap = sizeof(data)};
+    limit_t limit = {.buffer = &buffer, .remaining = 200};
+    rust_http_args_t args = {.buffer = (u64)&buffer,
+                             .hpack_buffer = (u64)&hpack,
+                             .limit = (u64)&limit,
+                             .stream_id = 3,
+                             .request.inject = 1,
+                             .request.wire = {.trace_id = {1}, .span_id = {2}, .flags = 1}};
+    writes = 0;
+    fail_at = 0;
+    assert(!rust_hpack_append(&args, &config));
+    assert(writes == 0 && args.request.inject);
+    assert(rust_http2_append(&args, &config));
+    assert(!args.request.inject && "trailers on this stream must not inject traceparent again");
+}
+
 int main(void) {
+    test_frame_fallback();
     for (unsigned int fail = 0; fail <= 4; fail++) {
         test_append(fail);
     }
