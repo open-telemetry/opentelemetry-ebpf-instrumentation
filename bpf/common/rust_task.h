@@ -201,6 +201,14 @@ rust_save_io_connection(u64 id, const pid_connection_info_t *conn, u16 orig_dpor
     }
 }
 
+// Reports whether the current task has a saved socket. The decoded HTTP/2 request
+// hook needs both the task and its socket to find the stream it adopts a parent for.
+static __always_inline bool rust_task_has_io_connection(u64 id) {
+    rust_task_key_t key = {};
+
+    return rust_current_task(id, &key) && bpf_map_lookup_elem(&rust_io_connections, &key);
+}
+
 // Returns the current task's pending HTTP/1 request unless generic capture already observed it.
 // Each connection task has one pending request for socket injection; observed requests lose ownership.
 static __always_inline rust_http_request_t *rust_current_request(u64 id) {

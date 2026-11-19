@@ -334,7 +334,8 @@ static __always_inline void http2_grpc_start(void *ctx,
 
     if (!is_client) {
         const rust_protocol_config_t *rust = rust_protocol_config(bpf_get_current_pid_tgid());
-        if (rust && rust->h2_server && rust_process_instrumented(bpf_get_current_pid_tgid())) {
+        // Only skip HPACK parsing when the decoded request hook can find this stream.
+        if (rust && rust->h2_server && rust_task_has_io_connection(bpf_get_current_pid_tgid())) {
             // Rust's decoded request hook replaces this with a header parent before
             // dispatch. Headerless requests keep the parent known for the connection.
             const u8 found_tp = find_trace_for_server_request(

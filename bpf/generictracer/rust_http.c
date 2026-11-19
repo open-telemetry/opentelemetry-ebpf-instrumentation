@@ -123,6 +123,36 @@ int GUARDED_PROG(obi_rust_http1_headers_ret, struct pt_regs *, ctx) {
     rust_http_args_t args = *saved;
     bpf_map_delete_elem(&rust_http_args, &id);
 
+    // Hyper also uses these formatters for trailers; classify before publishing ownership.
+    u64 ptr = 0;
+    if (!rust_read_u64(args.buffer, config->vec_ptr, &ptr)) {
+        bpf_dbg_printk("rust http1 request buffer unavailable vector=%llx", args.buffer);
+        return 0;
+    }
+
+    u64 len = 0;
+    if (!rust_read_u64(args.buffer, config->vec_len, &len)) {
+        bpf_dbg_printk("rust http1 request length unavailable buffer=%llx", args.buffer);
+        return 0;
+    }
+
+    unsigned char prefix[MIN_HTTP_SIZE];
+    if (len < sizeof(prefix)) {
+        bpf_dbg_printk("rust http1 request prefix too short len=%llu", len);
+        return 0;
+    }
+
+    const long read_result = bpf_probe_read_user(prefix, sizeof(prefix), (void *)ptr);
+    if (read_result != 0) {
+        bpf_dbg_printk("rust http1 request prefix unavailable buffer=%llx", args.buffer);
+        return 0;
+    }
+
+    if (!is_http_request_buf(prefix)) {
+        bpf_dbg_printk("rust http1 expected HTTP request buffer=%llx", args.buffer);
+        return 0;
+    }
+
     rust_save_request(id, &args.request);
     rust_publish_wire_parent(id, &args.request);
     if (exports_otel_traces()) {
@@ -135,29 +165,13 @@ int GUARDED_PROG(obi_rust_http1_headers_ret, struct pt_regs *, ctx) {
         return 0;
     }
 
-    u64 ptr = 0;
-    u64 len = 0;
     u64 cap = 0;
-    unsigned char prefix[MIN_HTTP_SIZE];
     unsigned char *header = rust_http_header_mem();
-    if (!header || !rust_read_u64(args.buffer, config->vec_ptr, &ptr) ||
-        !rust_read_u64(args.buffer, config->vec_len, &len) ||
-        !rust_read_u64(args.buffer, config->vec_cap, &cap) || len < sizeof(prefix) ||
+    if (!header || !rust_read_u64(args.buffer, config->vec_cap, &cap) ||
         (len + TP_SIZE) > TRACE_BUF_SIZE || cap > k_rust_max_buffer || cap < len ||
         (cap - len) < TP_SIZE || (ptr + cap) < ptr) {
         bpf_dbg_printk(
             "rust h1 buffer rejected buffer=%llx len=%llu cap=%llu", args.buffer, len, cap);
-        return 0;
-    }
-
-    const long read_result = bpf_probe_read_user(prefix, sizeof(prefix), (void *)ptr);
-    if (read_result != 0) {
-        bpf_dbg_printk("rust h1 request prefix unavailable buffer=%llx", args.buffer);
-        return 0;
-    }
-
-    if (!is_http_request_buf(prefix)) {
-        bpf_dbg_printk("rust h1 expected HTTP request buffer=%llx", args.buffer);
         return 0;
     }
 

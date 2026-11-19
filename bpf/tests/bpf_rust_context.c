@@ -58,8 +58,12 @@ static void *lookup(void *map, const void *key) {
 static long store(void *map, const void *key, const void *value, unsigned long long flags) {
     (void)flags;
     void *existing = lookup(map, key);
-    const u32 size =
-        map == &rust_http1_requests ? sizeof(rust_http_request_t) : sizeof(tp_info_pid_t);
+    u32 size = sizeof(tp_info_pid_t);
+    if (map == &rust_http1_requests) {
+        size = sizeof(rust_http_request_t);
+    } else if (map == &rust_io_connections) {
+        size = sizeof(ssl_pid_connection_info_t);
+    }
     if (existing) {
         memcpy(existing, value, size);
         return 0;
@@ -185,6 +189,17 @@ int main(void) {
     assert(!rust_current_h2_request(ids[2], 3));
     assert(rust_current_request(ids[0]));
     assert(rust_current_h2_request(ids[0], 3));
+
+    // Decoded HTTP/2 requests are only handed to the request hook when the reading
+    // task, and the socket it saved, can identify their stream there.
+    run_task(0, 500);
+    assert(!rust_task_has_io_connection(ids[0]));
+    const rust_task_key_t reader = {.pid = pid, .addr = 500};
+    const ssl_pid_connection_info_t socket = {.orig_dport = 443};
+    store(&rust_io_connections, &reader, &socket, 0);
+    assert(rust_task_has_io_connection(ids[0]));
+    threads[0].depth = 0;
+    assert(!rust_task_has_io_connection(ids[0]));
 
     printf("OK: %s\n", __FILE__);
     return 0;
