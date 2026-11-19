@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -160,48 +159,52 @@ func installedPythonPackages(dir string) []string {
 		if !entry.IsDir() || !strings.HasSuffix(entry.Name(), ".dist-info") {
 			continue
 		}
-		for _, name := range distributionTopLevelNames(filepath.Join(dir, entry.Name())) {
-			installed = append(installed, filepath.Join(dir, name), filepath.Join(dir, name+".py"))
+		for _, owned := range distributionOwnedPaths(filepath.Join(dir, entry.Name(), "RECORD")) {
+			installed = append(installed, filepath.Join(dir, owned))
 		}
 	}
 	return installed
 }
 
-func distributionTopLevelNames(distInfo string) []string {
-	if names := readDistributionNames(filepath.Join(distInfo, "top_level.txt"), topLevelName); len(names) > 0 {
-		return names
-	}
-	return readDistributionNames(filepath.Join(distInfo, "RECORD"), recordTopLevelName)
-}
-
-func readDistributionNames(path string, name func(string) string) []string {
-	file, err := os.Open(path)
-	if err != nil {
+func distributionOwnedPaths(record string) []string {
+	file, _ := langtools.OpenMetadataFile(record, maxPythonFileBytes)
+	if file == nil {
 		return nil
 	}
 	defer file.Close()
 
-	var names []string
-	scan := bufio.NewScanner(io.LimitReader(file, maxPythonFileBytes))
+	recorded := map[string]struct{}{}
+	scan := bufio.NewScanner(file)
 	for scan.Scan() {
-		if n := name(scan.Text()); n != "" && !slices.Contains(names, n) {
-			names = append(names, n)
+		entry, _, _ := strings.Cut(scan.Text(), ",")
+		path := filepath.Clean(filepath.FromSlash(entry))
+		if entry == "" || filepath.IsAbs(path) || path == ".." || strings.HasPrefix(path, ".."+string(filepath.Separator)) {
+			continue
+		}
+		recorded[path] = struct{}{}
+	}
+
+	var owned []string
+	for path := range recorded {
+		if filepath.Ext(path) != ".py" {
+			continue
+		}
+		if root := ownedPackageRoot(path, recorded); !slices.Contains(owned, root) {
+			owned = append(owned, root)
 		}
 	}
-	return names
+	return owned
 }
 
-func topLevelName(line string) string {
-	return strings.TrimSpace(line)
-}
-
-func recordTopLevelName(line string) string {
-	path, _, _ := strings.Cut(line, ",")
-	first, _, _ := strings.Cut(path, "/")
-	if first == "" || first == ".." || first == "__pycache__" || strings.HasSuffix(first, ".dist-info") {
-		return ""
+func ownedPackageRoot(path string, recorded map[string]struct{}) string {
+	parts := strings.Split(path, string(filepath.Separator))
+	for i := 1; i < len(parts); i++ {
+		packageDir := filepath.Join(parts[:i]...)
+		if _, ok := recorded[filepath.Join(packageDir, "__init__.py")]; ok {
+			return packageDir
+		}
 	}
-	return strings.TrimSuffix(first, ".py")
+	return path
 }
 
 func walkPythonFiles(ctx context.Context, root string, maxFiles int, boundaries map[string]struct{}, fn func(string) error) (int, error) {

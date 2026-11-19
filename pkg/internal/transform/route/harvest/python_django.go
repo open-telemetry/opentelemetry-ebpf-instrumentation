@@ -5,6 +5,7 @@ package harvest // import "go.opentelemetry.io/obi/pkg/internal/transform/route/
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"regexp"
 	"regexp/syntax"
@@ -359,9 +360,9 @@ func scanDjangoPaths(stmt string, aliases map[string]string) []djangoRoute {
 }
 
 // indexDjangoModules maps dotted include targets, such as "checkout.urls", to
-// the scanned Python files Python would import for them from the import roots,
-// which are in import order. Every scanned file is a key of files, so package
-// markers and namespace directories are known without reading the filesystem.
+// the files Python would import for them from the import roots, which are in
+// import order. Files left out of the scan, such as installed packages, still
+// take part in that precedence.
 func indexDjangoModules(roots []string, files map[string][]djangoRoute) map[string]string {
 	dirs := map[string]struct{}{}
 	for file := range files {
@@ -376,12 +377,18 @@ func indexDjangoModules(roots []string, files map[string][]djangoRoute) map[stri
 		}
 	}
 	scannedFile := func(path string) (string, bool) {
-		_, ok := files[path]
-		return path, ok
+		if _, ok := files[path]; ok {
+			return path, true
+		}
+		info, err := os.Stat(path)
+		return path, err == nil && info.Mode().IsRegular()
 	}
 	scannedDir := func(path string) bool {
-		_, ok := dirs[path]
-		return ok
+		if _, ok := dirs[path]; ok {
+			return true
+		}
+		info, err := os.Stat(path)
+		return err == nil && info.IsDir()
 	}
 
 	modules := make(map[string]string, len(files))

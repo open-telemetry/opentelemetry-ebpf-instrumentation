@@ -14,10 +14,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func writeDistInfo(t *testing.T, dir, name, content string) {
+func writeRecord(t *testing.T, distInfo, content string) {
 	t.Helper()
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644))
+	require.NoError(t, os.MkdirAll(distInfo, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(distInfo, "RECORD"), []byte(content), 0o644))
 }
 
 func writePythonFile(t *testing.T, path, content string) {
@@ -107,7 +107,7 @@ func TestExtractPythonRoutesSkipsInstalledPackagesNestedInAnImportRoot(t *testin
 	app := t.TempDir()
 	lib := t.TempDir()
 	vendor := filepath.Join(lib, "vendor")
-	writeDistInfo(t, filepath.Join(vendor, "dep-1.0.dist-info"), "RECORD",
+	writeRecord(t, filepath.Join(vendor, "dep-1.0.dist-info"),
 		"dep/__init__.py,sha256=x,0\ndep/routes.py,sha256=x,10\ndep-1.0.dist-info/RECORD,,\n../../bin/dep,sha256=x,5\n")
 	writePythonFile(t, filepath.Join(lib, "webapp.py"), `
 @app.get("/users/{user_id}")
@@ -161,7 +161,8 @@ urlpatterns = [
     path("login/", views.LoginView.as_view()),
 ]
 `)
-	writeDistInfo(t, filepath.Join(deps, "Django-5.2.dist-info"), "top_level.txt", "django\n")
+	writeRecord(t, filepath.Join(deps, "Django-5.2.dist-info"),
+		"django/__init__.py,sha256=x,0\ndjango/contrib/auth/urls.py,sha256=x,10\n")
 
 	result, err := extractPythonRoutes(t.Context(), app, deps)
 
@@ -307,7 +308,8 @@ func TestExtractPythonRoutesScansCodeNextToInstalledPackages(t *testing.T) {
 	writePythonFile(t, filepath.Join(app, "webapp.py"), `
 @app.get("/users/{user_id}")
 `)
-	writeDistInfo(t, filepath.Join(app, "flask-3.1.dist-info"), "top_level.txt", "flask\n")
+	writeRecord(t, filepath.Join(app, "flask-3.1.dist-info"),
+		"flask/__init__.py,sha256=x,0\nflask/app.py,sha256=x,10\n")
 	writePythonFile(t, filepath.Join(app, "flask", "app.py"), `
 @app.get("/dependency/{id}")
 `)
@@ -364,4 +366,56 @@ urlpatterns = [
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"/shop/lib/"}, result.Routes)
+}
+
+func TestExtractPythonRoutesKeepsApplicationCodeInASharedNamespace(t *testing.T) {
+	app := t.TempDir()
+	writePythonFile(t, filepath.Join(app, "acme", "web", "routes.py"), `
+@app.get("/users/{user_id}")
+`)
+	writePythonFile(t, filepath.Join(app, "acme", "util", "__init__.py"), "")
+	writePythonFile(t, filepath.Join(app, "acme", "util", "routes.py"), `
+@app.get("/dependency/{id}")
+`)
+	writeRecord(t, filepath.Join(app, "acme_util-1.0.dist-info"),
+		"acme/util/__init__.py,sha256=x,0\nacme/util/routes.py,sha256=x,10\n")
+
+	result, err := extractPythonRoutes(t.Context(), app)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/users/{user_id}"}, result.Routes)
+}
+
+func TestExtractPythonDjangoInstalledPackageShadowsAppNamespacePortion(t *testing.T) {
+	app := t.TempDir()
+	lib := t.TempDir()
+	writePythonFile(t, filepath.Join(app, "project", "urls.py"), `
+from django.urls import include, path
+
+urlpatterns = [
+    path("shop/", include("checkout.urls")),
+]
+`)
+	writePythonFile(t, filepath.Join(app, "checkout", "urls.py"), `
+from django.urls import path
+
+urlpatterns = [
+    path("app/", app_view),
+]
+`)
+	writePythonFile(t, filepath.Join(lib, "checkout", "__init__.py"), "")
+	writePythonFile(t, filepath.Join(lib, "checkout", "urls.py"), `
+from django.urls import path
+
+urlpatterns = [
+    path("installed/", installed_view),
+]
+`)
+	writeRecord(t, filepath.Join(lib, "checkout-1.0.dist-info"),
+		"checkout/__init__.py,sha256=x,0\ncheckout/urls.py,sha256=x,10\n")
+
+	result, err := extractPythonRoutes(t.Context(), app, lib)
+
+	require.NoError(t, err)
+	assert.Empty(t, result.Routes)
 }

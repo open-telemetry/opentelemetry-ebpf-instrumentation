@@ -61,21 +61,31 @@ func TestPythonPathDirs(t *testing.T) {
 }
 
 func TestAppOnImportPath(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"app", "lib"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(root, dir), 0o755))
+	}
+	host, err := filepath.EvalSymlinks(root)
+	require.NoError(t, err)
+	app := filepath.Join(host, "app")
+
 	for _, tc := range []struct {
 		name string
 		args []string
 		env  map[string]string
 		want bool
 	}{
-		{name: "script", args: []string{"app.py"}, want: true},
-		{name: "-P script", args: []string{"-P", "app.py"}, want: false},
-		{name: "-I script", args: []string{"-I", "app.py"}, want: false},
-		{name: "PYTHONSAFEPATH", args: []string{"app.py"}, env: map[string]string{"PYTHONSAFEPATH": "1"}, want: false},
-		{name: "-E ignores PYTHONSAFEPATH", args: []string{"-E", "app.py"}, env: map[string]string{"PYTHONSAFEPATH": "1"}, want: true},
-		{name: "-P launcher adds its own path", args: []string{"-P", "-m", "uvicorn", "app.main:app"}, want: true},
+		{name: "script", args: []string{"server.py"}, want: true},
+		{name: "-P script", args: []string{"-P", "server.py"}, want: false},
+		{name: "-I script", args: []string{"-I", "server.py"}, want: false},
+		{name: "PYTHONSAFEPATH", args: []string{"server.py"}, env: map[string]string{"PYTHONSAFEPATH": "1"}, want: false},
+		{name: "-E ignores PYTHONSAFEPATH", args: []string{"-E", "server.py"}, env: map[string]string{"PYTHONSAFEPATH": "1"}, want: true},
+		{name: "-P launcher adding the application directory", args: []string{"-P", "-m", "uvicorn", "server:app"}, want: true},
+		{name: "-P launcher adding another directory", args: []string{"-P", "/app/manage.py", "runserver", "--pythonpath=/lib"}, want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, appOnImportPath(parsePythonLaunch("python3", tc.args, tc.env), tc.env))
+			launch := parsePythonLaunch("python3", tc.args, tc.env)
+			assert.Equal(t, tc.want, appOnImportPath(root, "/app", app, launch, tc.env))
 		})
 	}
 }

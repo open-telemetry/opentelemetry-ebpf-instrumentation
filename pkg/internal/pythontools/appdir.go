@@ -41,14 +41,20 @@ func AppDirsForPID(pid app.PID, env map[string]string) (AppDirs, error) {
 	return AppDirs{
 		App:             dir,
 		PythonPath:      pythonPathDirs(root, cwd, launch.PathConfig, env["PYTHONPATH"]),
-		AppOnImportPath: appOnImportPath(launch, env),
+		AppOnImportPath: appOnImportPath(root, cwd, dir, launch, env),
 	}, nil
 }
 
-func appOnImportPath(launch frameworks.PythonLaunch, env map[string]string) bool {
+func appOnImportPath(root, cwd, appDir string, launch frameworks.PythonLaunch, env map[string]string) bool {
 	safePath := launch.PathConfig.SafePath ||
 		!launch.PathConfig.IgnorePythonEnvironment && env["PYTHONSAFEPATH"] != ""
-	return !safePath || len(launch.SearchPaths) > 0
+	if !safePath {
+		return true
+	}
+	return slices.ContainsFunc(launch.SearchPaths, func(searchPath string) bool {
+		path, info, ok := langtools.StatProcessPath(root, cwd, searchPath)
+		return ok && info.IsDir() && path == appDir
+	})
 }
 
 // pythonPathDirs resolves the PYTHONPATH entries that are directories, with an
