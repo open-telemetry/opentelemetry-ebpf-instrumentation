@@ -31,7 +31,7 @@ func newKafkaTLSClient(brokers string) *kgo.Client {
 		)
 		if err == nil {
 			ctx, cancel := context.WithTimeout(context.Background(), kafkaRetryDelay)
-			err = ensureTopics(ctx, client, "my-topic")
+			err = prepareKafkaProducer(ctx, client, "my-topic")
 			cancel()
 			if err == nil {
 				return client
@@ -44,7 +44,7 @@ func newKafkaTLSClient(brokers string) *kgo.Client {
 	}
 }
 
-func ensureTopics(ctx context.Context, client *kgo.Client, topics ...string) error {
+func prepareKafkaProducer(ctx context.Context, client *kgo.Client, topics ...string) error {
 	adm := kadm.NewClient(client)
 	resp, err := adm.CreateTopics(ctx, 1, 1, nil, topics...)
 	if err != nil {
@@ -53,6 +53,14 @@ func ensureTopics(ctx context.Context, client *kgo.Client, topics ...string) err
 	for _, t := range resp.Sorted() {
 		if t.Err != nil && !errors.Is(t.Err, kerr.TopicAlreadyExists) {
 			return fmt.Errorf("topic %s: %w", t.Topic, t.Err)
+		}
+	}
+
+	// The first produce is drained by franz-go's metadata goroutine rather than
+	// a descendant of the HTTP handler. Finish that work before serving requests.
+	for _, topic := range topics {
+		if err := client.ProduceSync(ctx, &kgo.Record{Topic: topic, Value: []byte("warmup")}).FirstErr(); err != nil {
+			return fmt.Errorf("warm up topic %s: %w", topic, err)
 		}
 	}
 

@@ -26,16 +26,16 @@ amd64)
   OATS_VERSION=v0.11.0
   OATS_SHA256=35608cc075c3c9af15559c52652096272cf7a1aaf49c455a1646d825025e7e75
   # renovate: datasource=github-release-attachments depName=gcx-linux-amd64 packageName=grafana/gcx versioning=semver
-  GCX_VERSION=v1.7.1
-  GCX_SHA256=5f1601feac13d850017064a9b556f11983de6def2986ba0bee402a947659c3e9
+  GCX_VERSION=v1.8.0
+  GCX_SHA256=85e21eeecae4ed2f21a40934bb127f0ec3bc2461f024404a709bf6e448b0e975
   ;;
 arm64)
   # renovate: datasource=github-release-attachments depName=oats-linux-arm64 packageName=grafana/oats versioning=semver
   OATS_VERSION=v0.11.0
   OATS_SHA256=35b63d3b53291dc8f05f1f1981b01a5119d41d0820602a655100881ac72e05eb
   # renovate: datasource=github-release-attachments depName=gcx-linux-arm64 packageName=grafana/gcx versioning=semver
-  GCX_VERSION=v1.7.1
-  GCX_SHA256=1d8284557e66dd5c6e4d5b37a651afca98bea42729df7b4aa8720464360b2f54
+  GCX_VERSION=v1.8.0
+  GCX_SHA256=78d4d03a3b2fea6cfde5aceae0d464b5ac7cc3a2b59269437120e0708b56f438
   ;;
 esac
 
