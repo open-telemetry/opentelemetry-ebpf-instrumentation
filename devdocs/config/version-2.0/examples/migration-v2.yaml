@@ -41,6 +41,8 @@ extensions:
                         include:
                             - service.peer.name
                         exclude: []
+            exceptions:
+                enabled: false
             policy:
                 default_action: exclude
                 match_order: first_match_wins
@@ -96,6 +98,7 @@ extensions:
                         traces: true
                         metrics: true
                         body_size_metrics: true
+                        request_phase_spans: true
                     filters:
                         traces:
                             http.request.method:
@@ -131,6 +134,47 @@ extensions:
                             disabled_languages: []
                             java:
                                 delay: 5s
+                    query_parameters:
+                        redaction:
+                            names:
+                                - X-Amz-Signature
+                                - X-Amz-Credential
+                                - X-Amz-Security-Token
+                                - AWSAccessKeyId
+                                - Signature
+                                - SecurityToken
+                                - X-Goog-Signature
+                                - sig
+                                - token
+                                - access_token
+                                - refresh_token
+                                - id_token
+                                - jwt
+                                - session
+                                - sid
+                                - signature
+                                - api_key
+                                - apikey
+                                - client_secret
+                                - secret
+                                - password
+                                - pass
+                                - pwd
+                                - reset_token
+                                - invite_token
+                                - verify_token
+                                - otp
+                                - totp
+                                - mfa_code
+                                - verification_code
+                                - SAMLResponse
+                                - assertion
+                                - card
+                                - cc
+                                - pan
+                                - cvv
+                                - ssn
+                                - tax_id
                     payload_extraction:
                         enabled: []
                         sqlpp:
@@ -157,6 +201,8 @@ extensions:
                         metrics:
                             http.request.method:
                                 not_match: OPTIONS
+                db:
+                    sanitize_query_text: false
                 sql:
                     enabled:
                         traces: true
@@ -169,7 +215,6 @@ extensions:
                             http.request.method:
                                 not_match: OPTIONS
                     heuristic_detect: false
-                    sanitize_query_text: false
                     mysql:
                         buffer_size: 0
                         prepared_statements_cache_size: 1024
@@ -269,6 +314,7 @@ extensions:
             runtimes:
                 go:
                     enabled: true
+                    channel_links: true
                 nodejs:
                     enabled: true
                 java:
@@ -372,6 +418,8 @@ extensions:
                     wakeup_len: 500
                     batch_length: 100
                     batch_timeout: 1s
+                    stats:
+                        wakeup_bytes: 4096
                 propagation:
                     context_propagation: disabled
                     override_bpfloop_enabled: false
@@ -430,7 +478,14 @@ extensions:
                         source_labels:
                             service_name: ""
                             service_namespace: ""
+                        tls:
+                            ca_file: ""
+                            cert_file: ""
+                            key_file: ""
+                            server_name: ""
                 cloud:
+                    detection:
+                        enabled: true
                     cluster_name: ""
                     region: ""
                     refresh_interval: 30s
@@ -439,6 +494,7 @@ extensions:
                         hosted_zone_ids: []
                 peer_metadata:
                     enabled: false
+                    mode: peer
                     listen_address: ""
                     port: 8998
                     peer_cidrs: []
@@ -458,6 +514,8 @@ extensions:
                         key_file: ""
                         ca_file: ""
                         server_name: ""
+                    central:
+                        address: ""
             service_name:
                 unresolved_hosts:
                     names:

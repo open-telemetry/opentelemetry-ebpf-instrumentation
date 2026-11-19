@@ -81,14 +81,14 @@ func TestConfigPeerMetadataRuntimeValidation(t *testing.T) {
 	t.Setenv("OTEL_EBPF_EXECUTABLE_PATH", "python")
 	for _, test := range []struct {
 		name string
-		set  func(*peer.Config)
+		set  func(*peer.MetadataConfig)
 	}{
-		{name: "port zero", set: func(c *peer.Config) { c.Port = 0 }},
-		{name: "port too large", set: func(c *peer.Config) { c.Port = 65536 }},
-		{name: "caller TTL", set: func(c *peer.Config) { c.CallerTTL = 0 }},
-		{name: "max peers", set: func(c *peer.Config) { c.MaxPeers = 0 }},
-		{name: "CIDR", set: func(c *peer.Config) { c.PeerCIDRs = []string{"invalid"} }},
-		{name: "TLS", set: func(c *peer.Config) { c.TLS.Enabled = true }},
+		{name: "port zero", set: func(c *peer.MetadataConfig) { c.Port = 0 }},
+		{name: "port too large", set: func(c *peer.MetadataConfig) { c.Port = 65536 }},
+		{name: "caller TTL", set: func(c *peer.MetadataConfig) { c.CallerTTL = 0 }},
+		{name: "max peers", set: func(c *peer.MetadataConfig) { c.MaxPeers = 0 }},
+		{name: "CIDR", set: func(c *peer.MetadataConfig) { c.PeerCIDRs = []string{"invalid"} }},
+		{name: "TLS", set: func(c *peer.MetadataConfig) { c.TLS.Enabled = true }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			cfg, err := LoadConfig(nil)
@@ -113,6 +113,6 @@ func TestConfigDisabledPeerMetadataSkipsValidation(t *testing.T) {
 	t.Setenv("OTEL_EBPF_EXECUTABLE_PATH", "python")
 	cfg, err := LoadConfig(nil)
 	require.NoError(t, err)
-	cfg.PeerMetadata = peer.Config{}
+	cfg.PeerMetadata = peer.MetadataConfig{}
 	require.NoError(t, cfg.ValidateStaticForReceiver())
 }

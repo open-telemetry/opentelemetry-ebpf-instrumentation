@@ -7,7 +7,9 @@ package peer // import "go.opentelemetry.io/obi/pkg/metadata/peer"
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,9 +20,20 @@ const DefaultPort = 8998
 
 var configValidator = validator.New(validator.WithRequiredStructEnabled())
 
-// PeerMetadataConfig configures peer metadata exchange.
-type PeerMetadataConfig struct {
+// Mode selects how agents exchange metadata.
+type Mode string
+
+const (
+	// ModePeer exchanges metadata directly between agents.
+	ModePeer Mode = "peer"
+	// ModeCentral exchanges metadata through a central metadata service.
+	ModeCentral Mode = "central"
+)
+
+// MetadataConfig configures peer metadata exchange.
+type MetadataConfig struct {
 	Enabled          bool                  `yaml:"enabled"`
+	Mode             Mode                  `yaml:"mode" validate:"omitempty,oneof=peer central"`
 	ListenAddress    string                `yaml:"listen_address"`
 	Port             int                   `yaml:"port"`
 	PeerCIDRs        []string              `yaml:"peer_cidrs"`
@@ -34,13 +47,17 @@ type PeerMetadataConfig struct {
 	MaxResponseBytes int                   `yaml:"max_response_bytes" validate:"gt=0"`
 	MaxCacheBytes    int                   `yaml:"max_cache_bytes" validate:"gt=0"`
 	Token            string                `yaml:"token"`
-	TLS              PeerMetadataTLSConfig `yaml:"tls"`
+	TLS              MetadataTLSConfig     `yaml:"tls"`
+	Central          MetadataCentralConfig `yaml:"central"`
 }
 
-// Config retains the public runtime configuration name.
-type Config = PeerMetadataConfig
+// MetadataCentralConfig configures the connection to the central metadata service in ModeCentral.
+type MetadataCentralConfig struct {
+	// Address is the host:port of the metadata service.
+	Address string `yaml:"address"`
+}
 
-type PeerMetadataTLSConfig struct {
+type MetadataTLSConfig struct {
 	Enabled    bool   `yaml:"enabled"`
 	CertFile   string `yaml:"cert_file"`
 	KeyFile    string `yaml:"key_file"`
@@ -48,10 +65,9 @@ type PeerMetadataTLSConfig struct {
 	ServerName string `yaml:"server_name"`
 }
 
-type TLSConfig = PeerMetadataTLSConfig
-
-func DefaultConfig() Config {
-	return Config{
+func DefaultConfig() MetadataConfig {
+	return MetadataConfig{
+		Mode:             ModePeer,
 		Port:             DefaultPort,
 		RefreshInterval:  10 * time.Second,
 		CallerTTL:        time.Minute,
@@ -66,8 +82,11 @@ func DefaultConfig() Config {
 }
 
 // WithDefaults returns a copy with defaults for unspecified runtime settings.
-func (c Config) WithDefaults() Config {
+func (c MetadataConfig) WithDefaults() MetadataConfig {
 	d := DefaultConfig()
+	if c.Mode == "" {
+		c.Mode = d.Mode
+	}
 	setIntDefault(&c.Port, d.Port)
 	setIntDefault(&c.MaxPeers, d.MaxPeers)
 	setIntDefault(&c.MaxConcurrent, d.MaxConcurrent)
@@ -94,7 +113,7 @@ func setDurationDefault(value *time.Duration, fallback time.Duration) {
 	}
 }
 
-func (c Config) Validate() error {
+func (c MetadataConfig) Validate() error {
 	if !c.Enabled {
 		return nil
 	}
@@ -127,12 +146,36 @@ func (c Config) Validate() error {
 		return errors.New("peer metadata token requires TLS")
 	}
 
-	if c.TLS.Enabled && (c.TLS.CertFile == "" || c.TLS.KeyFile == "") {
+	// In central mode, agents only connect as clients, so they do not need a certificate.
+	if c.Mode != ModeCentral && c.TLS.Enabled && (c.TLS.CertFile == "" || c.TLS.KeyFile == "") {
 		return errors.New("peer metadata TLS requires cert_file and key_file")
+	}
+
+	if c.Mode == ModeCentral {
+		if err := validateCentralAddress(c.Central.Address); err != nil {
+			return fmt.Errorf("peer metadata central.address: %w", err)
+		}
 	}
 
 	if c.MaxCacheBytes < c.MaxResponseBytes {
 		return errors.New("peer metadata max_cache_bytes must be at least max_response_bytes")
+	}
+
+	return nil
+}
+
+func validateCentralAddress(address string) error {
+	if address == "" {
+		return errors.New("required in central mode")
+	}
+
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+
+	if number, err := strconv.Atoi(port); host == "" || err != nil || number < 1 || number > 65535 {
+		return errors.New("must be a host:port address")
 	}
 
 	return nil

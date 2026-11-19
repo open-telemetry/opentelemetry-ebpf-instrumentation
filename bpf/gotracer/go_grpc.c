@@ -331,13 +331,13 @@ int GUARDED_PROG(obi_uprobe_server_handler_transport_handle_streams, struct pt_r
         bpf_dbg_printk("found parent goroutine for transport handler, parent_go=%llx", parent_go);
         go_addr_key_t p_key = {};
         go_addr_key_from_id(&p_key, parent_go);
-        connection_info_t *conn = bpf_map_lookup_elem(&ongoing_server_connections, &p_key);
+        http_server_connection_t *conn = bpf_map_lookup_elem(&ongoing_server_connections, &p_key);
         bpf_dbg_printk("conn=%llx", conn);
         if (conn) {
             grpc_transports_t t = {
                 .type = TRANSPORT_HANDLER,
             };
-            __builtin_memcpy(&t.conn, conn, sizeof(connection_info_t));
+            t.conn = conn->conn;
 
             bpf_map_update_elem(&ongoing_grpc_transports, &tr, &t, BPF_ANY);
         }

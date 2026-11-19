@@ -157,7 +157,7 @@ func newKafkaClient(brokers string) *kgo.Client {
 		)
 		if err == nil {
 			ctx, cancel := context.WithTimeout(context.Background(), kafkaRetryDelay)
-			err = ensureTopics(ctx, client, "my-topic")
+			err = prepareKafkaProducer(ctx, client, "my-topic")
 			cancel()
 			if err == nil {
 				return client

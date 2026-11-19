@@ -11,6 +11,7 @@ import (
 	gin2 "github.com/gin-gonic/gin"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/testserver/gin"
+	"go.opentelemetry.io/obi/internal/test/integration/components/testserver/go-restful"
 	"go.opentelemetry.io/obi/internal/test/integration/components/testserver/gorilla"
 	"go.opentelemetry.io/obi/internal/test/integration/components/testserver/gorillamid"
 	"go.opentelemetry.io/obi/internal/test/integration/components/testserver/gorillamid2"
@@ -40,6 +41,7 @@ type config struct {
 	GRPCPort        int    `env:"GRPC_PORT" envDefault:"5051"`
 	GRPCTLSPort     int    `env:"GRPC_TLS_PORT" envDefault:"50051"`
 	JSONRPCPort     int    `env:"JSRONRPC_PORT" envDefault:"8088"`
+	RestfulPort     int    `env:"RESTFUL_PORT" envDefault:"8089"`
 	LogLevel        string `env:"LOG_LEVEL" envDefault:"INFO"`
 }
 
@@ -63,6 +65,10 @@ func main() {
 	go func() {
 		gin2.SetMode(gin2.ReleaseMode)
 		gin.Setup(cfg.GinPort)
+		close(wait)
+	}()
+	go func() {
+		restful.Setup(cfg.RestfulPort)
 		close(wait)
 	}()
 	go func() {

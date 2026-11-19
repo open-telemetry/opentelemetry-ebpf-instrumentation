@@ -289,7 +289,7 @@ Name, from the first template that applies: `{gen_ai.operation.name} {gen_ai.req
 | `aws.bedrock.guardrail.id` | string | `conditionally_required`: if the provider is AWS Bedrock and the request configured a guardrail | development | The unique identifier of the AWS Bedrock Guardrail. A [guardrail](https://docs.aws.amazon.com/bedrock/latest/userguide/guardrails.html) helps safeguard and prevent unwanted behavior from model responses or user messages. | sgi5gkybzqak |
 | `error.type` | string | `conditionally_required`: if the operation ended in an error | stable | Describes a class of error the operation ended with. | timeout; java.net.UnknownHostException; server_certificate_invalid; 500 |
 | `gen_ai.conversation.id` | string | `conditionally_required`: if the request carried a conversation id | development | The unique identifier for a conversation (session, thread), used to store and correlate messages within this conversation. | conv_5j66UpCpwteGg4YSxUnt7lPY |
-| `gen_ai.embeddings.dimension.count` | int | `recommended`: if the operation is an embeddings call on an OpenAI-shaped provider and the provider reported the dimension count | development | The number of dimensions the resulting output embeddings should have. | 512; 1024 |
+| `gen_ai.embeddings.dimension.count` | int | `recommended`: if the operation is an embeddings call on an OpenAI-shaped provider or Ollama and the provider reported the dimension count | development | The number of dimensions the resulting output embeddings should have. | 512; 1024 |
 | `gen_ai.input.messages` | any | `opt_in` | development | The chat history provided to the model as an input. | [   {     "role": "user",     "parts": [       {         "type": "text",         "content": "Weather in Paris?"       }     ]   },   {     "role": "assistant",     "parts": [       {         "type": "tool_call",         "id": "call_VSPygqKTWdrhaFErNvMV18Yl",         "name": "get_weather",         "arguments": {           "location": "Paris"         }       }     ]   },   {     "role": "tool",     "parts": [       {         "type": "tool_call_response",         "id": " call_VSPygqKTWdrhaFErNvMV18Yl",         "result": "rainy, 57°F"       }     ]   } ] |
 | `gen_ai.metadata` | string | `opt_in` | development | Provider-specific request/response metadata captured on GenAI spans, JSON-encoded. | {"conversation_id":"conv_abc123"} |
 | `gen_ai.operation.name` | string | `required` | development | The name of the operation being performed. | chat; embeddings; response; conversation; invoke_model; rerank; execute_tool; _OTHER |
@@ -321,7 +321,8 @@ Name, from the first template that applies: `{gen_ai.operation.name} {gen_ai.req
 | `network.peer.address` | string | `recommended`: if the peer address is an IP rather than a name | stable | Peer address of the network connection - IP address or Unix domain socket name. | 10.1.2.80; /tmp/my.sock |
 | `network.peer.port` | int | `recommended`: if `network.peer.address` is set and the port is known | stable | Peer port number of the network connection. | 65123 |
 | `network.protocol.version` | string | `recommended`: if the protocol version was observed on the wire | stable | The actual version of the protocol used for network communication. | 1.1; 2 |
-| `openai.api.type` | enum | `recommended`: if the provider is OpenAI | development | The type of OpenAI API being used. | chat_completions; responses; embeddings; text_completions |
+| `openai.api.type` | enum | `recommended`: if the provider is OpenAI | development | The type of OpenAI API being used. | chat_completions; responses; decisions; embeddings; text_completions |
+| `openai.request.questions` | string | `opt_in` | development | The questions submitted to the OpenAI Decisions API, JSON-encoded in request order. | [{"type":"predicate","name":"damaged","instructions":"Does the customer report a damaged item?"}] |
 | `openai.request.service_tier` | enum | `conditionally_required`: if the provider is OpenAI and the request set a service tier | development | The service tier requested. May be a specific tier, default, or auto. | auto; default |
 | `openai.response.service_tier` | string | `conditionally_required`: if the provider is OpenAI and the response reported a service tier | development | The service tier used for the response. | scale; default |
 | `openai.response.system_fingerprint` | string | `recommended`: if the provider is OpenAI and the response reported a system fingerprint | development | A fingerprint to track any eventual change in the Generative AI environment. | fp_44709d6fcb |
@@ -448,6 +449,7 @@ Name: The method, or `HTTP` when it is outside the semantic-convention enum, fol
 | `service.peer.name` | string | `opt_in` | development | Logical name of the service on the other side of the connection. SHOULD be equal to the actual [`service.name`](/docs/resource/README.md#service) resource attribute of the remote service if any. | shoppingcart |
 | `span.metrics.skip` | boolean | `opt_in` | development | Hint set on a span by the producer to tell downstream span-metrics processors that this span is already accounted for in upstream span-metrics emissions and should be excluded from aggregation, to avoid double counting. |  |
 | `url.full` | string | `conditionally_required`: if the scheme or the host was captured on the connection | stable | Absolute URL describing a network resource according to [RFC3986](https://www.rfc-editor.org/rfc/rfc3986) | https://www.foo.bar/search?q=OpenTelemetry#SemConv; //localhost |
+| `url.query` | string | `conditionally_required`: if the request carried a query string | stable | The [URI query](https://www.rfc-editor.org/rfc/rfc3986#section-3.4) component | q=OpenTelemetry |
 | `url.scheme` | string | `conditionally_required`: if the scheme was captured on the connection | stable | The [URI scheme](https://www.rfc-editor.org/rfc/rfc3986#section-3.1) component identifying the used protocol. | https; ftp; telnet |
 | `url.template` | string | `opt_in` | development | The low-cardinality template of an [absolute path reference](https://www.rfc-editor.org/rfc/rfc3986#section-4.2). | /users/{id}; /users/:id; /users?id={id} |
 | `user_agent.original` | string | `opt_in` | stable | Value of the [HTTP User-Agent](https://www.rfc-editor.org/rfc/rfc9110.html#field.user-agent) header sent by the client. | CERN-LineMode/2.15 libwww/2.17b3; Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.2 Mobile/15E148 Safari/604.1; YourApp/1.0.0 grpc-java-okhttp/1.27.2 |
@@ -819,7 +821,9 @@ OBI child span splitting a request that waited before it was processed into its 
 
 Name: `in queue` for the time between the request arriving and its handler starting, and `processing` for the time the handler ran. Neither is derived from an attribute.
 
-No attributes.
+| Attribute | Type | Requirement level | Stability | Description | Examples |
+| --- | --- | --- | --- | --- | --- |
+| `obi.request.phase` | enum | `required` | development | Phase of a request represented by an OBI child span. | queue; processing |
 
 ## `obi.rpc.grpc.client`
 

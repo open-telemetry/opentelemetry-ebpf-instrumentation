@@ -29,6 +29,9 @@ const (
           match:
             process:
               open_ports: "18060"`
+	// pid_samplers thresholds (pkg/ebpf/common/pid_sampler.go)
+	configReloadNeverSampled  uint64 = 0
+	configReloadAlwaysSampled uint64 = 1 << 63
 )
 
 func TestConfigReload(t *testing.T) {
@@ -44,11 +47,20 @@ func TestConfigReload(t *testing.T) {
 	t.Cleanup(func() { assert.NoError(t, compose.Close()) })
 	require.NoError(t, compose.Up())
 
+	// latchsrv serves one connection at a time, so an idle pooled connection
+	// can prevent it from accepting the next request on a new connection.
+	httpClient := &http.Client{
+		Transport: &http.Transport{DisableKeepAlives: true},
+		Timeout:   3 * time.Minute,
+	}
+	t.Cleanup(httpClient.CloseIdleConnections)
+
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		ti.DoHTTPGet(ct, configReloadServerB+"/ready", http.StatusOK)
+		ti.DoHTTPGetWithClient(ct, httpClient, configReloadServerB+"/ready", http.StatusOK)
 	}, testTimeout, 250*time.Millisecond)
-	waitForReloadTrace(t, "config-reload-a", configReloadServerA, "/initial-selection")
-	assertNoReloadTrace(t, "config-reload-b", configReloadServerB, "/initially-excluded")
+	waitForReloadTrace(t, httpClient, "config-reload-a", configReloadServerA, "/initial-selection")
+	assertNoReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/initially-excluded")
+	waitForReloadSampler(t, compose, "server-a", configReloadAlwaysSampled)
 
 	cl, err := client.New(client.FromEnv)
 	require.NoError(t, err)
@@ -67,28 +79,54 @@ func TestConfigReload(t *testing.T) {
 	both := bytes.Replace(initial, []byte(configReloadFirstRule), append([]byte(configReloadFirstRule+"\n"), secondRule...), 1)
 	replaceReloadConfig(t, configPath, both)
 	waitForReloadSelection(t, compose, serverPIDs, "server-a", "server-b")
-	waitForReloadTrace(t, "config-reload-b", configReloadServerB, "/added-selection")
-	waitForReloadTrace(t, "config-reload-a", configReloadServerA, "/retained-selection")
+	waitForReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/added-selection")
+	waitForReloadTrace(t, httpClient, "config-reload-a", configReloadServerA, "/retained-selection")
 
 	t.Log("remove the first definition while retaining the second")
 	onlyB := bytes.Replace(initial, []byte(configReloadFirstRule), secondRule, 1)
 	replaceReloadConfig(t, configPath, onlyB)
 	waitForReloadSelection(t, compose, serverPIDs, "server-b")
-	waitForReloadTrace(t, "config-reload-b", configReloadServerB, "/retained-after-removal")
-	assertNoReloadTrace(t, "config-reload-a", configReloadServerA, "/removed-selection")
+	waitForReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/retained-after-removal")
+	assertNoReloadTrace(t, httpClient, "config-reload-a", configReloadServerA, "/removed-selection")
 
-	t.Log("reject a sampler change together with a selection change")
+	t.Log("apply a sampler change to the retained selection")
+	replaceReloadConfig(t, configPath, bytes.Replace(onlyB, []byte("always_on:"), []byte("always_off:"), 1))
+	waitForReloadSampler(t, compose, "server-b", configReloadNeverSampled)
+	assertNoReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/sampled-out")
+
+	t.Log("restore the sampler")
+	replaceReloadConfig(t, configPath, onlyB)
+	waitForReloadSampler(t, compose, "server-b", configReloadAlwaysSampled)
+	waitForReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/sampled-again")
+
+	t.Log("turn sampling off while adding a selection")
+	replaceReloadConfig(t, configPath, bytes.Replace(both, []byte("always_on:"), []byte("always_off:"), 1))
+	waitForReloadSelection(t, compose, serverPIDs, "server-a", "server-b")
+	waitForReloadSampler(t, compose, "server-a", configReloadNeverSampled)
+	waitForReloadSampler(t, compose, "server-b", configReloadNeverSampled)
+	assertNoReloadTrace(t, httpClient, "config-reload-a", configReloadServerA, "/added-sampled-out")
+	assertNoReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/retained-sampled-out")
+
+	t.Log("turn sampling on while removing a selection")
+	replaceReloadConfig(t, configPath, onlyB)
+	waitForReloadSelection(t, compose, serverPIDs, "server-b")
+	waitForReloadSampler(t, compose, "server-b", configReloadAlwaysSampled)
+	waitForReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/sampled-after-removal")
+
+	t.Log("reject selection and sampler changes together with a change that needs a restart")
 	incompatible := bytes.Replace(initial, []byte("always_on:"), []byte("always_off:"), 1)
+	incompatible = bytes.Replace(incompatible, []byte("log_level: info"), []byte("log_level: debug"), 1)
 	replaceReloadConfig(t, configPath, incompatible)
 	waitForReloadRejection(t, compose)
-	waitForReloadTrace(t, "config-reload-b", configReloadServerB, "/after-rejection")
-	assertNoReloadTrace(t, "config-reload-a", configReloadServerA, "/rejected-selection")
+	waitForReloadSampler(t, compose, "server-b", configReloadAlwaysSampled)
+	waitForReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/after-rejection")
+	assertNoReloadTrace(t, httpClient, "config-reload-a", configReloadServerA, "/rejected-selection")
 
 	t.Log("accept a compatible edit after the rejection")
 	replaceReloadConfig(t, configPath, initial)
 	waitForReloadSelection(t, compose, serverPIDs, "server-a")
-	waitForReloadTrace(t, "config-reload-a", configReloadServerA, "/recovered-selection")
-	assertNoReloadTrace(t, "config-reload-b", configReloadServerB, "/excluded-after-recovery")
+	waitForReloadTrace(t, httpClient, "config-reload-a", configReloadServerA, "/recovered-selection")
+	assertNoReloadTrace(t, httpClient, "config-reload-b", configReloadServerB, "/excluded-after-recovery")
 
 	after, err := cl.ContainerInspect(t.Context(), obiID, client.ContainerInspectOptions{})
 	require.NoError(t, err)
@@ -105,12 +143,17 @@ func replaceReloadConfig(t *testing.T, path string, data []byte) {
 	require.NoError(t, os.Rename(replacement, path))
 }
 
+func reloadServerNamespace(t *testing.T, compose *docker.Compose, service string) string {
+	t.Helper()
+	namespace, err := compose.ExecOutput(service, "python", "-c", "import os; print(os.stat('/proc/1/ns/pid').st_ino)")
+	require.NoError(t, err, namespace)
+	return namespace
+}
+
 func reloadServerPID(t *testing.T, compose *docker.Compose, service string) uint64 {
 	t.Helper()
 	// Each server runs as PID 1; OBI's filters use the host PID namespace.
-	namespace, err := compose.ExecOutput(service, "python", "-c", "import os; print(os.stat('/proc/1/ns/pid').st_ino)")
-	require.NoError(t, err, namespace)
-	pids := obiTestToolValues(t, compose, "host-pid", namespace, "1")
+	pids := obiTestToolValues(t, compose, "host-pid", reloadServerNamespace(t, compose, service), "1")
 	require.Len(t, pids, 1, service)
 	for pid := range pids {
 		return pid
@@ -130,10 +173,20 @@ func waitForReloadSelection(t *testing.T, compose *docker.Compose, serverPIDs ma
 	}, testTimeout, 250*time.Millisecond)
 }
 
-func waitForReloadTrace(t *testing.T, service, server, path string) {
+// Waits for the eBPF sampler of the server, which runs as PID 1 of its own namespace.
+func waitForReloadSampler(t *testing.T, compose *docker.Compose, service string, threshold uint64) {
+	t.Helper()
+	namespace := reloadServerNamespace(t, compose, service)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		thresholds := obiTestToolValues(ct, compose, "pid-sampler", namespace, "1")
+		assert.Equal(ct, map[uint64]bool{threshold: true}, thresholds, "eBPF sampler of %s", service)
+	}, testTimeout, 250*time.Millisecond)
+}
+
+func waitForReloadTrace(t *testing.T, httpClient *http.Client, service, server, path string) {
 	t.Helper()
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		ti.DoHTTPGet(ct, server+path, http.StatusOK)
+		ti.DoHTTPGetWithClient(ct, httpClient, server+path, http.StatusOK)
 		trace, err := reloadTrace(service, path)
 		require.NoError(ct, err)
 		require.NotEmpty(ct, trace.TraceID, "no trace from %s for %s", service, path)
@@ -149,10 +202,10 @@ func reloadTrace(service, path string) (jaeger.Trace, error) {
 	})
 }
 
-func assertNoReloadTrace(t *testing.T, service, server, path string) {
+func assertNoReloadTrace(t *testing.T, httpClient *http.Client, service, server, path string) {
 	t.Helper()
 	for range 5 {
-		ti.DoHTTPGet(t, server+path, http.StatusOK)
+		ti.DoHTTPGetWithClient(t, httpClient, server+path, http.StatusOK)
 	}
 	require.Never(t, func() bool {
 		trace, err := reloadTrace(service, path)

@@ -97,6 +97,21 @@ func embeddings(w http.ResponseWriter, _ *http.Request) {
 	proxyPost(w, "/v1/embeddings", payload, true)
 }
 
+func decisions(w http.ResponseWriter, _ *http.Request) {
+	payload := map[string]any{
+		"model": "gpt-6-luna",
+		"input": []map[string]any{
+			{"role": "developer", "content": "Assess the customer report."},
+			{"role": "user", "content": []map[string]any{
+				{"type": "input_text", "text": "The package arrived with a broken screen."},
+				{"type": "input_text", "text": "The screen does not turn on."},
+			}},
+		},
+		"questions": json.RawMessage(`[{"type":"predicate","name":"damaged","instructions":[{"type":"input_text","text":"Does the customer report a damaged item?"},{"type":"input_json","data":{"policy":"returns"}}]},{"type":"choice","name":"priority","instructions":"Choose the handling priority.","choices":[{"value":"urgent","description":"Immediate handling"},{"value":true,"description":"Flag for manual review"}]},{"type":"score","name":"severity","instructions":"Rate the damage severity.","levels":[{"label":"minor","description":"Cosmetic damage"},{"label":"major","description":"Item is unusable"}]}]`),
+	}
+	proxyPost(w, "/v1/decisions", payload, true)
+}
+
 func cohereEmbeddings(w http.ResponseWriter, _ *http.Request) {
 	payload := map[string]any{
 		"texts":           []string{"The food was delicious"},
@@ -180,6 +195,30 @@ func cohereChatError(w http.ResponseWriter, _ *http.Request) {
 	proxyPostURL(w, os.Getenv("COHERE_BASE_URL")+"/v2/chat?error", payload, false)
 }
 
+func ollamaEmbed(w http.ResponseWriter, _ *http.Request) {
+	payload := map[string]any{
+		"model": "all-minilm:l6-v2",
+		"input": "why is the sky blue?",
+	}
+	proxyPostURL(w, os.Getenv("OLLAMA_BASE_URL")+"/api/embed", payload, true)
+}
+
+func ollamaEmbedLegacy(w http.ResponseWriter, _ *http.Request) {
+	payload := map[string]any{
+		"model":  "nomic-embed-text",
+		"prompt": "why is the sky blue?",
+	}
+	proxyPostURL(w, os.Getenv("OLLAMA_BASE_URL")+"/api/embeddings", payload, true)
+}
+
+func ollamaEmbedError(w http.ResponseWriter, _ *http.Request) {
+	payload := map[string]any{
+		"model": "nope",
+		"input": "why is the sky blue?",
+	}
+	proxyPostURL(w, os.Getenv("OLLAMA_BASE_URL")+"/api/embed?error", payload, false)
+}
+
 func chat(w http.ResponseWriter, _ *http.Request) {
 	payload := map[string]any{
 		"messages": []map[string]any{
@@ -209,6 +248,7 @@ func main() {
 	mux.HandleFunc("GET /messages", messages)
 	mux.HandleFunc("GET /error", errorMessages)
 	mux.HandleFunc("GET /embeddings", embeddings)
+	mux.HandleFunc("GET /decisions", decisions)
 	mux.HandleFunc("GET /chat", chat)
 	mux.HandleFunc("GET /conversations", conversations)
 	mux.HandleFunc("GET /embeddings/cohere", cohereEmbeddings)
@@ -217,6 +257,9 @@ func main() {
 	mux.HandleFunc("GET /cohere/chat", cohereChat)
 	mux.HandleFunc("GET /cohere/chat/stream", cohereChatStream)
 	mux.HandleFunc("GET /cohere/chat/error", cohereChatError)
+	mux.HandleFunc("GET /ollama/embed", ollamaEmbed)
+	mux.HandleFunc("GET /ollama/embeddings", ollamaEmbedLegacy)
+	mux.HandleFunc("GET /ollama/embed/error", ollamaEmbedError)
 
 	const port = 8080
 	fmt.Printf("Server running: port=%d process_id=%d\n", port, os.Getpid())

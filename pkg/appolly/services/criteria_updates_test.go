@@ -22,7 +22,7 @@ func TestCriteriaUpdatesConcurrentStop(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				initial := []Selector{&GlobAttributes{PIDs: []uint32{10}}}
-				updates := NewCriteriaUpdates(initial, nil)
+				updates := NewCriteriaUpdatesWithSampler(initial, nil, nil)
 				result := make(chan error, 1)
 				go func() { result <- updates.Replace(t.Context(), nil, nil) }()
 				if accepted {
@@ -56,7 +56,7 @@ func TestCriteriaUpdatesReplacePrefersCompletedResult(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				initial := []Selector{&GlobAttributes{PIDs: []uint32{10}}}
 				next := []Selector{&GlobAttributes{PIDs: []uint32{20}}}
-				updates := NewCriteriaUpdates(initial, nil)
+				updates := NewCriteriaUpdatesWithSampler(initial, nil, nil)
 				defer updates.Stop()
 				base, cancel := context.WithCancel(t.Context())
 				defer cancel()

@@ -5,10 +5,7 @@ package peer
 
 import (
 	"context"
-	"encoding/json"
 	"net"
-	"net/http"
-	"net/http/httptest"
 	"net/netip"
 	"strconv"
 	"sync"
@@ -17,12 +14,19 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app/request"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/export/instrumentations"
 	"go.opentelemetry.io/obi/pkg/export/otel"
 )
+
+func newTestAgent(cfg MetadataConfig, hostname string, peers network) (*Agent, *peerExchange) {
+	store := newStore(hostname, cfg)
+	exchange := newTestExchange(cfg, store, peers)
+	return &Agent{cfg: cfg, store: store, network: peers, exchange: exchange}, exchange
+}
 
 func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 	cfg := DefaultConfig()
@@ -37,34 +41,32 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 	localTarget := Endpoint{IP: "127.0.0.1", Port: 9090}
 	remote.observe(localTarget, frontend, time.Now())
 	remote.observe(Endpoint{IP: "10.1.0.99", Port: 9090}, Service{Name: "unrelated"}, time.Now())
-	remoteCache := newPeerCache(cfg)
+	remoteExchange := newTestExchange(cfg, remote, testLoopbackNetwork)
+	remoteCache := remoteExchange.cache
 	var requests atomic.Int32
 	entered := make(chan struct{}, 1)
 	release := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	gate := func(ctx context.Context, request any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		requests.Add(1)
 		entered <- struct{}{}
 		select {
 		case <-release:
-		case <-r.Context().Done():
-			return
+		case <-ctx.Done():
+			return nil, ctx.Err()
 		}
-		metadataHandler(remote, cfg, testLoopbackNetwork, remoteCache).ServeHTTP(w, r)
-	}))
-	t.Cleanup(server.Close)
-	client := newHTTPClient(cfg, nil)
-	client.Transport.(*http.Transport).DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "tcp", server.Listener.Addr().String())
+		return handler(ctx, request)
 	}
-	t.Cleanup(client.CloseIdleConnections)
+	port := startPeerServer(t, &cfg, remoteExchange, nil, grpc.ChainUnaryInterceptor(gate))
 	network, err := makeNetwork([]netip.Addr{netip.MustParseAddr(localTarget.IP)}, []string{"10.1.0.0/16"})
 	require.NoError(t, err)
-	agent := &Agent{cfg: cfg, store: newStore("local-host", cfg), cache: newPeerCache(cfg), client: client, network: network}
+	agent, agentExchange := newTestAgent(cfg, "local-host", network)
+	agentExchange.clients = newPeerClients(&cfg, nil, grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "tcp", net.JoinHostPort(loopback.String(), strconv.Itoa(port)))
+	}))
+	t.Cleanup(agentExchange.clients.close)
 	ctx, cancel := context.WithCancel(t.Context())
 	var workers sync.WaitGroup
-	jobs := make(chan *cachedPeer, cfg.MaxConcurrent)
-	workers.Go(func() { agent.fetchPeers(ctx, jobs) })
-	workers.Go(func() { agent.schedulePeers(ctx, jobs) })
+	workers.Go(func() { agentExchange.createRefresher().run(ctx) })
 	t.Cleanup(func() { cancel(); workers.Wait() })
 	span := request.Span{
 		Type: request.EventTypeHTTPClient, Host: "10.1.0.2", HostPort: 8080, HostName: "dns-host",
@@ -84,7 +86,7 @@ func TestBackgroundDiscoveryEnrichesBothDirections(t *testing.T) {
 	require.EqualValues(t, 1, requests.Load())
 	require.Equal(t, "dns-host", span.HostName)
 	requester := netip.MustParseAddr("127.0.0.1")
-	known := agent.store.snapshot(map[string]struct{}{span.Host: {}}, time.Now())
+	known := agent.store.snapshot(callersTo(span.Host), time.Now())
 	remoteCache.lookup(requester, time.Now())
 	remoteCache.complete(remoteCache.due(time.Now(), 1)[0], indexSnapshot(&known), 1, time.Now(), time.Now())
 	close(release)
@@ -127,11 +129,11 @@ func TestAgentStartupFailureAndCancellation(t *testing.T) {
 	cfg.Enabled = true
 	cfg.ListenAddress = "127.0.0.1"
 	cfg.Port = occupied.Addr().(*net.TCPAddr).Port
-	_, err = New(t.Context(), cfg, "host", false, nil, nil)
+	_, err = New(t.Context(), cfg, "host", "", false, nil, nil)
 	require.ErrorContains(t, err, "listening for peer metadata")
 	require.NoError(t, occupied.Close())
 	ctx, cancel := context.WithCancel(t.Context())
-	agent, err := New(ctx, cfg, "host", false, nil, nil)
+	agent, err := New(ctx, cfg, "host", "", false, nil, nil)
 	require.NoError(t, err)
 	cancel()
 	// Cancellation must release a listener even if the pipeline never runs.
@@ -146,15 +148,28 @@ func TestAgentStartupFailureAndCancellation(t *testing.T) {
 	agent.Close()
 	cfg.TLS.Enabled = true
 	cfg.TLS.CertFile, cfg.TLS.KeyFile = "missing-cert", "missing-key"
-	_, err = New(t.Context(), cfg, "host", false, nil, nil)
+	_, err = New(t.Context(), cfg, "host", "", false, nil, nil)
 	require.ErrorContains(t, err, "certificate")
+}
+
+func TestCentralModeRequiresHostID(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Enabled = true
+	cfg.Mode = ModeCentral
+	cfg.Central.Address = "127.0.0.1:8999"
+	_, err := New(t.Context(), cfg, "host", "", false, nil, nil)
+	require.ErrorContains(t, err, "requires a host ID")
+
+	agent, err := New(t.Context(), cfg, "host", "host-id", false, nil, nil)
+	require.NoError(t, err)
+	agent.Close()
 }
 
 func TestLocalEnrichmentAndCIDRExclusion(t *testing.T) {
 	cfg := DefaultConfig()
 	network, err := makeNetwork([]netip.Addr{netip.MustParseAddr("10.1.0.1")}, nil)
 	require.NoError(t, err)
-	agent := &Agent{cfg: cfg, store: newStore("local-host", cfg), cache: newPeerCache(cfg), network: network}
+	agent, agentExchange := newTestAgent(cfg, "local-host", network)
 	service := Service{Name: "local-api"}
 	agent.store.setInventory([]Service{service}, []Listener{
 		{Endpoint: Endpoint{IP: "127.0.0.1", Port: 8080}, Service: service},
@@ -165,7 +180,7 @@ func TestLocalEnrichmentAndCIDRExclusion(t *testing.T) {
 	span.Host, span.HostName = "8.8.8.8", "existing-name"
 	agent.Decorate(&span, time.Now())
 	require.Equal(t, "existing-name", span.HostName)
-	require.Zero(t, agent.cache.peers.Len())
+	require.Zero(t, agentExchange.cache.peers.Len())
 }
 
 func TestIneligibleDestinationsDoNotCauseCallerOverflow(t *testing.T) {
@@ -182,7 +197,7 @@ func TestIneligibleDestinationsDoNotCauseCallerOverflow(t *testing.T) {
 		"10.2.0.1", "fd34::1", "::ffff:10.2.0.1", "127.0.0.1", "::1",
 	} {
 		t.Run(host, func(t *testing.T) {
-			agent := &Agent{cfg: cfg, store: newStore("local-host", cfg), cache: newPeerCache(cfg), network: peers}
+			agent, _ := newTestAgent(cfg, "local-host", peers)
 			span := request.Span{
 				Type: request.EventTypeHTTPClient, Host: host, HostPort: 8080,
 				Service: svc.Attrs{UID: svc.UID{Name: frontend.Name, Namespace: frontend.Namespace}},
@@ -193,7 +208,7 @@ func TestIneligibleDestinationsDoNotCauseCallerOverflow(t *testing.T) {
 				agent.Decorate(&span, now)
 			}
 			target := Endpoint{IP: netip.MustParseAddr(host).Unmap().String(), Port: span.HostPort}
-			snapshot := agent.store.snapshot(map[string]struct{}{target.IP: {}}, now)
+			snapshot := agent.store.snapshot(callersTo(target.IP), now)
 			require.Equal(t, 1, agent.store.callerCount)
 			require.Zero(t, snapshot.CallerAmbiguityMillis)
 			require.Equal(t, frontend, agent.store.callerService(target, now))
@@ -209,7 +224,7 @@ func TestUninstrumentedDestinationRetainsClientCount(t *testing.T) {
 				cfg := DefaultConfig()
 				network, err := makeNetwork([]netip.Addr{netip.MustParseAddr("10.1.0.1")}, []string{"10.1.0.0/16"})
 				require.NoError(t, err)
-				agent := &Agent{cfg: cfg, store: newStore("local-host", cfg), cache: newPeerCache(cfg), network: network}
+				agent, agentExchange := newTestAgent(cfg, "local-host", network)
 				agent.store.graphEnabled = true
 				catalog := Service{Name: "catalog", Namespace: "shop", ServiceGraph: true}
 				var listeners []Listener
@@ -224,8 +239,8 @@ func TestUninstrumentedDestinationRetainsClientCount(t *testing.T) {
 					hostname = "remote-host"
 					protocols := instrumentations.NewInstrumentationSelection([]instrumentations.Instrumentation{instrumentations.InstrumentationALL})
 					snapshot := indexSnapshot(&Snapshot{Hostname: hostname, Services: []Service{catalog}, Listeners: listeners, MetricProtocols: &protocols})
-					agent.cache.lookup(netip.MustParseAddr(host), now)
-					agent.cache.complete(agent.cache.due(now, 1)[0], snapshot, 1, now, now)
+					agentExchange.cache.lookup(netip.MustParseAddr(host), now)
+					agentExchange.cache.complete(agentExchange.cache.due(now, 1)[0], snapshot, 1, now, now)
 				}
 				span := request.Span{
 					Type: request.EventTypeSQLClient, SubType: int(request.DBPostgres), Host: host, HostPort: 5432,
@@ -279,18 +294,18 @@ func TestListenerResolutionClientCounts(t *testing.T) {
 	} {
 		for _, local := range []bool{false, true} {
 			t.Run(test.name+"/local="+strconv.FormatBool(local), func(t *testing.T) {
-				agent := &Agent{cfg: cfg, store: newStore("destination-host", cfg), cache: newPeerCache(cfg), network: network}
+				agent, agentExchange := newTestAgent(cfg, "destination-host", network)
 				now := time.Now()
 				host := "10.1.0.2"
 				if local {
 					host = "10.1.0.1"
 					agent.store.setInventory(nil, test.listeners)
 				} else {
-					agent.cache.lookup(netip.MustParseAddr(host), now)
-					due := agent.cache.due(now, 1)
+					agentExchange.cache.lookup(netip.MustParseAddr(host), now)
+					due := agentExchange.cache.due(now, 1)
 					require.Len(t, due, 1)
 					snapshot := indexSnapshot(&Snapshot{Hostname: "destination-host", Listeners: test.listeners, MetricProtocols: &protocols})
-					agent.cache.complete(due[0], snapshot, 1, now, now)
+					agentExchange.cache.complete(due[0], snapshot, 1, now, now)
 				}
 				span := request.Span{Type: request.EventTypeHTTPClient, Host: host, HostPort: endpoint.Port}
 				if test.failed {
@@ -325,19 +340,14 @@ func TestUnmatchedListenerClientCountIndependentOfPeerMetrics(t *testing.T) {
 			remote.setInventory([]Service{captured}, []Listener{
 				{Endpoint: Endpoint{IP: "0.0.0.0", Port: 9090}, Service: captured},
 			})
-			r := httptest.NewRequest(http.MethodGet, MetadataPath, nil)
-			r.RemoteAddr = "10.1.0.1:1234"
-			w := httptest.NewRecorder()
-			metadataHandler(remote, cfg, peers, nil).ServeHTTP(w, r)
-			require.Equal(t, http.StatusOK, w.Code)
-			var snapshot Snapshot
-			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &snapshot))
+			snapshot, size, err := getSnapshot(t, newTestExchange(cfg, remote, peers), "10.1.0.1:1234")
+			require.NoError(t, err)
 
-			agent := &Agent{cfg: cfg, store: newStore("local-host", cfg), cache: newPeerCache(cfg), network: peers}
+			agent, agentExchange := newTestAgent(cfg, "local-host", peers)
 			now := time.Now()
 			address := netip.MustParseAddr("10.1.0.2")
-			agent.cache.lookup(address, now)
-			agent.cache.complete(agent.cache.due(now, 1)[0], indexSnapshot(&snapshot), w.Body.Len(), now, now)
+			agentExchange.cache.lookup(address, now)
+			agentExchange.cache.complete(agentExchange.cache.due(now, 1)[0], indexSnapshot(&snapshot), size, now, now)
 			span := request.Span{Type: request.EventTypeHTTPClient, Host: address.String(), HostPort: 8080}
 			agent.Decorate(&span, now)
 			require.Equal(t, "remote-host", span.HostName)
@@ -355,8 +365,8 @@ func TestClientCountRequiresReverseMetadataExchange(t *testing.T) {
 	cfg.CallerTTL = time.Second
 	peers, err := makeNetwork(nil, []string{"10.1.0.0/16"})
 	require.NoError(t, err)
-	client := &Agent{cfg: cfg, store: newStore("client-host", cfg), cache: newPeerCache(cfg), network: peers}
-	server := &Agent{cfg: cfg, store: newStore("server-host", cfg), cache: newPeerCache(cfg), network: peers}
+	client, clientExchange := newTestAgent(cfg, "client-host", peers)
+	server, serverExchange := newTestAgent(cfg, "server-host", peers)
 	server.store.graphEnabled = true
 	backend := Service{Name: "backend", Namespace: "shop", ServiceGraph: true}
 	server.store.setInventory([]Service{backend}, []Listener{
@@ -365,20 +375,15 @@ func TestClientCountRequiresReverseMetadataExchange(t *testing.T) {
 	})
 	clientIP := netip.MustParseAddr("10.1.0.1")
 	serverIP := netip.MustParseAddr("10.1.0.2")
-	exchange := func(from, to *Agent, source, destination netip.Addr) {
+	exchange := func(from, to *peerExchange, source, destination netip.Addr) {
 		t.Helper()
 		started := time.Now()
-		r := httptest.NewRequest(http.MethodGet, MetadataPath, nil)
-		r.RemoteAddr = net.JoinHostPort(source.String(), "1234")
-		w := httptest.NewRecorder()
-		metadataHandler(to.store, cfg, peers, to.cache).ServeHTTP(w, r)
-		require.Equal(t, http.StatusOK, w.Code)
-		var snapshot Snapshot
-		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &snapshot))
+		snapshot, size, err := getSnapshot(t, to, net.JoinHostPort(source.String(), "1234"))
+		require.NoError(t, err)
 		require.NoError(t, validateSnapshot(&snapshot, cfg.CallerTTL))
 		from.cache.lookup(destination, started)
 		peer, _ := from.cache.peers.Peek(destination)
-		from.cache.complete(peer, indexSnapshot(&snapshot), w.Body.Len(), started, time.Now())
+		from.cache.complete(peer, indexSnapshot(&snapshot), size, started, time.Now())
 	}
 	clientSpan := request.Span{
 		Type: request.EventTypeHTTPClient, Host: serverIP.String(), HostPort: 8080,
@@ -387,17 +392,17 @@ func TestClientCountRequiresReverseMetadataExchange(t *testing.T) {
 	serverSpan := request.Span{Type: request.EventTypeHTTP, Peer: clientIP.String(), Host: serverIP.String(), HostPort: 8080}
 	tracker := otel.NewPidServiceTracker()
 
-	exchange(client, server, clientIP, serverIP)
+	exchange(clientExchange, serverExchange, clientIP, serverIP)
 	server.Decorate(&serverSpan, time.Now())
 	require.Empty(t, serverSpan.PeerName, "the reverse metadata exchange has not succeeded")
 	client.Decorate(&clientSpan, time.Now())
 	require.Equal(t, "backend", clientSpan.HostName)
 	require.True(t, otel.ClientSpanToUninstrumentedService(&tracker, &clientSpan), "both exporters must retain the correctly named client edge")
 
-	exchange(server, client, serverIP, clientIP)
+	exchange(serverExchange, clientExchange, serverIP, clientIP)
 	server.Decorate(&serverSpan, time.Now())
 	require.Equal(t, "frontend", serverSpan.PeerName)
-	exchange(client, server, clientIP, serverIP)
+	exchange(clientExchange, serverExchange, clientIP, serverIP)
 	client.Decorate(&clientSpan, time.Now())
 	require.False(t, otel.ClientSpanToUninstrumentedService(&tracker, &clientSpan), "the server can now count the same edge")
 
@@ -453,26 +458,20 @@ func TestCachedPeerProtocolMetricsEligibility(t *testing.T) {
 			cfg := DefaultConfig()
 			peers, err := makeNetwork(nil, []string{"10.1.0.0/16"})
 			require.NoError(t, err)
-			agent := &Agent{cfg: cfg, store: newStore("client-host", cfg), cache: newPeerCache(cfg), network: peers}
+			agent, agentExchange := newTestAgent(cfg, "client-host", peers)
 			target := Endpoint{IP: "10.1.0.2", Port: 8080}
 			frontend := Service{Name: "frontend", Namespace: "shop"}
-			payload := map[string]any{
-				"version": ProtocolVersion, "hostname": "server-host",
-				"known_callers": []Caller{{Destination: target, Services: []CallerService{{Service: frontend, RemainingMillis: 60000}}}},
+			snapshot := Snapshot{
+				Hostname:        "server-host",
+				KnownCallers:    []Caller{{Destination: target, Services: []CallerService{{Service: frontend, RemainingMillis: 60000}}}},
+				MetricProtocols: test.selection,
 			}
 			if test.listeners {
-				payload["listeners"] = []Listener{{Endpoint: target, Service: Service{Name: "backend", ServiceGraph: true}}}
+				snapshot.Listeners = []Listener{{Endpoint: target, Service: Service{Name: "backend", ServiceGraph: true}}}
 			}
-			if test.selection != nil {
-				payload["metric_protocols"] = *test.selection
-			}
-			data, err := json.Marshal(payload)
-			require.NoError(t, err)
-			var snapshot Snapshot
-			require.NoError(t, json.Unmarshal(data, &snapshot))
 			now := time.Now()
-			agent.cache.lookup(netip.MustParseAddr(target.IP), now)
-			agent.cache.complete(agent.cache.due(now, 1)[0], indexSnapshot(&snapshot), len(data), now, now)
+			agentExchange.cache.lookup(netip.MustParseAddr(target.IP), now)
+			agentExchange.cache.complete(agentExchange.cache.due(now, 1)[0], indexSnapshot(&snapshot), 1, now, now)
 			span := request.Span{
 				Type: test.event, Host: target.IP, HostPort: target.Port,
 				Service: svc.Attrs{UID: svc.UID{Name: frontend.Name, Namespace: frontend.Namespace}},

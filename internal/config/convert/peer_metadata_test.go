@@ -30,11 +30,14 @@ func TestPeerMetadataV2DefaultsAndRoundTrip(t *testing.T) {
 	cfg.PeerMetadata.CallerTTL = 20 * time.Second
 	cfg.PeerMetadata.PeerCIDRs = []string{"10.1.0.0/16"}
 	cfg.PeerMetadata.Token = "secret"
-	cfg.PeerMetadata.TLS = peer.TLSConfig{Enabled: true, CertFile: "cert", KeyFile: "key", CAFile: "ca", ServerName: "agent"}
+	cfg.PeerMetadata.TLS = peer.MetadataTLSConfig{Enabled: true, CertFile: "cert", KeyFile: "key", CAFile: "ca", ServerName: "agent"}
 	_, exported := RuntimeToV2(cfg)
 	roundTrip, err := V2ToRuntime(exported)
 	require.NoError(t, err)
 	require.Equal(t, cfg.PeerMetadata, roundTrip.PeerMetadata)
+
+	_, _, err = schema.ParseStandaloneYAML([]byte(peerMetadataYAML("          mode: unknown\n")))
+	require.ErrorContains(t, err, `invalid mode "unknown"`)
 }
 
 func TestPeerMetadataV2Validation(t *testing.T) {
@@ -43,6 +46,7 @@ func TestPeerMetadataV2Validation(t *testing.T) {
 		"peer_cidrs: [invalid]", "max_peers: 0", "max_concurrent: -1", "max_cache_bytes: 1",
 		"request_timeout: 0s", "max_caller_entries: 0", "max_response_bytes: 0", "max_cache_bytes: 0",
 		"token: secret", "tls: {enabled: true}", "unsupported: true", "tls: {unsupported: true}",
+		"mode: central", "central: {unsupported: true}",
 	} {
 		t.Run(field, func(t *testing.T) {
 			body := "          enabled: true\n          " + field + "\n"
@@ -64,7 +68,7 @@ func TestPeerMetadataRuntimeToV2RoundTrip(t *testing.T) {
 	cfg.PeerMetadata.PeerCIDRs = []string{"10.1.0.0/16"}
 	cfg.PeerMetadata.CallerTTL = 20 * time.Second
 	cfg.PeerMetadata.Token = "shared-token"
-	cfg.PeerMetadata.TLS = peer.TLSConfig{
+	cfg.PeerMetadata.TLS = peer.MetadataTLSConfig{
 		Enabled: true, CertFile: "cert.pem", KeyFile: "key.pem", CAFile: "ca.pem", ServerName: "agent.test",
 	}
 	_, extension := RuntimeToV2(&cfg)
@@ -89,4 +93,23 @@ func TestDisabledPeerMetadataV2SkipsValidation(t *testing.T) {
 	cfg, err := V2ToRuntime(ext)
 	require.NoError(t, err)
 	require.False(t, cfg.PeerMetadata.Enabled)
+}
+
+func TestPeerMetadataV2CentralMode(t *testing.T) {
+	body := "          enabled: true\n          mode: central\n          central:\n            address: metadata:8999\n" +
+		"          token: secret\n          tls:\n            enabled: true\n            ca_file: ca.pem\n"
+	_, ext, err := schema.ParseStandaloneYAML([]byte(peerMetadataYAML(body)))
+	require.NoError(t, err)
+	cfg, err := V2ToRuntime(ext)
+	require.NoError(t, err)
+	require.Equal(t, peer.ModeCentral, cfg.PeerMetadata.Mode)
+	require.Equal(t, "metadata:8999", cfg.PeerMetadata.Central.Address)
+
+	_, exported := RuntimeToV2(cfg)
+	roundTrip, err := V2ToRuntime(exported)
+	require.NoError(t, err)
+	require.Equal(t, cfg.PeerMetadata, roundTrip.PeerMetadata)
+
+	_, _, err = schema.ParseStandaloneYAML([]byte(peerMetadataYAML("          mode: unknown\n")))
+	require.ErrorContains(t, err, `invalid mode "unknown"`)
 }

@@ -241,7 +241,7 @@ func TestToRequestTrace(t *testing.T) {
 		End:          789012,
 		HostPort:     1,
 		Service:      svc.Attrs{},
-		Statement:    "http;",
+		Statement:    "http;example.com",
 	}
 	assert.Equal(t, expected, result)
 }
@@ -357,6 +357,21 @@ func TestToRequestTrace_BadHost(t *testing.T) {
 	s, p = httpHostFromBuf(record3.Buf[:])
 	assert.Empty(t, s)
 	assert.Equal(t, -1, p)
+}
+
+func TestHTTPInfoEventToSpan_XForwardedHostNotMatched(t *testing.T) {
+	// X-Forwarded-Host must not be mistaken for Host when it appears first.
+	event := BPFHTTPInfo{Type: uint8(request.EventTypeHTTP)}
+	event.ConnInfo.S_port = 54321
+	event.ConnInfo.D_port = 8080
+	event.ConnInfo.S_addr = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 192, 168, 0, 1}
+	event.ConnInfo.D_addr = [16]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 10, 0, 0, 1}
+	copy(event.Buf[:], "GET /path HTTP/1.1\r\nX-Forwarded-Host: proxy.example.com\r\nHost: backend.example.com\r\n\r\n")
+
+	span, ignored, err := HTTPInfoEventToSpan(nil, &event)
+	require.NoError(t, err)
+	assert.False(t, ignored)
+	assert.Equal(t, "http;backend.example.com", span.Statement)
 }
 
 func TestHTTPInfoEventToSpan_HostHeaderCase(t *testing.T) {
@@ -581,6 +596,79 @@ func TestHTTPRequestResponseToSpan_OpenAIEmbeddingDetectedByOpenAISpan(t *testin
 	require.NotNil(t, span.GenAI)
 	require.NotNil(t, span.GenAI.OpenAI, "span.GenAI.OpenAI should be set")
 	assert.Equal(t, request.EmbeddingOperationName, span.GenAI.OpenAI.OperationName)
+}
+
+func TestHTTPRequestResponseToSpan_OpenAIOnOllamaPathStaysOpenAI(t *testing.T) {
+	parseCtx := &EBPFParseContext{
+		payloadExtraction: config.PayloadExtraction{
+			HTTP: config.HTTPConfig{
+				GenAI: config.GenAIConfig{
+					Ollama: config.OllamaConfig{Enabled: true}, OpenAI: config.OpenAIConfig{Enabled: true},
+				},
+			},
+		},
+	}
+
+	reqBody := `{"model":"text-embedding-3-small","input":"hello"}`
+	respBody := `{"object":"list","data":[{"object":"embedding","embedding":[0.1],"index":0}],"model":"text-embedding-3-small","usage":{"prompt_tokens":5,"total_tokens":5}}`
+
+	req := &http.Request{
+		Method: http.MethodPost,
+		URL:    &url.URL{Scheme: "http", Host: "gateway.internal", Path: "/api/embeddings"},
+		Host:   "gateway.internal",
+		Body:   io.NopCloser(strings.NewReader(reqBody)),
+	}
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header: http.Header{
+			"Content-Type":   []string{"application/json"},
+			"Openai-Version": []string{"2020-10-01"},
+		},
+		Body: io.NopCloser(strings.NewReader(respBody)),
+	}
+	event := &BPFHTTPInfo{
+		Type: uint8(request.EventTypeHTTPClient),
+	}
+
+	span := httpRequestResponseToSpan(parseCtx, event, req, resp)
+
+	assert.Equal(t, request.HTTPSubtypeOpenAI, span.SubType)
+	require.NotNil(t, span.GenAI)
+	assert.Nil(t, span.GenAI.Ollama)
+	require.NotNil(t, span.GenAI.OpenAI)
+	assert.Equal(t, request.EmbeddingOperationName, span.GenAI.OpenAI.OperationName)
+}
+
+func TestHTTPRequestResponseToSpan_OpenAIDecisionsContentCapture(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			parseCtx := &EBPFParseContext{
+				payloadExtraction: config.PayloadExtraction{
+					HTTP: config.HTTPConfig{
+						GenAI: config.GenAIConfig{OpenAI: config.OpenAIConfig{Enabled: enabled}},
+					},
+				},
+			}
+			req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/decisions", strings.NewReader(`{"model":"gpt-6-luna","input":[{"role":"user","content":[{"type":"input_text","text":"Check the charges."},{"type":"input_json","data":{"order":{"charges":[49,49]}}},{"type":"input_text","text":"Are they duplicates?"}]}]}`))
+			require.NoError(t, err)
+			resp := &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Openai-Version": []string{"2020-10-01"}},
+				Body:       io.NopCloser(strings.NewReader(`{}`)),
+			}
+			event := &BPFHTTPInfo{Type: uint8(request.EventTypeHTTPClient)}
+
+			span := httpRequestResponseToSpan(parseCtx, event, req, resp)
+
+			if !enabled {
+				assert.Nil(t, span.GenAI)
+				return
+			}
+			require.NotNil(t, span.GenAI)
+			require.NotNil(t, span.GenAI.OpenAI)
+			assert.JSONEq(t, `[{"role":"user","parts":[{"type":"text","content":"Check the charges."},{"type":"input_json","data":{"order":{"charges":[49,49]}}},{"type":"text","content":"Are they duplicates?"}]}]`, span.GenAI.OpenAI.Request.GetInput())
+		})
+	}
 }
 
 func TestToRequestTraceLargeBuffers(t *testing.T) {

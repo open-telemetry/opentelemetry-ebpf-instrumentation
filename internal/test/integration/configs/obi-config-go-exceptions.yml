@@ -1,0 +1,72 @@
+file_format: "1.0"
+logger_provider:
+  processors:
+    - batch:
+        schedule_delay: 100
+        exporter:
+          otlp_http:
+            endpoint: http://127.0.0.1:14518/v1/logs
+tracer_provider:
+  processors:
+    - batch:
+        schedule_delay: 1
+        exporter:
+          otlp_http:
+            endpoint: http://127.0.0.1:14518
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      exceptions:
+        enabled: true
+      policy:
+        default_action: exclude
+        poll_interval: 500ms
+      rules:
+        - action: include
+          match:
+            process:
+              open_ports: "18590,18591,18594-18598"
+          refine:
+            exceptions:
+              go:
+                formatted_errors: true
+        - action: include
+          match:
+            process:
+              open_ports: "18593"
+          refine:
+            exceptions:
+              enabled: false
+        - action: include
+          match:
+            process:
+              open_ports: "18592"
+        - action: include
+          match:
+            process:
+              open_ports: "18599"
+          refine:
+            exceptions:
+              go:
+                panics: false
+                formatted_errors: true
+        - action: include
+          match:
+            process:
+              open_ports: "18600"
+          refine:
+            exceptions:
+              go:
+                panics: false
+                formatted_errors: false
+      instrumentation:
+        http:
+          routes:
+            incoming:
+              unmatched: path
+      engine:
+        propagation:
+          populate_trace_context: false
+        batching:
+          batch_timeout: 10ms

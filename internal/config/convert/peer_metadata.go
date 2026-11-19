@@ -17,7 +17,7 @@ func applyV2PeerMetadata(cfg *obi.Config, enrich *schema.Enrich, complete bool) 
 	}
 
 	src := enrich.Enrichers.PeerMetadata
-	cfg.PeerMetadata = peer.Config{
+	cfg.PeerMetadata = peer.MetadataConfig{
 		Enabled:          src.Enabled,
 		ListenAddress:    src.ListenAddress,
 		Port:             src.Port,
@@ -32,13 +32,15 @@ func applyV2PeerMetadata(cfg *obi.Config, enrich *schema.Enrich, complete bool) 
 		MaxResponseBytes: src.MaxResponseBytes,
 		MaxCacheBytes:    src.MaxCacheBytes,
 		Token:            src.Token,
-		TLS: peer.TLSConfig{
+		TLS: peer.MetadataTLSConfig{
 			Enabled:    src.TLS.Enabled,
 			CertFile:   src.TLS.CertFile,
 			KeyFile:    src.TLS.KeyFile,
 			CAFile:     src.TLS.CAFile,
 			ServerName: src.TLS.ServerName,
 		},
+		Mode:    peer.Mode(src.Mode),
+		Central: peer.MetadataCentralConfig{Address: src.Central.Address},
 	}
 
 	if !complete {
@@ -52,10 +54,11 @@ func applyV2PeerMetadata(cfg *obi.Config, enrich *schema.Enrich, complete bool) 
 	return nil
 }
 
-func peerMetadataEnrichment(cfg peer.Config) schema.PeerMetadataEnricher {
+func peerMetadataEnrichment(cfg peer.MetadataConfig) schema.PeerMetadataEnricher {
 	cfg = cfg.WithDefaults()
 	return schema.PeerMetadataEnricher{
 		Enabled:          cfg.Enabled,
+		Mode:             schema.PeerMetadataMode(cfg.Mode),
 		ListenAddress:    cfg.ListenAddress,
 		Port:             cfg.Port,
 		PeerCIDRs:        cloneStrings(cfg.PeerCIDRs),
@@ -76,5 +79,6 @@ func peerMetadataEnrichment(cfg peer.Config) schema.PeerMetadataEnricher {
 			CAFile:     cfg.TLS.CAFile,
 			ServerName: cfg.TLS.ServerName,
 		},
+		Central: schema.PeerMetadataCentral{Address: cfg.Central.Address},
 	}
 }

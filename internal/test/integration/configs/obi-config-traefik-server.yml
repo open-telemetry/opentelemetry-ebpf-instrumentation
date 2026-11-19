@@ -1,0 +1,16 @@
+routes:
+  unmatched: path
+otel_traces_export:
+  endpoint: http://jaeger:4318
+attributes:
+  select:
+    "*":
+      include: ["*"]
+discovery:
+  instrument:
+    - name: traefik-validation
+      exe_path: "*/traefik"
+      container_name: "*traefik-validation*"
+    - name: traefik-backend
+      exe_path: "*wrappedconnserver*"
+      container_name: "*traefik-backend*"

@@ -119,6 +119,7 @@ var (
 )
 
 var DefaultConfig = Config{
+	Logs:                    otelcfg.LogsConfig{BatchMaxSize: 512, QueueSize: 2048, BatchTimeout: time.Second},
 	ChannelBufferLen:        50,
 	ChannelSendTimeout:      time.Minute,
 	ChannelSendTimeoutPanic: false,
@@ -230,8 +231,9 @@ var DefaultConfig = Config{
 	},
 	PeerMetadata: peer.DefaultConfig(),
 	CloudMetadata: transform.CloudMetadataConfig{
-		RefreshInterval: 30 * time.Second,
-		Route53:         transform.Route53MetadataConfig{RefreshInterval: cloud.DefaultRoute53RefreshInterval},
+		DetectionEnabled: true,
+		RefreshInterval:  30 * time.Second,
+		Route53:          transform.Route53MetadataConfig{RefreshInterval: cloud.DefaultRoute53RefreshInterval},
 	},
 	NameResolver: &transform.NameResolverConfig{
 		Sources: []transform.Source{
@@ -393,7 +395,7 @@ type Config struct {
 	Attributes    Attributes                    `yaml:"attributes"`
 	CloudMetadata transform.CloudMetadataConfig `yaml:"cloud_metadata"`
 
-	PeerMetadata peer.Config `yaml:"-" env:"-" jsonschema:"-" validate:"-"`
+	PeerMetadata peer.MetadataConfig `yaml:"-" env:"-" jsonschema:"-" validate:"-"`
 	// Routes configures URL path grouping. If not set, data will be directly forwarded to exporters.
 	Routes       *transform.RoutesConfig       `yaml:"routes"`
 	NameResolver *transform.NameResolverConfig `yaml:"name_resolver"`
@@ -401,6 +403,10 @@ type Config struct {
 	Traces       otelcfg.TracesConfig          `yaml:"otel_traces_export"`
 	Prometheus   prom.PrometheusConfig         `yaml:"prometheus_export"`
 	TracePrinter debug.TracePrinter            `yaml:"trace_printer" env:"OTEL_EBPF_TRACE_PRINTER"`
+
+	// Exceptions and Logs are set only by config v2.
+	Exceptions services.ExceptionsConfig `yaml:"-" env:"-"`
+	Logs       otelcfg.LogsConfig        `yaml:"-" env:"-"`
 
 	// Exec allows selecting the instrumented executable whose complete path contains the Exec value.
 	//
@@ -725,7 +731,8 @@ type Attributes struct {
 	// SensitiveQueryParams controls which query-parameter keys are redacted in url.full and url.query.
 	SensitiveQueryParams attributes.SensitiveQueryParamsConfig `yaml:"sensitive_query_params"`
 
-	SanitizeSQLQueryText bool `yaml:"-" env:"-" json:"-"`
+	SanitizeDBQueryText bool `yaml:"-" env:"-" json:"-"`
+	UseV2Selection      bool `yaml:"-" env:"-" json:"-"`
 }
 
 type HostIDConfig struct {
@@ -893,6 +900,12 @@ func (c *Config) validate(context validationContext) error {
 		}
 	}
 
+	if err := c.Logs.Validate(); err != nil {
+		return ConfigError(err.Error())
+	}
+	if c.ExceptionsEnabled() && !c.Logs.Enabled() {
+		return ConfigError("exception capture requires a logger_provider exporter or a logs consumer")
+	}
 	otelMetricsEnabled := context.hostMetricsSink || c.OTELMetrics.EndpointEnabled()
 	tracesEnabled := context.hostTracesSink || c.Traces.Enabled()
 
@@ -917,7 +930,7 @@ func (c *Config) validate(context validationContext) error {
 	}
 
 	if applicationEnabled && !c.TracePrinter.Enabled() &&
-		!otelMetricsEnabled && !tracesEnabled &&
+		!otelMetricsEnabled && !tracesEnabled && !c.Logs.Enabled() &&
 		!c.Prometheus.EndpointEnabled() && !c.TracePrinter.Enabled() {
 		return ConfigError("you need to define at least one exporter: trace_printer," +
 			" otel_metrics_export, otel_traces_export or prometheus_export")
@@ -943,6 +956,10 @@ func (c *Config) validate(context validationContext) error {
 	}
 
 	if err := c.PeerMetadata.Validate(); err != nil {
+		return ConfigError(err.Error())
+	}
+
+	if err := c.Attributes.Kubernetes.MetaCacheTLS.Validate(); err != nil {
 		return ConfigError(err.Error())
 	}
 
@@ -1188,4 +1205,22 @@ func (c *Config) normalize() {
 	if c.NetworkFlows.Enable {
 		c.Metrics.Features |= export.FeatureNetwork
 	}
+}
+
+// ExceptionsEnabled reports whether any selected workload can request capture.
+func (c *Config) ExceptionsEnabled() bool {
+	if c.Exceptions.Enabled {
+		return true
+	}
+	for _, s := range c.Discovery.Instrument {
+		if s.Exceptions.Resolve(c.Exceptions).Enabled {
+			return true
+		}
+	}
+	for _, s := range c.Discovery.Services {
+		if s.Exceptions.Resolve(c.Exceptions).Enabled {
+			return true
+		}
+	}
+	return false
 }

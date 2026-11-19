@@ -70,6 +70,7 @@ services:
     environment:
       OTEL_EBPF_CONFIG_PATH: /configs/obi-config-gpu.yml
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       # Force CUDA instrumentation on so the gpuevent tracer loads without a GPU
       # (nvidia-smi auto-detect is bypassed).
       OTEL_EBPF_INSTRUMENT_CUDA: "on"
@@ -97,7 +98,7 @@ services:
         condition: service_started
 
   prometheus:
-    image: quay.io/prometheus/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e
+    image: quay.io/prometheus/prometheus:v3.16.0@sha256:9332054523223e2ddc18d8101799d54a4a8d823b030c53216f063a6c117773cd
     container_name: prometheus
     command:
       - --config.file=/etc/prometheus/prometheus-config-gpu.yml
@@ -111,7 +112,7 @@ services:
   # OpenTelemetry Collector: single OTLP receiver fans out to the Prometheus
   # exporter (scraped by the test) and to weaver (semconv live-check).
   otelcol:
-    image: otel/opentelemetry-collector-contrib:0.164.0@sha256:340c9ca6a36617084c6661bdc4f0fe92b7cda5a805d61673ec8db375fddc522b
+    image: otel/opentelemetry-collector-contrib:0.165.0@sha256:e40d61f10c9a617cca1ffd1be4d7e2b3a4b0f0001798ff07e58cabe82e618cea
     container_name: otel-col
     deploy:
       resources:

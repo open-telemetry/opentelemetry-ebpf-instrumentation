@@ -22,6 +22,7 @@
 #include <common/go_addr_key.h>
 #include <common/map_sizing.h>
 #include <common/pin_internal.h>
+#include <common/sampling.h>
 #include <common/strings.h>
 #include <common/trace_helpers.h>
 #include <common/trace_util.h>
@@ -64,13 +65,27 @@ struct {
     __uint(pinning, OBI_PIN_INTERNAL);
 } ongoing_goroutines SEC(".maps");
 
+typedef struct http_server_connection {
+    connection_info_t conn;
+    u32 _pad;
+    u64 net_conn; // net.Conn data pointer; zero for HTTP/2 stream handlers
+} http_server_connection_t;
+
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
     __type(key, go_addr_key_t); // key: pointer to the request goroutine
-    __type(value, connection_info_t);
+    __type(value, http_server_connection_t);
     __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
     __uint(pinning, OBI_PIN_INTERNAL);
 } ongoing_server_connections SEC(".maps");
+
+struct {
+    __uint(type, BPF_MAP_TYPE_LRU_HASH);
+    __type(key, go_addr_key_t);   // key: concrete net.Conn pointer
+    __type(value, go_addr_key_t); // the connection's serving goroutine
+    __uint(max_entries, MAX_CONCURRENT_SHARED_REQUESTS);
+    __uint(pinning, OBI_PIN_INTERNAL);
+} server_conn_goroutines SEC(".maps");
 
 struct {
     __uint(type, BPF_MAP_TYPE_LRU_HASH);
@@ -236,20 +251,19 @@ static __always_inline void tp_clone(tp_info_t *dest, tp_info_t *src) {
 
 static __always_inline void
 server_trace_parent(void *goroutine_addr, tp_info_t *tp, tp_info_t *found_tp) {
-    // May get overridden when decoding existing traceparent, but otherwise we set sample ON
-    tp->flags = k_flag_sampled;
     tp->ts = bpf_ktime_get_ns();
     go_addr_key_t g_key = {};
     go_addr_key_from_id(&g_key, goroutine_addr);
     if (found_tp) {
         bpf_dbg_printk("Decoded from existing traceparent");
         __builtin_memcpy(tp, found_tp, sizeof(tp_info_t));
+        sample_remote_child(tp);
     } else {
-        connection_info_t *info = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
+        http_server_connection_t *info = bpf_map_lookup_elem(&ongoing_server_connections, &g_key);
         u8 found_info = 0;
 
         if (info) {
-            connection_info_t conn = *info;
+            connection_info_t conn = info->conn;
             // Must sort here, Go connection info retains the original ordering.
             sort_connection_info(&conn);
 
@@ -279,6 +293,9 @@ server_trace_parent(void *goroutine_addr, tp_info_t *tp, tp_info_t *found_tp) {
             bpf_dbg_printk("No traceparent in headers, generating");
             urand_bytes(tp->trace_id, TRACE_ID_SIZE_BYTES);
             *((u64 *)tp->parent_id) = 0;
+            sample_new_trace(tp);
+        } else {
+            sample_remote_child(tp);
         }
     }
 
@@ -322,8 +339,6 @@ static __always_inline void update_tp_parent_go(go_addr_key_t *gp_key, tp_info_t
 static __always_inline u8 client_trace_parent(void *goroutine_addr, tp_info_t *tp_i) {
     u8 found_trace_id = 0;
 
-    // May get overridden when decoding existing traceparent or finding a server span, but otherwise we set sample ON
-    tp_i->flags = k_flag_sampled;
     // We set the time of the current client trace parent
     tp_i->ts = bpf_ktime_get_ns();
 
@@ -355,6 +370,7 @@ static __always_inline u8 client_trace_parent(void *goroutine_addr, tp_info_t *t
         if (!found_trace_id) {
             urand_bytes(tp_i->trace_id, TRACE_ID_SIZE_BYTES);
             bpf_memset(tp_i->parent_id, 0, sizeof(tp_i->parent_id));
+            sample_new_trace(tp_i);
         }
     }
 
@@ -518,6 +534,27 @@ static __always_inline u8 get_conn_info(void *conn_ptr, connection_info_t *info)
     }
 
     return 0;
+}
+
+static __always_inline bool go_interface_type_matches(const void *itab, u64 expected_itab) {
+    if (!itab || !expected_itab) {
+        return 0;
+    }
+
+    void *actual_type = NULL;
+    void *expected_type = NULL;
+    if (bpf_probe_read_user(
+            &actual_type, sizeof(actual_type), (const void *)((u64)itab + sizeof(void *))) != 0) {
+        return 0;
+    }
+
+    if (bpf_probe_read_user(&expected_type,
+                            sizeof(expected_type),
+                            (const void *)(expected_itab + sizeof(void *))) != 0) {
+        return 0;
+    }
+
+    return actual_type && actual_type == expected_type;
 }
 
 static __always_inline void *unwrap_tls_conn_info(void *conn_ptr, void *tls_state) {

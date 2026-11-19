@@ -17,6 +17,7 @@ import (
 const (
 	kindMetric = "metric"
 	kindSpan   = "span"
+	kindEvent  = "event"
 
 	levelRequired              = "required"
 	levelConditionallyRequired = "conditionally_required"
@@ -32,6 +33,7 @@ type resolvedAttribute struct {
 	Key              string          `json:"key"`
 	Type             json.RawMessage `json:"type"`
 	RequirementLevel json.RawMessage `json:"requirement_level"`
+	Deprecated       json.RawMessage `json:"deprecated"`
 }
 
 type resolvedMetric struct {
@@ -44,10 +46,16 @@ type resolvedSpan struct {
 	Attributes []resolvedAttribute `json:"attributes"`
 }
 
+type resolvedEvent struct {
+	Name       string              `json:"name"`
+	Attributes []resolvedAttribute `json:"attributes"`
+}
+
 type resolvedRegistry struct {
 	Registry struct {
 		Metrics []resolvedMetric `json:"metrics"`
 		Spans   []resolvedSpan   `json:"spans"`
+		Events  []resolvedEvent  `json:"events"`
 	} `json:"registry"`
 }
 
@@ -97,9 +105,16 @@ func requirementLevel(raw json.RawMessage) string {
 	return levelRecommended
 }
 
+func isDeprecated(raw json.RawMessage) bool {
+	return len(raw) > 0 && string(raw) != "null"
+}
+
 func declaredAttributes(attrs []resolvedAttribute) []DeclaredAttribute {
 	out := make([]DeclaredAttribute, 0, len(attrs))
 	for _, a := range attrs {
+		if isDeprecated(a.Deprecated) {
+			continue
+		}
 		var typ string
 		_ = json.Unmarshal(a.Type, &typ)
 		out = append(out, DeclaredAttribute{
@@ -112,7 +127,7 @@ func declaredAttributes(attrs []resolvedAttribute) []DeclaredAttribute {
 	return out
 }
 
-// parseSignals reads the metric and span definitions of the v2 resolved
+// parseSignals reads the metric, span and event definitions of the v2 resolved
 // registry. Live-check resolves without --include-unreferenced, so every one is
 // a signal OBI emits: its own, or an upstream definition it imports.
 func parseSignals(resolved []byte) ([]Signal, error) {
@@ -128,8 +143,11 @@ func parseSignals(resolved []byte) ([]Signal, error) {
 	for _, s := range reg.Registry.Spans {
 		signals = append(signals, Signal{Name: s.Type, Kind: kindSpan, Attributes: declaredAttributes(s.Attributes)})
 	}
+	for _, e := range reg.Registry.Events {
+		signals = append(signals, Signal{Name: e.Name, Kind: kindEvent, Attributes: declaredAttributes(e.Attributes)})
+	}
 	if len(signals) == 0 {
-		return nil, errors.New("resolved registry declares no metric or span")
+		return nil, errors.New("resolved registry declares no metric, span or event")
 	}
 	sort.Slice(signals, func(i, j int) bool { return signals[i].Name < signals[j].Name })
 	return signals, nil

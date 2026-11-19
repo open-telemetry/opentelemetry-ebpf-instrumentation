@@ -55,6 +55,7 @@ typedef enum {
     _text_reader_r_pos,
     _buf_reader_buf_pos,
     _buf_reader_w_pos,
+    _buf_reader_r_pos,
     // grpc
     _grpc_stream_st_ptr_pos,
     _grpc_stream_method_ptr_pos,
@@ -137,6 +138,7 @@ typedef enum {
     // route resolution
     _mux_template_pos,
     _gin_fullpath_pos,
+    _restful_route_path_pos,
     // Go runtime metrics
     _runtime_memstats_numgc_pos,
     _runtime_gc_controller_memory_limit_pos,
@@ -179,6 +181,7 @@ typedef enum {
     // Go connection interface types
     _grpc_syscall_conn_type_addr,
     _tls_conn_type_addr,
+    _tcp_conn_type_addr,
     _last_go_offset,
 } go_offset_const;
 

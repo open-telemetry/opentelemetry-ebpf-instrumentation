@@ -1,0 +1,58 @@
+# Copyright The OpenTelemetry Authors
+# SPDX-License-Identifier: Apache-2.0
+
+name: jev
+fixture:
+  compose:
+    files:
+    - docker-compose-jev.yml
+    - ../weaver/docker-compose-weaver.yml
+    env:
+    - OTEL_EXPORTER_OTLP_ENDPOINT=http://collector:4318
+    app_service: testserver
+    app_port: 8080
+  finalize:
+    command: ../finalize-weaver.sh
+    timeout: 3m
+input:
+- path: /decision
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+- path: /choice
+  retry:
+    timeout: 10s
+    interval: 500ms
+    continue_after_success: true
+expected:
+  traces:
+  # Basic decision call with noul question
+  - traceql: '{ .gen_ai.provider.name = "typesafe" && .gen_ai.request.model = "jev-1.13" && .gen_ai.usage.output_tokens = 70 }'
+    match_spans:
+    - name: decision jev-1.13
+      attributes:
+      - key: gen_ai.operation.name
+        value: decision
+      - key: gen_ai.response.model
+        value: jev-1.13
+      - key: gen_ai.usage.input_tokens
+        value: 503
+  # Decision call with choice question
+  - traceql: '{ .gen_ai.provider.name = "typesafe" && .gen_ai.request.model = "jev-1.13" && .gen_ai.usage.output_tokens = 85 }'
+    match_spans:
+    - name: decision jev-1.13
+      attributes:
+      - key: gen_ai.operation.name
+        value: decision
+      - key: gen_ai.response.model
+        value: jev-1.13
+      - key: gen_ai.usage.input_tokens
+        value: 620
+  metrics:
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="decision",gen_ai_provider_name="typesafe",gen_ai_token_type="input",gen_ai_request_model="jev-1.13",gen_ai_response_model="jev-1.13"}
+    value: '> 0'
+  - promql: gen_ai_client_token_usage_count{gen_ai_operation_name="decision",gen_ai_provider_name="typesafe",gen_ai_token_type="output",gen_ai_request_model="jev-1.13",gen_ai_response_model="jev-1.13"}
+    value: '> 0'
+  - promql: gen_ai_client_operation_duration_seconds_count{gen_ai_operation_name="decision",gen_ai_provider_name="typesafe",gen_ai_request_model="jev-1.13",gen_ai_response_model="jev-1.13"}
+    value: '> 0'

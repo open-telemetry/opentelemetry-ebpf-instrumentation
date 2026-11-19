@@ -1,0 +1,18 @@
+services:
+  obi-config-migrate:
+    image: ${OBI_CONFIG_MIGRATION_IMAGE:?OBI_CONFIG_MIGRATION_IMAGE must be set}
+    entrypoint:
+      - /bin/sh
+      - -c
+    command:
+      - /obi config migrate "/configs/${OBI_CONFIG_MIGRATION_SOURCE:?OBI_CONFIG_MIGRATION_SOURCE must be set}" > "/coverage/${OBI_CONFIG_MIGRATION_OUTPUT:?OBI_CONFIG_MIGRATION_OUTPUT must be set}"
+    volumes:
+      - ./configs/:/configs:ro
+      - ../../../testoutput:/coverage
+
+  obi:
+    command:
+      - --config=/coverage/${OBI_CONFIG_MIGRATION_OUTPUT:?OBI_CONFIG_MIGRATION_OUTPUT must be set}
+    depends_on:
+      obi-config-migrate:
+        condition: service_completed_successfully

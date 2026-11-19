@@ -23,6 +23,47 @@ func TestIsOpenAIResponsesRequest(t *testing.T) {
 	assert.False(t, isOpenAIResponsesRequest(req))
 }
 
+func TestIsOpenAIDecisionsRequest(t *testing.T) {
+	for _, path := range []string{"/v1/decisions", "/gateway/v1/decisions/"} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		assert.True(t, isOpenAIDecisionsRequest(req), path)
+	}
+
+	for _, path := range []string{"/v1/responses", "/v1/organization/usage/decisions"} {
+		req := httptest.NewRequest(http.MethodPost, path, nil)
+		assert.False(t, isOpenAIDecisionsRequest(req), path)
+	}
+}
+
+func TestExtractOpenAIDecisionQuestions(t *testing.T) {
+	want := `[{"type":"predicate","name":"damaged","instructions":[{"type":"input_text","text":"Is it damaged?"},{"type":"input_json","data":{"policy":"returns"}}]},{"type":"choice","name":"priority","instructions":"Choose a priority.","choices":[{"value":"urgent","description":"Immediate handling"},{"value":true,"description":"Manual review"}]},{"type":"score","name":"severity","instructions":"Rate severity.","levels":[{"label":"minor","description":"Cosmetic"},{"label":"major","description":"Unusable"}]}]`
+
+	t.Run("preserves ordered question structures", func(t *testing.T) {
+		body := []byte(`{"model":"gpt-6-luna","questions":` + want + `}`)
+		assert.Equal(t, want, string(extractOpenAIDecisionQuestions(body)))
+	})
+
+	for _, tt := range []struct {
+		name string
+		body string
+	}{
+		{name: "missing", body: `{"model":"gpt-6-luna"}`},
+		{name: "empty", body: `{"questions":[]}`},
+		{name: "not an array", body: `{"questions":{"type":"predicate"}}`},
+		{name: "malformed", body: `{"questions":[invalid]}`},
+		{name: "truncated questions", body: `{"questions":[{"type":"predicate"}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Empty(t, extractOpenAIDecisionQuestions([]byte(tt.body)))
+		})
+	}
+
+	t.Run("complete questions before later truncation", func(t *testing.T) {
+		body := []byte(`{"questions":` + want + `,"input":"cut`)
+		assert.Equal(t, want, string(extractOpenAIDecisionQuestions(body)))
+	})
+}
+
 func TestExtractModelField(t *testing.T) {
 	full := `{"messages":[{"role":"user","content":"hi"}],"model":"gpt-4o-mini","temperature":1.0}`
 	truncated := full[:len(full)-len(`,"temperature":1.0}`)]

@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 
+	"go.opentelemetry.io/collector/pdata/plog"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 
@@ -79,6 +80,8 @@ func TestCriteriaUpdaterConfigCallbackInventory(t *testing.T) {
 	visit(reflect.TypeFor[obi.Config](), "Config")
 
 	require.ElementsMatch(t, []string{
+		"Config.Logs.LogsExport",
+		"Config.Logs.InjectHeaders",
 		"Config.Traces.TracesExport",
 		"Config.Traces.OTLPEndpointProvider",
 		"Config.Traces.InjectHeaders",
@@ -93,16 +96,12 @@ func TestCriteriaUpdaterRejectsIncompatibleConfig(t *testing.T) {
 	tests := map[string]func(*obi.Config){
 		"service name": func(c *obi.Config) { c.Discovery.Instrument[0].Name = "renamed" },
 		"namespace":    func(c *obi.Config) { c.Discovery.Instrument[0].Namespace = "other" },
-		"sampler": func(c *obi.Config) {
-			c.Discovery.Instrument[0].SamplerConfig = &services.SamplerConfig{Name: services.SamplerAlwaysOff}
-		},
-		"exports": func(c *obi.Config) { c.Discovery.Instrument[0].ExportModes = services.NewExportModes() },
+		"exports":      func(c *obi.Config) { c.Discovery.Instrument[0].ExportModes = services.NewExportModes() },
 		"routes": func(c *obi.Config) {
 			c.Discovery.Instrument[0].Routes = &services.CustomRoutesConfig{Incoming: []string{"/items/:id"}}
 		},
-		"exporter":       func(c *obi.Config) { c.Prometheus.Port = 9000 },
-		"global sampler": func(c *obi.Config) { c.Traces.SamplerConfig.Name = services.SamplerAlwaysOff },
-		"protocol":       func(c *obi.Config) { c.OTELMetrics.Instrumentations = nil },
+		"exporter": func(c *obi.Config) { c.Prometheus.Port = 9000 },
+		"protocol": func(c *obi.Config) { c.OTELMetrics.Instrumentations = nil },
 	}
 	for name, change := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -113,6 +112,77 @@ func TestCriteriaUpdaterRejectsIncompatibleConfig(t *testing.T) {
 			require.ErrorContains(t, err, "restart OBI")
 		})
 	}
+}
+
+func TestCriteriaRefreshUpdatesSamplers(t *testing.T) {
+	original := processInfo
+	t.Cleanup(func() { processInfo = original })
+	processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+		exe := "/srv/global"
+		if p.pid == 20 {
+			exe = "/srv/refined"
+		}
+		return &services.ProcessInfo{Pid: p.pid, ExePath: exe}, nil
+	}
+	withSamplers := func(global, refined services.SamplerName) *obi.Config {
+		cfg := criteriaConfig(t, "    - exe_path: /srv/global\n    - exe_path: /srv/refined\n")
+		cfg.Traces.SamplerConfig = services.SamplerConfig{Name: global}
+		cfg.Discovery.Instrument[1].SamplerConfig = &services.SamplerConfig{Name: refined}
+		return cfg
+	}
+	samplers := func(t *testing.T, events []Event[ProcessMatch], eventType WatchEventType) map[app.PID]services.SamplerName {
+		t.Helper()
+		byPID := map[app.PID]services.SamplerName{}
+		for _, ev := range events {
+			require.Equal(t, eventType, ev.Type)
+			byPID[ev.Obj.Process.Pid] = samplingConfig(ev.Obj).Name
+		}
+		return byPID
+	}
+
+	initial := withSamplers(services.SamplerAlwaysOn, services.SamplerAlwaysOn)
+	updater := NewCriteriaUpdater(initial)
+	input := make(chan []Event[ProcessAttrs])
+	output := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+	events := output.Subscribe()
+	matcher := &Matcher{
+		Log: slog.Default(), Criteria: FindingCriteria(initial),
+		ProcessHistory: map[app.PID]ProcessMatch{}, Input: input, Output: output,
+		CriteriaUpdates: updater.Updates(),
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	go matcher.Run(ctx)
+
+	input <- []Event[ProcessAttrs]{
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 10}},
+		{Type: EventCreated, Obj: ProcessAttrs{pid: 20}},
+	}
+	assert.Equal(t, map[app.PID]services.SamplerName{10: services.SamplerAlwaysOn, 20: services.SamplerAlwaysOn},
+		samplers(t, testutil.ReadChannel(t, events, time.Second), EventCreated))
+
+	// The refined rule's sampler takes precedence over the global one.
+	require.NoError(t, updater.Update(ctx, withSamplers(services.SamplerAlwaysOff, services.SamplerAlwaysOn)))
+	assert.Equal(t, map[app.PID]services.SamplerName{10: services.SamplerAlwaysOff},
+		samplers(t, testutil.ReadChannel(t, events, time.Second), EventUpdated))
+
+	require.NoError(t, updater.Update(ctx, withSamplers(services.SamplerAlwaysOff, services.SamplerParentBasedAlwaysOff)))
+	assert.Equal(t, map[app.PID]services.SamplerName{20: services.SamplerParentBasedAlwaysOff},
+		samplers(t, testutil.ReadChannel(t, events, time.Second), EventUpdated))
+
+	require.NoError(t, updater.Update(ctx, withSamplers(services.SamplerAlwaysOff, services.SamplerParentBasedAlwaysOff)))
+	testutil.ChannelEmpty(t, events, 100*time.Millisecond)
+
+	input <- []Event[ProcessAttrs]{{Type: EventCreated, Obj: ProcessAttrs{pid: 11}}}
+	assert.Equal(t, map[app.PID]services.SamplerName{11: services.SamplerAlwaysOff},
+		samplers(t, testutil.ReadChannel(t, events, time.Second), EventCreated))
+
+	// A rejected configuration leaves the sampler as it was.
+	rejected := withSamplers(services.SamplerAlwaysOn, services.SamplerAlwaysOn)
+	rejected.Discovery.Instrument[0].Name = "renamed"
+	require.ErrorContains(t, updater.Update(ctx, rejected), "restart OBI")
+	testutil.ChannelEmpty(t, events, 100*time.Millisecond)
+	assert.Equal(t, services.SamplerAlwaysOff, updater.Updates().Sampler().Name)
 }
 
 func TestCriteriaUpdaterPreservesExportCallbacks(t *testing.T) {
@@ -1273,4 +1343,79 @@ func TestCriteriaUpdaterRejectsDynamicSelector(t *testing.T) {
 	finder := NewProcessFinder(cfg, &global.ContextInfo{}, nil, nil, nil)
 	_, err := finder.Start(t.Context(), WithCriteriaUpdater(NewCriteriaUpdater(cfg)), WithDynamicSelector(NewDynamicSelector()))
 	require.ErrorContains(t, err, "cannot be combined")
+}
+
+func TestCriteriaUpdaterLogsCallbacks(t *testing.T) {
+	initial := criteriaConfig(t, "    - name: backend\n      exe_path: /srv/backend\n")
+	initial.Logs.LogsExport = func(context.Context, plog.Logs) error { return nil }
+	initial.Logs.InjectHeaders = func(h map[string]string) { h["tenant"] = "one" }
+	updater := NewCriteriaUpdater(initial)
+	matcher := &Matcher{Log: slog.Default(), Criteria: FindingCriteria(initial), ProcessHistory: map[app.PID]ProcessMatch{}, Output: msg.NewQueue[[]Event[ProcessMatch]](), CriteriaUpdates: updater.Updates()}
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	done := make(chan struct{})
+	go func() { defer close(done); matcher.Run(ctx) }()
+	t.Cleanup(func() { cancel(); testutil.ReadChannel(t, done, time.Second) })
+	require.NoError(t, updater.Update(ctx, initial))
+	next := *initial
+	next.Logs.LogsExport = func(context.Context, plog.Logs) error { return nil }
+	next.Logs.InjectHeaders = func(h map[string]string) { h["tenant"] = "one" }
+	require.NoError(t, updater.Update(ctx, &next))
+	next.Logs.InjectHeaders = func(h map[string]string) { h["tenant"] = "two" }
+	require.ErrorContains(t, updater.Update(ctx, &next), "restart OBI")
+}
+
+func TestCriteriaUpdaterRejectsExceptionChanges(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			initial := criteriaConfig(t, "    - exe_path: /srv/app\n")
+			initial.Discovery.Instrument[0].Exceptions = &services.ExceptionsOverride{Enabled: &enabled}
+			next := criteriaConfig(t, "    - exe_path: /srv/app\n")
+			changed := !enabled
+			next.Discovery.Instrument[0].Exceptions = &services.ExceptionsOverride{Enabled: &changed}
+			require.ErrorContains(t, NewCriteriaUpdater(initial).Update(t.Context(), next), "restart OBI")
+		})
+	}
+}
+
+func TestCriteriaRefreshRejectsRetainedExceptionChanges(t *testing.T) {
+	original := processInfo
+	t.Cleanup(func() { processInfo = original })
+	processInfo = func(p ProcessAttrs) (*services.ProcessInfo, error) {
+		return &services.ProcessInfo{Pid: p.pid, ExePath: "/srv/app"}, nil
+	}
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			initial := criteriaConfig(t, "    - exe_path: /srv/app\n    - exe_path: /srv/other\n")
+			changed := !enabled
+			initial.Discovery.Instrument[0].Exceptions = &services.ExceptionsOverride{Enabled: &enabled}
+			initial.Discovery.Instrument[1].Exceptions = &services.ExceptionsOverride{Enabled: &changed}
+			next := criteriaConfig(t, "    - exe_path: /srv/missing\n    - exe_path: /srv/*\n")
+			next.Discovery.Instrument[0].Exceptions = initial.Discovery.Instrument[0].Exceptions
+			next.Discovery.Instrument[1].Exceptions = initial.Discovery.Instrument[1].Exceptions
+			require.NoError(t, compatibleDefinitions(FindingCriteria(initial), FindingCriteria(next)))
+			output := msg.NewQueue[[]Event[ProcessMatch]](msg.ChannelBufferLen(10))
+			defer output.Close()
+			events := output.Subscribe()
+			matcher := &Matcher{
+				Log: slog.Default(), Criteria: FindingCriteria(initial),
+				ProcessHistory: map[app.PID]ProcessMatch{}, Output: output,
+				observed: map[app.PID]observedProcess{},
+			}
+			require.Len(t, matcher.filter([]Event[ProcessAttrs]{{Type: EventCreated, Obj: ProcessAttrs{pid: 10}}}), 1)
+			previous := matcher.ProcessHistory[10]
+			observation := matcher.observed[10]
+			err := matcher.refresh(t.Context(), services.CriteriaUpdate{
+				Context: t.Context(), Include: FindingCriteria(next), Exclude: ExcludingCriteria(next),
+			})
+			require.ErrorContains(t, err, "service settings would change for PID 10")
+			require.Equal(t, FindingCriteria(initial), matcher.Criteria)
+			require.Equal(t, previous, matcher.ProcessHistory[10])
+			require.Equal(t, observation, matcher.observed[10])
+			select {
+			case event := <-events:
+				t.Fatalf("rejected refresh changed instrumentation: %v", event)
+			default:
+			}
+		})
+	}
 }

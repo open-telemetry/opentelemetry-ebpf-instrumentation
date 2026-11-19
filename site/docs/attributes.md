@@ -128,6 +128,14 @@ Attributes carried on OBI's network-flow metrics. Emitted when the `network`, `n
 | `src.zone` | string | development | Zone label attached to the source side (e.g. cloud availability zone). | us-east-1a |
 | `transport` | string | development | Transport protocol of the flow (e.g. TCP, UDP). | TCP |
 
+## `registry.obi.openai`
+
+OpenAI request content attributes defined by OBI.
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `openai.request.questions` | string | development | The questions submitted to the OpenAI Decisions API, JSON-encoded in request order. | [{"type":"predicate","name":"damaged","instructions":"Does the customer report a damaged item?"}] |
+
 ## `registry.obi.rpc`
 
 RPC attributes OBI emits that are not part of upstream semconv.
@@ -170,7 +178,16 @@ Attributes carried on OBI's per-connection TCP statistics. Emitted when the `sta
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
 | `network.tcp.handshake.role` | enum | development | Role of the local endpoint in the TCP three-way handshake (`client` initiated the SYN, `server` was awaiting it). | client; server; unknown |
+| `network.tcp.reset.cause` | enum | development | Inferred cause of a TCP reset sent by the local endpoint, from the code path that sent it: `application` when the socket was closed before the reset (close() with unread data, SO_LINGER{0}), `timeout` when the reset was sent with the connection still open, by a keepalive, user-timeout or orphan timer, or by a forced socket destroy such as `ss -K`. Not set when the cause cannot be inferred: received resets, and sent resets that answer an incoming segment. | application; timeout |
 | `reason` | enum | development | Classification of why a TCP connection failed. | refused; reset; timed-out; host-unreachable; net-unreachable; other; unknown |
+
+## `registry.obi.traces`
+
+Attributes carried on OBI request phase spans.
+
+| Attribute | Type | Stability | Description | Examples |
+| --- | --- | --- | --- | --- |
+| `obi.request.phase` | enum | development | Phase of a request represented by an OBI child span. | queue; processing |
 
 ## `x.obi.db`
 
@@ -215,11 +232,11 @@ OBI override of `network.type` extending the upstream enum with `arp` for the AR
 
 ## `x.obi.openai`
 
-OBI override of `openai.api.type` extending the upstream enum with the embeddings and legacy text-completions APIs, which OBI detects but upstream semconv has no members for.
+OBI override of `openai.api.type` extending the upstream enum with the Decisions, embeddings and legacy text-completions APIs, which OBI detects but upstream semconv has no members for.
 
 | Attribute | Type | Stability | Description | Examples |
 | --- | --- | --- | --- | --- |
-| `openai.api.type` | enum | development | The type of OpenAI API being used. | chat_completions; responses; embeddings; text_completions |
+| `openai.api.type` | enum | development | The type of OpenAI API being used. | chat_completions; responses; decisions; embeddings; text_completions |
 
 ## `x.obi.rpc`
 

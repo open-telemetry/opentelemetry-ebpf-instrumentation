@@ -53,6 +53,17 @@
 
 #endif /*defined(__TARGET_ARCH_arm64)*/
 
+// Reads the user-space caller address before frame setup or after frame teardown.
+static __always_inline u64 user_caller_pc(struct pt_regs *ctx) {
+    u64 caller_pc = 0;
+#ifdef __TARGET_ARCH_x86
+    bpf_probe_read_user(&caller_pc, sizeof(caller_pc), (const void *)PT_REGS_SP(ctx));
+#elif defined(__TARGET_ARCH_arm64)
+    caller_pc = PT_REGS_RET(ctx);
+#endif
+    return caller_pc;
+}
+
 #define bpf_clamp_umax(VAR, UMAX)                                                                  \
     asm volatile("if %0 <= %[max] goto +1\n"                                                       \
                  "%0 = %[max]\n"                                                                   \

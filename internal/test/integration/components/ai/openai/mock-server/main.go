@@ -169,6 +169,29 @@ const embeddingsBody = `{
   }
 }`
 
+const decisionsBody = `{
+  "model": "gpt-6-luna",
+  "answers": [
+    {
+      "type": "predicate",
+      "name": "damaged",
+      "probability": 0.95
+    }
+  ],
+  "usage": {
+    "input_tokens": 42,
+    "input_tokens_details": {
+      "cached_tokens": 0,
+      "cache_write_tokens": 0
+    },
+    "output_tokens": 0,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 42
+  }
+}`
+
 const cohereEmbedBody = `{
   "id": "embed-1",
   "embeddings": {
@@ -232,6 +255,12 @@ data: {"type":"message-end","delta":{"finish_reason":"COMPLETE","usage":{"billed
 `
 
 const cohereChatErrorBody = `{"id":"0a1b2c3d-4e5f-6789-abcd-ef0123456789","message":"invalid request: model 'command-unknown' not found"}`
+
+const ollamaEmbedBody = `{"model":"all-minilm:l6-v2","embeddings":[[0.0100353705,-0.0017759022,0.05005609,0.04692976]],"total_duration":301430470,"load_duration":283978494,"prompt_eval_count":8}`
+
+const ollamaLegacyEmbeddingBody = `{"embedding":[0.0100353705,-0.0017759022,0.05005609]}`
+
+const ollamaEmbedErrorBody = `{"error":"model \"nope\" not found, try pulling it first"}`
 
 type cohereChatRequest struct {
 	Model    string          `json:"model"`
@@ -450,6 +479,30 @@ func handleEmbeddings(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func handleDecisions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if _, err := io.Copy(io.Discard, r.Body); err != nil {
+		http.Error(w, fmt.Sprintf("failed to read request body: %v", err), http.StatusBadRequest)
+		return
+	}
+
+	setResponseHeaders(w.Header())
+	w.WriteHeader(http.StatusOK)
+
+	gz := gzip.NewWriter(w)
+	if _, err := gz.Write([]byte(decisionsBody)); err != nil {
+		log.Printf("error writing gzip body: %v", err)
+		return
+	}
+	if err := gz.Close(); err != nil {
+		log.Printf("error closing gzip writer: %v", err)
+	}
+}
+
 func handleStatic(responseBody string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -508,6 +561,16 @@ func handleCohereChat(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write([]byte(cohereChatBody))
+}
+
+func handleOllamaEmbed(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Has("error") {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(ollamaEmbedErrorBody))
+		return
+	}
+	handleStatic(ollamaEmbedBody)(w, r)
 }
 
 func handleConversations(w http.ResponseWriter, r *http.Request) {
@@ -602,10 +665,13 @@ func newMux() *http.ServeMux {
 	mux.HandleFunc("/v1/responses", handleResponses)
 	mux.HandleFunc("/v1/chat/completions", handleCompletions)
 	mux.HandleFunc("/v1/embeddings", handleEmbeddings)
+	mux.HandleFunc("/v1/decisions", handleDecisions)
 	mux.HandleFunc("/v1/conversations", handleConversations)
 	mux.HandleFunc("/v2/embed", handleStatic(cohereEmbedBody))
 	mux.HandleFunc("/v2/rerank", handleStatic(rerankBody))
 	mux.HandleFunc("/v2/chat", handleCohereChat)
+	mux.HandleFunc("/api/embed", handleOllamaEmbed)
+	mux.HandleFunc("/api/embeddings", handleStatic(ollamaLegacyEmbeddingBody))
 	return mux
 }
 

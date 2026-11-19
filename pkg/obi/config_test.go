@@ -38,6 +38,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/internal/avoidedsvc"
 	"go.opentelemetry.io/obi/pkg/internal/pipe/cidr"
 	"go.opentelemetry.io/obi/pkg/kube"
+	"go.opentelemetry.io/obi/pkg/kube/kubecache"
 	"go.opentelemetry.io/obi/pkg/kube/kubeflags"
 	"go.opentelemetry.io/obi/pkg/metadata"
 	"go.opentelemetry.io/obi/pkg/netolly/flowdef"
@@ -271,6 +272,7 @@ discovery:
 			// after normalization, network feature is added from network > enable: true
 			Features: export.FeatureApplicationRED | export.FeatureApplicationSizes | export.FeatureNetwork,
 		},
+		Logs: otelcfg.LogsConfig{BatchMaxSize: 512, QueueSize: 2048, BatchTimeout: time.Second},
 		OTELMetrics: otelcfg.MetricsConfig{
 			OTELIntervalMS:    60_000,
 			CommonEndpoint:    "localhost:3131",
@@ -397,8 +399,9 @@ discovery:
 		},
 		PeerMetadata: DefaultConfig.PeerMetadata,
 		CloudMetadata: transform.CloudMetadataConfig{
-			Route53:         transform.Route53MetadataConfig{RefreshInterval: 5 * time.Minute},
-			RefreshInterval: 30 * time.Second,
+			DetectionEnabled: true,
+			Route53:          transform.Route53MetadataConfig{RefreshInterval: 5 * time.Minute},
+			RefreshInterval:  30 * time.Second,
 		},
 		Discovery: services.DiscoveryConfig{
 			ExcludeOTelInstrumentedServices: true,
@@ -587,6 +590,24 @@ func TestUnmarshalMapIgnoresGCESettings(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, cfg.NameResolver.GCE)
 	assert.Equal(t, []transform.Source{transform.SourceRDNS}, cfg.NameResolver.Sources)
+}
+
+func TestConfigV1KeepsQueryRedactionReplacement(t *testing.T) {
+	t.Setenv("OTEL_EBPF_SENSITIVE_QUERY_PARAMS_REPLACEMENT", "hidden")
+	cfg, err := LoadConfig(bytes.NewBufferString(`attributes:
+  sensitive_query_params_replacement: hidden
+  sensitive_query_params:
+    add: [customer_secret]
+    replacement: hidden
+`))
+	require.NoError(t, err)
+	require.Nil(t, cfg.Attributes.SensitiveQueryParams.Replacement)
+	require.Contains(t, cfg.Attributes.SensitiveQueryParams.Effective(), "customer_secret")
+
+	cfg.Attributes.SensitiveQueryParams.Replacement = new("hidden")
+	data, err := yaml.Marshal(cfg.Attributes)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "replacement")
 }
 
 func TestConfig_ShutdownTimeout(t *testing.T) {
@@ -1100,6 +1121,25 @@ network:
 	cfg, err := LoadConfig(userConfig)
 	require.NoError(t, err)
 	require.NoError(t, cfg.Validate())
+}
+
+func TestConfigValidate_KubeMetaCacheTLS(t *testing.T) {
+	cfg, err := LoadConfig(bytes.NewBufferString(`
+otel_metrics_export:
+  endpoint: http://otelcol:4318
+attributes:
+  kubernetes:
+    enable: true
+    meta_cache_address: k8s-cache:50055
+network:
+  enable: true
+`))
+	require.NoError(t, err)
+	cfg.Attributes.Kubernetes.MetaCacheTLS = kubecache.ClientTLSConfig{CAFile: "ca.pem"}
+	require.NoError(t, cfg.Validate())
+
+	cfg.Attributes.Kubernetes.MetaCacheTLS.CertFile = "client.pem"
+	require.ErrorContains(t, cfg.Validate(), "cert_file and key_file must be set together")
 }
 
 func TestConfigValidate_KubeReconnectInitialIntervalZero(t *testing.T) {

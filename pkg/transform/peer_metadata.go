@@ -20,7 +20,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/selection"
 )
 
-func PeerMetadataProvider(ctxInfo *global.ContextInfo, cfg peer.Config, instance config.InstanceIDConfig, serviceGraphEnabled bool,
+func PeerMetadataProvider(ctxInfo *global.ContextInfo, cfg peer.MetadataConfig, instance config.InstanceIDConfig, serviceGraphEnabled bool,
 	metricProtocols *instrumentations.InstrumentationSelection,
 	processEvents *msg.Queue[exec.ProcessEvent], input, output *msg.Queue[[]request.Span],
 ) swarm.InstanceFunc {
@@ -34,7 +34,7 @@ func PeerMetadataProvider(ctxInfo *global.ContextInfo, cfg peer.Config, instance
 		if ctxInfo.DynamicSelector != nil {
 			metricsPIDs = ctxInfo.DynamicSelector.AppMetrics()
 		}
-		agent, err := peer.New(ctx, cfg, hostname, serviceGraphEnabled, metricsPIDs, metricProtocols)
+		agent, err := peer.New(ctx, cfg, hostname, ctxInfo.NodeMeta.HostID, serviceGraphEnabled, metricsPIDs, metricProtocols)
 		if err != nil {
 			return nil, err
 		}

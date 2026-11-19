@@ -65,6 +65,11 @@
           "type": "boolean",
           "default": true,
           "description": "Emit the HTTP request and response body size histograms.\nRequires `metrics`. Set it to false to keep the RED metrics without them.\nIf omitted, true is used.\n"
+        },
+        "request_phase_spans": {
+          "type": "boolean",
+          "default": true,
+          "description": "Emit the `in queue` and `processing` spans for HTTP server requests.\nRequires `traces`.\nIf omitted, true is used.\n"
         }
       }
     },
@@ -486,6 +491,10 @@
             "metrics": {
               "type": "boolean",
               "description": "Enable or disable metric emission for this workload.\nIf omitted, the global protocol metric enablement applies.\n"
+            },
+            "logs": {
+              "type": "boolean",
+              "description": "Enable logs for this workload. Omitted logs in an explicit exports refinement are disabled."
             }
           }
         },
@@ -512,6 +521,19 @@
             "filters": {
               "$ref": "#/$defs/SignalFilters",
               "description": "Per-workload HTTP trace and metric filters.\nThese replace (not merge with) the global HTTP filters for matched workloads.\nIf omitted, global filters apply.\n"
+            }
+          }
+        },
+        "exceptions": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Override global exception capture. Omission inherits the global setting."
+            },
+            "go": {
+              "$ref": "#/$defs/Exceptions/properties/go"
             }
           }
         }
@@ -743,6 +765,18 @@
                   "type": "string",
                   "default": "1s",
                   "description": "Maximum time to wait before flushing a partial batch.\nIf omitted, `1s` is used.\n"
+                },
+                "stats": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "wakeup_bytes": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "default": 4096,
+                      "description": "Minimum bytes pending in the network stats ring buffer before userspace is woken up. `0` wakes userspace on every event.\nIf omitted, `4096` is used.\n"
+                    }
+                  }
                 }
               }
             },
@@ -971,6 +1005,7 @@
                       "stats",
                       "stats_tcp_failed_connections",
                       "stats_tcp_io",
+                      "stats_tcp_resets",
                       "stats_tcp_retransmits",
                       "stats_tcp_rtt",
                       "stats_tcp_successful_connections"
@@ -995,6 +1030,9 @@
         "attributes": {
           "$ref": "#/$defs/CaptureAttributes",
           "description": "Optional span attributes and metric dimensions selected during telemetry generation. Omission preserves defaults."
+        },
+        "exceptions": {
+          "$ref": "#/$defs/Exceptions"
         }
       }
     },
@@ -1174,6 +1212,76 @@
         }
       }
     },
+    "Redaction": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "description": "Redaction policy owned by the data component. Omitted fields retain the component's defaults.",
+      "properties": {
+        "names": {
+          "type": ["array", "null"],
+          "items": {"type": "string"},
+          "description": "Complete selection of literal names. An explicit list replaces the component's default selection; [] selects no names. Omission or null retains the default selection."
+        },
+        "replacement": {
+          "type": ["string", "null"],
+          "description": "Replacement text for selected values. Omission or null retains the component's default. An empty string removes the value's contents."
+        }
+      }
+    },
+    "HttpQueryParameters": {
+      "type": ["object", "null"],
+      "description": "Controls how OBI handles HTTP query parameters in telemetry.",
+      "additionalProperties": false,
+      "properties": {
+        "redaction": {
+          "$ref": "#/$defs/Redaction",
+          "default": {
+            "names": [
+              "X-Amz-Signature",
+              "X-Amz-Credential",
+              "X-Amz-Security-Token",
+              "AWSAccessKeyId",
+              "Signature",
+              "SecurityToken",
+              "X-Goog-Signature",
+              "sig",
+              "token",
+              "access_token",
+              "refresh_token",
+              "id_token",
+              "jwt",
+              "session",
+              "sid",
+              "signature",
+              "api_key",
+              "apikey",
+              "client_secret",
+              "secret",
+              "password",
+              "pass",
+              "pwd",
+              "reset_token",
+              "invite_token",
+              "verify_token",
+              "otp",
+              "totp",
+              "mfa_code",
+              "verification_code",
+              "SAMLResponse",
+              "assertion",
+              "card",
+              "cc",
+              "pan",
+              "cvv",
+              "ssn",
+              "tax_id"
+            ],
+            "replacement": "REDACTED"
+          },
+          "description": "Policy for case-sensitive, decoded query-parameter names. Omission, null, or an empty object preserves the built-in selection and REDACTED replacement. Explicit replacement text is URL-encoded as a query value."
+        }
+      }
+    },
     "HttpInstrumentation": {
       "type": "object",
       "description": "HTTP instrumentation controls.",
@@ -1191,6 +1299,9 @@
           "type": "boolean",
           "default": false,
           "description": "Capture configured inbound/outbound HTTP headers.\nIf omitted, false is used.\n"
+        },
+        "query_parameters": {
+          "$ref": "#/$defs/HttpQueryParameters"
         },
         "request_timeout": {
           "type": "string",
@@ -1261,7 +1372,9 @@
                 "enum": [
                   "graphql",
                   "elasticsearch",
-                  "aws",
+                  "aws_s3",
+                  "aws_sqs",
+                  "aws_sns",
                   "sqlpp",
                   "openai",
                   "anthropic",
@@ -1277,11 +1390,16 @@
                   "rerank",
                   "retrieval",
                   "jsonrpc",
-                  "enrichment"
+                  "enrichment",
+                  "genai",
+                  "database",
+                  "aws",
+                  "all",
+                  "*"
                 ]
               },
               "default": [],
-              "description": "Payload extractors enabled for HTTP-derived parsing.\nIf omitted, no payload extractors are enabled.\n"
+              "description": "Payload extractors enabled for HTTP-derived parsing.\n`genai` enables openai, anthropic, gemini, qwen, bedrock, mcp, ollama, cohere, openai_compatible, embedding, rerank, and retrieval.\n`database` enables elasticsearch and sqlpp.\n`aws` enables aws_s3, aws_sqs, and aws_sns.\n`all` and `*` enable every extractor except enrichment, which must be listed explicitly.\nIf omitted, no payload extractors are enabled.\n"
             },
             "sqlpp": {
               "type": "object",
@@ -1505,6 +1623,18 @@
         }
       }
     },
+    "DbInstrumentation": {
+      "type": "object",
+      "description": "Settings shared by all database protocols.",
+      "additionalProperties": false,
+      "properties": {
+        "sanitize_query_text": {
+          "type": "boolean",
+          "default": false,
+          "description": "Replace literal values in `db.query.text` with `?`: string, numeric, hexadecimal and boolean literals of SQL and SQL++ spans, and Redis argument values (keys are kept). Elasticsearch query bodies and Couchbase key-value spans are not sanitized. By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
+        }
+      }
+    },
     "SqlInstrumentation": {
       "type": "object",
       "description": "SQL instrumentation controls.",
@@ -1522,11 +1652,6 @@
           "type": "boolean",
           "default": false,
           "description": "Enable heuristic SQL protocol detection.\nIf omitted, false is used.\n"
-        },
-        "sanitize_query_text": {
-          "type": "boolean",
-          "default": false,
-          "description": "Replace string, numeric, hexadecimal and boolean literals in `db.query.text` of SQL and SQL++ spans with `?`. By default, the query text is emitted as captured.\nIf omitted, false is used.\n"
         },
         "mysql": {
           "type": "object",
@@ -1766,6 +1891,27 @@
         }
       }
     },
+    "GoRuntime": {
+      "type": "object",
+      "description": "Go runtime injection controls.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable Go probes.\nIf omitted, true is used.\n"
+        },
+        "filter": {
+          "$ref": "#/$defs/FilterMap",
+          "description": "Optional per-injector refinement filter.\nIf omitted, injection applies to all selected services.\n"
+        },
+        "channel_links": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable the Go channel probes that link spans across goroutines.\nIf omitted, true is used.\n"
+        }
+      }
+    },
     "JavaRuntime": {
       "type": "object",
       "description": "Java runtime injection controls.",
@@ -1809,11 +1955,12 @@
       "additionalProperties": false,
       "properties": {
         "go": {
-          "$ref": "#/$defs/RuntimeInjection",
+          "$ref": "#/$defs/GoRuntime",
           "description": "Go runtime instrumentation controls.\nIf omitted, Go injection defaults are used.\n",
           "default": {
             "enabled": true,
-            "filter": {}
+            "filter": {},
+            "channel_links": true
           }
         },
         "nodejs": {
@@ -1853,6 +2000,10 @@
             },
             "filters": {}
           }
+        },
+        "db": {
+          "$ref": "#/$defs/DbInstrumentation",
+          "description": "Settings shared by all database protocols.\nIf omitted, database defaults are used.\n"
         },
         "sql": {
           "$ref": "#/$defs/SqlInstrumentation",
@@ -1898,7 +2049,8 @@
         "http": {
           "enabled": {
             "traces": true,
-            "metrics": true
+            "metrics": true,
+            "request_phase_spans": true
           },
           "filters": {}
         },
@@ -2182,7 +2334,8 @@
                   "tcp_failed_connections",
                   "tcp_successful_connections",
                   "tcp_retransmits",
-                  "tcp_io"
+                  "tcp_io",
+                  "tcp_resets"
                 ]
               },
               "default": [],
@@ -2276,6 +2429,17 @@
               "description": "Cloud metadata enricher configuration.\nIf omitted, implementation defaults are used.\n",
               "additionalProperties": true,
               "properties": {
+                "detection": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "default": true,
+                      "description": "Enable cloud metadata detection at startup.\nIf false, Azure VM, GCP, EC2, and ECS detection is skipped.\nIf omitted, true is used.\n"
+                    }
+                  }
+                },
                 "cluster_name": {
                   "type": "string",
                   "description": "Overrides automatic cloud cluster detection.\n"
@@ -2410,6 +2574,15 @@
           "default": false,
           "description": "Enable metadata exchange on directly routable non-Kubernetes hosts."
         },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "peer",
+            "central"
+          ],
+          "default": "peer",
+          "description": "How agents exchange metadata: directly between agents (peer), or through the central metadata service (central)."
+        },
         "listen_address": {
           "type": "string",
           "default": "",
@@ -2487,6 +2660,9 @@
         },
         "tls": {
           "$ref": "#/$defs/PeerMetadataTLS"
+        },
+        "central": {
+          "$ref": "#/$defs/PeerMetadataCentral"
         }
       }
     },
@@ -2497,17 +2673,17 @@
         "enabled": {
           "type": "boolean",
           "default": false,
-          "description": "Use HTTPS for both serving and querying metadata."
+          "description": "Use TLS for serving and querying metadata. In central mode, only for querying the metadata service."
         },
         "cert_file": {
           "type": "string",
           "default": "",
-          "description": "Server certificate PEM file, required when TLS is enabled."
+          "description": "Server certificate PEM file, required when TLS is enabled in peer mode."
         },
         "key_file": {
           "type": "string",
           "default": "",
-          "description": "Server private key PEM file, required when TLS is enabled."
+          "description": "Server private key PEM file, required when TLS is enabled in peer mode."
         },
         "ca_file": {
           "type": "string",
@@ -2518,6 +2694,38 @@
           "type": "string",
           "default": "",
           "description": "Optional common TLS server name. Empty verifies each peer IP against its certificate."
+        }
+      }
+    },
+    "PeerMetadataCentral": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Central metadata service connection, used in central mode.",
+      "properties": {
+        "address": {
+          "type": "string",
+          "default": "",
+          "description": "host:port address of the metadata service, required in central mode."
+        }
+      }
+    },
+    "Exceptions": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Runtime exception capture. Exception records use the logs pipeline.",
+      "properties": {
+        "go": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "panics": { "type": "boolean" },
+            "formatted_errors": { "type": "boolean" }
+          },
+          "description": "Go capture selection. Panics default to enabled and formatted errors to disabled; workload overrides inherit omitted fields."
+        },
+        "enabled": {
+          "type": "boolean",
+          "default": false
         }
       }
     }

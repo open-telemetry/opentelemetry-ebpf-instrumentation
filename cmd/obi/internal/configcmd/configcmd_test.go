@@ -17,6 +17,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.yaml.in/yaml/v3"
 
+	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
+
 	"go.opentelemetry.io/obi/internal/config/convert"
 	"go.opentelemetry.io/obi/internal/config/schema"
 	obiconfig "go.opentelemetry.io/obi/pkg/config"
@@ -754,6 +756,53 @@ unknown_field: true
 	require.Contains(t, stderr.String(), "decode v1 YAML fields")
 }
 
+func TestMigrateConfigAcceptsAWSPayloadExtraction(t *testing.T) {
+	aws := `
+ebpf:
+  payload_extraction:
+    http:
+      aws:
+        enabled: true
+`
+	tests := []struct {
+		mode  validationMode
+		input string
+	}{
+		{
+			mode: validationModeStandalone,
+			input: `
+discovery:
+  instrument:
+    - exe_path: "/srv/*"
+otel_traces_export:
+  endpoint: http://collector:4317
+` + aws,
+		},
+		{
+			mode: validationModeReceiver,
+			input: `
+open_port: "8080"
+metrics:
+  features:
+    - application
+` + aws,
+		},
+	}
+
+	for _, test := range tests {
+		mode := test.mode
+		t.Run(string(mode), func(t *testing.T) {
+			output, _, err := migrateConfigForMode([]byte(test.input), mode)
+			require.NoError(t, err)
+
+			for _, service := range []string{"aws_s3", "aws_sqs", "aws_sns"} {
+				require.Contains(t, string(output), service)
+			}
+			require.NoError(t, validateConfig(output, mode))
+		})
+	}
+}
+
 func TestMigrateConfigReceiverRejectsWrongInputShape(t *testing.T) {
 	_, _, err := migrateConfigForMode(
 		[]byte("version: \"2.0\"\npolicy: {}\n"),
@@ -1234,6 +1283,37 @@ prometheus_export:
 		require.Equal(t, "metrics", string(*policy.IgnoreMode))
 		require.Equal(t, "#", *policy.WildcardChar)
 		require.Equal(t, 25, *policy.MaxPathSegmentCardinality)
+	}
+}
+
+func TestMigrateConfigPreservesStatsWakeupDataBytes(t *testing.T) {
+	for _, value := range []int{0, 8192} {
+		setting := fmt.Sprintf("stats_wakeup_data_bytes: %d\n", value)
+		migrated := fmt.Sprintf("wakeup_bytes: %d\n", value)
+
+		t.Run(fmt.Sprint("standalone ", value), func(t *testing.T) {
+			output, _, err := migrateConfig([]byte("open_port: '8080'\nprometheus_export:\n  port: 9090\nebpf:\n  " + setting))
+			require.NoError(t, err)
+			require.Contains(t, string(output), migrated)
+
+			doc, _, err := schema.ParseStandaloneYAML(output)
+			require.NoError(t, err)
+			cfg, err := convert.DocumentToRuntime(doc)
+			require.NoError(t, err)
+			require.Equal(t, value, cfg.EBPF.StatsWakeupDataBytes)
+		})
+
+		t.Run(fmt.Sprint("receiver ", value), func(t *testing.T) {
+			output, _, err := migrateConfigForMode([]byte("open_port: '8080'\nebpf:\n  "+setting), validationModeReceiver)
+			require.NoError(t, err)
+			require.Contains(t, string(output), migrated)
+
+			ext, err := schema.ParseReceiverYAML(output)
+			require.NoError(t, err)
+			cfg, err := convert.V2ToRuntime(ext)
+			require.NoError(t, err)
+			require.Equal(t, value, cfg.EBPF.StatsWakeupDataBytes)
+		})
 	}
 }
 
@@ -2312,4 +2392,109 @@ func TestRunValidateRoute53HostedZones(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMigrateConfigPreservesExemplarFilter(t *testing.T) {
+	tests := []struct {
+		name     string
+		yaml     string
+		expected otelconfx.ExemplarFilter
+	}{
+		{
+			name: "Prometheus only",
+			yaml: `
+prometheus_export:
+  port: 9090
+  exemplar_filter: always_on
+`,
+			expected: otelconfx.ExemplarFilterAlwaysOn,
+		},
+		{
+			name: "Prometheus trace based with OTLP",
+			yaml: `
+otel_metrics_export:
+  endpoint: http://collector:4317
+prometheus_export:
+  port: 9090
+  exemplar_filter: trace_based
+`,
+			expected: otelconfx.ExemplarFilterTraceBased,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			output, _, err := migrateConfig([]byte(exemplarFilterPreamble + test.yaml))
+			require.NoError(t, err)
+
+			doc, _, err := schema.ParseStandaloneYAML(output)
+			require.NoError(t, err)
+			require.NotNil(t, doc.MeterProvider.ExemplarFilter)
+			require.Equal(t, test.expected, *doc.MeterProvider.ExemplarFilter)
+		})
+	}
+}
+
+func TestMigrateConfigOmitsDefaultExemplarFilterWithOTLP(t *testing.T) {
+	output, _, err := migrateConfig([]byte(exemplarFilterPreamble + `
+otel_metrics_export:
+  endpoint: http://collector:4317
+prometheus_export:
+  port: 9090
+  exemplar_filter: always_off
+`))
+	require.NoError(t, err)
+
+	doc, _, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+	require.Nil(t, doc.MeterProvider.ExemplarFilter)
+}
+
+func TestMigrateConfigReportsExemplarFilterConflictingWithOTLP(t *testing.T) {
+	source := []byte(exemplarFilterPreamble + `
+otel_metrics_export:
+  endpoint: http://collector:4317
+prometheus_export:
+  port: 9090
+  exemplar_filter: always_on
+`)
+
+	output, _, err := migrateConfig(source)
+	require.ErrorContains(t, err, "prometheus_export.exemplar_filter")
+	require.Empty(t, output)
+
+	output, report, partial, err := migrateConfigForModeWithOptions(
+		source, validationModeStandalone, migrationOptions{allowPartial: true},
+	)
+	require.NoError(t, err)
+	require.True(t, partial)
+	require.Contains(t, report, "prometheus_export.exemplar_filter")
+	require.NoError(t, validateConfig(output, validationModeStandalone))
+
+	doc, _, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+	require.Nil(t, doc.MeterProvider.ExemplarFilter)
+}
+
+const exemplarFilterPreamble = `
+open_port: '8080'
+metrics:
+  features: [application]
+`
+
+func TestMigrateRequiresReviewForChangedAttributeMatching(t *testing.T) {
+	path := writeConfig(t, "selection.yaml", `discovery:
+  instrument:
+    - exe_path: /srv/*
+trace_printer: text
+attributes:
+  select:
+    gen_ai.client.operation.duration:
+      exclude: [gen_ai.request.model]
+`)
+	var stdout, stderr bytes.Buffer
+	exitCode := run([]string{"migrate", path}, &stdout, &stderr)
+	require.NotEqual(t, ExitSuccess, exitCode)
+	require.Empty(t, stdout.String())
+	require.Contains(t, stderr.String(), "attributes.select")
 }

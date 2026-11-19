@@ -85,7 +85,7 @@ typedef struct cuda_introspect_ctx {
 typedef struct cuda_device_event {
     u8 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer
     u8 _pad[3];
-    pid_info pid_info;
+    pid_info_t pid_info;
     u32 index;
     u8 uuid[k_cuda_uuid_len];
     char name[k_cuda_name_len];
@@ -94,7 +94,7 @@ typedef struct cuda_device_event {
 typedef struct cuda_kernel_launch {
     u8 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer
     u8 _pad[3];
-    pid_info pid_info;
+    pid_info_t pid_info;
     u64 kern_func_off;
     int grid_x;
     int grid_y;
@@ -109,7 +109,7 @@ typedef struct cuda_memcpy {
     u8 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer
     u8 kind;
     u8 _pad[2];
-    pid_info pid_info;
+    pid_info_t pid_info;
     s64 size;
     cuda_device_t device;
 } cuda_memcpy_t;
@@ -118,7 +118,7 @@ typedef struct cuda_memcpy {
 typedef struct cuda_size_event {
     u8 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer
     u8 _pad[3];
-    pid_info pid_info;
+    pid_info_t pid_info;
     s64 size;
     cuda_device_t device;
 } cuda_size_event_t;
@@ -128,7 +128,7 @@ typedef struct cuda_size_event {
 typedef struct cuda_call_event {
     u8 flags; // Must be first, we use it to tell what kind of packet we have on the ring buffer
     u8 _pad[3];
-    pid_info pid_info;
+    pid_info_t pid_info;
     cuda_device_t device;
 } cuda_call_event_t;
 
