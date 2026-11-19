@@ -482,6 +482,9 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 	}
 	if os.Getenv("OBI_RUST_TEST_INJECT") != "" {
 		require.Equal(t, requests, injected+skipped, "every wire header must be present or skipped")
+		// A write faults only when the append lands on a nonresident page, so a
+		// writer that never delivers a header is broken rather than unlucky.
+		require.Positive(t, injected, "at least one request must carry its wire header")
 		if skipped > 0 {
 			t.Logf("wire injection skipped %d/%d requests", skipped, requests)
 		}
