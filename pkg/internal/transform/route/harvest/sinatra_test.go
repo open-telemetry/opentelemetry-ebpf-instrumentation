@@ -35,6 +35,10 @@ func TestScanSinatraRoutes(t *testing.T) {
 		{"optional root slash", "get '/?' do\nend", []string{"/"}},
 		{"optional literal character", "get '/colou?r' do\nend", nil},
 		{"unsupported patterns", "get '/users(/:id)' do\nend\nget '/files/*path' do\nend", nil},
+		{"status symbol", "get '/health' do\n  head :ok\nend\nhead :ok\nhead(:no_content)", []string{"/health"}},
+		{"padrino named routes", "get :index do\nend\nget :show, :with => :id do\nend\nget :edit, with: :id do\nend", nil},
+		{"string with options", "get '/users', :provides => :json do\nend\nget '/admin', agent: /Firefox/ do\nend", []string{"/users", "/admin"}},
+		{"string concatenation", "get '/users' + suffix do\nend", nil},
 		{"not a route declaration", "get_logger.info('/users')\nputs '/users'", nil},
 		{"dynamic path", "get \"/users/#{id}\" do\nend", nil},
 	} {
@@ -58,6 +62,8 @@ func TestScanSinatraRoutesCancellation(t *testing.T) {
 func TestExtractRailsRoutesSinatraFallback(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "app", "controllers"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "app", "Gemfile"), []byte(
+		"source 'https://rubygems.org'\n\ngem 'sinatra'\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "app", "app.rb"), []byte(
 		"require 'sinatra'\n\nget '/users/:id' do\n  'ok'\nend\n"), 0o644))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "app", "controllers", "admin.rb"), []byte(
@@ -67,6 +73,101 @@ func TestExtractRailsRoutesSinatraFallback(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, PartialRoutes, result.Kind)
 	assert.ElementsMatch(t, []string{"/users/:id", "/admin"}, result.Routes)
+}
+
+// A server may start below the application root; the Gemfile is then found in
+// a parent of the working directory.
+func TestExtractRailsRoutesSinatraFallbackParentGemfile(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "app", "web"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "app", "Gemfile.lock"), []byte(
+		"GEM\n  remote: https://rubygems.org/\n  specs:\n    sinatra (4.1.1)\n\nDEPENDENCIES\n  sinatra\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "app", "web", "app.rb"), []byte(
+		"get '/users/:id' do\nend\n"), 0o644))
+
+	result, err := extractRailsRoutes(t.Context(), root, "/app/web")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"/users/:id"}, result.Routes)
+}
+
+// Other Ruby frameworks use the same bare verb declarations: without Sinatra
+// among the application's gems, nothing is harvested.
+func TestExtractRailsRoutesSinatraFallbackRequiresSinatra(t *testing.T) {
+	const grapeAPI = "class API < Grape::API\n  resource :users do\n    get ':id' do\n    end\n    get '/all' do\n    end\n  end\nend\n"
+	for _, tc := range []struct {
+		name  string
+		files map[string]string
+	}{
+		{"no manifest", nil},
+		{"grape gemfile", map[string]string{"Gemfile": "source 'https://rubygems.org'\n\ngem 'grape'\ngem 'puma'\n"}},
+		{"grape lockfile", map[string]string{
+			"Gemfile":      "gem 'grape'\n",
+			"Gemfile.lock": "GEM\n  specs:\n    grape (2.2.0)\n      rack (>= 2)\n    rack (3.1.8)\n\nDEPENDENCIES\n  grape\n",
+		}},
+		{"commented out", map[string]string{"Gemfile": "# gem 'sinatra'\ngem 'grape'\n"}},
+		{"other sinatra gems", map[string]string{"Gemfile": "gem 'sinatra-contrib-lookalike'\ngem 'grape'\n"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			require.NoError(t, os.MkdirAll(filepath.Join(root, "app"), 0o755))
+			for name, content := range tc.files {
+				require.NoError(t, os.WriteFile(filepath.Join(root, "app", name), []byte(content), 0o644))
+			}
+			require.NoError(t, os.WriteFile(filepath.Join(root, "app", "api.rb"), []byte(grapeAPI), 0o644))
+
+			result, err := extractRailsRoutes(t.Context(), root, "/app")
+			require.NoError(t, err)
+			assert.Equal(t, PartialRoutes, result.Kind)
+			assert.Empty(t, result.Routes)
+		})
+	}
+}
+
+func TestDependsOnSinatra(t *testing.T) {
+	for _, tc := range []struct {
+		name, file, content string
+		want                bool
+	}{
+		{"gemfile single quotes", "Gemfile", "gem 'sinatra'\n", true},
+		{"gemfile double quotes and version", "Gemfile", "gem \"sinatra\", \"~> 4.0\"\n", true},
+		{"gemfile parentheses", "Gemfile", "gem('sinatra', require: 'sinatra/base')\n", true},
+		{"gemfile in group", "Gemfile", "group :web do\n  gem 'sinatra'\nend\n", true},
+		{"gems.rb", "gems.rb", "gem 'sinatra'\n", true},
+		{"gemfile other gem", "Gemfile", "gem 'sinatra-contrib'\ngem 'grape'\n", false},
+		{"gemfile commented", "Gemfile", "# gem 'sinatra'\n", false},
+		{"lockfile resolved", "Gemfile.lock", "GEM\n  specs:\n    sinatra (4.1.1)\n      rack (>= 3.0.0)\n", true},
+		{"lockfile transitive", "Gemfile.lock", "GEM\n  specs:\n    padrino-core (0.16.0)\n      sinatra (>= 4)\n", true},
+		{"lockfile direct", "Gemfile.lock", "DEPENDENCIES\n  sinatra\n", true},
+		{"lockfile pinned source", "Gemfile.lock", "DEPENDENCIES\n  sinatra!\n", true},
+		{"lockfile windows line endings", "Gemfile.lock", "DEPENDENCIES\r\n  sinatra\r\n", true},
+		{"gems.locked", "gems.locked", "DEPENDENCIES\n  sinatra (~> 4.0)\n", true},
+		{"lockfile other gems", "Gemfile.lock", "GEM\n  specs:\n    sinatra-contrib (4.1.1)\n    rack-sinatra (1.0)\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			dir := filepath.Join(root, "app")
+			require.NoError(t, os.MkdirAll(dir, 0o755))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, tc.file), []byte(tc.content), 0o644))
+
+			got, err := dependsOnSinatra(t.Context(), root, dir)
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
+// The nearest Bundler manifest describes the application; one further up
+// belongs to something else.
+func TestDependsOnSinatraUsesNearestManifest(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "srv", "api")
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "srv", "Gemfile"), []byte("gem 'sinatra'\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "Gemfile"), []byte("gem 'grape'\n"), 0o644))
+
+	got, err := dependsOnSinatra(t.Context(), root, dir)
+	require.NoError(t, err)
+	assert.False(t, got)
 }
 
 // When cwd cannot be narrowed down past the filesystem root, the Sinatra

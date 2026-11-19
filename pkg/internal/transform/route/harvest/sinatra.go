@@ -19,9 +19,29 @@ import (
 const (
 	maxSinatraFileBytes int64 = 2 * 1024 * 1024
 	maxSinatraFiles           = 256
+	maxGemfileBytes     int64 = 2 * 1024 * 1024
 )
 
 var sinatraDeclaration = regexp.MustCompile(`^(get|post|put|patch|delete|head|options)\b\s*\(?\s*(.*)$`)
+
+// sinatraLiteral matches a quoted string path followed by an argument
+// boundary. Unlike railsLiteral it rejects symbols: Sinatra paths are strings
+// (or regexps), so a symbol argument is something else, such as the status in
+// "head :ok" or a Padrino named route like "get :index".
+var sinatraLiteral = regexp.MustCompile(`^(?:'([^'\\]*)'|"([^"\\#]*)")\s*(?:,|\)|do\b|$)`)
+
+// Bundler manifests, with the lockfile ahead of the file it is resolved from.
+// gems.rb and gems.locked are the alternative names Bundler accepts.
+var (
+	bundlerLockfiles = [...]string{"Gemfile.lock", "gems.locked"}
+	bundlerGemfiles  = [...]string{"Gemfile", "gems.rb"}
+
+	// A resolved or direct dependency in a lockfile: "    sinatra (4.1.1)",
+	// "  sinatra (~> 4.0)" or "  sinatra!".
+	sinatraLockedGem = regexp.MustCompile(`(?m)^[ \t]+sinatra(?:!|[ \t]|\r?$)`)
+	// A gem declaration in a Gemfile: gem 'sinatra' or gem("sinatra", ...).
+	sinatraGemfileGem = regexp.MustCompile(`^gem\b\s*\(?\s*['"]sinatra['"]`)
+)
 
 // sinatraOptionalParam matches a named parameter marked optional with "?",
 // e.g. ":id?".
@@ -41,6 +61,61 @@ var sinatraSkipDirs = map[string]struct{}{
 	"test":         {},
 	"tmp":          {},
 	"vendor":       {},
+}
+
+// dependsOnSinatra reports whether the Bundler manifest closest to dir, looking
+// no further up than root, lists the sinatra gem. Any Ruby web framework can
+// use bare get/post declarations (Grape's "get ':id' do", for instance), so
+// the Sinatra scan only runs for applications that depend on Sinatra, the
+// same way the PHP harvester checks composer.json.
+func dependsOnSinatra(ctx context.Context, root, dir string) (bool, error) {
+	depends := false
+	err := langtools.WalkParentDirectories(dir, root, func(dir string) (bool, error) {
+		if err := ctx.Err(); err != nil {
+			return true, err
+		}
+		found := false
+		for _, name := range bundlerLockfiles {
+			if data, ok := readBundlerManifest(root, dir, name); ok {
+				found = true
+				depends = depends || sinatraLockedGem.Match(data)
+			}
+		}
+		for _, name := range bundlerGemfiles {
+			if data, ok := readBundlerManifest(root, dir, name); ok {
+				found = true
+				depends = depends || gemfileListsSinatra(data)
+			}
+		}
+		// The nearest manifest describes the application: stop there.
+		return found, nil
+	})
+	return depends, err
+}
+
+func readBundlerManifest(root, dir, name string) ([]byte, bool) {
+	relative, err := filepath.Rel(root, filepath.Join(dir, name))
+	if err != nil {
+		return nil, false
+	}
+	path, ok := langtools.ResolveProcessPath(root, "/", relative)
+	if !ok {
+		return nil, false
+	}
+	data, _, err := langtools.ReadMetadataFile(path, maxGemfileBytes)
+	if err != nil || data == nil {
+		return nil, false
+	}
+	return data, true
+}
+
+func gemfileListsSinatra(data []byte) bool {
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if sinatraGemfileGem.MatchString(stripRailsComment(strings.TrimSpace(line))) {
+			return true
+		}
+	}
+	return false
 }
 
 // extractSinatraRoutes scans every Ruby file under dir for Sinatra route
@@ -163,11 +238,15 @@ func scanSinatraRoutes(ctx context.Context, reader io.Reader) ([]string, error) 
 		if declaration == nil {
 			continue
 		}
-		path, ok := railsLiteralValue(declaration[2])
-		if !ok || path == "" {
+		literal := sinatraLiteral.FindStringSubmatch(declaration[2])
+		if literal == nil {
 			continue
 		}
-		path, ok = resolveSinatraOptionals(path)
+		path := literal[1] + literal[2]
+		if path == "" {
+			continue
+		}
+		path, ok := resolveSinatraOptionals(path)
 		if !ok {
 			continue
 		}

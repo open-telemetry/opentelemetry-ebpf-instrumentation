@@ -98,6 +98,12 @@ func extractRailsRoutes(ctx context.Context, root, cwd string) (*RouteHarvesterR
 	if dir == root {
 		return result, nil
 	}
+	// Other Ruby frameworks declare routes with the same verbs, so only scan
+	// applications whose Gemfile or Gemfile.lock lists Sinatra.
+	sinatra, err := dependsOnSinatra(ctx, root, dir)
+	if err != nil || !sinatra {
+		return result, err
+	}
 	result.Routes, err = extractSinatraRoutes(ctx, dir)
 	return result, err
 }
