@@ -547,7 +547,8 @@ func TestGoExecutableRestart(t *testing.T) {
 	require.NoError(t, target.Close())
 	require.NoError(t, err)
 	ty := newRestartTestTyper(t)
-	inspect := func() ebpf.Instrumentable {
+	inspect := func(t *testing.T) ebpf.Instrumentable {
+		t.Helper()
 		cmd := osexec.Command(path, "-test.run=^TestGoExecutableRestart$")
 		cmd.Env = append(os.Environ(), "OBI_TEST_WAIT_FOR_EXIT=1")
 		return classifyUntilExit(t, ty, cmd)
@@ -555,22 +556,22 @@ func TestGoExecutableRestart(t *testing.T) {
 	// A Go executable without a matching symbol must be inspected again.
 	functions := ty.allGoFunctions
 	ty.allGoFunctions = []string{"missing.probe"}
-	failed := inspect()
+	failed := inspect(t)
 	require.Equal(t, svc.InstrumentableGolang, failed.Type)
 	require.Error(t, failed.InstrumentationError)
 	require.Empty(t, ty.goOffsetsCache.Keys())
 
 	ty.allGoFunctions = functions
-	first := inspect()
+	first := inspect(t)
 	require.NoError(t, first.InstrumentationError)
 	require.NotNil(t, first.Offsets)
-	restarted := inspect()
+	restarted := inspect(t)
 	require.Same(t, first.Offsets, restarted.Offsets)
 	key := executableCacheKey(first.FileInfo)
 	require.Equal(t, key, executableCacheKey(restarted.FileInfo))
 	// A metadata change on the same inode must invalidate its offsets too.
 	require.NoError(t, os.Chmod(path, 0o500))
-	changed := inspect()
+	changed := inspect(t)
 	require.NoError(t, changed.InstrumentationError)
 	require.NotNil(t, changed.Offsets)
 	newKey := executableCacheKey(changed.FileInfo)
@@ -578,6 +579,35 @@ func TestGoExecutableRestart(t *testing.T) {
 	require.Equal(t, key.Ino, newKey.Ino)
 	require.NotEqual(t, key.ChangeTime, newKey.ChangeTime)
 	require.NotSame(t, first.Offsets, changed.Offsets)
+
+	t.Run("proxy", func(t *testing.T) {
+		ty.goOffsetsCache.Purge()
+		ty.allGoFunctions = []string{"runtime.chansend1"}
+		original := findProcLanguage
+		t.Cleanup(func() { findProcLanguage = original })
+		var pids []app.PID
+		findProcLanguage = func(pid app.PID) (svc.InstrumentableType, error) {
+			pids = append(pids, pid)
+			return original(pid)
+		}
+
+		first := inspect(t)
+		require.Nil(t, first.Offsets)
+		require.ErrorContains(t, first.InstrumentationError, "identified as a Go proxy")
+		key := executableCacheKey(first.FileInfo)
+		offsets, ok := ty.goOffsetsCache.Peek(key)
+		require.True(t, ok)
+		require.Contains(t, offsets.Funcs, "runtime.chansend1")
+
+		restarted := inspect(t)
+		require.Equal(t, key, executableCacheKey(restarted.FileInfo))
+		require.Nil(t, restarted.Offsets)
+		require.ErrorContains(t, restarted.InstrumentationError, "identified as a Go proxy")
+		after, ok := ty.goOffsetsCache.Peek(key)
+		require.True(t, ok)
+		require.Same(t, offsets, after)
+		require.Equal(t, []app.PID{first.FileInfo.Pid(), restarted.FileInfo.Pid()}, pids)
+	})
 }
 
 func TestNativeExecutableRestart(t *testing.T) {

@@ -282,14 +282,14 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 	var err error
 	if !cached {
 		offsets, err = t.inspectOffsets(execElf)
-		if offsets != nil && isGoProxy(offsets) {
-			log.Debug("identified as a Go proxy")
-			offsets = nil
-			err = errors.New("identified as a Go proxy")
-		}
 		if offsets != nil {
 			t.goOffsetsCache.Add(key, offsets)
 		}
+	}
+	if offsets != nil && isGoProxy(offsets) {
+		log.Debug("identified as a Go proxy")
+		offsets = nil
+		err = errors.New("identified as a Go proxy")
 	}
 	if offsets != nil {
 		return ebpf.Instrumentable{
