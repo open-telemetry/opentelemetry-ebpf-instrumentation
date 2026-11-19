@@ -37,14 +37,13 @@ import (
 var findProcLanguage = procs.FindProcLanguage
 
 type cacheKey struct {
-	Dev uint64
-	Ino uint64
+	Dev        uint64
+	Ino        uint64
+	ChangeTime int64
 }
 
-type instrumentedExecutable struct {
-	Type                 svc.InstrumentableType
-	Offsets              *goexec.Offsets
-	InstrumentationError error
+func executableCacheKey(info *exec.FileInfo) cacheKey {
+	return cacheKey{Dev: info.Dev(), Ino: info.Ino(), ChangeTime: info.ChangeTime()}
 }
 
 // ExecTyperProvider classifies the discovered executables according to the
@@ -57,15 +56,15 @@ func ExecTyperProvider(
 	input *msg.Queue[[]Event[ProcessMatch]],
 	output *msg.Queue[[]Event[ebpf.Instrumentable]],
 ) swarm.InstanceFunc {
-	instrumentableCache, _ := lru.New[cacheKey, instrumentedExecutable](100)
+	goOffsetsCache, _ := lru.New[cacheKey, *goexec.Offsets](100)
 
 	t := typer{
-		cfg:                 cfg,
-		metrics:             metrics,
-		k8sInformer:         k8sInformer,
-		log:                 slog.With("component", "discover.ExecTyper"),
-		currentPids:         map[app.PID]*exec.FileInfo{},
-		instrumentableCache: instrumentableCache,
+		cfg:            cfg,
+		metrics:        metrics,
+		k8sInformer:    k8sInformer,
+		log:            slog.With("component", "discover.ExecTyper"),
+		currentPids:    map[app.PID]*exec.FileInfo{},
+		goOffsetsCache: goOffsetsCache,
 	}
 	return func(_ context.Context) (swarm.RunFunc, error) {
 		// TODO: do it per executable
@@ -83,13 +82,13 @@ func ExecTyperProvider(
 }
 
 type typer struct {
-	cfg                 *obi.Config
-	metrics             imetrics.Reporter
-	k8sInformer         *kube.MetadataProvider
-	log                 *slog.Logger
-	currentPids         map[app.PID]*exec.FileInfo
-	allGoFunctions      []string
-	instrumentableCache *lru.Cache[cacheKey, instrumentedExecutable]
+	cfg            *obi.Config
+	metrics        imetrics.Reporter
+	k8sInformer    *kube.MetadataProvider
+	log            *slog.Logger
+	currentPids    map[app.PID]*exec.FileInfo
+	allGoFunctions []string
+	goOffsetsCache *lru.Cache[cacheKey, *goexec.Offsets]
 }
 
 func samplerFromConfig(s *services.SamplerConfig) trace.Sampler {
@@ -254,9 +253,6 @@ func (t *typer) FilterClassify(evs []Event[ProcessMatch]) []Event[ebpf.Instrumen
 		case EventDeleted:
 			if fInfo, ok := t.currentPids[ev.Obj.Process.Pid]; ok {
 				delete(t.currentPids, ev.Obj.Process.Pid)
-				if t.instrumentableCache != nil {
-					t.instrumentableCache.Remove(cacheKey{Dev: fInfo.Dev(), Ino: fInfo.Ino()})
-				}
 				out = append(out, Event[ebpf.Instrumentable]{
 					Type: EventDeleted,
 					Obj:  ebpf.Instrumentable{FileInfo: fInfo},
@@ -281,43 +277,27 @@ func (t *typer) FilterClassify(evs []Event[ProcessMatch]) []Event[ebpf.Instrumen
 // in case of belonging to a forked process, returns its parent.
 func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 	log := t.log.With("pid", execElf.Pid(), "comm", execElf.CmdExePath())
-	if ic, ok := t.instrumentableCache.Get(cacheKey{Dev: execElf.Dev(), Ino: execElf.Ino()}); ok {
-		log.Debug("new instance of existing executable", "type", ic.Type)
-		if ic.Type == svc.InstrumentablePython {
-			ancestor := execElf
-			parent, ok := t.currentPids[ancestor.Ppid()]
-			for ok && ancestor.Ppid() != ancestor.Pid() &&
-				ancestor.CmdExePath() == parent.CmdExePath() {
-				ancestor = parent
-				parent, ok = t.currentPids[ancestor.Ppid()]
-			}
-			if ancestor != execElf {
-				execElf.SetRuntimeMetricServiceSource(ancestor)
-			}
-		}
-		return ebpf.Instrumentable{Type: ic.Type, FileInfo: execElf, Offsets: ic.Offsets, InstrumentationError: ic.InstrumentationError}
-	}
-	lifecycle := execElf
-
-	log.Debug("getting instrumentable information")
-	// look for suitable Go application first
-	offsets, ok, err := t.inspectOffsets(execElf)
-	if ok {
-		// we found go offsets, let's see if this application is not a proxy
-		if !isGoProxy(offsets) {
-			log.Debug("identified as a Go service or client")
-			t.instrumentableCache.Add(cacheKey{Dev: execElf.Dev(), Ino: execElf.Ino()}, instrumentedExecutable{Type: svc.InstrumentableGolang, Offsets: offsets})
-			return ebpf.Instrumentable{Type: svc.InstrumentableGolang, FileInfo: execElf, Offsets: offsets}
-		}
-
-		if err == nil {
+	key := executableCacheKey(execElf)
+	offsets, cached := t.goOffsetsCache.Get(key)
+	var err error
+	if !cached {
+		offsets, err = t.inspectOffsets(execElf)
+		if offsets != nil && isGoProxy(offsets) {
+			log.Debug("identified as a Go proxy")
+			offsets = nil
 			err = errors.New("identified as a Go proxy")
 		}
-
-		log.Debug("identified as a Go proxy")
-	} else {
-		log.Debug("identified as a generic, non-Go executable")
+		if offsets != nil {
+			t.goOffsetsCache.Add(key, offsets)
+		}
 	}
+	if offsets != nil {
+		return ebpf.Instrumentable{
+			Type: svc.InstrumentableGolang, FileInfo: execElf, Offsets: offsets,
+			LogEnricherEnabled: execElf.LogEnricherEnabled(),
+		}
+	}
+	lifecycle := execElf
 
 	// select the parent (or grandparent) of the executable, if any
 	var child []app.PID
@@ -336,7 +316,22 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 	// Typer finds the executable type again. The language decorator can skip certain type detection,
 	// for example, it will skip Linux system services. If the selection criteria brought us here on
 	// executable path, open port, we respect that choice and find the language for the pipeline.
-	detectedType := findProcLanguage(execElf.Pid())
+	detectedType, languageErr := findProcLanguage(lifecycle.Pid())
+	if lifecycle != execElf {
+		parentType, parentErr := findProcLanguage(execElf.Pid())
+		if languageErr != nil && parentErr == nil {
+			// A short-lived worker can disappear before inspection.
+			detectedType, languageErr = parentType, nil
+		} else if languageErr == nil && (parentErr != nil || detectedType != parentType) {
+			// A worker that loads a different runtime needs its own classification.
+			execElf, child = lifecycle, nil
+		}
+	}
+	if detectedType != svc.InstrumentableGolang {
+		// A non-Go process does not need Go offsets. Its classification succeeded
+		// if its language could be inspected before the process exited.
+		err = languageErr
+	}
 
 	if !t.cfg.Discovery.SkipGoSpecificTracers && detectedType == svc.InstrumentableGolang && err == nil {
 		log.Warn("ELF binary appears to be a Go program, but no offsets were found",
@@ -349,7 +344,6 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 		"child", child, "language", detectedType.String())
 	// Return the instrumentable without offsets, as it is identified as a generic
 	// (or non-instrumentable Go proxy) executable
-	t.instrumentableCache.Add(cacheKey{Dev: execElf.Dev(), Ino: execElf.Ino()}, instrumentedExecutable{Type: detectedType, Offsets: nil, InstrumentationError: err})
 	if detectedType == svc.InstrumentablePython {
 		lifecycle.SetRuntimeMetricServiceSource(execElf)
 	}
@@ -370,18 +364,21 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 	}
 }
 
-func (t *typer) inspectOffsets(execElf *exec.FileInfo) (*goexec.Offsets, bool, error) {
+func (t *typer) inspectOffsets(execElf *exec.FileInfo) (*goexec.Offsets, error) {
 	if t.cfg.Discovery.SkipGoSpecificTracers {
 		t.log.Debug("skipping inspection for Go functions", "pid", execElf.Pid(), "comm", execElf.CmdExePath())
-		return nil, false, nil
+		return nil, nil
+	}
+	if execElf.ELF() == nil || execElf.ELF().Section(".gopclntab") == nil {
+		return nil, nil
 	}
 	t.log.Debug("inspecting", "pid", execElf.Pid(), "comm", execElf.CmdExePath())
 	offsets, err := goexec.InspectOffsets(execElf, t.allGoFunctions)
 	if err != nil {
 		t.log.Debug("couldn't find go specific tracers", "error", err)
-		return nil, false, err
+		return nil, err
 	}
-	return offsets, true, nil
+	return offsets, nil
 }
 
 // Symbols probed only to support other instrumentation: present in almost any

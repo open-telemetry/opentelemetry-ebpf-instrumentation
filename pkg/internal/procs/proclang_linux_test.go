@@ -219,14 +219,24 @@ func TestFindLanguageFromElf_NodeBinary(t *testing.T) {
 		t.Skip("this node links the runtime as libnode.so, which the shared-library pass types")
 	}
 
-	assert.Equal(t, svc.InstrumentableNodejs, findLanguageFromElf(resolved))
+	lang, err := findLanguageFromElf(resolved)
+	require.NoError(t, err)
+	assert.Equal(t, svc.InstrumentableNodejs, lang)
 }
 
 func TestFindLanguageFromElf_NonNodeExecutable(t *testing.T) {
 	self, err := os.Executable()
 	require.NoError(t, err)
 
-	assert.NotEqual(t, svc.InstrumentableNodejs, findLanguageFromElf(self))
+	lang, err := findLanguageFromElf(self)
+	require.NoError(t, err)
+	assert.NotEqual(t, svc.InstrumentableNodejs, lang)
+}
+
+func TestFindLanguageFromElfMissing(t *testing.T) {
+	lang, err := findLanguageFromElf(filepath.Join(t.TempDir(), "missing"))
+	require.Error(t, err)
+	require.Equal(t, svc.InstrumentableGeneric, lang)
 }
 
 func isLauncherForSharedRuntime(t *testing.T, path string) bool {
