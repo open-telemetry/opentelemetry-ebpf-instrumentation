@@ -29,6 +29,7 @@ func TestRustSymbolSelection(t *testing.T) {
 		"<tokio::runtime::basic_scheduler::Spawner>::spawn::<F>":                                                  rustTaskSpawn,
 		"<tokio::runtime::thread_pool::worker::Shared>::schedule":                                                 rustTaskSchedule,
 		"<alloc::sync::Arc<tokio::runtime::basic_scheduler::Shared> as tokio::runtime::task::Schedule>::schedule": rustTaskSchedule,
+		"<tokio::runtime::scheduler::multi_thread::handle::Handle>::schedule_option_task_without_yield":           rustTaskPublish,
 		"<h2::proto::streams::send::Send>::send_headers::<B>":                                                     rustH2SendHeaders,
 		"<h2::proto::streams::send::Send>::buffer_pending::<T, B>":                                                rustH2BufferPending,
 		"<rustls::conn::ConnectionCommon<T> as rustls::conn::PlaintextSink>::write":                               rustTLSWrite,

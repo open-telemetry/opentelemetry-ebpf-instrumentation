@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"go.opentelemetry.io/obi/internal/rustexec"
 )
 
 type rustTestLink struct{ closed bool }
@@ -46,6 +48,39 @@ func TestRustAttachmentAlternatives(t *testing.T) {
 	require.False(t, stable.closed)
 	require.False(t, fallback.closed)
 	require.Len(t, links, 2)
+}
+
+func TestRustChannelTriesEveryAlternative(t *testing.T) {
+	const channel = "hyper::client::dispatch::Envelope<T>"
+	addresses := map[rustProbeKind][]uint64{}
+	for _, kind := range []rustProbeKind{
+		rustHyperEnqueue, rustHyperDequeue, rustHyperChanSend, rustHyperSend, rustHyperReceive,
+		rustHyperFindBlock, rustHyperPop, rustHyperRequestSend,
+	} {
+		addresses[kind] = []uint64{uint64(kind) + 1}
+	}
+
+	symbols := rustProbeSymbols{
+		channels:      []string{channel},
+		channelProbes: map[string]map[rustProbeKind][]uint64{channel: addresses},
+	}
+	config := BpfRustProtocolConfigT{
+		Message: rustexec.MessageCallback | rustexec.MessageList | rustexec.MessageRequest,
+	}
+	groups := planRustProbes(symbols, config)
+	require.Len(t, groups, 1)
+	require.Len(t, groups[0].alternatives, 5)
+
+	// Only the last alternative attaches, so every earlier one must have been tried.
+	_, features, err := attachRustGroups(groups, func(alternative rustProbeAlternative) ([]io.Closer, error) {
+		if len(alternative[rustHyperRequestSend]) == 0 {
+			return nil, errors.New("inlined or unavailable")
+		}
+		return nil, nil
+	})
+
+	require.NoError(t, err)
+	require.True(t, features["channel:"+channel])
 }
 
 func TestRustTLSFeaturesNameEachDirection(t *testing.T) {

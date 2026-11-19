@@ -39,9 +39,6 @@ func planRustProbes(symbols rustProbeSymbols, config BpfRustProtocolConfigT) []r
 
 			if len(alternative) > 0 {
 				group.alternatives = append(group.alternatives, alternative)
-				if len(group.alternatives) == 3 {
-					break
-				}
 			}
 		}
 

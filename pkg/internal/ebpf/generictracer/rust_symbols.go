@@ -233,7 +233,6 @@ func rustSymbolKind(name string) (rustProbeKind, bool) {
 	}
 
 	if name == "<tokio::runtime::thread_pool::worker::Shared>::schedule" ||
-		name == "<tokio::runtime::scheduler::multi_thread::handle::Handle>::schedule_option_task_without_yield" ||
 		name == "<alloc::sync::Arc<tokio::runtime::scheduler::multi_thread::handle::Handle> as tokio::runtime::task::Schedule>::schedule" ||
 		name == "<alloc::sync::Arc<tokio::runtime::scheduler::current_thread::Handle> as tokio::runtime::task::Schedule>::schedule" ||
 		name == "<alloc::sync::Arc<tokio::runtime::basic_scheduler::Shared> as tokio::runtime::task::Schedule>::schedule" {
