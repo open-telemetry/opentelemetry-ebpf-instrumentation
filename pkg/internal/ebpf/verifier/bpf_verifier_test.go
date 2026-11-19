@@ -168,9 +168,11 @@ func TestBPFVerifierHTTPSampling(t *testing.T) {
 		t.Skipf("cannot remove memlock limit (insufficient privileges?): %v", err)
 	}
 
+	// The inlined HTTP/2 finalizers must fit the verifier budget even when
+	// debug logging and shared-context writers change state pruning.
 	forEachCombination(t, "generictracer", generictracerbpf.LoadBpf, []constOption{
 		{"pid_ns_mode", pidNamespaceModes},
-		{"g_bpf_debug", []any{true}},
+		{"g_bpf_debug", []any{true, false}},
 		{"g_bpf_traceparent_enabled", []any{true}},
 		{"g_bpf_header_propagation", []any{true}},
 		{"g_bpf_java_http1_enabled", []any{true}},
@@ -179,6 +181,7 @@ func TestBPFVerifierHTTPSampling(t *testing.T) {
 		{"capture_header_buffer", []any{int32(1)}},
 		{"max_transaction_time", []any{uint64(60_000_000_000)}},
 		{"http_max_captured_bytes", []any{uint32(262144)}},
+		{"g_traces_ctx_v1_enabled", []any{true, false}},
 	})
 }
 

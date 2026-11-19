@@ -29,10 +29,21 @@ type rustTarget struct {
 }
 
 type rustController struct {
-	tracer  *Tracer
-	mu      sync.Mutex
-	targets map[app.PID]*rustTarget
-	closed  bool
+	tracer    *Tracer
+	mu        sync.Mutex
+	targets   map[app.PID]*rustTarget
+	closed    bool
+	attaching sync.WaitGroup
+}
+
+// rustAttachment is prepared without the controller lock. Only the PID's current
+// target may publish it, because the BPF maps it writes are keyed by PID alone.
+type rustAttachment struct {
+	links        []io.Closer
+	capabilities BpfRustCapabilitiesT
+	// nil when only the Tokio runtime marker is published
+	protocol          *BpfRustProtocolConfigT
+	expectedStartTime uint64
 }
 
 func newRustController(tracer *Tracer) *rustController {
@@ -44,15 +55,29 @@ func (c *rustController) allow(pid app.PID, fi *exec.FileInfo) {
 		return
 	}
 
+	target := c.register(pid, fi)
+	if target == nil {
+		return
+	}
+	defer c.attaching.Done()
+
+	// Reading the executable and attaching uprobes is slow: other PIDs must not wait on it.
+	attachment, err := c.attach(pid, fi)
+	c.commit(pid, target, attachment, err)
+}
+
+// register claims the PID for a new lifecycle, or returns nil when there is nothing to attach.
+func (c *rustController) register(pid app.PID, fi *exec.FileInfo) *rustTarget {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	if c.closed || c.tracer.bpfObjects.RustCapabilities == nil {
-		return
+		return nil
 	}
 
 	if target := c.targets[pid]; target != nil {
 		if target.lifecycle == fi {
-			return
+			return nil
 		}
 		c.remove(pid)
 	}
@@ -60,42 +85,105 @@ func (c *rustController) allow(pid app.PID, fi *exec.FileInfo) {
 	// Remember unsupported binaries too, so discovery does not rescan them.
 	target := &rustTarget{lifecycle: fi}
 	c.targets[pid] = target
-	links, err := c.attach(pid, fi)
+	c.attaching.Add(1)
 
-	if err != nil {
-		c.tracer.log.Debug("Rust context propagation unavailable", "pid", pid, "error", err)
+	return target
+}
+
+// commit publishes an attachment only while its target still owns the PID. A PID
+// blocked, replaced or closed during attachment only gets its new probes closed.
+func (c *rustController) commit(pid app.PID, target *rustTarget, attachment rustAttachment, cause error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.closed || c.targets[pid] != target {
+		closeRustLinks(attachment.links)
 		return
 	}
 
-	target.links = links
+	if err := c.publish(pid, attachment); err != nil {
+		_ = c.tracer.bpfObjects.RustCapabilities.Delete(uint32(pid))
+		_ = c.tracer.bpfObjects.RustProtocolConfigs.Delete(uint32(pid))
+		closeRustLinks(attachment.links)
+		cause = errors.Join(cause, err)
+	} else {
+		target.links = attachment.links
+		c.logPublished(pid, attachment, cause)
+	}
+
+	if cause != nil {
+		c.tracer.log.Debug("Rust context propagation unavailable", "pid", pid, "error", cause)
+	}
 }
 
-func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) ([]io.Closer, error) {
+func (c *rustController) publish(pid app.PID, attachment rustAttachment) error {
+	if attachment.protocol == nil && attachment.capabilities.TokioRuntime == 0 {
+		return nil
+	}
+
+	objects := &c.tracer.bpfObjects
+	if attachment.protocol != nil {
+		if err := objects.RustProtocolConfigs.Put(uint32(pid), *attachment.protocol); err != nil {
+			return err
+		}
+	}
+
+	if err := checkRustLifecycle(pid, attachment.expectedStartTime); err != nil {
+		return err
+	}
+
+	return objects.RustCapabilities.Put(uint32(pid), attachment.capabilities)
+}
+
+func (c *rustController) logPublished(pid app.PID, attachment rustAttachment, cause error) {
+	capabilities := attachment.capabilities
+	protocol := attachment.protocol
+
+	switch {
+	case protocol != nil:
+		c.tracer.log.Info("Enabled Rust instrumentation", "pid", pid, "tokio", capabilities.TokioRuntime != 0,
+			"task_context", capabilities.TaskContext != 0, "client_context", capabilities.ClientContext != 0,
+			"http1", protocol.Http1 != 0, "http2", protocol.Http2 != 0,
+			"http2_server_context", protocol.H2Server != 0, "rustls", protocol.Rustls != 0)
+	case capabilities.TokioRuntime != 0:
+		c.tracer.log.Info("Tokio runtime without usable Rust hooks; worker-thread parents disabled",
+			"pid", pid, "reason", cause)
+	}
+}
+
+func closeRustLinks(links []io.Closer) {
+	for _, closer := range links {
+		_ = closer.Close()
+	}
+}
+
+// attach does the slow per-executable work without writing any BPF map.
+func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) (rustAttachment, error) {
 	expectedStartTime := fi.StartTime()
 	if pid != fi.Pid() {
 		// Grouped workers share their parent's executable and service FileInfo.
 		childStartTime, err := procs.StartTime(pid)
 		if err != nil {
-			return nil, err
+			return rustAttachment{}, err
 		}
 		expectedStartTime = childStartTime
 	}
 
 	target, err := fi.OpenExecutable()
 	if err != nil {
-		return nil, err
+		return rustAttachment{}, err
 	}
 
 	defer target.Close()
 
 	f, err := elf.NewFile(target)
 	if err != nil {
-		return nil, err
+		return rustAttachment{}, err
 	}
 
 	probes, err := resolveRustProbes(f)
 	if err != nil {
-		return nil, c.keepTokioRuntime(pid, expectedStartTime, probes, err)
+		return tokioMarker(probes, expectedStartTime), err
 	}
 
 	protocol, layoutErr := resolveRustProtocolLayouts(f, probes.layoutChannels()...)
@@ -108,7 +196,7 @@ func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) ([]io.Closer, er
 
 	exe, err := link.OpenExecutable(path)
 	if err != nil {
-		return nil, err
+		return rustAttachment{}, err
 	}
 
 	objects := &c.tracer.bpfObjects
@@ -225,16 +313,8 @@ func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) ([]io.Closer, er
 		c.tracer.log.Debug("Partial Rust probe attachment", "pid", pid, "error", attachErr)
 	}
 
-	rollback := func() {
-		_ = objects.RustCapabilities.Delete(uint32(pid))
-		_ = objects.RustProtocolConfigs.Delete(uint32(pid))
-		for _, closer := range links {
-			_ = closer.Close()
-		}
-	}
-
 	if len(links) == 0 {
-		return nil, c.keepTokioRuntime(pid, expectedStartTime, probes, errors.New("no Rust probe group could be attached"))
+		return tokioMarker(probes, expectedStartTime), errors.New("no Rust probe group could be attached")
 	}
 
 	capabilities := BpfRustCapabilitiesT{}
@@ -283,49 +363,25 @@ func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) ([]io.Closer, er
 		protocol.Inject = 1
 	}
 
-	if err := objects.RustProtocolConfigs.Put(uint32(pid), protocol); err != nil {
-		rollback()
-		return nil, err
-	}
-
-	if err := checkRustLifecycle(pid, expectedStartTime); err != nil {
-		rollback()
-		return nil, err
-	}
-
-	if err := objects.RustCapabilities.Put(uint32(pid), capabilities); err != nil {
-		rollback()
-		return nil, err
-	}
-
-	c.tracer.log.Info("Enabled Rust instrumentation", "pid", pid, "tokio", probes.hasTokio,
-		"task_context", capabilities.TaskContext != 0, "client_context", capabilities.ClientContext != 0,
-		"http1", protocol.Http1 != 0, "http2", protocol.Http2 != 0,
-		"http2_server_context", protocol.H2Server != 0, "rustls", protocol.Rustls != 0)
-
-	return links, nil
+	return rustAttachment{
+		links:             links,
+		capabilities:      capabilities,
+		protocol:          &protocol,
+		expectedStartTime: expectedStartTime,
+	}, nil
 }
 
-// keepTokioRuntime publishes only the runtime marker when no Rust hook is usable.
+// tokioMarker publishes only the runtime marker when no Rust hook is usable.
 // Tokio workers still poll unrelated tasks, so their threads must not supply parents.
-func (c *rustController) keepTokioRuntime(pid app.PID, expectedStartTime uint64, probes rustProbeSymbols, cause error) error {
+func tokioMarker(probes rustProbeSymbols, expectedStartTime uint64) rustAttachment {
 	if !probes.hasTokio {
-		return cause
+		return rustAttachment{}
 	}
 
-	if err := checkRustLifecycle(pid, expectedStartTime); err != nil {
-		return errors.Join(cause, err)
+	return rustAttachment{
+		capabilities:      BpfRustCapabilitiesT{TokioRuntime: 1},
+		expectedStartTime: expectedStartTime,
 	}
-
-	marker := BpfRustCapabilitiesT{TokioRuntime: 1}
-	if err := c.tracer.bpfObjects.RustCapabilities.Put(uint32(pid), marker); err != nil {
-		return errors.Join(cause, err)
-	}
-
-	c.tracer.log.Info("Tokio runtime without usable Rust hooks; worker-thread parents disabled",
-		"pid", pid, "reason", cause)
-
-	return cause
 }
 
 // checkRustLifecycle rejects a PID that no longer runs the process discovery saw.
@@ -367,14 +423,18 @@ func (c *rustController) remove(pid app.PID) {
 	delete(c.targets, pid)
 }
 
+// Close waits for attachments in progress: their commits close the probes they
+// attached, before the tracer closes the BPF programs those probes use.
 func (c *rustController) Close() error {
 	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.closed = true
 
 	for pid := range c.targets {
 		c.remove(pid)
 	}
+	c.mu.Unlock()
+
+	c.attaching.Wait()
 
 	return nil
 }

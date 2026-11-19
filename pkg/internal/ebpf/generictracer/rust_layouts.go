@@ -9,6 +9,7 @@ import (
 	"debug/elf"
 	_ "embed"
 	"encoding/json"
+	"sync"
 
 	"go.opentelemetry.io/obi/internal/rustexec"
 )
@@ -16,13 +17,21 @@ import (
 //go:embed rust_offsets.json
 var rustOffsetData []byte
 
+// The embedded database never changes, and layout selection only reads it,
+// so every attachment shares one decoded copy.
+var rustOffsetDatabase = sync.OnceValues(func() (rustexec.Database, error) {
+	var database rustexec.Database
+	err := json.Unmarshal(rustOffsetData, &database)
+	return database, err
+})
+
 func resolveRustProtocolLayouts(f *elf.File, channels ...string) (BpfRustProtocolConfigT, error) {
 	build, err := rustexec.ReadBuild(f)
 	if err != nil {
 		return BpfRustProtocolConfigT{}, err
 	}
-	var database rustexec.Database
-	if err := json.Unmarshal(rustOffsetData, &database); err != nil {
+	database, err := rustOffsetDatabase()
+	if err != nil {
 		return BpfRustProtocolConfigT{}, err
 	}
 	return selectRustProtocolLayouts(build, database, channels...)
