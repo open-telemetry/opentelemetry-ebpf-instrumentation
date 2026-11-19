@@ -539,7 +539,7 @@
         },
         "group_job_spans": {
           "type": "boolean",
-          "description": "Group the client spans of each job matched workloads take off a queue into one trace, rooted at the fetch that took the job. Redis fetches are recognized.\nDisabled when omitted. See devdocs/queue-job-traces.md.\n"
+          "description": "Group the client spans of each job matched workloads take off a queue into one trace, rooted at the fetch that took the job. Redis fetches are recognized.\nOn when omitted; false keeps each call of a job in a trace of its own. See devdocs/queue-job-traces.md.\n"
         }
       }
     },

@@ -170,6 +170,10 @@ section empty once drained.
   per-bucket counts for the bounds that received executions only. Bucket values grow and new
   `le` series appear, and `histogram_quantile` over this metric now returns correct values.
   The OTLP `obi.bpf.probe.latency` histogram is unchanged.
+- A worker that takes jobs off a Redis queue outside a request gets one trace per job, rooted
+  at the fetch that took it, instead of a trace per call. Spans and metrics are unchanged; the
+  client spans of a job gain a parent. A Config v2 rule turns it off with
+  `refine.group_job_spans: false`. See [Queue Job Traces](queue-job-traces.md).
 
 ## Hosting notes
 

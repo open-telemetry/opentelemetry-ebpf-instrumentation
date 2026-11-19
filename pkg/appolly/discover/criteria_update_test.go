@@ -1403,7 +1403,6 @@ func TestCriteriaUpdaterAddedJobTracesNeedStartupSupport(t *testing.T) {
 
 			next := criteriaConfig(t, "    - exe_path: /srv/app\n    - exe_path: /srv/other\n")
 			next.Discovery.Instrument[0].JobTraces = initial.Discovery.Instrument[0].JobTraces
-			next.Discovery.Instrument[1].JobTraces = &services.JobTracesConfig{Enabled: true}
 			err := updater.Update(ctx, next)
 			if atStartup {
 				require.NoError(t, err)
