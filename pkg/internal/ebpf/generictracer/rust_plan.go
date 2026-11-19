@@ -82,19 +82,19 @@ func planRustProbes(symbols rustProbeSymbols, config BpfRustProtocolConfigT) []r
 	}
 
 	if config.Rustls != 0 {
-		add("Rustls client processing", "tls-process", addresses, []rustProbeKind{rustTLSClientProcess}, []rustProbeKind{rustTLSClientLegacyProcess})
-		add("Rustls server processing", "tls-process", addresses, []rustProbeKind{rustTLSServerProcess}, []rustProbeKind{rustTLSServerLegacyProcess})
+		add("Rustls client processing", "tls-bind", addresses, []rustProbeKind{rustTLSClientProcess}, []rustProbeKind{rustTLSClientLegacyProcess})
+		add("Rustls server processing", "tls-bind", addresses, []rustProbeKind{rustTLSServerProcess}, []rustProbeKind{rustTLSServerLegacyProcess})
 
 		flush := [][]rustProbeKind{{rustTLSFlush}}
 		if config.TlsSendable != 0 {
 			flush = append(flush, []rustProbeKind{rustTLSFlushBuffer})
 		}
 
-		add("Rustls encrypted I/O binding", "tls-process", addresses, flush...)
-		add("Rustls peek/consume", "tls-io", addresses, []rustProbeKind{rustTLSChunk, rustTLSConsume})
-		add("Rustls read", "tls-io", addresses, []rustProbeKind{rustTLSRead}, []rustProbeKind{rustTLSReaderRead})
-		add("Rustls scalar write", "tls-io", addresses, []rustProbeKind{rustTLSWrite})
-		add("Rustls vectored write", "tls-io", addresses, []rustProbeKind{rustTLSWriteVectored})
+		add("Rustls encrypted I/O binding", "tls-bind", addresses, flush...)
+		add("Rustls peek/consume", "tls-read", addresses, []rustProbeKind{rustTLSChunk, rustTLSConsume})
+		add("Rustls read", "tls-read", addresses, []rustProbeKind{rustTLSRead}, []rustProbeKind{rustTLSReaderRead})
+		add("Rustls scalar write", "tls-write", addresses, []rustProbeKind{rustTLSWrite})
+		add("Rustls vectored write", "tls-write", addresses, []rustProbeKind{rustTLSWriteVectored})
 	}
 
 	if config.Http1 != 0 {

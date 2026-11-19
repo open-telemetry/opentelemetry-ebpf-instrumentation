@@ -48,6 +48,23 @@ func TestRustAttachmentAlternatives(t *testing.T) {
 	require.Len(t, links, 2)
 }
 
+func TestRustTLSFeaturesNameEachDirection(t *testing.T) {
+	var symbols rustProbeSymbols
+	for _, kind := range []rustProbeKind{rustTLSFlush, rustTLSWrite} {
+		symbols.addresses[kind] = []uint64{uint64(kind) + 1}
+	}
+
+	groups := planRustProbes(symbols, BpfRustProtocolConfigT{Rustls: 1})
+	_, features, err := attachRustGroups(groups, func(rustProbeAlternative) ([]io.Closer, error) {
+		return nil, nil
+	})
+
+	require.NoError(t, err)
+	require.True(t, features["tls-bind"], "flush alone binds a connection")
+	require.True(t, features["tls-write"])
+	require.False(t, features["tls-read"], "a write hook must not stand in for plaintext reads")
+}
+
 func TestRustPartialProbePlan(t *testing.T) {
 	var symbols rustProbeSymbols
 	for _, kind := range []rustProbeKind{rustTaskHarnessPoll, rustTaskBind, rustTLSClientProcess, rustTLSRead, rustTLSWrite, rustHTTP1Headers} {
@@ -60,8 +77,9 @@ func TestRustPartialProbePlan(t *testing.T) {
 	}
 	require.True(t, names["task-poll"], "Harness polling replaces an inlined raw poll")
 	require.True(t, names["task-create"])
-	require.True(t, names["tls-process"])
-	require.True(t, names["tls-io"], "missing vectored writes must retain scalar read/write capture")
+	require.True(t, names["tls-bind"])
+	require.True(t, names["tls-read"])
+	require.True(t, names["tls-write"], "missing vectored writes must retain scalar write capture")
 	require.True(t, names["http1"])
 	require.False(t, names["h2-send"])
 }

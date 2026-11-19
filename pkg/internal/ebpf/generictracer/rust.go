@@ -273,7 +273,9 @@ func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) ([]io.Closer, er
 		protocol.Http2 = 0
 	}
 
-	if !features["tls-process"] || !features["tls-io"] {
+	// Binding hides the connection's ciphertext from generic capture, so its plaintext
+	// must be captured in both directions or the connection's spans never complete.
+	if !features["tls-bind"] || !features["tls-read"] || !features["tls-write"] {
 		protocol.Rustls = 0
 	}
 
