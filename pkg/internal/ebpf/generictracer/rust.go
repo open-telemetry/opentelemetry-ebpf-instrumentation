@@ -6,7 +6,6 @@
 package generictracer // import "go.opentelemetry.io/obi/pkg/internal/ebpf/generictracer"
 
 import (
-	"debug/elf"
 	"errors"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/cilium/ebpf"
 	"github.com/cilium/ebpf/link"
+	lru "github.com/hashicorp/golang-lru/v2"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
@@ -29,11 +29,12 @@ type rustTarget struct {
 }
 
 type rustController struct {
-	tracer    *Tracer
-	mu        sync.Mutex
-	targets   map[app.PID]*rustTarget
-	closed    bool
-	attaching sync.WaitGroup
+	tracer      *Tracer
+	mu          sync.Mutex
+	targets     map[app.PID]*rustTarget
+	closed      bool
+	attaching   sync.WaitGroup
+	executables *lru.Cache[rustExecutableKey, *rustExecutable]
 }
 
 // rustAttachment is prepared without the controller lock. Only the PID's current
@@ -47,7 +48,11 @@ type rustAttachment struct {
 }
 
 func newRustController(tracer *Tracer) *rustController {
-	return &rustController{tracer: tracer, targets: map[app.PID]*rustTarget{}}
+	return &rustController{
+		tracer:      tracer,
+		targets:     map[app.PID]*rustTarget{},
+		executables: newRustExecutableCache(),
+	}
 }
 
 func (c *rustController) allow(pid app.PID, fi *exec.FileInfo) {
@@ -176,17 +181,14 @@ func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) (rustAttachment,
 
 	defer target.Close()
 
-	f, err := elf.NewFile(target)
-	if err != nil {
-		return rustAttachment{}, err
+	// Replicas and forked workers of one binary reuse its symbol and layout analysis.
+	executable := analyzeRustExecutable(c.executables, target)
+	probes := executable.probes
+	if executable.probeErr != nil {
+		return tokioMarker(probes, expectedStartTime), executable.probeErr
 	}
 
-	probes, err := resolveRustProbes(f)
-	if err != nil {
-		return tokioMarker(probes, expectedStartTime), err
-	}
-
-	protocol, layoutErr := resolveRustProtocolLayouts(f, probes.layoutChannels()...)
+	protocol, layoutErr := executable.protocol, executable.layoutErr
 	if layoutErr != nil {
 		c.tracer.log.Debug("Partial Rust protocol layout support", "pid", pid, "error", layoutErr)
 	}
@@ -215,7 +217,10 @@ func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) (rustAttachment,
 		{rustTaskPublish, objects.ObiRustTaskBind, false},
 		{rustTaskSpawn, objects.ObiRustTaskSpawnRet, true},
 		{rustTaskSpawn, objects.ObiRustTaskSpawn, false},
+		{rustTaskSpawnPublic, objects.ObiRustTaskSpawnRet, true},
+		{rustTaskSpawnPublic, objects.ObiRustTaskSpawn, false},
 		{rustTaskSchedule, objects.ObiRustTaskSchedule, false},
+		{rustTaskScheduleLocal, objects.ObiRustTaskScheduleLocal, false},
 
 		{rustHyperFindBlock, objects.ObiRustHyperFindBlockRet, true},
 		{rustHyperFindBlock, objects.ObiRustHyperFindBlock, false},

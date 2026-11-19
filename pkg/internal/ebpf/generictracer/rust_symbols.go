@@ -26,7 +26,9 @@ const (
 	rustTaskPoll
 	rustTaskDealloc
 	rustTaskSpawn
+	rustTaskSpawnPublic
 	rustTaskSchedule
+	rustTaskScheduleLocal
 	rustTaskPublish
 	rustTaskHarnessPoll
 	rustTaskHarnessDealloc
@@ -86,6 +88,12 @@ func resolveRustProbes(f *elf.File) (rustProbeSymbols, error) {
 	hasHyper := false
 	hasTokio := false
 	channelTypes := map[string]struct{}{}
+	// Demangling dominates the scan, so each match keeps what its name decoded to.
+	type rustSymbolMatch struct {
+		kind     rustProbeKind
+		envelope string
+	}
+	matches := map[string]rustSymbolMatch{}
 
 	syms, err := procs.FindExeSymbolsMatching(f, func(name string) bool {
 		if !strings.HasPrefix(name, "_R") && !strings.HasPrefix(name, "_ZN") {
@@ -110,11 +118,21 @@ func resolveRustProbes(f *elf.File) (rustProbeSymbols, error) {
 		}
 
 		kind, ok := rustSymbolKind(decoded)
-		if envelope := rustHyperEnvelope(decoded); envelope != "" && ok && kind >= rustHyperEnqueue && kind <= rustHyperPop {
-			channelTypes[envelope] = struct{}{}
+		if !ok {
+			return false
 		}
 
-		return ok
+		match := rustSymbolMatch{kind: kind}
+		if kind >= rustHyperEnqueue && kind <= rustHyperPop {
+			match.envelope = rustHyperEnvelope(decoded)
+			if match.envelope != "" {
+				channelTypes[match.envelope] = struct{}{}
+			}
+		}
+
+		// The callback's names alias an ELF mapping that closes after the scan.
+		matches[strings.Clone(name)] = match
+		return true
 	})
 
 	if err != nil {
@@ -129,10 +147,10 @@ func resolveRustProbes(f *elf.File) (rustProbeSymbols, error) {
 	probes.hasTokio = hasTokio
 
 	for name, sym := range syms {
-		decoded, _ := demangle.ToString(name, demangle.NoClones, demangle.MaxLength(16))
-		kind, _ := rustSymbolKind(decoded)
+		match := matches[name]
+		kind := match.kind
 		if kind >= rustHyperEnqueue && kind <= rustHyperPop {
-			envelope := rustHyperEnvelope(decoded)
+			envelope := match.envelope
 			if probes.channelProbes[envelope] == nil {
 				probes.channelProbes[envelope] = map[rustProbeKind][]uint64{}
 			}
@@ -210,6 +228,10 @@ func rustSymbolKind(name string) (rustProbeKind, bool) {
 		return rustTaskPublish, true
 	}
 
+	if strings.HasPrefix(name, "tokio::task::spawn::spawn::<") && strings.HasSuffix(name, ">") {
+		return rustTaskSpawnPublic, true
+	}
+
 	if strings.HasPrefix(name, "<tokio::runtime::task::raw::RawTask>::new::<") && strings.HasSuffix(name, ">") {
 		return rustTaskRawNew, true
 	}
@@ -239,6 +261,10 @@ func rustSymbolKind(name string) (rustProbeKind, bool) {
 		return rustTaskSchedule, true
 	}
 
+	if name == "<tokio::runtime::scheduler::multi_thread::handle::Handle>::schedule_local" {
+		return rustTaskScheduleLocal, true
+	}
+
 	if strings.HasPrefix(name, "<tokio::sync::mpsc::list::Tx<hyper::client::dispatch::Envelope<") && strings.HasSuffix(name, ">::find_block") {
 		return rustHyperFindBlock, true
 	}
@@ -247,8 +273,7 @@ func rustSymbolKind(name string) (rustProbeKind, bool) {
 		return rustHyperPop, true
 	}
 
-	if strings.HasPrefix(name, "<tokio::runtime::task::list::OwnedTasks<") &&
-		(strings.HasSuffix(name, ">::bind_inner") || strings.HasSuffix(name, ">::bind")) {
+	if strings.HasPrefix(name, "<tokio::runtime::task::list::OwnedTasks<") && strings.HasSuffix(name, ">::bind_inner") {
 		return rustTaskBind, true
 	}
 

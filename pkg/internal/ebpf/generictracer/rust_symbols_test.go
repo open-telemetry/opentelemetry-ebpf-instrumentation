@@ -23,10 +23,13 @@ import (
 
 func TestRustSymbolSelection(t *testing.T) {
 	for name, kind := range map[string]rustProbeKind{
+		"<tokio::runtime::scheduler::multi_thread::handle::Handle>::schedule_local":                               rustTaskScheduleLocal,
 		"tokio::runtime::task::raw::poll::<T, S>":                                                                 rustTaskPoll,
 		"<tokio::runtime::task::core::Cell<T, S>>::new":                                                           rustTaskNew,
 		"<tokio::runtime::thread_pool::Spawner>::spawn::<F>":                                                      rustTaskSpawn,
 		"<tokio::runtime::basic_scheduler::Spawner>::spawn::<F>":                                                  rustTaskSpawn,
+		"tokio::task::spawn::spawn::<F>":                                                                          rustTaskSpawnPublic,
+		"<tokio::runtime::task::list::OwnedTasks<S>>::bind_inner":                                                 rustTaskBind,
 		"<tokio::runtime::thread_pool::worker::Shared>::schedule":                                                 rustTaskSchedule,
 		"<alloc::sync::Arc<tokio::runtime::basic_scheduler::Shared> as tokio::runtime::task::Schedule>::schedule": rustTaskSchedule,
 		"<tokio::runtime::scheduler::multi_thread::handle::Handle>::schedule_option_task_without_yield":           rustTaskPublish,
@@ -46,6 +49,11 @@ func TestRustSymbolSelection(t *testing.T) {
 		"<tokio::runtime::task::raw::RawTask>::poll",
 		"<tokio::runtime::task::core::Cell<T, S>>::new::{closure#0}",
 		"<tokio::runtime::thread_pool::Spawner>::spawn::<F>::{closure#0}",
+		"tokio::task::spawn::spawn::<F>::{closure#0}",
+		"<tokio::runtime::scheduler::multi_thread::handle::Handle>::schedule_local::{closure#0}",
+		"<tokio::runtime::task::list::OwnedTasks<S>>::bind::<F>",
+		"<tokio::runtime::task::list::OwnedTasks<S>>::bind",
+		"<tokio::runtime::task::list::OwnedTasks<S>>::bind_inner::{closure#0}",
 		"<tokio::runtime::thread_pool::worker::Shared>::schedule::{closure#0}",
 		"<tokio::sync::mpsc::block::Block<u8>>::write::{closure#0}",
 		"<tokio::sync::mpsc::block::Block<hyper::client::dispatch::Envelope<T, U>>>::read",
@@ -189,6 +197,7 @@ func TestPrepareRustAlternativeFixture(t *testing.T) {
 	groups := map[string][]rustProbeKind{
 		"poll":               {rustTaskPoll},
 		"allocation":         {rustTaskNew, rustTaskRawNew, rustTaskBind},
+		"public-spawn":       {rustTaskNew, rustTaskRawNew, rustTaskBind, rustTaskPublish, rustTaskSpawn},
 		"channel":            {rustHyperEnqueue, rustHyperDequeue, rustHyperSend, rustHyperChanSend, rustHyperRequestSend, rustHyperReceive},
 		"h2-hpack":           {rustH2HPACK},
 		"http1":              {rustHTTP1Headers, rustHTTP1HeadersOriginal},
@@ -212,8 +221,13 @@ func TestPrepareRustAlternativeFixture(t *testing.T) {
 		require.NotEmpty(t, probes.addresses[rustTaskHarnessPoll], "the poll fallback must exist")
 	}
 	if group == "allocation" {
-		require.NotEmpty(t, probes.addresses[rustTaskSpawn])
+		require.Positive(t, len(probes.addresses[rustTaskSpawn])+len(probes.addresses[rustTaskSpawnPublic]))
 		require.NotEmpty(t, probes.addresses[rustTaskSchedule])
+	}
+	if group == "public-spawn" {
+		require.NotEmpty(t, probes.addresses[rustTaskSpawnPublic], "the public spawn boundary must survive")
+		require.NotEmpty(t, probes.addresses[rustTaskSchedule])
+		require.NotEmpty(t, probes.addresses[rustTaskScheduleLocal], "initial multi-thread submission must be observed")
 	}
 	if group == "channel" {
 		if len(probes.addresses[rustHyperFindBlock]) == 0 || len(probes.addresses[rustHyperPop]) == 0 {
@@ -254,6 +268,20 @@ func TestPrepareRustAlternativeFixture(t *testing.T) {
 	arguments = append(arguments, output)
 	result, err := osexec.Command("objcopy", arguments...).CombinedOutput()
 	require.NoError(t, err, "%s", result)
+
+	if group == "public-spawn" {
+		stripped, err := elf.Open(output)
+		require.NoError(t, err)
+		defer stripped.Close()
+		remaining, err := resolveRustProbes(stripped)
+		require.NoError(t, err)
+		for _, kind := range kinds {
+			require.Empty(t, remaining.addresses[kind], "only the public spawn creation path may remain")
+		}
+		require.NotEmpty(t, remaining.addresses[rustTaskSpawnPublic])
+		require.NotEmpty(t, remaining.addresses[rustTaskSchedule])
+		require.NotEmpty(t, remaining.addresses[rustTaskScheduleLocal])
+	}
 
 	if group == "hooks-missing" {
 		stripped, err := elf.Open(output)

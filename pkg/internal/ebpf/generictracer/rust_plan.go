@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 
 	"go.opentelemetry.io/obi/internal/rustexec"
 )
@@ -57,9 +58,20 @@ func planRustProbes(symbols rustProbeSymbols, config BpfRustProtocolConfigT) []r
 	add("Tokio task binding", "task-create", addresses, []rustProbeKind{rustTaskBind})
 	add("Tokio allocation", "task-create", addresses, []rustProbeKind{rustTaskNew}, []rustProbeKind{rustTaskRawNew})
 	add("Tokio initial task publication", "task-create", addresses, []rustProbeKind{rustTaskPublish})
-	add("Tokio spawn scheduling", "task-create", addresses, []rustProbeKind{rustTaskSpawn, rustTaskSchedule})
+	var scheduling []rustProbeKind
+	for _, kind := range []rustProbeKind{rustTaskSchedule, rustTaskScheduleLocal} {
+		if len(addresses[kind]) > 0 {
+			scheduling = append(scheduling, kind)
+		}
+	}
+	if len(scheduling) > 0 {
+		add("Tokio spawn scheduling", "task-create", addresses,
+			append([]rustProbeKind{rustTaskSpawn}, scheduling...),
+			append([]rustProbeKind{rustTaskSpawnPublic}, scheduling...))
+	}
 	for _, channel := range symbols.channels {
-		channelAddresses := symbols.channelProbes[channel]
+		// The symbols are shared by every process of the executable: plan on a copy.
+		channelAddresses := maps.Clone(symbols.channelProbes[channel])
 		channelAddresses[rustHyperRequestReceive] = channelAddresses[rustHyperReceive]
 		alternatives := [][]rustProbeKind{{rustHyperEnqueue, rustHyperDequeue}}
 
