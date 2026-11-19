@@ -189,4 +189,6 @@ attributes:
         - k8s.pod.name
 ```
 
+To turn off the info metrics themselves, set the Config v2 option `capture.metrics.target_info.enabled: false`. The OTLP resources and the labels of other metrics, including runtime metrics, do not change.
+
 **Note**: a metric is defined using the `Name` type, which carries the metric's `Section`, its `OTEL` name, `Unit` and instrument `Type`, plus the `Prom` name derived from those. Subsequently, that metric can be a counter, gauge, or other type.

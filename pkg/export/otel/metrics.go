@@ -396,16 +396,10 @@ func newMetricsReporter(
 
 	mr.pidTracker = NewPidServiceTracker()
 
-	systemMetrics := mr.newMetricsInstance(nil)
-	mr.systemProvider = systemMetrics.provider
-	systemMeter := systemMetrics.provider.Meter(reporterName, obiMeterOptions()...)
-
-	if err := mr.setupTargetInfo(systemMeter); err != nil {
-		return nil, fmt.Errorf("setting up target info: %w", err)
-	}
-
-	if err := mr.setupTracesTargetInfo(systemMeter); err != nil {
-		return nil, fmt.Errorf("setting up traces target info: %w", err)
+	if !jointMetricsCfg.DisableTargetInfo {
+		if err := mr.setupSystemMetrics(); err != nil {
+			return nil, err
+		}
 	}
 
 	return &mr, nil
@@ -506,6 +500,22 @@ func (mr *MetricsReporter) spanMetricOptions() []metric.Option {
 	return []metric.Option{
 		metric.WithView(mr.otelHistogramConfig(mr.spanMetricsLatencyName(), mr.cfg.Buckets.DurationHistogram)),
 	}
+}
+
+func (mr *MetricsReporter) setupSystemMetrics() error {
+	systemMetrics := mr.newMetricsInstance(nil)
+	mr.systemProvider = systemMetrics.provider
+	systemMeter := systemMetrics.provider.Meter(reporterName, obiMeterOptions()...)
+
+	if err := mr.setupTargetInfo(systemMeter); err != nil {
+		return fmt.Errorf("setting up target info: %w", err)
+	}
+
+	if err := mr.setupTracesTargetInfo(systemMeter); err != nil {
+		return fmt.Errorf("setting up traces target info: %w", err)
+	}
+
+	return nil
 }
 
 func (mr *MetricsReporter) setupTargetInfo(meter instrument.Meter) error {
@@ -1469,6 +1479,10 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 }
 
 func (mr *MetricsReporter) createTargetInfo(attrs *attribute.Set) {
+	if mr.targetInfo == nil {
+		return
+	}
+
 	mlog().Debug("Creating target.info")
 
 	attrOpt := instrument.WithAttributeSet(*attrs)
@@ -1477,7 +1491,7 @@ func (mr *MetricsReporter) createTargetInfo(attrs *attribute.Set) {
 }
 
 func (mr *MetricsReporter) deleteTargetInfo(attrs *attribute.Set) {
-	if attrs == nil {
+	if attrs == nil || mr.targetInfo == nil {
 		return
 	}
 
@@ -1487,7 +1501,7 @@ func (mr *MetricsReporter) deleteTargetInfo(attrs *attribute.Set) {
 }
 
 func (mr *MetricsReporter) createTracesTargetInfo(svc *svc.Attrs, attrs *attribute.Set) {
-	if !svc.Features.AnySpanMetrics() {
+	if mr.tracesTargetInfo == nil || !svc.Features.AnySpanMetrics() {
 		return
 	}
 

@@ -631,6 +631,31 @@ independently of the feature list. The existing V1 feature validation applies,
 including the requirement that `application_sizes` accompany application RED
 metrics and the conflict between the two span metric formats.
 
+### `capture.metrics.target_info`
+
+Turn off the `target.info` and `traces.target.info` metrics. For standalone OBI:
+
+```yaml
+extensions:
+  obi:
+    version: "2.0"
+    capture:
+      metrics:
+        target_info:
+          enabled: false
+```
+
+In receiver mode, place this at `metrics.target_info.enabled` in the OBI
+receiver body.
+
+`enabled` defaults to `true`. When `false`, OBI exports neither metric over
+OTLP, and the Prometheus reader exports neither `target_info` nor
+`traces_target_info`. Other metrics, including runtime metrics, keep their
+labels. Turn it off when the pipeline already derives `target_info` from the
+OTLP resource, for example an OTLP-to-Prometheus exporter, to avoid duplicate
+series. The declarative Prometheus exporter field `without_target_info` is not
+supported; use this option instead.
+
 ### `capture.attributes.select` Section
 
 Select optional span attributes and metric dimensions before aggregation.
