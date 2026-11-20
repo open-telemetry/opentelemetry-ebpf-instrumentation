@@ -3,21 +3,16 @@
 
 /**
  * The following code is copied from bpf/generictracer/protocol_mssql.h and
- * adapted to run as a host unit test. The functions under test are:
- *
- *   static __always_inline void mssql_capture_response_start(tcp_req_t *req,
- *                                                            const void *u_buf,
- *                                                            u32 bytes_len);
- *   static __always_inline int mssql_response_eom(tcp_req_t *req,
- *                                                 const void *u_buf,
- *                                                 u32 bytes_len);
- *
- * Together with mssql_parse_hdr(). The BPF-only helpers are mocked below and
- * tcp_req_t is reduced to the fields these functions use.
+ * adapted to run as a host unit test. The functions under test are
+ * mssql_response_eom(), mssql_capture_response_start() and
+ * mssql_append_response_chunk(), together with mssql_parse_hdr(). The BPF-only
+ * helpers are mocked below and tcp_req_t is reduced to the fields these
+ * functions use.
  *
  * The tests check that, without large buffers, rbuf holds the start of the
  * response (TDS header included) whether the client reads the whole response at
- * once or reads the 8-byte packet header on its own before the payload.
+ * once or in pieces of any size, such as the 8-byte packet header on its own
+ * before the payload.
  */
 
 #include <arpa/inet.h>
@@ -29,6 +24,7 @@
 typedef uint8_t u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
+typedef uint64_t u64;
 
 #ifndef __always_inline
 #define __always_inline inline
@@ -50,13 +46,8 @@ static void bpf_probe_read(void *dst, u32 size, const void *src) {
 }
 
 #define bpf_ntohs(x) ntohs(x)
-#define bpf_clamp_umax(VAR, UMAX)                                                                  \
-    do {                                                                                           \
-        if ((VAR) > (UMAX)) {                                                                      \
-            (VAR) = (UMAX);                                                                        \
-        }                                                                                          \
-    } while (0)
 #define bpf_dbg_printk(...) ((void)0)
+#define barrier_var(var) ((void)(var))
 
 // ---------------------------------------------------------------------------
 // Code under test (copied from protocol_mssql.h).
@@ -83,20 +74,51 @@ static __always_inline struct mssql_hdr mssql_parse_hdr(const unsigned char *dat
 
     bpf_probe_read(&hdr, sizeof(hdr), (const void *)data);
 
+    // Length and SPID are big-endian
     hdr.length = bpf_ntohs(hdr.length);
     hdr.spid = bpf_ntohs(hdr.spid);
 
     return hdr;
 }
 
+static __always_inline u32 mssql_append_response_chunk(unsigned char *rbuf,
+                                                       const u32 captured,
+                                                       const unsigned char *src,
+                                                       const u32 len,
+                                                       const u32 chunk) {
+    // keep the compiler from folding the bound checks the verifier relies on
+    u64 off = captured;
+    barrier_var(off);
+    u64 n = len;
+    barrier_var(n);
+
+    if (n == 0 || off > k_tcp_res_len - chunk) {
+        return 0;
+    }
+    if (n > chunk) {
+        n = chunk;
+    }
+
+    bpf_probe_read(rbuf + off, n, src);
+
+    return n;
+}
+
 static __always_inline void
-mssql_capture_response_start(tcp_req_t *req, const void *u_buf, u32 bytes_len) {
-    if (req->resp_len == 0) {
-        bpf_clamp_umax(bytes_len, k_tcp_res_len);
-        bpf_probe_read(req->rbuf, bytes_len, u_buf);
-    } else if (req->resp_len == k_mssql_hdr_size) {
-        bpf_clamp_umax(bytes_len, k_tcp_res_len - k_mssql_hdr_size);
-        bpf_probe_read(req->rbuf + k_mssql_hdr_size, bytes_len, u_buf);
+mssql_capture_response_start(tcp_req_t *req, const unsigned char *u_buf, const u32 bytes_len) {
+    u32 captured = req->resp_len;
+    u32 consumed = 0;
+
+#pragma unroll
+    for (u32 chunk = k_tcp_res_len; chunk > 0; chunk /= 2) {
+        if (captured >= k_tcp_res_len || consumed >= bytes_len) {
+            return;
+        }
+
+        const u32 n = mssql_append_response_chunk(
+            req->rbuf, captured, u_buf + consumed, bytes_len - consumed, chunk);
+        captured += n;
+        consumed += n;
     }
 }
 
@@ -105,6 +127,11 @@ static __always_inline int mssql_response_eom(tcp_req_t *req, const void *u_buf,
 
     req->resp_len += bytes_len;
 
+    // Scan complete TDS packets in the current recv buffer for the EOM bit.
+    // A response may arrive as: (a) one or more complete packets in a single
+    // recv, or (b) a single packet split across multiple recvs (header first,
+    // then payload). Handle both by falling back to accumulated-length tracking
+    // when the current buffer does not start at a TDS packet boundary.
     bool eom = false;
     bool found_complete_packet = false;
     u32 offset = 0;
@@ -126,16 +153,22 @@ static __always_inline int mssql_response_eom(tcp_req_t *req, const void *u_buf,
     if (eom) {
         return 0;
     } else if (found_complete_packet) {
+        // Complete packets present but no EOM: more packets expected.
         bpf_dbg_printk("mssql response: waiting for EOM, acc=%d", req->resp_len);
         return -1;
     }
 
+    // Could not parse a complete TDS packet (partial recv or payload
+    // continuation). Fall back to length tracking using the saved header.
     if (req->resp_len < k_mssql_hdr_size) {
         return -1;
     }
     const struct mssql_hdr first_hdr = mssql_parse_hdr(req->rbuf);
     if (first_hdr.length >= k_mssql_hdr_size) {
         const u32 prev_resp_len = req->resp_len - bytes_len;
+        // Wait while packet 1 is still completing, or if it just finished
+        // in this recv with no EOM (more packets follow; the next recv
+        // will start at a TDS boundary where the main loop detects EOM).
         if (prev_resp_len < first_hdr.length &&
             (req->resp_len < first_hdr.length || !(first_hdr.status & k_mssql_status_eom))) {
             bpf_dbg_printk(
@@ -235,11 +268,41 @@ static void test_multi_packet_response_keeps_first_packet(void) {
     check_bytes("two packets: rbuf holds the first packet", first, req.rbuf, sizeof(first));
 }
 
+static void test_payload_split_across_reads(void) {
+    unsigned char resp[200];
+    put_packet(resp, k_mssql_status_eom, sizeof(resp), 0x60);
+    tcp_req_t req = {0};
+
+    mssql_response_eom(&req, resp, k_mssql_hdr_size);
+    mssql_response_eom(&req, resp + k_mssql_hdr_size, 4);
+    check_int(
+        "header, 4 bytes, rest: completes",
+        0,
+        mssql_response_eom(&req, resp + k_mssql_hdr_size + 4, sizeof(resp) - k_mssql_hdr_size - 4));
+    check_bytes(
+        "header, 4 bytes, rest: rbuf holds the response start", resp, req.rbuf, k_tcp_res_len);
+}
+
+static void test_byte_at_a_time(void) {
+    unsigned char resp[150];
+    put_packet(resp, k_mssql_status_eom, sizeof(resp), 0x70);
+    tcp_req_t req = {0};
+
+    int last = -1;
+    for (u32 i = 0; i < sizeof(resp); i++) {
+        last = mssql_response_eom(&req, resp + i, 1);
+    }
+    check_int("byte at a time: completes", 0, last);
+    check_bytes("byte at a time: rbuf holds the response start", resp, req.rbuf, k_tcp_res_len);
+}
+
 int main(void) {
     test_whole_response_in_one_read();
     test_header_read_before_payload();
     test_large_first_read_keeps_start();
     test_multi_packet_response_keeps_first_packet();
+    test_payload_split_across_reads();
+    test_byte_at_a_time();
 
     if (failures > 0) {
         fprintf(stderr, "%d test(s) failed\n", failures);
