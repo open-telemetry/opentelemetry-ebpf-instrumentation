@@ -86,6 +86,21 @@ func RunWithProtocolMetricSelection(
 	return runWithContextInfo(ctx, cfg, ctxInfo, selection, opts...)
 }
 
+// configForExportQueueOverride returns the configuration to run with. Embedders that override
+// the app export queue consume the spans themselves, which obi.Config.GoChannelLinksEnabled
+// cannot see, so an unset channel_links resolves to true for this run. An explicit value is kept.
+// The caller's configuration is never modified: it may be shared with a CriteriaUpdater, whose
+// fixed fields must not change, or reused for another run.
+func configForExportQueueOverride(cfg *obi.Config, ctxInfo *global.ContextInfo) *obi.Config {
+	if ctxInfo.OverrideAppExportQueue == nil || cfg.EBPF.GoChannelLinks != nil {
+		return cfg
+	}
+	runCfg := *cfg
+	goChannelLinks := true
+	runCfg.EBPF.GoChannelLinks = &goChannelLinks
+	return &runCfg
+}
+
 func runWithContextInfo(
 	ctx context.Context, cfg *obi.Config, ctxInfo *global.ContextInfo,
 	selection *instrumentations.InstrumentationSelection, opts ...Option,
@@ -97,6 +112,8 @@ func runWithContextInfo(
 	if ctxInfo.CriteriaUpdates != nil && ctxInfo.DynamicSelector != nil {
 		return errors.New("criteria updates cannot be combined with a dynamic PID selector")
 	}
+
+	cfg = configForExportQueueOverride(cfg, ctxInfo)
 
 	// Enable App O11y when config enables it or when the caller passed a dynamic selector
 	// (which can select by PID and/or Kubernetes workload).

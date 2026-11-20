@@ -438,8 +438,9 @@ extensions:
         # to generic network-only instrumentation.
         go:
           enabled: true
-          # Link spans across goroutines through Go channels.
-          channel_links: true
+          # channel_links (omitted by default) controls the Go channel probes that link spans
+          # across goroutines. When omitted, they are attached only if traces are exported or
+          # debug_trace_output is enabled; set true or false to force them on or off.
           # Reserved; keep empty.
           filter: {}
         # Node.js runtime instrumentation allows Node.js services to be instrumented via

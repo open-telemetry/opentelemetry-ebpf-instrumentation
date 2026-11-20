@@ -1906,8 +1906,7 @@
         },
         "channel_links": {
           "type": "boolean",
-          "default": true,
-          "description": "Enable the Go channel probes that link spans across goroutines.\nIf omitted, true is used.\n"
+          "description": "Enable the Go channel probes that link spans across goroutines.\nIf omitted, they are enabled only when traces are exported or debug_trace_output is enabled.\n"
         }
       }
     },
@@ -1958,8 +1957,7 @@
           "description": "Go runtime instrumentation controls.\nIf omitted, Go injection defaults are used.\n",
           "default": {
             "enabled": true,
-            "filter": {},
-            "channel_links": true
+            "filter": {}
           }
         },
         "nodejs": {

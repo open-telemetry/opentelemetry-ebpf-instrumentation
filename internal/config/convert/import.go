@@ -1966,8 +1966,10 @@ func applyV2Runtimes(cfg *obi.Config, runtimes schema.CaptureRuntimes, complete 
 		return
 	}
 
+	// unset keeps the runtime default (nil): channel links follow whether traces are exported or printed
 	if enabled := runtimes.Go.ChannelLinks; enabled != nil {
-		cfg.EBPF.DisableGoChannelLinks = !*enabled
+		cfg.EBPF.GoChannelLinks = new(bool)
+		*cfg.EBPF.GoChannelLinks = *enabled
 	}
 
 	if complete || completeRuntimes(runtimes) {

@@ -141,8 +141,10 @@ does not rewrite trace IDs, and does not change parent-child relationships.
 The channel-link probes are registered only when Go-specific tracers are active
 and OBI can resolve the `runtime.hchan` offsets required for the target binary.
 If those offsets are unavailable, OBI skips the channel-link probes for that
-binary instead of failing instrumentation. There is no separate user-facing
-configuration flag for this feature; it is enabled by default.
+binary instead of failing instrumentation. `capture.runtimes.go.channel_links`
+(Config v2) turns the probes on or off. When it is omitted, they are attached
+only if traces are exported or the trace printer (`debug_trace_output`) is enabled, so metrics-only
+setups skip them.
 
 For implementation details, supported runtime functions, and current
 limitations, see [Go channel span links](go-channel-span-links.md).

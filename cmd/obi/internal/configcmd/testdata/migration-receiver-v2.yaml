@@ -284,7 +284,6 @@ instrumentation:
 runtimes:
     go:
         enabled: true
-        channel_links: true
     nodejs:
         enabled: true
     java:

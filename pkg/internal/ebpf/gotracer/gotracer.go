@@ -325,6 +325,7 @@ type Tracer struct {
 	runtimeMetricsEnabled             bool
 	runtimeMetricTargetKeys           map[runtimeMetricTargetKey]BpfPidInfoT
 	pidSamplers                       ebpfcommon.PIDSamplers
+	disableGoChannelLinks             bool
 	goChannelOffsetsByExecutable      map[executableIdentity]bool
 	goRuntimeMetricMaskByExecutable   map[executableIdentity]uint64
 	goRuntimeGCGoalSourceByExecutable map[executableIdentity]goRuntimeGCGoalSource
@@ -356,6 +357,11 @@ func New(
 
 	disabledRouteHarvesting := slices.Contains(cfg.Discovery.DisabledRouteHarvesters, services.RouteHarvesterLanguageGo)
 
+	goChannelLinks := cfg.GoChannelLinksEnabled()
+	if !goChannelLinks {
+		log.Debug("Go channel span-link probes are not attached", "explicit", cfg.EBPF.GoChannelLinks != nil)
+	}
+
 	return &Tracer{
 		log:                               log,
 		pidsFilter:                        pidFilter,
@@ -368,6 +374,7 @@ func New(
 		traceCtxMapEnabled:                cfg.PopulateTraceContext(),
 		runtimeMetricsEnabled:             cfg.AppRuntimeMetricsEnabled(),
 		runtimeMetricTargetKeys:           map[runtimeMetricTargetKey]BpfPidInfoT{},
+		disableGoChannelLinks:             !goChannelLinks,
 		goChannelOffsetsByExecutable:      map[executableIdentity]bool{},
 		goRuntimeMetricMaskByExecutable:   map[executableIdentity]uint64{},
 		goRuntimeGCGoalSourceByExecutable: map[executableIdentity]goRuntimeGCGoalSource{},
@@ -2612,7 +2619,7 @@ func (p *Tracer) goChannelLinkProbesEnabled() bool {
 	if p == nil || p.currentBinary.Ino == 0 {
 		return false
 	}
-	if p.cfg != nil && p.cfg.DisableGoChannelLinks {
+	if p.disableGoChannelLinks {
 		return false
 	}
 

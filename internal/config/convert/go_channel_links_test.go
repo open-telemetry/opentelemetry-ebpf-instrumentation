@@ -15,15 +15,17 @@ import (
 func TestGoChannelLinksYAML(t *testing.T) {
 	t.Parallel()
 
+	enabled, disabled := true, false
 	for _, test := range []struct {
 		name     string
 		runtimes string
-		disabled bool
+		want     *bool
 	}{
+		// unset keeps nil: whether the probes attach then depends on trace export
 		{name: "omitted", runtimes: "{}"},
 		{name: "empty Go section", runtimes: "{go: {}}"},
-		{name: "enabled", runtimes: "{go: {channel_links: true}}"},
-		{name: "disabled", runtimes: "{go: {channel_links: false}}", disabled: true},
+		{name: "enabled", runtimes: "{go: {channel_links: true}}", want: &enabled},
+		{name: "disabled", runtimes: "{go: {channel_links: false}}", want: &disabled},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -43,7 +45,7 @@ extensions:
 			for _, ext := range []*schema.Extension{standalone, receiver} {
 				got, err := V2ToRuntime(ext)
 				require.NoError(t, err)
-				require.Equal(t, test.disabled, got.EBPF.DisableGoChannelLinks)
+				require.Equal(t, test.want, got.EBPF.GoChannelLinks)
 				require.Equal(t, obi.DefaultConfig.Discovery.SkipGoSpecificTracers, got.Discovery.SkipGoSpecificTracers)
 			}
 		})
@@ -59,19 +61,33 @@ func TestGoChannelLinksProgrammaticConfig(t *testing.T) {
 			if complete {
 				_, ext = RuntimeToV2(nil)
 			}
-			ext.Capture.Runtimes.Go.ChannelLinks = &enabled
+			docValue := enabled
+			ext.Capture.Runtimes.Go.ChannelLinks = &docValue
 
 			got, err := V2ToRuntime(ext)
 			require.NoError(t, err)
-			require.Equal(t, !enabled, got.EBPF.DisableGoChannelLinks)
+			require.NotNil(t, got.EBPF.GoChannelLinks)
+			require.Equal(t, enabled, *got.EBPF.GoChannelLinks)
+
+			// import copies the value: writing through the document's pointer does not change it
+			*ext.Capture.Runtimes.Go.ChannelLinks = !enabled
+			require.Equal(t, enabled, *got.EBPF.GoChannelLinks)
 
 			_, exported := RuntimeToV2(got)
 			require.NotNil(t, exported.Capture.Runtimes.Go.ChannelLinks)
+			require.Equal(t, enabled, *exported.Capture.Runtimes.Go.ChannelLinks)
+
+			// export copies the value too
+			*got.EBPF.GoChannelLinks = !enabled
 			require.Equal(t, enabled, *exported.Capture.Runtimes.Go.ChannelLinks)
 		}
 	}
 
 	got, err := V2ToRuntime(&schema.Extension{Version: schema.SupportedVersion})
 	require.NoError(t, err)
-	require.False(t, got.EBPF.DisableGoChannelLinks)
+	require.Nil(t, got.EBPF.GoChannelLinks)
+
+	// an unset value round-trips as omitted, not as an explicit true
+	_, exported := RuntimeToV2(got)
+	require.Nil(t, exported.Capture.Runtimes.Go.ChannelLinks)
 }

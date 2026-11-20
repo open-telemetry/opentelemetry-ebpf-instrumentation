@@ -19,8 +19,24 @@ whose span ID matches the receiver work.
 
 ## Probe Gating
 
-There is no separate user-facing configuration flag for Go channel span links.
-The feature is enabled by default. Runtime channel probes are registered when
+The probes are controlled by `capture.runtimes.go.channel_links` (Config v2; in
+the Collector receiver, `runtimes.go.channel_links`):
+
+- `true` always attaches them, `false` never does.
+- When the field is omitted, they are attached only if spans can leave OBI:
+  traces are exported (an OTLP traces exporter, the debug traces protocol, or an
+  embedder `TracesExport` function) or the trace printer (`debug_trace_output`)
+  is enabled. Metrics never use the links, so metrics-only setups skip the
+  probes. Config v1 cannot set the field, so v1 setups always use this default.
+  In the Collector receiver the probes stay attached, as before, unless the field
+  is set to `false`.
+- Embedders that run OBI through `instrumenter.Run`, `RunWithContextInfo` or
+  `RunWithProtocolMetricSelection` with their own span queue
+  (`instrumenter.OverrideAppExportQueue`) keep the probes when the field is
+  omitted. Embedders that consume spans through other paths should set it
+  explicitly (in Go, `obi.Config.EBPF.GoChannelLinks`).
+
+When they are allowed, the runtime channel probes are registered only if
 Go-specific tracing is enabled and OBI can resolve all `runtime.hchan` offsets
 needed by the target binary:
 
