@@ -56,8 +56,8 @@ func TestOTelTraceExportKeepsForwardedSpanID(t *testing.T) {
 			constants["max_transaction_time"] = uint64(time.Minute)
 			objs := loadSocketGuardHarnessWith(t, constants)
 			if tc.excluded {
-				var marked ebpfcommon.PIDBitmap
-				require.NoError(t, marked.Set(objs.OtelTracesPids, app.PID(os.Getpid()), true))
+				var marked otelTracePIDs
+				require.NoError(t, marked.set(objs.OtelTracesPids, app.PID(os.Getpid()), otelPIDExporter))
 			}
 			serveRequestOnThisThread(t, objs, traceID, serverSpanID, forwardedSpanID)
 

@@ -63,6 +63,7 @@ static long test_probe_read_kernel(void *dst, u32 size, const void *src) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wnon-literal-null-conversion"
 #include <pid/pid.h>
+#include <tpinjector/otel_traces.h>
 #pragma clang diagnostic pop
 
 #undef bpf_probe_read_kernel
@@ -71,23 +72,28 @@ static long test_probe_read_kernel(void *dst, u32 size, const void *src) {
 // valid_pids
 
 static u64 test_bits[k_valid_pids_words];
+static u64 test_exporters[k_otel_pid_words];
 static u32 test_lookups;
 static u32 test_missed_lookups;
+static void (*test_on_map_lookup)(void);
 
 static void *test_map_lookup(void *map, const void *key) {
-    if (map != &valid_pids) {
+    if (map != &valid_pids && map != &otel_traces_pids) {
         return NULL;
     }
 
     test_lookups++;
+    if (test_on_map_lookup) {
+        test_on_map_lookup();
+    }
 
     const u32 word = *(const u32 *)key;
-    if (word >= k_valid_pids_words) {
+    if (word >= (map == &valid_pids ? k_valid_pids_words : k_otel_pid_words)) {
         test_missed_lookups++;
         return NULL;
     }
 
-    return &test_bits[word];
+    return map == &valid_pids ? &test_bits[word] : &test_exporters[word];
 }
 
 // Userspace side (generictracer.go rebuildValidPids), simulated
@@ -205,6 +211,7 @@ static void check_u32(const char *name, u32 expected, u32 actual) {
 
 static void reset(u32 mode) {
     memset(test_bits, 0, sizeof(test_bits));
+    memset(test_exporters, 0, sizeof(test_exporters));
     test_lookups = 0;
     test_missed_lookups = 0;
     test_current_task_calls = 0;
@@ -214,6 +221,7 @@ static void reset(u32 mode) {
     test_ino_value = mode == k_pid_ns_mode_init ? k_test_host_ino : k_test_pod_ino;
     obi_pid_ns_level = 0;
     test_on_next_probe_read = NULL;
+    test_on_map_lookup = NULL;
 }
 
 // OBI in the initial pid namespace: keys are host tgids
@@ -401,6 +409,115 @@ static void test_pod_task_numbered_in_its_own_namespace(void) {
               run_valid_pid(&unshared));
 }
 
+static bool run_exports_otel_traces(test_task_t *t) {
+    test_current_task = &t->task;
+    bpf_current_pid_tgid_value = to_pid_tgid((u32)t->task.tgid, (u32)t->task.pid);
+    return exports_otel_traces();
+}
+
+static void test_classify(u32 pid, enum otel_pid_state state) {
+    const u32 shift = (pid % k_otel_pids_per_word) * k_otel_pid_bits;
+    const u64 mask = ((1U << k_otel_pid_bits) - 1);
+    test_exporters[pid / k_otel_pids_per_word] =
+        (test_exporters[pid / k_otel_pids_per_word] & ~(mask << shift)) | ((u64)state << shift);
+}
+
+static void test_exporter_fork_inheritance(u32 mode, u32 parent_pid, u32 child_pid) {
+    reset(mode);
+    test_allow(parent_pid);
+    test_classify(parent_pid, k_otel_pid_exporter);
+
+    check_u32(
+        "exporter: the registered parent is suppressed", true, run_exports_otel_traces(&proc));
+    check_u32("exporter: an undiscovered child inherits suppression",
+              true,
+              run_exports_otel_traces(&child));
+    check_u32("exporter: threads use their process classification",
+              true,
+              run_exports_otel_traces(&thread));
+
+    test_classify(child_pid, k_otel_pid_non_exporter);
+    check_u32("exporter: a Go-only child is absent from the generic bitmap",
+              false,
+              pid_selected(&valid_pids, child_pid));
+    check_u32("exporter: discovery gives a Go-only child its own classification",
+              false,
+              run_exports_otel_traces(&child));
+
+    test_classify(child_pid, k_otel_pid_exporter);
+    check_u32("exporter: a discovered exporting child is suppressed",
+              true,
+              run_exports_otel_traces(&child));
+
+    test_classify(child_pid, k_otel_pid_non_exporter);
+    check_u32("exporter: exec or PID reuse clears the child's classification",
+              false,
+              run_exports_otel_traces(&child));
+
+    test_classify(child_pid, k_otel_pid_unknown);
+    test_classify(parent_pid, k_otel_pid_unknown);
+    check_u32("exporter: clearing the parent also clears inherited suppression",
+              false,
+              run_exports_otel_traces(&child));
+}
+
+static u32 test_discovery_pid;
+static u32 test_discovery_lookup;
+
+static void test_discover_exporter(void) {
+    if (test_lookups != test_discovery_lookup) {
+        return;
+    }
+
+    test_classify(test_discovery_pid, k_otel_pid_exporter);
+    test_on_map_lookup = NULL;
+}
+
+static void test_exporter_discovery_handoff(u32 mode, u32 parent_pid, u32 child_pid) {
+    for (u32 lookup = 1; lookup <= 2; lookup++) {
+        reset(mode);
+        test_classify(parent_pid, k_otel_pid_exporter);
+        test_discovery_pid = child_pid;
+        test_discovery_lookup = lookup;
+        test_on_map_lookup = test_discover_exporter;
+
+        check_u32("exporter: suppression survives discovery between map reads",
+                  true,
+                  run_exports_otel_traces(&child));
+        check_u32("exporter: discovery ran during the lookup", true, test_on_map_lookup == NULL);
+    }
+}
+
+static void test_exporter_filter_off(void) {
+    reset(k_pid_ns_mode_init);
+    test_filter_value = 0;
+
+    check_u32("exporter: disabling admission filtering does not suppress every process",
+              false,
+              run_exports_otel_traces(&outsider));
+    test_classify(41000, k_otel_pid_exporter);
+    check_u32("exporter: classification still applies with admission filtering disabled",
+              true,
+              run_exports_otel_traces(&child));
+}
+
+static void test_exporter_namespaces(void) {
+    reset(k_pid_ns_mode_pod);
+    test_classify(555, k_otel_pid_exporter);
+    check_u32("exporter: a task outside OBI's namespace cannot match a bitmap PID",
+              false,
+              run_exports_otel_traces(&outsider));
+    check_u32("exporter: an outside task does not read either bitmap", 0, test_lookups);
+
+    test_classify(20, k_otel_pid_exporter);
+    check_u32("exporter: nested children use their parent's PID at OBI's level",
+              true,
+              run_exports_otel_traces(&inner));
+    check_u32("exporter: a neighboring namespace cannot inherit suppression",
+              false,
+              run_exports_otel_traces(&neighbor));
+}
+
 int main(void) {
     test_filter_pids = &test_filter_value;
     test_pid_ns_mode = &test_mode_value;
@@ -434,6 +551,13 @@ int main(void) {
     test_pod_level_learned_below_obi_namespace();
     test_pod_obi_namespace_two_levels_down();
     test_pod_task_numbered_in_its_own_namespace();
+
+    test_exporter_fork_inheritance(k_pid_ns_mode_init, 41000, 41001);
+    test_exporter_fork_inheritance(k_pid_ns_mode_pod, 7, 8);
+    test_exporter_discovery_handoff(k_pid_ns_mode_init, 41000, 41001);
+    test_exporter_discovery_handoff(k_pid_ns_mode_pod, 7, 8);
+    test_exporter_filter_off();
+    test_exporter_namespaces();
 
     if (failures) {
         fprintf(stderr, "%d failure(s)\n", failures);

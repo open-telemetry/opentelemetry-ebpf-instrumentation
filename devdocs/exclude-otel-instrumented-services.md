@@ -104,8 +104,11 @@ Once a service has its `ExportsOTelMetrics` / `ExportsOTelTraces` /
 
 With `exclude_otel_instrumented_services` enabled, detecting trace exports also
 immediately marks the process in tpinjector's PID filter. Subsequent HTTP/1 and
-HTTP/2 header writes skip injection, including on existing connections. TCP
-option propagation is still performed. The mark is cleared when discovery
+HTTP/2 header writes skip injection, including on existing connections. A
+forked worker inherits its parent's suppression until discovery registers the
+worker with its own classification. This uses PIDs in OBI's namespace,
+including for workers in nested namespaces. TCP option propagation is still
+performed. The mark is cleared when discovery
 reports that the process exited or ran `exec()`, so it can outlive an `exec()`
 by up to one `discovery.poll_interval` (this is an acceptable limitation for less code complexity).
 

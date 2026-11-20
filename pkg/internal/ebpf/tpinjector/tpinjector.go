@@ -70,7 +70,7 @@ type Tracer struct {
 	pidsFilter              ebpfcommon.ServiceFilter
 	pidsMu                  sync.Mutex
 	instrumentedPids        ebpfcommon.PIDBitmap
-	otelTracesPids          ebpfcommon.PIDBitmap
+	otelTracesPids          otelTracePIDs
 	pidsStopped             bool
 	closerMu                sync.Mutex
 	detached                bool
@@ -532,11 +532,19 @@ type otelTracesPIDFilter struct {
 }
 
 func (f otelTracesPIDFilter) Marked(pid app.PID) bool {
-	return f.tracer.otelTracesPids.Contains(pid)
+	return f.tracer.otelTracesPids.exporter(pid)
 }
 
 func (f otelTracesPIDFilter) Mark(pid app.PID, exportsTraces bool) error {
-	return f.tracer.otelTracesPids.Set(f.tracer.bpfObjects.OtelTracesPids, pid, exportsTraces)
+	state := otelPIDNonExporter
+	if exportsTraces {
+		state = otelPIDExporter
+	}
+	return f.tracer.otelTracesPids.set(f.tracer.bpfObjects.OtelTracesPids, pid, state)
+}
+
+func (f otelTracesPIDFilter) Forget(pid app.PID) error {
+	return f.tracer.otelTracesPids.set(f.tracer.bpfObjects.OtelTracesPids, pid, otelPIDUnknown)
 }
 
 func (p *Tracer) SetEventContext(_ *ebpfcommon.EBPFEventContext) {}
