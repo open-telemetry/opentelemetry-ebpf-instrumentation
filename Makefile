@@ -288,6 +288,15 @@ update-rust-offsets:
 	@echo "### Updating Rust runtime and protocol offsets"
 	python3 scripts/update-rust-offsets.py $(RUST_OFFSETS_FLAGS)
 
+.PHONY: docker-update-rust-offsets
+docker-update-rust-offsets:
+	@echo "### Updating Rust runtime and protocol offsets with Docker"
+	$(OCI_BIN) build \
+		--output type=local,dest=. --target=export \
+		--build-arg RUST_OFFSETS_RUN="$$(date +%s)-$$$$" \
+		--build-arg RUST_OFFSETS_FLAGS="$(RUST_OFFSETS_FLAGS)" \
+		-f rustoffsets.Dockerfile .
+
 .PHONY: test-rust-offsets
 test-rust-offsets:
 	go test ./internal/rustexec ./scripts/rust-offsets

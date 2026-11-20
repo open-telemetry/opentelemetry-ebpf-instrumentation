@@ -24,13 +24,8 @@ jobs:
         cache: 'false'
         go-version: '>=1.25'
         check-latest: true
-    - name: "Install Rust offset generation dependencies"
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y gcc-aarch64-linux-gnu
-        rustup --version
     - name: "Update offsets"
-      run: make update-offsets
+      run: make update-go-offsets update-python-offsets docker-update-rust-offsets
     - name: "Check for offset changes"
       id: diff
       run: |
