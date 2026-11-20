@@ -154,33 +154,44 @@ int BPF_KPROBE(obi_stats_kprobe_tcp_close_srtt, struct sock *sk) {
     return 0;
 }
 
-SEC("kprobe/tcp_sendmsg")
-int BPF_KPROBE(obi_stats_kprobe_tcp_sendmsg, struct sock *sk, struct msghdr *msg, size_t size) {
-    (void)ctx;
-    (void)msg;
-    (void)size;
-    const u64 pid_tgid = bpf_get_current_pid_tgid();
-    bpf_map_update_elem(&tcp_sendmsg_sock, &pid_tgid, &sk, BPF_ANY);
-    return 0;
-}
-
-SEC("kretprobe/tcp_sendmsg")
-int BPF_KRETPROBE(obi_stats_kretprobe_tcp_sendmsg, int sent) {
-    (void)ctx;
+static __always_inline void account_tcp_send(const long sent) {
     const u64 pid_tgid = bpf_get_current_pid_tgid();
     struct sock *const *skp = bpf_map_lookup_elem(&tcp_sendmsg_sock, &pid_tgid);
 
     if (!skp) {
-        return 0;
+        return;
     }
     struct sock *const sk = *skp;
     bpf_map_delete_elem(&tcp_sendmsg_sock, &pid_tgid);
 
     if (sent <= 0) {
-        return 0;
+        return;
     }
 
     accumulate_tcp_io(sk, direction_transmit, (u32)sent);
+}
+
+// Not tcp_sendmsg: sockmap sockets send through tcp_bpf_sendmsg, which pushes into
+// tcp_sendmsg_locked (do_tcp_sendpages before 6.5)
+SEC("kprobe/tcp_sendmsg_locked")
+int BPF_KPROBE(obi_stats_kprobe_tcp_send, struct sock *sk) {
+    (void)ctx;
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    bpf_map_update_elem(&tcp_sendmsg_sock, &pid_tgid, &sk, BPF_ANY);
+    return 0;
+}
+
+SEC("kretprobe/tcp_sendmsg_locked")
+int BPF_KRETPROBE(obi_stats_kretprobe_tcp_sendmsg_locked, int sent) {
+    (void)ctx;
+    account_tcp_send(sent);
+    return 0;
+}
+
+SEC("kretprobe/do_tcp_sendpages")
+int BPF_KRETPROBE(obi_stats_kretprobe_do_tcp_sendpages, long sent) {
+    (void)ctx;
+    account_tcp_send(sent);
     return 0;
 }
 
