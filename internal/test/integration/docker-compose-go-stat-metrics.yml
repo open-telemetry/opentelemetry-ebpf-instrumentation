@@ -21,6 +21,7 @@ services:
       - RESET_TARGET_ADDRESS=testserver:8082
       - SHUTDOWN_TARGET_ADDRESS=testserver:8083
       - READ_SHUTDOWN_TARGET_ADDRESS=testserver:8084
+      - HOLD_TARGET_ADDRESS=testserver:8080
       - START_DELAY=${STAT_CLIENT_START_DELAY:-0s}
 
   testclient-retransmit:

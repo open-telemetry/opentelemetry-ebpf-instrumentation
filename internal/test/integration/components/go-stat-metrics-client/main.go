@@ -127,6 +127,22 @@ func main() {
 		}()
 	}
 
+	// Keep one connection open, so a test can find the client's socket in the context propagation sockmap
+	holdAddress := os.Getenv("HOLD_TARGET_ADDRESS")
+	if holdAddress != "" {
+		go func() {
+			conn, err := net.DialTimeout("tcp", holdAddress, 2*time.Second)
+			for err != nil {
+				time.Sleep(1 * time.Second)
+				conn, err = net.DialTimeout("tcp", holdAddress, 2*time.Second)
+			}
+			// keeps conn reachable, so the GC finalizer never closes it
+			defer conn.Close()
+			fmt.Fprintf(conn, "hold probe\n")
+			select {}
+		}()
+	}
+
 	for {
 		fmt.Printf("[%d] Connecting to %s...\n", counter, address)
 

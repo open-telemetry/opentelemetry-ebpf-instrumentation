@@ -7,6 +7,7 @@ import (
 	"path"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/internal/test/integration/components/docker"
@@ -34,6 +35,12 @@ func TestStat_GoStatMetricsContextPropagation(t *testing.T) {
 	require.NoError(t, err)
 	compose.Env = append(compose.Env, `TEST_SERVICE_PORTS=8381:8080`, `OTEL_EBPF_CONFIG_SUFFIX=-go-stat-metrics-cp`, `PROM_CONFIG_SUFFIX=-promscrape-otel`, `STAT_CLIENT_START_DELAY=30s`)
 	require.NoError(t, compose.Up())
+	// without it, ordinary sends alone would pass the transmit check
+	t.Run("Client socket in the sockmap", func(t *testing.T) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			assert.NotEmpty(ct, cpBPFKeys(ct, compose, "sock_dir"))
+		}, testTimeout, cpPollInterval)
+	})
 	t.Run("Go Stat Metrics TCP IO tests", testStatMetricsTCPIoGo)
 	runWeaverValidation(t)
 	require.NoError(t, compose.Close())
