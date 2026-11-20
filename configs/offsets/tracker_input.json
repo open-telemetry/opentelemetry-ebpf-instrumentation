@@ -9,7 +9,9 @@
         "ContentLength",
         "Header",
         "ProtoMajor",
-        "ProtoMinor"
+        "ProtoMinor",
+        "TLS",
+        "Host"
       ],
       "net/url.URL": ["Path", "RawQuery", "Host", "Scheme"],
       "net/http.Response": ["StatusCode", "ContentLength", "ProtoMajor", "ProtoMinor"],

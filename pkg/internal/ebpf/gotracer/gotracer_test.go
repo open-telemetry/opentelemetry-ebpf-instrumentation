@@ -173,6 +173,14 @@ func TestGoChannelLinkProbesRequireChannelOffsets(t *testing.T) {
 }
 
 // Built through New so both configuration predicates are covered.
+func TestHTTPServerActiveRequestsGoroutineExitProbe(t *testing.T) {
+	disableContextPropagationForTest(t)
+	tracer := New(nil, &obi.Config{}, nil)
+	assert.NotContains(t, tracer.GoProbes(), "runtime.goexit0")
+	tracer.httpServerActiveRequestsEnabled = true
+	assert.Contains(t, tracer.GoProbes(), "runtime.goexit0")
+}
+
 func TestCasgstatusProbeFollowsContextAndExceptionCapture(t *testing.T) {
 	disableContextPropagationForTest(t)
 

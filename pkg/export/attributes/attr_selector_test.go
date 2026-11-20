@@ -354,6 +354,38 @@ func TestDefault_MessagingSubscription(t *testing.T) {
 	assert.Contains(t, p.For(MessagingProcessDuration), attr.MessagingSubscription)
 }
 
+func TestHTTPServerActiveRequestsAttributes(t *testing.T) {
+	p, err := NewAttrSelector(GroupHTTPRoutes, &SelectorConfig{
+		UseV2Selection: true,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, []attr.Name{
+		attr.HTTPRequestMethod,
+		attr.HTTPURLScheme,
+	}, p.For(HTTPServerActiveRequests))
+
+	selection := Selection{
+		HTTPServerActiveRequests.Section: {
+			Include: []string{"http.*", "url.*", "server.*"},
+		},
+	}
+	selection.Normalize()
+
+	p, err = NewAttrSelector(GroupHTTPRoutes, &SelectorConfig{
+		SelectionCfg:   selection,
+		UseV2Selection: true,
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, []attr.Name{
+		attr.HTTPRequestMethod,
+		attr.ServerAddr,
+		attr.ServerPort,
+		attr.HTTPURLScheme,
+	}, p.For(HTTPServerActiveRequests))
+}
+
 func TestDefault_HTTPServerMetrics(t *testing.T) {
 	p, err := NewAttrSelector(0, &SelectorConfig{})
 	require.NoError(t, err)

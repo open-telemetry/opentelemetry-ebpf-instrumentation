@@ -182,6 +182,8 @@ typedef enum {
     _grpc_syscall_conn_type_addr,
     _tls_conn_type_addr,
     _tcp_conn_type_addr,
+    _req_tls_pos,
+    _req_host_pos,
     _last_go_offset,
 } go_offset_const;
 

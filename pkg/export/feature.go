@@ -70,9 +70,10 @@ const (
 	FeatureEBPF
 	FeatureConnectionInfo
 	FeatureStatsTCPResets
+	FeatureHTTPServerActiveRequests
 	// FeatureAll preserves the legacy all-features behavior while keeping the Config v2-only
 	// features opt-in.
-	FeatureAll = Features(^uint(0)) &^ (FeatureConnectionInfo | FeatureStatsTCPResets)
+	FeatureAll = Features(^uint(0)) &^ (FeatureConnectionInfo | FeatureStatsTCPResets | FeatureHTTPServerActiveRequests)
 )
 
 // FeatureStats enables all stat metrics, including TCP IO.
@@ -90,6 +91,7 @@ var v2OnlyFeatures = []struct {
 }{
 	{name: "application_service_graph_connection_info", feature: FeatureConnectionInfo},
 	{name: "stats_tcp_resets", feature: FeatureStatsTCPResets},
+	{name: "application_http_server_active_requests", feature: FeatureHTTPServerActiveRequests},
 }
 
 // FeatureMapper stays public so any extension package can add and remove feature
@@ -371,7 +373,7 @@ func (f Features) Empty() bool {
 }
 
 func (f Features) AnyAppO11yMetric() bool {
-	return f.any(AppO11yFeatures | FeatureApplicationRuntime | FeatureConnectionInfo)
+	return f.any(AppO11yFeatures | FeatureApplicationRuntime | FeatureConnectionInfo | FeatureHTTPServerActiveRequests)
 }
 
 func (f Features) SpanMetrics() bool {
@@ -392,7 +394,8 @@ func (f Features) AppOrSpan() bool {
 		FeatureSpanSizes |
 		FeatureApplicationRuntime |
 		FeatureSpanLegacy |
-		FeatureSpanOTel)
+		FeatureSpanOTel |
+		FeatureHTTPServerActiveRequests)
 }
 
 // LegacySpanMetrics reports whether FeatureSpanLegacy is enabled.
@@ -432,6 +435,10 @@ func (f Features) AppSizes() bool {
 
 func (f Features) SpanSizes() bool {
 	return f.any(FeatureSpanSizes)
+}
+
+func (f Features) HTTPServerActiveRequests() bool {
+	return f.any(FeatureHTTPServerActiveRequests)
 }
 
 func (f Features) NetworkBytes() bool {

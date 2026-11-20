@@ -2411,6 +2411,74 @@ func (m *mockEventMetrics) deleteEventMetrics(targetMetrics *TargetMetrics) {
 	m.deleteCalls = append(m.deleteCalls, targetMetrics)
 }
 
+func TestHTTPServerActiveRequestsBeforeFirstCompletedSpan(t *testing.T) {
+	clock := &syncedClock{now: time.Now()}
+	previousTimeNow := timeNow
+	timeNow = clock.Now
+	t.Cleanup(func() { timeNow = previousTimeNow })
+	service := svc.Attrs{
+		UID:      svc.UID{Name: "orders", Instance: "orders-1"},
+		Features: export.FeatureHTTPServerActiveRequests,
+	}
+	span := request.Span{Service: service, Type: request.EventTypeHTTP, Method: "GET"}
+
+	var active atomic.Int64
+	records := make(chan collector.MetricRecord, 16)
+	cfg := shutdownTestConfig(records, 2)
+	cfg.Interval = 20 * time.Millisecond
+	ctxInfo := &global.ContextInfo{
+		OTELMetricsExporter: &otelcfg.MetricsExporterInstancer{Cfg: cfg},
+	}
+	ctxInfo.AppO11y.VisitActiveHTTPServerRequests = func(visit func(*request.Span)) error {
+		for range active.Load() {
+			visit(&span)
+		}
+		return nil
+	}
+
+	reporter, err := newMetricsReporter(
+		t.Context(), ctxInfo, cfg,
+		&perapp.GlobalMetricsConfig{Features: export.FeatureHTTPServerActiveRequests | export.FeatureApplicationRED},
+		&attributes.SelectorConfig{}, request.UnresolvedNames{},
+		msg.NewQueue[[]request.Span](), msg.NewQueue[exec.ProcessEvent](),
+	)
+	require.NoError(t, err)
+	t.Cleanup(func() { closeDiscardingExports(reporter.close, records) })
+
+	file := exec.New(exec.Init{Pid: 101, Service: service})
+	reporter.onProcessEvent(&exec.ProcessEvent{Type: exec.ProcessEventCreated, File: file})
+	observe := func(want int64) {
+		t.Helper()
+		deadline := time.After(2 * time.Second)
+		for {
+			select {
+			case got := <-records:
+				if got.Name == attributes.HTTPServerActiveRequests.OTEL && got.IntVal == want {
+					assert.Equal(t, service.UID.Name, got.ResourceAttributes["service.name"])
+					assert.Equal(t, "GET", got.Attributes[string(attr.HTTPRequestMethod)])
+					return
+				}
+			case <-deadline:
+				t.Fatalf("did not collect %d active requests for %s", want, service.UID.Name)
+			}
+		}
+	}
+
+	active.Store(2)
+	observe(2)
+	clock.Advance(cfg.TTL + time.Second)
+	other := svc.Attrs{UID: svc.UID{Name: "other"}, Features: export.FeatureApplicationRED}
+	reporter.onSpan([]request.Span{httpClientSpan(other)})
+	reporter.evictions.Wait()
+	active.Store(1)
+	observe(1)
+
+	provider := reporter.targetMetrics[service.UID].activeHTTPProvider
+	require.NotNil(t, provider)
+	reporter.onProcessEvent(&exec.ProcessEvent{Type: exec.ProcessEventTerminated, File: file})
+	require.ErrorIs(t, provider.ForceFlush(t.Context()), otelmetric.ErrReaderShutdown)
+}
+
 func TestHandleProcessEventCreated(t *testing.T) {
 	tests := []struct {
 		name           string

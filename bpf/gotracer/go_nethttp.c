@@ -61,6 +61,8 @@
 
 #include <gotracer/go_obi_ctx.h>
 
+volatile const bool g_http_server_active_requests_enabled = false;
+
 static __always_inline unsigned char *temp_header_mem() {
     const u32 zero = 0;
     return bpf_map_lookup_elem(&temp_header_mem_store, &zero);
@@ -173,6 +175,28 @@ int GUARDED_PROG(obi_uprobe_ServeHTTP, struct pt_regs *, ctx) {
         }
     } else {
         goto done;
+    }
+
+    if (g_http_server_active_requests_enabled) {
+        task_pid(&invocation->pid);
+
+        const u64 tls_pos = go_offset_of(ot, (go_offset){.v = _req_tls_pos});
+        void *tls_state = NULL;
+        if (tls_pos != (u64)-1 && bpf_probe_read_user(&tls_state,
+                                                      sizeof(tls_state),
+                                                      (const unsigned char *)req + tls_pos) == 0) {
+            invocation->is_tls = tls_state != NULL;
+        }
+
+        const u64 host_pos = go_offset_of(ot, (go_offset){.v = _req_host_pos});
+        go_string_t host = {};
+        if (host_pos != (u64)-1 &&
+            bpf_probe_read_user(&host, sizeof(host), (const unsigned char *)req + host_pos) == 0 &&
+            host.len > 0 && (u64)host.len <= sizeof(invocation->host)) {
+            u64 size = host.len;
+            bpf_clamp_umax(size, sizeof(invocation->host));
+            bpf_probe_read_user(invocation->host, size, host.str);
+        }
     }
 
     // Write event
@@ -2301,6 +2325,15 @@ static __always_inline void complete_abandoned_http_request(struct pt_regs *ctx,
     }
 
     bpf_map_delete_elem(&ongoing_http_server_requests, g_key);
+}
+
+// A panic or runtime.Goexit can bypass the HTTP completion probes.
+SEC("uprobe/runtime_goexit0")
+int GUARDED_PROG(obi_uprobe_http_server_goexit0, struct pt_regs *, ctx) {
+    go_addr_key_t g_key = {};
+    go_addr_key_from_id(&g_key, (void *)GO_PARAM1(ctx));
+    bpf_map_delete_elem(&ongoing_http_server_requests, &g_key);
+    return 0;
 }
 
 SEC("uprobe/connServeRet")

@@ -63,24 +63,26 @@ var MetricTypes = []string{
 // MetricsReporter implements the graph node that receives request.Span
 // instances and forwards them as OTEL metrics.
 type MetricsReporter struct {
-	ctx              context.Context
-	evictions        sync.WaitGroup
-	cfg              *otelcfg.MetricsConfig
-	jointMetricsCfg  *perapp.GlobalMetricsConfig
-	nodeMeta         metadata.NodeMeta
-	attributes       *attributes.AttrSelector
-	exporter         sdkmetric.Exporter
-	reporters        otelcfg.ReporterPool[*svc.Attrs, *Metrics]
-	systemProvider   *metric.MeterProvider
-	targetInfo       instrument.Int64UpDownCounter
-	tracesTargetInfo instrument.Int64UpDownCounter
-	pidTracker       PidServiceTracker
-	is               instrumentations.InstrumentationSelection
-	targetMetrics    map[svc.UID]*TargetMetrics
-	attrGetters      attributes.NamedGetters[*request.Span, attribute.KeyValue]
-	spanExtraAttrs   []attr.Name
+	ctx                           context.Context
+	evictions                     sync.WaitGroup
+	cfg                           *otelcfg.MetricsConfig
+	jointMetricsCfg               *perapp.GlobalMetricsConfig
+	nodeMeta                      metadata.NodeMeta
+	attributes                    *attributes.AttrSelector
+	exporter                      sdkmetric.Exporter
+	reporters                     otelcfg.ReporterPool[*svc.Attrs, *Metrics]
+	systemProvider                *metric.MeterProvider
+	targetInfo                    instrument.Int64UpDownCounter
+	tracesTargetInfo              instrument.Int64UpDownCounter
+	pidTracker                    PidServiceTracker
+	is                            instrumentations.InstrumentationSelection
+	targetMetrics                 map[svc.UID]*TargetMetrics
+	attrGetters                   attributes.NamedGetters[*request.Span, attribute.KeyValue]
+	spanExtraAttrs                []attr.Name
+	visitActiveHTTPServerRequests func(visit func(*request.Span)) error
 
 	// user-selected fields for each of the reported metrics
+	attrHTTPServerActiveRequests  []attributes.Field[*request.Span, attribute.KeyValue]
 	attrHTTPDuration              []attributes.Field[*request.Span, attribute.KeyValue]
 	attrHTTPClientDuration        []attributes.Field[*request.Span, attribute.KeyValue]
 	attrGRPCServer                []attributes.Field[*request.Span, attribute.KeyValue]
@@ -188,6 +190,7 @@ type Metrics struct {
 }
 
 type TargetMetrics struct {
+	activeHTTPProvider       *metric.MeterProvider
 	resourceAttributes       attribute.Set
 	tracesResourceAttributes attribute.Set
 }
@@ -270,6 +273,11 @@ func newMetricsReporter(
 	// initialize attribute getters
 	if is.HTTPEnabled() {
 		httpGetters := request.SpanOTELGettersForHTTP(unresolved)
+		if jointMetricsCfg.Features.HTTPServerActiveRequests() {
+			mr.visitActiveHTTPServerRequests = ctxInfo.AppO11y.VisitActiveHTTPServerRequests
+			mr.attrHTTPServerActiveRequests = attributes.OpenTelemetryGetters(
+				httpGetters, mr.attributes.For(attributes.HTTPServerActiveRequests))
+		}
 		mr.attrHTTPDuration = attributes.OpenTelemetryGetters(
 			httpGetters, mr.attributes.For(attributes.HTTPServerDuration))
 		mr.attrHTTPClientDuration = attributes.OpenTelemetryGetters(
@@ -515,6 +523,51 @@ func (mr *MetricsReporter) setupTargetInfo(meter instrument.Meter) error {
 		return fmt.Errorf("creating target info: %w", err)
 	}
 
+	return nil
+}
+
+func (mr *MetricsReporter) observeActiveHTTPServerRequests(
+	ctx context.Context, uid svc.UID, observer instrument.Int64Observer,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	type series struct {
+		attrs attribute.Set
+		count int64
+	}
+	counts := make(map[attribute.Distinct]series)
+
+	err := mr.visitActiveHTTPServerRequests(func(span *request.Span) {
+		if span.Service.UID != uid {
+			return
+		}
+
+		values := make([]attribute.KeyValue, 0, len(mr.attrHTTPServerActiveRequests))
+		for _, field := range mr.attrHTTPServerActiveRequests {
+			if kv := sanitizeKeyValue(field.Get(span)); kv.Valid() {
+				values = append(values, kv)
+			}
+		}
+
+		attrs := attribute.NewSet(values...)
+		key := attrs.Equivalent()
+		s := counts[key]
+		s.attrs = attrs
+		s.count++
+		counts[key] = s
+	})
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
+	for _, s := range counts {
+		observer.Observe(s.count, instrument.WithAttributeSet(s.attrs))
+	}
 	return nil
 }
 
@@ -866,7 +919,7 @@ func (mr *MetricsReporter) setupSpanMeters(m *Metrics, meter instrument.Meter) e
 	return nil
 }
 
-func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
+func (mr *MetricsReporter) newMeterProvider(service *svc.Attrs, options ...metric.Option) *metric.MeterProvider {
 	mlog := mlog()
 	var resourceAttributes []attribute.KeyValue
 	if service != nil {
@@ -884,9 +937,11 @@ func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
 		metric.WithExemplarFilter(mr.cfg.GetExemplarFilter()),
 	}
 
-	opts = append(opts, mr.otelMetricOptions()...)
-	opts = append(opts, mr.spanMetricOptions()...)
+	return metric.NewMeterProvider(append(opts, options...)...)
+}
 
+func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
+	opts := append(mr.otelMetricOptions(), mr.spanMetricOptions()...)
 	mctx, cancel := context.WithCancel(mr.ctx)
 
 	return Metrics{
@@ -894,9 +949,7 @@ func (mr *MetricsReporter) newMetricsInstance(service *svc.Attrs) Metrics {
 		cancel:      cancel,
 		service:     service,
 		mcpSessions: mcpsession.NewStore(),
-		provider: metric.NewMeterProvider(
-			opts...,
-		),
+		provider:    mr.newMeterProvider(service, opts...),
 	}
 }
 
@@ -992,6 +1045,9 @@ func (mr *MetricsReporter) close() {
 		}
 		m.cleanupAllMetricsInstances()
 	})
+	for _, target := range mr.targetMetrics {
+		target.closeActiveHTTPProvider(shutdownCtx)
+	}
 	if mr.systemProvider != nil {
 		if err := mr.systemProvider.Shutdown(shutdownCtx); err != nil {
 			mlog().Warn("error shutting down system metrics provider", "error", err)
@@ -1575,9 +1631,41 @@ func (mr *MetricsReporter) ensureTargetMetrics(service *svc.Attrs) *TargetMetric
 	return targetMetrics
 }
 
-func (mr *MetricsReporter) createTargetMetricData(svc *svc.Attrs, targetMetrics *TargetMetrics) {
+func (mr *MetricsReporter) createTargetMetricData(service *svc.Attrs, targetMetrics *TargetMetrics) {
 	mr.createTargetInfo(&targetMetrics.resourceAttributes)
-	mr.createTracesTargetInfo(svc, &targetMetrics.tracesResourceAttributes)
+	mr.createTracesTargetInfo(service, &targetMetrics.tracesResourceAttributes)
+
+	if mr.visitActiveHTTPServerRequests == nil || !service.Features.HTTPServerActiveRequests() {
+		return
+	}
+
+	// A live process can have active requests long after its last completed span expires.
+	targetMetrics.activeHTTPProvider = mr.newMeterProvider(service)
+	meter := targetMetrics.activeHTTPProvider.Meter(reporterName, obiMeterOptions()...)
+	name := attributes.HTTPServerActiveRequests
+	uid := service.UID
+	_, err := meter.Int64ObservableUpDownCounter(name.OTEL,
+		instrument.WithUnit(name.Unit),
+		instrument.WithDescription("Number of active HTTP server requests."),
+		instrument.WithInt64Callback(func(ctx context.Context, observer instrument.Int64Observer) error {
+			return mr.observeActiveHTTPServerRequests(ctx, uid, observer)
+		}),
+	)
+	if err != nil {
+		mr.log.Error("creating HTTP server active requests metric", "service", uid, "error", err)
+		ctx, cancel := shutdownContext(mr.ctx)
+		defer cancel()
+		targetMetrics.closeActiveHTTPProvider(ctx)
+	}
+}
+
+func (target *TargetMetrics) closeActiveHTTPProvider(ctx context.Context) {
+	if target.activeHTTPProvider != nil {
+		if err := target.activeHTTPProvider.Shutdown(ctx); err != nil {
+			mlog().Warn("shutting down active HTTP metrics provider", "error", err)
+		}
+		target.activeHTTPProvider = nil
+	}
 }
 
 func (mr *MetricsReporter) createTargetMetrics(service *svc.Attrs) {
@@ -1601,6 +1689,11 @@ func (mr *MetricsReporter) createTargetMetrics(service *svc.Attrs) {
 func (mr *MetricsReporter) deleteTargetMetricData(targetMetrics *TargetMetrics) {
 	mr.deleteTargetInfo(&targetMetrics.resourceAttributes)
 	mr.deleteTracesTargetInfo(&targetMetrics.tracesResourceAttributes)
+	if targetMetrics.activeHTTPProvider != nil {
+		ctx, cancel := shutdownContext(mr.ctx)
+		defer cancel()
+		targetMetrics.closeActiveHTTPProvider(ctx)
+	}
 }
 
 func (mr *MetricsReporter) deleteTargetMetrics(uid *svc.UID) {

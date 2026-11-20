@@ -294,6 +294,9 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 	forEachCombination(t, "gotracer/BpfRingbufMetrics", gotracerbpf.LoadBpf, []constOption{
 		{"ringbuf_metrics_enabled", []any{true, false}},
 	})
+	loadAndVerify(t, "gotracer/HTTPServerActiveRequests", gotracerbpf.LoadBpf, map[string]any{
+		"g_http_server_active_requests_enabled": true,
+	})
 	forEachCombination(t, "gotracer/BpfTracesCtxOff", gotracerbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{true, false}},
 		{"g_bpf_traceparent_enabled", []any{true}},
