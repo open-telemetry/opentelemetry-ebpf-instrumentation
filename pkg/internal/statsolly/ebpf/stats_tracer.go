@@ -56,7 +56,7 @@ const (
 	// Kprobes: kernel function names.
 	KprobeTCPClose         = "tcp_close"
 	KprobeTCPSendMsgLocked = "tcp_sendmsg_locked"
-	KprobeDoTCPSendPages   = "do_tcp_sendpages" // removed in kernel 6.5
+	KprobeDoTCPSendPages   = "do_tcp_sendpages"
 	KprobeTCPCleanupRbuf   = "tcp_cleanup_rbuf"
 
 	// Tracepoints: group/name, are validated by TestTracepointConstantFormat
@@ -283,8 +283,12 @@ func NewStatsFetcher(cfg *config.EBPFTracer, features *export.Features, selector
 	}, nil
 }
 
-// do_tcp_sendpages carries the sends of sockets in a sockmap before kernel 6.5, which removed it
+// sockmap sends go through do_tcp_sendpages before kernel 6.5, which removed it
 func attachDoTCPSendPages(log *slog.Logger, objects *StatsObjects) []io.Closer {
+	if major, minor := ebpfcommon.KernelVersion(); major > 6 || (major == 6 && minor >= 5) {
+		return nil
+	}
+
 	var closables []io.Closer
 
 	for _, p := range []struct {
@@ -296,22 +300,14 @@ func attachDoTCPSendPages(log *slog.Logger, objects *StatsObjects) []io.Closer {
 	} {
 		l, err := kprobe.Attach(KprobeDoTCPSendPages, p.program, p.ret)
 		if err != nil {
-			logDoTCPSendPagesError(log, err)
+			log.Warn("kprobe not attached, TCP IO metrics miss the bytes sent by sockets in a sockmap",
+				"symbol", KprobeDoTCPSendPages, "error", err)
 			continue
 		}
 		closables = append(closables, l)
 	}
 
 	return closables
-}
-
-func logDoTCPSendPagesError(log *slog.Logger, err error) {
-	if major, minor := ebpfcommon.KernelVersion(); major > 6 || (major == 6 && minor >= 5) {
-		log.Debug("kprobe not attached", "symbol", KprobeDoTCPSendPages, "error", err)
-		return
-	}
-	log.Warn("kprobe not attached, TCP IO metrics miss the bytes sent by sockets in a sockmap",
-		"symbol", KprobeDoTCPSendPages, "error", err)
 }
 
 func closeAll(closables []io.Closer) {
