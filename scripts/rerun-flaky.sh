@@ -105,6 +105,49 @@ fi
 
 # --- Take action ---
 if [ "$VERDICT" = "rerun" ]; then
+  RUN_CONTEXT=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}")
+  if ! RUN_REF=$(jq -ser '
+    if length == 1
+      and (.[0].event | type) == "string"
+      and (.[0].head_sha | type) == "string"
+      and (.[0].head_sha | test("^[0-9a-fA-F]{40}$"))
+      and (.[0].head_repository.full_name | type) == "string"
+      and (.[0].head_repository.full_name | test("^[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+$"))
+      and (.[0].head_repository.full_name | split("/")[1] | . != "." and . != "..")
+      and (.[0].head_branch | type) == "string"
+      and (.[0].head_branch | length) > 0
+      and (.[0].head_branch | explode | all(. > 32 and . != 127))
+    then .[0] | [.event, .head_sha, .head_repository.full_name, .head_branch] | @tsv
+    else error("invalid run ref")
+    end
+  ' <<<"$RUN_CONTEXT"); then
+    echo "Invalid GitHub run ref response." >&2
+    exit 1
+  fi
+  IFS=$'\t' read -r RUN_EVENT RUN_SHA HEAD_REPO HEAD_BRANCH <<<"$RUN_REF"
+  if [ "$RUN_EVENT" = "pull_request" ] || [ "$RUN_EVENT" = "push" ]; then
+    if ! git check-ref-format "refs/heads/${HEAD_BRANCH}"; then
+      echo "Invalid GitHub head branch." >&2
+      exit 1
+    fi
+    HEAD_BRANCH_URI=$(jq -rn --arg branch "$HEAD_BRANCH" '$branch | @uri')
+    HEAD_REF=$(gh api "repos/${HEAD_REPO}/git/ref/heads/${HEAD_BRANCH_URI}")
+    if ! CURRENT_SHA=$(jq -ser '
+      if length == 1 and .[0].object.type == "commit"
+        and (.[0].object.sha | type) == "string"
+        and (.[0].object.sha | test("^[0-9a-fA-F]{40}$"))
+      then .[0].object.sha
+      else error("invalid head ref")
+      end
+    ' <<<"$HEAD_REF"); then
+      echo "Invalid GitHub head ref response." >&2
+      exit 1
+    fi
+    if [ "$RUN_SHA" != "$CURRENT_SHA" ]; then
+      echo "Skipping re-run: run ${RUN_ID} is no longer the head of ${HEAD_REPO}:${HEAD_BRANCH}"
+      exit 0
+    fi
+  fi
   echo "Re-running failed jobs for run ${RUN_ID}..."
   gh run rerun "$RUN_ID" --repo "$REPO" --failed
 else
