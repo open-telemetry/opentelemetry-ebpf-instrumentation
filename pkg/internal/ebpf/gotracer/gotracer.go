@@ -519,7 +519,7 @@ func (p *Tracer) constants(eventsRingBufSize uint32) map[string]any {
 		"g_bpf_probe_write_user_enabled": p.supportsContextPropagation(),
 		"g_go_h2_write_fail_step":        goH2WriteFailStepForTest,
 		"wakeup_data_bytes":              ebpfcommon.WakeupDataBytes(p.cfg.WakeupLen, unsafe.Sizeof(ebpfcommon.HTTPRequestTrace{}), eventsRingBufSize),
-		"ringbuf_metrics_enabled":        p.metrics != nil && !imetrics.IsBuiltinNoopReporter(p.metrics),
+		"ringbuf_metrics_enabled":        p.metrics != nil && !imetrics.IsBuiltinNoopReporter(p.metrics) && p.metrics.BpfInternalMetricsScrapeInterval() > 0,
 		"disable_black_box_cp":           blackBoxCP,
 		"attr_type_invalid":              uint64(attribute.INVALID),
 		"attr_type_bool":                 uint64(attribute.BOOL),

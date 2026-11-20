@@ -54,6 +54,9 @@ If both paths are active, each path owns a separate collector.
 | `obi_bpf_ringbuf_writes_total` | `obi.bpf.ringbuf.writes` | Attempted ring buffer writes by map name |
 | `obi_bpf_ringbuf_write_failures_total` | `obi.bpf.ringbuf.write.failures` | Failed ring buffer writes by map name |
 
+A Config v2 Collector receiver does not collect these, because collecting them
+enables the kernel BPF stats host-wide.
+
 Probe metrics use the program ID, type, and function name as attributes or
 labels. Map metrics use the map ID, type, and name. Both endpoints take these
 from one declaration, so the OTLP attribute key and the Prometheus label name
