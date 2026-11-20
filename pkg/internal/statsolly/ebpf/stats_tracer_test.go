@@ -20,6 +20,7 @@ func TestFixupSpec(t *testing.T) {
 
 	const origSendmsgName = "real_sendmsg"
 	const origRetprobeSendmsgName = "real_retprobe_sendmsg"
+	const origRetprobeSendpagesName = "real_retprobe_sendpages"
 	const origCleanupRbufName = "real_cleanup_rbuf"
 	const origCloseIoFlushName = "real_close_io_flush"
 	const origDestroySockName = "real_destroy_sock"
@@ -36,8 +37,9 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsTpInetSockSetStateTCPFailedConnection:     {Name: origTpName, Type: ebpf.TracePoint},
 				progObiStatsTpInetSockSetStateConnRole:                {Name: origConnRoleName, Type: ebpf.TracePoint},
 				progObiStatsTpInetSockSetStateTCPSuccessfulConnection: {Name: origSuccessTpName, Type: ebpf.TracePoint},
-				progObiStatsKprobeTCPSendmsg:                          {Name: origSendmsgName, Type: ebpf.Kprobe},
-				progObiStatsKretprobeTCPSendmsg:                       {Name: origRetprobeSendmsgName, Type: ebpf.Kprobe},
+				progObiStatsKprobeTCPSend:                             {Name: origSendmsgName, Type: ebpf.Kprobe},
+				progObiStatsKretprobeTCPSendmsgLocked:                 {Name: origRetprobeSendmsgName, Type: ebpf.Kprobe},
+				progObiStatsKretprobeDoTCPSendpages:                   {Name: origRetprobeSendpagesName, Type: ebpf.Kprobe},
 				progObiStatsKprobeTCPCleanupRbuf:                      {Name: origCleanupRbufName, Type: ebpf.Kprobe},
 				progObiStatsKprobeTCPCloseIoFlush:                     {Name: origCloseIoFlushName, Type: ebpf.Kprobe},
 				progObiStatsTpTCPDestroySock:                          {Name: origDestroySockName, Type: ebpf.TracePoint},
@@ -63,8 +65,9 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsTpInetSockSetStateTCPFailedConnection:     origTpName,
 				progObiStatsTpInetSockSetStateConnRole:                origConnRoleName,
 				progObiStatsTpInetSockSetStateTCPSuccessfulConnection: origSuccessTpName,
-				progObiStatsKprobeTCPSendmsg:                          origSendmsgName,
-				progObiStatsKretprobeTCPSendmsg:                       origRetprobeSendmsgName,
+				progObiStatsKprobeTCPSend:                             origSendmsgName,
+				progObiStatsKretprobeTCPSendmsgLocked:                 origRetprobeSendmsgName,
+				progObiStatsKretprobeDoTCPSendpages:                   origRetprobeSendpagesName,
 				progObiStatsKprobeTCPCleanupRbuf:                      origCleanupRbufName,
 				progObiStatsKprobeTCPCloseIoFlush:                     origCloseIoFlushName,
 				progObiStatsTpTCPDestroySock:                          origDestroySockName,
@@ -85,8 +88,8 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsTpInetSockSetStateTCPFailedConnection: origTpName,
 				progObiStatsTpInetSockSetStateConnRole:            origConnRoleName,
 				progObiStatsKprobeTCPCloseIoFlush:                 origCloseIoFlushName,
-				progObiStatsKprobeTCPSendmsg:                      origSendmsgName,
-				progObiStatsKretprobeTCPSendmsg:                   origRetprobeSendmsgName,
+				progObiStatsKprobeTCPSend:                         origSendmsgName,
+				progObiStatsKretprobeTCPSendmsgLocked:             origRetprobeSendmsgName,
 				progObiStatsKprobeTCPCleanupRbuf:                  origCleanupRbufName,
 				progObiStatsRawTpTCPRetransmitSkb:                 origRetransmitName,
 			},
@@ -141,13 +144,14 @@ func TestFixupSpec(t *testing.T) {
 		},
 		{
 			name:      "disable io programs",
-			toDisable: []string{progObiStatsKprobeTCPSendmsg, progObiStatsKretprobeTCPSendmsg, progObiStatsKprobeTCPCleanupRbuf, progObiStatsKprobeTCPCloseIoFlush},
+			toDisable: []string{progObiStatsKprobeTCPSend, progObiStatsKretprobeTCPSendmsgLocked, progObiStatsKretprobeDoTCPSendpages, progObiStatsKprobeTCPCleanupRbuf, progObiStatsKprobeTCPCloseIoFlush},
 			want: map[string]string{
-				progObiStatsKprobeTCPCloseSrtt:    origKpName,
-				progObiStatsKprobeTCPSendmsg:      "stats_dummy",
-				progObiStatsKretprobeTCPSendmsg:   "stats_dummy",
-				progObiStatsKprobeTCPCleanupRbuf:  "stats_dummy",
-				progObiStatsKprobeTCPCloseIoFlush: "stats_dummy",
+				progObiStatsKprobeTCPCloseSrtt:        origKpName,
+				progObiStatsKprobeTCPSend:             "stats_dummy",
+				progObiStatsKretprobeTCPSendmsgLocked: "stats_dummy",
+				progObiStatsKretprobeDoTCPSendpages:   "stats_dummy",
+				progObiStatsKprobeTCPCleanupRbuf:      "stats_dummy",
+				progObiStatsKprobeTCPCloseIoFlush:     "stats_dummy",
 			},
 		},
 		{
@@ -157,8 +161,9 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsTpInetSockSetStateTCPFailedConnection,
 				progObiStatsTpInetSockSetStateTCPSuccessfulConnection,
 				progObiStatsTpInetSockSetStateConnRole,
-				progObiStatsKprobeTCPSendmsg,
-				progObiStatsKretprobeTCPSendmsg,
+				progObiStatsKprobeTCPSend,
+				progObiStatsKretprobeTCPSendmsgLocked,
+				progObiStatsKretprobeDoTCPSendpages,
 				progObiStatsKprobeTCPCleanupRbuf,
 				progObiStatsKprobeTCPCloseIoFlush,
 				progObiStatsTpTCPDestroySock,
@@ -173,8 +178,9 @@ func TestFixupSpec(t *testing.T) {
 				progObiStatsTpInetSockSetStateTCPFailedConnection:     "stats_dummy",
 				progObiStatsTpInetSockSetStateTCPSuccessfulConnection: "stats_dummy",
 				progObiStatsTpInetSockSetStateConnRole:                "stats_dummy",
-				progObiStatsKprobeTCPSendmsg:                          "stats_dummy",
-				progObiStatsKretprobeTCPSendmsg:                       "stats_dummy",
+				progObiStatsKprobeTCPSend:                             "stats_dummy",
+				progObiStatsKretprobeTCPSendmsgLocked:                 "stats_dummy",
+				progObiStatsKretprobeDoTCPSendpages:                   "stats_dummy",
 				progObiStatsKprobeTCPCleanupRbuf:                      "stats_dummy",
 				progObiStatsKprobeTCPCloseIoFlush:                     "stats_dummy",
 				progObiStatsTpTCPDestroySock:                          "stats_dummy",
