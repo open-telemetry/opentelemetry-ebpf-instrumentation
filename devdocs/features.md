@@ -88,6 +88,14 @@ standalone and Collector receiver deployments. See the
 [attribute selection configuration](config/version-2.0/config-v2.md#captureattributesselect-section)
 for examples and compatibility with existing standalone settings.
 
+## HTTP query-parameter redaction
+
+Config v2 supports a complete selection of query-parameter names whose values
+are redacted in HTTP span URL attributes, in both standalone and Collector
+receiver deployments. Omitted settings preserve the built-in protection.
+See [HTTP query-parameter redaction](config/version-2.0/config-v2.md#http-query-parameter-redaction)
+for replacement semantics and migration from Config v1.
+
 ## Go Instrumentation
 
 Specifically for Go applications, OBI chooses to instrument libraries directly using Uprobes, instead of instrumenting
@@ -103,6 +111,7 @@ To turn this off and fallback to the normal network based instrumentation for Go
 | golang.org/x/net/http2         |    HTTP    |             >= 0.12.0 | All     |  Yes   |                Yes |         N/A
 | github.com/gorilla/mux         |    HTTP    |             >= v1.5.0 | All     |  Yes   |                Yes |         N/A
 | github.com/gin-gonic/gin       |    HTTP    |   >= v1.6.0,!= v1.7.5 | All     |  Yes   |                Yes |         N/A
+| github.com/emicklei/go-restful/v3 |    HTTP    |             >= v3.0.0 | All     |  Yes   |                Yes |         N/A
 | google.golang.org/grpc         |    gRPC    |               >= 1.40 | All     |  Yes   |                Yes |         N/A
 | net/rpc/jsonrpc                |  JsonRPC   |               >= 1.17 | All     |  Yes   |                 No |         N/A
 | database/sql                   |    SQL     |               >= 1.17 | All     |  Yes   |                 No |         N/A

@@ -36,6 +36,7 @@ services:
     environment:
       OTEL_EBPF_CONFIG_PATH: "/configs/obi-config-with-jaeger-host.yml"
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_OPEN_PORT: "8080"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms

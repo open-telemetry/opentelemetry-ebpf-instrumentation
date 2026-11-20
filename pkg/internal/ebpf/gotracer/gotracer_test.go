@@ -721,6 +721,18 @@ func TestProcessBinarySelectsRecordedChannelOffsetState(t *testing.T) {
 	assert.False(t, tracer.goChannelLinkProbesEnabled())
 }
 
+func TestGoChannelLinkProbesCanBeDisabled(t *testing.T) {
+	tracer := &Tracer{
+		cfg: &config.EBPFTracer{DisableGoChannelLinks: true},
+		goChannelOffsetsByExecutable: map[executableIdentity]bool{
+			{Ino: 1}: true,
+		},
+	}
+
+	tracer.ProcessBinary(exec.New(exec.Init{Ino: 1}))
+	assert.False(t, tracer.goChannelLinkProbesEnabled())
+}
+
 func TestGoAutoSDKActivationProbeGroupRequiresSpanContextOffsets(t *testing.T) {
 	setContextPropagationSupportForTest(t, true)
 

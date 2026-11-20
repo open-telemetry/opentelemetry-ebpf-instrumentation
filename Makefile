@@ -667,9 +667,16 @@ integration-test-matrix-json:
 # covers multiprocess context propagation, gRPC relay, the HTTP
 # logenricher pipeline, large HTTP request bodies, Go Auto SDK activation, and
 # context propagation enrollment.
+MULTIPROCESS_TEST_PATTERN := TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest|TestGo.*SDKActivation|TestCPEnrollment
+
 .PHONY: multiprocess-integration-test-matrix-json
 multiprocess-integration-test-matrix-json:
-	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "(TestMultiProcess|TestSuite_LogEnricherHTTP|TestSuite_LargeHTTPRequest|TestGo.*SDKActivation|TestCPEnrollment)"
+	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-5}" "($(MULTIPROCESS_TEST_PATTERN))"
+
+# ARM64 also exercises the JVM memory metrics fallback without USDT probes.
+.PHONY: arm64-integration-test-matrix-json
+arm64-integration-test-matrix-json:
+	@./scripts/generate-integration-matrix.sh internal/test/integration "$${PARTITIONS:-2}" "($(MULTIPROCESS_TEST_PATTERN)|TestJVMRuntimeMetricsWithoutHotSpotUSDT)"
 
 .PHONY: k8s-integration-test-matrix-json
 k8s-integration-test-matrix-json:
@@ -677,7 +684,7 @@ k8s-integration-test-matrix-json:
 
 .PHONY: oats-integration-test-matrix-json
 oats-integration-test-matrix-json:
-	@./scripts/generate-dir-matrix.sh internal/test/oats '' oats-config.yaml
+	@go run ./scripts/oats-matrix --suite-root internal/test/oats
 
 .PHONY: integration-test
 integration-test: prereqs prepare-integration-test
@@ -735,7 +742,15 @@ oats-prereq: oats-prepare-obi fetch-upstream-semconv oats-install-tools $(OATS_F
 .PHONY: oats-test-ai oats-test-amqp oats-test-http oats-test-kafka oats-test-memcached oats-test-mongo oats-test-nats oats-test-redis oats-test-sql
 oats-test-ai oats-test-amqp oats-test-http oats-test-kafka oats-test-memcached oats-test-mongo oats-test-nats oats-test-redis oats-test-sql: oats-test-%: oats-prereq
 	@test -f internal/test/oats/$*/oats-config.yaml || (echo "No OATS v3 config for suite $*" >&2; exit 1)
-	cd internal/test/oats/$* && OATS_ARTIFACT_DIR="$(PROJECT_DIR)/internal/test/oats/$*/build" $(OATS_RUNNER) build/oats.log $(OATS_BIN) run --config oats-config.yaml --container-runtime docker --gcx $(GCX_BIN) --timeout "$${TESTCASE_TIMEOUT:-5m}" --absent-timeout 10s --no-cache -vvv
+	@set -e; \
+	cases=(); \
+	if [[ -n "$${OATS_CASES:-}" ]]; then \
+		read -r -a cases <<< "$${OATS_CASES}"; \
+		for case_name in "$${cases[@]}"; do \
+			[[ "$${case_name}" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]*$$ ]] || { echo "Invalid OATS case basename: $${case_name}" >&2; exit 1; }; \
+		done; \
+	fi; \
+	cd internal/test/oats/$* && OATS_ARTIFACT_DIR="$(PROJECT_DIR)/internal/test/oats/$*/build" $(OATS_RUNNER) build/oats.log $(OATS_BIN) run --config oats-config.yaml --container-runtime docker --gcx $(GCX_BIN) --timeout "$${TESTCASE_TIMEOUT:-5m}" --absent-timeout 10s --no-cache -vvv "$${cases[@]}"
 
 .PHONY: oats-test
 oats-test: oats-test-sql oats-test-mongo oats-test-redis oats-test-kafka oats-test-http oats-test-memcached oats-test-ai oats-test-nats oats-test-amqp

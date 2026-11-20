@@ -54,7 +54,7 @@ services:
     build:
       context: ../../..
       dockerfile: internal/test/integration/components/gogeneric/Dockerfile
-    image: hatest-testserver
+    image: hatest-testserver-gogeneric
     ports:
       - "8080:8080"
       - "8081:8081"
@@ -87,6 +87,7 @@ services:
     pid: "service:testserver"
     environment:
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_TRACE_PRINTER: "text"
       OTEL_EBPF_OPEN_PORT: 8080
       OTEL_EBPF_METRICS_FEATURES: "application,application_span_otel,application_service_graph,ebpf"

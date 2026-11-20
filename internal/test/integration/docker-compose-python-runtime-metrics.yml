@@ -26,6 +26,7 @@ services:
     environment:
       OTEL_EBPF_CONFIG_PATH: /configs/obi-config-python-runtime-metrics${INSTRUMENTER_CONFIG_SUFFIX}.yml
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 100ms
       OTEL_EBPF_SERVICE_NAME: "python-runtime-metrics"
       OTEL_EBPF_SERVICE_NAMESPACE: "integration-test"

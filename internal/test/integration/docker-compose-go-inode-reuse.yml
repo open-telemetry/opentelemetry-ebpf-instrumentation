@@ -20,6 +20,7 @@ services:
       GRPC_PORT: 18551
       GRPC_TLS_PORT: 18552
       JSRONRPC_PORT: 18088
+      RESTFUL_PORT: 18089
 
   testserver-b:
     build:
@@ -42,6 +43,7 @@ services:
       GRPC_PORT: 18651
       GRPC_TLS_PORT: 18652
       JSRONRPC_PORT: 18188
+      RESTFUL_PORT: 18189
 
   obi:
     build:
@@ -60,6 +62,7 @@ services:
     network_mode: host
     environment:
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_EXECUTABLE_PATH: testserver
       OTEL_EBPF_METRICS_FEATURES: application
       OTEL_EBPF_DISCOVERY_POLL_INTERVAL: 500ms

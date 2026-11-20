@@ -583,6 +583,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.EBPF.ContextPropagation = config.ContextPropagationAll
 	cfg.EBPF.OverrideBPFLoopEnabled = true
 	cfg.EBPF.DisableBlackBoxCP = true
+	cfg.EBPF.DisableGoChannelLinks = true
 	cfg.EBPF.PopulateTraceContext = true
 	cfg.EBPF.TCBackend = config.TCBackendTCX
 	cfg.EBPF.HighRequestVolume = true
@@ -601,7 +602,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.EBPF.BufferSizes.TCP = 105
 	cfg.EBPF.BufferSizes.Aerospike = 106
 	cfg.EBPF.HeuristicSQLDetect = true
-	cfg.Attributes.SanitizeSQLQueryText = true
+	cfg.Attributes.SanitizeDBQueryText = true
 	cfg.EBPF.MySQLPreparedStatementsCacheSize = 200
 	cfg.EBPF.PostgresPreparedStatementsCacheSize = 201
 	cfg.EBPF.MSSQLPreparedStatementsCacheSize = 202
@@ -732,12 +733,13 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 
 	require.Equal(t, 8192, got.EBPF.StatsWakeupDataBytes)
 	require.Equal(t, config.ContextPropagationAll, got.EBPF.ContextPropagation)
+	require.True(t, got.EBPF.DisableGoChannelLinks)
 	require.Equal(t, config.TCBackendTCX, got.EBPF.TCBackend)
 	require.Equal(t, config.MapReaderLegacy, got.EBPF.ForceBPFMapReader)
 	require.Equal(t, 2, got.EBPF.MapsConfig.GlobalScaleFactor)
 	require.Equal(t, uint32(100), got.EBPF.BufferSizes.HTTP)
 	require.Equal(t, uint32(103), got.EBPF.BufferSizes.MSSQL)
-	require.True(t, got.Attributes.SanitizeSQLQueryText)
+	require.True(t, got.Attributes.SanitizeDBQueryText)
 	require.Equal(t, 202, got.EBPF.MSSQLPreparedStatementsCacheSize)
 	require.Equal(t, config.CudaModeOn, got.EBPF.InstrumentCuda)
 
@@ -1495,27 +1497,28 @@ func TestV2ToRuntimePartialInstrumentationPreservesDefaults(t *testing.T) {
 	require.Equal(t, obi.DefaultConfig.EBPF.MySQLPreparedStatementsCacheSize, got.EBPF.MySQLPreparedStatementsCacheSize)
 }
 
-func TestV2ToRuntimePartialSQLSanitizeQueryText(t *testing.T) {
+func TestV2ToRuntimePartialDBSanitizeQueryText(t *testing.T) {
 	t.Parallel()
 
 	got, err := V2ToRuntime(&schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
 			Instrumentation: schema.Instrumentation{
-				SQL: schema.SQLInstrumentation{SanitizeQueryText: true},
+				DB: schema.DBInstrumentation{SanitizeQueryText: true},
 			},
 		},
 	})
 	require.NoError(t, err)
 
-	require.True(t, got.Attributes.SanitizeSQLQueryText)
-	require.False(t, obi.DefaultConfig.Attributes.SanitizeSQLQueryText)
+	require.True(t, got.Attributes.SanitizeDBQueryText)
+	require.False(t, obi.DefaultConfig.Attributes.SanitizeDBQueryText)
 	require.Equal(t, obi.DefaultConfig.EBPF.MySQLPreparedStatementsCacheSize, got.EBPF.MySQLPreparedStatementsCacheSize)
 }
 
 func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 	t.Parallel()
 
+	goChannelLinks := false
 	got, err := V2ToRuntime(&schema.Extension{
 		Version: schema.SupportedVersion,
 		Capture: schema.Capture{
@@ -1553,6 +1556,9 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 				},
 			},
 			Runtimes: schema.CaptureRuntimes{
+				Go: schema.GoRuntime{
+					ChannelLinks: &goChannelLinks,
+				},
 				Java: schema.JavaRuntime{
 					Debug: schema.JavaDebug{
 						Enabled: true,
@@ -1580,6 +1586,7 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 
 	require.True(t, got.EBPF.BpfDebug)
 	require.Equal(t, "/host/sys/fs/cgroup", got.EBPF.CgroupFSPath)
+	require.True(t, got.EBPF.DisableGoChannelLinks)
 	require.Equal(t, obi.DefaultConfig.EBPF.BPFFSPath, got.EBPF.BPFFSPath)
 	require.Equal(t, obi.DefaultConfig.EBPF.WakeupLen, got.EBPF.WakeupLen)
 	require.Equal(t, obi.DefaultConfig.EBPF.BatchLength, got.EBPF.BatchLength)

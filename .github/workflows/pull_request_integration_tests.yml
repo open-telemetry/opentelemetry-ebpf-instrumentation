@@ -11,6 +11,7 @@ on:
       - "**.go"
       - "go.mod"
       - "go.sum"
+      - "Makefile"
       - "bpf/**"
       - "cmd/**"
       - "configs/**"
@@ -141,7 +142,7 @@ jobs:
         run: echo "files=$(bash scripts/discover-integration-images.sh --prebuild-compose-files | jq -Rnc '[inputs]')" >> "$GITHUB_OUTPUT"
 
       # amd64 runs the full suite (12 shards). arm64 keeps the current
-      # multiprocess subset (2 shards) until coverage is expanded.
+      # multiprocess subset plus JVM fallback coverage (2 shards).
       - name: Build test matrix
         id: build-matrix
         run: |
@@ -149,7 +150,7 @@ jobs:
             echo -n "matrix="
             jq -nc \
               --argjson amd64 "$(PARTITIONS=12 make integration-test-matrix-json)" \
-              --argjson arm64 "$(PARTITIONS=2 make multiprocess-integration-test-matrix-json)" \
+              --argjson arm64 "$(PARTITIONS=2 make arm64-integration-test-matrix-json)" \
               '{
                 include: (
                   ($amd64.include | map(. + {runner: "ubuntu-26.04", arch: "amd64"}))
@@ -337,13 +338,15 @@ jobs:
       - name: Build and save fixture images
         env:
           COMPOSE_FILE: internal/test/integration/${{ matrix.compose-file }}
+          # services of every profile, as each suite enables its own
+          COMPOSE_PROFILES: "*"
           # compose validates every service before building; nothing is published here
           TEST_SERVICE_PORTS: "8080:8080"
         run: |
           config="$(docker compose config --format json)"
           fixtures='.services | to_entries[] | select(.value.build != null and ((.key | split("-") | index("obi")) == null))'
           mapfile -t services < <(jq -r "${fixtures} | .key" <<< "${config}")
-          mapfile -t images < <(jq -r "${fixtures} | .value.image" <<< "${config}")
+          mapfile -t images < <(jq -r "${fixtures} | .value.image" <<< "${config}" | sort -u)
 
           docker compose build "${services[@]}"
           docker save "${images[@]}" -o /tmp/fixture-images.tar

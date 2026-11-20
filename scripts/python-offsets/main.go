@@ -44,14 +44,15 @@ type release struct {
 }
 
 type probeResult struct {
-	Version            string `json:"version"`
-	Finalizing         uint64 `json:"finalizing"`
-	Main               uint64 `json:"main"`
-	InterpreterGC      uint64 `json:"interpreter_gc"`
-	GenerationStats    uint64 `json:"generation_stats"`
-	Collecting         uint64 `json:"collecting"`
-	DebugGC            uint64 `json:"debug_gc"`
-	DebugInterpreterGC uint64 `json:"debug_interpreter_gc"`
+	Version            string            `json:"version"`
+	ExceptionOffsets   map[string]uint64 `json:"exception_offsets"`
+	Finalizing         uint64            `json:"finalizing"`
+	Main               uint64            `json:"main"`
+	InterpreterGC      uint64            `json:"interpreter_gc"`
+	GenerationStats    uint64            `json:"generation_stats"`
+	Collecting         uint64            `json:"collecting"`
+	DebugGC            uint64            `json:"debug_gc"`
+	DebugInterpreterGC uint64            `json:"debug_interpreter_gc"`
 }
 
 type offsetsFile struct {
@@ -237,6 +238,16 @@ func validate(track *offsets.Track, item release, result probeResult) (bool, err
 		checks[[2]string{"_Py_DebugOffsets", "gc"}] = result.DebugGC
 		checks[[2]string{"_Py_DebugOffsets", "interpreter_state.gc"}] = result.DebugInterpreterGC
 	}
+	if len(result.ExceptionOffsets) == 0 {
+		return false, fmt.Errorf("CPython %s did not report exception offsets", item.tag)
+	}
+	for name, value := range result.ExceptionOffsets {
+		structure, field, ok := strings.Cut(name, ".")
+		if !ok {
+			return false, fmt.Errorf("invalid exception field %q", name)
+		}
+		checks[[2]string{structure, field}] = value
+	}
 	// These ABI tripwires require decoder review rather than automatic table advancement.
 	wantCollecting := map[string]uint64{"3.13": 200, "3.14": 192}
 	if expected := wantCollecting[item.series]; expected != 0 && result.Collecting != expected {
@@ -249,6 +260,13 @@ func validate(track *offsets.Track, item release, result probeResult) (bool, err
 		}
 	}
 	changed := false
+	for name := range result.ExceptionOffsets {
+		structure, field, _ := strings.Cut(name, ".")
+		entry := track.Data[structure][field]
+		if strings.HasPrefix(entry.Versions.Newest, item.series+".") {
+			changed = setNewest(track, [2]string{structure, field}, item.version) || changed
+		}
+	}
 	if item.series == "3.12" {
 		for _, name := range [][2]string{{"_PyRuntimeState", "_finalizing"}, {"_PyRuntimeState", "interpreters.main"}, {"PyInterpreterState", "gc"}, {"_gc_runtime_state", "collecting"}} {
 			changed = setNewest(track, name, item.version) || changed

@@ -52,3 +52,6 @@ Verifier and kernel constraints:
 - Keep programs simple and predictable.
 
 When reviewing eBPF C changes, flag code that violates these rules and ask for a repository-specific rationale when a deviation appears intentional.
+
+Follow the [BPF debug logging rules](../../AGENTS.md#bpf-debug-logging).
+Check filtering and call frequency before adding diagnostics.

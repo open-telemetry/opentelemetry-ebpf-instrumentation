@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <generictracer/exception_response.h>
 #include <bpfcore/vmlinux.h>
 #include <bpfcore/bpf_builtins.h>
 #include <bpfcore/bpf_core_read.h>
@@ -385,6 +386,7 @@ static __always_inline void process_http_response(http_info_t *info, const unsig
     }
 
     info->status = status;
+    exception_on_server_response(info);
 }
 
 static __always_inline void handle_http_response(unsigned char *small_buf,

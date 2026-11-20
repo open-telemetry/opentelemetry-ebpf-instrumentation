@@ -5,10 +5,17 @@ package main
 
 import (
 	"encoding/json"
+	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+
+	"go.opentelemetry.io/obi/pkg/appolly/app/request"
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+	"go.opentelemetry.io/obi/pkg/export/otel/tracesgen"
+	"go.opentelemetry.io/obi/pkg/obi"
 )
 
 func TestRunCurrentArtifacts(t *testing.T) {
@@ -19,6 +26,44 @@ func TestRunCurrentArtifacts(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestHTTPQueryRedactionSchemaDefaultsMatchRuntime(t *testing.T) {
+	policy, err := readJSONMap(filepath.Join("..", "..", defaultSchemaPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"$defs", "HttpQueryParameters", "properties", "redaction", "default"} {
+		var ok bool
+		policy, ok = mapValue(policy, key)
+		if !ok {
+			t.Fatalf("missing HTTP query redaction schema default at %s", key)
+		}
+	}
+	data, err := json.Marshal(policy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var defaults struct {
+		Names       []string
+		Replacement string
+	}
+	if err := json.Unmarshal(data, &defaults); err != nil {
+		t.Fatal(err)
+	}
+	wantNames := obi.DefaultConfig.Attributes.SensitiveQueryParams.Effective()
+	if len(defaults.Names) == 0 || !slices.Equal(defaults.Names, wantNames) {
+		t.Fatalf("HTTP redaction schema names %v differ from runtime defaults %v", defaults.Names, wantNames)
+	}
+	key := url.QueryEscape(wantNames[0])
+	span := request.Span{Type: request.EventTypeHTTP, FullPath: "/test?" + key + "=secret"}
+	selected := map[attr.Name]struct{}{attr.HTTPUrlQuery: {}}
+	attrs := tracesgen.AttrsToMap(tracesgen.TraceAttributesSelector(&span, selected, wantNames...))
+	query, ok := attrs.Get("url.query")
+	wantQuery := key + "=" + url.QueryEscape(defaults.Replacement)
+	if !ok || query.Str() != wantQuery {
+		t.Fatalf("HTTP redaction schema replacement differs from runtime output: got %q, want %q", query.Str(), wantQuery)
 	}
 }
 

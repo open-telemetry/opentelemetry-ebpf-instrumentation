@@ -100,6 +100,10 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 	}
 
 	http := protocols[protocolHTTP]
+	redaction := schema.Redaction{
+		Names:       new(cloneStrings(cfg.Attributes.SensitiveQueryParams.Effective())),
+		Replacement: cfg.Attributes.SensitiveQueryParams.Replacement,
+	}
 	httpInstrumentation := schema.HTTPInstrumentation{
 		Enabled: schema.HTTPProtocolEnablement{
 			ProtocolEnablement: http.Enabled,
@@ -112,15 +116,15 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 		GoHTTPClientBufferTimeout: schema.Duration(cfg.EBPF.GoHTTPClientBufferTimeout),
 		BufferSize:                cfg.EBPF.BufferSizes.HTTP,
 		Routes:                    httpRoutes(cfg),
+		QueryParameters:           schema.HTTPQueryParameters{Redaction: &redaction},
 		PayloadExtraction:         payloadExtraction(cfg),
 	}
 
 	sql := protocols[protocolSQL]
 	sqlInstrumentation := schema.SQLInstrumentation{
-		Enabled:           sql.Enabled,
-		Filters:           sql.Filters,
-		HeuristicDetect:   cfg.EBPF.HeuristicSQLDetect,
-		SanitizeQueryText: cfg.Attributes.SanitizeSQLQueryText,
+		Enabled:         sql.Enabled,
+		Filters:         sql.Filters,
+		HeuristicDetect: cfg.EBPF.HeuristicSQLDetect,
 		MySQL: schema.SQLDatabaseInstrumentation{
 			BufferSize:                  cfg.EBPF.BufferSizes.MySQL,
 			PreparedStatementsCacheSize: cfg.EBPF.MySQLPreparedStatementsCacheSize,
@@ -191,6 +195,7 @@ func captureInstrumentation(cfg *obi.Config) schema.Instrumentation {
 	return schema.Instrumentation{
 		HTTP:      httpInstrumentation,
 		GRPC:      protocols[protocolGRPC],
+		DB:        schema.DBInstrumentation{SanitizeQueryText: cfg.Attributes.SanitizeDBQueryText},
 		SQL:       sqlInstrumentation,
 		Redis:     redisInstrumentation,
 		Kafka:     kafkaInstrumentation,
@@ -277,9 +282,12 @@ func protocolSelected(list []instrumentations.Instrumentation, mapping protocolM
 }
 
 func captureRuntimes(cfg *obi.Config) schema.CaptureRuntimes {
+	goChannelLinks := !cfg.EBPF.DisableGoChannelLinks
+
 	return schema.CaptureRuntimes{
-		Go: schema.Runtime{
-			Enabled: !cfg.Discovery.SkipGoSpecificTracers,
+		Go: schema.GoRuntime{
+			Enabled:      !cfg.Discovery.SkipGoSpecificTracers,
+			ChannelLinks: &goChannelLinks,
 		},
 		NodeJS: schema.Runtime{
 			Enabled: cfg.NodeJS.Enabled,

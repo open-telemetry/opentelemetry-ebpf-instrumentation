@@ -3,10 +3,14 @@ version: "3.8"
 services:
   curler:
     image: alpine/curl@sha256:e62df00da54d9b51ae83ecdf4ad84a4fc4bca3a91189f1d6eae84d5f46d3a9cc
+    # an external resolver is queried from this container, so every answer reaches the host
+    # interface OBI inspects; the host's caching resolver would only answer there once per TTL
+    dns:
+      - 8.8.8.8
     command:
       - sh
       - -c
-      - "while true; do curl -s https://github.com/; sleep 5; done"
+      - "while true; do curl -s https://github.com/; sleep 1; done"
 
   obi:
     build:
@@ -24,6 +28,7 @@ services:
     environment:
       OTEL_EBPF_CONFIG_PATH: /configs/obi-config-netolly.yml
       GOCOVERDIR: "/coverage"
+      OTEL_EBPF_BPF_WAKEUP_LEN: "1"
       OTEL_EBPF_NETWORK_METRICS: "true" # explicitly enabling network metrics
       OTEL_EBPF_METRICS_FEATURES: "network,stats" # stats also uses the eBPF reverse DNS
       OTEL_EBPF_NETWORK_PRINT_FLOWS: "true"

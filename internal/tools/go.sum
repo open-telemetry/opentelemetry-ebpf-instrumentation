@@ -1108,8 +1108,8 @@ mvdan.cc/unparam v0.0.0-20260823230713-2fa3d841b0c8/go.mod h1:MrS/+zJ1M2xvGXhKkt
 rsc.io/binaryregexp v0.2.0/go.mod h1:qTv7/COck+e2FymRvadv62gMdZztPaShugOCi3I+8D8=
 rsc.io/quote/v3 v3.1.0/go.mod h1:yEA65RcK8LyAZtP9Kv3t0HmxON59tX3rD+tICJqUlj0=
 rsc.io/sampler v1.3.0/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=
-sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.2 h1:53Y05LgEZ7qAr1bsdNTIcwgzEHQzHYUZkCDa3TqLdVg=
-sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.2/go.mod h1:q4i4kLTq6J6o29RUAQieHH8LS5knNkpgalnBhvrLp/8=
+sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.3 h1:6SzrgDmf8YueQ3IbX2cNQsg2Jkmy8FzP9dwWYYE7Vb8=
+sigs.k8s.io/controller-runtime/tools/setup-envtest v0.25.3/go.mod h1:q4i4kLTq6J6o29RUAQieHH8LS5knNkpgalnBhvrLp/8=
 sigs.k8s.io/kind v0.33.0 h1:AjvDv3vOygb/VKLVQW87lfktIBzkxR8Ump9DjxC8+Lk=
 sigs.k8s.io/kind v0.33.0/go.mod h1:FSqriGaoTPruiXWfRnUXNykF8r2t+fHtK0P0m1AbGF8=
 sigs.k8s.io/yaml v1.6.0 h1:G8fkbMSAFqgEFgh4b1wmtzDnioxFCUgTZhlbj5P9QYs=
