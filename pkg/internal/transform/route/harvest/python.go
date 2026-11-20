@@ -77,6 +77,9 @@ func extractPythonRoutes(ctx context.Context, dir string) (*RouteHarvesterResult
 	if err != nil {
 		return nil, fmt.Errorf("scan Python directory: %w", err)
 	}
+	if kind != CompleteRoutes && e.hasFalconRoutes && !e.hasPartialRoutes {
+		kind = CompleteRoutes
+	}
 
 	if err := resolveDjangoRoutes(ctx, dir, e.djangoRoutes, e.routes); err != nil {
 		return nil, err
@@ -153,8 +156,10 @@ func skipPythonDir(name string) bool {
 }
 
 type pythonExtractor struct {
-	routes       map[string]struct{}
-	djangoRoutes map[string][]djangoRoute
+	routes           map[string]struct{}
+	djangoRoutes     map[string][]djangoRoute
+	hasFalconRoutes  bool
+	hasPartialRoutes bool
 }
 
 func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
@@ -171,8 +176,17 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 	djangoLists := map[string]*djangoList{}
 	djangoAliases := map[string]string{}
 	hasDjangoPath := false
+	hasFalcon := false
 	scanStmt := func(text string) {
-		scanPythonStmt(text, e.routes)
+		if falconImportPattern.MatchString(text) {
+			hasFalcon = true
+		}
+		if startsFastAPI(text) || startsFlask(text) {
+			e.hasPartialRoutes = true
+		}
+		if scanPythonStmt(text, e.routes, hasFalcon) {
+			e.hasFalconRoutes = true
+		}
 		if match := djangoFromImportAliasPattern.FindStringSubmatch(text); match != nil {
 			djangoAliases[match[3]] = match[1] + "." + match[2]
 		} else if match := djangoImportAliasPattern.FindStringSubmatch(text); match != nil {
@@ -200,14 +214,14 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		line := strings.TrimSpace(scan.Text())
+		line := strings.TrimSpace(stripPythonComment(scan.Text()))
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 
 		if stmt.Len() == 0 {
 			depth = parenDelta(line)
-			startsStmt := startsFastAPI(line) || startsFlask(line) ||
+			startsStmt := startsFastAPI(line) || startsFlask(line) || hasFalcon && startsFalcon(line) ||
 				djangoImportStart.MatchString(line) ||
 				hasDjangoPath && (djangoPathStart.MatchString(line) || djangoI18nStart.MatchString(line) ||
 					djangoListAssignmentPattern.MatchString(line))
@@ -244,9 +258,39 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 	return ctx.Err()
 }
 
-func scanPythonStmt(stmt string, routes map[string]struct{}) {
+func scanPythonStmt(stmt string, routes map[string]struct{}, hasFalcon bool) bool {
 	scanFastAPI(stmt, routes)
 	scanFlask(stmt, routes)
+	if hasFalcon {
+		return scanFalcon(stmt, routes)
+	}
+	return false
+}
+
+// stripPythonComment removes a Python comment without changing quoted strings.
+func stripPythonComment(line string) string {
+	var quote byte
+	for i := 0; i < len(line); i++ {
+		ch := line[i]
+		if quote != 0 {
+			if ch == '\\' {
+				i++
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+
+		switch ch {
+		case '\'', '"':
+			quote = ch
+		case '#':
+			return line[:i]
+		}
+	}
+	return line
 }
 
 // parenDelta returns opening minus closing parentheses and square brackets on a
