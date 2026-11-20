@@ -305,6 +305,16 @@ func (gb *graphFunctions) buildGraph(ctx context.Context) (*Instrumenter, error)
 	// setting explicitly some configuration properties that are needed by their
 	// respective node providers
 
+	cfg := gb.config
+	if cfg.JoinMetricsConfig().Features.HTTPServerActiveRequests() &&
+		(cfg.Prometheus.EndpointEnabled() || cfg.OTELMetrics.EndpointEnabled()) {
+		reader, err := newActiveHTTPServerRequestReader(cfg, gb.ctxInfo.AppO11y.EBPFEventContext)
+		if err != nil {
+			return nil, err
+		}
+		gb.ctxInfo.AppO11y.VisitActiveHTTPServerRequests = reader
+	}
+
 	grp, err := gb.builder.Instance(ctx)
 	if err != nil {
 		return nil, err

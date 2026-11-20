@@ -94,7 +94,8 @@ type AppO11y struct {
 	// ReportRoutes sets whether the metrics should set the http.route attribute
 	ReportRoutes bool
 	// EBPFEventContext provides shared eBPF maps to application observability nodes.
-	EBPFEventContext *ebpfcommon.EBPFEventContext
+	EBPFEventContext              *ebpfcommon.EBPFEventContext
+	VisitActiveHTTPServerRequests func(visit func(*request.Span)) error
 }
 
 func NewEBPFReverseDNS(ctx context.Context, ebpfCfg *config.EBPFTracer, cfgs ...*rdns.ReverseDNS) *rdns.EBPFLookup {

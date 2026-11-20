@@ -326,6 +326,42 @@ func PrometheusEndpoint(
 	}
 }
 
+type httpServerActiveRequestsCollector struct {
+	desc    *prometheus.Desc
+	getters []attributes.Field[*request.Span, string]
+	read    func(func(*request.Span)) error
+}
+
+func (c *httpServerActiveRequestsCollector) Describe(ch chan<- *prometheus.Desc) {
+	ch <- c.desc
+}
+
+func (c *httpServerActiveRequestsCollector) Collect(ch chan<- prometheus.Metric) {
+	type series struct {
+		labels []string
+		count  int
+	}
+	counts := make(map[string]series)
+
+	err := c.read(func(span *request.Span) {
+		labels := labelValues(span, c.getters)
+		key := expire.LabelsKey(labels)
+
+		s := counts[key]
+		s.labels = labels
+		s.count++
+		counts[key] = s
+	})
+	if err != nil {
+		ch <- prometheus.NewInvalidMetric(c.desc, err)
+		return
+	}
+
+	for _, s := range counts {
+		ch <- prometheus.MustNewConstMetric(c.desc, prometheus.GaugeValue, float64(s.count), s.labels...)
+	}
+}
+
 func spanMetricsLatencyName(mp *perapp.GlobalMetricsConfig) string {
 	if mp.Features.LegacySpanMetrics() {
 		return SpanMetricsLatency
@@ -984,6 +1020,23 @@ func newReporter(
 
 	if !mr.cfg.DisableBuildInfo {
 		registeredMetrics = append(registeredMetrics, mr.obiInfo)
+	}
+
+	reader := ctxInfo.AppO11y.VisitActiveHTTPServerRequests
+	if is.HTTPEnabled() && jointMetricsConfig.Features.HTTPServerActiveRequests() && reader != nil {
+		getters := attributes.PrometheusGetters(
+			request.SpanPromGettersForHTTP(unresolved),
+			attrsProvider.For(attributes.HTTPServerActiveRequests),
+		)
+		registeredMetrics = append(registeredMetrics, &httpServerActiveRequestsCollector{
+			desc: prometheus.NewDesc(
+				attributes.HTTPServerActiveRequests.Prom,
+				"Number of active HTTP server requests.",
+				labelNames(getters), nil,
+			),
+			getters: getters,
+			read:    reader,
+		})
 	}
 
 	if jointMetricsConfig.Features.AppRED() {

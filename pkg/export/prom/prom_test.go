@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"regexp"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -184,6 +185,50 @@ func TestConnectionInfoRawIPRemainsDistinctDestination(t *testing.T) {
 		assert.Equal(t, address, labels[attr.Server.Prom()])
 		assert.Empty(t, labels[attr.ServerNamespace.Prom()])
 	}
+}
+
+func TestHTTPServerActiveRequestsOnScrape(t *testing.T) {
+	server := testutil.NewPrometheusServer(t)
+	ctxInfo := &global.ContextInfo{Prometheus: server.Manager}
+
+	var active atomic.Int64
+	ctxInfo.AppO11y.VisitActiveHTTPServerRequests = func(visit func(*request.Span)) error {
+		span := request.Span{Type: request.EventTypeHTTP, Method: "GET"}
+		for range active.Load() {
+			visit(&span)
+		}
+		return nil
+	}
+
+	name := attributes.HTTPServerActiveRequests
+	run, err := PrometheusEndpoint(
+		ctxInfo,
+		&PrometheusConfig{
+			Port:             server.Port,
+			Path:             "/metrics",
+			TTL:              time.Hour,
+			Instrumentations: []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
+		},
+		&perapp.GlobalMetricsConfig{Features: export.FeatureHTTPServerActiveRequests},
+		&attributes.SelectorConfig{SelectionCfg: attributes.Selection{
+			name.Section: {Include: []string{string(attr.HTTPRequestMethod)}},
+		}},
+		request.UnresolvedNames{},
+		msg.NewQueue[[]request.Span](), msg.NewQueue[exec.ProcessEvent](), nil,
+	)(t.Context())
+	require.NoError(t, err)
+	go run(t.Context())
+
+	labels := map[string]string{attr.HTTPRequestMethod.Prom(): "GET"}
+	for _, want := range []int64{2, 1} {
+		active.Store(want)
+		point := gatheredMetric(t, server, name.Prom, labels)
+		require.NotNil(t, point)
+		assert.InDelta(t, float64(want), point.GetGauge().GetValue(), 0)
+	}
+
+	active.Store(0)
+	assert.Nil(t, gatheredMetric(t, server, name.Prom, labels))
 }
 
 // application_red keeps the RED histograms while dropping the four Opt-In body size
