@@ -649,9 +649,16 @@ Each runtime has a simple structure: `enabled` (boolean) controls whether to att
 Java also includes additional runtime-specific configuration such as debug controls and attachment timeout.
 
 `capture.runtimes.go.channel_links` controls the Go channel probes (`runtime.chansend1`, `runtime.chanrecv1` and `runtime.chanrecv2`) that link spans across goroutines.
-The default is `true`. Set it to `false` to skip these probes when channel span links are unnecessary, for example when exporting only metrics.
+The probes only feed span links, so when the field is omitted they are attached only if spans can leave OBI:
+traces are exported (an OTLP traces exporter, the debug traces protocol, or an export function set by an embedder)
+or `daemon.logging.debug_trace_output` is enabled.
+Metrics-only setups therefore skip them, including configurations loaded from Config v1, which cannot set this field.
+In the Collector receiver the probes stay attached, as before, unless the field is set to `false`.
+Set it to `true` to always attach the probes, or to `false` to never attach them.
 These probes run on every channel send and receive, which can add notable kernel CPU to busy Go services.
 This field is available through Config v2 only and has no effect when Go runtime instrumentation is disabled.
+Embedders that run OBI through `instrumenter.Run`, `RunWithContextInfo` or `RunWithProtocolMetricSelection` with their own span queue (`instrumenter.OverrideAppExportQueue`) keep the probes unless the field is set.
+Embedders that consume spans through other paths should set it explicitly (in Go, `obi.Config.EBPF.GoChannelLinks`).
 
 Runtime `filter` fields are reserved by the schema but non-empty values are not
 supported by the current adapter; use capture rules for workload selection.

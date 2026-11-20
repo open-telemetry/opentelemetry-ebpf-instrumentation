@@ -518,6 +518,26 @@ func (c *Config) PopulateTraceContext() bool {
 		c.EBPF.LogEnricher.Enabled())
 }
 
+// GoChannelLinksEnabled reports whether the Go channel span-link probes should be attached.
+// An explicit capture.runtimes.go.channel_links value wins. When it is unset, the probes are
+// attached only if spans can leave OBI: traces are exported (Traces.Enabled: OTLP, the debug
+// protocol or an embedder TracesExport function) or the trace printer is enabled. The probes
+// only feed span links, so metrics-only setups skip them and their per-channel-operation cost.
+//
+// The result is for c as given. instrumenter.Run, RunWithContextInfo and
+// RunWithProtocolMetricSelection resolve an unset value to true on a run-local copy when an
+// embedder passes its own span queue with OverrideAppExportQueue. Embedders that consume spans
+// through other paths should set GoChannelLinks explicitly.
+func (c *Config) GoChannelLinksEnabled() bool {
+	if c == nil {
+		return false
+	}
+	if c.EBPF.GoChannelLinks != nil {
+		return *c.EBPF.GoChannelLinks
+	}
+	return c.Traces.Enabled() || c.TracePrinter.Enabled()
+}
+
 type HealthCheckConfig struct {
 	// 0 (default) means disabled
 	Port int `yaml:"port" env:"OTEL_EBPF_HEALTH_CHECK_PORT" validate:"gte=0,lte=65535"`

@@ -723,7 +723,7 @@ func TestProcessBinarySelectsRecordedChannelOffsetState(t *testing.T) {
 
 func TestGoChannelLinkProbesCanBeDisabled(t *testing.T) {
 	tracer := &Tracer{
-		cfg: &config.EBPFTracer{DisableGoChannelLinks: true},
+		disableGoChannelLinks: true,
 		goChannelOffsetsByExecutable: map[executableIdentity]bool{
 			{Ino: 1}: true,
 		},
@@ -731,6 +731,31 @@ func TestGoChannelLinkProbesCanBeDisabled(t *testing.T) {
 
 	tracer.ProcessBinary(exec.New(exec.Init{Ino: 1}))
 	assert.False(t, tracer.goChannelLinkProbesEnabled())
+}
+
+func TestNewResolvesGoChannelLinksFromTraceExport(t *testing.T) {
+	enabled := true
+	for _, test := range []struct {
+		name  string
+		setup func(*obi.Config)
+		want  bool
+	}{
+		{name: "metrics only", want: false},
+		{name: "traces exported", setup: func(c *obi.Config) { c.Traces.TracesEndpoint = "http://localhost:4318" }, want: true},
+		{name: "forced on", setup: func(c *obi.Config) { c.EBPF.GoChannelLinks = &enabled }, want: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := obi.DefaultConfig
+			if test.setup != nil {
+				test.setup(&cfg)
+			}
+			tracer := New(nil, &cfg, nil)
+			tracer.goChannelOffsetsByExecutable[executableIdentity{Ino: 1}] = true
+
+			tracer.ProcessBinary(exec.New(exec.Init{Ino: 1}))
+			assert.Equal(t, test.want, tracer.goChannelLinkProbesEnabled())
+		})
+	}
 }
 
 func TestGoAutoSDKActivationProbeGroupRequiresSpanContextOffsets(t *testing.T) {

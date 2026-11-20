@@ -583,7 +583,7 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 	cfg.EBPF.ContextPropagation = config.ContextPropagationAll
 	cfg.EBPF.OverrideBPFLoopEnabled = true
 	cfg.EBPF.DisableBlackBoxCP = true
-	cfg.EBPF.DisableGoChannelLinks = true
+	cfg.EBPF.GoChannelLinks = new(bool)
 	cfg.EBPF.PopulateTraceContext = true
 	cfg.EBPF.TCBackend = config.TCBackendTCX
 	cfg.EBPF.HighRequestVolume = true
@@ -733,7 +733,8 @@ func TestV2ToRuntimeCustomFoundation(t *testing.T) {
 
 	require.Equal(t, 8192, got.EBPF.StatsWakeupDataBytes)
 	require.Equal(t, config.ContextPropagationAll, got.EBPF.ContextPropagation)
-	require.True(t, got.EBPF.DisableGoChannelLinks)
+	require.NotNil(t, got.EBPF.GoChannelLinks)
+	require.False(t, *got.EBPF.GoChannelLinks)
 	require.Equal(t, config.TCBackendTCX, got.EBPF.TCBackend)
 	require.Equal(t, config.MapReaderLegacy, got.EBPF.ForceBPFMapReader)
 	require.Equal(t, 2, got.EBPF.MapsConfig.GlobalScaleFactor)
@@ -1586,7 +1587,8 @@ func TestV2ToRuntimePartialCaptureSectionsPreserveDefaults(t *testing.T) {
 
 	require.True(t, got.EBPF.BpfDebug)
 	require.Equal(t, "/host/sys/fs/cgroup", got.EBPF.CgroupFSPath)
-	require.True(t, got.EBPF.DisableGoChannelLinks)
+	require.NotNil(t, got.EBPF.GoChannelLinks)
+	require.False(t, *got.EBPF.GoChannelLinks)
 	require.Equal(t, obi.DefaultConfig.EBPF.BPFFSPath, got.EBPF.BPFFSPath)
 	require.Equal(t, obi.DefaultConfig.EBPF.WakeupLen, got.EBPF.WakeupLen)
 	require.Equal(t, obi.DefaultConfig.EBPF.BatchLength, got.EBPF.BatchLength)

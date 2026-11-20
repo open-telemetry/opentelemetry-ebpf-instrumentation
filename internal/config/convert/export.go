@@ -282,12 +282,17 @@ func protocolSelected(list []instrumentations.Instrumentation, mapping protocolM
 }
 
 func captureRuntimes(cfg *obi.Config) schema.CaptureRuntimes {
-	goChannelLinks := !cfg.EBPF.DisableGoChannelLinks
+	// nil (follow whether traces are exported or printed) stays omitted; explicit values round-trip
+	var goChannelLinks *bool
+	if cfg.EBPF.GoChannelLinks != nil {
+		goChannelLinks = new(bool)
+		*goChannelLinks = *cfg.EBPF.GoChannelLinks
+	}
 
 	return schema.CaptureRuntimes{
 		Go: schema.GoRuntime{
 			Enabled:      !cfg.Discovery.SkipGoSpecificTracers,
-			ChannelLinks: &goChannelLinks,
+			ChannelLinks: goChannelLinks,
 		},
 		NodeJS: schema.Runtime{
 			Enabled: cfg.NodeJS.Enabled,
