@@ -170,6 +170,11 @@ section empty once drained.
   per-bucket counts for the bounds that received executions only. Bucket values grow and new
   `le` series appear, and `histogram_quantile` over this metric now returns correct values.
   The OTLP `obi.bpf.probe.latency` histogram is unchanged.
+- `obi.stat.tcp.io` (`obi_stat_tcp_io_bytes_total` in Prometheus) counts the bytes sent by
+  sockets that context propagation tracks, which it missed before. Transmit values grow on
+  hosts with context propagation enabled, in both OTLP and Prometheus. Kernel TLS sends are
+  counted too, and on kernels before 6.5 every sendpage path: `sendfile()`, splice, and
+  in-kernel senders such as NFS, NVMe/TCP, iSCSI, Ceph and ESP-in-TCP.
 
 ## Hosting notes
 
