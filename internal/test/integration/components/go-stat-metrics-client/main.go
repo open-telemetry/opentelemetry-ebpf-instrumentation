@@ -13,6 +13,11 @@ import (
 )
 
 func main() {
+	// lets OBI instrument the client before its first connect
+	if delay, err := time.ParseDuration(os.Getenv("START_DELAY")); err == nil {
+		time.Sleep(delay)
+	}
+
 	counter := 1
 	address := os.Getenv("TARGET_ADDRESS")
 
