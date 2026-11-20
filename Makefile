@@ -133,7 +133,7 @@ fetch-upstream-semconv:
 .PHONY: fmt
 fmt:
 	@echo "### Formatting code and fixing imports"
-	golangci-lint fmt
+	mise run fmt
 
 .PHONY: clang-tidy
 clang-tidy:
