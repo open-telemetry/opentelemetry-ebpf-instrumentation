@@ -6,6 +6,7 @@ package prom
 import (
 	"context"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
@@ -640,4 +641,10 @@ func TestInternalProgramIDsComeFromFDInfo(t *testing.T) {
 	ids, complete = collector.programIDs()
 	assert.Empty(t, ids)
 	assert.False(t, complete, "a failed listing must not evict cached programs")
+
+	collector.fdinfoDir = fdinfoDir
+	require.NoError(t, os.Mkdir(filepath.Join(fdinfoDir, "5"), 0o700))
+	ids, complete = collector.programIDs()
+	assert.Empty(t, ids)
+	assert.False(t, complete, "an unreadable descriptor must not evict cached programs")
 }

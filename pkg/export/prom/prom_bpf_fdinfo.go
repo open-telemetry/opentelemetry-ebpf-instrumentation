@@ -4,6 +4,7 @@
 package prom // import "go.opentelemetry.io/obi/pkg/export/prom"
 
 import (
+	"errors"
 	"maps"
 	"os"
 	"path/filepath"
@@ -28,7 +29,10 @@ func ownedProgramIDs(fdinfoDir string) ([]ebpf.ProgramID, error) {
 	ids := make(map[ebpf.ProgramID]struct{})
 	for _, entry := range entries {
 		// The fdinfo of a program, and of a link, carries the program ID.
-		id, ok := fdinfoID(filepath.Join(fdinfoDir, entry.Name()), fdinfoProgramID)
+		id, ok, err := fdinfoID(filepath.Join(fdinfoDir, entry.Name()), fdinfoProgramID)
+		if err != nil {
+			return nil, err
+		}
 		if ok {
 			ids[ebpf.ProgramID(id)] = struct{}{}
 		}
@@ -37,11 +41,14 @@ func ownedProgramIDs(fdinfoDir string) ([]ebpf.ProgramID, error) {
 	return slices.Sorted(maps.Keys(ids)), nil
 }
 
-func fdinfoID(path, key string) (uint32, bool) {
+func fdinfoID(path, key string) (uint32, bool, error) {
 	content, err := os.ReadFile(path)
-	if err != nil {
+	if errors.Is(err, os.ErrNotExist) {
 		// A descriptor closed after its directory was read is skipped.
-		return 0, false
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, err
 	}
 
 	for line := range strings.Lines(string(content)) {
@@ -51,8 +58,8 @@ func fdinfoID(path, key string) (uint32, bool) {
 		}
 
 		id, err := strconv.ParseUint(strings.TrimSpace(value), 10, 32)
-		return uint32(id), err == nil
+		return uint32(id), err == nil, nil
 	}
 
-	return 0, false
+	return 0, false, nil
 }
