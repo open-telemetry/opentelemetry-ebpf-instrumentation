@@ -278,7 +278,7 @@ func (p *Tracer) constants(eventsRingBufSize uint32) map[string]any {
 
 	m["max_transaction_time"] = uint64(p.cfg.EBPF.MaxTransactionTime.Nanoseconds())
 
-	m["g_bpf_debug"] = p.cfg.EBPF.BpfDebug
+	m["g_bpf_debug"] = uint32(p.cfg.EBPF.DebugMode())
 	m["g_bpf_traceparent_enabled"] = p.cfg.EBPF.TrackRequestHeaders || p.cfg.EBPF.ContextPropagation.IsEnabled()
 	m["g_bpf_header_propagation"] = p.cfg.EBPF.ContextPropagation.HasHeaders()
 	canWriteHeaders := p.cfg.EBPF.ContextPropagation.HasHeaders() && !ebpfcommon.IntegrityModeOverride &&

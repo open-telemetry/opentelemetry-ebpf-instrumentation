@@ -11,6 +11,8 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	otelconfx "go.opentelemetry.io/contrib/otelconf/x"
+
+	"go.opentelemetry.io/obi/pkg/config"
 )
 
 func TestDocumentMarshalYAMLOmitsNullAdditionalProperties(t *testing.T) {
@@ -32,6 +34,19 @@ func TestDocumentMarshalYAMLOmitsNullAdditionalProperties(t *testing.T) {
 	data, err := yaml.Marshal(doc)
 	require.NoError(t, err)
 	require.NotContains(t, string(data), "additionalproperties")
+}
+
+func TestEngineDebugMarshalYAMLOmitsUnsetBPFMode(t *testing.T) {
+	t.Parallel()
+
+	data, err := yaml.Marshal(EngineDebug{})
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "bpf_mode")
+
+	mode := config.BPFDebugAll
+	data, err = yaml.Marshal(EngineDebug{BPFMode: &mode})
+	require.NoError(t, err)
+	require.Contains(t, string(data), "bpf_mode: all")
 }
 
 func TestParseStandaloneYAMLDocument(t *testing.T) {

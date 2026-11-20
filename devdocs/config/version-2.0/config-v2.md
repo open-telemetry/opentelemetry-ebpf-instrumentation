@@ -768,7 +768,7 @@ filtering and general attribute transformations with Collector processors.
 
 ### `capture.engine` Section
 
-The `capture.engine` section controls eBPF engine internals: event batching, PID-based filtering, BPF filesystem path, context propagation mode, traffic control backend, transaction duration limits, and debug toggles.
+The `capture.engine` section controls eBPF engine internals: event batching, PID-based filtering, BPF filesystem path, context propagation mode, traffic control backend, transaction duration limits, and debug toggles. Set `capture.engine.debug.bpf_mode` to `trace_pipe`, `userspace`, `all`, or `disabled` to select where BPF debug logs are emitted. The legacy `capture.engine.debug.bpf` boolean remains supported; do not set both fields. For Config v1 or environment-only configurations, `OTEL_EBPF_BPF_DEBUG_MODE` accepts the same mode values while `OTEL_EBPF_BPF_DEBUG` remains a boolean compatibility setting.
 
 `capture.engine.batching.wakeup_len` counts events in the application capture ring buffer.
 `capture.engine.batching.stats.wakeup_bytes` is a separate byte threshold for the network stats ring buffer; `0` wakes userspace on every event.
