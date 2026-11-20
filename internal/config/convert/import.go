@@ -138,6 +138,12 @@ func V2ToRuntime(src *schema.Extension) (*obi.Config, error) {
 		}
 	}
 
+	if cfg.NameResolver != nil && len(cfg.CloudMetadata.Route53.HostedZoneIDs) == 0 {
+		cfg.CloudMetadata.Route53.DiscoverHostedZones = slices.ContainsFunc(cfg.NameResolver.Sources, func(source transform.Source) bool {
+			return strings.EqualFold(string(source), string(transform.SourceRoute53))
+		})
+	}
+
 	return &cfg, nil
 }
 
