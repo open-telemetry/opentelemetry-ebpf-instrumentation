@@ -107,6 +107,38 @@ ENVTEST_K8S_VERSION ?= 1.30.0
 
 ### Development Tools (end) #################################################
 
+COMPAT_CHECKER := $(CURDIR)/.tools/compatcheck
+COMPAT_TARGET ?= HEAD
+COMPAT_TARGET_BPF ?=
+COMPAT_ARCH ?= amd64,arm64
+COMPAT_REPORT ?= testoutput/compatibility.json
+COMPAT_CACHE_DIR ?= testoutput/compatibility-cache
+COMPAT_RELEASE_VERSION ?=
+COMPAT_RELEASE_METADATA ?=
+
+# Keep command-line refs literal instead of evaluating them as Make expressions.
+override export COMPAT_TARGET := $(value COMPAT_TARGET)
+override export COMPAT_TARGET_BPF := $(value COMPAT_TARGET_BPF)
+override export COMPAT_ARCH := $(value COMPAT_ARCH)
+override export COMPAT_REPORT := $(value COMPAT_REPORT)
+override export COMPAT_CACHE_DIR := $(value COMPAT_CACHE_DIR)
+override export COMPAT_RELEASE_VERSION := $(value COMPAT_RELEASE_VERSION)
+override export COMPAT_RELEASE_METADATA := $(value COMPAT_RELEASE_METADATA)
+
+$(COMPAT_CHECKER): $(wildcard internal/tools/compatcheck/*.go) internal/tools/go.mod internal/tools/go.sum
+	@mkdir -p $(dir $@)
+	cd internal/tools && go build -o "$@" ./compatcheck
+
+# Compare the working tree, including local edits, with the target revision:
+#   make check-compat COMPAT_TARGET=upstream/main
+# Set COMPAT_RELEASE_VERSION=vX.Y.Z to assess a proposed release.
+.PHONY: check-compat
+check-compat: $(COMPAT_CHECKER)
+	"$(COMPAT_CHECKER)" --repo "$(CURDIR)" --target "$${COMPAT_TARGET}" \
+		--target-bpf "$${COMPAT_TARGET_BPF}" --arch "$${COMPAT_ARCH}" \
+		--report "$${COMPAT_REPORT}" --cache-dir "$${COMPAT_CACHE_DIR}" \
+		--release-version "$${COMPAT_RELEASE_VERSION}" --release-metadata "$${COMPAT_RELEASE_METADATA}"
+
 # Setting SHELL to bash allows bash commands to be executed by recipes.
 # This is a requirement for 'setup-envtest.sh' in the test target.
 # Options are set to exit when a recipe line exits non-zero or a piped command fails.
