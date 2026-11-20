@@ -115,11 +115,7 @@ int GUARDED_PROG(obi_rust_http1_headers_original, struct pt_regs *, ctx) {
     return 0;
 }
 
-// Shared return hook for both formatters: we publish the pending context for tpinjector
-// and append a missing traceparent before Hyper's final blank line.
-SEC("uretprobe/rust:http1_headers")
-int GUARDED_PROG(obi_rust_http1_headers_ret, struct pt_regs *, ctx) {
-    (void)ctx;
+static __always_inline int rust_http1_headers_return(bool use_bpf_loop) {
     const u64 id = bpf_get_current_pid_tgid();
     const rust_protocol_config_t *config = rust_protocol_config(id);
     const rust_http_args_t *saved = bpf_map_lookup_elem(&rust_http_args, &id);
@@ -170,10 +166,8 @@ int GUARDED_PROG(obi_rust_http1_headers_ret, struct pt_regs *, ctx) {
 
     if (args.request.forwarded) {
         if (g_bpf_probe_write_user_enabled && args.start_len <= len &&
-            rust_http1_rewrite_traceparent(ptr + args.start_len,
-                                           len - args.start_len,
-                                           &args.request.wire,
-                                           tp_char_buf_mem())) {
+            rust_http1_rewrite_traceparent(
+                ptr + args.start_len, len - args.start_len, &args.request.wire, use_bpf_loop)) {
             args.request.injection_result = k_rust_injection_succeeded;
             rust_save_request(id, &args.request);
             bpf_dbg_printk("rust forwarded h1 traceparent rewritten");
@@ -219,6 +213,20 @@ int GUARDED_PROG(obi_rust_http1_headers_ret, struct pt_regs *, ctx) {
         bpf_dbg_printk("rust payload write failed buffer=%llx err=%ld", args.buffer, result);
     }
     return 0;
+}
+
+// Publish ownership and append or rewrite traceparent after either Hyper formatter.
+SEC("uretprobe/rust:http1_headers")
+int GUARDED_PROG(obi_rust_http1_headers_ret, struct pt_regs *, ctx) {
+    (void)ctx;
+    return rust_http1_headers_return(true);
+}
+
+// A separate entry keeps bpf_loop callbacks out of older kernels' func_info.
+SEC("uretprobe/rust:http1_headers_legacy")
+int GUARDED_PROG(obi_rust_http1_headers_ret_legacy, struct pt_regs *, ctx) {
+    (void)ctx;
+    return rust_http1_headers_return(false);
 }
 
 // Find an application-supplied traceparent so injection can preserve it.

@@ -8,7 +8,10 @@ use tokio::net::TcpListener;
 use tokio::time::{sleep, Duration};
 
 fn outgoing_request(client: &reqwest::Client, url: &str) -> reqwest::RequestBuilder {
-    let request = client.get(url);
+    let mut request = client.get(url);
+    if let Ok(padding) = std::env::var("OBI_RUST_HEADER_PADDING") {
+        request = request.header("x-obi-padding", "x".repeat(padding.parse().unwrap()));
+    }
     if std::env::var_os("OBI_RUST_APP_HEADER").is_some() {
         let number = url.rsplit('/').next().unwrap().parse::<u64>().unwrap() + 1;
         request.header(

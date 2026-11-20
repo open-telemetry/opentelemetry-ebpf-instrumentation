@@ -7,13 +7,37 @@ package generictracer // import "go.opentelemetry.io/obi/pkg/internal/ebpf/gener
 
 import (
 	"io"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
+	ebpfcommon "go.opentelemetry.io/obi/pkg/ebpf/common"
 )
+
+func TestRustProbeKernelSupport(t *testing.T) {
+	spec, err := LoadBpf()
+	require.NoError(t, err)
+	expected := spec.Programs["obi_rust_http1_headers_ret"]
+	if !ebpfcommon.SupportsEBPFLoops(slog.Default(), false) {
+		expected = spec.Programs["obi_rust_http1_headers_ret_legacy"]
+	}
+	require.NotNil(t, expected)
+	ebpfcommon.FixupSpec(spec, false)
+	require.Same(t, expected, spec.Programs["obi_rust_http1_headers_ret"])
+	require.Equal(t, "obi_dummy", spec.Programs["obi_rust_http1_headers_ret_legacy"].Name)
+	probes := 0
+	for name, program := range spec.Programs {
+		if strings.HasPrefix(name, "obi_rust") && !strings.HasSuffix(name, "_legacy") {
+			probes++
+			require.NotEqual(t, "obi_dummy", program.Name, name)
+		}
+	}
+	require.Positive(t, probes)
+}
 
 func TestRustControllerDiscardsReplacedAttachment(t *testing.T) {
 	const pid = app.PID(42)

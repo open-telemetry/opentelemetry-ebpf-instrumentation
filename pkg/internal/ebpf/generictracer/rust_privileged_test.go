@@ -58,6 +58,10 @@ import (
 type rustTestReporter struct{ imetrics.NoopReporter }
 
 func TestRustContextPropagation(t *testing.T) {
+	if os.Getenv("OBI_RUST_TEST_HEADER_PADDING") != "" && os.Getenv("OBI_RUST_TEST_FORWARDED_APP_HEADER") != "" &&
+		!ebpfcommon.SupportsEBPFLoops(slog.Default(), false) {
+		t.Skip("large forwarded HTTP/1 headers require the bpf_loop scanner")
+	}
 	binary := os.Getenv("OBI_RUST_TEST_BINARY")
 	if binary == "" {
 		t.Skip("build components/rustcontext and set OBI_RUST_TEST_BINARY")
@@ -74,9 +78,18 @@ func TestRustContextPropagation(t *testing.T) {
 }
 
 func testRustContextPropagation(t *testing.T, binary string, currentThread bool) {
+	paddingBytes := 0
+	if padding := os.Getenv("OBI_RUST_TEST_HEADER_PADDING"); padding != "" {
+		var err error
+		paddingBytes, err = strconv.Atoi(padding)
+		require.NoError(t, err)
+	}
 	var connections atomic.Int32
 	var received sync.Map
 	var downstreamHandler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if paddingBytes != 0 && len(r.Header.Get("x-obi-padding")) != paddingBytes {
+			t.Errorf("expected %d bytes of header padding, got %d", paddingBytes, len(r.Header.Get("x-obi-padding")))
+		}
 		received.Store(r.URL.Path, r.Header.Values("traceparent"))
 		if (os.Getenv("OBI_RUST_TEST_H2") != "" || os.Getenv("OBI_RUST_TEST_H2C") != "") && r.ProtoMajor != 2 {
 			t.Errorf("expected HTTP/2, got %s", r.Proto)
@@ -119,6 +132,9 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 	}
 	if os.Getenv("OBI_RUST_TEST_APP_HEADER") != "" {
 		cmd.Env = append(cmd.Env, "OBI_RUST_APP_HEADER=1")
+	}
+	if padding := os.Getenv("OBI_RUST_TEST_HEADER_PADDING"); padding != "" {
+		cmd.Env = append(cmd.Env, "OBI_RUST_HEADER_PADDING="+padding)
 	}
 	if os.Getenv("OBI_RUST_TEST_H2C") != "" {
 		cmd.Env = append(cmd.Env, "OBI_RUST_H2C=1")

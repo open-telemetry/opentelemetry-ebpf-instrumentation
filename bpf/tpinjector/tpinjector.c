@@ -423,15 +423,6 @@ static __always_inline void set_tp_info_pid(const egress_key_t *e_key, const tp_
     bpf_map_update_elem(&outgoing_trace_map, e_key, tp_p, BPF_ANY);
 }
 
-static __always_inline void
-rust_socket_trace(const rust_http_request_t *request, u32 pid, tp_info_pid_t *trace) {
-    __builtin_memset(trace, 0, sizeof(*trace));
-    trace->tp = request->wire;
-    trace->pid = pid;
-    trace->valid = 1;
-    trace->req_type = k_event_type_http_client;
-}
-
 static __always_inline void clear_tp_info_pid(const egress_key_t *e_key) {
     bpf_map_delete_elem(&outgoing_trace_map, e_key);
 }
@@ -1342,9 +1333,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     if (is_http) {
         const rust_http_request_t *rust = rust_current_request(id);
         t_ctx->rust_forwarded = rust && rust->forwarded;
-        if (rust && inject_http_headers() &&
-            (rust->injection_result == k_rust_injection_succeeded ||
-             (rust->injection_result == k_rust_injection_application_owned && !rust->forwarded))) {
+        if (inject_http_headers() && rust_request_has_wire_context(rust)) {
             bpf_dbg_printk("rust h1 socket preserving owned header result=%u",
                            rust->injection_result);
             tp_info_pid_t *trace = tp_info_mem();

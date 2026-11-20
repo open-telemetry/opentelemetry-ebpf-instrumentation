@@ -4,6 +4,7 @@
 #pragma once
 
 #include <bpfcore/utils.h>
+#include <common/event_defs.h>
 #include <common/scratch_mem.h>
 #include <logger/bpf_dbg.h>
 
@@ -252,6 +253,25 @@ static __always_inline rust_http_request_t *rust_current_request(u64 id) {
     rust_http_request_t *request =
         rust_current_task(id, &task) ? bpf_map_lookup_elem(&rust_http1_requests, &task) : NULL;
     return request && !request->observed ? request : NULL;
+}
+
+static __always_inline bool rust_request_has_wire_context(const rust_http_request_t *request) {
+    if (!request) {
+        return false;
+    }
+    if (request->injection_result == k_rust_injection_succeeded) {
+        return true;
+    }
+    return request->injection_result == k_rust_injection_application_owned && !request->forwarded;
+}
+
+static __always_inline void
+rust_socket_trace(const rust_http_request_t *request, u32 pid, tp_info_pid_t *trace) {
+    __builtin_memset(trace, 0, sizeof(*trace));
+    trace->tp = request->wire;
+    trace->pid = pid;
+    trace->valid = 1;
+    trace->req_type = k_event_type_http_client;
 }
 
 // Marks the current HTTP/1 request as observed so later writes cannot reuse its ownership.

@@ -1060,6 +1060,19 @@ static __always_inline int __obi_continue_protocol_http(struct pt_regs *ctx,
         goto skip_tp;
     }
 
+    rust_http_request_t *rust = meta && meta->type == k_event_type_http_client
+                                    ? rust_current_request(bpf_get_current_pid_tgid())
+                                    : NULL;
+    // Rust has already checked the serialized header, which can exceed the capture buffer.
+    if (rust_request_has_wire_context(rust)) {
+        rust_socket_trace(rust, args->pid_conn.pid, tp_p);
+        info->parent_status =
+            rust->parent.valid ? parent_kind(&rust->parent) : k_parent_status_none;
+        commit_http_tp(args, meta, tp_p);
+        rust->observed = 1;
+        goto skip_tp;
+    }
+
     tp_p->tp.ts = bpf_ktime_get_ns();
     tp_p->tp.flags = 1;
     tp_p->valid = 1;
@@ -1079,7 +1092,9 @@ static __always_inline int __obi_continue_protocol_http(struct pt_regs *ctx,
             found_tp = find_trace_for_client_request(
                 &p_conn, args->orig_dport, args->lw_thread, &tp_p->tp);
             info->parent_status = found_tp;
-            rust_observe_request(bpf_get_current_pid_tgid());
+            if (rust) {
+                rust->observed = 1;
+            }
         } else {
             //bpf_dbg_printk("Looking up existing trace for connection");
             //dbg_print_http_connection_info(conn);
