@@ -78,6 +78,16 @@ func extractPythonRoutes(ctx context.Context, dir string) (*RouteHarvesterResult
 		return nil, fmt.Errorf("scan Python directory: %w", err)
 	}
 
+	if e.usesPyramid && len(e.pyramidRoutes) > 0 {
+		if len(e.routes) == 0 {
+			// partial matching would merge /users/{id} and /{slug}
+			kind = CompleteRoutes
+		}
+		for _, route := range e.pyramidRoutes {
+			e.routes[route] = struct{}{}
+		}
+	}
+
 	if err := resolveDjangoRoutes(ctx, dir, e.djangoRoutes, e.routes); err != nil {
 		return nil, err
 	}
@@ -153,8 +163,10 @@ func skipPythonDir(name string) bool {
 }
 
 type pythonExtractor struct {
-	routes       map[string]struct{}
-	djangoRoutes map[string][]djangoRoute
+	routes        map[string]struct{}
+	djangoRoutes  map[string][]djangoRoute
+	pyramidRoutes []string
+	usesPyramid   bool
 }
 
 func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
@@ -173,6 +185,10 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 	hasDjangoPath := false
 	scanStmt := func(text string) {
 		scanPythonStmt(text, e.routes)
+		if usesPyramid(text) {
+			e.usesPyramid = true
+		}
+		e.pyramidRoutes = append(e.pyramidRoutes, scanPyramid(text)...)
 		if match := djangoFromImportAliasPattern.FindStringSubmatch(text); match != nil {
 			djangoAliases[match[3]] = match[1] + "." + match[2]
 		} else if match := djangoImportAliasPattern.FindStringSubmatch(text); match != nil {
@@ -207,7 +223,7 @@ func (e *pythonExtractor) scanFile(ctx context.Context, path string) error {
 
 		if stmt.Len() == 0 {
 			depth = parenDelta(line)
-			startsStmt := startsFastAPI(line) || startsFlask(line) ||
+			startsStmt := startsFastAPI(line) || startsFlask(line) || startsPyramid(line) ||
 				djangoImportStart.MatchString(line) ||
 				hasDjangoPath && (djangoPathStart.MatchString(line) || djangoI18nStart.MatchString(line) ||
 					djangoListAssignmentPattern.MatchString(line))

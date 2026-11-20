@@ -167,6 +167,110 @@ urlpatterns = [
 	}
 }
 
+func TestExtractPythonPyramidRoutes(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
+from wsgiref.simple_server import make_server
+
+from pyramid.config import Configurator
+from pyramid.response import Response
+
+
+def user(request):
+    return Response("ok")
+
+
+with Configurator() as config:
+    config.add_route("user", "/users/{user_id}")
+    config.add_route(
+        "order",
+        pattern=r"/orders/{order_id:\d+}",
+    )
+    config.add_view(user, route_name="user")
+    config.include(".routes")
+    app = config.make_wsgi_app()
+make_server("127.0.0.1", 18105, app).serve_forever()
+`), 0o644))
+	// includeme modules usually don't import pyramid.
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "routes.py"), []byte(`
+def includeme(config):
+    config.add_route("static", "/static/*subpath")
+    config.add_route("item", "items/{item_id}")
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, CompleteRoutes, result.Kind)
+	assert.Equal(t, []string{"/items/{item_id}", "/orders/{order_id}", "/static/*", "/users/{user_id}"}, result.Routes)
+
+	matcher := RouteMatcherFromResult(*result)
+	for _, tc := range []struct {
+		path  string
+		route string
+	}{
+		{path: "/users/7", route: "/users/{user_id}"},
+		{path: "/orders/42", route: "/orders/{order_id}"},
+		{path: "/items/5", route: "/items/{item_id}"},
+		{path: "/static/css/app.css", route: "/static/*"},
+	} {
+		assert.Equal(t, tc.route, matcher.Find(tc.path), tc.path)
+	}
+}
+
+func TestExtractPythonPyramidRoutesAreNotCombined(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
+from pyramid.config import Configurator
+
+with Configurator() as config:
+    config.add_route("users", "/users")
+    config.add_route("user", "/users/{user_id}")
+    config.add_route("page", "/{slug}")
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir)
+
+	require.NoError(t, err)
+	matcher := RouteMatcherFromResult(*result)
+	assert.Equal(t, "/users/{user_id}", matcher.Find("/users/7"))
+	assert.Equal(t, "/{slug}", matcher.Find("/about"))
+	assert.Empty(t, matcher.Find("/users/7/extra"))
+}
+
+func TestExtractPythonPyramidRoutesWithFlaskRoutesStayPartial(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
+import pyramid
+
+config.add_route("user", "/users/{user_id}")
+`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "legacy.py"), []byte(`
+@bp.route("/legacy")
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir)
+
+	require.NoError(t, err)
+	assert.Equal(t, PartialRoutes, result.Kind)
+	assert.Equal(t, []string{"/legacy", "/users/{user_id}"}, result.Routes)
+}
+
+func TestExtractPythonPyramidRoutesRequirePyramidImport(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.py"), []byte(`
+import aiohttp
+
+app.router.add_route("GET", "users/{user_id}", handler)
+config.add_route("user", "/users/{user_id}")
+`), 0o644))
+
+	result, err := extractPythonRoutes(t.Context(), dir)
+
+	require.NoError(t, err)
+	assert.Empty(t, result.Routes)
+}
+
 func TestExtractPythonRoutesSkipsLargeFiles(t *testing.T) {
 	dir := t.TempDir()
 	data := strings.Repeat("# filler\n", int(maxPythonFileBytes/9)+1) + `@app.get("/large")`
