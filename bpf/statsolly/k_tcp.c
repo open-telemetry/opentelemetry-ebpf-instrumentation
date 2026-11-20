@@ -13,7 +13,9 @@
 
 #include <logger/bpf_dbg.h>
 
+#include <statsolly/abort_on_data.h>
 #include <statsolly/types.h>
+#include <statsolly/maps/closing_seg_rst.h>
 #include <statsolly/maps/stats_events.h>
 #include <statsolly/maps/sock_role.h>
 #include <statsolly/maps/tcp_sendmsg_sock.h>
@@ -193,5 +195,28 @@ int BPF_KPROBE(obi_stats_kprobe_tcp_cleanup_rbuf, struct sock *sk, int copied) {
     }
 
     accumulate_tcp_io(sk, direction_receive, (u32)copied);
+    return 0;
+}
+
+// every segment of a non-ESTABLISHED full socket, before tcp_reset() can run for it
+SEC("kprobe/tcp_rcv_state_process")
+int BPF_KPROBE(obi_stats_kprobe_tcp_rcv_state_process, struct sock *sk, struct sk_buff *skb) {
+    (void)ctx;
+
+    const u8 state = BPF_CORE_READ(sk, __sk_common.skc_state);
+    if (!tcp_abort_on_data_state(state)) {
+        return 0;
+    }
+
+    // filled before the socket processes the segment, also for backlog skbs
+    const struct tcp_skb_cb *cb = (const struct tcp_skb_cb *)skb->cb;
+    const u8 tcp_flags = BPF_CORE_READ(cb, tcp_flags);
+    if (!segment_can_reset(tcp_flags, BPF_CORE_READ(cb, seq), BPF_CORE_READ(cb, end_seq))) {
+        return 0;
+    }
+
+    const u8 rst = (tcp_flags & TCPHDR_RST) != 0;
+
+    bpf_map_update_elem(&closing_seg_rst, &sk, &rst, BPF_ANY);
     return 0;
 }
