@@ -49,6 +49,31 @@ func TestOwnedProgramIDsMissingDir(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestOwnedProgramIDsSkipsClosedDescriptors(t *testing.T) {
+	fdinfoDir := t.TempDir()
+	writeFDInfo(t, fdinfoDir, map[string]string{
+		"3": "pos:\t0\nflags:\t02000002\nprog_id:\t12\n",
+	})
+	require.NoError(t, os.Symlink(filepath.Join(fdinfoDir, "closed"), filepath.Join(fdinfoDir, "4")))
+
+	ids, err := ownedProgramIDs(fdinfoDir)
+
+	require.NoError(t, err)
+	require.Equal(t, []ebpf.ProgramID{12}, ids)
+}
+
+func TestOwnedProgramIDsFailsOnUnreadableDescriptor(t *testing.T) {
+	fdinfoDir := t.TempDir()
+	writeFDInfo(t, fdinfoDir, map[string]string{
+		"3": "pos:\t0\nflags:\t02000002\nprog_id:\t12\n",
+	})
+	require.NoError(t, os.Mkdir(filepath.Join(fdinfoDir, "4"), 0o700))
+
+	_, err := ownedProgramIDs(fdinfoDir)
+
+	require.Error(t, err)
+}
+
 func writeFDInfo(t *testing.T, dir string, files map[string]string) {
 	t.Helper()
 
