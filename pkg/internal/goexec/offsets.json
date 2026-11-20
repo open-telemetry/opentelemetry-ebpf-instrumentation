@@ -1673,6 +1673,18 @@
           }
         ]
       },
+      "Host": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.27.4"
+        },
+        "offsets": [
+          {
+            "offset": 128,
+            "since": "1.17.0"
+          }
+        ]
+      },
       "Method": {
         "versions": {
           "oldest": "1.17.0",
@@ -1705,6 +1717,18 @@
         "offsets": [
           {
             "offset": 48,
+            "since": "1.17.0"
+          }
+        ]
+      },
+      "TLS": {
+        "versions": {
+          "oldest": "1.17.0",
+          "newest": "1.27.4"
+        },
+        "offsets": [
+          {
+            "offset": 208,
             "since": "1.17.0"
           }
         ]

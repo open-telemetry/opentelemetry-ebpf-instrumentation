@@ -20,6 +20,9 @@
 #include <common/python_exception.h>
 #include <common/ringbuf_types.h>
 #include <common/sampler.h>
+#include <common/go_addr_key.h>
+
+#include <gotracer/types/nethttp.h>
 
 #include <pid/types/pid_filter.h>
 #include <pid/types/pid_info.h>
@@ -52,3 +55,5 @@ const process_event_t *unused_25 __attribute__((unused));
 const sampler_t *unused_26 __attribute__((unused));
 const pid_info_t *unused_27 __attribute__((unused));
 const python_exception_payload_t *unused_28 __attribute__((unused));
+const go_addr_key_t *unused_29 __attribute__((unused));
+const server_http_func_invocation_t *unused_30 __attribute__((unused));

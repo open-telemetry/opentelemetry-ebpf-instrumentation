@@ -43,6 +43,8 @@ typedef struct server_http_func_invocation {
     u8 proto_minor;
     // set when an exception capture saw this request's goroutine panic
     bool panicked;
+    pid_info_t pid;
+    unsigned char host[k_host_max_len];
     u8 _pad[4];
 } server_http_func_invocation_t;
 
