@@ -706,3 +706,34 @@ func TestOpenAIAPITypesMatchRegistry(t *testing.T) {
 
 	assert.Equal(t, declared, openAIAPITypes)
 }
+
+func TestIsOpenAIHTTP1Path(t *testing.T) {
+	for _, tt := range []struct {
+		path string
+		want bool
+	}{
+		{"/v1/chat/completions", true},
+		{"/v1/completions", true},
+		{"/v1/embeddings", true},
+		{"/v1/responses", true},
+		{"/v1/decisions", true},
+		{"", false},
+		{"/v1/models", false},
+		{"/v1/conversations", false},
+		{"/v1/chat/completions/", false},
+		{"/v1/chat/completions/extra", false},
+		{"/v1/chat/completions-extra", false},
+		{"/v1/completions/extra", false},
+		{"/v1/embeddings/extra", false},
+		{"/v1/responses/resp_123", false},
+		{"/v1/decisions/decision_123", false},
+		{"/prefix/v1/chat/completions", false},
+		{"/openai/deployments/model/chat/completions", false},
+		{"/v2/chat/completions", false},
+		{"/v1/Chat/completions", false},
+	} {
+		t.Run(tt.path, func(t *testing.T) {
+			assert.Equal(t, tt.want, isOpenAIHTTP1Path(tt.path))
+		})
+	}
+}
