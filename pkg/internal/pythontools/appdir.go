@@ -6,25 +6,62 @@ package pythontools // import "go.opentelemetry.io/obi/pkg/internal/pythontools"
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/internal/langtools"
 	"go.opentelemetry.io/obi/pkg/internal/pythontools/frameworks"
 )
 
-// AppDirForPID returns the local application directory for a Python process.
-func AppDirForPID(pid app.PID, env map[string]string) (string, error) {
+type AppDirs struct {
+	App         string
+	ImportRoots []string
+	Target      string
+}
+
+// AppDirsForPID returns the local application directory for a Python process,
+// the existing directories on its import path in the order Python searches
+// them, and the file of its launch target when it can be resolved.
+func AppDirsForPID(pid app.PID, env map[string]string) (AppDirs, error) {
 	exe, args, err := cmdlineForPID(pid)
 	if err != nil {
-		return "", fmt.Errorf("read Python command line: %w", err)
+		return AppDirs{}, fmt.Errorf("read Python command line: %w", err)
 	}
 	cwd, err := cwdForPID(pid)
 	if err != nil {
-		return "", fmt.Errorf("read Python working directory: %w", err)
+		return AppDirs{}, fmt.Errorf("read Python working directory: %w", err)
 	}
 
 	launch := parsePythonLaunch(exe, args, env)
-	return appDir(rootDirForPID(pid), cwd, launch)
+	root := rootDirForPID(pid)
+	dir, err := appDir(root, cwd, launch)
+	if err != nil {
+		return AppDirs{}, err
+	}
+	target, _, _ := resolveTargetPath(root, cwd, launch, env)
+	return AppDirs{
+		App:         dir,
+		ImportRoots: importRootDirs(root, cwd, importSearchPaths(cwd, launch, env)),
+		Target:      target,
+	}, nil
+}
+
+// importRootDirs resolves the import path entries that are directories. The
+// filesystem root is skipped: it holds far more than the application, and the
+// scan would spend its file limit on the system.
+func importRootDirs(root, cwd string, paths []string) []string {
+	var dirs []string
+	for _, entry := range paths {
+		if entry == string(filepath.Separator) {
+			continue
+		}
+		path, info, ok := langtools.StatProcessPath(root, cwd, entry)
+		if !ok || !info.IsDir() || slices.Contains(dirs, path) {
+			continue
+		}
+		dirs = append(dirs, path)
+	}
+	return dirs
 }
 
 func appDir(root, cwd string, launch frameworks.PythonLaunch) (string, error) {

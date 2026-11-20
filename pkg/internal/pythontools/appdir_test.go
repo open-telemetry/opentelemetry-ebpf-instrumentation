@@ -52,7 +52,7 @@ func TestAppDirDoesNotUseSearchPaths(t *testing.T) {
 	assert.Equal(t, filepath.Join(root, "work"), got)
 }
 
-func TestAppDirForPIDGunicornChdir(t *testing.T) {
+func TestAppDirsForPIDGunicornChdir(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	require.NoError(t, err)
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "srv", "app"), 0o755))
@@ -72,10 +72,10 @@ func TestAppDirForPIDGunicornChdir(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			fileInfo := mockPythonProcess(t, root, "python", append([]string{"/venv/bin/gunicorn"}, tt.args...), tt.env, "/srv/app")
 
-			got, err := AppDirForPID(fileInfo.Pid(), tt.env)
+			got, err := AppDirsForPID(fileInfo.Pid(), tt.env)
 
 			require.NoError(t, err)
-			assert.Equal(t, filepath.Join(root, "srv", "app"), got)
+			assert.Equal(t, filepath.Join(root, "srv", "app"), got.App)
 		})
 	}
 }
