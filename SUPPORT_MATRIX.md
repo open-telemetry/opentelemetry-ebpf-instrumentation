@@ -255,6 +255,7 @@ OBI currently documents the following asynchronous or runtime-specific context p
 | Java thread pool | Java | JDK `8+` | Parent lookup walks up to 3 thread-nesting levels | Stable |
 | Java virtual threads | Java | JDK `21+` | Log enrichment is skipped for requests handled on virtual threads | Stable |
 | Python asyncio | Python | GIL-enabled, 64-bit CPython `3.9` through `3.14` | Free-threaded builds are unsupported; `asyncio.start_server()` is not correlated under uvloop; mutated contexts and cancelled `to_thread` tasks may lose correlation | Stable |
+| Tokio tasks and Hyper request queues | Rust | rustc `1.97`–`1.100`; Tokio `1.51`–`1.54`; reqwest `0.10`–`0.13`; Hyper `1.9`–`1.12`, plus the Hyper versions used by older reqwest | Requires retained function symbols and a recorded compiler/library offset profile. Includes Rustls HTTPS and HTTP/2. Forwarded HTTP/1 header rewriting scans 16 KiB with `bpf_loop` (normally Linux `5.17+`), or 350 header positions on older kernels. See [Rust runtime](devdocs/runtimes/rust.md) | Experimental |
 
 ## Payload Capture
 
