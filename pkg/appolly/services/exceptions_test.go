@@ -26,3 +26,18 @@ func TestGoExceptionDefaultsAndOverrides(t *testing.T) {
 	require.True(t, inherited.Go.FormattedErrors)
 	require.True(t, defaults.Go.PanicsEnabled(), "overrides preserve defaults")
 }
+
+func TestPythonExceptionDefaultsAndOverrides(t *testing.T) {
+	yes, no := true, false
+	defaults := ExceptionsConfig{Enabled: true}
+	require.True(t, defaults.Python.IsEnabled())
+	disabled := (&ExceptionsOverride{Python: &PythonExceptionsConfig{Enabled: &no}}).Resolve(defaults)
+	require.True(t, disabled.Enabled)
+	require.False(t, disabled.Python.IsEnabled())
+	require.True(t, disabled.Go.PanicsEnabled())
+	require.True(t, defaults.Python.IsEnabled(), "overrides preserve defaults")
+	inherited := (&ExceptionsOverride{Python: &PythonExceptionsConfig{}}).Resolve(disabled)
+	require.False(t, inherited.Python.IsEnabled())
+	enabled := (&ExceptionsOverride{Python: &PythonExceptionsConfig{Enabled: &yes}}).Resolve(disabled)
+	require.True(t, enabled.Python.IsEnabled())
+}

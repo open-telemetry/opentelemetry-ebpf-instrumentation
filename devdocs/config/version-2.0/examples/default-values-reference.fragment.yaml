@@ -78,6 +78,8 @@ extensions:
         go:
           panics: true
           formatted_errors: false
+        python:
+          enabled: true
       # policy controls global rule evaluation behavior.
       policy:
         # Include by default unless matched by an exclude rule.
