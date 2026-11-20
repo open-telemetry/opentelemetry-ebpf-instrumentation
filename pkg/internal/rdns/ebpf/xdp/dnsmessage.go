@@ -3,9 +3,6 @@
 
 package xdp // import "go.opentelemetry.io/obi/pkg/internal/rdns/ebpf/xdp"
 
-// types here are mostly used for debugging purposes
-// TODO: consider removing some types and functions here to simplify the code, as they remain mostly unused
-
 type question struct {
 	qName  string
 	qType  uint16
@@ -21,51 +18,7 @@ type record struct {
 }
 
 type dnsMessage struct {
-	id      uint16
-	flagsHi uint8
-	flagsLo uint8
-
+	id        uint16
 	questions []*question
-
-	answers []*record
-}
-
-func getBit(word uint8, offset uint8) bool {
-	return ((word >> offset) & 0x1) == 1
-}
-
-func (d *dnsMessage) ID() uint16 {
-	return d.id
-}
-
-func (d *dnsMessage) IsQuery() bool {
-	return getBit(d.flagsHi, 7)
-}
-
-func (d *dnsMessage) Opcode() uint8 {
-	return (d.flagsHi >> 3) & 0xf
-}
-
-func (d *dnsMessage) AuthoritativeAnswer() bool {
-	return getBit(d.flagsHi, 2)
-}
-
-func (d *dnsMessage) Truncation() bool {
-	return getBit(d.flagsHi, 1)
-}
-
-func (d *dnsMessage) RecursionDesired() bool {
-	return getBit(d.flagsHi, 0)
-}
-
-func (d *dnsMessage) RecursionAvailable() bool {
-	return getBit(d.flagsLo, 7)
-}
-
-func (d *dnsMessage) Z() uint8 {
-	return (d.flagsLo >> 4) & 0x7
-}
-
-func (d *dnsMessage) RCode() uint8 {
-	return d.flagsLo & 0xf
+	answers   []*record
 }

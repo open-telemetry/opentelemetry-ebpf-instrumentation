@@ -58,8 +58,7 @@ func parseDNSMessage(rawData []byte) *dnsMessage {
 		return nil
 	}
 
-	r.flagsHi = readByte(data)
-	r.flagsLo = readByte(data)
+	_ = readWord(data)
 
 	if data.Len() < 4*wordSize {
 		return nil
