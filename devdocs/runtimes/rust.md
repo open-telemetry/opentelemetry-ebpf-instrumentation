@@ -47,12 +47,9 @@ If all decoded HTTP/2 dispatch hooks are absent, generic traces still extracts
 incoming stream headers. Those socket reads cannot assign an async parent to a
 particular handler, so clients started from these handlers remain root spans.
 
-Version detection first uses retained compiler comments and crate version paths.
-Fingerprints are collected from both ordinary release and build-time extraction binaries.
-These fingerprints depend on the dependency graph and enabled features, so they
-are a fallback for recognized builds. A rebuild can have an unrecorded fingerprint
-even when its library versions are recorded. In that case version metadata in
-the binary is required to select the affected layouts.
+Version detection uses retained compiler comments and crate version paths. When
+the compiler comment is missing, the standard library's source paths identify
+the compiler release.
 Unknown or conflicting identities disable only the dependent private layouts.
 For example, an unrecorded Rustls layout leaves validated HTTP and Tokio layouts
 available. An unavailable Hyper callback layout can use the Tokio queue-slot
@@ -85,16 +82,16 @@ make update-rust-offsets RUST_OFFSETS_FLAGS="--offline --work-dir /tmp/obi-rust-
 
 The updater reuses previous analysis results and merges new offsets without
 removing historical ones. Cargo lockfiles are generated in the work directory and
-reused for DWARF extraction, release builds, and both target architectures.
+reused for DWARF extraction and both target architectures.
 Analysis hashes include the resolved dependency graph so a changed graph triggers a
 new analysis. `--force` rebuilds cached combinations. `--refresh-locks` resolves
 dependencies again in the work directory. `--toolchains`,
 `--targets`, and repeated `--case` options select a subset. It extracts DWARF only
-from OBI's build-time fixtures and records crate identifiers from ordinary
-release builds too. The standalone inspector also accepts existing binaries:
+from OBI's build-time fixtures. The standalone inspector also accepts existing
+binaries:
 
 ```sh
-go run ./scripts/rust-offsets -binary /tmp/rustcontext-debug -symbols /tmp/rustcontext-release -output /tmp/rust-offsets.json
+go run ./scripts/rust-offsets -binary /tmp/rustcontext-debug -output /tmp/rust-offsets.json
 ```
 
 The scheduled [offset workflow](../../.github/workflows/update-offsets.yml)
@@ -105,7 +102,7 @@ compiler. Direct library versions are pinned in the manifest. The consolidated
 [dependency snapshot](../../configs/offsets/rust_dependencies.json) records each
 fixture's complete Cargo resolution, shared by generation and CI. The updater
 refreshes changed manifests automatically; use `--refresh-locks` to refresh
-transitive dependencies and regenerate their measured layouts and fingerprints.
+transitive dependencies and regenerate their measured layouts.
 
 ## Context ownership
 

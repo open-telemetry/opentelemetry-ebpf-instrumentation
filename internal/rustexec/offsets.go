@@ -12,7 +12,6 @@ import (
 	"errors"
 	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 )
 
@@ -89,8 +88,7 @@ type Profile struct {
 	Crates         map[string][]string
 	Config         Layouts
 	Channels       map[string]MessageLayout
-	CompilerCommit string                       `json:",omitempty"`
-	CrateSymbols   map[string]map[string]string `json:",omitempty"`
+	CompilerCommit string `json:",omitempty"`
 }
 
 type Database struct {
@@ -103,18 +101,16 @@ type Build struct {
 	Rustc          string
 	Crates         map[string][]string
 	CompilerCommit string
-	CrateIDs       map[string][]string
 }
 
 var (
 	rustCrateVersion    = regexp.MustCompile(`(?:^|[/\\ ])(tokio|reqwest|hyper|h2|rustls|http|bytes)-([0-9]+\.[0-9]+\.[0-9]+)[/\\]`)
 	rustCompilerVersion = regexp.MustCompile(`rustc version ([0-9]+\.[0-9]+\.[0-9]+) \(`)
 	rustCompilerCommit  = regexp.MustCompile(`[/\\]rustc[/\\]([0-9a-f]{40})[/\\]`)
-	rustCrateID         = regexp.MustCompile(`Cs[0-9A-Za-z]+_([0-9]+)(tokio|reqwest|hyper|h2|rustls|http|bytes)`)
 )
 
 func ReadBuild(f *elf.File) (Build, error) {
-	b := Build{Crates: map[string][]string{}, CrateIDs: map[string][]string{}}
+	b := Build{Crates: map[string][]string{}}
 	switch f.Machine {
 	case elf.EM_X86_64:
 		b.Arch = "amd64"
@@ -150,100 +146,21 @@ func ReadBuild(f *elf.File) (Build, error) {
 		}
 	}
 
-	symbols, err := f.Symbols()
-	if err != nil && !errors.Is(err, elf.ErrNoSymbols) {
-		return b, err
-	}
-
-	for _, symbol := range symbols {
-		if !strings.HasPrefix(symbol.Name, "_R") {
-			continue
-		}
-
-		for _, match := range rustCrateID.FindAllStringSubmatch(symbol.Name, -1) {
-			length, _ := strconv.Atoi(match[1])
-			name := match[2]
-			if length == len(name) && !slices.Contains(b.CrateIDs[name], match[0]) {
-				b.CrateIDs[name] = append(b.CrateIDs[name], match[0])
-			}
-		}
-	}
-
 	return b, nil
 }
 
+// InferBuild fills in a compiler version the binary's comment section omits.
+// Toolchain builds share one standard-library commit, so its source paths
+// identify the compiler of any binary built with that toolchain.
 func (d Database) InferBuild(build Build) Build {
-	if build.Rustc == "" && build.CompilerCommit != "" {
-		for _, profile := range d.Profiles {
-			if profile.Arch == build.Arch && profile.CompilerCommit == build.CompilerCommit {
-				build.Rustc = profile.Rustc
-				break
-			}
-		}
+	if build.Rustc != "" || build.CompilerCommit == "" {
+		return build
 	}
 
-	if build.Rustc == "" {
-		compilers := map[string]bool{}
-		for _, profile := range d.Profiles {
-			if profile.Arch != build.Arch {
-				continue
-			}
-
-			for name, ids := range build.CrateIDs {
-				for _, id := range ids {
-					if profile.CrateSymbols[name][id] != "" {
-						compilers[profile.Rustc] = true
-					}
-				}
-			}
-		}
-
-		if len(compilers) == 1 {
-			for compiler := range compilers {
-				build.Rustc = compiler
-			}
-		}
-	}
-
-	crates := make(map[string][]string, len(build.Crates))
-	for name, versions := range build.Crates {
-		crates[name] = slices.Clone(versions)
-	}
-
-	build.Crates = crates
-	for name, ids := range build.CrateIDs {
-		if len(build.Crates[name]) != 0 {
-			continue
-		}
-
-		var versions []string
-		complete := true
-		for _, id := range ids {
-			version := ""
-			for _, profile := range d.Profiles {
-				if profile.Arch != build.Arch || profile.Rustc != build.Rustc {
-					continue
-				}
-
-				candidate := profile.CrateSymbols[name][id]
-				if candidate != "" && version != "" && candidate != version {
-					complete = false
-				}
-
-				if candidate != "" {
-					version = candidate
-				}
-			}
-
-			if version == "" {
-				complete = false
-			} else if !slices.Contains(versions, version) {
-				versions = append(versions, version)
-			}
-		}
-
-		if complete {
-			build.Crates[name] = versions
+	for _, profile := range d.Profiles {
+		if profile.Arch == build.Arch && profile.CompilerCommit == build.CompilerCommit {
+			build.Rustc = profile.Rustc
+			break
 		}
 	}
 

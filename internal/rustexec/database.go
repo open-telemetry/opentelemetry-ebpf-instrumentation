@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // database.go builds and maintains the JSON offset database used by make update-offsets.
-// It combines DWARF measurements with release-binary crate fingerprints, merges
-// equivalent profiles, and writes database updates atomically.
+// It records DWARF measurements, merges equivalent profiles, and writes database
+// updates atomically.
 
 package rustexec // import "go.opentelemetry.io/obi/internal/rustexec"
 
@@ -13,7 +13,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -45,65 +44,10 @@ func Inspect(path string) (Profile, error) {
 		return Profile{}, fmt.Errorf("incomplete Rust offset fixture: %+v", build)
 	}
 
-	symbols := map[string]map[string]string{}
-	for name, ids := range build.CrateIDs {
-		if len(build.Crates[name]) != 1 {
-			continue
-		}
-
-		symbols[name] = map[string]string{}
-		for _, id := range ids {
-			symbols[name][id] = build.Crates[name][0]
-		}
-	}
-
 	return Profile{
 		Arch: build.Arch, Rustc: build.Rustc, Crates: build.Crates, Config: config, Channels: channels,
-		CompilerCommit: build.CompilerCommit, CrateSymbols: symbols,
+		CompilerCommit: build.CompilerCommit,
 	}, nil
-}
-
-func AddSymbols(profile *Profile, path string) error {
-	f, err := elf.Open(path)
-	if err != nil {
-		return err
-	}
-
-	defer f.Close()
-
-	build, err := ReadBuild(f)
-	if err != nil {
-		return err
-	}
-
-	if build.Arch != profile.Arch || build.Rustc != profile.Rustc {
-		return errors.New("release symbols and DWARF fixture have different compiler/architecture identities")
-	}
-
-	if profile.CrateSymbols == nil {
-		profile.CrateSymbols = map[string]map[string]string{}
-	}
-
-	for name, ids := range build.CrateIDs {
-		if len(build.Crates[name]) != 1 {
-			continue
-		}
-
-		version := build.Crates[name][0]
-		if !slices.Contains(profile.Crates[name], version) {
-			return fmt.Errorf("release symbols contain unexpected %s %s", name, version)
-		}
-
-		if profile.CrateSymbols[name] == nil {
-			profile.CrateSymbols[name] = map[string]string{}
-		}
-
-		for _, id := range ids {
-			profile.CrateSymbols[name][id] = version
-		}
-	}
-
-	return nil
 }
 
 func Load(path string) (Database, error) {
@@ -140,17 +84,6 @@ func (d *Database) Add(profile Profile) {
 
 		if old.CompilerCommit == "" {
 			old.CompilerCommit = profile.CompilerCommit
-		}
-
-		if old.CrateSymbols == nil {
-			old.CrateSymbols = map[string]map[string]string{}
-		}
-
-		for name, ids := range profile.CrateSymbols {
-			if old.CrateSymbols[name] == nil {
-				old.CrateSymbols[name] = map[string]string{}
-			}
-			maps.Copy(old.CrateSymbols[name], ids)
 		}
 
 		return

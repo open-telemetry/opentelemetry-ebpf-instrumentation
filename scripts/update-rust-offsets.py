@@ -85,8 +85,7 @@ def main():
                     continue
                 print("Generating " + key, flush=True)
                 binary = build(case, work, toolchain, target, offsets=True, offline=args.offline)
-                release = build(case, work, toolchain, target, offline=args.offline)
-                subprocess.run([str(inspector), "-binary", str(binary), "-symbols", str(release), "-output", str(args.output)], cwd=REPO, check=True)
+                subprocess.run([str(inspector), "-binary", str(binary), "-output", str(args.output)], cwd=REPO, check=True)
                 measured[key] = digest
                 database = json.loads(args.output.read_text())
                 database["measurements"] = measured

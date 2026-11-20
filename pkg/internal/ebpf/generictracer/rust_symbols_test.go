@@ -170,17 +170,11 @@ func TestRustReleaseIdentity(t *testing.T) {
 	}
 	var database rustexec.Database
 	require.NoError(t, json.Unmarshal(rustOffsetData, &database))
-	inferred := database.InferBuild(rustexec.Build{Arch: build.Arch, CompilerCommit: build.CompilerCommit, CrateIDs: build.CrateIDs})
+	inferred := database.InferBuild(rustexec.Build{Arch: build.Arch, CompilerCommit: build.CompilerCommit})
 	require.Equal(t, build.Rustc, inferred.Rustc)
 	for _, name := range []string{"tokio", "reqwest", "hyper"} {
 		if expected := os.Getenv("OBI_RUST_TEST_EXPECTED_" + strings.ToUpper(name)); expected != "" {
 			require.Contains(t, build.Crates[name], expected, name)
-			require.NotEmpty(t, build.CrateIDs[name], "%s must have retained crate symbols", name)
-		}
-	}
-	for name, versions := range build.Crates {
-		if len(versions) == 1 {
-			require.Equal(t, versions, inferred.Crates[name], "%s must be identifiable without Cargo source paths", name)
 		}
 	}
 }

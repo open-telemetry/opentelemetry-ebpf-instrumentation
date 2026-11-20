@@ -19,8 +19,7 @@ func sampleProfile() Profile {
 			"http": {"1.5.0"}, "bytes": {"1.12.1"}, "h2": {"0.4.20"}, "rustls": {"0.23.46"},
 			"tokio": {"1.54.1"}, "hyper": {"1.12.0"}, "reqwest": {"0.13.5"},
 		}, Config: Layouts{VecPtr: 8, VecLen: 16, HTTP1: 1, HTTP2: 1, Rustls: 1, H2StreamID: 280, TLSPlaintext: 80},
-		Channels:     map[string]MessageLayout{"Envelope<A>": {ListIndex: 16, SlotMask: 31, TxPointer: 272, RxPointer: 272}},
-		CrateSymbols: map[string]map[string]string{"tokio": {"CsKnown_5tokio": "1.54.1"}},
+		Channels: map[string]MessageLayout{"Envelope<A>": {ListIndex: 16, SlotMask: 31, TxPointer: 272, RxPointer: 272}},
 	}
 }
 
@@ -135,20 +134,10 @@ func TestUnavailableChannelLayouts(t *testing.T) {
 func TestVersionInference(t *testing.T) {
 	p := sampleProfile()
 	database := Database{Profiles: []Profile{p}}
-	build := Build{Arch: p.Arch, CompilerCommit: p.CompilerCommit, CrateIDs: map[string][]string{"tokio": {"CsKnown_5tokio"}}}
-	got := database.InferBuild(build)
-	require.Equal(t, p.Rustc, got.Rustc)
-	require.Equal(t, []string{"1.54.1"}, got.Crates["tokio"])
-	withoutComment := build
-	withoutComment.CompilerCommit = ""
-	require.Equal(t, p.Rustc, database.InferBuild(withoutComment).Rustc)
-	build.CrateIDs["tokio"] = append(build.CrateIDs["tokio"], "CsUnknown_5tokio")
-	require.Empty(t, database.InferBuild(build).Crates["tokio"], "partial fingerprint matches cannot identify an entire crate set")
-	other := sampleProfile()
-	other.CrateSymbols = map[string]map[string]string{"tokio": {"CsKnown_5tokio": "1.53.3"}}
-	database.Profiles = append(database.Profiles, other)
-	build.CrateIDs["tokio"] = []string{"CsKnown_5tokio"}
-	require.Empty(t, database.InferBuild(build).Crates["tokio"], "conflicting fingerprints must fail closed")
+	build := Build{Arch: p.Arch, CompilerCommit: p.CompilerCommit}
+	require.Equal(t, p.Rustc, database.InferBuild(build).Rustc)
+	build.CompilerCommit = "unrecorded-commit"
+	require.Empty(t, database.InferBuild(build).Rustc)
 }
 
 func TestDatabaseRoundTrip(t *testing.T) {
