@@ -65,7 +65,7 @@ jobs:
     needs: generate-bpf
     runs-on: ${{ matrix.platform.runner }}
     env:
-      MISE_ENABLE_TOOLS: go
+      MISE_ENABLE_TOOLS: go,golangci-lint
     strategy:
       fail-fast: false
       matrix:
@@ -148,7 +148,7 @@ jobs:
       - name: Set up mise tools
         uses: $/.github/actions/setup-mise
         env:
-          MISE_ENABLE_TOOLS: go
+          MISE_ENABLE_TOOLS: go,golangci-lint
         with:
           cache-downloads: "${{ inputs.ref == '' || inputs.ref == null }}"
 
