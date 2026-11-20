@@ -4,8 +4,13 @@
 package discover
 
 import (
+	"io"
 	"iter"
 	"log/slog"
+	"os"
+	osexec "os/exec"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -16,6 +21,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/ebpf"
 	"go.opentelemetry.io/obi/pkg/export"
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -415,128 +421,43 @@ func TestMakeServiceAttrs_FeaturesMatchingMultipleCriteria(t *testing.T) {
 	}
 }
 
-func TestFilterClassify_EventDeleted_EvictsInstrumentableCache(t *testing.T) {
-	instrumentableCache, _ := lru.New[cacheKey, instrumentedExecutable](100)
-
-	const testDev uint64 = 42
-	const testInode uint64 = 15
-	const testPID app.PID = 100
-
-	key := cacheKey{Dev: testDev, Ino: testInode}
-	instrumentableCache.Add(key, instrumentedExecutable{
-		Type: svc.InstrumentableGeneric,
-	})
-
-	fInfo := exec.New(exec.Init{
-		Pid:        testPID,
-		Dev:        testDev,
-		Ino:        testInode,
-		CmdExePath: "/usr/bin/version-b",
-	})
-
-	ty := typer{
-		cfg:                 &obi.Config{Routes: &transform.RoutesConfig{}},
-		log:                 slog.Default(),
-		currentPids:         map[app.PID]*exec.FileInfo{testPID: fInfo},
-		instrumentableCache: instrumentableCache,
+func TestClassificationAcrossRestarts(t *testing.T) {
+	ty := newRestartTestTyper(t)
+	original := findProcLanguage
+	defer func() { findProcLanguage = original }()
+	want := []svc.InstrumentableType{svc.InstrumentableGeneric, svc.InstrumentableDotnet, svc.InstrumentableGeneric}
+	calls := 0
+	findProcLanguage = func(pid app.PID) (svc.InstrumentableType, error) {
+		calls++
+		return want[int(pid)-1], nil
 	}
+	for i, lang := range want {
+		pid := app.PID(i + 1)
+		info := exec.New(exec.Init{Pid: pid, Dev: 42, Ino: 15, ChangeTime: 123, Service: svc.Attrs{LogEnricherEnabled: i%2 == 0}})
+		ty.currentPids[pid] = info
+		result := ty.asInstrumentable(info)
+		require.Same(t, info, result.FileInfo)
+		require.Equal(t, lang, result.Type)
+		require.NoError(t, result.InstrumentationError)
+		require.Equal(t, info.LogEnricherEnabled(), result.LogEnricherEnabled)
 
-	deleteEvents := []Event[ProcessMatch]{
-		{
-			Type: EventDeleted,
-			Obj:  ProcessMatch{Process: &services.ProcessInfo{Pid: testPID}},
-		},
+		deleted := ty.FilterClassify([]Event[ProcessMatch]{{Type: EventDeleted, Obj: ProcessMatch{Process: &services.ProcessInfo{Pid: pid}}}})
+		require.Len(t, deleted, 1)
+		require.Equal(t, EventDeleted, deleted[0].Type)
+		require.Same(t, info, deleted[0].Obj.FileInfo)
+		require.Empty(t, ty.currentPids)
 	}
-
-	out := ty.FilterClassify(deleteEvents)
-
-	require.Len(t, out, 1)
-	assert.Equal(t, EventDeleted, out[0].Type)
-	assert.Equal(t, fInfo, out[0].Obj.FileInfo)
-
-	_, cacheHit := instrumentableCache.Get(key)
-	assert.False(t, cacheHit,
-		"instrumentableCache should not contain a stale entry for dev:ino %v after the process owning it is deleted", key)
+	require.Equal(t, len(want), calls)
 }
 
-func TestAsInstrumentable_CachedPythonWorkerUsesParentServiceSource(t *testing.T) {
-	instrumentableCache, err := lru.New[cacheKey, instrumentedExecutable](100)
-	require.NoError(t, err)
-
-	parent := exec.New(exec.Init{
-		Pid: 100, Dev: 42, Ino: 15, CmdExePath: "/usr/bin/python",
-	})
-	worker := exec.New(exec.Init{
-		Pid: 101, Ppid: 100, Dev: 42, Ino: 15, CmdExePath: "/usr/bin/python",
-	})
-	instrumentableCache.Add(cacheKey{Dev: worker.Dev(), Ino: worker.Ino()}, instrumentedExecutable{
-		Type: svc.InstrumentablePython,
-	})
-	ty := typer{
-		log:                 slog.Default(),
-		currentPids:         map[app.PID]*exec.FileInfo{parent.Pid(): parent, worker.Pid(): worker},
-		instrumentableCache: instrumentableCache,
-	}
-
-	instrumentable := ty.asInstrumentable(worker)
-
-	assert.Same(t, worker, instrumentable.FileInfo)
-	assert.Same(t, parent, worker.RuntimeMetricServiceSource())
-	assert.Empty(t, instrumentable.ChildPids)
-}
-
-func TestAsInstrumentable_CachedPythonWorkerWalksAncestors(t *testing.T) {
-	instrumentableCache, err := lru.New[cacheKey, instrumentedExecutable](100)
-	require.NoError(t, err)
-
-	grandparent := exec.New(exec.Init{
-		Pid: 100, Dev: 42, Ino: 15, CmdExePath: "/usr/bin/python",
-	})
-	parent := exec.New(exec.Init{
-		Pid: 101, Ppid: 100, Dev: 42, Ino: 15, CmdExePath: "/usr/bin/python",
-	})
-	worker := exec.New(exec.Init{
-		Pid: 102, Ppid: 101, Dev: 42, Ino: 15, CmdExePath: "/usr/bin/python",
-	})
-	instrumentableCache.Add(cacheKey{Dev: worker.Dev(), Ino: worker.Ino()}, instrumentedExecutable{
-		Type: svc.InstrumentablePython,
-	})
-	ty := typer{
-		log: slog.Default(),
-		currentPids: map[app.PID]*exec.FileInfo{
-			grandparent.Pid(): grandparent,
-			parent.Pid():      parent,
-			worker.Pid():      worker,
-		},
-		instrumentableCache: instrumentableCache,
-	}
-
-	instrumentable := ty.asInstrumentable(worker)
-
-	assert.Same(t, worker, instrumentable.FileInfo)
-	assert.Same(t, grandparent, worker.RuntimeMetricServiceSource())
-	assert.Empty(t, instrumentable.ChildPids)
-
-	// Non-Python cached executables do not trigger ancestor wiring.
-	golangWorker := exec.New(exec.Init{
-		Pid: 202, Ppid: 101, Dev: 43, Ino: 16, CmdExePath: "/usr/bin/goapp",
-	})
-	instrumentableCache.Add(cacheKey{Dev: golangWorker.Dev(), Ino: golangWorker.Ino()}, instrumentedExecutable{
-		Type: svc.InstrumentableGolang,
-	})
-	golangInstrumentable := ty.asInstrumentable(golangWorker)
-	assert.Same(t, golangWorker, golangInstrumentable.FileInfo)
-	assert.Nil(t, golangWorker.RuntimeMetricServiceSource())
-}
-
-func TestAsInstrumentable_UncachedPythonWorkerPreservesLogEnricherEnabled(t *testing.T) {
+func TestAsInstrumentable_PythonWorkerPreservesLogEnricherEnabled(t *testing.T) {
 	origFindProcLanguage := findProcLanguage
-	findProcLanguage = func(_ app.PID) svc.InstrumentableType {
-		return svc.InstrumentablePython
+	findProcLanguage = func(_ app.PID) (svc.InstrumentableType, error) {
+		return svc.InstrumentablePython, nil
 	}
 	defer func() { findProcLanguage = origFindProcLanguage }()
 
-	instrumentableCache, err := lru.New[cacheKey, instrumentedExecutable](100)
+	goOffsetsCache, err := lru.New[cacheKey, *goexec.Offsets](100)
 	require.NoError(t, err)
 
 	master := exec.New(exec.Init{
@@ -557,7 +478,7 @@ func TestAsInstrumentable_UncachedPythonWorkerPreservesLogEnricherEnabled(t *tes
 			master.Pid(): master,
 			worker.Pid(): worker,
 		},
-		instrumentableCache: instrumentableCache,
+		goOffsetsCache: goOffsetsCache,
 	}
 
 	instrumentable := ty.asInstrumentable(worker)
@@ -566,6 +487,34 @@ func TestAsInstrumentable_UncachedPythonWorkerPreservesLogEnricherEnabled(t *tes
 	assert.Same(t, worker, instrumentable.FileInfo)
 	assert.Same(t, master, worker.RuntimeMetricServiceSource())
 	assert.True(t, instrumentable.LogEnricherEnabled)
+}
+
+func TestAsInstrumentable_InjectionUsesWorkerPID(t *testing.T) {
+	original := findProcLanguage
+	t.Cleanup(func() { findProcLanguage = original })
+
+	for _, typ := range []svc.InstrumentableType{svc.InstrumentableNodejs, svc.InstrumentableJava} {
+		t.Run(typ.String(), func(t *testing.T) {
+			findProcLanguage = func(app.PID) (svc.InstrumentableType, error) { return typ, nil }
+			parent := exec.New(exec.Init{Pid: 100, Dev: 42, Ino: 15, CmdExePath: "/opt/runtime"})
+			worker := exec.New(exec.Init{Pid: 101, Ppid: 100, Dev: 42, Ino: 15, CmdExePath: "/opt/runtime"})
+			cache, err := lru.New[cacheKey, *goexec.Offsets](100)
+			require.NoError(t, err)
+			ty := typer{
+				log:            slog.Default(),
+				cfg:            &obi.Config{},
+				currentPids:    map[app.PID]*exec.FileInfo{parent.Pid(): parent, worker.Pid(): worker},
+				goOffsetsCache: cache,
+			}
+
+			for _, process := range []*exec.FileInfo{parent, worker} {
+				got := ty.asInstrumentable(process)
+				assert.Equal(t, typ, got.Type)
+				assert.Same(t, process, got.FileInfo)
+				assert.Empty(t, got.ChildPids)
+			}
+		})
+	}
 }
 
 func TestMakeServiceAttrsExceptionSelection(t *testing.T) {
@@ -603,4 +552,152 @@ func TestSelectorExceptionsCompatibility(t *testing.T) {
 	assert.Nil(t, selectorExceptions(dummyCriterion{}))
 	override := &services.ExceptionsOverride{}
 	assert.Same(t, override, selectorExceptions(&services.GlobAttributes{Exceptions: override}))
+}
+
+func TestGoExecutableRestart(t *testing.T) {
+	if os.Getenv("OBI_TEST_WAIT_FOR_EXIT") == "1" {
+		_, err := io.Copy(io.Discard, os.Stdin)
+		require.NoError(t, err)
+		return
+	}
+	if runtime.GOOS != "linux" {
+		t.Skip("requires procfs")
+	}
+	self, err := os.Executable()
+	require.NoError(t, err)
+	source, err := os.Open(self)
+	require.NoError(t, err)
+	defer source.Close()
+	path := filepath.Join(t.TempDir(), "service")
+	target, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o700)
+	require.NoError(t, err)
+	_, err = io.Copy(target, source)
+	require.NoError(t, target.Close())
+	require.NoError(t, err)
+	ty := newRestartTestTyper(t)
+	inspect := func(t *testing.T) ebpf.Instrumentable {
+		t.Helper()
+		cmd := osexec.Command(path, "-test.run=^TestGoExecutableRestart$")
+		cmd.Env = append(os.Environ(), "OBI_TEST_WAIT_FOR_EXIT=1")
+		return classifyUntilExit(t, ty, cmd)
+	}
+	// A Go executable without a matching symbol must be inspected again.
+	functions := ty.allGoFunctions
+	ty.allGoFunctions = []string{"missing.probe"}
+	failed := inspect(t)
+	require.Equal(t, svc.InstrumentableGolang, failed.Type)
+	require.Error(t, failed.InstrumentationError)
+	require.Empty(t, ty.goOffsetsCache.Keys())
+
+	ty.allGoFunctions = functions
+	first := inspect(t)
+	require.NoError(t, first.InstrumentationError)
+	require.NotNil(t, first.Offsets)
+	restarted := inspect(t)
+	require.Same(t, first.Offsets, restarted.Offsets)
+	key := executableCacheKey(first.FileInfo)
+	require.Equal(t, key, executableCacheKey(restarted.FileInfo))
+	// A metadata change on the same inode must invalidate its offsets too.
+	require.NoError(t, os.Chmod(path, 0o500))
+	changed := inspect(t)
+	require.NoError(t, changed.InstrumentationError)
+	require.NotNil(t, changed.Offsets)
+	newKey := executableCacheKey(changed.FileInfo)
+	require.Equal(t, key.Dev, newKey.Dev)
+	require.Equal(t, key.Ino, newKey.Ino)
+	require.NotEqual(t, key.ChangeTime, newKey.ChangeTime)
+	require.NotSame(t, first.Offsets, changed.Offsets)
+
+	t.Run("proxy", func(t *testing.T) {
+		ty.goOffsetsCache.Purge()
+		ty.allGoFunctions = []string{"runtime.chansend1"}
+		original := findProcLanguage
+		t.Cleanup(func() { findProcLanguage = original })
+		var pids []app.PID
+		findProcLanguage = func(pid app.PID) (svc.InstrumentableType, error) {
+			pids = append(pids, pid)
+			return original(pid)
+		}
+
+		first := inspect(t)
+		require.Nil(t, first.Offsets)
+		require.ErrorContains(t, first.InstrumentationError, "identified as a Go proxy")
+		key := executableCacheKey(first.FileInfo)
+		offsets, ok := ty.goOffsetsCache.Peek(key)
+		require.True(t, ok)
+		require.Contains(t, offsets.Funcs, "runtime.chansend1")
+
+		restarted := inspect(t)
+		require.Equal(t, key, executableCacheKey(restarted.FileInfo))
+		require.Nil(t, restarted.Offsets)
+		require.ErrorContains(t, restarted.InstrumentationError, "identified as a Go proxy")
+		after, ok := ty.goOffsetsCache.Peek(key)
+		require.True(t, ok)
+		require.Same(t, offsets, after)
+		require.Equal(t, []app.PID{first.FileInfo.Pid(), restarted.FileInfo.Pid()}, pids)
+	})
+}
+
+func TestNativeExecutableRestart(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("requires procfs")
+	}
+	ty := newRestartTestTyper(t)
+	original := findProcLanguage
+	defer func() { findProcLanguage = original }()
+	calls := 0
+	findProcLanguage = func(pid app.PID) (svc.InstrumentableType, error) {
+		calls++
+		return original(pid)
+	}
+	for range 3 {
+		result := classifyUntilExit(t, ty, osexec.Command("cat"))
+		require.Equal(t, svc.InstrumentableGeneric, result.Type)
+		require.NoError(t, result.InstrumentationError)
+		require.Nil(t, result.Offsets)
+	}
+	require.Equal(t, 3, calls)
+}
+
+func newRestartTestTyper(t *testing.T) *typer {
+	t.Helper()
+	cache, err := lru.New[cacheKey, *goexec.Offsets](100)
+	require.NoError(t, err)
+	ty := &typer{
+		cfg:            &obi.DefaultConfig,
+		log:            slog.Default(),
+		currentPids:    map[app.PID]*exec.FileInfo{},
+		goOffsetsCache: cache,
+	}
+	ty.loadAllGoFunctionNames()
+	return ty
+}
+
+// The child waits for EOF so discovery can inspect the live executable.
+func classifyUntilExit(t *testing.T, ty *typer, cmd *osexec.Cmd) ebpf.Instrumentable {
+	t.Helper()
+	stdin, err := cmd.StdinPipe()
+	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
+	defer func() {
+		if cmd.ProcessState == nil {
+			_ = stdin.Close()
+			_ = cmd.Wait()
+		}
+	}()
+	match := ProcessMatch{
+		Process:             &services.ProcessInfo{Pid: app.PID(cmd.Process.Pid), ExePath: cmd.Path},
+		LogEnricherCriteria: []services.Selector{dummyCriterion{}},
+	}
+	created := ty.FilterClassify([]Event[ProcessMatch]{{Type: EventCreated, Obj: match}})
+	require.Len(t, created, 1)
+	result := created[0].Obj
+	defer result.FileInfo.ELF().Close()
+	require.True(t, result.LogEnricherEnabled)
+	require.NoError(t, stdin.Close())
+	require.NoError(t, cmd.Wait())
+	deleted := ty.FilterClassify([]Event[ProcessMatch]{{Type: EventDeleted, Obj: match}})
+	require.Len(t, deleted, 1)
+	require.Same(t, result.FileInfo, deleted[0].Obj.FileInfo)
+	return result
 }

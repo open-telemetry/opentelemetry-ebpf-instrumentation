@@ -7,17 +7,15 @@ import (
 	"log/slog"
 	"testing"
 
-	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/stretchr/testify/assert"
 
 	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
+	"go.opentelemetry.io/obi/pkg/internal/procs"
 )
 
 func newTestDecorator(ignoredPaths []string) *languageDecorator {
-	cache, _ := lru.New[cacheKey, svc.InstrumentableType](100)
 	return &languageDecorator{
-		typeCache:    cache,
 		log:          slog.With("component", "LanguageDecorator"),
 		ignoredPaths: ignoredPaths,
 	}
@@ -116,84 +114,21 @@ func TestDecorateEventIgnoredPath(t *testing.T) {
 	assert.Equal(t, svc.InstrumentableUnknown, ev.Obj.detectedType)
 }
 
-func TestDecorateEventCachesResult(t *testing.T) {
+func TestDecorateEventChecksEachPID(t *testing.T) {
 	ld := newTestDecorator(nil)
-
-	_findInodeForPID = func(pid app.PID) (uint64, uint64, error) {
-		if pid == 1 {
-			return 1, 12345, nil
-		}
-
-		return 0, 0, nil
-	}
-
-	_executableReady = func(pid app.PID) (string, bool) {
-		if pid == 1 {
-			return "/usr/bin/node", true
-		}
-
-		return "", false
-	}
-
-	defer func() {
-		_findInodeForPID = FindINodeForPID
+	_executableReady = func(app.PID) (string, bool) { return "/usr/bin/apphost", true }
+	t.Cleanup(func() {
 		_executableReady = ExecutableReady
-	}()
+		_findProcLanguage = procs.FindProcLanguage
+	})
 
-	// Pre-populate the cache with a known dev:inode -> type mapping
-	ld.typeCache.Add(cacheKey{Dev: 1, Ino: 12345}, svc.InstrumentablePython)
-
-	ev := Event[ProcessAttrs]{
-		Type: EventCreated,
-		Obj:  ProcessAttrs{pid: 1, detectedType: svc.InstrumentableUnknown},
+	want := []svc.InstrumentableType{svc.InstrumentableGeneric, svc.InstrumentableDotnet}
+	_findProcLanguage = func(pid app.PID) (svc.InstrumentableType, error) {
+		return want[int(pid)-1], nil
 	}
-
-	ld.decorateEvent(&ev)
-
-	assert.Equal(t, svc.InstrumentablePython, ev.Obj.detectedType)
-}
-
-func TestDecorateEventFirstTime(t *testing.T) {
-	ld := newTestDecorator(nil)
-
-	_findInodeForPID = func(pid app.PID) (uint64, uint64, error) {
-		if pid == 1 {
-			return 1, 12345, nil
-		}
-
-		return 0, 0, nil
+	for i, lang := range want {
+		ev := Event[ProcessAttrs]{Type: EventCreated, Obj: ProcessAttrs{pid: app.PID(i + 1)}}
+		ld.decorateEvent(&ev)
+		assert.Equal(t, lang, ev.Obj.detectedType)
 	}
-
-	_executableReady = func(pid app.PID) (string, bool) {
-		if pid == 1 {
-			return "/usr/bin/node", true
-		}
-
-		return "", false
-	}
-
-	_findProcLanguage = func(pid app.PID) svc.InstrumentableType {
-		if pid == 1 {
-			return svc.InstrumentablePython
-		}
-
-		return svc.InstrumentableUnknown
-	}
-
-	defer func() {
-		_findInodeForPID = FindINodeForPID
-		_executableReady = ExecutableReady
-	}()
-
-	ev := Event[ProcessAttrs]{
-		Type: EventCreated,
-		Obj:  ProcessAttrs{pid: 1, detectedType: svc.InstrumentableUnknown},
-	}
-
-	ld.decorateEvent(&ev)
-
-	assert.Equal(t, svc.InstrumentablePython, ev.Obj.detectedType)
-	// check that we cached the result
-	_, ok := ld.typeCache.Get(cacheKey{Dev: 1, Ino: 12345})
-	assert.True(t, ok)
 }

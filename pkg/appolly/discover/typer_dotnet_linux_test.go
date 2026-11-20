@@ -4,6 +4,7 @@
 package discover
 
 import (
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -18,6 +19,7 @@ import (
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/appolly/discover/exec"
 	"go.opentelemetry.io/obi/pkg/appolly/services"
+	"go.opentelemetry.io/obi/pkg/internal/goexec"
 	"go.opentelemetry.io/obi/pkg/obi"
 )
 
@@ -37,18 +39,18 @@ func TestAsInstrumentable_DotnetProcessLifecycle(t *testing.T) {
 			name = "child-first"
 		}
 		t.Run(name, func(t *testing.T) {
-			cache, err := lru.New[cacheKey, instrumentedExecutable](100)
+			cache, err := lru.New[cacheKey, *goexec.Offsets](100)
 			require.NoError(t, err)
 			parent := exec.New(exec.Init{
 				Pid: app.PID(os.Getpid()), StartTime: 10, Dev: 42, Ino: 15, CmdExePath: "/usr/bin/dotnet",
 			})
 			child := exec.New(exec.Init{
-				Pid: parent.Pid() + 1, Ppid: parent.Pid(), StartTime: 20, Dev: 42, Ino: 15, CmdExePath: "/usr/bin/dotnet",
+				Pid: 1 << 30, Ppid: parent.Pid(), StartTime: 20, Dev: 42, Ino: 15, CmdExePath: "/usr/bin/dotnet",
 			})
 			cfg := obi.DefaultConfig
 			cfg.Discovery.SkipGoSpecificTracers = true
 			ty := typer{
-				cfg: &cfg, log: slog.Default(), instrumentableCache: cache,
+				cfg: &cfg, log: slog.Default(), goOffsetsCache: cache,
 				currentPids: map[app.PID]*exec.FileInfo{parent.Pid(): parent, child.Pid(): child},
 			}
 			order := []*exec.FileInfo{parent, child}
@@ -75,5 +77,65 @@ func TestAsInstrumentable_DotnetProcessLifecycle(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestDotnetRuntimeMappingAfterRestart(t *testing.T) {
+	if mappingPath, child := os.LookupEnv("OBI_TEST_RUNTIME_MAPPING"); child {
+		if mappingPath != "" {
+			file, err := os.Open(mappingPath)
+			require.NoError(t, err)
+			defer file.Close()
+			mapping, err := unix.Mmap(int(file.Fd()), 0, os.Getpagesize(), unix.PROT_READ, unix.MAP_PRIVATE)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, unix.Munmap(mapping)) }()
+		}
+		_, err := os.Stdout.Write([]byte{'R'})
+		require.NoError(t, err)
+		_, err = io.Copy(io.Discard, os.Stdin)
+		require.NoError(t, err)
+		return
+	}
+	exe, err := os.Executable()
+	require.NoError(t, err)
+	runtimePath := filepath.Join(t.TempDir(), "libcoreclr.so")
+	require.NoError(t, os.WriteFile(runtimePath, make([]byte, os.Getpagesize()), 0o600))
+
+	ty := newRestartTestTyper(t)
+	cfg := *ty.cfg
+	cfg.Discovery.SkipGoSpecificTracers = true
+	ty.cfg = &cfg
+	ld := newTestDecorator(nil)
+	var key cacheKey
+	for i, tc := range []struct {
+		mapping string
+		lang    svc.InstrumentableType
+	}{
+		{"", svc.InstrumentableGolang},
+		{runtimePath, svc.InstrumentableDotnet},
+		{"", svc.InstrumentableGolang},
+	} {
+		t.Setenv("OBI_TEST_RUNTIME_MAPPING", tc.mapping)
+		child := startExecveRepro(t, exe, "-test.run=^TestDotnetRuntimeMappingAfterRestart$")
+		child.expect(t, 'R')
+		pid := app.PID(child.cmd.Process.Pid)
+		ev := Event[ProcessAttrs]{Type: EventCreated, Obj: ProcessAttrs{pid: pid}}
+		ld.decorateEvent(&ev)
+		require.Equal(t, tc.lang, ev.Obj.detectedType)
+		match := ProcessMatch{Process: &services.ProcessInfo{Pid: pid, ExePath: exe}}
+		created := ty.FilterClassify([]Event[ProcessMatch]{{Type: EventCreated, Obj: match}})
+		require.Len(t, created, 1)
+		got := created[0].Obj
+		t.Cleanup(func() { _ = got.FileInfo.ELF().Close() })
+		require.Equal(t, tc.lang, got.Type)
+		require.NoError(t, got.InstrumentationError)
+		if i == 0 {
+			key = executableCacheKey(got.FileInfo)
+		} else {
+			require.Equal(t, key, executableCacheKey(got.FileInfo))
+		}
+		require.NoError(t, child.stdin.Close())
+		require.NoError(t, child.wait())
+		require.Len(t, ty.FilterClassify([]Event[ProcessMatch]{{Type: EventDeleted, Obj: match}}), 1)
 	}
 }
