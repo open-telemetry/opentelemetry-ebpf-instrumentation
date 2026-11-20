@@ -39,13 +39,8 @@ func FindProcLanguage(pid app.PID) (svc.InstrumentableType, error) {
 	// before resorting to discovery by path or environment variables.
 	// For example, a Go application can be called 'node' and we must
 	// not identify this application as Node.js.
-	filePath, err := resolveProcBinary(pid)
-	if err != nil {
-		return svc.InstrumentableGeneric, err
-	}
-
-	t, elfErr := findLanguageFromElf(filePath)
-
+	exePath := fmt.Sprintf("/proc/%d/exe", pid)
+	t, elfErr := findLanguageFromElf(exePath)
 	if t != svc.InstrumentableGeneric {
 		return t, nil
 	}
@@ -57,6 +52,10 @@ func FindProcLanguage(pid app.PID) (svc.InstrumentableType, error) {
 		}
 	}
 
+	filePath, err := os.Readlink(exePath)
+	if err != nil {
+		return svc.InstrumentableGeneric, fmt.Errorf("failed to read process binary: %w", err)
+	}
 	t = instrumentableFromPath(filePath)
 	if t != svc.InstrumentableGeneric {
 		return t, nil
@@ -71,17 +70,6 @@ func FindProcLanguage(pid app.PID) (svc.InstrumentableType, error) {
 	}
 
 	return svc.InstrumentableGeneric, elfErr
-}
-
-func resolveProcBinary(pid app.PID) (string, error) {
-	exePath := fmt.Sprintf("/proc/%d/exe", pid)
-
-	realPath, err := os.Readlink(exePath)
-	if err != nil {
-		return "", fmt.Errorf("failed to read process binary: %w", err)
-	}
-
-	return fmt.Sprintf("/proc/%d/root%s", pid, realPath), nil
 }
 
 type elfLanguageKey struct {

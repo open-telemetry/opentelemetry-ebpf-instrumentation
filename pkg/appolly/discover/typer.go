@@ -347,7 +347,8 @@ func (t *typer) asInstrumentable(execElf *exec.FileInfo) ebpf.Instrumentable {
 	if detectedType == svc.InstrumentablePython {
 		lifecycle.SetRuntimeMetricServiceSource(execElf)
 	}
-	if detectedType == svc.InstrumentablePython || detectedType == svc.InstrumentableDotnet {
+	switch detectedType {
+	case svc.InstrumentablePython, svc.InstrumentableDotnet, svc.InstrumentableNodejs, svc.InstrumentableJava:
 		return ebpf.Instrumentable{
 			Type: detectedType, FileInfo: lifecycle, InstrumentationError: err,
 			LogEnricherEnabled: lifecycle.LogEnricherEnabled(),

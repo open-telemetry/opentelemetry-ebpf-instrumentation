@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
 
+	"go.opentelemetry.io/obi/pkg/appolly/app"
 	"go.opentelemetry.io/obi/pkg/appolly/app/svc"
 	"go.opentelemetry.io/obi/pkg/internal/fastelf"
 )
@@ -234,6 +235,38 @@ func TestFindLanguageFromElf_NonNodeExecutable(t *testing.T) {
 	lang, err := findLanguageFromElf(self)
 	require.NoError(t, err)
 	assert.NotEqual(t, svc.InstrumentableNodejs, lang)
+}
+
+func TestFindProcLanguageAfterExecutableReplacement(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "main.go")
+	path := filepath.Join(dir, "app")
+	require.NoError(t, os.WriteFile(source, []byte(`package main
+import (
+	"io"
+	"os"
+)
+func main() { _, _ = io.Copy(io.Discard, os.Stdin) }
+`), 0o600))
+	out, err := exec.Command("go", "build", "-o", path, source).CombinedOutput()
+	require.NoError(t, err, string(out))
+
+	cmd := exec.Command(path)
+	stdin, err := cmd.StdinPipe()
+	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		_ = stdin.Close()
+		assert.NoError(t, cmd.Wait())
+	})
+
+	replacement := filepath.Join(dir, "replacement")
+	require.NoError(t, os.WriteFile(replacement, []byte("replacement"), 0o700))
+	require.NoError(t, os.Rename(replacement, path))
+
+	lang, err := FindProcLanguage(app.PID(cmd.Process.Pid))
+	require.NoError(t, err)
+	require.Equal(t, svc.InstrumentableGolang, lang)
 }
 
 func TestFindLanguageFromElfMissing(t *testing.T) {

@@ -489,6 +489,34 @@ func TestAsInstrumentable_PythonWorkerPreservesLogEnricherEnabled(t *testing.T) 
 	assert.True(t, instrumentable.LogEnricherEnabled)
 }
 
+func TestAsInstrumentable_InjectionUsesWorkerPID(t *testing.T) {
+	original := findProcLanguage
+	t.Cleanup(func() { findProcLanguage = original })
+
+	for _, typ := range []svc.InstrumentableType{svc.InstrumentableNodejs, svc.InstrumentableJava} {
+		t.Run(typ.String(), func(t *testing.T) {
+			findProcLanguage = func(app.PID) (svc.InstrumentableType, error) { return typ, nil }
+			parent := exec.New(exec.Init{Pid: 100, Dev: 42, Ino: 15, CmdExePath: "/opt/runtime"})
+			worker := exec.New(exec.Init{Pid: 101, Ppid: 100, Dev: 42, Ino: 15, CmdExePath: "/opt/runtime"})
+			cache, err := lru.New[cacheKey, *goexec.Offsets](100)
+			require.NoError(t, err)
+			ty := typer{
+				log:            slog.Default(),
+				cfg:            &obi.Config{},
+				currentPids:    map[app.PID]*exec.FileInfo{parent.Pid(): parent, worker.Pid(): worker},
+				goOffsetsCache: cache,
+			}
+
+			for _, process := range []*exec.FileInfo{parent, worker} {
+				got := ty.asInstrumentable(process)
+				assert.Equal(t, typ, got.Type)
+				assert.Same(t, process, got.FileInfo)
+				assert.Empty(t, got.ChildPids)
+			}
+		})
+	}
+}
+
 func TestMakeServiceAttrsExceptionSelection(t *testing.T) {
 	enabled, disabled := true, false
 	cfg := obi.DefaultConfig
