@@ -286,6 +286,9 @@ func generateTracesWithAttributes(
 	addAttrsToMap(extraResAttrs, resourceAttrsMap)
 	resourceAttrsMap.MoveTo(rs.Resource().Attributes())
 
+	var ss ptrace.ScopeSpans
+	hasScope := false
+
 	for _, spanWithAttributes := range spans {
 		span := spanWithAttributes.Span
 		attrs := spanWithAttributes.Attributes
@@ -297,10 +300,13 @@ func generateTracesWithAttributes(
 			continue
 		}
 
-		ss := rs.ScopeSpans().AppendEmpty()
-		ss.SetSchemaUrl(attr.OBISchemaURL)
-		ss.Scope().SetName(reporterName)
-		ss.Scope().SetVersion(attr.TelemetryDistroVersion())
+		if !hasScope {
+			ss = rs.ScopeSpans().AppendEmpty()
+			ss.SetSchemaUrl(attr.OBISchemaURL)
+			ss.Scope().SetName(reporterName)
+			ss.Scope().SetVersion(attr.TelemetryDistroVersion())
+			hasScope = true
+		}
 
 		t := span.Timings()
 		start := spanStartTime(t)
@@ -501,18 +507,19 @@ func AttrsToMap(attrs []attribute.KeyValue) pcommon.Map {
 func addAttrsToMap(attrs []attribute.KeyValue, dst pcommon.Map) {
 	dst.EnsureCapacity(dst.Len() + len(attrs))
 	for _, attr := range attrs {
-		switch v := attr.Value.AsInterface().(type) {
-		case string:
-			dst.PutStr(string(attr.Key), v)
-		case int64:
-			dst.PutInt(string(attr.Key), v)
-		case float64:
-			dst.PutDouble(string(attr.Key), v)
-		case bool:
-			dst.PutBool(string(attr.Key), v)
-		case []string:
-			s := dst.PutEmptySlice(string(attr.Key))
-			for _, val := range v {
+		key := string(attr.Key)
+		switch attr.Value.Type() {
+		case attribute.STRING:
+			dst.PutStr(key, attr.Value.AsString())
+		case attribute.INT64:
+			dst.PutInt(key, attr.Value.AsInt64())
+		case attribute.FLOAT64:
+			dst.PutDouble(key, attr.Value.AsFloat64())
+		case attribute.BOOL:
+			dst.PutBool(key, attr.Value.AsBool())
+		case attribute.STRINGSLICE:
+			s := dst.PutEmptySlice(key)
+			for _, val := range attr.Value.AsStringSlice() {
 				s.AppendEmpty().SetStr(val)
 			}
 		}
@@ -853,15 +860,16 @@ func appendPeerService(attrs []attribute.KeyValue, span *request.Span, optionalA
 	return appendIfSet(attrs, request.PeerService, request.PeerServiceFromSpan(span))
 }
 
+// httpSpanAttrsCap is enough for the attributes of a typical HTTP span.
+const httpSpanAttrsCap = 16
+
 //nolint:cyclop
 func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.Name]struct{}, redactSet map[string]struct{}, sanitizeDBQueryText bool, replacement string) []attribute.KeyValue {
 	var attrs []attribute.KeyValue
 
 	switch span.Type {
 	case request.EventTypeHTTP:
-		attrs = []attribute.KeyValue{
-			request.ServerPort(span.HostPort),
-		}
+		attrs = append(make([]attribute.KeyValue, 0, httpSpanAttrsCap), request.ServerPort(span.HostPort))
 		attrs = appendIfSet(attrs, request.ClientAddr, request.PeerAsClient(span))
 		host := request.HostWithoutPort(request.HostFromSchemeHost(span))
 
@@ -953,9 +961,7 @@ func traceAttributesSelectorInternal(span *request.Span, optionalAttrs map[attr.
 
 		transport := httpClientTransportScope(span.SubType)
 
-		attrs = []attribute.KeyValue{
-			request.ServerPort(span.HostPort),
-		}
+		attrs = append(make([]attribute.KeyValue, 0, httpSpanAttrsCap), request.ServerPort(span.HostPort))
 		attrs = appendIfSet(attrs, request.ServerAddr, request.HostWithoutPort(host))
 		attrs = appendPeerService(attrs, span, optionalAttrs)
 
