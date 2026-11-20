@@ -1,12 +1,15 @@
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// offsets_test.go checks version inference, partial layout selection, channel
-// fallback identities, profile deduplication, and JSON database round trips.
+// offsets_test.go checks version detection and inference, partial layout
+// selection, channel fallback identities, profile deduplication, and JSON
+// database round trips.
 
 package rustexec
 
 import (
+	"bytes"
+	"compress/zlib"
 	"path/filepath"
 	"testing"
 
@@ -138,6 +141,45 @@ func TestVersionInference(t *testing.T) {
 	require.Equal(t, p.Rustc, database.InferBuild(build).Rustc)
 	build.CompilerCommit = "unrecorded-commit"
 	require.Empty(t, database.InferBuild(build).Rustc)
+}
+
+func TestCrateVersionPaths(t *testing.T) {
+	crates := map[string][]string{}
+	// Rust packs string literals without separators
+	addPathCrateVersions(crates, []byte(
+		"/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tokio-1.54.1/src/runtime/park.rs"+
+			"external/crates__h2-0.4.20/src/proto/streams/send.rs"+
+			"external/rules_rust++crate+crates__hyper-1.12.0/src/client/conn/http1.rs"+
+			"external/crates__lambda_http-0.13.0/src/lib.rs"+
+			"vendor/tower-http-0.6.2/src/lib.rs"))
+	require.Equal(t, map[string][]string{"tokio": {"1.54.1"}, "h2": {"0.4.20"}, "hyper": {"1.12.0"}}, crates)
+}
+
+func TestAuditableCrateVersions(t *testing.T) {
+	list := `{"format":1,"packages":[
+		{"name":"app","version":"0.1.0","source":"local","root":true,"dependencies":[1,2,3,4,5,6]},
+		{"name":"tokio","version":"1.54.1","source":"crates.io"},
+		{"name":"http","version":"1.3.1","source":"registry","kind":"runtime"},
+		{"name":"bytes","version":"1.10.1","source":"crates.io","kind":"build"},
+		{"name":"hyper","version":"1.12.0","source":"git"},
+		{"name":"rustls","version":"0.23.46","source":{"Other":"sparse+https://example.com/"}},
+		{"name":"serde","version":"1.0.219","source":"crates.io"}]}`
+	crates := map[string][]string{"tokio": {"1.54.1"}}
+	require.NoError(t, addAuditableCrateVersions(crates, zlibCompress(t, []byte(list))))
+	require.Equal(t, map[string][]string{"tokio": {"1.54.1"}, "http": {"1.3.1"}}, crates)
+
+	oversized := append([]byte(`{"packages":[]}`), bytes.Repeat([]byte(" "), rustAuditableMaxBytes)...)
+	require.ErrorContains(t, addAuditableCrateVersions(crates, zlibCompress(t, oversized)), "size limit")
+	require.Error(t, addAuditableCrateVersions(crates, []byte("not zlib")))
+}
+
+func zlibCompress(t *testing.T, data []byte) []byte {
+	var compressed bytes.Buffer
+	writer := zlib.NewWriter(&compressed)
+	_, err := writer.Write(data)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	return compressed.Bytes()
 }
 
 func TestDatabaseRoundTrip(t *testing.T) {

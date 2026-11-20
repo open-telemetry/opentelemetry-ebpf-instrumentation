@@ -2,14 +2,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // offsets.go defines the build identities, offset profiles, and database schema.
-// It identifies compiler and crate versions from ELF metadata and symbols, using
-// recorded fingerprints when version strings are unavailable.
+// It identifies compiler and crate versions from ELF metadata: compiler comments,
+// source paths, and cargo-auditable dependency lists.
 
 package rustexec // import "go.opentelemetry.io/obi/internal/rustexec"
 
 import (
+	"bytes"
+	"compress/zlib"
 	"debug/elf"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"regexp"
 	"slices"
 	"strings"
@@ -103,11 +108,31 @@ type Build struct {
 	CompilerCommit string
 }
 
+// cargo-auditable's embedded dependency list, see
+// https://github.com/rust-secure-code/cargo-auditable/blob/master/PARSING.md
+const (
+	rustAuditableSection = ".dep-v0"
+	// the decompressed size limit PARSING.md recommends against zip bombs
+	rustAuditableMaxBytes = 8 << 20
+)
+
 var (
-	rustCrateVersion    = regexp.MustCompile(`(?:^|[/\\ ])(tokio|reqwest|hyper|h2|rustls|http|bytes)-([0-9]+\.[0-9]+\.[0-9]+)[/\\]`)
+	rustTrackedCrates = []string{"tokio", "reqwest", "hyper", "h2", "rustls", "http", "bytes"}
+	// Cargo registry and vendor directories follow a separator, Bazel rules_rust
+	// repositories are named <hub>__<crate>-<version>
+	rustCrateVersion = regexp.MustCompile(
+		`(?:^|[/\\ ]|__)(` + strings.Join(rustTrackedCrates, "|") + `)-([0-9]+\.[0-9]+\.[0-9]+)[/\\]`)
 	rustCompilerVersion = regexp.MustCompile(`rustc version ([0-9]+\.[0-9]+\.[0-9]+) \(`)
 	rustCompilerCommit  = regexp.MustCompile(`[/\\]rustc[/\\]([0-9a-f]{40})[/\\]`)
 )
+
+type rustAuditablePackage struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	// a string, or an {"Other": ...} object for unrecognized sources
+	Source json.RawMessage `json:"source"`
+	Kind   string          `json:"kind"`
+}
 
 func ReadBuild(f *elf.File) (Build, error) {
 	b := Build{Crates: map[string][]string{}}
@@ -121,6 +146,19 @@ func ReadBuild(f *elf.File) (Build, error) {
 	}
 
 	for _, section := range f.Sections {
+		if section.Name == rustAuditableSection {
+			data, err := section.Data()
+			if err != nil {
+				return b, err
+			}
+
+			if err := addAuditableCrateVersions(b.Crates, data); err != nil {
+				return b, fmt.Errorf("reading %s: %w", rustAuditableSection, err)
+			}
+
+			continue
+		}
+
 		if section.Name != ".comment" && !strings.HasPrefix(section.Name, ".rodata") {
 			continue
 		}
@@ -138,15 +176,64 @@ func ReadBuild(f *elf.File) (Build, error) {
 			b.CompilerCommit = string(commit[1])
 		}
 
-		for _, match := range rustCrateVersion.FindAllSubmatch(data, -1) {
-			name, version := string(match[1]), string(match[2])
-			if !slices.Contains(b.Crates[name], version) {
-				b.Crates[name] = append(b.Crates[name], version)
-			}
-		}
+		addPathCrateVersions(b.Crates, data)
 	}
 
 	return b, nil
+}
+
+func addCrateVersion(crates map[string][]string, name, version string) {
+	if !slices.Contains(crates[name], version) {
+		crates[name] = append(crates[name], version)
+	}
+}
+
+func addPathCrateVersions(crates map[string][]string, data []byte) {
+	for _, match := range rustCrateVersion.FindAllSubmatch(data, -1) {
+		addCrateVersion(crates, string(match[1]), string(match[2]))
+	}
+}
+
+// Only registry packages linked at runtime are recorded: git and local packages
+// can carry a published version number over different sources.
+func addAuditableCrateVersions(crates map[string][]string, compressed []byte) error {
+	reader, err := zlib.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		return err
+	}
+
+	defer reader.Close()
+	data, err := io.ReadAll(io.LimitReader(reader, rustAuditableMaxBytes+1))
+	if err != nil {
+		return err
+	}
+
+	if len(data) > rustAuditableMaxBytes {
+		return errors.New("dependency list exceeds the size limit")
+	}
+
+	var list struct {
+		Packages []rustAuditablePackage `json:"packages"`
+	}
+
+	if err := json.Unmarshal(data, &list); err != nil {
+		return err
+	}
+
+	for _, pkg := range list.Packages {
+		var source string
+		if json.Unmarshal(pkg.Source, &source) != nil || source != "crates.io" && source != "registry" {
+			continue
+		}
+
+		if pkg.Kind == "build" || !slices.Contains(rustTrackedCrates, pkg.Name) {
+			continue
+		}
+
+		addCrateVersion(crates, pkg.Name, pkg.Version)
+	}
+
+	return nil
 }
 
 // InferBuild fills in a compiler version the binary's comment section omits.

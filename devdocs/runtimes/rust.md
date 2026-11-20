@@ -49,7 +49,11 @@ particular handler, so clients started from these handlers remain root spans.
 
 Version detection uses retained compiler comments and crate version paths. When
 the compiler comment is missing, the standard library's source paths identify
-the compiler release.
+the compiler release. Crate versions come from Cargo registry, versioned vendor,
+and Bazel `rules_rust` (`<hub>__<crate>-<version>`) source paths, combined with
+the registry packages that `cargo auditable` records in `.dep-v0`. That list also
+identifies builds whose paths carry no versions, such as default `cargo vendor`
+layouts.
 Unknown or conflicting identities disable only the dependent private layouts.
 For example, an unrecorded Rustls layout leaves validated HTTP and Tokio layouts
 available. An unavailable Hyper callback layout can use the Tokio queue-slot
