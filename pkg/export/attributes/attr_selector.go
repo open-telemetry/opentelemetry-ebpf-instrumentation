@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
-	"strings"
 
 	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
 	maps2 "go.opentelemetry.io/obi/pkg/internal/helpers/maps"
@@ -229,27 +228,28 @@ var spanMetricFixedAttrs = []attr.Name{
 	attr.Job,
 }
 
+// UsesV2Selection reports whether the selector applies Config v2 selection semantics.
+func (p *AttrSelector) UsesV2Selection() bool {
+	return p.useV2Selection
+}
+
 // ForSpanMetrics returns the workload metadata keys added to span metrics that are
 // reported together, so they share one label set. Span metrics define no selectable
 // attributes: only exact include entries add a metadata key, and patterns only exclude.
+// Pattern sections apply before exact sections, and within each an exclusion wins.
+// With v2 selection, the legacy keys are added after the selection.
 func (p *AttrSelector) ForSpanMetrics(legacy []attr.Name, metricNames ...Name) []attr.Name {
 	if !p.useV2Selection {
 		return legacy
 	}
 
 	selected := map[string]attr.Name{}
-	for _, metricName := range metricNames {
-		for _, il := range p.matching(metricName) {
-			for _, incl := range il.Include {
-				if IsGlob(incl) {
-					continue
-				}
-				name := attr.Name(strings.ReplaceAll(incl, "_", "."))
-				selected[name.Prom()] = name
-			}
-			maps.DeleteFunc(selected, func(_ string, name attr.Name) bool {
-				return il.excludes(name)
-			})
+	globs, exact := p.selector.MatchingV2Layers(metricNames...)
+	applySpanMetricSelection(selected, globs)
+	applySpanMetricSelection(selected, exact)
+	for _, name := range legacy {
+		if _, ok := selected[name.Prom()]; !ok {
+			selected[name.Prom()] = name
 		}
 	}
 
@@ -261,6 +261,25 @@ func (p *AttrSelector) ForSpanMetrics(legacy []attr.Name, metricNames ...Name) [
 	names := slices.Collect(maps.Values(selected))
 	slices.Sort(names)
 	return names
+}
+
+func applySpanMetricSelection(selected map[string]attr.Name, lists []InclusionLists) {
+	for _, il := range lists {
+		for _, incl := range il.Include {
+			if IsGlob(incl) {
+				continue
+			}
+			name := attr.Name(incl)
+			if _, ok := selected[name.Prom()]; !ok {
+				selected[name.Prom()] = name
+			}
+		}
+	}
+	for _, il := range lists {
+		maps.DeleteFunc(selected, func(_ string, name attr.Name) bool {
+			return il.excludes(name)
+		})
+	}
 }
 
 func (p *AttrSelector) ExplicitlyIncluded(metricName Name, attrName attr.Name) bool {

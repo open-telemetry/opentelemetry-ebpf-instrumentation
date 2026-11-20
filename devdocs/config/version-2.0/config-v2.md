@@ -676,11 +676,19 @@ dimensions: `service.name`, `service.namespace`, `service.instance.id`,
 `telemetry.sdk.language`, plus `instance` and `job` on Prometheus. Selection
 never removes them. Span metrics have no optional attributes, so include
 patterns such as `"*"` add nothing to them; only an exact include name adds a
-workload metadata key, such as `service.version` or `deployment.environment`,
-in dotted or underscore form. A key missing for a workload is omitted. The
-duration and calls metrics share one selection, as do the request and response
-size metrics, so selecting either metric of a pair applies to both. Each
-selected key adds one dimension to every span metric series.
+workload metadata key, such as `service.version` or `deployment.environment`.
+The key is looked up as written; a name written with underscores also matches
+its dotted metadata key when the literal key is missing. A key missing for a
+workload is omitted. The duration and calls metrics share one selection, as do
+the request and response size metrics, so selecting either metric of a pair
+applies to both. Pattern sections apply before exact sections, and within each
+an exclusion wins. Each selected key adds one dimension to every span metric
+series.
+
+`extensions.obi.daemon.telemetry.metrics.prometheus.extra_span_resource_attributes`
+is deprecated. It still adds its keys to Prometheus span metrics, in addition
+to the selection; prefer `capture.attributes.select`, which applies to both
+exporters.
 
 ```yaml
 extensions:

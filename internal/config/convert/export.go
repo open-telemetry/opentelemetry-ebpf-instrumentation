@@ -798,10 +798,20 @@ func daemon(cfg *obi.Config) *schema.Daemon {
 					AllowServiceGraphSelfReferences: cfg.Prometheus.AllowServiceGraphSelfReferences,
 					SpanMetricsServiceCacheSize:     cfg.Prometheus.SpanMetricsServiceCacheSize,
 					ExtraResourceAttributes:         cfg.Prometheus.ExtraResourceLabels,
+					ExtraSpanResourceAttributes:     deprecatedPrometheusSpanResourceAttributes(cfg),
 				},
 			},
 		},
 	}
+}
+
+// deprecatedPrometheusSpanResourceAttributes round-trips the deprecated v2 field.
+// Migration from v1 moves the Prometheus list into capture.attributes.select instead.
+func deprecatedPrometheusSpanResourceAttributes(cfg *obi.Config) []string {
+	if !cfg.Attributes.UseV2Selection {
+		return nil
+	}
+	return cfg.Prometheus.ExtraSpanResourceLabels
 }
 
 func logLevel(level obi.LogLevel) otelconfx.SeverityNumber {

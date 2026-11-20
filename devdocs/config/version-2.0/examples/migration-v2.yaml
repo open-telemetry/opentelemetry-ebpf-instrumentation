@@ -530,3 +530,4 @@ extensions:
                         allow_service_graph_self_references: false
                         span_metrics_service_cache_size: 10000
                         extra_resource_attributes: []
+                        extra_span_resource_attributes: []

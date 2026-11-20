@@ -2322,6 +2322,7 @@ func applyFullV2Daemon(cfg *obi.Config, daemon schema.Daemon) {
 	cfg.Prometheus.AllowServiceGraphSelfReferences = prometheus.AllowServiceGraphSelfReferences
 	cfg.Prometheus.SpanMetricsServiceCacheSize = prometheus.SpanMetricsServiceCacheSize
 	cfg.Prometheus.ExtraResourceLabels = cloneStrings(prometheus.ExtraResourceAttributes)
+	cfg.Prometheus.ExtraSpanResourceLabels = cloneStrings(prometheus.ExtraSpanResourceAttributes)
 }
 
 func applyPartialV2Daemon(cfg *obi.Config, daemon schema.Daemon) {
@@ -2366,6 +2367,9 @@ func applyPartialV2Daemon(cfg *obi.Config, daemon schema.Daemon) {
 	}
 	if prometheus.ExtraResourceAttributes != nil {
 		cfg.Prometheus.ExtraResourceLabels = cloneStrings(prometheus.ExtraResourceAttributes)
+	}
+	if prometheus.ExtraSpanResourceAttributes != nil {
+		cfg.Prometheus.ExtraSpanResourceLabels = cloneStrings(prometheus.ExtraSpanResourceAttributes)
 	}
 }
 

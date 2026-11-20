@@ -3,6 +3,12 @@
 
 package attributes // import "go.opentelemetry.io/obi/pkg/export/attributes"
 
+import (
+	"strings"
+
+	attr "go.opentelemetry.io/obi/pkg/export/attributes/names"
+)
+
 // Span metrics, aggregated from spans rather than measured directly. Both exporters emit them, so
 // they are declared once here and the Prometheus name is derived from the OTLP definition.
 //
@@ -56,4 +62,22 @@ var SpanMetrics = []Name{
 	SpanMetricsCallsOTel,
 	SpanMetricsRequestSize,
 	SpanMetricsResponseSize,
+}
+
+// SpanMetadataValue returns the workload metadata key and value for a selected span
+// metric key. With aliases, a key written with underscores that is missing from the
+// metadata also matches its dotted form.
+func SpanMetadataValue(metadata map[attr.Name]string, name attr.Name, aliases bool) (attr.Name, string, bool) {
+	if value, ok := metadata[name]; ok {
+		return name, value, true
+	}
+	if !aliases {
+		return name, "", false
+	}
+	dotted := attr.Name(strings.ReplaceAll(string(name), "_", "."))
+	if dotted == name {
+		return name, "", false
+	}
+	value, ok := metadata[dotted]
+	return dotted, value, ok
 }

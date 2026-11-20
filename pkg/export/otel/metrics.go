@@ -266,6 +266,7 @@ func newMetricsReporter(
 	mr.spanExtraAttrs = spanMetricExtraAttrs{
 		requests: attribProvider.ForSpanMetrics(legacySpanExtraAttrs, mr.spanMetricsDuration(), mr.spanMetricsCalls()),
 		sizes:    attribProvider.ForSpanMetrics(legacySpanExtraAttrs, attributes.SpanMetricsRequestSize, attributes.SpanMetricsResponseSize),
+		aliases:  attribProvider.UsesV2Selection(),
 	}
 
 	mr.createEventMetrics = mr.createTargetMetricData
@@ -1144,13 +1145,14 @@ func (mr *MetricsReporter) spanMetricAttributes() []attributes.Field[*request.Sp
 type spanMetricExtraAttrs struct {
 	requests []attr.Name
 	sizes    []attr.Name
+	aliases  bool
 }
 
-func spanMetadataAttrs(span *request.Span, names []attr.Name) []attribute.KeyValue {
+func spanMetadataAttrs(span *request.Span, names []attr.Name, aliases bool) []attribute.KeyValue {
 	var kvs []attribute.KeyValue
 	for _, name := range names {
-		if v, ok := span.Service.Metadata[name]; ok {
-			kvs = append(kvs, name.OTEL().String(v))
+		if key, v, ok := attributes.SpanMetadataValue(span.Service.Metadata, name, aliases); ok {
+			kvs = append(kvs, key.OTEL().String(v))
 		}
 	}
 	return kvs
@@ -1466,7 +1468,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 	// duration is withheld.
 	if measured && otelSpanMetricsAccepted(span) {
 		if span.Service.Features.SpanMetrics() {
-			extraAttrs := spanMetadataAttrs(span, mr.spanExtraAttrs.requests)
+			extraAttrs := spanMetadataAttrs(span, mr.spanExtraAttrs.requests, mr.spanExtraAttrs.aliases)
 
 			sml, attrs := r.spanMetricsLatency.ForRecord(span, extraAttrs...)
 			sml.Record(ctx, duration, instrument.WithAttributeSet(attrs))
@@ -1476,7 +1478,7 @@ func (r *Metrics) record(span *request.Span, mr *MetricsReporter) {
 		}
 
 		if span.Service.Features.SpanSizes() {
-			extraAttrs := spanMetadataAttrs(span, mr.spanExtraAttrs.sizes)
+			extraAttrs := spanMetadataAttrs(span, mr.spanExtraAttrs.sizes, mr.spanExtraAttrs.aliases)
 
 			smst, attrs := r.spanMetricsRequestSizeTotal.ForRecord(span, extraAttrs...)
 			smst.Add(ctx, float64(span.RequestBodyLength()), instrument.WithAttributeSet(attrs))

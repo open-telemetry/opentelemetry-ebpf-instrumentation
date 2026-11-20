@@ -1576,7 +1576,6 @@ func TestSpanMetrics_V2AttributeSelection(t *testing.T) {
 		TTL:                     30 * time.Minute,
 		ReportersCacheLen:       100,
 		Instrumentations:        []instrumentations.Instrumentation{instrumentations.InstrumentationHTTP},
-		ExtraSpanResourceLabels: []string{"service.version"},
 		MetricsExport:           testMetricsConsumer(metricRecords),
 	}
 	selection := attributes.Selection{

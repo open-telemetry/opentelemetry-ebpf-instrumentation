@@ -2227,6 +2227,6 @@ func TestSpanMetrics_V2AttributeSelection(t *testing.T) {
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		exported := getMetrics(ct, promURL)
 		assert.Regexp(ct, `traces_span_metrics_calls_total\{[^}]*service_version="1.2.3"[^}]*\} 1`, exported)
-		assert.NotContains(ct, exported, "deployment_environment")
+		assert.Regexp(ct, `traces_span_metrics_calls_total\{[^}]*deployment_environment="prod"[^}]*\} 1`, exported)
 	}, timeout, 100*time.Millisecond)
 }

@@ -2392,7 +2392,9 @@ prometheus_export:
   extra_span_resource_attributes: [k8s_cluster_name, service_version]
 `))
 	require.NoError(t, err)
-	require.NotContains(t, string(output), "extra_span_resource_attributes")
+	_, ext, err := schema.ParseStandaloneYAML(output)
+	require.NoError(t, err)
+	require.Empty(t, ext.Daemon.Telemetry.Metrics.Prometheus.ExtraSpanResourceAttributes)
 	requireAllSpanMetricAttributes(t, []attr.Name{"k8s.cluster.name", "service.version"}, migratedSpanMetricAttributes(t, output))
 }
 

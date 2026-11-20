@@ -522,6 +522,7 @@ func newReporter(
 	extraSpanMetadataLabels := spanMetricExtraLabels{
 		requests: attrsProvider.ForSpanMetrics(legacySpanMetadataLabels, spanMetricsLatencyMetric(jointMetricsConfig), spanMetricsCallsMetric(jointMetricsConfig)),
 		sizes:    attrsProvider.ForSpanMetrics(legacySpanMetadataLabels, attributes.SpanMetricsRequestSize, attributes.SpanMetricsResponseSize),
+		aliases:  attrsProvider.UsesV2Selection(),
 	}
 	var inputCh <-chan []request.Span
 	if input != nil {
@@ -1629,6 +1630,7 @@ func labelNamesSpans(extraMetadataLabelNames []attr.Name) []string {
 type spanMetricExtraLabels struct {
 	requests []attr.Name
 	sizes    []attr.Name
+	aliases  bool
 }
 
 func (r *metricsReporter) labelValuesSpans(span *request.Span, extraMetadataLabels []attr.Name) []string {
@@ -1645,7 +1647,8 @@ func (r *metricsReporter) labelValuesSpans(span *request.Span, extraMetadataLabe
 	}
 
 	for _, k := range extraMetadataLabels {
-		values = append(values, span.Service.Metadata[k])
+		_, value, _ := attributes.SpanMetadataValue(span.Service.Metadata, k, r.extraSpanMetadataLabels.aliases)
+		values = append(values, value)
 	}
 
 	return sanitizeValues(values)
