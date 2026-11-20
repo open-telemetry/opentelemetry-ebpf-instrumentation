@@ -179,6 +179,7 @@ func testRustContextPropagation(t *testing.T, binary string, currentThread bool)
 	pid := app.PID(cmd.Process.Pid)
 
 	cfg := obi.DefaultConfig
+	cfg.EBPF.BPFFSPath = privateBPFFSPath(t, cfg.EBPF.BPFFSPath)
 	cfg.EBPF.BpfDebug = os.Getenv("OBI_RUST_TEST_DEBUG") != ""
 	cfg.EBPF.TrackRequestHeaders = true
 	if sampler := os.Getenv("OBI_RUST_TEST_SAMPLER"); sampler != "" {
@@ -563,6 +564,15 @@ func rustTestCertificate(t *testing.T) tls.Certificate {
 	der, err := x509.CreateCertificate(rand.Reader, leaf, ca, &key.PublicKey, caKey)
 	require.NoError(t, err)
 	return tls.Certificate{Certificate: [][]byte{der, caDER}, PrivateKey: key}
+}
+
+// Live checks run concurrently against one host bpffs, so each pins its shared
+// maps in its own directory instead of racing on the same pin.
+func privateBPFFSPath(t *testing.T, root string) string {
+	dir, err := os.MkdirTemp(root, "obi-rust-test-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
 }
 
 func rustProcessFileInfo(t *testing.T, pid app.PID) *discexec.FileInfo {
