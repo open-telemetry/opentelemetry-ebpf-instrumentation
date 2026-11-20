@@ -62,8 +62,9 @@ Examples:
 
 When `OTEL_EBPF_EXCLUDE_OTEL_INSTRUMENTED_SERVICES` is enabled (the default),
 tpinjector stops adding HTTP/1 and HTTP/2 headers for a process as soon as OBI
-detects that it exports OTLP traces. Existing connections are included. TCP
-option injection and runtime-specific header injectors are unchanged. See
+detects that it exports OTLP traces. Rust HTTP/1 and HTTP/2 uprobes consult the
+same live exporter PID filter, including when writing headers before TLS encryption.
+Existing connections are included. TCP option injection is unchanged. See
 [excluding instrumented services](exclude-otel-instrumented-services.md) for
 detection and PID filter behavior.
 
@@ -97,8 +98,7 @@ header-tracking and context-propagation controls. Without either, Go servers
 scan only the request headers already buffered when header parsing starts,
 4 KiB by default for `net/http`.
 
-Outgoing requests are not scanned that far. Before injecting its own header,
-OBI looks for one the application already wrote only within these windows:
+Generic and Go instrumentation use shorter outgoing header scan windows:
 
 - The plaintext socket injector looks in the first 4 KiB of the request.
 - The generic tracer uses an application traceparent for the client span only
@@ -106,8 +106,14 @@ OBI looks for one the application already wrote only within these windows:
 - The Go tracer looks in the first 1 KiB of the headers that `net/http` writes,
   as long as they are still buffered when it finishes writing them.
 
-An application traceparent beyond these windows is a known limitation: OBI does
-not see it and injects its own header too, so the request carries two.
+Without runtime ownership, an application traceparent beyond these windows is a
+known limitation: OBI does not see it and injects its own header too, so the
+request carries two.
+
+Rust runtime probes inspect the application's HeaderMap, and generic capture
+reuses the wire context Rust validated. Rewriting a forwarded HTTP/1 header uses
+the shared 16 KiB scanner before TLS encryption when `bpf_loop` is available,
+and the 350-position legacy scanner otherwise. See [Rust context propagation](runtimes/rust.md).
 
 ## Egress (Sending) Flow
 
