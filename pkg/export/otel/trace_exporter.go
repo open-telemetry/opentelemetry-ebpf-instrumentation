@@ -9,21 +9,21 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/encoding"
-	"google.golang.org/protobuf/proto"
+	"google.golang.org/grpc/encoding/gzip"
+	"google.golang.org/grpc/metadata"
 
 	"go.opentelemetry.io/collector/pdata/ptrace"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
-	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
-	//nolint:depguard // The public OTLP client API requires protobuf resource spans.
-	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
+	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
 
 	"go.opentelemetry.io/obi/pkg/export/imetrics"
 	"go.opentelemetry.io/obi/pkg/export/otel/otelcfg"
@@ -86,7 +86,7 @@ type tracesExporter interface {
 
 type obiTracesExporter struct {
 	send          traceSender
-	client        otlptrace.Client
+	client        traceClient
 	reporter      imetrics.Reporter
 	queue         chan queuedTraces
 	queueSize     int64
@@ -108,11 +108,6 @@ func (e *obiTracesExporter) Start(ctx context.Context) error {
 	defer e.queueMu.Unlock()
 	if e.queueClosed {
 		return errors.New("trace exporter is shut down")
-	}
-	if e.client != nil {
-		if err := e.client.Start(ctx); err != nil {
-			return err
-		}
 	}
 	if e.queue != nil && !e.workerStarted {
 		e.workerStarted = true
@@ -303,7 +298,7 @@ func (e *obiTracesExporter) runQueue(ctx context.Context) {
 	}
 }
 
-func newOBITracesExporter(cfg otelcfg.TracesConfig, reporter imetrics.Reporter, send traceSender, client otlptrace.Client) tracesExporter {
+func newOBITracesExporter(cfg otelcfg.TracesConfig, reporter imetrics.Reporter, send traceSender, client traceClient) tracesExporter {
 	exporter := &obiTracesExporter{
 		send:     send,
 		client:   client,
@@ -362,105 +357,118 @@ func getTracesExporter(_ context.Context, cfg otelcfg.TracesConfig, reporter ime
 	}
 }
 
-func newOTLPTracesExporter(cfg otelcfg.TracesConfig, reporter imetrics.Reporter, client otlptrace.Client) tracesExporter {
-	send := func(ctx context.Context, traces ptrace.Traces) error {
-		data, err := (&ptrace.ProtoMarshaler{}).MarshalTraces(traces)
-		if err != nil {
-			return err
-		}
-		var payload tracepb.TracesData
-		if err := proto.Unmarshal(data, &payload); err != nil {
-			return err
-		}
-		return client.UploadTraces(ctx, payload.ResourceSpans)
-	}
-	return newOBITracesExporter(cfg, reporter, send, client)
+func newOTLPTracesExporter(cfg otelcfg.TracesConfig, reporter imetrics.Reporter, client traceClient) tracesExporter {
+	return newOBITracesExporter(cfg, reporter, client.UploadTraces, client)
 }
 
-func traceRetrySettings(cfg otelcfg.TracesConfig) (time.Duration, time.Duration, time.Duration) {
-	initial, maxInterval, maxElapsed := defaultTraceRetryStart, defaultTraceRetryMax, defaultTraceRetryTotal
+func newTraceRetry(cfg otelcfg.TracesConfig) traceRetry {
+	retry := traceRetry{
+		initialInterval: defaultTraceRetryStart,
+		maxInterval:     defaultTraceRetryMax,
+		maxElapsedTime:  defaultTraceRetryTotal,
+	}
 	if cfg.BackOffInitialInterval > 0 {
-		initial = cfg.BackOffInitialInterval
+		retry.initialInterval = cfg.BackOffInitialInterval
 	}
 	if cfg.BackOffMaxInterval > 0 {
-		maxInterval = cfg.BackOffMaxInterval
+		retry.maxInterval = cfg.BackOffMaxInterval
 	}
 	if cfg.BackOffMaxElapsedTime > 0 {
-		maxElapsed = cfg.BackOffMaxElapsedTime
+		retry.maxElapsedTime = cfg.BackOffMaxElapsedTime
 	}
-	return initial, maxInterval, maxElapsed
+	return retry
 }
 
-func newHTTPTraceClient(cfg otelcfg.TracesConfig, reporter imetrics.Reporter) (otlptrace.Client, error) {
+func newHTTPTraceClient(cfg otelcfg.TracesConfig, reporter imetrics.Reporter) (traceClient, error) {
 	opts, err := otelcfg.HTTPTracesEndpointOptions(&cfg)
 	if err != nil {
 		return nil, err
 	}
-	initial, maxInterval, maxElapsed := traceRetrySettings(cfg)
-	options := opts.AsTraceHTTP()
-	if opts.URLPath == "" {
+	transport, err := httpTraceTransport(opts)
+	if err != nil {
+		return nil, err
+	}
+	client := &http.Client{Transport: transport, Timeout: defaultTraceRequestTimeout}
+	if reporter != nil && !imetrics.IsBuiltinNoopReporter(reporter) {
+		client.Transport = traceRoundTripper{base: transport, reporter: reporter}
+	}
+
+	endpoint := url.URL{Scheme: "https", Host: opts.Endpoint, Path: opts.URLPath}
+	if opts.Insecure {
+		endpoint.Scheme = "http"
+	}
+	if endpoint.Path == "" {
 		// A pathless OTLP traces endpoint in the environment otherwise becomes "/".
-		options = append(options, otlptracehttp.WithURLPath("/v1/traces"))
+		endpoint.Path = "/v1/traces"
 	}
-	options = append(options,
-		otlptracehttp.WithTimeout(defaultTraceRequestTimeout),
-		otlptracehttp.WithRetry(otlptracehttp.RetryConfig{
-			Enabled: true, InitialInterval: initial, MaxInterval: maxInterval, MaxElapsedTime: maxElapsed,
-		}),
-	)
-	if cfg.GetCompression() == "gzip" {
-		options = append(options, otlptracehttp.WithCompression(otlptracehttp.GzipCompression))
-	} else if cfg.GetCompression() == "none" {
-		options = append(options, otlptracehttp.WithCompression(otlptracehttp.NoCompression))
-	}
-	if cfg.GetProtocol() == otelcfg.ProtocolHTTPJSON {
-		options = append(options, otlptracehttp.WithEncoding(otlptracehttp.EncodingJSON))
-	}
-	if opts.UnixSocketAddr != "" || (reporter != nil && !imetrics.IsBuiltinNoopReporter(reporter)) {
-		transport := http.DefaultTransport.(*http.Transport).Clone()
-		if opts.UnixSocketAddr != "" {
-			transport = otelcfg.UnixTransport(opts.UnixSocketAddr)
-		} else {
-			transport.TLSClientConfig, err = otlpTLSConfig("TRACES", opts.SkipTLSVerify)
-			if err != nil {
-				return nil, err
-			}
-		}
-		client := &http.Client{Transport: transport, Timeout: defaultTraceRequestTimeout}
-		if reporter != nil && !imetrics.IsBuiltinNoopReporter(reporter) {
-			client.Transport = traceRoundTripper{base: transport, reporter: reporter}
-		}
-		options = append(options, otlptracehttp.WithHTTPClient(client))
-	}
-	return otlptracehttp.NewClient(options...), nil
+
+	return &httpTraceClient{
+		client:   client,
+		endpoint: endpoint.String(),
+		headers:  opts.Headers,
+		json:     cfg.GetProtocol() == otelcfg.ProtocolHTTPJSON,
+		gzip:     cfg.GetCompression() == "gzip",
+		retry:    newTraceRetry(cfg),
+	}, nil
 }
 
-func newGRPCTraceClient(cfg otelcfg.TracesConfig, reporter imetrics.Reporter) (otlptrace.Client, error) {
+func httpTraceTransport(opts otelcfg.OTLPOptions) (*http.Transport, error) {
+	if opts.UnixSocketAddr != "" {
+		return otelcfg.UnixTransport(opts.UnixSocketAddr), nil
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	tlsConfig, err := otlpTLSConfig("TRACES", opts.SkipTLSVerify)
+	if err != nil {
+		return nil, err
+	}
+	transport.TLSClientConfig = tlsConfig
+	return transport, nil
+}
+
+func newGRPCTraceClient(cfg otelcfg.TracesConfig, reporter imetrics.Reporter) (traceClient, error) {
 	opts, err := otelcfg.GRPCTracesEndpointOptions(&cfg)
 	if err != nil {
 		return nil, err
 	}
-	initial, maxInterval, maxElapsed := traceRetrySettings(cfg)
-	options := opts.AsTraceGRPC()
-	options = append(options,
-		otlptracegrpc.WithTimeout(maxElapsed),
-		otlptracegrpc.WithDialOption(grpc.WithChainUnaryInterceptor(traceRequestDeadline(defaultTraceRequestTimeout, reporter))),
-		otlptracegrpc.WithRetry(otlptracegrpc.RetryConfig{
-			Enabled: true, InitialInterval: initial, MaxInterval: maxInterval, MaxElapsedTime: maxElapsed,
-		}),
-	)
-	if cfg.GetCompression() == "gzip" {
-		options = append(options, otlptracegrpc.WithCompressor("gzip"))
-	} else if cfg.GetCompression() == "none" {
-		// WithCompressor("none") reports an error in the OTLP client.
-		options = append(options, otlptracegrpc.WithDialOption(
-			grpc.WithDefaultCallOptions(grpc.UseCompressor(encoding.Identity)),
-		))
+	creds, err := grpcTraceCredentials(opts)
+	if err != nil {
+		return nil, err
 	}
-	return otlptracegrpc.NewClient(options...), nil
+	dialOptions := []grpc.DialOption{
+		grpc.WithUserAgent(traceUserAgent),
+		grpc.WithTransportCredentials(creds),
+		grpc.WithChainUnaryInterceptor(traceRequestDeadline(defaultTraceRequestTimeout, reporter)),
+	}
+	if cfg.GetCompression() == "gzip" {
+		dialOptions = append(dialOptions, grpc.WithDefaultCallOptions(grpc.UseCompressor(gzip.Name)))
+	} else if cfg.GetCompression() == "none" {
+		dialOptions = append(dialOptions, grpc.WithDefaultCallOptions(grpc.UseCompressor(encoding.Identity)))
+	}
+
+	conn, err := grpc.NewClient(opts.Endpoint, dialOptions...)
+	if err != nil {
+		return nil, err
+	}
+	return &grpcTraceClient{
+		conn:     conn,
+		client:   ptraceotlp.NewGRPCClient(conn),
+		metadata: metadata.New(opts.Headers),
+		retry:    newTraceRetry(cfg),
+	}, nil
 }
 
-// The gRPC client's WithTimeout covers retries, so each RPC needs its own deadline.
+func grpcTraceCredentials(opts otelcfg.OTLPOptions) (credentials.TransportCredentials, error) {
+	if opts.Insecure {
+		return insecure.NewCredentials(), nil
+	}
+	tlsConfig, err := otlpTLSConfig("TRACES", opts.SkipTLSVerify)
+	if err != nil {
+		return nil, err
+	}
+	return credentials.NewTLS(tlsConfig), nil
+}
+
+// Each RPC needs its own deadline because the export deadline covers every retry.
 func traceRequestDeadline(timeout time.Duration, reporter imetrics.Reporter) grpc.UnaryClientInterceptor {
 	return func(ctx context.Context, method string, req, reply any, conn *grpc.ClientConn, invoke grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		requestCtx, cancel := context.WithTimeout(ctx, timeout)
