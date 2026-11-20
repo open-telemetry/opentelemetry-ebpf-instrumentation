@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/hex"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -156,11 +157,20 @@ func TestMySQLQueryTextBoundedToPacket(t *testing.T) {
 	})
 
 	t.Run("empty packet", func(t *testing.T) {
-		assert.Empty(t, mysqlQueryText([]byte{0, 0, 0, 0, kMySQLQuery}))
+		assert.Empty(t, mysqlQueryTextView(largebuf.NewLargeBufferFrom([]byte{0, 0, 0, 0, kMySQLQuery}), 0))
+		assert.Empty(t, mysqlQueryTextView(largebuf.NewLargeBufferFrom([]byte{1, 0, 0, 0, kMySQLQuery}), 0))
 	})
 }
 
 func TestSkipMySQLNoResponseCommands(t *testing.T) {
+	skipMySQLNoResponseCommands := func(b []byte) ([]byte, []uint32) {
+		var closedStmtIDs []uint32
+		off := skipMySQLNoResponseCommands(mysqlChunkedBuffer(b, 3), func(stmtID uint32) {
+			closedStmtIDs = append(closedStmtIDs, stmtID)
+		})
+		return b[off:], closedStmtIDs
+	}
+
 	prepare := mysqlPreparePacket("SELECT 1")
 	execute := mysqlExecutePacket(1)
 
@@ -303,6 +313,8 @@ func TestReadTCPRequestIntoSpan_MySQLStmtCloseCoalescing(t *testing.T) {
 	assert.Equal(t, "QUERY", span.SQLCommand)
 }
 
+const mysqlSequenceIDOffset = 3
+
 const (
 	mysqlTestCaps      = mysqlCapProtocol41 | mysqlCapSecureConnection | mysqlCapPluginAuthLenencClientData | mysqlCapConnectWithDB
 	mariaDBTestExtCaps = uint32(0x1c)
@@ -365,6 +377,16 @@ func mysqlTLSHandshakeResponsePacket(extCaps uint32, db string) []byte {
 	packet := mysqlHandshakeResponsePacket(mysqlTestCaps|mysqlCapSSL, extCaps, bytes.Repeat([]byte{0xaa}, 20), db)
 	packet[mysqlSequenceIDOffset] = mysqlTLSHandshakeResponseSeqID
 	return append(mysqlSSLRequestPacket(), packet...)
+}
+
+// mysqlChunkedBuffer splits b into chunks so parsers are exercised across
+// chunk boundaries, as with events whose payload spans several reads.
+func mysqlChunkedBuffer(b []byte, chunkSize int) *largebuf.LargeBuffer {
+	buf := largebuf.NewLargeBuffer()
+	for chunk := range slices.Chunk(b, chunkSize) {
+		buf.AppendChunk(chunk)
+	}
+	return buf
 }
 
 func TestParseMySQLHandshakeResponse(t *testing.T) {
@@ -473,7 +495,7 @@ func TestParseMySQLHandshakeResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			info, ok := parseMySQLHandshakeResponse(tt.raw)
+			info, ok := parseMySQLHandshakeResponse(largebuf.NewLargeBufferFrom(tt.raw))
 			assert.Equal(t, tt.ok, ok)
 			assert.Equal(t, tt.expected, info)
 		})
@@ -533,9 +555,15 @@ func TestParseMySQLHandshakeResponseCaptured(t *testing.T) {
 			reserved := raw[sqlprune.MySQLHdrSize+mysqlHandshakeReservedOffset : sqlprune.MySQLHdrSize+mysqlHandshakeExtCapsOffset]
 			assert.Equal(t, make([]byte, mysqlHandshakeReservedLen), reserved)
 
-			info, ok := parseMySQLHandshakeResponse(raw)
+			info, ok := parseMySQLHandshakeResponse(largebuf.NewLargeBufferFrom(raw))
 			require.True(t, ok)
 			assert.Equal(t, tt.expected, info)
+
+			for _, chunkSize := range []int{1, 3, 7} {
+				info, ok := parseMySQLHandshakeResponse(mysqlChunkedBuffer(raw, chunkSize))
+				require.True(t, ok, "chunk size %d", chunkSize)
+				assert.Equal(t, tt.expected, info, "chunk size %d", chunkSize)
+			}
 		})
 	}
 }
@@ -548,25 +576,62 @@ func TestParseMySQLHandshakeResponseTruncationSafety(t *testing.T) {
 	} {
 		raw := mysqlHandshakeResponsePacket(caps, 0, bytes.Repeat([]byte{0xfe}, 260), "shop")
 		for i := range raw {
-			assert.NotPanics(t, func() { parseMySQLHandshakeResponse(raw[:i]) })
+			assert.NotPanics(t, func() { parseMySQLHandshakeResponse(mysqlChunkedBuffer(raw[:i], 5)) })
 		}
 	}
 }
 
-func TestMayBeMySQLUse(t *testing.T) {
-	for query, expected := range map[string]bool{
-		"USE orders":               true,
-		"  use orders":             true,
-		"/* app */ USE orders":     true,
-		"-- c\nUSE orders":         true,
-		"# c\nUSE orders":          true,
-		"USE":                      true,
-		"SELECT * FROM users":      false,
-		"INSERT INTO t VALUES (1)": false,
-		"":                         false,
-	} {
-		assert.Equal(t, expected, mayBeMySQLUse([]byte(query)), query)
+func TestMySQLStatementID(t *testing.T) {
+	execute := mysqlExecutePacket(0x04030201)
+	tests := []struct {
+		name     string
+		buf      []byte
+		off      int
+		expected uint32
+	}{
+		{name: "statement ID after the command", buf: execute, expected: 0x04030201},
+		{name: "statement ID after a coalesced close", buf: append(mysqlStmtClosePacket(9), execute...), off: len(mysqlStmtClosePacket(9)), expected: 0x04030201},
+		{name: "empty buffer", buf: nil},
+		{name: "command only", buf: execute[:sqlprune.MySQLHdrSize+1]},
+		{name: "truncated statement ID", buf: execute[:sqlprune.MySQLHdrSize+3]},
 	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, mysqlStatementID(mysqlChunkedBuffer(tt.buf, 3), tt.off))
+		})
+	}
+}
+
+func TestIsMySQLUse(t *testing.T) {
+	for query, expected := range map[string]bool{
+		"USE orders":                 true,
+		"  use orders":               true,
+		"USE`orders`":                true,
+		"/* app */ USE orders":       true,
+		"/* a */ /* b */USE orders":  true,
+		"-- c\nUSE orders":           true,
+		"# c\nUSE orders":            true,
+		"USE":                        true,
+		"/* svc */ INSERT INTO t ()": false,
+		"-- c\nSELECT 1":             false,
+		"/* unterminated USE x":      false,
+		"users":                      false,
+		"SELECT * FROM users":        false,
+		"":                           false,
+	} {
+		for _, chunkSize := range []int{len(query) + 1, 2} {
+			assert.Equal(t, expected, isMySQLUse(mysqlChunkedBuffer([]byte(query), chunkSize), 0), "%q chunk size %d", query, chunkSize)
+		}
+	}
+}
+
+func TestHandleMySQLMultiChunkRequest(t *testing.T) {
+	req := mysqlPacket(kMySQLQuery, []byte("/* svc */ INSERT INTO accounts (id) VALUES (1)"))
+	span, err := handleMySQL(newPostgresTestContext(), &TCPRequestInfo{}, mysqlChunkedBuffer(req, 7), largebuf.NewLargeBufferFrom(mysqlOKPacket(1)))
+	require.NoError(t, err)
+	assert.Equal(t, "INSERT", span.Method)
+	assert.Equal(t, "QUERY", span.SQLCommand)
 }
 
 func TestParseMySQLDatabaseChange(t *testing.T) {
@@ -583,6 +648,34 @@ func TestParseMySQLDatabaseChange(t *testing.T) {
 			resp:     mysqlOKPacket(1),
 			expected: mysqlDatabaseChange{db: "orders", standalone: true},
 			ok:       true,
+		},
+		{
+			name:     "USE after empty query attributes",
+			req:      mysqlPacket(kMySQLQuery, []byte("\x00\x01USE orders")),
+			resp:     mysqlOKPacket(1),
+			expected: mysqlDatabaseChange{db: "orders", standalone: true},
+			ok:       true,
+		},
+		{
+			name: "multi-statement USE after empty query attributes clears the database",
+			req:  mysqlPacket(kMySQLQuery, []byte("\x00\x01USE orders; SELECT 1")),
+			resp: mysqlOKPacket(1),
+			ok:   true,
+		},
+		{
+			name: "USE after another statement is not tracked",
+			req:  mysqlPacket(kMySQLQuery, []byte("SELECT 1; USE billing")),
+			resp: mysqlOKPacket(1),
+		},
+		{
+			name: "SELECT with a later statement that is not USE",
+			req:  mysqlPacket(kMySQLQuery, []byte("SELECT 1; SELECT * FROM users")),
+			resp: mysqlOKPacket(1),
+		},
+		{
+			name: "SELECT after empty query attributes",
+			req:  mysqlPacket(kMySQLQuery, []byte("\x00\x01SELECT * FROM orders")),
+			resp: mysqlOKPacket(1),
 		},
 		{
 			name:     "USE",
@@ -667,9 +760,12 @@ func TestParseMySQLDatabaseChange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			change, ok := parseMySQLDatabaseChange(tt.req, tt.resp)
-			assert.Equal(t, tt.ok, ok)
-			assert.Equal(t, tt.expected, change)
+			for _, chunkSize := range []int{len(tt.req) + 1, 3} {
+				reqBuf := mysqlChunkedBuffer(tt.req, chunkSize)
+				change, ok := parseMySQLDatabaseChange(reqBuf, skipMySQLNoResponseCommands(reqBuf, nil), largebuf.NewLargeBufferFrom(tt.resp))
+				assert.Equal(t, tt.ok, ok, "chunk size %d", chunkSize)
+				assert.Equal(t, tt.expected, change, "chunk size %d", chunkSize)
+			}
 		})
 	}
 }
@@ -746,7 +842,8 @@ func TestReadTCPRequestIntoSpan_MySQLConnState(t *testing.T) {
 	})
 
 	t.Run("USE on the kernel-assigned path changes the namespace", func(t *testing.T) {
-		readSpan(t, event(mysqlPacket(kMySQLQuery, []byte("USE payroll")), mysqlOKPacket(1), ProtocolTypeMySQL))
+		_, ignore := readSpan(t, event(mysqlPacket(kMySQLQuery, []byte("\x00\x01USE payroll")), mysqlOKPacket(1), ProtocolTypeMySQL))
+		assert.True(t, ignore)
 
 		span, _ := readSpan(t, query(ProtocolTypeMySQL))
 		assert.Equal(t, "payroll", span.DBNamespace)
@@ -802,7 +899,7 @@ func TestReadTCPRequestIntoSpan_MySQLConnState(t *testing.T) {
 	})
 
 	t.Run("handshake caught reversed", func(t *testing.T) {
-		greeting := mysqlSeqPacket(0, []byte("\x0a11.4.2-MariaDB\x00"))
+		greeting := mysqlSeqPacket(0, []byte("\x0a8.4.0\x00"))
 		reversed := event(greeting, mysqlHandshakeResponsePacket(mysqlTestCaps, 0, auth, "inventory"), ProtocolTypeUnknown)
 		reversed.ConnInfo.D_port = 8081
 		_, ignore := readSpan(t, reversed)
@@ -822,4 +919,70 @@ func TestReadTCPRequestIntoSpan_MySQLConnState(t *testing.T) {
 		assert.Empty(t, span.DBNamespace)
 		assert.Equal(t, semconv.DBSystemNameMySQL, span.DBSystemName())
 	})
+}
+
+func BenchmarkTrackMySQLConnState(b *testing.B) {
+	ok := largebuf.NewLargeBufferFrom(mysqlOKPacket(1))
+	rows := largebuf.NewLargeBufferFrom(mysqlSeqPacket(1, []byte{1}))
+	cases := []struct {
+		name string
+		req  *largebuf.LargeBuffer
+		resp *largebuf.LargeBuffer
+	}{
+		{"select", largebuf.NewLargeBufferFrom(mysqlPacket(kMySQLQuery, []byte("SELECT * FROM accounts WHERE id = 1"))), rows},
+		{"insert", largebuf.NewLargeBufferFrom(mysqlPacket(kMySQLQuery, []byte("INSERT INTO accounts (id) VALUES (1)"))), ok},
+		{"select multi-chunk", mysqlChunkedBuffer(mysqlPacket(kMySQLQuery, []byte("SELECT * FROM accounts WHERE id = 1")), 7), rows},
+		{"commented insert multi-chunk", mysqlChunkedBuffer(mysqlPacket(kMySQLQuery, []byte("/* svc */ INSERT INTO accounts (id) VALUES (1)")), 7), ok},
+		{"http request", largebuf.NewLargeBufferFrom([]byte("GET /index.html HTTP/1.1\r\nHost: example.com\r\n\r\n")), largebuf.NewLargeBufferFrom([]byte("HTTP/1.1 200 OK\r\n\r\n"))},
+		{"handshake response", mysqlChunkedBuffer(mysqlHandshakeResponsePacket(mysqlTestCaps, 0, bytes.Repeat([]byte{0xaa}, 20), "shop"), 7), largebuf.NewLargeBuffer()},
+		{"COM_INIT_DB", largebuf.NewLargeBufferFrom(mysqlPacket(kMySQLInitDB, []byte("orders"))), ok},
+		{"USE with query attributes", largebuf.NewLargeBufferFrom(mysqlPacket(kMySQLQuery, []byte("\x00\x01USE orders"))), ok},
+	}
+
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			ctx := newPostgresTestContext()
+			conn := BpfConnectionInfoT{S_port: 50000, D_port: 3306}
+			b.ReportAllocs()
+			for b.Loop() {
+				trackMySQLConnState(ctx, conn, tc.req, skipMySQLNoResponseCommands(tc.req, nil), tc.resp)
+				trackMySQLConnState(ctx, reverseTCPConnInfo(conn), tc.resp, skipMySQLNoResponseCommands(tc.resp, nil), tc.req)
+			}
+		})
+	}
+}
+
+func BenchmarkHandleMySQL(b *testing.B) {
+	chunked := func(p []byte) *largebuf.LargeBuffer {
+		buf := largebuf.NewLargeBuffer()
+		for chunk := range slices.Chunk(p, 64) {
+			buf.AppendChunk(chunk)
+		}
+		return buf
+	}
+	okResp := mysqlPacket(0x00, []byte{0, 0, 2, 0, 0, 0})
+	execute := mysqlPacket(kMySQLExecute, append([]byte{7, 0, 0, 0, 0, 1, 0, 0, 0}, bytes.Repeat([]byte{0xab}, 4096)...))
+	errResp := mysqlPacket(0xff, append([]byte{0x7a, 0x04, '#', '4', '2', 'S', '0', '2'}, "Table 'shop.nope' doesn't exist"...))
+	cases := []struct {
+		name string
+		req  []byte
+		resp []byte
+	}{
+		{"query", mysqlPacket(kMySQLQuery, []byte("SELECT * FROM accounts WHERE id = 1")), okResp},
+		{"query across chunks", mysqlPacket(kMySQLQuery, []byte("SELECT * FROM accounts WHERE id = 1 AND name = 'a long enough value to span chunks'")), okResp},
+		{"query error", mysqlPacket(kMySQLQuery, []byte("SELECT * FROM nope")), errResp},
+		{"execute with 4 KiB parameter across chunks", execute, okResp},
+	}
+
+	for _, tc := range cases {
+		b.Run(tc.name, func(b *testing.B) {
+			ctx := newPostgresTestContext()
+			ctx.mysqlPreparedStatements.Add(mysqlPreparedStatementsKey{stmtID: 7}, "SELECT * FROM accounts WHERE id = ?")
+			req, resp := chunked(tc.req), chunked(tc.resp)
+			b.ReportAllocs()
+			for b.Loop() {
+				_, _ = handleMySQL(ctx, &TCPRequestInfo{}, req, resp)
+			}
+		})
+	}
 }

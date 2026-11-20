@@ -348,53 +348,6 @@ func TestSQLParseError(t *testing.T) {
 	}
 }
 
-func TestSQLParseStatementID(t *testing.T) {
-	tests := []struct {
-		name     string
-		dbKind   request.SQLKind
-		buf      []byte
-		expected uint32
-	}{
-		{
-			name:     "MySQL valid statement ID",
-			dbKind:   request.DBMySQL,
-			buf:      []byte{0x00, 0x00, 0x00, 0x00, 0x00, 0x1, 0x2, 0x3, 0x4},
-			expected: 0x4030201,
-		},
-		{
-			name:     "MySQL empty buffer",
-			dbKind:   request.DBMySQL,
-			buf:      []byte{},
-			expected: 0,
-		},
-		{
-			name:     "MySQL truncated packet (1 byte)",
-			dbKind:   request.DBMySQL,
-			buf:      []byte{0x01},
-			expected: 0,
-		},
-		{
-			name:     "MySQL truncated packet (5 bytes)",
-			dbKind:   request.DBMySQL,
-			buf:      []byte{0x01, 0x02, 0x03, 0x04, 0x05},
-			expected: 0,
-		},
-		{
-			name:     "MySQL truncated packet (7 bytes)",
-			dbKind:   request.DBMySQL,
-			buf:      []byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07},
-			expected: 0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := SQLParseStatementID(tt.dbKind, tt.buf)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestSQLParseUseDatabase(t *testing.T) {
 	tests := []struct {
 		query    string

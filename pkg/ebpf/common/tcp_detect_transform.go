@@ -272,13 +272,11 @@ func matchMySQLConnState(parseCtx *EBPFParseContext, event *TCPRequestInfo, requ
 		return request.Span{}, false, false, nil
 	}
 
-	if isMySQLConnStateCandidate(requestBuffer, responseBuffer) &&
-		trackMySQLConnState(parseCtx, event.ConnInfo, requestBuffer.UnsafeView(), responseBuffer.UnsafeView()) {
+	if trackMySQLConnState(parseCtx, event.ConnInfo, requestBuffer, skipMySQLNoResponseCommands(requestBuffer, nil), responseBuffer) {
 		return request.Span{}, true, true, nil
 	}
 
-	if isMySQLConnStateCandidate(responseBuffer, requestBuffer) &&
-		trackMySQLConnState(parseCtx, reverseTCPConnInfo(event.ConnInfo), responseBuffer.UnsafeView(), requestBuffer.UnsafeView()) {
+	if trackMySQLConnState(parseCtx, reverseTCPConnInfo(event.ConnInfo), responseBuffer, skipMySQLNoResponseCommands(responseBuffer, nil), requestBuffer) {
 		return request.Span{}, true, true, nil
 	}
 
