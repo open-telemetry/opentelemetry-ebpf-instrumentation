@@ -23,6 +23,7 @@
 #include <maps/tp_info_mem.h>
 
 #include <generictracer/failed_connect.h>
+#include <generictracer/job_fetch.h>
 #include <generictracer/protocol_aerospike.h>
 #include <generictracer/protocol_common.h>
 #include <generictracer/tcp_trace_cleanup.h>
@@ -348,6 +349,8 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
             task_pid(&req->pid);
             bpf_probe_read(req->buf, bytes_len, u_buf);
 
+            job_fetch_request(pid_conn, req);
+
             req->tp.ts = bpf_ktime_get_ns();
 
             bpf_dbg_printk("TCP request start, direction=%d, ssl=%d, protocol=%d",
@@ -389,6 +392,7 @@ static __always_inline void handle_unknown_tcp_connection(pid_connection_info_t 
 
                 __builtin_memcpy(trace, existing, sizeof(tcp_req_t));
                 bpf_probe_read(trace->rbuf, bytes_len, u_buf);
+                job_fetch_reply(pid_conn, existing, trace->rbuf, bytes_len);
 
                 bpf_ringbuf_submit(trace, get_flags());
             } else {

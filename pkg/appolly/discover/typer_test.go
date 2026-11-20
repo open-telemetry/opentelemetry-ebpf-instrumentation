@@ -604,3 +604,9 @@ func TestSelectorExceptionsCompatibility(t *testing.T) {
 	override := &services.ExceptionsOverride{}
 	assert.Same(t, override, selectorExceptions(&services.GlobAttributes{Exceptions: override}))
 }
+
+func TestSelectorJobTracesCompatibility(t *testing.T) {
+	assert.True(t, selectorJobTraces(dummyCriterion{}))
+	assert.True(t, selectorJobTraces(&services.GlobAttributes{}))
+	assert.False(t, selectorJobTraces(&services.GlobAttributes{JobTraces: &services.JobTracesConfig{Enabled: false}}))
+}

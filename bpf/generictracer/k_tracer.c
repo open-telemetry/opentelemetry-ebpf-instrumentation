@@ -1555,6 +1555,7 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_exit, int status) {
         bpf_map_delete_elem(&server_traces, &vt_task);
     }
     obi_ctx__del(id);
+    job_thread_end(&task.p_key, id);
     // A carrier dying without VirtualThread.unmount() must not leave a
     // stale entry that would re-key a future thread reusing this tid.
     bpf_map_delete_elem(&java_vt_threads, &task.p_key);
@@ -1570,6 +1571,8 @@ int BPF_KPROBE_GUARDED(obi_kprobe_wake_up_new_task, struct task_struct *task) {
     if (!valid_pid(bpf_get_current_pid_tgid())) {
         return 0;
     }
+
+    job_inherit(task);
 
     // threads belong to an already known process
     if (BPF_CORE_READ(task, pid) != BPF_CORE_READ(task, tgid)) {
@@ -1589,8 +1592,16 @@ SEC("kprobe/setup_new_exec")
 int BPF_KPROBE_GUARDED(obi_kprobe_setup_new_exec) {
     (void)ctx;
 
-    if (!valid_pid(bpf_get_current_pid_tgid())) {
+    const u64 id = bpf_get_current_pid_tgid();
+    if (!valid_pid(id)) {
         return 0;
+    }
+
+    // the new program isn't running the old one's job
+    if (g_job_traces_enabled) {
+        pid_key_t thread = {0};
+        job_thread_key(&thread);
+        job_exec(&thread, id);
     }
 
     process_event_t event = {.type = k_event_type_process_exec, .ts = bpf_ktime_get_ns()};

@@ -206,6 +206,16 @@ extensions:
         #           patterns:
         #             - /checkout/{id}
         #           unmatched: wildcard
+        #
+        # - action: include
+        #   name: job-workers
+        #   description: Keep each call of a job the workers take off Redis in a trace of its own.
+        #   match:
+        #     kubernetes:
+        #       namespace_glob:
+        #         - jobs
+        #   refine:
+        #     group_job_spans: false
 
       instrumentation:
         # HTTP protocol instrumentation and HTTP-specific enrichment/parsing.

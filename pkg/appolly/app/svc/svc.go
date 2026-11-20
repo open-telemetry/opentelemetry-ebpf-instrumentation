@@ -150,6 +150,9 @@ type Attrs struct {
 
 	Exceptions services.ExceptionsConfig
 
+	// JobTraces roots the calls running a job taken off a queue at the fetch that took it
+	JobTraces bool
+
 	LogEnricherEnabled bool
 
 	CustomInRouteMatcher  route.Matcher
