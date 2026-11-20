@@ -15,7 +15,7 @@ import (
 
 func TestRuntimeCollectionExceptionSnapshots(t *testing.T) {
 	collection := runtimeCollection{exceptionTypes: &exceptionTypes{}}
-	observe := func(counter runtimeCounter) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+	observe := func(counter runtimeCounter) *runtimeSnapshot {
 		snapshot, err := collection.observeEvent(netTraceRuntimeEvent{counter: counter})
 		require.NoError(t, err)
 		return snapshot
@@ -32,18 +32,19 @@ func TestRuntimeCollectionExceptionSnapshots(t *testing.T) {
 	}
 	require.Nil(t, observe(runtimeCounter{Name: "working-set", Value: 1}))
 	throw()
+	require.NoError(t, collection.observeException("Other", 3))
 	complete()
 	first := observe(runtimeCounter{Name: "working-set", Value: 1})
 	require.NotNil(t, first)
 	throw()
-	require.Equal(t, map[string]uint64{"Failure": 1}, first.Exceptions)
+	require.Equal(t, map[string]uint64{"Failure": 1, "Other": 3}, first.exceptions)
 	complete()
 	last := collection.finish()
 	require.NotNil(t, last)
-	require.Equal(t, map[string]uint64{"Failure": 2}, last.Exceptions)
+	require.Equal(t, map[string]uint64{"Failure": 2, "Other": 3}, last.exceptions)
 	throw()
-	require.Equal(t, uint64(2), last.Exceptions["Failure"])
-	require.Equal(t, uint64(1), first.Exceptions["Failure"])
+	require.Equal(t, uint64(2), last.exceptions["Failure"])
+	require.Equal(t, uint64(1), first.exceptions["Failure"])
 
 	collection.exceptions["Failure"] = math.MaxInt64
 	require.ErrorContains(t, collection.observeException("Failure", 1), "overflow")
@@ -106,18 +107,18 @@ func TestRuntimeCollectionExceptionTypesAcrossSessions(t *testing.T) {
 	}
 	quiet := next.finish()
 	require.NotNil(t, quiet)
-	require.NotNil(t, quiet.Exceptions)
-	require.Empty(t, quiet.Exceptions)
+	require.NotNil(t, quiet.exceptions)
+	require.Empty(t, quiet.exceptions)
 	require.NoError(t, next.observeException("NewFailure", 1))
 	require.NoError(t, next.observeException("Failure0", 1))
 	require.Equal(t, map[string]uint64{exceptionTypeOther: 1, "Failure0": 1}, next.exceptions)
-	require.Empty(t, quiet.Exceptions, "later throws must not mutate the quiet snapshot")
+	require.Empty(t, quiet.exceptions, "later throws must not mutate the quiet snapshot")
 	require.Len(t, types.names, maximumExceptionTypes)
 }
 
 func TestRuntimeCollectionProcessorCount(t *testing.T) {
 	var collection runtimeCollection
-	observe := func(counter runtimeCounter) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+	observe := func(counter runtimeCounter) *runtimeSnapshot {
 		snapshot, err := collection.observe(counter)
 		require.NoError(t, err)
 		return snapshot
@@ -269,12 +270,12 @@ func TestRuntimeCollectionBoundary(t *testing.T) {
 
 func TestRuntimeCollectionCumulativeMissingIntervals(t *testing.T) {
 	var collection runtimeCollection
-	observe := func(counter runtimeCounter) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+	observe := func(counter runtimeCounter) *runtimeSnapshot {
 		snapshot, err := collection.observe(counter)
 		require.NoError(t, err)
 		return snapshot
 	}
-	beginCycle := func() *runtimemetrics.DotnetRuntimeMetricSnapshot {
+	beginCycle := func() *runtimeSnapshot {
 		completed := observe(runtimeCounter{Name: "working-set", Value: 1})
 		for _, name := range []string{"gen-0-gc-count", "gen-1-gc-count", "gen-2-gc-count"} {
 			require.Nil(t, observe(runtimeCounter{Name: name, Increment: true}))
@@ -317,7 +318,7 @@ func TestRuntimeCollectionCumulativeMissingIntervals(t *testing.T) {
 
 func TestRuntimeCollectionHeapSizes(t *testing.T) {
 	var collection runtimeCollection
-	observe := func(counter runtimeCounter) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+	observe := func(counter runtimeCounter) *runtimeSnapshot {
 		snapshot, err := collection.observe(counter)
 		require.NoError(t, err)
 		return snapshot
@@ -353,7 +354,7 @@ func TestRuntimeCollectionHeapSizes(t *testing.T) {
 
 func TestRuntimeCollectionFragmentation(t *testing.T) {
 	var collection runtimeCollection
-	observe := func(event netTraceRuntimeEvent) *runtimemetrics.DotnetRuntimeMetricSnapshot {
+	observe := func(event netTraceRuntimeEvent) *runtimeSnapshot {
 		snapshot, err := collection.observeEvent(event)
 		require.NoError(t, err)
 		return snapshot
