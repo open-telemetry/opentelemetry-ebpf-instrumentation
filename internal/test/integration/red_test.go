@@ -963,10 +963,10 @@ func testPrometheusNoOBIEvents(t *testing.T) {
 
 func testREDMetricsRouteHarvesting(t *testing.T, url, svcName, svcNameSpace, route string) {
 	pq := promtest.Client{HostPort: prometheusHostPort}
-	path := "/rolldice/4"
-
-	for range 4 {
-		ti.DoHTTPGet(t, url+path, 200)
+	for _, path := range []string{"/rolldice/4", "/rolldice/42"} {
+		for range 2 {
+			ti.DoHTTPGet(t, url+path, 200)
+		}
 	}
 
 	// Test span metrics

@@ -340,6 +340,20 @@
         ]
       }
     },
+    "github.com/labstack/echo/v5.Context": {
+      "path": {
+        "versions": {
+          "oldest": "5.0.0",
+          "newest": "5.0.0"
+        },
+        "offsets": [
+          {
+            "offset": 88,
+            "since": "5.0.0"
+          }
+        ]
+      }
+    },
     "github.com/lib/pq.Config": {
       "Host": {
         "versions": {
