@@ -6,7 +6,7 @@ package main
 import (
 	"bytes"
 	"context"
-	"errors"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -26,6 +26,14 @@ import (
 	"go.opentelemetry.io/obi/pkg/pipe/msg"
 	"go.opentelemetry.io/obi/pkg/transform"
 )
+
+func loadConfigReader(file io.Reader) (*obi.Config, string, error) {
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, "", err
+	}
+	return configload.Load(data)
+}
 
 func TestLoadConfigV2Standalone(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config-v2.yaml")
@@ -63,10 +71,10 @@ extensions:
         timeout: 12s
 `), 0o600))
 
-	cfg, version, configData := loadConfig(&path)
+	cfg, version, sources := loadConfig([]string{path})
 	contents, err := os.ReadFile(path)
 	require.NoError(t, err)
-	require.Equal(t, contents, configData)
+	require.Equal(t, []configload.Source{{Path: path, Data: contents}}, sources)
 
 	require.Equal(t, configVersionV2, version)
 	require.NoError(t, cfg.Validate())
@@ -108,7 +116,7 @@ extensions:
         debug_trace_output: text
 `), 0o600))
 
-	startup, version, initial := loadConfig(&path)
+	startup, version, initial := loadConfig([]string{path})
 	require.Equal(t, configVersionV2, version)
 	require.NoError(t, startup.ValidateStatic())
 	require.Equal(t, 321, startup.ChannelBufferLen)
@@ -117,7 +125,7 @@ extensions:
 	require.True(t, startup.Discovery.Instrument[0].OpenPorts.Matches(8080))
 
 	// Change the file without changing its settings so the watcher reloads it.
-	updated := append(bytes.Clone(initial), []byte("\n# Reload the same configuration.\n")...)
+	updated := append(bytes.Clone(initial[0].Data), []byte("\n# Reload the same configuration.\n")...)
 	require.NoError(t, os.WriteFile(path, updated, 0o600))
 
 	ctx, cancel := context.WithCancel(t.Context())
@@ -133,7 +141,7 @@ extensions:
 	})
 	go func() {
 		defer close(done)
-		configwatch.Watch(ctx, path, initial, func(_ context.Context, cfg *obi.Config) error {
+		configwatch.Watch(ctx, initial, func(_ context.Context, cfg *obi.Config) error {
 			reloaded <- cfg
 			return nil
 		})
@@ -455,23 +463,6 @@ extensions:
 	require.Contains(t, err.Error(), "buffer_length")
 }
 
-func TestLoadConfigReaderError(t *testing.T) {
-	wantErr := errors.New("read failed")
-
-	_, version, err := loadConfigReader(errorReader{err: wantErr})
-
-	require.ErrorIs(t, err, wantErr)
-	require.Empty(t, version)
-}
-
-type errorReader struct {
-	err error
-}
-
-func (r errorReader) Read([]byte) (int, error) {
-	return 0, r.err
-}
-
 func TestLoadRoute53IntegrationConfig(t *testing.T) {
 	t.Setenv("ROUTE53_HOSTED_ZONE_ID", "test-zone")
 	// Legacy overrides must not replace the explicit v2 polling interval.
@@ -552,4 +543,43 @@ extensions:
 		})
 	}
 	require.Equal(t, []transform.Source{transform.SourceK8s, transform.SourceECS}, obi.DefaultConfig.NameResolver.Sources)
+}
+
+func TestConfigFilePaths(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		flagPaths []string
+		envPaths  string
+		want      []string
+	}{
+		{name: "none"},
+		{name: "flags only", flagPaths: []string{"low.yml", "high.yml"}, want: []string{"low.yml", "high.yml"}},
+		{name: "env only", envPaths: "low.yml:high.yml", want: []string{"low.yml", "high.yml"}},
+		{name: "env keeps commas and spaces", envPaths: "/etc/obi/a,b.yml: c.yml", want: []string{"/etc/obi/a,b.yml", " c.yml"}},
+		{
+			name:      "env has higher priority than flags",
+			flagPaths: []string{"flag1.yml", "flag2.yml"},
+			envPaths:  "env1.yml::env2.yml:",
+			want:      []string{"flag1.yml", "flag2.yml", "env1.yml", "env2.yml"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, configFilePaths(tc.flagPaths, tc.envPaths))
+		})
+	}
+}
+
+func TestLoadConfigOverridesInOrder(t *testing.T) {
+	dir := t.TempDir()
+	low := filepath.Join(dir, "low.yml")
+	high := filepath.Join(dir, "high.yml")
+	require.NoError(t, os.WriteFile(low, []byte("channel_buffer_len: 111\nlog_format: json\n"), 0o600))
+	require.NoError(t, os.WriteFile(high, []byte("channel_buffer_len: 222\n"), 0o600))
+
+	cfg, version, sources := loadConfig([]string{low, high})
+
+	require.Equal(t, configVersionV1, version)
+	require.Equal(t, 222, cfg.ChannelBufferLen)
+	require.Equal(t, obi.LogFormatJSON, cfg.LogFormat)
+	require.Len(t, sources, 2)
 }
