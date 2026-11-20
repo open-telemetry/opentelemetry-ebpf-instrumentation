@@ -1187,7 +1187,8 @@
                         "type": "string"
                       },
                       "default": [],
-                      "description": "Additional span resource attributes to include in OBI-generated Prometheus span metrics.\nIf omitted, no extra attributes are added.\n"
+                      "deprecated": true,
+                      "description": "Deprecated: select span metric dimensions with `capture.attributes.select`.\nAdditional span resource attributes to include in OBI-generated Prometheus span metrics, in addition to the selection.\nIf omitted, no extra attributes are added.\n"
                     }
                   }
                 }
