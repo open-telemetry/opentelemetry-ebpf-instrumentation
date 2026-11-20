@@ -134,7 +134,6 @@ func resolveRustProbes(f *elf.File) (rustProbeSymbols, error) {
 		matches[strings.Clone(name)] = match
 		return true
 	})
-
 	if err != nil {
 		return probes, err
 	}

@@ -70,7 +70,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - uses: ./.github/actions/free-disk
+      - uses: $/.github/actions/free-disk
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0 # zizmor: ignore[cache-poisoning] go.sum verifies module integrity
         with:
@@ -122,7 +122,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - uses: ./.github/actions/generate-bpf
+      - uses: $/.github/actions/generate-bpf
 
   test-matrix:
     name: "Build matrix"
@@ -384,7 +384,7 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           persist-credentials: false
 
-      - uses: ./.github/actions/free-disk
+      - uses: $/.github/actions/free-disk
 
       - name: Check for Docker Hub token
         id: check-docker-token

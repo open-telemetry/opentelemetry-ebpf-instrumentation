@@ -298,7 +298,6 @@ func (c *rustController) attach(pid app.PID, fi *exec.FileInfo) (rustAttachment,
 			l, err := uprobe.Attach(exe, path, probe.program, uprobe.Options{
 				Addresses: addresses, PID: uint32(pid), Return: probe.ret,
 			})
-
 			if err != nil {
 				return attached, err
 			}
