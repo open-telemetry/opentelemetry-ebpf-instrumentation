@@ -111,7 +111,7 @@ func loadAndVerify(t *testing.T, name string, loadFn func() (*ebpf.CollectionSpe
 		if err != nil {
 			var ve *ebpf.VerifierError
 			if errors.As(err, &ve) {
-				t.Fatalf("BPF verifier rejected program(s):\n%+v", ve)
+				t.Fatalf("BPF verifier rejected program(s): %v\n%+v", err, ve)
 			}
 			require.NoError(t, err, "failed to load BPF collection")
 		}
@@ -273,11 +273,20 @@ func TestBPFVerifierWithConstants(t *testing.T) {
 
 	// Each pid_ns_mode compiles a different valid_pid() path into every
 	// kprobe; a dedicated matrix keeps them verified without doubling the
-	// full generictracer cross-product.
+	// full generictracer cross-product. Propagation and context restoration
+	// must fit the verifier budget with their nested PID lookups enabled.
 	forEachCombination(t, "generictracer/BpfPidNamespace", generictracerbpf.LoadBpf, []constOption{
 		{"g_bpf_debug", []any{true, false}},
 		{"filter_pids", []any{int32(1)}},
 		{"pid_ns_mode", pidNamespaceModes},
+		{"g_traces_ctx_v1_enabled", []any{true, false}},
+		{"max_transaction_time", []any{uint64(300_000_000_000)}},
+		{"g_bpf_traceparent_enabled", []any{true}},
+		{"g_bpf_header_propagation", []any{true}},
+		{"g_bpf_java_http1_enabled", []any{true}},
+		{"g_bpf_probe_write_user_enabled", []any{true}},
+		{"g_bpf_loop_enabled", []any{ebpfcommon.SupportsEBPFLoops(slog.Default(), false)}},
+		{"capture_header_buffer", []any{int32(1)}},
 	})
 
 	// gotracer

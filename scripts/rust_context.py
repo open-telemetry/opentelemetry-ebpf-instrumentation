@@ -5,6 +5,7 @@
 
 import json
 import fcntl
+import hashlib
 import os
 from contextlib import contextmanager
 from pathlib import Path
@@ -15,6 +16,7 @@ import tempfile
 
 REPO = Path(__file__).resolve().parent.parent
 VERSIONS = REPO / "configs/offsets/rust_versions.json"
+DEPENDENCIES = REPO / "configs/offsets/rust_dependencies.json"
 FIXTURE = REPO / "internal/test/integration/components/rustcontext"
 
 
@@ -48,13 +50,27 @@ def prepare(case, project):
     return path
 
 
-def prepare_dependencies(case, project, toolchain, offline=False, refresh_lock=False):
+def prepare_dependencies(case, project, toolchain, offline=False, refresh_lock=False, update_snapshot=False):
     manifest = prepare(case, project)
-    if refresh_lock or not (project / "Cargo.lock").exists():
+    snapshots = json.loads(DEPENDENCIES.read_text()) if DEPENDENCIES.exists() else {}
+    lock = project / "Cargo.lock"
+    recorded = snapshots.get(case["name"])
+    manifest_hash = hashlib.sha256(manifest.read_bytes()).hexdigest()
+    matches = recorded is not None and recorded["manifest"] == manifest_hash
+    if refresh_lock or not matches and update_snapshot:
+        lock.unlink(missing_ok=True)
         command = ["cargo", "+"+toolchain, "generate-lockfile", "--manifest-path", str(manifest)]
         if offline:
             command.append("--offline")
         subprocess.run(command, cwd=REPO, check=True)
+        snapshots[case["name"]] = {"manifest": manifest_hash, "lock": lock.read_text().splitlines()}
+        temporary = DEPENDENCIES.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(snapshots, indent=2, sort_keys=True) + "\n")
+        temporary.replace(DEPENDENCIES)
+    elif not matches:
+        raise ValueError(f"Missing or stale dependency snapshot for {case['name']}; run make update-rust-offsets")
+    else:
+        lock.write_text("\n".join(recorded["lock"]) + "\n")
     return manifest
 
 

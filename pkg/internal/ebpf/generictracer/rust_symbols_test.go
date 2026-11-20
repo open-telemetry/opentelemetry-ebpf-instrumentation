@@ -175,6 +175,7 @@ func TestRustReleaseIdentity(t *testing.T) {
 	for _, name := range []string{"tokio", "reqwest", "hyper"} {
 		if expected := os.Getenv("OBI_RUST_TEST_EXPECTED_" + strings.ToUpper(name)); expected != "" {
 			require.Contains(t, build.Crates[name], expected, name)
+			require.NotEmpty(t, build.CrateIDs[name], "%s must have retained crate symbols", name)
 		}
 	}
 	for name, versions := range build.Crates {

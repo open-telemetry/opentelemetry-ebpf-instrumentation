@@ -48,7 +48,7 @@ def main():
     parser.add_argument("--case", action="append", help="limit generation to named fixtures")
     parser.add_argument("--offline", action="store_true", help="use installed compilers and cached Cargo dependencies")
     parser.add_argument("--force", action="store_true", help="rebuild previously measured fixtures")
-    parser.add_argument("--refresh-locks", action="store_true", help="refresh dependency locks in the work directory")
+    parser.add_argument("--refresh-locks", action="store_true", help="refresh the consolidated fixture dependency snapshot")
     args = parser.parse_args()
     versions = load_versions()
     if args.toolchains:
@@ -68,13 +68,16 @@ def main():
     measured = database.setdefault("measurements", {})
     inspector = work / "rust-offsets"
     subprocess.run(["go", "build", "-o", str(inspector), "./scripts/rust-offsets"], cwd=REPO, check=True)
+    refreshed = set()
     for toolchain in toolchains:
         if not args.offline:
             subprocess.run(["rustup", "toolchain", "install", toolchain, "--profile", "minimal", "--target", ",".join(targets)], check=True)
         for case in cases:
             with build_lock(work):
                 manifest = prepare_dependencies(case, work / toolchain / case["name"], toolchain,
-                                                args.offline, args.refresh_locks)
+                                                args.offline, args.refresh_locks and case["name"] not in refreshed,
+                                                update_snapshot=True)
+                refreshed.add(case["name"])
                 digest = fixture_digest(case, manifest.with_name("Cargo.lock"))
             for target in targets:
                 key = f"{toolchain}/{target}/{case['name']}"

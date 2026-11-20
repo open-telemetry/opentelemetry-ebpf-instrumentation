@@ -1333,7 +1333,7 @@ int obi_packet_extender(struct sk_msg_md *msg) {
     if (is_http) {
         const rust_http_request_t *rust = rust_current_request(id);
         t_ctx->rust_forwarded = rust && rust->forwarded;
-        if (inject_http_headers() && rust_request_has_wire_context(rust)) {
+        if (rust && inject_http_headers() && rust_request_has_wire_context(rust)) {
             bpf_dbg_printk("rust h1 socket preserving owned header result=%u",
                            rust->injection_result);
             tp_info_pid_t *trace = tp_info_mem();

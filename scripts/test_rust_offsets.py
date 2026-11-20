@@ -26,21 +26,25 @@ class RustOffsetWorkflowTests(unittest.TestCase):
         self.assertNotIn('"hyper/http2"',manifest)
         self.assertIn('tokio02 = ',manifest)
 
-    def test_dependencies_are_generated_and_reused_in_work_directory(self):
+    def test_dependency_snapshot_is_reused_in_fresh_work_directories(self):
         case = load_versions()["cases"][0]
         with tempfile.TemporaryDirectory() as work:
             project = Path(work)
-            lock = project / "Cargo.lock"
+            snapshot = project / "dependencies.json"
+            lock = project / "first" / "Cargo.lock"
             def generate(command, **kwargs):
                 self.assertIn("generate-lockfile", command)
                 self.assertIn("--offline", command)
                 lock.write_text("resolved dependency graph")
-            with mock.patch("rust_context.subprocess.run", side_effect=generate) as cargo:
-                prepare_dependencies(case, project, "1.100.0", offline=True)
-                prepare_dependencies(case, project, "1.100.0", offline=True)
+            with mock.patch("rust_context.DEPENDENCIES", snapshot), mock.patch("rust_context.subprocess.run", side_effect=generate) as cargo:
+                prepare_dependencies(case, lock.parent, "1.100.0", offline=True, update_snapshot=True)
+                prepare_dependencies(case, project / "second", "1.100.0", offline=True)
                 self.assertEqual(1, cargo.call_count)
-                prepare_dependencies(case, project, "1.100.0", offline=True, refresh_lock=True)
+                self.assertEqual(lock.read_text() + "\n", (project / "second" / "Cargo.lock").read_text())
+                prepare_dependencies(case, lock.parent, "1.100.0", offline=True, refresh_lock=True)
                 self.assertEqual(2, cargo.call_count)
+                with self.assertRaisesRegex(ValueError, "stale dependency snapshot"):
+                    prepare_dependencies(dict(case, tokio="1.53.3"), project / "third", "1.100.0")
             self.assertEqual("resolved dependency graph", lock.read_text())
 
     def test_manifest_changes_discard_stale_work_directory_lock(self):

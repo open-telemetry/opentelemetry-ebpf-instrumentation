@@ -49,6 +49,10 @@ particular handler, so clients started from these handlers remain root spans.
 
 Version detection first uses retained compiler comments and crate version paths.
 Fingerprints are collected from both ordinary release and build-time extraction binaries.
+These fingerprints depend on the dependency graph and enabled features, so they
+are a fallback for recognized builds. A rebuild can have an unrecorded fingerprint
+even when its library versions are recorded. In that case version metadata in
+the binary is required to select the affected layouts.
 Unknown or conflicting identities disable only the dependent private layouts.
 For example, an unrecorded Rustls layout leaves validated HTTP and Tokio layouts
 available. An unavailable Hyper callback layout can use the Tokio queue-slot
@@ -97,7 +101,11 @@ The scheduled [offset workflow](../../.github/workflows/update-offsets.yml)
 updates the compiler window and opens the existing generated-offset PR. The
 [Rust integration jobs](../../.github/workflows/pull_request_integration_tests.yml)
 read that same compiler manifest and run native amd64 and arm64 tests for every
-compiler. Direct library versions are pinned in the manifest.
+compiler. Direct library versions are pinned in the manifest. The consolidated
+[dependency snapshot](../../configs/offsets/rust_dependencies.json) records each
+fixture's complete Cargo resolution, shared by generation and CI. The updater
+refreshes changed manifests automatically; use `--refresh-locks` to refresh
+transitive dependencies and regenerate their measured layouts and fingerprints.
 
 ## Context ownership
 
