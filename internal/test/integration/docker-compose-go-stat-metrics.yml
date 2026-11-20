@@ -20,6 +20,7 @@ services:
       - FAIL_TARGET_ADDRESS=testserver:19999
       - RESET_TARGET_ADDRESS=testserver:8082
       - SHUTDOWN_TARGET_ADDRESS=testserver:8083
+      - START_DELAY=${STAT_CLIENT_START_DELAY:-0s}
 
   testclient-retransmit:
     build:
@@ -45,6 +46,8 @@ services:
     image: hatest-obi
     privileged: true # in some environments (not GH Pull Requests) you can set it to false and then cap_add: [ SYS_ADMIN ]
     pid: "host"
+    # sockops attaches at OBI's cgroup root, which must be the host's to see other containers
+    cgroup: host
     environment:
       OTEL_EBPF_CONFIG_PATH: /configs/obi-config${OTEL_EBPF_CONFIG_SUFFIX}.yml
       GOCOVERDIR: "/coverage"
