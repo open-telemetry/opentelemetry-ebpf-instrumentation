@@ -5,6 +5,7 @@ package otel
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/pem"
 	"errors"
 	"io"
@@ -19,7 +20,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.opentelemetry.io/collector/pdata/ptrace/ptraceotlp"
@@ -161,6 +168,237 @@ func TestGRPCTraceClientRetriesStalledRequest(t *testing.T) {
 	require.EqualValues(t, 2, receiver.attempts.Load())
 	require.EqualValues(t, 1, reporter.exportErrs.Load())
 	require.EqualValues(t, 1, reporter.exports.Load())
+}
+
+func fastRetryTracesConfig(endpoint string) otelcfg.TracesConfig {
+	return otelcfg.TracesConfig{
+		CommonEndpoint:         endpoint,
+		BackOffInitialInterval: 10 * time.Millisecond,
+		BackOffMaxInterval:     10 * time.Millisecond,
+		BackOffMaxElapsedTime:  5 * time.Second,
+		InjectHeaders:          func(dst map[string]string) { dst["X-Test"] = "obi" },
+	}
+}
+
+func TestHTTPTraceClientRetriesByStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		firstStatus  int
+		wantAttempts int32
+		wantErr      string
+	}{
+		{name: "unavailable is retried", firstStatus: http.StatusServiceUnavailable, wantAttempts: 2},
+		{name: "too many requests is retried", firstStatus: http.StatusTooManyRequests, wantAttempts: 2},
+		{name: "bad request is permanent", firstStatus: http.StatusBadRequest, wantAttempts: 1, wantErr: "400 Bad Request"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var attempts atomic.Int32
+			var headers atomic.Pointer[http.Header]
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				headers.Store(&r.Header)
+				if attempts.Add(1) == 1 {
+					w.Header().Set("Retry-After", "0")
+					w.WriteHeader(tc.firstStatus)
+					return
+				}
+				w.WriteHeader(http.StatusOK)
+			}))
+			defer server.Close()
+
+			exp, err := getTracesExporter(t.Context(), fastRetryTracesConfig(server.URL), nil)
+			require.NoError(t, err)
+			require.NoError(t, exp.Start(t.Context()))
+			defer func() { require.NoError(t, exp.Shutdown(context.Background())) }()
+
+			err = exp.ConsumeTraces(t.Context(), oneSpan())
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.wantErr)
+			}
+			require.Equal(t, tc.wantAttempts, attempts.Load())
+			require.Equal(t, "obi", headers.Load().Get("X-Test"))
+			require.Equal(t, traceContentTypeProto, headers.Load().Get("Content-Type"))
+			require.Equal(t, traceUserAgent, headers.Load().Get("User-Agent"))
+		})
+	}
+}
+
+type failingTraceGRPCServer struct {
+	ptraceotlp.UnimplementedGRPCServer
+	firstErr error
+	attempts atomic.Int32
+	header   atomic.Pointer[[]string]
+}
+
+func (s *failingTraceGRPCServer) Export(ctx context.Context, _ ptraceotlp.ExportRequest) (ptraceotlp.ExportResponse, error) {
+	md, _ := metadata.FromIncomingContext(ctx)
+	values := md.Get("x-test")
+	s.header.Store(&values)
+	if s.attempts.Add(1) == 1 {
+		return ptraceotlp.NewExportResponse(), s.firstErr
+	}
+	return ptraceotlp.NewExportResponse(), nil
+}
+
+func TestGRPCTraceClientRetriesByCode(t *testing.T) {
+	throttled, err := status.New(codes.ResourceExhausted, "busy").
+		WithDetails(&errdetails.RetryInfo{RetryDelay: durationpb.New(10 * time.Millisecond)})
+	require.NoError(t, err)
+
+	for _, tc := range []struct {
+		name         string
+		firstErr     error
+		wantAttempts int32
+		wantErr      string
+	}{
+		{name: "unavailable is retried", firstErr: status.Error(codes.Unavailable, "down"), wantAttempts: 2},
+		{name: "throttled exhaustion is retried", firstErr: throttled.Err(), wantAttempts: 2},
+		{name: "exhaustion without retry info is permanent", firstErr: status.Error(codes.ResourceExhausted, "full"), wantAttempts: 1, wantErr: "full"},
+		{name: "invalid argument is permanent", firstErr: status.Error(codes.InvalidArgument, "bad"), wantAttempts: 1, wantErr: "bad"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			listener, err := net.Listen("tcp", "127.0.0.1:0")
+			require.NoError(t, err)
+			server := grpc.NewServer()
+			receiver := &failingTraceGRPCServer{firstErr: tc.firstErr}
+			ptraceotlp.RegisterGRPCServer(server, receiver)
+			go func() { _ = server.Serve(listener) }()
+			defer server.Stop()
+
+			cfg := fastRetryTracesConfig("http://" + listener.Addr().String())
+			cfg.Protocol = otelcfg.ProtocolGRPC
+			exp, err := getTracesExporter(t.Context(), cfg, nil)
+			require.NoError(t, err)
+			require.NoError(t, exp.Start(t.Context()))
+			defer func() { require.NoError(t, exp.Shutdown(context.Background())) }()
+
+			err = exp.ConsumeTraces(t.Context(), oneSpan())
+			if tc.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.wantErr)
+			}
+			require.Equal(t, tc.wantAttempts, receiver.attempts.Load())
+			require.Equal(t, []string{"obi"}, *receiver.header.Load())
+		})
+	}
+}
+
+func retryAfterOneFailure(throttle time.Duration) (func(context.Context) error, *atomic.Int32) {
+	var attempts atomic.Int32
+	return func(context.Context) error {
+		if attempts.Add(1) == 1 {
+			return retryableTraceError{err: errors.New("busy"), throttle: throttle}
+		}
+		return nil
+	}, &attempts
+}
+
+func TestTraceRetryThrottleIsAMinimumDelay(t *testing.T) {
+	const backoffInterval = 200 * time.Millisecond
+	// The backoff is randomized by up to half its interval in either direction.
+	const shortestBackoff = backoffInterval / 2
+	const longThrottle = 400 * time.Millisecond
+
+	for _, tc := range []struct {
+		name        string
+		throttle    time.Duration
+		wantAtLeast time.Duration
+	}{
+		{name: "shorter throttle keeps the backoff", throttle: time.Millisecond, wantAtLeast: shortestBackoff},
+		{name: "longer throttle extends the wait", throttle: longThrottle, wantAtLeast: longThrottle},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			retry := traceRetry{initialInterval: backoffInterval, maxInterval: backoffInterval, maxElapsedTime: 5 * time.Second}
+			attempt, attempts := retryAfterOneFailure(tc.throttle)
+
+			start := time.Now()
+			require.NoError(t, retry.do(t.Context(), attempt))
+			require.EqualValues(t, 2, attempts.Load())
+			require.GreaterOrEqual(t, time.Since(start), tc.wantAtLeast)
+		})
+	}
+}
+
+func TestTraceRetryKeepsLastErrorWhenContextEnds(t *testing.T) {
+	retry := traceRetry{initialInterval: time.Second, maxInterval: time.Second, maxElapsedTime: time.Minute}
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	defer cancel()
+
+	err := retry.do(ctx, func(context.Context) error {
+		return retryableTraceError{err: errors.New("collector unavailable")}
+	})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorContains(t, err, "collector unavailable")
+}
+
+func TestTraceClientsRejectUnreadableCertificate(t *testing.T) {
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE", filepath.Join(t.TempDir(), "missing.pem"))
+
+	for _, protocol := range []otelcfg.Protocol{otelcfg.ProtocolHTTPProtobuf, otelcfg.ProtocolGRPC} {
+		t.Run(string(protocol), func(t *testing.T) {
+			cfg := otelcfg.TracesConfig{CommonEndpoint: "https://collector.example:4318", Protocol: protocol}
+			_, err := getTracesExporter(t.Context(), cfg, nil)
+			require.ErrorIs(t, err, os.ErrNotExist)
+		})
+	}
+}
+
+// writeTestServerCertificate writes the certificate of a throwaway httptest TLS
+// server, valid for 127.0.0.1, and returns its key pair and the PEM path.
+func writeTestServerCertificate(t *testing.T) (tls.Certificate, string) {
+	t.Helper()
+	server := httptest.NewTLSServer(http.NotFoundHandler())
+	server.Close()
+
+	certPath := filepath.Join(t.TempDir(), "collector.pem")
+	cert := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	require.NoError(t, os.WriteFile(certPath, cert, 0o600))
+	return server.TLS.Certificates[0], certPath
+}
+
+func TestHTTPTraceClientRejectsPlaintextEndpointWithTLS(t *testing.T) {
+	_, certPath := writeTestServerCertificate(t)
+
+	for _, tc := range []struct {
+		name        string
+		skipVerify  bool
+		certificate string
+	}{
+		{name: "skip verify", skipVerify: true},
+		{name: "certificate", certificate: certPath},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE", tc.certificate)
+			cfg := otelcfg.TracesConfig{CommonEndpoint: "http://127.0.0.1:4318", InsecureSkipVerify: tc.skipVerify}
+			_, err := getTracesExporter(t.Context(), cfg, nil)
+			require.ErrorIs(t, err, errInsecureTraceEndpointWithTLS)
+		})
+	}
+}
+
+func TestGRPCTraceClientUsesConfiguredTLSOnPlaintextEndpoint(t *testing.T) {
+	serverCert, certPath := writeTestServerCertificate(t)
+	t.Setenv("OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE", certPath)
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	server := grpc.NewServer(grpc.Creds(credentials.NewServerTLSFromCert(&serverCert)))
+	receiver := &failingTraceGRPCServer{}
+	ptraceotlp.RegisterGRPCServer(server, receiver)
+	go func() { _ = server.Serve(listener) }()
+	defer server.Stop()
+
+	cfg := fastRetryTracesConfig("http://" + listener.Addr().String())
+	cfg.Protocol = otelcfg.ProtocolGRPC
+	exp, err := getTracesExporter(t.Context(), cfg, nil)
+	require.NoError(t, err)
+	require.NoError(t, exp.Start(t.Context()))
+	defer func() { require.NoError(t, exp.Shutdown(context.Background())) }()
+
+	require.NoError(t, exp.ConsumeTraces(t.Context(), oneSpan()))
+	require.EqualValues(t, 1, receiver.attempts.Load())
 }
 
 func TestTraceQueueCountsSpansAndUnblocksOnShutdown(t *testing.T) {
