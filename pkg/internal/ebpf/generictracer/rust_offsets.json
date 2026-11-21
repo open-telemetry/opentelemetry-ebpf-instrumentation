@@ -1,0 +1,44 @@
+{
+  "profiles": [
+    {
+      "Arch": "amd64",
+      "Rustc": "1.100.0",
+      "CompilerCommit": "0ef1bc386059596dada8fb65b50425aab2ea637a"
+    },
+    {
+      "Arch": "amd64",
+      "Rustc": "1.97.1",
+      "CompilerCommit": "8bab26f4f68e0e26f0bb7960be334d5b520ea452"
+    },
+    {
+      "Arch": "amd64",
+      "Rustc": "1.98.1",
+      "CompilerCommit": "48a229ceaefd4985c50990b14116b6d856af0985"
+    },
+    {
+      "Arch": "amd64",
+      "Rustc": "1.99.1",
+      "CompilerCommit": "58cf8f9c35b355199727627d07ae34a4e2846d67"
+    },
+    {
+      "Arch": "arm64",
+      "Rustc": "1.100.0",
+      "CompilerCommit": "0ef1bc386059596dada8fb65b50425aab2ea637a"
+    },
+    {
+      "Arch": "arm64",
+      "Rustc": "1.97.1",
+      "CompilerCommit": "8bab26f4f68e0e26f0bb7960be334d5b520ea452"
+    },
+    {
+      "Arch": "arm64",
+      "Rustc": "1.98.1",
+      "CompilerCommit": "48a229ceaefd4985c50990b14116b6d856af0985"
+    },
+    {
+      "Arch": "arm64",
+      "Rustc": "1.99.1",
+      "CompilerCommit": "58cf8f9c35b355199727627d07ae34a4e2846d67"
+    }
+  ]
+}

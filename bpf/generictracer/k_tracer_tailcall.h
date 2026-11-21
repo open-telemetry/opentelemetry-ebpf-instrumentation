@@ -28,6 +28,7 @@
     entry(k_tail_protocol_http_inherit_tp, obi_protocol_http_inherit_tp, void *)                   \
     /* TCP */                                                                                      \
     entry(k_tail_protocol_tcp, obi_protocol_tcp, void *)                                           \
+    entry(k_tail_continue_protocol_tcp, obi_continue_protocol_tcp, void *)                         \
     /* Generic */                                                                                  \
     entry(k_tail_handle_buf_with_args, obi_handle_buf_with_args, void *)                           \
     /* HTTP/2 + gRPC */                                                                            \

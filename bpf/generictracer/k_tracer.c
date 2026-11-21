@@ -54,6 +54,8 @@
 #include <maps/filter_ports.h>
 #include <maps/fd_to_connection.h>
 #include <maps/msg_buffers.h>
+#include <maps/node_manual_ctx_shadow.h>
+#include <maps/rust_tasks.h>
 #include <maps/sock_pids.h>
 #include <maps/unreadable_buffer_ports.h>
 #include <pid/pid.h>
@@ -851,6 +853,9 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
 
         dbg_print_http_connection_info(&info.conn);
 
+        bool connect_failed = false;
+        u64 connect_ts = 0;
+
         if (is_tcp_socket_never_connected(sk)) {
             cp_support_data_t *ct = bpf_map_lookup_elem(&cp_support_connect_info, &info);
             bpf_dbg_printk("possibly never connected sock: id=%d, sock=%llx, ct=%llx", id, sk, ct);
@@ -860,8 +865,8 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
             }
 
             if (ct && !ct->established && !ct->failed) {
-                dbg_print_http_connection_info(&info.conn);
-                failed_to_connect_event(&info, k_lw_thread_none, orig_dport, ct->ts);
+                connect_failed = true;
+                connect_ts = ct->ts;
             }
         }
         bpf_map_delete_elem(&cp_support_connect_info, &info);
@@ -869,6 +874,13 @@ int BPF_KPROBE_GUARDED(obi_kprobe_tcp_close, struct sock *sk, long timeout) {
             const u64 request_id = java_http1_request_id(&info);
             java_http1_request_retire(
                 &info, java_http1_request_lookup(&info, request_id), request_id);
+        }
+
+        // Emitted last, so the verifier does not carry each state of the inlined
+        // parent lookup through the Java cleanup
+        if (connect_failed) {
+            dbg_print_http_connection_info(&info.conn);
+            failed_to_connect_event(&info, k_lw_thread_none, orig_dport, connect_ts);
         }
     }
 
@@ -897,10 +909,13 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sock_def_error_report, struct sock *sk) {
         const u16 orig_dport = info.conn.d_port;
         sort_connection_info(&info.conn);
 
+        bool connect_failed = false;
+        u64 connect_ts = 0;
+
         if (args) {
             if (!args->failed) {
-                dbg_print_http_connection_info(&info.conn);
-                failed_to_connect_event(&info, k_lw_thread_none, orig_dport, args->ts);
+                connect_failed = true;
+                connect_ts = args->ts;
                 // mark the args and cp_support_info as failed so we don't duplicate the event
                 cp_support_data_t *cp_data = bpf_map_lookup_elem(&cp_support_connect_info, &info);
                 if (cp_data) {
@@ -911,9 +926,15 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sock_def_error_report, struct sock *sk) {
         } else {
             conn_pid_t *conn_pid = bpf_map_lookup_elem(&sock_pids, &info.conn);
             if (conn_pid && conn_pid->id == id) {
-                dbg_print_http_connection_info(&info.conn);
-                failed_to_connect_event(&info, k_lw_thread_none, orig_dport, conn_pid->ts);
+                connect_failed = true;
+                connect_ts = conn_pid->ts;
             }
+        }
+
+        // A single call site: each one inlines the whole parent lookup
+        if (connect_failed) {
+            dbg_print_http_connection_info(&info.conn);
+            failed_to_connect_event(&info, k_lw_thread_none, orig_dport, connect_ts);
         }
     }
 
@@ -1559,6 +1580,23 @@ int BPF_KPROBE_GUARDED(obi_kprobe_sys_exit, int status) {
     // stale entry that would re-key a future thread reusing this tid.
     bpf_map_delete_elem(&java_vt_threads, &task.p_key);
 
+    return 0;
+}
+
+// Clean up Node.js manual context, Rust worker state, and shared trace context
+// on every exiting thread. This also covers exit_group and fatal signals, which
+// sys_exit misses. Do not check valid_pid(): entries can remain after a process
+// stops matching the filter.
+SEC("tracepoint/sched/sched_process_exit")
+int GUARDED_PROG(obi_tp_sched_process_exit, void *, ctx) {
+    (void)ctx;
+
+    const u64 pid_tgid = bpf_get_current_pid_tgid();
+    bpf_map_delete_elem(&node_manual_ctx_shadow, &pid_tgid);
+    bpf_map_delete_elem(&rust_threads, &pid_tgid);
+    // not obi_ctx__del(): the manual span override writes the entry even when
+    // trace context population is off
+    bpf_map_delete_elem(&traces_ctx_v1, &pid_tgid);
     return 0;
 }
 
